@@ -36,6 +36,7 @@ import { generateQualityHints } from '../quality/hints.js';
 import { emitGateEvent } from './gate-utils.js';
 import { handlePrepareDelegation, classifyTask } from './prepare-delegation.js';
 import type { TaskClassification } from './prepare-delegation.js';
+import { DEFAULTS } from '../config/resolve.js';
 
 const STATE_DIR = '/tmp/test-state';
 
@@ -814,11 +815,51 @@ describe('handlePrepareDelegation', () => {
       const task = { id: 'T-004', title: 'stub boilerplate' };
 
       // Act
-      const classification = classifyTask(task);
+      const classification = classifyTask(task, DEFAULTS.agents);
 
       // Assert — existing scaffolding behavior preserved
       expect(classification.effort).toBe('low');
       expect(classification.recommendedAgent).toBe('scaffolder');
+    });
+  });
+
+  describe('classifyTask model resolution', () => {
+    it('classifyTask_WithAgentConfig_ScaffolderGetsConfiguredModel', () => {
+      const config = { defaultModel: 'opus' as const, models: { scaffolder: 'haiku' as const } };
+      const result = classifyTask({ id: '001', title: 'Stub out the API interface' }, config);
+      expect(result.recommendedModel).toBe('haiku');
+    });
+
+    it('classifyTask_WithAgentConfig_ImplementerGetsConfiguredModel', () => {
+      const config = { defaultModel: 'opus' as const, models: { implementer: 'opus' as const } };
+      const result = classifyTask({ id: '002', title: 'Implement auth handler' }, config);
+      expect(result.recommendedModel).toBe('opus');
+    });
+
+    it('classifyTask_WithAgentConfig_FallsBackToDefaultModel', () => {
+      const config = { defaultModel: 'sonnet' as const, models: {} };
+      const result = classifyTask({ id: '003', title: 'Implement feature X' }, config);
+      expect(result.recommendedModel).toBe('sonnet');
+    });
+
+    it('classifyTask_WithAgentConfig_PerAgentOverridesDefault', () => {
+      const config = { defaultModel: 'opus' as const, models: { scaffolder: 'haiku' as const } };
+      // scaffolder task -> 'haiku'
+      const scaffolderResult = classifyTask({ id: '004a', title: 'Scaffold the test harness' }, config);
+      expect(scaffolderResult.recommendedModel).toBe('haiku');
+      // implementer task -> 'opus' (from defaultModel)
+      const implementerResult = classifyTask({ id: '004b', title: 'Implement handler' }, config);
+      expect(implementerResult.recommendedModel).toBe('opus');
+    });
+
+    it('classifyTask_WithDefaultConfig_ScaffolderGetsHaiku', () => {
+      const result = classifyTask({ id: '005', title: 'Scaffold boilerplate' }, DEFAULTS.agents);
+      expect(result.recommendedModel).toBe('haiku');
+    });
+
+    it('classifyTask_WithDefaultConfig_ImplementerGetsOpus', () => {
+      const result = classifyTask({ id: '006', title: 'Implement handler' }, DEFAULTS.agents);
+      expect(result.recommendedModel).toBe('opus');
     });
   });
 });

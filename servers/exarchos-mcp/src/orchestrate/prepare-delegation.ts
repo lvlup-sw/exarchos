@@ -7,6 +7,8 @@
 // ────────────────────────────────────────────────────────────────────────────
 
 import type { ToolResult } from '../format.js';
+import type { ResolvedProjectConfig } from '../config/resolve.js';
+import { DEFAULTS } from '../config/resolve.js';
 import {
   getOrCreateMaterializer,
   getOrCreateEventStore,
@@ -53,6 +55,7 @@ export interface TaskClassification {
   readonly taskId: string;
   readonly complexity: 'low' | 'medium' | 'high';
   readonly recommendedAgent: 'scaffolder' | 'implementer';
+  readonly recommendedModel: 'opus' | 'sonnet' | 'haiku';
   readonly effort: 'low' | 'medium' | 'high';
   readonly reason: string;
 }
@@ -72,6 +75,17 @@ export interface PrepareDelegationResult {
 const SCAFFOLDING_KEYWORDS = ['stub', 'boilerplate', 'type def', 'interface', 'scaffold'];
 
 /**
+ * Resolves the recommended model for a given agent type from the agent config.
+ * Falls back to `defaultModel` when no per-agent override exists.
+ */
+function resolveModel(
+  agent: 'scaffolder' | 'implementer',
+  agentConfig: ResolvedProjectConfig['agents'],
+): 'opus' | 'sonnet' | 'haiku' {
+  return agentConfig.models[agent] ?? agentConfig.defaultModel;
+}
+
+/**
  * Deterministic heuristic classification for a single task.
  * Advisory — agents can override these recommendations.
  *
@@ -82,23 +96,30 @@ const SCAFFOLDING_KEYWORDS = ['stub', 'boilerplate', 'type def', 'interface', 's
  *   3. files length >= 3 → high/implementer
  *   4. Default → medium/implementer
  */
-export function classifyTask(task: TaskInput): TaskClassification {
+export function classifyTask(
+  task: TaskInput,
+  agentConfig: ResolvedProjectConfig['agents'] = DEFAULTS.agents,
+): TaskClassification {
   // Check testLayer first (highest priority)
   if (task.testLayer === 'acceptance') {
+    const recommendedAgent = 'implementer' as const;
     return {
       taskId: task.id,
       complexity: 'high',
-      recommendedAgent: 'implementer',
+      recommendedAgent,
+      recommendedModel: resolveModel(recommendedAgent, agentConfig),
       effort: 'high',
       reason: 'Acceptance test task — requires understanding feature intent holistically',
     };
   }
 
   if (task.testLayer === 'integration') {
+    const recommendedAgent = 'implementer' as const;
     return {
       taskId: task.id,
       complexity: 'medium',
-      recommendedAgent: 'implementer',
+      recommendedAgent,
+      recommendedModel: resolveModel(recommendedAgent, agentConfig),
       effort: 'medium',
       reason: 'Integration layer task — preserve implementer lane',
     };
@@ -109,10 +130,12 @@ export function classifyTask(task: TaskInput): TaskClassification {
   // Check scaffolding keywords
   const matchedKeyword = SCAFFOLDING_KEYWORDS.find(kw => titleLower.includes(kw));
   if (matchedKeyword) {
+    const recommendedAgent = 'scaffolder' as const;
     return {
       taskId: task.id,
       complexity: 'low',
-      recommendedAgent: 'scaffolder',
+      recommendedAgent,
+      recommendedModel: resolveModel(recommendedAgent, agentConfig),
       effort: 'low',
       reason: `Title contains scaffolding keyword "${matchedKeyword}"`,
     };
@@ -120,30 +143,36 @@ export function classifyTask(task: TaskInput): TaskClassification {
 
   // Check high-complexity signals
   if (task.blockedBy && task.blockedBy.length >= 2) {
+    const recommendedAgent = 'implementer' as const;
     return {
       taskId: task.id,
       complexity: 'high',
-      recommendedAgent: 'implementer',
+      recommendedAgent,
+      recommendedModel: resolveModel(recommendedAgent, agentConfig),
       effort: 'high',
       reason: `Task has ${task.blockedBy.length} dependencies (>= 2 threshold)`,
     };
   }
 
   if (task.files && task.files.length >= 3) {
+    const recommendedAgent = 'implementer' as const;
     return {
       taskId: task.id,
       complexity: 'high',
-      recommendedAgent: 'implementer',
+      recommendedAgent,
+      recommendedModel: resolveModel(recommendedAgent, agentConfig),
       effort: 'high',
       reason: `Task touches ${task.files.length} files (>= 3 threshold)`,
     };
   }
 
   // Default: medium complexity
+  const recommendedAgent = 'implementer' as const;
   return {
     taskId: task.id,
     complexity: 'medium',
-    recommendedAgent: 'implementer',
+    recommendedAgent,
+    recommendedModel: resolveModel(recommendedAgent, agentConfig),
     effort: 'medium',
     reason: 'Standard task — no scaffolding keywords or high-complexity signals',
   };
@@ -285,8 +314,9 @@ export async function handlePrepareDelegation(
     } catch { /* fire-and-forget */ }
 
     // Compute task classifications when tasks are provided (advisory)
+    const agentConfig = DEFAULTS.agents;
     const taskClassifications = args.tasks
-      ? args.tasks.map(classifyTask)
+      ? args.tasks.map(t => classifyTask(t, agentConfig))
       : undefined;
 
     const result: PrepareDelegationResult = {
