@@ -117,6 +117,13 @@ export const OneshotPhaseSchema = z.enum([
   'cancelled',
 ]);
 
+export const DiscoveryPhaseSchema = z.enum([
+  'gathering',
+  'synthesizing',
+  'completed',
+  'cancelled',
+]);
+
 export const SynthesisPolicySchema = z.enum(['always', 'never', 'on-request']);
 
 // ─── Performance SLA Schema ────────────────────────────────────────────────
@@ -206,7 +213,7 @@ export const FeatureIdSchema = z.string().min(1).regex(/^[a-z0-9-]+$/);
 
 // ─── Workflow Type ──────────────────────────────────────────────────────────
 
-const BUILT_IN_WORKFLOW_TYPES = ['feature', 'debug', 'refactor', 'oneshot'] as const;
+const BUILT_IN_WORKFLOW_TYPES = ['feature', 'debug', 'refactor', 'oneshot', 'discovery'] as const;
 const customWorkflowTypes = new Set<string>();
 
 export const WorkflowTypeSchema = z.string().refine(
@@ -302,6 +309,11 @@ export const OneshotWorkflowStateSchema = BaseWorkflowStateSchema.extend({
   }).optional(),
 });
 
+export const DiscoveryWorkflowStateSchema = BaseWorkflowStateSchema.extend({
+  workflowType: z.literal('discovery'),
+  phase: DiscoveryPhaseSchema,
+});
+
 // ─── Custom Workflow State Schema ───────────────────────────────────────────
 
 export const CustomWorkflowStateSchema = BaseWorkflowStateSchema.extend({
@@ -319,6 +331,7 @@ export const WorkflowStateSchema = z.union([
   DebugWorkflowStateSchema,
   RefactorWorkflowStateSchema,
   OneshotWorkflowStateSchema,
+  DiscoveryWorkflowStateSchema,
   CustomWorkflowStateSchema,
 ]);
 
