@@ -97,10 +97,17 @@ export async function validateBranchAncestry(
  * Resolve the current checked-out branch via `git rev-parse --abbrev-ref
  * HEAD`. Returns `null` on any git failure — callers treat absence as a
  * non-signal, not as a block.
+ *
+ * On detached HEAD, `git rev-parse --abbrev-ref HEAD` returns the literal
+ * string "HEAD". Collapse that to `null` so downstream guards (protected-
+ * branch refusal, prepare-delegation fallback) treat it as "no current
+ * branch" rather than a branch literally named "HEAD".
  */
 export function getCurrentBranch(gitExec: GitExec): string | null {
   try {
-    return gitExec(['rev-parse', '--abbrev-ref', 'HEAD']).trim();
+    const branch = gitExec(['rev-parse', '--abbrev-ref', 'HEAD']).trim();
+    if (branch === '' || branch === 'HEAD') return null;
+    return branch;
   } catch {
     return null;
   }

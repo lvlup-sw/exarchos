@@ -150,11 +150,19 @@ describe('getCurrentBranch', () => {
     expect(getCurrentBranch(gitExec)).toBeNull();
   });
 
-  it('getCurrentBranch_DetachedHead_ReturnsHead', () => {
-    // `git rev-parse --abbrev-ref HEAD` returns 'HEAD' on detached HEAD —
-    // callers treat this the same as any non-protected branch name.
+  it('getCurrentBranch_DetachedHead_ReturnsNull', () => {
+    // `git rev-parse --abbrev-ref HEAD` returns the literal string 'HEAD'
+    // when HEAD is detached. Collapse to null so downstream guards treat
+    // it as "no current branch" rather than a branch literally named
+    // "HEAD" — otherwise protected-branch checks and fallback logic get
+    // a meaningless string instead of the absence signal they expect.
     const gitExec = vi.fn().mockReturnValue('HEAD\n');
-    expect(getCurrentBranch(gitExec)).toBe('HEAD');
+    expect(getCurrentBranch(gitExec)).toBeNull();
+  });
+
+  it('getCurrentBranch_EmptyOutput_ReturnsNull', () => {
+    const gitExec = vi.fn().mockReturnValue('\n');
+    expect(getCurrentBranch(gitExec)).toBeNull();
   });
 });
 
