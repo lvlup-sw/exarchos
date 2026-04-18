@@ -112,6 +112,14 @@ const PruneConfig = z.object({
   'require-dry-run': z.boolean().default(true),
 }).strict();
 
+// ─── Checkpoint Configuration ─────────────────────────────────────────────
+
+const CheckpointConfig = z.object({
+  'operation-threshold': z.number().int().min(1).default(20),
+  'enforce-on-phase-transition': z.boolean().default(true),
+  'enforce-on-wave-dispatch': z.boolean().default(true),
+}).strict();
+
 // ─── Top-Level Project Config ──────────────────────────────────────────────
 
 export const ProjectConfigSchema = z.object({
@@ -122,6 +130,7 @@ export const ProjectConfigSchema = z.object({
   hooks: HooksConfig.optional(),
   plugins: PluginsConfig.optional(),
   prune: PruneConfig.optional(),
+  checkpoint: CheckpointConfig.optional(),
 }).strict();
 
 export type ProjectConfig = z.infer<typeof ProjectConfigSchema>;

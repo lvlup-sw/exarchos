@@ -153,6 +153,48 @@ describe('ProjectConfigSchema', () => {
     });
   });
 
+  describe('checkpoint section', () => {
+    it('CheckpointConfigSchema_ValidFullConfig_Parses', () => {
+      const result = ProjectConfigSchema.safeParse({
+        checkpoint: {
+          'operation-threshold': 10,
+          'enforce-on-phase-transition': false,
+          'enforce-on-wave-dispatch': false,
+        },
+      });
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.checkpoint?.['operation-threshold']).toBe(10);
+        expect(result.data.checkpoint?.['enforce-on-phase-transition']).toBe(false);
+        expect(result.data.checkpoint?.['enforce-on-wave-dispatch']).toBe(false);
+      }
+    });
+
+    it('CheckpointConfigSchema_EmptyObject_UsesDefaults', () => {
+      const result = ProjectConfigSchema.parse({ checkpoint: {} });
+      expect(result.checkpoint?.['operation-threshold']).toBe(20);
+      expect(result.checkpoint?.['enforce-on-phase-transition']).toBe(true);
+      expect(result.checkpoint?.['enforce-on-wave-dispatch']).toBe(true);
+    });
+
+    it('CheckpointConfigSchema_InvalidThreshold_Rejects', () => {
+      expect(ProjectConfigSchema.safeParse({ checkpoint: { 'operation-threshold': 0 } }).success).toBe(false);
+      expect(ProjectConfigSchema.safeParse({ checkpoint: { 'operation-threshold': -5 } }).success).toBe(false);
+    });
+
+    it('CheckpointConfigSchema_BooleanFlags_AcceptsBothValues', () => {
+      const trueResult = ProjectConfigSchema.safeParse({
+        checkpoint: { 'enforce-on-phase-transition': true, 'enforce-on-wave-dispatch': true },
+      });
+      expect(trueResult.success).toBe(true);
+
+      const falseResult = ProjectConfigSchema.safeParse({
+        checkpoint: { 'enforce-on-phase-transition': false, 'enforce-on-wave-dispatch': false },
+      });
+      expect(falseResult.success).toBe(true);
+    });
+  });
+
   describe('plugins section', () => {
     it('ProjectConfigSchema_Plugins_AcceptsValidConfig', () => {
       const result = ProjectConfigSchema.safeParse({
