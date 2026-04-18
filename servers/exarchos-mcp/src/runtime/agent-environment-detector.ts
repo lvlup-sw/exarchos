@@ -190,7 +190,12 @@ async function probeJsonMcpConfig(
  */
 async function probeExarchosPluginInstall(fs: DetectorFs, home: string): Promise<boolean> {
   const installedPluginsPath = path.join(home, '.claude', 'plugins', 'installed_plugins.json');
-  const raw = await readOrNull(fs, installedPluginsPath);
+  let raw: string | null;
+  try {
+    raw = await readOrNull(fs, installedPluginsPath);
+  } catch {
+    return false;
+  }
   if (raw === null) return false;
 
   let parsed: unknown;
@@ -219,7 +224,12 @@ async function probeExarchosPluginInstall(fs: DetectorFs, home: string): Promise
 }
 
 async function manifestWiresExarchosMcp(fs: DetectorFs, manifestPath: string): Promise<boolean> {
-  const raw = await readOrNull(fs, manifestPath);
+  let raw: string | null;
+  try {
+    raw = await readOrNull(fs, manifestPath);
+  } catch {
+    return false;
+  }
   if (raw === null) return false;
   try {
     const parsed = JSON.parse(raw) as unknown;
