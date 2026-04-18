@@ -39,14 +39,16 @@ function findUnNamespacedSkillCalls(dir: string): string[] {
 // Explicit `name:` frontmatter in a command file bypasses the plugin
 // namespace — surfaces the command as bare `/X` instead of `/exarchos:X`.
 // Let the plugin loader derive the name from the filename instead.
-const EXPLICIT_NAME_FRONTMATTER = /^---\r?\n(?:[^\n]*\n)*?name:\s*\S+/;
+const FRONTMATTER_BLOCK = /^---\r?\n([\s\S]*?)\r?\n---/m;
+const NAME_KEY = /^name:\s*\S+/m;
 
 function findExplicitNameFrontmatter(dir: string): string[] {
   const files = collectMdFiles(dir);
   const violations: string[] = [];
   for (const file of files) {
     const content = readFileSync(file, 'utf-8');
-    if (EXPLICIT_NAME_FRONTMATTER.test(content)) {
+    const match = FRONTMATTER_BLOCK.exec(content);
+    if (match && NAME_KEY.test(match[1])) {
       violations.push(relative(repoRoot, file));
     }
   }
