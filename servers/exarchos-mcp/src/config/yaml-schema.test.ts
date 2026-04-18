@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { resolve, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { parse as parseYaml } from 'yaml';
 import { ProjectConfigSchema } from './yaml-schema.js';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
 
 describe('ProjectConfigSchema', () => {
   it('ProjectConfigSchema_EmptyObject_Passes', () => {
@@ -247,6 +253,59 @@ describe('ProjectConfigSchema', () => {
     it('ProjectConfigSchema_Plugins_RejectsUnknownPropertiesInPlugin', () => {
       const result = ProjectConfigSchema.safeParse({
         plugins: { axiom: { enabled: true, extra: 'value' } },
+      });
+      expect(result.success).toBe(false);
+    });
+  });
+
+  describe('default .exarchos.yml', () => {
+    it('ProjectConfigSchema_DefaultExarchosYml_ParsesSuccessfully', () => {
+      const content = readFileSync(resolve(__dirname, '../../../../.exarchos.yml'), 'utf-8');
+      const parsed = parseYaml(content);
+      expect(ProjectConfigSchema.safeParse(parsed).success).toBe(true);
+    });
+  });
+
+  describe('agents section', () => {
+    it('ProjectConfigSchema_AgentsSection_AcceptsValidConfig', () => {
+      const result = ProjectConfigSchema.safeParse({
+        agents: {
+          'default-model': 'opus',
+          models: { implementer: 'opus', reviewer: 'sonnet', scaffolder: 'haiku' },
+        },
+      });
+      expect(result.success).toBe(true);
+    });
+
+    it('ProjectConfigSchema_AgentsSection_AcceptsPartialConfig', () => {
+      const result = ProjectConfigSchema.safeParse({
+        agents: { 'default-model': 'sonnet' },
+      });
+      expect(result.success).toBe(true);
+    });
+
+    it('ProjectConfigSchema_AgentsSection_RejectsInvalidModel', () => {
+      const result = ProjectConfigSchema.safeParse({
+        agents: { 'default-model': 'gpt4' },
+      });
+      expect(result.success).toBe(false);
+    });
+
+    it('ProjectConfigSchema_AgentsSection_RejectsInvalidAgentKey', () => {
+      const result = ProjectConfigSchema.safeParse({
+        agents: { models: { orchestrator: 'opus' } },
+      });
+      expect(result.success).toBe(false);
+    });
+
+    it('ProjectConfigSchema_AgentsSection_OmittedIsValid', () => {
+      const result = ProjectConfigSchema.safeParse({});
+      expect(result.success).toBe(true);
+    });
+
+    it('ProjectConfigSchema_AgentsSection_RejectsUnknownKeys', () => {
+      const result = ProjectConfigSchema.safeParse({
+        agents: { 'default-model': 'opus', extra: true },
       });
       expect(result.success).toBe(false);
     });

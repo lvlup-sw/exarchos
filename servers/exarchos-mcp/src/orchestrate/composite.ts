@@ -100,6 +100,13 @@ function adaptArgs<T>(handler: (args: T) => ToolResult | Promise<ToolResult>): A
   return async (args) => handler(args as unknown as T);
 }
 
+/** Wraps a typed handler that receives (args, stateDir, ctx?). */
+function adaptWithCtx<T>(
+  handler: (args: T, stateDir: string, ctx?: DispatchContext) => Promise<ToolResult>,
+): ActionHandler {
+  return async (args, stateDir, ctx) => handler(args as unknown as T, stateDir, ctx);
+}
+
 /** Wraps a typed handler that needs eventStore from DispatchContext injected into args. */
 function adaptArgsWithEventStore<T>(handler: (args: T) => ToolResult | Promise<ToolResult>): ActionHandler {
   return async (args, _stateDir, ctx) => {
@@ -133,8 +140,7 @@ const ACTION_HANDLERS: Readonly<Record<string, ActionHandler>> = {
   task_complete: adapt(handleTaskComplete),
   task_fail: adapt(handleTaskFail),
   review_triage: handleReviewTriage,
-  prepare_delegation: ((args, stateDir, ctx) =>
-    handlePrepareDelegation(args as Parameters<typeof handlePrepareDelegation>[0], stateDir, ctx)) as ActionHandler,
+  prepare_delegation: adaptWithCtx(handlePrepareDelegation),
   prepare_synthesis: adapt(handlePrepareSynthesis),
   assess_stack: adapt(handleAssessStack),
   check_design_completeness: adapt(handleDesignCompleteness),

@@ -12,11 +12,12 @@ description: |
   </commentary>
   </example>
 tools: ["Read", "Write", "Edit", "Bash", "Grep", "Glob"]
-model: opus
+model: inherit
 color: blue
 disallowedTools: ["Agent"]
 isolation: worktree
 memory: project
+mcpServers: ["exarchos"]
 skills:
   - tdd-patterns
   - testing-patterns

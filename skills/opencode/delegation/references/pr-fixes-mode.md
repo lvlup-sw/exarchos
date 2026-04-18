@@ -99,7 +99,6 @@ Use TodoWrite to track all fix tasks with priority labels.
 ```typescript
 Task({
   subagent_type: "general-purpose",
-  model: "opus",
   description: "Fix [P{priority} {severity}]: {issue summary}",
   prompt: `
 # Task: Fix PR Feedback - {issue summary}

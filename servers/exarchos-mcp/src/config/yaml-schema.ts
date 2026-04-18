@@ -70,6 +70,16 @@ const WorkflowConfig = z.object({
   phases: z.record(z.string(), PhaseConfig).optional(),
 }).strict();
 
+// ─── Agents Configuration ──────────────────────────────────────────────────
+
+const AgentModelValue = z.enum(['opus', 'sonnet', 'haiku']);
+const AgentSpecIdKey = z.enum(['implementer', 'fixer', 'reviewer', 'scaffolder']);
+
+const AgentsConfig = z.object({
+  'default-model': AgentModelValue.optional(),
+  models: z.record(AgentSpecIdKey, AgentModelValue).optional(),
+}).strict();
+
 // ─── Tools Configuration ───────────────────────────────────────────────────
 
 const ToolsConfig = z.object({
@@ -123,6 +133,7 @@ const CheckpointConfig = z.object({
 // ─── Top-Level Project Config ──────────────────────────────────────────────
 
 export const ProjectConfigSchema = z.object({
+  agents: AgentsConfig.optional(),
   review: ReviewConfig.optional(),
   vcs: VcsConfig.optional(),
   workflow: WorkflowConfig.optional(),
