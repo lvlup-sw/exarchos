@@ -3,7 +3,6 @@ import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { EventStore } from '../event-store/store.js';
-import { writeHookEvent } from '../event-store/hook-event-writer.js';
 import {
   startPeriodicMerge,
   type DrainResult,
@@ -30,10 +29,10 @@ async function writeSidecarLine(
   await fs.appendFile(filePath, JSON.stringify(line) + '\n', 'utf-8');
 }
 
-/** List files in a directory matching a pattern. */
+/** List files in a directory matching a suffix. */
 async function listFiles(dir: string, suffix: string): Promise<string[]> {
   const entries = await fs.readdir(dir);
-  return entries.filter((f) => f.endsWith(suffix));
+  return entries.filter((f) => f.includes(suffix));
 }
 
 // ─── Test Suite ─────────────────────────────────────────────────────────────
@@ -54,8 +53,8 @@ describe('startPeriodicMerge', () => {
 
   // ─── Test 1: Returns cleanup handle ──────────────────────────────────────
 
-  it('startPeriodicMerge_ReturnsCleanupHandle', () => {
-    const handle = startPeriodicMerge(tempDir, eventStore, 60_000);
+  it('startPeriodicMerge_ReturnsCleanupHandle', async () => {
+    const handle = await startPeriodicMerge(tempDir, eventStore, 60_000);
     try {
       expect(handle).toBeDefined();
       expect(typeof handle.stop).toBe('function');
@@ -75,7 +74,7 @@ describe('startPeriodicMerge', () => {
     });
 
     // Act: start with immediate: true -- first drain fires before returning
-    const handle = startPeriodicMerge(tempDir, eventStore, 60_000, { immediate: true });
+    const handle = await startPeriodicMerge(tempDir, eventStore, 60_000, { immediate: true });
     try {
       // Assert: sidecar event should already be merged
       const events = await eventStore.query('imm-stream');
@@ -105,14 +104,15 @@ describe('startPeriodicMerge', () => {
     expect(beforeFiles).toHaveLength(1);
 
     // Act: run one drain cycle via immediate mode
-    const handle = startPeriodicMerge(tempDir, eventStore, 60_000, { immediate: true });
+    const handle = await startPeriodicMerge(tempDir, eventStore, 60_000, { immediate: true });
     try {
       // Assert: original sidecar file is gone
       const afterSidecar = await listFiles(tempDir, SIDECAR_SUFFIX);
       expect(afterSidecar).toHaveLength(0);
 
       // Assert: no drain files remain (they should be unlinked after processing)
-      const drainFiles = await listFiles(tempDir, '.drain-');
+      const allFiles = await fs.readdir(tempDir);
+      const drainFiles = allFiles.filter((f) => f.includes('.drain-'));
       expect(drainFiles).toHaveLength(0);
 
       // Assert: events merged into EventStore
@@ -130,7 +130,7 @@ describe('startPeriodicMerge', () => {
   it('startPeriodicMerge_CleanupStopsInterval', async () => {
     vi.useFakeTimers();
     try {
-      const handle = startPeriodicMerge(tempDir, eventStore, 1000);
+      const handle = await startPeriodicMerge(tempDir, eventStore, 1000);
 
       // Write a sidecar event after starting the scheduler
       await writeSidecarLine(tempDir, 'stop-stream', {
@@ -167,7 +167,7 @@ describe('startPeriodicMerge', () => {
     }
 
     // Act: run drain with immediate
-    const handle = startPeriodicMerge(tempDir, eventStore, 60_000, { immediate: true });
+    const handle = await startPeriodicMerge(tempDir, eventStore, 60_000, { immediate: true });
 
     // Write more events concurrently (simulating sidecar writes during/after drain)
     const additionalEvents = 5;
@@ -181,7 +181,7 @@ describe('startPeriodicMerge', () => {
 
     // Run another drain cycle manually by stopping and restarting with immediate
     handle.stop();
-    const handle2 = startPeriodicMerge(tempDir, eventStore, 60_000, { immediate: true });
+    const handle2 = await startPeriodicMerge(tempDir, eventStore, 60_000, { immediate: true });
     handle2.stop();
 
     // Assert: ALL events should be present
@@ -209,7 +209,7 @@ describe('startPeriodicMerge', () => {
     }
 
     // Act: drain once
-    const handle1 = startPeriodicMerge(tempDir, eventStore, 60_000, { immediate: true });
+    const handle1 = await startPeriodicMerge(tempDir, eventStore, 60_000, { immediate: true });
     handle1.stop();
 
     // Write the SAME events again (simulating retry/double-write)
@@ -222,7 +222,7 @@ describe('startPeriodicMerge', () => {
     }
 
     // Drain again
-    const handle2 = startPeriodicMerge(tempDir, eventStore, 60_000, { immediate: true });
+    const handle2 = await startPeriodicMerge(tempDir, eventStore, 60_000, { immediate: true });
     handle2.stop();
 
     // Assert: exactly eventCount events (no duplicates)
@@ -259,11 +259,9 @@ describe('startPeriodicMerge', () => {
       { idempotencyKey: 'obs-stream:team.task.completed:task-obs-1' },
     );
 
-    // Act: drain with immediate and capture the result
-    // The scheduler should log/return drain results
-    // We intercept via the onDrain callback
+    // Act: drain with immediate and capture the result via onDrain callback
     let drainResult: DrainResult | undefined;
-    const handle = startPeriodicMerge(tempDir, eventStore, 60_000, {
+    const handle = await startPeriodicMerge(tempDir, eventStore, 60_000, {
       immediate: true,
       onDrain: (result) => { drainResult = result; },
     });
