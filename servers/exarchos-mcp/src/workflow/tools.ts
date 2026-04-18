@@ -484,7 +484,35 @@ export async function handleSet(
         'phase-transition',
       );
 
+      // DR-10: emit checkpoint.state_missing event on graceful degradation
+      if (gateResult.warning === 'checkpoint-state-missing' && eventStore) {
+        eventStore.append(input.featureId, {
+          type: 'checkpoint.state_missing' as import('../event-store/schemas.js').EventType,
+          correlationId: input.featureId,
+          source: 'workflow',
+          data: { action: 'set' },
+        }).catch(() => { /* fire-and-forget */ });
+      }
+
       if (gateResult.gated) {
+        // DR-5: emit checkpoint.enforced event before returning gate response
+        if (eventStore) {
+          try {
+            await eventStore.append(input.featureId, {
+              type: 'checkpoint.enforced' as import('../event-store/schemas.js').EventType,
+              correlationId: input.featureId,
+              source: 'workflow',
+              data: {
+                operationsSince: gateResult.operationsSince,
+                threshold: gateResult.threshold,
+                blockedAction: 'phase-transition',
+              },
+            });
+          } catch {
+            // Best-effort event emission — don't block the gate response
+          }
+        }
+
         return {
           success: false,
           error: {

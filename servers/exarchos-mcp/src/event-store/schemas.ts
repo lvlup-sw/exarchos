@@ -72,6 +72,8 @@ export const EventTypes = [
   'pr.commented',
   'issue.created',
   'init.executed',
+  'checkpoint.enforced',
+  'checkpoint.state_missing',
 ] as const;
 
 export type EventType = typeof EventTypes[number];
