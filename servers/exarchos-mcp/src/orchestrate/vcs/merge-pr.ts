@@ -16,11 +16,21 @@ export async function handleMergePr(
   args: HandleMergePrArgs,
   ctx: DispatchContext,
 ): Promise<ToolResult> {
-  try {
-    const provider = await createVcsProvider({ config: ctx.projectConfig });
-    const result = await provider.mergePr(args.prId, args.strategy);
+  const provider = await createVcsProvider({ config: ctx.projectConfig });
 
-    if (result.merged) {
+  let result;
+  try {
+    result = await provider.mergePr(args.prId, args.strategy);
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    return {
+      success: false,
+      error: { code: 'VCS_ERROR', message: `merge_pr failed: ${message}` },
+    };
+  }
+
+  if (result.merged) {
+    try {
       await ctx.eventStore.append('vcs', {
         type: 'pr.merged',
         data: {
@@ -31,14 +41,10 @@ export async function handleMergePr(
           sha: result.sha,
         },
       });
+    } catch {
+      // Event emission is best-effort — merge already succeeded
     }
-
-    return { success: true, data: result };
-  } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : String(err);
-    return {
-      success: false,
-      error: { code: 'VCS_ERROR', message: `merge_pr failed: ${message}` },
-    };
   }
+
+  return { success: true, data: result };
 }

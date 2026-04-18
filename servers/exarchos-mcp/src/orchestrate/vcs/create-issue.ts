@@ -17,14 +17,24 @@ export async function handleCreateIssue(
   args: HandleCreateIssueArgs,
   ctx: DispatchContext,
 ): Promise<ToolResult> {
+  const provider = await createVcsProvider({ config: ctx.projectConfig });
+
+  let result;
   try {
-    const provider = await createVcsProvider({ config: ctx.projectConfig });
-    const result = await provider.createIssue({
+    result = await provider.createIssue({
       title: args.title,
       body: args.body,
       labels: args.labels,
     });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    return {
+      success: false,
+      error: { code: 'VCS_ERROR', message: `create_issue failed: ${message}` },
+    };
+  }
 
+  try {
     await ctx.eventStore.append('vcs', {
       type: 'issue.created',
       data: {
@@ -33,13 +43,9 @@ export async function handleCreateIssue(
         url: result.url,
       },
     });
-
-    return { success: true, data: result };
-  } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : String(err);
-    return {
-      success: false,
-      error: { code: 'VCS_ERROR', message: `create_issue failed: ${message}` },
-    };
+  } catch {
+    // Event emission is best-effort — issue already created
   }
+
+  return { success: true, data: result };
 }

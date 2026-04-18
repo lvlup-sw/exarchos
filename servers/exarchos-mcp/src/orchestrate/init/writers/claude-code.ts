@@ -86,7 +86,7 @@ function buildExarchosEntry(home: string): McpServerEntry {
   return {
     type: 'stdio',
     command: 'node',
-    args: ['run', join(home, '.claude', 'mcp-servers', 'exarchos-mcp.js')],
+    args: [join(home, '.claude', 'mcp-servers', 'exarchos-mcp.js')],
     env: {
       WORKFLOW_STATE_DIR: join(home, '.claude', 'workflow-state'),
     },

@@ -509,12 +509,7 @@ index abc123..def456 100644
   });
 
   it('GitHubProvider_CreateIssue_ReturnsIssueResult', async () => {
-    mockExec.mockResolvedValue(
-      JSON.stringify({
-        url: 'https://github.com/test/repo/issues/99',
-        number: 99,
-      })
-    );
+    mockExec.mockResolvedValue('https://github.com/test/repo/issues/99\n');
 
     const result = await provider.createIssue({
       title: 'Bug: something broke',
@@ -529,9 +524,10 @@ index abc123..def456 100644
         '--title', 'Bug: something broke',
         '--body', 'Steps to reproduce...',
         '--label', 'bug,priority',
-        '--json', 'url,number',
       ])
     );
+    const callArgs = mockExec.mock.calls[0][1];
+    expect(callArgs).not.toContain('--json');
     expect(result).toEqual({
       url: 'https://github.com/test/repo/issues/99',
       number: 99,
@@ -539,12 +535,7 @@ index abc123..def456 100644
   });
 
   it('GitHubProvider_CreateIssue_NoLabels', async () => {
-    mockExec.mockResolvedValue(
-      JSON.stringify({
-        url: 'https://github.com/test/repo/issues/100',
-        number: 100,
-      })
-    );
+    mockExec.mockResolvedValue('https://github.com/test/repo/issues/100\n');
 
     const result = await provider.createIssue({
       title: 'Feature request',

@@ -59,6 +59,7 @@ function mapConclusion(conclusion: string | null): CiCheck['status'] {
     case 'failure':
       return 'fail';
     case 'skipped':
+    case 'neutral':
       return 'skipped';
     default:
       return 'pending';
@@ -268,8 +269,6 @@ export class GitHubProvider implements VcsProvider {
       opts.title,
       '--body',
       opts.body,
-      '--json',
-      'url,number',
     ];
 
     if (opts.labels && opts.labels.length > 0) {
@@ -277,8 +276,9 @@ export class GitHubProvider implements VcsProvider {
     }
 
     const output = await exec('gh', args);
-    const parsed = JSON.parse(output) as { url: string; number: number };
-    return { url: parsed.url, number: parsed.number };
+    const match = output.match(/\/issues\/(\d+)/);
+    const number = match ? parseInt(match[1], 10) : 0;
+    return { url: output.trim(), number };
   }
 
   async getRepository(): Promise<RepoInfo> {
