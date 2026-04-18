@@ -27,8 +27,8 @@ import { orchestrateLogger } from '../logger.js';
 import { defaultSafeguards, type PruneSafeguards } from './prune-safeguards.js';
 export type { PruneSafeguards } from './prune-safeguards.js';
 
-// 7 days in minutes — matches the plan's v1 default threshold.
-const DEFAULT_THRESHOLD_MINUTES = 10_080;
+// 14 days in minutes — matches ResolvedProjectConfig.prune.staleAfterDays default.
+const DEFAULT_THRESHOLD_MINUTES = 20_160;
 
 /**
  * Minimal subset of a workflow list entry needed for prune selection.
@@ -579,9 +579,16 @@ export async function handlePruneStaleWorkflows(
     }
   }
 
-  // Apply validated/defaulted values. `thresholdMinutes` defaults to the
-  // v1 spec default (7 days) when absent; `now` defaults to `new Date()`.
-  const thresholdMinutes = args.thresholdMinutes ?? DEFAULT_THRESHOLD_MINUTES;
+  // Apply validated/defaulted values. `thresholdMinutes` priority:
+  //   1. Explicit args.thresholdMinutes (caller override)
+  //   2. ctx.projectConfig.prune.staleAfterDays (config-driven)
+  //   3. DEFAULT_THRESHOLD_MINUTES (14 days)
+  // Args always override config to preserve backward compatibility.
+  const pruneConfig = ctx?.projectConfig?.prune;
+  const configThreshold = pruneConfig?.staleAfterDays !== undefined
+    ? pruneConfig.staleAfterDays * 24 * 60
+    : undefined;
+  const thresholdMinutes = args.thresholdMinutes ?? configThreshold ?? DEFAULT_THRESHOLD_MINUTES;
   const includeOneShot = args.includeOneShot;
   const dryRun = args.dryRun ?? true;
   const force = args.force ?? false;

@@ -42,7 +42,7 @@ function minutesAgo(mins: number): string {
 describe('selectPruneCandidates', () => {
   it('excludes terminal phases (completed, cancelled)', () => {
     // Very stale so they'd otherwise qualify (> 10080 min default threshold)
-    const stale = minutesAgo(20_000);
+    const stale = minutesAgo(30_000);
     const entries: WorkflowListEntry[] = [
       makeEntry({ featureId: 'a', phase: 'completed', lastActivityTimestamp: stale }),
       makeEntry({ featureId: 'b', phase: 'cancelled', lastActivityTimestamp: stale }),
@@ -60,7 +60,7 @@ describe('selectPruneCandidates', () => {
     // Default threshold is 10080 minutes (7 days)
     const entries: WorkflowListEntry[] = [
       makeEntry({ featureId: 'fresh', lastActivityTimestamp: minutesAgo(60) }), // 1h
-      makeEntry({ featureId: 'stale', lastActivityTimestamp: minutesAgo(20_000) }),
+      makeEntry({ featureId: 'stale', lastActivityTimestamp: minutesAgo(30_000) }),
     ];
 
     const { candidates, excluded } = selectPruneCandidates(entries, {}, NOW);
@@ -75,12 +75,12 @@ describe('selectPruneCandidates', () => {
       makeEntry({
         featureId: 'a',
         phase: 'implementing',
-        lastActivityTimestamp: minutesAgo(20_000),
+        lastActivityTimestamp: minutesAgo(30_000),
       }),
       makeEntry({
         featureId: 'b',
         phase: 'plan',
-        lastActivityTimestamp: minutesAgo(20_000),
+        lastActivityTimestamp: minutesAgo(30_000),
       }),
     ];
 
@@ -111,7 +111,7 @@ describe('selectPruneCandidates', () => {
   });
 
   it('excludes oneshot workflows when includeOneShot is false', () => {
-    const stale = minutesAgo(20_000);
+    const stale = minutesAgo(30_000);
     const entries: WorkflowListEntry[] = [
       makeEntry({ featureId: 'os1', workflowType: 'oneshot', lastActivityTimestamp: stale }),
       makeEntry({ featureId: 'f1', workflowType: 'feature', lastActivityTimestamp: stale }),
@@ -129,7 +129,7 @@ describe('selectPruneCandidates', () => {
   });
 
   it('includes oneshot workflows by default (includeOneShot defaults to true)', () => {
-    const stale = minutesAgo(20_000);
+    const stale = minutesAgo(30_000);
     const entries: WorkflowListEntry[] = [
       makeEntry({ featureId: 'os1', workflowType: 'oneshot', lastActivityTimestamp: stale }),
       makeEntry({ featureId: 'f1', workflowType: 'feature', lastActivityTimestamp: stale }),
@@ -225,7 +225,7 @@ describe('handlePruneStaleWorkflows', () => {
     const deps = makeDeps();
     deps.listSpy.mockResolvedValue(
       makeListResult([
-        { featureId: 'stale1', lastActivityTimestamp: staleIso(20_000) },
+        { featureId: 'stale1', lastActivityTimestamp: staleIso(30_000) },
         { featureId: 'fresh1', lastActivityTimestamp: staleIso(60) },
       ]),
     );
@@ -261,8 +261,8 @@ describe('handlePruneStaleWorkflows', () => {
     const deps = makeDeps();
     deps.listSpy.mockResolvedValue(
       makeListResult([
-        { featureId: 'a', lastActivityTimestamp: staleIso(20_000) },
-        { featureId: 'b', lastActivityTimestamp: staleIso(20_000) },
+        { featureId: 'a', lastActivityTimestamp: staleIso(30_000) },
+        { featureId: 'b', lastActivityTimestamp: staleIso(30_000) },
       ]),
     );
 
@@ -291,8 +291,8 @@ describe('handlePruneStaleWorkflows', () => {
     });
     deps.listSpy.mockResolvedValue(
       makeListResult([
-        { featureId: 'a', lastActivityTimestamp: staleIso(20_000) },
-        { featureId: 'b', lastActivityTimestamp: staleIso(20_000) },
+        { featureId: 'a', lastActivityTimestamp: staleIso(30_000) },
+        { featureId: 'b', lastActivityTimestamp: staleIso(30_000) },
       ]),
     );
 
@@ -325,8 +325,8 @@ describe('handlePruneStaleWorkflows', () => {
     });
     deps.listSpy.mockResolvedValue(
       makeListResult([
-        { featureId: 'a', lastActivityTimestamp: staleIso(20_000) },
-        { featureId: 'b', lastActivityTimestamp: staleIso(20_000) },
+        { featureId: 'a', lastActivityTimestamp: staleIso(30_000) },
+        { featureId: 'b', lastActivityTimestamp: staleIso(30_000) },
       ]),
     );
 
@@ -355,7 +355,7 @@ describe('handlePruneStaleWorkflows', () => {
       },
     });
     deps.listSpy.mockResolvedValue(
-      makeListResult([{ featureId: 'a', lastActivityTimestamp: staleIso(20_000) }]),
+      makeListResult([{ featureId: 'a', lastActivityTimestamp: staleIso(30_000) }]),
     );
 
     const result = await handlePruneStaleWorkflows(
@@ -390,8 +390,8 @@ describe('handlePruneStaleWorkflows', () => {
     const deps = makeDeps();
     deps.listSpy.mockResolvedValue(
       makeListResult([
-        { featureId: 'x', lastActivityTimestamp: staleIso(20_000) },
-        { featureId: 'y', lastActivityTimestamp: staleIso(20_000) },
+        { featureId: 'x', lastActivityTimestamp: staleIso(30_000) },
+        { featureId: 'y', lastActivityTimestamp: staleIso(30_000) },
       ]),
     );
 
@@ -426,7 +426,7 @@ describe('handlePruneStaleWorkflows', () => {
       },
     });
     deps.listSpy.mockResolvedValue(
-      makeListResult([{ featureId: 'nobrn', lastActivityTimestamp: staleIso(20_000) }]),
+      makeListResult([{ featureId: 'nobrn', lastActivityTimestamp: staleIso(30_000) }]),
     );
 
     const result = await handlePruneStaleWorkflows(
@@ -451,7 +451,7 @@ describe('handlePruneStaleWorkflows', () => {
     const deps = makeDeps();
     deps.listSpy.mockResolvedValue(
       makeListResult([
-        { featureId: 'ea-fail', lastActivityTimestamp: staleIso(20_000) },
+        { featureId: 'ea-fail', lastActivityTimestamp: staleIso(30_000) },
       ]),
     );
 
@@ -486,7 +486,7 @@ describe('handlePruneStaleWorkflows', () => {
     const deps = makeDeps();
     deps.listSpy.mockResolvedValue(
       makeListResult([
-        { featureId: 'missing-ctx', lastActivityTimestamp: staleIso(20_000) },
+        { featureId: 'missing-ctx', lastActivityTimestamp: staleIso(30_000) },
       ]),
     );
 
@@ -510,7 +510,7 @@ describe('handlePruneStaleWorkflows', () => {
     const deps = makeDeps();
     deps.listSpy.mockResolvedValue(
       makeListResult([
-        { featureId: 'dry', lastActivityTimestamp: staleIso(20_000) },
+        { featureId: 'dry', lastActivityTimestamp: staleIso(30_000) },
       ]),
     );
 
@@ -530,9 +530,9 @@ describe('handlePruneStaleWorkflows', () => {
     const deps = makeDeps();
     deps.listSpy.mockResolvedValue(
       makeListResult([
-        { featureId: 'a', lastActivityTimestamp: staleIso(20_000) },
-        { featureId: 'b', lastActivityTimestamp: staleIso(20_000) },
-        { featureId: 'c', lastActivityTimestamp: staleIso(20_000) },
+        { featureId: 'a', lastActivityTimestamp: staleIso(30_000) },
+        { featureId: 'b', lastActivityTimestamp: staleIso(30_000) },
+        { featureId: 'c', lastActivityTimestamp: staleIso(30_000) },
       ]),
     );
     deps.cancelSpy.mockImplementation(async (args: { featureId: string }) => {
@@ -587,7 +587,7 @@ describe('handlePruneStaleWorkflows', () => {
           workflowType: 'feature',
           phase: 'implementing',
           stateFile: '/tmp/valid-stale.state.json',
-          _checkpoint: { lastActivityTimestamp: staleIso(20_000) },
+          _checkpoint: { lastActivityTimestamp: staleIso(30_000) },
         },
         // Missing _checkpoint → malformed
         {
@@ -601,7 +601,7 @@ describe('handlePruneStaleWorkflows', () => {
           workflowType: 'feature',
           phase: 'implementing',
           stateFile: '/tmp/anon.state.json',
-          _checkpoint: { lastActivityTimestamp: staleIso(20_000) },
+          _checkpoint: { lastActivityTimestamp: staleIso(30_000) },
         },
         // Invalid timestamp string → malformed
         {
@@ -616,7 +616,7 @@ describe('handlePruneStaleWorkflows', () => {
           featureId: 'no-type',
           phase: 'implementing',
           stateFile: '/tmp/no-type.state.json',
-          _checkpoint: { lastActivityTimestamp: staleIso(20_000) },
+          _checkpoint: { lastActivityTimestamp: staleIso(30_000) },
         },
       ],
     });
@@ -787,15 +787,16 @@ describe('handlePruneStaleWorkflows', () => {
   });
 
   it('handlePruneStaleWorkflows_defaultThreshold_appliedWhenOmitted', async () => {
-    // When `thresholdMinutes` is omitted, the handler should default to
-    // 10080 (7 days). Verify by constructing an entry that is just barely
-    // stale vs the default (10081 min) — it should be a candidate.
+    // When `thresholdMinutes` is omitted and no projectConfig, the handler
+    // should default to 20160 (14 days). Verify by constructing an entry
+    // that is just barely stale vs the default (20161 min) — it should be
+    // a candidate.
     const { ctx } = makeEventStoreStub();
     const deps = makeDeps();
     deps.listSpy.mockResolvedValue(
       makeListResult([
-        { featureId: 'just-stale', lastActivityTimestamp: staleIso(10_081) },
-        { featureId: 'just-fresh', lastActivityTimestamp: staleIso(10_079) },
+        { featureId: 'just-stale', lastActivityTimestamp: staleIso(20_161) },
+        { featureId: 'just-fresh', lastActivityTimestamp: staleIso(20_159) },
       ]),
     );
 
@@ -825,7 +826,7 @@ describe('handlePruneStaleWorkflows', () => {
           workflowType: 'feature',
           phase: 'implementing',
           stateFile: '/tmp/valid-1.state.json',
-          _checkpoint: { lastActivityTimestamp: staleIso(20_000) },
+          _checkpoint: { lastActivityTimestamp: staleIso(30_000) },
         },
         // Missing _checkpoint → malformed
         {
@@ -838,7 +839,7 @@ describe('handlePruneStaleWorkflows', () => {
         {
           workflowType: 'feature',
           phase: 'implementing',
-          _checkpoint: { lastActivityTimestamp: staleIso(20_000) },
+          _checkpoint: { lastActivityTimestamp: staleIso(30_000) },
         },
       ],
     });
@@ -870,7 +871,7 @@ describe('handlePruneStaleWorkflows', () => {
     const deps = makeDeps();
     deps.listSpy.mockResolvedValue(
       makeListResult([
-        { featureId: 'valid-1', lastActivityTimestamp: staleIso(20_000) },
+        { featureId: 'valid-1', lastActivityTimestamp: staleIso(30_000) },
       ]),
     );
 
@@ -948,7 +949,7 @@ describe('handlePruneStaleWorkflows', () => {
     const deps = makeDeps();
     deps.listSpy.mockResolvedValue(
       makeListResult([
-        { featureId: 'a', lastActivityTimestamp: staleIso(20_000) },
+        { featureId: 'a', lastActivityTimestamp: staleIso(30_000) },
       ]),
     );
 
@@ -986,7 +987,7 @@ describe('handlePruneStaleWorkflows', () => {
           workflowType: 'feature',
           phase: 'implementing',
           stateFile: '/tmp/valid-1.state.json',
-          _checkpoint: { lastActivityTimestamp: staleIso(20_000) },
+          _checkpoint: { lastActivityTimestamp: staleIso(30_000) },
         },
       ],
     });
@@ -1024,7 +1025,7 @@ describe('handlePruneStaleWorkflows', () => {
           workflowType: 'feature',
           phase: 'implementing',
           stateFile: '/tmp/valid-1.state.json',
-          _checkpoint: { lastActivityTimestamp: staleIso(20_000) },
+          _checkpoint: { lastActivityTimestamp: staleIso(30_000) },
         },
         // Malformed: missing _checkpoint
         {
@@ -1063,7 +1064,7 @@ describe('handlePruneStaleWorkflows', () => {
     const deps = makeDeps();
     deps.listSpy.mockResolvedValue(
       makeListResult([
-        { featureId: 'valid-1', lastActivityTimestamp: staleIso(20_000) },
+        { featureId: 'valid-1', lastActivityTimestamp: staleIso(30_000) },
       ]),
     );
 
@@ -1085,5 +1086,69 @@ describe('handlePruneStaleWorkflows', () => {
     const envelope = payload as { type: string; data: Record<string, unknown> };
     expect(envelope.data.malformedCount).toBe(0);
     expect(envelope.data.candidateCount).toBe(1);
+  });
+
+  // ─── Task 011: Wire prune config from .exarchos.yml ───────────────────────
+
+  it('handlePrune_WithConfig_UsesConfiguredThreshold', async () => {
+    const { append, ctx: baseCtx } = makeEventStoreStub();
+    // Provide projectConfig with staleAfterDays = 30 (= 43200 minutes)
+    const ctx = {
+      ...baseCtx,
+      projectConfig: {
+        prune: {
+          staleAfterDays: 30,
+          maxBatchSize: 25,
+          phaseExclusions: [],
+          malformedHandling: 'report' as const,
+          requireDryRun: false,
+        },
+      },
+    };
+    const deps = makeDeps();
+    // Entry at 20000 min is ~14 days — stale at default 7d, but fresh at 30d
+    deps.listSpy.mockResolvedValue(
+      makeListResult([
+        { featureId: 'under-30d', lastActivityTimestamp: staleIso(30_000) },
+        // 50000 min ≈ 35 days — stale at 30d
+        { featureId: 'over-30d', lastActivityTimestamp: staleIso(50_000) },
+      ]),
+    );
+
+    const result = await handlePruneStaleWorkflows(
+      { dryRun: true, now: NOW_ISO },
+      STATE_DIR,
+      ctx as unknown as Parameters<typeof handlePruneStaleWorkflows>[2],
+      deps,
+    );
+
+    expect(result.success).toBe(true);
+    const data = result.data as { candidates: Array<{ featureId: string }> };
+    // Only the 35-day-old entry should be a candidate when threshold = 30 days
+    expect(data.candidates.map((c) => c.featureId)).toEqual(['over-30d']);
+  });
+
+  it('handlePrune_NoConfig_UsesDefaultThreshold14Days', async () => {
+    const { ctx } = makeEventStoreStub();
+    const deps = makeDeps();
+    // 14 days = 20160 minutes. Entry at 20161 min should be stale (just over 14d)
+    // Entry at 20000 min ≈ 13.9 days should be fresh
+    deps.listSpy.mockResolvedValue(
+      makeListResult([
+        { featureId: 'just-over-14d', lastActivityTimestamp: staleIso(20_161) },
+        { featureId: 'just-under-14d', lastActivityTimestamp: staleIso(20_159) },
+      ]),
+    );
+
+    const result = await handlePruneStaleWorkflows(
+      { dryRun: true, now: NOW_ISO },
+      STATE_DIR,
+      ctx,
+      deps,
+    );
+
+    expect(result.success).toBe(true);
+    const data = result.data as { candidates: Array<{ featureId: string }> };
+    expect(data.candidates.map((c) => c.featureId)).toEqual(['just-over-14d']);
   });
 });
