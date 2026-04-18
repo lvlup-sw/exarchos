@@ -115,4 +115,70 @@ describe('handleSet checkpoint gate', () => {
 
     expect(result.success).toBe(true);
   });
+
+  // ─── Config wiring integration (Task 019) ──────────────────────────────────
+
+  it('workflowSet_ConfiguredThreshold30_UsesConfigValue', async () => {
+    await initWorkflow();
+    await handleSet(
+      { featureId, updates: { 'artifacts.design': 'design.md' } },
+      tmpDir,
+      null,
+    );
+
+    // 25 ops — below custom threshold of 30 → proceeds
+    await setOperationsSince(25);
+    const resultBelow = await handleSet(
+      { featureId, phase: 'plan' },
+      tmpDir,
+      null,
+      makeOptions({ operationThreshold: 30 }),
+    );
+    expect(resultBelow.success).toBe(true);
+
+    // Reset back to ideate for next test (since we transitioned to plan)
+    // Re-init for clean state
+  });
+
+  it('workflowSet_ConfiguredThreshold30_GatesAbove', async () => {
+    await initWorkflow();
+    await handleSet(
+      { featureId, updates: { 'artifacts.design': 'design.md' } },
+      tmpDir,
+      null,
+    );
+
+    // 35 ops — above custom threshold of 30 → gated
+    await setOperationsSince(35);
+    const result = await handleSet(
+      { featureId, phase: 'plan' },
+      tmpDir,
+      null,
+      makeOptions({ operationThreshold: 30 }),
+    );
+    expect(result.success).toBe(false);
+    expect(result.error!.code).toBe('CHECKPOINT_REQUIRED');
+    const errorData = result.error as Record<string, unknown>;
+    expect(errorData.threshold).toBe(30);
+    expect(errorData.operationsSince).toBe(35);
+  });
+
+  it('workflowSet_ConfigDisablesPhaseTransition_SkipsGate', async () => {
+    await initWorkflow();
+    await handleSet(
+      { featureId, updates: { 'artifacts.design': 'design.md' } },
+      tmpDir,
+      null,
+    );
+
+    // Way above threshold but enforcement disabled
+    await setOperationsSince(100);
+    const result = await handleSet(
+      { featureId, phase: 'plan' },
+      tmpDir,
+      null,
+      makeOptions({ enforceOnPhaseTransition: false }),
+    );
+    expect(result.success).toBe(true);
+  });
 });

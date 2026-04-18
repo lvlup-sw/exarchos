@@ -91,4 +91,39 @@ describe('shouldEnforceCheckpoint', () => {
     expect(result.operationsSince).toBe(20);
     expect(result.threshold).toBe(20);
   });
+
+  // ─── Config wiring (Task 019) ──────────────────────────────────────────────
+
+  it('shouldEnforceCheckpoint_ConfiguredThreshold30_UsesConfigValue', () => {
+    const config: CheckpointEnforcementConfig = {
+      operationThreshold: 30,
+      enforceOnPhaseTransition: true,
+      enforceOnWaveDispatch: true,
+    };
+
+    // 25 ops — below custom threshold of 30 → not gated
+    const checkpointBelow = makeCheckpoint({ operationsSince: 25 });
+    const resultBelow = shouldEnforceCheckpoint(checkpointBelow, config, 'phase-transition');
+    expect(resultBelow.gated).toBe(false);
+
+    // 35 ops — above custom threshold of 30 → gated
+    const checkpointAbove = makeCheckpoint({ operationsSince: 35 });
+    const resultAbove = shouldEnforceCheckpoint(checkpointAbove, config, 'phase-transition');
+    expect(resultAbove.gated).toBe(true);
+    expect(resultAbove.threshold).toBe(30);
+    expect(resultAbove.operationsSince).toBe(35);
+  });
+
+  it('shouldEnforceCheckpoint_ConfigDisablesPhaseTransition_SkipsGate', () => {
+    const config: CheckpointEnforcementConfig = {
+      operationThreshold: 20,
+      enforceOnPhaseTransition: false,
+      enforceOnWaveDispatch: true,
+    };
+
+    // Way above threshold but phase transition enforcement is disabled
+    const checkpoint = makeCheckpoint({ operationsSince: 100 });
+    const result = shouldEnforceCheckpoint(checkpoint, config, 'phase-transition');
+    expect(result.gated).toBe(false);
+  });
 });
