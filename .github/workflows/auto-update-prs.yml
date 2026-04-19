@@ -1,63 +1,81 @@
+# Auto Update PR Branches
+#
+# Keeps open PRs current with `main` after each merge so auto-merge queues
+# drain cleanly. Uses a GitHub App installation token (not GITHUB_TOKEN)
+# so the resulting push fires `pull_request.synchronize` natively —
+# GitHub intentionally suppresses PR events for GITHUB_TOKEN pushes to
+# avoid recursive workflow loops, which is what silently BLOCKed every
+# sibling PR in a multi-PR queue after the first merge (see #1145).
+#
+# Required secrets (configure at org or repo level):
+#   - PR_AUTOUPDATE_CLIENT_ID     — Client ID of the installed GitHub App
+#                                    (visible on the App's settings page;
+#                                    GitHub has moved to Client ID as the
+#                                    canonical identifier — App ID is still
+#                                    accepted by the action for backcompat)
+#   - PR_AUTOUPDATE_APP_KEY       — PEM-encoded private key for the App
+#
+# The App needs these permissions on this repository:
+#   - Contents:      Write   (to push the merge commit to PR branches)
+#   - Pull requests: Write   (to call updateBranch on each open PR)
+#
+# Once configured, the explicit `workflow_dispatch` fallback is no longer
+# needed — the App-token push triggers `ci.yml` via `pull_request.synchronize`
+# and check-runs attach to `statusCheckRollup` normally.
 name: Auto Update PR Branches
 on:
   push:
     branches: [main]
 
 permissions:
-  actions: write
-  contents: write
-  pull-requests: write
+  contents: read
+  pull-requests: read
 
 jobs:
   update-prs:
-    if: github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request'
     runs-on: self-hosted
     steps:
+      - name: Mint GitHub App installation token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          # The action's `app-id` input accepts either the numeric App ID
+          # or the Client ID (Iv23li...). We use Client ID because GitHub
+          # has made it the canonical App identifier going forward.
+          app-id: ${{ secrets.PR_AUTOUPDATE_CLIENT_ID }}
+          private-key: ${{ secrets.PR_AUTOUPDATE_APP_KEY }}
+
       - uses: actions/setup-node@v6
         with:
           node-version: '24'
+
       - uses: actions/github-script@v8
         with:
+          github-token: ${{ steps.app-token.outputs.token }}
           script: |
-            const pulls = await github.rest.pulls.list({
+            // github.paginate walks all pages — `pulls.list` would
+            // cap at 30 by default, silently skipping later PRs if the
+            // open-PR count ever grows past one page.
+            const pulls = await github.paginate(github.rest.pulls.list, {
               owner: context.repo.owner,
               repo: context.repo.repo,
               state: 'open',
-              base: 'main'
+              base: 'main',
+              per_page: 100
             });
-            const updated = [];
-            for (const pr of pulls.data) {
+            for (const pr of pulls) {
               try {
+                // Authenticated as the GitHub App installation, so the
+                // resulting push fires pull_request.synchronize and CI
+                // re-runs via the PR event path — check-runs attach to
+                // the rollup automatically, no workflow_dispatch needed.
                 await github.rest.pulls.updateBranch({
                   owner: context.repo.owner,
                   repo: context.repo.repo,
                   pull_number: pr.number
                 });
                 console.log(`Updated PR #${pr.number}`);
-                updated.push(pr);
               } catch (e) {
                 console.log(`Skipped PR #${pr.number} update: ${e.message}`);
-              }
-            }
-
-            // Wait for merge commits to propagate before dispatching CI
-            if (updated.length > 0) {
-              console.log(`Waiting 5s for ${updated.length} merge commit(s) to propagate...`);
-              await new Promise(r => setTimeout(r, 5000));
-            }
-
-            // Dispatch CI on updated branches — needed because pushes
-            // from GITHUB_TOKEN don't trigger pull_request workflows
-            for (const pr of updated) {
-              try {
-                await github.rest.actions.createWorkflowDispatch({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  workflow_id: 'ci.yml',
-                  ref: pr.head.ref
-                });
-                console.log(`Dispatched CI for PR #${pr.number} on ${pr.head.ref}`);
-              } catch (e) {
-                console.error(`Failed to dispatch CI for PR #${pr.number}: ${e.message}`);
               }
             }
