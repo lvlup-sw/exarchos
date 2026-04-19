@@ -484,14 +484,20 @@ export async function handleSet(
         'phase-transition',
       );
 
-      // DR-10: emit checkpoint.state_missing event on graceful degradation
+      // DR-10: emit checkpoint.state_missing event on graceful degradation.
+      // Awaited so callers that query the stream immediately after this
+      // handler returns observe the event (read-your-writes consistency).
       if (gateResult.warning === 'checkpoint-state-missing' && eventStore) {
-        eventStore.append(input.featureId, {
-          type: 'checkpoint.state_missing' as import('../event-store/schemas.js').EventType,
-          correlationId: input.featureId,
-          source: 'workflow',
-          data: { action: 'set' },
-        }).catch(() => { /* fire-and-forget */ });
+        try {
+          await eventStore.append(input.featureId, {
+            type: 'checkpoint.state_missing' as import('../event-store/schemas.js').EventType,
+            correlationId: input.featureId,
+            source: 'workflow',
+            data: { action: 'set' },
+          });
+        } catch {
+          // Best-effort event emission — don't block the set() response
+        }
       }
 
       if (gateResult.gated) {
