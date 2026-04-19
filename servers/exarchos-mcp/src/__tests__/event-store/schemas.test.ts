@@ -406,12 +406,12 @@ describe('StackEnqueuedData', () => {
 
 describe('EventTypes', () => {
   it('EventTypes_CountMatchesRegisteredTypes', () => {
-    // Locked to the current registered-type count. Bumped to 69 with
-    // the addition of checkpoint enforcement events
-    // (checkpoint.enforced, checkpoint.state_missing).
+    // Locked to the current registered-type count. Bumped to 71 with
+    // the addition of preflight events (preflight.executed,
+    // preflight.blocked) — the dispatch-guard emission fix from #1129.
     // When new event types are added, bump this number alongside
     // their registration in `event-store/schemas.ts`.
-    expect(EventTypes).toHaveLength(69);
+    expect(EventTypes).toHaveLength(71);
   });
 
   it('should include workflow-level types', () => {

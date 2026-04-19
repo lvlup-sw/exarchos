@@ -16,7 +16,12 @@ import {
   getOrCreateEventStore,
   queryDeltaEvents,
 } from '../views/tools.js';
-import { validateBranchAncestry, assertMainWorktree } from './dispatch-guard.js';
+import {
+  validateBranchAncestry,
+  assertMainWorktree,
+  getCurrentBranch,
+  assertCurrentBranchNotProtected,
+} from './dispatch-guard.js';
 import type { AncestryResult } from './dispatch-guard.js';
 import {
   WORKFLOW_STATE_VIEW,
@@ -260,8 +265,40 @@ export async function handlePrepareDelegation(
       wsEvents,
     );
 
-    const integrationBranch = workflowState.synthesis?.integrationBranch ?? args.featureId;
     const gitExec = createGitExec();
+    const currentBranch = getCurrentBranch(gitExec);
+
+    // #1129 C: refuse dispatch from a protected base branch (main/master).
+    // Runs before ancestry because 'integrationBranch descends from main'
+    // trivially passes when HEAD is on main — that case must be caught
+    // at HEAD inspection, not ancestry.
+    const protectionResult = assertCurrentBranchNotProtected(currentBranch);
+    if (protectionResult.blocked) {
+      store.append(streamId, {
+        type: 'preflight.blocked',
+        data: {
+          reason: protectionResult.reason,
+          details: {
+            currentBranch: protectionResult.currentBranch,
+          },
+        },
+      }).catch(() => { /* fire-and-forget */ });
+
+      return {
+        success: true,
+        data: {
+          blocked: true,
+          reason: protectionResult.reason,
+          currentBranch: protectionResult.currentBranch,
+        },
+      };
+    }
+
+    // #1129 D: derive integration branch from workflow state, falling
+    // back to the current checked-out branch — never to featureId, which
+    // is a different namespace and produces misleading git-errors.
+    const integrationBranch =
+      workflowState.synthesis?.integrationBranch ?? currentBranch ?? args.featureId;
     const ancestryResult = await validateBranchAncestry(
       integrationBranch,
       ['main'],

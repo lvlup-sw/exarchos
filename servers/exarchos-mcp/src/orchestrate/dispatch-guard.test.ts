@@ -4,6 +4,8 @@ import { describe, it, expect, vi } from 'vitest';
 import {
   validateBranchAncestry,
   assertMainWorktree,
+  assertCurrentBranchNotProtected,
+  getCurrentBranch,
 } from './dispatch-guard.js';
 import type { AncestryResult, WorktreeAssertionResult } from './dispatch-guard.js';
 
@@ -129,5 +131,67 @@ describe('assertMainWorktree', () => {
     // Assert
     expect(result.isMain).toBe(true);
     expect(result.actual).toBe(customPath);
+  });
+});
+
+// ─── getCurrentBranch ────────────────────────────────────────────────────────
+
+describe('getCurrentBranch', () => {
+  it('getCurrentBranch_OnFeatureBranch_ReturnsBranchName', () => {
+    const gitExec = vi.fn().mockReturnValue('feature/my-branch\n');
+    expect(getCurrentBranch(gitExec)).toBe('feature/my-branch');
+    expect(gitExec).toHaveBeenCalledWith(['rev-parse', '--abbrev-ref', 'HEAD']);
+  });
+
+  it('getCurrentBranch_GitCommandFails_ReturnsNull', () => {
+    const gitExec = vi.fn().mockImplementation(() => {
+      throw new Error('fatal: not a git repository');
+    });
+    expect(getCurrentBranch(gitExec)).toBeNull();
+  });
+
+  it('getCurrentBranch_DetachedHead_ReturnsNull', () => {
+    // `git rev-parse --abbrev-ref HEAD` returns the literal string 'HEAD'
+    // when HEAD is detached. Collapse to null so downstream guards treat
+    // it as "no current branch" rather than a branch literally named
+    // "HEAD" — otherwise protected-branch checks and fallback logic get
+    // a meaningless string instead of the absence signal they expect.
+    const gitExec = vi.fn().mockReturnValue('HEAD\n');
+    expect(getCurrentBranch(gitExec)).toBeNull();
+  });
+
+  it('getCurrentBranch_EmptyOutput_ReturnsNull', () => {
+    const gitExec = vi.fn().mockReturnValue('\n');
+    expect(getCurrentBranch(gitExec)).toBeNull();
+  });
+});
+
+// ─── assertCurrentBranchNotProtected ─────────────────────────────────────────
+
+describe('assertCurrentBranchNotProtected', () => {
+  it('assertCurrentBranchNotProtected_OnMain_ReturnsBlocked', () => {
+    const result = assertCurrentBranchNotProtected('main');
+    expect(result.blocked).toBe(true);
+    expect(result.reason).toBe('current-branch-protected');
+    expect(result.currentBranch).toBe('main');
+  });
+
+  it('assertCurrentBranchNotProtected_OnMaster_ReturnsBlocked', () => {
+    const result = assertCurrentBranchNotProtected('master');
+    expect(result.blocked).toBe(true);
+    expect(result.reason).toBe('current-branch-protected');
+  });
+
+  it('assertCurrentBranchNotProtected_OnFeatureBranch_ReturnsNotBlocked', () => {
+    const result = assertCurrentBranchNotProtected('feature/dispatch-guards');
+    expect(result.blocked).toBe(false);
+    expect(result.reason).toBeUndefined();
+  });
+
+  it('assertCurrentBranchNotProtected_OnNullBranch_ReturnsNotBlocked', () => {
+    // Null means we couldn't determine current branch — absence of signal
+    // shouldn't be upgraded to a block. Other guards (ancestry) still run.
+    const result = assertCurrentBranchNotProtected(null);
+    expect(result.blocked).toBe(false);
   });
 });

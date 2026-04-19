@@ -95,6 +95,17 @@ describe('EVENT_EMISSION_REGISTRY', () => {
       expect(EVENT_EMISSION_REGISTRY[eventType]).toBe('auto');
     }
   });
+
+  it('EventTypes_PreflightEventsRegistered_BothNamesPresent', () => {
+    // Regression: #1129. `prepare_delegation` emits preflight.executed and
+    // preflight.blocked, but without registration the event store rejects
+    // the append — and fire-and-forget `.catch(()=>{})` silently swallows
+    // the rejection. Every preflight event ends up in the bit bucket.
+    expect(EventTypes).toContain('preflight.executed');
+    expect(EventTypes).toContain('preflight.blocked');
+    expect(EVENT_EMISSION_REGISTRY['preflight.executed']).toBe('auto');
+    expect(EVENT_EMISSION_REGISTRY['preflight.blocked']).toBe('auto');
+  });
 });
 
 // ─── T2: EVENT_DATA_SCHEMAS map ─────────────────────────────────────────────
@@ -449,7 +460,7 @@ describe('EventTypes', () => {
   });
 
   it('EventTypes_HasExpectedCount', () => {
-    expect(EventTypes).toHaveLength(69);
+    expect(EventTypes).toHaveLength(71);
   });
 
   it('EventTypes_IncludesSessionTagged', () => {
