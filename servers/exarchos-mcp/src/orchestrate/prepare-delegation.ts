@@ -10,6 +10,8 @@ import { execFileSync } from 'node:child_process';
 import type { ToolResult } from '../format.js';
 import type { ResolvedProjectConfig } from '../config/resolve.js';
 import { DEFAULTS } from '../config/resolve.js';
+import type { EventStore } from '../event-store/store.js';
+import { orchestrateLogger } from '../logger.js';
 import type { DispatchContext } from '../core/dispatch.js';
 import {
   getOrCreateMaterializer,
@@ -225,6 +227,29 @@ function assembleQualityHints(
   }));
 }
 
+// Audit-trail events must persist before the handler returns so callers
+// that query the stream immediately after dispatch observe them
+// (read-your-writes). Failures are logged, never propagated — emission is
+// best-effort; the dispatch response itself is what the caller acts on.
+async function emitAuditEvent(
+  store: EventStore,
+  streamId: string,
+  event: Parameters<EventStore['append']>[1],
+): Promise<void> {
+  try {
+    await store.append(streamId, event);
+  } catch (err) {
+    orchestrateLogger.warn(
+      {
+        streamId,
+        eventType: event.type,
+        err: err instanceof Error ? err.message : String(err),
+      },
+      'audit event emission failed',
+    );
+  }
+}
+
 // ─── Git Exec Helper ───────────────────────────────────────────────────────
 
 function createGitExec(): (args: readonly string[]) => string {
@@ -274,7 +299,7 @@ export async function handlePrepareDelegation(
     // at HEAD inspection, not ancestry.
     const protectionResult = assertCurrentBranchNotProtected(currentBranch);
     if (protectionResult.blocked) {
-      store.append(streamId, {
+      await emitAuditEvent(store, streamId, {
         type: 'preflight.blocked',
         data: {
           reason: protectionResult.reason,
@@ -282,7 +307,7 @@ export async function handlePrepareDelegation(
             currentBranch: protectionResult.currentBranch,
           },
         },
-      }).catch(() => { /* fire-and-forget */ });
+      });
 
       return {
         success: true,
@@ -306,8 +331,7 @@ export async function handlePrepareDelegation(
     );
 
     if (ancestryResult.blocked) {
-      // Fire-and-forget: emit preflight.blocked event for ancestry failure
-      store.append(streamId, {
+      await emitAuditEvent(store, streamId, {
         type: 'preflight.blocked',
         data: {
           reason: ancestryResult.reason,
@@ -316,7 +340,7 @@ export async function handlePrepareDelegation(
             ...(ancestryResult.error ? { error: ancestryResult.error } : {}),
           },
         },
-      }).catch(() => { /* fire-and-forget */ });
+      });
 
       return {
         success: true,
@@ -334,8 +358,7 @@ export async function handlePrepareDelegation(
     if (!args.nativeIsolation) {
       const worktreeResult = assertMainWorktree();
       if (!worktreeResult.isMain) {
-        // Fire-and-forget: emit preflight.blocked event for worktree violation
-        store.append(streamId, {
+        await emitAuditEvent(store, streamId, {
           type: 'preflight.blocked',
           data: {
             reason: 'worktree-location',
@@ -344,7 +367,7 @@ export async function handlePrepareDelegation(
               expected: worktreeResult.expected,
             },
           },
-        }).catch(() => { /* fire-and-forget */ });
+        });
 
         return {
           success: true,
@@ -359,14 +382,14 @@ export async function handlePrepareDelegation(
     }
 
     const checksRun = args.nativeIsolation ? ['ancestry'] : ['ancestry', 'worktree'];
-    store.append(streamId, {
+    await emitAuditEvent(store, streamId, {
       type: 'preflight.executed',
       data: {
         checks: checksRun,
         passed: true,
         integrationBranch,
       },
-    }).catch(() => { /* fire-and-forget */ });
+    });
 
     // ─── DR-5: Checkpoint Gate ──────────────────────────────────────────
     const checkpointConfig: CheckpointEnforcementConfig = ctx?.projectConfig?.checkpoint ?? {
@@ -384,15 +407,14 @@ export async function handlePrepareDelegation(
     const checkpointWarnings: string[] = [];
 
     if (gateResult.gated) {
-      // Emit checkpoint.enforced event (best-effort)
-      store.append(streamId, {
+      await emitAuditEvent(store, streamId, {
         type: 'checkpoint.enforced',
         data: {
           operationsSince: gateResult.operationsSince,
           threshold: gateResult.threshold,
           blockedAction: 'wave-dispatch',
         },
-      }).catch(() => { /* fire-and-forget */ });
+      });
 
       return {
         success: true,
