@@ -53,13 +53,17 @@ jobs:
         with:
           github-token: ${{ steps.app-token.outputs.token }}
           script: |
-            const pulls = await github.rest.pulls.list({
+            // github.paginate walks all pages — `pulls.list` would
+            // cap at 30 by default, silently skipping later PRs if the
+            // open-PR count ever grows past one page.
+            const pulls = await github.paginate(github.rest.pulls.list, {
               owner: context.repo.owner,
               repo: context.repo.repo,
               state: 'open',
-              base: 'main'
+              base: 'main',
+              per_page: 100
             });
-            for (const pr of pulls.data) {
+            for (const pr of pulls) {
               try {
                 // Authenticated as the GitHub App installation, so the
                 // resulting push fires pull_request.synchronize and CI
