@@ -8,7 +8,11 @@
 # sibling PR in a multi-PR queue after the first merge (see #1145).
 #
 # Required secrets (configure at org or repo level):
-#   - PR_AUTOUPDATE_APP_ID        — numeric ID of the installed GitHub App
+#   - PR_AUTOUPDATE_CLIENT_ID     — Client ID of the installed GitHub App
+#                                    (visible on the App's settings page;
+#                                    GitHub has moved to Client ID as the
+#                                    canonical identifier — App ID is still
+#                                    accepted by the action for backcompat)
 #   - PR_AUTOUPDATE_APP_KEY       — PEM-encoded private key for the App
 #
 # The App needs these permissions on this repository:
@@ -35,7 +39,10 @@ jobs:
         id: app-token
         uses: actions/create-github-app-token@v1
         with:
-          app-id: ${{ secrets.PR_AUTOUPDATE_APP_ID }}
+          # The action's `app-id` input accepts either the numeric App ID
+          # or the Client ID (Iv23li...). We use Client ID because GitHub
+          # has made it the canonical App identifier going forward.
+          app-id: ${{ secrets.PR_AUTOUPDATE_CLIENT_ID }}
           private-key: ${{ secrets.PR_AUTOUPDATE_APP_KEY }}
 
       - uses: actions/setup-node@v6
