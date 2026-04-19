@@ -113,6 +113,188 @@ describe('buildRegistrationSchema', () => {
     const schema = buildRegistrationSchema(testActions);
     expect(schema).toBeInstanceOf(z.ZodObject);
   });
+
+  // ─── Collision-detection guard (regression for #1127) ─────────────────────
+
+  it('should throw when two actions declare the same field with incompatible enums', () => {
+    const colliding: readonly ToolAction[] = [
+      {
+        name: 'first',
+        description: 'First action',
+        schema: z.object({ format: z.enum(['full', 'prompt-only']).default('full') }),
+        phases: new Set(['ideate']),
+        roles: new Set(['any']),
+      },
+      {
+        name: 'second',
+        description: 'Second action',
+        schema: z.object({ format: z.enum(['table', 'json']).optional() }),
+        phases: new Set(['ideate']),
+        roles: new Set(['any']),
+      },
+    ];
+
+    expect(() => buildRegistrationSchema(colliding)).toThrow(/collides/);
+    expect(() => buildRegistrationSchema(colliding)).toThrow(/first|second/);
+  });
+
+  it('should throw when two actions declare the same field with incompatible base types', () => {
+    const colliding: readonly ToolAction[] = [
+      {
+        name: 'a',
+        description: 'A',
+        schema: z.object({ limit: z.number().int() }),
+        phases: new Set(['ideate']),
+        roles: new Set(['any']),
+      },
+      {
+        name: 'b',
+        description: 'B',
+        schema: z.object({ limit: z.string() }),
+        phases: new Set(['ideate']),
+        roles: new Set(['any']),
+      },
+    ];
+
+    expect(() => buildRegistrationSchema(colliding)).toThrow(/collides/);
+  });
+
+  it('should throw when two actions share a field whose defaults differ', () => {
+    // Guards the "defaults diverge" arm of describeContractConflict: same
+    // base type (string), no enum, but mismatched defaults would otherwise
+    // let the first declaration silently shadow the second at the
+    // registration boundary.
+    const colliding: readonly ToolAction[] = [
+      {
+        name: 'first',
+        description: 'First action',
+        schema: z.object({ mode: z.string().default('full') }),
+        phases: new Set(['ideate']),
+        roles: new Set(['any']),
+      },
+      {
+        name: 'second',
+        description: 'Second action',
+        schema: z.object({ mode: z.string().default('json') }),
+        phases: new Set(['ideate']),
+        roles: new Set(['any']),
+      },
+    ];
+
+    expect(() => buildRegistrationSchema(colliding)).toThrow(/collides/);
+    expect(() => buildRegistrationSchema(colliding)).toThrow(/Default values differ/);
+  });
+
+  it('should throw when two actions share a literal-valued field with different values', () => {
+    // Regression: before this fix, z.literal was classified as 'other' and
+    // defaults=none on both sides silently passed — two actions could bind
+    // the same field to incompatible literal values without detection.
+    const colliding: readonly ToolAction[] = [
+      {
+        name: 'first',
+        description: 'First',
+        schema: z.object({ tag: z.literal('alpha') }),
+        phases: new Set(['ideate']),
+        roles: new Set(['any']),
+      },
+      {
+        name: 'second',
+        description: 'Second',
+        schema: z.object({ tag: z.literal('beta') }),
+        phases: new Set(['ideate']),
+        roles: new Set(['any']),
+      },
+    ];
+
+    expect(() => buildRegistrationSchema(colliding)).toThrow(/collides/);
+  });
+
+  it('should throw when a union-of-literals field diverges across actions', () => {
+    // Union-of-literals is the hand-rolled form of z.enum(). Same contract
+    // semantics must apply: mismatched value sets must collide.
+    const colliding: readonly ToolAction[] = [
+      {
+        name: 'first',
+        description: 'First',
+        schema: z.object({
+          mode: z.union([z.literal('a'), z.literal('b')]),
+        }),
+        phases: new Set(['ideate']),
+        roles: new Set(['any']),
+      },
+      {
+        name: 'second',
+        description: 'Second',
+        schema: z.object({
+          mode: z.union([z.literal('a'), z.literal('c')]),
+        }),
+        phases: new Set(['ideate']),
+        roles: new Set(['any']),
+      },
+    ];
+
+    expect(() => buildRegistrationSchema(colliding)).toThrow(/collides/);
+  });
+
+  it('should allow two actions to share a field when their schemas are structurally identical', () => {
+    const compatible: readonly ToolAction[] = [
+      {
+        name: 'create_pr',
+        description: 'Create',
+        schema: z.object({ prId: z.string().min(1) }),
+        phases: new Set(['ideate']),
+        roles: new Set(['any']),
+      },
+      {
+        name: 'merge_pr',
+        description: 'Merge',
+        schema: z.object({ prId: z.string().min(1) }),
+        phases: new Set(['ideate']),
+        roles: new Set(['any']),
+      },
+    ];
+
+    expect(() => buildRegistrationSchema(compatible)).not.toThrow();
+  });
+
+  it('should not collide on format across the real orchestrate registry (#1127 regression)', () => {
+    const orchestrate = TOOL_REGISTRY.find((t) => t.name === 'exarchos_orchestrate')!;
+    expect(() => buildRegistrationSchema(orchestrate.actions)).not.toThrow();
+  });
+
+  it('should accept doctor format values against the real orchestrate registration schema', () => {
+    const orchestrate = TOOL_REGISTRY.find((t) => t.name === 'exarchos_orchestrate')!;
+    const schema = buildRegistrationSchema(orchestrate.actions);
+
+    // Regression for #1127: before the fix, agent_spec.format (full|prompt-only)
+    // shadowed doctor/init.format (table|json), making these payloads fail
+    // validation at the registered-tool boundary.
+    expect(schema.safeParse({ action: 'doctor' }).success).toBe(true);
+    expect(schema.safeParse({ action: 'doctor', format: 'json' }).success).toBe(true);
+    expect(schema.safeParse({ action: 'doctor', format: 'table' }).success).toBe(true);
+    expect(schema.safeParse({ action: 'init', nonInteractive: true }).success).toBe(true);
+    expect(schema.safeParse({ action: 'init', format: 'json' }).success).toBe(true);
+  });
+
+  it('should expose agent_spec outputFormat on the real orchestrate registration schema', () => {
+    const orchestrate = TOOL_REGISTRY.find((t) => t.name === 'exarchos_orchestrate')!;
+    const schema = buildRegistrationSchema(orchestrate.actions);
+
+    expect(
+      schema.safeParse({
+        action: 'agent_spec',
+        agent: 'implementer',
+        outputFormat: 'full',
+      }).success,
+    ).toBe(true);
+    expect(
+      schema.safeParse({
+        action: 'agent_spec',
+        agent: 'implementer',
+        outputFormat: 'prompt-only',
+      }).success,
+    ).toBe(true);
+  });
 });
 
 // ─── Type Coercion Tests ─────────────────────────────────────────────────────

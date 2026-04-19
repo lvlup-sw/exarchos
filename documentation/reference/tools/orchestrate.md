@@ -360,7 +360,7 @@ Retrieve an agent specification for subagent dispatch. Returns the agent's syste
 {
   "action": "agent_spec",
   "agent": "implementer",
-  "format": "full"
+  "outputFormat": "full"
 }
 ```
 
@@ -368,7 +368,7 @@ Retrieve an agent specification for subagent dispatch. Returns the agent's syste
 |-----------|----------|------|-------------|
 | `agent` | yes | string (enum) | Agent identifier from the registered spec list |
 | `context` | no | object | Key-value pairs for template variable interpolation in prompts |
-| `format` | no | `"full"` \| `"prompt-only"` (default: `"full"`) | `full` returns the complete spec; `prompt-only` returns just the system prompt |
+| `outputFormat` | no | `"full"` \| `"prompt-only"` (default: `"full"`) | `full` returns the complete spec; `prompt-only` returns just the system prompt. Renamed from `format` in #1127 to avoid a registration collision with the `format: "table" \| "json"` parameter on `doctor` and `init`. |
 
 Phases: all. Role: `any`.
 
