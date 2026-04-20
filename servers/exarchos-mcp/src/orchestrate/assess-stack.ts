@@ -40,9 +40,11 @@ interface PrComment {
   readonly body: string;       // truncated for display
   readonly fullBody: string;   // untruncated; consumed by review provider adapters (#1159)
   readonly isResolved: boolean;
+  readonly actionItem?: ActionItem;  // populated by provider adapter dispatch (#1159)
 }
 
-import type { Severity, ReviewerKind, ActionItem } from '../review/types.js';
+import type { Severity, ReviewerKind, ActionItem, ReviewAdapterRegistry } from '../review/types.js';
+import { createReviewAdapterRegistry, detectKind } from '../review/registry.js';
 export type { Severity, ReviewerKind, ActionItem };
 
 export interface ShepherdStatusState {
@@ -112,16 +114,28 @@ async function queryPrReviews(provider: VcsProvider, prNumber: number): Promise<
   }
 }
 
-async function queryPrComments(provider: VcsProvider, prNumber: number): Promise<PrComment[]> {
+async function queryPrComments(
+  provider: VcsProvider,
+  prNumber: number,
+  registry: ReviewAdapterRegistry,
+): Promise<PrComment[]> {
   try {
     const comments: VcsPrComment[] = await provider.getPrComments(String(prNumber));
     // All comments from VcsProvider are treated as unresolved
     // (GitHub API doesn't provide isResolved for review comments)
-    return comments.map(c => ({
-      body: truncateBody(c.body),
-      fullBody: c.body,
-      isResolved: false,
-    }));
+    return comments.map(c => {
+      const kind = detectKind(c.author);
+      const adapter = registry.forReviewer(kind);
+      const parsed = adapter?.parse(c) ?? undefined;
+      // Stamp the PR number onto the parsed item (adapters return pr=0 by convention)
+      const actionItem = parsed ? { ...parsed, pr: prNumber } : undefined;
+      return {
+        body: truncateBody(c.body),
+        fullBody: c.body,
+        isResolved: false,
+        actionItem,
+      };
+    });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
     orchestrateLogger.warn({ prNumber, err: message }, 'Failed to query comments');
@@ -136,10 +150,14 @@ function computeOverallCi(checks: readonly CiCheck[]): 'pass' | 'fail' | 'pendin
   return 'pass';
 }
 
-async function queryPrStatus(provider: VcsProvider, prNumber: number): Promise<PrStatus> {
+async function queryPrStatus(
+  provider: VcsProvider,
+  prNumber: number,
+  registry: ReviewAdapterRegistry,
+): Promise<PrStatus> {
   const checks = await queryPrChecks(provider, prNumber);
   const reviews = await queryPrReviews(provider, prNumber);
-  const allComments = await queryPrComments(provider, prNumber);
+  const allComments = await queryPrComments(provider, prNumber, registry);
   const unresolvedComments = allComments.filter(c => !c.isResolved);
 
   return {
@@ -362,6 +380,7 @@ export async function handleAssessStack(
   args: { featureId: string; prNumbers: number[] },
   stateDir: string,
   provider?: VcsProvider,
+  registry: ReviewAdapterRegistry = createReviewAdapterRegistry(),
 ): Promise<ToolResult> {
   const vcsGuard = requiresGitHub(provider, 'assess_stack');
   if (vcsGuard) return vcsGuard;
@@ -405,7 +424,7 @@ export async function handleAssessStack(
 
   // Query status for each PR
   const prStatuses = await Promise.all(
-    args.prNumbers.map(pr => queryPrStatus(vcs, pr)),
+    args.prNumbers.map(pr => queryPrStatus(vcs, pr, registry)),
   );
 
   // Emit dual events

@@ -640,6 +640,95 @@ describe('handleAssessStack', () => {
     });
   });
 
+  describe('adapter dispatch via registry', () => {
+    it('QueryPrComments_CoderabbitComment_PopulatesNormalizedSeverity', async () => {
+      const provider = createMockProvider({
+        checkCi: { status: 'pass', checks: [{ name: 'ci/build', status: 'pass' }] },
+        prComments: [
+          {
+            id: 999,
+            author: 'coderabbitai[bot]',
+            body: '_:warning: Potential issue_\n\nMissing null check on line 42.',
+            createdAt: '2026-01-01T00:00:00Z',
+            path: 'src/auth.ts',
+            line: 42,
+          },
+        ],
+      });
+
+      const result = await handleAssessStack(
+        { featureId: 'test-feature', prNumbers: [42] },
+        STATE_DIR,
+        provider,
+      );
+
+      expect(result.success).toBe(true);
+      const data = result.data as {
+        status: { prs: Array<{ unresolvedComments: Array<{ actionItem?: Record<string, unknown> }> }> };
+      };
+      const comment = data.status.prs[0].unresolvedComments[0];
+      expect(comment.actionItem).toBeDefined();
+      expect(comment.actionItem?.reviewer).toBe('coderabbit');
+      expect(comment.actionItem?.normalizedSeverity).toBe('HIGH');
+      expect(comment.actionItem?.file).toBe('src/auth.ts');
+      expect(comment.actionItem?.line).toBe(42);
+    });
+
+    it('QueryPrComments_HumanComment_PopulatesNormalizedMedium', async () => {
+      const provider = createMockProvider({
+        checkCi: { status: 'pass', checks: [{ name: 'ci/build', status: 'pass' }] },
+        prComments: [
+          {
+            id: 1,
+            author: 'alice',
+            body: 'Could you rename this variable?',
+            createdAt: '2026-01-01T00:00:00Z',
+          },
+        ],
+      });
+
+      const result = await handleAssessStack(
+        { featureId: 'test-feature', prNumbers: [42] },
+        STATE_DIR,
+        provider,
+      );
+
+      const data = result.data as {
+        status: { prs: Array<{ unresolvedComments: Array<{ actionItem?: Record<string, unknown> }> }> };
+      };
+      const comment = data.status.prs[0].unresolvedComments[0];
+      expect(comment.actionItem?.reviewer).toBe('human');
+      expect(comment.actionItem?.normalizedSeverity).toBe('MEDIUM');
+    });
+
+    it('QueryPrComments_UnknownBot_RoutesToUnknownAdapter', async () => {
+      const provider = createMockProvider({
+        checkCi: { status: 'pass', checks: [{ name: 'ci/build', status: 'pass' }] },
+        prComments: [
+          {
+            id: 7,
+            author: 'mystery-scanner[bot]',
+            body: 'something happened',
+            createdAt: '2026-01-01T00:00:00Z',
+          },
+        ],
+      });
+
+      const result = await handleAssessStack(
+        { featureId: 'test-feature', prNumbers: [42] },
+        STATE_DIR,
+        provider,
+      );
+
+      const data = result.data as {
+        status: { prs: Array<{ unresolvedComments: Array<{ actionItem?: Record<string, unknown> }> }> };
+      };
+      const comment = data.status.prs[0].unresolvedComments[0];
+      expect(comment.actionItem?.reviewer).toBe('unknown');
+      expect(comment.actionItem?.normalizedSeverity).toBe('MEDIUM');
+    });
+  });
+
   describe('comment body retention', () => {
     it('QueryPrComments_LongCommentBody_RetainsFullBody', async () => {
       const longBody = 'A'.repeat(500);
