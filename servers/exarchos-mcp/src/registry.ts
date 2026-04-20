@@ -1092,7 +1092,10 @@ const orchestrateActions: readonly ToolAction[] = [
       featureId: z.string().min(1),
       actionItems: z.array(z.record(z.string(), z.unknown())),
     }),
-    phases: REVIEW_PHASES,
+    // Shepherd operates within `synthesize` and invokes classify_review_items
+    // after assess_stack; restricting to REVIEW_PHASES would trip phase-guard
+    // at runtime (#1161 / Sentry bug prediction).
+    phases: SYNTHESIS_REVIEW_PHASES,
     roles: ROLE_LEAD,
   },
   {
