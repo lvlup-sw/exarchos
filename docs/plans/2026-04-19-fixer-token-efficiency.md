@@ -142,11 +142,11 @@ Two facts surfaced when reading the existing code that the design didn't anticip
 1. [RED] Write tests in `servers/exarchos-mcp/src/review/providers/sentry.test.ts`:
    - `SentryAdapter_CriticalTag_NormalizesToHigh`
    - `SentryAdapter_MediumTag_NormalizesToMedium`
-   - `SentryAdapter_NoSeverityTag_DefaultsToLow`
+   - `SentryAdapter_NoSeverityTag_DefaultsToMedium`
    - `SentryAdapter_NonSentryAuthor_ReturnsNull`
    - Expected failure: file doesn't exist.
 
-2. [GREEN] Create `servers/exarchos-mcp/src/review/providers/sentry.ts`. Author check: `comment.author === 'sentry-io[bot]'` (verify in fixture). Tag extraction: regex for `CRITICAL`, `HIGH`, `MEDIUM`, `LOW` in body. Map: `CRITICAL|HIGH → HIGH`; `MEDIUM → MEDIUM`; default `LOW`.
+2. [GREEN] Create `servers/exarchos-mcp/src/review/providers/sentry.ts`. Author check: `comment.author === 'sentry-io[bot]'` (verify in fixture). Tag extraction: regex for `CRITICAL`, `HIGH`, `MEDIUM`, `LOW` in body. Map: `CRITICAL|HIGH → HIGH`; `MEDIUM → MEDIUM`; `LOW → LOW`; default `MEDIUM` (comments without a tier marker still get a reply task but at a non-blocking severity).
 
 **Dependencies:** Task 2
 **Parallelizable:** Yes (with Tasks 5, 7, 8, 9)
