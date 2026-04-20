@@ -1,4 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { InMemoryBackend } from './storage/memory-backend.js';
 import type { StorageBackend } from './storage/backend.js';
 import { isMcpServerInvocation, isDirectExecution } from './index.js';
@@ -296,5 +300,51 @@ describe('isDirectExecution (#1085)', () => {
         'C:\\Users\\John Doe\\repo\\dist\\exarchos.js',
       ),
     ).toBe(true);
+  });
+
+  // Regression for #1158: `npm link` installs argv[1] as a symlink, but Node
+  // resolves symlinks for ESM modules so import.meta.url points at the real
+  // file. Without realpath normalization, the guard misses and main() never
+  // runs — the CLI silently no-ops.
+  describe('symlink resolution (#1158)', () => {
+    let scratch: string;
+
+    beforeEach(() => {
+      scratch = mkdtempSync(join(tmpdir(), 'exarchos-symlink-test-'));
+    });
+
+    afterEach(() => {
+      rmSync(scratch, { recursive: true, force: true });
+    });
+
+    it('matches when argv[1] is a symlink to the real module', () => {
+      const realDir = join(scratch, 'dist');
+      mkdirSync(realDir, { recursive: true });
+      const realScript = join(realDir, 'exarchos.js');
+      writeFileSync(realScript, '// fixture\n');
+
+      const binDir = join(scratch, 'bin');
+      mkdirSync(binDir, { recursive: true });
+      const linkPath = join(binDir, 'exarchos');
+      symlinkSync(realScript, linkPath);
+
+      // Node's ESM loader resolves symlinks, so import.meta.url points at the
+      // real file even when invoked through the symlink.
+      const metaUrl = pathToFileURL(realScript).href;
+
+      expect(isDirectExecution(metaUrl, linkPath)).toBe(true);
+    });
+
+    it('falls back to raw argv[1] when realpath fails (path does not exist)', () => {
+      // The fallback preserves prior shape-only behavior for environments
+      // where argv[1] is synthetic (e.g. unit tests) or the file has been
+      // removed between invocation and guard evaluation.
+      expect(
+        isDirectExecution(
+          'file:///Users/foo/.npm/bin/exarchos.js',
+          '/Users/foo/.npm/bin/exarchos.js',
+        ),
+      ).toBe(true);
+    });
   });
 });
