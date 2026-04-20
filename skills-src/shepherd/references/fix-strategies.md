@@ -166,9 +166,13 @@ and attaches a normalized `ActionItem` (with `normalizedSeverity` and
 deciding response strategy below; you do not need to re-parse tier
 markers in the shepherd loop.
 
-If you encounter a reviewer the adapters do not recognise, the
-`provider.unknown-tier` event surfaces it for follow-up. Treat the
-comment as MEDIUM in the meantime.
+If a *recognised* reviewer (e.g. CodeRabbit) ships a new severity tier
+that the adapter does not match, the `provider.unknown-tier` event
+surfaces the unrecognised tier marker for follow-up — the comment is
+processed as MEDIUM in the meantime. Unknown *reviewers* (authors that
+don't match any typed adapter) are routed silently to the `unknown`
+adapter and never trigger this event; their comments are also processed
+as MEDIUM by default.
 
 ### GitHub Actions Bot Comments
 

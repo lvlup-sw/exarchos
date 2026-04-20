@@ -87,7 +87,7 @@ export interface PrepareDelegationResult {
 
 // ─── Task Classification ────────────────────────────────────────────────────
 
-import { SCAFFOLDING_KEYWORDS } from './scaffolding-keywords.js';
+import { TASK_SCAFFOLDING_KEYWORDS as SCAFFOLDING_KEYWORDS } from './scaffolding-keywords.js';
 
 /**
  * Resolves the recommended model for a given agent type from the agent config.

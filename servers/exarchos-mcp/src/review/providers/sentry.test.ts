@@ -100,14 +100,19 @@ describe('sentryAdapter', () => {
     expect(sentryAdapter.parse(malformed)).toBeNull();
   });
 
-  it('SentryAdapter_NoTier_PopulatesRawTier', () => {
+  it('SentryAdapter_NoTier_DoesNotSetUnknownTier', () => {
+    // Sentry comments often arrive without a tier marker — that's normal,
+    // not drift. The adapter must NOT flag those as unknownTier or it
+    // floods the provider.unknown-tier event stream with false positives
+    // (PR #1161 review feedback).
     const result = sentryAdapter.parse({
       id: 5,
       author: 'sentry-io[bot]',
       body: 'Notice: something happened\n\nSee details below.',
       createdAt: '2026-04-19T00:00:00Z',
     });
-    expect(result?.unknownTier).toBe(true);
-    expect(result?.rawTier).toBe('Notice: something happened');
+    expect(result?.unknownTier).toBeUndefined();
+    expect(result?.rawTier).toBeUndefined();
+    expect(result?.normalizedSeverity).toBe('MEDIUM');
   });
 });

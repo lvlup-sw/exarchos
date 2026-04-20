@@ -45,9 +45,12 @@ const MEDIUM_TIER_PATTERNS: readonly RegExp[] = [
   /_:hammer_and_wrench: Refactor suggestion_/,
 ];
 
+// Heading-position anchor for Nitpick/Minor mirrors the Critical/Major rule
+// above. Without it, prose like "this is a minor concern" mid-sentence would
+// classify the whole comment as LOW (PR #1161 review feedback).
 const LOW_TIER_PATTERNS: readonly RegExp[] = [
   /_:bulb: Verification agent_/,
-  /\b(Nitpick|Minor)\b/i,
+  /(^|\n)[ \t]*[#*]*\s*(Nitpick|Minor)\b/i,
 ];
 
 function classifyTier(body: string): Severity | null {
@@ -76,11 +79,13 @@ export const coderabbitAdapter: ProviderAdapter = {
   kind: 'coderabbit',
 
   parse(comment: VcsPrComment): ActionItem | null {
-    if (comment.author !== CODERABBIT_AUTHOR) {
-      return null;
-    }
-
     try {
+      if (typeof comment.author !== 'string' || comment.author !== CODERABBIT_AUTHOR) {
+        return null;
+      }
+      if (typeof comment.body !== 'string') {
+        return null;
+      }
       const tier = classifyTier(comment.body);
       const normalizedSeverity: Severity = tier ?? 'MEDIUM';
       const unknownTier = tier === null;

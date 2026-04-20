@@ -28,32 +28,36 @@ const SEVERITY_PATTERNS: ReadonlyArray<{ tag: string; severity: Severity }> = [
   { tag: 'LOW', severity: 'LOW' },
 ];
 
-function detectSeverity(body: string): { severity: Severity; matched: boolean } {
+function detectSeverity(body: string): { severity: Severity } {
   for (const { tag, severity } of SEVERITY_PATTERNS) {
     const re = new RegExp(`\\b${tag}\\b`);
     if (re.test(body)) {
-      return { severity, matched: true };
+      return { severity };
     }
   }
-  return { severity: 'MEDIUM', matched: false };
-}
-
-function rawTierMarker(body: string): string {
-  const firstLine = body.split('\n').find((l) => l.trim().length > 0) ?? '';
-  return firstLine.slice(0, 80);
+  return { severity: 'MEDIUM' };
 }
 
 export const sentryAdapter: ProviderAdapter = {
   kind: 'sentry',
   parse(comment: VcsPrComment): ActionItem | null {
-    if (comment.author !== SENTRY_AUTHOR) {
-      return null;
-    }
-
     try {
-      const { severity: normalizedSeverity, matched } = detectSeverity(comment.body);
+      if (typeof comment.author !== 'string' || comment.author !== SENTRY_AUTHOR) {
+        return null;
+      }
+      if (typeof comment.body !== 'string') {
+        return null;
+      }
+      const { severity: normalizedSeverity } = detectSeverity(comment.body);
       const description = comment.body.slice(0, 100);
 
+      // Note: we intentionally do NOT set `unknownTier` when no tier matched.
+      // Unlike CodeRabbit, Sentry does not use a strict tier convention on
+      // every comment — many bug-prediction comments arrive with no tier
+      // marker at all. Treating "no tier" as "unknown tier" would flood the
+      // provider.unknown-tier event stream with false positives. The signal
+      // is reserved for adapters whose providers DO use a structured tier
+      // vocabulary that we want to detect drift in (#1159 PR feedback).
       return {
         type: 'comment-reply',
         pr: 0,
@@ -65,7 +69,6 @@ export const sentryAdapter: ProviderAdapter = {
         file: comment.path,
         line: comment.line,
         normalizedSeverity,
-        ...(matched ? {} : { unknownTier: true, rawTier: rawTierMarker(comment.body) }),
       };
     } catch {
       // Defensive: bad body must not kill the whole batch (#1159).

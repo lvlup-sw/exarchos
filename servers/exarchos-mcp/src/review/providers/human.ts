@@ -18,11 +18,16 @@ const DESCRIPTION_MAX_LENGTH = 100;
 export const humanAdapter: ProviderAdapter = {
   kind: 'human',
   parse(comment: VcsPrComment): ActionItem | null {
-    if (isBotAuthor(comment.author)) {
-      return null;
-    }
-
     try {
+      if (typeof comment.author !== 'string') {
+        return null;
+      }
+      if (isBotAuthor(comment.author)) {
+        return null;
+      }
+      if (typeof comment.body !== 'string') {
+        return null;
+      }
       return {
         type: 'comment-reply',
         pr: 0,

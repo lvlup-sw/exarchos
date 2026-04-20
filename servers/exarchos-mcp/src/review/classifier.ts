@@ -22,7 +22,7 @@ import type {
   DispatchRecommendation,
   Severity,
 } from './types.js';
-import { SCAFFOLDING_KEYWORDS } from '../orchestrate/scaffolding-keywords.js';
+import { REVIEW_DOC_NIT_KEYWORDS } from '../orchestrate/scaffolding-keywords.js';
 
 const SEVERITY_RANK: Record<Severity, number> = { LOW: 0, MEDIUM: 1, HIGH: 2 };
 
@@ -63,7 +63,7 @@ function maxSeverity(items: readonly ActionItem[]): Severity {
 
 function isDocNit(item: ActionItem): boolean {
   const haystack = (item.description ?? '').toLowerCase();
-  return SCAFFOLDING_KEYWORDS.some((kw) => haystack.includes(kw.toLowerCase()));
+  return REVIEW_DOC_NIT_KEYWORDS.some((kw) => haystack.includes(kw.toLowerCase()));
 }
 
 export function recommendForGroup(items: readonly ActionItem[]): {

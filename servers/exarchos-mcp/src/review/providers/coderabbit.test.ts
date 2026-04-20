@@ -137,6 +137,28 @@ describe('coderabbitAdapter', () => {
     expect(result?.rawTier).toBe('_:rocket: Brand new tier_');
   });
 
+  it('CoderabbitAdapter_MidSentenceMinor_DoesNotMatchLow', () => {
+    // Regression for #1161 review feedback: "minor"/"nitpick" used mid-sentence
+    // must NOT classify the comment as LOW. Heading-position anchor required.
+    const comment = makeComment({
+      body: 'This is a minor concern, but it could surface a real bug under load.',
+    });
+
+    const result = coderabbitAdapter.parse(comment);
+
+    expect(result?.normalizedSeverity).not.toBe('LOW');
+  });
+
+  it('CoderabbitAdapter_NitpickHeading_StillMatchesLow', () => {
+    const comment = makeComment({
+      body: '## Nitpick\n\nName this variable more descriptively.',
+    });
+
+    const result = coderabbitAdapter.parse(comment);
+
+    expect(result?.normalizedSeverity).toBe('LOW');
+  });
+
   it('CoderabbitAdapter_MalformedInput_DoesNotThrow', () => {
     // Defensive check: a comment with a body that breaks string ops
     // (e.g., body coerced from a non-string upstream) must return null

@@ -258,19 +258,19 @@ Two facts surfaced when reading the existing code that the design didn't anticip
 
 ---
 
-### Task 13: Emit `provider.unknown_tier` events from adapters
+### Task 13: Emit `provider.unknown-tier` events from adapters
 
 **Phase:** RED → GREEN
 
 1. [RED] Write test: `CoderabbitAdapter_UnrecognizedTier_EmitsUnknownTierEvent`
    - File: `servers/exarchos-mcp/src/orchestrate/assess-stack.test.ts` (event emission integration; adapter unit test would couple too tightly to event-store)
-   - Mock event store. Mock CodeRabbit comment with body `"_:rocket: Brand new tier_ ..."`. Run `assess_stack`. Assert one event of type `provider.unknown_tier` was emitted with data `{reviewer: 'coderabbit', rawTier: ':rocket: Brand new tier', commentId: <id>}`.
+   - Mock event store. Mock CodeRabbit comment with body `"_:rocket: Brand new tier_ ..."`. Run `assess_stack`. Assert one event of type `provider.unknown-tier` was emitted with data `{reviewer: 'coderabbit', rawTier: ':rocket: Brand new tier', commentId: <id>}`.
    - Expected failure: adapter doesn't surface unknown tiers and assess_stack doesn't emit the event.
 
 2. [GREEN]
    - Adapter: when tier doesn't match any known pattern, return `ActionItem` with `normalizedSeverity: 'MEDIUM'` AND attach `unknownTier?: string` field to the result.
    - Add `unknownTier?: string` field to `ActionItem` (or to a sibling result type — pick least-coupling option).
-   - In `assess_stack`, after dispatching the adapter, emit `provider.unknown_tier` if the result carries an `unknownTier`.
+   - In `assess_stack`, after dispatching the adapter, emit `provider.unknown-tier` if the result carries an `unknownTier`.
    - Register the new event type in `servers/exarchos-mcp/src/event-store/event-types.ts` (or wherever event types live — confirm during implementation).
 
 **Dependencies:** Task 11

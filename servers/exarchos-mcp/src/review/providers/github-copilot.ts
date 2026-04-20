@@ -42,11 +42,13 @@ function truncate(body: string, max: number): string {
 export const githubCopilotAdapter: ProviderAdapter = {
   kind: 'github-copilot',
   parse(comment: VcsPrComment): ActionItem | null {
-    if (!isCopilotAuthor(comment.author)) {
-      return null;
-    }
-
     try {
+      if (typeof comment.author !== 'string' || !isCopilotAuthor(comment.author)) {
+        return null;
+      }
+      if (typeof comment.body !== 'string') {
+        return null;
+      }
       return {
         type: 'comment-reply',
         pr: 0,

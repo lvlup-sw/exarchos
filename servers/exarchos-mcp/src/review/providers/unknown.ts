@@ -22,6 +22,9 @@ export const unknownAdapter: ProviderAdapter = {
   kind: 'unknown',
   parse(comment: VcsPrComment): ActionItem | null {
     try {
+      if (typeof comment.body !== 'string') {
+        return null;
+      }
       return {
         type: 'comment-reply',
         pr: 0,
