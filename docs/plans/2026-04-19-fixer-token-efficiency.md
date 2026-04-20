@@ -97,8 +97,8 @@ Two facts surfaced when reading the existing code that the design didn't anticip
 
 1. [RED] Write test: `QueryPrComments_LongCommentBody_RetainsFullBody`
    - File: `servers/exarchos-mcp/src/orchestrate/assess-stack.test.ts`
-   - Mock `provider.getPrComments()` to return a comment whose body is 500 chars. Assert the returned `PrComment.body` is 500 chars (not 200+`...`).
-   - Expected failure: `truncateBody` truncates at 200.
+   - Mock `provider.getPrComments()` to return a comment whose body is 500 chars. Assert `PrComment.fullBody` is 500 chars (original, untruncated) and `PrComment.body` remains display-truncated at 200 chars.
+   - Expected failure: `fullBody` does not yet exist on `PrComment`.
 
 2. [GREEN] Modify `PrComment` in `assess-stack.ts:39-42` to add `fullBody: string` field. `queryPrComments` populates `fullBody` with the original; `body` continues to be truncated for display.
    - File: `servers/exarchos-mcp/src/orchestrate/assess-stack.ts:39-42, 118-132`
