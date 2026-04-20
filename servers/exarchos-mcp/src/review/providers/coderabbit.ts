@@ -65,19 +65,10 @@ function classifyTier(body: string): Severity | null {
 
 // ─── Adapter ────────────────────────────────────────────────────────────────
 
-/**
- * ActionItem variant returned by the CodeRabbit adapter. Adds an optional
- * `unknownTier` marker (set when the body did not match any recognized tier
- * pattern) so callers can distinguish an explicit MEDIUM from a fallback.
- */
-export interface CoderabbitActionItem extends ActionItem {
-  readonly unknownTier?: boolean;
-}
-
 export const coderabbitAdapter: ProviderAdapter = {
   kind: 'coderabbit',
 
-  parse(comment: VcsPrComment): CoderabbitActionItem | null {
+  parse(comment: VcsPrComment): ActionItem | null {
     if (comment.author !== CODERABBIT_AUTHOR) {
       return null;
     }
@@ -86,7 +77,7 @@ export const coderabbitAdapter: ProviderAdapter = {
     const normalizedSeverity: Severity = tier ?? 'MEDIUM';
     const unknownTier = tier === null;
 
-    const item: CoderabbitActionItem = {
+    return {
       type: 'comment-reply',
       pr: 0,
       description: comment.body.slice(0, 100),
@@ -99,7 +90,5 @@ export const coderabbitAdapter: ProviderAdapter = {
       normalizedSeverity,
       ...(unknownTier ? { unknownTier: true } : {}),
     };
-
-    return item;
   },
 };

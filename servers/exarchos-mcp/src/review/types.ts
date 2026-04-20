@@ -63,6 +63,13 @@ export interface ActionItem {
   readonly threadId?: string;
   readonly raw?: unknown;
   readonly normalizedSeverity?: Severity;
+  /**
+   * True when the adapter could not match any recognised severity tier
+   * in the comment body. Surfaced via the `provider.unknown-tier` event
+   * by assess_stack so that drift in upstream tier vocabulary is visible
+   * (#1159).
+   */
+  readonly unknownTier?: boolean;
 }
 
 export interface ProviderAdapter {

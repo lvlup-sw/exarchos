@@ -118,24 +118,39 @@ async function queryPrComments(
   provider: VcsProvider,
   prNumber: number,
   registry: ReviewAdapterRegistry,
+  eventStore: EventStore,
+  featureId: string,
 ): Promise<PrComment[]> {
   try {
     const comments: VcsPrComment[] = await provider.getPrComments(String(prNumber));
     // All comments from VcsProvider are treated as unresolved
     // (GitHub API doesn't provide isResolved for review comments)
-    return comments.map(c => {
+    const results: PrComment[] = [];
+    for (const c of comments) {
       const kind = detectKind(c.author);
       const adapter = registry.forReviewer(kind);
       const parsed = adapter?.parse(c) ?? undefined;
       // Stamp the PR number onto the parsed item (adapters return pr=0 by convention)
       const actionItem = parsed ? { ...parsed, pr: prNumber } : undefined;
-      return {
+      if (actionItem?.unknownTier) {
+        await eventStore.append(featureId, {
+          type: 'provider.unknown-tier' as const,
+          data: {
+            reviewer: actionItem.reviewer ?? kind,
+            commentId: c.id,
+          },
+        }, {
+          idempotencyKey: `${featureId}:provider.unknown-tier:${prNumber}:${c.id}`,
+        });
+      }
+      results.push({
         body: truncateBody(c.body),
         fullBody: c.body,
         isResolved: false,
         actionItem,
-      };
-    });
+      });
+    }
+    return results;
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
     orchestrateLogger.warn({ prNumber, err: message }, 'Failed to query comments');
@@ -154,10 +169,12 @@ async function queryPrStatus(
   provider: VcsProvider,
   prNumber: number,
   registry: ReviewAdapterRegistry,
+  eventStore: EventStore,
+  featureId: string,
 ): Promise<PrStatus> {
   const checks = await queryPrChecks(provider, prNumber);
   const reviews = await queryPrReviews(provider, prNumber);
-  const allComments = await queryPrComments(provider, prNumber, registry);
+  const allComments = await queryPrComments(provider, prNumber, registry, eventStore, featureId);
   const unresolvedComments = allComments.filter(c => !c.isResolved);
 
   return {
@@ -189,11 +206,21 @@ export function classifyActionItems(prStatuses: readonly PrStatus[]): ActionItem
 
     // Unresolved comments -> comment-reply items
     for (const comment of prStatus.unresolvedComments) {
+      // Thread the adapter-parsed fields when present (#1159);
+      // fall back to the legacy shape when no adapter ran.
+      const adapterItem = comment.actionItem;
       items.push({
         type: 'comment-reply',
         pr: prStatus.pr,
-        description: `Unresolved comment: ${comment.body.slice(0, 100)}`,
+        description: adapterItem?.description
+          ?? `Unresolved comment: ${comment.body.slice(0, 100)}`,
         severity: 'major',
+        ...(adapterItem?.reviewer ? { reviewer: adapterItem.reviewer } : {}),
+        ...(adapterItem?.file ? { file: adapterItem.file } : {}),
+        ...(adapterItem?.line !== undefined ? { line: adapterItem.line } : {}),
+        ...(adapterItem?.threadId ? { threadId: adapterItem.threadId } : {}),
+        ...(adapterItem?.normalizedSeverity ? { normalizedSeverity: adapterItem.normalizedSeverity } : {}),
+        ...(adapterItem?.raw !== undefined ? { raw: adapterItem.raw } : {}),
       });
     }
 
@@ -424,7 +451,7 @@ export async function handleAssessStack(
 
   // Query status for each PR
   const prStatuses = await Promise.all(
-    args.prNumbers.map(pr => queryPrStatus(vcs, pr, registry)),
+    args.prNumbers.map(pr => queryPrStatus(vcs, pr, registry, eventStore, args.featureId)),
   );
 
   // Emit dual events

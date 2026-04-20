@@ -76,6 +76,7 @@ export const EventTypes = [
   'checkpoint.state_missing',
   'preflight.executed',
   'preflight.blocked',
+  'provider.unknown-tier',
 ] as const;
 
 export type EventType = typeof EventTypes[number];
@@ -246,6 +247,10 @@ export const EVENT_EMISSION_REGISTRY: Record<EventType, EventEmissionSource> = {
   'checkpoint.state_missing': 'auto',
   'preflight.executed': 'auto',
   'preflight.blocked': 'auto',
+
+  // auto — emitted by assess_stack when a review provider adapter
+  // encounters an unrecognised severity tier (#1159).
+  'provider.unknown-tier': 'auto',
 
   // planned — schema exists, not yet emitted in production
   'eval.run.started': 'planned',
@@ -902,6 +907,13 @@ export const EVENT_DATA_SCHEMAS: Partial<Record<EventType, z.ZodSchema>> = {
 
   // Init (exarchos init)
   'init.executed': InitExecutedDataSchema,
+
+  // Review provider adapter unknown-tier (#1159)
+  'provider.unknown-tier': z.object({
+    reviewer: z.string().min(1),
+    rawTier: z.string().optional(),
+    commentId: z.number().int(),
+  }),
 };
 
 // ─── TypeScript Types ───────────────────────────────────────────────────────

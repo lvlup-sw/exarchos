@@ -640,6 +640,96 @@ describe('handleAssessStack', () => {
     });
   });
 
+  describe('provider.unknown-tier event emission', () => {
+    it('AssessStack_CoderabbitUnknownTier_EmitsUnknownTierEvent', async () => {
+      mockAppend.mockClear();
+      const provider = createMockProvider({
+        checkCi: { status: 'pass', checks: [{ name: 'ci/build', status: 'pass' }] },
+        prComments: [
+          {
+            id: 777,
+            author: 'coderabbitai[bot]',
+            body: '_:rocket: Brand new tier_\n\nLooks like something CodeRabbit ships in a future version.',
+            createdAt: '2026-01-01T00:00:00Z',
+          },
+        ],
+      });
+
+      await handleAssessStack(
+        { featureId: 'test-feature', prNumbers: [42] },
+        STATE_DIR,
+        provider,
+      );
+
+      const unknownTierCalls = mockAppend.mock.calls.filter(
+        (call: unknown[]) => (call[1] as { type: string }).type === 'provider.unknown-tier',
+      );
+      expect(unknownTierCalls.length).toBe(1);
+      const data = (unknownTierCalls[0][1] as { data: { reviewer: string; commentId: number } }).data;
+      expect(data.reviewer).toBe('coderabbit');
+      expect(data.commentId).toBe(777);
+    });
+
+    it('AssessStack_RecognizedTier_DoesNotEmitUnknownTierEvent', async () => {
+      mockAppend.mockClear();
+      const provider = createMockProvider({
+        checkCi: { status: 'pass', checks: [{ name: 'ci/build', status: 'pass' }] },
+        prComments: [
+          {
+            id: 1,
+            author: 'coderabbitai[bot]',
+            body: '_:warning: Potential issue_\n\nThis is a recognized tier.',
+            createdAt: '2026-01-01T00:00:00Z',
+          },
+        ],
+      });
+
+      await handleAssessStack(
+        { featureId: 'test-feature', prNumbers: [42] },
+        STATE_DIR,
+        provider,
+      );
+
+      const unknownTierCalls = mockAppend.mock.calls.filter(
+        (call: unknown[]) => (call[1] as { type: string }).type === 'provider.unknown-tier',
+      );
+      expect(unknownTierCalls.length).toBe(0);
+    });
+  });
+
+  describe('classifyActionItems severity threading', () => {
+    it('ClassifyActionItems_HighSeverityComment_RetainsHighNormalizedSeverity', async () => {
+      const provider = createMockProvider({
+        checkCi: { status: 'pass', checks: [{ name: 'ci/build', status: 'pass' }] },
+        prComments: [
+          {
+            id: 1,
+            author: 'coderabbitai[bot]',
+            body: '_:warning: Potential issue_\n\nNull pointer.',
+            createdAt: '2026-01-01T00:00:00Z',
+            path: 'src/x.ts',
+            line: 5,
+          },
+        ],
+      });
+
+      const result = await handleAssessStack(
+        { featureId: 'test-feature', prNumbers: [42] },
+        STATE_DIR,
+        provider,
+      );
+
+      const data = result.data as {
+        actionItems: Array<{ type: string; normalizedSeverity?: string; reviewer?: string; file?: string }>;
+      };
+      const commentReply = data.actionItems.find((i) => i.type === 'comment-reply');
+      expect(commentReply).toBeDefined();
+      expect(commentReply?.normalizedSeverity).toBe('HIGH');
+      expect(commentReply?.reviewer).toBe('coderabbit');
+      expect(commentReply?.file).toBe('src/x.ts');
+    });
+  });
+
   describe('adapter dispatch via registry', () => {
     it('QueryPrComments_CoderabbitComment_PopulatesNormalizedSeverity', async () => {
       const provider = createMockProvider({

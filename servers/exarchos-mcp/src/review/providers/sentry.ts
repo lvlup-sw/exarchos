@@ -28,14 +28,14 @@ const SEVERITY_PATTERNS: ReadonlyArray<{ tag: string; severity: Severity }> = [
   { tag: 'LOW', severity: 'LOW' },
 ];
 
-function detectSeverity(body: string): Severity {
+function detectSeverity(body: string): { severity: Severity; matched: boolean } {
   for (const { tag, severity } of SEVERITY_PATTERNS) {
     const re = new RegExp(`\\b${tag}\\b`);
     if (re.test(body)) {
-      return severity;
+      return { severity, matched: true };
     }
   }
-  return 'MEDIUM';
+  return { severity: 'MEDIUM', matched: false };
 }
 
 export const sentryAdapter: ProviderAdapter = {
@@ -45,10 +45,10 @@ export const sentryAdapter: ProviderAdapter = {
       return null;
     }
 
-    const normalizedSeverity = detectSeverity(comment.body);
+    const { severity: normalizedSeverity, matched } = detectSeverity(comment.body);
     const description = comment.body.slice(0, 100);
 
-    const item: ActionItem = {
+    return {
       type: 'comment-reply',
       pr: 0,
       description,
@@ -59,7 +59,7 @@ export const sentryAdapter: ProviderAdapter = {
       file: comment.path,
       line: comment.line,
       normalizedSeverity,
+      ...(matched ? {} : { unknownTier: true }),
     };
-    return item;
   },
 };
