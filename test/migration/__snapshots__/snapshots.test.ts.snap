@@ -3317,7 +3317,7 @@ These events feed \`selfCorrectionRate\` and \`avgRemediationAttempts\` metrics 
 | Type | Strategy |
 |------|----------|
 | \`ci-fix\` | Read logs, reproduce locally, fix, commit to stack branch |
-| \`comment-reply\` | Use \`actionItem.reviewer\`, \`normalizedSeverity\`, \`file\`, \`line\`, and \`raw\` (full original comment) to compose a response; post via the \`add_pr_comment\` orchestrate action (provider-agnostic — VcsProvider routes to GitHub, GitLab, or Azure DevOps). Provider adapters under \`servers/exarchos-mcp/src/review/providers/\` populate the input fields per #1159 — no manual tier parsing needed. |
+| \`comment-reply\` | Use \`actionItem.reviewer\`, \`normalizedSeverity\`, \`file\`, \`line\`, and \`raw\` (full original comment) to compose a response. Provider adapters under \`servers/exarchos-mcp/src/review/providers/\` populate the input fields per #1159 — no manual tier parsing needed. **Posting:** PR-level summary comments use the provider-agnostic \`add_pr_comment\` orchestrate action; per-thread inline replies currently require the platform-specific MCP (e.g. \`mcp__plugin_github_github__add_reply_to_pull_request_comment\` for GitHub) until \`VcsProvider\` gains a thread-reply primitive — see [#1165](https://github.com/lvlup-sw/exarchos/issues/1165) for tracking. |
 | \`review-address\` | Fix code for CHANGES_REQUESTED, reply to each thread |
 | \`restack\` | Run \`git rebase origin/<base>\`, verify with \`exarchos_orchestrate({ action: "list_prs" })\` |
 | \`escalate\` | Consult \`references/escalation-criteria.md\` |
@@ -7557,7 +7557,7 @@ These events feed \`selfCorrectionRate\` and \`avgRemediationAttempts\` metrics 
 | Type | Strategy |
 |------|----------|
 | \`ci-fix\` | Read logs, reproduce locally, fix, commit to stack branch |
-| \`comment-reply\` | Use \`actionItem.reviewer\`, \`normalizedSeverity\`, \`file\`, \`line\`, and \`raw\` (full original comment) to compose a response; post via the \`add_pr_comment\` orchestrate action (provider-agnostic — VcsProvider routes to GitHub, GitLab, or Azure DevOps). Provider adapters under \`servers/exarchos-mcp/src/review/providers/\` populate the input fields per #1159 — no manual tier parsing needed. |
+| \`comment-reply\` | Use \`actionItem.reviewer\`, \`normalizedSeverity\`, \`file\`, \`line\`, and \`raw\` (full original comment) to compose a response. Provider adapters under \`servers/exarchos-mcp/src/review/providers/\` populate the input fields per #1159 — no manual tier parsing needed. **Posting:** PR-level summary comments use the provider-agnostic \`add_pr_comment\` orchestrate action; per-thread inline replies currently require the platform-specific MCP (e.g. \`mcp__plugin_github_github__add_reply_to_pull_request_comment\` for GitHub) until \`VcsProvider\` gains a thread-reply primitive — see [#1165](https://github.com/lvlup-sw/exarchos/issues/1165) for tracking. |
 | \`review-address\` | Fix code for CHANGES_REQUESTED, reply to each thread |
 | \`restack\` | Run \`git rebase origin/<base>\`, verify with \`exarchos_orchestrate({ action: "list_prs" })\` |
 | \`escalate\` | Consult \`references/escalation-criteria.md\` |
@@ -11789,7 +11789,7 @@ These events feed \`selfCorrectionRate\` and \`avgRemediationAttempts\` metrics 
 | Type | Strategy |
 |------|----------|
 | \`ci-fix\` | Read logs, reproduce locally, fix, commit to stack branch |
-| \`comment-reply\` | Use \`actionItem.reviewer\`, \`normalizedSeverity\`, \`file\`, \`line\`, and \`raw\` (full original comment) to compose a response; post via the \`add_pr_comment\` orchestrate action (provider-agnostic — VcsProvider routes to GitHub, GitLab, or Azure DevOps). Provider adapters under \`servers/exarchos-mcp/src/review/providers/\` populate the input fields per #1159 — no manual tier parsing needed. |
+| \`comment-reply\` | Use \`actionItem.reviewer\`, \`normalizedSeverity\`, \`file\`, \`line\`, and \`raw\` (full original comment) to compose a response. Provider adapters under \`servers/exarchos-mcp/src/review/providers/\` populate the input fields per #1159 — no manual tier parsing needed. **Posting:** PR-level summary comments use the provider-agnostic \`add_pr_comment\` orchestrate action; per-thread inline replies currently require the platform-specific MCP (e.g. \`mcp__plugin_github_github__add_reply_to_pull_request_comment\` for GitHub) until \`VcsProvider\` gains a thread-reply primitive — see [#1165](https://github.com/lvlup-sw/exarchos/issues/1165) for tracking. |
 | \`review-address\` | Fix code for CHANGES_REQUESTED, reply to each thread |
 | \`restack\` | Run \`git rebase origin/<base>\`, verify with \`exarchos_orchestrate({ action: "list_prs" })\` |
 | \`escalate\` | Consult \`references/escalation-criteria.md\` |
@@ -16027,7 +16027,7 @@ These events feed \`selfCorrectionRate\` and \`avgRemediationAttempts\` metrics 
 | Type | Strategy |
 |------|----------|
 | \`ci-fix\` | Read logs, reproduce locally, fix, commit to stack branch |
-| \`comment-reply\` | Use \`actionItem.reviewer\`, \`normalizedSeverity\`, \`file\`, \`line\`, and \`raw\` (full original comment) to compose a response; post via the \`add_pr_comment\` orchestrate action (provider-agnostic — VcsProvider routes to GitHub, GitLab, or Azure DevOps). Provider adapters under \`servers/exarchos-mcp/src/review/providers/\` populate the input fields per #1159 — no manual tier parsing needed. |
+| \`comment-reply\` | Use \`actionItem.reviewer\`, \`normalizedSeverity\`, \`file\`, \`line\`, and \`raw\` (full original comment) to compose a response. Provider adapters under \`servers/exarchos-mcp/src/review/providers/\` populate the input fields per #1159 — no manual tier parsing needed. **Posting:** PR-level summary comments use the provider-agnostic \`add_pr_comment\` orchestrate action; per-thread inline replies currently require the platform-specific MCP (e.g. \`mcp__plugin_github_github__add_reply_to_pull_request_comment\` for GitHub) until \`VcsProvider\` gains a thread-reply primitive — see [#1165](https://github.com/lvlup-sw/exarchos/issues/1165) for tracking. |
 | \`review-address\` | Fix code for CHANGES_REQUESTED, reply to each thread |
 | \`restack\` | Run \`git rebase origin/<base>\`, verify with \`exarchos_orchestrate({ action: "list_prs" })\` |
 | \`escalate\` | Consult \`references/escalation-criteria.md\` |
@@ -20259,7 +20259,7 @@ These events feed \`selfCorrectionRate\` and \`avgRemediationAttempts\` metrics 
 | Type | Strategy |
 |------|----------|
 | \`ci-fix\` | Read logs, reproduce locally, fix, commit to stack branch |
-| \`comment-reply\` | Use \`actionItem.reviewer\`, \`normalizedSeverity\`, \`file\`, \`line\`, and \`raw\` (full original comment) to compose a response; post via the \`add_pr_comment\` orchestrate action (provider-agnostic — VcsProvider routes to GitHub, GitLab, or Azure DevOps). Provider adapters under \`servers/exarchos-mcp/src/review/providers/\` populate the input fields per #1159 — no manual tier parsing needed. |
+| \`comment-reply\` | Use \`actionItem.reviewer\`, \`normalizedSeverity\`, \`file\`, \`line\`, and \`raw\` (full original comment) to compose a response. Provider adapters under \`servers/exarchos-mcp/src/review/providers/\` populate the input fields per #1159 — no manual tier parsing needed. **Posting:** PR-level summary comments use the provider-agnostic \`add_pr_comment\` orchestrate action; per-thread inline replies currently require the platform-specific MCP (e.g. \`mcp__plugin_github_github__add_reply_to_pull_request_comment\` for GitHub) until \`VcsProvider\` gains a thread-reply primitive — see [#1165](https://github.com/lvlup-sw/exarchos/issues/1165) for tracking. |
 | \`review-address\` | Fix code for CHANGES_REQUESTED, reply to each thread |
 | \`restack\` | Run \`git rebase origin/<base>\`, verify with \`exarchos_orchestrate({ action: "list_prs" })\` |
 | \`escalate\` | Consult \`references/escalation-criteria.md\` |
@@ -24499,7 +24499,7 @@ These events feed \`selfCorrectionRate\` and \`avgRemediationAttempts\` metrics 
 | Type | Strategy |
 |------|----------|
 | \`ci-fix\` | Read logs, reproduce locally, fix, commit to stack branch |
-| \`comment-reply\` | Use \`actionItem.reviewer\`, \`normalizedSeverity\`, \`file\`, \`line\`, and \`raw\` (full original comment) to compose a response; post via the \`add_pr_comment\` orchestrate action (provider-agnostic — VcsProvider routes to GitHub, GitLab, or Azure DevOps). Provider adapters under \`servers/exarchos-mcp/src/review/providers/\` populate the input fields per #1159 — no manual tier parsing needed. |
+| \`comment-reply\` | Use \`actionItem.reviewer\`, \`normalizedSeverity\`, \`file\`, \`line\`, and \`raw\` (full original comment) to compose a response. Provider adapters under \`servers/exarchos-mcp/src/review/providers/\` populate the input fields per #1159 — no manual tier parsing needed. **Posting:** PR-level summary comments use the provider-agnostic \`add_pr_comment\` orchestrate action; per-thread inline replies currently require the platform-specific MCP (e.g. \`mcp__plugin_github_github__add_reply_to_pull_request_comment\` for GitHub) until \`VcsProvider\` gains a thread-reply primitive — see [#1165](https://github.com/lvlup-sw/exarchos/issues/1165) for tracking. |
 | \`review-address\` | Fix code for CHANGES_REQUESTED, reply to each thread |
 | \`restack\` | Run \`git rebase origin/<base>\`, verify with \`exarchos_orchestrate({ action: "list_prs" })\` |
 | \`escalate\` | Consult \`references/escalation-criteria.md\` |
