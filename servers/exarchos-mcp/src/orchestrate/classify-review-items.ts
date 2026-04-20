@@ -16,6 +16,32 @@ import type { ToolResult } from '../format.js';
 import type { EventStore } from '../event-store/store.js';
 import type { ActionItem, Severity } from '../review/types.js';
 import { classifyReviewItems } from '../review/classifier.js';
+import { orchestrateLogger } from '../logger.js';
+
+// Canonical per-item fingerprint for idempotency. Including all identifying
+// fields (not just threadId) makes the signature stable across equivalent
+// inputs and distinct across genuinely different batches; sorting on the
+// composite key renders order-insensitivity (#1161 PR feedback).
+function canonicalSignature(items: readonly ActionItem[]): string {
+  const canonical = items
+    .map((i) => ({
+      threadId: i.threadId ?? null,
+      file: i.file ?? null,
+      line: i.line ?? null,
+      reviewer: i.reviewer ?? null,
+      severity: i.normalizedSeverity ?? null,
+      description: i.description ?? null,
+    }))
+    .sort((a, b) => {
+      const ka = `${a.threadId ?? ''}|${a.file ?? ''}|${a.line ?? ''}|${a.reviewer ?? ''}|${a.severity ?? ''}|${a.description ?? ''}`;
+      const kb = `${b.threadId ?? ''}|${b.file ?? ''}|${b.line ?? ''}|${b.reviewer ?? ''}|${b.severity ?? ''}|${b.description ?? ''}`;
+      return ka.localeCompare(kb);
+    });
+  return createHash('sha1')
+    .update(JSON.stringify(canonical))
+    .digest('hex')
+    .slice(0, 16);
+}
 
 export interface ClassifyReviewItemsArgs {
   readonly featureId: string;
@@ -60,22 +86,29 @@ export async function handleClassifyReviewItems(
 
   if (args.eventStore) {
     // Idempotency: same featureId + same input ActionItems → same key,
-    // so retries don't accumulate duplicate events on the stream.
-    const signature = createHash('sha1')
-      .update(JSON.stringify(args.actionItems.map((i) => i.threadId ?? i.file ?? i.description)))
-      .digest('hex')
-      .slice(0, 16);
-    await args.eventStore.append(args.featureId, {
-      type: 'dispatch.classified' as const,
-      data: {
-        groupCount: result.groups.length,
-        directCount: result.summary.directCount,
-        delegateCount: result.summary.delegateCount,
-        severityDistribution: severityDistribution(args.actionItems),
-      },
-    }, {
-      idempotencyKey: `${args.featureId}:dispatch.classified:${signature}`,
-    });
+    // so retries don't accumulate duplicate events on the stream. Telemetry
+    // is best-effort — a failing event store must not abort classification,
+    // which is the shepherd-visible result (#1161).
+    const signature = canonicalSignature(args.actionItems);
+    try {
+      await args.eventStore.append(args.featureId, {
+        type: 'dispatch.classified' as const,
+        data: {
+          groupCount: result.groups.length,
+          directCount: result.summary.directCount,
+          delegateCount: result.summary.delegateCount,
+          severityDistribution: severityDistribution(args.actionItems),
+        },
+      }, {
+        idempotencyKey: `${args.featureId}:dispatch.classified:${signature}`,
+      });
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      orchestrateLogger.warn(
+        { featureId: args.featureId, err: errorMessage },
+        'Failed to append dispatch.classified event; classification result still returned',
+      );
+    }
   }
 
   return { success: true, data: result };

@@ -113,4 +113,79 @@ describe('handleClassifyReviewItems', () => {
     const key2 = (eventStore2.append as ReturnType<typeof vi.fn>).mock.calls[0][2].idempotencyKey;
     expect(key1).toBe(key2);
   });
+
+  // ─── Idempotency Signature Robustness (#1161) ─────────────────────────────
+
+  it('OrchestrateClassifyReviewItems_ReorderedItems_ProducesSameIdempotencyKey', async () => {
+    const eventStoreA = makeEventStore();
+    const eventStoreB = makeEventStore();
+    const a = makeItem({ threadId: 't-1', file: 'src/a.ts', line: 10, reviewer: 'coderabbit', normalizedSeverity: 'HIGH' });
+    const b = makeItem({ threadId: 't-2', file: 'src/b.ts', line: 20, reviewer: 'sentry', normalizedSeverity: 'MEDIUM' });
+    await handleClassifyReviewItems({ featureId: 'feat-x', actionItems: [a, b], eventStore: eventStoreA });
+    await handleClassifyReviewItems({ featureId: 'feat-x', actionItems: [b, a], eventStore: eventStoreB });
+
+    const keyA = (eventStoreA.append as ReturnType<typeof vi.fn>).mock.calls[0][2].idempotencyKey;
+    const keyB = (eventStoreB.append as ReturnType<typeof vi.fn>).mock.calls[0][2].idempotencyKey;
+    expect(keyA).toBe(keyB);
+  });
+
+  it('OrchestrateClassifyReviewItems_DifferentSeverity_ProducesDifferentIdempotencyKey', async () => {
+    const eventStoreA = makeEventStore();
+    const eventStoreB = makeEventStore();
+    const base = { threadId: 't-1', file: 'src/a.ts', line: 10, reviewer: 'coderabbit' as const };
+    await handleClassifyReviewItems({
+      featureId: 'feat-x',
+      actionItems: [makeItem({ ...base, normalizedSeverity: 'HIGH' })],
+      eventStore: eventStoreA,
+    });
+    await handleClassifyReviewItems({
+      featureId: 'feat-x',
+      actionItems: [makeItem({ ...base, normalizedSeverity: 'LOW' })],
+      eventStore: eventStoreB,
+    });
+
+    const keyA = (eventStoreA.append as ReturnType<typeof vi.fn>).mock.calls[0][2].idempotencyKey;
+    const keyB = (eventStoreB.append as ReturnType<typeof vi.fn>).mock.calls[0][2].idempotencyKey;
+    expect(keyA).not.toBe(keyB);
+  });
+
+  it('OrchestrateClassifyReviewItems_DifferentReviewer_ProducesDifferentIdempotencyKey', async () => {
+    const eventStoreA = makeEventStore();
+    const eventStoreB = makeEventStore();
+    const base = { threadId: 't-1', file: 'src/a.ts', line: 10, normalizedSeverity: 'HIGH' as const };
+    await handleClassifyReviewItems({
+      featureId: 'feat-x',
+      actionItems: [makeItem({ ...base, reviewer: 'coderabbit' })],
+      eventStore: eventStoreA,
+    });
+    await handleClassifyReviewItems({
+      featureId: 'feat-x',
+      actionItems: [makeItem({ ...base, reviewer: 'sentry' })],
+      eventStore: eventStoreB,
+    });
+
+    const keyA = (eventStoreA.append as ReturnType<typeof vi.fn>).mock.calls[0][2].idempotencyKey;
+    const keyB = (eventStoreB.append as ReturnType<typeof vi.fn>).mock.calls[0][2].idempotencyKey;
+    expect(keyA).not.toBe(keyB);
+  });
+
+  // ─── Telemetry Failure is Non-Fatal (#1161) ───────────────────────────────
+
+  it('OrchestrateClassifyReviewItems_EventStoreThrows_StillReturnsResult', async () => {
+    const eventStore = {
+      append: vi.fn().mockRejectedValue(new Error('event store down')),
+      query: vi.fn().mockResolvedValue([]),
+      batchAppend: vi.fn().mockResolvedValue(undefined),
+    } as unknown as EventStore;
+
+    const result = await handleClassifyReviewItems({
+      featureId: 'feat-x',
+      actionItems: [makeItem({ file: 'src/a.ts' })],
+      eventStore,
+    });
+
+    expect(result.success).toBe(true);
+    const data = result.data as { groups: unknown[] };
+    expect(Array.isArray(data.groups)).toBe(true);
+  });
 });

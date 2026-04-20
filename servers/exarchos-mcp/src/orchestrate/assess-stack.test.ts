@@ -19,6 +19,7 @@ vi.mock('../event-store/store.js', () => ({
 }));
 
 import { handleAssessStack } from './assess-stack.js';
+import type { ReviewAdapterRegistry, ProviderAdapter, ReviewerKind } from '../review/types.js';
 
 const STATE_DIR = '/tmp/test-assess-stack';
 
@@ -895,6 +896,95 @@ describe('handleAssessStack', () => {
       expect(item.file).toBe('src/foo.ts');
       expect(item.normalizedSeverity).toBe('HIGH');
       expect(item.reviewer).toBe('coderabbit');
+    });
+  });
+
+  // ─── Adapter Parse Error Handling (#1161) ─────────────────────────────────
+
+  describe('adapter parse-error batch safety', () => {
+    function makeRegistry(opts: {
+      throwingAuthor: string;
+      throwMessage: string;
+    }): ReviewAdapterRegistry {
+      const throwingAdapter: ProviderAdapter = {
+        kind: 'coderabbit',
+        parse: () => {
+          throw new Error(opts.throwMessage);
+        },
+      };
+      const passthroughAdapter: ProviderAdapter = {
+        kind: 'unknown',
+        parse: (c) => ({
+          type: 'comment-reply',
+          pr: 0,
+          description: c.body.slice(0, 100),
+          severity: 'major',
+          reviewer: 'unknown',
+          threadId: String(c.id),
+          raw: c,
+          normalizedSeverity: 'MEDIUM',
+        }),
+      };
+      const byKind = new Map<ReviewerKind, ProviderAdapter>([
+        ['coderabbit', throwingAdapter],
+        ['unknown', passthroughAdapter],
+      ]);
+      return {
+        forReviewer: (k) => byKind.get(k),
+        list: () => [throwingAdapter, passthroughAdapter],
+      };
+    }
+
+    it('AssessStack_AdapterThrows_EmitsProviderParseError', async () => {
+      const registry = makeRegistry({ throwingAuthor: 'coderabbitai[bot]', throwMessage: 'bad body' });
+      const provider = createMockProvider({
+        checkCi: { status: 'pass', checks: [{ name: 'ci/build', status: 'pass' }] },
+        prComments: [
+          { id: 99, author: 'coderabbitai[bot]', body: 'explodes', createdAt: '2026-01-01T00:00:00Z' },
+        ],
+      });
+
+      await handleAssessStack(
+        { featureId: 'test-feature', prNumbers: [42] },
+        STATE_DIR,
+        provider,
+        registry,
+      );
+
+      const parseErrCalls = mockAppend.mock.calls.filter(
+        (call: unknown[]) => (call[1] as { type: string }).type === 'provider.parse-error',
+      );
+      expect(parseErrCalls.length).toBe(1);
+      const data = (parseErrCalls[0][1] as { data: Record<string, unknown> }).data;
+      expect(data.reviewer).toBe('coderabbit');
+      expect(data.commentId).toBe(99);
+      expect(data.errorMessage).toContain('bad body');
+      const idemKey = (parseErrCalls[0][2] as { idempotencyKey: string })?.idempotencyKey;
+      expect(idemKey).toBe('test-feature:provider.parse-error:42:99');
+    });
+
+    it('AssessStack_AdapterThrowsOnOne_BatchContinuesForOthers', async () => {
+      const registry = makeRegistry({ throwingAuthor: 'coderabbitai[bot]', throwMessage: 'boom' });
+      const provider = createMockProvider({
+        checkCi: { status: 'pass', checks: [{ name: 'ci/build', status: 'pass' }] },
+        prComments: [
+          { id: 1, author: 'coderabbitai[bot]', body: 'explodes', createdAt: '2026-01-01T00:00:00Z' },
+          { id: 2, author: 'mystery-reviewer', body: 'survives', createdAt: '2026-01-01T00:00:00Z' },
+        ],
+      });
+
+      const result = await handleAssessStack(
+        { featureId: 'test-feature', prNumbers: [42] },
+        STATE_DIR,
+        provider,
+        registry,
+      );
+
+      expect(result.success).toBe(true);
+      const status = (result.data as { status: { prs: Array<{ unresolvedComments: Array<{ body: string }> }> } }).status;
+      const bodies = status.prs[0].unresolvedComments.map((c) => c.body);
+      expect(bodies).toContain('survives');
+      expect(bodies).toContain('explodes');
     });
   });
 });

@@ -77,6 +77,7 @@ export const EventTypes = [
   'preflight.executed',
   'preflight.blocked',
   'provider.unknown-tier',
+  'provider.parse-error',
   'dispatch.classified',
 ] as const;
 
@@ -252,6 +253,11 @@ export const EVENT_EMISSION_REGISTRY: Record<EventType, EventEmissionSource> = {
   // auto — emitted by assess_stack when a review provider adapter
   // encounters an unrecognised severity tier (#1159).
   'provider.unknown-tier': 'auto',
+
+  // auto — emitted by assess_stack when adapter.parse throws; the batch
+  // continues, but we record the failure so observability catches
+  // adapter regressions instead of them being silently swallowed (#1161).
+  'provider.parse-error': 'auto',
 
   // auto — emitted by classify_review_items per invocation, capturing
   // the per-group dispatch decisions for downstream observability (#1159).
@@ -918,6 +924,14 @@ export const EVENT_DATA_SCHEMAS: Partial<Record<EventType, z.ZodSchema>> = {
     reviewer: z.string().min(1),
     rawTier: z.string().optional(),
     commentId: z.number().int(),
+  }),
+
+  // Review provider adapter parse-error (#1161) — batch continues; this
+  // event records the single-comment failure for observability.
+  'provider.parse-error': z.object({
+    reviewer: z.string().min(1),
+    commentId: z.number().int(),
+    errorMessage: z.string().min(1),
   }),
 
   // classify_review_items per-invocation observability (#1159)

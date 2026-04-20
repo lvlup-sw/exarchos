@@ -129,9 +129,31 @@ async function queryPrComments(
     for (const c of comments) {
       const kind = detectKind(c.author);
       const adapter = registry.forReviewer(kind);
-      const parsed = adapter?.parse(c) ?? undefined;
-      // Stamp the PR number onto the parsed item (adapters return pr=0 by convention)
-      const actionItem = parsed ? { ...parsed, pr: prNumber } : undefined;
+      // Outer defensive wrap: even though adapters self-guard in their own
+      // try/catch, a malformed comment or a bug in an adapter must not kill
+      // the entire batch. On throw we record `provider.parse-error` for
+      // observability and continue with actionItem=undefined (#1161).
+      let actionItem: ActionItem | undefined;
+      try {
+        const parsed = adapter?.parse(c) ?? undefined;
+        actionItem = parsed ? { ...parsed, pr: prNumber } : undefined;
+      } catch (err: unknown) {
+        const errorMessage = err instanceof Error ? err.message : String(err);
+        orchestrateLogger.warn(
+          { prNumber, commentId: c.id, reviewer: kind, err: errorMessage },
+          'Review adapter threw while parsing comment; skipping item',
+        );
+        await eventStore.append(featureId, {
+          type: 'provider.parse-error' as const,
+          data: {
+            reviewer: kind,
+            commentId: c.id,
+            errorMessage,
+          },
+        }, {
+          idempotencyKey: `${featureId}:provider.parse-error:${prNumber}:${c.id}`,
+        });
+      }
       if (actionItem?.unknownTier) {
         await eventStore.append(featureId, {
           type: 'provider.unknown-tier' as const,
