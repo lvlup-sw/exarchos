@@ -154,52 +154,19 @@ For each comment, determine the appropriate response:
 | Already fixed (outdated) | Reply confirming | "Fixed in [commit/PR description] — [brief explanation]." |
 | False positive | Reply explaining | "[Explanation of why this doesn't apply in this context]." |
 
-### Sentry Comments
+### Per-reviewer parsing (Sentry, CodeRabbit, Human, GitHub-Copilot)
 
-Sentry's `[bot]` leaves **bug predictions** — AI-generated analysis of potential runtime issues. These appear as inline review comments with severity tags (CRITICAL, MEDIUM, etc.).
+Severity normalization and per-reviewer comment parsing live in the
+provider adapters under `servers/exarchos-mcp/src/review/providers/` (#1159).
+`assess_stack` dispatches each PR comment through the adapter registry
+and attaches a normalized `ActionItem` (with `normalizedSeverity` and
+`reviewer` fields) to each unresolved comment. Use that signal when
+deciding response strategy below; you do not need to re-parse tier
+markers in the shepherd loop.
 
-**Sentry comments deserve careful attention because they often identify real bugs** (field name mismatches, type coercion issues, null reference risks).
-
-How to handle:
-1. Read the full comment body — Sentry includes a "Suggested Fix" section
-2. Evaluate whether the bug is real:
-   - Check if the code path is actually reachable
-   - Check if the field names/types match what the data actually provides
-   - Check existing tests — does any test exercise this path?
-3. If real: fix the bug, add a test, reply confirming
-4. If false positive: reply explaining why (e.g., "This path is guarded by X" or "The field is validated at Y before reaching this code")
-
-**Common Sentry findings:**
-- Field name mismatches between producers and consumers
-- Missing null checks on optional fields
-- Type mismatches (string vs. enum, array vs. object)
-- Unreachable error paths due to upstream validation
-
-### CodeRabbit Comments
-
-CodeRabbit leaves detailed code review suggestions with severity indicators. It re-reviews automatically on push, so code fixes may auto-resolve threads.
-
-How to handle:
-1. Read all CodeRabbit comments, noting severity (Critical, Major, Minor)
-2. Critical/Major: Must address — fix or provide strong rationale for not fixing
-3. Minor: Fix if low-effort, otherwise acknowledge
-4. CodeRabbit marks threads as "Addressed in commits" when it detects the code changed — but always verify with a reply
-
-**Common CodeRabbit findings:**
-- Error handling gaps (missing try/catch, bare catches)
-- Code duplication (DRY violations)
-- Style/naming suggestions
-- Performance optimizations
-- Security concerns
-
-### Human Reviewer Comments
-
-Human comments require the most careful handling:
-1. Read comments carefully — understand the full context
-2. For required changes: fix the code, reply confirming
-3. For questions: answer directly on the PR
-4. For suggestions: discuss or implement, reply with decision
-5. For approval with minor nits: fix nits, note the approval
+If you encounter a reviewer the adapters do not recognise, the
+`provider.unknown-tier` event surfaces it for follow-up. Treat the
+comment as MEDIUM in the meantime.
 
 ### GitHub Actions Bot Comments
 
