@@ -50,6 +50,7 @@ import { handleValidatePrBody } from './validate-pr-body.js';
 import { handleValidatePrStack } from './validate-pr-stack.js';
 import { handleDebugReviewGate } from './debug-review-gate.js';
 import { handleExtractFixTasks } from './extract-fix-tasks.js';
+import { handleClassifyReviewItems } from './classify-review-items.js';
 import { handleGenerateTraceability } from './generate-traceability.js';
 import { handleSpecCoverageCheck } from './spec-coverage-check.js';
 import { handleVerifyWorktreeBaseline } from './verify-worktree-baseline.js';
@@ -170,6 +171,7 @@ const ACTION_HANDLERS: Readonly<Record<string, ActionHandler>> = {
   validate_pr_stack: adaptArgs(handleValidatePrStack),
   debug_review_gate: adaptArgs(handleDebugReviewGate),
   extract_fix_tasks: adaptArgs(handleExtractFixTasks),
+  classify_review_items: adaptArgsWithEventStore(handleClassifyReviewItems),
   generate_traceability: adaptArgs(handleGenerateTraceability),
   spec_coverage_check: adaptArgs(handleSpecCoverageCheck),
   verify_worktree_baseline: adapt(handleVerifyWorktreeBaseline),

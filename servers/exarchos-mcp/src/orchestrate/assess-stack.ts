@@ -37,16 +37,15 @@ interface PrReview {
 }
 
 interface PrComment {
-  readonly body: string;
+  readonly body: string;       // truncated for display
+  readonly fullBody: string;   // untruncated; consumed by review provider adapters (#1159)
   readonly isResolved: boolean;
+  readonly actionItem?: ActionItem;  // populated by provider adapter dispatch (#1159)
 }
 
-export interface ActionItem {
-  readonly type: 'ci-fix' | 'comment-reply' | 'review-address' | 'stack-fix';
-  readonly pr: number;
-  readonly description: string;
-  readonly severity: 'critical' | 'major' | 'minor';
-}
+import type { Severity, ReviewerKind, ActionItem, ReviewAdapterRegistry } from '../review/types.js';
+import { createReviewAdapterRegistry, detectKind } from '../review/registry.js';
+export type { Severity, ReviewerKind, ActionItem };
 
 export interface ShepherdStatusState {
   readonly prs: readonly PrStatus[];
@@ -115,15 +114,66 @@ async function queryPrReviews(provider: VcsProvider, prNumber: number): Promise<
   }
 }
 
-async function queryPrComments(provider: VcsProvider, prNumber: number): Promise<PrComment[]> {
+async function queryPrComments(
+  provider: VcsProvider,
+  prNumber: number,
+  registry: ReviewAdapterRegistry,
+  eventStore: EventStore,
+  featureId: string,
+): Promise<PrComment[]> {
   try {
     const comments: VcsPrComment[] = await provider.getPrComments(String(prNumber));
     // All comments from VcsProvider are treated as unresolved
     // (GitHub API doesn't provide isResolved for review comments)
-    return comments.map(c => ({
-      body: truncateBody(c.body),
-      isResolved: false,
-    }));
+    const results: PrComment[] = [];
+    for (const c of comments) {
+      const kind = detectKind(c.author);
+      const adapter = registry.forReviewer(kind);
+      // Outer defensive wrap: even though adapters self-guard in their own
+      // try/catch, a malformed comment or a bug in an adapter must not kill
+      // the entire batch. On throw we record `provider.parse-error` for
+      // observability and continue with actionItem=undefined (#1161).
+      let actionItem: ActionItem | undefined;
+      try {
+        const parsed = adapter?.parse(c) ?? undefined;
+        actionItem = parsed ? { ...parsed, pr: prNumber } : undefined;
+      } catch (err: unknown) {
+        const errorMessage = err instanceof Error ? err.message : String(err);
+        orchestrateLogger.warn(
+          { prNumber, commentId: c.id, reviewer: kind, err: errorMessage },
+          'Review adapter threw while parsing comment; skipping item',
+        );
+        await eventStore.append(featureId, {
+          type: 'provider.parse-error' as const,
+          data: {
+            reviewer: kind,
+            commentId: c.id,
+            errorMessage,
+          },
+        }, {
+          idempotencyKey: `${featureId}:provider.parse-error:${prNumber}:${c.id}`,
+        });
+      }
+      if (actionItem?.unknownTier) {
+        await eventStore.append(featureId, {
+          type: 'provider.unknown-tier' as const,
+          data: {
+            reviewer: actionItem.reviewer ?? kind,
+            commentId: c.id,
+            ...(actionItem.rawTier ? { rawTier: actionItem.rawTier } : {}),
+          },
+        }, {
+          idempotencyKey: `${featureId}:provider.unknown-tier:${prNumber}:${c.id}`,
+        });
+      }
+      results.push({
+        body: truncateBody(c.body),
+        fullBody: c.body,
+        isResolved: false,
+        actionItem,
+      });
+    }
+    return results;
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
     orchestrateLogger.warn({ prNumber, err: message }, 'Failed to query comments');
@@ -138,10 +188,16 @@ function computeOverallCi(checks: readonly CiCheck[]): 'pass' | 'fail' | 'pendin
   return 'pass';
 }
 
-async function queryPrStatus(provider: VcsProvider, prNumber: number): Promise<PrStatus> {
+async function queryPrStatus(
+  provider: VcsProvider,
+  prNumber: number,
+  registry: ReviewAdapterRegistry,
+  eventStore: EventStore,
+  featureId: string,
+): Promise<PrStatus> {
   const checks = await queryPrChecks(provider, prNumber);
   const reviews = await queryPrReviews(provider, prNumber);
-  const allComments = await queryPrComments(provider, prNumber);
+  const allComments = await queryPrComments(provider, prNumber, registry, eventStore, featureId);
   const unresolvedComments = allComments.filter(c => !c.isResolved);
 
   return {
@@ -167,17 +223,28 @@ export function classifyActionItems(prStatuses: readonly PrStatus[]): ActionItem
           pr: prStatus.pr,
           description: `CI check '${check.name}' is failing`,
           severity: 'critical',
+          normalizedSeverity: 'HIGH',
         });
       }
     }
 
     // Unresolved comments -> comment-reply items
     for (const comment of prStatus.unresolvedComments) {
+      // Thread the adapter-parsed fields when present (#1159);
+      // fall back to MEDIUM when no adapter ran (registry omitted, edge case).
+      const adapterItem = comment.actionItem;
       items.push({
         type: 'comment-reply',
         pr: prStatus.pr,
-        description: `Unresolved comment: ${comment.body.slice(0, 100)}`,
+        description: adapterItem?.description
+          ?? `Unresolved comment: ${comment.body.slice(0, 100)}`,
         severity: 'major',
+        normalizedSeverity: adapterItem?.normalizedSeverity ?? 'MEDIUM',
+        ...(adapterItem?.reviewer ? { reviewer: adapterItem.reviewer } : {}),
+        ...(adapterItem?.file ? { file: adapterItem.file } : {}),
+        ...(adapterItem?.line !== undefined ? { line: adapterItem.line } : {}),
+        ...(adapterItem?.threadId ? { threadId: adapterItem.threadId } : {}),
+        ...(adapterItem?.raw !== undefined ? { raw: adapterItem.raw } : {}),
       });
     }
 
@@ -189,6 +256,7 @@ export function classifyActionItems(prStatuses: readonly PrStatus[]): ActionItem
           pr: prStatus.pr,
           description: `Changes requested by ${review.author}`,
           severity: 'major',
+          normalizedSeverity: 'HIGH',
         });
       }
     }
@@ -364,6 +432,7 @@ export async function handleAssessStack(
   args: { featureId: string; prNumbers: number[] },
   stateDir: string,
   provider?: VcsProvider,
+  registry: ReviewAdapterRegistry = createReviewAdapterRegistry(),
 ): Promise<ToolResult> {
   const vcsGuard = requiresGitHub(provider, 'assess_stack');
   if (vcsGuard) return vcsGuard;
@@ -407,7 +476,7 @@ export async function handleAssessStack(
 
   // Query status for each PR
   const prStatuses = await Promise.all(
-    args.prNumbers.map(pr => queryPrStatus(vcs, pr)),
+    args.prNumbers.map(pr => queryPrStatus(vcs, pr, registry, eventStore, args.featureId)),
   );
 
   // Emit dual events

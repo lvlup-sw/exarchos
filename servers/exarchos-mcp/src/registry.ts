@@ -1086,6 +1086,19 @@ const orchestrateActions: readonly ToolAction[] = [
     roles: ROLE_LEAD,
   },
   {
+    name: 'classify_review_items',
+    description: 'Group ActionItems by file and recommend dispatch strategy (direct/delegate-fixer/delegate-scaffolder) per group (#1159)',
+    schema: z.object({
+      featureId: z.string().min(1),
+      actionItems: z.array(z.record(z.string(), z.unknown())),
+    }),
+    // Shepherd operates within `synthesize` and invokes classify_review_items
+    // after assess_stack; restricting to REVIEW_PHASES would trip phase-guard
+    // at runtime (#1161 / Sentry bug prediction).
+    phases: SYNTHESIS_REVIEW_PHASES,
+    roles: ROLE_LEAD,
+  },
+  {
     name: 'generate_traceability',
     description: 'Generate a traceability matrix mapping design sections to plan tasks',
     schema: z.object({

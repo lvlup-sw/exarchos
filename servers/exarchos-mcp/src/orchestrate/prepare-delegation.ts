@@ -87,8 +87,7 @@ export interface PrepareDelegationResult {
 
 // ─── Task Classification ────────────────────────────────────────────────────
 
-/** Keywords in task titles that indicate low-complexity scaffolding work. */
-const SCAFFOLDING_KEYWORDS = ['stub', 'boilerplate', 'type def', 'interface', 'scaffold'];
+import { TASK_SCAFFOLDING_KEYWORDS as SCAFFOLDING_KEYWORDS } from './scaffolding-keywords.js';
 
 /**
  * Resolves the recommended model for a given agent type from the agent config.

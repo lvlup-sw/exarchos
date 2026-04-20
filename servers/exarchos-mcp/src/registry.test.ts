@@ -499,10 +499,10 @@ describe('TOOL_REGISTRY', () => {
   });
 
   describe('exarchos_orchestrate', () => {
-    it('should have 63 actions for task management, review triage, gate checks, validation handlers, runbooks, agent spec, oneshot/pruning, doctor, init, VCS, and composite actions', () => {
+    it('should have 64 actions for task management, review triage, gate checks, validation handlers, runbooks, agent spec, oneshot/pruning, doctor, init, VCS, classify_review_items (#1159), and composite actions', () => {
       const composite = findComposite('exarchos_orchestrate');
       expect(composite).toBeDefined();
-      expect(composite!.actions).toHaveLength(63);
+      expect(composite!.actions).toHaveLength(64);
 
       const actionNames = composite!.actions.map((a) => a.name);
       expect(actionNames).toEqual(
@@ -1326,6 +1326,18 @@ describe('Plugin Integration Registry Wiring', () => {
     expect(prepareReview!.phases.has('debug-review')).toBe(true);
     // Should be lead-only
     expect(prepareReview!.roles.has('lead')).toBe(true);
+  });
+
+  it('RegistryActions_ClassifyReviewItems_IncludesSynthesizePhase', () => {
+    // Regression: shepherd invokes classify_review_items during synthesize.
+    // If this action is restricted to REVIEW_PHASES only, the runtime
+    // phase-guard rejects the call and breaks the shepherd loop (#1161).
+    const action = findAction('exarchos_orchestrate', 'classify_review_items');
+    expect(action).toBeDefined();
+    expect(action!.phases.has('synthesize')).toBe(true);
+    expect(action!.phases.has('review')).toBe(true);
+    expect(action!.phases.has('overhaul-review')).toBe(true);
+    expect(action!.phases.has('debug-review')).toBe(true);
   });
 
   it('RegistryActions_CheckReviewVerdict_HasPluginFindingsInSchema', () => {
