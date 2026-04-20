@@ -130,7 +130,7 @@ These events feed `selfCorrectionRate` and `avgRemediationAttempts` metrics in C
 | Type | Strategy |
 |------|----------|
 | `ci-fix` | Read logs, reproduce locally, fix, commit to stack branch |
-| `comment-reply` | Read context from `actionItem.context`, compose response, post via GitHub MCP |
+| `comment-reply` | Use `actionItem.reviewer`, `normalizedSeverity`, `file`, `line`, and `raw` (full original comment) to compose a response; post via GitHub MCP. Provider adapters under `servers/exarchos-mcp/src/review/providers/` populate these fields per #1159 — no manual tier parsing needed. |
 | `review-address` | Fix code for CHANGES_REQUESTED, reply to each thread |
 | `restack` | Run `git rebase origin/<base>`, verify with `exarchos_orchestrate({ action: "list_prs" })` |
 | `escalate` | Consult `references/escalation-criteria.md` |
