@@ -3,6 +3,7 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
+import { realpathSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 import { logger } from './logger.js';
@@ -347,16 +348,28 @@ async function main() {
  * Without these, Windows users hit a silent CLI no-op — `main()` never ran
  * because `endsWith` never matched. See #1085.
  *
+ * On Linux, `npm link` installs a symlink (e.g. `~/.local/bin/exarchos` →
+ * `.../dist/exarchos.js`). `argv[1]` is the symlink path, but Node resolves
+ * symlinks for ESM modules so `import.meta.url` points at the real file. The
+ * `endsWith` check then misses and the CLI silently no-ops. Resolving
+ * `argv[1]` through `realpathSync` before comparing closes that gap. See #1158.
+ *
  * Exported for unit testing; callers should pass `import.meta.url` and
  * `process.argv[1]` directly.
  */
 export function isDirectExecution(metaUrl: string, argv1: string | undefined): boolean {
   if (!argv1) return false;
   const modulePath = fileURLToPath(metaUrl).replace(/\\/g, '/');
-  const normalizedArgv = argv1.replace(/\\/g, '/');
+  const resolvedArgv = (() => {
+    try {
+      return realpathSync(argv1).replace(/\\/g, '/');
+    } catch {
+      return argv1.replace(/\\/g, '/');
+    }
+  })();
   return (
-    modulePath.endsWith(normalizedArgv) ||
-    modulePath.endsWith(normalizedArgv.replace(/\.ts$/, '.js'))
+    modulePath.endsWith(resolvedArgv) ||
+    modulePath.endsWith(resolvedArgv.replace(/\.ts$/, '.js'))
   );
 }
 
