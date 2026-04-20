@@ -109,10 +109,11 @@ describe('subagent-context', () => {
       expect(deniedOrchestrate!.actions).toContain('prepare_synthesis');
       expect(deniedOrchestrate!.actions).toContain('assess_stack');
       // 4 original + 13 check_ actions + 20 new handler actions + 3 oneshot/prune actions
-      // (prune_stale_workflows, request_synthesize, finalize_oneshot) = 40.
+      // (prune_stale_workflows, request_synthesize, finalize_oneshot) + 1 classify_review_items
+      // (#1159) = 41.
       // Doctor now has ALL_PHASES so it's allowed, not denied.
       // Bump this number when new lead-only actions are registered.
-      expect(deniedOrchestrate!.actions).toHaveLength(40);
+      expect(deniedOrchestrate!.actions).toHaveLength(41);
     });
 
     it('should include event actions for delegate phase with teammate role', () => {
@@ -168,7 +169,8 @@ describe('subagent-context', () => {
         (c) => c.name === 'exarchos_orchestrate',
       );
       expect(deniedOrchestrate).toBeDefined();
-      expect(deniedOrchestrate!.actions.length).toBe(45);
+      // Bumped to 46 with the addition of classify_review_items (#1159).
+      expect(deniedOrchestrate!.actions.length).toBe(46);
     });
 
     it('should deny workflow init and cancel for teammate role', () => {

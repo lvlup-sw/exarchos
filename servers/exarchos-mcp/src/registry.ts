@@ -1086,6 +1086,16 @@ const orchestrateActions: readonly ToolAction[] = [
     roles: ROLE_LEAD,
   },
   {
+    name: 'classify_review_items',
+    description: 'Group ActionItems by file and recommend dispatch strategy (direct/delegate-fixer/delegate-scaffolder) per group (#1159)',
+    schema: z.object({
+      featureId: z.string().min(1),
+      actionItems: z.array(z.record(z.string(), z.unknown())),
+    }),
+    phases: REVIEW_PHASES,
+    roles: ROLE_LEAD,
+  },
+  {
     name: 'generate_traceability',
     description: 'Generate a traceability matrix mapping design sections to plan tasks',
     schema: z.object({
