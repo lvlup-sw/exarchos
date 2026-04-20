@@ -37,16 +37,13 @@ interface PrReview {
 }
 
 interface PrComment {
-  readonly body: string;
+  readonly body: string;       // truncated for display
+  readonly fullBody: string;   // untruncated; consumed by review provider adapters (#1159)
   readonly isResolved: boolean;
 }
 
-export interface ActionItem {
-  readonly type: 'ci-fix' | 'comment-reply' | 'review-address' | 'stack-fix';
-  readonly pr: number;
-  readonly description: string;
-  readonly severity: 'critical' | 'major' | 'minor';
-}
+import type { Severity, ReviewerKind, ActionItem } from '../review/types.js';
+export type { Severity, ReviewerKind, ActionItem };
 
 export interface ShepherdStatusState {
   readonly prs: readonly PrStatus[];
@@ -122,6 +119,7 @@ async function queryPrComments(provider: VcsProvider, prNumber: number): Promise
     // (GitHub API doesn't provide isResolved for review comments)
     return comments.map(c => ({
       body: truncateBody(c.body),
+      fullBody: c.body,
       isResolved: false,
     }));
   } catch (err: unknown) {

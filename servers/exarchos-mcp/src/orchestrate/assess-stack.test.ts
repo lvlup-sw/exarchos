@@ -639,4 +639,55 @@ describe('handleAssessStack', () => {
       expect(secondGate.passed).toBe(false);
     });
   });
+
+  describe('comment body retention', () => {
+    it('QueryPrComments_LongCommentBody_RetainsFullBody', async () => {
+      const longBody = 'A'.repeat(500);
+      const provider = createMockProvider({
+        checkCi: { status: 'pass', checks: [{ name: 'ci/build', status: 'pass' }] },
+        prComments: [
+          { id: 1, author: 'reviewer', body: longBody, createdAt: '2026-01-01T00:00:00Z' },
+        ],
+      });
+
+      const result = await handleAssessStack(
+        { featureId: 'test-feature', prNumbers: [42] },
+        STATE_DIR,
+        provider,
+      );
+
+      expect(result.success).toBe(true);
+      const data = result.data as {
+        status: { prs: Array<{ unresolvedComments: Array<{ body: string; fullBody: string }> }> };
+      };
+      const comment = data.status.prs[0].unresolvedComments[0];
+      expect(comment.fullBody).toBe(longBody);
+      expect(comment.fullBody.length).toBe(500);
+      expect(comment.body.length).toBeLessThanOrEqual(204);
+    });
+  });
+
+  describe('ActionItem with reviewer-context fields', () => {
+    it('ActionItem_WithReviewerFields_TypeChecks', async () => {
+      const { ActionItem: _ActionItem } = await import('./assess-stack.js') as unknown as {
+        ActionItem: never;
+      };
+      void _ActionItem;
+      const item = {
+        type: 'comment-reply' as const,
+        pr: 42,
+        description: 'CodeRabbit critical finding',
+        severity: 'critical' as const,
+        file: 'src/foo.ts',
+        line: 10,
+        reviewer: 'coderabbit' as const,
+        threadId: 'thread-123',
+        raw: { id: 999 },
+        normalizedSeverity: 'HIGH' as const,
+      } satisfies import('./assess-stack.js').ActionItem;
+      expect(item.file).toBe('src/foo.ts');
+      expect(item.normalizedSeverity).toBe('HIGH');
+      expect(item.reviewer).toBe('coderabbit');
+    });
+  });
 });
