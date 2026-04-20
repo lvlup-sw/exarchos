@@ -27,11 +27,18 @@ const CODERABBIT_AUTHOR = 'coderabbitai[bot]';
 // CodeRabbit uses in summary/walkthrough sections.
 
 // "Critical"/"Major" must be in heading position: at the start of the body
-// or at the start of a line, optionally wrapped in markdown emphasis. The
-// case-insensitive flag matches CodeRabbit's varying capitalization.
+// or at the start of a line, optionally preceded by markdown heading or
+// emphasis markers (`#`, `*`). Case-insensitive to match CodeRabbit's
+// varying capitalization. Mid-sentence occurrences must NOT match — the
+// leading anchor + bounded prefix character class enforces that.
+//
+// Note: `_` is intentionally omitted from the trailing word-boundary side
+// because `_` is a JS word character; `_Critical_` has no \b after the
+// word, which would block the match. CodeRabbit emits headings as `##
+// Critical` or `**Critical**`, not as `_Critical_`, so this is fine.
 const HIGH_TIER_PATTERNS: readonly RegExp[] = [
   /_:warning: Potential issue_/,
-  /(^|\n)[ \t]*[#*_]*\s*(Critical|Major)\b/i,
+  /(^|\n)[ \t]*[#*]*\s*(Critical|Major)\b/i,
 ];
 
 const MEDIUM_TIER_PATTERNS: readonly RegExp[] = [
