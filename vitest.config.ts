@@ -11,6 +11,7 @@ export default defineConfig({
           include: [
             'src/**/*.test.ts',
             'test/fixtures/**/*.test.ts',
+            'test/setup/**/*.test.ts',
             'servers/exarchos-mcp/src/**/*.test.ts',
           ],
         },
@@ -26,6 +27,7 @@ export default defineConfig({
           name: 'process',
           include: ['test/process/**/*.test.ts'],
           testTimeout: 15000,
+          setupFiles: ['./test/setup/global.ts'],
         },
       },
     ],
