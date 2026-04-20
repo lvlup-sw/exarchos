@@ -88,4 +88,26 @@ describe('sentryAdapter', () => {
     expect(result?.raw).toBe(comment);
     expect(result?.description.length).toBeLessThanOrEqual(100);
   });
+
+  it('SentryAdapter_MalformedInput_DoesNotThrow', () => {
+    const malformed = {
+      id: 1,
+      author: 'sentry-io[bot]',
+      body: null as unknown as string,
+      createdAt: '2026-04-19T00:00:00Z',
+    };
+    expect(() => sentryAdapter.parse(malformed)).not.toThrow();
+    expect(sentryAdapter.parse(malformed)).toBeNull();
+  });
+
+  it('SentryAdapter_NoTier_PopulatesRawTier', () => {
+    const result = sentryAdapter.parse({
+      id: 5,
+      author: 'sentry-io[bot]',
+      body: 'Notice: something happened\n\nSee details below.',
+      createdAt: '2026-04-19T00:00:00Z',
+    });
+    expect(result?.unknownTier).toBe(true);
+    expect(result?.rawTier).toBe('Notice: something happened');
+  });
 });

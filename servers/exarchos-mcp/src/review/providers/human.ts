@@ -22,18 +22,23 @@ export const humanAdapter: ProviderAdapter = {
       return null;
     }
 
-    return {
-      type: 'comment-reply',
-      pr: 0,
-      description: comment.body.slice(0, DESCRIPTION_MAX_LENGTH),
-      severity: 'major',
-      reviewer: 'human',
-      threadId: String(comment.id),
-      raw: comment,
-      file: comment.path,
-      line: comment.line,
-      normalizedSeverity: 'MEDIUM',
-    };
+    try {
+      return {
+        type: 'comment-reply',
+        pr: 0,
+        description: comment.body.slice(0, DESCRIPTION_MAX_LENGTH),
+        severity: 'major',
+        reviewer: 'human',
+        threadId: String(comment.id),
+        raw: comment,
+        file: comment.path,
+        line: comment.line,
+        normalizedSeverity: 'MEDIUM',
+      };
+    } catch {
+      // Defensive: bad body must not kill the whole batch (#1159).
+      return null;
+    }
   },
 };
 

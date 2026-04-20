@@ -87,4 +87,10 @@ describe('githubCopilotAdapter', () => {
     expect(item?.file).toBeUndefined();
     expect(item?.line).toBeUndefined();
   });
+
+  it('GithubCopilotAdapter_MalformedInput_DoesNotThrow', () => {
+    const malformed = makeComment({ body: null as unknown as string });
+    expect(() => githubCopilotAdapter.parse(malformed)).not.toThrow();
+    expect(githubCopilotAdapter.parse(malformed)).toBeNull();
+  });
 });

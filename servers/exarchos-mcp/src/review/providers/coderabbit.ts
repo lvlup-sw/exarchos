@@ -65,6 +65,13 @@ function classifyTier(body: string): Severity | null {
 
 // ─── Adapter ────────────────────────────────────────────────────────────────
 
+function rawTierMarker(body: string): string {
+  // First non-empty line, capped — gives a humans the unrecognised marker
+  // text without dragging the entire comment into the event payload.
+  const firstLine = body.split('\n').find((l) => l.trim().length > 0) ?? '';
+  return firstLine.slice(0, 80);
+}
+
 export const coderabbitAdapter: ProviderAdapter = {
   kind: 'coderabbit',
 
@@ -73,22 +80,30 @@ export const coderabbitAdapter: ProviderAdapter = {
       return null;
     }
 
-    const tier = classifyTier(comment.body);
-    const normalizedSeverity: Severity = tier ?? 'MEDIUM';
-    const unknownTier = tier === null;
+    try {
+      const tier = classifyTier(comment.body);
+      const normalizedSeverity: Severity = tier ?? 'MEDIUM';
+      const unknownTier = tier === null;
 
-    return {
-      type: 'comment-reply',
-      pr: 0,
-      description: comment.body.slice(0, 100),
-      severity: 'major',
-      reviewer: 'coderabbit',
-      threadId: String(comment.id),
-      raw: comment,
-      file: comment.path,
-      line: comment.line,
-      normalizedSeverity,
-      ...(unknownTier ? { unknownTier: true } : {}),
-    };
+      return {
+        type: 'comment-reply',
+        pr: 0,
+        description: comment.body.slice(0, 100),
+        severity: 'major',
+        reviewer: 'coderabbit',
+        threadId: String(comment.id),
+        raw: comment,
+        file: comment.path,
+        line: comment.line,
+        normalizedSeverity,
+        ...(unknownTier ? { unknownTier: true, rawTier: rawTierMarker(comment.body) } : {}),
+      };
+    } catch {
+      // Defensive: a malformed body that trips one of our regexes must not
+      // kill the whole batch in queryPrComments. Returning null lets
+      // classifyActionItems still emit a comment-reply ActionItem at the
+      // default MEDIUM severity rather than losing the comment entirely.
+      return null;
+    }
   },
 };

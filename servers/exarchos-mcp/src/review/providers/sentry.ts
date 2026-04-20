@@ -38,6 +38,11 @@ function detectSeverity(body: string): { severity: Severity; matched: boolean } 
   return { severity: 'MEDIUM', matched: false };
 }
 
+function rawTierMarker(body: string): string {
+  const firstLine = body.split('\n').find((l) => l.trim().length > 0) ?? '';
+  return firstLine.slice(0, 80);
+}
+
 export const sentryAdapter: ProviderAdapter = {
   kind: 'sentry',
   parse(comment: VcsPrComment): ActionItem | null {
@@ -45,21 +50,26 @@ export const sentryAdapter: ProviderAdapter = {
       return null;
     }
 
-    const { severity: normalizedSeverity, matched } = detectSeverity(comment.body);
-    const description = comment.body.slice(0, 100);
+    try {
+      const { severity: normalizedSeverity, matched } = detectSeverity(comment.body);
+      const description = comment.body.slice(0, 100);
 
-    return {
-      type: 'comment-reply',
-      pr: 0,
-      description,
-      severity: 'major',
-      reviewer: 'sentry',
-      threadId: String(comment.id),
-      raw: comment,
-      file: comment.path,
-      line: comment.line,
-      normalizedSeverity,
-      ...(matched ? {} : { unknownTier: true }),
-    };
+      return {
+        type: 'comment-reply',
+        pr: 0,
+        description,
+        severity: 'major',
+        reviewer: 'sentry',
+        threadId: String(comment.id),
+        raw: comment,
+        file: comment.path,
+        line: comment.line,
+        normalizedSeverity,
+        ...(matched ? {} : { unknownTier: true, rawTier: rawTierMarker(comment.body) }),
+      };
+    } catch {
+      // Defensive: bad body must not kill the whole batch (#1159).
+      return null;
+    }
   },
 };

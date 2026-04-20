@@ -104,4 +104,48 @@ describe('coderabbitAdapter', () => {
     expect(result?.file).toBe('src/foo.ts');
     expect(result?.line).toBe(42);
   });
+
+  it('CoderabbitAdapter_CriticalHeading_NormalizesToHigh', () => {
+    const comment = makeComment({
+      body: '## Critical\n\nThis blocks the release.',
+    });
+
+    const result = coderabbitAdapter.parse(comment);
+
+    expect(result?.normalizedSeverity).toBe('HIGH');
+    expect(result?.unknownTier).toBeUndefined();
+  });
+
+  it('CoderabbitAdapter_MajorBoldHeading_NormalizesToHigh', () => {
+    const comment = makeComment({
+      body: '**Major**\n\nNeeds attention before merge.',
+    });
+
+    const result = coderabbitAdapter.parse(comment);
+
+    expect(result?.normalizedSeverity).toBe('HIGH');
+  });
+
+  it('CoderabbitAdapter_UnknownTier_PopulatesRawTier', () => {
+    const comment = makeComment({
+      body: '_:rocket: Brand new tier_\n\nUnrecognised marker.',
+    });
+
+    const result = coderabbitAdapter.parse(comment);
+
+    expect(result?.unknownTier).toBe(true);
+    expect(result?.rawTier).toBe('_:rocket: Brand new tier_');
+  });
+
+  it('CoderabbitAdapter_MalformedInput_DoesNotThrow', () => {
+    // Defensive check: a comment with a body that breaks string ops
+    // (e.g., body coerced from a non-string upstream) must return null
+    // rather than throwing into queryPrComments and killing the batch.
+    const malformed = {
+      ...makeComment(),
+      body: null as unknown as string,
+    };
+    expect(() => coderabbitAdapter.parse(malformed)).not.toThrow();
+    expect(coderabbitAdapter.parse(malformed)).toBeNull();
+  });
 });

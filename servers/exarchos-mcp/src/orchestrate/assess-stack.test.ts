@@ -670,6 +670,34 @@ describe('handleAssessStack', () => {
       expect(data.commentId).toBe(777);
     });
 
+    it('AssessStack_CoderabbitUnknownTier_EventCarriesRawTier', async () => {
+      mockAppend.mockClear();
+      const provider = createMockProvider({
+        checkCi: { status: 'pass', checks: [{ name: 'ci/build', status: 'pass' }] },
+        prComments: [
+          {
+            id: 778,
+            author: 'coderabbitai[bot]',
+            body: '_:rocket: Brand new tier_\n\nUnrecognised marker.',
+            createdAt: '2026-01-01T00:00:00Z',
+          },
+        ],
+      });
+
+      await handleAssessStack(
+        { featureId: 'test-feature', prNumbers: [42] },
+        STATE_DIR,
+        provider,
+      );
+
+      const unknownTierCalls = mockAppend.mock.calls.filter(
+        (call: unknown[]) => (call[1] as { type: string }).type === 'provider.unknown-tier',
+      );
+      expect(unknownTierCalls.length).toBe(1);
+      const data = (unknownTierCalls[0][1] as { data: { reviewer: string; commentId: number; rawTier?: string } }).data;
+      expect(data.rawTier).toBe('_:rocket: Brand new tier_');
+    });
+
     it('AssessStack_RecognizedTier_DoesNotEmitUnknownTierEvent', async () => {
       mockAppend.mockClear();
       const provider = createMockProvider({

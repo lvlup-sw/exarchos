@@ -11,6 +11,7 @@
 // already-normalized ActionItems regardless of which adapter produced them.
 // ────────────────────────────────────────────────────────────────────────────
 
+import { createHash } from 'node:crypto';
 import type { ToolResult } from '../format.js';
 import type { EventStore } from '../event-store/store.js';
 import type { ActionItem, Severity } from '../review/types.js';
@@ -58,6 +59,12 @@ export async function handleClassifyReviewItems(
   const result = classifyReviewItems(args.actionItems);
 
   if (args.eventStore) {
+    // Idempotency: same featureId + same input ActionItems → same key,
+    // so retries don't accumulate duplicate events on the stream.
+    const signature = createHash('sha1')
+      .update(JSON.stringify(args.actionItems.map((i) => i.threadId ?? i.file ?? i.description)))
+      .digest('hex')
+      .slice(0, 16);
     await args.eventStore.append(args.featureId, {
       type: 'dispatch.classified' as const,
       data: {
@@ -66,6 +73,8 @@ export async function handleClassifyReviewItems(
         delegateCount: result.summary.delegateCount,
         severityDistribution: severityDistribution(args.actionItems),
       },
+    }, {
+      idempotencyKey: `${args.featureId}:dispatch.classified:${signature}`,
     });
   }
 

@@ -89,4 +89,10 @@ describe('humanAdapter', () => {
   it('HumanAdapter_KindIsHuman', () => {
     expect(humanAdapter.kind).toBe('human');
   });
+
+  it('HumanAdapter_MalformedInput_DoesNotThrow', () => {
+    const malformed = makeComment({ body: null as unknown as string });
+    expect(() => humanAdapter.parse(malformed)).not.toThrow();
+    expect(humanAdapter.parse(malformed)).toBeNull();
+  });
 });

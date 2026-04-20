@@ -70,6 +70,13 @@ export interface ActionItem {
    * (#1159).
    */
   readonly unknownTier?: boolean;
+  /**
+   * When `unknownTier` is true, the first line / leading marker chunk of
+   * the comment body that the adapter failed to classify. Forwarded to
+   * the `provider.unknown-tier` event as `rawTier` so a human can see
+   * which upstream marker tripped (#1159).
+   */
+  readonly rawTier?: string;
 }
 
 export interface ProviderAdapter {

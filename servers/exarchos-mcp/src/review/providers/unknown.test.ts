@@ -36,4 +36,10 @@ describe('unknownAdapter', () => {
     expect(item?.threadId).toBe('999');
     expect(item?.raw).toBe(comment);
   });
+
+  it('UnknownAdapter_MalformedInput_DoesNotThrow', () => {
+    const malformed = makeComment({ body: null as unknown as string });
+    expect(() => unknownAdapter.parse(malformed)).not.toThrow();
+    expect(unknownAdapter.parse(malformed)).toBeNull();
+  });
 });

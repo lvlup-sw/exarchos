@@ -21,17 +21,22 @@ function summarize(body: string): string {
 export const unknownAdapter: ProviderAdapter = {
   kind: 'unknown',
   parse(comment: VcsPrComment): ActionItem | null {
-    return {
-      type: 'comment-reply',
-      pr: 0,
-      description: summarize(comment.body),
-      severity: 'major',
-      file: comment.path,
-      line: comment.line,
-      reviewer: 'unknown',
-      threadId: String(comment.id),
-      raw: comment,
-      normalizedSeverity: 'MEDIUM',
-    };
+    try {
+      return {
+        type: 'comment-reply',
+        pr: 0,
+        description: summarize(comment.body),
+        severity: 'major',
+        file: comment.path,
+        line: comment.line,
+        reviewer: 'unknown',
+        threadId: String(comment.id),
+        raw: comment,
+        normalizedSeverity: 'MEDIUM',
+      };
+    } catch {
+      // Defensive: bad body must not kill the whole batch (#1159).
+      return null;
+    }
   },
 };

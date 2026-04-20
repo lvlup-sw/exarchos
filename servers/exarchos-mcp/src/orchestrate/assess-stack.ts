@@ -138,6 +138,7 @@ async function queryPrComments(
           data: {
             reviewer: actionItem.reviewer ?? kind,
             commentId: c.id,
+            ...(actionItem.rawTier ? { rawTier: actionItem.rawTier } : {}),
           },
         }, {
           idempotencyKey: `${featureId}:provider.unknown-tier:${prNumber}:${c.id}`,

@@ -83,4 +83,34 @@ describe('handleClassifyReviewItems', () => {
     });
     expect(result.success).toBe(true);
   });
+
+  it('OrchestrateClassifyReviewItems_DispatchClassifiedEvent_UsesIdempotencyKey', async () => {
+    const eventStore = makeEventStore();
+    const items: ActionItem[] = [makeItem({ threadId: 'thread-1' })];
+    await handleClassifyReviewItems({
+      featureId: 'feat-x',
+      actionItems: items,
+      eventStore,
+    });
+
+    const opts = (eventStore.append as ReturnType<typeof vi.fn>).mock.calls[0][2];
+    expect(opts).toBeDefined();
+    expect(opts.idempotencyKey).toBeDefined();
+    expect(opts.idempotencyKey).toMatch(/^feat-x:dispatch\.classified:[0-9a-f]{16}$/);
+  });
+
+  it('OrchestrateClassifyReviewItems_SameInputs_ProducesSameIdempotencyKey', async () => {
+    const eventStore1 = makeEventStore();
+    const eventStore2 = makeEventStore();
+    const items: ActionItem[] = [
+      makeItem({ threadId: 'thread-1', file: 'src/a.ts' }),
+      makeItem({ threadId: 'thread-2', file: 'src/b.ts' }),
+    ];
+    await handleClassifyReviewItems({ featureId: 'feat-x', actionItems: items, eventStore: eventStore1 });
+    await handleClassifyReviewItems({ featureId: 'feat-x', actionItems: items, eventStore: eventStore2 });
+
+    const key1 = (eventStore1.append as ReturnType<typeof vi.fn>).mock.calls[0][2].idempotencyKey;
+    const key2 = (eventStore2.append as ReturnType<typeof vi.fn>).mock.calls[0][2].idempotencyKey;
+    expect(key1).toBe(key2);
+  });
 });
