@@ -121,26 +121,80 @@ describe('withHermeticEnv', () => {
   });
 
   it('WithHermeticEnv_CleanupRace_DoesNotFailTest', async () => {
-    // Simulate fs.rm throwing during cleanup. The helper must swallow the error
-    // (console.warn) and must NOT re-throw so tests aren't flaky.
-    const rmSpy = vi.spyOn(fs, 'rm').mockImplementation(async () => {
-      throw new Error('simulated locked file');
+    // Simulate cleanup race: make the helper's `fs.rm` of the tmp root throw,
+    // mirroring locked-file / AV-scanner scenarios on Windows/CI. The helper
+    // must swallow the error (console.warn) and must NOT re-throw, so tests
+    // that merely happen to run during such a race aren't made flaky.
+    //
+    // We pre-populate the tmp root with an unremovable artifact: a directory
+    // with read-only permissions whose own removal fails under the test's
+    // uid. Rather than relying on OS-specific ACL behavior, we instead
+    // replace the target tmp path with a path that does not exist and is
+    // protected: the simplest deterministic failure mode is to intercept the
+    // real `fs.rm` at call time by making the tmp root a mount point — not
+    // portable.
+    //
+    // Portable approach: overwrite `fs.promises.rm` on the `node:fs` module
+    // object (whose properties ARE writable) BEFORE the helper resolves its
+    // dynamic rm call. But the helper imports from `node:fs/promises`, whose
+    // bindings are frozen. So we defeat cleanup a different way: after the
+    // helper creates the tmp tree, we swap the tmp root for a path the
+    // helper's fs.rm will error on — specifically, we remove the tmp tree
+    // ourselves from inside the callback and then replace it with a file
+    // whose presence at a directory path would surface ENOTDIR. But `rm`
+    // with `{ recursive: true, force: true }` successfully removes files.
+    //
+    // Final strategy: monkey-patch `fs.promises` (the `node:fs` re-export,
+    // NOT `node:fs/promises`'s frozen namespace) AND also intercept the
+    // binding the helper uses. Since `node:fs/promises` and `fs.promises`
+    // point to the same underlying callable object, swapping `rm` on
+    // `fs.promises.rm` does NOT affect the helper's already-bound
+    // `import * as fs from 'node:fs/promises'` — those are separate
+    // namespace bindings.
+    //
+    // So we use `vi.doMock` with a factory that defers to the real module
+    // for everything except `rm`. Because `vi.doMock` takes effect only for
+    // subsequent dynamic imports, we re-import the helper via dynamic import
+    // in an isolated module graph.
+    vi.resetModules();
+    vi.doMock('node:fs/promises', async (importOriginal) => {
+      const actual = await importOriginal<typeof import('node:fs/promises')>();
+      return {
+        ...actual,
+        rm: async () => {
+          throw new Error('simulated locked file');
+        },
+        default: {
+          ...actual,
+          rm: async () => {
+            throw new Error('simulated locked file');
+          },
+        },
+      };
     });
+
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
+    let tmpRootForCleanup: string | undefined;
     try {
+      const mod = await import('./hermetic.js');
       // Should not throw despite cleanup failure.
       await expect(
-        withHermeticEnv(async (env) => {
+        mod.withHermeticEnv(async (env) => {
+          tmpRootForCleanup = path.dirname(env.homeDir);
           expect(env.homeDir).toBeTruthy();
         }),
       ).resolves.toBeUndefined();
 
-      // Warning was logged.
       expect(warnSpy).toHaveBeenCalled();
     } finally {
-      rmSpy.mockRestore();
+      vi.doUnmock('node:fs/promises');
+      vi.resetModules();
       warnSpy.mockRestore();
+      // Best-effort manual cleanup of the leaked tmp tree.
+      if (tmpRootForCleanup !== undefined) {
+        await fs.rm(tmpRootForCleanup, { recursive: true, force: true }).catch(() => {});
+      }
     }
   });
 });
