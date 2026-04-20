@@ -93,7 +93,26 @@ Review the returned `actionItems` and `recommendation`:
 
 ### Step 2 — Fix
 
-Address each blocking action item from the assessment. Consult `references/fix-strategies.md` for detailed strategies per issue type.
+Before iterating over individual action items, classify them so the loop
+knows which to fix inline vs. delegate. Call `classify_review_items` on
+the assessment's `actionItems` (the comment-reply subset is what the
+classifier groups by file; CI-fix and review-address items are passed
+through unchanged):
+
+```typescript
+{{MCP_PREFIX}}exarchos_orchestrate({
+  action: "classify_review_items",
+  featureId: "<id>",
+  actionItems: <actionItems from assess_stack>
+})
+```
+
+The result returns `groups: ClassificationGroup[]` with a `recommendation`
+per group: `direct` (handle inline), `delegate-fixer` (spawn the fixer
+subagent for batched/HIGH-severity work), or `delegate-scaffolder`
+(cheap subagent for doc nits). Iterate the groups in order, applying
+per-group strategy, then consult `references/fix-strategies.md` for
+detailed per-issue-type instructions.
 
 **Remediation event protocol (FLYWHEEL):**
 

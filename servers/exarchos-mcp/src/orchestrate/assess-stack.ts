@@ -200,6 +200,7 @@ export function classifyActionItems(prStatuses: readonly PrStatus[]): ActionItem
           pr: prStatus.pr,
           description: `CI check '${check.name}' is failing`,
           severity: 'critical',
+          normalizedSeverity: 'HIGH',
         });
       }
     }
@@ -207,7 +208,7 @@ export function classifyActionItems(prStatuses: readonly PrStatus[]): ActionItem
     // Unresolved comments -> comment-reply items
     for (const comment of prStatus.unresolvedComments) {
       // Thread the adapter-parsed fields when present (#1159);
-      // fall back to the legacy shape when no adapter ran.
+      // fall back to MEDIUM when no adapter ran (registry omitted, edge case).
       const adapterItem = comment.actionItem;
       items.push({
         type: 'comment-reply',
@@ -215,11 +216,11 @@ export function classifyActionItems(prStatuses: readonly PrStatus[]): ActionItem
         description: adapterItem?.description
           ?? `Unresolved comment: ${comment.body.slice(0, 100)}`,
         severity: 'major',
+        normalizedSeverity: adapterItem?.normalizedSeverity ?? 'MEDIUM',
         ...(adapterItem?.reviewer ? { reviewer: adapterItem.reviewer } : {}),
         ...(adapterItem?.file ? { file: adapterItem.file } : {}),
         ...(adapterItem?.line !== undefined ? { line: adapterItem.line } : {}),
         ...(adapterItem?.threadId ? { threadId: adapterItem.threadId } : {}),
-        ...(adapterItem?.normalizedSeverity ? { normalizedSeverity: adapterItem.normalizedSeverity } : {}),
         ...(adapterItem?.raw !== undefined ? { raw: adapterItem.raw } : {}),
       });
     }
@@ -232,6 +233,7 @@ export function classifyActionItems(prStatuses: readonly PrStatus[]): ActionItem
           pr: prStatus.pr,
           description: `Changes requested by ${review.author}`,
           severity: 'major',
+          normalizedSeverity: 'HIGH',
         });
       }
     }

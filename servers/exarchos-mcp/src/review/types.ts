@@ -62,7 +62,7 @@ export interface ActionItem {
   readonly reviewer?: ReviewerKind;
   readonly threadId?: string;
   readonly raw?: unknown;
-  readonly normalizedSeverity?: Severity;
+  readonly normalizedSeverity: Severity;
   /**
    * True when the adapter could not match any recognised severity tier
    * in the comment body. Surfaced via the `provider.unknown-tier` event

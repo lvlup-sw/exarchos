@@ -4,14 +4,16 @@ How to address common issues found during shepherd assessment.
 
 ## Decision: Fix Directly vs. Delegate
 
-| Condition | Approach |
-|-----------|----------|
-| Single file, < 20 lines changed | Fix directly in the stack branch |
-| Multiple files, contained concern | Fix directly if < 5 files |
-| Cross-cutting or architectural | Route to `/exarchos:delegate --fixes` for subagent dispatch |
-| Test changes needed | Fix directly (keep TDD cycle tight) |
+The `classify_review_items` orchestrate action owns this decision (#1159).
+Pass it the `actionItems` from `assess_stack` and consume the
+`recommendation` field on each returned group:
 
-**Default to fixing directly** — delegation adds overhead. Only delegate when the fix scope warrants it.
+- `direct` — handle inline in the shepherd loop
+- `delegate-fixer` — spawn the fixer subagent (batched / HIGH severity)
+- `delegate-scaffolder` — cheap scaffolder dispatch for doc nits
+
+Test changes still warrant inline handling regardless of recommendation —
+keep the TDD cycle tight rather than delegating test edits.
 
 ## Remediation Event Emission
 
