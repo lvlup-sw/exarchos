@@ -81,3 +81,29 @@ export interface ReviewAdapterRegistry {
   forReviewer(kind: ReviewerKind): ProviderAdapter | undefined;
   list(): readonly ProviderAdapter[];
 }
+
+// ─── Review Classification (Issue #1159 Phase 2) ────────────────────────────
+// classify_review_items groups parsed ActionItems by file and recommends a
+// dispatch strategy per group. Replaces the prose direct-vs-delegate
+// heuristic in skills-src/shepherd/references/fix-strategies.md.
+
+export type DispatchRecommendation = 'direct' | 'delegate-fixer' | 'delegate-scaffolder';
+
+export interface ClassificationGroup {
+  readonly file: string | null;        // null = file-less group (e.g. PR-level comments)
+  readonly items: readonly ActionItem[];
+  readonly severity: Severity;          // max severity in the group
+  readonly recommendation: DispatchRecommendation;
+  readonly rationale: string;
+}
+
+export interface ClassificationSummary {
+  readonly totalItems: number;
+  readonly directCount: number;
+  readonly delegateCount: number;
+}
+
+export interface ClassificationResult {
+  readonly groups: readonly ClassificationGroup[];
+  readonly summary: ClassificationSummary;
+}
