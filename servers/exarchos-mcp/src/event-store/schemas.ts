@@ -76,6 +76,8 @@ export const EventTypes = [
   'checkpoint.state_missing',
   'preflight.executed',
   'preflight.blocked',
+  'provider.unknown-tier',
+  'dispatch.classified',
 ] as const;
 
 export type EventType = typeof EventTypes[number];
@@ -246,6 +248,14 @@ export const EVENT_EMISSION_REGISTRY: Record<EventType, EventEmissionSource> = {
   'checkpoint.state_missing': 'auto',
   'preflight.executed': 'auto',
   'preflight.blocked': 'auto',
+
+  // auto — emitted by assess_stack when a review provider adapter
+  // encounters an unrecognised severity tier (#1159).
+  'provider.unknown-tier': 'auto',
+
+  // auto — emitted by classify_review_items per invocation, capturing
+  // the per-group dispatch decisions for downstream observability (#1159).
+  'dispatch.classified': 'auto',
 
   // planned — schema exists, not yet emitted in production
   'eval.run.started': 'planned',
@@ -902,6 +912,25 @@ export const EVENT_DATA_SCHEMAS: Partial<Record<EventType, z.ZodSchema>> = {
 
   // Init (exarchos init)
   'init.executed': InitExecutedDataSchema,
+
+  // Review provider adapter unknown-tier (#1159)
+  'provider.unknown-tier': z.object({
+    reviewer: z.string().min(1),
+    rawTier: z.string().optional(),
+    commentId: z.number().int(),
+  }),
+
+  // classify_review_items per-invocation observability (#1159)
+  'dispatch.classified': z.object({
+    groupCount: z.number().int().nonnegative(),
+    directCount: z.number().int().nonnegative(),
+    delegateCount: z.number().int().nonnegative(),
+    severityDistribution: z.object({
+      high: z.number().int().nonnegative(),
+      medium: z.number().int().nonnegative(),
+      low: z.number().int().nonnegative(),
+    }),
+  }),
 };
 
 // ─── TypeScript Types ───────────────────────────────────────────────────────

@@ -639,4 +639,262 @@ describe('handleAssessStack', () => {
       expect(secondGate.passed).toBe(false);
     });
   });
+
+  describe('provider.unknown-tier event emission', () => {
+    it('AssessStack_CoderabbitUnknownTier_EmitsUnknownTierEvent', async () => {
+      mockAppend.mockClear();
+      const provider = createMockProvider({
+        checkCi: { status: 'pass', checks: [{ name: 'ci/build', status: 'pass' }] },
+        prComments: [
+          {
+            id: 777,
+            author: 'coderabbitai[bot]',
+            body: '_:rocket: Brand new tier_\n\nLooks like something CodeRabbit ships in a future version.',
+            createdAt: '2026-01-01T00:00:00Z',
+          },
+        ],
+      });
+
+      await handleAssessStack(
+        { featureId: 'test-feature', prNumbers: [42] },
+        STATE_DIR,
+        provider,
+      );
+
+      const unknownTierCalls = mockAppend.mock.calls.filter(
+        (call: unknown[]) => (call[1] as { type: string }).type === 'provider.unknown-tier',
+      );
+      expect(unknownTierCalls.length).toBe(1);
+      const data = (unknownTierCalls[0][1] as { data: { reviewer: string; commentId: number } }).data;
+      expect(data.reviewer).toBe('coderabbit');
+      expect(data.commentId).toBe(777);
+    });
+
+    it('AssessStack_CoderabbitUnknownTier_EventCarriesRawTier', async () => {
+      mockAppend.mockClear();
+      const provider = createMockProvider({
+        checkCi: { status: 'pass', checks: [{ name: 'ci/build', status: 'pass' }] },
+        prComments: [
+          {
+            id: 778,
+            author: 'coderabbitai[bot]',
+            body: '_:rocket: Brand new tier_\n\nUnrecognised marker.',
+            createdAt: '2026-01-01T00:00:00Z',
+          },
+        ],
+      });
+
+      await handleAssessStack(
+        { featureId: 'test-feature', prNumbers: [42] },
+        STATE_DIR,
+        provider,
+      );
+
+      const unknownTierCalls = mockAppend.mock.calls.filter(
+        (call: unknown[]) => (call[1] as { type: string }).type === 'provider.unknown-tier',
+      );
+      expect(unknownTierCalls.length).toBe(1);
+      const data = (unknownTierCalls[0][1] as { data: { reviewer: string; commentId: number; rawTier?: string } }).data;
+      expect(data.rawTier).toBe('_:rocket: Brand new tier_');
+    });
+
+    it('AssessStack_RecognizedTier_DoesNotEmitUnknownTierEvent', async () => {
+      mockAppend.mockClear();
+      const provider = createMockProvider({
+        checkCi: { status: 'pass', checks: [{ name: 'ci/build', status: 'pass' }] },
+        prComments: [
+          {
+            id: 1,
+            author: 'coderabbitai[bot]',
+            body: '_:warning: Potential issue_\n\nThis is a recognized tier.',
+            createdAt: '2026-01-01T00:00:00Z',
+          },
+        ],
+      });
+
+      await handleAssessStack(
+        { featureId: 'test-feature', prNumbers: [42] },
+        STATE_DIR,
+        provider,
+      );
+
+      const unknownTierCalls = mockAppend.mock.calls.filter(
+        (call: unknown[]) => (call[1] as { type: string }).type === 'provider.unknown-tier',
+      );
+      expect(unknownTierCalls.length).toBe(0);
+    });
+  });
+
+  describe('classifyActionItems severity threading', () => {
+    it('ClassifyActionItems_HighSeverityComment_RetainsHighNormalizedSeverity', async () => {
+      const provider = createMockProvider({
+        checkCi: { status: 'pass', checks: [{ name: 'ci/build', status: 'pass' }] },
+        prComments: [
+          {
+            id: 1,
+            author: 'coderabbitai[bot]',
+            body: '_:warning: Potential issue_\n\nNull pointer.',
+            createdAt: '2026-01-01T00:00:00Z',
+            path: 'src/x.ts',
+            line: 5,
+          },
+        ],
+      });
+
+      const result = await handleAssessStack(
+        { featureId: 'test-feature', prNumbers: [42] },
+        STATE_DIR,
+        provider,
+      );
+
+      const data = result.data as {
+        actionItems: Array<{ type: string; normalizedSeverity?: string; reviewer?: string; file?: string }>;
+      };
+      const commentReply = data.actionItems.find((i) => i.type === 'comment-reply');
+      expect(commentReply).toBeDefined();
+      expect(commentReply?.normalizedSeverity).toBe('HIGH');
+      expect(commentReply?.reviewer).toBe('coderabbit');
+      expect(commentReply?.file).toBe('src/x.ts');
+    });
+  });
+
+  describe('adapter dispatch via registry', () => {
+    it('QueryPrComments_CoderabbitComment_PopulatesNormalizedSeverity', async () => {
+      const provider = createMockProvider({
+        checkCi: { status: 'pass', checks: [{ name: 'ci/build', status: 'pass' }] },
+        prComments: [
+          {
+            id: 999,
+            author: 'coderabbitai[bot]',
+            body: '_:warning: Potential issue_\n\nMissing null check on line 42.',
+            createdAt: '2026-01-01T00:00:00Z',
+            path: 'src/auth.ts',
+            line: 42,
+          },
+        ],
+      });
+
+      const result = await handleAssessStack(
+        { featureId: 'test-feature', prNumbers: [42] },
+        STATE_DIR,
+        provider,
+      );
+
+      expect(result.success).toBe(true);
+      const data = result.data as {
+        status: { prs: Array<{ unresolvedComments: Array<{ actionItem?: Record<string, unknown> }> }> };
+      };
+      const comment = data.status.prs[0].unresolvedComments[0];
+      expect(comment.actionItem).toBeDefined();
+      expect(comment.actionItem?.reviewer).toBe('coderabbit');
+      expect(comment.actionItem?.normalizedSeverity).toBe('HIGH');
+      expect(comment.actionItem?.file).toBe('src/auth.ts');
+      expect(comment.actionItem?.line).toBe(42);
+    });
+
+    it('QueryPrComments_HumanComment_PopulatesNormalizedMedium', async () => {
+      const provider = createMockProvider({
+        checkCi: { status: 'pass', checks: [{ name: 'ci/build', status: 'pass' }] },
+        prComments: [
+          {
+            id: 1,
+            author: 'alice',
+            body: 'Could you rename this variable?',
+            createdAt: '2026-01-01T00:00:00Z',
+          },
+        ],
+      });
+
+      const result = await handleAssessStack(
+        { featureId: 'test-feature', prNumbers: [42] },
+        STATE_DIR,
+        provider,
+      );
+
+      const data = result.data as {
+        status: { prs: Array<{ unresolvedComments: Array<{ actionItem?: Record<string, unknown> }> }> };
+      };
+      const comment = data.status.prs[0].unresolvedComments[0];
+      expect(comment.actionItem?.reviewer).toBe('human');
+      expect(comment.actionItem?.normalizedSeverity).toBe('MEDIUM');
+    });
+
+    it('QueryPrComments_UnknownBot_RoutesToUnknownAdapter', async () => {
+      const provider = createMockProvider({
+        checkCi: { status: 'pass', checks: [{ name: 'ci/build', status: 'pass' }] },
+        prComments: [
+          {
+            id: 7,
+            author: 'mystery-scanner[bot]',
+            body: 'something happened',
+            createdAt: '2026-01-01T00:00:00Z',
+          },
+        ],
+      });
+
+      const result = await handleAssessStack(
+        { featureId: 'test-feature', prNumbers: [42] },
+        STATE_DIR,
+        provider,
+      );
+
+      const data = result.data as {
+        status: { prs: Array<{ unresolvedComments: Array<{ actionItem?: Record<string, unknown> }> }> };
+      };
+      const comment = data.status.prs[0].unresolvedComments[0];
+      expect(comment.actionItem?.reviewer).toBe('unknown');
+      expect(comment.actionItem?.normalizedSeverity).toBe('MEDIUM');
+    });
+  });
+
+  describe('comment body retention', () => {
+    it('QueryPrComments_LongCommentBody_RetainsFullBody', async () => {
+      const longBody = 'A'.repeat(500);
+      const provider = createMockProvider({
+        checkCi: { status: 'pass', checks: [{ name: 'ci/build', status: 'pass' }] },
+        prComments: [
+          { id: 1, author: 'reviewer', body: longBody, createdAt: '2026-01-01T00:00:00Z' },
+        ],
+      });
+
+      const result = await handleAssessStack(
+        { featureId: 'test-feature', prNumbers: [42] },
+        STATE_DIR,
+        provider,
+      );
+
+      expect(result.success).toBe(true);
+      const data = result.data as {
+        status: { prs: Array<{ unresolvedComments: Array<{ body: string; fullBody: string }> }> };
+      };
+      const comment = data.status.prs[0].unresolvedComments[0];
+      expect(comment.fullBody).toBe(longBody);
+      expect(comment.fullBody.length).toBe(500);
+      expect(comment.body.length).toBeLessThanOrEqual(204);
+    });
+  });
+
+  describe('ActionItem with reviewer-context fields', () => {
+    it('ActionItem_WithReviewerFields_TypeChecks', async () => {
+      const { ActionItem: _ActionItem } = await import('./assess-stack.js') as unknown as {
+        ActionItem: never;
+      };
+      void _ActionItem;
+      const item = {
+        type: 'comment-reply' as const,
+        pr: 42,
+        description: 'CodeRabbit critical finding',
+        severity: 'critical' as const,
+        file: 'src/foo.ts',
+        line: 10,
+        reviewer: 'coderabbit' as const,
+        threadId: 'thread-123',
+        raw: { id: 999 },
+        normalizedSeverity: 'HIGH' as const,
+      } satisfies import('./assess-stack.js').ActionItem;
+      expect(item.file).toBe('src/foo.ts');
+      expect(item.normalizedSeverity).toBe('HIGH');
+      expect(item.reviewer).toBe('coderabbit');
+    });
+  });
 });

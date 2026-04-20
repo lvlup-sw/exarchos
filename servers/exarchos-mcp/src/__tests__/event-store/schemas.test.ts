@@ -406,12 +406,12 @@ describe('StackEnqueuedData', () => {
 
 describe('EventTypes', () => {
   it('EventTypes_CountMatchesRegisteredTypes', () => {
-    // Locked to the current registered-type count. Bumped to 71 with
-    // the addition of preflight events (preflight.executed,
-    // preflight.blocked) — the dispatch-guard emission fix from #1129.
+    // Locked to the current registered-type count. Bumped to 73 with
+    // the addition of dispatch.classified (#1159) — emitted by the
+    // classify_review_items orchestrate action.
     // When new event types are added, bump this number alongside
     // their registration in `event-store/schemas.ts`.
-    expect(EventTypes).toHaveLength(71);
+    expect(EventTypes).toHaveLength(73);
   });
 
   it('should include workflow-level types', () => {
