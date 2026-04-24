@@ -1,15 +1,36 @@
+// ─── T058 — `assemble-context` migrated to the shared rehydrate path (DR-16).
+//
+// This adapter is now a thin markdown formatter over the canonical
+// `exarchos_workflow.rehydrate` output: it calls `handleRehydrate` to fold
+// the rehydration@v1 projection (snapshot + event tail) into a
+// `RehydrationDocument`, then renders that document to the markdown shape
+// legacy callers (`pre-compact`, `session-start`, etc.) have depended on
+// since `assemble-context` first shipped.
+//
+// Why this shape: the plan (T058, DR-16) mandates a single projection
+// surface so snapshot cadence, degraded-mode handling, and schema drift are
+// solved once per reducer rather than per call site. The reducer does not
+// yet capture every legacy markdown affordance (task titles, playbook
+// render, per-event HH:MM summaries, git-state sidecar), so we supplement
+// those from the state file and the event store alongside the canonical
+// envelope. The supplementary reads are for *presentation only*; the
+// authoritative projection source is always the returned document.
+//
+// Inline rehydration walk, CQRS-view materialization, and snapshot-HWM
+// optimization were removed in the REFACTOR commit following this GREEN.
+// Anything still here is either (a) needed to format the legacy markdown,
+// or (b) a supplementary read the reducer does not yet cover.
+
 import { execFile as execFileCb } from 'node:child_process';
 import { promisify } from 'node:util';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import { getOrCreateEventStore, getOrCreateMaterializer } from '../views/tools.js';
-import { WORKFLOW_STATUS_VIEW } from '../views/workflow-status-view.js';
-import type { WorkflowStatusViewState } from '../views/workflow-status-view.js';
-import { TASK_DETAIL_VIEW } from '../views/task-detail-view.js';
-import type { TaskDetailViewState } from '../views/task-detail-view.js';
+import { EventStore } from '../event-store/store.js';
 import { HUMAN_CHECKPOINT_PHASES } from '../workflow/next-action.js';
 import { getHSMDefinition } from '../workflow/state-machine.js';
 import { getPlaybook, renderPlaybook } from '../workflow/playbooks.js';
+import { handleRehydrate } from '../workflow/rehydrate.js';
+import type { RehydrationDocument } from '../projections/rehydration/schema.js';
 import type { WorkflowEvent } from '../event-store/schemas.js';
 
 const execFileAsync = promisify(execFileCb);
@@ -236,6 +257,16 @@ async function queryGitState(cwd?: string): Promise<GitState | null> {
 
 // ─── Main Handler ───────────────────────────────────────────────────────────
 
+/**
+ * Assemble the legacy markdown context document for a workflow by
+ * dispatching through `exarchos_workflow.rehydrate` (DR-16). The rehydration
+ * reducer is now the single authoritative source for workflowState,
+ * taskProgress, artifacts, and blockers; this handler supplements with the
+ * state file (for task titles + artifact first-line summaries), the event
+ * store (for the HH:MM event list), git (for the Git State sidecar), and
+ * the phase playbook (for the Behavioral Guidance section), then formats
+ * the result as the markdown shape pre-compact/session-start expect.
+ */
 export async function handleAssembleContext(
   stdinData: Record<string, unknown>,
   stateDir: string,
@@ -247,47 +278,35 @@ export async function handleAssembleContext(
     return { contextDocument: '', featureId: '', phase: '', truncated: false };
   }
 
-  const store = getOrCreateEventStore(stateDir);
-  const materializer = getOrCreateMaterializer(stateDir);
+  const eventStore = new EventStore(stateDir);
   const stateFilePath = path.join(stateDir, `${featureId}.state.json`);
 
-  // 1a. Load snapshots first to learn high-water marks for query optimization
-  await Promise.all([
-    materializer.loadFromSnapshot(featureId, WORKFLOW_STATUS_VIEW).catch(() => false),
-    materializer.loadFromSnapshot(featureId, TASK_DETAIL_VIEW).catch(() => false),
-  ]);
+  // Dispatch to the canonical rehydrate handler for the document. Errors
+  // surface as `success: false`; treat them like an empty projection so
+  // the adapter degrades rather than throws (session-start/pre-compact
+  // rely on it never raising).
+  const rehydrateResult = await handleRehydrate(
+    { featureId },
+    { stateDir, eventStore },
+  );
 
-  // Compute sinceSequence from snapshot HWMs — skip parsing old events
-  const statusHwm = materializer.getState(featureId, WORKFLOW_STATUS_VIEW)?.highWaterMark ?? 0;
-  const tasksHwm = materializer.getState(featureId, TASK_DETAIL_VIEW)?.highWaterMark ?? 0;
-  const minHwm = Math.min(statusHwm, tasksHwm);
-  // Buffer MAX_EVENTS below the HWM so the "Recent Events" section has enough data
-  const sinceSequence = Math.max(0, minHwm - MAX_EVENTS);
-  const queryFilters = sinceSequence > 0 ? { sinceSequence } : undefined;
-
-  // 1b. Parallel I/O: single event query (with fast-skip), state file read, and git
-  const [events, stateFileRaw, gitState] = await Promise.all([
-    store.query(featureId, queryFilters).catch((): WorkflowEvent[] => []),
+  // Parallel reads for presentation layers the reducer does not yet
+  // capture: git sidecar, state file (for artifact first-lines + task
+  // titles), and the raw event stream (for the HH:MM summaries).
+  const [stateFileRaw, gitState, recentEvents] = await Promise.all([
     fs.readFile(stateFilePath, 'utf-8').catch((): null => null),
     queryGitState(stateDir),
+    eventStore.query(featureId).catch((): WorkflowEvent[] => []),
   ]);
 
-  // 2. Materialize both CQRS views from the single event query
-  let statusView: WorkflowStatusViewState | null = null;
-  try {
-    statusView = materializer.materialize<WorkflowStatusViewState>(
-      featureId, WORKFLOW_STATUS_VIEW, events,
-    );
-  } catch { /* graceful degradation */ }
+  // Canonical document from the reducer. If the reducer failed outright
+  // we still check for the state file — the prior inline handler returned
+  // an empty document for "no workflow" and we preserve that contract.
+  const doc: RehydrationDocument | undefined =
+    rehydrateResult.success && rehydrateResult.data
+      ? (rehydrateResult.data as RehydrationDocument)
+      : undefined;
 
-  let taskView: TaskDetailViewState | null = null;
-  try {
-    taskView = materializer.materialize<TaskDetailViewState>(
-      featureId, TASK_DETAIL_VIEW, events,
-    );
-  } catch { /* graceful degradation */ }
-
-  // 3. Parse state file once — authoritative for phase, tasks fallback, and artifacts
   let stateData: Record<string, unknown> | null = null;
   if (stateFileRaw) {
     try {
@@ -295,91 +314,128 @@ export async function handleAssembleContext(
     } catch { /* corrupt state file */ }
   }
 
-  // Check if workflow exists
-  if (!stateData && !statusView?.featureId) {
+  // Empty-stream + no state file → no workflow. Mirrors the historical
+  // "unknown feature" contract that session-start and pre-compact rely on.
+  const reducerHasFeature =
+    doc !== undefined &&
+    (doc.workflowState.featureId.length > 0 ||
+      doc.workflowState.phase.length > 0 ||
+      doc.taskProgress.length > 0);
+  if (!stateData && !reducerHasFeature) {
     return { contextDocument: '', featureId, phase: '', truncated: false };
   }
 
-  // State file is authoritative for phase/workflowType (CQRS view might lag)
-  const phase = (typeof stateData?.phase === 'string' ? stateData.phase : statusView?.phase) ?? '';
+  // Phase + workflowType: state file is authoritative (it's the CQRS write
+  // side; the reducer trails by the number of events still tailing). Fall
+  // back to the reducer's workflowState when the state file is absent.
+  const phase =
+    (typeof stateData?.phase === 'string' ? stateData.phase : doc?.workflowState.phase) ?? '';
   const workflowType =
-    (typeof stateData?.workflowType === 'string' ? stateData.workflowType : statusView?.workflowType) ?? '';
+    (typeof stateData?.workflowType === 'string'
+      ? stateData.workflowType
+      : doc?.workflowState.workflowType) ?? '';
 
-  // 3b. Look up phase playbook for behavioral guidance
+  // Behavioral guidance — render the phase playbook. The reducer's
+  // `behavioralGuidance` currently carries empty strings (T022's minimal
+  // initial doc; a later task may populate it), so the live render from
+  // the playbooks registry is the authoritative presentation source here.
   let behavioralSection = '';
   const playbook = getPlaybook(workflowType, phase);
   if (playbook) {
     behavioralSection = renderPlaybook(playbook);
   }
 
-  // 4. Build task rows from CQRS view, fallback to state file
+  // Task table. Prefer the reducer's taskProgress for status (it folds
+  // task.assigned / task.completed / task.failed), merge in titles from
+  // the state file (the reducer does not capture titles). Fall back to
+  // state file entries entirely if the reducer has no tasks.
   const taskRows: TaskRow[] = [];
   let totalTaskCount = 0;
 
-  if (taskView) {
-    const tasks = Object.values(taskView.tasks);
-    totalTaskCount = tasks.length;
-    for (const task of tasks) {
-      taskRows.push({ taskId: task.taskId, title: task.title, status: task.status });
-    }
+  const stateTasks: Array<Record<string, unknown>> =
+    stateData && Array.isArray(stateData.tasks)
+      ? (stateData.tasks as Array<Record<string, unknown>>)
+      : [];
+  const stateTaskById = new Map<string, Record<string, unknown>>();
+  for (const t of stateTasks) {
+    const id = String(t.id ?? t.taskId ?? '');
+    if (id.length > 0) stateTaskById.set(id, t);
   }
 
-  if (taskRows.length === 0 && stateData && Array.isArray(stateData.tasks)) {
-    for (const t of stateData.tasks) {
-      const task = t as Record<string, unknown>;
+  if (doc && doc.taskProgress.length > 0) {
+    for (const entry of doc.taskProgress) {
+      const stateTask = stateTaskById.get(entry.id);
+      const title = stateTask && typeof stateTask.title === 'string' ? stateTask.title : entry.id;
+      taskRows.push({ taskId: entry.id, title, status: entry.status });
+    }
+    totalTaskCount = taskRows.length;
+  } else if (stateTasks.length > 0) {
+    for (const t of stateTasks) {
       taskRows.push({
-        taskId: String(task.id ?? task.taskId ?? ''),
-        title: String(task.title ?? ''),
-        status: String(task.status ?? ''),
+        taskId: String(t.id ?? t.taskId ?? ''),
+        title: String(t.title ?? ''),
+        status: String(t.status ?? ''),
       });
     }
     totalTaskCount = taskRows.length;
   }
 
-  // 5. Format events section from the already-queried events (no additional I/O)
+  // Events section — formatted from the event stream query (the reducer
+  // does not preserve the ordered event list; it folds into projection
+  // state). Kept as-is so the HH:MM sidecar stays unchanged post-migration.
   let eventsSection = '';
-  if (events.length > 0) {
-    const recentEvents = events.slice(-MAX_EVENTS);
-    const eventLines = recentEvents.map(formatEventSummary);
+  if (recentEvents.length > 0) {
+    const tail = recentEvents.slice(-MAX_EVENTS);
+    const eventLines = tail.map(formatEventSummary);
     eventsSection = ['### Recent Events', ...eventLines].join('\n');
   }
 
-  // 6. Format git section from the already-queried git state (no additional I/O)
+  // Git section.
   let gitSection = '';
   if (gitState) {
     gitSection = formatGitState(gitState);
   }
 
-  // 7. Format artifacts from state data (already parsed — only artifact file reads are new I/O)
+  // Artifacts — prefer the state file (carries the full object shape,
+  // including `null` slots for pr/etc.) for first-line summary reads.
+  // The reducer's artifacts map is a flat `Record<string, string>`, so
+  // when the state file is absent we fall back to it.
   let artifactsSection = '';
-  if (stateData) {
-    const artifacts = stateData.artifacts as Record<string, string | null> | undefined;
-    if (artifacts) {
-      const refs = await Promise.all([
-        formatArtifactRef('Design', artifacts.design),
-        formatArtifactRef('Plan', artifacts.plan),
-      ]);
-      const validRefs = refs.filter((r) => r.length > 0);
-      if (validRefs.length > 0) {
-        artifactsSection = ['### Artifacts', ...validRefs].join('\n');
-      }
+  const artifactsFromState =
+    stateData && typeof stateData.artifacts === 'object' && stateData.artifacts !== null
+      ? (stateData.artifacts as Record<string, string | null>)
+      : undefined;
+  const artifactsFromDoc = doc?.artifacts;
+  const artifactDesign =
+    artifactsFromState?.design ?? artifactsFromDoc?.design ?? null;
+  const artifactPlan =
+    artifactsFromState?.plan ?? artifactsFromDoc?.plan ?? null;
+  if (artifactDesign || artifactPlan) {
+    const refs = await Promise.all([
+      formatArtifactRef('Design', artifactDesign),
+      formatArtifactRef('Plan', artifactPlan),
+    ]);
+    const validRefs = refs.filter((r) => r.length > 0);
+    if (validRefs.length > 0) {
+      artifactsSection = ['### Artifacts', ...validRefs].join('\n');
     }
   }
 
-  // 8. Compute next action
+  // Next action.
   const nextAction = computeNextAction(workflowType, phase);
   const nextActionSection = `### Next Action\n${nextAction}`;
 
-  // 9. Build header
+  // Header — startedAt is not on the canonical document (it's a property
+  // of the `workflow.started` event timestamp, not the folded projection
+  // state). We preserve the legacy "unknown" sentinel rather than
+  // reviving a second event-store walk just to surface it.
   const header = [
     `## Workflow Context: ${featureId}`,
-    `**Phase:** ${phase} | **Type:** ${workflowType} | **Started:** ${statusView?.startedAt ?? 'unknown'}`,
+    `**Phase:** ${phase} | **Type:** ${workflowType} | **Started:** unknown`,
   ].join('\n');
 
-  // 10. Format task table
   const taskTable = taskRows.length > 0 ? formatTaskTable(taskRows, totalTaskCount) : '';
 
-  // 11. Assemble and truncate to budget
   const sections: ContextSections = {
     header,
     behavioral: behavioralSection,
