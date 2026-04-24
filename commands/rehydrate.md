@@ -12,11 +12,18 @@ Restore full workflow awareness without starting a new session.
 - Returning to a workflow after a break
 
 ## Process
-1. Discover active workflow(s) via MCP: `exarchos_view pipeline` — lists all workflows with phase and task counts
-2. If multiple active (non-completed) workflows, ask user which to rehydrate
-3. Fetch full state + phase playbook: `exarchos_workflow get featureId="<id>" fields=["playbook", "phase", "workflowType", "tasks", "artifacts"]`
-4. Render compact behavioral context (same format as post-compaction context.md)
-5. Output the rehydration context to refresh agent awareness
+1. Invoke the MCP tool `exarchos_workflow` with `action: "rehydrate"` and `featureId: "<id>"` — returns an envelope containing the canonical rehydration document (`workflowState`, `taskProgress`, `artifacts`, `blockers`, phase playbook, next actions).
+2. If the featureId is unknown or the user hasn't named one, fall back to `exarchos_view pipeline` to list active workflows and ask which to rehydrate, then re-invoke `exarchos_workflow action: "rehydrate" featureId: "<selected>"`.
+3. Render the returned document as compact behavioral context (same format as post-compaction context.md).
+4. Output the rehydration context to refresh agent awareness.
+
+Example MCP call:
+
+```
+exarchos_workflow
+  action: "rehydrate"
+  featureId: "<feature-id>"
+```
 
 ## Output Format
 
@@ -47,7 +54,8 @@ Restore full workflow awareness without starting a new session.
 ## Context Efficiency
 
 The rehydrate process is designed to be context-efficient:
-1. **Minimal output** — Only essential state and behavioral guidance displayed
-2. **File references** — Full details remain in files, not conversation
-3. **Action-oriented** — Immediately suggests next step
-4. **No history replay** — Fresh start with current state and behavioral context
+1. **Single-call fetch** — One `exarchos_workflow.rehydrate` call returns the full canonical document; no multi-step `get fields=[...]` composition
+2. **Minimal output** — Only essential state and behavioral guidance displayed
+3. **File references** — Full details remain in files, not conversation
+4. **Action-oriented** — Immediately suggests next step from the envelope's `next_actions`
+5. **No history replay** — Fresh start with current state and behavioral context
