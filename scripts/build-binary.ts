@@ -19,8 +19,12 @@
  * fracture the mode-dispatch invariants documented in DR-5 / F-022-2.
  *
  * ── Usage ───────────────────────────────────────────────────────────────
- *   bun run scripts/build-binary.ts            # host-only (default)
- *   bun run scripts/build-binary.ts --all      # all cross-compile targets
+ *   bun run scripts/build-binary.ts                         # host-only (default)
+ *   bun run scripts/build-binary.ts --all                   # all cross-compile targets
+ *   bun run scripts/build-binary.ts --target linux-x64      # single target by os-arch name
+ *
+ * The `--target <os-arch>` form is used by the CI binary-matrix job so
+ * each runner builds exactly one artifact.
  */
 import { $ } from 'bun';
 import { mkdirSync } from 'node:fs';
@@ -79,12 +83,37 @@ async function buildOne(target: Target): Promise<void> {
   console.log(`Built ${outfile}`);
 }
 
+function parseTargetFlag(argv: readonly string[]): string | undefined {
+  // Support both `--target linux-x64` and `--target=linux-x64`.
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    if (a === '--target' && i + 1 < argv.length) return argv[i + 1];
+    if (a && a.startsWith('--target=')) return a.slice('--target='.length);
+  }
+  return undefined;
+}
+
+function findTargetByName(name: string): Target {
+  // Accept `os-arch` form (e.g. `linux-x64`) matching the `dist/bin/`
+  // filename convention — this is the same identifier the CI matrix
+  // strategy declares, so it stays grep-able across the two files.
+  const match = TARGETS.find((t) => `${t.os}-${t.arch}` === name);
+  if (!match) {
+    const known = TARGETS.map((t) => `${t.os}-${t.arch}`).join(', ');
+    throw new Error(`unknown --target ${name}. Expected one of: ${known}`);
+  }
+  return match;
+}
+
 const wantAll = process.argv.includes('--all');
+const wantTarget = parseTargetFlag(process.argv);
 
 if (wantAll) {
   for (const t of TARGETS) {
     await buildOne(t);
   }
+} else if (wantTarget) {
+  await buildOne(findTargetByName(wantTarget));
 } else {
   await buildOne(getHostTarget());
 }

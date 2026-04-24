@@ -1,9 +1,5 @@
 name: CI
 
-# NOTE(task-1.5): `binary-matrix` job will be added in the GREEN commit to
-# fan out `scripts/build-binary.ts --target <name>` across the 5 TARGETS
-# declared in scripts/build-binary.ts. See feature/v29-install-rewrite.
-
 on:
   pull_request:
   push:
@@ -97,6 +93,42 @@ jobs:
       - run: npm ci
       - run: npx tsc --noEmit
       - run: npm run test:run
+
+  binary-matrix:
+    name: Binary Matrix (${{ matrix.target }})
+    # Not gated in `ci-gate` — this job produces release-style artifacts
+    # for manual inspection and for the v2.9 install rewrite's smoke-test
+    # ladder. Release publication lives in `.github/workflows/release.yml`
+    # (tracked by task 2.7); this CI job only uploads workflow artifacts.
+    if: github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      # Matrix targets mirror `TARGETS` in `scripts/build-binary.ts`.
+      # Keep these two lists in sync — `scripts/ci-binary-matrix.test.ts`
+      # asserts a 5-entry fan-out covering the same os-arch tuples.
+      matrix:
+        target:
+          - linux-x64
+          - linux-arm64
+          - darwin-x64
+          - darwin-arm64
+          - windows-x64
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+
+      - name: Build binary for ${{ matrix.target }}
+        run: bun run scripts/build-binary.ts --target ${{ matrix.target }}
+
+      - name: Upload binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: exarchos-${{ matrix.target }}
+          path: dist/bin/exarchos-${{ matrix.target }}*
+          if-no-files-found: error
+          retention-days: 7
 
   ci-gate:
     name: CI Gate
