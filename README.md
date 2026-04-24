@@ -49,11 +49,6 @@ It ships as a Claude Code plugin and a standalone MCP server with a CLI adapter.
 npx @lvlup-sw/exarchos mcp
 ```
 
-**Interactive installer** (installs Exarchos + optional companions):
-```bash
-npx create-exarchos
-```
-
 ### Installing skills for your agent
 
 Exarchos ships its skills as platform-agnostic source. To materialize the
@@ -122,16 +117,9 @@ Structured input over natural language. Strict schema validation over loose pars
 
 Exarchos supports both MCP-native hosts (Claude Code, Cursor, Codex) and CLI-only hosts (OpenCode, Copilot, generic runtimes). Each runtime selects its preferred invocation facade automatically. Remote/hosted MCP deployment is planned as a future axis. See the [Facade and Deployment Choices](https://lvlup-sw.github.io/exarchos/facade-and-deployment) documentation for details.
 
-### Integrations
+### Works well alongside
 
-<!-- TODO(3.4-GREEN): prune rows referencing create-exarchos (package deleted in 3.2) -->
-
-| Component | Source | Purpose |
-|-----------|--------|---------|
-| Exarchos | Core plugin | Workflow state, event log, team coordination, convergence gates |
-| Serena | Optional companion (`npx create-exarchos`) | Semantic code analysis |
-| Context7 | Optional companion (`npx create-exarchos`) | Up-to-date library documentation |
-| Microsoft Learn | Optional companion (`npx create-exarchos`) | Azure and .NET documentation |
+Exarchos focuses on workflow governance — it doesn't duplicate code-analysis or documentation-retrieval MCP servers. If you want those, install them yourself alongside Exarchos; your agent can use them independently. Exarchos does not bundle, install, or vendor any of them.
 
 ## Workflows
 
