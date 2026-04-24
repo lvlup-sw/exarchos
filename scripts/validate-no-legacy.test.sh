@@ -357,15 +357,27 @@ if [[ -f "$REPO_ROOT/package.json" ]]; then
   KNIP_IN_PKG=$(grep -E '"knip"[[:space:]]*:[[:space:]]*\{' "$REPO_ROOT/package.json" 2>/dev/null || true)
 fi
 if [[ -f "$KNIP_JSON" || -f "$KNIP_JSONC" || -f "$KNIP_TS" || -n "$KNIP_IN_PKG" ]]; then
-  # Sanity: if knip.json is used, assert it lists at least the two key
-  # entry modules so the allowlist is not empty/degenerate.
+  # Sanity: if knip.json is used, assert it lists at least the key entry
+  # modules so the allowlist is not empty/degenerate. Knip paths can be
+  # root-relative or workspace-relative — accept either form.
+  # Required entries, stored as "logical|accepted-forms" pairs:
+  #   - MCP server entry: top-level "servers/exarchos-mcp/src/index.ts" OR
+  #     workspace-relative "src/index.ts" (under a workspaces.<pkg> block)
+  #   - build-skills: "src/build-skills.ts"
+  #   - install-skills: "src/install-skills.ts"
   if [[ -f "$KNIP_JSON" ]]; then
     MISSING=""
-    for needed in "servers/exarchos-mcp/src/index.ts" "src/build-skills.ts" "src/install-skills.ts"; do
-      if ! grep -qF "$needed" "$KNIP_JSON"; then
-        MISSING="$MISSING $needed"
-      fi
-    done
+    # MCP server index — accept either form.
+    if ! grep -qF "servers/exarchos-mcp/src/index.ts" "$KNIP_JSON" \
+      && ! grep -qF '"src/index.ts"' "$KNIP_JSON"; then
+      MISSING="$MISSING servers/exarchos-mcp/src/index.ts"
+    fi
+    if ! grep -qF "src/build-skills.ts" "$KNIP_JSON"; then
+      MISSING="$MISSING src/build-skills.ts"
+    fi
+    if ! grep -qF "src/install-skills.ts" "$KNIP_JSON"; then
+      MISSING="$MISSING src/install-skills.ts"
+    fi
     if [[ -z "$MISSING" ]]; then
       pass "NoLegacy_KnipConfigExists"
     else
@@ -386,8 +398,10 @@ fi
 # bare-metal runs without the devDep.
 KNIP_BIN="$REPO_ROOT/node_modules/.bin/knip"
 if [[ -x "$KNIP_BIN" ]]; then
+  # Match the rollup's scope: files + dependencies only (see
+  # scripts/validate-no-legacy.sh for rationale).
   set +e
-  KNIP_OUT=$("$KNIP_BIN" --no-progress 2>&1)
+  KNIP_OUT=$("$KNIP_BIN" --no-progress --include files,dependencies 2>&1)
   KNIP_RC=$?
   set -e
   if [[ "$KNIP_RC" -eq 0 ]]; then

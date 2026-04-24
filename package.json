@@ -55,6 +55,7 @@
   "devDependencies": {
     "@types/js-yaml": "^4.0.9",
     "@types/node": "^22.0.0",
+    "knip": "^6.6.2",
     "tsx": "^4.21.0",
     "typescript": "^5.0.0",
     "vitest": "^3.0.0",

@@ -145,10 +145,42 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+  # ─────────────────────────────────────────────────────────────────────
+  # validate-no-legacy
+  # ─────────────────────────────────────────────────────────────────────
+  # Runs scripts/validate-no-legacy.sh, which rolls up two checks:
+  #   1. The NoLegacy_* shell assertion suite (scripts/validate-no-legacy.test.sh)
+  #      — pins obsolete v2.8 install artifacts as deleted/archived.
+  #   2. `knip` (files + dependencies scope) — detects unused modules and
+  #      unused dependencies against the entry-point allowlist in knip.json.
+  #
+  # Runs in parallel with test-root / test-mcp on a vanilla ubuntu-latest
+  # runner (knip has no self-hosted prerequisites). Keeping it off
+  # self-hosted avoids contention with the existing test jobs and keeps
+  # the gate cheap.
+  # ─────────────────────────────────────────────────────────────────────
+  validate-no-legacy:
+    name: Validate No Legacy
+    if: github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run validate-no-legacy rollup
+        run: bash scripts/validate-no-legacy.sh
+
   ci-gate:
     name: CI Gate
     runs-on: self-hosted
-    needs: [changes, test-root, test-mcp]
+    needs: [changes, test-root, test-mcp, validate-no-legacy]
     if: (github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request') && always()
     steps:
       - name: Evaluate results
@@ -156,6 +188,7 @@ jobs:
           echo "changes=${{ needs.changes.result }}"
           echo "test-root=${{ needs.test-root.result }}"
           echo "test-mcp=${{ needs.test-mcp.result }}"
+          echo "validate-no-legacy=${{ needs.validate-no-legacy.result }}"
 
           if [[ "${{ needs.changes.result }}" =~ ^(failure|cancelled)$ ]]; then
             echo "::error::Change detection: ${{ needs.changes.result }}"
@@ -167,6 +200,10 @@ jobs:
           fi
           if [[ "${{ needs.test-mcp.result }}" =~ ^(failure|cancelled)$ ]]; then
             echo "::error::MCP server tests: ${{ needs.test-mcp.result }}"
+            exit 1
+          fi
+          if [[ "${{ needs.validate-no-legacy.result }}" =~ ^(failure|cancelled)$ ]]; then
+            echo "::error::Validate no legacy: ${{ needs.validate-no-legacy.result }}"
             exit 1
           fi
 
