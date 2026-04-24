@@ -62,10 +62,10 @@ describe('handleEvent', () => {
         stateDir,
         ctx.eventStore,
       );
-      expect(result).toEqual({
-        success: true,
-        data: { streamId: 'test', sequence: 1, type: 'test.event' },
-      });
+      // T037: successful responses are wrapped in Envelope<T>
+      expect(result.success).toBe(true);
+      expect(result.data).toEqual({ streamId: 'test', sequence: 1, type: 'test.event' });
+      expect((result as Record<string, unknown>).next_actions).toEqual([]);
     });
   });
 
@@ -96,10 +96,10 @@ describe('handleEvent', () => {
         stateDir,
         ctx.eventStore,
       );
-      expect(result).toEqual({
-        success: true,
-        data: [{ streamId: 'test', sequence: 1, type: 'test.event' }],
-      });
+      // T037: successful responses are wrapped in Envelope<T>
+      expect(result.success).toBe(true);
+      expect(result.data).toEqual([{ streamId: 'test', sequence: 1, type: 'test.event' }]);
+      expect((result as Record<string, unknown>).next_actions).toEqual([]);
     });
   });
 

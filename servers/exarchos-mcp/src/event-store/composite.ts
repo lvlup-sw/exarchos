@@ -1,4 +1,4 @@
-import type { ToolResult } from '../format.js';
+import { wrap, type ToolResult } from '../format.js';
 import type { DispatchContext } from '../core/dispatch.js';
 import { handleEventAppend, handleEventQuery, handleBatchAppend } from './tools.js';
 import { handleEventDescribe } from '../describe/handler.js';
@@ -66,11 +66,36 @@ async function pushToChannelIfConfigured(
   }
 }
 
+/**
+ * HATEOAS envelope wrapping for successful tool responses (T037, DR-7).
+ *
+ * Mirrors the T036 workflow-composite treatment: wraps successful
+ * `ToolResult`s at the composite boundary into `Envelope<T>` so agents see
+ * a stable contract with `next_actions`, `_meta`, and `_perf` on every
+ * response. Error responses pass through unchanged so structured `error`
+ * payloads remain accessible to callers for auto-correction flows.
+ *
+ * `next_actions` is populated by T040/T041's `computeNextActions` — for
+ * T037 it defaults to `[]` so the field is always present.
+ *
+ * Hook/channel side-effects still observe the raw `ToolResult` shape
+ * because wrapping happens after those fire-and-forget invocations.
+ */
+function envelopeWrap(result: ToolResult, startedAt: number): ToolResult {
+  if (!result.success) return result;
+
+  const meta = (result._meta ?? {}) as Record<string, unknown>;
+  const perf = result._perf ?? { ms: Date.now() - startedAt };
+  const envelope = wrap(result.data, meta, perf);
+  return envelope as unknown as ToolResult;
+}
+
 /** Composite handler that routes `action` to the appropriate event-store handler. */
 export async function handleEvent(
   args: Record<string, unknown>,
   ctx: DispatchContext,
 ): Promise<ToolResult> {
+  const startedAt = Date.now();
   const { stateDir, eventStore } = ctx;
   const action = args.action as string | undefined;
 
@@ -84,15 +109,16 @@ export async function handleEvent(
       );
       await fireHookIfConfigured(ctx, rest, result);
       await pushToChannelIfConfigured(ctx, rest, result);
-      return result;
+      return envelopeWrap(result, startedAt);
     }
     case 'query': {
       const { action: _, ...rest } = args;
-      return handleEventQuery(
+      const result = await handleEventQuery(
         rest as Parameters<typeof handleEventQuery>[0],
         stateDir,
         eventStore,
       );
+      return envelopeWrap(result, startedAt);
     }
     case 'batch_append': {
       const { action: _, ...rest } = args;
@@ -142,14 +168,15 @@ export async function handleEvent(
           }
         }
       }
-      return result;
+      return envelopeWrap(result, startedAt);
     }
     case 'describe': {
       const { action: _, ...rest } = args;
-      return handleEventDescribe(
+      const result = await handleEventDescribe(
         rest as { actions?: string[]; eventTypes?: string[]; emissionGuide?: boolean },
         eventActions,
       );
+      return envelopeWrap(result, startedAt);
     }
     default:
       return {
