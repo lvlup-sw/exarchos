@@ -80,9 +80,16 @@ function isDockerAvailable(): boolean {
 const dockerAvailable = isDockerAvailable();
 
 // ---------------------------------------------------------------------
-// In-container command (inlined in RED; extracted to a builder in REFACTOR)
+// Docker command builder (extracted from the inline form in RED)
 // ---------------------------------------------------------------------
 
+/**
+ * Canonical JSON-RPC `initialize` frame — serialized once at module
+ * load so the shape is tested-once, used-many. Single quotes around
+ * the literal in the shell wrapper demand that no single quote
+ * appear inside the JSON payload; `JSON.stringify` gives us that
+ * guarantee.
+ */
 const INITIALIZE_FRAME = JSON.stringify({
   jsonrpc: '2.0',
   id: 1,
@@ -95,9 +102,78 @@ const INITIALIZE_FRAME = JSON.stringify({
 });
 
 /**
- * Run the full docker smoke against a given image. Returns a discriminated
- * union describing the outcome so the caller can distinguish "download
- * 404'd — expected before first v2.9.0 release" from a real failure.
+ * Where the read-only bootstrap script mount appears inside the
+ * container. The test copies from here to `/tmp` before executing so
+ * the bind mount can stay read-only (defense-in-depth against an
+ * errant `chmod -R` in the script).
+ */
+const MOUNT_PATH = '/mnt/get-exarchos.sh';
+
+interface BuildInContainerOpts {
+  /**
+   * Distro-specific package-manager prelude that installs the minimum
+   * deps (`curl` + `ca-certificates`, plus `bash` on alpine). Must exit 0.
+   */
+  installPrelude: string;
+  /** Release tag to pin via `EXARCHOS_LATEST_VERSION` (skips GitHub API). */
+  versionTag: string;
+}
+
+/**
+ * Build the shell command string that runs *inside* the target docker
+ * container. Pure function — easy to eyeball in review and unit-test
+ * without spawning docker.
+ *
+ * The returned string:
+ *   1. Runs the distro install prelude.
+ *   2. Copies the mounted bootstrap to a writable path + chmods it.
+ *   3. Invokes the script with `EXARCHOS_LATEST_VERSION` pinned so the
+ *      GitHub API lookup is bypassed.
+ *   4. Sources `~/.bashrc` (if present) + prepends `~/.local/bin` to
+ *      PATH so the new binary resolves.
+ *   5. Runs `exarchos --version`.
+ *   6. Feeds one JSON-RPC `initialize` frame to `exarchos mcp` on
+ *      stdin; the MCP server writes a well-formed response to stdout
+ *      before exiting on EOF.
+ */
+export function buildInContainerCommand(opts: BuildInContainerOpts): string {
+  const { installPrelude, versionTag } = opts;
+  return [
+    installPrelude,
+    `cp ${MOUNT_PATH} /tmp/get-exarchos.sh`,
+    'chmod +x /tmp/get-exarchos.sh',
+    `EXARCHOS_LATEST_VERSION='${versionTag}' bash /tmp/get-exarchos.sh`,
+    '[ -f "$HOME/.bashrc" ] && . "$HOME/.bashrc" || true',
+    'export PATH="$HOME/.local/bin:$PATH"',
+    'exarchos --version',
+    `printf '%s\\n' '${INITIALIZE_FRAME}' | exarchos mcp`,
+  ].join(' && ');
+}
+
+/**
+ * Build the argv for `spawnSync('docker', ...)`. Factored out so the
+ * volume-mount + shell invocation wiring has a single definition.
+ */
+export function buildDockerArgs(
+  image: string,
+  inContainerCommand: string,
+): string[] {
+  return [
+    'run',
+    '--rm',
+    '-v',
+    `${BOOTSTRAP_SCRIPT}:${MOUNT_PATH}:ro`,
+    image,
+    'sh',
+    '-c',
+    inContainerCommand,
+  ];
+}
+
+/**
+ * Classified smoke result. Discriminated union so the caller can tell
+ * "download 404 — expected before the first v2.9.0 release" from a
+ * real failure.
  */
 type SmokeOutcome =
   | { kind: 'pass'; stdout: string; stderr: string }
@@ -106,44 +182,22 @@ type SmokeOutcome =
 
 function runDockerSmoke(image: string, installPrelude: string): SmokeOutcome {
   const versionTag = process.env.EXARCHOS_SMOKE_VERSION ?? 'v2.9.0';
-  // Inline: install curl, copy the script to a writable path, run it
-  // with the pinned version tag, then verify `exarchos --version` and
-  // the JSON-RPC initialize handshake.
-  const inContainer = [
-    installPrelude,
-    'cp /mnt/get-exarchos.sh /tmp/get-exarchos.sh',
-    'chmod +x /tmp/get-exarchos.sh',
-    `EXARCHOS_LATEST_VERSION='${versionTag}' bash /tmp/get-exarchos.sh`,
-    '[ -f "$HOME/.bashrc" ] && . "$HOME/.bashrc" || true',
-    'export PATH="$HOME/.local/bin:$PATH"',
-    'exarchos --version',
-    `printf '%s\\n' '${INITIALIZE_FRAME}' | exarchos mcp`,
-  ].join(' && ');
-
-  const r = spawnSync(
-    'docker',
-    [
-      'run',
-      '--rm',
-      '-v',
-      `${BOOTSTRAP_SCRIPT}:/mnt/get-exarchos.sh:ro`,
-      image,
-      'sh',
-      '-c',
-      inContainer,
-    ],
-    {
-      encoding: 'utf8',
-      timeout: 180_000,
-      env: {},
-    },
-  );
+  const inContainer = buildInContainerCommand({ installPrelude, versionTag });
+  const r = spawnSync('docker', buildDockerArgs(image, inContainer), {
+    encoding: 'utf8',
+    timeout: 180_000,
+    // Hermetic run — bootstrap needs no host env to function.
+    env: {},
+  });
   const stdout = r.stdout ?? '';
   const stderr = r.stderr ?? '';
   if (r.status === 0) {
     return { kind: 'pass', stdout, stderr };
   }
-  if (/failed to download binary/i.test(stderr) || /failed to download binary/i.test(stdout)) {
+  if (
+    /failed to download binary/i.test(stderr) ||
+    /failed to download binary/i.test(stdout)
+  ) {
     return { kind: 'download-missing', stdout, stderr, status: r.status ?? -1 };
   }
   return { kind: 'fail', stdout, stderr, status: r.status };
@@ -162,6 +216,37 @@ const skipReason = (() => {
     return `bootstrap script missing at ${BOOTSTRAP_SCRIPT}`;
   return null;
 })();
+
+describe('task 2.9 — fresh-environment bootstrap smoke (unit)', () => {
+  // Pure-function checks on the extracted builder. These run in every
+  // environment (no docker, no ENABLE_E2E_SMOKE needed) and lock the
+  // shell-string contract that the docker cases depend on.
+  it('buildInContainerCommand_IncludesAllBootstrapSteps', () => {
+    const cmd = buildInContainerCommand({
+      installPrelude: 'INSTALL_PRELUDE',
+      versionTag: 'v9.9.9',
+    });
+    expect(cmd).toContain('INSTALL_PRELUDE');
+    expect(cmd).toContain('/mnt/get-exarchos.sh');
+    expect(cmd).toContain("EXARCHOS_LATEST_VERSION='v9.9.9'");
+    expect(cmd).toContain('exarchos --version');
+    expect(cmd).toContain('exarchos mcp');
+    expect(cmd).toContain('"jsonrpc":"2.0"');
+    expect(cmd).toContain('"method":"initialize"');
+  });
+
+  it('buildDockerArgs_WiresReadOnlyVolumeMount', () => {
+    const args = buildDockerArgs('ubuntu:24.04', 'echo hi');
+    expect(args[0]).toBe('run');
+    expect(args).toContain('--rm');
+    expect(args).toContain('ubuntu:24.04');
+    // Last arg is the in-container command payload.
+    expect(args[args.length - 1]).toBe('echo hi');
+    // Volume mount is read-only to defend against a runaway chmod.
+    const volArg = args[args.indexOf('-v') + 1];
+    expect(volArg.endsWith(':/mnt/get-exarchos.sh:ro')).toBe(true);
+  });
+});
 
 describe('task 2.9 — fresh-environment bootstrap smoke', () => {
   it.skipIf(skipReason !== null)(
