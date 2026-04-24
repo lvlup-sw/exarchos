@@ -11,7 +11,7 @@ description: |
   Implementation task requiring test-first development triggers the implementer agent.
   </commentary>
   </example>
-tools: ["Read", "Write", "Edit", "Bash", "Grep", "Glob"]
+tools: ["Read", "Write", "Edit", "Bash", "Grep", "Glob", "mcp__exarchos__exarchos_event"]
 model: inherit
 color: blue
 disallowedTools: ["Agent"]
