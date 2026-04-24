@@ -41,6 +41,7 @@ export const EventTypes = [
   'workflow.cas-failed',
   'workflow.pruned',
   'workflow.checkpoint_requested',
+  'workflow.checkpoint_written',
   'synthesize.requested',
   'review.completed',
   'review.routed',
@@ -182,6 +183,7 @@ export const EVENT_EMISSION_REGISTRY: Record<EventType, EventEmissionSource> = {
   'workflow.cas-failed': 'auto',
   'workflow.pruned': 'auto',
   'workflow.checkpoint_requested': 'auto',
+  'workflow.checkpoint_written': 'auto',
   'synthesize.requested': 'auto',
   'task.claimed': 'auto',
   'task.completed': 'auto',
@@ -478,6 +480,12 @@ export const WorkflowPrunedData = z.object({
 export const WorkflowCheckpointRequestedData = z.object({
   trigger: z.enum(['manual', 'threshold', 'hook']),
   reason: z.string().optional(),
+});
+
+export const WorkflowCheckpointWrittenData = z.object({
+  projectionId: z.string().min(1),
+  projectionSequence: z.number().int().nonnegative(),
+  byteSize: z.number().int().nonnegative(),
 });
 
 export const SynthesizeRequestedData = z.object({
@@ -847,6 +855,7 @@ export const EVENT_DATA_SCHEMAS: Partial<Record<EventType, z.ZodSchema>> = {
   'workflow.cas-failed': WorkflowCasFailedData,
   'workflow.pruned': WorkflowPrunedData,
   'workflow.checkpoint_requested': WorkflowCheckpointRequestedData,
+  'workflow.checkpoint_written': WorkflowCheckpointWrittenData,
   'synthesize.requested': SynthesizeRequestedData,
 
   // Task-level
@@ -982,6 +991,7 @@ export type WorkflowCircuitOpen = z.infer<typeof WorkflowCircuitOpenData>;
 export type WorkflowCasFailed = z.infer<typeof WorkflowCasFailedData>;
 export type WorkflowPruned = z.infer<typeof WorkflowPrunedData>;
 export type WorkflowCheckpointRequested = z.infer<typeof WorkflowCheckpointRequestedData>;
+export type WorkflowCheckpointWritten = z.infer<typeof WorkflowCheckpointWrittenData>;
 export type SynthesizeRequested = z.infer<typeof SynthesizeRequestedData>;
 export type ToolInvoked = z.infer<typeof ToolInvokedData>;
 export type ToolCompleted = z.infer<typeof ToolCompletedData>;
@@ -1062,6 +1072,7 @@ export type EventDataMap = {
   'workflow.cas-failed': WorkflowCasFailed;
   'workflow.pruned': WorkflowPruned;
   'workflow.checkpoint_requested': WorkflowCheckpointRequested;
+  'workflow.checkpoint_written': WorkflowCheckpointWritten;
   'synthesize.requested': SynthesizeRequested;
   'review.completed': ReviewCompleted;
   'review.routed': ReviewRouted;
