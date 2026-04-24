@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-Exarchos is local agent governance for Claude Code. It provides event-sourced SDLC workflows with agent team coordination, installing commands, skills, rules, and MCP plugins to `~/.claude/` via symlinks. Workflows survive context compaction through persistent state and auto-resume on session start.
+Exarchos is local agent governance for Claude Code. It provides event-sourced SDLC workflows with agent team coordination. Distribution is a Claude Code plugin (via the lvlup-sw marketplace) or a standalone single-file binary downloaded by the `scripts/get-exarchos.{sh,ps1}` bootstrap; the plugin manifest registers commands/skills/rules and the MCP server. Workflows survive context compaction through persistent state and auto-resume on session start.
 
 ## Tech Stack
 
@@ -22,7 +22,7 @@ Exarchos is local agent governance for Claude Code. It provides event-sourced SD
 | `rules/` | Global behavioral constraints (coding standards, TDD, orchestrator constraints) |
 | `scripts/` | Deterministic validation scripts replacing prose checklists in skills |
 | `servers/exarchos-mcp/` | Unified MCP server: workflow HSM, event store, CQRS views, team coordination |
-| `src/` | Root installer TypeScript source |
+| `src/` | Skills renderer (`build-skills.ts`), `install-skills` runtime-selector CLI, plus repo-level validation tests |
 | `docs/` | Designs, plans, ADRs, schemas, audits, bug reports |
 | `renovate-config/` | Renovate dependency management presets |
 | `hooks.json` | CLI hooks for workflow auto-continue and guardrails |
