@@ -2,6 +2,13 @@
 
 How to bootstrap and operate the self-reinforcing quality feedback loop shipped in PR #914.
 
+> **Invocation commands stale (v2.9 install-rewrite, task 3.8):** The
+> `node dist/cli.js {eval-run,eval-capture,eval-calibrate,eval-compare}`
+> commands referenced in this guide were removed alongside the unreachable
+> `servers/exarchos-mcp/src/cli.ts` entry point. The underlying flywheel
+> libraries under `servers/exarchos-mcp/src/evals/` and `src/quality/`
+> remain intact; a new CLI surface has not yet been designed.
+
 ## Current State
 
 **What's live now (passive data collection):**
@@ -321,8 +328,6 @@ Signal confidence is derived from calibration + data volume:
 | `evals/calibration/gold-standard.jsonl` | Human-graded baseline (you create this) |
 | `evals/*/suite.json` | Suite configs with rubric assertions |
 | `evals/*/datasets/*.jsonl` | Eval case datasets (98 cases across 7 suites) |
-| `servers/exarchos-mcp/src/cli-commands/eval-calibrate.ts` | Calibration CLI handler |
-| `servers/exarchos-mcp/src/cli-commands/eval-capture.ts` | Trace capture + promote CLI handler |
 | `servers/exarchos-mcp/src/evals/trace-capture.ts` | Core trace → eval case conversion |
 | `servers/exarchos-mcp/src/evals/auto-triage.ts` | Regression vs capability classification |
 | `servers/exarchos-mcp/src/quality/calibrated-correlation.ts` | Calibration → signal confidence derivation |

@@ -4,16 +4,11 @@ Deterministic and LLM-graded evaluation suites for Exarchos skills.
 
 ## Running Evals
 
-```bash
-# Local (rich terminal output)
-cd servers/exarchos-mcp && echo '{}' | node dist/cli.js eval-run
-
-# CI mode (GitHub Actions annotations)
-echo '{"ci": true}' | node dist/cli.js eval-run
-
-# Filter by skill
-echo '{"skill": "delegation"}' | node dist/cli.js eval-run
-```
+The eval CLI entry points (`eval-run`, `eval-capture`, `eval-compare`,
+`eval-calibrate`) were removed in v2.9 install-rewrite task 3.8 alongside the
+unreachable `servers/exarchos-mcp/src/cli.ts`. The eval framework libraries
+under `servers/exarchos-mcp/src/evals/` remain; invoke them directly in
+tests or via a new bespoke runner until a new CLI surface is designed.
 
 ## API Key Configuration
 
