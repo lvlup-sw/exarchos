@@ -1,5 +1,9 @@
 name: CI
 
+# NOTE(task-1.5): `binary-matrix` job will be added in the GREEN commit to
+# fan out `scripts/build-binary.ts --target <name>` across the 5 TARGETS
+# declared in scripts/build-binary.ts. See feature/v29-install-rewrite.
+
 on:
   pull_request:
   push:
