@@ -461,7 +461,7 @@ describe('EventTypes', () => {
   });
 
   it('EventTypes_HasExpectedCount', () => {
-    expect(EventTypes).toHaveLength(75);
+    expect(EventTypes).toHaveLength(76);
   });
 
   it('EventTypes_IncludesSessionTagged', () => {
@@ -2157,5 +2157,26 @@ describe('WorkflowCheckpointRequestedData', () => {
       trigger: 'auto-cadence',
     });
     expect(result.success).toBe(false);
+  });
+});
+
+// ─── workflow.checkpoint_written (T006, DR-4) ───────────────────────────────
+
+describe('WorkflowCheckpointWrittenData', () => {
+  it('CheckpointWritten_ValidData_Parses', () => {
+    // DR-4: { projectionId: string, projectionSequence: number, byteSize: number }
+    // Emitted after projection materialized + snapshot written, closing the
+    // checkpoint_requested → checkpoint_written loop.
+    expect(EventTypes).toContain('workflow.checkpoint_written');
+
+    const schema = EVENT_DATA_SCHEMAS['workflow.checkpoint_written' as typeof EventTypes[number]];
+    expect(schema).toBeDefined();
+
+    const result = schema!.safeParse({
+      projectionId: 'rehydrate-foundation',
+      projectionSequence: 42,
+      byteSize: 1024,
+    });
+    expect(result.success, JSON.stringify(result)).toBe(true);
   });
 });
