@@ -10,7 +10,9 @@
 # the install link once per session.
 set -eu
 
-INSTALL_URL="https://raw.githubusercontent.com/lvlup-sw/exarchos/main/scripts/get-exarchos.sh"
+# Default install URL; CI and forks can override via EXARCHOS_INSTALL_URL.
+DEFAULT_INSTALL_URL="https://raw.githubusercontent.com/lvlup-sw/exarchos/main/scripts/get-exarchos.sh"
+INSTALL_URL="${EXARCHOS_INSTALL_URL:-$DEFAULT_INSTALL_URL}"
 
 if ! command -v exarchos >/dev/null 2>&1; then
   printf 'exarchos binary not found on PATH. Install via:\n  curl -fsSL %s | bash\n' "$INSTALL_URL" >&2

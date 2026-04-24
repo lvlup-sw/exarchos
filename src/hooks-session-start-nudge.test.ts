@@ -142,6 +142,25 @@ describe('hooks/session-start.sh — behavior', () => {
     expect(result.stdout).toContain('/tmp/fake-plugin-root');
   });
 
+  it('SessionStartNudge_InstallUrl_EnvOverride_FlowsIntoHint', () => {
+    // REFACTOR: EXARCHOS_INSTALL_URL overrides the default bootstrap URL
+    // so CI and forks can test against alternate sources.
+    for (const f of require('node:fs').readdirSync(stubDir)) {
+      rmSync(join(stubDir, f), { force: true });
+    }
+
+    const env = hermeticEnv(stubDir);
+    const overrideUrl = 'https://fork.example.com/bootstrap.sh';
+    env.EXARCHOS_INSTALL_URL = overrideUrl;
+
+    const result = runScript(env);
+
+    expect(result.status).toBe(0);
+    expect(result.stderr).toContain(overrideUrl);
+    // The default URL must NOT appear when the override is set.
+    expect(result.stderr).not.toContain('raw.githubusercontent.com/lvlup-sw/exarchos/main');
+  });
+
   it('SessionStartNudge_BinaryPresent_UsesExecNotFork', () => {
     // Spawn a stub that records its own PID, then compare against the
     // script's PID. If the script used `exec`, the child replaces the
