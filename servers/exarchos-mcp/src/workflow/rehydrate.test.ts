@@ -1,10 +1,11 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 
 import { EventStore } from '../event-store/store.js';
 import { appendSnapshot } from '../projections/store.js';
+import { rebuildProjection } from '../projections/rebuild.js';
 import {
   RehydrationDocumentSchema,
   type RehydrationDocument,
@@ -437,5 +438,96 @@ describe('handleRehydrate — reducer throw degradation (T054, DR-18)', () => {
     } finally {
       applySpy.mockRestore();
     }
+  });
+});
+
+/**
+ * T055 — `handleRehydrate` degrades on corrupt snapshot sidecar (DR-18)
+ *
+ * Resilience path: when the snapshot sidecar is present but its contents fail
+ * to load/parse — a malformed JSONL line, a schema-invalid state payload, or
+ * any non-ENOENT IO error from the read — the handler MUST fall back to a
+ * cold replay via `rebuildProjection` (T029), emit
+ * `workflow.projection_degraded` with `cause: "snapshot-corrupt"` and
+ * `fallbackSource: "full-replay"`, and return the rebuilt document with
+ * `_meta.degraded: true`.
+ *
+ * Distinct from T054 (reducer-throw → state-store-only fallback): here the
+ * reducer is healthy, the event log is authoritative, so we rebuild from
+ * sequence 0 instead of degrading to the state store.
+ *
+ * Distinct from the "no snapshot yet" path (ENOENT): a missing file means
+ * the projection hasn't been snapshotted yet, not that the cache is corrupt.
+ */
+describe('handleRehydrate — corrupt-snapshot degradation (T055, DR-18)', () => {
+  it('Rehydrate_CorruptSnapshot_ReplaysFromZeroAndSucceeds', async () => {
+    // GIVEN: a state directory containing a malformed `<featureId>.projections.jsonl`
+    //   sidecar (first line fails JSON.parse), alongside a healthy event
+    //   stream that would fold to a valid document.
+    const featureId = 'rehydrate-corrupt-snapshot';
+
+    await store.append(featureId, {
+      type: 'workflow.started',
+      data: { featureId, workflowType: 'feature' },
+    });
+    await store.append(featureId, {
+      type: 'task.assigned',
+      data: { taskId: 'T500' },
+    });
+    await store.append(featureId, {
+      type: 'task.completed',
+      data: { taskId: 'T500' },
+    });
+    await store.append(featureId, {
+      type: 'task.assigned',
+      data: { taskId: 'T501' },
+    });
+
+    // Corrupt the sidecar — malformed JSON that will fail parse.
+    const sidecar = path.join(stateDir, `${featureId}.projections.jsonl`);
+    await writeFile(sidecar, '{not-valid-json\n', 'utf8');
+
+    // WHEN: invoke the handler.
+    const result = await handleRehydrate(
+      { featureId },
+      { eventStore: store, stateDir },
+    );
+
+    // THEN (1): handler returns a successful ToolResult with `_meta.degraded`
+    //   and `_meta.fallbackSource: "full-replay"`.
+    expect(result.success).toBe(true);
+    const meta = result._meta as Record<string, unknown> | undefined;
+    expect(meta).toBeDefined();
+    expect(meta?.degraded).toBe(true);
+    expect(meta?.fallbackSource).toBe('full-replay');
+
+    // THEN (2): the returned document equals the cold-fold parity result —
+    //   folding every event through the rehydration reducer from sequence 0.
+    const expected = await rebuildProjection(
+      rehydrationReducer,
+      store,
+      featureId,
+    );
+    const doc = result.data as RehydrationDocument;
+    expect(doc).toEqual(expected);
+    expect(RehydrationDocumentSchema.safeParse(doc).success).toBe(true);
+
+    // THEN (3): exactly one `workflow.projection_degraded` event was appended
+    //   with the registered payload — `cause: "snapshot-corrupt"`,
+    //   `fallbackSource: "full-replay"`, `projectionId: "rehydration@v1"`.
+    const all = await store.query(featureId);
+    const degraded = all.filter(
+      (e) => e.type === 'workflow.projection_degraded',
+    );
+    expect(degraded).toHaveLength(1);
+    const payload = degraded[0].data as WorkflowProjectionDegraded;
+    expect(payload.projectionId).toBe('rehydration@v1');
+    expect(payload.cause).toBe('snapshot-corrupt');
+    expect(payload.fallbackSource).toBe('full-replay');
+
+    // THEN (4): no `workflow.rehydrated` event — the degraded envelope is
+    //   mutually exclusive with "hydrate succeeded" (same invariant as T054).
+    const rehydrated = all.filter((e) => e.type === 'workflow.rehydrated');
+    expect(rehydrated).toHaveLength(0);
   });
 });
