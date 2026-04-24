@@ -4,7 +4,7 @@
 // replacing individual MCP tools with a single `exarchos_orchestrate` tool.
 // ────────────────────────────────────────────────────────────────────────────
 
-import type { ToolResult } from '../format.js';
+import { wrap, type ToolResult } from '../format.js';
 import type { DispatchContext } from '../core/dispatch.js';
 import { handleDescribe } from '../describe/handler.js';
 import { handleRunbook } from '../runbooks/handler.js';
@@ -219,6 +219,33 @@ const ACTION_HANDLERS: Readonly<Record<string, ActionHandler>> = {
 /** Exported for sync test — ensures registry.ts stays in sync with handler keys. */
 export const ACTION_HANDLER_KEYS: readonly string[] = Object.keys(ACTION_HANDLERS);
 
+// ─── Envelope Wrapping (T038, DR-7) ─────────────────────────────────────────
+
+/**
+ * HATEOAS envelope wrapping for successful tool responses (T038, DR-7).
+ *
+ * Successful results are re-shaped into `Envelope<T>` at the tool
+ * boundary so agents see a stable contract with `next_actions`, `_meta`,
+ * and `_perf` on every response. Mirrors the T036 treatment in
+ * `workflow/composite.ts` — sub-handlers continue to return raw
+ * `ToolResult` for internal callers (e.g. tests and parity harness).
+ *
+ * `next_actions` is populated by T040/T041's `computeNextActions` — for
+ * T038 it defaults to `[]` so the field is always present.
+ *
+ * Error responses pass through unchanged so structured `error` payloads
+ * (error codes, valid transition targets, suggested fixes) remain
+ * accessible to callers for auto-correction flows.
+ */
+function envelopeWrap(result: ToolResult, startedAt: number): ToolResult {
+  if (!result.success) return result;
+
+  const meta = (result._meta ?? {}) as Record<string, unknown>;
+  const perf = result._perf ?? { ms: Date.now() - startedAt };
+  const envelope = wrap(result.data, meta, perf);
+  return envelope as unknown as ToolResult;
+}
+
 // ─── Composite Handler ──────────────────────────────────────────────────────
 
 /**
@@ -231,6 +258,7 @@ export async function handleOrchestrate(
   args: Record<string, unknown>,
   ctx: DispatchContext,
 ): Promise<ToolResult> {
+  const startedAt = Date.now();
   const { stateDir } = ctx;
   const { action, ...rest } = args;
 
@@ -246,7 +274,7 @@ export async function handleOrchestrate(
         },
       };
     }
-    return handleDescribe(rest as { actions: string[] }, orchestrateActions);
+    return envelopeWrap(await handleDescribe(rest as { actions: string[] }, orchestrateActions), startedAt);
   }
 
   // Handle doctor specially — it needs the full DispatchContext (not
@@ -254,14 +282,14 @@ export async function handleOrchestrate(
   // diagnostic.executed and delegates further context access to
   // buildProbes.
   if (action === 'doctor') {
-    return handleDoctor(rest as Parameters<typeof handleDoctor>[0], ctx);
+    return envelopeWrap(await handleDoctor(rest as Parameters<typeof handleDoctor>[0], ctx), startedAt);
   }
 
   // Handle init specially — like doctor, it needs the full
   // DispatchContext because handleInit uses ctx.eventStore to emit
   // init.executed and delegates deps/VCS detection internally.
   if (action === 'init') {
-    return handleInit(rest as Parameters<typeof handleInit>[0], ctx);
+    return envelopeWrap(await handleInit(rest as Parameters<typeof handleInit>[0], ctx), startedAt);
   }
 
   // Handle runbook specially — it doesn't need stateDir
@@ -284,7 +312,7 @@ export async function handleOrchestrate(
         },
       };
     }
-    return handleRunbook(rest as { phase?: string; id?: string });
+    return envelopeWrap(await handleRunbook(rest as { phase?: string; id?: string }), startedAt);
   }
 
   const handler = typeof action === 'string' ? ACTION_HANDLERS[action] : undefined;
@@ -298,5 +326,5 @@ export async function handleOrchestrate(
     };
   }
 
-  return handler(rest as Record<string, unknown>, stateDir, ctx);
+  return envelopeWrap(await handler(rest as Record<string, unknown>, stateDir, ctx), startedAt);
 }
