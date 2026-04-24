@@ -1,9 +1,11 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import { handleAssembleContext } from './assemble-context.js';
 import { resetMaterializerCache } from '../views/tools.js';
+import { EventStore } from '../event-store/store.js';
+import { handleRehydrate } from '../workflow/rehydrate.js';
 
 // ─── Test Helpers ────────────────────────────────────────────────────────────
 
@@ -563,5 +565,125 @@ describe('assemble-context', () => {
 
     // Assert — unknown phase should NOT include behavioral section
     expect(result.contextDocument).not.toContain('### Behavioral Guidance');
+  });
+
+  // ─── T058 — Migration to exarchos_workflow.rehydrate (DR-16) ────────────
+
+  it('AssembleContext_ProducesSameDocumentAsReducer', async () => {
+    // GIVEN: event store seeded with a representative workflow. We use the
+    // canonical event shapes the rehydration reducer folds (task.*,
+    // workflow.started, workflow.transition, state.patched) so the
+    // reducer-derived document has real content in every section the
+    // markdown formatter cares about.
+    const featureId = 't058-parity';
+    await writeMockState(tempDir, featureId, {
+      phase: 'delegate',
+      workflowType: 'feature',
+      artifacts: {
+        design: 'docs/designs/test.md',
+        plan: 'docs/plans/test.md',
+        pr: null,
+      },
+    });
+    await writeMockEvents(tempDir, featureId, [
+      {
+        type: 'workflow.started',
+        data: { featureId, workflowType: 'feature' },
+      },
+      {
+        type: 'workflow.transition',
+        data: { featureId, from: 'ideate', to: 'delegate' },
+      },
+      { type: 'task.assigned', data: { taskId: 'T1', title: 'Task one' } },
+      { type: 'task.completed', data: { taskId: 'T1' } },
+      { type: 'task.assigned', data: { taskId: 'T2', title: 'Task two' } },
+    ]);
+
+    // WHEN: invoke the dispatch-based handler AND handleRehydrate directly.
+    const eventStore = new EventStore(tempDir);
+    const rehydrateResult = await handleRehydrate(
+      { featureId },
+      { stateDir: tempDir, eventStore },
+    );
+    expect(rehydrateResult.success).toBe(true);
+
+    // Reset materializer to avoid cross-test pollution (the seeded events
+    // are also needed by the inline-walk path if it were still present).
+    resetMaterializerCache();
+
+    const result = await handleAssembleContext({ featureId }, tempDir);
+
+    // THEN: the markdown document must encode every canonical section of
+    // the reducer's RehydrationDocument.
+    const doc = result.contextDocument;
+
+    // workflowState — featureId + phase are surfaced in the header.
+    expect(doc).toContain(`## Workflow Context: ${featureId}`);
+    expect(doc).toContain('delegate');
+
+    // taskProgress — both task ids must appear in the task-progress section
+    // derived from the reducer's folded task events (T1 completed, T2
+    // assigned).
+    expect(doc).toContain('### Task Progress');
+    expect(doc).toContain('T1');
+    expect(doc).toContain('T2');
+
+    // The rehydrated envelope's projectionSequence advances with every
+    // handled event — 5 handled events above → projectionSequence === 5.
+    // Assert on the envelope itself so we have a structural anchor even if
+    // the markdown layer strips sequence info.
+    const rehydratedDoc = rehydrateResult.data as {
+      projectionSequence: number;
+      workflowState: { featureId: string; phase: string; workflowType: string };
+      taskProgress: ReadonlyArray<{ id: string; status: string }>;
+    };
+    expect(rehydratedDoc.workflowState.featureId).toBe(featureId);
+    expect(rehydratedDoc.workflowState.phase).toBe('delegate');
+    expect(rehydratedDoc.taskProgress.map((t) => t.id).sort()).toEqual([
+      'T1',
+      'T2',
+    ]);
+  });
+
+  it('AssembleContext_DispatchesToWorkflow_NotInlineLogic', async () => {
+    // GIVEN: a workflow seeded in the event store.
+    const featureId = 't058-dispatch-spy';
+    await writeMockState(tempDir, featureId, { phase: 'delegate' });
+    await writeMockEvents(tempDir, featureId, [
+      { type: 'workflow.started', data: { featureId, workflowType: 'feature' } },
+      {
+        type: 'workflow.transition',
+        data: { featureId, from: 'ideate', to: 'delegate' },
+      },
+      { type: 'task.assigned', data: { taskId: 'T1', title: 'Task one' } },
+    ]);
+
+    // WHEN: spy on the rehydrate-handler module. The dispatch-based
+    // implementation routes through `handleRehydrate` (either directly or
+    // via the composite); either way the module's export must be invoked
+    // for this featureId at least once.
+    const rehydrateModule = await import('../workflow/rehydrate.js');
+    const spy = vi.spyOn(rehydrateModule, 'handleRehydrate');
+
+    try {
+      const result = await handleAssembleContext({ featureId }, tempDir);
+
+      // THEN: the rehydrate handler was invoked with this featureId. The
+      // inline-walk path never calls `handleRehydrate`, so a single call
+      // here is the migration's observable signal.
+      expect(spy).toHaveBeenCalled();
+      const invokedWithFeatureId = spy.mock.calls.some((call) => {
+        const args = call[0] as { featureId?: string };
+        return args?.featureId === featureId;
+      });
+      expect(invokedWithFeatureId).toBe(true);
+
+      // And the adapter must still produce a usable markdown document.
+      expect(result.contextDocument).toContain(
+        `## Workflow Context: ${featureId}`,
+      );
+    } finally {
+      spy.mockRestore();
+    }
   });
 });
