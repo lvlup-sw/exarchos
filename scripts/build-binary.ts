@@ -46,6 +46,16 @@ export interface Target {
  * Exported so the CI matrix (task 1.5) and downstream tooling can iterate
  * the same set of OS/arch pairs without re-declaring the tuple — single
  * source of truth prevents build/publish drift.
+ *
+ * DRIFT CONTRACT:
+ *   - Mirrored by `binary-matrix.strategy.matrix.target` in
+ *     `.github/workflows/ci.yml`, using the `os-arch` naming convention
+ *     (e.g. `linux-x64`) for each entry.
+ *   - `scripts/ci-binary-matrix.test.ts` is the enforcement gate: editing
+ *     this tuple without updating the CI matrix (or vice versa) fails
+ *     `npm run test:run`.
+ *   - The 2.7 release workflow should also consume this export when it
+ *     lands, so additions/removals propagate automatically.
  */
 export const TARGETS: readonly Target[] = [
   { os: 'linux', arch: 'x64', bunTarget: 'bun-linux-x64' },

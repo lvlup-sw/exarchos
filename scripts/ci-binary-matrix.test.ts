@@ -2,7 +2,8 @@
  * CI wiring tests for the cross-compile binary matrix (task 1.5).
  *
  * Phase progression: RED (assertions added, all failing) → GREEN (ci.yml
- * binary-matrix job + build:binary npm script added, assertions pass).
+ * binary-matrix job + build:binary npm script added, assertions pass) →
+ * REFACTOR (matrix targets cross-referenced with build-binary.ts TARGETS).
  *
  * These are structural / schema tests over `.github/workflows/ci.yml` and
  * the root `package.json` — they do not invoke the matrix itself. The
