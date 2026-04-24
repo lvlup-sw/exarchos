@@ -10,9 +10,13 @@
  */
 
 import { expect } from 'vitest';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import * as path from 'node:path';
 
 import { CLI_EXIT_CODES } from '../src/adapters/cli.js';
 import type { DispatchContext } from '../src/core/dispatch.js';
+import { EventStore } from '../src/event-store/store.js';
 import type { ToolResult } from '../src/format.js';
 import {
   callCli as harnessCallCli,
@@ -75,6 +79,44 @@ export interface ParityFixture {
   readonly mcpDir: string;
   readonly cliCtx: DispatchContext;
   readonly mcpCtx: DispatchContext;
+}
+
+// ─── Fixture lifecycle ──────────────────────────────────────────────────────
+
+function makeCtx(stateDir: string): DispatchContext {
+  return {
+    stateDir,
+    eventStore: new EventStore(stateDir),
+    enableTelemetry: false,
+  };
+}
+
+/**
+ * Allocate two isolated tmp state dirs (CLI arm + MCP arm) wired up with
+ * fresh EventStores and telemetry disabled. Paired with {@link teardownFixture}.
+ *
+ * Kept here (not in the test file) so the per-suite `beforeEach`/`afterEach`
+ * collapse to a single line each — the test file's role is to express
+ * coverage, not fiddle with lifecycle.
+ */
+export async function setupFixture(): Promise<ParityFixture> {
+  const cliDir = await mkdtemp(path.join(tmpdir(), 'exarchos-parity-all-cli-'));
+  const mcpDir = await mkdtemp(path.join(tmpdir(), 'exarchos-parity-all-mcp-'));
+  return {
+    cliDir,
+    mcpDir,
+    cliCtx: makeCtx(cliDir),
+    mcpCtx: makeCtx(mcpDir),
+  };
+}
+
+/**
+ * Release the two tmp state dirs. Uses `force: true` so a crash mid-run
+ * during a later test doesn't chain-fail subsequent cleanup.
+ */
+export async function teardownFixture(fixture: ParityFixture): Promise<void> {
+  await rm(fixture.cliDir, { recursive: true, force: true });
+  await rm(fixture.mcpDir, { recursive: true, force: true });
 }
 
 // ─── Normalization ──────────────────────────────────────────────────────────
