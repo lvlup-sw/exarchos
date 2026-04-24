@@ -190,14 +190,28 @@ fi
 # Task 3.7: Audit scripts/sync-marketplace.sh for dual-plugin references
 # ============================================================
 #
-# RED-phase form: require the script to be absent outright. This is expected
-# to FAIL against the current tree — the script still exists because the
-# audit has not yet run. GREEN will relax to the real invariant: "absent OR
-# free of dual-plugin refs", since single-plugin marketplace syncing is a
-# legitimate /release-time operation.
-assert_file_absent \
-  "NoLegacy_SyncMarketplaceAbsentOrUpdated" \
-  "scripts/sync-marketplace.sh"
+# sync-marketplace.sh was audited in the v2.9 install rewrite. Disposition:
+# KEEP — the script is general single-plugin marketplace syncing against
+# $HOME/.claude/plugins/marketplaces/lvlup-sw, invoked by /release and
+# `/release --check`. It filters specifically on `name=="exarchos"` in the
+# marketplace manifest and never referenced `create-exarchos` or any
+# dual-plugin model (verified at audit time).
+#
+# The invariant going forward: the script must either
+#   (a) not exist, or
+#   (b) exist with zero references to `create-exarchos` or `dual-plugin`.
+SYNC_MKT_PATH="$REPO_ROOT/scripts/sync-marketplace.sh"
+if [[ ! -e "$SYNC_MKT_PATH" ]]; then
+  pass "NoLegacy_SyncMarketplaceAbsentOrUpdated (script absent)"
+else
+  SYNC_MKT_HITS=$(grep -inE "create-exarchos|dual.?plugin" "$SYNC_MKT_PATH" 2>/dev/null || true)
+  if [[ -z "$SYNC_MKT_HITS" ]]; then
+    pass "NoLegacy_SyncMarketplaceAbsentOrUpdated (no dual-plugin refs)"
+  else
+    fail "NoLegacy_SyncMarketplaceAbsentOrUpdated" \
+      "scripts/sync-marketplace.sh references deleted dual-plugin model: $SYNC_MKT_HITS"
+  fi
+fi
 
 # ============================================================
 # Task 3.8: Delete dead servers/exarchos-mcp/src/cli.ts + orphans
