@@ -3,6 +3,7 @@ import * as path from 'node:path';
 import { listStateFiles } from '../workflow/state-store.js';
 import { getOrCreateEventStore } from '../views/tools.js';
 import { dispatch } from '../core/dispatch.js';
+import type { DispatchContext } from '../core/dispatch.js';
 import { handleAssembleContext } from './assemble-context.js';
 import type { CommandResult } from './types.js';
 
@@ -63,9 +64,11 @@ export async function handlePreCompact(
 
   // Build a minimal DispatchContext once. `getOrCreateEventStore` caches by
   // stateDir so repeated pre-compact invocations in the same process share
-  // the same handle (same pattern used by other CLI adapters).
+  // the same handle (same pattern used by other CLI adapters). Telemetry is
+  // disabled here — the hook path is latency-sensitive and the composite's
+  // own logging covers the observability needs of pre-compact callers.
   const eventStore = getOrCreateEventStore(stateDir);
-  const ctx = {
+  const ctx: DispatchContext = {
     stateDir,
     eventStore,
     enableTelemetry: false,
