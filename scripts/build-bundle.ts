@@ -11,6 +11,13 @@
  * and break dynamic resolution. Native SQLite is no longer external —
  * persistence moved to `bun:sqlite` in v29, so no native addon copy step
  * is required.
+ *
+ * DEPRECATED (task 3.6): After PR2 rewired plugin.json and hooks.json to
+ * invoke the bare `exarchos` PATH-resolved binary from
+ * `scripts/build-binary.ts`, nothing in the shipping repo consumes
+ * `dist/exarchos.js`. This script (and the output it emits) are slated for
+ * deletion in task 3.6. NoLegacy_BuildBundleScriptAbsent in
+ * `scripts/validate-no-legacy.test.sh` is the pinning assertion.
  */
 import { $ } from 'bun';
 

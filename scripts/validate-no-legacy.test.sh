@@ -214,6 +214,65 @@ else
 fi
 
 # ============================================================
+# Task 3.6: Remove dist/exarchos.js JS bundle emission
+# ============================================================
+#
+# After PR2 rewired plugin.json and hooks.json to invoke the bare `exarchos`
+# PATH-resolved binary, the legacy `dist/exarchos.js` JS bundle is no longer
+# consumed by anything. Task 3.6 deletes its emission from the build
+# pipeline. These assertions pin that end-state so the dead path cannot
+# return.
+
+# NoLegacy_BuildBundleScriptAbsent — `scripts/build-bundle.ts` was the sole
+# emitter of `dist/exarchos.js`. Delete the script entirely; the build now
+# calls `scripts/build-binary.ts` for compile-to-executable output.
+assert_file_absent \
+  "NoLegacy_BuildBundleScriptAbsent" \
+  "scripts/build-bundle.ts"
+
+# NoLegacy_BuildBundleTestAbsent — the co-located test for the deleted
+# `build-bundle.ts` (task 1.3 guard against legacy platform-variant wiring)
+# must be removed alongside its subject.
+assert_file_absent \
+  "NoLegacy_BuildBundleTestAbsent" \
+  "scripts/build-bundle.test.ts"
+
+# NoLegacy_BuildScriptDoesNotRunBuildBundle — root `package.json` must not
+# invoke `build-bundle` from the top-level `build` script or declare a
+# `build:bundle` alias. The post-rewrite build chain is
+# `tsc && npm run build:binary && npm run build:skills`.
+if [[ -f "$REPO_ROOT/package.json" ]]; then
+  BUILD_BUNDLE_HITS=$(grep -nE '"build":[^,]*build-bundle|"build":[^,]*build:bundle|"build:bundle"' \
+    "$REPO_ROOT/package.json" 2>/dev/null || true)
+  if [[ -z "$BUILD_BUNDLE_HITS" ]]; then
+    pass "NoLegacy_BuildScriptDoesNotRunBuildBundle"
+  else
+    fail "NoLegacy_BuildScriptDoesNotRunBuildBundle" \
+      "package.json still wires build-bundle into the build pipeline: $BUILD_BUNDLE_HITS"
+  fi
+else
+  fail "NoLegacy_BuildScriptDoesNotRunBuildBundle" \
+    "package.json missing — expected file to exist"
+fi
+
+# NoLegacy_PackageJsonFilesHasNoJsBundle — the `files` array (npm publish
+# whitelist) must not list `dist/exarchos.js`. The JS bundle is no longer
+# emitted; shipping a stale path would confuse consumers at pack time.
+if [[ -f "$REPO_ROOT/package.json" ]]; then
+  FILES_JS_BUNDLE_HITS=$(grep -nE '"dist/exarchos\.js"' \
+    "$REPO_ROOT/package.json" 2>/dev/null || true)
+  if [[ -z "$FILES_JS_BUNDLE_HITS" ]]; then
+    pass "NoLegacy_PackageJsonFilesHasNoJsBundle"
+  else
+    fail "NoLegacy_PackageJsonFilesHasNoJsBundle" \
+      "package.json 'files' array still lists dist/exarchos.js: $FILES_JS_BUNDLE_HITS"
+  fi
+else
+  fail "NoLegacy_PackageJsonFilesHasNoJsBundle" \
+    "package.json missing — expected file to exist"
+fi
+
+# ============================================================
 # Task 3.8: Delete dead servers/exarchos-mcp/src/cli.ts + orphans
 # ============================================================
 
