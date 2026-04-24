@@ -2202,3 +2202,40 @@ describe('WorkflowCheckpointSupersededData', () => {
     expect(result.success, JSON.stringify(result)).toBe(true);
   });
 });
+
+// ─── workflow.rehydrated (T008, DR-4) ───────────────────────────────────────
+
+describe('WorkflowRehydratedData', () => {
+  it('Rehydrated_ValidData_Parses', () => {
+    // DR-4: { projectionSequence: number, deliveryPath: "direct"|"ndjson"|"snapshot", tokenEstimate: number }
+    // Emitted when a workflow projection is rehydrated into a session. The
+    // projectionSequence identifies the restored checkpoint, deliveryPath
+    // records the transport (direct embed, streamed ndjson, or snapshot read),
+    // and tokenEstimate captures the approximate context cost of delivery.
+    expect(EventTypes).toContain('workflow.rehydrated');
+
+    const schema = EVENT_DATA_SCHEMAS['workflow.rehydrated' as typeof EventTypes[number]];
+    expect(schema).toBeDefined();
+
+    const result = schema!.safeParse({
+      projectionSequence: 42,
+      deliveryPath: 'direct',
+      tokenEstimate: 1500,
+    });
+    expect(result.success, JSON.stringify(result)).toBe(true);
+  });
+
+  it('Rehydrated_InvalidDeliveryPath_Rejects', () => {
+    // deliveryPath must be one of: "direct" | "ndjson" | "snapshot".
+    // An unknown value is rejected by the z.enum() validator.
+    const schema = EVENT_DATA_SCHEMAS['workflow.rehydrated' as typeof EventTypes[number]];
+    expect(schema).toBeDefined();
+
+    const result = schema!.safeParse({
+      projectionSequence: 42,
+      deliveryPath: 'telepathy',
+      tokenEstimate: 1500,
+    });
+    expect(result.success).toBe(false);
+  });
+});
