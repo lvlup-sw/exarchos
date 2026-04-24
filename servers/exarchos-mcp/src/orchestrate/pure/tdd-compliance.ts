@@ -124,7 +124,17 @@ export function checkTddCompliance(options: TddComplianceOptions): TddCompliance
         results.push(`- **PASS**: \`${commitShort}\` — ${commitMsg} (test+impl)`);
         passCount++;
       } else {
-        // Check if test files were seen before this commit
+        // Check if test files were seen before this commit.
+        //
+        // Pairing tiers (first match wins):
+        //   1. Exact basename match — `impl.ts` ↔ `impl.test.ts` / `impl.spec.ts`.
+        //      The simple, strict case.
+        //   2. Same-directory fallback — any `*.test.*` / `*.spec.*` in the
+        //      same directory as the impl file. Catches canonical TDD where
+        //      the test file exercises a harness/module with a different
+        //      basename (e.g. `immutability.test.ts` → `testing.ts`), or
+        //      barrel exports (`index.ts`) added during REFACTOR after the
+        //      real RED landed nearby.
         let foundPriorTest = false;
         for (const implFile of implFiles) {
           const dotIdx = implFile.lastIndexOf('.');
@@ -138,6 +148,19 @@ export function checkTddCompliance(options: TddComplianceOptions): TddCompliance
             foundPriorTest = true;
             break;
           }
+
+          // Same-directory fallback
+          const slashIdx = implFile.lastIndexOf('/');
+          const implDir = slashIdx === -1 ? '' : implFile.substring(0, slashIdx);
+          for (const seen of testsSeen) {
+            const seenSlashIdx = seen.lastIndexOf('/');
+            const seenDir = seenSlashIdx === -1 ? '' : seen.substring(0, seenSlashIdx);
+            if (seenDir === implDir) {
+              foundPriorTest = true;
+              break;
+            }
+          }
+          if (foundPriorTest) break;
         }
 
         if (foundPriorTest) {
