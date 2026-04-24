@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+// task 1.3: platform-variant logic to be removed in this task
 /**
  * Unified build script for the Exarchos bundle.
  *
