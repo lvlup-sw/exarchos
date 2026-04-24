@@ -293,11 +293,18 @@ describe('handleRehydrate — emits workflow.rehydrated (T032, DR-4, DR-5)', () 
   });
 
   it('RehydrateHandler_EmitsEvent_OnlyOnSuccess', async () => {
-    // GIVEN: an eventStore whose `query` throws. `hydrateFromSnapshotThenTail`
-    //   awaits the query before any append, so the failure propagates before
-    //   the handler reaches its emission step. This verifies the narrow but
-    //   meaningful invariant: emission is conditional on the hydrate
-    //   succeeding (not a post-hoc "always emit" sentinel).
+    // GIVEN: an eventStore whose `query` throws. This verifies the narrow
+    //   but meaningful invariant: emission of `workflow.rehydrated` is
+    //   conditional on the hydrate succeeding (not a post-hoc "always emit"
+    //   sentinel).
+    //
+    //   T056 (DR-18) changed the failure mode: a throwing `query` no longer
+    //   propagates out of the handler — it degrades to state-store-only and
+    //   emits `workflow.projection_degraded` instead. The invariant under
+    //   test here is unchanged: on the failure path, NO `workflow.rehydrated`
+    //   event is emitted. The old "must reject" assertion is now a
+    //   "must degrade" assertion — both encode the same contract (hydrate
+    //   did not succeed, so the rehydrated signal must not fire).
     const featureId = 'rehydrate-failure-no-emit';
     // Seed the real store with one unrelated event so we can distinguish a
     // missing rehydrated event from an empty stream in the assertion below.
@@ -307,8 +314,9 @@ describe('handleRehydrate — emits workflow.rehydrated (T032, DR-4, DR-5)', () 
     });
 
     // Build a failing shim over the real store. `append` still routes to the
-    // real store so that, were the handler to emit anyway (the bug guard),
-    // the event would be visible when we re-query through `store`.
+    // real store so that, were the handler to emit `workflow.rehydrated`
+    // anyway (the bug guard), the event would be visible when we re-query
+    // through `store`.
     const failingStore = {
       append: store.append.bind(store),
       query: async (): Promise<never> => {
@@ -316,13 +324,15 @@ describe('handleRehydrate — emits workflow.rehydrated (T032, DR-4, DR-5)', () 
       },
     } as unknown as typeof store;
 
-    // WHEN: we invoke the handler — it must reject.
-    await expect(
-      handleRehydrate(
-        { featureId },
-        { eventStore: failingStore, stateDir },
-      ),
-    ).rejects.toThrow(/simulated query failure/);
+    // WHEN: handler runs. Under T056 it degrades gracefully instead of
+    // rejecting.
+    const result = await handleRehydrate(
+      { featureId },
+      { eventStore: failingStore, stateDir },
+    );
+    expect(result.success).toBe(true);
+    const meta = result._meta as Record<string, unknown> | undefined;
+    expect(meta?.degraded).toBe(true);
 
     // THEN: no `workflow.rehydrated` event was emitted to the real store.
     const all = await store.query(featureId);
