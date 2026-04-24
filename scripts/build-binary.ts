@@ -3,25 +3,29 @@
  * Compile the Exarchos CLI + MCP server into a single self-contained native
  * binary via `bun build --compile`.
  *
- * Entry point: `servers/exarchos-mcp/src/index.ts`. This file is the *same*
- * entry used by `scripts/build-bundle.ts` and already implements unified
- * mode dispatch:
+ * ── Entry-point choice ──────────────────────────────────────────────────
+ * Reuses `servers/exarchos-mcp/src/index.ts` — the same entry consumed by
+ * `scripts/build-bundle.ts` — rather than introducing a parallel
+ * `cli-entry.ts`. That file already implements unified mode dispatch:
+ *
  *   - `isMcpServerInvocation(argv)` → MCP stdio server mode.
  *   - Hook commands (session-start, pre-compact, guard, ...) → short-lived
  *     subprocess mode via `adapters/hooks.ts`.
  *   - Everything else → Commander CLI via `adapters/cli.ts`.
  *
- * Reusing that entry keeps a single-responsibility surface for bundle and
- * binary variants; see axiom/distill in the v29 install-rewrite design.
+ * One entry, two distribution variants (bundle + binary): honours the
+ * axiom:distill principle of single-responsibility entry surfaces. The v29
+ * install-rewrite design explicitly calls this out — a second entry would
+ * fracture the mode-dispatch invariants documented in DR-5 / F-022-2.
  *
- * Usage:
+ * ── Usage ───────────────────────────────────────────────────────────────
  *   bun run scripts/build-binary.ts            # host-only (default)
  *   bun run scripts/build-binary.ts --all      # all cross-compile targets
  */
 import { $ } from 'bun';
 import { mkdirSync } from 'node:fs';
 
-interface Target {
+export interface Target {
   readonly os: 'linux' | 'darwin' | 'windows';
   readonly arch: 'x64' | 'arm64';
   readonly bunTarget:
@@ -32,7 +36,14 @@ interface Target {
     | 'bun-windows-x64';
 }
 
-const TARGETS: readonly Target[] = [
+/**
+ * Exhaustive cross-compile target matrix for the v2.9 install rewrite.
+ *
+ * Exported so the CI matrix (task 1.5) and downstream tooling can iterate
+ * the same set of OS/arch pairs without re-declaring the tuple — single
+ * source of truth prevents build/publish drift.
+ */
+export const TARGETS: readonly Target[] = [
   { os: 'linux', arch: 'x64', bunTarget: 'bun-linux-x64' },
   { os: 'linux', arch: 'arm64', bunTarget: 'bun-linux-arm64' },
   { os: 'darwin', arch: 'x64', bunTarget: 'bun-darwin-x64' },
