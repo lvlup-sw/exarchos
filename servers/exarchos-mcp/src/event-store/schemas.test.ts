@@ -461,7 +461,7 @@ describe('EventTypes', () => {
   });
 
   it('EventTypes_HasExpectedCount', () => {
-    expect(EventTypes).toHaveLength(78);
+    expect(EventTypes).toHaveLength(79);
   });
 
   it('EventTypes_IncludesSessionTagged', () => {
@@ -2237,5 +2237,27 @@ describe('WorkflowRehydratedData', () => {
       tokenEstimate: 1500,
     });
     expect(result.success).toBe(false);
+  });
+});
+
+// ─── workflow.snapshot_taken (T009, DR-4) ───────────────────────────────────
+
+describe('WorkflowSnapshotTakenData', () => {
+  it('SnapshotTaken_ValidData_Parses', () => {
+    // DR-4: { projectionId: string, sequence: number }
+    // Emitted when a workflow projection snapshot is persisted. The
+    // projectionId identifies the projection being snapshotted, and the
+    // sequence records the projection sequence captured by the snapshot —
+    // later rehydration can skip replaying events up to that sequence.
+    expect(EventTypes).toContain('workflow.snapshot_taken');
+
+    const schema = EVENT_DATA_SCHEMAS['workflow.snapshot_taken' as typeof EventTypes[number]];
+    expect(schema).toBeDefined();
+
+    const result = schema!.safeParse({
+      projectionId: 'proj-001',
+      sequence: 42,
+    });
+    expect(result.success, JSON.stringify(result)).toBe(true);
   });
 });
