@@ -14,12 +14,14 @@
  * siblings; this handler bundles `stateDir` and `eventStore` into a `ctx`
  * object because it has no other positional concerns).
  *
- * Scope boundaries still in place after T032:
+ * Scope boundaries still in place after T032/T054:
  *   - Does NOT register the `rehydrate` action in the `exarchos_workflow`
  *     enum — that is T033.
  *   - Does NOT write a fresh snapshot when cadence fires — that is T034/T037.
- *   - Failure paths (snapshot corrupt, reducer throw) do not yet emit
- *     `workflow.projection_degraded` — that is T043.
+ *   - Reducer-throw degradation is wired (T054, DR-18) via
+ *     `buildDegradedResponse`. The matching paths for corrupt-snapshot
+ *     (T055) and event-stream-unavailable (T056) reuse that helper with
+ *     their own `cause` values.
  */
 import * as path from 'node:path';
 
@@ -34,7 +36,7 @@ import { readLatestSnapshot } from '../projections/store.js';
 import { rehydrationReducer } from '../projections/rehydration/reducer.js';
 import type { RehydrationDocument } from '../projections/rehydration/schema.js';
 import type { ProjectionReducer } from '../projections/types.js';
-import { readStateFile, StateStoreError } from './state-store.js';
+import { readStateFile } from './state-store.js';
 
 /** Input shape for the rehydrate handler. */
 export interface RehydrateArgs {
@@ -125,6 +127,139 @@ export async function hydrateFromSnapshotThenTail<State, Event>(
 }
 
 /**
+ * Degradation cause codes used on `workflow.projection_degraded.data.cause`.
+ *
+ * Centralized so T054/T055/T056 emit stable, audit-searchable enum values:
+ *   - `reducer-throw`         — T054: reducer raised mid-fold (DR-18).
+ *   - `snapshot-corrupt`      — T055: snapshot file failed to load/parse.
+ *   - `event-stream-unavailable` — T056: eventStore.query raised.
+ *
+ * `WorkflowProjectionDegradedData.cause` is `z.string().min(1)` so these
+ * values are not enforced at the schema layer; keeping them as a literal
+ * union on the helper boundary ensures the four call sites in this module
+ * cannot silently drift.
+ */
+export type DegradationCause =
+  | 'reducer-throw'
+  | 'snapshot-corrupt'
+  | 'event-stream-unavailable';
+
+/**
+ * Degradation fallback-source codes used on
+ * `workflow.projection_degraded.data.fallbackSource` AND on the handler's
+ * `_meta.fallbackSource` so agents can cross-reference the emitted event to
+ * the returned envelope.
+ *
+ *   - `state-store-only` — T054/T056: no reliable projection source; the
+ *     fallback document is seeded from the workflow state file alone.
+ *   - `full-replay`      — T055: reducer was re-run from sequence 0 because
+ *     the snapshot was unusable.
+ */
+export type DegradationFallbackSource = 'state-store-only' | 'full-replay';
+
+/**
+ * Build a minimal rehydration document + emit `workflow.projection_degraded`
+ * and return the degraded `ToolResult` envelope.
+ *
+ * Extracted so T055 (corrupt snapshot → full-replay) and T056 (event-stream
+ * unavailable → state-store-only with a different cause) can reuse the same
+ * event-emission + `_meta.degraded` wiring without duplicating the fallback
+ * document construction. The `fallbackDocument` parameter lets T055 plug a
+ * rebuilt-from-zero document here while T054/T056 default to a state-store
+ * derived minimal doc.
+ *
+ * Contract:
+ *   - Emits exactly one `workflow.projection_degraded` event.
+ *   - Returns `success: true` — degradation is a handled outcome, not an
+ *     error. Callers that want to signal failure must set their own
+ *     `success: false` envelope; DR-18 explicitly classifies degradation as
+ *     a successful response with reduced fidelity.
+ *   - Sets `_meta.degraded: true` and `_meta.fallbackSource` on the
+ *     returned ToolResult. `envelopeWrap` in `workflow/composite.ts`
+ *     forwards `_meta` verbatim, so both flags surface on the agent-facing
+ *     HATEOAS envelope.
+ */
+export async function buildDegradedResponse(
+  featureId: string,
+  cause: DegradationCause,
+  context: RehydrateContext,
+  fallbackDocument?: RehydrationDocument,
+  fallbackSource: DegradationFallbackSource = 'state-store-only',
+): Promise<ToolResult> {
+  const { eventStore, stateDir } = context;
+
+  const document = fallbackDocument ?? (await minimalFromStateStore(
+    featureId,
+    stateDir,
+  ));
+
+  const degradedData: WorkflowProjectionDegraded = {
+    projectionId: REHYDRATION_PROJECTION_ID,
+    cause,
+    fallbackSource,
+  };
+  await eventStore.append(featureId, {
+    type: 'workflow.projection_degraded',
+    data: degradedData,
+  });
+
+  return {
+    success: true,
+    data: document,
+    _meta: {
+      degraded: true,
+      fallbackSource,
+    },
+  };
+}
+
+/**
+ * Read the workflow state file and project a schema-valid minimal
+ * `RehydrationDocument`. When no state file exists (caller hit rehydrate
+ * before init) or the file is corrupt, returns `reducer.initial` with the
+ * featureId stamped onto `workflowState` so the document still validates
+ * under `RehydrationDocumentSchema`.
+ *
+ * Pure of side effects beyond the single `readStateFile` read. Never throws:
+ * the degradation path must not raise a secondary error. Non-StateStoreError
+ * exceptions are swallowed with the same fallback shape because DR-18 treats
+ * ALL secondary failures as "state-store absent" for envelope purposes — the
+ * originating `cause` (`reducer-throw`, etc.) remains the authoritative
+ * diagnostic on the emitted event.
+ */
+async function minimalFromStateStore(
+  featureId: string,
+  stateDir: string,
+): Promise<RehydrationDocument> {
+  try {
+    const stateFile = path.join(stateDir, `${featureId}.state.json`);
+    const state = await readStateFile(stateFile);
+    return {
+      ...rehydrationReducer.initial,
+      projectionSequence: 0,
+      workflowState: {
+        featureId: state.featureId,
+        phase: state.phase,
+        workflowType: state.workflowType,
+      },
+    };
+  } catch (err) {
+    // StateStoreError is expected (STATE_NOT_FOUND / STATE_CORRUPT); any
+    // other error is unexpected but still must not propagate — DR-18's
+    // degradation path is a hard no-throw boundary. The emitted event's
+    // `cause` (set by the caller) remains the authoritative diagnostic.
+    void err;
+    return {
+      ...rehydrationReducer.initial,
+      workflowState: {
+        ...rehydrationReducer.initial.workflowState,
+        featureId,
+      },
+    };
+  }
+}
+
+/**
  * Rehydrate a workflow's canonical document for the given featureId.
  *
  * Empty-stream behaviour: when no snapshot and no events exist for the
@@ -166,65 +301,14 @@ export async function handleRehydrate(
       document = rehydrationReducer.apply(document, ev);
     }
   } catch {
-    // Build a minimal fallback document from the state store. When no state
-    // file exists (caller hit rehydrate before init), fall back to the
-    // reducer's canonical initial value with featureId populated so the
-    // document remains schema-valid. This matches the empty-stream semantic
-    // already established for the happy path and keeps downstream consumers
-    // off a null branch.
-    let fallback: RehydrationDocument;
-    try {
-      const stateFile = path.join(stateDir, `${featureId}.state.json`);
-      const state = await readStateFile(stateFile);
-      fallback = {
-        ...rehydrationReducer.initial,
-        projectionSequence: 0,
-        workflowState: {
-          featureId: state.featureId,
-          phase: state.phase,
-          workflowType: state.workflowType,
-        },
-      };
-    } catch (stateErr) {
-      // If the state file is missing or corrupt we still must not raise —
-      // return the reducer's initial with featureId stamped so the envelope
-      // is well-formed. State-store errors here indicate the caller hasn't
-      // initialized the workflow; a usable shell is preferable to a throw
-      // in the middle of a degradation path.
-      if (!(stateErr instanceof StateStoreError)) {
-        // Anything other than a known StateStoreError is unexpected — still
-        // swallow (DR-18 says the degradation path must not propagate), but
-        // don't mask programming errors silently: let the payload's `cause`
-        // remain `reducer-throw` (the originating fault), not this secondary
-        // failure.
-      }
-      fallback = {
-        ...rehydrationReducer.initial,
-        workflowState: {
-          ...rehydrationReducer.initial.workflowState,
-          featureId,
-        },
-      };
-    }
-
-    const degradedData: WorkflowProjectionDegraded = {
-      projectionId: REHYDRATION_PROJECTION_ID,
-      cause: 'reducer-throw',
-      fallbackSource: 'state-store-only',
-    };
-    await eventStore.append(featureId, {
-      type: 'workflow.projection_degraded',
-      data: degradedData,
+    // Delegate to the shared degradation helper. `reducer-throw` is the
+    // authoritative cause; `buildDegradedResponse` owns the
+    // minimalFromStateStore read, the event emission, and the `_meta`
+    // wiring so T055/T056 can reuse this exact shape with different causes.
+    return buildDegradedResponse(featureId, 'reducer-throw', {
+      eventStore,
+      stateDir,
     });
-
-    return {
-      success: true,
-      data: fallback,
-      _meta: {
-        degraded: true,
-        fallbackSource: 'state-store-only',
-      },
-    };
   }
 
   // T032 — on successful hydrate, record an observability event with the
