@@ -3,18 +3,15 @@
 #
 # This is the single entry point CI invokes to confirm that obsolete v2.8
 # install artifacts remain purged from the repo AND that no unreachable
-# exports have accreted in the TypeScript surface. It wraps two
-# deterministic checks:
+# modules/dependencies have accreted in the TypeScript surface. It wraps
+# two deterministic checks:
 #
 #   1. scripts/validate-no-legacy.test.sh — the NoLegacy_* shell assertion
 #      suite (accretes across tasks 3.1–3.8 and 3.11). Grep/find-based;
 #      runs in <1s against the live repo (not a temp fixture).
 #
-#   2. `npx knip` — a dead-code sweep that detects unused files,
-#      unreachable exports, and missing bindings against the entry-point
-#      allowlist in knip.json. Legitimate false positives are documented
-#      inline in the config; do NOT weaken the allowlist to make a real
-#      finding disappear — delete the unreachable code instead.
+#   2. `knip` — a dead-code sweep that detects unused files and
+#      dependencies against the entry-point allowlist in knip.json.
 #
 # Exit codes:
 #   0 — all NoLegacy_* assertions pass AND knip reports clean.
@@ -22,6 +19,44 @@
 #
 # CI wiring: .github/workflows/ci.yml job `validate-no-legacy` calls this
 # script directly. Locally, run with `bash scripts/validate-no-legacy.sh`.
+#
+# ─────────────────────────────────────────────────────────────────────────
+# Entry-point allowlist policy (task 3.11 authoritative statement)
+# ─────────────────────────────────────────────────────────────────────────
+# The knip.json config declares TWO workspaces — root (".") and
+# servers/exarchos-mcp — each with its own `entry` array. An entry must
+# satisfy ONE of:
+#
+#   (a) true binary / CLI script (e.g. src/skills-guard.ts, invoked via
+#       `node dist/skills-guard.js` by package.json#scripts),
+#   (b) workspace entry point registered in package.json#main or #bin
+#       (knip auto-discovers these — no explicit entry needed),
+#   (c) vitest test suite — `**/*.test.ts` and `**/*.bench.ts` are
+#       whitelisted en masse because vitest discovers them by filename
+#       convention, not by import.
+#
+# When adding a new entry:
+#   1. Grep the repo first. If nothing imports the file AND it has no
+#      side-effect entry point, DELETE it instead of adding to `entry`.
+#   2. Prefer auto-discovery via package.json#bin over explicit listing.
+#   3. Never `**/*.ts` your way out of a finding — the resulting config
+#      catches nothing.
+#
+# `ignore` entries are reserved for non-TS files and build artifacts:
+# `.claude/**`, `dist/**`, etc. are auto-ignored by knip (gitignored +
+# convention). Only list a path in `ignore` if knip is specifically
+# reporting it AND it is a legitimate non-source file. Do not add
+# unreachable TypeScript modules here — delete them.
+#
+# `ignoreDependencies` is last resort. Each entry should have a tracking
+# issue for the rationale (e.g. root-level tsx is redundant with the
+# MCP server's own tsx devDep — cleanup deferred).
+#
+# Scope: this rollup uses `--include files,dependencies`. The
+# exports/types checks are deferred; the repo has ~40 flagged exports,
+# many of them public API hooks (MCP tool-registration functions,
+# forward-compat zod schemas) that require case-by-case review outside
+# the install-rewrite feature.
 
 set -euo pipefail
 
@@ -34,22 +69,6 @@ bash "$SCRIPT_DIR/validate-no-legacy.test.sh"
 echo
 echo "=== validate-no-legacy: knip dead-code sweep ==="
 cd "$REPO_ROOT"
-
-# Scope: files + dependencies. This is the high-signal subset — completely
-# unimported modules and dependencies declared but never consumed. The
-# exports/types checks are deferred to a follow-up audit: the repo currently
-# has ~40 flagged exports, many of which are public API hooks (MCP tool
-# registration functions, forward-compat zod schemas) that require a
-# case-by-case review. Expanding the `--include` list beyond files +
-# dependencies in this task would either (a) demand rewriting unrelated
-# modules, which is out of scope for the install-rewrite feature, or
-# (b) require broad `ignoreExportsUsedInFile`-style allowlists that
-# neutralise the check. Pinning the scope here keeps the CI gate
-# high-signal and cheap to run.
-#
-# Policy (see knip.json header comment): legitimate unreachable files must
-# be DELETED, not ignored. `ignore` entries are reserved for build
-# artifacts, external-tool configs, and non-TS sources.
 
 # Prefer the project-local binary (installed via `npm ci`); fall back to
 # `npx --no-install` so we never silently re-hit the network on CI.
