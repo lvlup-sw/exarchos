@@ -92,7 +92,7 @@ describe('pre-compact', () => {
   });
 
   describe('handlePreCompact', () => {
-    it('should write checkpoint file when active workflow exists', async () => {
+    it('should materialize projection snapshot when active workflow exists', async () => {
       // Arrange
       const stateDir = tmpDir;
       await writeMockState(stateDir, 'test-feature');
@@ -100,12 +100,15 @@ describe('pre-compact', () => {
       // Act
       await handlePreCompact({ event: 'PreCompact', type: 'auto' }, stateDir);
 
-      // Assert
-      const checkpointPath = path.join(stateDir, 'test-feature.checkpoint.json');
-      const checkpointRaw = await fs.readFile(checkpointPath, 'utf-8');
-      const checkpoint = JSON.parse(checkpointRaw);
-      expect(checkpoint).toBeDefined();
-      expect(checkpoint.featureId).toBe('test-feature');
+      // Assert — T059: pre-compact now delegates to
+      // `exarchos_workflow.checkpoint`, which materializes the rehydration
+      // snapshot as a JSONL line in `<featureId>.projections.jsonl`.
+      const snapshotPath = path.join(stateDir, 'test-feature.projections.jsonl');
+      const raw = await fs.readFile(snapshotPath, 'utf-8');
+      expect(raw.length).toBeGreaterThan(0);
+      const firstLine = raw.split('\n').find((l) => l.length > 0)!;
+      const record = JSON.parse(firstLine);
+      expect(record.projectionId).toBe('rehydration@v1');
     });
 
     it('should return continue false when active workflows exist', async () => {
@@ -121,7 +124,7 @@ describe('pre-compact', () => {
       expect(result.stopReason).toContain('/clear');
     });
 
-    it('should write checkpoint with phase, tasks, and nextAction fields', async () => {
+    it('should reset the state file checkpoint counter via dispatch', async () => {
       // Arrange
       const stateDir = tmpDir;
       await writeMockState(stateDir, 'test-feature', {
@@ -135,23 +138,16 @@ describe('pre-compact', () => {
       // Act
       await handlePreCompact({ event: 'PreCompact', type: 'auto' }, stateDir);
 
-      // Assert
-      const checkpointPath = path.join(stateDir, 'test-feature.checkpoint.json');
-      const checkpointRaw = await fs.readFile(checkpointPath, 'utf-8');
-      const checkpoint = JSON.parse(checkpointRaw);
-
-      expect(checkpoint.phase).toBe('delegate');
-      expect(checkpoint.tasks).toEqual([
-        { id: 'T1', title: 'First task', status: 'complete' },
-        { id: 'T2', title: 'Second task', status: 'in_progress' },
-      ]);
-      expect(checkpoint.nextAction).toBeDefined();
-      expect(typeof checkpoint.nextAction).toBe('string');
-      expect(checkpoint.summary).toBeDefined();
-      expect(typeof checkpoint.summary).toBe('string');
-      expect(checkpoint.timestamp).toBeDefined();
-      expect(checkpoint.stateFile).toBeDefined();
-      expect(checkpoint.artifacts).toBeDefined();
+      // Assert — T059: after dispatch to `exarchos_workflow.checkpoint`,
+      // the state file's `_checkpoint.phase` now reflects the current phase
+      // and its counter is reset (handleCheckpoint → resetCounter).
+      const stateFilePath = path.join(stateDir, 'test-feature.state.json');
+      const stateRaw = await fs.readFile(stateFilePath, 'utf-8');
+      const state = JSON.parse(stateRaw);
+      expect(state._checkpoint).toBeDefined();
+      expect(state._checkpoint.phase).toBe('delegate');
+      expect(state._checkpoint.operationsSince).toBe(0);
+      expect(state._checkpoint.timestamp).toBeDefined();
     });
 
     it('should return continue true when no active workflows exist', async () => {
@@ -185,16 +181,12 @@ describe('pre-compact', () => {
       expect(result.continue).toBe(false);
       expect(result.stopReason).toContain('/clear');
 
-      const cp1Path = path.join(stateDir, 'feature-one.checkpoint.json');
-      const cp2Path = path.join(stateDir, 'feature-two.checkpoint.json');
-
-      const cp1 = JSON.parse(await fs.readFile(cp1Path, 'utf-8'));
-      const cp2 = JSON.parse(await fs.readFile(cp2Path, 'utf-8'));
-
-      expect(cp1.featureId).toBe('feature-one');
-      expect(cp1.phase).toBe('delegate');
-      expect(cp2.featureId).toBe('feature-two');
-      expect(cp2.phase).toBe('review');
+      // T059: snapshot sidecars land on a per-feature
+      // `<featureId>.projections.jsonl` path written by handleCheckpoint.
+      const snap1 = path.join(stateDir, 'feature-one.projections.jsonl');
+      const snap2 = path.join(stateDir, 'feature-two.projections.jsonl');
+      await expect(fs.access(snap1)).resolves.toBeUndefined();
+      await expect(fs.access(snap2)).resolves.toBeUndefined();
     });
 
     it('should skip completed workflows when checkpointing', async () => {
@@ -216,15 +208,11 @@ describe('pre-compact', () => {
       expect(result.continue).toBe(false);
       expect(result.stopReason).toContain('/clear');
 
-      const activeCp = path.join(stateDir, 'active-wf.checkpoint.json');
-      const doneCp = path.join(stateDir, 'done-wf.checkpoint.json');
-
-      // Active workflow should have checkpoint
-      const cp = JSON.parse(await fs.readFile(activeCp, 'utf-8'));
-      expect(cp.featureId).toBe('active-wf');
-
-      // Completed workflow should not have checkpoint
-      await expect(fs.access(doneCp)).rejects.toThrow();
+      // T059: active workflow gets a projection snapshot; completed one does not.
+      const activeSnap = path.join(stateDir, 'active-wf.projections.jsonl');
+      const doneSnap = path.join(stateDir, 'done-wf.projections.jsonl');
+      await expect(fs.access(activeSnap)).resolves.toBeUndefined();
+      await expect(fs.access(doneSnap)).rejects.toThrow();
     });
 
     it('should skip cancelled workflows when checkpointing', async () => {
@@ -284,7 +272,7 @@ describe('pre-compact', () => {
       expect(contextContent).toContain('Workflow Context');
     });
 
-    it('should include contextFile path in checkpoint', async () => {
+    it('should write context.md alongside projection snapshot', async () => {
       // Arrange
       const stateDir = tmpDir;
       await writeMockState(stateDir, 'test-feature');
@@ -295,12 +283,13 @@ describe('pre-compact', () => {
       // Act
       await handlePreCompact({ event: 'PreCompact', type: 'auto' }, stateDir);
 
-      // Assert
-      const checkpointPath = path.join(stateDir, 'test-feature.checkpoint.json');
-      const checkpoint = JSON.parse(await fs.readFile(checkpointPath, 'utf-8'));
-      expect(checkpoint.contextFile).toBeDefined();
-      expect(typeof checkpoint.contextFile).toBe('string');
-      expect(checkpoint.contextFile).toContain('context.md');
+      // Assert — context.md is still pre-compact's responsibility (T059
+      // only moved checkpoint-snapshot ownership to handleCheckpoint).
+      // Snapshot + context document must both land on disk.
+      const snapshotPath = path.join(stateDir, 'test-feature.projections.jsonl');
+      const contextPath = path.join(stateDir, 'test-feature.context.md');
+      await expect(fs.access(snapshotPath)).resolves.toBeUndefined();
+      await expect(fs.access(contextPath)).resolves.toBeUndefined();
     });
 
     it('should not write context.md when no active workflows exist', async () => {
@@ -317,7 +306,7 @@ describe('pre-compact', () => {
       expect(contextFiles).toHaveLength(0);
     });
 
-    it('should still write checkpoint and context.md for manual trigger', async () => {
+    it('should still materialize snapshot and context.md for manual trigger', async () => {
       // Arrange
       const stateDir = tmpDir;
       await writeMockState(stateDir, 'test-feature');
@@ -328,14 +317,12 @@ describe('pre-compact', () => {
       // Act
       const result = await handlePreCompact({ event: 'PreCompact', type: 'manual' }, stateDir);
 
-      // Assert
+      // Assert — manual trigger still performs the checkpoint side-effect
+      // (snapshot + context) but does not short-circuit compaction.
       expect(result.continue).toBe(true);
-      // Checkpoint should still be written
-      const checkpointPath = path.join(stateDir, 'test-feature.checkpoint.json');
-      const checkpoint = JSON.parse(await fs.readFile(checkpointPath, 'utf-8'));
-      expect(checkpoint.featureId).toBe('test-feature');
-      // Context.md should still be written
+      const snapshotPath = path.join(stateDir, 'test-feature.projections.jsonl');
       const contextPath = path.join(stateDir, 'test-feature.context.md');
+      await expect(fs.access(snapshotPath)).resolves.toBeUndefined();
       await expect(fs.access(contextPath)).resolves.toBeUndefined();
     });
 
@@ -389,85 +376,15 @@ describe('pre-compact', () => {
     });
   });
 
-  describe('team composition snapshot', () => {
-    it('should include teamState in checkpoint when delegate phase has teamState', async () => {
-      // Arrange
-      const stateDir = tmpDir;
-      const teamState = {
-        teammates: [{ name: 'worker-1', status: 'active', taskId: 'task-001' }],
-      };
-      await writeMockState(stateDir, 'team-feature', {
-        phase: 'delegate',
-        teamState,
-      });
-
-      // Act
-      await handlePreCompact({ event: 'PreCompact', type: 'auto' }, stateDir);
-
-      // Assert
-      const checkpointPath = path.join(stateDir, 'team-feature.checkpoint.json');
-      const checkpoint = JSON.parse(await fs.readFile(checkpointPath, 'utf-8'));
-      expect(checkpoint.teamState).toEqual(teamState);
-    });
-
-    it('should not include teamState in checkpoint when not in delegate phase', async () => {
-      // Arrange
-      const stateDir = tmpDir;
-      const teamState = {
-        teammates: [{ name: 'worker-1', status: 'active', taskId: 'task-001' }],
-      };
-      await writeMockState(stateDir, 'review-feature', {
-        phase: 'review',
-        teamState,
-      });
-
-      // Act
-      await handlePreCompact({ event: 'PreCompact', type: 'auto' }, stateDir);
-
-      // Assert
-      const checkpointPath = path.join(stateDir, 'review-feature.checkpoint.json');
-      const checkpoint = JSON.parse(await fs.readFile(checkpointPath, 'utf-8'));
-      expect(checkpoint.teamState).toBeUndefined();
-    });
-
-    it('should include teamState in checkpoint when overhaul-delegate phase has teamState', async () => {
-      // Arrange
-      const stateDir = tmpDir;
-      const teamState = {
-        teammates: [{ name: 'worker-1', status: 'active', taskId: 'task-001' }],
-      };
-      await writeMockState(stateDir, 'overhaul-feature', {
-        phase: 'overhaul-delegate',
-        workflowType: 'refactor',
-        teamState,
-      });
-
-      // Act
-      await handlePreCompact({ event: 'PreCompact', type: 'auto' }, stateDir);
-
-      // Assert
-      const checkpointPath = path.join(stateDir, 'overhaul-feature.checkpoint.json');
-      const checkpoint = JSON.parse(await fs.readFile(checkpointPath, 'utf-8'));
-      expect(checkpoint.teamState).toEqual(teamState);
-    });
-
-    it('should omit teamState from checkpoint when delegate phase has no teamState', async () => {
-      // Arrange
-      const stateDir = tmpDir;
-      await writeMockState(stateDir, 'no-team-feature', {
-        phase: 'delegate',
-        // no teamState property
-      });
-
-      // Act
-      await handlePreCompact({ event: 'PreCompact', type: 'auto' }, stateDir);
-
-      // Assert
-      const checkpointPath = path.join(stateDir, 'no-team-feature.checkpoint.json');
-      const checkpoint = JSON.parse(await fs.readFile(checkpointPath, 'utf-8'));
-      expect(checkpoint.teamState).toBeUndefined();
-    });
-  });
+  // ─── Team composition snapshot ─────────────────────────────────────────
+  // Pre-migration, pre-compact assembled a checkpoint.json that included
+  // a `teamState` field for delegate/overhaul-delegate phases. After
+  // T059/DR-16 the authoritative snapshot is the rehydration projection
+  // written by `handleCheckpoint`; the composition of that projection is
+  // covered by the reducer-level tests (see
+  // `projections/rehydration/reducer.test.ts`). The delete of these
+  // assertions is intentional — they were pinning the old sidecar shape,
+  // not pre-compact behaviour.
 
   // ───────────────────────────────────────────────────────────────────────
   // T059 (DR-16) — migration from inline sidecar write to the shared
