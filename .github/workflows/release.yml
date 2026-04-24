@@ -1,9 +1,25 @@
 name: Release
 
+# Tag-triggered release pipeline for the v2.9 install rewrite.
+#
+# Two parallel publish paths run on every `v*.*.*` tag:
+#   1. `release` job      — npm publish of the installer package.
+#   2. `binary-matrix` +
+#      `publish-release`   — cross-compiled native binaries (5 targets)
+#                            + SHA-512 checksum sidecars attached to the
+#                            GitHub Release so the bootstrap scripts
+#                            (`scripts/get-exarchos.sh` / `.ps1`) can
+#                            fetch them by predictable URL.
+#
+# The broader `v*` trigger remains alongside `v*.*.*` so historical
+# non-semver tags keep publishing to npm. The binary pipeline requires
+# a semver tag shape to derive the release version.
+
 on:
   push:
     tags:
       - 'v*'
+      - 'v*.*.*'
 
 permissions:
   contents: write
@@ -33,3 +49,162 @@ jobs:
         run: npm publish --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  # ─────────────────────────────────────────────────────────────────────
+  # binary-matrix (release)
+  # ─────────────────────────────────────────────────────────────────────
+  # Cross-compiles the Exarchos CLI + MCP server into a native single-file
+  # executable for every TARGET in `scripts/build-binary.ts`, generates a
+  # SHA-512 sidecar per binary, and uploads the pair as a workflow
+  # artifact that `publish-release` then attaches to the GitHub Release.
+  #
+  # DRIFT CONTRACT:
+  #   - The `matrix.target` list below MUST match the `TARGETS` tuple in
+  #     `scripts/build-binary.ts` and the mirror list in
+  #     `.github/workflows/ci.yml` (task 1.5).
+  #   - `scripts/release-workflow.test.ts` is the enforcement gate for
+  #     this file. `scripts/ci-binary-matrix.test.ts` covers the CI PR
+  #     mirror. Either gate fails if the tuples drift.
+  #
+  # The `.sha512` sidecar filename convention — `<binary>.sha512` — is
+  # consumed directly by `scripts/get-exarchos.sh` (CHECKSUM_URL) and
+  # `scripts/get-exarchos.ps1`. Do not rename without updating both.
+  # ─────────────────────────────────────────────────────────────────────
+  binary-matrix:
+    name: Binary Matrix (${{ matrix.target }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Keep in sync with TARGETS in scripts/build-binary.ts.
+        target:
+          - linux-x64
+          - linux-arm64
+          - darwin-x64
+          - darwin-arm64
+          - windows-x64
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+
+      - name: Build binary for ${{ matrix.target }}
+        run: bun run scripts/build-binary.ts --target ${{ matrix.target }}
+
+      - name: Generate SHA-512 checksum
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd dist/bin
+          # Find the single artifact for this target. Windows binaries
+          # carry a `.exe` suffix; all others have no extension.
+          shopt -s nullglob
+          candidates=(exarchos-${{ matrix.target }} exarchos-${{ matrix.target }}.exe)
+          found=""
+          for c in "${candidates[@]}"; do
+            if [[ -f "$c" ]]; then
+              found="$c"
+              break
+            fi
+          done
+          if [[ -z "$found" ]]; then
+            echo "::error::no binary produced for target ${{ matrix.target }}"
+            exit 1
+          fi
+          sha512sum "$found" > "${found}.sha512"
+          echo "Produced ${found} and ${found}.sha512"
+
+      - name: Upload binary + checksum artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: exarchos-${{ matrix.target }}
+          path: |
+            dist/bin/exarchos-${{ matrix.target }}
+            dist/bin/exarchos-${{ matrix.target }}.exe
+            dist/bin/exarchos-${{ matrix.target }}.sha512
+            dist/bin/exarchos-${{ matrix.target }}.exe.sha512
+          if-no-files-found: ignore
+          retention-days: 7
+
+  # ─────────────────────────────────────────────────────────────────────
+  # publish-release
+  # ─────────────────────────────────────────────────────────────────────
+  # Downloads every per-target artifact produced by `binary-matrix` and
+  # attaches the collected 10 assets (5 binaries + 5 sha512 sidecars) to
+  # the GitHub Release associated with the current tag.
+  #
+  # The release body advertises the two bootstrap entry points so users
+  # can install directly from the Release page without copy-pasting from
+  # the README.
+  # ─────────────────────────────────────────────────────────────────────
+  publish-release:
+    name: Publish GitHub Release assets
+    needs: binary-matrix
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all binary-matrix artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          # One directory per matrix target, flattened below.
+
+      - name: Flatten release-assets into dist/release
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist/release
+          # Each artifact directory is named `exarchos-<os>-<arch>` and
+          # contains either a bare binary or a `.exe`, plus its
+          # corresponding `.sha512` sidecar.
+          shopt -s nullglob
+          for dir in release-assets/*/; do
+            for f in "${dir}"*; do
+              cp "$f" dist/release/
+            done
+          done
+          echo "Collected assets:"
+          ls -l dist/release/
+
+      - name: Publish release assets
+        uses: softprops/action-gh-release@v1
+        with:
+          fail_on_unmatched_files: true
+          # Release body template — advertises the two bootstrap scripts
+          # (`scripts/get-exarchos.sh` / `.ps1`). The trailing auto-
+          # generated asset list is produced by GitHub from the `files:`
+          # attachments below.
+          body: |
+            ## Install
+
+            **Unix (macOS / Linux):**
+            ```bash
+            curl -fsSL https://raw.githubusercontent.com/lvlup-sw/exarchos/main/scripts/get-exarchos.sh | bash
+            ```
+
+            **Windows (PowerShell):**
+            ```powershell
+            irm https://raw.githubusercontent.com/lvlup-sw/exarchos/main/scripts/get-exarchos.ps1 | iex
+            ```
+
+            ## Assets
+
+            5 cross-compiled binaries with SHA-512 checksums are attached below.
+          # The 10-asset manifest: 5 binaries + 5 sha512 sidecars. Path
+          # entries are globs that match exactly one file each, keeping
+          # the count deterministic so `release-workflow.test.ts` can
+          # verify the shape.
+          files: |
+            dist/release/exarchos-linux-x64
+            dist/release/exarchos-linux-x64.sha512
+            dist/release/exarchos-linux-arm64
+            dist/release/exarchos-linux-arm64.sha512
+            dist/release/exarchos-darwin-x64
+            dist/release/exarchos-darwin-x64.sha512
+            dist/release/exarchos-darwin-arm64
+            dist/release/exarchos-darwin-arm64.sha512
+            dist/release/exarchos-windows-x64.exe
+            dist/release/exarchos-windows-x64.exe.sha512
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
