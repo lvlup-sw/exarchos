@@ -58,17 +58,30 @@ jobs:
   # SHA-512 sidecar per binary, and uploads the pair as a workflow
   # artifact that `publish-release` then attaches to the GitHub Release.
   #
-  # DRIFT CONTRACT:
-  #   - The `matrix.target` list below MUST match the `TARGETS` tuple in
-  #     `scripts/build-binary.ts` and the mirror list in
-  #     `.github/workflows/ci.yml` (task 1.5).
-  #   - `scripts/release-workflow.test.ts` is the enforcement gate for
-  #     this file. `scripts/ci-binary-matrix.test.ts` covers the CI PR
-  #     mirror. Either gate fails if the tuples drift.
+  # DRIFT CONTRACT (single source of truth: `TARGETS` in
+  # `scripts/build-binary.ts`). Three lists must stay in lock-step:
+  #
+  #   1. `TARGETS` tuple         — scripts/build-binary.ts (canonical)
+  #   2. `matrix.target` here    — release.yml binary-matrix (this job)
+  #   3. `matrix.target`         — ci.yml binary-matrix (task 1.5 PR gate)
+  #   4. `files:` list           — publish-release step below
+  #      (must enumerate each target's binary + .sha512 sidecar, keeping
+  #      the 10-asset count deterministic)
+  #
+  # Enforcement gates:
+  #   - `scripts/release-workflow.test.ts` — this file (list 2 + 4)
+  #   - `scripts/ci-binary-matrix.test.ts` — ci.yml + package.json (list 3)
+  #   - `scripts/build-binary.test.ts`     — TARGETS shape (list 1)
+  # Editing any one without the others will fail `npm run test:run`.
   #
   # The `.sha512` sidecar filename convention — `<binary>.sha512` — is
   # consumed directly by `scripts/get-exarchos.sh` (CHECKSUM_URL) and
   # `scripts/get-exarchos.ps1`. Do not rename without updating both.
+  #
+  # `fail-fast: false` on the matrix is intentional: a per-target failure
+  # should not cancel the other four builds, so you can inspect which
+  # platform regressed. The downstream `publish-release` job depends on
+  # `binary-matrix` and will not run if any target fails.
   # ─────────────────────────────────────────────────────────────────────
   binary-matrix:
     name: Binary Matrix (${{ matrix.target }})
@@ -166,6 +179,15 @@ jobs:
           done
           echo "Collected assets:"
           ls -l dist/release/
+          # Invariant: the release-workflow shape test asserts exactly 10
+          # asset paths in the `files:` block below. If this count is
+          # ever off, the matrix or `files:` list drifted from TARGETS.
+          expected=10
+          actual=$(find dist/release -maxdepth 1 -type f | wc -l)
+          if [[ "$actual" -ne "$expected" ]]; then
+            echo "::error::expected ${expected} release assets (5 binaries + 5 .sha512 sidecars), found ${actual}"
+            exit 1
+          fi
 
       - name: Publish release assets
         uses: softprops/action-gh-release@v1
@@ -191,10 +213,18 @@ jobs:
             ## Assets
 
             5 cross-compiled binaries with SHA-512 checksums are attached below.
-          # The 10-asset manifest: 5 binaries + 5 sha512 sidecars. Path
-          # entries are globs that match exactly one file each, keeping
-          # the count deterministic so `release-workflow.test.ts` can
-          # verify the shape.
+          # The 10-asset manifest: 5 binaries + 5 sha512 sidecars.
+          #
+          # Order is {binary, .sha512} per target, targets ordered to
+          # match `TARGETS` in `scripts/build-binary.ts`. Windows uses
+          # the `.exe` + `.exe.sha512` convention (the extension is
+          # preserved in the sidecar name so the bootstrap scripts can
+          # derive it by appending `.sha512` to the binary URL).
+          #
+          # Adversarial shape check: the flatten step above counts
+          # files in `dist/release/` and aborts if the count diverges
+          # from 10, catching drift before `softprops/action-gh-release`
+          # uploads a partial release.
           files: |
             dist/release/exarchos-linux-x64
             dist/release/exarchos-linux-x64.sha512
