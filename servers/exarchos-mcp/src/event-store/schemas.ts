@@ -43,6 +43,7 @@ export const EventTypes = [
   'workflow.checkpoint_requested',
   'workflow.checkpoint_written',
   'workflow.checkpoint_superseded',
+  'workflow.rehydrated',
   'synthesize.requested',
   'review.completed',
   'review.routed',
@@ -186,6 +187,7 @@ export const EVENT_EMISSION_REGISTRY: Record<EventType, EventEmissionSource> = {
   'workflow.checkpoint_requested': 'auto',
   'workflow.checkpoint_written': 'auto',
   'workflow.checkpoint_superseded': 'auto',
+  'workflow.rehydrated': 'auto',
   'synthesize.requested': 'auto',
   'task.claimed': 'auto',
   'task.completed': 'auto',
@@ -493,6 +495,12 @@ export const WorkflowCheckpointWrittenData = z.object({
 export const WorkflowCheckpointSupersededData = z.object({
   priorSequence: z.number().int().nonnegative(),
   reason: z.string().min(1),
+});
+
+export const WorkflowRehydratedData = z.object({
+  projectionSequence: z.number().int().nonnegative(),
+  deliveryPath: z.enum(['direct', 'ndjson', 'snapshot']),
+  tokenEstimate: z.number().int().nonnegative(),
 });
 
 export const SynthesizeRequestedData = z.object({
@@ -864,6 +872,7 @@ export const EVENT_DATA_SCHEMAS: Partial<Record<EventType, z.ZodSchema>> = {
   'workflow.checkpoint_requested': WorkflowCheckpointRequestedData,
   'workflow.checkpoint_written': WorkflowCheckpointWrittenData,
   'workflow.checkpoint_superseded': WorkflowCheckpointSupersededData,
+  'workflow.rehydrated': WorkflowRehydratedData,
   'synthesize.requested': SynthesizeRequestedData,
 
   // Task-level
@@ -1001,6 +1010,7 @@ export type WorkflowPruned = z.infer<typeof WorkflowPrunedData>;
 export type WorkflowCheckpointRequested = z.infer<typeof WorkflowCheckpointRequestedData>;
 export type WorkflowCheckpointWritten = z.infer<typeof WorkflowCheckpointWrittenData>;
 export type WorkflowCheckpointSuperseded = z.infer<typeof WorkflowCheckpointSupersededData>;
+export type WorkflowRehydrated = z.infer<typeof WorkflowRehydratedData>;
 export type SynthesizeRequested = z.infer<typeof SynthesizeRequestedData>;
 export type ToolInvoked = z.infer<typeof ToolInvokedData>;
 export type ToolCompleted = z.infer<typeof ToolCompletedData>;
@@ -1083,6 +1093,7 @@ export type EventDataMap = {
   'workflow.checkpoint_requested': WorkflowCheckpointRequested;
   'workflow.checkpoint_written': WorkflowCheckpointWritten;
   'workflow.checkpoint_superseded': WorkflowCheckpointSuperseded;
+  'workflow.rehydrated': WorkflowRehydrated;
   'synthesize.requested': SynthesizeRequested;
   'review.completed': ReviewCompleted;
   'review.routed': ReviewRouted;
