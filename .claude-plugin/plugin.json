@@ -36,5 +36,10 @@
         "EXARCHOS_PLUGIN_ROOT": "${CLAUDE_PLUGIN_ROOT}"
       }
     }
+  },
+  "metadata": {
+    "compat": {
+      "minBinaryVersion": "2.4.0"
+    }
   }
 }
