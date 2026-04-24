@@ -1016,6 +1016,12 @@ export async function handleCheckpoint(
   // trust boundary on `snapshot.state`, same empty-stream behaviour. When no
   // event store is configured this step is skipped entirely; the checkpoint
   // reset still takes effect but no projection is materialized.
+  //
+  // Hoisted out of the `if (eventStore)` scope so the return below can
+  // surface `projectionSequence` in `data` (T035, DR-6) — the CLI adapter
+  // renders this to let operators see at a glance how many events are
+  // behind the new checkpoint.
+  let projectionSequence: number | undefined;
   if (eventStore) {
     const document = await hydrateFromSnapshotThenTail<
       RehydrationDocument,
@@ -1028,6 +1034,7 @@ export async function handleCheckpoint(
       REHYDRATION_PROJECTION_ID,
       REHYDRATION_PROJECTION_VERSION,
     );
+    projectionSequence = document.projectionSequence;
 
     const snapshotRecord: SnapshotRecord = {
       projectionId: REHYDRATION_PROJECTION_ID,
@@ -1080,6 +1087,11 @@ export async function handleCheckpoint(
     success: true,
     data: {
       phase: (mutableState._checkpoint as Record<string, unknown>).phase as string,
+      // T035, DR-6: surface the materialized projection's sequence so the
+      // CLI adapter can render "N events behind this checkpoint" without
+      // a follow-up query. Omitted when no event store is configured —
+      // the materialization block above skips entirely in that mode.
+      ...(projectionSequence !== undefined && { projectionSequence }),
       ...(sidecarPending && { sidecarPending: true }),
     },
     _meta: buildCheckpointMeta(mutableState._checkpoint as WorkflowState['_checkpoint']),
