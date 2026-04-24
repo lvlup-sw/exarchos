@@ -42,6 +42,8 @@ It ships as a Claude Code plugin and a standalone MCP server with a CLI adapter.
 /plugin install exarchos@lvlup-sw
 ```
 
+> **No SSH key?** Use the HTTPS URL: `https://github.com/lvlup-sw/.github.git`
+
 **Standalone MCP server:**
 ```bash
 npx @lvlup-sw/exarchos mcp
