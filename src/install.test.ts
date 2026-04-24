@@ -1123,13 +1123,21 @@ describe('hooks.json', () => {
   it('hooksJson_AllCommandsInvokeBareExarchos', () => {
     // Post-install-rewrite (task 2.2): hooks invoke bare `exarchos <subcmd>`
     // via PATH — no `node` shim, no `${CLAUDE_PLUGIN_ROOT}/dist/exarchos.js`.
-    // SessionStart still flows ${CLAUDE_PLUGIN_ROOT} through as --plugin-root
-    // but the executable position is bare `exarchos`.
+    //
+    // Exception (task 2.8): SessionStart is wrapped by `hooks/session-start.sh`
+    // — a POSIX-sh nudge script that prints an install hint and exits 0 when
+    // `exarchos` is not on PATH, and delegates via `exec` otherwise. So the
+    // hooks.json command for SessionStart is the script path, not bare
+    // `exarchos`. The script itself still only invokes bare `exarchos`.
     const hooks = JSON.parse(readFileSync(hooksPath, 'utf-8'));
     for (const [eventType, entries] of Object.entries(hooks.hooks)) {
       for (const entry of entries as Array<{ hooks: Array<{ command: string }> }>) {
         for (const hook of entry.hooks) {
-          expect(hook.command, `${eventType} hook command should invoke bare exarchos`).toMatch(/^exarchos /);
+          if (eventType === 'SessionStart') {
+            expect(hook.command, `${eventType} must delegate to session-start.sh`).toContain('hooks/session-start.sh');
+          } else {
+            expect(hook.command, `${eventType} hook command should invoke bare exarchos`).toMatch(/^exarchos /);
+          }
           expect(hook.command, `${eventType} hook command should not invoke node`).not.toMatch(/\bnode\s/);
           expect(hook.command, `${eventType} hook command should not reference dist/exarchos.js`).not.toContain('dist/exarchos.js');
         }

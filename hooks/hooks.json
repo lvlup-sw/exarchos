@@ -13,7 +13,7 @@
       "matcher": "startup|resume",
       "hooks": [{
         "type": "command",
-        "command": "exarchos session-start --plugin-root \"${CLAUDE_PLUGIN_ROOT}\"",
+        "command": "${CLAUDE_PLUGIN_ROOT}/hooks/session-start.sh",
         "timeout": 10,
         "statusMessage": "Checking for active workflows..."
       }]

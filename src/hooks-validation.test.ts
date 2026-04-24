@@ -55,8 +55,20 @@ describe('hooks/hooks.json — bare exarchos invocation', () => {
     expect(commands.length).toBeGreaterThanOrEqual(8);
 
     for (const { hookType, command } of commands) {
-      // Every command must begin with bare `exarchos `
-      expect(command.startsWith('exarchos '), `${hookType} command does not start with 'exarchos ': ${command}`).toBe(true);
+      // SessionStart is wired through a POSIX-sh nudge script (task 2.8)
+      // that guards against a missing `exarchos` binary. The other 7
+      // hooks remain bare `exarchos <subcmd>` invocations.
+      if (hookType === 'SessionStart') {
+        expect(
+          command.includes('hooks/session-start.sh'),
+          `${hookType} command does not delegate to session-start.sh: ${command}`,
+        ).toBe(true);
+      } else {
+        expect(
+          command.startsWith('exarchos '),
+          `${hookType} command does not start with 'exarchos ': ${command}`,
+        ).toBe(true);
+      }
 
       // No `node ` invocation anywhere
       expect(command.includes('node '), `${hookType} command still invokes node: ${command}`).toBe(false);
@@ -104,12 +116,17 @@ describe('hooks/hooks.json — bare exarchos invocation', () => {
       const entries = config.hooks[hookType];
       expect(entries, `hook type ${hookType} not present`).toBeDefined();
       const firstCommand = entries[0].hooks[0].command;
-      expect(firstCommand, `${hookType} does not invoke subcommand '${subcommand}'`).toBe(
-        // SessionStart uniquely passes --plugin-root
-        hookType === 'SessionStart'
-          ? `exarchos session-start --plugin-root "\${CLAUDE_PLUGIN_ROOT}"`
-          : `exarchos ${subcommand}`,
-      );
+      if (hookType === 'SessionStart') {
+        // SessionStart is wrapped by the POSIX-sh nudge script that
+        // delegates to `exarchos session-start --plugin-root ...` only
+        // when the binary is on PATH (task 2.8). The wiring at the
+        // hooks.json layer points at the script path, not the subcommand.
+        expect(firstCommand).toBe('${CLAUDE_PLUGIN_ROOT}/hooks/session-start.sh');
+      } else {
+        expect(firstCommand, `${hookType} does not invoke subcommand '${subcommand}'`).toBe(
+          `exarchos ${subcommand}`,
+        );
+      }
     }
   });
 
@@ -143,10 +160,13 @@ describe('hooks/hooks.json — bare exarchos invocation', () => {
   it('HooksJson_SessionStart_StillFlowsPluginRootAsArg', () => {
     const config: HooksConfig = JSON.parse(readFileSync(hooksPath, 'utf-8'));
     const cmd = config.hooks.SessionStart[0].hooks[0].command;
-    // Executable position is bare `exarchos`, and plugin root flows through as an arg.
-    expect(cmd.startsWith('exarchos ')).toBe(true);
-    expect(cmd).toContain('--plugin-root');
+    // Per task 2.8, SessionStart is wrapped by a nudge script. The plugin-root
+    // no longer appears as an --arg in hooks.json; instead, the script itself
+    // is located via ${CLAUDE_PLUGIN_ROOT} and forwards --plugin-root on exec.
+    // The contract at this layer is: the command references CLAUDE_PLUGIN_ROOT
+    // so the plugin root remains the anchor for the invocation.
     expect(cmd).toContain('${CLAUDE_PLUGIN_ROOT}');
+    expect(cmd).toContain('hooks/session-start.sh');
   });
 
   it('HooksJson_EveryHookEntry_IsCommandType', () => {
