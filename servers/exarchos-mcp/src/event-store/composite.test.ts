@@ -62,10 +62,10 @@ describe('handleEvent', () => {
         stateDir,
         ctx.eventStore,
       );
-      expect(result).toEqual({
-        success: true,
-        data: { streamId: 'test', sequence: 1, type: 'test.event' },
-      });
+      // T037: successful responses are wrapped in Envelope<T>
+      expect(result.success).toBe(true);
+      expect(result.data).toEqual({ streamId: 'test', sequence: 1, type: 'test.event' });
+      expect((result as Record<string, unknown>).next_actions).toEqual([]);
     });
   });
 
@@ -96,10 +96,10 @@ describe('handleEvent', () => {
         stateDir,
         ctx.eventStore,
       );
-      expect(result).toEqual({
-        success: true,
-        data: [{ streamId: 'test', sequence: 1, type: 'test.event' }],
-      });
+      // T037: successful responses are wrapped in Envelope<T>
+      expect(result.success).toBe(true);
+      expect(result.data).toEqual([{ streamId: 'test', sequence: 1, type: 'test.event' }]);
+      expect((result as Record<string, unknown>).next_actions).toEqual([]);
     });
   });
 
@@ -122,6 +122,96 @@ describe('handleEvent', () => {
       expect(handleEventAppend).not.toHaveBeenCalled();
       expect(handleEventQuery).not.toHaveBeenCalled();
     });
+  });
+});
+
+// ─── T037: Envelope Conformance for exarchos_event Tool ────────────────────
+//
+// Verifies that every action dispatched through `handleEvent` (the composite
+// `exarchos_event` MCP tool surface) returns a response conforming to the
+// HATEOAS `Envelope<T>` shape introduced in T014:
+//
+//   { success: boolean, data: unknown, next_actions: [], _meta: {}, _perf: { ms: number, ... } }
+//
+// Handler internals are mocked so this suite only asserts the wrapping
+// contract at the tool boundary. `next_actions` defaults to an empty array
+// until T040/T041 populate it from HSM transitions.
+
+function assertEnvelopeShape(result: unknown): void {
+  expect(result).toBeTypeOf('object');
+  expect(result).not.toBeNull();
+  const env = result as Record<string, unknown>;
+
+  // success: boolean
+  expect(typeof env.success).toBe('boolean');
+
+  // data: present as own key
+  expect(Object.hasOwn(env, 'data')).toBe(true);
+
+  // next_actions: [] (empty array by default — populated in T040/T041)
+  expect(Array.isArray(env.next_actions)).toBe(true);
+  expect((env.next_actions as unknown[]).length).toBe(0);
+
+  // _meta: object
+  expect(env._meta).toBeTypeOf('object');
+  expect(env._meta).not.toBeNull();
+
+  // _perf: { ms: number, ... }
+  expect(env._perf).toBeTypeOf('object');
+  expect(env._perf).not.toBeNull();
+  const perf = env._perf as Record<string, unknown>;
+  expect(typeof perf.ms).toBe('number');
+}
+
+describe('EventToolResponses_AllActions_ReturnEnvelope (T037, DR-7)', () => {
+  const stateDir = '/tmp/test-event-envelope-state';
+  const ctx = makeCtx(stateDir);
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('append action returns Envelope', async () => {
+    const result = await handleEvent(
+      {
+        action: 'append',
+        stream: 'envelope-wf',
+        event: { type: 'task.completed', data: {} },
+      },
+      ctx,
+    );
+    assertEnvelopeShape(result);
+  });
+
+  it('query action returns Envelope', async () => {
+    const result = await handleEvent(
+      { action: 'query', stream: 'envelope-wf' },
+      ctx,
+    );
+    assertEnvelopeShape(result);
+  });
+
+  it('batch_append action returns Envelope', async () => {
+    const result = await handleEvent(
+      {
+        action: 'batch_append',
+        stream: 'envelope-wf',
+        events: [
+          { type: 'task.completed', data: {} },
+          { type: 'task.progressed', data: {} },
+        ],
+      },
+      ctx,
+    );
+    assertEnvelopeShape(result);
+  });
+
+  it('describe action returns Envelope', async () => {
+    const result = await handleEvent(
+      { action: 'describe', actions: ['append'] },
+      ctx,
+    );
+    assertEnvelopeShape(result);
   });
 });
 
