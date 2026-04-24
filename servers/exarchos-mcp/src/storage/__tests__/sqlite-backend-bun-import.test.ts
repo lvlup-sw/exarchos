@@ -9,4 +9,15 @@ describe('sqlite-backend bun:sqlite import contract', () => {
     expect(typeof backend.close).toBe('function');
     backend.close();
   });
+
+  it('SqliteBackend_AfterInitialize_AppliesSynchronousNormalPragma', () => {
+    const backend = new SqliteBackend(':memory:');
+    backend.initialize();
+    const db = (backend as unknown as {
+      db: { query: (sql: string) => { all: () => Array<{ synchronous: number }> } };
+    }).db;
+    const row = db.query('PRAGMA synchronous').all()[0];
+    expect(row?.synchronous).toBe(1);
+    backend.close();
+  });
 });

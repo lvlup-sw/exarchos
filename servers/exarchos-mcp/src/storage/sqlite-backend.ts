@@ -1,4 +1,4 @@
-import { Database, Statement } from 'bun:sqlite';
+import { Database, type Statement } from 'bun:sqlite';
 import type { WorkflowEvent } from '../event-store/schemas.js';
 import type { WorkflowState } from '../workflow/types.js';
 import type { QueryFilters } from '../event-store/store.js';
@@ -107,12 +107,11 @@ export class SqliteBackend implements StorageBackend {
   initialize(): void {
     this.db = new Database(this.dbPath);
 
-    // Enable WAL mode and set synchronous to NORMAL for performance
-    this.db.exec('PRAGMA journal_mode = WAL');
-    this.db.exec('PRAGMA synchronous = NORMAL');
-
-    // Enable memory-mapped I/O (256 MB) for read-heavy workloads
-    this.db.exec('PRAGMA mmap_size = 268435456');
+    // Tune the connection for concurrent read/write (WAL, NORMAL sync) and
+    // read-heavy access patterns (256 MB memory-mapped I/O).
+    // Note: `bun:sqlite` has no `.pragma()` helper — write-pragmas go through
+    // `db.exec()` and read-pragmas through `db.query().all()`.
+    this.applyConnectionPragmas();
 
     // Execute schema DDL
     this.db.exec(SCHEMA_DDL);
@@ -139,6 +138,17 @@ export class SqliteBackend implements StorageBackend {
     if (this.db) {
       this.db.close();
     }
+  }
+
+  /**
+   * Apply the fixed set of connection-level pragmas (WAL, synchronous=NORMAL,
+   * mmap_size=256MB). Kept in a single helper so the values and order are
+   * easy to audit — pragma order matters for some SQLite configurations.
+   */
+  private applyConnectionPragmas(): void {
+    this.db.exec('PRAGMA journal_mode = WAL');
+    this.db.exec('PRAGMA synchronous = NORMAL');
+    this.db.exec('PRAGMA mmap_size = 268435456');
   }
 
   /**
