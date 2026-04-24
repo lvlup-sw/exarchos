@@ -67,11 +67,14 @@ async function callMcp(
 /**
  * Workflow suite normalizer — default placeholders (`<TS>` / `<UUID>`)
  * plus the bespoke `minutesSinceActivity` keyed transform this suite
- * has always used.
+ * has always used. `_perf` is dropped because its `ms` field is
+ * measurement-path dependent (CLI arm vs MCP dispatch arm take
+ * different code paths so wall-clock durations naturally differ).
  */
 function normalize(value: unknown): unknown {
   return harnessNormalize(value, {
     keyPlaceholders: { minutesSinceActivity: '<MINUTES>' },
+    dropKeys: new Set(['_perf']),
   });
 }
 

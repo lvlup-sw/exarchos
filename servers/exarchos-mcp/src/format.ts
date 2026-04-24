@@ -64,6 +64,42 @@ export interface Envelope<T> {
   readonly _perf: PerfMetrics;
 }
 
+/**
+ * Wrap a strongly-typed `data` payload in a HATEOAS `Envelope<T>` (DR-7).
+ *
+ * Sets `success: true` and `next_actions: []` (populated by T040/T041's
+ * `computeNextActions`) and carries forward caller-supplied `_meta` and
+ * `_perf`. Missing `_perf` fields default to 0 so `PerfMetrics`'s required
+ * shape is always satisfied.
+ *
+ * This helper is shared by T036–T039 so every composite tool produces a
+ * consistent envelope shape without duplicating the construction logic.
+ *
+ * @example
+ *   return wrap(
+ *     { phase: 'plan' },
+ *     buildCheckpointMeta(state._checkpoint),
+ *     { ms: Date.now() - started },
+ *   );
+ */
+export function wrap<T>(
+  data: T,
+  meta?: Record<string, unknown>,
+  perf?: { ms: number; bytes?: number; tokens?: number },
+): Envelope<T> {
+  return {
+    success: true,
+    data,
+    next_actions: [],
+    _meta: meta ?? {},
+    _perf: {
+      ms: perf?.ms ?? 0,
+      bytes: perf?.bytes ?? 0,
+      tokens: perf?.tokens ?? 0,
+    },
+  };
+}
+
 // ─── Event Acknowledgement ──────────────────────────────────────────────────
 
 export interface EventAck {
