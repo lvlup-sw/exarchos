@@ -3,7 +3,7 @@ import { handleCancel } from './cancel.js';
 import { handleCleanup } from './cleanup.js';
 import { handleDescribe } from '../describe/handler.js';
 import { TOOL_REGISTRY } from '../registry.js';
-import type { ToolResult } from '../format.js';
+import { wrap, type ToolResult } from '../format.js';
 import type { DispatchContext } from '../core/dispatch.js';
 
 const workflowActions = TOOL_REGISTRY.find(t => t.name === 'exarchos_workflow')!.actions;
@@ -27,15 +27,12 @@ const workflowActions = TOOL_REGISTRY.find(t => t.name === 'exarchos_workflow')!
 function envelopeWrap(result: ToolResult, startedAt: number): ToolResult {
   if (!result.success) return result;
 
-  // Start with the original result's own keys (preserves `warnings`,
-  // `_eventHints`, `_corrections`, etc.) then overlay envelope fields.
-  const wrapped: Record<string, unknown> = { ...(result as Record<string, unknown>) };
-  wrapped.success = true;
-  wrapped.data = result.data;
-  wrapped.next_actions = [];
-  wrapped._meta = (result._meta ?? {}) as Record<string, unknown>;
-  wrapped._perf = result._perf ?? { ms: Date.now() - startedAt, bytes: 0, tokens: 0 };
-  return wrapped as ToolResult;
+  const meta = (result._meta ?? {}) as Record<string, unknown>;
+  const perf = result._perf ?? { ms: Date.now() - startedAt };
+  // `wrap<T>` constructs the canonical { success, data, next_actions, _meta, _perf }
+  // envelope shape. Caller overlays remaining passthrough fields (e.g. `warnings`).
+  const envelope = wrap(result.data, meta, perf);
+  return envelope as unknown as ToolResult;
 }
 
 /**
