@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { StableSectionsSchema, VolatileSectionsSchema } from './schema.js';
+import {
+  RehydrationDocumentSchema,
+  StableSectionsSchema,
+  VolatileSectionsSchema,
+} from './schema.js';
 
 describe('rehydration document stable-sections schema (T011, DR-3)', () => {
   it('RehydrationDoc_MinimalStableSections_Parses', () => {
@@ -59,5 +63,74 @@ describe('rehydration document volatile-sections schema (T012, DR-3)', () => {
     const result = VolatileSectionsSchema.safeParse(inputWithUnknownField);
 
     expect(result.success).toBe(false);
+  });
+});
+
+describe('rehydration document top-level schema (T013, DR-3)', () => {
+  const minimalStable = {
+    behavioralGuidance: {
+      skill: 'rehydrate-foundation',
+      skillRef: 'skills/claude-code/rehydrate-foundation/SKILL.md',
+    },
+    workflowState: {
+      featureId: 'rehydrate-foundation',
+      phase: 'implementation',
+      workflowType: 'feature',
+    },
+  };
+
+  const minimalVolatile = {
+    taskProgress: [],
+    decisions: [],
+    artifacts: {},
+    blockers: [],
+  };
+
+  it('RehydrationDoc_VersionedSchema_RequiresV1', () => {
+    const validDoc = {
+      v: 1,
+      projectionSequence: 0,
+      ...minimalStable,
+      ...minimalVolatile,
+    };
+
+    const validResult = RehydrationDocumentSchema.safeParse(validDoc);
+    expect(validResult.success).toBe(true);
+
+    const wrongVersionDoc = {
+      ...validDoc,
+      v: 2,
+    };
+    const wrongVersionResult = RehydrationDocumentSchema.safeParse(wrongVersionDoc);
+    expect(wrongVersionResult.success).toBe(false);
+
+    const { v: _omit, ...missingVersionDoc } = validDoc;
+    const missingVersionResult = RehydrationDocumentSchema.safeParse(missingVersionDoc);
+    expect(missingVersionResult.success).toBe(false);
+  });
+
+  it('RehydrationDoc_ProjectionSequence_RequiresNonNegativeInt', () => {
+    const baseDoc = {
+      v: 1 as const,
+      ...minimalStable,
+      ...minimalVolatile,
+    };
+
+    expect(
+      RehydrationDocumentSchema.safeParse({ ...baseDoc, projectionSequence: 0 }).success,
+    ).toBe(true);
+    expect(
+      RehydrationDocumentSchema.safeParse({ ...baseDoc, projectionSequence: 42 }).success,
+    ).toBe(true);
+
+    expect(
+      RehydrationDocumentSchema.safeParse({ ...baseDoc, projectionSequence: -1 }).success,
+    ).toBe(false);
+    expect(
+      RehydrationDocumentSchema.safeParse({ ...baseDoc, projectionSequence: 1.5 }).success,
+    ).toBe(false);
+    expect(
+      RehydrationDocumentSchema.safeParse({ ...baseDoc, projectionSequence: '1' }).success,
+    ).toBe(false);
   });
 });
