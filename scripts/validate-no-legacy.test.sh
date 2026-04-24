@@ -3,8 +3,9 @@
 # have been removed or archived per docs/plans/2026-04-21-install-rewrite.md.
 #
 # Each test is prefixed `NoLegacy_*` and asserts a post-rewrite end-state against
-# the live repo (not a temp fixture). Tasks 3.1–3.8 will append additional
-# NoLegacy_* assertions to this file.
+# the live repo (not a temp fixture). Tasks 3.1–3.8 append additional
+# NoLegacy_* assertions to this file; task 3.11 promotes the harness into a
+# CI-gated rollup via scripts/validate-no-legacy.sh.
 
 set -euo pipefail
 
@@ -45,6 +46,36 @@ assert_file_present() {
 
 echo "## validate-no-legacy.sh Tests"
 echo
+
+# ============================================================
+# Task 3.1: Delete src/install.ts + src/install.test.ts
+# ============================================================
+
+# src/install.ts was the npx-based installer entry point; replaced by the
+# binary install path (PR1) + plugin rewrite (PR2).
+assert_file_absent \
+  "NoLegacy_InstallTsAbsent" \
+  "src/install.ts"
+
+# src/install.test.ts covered the deleted installer; delete with its subject.
+assert_file_absent \
+  "NoLegacy_InstallTestAbsent" \
+  "src/install.test.ts"
+
+# Any live code importing './install' (.js or .ts) is a loose reference to the
+# deleted module. Scan src/ and servers/ — skip the matching sibling modules
+# install-skills and install-hooks, which are unrelated and surviving.
+HITS=$(grep -rEn "from ['\"]\.+/install(\.js|\.ts)?['\"]" \
+  "$REPO_ROOT/src" "$REPO_ROOT/servers" \
+  --include='*.ts' --include='*.tsx' --include='*.mts' --include='*.cts' \
+  2>/dev/null || true)
+# Exclude legitimate siblings: install-skills, install-hooks, install-plugin
+FILTERED=$(echo "$HITS" | grep -vE "install-skills|install-hooks|install-plugin" || true)
+if [[ -z "$FILTERED" ]]; then
+  pass "NoLegacy_NoImportsFromInstall"
+else
+  fail "NoLegacy_NoImportsFromInstall" "found live imports of deleted module: $FILTERED"
+fi
 
 # ============================================================
 # Task 3.3: Archive deprecation artifacts
