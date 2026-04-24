@@ -24,6 +24,7 @@ import type { WorkflowEvent } from '../event-store/schemas.js';
 import { readLatestSnapshot } from '../projections/store.js';
 import { rehydrationReducer } from '../projections/rehydration/reducer.js';
 import type { RehydrationDocument } from '../projections/rehydration/schema.js';
+import type { ProjectionReducer } from '../projections/types.js';
 
 /** Input shape for the rehydrate handler. */
 export interface RehydrateArgs {
@@ -47,6 +48,65 @@ const REHYDRATION_PROJECTION_ID = 'rehydration@v1';
 const REHYDRATION_PROJECTION_VERSION = '1';
 
 /**
+ * Hydrate a projection's state by preferring the latest snapshot and folding
+ * the tail of events that were written after the snapshot's sequence.
+ *
+ * This is the canonical warm-cache hydrate path (DR-1, DR-5). The handler
+ * below delegates to it; T034 (checkpoint materialization) and T043
+ * (degraded-mode fallback) will reuse this helper so the three call sites
+ * share one control-flow and one trust-boundary cast on `snapshot.state`.
+ *
+ * Contract:
+ *   - When no snapshot exists for `(streamId, projectionId, projectionVersion)`,
+ *     starts from `reducer.initial` and folds the entire stream (cold-cache
+ *     parity with `rebuildProjection` but via the handler's event-store
+ *     query path).
+ *   - When a snapshot exists, starts from `snapshot.state` and folds events
+ *     strictly after `snapshot.sequence`.
+ *   - The `snapshot.state` field is typed `unknown` at the snapshot-schema
+ *     trust boundary; we narrow it to `State` via a single cast here rather
+ *     than re-validating the shape on every hydrate call (the reducer's
+ *     purity contract plus schema validation at snapshot *write* time are
+ *     the integrity guarantees).
+ *
+ * Pure of side effects beyond the single `eventStore.query` call and one
+ * synchronous snapshot sidecar read — no writes.
+ */
+export async function hydrateFromSnapshotThenTail<State, Event>(
+  reducer: ProjectionReducer<State, Event>,
+  eventStore: EventStore,
+  streamId: string,
+  stateDir: string,
+  projectionId: string,
+  projectionVersion: string,
+): Promise<State> {
+  const snapshot = readLatestSnapshot(
+    stateDir,
+    streamId,
+    projectionId,
+    projectionVersion,
+  );
+
+  const sinceSequence = snapshot?.sequence ?? 0;
+  const tailEvents = await eventStore.query(streamId, { sinceSequence });
+
+  const initialState: State =
+    snapshot !== undefined
+      ? (snapshot.state as State)
+      : reducer.initial;
+
+  let state = initialState;
+  // Cast the tail through the reducer's Event type at the call boundary —
+  // the event store yields `WorkflowEvent`, which is the type every registered
+  // reducer narrows against. Keeping the cast here means each reducer's
+  // `apply` signature drives inference inside the fold.
+  for (const ev of tailEvents as unknown as Event[]) {
+    state = reducer.apply(state, ev);
+  }
+  return state;
+}
+
+/**
  * Rehydrate a workflow's canonical document for the given featureId.
  *
  * Empty-stream behaviour: when no snapshot and no events exist for the
@@ -63,40 +123,22 @@ export async function handleRehydrate(
   const { featureId } = args;
   const { eventStore, stateDir } = ctx;
 
-  // Step 1/2 — snapshot lookup. Missing/corrupt/version-skewed snapshots
-  //   return `undefined` here; the reducer's `initial` then becomes the
-  //   starting state for a full tail-replay at Step 4.
-  const snapshot = readLatestSnapshot(
-    stateDir,
+  const document = await hydrateFromSnapshotThenTail<
+    RehydrationDocument,
+    WorkflowEvent
+  >(
+    rehydrationReducer,
+    eventStore,
     featureId,
+    stateDir,
     REHYDRATION_PROJECTION_ID,
     REHYDRATION_PROJECTION_VERSION,
   );
 
-  // Step 3 — tail events strictly after the snapshot's sequence. The
-  //   `sinceSequence` filter is inclusive-exclusive at the store boundary;
-  //   empty streams return `[]` and the fold becomes identity over initial.
-  const sinceSequence = snapshot?.sequence ?? 0;
-  const tailEvents = await eventStore.query(featureId, { sinceSequence });
-
-  // Step 4 — fold. Start from the snapshot state when present (validated
-  //   shape at write time by `appendSnapshot`; at read time the sidecar
-  //   Zod schema gatekeeps `snapshot.state` as `unknown`, so we narrow to
-  //   `RehydrationDocument` via a single cast at the trust boundary).
-  const initialState: RehydrationDocument =
-    snapshot !== undefined
-      ? (snapshot.state as RehydrationDocument)
-      : rehydrationReducer.initial;
-
-  let state = initialState;
-  for (const ev of tailEvents as WorkflowEvent[]) {
-    state = rehydrationReducer.apply(state, ev);
-  }
-
-  // Step 5 — return the canonical document. The composite `envelopeWrap`
-  //   layers `next_actions` / `_meta` / `_perf` on top.
+  // The composite `envelopeWrap` (workflow/composite.ts) layers `next_actions`,
+  // `_meta`, and `_perf` on top of this ToolResult at the tool boundary.
   return {
     success: true,
-    data: state,
+    data: document,
   };
 }
