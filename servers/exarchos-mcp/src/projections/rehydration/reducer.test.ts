@@ -156,3 +156,77 @@ describe('rehydration reducer — task events fold (T023, DR-3)', () => {
     });
   });
 });
+
+describe('rehydration reducer — workflow events fold (T024, DR-3)', () => {
+  it('Rehydration_Given_WorkflowStarted_When_Fold_Then_WorkflowStatePopulated', () => {
+    // GIVEN: the initial state
+    const initial = rehydrationReducer.initial;
+
+    // AND: a `workflow.started` event whose data matches the registered
+    // `WorkflowStartedData` schema — carrying a `featureId` and a
+    // `workflowType`. Note: the registered schema does NOT carry a `phase`
+    // field (only `workflow.transition` does), so the "starting phase" of the
+    // workflow remains the projection's initial string default (`''`) until a
+    // subsequent `workflow.transition` event advances it.
+    const started = makeEvent(
+      'workflow.started',
+      { featureId: 'feat-42', workflowType: 'axiom' },
+      1,
+    );
+
+    // WHEN: we fold the event through apply()
+    const next = rehydrationReducer.apply(initial, started);
+
+    // THEN: the stable workflowState prefix reflects the new feature + type.
+    expect(next.workflowState.featureId).toBe('feat-42');
+    expect(next.workflowState.workflowType).toBe('axiom');
+    // AND: phase remains the initial default — no phase field on the event.
+    expect(next.workflowState.phase).toBe('');
+
+    // AND: projectionSequence was incremented once for this handled event.
+    expect(next.projectionSequence).toBe(1);
+
+    // AND: the resulting document still conforms to RehydrationDocumentSchema.
+    expect(RehydrationDocumentSchema.safeParse(next).success).toBe(true);
+
+    // AND: purity — initial state was not mutated.
+    expect(initial.workflowState.featureId).toBe('');
+    expect(initial.workflowState.workflowType).toBe('');
+    expect(initial.projectionSequence).toBe(0);
+  });
+
+  it('Rehydration_Given_WorkflowTransition_When_Fold_Then_PhaseAdvances', () => {
+    // GIVEN: state after a `workflow.started` event
+    const initial = rehydrationReducer.initial;
+    const started = makeEvent(
+      'workflow.started',
+      { featureId: 'feat-42', workflowType: 'axiom' },
+      1,
+    );
+    const afterStarted = rehydrationReducer.apply(initial, started);
+
+    // WHEN: we fold a `workflow.transition` event whose `to` field is the
+    // target phase (per the registered `WorkflowTransitionData` schema).
+    const transition = makeEvent(
+      'workflow.transition',
+      {
+        from: 'baseline',
+        to: 'design',
+        trigger: 'designComplete',
+        featureId: 'feat-42',
+      },
+      2,
+    );
+    const next = rehydrationReducer.apply(afterStarted, transition);
+
+    // THEN: phase advances to the `to` value from the event.
+    expect(next.workflowState.phase).toBe('design');
+    // AND: featureId and workflowType are preserved from the prior state.
+    expect(next.workflowState.featureId).toBe('feat-42');
+    expect(next.workflowState.workflowType).toBe('axiom');
+    // AND: projectionSequence was incremented once per handled event.
+    expect(next.projectionSequence).toBe(2);
+    // AND: the resulting document still conforms to RehydrationDocumentSchema.
+    expect(RehydrationDocumentSchema.safeParse(next).success).toBe(true);
+  });
+});
