@@ -64,3 +64,22 @@ export const VolatileSectionsSchema = z
   .strict();
 
 export type VolatileSections = z.infer<typeof VolatileSectionsSchema>;
+
+/**
+ * Top-level rehydration document envelope — T013 (DR-3).
+ *
+ * Composes the stable prefix (T011) and volatile sections (T012) under a
+ * versioned envelope:
+ *   - `v: 1` is a literal version discriminator; future schema revs bump this.
+ *   - `projectionSequence` pins the document to a specific point in the
+ *     projection log and must be a non-negative integer.
+ */
+export const RehydrationDocumentSchema = z
+  .object({
+    v: z.literal(1),
+    projectionSequence: z.number().int().nonnegative(),
+  })
+  .merge(StableSectionsSchema)
+  .merge(VolatileSectionsSchema);
+
+export type RehydrationDocument = z.infer<typeof RehydrationDocumentSchema>;
