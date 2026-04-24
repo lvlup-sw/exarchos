@@ -205,10 +205,29 @@ export async function buildDegradedResponse(
     cause,
     fallbackSource,
   };
-  await eventStore.append(featureId, {
-    type: 'workflow.projection_degraded',
-    data: degradedData,
-  });
+  // T056 (DR-18) — the degradation path is a hard no-throw boundary. If the
+  // event store is fully offline (e.g. T056 dual-failure: both `query` AND
+  // `append` fail), we still return the degraded envelope so agents retain a
+  // usable document. The emission is best-effort observability; its failure
+  // is logged WARN and otherwise swallowed. The handler-level `cause`
+  // (event-stream-unavailable / snapshot-corrupt / reducer-throw) is the
+  // authoritative diagnostic — whether it was persisted is secondary.
+  try {
+    await eventStore.append(featureId, {
+      type: 'workflow.projection_degraded',
+      data: degradedData,
+    });
+  } catch (err) {
+    workflowLogger.warn(
+      {
+        featureId,
+        cause,
+        fallbackSource,
+        err: err instanceof Error ? err.message : String(err),
+      },
+      'Failed to append workflow.projection_degraded — continuing with degraded envelope',
+    );
+  }
 
   return {
     success: true,
@@ -418,7 +437,33 @@ export async function handleRehydrate(
   }
 
   const sinceSequence = snapshot?.sequence ?? 0;
-  const tailEvents = await eventStore.query(featureId, { sinceSequence });
+  // T056 (DR-18) — event-stream-unavailable degradation. The catch here is
+  // scoped strictly around the tail query. If the event store is offline
+  // (connection refused, backing file unreadable, transient IO), we have no
+  // authoritative projection source, so we fall back to the workflow state
+  // store only and emit `projection_degraded` with
+  // `cause: "event-stream-unavailable"`, `fallbackSource: "state-store-only"`.
+  // Note: the snapshot-read path (T055) stays above this try; its catch
+  // boundary is disjoint from this one so a degraded snapshot does not
+  // swallow a later query failure.
+  let tailEvents: WorkflowEvent[];
+  try {
+    tailEvents = (await eventStore.query(featureId, {
+      sinceSequence,
+    })) as unknown as WorkflowEvent[];
+  } catch (err) {
+    workflowLogger.warn(
+      {
+        featureId,
+        err: err instanceof Error ? err.message : String(err),
+      },
+      'Event store query failed — degrading to state-store-only',
+    );
+    return buildDegradedResponse(featureId, 'event-stream-unavailable', {
+      eventStore,
+      stateDir,
+    });
+  }
 
   let document: RehydrationDocument =
     snapshot !== undefined
@@ -426,7 +471,7 @@ export async function handleRehydrate(
       : rehydrationReducer.initial;
 
   try {
-    for (const ev of tailEvents as unknown as WorkflowEvent[]) {
+    for (const ev of tailEvents) {
       document = rehydrationReducer.apply(document, ev);
     }
   } catch {

@@ -293,11 +293,18 @@ describe('handleRehydrate — emits workflow.rehydrated (T032, DR-4, DR-5)', () 
   });
 
   it('RehydrateHandler_EmitsEvent_OnlyOnSuccess', async () => {
-    // GIVEN: an eventStore whose `query` throws. `hydrateFromSnapshotThenTail`
-    //   awaits the query before any append, so the failure propagates before
-    //   the handler reaches its emission step. This verifies the narrow but
-    //   meaningful invariant: emission is conditional on the hydrate
-    //   succeeding (not a post-hoc "always emit" sentinel).
+    // GIVEN: an eventStore whose `query` throws. This verifies the narrow
+    //   but meaningful invariant: emission of `workflow.rehydrated` is
+    //   conditional on the hydrate succeeding (not a post-hoc "always emit"
+    //   sentinel).
+    //
+    //   T056 (DR-18) changed the failure mode: a throwing `query` no longer
+    //   propagates out of the handler — it degrades to state-store-only and
+    //   emits `workflow.projection_degraded` instead. The invariant under
+    //   test here is unchanged: on the failure path, NO `workflow.rehydrated`
+    //   event is emitted. The old "must reject" assertion is now a
+    //   "must degrade" assertion — both encode the same contract (hydrate
+    //   did not succeed, so the rehydrated signal must not fire).
     const featureId = 'rehydrate-failure-no-emit';
     // Seed the real store with one unrelated event so we can distinguish a
     // missing rehydrated event from an empty stream in the assertion below.
@@ -307,8 +314,9 @@ describe('handleRehydrate — emits workflow.rehydrated (T032, DR-4, DR-5)', () 
     });
 
     // Build a failing shim over the real store. `append` still routes to the
-    // real store so that, were the handler to emit anyway (the bug guard),
-    // the event would be visible when we re-query through `store`.
+    // real store so that, were the handler to emit `workflow.rehydrated`
+    // anyway (the bug guard), the event would be visible when we re-query
+    // through `store`.
     const failingStore = {
       append: store.append.bind(store),
       query: async (): Promise<never> => {
@@ -316,13 +324,15 @@ describe('handleRehydrate — emits workflow.rehydrated (T032, DR-4, DR-5)', () 
       },
     } as unknown as typeof store;
 
-    // WHEN: we invoke the handler — it must reject.
-    await expect(
-      handleRehydrate(
-        { featureId },
-        { eventStore: failingStore, stateDir },
-      ),
-    ).rejects.toThrow(/simulated query failure/);
+    // WHEN: handler runs. Under T056 it degrades gracefully instead of
+    // rejecting.
+    const result = await handleRehydrate(
+      { featureId },
+      { eventStore: failingStore, stateDir },
+    );
+    expect(result.success).toBe(true);
+    const meta = result._meta as Record<string, unknown> | undefined;
+    expect(meta?.degraded).toBe(true);
 
     // THEN: no `workflow.rehydrated` event was emitted to the real store.
     const all = await store.query(featureId);
@@ -527,6 +537,95 @@ describe('handleRehydrate — corrupt-snapshot degradation (T055, DR-18)', () =>
 
     // THEN (4): no `workflow.rehydrated` event — the degraded envelope is
     //   mutually exclusive with "hydrate succeeded" (same invariant as T054).
+    const rehydrated = all.filter((e) => e.type === 'workflow.rehydrated');
+    expect(rehydrated).toHaveLength(0);
+  });
+});
+
+/**
+ * T056 — `handleRehydrate` degrades on event-stream-unavailable (DR-18)
+ *
+ * Resilience path: when the event store's `query` raises (connection refused,
+ * backing file ripped away, transient IO error, etc.), the handler MUST NOT
+ * propagate — it has no authoritative event log to fold, so it falls back to
+ * the workflow state store only, emits `workflow.projection_degraded` with
+ * `cause: "event-stream-unavailable"` and `fallbackSource: "state-store-only"`,
+ * and returns a minimal document with `_meta.degraded: true`.
+ *
+ * Distinct from T054 (reducer throw mid-fold): here the reducer never runs
+ * because we never obtained a tail. Distinct from T055 (corrupt snapshot):
+ * here the snapshot read may have succeeded, but the subsequent tail query
+ * is what fails — so we still cannot trust the projection and must fall
+ * back to the state store.
+ *
+ * Dual-failure policy: if `eventStore.append` of the degraded event also
+ * throws (the event store is fully offline, not just flaky on query), the
+ * handler must log a WARN and return the degraded envelope anyway — the
+ * degradation path is a no-throw boundary. This test sets up the stub so
+ * that `query` throws but `append` routes to the real store, exercising the
+ * primary failure path and confirming the degraded event lands.
+ */
+describe('handleRehydrate — event-stream-unavailable degradation (T056, DR-18)', () => {
+  it('Rehydrate_EventStreamUnavailable_ReturnsStateStoreOnly', async () => {
+    // GIVEN: a seeded state file (so the state-store fallback has data to
+    //   read) and an event-store stub whose `query` rejects. `append` is
+    //   routed to the real store so the emitted degraded event is visible
+    //   on re-query via the real store. This mirrors the shim pattern used
+    //   in `RehydrateHandler_EmitsEvent_OnlyOnSuccess` (T032).
+    const featureId = 'rehydrate-event-stream-unavailable';
+
+    await initStateFile(stateDir, featureId, 'feature');
+
+    const failingQueryStore = {
+      append: store.append.bind(store),
+      query: (): Promise<never> =>
+        Promise.reject(new Error('event store offline')),
+    } as unknown as typeof store;
+
+    // WHEN: handler runs. It MUST NOT throw.
+    const result = await handleRehydrate(
+      { featureId },
+      { eventStore: failingQueryStore, stateDir },
+    );
+
+    // THEN (1): handler returns a successful ToolResult carrying
+    //   `_meta.degraded: true` and `_meta.fallbackSource: "state-store-only"`.
+    expect(result.success).toBe(true);
+    const meta = result._meta as Record<string, unknown> | undefined;
+    expect(meta).toBeDefined();
+    expect(meta?.degraded).toBe(true);
+    expect(meta?.fallbackSource).toBe('state-store-only');
+
+    // THEN (2): the returned `data` is a minimal fallback document seeded
+    //   from the state store — v:1, projectionSequence 0, populated
+    //   workflowState.
+    const doc = result.data as RehydrationDocument;
+    expect(doc.v).toBe(1);
+    expect(doc.projectionSequence).toBe(0);
+    expect(doc.workflowState.featureId).toBe(featureId);
+    expect(doc.workflowState.workflowType).toBe('feature');
+    expect(doc.workflowState.phase).toBeTruthy();
+    expect(doc.taskProgress).toEqual([]);
+    expect(doc.blockers).toEqual([]);
+    expect(RehydrationDocumentSchema.safeParse(doc).success).toBe(true);
+
+    // THEN (3): the event store received exactly one
+    //   `workflow.projection_degraded` event with the registered payload —
+    //   `cause: "event-stream-unavailable"`,
+    //   `fallbackSource: "state-store-only"`,
+    //   `projectionId: "rehydration@v1"`.
+    const all = await store.query(featureId);
+    const degraded = all.filter(
+      (e) => e.type === 'workflow.projection_degraded',
+    );
+    expect(degraded).toHaveLength(1);
+    const payload = degraded[0].data as WorkflowProjectionDegraded;
+    expect(payload.projectionId).toBe('rehydration@v1');
+    expect(payload.cause).toBe('event-stream-unavailable');
+    expect(payload.fallbackSource).toBe('state-store-only');
+
+    // THEN (4): no `workflow.rehydrated` event — degradation is mutually
+    //   exclusive with "hydrate succeeded" (same invariant as T054/T055).
     const rehydrated = all.filter((e) => e.type === 'workflow.rehydrated');
     expect(rehydrated).toHaveLength(0);
   });
