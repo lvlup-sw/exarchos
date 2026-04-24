@@ -4,6 +4,7 @@ import { handleEventAppend, handleEventQuery, handleBatchAppend } from './tools.
 import { handleEventDescribe } from '../describe/handler.js';
 import { TOOL_REGISTRY } from '../registry.js';
 import { classifyPriority } from '../channel/priority.js';
+import { nextActionsFromResult } from '../next-actions-from-result.js';
 
 const VALID_ACTIONS = ['append', 'query', 'batch_append', 'describe'] as const;
 type EventAction = (typeof VALID_ACTIONS)[number];
@@ -67,7 +68,7 @@ async function pushToChannelIfConfigured(
 }
 
 /**
- * HATEOAS envelope wrapping for successful tool responses (T037, DR-7).
+ * HATEOAS envelope wrapping for successful tool responses (T037 + T041, DR-7/DR-8).
  *
  * Mirrors the T036 workflow-composite treatment: wraps successful
  * `ToolResult`s at the composite boundary into `Envelope<T>` so agents see
@@ -75,8 +76,11 @@ async function pushToChannelIfConfigured(
  * response. Error responses pass through unchanged so structured `error`
  * payloads remain accessible to callers for auto-correction flows.
  *
- * `next_actions` is populated by T040/T041's `computeNextActions` — for
- * T037 it defaults to `[]` so the field is always present.
+ * `next_actions` is derived by `nextActionsFromResult` — in practice
+ * event-store responses (append ACKs, query results, describe) do not
+ * carry workflow state so this returns `[]`. The call is retained for
+ * architectural symmetry with the workflow composite and to make the
+ * envelope contract uniform; the function is a pure, cheap lookup.
  *
  * Hook/channel side-effects still observe the raw `ToolResult` shape
  * because wrapping happens after those fire-and-forget invocations.
@@ -86,7 +90,8 @@ function envelopeWrap(result: ToolResult, startedAt: number): ToolResult {
 
   const meta = (result._meta ?? {}) as Record<string, unknown>;
   const perf = result._perf ?? { ms: Date.now() - startedAt };
-  const envelope = wrap(result.data, meta, perf);
+  const nextActions = nextActionsFromResult(result);
+  const envelope = wrap(result.data, meta, perf, nextActions);
   return envelope as unknown as ToolResult;
 }
 
