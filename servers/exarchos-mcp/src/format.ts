@@ -2,6 +2,7 @@
 
 import type { ValidTransitionTarget } from './workflow/state-machine.js';
 import type { Correction } from './telemetry/auto-correction.js';
+import type { NextAction } from './next-action.js';
 
 export interface PerfMetrics {
   readonly ms: number;
@@ -57,8 +58,14 @@ export interface ToolResult {
 export interface Envelope<T> {
   readonly success: boolean;
   readonly data: T;
-  // TODO(T040): tighten to NextAction[] once next-action module lands
-  readonly next_actions: unknown[];
+  /**
+   * Affordance hints — outbound transitions valid from the current workflow
+   * state per the HSM topology. Populated by `computeNextActions` (T040) and
+   * wired through `wrap()` at the composite boundary (T041, DR-8). Defaults
+   * to `[]` when the caller has no workflow context (e.g. `describe`
+   * actions, view/event-store/orchestrate composites).
+   */
+  readonly next_actions: readonly NextAction[];
   readonly _eventHints?: unknown;
   readonly _meta: Record<string, unknown>;
   readonly _perf: PerfMetrics;
@@ -67,30 +74,42 @@ export interface Envelope<T> {
 /**
  * Wrap a strongly-typed `data` payload in a HATEOAS `Envelope<T>` (DR-7).
  *
- * Sets `success: true` and `next_actions: []` (populated by T040/T041's
- * `computeNextActions`) and carries forward caller-supplied `_meta` and
- * `_perf`. Missing `_perf` fields default to 0 so `PerfMetrics`'s required
- * shape is always satisfied.
+ * Sets `success: true`, carries forward caller-supplied `_meta` and `_perf`,
+ * and attaches `next_actions` if provided. Missing `_perf` fields default to
+ * 0 so `PerfMetrics`'s required shape is always satisfied. Omitting
+ * `nextActions` yields `[]` — the backward-compatible default for callers
+ * that do not yet have workflow state at the wrap boundary (e.g. `describe`
+ * actions, view/event-store/orchestrate composites).
  *
  * This helper is shared by T036–T039 so every composite tool produces a
  * consistent envelope shape without duplicating the construction logic.
+ * T041 (DR-8) extended it to accept a 4th positional `nextActions` argument;
+ * the workflow composite derives these from `computeNextActions(state, hsm)`
+ * at the wrap site.
  *
  * @example
+ *   // Workflow composite — state is known, populate next_actions.
  *   return wrap(
- *     { phase: 'plan' },
+ *     { featureId, workflowType, phase },
  *     buildCheckpointMeta(state._checkpoint),
  *     { ms: Date.now() - started },
+ *     computeNextActions({ phase, workflowType }, getHSMDefinition(workflowType)),
  *   );
+ *
+ * @example
+ *   // No workflow context — default to empty affordances.
+ *   return wrap({ actions: [] });
  */
 export function wrap<T>(
   data: T,
   meta?: Record<string, unknown>,
   perf?: { ms: number; bytes?: number; tokens?: number },
+  nextActions?: readonly NextAction[],
 ): Envelope<T> {
   return {
     success: true,
     data,
-    next_actions: [],
+    next_actions: nextActions ?? [],
     _meta: meta ?? {},
     _perf: {
       ms: perf?.ms ?? 0,
