@@ -43,6 +43,16 @@ import type { EventStore } from '../event-store/store.js';
 import type { ViewMaterializer } from '../views/materializer.js';
 import { WORKFLOW_STATE_VIEW, type WorkflowStateView } from '../views/workflow-state-projection.js';
 import * as path from 'node:path';
+// T034 (DR-6) — checkpoint materializes the rehydration projection:
+// fold events → snapshot → emit `workflow.checkpoint_written`. Reuses the
+// helper extracted in T031 so the hydrate path is identical to the one the
+// rehydrate handler exercises.
+import { hydrateFromSnapshotThenTail } from './rehydrate.js';
+import { rehydrationReducer } from '../projections/rehydration/reducer.js';
+import type { RehydrationDocument } from '../projections/rehydration/schema.js';
+import { appendSnapshot } from '../projections/store.js';
+import type { SnapshotRecord } from '../projections/snapshot-schema.js';
+import type { WorkflowEvent } from '../event-store/schemas.js';
 
 // ─── Module-Level EventStore (removed — now threaded via DispatchContext) ─────
 
@@ -994,6 +1004,75 @@ export async function handleCheckpoint(
   // Write back to disk
   await writeStateFile(stateFile, mutableState as WorkflowState);
 
+  // T034 (DR-6) — materialize the rehydration projection. Performed AFTER
+  // the `workflow.checkpoint` event above is appended so the snapshot folds
+  // that event into the projection too (the rehydration reducer treats
+  // `workflow.checkpoint` as unhandled, so this is a no-op for sequence, but
+  // the ordering keeps the invariant "snapshot reflects everything known as
+  // of the checkpoint moment").
+  //
+  // We reuse `hydrateFromSnapshotThenTail` (T031) so the fold-from-latest-
+  // snapshot-then-tail logic is identical to the rehydrate handler — same
+  // trust boundary on `snapshot.state`, same empty-stream behaviour. When no
+  // event store is configured this step is skipped entirely; the checkpoint
+  // reset still takes effect but no projection is materialized.
+  if (eventStore) {
+    const document = await hydrateFromSnapshotThenTail<
+      RehydrationDocument,
+      WorkflowEvent
+    >(
+      rehydrationReducer,
+      eventStore,
+      input.featureId,
+      stateDir,
+      REHYDRATION_PROJECTION_ID,
+      REHYDRATION_PROJECTION_VERSION,
+    );
+
+    const snapshotRecord: SnapshotRecord = {
+      projectionId: REHYDRATION_PROJECTION_ID,
+      projectionVersion: REHYDRATION_PROJECTION_VERSION,
+      sequence: document.projectionSequence,
+      state: document,
+      timestamp: new Date().toISOString(),
+    };
+
+    // `byteSize` is the on-disk cost of this record as a JSONL line — the
+    // same serialization `appendSnapshot` writes. We compute it pre-write so
+    // the `workflow.checkpoint_written` event can be emitted with the exact
+    // size observers will see on disk.
+    const serialized = JSON.stringify(snapshotRecord);
+    const byteSize = Buffer.byteLength(serialized, 'utf8');
+
+    appendSnapshot(stateDir, input.featureId, snapshotRecord);
+
+    try {
+      await eventStore.append(input.featureId, {
+        type: 'workflow.checkpoint_written' as import('../event-store/schemas.js').EventType,
+        correlationId: input.featureId,
+        source: 'workflow',
+        data: {
+          projectionId: REHYDRATION_PROJECTION_ID,
+          projectionSequence: document.projectionSequence,
+          byteSize,
+        },
+      }, {
+        // Idempotency: one written event per (feature, projection, sequence).
+        // Repeated checkpoints at the same projectionSequence (a cold rerun
+        // that produced no new events) collapse to one event per that pair.
+        idempotencyKey: `${input.featureId}:checkpoint_written:${REHYDRATION_PROJECTION_ID}:${document.projectionSequence}`,
+      });
+    } catch (err) {
+      return {
+        success: false,
+        error: {
+          code: ErrorCode.EVENT_APPEND_FAILED,
+          message: `Event append failed (workflow.checkpoint_written): ${err instanceof Error ? err.message : String(err)}`,
+        },
+      };
+    }
+  }
+
   // Issue #1082 Tier 3: surface sidecar-mode degradation (see handleInit/handleSet).
   const sidecarPending = eventStore?.inSidecarMode === true;
 
@@ -1006,6 +1085,16 @@ export async function handleCheckpoint(
     _meta: buildCheckpointMeta(mutableState._checkpoint as WorkflowState['_checkpoint']),
   };
 }
+
+// ─── Rehydration projection identity (T034, DR-6) ──────────────────────────
+//
+// Kept module-local (mirrors the constants in `workflow/rehydrate.ts`) so the
+// handler and the rehydrate handler bind to the same identity pair when
+// reading / writing snapshots. If a second reducer is ever registered, the
+// right fix is to look these up from the reducer record, not to duplicate
+// string literals at more call sites.
+const REHYDRATION_PROJECTION_ID = 'rehydration@v1';
+const REHYDRATION_PROJECTION_VERSION = '1';
 
 // ─── handleReconcileState ───────────────────────────────────────────────
 
