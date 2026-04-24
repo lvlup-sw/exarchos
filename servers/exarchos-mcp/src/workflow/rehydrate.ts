@@ -1,26 +1,32 @@
 /**
- * `exarchos_workflow.rehydrate` handler — happy path (T031, DR-5).
+ * `exarchos_workflow.rehydrate` handler — happy path (T031, DR-5) with
+ * emission of `workflow.rehydrated` on success (T032, DR-4).
  *
  * Loads the latest `rehydration@v1` snapshot for the given featureId, tails
  * any events written after the snapshot's sequence, folds them through the
  * rehydration reducer, and returns the canonical {@link RehydrationDocument}.
- * Envelope wrapping (DR-7) happens at the composite boundary — this handler
- * returns a raw {@link ToolResult} matching the sibling-handler convention
- * established by `handleInit` / `handleGet` (positional `(input, stateDir,
- * eventStore)` siblings; this handler bundles `stateDir` and `eventStore`
- * into a `ctx` object because it has no other positional concerns).
+ * On successful hydrate, appends a `workflow.rehydrated` event to the stream
+ * carrying `{ projectionSequence, deliveryPath, tokenEstimate }` per the
+ * registered schema in `event-store/schemas.ts` (T008). Envelope wrapping
+ * (DR-7) happens at the composite boundary — this handler returns a raw
+ * {@link ToolResult} matching the sibling-handler convention established by
+ * `handleInit` / `handleGet` (positional `(input, stateDir, eventStore)`
+ * siblings; this handler bundles `stateDir` and `eventStore` into a `ctx`
+ * object because it has no other positional concerns).
  *
- * Scope boundaries kept intentionally narrow for T031:
- *   - Does NOT emit `workflow.rehydrated` — that is T032.
+ * Scope boundaries still in place after T032:
  *   - Does NOT register the `rehydrate` action in the `exarchos_workflow`
  *     enum — that is T033.
  *   - Does NOT write a fresh snapshot when cadence fires — that is T034/T037.
- *   - `deliveryPath` is accepted on the args but unused until T032 wires it
- *     onto the `workflow.rehydrated` event payload.
+ *   - Failure paths (snapshot corrupt, reducer throw) do not yet emit
+ *     `workflow.projection_degraded` — that is T043.
  */
 import type { EventStore } from '../event-store/store.js';
 import type { ToolResult } from '../format.js';
-import type { WorkflowEvent } from '../event-store/schemas.js';
+import type {
+  WorkflowEvent,
+  WorkflowRehydrated,
+} from '../event-store/schemas.js';
 import { readLatestSnapshot } from '../projections/store.js';
 import { rehydrationReducer } from '../projections/rehydration/reducer.js';
 import type { RehydrationDocument } from '../projections/rehydration/schema.js';
@@ -30,11 +36,19 @@ import type { ProjectionReducer } from '../projections/types.js';
 export interface RehydrateArgs {
   readonly featureId: string;
   /**
-   * Optional caller-supplied path where the rehydration document should be
-   * delivered. Accepted by T031 for call-site compatibility but unused until
-   * T032 threads it onto the emitted `workflow.rehydrated` event.
+   * Transport mode for the rehydration document, recorded on the emitted
+   * `workflow.rehydrated` event (`WorkflowRehydratedData.deliveryPath`).
+   *
+   * Narrowed to the enum registered in `event-store/schemas.ts`:
+   *   - `"direct"`  — document returned by value (in-process / MCP direct).
+   *   - `"ndjson"`  — streamed line-by-line over a transport boundary.
+   *   - `"snapshot"` — materialized from a snapshot file (cold reload).
+   *
+   * Defaults to `"direct"` when omitted so that in-process callers (tests,
+   * CLI hosts that embed the handler directly) always produce a schema-valid
+   * event without plumbing a mode through every call site.
    */
-  readonly deliveryPath?: string;
+  readonly deliveryPath?: WorkflowRehydrated['deliveryPath'];
 }
 
 /** Resolved context supplied by the composite dispatcher. */
@@ -134,6 +148,33 @@ export async function handleRehydrate(
     REHYDRATION_PROJECTION_ID,
     REHYDRATION_PROJECTION_VERSION,
   );
+
+  // T032 — on successful hydrate, record an observability event with the
+  // canonical payload from `WorkflowRehydratedData` (T008):
+  //   { projectionSequence, deliveryPath, tokenEstimate }
+  // Emission happens AFTER the fold so a failing hydrate (reducer throw,
+  // snapshot corrupt — future T043) never double-counts. We deliberately do
+  // not pass featureId / timestamp inside `data`: streamId is the outer
+  // envelope key and timestamp is stamped by `EventStore.append`.
+  const deliveryPath: WorkflowRehydrated['deliveryPath'] =
+    args.deliveryPath ?? 'direct';
+
+  // Rough GPT-style approximation (~4 chars / token) on the serialized
+  // document. Kept inline — this is the sole consumer and a shared helper
+  // would add indirection for a one-line heuristic. Integer-rounded to
+  // satisfy `z.number().int().nonnegative()` on the schema.
+  const tokenEstimate = Math.ceil(JSON.stringify(document).length / 4);
+
+  const rehydratedData: WorkflowRehydrated = {
+    projectionSequence: document.projectionSequence,
+    deliveryPath,
+    tokenEstimate,
+  };
+
+  await eventStore.append(featureId, {
+    type: 'workflow.rehydrated',
+    data: rehydratedData,
+  });
 
   // The composite `envelopeWrap` (workflow/composite.ts) layers `next_actions`,
   // `_meta`, and `_perf` on top of this ToolResult at the tool boundary.

@@ -9,6 +9,7 @@ import {
   RehydrationDocumentSchema,
   type RehydrationDocument,
 } from '../projections/rehydration/schema.js';
+import type { WorkflowRehydrated } from '../event-store/schemas.js';
 // Importing this barrel has a side effect: it registers the rehydration
 // reducer with the process-wide default registry. Import so the handler's
 // registry-based resolution works during this test file.
@@ -188,5 +189,140 @@ describe('handleRehydrate — happy path (T031, DR-5)', () => {
     expect(doc.blockers).toEqual([]);
     // Initial document still validates under the schema.
     expect(RehydrationDocumentSchema.safeParse(doc).success).toBe(true);
+  });
+});
+
+/**
+ * T032 — `handleRehydrate` emits `workflow.rehydrated`
+ *
+ * Implements DR-4 (new event types) and DR-5 (rehydrate MCP action). On a
+ * successful rehydrate the handler must append a `workflow.rehydrated` event
+ * to the stream with the canonical data payload
+ *   `{ projectionSequence, deliveryPath, tokenEstimate }`
+ * registered at `event-store/schemas.ts` (T008, `WorkflowRehydratedData`).
+ *
+ * The `deliveryPath` field (enum `direct|ndjson|snapshot`) is carried from
+ * the handler args so CLI / MCP / session-start call sites can differentiate
+ * transport. When the arg is omitted the handler defaults to `"direct"` —
+ * the natural mode for a programmatic in-process call where the document is
+ * returned by value rather than streamed or mounted from a snapshot file.
+ */
+describe('handleRehydrate — emits workflow.rehydrated (T032, DR-4, DR-5)', () => {
+  it('RehydrateHandler_OnSuccess_EmitsRehydratedEvent', async () => {
+    // GIVEN: a stream seeded with four events, matching the T031 happy-path
+    //   shape. `projectionSequence` after fold should be 4.
+    const featureId = 'rehydrate-emits-event';
+    await store.append(featureId, {
+      type: 'workflow.started',
+      data: { featureId, workflowType: 'feature' },
+    });
+    await store.append(featureId, {
+      type: 'task.assigned',
+      data: { taskId: 'T200' },
+    });
+    await store.append(featureId, {
+      type: 'task.completed',
+      data: { taskId: 'T200' },
+    });
+    await store.append(featureId, {
+      type: 'task.assigned',
+      data: { taskId: 'T201' },
+    });
+
+    const deliveryPath: WorkflowRehydrated['deliveryPath'] = 'direct';
+
+    // WHEN: we invoke the handler with an explicit deliveryPath arg.
+    const result = await handleRehydrate(
+      { featureId, deliveryPath },
+      { eventStore: store, stateDir },
+    );
+    expect(result.success).toBe(true);
+
+    // THEN: querying the stream yields the four seeded events plus exactly
+    //   one new `workflow.rehydrated` event carrying the correct payload.
+    const all = await store.query(featureId);
+    const rehydratedEvents = all.filter(
+      (e) => e.type === 'workflow.rehydrated',
+    );
+    expect(rehydratedEvents).toHaveLength(1);
+
+    // Payload shape must match the registered `WorkflowRehydratedData` schema
+    // verbatim — no featureId / timestamp inside `data` (streamId + envelope
+    // timestamp live on the outer event). Casting through the registered
+    // type keeps the assertion schema-driven.
+    const data = rehydratedEvents[0].data as WorkflowRehydrated;
+    expect(data.projectionSequence).toBe(4);
+    expect(data.deliveryPath).toBe('direct');
+    expect(typeof data.tokenEstimate).toBe('number');
+    expect(data.tokenEstimate).toBeGreaterThanOrEqual(0);
+  });
+
+  it('RehydrateHandler_DefaultDeliveryPath_UsesDirect', async () => {
+    // GIVEN: a seeded stream and a call that omits `deliveryPath`.
+    //   The handler must default to `"direct"` so callers that do not care
+    //   about transport (e.g. in-process tests) still produce a schema-valid
+    //   event.
+    const featureId = 'rehydrate-default-delivery';
+    await store.append(featureId, {
+      type: 'workflow.started',
+      data: { featureId, workflowType: 'feature' },
+    });
+
+    // WHEN: we invoke without deliveryPath.
+    const result = await handleRehydrate(
+      { featureId },
+      { eventStore: store, stateDir },
+    );
+    expect(result.success).toBe(true);
+
+    // THEN: emitted event's deliveryPath is 'direct'.
+    const all = await store.query(featureId);
+    const rehydratedEvents = all.filter(
+      (e) => e.type === 'workflow.rehydrated',
+    );
+    expect(rehydratedEvents).toHaveLength(1);
+    const data = rehydratedEvents[0].data as WorkflowRehydrated;
+    expect(data.deliveryPath).toBe('direct');
+    expect(data.projectionSequence).toBe(1);
+  });
+
+  it('RehydrateHandler_EmitsEvent_OnlyOnSuccess', async () => {
+    // GIVEN: an eventStore whose `query` throws. `hydrateFromSnapshotThenTail`
+    //   awaits the query before any append, so the failure propagates before
+    //   the handler reaches its emission step. This verifies the narrow but
+    //   meaningful invariant: emission is conditional on the hydrate
+    //   succeeding (not a post-hoc "always emit" sentinel).
+    const featureId = 'rehydrate-failure-no-emit';
+    // Seed the real store with one unrelated event so we can distinguish a
+    // missing rehydrated event from an empty stream in the assertion below.
+    await store.append(featureId, {
+      type: 'workflow.started',
+      data: { featureId, workflowType: 'feature' },
+    });
+
+    // Build a failing shim over the real store. `append` still routes to the
+    // real store so that, were the handler to emit anyway (the bug guard),
+    // the event would be visible when we re-query through `store`.
+    const failingStore = {
+      append: store.append.bind(store),
+      query: async (): Promise<never> => {
+        throw new Error('simulated query failure');
+      },
+    } as unknown as typeof store;
+
+    // WHEN: we invoke the handler — it must reject.
+    await expect(
+      handleRehydrate(
+        { featureId },
+        { eventStore: failingStore, stateDir },
+      ),
+    ).rejects.toThrow(/simulated query failure/);
+
+    // THEN: no `workflow.rehydrated` event was emitted to the real store.
+    const all = await store.query(featureId);
+    const rehydratedEvents = all.filter(
+      (e) => e.type === 'workflow.rehydrated',
+    );
+    expect(rehydratedEvents).toHaveLength(0);
   });
 });
