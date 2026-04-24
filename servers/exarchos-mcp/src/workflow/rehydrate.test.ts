@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
@@ -9,11 +9,16 @@ import {
   RehydrationDocumentSchema,
   type RehydrationDocument,
 } from '../projections/rehydration/schema.js';
-import type { WorkflowRehydrated } from '../event-store/schemas.js';
+import type {
+  WorkflowRehydrated,
+  WorkflowProjectionDegraded,
+} from '../event-store/schemas.js';
 // Importing this barrel has a side effect: it registers the rehydration
 // reducer with the process-wide default registry. Import so the handler's
 // registry-based resolution works during this test file.
 import '../projections/rehydration/index.js';
+import { rehydrationReducer } from '../projections/rehydration/reducer.js';
+import { initStateFile } from './state-store.js';
 
 import { handleRehydrate } from './rehydrate.js';
 
@@ -324,5 +329,113 @@ describe('handleRehydrate — emits workflow.rehydrated (T032, DR-4, DR-5)', () 
       (e) => e.type === 'workflow.rehydrated',
     );
     expect(rehydratedEvents).toHaveLength(0);
+  });
+});
+
+/**
+ * T054 — `handleRehydrate` degrades on reducer throw (DR-18)
+ *
+ * Resilience path: when the rehydration reducer throws mid-fold, the handler
+ * MUST NOT propagate — instead it emits `workflow.projection_degraded` with
+ * the registered payload shape `{ projectionId, cause, fallbackSource }`
+ * (T010, `WorkflowProjectionDegradedData`), reads minimal state from the
+ * workflow state store, and returns a degraded `ToolResult` carrying
+ * `_meta.degraded: true`.
+ *
+ * The `workflow.rehydrated` event MUST NOT be emitted on this path — the
+ * degraded envelope is orthogonal to the "rehydrate succeeded" signal.
+ *
+ * Injection mechanism: `vi.spyOn(rehydrationReducer, 'apply')` to throw on
+ * the second call. `hydrateFromSnapshotThenTail` receives the
+ * `rehydrationReducer` singleton by reference, so the spy intercepts the
+ * handler's own fold without needing a module mock.
+ */
+describe('handleRehydrate — reducer throw degradation (T054, DR-18)', () => {
+  it('Rehydrate_ReducerThrows_EmitsDegradedAndReturnsMinimalState', async () => {
+    // GIVEN: a seeded state file (so the minimal-state fallback has something
+    //   to read) + a seeded event stream. The reducer's `apply` is spied to
+    //   throw on its second invocation — the first call folds
+    //   `workflow.started` normally, then the spy fires on `task.assigned`.
+    const featureId = 'rehydrate-reducer-throws';
+
+    await initStateFile(stateDir, featureId, 'feature');
+
+    await store.append(featureId, {
+      type: 'workflow.started',
+      data: { featureId, workflowType: 'feature' },
+    });
+    await store.append(featureId, {
+      type: 'task.assigned',
+      data: { taskId: 'T900' },
+    });
+    await store.append(featureId, {
+      type: 'task.completed',
+      data: { taskId: 'T900' },
+    });
+
+    const realApply = rehydrationReducer.apply.bind(rehydrationReducer);
+    let callCount = 0;
+    const applySpy = vi
+      .spyOn(rehydrationReducer, 'apply')
+      .mockImplementation((state, event) => {
+        callCount += 1;
+        if (callCount === 2) {
+          throw new Error('reducer exploded on T900');
+        }
+        return realApply(state, event);
+      });
+
+    try {
+      // WHEN: handler runs. It must NOT throw.
+      const result = await handleRehydrate(
+        { featureId },
+        { eventStore: store, stateDir },
+      );
+
+      // THEN (1): handler returns a successful ToolResult (no exception
+      //   propagation) carrying `_meta.degraded: true`.
+      expect(result.success).toBe(true);
+      const meta = result._meta as Record<string, unknown> | undefined;
+      expect(meta).toBeDefined();
+      expect(meta?.degraded).toBe(true);
+      expect(meta?.fallbackSource).toBe('state-store-only');
+
+      // THEN (2): the returned `data` is a minimal fallback document seeded
+      //   from the state-store — v:1, sequence 0, populated workflowState.
+      const doc = result.data as RehydrationDocument;
+      expect(doc.v).toBe(1);
+      expect(doc.projectionSequence).toBe(0);
+      expect(doc.workflowState.featureId).toBe(featureId);
+      expect(doc.workflowState.workflowType).toBe('feature');
+      expect(doc.workflowState.phase).toBeTruthy();
+      expect(doc.taskProgress).toEqual([]);
+      expect(doc.blockers).toEqual([]);
+      // Fallback document still validates under the schema.
+      expect(RehydrationDocumentSchema.safeParse(doc).success).toBe(true);
+
+      // THEN (3): the event store has exactly one new
+      //   `workflow.projection_degraded` event carrying the registered
+      //   `WorkflowProjectionDegradedData` payload. `cause` indicates the
+      //   reducer-throw path; `fallbackSource` is `state-store-only`;
+      //   `projectionId` is the rehydration projection identity.
+      const all = await store.query(featureId);
+      const degraded = all.filter(
+        (e) => e.type === 'workflow.projection_degraded',
+      );
+      expect(degraded).toHaveLength(1);
+      const payload = degraded[0].data as WorkflowProjectionDegraded;
+      expect(payload.projectionId).toBe('rehydration@v1');
+      expect(payload.cause).toBe('reducer-throw');
+      expect(payload.fallbackSource).toBe('state-store-only');
+
+      // THEN (4): no `workflow.rehydrated` event was emitted on the degraded
+      //   path — degradation is mutually exclusive with "hydrate succeeded".
+      const rehydrated = all.filter(
+        (e) => e.type === 'workflow.rehydrated',
+      );
+      expect(rehydrated).toHaveLength(0);
+    } finally {
+      applySpy.mockRestore();
+    }
   });
 });
