@@ -1,0 +1,29 @@
+{
+  "v": 1,
+  "projectionSequence": 7,
+  "behavioralGuidance": {
+    "skill": "",
+    "skillRef": ""
+  },
+  "workflowState": {
+    "featureId": "rehydrate-demo",
+    "phase": "plan-review",
+    "workflowType": "feature"
+  },
+  "taskProgress": [
+    {
+      "id": "T001",
+      "status": "completed"
+    },
+    {
+      "id": "T002",
+      "status": "completed"
+    }
+  ],
+  "decisions": [],
+  "artifacts": {
+    "designDoc": "docs/design.md",
+    "planDoc": "docs/plan.md"
+  },
+  "blockers": []
+}
