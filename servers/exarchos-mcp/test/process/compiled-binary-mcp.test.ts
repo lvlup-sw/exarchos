@@ -6,10 +6,12 @@
  *
  * Proves the artifact produced by `scripts/build-binary.ts` (task 1.4) actually
  * runs `exarchos mcp` in real stdio-transport mode and handles MCP tool calls
- * identically to the JS bundle. This is the PR1 integration gate for the v2.9
- * install rewrite — earlier tests (1.1, 1.2) cover the build script's
- * structural invariants, but nothing yet proves the resulting binary can
- * complete a real MCP handshake + dispatch a workflow action end-to-end.
+ * end-to-end. This is the PR1 integration gate for the v2.9 install rewrite —
+ * earlier tests (1.1, 1.2) cover the build script's structural invariants,
+ * but nothing yet proves the resulting binary can complete a real MCP
+ * handshake + dispatch a workflow action end-to-end. Task 3.6 removed the
+ * companion JS bundle (`dist/exarchos.js`); the binary is now the sole
+ * distribution artifact this test exercises.
  *
  * Hermeticity:
  *   - Each test uses a fresh temp `WORKFLOW_STATE_DIR` so feature IDs never

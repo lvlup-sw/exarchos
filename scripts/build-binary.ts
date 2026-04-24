@@ -4,19 +4,23 @@
  * binary via `bun build --compile`.
  *
  * ── Entry-point choice ──────────────────────────────────────────────────
- * Reuses `servers/exarchos-mcp/src/index.ts` — the same entry consumed by
- * `scripts/build-bundle.ts` — rather than introducing a parallel
- * `cli-entry.ts`. That file already implements unified mode dispatch:
+ * Uses `servers/exarchos-mcp/src/index.ts` — the single process entry
+ * point — rather than introducing a parallel `cli-entry.ts`. That file
+ * already implements unified mode dispatch:
  *
  *   - `isMcpServerInvocation(argv)` → MCP stdio server mode.
  *   - Hook commands (session-start, pre-compact, guard, ...) → short-lived
  *     subprocess mode via `adapters/hooks.ts`.
  *   - Everything else → Commander CLI via `adapters/cli.ts`.
  *
- * One entry, two distribution variants (bundle + binary): honours the
+ * One entry, one distribution variant (the compiled binary): honours the
  * axiom:distill principle of single-responsibility entry surfaces. The v29
  * install-rewrite design explicitly calls this out — a second entry would
  * fracture the mode-dispatch invariants documented in DR-5 / F-022-2.
+ *
+ * Historical note: task 3.6 removed the companion `scripts/build-bundle.ts`
+ * + `dist/exarchos.js` emission path; the binary is the sole distribution
+ * artifact now.
  *
  * ── Usage ───────────────────────────────────────────────────────────────
  *   bun run scripts/build-binary.ts                         # host-only (default)
