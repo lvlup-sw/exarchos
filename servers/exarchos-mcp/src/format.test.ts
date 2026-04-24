@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { pickFields } from './format.js';
+import { pickFields, type Envelope } from './format.js';
 
 describe('pickFields', () => {
   it('pickFields_TopLevelField_ReturnsValue', () => {
@@ -47,5 +47,26 @@ describe('pickFields', () => {
     const result = pickFields(obj, ['inherited', 'own']);
     // Only own properties are picked
     expect(result).toEqual({ own: 'value' });
+  });
+});
+
+describe('Envelope<T>', () => {
+  it('Envelope_WrapsData_CarriesMetaAndPerf', () => {
+    // Type-level assertion: this assignment compiles only if the Envelope<T>
+    // shape matches exactly (success, data: T, next_actions, _meta, _perf).
+    const env: Envelope<{ foo: string }> = {
+      success: true,
+      data: { foo: 'bar' },
+      next_actions: [],
+      _meta: {},
+      _perf: { ms: 1, bytes: 10, tokens: 3 },
+    };
+
+    // Runtime assertion: data is strongly typed as { foo: string }.
+    expect(env.data.foo).toBe('bar');
+    expect(env.success).toBe(true);
+    expect(env.next_actions).toEqual([]);
+    expect(env._perf).toEqual({ ms: 1, bytes: 10, tokens: 3 });
+    expect(env._meta).toEqual({});
   });
 });
