@@ -1,6 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { pickFields, wrap, type Envelope } from './format.js';
+import { applyCacheHints, pickFields, wrap, type Envelope } from './format.js';
 import type { NextAction } from './next-action.js';
+import {
+  ANTHROPIC_NATIVE_CACHING,
+  createInMemoryResolver,
+} from './capabilities/resolver.js';
+import { STABLE_KEYS } from './projections/rehydration/serialize.js';
 
 describe('pickFields', () => {
   it('pickFields_TopLevelField_ReturnsValue', () => {
@@ -147,5 +152,49 @@ describe('wrap<T>', () => {
     // still get an empty array, preserving the T036–T039 contract.
     const env = wrap({ phase: 'ideate' }, undefined, undefined);
     expect(env.next_actions).toEqual([]);
+  });
+});
+
+// ─── T051 (DR-14): Conditional cache_control hints ─────────────────────────
+//
+// The rehydration document (T050) has a stable prefix (`STABLE_KEYS`) and a
+// volatile suffix (`VOLATILE_KEYS`). On Anthropic-native runtimes we signal
+// a cache boundary between the two so that the consumer can wrap their API
+// call with `cache_control: { type: "ephemeral", ttl: "1h" }`. JSON has no
+// inline markup boundary, so we emit a sibling `_cacheHints` field on the
+// envelope (Option A in the task spec) — this preserves the single-document
+// envelope contract and is backward-compatible with consumers that don't
+// know about the hint.
+describe('applyCacheHints (T051, DR-14)', () => {
+  it('EnvelopeSerializer_AnthropicNative_IncludesCacheControl', () => {
+    const resolver = createInMemoryResolver([ANTHROPIC_NATIVE_CACHING]);
+    const envelope = wrap({ v: 1, projectionSequence: 7 });
+
+    const hinted = applyCacheHints(envelope, resolver);
+
+    expect(hinted._cacheHints).toBeDefined();
+    expect(hinted._cacheHints).toEqual({
+      kind: 'ephemeral',
+      ttl: '1h',
+      type: 'cache_boundary',
+      position: `after:${STABLE_KEYS.join(',')}`,
+    });
+    // Rest of envelope untouched.
+    expect(hinted.success).toBe(true);
+    expect(hinted.data).toEqual({ v: 1, projectionSequence: 7 });
+    expect(hinted.next_actions).toEqual([]);
+  });
+
+  it('EnvelopeSerializer_OtherRuntime_OmitsMarkers', () => {
+    const resolver = createInMemoryResolver([]); // no anthropic_native_caching
+    const envelope = wrap({ v: 1, projectionSequence: 7 });
+
+    const hinted = applyCacheHints(envelope, resolver);
+
+    expect(hinted._cacheHints).toBeUndefined();
+    expect('_cacheHints' in hinted).toBe(false);
+    // Shape is otherwise unchanged.
+    expect(hinted.success).toBe(true);
+    expect(hinted.data).toEqual({ v: 1, projectionSequence: 7 });
   });
 });
