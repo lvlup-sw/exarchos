@@ -559,6 +559,16 @@ const workflowActions: readonly ToolAction[] = [
     roles: ROLE_LEAD,
   },
   {
+    name: 'rehydrate',
+    description: 'Rehydrate the canonical workflow document for a feature via the rehydration@v1 projection. Loads the latest snapshot and folds events written since, returning the full RehydrationDocument. Read-only — no events emitted in T033 (T032 adds workflow.rehydrated emission). Optional deliveryPath is accepted for forward compatibility.',
+    schema: z.object({
+      featureId: featureIdSchema,
+      deliveryPath: z.string().optional(),
+    }),
+    phases: ALL_PHASES,
+    roles: ROLE_ANY,
+  },
+  {
     name: 'checkpoint',
     description: 'Create an explicit checkpoint, resetting the operation counter. Persists checkpoint metadata to workflow state and emits workflow.checkpoint event',
     schema: z.object({
@@ -1635,10 +1645,10 @@ const syncActions: readonly ToolAction[] = [
 export const TOOL_REGISTRY: readonly CompositeTool[] = [
   {
     name: 'exarchos_workflow',
-    description: 'Workflow lifecycle management — init, read, update, cancel, cleanup, checkpoint, and reconcile workflows',
+    description: 'Workflow lifecycle management — init, read, update, cancel, cleanup, checkpoint, reconcile, and rehydrate workflows',
     actions: workflowActions,
     cli: { alias: 'wf' },
-    slimDescription: 'Workflow lifecycle management. Use describe(actions) for schemas.\n\nActions: init, get, set, cancel, cleanup, reconcile, checkpoint',
+    slimDescription: 'Workflow lifecycle management. Use describe(actions) for schemas.\n\nActions: init, get, set, cancel, cleanup, reconcile, checkpoint, rehydrate',
   },
   {
     name: 'exarchos_event',
