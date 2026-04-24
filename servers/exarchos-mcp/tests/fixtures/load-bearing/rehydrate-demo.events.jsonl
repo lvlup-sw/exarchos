@@ -1,0 +1,7 @@
+{"type":"workflow.started","data":{"featureId":"rehydrate-demo","workflowType":"feature"}}
+{"type":"task.assigned","data":{"taskId":"T001"}}
+{"type":"task.completed","data":{"taskId":"T001"}}
+{"type":"task.assigned","data":{"taskId":"T002"}}
+{"type":"workflow.transition","data":{"from":"plan","to":"plan-review"}}
+{"type":"state.patched","data":{"patch":{"artifacts":{"designDoc":"docs/design.md","planDoc":"docs/plan.md"}}}}
+{"type":"task.completed","data":{"taskId":"T002"}}
