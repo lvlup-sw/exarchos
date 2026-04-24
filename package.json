@@ -4,8 +4,7 @@
   "description": "Structure for agentic development — durable SDLC workflows, convergence gates, agent teams, and audit trails for Claude Code",
   "type": "module",
   "files": [
-    "dist/exarchos.js",
-    "dist/node_modules",
+    "dist/bin",
     "agents",
     "commands",
     "skills",
@@ -22,9 +21,8 @@
     "!**/trigger-tests"
   ],
   "scripts": {
-    "build": "tsc && bun run build:bundle && npm run build:skills",
+    "build": "tsc && npm run build:binary && npm run build:skills",
     "build:binary": "bun run scripts/build-binary.ts --all",
-    "build:bundle": "bun run scripts/build-bundle.ts",
     "build:skills": "node dist/build-skills.js",
     "skills:guard": "node dist/skills-guard.js",
     "prepare": "tsc",
