@@ -78,8 +78,10 @@ describe('handleView', () => {
       // Act
       const result = await handleView(args, CTX);
 
-      // Assert
-      expect(result).toBe(expected);
+      // Assert — T039: successful responses are wrapped in Envelope<T>
+      expect(result.success).toBe(true);
+      expect(result.data).toEqual({ workflows: [], total: 0 });
+      expect((result as Record<string, unknown>).next_actions).toEqual([]);
       expect(handleViewPipeline).toHaveBeenCalledWith(
         { limit: 10, offset: 0 },
         STATE_DIR,
@@ -105,8 +107,10 @@ describe('handleView', () => {
       // Act
       const result = await handleView(args, CTX);
 
-      // Assert
-      expect(result).toBe(expected);
+      // Assert — T039: envelope wrapping
+      expect(result.success).toBe(true);
+      expect(result.data).toEqual([]);
+      expect((result as Record<string, unknown>).next_actions).toEqual([]);
       expect(handleViewTasks).toHaveBeenCalledWith(
         {
           workflowId: 'wf-1',
@@ -131,8 +135,10 @@ describe('handleView', () => {
       // Act
       const result = await handleView(args, CTX);
 
-      // Assert
-      expect(result).toBe(expected);
+      // Assert — T039: envelope wrapping
+      expect(result.success).toBe(true);
+      expect(result.data).toEqual({ phase: 'delegate' });
+      expect((result as Record<string, unknown>).next_actions).toEqual([]);
       expect(handleViewWorkflowStatus).toHaveBeenCalledWith(
         { workflowId: 'wf-2' },
         STATE_DIR,
@@ -170,8 +176,10 @@ describe('handleView', () => {
       // Act
       const result = await handleView(args, CTX);
 
-      // Assert
-      expect(result).toBe(expected);
+      // Assert — T039: envelope wrapping
+      expect(result.success).toBe(true);
+      expect(result.data).toEqual([]);
+      expect((result as Record<string, unknown>).next_actions).toEqual([]);
       expect(handleStackStatus).toHaveBeenCalledWith(
         { streamId: 'stream-1', limit: 3, offset: 1 },
         STATE_DIR,
@@ -199,8 +207,10 @@ describe('handleView', () => {
       // Act
       const result = await handleView(args, CTX);
 
-      // Assert
-      expect(result).toBe(expected);
+      // Assert — T039: envelope wrapping
+      expect(result.success).toBe(true);
+      expect(result.data).toEqual({ streamId: 's1', sequence: 1, type: 'stack.position-filled' });
+      expect((result as Record<string, unknown>).next_actions).toEqual([]);
       expect(handleStackPlace).toHaveBeenCalledWith(
         {
           streamId: 'stream-1',
@@ -227,8 +237,10 @@ describe('handleView', () => {
       // Act
       const result = await handleView(args, CTX);
 
-      // Assert
-      expect(result).toBe(expected);
+      // Assert — T039: envelope wrapping
+      expect(result.success).toBe(true);
+      expect(result.data).toEqual({ session: { totalInvocations: 5 }, tools: [], hints: [] });
+      expect((result as Record<string, unknown>).next_actions).toEqual([]);
       expect(handleViewTelemetry).toHaveBeenCalledWith(
         { compact: true, tool: 'workflow_get' },
         STATE_DIR,
@@ -249,9 +261,10 @@ describe('handleView', () => {
       // Act
       const result = await handleView(args, CTX);
 
-      // Assert
-      expect(result).toBe(expected);
+      // Assert — T039: envelope wrapping
       expect(result.success).toBe(true);
+      expect(result.data).toEqual({ teammates: {}, modules: {}, teamSizing: { avgTasksPerTeammate: 0, dataPoints: 0 } });
+      expect((result as Record<string, unknown>).next_actions).toEqual([]);
       expect(handleViewTeamPerformance).toHaveBeenCalledWith(
         { workflowId: 'wf-4' },
         STATE_DIR,
@@ -273,9 +286,10 @@ describe('handleView', () => {
       // Act
       const result = await handleView(args, CTX);
 
-      // Assert
-      expect(result).toBe(expected);
+      // Assert — T039: envelope wrapping
       expect(result.success).toBe(true);
+      expect(result.data).toEqual({ featureId: '', tasks: [], bottleneck: null });
+      expect((result as Record<string, unknown>).next_actions).toEqual([]);
       expect(handleViewDelegationTimeline).toHaveBeenCalledWith(
         { workflowId: 'test' },
         STATE_DIR,
@@ -297,9 +311,10 @@ describe('handleView', () => {
       // Act
       const result = await handleView(args, CTX);
 
-      // Assert
-      expect(result).toBe(expected);
+      // Assert — T039: envelope wrapping
       expect(result.success).toBe(true);
+      expect(result.data).toEqual({ skills: {}, gates: {}, regressions: [], benchmarks: [] });
+      expect((result as Record<string, unknown>).next_actions).toEqual([]);
       expect(handleViewCodeQuality).toHaveBeenCalledWith(
         { workflowId: 'wf-5' },
         STATE_DIR,
@@ -324,9 +339,13 @@ describe('handleView', () => {
       // Act
       const result = await handleView(args, CTX);
 
-      // Assert
-      expect(result).toBe(expected);
+      // Assert — T039: envelope wrapping
       expect(result.success).toBe(true);
+      expect(result.data).toEqual({
+        hints: [{ skill: 'my-skill', category: 'gate', severity: 'warning', hint: 'test hint' }],
+        generatedAt: '2024-01-01T00:00:00.000Z',
+      });
+      expect((result as Record<string, unknown>).next_actions).toEqual([]);
       expect(handleViewQualityHints).toHaveBeenCalledWith(
         { workflowId: 'wf-6' },
         STATE_DIR,
@@ -349,8 +368,13 @@ describe('handleView', () => {
       // Act
       const result = await handleView(args, CTX);
 
-      // Assert
-      expect(result).toBe(expected);
+      // Assert — T039: envelope wrapping
+      expect(result.success).toBe(true);
+      expect(result.data).toEqual({
+        hints: [{ skill: 'target-skill', category: 'gate', severity: 'warning', hint: 'filtered hint' }],
+        generatedAt: '2024-01-01T00:00:00.000Z',
+      });
+      expect((result as Record<string, unknown>).next_actions).toEqual([]);
       expect(handleViewQualityHints).toHaveBeenCalledWith(
         { workflowId: 'wf-7', skill: 'target-skill' },
         STATE_DIR,
@@ -370,9 +394,9 @@ describe('handleView', () => {
       // Act
       const result = await handleView(args, CTX);
 
-      // Assert
-      expect(result).toBe(expected);
+      // Assert — T039: envelope wrapping (data field unwraps to original payload)
       expect(result.success).toBe(true);
+      expect((result as Record<string, unknown>).next_actions).toEqual([]);
       expect((result.data as { hints: unknown[] }).hints).toEqual([]);
     });
   });
@@ -390,9 +414,10 @@ describe('handleView', () => {
       // Act
       const result = await handleView(args, CTX);
 
-      // Assert
-      expect(result).toBe(expected);
+      // Assert — T039: envelope wrapping
       expect(result.success).toBe(true);
+      expect(result.data).toEqual({ skills: {}, runs: [], regressions: [] });
+      expect((result as Record<string, unknown>).next_actions).toEqual([]);
       expect(handleViewEvalResults).toHaveBeenCalledWith(
         { workflowId: 'eval-wf', skill: 'delegation', limit: 5 },
         STATE_DIR,
@@ -414,9 +439,10 @@ describe('handleView', () => {
       // Act
       const result = await handleView(args, CTX);
 
-      // Assert
-      expect(result).toBe(expected);
+      // Assert — T039: envelope wrapping
       expect(result.success).toBe(true);
+      expect(result.data).toEqual({ skills: { delegation: { skill: 'delegation', gatePassRate: 0.9, evalScore: 0.85, evalTrend: 'stable', qualityTrend: 'stable', regressionCount: 0 } } });
+      expect((result as Record<string, unknown>).next_actions).toEqual([]);
       expect(handleViewQualityCorrelation).toHaveBeenCalledWith(
         { workflowId: 'corr-wf' },
         STATE_DIR,
@@ -436,8 +462,10 @@ describe('handleView', () => {
       // Act
       const result = await handleView(args, CTX);
 
-      // Assert
-      expect(result).toBe(expected);
+      // Assert — T039: envelope wrapping
+      expect(result.success).toBe(true);
+      expect(result.data).toEqual({ skills: {} });
+      expect((result as Record<string, unknown>).next_actions).toEqual([]);
       expect(handleViewQualityCorrelation).toHaveBeenCalledWith(
         {},
         STATE_DIR,
@@ -448,22 +476,23 @@ describe('handleView', () => {
 
   describe('session_provenance', () => {
     it('exarchosView_SessionProvenance_BySession_ReturnsSessionData', async () => {
-      // Arrange
-      const expected = {
-        success: true,
+      // Arrange — handler returns ToolResult { success, data }; envelope wraps data
+      const payload = {
         sessionId: 'sess-1',
         tools: { Read: 5 },
         toolsByCategory: { native: 5, mcp_exarchos: 0, mcp_other: 0 },
         tokens: { in: 1000, out: 500, cacheR: 200, cacheW: 100 },
       };
-      vi.mocked(handleViewSessionProvenance).mockResolvedValue(expected);
+      vi.mocked(handleViewSessionProvenance).mockResolvedValue({ success: true, data: payload });
       const args = { action: 'session_provenance', sessionId: 'sess-1' };
 
       // Act
       const result = await handleView(args, CTX);
 
-      // Assert
-      expect(result).toBe(expected);
+      // Assert — T039: envelope wrapping
+      expect(result.success).toBe(true);
+      expect(result.data).toEqual(payload);
+      expect((result as Record<string, unknown>).next_actions).toEqual([]);
       expect(handleViewSessionProvenance).toHaveBeenCalledWith(
         { sessionId: 'sess-1' },
         STATE_DIR,
@@ -471,21 +500,22 @@ describe('handleView', () => {
     });
 
     it('exarchosView_SessionProvenance_ByWorkflow_ReturnsAggregatedData', async () => {
-      // Arrange
-      const expected = {
-        success: true,
+      // Arrange — handler returns ToolResult { success, data }; envelope wraps data
+      const payload = {
         workflowId: 'wf-1',
         sessions: 3,
         tokens: { in: 5000, out: 2500, cacheR: 1000, cacheW: 500 },
       };
-      vi.mocked(handleViewSessionProvenance).mockResolvedValue(expected);
+      vi.mocked(handleViewSessionProvenance).mockResolvedValue({ success: true, data: payload });
       const args = { action: 'session_provenance', workflowId: 'wf-1' };
 
       // Act
       const result = await handleView(args, CTX);
 
-      // Assert
-      expect(result).toBe(expected);
+      // Assert — T039: envelope wrapping
+      expect(result.success).toBe(true);
+      expect(result.data).toEqual(payload);
+      expect((result as Record<string, unknown>).next_actions).toEqual([]);
       expect(handleViewSessionProvenance).toHaveBeenCalledWith(
         { workflowId: 'wf-1' },
         STATE_DIR,
@@ -532,9 +562,16 @@ describe('handleView', () => {
       // Act
       const result = await handleView(args, CTX);
 
-      // Assert
-      expect(result).toBe(expected);
+      // Assert — T039: envelope wrapping
       expect(result.success).toBe(true);
+      expect(result.data).toEqual({
+        ready: false,
+        blockers: ['Plan not yet approved'],
+        plan: { approved: false, taskCount: 0 },
+        quality: { queried: false, gatePassRate: 0, regressions: 0 },
+        worktrees: { expected: 0, ready: 0, failed: 0 },
+      });
+      expect((result as Record<string, unknown>).next_actions).toEqual([]);
       expect(handleViewDelegationReadiness).toHaveBeenCalledWith(
         { workflowId: 'wf-dr' },
         STATE_DIR,
@@ -563,9 +600,17 @@ describe('handleView', () => {
       // Act
       const result = await handleView(args, CTX);
 
-      // Assert
-      expect(result).toBe(expected);
+      // Assert — T039: envelope wrapping
       expect(result.success).toBe(true);
+      expect(result.data).toEqual({
+        ready: false,
+        blockers: ['No tasks assigned'],
+        tasks: { total: 0, completed: 0, failed: 0 },
+        review: { specPassed: false, qualityPassed: false, findingsBySeverity: {} },
+        tests: { lastRunPassed: false, typecheckPassed: false, coveragePercent: 0 },
+        stack: { restacked: false, conflicts: 0 },
+      });
+      expect((result as Record<string, unknown>).next_actions).toEqual([]);
       expect(handleViewSynthesisReadiness).toHaveBeenCalledWith(
         { workflowId: 'wf-sr' },
         STATE_DIR,
@@ -592,9 +637,15 @@ describe('handleView', () => {
       // Act
       const result = await handleView(args, CTX);
 
-      // Assert
-      expect(result).toBe(expected);
+      // Assert — T039: envelope wrapping
       expect(result.success).toBe(true);
+      expect(result.data).toEqual({
+        overallStatus: 'unknown',
+        prs: [],
+        iteration: 0,
+        maxIterations: 5,
+      });
+      expect((result as Record<string, unknown>).next_actions).toEqual([]);
       expect(handleViewShepherdStatus).toHaveBeenCalledWith(
         { workflowId: 'wf-ss' },
         STATE_DIR,
@@ -621,9 +672,15 @@ describe('handleView', () => {
       // Act
       const result = await handleView(args, CTX);
 
-      // Assert
-      expect(result).toBe(expected);
+      // Assert — T039: envelope wrapping
       expect(result.success).toBe(true);
+      expect(result.data).toEqual({
+        featureId: '',
+        requirements: [],
+        coverage: 0,
+        orphanTasks: [],
+      });
+      expect((result as Record<string, unknown>).next_actions).toEqual([]);
       expect(handleViewProvenance).toHaveBeenCalledWith(
         { workflowId: 'test-id' },
         STATE_DIR,
@@ -649,9 +706,14 @@ describe('handleView', () => {
       // Act
       const result = await handleView(args, CTX);
 
-      // Assert
-      expect(result).toBe(expected);
+      // Assert — T039: envelope wrapping
       expect(result.success).toBe(true);
+      expect(result.data).toEqual({
+        ready: false,
+        designArtifactExists: false,
+        gateResult: { checked: false, passed: false, advisory: false, findings: [] },
+      });
+      expect((result as Record<string, unknown>).next_actions).toEqual([]);
       expect(handleViewIdeateReadiness).toHaveBeenCalledWith(
         { workflowId: 'test-id' },
         STATE_DIR,
@@ -717,9 +779,16 @@ describe('handleView', () => {
       // Act
       const result = await handleView(args, CTX);
 
-      // Assert
-      expect(result).toBe(expected);
+      // Assert — T039: envelope wrapping
       expect(result.success).toBe(true);
+      expect(result.data).toEqual({
+        dimension: 'skill',
+        entries: [
+          { name: 'delegation', dimension: 'skill', contribution: 0.67, passRate: 0.9, executionCount: 20 },
+        ],
+        totalExecutions: 30,
+      });
+      expect((result as Record<string, unknown>).next_actions).toEqual([]);
       expect(handleViewQualityAttribution).toHaveBeenCalledWith(
         { workflowId: 'test-wf', dimension: 'skill' },
         STATE_DIR,
@@ -770,9 +839,9 @@ describe('handleView', () => {
       // Act
       const result = await handleView(args, CTX);
 
-      // Assert
-      expect(result).toBe(expected);
+      // Assert — T039: envelope wrapping (data unwraps to original payload)
       expect(result.success).toBe(true);
+      expect((result as Record<string, unknown>).next_actions).toEqual([]);
       const data = result.data as { entries: Array<{ name: string }> };
       expect(data.entries).toHaveLength(1);
       expect(data.entries[0].name).toBe('delegation');
