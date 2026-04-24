@@ -56,8 +56,8 @@ describe('SqliteBackend WAL Concurrency (file-based)', () => {
     backend.initialize();
 
     // Access the internal db to check journal_mode pragma
-    const db = (backend as unknown as { db: { pragma: (sql: string) => Array<{ journal_mode: string }> } }).db;
-    const result = db.pragma('journal_mode');
+    const db = (backend as unknown as { db: { query: (sql: string) => { all: () => Array<{ journal_mode: string }> } } }).db;
+    const result = db.query('PRAGMA journal_mode').all();
 
     expect(result[0].journal_mode).toBe('wal');
   });

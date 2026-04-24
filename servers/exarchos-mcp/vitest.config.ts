@@ -1,6 +1,19 @@
 import { defineConfig } from 'vitest/config';
+import { fileURLToPath } from 'node:url';
 
 export default defineConfig({
+  resolve: {
+    alias: {
+      // `bun:sqlite` is a virtual module that only resolves under Bun.
+      // Vitest runs under Node, so we redirect the import to a thin shim
+      // over `better-sqlite3` for the duration of test execution. The
+      // compiled binary (produced by `bun build --compile`) still imports
+      // the real `bun:sqlite` at runtime — this alias is test-only.
+      'bun:sqlite': fileURLToPath(
+        new URL('./src/storage/__shims__/bun-sqlite-node.ts', import.meta.url),
+      ),
+    },
+  },
   test: {
     globals: false,
     environment: 'node',

@@ -1,3 +1,4 @@
+import { Database, Statement } from 'bun:sqlite';
 import type { WorkflowEvent } from '../event-store/schemas.js';
 import type { WorkflowState } from '../workflow/types.js';
 import type { QueryFilters } from '../event-store/store.js';
@@ -64,22 +65,22 @@ CREATE TABLE IF NOT EXISTS schema_version (
 // ─── Prepared Statements ────────────────────────────────────────────────────
 
 interface Statements {
-  insertEvent: Database.Statement;
-  upsertSequence: Database.Statement;
-  selectSequence: Database.Statement;
-  selectEvents: Database.Statement;
-  getState: Database.Statement;
-  upsertState: Database.Statement;
-  selectAllStates: Database.Statement;
-  getStateVersion: Database.Statement;
-  insertOutbox: Database.Statement;
-  selectPendingOutbox: Database.Statement;
-  updateOutboxConfirmed: Database.Statement;
-  updateOutboxFailed: Database.Statement;
-  updateOutboxDeadLetter: Database.Statement;
-  getViewCache: Database.Statement;
-  upsertViewCache: Database.Statement;
-  insertSchemaVersion: Database.Statement;
+  insertEvent: Statement;
+  upsertSequence: Statement;
+  selectSequence: Statement;
+  selectEvents: Statement;
+  getState: Statement;
+  upsertState: Statement;
+  selectAllStates: Statement;
+  getStateVersion: Statement;
+  insertOutbox: Statement;
+  selectPendingOutbox: Statement;
+  updateOutboxConfirmed: Statement;
+  updateOutboxFailed: Statement;
+  updateOutboxDeadLetter: Statement;
+  getViewCache: Statement;
+  upsertViewCache: Statement;
+  insertSchemaVersion: Statement;
 }
 
 // ─── SqliteBackend ──────────────────────────────────────────────────────────
@@ -88,16 +89,16 @@ const MAX_OUTBOX_RETRIES = 5;
 
 /**
  * SQLite-backed implementation of StorageBackend.
- * Uses better-sqlite3 for synchronous, high-performance operations.
+ * Uses bun:sqlite for synchronous, high-performance operations.
  * Supports WAL mode for concurrent read/write access.
  */
 export class SqliteBackend implements StorageBackend {
-  private db!: Database.Database;
+  private db!: Database;
   private stmts!: Statements;
   private outboxIdCounter = 0;
 
   /** Cache for dynamically built prepared statements (queryEvents). Key = SQL string. */
-  private queryStmtCache: Map<string, Database.Statement> = new Map();
+  private queryStmtCache: Map<string, Statement> = new Map();
 
   constructor(private readonly dbPath: string) {}
 
@@ -107,11 +108,11 @@ export class SqliteBackend implements StorageBackend {
     this.db = new Database(this.dbPath);
 
     // Enable WAL mode and set synchronous to NORMAL for performance
-    this.db.pragma('journal_mode = WAL');
-    this.db.pragma('synchronous = NORMAL');
+    this.db.exec('PRAGMA journal_mode = WAL');
+    this.db.exec('PRAGMA synchronous = NORMAL');
 
     // Enable memory-mapped I/O (256 MB) for read-heavy workloads
-    this.db.pragma('mmap_size = 268435456');
+    this.db.exec('PRAGMA mmap_size = 268435456');
 
     // Execute schema DDL
     this.db.exec(SCHEMA_DDL);
@@ -384,7 +385,7 @@ export class SqliteBackend implements StorageBackend {
     for (const row of batch) {
       const event = JSON.parse(row.event) as WorkflowEvent;
       try {
-        // Synchronous call — better-sqlite3 is synchronous, sender is async but invoked fire-and-forget
+        // Synchronous call — bun:sqlite is synchronous, sender is async but invoked fire-and-forget
         sender.appendEvents(streamId, [
           {
             streamId: event.streamId,
@@ -482,7 +483,7 @@ export class SqliteBackend implements StorageBackend {
   /**
    * Run `PRAGMA integrity_check` and return its first-row verdict.
    *
-   * better-sqlite3 is synchronous; wrapping in a Promise lets the caller
+   * bun:sqlite is synchronous; wrapping in a Promise lets the caller
    * bound this probe with `Promise.race` (EventStore.runIntegrityCheck
    * applies the timeout — this method is responsible only for honouring
    * `signal` and producing the pragma result string).
@@ -510,7 +511,7 @@ export class SqliteBackend implements StorageBackend {
       }
 
       try {
-        const rows = this.db.pragma('integrity_check') as Array<{ integrity_check: string }>;
+        const rows = this.db.query('PRAGMA integrity_check').all() as Array<{ integrity_check: string }>;
         if (signal) {
           signal.removeEventListener('abort', onAbort);
         }
