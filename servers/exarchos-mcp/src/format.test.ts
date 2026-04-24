@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { pickFields, type Envelope } from './format.js';
+import { pickFields, wrap, type Envelope } from './format.js';
 
 describe('pickFields', () => {
   it('pickFields_TopLevelField_ReturnsValue', () => {
@@ -68,5 +68,45 @@ describe('Envelope<T>', () => {
     expect(env.next_actions).toEqual([]);
     expect(env._perf).toEqual({ ms: 1, bytes: 10, tokens: 3 });
     expect(env._meta).toEqual({});
+  });
+});
+
+describe('wrap<T>', () => {
+  it('Wrap_WithAllArgs_ReturnsFullEnvelope', () => {
+    const env = wrap(
+      { foo: 'bar' },
+      { checkpointAdvised: false },
+      { ms: 5, bytes: 100, tokens: 7 },
+    );
+    expect(env).toEqual({
+      success: true,
+      data: { foo: 'bar' },
+      next_actions: [],
+      _meta: { checkpointAdvised: false },
+      _perf: { ms: 5, bytes: 100, tokens: 7 },
+    });
+  });
+
+  it('Wrap_WithoutMetaOrPerf_DefaultsToEmptyObjects', () => {
+    const env = wrap({ phase: 'ideate' });
+    expect(env.success).toBe(true);
+    expect(env.data).toEqual({ phase: 'ideate' });
+    expect(env.next_actions).toEqual([]);
+    expect(env._meta).toEqual({});
+    expect(env._perf).toEqual({ ms: 0, bytes: 0, tokens: 0 });
+  });
+
+  it('Wrap_WithPartialPerf_FillsMissingFieldsWithZero', () => {
+    const env = wrap('scalar-data', {}, { ms: 42 });
+    expect(env._perf).toEqual({ ms: 42, bytes: 0, tokens: 0 });
+    expect(env.data).toBe('scalar-data');
+  });
+
+  it('Wrap_PreservesStrongDataTyping', () => {
+    // Type-level assertion: the return type is `Envelope<{ id: number }>`.
+    const env = wrap({ id: 99 });
+    // This compiles only if `env.data` is typed as `{ id: number }`.
+    const id: number = env.data.id;
+    expect(id).toBe(99);
   });
 });
