@@ -1,6 +1,7 @@
 import { handleInit, handleGet, handleSet, handleReconcileState, handleCheckpoint } from './tools.js';
 import { handleCancel } from './cancel.js';
 import { handleCleanup } from './cleanup.js';
+import { handleRehydrate } from './rehydrate.js';
 import { handleDescribe } from '../describe/handler.js';
 import { TOOL_REGISTRY } from '../registry.js';
 import { wrap, type ToolResult } from '../format.js';
@@ -88,6 +89,14 @@ export async function handleWorkflow(
       return envelopeWrap(await handleReconcileState(rest as Parameters<typeof handleReconcileState>[0], stateDir, eventStore), startedAt);
     case 'checkpoint':
       return envelopeWrap(await handleCheckpoint(rest as Parameters<typeof handleCheckpoint>[0], stateDir, eventStore), startedAt);
+    case 'rehydrate':
+      return envelopeWrap(
+        await handleRehydrate(
+          rest as Parameters<typeof handleRehydrate>[0],
+          { stateDir, eventStore },
+        ),
+        startedAt,
+      );
     case 'describe':
       return envelopeWrap(
         await handleDescribe(
@@ -102,7 +111,7 @@ export async function handleWorkflow(
         success: false,
         error: {
           code: 'UNKNOWN_ACTION',
-          message: `Unknown action: ${String(action)}. Valid actions: init, get, set, cancel, cleanup, reconcile, checkpoint, describe`,
+          message: `Unknown action: ${String(action)}. Valid actions: init, get, set, cancel, cleanup, reconcile, checkpoint, rehydrate, describe`,
         },
       };
   }
