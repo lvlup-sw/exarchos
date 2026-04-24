@@ -41,12 +41,24 @@ export function appendSnapshot(
   const target = path.join(stateDir, `${streamId}.projections.jsonl`);
   const existing = readIfExists(target);
   const line = `${JSON.stringify(record)}\n`;
-  const payload = existing + line;
+  atomicWriteFile(target, existing + line);
+}
 
+/**
+ * Atomically replace `target` with `content`.
+ *
+ * Strategy: write+fsync a sibling `<target>.<pid>.<random>.tmp`, then
+ * `rename` over `target`. Rename is atomic on POSIX, so concurrent readers
+ * either observe the prior file or the new one — never a torn write.
+ *
+ * On rename failure, the tmp file is best-effort unlinked so we don't
+ * leak `.tmp` sidecars into the state directory.
+ */
+function atomicWriteFile(target: string, content: string): void {
   const tmp = `${target}.${process.pid}.${crypto.randomBytes(6).toString('hex')}.tmp`;
   const fd = fs.openSync(tmp, 'w');
   try {
-    fs.writeSync(fd, payload);
+    fs.writeSync(fd, content);
     fs.fsyncSync(fd);
   } finally {
     fs.closeSync(fd);
@@ -55,11 +67,10 @@ export function appendSnapshot(
   try {
     fs.renameSync(tmp, target);
   } catch (err: unknown) {
-    // Best-effort cleanup — don't mask the original error.
     try {
       fs.unlinkSync(tmp);
     } catch {
-      /* ignore */
+      /* best-effort cleanup — don't mask the original error */
     }
     throw err;
   }
