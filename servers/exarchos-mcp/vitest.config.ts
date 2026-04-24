@@ -18,7 +18,17 @@ export default defineConfig({
     globals: false,
     environment: 'node',
     pool: 'forks',
-    include: ['src/**/*.test.ts', 'scripts/**/*.test.ts', 'src/bench/**/*.bench.ts'],
+    include: [
+      'src/**/*.test.ts',
+      'scripts/**/*.test.ts',
+      // `test/process/**` holds PR1 integration tests that spawn the
+      // compiled binary over real stdio transport (task 1.6). Kept outside
+      // `src/` so they are not unit-test-adjacent and do not trigger the
+      // `bun:sqlite` alias — the binary embeds the real `bun:sqlite` at
+      // runtime.
+      'test/**/*.test.ts',
+      'src/bench/**/*.bench.ts',
+    ],
     // Cold-start bench (src/bench/cli-startup.bench.ts) isolation strategy
     // (F-021-2):
     //   - `describe.sequential(...)` in the bench file forces its two

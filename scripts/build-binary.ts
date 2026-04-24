@@ -25,6 +25,16 @@
  *
  * The `--target <os-arch>` form is used by the CI binary-matrix job so
  * each runner builds exactly one artifact.
+ *
+ * ── Integration test (task 1.6) ────────────────────────────────────────
+ * The artifact produced by this script — specifically the host-target
+ * output at `dist/bin/exarchos-<os>-<arch>` — is the subject-under-test
+ * for `servers/exarchos-mcp/test/process/compiled-binary-mcp.test.ts`.
+ * That test spawns the binary with `mcp` subcommand and performs a real
+ * MCP handshake + `exarchos_workflow init` round-trip to prove the
+ * compiled output behaves identically to the JS bundle. If you change
+ * the output path or target matrix, update the path resolver in that
+ * test file in the same commit.
  */
 import { $ } from 'bun';
 import { mkdirSync } from 'node:fs';
