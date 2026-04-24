@@ -106,6 +106,45 @@ function extractString(
   return typeof raw === 'string' && raw.length > 0 ? raw : undefined;
 }
 
+/**
+ * Narrow a `state.patched` event's opaque `data.patch.artifacts` subtree into
+ * a `Record<string, string>` suitable for `ArtifactsSchema`. The workflow-side
+ * `ArtifactsSchema` allows `string | null`, but the rehydration projection's
+ * artifacts map is `Record<string, string>` — so non-string values (null,
+ * undefined, nested objects, arrays) are dropped rather than coerced, keeping
+ * the projection schema-valid under replay over legacy / partial patches.
+ *
+ * Returns `undefined` when the event carries no artifacts subtree at all —
+ * the caller should treat that as a no-op (do not bump projectionSequence).
+ */
+function extractArtifactsPatch(
+  data: WorkflowEvent['data'],
+): Record<string, string> | undefined {
+  if (!data) return undefined;
+  const patch = data['patch'];
+  if (!patch || typeof patch !== 'object' || Array.isArray(patch)) {
+    return undefined;
+  }
+  const artifacts = (patch as Record<string, unknown>)['artifacts'];
+  if (!artifacts || typeof artifacts !== 'object' || Array.isArray(artifacts)) {
+    return undefined;
+  }
+  const entries = Object.entries(artifacts as Record<string, unknown>);
+  const stringEntries = entries.filter(
+    (pair): pair is [string, string] =>
+      typeof pair[1] === 'string' && pair[1].length > 0,
+  );
+  // Caller distinguishes "no artifacts subtree" (return undefined) from
+  // "artifacts subtree present but all values non-string" (return {}): the
+  // former is a no-op; the latter is a handled event that changes nothing but
+  // should still advance projectionSequence only if it carried at least one
+  // valid key. To keep the reducer contract simple — handled events MUST
+  // update state — we return undefined here when no usable keys were found,
+  // so an artifacts-only patch with all-null values is treated as a no-op.
+  if (stringEntries.length === 0) return undefined;
+  return Object.fromEntries(stringEntries);
+}
+
 export const rehydrationReducer: ProjectionReducer<RehydrationDocument, WorkflowEvent> = {
   id: 'rehydration@v1',
   version: 1,
@@ -180,6 +219,98 @@ export const rehydrationReducer: ProjectionReducer<RehydrationDocument, Workflow
           },
         };
       }
+
+      // T025 — Artifacts: `state.patched` events carry the workflow-state
+      // update delta, whose `data.patch.artifacts` subtree mirrors the
+      // workflow `ArtifactsSchema`. (The plan references `workflow.set`, but
+      // `workflow set` emits `state.patched` under the hood — see
+      // `servers/exarchos-mcp/src/workflow/tools.ts` ~L759.)
+      case 'state.patched': {
+        const artifactsPatch = extractArtifactsPatch(event.data);
+        if (!artifactsPatch) {
+          // Either no artifacts subtree in this patch, or all values were
+          // non-string — either way, nothing to fold into rehydration
+          // artifacts. Other subtrees (e.g. `tasks`) are surfaced via their
+          // own dedicated events (task.*) and are not re-derived from
+          // state.patched here.
+          return state;
+        }
+        return {
+          ...state,
+          projectionSequence: state.projectionSequence + 1,
+          artifacts: {
+            ...state.artifacts,
+            ...artifactsPatch,
+          },
+        };
+      }
+
+      // T025 — Blockers: `review.completed` with a `blocked` verdict marks a
+      // blocking review outcome (per ReviewCompletedData). Non-blocking
+      // verdicts (`pass`, `fail`) are not folded — `fail` indicates findings
+      // to fix but not a hard stop, and the plan's original `review.failed`
+      // event type is not registered.
+      case 'review.completed': {
+        const verdict = extractString(event.data, 'verdict');
+        if (verdict !== 'blocked') {
+          return state;
+        }
+        const summary = extractString(event.data, 'summary') ?? 'review blocked';
+        const stage = extractString(event.data, 'stage') ?? 'review';
+        return {
+          ...state,
+          projectionSequence: state.projectionSequence + 1,
+          blockers: [
+            ...state.blockers,
+            { source: 'review.completed', stage, summary },
+          ],
+        };
+      }
+
+      // T025 — Blockers: `review.escalated` is inherently a blocker — the
+      // reviewer bumped the risk up (per ReviewEscalatedData).
+      case 'review.escalated': {
+        const reason = extractString(event.data, 'reason') ?? 'review escalated';
+        const triggeringFinding = extractString(event.data, 'triggeringFinding');
+        return {
+          ...state,
+          projectionSequence: state.projectionSequence + 1,
+          blockers: [
+            ...state.blockers,
+            {
+              source: 'review.escalated',
+              reason,
+              ...(triggeringFinding ? { triggeringFinding } : {}),
+            },
+          ],
+        };
+      }
+
+      // T025 — Blockers: `workflow.guard-failed` indicates a guard predicate
+      // rejected a transition (per WorkflowGuardFailedData). The rejection
+      // itself is the blocker.
+      case 'workflow.guard-failed': {
+        const guard = extractString(event.data, 'guard') ?? 'unknown-guard';
+        const from = extractString(event.data, 'from');
+        const to = extractString(event.data, 'to');
+        return {
+          ...state,
+          projectionSequence: state.projectionSequence + 1,
+          blockers: [
+            ...state.blockers,
+            {
+              source: 'workflow.guard-failed',
+              guard,
+              ...(from ? { from } : {}),
+              ...(to ? { to } : {}),
+            },
+          ],
+        };
+      }
+
+      // T025 — Decisions: no `decision.*` event type is registered in the
+      // event-store. Skipped here; the projection's `decisions` array remains
+      // empty until a decisions-producing event type is added.
 
       default:
         return state;
