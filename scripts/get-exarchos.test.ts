@@ -1,15 +1,13 @@
-/**
- * Vitest wrapper for `scripts/get-exarchos.test.sh`.
- *
- * The primary test harness is the shell-native `get-exarchos.test.sh`
- * (mirrors the pattern used by `validate-rm.test.sh` etc.). This TS
- * wrapper exists so the shell test participates in `npm run test:run`
- * (vitest's `include` globs pick up `scripts/**/*.test.ts`).
- *
- * The wrapper streams the full shell test output on failure so CI
- * logs tell you exactly which scenario failed without re-running the
- * shell harness by hand.
- */
+// Vitest wrapper for `scripts/get-exarchos.test.sh`.
+//
+// The primary test harness is the shell-native `get-exarchos.test.sh`
+// (mirrors the pattern used by `validate-rm.test.sh` etc.). This TS
+// wrapper exists so the shell test participates in `npm run test:run`
+// (vitest's `include` globs pick up scripts test.ts files).
+//
+// The wrapper streams the full shell test output on failure so CI
+// logs tell you exactly which scenario failed without re-running the
+// shell harness by hand.
 import { describe, it, expect } from 'vitest';
 import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
