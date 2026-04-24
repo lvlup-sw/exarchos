@@ -305,6 +305,102 @@ for orphan in subagent-stop eval-run eval-capture eval-compare eval-calibrate qu
 done
 
 # ============================================================
+# Task 3.11: Rollup runner + knip dead-code sweep + CI wiring
+# ============================================================
+#
+# Task 3.11 promotes the NoLegacy_* assertion suite into a CI-gated rollup
+# runner (scripts/validate-no-legacy.sh) that also invokes `knip` for
+# unreachable-export detection, and wires a `validate-no-legacy` job into
+# .github/workflows/ci.yml. These assertions pin that end-state.
+
+# NoLegacy_RollupScriptExists — the rollup runner must exist and be
+# executable. `validate-no-legacy.sh` is the single entry point CI calls;
+# it wraps this assertion suite plus the knip sweep.
+ROLLUP_PATH="$REPO_ROOT/scripts/validate-no-legacy.sh"
+if [[ -f "$ROLLUP_PATH" && -x "$ROLLUP_PATH" ]]; then
+  pass "NoLegacy_RollupScriptExists"
+else
+  if [[ ! -f "$ROLLUP_PATH" ]]; then
+    fail "NoLegacy_RollupScriptExists" "rollup script missing: scripts/validate-no-legacy.sh"
+  else
+    fail "NoLegacy_RollupScriptExists" "rollup script exists but is not executable: scripts/validate-no-legacy.sh"
+  fi
+fi
+
+# NoLegacy_CIWorkflowHasValidateJob — .github/workflows/ci.yml must declare
+# a `validate-no-legacy` job so the rollup runs on every PR. Match is
+# loose-but-safe: a top-level job ID under `jobs:` whose key is
+# `validate-no-legacy`.
+CI_YML="$REPO_ROOT/.github/workflows/ci.yml"
+if [[ -f "$CI_YML" ]]; then
+  # Job keys in our workflow are indented 2 spaces under `jobs:`.
+  if grep -qE "^  validate-no-legacy:" "$CI_YML"; then
+    pass "NoLegacy_CIWorkflowHasValidateJob"
+  else
+    fail "NoLegacy_CIWorkflowHasValidateJob" \
+      ".github/workflows/ci.yml missing a 'validate-no-legacy' job"
+  fi
+else
+  fail "NoLegacy_CIWorkflowHasValidateJob" ".github/workflows/ci.yml missing"
+fi
+
+# NoLegacy_KnipConfigExists — a knip config must exist at the repo root so
+# the dead-code sweep is reproducible and its entry-point allowlist is
+# auditable. Accept any of the supported locations.
+KNIP_JSON="$REPO_ROOT/knip.json"
+KNIP_JSONC="$REPO_ROOT/knip.jsonc"
+KNIP_TS="$REPO_ROOT/knip.ts"
+KNIP_IN_PKG=""
+if [[ -f "$REPO_ROOT/package.json" ]]; then
+  # Only treat as a knip config if the value is a `{` — a bare
+  # `"knip": "^6.x"` in devDependencies is a version string, not a config.
+  KNIP_IN_PKG=$(grep -E '"knip"[[:space:]]*:[[:space:]]*\{' "$REPO_ROOT/package.json" 2>/dev/null || true)
+fi
+if [[ -f "$KNIP_JSON" || -f "$KNIP_JSONC" || -f "$KNIP_TS" || -n "$KNIP_IN_PKG" ]]; then
+  # Sanity: if knip.json is used, assert it lists at least the two key
+  # entry modules so the allowlist is not empty/degenerate.
+  if [[ -f "$KNIP_JSON" ]]; then
+    MISSING=""
+    for needed in "servers/exarchos-mcp/src/index.ts" "src/build-skills.ts" "src/install-skills.ts"; do
+      if ! grep -qF "$needed" "$KNIP_JSON"; then
+        MISSING="$MISSING $needed"
+      fi
+    done
+    if [[ -z "$MISSING" ]]; then
+      pass "NoLegacy_KnipConfigExists"
+    else
+      fail "NoLegacy_KnipConfigExists" \
+        "knip.json missing required entry-point allowlist entries:$MISSING"
+    fi
+  else
+    pass "NoLegacy_KnipConfigExists (non-JSON config)"
+  fi
+else
+  fail "NoLegacy_KnipConfigExists" \
+    "no knip config at knip.json / knip.jsonc / knip.ts / package.json#knip"
+fi
+
+# NoLegacy_DeadCodeSweep — run knip (when available) and assert it exits
+# clean. If the knip binary is not installed, the assertion conditionally
+# skips — CI always has the binary after `npm ci`, so this only yields on
+# bare-metal runs without the devDep.
+KNIP_BIN="$REPO_ROOT/node_modules/.bin/knip"
+if [[ -x "$KNIP_BIN" ]]; then
+  set +e
+  KNIP_OUT=$("$KNIP_BIN" --no-progress 2>&1)
+  KNIP_RC=$?
+  set -e
+  if [[ "$KNIP_RC" -eq 0 ]]; then
+    pass "NoLegacy_DeadCodeSweep"
+  else
+    fail "NoLegacy_DeadCodeSweep" "knip reported issues (rc=$KNIP_RC); see full output above"
+    echo "$KNIP_OUT" | sed 's/^/  knip: /' >&2
+  fi
+else
+  pass "NoLegacy_DeadCodeSweep (knip binary absent — skipped)"
+fi
+
+# ============================================================
 # Summary
 # ============================================================
 echo
