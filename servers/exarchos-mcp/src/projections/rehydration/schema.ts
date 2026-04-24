@@ -1,3 +1,7 @@
+/**
+ * Canonical rehydration document — v1 stable sections (DR-3).
+ * T011 lands stable prefix only; T012 adds volatile sections and T013 composes the full envelope.
+ */
 import { z } from 'zod';
 
 export const BehavioralGuidanceSchema = z.object({
