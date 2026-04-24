@@ -36,6 +36,7 @@ describe('Core Plugin Structure', () => {
 
     // Task 2.1 (v29-install-rewrite) — plugin.json must invoke bare `exarchos`
     // via PATH (Graphite-style), not `node` + a bundled JS fallback.
+    // Phase: GREEN — plugin.json now invokes bare `exarchos mcp`.
     it('PluginJson_McpServerCommand_IsExarchosNotNode', () => {
       const pluginPath = join(repoRoot, '.claude-plugin', 'plugin.json');
       const plugin = JSON.parse(readFileSync(pluginPath, 'utf-8'));
