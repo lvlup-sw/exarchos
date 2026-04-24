@@ -1,4 +1,3 @@
-import Database from 'better-sqlite3';
 import type { WorkflowEvent } from '../event-store/schemas.js';
 import type { WorkflowState } from '../workflow/types.js';
 import type { QueryFilters } from '../event-store/store.js';
