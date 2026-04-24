@@ -3,6 +3,11 @@
 import type { ValidTransitionTarget } from './workflow/state-machine.js';
 import type { Correction } from './telemetry/auto-correction.js';
 import type { NextAction } from './next-action.js';
+import {
+  ANTHROPIC_NATIVE_CACHING,
+  type CapabilityResolver,
+} from './capabilities/resolver.js';
+import { STABLE_KEYS } from './projections/rehydration/serialize.js';
 
 export interface PerfMetrics {
   readonly ms: number;
@@ -67,8 +72,34 @@ export interface Envelope<T> {
    */
   readonly next_actions: readonly NextAction[];
   readonly _eventHints?: unknown;
+  /**
+   * Runtime-specific prompt-cache hint (T051, DR-14).
+   *
+   * Only emitted when `applyCacheHints` is called with a resolver that
+   * reports the `anthropic_native_caching` capability. Absent on other
+   * runtimes so that consumers see no foreign field. See
+   * {@link CacheHints} for the shape.
+   */
+  readonly _cacheHints?: CacheHints;
   readonly _meta: Record<string, unknown>;
   readonly _perf: PerfMetrics;
+}
+
+/**
+ * Cache-boundary hint emitted on Anthropic-native runtimes (T051, DR-14).
+ *
+ * JSON has no inline markup boundary, so we surface the boundary as a
+ * sibling field on the envelope. Consumers that understand the hint wrap
+ * their API call with `cache_control: { type: "ephemeral", ttl: "1h" }`
+ * around the stable prefix; consumers that don't understand it ignore
+ * the field. `position` is a deterministic string derived from
+ * `STABLE_KEYS` (T050) so the boundary tracks the canonical serializer.
+ */
+export interface CacheHints {
+  readonly type: 'cache_boundary';
+  readonly position: string;
+  readonly kind: 'ephemeral';
+  readonly ttl: '1h';
 }
 
 /**
@@ -116,6 +147,46 @@ export function wrap<T>(
       bytes: perf?.bytes ?? 0,
       tokens: perf?.tokens ?? 0,
     },
+  };
+}
+
+/**
+ * Apply a runtime-conditional prompt-cache hint to an envelope (T051, DR-14).
+ *
+ * When the resolver reports `anthropic_native_caching`, returns a new
+ * envelope with `_cacheHints` describing the stable/volatile boundary.
+ * When the capability is absent, returns the input envelope untouched —
+ * the `_cacheHints` field is omitted entirely rather than set to
+ * `undefined` (preferred for JSON wire output where absence is
+ * semantically distinct from an explicit null).
+ *
+ * Kept as a post-wrap composite helper (mirroring the T041
+ * `next-actions-from-result` pattern) so that `wrap()` stays pure and
+ * the runtime-detection concern lives at the composite boundary. The
+ * `position` field is derived from the canonical `STABLE_KEYS` order
+ * (T050) so the boundary string tracks the serializer without
+ * duplicating the ordering policy.
+ *
+ * @example
+ *   const env = wrap(doc, meta, perf);
+ *   return applyCacheHints(env, resolver);
+ */
+export function applyCacheHints<T>(
+  envelope: Envelope<T>,
+  resolver: CapabilityResolver,
+): Envelope<T> {
+  if (!resolver.has(ANTHROPIC_NATIVE_CACHING)) {
+    return envelope;
+  }
+  const hints: CacheHints = {
+    type: 'cache_boundary',
+    position: `after:${STABLE_KEYS.join(',')}`,
+    kind: 'ephemeral',
+    ttl: '1h',
+  };
+  return {
+    ...envelope,
+    _cacheHints: hints,
   };
 }
 
