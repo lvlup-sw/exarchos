@@ -1,9 +1,11 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import { handlePreCompact } from './pre-compact.js';
 import { resetMaterializerCache } from '../views/tools.js';
+import { stubCompositeHandler } from '../core/dispatch.js';
+import type { ToolResult } from '../format.js';
 
 // ─── Test Helpers ──────────────────────────────────────────────────────────
 
@@ -464,6 +466,104 @@ describe('pre-compact', () => {
       const checkpointPath = path.join(stateDir, 'no-team-feature.checkpoint.json');
       const checkpoint = JSON.parse(await fs.readFile(checkpointPath, 'utf-8'));
       expect(checkpoint.teamState).toBeUndefined();
+    });
+  });
+
+  // ───────────────────────────────────────────────────────────────────────
+  // T059 (DR-16) — migration from inline sidecar write to the shared
+  // `exarchos_workflow.checkpoint` action. The RED tests below assert that
+  // pre-compact dispatches to the composite handler for each active
+  // workflow instead of materializing checkpoints inline. They also pin
+  // the invariant that the legacy inline `computeNextAction` is not used
+  // (next-actions are now emitted via the envelope from T041).
+  //
+  // The tests stub `exarchos_workflow` via `stubCompositeHandler` to spy
+  // on dispatch calls without exercising the full handler side-effects —
+  // that way a regression in pre-compact's call-shape (missing featureId,
+  // wrong action name, skipped workflow) fails loudly in a unit test.
+  // ───────────────────────────────────────────────────────────────────────
+  describe('T059 — migrates to exarchos_workflow.checkpoint', () => {
+    it('PreCompact_InvokesCheckpointAction_NotInlineSidecarWrite', async () => {
+      // GIVEN: two active workflows in the state dir.
+      const stateDir = tmpDir;
+      await writeMockState(stateDir, 'feature-alpha', { phase: 'delegate' });
+      await writeMockState(stateDir, 'feature-beta', { phase: 'review' });
+
+      // Spy on the composite dispatch surface. Returning a minimal
+      // successful ToolResult keeps downstream envelope wrapping happy
+      // without forcing the full handleCheckpoint side-effect chain.
+      const spy = vi.fn(async (args: Record<string, unknown>): Promise<ToolResult> => ({
+        success: true,
+        data: {
+          phase: 'delegate',
+          action: args.action as string,
+          featureId: args.featureId as string,
+        },
+      }));
+      const restore = stubCompositeHandler('exarchos_workflow', spy);
+
+      try {
+        // WHEN: pre-compact runs for the pipeline.
+        await handlePreCompact({ event: 'PreCompact', type: 'auto' }, stateDir);
+      } finally {
+        restore();
+      }
+
+      // THEN: the checkpoint action was dispatched exactly once per active
+      // workflow, with the featureId propagated.
+      const checkpointCalls = spy.mock.calls.filter(
+        ([args]) => (args as Record<string, unknown>).action === 'checkpoint',
+      );
+      expect(checkpointCalls).toHaveLength(2);
+
+      const featureIds = checkpointCalls
+        .map(([args]) => (args as Record<string, unknown>).featureId)
+        .sort();
+      expect(featureIds).toEqual(['feature-alpha', 'feature-beta']);
+    });
+
+    it('PreCompact_DoesNotCallInlineComputeNextAction', async () => {
+      // GIVEN: an active workflow.
+      const stateDir = tmpDir;
+      await writeMockState(stateDir, 'test-feature', { phase: 'delegate' });
+
+      // Spy-stub the workflow composite so handlePreCompact delegates to
+      // dispatch rather than its own inline next-action derivation.
+      const spy = vi.fn(async (_args: Record<string, unknown>): Promise<ToolResult> => ({
+        success: true,
+        data: { phase: 'delegate' },
+      }));
+      const restore = stubCompositeHandler('exarchos_workflow', spy);
+
+      try {
+        // WHEN
+        await handlePreCompact({ event: 'PreCompact', type: 'auto' }, stateDir);
+      } finally {
+        restore();
+      }
+
+      // THEN: pre-compact must not export or use a local `computeNextAction`
+      // function. The post-migration module should defer to the envelope
+      // next_actions computed by T041 — a still-inlined computeNextAction
+      // would be a regression.
+      const preCompactModule = (await import('./pre-compact.js')) as Record<string, unknown>;
+      expect(preCompactModule.computeNextAction).toBeUndefined();
+
+      // And: when dispatch is stubbed, NO inline sidecar should be
+      // written (the real handler owns that now). If pre-compact still
+      // wrote `.checkpoint.json` inline, this assertion fails.
+      const files = await fs.readdir(stateDir);
+      const inlineCheckpoints = files.filter(
+        (f) => f.endsWith('.checkpoint.json'),
+      );
+      expect(inlineCheckpoints).toEqual([]);
+
+      // And: dispatch was the one to receive the checkpoint call.
+      expect(spy).toHaveBeenCalled();
+      const checkpointCalls = spy.mock.calls.filter(
+        ([args]) => (args as Record<string, unknown>).action === 'checkpoint',
+      );
+      expect(checkpointCalls.length).toBeGreaterThan(0);
     });
   });
 });
