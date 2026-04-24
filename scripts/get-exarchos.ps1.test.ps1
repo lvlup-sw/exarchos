@@ -67,6 +67,23 @@ Describe 'get-exarchos.ps1' {
             $target.Arch | Should -Be 'arm64'
             $target.AssetName | Should -Be 'exarchos-windows-arm64.exe'
         }
+
+        It 'throws on unsupported architectures' {
+            { Get-PlatformTarget -ProcessorArchitecture 'MIPS64' } | Should -Throw '*Unsupported*'
+        }
+    }
+
+    Context 'GetExarchos_HostArchitecture_Fallback' {
+        It 'prefers $env:PROCESSOR_ARCHITECTURE when set' {
+            $saved = $env:PROCESSOR_ARCHITECTURE
+            try {
+                $env:PROCESSOR_ARCHITECTURE = 'ARM64'
+                (Get-HostArchitecture) | Should -Be 'ARM64'
+            }
+            finally {
+                $env:PROCESSOR_ARCHITECTURE = $saved
+            }
+        }
     }
 
     Context 'GetExarchos_ChecksumMismatch_RefusesInstall' {

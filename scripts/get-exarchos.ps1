@@ -66,7 +66,12 @@ param(
 )
 
 # ---------------------------------------------------------------------------
-# Helpers (kept small and pure so Pester can unit-test them directly).
+# Library: small, pure helpers.
+#
+# Every non-trivial piece of behavior lives in a named function so the
+# Pester suite (scripts/get-exarchos.ps1.test.ps1) can unit-test it
+# directly via the -LoadOnly entry point. The `Main` block below only
+# sequences these helpers; it contains no logic of its own.
 # ---------------------------------------------------------------------------
 
 function Get-PlatformTarget {
@@ -213,6 +218,25 @@ function Get-DefaultInstallDir {
     return (Join-Path $env:USERPROFILE '.exarchos\bin')
 }
 
+function Get-HostArchitecture {
+    <#
+    .SYNOPSIS
+    Return the value that should drive Get-PlatformTarget on this host.
+    Prefers $env:PROCESSOR_ARCHITECTURE; falls back to
+    [Environment]::Is64BitOperatingSystem on CI containers that don't
+    surface the env var.
+    #>
+    if (-not [string]::IsNullOrEmpty($env:PROCESSOR_ARCHITECTURE)) {
+        return $env:PROCESSOR_ARCHITECTURE
+    }
+
+    if ([Environment]::Is64BitOperatingSystem) {
+        return 'AMD64'
+    }
+
+    return 'X86'
+}
+
 function Write-Plan {
     param(
         [string]$AssetName,
@@ -314,7 +338,8 @@ function Install-Binary {
 }
 
 # ---------------------------------------------------------------------------
-# Main
+# Main: sequences library helpers. No branching on anything outside the
+# parameters and environment; errors bubble up to the outer try/catch.
 # ---------------------------------------------------------------------------
 
 if ($LoadOnly) {
@@ -329,15 +354,7 @@ if ($Help) {
 }
 
 try {
-    $archEnv = $env:PROCESSOR_ARCHITECTURE
-    if ([string]::IsNullOrEmpty($archEnv)) {
-        # Fall back to architecture inferred from the running process on
-        # hosts that don't surface PROCESSOR_ARCHITECTURE (e.g. some CI
-        # containers).
-        $archEnv = if ([Environment]::Is64BitOperatingSystem) { 'AMD64' } else { 'X86' }
-    }
-
-    $target = Get-PlatformTarget -ProcessorArchitecture $archEnv
+    $target = Get-PlatformTarget -ProcessorArchitecture (Get-HostArchitecture)
 
     $resolvedInstallDir = if ([string]::IsNullOrEmpty($InstallDir)) {
         Get-DefaultInstallDir
