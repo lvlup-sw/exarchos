@@ -27,6 +27,11 @@ export default defineConfig({
       // `bun:sqlite` alias — the binary embeds the real `bun:sqlite` at
       // runtime.
       'test/**/*.test.ts',
+      // `tests/**` holds golden-fixture integration tests (T052, DR-15)
+      // that replay canonical event streams and assert document shape.
+      // Separate from `test/` so fixture files live alongside the tests
+      // without conflicting with the compiled-binary integration suite.
+      'tests/**/*.test.ts',
       'src/bench/**/*.bench.ts',
     ],
     // Cold-start bench (src/bench/cli-startup.bench.ts) isolation strategy
