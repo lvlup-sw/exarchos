@@ -14,4 +14,21 @@
  */
 import { $ } from 'bun';
 
-await $`bun build servers/exarchos-mcp/src/index.ts --outfile dist/exarchos.js --target node --minify --external playwright --external playwright-core --external @playwright/browser-chromium --external electron`;
+const ENTRY = 'servers/exarchos-mcp/src/index.ts';
+const OUTFILE = 'dist/exarchos.js';
+
+// Browser automation / desktop runtimes — callers bring these; bundling
+// them would both bloat the output and break dynamic resolution.
+const EXTERNALS = [
+  'playwright',
+  'playwright-core',
+  '@playwright/browser-chromium',
+  'electron',
+];
+
+async function buildBundle(): Promise<void> {
+  const externalFlags = EXTERNALS.flatMap((p) => ['--external', p]);
+  await $`bun build ${ENTRY} --outfile ${OUTFILE} --target node --minify ${externalFlags}`;
+}
+
+await buildBundle();
