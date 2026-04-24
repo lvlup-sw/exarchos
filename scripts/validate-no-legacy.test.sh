@@ -187,6 +187,19 @@ else
 fi
 
 # ============================================================
+# Task 3.7: Audit scripts/sync-marketplace.sh for dual-plugin references
+# ============================================================
+#
+# RED-phase form: require the script to be absent outright. This is expected
+# to FAIL against the current tree — the script still exists because the
+# audit has not yet run. GREEN will relax to the real invariant: "absent OR
+# free of dual-plugin refs", since single-plugin marketplace syncing is a
+# legitimate /release-time operation.
+assert_file_absent \
+  "NoLegacy_SyncMarketplaceAbsentOrUpdated" \
+  "scripts/sync-marketplace.sh"
+
+# ============================================================
 # Task 3.8: Delete dead servers/exarchos-mcp/src/cli.ts + orphans
 # ============================================================
 
