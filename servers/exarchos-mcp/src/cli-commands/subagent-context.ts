@@ -1,7 +1,7 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { getFullRegistry } from '../registry.js';
-import type { CommandResult } from '../cli.js';
+import type { CommandResult } from './types.js';
 import { resolveStateDir, resolveTeamsDir, resolveTasksDir } from '../utils/paths.js';
 
 // ─── Types ──────────────────────────────────────────────────────────────────

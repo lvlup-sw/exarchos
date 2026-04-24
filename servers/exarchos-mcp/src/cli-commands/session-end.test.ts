@@ -288,16 +288,4 @@ describe('session-end command', () => {
     });
   });
 
-  describe('routeCommand integration', () => {
-    it('routeCommand_SessionEnd_WithMissingData_ReturnsError', async () => {
-      const { routeCommand } = await import('../cli.js');
-
-      // Act
-      const result = await routeCommand('session-end', {});
-
-      // Assert
-      expect(result).toHaveProperty('error');
-      expect(result.error?.code).toBe('MISSING_SESSION_ID');
-    });
-  });
 });

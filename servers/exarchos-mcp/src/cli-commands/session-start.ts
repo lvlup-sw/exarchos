@@ -1,6 +1,6 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import type { CommandResult } from '../cli.js';
+import type { CommandResult } from './types.js';
 import { listStateFiles } from '../workflow/state-store.js';
 import { telemetryProjection } from '../telemetry/telemetry-projection.js';
 import type { WorkflowEvent } from '../event-store/schemas.js';
