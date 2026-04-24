@@ -461,7 +461,7 @@ describe('EventTypes', () => {
   });
 
   it('EventTypes_HasExpectedCount', () => {
-    expect(EventTypes).toHaveLength(76);
+    expect(EventTypes).toHaveLength(77);
   });
 
   it('EventTypes_IncludesSessionTagged', () => {
@@ -2176,6 +2176,28 @@ describe('WorkflowCheckpointWrittenData', () => {
       projectionId: 'rehydrate-foundation',
       projectionSequence: 42,
       byteSize: 1024,
+    });
+    expect(result.success, JSON.stringify(result)).toBe(true);
+  });
+});
+
+// ─── workflow.checkpoint_superseded (T007, DR-4) ────────────────────────────
+
+describe('WorkflowCheckpointSupersededData', () => {
+  it('CheckpointSuperseded_ValidData_Parses', () => {
+    // DR-4: { priorSequence: number, reason: string }
+    // Emitted when a newer checkpoint supersedes an earlier one — the
+    // priorSequence references the projectionSequence of the checkpoint
+    // now invalidated, and the reason explains why (e.g., 'stale-projection',
+    // 'schema-version-bump').
+    expect(EventTypes).toContain('workflow.checkpoint_superseded');
+
+    const schema = EVENT_DATA_SCHEMAS['workflow.checkpoint_superseded' as typeof EventTypes[number]];
+    expect(schema).toBeDefined();
+
+    const result = schema!.safeParse({
+      priorSequence: 41,
+      reason: 'stale-projection',
     });
     expect(result.success, JSON.stringify(result)).toBe(true);
   });
