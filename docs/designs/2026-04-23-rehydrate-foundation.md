@@ -274,6 +274,7 @@ Not migrating this wave (each scoped to a follow-up):
 - Each in-wave migration includes a follow-up issue auto-generated on merge with scope and estimated effort.
 - Each deferred migration logged as a follow-up issue with a link to this design.
 - A lint rule (or at minimum a grep-based CI check) flags *new* code that computes inline projections over events, pointing to this design.
+- Follow-up registry: docs/migrations/rehydrate-foundation-followups.md
 
 ### 6.3 Future components built on this foundation
 
