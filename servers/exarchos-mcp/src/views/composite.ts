@@ -7,6 +7,7 @@ import { wrap, type ToolResult } from '../format.js';
 import type { DispatchContext } from '../core/dispatch.js';
 import { handleDescribe } from '../describe/handler.js';
 import { TOOL_REGISTRY } from '../registry.js';
+import { nextActionsFromResult } from '../next-actions-from-result.js';
 import {
   handleViewPipeline,
   handleViewTasks,
@@ -32,7 +33,7 @@ import { handleViewTelemetry } from '../telemetry/tools.js';
 const viewActions = TOOL_REGISTRY.find(t => t.name === 'exarchos_view')!.actions;
 
 /**
- * HATEOAS envelope wrapping for successful tool responses (T039, DR-7).
+ * HATEOAS envelope wrapping for successful tool responses (T039 + T041, DR-7/DR-8).
  *
  * Mirrors the workflow composite (T036) treatment: successful results are
  * re-shaped into `Envelope<T>` at the tool boundary so agents see a stable
@@ -40,8 +41,11 @@ const viewActions = TOOL_REGISTRY.find(t => t.name === 'exarchos_view')!.actions
  * Internal callers of the underlying handlers (view materializer, stack
  * handlers, etc.) continue to see the raw `ToolResult` they depend on.
  *
- * `next_actions` is populated by T040/T041's `computeNextActions` — for
- * T039 it defaults to `[]` so the field is always present.
+ * `next_actions` is derived by `nextActionsFromResult` — in practice view
+ * payloads (pipelines, tasks, telemetry, provenance, etc.) do not carry
+ * `{ phase, workflowType }` at the envelope boundary, so this yields `[]`.
+ * The call is retained for architectural symmetry with the workflow
+ * composite; the function is a pure, cheap lookup.
  *
  * Error responses pass through unchanged so structured `error` payloads
  * (error codes, valid targets, suggested fixes) remain accessible to
@@ -52,7 +56,8 @@ function envelopeWrap(result: ToolResult, startedAt: number): ToolResult {
 
   const meta = (result._meta ?? {}) as Record<string, unknown>;
   const perf = result._perf ?? { ms: Date.now() - startedAt };
-  const envelope = wrap(result.data, meta, perf);
+  const nextActions = nextActionsFromResult(result);
+  const envelope = wrap(result.data, meta, perf, nextActions);
   return envelope as unknown as ToolResult;
 }
 

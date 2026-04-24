@@ -5,11 +5,12 @@ import { handleDescribe } from '../describe/handler.js';
 import { TOOL_REGISTRY } from '../registry.js';
 import { wrap, type ToolResult } from '../format.js';
 import type { DispatchContext } from '../core/dispatch.js';
+import { nextActionsFromResult } from '../next-actions-from-result.js';
 
 const workflowActions = TOOL_REGISTRY.find(t => t.name === 'exarchos_workflow')!.actions;
 
 /**
- * HATEOAS envelope wrapping for successful tool responses (T036, DR-7).
+ * HATEOAS envelope wrapping for successful tool responses (T036 + T041, DR-7/DR-8).
  *
  * Successful results are re-shaped into `Envelope<T>` at the tool
  * boundary so agents see a stable contract with `next_actions`, `_meta`,
@@ -17,8 +18,12 @@ const workflowActions = TOOL_REGISTRY.find(t => t.name === 'exarchos_workflow')!
  * handlers (e.g. orchestrate/prune-stale-workflows, orchestrate/finalize-
  * oneshot) continue to see the raw `ToolResult` they depend on.
  *
- * `next_actions` is populated by T040/T041's `computeNextActions` — for
- * T036 it defaults to `[]` so the field is always present.
+ * `next_actions` is populated by `nextActionsFromResult` whenever the
+ * handler's response data contains both `phase` and `workflowType` (the
+ * real `handleInit`/`handleGet`/`handleSet` return both). Otherwise the
+ * field defaults to `[]` so the envelope shape is stable — e.g. for
+ * `describe`, `cleanup`, and `cancel` actions, or legacy responses that
+ * omit `workflowType`.
  *
  * Error responses pass through unchanged so structured `error` payloads
  * (error codes, valid transition targets, suggested fixes) remain
@@ -29,9 +34,12 @@ function envelopeWrap(result: ToolResult, startedAt: number): ToolResult {
 
   const meta = (result._meta ?? {}) as Record<string, unknown>;
   const perf = result._perf ?? { ms: Date.now() - startedAt };
+  // Compute once per composite call. `nextActionsFromResult` is a pure
+  // lookup over the HSM registry; no I/O.
+  const nextActions = nextActionsFromResult(result);
   // `wrap<T>` constructs the canonical { success, data, next_actions, _meta, _perf }
   // envelope shape. Caller overlays remaining passthrough fields (e.g. `warnings`).
-  const envelope = wrap(result.data, meta, perf);
+  const envelope = wrap(result.data, meta, perf, nextActions);
   return envelope as unknown as ToolResult;
 }
 
