@@ -8,6 +8,13 @@
 # Modeled on dotnet/aspire/eng/scripts/get-aspire-cli.sh. Self-contained:
 # no jq, no yq. Tested by scripts/get-exarchos.test.sh.
 #
+# PORTABILITY: this script requires bash (the shebang is /usr/bin/env bash).
+# It uses a small number of bash-isms — `local`, `[[ ]]` where convenient,
+# and `readonly` — all of which are also accepted by dash/zsh, so piping
+# `curl … | sh` on systems where /bin/sh is dash will still work, but we
+# recommend `curl … | bash` for explicitness. We deliberately avoid `local`
+# in hot paths and any `[[ ]]` constructs requiring extglob.
+#
 # USAGE
 #   curl -fsSL https://get.exarchos.dev | bash
 #   bash scripts/get-exarchos.sh [options]
@@ -92,57 +99,76 @@ esac
 # ------------------------------------------------------------------
 # Dependency preflight
 # ------------------------------------------------------------------
+# require_cmd <cmd> <install-hint>
+#   Exits with a clear, actionable error if <cmd> is not on PATH.
 require_cmd() {
-    command -v "$1" >/dev/null 2>&1 \
-        || die "required command not found: $1 (install it and retry)"
+    if ! command -v "$1" >/dev/null 2>&1; then
+        err "required command not found: $1"
+        if [ -n "${2:-}" ]; then
+            err "hint: $2"
+        fi
+        exit 1
+    fi
 }
 
-require_cmd uname
-require_cmd curl
-# sha512 tooling: prefer sha512sum (Linux), fall back to `shasum -a 512` (Darwin)
+require_cmd uname "uname ships with every supported OS; check your PATH"
+require_cmd curl  "install via: apt-get install curl | brew install curl | dnf install curl"
+
+# sha512 tooling: prefer sha512sum (Linux coreutils), fall back to shasum (macOS perl).
+# Set SHA512_CMD to a callable command string.
 if command -v sha512sum >/dev/null 2>&1; then
     SHA512_CMD="sha512sum"
 elif command -v shasum >/dev/null 2>&1; then
     SHA512_CMD="shasum -a 512"
 else
-    die "no sha512 tool found (need sha512sum or shasum)"
+    err "no sha512 tool found on PATH"
+    err "hint: install coreutils (Linux: apt-get install coreutils) or perl (macOS: /usr/bin/shasum ships with the OS)"
+    exit 1
 fi
 
 # ------------------------------------------------------------------
 # Platform detection
 # ------------------------------------------------------------------
-detect_os() {
+# detect_platform populates four globals so downstream code reads clean:
+#   PLATFORM_OS    - "linux" or "darwin"
+#   PLATFORM_ARCH  - "x64" or "arm64"
+#   PLATFORM_LIBC  - "glibc" or "musl" (informational; we always fetch glibc in v2.9)
+#   ASSET_NAME     - "exarchos-<os>-<arch>" used for the release asset filename
+#
+# Centralizing the detection here keeps the main control flow linear and
+# makes the function trivially unit-testable by overriding `uname` on PATH.
+detect_platform() {
     case "$(uname -s)" in
-        Linux)   echo "linux" ;;
-        Darwin)  echo "darwin" ;;
-        *)       die "unsupported OS: $(uname -s) (Linux and Darwin supported; Windows uses get-exarchos.ps1)" ;;
+        Linux)  PLATFORM_OS="linux" ;;
+        Darwin) PLATFORM_OS="darwin" ;;
+        *)      die "unsupported OS: $(uname -s) (Linux and Darwin supported; Windows uses get-exarchos.ps1)" ;;
     esac
-}
 
-detect_arch() {
     case "$(uname -m)" in
-        x86_64|amd64)   echo "x64" ;;
-        arm64|aarch64)  echo "arm64" ;;
+        x86_64|amd64)   PLATFORM_ARCH="x64" ;;
+        arm64|aarch64)  PLATFORM_ARCH="arm64" ;;
         *)              die "unsupported arch: $(uname -m) (x86_64 and arm64 supported)" ;;
     esac
-}
 
-detect_libc() {
-    # Note: musl detection is informational only in v2.9 — we still download
-    # the glibc build. True musl support is deferred.
+    # musl detection is informational only in v2.9 — we still download the
+    # glibc build. True musl support is deferred.
+    PLATFORM_LIBC="glibc"
     if command -v ldd >/dev/null 2>&1; then
         if ldd --version 2>&1 | grep -q musl; then
-            echo "musl"
-            return
+            PLATFORM_LIBC="musl"
+            warn "musl libc detected — downloading glibc build (musl support deferred)"
         fi
     fi
-    echo "glibc"
+
+    ASSET_NAME="exarchos-${PLATFORM_OS}-${PLATFORM_ARCH}"
 }
 
-OS="$(detect_os)"
-ARCH="$(detect_arch)"
-LIBC="$(detect_libc)"
-ASSET_NAME="exarchos-${OS}-${ARCH}"
+detect_platform
+
+# Back-compat / print-plan shorthands (avoid churn in the plan template)
+OS="$PLATFORM_OS"
+ARCH="$PLATFORM_ARCH"
+LIBC="$PLATFORM_LIBC"
 
 # ------------------------------------------------------------------
 # Version resolution
@@ -217,10 +243,17 @@ trap 'rm -rf "$TMP_WORK"' EXIT
 TMP_BIN="${TMP_WORK}/${ASSET_NAME}"
 TMP_SHA="${TMP_WORK}/${ASSET_NAME}.sha512"
 
-curl -fsSL -o "$TMP_BIN" "$BINARY_URL" \
-    || die "failed to download binary from $BINARY_URL"
-curl -fsSL -o "$TMP_SHA" "$CHECKSUM_URL" \
-    || die "failed to download checksum from $CHECKSUM_URL"
+if ! curl -fsSL -o "$TMP_BIN" "$BINARY_URL"; then
+    err "failed to download binary from $BINARY_URL"
+    err "hint: verify the release exists at ${GITHUB_RELEASES_BASE}/tag/${VERSION}"
+    err "hint: check network access to github.com and any proxy configuration"
+    exit 1
+fi
+if ! curl -fsSL -o "$TMP_SHA" "$CHECKSUM_URL"; then
+    err "failed to download checksum sidecar from $CHECKSUM_URL"
+    err "hint: a missing .sha512 sidecar usually means the release is incomplete — report upstream"
+    exit 1
+fi
 
 # Compute actual hash and compare against sidecar (raw hex, first whitespace-separated token).
 ACTUAL_SHA="$($SHA512_CMD "$TMP_BIN" | awk '{print $1}')"
