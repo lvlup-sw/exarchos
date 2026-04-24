@@ -66,3 +66,21 @@ Design reference: `docs/designs/2026-04-23-rehydrate-foundation.md` DR-16.
 - **Gap:** The design document (`docs/designs/2026-04-23-rehydrate-foundation.md`) specifies the enum as `command | mcp | cli | session-start`, which describes the *caller* not the *delivery mechanism*. The two vocabularies are semantically distinct and both partially correct; they are currently inconsistent.
 - **Scope:** S — either (a) reconcile the design doc to match the registered schema vocabulary (`direct | ndjson | snapshot`) and close the drift, or (b) re-register the schema with a richer enum that encodes both caller identity and delivery mechanism, and update `handleRehydrate` accordingly.
 - **Linked task:** T031
+
+---
+
+### 8. SessionStart `.checkpoint.json` reader is stale (T059)
+
+- **State:** `cli-commands/session-start.ts:113` scans for `<featureId>.checkpoint.json` files at session boot, reads them, and uses them to construct context. T059 replaced the writer (pre-compact) with `handleCheckpoint`, which now writes `<featureId>.projections.jsonl` instead.
+- **Gap:** The reader and writer are no longer producing/consuming the same file. SessionStart now never finds checkpoint files in real use (only in `session-start.test.ts`, which writes `.checkpoint.json` fixtures by hand). The two integration tests in `cli-commands/context-reload.integration.test.ts` are skipped for this reason. Rehydration via `session-start` hook is currently a no-op.
+- **Scope:** M — update `session-start.ts` to read the latest snapshot via `readLatestSnapshot(stateDir, featureId, "rehydration@v1", "1")` from T019 (or equivalently dispatch to `exarchos_workflow.rehydrate`); migrate `session-start.test.ts` fixtures from `.checkpoint.json` to `.projections.jsonl`; un-skip the two integration tests in `context-reload.integration.test.ts`.
+- **Linked task:** T059
+
+---
+
+### 9. Legacy `workflow/next-action.ts` deletion (T060)
+
+- **State:** T060 extracted the pure logic into a registered `next-action@v1` reducer at `projections/next-action/`. The legacy `workflow/next-action.ts` was kept because its `handleNextAction` MCP handler and `HUMAN_CHECKPOINT_PHASES` table are still imported by `workflow/tools.ts`, `cli-commands/pre-compact.ts`, `cli-commands/assemble-context.ts`, and three `__tests__/workflow/*.test.ts` files.
+- **Gap:** Two parallel sources of truth for "what's next" remain: the legacy `handleNextAction` and the new `next-action@v1` reducer + T040 `computeNextActions` + T041 envelope `next_actions`. Future drift between them is likely without intervention.
+- **Scope:** M — migrate each caller to the new reducer / envelope path; relocate `HUMAN_CHECKPOINT_PHASES` to a shared workflow-state module; delete `workflow/next-action.ts`; update the three legacy `__tests__` files.
+- **Linked task:** T060
