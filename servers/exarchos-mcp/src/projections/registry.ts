@@ -62,3 +62,19 @@ export function createRegistry(): ProjectionRegistry {
     },
   };
 }
+
+/**
+ * Process-wide default {@link ProjectionRegistry} (T026, DR-1).
+ *
+ * Concrete projection barrels (e.g. `projections/rehydration/index.ts`) call
+ * {@link ProjectionRegistry.register} against this instance at module-load
+ * time so that downstream consumers (projection rebuild/rehydrate runners
+ * in T029/T031) can look reducers up by their stable `id`
+ * (e.g. `"rehydration@v1"`).
+ *
+ * Tests that need an isolated registry MUST use {@link createRegistry}
+ * instead; mutating `defaultRegistry` inside a test file can leak across
+ * test files (vitest's `pool: 'forks'` isolates at the file level, but the
+ * same file's describe blocks share module state).
+ */
+export const defaultRegistry: ProjectionRegistry = createRegistry();
