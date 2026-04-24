@@ -33,6 +33,27 @@ describe('Core Plugin Structure', () => {
         '${CLAUDE_PLUGIN_ROOT}',
       );
     });
+
+    // Task 2.1 (v29-install-rewrite) — plugin.json must invoke bare `exarchos`
+    // via PATH (Graphite-style), not `node` + a bundled JS fallback.
+    it('PluginJson_McpServerCommand_IsExarchosNotNode', () => {
+      const pluginPath = join(repoRoot, '.claude-plugin', 'plugin.json');
+      const plugin = JSON.parse(readFileSync(pluginPath, 'utf-8'));
+      expect(plugin.mcpServers.exarchos.command).toBe('exarchos');
+      expect(plugin.mcpServers.exarchos.args).toEqual(expect.arrayContaining(['mcp']));
+      // Guard: no `node` sneaking in as command
+      expect(plugin.mcpServers.exarchos.command).not.toBe('node');
+    });
+
+    it('PluginJson_HasNoBundledJsFallbacks', () => {
+      const pluginPath = join(repoRoot, '.claude-plugin', 'plugin.json');
+      const raw = readFileSync(pluginPath, 'utf-8');
+      // No bundled-JS fallback paths
+      expect(raw).not.toContain('dist/exarchos.js');
+      expect(raw).not.toContain('dist/cli.js');
+      // No `node` as a quoted string value (either the command or an arg)
+      expect(raw).not.toContain('"node"');
+    });
   });
 
   describe('hooks/hooks.json', () => {
