@@ -1,3 +1,6 @@
+// Task 3.2 phase progression: RED (NoLegacy_* assertions added, all failing) →
+// GREEN (packages/create-exarchos/ deleted + sync-versions.sh slim-down, assertions pass).
+
 import { describe, it, expect } from 'vitest';
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
