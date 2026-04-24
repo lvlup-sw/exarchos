@@ -3,9 +3,16 @@ import { getFullRegistry, buildRegistrationSchema, buildToolDescription } from '
 import { formatResult } from '../format.js';
 import { dispatch } from '../core/dispatch.js';
 import type { DispatchContext } from '../core/dispatch.js';
-// Server identity constants (duplicated from index.ts to avoid circular imports)
+// Server identity constants. These must stay in lock-step with the canonical
+// SERVER_NAME / SERVER_VERSION exports in src/index.ts — task 1.6's compiled
+// binary integration test asserts that the version advertised over MCP's
+// initialize handshake matches the index.ts export, so drift here is caught
+// in CI. A static `import { SERVER_VERSION } from '../index.js'` would pull
+// the full index graph (event-store, backend init, hooks, CLI) into every
+// caller of this adapter, so the values are duplicated intentionally; the
+// integration test pins them together.
 const SERVER_NAME = 'exarchos-mcp';
-const SERVER_VERSION = '1.1.0';
+const SERVER_VERSION = '2.4.0';
 
 // ─── MCP Server Adapter ────────────────────────────────────────────────────
 

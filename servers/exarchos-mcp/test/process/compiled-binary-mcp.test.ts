@@ -1,6 +1,9 @@
 /**
  * Task 1.6 — Compiled-binary MCP integration test.
  *
+ * Phase progression: RED asserted 2.4.0 vs observed 1.1.0 drift in adapters/mcp.ts;
+ * GREEN synced the duplicated SERVER_VERSION and the integration tests now pass.
+ *
  * Proves the artifact produced by `scripts/build-binary.ts` (task 1.4) actually
  * runs `exarchos mcp` in real stdio-transport mode and handles MCP tool calls
  * identically to the JS bundle. This is the PR1 integration gate for the v2.9
