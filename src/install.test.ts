@@ -1120,21 +1120,28 @@ describe('hooks.json', () => {
     expect(eventTypes).toHaveLength(8);
   });
 
-  it('hooksJson_AllCommandsReferencePluginRoot', () => {
+  it('hooksJson_AllCommandsInvokeBareExarchos', () => {
+    // Post-install-rewrite (task 2.2): hooks invoke bare `exarchos <subcmd>`
+    // via PATH — no `node` shim, no `${CLAUDE_PLUGIN_ROOT}/dist/exarchos.js`.
+    // SessionStart still flows ${CLAUDE_PLUGIN_ROOT} through as --plugin-root
+    // but the executable position is bare `exarchos`.
     const hooks = JSON.parse(readFileSync(hooksPath, 'utf-8'));
     for (const [eventType, entries] of Object.entries(hooks.hooks)) {
       for (const entry of entries as Array<{ hooks: Array<{ command: string }> }>) {
         for (const hook of entry.hooks) {
-          expect(hook.command, `${eventType} hook command should reference CLAUDE_PLUGIN_ROOT`).toContain('${CLAUDE_PLUGIN_ROOT}');
+          expect(hook.command, `${eventType} hook command should invoke bare exarchos`).toMatch(/^exarchos /);
+          expect(hook.command, `${eventType} hook command should not invoke node`).not.toMatch(/\bnode\s/);
+          expect(hook.command, `${eventType} hook command should not reference dist/exarchos.js`).not.toContain('dist/exarchos.js');
         }
       }
     }
   });
 
-  it('hooksJson_AllCommands_UsePluginRootVariable', () => {
+  it('hooksJson_SessionStart_FlowsPluginRootAsArg', () => {
+    // SessionStart is the only hook that still needs ${CLAUDE_PLUGIN_ROOT},
+    // passed through as a --plugin-root argument so the handler can resolve
+    // plugin-bundled resources even though the binary itself is PATH-resolved.
     const hooksContent = readFileSync(hooksPath, 'utf-8');
-
-    // Should use plugin root variable
     expect(hooksContent).toContain('${CLAUDE_PLUGIN_ROOT}');
     // Should NOT contain old installer placeholder
     expect(hooksContent).not.toContain('{{CLI_PATH}}');
