@@ -7,7 +7,7 @@
  *
  * All side effects (spawn, logging, home-dir resolution) are injected so that
  * unit tests can verify behavior without touching the host system. The CLI
- * entry point in `src/install.ts` provides the real implementations.
+ * wiring lives in the binary entry point (servers/exarchos-mcp/src/index.ts).
  *
  * Implements: DR-7 (install-skills CLI), DR-9 (docs surface), DR-10 (error paths).
  */

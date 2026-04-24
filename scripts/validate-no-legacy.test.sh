@@ -6,6 +6,10 @@
 # the live repo (not a temp fixture). Tasks 3.1–3.8 append additional
 # NoLegacy_* assertions to this file; task 3.11 promotes the harness into a
 # CI-gated rollup via scripts/validate-no-legacy.sh.
+#
+# Task 3.1 phase progression: RED (three assertions added, failing) → GREEN
+# (files deleted, assertions pass) → REFACTOR (orphan doc/comment references
+# pruned, assertions still green).
 
 set -euo pipefail
 
