@@ -907,10 +907,12 @@ describe('Integration', () => {
       raw = JSON.parse(await fs.readFile(stateFile, 'utf-8'));
       expect(raw._eventSequence).toBe(3);
 
-      // Checkpoint
+      // Checkpoint — T034 (DR-6) extends this action to also materialize the
+      // rehydration projection and emit `workflow.checkpoint_written`, so the
+      // event count advances by TWO, not one.
       await handleCheckpoint({ featureId: 'consistency-test', summary: 'Mid-plan' }, stateDir, eventStore);
       events = await eventStore.query('consistency-test');
-      expect(events.length).toBe(4); // + workflow.checkpoint
+      expect(events.length).toBe(5); // + workflow.checkpoint + workflow.checkpoint_written
 
       // Another phase transition (plan -> plan-review)
       await handleSet(
@@ -920,10 +922,10 @@ describe('Integration', () => {
       );
       await handleSet({ featureId: 'consistency-test', phase: 'plan-review' }, stateDir, eventStore);
       events = await eventStore.query('consistency-test');
-      expect(events.length).toBe(6); // + state.patched + workflow.transition
+      expect(events.length).toBe(7); // + state.patched + workflow.transition
 
       raw = JSON.parse(await fs.readFile(stateFile, 'utf-8'));
-      expect(raw._eventSequence).toBe(6);
+      expect(raw._eventSequence).toBe(7);
 
       // Reconcile should be idempotent (no changes)
       const result = await reconcileFromEvents(stateDir, 'consistency-test', eventStore);
