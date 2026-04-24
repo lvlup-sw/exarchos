@@ -55,6 +55,41 @@ describe('Core Plugin Structure', () => {
       // No `node` as a quoted string value (either the command or an arg)
       expect(raw).not.toContain('"node"');
     });
+
+    // Task 2.4 (v29-install-rewrite) — plugin.json must declare
+    // `metadata.compat.minBinaryVersion` so that
+    // `checkPluginRootCompatibility()` (added in task 2.3) has a concrete
+    // value to compare the running binary against. Missing or malformed
+    // values degrade to "advisory" and silently mask drift.
+    it('PluginJson_Metadata_DeclaresMinBinaryVersion', () => {
+      const pluginPath = join(repoRoot, '.claude-plugin', 'plugin.json');
+      const plugin = JSON.parse(readFileSync(pluginPath, 'utf-8'));
+      expect(plugin.metadata).toBeDefined();
+      expect(plugin.metadata.compat).toBeDefined();
+      const min = plugin.metadata.compat.minBinaryVersion;
+      expect(typeof min).toBe('string');
+      expect(min.length).toBeGreaterThan(0);
+      // Semver major.minor.patch prefix (build/prerelease suffixes allowed).
+      expect(min).toMatch(/^\d+\.\d+\.\d+/);
+    });
+
+    // The declared minBinaryVersion must match the running MCP binary's
+    // `SERVER_VERSION` constant. We read the constant out of the source file
+    // rather than `await import(...)` it, because `servers/exarchos-mcp/src/index.ts`
+    // has module-level side effects (event store wiring, dispatch context init)
+    // that are expensive and unnecessary for this assertion.
+    it('PluginJson_MinBinaryVersion_MatchesCurrentBinary', () => {
+      const pluginPath = join(repoRoot, '.claude-plugin', 'plugin.json');
+      const plugin = JSON.parse(readFileSync(pluginPath, 'utf-8'));
+
+      const mcpIndexPath = join(repoRoot, 'servers', 'exarchos-mcp', 'src', 'index.ts');
+      const mcpIndexSrc = readFileSync(mcpIndexPath, 'utf-8');
+      const match = mcpIndexSrc.match(/export\s+const\s+SERVER_VERSION\s*=\s*['"]([^'"]+)['"]/);
+      expect(match).not.toBeNull();
+      const serverVersion = match![1];
+
+      expect(plugin.metadata.compat.minBinaryVersion).toBe(serverVersion);
+    });
   });
 
   describe('hooks/hooks.json', () => {
