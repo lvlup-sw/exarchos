@@ -187,6 +187,38 @@ else
 fi
 
 # ============================================================
+# Task 3.8: Delete dead servers/exarchos-mcp/src/cli.ts + orphans
+# ============================================================
+
+# NoLegacy_DeadCliFileAbsent — the MCP server's stdin-JSON cli.ts entry point
+# was never wired to the shipping binary (hooks invoke the unified `exarchos`
+# binary bundled from src/index.ts). It must be deleted.
+assert_file_absent \
+  "NoLegacy_DeadCliFileAbsent" \
+  "servers/exarchos-mcp/src/cli.ts"
+
+# NoLegacy_DeadCliTestAbsent — the co-located test for the deleted cli.ts
+# must be removed alongside its subject.
+assert_file_absent \
+  "NoLegacy_DeadCliTestAbsent" \
+  "servers/exarchos-mcp/src/cli.test.ts"
+
+# NoLegacy_OrphanedCliCommandsAbsent — handler modules in cli-commands/ that
+# were ONLY consumed by the deleted cli.ts (subagent-stop, eval-run,
+# eval-capture, eval-compare, eval-calibrate, quality-check) must be deleted.
+# Live handlers (pre-compact, session-start, session-end, guard, gates,
+# subagent-context, assemble-context, version) stay — they are consumed by
+# adapters/hooks.ts or adapters/cli.ts.
+for orphan in subagent-stop eval-run eval-capture eval-compare eval-calibrate quality-check; do
+  assert_file_absent \
+    "NoLegacy_OrphanedCliCommandsAbsent ($orphan.ts)" \
+    "servers/exarchos-mcp/src/cli-commands/$orphan.ts"
+  assert_file_absent \
+    "NoLegacy_OrphanedCliCommandsAbsent ($orphan.test.ts)" \
+    "servers/exarchos-mcp/src/cli-commands/$orphan.test.ts"
+done
+
+# ============================================================
 # Summary
 # ============================================================
 echo

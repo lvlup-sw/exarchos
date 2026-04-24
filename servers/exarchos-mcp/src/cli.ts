@@ -2,6 +2,11 @@
 
 // ─── CLI Entry Point for Claude Code Hooks ──────────────────────────────────
 //
+// DEPRECATED (task 3.8): This module is unreachable from the shipping binary.
+// Hooks invoke the unified `exarchos` binary (bundled from `src/index.ts`),
+// never `dist/cli.js`. Scheduled for deletion in the GREEN commit that
+// follows this RED.
+//
 // All hook scripts call: node dist/cli.js <command>
 // JSON is piped via stdin, JSON result is written to stdout.
 
