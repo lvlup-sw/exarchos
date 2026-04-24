@@ -241,6 +241,101 @@ describe('checkTddCompliance', () => {
     expect(result.passCount).toBe(1);
   });
 
+  // RED for debug-delegation-gate Issue A: canonical RED→GREEN where the test
+  // and impl files share a directory but have different basenames (e.g. a
+  // test harness file `testing.ts` exercised by `immutability.test.ts`).
+  // Without the same-directory fallback, the gate false-negatives on the
+  // canonical TDD pattern.
+  it('same-directory match: test and impl files with different basenames pass', () => {
+    const gitMock = createGitMock([
+      {
+        args: ['log', '--reverse', '--format=%H'],
+        stdout: 'aaa111\nbbb222\n',
+      },
+      // Commit 1 (RED): test file
+      {
+        args: ['log', '-1', '--format=%s', 'aaa111'],
+        stdout: 'test(projections): RED — reducer immutability property harness',
+      },
+      {
+        args: ['log', '-1', '--format=%h', 'aaa111'],
+        stdout: 'aaa111',
+      },
+      {
+        args: ['diff-tree', '--no-commit-id', '--name-only', '--diff-filter=ACMRT', '-r', 'aaa111'],
+        stdout: 'src/projections/immutability.test.ts\n',
+      },
+      // Commit 2 (GREEN): impl file in SAME directory, different basename
+      {
+        args: ['log', '-1', '--format=%s', 'bbb222'],
+        stdout: 'feat(projections): GREEN — assertReducerImmutable harness',
+      },
+      {
+        args: ['log', '-1', '--format=%h', 'bbb222'],
+        stdout: 'bbb222',
+      },
+      {
+        args: ['diff-tree', '--no-commit-id', '--name-only', '--diff-filter=ACMRT', '-r', 'bbb222'],
+        stdout: 'src/projections/testing.ts\n',
+      },
+    ]);
+
+    const result = checkTddCompliance({
+      repoRoot: '/fake/repo',
+      branch: 'feature/cross-basename',
+      baseBranch: 'main',
+      execGit: gitMock,
+    });
+
+    expect(result.status).toBe('pass');
+    expect(result.violations).toHaveLength(0);
+    expect(result.passCount).toBe(2);
+    expect(result.failCount).toBe(0);
+  });
+
+  it('cross-directory match: test and impl in different directories remains a violation', () => {
+    const gitMock = createGitMock([
+      {
+        args: ['log', '--reverse', '--format=%H'],
+        stdout: 'aaa111\nbbb222\n',
+      },
+      {
+        args: ['log', '-1', '--format=%s', 'aaa111'],
+        stdout: 'test: add widget tests',
+      },
+      {
+        args: ['log', '-1', '--format=%h', 'aaa111'],
+        stdout: 'aaa111',
+      },
+      {
+        args: ['diff-tree', '--no-commit-id', '--name-only', '--diff-filter=ACMRT', '-r', 'aaa111'],
+        stdout: 'src/a/widget.test.ts\n',
+      },
+      {
+        args: ['log', '-1', '--format=%s', 'bbb222'],
+        stdout: 'feat: add unrelated impl',
+      },
+      {
+        args: ['log', '-1', '--format=%h', 'bbb222'],
+        stdout: 'bbb222',
+      },
+      {
+        args: ['diff-tree', '--no-commit-id', '--name-only', '--diff-filter=ACMRT', '-r', 'bbb222'],
+        stdout: 'src/b/other.ts\n',
+      },
+    ]);
+
+    const result = checkTddCompliance({
+      repoRoot: '/fake/repo',
+      branch: 'feature/cross-dir',
+      baseBranch: 'main',
+      execGit: gitMock,
+    });
+
+    expect(result.status).toBe('fail');
+    expect(result.failCount).toBe(1);
+  });
+
   it('non-code commit is skipped', () => {
     const gitMock = createGitMock([
       {
