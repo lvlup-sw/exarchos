@@ -41,6 +41,29 @@ export interface ToolResult {
   readonly _corrections?: CorrectionsPayload;
 }
 
+// ─── HATEOAS Envelope (DR-7) ────────────────────────────────────────────────
+
+/**
+ * Generic HATEOAS response envelope for MCP tool results.
+ *
+ * Wraps a strongly-typed `data` payload with affordance hints
+ * (`next_actions`), diagnostic metadata (`_meta`), and performance
+ * telemetry (`_perf`). Handlers will be retrofitted to return
+ * `Envelope<T>` in tasks T036–T039; `next_actions` population
+ * lands in T040/T041.
+ *
+ * Design: docs/designs/2026-04-23-rehydrate-foundation.md (envelope wrapping)
+ */
+export interface Envelope<T> {
+  readonly success: boolean;
+  readonly data: T;
+  // TODO(T040): tighten to NextAction[] once next-action module lands
+  readonly next_actions: unknown[];
+  readonly _eventHints?: unknown;
+  readonly _meta: Record<string, unknown>;
+  readonly _perf: PerfMetrics;
+}
+
 // ─── Event Acknowledgement ──────────────────────────────────────────────────
 
 export interface EventAck {
