@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { pickFields, wrap, type Envelope } from './format.js';
+import type { NextAction } from './next-action.js';
 
 describe('pickFields', () => {
   it('pickFields_TopLevelField_ReturnsValue', () => {
@@ -108,5 +109,43 @@ describe('wrap<T>', () => {
     // This compiles only if `env.data` is typed as `{ id: number }`.
     const id: number = env.data.id;
     expect(id).toBe(99);
+  });
+
+  // ─── T041: wrap() accepts computed next_actions ────────────────────────────
+  //
+  // DR-8: envelopes must carry affordance hints (`next_actions`) computed
+  // from the current workflow state + HSM topology. The composite layer
+  // (which already knows the state) computes them and passes the resulting
+  // `NextAction[]` into `wrap()`. When omitted, the default remains `[]`
+  // (backward-compatible with T014/T036 call sites that do not yet have
+  // workflow state at the wrap boundary).
+
+  it('Envelope_NextActions_NonEmptyForActiveWorkflow', () => {
+    const action: NextAction = {
+      verb: 'delegate',
+      reason: 'Transition to delegate',
+      validTargets: ['delegate'],
+    };
+
+    const env = wrap(
+      { phase: 'plan-review' },
+      { checkpointAdvised: false },
+      { ms: 5 },
+      [action],
+    );
+
+    expect(env.next_actions).toEqual([action]);
+    // The rest of the envelope shape is untouched.
+    expect(env.success).toBe(true);
+    expect(env.data).toEqual({ phase: 'plan-review' });
+    expect(env._meta).toEqual({ checkpointAdvised: false });
+    expect(env._perf.ms).toBe(5);
+  });
+
+  it('Envelope_NextActions_DefaultsToEmpty_WhenOmitted', () => {
+    // Backward-compat: existing call sites that do not pass `nextActions`
+    // still get an empty array, preserving the T036–T039 contract.
+    const env = wrap({ phase: 'ideate' }, undefined, undefined);
+    expect(env.next_actions).toEqual([]);
   });
 });
