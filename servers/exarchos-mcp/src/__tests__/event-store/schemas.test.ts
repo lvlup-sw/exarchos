@@ -406,12 +406,12 @@ describe('StackEnqueuedData', () => {
 
 describe('EventTypes', () => {
   it('EventTypes_CountMatchesRegisteredTypes', () => {
-    // Locked to the current registered-type count. Bumped to 78 with
-    // the addition of workflow.rehydrated (T008, DR-4) for the
+    // Locked to the current registered-type count. Bumped to 79 with
+    // the addition of workflow.snapshot_taken (T009, DR-4) for the
     // rehydrate-foundation projection work.
     // When new event types are added, bump this number alongside
     // their registration in `event-store/schemas.ts`.
-    expect(EventTypes).toHaveLength(78);
+    expect(EventTypes).toHaveLength(79);
   });
 
   it('should include workflow-level types', () => {
