@@ -23,6 +23,7 @@
  *     (T055) and event-stream-unavailable (T056) reuse that helper with
  *     their own `cause` values.
  */
+import * as fs from 'node:fs';
 import * as path from 'node:path';
 
 import type { EventStore } from '../event-store/store.js';
@@ -32,9 +33,15 @@ import type {
   WorkflowRehydrated,
   WorkflowProjectionDegraded,
 } from '../event-store/schemas.js';
+import { workflowLogger } from '../logger.js';
+import { rebuildProjection } from '../projections/rebuild.js';
 import { readLatestSnapshot } from '../projections/store.js';
 import { rehydrationReducer } from '../projections/rehydration/reducer.js';
-import type { RehydrationDocument } from '../projections/rehydration/schema.js';
+import {
+  RehydrationDocumentSchema,
+  type RehydrationDocument,
+} from '../projections/rehydration/schema.js';
+import { SnapshotRecord } from '../projections/snapshot-schema.js';
 import type { ProjectionReducer } from '../projections/types.js';
 import { readStateFile } from './state-store.js';
 
@@ -260,6 +267,75 @@ async function minimalFromStateStore(
 }
 
 /**
+ * Internal marker error for T055. Raised synthetically inside the handler's
+ * snapshot-read try-block when the sidecar is present but unreadable
+ * (corrupt JSON, schema-invalid record, or schema-invalid state payload).
+ *
+ * Not exported — it exists purely to reuse the single catch-handler path
+ * for both "IO error from fs.readFileSync" and "we detected post-read that
+ * the file was junk". Tests do not assert on the class identity; the
+ * `workflow.projection_degraded` event's `cause: "snapshot-corrupt"` is the
+ * observable contract.
+ */
+class SnapshotCorruptError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'SnapshotCorruptError';
+  }
+}
+
+/**
+ * Detect whether the per-stream snapshot sidecar exists but contains any
+ * unparseable JSON line or schema-invalid {@link SnapshotRecord}. Runs the
+ * same read `readLatestSnapshot` does but in "strict" mode: instead of
+ * skipping bad lines, we report the presence of any bad line as corruption.
+ *
+ * Scoped to T055's catch-boundary semantics — "corrupt" here means any of:
+ *   - a JSON.parse failure on any non-empty line; OR
+ *   - a SnapshotRecord schema violation on any parsed line.
+ *
+ * Returns `false` when the sidecar is absent (ENOENT — genuinely "no
+ * snapshot yet"), when it is empty, or when every line is a valid
+ * `SnapshotRecord` (in which case the "no matching projection" outcome is
+ * legitimate, e.g. only older/newer projection versions exist).
+ *
+ * Pure except for one synchronous file read. Never throws — any unexpected
+ * read failure (non-ENOENT) returns `true` so the caller still degrades.
+ */
+function sidecarIsCorrupt(stateDir: string, streamId: string): boolean {
+  const sidecar = path.join(stateDir, `${streamId}.projections.jsonl`);
+  let raw: string;
+  try {
+    raw = fs.readFileSync(sidecar, 'utf8');
+  } catch (err: unknown) {
+    if (
+      typeof err === 'object' &&
+      err !== null &&
+      'code' in err &&
+      (err as { code: unknown }).code === 'ENOENT'
+    ) {
+      return false;
+    }
+    // Any other IO error (EACCES, EIO, etc.) — treat as corrupt so the
+    // caller degrades rather than crashing the rehydrate.
+    return true;
+  }
+  for (const line of raw.split('\n')) {
+    if (line.length === 0) continue;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(line);
+    } catch {
+      return true;
+    }
+    if (!SnapshotRecord.safeParse(parsed).success) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
  * Rehydrate a workflow's canonical document for the given featureId.
  *
  * Empty-stream behaviour: when no snapshot and no events exist for the
@@ -276,18 +352,71 @@ export async function handleRehydrate(
   const { featureId } = args;
   const { eventStore, stateDir } = ctx;
 
-  // T054 (DR-18) — reducer-throw degradation. The catch is scoped strictly
-  // around `reducer.apply(...)` inside the fold so that snapshot-read and
-  // event-store-query failures still propagate (the rehydrate "emit only on
-  // success" invariant asserted in T032 depends on query faults bubbling).
-  // T055/T056 extend the catch boundary to the snapshot-read and the
-  // eventStore.query calls respectively; this task keeps the narrower scope.
-  const snapshot = readLatestSnapshot(
-    stateDir,
-    featureId,
-    REHYDRATION_PROJECTION_ID,
-    REHYDRATION_PROJECTION_VERSION,
-  );
+  // T055 (DR-18) — corrupt-snapshot degradation. The catch here is scoped
+  // strictly around the snapshot-read + schema-validation step. On any
+  // non-ENOENT IO error from `readLatestSnapshot`, OR detection that the
+  // sidecar file has any unparseable JSON / schema-invalid records, we
+  // cold-fold via `rebuildProjection` and emit `projection_degraded` with
+  // `cause: "snapshot-corrupt"`, `fallbackSource: "full-replay"`.
+  //
+  // A TRULY missing sidecar (ENOENT) still flows through the normal path —
+  // that's "no snapshot yet", not "corrupt". `readLatestSnapshot` already
+  // translates ENOENT to `undefined`; a non-ENOENT IO error propagates as a
+  // throw and is caught here.
+  let snapshot: ReturnType<typeof readLatestSnapshot>;
+  try {
+    snapshot = readLatestSnapshot(
+      stateDir,
+      featureId,
+      REHYDRATION_PROJECTION_ID,
+      REHYDRATION_PROJECTION_VERSION,
+    );
+    // Additional corruption check: `readLatestSnapshot` silently skips
+    // unparseable / schema-invalid lines and returns `undefined` when no
+    // line matches. That behavior is tolerant by design, but at the
+    // handler layer we need to distinguish "sidecar present but unusable"
+    // from "no snapshot written yet". If the sidecar file exists and has
+    // any corruption, degrade; otherwise the `undefined` path is the
+    // legitimate "cold read, no prior snapshot" case.
+    if (snapshot === undefined && sidecarIsCorrupt(stateDir, featureId)) {
+      throw new SnapshotCorruptError(
+        `snapshot sidecar for ${featureId} is unreadable`,
+      );
+    }
+    // And if we DID get a snapshot, validate its state payload against the
+    // rehydration schema — a schema-valid SnapshotRecord may still wrap a
+    // state blob that drifted from the reducer's document shape (schema
+    // mismatch counts as corrupt per DR-18).
+    if (
+      snapshot !== undefined &&
+      !RehydrationDocumentSchema.safeParse(snapshot.state).success
+    ) {
+      throw new SnapshotCorruptError(
+        `snapshot state for ${featureId} failed RehydrationDocumentSchema`,
+      );
+    }
+  } catch (err) {
+    workflowLogger.warn(
+      {
+        featureId,
+        err: err instanceof Error ? err.message : String(err),
+      },
+      'Snapshot read failed — degrading to full replay',
+    );
+    const rebuilt = (await rebuildProjection(
+      rehydrationReducer,
+      eventStore,
+      featureId,
+    )) as RehydrationDocument;
+    return buildDegradedResponse(
+      featureId,
+      'snapshot-corrupt',
+      { eventStore, stateDir },
+      rebuilt,
+      'full-replay',
+    );
+  }
+
   const sinceSequence = snapshot?.sequence ?? 0;
   const tailEvents = await eventStore.query(featureId, { sinceSequence });
 
