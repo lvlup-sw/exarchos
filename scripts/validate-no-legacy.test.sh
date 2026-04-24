@@ -102,6 +102,91 @@ assert_file_absent \
   "docs/deprecation/exarchos-dev.md"
 
 # ============================================================
+# Task 3.4: Strip bundled-MCP companion references from
+# distribution-surface docs (README.md, AGENTS.md, CHANGELOG.md)
+# ============================================================
+#
+# Historically, create-exarchos bundled serena/context7/microsoft-learn as
+# "optional companions." That package is gone (task 3.2), so the marketing
+# claim is stale. These assertions gate top-level docs:
+# - README.md: must not name serena / context7 / microsoft-learn at all
+#   (they should be fully removed from distribution surface). `graphite` is
+#   permitted only as external-tool context, NOT as a bundled companion.
+# - AGENTS.md: same rule as README (path-like `.serena/` ignore-list entries
+#   are tolerated — see guard below).
+# - CHANGELOG.md: unreleased section must not contain companion-install
+#   claims. Historical release entries are preserved verbatim (they describe
+#   what actually shipped) — we only lint the [Unreleased] section.
+
+# NoLegacy_ReadmeHasNoBundledMcp — README must not advertise the three
+# companion MCP servers (serena, context7, microsoft-learn) anywhere.
+# Rationale for the zero-tolerance scoping: the fallback rule in the task
+# brief. `graphite` is matched separately below with a softer rule.
+README_BUNDLED_HITS=$(grep -inE "serena|context7|microsoft-learn|microsoft learn" \
+  "$REPO_ROOT/README.md" 2>/dev/null || true)
+if [[ -z "$README_BUNDLED_HITS" ]]; then
+  pass "NoLegacy_ReadmeHasNoBundledMcp"
+else
+  fail "NoLegacy_ReadmeHasNoBundledMcp" \
+    "README.md mentions removed bundled-MCP companions: $README_BUNDLED_HITS"
+fi
+
+# NoLegacy_ReadmeHasNoCreateExarchos — `create-exarchos` was the bundling
+# vehicle (task 3.2 deleted it). Any mention in README is stale.
+README_CE_HITS=$(grep -inE "create-exarchos" "$REPO_ROOT/README.md" 2>/dev/null || true)
+if [[ -z "$README_CE_HITS" ]]; then
+  pass "NoLegacy_ReadmeHasNoCreateExarchos"
+else
+  fail "NoLegacy_ReadmeHasNoCreateExarchos" \
+    "README.md references deleted create-exarchos package: $README_CE_HITS"
+fi
+
+# NoLegacy_AgentsMdHasNoBundledMcp — AGENTS.md may mention `.serena/` as an
+# ignore-path entry (directory name, not a product claim). Strip that line
+# before matching so a legitimate scan-config entry doesn't trip the gate.
+if [[ -f "$REPO_ROOT/AGENTS.md" ]]; then
+  AGENTS_BUNDLED_HITS=$(grep -inE "serena|context7|microsoft-learn|microsoft learn" \
+    "$REPO_ROOT/AGENTS.md" 2>/dev/null \
+    | grep -vE "\.serena/" \
+    || true)
+  if [[ -z "$AGENTS_BUNDLED_HITS" ]]; then
+    pass "NoLegacy_AgentsMdHasNoBundledMcp"
+  else
+    fail "NoLegacy_AgentsMdHasNoBundledMcp" \
+      "AGENTS.md mentions removed bundled-MCP companions: $AGENTS_BUNDLED_HITS"
+  fi
+else
+  pass "NoLegacy_AgentsMdHasNoBundledMcp (file absent — vacuous pass)"
+fi
+
+# NoLegacy_ChangelogHasNoCompanionClaims — lint ONLY the [Unreleased] section
+# of CHANGELOG.md. Historical release entries are frozen record of what
+# shipped (including `Remove Graphite integration (#933)` — historically
+# accurate) and must not be rewritten.
+if [[ -f "$REPO_ROOT/CHANGELOG.md" ]]; then
+  # Extract the [Unreleased] section: from `## [Unreleased]` to the next `## [`
+  UNRELEASED=$(awk '
+    /^## \[Unreleased\]/ { capturing = 1; next }
+    /^## \[/ && capturing { exit }
+    capturing { print }
+  ' "$REPO_ROOT/CHANGELOG.md")
+  # Look for "install companion", "bundled MCP", "installs X alongside" where
+  # X is one of the four companion tools.
+  CHANGELOG_HITS=$(echo "$UNRELEASED" | grep -inE \
+    "install(s|ing)? (companion|alongside|bundled)|bundled.mcp|optional companion|companion.mcp" \
+    || true)
+  if [[ -z "$CHANGELOG_HITS" ]]; then
+    pass "NoLegacy_ChangelogHasNoCompanionClaims"
+  else
+    fail "NoLegacy_ChangelogHasNoCompanionClaims" \
+      "CHANGELOG.md [Unreleased] contains companion-install claim: $CHANGELOG_HITS"
+  fi
+else
+  fail "NoLegacy_ChangelogHasNoCompanionClaims" \
+    "CHANGELOG.md missing — expected file to exist"
+fi
+
+# ============================================================
 # Summary
 # ============================================================
 echo

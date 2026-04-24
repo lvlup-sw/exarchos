@@ -124,6 +124,8 @@ Exarchos supports both MCP-native hosts (Claude Code, Cursor, Codex) and CLI-onl
 
 ### Integrations
 
+<!-- TODO(3.4-GREEN): prune rows referencing create-exarchos (package deleted in 3.2) -->
+
 | Component | Source | Purpose |
 |-----------|--------|---------|
 | Exarchos | Core plugin | Workflow state, event log, team coordination, convergence gates |
