@@ -148,10 +148,55 @@ export function buildCli(ctx: DispatchContext): Command {
 
       addFlagsFromSchema(actionCmd, action.schema, action.cli?.flags);
 
+      // T042 / DR-9: the `exarchos event query` action gains a streaming
+      // `--follow` mode that emits NDJSON frames via the dedicated
+      // `runEventQueryFollow` handler instead of the one-shot dispatch path.
+      // The flag is intentionally registered outside `addFlagsFromSchema` so
+      // the MCP tool schema (which only describes one-shot query args) is
+      // not affected.
+      const isEventQuery =
+        tool.name === 'exarchos_event' && action.name === 'query';
+      if (isEventQuery) {
+        actionCmd.option('--follow', 'Stream events as NDJSON frames until the source closes');
+      }
+
       actionCmd.action(async (opts: Record<string, unknown>) => {
-        const { json, ...flagOpts } = opts;
+        const { json, follow, ...flagOpts } = opts;
         const isJson = Boolean(json);
         const format = action.cli?.format;
+
+        // ─── T042: `--follow` streaming branch ─────────────────────────────
+        if (isEventQuery && follow === true) {
+          const streamFlag = typeof flagOpts.stream === 'string' ? flagOpts.stream : undefined;
+          if (!streamFlag) {
+            const err = buildInvalidInput(
+              `${tool.name}/${action.name}: required option(s) not specified: stream`,
+            );
+            emitResult({ success: false, error: err }, isJson, format);
+            process.exitCode = CLI_EXIT_CODES.INVALID_INPUT;
+            return;
+          }
+          try {
+            const { runEventQueryFollow, pollingEventSource } = await import(
+              '../cli-commands/event-query.js'
+            );
+            const source = pollingEventSource({
+              store: ctx.eventStore,
+              streamId: streamFlag,
+            });
+            await runEventQueryFollow({ source, sink: process.stdout });
+            process.exitCode = CLI_EXIT_CODES.SUCCESS;
+          } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            emitResult(
+              { success: false, error: { code: 'UNCAUGHT_EXCEPTION', message } },
+              isJson,
+              format,
+            );
+            process.exitCode = CLI_EXIT_CODES.UNCAUGHT_EXCEPTION;
+          }
+          return;
+        }
 
         // ─── INVALID_INPUT (exit 1): required-flag check ──────────────────
         // Commander can't enforce --flag vs --no-flag for required booleans.
