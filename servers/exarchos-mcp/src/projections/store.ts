@@ -1,67 +1,86 @@
+/**
+ * Projection snapshot store — JSONL sidecar writer (T020, DR-2).
+ *
+ * Writes are append-only to `<stateDir>/<streamId>.projections.jsonl`.
+ * Each record is serialized as a single newline-terminated JSON line.
+ *
+ * Durability contract:
+ *   - Read the existing sidecar (if any), append the new JSONL line,
+ *     and stage the complete payload to `<target>.<pid>.<random>.tmp`.
+ *   - `fsync` the tmp file before renaming over the target so a crash
+ *     cannot leave a torn tail.
+ *   - `rename` is atomic on POSIX and provides "all-or-nothing" semantics
+ *     at the file level, giving us atomic append as observed by readers.
+ *
+ * Concurrency caveat: this module is intended for a single-writer process.
+ * Cross-process concurrency is out of scope for T020; intra-process
+ * concurrent callers remain safe because each `appendSnapshot` call
+ * performs a self-contained read-modify-write under a rename barrier.
+ */
+
+import * as crypto from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { SnapshotRecord } from './snapshot-schema.js';
-import type { SnapshotRecord as SnapshotRecordType } from './snapshot-schema.js';
+
+import type { SnapshotRecord } from './snapshot-schema.js';
 
 /**
- * Projection snapshot store — JSONL sidecar reader (DR-2, §5.2).
+ * Append a {@link SnapshotRecord} to the per-stream projections sidecar.
  *
- * Sidecar file: `<stateDir>/<streamId>.projections.jsonl`
- * Each line is a JSON-encoded {@link SnapshotRecord}. Lines that fail schema
- * validation, fail JSON parsing, or whose `projectionId` / `projectionVersion`
- * do not match the request are skipped. The record with the highest `sequence`
- * among matching lines is returned. If the file is missing or no line matches,
- * returns `undefined`.
+ * @param stateDir  Directory containing per-stream sidecars; created if absent.
+ * @param streamId  Workflow stream identifier — forms the sidecar basename.
+ * @param record    Snapshot record to append (T004 schema).
  */
-export function readLatestSnapshot(
+export function appendSnapshot(
   stateDir: string,
   streamId: string,
-  projectionId: string,
-  projectionVersion: string,
-): SnapshotRecordType | undefined {
-  const sidecar = path.join(stateDir, `${streamId}.projections.jsonl`);
+  record: SnapshotRecord,
+): void {
+  fs.mkdirSync(stateDir, { recursive: true });
 
-  let raw: string;
+  const target = path.join(stateDir, `${streamId}.projections.jsonl`);
+  const existing = readIfExists(target);
+  const line = `${JSON.stringify(record)}\n`;
+  const payload = existing + line;
+
+  const tmp = `${target}.${process.pid}.${crypto.randomBytes(6).toString('hex')}.tmp`;
+  const fd = fs.openSync(tmp, 'w');
   try {
-    raw = fs.readFileSync(sidecar, 'utf8');
+    fs.writeSync(fd, payload);
+    fs.fsyncSync(fd);
+  } finally {
+    fs.closeSync(fd);
+  }
+
+  try {
+    fs.renameSync(tmp, target);
   } catch (err: unknown) {
-    if (isNodeErrnoException(err) && err.code === 'ENOENT') {
-      return undefined;
+    // Best-effort cleanup — don't mask the original error.
+    try {
+      fs.unlinkSync(tmp);
+    } catch {
+      /* ignore */
     }
     throw err;
   }
-
-  let latest: SnapshotRecordType | undefined;
-  for (const line of raw.split('\n')) {
-    if (line.length === 0) continue;
-
-    let parsedJson: unknown;
-    try {
-      parsedJson = JSON.parse(line);
-    } catch {
-      continue; // Skip malformed JSON — forward-compatible with partial writes.
-    }
-
-    const result = SnapshotRecord.safeParse(parsedJson);
-    if (!result.success) continue;
-
-    const record = result.data;
-    if (record.projectionId !== projectionId) continue;
-    if (record.projectionVersion !== projectionVersion) continue;
-
-    if (latest === undefined || record.sequence > latest.sequence) {
-      latest = record;
-    }
-  }
-
-  return latest;
 }
 
-function isNodeErrnoException(err: unknown): err is NodeJS.ErrnoException {
+function readIfExists(target: string): string {
+  try {
+    return fs.readFileSync(target, 'utf8');
+  } catch (err: unknown) {
+    if (isNotFound(err)) {
+      return '';
+    }
+    throw err;
+  }
+}
+
+function isNotFound(err: unknown): boolean {
   return (
     typeof err === 'object' &&
     err !== null &&
     'code' in err &&
-    typeof (err as { code: unknown }).code === 'string'
+    (err as { code: unknown }).code === 'ENOENT'
   );
 }
