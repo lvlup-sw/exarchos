@@ -31,6 +31,7 @@ import {
   TaskFailedData,
   WorkflowPrunedData,
   SynthesizeRequestedData,
+  WorkflowCheckpointRequestedData,
   SessionTaggedData,
   StackRestackedData,
   WorktreeCreatedData,
@@ -2134,6 +2135,27 @@ describe('diagnostic.executed event', () => {
     };
 
     const result = schema!.safeParse(invalid);
+    expect(result.success).toBe(false);
+  });
+});
+
+// ─── workflow.checkpoint_requested (T005, DR-4) ─────────────────────────────
+
+describe('WorkflowCheckpointRequestedData', () => {
+  it('CheckpointRequested_ValidData_Parses', () => {
+    const result = WorkflowCheckpointRequestedData.safeParse({
+      trigger: 'manual',
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.trigger).toBe('manual');
+    }
+  });
+
+  it('CheckpointRequested_UnknownTrigger_Rejects', () => {
+    const result = WorkflowCheckpointRequestedData.safeParse({
+      trigger: 'auto-cadence',
+    });
     expect(result.success).toBe(false);
   });
 });
