@@ -10,7 +10,10 @@
 // contract at the tool boundary. `next_actions` defaults to an empty array
 // until T040/T041 populate it from HSM transitions.
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import * as path from 'node:path';
 import type { DispatchContext } from '../core/dispatch.js';
 import { EventStore } from '../event-store/store.js';
 
@@ -144,5 +147,107 @@ describe('WorkflowToolResponses_AllActions_ReturnEnvelope (T036, DR-7)', () => {
       ctx,
     );
     assertEnvelopeShape(result);
+  });
+});
+
+// ─── T033: Register `rehydrate` action on exarchos_workflow ─────────────────
+//
+// T031 landed `handleRehydrate(args, ctx): Promise<ToolResult>` on
+// `workflow/rehydrate.ts`. T036 landed the composite's `envelopeWrap`.
+// T033 wires `"rehydrate"` into the action enum and the composite's
+// dispatch switch, and surfaces the new action through `describe`.
+//
+// These tests exercise the real `handleRehydrate` and `handleDescribe`
+// code paths (no mocks), so a separate describe block is used to
+// side-step the mocks installed above.
+
+describe('WorkflowTool_RegistersRehydrateAction (T033, DR-5)', () => {
+  let tempDir: string;
+  let stateDir: string;
+  let store: EventStore;
+  let ctx: DispatchContext;
+
+  beforeEach(async () => {
+    // Un-mock the describe + rehydrate barrels so this suite hits the
+    // real handlers (not the T036 envelope-conformance mocks above).
+    vi.doUnmock('../describe/handler.js');
+    vi.resetModules();
+
+    tempDir = await mkdtemp(path.join(tmpdir(), 'workflow-tool-rehydrate-'));
+    stateDir = tempDir;
+    store = new EventStore(stateDir);
+    ctx = { stateDir, eventStore: store, enableTelemetry: false };
+
+    // Side effect: registers the rehydration reducer on the default
+    // registry so `handleRehydrate` can resolve its projection.
+    await import('../projections/rehydration/index.js');
+  });
+
+  afterEach(async () => {
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  it('WorkflowTool_DescribeIncludesRehydrate', async () => {
+    // GIVEN: a fresh import of the composite so describe hits the real
+    // handler rather than the module-level mock above.
+    const compositeMod = await import('./composite.js');
+
+    // WHEN: the caller asks describe for the rehydrate action.
+    const result = await compositeMod.handleWorkflow(
+      { action: 'describe', actions: ['rehydrate'] },
+      ctx,
+    );
+
+    // THEN: the envelope's `data.rehydrate` descriptor exists and looks
+    // structurally like a sibling action (schema + phases + roles).
+    expect(result.success).toBe(true);
+    const env = result as unknown as {
+      success: boolean;
+      data: { rehydrate?: { description: string; schema: unknown; phases: string[]; roles: string[] } };
+    };
+    expect(env.data.rehydrate).toBeTypeOf('object');
+    expect(typeof env.data.rehydrate?.description).toBe('string');
+    expect(env.data.rehydrate?.schema).toBeTypeOf('object');
+    expect(Array.isArray(env.data.rehydrate?.phases)).toBe(true);
+    expect(Array.isArray(env.data.rehydrate?.roles)).toBe(true);
+    // The rehydrate schema must require a featureId — mirrors T031 args.
+    const schema = env.data.rehydrate?.schema as {
+      properties?: Record<string, unknown>;
+      required?: readonly string[];
+    };
+    expect(schema.properties).toHaveProperty('featureId');
+    expect(schema.required).toContain('featureId');
+  });
+
+  it('WorkflowTool_RehydrateDispatch_ReturnsEnveloped', async () => {
+    // GIVEN: a minimally seeded event store — the handler requires only
+    // that the stream exists (empty stream is also legal per T031).
+    const featureId = 'rehydrate-dispatch-test';
+    await store.append(featureId, {
+      type: 'workflow.started',
+      data: { featureId, workflowType: 'feature' },
+    });
+
+    const compositeMod = await import('./composite.js');
+
+    // WHEN: the composite dispatches the rehydrate action.
+    const result = await compositeMod.handleWorkflow(
+      { action: 'rehydrate', featureId },
+      ctx,
+    );
+
+    // THEN: response has envelope shape (T036) AND data passes the
+    // canonical rehydration-document schema (T031, DR-5).
+    const env = result as unknown as Record<string, unknown>;
+    expect(env.success).toBe(true);
+    expect(Array.isArray(env.next_actions)).toBe(true);
+    expect(env._meta).toBeTypeOf('object');
+    expect(env._perf).toBeTypeOf('object');
+
+    const { RehydrationDocumentSchema } = await import(
+      '../projections/rehydration/schema.js'
+    );
+    const parsed = RehydrationDocumentSchema.safeParse(env.data);
+    expect(parsed.success).toBe(true);
   });
 });
