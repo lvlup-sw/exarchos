@@ -6,6 +6,14 @@
  * `_perf.ms` jitter and wall-clock timestamps) when invoked via the CLI
  * adapter vs the MCP dispatch entry point.
  *
+ * Structure (data-driven): the per-action logic lives in
+ * `./parity-actions.ts`:
+ *   - `ACTION_TABLE` — the exhaustive list of specs, one per workflow
+ *     action.
+ *   - `assertActionParity(fixture, spec)` — invokes both adapters against
+ *     a shared fixture and asserts normalized byte-equality.
+ *   - `setupFixture` / `teardownFixture` — isolated tmp state dirs per run.
+ *
  * Why this lives under `tests/` (not `src/workflow/parity.test.ts`):
  *   - `src/workflow/parity.test.ts` (T014) covers three actions (init, get,
  *     set) as a scoped unit of the workflow suite. This file is the
@@ -18,12 +26,6 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtemp, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import * as path from 'node:path';
-
-import type { DispatchContext } from '../src/core/dispatch.js';
-import { EventStore } from '../src/event-store/store.js';
 
 // Side-effect import: registers the rehydration reducer with the default
 // projection registry so the `rehydrate` action resolves.
@@ -31,62 +33,45 @@ import '../src/projections/rehydration/index.js';
 
 import {
   ACTION_TABLE,
+  WORKFLOW_ACTIONS,
   assertActionParity,
+  setupFixture,
+  teardownFixture,
   type ParityFixture,
 } from './parity-actions.js';
 
-// ─── Fixture harness ────────────────────────────────────────────────────────
-
-function makeCtx(stateDir: string): DispatchContext {
-  return {
-    stateDir,
-    eventStore: new EventStore(stateDir),
-    enableTelemetry: false,
-  };
-}
+// ─── Fixture ────────────────────────────────────────────────────────────────
 
 let fixture: ParityFixture;
 
 beforeEach(async () => {
-  const cliDir = await mkdtemp(path.join(tmpdir(), 'exarchos-parity-all-cli-'));
-  const mcpDir = await mkdtemp(path.join(tmpdir(), 'exarchos-parity-all-mcp-'));
-  fixture = {
-    cliDir,
-    mcpDir,
-    cliCtx: makeCtx(cliDir),
-    mcpCtx: makeCtx(mcpDir),
-  };
+  fixture = await setupFixture();
 });
 
 afterEach(async () => {
-  await rm(fixture.cliDir, { recursive: true, force: true });
-  await rm(fixture.mcpDir, { recursive: true, force: true });
+  await teardownFixture(fixture);
 });
 
 // ─── Tests ──────────────────────────────────────────────────────────────────
 
 describe('CliMcpParity_AllWorkflowActions_ByteIdenticalEnvelope (T045, DR-11)', () => {
-  for (const spec of ACTION_TABLE) {
-    it(`parity for action "${spec.action}"`, async () => {
+  // Table-driven: each row in `ACTION_TABLE` becomes one test case.
+  // `it.each` gives each generated test a distinct name in the reporter,
+  // so a parity break surfaces as `parity for action "cancel"` rather
+  // than being buried inside a single aggregate test.
+  it.each(ACTION_TABLE)(
+    'parity for action "$action"',
+    async (spec) => {
       await assertActionParity(fixture, spec);
-    });
-  }
+    },
+  );
 
   // Exhaustiveness sentinel: fails if a new action is added to the
   // workflow composite without a corresponding ACTION_TABLE entry. Lives
-  // as its own test so it surfaces in the test report as a named failure.
+  // as its own test so it surfaces in the test report as a named failure
+  // rather than silently dropping coverage.
   it('ACTION_TABLE_Covers_All_Workflow_Actions', () => {
-    const expected = new Set([
-      'init',
-      'get',
-      'set',
-      'cancel',
-      'cleanup',
-      'reconcile',
-      'checkpoint',
-      'describe',
-      'rehydrate',
-    ]);
+    const expected = new Set(WORKFLOW_ACTIONS);
     const covered = new Set(ACTION_TABLE.map((s) => s.action));
     expect(covered).toEqual(expected);
   });
