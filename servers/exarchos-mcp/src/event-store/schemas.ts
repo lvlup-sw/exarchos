@@ -45,6 +45,7 @@ export const EventTypes = [
   'workflow.checkpoint_superseded',
   'workflow.rehydrated',
   'workflow.snapshot_taken',
+  'workflow.projection_degraded',
   'synthesize.requested',
   'review.completed',
   'review.routed',
@@ -190,6 +191,7 @@ export const EVENT_EMISSION_REGISTRY: Record<EventType, EventEmissionSource> = {
   'workflow.checkpoint_superseded': 'auto',
   'workflow.rehydrated': 'auto',
   'workflow.snapshot_taken': 'auto',
+  'workflow.projection_degraded': 'auto',
   'synthesize.requested': 'auto',
   'task.claimed': 'auto',
   'task.completed': 'auto',
@@ -508,6 +510,12 @@ export const WorkflowRehydratedData = z.object({
 export const WorkflowSnapshotTakenData = z.object({
   projectionId: z.string().min(1),
   sequence: z.number().int().nonnegative(),
+});
+
+export const WorkflowProjectionDegradedData = z.object({
+  projectionId: z.string().min(1),
+  cause: z.string().min(1),
+  fallbackSource: z.string().min(1),
 });
 
 export const SynthesizeRequestedData = z.object({
@@ -881,6 +889,7 @@ export const EVENT_DATA_SCHEMAS: Partial<Record<EventType, z.ZodSchema>> = {
   'workflow.checkpoint_superseded': WorkflowCheckpointSupersededData,
   'workflow.rehydrated': WorkflowRehydratedData,
   'workflow.snapshot_taken': WorkflowSnapshotTakenData,
+  'workflow.projection_degraded': WorkflowProjectionDegradedData,
   'synthesize.requested': SynthesizeRequestedData,
 
   // Task-level
@@ -1020,6 +1029,7 @@ export type WorkflowCheckpointWritten = z.infer<typeof WorkflowCheckpointWritten
 export type WorkflowCheckpointSuperseded = z.infer<typeof WorkflowCheckpointSupersededData>;
 export type WorkflowRehydrated = z.infer<typeof WorkflowRehydratedData>;
 export type WorkflowSnapshotTaken = z.infer<typeof WorkflowSnapshotTakenData>;
+export type WorkflowProjectionDegraded = z.infer<typeof WorkflowProjectionDegradedData>;
 export type SynthesizeRequested = z.infer<typeof SynthesizeRequestedData>;
 export type ToolInvoked = z.infer<typeof ToolInvokedData>;
 export type ToolCompleted = z.infer<typeof ToolCompletedData>;
@@ -1104,6 +1114,7 @@ export type EventDataMap = {
   'workflow.checkpoint_superseded': WorkflowCheckpointSuperseded;
   'workflow.rehydrated': WorkflowRehydrated;
   'workflow.snapshot_taken': WorkflowSnapshotTaken;
+  'workflow.projection_degraded': WorkflowProjectionDegraded;
   'synthesize.requested': SynthesizeRequested;
   'review.completed': ReviewCompleted;
   'review.routed': ReviewRouted;

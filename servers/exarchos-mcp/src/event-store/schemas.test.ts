@@ -461,7 +461,7 @@ describe('EventTypes', () => {
   });
 
   it('EventTypes_HasExpectedCount', () => {
-    expect(EventTypes).toHaveLength(79);
+    expect(EventTypes).toHaveLength(80);
   });
 
   it('EventTypes_IncludesSessionTagged', () => {
@@ -2259,5 +2259,42 @@ describe('WorkflowSnapshotTakenData', () => {
       sequence: 42,
     });
     expect(result.success, JSON.stringify(result)).toBe(true);
+  });
+});
+
+// ─── workflow.projection_degraded (T010, DR-4, DR-18) ───────────────────────
+
+describe('WorkflowProjectionDegradedData', () => {
+  it('ProjectionDegraded_ValidData_Parses', () => {
+    // DR-4, DR-18: { projectionId: string, cause: string, fallbackSource: string }
+    // Emitted when workflow projection rehydration is degraded (e.g.
+    // reducer throw, corrupt snapshot, missing event stream). The cause
+    // records why the degraded path was taken, and fallbackSource identifies
+    // the alternative data source that serviced the request (e.g.
+    // "state-store-only", "full-replay").
+    expect(EventTypes).toContain('workflow.projection_degraded');
+
+    const schema = EVENT_DATA_SCHEMAS['workflow.projection_degraded' as typeof EventTypes[number]];
+    expect(schema).toBeDefined();
+
+    const result = schema!.safeParse({
+      projectionId: 'proj-001',
+      cause: 'reducer-throw',
+      fallbackSource: 'state-store-only',
+    });
+    expect(result.success, JSON.stringify(result)).toBe(true);
+  });
+
+  it('ProjectionDegraded_ExposedInEmissionGuide_True', () => {
+    // DR-18: projection_degraded is a server-emitted degradation signal.
+    // It must be registered in EVENT_EMISSION_REGISTRY (the emission-guide
+    // enumeration) with an 'auto' source, matching the T005
+    // workflow.checkpoint_requested precedent for infrastructure-emitted events.
+    expect(EVENT_EMISSION_REGISTRY).toHaveProperty('workflow.projection_degraded');
+    expect(EVENT_EMISSION_REGISTRY['workflow.projection_degraded']).toBe('auto');
+
+    // Also surface via the serializeEventCatalog emission guide output.
+    const catalog = serializeEventCatalog();
+    expect(catalog.bySource.auto).toContain('workflow.projection_degraded');
   });
 });
