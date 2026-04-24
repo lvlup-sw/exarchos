@@ -230,3 +230,227 @@ describe('rehydration reducer — workflow events fold (T024, DR-3)', () => {
     expect(RehydrationDocumentSchema.safeParse(next).success).toBe(true);
   });
 });
+
+describe('rehydration reducer — artifacts fold (T025, DR-3)', () => {
+  // The plan references `workflow.set` as the artifacts source, but that event
+  // type is NOT registered in the event-store. Artifacts are in fact recorded
+  // via `state.patched` events whose `data.patch.artifacts` record mirrors the
+  // workflow state's `ArtifactsSchema` (design, plan, pr, …). See
+  // `servers/exarchos-mcp/src/workflow/tools.ts` (~L759) where
+  // `exarchos_workflow set` appends `state.patched { data: { patch } }`.
+  it('Rehydration_Given_StatePatchedWithArtifacts_When_Fold_Then_ArtifactsPopulated', () => {
+    // GIVEN: initial state
+    const initial = rehydrationReducer.initial;
+
+    // AND: a `state.patched` event carrying an `artifacts` subtree in its patch.
+    const patched = makeEvent(
+      'state.patched',
+      {
+        featureId: 'feat-42',
+        fields: ['artifacts'],
+        patch: {
+          artifacts: {
+            design: 'docs/designs/2026-04-23-rehydrate-foundation.md',
+            plan: 'docs/plans/2026-04-23-rehydrate-foundation.md',
+          },
+        },
+      },
+      1,
+    );
+
+    // WHEN: we fold the event
+    const next = rehydrationReducer.apply(initial, patched);
+
+    // THEN: artifacts keys are populated
+    expect(next.artifacts).toMatchObject({
+      design: 'docs/designs/2026-04-23-rehydrate-foundation.md',
+      plan: 'docs/plans/2026-04-23-rehydrate-foundation.md',
+    });
+    // AND: projectionSequence was incremented
+    expect(next.projectionSequence).toBe(1);
+    // AND: the document still conforms to the schema
+    expect(RehydrationDocumentSchema.safeParse(next).success).toBe(true);
+    // AND: purity — initial was not mutated
+    expect(initial.artifacts).toEqual({});
+  });
+
+  it('Rehydration_Given_StatePatchedArtifactsTwice_When_Fold_Then_KeysMergedLastWins', () => {
+    // GIVEN: a state with an initial `design` artifact
+    const initial = rehydrationReducer.initial;
+    const first = makeEvent(
+      'state.patched',
+      {
+        featureId: 'feat-42',
+        fields: ['artifacts'],
+        patch: { artifacts: { design: 'old-design.md' } },
+      },
+      1,
+    );
+    const afterFirst = rehydrationReducer.apply(initial, first);
+
+    // WHEN: a second patch both overwrites `design` and adds `plan`
+    const second = makeEvent(
+      'state.patched',
+      {
+        featureId: 'feat-42',
+        fields: ['artifacts'],
+        patch: { artifacts: { design: 'new-design.md', plan: 'plan.md' } },
+      },
+      2,
+    );
+    const next = rehydrationReducer.apply(afterFirst, second);
+
+    // THEN: both keys are present, design is overwritten, plan is added
+    expect(next.artifacts).toEqual({
+      design: 'new-design.md',
+      plan: 'plan.md',
+    });
+    expect(next.projectionSequence).toBe(2);
+  });
+
+  it('Rehydration_Given_StatePatchedWithoutArtifacts_When_Fold_Then_Unchanged', () => {
+    // GIVEN: initial state
+    const initial = rehydrationReducer.initial;
+    // WHEN: a `state.patched` without an artifacts subtree is folded
+    const patched = makeEvent(
+      'state.patched',
+      {
+        featureId: 'feat-42',
+        fields: ['tasks'],
+        patch: { tasks: [] },
+      },
+      1,
+    );
+    const next = rehydrationReducer.apply(initial, patched);
+    // THEN: artifacts and projectionSequence are unchanged (no-op)
+    expect(next.artifacts).toEqual({});
+    expect(next.projectionSequence).toBe(0);
+    expect(next).toBe(initial);
+  });
+
+  it('Rehydration_Given_StatePatchedArtifactsWithNonStringValue_When_Fold_Then_ValueSkipped', () => {
+    // GIVEN: initial state
+    const initial = rehydrationReducer.initial;
+    // AND: a patch carrying a null artifact (matches nullable ArtifactsSchema in
+    // workflow state) — the rehydration projection's ArtifactsSchema requires
+    // string values, so null entries must be skipped, not coerced.
+    const patched = makeEvent(
+      'state.patched',
+      {
+        featureId: 'feat-42',
+        fields: ['artifacts'],
+        patch: { artifacts: { design: null, plan: 'plan.md' } },
+      },
+      1,
+    );
+    const next = rehydrationReducer.apply(initial, patched);
+    // THEN: only the string-valued key is folded in
+    expect(next.artifacts).toEqual({ plan: 'plan.md' });
+    expect(RehydrationDocumentSchema.safeParse(next).success).toBe(true);
+  });
+});
+
+describe('rehydration reducer — blockers fold (T025, DR-3)', () => {
+  // The plan references `task.blocked` and `review.failed` as sources. Neither
+  // event type is registered. The nearest registered events that capture a
+  // blocking condition are:
+  //   - `review.completed` with `verdict === 'blocked'` (per ReviewCompletedData)
+  //   - `review.escalated` (any occurrence — escalation is inherently a blocker)
+  //   - `workflow.guard-failed` (a guard rejection blocks a transition)
+  // We fold these three into `blockers`.
+  it('Rehydration_Given_ReviewCompletedBlocked_When_Fold_Then_BlockerAppended', () => {
+    // GIVEN: initial state
+    const initial = rehydrationReducer.initial;
+    // AND: a `review.completed` event with a `blocked` verdict
+    const reviewed = makeEvent(
+      'review.completed',
+      {
+        stage: 'quality-review',
+        verdict: 'blocked',
+        findingsCount: 2,
+        summary: 'Blocking: missing ADR for new public API',
+      },
+      1,
+    );
+    // WHEN: we fold the event
+    const next = rehydrationReducer.apply(initial, reviewed);
+    // THEN: a blocker entry is appended
+    expect(next.blockers).toHaveLength(1);
+    expect(next.projectionSequence).toBe(1);
+    expect(RehydrationDocumentSchema.safeParse(next).success).toBe(true);
+  });
+
+  it('Rehydration_Given_ReviewCompletedPass_When_Fold_Then_NoBlockerAdded', () => {
+    // GIVEN: initial state
+    const initial = rehydrationReducer.initial;
+    // AND: a `review.completed` event with a `pass` verdict
+    const reviewed = makeEvent(
+      'review.completed',
+      {
+        stage: 'spec-review',
+        verdict: 'pass',
+        findingsCount: 0,
+        summary: 'all good',
+      },
+      1,
+    );
+    const next = rehydrationReducer.apply(initial, reviewed);
+    // THEN: no blockers appended — pass verdicts are not blockers
+    expect(next.blockers).toEqual([]);
+    // AND: the event is not handled — projectionSequence stays at 0
+    expect(next.projectionSequence).toBe(0);
+    expect(next).toBe(initial);
+  });
+
+  it('Rehydration_Given_ReviewEscalated_When_Fold_Then_BlockerAppended', () => {
+    // GIVEN: initial state
+    const initial = rehydrationReducer.initial;
+    // AND: a `review.escalated` event (per ReviewEscalatedData)
+    const escalated = makeEvent(
+      'review.escalated',
+      {
+        pr: 7,
+        reason: 'critical security finding',
+        originalScore: 0.3,
+        triggeringFinding: 'hardcoded secret',
+      },
+      1,
+    );
+    const next = rehydrationReducer.apply(initial, escalated);
+    expect(next.blockers).toHaveLength(1);
+    expect(next.projectionSequence).toBe(1);
+    expect(RehydrationDocumentSchema.safeParse(next).success).toBe(true);
+  });
+
+  it('Rehydration_Given_WorkflowGuardFailed_When_Fold_Then_BlockerAppended', () => {
+    // GIVEN: initial state
+    const initial = rehydrationReducer.initial;
+    // AND: a `workflow.guard-failed` event (per WorkflowGuardFailedData)
+    const guard = makeEvent(
+      'workflow.guard-failed',
+      {
+        guard: 'designApproved',
+        from: 'design',
+        to: 'plan',
+        featureId: 'feat-42',
+      },
+      1,
+    );
+    const next = rehydrationReducer.apply(initial, guard);
+    expect(next.blockers).toHaveLength(1);
+    expect(next.projectionSequence).toBe(1);
+    expect(RehydrationDocumentSchema.safeParse(next).success).toBe(true);
+  });
+});
+
+// Decisions — no decision-producing event type is registered in the
+// event-store (no `decision.*` namespace, and `state.patched` does not surface
+// a canonical decisions subtree). Per the task spec, this sub-test is skipped
+// and the gap is documented in the completion report. If a decisions event
+// type is added later (e.g. `decision.recorded`), a follow-up task should
+// extend the reducer.
+describe.skip('rehydration reducer — decisions fold (T025, DR-3) — SKIPPED: no registered event source', () => {
+  it.skip('no registered event currently produces decisions', () => {
+    // placeholder
+  });
+});
