@@ -446,6 +446,15 @@ async function readSafetyRules(): Promise<string | undefined> {
  *
  * Any error (file system race, etc.) is swallowed — a version probe
  * must never break session startup. See task 2.3 design gap #2.
+ *
+ * ## Shared library contract (task 2.3)
+ *
+ * The drift-vs-advisory policy lives in `../lib/plugin-compat.ts`; this
+ * function and `handleVersionCheck` in `./version.ts` are the ONLY two
+ * call sites. Both funnel through the same
+ * `checkPluginRootCompatibility()` so the 250ms cold-start budget is
+ * preserved (no second hook process) and drift detection cannot diverge
+ * between the standalone subcommand and the per-session probe.
  */
 function probePluginRootCompat(): void {
   const pluginRoot = process.env.EXARCHOS_PLUGIN_ROOT;

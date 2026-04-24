@@ -10,6 +10,20 @@
 //   exit 1 — declared minBinaryVersion is newer than the running binary
 //            (drift — CI should fail).
 //
+// ## Shared library contract (task 2.3)
+//
+// This subcommand is one of TWO call sites for the compat library:
+//
+//   1. `handleVersionCheck` here — standalone `exarchos version
+//      --check-plugin-root` diagnostic with exit-code mapping.
+//   2. `probePluginRootCompat` in `../cli-commands/session-start.ts` —
+//      per-session, non-blocking, stderr-only warning.
+//
+// Both call `checkPluginRootCompatibility(pluginRoot, binaryVersion)`.
+// There is NO duplicated compat logic — the policy of what counts as
+// drift vs. advisory lives in `../lib/plugin-compat.ts`. Adding a third
+// call site should not copy the policy; it should call the library.
+//
 // Human-readable output:
 //   - compatible case: single stdout line confirming the match.
 //   - incompatible case: stderr message naming both versions.

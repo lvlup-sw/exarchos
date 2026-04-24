@@ -167,8 +167,31 @@ function toInt(s: string | undefined): number {
  * Check whether a plugin root's declared `metadata.compat.minBinaryVersion`
  * is satisfied by the running binary.
  *
- * See the module-level comment for the non-fatal-vs-fatal policy. Callers
- * are expected to:
+ * ## Non-fatal-vs-fatal policy
+ *
+ * This is the single source of truth for what counts as drift vs. an
+ * advisory. Both call sites (the `exarchos version --check-plugin-root`
+ * subcommand AND `handleSessionStart()`) call this function and respond
+ * to the structured `CompatResult` — neither duplicates the policy.
+ *
+ * | Condition                                      | compatible | minRequired | Treat as      |
+ * | ---------------------------------------------- | :--------: | :---------: | ------------- |
+ * | plugin root directory does not exist           |   `true`   |   `null`    | advisory      |
+ * | `.claude-plugin/plugin.json` missing           |   `true`   |   `null`    | advisory      |
+ * | plugin.json is not valid JSON                  |   `true`   |   `null`    | advisory      |
+ * | `metadata.compat.minBinaryVersion` absent      |   `true`   |   `null`    | advisory      |
+ * | binary `>=` declared `minBinaryVersion`        |   `true`   |   string    | OK            |
+ * | binary `<` declared `minBinaryVersion`         |   `false`  |   string    | drift (fatal) |
+ *
+ * "Advisory" = the version subcommand exits 0 but may emit an explanatory
+ * stderr line; session-start is completely silent (to avoid spamming every
+ * unplugged-from-the-plugin-system session).
+ *
+ * "Drift" = the version subcommand exits 1 (CI should fail); session-start
+ * emits a single-line stderr warning but continues normally (non-blocking
+ * per design gap #2).
+ *
+ * Callers are expected to:
  *   - render `message` to stderr in CLI contexts;
  *   - gate exit code on `compatible` when they care about blocking (the
  *     `version --check-plugin-root` subcommand maps `compatible: false`
