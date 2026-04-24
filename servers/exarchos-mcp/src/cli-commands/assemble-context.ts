@@ -82,6 +82,41 @@ interface TaskRow {
   readonly status: string;
 }
 
+/**
+ * Merge the reducer's `taskProgress` entries (authoritative status via the
+ * task.* event fold) with task titles from the state file. The reducer's
+ * entries only carry `{id, status}`; the state file has free-form `title`
+ * strings that predate this reducer and would otherwise be lost. When the
+ * reducer has no folded tasks, fall back to the state-file tasks alone
+ * (matches the pre-T058 shape for workflows that have not emitted any
+ * task.* events yet).
+ */
+function mergeTaskRows(
+  docTaskProgress: ReadonlyArray<{ readonly id: string; readonly status: string }> | undefined,
+  stateTasks: ReadonlyArray<Record<string, unknown>>,
+): TaskRow[] {
+  const stateTaskById = new Map<string, Record<string, unknown>>();
+  for (const t of stateTasks) {
+    const id = String(t.id ?? t.taskId ?? '');
+    if (id.length > 0) stateTaskById.set(id, t);
+  }
+
+  if (docTaskProgress && docTaskProgress.length > 0) {
+    return docTaskProgress.map((entry) => {
+      const stateTask = stateTaskById.get(entry.id);
+      const title =
+        stateTask && typeof stateTask.title === 'string' ? stateTask.title : entry.id;
+      return { taskId: entry.id, title, status: entry.status };
+    });
+  }
+
+  return stateTasks.map((t) => ({
+    taskId: String(t.id ?? t.taskId ?? ''),
+    title: String(t.title ?? ''),
+    status: String(t.status ?? ''),
+  }));
+}
+
 function formatTaskTable(tasks: TaskRow[], totalCount: number): string {
   const displayed = tasks.slice(0, MAX_TASK_ROWS);
   const lines: string[] = [
@@ -345,40 +380,14 @@ export async function handleAssembleContext(
     behavioralSection = renderPlaybook(playbook);
   }
 
-  // Task table. Prefer the reducer's taskProgress for status (it folds
-  // task.assigned / task.completed / task.failed), merge in titles from
-  // the state file (the reducer does not capture titles). Fall back to
-  // state file entries entirely if the reducer has no tasks.
-  const taskRows: TaskRow[] = [];
-  let totalTaskCount = 0;
-
+  // Task table — reducer's taskProgress (authoritative status) merged with
+  // state-file task titles. Helper keeps the main function flat.
   const stateTasks: Array<Record<string, unknown>> =
     stateData && Array.isArray(stateData.tasks)
       ? (stateData.tasks as Array<Record<string, unknown>>)
       : [];
-  const stateTaskById = new Map<string, Record<string, unknown>>();
-  for (const t of stateTasks) {
-    const id = String(t.id ?? t.taskId ?? '');
-    if (id.length > 0) stateTaskById.set(id, t);
-  }
-
-  if (doc && doc.taskProgress.length > 0) {
-    for (const entry of doc.taskProgress) {
-      const stateTask = stateTaskById.get(entry.id);
-      const title = stateTask && typeof stateTask.title === 'string' ? stateTask.title : entry.id;
-      taskRows.push({ taskId: entry.id, title, status: entry.status });
-    }
-    totalTaskCount = taskRows.length;
-  } else if (stateTasks.length > 0) {
-    for (const t of stateTasks) {
-      taskRows.push({
-        taskId: String(t.id ?? t.taskId ?? ''),
-        title: String(t.title ?? ''),
-        status: String(t.status ?? ''),
-      });
-    }
-    totalTaskCount = taskRows.length;
-  }
+  const taskRows = mergeTaskRows(doc?.taskProgress, stateTasks);
+  const totalTaskCount = taskRows.length;
 
   // Events section — formatted from the event stream query (the reducer
   // does not preserve the ordered event list; it folds into projection
