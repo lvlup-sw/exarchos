@@ -40,7 +40,10 @@ describe('handleWorkflow', () => {
         stateDir,
         ctx.eventStore,
       );
-      expect(result).toEqual({ success: true, data: { phase: 'init-result' } });
+      // T036: successful responses are wrapped in Envelope<T>
+      expect(result.success).toBe(true);
+      expect(result.data).toEqual({ phase: 'init-result' });
+      expect((result as Record<string, unknown>).next_actions).toEqual([]);
     });
   });
 
@@ -55,7 +58,9 @@ describe('handleWorkflow', () => {
         stateDir,
         ctx.eventStore,
       );
-      expect(result).toEqual({ success: true, data: { phase: 'get-result' } });
+      expect(result.success).toBe(true);
+      expect(result.data).toEqual({ phase: 'get-result' });
+      expect((result as Record<string, unknown>).next_actions).toEqual([]);
     });
   });
 
@@ -71,7 +76,9 @@ describe('handleWorkflow', () => {
         ctx.eventStore,
         undefined,
       );
-      expect(result).toEqual({ success: true, data: { phase: 'set-result' } });
+      expect(result.success).toBe(true);
+      expect(result.data).toEqual({ phase: 'set-result' });
+      expect((result as Record<string, unknown>).next_actions).toEqual([]);
     });
   });
 
@@ -86,7 +93,9 @@ describe('handleWorkflow', () => {
         stateDir,
         ctx.eventStore,
       );
-      expect(result).toEqual({ success: true, data: { phase: 'cancel-result' } });
+      expect(result.success).toBe(true);
+      expect(result.data).toEqual({ phase: 'cancel-result' });
+      expect((result as Record<string, unknown>).next_actions).toEqual([]);
     });
   });
 
@@ -101,7 +110,9 @@ describe('handleWorkflow', () => {
         stateDir,
         ctx.eventStore,
       );
-      expect(result).toEqual({ success: true, data: { reconciled: true, eventsApplied: 3 } });
+      expect(result.success).toBe(true);
+      expect(result.data).toEqual({ reconciled: true, eventsApplied: 3 });
+      expect((result as Record<string, unknown>).next_actions).toEqual([]);
     });
   });
 
