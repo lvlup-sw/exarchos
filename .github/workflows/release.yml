@@ -46,7 +46,18 @@ jobs:
       - run: npm run build
 
       - name: Publish to npm
-        run: npm publish --access public
+        # Prerelease tags (e.g. v2.9.0-rc.1) must NOT land under the default
+        # `latest` dist-tag — that would silently upgrade stable consumers.
+        # npm itself refuses such a publish, but we set the right tag rather
+        # than relying on the safety net: a SemVer with a `-…` suffix in the
+        # tag name routes to the `rc` dist-tag; everything else lands on
+        # `latest` as before.
+        run: |
+          if [[ "${{ github.ref_name }}" == *-* ]]; then
+            npm publish --access public --tag rc
+          else
+            npm publish --access public
+          fi
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
