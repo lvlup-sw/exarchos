@@ -95,26 +95,39 @@ function mergeTaskRows(
   docTaskProgress: ReadonlyArray<{ readonly id: string; readonly status: string }> | undefined,
   stateTasks: ReadonlyArray<Record<string, unknown>>,
 ): TaskRow[] {
-  const stateTaskById = new Map<string, Record<string, unknown>>();
-  for (const t of stateTasks) {
-    const id = String(t.id ?? t.taskId ?? '');
-    if (id.length > 0) stateTaskById.set(id, t);
+  // Walk stateTasks first so the rendered order matches the plan file's
+  // task order, then overlay reducer-supplied statuses on top. Tasks present
+  // in stateTasks but not yet in docTaskProgress (no task.* events emitted)
+  // surface as their declared status, so planned-but-not-started tasks no
+  // longer disappear from `context.md` once the reducer has folded the
+  // first event. (CodeRabbit PR #1178 review.)
+  const docStatusById = new Map<string, string>();
+  for (const entry of docTaskProgress ?? []) {
+    docStatusById.set(entry.id, entry.status);
   }
 
-  if (docTaskProgress && docTaskProgress.length > 0) {
-    return docTaskProgress.map((entry) => {
-      const stateTask = stateTaskById.get(entry.id);
-      const title =
-        stateTask && typeof stateTask.title === 'string' ? stateTask.title : entry.id;
-      return { taskId: entry.id, title, status: entry.status };
+  const seen = new Set<string>();
+  const rows: TaskRow[] = [];
+  for (const t of stateTasks) {
+    const id = String(t.id ?? t.taskId ?? '');
+    if (id.length === 0) continue;
+    seen.add(id);
+    rows.push({
+      taskId: id,
+      title: typeof t.title === 'string' ? t.title : id,
+      status: docStatusById.get(id) ?? String(t.status ?? ''),
     });
   }
 
-  return stateTasks.map((t) => ({
-    taskId: String(t.id ?? t.taskId ?? ''),
-    title: String(t.title ?? ''),
-    status: String(t.status ?? ''),
-  }));
+  // Tasks that exist in the reducer but not in the state file (rare —
+  // task.* events without a corresponding plan entry) are appended at the
+  // end with the id as the title fallback.
+  for (const entry of docTaskProgress ?? []) {
+    if (seen.has(entry.id)) continue;
+    rows.push({ taskId: entry.id, title: entry.id, status: entry.status });
+  }
+
+  return rows;
 }
 
 function formatTaskTable(tasks: TaskRow[], totalCount: number): string {
@@ -197,6 +210,21 @@ function formatGitState(git: GitState): string {
   }
 
   return lines.join('\n');
+}
+
+function resolveStartedAt(
+  stateData: Record<string, unknown> | null,
+  events: ReadonlyArray<WorkflowEvent>,
+): string {
+  if (stateData && typeof stateData.startedAt === 'string' && stateData.startedAt.length > 0) {
+    return stateData.startedAt;
+  }
+  for (const ev of events) {
+    if (ev.type === 'workflow.started' && typeof ev.timestamp === 'string') {
+      return ev.timestamp;
+    }
+  }
+  return 'unknown';
 }
 
 async function formatArtifactRef(
@@ -450,13 +478,15 @@ export async function handleAssembleContext(
   const nextAction = computeNextAction(workflowType, phase);
   const nextActionSection = `### Next Action\n${nextAction}`;
 
-  // Header — startedAt is not on the canonical document (it's a property
-  // of the `workflow.started` event timestamp, not the folded projection
-  // state). We preserve the legacy "unknown" sentinel rather than
-  // reviving a second event-store walk just to surface it.
+  // Header — start timestamp is sourced first from the state file (some
+  // workflows persist `startedAt` directly on state), then fallback to the
+  // earliest `workflow.started` event in the queried event tail. The
+  // "unknown" sentinel only surfaces when neither source has it. (CodeRabbit
+  // PR #1178 review — previously hardcoded.)
+  const startedAt = resolveStartedAt(stateData, recentEvents);
   const header = [
     `## Workflow Context: ${featureId}`,
-    `**Phase:** ${phase} | **Type:** ${workflowType} | **Started:** unknown`,
+    `**Phase:** ${phase} | **Type:** ${workflowType} | **Started:** ${startedAt}`,
   ].join('\n');
 
   const taskTable = taskRows.length > 0 ? formatTaskTable(taskRows, totalTaskCount) : '';

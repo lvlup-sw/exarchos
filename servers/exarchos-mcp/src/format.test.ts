@@ -12,7 +12,7 @@ import {
   ANTHROPIC_NATIVE_CACHING,
   createInMemoryResolver,
 } from './capabilities/resolver.js';
-import { STABLE_KEYS } from './projections/rehydration/serialize.js';
+import { STABLE_PREFIX_KEYS } from './projections/rehydration/serialize.js';
 
 describe('pickFields', () => {
   it('pickFields_TopLevelField_ReturnsValue', () => {
@@ -220,7 +220,7 @@ describe('wrapWithPassthrough — diagnostic side-channels (CodeRabbit MEDIUM #1
 
 // ─── T051 (DR-14): Conditional cache_control hints ─────────────────────────
 //
-// The rehydration document (T050) has a stable prefix (`STABLE_KEYS`) and a
+// The rehydration document (T050) has a stable prefix (`STABLE_PREFIX_KEYS`) and a
 // volatile suffix (`VOLATILE_KEYS`). On Anthropic-native runtimes we signal
 // a cache boundary between the two so that the consumer can wrap their API
 // call with `cache_control: { type: "ephemeral", ttl: "1h" }`. JSON has no
@@ -240,7 +240,7 @@ describe('applyCacheHints (T051, DR-14)', () => {
       kind: 'ephemeral',
       ttl: '1h',
       type: 'cache_boundary',
-      position: `after:${STABLE_KEYS.join(',')}`,
+      position: `after:${STABLE_PREFIX_KEYS.join(',')}`,
     });
     // Rest of envelope untouched.
     expect(hinted.success).toBe(true);

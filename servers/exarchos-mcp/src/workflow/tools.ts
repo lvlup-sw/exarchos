@@ -1080,11 +1080,13 @@ export async function handleCheckpoint(
     };
 
     // `byteSize` is the on-disk cost of this record as a JSONL line — the
-    // same serialization `appendSnapshot` writes. We compute it pre-write so
-    // the `workflow.checkpoint_written` event can be emitted with the exact
-    // size observers will see on disk.
+    // same serialization `appendSnapshot` writes, including the trailing
+    // newline that delimits records (CodeRabbit PR #1178 — without the `\n`
+    // we underreported by 1 byte per record). We compute it pre-write so the
+    // `workflow.checkpoint_written` event can be emitted with the exact size
+    // observers will see on disk.
     const serialized = JSON.stringify(snapshotRecord);
-    const byteSize = Buffer.byteLength(serialized, 'utf8');
+    const byteSize = Buffer.byteLength(`${serialized}\n`, 'utf8');
 
     try {
       appendSnapshot(stateDir, input.featureId, snapshotRecord);
@@ -1109,10 +1111,16 @@ export async function handleCheckpoint(
           byteSize,
         },
       }, {
-        // Idempotency: one written event per (feature, projection, sequence).
-        // Repeated checkpoints at the same projectionSequence (a cold rerun
-        // that produced no new events) collapse to one event per that pair.
-        idempotencyKey: `${input.featureId}:checkpoint_written:${REHYDRATION_PROJECTION_ID}:${document.projectionSequence}`,
+        // Idempotency: one written event per (feature, projection, absorbed
+        // sequence). `document.projectionSequence` only advances on events
+        // the reducer handled, so two snapshots that absorbed different sets
+        // of *unhandled* events would collide on the same key and the second
+        // legitimate `workflow.checkpoint_written` would be silently
+        // suppressed. Keying off `lastEventSequence` (the highest event-store
+        // sequence absorbed into the snapshot — also stored as
+        // `SnapshotRecord.sequence`) keeps each fresh on-disk snapshot
+        // observable. (CodeRabbit PR #1178 review.)
+        idempotencyKey: `${input.featureId}:checkpoint_written:${REHYDRATION_PROJECTION_ID}:${lastEventSequence}`,
       });
     } catch (err) {
       return {

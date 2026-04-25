@@ -35,6 +35,22 @@ export const STABLE_KEYS = Object.keys(StableSectionsSchema.shape) as ReadonlyAr
 >;
 
 /**
+ * Full stable prefix order, as it appears in the serialized document. Includes
+ * the top-level discriminators (`v`, `projectionSequence`) that lead the
+ * canonical layout but are not part of `StableSectionsSchema`.
+ *
+ * The cache-boundary `position` string emitted by `applyCacheHints`
+ * (DR-14) reads from this constant — without `v` and `projectionSequence` the
+ * advertised boundary would lie about where the stable bytes actually end
+ * (sentry[bot] PR #1178#discussion_r3142469093).
+ */
+export const STABLE_PREFIX_KEYS: ReadonlyArray<string> = [
+  'v',
+  'projectionSequence',
+  ...STABLE_KEYS,
+];
+
+/**
  * Top-level volatile section keys, in canonical serialization order.
  */
 export const VOLATILE_KEYS = Object.keys(VolatileSectionsSchema.shape) as ReadonlyArray<

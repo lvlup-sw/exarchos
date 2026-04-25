@@ -405,14 +405,17 @@ export async function handleRehydrate(
       REHYDRATION_PROJECTION_ID,
       REHYDRATION_PROJECTION_VERSION,
     );
-    // Additional corruption check: `readLatestSnapshot` silently skips
-    // unparseable / schema-invalid lines and returns `undefined` when no
-    // line matches. That behavior is tolerant by design, but at the
-    // handler layer we need to distinguish "sidecar present but unusable"
-    // from "no snapshot written yet". If the sidecar file exists and has
-    // any corruption, degrade; otherwise the `undefined` path is the
-    // legitimate "cold read, no prior snapshot" case.
-    if (snapshot === undefined && sidecarIsCorrupt(stateDir, featureId)) {
+    // Sidecar corruption check runs on every read, regardless of whether
+    // `readLatestSnapshot` returned a usable record (CodeRabbit PR #1178).
+    // The reader walks lines greedily and returns the latest valid record;
+    // if a sidecar contains a mix of valid and malformed lines (truncated
+    // tail, partial write, manual edit), the reader silently trusts the
+    // last good line — but the file as a whole has lost the
+    // append-only guarantee and a later read could surface a different
+    // record depending on where the corruption falls. Detect that here and
+    // degrade so the caller rebuilds from the event log instead of
+    // delivering a record that may be silently superseded.
+    if (sidecarIsCorrupt(stateDir, featureId)) {
       throw new SnapshotCorruptError(
         `snapshot sidecar for ${featureId} is unreadable`,
       );

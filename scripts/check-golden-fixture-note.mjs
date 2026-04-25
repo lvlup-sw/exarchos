@@ -134,6 +134,13 @@ function runCli(argv) {
     const value = argv[i + 1];
     switch (flag) {
       case '--body':
+        // Guard against missing value or accidental flag-swallowing: if the
+        // next token is absent or itself looks like a flag (`-...`), the
+        // user almost certainly forgot to supply `--body`'s argument.
+        // (CodeRabbit PR #1178 review.)
+        if (value === undefined || value.startsWith('-')) {
+          return usage('--body requires a string value');
+        }
         body = value;
         i++;
         break;

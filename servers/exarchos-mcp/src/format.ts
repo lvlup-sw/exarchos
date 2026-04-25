@@ -7,7 +7,7 @@ import {
   ANTHROPIC_NATIVE_CACHING,
   type CapabilityResolver,
 } from './capabilities/resolver.js';
-import { STABLE_KEYS } from './projections/rehydration/serialize.js';
+import { STABLE_PREFIX_KEYS } from './projections/rehydration/serialize.js';
 
 export interface PerfMetrics {
   readonly ms: number;
@@ -93,7 +93,8 @@ export interface Envelope<T> {
  * their API call with `cache_control: { type: "ephemeral", ttl: "1h" }`
  * around the stable prefix; consumers that don't understand it ignore
  * the field. `position` is a deterministic string derived from
- * `STABLE_KEYS` (T050) so the boundary tracks the canonical serializer.
+ * `STABLE_PREFIX_KEYS` (T050) so the boundary tracks the canonical
+ * serializer — including the leading `v` / `projectionSequence` discriminators.
  */
 export interface CacheHints {
   readonly type: 'cache_boundary';
@@ -186,6 +187,14 @@ export function wrapWithPassthrough<T>(
   if (source._corrections !== undefined) {
     passthrough._corrections = source._corrections;
   }
+  // `_eventHints` is part of the Envelope shape but populated on the source
+  // ToolResult by handlers that emit events (the field name and shape are
+  // identical on both types). Forward when present so composite wrapping
+  // doesn't strip per-action event acks. (CodeRabbit PR #1178 review.)
+  const sourceWithHints = source as ToolResult & { _eventHints?: unknown };
+  if (sourceWithHints._eventHints !== undefined) {
+    passthrough._eventHints = sourceWithHints._eventHints;
+  }
   if (Object.keys(passthrough).length === 0) {
     return envelope as unknown as ToolResult;
   }
@@ -205,8 +214,8 @@ export function wrapWithPassthrough<T>(
  * Kept as a post-wrap composite helper (mirroring the T041
  * `next-actions-from-result` pattern) so that `wrap()` stays pure and
  * the runtime-detection concern lives at the composite boundary. The
- * `position` field is derived from the canonical `STABLE_KEYS` order
- * (T050) so the boundary string tracks the serializer without
+ * `position` field is derived from the canonical `STABLE_PREFIX_KEYS`
+ * order (T050) so the boundary string tracks the serializer without
  * duplicating the ordering policy.
  *
  * @example
@@ -222,7 +231,12 @@ export function applyCacheHints<T>(
   }
   const hints: CacheHints = {
     type: 'cache_boundary',
-    position: `after:${STABLE_KEYS.join(',')}`,
+    // Position must enumerate the entire stable prefix as it appears in the
+    // serialized document, including the leading `v` / `projectionSequence`
+    // discriminators (sentry[bot] PR #1178#discussion_r3142469093). Pulled
+    // from the serializer's source-of-truth constant so the boundary string
+    // tracks any future re-ordering of the prefix.
+    position: `after:${STABLE_PREFIX_KEYS.join(',')}`,
     kind: 'ephemeral',
     ttl: '1h',
   };

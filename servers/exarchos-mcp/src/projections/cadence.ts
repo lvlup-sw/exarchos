@@ -54,6 +54,14 @@ export function resolveCadence(
   if (raw === undefined || raw === '') {
     return DEFAULT_SNAPSHOT_CADENCE;
   }
+  // Strict parse: `Number.parseInt('10abc', 10)` returns `10`, silently
+  // accepting trailing garbage. Require the entire string to match a
+  // positive-integer literal (no signs, no decimals, no leading zeros
+  // beyond a single `0` — though we then reject `0` as non-positive
+  // below). (CodeRabbit PR #1178 review.)
+  if (!/^\d+$/.test(raw)) {
+    return DEFAULT_SNAPSHOT_CADENCE;
+  }
   const parsed = Number.parseInt(raw, 10);
   if (!Number.isFinite(parsed) || parsed <= 0) {
     return DEFAULT_SNAPSHOT_CADENCE;

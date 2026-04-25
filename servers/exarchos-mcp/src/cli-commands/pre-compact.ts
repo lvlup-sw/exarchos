@@ -78,9 +78,15 @@ export async function handlePreCompact(
   // independent. Dispatch owns the snapshot write + event emission; we
   // additionally write `context.md` alongside so existing consumers can
   // read the assembled context after /clear.
-  await Promise.all(
+  //
+  // Per-workflow result tracking lets us fail closed when ANY checkpoint
+  // dispatch reports `success: false`: dispatch can fail structurally
+  // without throwing (CodeRabbit PR #1178 — duplicate of an earlier review),
+  // and proceeding to `/clear` after a failed checkpoint would mean the
+  // user loses context with no usable snapshot to rehydrate from.
+  const checkpointResults = await Promise.all(
     activeWorkflows.map(async ({ featureId }) => {
-      await dispatch(
+      const result = await dispatch(
         'exarchos_workflow',
         { action: 'checkpoint', featureId },
         ctx,
@@ -99,8 +105,21 @@ export async function handlePreCompact(
       } catch {
         // Graceful degradation
       }
+
+      return { featureId, ok: result.success === true, error: result.error };
     }),
   );
+
+  const failed = checkpointResults.filter((r) => !r.ok);
+  if (failed.length > 0) {
+    const summary = failed
+      .map((f) => `${f.featureId}: ${f.error?.message ?? 'unknown error'}`)
+      .join('; ');
+    return {
+      continue: false,
+      stopReason: `Checkpoint failed for ${failed.length}/${activeWorkflows.length} active workflow(s); /clear is unsafe — ${summary}`,
+    };
+  }
 
   if (trigger === 'manual') {
     return { continue: true };
