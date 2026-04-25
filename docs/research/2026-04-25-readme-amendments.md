@@ -52,8 +52,7 @@ Persistent SDLC state for any AI coding agent. Survives `/clear`, auto-compactio
 A `plan.md` per feature. `CLAUDE.md` rewritten between sessions. Summaries scrawled before `/clear` so the next session has something to start from. Phases enforced by you reminding the agent. It works. It's also manual, and one long context window away from the agent ignoring all of it.
 
 ## Survives `/clear`
-
-```
+```bash
 You: continue the auth refactor we planned yesterday
 Agent: which workflow? checking exarchos…
        → /rehydrate auth-refactor
@@ -61,7 +60,6 @@ Agent: which workflow? checking exarchos…
          last commit on feature/auth-refactor,
          gates pending on tasks 5–7 (~2,500 tokens)
        → continuing from task 5
-```
 
 State doesn't live in your conversation. It lives in an append-only event log. `/rehydrate` is a projection that rebuilds the workflow document (phase, design, task table, gate results, last commit) for a fresh context window. Same place, no re-explaining.
 
