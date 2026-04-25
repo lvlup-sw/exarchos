@@ -79,9 +79,19 @@ describe('scripts/get-exarchos.ps1', () => {
       },
     );
 
-    expect(result.status, `stderr:\n${result.stderr}\nstdout:\n${result.stdout}`).toBe(0);
+    // Windows ARM64 is intentionally rejected in `Get-PlatformTarget`
+    // (Bun has no `bun-windows-arm64` cross-compile target). On an ARM64
+    // runner the dry-run is *expected* to exit non-zero with the
+    // "not yet supported" guidance — accept that as success.
     const combined = `${result.stdout}\n${result.stderr}`;
-    expect(combined).toMatch(/exarchos-windows-(x64|arm64)/);
+    if (process.arch === 'arm64' && process.platform === 'win32') {
+      expect(result.status).not.toBe(0);
+      expect(combined).toMatch(/Windows ARM64 is not yet supported/);
+      return;
+    }
+
+    expect(result.status, `stderr:\n${result.stderr}\nstdout:\n${result.stdout}`).toBe(0);
+    expect(combined).toMatch(/exarchos-windows-x64/);
     expect(combined).toMatch(/\.sha512/);
   });
 

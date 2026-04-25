@@ -443,12 +443,27 @@ export class SqliteBackend implements StorageBackend {
 
         this.stmts.updateOutboxConfirmed.run('confirmed', nowIso, row.id);
         sent++;
-      } catch {
+      } catch (err) {
         const newAttempts = row.attempts + 1;
+        // Preserve the original sender error in the `error` column so
+        // operators can diagnose retry storms without correlating
+        // against an external log. Truncate to keep one row's footprint
+        // bounded; longer payloads are still findable in the MCP
+        // server's pino log.
+        const rawMessage = err instanceof Error ? err.message : String(err);
+        const errorMessage = rawMessage.length > 512
+          ? `${rawMessage.slice(0, 509)}...`
+          : rawMessage;
 
         if (newAttempts >= MAX_OUTBOX_RETRIES) {
-          // Dead-letter after max retries
-          this.stmts.updateOutboxDeadLetter.run('dead-letter', nowIso, 'Max retries exceeded', row.id);
+          // Dead-letter after max retries — keep the most recent error
+          // so the dead-letter row carries the cause of death.
+          this.stmts.updateOutboxDeadLetter.run(
+            'dead-letter',
+            nowIso,
+            `Max retries exceeded: ${errorMessage}`,
+            row.id,
+          );
         } else {
           // Schedule retry with exponential backoff (computed against the
           // injected clock so tests can advance time deterministically
@@ -460,7 +475,7 @@ export class SqliteBackend implements StorageBackend {
             newAttempts,
             nowIso,
             nextRetry,
-            'Send failed',
+            errorMessage,
             row.id,
           );
         }

@@ -64,7 +64,11 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 echo "=== validate-no-legacy: NoLegacy_* shell assertions ==="
-bash "$SCRIPT_DIR/validate-no-legacy.test.sh"
+# Delegate the dead-code sweep to *this* rollup so the harness doesn't
+# run knip a second time (it's the slowest step in the suite — about 8s
+# on a warm cache). The harness honours NOLEGACY_SKIP_KNIP_RUN=1 by
+# emitting a "delegated" pass for `NoLegacy_DeadCodeSweep`.
+NOLEGACY_SKIP_KNIP_RUN=1 bash "$SCRIPT_DIR/validate-no-legacy.test.sh"
 
 echo
 echo "=== validate-no-legacy: knip dead-code sweep ==="

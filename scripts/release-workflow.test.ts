@@ -117,13 +117,11 @@ describe('Release workflow (task 2.7)', () => {
     const wf = loadReleaseWorkflow();
     const jobs = wf.jobs ?? {};
 
-    // The release pipeline must attach 10 assets to the GitHub Release:
-    // 5 binaries + 5 .sha512 sidecar files. We accept either a
-    // softprops/action-gh-release step (with a 10-entry `files` list) or
-    // an equivalent actions/upload-release-asset fan-out.
-    //
-    // We parse across all jobs because the publish step may live in a
-    // dedicated `publish-release` job that consumes matrix artifacts.
+    // The release pipeline must attach 10 specific assets to the
+    // GitHub Release: 5 binaries + 5 .sha512 sidecars. Counting only
+    // the total length would let a typo slip through (e.g. uploading
+    // `.sha256` sidecars or duplicate paths still summing to 10), so
+    // assert the exact path set instead.
     const allSteps: StepShape[] = [];
     for (const job of Object.values(jobs)) {
       for (const s of job.steps ?? []) {
@@ -134,35 +132,45 @@ describe('Release workflow (task 2.7)', () => {
     const ghReleaseSteps = allSteps.filter((s) =>
       (s.uses ?? '').startsWith('softprops/action-gh-release@'),
     );
-    const uploadAssetSteps = allSteps.filter((s) =>
-      (s.uses ?? '').startsWith('actions/upload-release-asset@'),
-    );
 
     // At least one publish mechanism must be present.
-    expect(ghReleaseSteps.length + uploadAssetSteps.length).toBeGreaterThan(0);
+    expect(ghReleaseSteps.length).toBeGreaterThan(0);
 
-    // Count advertised asset paths. softprops/action-gh-release accepts
-    // `files:` as a newline-delimited string or a YAML list.
-    let assetCount = 0;
-
+    // Collect `files:` entries from every gh-release step (string or
+    // YAML-list shape), then assert membership against the known list.
+    const advertisedAssets: string[] = [];
     for (const step of ghReleaseSteps) {
       const files = step.with?.['files'];
       if (typeof files === 'string') {
-        // Newline-delimited. Filter blanks/comments.
-        const lines = files
-          .split('\n')
-          .map((l) => l.trim())
-          .filter((l) => l.length > 0 && !l.startsWith('#'));
-        assetCount += lines.length;
+        for (const line of files.split('\n')) {
+          const trimmed = line.trim();
+          if (trimmed.length > 0 && !trimmed.startsWith('#')) {
+            advertisedAssets.push(trimmed);
+          }
+        }
       } else if (Array.isArray(files)) {
-        assetCount += files.length;
+        for (const f of files) advertisedAssets.push(String(f).trim());
       }
     }
 
-    assetCount += uploadAssetSteps.length;
-
-    // 5 binaries + 5 .sha512 sidecars.
-    expect(assetCount).toBe(10);
+    // Two-sided check: exact set membership + no duplicates. The order
+    // in `release.yml` is {binary, .sha512} per target, but this
+    // assertion is order-independent so reasonable reorderings don't
+    // break the gate while typos still do.
+    const expectedAssets = [
+      'dist/release/exarchos-linux-x64',
+      'dist/release/exarchos-linux-x64.sha512',
+      'dist/release/exarchos-linux-arm64',
+      'dist/release/exarchos-linux-arm64.sha512',
+      'dist/release/exarchos-darwin-x64',
+      'dist/release/exarchos-darwin-x64.sha512',
+      'dist/release/exarchos-darwin-arm64',
+      'dist/release/exarchos-darwin-arm64.sha512',
+      'dist/release/exarchos-windows-x64.exe',
+      'dist/release/exarchos-windows-x64.exe.sha512',
+    ];
+    expect(advertisedAssets.slice().sort()).toEqual(expectedAssets.slice().sort());
+    expect(new Set(advertisedAssets).size).toBe(advertisedAssets.length);
   });
 
   it('ReleaseWorkflow_TriggersOnTagPush', () => {

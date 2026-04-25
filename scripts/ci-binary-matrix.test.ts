@@ -21,6 +21,11 @@ import { readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import yaml from 'js-yaml';
+// Import from the side-effect-free targets module so vitest doesn't try
+// to resolve `bun` (a Bun-runtime-only import) when loading this file
+// under tsx — `scripts/build-binary.ts` itself can't be safely imported
+// from a non-Bun runner.
+import { TARGETS } from './build-binary-targets.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -88,11 +93,13 @@ describe('CI binary matrix wiring', () => {
       return '';
     });
 
-    expect(names).toContain('linux-x64');
-    expect(names).toContain('linux-arm64');
-    expect(names).toContain('darwin-x64');
-    expect(names).toContain('darwin-arm64');
-    expect(names).toContain('windows-x64');
+    // Derive the expected target list from the TARGETS tuple in
+    // `build-binary.ts` rather than hardcoding names — this is the whole
+    // point of the drift contract. If TARGETS is edited, this assertion
+    // updates automatically; the workflow YAML is the only side that can
+    // drift, and that's what the test exists to catch.
+    const expectedNames = TARGETS.map((t) => `${t.os}-${t.arch}`);
+    expect(names.slice().sort()).toEqual(expectedNames.slice().sort());
   });
 
   it('CiWorkflow_BinaryMatrix_UploadsArtifacts', () => {

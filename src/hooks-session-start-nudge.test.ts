@@ -85,6 +85,18 @@ describe('hooks/session-start.sh — behavior', () => {
   let tmpRoot: string;
   let stubDir: string;
 
+  /**
+   * Empty `stubDir` so the hermetic PATH contains no `exarchos` binary
+   * (or contains a freshly-written one in tests that install a stub).
+   * Each test calls this in its first line so leftover state from a
+   * prior test never bleeds into the next assertion.
+   */
+  function clearStubDir(): void {
+    for (const f of readdirSync(stubDir)) {
+      rmSync(join(stubDir, f), { force: true });
+    }
+  }
+
   beforeAll(() => {
     tmpRoot = mkdtempSync(join(tmpdir(), 'exarchos-nudge-test-'));
     stubDir = join(tmpRoot, 'stub-bin');
@@ -99,11 +111,7 @@ describe('hooks/session-start.sh — behavior', () => {
   });
 
   it('SessionStartNudge_BinaryMissing_EmitsInstallHint', () => {
-    // Empty stubDir: no `exarchos` anywhere on PATH.
-    // Clear stubDir in case a prior test populated it.
-    for (const f of readdirSync(stubDir)) {
-      rmSync(join(stubDir, f), { force: true });
-    }
+    clearStubDir();
 
     const result = runScript(hermeticEnv(stubDir));
 
@@ -117,9 +125,7 @@ describe('hooks/session-start.sh — behavior', () => {
 
   it('SessionStartNudge_BinaryMissing_ExitsZero', () => {
     // Same hermetic setup — binary absent.
-    for (const f of readdirSync(stubDir)) {
-      rmSync(join(stubDir, f), { force: true });
-    }
+    clearStubDir();
 
     const result = runScript(hermeticEnv(stubDir));
 
@@ -131,9 +137,7 @@ describe('hooks/session-start.sh — behavior', () => {
   it('SessionStartNudge_BinaryPresent_DelegatesToExarchos', () => {
     // Install a stub `exarchos` that echoes its args to stdout.
     // The script should `exec` it, so the child's stdout becomes the script's stdout.
-    for (const f of readdirSync(stubDir)) {
-      rmSync(join(stubDir, f), { force: true });
-    }
+    clearStubDir();
     const stubPath = join(stubDir, 'exarchos');
     writeFileSync(
       stubPath,
@@ -159,9 +163,7 @@ describe('hooks/session-start.sh — behavior', () => {
   it('SessionStartNudge_InstallUrl_EnvOverride_FlowsIntoHint', () => {
     // REFACTOR: EXARCHOS_INSTALL_URL overrides the default bootstrap URL
     // so CI and forks can test against alternate sources.
-    for (const f of readdirSync(stubDir)) {
-      rmSync(join(stubDir, f), { force: true });
-    }
+    clearStubDir();
 
     const env = hermeticEnv(stubDir);
     const overrideUrl = 'https://fork.example.com/bootstrap.sh';

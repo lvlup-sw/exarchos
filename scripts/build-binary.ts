@@ -42,42 +42,11 @@
  */
 import { $ } from 'bun';
 import { mkdirSync } from 'node:fs';
+import { TARGETS, type Target } from './build-binary-targets.js';
 
-export interface Target {
-  readonly os: 'linux' | 'darwin' | 'windows';
-  readonly arch: 'x64' | 'arm64';
-  readonly bunTarget:
-    | 'bun-linux-x64'
-    | 'bun-linux-arm64'
-    | 'bun-darwin-x64'
-    | 'bun-darwin-arm64'
-    | 'bun-windows-x64';
-}
-
-/**
- * Exhaustive cross-compile target matrix for the v2.9 install rewrite.
- *
- * Exported so the CI matrix (task 1.5) and downstream tooling can iterate
- * the same set of OS/arch pairs without re-declaring the tuple — single
- * source of truth prevents build/publish drift.
- *
- * DRIFT CONTRACT:
- *   - Mirrored by `binary-matrix.strategy.matrix.target` in
- *     `.github/workflows/ci.yml`, using the `os-arch` naming convention
- *     (e.g. `linux-x64`) for each entry.
- *   - `scripts/ci-binary-matrix.test.ts` is the enforcement gate: editing
- *     this tuple without updating the CI matrix (or vice versa) fails
- *     `npm run test:run`.
- *   - The 2.7 release workflow should also consume this export when it
- *     lands, so additions/removals propagate automatically.
- */
-export const TARGETS: readonly Target[] = [
-  { os: 'linux', arch: 'x64', bunTarget: 'bun-linux-x64' },
-  { os: 'linux', arch: 'arm64', bunTarget: 'bun-linux-arm64' },
-  { os: 'darwin', arch: 'x64', bunTarget: 'bun-darwin-x64' },
-  { os: 'darwin', arch: 'arm64', bunTarget: 'bun-darwin-arm64' },
-  { os: 'windows', arch: 'x64', bunTarget: 'bun-windows-x64' },
-] as const;
+// Re-export so existing importers of `./build-binary.js` keep working.
+export { TARGETS };
+export type { Target };
 
 function getHostTarget(): Target {
   // Refuse to coerce unknown hosts into supported targets — silently
@@ -143,15 +112,35 @@ function findTargetByName(name: string): Target {
   return match;
 }
 
-const wantAll = process.argv.includes('--all');
-const wantTarget = parseTargetFlag(process.argv);
-
-if (wantAll) {
-  for (const t of TARGETS) {
-    await buildOne(t);
+// Guard the side-effecting build invocation behind an entrypoint check so
+// `import { TARGETS } from './build-binary.js'` (e.g.
+// `scripts/ci-binary-matrix.test.ts`) doesn't kick off a real build.
+// `import.meta.main` is the bun-supplied "is this module the entry point"
+// signal — exactly what we need for a script that's also a library
+// surface for the contract test.
+//
+// Bun sets `import.meta.main = true` for the script invoked via
+// `bun run <file>`. When this module is imported as a library, the value
+// is `false` (or `undefined` under non-Bun runners like vitest's tsx),
+// so the dispatch below is skipped.
+declare global {
+  // Augment ImportMeta so the bun-only `main` field typechecks under tsc.
+  interface ImportMeta {
+    readonly main?: boolean;
   }
-} else if (wantTarget) {
-  await buildOne(findTargetByName(wantTarget));
-} else {
-  await buildOne(getHostTarget());
+}
+
+if (import.meta.main) {
+  const wantAll = process.argv.includes('--all');
+  const wantTarget = parseTargetFlag(process.argv);
+
+  if (wantAll) {
+    for (const t of TARGETS) {
+      await buildOne(t);
+    }
+  } else if (wantTarget) {
+    await buildOne(findTargetByName(wantTarget));
+  } else {
+    await buildOne(getHostTarget());
+  }
 }

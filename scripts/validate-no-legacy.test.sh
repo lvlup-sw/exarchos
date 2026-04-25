@@ -67,18 +67,21 @@ assert_file_absent \
   "src/install.test.ts"
 
 # Any live code importing './install' (.js or .ts) is a loose reference to the
-# deleted module. Scan src/ and servers/ — skip the matching sibling modules
-# install-skills and install-hooks, which are unrelated and surviving.
+# deleted module. The pattern is path-anchored — matching `install` must be
+# followed by `.js`, `.ts`, or the closing quote, so siblings like
+# `install-skills`, `install-hooks`, `install-plugin` are already excluded by
+# the regex itself. (An earlier `grep -v "install-skills|install-hooks|..."`
+# filter was a false-negative risk: it matched against the full grep output
+# *including the importing file's path*, which would have suppressed real
+# violations when the importer's filename happened to contain those tokens.)
 HITS=$(grep -rEn "from ['\"]\.+/install(\.js|\.ts)?['\"]" \
   "$REPO_ROOT/src" "$REPO_ROOT/servers" \
   --include='*.ts' --include='*.tsx' --include='*.mts' --include='*.cts' \
   2>/dev/null || true)
-# Exclude legitimate siblings: install-skills, install-hooks, install-plugin
-FILTERED=$(echo "$HITS" | grep -vE "install-skills|install-hooks|install-plugin" || true)
-if [[ -z "$FILTERED" ]]; then
+if [[ -z "$HITS" ]]; then
   pass "NoLegacy_NoImportsFromInstall"
 else
-  fail "NoLegacy_NoImportsFromInstall" "found live imports of deleted module: $FILTERED"
+  fail "NoLegacy_NoImportsFromInstall" "found live imports of deleted module: $HITS"
 fi
 
 # ============================================================
@@ -405,8 +408,16 @@ fi
 # clean. If the knip binary is not installed, the assertion conditionally
 # skips — CI always has the binary after `npm ci`, so this only yields on
 # bare-metal runs without the devDep.
+#
+# When this harness is invoked from the rollup runner
+# (`scripts/validate-no-legacy.sh`), the rollup already ran knip itself
+# at line 78 with the same flags. Honour `NOLEGACY_SKIP_KNIP_RUN=1` set
+# by the rollup to avoid running knip twice (it's the slowest step in
+# the suite — about 8s on a warm cache).
 KNIP_BIN="$REPO_ROOT/node_modules/.bin/knip"
-if [[ -x "$KNIP_BIN" ]]; then
+if [[ -n "${NOLEGACY_SKIP_KNIP_RUN:-}" ]]; then
+  pass "NoLegacy_DeadCodeSweep (skipped — delegated to scripts/validate-no-legacy.sh)"
+elif [[ -x "$KNIP_BIN" ]]; then
   # Match the rollup's scope: files + dependencies only (see
   # scripts/validate-no-legacy.sh for rationale).
   set +e

@@ -5,13 +5,17 @@ import { join } from 'node:path';
 const repoRoot = join(import.meta.dirname, '..');
 const contributingPath = join(repoRoot, 'CONTRIBUTING.md');
 
+function readContributing(): string {
+  expect(
+    existsSync(contributingPath),
+    'CONTRIBUTING.md must exist at repo root',
+  ).toBe(true);
+  return readFileSync(contributingPath, 'utf-8');
+}
+
 describe('CONTRIBUTING.md validation', () => {
   it('Contributing_MentionsBuildBinary', () => {
-    expect(
-      existsSync(contributingPath),
-      'CONTRIBUTING.md must exist at repo root',
-    ).toBe(true);
-    const content = readFileSync(contributingPath, 'utf-8');
+    const content = readContributing();
 
     expect(
       content,
@@ -39,8 +43,7 @@ describe('CONTRIBUTING.md validation', () => {
   });
 
   it('Contributing_LinksToBuildBinaryScript', () => {
-    expect(existsSync(contributingPath)).toBe(true);
-    const content = readFileSync(contributingPath, 'utf-8');
+    const content = readContributing();
     // Accept either `scripts/build-binary.ts` or `scripts/build-binary` (no ext).
     expect(
       /scripts\/build-binary(\.ts)?/.test(content),

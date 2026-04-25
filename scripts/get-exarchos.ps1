@@ -184,14 +184,34 @@ function Write-GithubPath {
     <#
     .SYNOPSIS
     Append $InstallDir as a new line to the file referenced by
-    $env:GITHUB_PATH. Mirrors the `echo "$dir" >> "$GITHUB_PATH"` pattern
-    used by GitHub Actions setup scripts.
+    $env:GITHUB_PATH if it isn't already present. Mirrors the
+    `echo "$dir" >> "$GITHUB_PATH"` pattern from GitHub Actions setup
+    scripts but stays idempotent — re-running this script (e.g. after a
+    cache miss or matrix retry) must not duplicate the directory in
+    PATH.
     #>
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][string]$GithubPathFile,
         [Parameter(Mandatory)][string]$InstallDir
     )
+
+    if (-not (Test-Path $GithubPathFile)) {
+        # GitHub Actions creates the file; create it ourselves if missing
+        # (e.g. local pwsh testing) so Get-Content below doesn't error.
+        New-Item -ItemType File -Path $GithubPathFile -Force | Out-Null
+    }
+
+    $existing = Get-Content -Path $GithubPathFile -ErrorAction SilentlyContinue
+    if ($null -ne $existing) {
+        foreach ($line in $existing) {
+            if ($line.Trim().Equals($InstallDir, [System.StringComparison]::OrdinalIgnoreCase)) {
+                # Already present — leave the file untouched so repeated
+                # runs don't grow PATH unbounded.
+                return
+            }
+        }
+    }
 
     Add-Content -Path $GithubPathFile -Value $InstallDir
 }

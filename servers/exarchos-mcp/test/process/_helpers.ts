@@ -118,14 +118,21 @@ export function ensureBinaryBuilt(repoRoot: string): BinaryBuildResult {
     path.join(repoRoot, 'src'),
   ];
 
-  // Manifest + lockfile mtimes also matter: a `package.json`/`package-lock.json`
-  // edit can change the dependency graph that bun bundles even when no `.ts`
-  // file moved. Include them explicitly so dependency bumps trigger a rebuild.
+  // Manifest + lockfile mtimes also matter: a `package.json` /
+  // `package-lock.json` / `bun.lock` / `bun.lockb` edit can change the
+  // dependency graph that bun bundles even when no `.ts` file moved.
+  // Include both npm and bun lockfile shapes so a dep bump under either
+  // package manager triggers a rebuild — this repo uses npm at the root
+  // but bun owns the compiled-binary pipeline.
   const fileInputs = [
     path.join(repoRoot, 'package.json'),
     path.join(repoRoot, 'package-lock.json'),
+    path.join(repoRoot, 'bun.lock'),
+    path.join(repoRoot, 'bun.lockb'),
     path.join(repoRoot, 'servers', 'exarchos-mcp', 'package.json'),
     path.join(repoRoot, 'servers', 'exarchos-mcp', 'package-lock.json'),
+    path.join(repoRoot, 'servers', 'exarchos-mcp', 'bun.lock'),
+    path.join(repoRoot, 'servers', 'exarchos-mcp', 'bun.lockb'),
     path.join(repoRoot, 'servers', 'exarchos-mcp', 'tsconfig.json'),
     path.join(repoRoot, 'tsconfig.json'),
   ];
