@@ -1,9 +1,8 @@
 <div align="center">
   <img src="exarchos-logo.svg" alt="Exarchos" width="280" />
-
   **Your agents forget. Exarchos doesn't.**<br>
   Persistent SDLC state for any AI coding agent. Survives `/clear`, auto-compaction, and context overflow.<br>
-  First-class with Claude Code; works with Codex, Cursor, OpenCode, Copilot, and any agent that runs a CLI.
+  First-class with Claude Code, Codex, Cursor, OpenCode, Copilot; works with any agent that can run a CLI.
 
   [![CI](https://github.com/lvlup-sw/exarchos/actions/workflows/ci.yml/badge.svg)](https://github.com/lvlup-sw/exarchos/actions/workflows/ci.yml)
   [![npm version](https://img.shields.io/npm/v/@lvlup-sw/exarchos)](https://www.npmjs.com/package/@lvlup-sw/exarchos)
@@ -20,17 +19,28 @@ A `plan.md` per feature. `CLAUDE.md` rewritten between sessions. Summaries scraw
 
 ## Survives `/clear`
 
-```bash
-You: continue the auth refactor we planned yesterday
-Agent: which workflow? checking exarchos…
-       → /rehydrate auth-refactor
-       → restored: design approved, 4 of 7 tasks done,
-         last commit on feature/auth-refactor,
-         gates pending on tasks 5–7 (~2,500 tokens)
-       → continuing from task 5
+Return to any suspended workflow by running `/rehydrate`.
+
+```text
+❯ /exarchos:rehydrate payments-v2-migration
+
+Workflow Rehydrated: payments-v2-migration
+
+  Phase: implementing | Type: feature
+
+  Task Progress
+    4 of 7 complete · last commit on feature/payments-v2
+
+  Artifacts
+    Design: docs/designs/payments-v2.md
+    Plan:   docs/plans/payments-v2.md
+    PR:     not yet created
+
+  Next Action
+    Continue task 5 (gates pending). Run /delegate or pick up manually.
 ```
 
-State doesn't live in your conversation. It lives in an append-only event log. `/rehydrate` is a projection that rebuilds the workflow document (phase, design, task table, gate results, last commit) for a fresh context window. Same place, no re-explaining.
+State doesn't live in your conversation. It lives in an append-only event log. `/rehydrate` is a projection that rebuilds the workflow document for a fresh context window. The whole thing fits in about 2,500 tokens.
 
 ## Your plan.md workflow, with teeth
 
@@ -59,17 +69,9 @@ The CLI is the universal surface. Each runtime talks to it through whichever inv
 | **GitHub Copilot CLI** | CLI | First-class | Via Copilot's runtime |
 | Anything else | CLI | Generic bundle | Whatever your agent supports |
 
-```bash
-exarchos install-skills
-```
-
-Auto-detects which runtime is on your `PATH` and installs the matching skill bundle. One match installs that bundle. Multiple matches prompt you to pick. No match installs the generic bundle and tells you what it found and why. Skip detection with `--agent claude` (or `codex`, `opencode`, `copilot`, `cursor`, `generic`).
-
-The Claude Code plugin is convenience for that runtime. The product is the CLI.
-
 ## Install
 
-The CLI is the universal surface. The plugin is sugar for Claude Code.
+The CLI works universally. For Claude Code, the recommended install path is the plugin.
 
 **Standalone CLI / MCP server (any agent, any runtime):**
 
@@ -79,16 +81,24 @@ curl -fsSL https://lvlup-sw.github.io/exarchos/get-exarchos.sh | bash
 
 # Windows (PowerShell)
 irm https://lvlup-sw.github.io/exarchos/get-exarchos.ps1 | iex
-
-# Verify + run as MCP server over stdio
-exarchos --version
-exarchos doctor
-exarchos mcp
 ```
 
-A self-contained ~98 MB binary at `~/.local/bin/exarchos`. No Node, npm, or Bun required. The installer pins SHA-512, appends `~/.local/bin` to your shell rc files (idempotent), and resolves the latest GitHub Release. Pin a specific tag with `--version v2.9.0-rc.1`; other modes: `--dry-run`, `--github-actions`.
+### Verification
+```bash
+exarchos --version
+exarchos doctor
+exarchos mcp	// starts MCP server over stdio
+```
 
-**Claude Code plugin (Tier 1 ergonomics):**
+### Install Skills
+
+```bash
+exarchos install-skills
+```
+
+Auto-detects which runtime is on your `PATH` and installs the matching skill bundle. One match installs that bundle. Multiple matches prompt you to pick. No match installs the generic bundle and tells you what it found and why. Skip detection with `--agent claude` (or `codex`, `opencode`, `copilot`, `cursor`, `generic`).
+
+### Claude Code plugin
 
 ```bash
 /plugin marketplace add lvlup-sw/.github
