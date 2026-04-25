@@ -55,8 +55,13 @@ function assertEnvelopeShape(result: unknown): void {
   expect(result).not.toBeNull();
   const env = result as Record<string, unknown>;
 
-  // success: boolean
-  expect(typeof env.success).toBe('boolean');
+  // success: must be the literal `true`, not just any boolean. The
+  // happy-path tests below mock only successful handler results, so a
+  // wrapped error envelope reaching this assertion is a bug — the caller
+  // should branch and assert the error shape instead. (CodeRabbit on PR
+  // #1178: prior `typeof env.success === 'boolean'` accepted both
+  // `success: true` and `success: false` envelopes silently.)
+  expect(env.success).toBe(true);
 
   // data: any (must be present as own key, not undefined)
   expect(Object.hasOwn(env, 'data')).toBe(true);

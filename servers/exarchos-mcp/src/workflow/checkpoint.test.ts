@@ -455,4 +455,45 @@ describe('handleCheckpoint — materializes rehydration projection (T034, DR-6)'
       ).length,
     ).toBe(1);
   });
+
+  it('CheckpointHandler_HydrateThrows_ReturnsStructuredFailure', async () => {
+    // Sentry HIGH on PR #1178: `handleCheckpoint` previously called
+    // `hydrateFromSnapshotThenTail` and `appendSnapshot` unwrapped, so a
+    // mid-fold throw (transient EIO, sidecar permissions, event store
+    // crash) bubbled out of the dispatch envelope and left the workflow
+    // state file (counter reset) divergent from the event-store side.
+    // The fix wraps both in try/catch and returns
+    // PROJECTION_REPLAY_FAILED / SNAPSHOT_WRITE_FAILED. This test
+    // proves the hydrate path emits a structured error.
+    const featureId = 'wf-checkpoint-hydrate-throws';
+    const initResult = await handleInit(
+      { featureId, workflowType: 'feature' },
+      stateDir,
+      store,
+    );
+    expect(initResult.success).toBe(true);
+
+    // Inject a query failure deep inside hydrateFromSnapshotThenTail by
+    // patching the eventStore.query method just for the second call.
+    // The first call (during init) already happened; the next is from
+    // handleCheckpoint's hydrate.
+    const realQuery = store.query.bind(store);
+    let callCount = 0;
+    store.query = (async (...args) => {
+      callCount += 1;
+      if (callCount === 1) {
+        throw new Error('simulated mid-fold event store crash');
+      }
+      return realQuery(...(args as Parameters<typeof realQuery>));
+    }) as typeof store.query;
+
+    try {
+      const result = await handleCheckpoint({ featureId }, stateDir, store);
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe('PROJECTION_REPLAY_FAILED');
+      expect(result.error?.message).toMatch(/simulated mid-fold/);
+    } finally {
+      store.query = realQuery;
+    }
+  });
 });

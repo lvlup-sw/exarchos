@@ -313,16 +313,32 @@ Three modules implement the caching layer:
 
 - **`readLatestSnapshot(stateDir, streamId, projectionId, projectionVersion)`** —
   reads the JSONL sidecar `<stateDir>/<streamId>.projections.jsonl`, filters lines
-  by `projectionId` and `projectionVersion`, returns the record with the highest
-  `sequence`. Returns `undefined` on ENOENT or no matching record.
+  by exact `projectionId` and `projectionVersion` match (DR-2: any version
+  mismatch forces replay-from-zero), returns the record with the highest
+  `sequence`. Lines that fail JSON parse or schema validation are skipped.
+  Returns `undefined` on ENOENT or no matching record. `streamId` is rejected
+  if it contains `..`, path separators, or `\0` (path-traversal guard).
 
-- **`appendSnapshot(stateDir, streamId, record)`** — atomically appends a
-  `SnapshotRecord` line to the sidecar (tmp-file + `fsync` + `rename`). Single-writer
-  process; cross-process concurrency is out of scope.
+- **`appendSnapshot(stateDir, streamId, record)`** — read-modify-write with
+  atomic publish: reads the existing sidecar (if any), appends the new
+  `SnapshotRecord` line, applies the size cap, and writes the full result via
+  tmp-file + `fsync` + `rename`. The rename is atomic on POSIX, so readers
+  always see either the old or the new full file — never a partial. Single-
+  writer process; cross-process concurrency is out of scope.
 
 - **Pruning** — the sidecar is capped at `SNAPSHOT_MAX_RECORDS` (default 500,
-  configurable via env). Old lines are pruned during an `appendSnapshot` write to
-  prevent unbounded growth.
+  configurable via env). When an append would push the file past the cap,
+  oldest lines are pruned in one shot during the same atomic write so the
+  sidecar retains exactly `maxRecords` entries. A single WARN is emitted per
+  prune event via the structured logger.
+
+- **`SnapshotRecord.sequence`** — the highest **event-store sequence**
+  absorbed into `state` at write time. Distinct from the projection's
+  internal `projectionSequence` (a count of *handled* events): the two
+  diverge whenever the stream contains events the reducer doesn't fold,
+  and snapshot reads pass this field as `sinceSequence` to
+  `eventStore.query`. Storing the projection sequence here would cause
+  unhandled events between checkpoints to be re-fetched on every read.
 
 ### `projections/cadence.ts` — snapshot every N events
 

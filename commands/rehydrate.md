@@ -19,7 +19,7 @@ Restore full workflow awareness without starting a new session.
 
 Example MCP call:
 
-```
+```yaml
 exarchos_workflow
   action: "rehydrate"
   featureId: "<feature-id>"

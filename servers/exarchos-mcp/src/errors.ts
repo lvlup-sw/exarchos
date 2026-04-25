@@ -28,6 +28,8 @@ const categoryMap: Record<string, ErrorCategory> = {
   COMPENSATION_PARTIAL: 'compensation',
   FILE_IO_ERROR: 'io',
   EVENT_APPEND_FAILED: 'io',
+  SNAPSHOT_WRITE_FAILED: 'io',
+  PROJECTION_REPLAY_FAILED: 'io',
   EVENT_MIGRATION_FAILED: 'state-lifecycle',
   EVENT_STORE_NOT_CONFIGURED: 'io',
 };
@@ -49,6 +51,8 @@ const recoveryMap: Record<string, string> = {
   COMPENSATION_PARTIAL: 'Some rollback steps failed — check logs and manually verify state',
   FILE_IO_ERROR: 'Check file permissions and disk space, then retry',
   EVENT_APPEND_FAILED: 'Check event store integrity and retry the operation',
+  SNAPSHOT_WRITE_FAILED: 'Check disk space and sidecar permissions; the next checkpoint call will retry the fold + write',
+  PROJECTION_REPLAY_FAILED: 'Check event store availability and snapshot sidecar integrity; the next checkpoint call will replay',
   VERSION_CONFLICT: 'Re-read current state and retry the operation with updated version',
   EVENT_MIGRATION_FAILED: 'Check event schemaVersion and ensure event migration path exists. Backup events available in .bak files.',
   EVENT_STORE_NOT_CONFIGURED: 'Ensure the MCP server is started with an event store configured. Reconcile requires event sourcing',
@@ -56,7 +60,14 @@ const recoveryMap: Record<string, string> = {
 
 // ─── Retryable Codes ────────────────────────────────────────────────────────
 
-const retryableCodes = new Set(['VERSION_CONFLICT', 'EVENT_APPEND_FAILED', 'FILE_IO_ERROR', 'CIRCUIT_OPEN']);
+const retryableCodes = new Set([
+  'VERSION_CONFLICT',
+  'EVENT_APPEND_FAILED',
+  'FILE_IO_ERROR',
+  'CIRCUIT_OPEN',
+  'SNAPSHOT_WRITE_FAILED',
+  'PROJECTION_REPLAY_FAILED',
+]);
 
 // ─── Public API ─────────────────────────────────────────────────────────────
 

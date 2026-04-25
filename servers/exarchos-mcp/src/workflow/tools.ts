@@ -1023,17 +1023,40 @@ export async function handleCheckpoint(
   // behind the new checkpoint.
   let projectionSequence: number | undefined;
   if (eventStore) {
-    const { state: document, lastEventSequence } = await hydrateFromSnapshotThenTail<
-      RehydrationDocument,
-      WorkflowEvent
-    >(
-      rehydrationReducer,
-      eventStore,
-      input.featureId,
-      stateDir,
-      REHYDRATION_PROJECTION_ID,
-      REHYDRATION_PROJECTION_VERSION,
-    );
+    // The hydrate-then-write block is the I/O-heavy part of checkpoint:
+    // event-store query, snapshot sidecar read, JSONL serialization,
+    // atomic temp-file write, rename. Any of those can throw on a
+    // healthy-looking process (transient EIO, EROFS, ENOSPC mid-fsync,
+    // sidecar permissions race). Catch them all and surface a structured
+    // failure rather than letting the exception bubble out of
+    // `handleCheckpoint` — the workflow state file (counter reset) has
+    // already been written above, so an unhandled throw here would leave
+    // disk state divergent from the dispatch envelope. (Sentry HIGH on
+    // PR #1178: tools.ts:1036 missing error handling around
+    // hydrateFromSnapshotThenTail and appendSnapshot.)
+    let document: RehydrationDocument;
+    let lastEventSequence: number;
+    try {
+      ({ state: document, lastEventSequence } = await hydrateFromSnapshotThenTail<
+        RehydrationDocument,
+        WorkflowEvent
+      >(
+        rehydrationReducer,
+        eventStore,
+        input.featureId,
+        stateDir,
+        REHYDRATION_PROJECTION_ID,
+        REHYDRATION_PROJECTION_VERSION,
+      ));
+    } catch (err) {
+      return {
+        success: false,
+        error: {
+          code: ErrorCode.PROJECTION_REPLAY_FAILED,
+          message: `hydrate-from-snapshot failed during checkpoint: ${err instanceof Error ? err.message : String(err)}`,
+        },
+      };
+    }
     projectionSequence = document.projectionSequence;
 
     // SnapshotRecord.sequence is the highest event-store sequence absorbed
@@ -1060,7 +1083,17 @@ export async function handleCheckpoint(
     const serialized = JSON.stringify(snapshotRecord);
     const byteSize = Buffer.byteLength(serialized, 'utf8');
 
-    appendSnapshot(stateDir, input.featureId, snapshotRecord);
+    try {
+      appendSnapshot(stateDir, input.featureId, snapshotRecord);
+    } catch (err) {
+      return {
+        success: false,
+        error: {
+          code: ErrorCode.SNAPSHOT_WRITE_FAILED,
+          message: `snapshot write failed during checkpoint: ${err instanceof Error ? err.message : String(err)}`,
+        },
+      };
+    }
 
     try {
       await eventStore.append(input.featureId, {
