@@ -521,7 +521,12 @@ export class SqliteBackend implements StorageBackend {
       }
 
       try {
-        const rows = this.db.query('PRAGMA integrity_check').all() as Array<{ integrity_check: string }>;
+        // bun:sqlite returns the PRAGMA integrity_check column unnamed
+        // (key is the empty string), unlike better-sqlite3 which keys it
+        // by the pragma name. The migration to bun:sqlite (v2.9) silently
+        // turned every verdict into '' under the old `rows[0]?.integrity_check`
+        // access, so the self-heal path always treated databases as healthy.
+        const rows = this.db.query('PRAGMA integrity_check').all() as Array<Record<string, string>>;
         if (signal) {
           signal.removeEventListener('abort', onAbort);
         }
@@ -529,7 +534,11 @@ export class SqliteBackend implements StorageBackend {
           onAbort();
           return;
         }
-        const verdict = rows[0]?.integrity_check ?? '';
+        const firstRow = rows[0];
+        const verdict =
+          firstRow?.integrity_check ?? // tolerate either-named driver
+          firstRow?.[''] ??             // bun:sqlite shape
+          '';
         resolve(verdict);
       } catch (err) {
         if (signal) {

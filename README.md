@@ -44,9 +44,16 @@ It ships as a Claude Code plugin and a standalone MCP server with a CLI adapter.
 
 > **No SSH key?** Use the HTTPS URL: `https://github.com/lvlup-sw/.github.git`
 
-**Standalone MCP server:**
+**Standalone CLI / MCP server (single-file binary):**
 ```bash
-npx @lvlup-sw/exarchos mcp
+# Unix (macOS / Linux)
+curl -fsSL https://raw.githubusercontent.com/lvlup-sw/exarchos/main/scripts/get-exarchos.sh | bash
+
+# Windows (PowerShell)
+irm https://raw.githubusercontent.com/lvlup-sw/exarchos/main/scripts/get-exarchos.ps1 | iex
+
+# Run as MCP server over stdio (after install)
+exarchos mcp
 ```
 
 ### Installing skills for your agent

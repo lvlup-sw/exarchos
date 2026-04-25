@@ -194,6 +194,11 @@ function Get-DownloadUrl {
     .SYNOPSIS
     Resolve the asset download URL for a given version/tier/asset-name.
     Version empty → /latest/download; non-empty → /download/<version>.
+
+    `staging` and `dev` are stubs in v2.9 — they emit a warning and fall
+    back to the `release` URL. This mirrors `scripts/get-exarchos.sh`
+    (line ~92) so the public flag stays self-documenting rather than
+    silently fetching the wrong binary.
     #>
     [CmdletBinding()]
     param(
@@ -201,6 +206,10 @@ function Get-DownloadUrl {
         [Parameter(Mandatory)][string]$Tier,
         [Parameter(Mandatory)][string]$AssetName
     )
+
+    if ($Tier -eq 'staging' -or $Tier -eq 'dev') {
+        Write-Warning "[exarchos] -Tier $Tier is a stub in v2.9 — falling back to release tier"
+    }
 
     $base = 'https://github.com/lvlup-sw/exarchos/releases'
 
@@ -215,7 +224,16 @@ function Get-DefaultInstallDir {
     if ($env:EXARCHOS_INSTALL_DIR) {
         return $env:EXARCHOS_INSTALL_DIR
     }
-    return (Join-Path $env:USERPROFILE '.exarchos\bin')
+    # USERPROFILE is the canonical Windows home variable, but Linux/macOS
+    # PowerShell (`pwsh`) leaves it unset. Fall back to the cross-platform
+    # $HOME automatic variable so dry-run smoke tests can exercise this
+    # script on non-Windows CI runners without erroring on a null Path.
+    $userHome = if (-not [string]::IsNullOrEmpty($env:USERPROFILE)) {
+        $env:USERPROFILE
+    } else {
+        $HOME
+    }
+    return (Join-Path $userHome '.exarchos/bin')
 }
 
 function Get-HostArchitecture {

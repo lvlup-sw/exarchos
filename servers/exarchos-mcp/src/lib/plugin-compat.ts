@@ -266,10 +266,19 @@ export function checkPluginRootCompatibility(
   };
 }
 
+// Loose semver gate: accept core (`X`, `X.Y`, `X.Y.Z`) with an optional
+// `-prerelease` and `+build` suffix and a leading `v`. Tightening to
+// strict semver would be unfriendly to plugins that pin a major or
+// major.minor; rejecting `banana` and `2.x` is sufficient.
+const SEMVER_LIKE = /^v?\d+(?:\.\d+){0,2}(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
+
 /**
  * Extract `metadata.compat.minBinaryVersion` from a parsed plugin.json
  * without any assumption that intermediate keys exist. Returns null when
- * the path is absent OR the leaf is not a non-empty string.
+ * the path is absent, the leaf is empty, OR the leaf is not semver-like.
+ *
+ * A malformed pin would otherwise reach `parseSemver()` which silently
+ * coerces invalid segments to 0 and falsely passes drift detection.
  */
 function extractMinBinaryVersion(parsed: unknown): string | null {
   if (!parsed || typeof parsed !== 'object') return null;
@@ -279,6 +288,9 @@ function extractMinBinaryVersion(parsed: unknown): string | null {
   const compat = (metadata as Record<string, unknown>).compat;
   if (!compat || typeof compat !== 'object') return null;
   const min = (compat as Record<string, unknown>).minBinaryVersion;
-  if (typeof min !== 'string' || min.length === 0) return null;
-  return min;
+  if (typeof min !== 'string') return null;
+  const normalized = min.trim();
+  if (normalized.length === 0) return null;
+  if (!SEMVER_LIKE.test(normalized)) return null;
+  return normalized;
 }

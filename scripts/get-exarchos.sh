@@ -194,15 +194,30 @@ resolve_latest_version() {
     printf '%s\n' "$tag"
 }
 
-if [ -z "$VERSION" ]; then
-    VERSION="$(resolve_latest_version)"
+# Defer the GitHub API call so `--dry-run` stays offline. Without this,
+# air-gapped hosts (or any environment with no GitHub egress) fail at
+# `resolve_latest_version` even when the user just wants to print the
+# install plan. We swap in `latest/download` placeholders for the URLs
+# below; the real install path resolves the concrete tag downstream.
+RESOLVED_VERSION=""
+if [ -n "$VERSION" ]; then
+    RESOLVED_VERSION="$VERSION"
+elif [ "$DRY_RUN" -ne 1 ]; then
+    RESOLVED_VERSION="$(resolve_latest_version)"
+    VERSION="$RESOLVED_VERSION"
 fi
 
 # ------------------------------------------------------------------
 # Install location
 # ------------------------------------------------------------------
 INSTALL_DIR="${EXARCHOS_INSTALL_DIR:-$HOME/.local/bin}"
-BINARY_URL="${GITHUB_RELEASES_BASE}/download/${VERSION}/${ASSET_NAME}"
+if [ -n "$RESOLVED_VERSION" ]; then
+    BINARY_URL="${GITHUB_RELEASES_BASE}/download/${RESOLVED_VERSION}/${ASSET_NAME}"
+else
+    # Dry-run with no pinned version — print the latest/download alias so
+    # the user can see the URL shape without paying for a network round-trip.
+    BINARY_URL="${GITHUB_RELEASES_BASE}/latest/download/${ASSET_NAME}"
+fi
 CHECKSUM_URL="${BINARY_URL}.sha512"
 BINARY_PATH="${INSTALL_DIR}/exarchos"
 
@@ -210,11 +225,12 @@ BINARY_PATH="${INSTALL_DIR}/exarchos"
 # Install plan (shared between dry-run and real run)
 # ------------------------------------------------------------------
 print_plan() {
+    local display_version="${VERSION:-<latest>}"
     cat <<EOF
 exarchos install plan
 ---------------------
   Platform:     ${OS}-${ARCH} (libc: ${LIBC})
-  Version:      ${VERSION}
+  Version:      ${display_version}
   Tier:         ${TIER}
   Asset:        ${ASSET_NAME}
   Binary URL:   ${BINARY_URL}

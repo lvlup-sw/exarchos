@@ -61,6 +61,12 @@ jobs:
       - uses: oven-sh/setup-bun@v2
 
       - run: npm ci
+      # The MCP server's deps must be present so `bun build --compile`
+      # can resolve `pino`, `commander`, `@modelcontextprotocol/sdk`,
+      # `zod`, and `yaml` when bundling `servers/exarchos-mcp/src/index.ts`
+      # (exercised by `scripts/build-binary.test.ts`).
+      - run: npm ci
+        working-directory: servers/exarchos-mcp
       - run: npm run typecheck
       - run: npm run test:run
       # skills:guard — rebuild the generated skills tree in-place and
@@ -89,6 +95,11 @@ jobs:
           node-version: '24'
           cache: npm
           cache-dependency-path: servers/exarchos-mcp/package-lock.json
+
+      # `compiled-binary-mcp.test.ts` shells out to
+      # `bun run scripts/build-binary.ts` from the repo root — bun must
+      # be on PATH or the spawn fails with `exit null`.
+      - uses: oven-sh/setup-bun@v2
 
       - run: npm ci
       - run: npx tsc --noEmit
@@ -133,6 +144,19 @@ jobs:
       - uses: actions/checkout@v4
 
       - uses: oven-sh/setup-bun@v2
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: servers/exarchos-mcp/package-lock.json
+
+      # Install MCP-server runtime deps so `bun build --compile` can
+      # resolve `pino`, `commander`, `@modelcontextprotocol/sdk`,
+      # `zod`, and `yaml` when bundling `servers/exarchos-mcp/src/index.ts`.
+      - name: Install MCP server dependencies
+        working-directory: servers/exarchos-mcp
+        run: npm ci
 
       - name: Build binary for ${{ matrix.target }}
         run: bun run scripts/build-binary.ts --target ${{ matrix.target }}

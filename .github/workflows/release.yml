@@ -85,6 +85,10 @@ jobs:
   # ─────────────────────────────────────────────────────────────────────
   binary-matrix:
     name: Binary Matrix (${{ matrix.target }})
+    # Only run for semver-shaped tags (vN.N.N[-pre]) — historical
+    # non-semver `v*` tags continue to drive the npm-only `release` job
+    # but must not produce or mutate GitHub Release assets.
+    if: startsWith(github.ref, 'refs/tags/v') && contains(github.ref_name, '.')
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -100,6 +104,16 @@ jobs:
       - uses: actions/checkout@v4
 
       - uses: oven-sh/setup-bun@v2
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: servers/exarchos-mcp/package-lock.json
+
+      - name: Install MCP server dependencies
+        working-directory: servers/exarchos-mcp
+        run: npm ci
 
       - name: Build binary for ${{ matrix.target }}
         run: bun run scripts/build-binary.ts --target ${{ matrix.target }}
@@ -152,6 +166,9 @@ jobs:
   # ─────────────────────────────────────────────────────────────────────
   publish-release:
     name: Publish GitHub Release assets
+    # Same semver guard as binary-matrix — non-semver `v*` tags must not
+    # publish GitHub Release artefacts.
+    if: startsWith(github.ref, 'refs/tags/v') && contains(github.ref_name, '.')
     needs: binary-matrix
     runs-on: ubuntu-latest
     steps:
@@ -190,7 +207,9 @@ jobs:
           fi
 
       - name: Publish release assets
-        uses: softprops/action-gh-release@v1
+        # softprops/action-gh-release v1 is unmaintained and pre-Node-20.
+        # v2 is the maintained line built for the current runner image.
+        uses: softprops/action-gh-release@v2
         with:
           fail_on_unmatched_files: true
           # Release body template — advertises the two bootstrap scripts

@@ -80,13 +80,27 @@ export const TARGETS: readonly Target[] = [
 ] as const;
 
 function getHostTarget(): Target {
-  const os =
-    process.platform === 'darwin'
-      ? 'darwin'
-      : process.platform === 'win32'
-        ? 'windows'
-        : 'linux';
-  const arch: 'x64' | 'arm64' = process.arch === 'arm64' ? 'arm64' : 'x64';
+  // Refuse to coerce unknown hosts into supported targets — silently
+  // building a Linux binary on, say, OpenBSD would produce something that
+  // can't run locally and obscures the configuration error.
+  let os: Target['os'];
+  if (process.platform === 'darwin') {
+    os = 'darwin';
+  } else if (process.platform === 'win32') {
+    os = 'windows';
+  } else if (process.platform === 'linux') {
+    os = 'linux';
+  } else {
+    throw new Error(`unsupported host platform: ${process.platform}`);
+  }
+
+  let arch: Target['arch'];
+  if (process.arch === 'x64' || process.arch === 'arm64') {
+    arch = process.arch;
+  } else {
+    throw new Error(`unsupported host arch: ${process.arch}`);
+  }
+
   const match = TARGETS.find((t) => t.os === os && t.arch === arch);
   if (!match) {
     throw new Error(`unsupported host platform: ${os}-${arch}`);

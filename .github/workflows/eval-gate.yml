@@ -44,7 +44,7 @@ jobs:
       - name: Run Regression Evals
         working-directory: servers/exarchos-mcp
         run: |
-          echo '{"ci": true, "layer": "regression"}' | node dist/cli.js eval-run
+          echo '{"ci": true, "layer": "regression"}' | node dist/evals/run-evals-cli.js
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           EVALS_DIR: ../../evals
@@ -53,7 +53,7 @@ jobs:
         working-directory: servers/exarchos-mcp
         continue-on-error: true
         run: |
-          echo '{"ci": true, "layer": "capability"}' | node dist/cli.js eval-run
+          echo '{"ci": true, "layer": "capability"}' | node dist/evals/run-evals-cli.js
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           EVALS_DIR: ../../evals

@@ -85,8 +85,26 @@ export interface BinaryBuildResult {
 
 export function ensureBinaryBuilt(repoRoot: string): BinaryBuildResult {
   const binaryPath = hostBinaryPath(repoRoot);
-  const srcDir = path.join(repoRoot, 'servers', 'exarchos-mcp', 'src');
-  const srcNewest = newestMtimeUnder(srcDir, (p) => p.endsWith('.ts'));
+
+  // The compiled binary's content depends on every input bun bundles plus
+  // the build orchestration script itself. Restricting the freshness scan
+  // to `servers/exarchos-mcp/src/**` would miss edits to the build
+  // pipeline (`scripts/build-binary.ts`) and to root sources that may be
+  // bundled in future, leaving a stale binary in place during integration
+  // tests. Scanning each tracked input directory keeps the check cheap
+  // while catching the realistic edit surfaces.
+  const inputs = [
+    path.join(repoRoot, 'servers', 'exarchos-mcp', 'src'),
+    path.join(repoRoot, 'scripts'),
+    path.join(repoRoot, 'src'),
+  ];
+
+  let srcNewest = 0;
+  for (const dir of inputs) {
+    if (!fs.existsSync(dir)) continue;
+    const newest = newestMtimeUnder(dir, (p) => p.endsWith('.ts'));
+    if (newest > srcNewest) srcNewest = newest;
+  }
 
   let rebuild = false;
   if (!fs.existsSync(binaryPath)) {
