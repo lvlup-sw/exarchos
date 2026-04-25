@@ -39,7 +39,7 @@
   },
   "metadata": {
     "compat": {
-      "minBinaryVersion": "2.4.0"
+      "minBinaryVersion": "2.8.3"
     }
   }
 }

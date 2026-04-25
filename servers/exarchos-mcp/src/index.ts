@@ -38,7 +38,12 @@ import type { DispatchContext } from './core/dispatch.js';
 // ─── Constants ───────────────────────────────────────────────────────────────
 
 export const SERVER_NAME = 'exarchos-mcp';
-export const SERVER_VERSION = '2.4.0';
+// Reconciled with root `package.json.version` — sync-versions automation
+// (task 2.4) is deferred. Both this constant and the static one in
+// `adapters/mcp.ts` MUST be bumped in lockstep with `package.json` and
+// `.claude-plugin/plugin.json.metadata.compat.minBinaryVersion`. See
+// the v2.9 release blockers in PR #1176 description.
+export const SERVER_VERSION = '2.8.3';
 
 // ─── Mode Detection ─────────────────────────────────────────────────────────
 

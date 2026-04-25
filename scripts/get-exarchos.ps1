@@ -85,12 +85,19 @@ function Get-PlatformTarget {
         [string]$ProcessorArchitecture
     )
 
+    # Bun has no `bun-windows-arm64` cross-compile target, so
+    # `scripts/build-binary.ts` only ships `windows-x64`. Mapping ARM64
+    # to `exarchos-windows-arm64.exe` here would 404 at download. Refuse
+    # ARM64 explicitly until Bun lands the target (tracked in the v2.9
+    # release blockers).
     $arch = switch ($ProcessorArchitecture.ToUpperInvariant()) {
         'AMD64' { 'x64' }
         'X64'   { 'x64' }
-        'ARM64' { 'arm64' }
+        'ARM64' {
+            throw "Windows ARM64 is not yet supported. Bun does not provide a bun-windows-arm64 cross-compile target as of v2.9. Track https://github.com/lvlup-sw/exarchos/issues for native ARM64 support, or run under x64 emulation."
+        }
         default {
-            throw "Unsupported Windows architecture: '$ProcessorArchitecture'. Supported: AMD64 (x64), ARM64."
+            throw "Unsupported Windows architecture: '$ProcessorArchitecture'. Supported: AMD64 (x64)."
         }
     }
 

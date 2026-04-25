@@ -12,7 +12,7 @@ import type { DispatchContext } from '../core/dispatch.js';
 // caller of this adapter, so the values are duplicated intentionally; the
 // integration test pins them together.
 const SERVER_NAME = 'exarchos-mcp';
-const SERVER_VERSION = '2.4.0';
+const SERVER_VERSION = '2.8.3';
 
 // ─── MCP Server Adapter ────────────────────────────────────────────────────
 
