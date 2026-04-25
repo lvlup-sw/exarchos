@@ -7,7 +7,6 @@
   [![CI](https://github.com/lvlup-sw/exarchos/actions/workflows/ci.yml/badge.svg)](https://github.com/lvlup-sw/exarchos/actions/workflows/ci.yml)
   [![npm version](https://img.shields.io/npm/v/@lvlup-sw/exarchos)](https://www.npmjs.com/package/@lvlup-sw/exarchos)
   [![License: Apache-2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
-  [![Node >= 20](https://img.shields.io/badge/node-%3E%3D20-brightgreen)](https://nodejs.org)
 
   [Install](#install) · [What you get](#what-you-get) · [Architecture](#agent-first-architecture) · [Workflows](#workflows) · [Docs](https://lvlup-sw.github.io/exarchos/)
 </div>
@@ -36,6 +35,8 @@ It ships as a Claude Code plugin and a standalone MCP server with a CLI adapter.
 
 ## Install
 
+> **Status:** The marketplace currently tracks **v2.9.0-rc.1** (release candidate). `/plugin install` and the bootstrap installer both resolve to this version. Release notes: [v2.9.0-rc.1](https://github.com/lvlup-sw/exarchos/releases/tag/v2.9.0-rc.1).
+
 **Claude Code plugin:**
 ```bash
 /plugin marketplace add lvlup-sw/.github
@@ -45,6 +46,9 @@ It ships as a Claude Code plugin and a standalone MCP server with a CLI adapter.
 > **No SSH key?** Use the HTTPS URL: `https://github.com/lvlup-sw/.github.git`
 
 **Standalone CLI / MCP server (single-file binary):**
+
+The installer drops a self-contained ~98 MB binary at `~/.local/bin/exarchos`. No Node, npm, or Bun required on the target machine.
+
 ```bash
 # Unix (macOS / Linux)
 curl -fsSL https://lvlup-sw.github.io/exarchos/get-exarchos.sh | bash
@@ -52,9 +56,16 @@ curl -fsSL https://lvlup-sw.github.io/exarchos/get-exarchos.sh | bash
 # Windows (PowerShell)
 irm https://lvlup-sw.github.io/exarchos/get-exarchos.ps1 | iex
 
-# Run as MCP server over stdio (after install)
+# Pin to a specific release (or a release candidate):
+bash <(curl -fsSL https://lvlup-sw.github.io/exarchos/get-exarchos.sh) --version v2.9.0-rc.1
+
+# Verify + run as MCP server over stdio
+exarchos --version
+exarchos doctor
 exarchos mcp
 ```
+
+The installer verifies a SHA-512 checksum, appends `~/.local/bin` to your shell rc files (idempotent), and supports `--dry-run`, `--version <tag>`, and `--github-actions` modes.
 
 ### Installing skills for your agent
 
@@ -162,10 +173,12 @@ Exarchos focuses on workflow governance — it doesn't duplicate code-analysis o
 ## Build & test
 
 ```bash
-npm run build          # tsc + bun → dist/
+npm run build          # tsc + 5 cross-compiled binaries via `bun build --compile` → dist/bin/
+npm run build:binary   # binaries only (skips tsc + skill render)
 npm run test:run       # vitest single run
 npm run typecheck      # tsc --noEmit
-npm run validate       # Validate plugin structure
+npm run version:check  # verify version is in sync across the 7 derived call sites
+npm run validate       # validate plugin structure
 ```
 
 ## License
