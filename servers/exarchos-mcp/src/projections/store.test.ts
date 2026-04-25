@@ -152,7 +152,16 @@ describe('projection snapshot store — write', () => {
     expect(leftovers).toEqual([]);
   });
 
-  it('SnapshotStore_ConcurrentWrite_NoCorruption', async () => {
+  it('SnapshotStore_InterleavedWrites_NoLostUpdates', async () => {
+    // `appendSnapshot` is synchronous and the projection store contract
+    // explicitly designates this as a single-writer process surface
+    // (see `store.ts` "Concurrency caveat"). What we CAN verify here is
+    // that scheduling 12 appends through the microtask queue (the
+    // tightest interleaving JS gives us inside one process) produces a
+    // sidecar containing all 12 records — no torn writes, no lost
+    // updates, no leftover `.tmp` files. CodeRabbit on PR #1178 noted
+    // the prior assertion missed the per-record count check, so a lost
+    // update could pass silently; this rewrite closes that gap.
     const stateDir = makeStateDir();
     const streamId = 'wf-T020-concurrent';
     const baseRecord = (seq: number): SnapshotRecord => ({
@@ -177,8 +186,23 @@ describe('projection snapshot store — write', () => {
     expect(lines.at(-1)).toBe('');
     const dataLines = lines.slice(0, -1);
 
+    // Every line parses cleanly AND we have exactly the 12 records we
+    // wrote — no torn writes, no truncation, no duplicates from a
+    // partial-rename race.
+    expect(dataLines.length).toBe(12);
+    const seenSequences = new Set<number>();
     for (const line of dataLines) {
-      expect(() => SnapshotRecord.parse(JSON.parse(line))).not.toThrow();
+      const record = SnapshotRecord.parse(JSON.parse(line));
+      expect(record.sequence).toBeGreaterThanOrEqual(0);
+      expect(record.sequence).toBeLessThan(12);
+      seenSequences.add(record.sequence);
+    }
+    // All 12 distinct sequence numbers are present — proves nothing got
+    // dropped on a read-modify-write race even though the writes were
+    // scheduled "in parallel" via microtasks.
+    expect(seenSequences.size).toBe(12);
+    for (let i = 0; i < 12; i++) {
+      expect(seenSequences.has(i)).toBe(true);
     }
 
     const entries = fs.readdirSync(stateDir);

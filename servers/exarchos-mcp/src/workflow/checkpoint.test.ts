@@ -10,6 +10,7 @@ import {
 } from './checkpoint.js';
 import { EventStore } from '../event-store/store.js';
 import { handleInit, handleCheckpoint } from './tools.js';
+import { handleRehydrate } from './rehydrate.js';
 import { SnapshotRecord } from '../projections/snapshot-schema.js';
 import {
   RehydrationDocumentSchema,
@@ -223,16 +224,27 @@ describe('handleCheckpoint — materializes rehydration projection (T034, DR-6)'
     expect(parsed.projectionVersion).toBe('1');
 
     // `parsed.state` is typed `unknown` at the SnapshotRecord boundary — the
-    // handler wrote the full RehydrationDocument, so it must re-parse cleanly
-    // and `parsed.sequence` must equal its `projectionSequence`.
+    // handler wrote the full RehydrationDocument, so it must re-parse cleanly.
     const doc = RehydrationDocumentSchema.parse(parsed.state) as RehydrationDocument;
-    expect(parsed.sequence).toBe(doc.projectionSequence);
 
     // Seeded events: workflow.started (seq 1) + 3 task events (seq 2..4). All
     // four are handled by the rehydration reducer, so projectionSequence = 4.
     expect(doc.projectionSequence).toBe(4);
     expect(doc.workflowState.featureId).toBe(featureId);
     expect(doc.workflowState.workflowType).toBe('feature');
+
+    // `parsed.sequence` MUST be the highest event-store sequence the
+    // snapshot reflects — NOT the projection-internal handled-event count.
+    // `handleCheckpoint` appends `workflow.checkpoint` (seq 5) BEFORE the
+    // snapshot fold, and that event is unhandled by the rehydration
+    // reducer, so projectionSequence stays at 4 while the event-store
+    // tip is at 5. Storing projectionSequence here would cause a later
+    // `rehydrate` call to query `sinceSequence: 4` and re-fetch the
+    // checkpoint event on every read — repeated reduces against
+    // duplicates would silently corrupt state for any handler that
+    // appends to a list (e.g. blockers). Sentry HIGH on PR #1178.
+    expect(parsed.sequence).toBe(5);
+    expect(parsed.sequence).toBeGreaterThan(doc.projectionSequence);
 
     // Snapshot's `timestamp` must be a parseable ISO string within a plausible
     // window (strict ISO validation happens inside SnapshotRecord.parse above;
@@ -294,14 +306,153 @@ describe('handleCheckpoint — materializes rehydration projection (T034, DR-6)'
 
     const parsed = SnapshotRecord.parse(JSON.parse(lines[0]!));
     expect(parsed.projectionId).toBe('rehydration@v1');
-    // workflow.started is handled (seeds workflowState.featureId +
-    // workflowType), so projectionSequence advances to 1.
-    expect(parsed.sequence).toBe(1);
+    // Stream tip after init + checkpoint: workflow.started (seq 1) +
+    // workflow.checkpoint (seq 2). The latter is unhandled by the
+    // rehydration reducer, so the document's projectionSequence stays at
+    // 1, but `parsed.sequence` records the true event-store tip (2) so
+    // a later rehydrate doesn't re-fetch the checkpoint event.
+    const doc = RehydrationDocumentSchema.parse(parsed.state) as RehydrationDocument;
+    expect(doc.projectionSequence).toBe(1);
+    expect(parsed.sequence).toBe(2);
 
     // The checkpoint_written event is emitted even on an otherwise-empty
     // projection — the cadence and replay machinery downstream rely on every
     // checkpoint producing a written event.
     const events = await store.query(featureId);
     expect(events.some((e) => e.type === 'workflow.checkpoint_written')).toBe(true);
+  });
+
+  it('CheckpointThenRehydrate_DoesNotDoubleFoldHandledEvents', async () => {
+    // Regression for the Sentry HIGH on PR #1178: when an unhandled event
+    // sits between handled ones, storing `projectionSequence` (count of
+    // handled events) instead of the true event-store tip caused a later
+    // rehydrate to re-query starting from a stale sinceSequence and
+    // re-apply already-folded events. For list-appending reducers (e.g.
+    // `applyReviewCompleted` adding to `blockers`) this would silently
+    // duplicate entries on every rehydrate.
+    const featureId = 'wf-checkpoint-rehydrate-roundtrip';
+
+    const initResult = await handleInit(
+      { featureId, workflowType: 'feature' },
+      stateDir,
+      store,
+    );
+    expect(initResult.success).toBe(true);
+
+    // Mix handled and unhandled events. `task.assigned` is handled
+    // (advances projectionSequence). `gate.executed` is NOT handled by
+    // the rehydration reducer (it falls through to the default case)
+    // but it DOES advance the event-store sequence. A handled event
+    // follows so the snapshot has both sides of the gap.
+    await store.append(featureId, {
+      type: 'task.assigned',
+      data: { taskId: 'T100' },
+    });
+    await store.append(featureId, {
+      // Unhandled by rehydration reducer — increments event-store seq
+      // without bumping projectionSequence. This is the gap that the
+      // bug widens with every checkpoint.
+      type: 'gate.executed' as import('../event-store/schemas.js').EventType,
+      source: 'workflow',
+      data: { gate: 'lint', passed: true } as Record<string, unknown>,
+    });
+    await store.append(featureId, {
+      type: 'task.completed',
+      data: { taskId: 'T100' },
+    });
+
+    // Append a review.completed BLOCKED event — handled by
+    // applyReviewCompleted which appends to `blockers`. This is the
+    // event whose double-fold would visibly corrupt state under the
+    // old semantics.
+    await store.append(featureId, {
+      type: 'review.completed',
+      data: {
+        stage: 'quality-review',
+        verdict: 'blocked',
+        findingsCount: 1,
+        summary: 'duplicated under double-fold',
+      } as Record<string, unknown>,
+    });
+
+    // Take a checkpoint. This will:
+    //   1. Append `workflow.checkpoint` (UNHANDLED, advances event-store seq).
+    //   2. Fold all events into the rehydration document.
+    //   3. Persist a snapshot whose `sequence` is the event-store tip.
+    const cpResult = await handleCheckpoint(
+      { featureId, summary: 'first cp' },
+      stateDir,
+      store,
+    );
+    expect(cpResult.success).toBe(true);
+
+    // Read the snapshot to confirm `sequence` matches the event-store
+    // tip, NOT the projection's handled-event count.
+    const sidecarPath = path.join(stateDir, `${featureId}.projections.jsonl`);
+    const sidecarRaw = await readFile(sidecarPath, 'utf8');
+    const lines = sidecarRaw.split('\n').filter((l) => l.length > 0);
+    const parsed = SnapshotRecord.parse(JSON.parse(lines[lines.length - 1]!));
+    const doc = RehydrationDocumentSchema.parse(parsed.state) as RehydrationDocument;
+
+    // Stream tip the snapshot reflects: workflow.started (1) +
+    // task.assigned (2) + gate.executed (3) + task.completed (4) +
+    // review.completed (5) + workflow.checkpoint (6) = 6. The snapshot
+    // is written BEFORE `workflow.checkpoint_written` is appended (seq
+    // 7), so the snapshot's `sequence` field correctly trails the
+    // post-checkpoint store tip by one. That is the contract: the
+    // snapshot reflects state at the moment of the fold.
+    expect(parsed.sequence).toBe(6);
+    // Handled events: workflow.started, task.assigned, task.completed,
+    // review.completed = 4.
+    expect(doc.projectionSequence).toBe(4);
+    expect(doc.blockers.length).toBe(1);
+    expect(parsed.sequence).toBeGreaterThan(doc.projectionSequence);
+
+    // Now rehydrate. The bug would re-apply review.completed because
+    // the stale sinceSequence (4) is < the true tip (6), so the query
+    // would return [seq 5: gate.executed, seq 6: workflow.checkpoint] —
+    // wait, those are unhandled, so even the buggy version doesn't
+    // visibly corrupt this case. To force visibility, we now append a
+    // SECOND review.completed BLOCKED event AFTER the checkpoint and
+    // rehydrate. With the fix, blockers grows to 2. Without the fix,
+    // the stale sinceSequence pulls events 5+6+7 (the new review) and
+    // ALSO re-pulls events the snapshot already absorbed if the
+    // semantics were wrong — but since query is `> sinceSequence`,
+    // the corruption shape is "events between projectionSequence and
+    // tip get re-fed" — i.e. the original review.completed at seq 4
+    // would be re-applied if sinceSequence were stored as 4 and any
+    // later code path relied on the projection seq tracking handled
+    // events alone. The fix ensures sinceSequence == tipSeq, so only
+    // truly new events flow through.
+    await store.append(featureId, {
+      type: 'review.completed',
+      data: {
+        stage: 'quality-review',
+        verdict: 'blocked',
+        findingsCount: 1,
+        summary: 'genuinely new blocker',
+      } as Record<string, unknown>,
+    });
+
+    const rh = await handleRehydrate(
+      { featureId },
+      { stateDir, eventStore: store },
+    );
+    expect(rh.success).toBe(true);
+    const rhDoc = rh.data as RehydrationDocument;
+    // Exactly two blockers — one folded into the snapshot, one folded
+    // from the post-snapshot tail. NOT three (which would prove the
+    // pre-checkpoint blocker got re-applied via a stale sinceSequence).
+    expect(rhDoc.blockers.length).toBe(2);
+    expect(
+      rhDoc.blockers.filter((b) =>
+        (b as { summary?: string }).summary?.includes('duplicated'),
+      ).length,
+    ).toBe(1);
+    expect(
+      rhDoc.blockers.filter((b) =>
+        (b as { summary?: string }).summary?.includes('genuinely new'),
+      ).length,
+    ).toBe(1);
   });
 });

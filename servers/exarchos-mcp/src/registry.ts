@@ -560,10 +560,17 @@ const workflowActions: readonly ToolAction[] = [
   },
   {
     name: 'rehydrate',
-    description: 'Rehydrate the canonical workflow document for a feature via the rehydration@v1 projection. Loads the latest snapshot and folds events written since, returning the full RehydrationDocument. Emits workflow.rehydrated on successful hydration (T032, DR-4) — the event records the deliveryPath used so downstream observers can correlate cache hints. Optional deliveryPath defaults to "direct".',
+    description: 'Rehydrate the canonical workflow document for a feature via the rehydration@v1 projection. Loads the latest snapshot and folds events written since, returning the full RehydrationDocument. Emits workflow.rehydrated on successful hydration (T032, DR-4) — the event records the deliveryPath used so downstream observers can correlate cache hints. Optional deliveryPath ∈ {direct, ndjson, snapshot}; defaults to "direct".',
     schema: z.object({
       featureId: featureIdSchema,
-      deliveryPath: z.string().optional(),
+      // Closed enum mirrors `WorkflowRehydratedData.deliveryPath` so an
+      // invalid value can't reach the workflow.rehydrated event payload.
+      // Without this, registry validation accepted any string and let the
+      // bad value bubble all the way to event-store append, where Zod
+      // would reject it AFTER the read had already produced a document —
+      // surfacing as a confusing "rehydrate succeeded but emit failed"
+      // call. (CodeRabbit on PR #1178.)
+      deliveryPath: z.enum(['direct', 'ndjson', 'snapshot']).optional(),
     }),
     phases: ALL_PHASES,
     roles: ROLE_ANY,

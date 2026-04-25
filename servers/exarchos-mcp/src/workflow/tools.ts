@@ -1023,7 +1023,7 @@ export async function handleCheckpoint(
   // behind the new checkpoint.
   let projectionSequence: number | undefined;
   if (eventStore) {
-    const document = await hydrateFromSnapshotThenTail<
+    const { state: document, lastEventSequence } = await hydrateFromSnapshotThenTail<
       RehydrationDocument,
       WorkflowEvent
     >(
@@ -1036,10 +1036,19 @@ export async function handleCheckpoint(
     );
     projectionSequence = document.projectionSequence;
 
+    // SnapshotRecord.sequence is the highest event-store sequence absorbed
+    // into `document` — NOT `document.projectionSequence`. The two values
+    // diverge whenever the stream contains events the rehydration reducer
+    // doesn't fold (e.g. `gate.executed`, `task.assigned` are unhandled
+    // by `rehydrationReducer.apply`), and a later `rehydrate` call uses
+    // this field as `sinceSequence` against `eventStore.query`. Storing
+    // the projection sequence here would make the query under-skip,
+    // causing already-absorbed events to be re-applied on every read.
+    // (Sentry HIGH on PR #1178.)
     const snapshotRecord: SnapshotRecord = {
       projectionId: REHYDRATION_PROJECTION_ID,
       projectionVersion: REHYDRATION_PROJECTION_VERSION,
-      sequence: document.projectionSequence,
+      sequence: lastEventSequence,
       state: document,
       timestamp: new Date().toISOString(),
     };

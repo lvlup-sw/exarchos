@@ -139,15 +139,30 @@ function runCli(argv) {
         break;
       case '--body-file':
         if (!value) return usage('--body-file requires a path');
-        body = readFileSync(value, 'utf8');
+        try {
+          body = readFileSync(value, 'utf8');
+        } catch (err) {
+          // Route through usage() so the failure surface (missing path,
+          // permission error, unreadable file) maps to the same exit
+          // code path as malformed flags rather than crashing with an
+          // unhandled exception. Preserve the underlying error message
+          // so debugging stays cheap.
+          const msg = err instanceof Error ? err.message : String(err);
+          return usage(`--body-file ${value}: ${msg}`);
+        }
         i++;
         break;
       case '--changed-files-file':
         if (!value) return usage('--changed-files-file requires a path');
-        changedFiles = readFileSync(value, 'utf8')
-          .split(/\r?\n/)
-          .map((s) => s.trim())
-          .filter((s) => s.length > 0);
+        try {
+          changedFiles = readFileSync(value, 'utf8')
+            .split(/\r?\n/)
+            .map((s) => s.trim())
+            .filter((s) => s.length > 0);
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          return usage(`--changed-files-file ${value}: ${msg}`);
+        }
         i++;
         break;
       case '-h':

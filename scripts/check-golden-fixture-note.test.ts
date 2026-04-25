@@ -64,9 +64,10 @@ describe('checkGoldenFixtureNote', () => {
     expect(result.passed).toBe(true);
   });
 
-  it('PrBodyCheck_FixtureChangedWithMarkerMidLine_Passes', () => {
-    // The rule allows the marker as a leading token on a line — a common
-    // case is "GOLDEN-FIXTURE-UPDATE: <reason>" at the start of a body line.
+  it('PrBodyCheck_FixtureChangedWithMarkerLeadingToken_Passes', () => {
+    // The rule allows the marker as the leading token on a line (after
+    // optional indent) — the canonical case is
+    // "GOLDEN-FIXTURE-UPDATE: <reason>" at the start of a body line.
     const result = checkGoldenFixtureNote({
       changedFiles: [
         'servers/exarchos-mcp/tests/fixtures/load-bearing/rehydrate-demo.expected-document.json',
@@ -75,6 +76,39 @@ describe('checkGoldenFixtureNote', () => {
     });
 
     expect(result.passed).toBe(true);
+  });
+
+  it('PrBodyCheck_FixtureChangedWithMarkerInQuotedBlock_Passes', () => {
+    // Quoted / indented bodies (e.g. PR description copy-pasted from a
+    // commit message) still match because `hasMarker` strips leading
+    // whitespace before the prefix check. This is the legitimate
+    // "marker not at column zero" case — distinct from a marker
+    // embedded mid-sentence (which the rule deliberately rejects).
+    const result = checkGoldenFixtureNote({
+      changedFiles: [
+        'servers/exarchos-mcp/tests/fixtures/load-bearing/rehydrate-demo.expected-document.json',
+      ],
+      prBody:
+        'Some context paragraph.\n\n  GOLDEN-FIXTURE-UPDATE: indented under a quoted block\n\nAnd more notes.',
+    });
+
+    expect(result.passed).toBe(true);
+  });
+
+  it('PrBodyCheck_FixtureChangedWithMarkerMidSentence_Fails', () => {
+    // The marker is only honoured as a LINE-leading token; placing it
+    // mid-sentence must NOT satisfy the gate, otherwise reviewers could
+    // satisfy DR-15 by burying the directive inside prose.
+    const result = checkGoldenFixtureNote({
+      changedFiles: [
+        'servers/exarchos-mcp/tests/fixtures/load-bearing/rehydrate-demo.expected-document.json',
+      ],
+      prBody:
+        'See note GOLDEN-FIXTURE-UPDATE: regenerated — this should not count.',
+    });
+
+    expect(result.passed).toBe(false);
+    expect(result.reason).toMatch(/GOLDEN-FIXTURE-UPDATE/);
   });
 
   it('PrBodyCheck_OnlyUnrelatedFixtureTouched_Passes', () => {

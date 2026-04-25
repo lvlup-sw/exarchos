@@ -106,7 +106,7 @@ export async function hydrateFromSnapshotThenTail<State, Event>(
   stateDir: string,
   projectionId: string,
   projectionVersion: string,
-): Promise<State> {
+): Promise<{ state: State; lastEventSequence: number }> {
   const snapshot = readLatestSnapshot(
     stateDir,
     streamId,
@@ -123,14 +123,29 @@ export async function hydrateFromSnapshotThenTail<State, Event>(
       : reducer.initial;
 
   let state = initialState;
+  // Track the highest event-store sequence the fold has absorbed — the
+  // snapshot's baseline (if any) plus every tail event we apply. Callers
+  // that persist a snapshot MUST record this value (not the projection's
+  // internal `projectionSequence`) as the `sequence` field, otherwise a
+  // later read would pass a stale `sinceSequence` to `eventStore.query`
+  // and re-fetch / re-apply events the snapshot already absorbed.
+  // (Sentry HIGH on PR #1178 — `projectionSequence` is a count of
+  // *handled* events, but the event store sequence is monotonic over
+  // ALL events, so the two values diverge whenever an unhandled event
+  // type appears in the stream.)
+  let lastEventSequence = sinceSequence;
   // Cast the tail through the reducer's Event type at the call boundary —
   // the event store yields `WorkflowEvent`, which is the type every registered
   // reducer narrows against. Keeping the cast here means each reducer's
   // `apply` signature drives inference inside the fold.
   for (const ev of tailEvents as unknown as Event[]) {
     state = reducer.apply(state, ev);
+    const seq = (ev as unknown as { sequence?: number }).sequence;
+    if (typeof seq === 'number' && seq > lastEventSequence) {
+      lastEventSequence = seq;
+    }
   }
-  return state;
+  return { state, lastEventSequence };
 }
 
 /**
@@ -422,11 +437,39 @@ export async function handleRehydrate(
       },
       'Snapshot read failed — degrading to full replay',
     );
-    const rebuilt = (await rebuildProjection(
-      rehydrationReducer,
-      eventStore,
-      featureId,
-    )) as RehydrationDocument;
+    // Wrap `rebuildProjection` in its own try/catch so a failure inside
+    // the cold replay (event store offline mid-rebuild, reducer throw on
+    // historical event) does NOT bubble out of `handleRehydrate` and
+    // crash the dispatch envelope. Falling all the way through to a
+    // state-store-only response is the worst-case-but-still-actionable
+    // outcome — it preserves the contract that rehydrate never throws.
+    // (CodeRabbit on PR #1178: snapshot-corrupt path swallowed
+    // rebuildProjection failures.)
+    let rebuilt: RehydrationDocument | undefined;
+    try {
+      rebuilt = (await rebuildProjection(
+        rehydrationReducer,
+        eventStore,
+        featureId,
+      )) as RehydrationDocument;
+    } catch (rebuildErr) {
+      workflowLogger.warn(
+        {
+          featureId,
+          err: rebuildErr instanceof Error ? rebuildErr.message : String(rebuildErr),
+        },
+        'Full replay also failed — degrading to state-store-only',
+      );
+      // Both the snapshot AND the cold rebuild failed. Yield the
+      // state-store-only fallback (no projection source available) and
+      // record the cause as the original `snapshot-corrupt` — the
+      // upstream signal — but with `fallbackSource: 'state-store-only'`
+      // so observers can tell the rebuild was attempted and failed.
+      return buildDegradedResponse(featureId, 'snapshot-corrupt', {
+        eventStore,
+        stateDir,
+      });
+    }
     return buildDegradedResponse(
       featureId,
       'snapshot-corrupt',
@@ -519,10 +562,30 @@ export async function handleRehydrate(
     tokenEstimate,
   };
 
-  await eventStore.append(featureId, {
-    type: 'workflow.rehydrated',
-    data: rehydratedData,
-  });
+  // The observability emission must NOT turn a successful hydrate into a
+  // failed call. If the event store is unhealthy at write time (sidecar
+  // unwritable, sequence collision, transient IO), we've still produced
+  // a valid rehydration document — degrading the read because the audit
+  // event couldn't be appended would be the wrong direction. Log the
+  // failure with enough context for oncall and continue. (CodeRabbit on
+  // PR #1178: workflow.rehydrated emission could mask a successful
+  // read.)
+  try {
+    await eventStore.append(featureId, {
+      type: 'workflow.rehydrated',
+      data: rehydratedData,
+    });
+  } catch (err) {
+    workflowLogger.warn(
+      {
+        featureId,
+        err: err instanceof Error ? err.message : String(err),
+        projectionSequence: document.projectionSequence,
+        deliveryPath,
+      },
+      'workflow.rehydrated event append failed — read succeeds, audit gap',
+    );
+  }
 
   // The composite `envelopeWrap` (workflow/composite.ts) layers `next_actions`,
   // `_meta`, and `_perf` on top of this ToolResult at the tool boundary.
