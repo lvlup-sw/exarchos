@@ -23,6 +23,9 @@
     "servers/exarchos-mcp": {
       "entry": [
         "src/index.ts",
+        "src/projections/index.ts",
+        "src/projections/rehydration/fingerprint-cli.ts",
+        "src/projections/rehydration/prose-lint-cli.ts",
         "src/**/*.test.ts",
         "src/**/*.bench.ts",
         "src/__tests__/**/*.ts",
