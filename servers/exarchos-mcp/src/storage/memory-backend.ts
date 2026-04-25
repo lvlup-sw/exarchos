@@ -163,21 +163,30 @@ export class InMemoryBackend implements StorageBackend {
     return id;
   }
 
-  drainOutbox(streamId: string, sender: EventSender, batchSize?: number): DrainResult {
+  async drainOutbox(
+    streamId: string,
+    sender: EventSender,
+    batchSize?: number,
+  ): Promise<DrainResult> {
     const items = this.outbox.get(streamId);
     if (!items || items.length === 0) {
       return { sent: 0, failed: 0 };
     }
 
-    const batch = batchSize !== undefined ? items.splice(0, batchSize) : items.splice(0);
+    // Take a non-mutating snapshot of the batch and only remove items
+    // after `appendEvents` resolves successfully. The earlier
+    // splice-then-send variant dropped failed entries permanently — even
+    // after switching to `await`, an async rejection would leave the
+    // entry already gone from `items` with no retry path. Aligning with
+    // SqliteBackend's "keep on failure" semantics keeps both backends
+    // behaviourally consistent for code under test.
+    const batch = batchSize !== undefined ? items.slice(0, batchSize) : items.slice();
     let sent = 0;
     let failed = 0;
 
     for (const item of batch) {
       try {
-        // Synchronous call - InMemoryBackend is a simple test double
-        // The sender interface is async but we invoke it fire-and-forget
-        sender.appendEvents(streamId, [
+        await sender.appendEvents(streamId, [
           {
             streamId: item.event.streamId,
             sequence: item.event.sequence,
@@ -193,11 +202,20 @@ export class InMemoryBackend implements StorageBackend {
             ...(item.event.idempotencyKey ? { idempotencyKey: item.event.idempotencyKey } : {}),
           },
         ]);
+        const idx = items.findIndex((queued) => queued.id === item.id);
+        if (idx >= 0) items.splice(idx, 1);
         sent++;
       } catch {
+        // Stop on first failure to preserve FIFO — letting later entries
+        // succeed past a stranded earlier event would surface them out of
+        // order at the consumer (events carry monotonic `sequence`).
+        // Remaining queued items wait for the next drain cycle.
         failed++;
+        break;
       }
     }
+
+    if (items.length === 0) this.outbox.delete(streamId);
 
     return { sent, failed };
   }

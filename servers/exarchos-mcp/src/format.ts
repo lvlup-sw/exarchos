@@ -56,20 +56,6 @@ export function toEventAck(event: { streamId: string; sequence: number; type: st
   return { streamId: event.streamId, sequence: event.sequence, type: event.type };
 }
 
-// ─── MCP Wire Format Types ──────────────────────────────────────────────────
-
-export interface McpToolContent {
-  readonly type: 'text';
-  readonly text: string;
-  readonly [key: string]: unknown;
-}
-
-export interface McpToolResult {
-  content: McpToolContent[];
-  isError: boolean;
-  [key: string]: unknown;
-}
-
 // ─── Result Formatting ──────────────────────────────────────────────────────
 
 /** Converts a ToolResult into the MCP content format expected by the SDK. */
@@ -92,14 +78,6 @@ export function stripNullish(obj: Record<string, unknown>): Record<string, unkno
     result[key] = value;
   }
   return result;
-}
-
-/** Returns a NOT_IMPLEMENTED error result for placeholder tool registrations. */
-export function stubResult() {
-  return formatResult({
-    success: false,
-    error: { code: 'NOT_IMPLEMENTED', message: 'Coming soon' },
-  });
 }
 
 // ─── Field Projection ──────────────────────────────────────────────────────

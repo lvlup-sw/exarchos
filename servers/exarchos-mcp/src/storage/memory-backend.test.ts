@@ -200,7 +200,7 @@ describe('InMemoryBackend State Operations', () => {
 // ─── Outbox Operations ──────────────────────────────────────────────────────
 
 describe('InMemoryBackend Outbox Operations', () => {
-  it('InMemoryBackend_addOutboxEntry_DrainOutbox_SendsAndRemoves', () => {
+  it('InMemoryBackend_addOutboxEntry_DrainOutbox_SendsAndRemoves', async () => {
     const backend = new InMemoryBackend();
     backend.initialize();
 
@@ -220,13 +220,13 @@ describe('InMemoryBackend Outbox Operations', () => {
       },
     };
 
-    const result = backend.drainOutbox('test-stream', mockSender);
+    const result = await backend.drainOutbox('test-stream', mockSender);
     expect(result.sent).toBe(1);
     expect(result.failed).toBe(0);
     expect(sentEvents).toHaveLength(1);
 
     // Draining again should find nothing
-    const result2 = backend.drainOutbox('test-stream', mockSender);
+    const result2 = await backend.drainOutbox('test-stream', mockSender);
     expect(result2.sent).toBe(0);
   });
 });

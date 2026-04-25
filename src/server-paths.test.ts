@@ -15,9 +15,17 @@ describe('Server source paths', () => {
   });
 
   it('buildScripts_afterMove_referenceNewPath', () => {
+    // Post-task-3.6 the legacy `build:bundle` alias (and its `build-bundle.ts`
+    // script) are gone; `build:binary` is the replacement that invokes
+    // `scripts/build-binary.ts` against the same entry point
+    // (`servers/exarchos-mcp/src/index.ts`). The original intent of this
+    // assertion — guarding against any resurfaced `plugins/exarchos`
+    // path — is preserved by pointing at `build:binary` instead.
     const pkg = JSON.parse(readFileSync(join(repoRoot, 'package.json'), 'utf-8'));
-    expect(pkg.scripts['build:bundle']).toContain('build-bundle');
-    expect(pkg.scripts['build:bundle']).not.toContain('plugins/exarchos');
+    expect(pkg.scripts['build:binary']).toContain('build-binary');
+    expect(pkg.scripts['build:binary']).not.toContain('plugins/exarchos');
+    // Hard negative: ensure the removed legacy alias is not re-introduced.
+    expect(pkg.scripts['build:bundle']).toBeUndefined();
   });
 
   it('manifest_afterMove_referencesNewDevEntryPoint', () => {

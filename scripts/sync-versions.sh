@@ -15,7 +15,6 @@ PLUGIN_JSON="${REPO_ROOT}/.claude-plugin/plugin.json"
 MANIFEST_JSON="${REPO_ROOT}/manifest.json"
 PACKAGE_JSON="${REPO_ROOT}/package.json"
 MCP_PACKAGE_JSON="${REPO_ROOT}/servers/exarchos-mcp/package.json"
-CREATE_PACKAGE_JSON="${REPO_ROOT}/packages/create-exarchos/package.json"
 CHECK_MODE=false
 
 require_arg() {
@@ -36,7 +35,7 @@ while [[ $# -gt 0 ]]; do
     --help)
       echo "Usage: sync-versions.sh [--plugin-json <path>] [--manifest-json <path>] [--package-json <path>] [--check]"
       echo ""
-      echo "Syncs version from package.json to plugin.json, manifest.json, exarchos-mcp/package.json, and create-exarchos/package.json."
+      echo "Syncs version from package.json to plugin.json, manifest.json, and exarchos-mcp/package.json."
       echo "  --check    Exit 1 if versions are out of sync (no modifications)"
       exit 0 ;;
     *)
@@ -67,13 +66,6 @@ if [[ "$CHECK_MODE" == "true" ]]; then
       ((ERRORS++)) || true
     fi
   fi
-  if [[ -f "$CREATE_PACKAGE_JSON" ]]; then
-    CREATE_VER=$(jq -r '.version' "$CREATE_PACKAGE_JSON")
-    if [[ "$CREATE_VER" != "$VERSION" ]]; then
-      echo "MISMATCH: packages/create-exarchos/package.json version=$CREATE_VER, expected=$VERSION" >&2
-      ((ERRORS++)) || true
-    fi
-  fi
 
   if [[ $ERRORS -gt 0 ]]; then
     exit 1
@@ -96,10 +88,4 @@ if [[ -f "$MCP_PACKAGE_JSON" ]]; then
   mv "${MCP_PACKAGE_JSON}.tmp" "$MCP_PACKAGE_JSON"
 fi
 
-# Update packages/create-exarchos/package.json
-if [[ -f "$CREATE_PACKAGE_JSON" ]]; then
-  jq --arg v "$VERSION" '.version = $v' "$CREATE_PACKAGE_JSON" > "${CREATE_PACKAGE_JSON}.tmp"
-  mv "${CREATE_PACKAGE_JSON}.tmp" "$CREATE_PACKAGE_JSON"
-fi
-
-echo "Synced version ${VERSION} to plugin.json, manifest.json, exarchos-mcp/package.json, and create-exarchos/package.json"
+echo "Synced version ${VERSION} to plugin.json, manifest.json, and exarchos-mcp/package.json"

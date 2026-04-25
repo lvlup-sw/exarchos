@@ -1,7 +1,7 @@
 import { getFullRegistry } from '../registry.js';
 import { listStateFiles } from '../workflow/state-store.js';
 import { resolveStateDir } from '../workflow/state-store.js';
-import type { CommandResult } from '../cli.js';
+import type { CommandResult } from './types.js';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 

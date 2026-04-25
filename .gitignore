@@ -28,6 +28,7 @@ plugins/*/servers/*/coverage/
 
 .worktrees/
 .claude/worktrees/
+.claude/scheduled_tasks.lock
 .serena/
 ~/
 

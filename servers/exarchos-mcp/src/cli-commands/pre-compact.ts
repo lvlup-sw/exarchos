@@ -4,7 +4,7 @@ import { listStateFiles } from '../workflow/state-store.js';
 import { HUMAN_CHECKPOINT_PHASES } from '../workflow/next-action.js';
 import { getHSMDefinition } from '../workflow/state-machine.js';
 import { handleAssembleContext } from './assemble-context.js';
-import type { CommandResult } from '../cli.js';
+import type { CommandResult } from './types.js';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 

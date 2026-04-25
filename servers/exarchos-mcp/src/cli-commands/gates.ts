@@ -10,7 +10,7 @@
 import { execSync } from 'node:child_process';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import type { CommandResult } from '../cli.js';
+import type { CommandResult } from './types.js';
 import { writeHookEvent } from '../event-store/hook-event-writer.js';
 import { detectTestCommands } from '../orchestrate/detect-test-commands.js';
 import { resolveStateDir } from '../utils/paths.js';

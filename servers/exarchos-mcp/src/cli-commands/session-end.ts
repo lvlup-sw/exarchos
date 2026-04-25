@@ -1,6 +1,6 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import type { CommandResult } from '../cli.js';
+import type { CommandResult } from './types.js';
 import { parseTranscript } from '../session/transcript-parser.js';
 import { writeManifestCompletion } from '../session/manifest.js';
 import type { SessionEvent, SessionSummaryEvent, SessionManifestCompletion } from '../session/types.js';

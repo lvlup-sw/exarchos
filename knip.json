@@ -1,0 +1,42 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+
+  "ignoreDependencies": [
+    "tsx"
+  ],
+  "ignoreExportsUsedInFile": true,
+
+  "workspaces": {
+    ".": {
+      "entry": [
+        "src/build-skills.ts",
+        "src/install-skills.ts",
+        "src/skills-guard.ts",
+        "src/placeholder-lint.ts",
+        "scripts/*.test.ts"
+      ],
+      "project": [
+        "src/**/*.ts",
+        "scripts/**/*.ts"
+      ]
+    },
+    "servers/exarchos-mcp": {
+      "entry": [
+        "src/index.ts",
+        "src/**/*.test.ts",
+        "src/**/*.bench.ts",
+        "src/__tests__/**/*.ts",
+        "src/bench/**/*.ts",
+        "src/benchmarks/**/*.ts",
+        "src/evals/**/*.ts"
+      ],
+      "project": [
+        "src/**/*.ts"
+      ],
+      "ignore": [
+        "src/event-store/__tests__/spawn-driver.ts",
+        "src/telemetry/benchmarks/helpers.ts"
+      ]
+    }
+  }
+}

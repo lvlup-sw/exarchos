@@ -398,22 +398,6 @@ export const CheckpointInputSchema = z.object({
   summary: z.string().optional(),
 });
 
-// ─── Tool Input Schema Map ──────────────────────────────────────────────────
-
-export const ToolInputSchemas = {
-  init: InitInputSchema,
-  list: ListInputSchema,
-  get: GetInputSchema,
-  set: SetInputSchema,
-  summary: SummaryInputSchema,
-  reconcile: ReconcileInputSchema,
-  'next-action': NextActionInputSchema,
-  transitions: TransitionsInputSchema,
-  cancel: CancelInputSchema,
-  cleanup: CleanupInputSchema,
-  checkpoint: CheckpointInputSchema,
-} as const;
-
 // ─── Error Codes ────────────────────────────────────────────────────────────
 
 export const ErrorCode = {

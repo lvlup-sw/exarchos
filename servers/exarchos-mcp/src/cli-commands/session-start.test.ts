@@ -1516,4 +1516,78 @@ describe('session-start command', () => {
       expect(result.error).toBeUndefined();
     });
   });
+
+  // ─── Plugin-Root Version Drift Warning (Task 2.3) ──────────────────────────
+  //
+  // handleSessionStart invokes the shared checkPluginRootCompatibility()
+  // library internally; the test asserts (a) stderr warning on drift, and
+  // (b) silence in the compatible case. The check is non-blocking —
+  // session-start must still return a normal result shape either way.
+
+  describe('plugin-root version compat', () => {
+    const originalPluginRoot = process.env.EXARCHOS_PLUGIN_ROOT;
+    let pluginRootDir: string;
+    let stderrSpy: ReturnType<typeof vi.spyOn>;
+
+    beforeEach(async () => {
+      pluginRootDir = await fs.mkdtemp(path.join(os.tmpdir(), 'exarchos-plugin-compat-'));
+      stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    });
+
+    afterEach(async () => {
+      stderrSpy.mockRestore();
+      if (originalPluginRoot !== undefined) {
+        process.env.EXARCHOS_PLUGIN_ROOT = originalPluginRoot;
+      } else {
+        delete process.env.EXARCHOS_PLUGIN_ROOT;
+      }
+      await fs.rm(pluginRootDir, { recursive: true, force: true }).catch(() => {});
+    });
+
+    async function writePluginJson(root: string, body: unknown): Promise<void> {
+      const dir = path.join(root, '.claude-plugin');
+      await fs.mkdir(dir, { recursive: true });
+      await fs.writeFile(path.join(dir, 'plugin.json'), JSON.stringify(body), 'utf-8');
+    }
+
+    function capturedStderr(): string {
+      return stderrSpy.mock.calls.map((c) => String(c[0])).join('');
+    }
+
+    it('SessionStart_PluginRootIncompatible_EmitsStderrWarning', async () => {
+      // Arrange — plugin declares a newer binary than the running session.
+      await writePluginJson(pluginRootDir, {
+        name: 'exarchos',
+        metadata: { compat: { minBinaryVersion: '99.0.0' } },
+      });
+      process.env.EXARCHOS_PLUGIN_ROOT = pluginRootDir;
+
+      // Act — session-start proceeds normally even with drift.
+      const result = await handleSessionStart({}, tmpDir);
+
+      // Assert — stderr warning names the required version; result has no error.
+      const stderr = capturedStderr();
+      expect(stderr).toContain('99.0.0');
+      expect(result.error).toBeUndefined();
+    });
+
+    it('SessionStart_PluginRootCompatible_Silent', async () => {
+      // Arrange — min is well below the running binary's version.
+      await writePluginJson(pluginRootDir, {
+        name: 'exarchos',
+        metadata: { compat: { minBinaryVersion: '0.1.0' } },
+      });
+      process.env.EXARCHOS_PLUGIN_ROOT = pluginRootDir;
+
+      // Act
+      await handleSessionStart({}, tmpDir);
+
+      // Assert — no compat-related stderr output.
+      const stderr = capturedStderr();
+      // We only assert that no version-drift warning (as a whole phrase) appears.
+      // Other stderr output (e.g. unrelated logging) is not in scope here.
+      expect(stderr).not.toMatch(/incompatible/i);
+      expect(stderr).not.toMatch(/minBinaryVersion/i);
+    });
+  });
 });

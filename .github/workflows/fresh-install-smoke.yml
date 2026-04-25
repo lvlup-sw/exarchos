@@ -1,0 +1,74 @@
+name: Fresh Install Smoke
+
+# End-to-end bootstrap smoke — task 2.9 of the v2.9 install rewrite.
+#
+# Spawns minimal Ubuntu + Alpine docker containers that have nothing
+# beyond curl/ca-certificates, runs the real `scripts/get-exarchos.sh`
+# against a pinned release tag, and verifies `exarchos --version` and
+# `exarchos mcp` both work from zero-state.
+#
+# Intentionally NOT on pull_request/push — docker-in-docker is slow and
+# flaky under branch-preview load, and the gate here is "did the install
+# story regress" which is fine to observe weekly rather than per-PR.
+#
+# Known caveat: until the first v2.9.0 release is cut post-merge, the
+# bootstrap script's download step will 404 against a non-existent
+# release asset. The test treats that case as an INFO-logged skip, not
+# a failure — see the discriminated-union handling in
+# `test/e2e/fresh-install-bootstrap.test.ts`. Once v2.9.0 ships, the
+# 404 branch goes dormant and the `pass` branch asserts.
+#
+# To re-target the smoke at a specific release (e.g. an rc tag), dispatch
+# with the `version` input:
+#   gh workflow run fresh-install-smoke.yml -f version=v2.9.0-rc1
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release tag to smoke-test (default v2.9.0)'
+        required: false
+        default: 'v2.9.0'
+        type: string
+  schedule:
+    # Weekly Monday 04:00 UTC — off-peak for both the release pipeline
+    # and any concurrent npm / docker pulls. The value is a single
+    # string, not an array, because GitHub Actions does not accept a
+    # list for `schedule.cron` entries of one item.
+    - cron: '0 4 * * 1'
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    name: Fresh install (${{ matrix.image }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        image:
+          - 'ubuntu:24.04'
+          - 'alpine:latest'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: npm
+
+      - name: Install test dependencies
+        # Only vitest is needed to execute the test file. Skip the full
+        # install (`npm ci`) to keep the job lean — the smoke deliberately
+        # does not exercise the build pipeline, only the bootstrap script.
+        run: npm ci
+
+      - name: Run fresh-install smoke
+        env:
+          ENABLE_E2E_SMOKE: '1'
+          EXARCHOS_SMOKE_VERSION: ${{ github.event.inputs.version || 'v2.9.0' }}
+          DOCKER_IMAGE: ${{ matrix.image }}
+        run: npx vitest run test/e2e/fresh-install-bootstrap.test.ts

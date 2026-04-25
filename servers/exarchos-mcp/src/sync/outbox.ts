@@ -158,7 +158,7 @@ export class Outbox {
   ): Promise<{ sent: number; failed: number }> {
     // Delegate to backend if available
     if (this.backend) {
-      const result = this.backend.drainOutbox(streamId, client, batchSize);
+      const result = await this.backend.drainOutbox(streamId, client, batchSize);
       return { sent: result.sent, failed: result.failed };
     }
 

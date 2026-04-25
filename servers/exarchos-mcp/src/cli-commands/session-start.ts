@@ -1,6 +1,6 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import type { CommandResult } from '../cli.js';
+import type { CommandResult } from './types.js';
 import { listStateFiles } from '../workflow/state-store.js';
 import { telemetryProjection } from '../telemetry/telemetry-projection.js';
 import type { WorkflowEvent } from '../event-store/schemas.js';
@@ -9,6 +9,7 @@ import { getPlaybook, renderPlaybook } from '../workflow/playbooks.js';
 import { writeManifestEntry, findUnextractedSessions } from '../session/manifest.js';
 import { parseTranscript } from '../session/transcript-parser.js';
 import type { SessionManifestEntry } from '../session/types.js';
+import { checkPluginRootCompatibility } from '../lib/plugin-compat.js';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -64,6 +65,15 @@ export interface SessionStartResult extends CommandResult {
 
 const TERMINAL_PHASES = new Set(['completed', 'cancelled']);
 const DELEGATE_PHASES = new Set(['delegate', 'overhaul-delegate']);
+
+// ─── Binary Version for Compat Check ────────────────────────────────────────
+//
+// Inlined (not imported from `../index.js`) for the same reason
+// `adapters/mcp.ts` inlines SERVER_VERSION — importing `src/index.ts`
+// pulls the full MCP bootstrap graph and blows the cold-start budget.
+// Both strings must stay in lock-step; a failing parity test lives in
+// `src/__tests__/workflow/index.test.ts`.
+const SESSION_START_BINARY_VERSION = '2.8.3';
 
 // ─── Type Guard ──────────────────────────────────────────────────────────────
 
@@ -423,6 +433,47 @@ async function readSafetyRules(): Promise<string | undefined> {
   }
 }
 
+// ─── Plugin-Root Compatibility Probe ───────────────────────────────────────
+
+/**
+ * Invoke the shared compat library against EXARCHOS_PLUGIN_ROOT and emit
+ * a one-line stderr warning on drift. Non-blocking by design: session
+ * startup continues regardless. Silent when:
+ *   - EXARCHOS_PLUGIN_ROOT is not set (no plugin attached)
+ *   - plugin.json is absent or has no compat metadata (advisory cases —
+ *     we log only true drift to avoid noise on every session start)
+ *   - binary satisfies declared minBinaryVersion
+ *
+ * Any error (file system race, etc.) is swallowed — a version probe
+ * must never break session startup. See task 2.3 design gap #2.
+ *
+ * ## Shared library contract (task 2.3)
+ *
+ * The drift-vs-advisory policy lives in `../lib/plugin-compat.ts`; this
+ * function and `handleVersionCheck` in `./version.ts` are the ONLY two
+ * call sites. Both funnel through the same
+ * `checkPluginRootCompatibility()` so the 250ms cold-start budget is
+ * preserved (no second hook process) and drift detection cannot diverge
+ * between the standalone subcommand and the per-session probe.
+ */
+function probePluginRootCompat(): void {
+  const pluginRoot = process.env.EXARCHOS_PLUGIN_ROOT;
+  if (!pluginRoot) return;
+
+  try {
+    const result = checkPluginRootCompatibility(pluginRoot, SESSION_START_BINARY_VERSION);
+    if (!result.compatible) {
+      // Drift — emit a single-line warning. Session proceeds.
+      process.stderr.write(`exarchos: ${result.message}\n`);
+    }
+    // Silent on advisory (minRequired: null) + compatible cases.
+  } catch {
+    // Defensive: the library is already all-catches internally, but if a
+    // future refactor introduces a throw path we must not take down
+    // session startup.
+  }
+}
+
 // ─── Handler ────────────────────────────────────────────────────────────────
 
 /**
@@ -736,6 +787,12 @@ export async function handleSessionStart(
       : safetyRules;
     result = { ...result, contextDocument: combinedContext };
   }
+
+  // Step 6: Probe plugin-root version compatibility (task 2.3). Shares the
+  // checkPluginRootCompatibility() library with `exarchos version
+  // --check-plugin-root`. Non-blocking — drift is logged to stderr but
+  // session startup proceeds regardless.
+  probePluginRootCompat();
 
   return result;
 }

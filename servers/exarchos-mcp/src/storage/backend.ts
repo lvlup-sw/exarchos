@@ -73,7 +73,15 @@ export interface StorageBackend {
 
   // Outbox operations
   addOutboxEntry(streamId: string, event: WorkflowEvent): string;
-  drainOutbox(streamId: string, sender: EventSender, batchSize?: number): DrainResult;
+  // `drainOutbox` is async because the sender's `appendEvents` returns a
+  // Promise — the backend must await it before marking the row confirmed
+  // or a network/remote rejection silently strands the event in the
+  // outbox without a retry path. (CodeRabbit #1176, sqlite-backend:398.)
+  drainOutbox(
+    streamId: string,
+    sender: EventSender,
+    batchSize?: number,
+  ): Promise<DrainResult>;
 
   // View cache operations
   getViewCache(streamId: string, viewName: string): ViewCacheEntry | null;

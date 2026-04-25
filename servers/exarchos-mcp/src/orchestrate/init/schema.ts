@@ -47,8 +47,6 @@ export const InitOutputSchema = z.object({
 });
 
 // Derive TypeScript types
-export type ConfigWriteStatus = z.infer<typeof ConfigWriteStatusSchema>;
 export type ConfigWriteResult = z.infer<typeof ConfigWriteResultSchema>;
-export type InitInput = z.infer<typeof InitInputSchema>;
 export type InitOutput = z.infer<typeof InitOutputSchema>;
 

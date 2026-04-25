@@ -64,7 +64,7 @@ import { execSync } from 'node:child_process';
 import { writeHookEvent } from '../event-store/hook-event-writer.js';
 import { detectTestCommands } from '../orchestrate/detect-test-commands.js';
 import { handleTaskGate, handleTeammateGate, runQualityChecks, findActiveWorkflowState, findUnblockedTasks, resetQualityRetries, readTeamConfig, resolveTeammateFromConfig } from './gates.js';
-import type { CommandResult } from '../cli.js';
+import type { CommandResult } from './types.js';
 
 const mockExecSync = vi.mocked(execSync);
 const mockDetectTestCommands = vi.mocked(detectTestCommands);

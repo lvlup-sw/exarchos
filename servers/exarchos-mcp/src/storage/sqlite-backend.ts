@@ -1,4 +1,4 @@
-import Database from 'better-sqlite3';
+import { Database, type Statement } from 'bun:sqlite';
 import type { WorkflowEvent } from '../event-store/schemas.js';
 import type { WorkflowState } from '../workflow/types.js';
 import type { QueryFilters } from '../event-store/store.js';
@@ -65,22 +65,22 @@ CREATE TABLE IF NOT EXISTS schema_version (
 // ─── Prepared Statements ────────────────────────────────────────────────────
 
 interface Statements {
-  insertEvent: Database.Statement;
-  upsertSequence: Database.Statement;
-  selectSequence: Database.Statement;
-  selectEvents: Database.Statement;
-  getState: Database.Statement;
-  upsertState: Database.Statement;
-  selectAllStates: Database.Statement;
-  getStateVersion: Database.Statement;
-  insertOutbox: Database.Statement;
-  selectPendingOutbox: Database.Statement;
-  updateOutboxConfirmed: Database.Statement;
-  updateOutboxFailed: Database.Statement;
-  updateOutboxDeadLetter: Database.Statement;
-  getViewCache: Database.Statement;
-  upsertViewCache: Database.Statement;
-  insertSchemaVersion: Database.Statement;
+  insertEvent: Statement;
+  upsertSequence: Statement;
+  selectSequence: Statement;
+  selectEvents: Statement;
+  getState: Statement;
+  upsertState: Statement;
+  selectAllStates: Statement;
+  getStateVersion: Statement;
+  insertOutbox: Statement;
+  selectPendingOutbox: Statement;
+  updateOutboxConfirmed: Statement;
+  updateOutboxFailed: Statement;
+  updateOutboxDeadLetter: Statement;
+  getViewCache: Statement;
+  upsertViewCache: Statement;
+  insertSchemaVersion: Statement;
 }
 
 // ─── SqliteBackend ──────────────────────────────────────────────────────────
@@ -89,30 +89,39 @@ const MAX_OUTBOX_RETRIES = 5;
 
 /**
  * SQLite-backed implementation of StorageBackend.
- * Uses better-sqlite3 for synchronous, high-performance operations.
+ * Uses bun:sqlite for synchronous, high-performance operations.
  * Supports WAL mode for concurrent read/write access.
  */
 export class SqliteBackend implements StorageBackend {
-  private db!: Database.Database;
+  private db!: Database;
   private stmts!: Statements;
   private outboxIdCounter = 0;
 
   /** Cache for dynamically built prepared statements (queryEvents). Key = SQL string. */
-  private queryStmtCache: Map<string, Database.Statement> = new Map();
+  private queryStmtCache: Map<string, Statement> = new Map();
 
-  constructor(private readonly dbPath: string) {}
+  /**
+   * Clock used for outbox retry-eligibility checks. Injectable so tests can
+   * advance time without sleeping for real-world backoff windows
+   * (`Math.pow(2, attempts) * 1000` ms — up to 32 s before dead-lettering).
+   * Defaults to wall-clock time.
+   */
+  private readonly clock: () => Date;
+
+  constructor(private readonly dbPath: string, opts: { clock?: () => Date } = {}) {
+    this.clock = opts.clock ?? (() => new Date());
+  }
 
   // ─── Lifecycle ──────────────────────────────────────────────────────────
 
   initialize(): void {
     this.db = new Database(this.dbPath);
 
-    // Enable WAL mode and set synchronous to NORMAL for performance
-    this.db.pragma('journal_mode = WAL');
-    this.db.pragma('synchronous = NORMAL');
-
-    // Enable memory-mapped I/O (256 MB) for read-heavy workloads
-    this.db.pragma('mmap_size = 268435456');
+    // Tune the connection for concurrent read/write (WAL, NORMAL sync) and
+    // read-heavy access patterns (256 MB memory-mapped I/O).
+    // Note: `bun:sqlite` has no `.pragma()` helper — write-pragmas go through
+    // `db.exec()` and read-pragmas through `db.query().all()`.
+    this.applyConnectionPragmas();
 
     // Execute schema DDL
     this.db.exec(SCHEMA_DDL);
@@ -139,6 +148,17 @@ export class SqliteBackend implements StorageBackend {
     if (this.db) {
       this.db.close();
     }
+  }
+
+  /**
+   * Apply the fixed set of connection-level pragmas (WAL, synchronous=NORMAL,
+   * mmap_size=256MB). Kept in a single helper so the values and order are
+   * easy to audit — pragma order matters for some SQLite configurations.
+   */
+  private applyConnectionPragmas(): void {
+    this.db.exec('PRAGMA journal_mode = WAL');
+    this.db.exec('PRAGMA synchronous = NORMAL');
+    this.db.exec('PRAGMA mmap_size = 268435456');
   }
 
   /**
@@ -188,8 +208,18 @@ export class SqliteBackend implements StorageBackend {
       insertOutbox: this.db.prepare(
         'INSERT INTO outbox (id, streamId, event, status, attempts, createdAt) VALUES (?, ?, ?, ?, ?, ?)',
       ),
+      // Honour the exponential-backoff `nextRetryAt` written by
+      // `updateOutboxFailed` — without this filter, every drain would
+      // immediately retry every failed entry regardless of its scheduled
+      // retry time, defeating the backoff and risking a retry storm
+      // against a downstream that's already failing. Caller passes an
+      // ISO timestamp from `clock()`; rows with NULL `nextRetryAt` (never
+      // failed) are always eligible.
       selectPendingOutbox: this.db.prepare(
-        'SELECT id, streamId, event, attempts FROM outbox WHERE streamId = ? AND status = ? ORDER BY createdAt',
+        `SELECT id, streamId, event, attempts FROM outbox
+         WHERE streamId = ? AND status = ?
+           AND (nextRetryAt IS NULL OR nextRetryAt <= ?)
+         ORDER BY createdAt`,
       ),
       updateOutboxConfirmed: this.db.prepare(
         'UPDATE outbox SET status = ?, lastAttemptAt = ? WHERE id = ?',
@@ -365,8 +395,14 @@ export class SqliteBackend implements StorageBackend {
     return id;
   }
 
-  drainOutbox(streamId: string, sender: EventSender, batchSize?: number): DrainResult {
-    const rows = this.stmts.selectPendingOutbox.all(streamId, 'pending') as Array<{
+  async drainOutbox(
+    streamId: string,
+    sender: EventSender,
+    batchSize?: number,
+  ): Promise<DrainResult> {
+    const nowDate = this.clock();
+    const nowIso = nowDate.toISOString();
+    const rows = this.stmts.selectPendingOutbox.all(streamId, 'pending', nowIso) as Array<{
       id: string;
       streamId: string;
       event: string;
@@ -380,13 +416,15 @@ export class SqliteBackend implements StorageBackend {
     const batch = batchSize !== undefined ? rows.slice(0, batchSize) : rows;
     let sent = 0;
     let failed = 0;
-    const now = new Date().toISOString();
 
     for (const row of batch) {
       const event = JSON.parse(row.event) as WorkflowEvent;
       try {
-        // Synchronous call — better-sqlite3 is synchronous, sender is async but invoked fire-and-forget
-        sender.appendEvents(streamId, [
+        // Await the sender's Promise before marking confirmed — fire-and-
+        // forget would silently swallow async rejections (network timeout,
+        // remote 5xx) and strand the event with no retry path. Mirrors the
+        // outbox.ts fallback pattern at line 181.
+        await sender.appendEvents(streamId, [
           {
             streamId: event.streamId,
             sequence: event.sequence,
@@ -403,28 +441,50 @@ export class SqliteBackend implements StorageBackend {
           },
         ]);
 
-        this.stmts.updateOutboxConfirmed.run('confirmed', now, row.id);
+        this.stmts.updateOutboxConfirmed.run('confirmed', nowIso, row.id);
         sent++;
-      } catch {
+      } catch (err) {
         const newAttempts = row.attempts + 1;
+        // Preserve the original sender error in the `error` column so
+        // operators can diagnose retry storms without correlating
+        // against an external log. Truncate to keep one row's footprint
+        // bounded; longer payloads are still findable in the MCP
+        // server's pino log.
+        const rawMessage = err instanceof Error ? err.message : String(err);
+        const errorMessage = rawMessage.length > 512
+          ? `${rawMessage.slice(0, 509)}...`
+          : rawMessage;
 
         if (newAttempts >= MAX_OUTBOX_RETRIES) {
-          // Dead-letter after max retries
-          this.stmts.updateOutboxDeadLetter.run('dead-letter', now, 'Max retries exceeded', row.id);
+          // Dead-letter after max retries — keep the most recent error
+          // so the dead-letter row carries the cause of death.
+          this.stmts.updateOutboxDeadLetter.run(
+            'dead-letter',
+            nowIso,
+            `Max retries exceeded: ${errorMessage}`,
+            row.id,
+          );
         } else {
-          // Schedule retry with exponential backoff
+          // Schedule retry with exponential backoff (computed against the
+          // injected clock so tests can advance time deterministically
+          // instead of sleeping through real-world delays).
           const retryDelayMs = Math.pow(2, newAttempts) * 1000;
-          const nextRetry = new Date(Date.now() + retryDelayMs).toISOString();
+          const nextRetry = new Date(nowDate.getTime() + retryDelayMs).toISOString();
           this.stmts.updateOutboxFailed.run(
             'pending',
             newAttempts,
-            now,
+            nowIso,
             nextRetry,
-            'Send failed',
+            errorMessage,
             row.id,
           );
         }
         failed++;
+        // Stop on first failure to preserve FIFO — events carry monotonic
+        // `sequence` and consumers expect ordered delivery. Letting later
+        // rows succeed past a stranded earlier row would surface them out
+        // of order; remaining rows stay pending for the next drain.
+        break;
       }
     }
 
@@ -483,7 +543,7 @@ export class SqliteBackend implements StorageBackend {
   /**
    * Run `PRAGMA integrity_check` and return its first-row verdict.
    *
-   * better-sqlite3 is synchronous; wrapping in a Promise lets the caller
+   * bun:sqlite is synchronous; wrapping in a Promise lets the caller
    * bound this probe with `Promise.race` (EventStore.runIntegrityCheck
    * applies the timeout — this method is responsible only for honouring
    * `signal` and producing the pragma result string).
@@ -511,7 +571,12 @@ export class SqliteBackend implements StorageBackend {
       }
 
       try {
-        const rows = this.db.pragma('integrity_check') as Array<{ integrity_check: string }>;
+        // bun:sqlite returns the PRAGMA integrity_check column unnamed
+        // (key is the empty string), unlike better-sqlite3 which keys it
+        // by the pragma name. The migration to bun:sqlite (v2.9) silently
+        // turned every verdict into '' under the old `rows[0]?.integrity_check`
+        // access, so the self-heal path always treated databases as healthy.
+        const rows = this.db.query('PRAGMA integrity_check').all() as Array<Record<string, string>>;
         if (signal) {
           signal.removeEventListener('abort', onAbort);
         }
@@ -519,7 +584,11 @@ export class SqliteBackend implements StorageBackend {
           onAbort();
           return;
         }
-        const verdict = rows[0]?.integrity_check ?? '';
+        const firstRow = rows[0];
+        const verdict =
+          firstRow?.integrity_check ?? // tolerate either-named driver
+          firstRow?.[''] ??             // bun:sqlite shape
+          '';
         resolve(verdict);
       } catch (err) {
         if (signal) {

@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from 'vitest';
-import Database from 'better-sqlite3';
+import { Database } from 'bun:sqlite';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -23,9 +23,9 @@ function makeEvent(overrides: Partial<WorkflowEvent> = {}): WorkflowEvent {
  * Creates a V1 database schema (without the `payload` column on events).
  * This simulates a database created before the V1->V2 migration was introduced.
  */
-function createV1Database(dbPath: string): Database.Database {
+function createV1Database(dbPath: string): Database {
   const db = new Database(dbPath);
-  db.pragma('journal_mode = WAL');
+  db.exec('PRAGMA journal_mode = WAL');
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS events (
@@ -86,7 +86,7 @@ function createV1Database(dbPath: string): Database.Database {
  * Inserts a V1-style event (no payload column) directly into the events table.
  */
 function insertV1Event(
-  db: Database.Database,
+  db: Database,
   streamId: string,
   sequence: number,
   type: string,
@@ -155,7 +155,7 @@ describe('SqliteBackend Schema Migration V1->V2', () => {
     backend.initialize();
 
     // Verify the payload column now exists
-    const db = (backend as unknown as { db: Database.Database }).db;
+    const db = (backend as unknown as { db: Database }).db;
     const columnsAfter = db
       .prepare('PRAGMA table_info(events)')
       .all() as Array<{ name: string }>;
@@ -290,7 +290,7 @@ describe('SqliteBackend Schema Migration V1->V2', () => {
     expect(events[1].sequence).toBe(2);
 
     // Verify the payload column still exists (only one)
-    const db = (backend2 as unknown as { db: Database.Database }).db;
+    const db = (backend2 as unknown as { db: Database }).db;
     const columns = db
       .prepare('PRAGMA table_info(events)')
       .all() as Array<{ name: string }>;
@@ -310,7 +310,7 @@ describe('SqliteBackend Schema Migration V1->V2', () => {
     backend.initialize();
 
     // Check the schema_version table contains the current SCHEMA_VERSION (2)
-    const db = (backend as unknown as { db: Database.Database }).db;
+    const db = (backend as unknown as { db: Database }).db;
     const rows = db
       .prepare('SELECT version FROM schema_version ORDER BY version')
       .all() as Array<{ version: number }>;

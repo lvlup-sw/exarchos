@@ -17,7 +17,7 @@ cd servers/exarchos-mcp && npm run test:run
 
 ## Architecture
 
-- **Installer** (`src/install.ts`) — Symlinks commands/skills/rules to `~/.claude/`, registers MCP servers in `~/.claude.json`
+- **Installer** — Bootstrap scripts (`scripts/get-exarchos.sh`, `scripts/get-exarchos.ps1`) download the single-file binary from GitHub Releases; plugin packaging registers commands/skills/rules via the `.claude-plugin/` manifest. The npx-based `src/install.ts` was removed in v2.9 (task 3.1).
 - **Content layers** — Commands (`commands/*.md`); Skills source-of-truth at `skills-src/<name>/SKILL.md` (with `{{TOKEN}}` placeholders and `references/`) rendered to `skills/<runtime>/<name>/SKILL.md` per runtime (Claude Code, Codex, Copilot, Cursor, OpenCode, generic); Rules (`rules/*.md` — safety only; domain rules in `skills-src/*/references/`). Structured Markdown, not executable code.
 - **Skills renderer** (`src/build-skills.ts`) — `npm run build:skills` walks `skills-src/`, substitutes placeholders from `runtimes/<name>.yaml`, copies each skill's `references/` verbatim into every runtime variant, honors `SKILL.<runtime>.md` structural overrides, and prunes stale output. A vocabulary lint runs as a pre-flight; `npm run skills:guard` re-renders and fails CI on any `git diff skills/` drift.
 - **MCP server** (`servers/exarchos-mcp/`) — 4 visible composite tools (`exarchos_workflow`, `exarchos_event`, `exarchos_orchestrate`, `exarchos_view`) + 1 hidden sync tool (`exarchos_sync`). Uses `@modelcontextprotocol/sdk` + `zod` over stdio.

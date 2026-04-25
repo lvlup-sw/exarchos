@@ -10,6 +10,31 @@ npm run build
 npm run test:run
 ```
 
+## Building the binary locally
+
+For contributors debugging the bootstrap script (`scripts/get-exarchos.sh` /
+`scripts/get-exarchos.ps1`) or the compiled-binary install path end-to-end,
+produce a local binary instead of waiting for a release build in CI:
+
+```bash
+npm run build:binary                                # cross-compiles all 5 targets
+bun run scripts/build-binary.ts                     # host-platform binary only
+bun run scripts/build-binary.ts --target linux-x64  # single named target
+```
+
+The resulting artifacts land in `dist/bin/` as `exarchos-<os>-<arch>` (plus
+`.exe` on Windows). Verify with:
+
+```bash
+dist/bin/exarchos-<os>-<arch> --version
+```
+
+The cross-compile target matrix and Bun `--compile` flags live in
+[`scripts/build-binary.ts`](scripts/build-binary.ts). This is the same script
+the release workflow invokes, so a local `build:binary` reproduces what the
+bootstrap script will ultimately download from GitHub Releases — handy when
+you need to iterate on bootstrap behavior without pushing tags.
+
 ## Branch Naming
 
 Use these prefixes for branch names:

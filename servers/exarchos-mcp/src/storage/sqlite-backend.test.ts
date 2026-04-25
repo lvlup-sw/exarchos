@@ -288,9 +288,14 @@ describe('SqliteBackend State Operations', () => {
 
 describe('SqliteBackend Outbox Operations', () => {
   let backend: SqliteBackend;
+  // Mutable clock so retry/dead-letter tests can fast-forward past the
+  // exponential-backoff `nextRetryAt` window without sleeping. Each
+  // `beforeEach` resets to wall-clock time.
+  let nowMs: number;
 
   beforeEach(() => {
-    backend = new SqliteBackend(':memory:');
+    nowMs = Date.now();
+    backend = new SqliteBackend(':memory:', { clock: () => new Date(nowMs) });
     backend.initialize();
   });
 
@@ -306,7 +311,7 @@ describe('SqliteBackend Outbox Operations', () => {
     expect(entryId.length).toBeGreaterThan(0);
   });
 
-  it('SqliteBackend_drainOutbox_SendsPendingAndUpdatesStatus', () => {
+  it('SqliteBackend_drainOutbox_SendsPendingAndUpdatesStatus', async () => {
     const event = makeEvent({ streamId: 'test-stream', sequence: 1 });
     backend.addOutboxEntry('test-stream', event);
 
@@ -318,57 +323,103 @@ describe('SqliteBackend Outbox Operations', () => {
       },
     };
 
-    const result = backend.drainOutbox('test-stream', mockSender);
+    const result = await backend.drainOutbox('test-stream', mockSender);
     expect(result.sent).toBe(1);
     expect(result.failed).toBe(0);
     expect(sentEvents).toHaveLength(1);
 
     // Draining again should find no pending entries
-    const result2 = backend.drainOutbox('test-stream', mockSender);
+    const result2 = await backend.drainOutbox('test-stream', mockSender);
     expect(result2.sent).toBe(0);
     expect(result2.failed).toBe(0);
   });
 
-  it('SqliteBackend_drainOutbox_FailedEntry_SetsRetryAndIncrementsAttempts', () => {
+  it('SqliteBackend_drainOutbox_FailedEntry_SetsRetryAndIncrementsAttempts', async () => {
     const event = makeEvent({ streamId: 'test-stream', sequence: 1 });
     backend.addOutboxEntry('test-stream', event);
 
-    // Use a synchronous throw since drainOutbox is synchronous
+    // Reject asynchronously — `await sender.appendEvents(...)` propagates
+    // the rejection into the outer try/catch the same way a sync throw did.
     const failingSender: EventSender = {
-      appendEvents: (_streamId, _events) => {
+      appendEvents: async (_streamId, _events) => {
         throw new Error('Network error');
       },
-    } as unknown as EventSender;
+    };
 
-    const result = backend.drainOutbox('test-stream', failingSender);
+    const result = await backend.drainOutbox('test-stream', failingSender);
     expect(result.sent).toBe(0);
     expect(result.failed).toBe(1);
 
-    // Entry should still be pending (retryable) after first failure
+    // Entry should still be pending (retryable) after first failure, but
+    // the backoff window (~2s after attempt 1) excludes it from immediate
+    // re-drain — advance the clock past it so the success sender finds
+    // the row eligible.
+    nowMs += 5_000;
     const successSender: EventSender = {
       appendEvents: async (_streamId, events) => {
         return { accepted: events.length, streamVersion: 1 };
       },
     };
 
-    const result2 = backend.drainOutbox('test-stream', successSender);
+    const result2 = await backend.drainOutbox('test-stream', successSender);
     expect(result2.sent).toBe(1);
   });
 
-  it('SqliteBackend_drainOutbox_MaxRetries_MarksDeadLetter', () => {
+  it('SqliteBackend_drainOutbox_NextRetryAtFuture_ExcludesEntryFromBatch', async () => {
+    // Sentry/Seer regression (PR #1176 review): selectPendingOutbox used
+    // to filter only by status='pending', so failed entries with a
+    // future `nextRetryAt` were retried immediately on the next drain,
+    // defeating exponential backoff and risking retry storms.
     const event = makeEvent({ streamId: 'test-stream', sequence: 1 });
     backend.addOutboxEntry('test-stream', event);
 
-    // Use a synchronous throw since drainOutbox is synchronous
     const failingSender: EventSender = {
-      appendEvents: (_streamId, _events) => {
+      appendEvents: async () => { throw new Error('temporary failure'); },
+    };
+
+    const r1 = await backend.drainOutbox('test-stream', failingSender);
+    expect(r1.failed).toBe(1);
+    expect(r1.sent).toBe(0);
+
+    // Without advancing the clock, the entry's `nextRetryAt` (~2s out) is
+    // still in the future — the next drain MUST exclude it. Pre-fix this
+    // would have re-tried (and re-failed) immediately.
+    let recordedCalls = 0;
+    const recordingSender: EventSender = {
+      appendEvents: async () => {
+        recordedCalls++;
+        return { accepted: 1, streamVersion: 1 };
+      },
+    };
+    const r2 = await backend.drainOutbox('test-stream', recordingSender);
+    expect(r2.sent).toBe(0);
+    expect(r2.failed).toBe(0);
+    expect(recordedCalls).toBe(0);
+
+    // After the backoff window passes, the entry becomes eligible again.
+    nowMs += 10_000;
+    const r3 = await backend.drainOutbox('test-stream', recordingSender);
+    expect(r3.sent).toBe(1);
+    expect(recordedCalls).toBe(1);
+  });
+
+  it('SqliteBackend_drainOutbox_MaxRetries_MarksDeadLetter', async () => {
+    const event = makeEvent({ streamId: 'test-stream', sequence: 1 });
+    backend.addOutboxEntry('test-stream', event);
+
+    const failingSender: EventSender = {
+      appendEvents: async (_streamId, _events) => {
         throw new Error('Permanent failure');
       },
-    } as unknown as EventSender;
+    };
 
-    // Drain multiple times to exceed max retries (default 5)
+    // Drain past max retries (default 5). Each failed drain pushes
+    // `nextRetryAt` further out (2s, 4s, 8s, 16s, 32s) so we have to
+    // advance the clock between drains; otherwise the row stays in
+    // backoff and the loop never increments `attempts` past 1.
     for (let i = 0; i < 6; i++) {
-      backend.drainOutbox('test-stream', failingSender);
+      await backend.drainOutbox('test-stream', failingSender);
+      nowMs += 60_000; // > longest backoff window (32s)
     }
 
     // After max retries, entry should be dead-lettered and not retried
@@ -378,7 +429,7 @@ describe('SqliteBackend Outbox Operations', () => {
       },
     };
 
-    const result = backend.drainOutbox('test-stream', successSender);
+    const result = await backend.drainOutbox('test-stream', successSender);
     expect(result.sent).toBe(0);
     expect(result.failed).toBe(0);
   });
@@ -437,7 +488,7 @@ describe('SqliteBackend Transactional Operations', () => {
     backend.close();
   });
 
-  it('SqliteBackend_appendEvent_WithOutbox_BothInSameTransaction', () => {
+  it('SqliteBackend_appendEvent_WithOutbox_BothInSameTransaction', async () => {
     // Append event and add outbox entry, verify both are persisted
     const event = makeEvent({ streamId: 'test-stream', sequence: 1 });
     backend.appendEvent('test-stream', event);
@@ -456,7 +507,7 @@ describe('SqliteBackend Transactional Operations', () => {
       },
     };
 
-    const result = backend.drainOutbox('test-stream', mockSender);
+    const result = await backend.drainOutbox('test-stream', mockSender);
     expect(result.sent).toBe(1);
   });
 });
@@ -726,11 +777,11 @@ describe('SqliteBackend Property Tests', () => {
     );
   });
 
-  it('Outbox drain idempotence: drain(drain(x)) === drain(x) for confirmed entries', () => {
-    fc.assert(
-      fc.property(
+  it('Outbox drain idempotence: drain(drain(x)) === drain(x) for confirmed entries', async () => {
+    await fc.assert(
+      fc.asyncProperty(
         fc.integer({ min: 1, max: 10 }),
-        (count) => {
+        async (count) => {
           const propBackend = new SqliteBackend(':memory:');
           propBackend.initialize();
 
@@ -747,11 +798,11 @@ describe('SqliteBackend Property Tests', () => {
           };
 
           // First drain sends all
-          const result1 = propBackend.drainOutbox(streamId, successSender);
+          const result1 = await propBackend.drainOutbox(streamId, successSender);
           expect(result1.sent).toBe(count);
 
           // Second drain should be idempotent — nothing to send
-          const result2 = propBackend.drainOutbox(streamId, successSender);
+          const result2 = await propBackend.drainOutbox(streamId, successSender);
           expect(result2.sent).toBe(0);
           expect(result2.failed).toBe(0);
 

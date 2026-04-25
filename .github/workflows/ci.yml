@@ -61,6 +61,12 @@ jobs:
       - uses: oven-sh/setup-bun@v2
 
       - run: npm ci
+      # The MCP server's deps must be present so `bun build --compile`
+      # can resolve `pino`, `commander`, `@modelcontextprotocol/sdk`,
+      # `zod`, and `yaml` when bundling `servers/exarchos-mcp/src/index.ts`
+      # (exercised by `scripts/build-binary.test.ts`).
+      - run: npm ci
+        working-directory: servers/exarchos-mcp
       - run: npm run typecheck
       - run: npm run test:run
       # skills:guard — rebuild the generated skills tree in-place and
@@ -90,14 +96,115 @@ jobs:
           cache: npm
           cache-dependency-path: servers/exarchos-mcp/package-lock.json
 
+      # `compiled-binary-mcp.test.ts` shells out to
+      # `bun run scripts/build-binary.ts` from the repo root — bun must
+      # be on PATH or the spawn fails with `exit null`.
+      - uses: oven-sh/setup-bun@v2
+
       - run: npm ci
       - run: npx tsc --noEmit
       - run: npm run test:run
 
+  # ─────────────────────────────────────────────────────────────────────
+  # binary-matrix
+  # ─────────────────────────────────────────────────────────────────────
+  # Cross-compiles the Exarchos CLI + MCP server into a single native
+  # binary per OS/arch pair, using `bun build --compile --target=<bun-target>`
+  # from `scripts/build-binary.ts`.
+  #
+  # DRIFT CONTRACT:
+  #   - The `matrix.target` list below MUST match the `os-arch` names
+  #     derived from `TARGETS` in `scripts/build-binary.ts`.
+  #   - `scripts/ci-binary-matrix.test.ts` is the drift enforcement gate:
+  #     if this matrix or `TARGETS` is edited without the other, that
+  #     test fails `npm run test:run`.
+  #   - The script itself rejects unknown `--target <name>` values with
+  #     a listed error message — failing fast inside the runner if a
+  #     typo slips past CI review.
+  #
+  # Releases: this job uploads per-target workflow artifacts only. Actual
+  # GitHub Release publishing + SHA-512 checksums are owned by
+  # `.github/workflows/release.yml` (task 2.7).
+  # ─────────────────────────────────────────────────────────────────────
+  binary-matrix:
+    name: Binary Matrix (${{ matrix.target }})
+    if: github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Keep in sync with TARGETS in scripts/build-binary.ts.
+        target:
+          - linux-x64
+          - linux-arm64
+          - darwin-x64
+          - darwin-arm64
+          - windows-x64
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: servers/exarchos-mcp/package-lock.json
+
+      # Install MCP-server runtime deps so `bun build --compile` can
+      # resolve `pino`, `commander`, `@modelcontextprotocol/sdk`,
+      # `zod`, and `yaml` when bundling `servers/exarchos-mcp/src/index.ts`.
+      - name: Install MCP server dependencies
+        working-directory: servers/exarchos-mcp
+        run: npm ci
+
+      - name: Build binary for ${{ matrix.target }}
+        run: bun run scripts/build-binary.ts --target ${{ matrix.target }}
+
+      - name: Upload binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: exarchos-${{ matrix.target }}
+          path: dist/bin/exarchos-${{ matrix.target }}*
+          if-no-files-found: error
+          retention-days: 7
+
+  # ─────────────────────────────────────────────────────────────────────
+  # validate-no-legacy
+  # ─────────────────────────────────────────────────────────────────────
+  # Runs scripts/validate-no-legacy.sh, which rolls up two checks:
+  #   1. The NoLegacy_* shell assertion suite (scripts/validate-no-legacy.test.sh)
+  #      — pins obsolete v2.8 install artifacts as deleted/archived.
+  #   2. `knip` (files + dependencies scope) — detects unused modules and
+  #      unused dependencies against the entry-point allowlist in knip.json.
+  #
+  # Runs in parallel with test-root / test-mcp on a vanilla ubuntu-latest
+  # runner (knip has no self-hosted prerequisites). Keeping it off
+  # self-hosted avoids contention with the existing test jobs and keeps
+  # the gate cheap.
+  # ─────────────────────────────────────────────────────────────────────
+  validate-no-legacy:
+    name: Validate No Legacy
+    if: github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run validate-no-legacy rollup
+        run: bash scripts/validate-no-legacy.sh
+
   ci-gate:
     name: CI Gate
     runs-on: self-hosted
-    needs: [changes, test-root, test-mcp]
+    needs: [changes, test-root, test-mcp, validate-no-legacy]
     if: (github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request') && always()
     steps:
       - name: Evaluate results
@@ -105,6 +212,7 @@ jobs:
           echo "changes=${{ needs.changes.result }}"
           echo "test-root=${{ needs.test-root.result }}"
           echo "test-mcp=${{ needs.test-mcp.result }}"
+          echo "validate-no-legacy=${{ needs.validate-no-legacy.result }}"
 
           if [[ "${{ needs.changes.result }}" =~ ^(failure|cancelled)$ ]]; then
             echo "::error::Change detection: ${{ needs.changes.result }}"
@@ -116,6 +224,10 @@ jobs:
           fi
           if [[ "${{ needs.test-mcp.result }}" =~ ^(failure|cancelled)$ ]]; then
             echo "::error::MCP server tests: ${{ needs.test-mcp.result }}"
+            exit 1
+          fi
+          if [[ "${{ needs.validate-no-legacy.result }}" =~ ^(failure|cancelled)$ ]]; then
+            echo "::error::Validate no legacy: ${{ needs.validate-no-legacy.result }}"
             exit 1
           fi
 

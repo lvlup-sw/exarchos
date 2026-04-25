@@ -70,21 +70,43 @@ function makeFailingSender(): EventSender {
 
 // ─── Parameterized Contract Tests ───────────────────────────────────────────
 
+interface BackendFactoryResult {
+  backend: StorageBackend;
+  cleanup: () => void;
+  /**
+   * Advance the backend's clock by `ms` milliseconds. For InMemoryBackend
+   * this is a no-op (it has no retry-backoff bookkeeping). For
+   * SqliteBackend it shifts the injected clock so entries whose
+   * `nextRetryAt` is now in the past become eligible again.
+   */
+  advanceClock: (ms: number) => void;
+}
+
 describe.each([
-  ['InMemoryBackend', () => {
+  ['InMemoryBackend', (): BackendFactoryResult => {
     const backend = new InMemoryBackend();
     backend.initialize();
-    return { backend, cleanup: () => { backend.close(); } };
+    return {
+      backend,
+      cleanup: () => { backend.close(); },
+      advanceClock: () => { /* no clock to advance */ },
+    };
   }],
-  ['SqliteBackend', () => {
+  ['SqliteBackend', (): BackendFactoryResult => {
     const dir = mkdtempSync(join(tmpdir(), 'contract-'));
-    const backend = new SqliteBackend(join(dir, 'test.db'));
+    let nowMs = Date.now();
+    const backend = new SqliteBackend(join(dir, 'test.db'), { clock: () => new Date(nowMs) });
     backend.initialize();
-    return { backend, cleanup: () => { backend.close(); rmSync(dir, { recursive: true }); } };
+    return {
+      backend,
+      cleanup: () => { backend.close(); rmSync(dir, { recursive: true }); },
+      advanceClock: (ms: number) => { nowMs += ms; },
+    };
   }],
 ])('%s contract', (_name, factory) => {
   let backend: StorageBackend;
   let cleanup: () => void;
+  let advanceClock: (ms: number) => void;
 
   afterEach(() => {
     cleanup();
@@ -94,6 +116,7 @@ describe.each([
     const result = factory();
     backend = result.backend;
     cleanup = result.cleanup;
+    advanceClock = result.advanceClock;
     return backend;
   }
 
@@ -250,26 +273,70 @@ describe.each([
     expect(id.length).toBeGreaterThan(0);
   });
 
-  it('drainOutbox_SuccessfulSend_DrainsBatch', () => {
+  it('drainOutbox_SuccessfulSend_DrainsBatch', async () => {
     const b = setup();
     const event = makeEvent();
     b.addOutboxEntry('stream-a', event);
 
     const sender = makeSender();
-    const result = b.drainOutbox('stream-a', sender);
+    const result = await b.drainOutbox('stream-a', sender);
 
     expect(result.sent).toBe(1);
     expect(result.failed).toBe(0);
   });
 
-  it('drainOutbox_EmptyOutbox_ReturnsZeroCounts', () => {
+  it('drainOutbox_EmptyOutbox_ReturnsZeroCounts', async () => {
     const b = setup();
     const sender = makeSender();
 
-    const result = b.drainOutbox('stream-a', sender);
+    const result = await b.drainOutbox('stream-a', sender);
 
     expect(result.sent).toBe(0);
     expect(result.failed).toBe(0);
+  });
+
+  it('drainOutbox_FailedMidBatch_StopsAndPreservesFifoOrder', async () => {
+    const b = setup();
+    // Three pending entries; the second one will trip the sender.
+    for (const seq of [1, 2, 3]) {
+      b.addOutboxEntry('stream-a', makeEvent({ sequence: seq, streamId: 'stream-a' }));
+    }
+
+    let call = 0;
+    const failOnSecond: EventSender = {
+      appendEvents: async (_streamId, events) => {
+        call++;
+        if (call === 2) throw new Error('boom');
+        return { accepted: events.length, streamVersion: call };
+      },
+    };
+
+    const result = await b.drainOutbox('stream-a', failOnSecond);
+
+    // Only the first entry sent successfully; the second failed and the
+    // third must remain queued so FIFO order is preserved on the next
+    // drain — entry 3 must not be delivered before entry 2 is recovered.
+    expect(result.sent).toBe(1);
+    expect(result.failed).toBe(1);
+
+    // SqliteBackend now writes a `nextRetryAt` 2-32s in the future on
+    // failure (exponential backoff) and `selectPendingOutbox` filters it
+    // out until the clock catches up. Advance past the first-retry window
+    // so the next drain sees entry 2 as eligible again. InMemoryBackend
+    // has no backoff bookkeeping; `advanceClock` is a no-op there.
+    advanceClock(60_000);
+
+    const accepted: Array<{ sequence: number }> = [];
+    const recordingSender: EventSender = {
+      appendEvents: async (_streamId, events) => {
+        accepted.push(...(events as Array<{ sequence: number }>));
+        return { accepted: events.length, streamVersion: 99 };
+      },
+    };
+
+    const result2 = await b.drainOutbox('stream-a', recordingSender);
+    expect(result2.sent).toBeGreaterThanOrEqual(1);
+    if (accepted.length > 0) expect(accepted[0]?.sequence).toBe(2);
   });
 
   // ─── Stream Operations ─────────────────────────────────────────────────
@@ -379,19 +446,20 @@ describe('SqliteBackend outbox retry behavior', () => {
   });
 
   /**
-   * SqliteBackend retries failed outbox sends with exponential backoff.
+   * Both backends keep failed outbox entries pending and retry on later
+   * drains — the keep-on-failure invariant is verified for both via the
+   * `drainOutbox_FailedSend_*` parameterized contract tests above.
    *
-   * When a send fails, the SqliteBackend keeps the outbox entry in the database
-   * with status='pending' and increments the `attempts` count. The entry remains
-   * available for future drain calls until it exceeds MAX_OUTBOX_RETRIES (5),
-   * at which point it is moved to 'dead-letter' status.
-   *
-   * This contrasts with InMemoryBackend which uses `splice` to remove items
-   * from the outbox array before sending, so failed items are permanently lost.
+   * The SqliteBackend additionally tracks attempt counts and schedules
+   * exponential backoff; after exceeding MAX_OUTBOX_RETRIES (5) the row
+   * moves to 'dead-letter'. InMemoryBackend skips this bookkeeping (its
+   * only consumer is unit tests) but holds the same delivery contract.
+   * This focused test pins the sqlite-specific retry-with-backoff path.
    */
-  it('drainOutbox_FailedSend_SqliteBackendRetriesWithBackoff', () => {
+  it('drainOutbox_FailedSend_SqliteBackendRetriesWithBackoff', async () => {
     dir = mkdtempSync(join(tmpdir(), 'contract-sqlite-retry-'));
-    backend = new SqliteBackend(join(dir, 'test.db'));
+    let nowMs = Date.now();
+    backend = new SqliteBackend(join(dir, 'test.db'), { clock: () => new Date(nowMs) });
     backend.initialize();
 
     const event = makeEvent();
@@ -399,43 +467,55 @@ describe('SqliteBackend outbox retry behavior', () => {
 
     const failingSender = makeFailingSender();
 
-    // First drain: send fails
-    const result1 = backend.drainOutbox('stream-a', failingSender);
+    // First drain: send fails. The entry's `nextRetryAt` is now ~2s
+    // (2^1 * 1000) in the future relative to the injected clock.
+    const result1 = await backend.drainOutbox('stream-a', failingSender);
     expect(result1.sent).toBe(0);
     expect(result1.failed).toBe(1);
 
-    // The entry should still be in the outbox with status 'pending' and attempts=1
-    // Verify by attempting another drain — the item should still be available
-    const result2 = backend.drainOutbox('stream-a', failingSender);
+    // Without advancing time, the entry is still queued but ineligible —
+    // the backoff filter excludes it. This verifies the Sentry/Seer fix
+    // (selectPendingOutbox honours nextRetryAt).
+    const resultDuringBackoff = await backend.drainOutbox('stream-a', failingSender);
+    expect(resultDuringBackoff.sent).toBe(0);
+    expect(resultDuringBackoff.failed).toBe(0);
+
+    // Advance past the first backoff window — now the entry is eligible
+    // and a fresh failure should re-schedule it (attempts=2, ~4s out).
+    nowMs += 5_000;
+    const result2 = await backend.drainOutbox('stream-a', failingSender);
     expect(result2.sent).toBe(0);
     expect(result2.failed).toBe(1);
 
-    // A successful sender should now pick up the entry
+    // Advance past the second backoff window. A successful sender now
+    // picks up the entry.
+    nowMs += 10_000;
     const successSender = makeSender();
-    const result3 = backend.drainOutbox('stream-a', successSender);
+    const result3 = await backend.drainOutbox('stream-a', successSender);
     expect(result3.sent).toBe(1);
     expect(result3.failed).toBe(0);
 
-    // After successful send, outbox should be drained
-    const result4 = backend.drainOutbox('stream-a', successSender);
+    // After successful send, outbox should be drained.
+    const result4 = await backend.drainOutbox('stream-a', successSender);
     expect(result4.sent).toBe(0);
     expect(result4.failed).toBe(0);
   });
 });
 
-describe('InMemoryBackend outbox drop behavior', () => {
+describe('InMemoryBackend outbox retry behavior', () => {
   /**
-   * InMemoryBackend drops failed outbox items with no retry mechanism.
+   * After the v2.9 outbox-drain fix, InMemoryBackend keeps failed entries
+   * in the queue (slice + remove-on-success) so a subsequent drain with a
+   * working sender can pick them up. This matches SqliteBackend's
+   * keep-on-failure semantics — fewer surprises when production code is
+   * exercised against the test double.
    *
-   * The InMemoryBackend uses `splice` to remove items from the outbox array
-   * BEFORE attempting to send. If the send fails, the item has already been
-   * removed from the array and is permanently lost. This is a fire-and-forget
-   * design appropriate for a test double.
-   *
-   * This contrasts with SqliteBackend which keeps failed items in the database
-   * with incremented attempt counts and schedules retries with exponential backoff.
+   * SqliteBackend additionally tracks attempt counts and schedules
+   * exponential backoff before dead-lettering. InMemoryBackend skips
+   * those bookkeeping fields (its only consumer is unit tests), but the
+   * core invariant — "failed sends do not vanish" — now holds for both.
    */
-  it('drainOutbox_FailedSend_InMemoryBackendDropsItem', () => {
+  it('drainOutbox_FailedSend_InMemoryBackendKeepsItemForRetry', async () => {
     const backend = new InMemoryBackend();
     backend.initialize();
 
@@ -444,15 +524,15 @@ describe('InMemoryBackend outbox drop behavior', () => {
 
     const failingSender = makeFailingSender();
 
-    // First drain: send fails, but item is already spliced out
-    const result1 = backend.drainOutbox('stream-a', failingSender);
+    // First drain: send fails, item must remain in the queue.
+    const result1 = await backend.drainOutbox('stream-a', failingSender);
     expect(result1.sent).toBe(0);
     expect(result1.failed).toBe(1);
 
-    // The entry has been removed — outbox is now empty
+    // A working sender on the next drain picks up the still-pending entry.
     const successSender = makeSender();
-    const result2 = backend.drainOutbox('stream-a', successSender);
-    expect(result2.sent).toBe(0);
+    const result2 = await backend.drainOutbox('stream-a', successSender);
+    expect(result2.sent).toBe(1);
     expect(result2.failed).toBe(0);
   });
 });

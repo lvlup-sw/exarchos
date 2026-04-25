@@ -122,7 +122,7 @@ function startHeartbeat(actionName: string): () => void {
 export function buildCli(ctx: DispatchContext): Command {
   const program = new Command('exarchos')
     .description('Agent governance for AI coding — event-sourced SDLC workflows')
-    .version('2.4.0');
+    .version('2.8.3');
 
   // ─── Auto-generated tool commands ──────────────────────────────────────────
 
@@ -315,6 +315,42 @@ export function buildCli(ctx: DispatchContext): Command {
         : CLI_EXIT_CODES.SUCCESS;
     });
   }
+
+  // ─── Top-level `exarchos version` command ──────────────────────────────
+  //
+  // Standalone diagnostic that compares the running binary version
+  // against the plugin root's declared `metadata.compat.minBinaryVersion`
+  // (task 2.3). Shares the same `checkPluginRootCompatibility()` library
+  // as the session-start wiring, so there is exactly one source of truth
+  // for the compat policy.
+  //
+  // The subcommand is intentionally thin: it dispatches to
+  // `handleVersionCheck`, which already prints and returns an exit code.
+  // We assign the return value to `process.exitCode` to preserve the
+  // DR-3 exit-code contract (0 = ok, 1 = drift detected).
+  //
+  // NOTE: Commander's top-level `.version('2.8.3')` above registers
+  // `--version` as a flag on the root program; this `version` subcommand
+  // is distinct because it takes the `--check-plugin-root <path>` option.
+  program
+    .command('version')
+    .description('Print version and (optionally) verify plugin-root compatibility')
+    .option('--check-plugin-root <path>', 'Check plugin.json minBinaryVersion against the running binary')
+    .action(async (opts: { checkPluginRoot?: string }) => {
+      if (!opts.checkPluginRoot) {
+        // Plain `exarchos version` — print the version string and exit.
+        process.stdout.write('2.8.3\n');
+        process.exitCode = CLI_EXIT_CODES.SUCCESS;
+        return;
+      }
+
+      const { handleVersionCheck } = await import('../cli-commands/version.js');
+      const exitCode = await handleVersionCheck({
+        pluginRoot: opts.checkPluginRoot,
+        binaryVersion: '2.8.3',
+      });
+      process.exitCode = exitCode;
+    });
 
   // ─── Schema introspection command ──────────────────────────────────────────
 
