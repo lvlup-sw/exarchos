@@ -306,7 +306,7 @@ describe('SqliteBackend Outbox Operations', () => {
     expect(entryId.length).toBeGreaterThan(0);
   });
 
-  it('SqliteBackend_drainOutbox_SendsPendingAndUpdatesStatus', () => {
+  it('SqliteBackend_drainOutbox_SendsPendingAndUpdatesStatus', async () => {
     const event = makeEvent({ streamId: 'test-stream', sequence: 1 });
     backend.addOutboxEntry('test-stream', event);
 
@@ -318,29 +318,30 @@ describe('SqliteBackend Outbox Operations', () => {
       },
     };
 
-    const result = backend.drainOutbox('test-stream', mockSender);
+    const result = await backend.drainOutbox('test-stream', mockSender);
     expect(result.sent).toBe(1);
     expect(result.failed).toBe(0);
     expect(sentEvents).toHaveLength(1);
 
     // Draining again should find no pending entries
-    const result2 = backend.drainOutbox('test-stream', mockSender);
+    const result2 = await backend.drainOutbox('test-stream', mockSender);
     expect(result2.sent).toBe(0);
     expect(result2.failed).toBe(0);
   });
 
-  it('SqliteBackend_drainOutbox_FailedEntry_SetsRetryAndIncrementsAttempts', () => {
+  it('SqliteBackend_drainOutbox_FailedEntry_SetsRetryAndIncrementsAttempts', async () => {
     const event = makeEvent({ streamId: 'test-stream', sequence: 1 });
     backend.addOutboxEntry('test-stream', event);
 
-    // Use a synchronous throw since drainOutbox is synchronous
+    // Reject asynchronously — `await sender.appendEvents(...)` propagates
+    // the rejection into the outer try/catch the same way a sync throw did.
     const failingSender: EventSender = {
-      appendEvents: (_streamId, _events) => {
+      appendEvents: async (_streamId, _events) => {
         throw new Error('Network error');
       },
-    } as unknown as EventSender;
+    };
 
-    const result = backend.drainOutbox('test-stream', failingSender);
+    const result = await backend.drainOutbox('test-stream', failingSender);
     expect(result.sent).toBe(0);
     expect(result.failed).toBe(1);
 
@@ -351,24 +352,23 @@ describe('SqliteBackend Outbox Operations', () => {
       },
     };
 
-    const result2 = backend.drainOutbox('test-stream', successSender);
+    const result2 = await backend.drainOutbox('test-stream', successSender);
     expect(result2.sent).toBe(1);
   });
 
-  it('SqliteBackend_drainOutbox_MaxRetries_MarksDeadLetter', () => {
+  it('SqliteBackend_drainOutbox_MaxRetries_MarksDeadLetter', async () => {
     const event = makeEvent({ streamId: 'test-stream', sequence: 1 });
     backend.addOutboxEntry('test-stream', event);
 
-    // Use a synchronous throw since drainOutbox is synchronous
     const failingSender: EventSender = {
-      appendEvents: (_streamId, _events) => {
+      appendEvents: async (_streamId, _events) => {
         throw new Error('Permanent failure');
       },
-    } as unknown as EventSender;
+    };
 
     // Drain multiple times to exceed max retries (default 5)
     for (let i = 0; i < 6; i++) {
-      backend.drainOutbox('test-stream', failingSender);
+      await backend.drainOutbox('test-stream', failingSender);
     }
 
     // After max retries, entry should be dead-lettered and not retried
@@ -378,7 +378,7 @@ describe('SqliteBackend Outbox Operations', () => {
       },
     };
 
-    const result = backend.drainOutbox('test-stream', successSender);
+    const result = await backend.drainOutbox('test-stream', successSender);
     expect(result.sent).toBe(0);
     expect(result.failed).toBe(0);
   });
@@ -437,7 +437,7 @@ describe('SqliteBackend Transactional Operations', () => {
     backend.close();
   });
 
-  it('SqliteBackend_appendEvent_WithOutbox_BothInSameTransaction', () => {
+  it('SqliteBackend_appendEvent_WithOutbox_BothInSameTransaction', async () => {
     // Append event and add outbox entry, verify both are persisted
     const event = makeEvent({ streamId: 'test-stream', sequence: 1 });
     backend.appendEvent('test-stream', event);
@@ -456,7 +456,7 @@ describe('SqliteBackend Transactional Operations', () => {
       },
     };
 
-    const result = backend.drainOutbox('test-stream', mockSender);
+    const result = await backend.drainOutbox('test-stream', mockSender);
     expect(result.sent).toBe(1);
   });
 });
@@ -726,11 +726,11 @@ describe('SqliteBackend Property Tests', () => {
     );
   });
 
-  it('Outbox drain idempotence: drain(drain(x)) === drain(x) for confirmed entries', () => {
-    fc.assert(
-      fc.property(
+  it('Outbox drain idempotence: drain(drain(x)) === drain(x) for confirmed entries', async () => {
+    await fc.assert(
+      fc.asyncProperty(
         fc.integer({ min: 1, max: 10 }),
-        (count) => {
+        async (count) => {
           const propBackend = new SqliteBackend(':memory:');
           propBackend.initialize();
 
@@ -747,11 +747,11 @@ describe('SqliteBackend Property Tests', () => {
           };
 
           // First drain sends all
-          const result1 = propBackend.drainOutbox(streamId, successSender);
+          const result1 = await propBackend.drainOutbox(streamId, successSender);
           expect(result1.sent).toBe(count);
 
           // Second drain should be idempotent — nothing to send
-          const result2 = propBackend.drainOutbox(streamId, successSender);
+          const result2 = await propBackend.drainOutbox(streamId, successSender);
           expect(result2.sent).toBe(0);
           expect(result2.failed).toBe(0);
 

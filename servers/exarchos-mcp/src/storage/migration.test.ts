@@ -299,7 +299,7 @@ describe('migrateLegacyOutbox', () => {
         return { accepted: events.length, streamVersion: 1 };
       },
     };
-    const result = backend.drainOutbox('my-stream', mockSender);
+    const result = await backend.drainOutbox('my-stream', mockSender);
     expect(result.sent).toBe(2);
 
     // Assert: original file renamed to .migrated

@@ -250,23 +250,23 @@ describe.each([
     expect(id.length).toBeGreaterThan(0);
   });
 
-  it('drainOutbox_SuccessfulSend_DrainsBatch', () => {
+  it('drainOutbox_SuccessfulSend_DrainsBatch', async () => {
     const b = setup();
     const event = makeEvent();
     b.addOutboxEntry('stream-a', event);
 
     const sender = makeSender();
-    const result = b.drainOutbox('stream-a', sender);
+    const result = await b.drainOutbox('stream-a', sender);
 
     expect(result.sent).toBe(1);
     expect(result.failed).toBe(0);
   });
 
-  it('drainOutbox_EmptyOutbox_ReturnsZeroCounts', () => {
+  it('drainOutbox_EmptyOutbox_ReturnsZeroCounts', async () => {
     const b = setup();
     const sender = makeSender();
 
-    const result = b.drainOutbox('stream-a', sender);
+    const result = await b.drainOutbox('stream-a', sender);
 
     expect(result.sent).toBe(0);
     expect(result.failed).toBe(0);
@@ -389,7 +389,7 @@ describe('SqliteBackend outbox retry behavior', () => {
    * This contrasts with InMemoryBackend which uses `splice` to remove items
    * from the outbox array before sending, so failed items are permanently lost.
    */
-  it('drainOutbox_FailedSend_SqliteBackendRetriesWithBackoff', () => {
+  it('drainOutbox_FailedSend_SqliteBackendRetriesWithBackoff', async () => {
     dir = mkdtempSync(join(tmpdir(), 'contract-sqlite-retry-'));
     backend = new SqliteBackend(join(dir, 'test.db'));
     backend.initialize();
@@ -400,24 +400,24 @@ describe('SqliteBackend outbox retry behavior', () => {
     const failingSender = makeFailingSender();
 
     // First drain: send fails
-    const result1 = backend.drainOutbox('stream-a', failingSender);
+    const result1 = await backend.drainOutbox('stream-a', failingSender);
     expect(result1.sent).toBe(0);
     expect(result1.failed).toBe(1);
 
     // The entry should still be in the outbox with status 'pending' and attempts=1
     // Verify by attempting another drain — the item should still be available
-    const result2 = backend.drainOutbox('stream-a', failingSender);
+    const result2 = await backend.drainOutbox('stream-a', failingSender);
     expect(result2.sent).toBe(0);
     expect(result2.failed).toBe(1);
 
     // A successful sender should now pick up the entry
     const successSender = makeSender();
-    const result3 = backend.drainOutbox('stream-a', successSender);
+    const result3 = await backend.drainOutbox('stream-a', successSender);
     expect(result3.sent).toBe(1);
     expect(result3.failed).toBe(0);
 
     // After successful send, outbox should be drained
-    const result4 = backend.drainOutbox('stream-a', successSender);
+    const result4 = await backend.drainOutbox('stream-a', successSender);
     expect(result4.sent).toBe(0);
     expect(result4.failed).toBe(0);
   });
@@ -435,7 +435,7 @@ describe('InMemoryBackend outbox drop behavior', () => {
    * This contrasts with SqliteBackend which keeps failed items in the database
    * with incremented attempt counts and schedules retries with exponential backoff.
    */
-  it('drainOutbox_FailedSend_InMemoryBackendDropsItem', () => {
+  it('drainOutbox_FailedSend_InMemoryBackendDropsItem', async () => {
     const backend = new InMemoryBackend();
     backend.initialize();
 
@@ -445,13 +445,13 @@ describe('InMemoryBackend outbox drop behavior', () => {
     const failingSender = makeFailingSender();
 
     // First drain: send fails, but item is already spliced out
-    const result1 = backend.drainOutbox('stream-a', failingSender);
+    const result1 = await backend.drainOutbox('stream-a', failingSender);
     expect(result1.sent).toBe(0);
     expect(result1.failed).toBe(1);
 
     // The entry has been removed — outbox is now empty
     const successSender = makeSender();
-    const result2 = backend.drainOutbox('stream-a', successSender);
+    const result2 = await backend.drainOutbox('stream-a', successSender);
     expect(result2.sent).toBe(0);
     expect(result2.failed).toBe(0);
   });

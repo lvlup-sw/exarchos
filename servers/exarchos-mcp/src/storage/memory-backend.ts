@@ -163,7 +163,11 @@ export class InMemoryBackend implements StorageBackend {
     return id;
   }
 
-  drainOutbox(streamId: string, sender: EventSender, batchSize?: number): DrainResult {
+  async drainOutbox(
+    streamId: string,
+    sender: EventSender,
+    batchSize?: number,
+  ): Promise<DrainResult> {
     const items = this.outbox.get(streamId);
     if (!items || items.length === 0) {
       return { sent: 0, failed: 0 };
@@ -175,9 +179,11 @@ export class InMemoryBackend implements StorageBackend {
 
     for (const item of batch) {
       try {
-        // Synchronous call - InMemoryBackend is a simple test double
-        // The sender interface is async but we invoke it fire-and-forget
-        sender.appendEvents(streamId, [
+        // Await the sender's Promise so async rejections are caught by
+        // the surrounding try/catch and counted as `failed`. Fire-and-
+        // forget would have silently lost events whose send failed only
+        // after the synchronous call returned.
+        await sender.appendEvents(streamId, [
           {
             streamId: item.event.streamId,
             sequence: item.event.sequence,

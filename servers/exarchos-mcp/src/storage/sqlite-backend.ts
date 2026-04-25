@@ -375,7 +375,11 @@ export class SqliteBackend implements StorageBackend {
     return id;
   }
 
-  drainOutbox(streamId: string, sender: EventSender, batchSize?: number): DrainResult {
+  async drainOutbox(
+    streamId: string,
+    sender: EventSender,
+    batchSize?: number,
+  ): Promise<DrainResult> {
     const rows = this.stmts.selectPendingOutbox.all(streamId, 'pending') as Array<{
       id: string;
       streamId: string;
@@ -395,8 +399,11 @@ export class SqliteBackend implements StorageBackend {
     for (const row of batch) {
       const event = JSON.parse(row.event) as WorkflowEvent;
       try {
-        // Synchronous call — bun:sqlite is synchronous, sender is async but invoked fire-and-forget
-        sender.appendEvents(streamId, [
+        // Await the sender's Promise before marking confirmed — fire-and-
+        // forget would silently swallow async rejections (network timeout,
+        // remote 5xx) and strand the event with no retry path. Mirrors the
+        // outbox.ts fallback pattern at line 181.
+        await sender.appendEvents(streamId, [
           {
             streamId: event.streamId,
             sequence: event.sequence,

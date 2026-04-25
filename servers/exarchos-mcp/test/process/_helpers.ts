@@ -45,9 +45,28 @@ export function findRepoRoot(startDir: string): string {
 export function hostBinaryPath(repoRoot: string): string {
   const platform = os.platform();
   const arch = os.arch();
-  const osName =
-    platform === 'darwin' ? 'darwin' : platform === 'win32' ? 'windows' : 'linux';
-  const archName: 'x64' | 'arm64' = arch === 'arm64' ? 'arm64' : 'x64';
+
+  // Refuse to coerce unknown hosts to linux/x64 — pointing the test at
+  // the wrong artefact would mask a real incompatibility on uncommon
+  // platforms. Mirrors `getHostTarget()` in `scripts/build-binary.ts`.
+  let osName: 'linux' | 'darwin' | 'windows';
+  if (platform === 'darwin') {
+    osName = 'darwin';
+  } else if (platform === 'win32') {
+    osName = 'windows';
+  } else if (platform === 'linux') {
+    osName = 'linux';
+  } else {
+    throw new Error(`unsupported host platform for compiled-binary tests: ${platform}`);
+  }
+
+  let archName: 'x64' | 'arm64';
+  if (arch === 'x64' || arch === 'arm64') {
+    archName = arch;
+  } else {
+    throw new Error(`unsupported host arch for compiled-binary tests: ${arch}`);
+  }
+
   const ext = osName === 'windows' ? '.exe' : '';
   return path.join(repoRoot, 'dist', 'bin', `exarchos-${osName}-${archName}${ext}`);
 }
@@ -93,17 +112,34 @@ export function ensureBinaryBuilt(repoRoot: string): BinaryBuildResult {
   // bundled in future, leaving a stale binary in place during integration
   // tests. Scanning each tracked input directory keeps the check cheap
   // while catching the realistic edit surfaces.
-  const inputs = [
+  const dirInputs = [
     path.join(repoRoot, 'servers', 'exarchos-mcp', 'src'),
     path.join(repoRoot, 'scripts'),
     path.join(repoRoot, 'src'),
   ];
 
+  // Manifest + lockfile mtimes also matter: a `package.json`/`package-lock.json`
+  // edit can change the dependency graph that bun bundles even when no `.ts`
+  // file moved. Include them explicitly so dependency bumps trigger a rebuild.
+  const fileInputs = [
+    path.join(repoRoot, 'package.json'),
+    path.join(repoRoot, 'package-lock.json'),
+    path.join(repoRoot, 'servers', 'exarchos-mcp', 'package.json'),
+    path.join(repoRoot, 'servers', 'exarchos-mcp', 'package-lock.json'),
+    path.join(repoRoot, 'servers', 'exarchos-mcp', 'tsconfig.json'),
+    path.join(repoRoot, 'tsconfig.json'),
+  ];
+
   let srcNewest = 0;
-  for (const dir of inputs) {
+  for (const dir of dirInputs) {
     if (!fs.existsSync(dir)) continue;
     const newest = newestMtimeUnder(dir, (p) => p.endsWith('.ts'));
     if (newest > srcNewest) srcNewest = newest;
+  }
+  for (const file of fileInputs) {
+    if (!fs.existsSync(file)) continue;
+    const mtime = fs.statSync(file).mtimeMs;
+    if (mtime > srcNewest) srcNewest = mtime;
   }
 
   let rebuild = false;
