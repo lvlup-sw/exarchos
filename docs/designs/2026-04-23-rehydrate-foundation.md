@@ -174,7 +174,7 @@ Registered in the event store schema catalog; each has a Zod data schema and an 
 | `workflow.checkpoint_requested` | `checkpoint` action entry | `{ trigger: "manual"\|"threshold"\|"hook", reason? }` |
 | `workflow.checkpoint_written` | After projection materialized + snapshot written | `{ projectionId, projectionSequence, byteSize }` |
 | `workflow.checkpoint_superseded` | Compensating event (invalidation) | `{ priorSequence, reason }` |
-| `workflow.rehydrated` | On `rehydrate` action success | `{ projectionSequence, deliveryPath: "command"\|"mcp"\|"cli"\|"session-start", tokenEstimate }` |
+| `workflow.rehydrated` | On `rehydrate` action success | `{ projectionSequence, deliveryPath: "direct"\|"ndjson"\|"snapshot", tokenEstimate }` (the registered enum describes the *delivery mechanism*, not the caller; the original draft `command\|mcp\|cli\|session-start` was reconciled away in T031) |
 | `workflow.snapshot_taken` | Every N events during projection materialization | `{ projectionId, sequence }` |
 | `workflow.projection_degraded` | Reducer error, snapshot corrupt, or validation fail | `{ projectionId, cause, fallbackSource }` |
 

@@ -234,6 +234,12 @@ function applyWorkflowTransition(
  * Handler for `workflow.guard-failed` — a guard predicate rejected a
  * transition (per WorkflowGuardFailedData); record the rejection as a
  * structured blocker entry.
+ *
+ * Unlike sibling handlers, this one does NOT bail on missing fields — the
+ * event's existence IS the signal that a guard fired, and dropping it on
+ * partial payloads would leave the rehydration document blind to a real
+ * blocker. `guard` falls back to `'unknown-guard'`; `from`/`to` are
+ * surfaced only when present.
  */
 function applyWorkflowGuardFailed(
   state: RehydrationDocument,
