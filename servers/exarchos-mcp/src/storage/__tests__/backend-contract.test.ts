@@ -423,19 +423,20 @@ describe('SqliteBackend outbox retry behavior', () => {
   });
 });
 
-describe('InMemoryBackend outbox drop behavior', () => {
+describe('InMemoryBackend outbox retry behavior', () => {
   /**
-   * InMemoryBackend drops failed outbox items with no retry mechanism.
+   * After the v2.9 outbox-drain fix, InMemoryBackend keeps failed entries
+   * in the queue (slice + remove-on-success) so a subsequent drain with a
+   * working sender can pick them up. This matches SqliteBackend's
+   * keep-on-failure semantics — fewer surprises when production code is
+   * exercised against the test double.
    *
-   * The InMemoryBackend uses `splice` to remove items from the outbox array
-   * BEFORE attempting to send. If the send fails, the item has already been
-   * removed from the array and is permanently lost. This is a fire-and-forget
-   * design appropriate for a test double.
-   *
-   * This contrasts with SqliteBackend which keeps failed items in the database
-   * with incremented attempt counts and schedules retries with exponential backoff.
+   * SqliteBackend additionally tracks attempt counts and schedules
+   * exponential backoff before dead-lettering. InMemoryBackend skips
+   * those bookkeeping fields (its only consumer is unit tests), but the
+   * core invariant — "failed sends do not vanish" — now holds for both.
    */
-  it('drainOutbox_FailedSend_InMemoryBackendDropsItem', async () => {
+  it('drainOutbox_FailedSend_InMemoryBackendKeepsItemForRetry', async () => {
     const backend = new InMemoryBackend();
     backend.initialize();
 
@@ -444,15 +445,15 @@ describe('InMemoryBackend outbox drop behavior', () => {
 
     const failingSender = makeFailingSender();
 
-    // First drain: send fails, but item is already spliced out
+    // First drain: send fails, item must remain in the queue.
     const result1 = await backend.drainOutbox('stream-a', failingSender);
     expect(result1.sent).toBe(0);
     expect(result1.failed).toBe(1);
 
-    // The entry has been removed — outbox is now empty
+    // A working sender on the next drain picks up the still-pending entry.
     const successSender = makeSender();
     const result2 = await backend.drainOutbox('stream-a', successSender);
-    expect(result2.sent).toBe(0);
+    expect(result2.sent).toBe(1);
     expect(result2.failed).toBe(0);
   });
 });

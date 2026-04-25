@@ -173,16 +173,19 @@ export class InMemoryBackend implements StorageBackend {
       return { sent: 0, failed: 0 };
     }
 
-    const batch = batchSize !== undefined ? items.splice(0, batchSize) : items.splice(0);
+    // Take a non-mutating snapshot of the batch and only remove items
+    // after `appendEvents` resolves successfully. The earlier
+    // splice-then-send variant dropped failed entries permanently — even
+    // after switching to `await`, an async rejection would leave the
+    // entry already gone from `items` with no retry path. Aligning with
+    // SqliteBackend's "keep on failure" semantics keeps both backends
+    // behaviourally consistent for code under test.
+    const batch = batchSize !== undefined ? items.slice(0, batchSize) : items.slice();
     let sent = 0;
     let failed = 0;
 
     for (const item of batch) {
       try {
-        // Await the sender's Promise so async rejections are caught by
-        // the surrounding try/catch and counted as `failed`. Fire-and-
-        // forget would have silently lost events whose send failed only
-        // after the synchronous call returned.
         await sender.appendEvents(streamId, [
           {
             streamId: item.event.streamId,
@@ -199,11 +202,15 @@ export class InMemoryBackend implements StorageBackend {
             ...(item.event.idempotencyKey ? { idempotencyKey: item.event.idempotencyKey } : {}),
           },
         ]);
+        const idx = items.findIndex((queued) => queued.id === item.id);
+        if (idx >= 0) items.splice(idx, 1);
         sent++;
       } catch {
         failed++;
       }
     }
+
+    if (items.length === 0) this.outbox.delete(streamId);
 
     return { sent, failed };
   }
