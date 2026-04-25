@@ -26,7 +26,7 @@ import { promisify } from 'node:util';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { EventStore } from '../event-store/store.js';
-import { HUMAN_CHECKPOINT_PHASES } from '../workflow/next-action.js';
+import { HUMAN_CHECKPOINT_PHASES } from '../workflow/human-checkpoint-phases.js';
 import { getHSMDefinition } from '../workflow/state-machine.js';
 import { getPlaybook, renderPlaybook } from '../workflow/playbooks.js';
 import { handleRehydrate } from '../workflow/rehydrate.js';

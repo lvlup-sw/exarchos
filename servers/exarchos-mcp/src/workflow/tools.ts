@@ -66,7 +66,6 @@ export function configureWorkflowMaterializer(materializer: ViewMaterializer | n
 }
 
 // Re-export from dedicated modules for backward compatibility
-export { handleNextAction } from './next-action.js';
 export { handleCancel } from './cancel.js';
 export { handleSummary, handleReconcile, handleTransitions } from './query.js';
 

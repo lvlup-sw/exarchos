@@ -9,7 +9,6 @@ import {
   handleCancel,
   handleCheckpoint,
   handleSummary,
-  handleNextAction,
 } from '../../workflow/tools.js';
 import { executeTransition, getHSMDefinition } from '../../workflow/state-machine.js';
 import { appendEvent, mapInternalToExternalType } from '../../workflow/events.js';

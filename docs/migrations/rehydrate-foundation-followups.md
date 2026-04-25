@@ -77,9 +77,8 @@ Design reference: `docs/designs/2026-04-23-rehydrate-foundation.md` DR-16.
 
 ---
 
-### 9. Legacy `workflow/next-action.ts` deletion (T060)
+### 9. Legacy `workflow/next-action.ts` deletion (T060) — RESOLVED on PR #1178
 
-- **State:** T060 extracted the pure logic into a registered `next-action@v1` reducer at `projections/next-action/`. The legacy `workflow/next-action.ts` was kept because its `handleNextAction` MCP handler and `HUMAN_CHECKPOINT_PHASES` table are still imported by `workflow/tools.ts`, `cli-commands/pre-compact.ts`, `cli-commands/assemble-context.ts`, and three `__tests__/workflow/*.test.ts` files.
-- **Gap:** Two parallel sources of truth for "what's next" remain: the legacy `handleNextAction` and the new `next-action@v1` reducer + T040 `computeNextActions` + T041 envelope `next_actions`. Future drift between them is likely without intervention.
-- **Scope:** M — migrate each caller to the new reducer / envelope path; relocate `HUMAN_CHECKPOINT_PHASES` to a shared workflow-state module; delete `workflow/next-action.ts`; update the three legacy `__tests__` files.
-- **Linked task:** T060
+- **State:** Resolved during the PR #1178 scope expansion. `workflow/next-action.ts` and its three dedicated test files (`workflow/next-action.test.ts`, `__tests__/workflow/next-action-edge-cases.test.ts`, `__tests__/workflow/next-action-hsm-sync.test.ts`) were deleted; the `handleNextAction` re-export shim at `workflow/tools.ts:69` and the legacy MCP tool `exarchos_workflow_next_action` were removed alongside. `HUMAN_CHECKPOINT_PHASES` was relocated to `workflow/human-checkpoint-phases.ts`; `cli-commands/assemble-context.ts` (the only production importer of the constant) was updated. The breaker-aware semantics of the deleted handler had already been shed by T058 — the markdown caller's local `computeNextAction` is HSM-topology-only, and the HATEOAS envelope's `next_actions` array (T040 `computeNextActions` + T041 envelope wrapping) is now the single canonical surface.
+- **Coverage:** The followups doc was inaccurate on `cli-commands/pre-compact.ts` — it was never a real caller (only a comment reference). The integration test file dropped its unused `handleNextAction` import. The ~16 `ToolNextAction_*` cases in `__tests__/workflow/tools.test.ts` (one batch under "Query Tools", one batch covering refactor-track phases) were removed; HSM-derivation coverage remains in `next-actions-computer.test.ts` (T040) and the rehydration reducer/envelope test suites.
+- **Linked task:** T060 (closed)
