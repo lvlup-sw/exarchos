@@ -272,7 +272,12 @@ describe('handleCheckpoint — materializes rehydration projection (T034, DR-6)'
       byteSize: number;
     };
     expect(writtenData.projectionId).toBe('rehydration@v1');
-    expect(writtenData.projectionSequence).toBe(doc.projectionSequence);
+    // The event payload's `projectionSequence` reports the absorbed stream
+    // position (matches `parsed.sequence` on the snapshot record), NOT the
+    // reducer's handled-event count (`doc.projectionSequence`). One
+    // operator-facing checkpoint-lag anchor across both surfaces.
+    // (CodeRabbit PR #1178 follow-up review.)
+    expect(writtenData.projectionSequence).toBe(parsed.sequence);
     expect(writtenData.byteSize).toBeGreaterThan(0);
   });
 

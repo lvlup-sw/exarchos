@@ -216,6 +216,30 @@ describe('wrapWithPassthrough — diagnostic side-channels (CodeRabbit MEDIUM #1
     const out = wrapWithPassthrough(source, makeEnvelope()) as unknown as Record<string, unknown>;
     expect(out._corrections).toEqual({ applied: [] });
   });
+
+  it('WrapPassthrough_EventHintsPresent_ThreadOntoEnvelope', () => {
+    // Per-action event acks set on the source ToolResult by handlers that
+    // emit events (the field shape is shared with Envelope). Composite
+    // wrapping must forward this field; without the passthrough, callers
+    // would never see which events the handler emitted.
+    const source: ToolResult = {
+      success: true,
+      data: { phase: 'ideate' },
+      _eventHints: {
+        missing: [
+          {
+            eventType: 'workflow.rehydrated',
+            description: 'rehydration ack emitted',
+            requiredFields: ['streamId', 'sequence'],
+          },
+        ],
+        phase: 'rehydrate',
+        checked: 1,
+      },
+    };
+    const out = wrapWithPassthrough(source, makeEnvelope()) as unknown as Record<string, unknown>;
+    expect(out._eventHints).toEqual(source._eventHints);
+  });
 });
 
 // ─── T051 (DR-14): Conditional cache_control hints ─────────────────────────

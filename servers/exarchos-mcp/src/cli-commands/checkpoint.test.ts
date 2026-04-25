@@ -94,13 +94,16 @@ describe('checkpoint CLI adapter (T035, DR-6)', () => {
     );
 
     // THEN: exit 0 (success), stdout contains a JSON envelope whose
-    //   `data.projectionSequence === 4` (the number of events folded).
+    //   `data.projectionSequence` is the absorbed stream position. The
+    //   handler appends `workflow.checkpoint` (seq 5) before materializing
+    //   the snapshot, so the snapshot reflects sequences 1..5 even though
+    //   only 4 of those events are folded by the rehydration reducer. The
+    //   envelope reports the stream position (5) — that is the
+    //   operator-meaningful "events behind" anchor. (CodeRabbit PR #1178
+    //   follow-up review.)
     expect(exitCode).toBe(0);
 
     const stdout = capturedStdout();
-    // The CLI renders the envelope as a single JSON line or a pretty block;
-    // in either case the substring `projectionSequence` must appear with
-    // value 4. Parse the JSON to assert structure precisely.
     const parsed = JSON.parse(stdout) as {
       success: boolean;
       data: { phase: string; projectionSequence: number };
@@ -109,7 +112,7 @@ describe('checkpoint CLI adapter (T035, DR-6)', () => {
       _perf: { ms: number };
     };
     expect(parsed.success).toBe(true);
-    expect(parsed.data.projectionSequence).toBe(4);
+    expect(parsed.data.projectionSequence).toBe(5);
     expect(typeof parsed.data.phase).toBe('string');
   });
 

@@ -26,6 +26,7 @@ import { promisify } from 'node:util';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { EventStore } from '../event-store/store.js';
+import { workflowLogger } from '../logger.js';
 import { HUMAN_CHECKPOINT_PHASES } from '../workflow/human-checkpoint-phases.js';
 import { getHSMDefinition } from '../workflow/state-machine.js';
 import { getPlaybook, renderPlaybook } from '../workflow/playbooks.js';
@@ -341,7 +342,6 @@ export async function handleAssembleContext(
     return { contextDocument: '', featureId: '', phase: '', truncated: false };
   }
 
-  const eventStore = new EventStore(stateDir);
   // Hook subprocesses must initialize the event store before first use;
   // without it, writes (the workflow.rehydrated emission inside
   // handleRehydrate) bypass the PID lock and could race the main MCP
@@ -351,38 +351,56 @@ export async function handleAssembleContext(
   // routed to a sidecar JSONL the primary merges later. We avoid
   // waitForLock:true because pre-compact callers are latency-sensitive
   // and the contract for handleAssembleContext is to never raise.
-  // Initialize is wrapped so unexpected lock-acquisition failures
-  // degrade to an empty projection rather than throwing into session-start.
+  //
+  // If init throws (unexpected lock-acquisition failure, fs error, etc.),
+  // we degrade to a state-file-only context rather than returning an empty
+  // document. The state file is the CQRS write side; even when the event
+  // log is unreadable, hooks/CLI can still surface phase, task list, and
+  // artifacts so operators don't see a blank session-start. (CodeRabbit
+  // PR #1178 follow-up review — previously returned empty contextDocument.)
+  let eventStore: EventStore | null = new EventStore(stateDir);
   try {
     await eventStore.initialize();
-  } catch {
-    return { contextDocument: '', featureId, phase: '', truncated: false };
+  } catch (err) {
+    workflowLogger.warn(
+      {
+        featureId,
+        err: err instanceof Error ? err.message : String(err),
+      },
+      'EventStore init failed in assemble-context — degrading to state-only context',
+    );
+    eventStore = null;
   }
   const stateFilePath = path.join(stateDir, `${featureId}.state.json`);
 
   // Dispatch to the canonical rehydrate handler for the document. Errors
   // surface as `success: false`; treat them like an empty projection so
   // the adapter degrades rather than throws (session-start/pre-compact
-  // rely on it never raising).
-  const rehydrateResult = await handleRehydrate(
-    { featureId },
-    { stateDir, eventStore },
-  );
+  // rely on it never raising). When the event store is unavailable we
+  // skip the rehydrate call entirely — its contract requires a real
+  // EventStore — and fall through to state-file-only formatting.
+  const rehydrateResult = eventStore
+    ? await handleRehydrate({ featureId }, { stateDir, eventStore })
+    : null;
 
   // Parallel reads for presentation layers the reducer does not yet
   // capture: git sidecar, state file (for artifact first-lines + task
-  // titles), and the raw event stream (for the HH:MM summaries).
+  // titles), and the raw event stream (for the HH:MM summaries). When the
+  // event store is unavailable, the events list is empty (the recent-events
+  // section will simply be omitted below).
   const [stateFileRaw, gitState, recentEvents] = await Promise.all([
     fs.readFile(stateFilePath, 'utf-8').catch((): null => null),
     queryGitState(stateDir),
-    eventStore.query(featureId).catch((): WorkflowEvent[] => []),
+    eventStore
+      ? eventStore.query(featureId).catch((): WorkflowEvent[] => [])
+      : Promise.resolve<WorkflowEvent[]>([]),
   ]);
 
   // Canonical document from the reducer. If the reducer failed outright
   // we still check for the state file — the prior inline handler returned
   // an empty document for "no workflow" and we preserve that contract.
   const doc: RehydrationDocument | undefined =
-    rehydrateResult.success && rehydrateResult.data
+    rehydrateResult?.success && rehydrateResult.data
       ? (rehydrateResult.data as RehydrationDocument)
       : undefined;
 

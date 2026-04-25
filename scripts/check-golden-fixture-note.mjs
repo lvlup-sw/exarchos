@@ -129,16 +129,25 @@ function runCli(argv) {
   /** @type {string[] | undefined} */
   let changedFiles;
 
+  // Known flag tokens. We reject `--body <token>` only when the next argv is
+  // exactly one of these (i.e. the user forgot the value and the parser would
+  // otherwise eat the next flag) — *not* on every `-`-prefixed string, since
+  // legitimate body text can begin with `-` (a leading dash, a "- bullet"
+  // line, etc.). (CodeRabbit PR #1178 follow-up review.)
+  const KNOWN_FLAGS = new Set([
+    '--body',
+    '--body-file',
+    '--changed-files-file',
+    '-h',
+    '--help',
+  ]);
+
   for (let i = 0; i < argv.length; i++) {
     const flag = argv[i];
     const value = argv[i + 1];
     switch (flag) {
       case '--body':
-        // Guard against missing value or accidental flag-swallowing: if the
-        // next token is absent or itself looks like a flag (`-...`), the
-        // user almost certainly forgot to supply `--body`'s argument.
-        // (CodeRabbit PR #1178 review.)
-        if (value === undefined || value.startsWith('-')) {
+        if (value === undefined || KNOWN_FLAGS.has(value)) {
           return usage('--body requires a string value');
         }
         body = value;

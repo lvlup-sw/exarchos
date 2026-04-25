@@ -1060,17 +1060,25 @@ export async function handleCheckpoint(
         },
       };
     }
-    projectionSequence = document.projectionSequence;
+    // The dispatch envelope's `projectionSequence` exposes a checkpoint-lag
+    // signal to operators ("how far through the stream is this checkpoint")
+    // and the CLI adapter renders it directly. The meaningful value here is
+    // the absorbed event-store position (`lastEventSequence`), not the
+    // reducer's internal handled-event counter (`document.projectionSequence`)
+    // — those two values diverge whenever the stream contains unhandled
+    // events, and the operator-facing meaning needs the stream position.
+    // (CodeRabbit PR #1178 follow-up review.)
+    projectionSequence = lastEventSequence;
 
     // SnapshotRecord.sequence is the highest event-store sequence absorbed
     // into `document` — NOT `document.projectionSequence`. The two values
     // diverge whenever the stream contains events the rehydration reducer
-    // doesn't fold (e.g. `gate.executed`, `task.assigned` are unhandled
-    // by `rehydrationReducer.apply`), and a later `rehydrate` call uses
-    // this field as `sinceSequence` against `eventStore.query`. Storing
-    // the projection sequence here would make the query under-skip,
-    // causing already-absorbed events to be re-applied on every read.
-    // (Sentry HIGH on PR #1178.)
+    // doesn't fold (e.g. `gate.executed` is unhandled by
+    // `rehydrationReducer.apply`), and a later `rehydrate` call uses this
+    // field as `sinceSequence` against `eventStore.query`. Storing the
+    // projection sequence here would make the query under-skip, causing
+    // already-absorbed events to be re-applied on every read. (Sentry HIGH
+    // on PR #1178.)
     const snapshotRecord: SnapshotRecord = {
       projectionId: REHYDRATION_PROJECTION_ID,
       projectionVersion: REHYDRATION_PROJECTION_VERSION,
@@ -1107,7 +1115,13 @@ export async function handleCheckpoint(
         source: 'workflow',
         data: {
           projectionId: REHYDRATION_PROJECTION_ID,
-          projectionSequence: document.projectionSequence,
+          // The event payload's `projectionSequence` field carries the same
+          // operator-facing checkpoint-lag signal the dispatch envelope does
+          // — the absorbed stream position, not the reducer's handled-event
+          // counter. Aligned with the envelope assignment above so observers
+          // see one consistent number regardless of which surface they read.
+          // (CodeRabbit PR #1178 follow-up review.)
+          projectionSequence: lastEventSequence,
           byteSize,
         },
       }, {
