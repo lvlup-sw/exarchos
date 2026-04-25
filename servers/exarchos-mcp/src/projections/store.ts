@@ -57,6 +57,32 @@ export function resolveMaxRecords(
   return parsed;
 }
 
+/**
+ * Resolve the JSONL sidecar path for a given workflow stream, rejecting
+ * stream identifiers that could escape `stateDir`. Both the read and write
+ * code paths interpolate `streamId` directly into a filename, so any value
+ * containing `..` or path separators would let a caller materialise paths
+ * outside the projection root and read or overwrite arbitrary files.
+ *
+ * Workflow streams use feature ids that are already constrained upstream
+ * (slugified `feature/<id>` form), but this helper enforces the invariant
+ * locally so a future caller can't trip it inadvertently.
+ */
+function getSnapshotSidecarPath(stateDir: string, streamId: string): string {
+  if (
+    streamId.length === 0 ||
+    streamId.includes('..') ||
+    streamId.includes('/') ||
+    streamId.includes('\\') ||
+    streamId.includes('\0')
+  ) {
+    throw new Error(
+      `Invalid streamId for projection sidecar: ${JSON.stringify(streamId)}`,
+    );
+  }
+  return path.join(stateDir, `${streamId}.projections.jsonl`);
+}
+
 /** Optional per-call overrides for {@link appendSnapshot}. */
 export interface AppendSnapshotOptions {
   /**
@@ -76,7 +102,7 @@ export function readLatestSnapshot(
   projectionId: string,
   projectionVersion: string,
 ): SnapshotRecord | undefined {
-  const sidecar = path.join(stateDir, `${streamId}.projections.jsonl`);
+  const sidecar = getSnapshotSidecarPath(stateDir, streamId);
 
   let raw: string;
   try {
@@ -144,7 +170,7 @@ export function appendSnapshot(
       ? options.maxRecords
       : resolveMaxRecords();
 
-  const target = path.join(stateDir, `${streamId}.projections.jsonl`);
+  const target = getSnapshotSidecarPath(stateDir, streamId);
   const existing = readIfExists(target);
   const line = `${JSON.stringify(record)}\n`;
 

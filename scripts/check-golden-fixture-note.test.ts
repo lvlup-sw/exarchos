@@ -86,4 +86,23 @@ describe('checkGoldenFixtureNote', () => {
 
     expect(result.passed).toBe(true);
   });
+
+  it('PrBodyCheck_FixtureChangedWithBareMarker_Fails', () => {
+    // DR-15 requires reviewer context after the marker. A bare
+    // `GOLDEN-FIXTURE-UPDATE:` line — or one followed only by whitespace —
+    // has no reason and must NOT satisfy the gate.
+    for (const bare of [
+      'GOLDEN-FIXTURE-UPDATE:',
+      'GOLDEN-FIXTURE-UPDATE: ',
+      '  GOLDEN-FIXTURE-UPDATE:   \n',
+    ]) {
+      const result = checkGoldenFixtureNote({
+        changedFiles: [LOAD_BEARING_FILE],
+        prBody: bare,
+      });
+
+      expect(result.passed, `bare marker variant should fail: ${JSON.stringify(bare)}`).toBe(false);
+      expect(result.reason).toMatch(/GOLDEN-FIXTURE-UPDATE/);
+    }
+  });
 });

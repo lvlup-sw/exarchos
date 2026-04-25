@@ -84,10 +84,16 @@ function hasMarker(body) {
   // Accept the marker as a leading token on any line (ignoring leading
   // whitespace) so that quoted/indented bodies still match. The colon is
   // part of the marker to avoid accidental prefix matches like
-  // `GOLDEN-FIXTURE-UPDATED`.
+  // `GOLDEN-FIXTURE-UPDATED`. The marker MUST be followed by a non-empty
+  // reason — DR-15's whole point is to force reviewer context, so a bare
+  // `GOLDEN-FIXTURE-UPDATE:` line must NOT satisfy the gate.
   const lines = body.split(/\r?\n/);
   for (const line of lines) {
-    if (line.replace(/^\s+/, '').startsWith(MARKER)) {
+    const trimmed = line.replace(/^\s+/, '');
+    if (
+      trimmed.startsWith(MARKER) &&
+      trimmed.slice(MARKER.length).trim().length > 0
+    ) {
       return true;
     }
   }

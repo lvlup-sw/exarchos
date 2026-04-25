@@ -312,3 +312,47 @@ describe('projection snapshot store — size cap pruning', () => {
     }
   });
 });
+
+describe('projection snapshot store — streamId path-traversal guard', () => {
+  let stateDir: string;
+
+  beforeEach(() => {
+    stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'exarchos-snapshot-traversal-'));
+  });
+
+  afterEach(() => {
+    fs.rmSync(stateDir, { recursive: true, force: true });
+  });
+
+  const validRecord: SnapshotRecord = {
+    projectionId: 'rehydration',
+    projectionVersion: 'v1',
+    sequence: 1,
+    state: {},
+    timestamp: '2026-04-25T00:00:00.000Z',
+  };
+
+  // Both read and write call sites interpolate `streamId` into a filename;
+  // a `..`/separator-bearing id must be rejected before it reaches the
+  // filesystem so the projection sidecar can never escape `stateDir`.
+  for (const unsafe of [
+    '..',
+    '../escape',
+    'subdir/leak',
+    'win\\style\\path',
+    '',
+    'with\0null',
+  ]) {
+    it(`SnapshotStore_RejectsUnsafeStreamId_${JSON.stringify(unsafe)}_OnRead`, () => {
+      expect(() =>
+        readLatestSnapshot(stateDir, unsafe, 'rehydration', 'v1'),
+      ).toThrow(/Invalid streamId/);
+    });
+
+    it(`SnapshotStore_RejectsUnsafeStreamId_${JSON.stringify(unsafe)}_OnWrite`, () => {
+      expect(() => appendSnapshot(stateDir, unsafe, validRecord)).toThrow(
+        /Invalid streamId/,
+      );
+    });
+  }
+});

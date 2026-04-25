@@ -128,7 +128,7 @@ Snapshot write cadence: every N events (default `SNAPSHOT_EVERY_N=50`, env-confi
 
 **Acceptance criteria:**
 - JSONL snapshot sidecar file written atomically (temp-file + rename).
-- On read, snapshots with `projectionVersion < reducer.version` are ignored (forces replay-from-zero on version bump — DR-18).
+- On read, snapshots whose `projectionVersion` does not exactly match the requested `reducer.version` are ignored (forces replay-from-zero on any version bump — DR-18). The reader does not interpret version strings semantically; mismatch is mismatch.
 - Snapshot file max size configurable; default 10 MB; older entries pruned oldest-first when exceeded. Pruning is bounded and logged (DIM-7 resilience).
 - No in-memory ambient cache. Every call reads the file. (DIM-1: single source of truth is the event stream + file.)
 
@@ -416,10 +416,16 @@ Every PR in this wave confirms:
 
 ## Open Questions
 
-The following remain unresolved and are surfaced for plan-review delta analysis.
+This section tracks unknowns from research that the implementation surfaced answers to. Items move to "Resolved during implementation" once they've been settled by code; only genuine open items remain in the active list.
 
-1. Does the existing `state-store` implementation use SQLite or JSONL uniformly? (Affects DR-2 — whether snapshots are a JSONL sidecar or a SQLite table.)
-2. Does `workflow/next-action.ts` have consumers outside `pre-compact.ts`? (Affects DR-16 migration blast radius.)
-3. Is the `EventStore` Zod-registered for custom event types, or does DR-4 require extending the type discriminator in `event-store/schemas.ts`? (Discovered during research: the `discovery.report_committed` event registration failed this session — same path applies here.)
-4. What is the current envelope shape returned by `exarchos_view` and `exarchos_orchestrate`? (Affects how much of DR-7 is formalization vs. net-new.)
-5. Does `npm run validate` exist as an extensible lint target, or does Q1–Q4 need a new top-level script?
+### Active
+
+_(none — all questions raised by the research delta were answered during implementation; see below.)_
+
+### Resolved during implementation
+
+1. **Snapshot storage shape.** Resolved: JSONL sidecar (`servers/exarchos-mcp/src/projections/store.ts`), one record per line, latest-for-projection read is a file-end scan. No SQLite dependency; the on-disk format is the storage layer (DR-2). DR-18 size cap + atomic rename satisfy the resilience axis.
+2. **`workflow/next-action.ts` blast radius.** Resolved: callers are `workflow/tools.ts`, `cli-commands/pre-compact.ts`, and `cli-commands/assemble-context.ts`. Per-call migration to the new `next-action@v1` reducer is tracked as `T060` in `docs/migrations/rehydrate-foundation-followups.md` — the legacy module survives the merge to keep this PR shippable; deletion is a follow-up PR.
+3. **`EventStore` Zod registration.** Resolved: custom event types are registered via the `event-store/schemas.ts` discriminated union. DR-4 events (`workflow.rehydrated`, `workflow.snapshot_taken`, `workflow.projection_degraded`) extend the existing union — see the registrations alongside their Zod schemas.
+4. **Envelope shape.** Resolved: see `servers/exarchos-mcp/src/format.ts` (`Envelope<T>`) — composite tools wrap successful payloads in `{ data, meta }` plus the existing `ToolResult` error/`warnings` channel. DR-7 is mostly formalization on top of that shape.
+5. **`npm run validate` extension point.** Resolved: existing `validate` script was extended to chain `bash scripts/validate-plugin.sh && node scripts/check-prefix-fingerprint.mjs && node scripts/check-prose-lint.mjs` (root `package.json`). No new top-level script needed.

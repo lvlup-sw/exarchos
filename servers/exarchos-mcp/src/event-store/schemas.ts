@@ -512,10 +512,39 @@ export const WorkflowSnapshotTakenData = z.object({
   sequence: z.number().int().nonnegative(),
 });
 
+/**
+ * Closed enum of degradation causes (DR-18, T054/T055/T056). Extending this
+ * set is a coordinated change: add the literal here, add the matching
+ * `DegradationCause` union member in `workflow/rehydrate.ts`, and surface
+ * the new code in the audit/observability paths so dashboards don't fragment.
+ */
+export const WorkflowProjectionDegradedCause = z.enum([
+  'reducer-throw',
+  'snapshot-corrupt',
+  'event-stream-unavailable',
+]);
+export type WorkflowProjectionDegradedCause = z.infer<
+  typeof WorkflowProjectionDegradedCause
+>;
+
+/**
+ * Closed enum of fallback-source codes (DR-18). Mirrors the
+ * `DegradationFallbackSource` union in `workflow/rehydrate.ts`. New entries
+ * MUST be added in both places — the schema enforces the wire contract,
+ * the union enforces the call-site contract.
+ */
+export const WorkflowProjectionDegradedFallbackSource = z.enum([
+  'state-store-only',
+  'full-replay',
+]);
+export type WorkflowProjectionDegradedFallbackSource = z.infer<
+  typeof WorkflowProjectionDegradedFallbackSource
+>;
+
 export const WorkflowProjectionDegradedData = z.object({
   projectionId: z.string().min(1),
-  cause: z.string().min(1),
-  fallbackSource: z.string().min(1),
+  cause: WorkflowProjectionDegradedCause,
+  fallbackSource: WorkflowProjectionDegradedFallbackSource,
 });
 
 export const SynthesizeRequestedData = z.object({

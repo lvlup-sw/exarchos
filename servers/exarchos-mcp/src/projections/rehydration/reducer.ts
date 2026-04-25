@@ -94,21 +94,36 @@ function extractString(
 }
 
 /**
- * Narrow a `state.patched` event's opaque `data.patch.artifacts` subtree into
- * a `Record<string, string>` suitable for `ArtifactsSchema`. The workflow-side
- * `ArtifactsSchema` allows `string | null`, but the rehydration projection's
- * artifacts map is `Record<string, string>` — so non-string values (null,
- * undefined, nested objects, arrays) are dropped rather than coerced, keeping
- * the projection schema-valid under replay over legacy / partial patches.
+ * Diff-style decoding of `data.patch.artifacts` from a `state.patched` event:
  *
- * Returns `undefined` when the patch has no artifacts subtree OR when every
- * value in the subtree is non-string. Callers treat `undefined` as a no-op
- * (do not bump projectionSequence), guaranteeing that only events which
- * change state advance the sequence.
+ *   - `set`   — string upserts (`{ [name]: path }`)
+ *   - `unset` — entries explicitly cleared via `null` (delete from artifacts)
+ *
+ * The two slices are mutually exclusive. Anything else (undefined, nested
+ * objects, arrays, empty strings) is ignored as malformed — the projection's
+ * artifacts map is `Record<string, string>` so coercing non-string values
+ * would corrupt downstream consumers.
+ */
+interface ExtractedArtifactsPatch {
+  readonly set: Record<string, string>;
+  readonly unset: readonly string[];
+}
+
+/**
+ * Decode a `state.patched` event's `data.patch.artifacts` subtree into an
+ * upsert/clear diff. Returns `undefined` when the event has no artifacts
+ * patch OR when no entry is actionable (so callers treat the event as a
+ * no-op and avoid bumping `projectionSequence`).
+ *
+ * The workflow-side `ArtifactsSchema` allows `string | null`. We honour the
+ * null branch as an explicit "clear this entry" signal so callers issuing
+ * `workflow set { artifacts: { design: null } }` get the expected result —
+ * silently dropping the null would let stale artifact paths survive in the
+ * projection long after the underlying file moved.
  */
 function extractArtifactsPatch(
   data: WorkflowEvent['data'],
-): Record<string, string> | undefined {
+): ExtractedArtifactsPatch | undefined {
   if (!data) return undefined;
   const patch = data['patch'];
   if (!patch || typeof patch !== 'object' || Array.isArray(patch)) {
@@ -118,13 +133,26 @@ function extractArtifactsPatch(
   if (!artifacts || typeof artifacts !== 'object' || Array.isArray(artifacts)) {
     return undefined;
   }
-  const entries = Object.entries(artifacts as Record<string, unknown>);
-  const stringEntries = entries.filter(
-    (pair): pair is [string, string] =>
-      typeof pair[1] === 'string' && pair[1].length > 0,
-  );
-  if (stringEntries.length === 0) return undefined;
-  return Object.fromEntries(stringEntries);
+
+  const set: Record<string, string> = {};
+  const unset: string[] = [];
+  for (const [key, value] of Object.entries(
+    artifacts as Record<string, unknown>,
+  )) {
+    if (typeof value === 'string' && value.length > 0) {
+      set[key] = value;
+    } else if (value === null) {
+      unset.push(key);
+    }
+    // Other shapes (undefined, '', objects, arrays) are intentionally
+    // ignored — `Record<string, string>` cannot represent them and they
+    // do not carry an unambiguous "clear this entry" signal.
+  }
+
+  if (Object.keys(set).length === 0 && unset.length === 0) {
+    return undefined;
+  }
+  return { set, unset };
 }
 
 /**
@@ -277,16 +305,23 @@ function applyStatePatched(
 ): RehydrationDocument {
   const artifactsPatch = extractArtifactsPatch(event.data);
   if (!artifactsPatch) {
-    // No artifacts subtree, or every value was non-string: no-op.
+    // No artifacts subtree, or no actionable entries: no-op.
     return state;
+  }
+  // Fold the diff: drop unset keys first (so an `unset` entry can't be
+  // resurrected by a same-event `set`), then overlay the upserts. Build a
+  // fresh object rather than mutating to preserve reducer purity (DR-1).
+  const nextArtifacts: Record<string, string> = { ...state.artifacts };
+  for (const key of artifactsPatch.unset) {
+    delete nextArtifacts[key];
+  }
+  for (const [key, value] of Object.entries(artifactsPatch.set)) {
+    nextArtifacts[key] = value;
   }
   return {
     ...state,
     projectionSequence: state.projectionSequence + 1,
-    artifacts: {
-      ...state.artifacts,
-      ...artifactsPatch,
-    },
+    artifacts: nextArtifacts,
   };
 }
 

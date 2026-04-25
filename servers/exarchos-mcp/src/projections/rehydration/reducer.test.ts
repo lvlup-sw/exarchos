@@ -328,12 +328,13 @@ describe('rehydration reducer — artifacts fold (T025, DR-3)', () => {
     expect(next).toBe(initial);
   });
 
-  it('Rehydration_Given_StatePatchedArtifactsWithNonStringValue_When_Fold_Then_ValueSkipped', () => {
-    // GIVEN: initial state
+  it('Rehydration_Given_StatePatchedArtifactsWithNullEntry_When_Fold_Then_OtherKeysFolded', () => {
+    // GIVEN: initial state with no prior artifacts
     const initial = rehydrationReducer.initial;
-    // AND: a patch carrying a null artifact (matches nullable ArtifactsSchema in
-    // workflow state) — the rehydration projection's ArtifactsSchema requires
-    // string values, so null entries must be skipped, not coerced.
+    // AND: a patch carrying a null artifact alongside a real entry. Null is
+    // the workflow-side "clear this artifact" signal (ArtifactsSchema is
+    // `string | null`); since `design` is not in state yet, the unset is a
+    // no-op and only `plan` materialises in the fold.
     const patched = makeEvent(
       'state.patched',
       {
@@ -344,9 +345,72 @@ describe('rehydration reducer — artifacts fold (T025, DR-3)', () => {
       1,
     );
     const next = rehydrationReducer.apply(initial, patched);
-    // THEN: only the string-valued key is folded in
     expect(next.artifacts).toEqual({ plan: 'plan.md' });
     expect(RehydrationDocumentSchema.safeParse(next).success).toBe(true);
+  });
+
+  it('Rehydration_Given_StatePatchedArtifactsNullForExistingKey_When_Fold_Then_KeyDeleted', () => {
+    // GIVEN: state already carrying a `design` artifact (from an earlier
+    // `state.patched`).
+    const initial = rehydrationReducer.initial;
+    const seeded = rehydrationReducer.apply(
+      initial,
+      makeEvent(
+        'state.patched',
+        {
+          featureId: 'feat-99',
+          fields: ['artifacts'],
+          patch: { artifacts: { design: 'design.md', plan: 'plan.md' } },
+        },
+        1,
+      ),
+    );
+    expect(seeded.artifacts).toEqual({
+      design: 'design.md',
+      plan: 'plan.md',
+    });
+
+    // WHEN: a later `state.patched` clears `design` with `null`.
+    const cleared = rehydrationReducer.apply(
+      seeded,
+      makeEvent(
+        'state.patched',
+        {
+          featureId: 'feat-99',
+          fields: ['artifacts'],
+          patch: { artifacts: { design: null } },
+        },
+        2,
+      ),
+    );
+
+    // THEN: the cleared key is removed from the projection (otherwise
+    // downstream `rehydrate`/checkpoint paths would keep returning the
+    // stale design path forever — see CodeRabbit review on #1178).
+    expect(cleared.artifacts).toEqual({ plan: 'plan.md' });
+    expect(cleared.projectionSequence).toBe(seeded.projectionSequence + 1);
+    expect(RehydrationDocumentSchema.safeParse(cleared).success).toBe(true);
+  });
+
+  it('Rehydration_Given_StatePatchedArtifactsAllUnactionable_When_Fold_Then_NoOp', () => {
+    // Non-null, non-string values (objects, arrays, undefined, '') carry no
+    // unambiguous "set" or "clear" signal, so the entire patch is treated
+    // as a no-op — projectionSequence must NOT bump.
+    const initial = rehydrationReducer.initial;
+    const patched = makeEvent(
+      'state.patched',
+      {
+        featureId: 'feat-77',
+        fields: ['artifacts'],
+        patch: {
+          artifacts: { nested: { x: 1 }, list: [1, 2], empty: '' },
+        },
+      },
+      1,
+    );
+    const next = rehydrationReducer.apply(initial, patched);
+    expect(next).toBe(initial);
+    expect(next.projectionSequence).toBe(0);
   });
 });
 

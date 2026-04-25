@@ -560,13 +560,20 @@ const workflowActions: readonly ToolAction[] = [
   },
   {
     name: 'rehydrate',
-    description: 'Rehydrate the canonical workflow document for a feature via the rehydration@v1 projection. Loads the latest snapshot and folds events written since, returning the full RehydrationDocument. Read-only — no events emitted in T033 (T032 adds workflow.rehydrated emission). Optional deliveryPath is accepted for forward compatibility.',
+    description: 'Rehydrate the canonical workflow document for a feature via the rehydration@v1 projection. Loads the latest snapshot and folds events written since, returning the full RehydrationDocument. Emits workflow.rehydrated on successful hydration (T032, DR-4) — the event records the deliveryPath used so downstream observers can correlate cache hints. Optional deliveryPath defaults to "direct".',
     schema: z.object({
       featureId: featureIdSchema,
       deliveryPath: z.string().optional(),
     }),
     phases: ALL_PHASES,
     roles: ROLE_ANY,
+    autoEmits: [
+      {
+        event: 'workflow.rehydrated',
+        condition: 'conditional',
+        description: 'When rehydration succeeds (event-store emission failures are logged but do not fail the call — see rehydrate.ts).',
+      },
+    ],
   },
   {
     name: 'checkpoint',

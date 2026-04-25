@@ -137,14 +137,14 @@ export async function hydrateFromSnapshotThenTail<State, Event>(
  * Degradation cause codes used on `workflow.projection_degraded.data.cause`.
  *
  * Centralized so T054/T055/T056 emit stable, audit-searchable enum values:
- *   - `reducer-throw`         — T054: reducer raised mid-fold (DR-18).
- *   - `snapshot-corrupt`      — T055: snapshot file failed to load/parse.
+ *   - `reducer-throw`            — T054: reducer raised mid-fold (DR-18).
+ *   - `snapshot-corrupt`         — T055: snapshot file failed to load/parse.
  *   - `event-stream-unavailable` — T056: eventStore.query raised.
  *
- * `WorkflowProjectionDegradedData.cause` is `z.string().min(1)` so these
- * values are not enforced at the schema layer; keeping them as a literal
- * union on the helper boundary ensures the four call sites in this module
- * cannot silently drift.
+ * The wire contract is enforced by `WorkflowProjectionDegradedCause` in
+ * `event-store/schemas.ts`; this union enforces the same set at the helper
+ * call sites so a typo at the emission point is a compile error, not a
+ * runtime Zod failure.
  */
 export type DegradationCause =
   | 'reducer-throw'
