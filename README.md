@@ -64,6 +64,8 @@ exarchos mcp
 
 The installer resolves the latest GitHub Release, verifies a SHA-512 checksum, and appends `~/.local/bin` to your shell rc files (idempotent). To pin a specific tag, pass `--version v2.9.0-rc.1` (or any release tag); other modes: `--dry-run`, `--github-actions`.
 
+For the two-step (download + inspect + run) path, channel selection, validation, update, and uninstall instructions, see the [full install guide](https://lvlup-sw.github.io/exarchos/guide/installation).
+
 ### Installing skills for your agent
 
 Exarchos ships its skills as platform-agnostic source. To materialize the
