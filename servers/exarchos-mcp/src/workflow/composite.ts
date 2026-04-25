@@ -4,7 +4,7 @@ import { handleCleanup } from './cleanup.js';
 import { handleRehydrate } from './rehydrate.js';
 import { handleDescribe } from '../describe/handler.js';
 import { TOOL_REGISTRY } from '../registry.js';
-import { wrap, type ToolResult } from '../format.js';
+import { wrap, wrapWithPassthrough, type ToolResult } from '../format.js';
 import type { DispatchContext } from '../core/dispatch.js';
 import { nextActionsFromResult } from '../next-actions-from-result.js';
 
@@ -38,10 +38,7 @@ function envelopeWrap(result: ToolResult, startedAt: number): ToolResult {
   // Compute once per composite call. `nextActionsFromResult` is a pure
   // lookup over the HSM registry; no I/O.
   const nextActions = nextActionsFromResult(result);
-  // `wrap<T>` constructs the canonical { success, data, next_actions, _meta, _perf }
-  // envelope shape. Caller overlays remaining passthrough fields (e.g. `warnings`).
-  const envelope = wrap(result.data, meta, perf, nextActions);
-  return envelope as unknown as ToolResult;
+  return wrapWithPassthrough(result, wrap(result.data, meta, perf, nextActions));
 }
 
 /**

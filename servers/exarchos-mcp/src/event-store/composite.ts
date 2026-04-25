@@ -1,4 +1,4 @@
-import { wrap, type ToolResult } from '../format.js';
+import { wrap, wrapWithPassthrough, type ToolResult } from '../format.js';
 import type { DispatchContext } from '../core/dispatch.js';
 import { handleEventAppend, handleEventQuery, handleBatchAppend } from './tools.js';
 import { handleEventDescribe } from '../describe/handler.js';
@@ -91,8 +91,7 @@ function envelopeWrap(result: ToolResult, startedAt: number): ToolResult {
   const meta = (result._meta ?? {}) as Record<string, unknown>;
   const perf = result._perf ?? { ms: Date.now() - startedAt };
   const nextActions = nextActionsFromResult(result);
-  const envelope = wrap(result.data, meta, perf, nextActions);
-  return envelope as unknown as ToolResult;
+  return wrapWithPassthrough(result, wrap(result.data, meta, perf, nextActions));
 }
 
 /** Composite handler that routes `action` to the appropriate event-store handler. */

@@ -151,6 +151,48 @@ export function wrap<T>(
 }
 
 /**
+ * Composite-boundary helper: thread the `ToolResult` diagnostic side-channels
+ * (`warnings`, `_corrections`) onto an envelope produced by {@link wrap}.
+ *
+ * `Envelope<T>` deliberately models only the typed payload shape; the
+ * `warnings` and `_corrections` fields live on `ToolResult` so handlers can
+ * populate them without committing to a particular envelope wave. Composite
+ * tools that wrap a source `ToolResult` into an `Envelope<T>` would otherwise
+ * silently drop both fields at the conversion boundary — meaning
+ * auto-correction telemetry and user-visible warning strings disappear from
+ * the wire even though the handler set them.
+ *
+ * Behaviour:
+ *   - `warnings` is preserved iff present and non-empty.
+ *   - `_corrections` is preserved iff present (an empty `applied` array is
+ *     legitimate signal that a correction pass ran but found nothing).
+ *   - When neither is set, the input envelope is returned unchanged so
+ *     normal-path output stays minimal.
+ *
+ * The return type is `ToolResult` rather than `Envelope<T>` because the
+ * envelope schema does not declare these fields; consumers that read the
+ * envelope strictly will ignore them, while consumers that read the
+ * `ToolResult` shape will see them. This is the same trade-off made by the
+ * cast at the call site today.
+ */
+export function wrapWithPassthrough<T>(
+  source: ToolResult,
+  envelope: Envelope<T>,
+): ToolResult {
+  const passthrough: Record<string, unknown> = {};
+  if (source.warnings && source.warnings.length > 0) {
+    passthrough.warnings = source.warnings;
+  }
+  if (source._corrections !== undefined) {
+    passthrough._corrections = source._corrections;
+  }
+  if (Object.keys(passthrough).length === 0) {
+    return envelope as unknown as ToolResult;
+  }
+  return { ...envelope, ...passthrough } as unknown as ToolResult;
+}
+
+/**
  * Apply a runtime-conditional prompt-cache hint to an envelope (T051, DR-14).
  *
  * When the resolver reports `anthropic_native_caching`, returns a new

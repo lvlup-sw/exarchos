@@ -1,5 +1,12 @@
 import { describe, it, expect } from 'vitest';
-import { applyCacheHints, pickFields, wrap, type Envelope } from './format.js';
+import {
+  applyCacheHints,
+  pickFields,
+  wrap,
+  wrapWithPassthrough,
+  type Envelope,
+  type ToolResult,
+} from './format.js';
 import type { NextAction } from './next-action.js';
 import {
   ANTHROPIC_NATIVE_CACHING,
@@ -152,6 +159,62 @@ describe('wrap<T>', () => {
     // still get an empty array, preserving the T036–T039 contract.
     const env = wrap({ phase: 'ideate' }, undefined, undefined);
     expect(env.next_actions).toEqual([]);
+  });
+});
+
+describe('wrapWithPassthrough — diagnostic side-channels (CodeRabbit MEDIUM #1178)', () => {
+  // The composite-boundary helper threads `warnings` and `_corrections` from
+  // the source `ToolResult` onto an envelope. Without it, every composite
+  // (workflow / view / orchestrate / event) silently drops both fields when
+  // converting from the handler's `ToolResult` shape into `Envelope<T>`.
+
+  function makeEnvelope(): Envelope<{ phase: string }> {
+    return wrap({ phase: 'ideate' }, { fooMeta: 'bar' }, { ms: 5 });
+  }
+
+  it('WrapPassthrough_NoSideChannels_ReturnsEnvelopeUnchanged', () => {
+    // Normal-path output must stay minimal: no `warnings`, no `_corrections`.
+    const source: ToolResult = { success: true, data: { phase: 'ideate' } };
+    const env = makeEnvelope();
+    const out = wrapWithPassthrough(source, env);
+    expect((out as unknown as Envelope<unknown>).data).toEqual({ phase: 'ideate' });
+    expect((out as unknown as Record<string, unknown>).warnings).toBeUndefined();
+    expect((out as unknown as Record<string, unknown>)._corrections).toBeUndefined();
+  });
+
+  it('WrapPassthrough_WarningsPresent_ThreadOntoEnvelope', () => {
+    // Handlers attach human-visible advisory strings via `warnings`. Losing
+    // them at the composite boundary would silently swallow the signal.
+    const source: ToolResult = {
+      success: true,
+      data: { phase: 'ideate' },
+      warnings: ['deprecated field used'],
+    };
+    const out = wrapWithPassthrough(source, makeEnvelope()) as unknown as Record<string, unknown>;
+    expect(out.warnings).toEqual(['deprecated field used']);
+  });
+
+  it('WrapPassthrough_EmptyWarnings_OmitFromEnvelope', () => {
+    // `[]` carries no information — keep the wire shape minimal.
+    const source: ToolResult = {
+      success: true,
+      data: { phase: 'ideate' },
+      warnings: [],
+    };
+    const out = wrapWithPassthrough(source, makeEnvelope()) as unknown as Record<string, unknown>;
+    expect(out.warnings).toBeUndefined();
+  });
+
+  it('WrapPassthrough_CorrectionsPresent_ThreadOntoEnvelope', () => {
+    // Auto-correction telemetry: even an empty `applied` array is signal
+    // ("a correction pass ran, found nothing"), so preserve as-is.
+    const source: ToolResult = {
+      success: true,
+      data: { phase: 'ideate' },
+      _corrections: { applied: [] },
+    };
+    const out = wrapWithPassthrough(source, makeEnvelope()) as unknown as Record<string, unknown>;
+    expect(out._corrections).toEqual({ applied: [] });
   });
 });
 

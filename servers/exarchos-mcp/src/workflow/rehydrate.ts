@@ -474,11 +474,23 @@ export async function handleRehydrate(
     for (const ev of tailEvents) {
       document = rehydrationReducer.apply(document, ev);
     }
-  } catch {
-    // Delegate to the shared degradation helper. `reducer-throw` is the
-    // authoritative cause; `buildDegradedResponse` owns the
-    // minimalFromStateStore read, the event emission, and the `_meta`
-    // wiring so T055/T056 can reuse this exact shape with different causes.
+  } catch (err) {
+    // Log the underlying throwable BEFORE delegating so audit / oncall
+    // workflows have a concrete diagnostic. The sibling
+    // event-stream-unavailable + snapshot-corrupt paths log this same
+    // shape; this branch was the only one swallowing the error silently
+    // (CodeRabbit MEDIUM finding on PR #1178). Then delegate to the
+    // shared degradation helper — `reducer-throw` is the authoritative
+    // cause; `buildDegradedResponse` owns the minimalFromStateStore
+    // read, the event emission, and the `_meta` wiring so T055/T056 can
+    // reuse this exact shape with different causes.
+    workflowLogger.warn(
+      {
+        featureId,
+        err: err instanceof Error ? err.message : String(err),
+      },
+      'Reducer threw mid-fold — degrading to state-store-only',
+    );
     return buildDegradedResponse(featureId, 'reducer-throw', {
       eventStore,
       stateDir,
