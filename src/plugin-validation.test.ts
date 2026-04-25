@@ -158,9 +158,14 @@ describe('Core Plugin Structure', () => {
     });
 
     it('packageJson_scripts_includesValidation', () => {
+      // The validate script is a chain: plugin-structure check + any
+      // additional CI gates (e.g. T047/DR-12 prefix-fingerprint check).
+      // Assert the plugin check is still in the chain rather than pinning
+      // the exact string so new gates can be added without a test breakage
+      // for every one of them.
       const pkgPath = join(repoRoot, 'package.json');
       const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8'));
-      expect(pkg.scripts.validate).toBe('bash scripts/validate-plugin.sh');
+      expect(pkg.scripts.validate).toContain('bash scripts/validate-plugin.sh');
     });
 
     it('packageJson_keywords_updatedForPlugin', () => {

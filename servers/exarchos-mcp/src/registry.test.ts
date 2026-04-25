@@ -490,11 +490,11 @@ describe('TOOL_REGISTRY', () => {
   });
 
   describe('exarchos_workflow', () => {
-    it('should have 8 actions: init, get, set, cancel, cleanup, reconcile, checkpoint, describe', () => {
+    it('should have 9 actions: init, get, set, cancel, cleanup, reconcile, rehydrate, checkpoint, describe', () => {
       const composite = findComposite('exarchos_workflow');
       expect(composite).toBeDefined();
       const actionNames = composite!.actions.map((a) => a.name);
-      expect(actionNames).toEqual(['init', 'get', 'set', 'cancel', 'cleanup', 'reconcile', 'checkpoint', 'describe']);
+      expect(actionNames).toEqual(['init', 'get', 'set', 'cancel', 'cleanup', 'reconcile', 'rehydrate', 'checkpoint', 'describe']);
     });
   });
 
@@ -1394,5 +1394,43 @@ describe('Plugin Integration Registry Wiring', () => {
     expect(action, 'exarchos_orchestrate should have a request_synthesize action').toBeDefined();
     expect(action!.phases.has('plan')).toBe(true);
     expect(action!.phases.has('implementing')).toBe(true);
+  });
+});
+
+// RED for debug-delegation-gate Issue B: the check_tdd_compliance schema
+// silently accepted unknown keys (e.g. `base` instead of `baseBranch`),
+// causing `baseBranch` to default to `main` without warning. The schema
+// must be `.strict()` so the dispatch layer rejects unknown keys with a
+// clear validation error.
+describe('check_tdd_compliance schema strictness', () => {
+  const findAction = (toolName: string, actionName: string) => {
+    const tool = TOOL_REGISTRY.find((t) => t.name === toolName);
+    return tool?.actions.find((a) => a.name === actionName);
+  };
+
+  it('TddComplianceSchema_KnownKeys_Parses', () => {
+    const action = findAction('exarchos_orchestrate', 'check_tdd_compliance');
+    expect(action).toBeDefined();
+    const result = action!.schema.safeParse({
+      featureId: 'demo',
+      taskId: '001',
+      branch: 'feature/demo',
+      baseBranch: 'main',
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('TddComplianceSchema_UnknownKey_Rejects', () => {
+    const action = findAction('exarchos_orchestrate', 'check_tdd_compliance');
+    expect(action).toBeDefined();
+    // Passing `base` (the common mistake) instead of `baseBranch` must fail,
+    // not silently strip.
+    const result = action!.schema.safeParse({
+      featureId: 'demo',
+      taskId: '001',
+      branch: 'feature/demo',
+      base: 'feature/integration',
+    });
+    expect(result.success).toBe(false);
   });
 });

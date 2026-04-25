@@ -559,6 +559,30 @@ const workflowActions: readonly ToolAction[] = [
     roles: ROLE_LEAD,
   },
   {
+    name: 'rehydrate',
+    description: 'Rehydrate the canonical workflow document for a feature via the rehydration@v1 projection. Loads the latest snapshot and folds events written since, returning the full RehydrationDocument. Emits workflow.rehydrated on successful hydration (T032, DR-4) — the event records the deliveryPath used so downstream observers can correlate cache hints. Optional deliveryPath ∈ {direct, ndjson, snapshot}; defaults to "direct".',
+    schema: z.object({
+      featureId: featureIdSchema,
+      // Closed enum mirrors `WorkflowRehydratedData.deliveryPath` so an
+      // invalid value can't reach the workflow.rehydrated event payload.
+      // Without this, registry validation accepted any string and let the
+      // bad value bubble all the way to event-store append, where Zod
+      // would reject it AFTER the read had already produced a document —
+      // surfacing as a confusing "rehydrate succeeded but emit failed"
+      // call. (CodeRabbit on PR #1178.)
+      deliveryPath: z.enum(['direct', 'ndjson', 'snapshot']).optional(),
+    }),
+    phases: ALL_PHASES,
+    roles: ROLE_ANY,
+    autoEmits: [
+      {
+        event: 'workflow.rehydrated',
+        condition: 'conditional',
+        description: 'When rehydration succeeds (event-store emission failures are logged but do not fail the call — see rehydrate.ts).',
+      },
+    ],
+  },
+  {
     name: 'checkpoint',
     description: 'Create an explicit checkpoint, resetting the operation counter. Persists checkpoint metadata to workflow state and emits workflow.checkpoint event',
     schema: z.object({
@@ -906,7 +930,7 @@ const orchestrateActions: readonly ToolAction[] = [
       taskId: z.string().min(1),
       branch: z.string().min(1),
       baseBranch: z.string().optional(),
-    }),
+    }).strict(),
     phases: DELEGATE_PHASES,
     roles: ROLE_LEAD,
     gate: { blocking: true, dimension: 'D1' },
@@ -1635,10 +1659,10 @@ const syncActions: readonly ToolAction[] = [
 export const TOOL_REGISTRY: readonly CompositeTool[] = [
   {
     name: 'exarchos_workflow',
-    description: 'Workflow lifecycle management — init, read, update, cancel, cleanup, checkpoint, and reconcile workflows',
+    description: 'Workflow lifecycle management — init, read, update, cancel, cleanup, checkpoint, reconcile, and rehydrate workflows',
     actions: workflowActions,
     cli: { alias: 'wf' },
-    slimDescription: 'Workflow lifecycle management. Use describe(actions) for schemas.\n\nActions: init, get, set, cancel, cleanup, reconcile, checkpoint',
+    slimDescription: 'Workflow lifecycle management. Use describe(actions) for schemas.\n\nActions: init, get, set, cancel, cleanup, reconcile, checkpoint, rehydrate',
   },
   {
     name: 'exarchos_event',

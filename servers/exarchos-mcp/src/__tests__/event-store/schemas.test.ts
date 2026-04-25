@@ -406,12 +406,12 @@ describe('StackEnqueuedData', () => {
 
 describe('EventTypes', () => {
   it('EventTypes_CountMatchesRegisteredTypes', () => {
-    // Locked to the current registered-type count. Bumped to 74 with
-    // the addition of provider.parse-error (#1161) — emitted by
-    // assess_stack when a review adapter throws mid-batch.
+    // Locked to the current registered-type count. Bumped to 80 with
+    // the addition of workflow.projection_degraded (T010, DR-4, DR-18)
+    // for the rehydrate-foundation projection work.
     // When new event types are added, bump this number alongside
     // their registration in `event-store/schemas.ts`.
-    expect(EventTypes).toHaveLength(74);
+    expect(EventTypes).toHaveLength(80);
   });
 
   it('should include workflow-level types', () => {

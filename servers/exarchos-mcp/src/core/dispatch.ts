@@ -6,6 +6,7 @@ import type { VcsProvider } from '../vcs/provider.js';
 import type { ConfigHookRunner } from '../hooks/config-hooks.js';
 import type { Outbox } from '../sync/outbox.js';
 import type { ChannelEmitter } from '../channel/emitter.js';
+import type { CapabilityResolver } from '../capabilities/resolver.js';
 import { hasCustomToolHandlers, getCustomToolActionHandler, getFullRegistry } from '../registry.js';
 import {
   formatValidationError,
@@ -41,6 +42,16 @@ export interface DispatchContext {
   readonly slimRegistration?: boolean;
   readonly outbox?: Outbox;
   readonly channelEmitter?: ChannelEmitter;
+  /**
+   * Runtime capability resolver (T051, DR-14). Composite tools that emit
+   * cache-control hints consult this resolver to decide whether the host
+   * runtime understands the hint shape. The default resolver constructed
+   * by `initializeContext` reports `anthropic_native_caching` so MCP
+   * clients receive `_cacheHints` on rehydrate envelopes; setting
+   * `EXARCHOS_DISABLE_CACHE_HINTS=1` returns an empty resolver so the
+   * field is omitted from the wire output.
+   */
+  readonly capabilityResolver?: CapabilityResolver;
 }
 
 // ─── Composite Handler Map ──────────────────────────────────────────────────

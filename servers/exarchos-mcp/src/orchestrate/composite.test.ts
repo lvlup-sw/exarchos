@@ -143,6 +143,25 @@ function successResult(data: unknown): ToolResult {
   return { success: true, data };
 }
 
+/**
+ * T038: successful orchestrate responses are wrapped in Envelope<T> at the
+ * composite boundary. Each test asserts that the wrapped result preserves
+ * the handler's `data` payload and carries the canonical envelope fields
+ * (`next_actions: []`, `_meta`, `_perf.ms`). Reference equality
+ * (`expect(result).toBe(expected)`) no longer holds because `wrap()`
+ * constructs a new object.
+ */
+function expectEnvelopedSuccess(result: ToolResult, expected: ToolResult): void {
+  expect(result.success).toBe(true);
+  expect(result.data).toEqual(expected.data);
+  const env = result as unknown as Record<string, unknown>;
+  expect(Array.isArray(env.next_actions)).toBe(true);
+  expect((env.next_actions as unknown[]).length).toBe(0);
+  expect(env._meta).toBeTypeOf('object');
+  expect(env._perf).toBeTypeOf('object');
+  expect(typeof (env._perf as Record<string, unknown>).ms).toBe('number');
+}
+
 describe('handleOrchestrate', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -166,7 +185,7 @@ describe('handleOrchestrate', () => {
       const result = await handleOrchestrate(args, CTX);
 
       // Assert
-      expect(result).toBe(expected);
+      expectEnvelopedSuccess(result, expected);
       expect(handleTaskClaim).toHaveBeenCalledWith(
         { taskId: 't1', agentId: 'agent-1', streamId: 's1' },
         STATE_DIR,
@@ -188,7 +207,7 @@ describe('handleOrchestrate', () => {
       const result = await handleOrchestrate(args, CTX);
 
       // Assert
-      expect(result).toBe(expected);
+      expectEnvelopedSuccess(result, expected);
       expect(handleTaskComplete).toHaveBeenCalledWith(
         { taskId: 't1', result: { artifacts: ['file.ts'] }, streamId: 's1' },
         STATE_DIR,
@@ -211,7 +230,7 @@ describe('handleOrchestrate', () => {
       const result = await handleOrchestrate(args, CTX);
 
       // Assert
-      expect(result).toBe(expected);
+      expectEnvelopedSuccess(result, expected);
       expect(handleTaskFail).toHaveBeenCalledWith(
         { taskId: 't1', error: 'something broke', diagnostics: { log: 'details' }, streamId: 's1' },
         STATE_DIR,
@@ -236,7 +255,7 @@ describe('handleOrchestrate', () => {
       const result = await handleOrchestrate(args, CTX);
 
       // Assert
-      expect(result).toBe(expected);
+      expectEnvelopedSuccess(result, expected);
       expect(handlePrepareDelegation).toHaveBeenCalledWith(
         { featureId: 'feat-123', tasks: [{ id: 't1', title: 'Task 1' }] },
         STATE_DIR,
@@ -257,7 +276,7 @@ describe('handleOrchestrate', () => {
       const result = await handleOrchestrate(args, CTX);
 
       // Assert
-      expect(result).toBe(expected);
+      expectEnvelopedSuccess(result, expected);
       expect(handlePrepareSynthesis).toHaveBeenCalledWith(
         { featureId: 'feat-456' },
         STATE_DIR,
@@ -279,7 +298,7 @@ describe('handleOrchestrate', () => {
       const result = await handleOrchestrate(args, CTX);
 
       // Assert
-      expect(result).toBe(expected);
+      expectEnvelopedSuccess(result, expected);
       expect(handlePostMerge).toHaveBeenCalledWith(
         { featureId: 'feat-123', prUrl: 'https://github.com/org/repo/pull/42', mergeSha: 'abc1234' },
         STATE_DIR,
@@ -300,7 +319,7 @@ describe('handleOrchestrate', () => {
       const result = await handleOrchestrate(args, CTX);
 
       // Assert
-      expect(result).toBe(expected);
+      expectEnvelopedSuccess(result, expected);
       expect(handleAssessStack).toHaveBeenCalledWith(
         { featureId: 'feat-789', prNumbers: [101, 102] },
         STATE_DIR,
@@ -321,7 +340,7 @@ describe('handleOrchestrate', () => {
       const result = await handleOrchestrate(args, CTX);
 
       // Assert
-      expect(result).toBe(expected);
+      expectEnvelopedSuccess(result, expected);
       expect(handleDesignCompleteness).toHaveBeenCalledWith(
         { featureId: 'feat-200', designPath: '/tmp/design.md' },
         STATE_DIR,
@@ -343,7 +362,7 @@ describe('handleOrchestrate', () => {
       const result = await handleOrchestrate(args, CTX);
 
       // Assert
-      expect(result).toBe(expected);
+      expectEnvelopedSuccess(result, expected);
       expect(handleTddCompliance).toHaveBeenCalledWith(
         { featureId: 'feat-300', taskId: 't1', branch: 'feat-branch' },
         STATE_DIR,
@@ -365,7 +384,7 @@ describe('handleOrchestrate', () => {
       const result = await handleOrchestrate(args, CTX);
 
       // Assert
-      expect(result).toBe(expected);
+      expectEnvelopedSuccess(result, expected);
       expect(handlePlanCoverage).toHaveBeenCalledWith(
         { featureId: 'feat-100', designPath: '/tmp/design.md', planPath: '/tmp/plan.md' },
         STATE_DIR,
@@ -426,7 +445,7 @@ describe('handleOrchestrate', () => {
       const result = await handleOrchestrate(args, CTX);
 
       // Assert
-      expect(result).toBe(expected);
+      expectEnvelopedSuccess(result, expected);
       expect(handleAgentSpec).toHaveBeenCalledWith(
         { agent: 'implementer', outputFormat: 'full' },
         STATE_DIR,
@@ -447,7 +466,7 @@ describe('handleOrchestrate', () => {
       const result = await handleOrchestrate(args, CTX);
 
       // Assert
-      expect(result).toBe(expected);
+      expectEnvelopedSuccess(result, expected);
       expect(handleRunbook).toHaveBeenCalledWith({ phase: 'delegate' });
     });
 
@@ -461,7 +480,7 @@ describe('handleOrchestrate', () => {
       const result = await handleOrchestrate(args, CTX);
 
       // Assert
-      expect(result).toBe(expected);
+      expectEnvelopedSuccess(result, expected);
       expect(handleRunbook).toHaveBeenCalledWith({ id: 'task-completion' });
     });
   });
@@ -484,7 +503,7 @@ describe('handleOrchestrate', () => {
       const result = await handleOrchestrate(args, CTX);
 
       // Assert — handler is registered directly so it receives (args, stateDir, ctx)
-      expect(result).toBe(expected);
+      expectEnvelopedSuccess(result, expected);
       expect(handlePruneStaleWorkflows).toHaveBeenCalledTimes(1);
       const call = vi.mocked(handlePruneStaleWorkflows).mock.calls[0];
       expect(call[0]).toEqual({
@@ -513,7 +532,7 @@ describe('handleOrchestrate', () => {
       // into args, matching the finalize_oneshot pattern. The stateDir
       // injection replaces the old hardcoded `.exarchos/state/...`
       // fallback inside the handler.
-      expect(result).toBe(expected);
+      expectEnvelopedSuccess(result, expected);
       expect(handleRequestSynthesize).toHaveBeenCalledTimes(1);
       const call = vi.mocked(handleRequestSynthesize).mock.calls[0][0];
       expect(call.featureId).toBe('feat-oneshot-1');
@@ -539,7 +558,7 @@ describe('handleOrchestrate', () => {
       const result = await handleOrchestrate(args, CTX);
 
       // Assert — adapter injects BOTH stateDir and eventStore from ctx into args
-      expect(result).toBe(expected);
+      expectEnvelopedSuccess(result, expected);
       expect(handleFinalizeOneshot).toHaveBeenCalledTimes(1);
       const call = vi.mocked(handleFinalizeOneshot).mock.calls[0][0];
       expect(call.featureId).toBe('feat-oneshot-2');
@@ -564,7 +583,7 @@ describe('handleOrchestrate', () => {
       const result = await handleOrchestrate(args, CTX);
 
       // Assert — doctor handler called with args (minus the action) and ctx
-      expect(result).toBe(expected);
+      expectEnvelopedSuccess(result, expected);
       expect(handleDoctor).toHaveBeenCalledTimes(1);
       const call = vi.mocked(handleDoctor).mock.calls[0];
       expect(call[0]).toEqual({ timeoutMs: 1500 });
@@ -600,7 +619,7 @@ describe('handleOrchestrate', () => {
 
       const result = await handleOrchestrate(args, CTX);
 
-      expect(result).toBe(expected);
+      expectEnvelopedSuccess(result, expected);
       expect(handleCreatePr).toHaveBeenCalledTimes(1);
       const call = vi.mocked(handleCreatePr).mock.calls[0];
       expect(call[0]).toEqual({ title: 'feat: test', body: 'body', base: 'main', head: 'feat/test' });
@@ -614,7 +633,7 @@ describe('handleOrchestrate', () => {
 
       const result = await handleOrchestrate(args, CTX);
 
-      expect(result).toBe(expected);
+      expectEnvelopedSuccess(result, expected);
       expect(handleMergePr).toHaveBeenCalledTimes(1);
       const call = vi.mocked(handleMergePr).mock.calls[0];
       expect(call[0]).toEqual({ prId: '42', strategy: 'squash' });
@@ -628,7 +647,7 @@ describe('handleOrchestrate', () => {
 
       const result = await handleOrchestrate(args, CTX);
 
-      expect(result).toBe(expected);
+      expectEnvelopedSuccess(result, expected);
       expect(handleCheckCi).toHaveBeenCalledTimes(1);
       const call = vi.mocked(handleCheckCi).mock.calls[0];
       expect(call[0]).toEqual({ prId: '42' });
@@ -642,7 +661,7 @@ describe('handleOrchestrate', () => {
 
       const result = await handleOrchestrate(args, CTX);
 
-      expect(result).toBe(expected);
+      expectEnvelopedSuccess(result, expected);
       expect(handleListPrs).toHaveBeenCalledTimes(1);
       const call = vi.mocked(handleListPrs).mock.calls[0];
       expect(call[0]).toEqual({ state: 'open' });
@@ -656,7 +675,7 @@ describe('handleOrchestrate', () => {
 
       const result = await handleOrchestrate(args, CTX);
 
-      expect(result).toBe(expected);
+      expectEnvelopedSuccess(result, expected);
       expect(handleGetPrComments).toHaveBeenCalledTimes(1);
       const call = vi.mocked(handleGetPrComments).mock.calls[0];
       expect(call[0]).toEqual({ prId: '42' });
@@ -670,7 +689,7 @@ describe('handleOrchestrate', () => {
 
       const result = await handleOrchestrate(args, CTX);
 
-      expect(result).toBe(expected);
+      expectEnvelopedSuccess(result, expected);
       expect(handleAddPrComment).toHaveBeenCalledTimes(1);
       const call = vi.mocked(handleAddPrComment).mock.calls[0];
       expect(call[0]).toEqual({ prId: '42', body: 'comment' });
@@ -684,7 +703,7 @@ describe('handleOrchestrate', () => {
 
       const result = await handleOrchestrate(args, CTX);
 
-      expect(result).toBe(expected);
+      expectEnvelopedSuccess(result, expected);
       expect(handleCreateIssue).toHaveBeenCalledTimes(1);
       const call = vi.mocked(handleCreateIssue).mock.calls[0];
       expect(call[0]).toEqual({ title: 'Bug', body: 'Details' });
@@ -722,7 +741,7 @@ describe('handleOrchestrate', () => {
       const result = await handleOrchestrate(args, CTX);
 
       // Assert — init handler called with args (minus the action) and ctx
-      expect(result).toBe(expected);
+      expectEnvelopedSuccess(result, expected);
       expect(handleInit).toHaveBeenCalledTimes(1);
       const call = vi.mocked(handleInit).mock.calls[0];
       expect(call[0]).toEqual({ runtime: 'copilot', nonInteractive: true });

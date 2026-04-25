@@ -418,6 +418,20 @@ export const ErrorCode = {
   VERSION_CONFLICT: 'VERSION_CONFLICT',
   EVENT_MIGRATION_FAILED: 'EVENT_MIGRATION_FAILED',
   EVENT_STORE_NOT_CONFIGURED: 'EVENT_STORE_NOT_CONFIGURED',
+  /**
+   * Snapshot sidecar write failed mid-checkpoint (atomic temp-file write,
+   * rename, or fsync). Retryable: the next checkpoint call repeats the
+   * fold and write. Surfaced by `handleCheckpoint` so the dispatch
+   * envelope reports a structured failure instead of an unhandled throw.
+   */
+  SNAPSHOT_WRITE_FAILED: 'SNAPSHOT_WRITE_FAILED',
+  /**
+   * Projection replay (snapshot fold + tail query) failed mid-checkpoint.
+   * Distinct from `EVENT_APPEND_FAILED` because the failure is upstream
+   * of any write. Surfaced so observers can distinguish "couldn't read
+   * the projection state" from "read fine, but couldn't persist".
+   */
+  PROJECTION_REPLAY_FAILED: 'PROJECTION_REPLAY_FAILED',
 } as const;
 
 // ─── Reserved Field Validation ──────────────────────────────────────────────

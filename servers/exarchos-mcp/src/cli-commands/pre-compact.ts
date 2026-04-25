@@ -1,26 +1,13 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { listStateFiles } from '../workflow/state-store.js';
-import { HUMAN_CHECKPOINT_PHASES } from '../workflow/next-action.js';
-import { getHSMDefinition } from '../workflow/state-machine.js';
+import { getOrCreateEventStore } from '../views/tools.js';
+import { dispatch } from '../core/dispatch.js';
+import type { DispatchContext } from '../core/dispatch.js';
 import { handleAssembleContext } from './assemble-context.js';
 import type { CommandResult } from './types.js';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
-
-/** Checkpoint file written alongside each active workflow state file. */
-interface CheckpointData {
-  readonly featureId: string;
-  readonly timestamp: string;
-  readonly phase: string;
-  readonly summary: string;
-  readonly nextAction: string;
-  readonly tasks: ReadonlyArray<{ id: string; status: string; title: string }>;
-  readonly artifacts: Record<string, unknown>;
-  readonly stateFile: string;
-  readonly teamState?: unknown;
-  readonly contextFile?: string;
-}
 
 /** Result returned from the pre-compact handler. */
 export interface PreCompactResult extends CommandResult {
@@ -31,56 +18,30 @@ export interface PreCompactResult extends CommandResult {
 // ─── Terminal Phases ────────────────────────────────────────────────────────
 
 const TERMINAL_PHASES = new Set(['completed', 'cancelled']);
-const DELEGATE_PHASES = new Set(['delegate', 'overhaul-delegate']);
-
-// ─── Inline Next-Action Computation ─────────────────────────────────────────
-
-/**
- * Compute a simplified next action from state, without requiring EventStore.
- * Mirrors the logic in next-action.ts but skips guard evaluation and
- * circuit breaker checks (not available without event store).
- */
-function computeNextAction(workflowType: string, phase: string): string {
-  // Check human checkpoint phases first
-  const humanCheckpoints = HUMAN_CHECKPOINT_PHASES[workflowType];
-  if (humanCheckpoints?.has(phase)) {
-    return `WAIT:human-checkpoint:${phase}`;
-  }
-
-  // Derive from HSM transitions (first non-fix-cycle outbound transition)
-  try {
-    const hsm = getHSMDefinition(workflowType);
-    const transition = hsm.transitions.find(t => t.from === phase && !t.isFixCycle);
-    if (transition) {
-      return `AUTO:${transition.to}`;
-    }
-  } catch {
-    // Unknown workflow type — fall through
-  }
-
-  return `WAIT:in-progress:${phase}`;
-}
-
-// ─── Summary Builder ────────────────────────────────────────────────────────
-
-function buildSummary(
-  featureId: string,
-  workflowType: string,
-  phase: string,
-  tasks: ReadonlyArray<{ id: string; status: string; title: string }>,
-): string {
-  const completed = tasks.filter((t) => t.status === 'complete').length;
-  const total = tasks.length;
-  const taskProgress = total > 0 ? `${completed}/${total} tasks complete` : 'no tasks';
-
-  return `[${workflowType}] ${featureId}: phase=${phase}, ${taskProgress}`;
-}
 
 // ─── Pre-Compact Handler ────────────────────────────────────────────────────
 
 /**
- * Scan the state directory for active workflows, write checkpoint files,
- * and return whether compaction should proceed.
+ * Scan the state directory for active workflows, materialize a rehydration
+ * snapshot per workflow by dispatching `exarchos_workflow.checkpoint`
+ * (T034), and return whether compaction should proceed.
+ *
+ * T059 (DR-16) — replaces the prior inline sidecar writer
+ * (`<featureId>.checkpoint.json`) with a dispatch to the shared composite
+ * handler. The handler owns:
+ *   - resetting the checkpoint counter on the state file
+ *   - emitting `workflow.checkpoint` + `workflow.checkpoint_written` events
+ *   - writing the rehydration projection snapshot
+ *
+ * `context.md` generation remains here — it is the output of
+ * `assemble-context`, not of `handleCheckpoint`, and callers downstream of
+ * pre-compact still rely on the file existing on disk after a compaction
+ * boundary.
+ *
+ * Next-action derivation previously lived inline in this file; it has
+ * moved to `next-actions-computer.ts` (T040) and is surfaced through the
+ * envelope returned by dispatch (T041) — so pre-compact no longer needs
+ * to compute it.
  */
 export async function handlePreCompact(
   stdinData: Record<string, unknown>,
@@ -101,52 +62,64 @@ export async function handlePreCompact(
     return { continue: true };
   }
 
-  // Checkpoint all active workflows in parallel — each workflow's I/O is independent
-  await Promise.all(activeWorkflows.map(async ({ featureId, stateFile, state }) => {
-    const tasks = (state.tasks ?? []).map((t) => ({
-      id: t.id,
-      status: t.status,
-      title: t.title,
-    }));
+  // Build a minimal DispatchContext once. `getOrCreateEventStore` caches by
+  // stateDir so repeated pre-compact invocations in the same process share
+  // the same handle (same pattern used by other CLI adapters). Telemetry is
+  // disabled here — the hook path is latency-sensitive and the composite's
+  // own logging covers the observability needs of pre-compact callers.
+  const eventStore = getOrCreateEventStore(stateDir);
+  const ctx: DispatchContext = {
+    stateDir,
+    eventStore,
+    enableTelemetry: false,
+  };
 
-    const nextAction = computeNextAction(state.workflowType, state.phase);
-    const summary = buildSummary(featureId, state.workflowType, state.phase, tasks);
+  // Checkpoint all active workflows in parallel — each workflow's I/O is
+  // independent. Dispatch owns the snapshot write + event emission; we
+  // additionally write `context.md` alongside so existing consumers can
+  // read the assembled context after /clear.
+  //
+  // Per-workflow result tracking lets us fail closed when ANY checkpoint
+  // dispatch reports `success: false`: dispatch can fail structurally
+  // without throwing (CodeRabbit PR #1178 — duplicate of an earlier review),
+  // and proceeding to `/clear` after a failed checkpoint would mean the
+  // user loses context with no usable snapshot to rehydrate from.
+  const checkpointResults = await Promise.all(
+    activeWorkflows.map(async ({ featureId }) => {
+      const result = await dispatch(
+        'exarchos_workflow',
+        { action: 'checkpoint', featureId },
+        ctx,
+      );
 
-    // Include team composition snapshot for delegate phases when teamState exists
-    const stateRecord = state as unknown as Record<string, unknown>;
-    const teamState =
-      DELEGATE_PHASES.has(state.phase) && stateRecord.teamState != null
-        ? stateRecord.teamState
-        : undefined;
-
-    // Generate context.md first so checkpoint can include the contextFile path in a single write
-    let contextFile: string | undefined;
-    try {
-      const contextResult = await handleAssembleContext({ featureId }, stateDir);
-      if (contextResult.contextDocument) {
-        contextFile = path.join(stateDir, `${featureId}.context.md`);
-        await fs.writeFile(contextFile, contextResult.contextDocument, 'utf-8');
+      // Generate context.md — independent of the checkpoint snapshot. Failure
+      // here is non-fatal: a missing context file is graceful degradation,
+      // and the projection snapshot from dispatch is the authoritative
+      // rehydration source.
+      try {
+        const contextResult = await handleAssembleContext({ featureId }, stateDir);
+        if (contextResult.contextDocument) {
+          const contextFile = path.join(stateDir, `${featureId}.context.md`);
+          await fs.writeFile(contextFile, contextResult.contextDocument, 'utf-8');
+        }
+      } catch {
+        // Graceful degradation
       }
-    } catch {
-      // Graceful degradation — checkpoint works without context.md
-    }
 
-    const checkpoint: CheckpointData = {
-      featureId,
-      timestamp: new Date().toISOString(),
-      phase: state.phase,
-      summary,
-      nextAction,
-      tasks,
-      artifacts: state.artifacts as Record<string, unknown>,
-      stateFile,
-      ...(teamState !== undefined && { teamState }),
-      ...(contextFile !== undefined && { contextFile }),
+      return { featureId, ok: result.success === true, error: result.error };
+    }),
+  );
+
+  const failed = checkpointResults.filter((r) => !r.ok);
+  if (failed.length > 0) {
+    const summary = failed
+      .map((f) => `${f.featureId}: ${f.error?.message ?? 'unknown error'}`)
+      .join('; ');
+    return {
+      continue: false,
+      stopReason: `Checkpoint failed for ${failed.length}/${activeWorkflows.length} active workflow(s); /clear is unsafe — ${summary}`,
     };
-
-    const checkpointPath = path.join(stateDir, `${featureId}.checkpoint.json`);
-    await fs.writeFile(checkpointPath, JSON.stringify(checkpoint, null, 2), 'utf-8');
-  }));
+  }
 
   if (trigger === 'manual') {
     return { continue: true };

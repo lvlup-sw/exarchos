@@ -31,6 +31,7 @@ import {
   TaskFailedData,
   WorkflowPrunedData,
   SynthesizeRequestedData,
+  WorkflowCheckpointRequestedData,
   SessionTaggedData,
   StackRestackedData,
   WorktreeCreatedData,
@@ -460,7 +461,7 @@ describe('EventTypes', () => {
   });
 
   it('EventTypes_HasExpectedCount', () => {
-    expect(EventTypes).toHaveLength(74);
+    expect(EventTypes).toHaveLength(80);
   });
 
   it('EventTypes_IncludesSessionTagged', () => {
@@ -2135,5 +2136,165 @@ describe('diagnostic.executed event', () => {
 
     const result = schema!.safeParse(invalid);
     expect(result.success).toBe(false);
+  });
+});
+
+// ─── workflow.checkpoint_requested (T005, DR-4) ─────────────────────────────
+
+describe('WorkflowCheckpointRequestedData', () => {
+  it('CheckpointRequested_ValidData_Parses', () => {
+    const result = WorkflowCheckpointRequestedData.safeParse({
+      trigger: 'manual',
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.trigger).toBe('manual');
+    }
+  });
+
+  it('CheckpointRequested_UnknownTrigger_Rejects', () => {
+    const result = WorkflowCheckpointRequestedData.safeParse({
+      trigger: 'auto-cadence',
+    });
+    expect(result.success).toBe(false);
+  });
+});
+
+// ─── workflow.checkpoint_written (T006, DR-4) ───────────────────────────────
+
+describe('WorkflowCheckpointWrittenData', () => {
+  it('CheckpointWritten_ValidData_Parses', () => {
+    // DR-4: { projectionId: string, projectionSequence: number, byteSize: number }
+    // Emitted after projection materialized + snapshot written, closing the
+    // checkpoint_requested → checkpoint_written loop.
+    expect(EventTypes).toContain('workflow.checkpoint_written');
+
+    const schema = EVENT_DATA_SCHEMAS['workflow.checkpoint_written' as typeof EventTypes[number]];
+    expect(schema).toBeDefined();
+
+    const result = schema!.safeParse({
+      projectionId: 'rehydrate-foundation',
+      projectionSequence: 42,
+      byteSize: 1024,
+    });
+    expect(result.success, JSON.stringify(result)).toBe(true);
+  });
+});
+
+// ─── workflow.checkpoint_superseded (T007, DR-4) ────────────────────────────
+
+describe('WorkflowCheckpointSupersededData', () => {
+  it('CheckpointSuperseded_ValidData_Parses', () => {
+    // DR-4: { priorSequence: number, reason: string }
+    // Emitted when a newer checkpoint supersedes an earlier one — the
+    // priorSequence references the projectionSequence of the checkpoint
+    // now invalidated, and the reason explains why (e.g., 'stale-projection',
+    // 'schema-version-bump').
+    expect(EventTypes).toContain('workflow.checkpoint_superseded');
+
+    const schema = EVENT_DATA_SCHEMAS['workflow.checkpoint_superseded' as typeof EventTypes[number]];
+    expect(schema).toBeDefined();
+
+    const result = schema!.safeParse({
+      priorSequence: 41,
+      reason: 'stale-projection',
+    });
+    expect(result.success, JSON.stringify(result)).toBe(true);
+  });
+});
+
+// ─── workflow.rehydrated (T008, DR-4) ───────────────────────────────────────
+
+describe('WorkflowRehydratedData', () => {
+  it('Rehydrated_ValidData_Parses', () => {
+    // DR-4: { projectionSequence: number, deliveryPath: "direct"|"ndjson"|"snapshot", tokenEstimate: number }
+    // Emitted when a workflow projection is rehydrated into a session. The
+    // projectionSequence identifies the restored checkpoint, deliveryPath
+    // records the transport (direct embed, streamed ndjson, or snapshot read),
+    // and tokenEstimate captures the approximate context cost of delivery.
+    expect(EventTypes).toContain('workflow.rehydrated');
+
+    const schema = EVENT_DATA_SCHEMAS['workflow.rehydrated' as typeof EventTypes[number]];
+    expect(schema).toBeDefined();
+
+    const result = schema!.safeParse({
+      projectionSequence: 42,
+      deliveryPath: 'direct',
+      tokenEstimate: 1500,
+    });
+    expect(result.success, JSON.stringify(result)).toBe(true);
+  });
+
+  it('Rehydrated_InvalidDeliveryPath_Rejects', () => {
+    // deliveryPath must be one of: "direct" | "ndjson" | "snapshot".
+    // An unknown value is rejected by the z.enum() validator.
+    const schema = EVENT_DATA_SCHEMAS['workflow.rehydrated' as typeof EventTypes[number]];
+    expect(schema).toBeDefined();
+
+    const result = schema!.safeParse({
+      projectionSequence: 42,
+      deliveryPath: 'telepathy',
+      tokenEstimate: 1500,
+    });
+    expect(result.success).toBe(false);
+  });
+});
+
+// ─── workflow.snapshot_taken (T009, DR-4) ───────────────────────────────────
+
+describe('WorkflowSnapshotTakenData', () => {
+  it('SnapshotTaken_ValidData_Parses', () => {
+    // DR-4: { projectionId: string, sequence: number }
+    // Emitted when a workflow projection snapshot is persisted. The
+    // projectionId identifies the projection being snapshotted, and the
+    // sequence records the projection sequence captured by the snapshot —
+    // later rehydration can skip replaying events up to that sequence.
+    expect(EventTypes).toContain('workflow.snapshot_taken');
+
+    const schema = EVENT_DATA_SCHEMAS['workflow.snapshot_taken' as typeof EventTypes[number]];
+    expect(schema).toBeDefined();
+
+    const result = schema!.safeParse({
+      projectionId: 'proj-001',
+      sequence: 42,
+    });
+    expect(result.success, JSON.stringify(result)).toBe(true);
+  });
+});
+
+// ─── workflow.projection_degraded (T010, DR-4, DR-18) ───────────────────────
+
+describe('WorkflowProjectionDegradedData', () => {
+  it('ProjectionDegraded_ValidData_Parses', () => {
+    // DR-4, DR-18: { projectionId: string, cause: string, fallbackSource: string }
+    // Emitted when workflow projection rehydration is degraded (e.g.
+    // reducer throw, corrupt snapshot, missing event stream). The cause
+    // records why the degraded path was taken, and fallbackSource identifies
+    // the alternative data source that serviced the request (e.g.
+    // "state-store-only", "full-replay").
+    expect(EventTypes).toContain('workflow.projection_degraded');
+
+    const schema = EVENT_DATA_SCHEMAS['workflow.projection_degraded' as typeof EventTypes[number]];
+    expect(schema).toBeDefined();
+
+    const result = schema!.safeParse({
+      projectionId: 'proj-001',
+      cause: 'reducer-throw',
+      fallbackSource: 'state-store-only',
+    });
+    expect(result.success, JSON.stringify(result)).toBe(true);
+  });
+
+  it('ProjectionDegraded_ExposedInEmissionGuide_True', () => {
+    // DR-18: projection_degraded is a server-emitted degradation signal.
+    // It must be registered in EVENT_EMISSION_REGISTRY (the emission-guide
+    // enumeration) with an 'auto' source, matching the T005
+    // workflow.checkpoint_requested precedent for infrastructure-emitted events.
+    expect(EVENT_EMISSION_REGISTRY).toHaveProperty('workflow.projection_degraded');
+    expect(EVENT_EMISSION_REGISTRY['workflow.projection_degraded']).toBe('auto');
+
+    // Also surface via the serializeEventCatalog emission guide output.
+    const catalog = serializeEventCatalog();
+    expect(catalog.bySource.auto).toContain('workflow.projection_degraded');
   });
 });

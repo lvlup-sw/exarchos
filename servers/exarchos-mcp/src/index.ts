@@ -10,6 +10,10 @@ import { logger } from './logger.js';
 import { resolveStateDir as resolveStateDirFromPaths } from './utils/paths.js';
 import { EventStore } from './event-store/store.js';
 import { SnapshotStore } from './views/snapshot-store.js';
+import {
+  ANTHROPIC_NATIVE_CACHING,
+  createInMemoryResolver,
+} from './capabilities/resolver.js';
 
 // Storage backend
 import type { StorageBackend } from './storage/backend.js';
@@ -191,7 +195,16 @@ export async function createServer(
 
   const enableTelemetry = process.env.EXARCHOS_TELEMETRY !== 'false';
 
-  const ctx: DispatchContext = { stateDir, eventStore, enableTelemetry };
+  // Default to always-on cache hints with an env kill switch (T051, DR-14).
+  // Mirror of `core/context.ts:buildDefaultCapabilityResolver` — kept inline
+  // because this entrypoint runs before the module-graph cost we shed in
+  // `initializeContext` is acceptable.
+  const capabilityResolver =
+    process.env.EXARCHOS_DISABLE_CACHE_HINTS === '1'
+      ? createInMemoryResolver([])
+      : createInMemoryResolver([ANTHROPIC_NATIVE_CACHING]);
+
+  const ctx: DispatchContext = { stateDir, eventStore, enableTelemetry, capabilityResolver };
 
   // Lazy-load the MCP adapter so the CLI cold-start path doesn't incur the
   // MCP-SDK import cost. See module-level note on top of file.

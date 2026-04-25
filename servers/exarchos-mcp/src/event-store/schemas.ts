@@ -40,6 +40,12 @@ export const EventTypes = [
   'quality.regression',
   'workflow.cas-failed',
   'workflow.pruned',
+  'workflow.checkpoint_requested',
+  'workflow.checkpoint_written',
+  'workflow.checkpoint_superseded',
+  'workflow.rehydrated',
+  'workflow.snapshot_taken',
+  'workflow.projection_degraded',
   'synthesize.requested',
   'review.completed',
   'review.routed',
@@ -180,6 +186,12 @@ export const EVENT_EMISSION_REGISTRY: Record<EventType, EventEmissionSource> = {
   'workflow.circuit-open': 'auto',
   'workflow.cas-failed': 'auto',
   'workflow.pruned': 'auto',
+  'workflow.checkpoint_requested': 'auto',
+  'workflow.checkpoint_written': 'auto',
+  'workflow.checkpoint_superseded': 'auto',
+  'workflow.rehydrated': 'auto',
+  'workflow.snapshot_taken': 'auto',
+  'workflow.projection_degraded': 'auto',
   'synthesize.requested': 'auto',
   'task.claimed': 'auto',
   'task.completed': 'auto',
@@ -471,6 +483,68 @@ export const WorkflowPrunedData = z.object({
   stalenessMinutes: z.number().nonnegative(),
   triggeredBy: z.enum(['manual', 'scheduled']),
   skippedSafeguards: z.array(z.string()).optional(),
+});
+
+export const WorkflowCheckpointRequestedData = z.object({
+  trigger: z.enum(['manual', 'threshold', 'hook']),
+  reason: z.string().optional(),
+});
+
+export const WorkflowCheckpointWrittenData = z.object({
+  projectionId: z.string().min(1),
+  projectionSequence: z.number().int().nonnegative(),
+  byteSize: z.number().int().nonnegative(),
+});
+
+export const WorkflowCheckpointSupersededData = z.object({
+  priorSequence: z.number().int().nonnegative(),
+  reason: z.string().min(1),
+});
+
+export const WorkflowRehydratedData = z.object({
+  projectionSequence: z.number().int().nonnegative(),
+  deliveryPath: z.enum(['direct', 'ndjson', 'snapshot']),
+  tokenEstimate: z.number().int().nonnegative(),
+});
+
+export const WorkflowSnapshotTakenData = z.object({
+  projectionId: z.string().min(1),
+  sequence: z.number().int().nonnegative(),
+});
+
+/**
+ * Closed enum of degradation causes (DR-18, T054/T055/T056). Extending this
+ * set is a coordinated change: add the literal here, add the matching
+ * `DegradationCause` union member in `workflow/rehydrate.ts`, and surface
+ * the new code in the audit/observability paths so dashboards don't fragment.
+ */
+export const WorkflowProjectionDegradedCause = z.enum([
+  'reducer-throw',
+  'snapshot-corrupt',
+  'event-stream-unavailable',
+]);
+export type WorkflowProjectionDegradedCause = z.infer<
+  typeof WorkflowProjectionDegradedCause
+>;
+
+/**
+ * Closed enum of fallback-source codes (DR-18). Mirrors the
+ * `DegradationFallbackSource` union in `workflow/rehydrate.ts`. New entries
+ * MUST be added in both places — the schema enforces the wire contract,
+ * the union enforces the call-site contract.
+ */
+export const WorkflowProjectionDegradedFallbackSource = z.enum([
+  'state-store-only',
+  'full-replay',
+]);
+export type WorkflowProjectionDegradedFallbackSource = z.infer<
+  typeof WorkflowProjectionDegradedFallbackSource
+>;
+
+export const WorkflowProjectionDegradedData = z.object({
+  projectionId: z.string().min(1),
+  cause: WorkflowProjectionDegradedCause,
+  fallbackSource: WorkflowProjectionDegradedFallbackSource,
 });
 
 export const SynthesizeRequestedData = z.object({
@@ -839,6 +913,12 @@ export const EVENT_DATA_SCHEMAS: Partial<Record<EventType, z.ZodSchema>> = {
   'workflow.circuit-open': WorkflowCircuitOpenData,
   'workflow.cas-failed': WorkflowCasFailedData,
   'workflow.pruned': WorkflowPrunedData,
+  'workflow.checkpoint_requested': WorkflowCheckpointRequestedData,
+  'workflow.checkpoint_written': WorkflowCheckpointWrittenData,
+  'workflow.checkpoint_superseded': WorkflowCheckpointSupersededData,
+  'workflow.rehydrated': WorkflowRehydratedData,
+  'workflow.snapshot_taken': WorkflowSnapshotTakenData,
+  'workflow.projection_degraded': WorkflowProjectionDegradedData,
   'synthesize.requested': SynthesizeRequestedData,
 
   // Task-level
@@ -973,6 +1053,12 @@ export type WorkflowCompensation = z.infer<typeof WorkflowCompensationData>;
 export type WorkflowCircuitOpen = z.infer<typeof WorkflowCircuitOpenData>;
 export type WorkflowCasFailed = z.infer<typeof WorkflowCasFailedData>;
 export type WorkflowPruned = z.infer<typeof WorkflowPrunedData>;
+export type WorkflowCheckpointRequested = z.infer<typeof WorkflowCheckpointRequestedData>;
+export type WorkflowCheckpointWritten = z.infer<typeof WorkflowCheckpointWrittenData>;
+export type WorkflowCheckpointSuperseded = z.infer<typeof WorkflowCheckpointSupersededData>;
+export type WorkflowRehydrated = z.infer<typeof WorkflowRehydratedData>;
+export type WorkflowSnapshotTaken = z.infer<typeof WorkflowSnapshotTakenData>;
+export type WorkflowProjectionDegraded = z.infer<typeof WorkflowProjectionDegradedData>;
 export type SynthesizeRequested = z.infer<typeof SynthesizeRequestedData>;
 export type ToolInvoked = z.infer<typeof ToolInvokedData>;
 export type ToolCompleted = z.infer<typeof ToolCompletedData>;
@@ -1052,6 +1138,12 @@ export type EventDataMap = {
   'quality.regression': QualityRegression;
   'workflow.cas-failed': WorkflowCasFailed;
   'workflow.pruned': WorkflowPruned;
+  'workflow.checkpoint_requested': WorkflowCheckpointRequested;
+  'workflow.checkpoint_written': WorkflowCheckpointWritten;
+  'workflow.checkpoint_superseded': WorkflowCheckpointSuperseded;
+  'workflow.rehydrated': WorkflowRehydrated;
+  'workflow.snapshot_taken': WorkflowSnapshotTaken;
+  'workflow.projection_degraded': WorkflowProjectionDegraded;
   'synthesize.requested': SynthesizeRequested;
   'review.completed': ReviewCompleted;
   'review.routed': ReviewRouted;
