@@ -5,6 +5,12 @@ on:
     branches: [main]
     paths:
       - 'documentation/**'
+      # The bootstrap installers are served from the Pages site at
+      # /exarchos/get-exarchos.sh (and .ps1) — see the copy step below.
+      # A change to the canonical script under scripts/ must trigger a
+      # redeploy or the public URL will lag the repo.
+      - 'scripts/get-exarchos.sh'
+      - 'scripts/get-exarchos.ps1'
   workflow_dispatch:
 
 permissions:
@@ -29,6 +35,17 @@ jobs:
       - name: Install dependencies
         working-directory: documentation
         run: npm install
+
+      - name: Stage bootstrap installers into Pages /public
+        # Single source of truth: scripts/get-exarchos.{sh,ps1}. The copies in
+        # documentation/public/ are build artifacts (gitignored); the deploy
+        # step below ships them at /exarchos/get-exarchos.sh and .ps1 so the
+        # README can advertise the install one-liner without baking a tagged
+        # raw.githubusercontent.com URL into user-facing docs.
+        run: |
+          set -euo pipefail
+          install -m 0755 scripts/get-exarchos.sh  documentation/public/get-exarchos.sh
+          install -m 0644 scripts/get-exarchos.ps1 documentation/public/get-exarchos.ps1
 
       - name: Build documentation
         working-directory: documentation

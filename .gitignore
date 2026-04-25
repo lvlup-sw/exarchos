@@ -39,6 +39,12 @@ benchmark-results.json
 documentation/.vitepress/dist/
 documentation/.vitepress/cache/
 
+# Bootstrap installers staged into the Pages /public dir at deploy time.
+# Source-of-truth lives at scripts/get-exarchos.{sh,ps1}; the copies are
+# build artifacts produced by .github/workflows/docs.yml.
+documentation/public/get-exarchos.sh
+documentation/public/get-exarchos.ps1
+
 # Sensitive/local files
 .env
 .env.local

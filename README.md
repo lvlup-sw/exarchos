@@ -47,10 +47,10 @@ It ships as a Claude Code plugin and a standalone MCP server with a CLI adapter.
 **Standalone CLI / MCP server (single-file binary):**
 ```bash
 # Unix (macOS / Linux)
-curl -fsSL https://raw.githubusercontent.com/lvlup-sw/exarchos/main/scripts/get-exarchos.sh | bash
+curl -fsSL https://lvlup-sw.github.io/exarchos/get-exarchos.sh | bash
 
 # Windows (PowerShell)
-irm https://raw.githubusercontent.com/lvlup-sw/exarchos/main/scripts/get-exarchos.ps1 | iex
+irm https://lvlup-sw.github.io/exarchos/get-exarchos.ps1 | iex
 
 # Run as MCP server over stdio (after install)
 exarchos mcp
