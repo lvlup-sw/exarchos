@@ -314,6 +314,22 @@ export async function handleAssembleContext(
   }
 
   const eventStore = new EventStore(stateDir);
+  // Hook subprocesses must initialize the event store before first use;
+  // without it, writes (the workflow.rehydrated emission inside
+  // handleRehydrate) bypass the PID lock and could race the main MCP
+  // server's writer (sentry[bot] PR #1178#discussion_r3141671413). Default
+  // mode is correct for hook paths per the EventStore.initialize() doc —
+  // when the lock is held elsewhere we enter sidecar mode and writes are
+  // routed to a sidecar JSONL the primary merges later. We avoid
+  // waitForLock:true because pre-compact callers are latency-sensitive
+  // and the contract for handleAssembleContext is to never raise.
+  // Initialize is wrapped so unexpected lock-acquisition failures
+  // degrade to an empty projection rather than throwing into session-start.
+  try {
+    await eventStore.initialize();
+  } catch {
+    return { contextDocument: '', featureId, phase: '', truncated: false };
+  }
   const stateFilePath = path.join(stateDir, `${featureId}.state.json`);
 
   // Dispatch to the canonical rehydrate handler for the document. Errors
