@@ -56,16 +56,13 @@ curl -fsSL https://lvlup-sw.github.io/exarchos/get-exarchos.sh | bash
 # Windows (PowerShell)
 irm https://lvlup-sw.github.io/exarchos/get-exarchos.ps1 | iex
 
-# Pin to a specific release (or a release candidate):
-bash <(curl -fsSL https://lvlup-sw.github.io/exarchos/get-exarchos.sh) --version v2.9.0-rc.1
-
 # Verify + run as MCP server over stdio
 exarchos --version
 exarchos doctor
 exarchos mcp
 ```
 
-The installer verifies a SHA-512 checksum, appends `~/.local/bin` to your shell rc files (idempotent), and supports `--dry-run`, `--version <tag>`, and `--github-actions` modes.
+The installer resolves the latest GitHub Release, verifies a SHA-512 checksum, and appends `~/.local/bin` to your shell rc files (idempotent). To pin a specific tag, pass `--version v2.9.0-rc.1` (or any release tag); other modes: `--dry-run`, `--github-actions`.
 
 ### Installing skills for your agent
 
