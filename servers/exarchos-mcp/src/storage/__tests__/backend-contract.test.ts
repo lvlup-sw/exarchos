@@ -416,15 +416,15 @@ describe('SqliteBackend outbox retry behavior', () => {
   });
 
   /**
-   * SqliteBackend retries failed outbox sends with exponential backoff.
+   * Both backends keep failed outbox entries pending and retry on later
+   * drains — the keep-on-failure invariant is verified for both via the
+   * `drainOutbox_FailedSend_*` parameterized contract tests above.
    *
-   * When a send fails, the SqliteBackend keeps the outbox entry in the database
-   * with status='pending' and increments the `attempts` count. The entry remains
-   * available for future drain calls until it exceeds MAX_OUTBOX_RETRIES (5),
-   * at which point it is moved to 'dead-letter' status.
-   *
-   * This contrasts with InMemoryBackend which uses `splice` to remove items
-   * from the outbox array before sending, so failed items are permanently lost.
+   * The SqliteBackend additionally tracks attempt counts and schedules
+   * exponential backoff; after exceeding MAX_OUTBOX_RETRIES (5) the row
+   * moves to 'dead-letter'. InMemoryBackend skips this bookkeeping (its
+   * only consumer is unit tests) but holds the same delivery contract.
+   * This focused test pins the sqlite-specific retry-with-backoff path.
    */
   it('drainOutbox_FailedSend_SqliteBackendRetriesWithBackoff', async () => {
     dir = mkdtempSync(join(tmpdir(), 'contract-sqlite-retry-'));
