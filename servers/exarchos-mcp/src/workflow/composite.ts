@@ -92,7 +92,7 @@ export async function handleWorkflow(
     case 'rehydrate':
       return envelopeWrap(
         await handleRehydrate(
-          rest as Parameters<typeof handleRehydrate>[0],
+          rest as unknown as Parameters<typeof handleRehydrate>[0],
           { stateDir, eventStore },
         ),
         startedAt,
