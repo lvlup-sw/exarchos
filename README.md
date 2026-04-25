@@ -66,38 +66,21 @@ The installer resolves the latest GitHub Release, verifies a SHA-512 checksum, a
 
 For the two-step (download + inspect + run) path, channel selection, validation, update, and uninstall instructions, see the [full install guide](https://lvlup-sw.github.io/exarchos/guide/installation).
 
-### Installing skills for your agent
+### Install your agent's skills
 
-Exarchos ships its skills as platform-agnostic source. To materialize the
-rendered bundle for a specific agent runtime, use `install-skills`:
-
-```bash
-exarchos install-skills --agent claude
-exarchos install-skills --agent codex
-exarchos install-skills --agent opencode
-exarchos install-skills --agent copilot
-exarchos install-skills --agent cursor
-exarchos install-skills --agent generic
-exarchos install-skills             # auto-detect from PATH + env vars
-```
-
-Auto-detection checks for known agent binaries on your `PATH` and for
-runtime-specific environment variables. If nothing is found, the generic
-bundle is installed and a message explains the fallback. If multiple
-agents are detected, an interactive prompt asks which one to target (or
-you can pass `--agent` explicitly).
-
-<details>
-<summary>Development setup</summary>
+Exarchos ships skills as platform-agnostic source; the CLI renders them for whichever runtime you're using.
 
 ```bash
-git clone https://github.com/lvlup-sw/exarchos.git && cd exarchos
-npm install && npm run build
-claude --plugin-dir .
+exarchos install-skills
 ```
 
-Requires Node.js >= 20.
-</details>
+Auto-detection inspects your `PATH` and the usual runtime environment variables. One match installs that runtime's bundle; multiple matches prompt for a pick; no match installs the generic bundle and prints why.
+
+To skip detection and pick explicitly:
+
+```bash
+exarchos install-skills --agent claude     # also: codex, opencode, copilot, cursor, generic
+```
 
 ## What you get
 

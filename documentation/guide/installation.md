@@ -112,6 +112,35 @@ Inside Claude Code, run any namespaced command to confirm the plugin layer is wi
 
 If a design exploration session starts, the plugin and MCP server are both attached.
 
+## Migrate from v2.8
+
+If you're already running the v2.8.x plugin, the v2.9 model is different in two ways: the runtime is a self-contained binary instead of a Node bundle, and the plugin invokes that binary from PATH instead of shelling into a vendored `dist/exarchos.js`. Migration is three commands plus a restart.
+
+```bash
+# 1. (Optional) Drop a v2.8 npm-global if you ever installed one. Harmless to skip if you didn't.
+npm uninstall -g @lvlup-sw/exarchos
+
+# 2. Install the v2.9 binary on PATH.
+curl -fsSL https://lvlup-sw.github.io/exarchos/get-exarchos.sh | bash
+
+# 3. Open a new shell so PATH refreshes; verify.
+exarchos --version       # 2.9.0-rc.1
+exarchos doctor
+```
+
+Then inside Claude Code:
+
+```
+/plugin marketplace update
+/plugin update exarchos@lvlup-sw
+```
+
+Restart Claude Code so the new plugin manifest (which expects bare `exarchos` on PATH) takes effect. Run `/exarchos:ideate` to confirm the MCP server attached and commands resolve.
+
+Workflow state at `~/.exarchos/state/` is forward-compatible — the v2.9 binary reads existing event-log JSONL untouched, and the rehydration projection materializes from those events on first read. No data migration needed.
+
+If the plugin update lands before the binary install, MCP server registration and the eight lifecycle hooks fail with `exarchos: command not found` until you complete step 2 and restart. Order matters here.
+
 ## Update
 
 The bootstrap installers are idempotent — re-run the same one-liner and the new binary atomically replaces the old one. SHA-512 verification guards against partial writes.
