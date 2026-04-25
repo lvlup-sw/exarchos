@@ -85,6 +85,51 @@ describe('initializeContext', () => {
     expect(ctx.config).toBeUndefined();
   });
 
+  // T051 / DR-14 — every dispatch context carries a capability resolver so
+  // composite tools that emit cache-control hints (currently rehydrate
+  // only) can decide whether the runtime understands the hint shape. The
+  // default reports `anthropic_native_caching`, with an env kill switch
+  // for runtimes observed mishandling the field.
+  it('InitializeContext_DefaultResolver_ReportsAnthropicNativeCaching', async () => {
+    const prior = process.env.EXARCHOS_DISABLE_CACHE_HINTS;
+    delete process.env.EXARCHOS_DISABLE_CACHE_HINTS;
+    try {
+      const { initializeContext } = await import('./context.js');
+      const ctx = await initializeContext(tmpDir);
+      expect(ctx.capabilityResolver).toBeDefined();
+      expect(ctx.capabilityResolver!.has('anthropic_native_caching')).toBe(true);
+      // Other capability strings are NOT reported — the resolver is a
+      // closed allowlist, not a wildcard.
+      expect(ctx.capabilityResolver!.has('made_up_capability')).toBe(false);
+    } finally {
+      if (prior === undefined) {
+        delete process.env.EXARCHOS_DISABLE_CACHE_HINTS;
+      } else {
+        process.env.EXARCHOS_DISABLE_CACHE_HINTS = prior;
+      }
+    }
+  });
+
+  it('InitializeContext_DisableCacheHintsEnv_ResolverReportsNothing', async () => {
+    const prior = process.env.EXARCHOS_DISABLE_CACHE_HINTS;
+    process.env.EXARCHOS_DISABLE_CACHE_HINTS = '1';
+    try {
+      const { initializeContext } = await import('./context.js');
+      const ctx = await initializeContext(tmpDir);
+      expect(ctx.capabilityResolver).toBeDefined();
+      // Empty resolver — `applyCacheHints` becomes a no-op and the
+      // `_cacheHints` field is omitted from response envelopes.
+      expect(ctx.capabilityResolver!.has('anthropic_native_caching')).toBe(false);
+      expect(ctx.capabilityResolver!.list()).toEqual([]);
+    } finally {
+      if (prior === undefined) {
+        delete process.env.EXARCHOS_DISABLE_CACHE_HINTS;
+      } else {
+        process.env.EXARCHOS_DISABLE_CACHE_HINTS = prior;
+      }
+    }
+  });
+
   it('InitializeContext_WithProjectRoot_LoadsConfig', async () => {
     // Arrange
     const { initializeContext } = await import('./context.js');

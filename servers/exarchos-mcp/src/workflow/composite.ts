@@ -4,9 +4,10 @@ import { handleCleanup } from './cleanup.js';
 import { handleRehydrate } from './rehydrate.js';
 import { handleDescribe } from '../describe/handler.js';
 import { TOOL_REGISTRY } from '../registry.js';
-import { wrap, wrapWithPassthrough, type ToolResult } from '../format.js';
+import { applyCacheHints, wrap, wrapWithPassthrough, type Envelope, type ToolResult } from '../format.js';
 import type { DispatchContext } from '../core/dispatch.js';
 import { nextActionsFromResult } from '../next-actions-from-result.js';
+import type { CapabilityResolver } from '../capabilities/resolver.js';
 
 const workflowActions = TOOL_REGISTRY.find(t => t.name === 'exarchos_workflow')!.actions;
 
@@ -39,6 +40,36 @@ function envelopeWrap(result: ToolResult, startedAt: number): ToolResult {
   // lookup over the HSM registry; no I/O.
   const nextActions = nextActionsFromResult(result);
   return wrapWithPassthrough(result, wrap(result.data, meta, perf, nextActions));
+}
+
+/**
+ * Rehydrate-only envelope wrap (T051, DR-14): identical to `envelopeWrap`
+ * but additionally applies `applyCacheHints` so the response carries a
+ * `_cacheHints` field on runtimes that report `anthropic_native_caching`.
+ *
+ * Scoped to the rehydrate dispatch path because rehydrate is the only
+ * action with a stable serialized prefix worth caching — other workflow
+ * actions either mutate state (init/set/cancel/cleanup/checkpoint) or
+ * return small payloads where cache annotations carry no benefit. The
+ * followups doc (T051) explicitly limits the wiring to this surface so
+ * the cost-saving feature ships as designed without leaking
+ * cache-control semantics into actions where they do not belong.
+ */
+function envelopeWrapWithCacheHints(
+  result: ToolResult,
+  startedAt: number,
+  resolver: CapabilityResolver | undefined,
+): ToolResult {
+  if (!result.success) return result;
+
+  const meta = (result._meta ?? {}) as Record<string, unknown>;
+  const perf = result._perf ?? { ms: Date.now() - startedAt };
+  const nextActions = nextActionsFromResult(result);
+  let envelope: Envelope<unknown> = wrap(result.data, meta, perf, nextActions);
+  if (resolver !== undefined) {
+    envelope = applyCacheHints(envelope, resolver);
+  }
+  return wrapWithPassthrough(result, envelope);
 }
 
 /**
@@ -87,12 +118,13 @@ export async function handleWorkflow(
     case 'checkpoint':
       return envelopeWrap(await handleCheckpoint(rest as Parameters<typeof handleCheckpoint>[0], stateDir, eventStore), startedAt);
     case 'rehydrate':
-      return envelopeWrap(
+      return envelopeWrapWithCacheHints(
         await handleRehydrate(
           rest as unknown as Parameters<typeof handleRehydrate>[0],
           { stateDir, eventStore },
         ),
         startedAt,
+        ctx.capabilityResolver,
       );
     case 'describe':
       return envelopeWrap(

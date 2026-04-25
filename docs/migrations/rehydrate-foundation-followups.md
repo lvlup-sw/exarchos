@@ -15,12 +15,11 @@ Design reference: `docs/designs/2026-04-23-rehydrate-foundation.md` DR-16.
 
 ---
 
-### 2. `applyCacheHints` composite wiring (T051)
+### 2. `applyCacheHints` composite wiring (T051) — RESOLVED on PR #1178
 
-- **State:** `applyCacheHints` helper exists in `servers/exarchos-mcp/src/format.ts` and is unit-tested. It annotates high-priority fields with MCP cache-control hints.
-- **Gap:** No composite tool calls `applyCacheHints`. The `envelopeWrap` path in `workflow/composite.ts` does not invoke it at the rehydrate dispatch path, so cache hints are never applied in production responses.
-- **Scope:** S — wire `applyCacheHints(envelope)` into `workflow/composite.ts`'s `envelopeWrap` at the rehydrate dispatch path; add an integration-level assertion.
-- **Linked task:** T051
+- **State:** Resolved during the PR #1178 review cycle. `DispatchContext` now carries a `capabilityResolver`; `core/context.ts` and `index.ts` both construct one defaulting to `[ANTHROPIC_NATIVE_CACHING]`, gated by `EXARCHOS_DISABLE_CACHE_HINTS=1` as a kill switch. `workflow/composite.ts` introduces a rehydrate-only `envelopeWrapWithCacheHints` that applies the helper after `wrap()` and before the `wrapWithPassthrough` finalisation. Other workflow actions remain on the plain `envelopeWrap` so cache annotations don't leak into mutating dispatches.
+- **Coverage:** Four new behavioural tests in `workflow/composite.test.ts` cover the four resolver cases (capability + no resolver + empty resolver + non-rehydrate-actions-never-emit), plus two `core/context.test.ts` cases for the env kill switch.
+- **Linked task:** T051 (closed)
 
 ---
 

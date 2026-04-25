@@ -4,6 +4,11 @@ import { EventStore } from '../event-store/store.js';
 import { SnapshotStore } from '../views/snapshot-store.js';
 import type { DispatchContext } from './dispatch.js';
 import type { StorageBackend } from '../storage/backend.js';
+import {
+  ANTHROPIC_NATIVE_CACHING,
+  createInMemoryResolver,
+  type CapabilityResolver,
+} from '../capabilities/resolver.js';
 
 // NOTE: `../config/loader.js`, `../config/yaml-loader.js`, `../config/resolve.js`,
 // `../config/register.js`, `../vcs/factory.js`, and `../hooks/config-hooks.js`
@@ -36,6 +41,31 @@ function hasJsProjectConfig(projectRoot: string): boolean {
     if (fs.existsSync(path.join(projectRoot, name))) return true;
   }
   return false;
+}
+
+/**
+ * Resolve the runtime capability set used by composite tools to decide
+ * whether to emit cache-control hints (T051, DR-14).
+ *
+ * Default behaviour is "always-on": every dispatch context reports
+ * `anthropic_native_caching`, so consumers that understand the hint
+ * (Anthropic-native runtimes wrapping the response in `cache_control:
+ * { type: 'ephemeral', ttl: '1h' }` around the stable prefix) get the
+ * boundary signal, and consumers that don't ignore the field per the
+ * standard JSON-wire convention. The followups doc (T051) treats this
+ * as the safe default — extending the resolver to a real protocol
+ * handshake is a follow-up enhancement, not a blocker.
+ *
+ * Set `EXARCHOS_DISABLE_CACHE_HINTS=1` to opt out — the resolver
+ * returns empty and `applyCacheHints` becomes a no-op. Useful when a
+ * downstream consumer is observed mishandling the field, or for
+ * benchmarks that want the minimal envelope shape.
+ */
+function buildDefaultCapabilityResolver(): CapabilityResolver {
+  if (process.env.EXARCHOS_DISABLE_CACHE_HINTS === '1') {
+    return createInMemoryResolver([]);
+  }
+  return createInMemoryResolver([ANTHROPIC_NATIVE_CACHING]);
 }
 
 // ─── Context Options ────────────────────────────────────────────────────────
@@ -82,10 +112,11 @@ export async function initializeContext(
   configureCleanupSnapshotStore(new SnapshotStore(stateDir));
 
   const enableTelemetry = process.env.EXARCHOS_TELEMETRY !== 'false';
+  const capabilityResolver = buildDefaultCapabilityResolver();
 
   // ─── Fast exit: no projectRoot → no config/vcs/hooks work ────────────────
   if (!options?.projectRoot) {
-    return { stateDir, eventStore, enableTelemetry };
+    return { stateDir, eventStore, enableTelemetry, capabilityResolver };
   }
 
   // ─── Cold-start aware config path ────────────────────────────────────────
@@ -125,6 +156,7 @@ export async function initializeContext(
       stateDir,
       eventStore,
       enableTelemetry,
+      capabilityResolver,
       config: {},
       projectConfig,
       vcsProvider,
@@ -155,5 +187,5 @@ export async function initializeContext(
     }
   }
 
-  return { stateDir, eventStore, enableTelemetry, config, projectConfig, vcsProvider, hookRunner };
+  return { stateDir, eventStore, enableTelemetry, capabilityResolver, config, projectConfig, vcsProvider, hookRunner };
 }
