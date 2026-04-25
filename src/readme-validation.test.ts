@@ -15,14 +15,19 @@ describe('README validation', () => {
     expect(content).toContain(httpsUrl);
 
     // The context must clarify this is the HTTPS/SSH fallback by mentioning
-    // either "HTTPS" or "SSH" within 500 characters of the URL.
+    // either "HTTPS" or "SSH" within 500 characters of the URL — but the
+    // URL itself contains "https://" which would match a naive /HTTPS/i.
+    // Slice the URL out of the window so the regex catches genuine
+    // explanatory prose, not the URL protocol.
     const urlIndex = content.indexOf(httpsUrl);
     const windowStart = Math.max(0, urlIndex - 500);
     const windowEnd = Math.min(content.length, urlIndex + httpsUrl.length + 500);
-    const contextWindow = content.slice(windowStart, windowEnd);
+    const leftContext = content.slice(windowStart, urlIndex);
+    const rightContext = content.slice(urlIndex + httpsUrl.length, windowEnd);
+    const contextWithoutUrl = leftContext + rightContext;
 
     const mentionsFallbackContext =
-      /HTTPS/i.test(contextWindow) || /SSH/i.test(contextWindow);
+      /\bHTTPS\b/i.test(contextWithoutUrl) || /\bSSH\b/i.test(contextWithoutUrl);
 
     expect(
       mentionsFallbackContext,

@@ -308,14 +308,30 @@ describe('task 2.9 — fresh-environment bootstrap smoke', () => {
       }
       if (outcome.kind === 'fail') {
         // Musl-on-glibc is an expected failure mode until true musl
-        // binaries ship.
+        // binaries ship. Match on the *specific* loader/glibc signatures
+        // that surface when a glibc-linked binary tries to run under musl
+        // — accepting any output containing the literal "exarchos" would
+        // let unrelated regressions (a typo in the install hint, a
+        // misnamed asset, etc.) silently pass this gate.
         // eslint-disable-next-line no-console
         console.info(
           '[smoke] alpine: bootstrap ran, binary failed to exec ' +
             '(expected on musl until true musl build lands):\n' +
             outcome.stderr,
         );
-        expect(outcome.stdout + outcome.stderr).toMatch(/exarchos/i);
+        const combined = outcome.stdout + outcome.stderr;
+        const muslGlibcSignatures = [
+          /not found/i,                                // sh: ./exarchos: not found (busybox missing-loader form)
+          /no such file or directory/i,                // exec format failure on musl
+          /Error loading shared library/i,             // musl ld.so missing libc
+          /Error relocating/i,                         // libc symbol mismatch
+          /GLIBC_/,                                    // GLIBC_2.x not found
+          /ld-linux-x86-64\.so/,                       // glibc dynamic linker absent
+        ];
+        expect(
+          muslGlibcSignatures.some((re) => re.test(combined)),
+          `Expected a musl/glibc loader-failure signature in alpine output. Got:\nstderr=${outcome.stderr}\nstdout=${outcome.stdout}`,
+        ).toBe(true);
         return;
       }
       // Unexpected pass on musl → strong signal that we shipped a musl

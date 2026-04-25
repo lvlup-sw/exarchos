@@ -195,8 +195,17 @@ export async function openFixture(binaryPath: string, repoRoot: string): Promise
     { capabilities: {} },
   );
 
-  await client.connect(transport);
-  return { client, transport, stateDir };
+  try {
+    await client.connect(transport);
+    return { client, transport, stateDir };
+  } catch (error) {
+    // Connect can fail if the spawned binary exits early (missing
+    // dependency, invalid env, etc.). The temp dir we just minted would
+    // otherwise leak — clean up before rethrowing so successive test
+    // runs don't accumulate `/tmp/exarchos-compiled-test-*` directories.
+    await fsp.rm(stateDir, { recursive: true, force: true }).catch(() => undefined);
+    throw error;
+  }
 }
 
 export async function closeFixture(fx: Fixture): Promise<void> {

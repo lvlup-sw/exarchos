@@ -108,7 +108,3 @@ export class UnsupportedOperationError extends Error {
     this.operation = operation;
   }
 }
-
-export function isUnsupportedOperation(err: unknown): err is UnsupportedOperationError {
-  return err instanceof UnsupportedOperationError;
-}

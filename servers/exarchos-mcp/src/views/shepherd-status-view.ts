@@ -249,36 +249,6 @@ export const shepherdStatusProjection: ViewProjection<ShepherdStatusState> = {
   },
 };
 
-// ─── Handler Function ──────────────────────────────────────────────────────
-
-import type { ToolResult } from '../format.js';
-import type { ViewMaterializer } from './materializer.js';
-
-export async function handleViewShepherdStatus(
-  args: { workflowId?: string },
-  stateDir: string,
-  materializer: ViewMaterializer,
-): Promise<ToolResult> {
-  try {
-    const { getOrCreateEventStore, queryDeltaEvents } = await import('./tools.js');
-    const store = getOrCreateEventStore(stateDir);
-    const streamId = args.workflowId ?? 'default';
-
-    const events = await queryDeltaEvents(store, materializer, streamId, SHEPHERD_STATUS_VIEW);
-    const view = materializer.materialize<ShepherdStatusState>(
-      streamId,
-      SHEPHERD_STATUS_VIEW,
-      events,
-    );
-
-    return { success: true, data: view };
-  } catch (err) {
-    return {
-      success: false,
-      error: {
-        code: 'VIEW_ERROR',
-        message: err instanceof Error ? err.message : String(err),
-      },
-    };
-  }
-}
+// Note: the live `handleViewShepherdStatus` lives in `views/tools.ts`;
+// this file owns only the projection + state shapes that the live handler
+// re-exports through that module.

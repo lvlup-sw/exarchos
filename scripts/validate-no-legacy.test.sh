@@ -118,27 +118,36 @@ assert_file_absent \
 #   claims. Historical release entries are preserved verbatim (they describe
 #   what actually shipped) — we only lint the [Unreleased] section.
 
-# NoLegacy_ReadmeHasNoBundledMcp — README must not advertise the three
-# companion MCP servers (serena, context7, microsoft-learn) anywhere.
-# Rationale for the zero-tolerance scoping: the fallback rule in the task
-# brief. `graphite` is matched separately below with a softer rule.
-README_BUNDLED_HITS=$(grep -inE "serena|context7|microsoft-learn|microsoft learn" \
-  "$REPO_ROOT/README.md" 2>/dev/null || true)
-if [[ -z "$README_BUNDLED_HITS" ]]; then
-  pass "NoLegacy_ReadmeHasNoBundledMcp"
+# README is the canonical distribution-surface doc. If it's missing,
+# both checks below would silently pass via `|| true` masking the grep
+# failure — guard explicitly so that a deleted README fails the gate
+# instead of producing a vacuous green.
+if [[ ! -f "$REPO_ROOT/README.md" ]]; then
+  fail "NoLegacy_ReadmeHasNoBundledMcp" "README.md missing — expected file to exist"
+  fail "NoLegacy_ReadmeHasNoCreateExarchos" "README.md missing — expected file to exist"
 else
-  fail "NoLegacy_ReadmeHasNoBundledMcp" \
-    "README.md mentions removed bundled-MCP companions: $README_BUNDLED_HITS"
-fi
+  # NoLegacy_ReadmeHasNoBundledMcp — README must not advertise the three
+  # companion MCP servers (serena, context7, microsoft-learn) anywhere.
+  # Rationale for the zero-tolerance scoping: the fallback rule in the task
+  # brief. `graphite` is matched separately below with a softer rule.
+  README_BUNDLED_HITS=$(grep -inE "serena|context7|microsoft-learn|microsoft learn" \
+    "$REPO_ROOT/README.md" 2>/dev/null || true)
+  if [[ -z "$README_BUNDLED_HITS" ]]; then
+    pass "NoLegacy_ReadmeHasNoBundledMcp"
+  else
+    fail "NoLegacy_ReadmeHasNoBundledMcp" \
+      "README.md mentions removed bundled-MCP companions: $README_BUNDLED_HITS"
+  fi
 
-# NoLegacy_ReadmeHasNoCreateExarchos — `create-exarchos` was the bundling
-# vehicle (task 3.2 deleted it). Any mention in README is stale.
-README_CE_HITS=$(grep -inE "create-exarchos" "$REPO_ROOT/README.md" 2>/dev/null || true)
-if [[ -z "$README_CE_HITS" ]]; then
-  pass "NoLegacy_ReadmeHasNoCreateExarchos"
-else
-  fail "NoLegacy_ReadmeHasNoCreateExarchos" \
-    "README.md references deleted create-exarchos package: $README_CE_HITS"
+  # NoLegacy_ReadmeHasNoCreateExarchos — `create-exarchos` was the bundling
+  # vehicle (task 3.2 deleted it). Any mention in README is stale.
+  README_CE_HITS=$(grep -inE "create-exarchos" "$REPO_ROOT/README.md" 2>/dev/null || true)
+  if [[ -z "$README_CE_HITS" ]]; then
+    pass "NoLegacy_ReadmeHasNoCreateExarchos"
+  else
+    fail "NoLegacy_ReadmeHasNoCreateExarchos" \
+      "README.md references deleted create-exarchos package: $README_CE_HITS"
+  fi
 fi
 
 # NoLegacy_AgentsMdHasNoBundledMcp — AGENTS.md may mention `.serena/` as an

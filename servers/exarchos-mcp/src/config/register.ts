@@ -136,10 +136,6 @@ export function registerCustomWorkflows(config: ExarchosConfig): void {
 
 const viewRegistry = new ViewRegistry();
 
-export function getViewRegistry(): ViewRegistry {
-  return viewRegistry;
-}
-
 /**
  * Clear all registered custom views. Used for test cleanup.
  */

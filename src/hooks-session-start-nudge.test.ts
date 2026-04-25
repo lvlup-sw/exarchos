@@ -1,8 +1,22 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { spawnSync } from 'node:child_process';
-import { readFileSync, existsSync, mkdtempSync, writeFileSync, chmodSync, rmSync, statSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import {
+  readFileSync,
+  existsSync,
+  mkdtempSync,
+  writeFileSync,
+  chmodSync,
+  rmSync,
+  statSync,
+  mkdirSync,
+  readdirSync,
+} from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 /**
  * Tests for `hooks/session-start.sh` — the POSIX-sh preamble that guards
@@ -75,7 +89,7 @@ describe('hooks/session-start.sh — behavior', () => {
     tmpRoot = mkdtempSync(join(tmpdir(), 'exarchos-nudge-test-'));
     stubDir = join(tmpRoot, 'stub-bin');
     // Create the stub directory up front; individual tests populate it.
-    require('node:fs').mkdirSync(stubDir, { recursive: true });
+    mkdirSync(stubDir, { recursive: true });
   });
 
   afterAll(() => {
@@ -87,7 +101,7 @@ describe('hooks/session-start.sh — behavior', () => {
   it('SessionStartNudge_BinaryMissing_EmitsInstallHint', () => {
     // Empty stubDir: no `exarchos` anywhere on PATH.
     // Clear stubDir in case a prior test populated it.
-    for (const f of require('node:fs').readdirSync(stubDir)) {
+    for (const f of readdirSync(stubDir)) {
       rmSync(join(stubDir, f), { force: true });
     }
 
@@ -103,7 +117,7 @@ describe('hooks/session-start.sh — behavior', () => {
 
   it('SessionStartNudge_BinaryMissing_ExitsZero', () => {
     // Same hermetic setup — binary absent.
-    for (const f of require('node:fs').readdirSync(stubDir)) {
+    for (const f of readdirSync(stubDir)) {
       rmSync(join(stubDir, f), { force: true });
     }
 
@@ -117,7 +131,7 @@ describe('hooks/session-start.sh — behavior', () => {
   it('SessionStartNudge_BinaryPresent_DelegatesToExarchos', () => {
     // Install a stub `exarchos` that echoes its args to stdout.
     // The script should `exec` it, so the child's stdout becomes the script's stdout.
-    for (const f of require('node:fs').readdirSync(stubDir)) {
+    for (const f of readdirSync(stubDir)) {
       rmSync(join(stubDir, f), { force: true });
     }
     const stubPath = join(stubDir, 'exarchos');
@@ -145,7 +159,7 @@ describe('hooks/session-start.sh — behavior', () => {
   it('SessionStartNudge_InstallUrl_EnvOverride_FlowsIntoHint', () => {
     // REFACTOR: EXARCHOS_INSTALL_URL overrides the default bootstrap URL
     // so CI and forks can test against alternate sources.
-    for (const f of require('node:fs').readdirSync(stubDir)) {
+    for (const f of readdirSync(stubDir)) {
       rmSync(join(stubDir, f), { force: true });
     }
 

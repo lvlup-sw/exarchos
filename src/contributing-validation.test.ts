@@ -19,15 +19,22 @@ describe('CONTRIBUTING.md validation', () => {
     ).toContain('npm run build:binary');
 
     // Keyword-proximity check: `build:binary` should appear within 300 chars
-    // of either `bootstrap` or `binary` (in contextual, non-command prose).
+    // of meaningful explanatory context (bootstrap script, compiled output,
+    // install path). The earlier check matched the literal substring "binary"
+    // — true by tautology since `build:binary` itself contains it. Strip the
+    // token before scanning so the assertion exercises real prose.
     const idx = content.indexOf('build:binary');
     expect(idx, 'build:binary must appear in content').toBeGreaterThanOrEqual(0);
     const windowStart = Math.max(0, idx - 300);
     const windowEnd = Math.min(content.length, idx + 300);
     const windowText = content.slice(windowStart, windowEnd).toLowerCase();
+    const contextWithoutToken = windowText.replace(/build:binary/gi, '');
     expect(
-      windowText.includes('bootstrap') || windowText.includes('binary'),
-      'build:binary must appear within 300 chars of `bootstrap` or `binary` context',
+      contextWithoutToken.includes('bootstrap') ||
+        contextWithoutToken.includes('compiled') ||
+        contextWithoutToken.includes('install path') ||
+        contextWithoutToken.includes('install location'),
+      'build:binary must appear within 300 chars of bootstrap/compiled/install-path context',
     ).toBe(true);
   });
 

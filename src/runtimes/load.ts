@@ -35,7 +35,6 @@ export const REQUIRED_RUNTIME_NAMES = [
   'cursor',
 ] as const;
 
-export type RequiredRuntimeName = (typeof REQUIRED_RUNTIME_NAMES)[number];
 
 /**
  * Side-effecting collaborators that `loadAllRuntimes` uses. Injected so tests

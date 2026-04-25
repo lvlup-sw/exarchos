@@ -72,8 +72,6 @@ export const DoctorOutputSchema = z
     { message: 'summary tally must equal checks.length', path: ['summary'] },
   );
 
-export type CheckStatus = z.infer<typeof CheckStatusSchema>;
-export type CheckCategory = z.infer<typeof CheckCategorySchema>;
 export type CheckResult = z.infer<typeof CheckResultSchema>;
 export type DoctorSummary = z.infer<typeof DoctorSummarySchema>;
 export type DoctorOutput = z.infer<typeof DoctorOutputSchema>;

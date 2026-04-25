@@ -1,8 +1,5 @@
 import type { ViewProjection } from './materializer.js';
 import type { WorkflowEvent } from '../event-store/schemas.js';
-import type { ToolResult } from '../format.js';
-import type { ViewMaterializer } from './materializer.js';
-import { getOrCreateEventStore, getOrCreateMaterializer, queryDeltaEvents } from './tools.js';
 
 // ─── View Name Constant ────────────────────────────────────────────────────
 
@@ -210,33 +207,6 @@ export const synthesisReadinessProjection: ViewProjection<SynthesisReadinessStat
   },
 };
 
-// ─── Handler Function ──────────────────────────────────────────────────────
-
-export async function handleViewSynthesisReadiness(
-  args: { workflowId?: string },
-  stateDir: string,
-  materializer?: ViewMaterializer,
-): Promise<ToolResult> {
-  try {
-    const store = getOrCreateEventStore(stateDir);
-    const mat = materializer ?? getOrCreateMaterializer(stateDir);
-    const streamId = args.workflowId ?? 'default';
-
-    const events = await queryDeltaEvents(store, mat, streamId, SYNTHESIS_READINESS_VIEW);
-    const view = mat.materialize<SynthesisReadinessState>(
-      streamId,
-      SYNTHESIS_READINESS_VIEW,
-      events,
-    );
-
-    return { success: true, data: view };
-  } catch (err) {
-    return {
-      success: false,
-      error: {
-        code: 'VIEW_ERROR',
-        message: err instanceof Error ? err.message : String(err),
-      },
-    };
-  }
-}
+// Note: the live `handleViewSynthesisReadiness` lives in `views/tools.ts`;
+// this file owns only the projection + state shapes that the live handler
+// re-exports through that module.

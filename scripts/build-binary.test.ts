@@ -14,8 +14,14 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import { spawnSync } from 'node:child_process';
 import { existsSync, statSync, readFileSync, mkdirSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
+// `__dirname` happens to be defined under the current vitest tsx loader,
+// but pure ESM does not provide it — derive from `import.meta.url` so
+// this file remains portable if the test runner ever swaps loaders.
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 const REPO_ROOT = resolve(__dirname, '..');
 const BUILD_SCRIPT = join(REPO_ROOT, 'scripts', 'build-binary.ts');
 const DIST_BIN_DIR = join(REPO_ROOT, 'dist', 'bin');
