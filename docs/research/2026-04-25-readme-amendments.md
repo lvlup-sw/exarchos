@@ -1,32 +1,32 @@
-# Proposed README Amendments
+# Proposed README Amendments (v2)
 
-> **Status:** Discovery deliverable — `marketing-positioning-research`
+> **Status:** Discovery deliverable, `marketing-positioning-research`
 > **Date:** 2026-04-25
 > **Companion:** `2026-04-25-marketing-positioning.md` (research and rationale)
-> **Action expected:** Review the proposed rewrites below; if accepted directionally, apply via `/exarchos:ideate readme-rewrite-2026-04` (or commit directly if changes are limited to copy).
+> **Frameworks applied:** copywriting, page-cro, competitor-alternatives, and marketing-psychology skills from `coreyhaines31/marketingskills`. Final pass: `/humanize` against the 24-pattern AI-writing checklist.
 
-This document proposes a section-by-section rewrite of the README. Each section shows the **current text** and the **proposed text**, with a short rationale tying back to the marketing principles in the companion doc.
-
----
-
-## Summary of proposed changes
-
-1. **Tighten the lede** — keep the hero, shorten paragraph 1, move paragraph 2 below the new rehydration callout.
-2. **Add a rehydration callout** between the lede and the install block. This is the killer feature; promote it.
-3. **Add a "what's different" comparison table** — six approaches, capability-only, no product names.
-4. **Reorganize "What you get"** into four pain-anchored capability blocks instead of seven flat bullets.
-5. **Add a one-paragraph "for teams" passage** near the end. Solo-led ordering preserved.
-6. **Trim the install block** modestly — it's currently a third of the page above the fold.
-
-Lower priority (not blocking): the architecture section is already strong; leave it. Workflows tables are great; leave them. Build & test, license — leave.
+This is a section-by-section rewrite. Each block shows the **current text** then the **proposed text**, with rationale tying back to a specific copywriting or psychology principle.
 
 ---
 
-## Proposed change 1 — Hero and lede
+## What changed in v2
+
+The v1 draft sketched the structure but the copy was too generic, leaned heavily on the Claude Code plugin as the lead install path, and under-stated platform support. v2 fixes three things.
+
+1. **Platform-agnosticity is the headline, not the architecture footnote.** The CLI is the product. The Claude Code plugin is one delivery mechanism. Codex, Cursor, OpenCode, Copilot, and generic CLI agents are first-class targets for skill rendering and MCP transport.
+2. **Specificity replaces vague benefits.** Concrete numbers and a one-screen rehydrate transcript replace prose claims. ("Survives `/clear`" is shown, not asserted.)
+3. **Honesty replaces puffery.** A new "Where Exarchos isn't the right fit" line applies the pratfall effect: admitting weaknesses raises trust and clarifies fit.
+
+---
+
+## Proposed change 1 — Hero, lede, killer-feature callout
 
 ### Current
 
 ```markdown
+**Your agents forget. Exarchos doesn't.**
+A local-first SDLC workflow harness — structured, durable state for coding agents.
+
 ## You already manage this by hand
 
 A plan file per feature, CLAUDE.md updated between sessions, summaries written out before `/clear` so the next context window has something to work with. Maybe you enforce your own phases — design, plan, implement, review. It works. It's also manual, and nothing holds the agent to it once the window gets long enough that your instructions start getting ignored.
@@ -43,183 +43,261 @@ It ships as a Claude Code plugin and a standalone MCP server with a CLI adapter.
 ### Proposed
 
 ```markdown
+**Your agents forget. Exarchos doesn't.**
+
+Persistent SDLC state for any AI coding agent. Survives `/clear`, auto-compaction, and context overflow. First-class with Claude Code; works with Codex, Cursor, OpenCode, Copilot, and any agent that runs a CLI.
+
 ## You already manage this by hand
 
-A plan file per feature, `CLAUDE.md` updated between sessions, summaries written before `/clear` so the next context window has something to work with. It works. It's also manual — and nothing holds the agent to it once the window gets long enough that your instructions start getting ignored.
+A `plan.md` per feature. `CLAUDE.md` rewritten between sessions. Summaries scrawled before `/clear` so the next session has something to start from. Phases enforced by you reminding the agent. It works. It's also manual, and one long context window away from the agent ignoring all of it.
 
 ## Survives `/clear`
 
-Exarchos is a local-first SDLC workflow harness — it gives your agent structured, durable state outside the context window. The killer move:
-
-```bash
-# Mid-task, context filling up
-/checkpoint
-
-# /clear, close the laptop, come back tomorrow
-/rehydrate
-# → full workflow document restored in ~2-3k tokens:
-#   phase, approved design, task table, gate results, last commit
+```
+You: continue the auth refactor we planned yesterday
+Agent: which workflow? checking exarchos…
+       → /rehydrate auth-refactor
+       → restored: design approved, 4 of 7 tasks done,
+         last commit on feature/auth-refactor,
+         gates pending on tasks 5–7 (~2,500 tokens)
+       → continuing from task 5
 ```
 
-State doesn't live in the conversation. It lives in an append-only event log. `/rehydrate` is a projection that rebuilds the workflow document from events — so a fresh context window picks up exactly where the last one left off, without re-explaining anything.
-
-That alone is the reason most users install it. The rest is what you get for free once state is durable.
+State doesn't live in your conversation. It lives in an append-only event log. `/rehydrate` is a projection that rebuilds the workflow document (phase, design, task table, gate results, last commit) for a fresh context window. Same place, no re-explaining.
 
 ## Your plan.md workflow, with teeth
 
-Phase transitions are enforced by a state machine, not a paragraph in `CLAUDE.md`. Convergence between phases — "is this implemented?", "does it match the design?" — runs as deterministic TypeScript checks against your diff and git history, not as prompts the agent can talk itself out of. You approve the design and you approve the merge. Everything between auto-continues.
+A state machine owns phase transitions, not a paragraph in `CLAUDE.md`. Convergence between phases ("is this implemented?", "does it match the design?") runs as TypeScript checks against your diff and git history, not prompts the agent can talk itself out of. You approve the design and you approve the merge. The middle runs on its own.
 
-It ships as a Claude Code plugin and a standalone MCP server with a CLI adapter. Install it and run `/ideate`.
+Run `/ideate` to start.
 ```
 
-**Rationale (principles 1, 2, 6):** lead with the shared pain, show the seam (the actual command pair), promote rehydration to the hero spot. The "/clear whenever you want" line is preserved inside the new code block — it now comes with proof. Removes the awkward double-tagline ("with teeth" + "structured durable state"); each paragraph now does one job.
+**Principles applied:**
+
+- *Copywriting (clarity over cleverness, specificity over vagueness).* The lede answers "what is this?" in one sentence and names the runtimes inline. The pain paragraph swaps generic ("plan file per feature") for concrete ("scrawled before `/clear`").
+- *Marketing psychology (Jobs to be Done).* The job is "ship features with my AI agent without losing the plot every `/clear`." Hero subheader names the job; rehydrate transcript shows it being done.
+- *Page-CRO 5-second value prop.* A scanner reading hero plus the first paragraph of "Survives /clear" gets the entire pitch.
+- *Show, don't tell.* The rehydrate block is a real-shape transcript, not a feature description.
+- *Marketing principle 9 (platform-agnosticity in the lede).* Runtime list named in the second sentence, not the architecture section.
 
 ---
 
-## Proposed change 2 — New section: "What's different"
+## Proposed change 2 — Add a "Works with your agent" section
 
-Insert this section between **Install** and **What you get**.
+This is the single most important new section. Insert it between **Survives `/clear`** and **Install**.
 
 ```markdown
-## What's different
+## Works with your agent
 
-Exarchos isn't the only project that tries to give coding agents structure. It approaches the problem differently from the common patterns:
+The CLI is the universal surface. Each runtime talks to it through whichever invocation it speaks natively.
 
-| Approach | What it gives you | What it doesn't |
-|-----------|-------------------|-----------------|
-| Plan files in repo (manual) | A surface to write context to | Enforcement, replay, the *why* behind a state change |
-| Memory layers | Re-injection of relevant past slices | Workflow structure, phase order, audit trail |
-| Spec-driven toolkits | Artifacts (spec, plan, tasks) | A state machine that holds you to them |
-| Multi-agent simulators | Many specialized personas in concert | Lightweight ergonomics for solo work |
-| Workflow DAG engines | A general runner for any DAG you write | An opinion about what an SDLC actually looks like |
-| **Workflow harness (Exarchos)** | **Enforced SDLC + event log + rehydratable state** | **Custom DAG authoring (intentionally — not the goal)** |
+| Runtime | Transport | Skill rendering | Slash commands |
+|---------|-----------|------------------|----------------|
+| **Claude Code** | Plugin + MCP | First-class (rendered + hooks) | Yes (`/ideate`, `/plan`, etc.) |
+| **Codex CLI** | MCP | First-class | Via Codex's command surface |
+| **Cursor** | MCP | First-class | Via Cursor's MCP integration |
+| **OpenCode** | CLI | First-class | Via OpenCode's runtime |
+| **GitHub Copilot CLI** | CLI | First-class | Via Copilot's runtime |
+| Anything else | CLI | Generic bundle | Whatever your agent supports |
 
-A harness is opinionated about the shape of work. An engine isn't. Exarchos's shape is the SDLC, and it survives `/clear` because the state of work lives in an event log instead of in your context window.
+```bash
+exarchos install-skills
 ```
 
-**Rationale (principles 3, 4):** the canonical "what's different" frame from the research doc, lifted into the README. Compares approaches, not products. Closes with the harness-vs-engine line — the single highest-leverage distinction in the corpus.
+Auto-detects which runtime is on your `PATH` and installs the matching skill bundle. One match installs that bundle. Multiple matches prompt you to pick. No match installs the generic bundle and tells you what it found and why.
+
+The Claude Code plugin is convenience for that runtime. The product is the CLI.
+```
+
+**Principles applied:**
+
+- *Marketing principle 9.* This section makes the design choice visible.
+- *Page-CRO trust signals.* A matrix is a credibility move; it shows the work has been done across runtimes, not just promised.
+- *Pratfall effect.* "Whatever your agent supports" is honest about the generic-runtime ceiling.
+- *Status-quo bias.* "Auto-detects" reduces switching friction for readers already on Codex or Cursor.
 
 ---
 
-## Proposed change 3 — Rewrite "What you get"
+## Proposed change 3 — Reorder the install block
 
-### Current
-
-The current section has seven flat bullets (workflow types, checkpoint/resume, typed agent teams, runbooks, two-stage review, audit trail, token-efficient). Reads as a feature list, not a value story.
-
-### Proposed
-
-```markdown
-## What you get
-
-Four pain points, four answers:
-
-**Survives `/clear` and compaction.** State lives in an append-only event log, not in your conversation. `/checkpoint` saves mid-task; `/rehydrate` returns the full workflow document in ~2-3k tokens. Reconcile from any point in history if state and reality diverge.
-
-**Phases that actually enforce.** A state machine — not advisory prose — owns transitions across the four workflow types: feature, debug, refactor, oneshot. The agent can't skip review because the context got long; the state machine won't let it through.
-
-**Convergence gates as code.** Deterministic TypeScript checks run against your diff and git history. Two-stage review is the visible payoff: spec compliance first ("does it match the approved design?"), code quality second ("is it well-written?"). Both stages are checks, not prompts.
-
-**Typed agent teams in worktrees.** Three roles with scoped tools — implementer (writes code via TDD), fixer (resumes failed tasks with full context), reviewer (read-only, can't edit files). Each runs in its own git worktree. Failure recovery is "spawn a fixer with the failure event," not "start over."
-
-Audit trail comes free: every transition, gate result, and agent action goes into the event log. Trace what happened, replay, or rebuild state from scratch.
-
-Token-efficient by design: ≤500 tokens to register the MCP surface, lazy schema loading on demand, field projection trims state queries by ~90%. Review sends diffs, not full files.
-```
-
-**Rationale (principles 1, 2, 7):** four blocks, each anchored to a pain point the reader actually has. Audit trail and token efficiency demoted to closing paragraphs — they support the four pillars rather than competing with them. Concrete numbers preserved (≤500, ~90%, ~2-3k).
-
----
-
-## Proposed change 4 — Add a "for teams" paragraph
-
-Insert this single paragraph between **Architecture** and **Workflows** sections. Do not split the page into "for solo / for teams."
-
-```markdown
-### When a team adopts it
-
-The same primitives scale beyond solo use. Runbooks (machine-readable orchestration sequences served via MCP) let any agent request the steps for a given phase and get back ordered tool calls with schemas and gate semantics. The append-only event log is an audit trail by construction. Agent specs are typed and checked-in: every team member's agent inherits the same scoped tools and hooks. The single binary distribution means CI runs Exarchos identically to a developer's laptop.
-```
-
-**Rationale (principle 5):** team material exists, but as a one-paragraph supplement after the solo-anchored case has already landed.
-
----
-
-## Proposed change 5 — Trim the install block
-
-The install block currently runs ~30 lines, occupying a large fraction of the above-the-fold real estate. Trim by deferring detail to the docs.
+CLI first (universal), Claude Code plugin second (Tier 1 sugar). The current order reads as "this is a Claude Code plugin," which contradicts platform-agnosticity.
 
 ### Proposed
 
 ```markdown
 ## Install
 
-> **Status:** Marketplace tracks **v2.9.0-rc.1** (release candidate). Release notes: [v2.9.0-rc.1](https://github.com/lvlup-sw/exarchos/releases/tag/v2.9.0-rc.1).
+The CLI is the universal surface. The plugin is sugar for Claude Code.
 
-**Claude Code plugin:**
+**Standalone CLI / MCP server (any agent, any runtime):**
+
+```bash
+# Unix
+curl -fsSL https://lvlup-sw.github.io/exarchos/get-exarchos.sh | bash
+
+# Windows
+irm https://lvlup-sw.github.io/exarchos/get-exarchos.ps1 | iex
+
+exarchos doctor      # confirm install
+exarchos mcp         # run as MCP server over stdio
+```
+
+A self-contained ~98 MB binary at `~/.local/bin/exarchos`. No Node, npm, or Bun required. The installer pins SHA-512, adds `~/.local/bin` to your PATH (idempotent), and resolves the latest release. Pin a specific version with `--version v2.9.0-rc.1`.
+
+**Claude Code plugin (Tier 1 ergonomics):**
+
 ```bash
 /plugin marketplace add lvlup-sw/.github
 /plugin install exarchos@lvlup-sw
 ```
 
-**Standalone CLI / MCP server (single ~98 MB binary, no Node/Bun required):**
-```bash
-# Unix
-curl -fsSL https://lvlup-sw.github.io/exarchos/get-exarchos.sh | bash
-# Windows
-irm https://lvlup-sw.github.io/exarchos/get-exarchos.ps1 | iex
+Same binary underneath. Adds Claude Code slash commands, hooks, and rendered skills.
 
-exarchos doctor
-exarchos mcp
+> **Status:** Marketplace tracks **v2.9.0-rc.1** (release candidate). Release notes: [v2.9.0-rc.1](https://github.com/lvlup-sw/exarchos/releases/tag/v2.9.0-rc.1).
+
+For two-step download/inspect/run, channel selection, validation, update, and uninstall: see the [full install guide](https://lvlup-sw.github.io/exarchos/guide/installation).
 ```
 
-The installer resolves the latest release, verifies SHA-512, and adds `~/.local/bin` to your PATH. Pin a version with `--version v2.9.0-rc.1`. Channel selection, two-step download/inspect/run, validation, update, and uninstall: see the [full install guide](https://lvlup-sw.github.io/exarchos/guide/installation).
+**Principles applied:**
 
-After install, render skills for your runtime:
-```bash
-exarchos install-skills   # auto-detects Claude / Codex / OpenCode / Copilot / Cursor
-```
-```
-
-**Rationale (lobby principle):** the README is the lobby of the repo, not the manual. Detail belongs in the install guide; the README needs enough to start.
+- *Marketing principle 9.* CLI first reads as "platform-agnostic tool." Plugin first reads as "Claude Code add-on."
+- *Anchoring effect.* The first install method is the one readers anchor on as the canonical path. Make it the universal one.
+- *Page-CRO friction reduction.* Three install paths with one dominant. No paradox of choice.
 
 ---
 
-## Section ordering after all proposed changes
+## Proposed change 4 — "What's different" with a "best for" column
 
-The above-the-fold flow becomes:
+The v1 draft compared on what each approach gives and doesn't give. The competitor-alternatives skill points out a missing column: who each is best for. Honest recommendations build trust. Insert between **Install** and **What you get**.
 
-1. Hero (`Your agents forget. Exarchos doesn't.`)
-2. **You already manage this by hand** — tightened
-3. **Survives `/clear`** *(new — rehydration callout with code block)*
-4. **Your plan.md workflow, with teeth** — kept, shortened
+```markdown
+## What's different
+
+Other approaches in this space optimize for different things. None are wrong. They answer different questions.
+
+| Approach | What it gives you | Best for |
+|----------|-------------------|----------|
+| Plan files in repo (manual) | A surface to write context to | Solo, short-lived projects, simple tasks |
+| Memory layers | Re-injection of relevant past conversation slices | Cross-session chat continuity |
+| Spec-driven toolkits | Artifacts (spec, plan, tasks) as deliverables | Greenfield work where the spec is the deliverable |
+| Multi-agent simulators | Many specialized AI personas in concert | Enterprise greenfield with heavy planning |
+| Workflow DAG engines | A general-purpose runner for any DAG you write | Custom orchestration across your own pipelines |
+| **Workflow harness (Exarchos)** | **Enforced SDLC + event log + rehydratable state** | **Solo and team SDLC work that needs to survive `/clear`** |
+
+A harness is opinionated about the shape of work. An engine isn't. Exarchos's shape is the SDLC, and the state survives `/clear` because it lives in an event log instead of the context window.
+
+**Where Exarchos isn't the right fit:** if you want to author a custom DAG, run 21 specialized AI personas, or just keep chat continuity across sessions, there are better tools for those jobs. Exarchos answers one question: "how do I keep an AI coding agent on the rails through a multi-day SDLC."
+```
+
+**Principles applied:**
+
+- *Competitor-alternatives skill (honesty builds trust).* The "best for" column gives readers a real recommendation. The "isn't the right fit" line names the disqualifying cases.
+- *Pratfall effect.* Admitting what Exarchos doesn't do raises perceived honesty and helps the reader self-select.
+- *Curse-of-knowledge fix.* The "isn't the right fit" line is also a vocabulary check; readers from each adjacent category will recognize themselves and route correctly.
+- *Marketing principle 3 (harness vs engine).* Explicit, but the table does the heavy lifting.
+
+---
+
+## Proposed change 5 — "What you get" rewritten as four pain-anchored blocks
+
+### Current
+
+Seven flat bullets reading as a feature list. Audit trail and token efficiency are equal-billed with the rehydrate killer feature.
+
+### Proposed
+
+```markdown
+## What you get
+
+**`/clear` no longer costs you anything.** State lives in an append-only event log. `/checkpoint` saves mid-task; `/rehydrate` restores the full workflow document (phase, design, task table, gate results) in about 2,500 tokens. If state and reality drift, reconcile from any point in history.
+
+**Phases that enforce themselves.** A state machine owns transitions across four workflow types: `feature`, `debug`, `refactor`, `oneshot`. The agent can't skip review because the context got long. The state machine refuses the transition.
+
+**Convergence gates run as code.** Two-stage review. Spec compliance first ("does this match the approved design?"), code quality second ("is it well-written?"). Both are TypeScript checks against your diff and git history, with exit codes. No "the model should evaluate."
+
+**Typed agent teams in worktrees.** Three roles, scoped tools. Implementer writes code via TDD. Fixer resumes failed tasks with the failure event in context, not a fresh start. Reviewer is read-only and can't edit files. Each role runs in its own git worktree.
+
+Audit trail comes free. Every transition, gate result, and agent action lands in the event log. Trace it, replay it, rebuild from scratch.
+
+Token-efficient by construction. ≤500 tokens to register the MCP surface. Lazy schema loading. Field projection trims state queries by ~90%. Review sends diffs, not full files.
+```
+
+**Principles applied:**
+
+- *Copywriting (benefits over features).* Each bold opener is a benefit. `/clear` no longer costs you. Phases enforce themselves. Gates run as code. Agents resume failures with context. The mechanism follows in the body.
+- *Specificity.* "About 2,500 tokens" beats "low token count." "≤500 tokens to register the MCP surface" beats "fast startup."
+- *Marketing principle 6 (promote the killer feature).* Rehydrate is the first block, not the fourth bullet.
+- *Customer language.* "Refuses the transition" is concrete and slightly memorable. "Enforces phase ordering" would be flatter.
+
+---
+
+## Proposed change 6 — "When a team adopts it" passage
+
+Insert one paragraph between **Architecture** and **Workflows**. Solo-led ordering preserved.
+
+```markdown
+### When a team adopts it
+
+Same primitives, more places. Runbooks (machine-readable orchestration sequences served via MCP) let any agent request "the steps for the implementing phase" and get back ordered tool calls with schemas and gate semantics. Agent specs are typed and committed to the repo, so every team member's agent inherits the same scoped tools and hooks. The single binary runs identically on a developer's laptop and in CI. Everything in the event log is auditable: when a workflow goes sideways, you have a replayable record of what the agent did and which gate said no.
+```
+
+**Principles applied:**
+
+- *Marketing principle 5 (solo-first, team-ready).* One paragraph, late in the page, after the solo case has landed.
+- *Specificity.* "Replayable record of which gate said no" is concrete; "audit trail" alone is generic.
+- *Avoiding "governance".* Per controlled vocabulary, the word governance is too enterprise-leaning for first contact. The substance is governance; the word stays out.
+
+---
+
+## Proposed final ordering (above the fold and below)
+
+1. Hero (`Your agents forget. Exarchos doesn't.`) + runtime-list subheader
+2. **You already manage this by hand** (tightened)
+3. **Survives `/clear`** *(new — rehydrate transcript)*
+4. **Your plan.md workflow, with teeth** (kept, shortened)
 5. Architecture diagram
-6. **Install** — trimmed
-7. Skills install (`exarchos install-skills`)
-8. **What's different** *(new — six-row comparison table)*
-9. **What you get** — rewritten as four capability blocks
-10. **Agent-first architecture** — kept
+6. **Works with your agent** *(new — runtime matrix)*
+7. **Install** (CLI first, plugin second)
+8. **What's different** *(new — six-row table with "best for" column)*
+9. **What you get** (four pain-anchored blocks)
+10. **Agent-first architecture** (kept)
 11. **When a team adopts it** *(new paragraph)*
-12. Works well alongside — kept
-13. Workflows — kept (tables)
-14. Build & test — kept
-15. License — kept
+12. Works well alongside (kept)
+13. Workflows (kept)
+14. Build & test (kept)
+15. License (kept)
 
 ---
 
-## Out of scope for this round
+## What stays unchanged
 
-- Hero tagline ("Your agents forget. Exarchos doesn't.") — strong, keep.
-- Architecture SVG and the four-tool MCP table — strong, keep.
-- Workflows tables — strong, keep.
-- Logo, badges, footer — no changes proposed.
+- Hero tagline (`Your agents forget. Exarchos doesn't.`). Strong.
+- Architecture SVG. Strong.
+- Four-tool MCP table (`exarchos_workflow`, `exarchos_event`, `exarchos_orchestrate`, `exarchos_view`). Strong.
+- Workflows tables (lifecycle commands and "When you need to..." table). Strong.
+- Build & test, license, footer. No reason to touch them.
 
 ---
 
-## Notes on tone consistency
+## Vocabulary updates for `docs/market/copy-templates.md`
 
-All proposed copy honors the controlled vocabulary in `docs/market/copy-templates.md`:
+Add to "Use":
 
-- Uses: `harness`, `workflow harness`, `state machine`, `event log`, `event-sourced`, `convergence gates`, `rehydrate`, `checkpoint`, `typed agent teams`, `worktree`, `local-first`.
-- Avoids: `governance` (in solo-led copy), `memory` as a primary noun, `seamless`, `groundbreaking`, `unlock`, `delve`, `leverage`, `vibe coding`, "missing piece" framing.
-- Adds one new term: **workflow harness vs workflow engine** distinction. Recommend adding this to the copy-templates "Use" list.
+- **runtime-agnostic** — accurate description of the CLI's design
+- **harness-agnostic** — alternative phrasing for the same idea
+- **first-class for Tier 1** — names the Claude Code / Codex / Cursor priority
+- **graceful degradation** — names the OpenCode / Copilot / generic story
+- **survives `/clear`** — short-form benefit phrase, ready for one-liners
+
+Keep all existing "Avoid" rules. The proposed copy honors them: no "governance" in solo-led sections, no "memory" as a primary noun, no "seamless / unlock / leverage / delve."
+
+---
+
+## Apply path
+
+If the directional choices above land, two paths to apply:
+
+1. **Copy-only commit.** Pull the proposed text directly into `README.md`. Single PR.
+2. **`/exarchos:ideate readme-rewrite-2026-04`.** Treat this as a small feature (it touches one file, but the marketing surface area is large). Lets the design and review phases catch anything I missed.
+
+Recommend path 1 unless someone other than the author wants reviewer time on the copy.

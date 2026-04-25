@@ -11,7 +11,7 @@
 
 ## 1. Why this research exists
 
-Exarchos has strong primitives — a state machine that enforces SDLC phases, an append-only event log, deterministic convergence gates as TypeScript checks, and `/rehydrate` as a first-class projection — but the README under-sells them. Trending GitHub repositories in adjacent niches (Archon at 19k stars, Spec-Kit at 90k, claude-mem at 67k, agent-os, BMAD-METHOD, Superpowers) consume the oxygen with sharper hero lines and clearer "what's different" frames.
+Exarchos has strong primitives. A state machine that enforces SDLC phases, an append-only event log, TypeScript convergence gates, `/rehydrate` as a first-class projection. The README under-sells all of them. Trending GitHub repos in adjacent niches (Archon at 19k stars, Spec-Kit at 90k, claude-mem at 67k, agent-os, BMAD-METHOD, Superpowers) consume the oxygen with sharper hero lines and clearer "what's different" frames.
 
 The user-stated goal: communicate the value props in a way that lands for a **solo Claude Code power user first**, while still working for **engineering teams / leaders evaluating agent governance**. Demonstrate differentiation against **common approaches**, not specific products.
 
@@ -21,19 +21,19 @@ This document lays out the landscape, identifies where Exarchos uniquely sits, a
 
 ## 2. The landscape: six common approaches to "agent state and structure"
 
-Surveying the trending and high-star repos in this space, products cluster into six approaches. None of them are wrong — they're just answers to different questions. Categorizing by approach (not by product name) is the right comparison lens because it makes the differentiation legible without picking fights.
+Surveying the trending and high-star repos in this space, products cluster into six approaches. None of them are wrong. They're just answers to different questions. Categorizing by approach instead of by product name is the right comparison lens because it makes the differentiation legible without picking fights.
 
 ### 2.1 Plan files in the repo (manual)
 
 The pattern most readers already practice. `plan.md`, `todo.md`, `session_handoff.md`, `CLAUDE.md` updated between sessions. The agent reads them at startup. Discipline-driven.
 
 - **Strengths:** Zero dependencies. Lives in git. Works with every agent.
-- **Weaknesses:** Static, manual, goes stale. No enforcement — instructions in CLAUDE.md are advisory. No record of *why* a state changed. Compaction can still drop the in-flight work mid-task (Claude Code issue #26061: "Plan mode state lost after context compression").
+- **Weaknesses:** Static, manual, goes stale. No enforcement: instructions in `CLAUDE.md` are advisory. No record of *why* a state changed. Compaction can still drop the in-flight work mid-task (Claude Code issue #26061: "Plan mode state lost after context compression").
 - **Examples called out in the corpus:** the BSWEN three-file system (plan/todo/session_handoff), Chudi Nnorukam's "dev docs workflow," Andrej Karpathy-derived CLAUDE.md tweaks.
 
 ### 2.2 Memory layers (capture-and-inject)
 
-Tools that watch a session, extract or compress what happened, and re-inject relevant slices into future sessions. claude-mem's pitch — "automatically captures everything Claude does … compresses it … injects relevant context back" — is the canonical version.
+Tools that watch a session, extract or compress what happened, and re-inject relevant slices into future sessions. claude-mem is the canonical version: its pitch is "automatically captures everything Claude does … compresses it … injects relevant context back."
 
 - **Strengths:** Transparent to the agent. Solves cross-session amnesia at the conversation level.
 - **Weaknesses:** No structural model of *what task you were doing*. Inject the wrong slice and you bias the new session. Doesn't enforce phase order. No audit. Not a substitute for a workflow record.
@@ -44,23 +44,23 @@ Tools that watch a session, extract or compress what happened, and re-inject rel
 Commands that produce artifacts: a constitution, a spec, a plan, a task list. The user is the orchestrator; the AI fills in each artifact. The artifact is the deliverable; the workflow is "you write `/specify`, then `/plan`, then `/tasks`."
 
 - **Strengths:** Linear, predictable, tool-agnostic. Specs as first-class artifacts. Works in any IDE.
-- **Weaknesses:** Each command is independent — no enforcement that you ran them in order or finished one before starting the next. The "state machine" is in the user's head. Brownfield is a known weak spot.
+- **Weaknesses:** Each command is independent. Nothing enforces that you ran them in order, or finished one before starting the next. The "state machine" is in the user's head. Brownfield is a known weak spot.
 - **Examples:** Spec-Kit (90k★), OpenSpec, related toolkits.
 
 ### 2.4 Multi-agent simulators (a "team in a box")
 
-Many specialized AI personas — analyst, PM, developer, reviewer — collaborating in a scripted choreography. BMAD's "21 specialized AI agents" is the prototypical version.
+Many specialized AI personas (analyst, PM, developer, reviewer) collaborating in a scripted choreography. BMAD's "21 specialized AI agents" is the prototypical version.
 
-- **Strengths:** Models a real team's separation of concerns. Comprehensive for greenfield work.
-- **Weaknesses:** Heavy to set up. "Sledgehammer to crack a nut" critique appears repeatedly in independent reviews. Token cost compounds — multi-agent ≈ 15× single-agent token use per the harness-engineering literature. Less suited to a solo dev resuming yesterday's work.
+- **Strengths:** Models a real team's separation of concerns. Thorough for greenfield work.
+- **Weaknesses:** Heavy to set up. "Sledgehammer to crack a nut" critique appears repeatedly in independent reviews. Token cost compounds: multi-agent ≈ 15× single-agent token use per the harness-engineering literature. Less suited to a solo dev resuming yesterday's work.
 - **Examples:** BMAD-METHOD, Agent-OS-style frameworks.
 
 ### 2.5 Workflow DAG engines
 
-Define your dev process as a YAML or graph workflow. Nodes are AI prompts or deterministic steps. The engine runs the graph. Archon's pitch — "Like Dockerfiles for infra, GitHub Actions for CI/CD — Archon does for AI coding workflows" — is the prototype.
+Define your dev process as a YAML or graph workflow. Nodes are AI prompts or deterministic steps. The engine runs the graph. Archon is the prototype, with the pitch "Like Dockerfiles for infra, GitHub Actions for CI/CD, Archon does for AI coding workflows."
 
 - **Strengths:** Repeatable. Worktree-per-run. Composable. Custom workflows per project. Multi-platform adapters (Slack/Telegram/Web).
-- **Weaknesses:** *You write the workflow.* The engine doesn't know what an SDLC is — it runs whatever DAG you give it. No enforced convergence on a known SDLC pattern. Mid-run state lives in the engine's tables, not as a replayable contract.
+- **Weaknesses:** *You write the workflow.* The engine doesn't know what an SDLC is. It runs whatever DAG you give it. No enforced convergence on a known SDLC pattern. Mid-run state lives in the engine's tables, not as a replayable contract.
 - **Examples:** Archon (19k★), AgentFlow.
 
 ### 2.6 Hook-pipeline harnesses
@@ -68,7 +68,7 @@ Define your dev process as a YAML or graph workflow. Nodes are AI prompts or det
 Lifecycle hooks (PreToolUse, PostToolUse, SessionStart, Stop) wired to scripts that block, format, or validate. Each step in a pipeline is a hook with a hard `decision: block` exit.
 
 - **Strengths:** Hooks fire deterministically. Hard gates that the model can't argue with. Cheap.
-- **Weaknesses:** Hooks can be rewritten by the model itself (Claude Code RFC #45427 documents this). State across hooks lives in ad-hoc files. No structured replay. Subagents can bypass parent hooks in some configurations.
+- **Weaknesses:** Platform-specific. Hooks can be rewritten by the model itself (Claude Code RFC #45427 documents this). State across hooks lives in ad-hoc files. No structured replay. Subagents can bypass parent hooks in some configurations.
 - **Examples:** autonomous-dev, sd0x-dev-flow, Chachamaru127/claude-code-harness.
 
 ---
@@ -83,12 +83,12 @@ Each of the six approaches above answers *one* question. Exarchos's differentiat
 | Enforces SDLC phase order | Advisory text in CLAUDE.md or hook scripts | Hierarchical state machine; phase transitions are typed actions on `exarchos_workflow` |
 | Verifies "is the work done?" | LLM-written review prompts | Deterministic TypeScript convergence gates against diff and git history |
 | Coordinates multiple sub-agents | Hooks + worktrees + honor system | Typed agent roles (implementer, fixer, reviewer) with scoped tools and worktree isolation |
-| Replayability / audit | Plan file revisions in git | Append-only event log with sequence numbers — rebuild state from any point |
+| Replayability / audit | Plan file revisions in git | Append-only event log with sequence numbers; rebuild state from any point |
 | Works without the engine running | Engine owns mutable state | Event log is the source of truth; the engine is a projection layer |
 
 Stated as a single sentence:
 
-> **Exarchos is a workflow harness — not a workflow engine, a memory layer, or a spec toolkit.** A harness enforces a known shape of work; an engine runs whatever shape you give it. The shape Exarchos enforces is the SDLC, and it survives `/clear` because state lives in an event log, not in your context window.
+> **Exarchos is a workflow harness, not a workflow engine.** A harness enforces a known shape of work. An engine runs whatever shape you give it. The shape Exarchos enforces is the SDLC, and it survives `/clear` because state lives in an event log instead of in your context window.
 
 This is the line that distinguishes Exarchos from the closest-looking competitor (workflow DAG engines): **a harness is opinionated about the SDLC; an engine asks you to bring your own.**
 
@@ -134,7 +134,7 @@ Words appearing repeatedly across the corpus, with a recommendation for each:
 
 ## 6. Marketing principles (the durable rules)
 
-These are the rules to apply when revising any user-facing surface — README, landing page, docs, social. They're derived from what worked across the corpus and what the existing `docs/market/copy-templates.md` already establishes.
+These are the rules to apply when revising any user-facing surface (README, landing page, docs, social). They come out of what worked across the corpus and what the existing `docs/market/copy-templates.md` already establishes.
 
 ### Principle 1 — Lead with the shared pain, then the unique fix
 
@@ -146,11 +146,11 @@ Don't write "deterministic." Show a one-line example of what a TypeScript conver
 
 ### Principle 3 — Position as a workflow harness, not a workflow engine
 
-This is the single highest-leverage line. *Engines run any workflow you give them. Harnesses enforce a known one.* Exarchos enforces the SDLC. Lead with this whenever the question "how is this different from Archon-class tools" is asked or implied.
+This is the single sharpest distinction in the whole research. *Engines run any workflow you give them. Harnesses enforce a known one.* Exarchos enforces the SDLC. Lead with this whenever the question "how is this different from Archon-class tools" comes up.
 
 ### Principle 4 — Compare on capability axes, not product names
 
-The reader gets oriented faster from a six-row table ("plan files / memory layers / spec toolkits / DAG engines / hook pipelines / workflow harness") than from a per-competitor breakdown. It's also lower-conflict — we describe approaches, not roast products.
+The reader gets oriented faster from a six-row table ("plan files / memory layers / spec toolkits / DAG engines / hook pipelines / workflow harness") than from a per-competitor breakdown. It's also lower-conflict: we describe approaches instead of roasting products.
 
 ### Principle 5 — Solo-first, team-ready
 
@@ -158,7 +158,7 @@ Lead every section with the solo Claude Code use case (`/clear`, `/rehydrate`, s
 
 ### Principle 6 — Rehydration is the killer feature; promote it accordingly
 
-Currently buried as bullet four in "What you get." Promote it to its own section between the problem statement and the install block. Show a concrete example. Cite the token number (~2-3k). The companion document `2026-04-23-rehydrate-differentiation.md` already establishes that this surface is also a *cache-economics* lever — that's a teams-leaning argument and belongs in the secondary section, not the lead.
+Currently buried as bullet four in "What you get." Promote it to its own section between the problem statement and the install block. Show a concrete example. Cite the token number (~2-3k). The companion document `2026-04-23-rehydrate-differentiation.md` already establishes that this surface is also a *cache-economics* lever, but that's a teams-leaning argument; keep it in the secondary section, not the lead.
 
 ### Principle 7 — Concrete numbers beat vibes
 
@@ -167,6 +167,14 @@ Use specific numbers when they exist: ~2-3k tokens to rehydrate, ≤500 tokens M
 ### Principle 8 — Acknowledge the ecosystem; don't claim the universe
 
 The README already mentions "Works well alongside" and runtime auto-detection (Claude / Codex / OpenCode / Copilot / Cursor). Keep that. It defuses the lock-in objection and invites coexistence rather than displacement.
+
+### Principle 9 — Lead with platform-agnosticity; the plugin is sugar, not the product
+
+The current README puts the Claude Code plugin install ahead of the standalone CLI. That ordering reads as "this is a Claude Code plugin that happens to have a CLI." The truth is the inverse. **Exarchos is a CLI that ships first-class plugin ergonomics for Claude Code and graceful degradation for everything else.** That "everything else" includes Codex, Cursor (via MCP), OpenCode, Copilot, and any agent that can call a CLI. Reorder install so the bare `curl | bash` comes first. Add a runtime matrix as a top-level section instead of burying it in architecture. State the design choice plainly: "the CLI is the universal surface. The plugin is sugar."
+
+This is also defensive. Tier 1 hosts are diverging (Claude Code vs Codex vs Cursor), and more readers arrive from non-Claude runtimes every month. A Claude-Code-first README ages badly. A platform-agnostic-first README doesn't.
+
+Add to the controlled vocabulary "Use" list: **runtime-agnostic**, **harness-agnostic**, **first-class for Tier 1**, **graceful degradation**. These are the precise words for what the architecture already does and the README under-sells.
 
 ---
 
@@ -177,13 +185,13 @@ The README already mentions "Works well alongside" and runtime auto-detection (C
 | **Solo Claude Code power user (lead)** | "Will this end the `/clear` problem and the stale-CLAUDE.md problem?" | Yes, via `/rehydrate` over an event log. Show the command and the token cost. |
 | **Team / engineering lead (secondary)** | "Can my org standardize an SDLC for AI-assisted dev that actually enforces?" | Yes, via the state machine + audit trail + typed agent teams. Mentioned but not fronted. |
 
-The dual-audience approach is achieved by ordering, not segregation. The solo material works for the team reader (every team lead is also a Claude Code user). The team material — audit trail, runbook MCP, multi-agent dispatch — does *not* work for the solo reader if it's the lead.
+The dual-audience approach is achieved by ordering, not segregation. The solo material works for the team reader (every team lead is also a Claude Code user). The team material (audit trail, runbook MCP, multi-agent dispatch) does *not* work for the solo reader if it's the lead.
 
 ---
 
 ## 8. The "what's different" frame (reusable across surfaces)
 
-This is the canonical six-row capability comparison. It belongs in the README, the landing page, and any longer-form pitch. It compares approaches, not products — and that's the entire point of the principles above.
+This is the canonical six-row capability comparison. It belongs in the README, the landing page, and any longer-form pitch. It compares approaches instead of products, which is the entire point of the principles above.
 
 | Approach | What it gives you | What it doesn't |
 |-----------|-------------------|-----------------|
@@ -192,9 +200,9 @@ This is the canonical six-row capability comparison. It belongs in the README, t
 | Spec-driven toolkits | Artifacts (spec, plan, tasks) | A state machine that holds you to them |
 | Multi-agent simulators | Role separation across many personas | Lightweight ergonomics for solo work |
 | Workflow DAG engines | A general-purpose runner for any DAG | An opinion about what an SDLC looks like |
-| **Workflow harness (Exarchos)** | **Enforced SDLC + event log + rehydratable state** | **Custom DAG authoring (intentionally — not the goal)** |
+| **Workflow harness (Exarchos)** | **Enforced SDLC + event log + rehydratable state** | **Custom DAG authoring (intentionally; not the goal)** |
 
-Caveats embedded in the table itself: nothing in column 3 is a *flaw* of the other approach. Each approach has the right "doesn't" for its purpose. Exarchos's "doesn't" — no custom DAG authoring — is a *position*, not a gap.
+The table builds in its own caveat: nothing in column 3 is a *flaw* of the other approach. Each approach has the right "doesn't" for its purpose. Exarchos's "doesn't" (no custom DAG authoring) is a *position*, not a gap.
 
 ---
 
