@@ -206,7 +206,12 @@ export class InMemoryBackend implements StorageBackend {
         if (idx >= 0) items.splice(idx, 1);
         sent++;
       } catch {
+        // Stop on first failure to preserve FIFO — letting later entries
+        // succeed past a stranded earlier event would surface them out of
+        // order at the consumer (events carry monotonic `sequence`).
+        // Remaining queued items wait for the next drain cycle.
         failed++;
+        break;
       }
     }
 

@@ -272,6 +272,43 @@ describe.each([
     expect(result.failed).toBe(0);
   });
 
+  it('drainOutbox_FailedMidBatch_StopsAndPreservesFifoOrder', async () => {
+    const b = setup();
+    // Three pending entries; the second one will trip the sender.
+    for (const seq of [1, 2, 3]) {
+      b.addOutboxEntry('stream-a', makeEvent({ sequence: seq, streamId: 'stream-a' }));
+    }
+
+    let call = 0;
+    const failOnSecond: EventSender = {
+      appendEvents: async (_streamId, events) => {
+        call++;
+        if (call === 2) throw new Error('boom');
+        return { accepted: events.length, streamVersion: call };
+      },
+    };
+
+    const result = await b.drainOutbox('stream-a', failOnSecond);
+
+    // Only the first entry sent successfully; the second failed and the
+    // third must remain queued so FIFO order is preserved on the next
+    // drain — entry 3 must not be delivered before entry 2 is recovered.
+    expect(result.sent).toBe(1);
+    expect(result.failed).toBe(1);
+
+    const accepted: Array<{ sequence: number }> = [];
+    const recordingSender: EventSender = {
+      appendEvents: async (_streamId, events) => {
+        accepted.push(...(events as Array<{ sequence: number }>));
+        return { accepted: events.length, streamVersion: 99 };
+      },
+    };
+
+    const result2 = await b.drainOutbox('stream-a', recordingSender);
+    expect(result2.sent).toBeGreaterThanOrEqual(1);
+    if (accepted.length > 0) expect(accepted[0]?.sequence).toBe(2);
+  });
+
   // ─── Stream Operations ─────────────────────────────────────────────────
 
   it('listStreams_MultipleStreams_ReturnsAllStreamIds', () => {

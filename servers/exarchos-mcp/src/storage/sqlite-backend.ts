@@ -442,6 +442,11 @@ export class SqliteBackend implements StorageBackend {
           );
         }
         failed++;
+        // Stop on first failure to preserve FIFO — events carry monotonic
+        // `sequence` and consumers expect ordered delivery. Letting later
+        // rows succeed past a stranded earlier row would surface them out
+        // of order; remaining rows stay pending for the next drain.
+        break;
       }
     }
 
