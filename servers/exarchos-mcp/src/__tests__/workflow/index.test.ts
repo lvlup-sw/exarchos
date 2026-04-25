@@ -338,9 +338,20 @@ describe('MCP Server Entry Point', () => {
       expect(SERVER_NAME).toBe('exarchos-mcp');
     });
 
-    it('should export SERVER_VERSION', async () => {
+    it('should export SERVER_VERSION matching package.json', async () => {
+      // Asserts the contract — exported version tracks the manifest — rather
+      // than a literal that has to be hand-edited on every bump (and didn't
+      // get hand-edited reliably; cf. PR #1176 review-finding-2). The lockstep
+      // is now fully owned by `scripts/sync-versions.sh`.
+      const { readFileSync } = await import('node:fs');
+      const { resolve } = await import('node:path');
+      const { fileURLToPath } = await import('node:url');
+      const here = fileURLToPath(new URL('.', import.meta.url));
+      const pkg = JSON.parse(
+        readFileSync(resolve(here, '..', '..', '..', 'package.json'), 'utf-8'),
+      );
       const { SERVER_VERSION } = await import('../../index.js');
-      expect(SERVER_VERSION).toBe('2.8.3');
+      expect(SERVER_VERSION).toBe(pkg.version);
     });
   });
 });

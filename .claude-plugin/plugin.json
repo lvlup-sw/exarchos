@@ -1,7 +1,7 @@
 {
   "name": "exarchos",
   "description": "A local-first SDLC workflow harness — structured, durable state for coding agents, with convergence gates, agent teams, and full audit trail.",
-  "version": "2.8.3",
+  "version": "2.9.0-rc.1",
   "author": {
     "name": "LevelUp Software"
   },
@@ -30,7 +30,9 @@
     "exarchos": {
       "type": "stdio",
       "command": "exarchos",
-      "args": ["mcp"],
+      "args": [
+        "mcp"
+      ],
       "env": {
         "WORKFLOW_STATE_DIR": "~/.claude/workflow-state",
         "EXARCHOS_PLUGIN_ROOT": "${CLAUDE_PLUGIN_ROOT}"
@@ -39,7 +41,7 @@
   },
   "metadata": {
     "compat": {
-      "minBinaryVersion": "2.8.3"
+      "minBinaryVersion": "2.9.0-rc.1"
     }
   }
 }
