@@ -100,7 +100,17 @@ export class SqliteBackend implements StorageBackend {
   /** Cache for dynamically built prepared statements (queryEvents). Key = SQL string. */
   private queryStmtCache: Map<string, Statement> = new Map();
 
-  constructor(private readonly dbPath: string) {}
+  /**
+   * Clock used for outbox retry-eligibility checks. Injectable so tests can
+   * advance time without sleeping for real-world backoff windows
+   * (`Math.pow(2, attempts) * 1000` ms — up to 32 s before dead-lettering).
+   * Defaults to wall-clock time.
+   */
+  private readonly clock: () => Date;
+
+  constructor(private readonly dbPath: string, opts: { clock?: () => Date } = {}) {
+    this.clock = opts.clock ?? (() => new Date());
+  }
 
   // ─── Lifecycle ──────────────────────────────────────────────────────────
 
@@ -198,8 +208,18 @@ export class SqliteBackend implements StorageBackend {
       insertOutbox: this.db.prepare(
         'INSERT INTO outbox (id, streamId, event, status, attempts, createdAt) VALUES (?, ?, ?, ?, ?, ?)',
       ),
+      // Honour the exponential-backoff `nextRetryAt` written by
+      // `updateOutboxFailed` — without this filter, every drain would
+      // immediately retry every failed entry regardless of its scheduled
+      // retry time, defeating the backoff and risking a retry storm
+      // against a downstream that's already failing. Caller passes an
+      // ISO timestamp from `clock()`; rows with NULL `nextRetryAt` (never
+      // failed) are always eligible.
       selectPendingOutbox: this.db.prepare(
-        'SELECT id, streamId, event, attempts FROM outbox WHERE streamId = ? AND status = ? ORDER BY createdAt',
+        `SELECT id, streamId, event, attempts FROM outbox
+         WHERE streamId = ? AND status = ?
+           AND (nextRetryAt IS NULL OR nextRetryAt <= ?)
+         ORDER BY createdAt`,
       ),
       updateOutboxConfirmed: this.db.prepare(
         'UPDATE outbox SET status = ?, lastAttemptAt = ? WHERE id = ?',
@@ -380,7 +400,9 @@ export class SqliteBackend implements StorageBackend {
     sender: EventSender,
     batchSize?: number,
   ): Promise<DrainResult> {
-    const rows = this.stmts.selectPendingOutbox.all(streamId, 'pending') as Array<{
+    const nowDate = this.clock();
+    const nowIso = nowDate.toISOString();
+    const rows = this.stmts.selectPendingOutbox.all(streamId, 'pending', nowIso) as Array<{
       id: string;
       streamId: string;
       event: string;
@@ -394,7 +416,6 @@ export class SqliteBackend implements StorageBackend {
     const batch = batchSize !== undefined ? rows.slice(0, batchSize) : rows;
     let sent = 0;
     let failed = 0;
-    const now = new Date().toISOString();
 
     for (const row of batch) {
       const event = JSON.parse(row.event) as WorkflowEvent;
@@ -420,22 +441,24 @@ export class SqliteBackend implements StorageBackend {
           },
         ]);
 
-        this.stmts.updateOutboxConfirmed.run('confirmed', now, row.id);
+        this.stmts.updateOutboxConfirmed.run('confirmed', nowIso, row.id);
         sent++;
       } catch {
         const newAttempts = row.attempts + 1;
 
         if (newAttempts >= MAX_OUTBOX_RETRIES) {
           // Dead-letter after max retries
-          this.stmts.updateOutboxDeadLetter.run('dead-letter', now, 'Max retries exceeded', row.id);
+          this.stmts.updateOutboxDeadLetter.run('dead-letter', nowIso, 'Max retries exceeded', row.id);
         } else {
-          // Schedule retry with exponential backoff
+          // Schedule retry with exponential backoff (computed against the
+          // injected clock so tests can advance time deterministically
+          // instead of sleeping through real-world delays).
           const retryDelayMs = Math.pow(2, newAttempts) * 1000;
-          const nextRetry = new Date(Date.now() + retryDelayMs).toISOString();
+          const nextRetry = new Date(nowDate.getTime() + retryDelayMs).toISOString();
           this.stmts.updateOutboxFailed.run(
             'pending',
             newAttempts,
-            now,
+            nowIso,
             nextRetry,
             'Send failed',
             row.id,

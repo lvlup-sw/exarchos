@@ -70,21 +70,43 @@ function makeFailingSender(): EventSender {
 
 // ─── Parameterized Contract Tests ───────────────────────────────────────────
 
+interface BackendFactoryResult {
+  backend: StorageBackend;
+  cleanup: () => void;
+  /**
+   * Advance the backend's clock by `ms` milliseconds. For InMemoryBackend
+   * this is a no-op (it has no retry-backoff bookkeeping). For
+   * SqliteBackend it shifts the injected clock so entries whose
+   * `nextRetryAt` is now in the past become eligible again.
+   */
+  advanceClock: (ms: number) => void;
+}
+
 describe.each([
-  ['InMemoryBackend', () => {
+  ['InMemoryBackend', (): BackendFactoryResult => {
     const backend = new InMemoryBackend();
     backend.initialize();
-    return { backend, cleanup: () => { backend.close(); } };
+    return {
+      backend,
+      cleanup: () => { backend.close(); },
+      advanceClock: () => { /* no clock to advance */ },
+    };
   }],
-  ['SqliteBackend', () => {
+  ['SqliteBackend', (): BackendFactoryResult => {
     const dir = mkdtempSync(join(tmpdir(), 'contract-'));
-    const backend = new SqliteBackend(join(dir, 'test.db'));
+    let nowMs = Date.now();
+    const backend = new SqliteBackend(join(dir, 'test.db'), { clock: () => new Date(nowMs) });
     backend.initialize();
-    return { backend, cleanup: () => { backend.close(); rmSync(dir, { recursive: true }); } };
+    return {
+      backend,
+      cleanup: () => { backend.close(); rmSync(dir, { recursive: true }); },
+      advanceClock: (ms: number) => { nowMs += ms; },
+    };
   }],
 ])('%s contract', (_name, factory) => {
   let backend: StorageBackend;
   let cleanup: () => void;
+  let advanceClock: (ms: number) => void;
 
   afterEach(() => {
     cleanup();
@@ -94,6 +116,7 @@ describe.each([
     const result = factory();
     backend = result.backend;
     cleanup = result.cleanup;
+    advanceClock = result.advanceClock;
     return backend;
   }
 
@@ -296,6 +319,13 @@ describe.each([
     expect(result.sent).toBe(1);
     expect(result.failed).toBe(1);
 
+    // SqliteBackend now writes a `nextRetryAt` 2-32s in the future on
+    // failure (exponential backoff) and `selectPendingOutbox` filters it
+    // out until the clock catches up. Advance past the first-retry window
+    // so the next drain sees entry 2 as eligible again. InMemoryBackend
+    // has no backoff bookkeeping; `advanceClock` is a no-op there.
+    advanceClock(60_000);
+
     const accepted: Array<{ sequence: number }> = [];
     const recordingSender: EventSender = {
       appendEvents: async (_streamId, events) => {
@@ -428,7 +458,8 @@ describe('SqliteBackend outbox retry behavior', () => {
    */
   it('drainOutbox_FailedSend_SqliteBackendRetriesWithBackoff', async () => {
     dir = mkdtempSync(join(tmpdir(), 'contract-sqlite-retry-'));
-    backend = new SqliteBackend(join(dir, 'test.db'));
+    let nowMs = Date.now();
+    backend = new SqliteBackend(join(dir, 'test.db'), { clock: () => new Date(nowMs) });
     backend.initialize();
 
     const event = makeEvent();
@@ -436,24 +467,35 @@ describe('SqliteBackend outbox retry behavior', () => {
 
     const failingSender = makeFailingSender();
 
-    // First drain: send fails
+    // First drain: send fails. The entry's `nextRetryAt` is now ~2s
+    // (2^1 * 1000) in the future relative to the injected clock.
     const result1 = await backend.drainOutbox('stream-a', failingSender);
     expect(result1.sent).toBe(0);
     expect(result1.failed).toBe(1);
 
-    // The entry should still be in the outbox with status 'pending' and attempts=1
-    // Verify by attempting another drain — the item should still be available
+    // Without advancing time, the entry is still queued but ineligible —
+    // the backoff filter excludes it. This verifies the Sentry/Seer fix
+    // (selectPendingOutbox honours nextRetryAt).
+    const resultDuringBackoff = await backend.drainOutbox('stream-a', failingSender);
+    expect(resultDuringBackoff.sent).toBe(0);
+    expect(resultDuringBackoff.failed).toBe(0);
+
+    // Advance past the first backoff window — now the entry is eligible
+    // and a fresh failure should re-schedule it (attempts=2, ~4s out).
+    nowMs += 5_000;
     const result2 = await backend.drainOutbox('stream-a', failingSender);
     expect(result2.sent).toBe(0);
     expect(result2.failed).toBe(1);
 
-    // A successful sender should now pick up the entry
+    // Advance past the second backoff window. A successful sender now
+    // picks up the entry.
+    nowMs += 10_000;
     const successSender = makeSender();
     const result3 = await backend.drainOutbox('stream-a', successSender);
     expect(result3.sent).toBe(1);
     expect(result3.failed).toBe(0);
 
-    // After successful send, outbox should be drained
+    // After successful send, outbox should be drained.
     const result4 = await backend.drainOutbox('stream-a', successSender);
     expect(result4.sent).toBe(0);
     expect(result4.failed).toBe(0);
