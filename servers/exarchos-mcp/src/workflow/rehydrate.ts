@@ -38,6 +38,10 @@ import { rebuildProjection } from '../projections/rebuild.js';
 import { readLatestSnapshot } from '../projections/store.js';
 import { rehydrationReducer } from '../projections/rehydration/reducer.js';
 import {
+  REHYDRATION_PROJECTION_ID,
+  REHYDRATION_PROJECTION_VERSION,
+} from '../projections/rehydration/identity.js';
+import {
   RehydrationDocumentSchema,
   type RehydrationDocument,
 } from '../projections/rehydration/schema.js';
@@ -69,10 +73,6 @@ export interface RehydrateContext {
   readonly eventStore: EventStore;
   readonly stateDir: string;
 }
-
-/** Stable projection-identity pair used for snapshot lookup and future writes. */
-const REHYDRATION_PROJECTION_ID = 'rehydration@v1';
-const REHYDRATION_PROJECTION_VERSION = '1';
 
 /**
  * Hydrate a projection's state by preferring the latest snapshot and folding

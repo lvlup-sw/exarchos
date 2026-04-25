@@ -49,6 +49,10 @@ import * as path from 'node:path';
 // rehydrate handler exercises.
 import { hydrateFromSnapshotThenTail } from './rehydrate.js';
 import { rehydrationReducer } from '../projections/rehydration/reducer.js';
+import {
+  REHYDRATION_PROJECTION_ID,
+  REHYDRATION_PROJECTION_VERSION,
+} from '../projections/rehydration/identity.js';
 import type { RehydrationDocument } from '../projections/rehydration/schema.js';
 import { appendSnapshot } from '../projections/store.js';
 import type { SnapshotRecord } from '../projections/snapshot-schema.js';
@@ -1138,16 +1142,6 @@ export async function handleCheckpoint(
     _meta: buildCheckpointMeta(mutableState._checkpoint as WorkflowState['_checkpoint']),
   };
 }
-
-// ─── Rehydration projection identity (T034, DR-6) ──────────────────────────
-//
-// Kept module-local (mirrors the constants in `workflow/rehydrate.ts`) so the
-// handler and the rehydrate handler bind to the same identity pair when
-// reading / writing snapshots. If a second reducer is ever registered, the
-// right fix is to look these up from the reducer record, not to duplicate
-// string literals at more call sites.
-const REHYDRATION_PROJECTION_ID = 'rehydration@v1';
-const REHYDRATION_PROJECTION_VERSION = '1';
 
 // ─── handleReconcileState ───────────────────────────────────────────────
 
