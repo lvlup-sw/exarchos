@@ -8,11 +8,11 @@ import { z } from 'zod';
 import type { ToolResult } from '../format.js';
 import { ALL_AGENT_SPECS } from './definitions.js';
 import type { AgentSpec } from './types.js';
-// TEMPORARY: removed by Task 4a/14 — see plan
-// docs/plans/2026-04-25-delegation-runtime-parity.md.
-// Until adapters land, derive the legacy Claude `tools` array from the
-// capability declarations so the agent_spec MCP response stays shape-stable.
-import { deriveClaudeToolsFromCapabilities } from './generate-cc-agents.js';
+// Derive the Claude `tools` array from the runtime-agnostic capability
+// declarations so the `agent_spec` MCP response stays shape-stable. Sourced
+// from the Claude adapter (the canonical lowering site) since Task 14 inlined
+// it there and deleted the legacy `generate-cc-agents.ts` shim.
+import { deriveClaudeToolsFromCapabilities } from './adapters/claude.js';
 
 // ─── Schema ─────────────────────────────────────────────────────────────────
 
@@ -94,7 +94,7 @@ export async function handleAgentSpec(args: AgentSpecArgs): Promise<ToolResult> 
     data: {
       agent: spec.id,
       systemPrompt,
-      tools: [...deriveClaudeToolsFromCapabilities(spec)], // TEMPORARY: removed by Task 4a/14
+      tools: [...deriveClaudeToolsFromCapabilities(spec)],
       disallowedTools: spec.disallowedTools ? [...spec.disallowedTools] : undefined,
       model: spec.model,
       isolation: spec.isolation,

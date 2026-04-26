@@ -25,9 +25,6 @@
 // Out of scope (owned by later tasks):
 //   • Task 6 wires `npm run generate:agents` to call this entry point.
 //   • Task 7a–7e populate `runtimes/<name>.yaml` from adapter shapes.
-//   • Task 14 deletes `generate-cc-agents.ts` and inlines Claude
-//     rendering into `adapters/claude.ts` — until then, the Claude
-//     adapter still delegates into the legacy generator.
 // ────────────────────────────────────────────────────────────────────────────
 
 import * as fs from 'node:fs';
