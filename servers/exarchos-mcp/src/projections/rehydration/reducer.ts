@@ -500,6 +500,33 @@ function applyReviewEscalated(
   };
 }
 
+// ─── Registered event-type accessor (Fix 3 / #1180, DIM-3) ─────────────────
+//
+// SoT introspection — exposes the per-phase set of event types the reducer
+// recognises so that downstream surfaces (`PHASE_EXPECTED_EVENTS` in
+// orchestrate/check-event-emissions.ts; the delegate-phase playbook events
+// list in workflow/playbooks.ts) can derive their lists from a single source
+// instead of maintaining independent copies that drift silently.
+//
+// In the RED state of TDD this returns ONLY the events whose handlers are
+// already wired into `apply()` below (`task.assigned/completed/failed` for
+// the delegate phases). The aligning GREEN step extends both the registry
+// and the dispatch table to cover the full delegate event contract — see
+// reducer.delegate-contract.test.ts.
+
+export function getRegisteredEventTypes(phase: string): readonly string[] {
+  switch (phase) {
+    case 'delegate':
+    case 'overhaul-delegate':
+      // Pre-Fix-3 surface: the reducer only folds task.* status changes for
+      // delegate phases. Hints + playbook will fail their equality assertions
+      // until GREEN broadens this set.
+      return ['task.assigned', 'task.completed', 'task.failed'];
+    default:
+      return [];
+  }
+}
+
 // ─── Reducer (thin dispatcher) ──────────────────────────────────────────────
 
 export const rehydrationReducer: ProjectionReducer<RehydrationDocument, WorkflowEvent> = {
