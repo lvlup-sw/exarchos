@@ -1,15 +1,16 @@
 // ─── Generated Agent File Drift Tests ───────────────────────────────────────
 //
-// Verifies that generated agent files stay in sync with the agent spec
-// registry. Generates files to a temp directory, parses frontmatter, and
-// compares against ALL_AGENT_SPECS.
+// Verifies that Claude-rendered agent files stay in sync with the agent spec
+// registry. Lowers each spec via `claudeAdapter`, writes the contents to a
+// temp directory keyed by spec id, parses frontmatter, and compares against
+// ALL_AGENT_SPECS.
 // ────────────────────────────────────────────────────────────────────────────
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
-import { generateAllAgentFiles, deriveClaudeToolsFromCapabilities } from './generate-cc-agents.js';
+import { claudeAdapter, deriveClaudeToolsFromCapabilities } from './adapters/claude.js';
 import { ALL_AGENT_SPECS } from './definitions.js';
 
 // ─── Helper: Parse YAML Frontmatter ─────────────────────────────────────────
@@ -36,7 +37,13 @@ let generatedFiles: string[];
 
 beforeAll(() => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'drift-test-'));
-  generateAllAgentFiles(tmpDir);
+  // Lower each spec via the canonical Claude adapter and write to <tmpDir>/<id>.md
+  // (flat layout preserved from the legacy `generateAllAgentFiles` writer that
+  // this test originally exercised).
+  for (const spec of ALL_AGENT_SPECS) {
+    const lowered = claudeAdapter.lowerSpec(spec);
+    fs.writeFileSync(path.join(tmpDir, `${spec.id}.md`), lowered.contents, 'utf-8');
+  }
   generatedFiles = fs.readdirSync(tmpDir).filter(f => f.endsWith('.md'));
 });
 

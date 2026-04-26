@@ -1,8 +1,10 @@
 // ─── Claude adapter contract tests ──────────────────────────────────────────
 //
 // Asserts the Claude `RuntimeAdapter` implementation conforms to the port
-// defined in `./types.ts` and that its `lowerSpec` output is byte-identical
-// to the legacy `generate-cc-agents.ts` generator (regression-critical).
+// defined in `./types.ts`. Byte-level output regression is enforced separately
+// by the snapshot suite in `generate-agents.test.ts` (pinned to the committed
+// `agents/*.md` fixtures), which is the canonical contract Claude users
+// depend on.
 // See docs/designs/2026-04-25-delegation-runtime-parity.md §4.
 // ────────────────────────────────────────────────────────────────────────────
 
@@ -14,7 +16,6 @@ import {
   REVIEWER,
   SCAFFOLDER,
 } from '../definitions.js';
-import { generateAgentMarkdown } from '../generate-cc-agents.js';
 
 describe('Claude adapter', () => {
   it('ClaudeAdapter_RuntimeIdentifier_IsClaude', () => {
@@ -49,14 +50,6 @@ describe('Claude adapter', () => {
   it('ClaudeAdapter_ValidateSupport_AllSpecsSucceed', () => {
     for (const spec of [IMPLEMENTER, FIXER, REVIEWER, SCAFFOLDER]) {
       expect(claudeAdapter.validateSupport(spec)).toEqual({ ok: true });
-    }
-  });
-
-  it('ClaudeAdapter_LowerSpec_OutputMatchesCurrentGenerator', () => {
-    for (const spec of [IMPLEMENTER, FIXER, REVIEWER, SCAFFOLDER]) {
-      const adapterOut = claudeAdapter.lowerSpec(spec).contents;
-      const legacyOut = generateAgentMarkdown(spec);
-      expect(adapterOut).toBe(legacyOut);
     }
   });
 });

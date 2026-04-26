@@ -321,9 +321,10 @@ describe('generateAgents', () => {
   //
   // The committed `agents/` files ARE the contract Claude users depend on;
   // any drift between adapter output and those files is a regression even
-  // if the broader test suite passes. This gate is what makes Task 14's
-  // deletion of `generate-cc-agents.ts` safe — it locks in the legacy
-  // generator's exact output as the regression baseline.
+  // if the broader test suite passes. This gate locks in the rendered
+  // markdown's exact output as the regression baseline (it made Task 14's
+  // deletion of the legacy generator safe and now polices the inlined
+  // rendering in `adapters/claude.ts`).
   describe('Claude snapshot regression', () => {
     const SPEC_BY_ID: Record<string, AgentSpec> = {
       implementer: IMPLEMENTER,
