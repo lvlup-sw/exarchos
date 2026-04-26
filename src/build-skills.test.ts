@@ -1631,3 +1631,322 @@ describe('buildAllSkills — Wave A: capability-aware prose renderer', () => {
     }
   });
 });
+
+// -----------------------------------------------------------------------------
+// Wave B — P4 prose layer: post-render vocabulary lint enforcement.
+//
+// Wave A added the typed `<!-- requires:* -->` / `<!-- requires:native:* -->`
+// guard parser, the `RuntimeTokenKey` token-coverage check, and migrated the
+// `delegation/` skill source to use tokens/guards instead of Claude-only
+// literals.
+//
+// Wave B adds the *enforcement gate*: a lint that runs post-render, per
+// runtime, against the rendered SKILL.md output bytes. If a Claude-only
+// term (e.g. `TaskOutput`, `TeammateIdle`, `SubagentStart`) appears in a
+// non-Claude render outside an explicitly-allowed context, the build
+// fails. This is what prevents future skill edits from quietly
+// re-introducing Claude-only prose into non-Claude renders.
+//
+// Allowed contexts the lint MUST respect:
+//   1. Claude render (which is the canonical home for Claude-only prose)
+//   2. Inside a fenced code block whose info-string contains
+//      `runtime:claude-only` — these blocks are kept verbatim in the
+//      Claude render and elided wholesale from non-Claude renders, so
+//      a forbidden term inside one never reaches a non-Claude render to
+//      begin with.
+//   3. Substrings of capability identifiers like `team:agent-teams` —
+//      not in the forbidden list at all (deliberately).
+// -----------------------------------------------------------------------------
+
+describe('buildAllSkills — Wave B: post-render vocabulary lint', () => {
+  /**
+   * Local helpers duplicated from the Wave A describe block so this
+   * describe is self-contained. Wave A's helpers live inside its own
+   * describe scope; rather than refactor those out, we reproduce the
+   * minimal subset needed for Wave B fixtures.
+   */
+  const FULL_PLACEHOLDERS_B: Record<string, string> = {
+    MCP_PREFIX: 'mcp__test__',
+    COMMAND_PREFIX: '/',
+    TASK_TOOL: 'Task',
+    CHAIN: '[Invoke {{next}} with {{args}}]',
+    SPAWN_AGENT_CALL: 'Task({ prompt: "{{prompt}}" })',
+    SUBAGENT_COMPLETION_HOOK: 'subagent completion signal (poll-based)',
+    SUBAGENT_RESULT_API: '[poll subagent result]',
+  };
+
+  // Mirror of the production capability matrix per runtime: only Claude
+  // declares the Claude-only primitives (`team:agent-teams`,
+  // `subagent:completion-signal`, `subagent:start-signal`). Wave B's
+  // lint uses these declarations to decide which runtime is exempt
+  // from the forbidden-term check.
+  const NON_CLAUDE_CAPS: Record<string, 'native' | 'advisory'> = {
+    'fs:read': 'native',
+    'fs:write': 'native',
+    'shell:exec': 'native',
+    'subagent:spawn': 'native',
+    'mcp:exarchos': 'native',
+    'isolation:worktree': 'advisory',
+    'session:resume': 'advisory',
+  };
+  const SUPPORTED_BY_RUNTIME_B: Record<
+    string,
+    Record<string, 'native' | 'advisory'>
+  > = {
+    claude: {
+      'fs:read': 'native',
+      'fs:write': 'native',
+      'shell:exec': 'native',
+      'subagent:spawn': 'native',
+      'subagent:completion-signal': 'native',
+      'subagent:start-signal': 'native',
+      'mcp:exarchos': 'native',
+      'isolation:worktree': 'native',
+      'team:agent-teams': 'native',
+      'session:resume': 'native',
+    },
+    opencode: NON_CLAUDE_CAPS,
+    codex: NON_CLAUDE_CAPS,
+    cursor: NON_CLAUDE_CAPS,
+    copilot: NON_CLAUDE_CAPS,
+    // generic intentionally omits subagent:spawn so the runtime test
+    // matrix matches Wave A's fixture; doesn't materially affect Wave B
+    // assertions because we only assert against claude + opencode.
+    generic: {
+      'fs:read': 'native',
+      'fs:write': 'native',
+      'shell:exec': 'native',
+    },
+  };
+
+  function makeWaveBRuntimeYaml(
+    name: string,
+    placeholders: Record<string, string>,
+    supportedCapabilities: Record<string, 'native' | 'advisory'>,
+  ): string {
+    const escape = (s: string): string =>
+      s.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n');
+    const placeholderLines = Object.entries(placeholders)
+      .map(([k, v]) => `  ${k}: "${escape(v)}"`)
+      .join('\n');
+    const lines: string[] = [
+      `name: ${name}`,
+      `preferredFacade: mcp`,
+      `capabilities:`,
+      `  hasSubagents: true`,
+      `  hasSlashCommands: true`,
+      `  hasHooks: true`,
+      `  hasSkillChaining: true`,
+      `  mcpPrefix: "mcp__${name}__"`,
+      `skillsInstallPath: "~/.${name}/skills"`,
+      `detection:`,
+      `  binaries:`,
+      `    - ${name}`,
+      `  envVars:`,
+      `    - ${name.toUpperCase()}_SESSION`,
+      `placeholders:`,
+      placeholderLines,
+      'supportedCapabilities:',
+    ];
+    for (const [cap, level] of Object.entries(supportedCapabilities)) {
+      lines.push(`  ${cap}: ${level}`);
+    }
+    lines.push('');
+    return lines.join('\n');
+  }
+
+  /**
+   * Lay down all six runtimes (the loader requires the full set). Wave
+   * B only asserts against claude + opencode, but the build pipeline
+   * fails fast on a missing required runtime; the other four are
+   * provided as no-op stand-ins with the non-Claude capability matrix.
+   */
+  function writeWaveBRuntimeFixtures(runtimesDir: string): void {
+    mkdirSync(runtimesDir, { recursive: true });
+    const names = ['generic', 'claude', 'codex', 'opencode', 'copilot', 'cursor'];
+    for (const name of names) {
+      writeFileSync(
+        join(runtimesDir, `${name}.yaml`),
+        makeWaveBRuntimeYaml(
+          name,
+          FULL_PLACEHOLDERS_B,
+          SUPPORTED_BY_RUNTIME_B[name],
+        ),
+      );
+    }
+  }
+
+  it('VocabularyLint_ForbiddenTermInClaudeRenderInsideRequiresGuard_Passes', () => {
+    // The forbidden term `TaskList` appears inside a `team:agent-teams`
+    // requires-guard. Claude declares `team:agent-teams: native` so the
+    // block is included in the Claude render. Wave B's lint must NOT
+    // false-positive on that case — the term is in its legitimate home.
+    // OpenCode does not declare the cap, so the guard elides the entire
+    // block; `TaskList` never appears in OpenCode's render either.
+    const root = makeTempDir();
+    const srcDir = join(root, 'skills-src');
+    const outDir = join(root, 'skills');
+    const runtimesDir = join(root, 'runtimes');
+    mkdirSync(join(srcDir, 'foo'), { recursive: true });
+    writeFileSync(
+      join(srcDir, 'foo', 'SKILL.md'),
+      [
+        '# Foo',
+        '<!-- requires:team:agent-teams -->',
+        'uses TaskList for coordination',
+        '<!-- /requires -->',
+        'always-on outro',
+      ].join('\n'),
+    );
+    writeWaveBRuntimeFixtures(runtimesDir);
+
+    // Build must succeed (no throw). The Claude render contains
+    // `TaskList`; the OpenCode render does not.
+    expect(() => buildAllSkills({ srcDir, outDir, runtimesDir })).not.toThrow();
+
+    const claudeOut = readFileSync(join(outDir, 'claude', 'foo', 'SKILL.md'), 'utf8');
+    expect(claudeOut).toContain('TaskList');
+    const opencodeOut = readFileSync(
+      join(outDir, 'opencode', 'foo', 'SKILL.md'),
+      'utf8',
+    );
+    expect(opencodeOut).not.toContain('TaskList');
+  });
+
+  it('VocabularyLint_ForbiddenTermInOpenCodeRender_FailsCI', () => {
+    // `TaskOutput` appears outside any guard or code block. It survives
+    // into both renders. Claude is exempt from the lint (Claude is the
+    // canonical home for Claude-only prose), but OpenCode is not — the
+    // build must throw with a diagnostic naming the term, source path,
+    // line number, and runtime.
+    const root = makeTempDir();
+    const srcDir = join(root, 'skills-src');
+    const outDir = join(root, 'skills');
+    const runtimesDir = join(root, 'runtimes');
+    mkdirSync(join(srcDir, 'foo'), { recursive: true });
+    writeFileSync(
+      join(srcDir, 'foo', 'SKILL.md'),
+      [
+        '# Foo',
+        '',
+        'always-on intro',
+        '',
+        'TaskOutput({ task_id: x, block: true }) // raw call in prose',
+        '',
+        'always-on outro',
+      ].join('\n'),
+    );
+    writeWaveBRuntimeFixtures(runtimesDir);
+
+    let err: Error | undefined;
+    try {
+      buildAllSkills({ srcDir, outDir, runtimesDir });
+    } catch (e) {
+      err = e as Error;
+    }
+    expect(err).toBeDefined();
+    // Diagnostic must name the offending term.
+    expect(err!.message).toContain('TaskOutput');
+    // Diagnostic must name the runtime (opencode) where the term landed
+    // in a non-Claude render.
+    expect(err!.message).toContain('opencode');
+    // Diagnostic must point at the source file path so the author can
+    // jump straight to the offender.
+    expect(err!.message).toMatch(/foo\/SKILL\.md/);
+    // Diagnostic must include the source line number (5 in our fixture).
+    expect(err!.message).toMatch(/:5/);
+    // Remediation must point authors at the requires-guard syntax or
+    // the runtime:claude-only code-block escape hatch.
+    expect(err!.message).toMatch(/requires:|runtime:claude-only/);
+  });
+
+  it('VocabularyLint_RuntimeClaudeOnlyCodeBlock_ElidedFromNonClaudeRender', () => {
+    // Fenced code block with info-string containing `runtime:claude-only`.
+    // The block is kept verbatim in the Claude render (so an agent on
+    // Claude can copy-paste the snippet) and elided wholesale from
+    // non-Claude renders. The lint passes for both because the term
+    // either lives in its legitimate Claude home or is invisible to the
+    // non-Claude runtime.
+    const root = makeTempDir();
+    const srcDir = join(root, 'skills-src');
+    const outDir = join(root, 'skills');
+    const runtimesDir = join(root, 'runtimes');
+    mkdirSync(join(srcDir, 'foo'), { recursive: true });
+    writeFileSync(
+      join(srcDir, 'foo', 'SKILL.md'),
+      [
+        '# Foo',
+        '',
+        'always-on intro',
+        '',
+        '```ts runtime:claude-only',
+        'TaskOutput({ task_id: x, block: true })',
+        '```',
+        '',
+        'always-on outro',
+      ].join('\n'),
+    );
+    writeWaveBRuntimeFixtures(runtimesDir);
+
+    expect(() => buildAllSkills({ srcDir, outDir, runtimesDir })).not.toThrow();
+
+    const claudeOut = readFileSync(join(outDir, 'claude', 'foo', 'SKILL.md'), 'utf8');
+    // Claude keeps the entire fenced block verbatim — both the snippet
+    // and its surrounding fences must survive.
+    expect(claudeOut).toContain('TaskOutput({ task_id: x, block: true })');
+
+    const opencodeOut = readFileSync(
+      join(outDir, 'opencode', 'foo', 'SKILL.md'),
+      'utf8',
+    );
+    // OpenCode render must NOT contain `TaskOutput` at all — the entire
+    // fenced block is elided so the term never reaches the lint.
+    expect(opencodeOut).not.toContain('TaskOutput');
+    // The opening fence info-string must not leak either.
+    expect(opencodeOut).not.toContain('runtime:claude-only');
+    // Surrounding always-on prose still renders.
+    expect(opencodeOut).toContain('always-on intro');
+    expect(opencodeOut).toContain('always-on outro');
+  });
+
+  it('VocabularyLint_CapabilityIdentifierNotFlagged', () => {
+    // The literal `team:agent-teams` is a capability identifier; it
+    // shows up in skill prose (e.g. as a YAML key in an embedded code
+    // sample). The substring `agent-teams` is intentionally NOT in the
+    // forbidden list to dodge this false-positive class. Belt-and-
+    // suspenders: confirm an OpenCode render that contains the literal
+    // capability identifier passes the lint cleanly.
+    const root = makeTempDir();
+    const srcDir = join(root, 'skills-src');
+    const outDir = join(root, 'skills');
+    const runtimesDir = join(root, 'runtimes');
+    mkdirSync(join(srcDir, 'foo'), { recursive: true });
+    writeFileSync(
+      join(srcDir, 'foo', 'SKILL.md'),
+      [
+        '# Foo',
+        '',
+        'Capabilities map snippet:',
+        '',
+        '```yaml',
+        'supportedCapabilities:',
+        '  team:agent-teams: native',
+        '```',
+        '',
+        'outro',
+      ].join('\n'),
+    );
+    writeWaveBRuntimeFixtures(runtimesDir);
+
+    expect(() => buildAllSkills({ srcDir, outDir, runtimesDir })).not.toThrow();
+
+    const opencodeOut = readFileSync(
+      join(outDir, 'opencode', 'foo', 'SKILL.md'),
+      'utf8',
+    );
+    // The literal capability identifier survives into OpenCode's render
+    // (it's not in any guard, it's just descriptive prose). The lint
+    // does NOT fire because `agent-teams` is not in the forbidden list.
+    expect(opencodeOut).toContain('team:agent-teams');
+  });
+});
