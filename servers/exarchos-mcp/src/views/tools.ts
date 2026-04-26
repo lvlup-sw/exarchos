@@ -188,6 +188,32 @@ async function discoverStreams(stateDir: string, store?: EventStore): Promise<st
   }
 }
 
+// ─── Helper: read state.json (Fix 2 / #1184) ───────────────────────────────
+//
+// Several view handlers must consult `<id>.state.json` for plan-state facts
+// that the event projection cannot derive (review status, declared task
+// count, declared task list, dimension findings). The handlers stay
+// best-effort: a missing/corrupt state file falls back to the projection-
+// derived value rather than failing the view query, because state.json is
+// the planner's stamp and not all callers (CLI tools, tests, in-flight
+// workflows) will have one yet.
+async function readWorkflowStateJson(
+  stateDir: string,
+  workflowId: string,
+): Promise<Record<string, unknown> | null> {
+  try {
+    const file = path.join(stateDir, `${workflowId}.state.json`);
+    const raw = await fs.readFile(file, 'utf-8');
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      return parsed as Record<string, unknown>;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 // ─── View Workflow Status Handler ──────────────────────────────────────────
 
 export async function handleViewWorkflowStatus(
@@ -207,7 +233,16 @@ export async function handleViewWorkflowStatus(
       events,
     );
 
-    return { success: true, data: view };
+    // Fix 2 (#1184) — `tasksTotal` is a plan-state fact: the planner stamps
+    // the full task list via `workflow set` (state.patched events), and
+    // `task.assigned` only fires for tasks that get dispatched. Sourcing the
+    // count from state.tasks.length avoids under-reporting when the planner
+    // has declared work that hasn't been kicked off yet.
+    const state = await readWorkflowStateJson(stateDir, streamId);
+    const stateTasks = state?.['tasks'];
+    const tasksTotal = Array.isArray(stateTasks) ? stateTasks.length : view.tasksTotal;
+
+    return { success: true, data: { ...view, tasksTotal } };
   } catch (err) {
     return {
       success: false,
@@ -244,7 +279,48 @@ export async function handleViewTasks(
       events,
     );
 
-    let tasks: TaskDetail[] = Object.values(view.tasks);
+    // Fix 2 (#1184) — the task-detail projection is event-sourced and only
+    // populates entries that have a `task.assigned` event. The planner often
+    // stamps the full task list via `workflow set` before any dispatch, so
+    // we merge state.tasks into the projection: event-sourced detail wins
+    // (it has assignee, status, tddPhase, etc.); state-sourced entries fill
+    // in the gaps so plan-declared pending tasks appear.
+    const state = await readWorkflowStateJson(stateDir, streamId);
+    const stateTasksRaw = state?.['tasks'];
+    const merged: Record<string, TaskDetail> = { ...view.tasks };
+    if (Array.isArray(stateTasksRaw)) {
+      for (const entry of stateTasksRaw) {
+        if (!entry || typeof entry !== 'object' || Array.isArray(entry)) continue;
+        const e = entry as Record<string, unknown>;
+        const id = typeof e['id'] === 'string' ? (e['id'] as string) : undefined;
+        if (!id || merged[id]) continue;
+        // Map TaskSchema status (`pending|in_progress|complete|failed`) onto
+        // the TaskDetail status union. The schema preprocesses 'completed' →
+        // 'complete' so handle both spellings defensively.
+        const rawStatus = e['status'];
+        const status: TaskDetail['status'] =
+          rawStatus === 'failed'
+            ? 'failed'
+            : rawStatus === 'complete' || rawStatus === 'completed'
+              ? 'completed'
+              : rawStatus === 'in_progress'
+                ? 'in-progress'
+                : 'assigned';
+        merged[id] = {
+          taskId: id,
+          title: typeof e['title'] === 'string' ? (e['title'] as string) : '',
+          status,
+          ...(typeof e['branch'] === 'string' ? { branch: e['branch'] as string } : {}),
+          ...(typeof e['worktreePath'] === 'string'
+            ? { worktree: e['worktreePath'] as string }
+            : {}),
+          ...(typeof e['teammateName'] === 'string'
+            ? { assignee: e['teammateName'] as string }
+            : {}),
+        };
+      }
+    }
+    let tasks: TaskDetail[] = Object.values(merged);
 
     // Apply optional filter
     if (args.filter) {
@@ -795,7 +871,66 @@ export async function handleViewSynthesisReadiness(
       events,
     );
 
-    return { success: true, data: view };
+    // Fix 2 (#1184) — review status is plan-state stamped via `workflow set`
+    // (state.reviews); the synthesis-readiness projection only watches
+    // `gate.executed`, so reviews recorded directly into state.json never
+    // surface as passed. Reach into state.json and OR the projection-derived
+    // value with the state-derived one so both sources count.
+    const state = await readWorkflowStateJson(stateDir, streamId);
+    const reviews = (state?.['reviews'] as Record<string, unknown> | undefined) ?? {};
+    const isPassed = (key: string): boolean => {
+      const r = reviews[key];
+      return (
+        !!r &&
+        typeof r === 'object' &&
+        !Array.isArray(r) &&
+        (r as Record<string, unknown>)['status'] === 'passed'
+      );
+    };
+    const specPassed = view.review.specPassed || isPassed('spec-review');
+    const qualityPassed = view.review.qualityPassed || isPassed('quality-review');
+
+    // Fix 2 (#1184) — task counts: the projection counts events; state.json
+    // is the planner's stamp. Mirror the workflow_status fix for consistency.
+    const stateTasks = state?.['tasks'];
+    const tasksTotal = Array.isArray(stateTasks) ? stateTasks.length : view.tasks.total;
+
+    // Fix 2 (T2.6) — distinguish null (not measured) from false (failed) when
+    // generating blocker text. The projection's tests.* fields initialize to
+    // null; only `test.result` / `typecheck.result` events flip them to a
+    // boolean. Saying "tests not passing" when no test ever ran is misleading.
+    const blockers: string[] = [];
+    if (tasksTotal === 0) {
+      blockers.push('no tasks tracked');
+    } else if (view.tasks.completed !== tasksTotal) {
+      blockers.push(
+        `tasks incomplete: ${view.tasks.completed}/${tasksTotal} completed`,
+      );
+    }
+    if (!specPassed) blockers.push('spec review not passed');
+    if (!qualityPassed) blockers.push('quality review not passed');
+    if (view.tests.lastRunPassed === null) {
+      blockers.push('tests not measured');
+    } else if (view.tests.lastRunPassed !== true) {
+      blockers.push('tests not passing');
+    }
+    if (view.tests.typecheckPassed === null) {
+      blockers.push('typecheck not measured');
+    } else if (view.tests.typecheckPassed !== true) {
+      blockers.push('typecheck not passing');
+    }
+    if (view.stack.conflicts) blockers.push('stack has unresolved conflicts');
+
+    const ready = blockers.length === 0;
+    const data: SynthesisReadinessState = {
+      ...view,
+      ready,
+      blockers,
+      tasks: { ...view.tasks, total: tasksTotal },
+      review: { ...view.review, specPassed, qualityPassed },
+    };
+
+    return { success: true, data };
   } catch (err) {
     return {
       success: false,
@@ -887,6 +1022,35 @@ export async function handleViewConvergence(
       CONVERGENCE_VIEW,
       events,
     );
+
+    // Fix 2 (#1184) — when `gate.executed` events don't cover all dimensions,
+    // fall back to `state.reviews.findingsByDimension`. The reviewer stamps
+    // findings into state.json via `workflow set` even when the gate harness
+    // didn't run, so an unchecked dimension here may still have ground-truth
+    // data that should mark it as covered. We don't synthesize gate results
+    // (we lack pass/fail timestamps), but we DO remove the dimension from
+    // `uncheckedDimensions` so consumers stop blocking on a phantom gap.
+    const state = await readWorkflowStateJson(stateDir, streamId);
+    const reviews = state?.['reviews'];
+    const findingsByDimension =
+      reviews && typeof reviews === 'object' && !Array.isArray(reviews)
+        ? (reviews as Record<string, unknown>)['findingsByDimension']
+        : undefined;
+    if (
+      findingsByDimension &&
+      typeof findingsByDimension === 'object' &&
+      !Array.isArray(findingsByDimension) &&
+      view.uncheckedDimensions.length > 0
+    ) {
+      const covered = new Set(Object.keys(findingsByDimension as Record<string, unknown>));
+      const remaining = view.uncheckedDimensions.filter((d) => !covered.has(d));
+      if (remaining.length !== view.uncheckedDimensions.length) {
+        return {
+          success: true,
+          data: { ...view, uncheckedDimensions: remaining },
+        };
+      }
+    }
 
     return { success: true, data: view };
   } catch (err) {
