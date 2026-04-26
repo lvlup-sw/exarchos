@@ -29,7 +29,7 @@ import {
   utimesSync,
   writeFileSync,
 } from 'node:fs';
-import { join, relative, resolve } from 'node:path';
+import { dirname, join, relative, resolve } from 'node:path';
 import { loadAllRuntimes } from './runtimes/load.js';
 import type { RuntimeMap, SupportedCapabilityName } from './runtimes/types.js';
 import { RuntimeTokenKey, SupportedCapabilityKey } from './runtimes/types.js';
@@ -1125,12 +1125,26 @@ export function buildAllSkills(opts: {
         }
       }
 
-      // References: mirror next to the variant under each runtime.
+      // References: copy only those linked from the per-runtime
+      // rendered SKILL.md so guard-elided sections don't leak their
+      // dependent reference files into runtimes that can't make use of
+      // them. Files in `references/` not linked from the rendered
+      // SKILL.md are NOT copied. This is the Wave A "orphan pruning"
+      // pass — see `collectReferencedFiles` below for the link
+      // discovery contract.
       if (existsSync(join(skillDir, 'references'))) {
+        // Re-read the just-written rendered SKILL.md so we scan exactly
+        // what reached disk (including override files written verbatim).
+        const renderedBody = readFileSync(outSkillFile, 'utf8');
+        const linked = collectReferencedFiles(
+          renderedBody,
+          join(skillDir, 'references'),
+        );
         const before = written.size;
-        copyTreePreservingMtime(
+        copyLinkedReferences(
           join(skillDir, 'references'),
           join(outSkillDir, 'references'),
+          linked,
           written,
         );
         referencesCopied += written.size - before;
@@ -1150,6 +1164,94 @@ export function buildAllSkills(opts: {
   }
 
   return { variantsWritten, referencesCopied, overridesUsed, warnings };
+}
+
+/**
+ * Matches a markdown link target pointing into the local `references/`
+ * directory: e.g. `[label](references/foo.md)` or `references/foo.md`
+ * standalone in prose. Capture group 1 is the path component AFTER the
+ * `references/` prefix.
+ *
+ * The pattern is intentionally permissive — it matches inside markdown
+ * link syntax and in bare-text references — because skill authors mix
+ * both forms. False positives are harmless (the worst case is copying a
+ * file that is named in prose but never visited), while false negatives
+ * would silently strip a real reference.
+ */
+const REFERENCES_LINK_REGEX = /references\/([A-Za-z0-9._\-/]+)/g;
+
+/**
+ * Walk `body` (the rendered SKILL.md after guards + macros + tokens have
+ * been processed) and return the set of references-relative paths that
+ * any link or bare reference in the body points at. Paths are normalized
+ * to use forward slashes so the result is portable across platforms and
+ * matches the on-disk layout under `<skillDir>/references/`.
+ *
+ * Files that exist on disk but are not in the returned set are pruned
+ * by `copyLinkedReferences`. The `referencesDir` argument is used to
+ * filter out matches that don't actually correspond to an on-disk file
+ * (so a typo'd link doesn't trip up the build with a confusing
+ * "missing file" error — the missing-file failure mode lives in the
+ * vocabulary lint, not here).
+ */
+function collectReferencedFiles(body: string, referencesDir: string): Set<string> {
+  const linked = new Set<string>();
+  const regex = new RegExp(REFERENCES_LINK_REGEX.source, 'g');
+  let match: RegExpExecArray | null;
+  while ((match = regex.exec(body)) !== null) {
+    let rel = match[1];
+    // Strip URL fragment (e.g. `foo.md#section`) — link targets the file.
+    const hashIdx = rel.indexOf('#');
+    if (hashIdx !== -1) rel = rel.slice(0, hashIdx);
+    // Strip any trailing parens/quotes that the lazy regex may have
+    // captured if the link was `(references/foo.md)` without a label.
+    rel = rel.replace(/[)"'].*$/, '');
+    if (rel.length === 0) continue;
+    // Only record paths that resolve to a file on disk — saves us from
+    // chasing typo'd links and accidentally creating empty output trees.
+    const candidate = join(referencesDir, rel);
+    if (existsSync(candidate)) {
+      // Normalize to forward slashes so set membership works on Windows.
+      linked.add(rel.replace(/\\/g, '/'));
+    }
+  }
+  return linked;
+}
+
+/**
+ * Copy only the references files in `linked` from `srcRefs` to
+ * `destRefs`, preserving directory structure. Files not in `linked`
+ * are skipped so an elided guard's referenced files do not bleed into
+ * runtimes that don't link to them.
+ *
+ * Symmetric with `copyTreePreservingMtime` for mtime preservation and
+ * the optional `writtenPaths` accumulator that `buildAllSkills` uses
+ * for stale-cleanup tracking. Creates the destination directory only
+ * when at least one file is copied — avoids spawning empty
+ * `references/` directories under runtimes that drop every link.
+ */
+function copyLinkedReferences(
+  srcRefs: string,
+  destRefs: string,
+  linked: Set<string>,
+  writtenPaths?: Set<string>,
+): void {
+  if (linked.size === 0) return;
+  // Materialize parent dir before writing children.
+  mkdirSync(destRefs, { recursive: true });
+
+  for (const rel of linked) {
+    const srcFile = join(srcRefs, rel);
+    if (!existsSync(srcFile)) continue;
+    const srcStat = statSync(srcFile);
+    if (!srcStat.isFile()) continue;
+    const destFile = join(destRefs, rel);
+    mkdirSync(dirname(destFile), { recursive: true });
+    const contents = readFileSync(srcFile);
+    writeFileSync(destFile, contents);
+    utimesSync(destFile, srcStat.atime, srcStat.mtime);
+    if (writtenPaths) writtenPaths.add(resolve(destFile));
+  }
 }
 
 /**

@@ -407,7 +407,14 @@ describe('buildAllSkills — task 007', () => {
     const outDir = join(root, 'skills');
     const runtimesDir = join(root, 'runtimes');
     mkdirSync(join(srcDir, 'foo', 'references'), { recursive: true });
-    writeFileSync(join(srcDir, 'foo', 'SKILL.md'), '{{AGENT_LABEL}}');
+    // Wave A: references must be linked from the rendered SKILL.md to be
+    // copied (orphan pruning). The original task-007 contract — every
+    // file under `references/` mirrored unconditionally — was replaced
+    // by the link-scanning pass in `copyLinkedReferences`.
+    writeFileSync(
+      join(srcDir, 'foo', 'SKILL.md'),
+      '{{AGENT_LABEL}} — see [note](references/note.md)',
+    );
     writeFileSync(join(srcDir, 'foo', 'references', 'note.md'), 'a shared reference');
     writeRuntimeFixtures(runtimesDir);
 
