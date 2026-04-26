@@ -53,7 +53,18 @@ function writeRuntimeFixtures(runtimesDir: string): void {
         `  binaries: []`,
         `  envVars: []`,
         `placeholders:`,
+        // Wave A: every runtime YAML must declare every RuntimeTokenKey
+        // entry, so the CLI fixture needs the full canonical set or
+        // `assertRuntimeTokenCoverage` rejects the build before main()
+        // can produce any summary output.
         `  AGENT_LABEL: "agent"`,
+        `  MCP_PREFIX: "mcp__${name}__"`,
+        `  COMMAND_PREFIX: "/"`,
+        `  TASK_TOOL: "Task"`,
+        `  CHAIN: "[invoke {{next}} with {{args}}]"`,
+        `  SPAWN_AGENT_CALL: 'Task({ prompt: \"{{prompt}}\" })'`,
+        `  SUBAGENT_COMPLETION_HOOK: "subagent completion signal (poll-based)"`,
+        `  SUBAGENT_RESULT_API: "[poll subagent result]"`,
         ``,
       ].join('\n'),
     );

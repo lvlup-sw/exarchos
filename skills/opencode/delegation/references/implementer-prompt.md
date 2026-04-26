@@ -133,6 +133,7 @@ describe('[ComponentName]', () => {
 - [ ] No extra code beyond requirements
 - [ ] All tests in worktree pass
 
+<!-- requires:team:agent-teams -->
 ## Coordination (Native APIs)
 <!-- Agent Teams mode only. Remove this section for subagent mode. -->
 - Use `TaskList` to see available tasks and their statuses
@@ -158,6 +159,7 @@ describe('[ComponentName]', () => {
 {historicalIntelligence}
 
 > This data is injected at spawn time. The SubagentStart hook provides only live coordination updates.
+<!-- /requires -->
 
 ## Quality Signals
 <!-- Populated at dispatch time by orchestrator when quality hints are available. -->
@@ -380,6 +382,7 @@ describe('validateEmail', () => {
 5. **Git-First** - Standard git commit + push. PR creation handled by synthesis phase.
 6. **Clear Success Criteria** - Checkboxes for completion
 
+<!-- requires:team:agent-teams -->
 ## Agent Teams vs Subagent Mode
 
 The table below shows which sections to include per dispatch mode. Unmarked sections (TDD Requirements, Files, Success Criteria, Completion) are **always included** in both modes.
@@ -398,3 +401,4 @@ The table below shows which sections to include per dispatch mode. Unmarked sect
 ## MCP Auto-Loading
 
 Teammates automatically load project MCP servers (including Exarchos). The Coordination and Workflow Intelligence sections guide WHICH tools to use, not HOW to access them. Do not include MCP connection instructions or tool registration details in the spawn prompt.
+<!-- /requires -->

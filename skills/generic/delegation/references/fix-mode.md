@@ -38,17 +38,9 @@ Or auto-invoked after review failures.
    - Include full issue context
    - Specify target worktree
 
-4. **Dispatch fixers** — prefer resume when `agentId` is available, otherwise fresh dispatch:
+4. **Dispatch fixers** — fresh dispatch is the default, with resume as an opt-in optimization on runtimes that support it:
 
-   **Resume (Claude Code):**
-   ```typescript
-   Task({
-     resume: "[agentId from workflow state]",
-     prompt: "Your implementation failed. [failure context]. Apply adversarial verification."
-   })
-   ```
-
-   **Fresh dispatch (cross-platform):**
+   **Fresh dispatch (cross-platform default):**
    ```typescript
    Task({
      subagent_type: "exarchos-fixer",
@@ -58,15 +50,26 @@ Or auto-invoked after review failures.
    })
    ```
 
+   <!-- requires:native:session:resume -->
+   **Resume (runtimes with native session:resume, e.g. Claude Code):**
+   ```typescript
+   Task({
+     resume: "[agentId from workflow state]",
+     prompt: "Your implementation failed. [failure context]. Apply adversarial verification."
+   })
+   ```
+   <!-- /requires -->
+
 5. **Re-review after fixes**:
    After all fix tasks complete, auto-invoke review phase:
    ```typescript
    Skill({ skill: "exarchos:review", args: "<state-file>" })
    ```
 
+<!-- requires:native:session:resume -->
 ## Resume-First Strategy
 
-When fixing failed tasks, prefer resuming the original agent over dispatching a fresh fixer. Resume preserves the implementer's full context (file reads, reasoning, partial progress), making fixes faster and more accurate.
+When fixing failed tasks on runtimes with native session resume, prefer resuming the original agent over dispatching a fresh fixer. Resume preserves the implementer's full context (file reads, reasoning, partial progress), making fixes faster and more accurate.
 
 ### agentId Tracking
 
@@ -80,9 +83,10 @@ exarchos_workflow get with fields: ["tasks"]
 
 ### Decision Flow
 
-1. **agentId available + Claude Code?** → Resume with failure context
-2. **agentId unavailable or non-Claude-Code client?** → Fresh dispatch with `exarchos-fixer` agent type
+1. **agentId available?** → Resume with failure context
+2. **agentId unavailable?** → Fresh dispatch with `exarchos-fixer` agent type
 3. **Resume fails?** → Fall back to fresh dispatch
+<!-- /requires -->
 
 ### Gate Chain After Fix
 

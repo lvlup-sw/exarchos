@@ -74,7 +74,17 @@ function writeRuntimeFixtures(runtimesDir: string): void {
         `  binaries: []`,
         `  envVars: []`,
         `placeholders:`,
+        // Wave A: every runtime YAML must declare every RuntimeTokenKey
+        // entry. Add the canonical set so `assertRuntimeTokenCoverage`
+        // is satisfied; AGENT_LABEL stays for legacy fixture references.
         `  AGENT_LABEL: "agent"`,
+        `  MCP_PREFIX: "mcp__${name}__"`,
+        `  COMMAND_PREFIX: "/"`,
+        `  TASK_TOOL: "Task"`,
+        `  CHAIN: "[invoke {{next}} with {{args}}]"`,
+        `  SPAWN_AGENT_CALL: 'Task({ prompt: \"{{prompt}}\" })'`,
+        `  SUBAGENT_COMPLETION_HOOK: "subagent completion signal (poll-based)"`,
+        `  SUBAGENT_RESULT_API: "[poll subagent result]"`,
         ``,
       ].join('\n'),
     );

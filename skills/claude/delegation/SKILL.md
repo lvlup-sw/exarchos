@@ -36,9 +36,14 @@ Rationalization patterns that violate this principle are catalogued in `referenc
 
 ### Delegation Modes
 
+The default `subagent` mode dispatches each task using the runtime's native spawn primitive (e.g., the `Task` tool on Claude Code / OpenCode / Cursor, `spawn_agent` on Codex, `task --agent` on Copilot). On runtimes without a subagent primitive (e.g. `generic`), delegation degrades to sequential in-session execution.
+
+
+On Claude Code (and any future runtime declaring `team:agent-teams`), an additional `agent-team` mode is available — `Task` invocations bind to a `team_name` for interactive multi-pane coordination.
+
 | Mode | Mechanism | Best for |
 |------|-----------|----------|
-| `subagent` (default) | `Task` with `run_in_background` | 1-3 independent tasks, CI, headless |
+| `subagent` (default) | runtime spawn primitive | 1-3 independent tasks, CI, headless |
 | `agent-team` | `Task` with `team_name` | 3+ interdependent tasks, interactive sessions |
 
 **Auto-detection:** tmux + `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` present means `agent-team`. Otherwise `subagent`. Override with `/exarchos:delegate --mode subagent|agent-team`.
@@ -139,6 +144,7 @@ Task({
 
 For parallel grouping strategy and model selection, see `references/parallel-strategy.md`.
 
+
 ### Agent Teams Dispatch
 
 When using `--mode agent-team`, follow the 6-step saga in `references/agent-teams-saga.md`. The saga requires event-first execution: emit event, then execute side effect at every step.
@@ -167,10 +173,10 @@ See `references/agent-teams-saga.md` for full event schemas and emission order.
 
 ### Subagent Monitoring
 
-Poll background tasks and collect results:
+Poll background tasks and collect results using the runtime's result-collection primitive:
 
-```typescript
-TaskOutput({ task_id: "<id>", block: true })
+```text
+TaskOutput({ task_id, block: true })
 ```
 
 After each subagent reports completion:
@@ -219,17 +225,18 @@ This is advisory — findings are recorded for the convergence view but do not b
 
 8. **Schema sync** — if any task modified API files (`*Endpoints.cs`, `Models/*.cs`), run `npm run sync:schemas`
 
+
 ### Agent Teams Monitoring
 
 - Teammates visible in tmux split panes
-- `TeammateIdle` hook auto-runs quality gates and emits completion/failure events
+- `TeammateIdle hook` auto-runs quality gates and emits completion/failure events
 - Orchestrator monitors via `exarchos_view delegation_timeline` for bottleneck detection
 - See `references/agent-teams-saga.md` for disbanding and reconciliation
 
 ### Failure Recovery
 
 When a task fails:
-1. Read the failure output from `TaskOutput`
+1. Read the failure output from the runtime's result-collection primitive (`TaskOutput({ task_id, block: true })`)
 2. Diagnose root cause — do NOT trust the implementer's self-assessment (see R3 adversarial posture)
 3. Fix the task using the resume-aware fixer flow below
 4. Run the `task-fix` runbook gate chain after the fix completes
@@ -238,7 +245,12 @@ For the full recovery flow with a concrete example, see `references/worked-examp
 
 ### Fix Failed Tasks
 
-Dispatch a fix agent with the full failure context and the original task description. On runtimes that support session resume (e.g. Claude Code with an `agentId` in workflow state), prefer resuming the original agent so it retains its implementer context; otherwise dispatch a fresh fixer agent using the runtime's native spawn primitive.
+Dispatch a fix agent with the full failure context and the original task description.
+
+
+On runtimes with native session resume (e.g. Claude Code with an `agentId` in workflow state), prefer resuming the original agent so it retains its implementer context.
+
+When session resume is unavailable, dispatch a fresh fixer agent using the runtime's native spawn primitive.
 
 ```typescript
 Task({
@@ -346,6 +358,7 @@ This is NOT a human checkpoint — the workflow continues autonomously.
 | `references/fixer-prompt.md` | Fix agent prompt with adversarial verification posture |
 | `references/worked-example.md` | Complete delegation trace with recovery path (R1) |
 | `references/rationalization-refutation.md` | Common rationalizations and counter-arguments (R2) |
+
 | `references/agent-teams-saga.md` | 6-step agent-team saga with event payloads |
 | `references/parallel-strategy.md` | Parallel grouping and model selection |
 | `references/testing-patterns.md` | Arrange/Act/Assert, naming, mocking conventions |

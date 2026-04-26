@@ -36,12 +36,18 @@ Rationalization patterns that violate this principle are catalogued in `referenc
 
 ### Delegation Modes
 
+The default `subagent` mode dispatches each task using the runtime's native spawn primitive (e.g., the `Task` tool on Claude Code / OpenCode / Cursor, `spawn_agent` on Codex, `task --agent` on Copilot). On runtimes without a subagent primitive (e.g. `generic`), delegation degrades to sequential in-session execution.
+
+<!-- requires:team:agent-teams -->
+On Claude Code (and any future runtime declaring `team:agent-teams`), an additional `agent-team` mode is available — `Task` invocations bind to a `team_name` for interactive multi-pane coordination.
+
 | Mode | Mechanism | Best for |
 |------|-----------|----------|
-| `subagent` (default) | `Task` with `run_in_background` | 1-3 independent tasks, CI, headless |
+| `subagent` (default) | runtime spawn primitive | 1-3 independent tasks, CI, headless |
 | `agent-team` | `Task` with `team_name` | 3+ interdependent tasks, interactive sessions |
 
 **Auto-detection:** tmux + `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` present means `agent-team`. Otherwise `subagent`. Override with `{{COMMAND_PREFIX}}delegate --mode subagent|agent-team`.
+<!-- /requires -->
 
 Use the `recommendedModel` from `prepare_delegation` task classifications when available. If no classification exists (e.g., fixer dispatch), omit `model` to inherit the session default.
 
@@ -133,6 +139,7 @@ Dispatch all independent tasks using the runtime's native spawn primitive. On ru
 
 For parallel grouping strategy and model selection, see `references/parallel-strategy.md`.
 
+<!-- requires:team:agent-teams -->
 ### Agent Teams Dispatch
 
 When using `--mode agent-team`, follow the 6-step saga in `references/agent-teams-saga.md`. The saga requires event-first execution: emit event, then execute side effect at every step.
@@ -154,6 +161,7 @@ The delegate phase requires these events (checked by `check-event-emissions`):
 See `references/agent-teams-saga.md` for full event schemas and emission order.
 
 > **Note:** `task.progressed` events are emitted by subagents during TDD execution, not by the orchestrator. The orchestrator only emits team lifecycle events.
+<!-- /requires -->
 
 ---
 
@@ -161,10 +169,10 @@ See `references/agent-teams-saga.md` for full event schemas and emission order.
 
 ### Subagent Monitoring
 
-Poll background tasks and collect results:
+Poll background tasks and collect results using the runtime's result-collection primitive:
 
-```typescript
-TaskOutput({ task_id: "<id>", block: true })
+```text
+{{SUBAGENT_RESULT_API}}
 ```
 
 After each subagent reports completion:
@@ -213,17 +221,19 @@ This is advisory — findings are recorded for the convergence view but do not b
 
 8. **Schema sync** — if any task modified API files (`*Endpoints.cs`, `Models/*.cs`), run `npm run sync:schemas`
 
+<!-- requires:team:agent-teams -->
 ### Agent Teams Monitoring
 
 - Teammates visible in tmux split panes
-- `TeammateIdle` hook auto-runs quality gates and emits completion/failure events
+- `{{SUBAGENT_COMPLETION_HOOK}}` auto-runs quality gates and emits completion/failure events
 - Orchestrator monitors via `exarchos_view delegation_timeline` for bottleneck detection
 - See `references/agent-teams-saga.md` for disbanding and reconciliation
+<!-- /requires -->
 
 ### Failure Recovery
 
 When a task fails:
-1. Read the failure output from `TaskOutput`
+1. Read the failure output from the runtime's result-collection primitive (`{{SUBAGENT_RESULT_API}}`)
 2. Diagnose root cause — do NOT trust the implementer's self-assessment (see R3 adversarial posture)
 3. Fix the task using the resume-aware fixer flow below
 4. Run the `task-fix` runbook gate chain after the fix completes
@@ -232,7 +242,13 @@ For the full recovery flow with a concrete example, see `references/worked-examp
 
 ### Fix Failed Tasks
 
-Dispatch a fix agent with the full failure context and the original task description. On runtimes that support session resume (e.g. Claude Code with an `agentId` in workflow state), prefer resuming the original agent so it retains its implementer context; otherwise dispatch a fresh fixer agent using the runtime's native spawn primitive.
+Dispatch a fix agent with the full failure context and the original task description.
+
+<!-- requires:native:session:resume -->
+On runtimes with native session resume (e.g. Claude Code with an `agentId` in workflow state), prefer resuming the original agent so it retains its implementer context.
+<!-- /requires -->
+
+When session resume is unavailable, dispatch a fresh fixer agent using the runtime's native spawn primitive.
 
 ```typescript
 {{SPAWN_AGENT_CALL description="Fix failed task-001" prompt="Your implementation failed. [failure context from test output]. Apply adversarial verification: do NOT trust your previous self-assessment, re-read actual test output, identify root cause not symptoms. [Original task context]."}}
@@ -334,7 +350,9 @@ This is NOT a human checkpoint — the workflow continues autonomously.
 | `references/fixer-prompt.md` | Fix agent prompt with adversarial verification posture |
 | `references/worked-example.md` | Complete delegation trace with recovery path (R1) |
 | `references/rationalization-refutation.md` | Common rationalizations and counter-arguments (R2) |
+<!-- requires:team:agent-teams -->
 | `references/agent-teams-saga.md` | 6-step agent-team saga with event payloads |
+<!-- /requires -->
 | `references/parallel-strategy.md` | Parallel grouping and model selection |
 | `references/testing-patterns.md` | Arrange/Act/Assert, naming, mocking conventions |
 | `references/pbt-patterns.md` | Property-based testing patterns |
