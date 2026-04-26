@@ -27,16 +27,21 @@
 
 import { stringify as stringifyYaml } from 'yaml';
 import type { AgentSpec } from '../types.js';
-import type { Capability } from '../capabilities.js';
 import type { RuntimeAdapter, ValidationResult } from './types.js';
+import { buildSupportMap } from './support-levels.js';
 
-const SUPPORTED_CAPABILITIES: ReadonlySet<Capability> = new Set<Capability>([
-  'fs:read',
-  'fs:write',
-  'shell:exec',
-  'subagent:spawn',
-  'mcp:exarchos',
-]);
+/**
+ * Cursor covers fs/shell/subagent-spawn/MCP natively, treats
+ * `isolation:worktree` as advisory (no first-class enforcement; orchestrator
+ * still manages worktree fan-out), and rejects Claude-only primitives.
+ */
+const CURSOR_SUPPORT_LEVELS = buildSupportMap('native', {
+  'isolation:worktree': 'advisory',
+  'session:resume': 'advisory',
+  'subagent:completion-signal': 'unsupported',
+  'subagent:start-signal': 'unsupported',
+  'team:agent-teams': 'unsupported',
+});
 
 function agentFilePath(agentName: string): string {
   return `.cursor/agents/${agentName}.md`;
@@ -60,7 +65,9 @@ function lowerSpec(spec: AgentSpec): { path: string; contents: string } {
 }
 
 function validateSupport(spec: AgentSpec): ValidationResult {
-  const unsupported = spec.capabilities.filter((cap) => !SUPPORTED_CAPABILITIES.has(cap));
+  const unsupported = spec.capabilities.filter(
+    (cap) => CURSOR_SUPPORT_LEVELS[cap] === 'unsupported',
+  );
   if (unsupported.length > 0) {
     return {
       ok: false,
@@ -73,6 +80,7 @@ function validateSupport(spec: AgentSpec): ValidationResult {
 
 export const CursorAdapter: RuntimeAdapter = {
   runtime: 'cursor',
+  supportLevels: CURSOR_SUPPORT_LEVELS,
   agentFilePath,
   lowerSpec,
   validateSupport,

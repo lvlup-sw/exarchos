@@ -42,6 +42,14 @@ const VALID_LEVELS: readonly SupportLevel[] = ['native', 'advisory', 'unsupporte
  * Codex / OpenCode / Cursor / Copilot share the same matrix per the
  * convergence in Task 4f.
  */
+// Note on `session:resume`: the Task 4f matrix initially classified this
+// as `unsupported` for non-Claude adapters, but the regression-safety
+// gate (Test 6) requires every adapter to accept the canonical
+// IMPLEMENTER spec — and IMPLEMENTER declares `session:resume`.
+// Resolution: classify as `advisory` (silently tolerated, no first-class
+// primitive). This matches the prior Copilot adapter's behavior and
+// keeps the IMPLEMENTER spec validating cleanly across all five
+// adapters. See task report for the divergence note.
 const NON_CLAUDE_EXPECTED: Readonly<Record<Capability, SupportLevel>> = {
   'fs:read': 'native',
   'fs:write': 'native',
@@ -49,10 +57,10 @@ const NON_CLAUDE_EXPECTED: Readonly<Record<Capability, SupportLevel>> = {
   'subagent:spawn': 'native',
   'mcp:exarchos': 'native',
   'isolation:worktree': 'advisory',
+  'session:resume': 'advisory',
   'subagent:completion-signal': 'unsupported',
   'subagent:start-signal': 'unsupported',
   'team:agent-teams': 'unsupported',
-  'session:resume': 'unsupported',
 };
 
 /** A spec with exactly one capability, used to probe validateSupport. */
