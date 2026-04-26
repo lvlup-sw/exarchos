@@ -35,6 +35,12 @@ import type { RuntimeMap, SupportedCapabilityName } from './runtimes/types.js';
 import { RuntimeTokenKey, SupportedCapabilityKey } from './runtimes/types.js';
 import { resolveMainDeps, type MainDeps } from './cli-helpers.js';
 import { lintPlaceholders } from './placeholder-lint.js';
+import {
+  formatVocabularyLintMessage,
+  lintRenderedSkill,
+  runtimeAllowsClaudeOnlyTerms,
+  type VocabularyLintFinding,
+} from './vocabulary-lint.js';
 
 /**
  * Matches `{{TOKEN}}` and `{{TOKEN arg1="..." arg2="..."}}` placeholder
@@ -803,6 +809,95 @@ export function applyRequiresGuards(
 }
 
 /**
+ * Wave B: elide fenced code blocks whose info-string contains the
+ * `runtime:claude-only` marker from non-Claude renders. The block
+ * (including its opening + closing fence lines) is dropped wholesale
+ * so the contained snippet — typically a Claude-only API call like
+ * `TaskOutput(...)` that ships verbatim in the Claude render but has
+ * no analog elsewhere — never reaches the post-render vocabulary
+ * lint, never confuses an agent on a non-Claude runtime, and never
+ * leaks the marker itself.
+ *
+ * Why fenced code blocks specifically (not a separate guard syntax):
+ *   - Code snippets are the dominant carrier of Claude-only API
+ *     surface in skill prose. The other carrier — narrative prose —
+ *     already has the `<!-- requires:* -->` guard mechanism.
+ *   - A `runtime:claude-only` info-string reads naturally to a skill
+ *     author who already understands fenced code blocks, and most
+ *     markdown renderers ignore unknown info-string suffixes so the
+ *     Claude render of the block remains a normal `ts` block visually.
+ *
+ * Allowed fence variants:
+ *   - Triple-backtick fences (```), the canonical form.
+ *   - Triple-tilde fences (~~~), supported because some markdown
+ *     dialects prefer them for snippets containing backticks.
+ *   - Longer fences (4+ delimiters) are recognized; the closing fence
+ *     must be the same character at the same length.
+ *   - Indented fences (e.g. inside a list item) are recognized; the
+ *     closing fence is matched at any indentation.
+ *
+ * Note on absorption: a single trailing newline after the closing
+ * fence is absorbed so the elision does not leave a blank-line scar
+ * where the block used to be (mirrors `applyRequiresGuards` behavior).
+ *
+ * @param body - Rendered or partially-rendered skill body.
+ * @param runtime - Target runtime; "Claude-like" runtimes
+ *   (`team:agent-teams: native`) keep the blocks verbatim.
+ * @returns The body with `runtime:claude-only` blocks elided when
+ *   the runtime is non-Claude; unchanged when Claude-like.
+ */
+export function elideClaudeOnlyCodeBlocks(
+  body: string,
+  runtime: RuntimeMap,
+): string {
+  if (runtimeAllowsClaudeOnlyTerms(runtime)) return body;
+
+  const lines = body.split('\n');
+  const out: string[] = [];
+  let i = 0;
+  // Pattern matches an opening fence line: optional leading whitespace,
+  // then a run of 3+ backticks or tildes (captured), then the rest of
+  // the line as the info-string. The info-string substring check below
+  // gates whether we're entering an elidable block.
+  const openRegex = /^(\s*)(`{3,}|~{3,})(.*)$/;
+  while (i < lines.length) {
+    const line = lines[i];
+    const m = line.match(openRegex);
+    if (m && m[3].includes('runtime:claude-only')) {
+      // Skip lines until we find the matching closing fence: same
+      // delimiter character at the same length, at any indentation,
+      // with no further content beyond optional whitespace. Markdown's
+      // fence-matching rules require the close to be at least as long
+      // as the open, but the typical case is exact-match; we accept
+      // any same-character fence of length >= the opening.
+      const fenceChar = m[2][0];
+      const fenceLen = m[2].length;
+      const closeRegex = new RegExp(
+        `^\\s*${fenceChar === '`' ? '`' : '~'}{${fenceLen},}\\s*$`,
+      );
+      i++;
+      while (i < lines.length) {
+        if (closeRegex.test(lines[i])) {
+          i++; // consume the closing fence
+          break;
+        }
+        i++;
+      }
+      // Absorb a single blank line that immediately follows the
+      // closing fence so the elision does not leave a blank-line
+      // scar between two paragraphs of always-on prose.
+      if (i < lines.length && lines[i] === '') {
+        i++;
+      }
+      continue;
+    }
+    out.push(line);
+    i++;
+  }
+  return out.join('\n');
+}
+
+/**
  * Find the byte offset of the `<!-- /requires -->` token that closes a
  * guard whose opening tag ends at `searchStart`. Honors nesting: every
  * `<!-- requires:* -->` after `searchStart` increments depth, every
@@ -1071,6 +1166,11 @@ export function buildAllSkills(opts: {
   let variantsWritten = 0;
   let referencesCopied = 0;
 
+  // Wave B: aggregate vocabulary-lint findings across every (runtime,
+  // skill) pair so the build emits one consolidated diagnostic
+  // listing every offender, rather than failing at the first hit.
+  const vocabularyFindings: VocabularyLintFinding[] = [];
+
   for (const skillDir of skillDirs) {
     const skillRel = relative(opts.srcDir, skillDir);
     const sourcePath = join(skillDir, 'SKILL.md');
@@ -1091,9 +1191,17 @@ export function buildAllSkills(opts: {
         written.add(resolve(outSkillFile));
         overridesUsed.push(overridePath);
         variantsWritten++;
+        // Override files are still subject to the Wave B vocabulary
+        // lint — an author cannot dodge the gate by routing
+        // Claude-only prose through a runtime override file. The
+        // verbatim contents go straight to the lint with no other
+        // processing.
+        vocabularyFindings.push(
+          ...lintRenderedSkill(overrideBody, overridePath, rt),
+        );
       } else {
         try {
-          // Pipeline (Wave A):
+          // Pipeline (Wave A + Wave B):
           //   1. Apply `<!-- requires:* -->` guards FIRST so guard-elided
           //      CALL macros and tokens never reach the renderer (a
           //      Claude-only literal under a guard for `team:agent-teams`
@@ -1102,15 +1210,28 @@ export function buildAllSkills(opts: {
           //   2. Expand `{{CALL ...}}` macros to facade-appropriate
           //      output.
           //   3. Substitute `{{TOKEN}}` placeholders.
+          //   4. (Wave B) Elide fenced code blocks tagged
+          //      `runtime:claude-only` from non-Claude renders.
+          //   5. (Wave B) Run the post-render vocabulary lint against
+          //      the bytes that will be written, aggregating findings
+          //      so all offenders surface in one diagnostic.
           // Do NOT pass `runtime: rt` to `render()` below — that would
           // double-expand CALL macros after step 2.
           const guardElided = applyRequiresGuards(body, rt, sourcePath);
           const macroExpanded = renderCallMacros(guardElided, rt);
-          const rendered = render(macroExpanded, rt.placeholders, {
+          const tokenExpanded = render(macroExpanded, rt.placeholders, {
             sourcePath,
             runtimeName: rt.name,
           });
+          const rendered = elideClaudeOnlyCodeBlocks(tokenExpanded, rt);
           assertNoUnresolvedPlaceholders(rendered, sourcePath, rt.name);
+          // Wave B: vocabulary lint runs against the exact bytes about
+          // to hit disk. Findings are aggregated, not thrown — the
+          // post-loop check below converts the aggregate into a
+          // single diagnostic.
+          vocabularyFindings.push(
+            ...lintRenderedSkill(rendered, sourcePath, rt),
+          );
           writeFileSync(outSkillFile, rendered);
           written.add(resolve(outSkillFile));
           variantsWritten++;
@@ -1150,6 +1271,18 @@ export function buildAllSkills(opts: {
         referencesCopied += written.size - before;
       }
     }
+  }
+
+  // Wave B: aggregated vocabulary lint check. Every (runtime, skill)
+  // pair contributed any forbidden-term occurrences to the shared
+  // findings list during the render loop above. If any survived to
+  // a non-Claude render, fail the build with one consolidated
+  // diagnostic naming every offender. The Claude render (and any
+  // other runtime declaring `team:agent-teams: native`) is exempt
+  // and contributes no findings — see `runtimeAllowsClaudeOnlyTerms`
+  // in `vocabulary-lint.ts` for the exemption rationale.
+  if (vocabularyFindings.length > 0) {
+    throw new Error(formatVocabularyLintMessage(vocabularyFindings));
   }
 
   // Stale cleanup: any file under `outDir/<runtime>/` not written this
