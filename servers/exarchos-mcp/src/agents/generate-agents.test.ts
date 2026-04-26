@@ -312,6 +312,42 @@ describe('generateAgents', () => {
     }
   });
 
+  // ─── Claude snapshot regression ──────────────────────────────────────────
+  //
+  // Pins `claudeAdapter.lowerSpec` output to the byte-for-byte contents of
+  // the committed `agents/{implementer,fixer,reviewer,scaffolder}.md`.
+  //
+  // The committed `agents/` files ARE the contract Claude users depend on;
+  // any drift between adapter output and those files is a regression even
+  // if the broader test suite passes. This gate is what makes Task 14's
+  // deletion of `generate-cc-agents.ts` safe — it locks in the legacy
+  // generator's exact output as the regression baseline.
+  describe('Claude snapshot regression', () => {
+    const SPEC_BY_ID: Record<string, AgentSpec> = {
+      implementer: IMPLEMENTER,
+      fixer: FIXER,
+      reviewer: REVIEWER,
+      scaffolder: SCAFFOLDER,
+    };
+
+    it.each(['implementer', 'fixer', 'reviewer', 'scaffolder'])(
+      'GenerateAgents_ClaudeOutput_%s_MatchesSnapshot',
+      (specId) => {
+        const fixturePath = path.join(
+          import.meta.dirname,
+          '__fixtures__',
+          'snapshots',
+          'claude',
+          `${specId}.md`,
+        );
+        const expected = fs.readFileSync(fixturePath, 'utf-8');
+        const spec = SPEC_BY_ID[specId];
+        const actual = claudeAdapter.lowerSpec(spec).contents;
+        expect(actual).toBe(expected);
+      },
+    );
+  });
+
   it('GenerateAgents_AdvisoryCapability_NotEmittedInTools', () => {
     // Regression for the 4f integration: advisory capabilities (e.g.
     // `isolation:worktree`, `session:resume` on OpenCode) must NOT
