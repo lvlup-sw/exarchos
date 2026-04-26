@@ -31,8 +31,8 @@ import {
 } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
 import { loadAllRuntimes } from './runtimes/load.js';
-import type { RuntimeMap } from './runtimes/types.js';
-import { RuntimeTokenKey } from './runtimes/types.js';
+import type { RuntimeMap, SupportedCapabilityName } from './runtimes/types.js';
+import { RuntimeTokenKey, SupportedCapabilityKey } from './runtimes/types.js';
 import { resolveMainDeps, type MainDeps } from './cli-helpers.js';
 import { lintPlaceholders } from './placeholder-lint.js';
 
@@ -637,6 +637,209 @@ export function parseTokenArgs(argString: string): Record<string, string> {
   return out;
 }
 
+// ---------------------------------------------------------------------------
+// Wave A: capability-aware `<!-- requires:* -->` guard parser + elision
+// ---------------------------------------------------------------------------
+
+/**
+ * Matches the opening tag of a requires-guard block. Capture groups:
+ *   1. literal `native:` modifier when present (otherwise undefined)
+ *   2. capability identifier (e.g. `team:agent-teams`, `session:resume`)
+ *
+ * The capability identifier accepts `[a-z0-9:-]+` so multi-segment caps
+ * like `team:agent-teams` and `subagent:completion-signal` match cleanly.
+ */
+const REQUIRES_OPEN_REGEX = /<!--\s*requires:(native:)?([a-z0-9:-]+)\s*-->/g;
+
+/**
+ * Closing tag of a requires-guard block. Plain `<!-- /requires -->` with
+ * tolerant whitespace.
+ */
+const REQUIRES_CLOSE_TOKEN = '<!-- /requires -->';
+
+/** Set form of `SupportedCapabilityKey` for O(1) membership checks. */
+const SUPPORTED_CAPABILITY_NAMES: ReadonlySet<string> = new Set(
+  SupportedCapabilityKey.options,
+);
+
+/**
+ * Decide whether a guard block should be rendered for the given runtime.
+ *
+ * Plain guard (`<!-- requires:CAP -->`): block is included when the
+ * runtime's `supportedCapabilities` map declares CAP at any support
+ * level (`native` or `advisory`). Absence (the canonical "unsupported"
+ * encoding) elides the block.
+ *
+ * Native guard (`<!-- requires:native:CAP -->`): block is included only
+ * when the runtime's `supportedCapabilities` map declares CAP as
+ * `native`.
+ */
+function guardPasses(
+  runtime: RuntimeMap,
+  cap: SupportedCapabilityName,
+  nativeOnly: boolean,
+): boolean {
+  const support = runtime.supportedCapabilities?.[cap];
+  if (support === undefined) return false;
+  if (nativeOnly) return support === 'native';
+  // 'native' or 'advisory' — both pass plain guards.
+  return support === 'native' || support === 'advisory';
+}
+
+/**
+ * Walk `body` and elide any `<!-- requires:* -->` ... `<!-- /requires -->`
+ * blocks that the runtime fails. Honors arbitrary nesting: when an outer
+ * guard elides, inner content is dropped wholesale regardless of its
+ * own evaluation. When an outer guard passes, inner guards are evaluated
+ * recursively against the runtime.
+ *
+ * Validates every guard's capability against `SupportedCapabilityKey`
+ * — typos are build errors with file/line and offending capability so
+ * authors can fix the prose, not silent passes.
+ *
+ * Strips the guard markers from kept blocks so they never leak into
+ * rendered output. Keeps surrounding text byte-identical: the marker
+ * line is removed wholesale (including its trailing newline if present)
+ * so the elided block doesn't leave behind a blank "stub" line.
+ *
+ * @param body - Raw skill source (pre-renderCallMacros, pre-render).
+ * @param runtime - Target runtime providing `supportedCapabilities`.
+ * @param sourcePath - Source file path for error diagnostics.
+ * @returns The body with guards processed.
+ * @throws On unknown guard capability or missing closing tag.
+ */
+export function applyRequiresGuards(
+  body: string,
+  runtime: RuntimeMap,
+  sourcePath: string,
+): string {
+  // Reset stateful /g regex before use.
+  REQUIRES_OPEN_REGEX.lastIndex = 0;
+
+  // Single-pass walk: find every opening tag, find its matching close
+  // (honoring nesting), evaluate the guard, and rewrite the body
+  // accordingly. Process from outside in so an outer-elided block drops
+  // its inner content without ever evaluating the inner guard.
+  let result = body;
+  // Loop until no more top-level guards remain. Each iteration finds
+  // the first opening tag and resolves its matching close, then either
+  // strips the markers (kept) or removes the entire block (elided).
+  // Re-run from offset 0 each pass because elision shifts indices.
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    REQUIRES_OPEN_REGEX.lastIndex = 0;
+    const openMatch = REQUIRES_OPEN_REGEX.exec(result);
+    if (openMatch === null) break;
+
+    const openIdx = openMatch.index;
+    const openLen = openMatch[0].length;
+    const nativeOnly = openMatch[1] !== undefined;
+    const cap = openMatch[2];
+
+    // Validate the cap against the canonical enum. Typos are hard
+    // errors at build time.
+    if (!SUPPORTED_CAPABILITY_NAMES.has(cap)) {
+      const line = lineOf(result, openIdx);
+      throw new Error(
+        `unknown guard capability "requires:${nativeOnly ? 'native:' : ''}${cap}" in ${sourcePath}:${line}. ` +
+          `Known capabilities: [${[...SupportedCapabilityKey.options].sort().join(', ')}].`,
+      );
+    }
+
+    // Find the matching `<!-- /requires -->` honoring nesting depth so
+    // an outer guard's close is paired with its outer open even when an
+    // inner guard sits inside.
+    const closeIdx = findMatchingCloseIdx(result, openIdx + openLen);
+    if (closeIdx === -1) {
+      const line = lineOf(result, openIdx);
+      throw new Error(
+        `unclosed guard "requires:${nativeOnly ? 'native:' : ''}${cap}" in ${sourcePath}:${line}. ` +
+          `Every <!-- requires:* --> must have a matching <!-- /requires --> on a later line.`,
+      );
+    }
+
+    const innerStart = openIdx + openLen;
+    const innerEnd = closeIdx;
+    const inner = result.slice(innerStart, innerEnd);
+
+    // Build the trim-aware slice that absorbs the marker's trailing
+    // newline (and any leading newline directly before the marker for
+    // the close case) so we don't leave a blank-line scar where a guard
+    // used to be.
+    const before = result.slice(0, openIdx);
+    const after = result.slice(closeIdx + REQUIRES_CLOSE_TOKEN.length);
+
+    const passes = guardPasses(runtime, cap as SupportedCapabilityName, nativeOnly);
+    if (!passes) {
+      // Drop entire block including markers. Absorb a leading newline
+      // (so the line that held the open marker disappears completely)
+      // and a trailing newline (so the close marker's line disappears).
+      const beforeTrim = before.endsWith('\n') ? before.slice(0, -1) : before;
+      const afterTrim = after.startsWith('\n') ? after.slice(1) : after;
+      result = beforeTrim + (beforeTrim && afterTrim ? '\n' : '') + afterTrim;
+      continue;
+    }
+
+    // Guard passed → keep the inner content but strip the markers.
+    // Absorb a trailing newline on each marker so we don't introduce a
+    // blank line where the marker used to be.
+    let innerKept = inner;
+    // Strip leading newline immediately after the open marker
+    if (innerKept.startsWith('\n')) innerKept = innerKept.slice(1);
+    // Strip trailing newline immediately before the close marker
+    if (innerKept.endsWith('\n')) innerKept = innerKept.slice(0, -1);
+    const beforeTrim = before.endsWith('\n') ? before : before;
+    const afterTrim = after.startsWith('\n') ? after.slice(1) : after;
+    // Re-insert the kept inner with single newlines around it (only
+    // when there is actual content on both sides).
+    const sep1 = beforeTrim.length > 0 && innerKept.length > 0 ? '\n' : '';
+    const sep2 = innerKept.length > 0 && afterTrim.length > 0 ? '\n' : '';
+    result = beforeTrim + sep1 + innerKept + sep2 + afterTrim;
+    // Re-loop: any inner guards that survived the outer pass will be
+    // matched at the top-level next iteration.
+  }
+
+  return result;
+}
+
+/**
+ * Find the byte offset of the `<!-- /requires -->` token that closes a
+ * guard whose opening tag ends at `searchStart`. Honors nesting: every
+ * `<!-- requires:* -->` after `searchStart` increments depth, every
+ * `<!-- /requires -->` decrements it; the close at depth==0 is the
+ * matching one. Returns -1 if no matching close exists.
+ */
+function findMatchingCloseIdx(body: string, searchStart: number): number {
+  // Use a fresh regex for the open tag (we're inside a callsite of the
+  // shared one and don't want to corrupt its state).
+  const openLocal = new RegExp(REQUIRES_OPEN_REGEX.source, 'g');
+  openLocal.lastIndex = searchStart;
+
+  let depth = 0;
+  let scanFrom = searchStart;
+  while (true) {
+    // Find the next interesting marker — either an open or a close.
+    openLocal.lastIndex = scanFrom;
+    const nextOpen = openLocal.exec(body);
+    const nextOpenIdx = nextOpen ? nextOpen.index : -1;
+    const nextCloseIdx = body.indexOf(REQUIRES_CLOSE_TOKEN, scanFrom);
+
+    if (nextCloseIdx === -1) return -1;
+
+    if (nextOpenIdx !== -1 && nextOpenIdx < nextCloseIdx) {
+      // Nested open before next close → bump depth and keep scanning.
+      depth++;
+      scanFrom = nextOpenIdx + nextOpen![0].length;
+      continue;
+    }
+
+    // We have a close to handle.
+    if (depth === 0) return nextCloseIdx;
+    depth--;
+    scanFrom = nextCloseIdx + REQUIRES_CLOSE_TOKEN.length;
+  }
+}
+
 /**
  * Scan a rendered string for any residual `{{...}}` tokens and throw with
  * the same diagnostic format as `render()` if any are found. Intended as
@@ -890,11 +1093,19 @@ export function buildAllSkills(opts: {
         variantsWritten++;
       } else {
         try {
-          // CALL macros are expanded explicitly here (not via `render`'s
-          // optional `runtime` context) so the two passes stay separated.
-          // Do NOT add `runtime: rt` to the `render()` call below — that
-          // would double-expand CALL macros.
-          const macroExpanded = renderCallMacros(body, rt);
+          // Pipeline (Wave A):
+          //   1. Apply `<!-- requires:* -->` guards FIRST so guard-elided
+          //      CALL macros and tokens never reach the renderer (a
+          //      Claude-only literal under a guard for `team:agent-teams`
+          //      would otherwise break OpenCode's render even though it
+          //      should have been elided).
+          //   2. Expand `{{CALL ...}}` macros to facade-appropriate
+          //      output.
+          //   3. Substitute `{{TOKEN}}` placeholders.
+          // Do NOT pass `runtime: rt` to `render()` below — that would
+          // double-expand CALL macros after step 2.
+          const guardElided = applyRequiresGuards(body, rt, sourcePath);
+          const macroExpanded = renderCallMacros(guardElided, rt);
           const rendered = render(macroExpanded, rt.placeholders, {
             sourcePath,
             runtimeName: rt.name,
