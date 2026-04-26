@@ -49,9 +49,14 @@ const DetectionSchema = z
  * by per-runtime YAML tests (e.g. `servers/exarchos-mcp/src/runtimes/
  * codex.test.ts`) which load both surfaces and cross-check.
  *
- * Implements: delegation runtime parity, Task 7 (runtime YAML updates).
+ * Exported so the `<!-- requires:* -->` guard parser in `build-skills.ts`
+ * can validate guard capabilities against the same enum without
+ * duplicating the vocabulary.
+ *
+ * Implements: delegation runtime parity, Task 7 (runtime YAML updates),
+ * Task 8 (capability-aware prose renderer).
  */
-const SupportedCapabilityKey = z.enum([
+export const SupportedCapabilityKey = z.enum([
   'fs:read',
   'fs:write',
   'shell:exec',
@@ -63,6 +68,47 @@ const SupportedCapabilityKey = z.enum([
   'team:agent-teams',
   'session:resume',
 ]);
+
+/**
+ * String-literal type for `SupportedCapabilityKey`. Exported so renderer
+ * code can type-check guard parser outputs without invoking Zod at runtime.
+ */
+export type SupportedCapabilityName = z.infer<typeof SupportedCapabilityKey>;
+
+/**
+ * Canonical token vocabulary that every runtime YAML must declare in its
+ * `placeholders` map. Adding an entry here is a forcing function: the
+ * `buildAllSkills` pre-flight asserts every runtime declares every token
+ * before any rendering happens, so a typo or missing entry fails the build
+ * with an actionable diagnostic naming the runtime + token.
+ *
+ * Wave A (P4 prose layer) introduces `SUBAGENT_COMPLETION_HOOK` and
+ * `SUBAGENT_RESULT_API` so cross-platform skill prose can describe the
+ * subagent-completion handshake without hard-coding Claude's
+ * `TeammateIdle` / `TaskOutput` primitives. The original five tokens
+ * (`MCP_PREFIX` … `SPAWN_AGENT_CALL`) are kept here so the same
+ * coverage check applies uniformly.
+ *
+ * Tokenize-when-fallback-exists, guard-otherwise: a token is added here
+ * when every runtime can declare a sensible value for it; otherwise the
+ * call site should be wrapped in a `<!-- requires:* -->` guard instead.
+ */
+export const RuntimeTokenKey = [
+  'MCP_PREFIX',
+  'COMMAND_PREFIX',
+  'TASK_TOOL',
+  'CHAIN',
+  'SPAWN_AGENT_CALL',
+  'SUBAGENT_COMPLETION_HOOK',
+  'SUBAGENT_RESULT_API',
+] as const;
+
+/**
+ * String-literal union of `RuntimeTokenKey` entries. The renderer uses
+ * this to type-check vocabulary lookups without re-deriving the union by
+ * hand.
+ */
+export type RuntimeTokenName = (typeof RuntimeTokenKey)[number];
 
 /**
  * Three-state support classification. Mirror of `SupportLevel` from
