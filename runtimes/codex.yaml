@@ -58,6 +58,26 @@ capabilities:
   hasSkillChaining: false
   mcpPrefix: "mcp__exarchos__"
 skillsInstallPath: "$HOME/.agents/skills"
+# supportedCapabilities mirrors `codexAdapter.supportLevels` (Task 4f).
+# Three-state classification:
+#   - native: the runtime has a first-class primitive
+#   - advisory: the spec may declare it but the runtime has no enforcement
+#     primitive (orchestrator-managed)
+#   - unsupported: omitted from this map; consumers detect by absence
+# See docs/designs/2026-04-25-delegation-runtime-parity.md §4 and
+# docs/research/2026-04-25-delegation-platform-agnosticity.md §3.
+supportedCapabilities:
+  fs:read: native
+  fs:write: native
+  shell:exec: native
+  subagent:spawn: native
+  mcp:exarchos: native
+  isolation:worktree: advisory
+  session:resume: advisory
+  # Omitted (unsupported on Codex):
+  #   - subagent:completion-signal (Claude TeammateIdle hook only)
+  #   - subagent:start-signal      (Claude SubagentStart hook only)
+  #   - team:agent-teams           (Claude Agent Teams primitive only)
 detection:
   binaries:
     - codex
@@ -67,6 +87,15 @@ placeholders:
   COMMAND_PREFIX: ""
   TASK_TOOL: "spawn_agent"
   CHAIN: "[Invoke the exarchos:{{next}} skill with args: {{args}}]"
+  # SPAWN_AGENT_CALL uses agent_type: "default" + inline prompt as a
+  # fallback for Codex CLI bugs #15250 and #14579 (custom-agent name
+  # resolution failures from tool-backed sessions). The codex adapter
+  # writes a TOML at .codex/agents/<name>.toml regardless, so the
+  # artifact is correct for the future. When upstream fixes land, flip
+  # `codexAdapter.customAgentResolutionWorks` to true and update this
+  # token to invoke spawn_agent({agent_type: "exarchos-implementer",
+  # ...}) directly against the named TOML.
+  # See servers/exarchos-mcp/src/agents/adapters/codex.ts for the flag.
   SPAWN_AGENT_CALL: |
     spawn_agent({
       agent_type: "default",
