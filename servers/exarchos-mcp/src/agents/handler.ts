@@ -8,6 +8,11 @@ import { z } from 'zod';
 import type { ToolResult } from '../format.js';
 import { ALL_AGENT_SPECS } from './definitions.js';
 import type { AgentSpec } from './types.js';
+// Derive the Claude `tools` array from the runtime-agnostic capability
+// declarations so the `agent_spec` MCP response stays shape-stable. Sourced
+// from the Claude adapter, which is the canonical lowering site for
+// capability -> Claude-tool translation.
+import { deriveClaudeToolsFromCapabilities } from './adapters/claude.js';
 
 // ─── Schema ─────────────────────────────────────────────────────────────────
 
@@ -89,7 +94,7 @@ export async function handleAgentSpec(args: AgentSpecArgs): Promise<ToolResult> 
     data: {
       agent: spec.id,
       systemPrompt,
-      tools: [...spec.tools],
+      tools: [...deriveClaudeToolsFromCapabilities(spec)],
       disallowedTools: spec.disallowedTools ? [...spec.disallowedTools] : undefined,
       model: spec.model,
       isolation: spec.isolation,

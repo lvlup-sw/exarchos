@@ -29,11 +29,18 @@ import {
   utimesSync,
   writeFileSync,
 } from 'node:fs';
-import { join, relative, resolve } from 'node:path';
+import { dirname, join, relative, resolve } from 'node:path';
 import { loadAllRuntimes } from './runtimes/load.js';
-import type { RuntimeMap } from './runtimes/types.js';
+import type { RuntimeMap, SupportedCapabilityName } from './runtimes/types.js';
+import { RuntimeTokenKey, SupportedCapabilityKey } from './runtimes/types.js';
 import { resolveMainDeps, type MainDeps } from './cli-helpers.js';
 import { lintPlaceholders } from './placeholder-lint.js';
+import {
+  formatVocabularyLintMessage,
+  lintRenderedSkill,
+  runtimeAllowsClaudeOnlyTerms,
+  type VocabularyLintFinding,
+} from './vocabulary-lint.js';
 
 /**
  * Matches `{{TOKEN}}` and `{{TOKEN arg1="..." arg2="..."}}` placeholder
@@ -470,6 +477,22 @@ export interface RenderContext {
   /** When provided, run `renderCallMacros(body, runtime)` as a
    *  pre-processing step before placeholder substitution. */
   runtime?: RuntimeMap;
+  /**
+   * When `true`, unknown `{{TOKEN}}` references are left intact instead
+   * of throwing. Used by the Wave C reference-render pass so legitimate
+   * handlebar-style template literals inside reference bodies (e.g.
+   * `{{#each hints}} ... {{category}} ... {{/each}}` in
+   * `implementer-prompt.md`) survive unchanged for downstream
+   * dispatch-time substitution.
+   *
+   * The SKILL.md render path keeps the strict default — vocabulary
+   * violations there are caught by the placeholder-lint pre-flight,
+   * so a loose render is unnecessary and would mask real authoring
+   * mistakes. Reference bodies are explicitly out of scope for the
+   * placeholder-lint (see `placeholder-lint.ts` header comment), so
+   * the only safe default for them is "leave unknown tokens alone".
+   */
+  lenientUnknownTokens?: boolean;
 }
 
 /**
@@ -511,7 +534,7 @@ export function render(
   return substitute(preprocessed, placeholders, {
     sourcePath: context.sourcePath ?? '<unknown>',
     runtimeName: context.runtimeName ?? '<unknown>',
-    throwOnUnknown: true,
+    throwOnUnknown: !context.lenientUnknownTokens,
   });
 }
 
@@ -634,6 +657,298 @@ export function parseTokenArgs(argString: string): Record<string, string> {
   }
 
   return out;
+}
+
+// ---------------------------------------------------------------------------
+// Wave A: capability-aware `<!-- requires:* -->` guard parser + elision
+// ---------------------------------------------------------------------------
+
+/**
+ * Matches the opening tag of a requires-guard block. Capture groups:
+ *   1. literal `native:` modifier when present (otherwise undefined)
+ *   2. capability identifier (e.g. `team:agent-teams`, `session:resume`)
+ *
+ * The capability identifier accepts `[a-z0-9:-]+` so multi-segment caps
+ * like `team:agent-teams` and `subagent:completion-signal` match cleanly.
+ */
+const REQUIRES_OPEN_REGEX = /<!--\s*requires:(native:)?([a-z0-9:-]+)\s*-->/g;
+
+/**
+ * Closing tag of a requires-guard block. Plain `<!-- /requires -->` with
+ * tolerant whitespace.
+ */
+const REQUIRES_CLOSE_TOKEN = '<!-- /requires -->';
+
+/** Set form of `SupportedCapabilityKey` for O(1) membership checks. */
+const SUPPORTED_CAPABILITY_NAMES: ReadonlySet<string> = new Set(
+  SupportedCapabilityKey.options,
+);
+
+/**
+ * Decide whether a guard block should be rendered for the given runtime.
+ *
+ * Plain guard (`<!-- requires:CAP -->`): block is included when the
+ * runtime's `supportedCapabilities` map declares CAP at any support
+ * level (`native` or `advisory`). Absence (the canonical "unsupported"
+ * encoding) elides the block.
+ *
+ * Native guard (`<!-- requires:native:CAP -->`): block is included only
+ * when the runtime's `supportedCapabilities` map declares CAP as
+ * `native`.
+ */
+function guardPasses(
+  runtime: RuntimeMap,
+  cap: SupportedCapabilityName,
+  nativeOnly: boolean,
+): boolean {
+  const support = runtime.supportedCapabilities?.[cap];
+  if (support === undefined) return false;
+  if (nativeOnly) return support === 'native';
+  // 'native' or 'advisory' — both pass plain guards.
+  return support === 'native' || support === 'advisory';
+}
+
+/**
+ * Walk `body` and elide any `<!-- requires:* -->` ... `<!-- /requires -->`
+ * blocks that the runtime fails. Honors arbitrary nesting: when an outer
+ * guard elides, inner content is dropped wholesale regardless of its
+ * own evaluation. When an outer guard passes, inner guards are evaluated
+ * recursively against the runtime.
+ *
+ * Validates every guard's capability against `SupportedCapabilityKey`
+ * — typos are build errors with file/line and offending capability so
+ * authors can fix the prose, not silent passes.
+ *
+ * Strips the guard markers from kept blocks so they never leak into
+ * rendered output. Keeps surrounding text byte-identical: the marker
+ * line is removed wholesale (including its trailing newline if present)
+ * so the elided block doesn't leave behind a blank "stub" line.
+ *
+ * @param body - Raw skill source (pre-renderCallMacros, pre-render).
+ * @param runtime - Target runtime providing `supportedCapabilities`.
+ * @param sourcePath - Source file path for error diagnostics.
+ * @returns The body with guards processed.
+ * @throws On unknown guard capability or missing closing tag.
+ */
+export function applyRequiresGuards(
+  body: string,
+  runtime: RuntimeMap,
+  sourcePath: string,
+): string {
+  // Reset stateful /g regex before use.
+  REQUIRES_OPEN_REGEX.lastIndex = 0;
+
+  // Single-pass walk: find every opening tag, find its matching close
+  // (honoring nesting), evaluate the guard, and rewrite the body
+  // accordingly. Process from outside in so an outer-elided block drops
+  // its inner content without ever evaluating the inner guard.
+  let result = body;
+  // Loop until no more top-level guards remain. Each iteration finds
+  // the first opening tag and resolves its matching close, then either
+  // strips the markers (kept) or removes the entire block (elided).
+  // Re-run from offset 0 each pass because elision shifts indices.
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    REQUIRES_OPEN_REGEX.lastIndex = 0;
+    const openMatch = REQUIRES_OPEN_REGEX.exec(result);
+    if (openMatch === null) break;
+
+    const openIdx = openMatch.index;
+    const openLen = openMatch[0].length;
+    const nativeOnly = openMatch[1] !== undefined;
+    const cap = openMatch[2];
+
+    // Validate the cap against the canonical enum. Typos are hard
+    // errors at build time.
+    if (!SUPPORTED_CAPABILITY_NAMES.has(cap)) {
+      const line = lineOf(result, openIdx);
+      throw new Error(
+        `unknown guard capability "requires:${nativeOnly ? 'native:' : ''}${cap}" in ${sourcePath}:${line}. ` +
+          `Known capabilities: [${[...SupportedCapabilityKey.options].sort().join(', ')}].`,
+      );
+    }
+
+    // Find the matching `<!-- /requires -->` honoring nesting depth so
+    // an outer guard's close is paired with its outer open even when an
+    // inner guard sits inside.
+    const closeIdx = findMatchingCloseIdx(result, openIdx + openLen);
+    if (closeIdx === -1) {
+      const line = lineOf(result, openIdx);
+      throw new Error(
+        `unclosed guard "requires:${nativeOnly ? 'native:' : ''}${cap}" in ${sourcePath}:${line}. ` +
+          `Every <!-- requires:* --> must have a matching <!-- /requires --> on a later line.`,
+      );
+    }
+
+    const innerStart = openIdx + openLen;
+    const innerEnd = closeIdx;
+    const inner = result.slice(innerStart, innerEnd);
+
+    // Build the trim-aware slice that absorbs the marker's trailing
+    // newline (and any leading newline directly before the marker for
+    // the close case) so we don't leave a blank-line scar where a guard
+    // used to be.
+    const before = result.slice(0, openIdx);
+    const after = result.slice(closeIdx + REQUIRES_CLOSE_TOKEN.length);
+
+    const passes = guardPasses(runtime, cap as SupportedCapabilityName, nativeOnly);
+    if (!passes) {
+      // Drop entire block including markers. Absorb a leading newline
+      // (so the line that held the open marker disappears completely)
+      // and a trailing newline (so the close marker's line disappears).
+      const beforeTrim = before.endsWith('\n') ? before.slice(0, -1) : before;
+      const afterTrim = after.startsWith('\n') ? after.slice(1) : after;
+      result = beforeTrim + (beforeTrim && afterTrim ? '\n' : '') + afterTrim;
+      continue;
+    }
+
+    // Guard passed → keep the inner content but strip the markers.
+    // Absorb a trailing newline on each marker so we don't introduce a
+    // blank line where the marker used to be.
+    let innerKept = inner;
+    // Strip leading newline immediately after the open marker
+    if (innerKept.startsWith('\n')) innerKept = innerKept.slice(1);
+    // Strip trailing newline immediately before the close marker
+    if (innerKept.endsWith('\n')) innerKept = innerKept.slice(0, -1);
+    const beforeTrim = before.endsWith('\n') ? before : before;
+    const afterTrim = after.startsWith('\n') ? after.slice(1) : after;
+    // Re-insert the kept inner with single newlines around it (only
+    // when there is actual content on both sides).
+    const sep1 = beforeTrim.length > 0 && innerKept.length > 0 ? '\n' : '';
+    const sep2 = innerKept.length > 0 && afterTrim.length > 0 ? '\n' : '';
+    result = beforeTrim + sep1 + innerKept + sep2 + afterTrim;
+    // Re-loop: any inner guards that survived the outer pass will be
+    // matched at the top-level next iteration.
+  }
+
+  return result;
+}
+
+/**
+ * Wave B: elide fenced code blocks whose info-string contains the
+ * `runtime:claude-only` marker from non-Claude renders. The block
+ * (including its opening + closing fence lines) is dropped wholesale
+ * so the contained snippet — typically a Claude-only API call like
+ * `TaskOutput(...)` that ships verbatim in the Claude render but has
+ * no analog elsewhere — never reaches the post-render vocabulary
+ * lint, never confuses an agent on a non-Claude runtime, and never
+ * leaks the marker itself.
+ *
+ * Why fenced code blocks specifically (not a separate guard syntax):
+ *   - Code snippets are the dominant carrier of Claude-only API
+ *     surface in skill prose. The other carrier — narrative prose —
+ *     already has the `<!-- requires:* -->` guard mechanism.
+ *   - A `runtime:claude-only` info-string reads naturally to a skill
+ *     author who already understands fenced code blocks, and most
+ *     markdown renderers ignore unknown info-string suffixes so the
+ *     Claude render of the block remains a normal `ts` block visually.
+ *
+ * Allowed fence variants:
+ *   - Triple-backtick fences (```), the canonical form.
+ *   - Triple-tilde fences (~~~), supported because some markdown
+ *     dialects prefer them for snippets containing backticks.
+ *   - Longer fences (4+ delimiters) are recognized; the closing fence
+ *     must be the same character at the same length.
+ *   - Indented fences (e.g. inside a list item) are recognized; the
+ *     closing fence is matched at any indentation.
+ *
+ * Note on absorption: a single trailing newline after the closing
+ * fence is absorbed so the elision does not leave a blank-line scar
+ * where the block used to be (mirrors `applyRequiresGuards` behavior).
+ *
+ * @param body - Rendered or partially-rendered skill body.
+ * @param runtime - Target runtime; "Claude-like" runtimes
+ *   (`team:agent-teams: native`) keep the blocks verbatim.
+ * @returns The body with `runtime:claude-only` blocks elided when
+ *   the runtime is non-Claude; unchanged when Claude-like.
+ */
+export function elideClaudeOnlyCodeBlocks(
+  body: string,
+  runtime: RuntimeMap,
+): string {
+  if (runtimeAllowsClaudeOnlyTerms(runtime)) return body;
+
+  const lines = body.split('\n');
+  const out: string[] = [];
+  let i = 0;
+  // Pattern matches an opening fence line: optional leading whitespace,
+  // then a run of 3+ backticks or tildes (captured), then the rest of
+  // the line as the info-string. The info-string substring check below
+  // gates whether we're entering an elidable block.
+  const openRegex = /^(\s*)(`{3,}|~{3,})(.*)$/;
+  while (i < lines.length) {
+    const line = lines[i];
+    const m = line.match(openRegex);
+    if (m && m[3].includes('runtime:claude-only')) {
+      // Skip lines until we find the matching closing fence: same
+      // delimiter character at the same length, at any indentation,
+      // with no further content beyond optional whitespace. Markdown's
+      // fence-matching rules require the close to be at least as long
+      // as the open, but the typical case is exact-match; we accept
+      // any same-character fence of length >= the opening.
+      const fenceChar = m[2][0];
+      const fenceLen = m[2].length;
+      const closeRegex = new RegExp(
+        `^\\s*${fenceChar === '`' ? '`' : '~'}{${fenceLen},}\\s*$`,
+      );
+      i++;
+      while (i < lines.length) {
+        if (closeRegex.test(lines[i])) {
+          i++; // consume the closing fence
+          break;
+        }
+        i++;
+      }
+      // Absorb a single blank line that immediately follows the
+      // closing fence so the elision does not leave a blank-line
+      // scar between two paragraphs of always-on prose.
+      if (i < lines.length && lines[i] === '') {
+        i++;
+      }
+      continue;
+    }
+    out.push(line);
+    i++;
+  }
+  return out.join('\n');
+}
+
+/**
+ * Find the byte offset of the `<!-- /requires -->` token that closes a
+ * guard whose opening tag ends at `searchStart`. Honors nesting: every
+ * `<!-- requires:* -->` after `searchStart` increments depth, every
+ * `<!-- /requires -->` decrements it; the close at depth==0 is the
+ * matching one. Returns -1 if no matching close exists.
+ */
+function findMatchingCloseIdx(body: string, searchStart: number): number {
+  // Use a fresh regex for the open tag (we're inside a callsite of the
+  // shared one and don't want to corrupt its state).
+  const openLocal = new RegExp(REQUIRES_OPEN_REGEX.source, 'g');
+  openLocal.lastIndex = searchStart;
+
+  let depth = 0;
+  let scanFrom = searchStart;
+  while (true) {
+    // Find the next interesting marker — either an open or a close.
+    openLocal.lastIndex = scanFrom;
+    const nextOpen = openLocal.exec(body);
+    const nextOpenIdx = nextOpen ? nextOpen.index : -1;
+    const nextCloseIdx = body.indexOf(REQUIRES_CLOSE_TOKEN, scanFrom);
+
+    if (nextCloseIdx === -1) return -1;
+
+    if (nextOpenIdx !== -1 && nextOpenIdx < nextCloseIdx) {
+      // Nested open before next close → bump depth and keep scanning.
+      depth++;
+      scanFrom = nextOpenIdx + nextOpen![0].length;
+      continue;
+    }
+
+    // We have a close to handle.
+    if (depth === 0) return nextCloseIdx;
+    depth--;
+    scanFrom = nextCloseIdx + REQUIRES_CLOSE_TOKEN.length;
+  }
 }
 
 /**
@@ -829,6 +1144,14 @@ export function buildAllSkills(opts: {
     );
   }
 
+  // Pre-flight: every runtime YAML must declare every canonical token in
+  // its `placeholders` map. This is a forcing function that turns a
+  // missing entry into a single aggregated error naming every (runtime,
+  // token) pair, instead of a per-render `unknown placeholder` failure
+  // for whichever runtime iterates first. Implements Wave A coverage
+  // guarantee for `RuntimeTokenKey`.
+  assertRuntimeTokenCoverage(runtimes);
+
   // Pre-flight: enforce the placeholder vocabulary. Running this
   // *before* the renderer means a stray `{{NOT_A_REAL_TOKEN}}`
   // surfaces as a single aggregated error naming every offender,
@@ -859,6 +1182,11 @@ export function buildAllSkills(opts: {
   let variantsWritten = 0;
   let referencesCopied = 0;
 
+  // Wave B: aggregate vocabulary-lint findings across every (runtime,
+  // skill) pair so the build emits one consolidated diagnostic
+  // listing every offender, rather than failing at the first hit.
+  const vocabularyFindings: VocabularyLintFinding[] = [];
+
   for (const skillDir of skillDirs) {
     const skillRel = relative(opts.srcDir, skillDir);
     const sourcePath = join(skillDir, 'SKILL.md');
@@ -879,18 +1207,47 @@ export function buildAllSkills(opts: {
         written.add(resolve(outSkillFile));
         overridesUsed.push(overridePath);
         variantsWritten++;
+        // Override files are still subject to the Wave B vocabulary
+        // lint — an author cannot dodge the gate by routing
+        // Claude-only prose through a runtime override file. The
+        // verbatim contents go straight to the lint with no other
+        // processing.
+        vocabularyFindings.push(
+          ...lintRenderedSkill(overrideBody, overridePath, rt),
+        );
       } else {
         try {
-          // CALL macros are expanded explicitly here (not via `render`'s
-          // optional `runtime` context) so the two passes stay separated.
-          // Do NOT add `runtime: rt` to the `render()` call below — that
-          // would double-expand CALL macros.
-          const macroExpanded = renderCallMacros(body, rt);
-          const rendered = render(macroExpanded, rt.placeholders, {
+          // Pipeline (Wave A + Wave B):
+          //   1. Apply `<!-- requires:* -->` guards FIRST so guard-elided
+          //      CALL macros and tokens never reach the renderer (a
+          //      Claude-only literal under a guard for `team:agent-teams`
+          //      would otherwise break OpenCode's render even though it
+          //      should have been elided).
+          //   2. Expand `{{CALL ...}}` macros to facade-appropriate
+          //      output.
+          //   3. Substitute `{{TOKEN}}` placeholders.
+          //   4. (Wave B) Elide fenced code blocks tagged
+          //      `runtime:claude-only` from non-Claude renders.
+          //   5. (Wave B) Run the post-render vocabulary lint against
+          //      the bytes that will be written, aggregating findings
+          //      so all offenders surface in one diagnostic.
+          // Do NOT pass `runtime: rt` to `render()` below — that would
+          // double-expand CALL macros after step 2.
+          const guardElided = applyRequiresGuards(body, rt, sourcePath);
+          const macroExpanded = renderCallMacros(guardElided, rt);
+          const tokenExpanded = render(macroExpanded, rt.placeholders, {
             sourcePath,
             runtimeName: rt.name,
           });
+          const rendered = elideClaudeOnlyCodeBlocks(tokenExpanded, rt);
           assertNoUnresolvedPlaceholders(rendered, sourcePath, rt.name);
+          // Wave B: vocabulary lint runs against the exact bytes about
+          // to hit disk. Findings are aggregated, not thrown — the
+          // post-loop check below converts the aggregate into a
+          // single diagnostic.
+          vocabularyFindings.push(
+            ...lintRenderedSkill(rendered, sourcePath, rt),
+          );
           writeFileSync(outSkillFile, rendered);
           written.add(resolve(outSkillFile));
           variantsWritten++;
@@ -905,17 +1262,56 @@ export function buildAllSkills(opts: {
         }
       }
 
-      // References: mirror next to the variant under each runtime.
+      // References: render only those linked from the per-runtime
+      // rendered SKILL.md so guard-elided sections don't leak their
+      // dependent reference files into runtimes that can't make use of
+      // them. Files in `references/` not linked from the rendered
+      // SKILL.md are NOT written. This is the Wave A "orphan pruning"
+      // pass — see `collectReferencedFiles` below for the link
+      // discovery contract.
+      //
+      // Wave C: surviving Markdown references go through the same
+      // renderer pipeline that SKILL.md does (guards → CALL macros →
+      // tokens → claude-only fenced-block elision) so Claude-only
+      // prose inside a guarded section is invisible to non-Claude
+      // runtimes. Non-text references (binary blobs) byte-copy as
+      // before so we never corrupt them by re-encoding.
       if (existsSync(join(skillDir, 'references'))) {
+        // Re-read the just-written rendered SKILL.md so we scan exactly
+        // what reached disk (including override files written verbatim).
+        const renderedBody = readFileSync(outSkillFile, 'utf8');
+        const linked = collectReferencedFiles(
+          renderedBody,
+          join(skillDir, 'references'),
+        );
         const before = written.size;
-        copyTreePreservingMtime(
+        renderLinkedReferences(
           join(skillDir, 'references'),
           join(outSkillDir, 'references'),
+          linked,
+          rt,
           written,
+          // Wave C: aggregate vocabulary-lint findings against rendered
+          // reference bytes into the same list the SKILL.md pass uses.
+          // The build's post-loop check below converts every offender
+          // — SKILL.md or reference — into one consolidated diagnostic.
+          vocabularyFindings,
         );
         referencesCopied += written.size - before;
       }
     }
+  }
+
+  // Wave B: aggregated vocabulary lint check. Every (runtime, skill)
+  // pair contributed any forbidden-term occurrences to the shared
+  // findings list during the render loop above. If any survived to
+  // a non-Claude render, fail the build with one consolidated
+  // diagnostic naming every offender. The Claude render (and any
+  // other runtime declaring `team:agent-teams: native`) is exempt
+  // and contributes no findings — see `runtimeAllowsClaudeOnlyTerms`
+  // in `vocabulary-lint.ts` for the exemption rationale.
+  if (vocabularyFindings.length > 0) {
+    throw new Error(formatVocabularyLintMessage(vocabularyFindings));
   }
 
   // Stale cleanup: any file under `outDir/<runtime>/` not written this
@@ -930,6 +1326,322 @@ export function buildAllSkills(opts: {
   }
 
   return { variantsWritten, referencesCopied, overridesUsed, warnings };
+}
+
+/**
+ * Matches a markdown link target pointing into the local `references/`
+ * directory: e.g. `[label](references/foo.md)` or `references/foo.md`
+ * standalone in prose. Capture group 1 is the path component AFTER the
+ * `references/` prefix.
+ *
+ * The pattern is intentionally permissive — it matches inside markdown
+ * link syntax and in bare-text references — because skill authors mix
+ * both forms. False positives are harmless (the worst case is copying a
+ * file that is named in prose but never visited), while false negatives
+ * would silently strip a real reference.
+ */
+const REFERENCES_LINK_REGEX = /references\/([A-Za-z0-9._\-/]+)/g;
+
+/**
+ * Extract the set of references-relative paths that `body` links to via
+ * `references/<file>` patterns (in markdown links or bare prose).
+ * Returns paths that resolve to an on-disk file under `referencesDir`.
+ * Paths are normalized to forward slashes so set membership works on
+ * Windows and matches the `references/` on-disk layout.
+ *
+ * Single-pass: callers wanting transitive closure should use
+ * `collectReferencedFiles` instead.
+ */
+function extractDirectLinks(body: string, referencesDir: string): Set<string> {
+  const linked = new Set<string>();
+  const regex = new RegExp(REFERENCES_LINK_REGEX.source, 'g');
+  let match: RegExpExecArray | null;
+  while ((match = regex.exec(body)) !== null) {
+    let rel = match[1];
+    // Strip URL fragment (e.g. `foo.md#section`) — link targets the file.
+    const hashIdx = rel.indexOf('#');
+    if (hashIdx !== -1) rel = rel.slice(0, hashIdx);
+    // Strip any trailing parens/quotes that the lazy regex may have
+    // captured if the link was `(references/foo.md)` without a label.
+    rel = rel.replace(/[)"'].*$/, '');
+    if (rel.length === 0) continue;
+    const candidate = join(referencesDir, rel);
+    if (existsSync(candidate) && statSync(candidate).isFile()) {
+      linked.add(rel.replace(/\\/g, '/'));
+    }
+  }
+  return linked;
+}
+
+/**
+ * Walk `body` (the rendered SKILL.md after guards + macros + tokens have
+ * been processed) and return the *transitive closure* of references-
+ * relative paths that the body or any reachable reference file links to.
+ *
+ * Why transitive: skill prose often delegates substantive material to
+ * a reference file which in turn links to deeper helpers (e.g.
+ * `polish-track.md` references `phases/polish-implement.md`). A
+ * non-transitive scan would prune the deeper helpers as orphans even
+ * though the skill would break in practice when the user follows the
+ * first link.
+ *
+ * Files that exist on disk but are not in the returned set are pruned
+ * by `copyLinkedReferences`. The `referencesDir` argument filters out
+ * matches that don't correspond to an on-disk file — typo'd links
+ * surface via the lint, not here.
+ */
+function collectReferencedFiles(body: string, referencesDir: string): Set<string> {
+  const linked = new Set<string>();
+  // BFS over the link graph rooted at `body`. Each visited reference
+  // file contributes its own outgoing links, expanding the set until
+  // closure. Visited tracking on `linked` prevents cycles from looping.
+  const queue: string[] = [];
+  for (const direct of extractDirectLinks(body, referencesDir)) {
+    if (!linked.has(direct)) {
+      linked.add(direct);
+      queue.push(direct);
+    }
+  }
+  while (queue.length > 0) {
+    const rel = queue.shift()!;
+    const filePath = join(referencesDir, rel);
+    if (!existsSync(filePath)) continue;
+    let refBody: string;
+    try {
+      refBody = readFileSync(filePath, 'utf8');
+    } catch {
+      // Binary or unreadable — no outgoing links to traverse.
+      continue;
+    }
+    for (const next of extractDirectLinks(refBody, referencesDir)) {
+      if (!linked.has(next)) {
+        linked.add(next);
+        queue.push(next);
+      }
+    }
+  }
+  return linked;
+}
+
+/**
+ * Copy only the references files in `linked` from `srcRefs` to
+ * `destRefs`, preserving directory structure. Files not in `linked`
+ * are skipped so an elided guard's referenced files do not bleed into
+ * runtimes that don't link to them.
+ *
+ * Symmetric with `copyTreePreservingMtime` for mtime preservation and
+ * the optional `writtenPaths` accumulator that `buildAllSkills` uses
+ * for stale-cleanup tracking. Creates the destination directory only
+ * when at least one file is copied — avoids spawning empty
+ * `references/` directories under runtimes that drop every link.
+ */
+function copyLinkedReferences(
+  srcRefs: string,
+  destRefs: string,
+  linked: Set<string>,
+  writtenPaths?: Set<string>,
+): void {
+  if (linked.size === 0) return;
+  // Materialize parent dir before writing children.
+  mkdirSync(destRefs, { recursive: true });
+
+  for (const rel of linked) {
+    const srcFile = join(srcRefs, rel);
+    if (!existsSync(srcFile)) continue;
+    const srcStat = statSync(srcFile);
+    if (!srcStat.isFile()) continue;
+    const destFile = join(destRefs, rel);
+    mkdirSync(dirname(destFile), { recursive: true });
+    const contents = readFileSync(srcFile);
+    writeFileSync(destFile, contents);
+    utimesSync(destFile, srcStat.atime, srcStat.mtime);
+    if (writtenPaths) writtenPaths.add(resolve(destFile));
+  }
+}
+
+/**
+ * File extensions whose contents go through the same render pipeline
+ * SKILL.md uses (guards → CALL macros → tokens → claude-only fenced-block
+ * elision). Anything not in this set is byte-copied so binary blobs
+ * (PNGs, GIFs, screenshots embedded in references) survive intact.
+ *
+ * Conservative on purpose — if an author drops a `.json` schema or
+ * `.yaml` snippet into `references/` they almost certainly want it
+ * verbatim. Markdown is the only format that actually carries
+ * `{{TOKEN}}` and `<!-- requires:* -->` syntax in the source tree, so
+ * narrowing to `.md` keeps the blast radius of the new pipeline tiny.
+ */
+const RENDERED_REFERENCE_EXTENSIONS: ReadonlySet<string> = new Set([
+  '.md',
+  '.markdown',
+]);
+
+/**
+ * Wave C: render the references files in `linked` from `srcRefs` to
+ * `destRefs`, applying the same per-runtime pipeline as SKILL.md.
+ * Symmetric with `copyLinkedReferences` (which it replaces in
+ * `buildAllSkills`): files outside `linked` are skipped so an elided
+ * guard's referenced files do not bleed into runtimes that don't link
+ * to them.
+ *
+ * Pipeline for Markdown references (matches the SKILL.md pipeline in
+ * `buildAllSkills` exactly):
+ *   1. `applyRequiresGuards` — elide blocks whose required capability
+ *      isn't declared by the runtime.
+ *   2. `renderCallMacros` — expand `{{CALL ...}}` to the runtime's
+ *      preferred facade.
+ *   3. `render` — substitute `{{TOKEN}}` placeholders.
+ *   4. `elideClaudeOnlyCodeBlocks` — drop fenced blocks tagged
+ *      `runtime:claude-only` from non-Claude renders.
+ *   5. `assertNoUnresolvedPlaceholders` — fail fast on a residual
+ *      `{{...}}` so a typo in a reference surfaces with the same
+ *      diagnostic shape as a SKILL.md typo.
+ *
+ * Non-Markdown references (anything outside
+ * `RENDERED_REFERENCE_EXTENSIONS`) byte-copy unchanged with mtime
+ * preservation, identical to the pre-Wave-C behavior. This keeps
+ * binary blobs intact while the new pipeline only touches the file
+ * formats that actually carry placeholder/guard syntax.
+ *
+ * @param srcRefs - Source `references/` directory.
+ * @param destRefs - Per-runtime destination `references/` directory.
+ * @param linked - Reference paths (relative to `srcRefs`) that survive
+ *   the link-prune pass; everything else is dropped.
+ * @param runtime - Target runtime; drives placeholder substitution,
+ *   guard evaluation, and Claude-only elision.
+ * @param writtenPaths - Optional accumulator for the stale-cleanup
+ *   pass in `buildAllSkills`. Mirrors the `copyLinkedReferences`
+ *   contract so the caller can swap implementations transparently.
+ * @param vocabularyFindings - Optional accumulator for Wave C's
+ *   vocabulary-lint extension. After rendering each Markdown
+ *   reference, the bytes about to hit disk are scanned for forbidden
+ *   Claude-only terms via `lintRenderedSkill`; findings are appended
+ *   here using the reference file path as `sourcePath` so the
+ *   aggregated diagnostic in `buildAllSkills` points authors at the
+ *   actual offender (not the SKILL.md that linked it).
+ */
+function renderLinkedReferences(
+  srcRefs: string,
+  destRefs: string,
+  linked: Set<string>,
+  runtime: RuntimeMap,
+  writtenPaths?: Set<string>,
+  vocabularyFindings?: VocabularyLintFinding[],
+): void {
+  if (linked.size === 0) return;
+  // Materialize parent dir before writing children.
+  mkdirSync(destRefs, { recursive: true });
+
+  for (const rel of linked) {
+    const srcFile = join(srcRefs, rel);
+    if (!existsSync(srcFile)) continue;
+    const srcStat = statSync(srcFile);
+    if (!srcStat.isFile()) continue;
+    const destFile = join(destRefs, rel);
+    mkdirSync(dirname(destFile), { recursive: true });
+
+    // Decide pipeline vs byte-copy by file extension. Markdown
+    // references go through the same render passes as SKILL.md so
+    // guards/tokens/claude-only blocks behave identically. Everything
+    // else (binary blobs, JSON, YAML) is preserved verbatim with
+    // mtime so existing reference assets aren't corrupted by an
+    // accidental re-encoding pass.
+    const dotIdx = rel.lastIndexOf('.');
+    const ext = dotIdx === -1 ? '' : rel.slice(dotIdx).toLowerCase();
+    if (RENDERED_REFERENCE_EXTENSIONS.has(ext)) {
+      const body = readFileSync(srcFile, 'utf8');
+      try {
+        const guardElided = applyRequiresGuards(body, runtime, srcFile);
+        const macroExpanded = renderCallMacros(guardElided, runtime);
+        // `lenientUnknownTokens: true` — references legitimately carry
+        // handlebar-style template literals (e.g. `{{category}}`,
+        // `{{#each hints}}`) that are populated downstream at dispatch
+        // time, not by the renderer. Throwing on unknown tokens here
+        // would force authors to rewrite every template-bearing
+        // reference. The placeholder-lint already excludes references
+        // by design (see `placeholder-lint.ts` header comment) — the
+        // renderer matches that contract by leaving unknowns intact.
+        const rendered = elideClaudeOnlyCodeBlocks(
+          render(macroExpanded, runtime.placeholders, {
+            sourcePath: srcFile,
+            runtimeName: runtime.name,
+            lenientUnknownTokens: true,
+          }),
+          runtime,
+        );
+        // Wave C: scan the rendered reference bytes for forbidden
+        // Claude-only terms. Findings are aggregated into the shared
+        // accumulator (one per occurrence per runtime) so the build's
+        // post-loop diagnostic surfaces every offender at once with
+        // the reference file path — authors can jump straight to the
+        // line, no need to grep through SKILL.md links.
+        if (vocabularyFindings) {
+          vocabularyFindings.push(
+            ...lintRenderedSkill(rendered, srcFile, runtime),
+          );
+        }
+        writeFileSync(destFile, rendered);
+      } catch (err) {
+        // Re-throw with source file context if the inner error doesn't
+        // already mention it — mirrors the SKILL.md branch's wrapping
+        // behavior so a CALL macro / placeholder failure inside a
+        // reference points the author at the exact file.
+        const msg = err instanceof Error ? err.message : String(err);
+        if (msg.includes(srcFile)) throw err;
+        throw new Error(`Reference render error in ${srcFile}: ${msg}`);
+      }
+    } else {
+      // Binary or non-Markdown reference: byte-copy with mtime
+      // preserved so timestamp-sensitive consumers see no churn.
+      const contents = readFileSync(srcFile);
+      writeFileSync(destFile, contents);
+      utimesSync(destFile, srcStat.atime, srcStat.mtime);
+    }
+    if (writtenPaths) writtenPaths.add(resolve(destFile));
+  }
+}
+
+/**
+ * Pre-flight: enforce that every loaded runtime declares a value for
+ * every token in `RuntimeTokenKey`. Aggregates all missing
+ * (runtime, token) pairs into a single error so authors fix the YAML in
+ * one pass — without this, a typo or missed entry would only surface
+ * for whichever runtime renders the offending source first.
+ *
+ * Adding a token to `RuntimeTokenKey` and forgetting to add it to even
+ * one of the six runtime YAMLs is the most common Wave A authoring
+ * mistake; this check catches it before any rendering happens.
+ *
+ * Throws with a sorted (runtime, token) listing for determinism.
+ */
+function assertRuntimeTokenCoverage(runtimes: RuntimeMap[]): void {
+  const missing: Array<{ runtime: string; token: string }> = [];
+  for (const rt of runtimes) {
+    for (const token of RuntimeTokenKey) {
+      if (!Object.prototype.hasOwnProperty.call(rt.placeholders, token)) {
+        missing.push({ runtime: rt.name, token });
+      }
+    }
+  }
+  if (missing.length === 0) return;
+
+  // Sort by (token, runtime) so the message is reproducible regardless
+  // of YAML load order — most useful when the same token is missing on
+  // multiple runtimes.
+  missing.sort((a, b) =>
+    a.token === b.token ? a.runtime.localeCompare(b.runtime) : a.token.localeCompare(b.token),
+  );
+
+  const lines = missing.map(
+    (m) =>
+      `  - runtimes/${m.runtime}.yaml is missing required placeholder {{${m.token}}}`,
+  );
+  throw new Error(
+    `[build:skills] runtime token coverage check failed:\n${lines.join('\n')}\n\n` +
+      `Add the token to every runtimes/*.yaml placeholders map. ` +
+      `Required tokens (from RuntimeTokenKey in src/runtimes/types.ts): ` +
+      `[${[...RuntimeTokenKey].join(', ')}].`,
+  );
 }
 
 /**

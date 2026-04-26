@@ -38,6 +38,17 @@ function makeTempDir(): string {
   return dir;
 }
 
+/**
+ * No-op `regenerateAgents` callback for tests that exercise only the
+ * `skills/` half of the guard. The real default tries to spawn
+ * `tsx servers/exarchos-mcp/src/agents/generate-agents.ts` against
+ * `cwd`, which doesn't exist in a temp sandbox. Tests that *want* to
+ * exercise the agents path inject their own writer instead.
+ */
+const noopRegenerateAgents = (_cwd: string): void => {
+  /* intentionally empty */
+};
+
 afterEach(() => {
   while (tempDirs.length > 0) {
     const d = tempDirs.pop()!;
@@ -74,7 +85,17 @@ function writeRuntimeFixtures(runtimesDir: string): void {
         `  binaries: []`,
         `  envVars: []`,
         `placeholders:`,
+        // Wave A: every runtime YAML must declare every RuntimeTokenKey
+        // entry. Add the canonical set so `assertRuntimeTokenCoverage`
+        // is satisfied; AGENT_LABEL stays for legacy fixture references.
         `  AGENT_LABEL: "agent"`,
+        `  MCP_PREFIX: "mcp__${name}__"`,
+        `  COMMAND_PREFIX: "/"`,
+        `  TASK_TOOL: "Task"`,
+        `  CHAIN: "[invoke {{next}} with {{args}}]"`,
+        `  SPAWN_AGENT_CALL: 'Task({ prompt: \"{{prompt}}\" })'`,
+        `  SUBAGENT_COMPLETION_HOOK: "subagent completion signal (poll-based)"`,
+        `  SUBAGENT_RESULT_API: "[poll subagent result]"`,
         ``,
       ].join('\n'),
     );
@@ -185,7 +206,7 @@ describe('skills-guard — task 023', () => {
   it('SkillsGuard_CleanBuild_Passes', () => {
     const root = provisionProject();
 
-    const result = runSkillsGuard({ cwd: root });
+    const result = runSkillsGuard({ cwd: root, regenerateAgents: noopRegenerateAgents });
 
     expect(result.ok).toBe(true);
     expect(result.exitCode).toBe(0);
@@ -206,7 +227,7 @@ describe('skills-guard — task 023', () => {
       'Hello {{AGENT_LABEL}} — updated\n',
     );
 
-    const result = runSkillsGuard({ cwd: root });
+    const result = runSkillsGuard({ cwd: root, regenerateAgents: noopRegenerateAgents });
 
     expect(result.ok).toBe(false);
     expect(result.exitCode).not.toBe(0);
@@ -221,7 +242,7 @@ describe('skills-guard — task 023', () => {
       'Hello {{AGENT_LABEL}} — changed\n',
     );
 
-    const result = runSkillsGuard({ cwd: root });
+    const result = runSkillsGuard({ cwd: root, regenerateAgents: noopRegenerateAgents });
 
     expect(result.ok).toBe(false);
     // Remediation must name the build command so a developer can copy
@@ -259,13 +280,88 @@ describe('skills-guard — task 023', () => {
       env: gitEnv,
     });
 
-    const result = runSkillsGuard({ cwd: root });
+    const result = runSkillsGuard({ cwd: root, regenerateAgents: noopRegenerateAgents });
 
     expect(result.ok).toBe(false);
     expect(result.exitCode).not.toBe(0);
     // The diff body returned by the guard should mention the generated
     // file path so developers can see *which* file drifted.
     expect(result.message).toMatch(/skills\/claude\/foo\/SKILL\.md/);
+  });
+});
+
+/**
+ * Task 13: extend `skills:guard` to detect drift in the generated
+ * `agents/` tree as well as `skills/`.
+ *
+ * Today the guard only checks `skills/`. A developer who hand-edits
+ * `agents/implementer.md` (or any of the four agent files emitted by
+ * `generate-agents.ts`) can land that drift in main without the CI
+ * guard catching it. This test asserts the guard fans out to a second
+ * `git diff --exit-code agents/` check and fails on any agents drift.
+ *
+ * Test mechanic mirrors `SkillsGuard_DirectSkillEdit_Detected`:
+ *   1. Seed a temp project as usual (skills clean, committed).
+ *   2. Commit an `agents/implementer.md` whose content differs from
+ *      the canonical generator output.
+ *   3. After the guard runs, `git diff agents/` against HEAD must be
+ *      non-empty (the regeneration overwrote the hand-edit).
+ *
+ * To avoid wiring the full real `generateAgents` registry into a temp
+ * sandbox (which would require copying every adapter/spec module),
+ * this test injects a deterministic regenerator that just writes a
+ * known canonical body to `agents/implementer.md`. The production
+ * default invokes `generate-agents.ts` via tsx in a child process —
+ * see `defaultRegenerateAgents` in `skills-guard.ts`.
+ */
+describe('skills-guard — task 13 agents/ drift', () => {
+  it('SkillsGuard_AgentsDirDrift_FailsCheck', () => {
+    const root = provisionProject();
+
+    // Seed a committed `agents/implementer.md` whose content differs
+    // from what the (injected) regenerator below will produce. After
+    // the guard regenerates, `git diff agents/` against HEAD will be
+    // non-empty — this is exactly the same drift-detection mechanic
+    // the `skills/` check already uses.
+    const agentsDir = join(root, 'agents');
+    mkdirSync(agentsDir, { recursive: true });
+    writeFileSync(
+      join(agentsDir, 'implementer.md'),
+      'HAND EDITED — not canonical\n',
+    );
+
+    const gitEnv = {
+      ...process.env,
+      GIT_AUTHOR_NAME: 'test',
+      GIT_AUTHOR_EMAIL: 'test@example.com',
+      GIT_COMMITTER_NAME: 'test',
+      GIT_COMMITTER_EMAIL: 'test@example.com',
+    };
+    execSync('git add -A', { cwd: root, env: gitEnv });
+    execSync('git commit -q -m "drifted agents file"', {
+      cwd: root,
+      env: gitEnv,
+    });
+
+    // Inject a deterministic regenerator so the test does not need
+    // the real adapter registry. After the guard calls this, the
+    // file's content differs from HEAD — the drift state we need
+    // the guard to detect.
+    const regenerateAgents = (cwd: string): void => {
+      writeFileSync(
+        join(cwd, 'agents', 'implementer.md'),
+        'CANONICAL implementer body\n',
+      );
+    };
+
+    const result = runSkillsGuard({ cwd: root, regenerateAgents });
+
+    expect(result.ok).toBe(false);
+    expect(result.exitCode).not.toBe(0);
+    // The diff body should mention the agents file path so a
+    // developer can see *which* file drifted, just like the
+    // `skills/` check does.
+    expect(result.message).toMatch(/agents\/implementer\.md/);
   });
 });
 
@@ -296,7 +392,7 @@ describe('skills-guard — task 011 CALL macro determinism', () => {
     // First guard invocation: the seed build already committed the
     // rendered output; the guard rebuilds in-process and diffs against
     // HEAD. If rendering is deterministic, the diff is empty.
-    const firstResult = runSkillsGuard({ cwd: root });
+    const firstResult = runSkillsGuard({ cwd: root, regenerateAgents: noopRegenerateAgents });
     expect(firstResult.ok).toBe(true);
     expect(firstResult.exitCode).toBe(0);
 
@@ -323,7 +419,7 @@ describe('skills-guard — task 011 CALL macro determinism', () => {
       runtimesDir: join(root, 'runtimes'),
     });
 
-    const secondResult = runSkillsGuard({ cwd: root });
+    const secondResult = runSkillsGuard({ cwd: root, regenerateAgents: noopRegenerateAgents });
     expect(secondResult.ok).toBe(true);
     expect(secondResult.exitCode).toBe(0);
   });

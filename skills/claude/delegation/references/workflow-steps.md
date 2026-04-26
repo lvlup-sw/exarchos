@@ -53,6 +53,7 @@ Task({
 })
 ```
 
+
 ### Agent Teams Dispatch (enhanced)
 
 When using `--mode agent-team`:
@@ -66,16 +67,18 @@ Teammates self-coordinate via shared task list. No `Task()` calls needed.
 
 ## Step 5: Monitor Progress
 
-For background tasks:
-```typescript
-TaskOutput({ task_id: "task-001-id", block: true })
+For background tasks, poll/await using the runtime's result-collection primitive:
+```text
+TaskOutput({ task_id, block: true })
+// task_id: task-001-id
 ```
+
 
 ### Agent Teams Monitoring (enhanced)
 
 When using `--mode agent-team`:
 - Teammates visible in tmux split panes
-- `TeammateIdle` hook auto-runs quality gates (typecheck, tests, clean worktree)
+- `TeammateIdle hook` auto-runs quality gates (typecheck, tests, clean worktree)
 - On quality pass: emits `team.task.completed` event with performance data
 - On quality fail: exit code 2 sends feedback, emits `team.task.failed` event
 - Hook scans task graph for newly unblocked tasks for teammates to claim
@@ -104,10 +107,11 @@ exarchos_orchestrate({
 
 **On `passed: false`:** Failures detected. Review the per-task status report. Address incomplete tasks or failing tests before proceeding.
 
+
 ### Agent Teams Collection (enhanced)
 
 When using `--mode agent-team`:
-- `TeammateIdle` hook bridges real-time Agent Teams with persistent Exarchos state
+- `TeammateIdle hook` bridges real-time Agent Teams with persistent Exarchos state
 - On quality gate pass: task marked "complete" + `team.task.completed` event emitted
 - On quality gate fail: exit code 2 sends feedback + `team.task.failed` event emitted
 - Rich event data: taskId, teammateName, durationMs, filesChanged, testsPassed

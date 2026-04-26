@@ -133,6 +133,7 @@ describe('[ComponentName]', () => {
 - [ ] No extra code beyond requirements
 - [ ] All tests in worktree pass
 
+
 ## Coordination (Native APIs)
 <!-- Agent Teams mode only. Remove this section for subagent mode. -->
 - Use `TaskList` to see available tasks and their statuses
@@ -379,6 +380,7 @@ describe('validateEmail', () => {
 4. **TDD Mandatory** - Always include TDD requirements
 5. **Git-First** - Standard git commit + push. PR creation handled by synthesis phase.
 6. **Clear Success Criteria** - Checkboxes for completion
+
 
 ## Agent Teams vs Subagent Mode
 
