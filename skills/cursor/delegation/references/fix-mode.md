@@ -50,15 +50,7 @@ Or auto-invoked after review failures.
    })
    ```
 
-   <!-- requires:native:session:resume -->
-   **Resume (runtimes with native session:resume, e.g. Claude Code):**
-   ```typescript
-   Task({
-     resume: "[agentId from workflow state]",
-     prompt: "Your implementation failed. [failure context]. Apply adversarial verification."
-   })
-   ```
-   <!-- /requires -->
+   
 
 5. **Re-review after fixes**:
    After all fix tasks complete, auto-invoke review phase:
@@ -66,27 +58,6 @@ Or auto-invoked after review failures.
    Skill({ skill: "exarchos:review", args: "<state-file>" })
    ```
 
-<!-- requires:native:session:resume -->
-## Resume-First Strategy
-
-When fixing failed tasks on runtimes with native session resume, prefer resuming the original agent over dispatching a fresh fixer. Resume preserves the implementer's full context (file reads, reasoning, partial progress), making fixes faster and more accurate.
-
-### agentId Tracking
-
-The `agentId` is captured from the `Task()` completion output and stored in workflow task state. The `SubagentStop` hook (`hooks/hooks.json`) automatically captures `agentId` when `exarchos-implementer` or `exarchos-fixer` agents complete.
-
-Check workflow state for `agentId`:
-```text
-exarchos_workflow get with fields: ["tasks"]
-→ tasks[id=<taskId>].agentId
-```
-
-### Decision Flow
-
-1. **agentId available?** → Resume with failure context
-2. **agentId unavailable?** → Fresh dispatch with `exarchos-fixer` agent type
-3. **Resume fails?** → Fall back to fresh dispatch
-<!-- /requires -->
 
 ### Gate Chain After Fix
 

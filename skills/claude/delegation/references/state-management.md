@@ -28,7 +28,7 @@ action: "set", featureId: "<id>", updates: {
 action: "set", featureId: "<id>", phase: "review"
 ```
 
-<!-- requires:team:agent-teams -->
+
 ## Agent Team Mode (Single-Writer)
 
 Only the orchestrator mutates `workflow.tasks[]` via `exarchos_workflow set`. Hooks emit events but never mutate state directly.
@@ -38,7 +38,6 @@ Only the orchestrator mutates `workflow.tasks[]` via `exarchos_workflow set`. Ho
 - **Staleness:** 30-60s projection lag is acceptable — native task dependency unblocking is automatic
 
 For the three-layer consistency model, drift recovery, and eventual consistency details, see `agent-teams-saga.md`.
-<!-- /requires -->
 
 ## Benchmark Label
 
@@ -52,7 +51,7 @@ action: "set", featureId: "<id>", updates: {
 
 The `/exarchos:synthesize` skill reads `verification.hasBenchmarks` and applies the `has-benchmarks` label via `gh pr edit <number> --add-label has-benchmarks`.
 
-<!-- requires:native:session:resume -->
+
 ## Agent ID Tracking
 
 Workflow task state includes additional fields for resume-aware fixer flow on runtimes with native session resume:
@@ -85,4 +84,3 @@ action: "set", featureId: "<id>", updates: {
   }
 }
 ```
-<!-- /requires -->

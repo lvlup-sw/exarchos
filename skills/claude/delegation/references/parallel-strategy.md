@@ -27,7 +27,7 @@ Task({ description: "Task 002", prompt: "..." })
 // WRONG: Separate messages = sequential
 ```
 
-<!-- requires:team:agent-teams -->
+
 ## Agent Teams Dispatch
 
 When using `--mode agent-team`, parallel execution uses named teammates instead of Task tool calls:
@@ -47,19 +47,18 @@ Each teammate receives the full implementer prompt content as context.
 
 ### Self-Coordination
 
-Teammates use Claude Code's native shared task list for claim/complete tracking. When a teammate becomes idle after completing its tasks, the `{{SUBAGENT_COMPLETION_HOOK}}` quality gate hook fires automatically, running quality checks and updating Exarchos workflow state (see SKILL.md State Bridge section).
+Teammates use Claude Code's native shared task list for claim/complete tracking. When a teammate becomes idle after completing its tasks, the `TeammateIdle hook` quality gate hook fires automatically, running quality checks and updating Exarchos workflow state (see SKILL.md State Bridge section).
 
 ### One Team Per Session
 
 Agent Teams supports one team per session. If you need more parallel groups than teammates, assign multiple tasks per teammate (sequential within the group).
-<!-- /requires -->
 
 ## Dispatch Mode Comparison
 
 | Aspect | Subagent (default) | Agent Teams (Claude only) |
 |--------|---------------------|----------------------|
-| Parallel dispatch | Multiple `{{TASK_TOOL}}` invocations in one message | Named teammates in agent team |
-| Waiting | `{{SUBAGENT_RESULT_API}}` | `{{SUBAGENT_COMPLETION_HOOK}}` |
+| Parallel dispatch | Multiple `Task` invocations in one message | Named teammates in agent team |
+| Waiting | `TaskOutput({ task_id, block: true })` | `TeammateIdle hook` |
 | Visibility | None (background) | tmux split panes |
 | Model control | `recommendedModel` from config | Session model for all |
 | Max parallelism | Unlimited | One team, N teammates |
@@ -69,7 +68,7 @@ Agent Teams supports one team per session. If you need more parallel groups than
 
 ```text
 // Wait for all background tasks via the runtime's result-collection primitive
-{{SUBAGENT_RESULT_API}}
+TaskOutput({ task_id, block: true })
 // (poll/await once per dispatched task_id)
 ```
 
@@ -77,7 +76,7 @@ Agent Teams supports one team per session. If you need more parallel groups than
 
 Model selection is config-driven via `.exarchos.yml`. The `prepare_delegation` action returns a `recommendedModel` in each task classification based on the config cascade: per-agent override, then default-model, then fallback. Override per-task via the dispatch primitive's `model` parameter when needed.
 
-<!-- requires:team:agent-teams -->
+
 **Note:** When using Agent Teams, all teammates inherit the session's model. Model is resolved from `.exarchos.yml` config via `prepare_delegation`. Use subagent dispatch if you need per-task model override.
 
 ## Agent Teams Dispatch Pattern
@@ -120,4 +119,3 @@ In Agent Teams mode, teammates coordinate via Claude Code's native shared task l
 ### One Team Per Session
 
 Agent Teams supports one team per session. For more parallel groups than teammates, assign sequential task chains to each teammate (e.g., "Do Task 1, then Task 2, then Task 3").
-<!-- /requires -->

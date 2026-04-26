@@ -22,11 +22,10 @@ If `git worktree add` fails:
 
 ## Subagent Not Responding
 If a spawned subagent doesn't respond:
-1. Check task output via the runtime's result-collection primitive (`{{SUBAGENT_RESULT_API}}`)
+1. Check task output via the runtime's result-collection primitive (`TaskOutput({ task_id, block: true })`)
 2. If the subagent is stuck: stop it with the runtime's task-stop primitive and re-dispatch
-<!-- requires:team:agent-teams -->
+
 3. For Agent Teams: use Claude Code's native teammate messaging (Shift+Up/Down to select, then type)
-<!-- /requires -->
 
 ## Task Claim Conflict
 If `exarchos_orchestrate` with `action: "task_claim"` returns ALREADY_CLAIMED:
@@ -38,7 +37,11 @@ If `exarchos_orchestrate` with `action: "task_claim"` returns ALREADY_CLAIMED:
 
 ### Error: `all-tasks-complete not satisfied: N task(s) incomplete`
 
-**Cause:** The runtime's native task list (e.g. Claude Code's `TaskList` updated via `TaskUpdate`) was modified, but exarchos workflow state was not synced. The `all-tasks-complete` guard checks the exarchos workflow `tasks[]` array, NOT any runtime-native task list.
+**Cause:** The runtime's native task list was modified, but exarchos workflow state was not synced. The `all-tasks-complete` guard checks the exarchos workflow `tasks[]` array, NOT any runtime-native task list.
+
+
+On Claude Code with Agent Teams, this typically happens when teammates update their `TaskList` via `TaskUpdate` but the orchestrator hasn't mirrored those statuses into exarchos workflow state.
+
 
 **Solution:** Before transitioning to review, call `exarchos_workflow set` with updated task statuses:
 ```json

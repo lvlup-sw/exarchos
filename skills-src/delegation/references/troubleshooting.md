@@ -38,7 +38,12 @@ If `exarchos_orchestrate` with `action: "task_claim"` returns ALREADY_CLAIMED:
 
 ### Error: `all-tasks-complete not satisfied: N task(s) incomplete`
 
-**Cause:** The runtime's native task list (e.g. Claude Code's `TaskList` updated via `TaskUpdate`) was modified, but exarchos workflow state was not synced. The `all-tasks-complete` guard checks the exarchos workflow `tasks[]` array, NOT any runtime-native task list.
+**Cause:** The runtime's native task list was modified, but exarchos workflow state was not synced. The `all-tasks-complete` guard checks the exarchos workflow `tasks[]` array, NOT any runtime-native task list.
+
+<!-- requires:team:agent-teams -->
+On Claude Code with Agent Teams, this typically happens when teammates update their `TaskList` via `TaskUpdate` but the orchestrator hasn't mirrored those statuses into exarchos workflow state.
+<!-- /requires -->
+
 
 **Solution:** Before transitioning to review, call `exarchos_workflow set` with updated task statuses:
 ```json
