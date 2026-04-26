@@ -1181,20 +1181,16 @@ export function buildAllSkills(opts: {
 const REFERENCES_LINK_REGEX = /references\/([A-Za-z0-9._\-/]+)/g;
 
 /**
- * Walk `body` (the rendered SKILL.md after guards + macros + tokens have
- * been processed) and return the set of references-relative paths that
- * any link or bare reference in the body points at. Paths are normalized
- * to use forward slashes so the result is portable across platforms and
- * matches the on-disk layout under `<skillDir>/references/`.
+ * Extract the set of references-relative paths that `body` links to via
+ * `references/<file>` patterns (in markdown links or bare prose).
+ * Returns paths that resolve to an on-disk file under `referencesDir`.
+ * Paths are normalized to forward slashes so set membership works on
+ * Windows and matches the `references/` on-disk layout.
  *
- * Files that exist on disk but are not in the returned set are pruned
- * by `copyLinkedReferences`. The `referencesDir` argument is used to
- * filter out matches that don't actually correspond to an on-disk file
- * (so a typo'd link doesn't trip up the build with a confusing
- * "missing file" error — the missing-file failure mode lives in the
- * vocabulary lint, not here).
+ * Single-pass: callers wanting transitive closure should use
+ * `collectReferencedFiles` instead.
  */
-function collectReferencedFiles(body: string, referencesDir: string): Set<string> {
+function extractDirectLinks(body: string, referencesDir: string): Set<string> {
   const linked = new Set<string>();
   const regex = new RegExp(REFERENCES_LINK_REGEX.source, 'g');
   let match: RegExpExecArray | null;
@@ -1207,12 +1203,59 @@ function collectReferencedFiles(body: string, referencesDir: string): Set<string
     // captured if the link was `(references/foo.md)` without a label.
     rel = rel.replace(/[)"'].*$/, '');
     if (rel.length === 0) continue;
-    // Only record paths that resolve to a file on disk — saves us from
-    // chasing typo'd links and accidentally creating empty output trees.
     const candidate = join(referencesDir, rel);
-    if (existsSync(candidate)) {
-      // Normalize to forward slashes so set membership works on Windows.
+    if (existsSync(candidate) && statSync(candidate).isFile()) {
       linked.add(rel.replace(/\\/g, '/'));
+    }
+  }
+  return linked;
+}
+
+/**
+ * Walk `body` (the rendered SKILL.md after guards + macros + tokens have
+ * been processed) and return the *transitive closure* of references-
+ * relative paths that the body or any reachable reference file links to.
+ *
+ * Why transitive: skill prose often delegates substantive material to
+ * a reference file which in turn links to deeper helpers (e.g.
+ * `polish-track.md` references `phases/polish-implement.md`). A
+ * non-transitive scan would prune the deeper helpers as orphans even
+ * though the skill would break in practice when the user follows the
+ * first link.
+ *
+ * Files that exist on disk but are not in the returned set are pruned
+ * by `copyLinkedReferences`. The `referencesDir` argument filters out
+ * matches that don't correspond to an on-disk file — typo'd links
+ * surface via the lint, not here.
+ */
+function collectReferencedFiles(body: string, referencesDir: string): Set<string> {
+  const linked = new Set<string>();
+  // BFS over the link graph rooted at `body`. Each visited reference
+  // file contributes its own outgoing links, expanding the set until
+  // closure. Visited tracking on `linked` prevents cycles from looping.
+  const queue: string[] = [];
+  for (const direct of extractDirectLinks(body, referencesDir)) {
+    if (!linked.has(direct)) {
+      linked.add(direct);
+      queue.push(direct);
+    }
+  }
+  while (queue.length > 0) {
+    const rel = queue.shift()!;
+    const filePath = join(referencesDir, rel);
+    if (!existsSync(filePath)) continue;
+    let refBody: string;
+    try {
+      refBody = readFileSync(filePath, 'utf8');
+    } catch {
+      // Binary or unreadable — no outgoing links to traverse.
+      continue;
+    }
+    for (const next of extractDirectLinks(refBody, referencesDir)) {
+      if (!linked.has(next)) {
+        linked.add(next);
+        queue.push(next);
+      }
     }
   }
   return linked;
