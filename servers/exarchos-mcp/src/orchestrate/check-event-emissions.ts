@@ -8,8 +8,8 @@
 import type { EventType } from '../event-store/schemas.js';
 import { EVENT_DATA_SCHEMAS, EVENT_EMISSION_REGISTRY } from '../event-store/schemas.js';
 import type { ToolResult } from '../format.js';
+import type { EventStore } from '../event-store/store.js';
 import {
-  getOrCreateEventStore,
   getOrCreateMaterializer,
   queryDeltaEvents,
 } from '../views/tools.js';
@@ -95,6 +95,7 @@ function extractRequiredFields(eventType: EventType): string[] | undefined {
 export async function handleCheckEventEmissions(
   args: CheckEventEmissionsArgs,
   stateDir: string,
+  eventStore: EventStore,
 ): Promise<ToolResult> {
   // Guard clause: validate required inputs
   if (!args.featureId) {
@@ -118,7 +119,7 @@ export async function handleCheckEventEmissions(
     };
   }
 
-  const store = getOrCreateEventStore(stateDir);
+  const store = eventStore;
   const materializer = getOrCreateMaterializer(stateDir);
   const streamId = args.workflowId ?? args.featureId;
 

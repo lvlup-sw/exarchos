@@ -6,7 +6,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import type { ToolResult } from '../format.js';
-import { getOrCreateEventStore } from '../views/tools.js';
+import type { EventStore } from '../event-store/store.js';
 import { emitGateEvent, getDiff } from './gate-utils.js';
 import { checkContextEconomy } from './pure/context-economy.js';
 import { queryRuntimeMetrics } from '../telemetry/telemetry-queries.js';
@@ -32,6 +32,7 @@ interface ContextEconomyResult {
 export async function handleContextEconomy(
   args: ContextEconomyArgs,
   stateDir: string,
+  eventStore: EventStore,
 ): Promise<ToolResult> {
   // Guard clause: validate required inputs
   if (!args.featureId) {
@@ -70,7 +71,7 @@ export async function handleContextEconomy(
   }
   const report = reportLines.join('\n');
 
-  const store = getOrCreateEventStore(stateDir);
+  const store = eventStore;
 
   // Emit gate.executed event (fire-and-forget)
   try {

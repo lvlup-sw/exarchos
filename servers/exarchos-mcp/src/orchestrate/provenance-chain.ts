@@ -6,7 +6,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import type { ToolResult } from '../format.js';
-import { getOrCreateEventStore } from '../views/tools.js';
+import type { EventStore } from '../event-store/store.js';
 import { emitGateEvent } from './gate-utils.js';
 import { verifyProvenanceChain } from './pure/provenance-chain.js';
 
@@ -29,7 +29,8 @@ interface ProvenanceChainResult {
 
 export async function handleProvenanceChain(
   args: { featureId: string; designPath: string; planPath: string },
-  stateDir: string,
+  _stateDir: string,
+  eventStore: EventStore,
 ): Promise<ToolResult> {
   if (!args.featureId) {
     return {
@@ -78,7 +79,7 @@ export async function handleProvenanceChain(
 
   // Emit gate.executed event (fire-and-forget)
   try {
-    const store = getOrCreateEventStore(stateDir);
+    const store = eventStore;
     await emitGateEvent(store, args.featureId, 'provenance-chain', 'planning', passed, {
       dimension: 'D1',
       phase: 'plan',

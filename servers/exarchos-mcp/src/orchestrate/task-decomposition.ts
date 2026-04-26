@@ -10,7 +10,7 @@
 
 import { readFile } from 'node:fs/promises';
 import type { ToolResult } from '../format.js';
-import { getOrCreateEventStore } from '../views/tools.js';
+import type { EventStore } from '../event-store/store.js';
 import { emitGateEvent } from './gate-utils.js';
 
 // ─── Types ───────────────────────────────────────────────────────────────
@@ -379,7 +379,8 @@ function extractFiles(block: string): string[] {
 
 export async function handleTaskDecomposition(
   args: TaskDecompositionArgs,
-  stateDir: string,
+  _stateDir: string,
+  eventStore: EventStore,
 ): Promise<ToolResult> {
   // Guard clause: validate required inputs
   if (!args.featureId) {
@@ -522,7 +523,7 @@ export async function handleTaskDecomposition(
 
   // Emit gate.executed event (fire-and-forget: emission failure must not break the gate check)
   try {
-    const store = getOrCreateEventStore(stateDir);
+    const store = eventStore;
     await emitGateEvent(store, args.featureId, 'task-decomposition', 'planning', passed, {
       dimension: 'D5',
       phase: 'plan',

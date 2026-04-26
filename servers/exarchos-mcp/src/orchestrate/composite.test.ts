@@ -280,6 +280,7 @@ describe('handleOrchestrate', () => {
       expect(handlePrepareSynthesis).toHaveBeenCalledWith(
         { featureId: 'feat-456' },
         STATE_DIR,
+        CTX.eventStore,
       );
     });
 
@@ -344,6 +345,7 @@ describe('handleOrchestrate', () => {
       expect(handleDesignCompleteness).toHaveBeenCalledWith(
         { featureId: 'feat-200', designPath: '/tmp/design.md' },
         STATE_DIR,
+        CTX.eventStore,
       );
     });
 
