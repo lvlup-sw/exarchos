@@ -64,3 +64,9 @@ placeholders:
       subagent_type: "implementer",
       prompt: "{{prompt}}"
     })
+  # Wave A (P4 prose layer) — OpenCode has no completion hook; prose
+  # describes a poll-based signal.
+  SUBAGENT_COMPLETION_HOOK: "subagent completion signal (poll-based)"
+  # OpenCode lacks a first-class result API; prose tells the agent to
+  # poll the subagent for its output.
+  SUBAGENT_RESULT_API: "[poll subagent result]"

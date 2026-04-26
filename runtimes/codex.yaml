@@ -101,3 +101,8 @@ placeholders:
       agent_type: "default",
       message: "{{description}}\n\n{{prompt}}"
     })
+  # Wave A (P4 prose layer) — Codex polls subagent state via `wait_agent`;
+  # there is no completion hook, so the prose describes a poll-based signal.
+  SUBAGENT_COMPLETION_HOOK: "subagent completion signal (poll-based)"
+  # Codex's canonical "wait + collect output" primitive is `wait_agent`.
+  SUBAGENT_RESULT_API: "wait_agent({ task_id })"

@@ -67,3 +67,11 @@ placeholders:
       description: "{{description}}",
       prompt: "{{prompt}}"
     })
+  # Wave A (P4 prose layer) — see docs/plans/2026-04-25-delegation-runtime-parity.md.
+  # `SUBAGENT_COMPLETION_HOOK` names the runtime primitive that signals
+  # a subagent has finished work. Claude has the first-class `TeammateIdle`
+  # hook; other runtimes expose a poll-based completion signal.
+  SUBAGENT_COMPLETION_HOOK: "TeammateIdle hook"
+  # `SUBAGENT_RESULT_API` is the runtime call used to retrieve a finished
+  # subagent's output. Claude exposes the synchronous `TaskOutput` block.
+  SUBAGENT_RESULT_API: "TaskOutput({ task_id, block: true })"

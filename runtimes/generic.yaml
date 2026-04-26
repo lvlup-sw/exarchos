@@ -40,3 +40,8 @@ placeholders:
   TASK_TOOL: "[sequential execution]"
   CHAIN: "[Invoke the exarchos:{{next}} skill with args: {{args}}]"
   SPAWN_AGENT_CALL: "Execute each task sequentially in the current session, one at a time, against the prepared worktrees."
+  # Wave A (P4 prose layer) — generic has no completion primitive; prose
+  # describes a poll-based signal.
+  SUBAGENT_COMPLETION_HOOK: "subagent completion signal (poll-based)"
+  # No first-class result API; prose tells the agent to poll the subagent.
+  SUBAGENT_RESULT_API: "[poll subagent result]"

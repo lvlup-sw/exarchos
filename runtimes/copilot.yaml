@@ -77,3 +77,9 @@ placeholders:
   # scope). The bare name "implementer" matches the file produced by
   # `copilotAdapter.agentFilePath('implementer')`.
   SPAWN_AGENT_CALL: 'task --agent implementer "{{description}}: {{prompt}}"'
+  # Wave A (P4 prose layer) — Copilot has no completion hook; the local
+  # `task` primitive returns inline so the result is observable directly.
+  SUBAGENT_COMPLETION_HOOK: "subagent completion signal (poll-based)"
+  # Copilot's `task --agent <name>` returns subagent output inline; no
+  # separate result API call is needed.
+  SUBAGENT_RESULT_API: "`task` output (inline)"

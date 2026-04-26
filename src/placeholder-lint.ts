@@ -50,6 +50,12 @@ export const DEFAULT_PLACEHOLDER_VOCABULARY: readonly string[] = [
   'TASK_TOOL',
   'CHAIN',
   'SPAWN_AGENT_CALL',
+  // Wave A (P4 prose layer) — capability-aware skill renderer tokens.
+  // Mirror of `RuntimeTokenKey` in `src/runtimes/types.ts`. Skills use
+  // these instead of hard-coded Claude primitives so prose tokenizes
+  // cleanly across runtimes.
+  'SUBAGENT_COMPLETION_HOOK',
+  'SUBAGENT_RESULT_API',
 ];
 
 /**
