@@ -9,30 +9,20 @@
 // ────────────────────────────────────────────────────────────────────────────
 
 import type { AgentSpec } from '../types.js';
-import type { Capability } from '../capabilities.js';
 import { generateAgentMarkdown } from '../generate-cc-agents.js';
 import type { RuntimeAdapter, ValidationResult } from './types.js';
+import { buildSupportMap } from './support-levels.js';
 
 /**
- * Capabilities that Claude Code supports. Claude is the reference runtime
- * and supports every capability the spec model defines today. Task 7a
- * will reify this list in `runtimes/claude.yaml`.
+ * Claude is the reference runtime: every capability the spec model
+ * defines today is `native`. Task 7a will reify this in
+ * `runtimes/claude.yaml`.
  */
-const CLAUDE_SUPPORTED_CAPABILITIES: ReadonlySet<Capability> = new Set<Capability>([
-  'fs:read',
-  'fs:write',
-  'shell:exec',
-  'subagent:spawn',
-  'subagent:completion-signal',
-  'subagent:start-signal',
-  'mcp:exarchos',
-  'isolation:worktree',
-  'team:agent-teams',
-  'session:resume',
-]);
+const CLAUDE_SUPPORT_LEVELS = buildSupportMap('native');
 
 export const claudeAdapter: RuntimeAdapter = {
   runtime: 'claude',
+  supportLevels: CLAUDE_SUPPORT_LEVELS,
 
   agentFilePath(agentName: string): string {
     return `agents/${agentName}.md`;
@@ -51,7 +41,7 @@ export const claudeAdapter: RuntimeAdapter = {
 
   validateSupport(spec: AgentSpec): ValidationResult {
     for (const cap of spec.capabilities) {
-      if (!CLAUDE_SUPPORTED_CAPABILITIES.has(cap)) {
+      if (CLAUDE_SUPPORT_LEVELS[cap] === 'unsupported') {
         return {
           ok: false,
           reason: `Claude runtime does not support capability '${cap}'`,

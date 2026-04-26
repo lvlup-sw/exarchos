@@ -39,33 +39,22 @@ import { stringify as stringifyYaml } from 'yaml';
 import type { AgentSpec } from '../types.js';
 import type { Capability } from '../capabilities.js';
 import type { RuntimeAdapter, ValidationResult } from './types.js';
+import { buildSupportMap } from './support-levels.js';
 
 /**
- * Capabilities the Copilot runtime supports natively. These appear as
- * tool names in the lowered frontmatter.
+ * Copilot covers fs/shell/subagent-spawn/MCP natively. `isolation:worktree`
+ * and `session:resume` are advisory (no first-class primitive — the
+ * orchestrator manages worktree fan-out, and `resumable` flows degrade
+ * gracefully when no `agentId` resume is available). Claude-only signal
+ * hooks and Agent Teams are unsupported.
  */
-const SUPPORTED_CAPABILITIES: readonly Capability[] = [
-  'fs:read',
-  'fs:write',
-  'shell:exec',
-  'subagent:spawn',
-  'mcp:exarchos',
-];
-
-/**
- * Capabilities accepted as advisory: tolerated without error but emit no
- * tool entry and no frontmatter field. Per the design's capability table,
- * Copilot has no native primitive for these but does not need to reject
- * them either — they degrade gracefully.
- *   - `isolation:worktree`: Exarchos manages worktree fan-out at the
- *     orchestrator layer regardless of runtime support.
- *   - `session:resume`: Copilot has no `agentId` resume; downstream fixer
- *     flows handle this conditionally elsewhere.
- */
-const ADVISORY_CAPABILITIES: readonly Capability[] = [
-  'isolation:worktree',
-  'session:resume',
-];
+const COPILOT_SUPPORT_LEVELS = buildSupportMap('native', {
+  'isolation:worktree': 'advisory',
+  'session:resume': 'advisory',
+  'subagent:completion-signal': 'unsupported',
+  'subagent:start-signal': 'unsupported',
+  'team:agent-teams': 'unsupported',
+});
 
 /** Capability → Copilot tool name (or `null` for advisory/non-tool). */
 const CAPABILITY_TO_TOOL: Record<Capability, string | null> = {
@@ -91,6 +80,7 @@ interface CopilotFrontmatter {
 
 export class CopilotAdapter implements RuntimeAdapter {
   readonly runtime = 'copilot' as const;
+  readonly supportLevels = COPILOT_SUPPORT_LEVELS;
 
   agentFilePath(agentName: string): string {
     return `.github/agents/${agentName}.agent.md`;
@@ -98,13 +88,13 @@ export class CopilotAdapter implements RuntimeAdapter {
 
   validateSupport(spec: AgentSpec): ValidationResult {
     for (const cap of spec.capabilities) {
-      if (!SUPPORTED_CAPABILITIES.includes(cap) && !ADVISORY_CAPABILITIES.includes(cap)) {
+      if (COPILOT_SUPPORT_LEVELS[cap] === 'unsupported') {
         return {
           ok: false,
           reason: `Copilot runtime does not support capability '${cap}'`,
           fixHint:
             `Either remove '${cap}' from the spec, exclude Copilot from this spec's targets, ` +
-            `or add the capability to Copilot's supportedCapabilities once the runtime gains it.`,
+            `or dispatch this agent to a runtime with the capability (e.g. claude).`,
         };
       }
     }
@@ -112,8 +102,13 @@ export class CopilotAdapter implements RuntimeAdapter {
   }
 
   lowerSpec(spec: AgentSpec): { path: string; contents: string } {
+    // Filter to native capabilities only — advisory caps are silently
+    // tolerated and emit no tool entry.
+    const nativeCaps = spec.capabilities.filter(
+      (cap) => COPILOT_SUPPORT_LEVELS[cap] === 'native',
+    );
     const tools: string[] = [];
-    for (const cap of spec.capabilities) {
+    for (const cap of nativeCaps) {
       const tool = CAPABILITY_TO_TOOL[cap];
       if (tool !== null && tool !== undefined && !tools.includes(tool)) {
         tools.push(tool);

@@ -19,16 +19,20 @@ import { stringify as stringifyYaml } from 'yaml';
 import type { Capability } from '../capabilities.js';
 import type { AgentSpec } from '../types.js';
 import type { RuntimeAdapter, ValidationResult } from './types.js';
+import { buildSupportMap } from './support-levels.js';
 
-/** Capabilities OpenCode's custom-agent format can express. */
-const SUPPORTED_CAPABILITIES: ReadonlySet<Capability> = new Set<Capability>([
-  'fs:read',
-  'fs:write',
-  'shell:exec',
-  'subagent:spawn',
-  'mcp:exarchos',
-  'isolation:worktree',
-]);
+/**
+ * OpenCode covers fs/shell/subagent-spawn/MCP natively, treats
+ * `isolation:worktree` as advisory (orchestrator-managed), and rejects
+ * Claude-only primitives (Agent Teams, signal hooks, session:resume).
+ */
+const OPENCODE_SUPPORT_LEVELS = buildSupportMap('native', {
+  'isolation:worktree': 'advisory',
+  'session:resume': 'advisory',
+  'subagent:completion-signal': 'unsupported',
+  'subagent:start-signal': 'unsupported',
+  'team:agent-teams': 'unsupported',
+});
 
 /** Canonical list of OpenCode tool keys we explicitly emit. */
 const KNOWN_TOOLS = [
@@ -111,6 +115,7 @@ function buildContents(spec: AgentSpec): string {
 
 export const OpenCodeAdapter: RuntimeAdapter = {
   runtime: 'opencode',
+  supportLevels: OPENCODE_SUPPORT_LEVELS,
 
   agentFilePath(agentName: string): string {
     return `.opencode/agents/${agentName}.md`;
@@ -125,7 +130,7 @@ export const OpenCodeAdapter: RuntimeAdapter = {
 
   validateSupport(spec: AgentSpec): ValidationResult {
     const unsupported = spec.capabilities.filter(
-      (c) => !SUPPORTED_CAPABILITIES.has(c),
+      (c) => OPENCODE_SUPPORT_LEVELS[c] === 'unsupported',
     );
     if (unsupported.length === 0) {
       return { ok: true };

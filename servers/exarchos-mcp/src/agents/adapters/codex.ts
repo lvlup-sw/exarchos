@@ -23,21 +23,21 @@
 // ────────────────────────────────────────────────────────────────────────────
 
 import type { AgentSpec } from '../types.js';
-import type { Capability } from '../capabilities.js';
 import type { RuntimeAdapter, ValidationResult } from './types.js';
+import { buildSupportMap } from './support-levels.js';
 
 /**
- * Capabilities Codex CLI supports natively. Anything outside this set is
- * rejected by `validateSupport`.
+ * Codex covers fs/shell/subagent-spawn/MCP natively, treats
+ * `isolation:worktree` as advisory (orchestrator-managed), and rejects
+ * Claude-only primitives (Agent Teams, signal hooks, session:resume).
  */
-const CODEX_SUPPORTED_CAPABILITIES: ReadonlySet<Capability> = new Set<Capability>([
-  'fs:read',
-  'fs:write',
-  'shell:exec',
-  'subagent:spawn',
-  'mcp:exarchos',
-  'isolation:worktree',
-]);
+const CODEX_SUPPORT_LEVELS = buildSupportMap('native', {
+  'isolation:worktree': 'advisory',
+  'session:resume': 'advisory',
+  'subagent:completion-signal': 'unsupported',
+  'subagent:start-signal': 'unsupported',
+  'team:agent-teams': 'unsupported',
+});
 
 /** Escape characters disallowed inside a TOML basic string. */
 function tomlBasicString(value: string): string {
@@ -96,7 +96,7 @@ function lowerSpec(spec: AgentSpec): { path: string; contents: string } {
 
 function validateSupport(spec: AgentSpec): ValidationResult {
   for (const cap of spec.capabilities) {
-    if (!CODEX_SUPPORTED_CAPABILITIES.has(cap)) {
+    if (CODEX_SUPPORT_LEVELS[cap] === 'unsupported') {
       return {
         ok: false,
         reason: `codex does not support capability ${cap}`,
@@ -118,6 +118,7 @@ export const codexAdapter: RuntimeAdapter & {
   readonly customAgentResolutionWorks: boolean;
 } = {
   runtime: 'codex',
+  supportLevels: CODEX_SUPPORT_LEVELS,
   customAgentResolutionWorks: false,
   agentFilePath(agentName: string): string {
     return `.codex/agents/${agentName}.toml`;
