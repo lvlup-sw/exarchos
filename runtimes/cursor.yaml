@@ -56,15 +56,22 @@ placeholders:
   COMMAND_PREFIX: ""
   TASK_TOOL: "Task"
   CHAIN: "[Invoke the exarchos:{{next}} skill with args: {{args}}]"
+  # `{{agent}}` is filled in by the dispatcher with the spec id
+  # (implementer | fixer | reviewer | scaffolder) so each delegation
+  # routes to the matching `.cursor/agents/<id>.md` definition.
+  # `{{description}}` and `{{prompt}}` are filled with task metadata —
+  # JSON-string semantics, so embedded `"` and newlines must be escaped.
   SPAWN_AGENT_CALL: |
     Task({
-      subagent_type: "implementer",
+      subagent_type: "{{agent}}",
       description: "{{description}}",
       prompt: "{{prompt}}"
     })
   # Wave A (P4 prose layer) — Cursor 2.5 has no completion hook; prose
   # describes a poll-based signal.
   SUBAGENT_COMPLETION_HOOK: "subagent completion signal (poll-based)"
-  # Cursor lacks a first-class result API; prose tells the agent to
-  # poll the subagent for its output.
-  SUBAGENT_RESULT_API: "[poll subagent result]"
+  # Cursor's `Task({...})` call returns the subagent's reply inline in
+  # the assistant turn that issued it — there is no separate poll API.
+  # Prose describes that semantics directly so the rendered skill is
+  # actionable rather than abstract.
+  SUBAGENT_RESULT_API: "Task() reply (inline)"

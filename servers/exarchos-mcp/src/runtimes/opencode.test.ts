@@ -159,18 +159,13 @@ describe('runtimes/opencode.yaml supportedCapabilities', () => {
 
     expect(typeof spawnCall).toBe('string');
 
-    // Resolve the bare on-disk agent name the OpenCode adapter writes
-    // for the implementer spec. e.g. `.opencode/agents/implementer.md`
-    // → `implementer`.
-    const agentPath = OpenCodeAdapter.agentFilePath('implementer');
-    const agentName = basename(agentPath, extname(agentPath));
-
-    // SPAWN_AGENT_CALL must reference the generated agent name as the
-    // `subagent_type` argument. Robust to formatting (single vs double
-    // quotes, whitespace) but strict on the bare name token.
-    const subagentTypePattern = new RegExp(
-      `subagent_type\\s*:\\s*['"]${agentName}['"]`,
-    );
+    // SPAWN_AGENT_CALL parameterizes `subagent_type` via the `{{agent}}`
+    // token so each delegation can route to the correct on-disk file
+    // (implementer | fixer | reviewer | scaffolder). The dispatcher
+    // fills in `{{agent}}` with the spec id at call time. Robust to
+    // formatting (single vs double quotes, whitespace) but strict on
+    // the placeholder shape.
+    const subagentTypePattern = /subagent_type\s*:\s*['"]\{\{\s*agent\s*\}\}['"]/;
     expect(spawnCall).toMatch(subagentTypePattern);
 
     // And it must NOT reference the legacy plugin-namespaced
@@ -180,5 +175,12 @@ describe('runtimes/opencode.yaml supportedCapabilities', () => {
     expect(spawnCall).not.toMatch(
       /subagent_type\s*:\s*['"]exarchos-implementer['"]/,
     );
+
+    // And the on-disk file the dispatcher will route to still has to
+    // exist for each spec id — verify the implementer path is well-
+    // formed so {{agent}} substitution lands on a real file.
+    const agentPath = OpenCodeAdapter.agentFilePath('implementer');
+    const agentName = basename(agentPath, extname(agentPath));
+    expect(agentName).toBe('implementer');
   });
 });

@@ -227,8 +227,8 @@ Code review request triggers the reviewer agent for read-only analysis.
 5. Produce structured review verdict
 
 Rules:
-- You have READ-ONLY access — do not modify any files
-- Bash is restricted to read-only commands only (e.g., git diff, git log, test runners in dry-run mode). NEVER use Bash to create, edit, or delete files.
+- You have READ-ONLY access — no shell or filesystem-write tools are available
+- Use Read/Grep/Glob to inspect code. If a finding requires running tests or a typecheck to confirm, surface it as a recommendation in the review verdict — the orchestrator will dispatch a separate run
 - Be specific in findings — include file paths and line references
 - Categorize findings: critical, warning, suggestion
 
@@ -242,12 +242,17 @@ When done, output a JSON completion report:
   "files": ["<reviewed files>"]
 }
 \`\`\``,
+  // Reviewer is intentionally read-only. `shell:exec` is omitted so no
+  // runtime can grant shell access — neither Claude's `Bash` tool nor
+  // OpenCode's `tools.bash`. Test runs / typecheck / git inspection
+  // belong to the orchestrator, not the reviewer agent. Trust boundary
+  // becomes machine-enforced (capability absent) rather than prompt-
+  // enforced.
   capabilities: [
     'fs:read',
-    'shell:exec',
     'mcp:exarchos',
   ],
-  disallowedTools: ['Write', 'Edit', 'Agent'],
+  disallowedTools: ['Write', 'Edit', 'Agent', 'Bash'],
   model: 'inherit',
   skills: [],
   validationRules: [],

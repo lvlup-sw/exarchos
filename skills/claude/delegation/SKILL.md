@@ -36,7 +36,7 @@ Rationalization patterns that violate this principle are catalogued in `referenc
 
 ### Delegation Modes
 
-The default `subagent` mode dispatches each task using the runtime's native spawn primitive (e.g., the `Task` tool on Claude Code / OpenCode / Cursor, `spawn_agent` on Codex, `task --agent` on Copilot). On runtimes without a subagent primitive (e.g. `generic`), delegation degrades to sequential in-session execution.
+The default `subagent` mode dispatches each task using the runtime's spawn primitive: `Task`. Runtimes without a subagent primitive (`hasSubagents: false`) fall back to sequential in-session execution.
 
 
 On Claude Code (and any future runtime declaring `team:agent-teams`), an additional `agent-team` mode is available — `Task` invocations bind to a `team_name` for interactive multi-pane coordination.

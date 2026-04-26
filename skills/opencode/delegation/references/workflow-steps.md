@@ -58,7 +58,7 @@ Task({
 
 For background tasks, poll/await using the runtime's result-collection primitive:
 ```text
-[poll subagent result]
+Task() reply (inline)
 // task_id: task-001-id
 ```
 

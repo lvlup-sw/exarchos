@@ -148,9 +148,13 @@ export function generateClaudeAgentMarkdown(spec: AgentSpec): string {
     frontmatter += `disallowedTools: [${spec.disallowedTools.map(t => `"${t}"`).join(', ')}]\n`;
   }
 
-  // Optional: isolation
-  if (spec.isolation) {
-    frontmatter += `isolation: ${spec.isolation}\n`;
+  // Isolation: derive from capabilities so the spec has a single source
+  // of truth. `spec.isolation` is preserved on the type as advisory
+  // metadata, but the rendered frontmatter is driven by capabilities to
+  // avoid the support-validation/render split that produced two
+  // disagreeing answers.
+  if (spec.capabilities.includes('isolation:worktree')) {
+    frontmatter += `isolation: worktree\n`;
   }
 
   // Optional: memory (mapped from memoryScope)
@@ -163,14 +167,12 @@ export function generateClaudeAgentMarkdown(spec: AgentSpec): string {
     frontmatter += `maxTurns: ${spec.maxTurns}\n`;
   }
 
-  // Optional: mcpServers (allowlist of MCP server names)
-  // Distinguish undefined (inherit all) from empty array (deny all)
-  if (spec.mcpServers !== undefined) {
-    if (spec.mcpServers.length > 0) {
-      frontmatter += `mcpServers: [${spec.mcpServers.map(s => `"${s}"`).join(', ')}]\n`;
-    } else {
-      frontmatter += `mcpServers: []\n`;
-    }
+  // mcpServers: derive from `mcp:exarchos` capability for the same
+  // single-source-of-truth reason as isolation above. Only `exarchos`
+  // is wired today; if/when additional MCP servers become first-class
+  // capabilities, extend this list with parallel checks.
+  if (spec.capabilities.includes('mcp:exarchos')) {
+    frontmatter += `mcpServers: ["exarchos"]\n`;
   }
 
   // Optional: skills (array format)

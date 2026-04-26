@@ -53,16 +53,28 @@ Teammates use Claude Code's native shared task list for claim/complete tracking.
 
 Agent Teams supports one team per session. If you need more parallel groups than teammates, assign multiple tasks per teammate (sequential within the group).
 
-## Dispatch Mode Comparison
+## Subagent Dispatch Properties
 
-| Aspect | Subagent (default) | Agent Teams (Claude only) |
-|--------|---------------------|----------------------|
-| Parallel dispatch | Multiple `Task` invocations in one message | Named teammates in agent team |
-| Waiting | `TaskOutput({ task_id, block: true })` | `TeammateIdle hook` |
-| Visibility | None (background) | tmux split panes |
-| Model control | `recommendedModel` from config | Session model for all |
-| Max parallelism | Unlimited | One team, N teammates |
-| Resume on crash | Task results preserved | Teammates lost (worktrees survive) |
+| Aspect | Subagent dispatch |
+|--------|---------------------|
+| Parallel dispatch | Multiple `Task` invocations in one message |
+| Waiting | `TaskOutput({ task_id, block: true })` |
+| Visibility | None (background) |
+| Model control | `recommendedModel` from config |
+| Max parallelism | Unlimited |
+| Resume on crash | Task results preserved |
+
+
+## Agent Teams Dispatch Properties (Claude only)
+
+| Aspect | Agent Teams |
+|--------|---------------------|
+| Parallel dispatch | Named teammates in agent team |
+| Waiting | `TeammateIdle hook` |
+| Visibility | tmux split panes |
+| Model control | Session model for all |
+| Max parallelism | One team, N teammates |
+| Resume on crash | Teammates lost (worktrees survive) |
 
 ## Waiting for Parallel Completion
 

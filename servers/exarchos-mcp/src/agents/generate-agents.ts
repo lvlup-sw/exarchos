@@ -218,15 +218,12 @@ function validateAllPairs(
 }
 
 /**
- * Update plugin.json's `agents` field with the four Claude agent paths.
- * Only Claude has a plugin manifest today — other runtimes load agents
- * via filesystem conventions (`.codex/agents/`, `.opencode/agents/`,
- * etc.) without an equivalent allowlist file.
+ * Validate that the Claude plugin manifest exists and is well-formed
+ * JSON before any artifact writes. Called early in `generateAgents` so
+ * a missing/invalid manifest aborts the run cleanly rather than leaving
+ * a partially regenerated tree.
  */
-function updatePluginJson(
-  pluginJsonPath: string,
-  specs: readonly AgentSpec[],
-): void {
+function preflightPluginJson(pluginJsonPath: string): void {
   if (!fs.existsSync(pluginJsonPath)) {
     throw new GenerateAgentsError([
       {
@@ -249,9 +246,9 @@ function updatePluginJson(
       }`,
     );
   }
-  let manifest: { agents?: unknown; [k: string]: unknown };
+  let parsed: unknown;
   try {
-    manifest = JSON.parse(raw);
+    parsed = JSON.parse(raw);
   } catch (err) {
     throw new Error(
       `generateAgents: plugin manifest at ${pluginJsonPath} is not valid JSON: ${
@@ -259,11 +256,41 @@ function updatePluginJson(
       }`,
     );
   }
-  if (typeof manifest !== 'object' || manifest === null) {
+  if (typeof parsed !== 'object' || parsed === null) {
     throw new Error(
       `generateAgents: plugin manifest at ${pluginJsonPath} must be a JSON object`,
     );
   }
+}
+
+/**
+ * Update plugin.json's `agents` field with the four Claude agent paths.
+ * Only Claude has a plugin manifest today — other runtimes load agents
+ * via filesystem conventions (`.codex/agents/`, `.opencode/agents/`,
+ * etc.) without an equivalent allowlist file.
+ *
+ * Existence + JSON validity have already been verified by
+ * `preflightPluginJson`, so this function only needs to round-trip the
+ * manifest with the updated `agents` field.
+ */
+function updatePluginJson(
+  pluginJsonPath: string,
+  specs: readonly AgentSpec[],
+): void {
+  let raw: string;
+  try {
+    raw = fs.readFileSync(pluginJsonPath, 'utf-8');
+  } catch (err) {
+    throw new Error(
+      `generateAgents: failed to read plugin manifest at ${pluginJsonPath}: ${
+        (err as Error).message
+      }`,
+    );
+  }
+  // Already preflighted; re-parse defensively in case the manifest
+  // changed between preflight and write (rare but possible during
+  // concurrent runs).
+  const manifest = JSON.parse(raw) as { agents?: unknown; [k: string]: unknown };
   manifest.agents = specs.map((s) => `./agents/${s.id}.md`);
   try {
     fs.writeFileSync(
@@ -319,6 +346,14 @@ export function generateAgents(
   if (failures.length > 0) {
     throw new GenerateAgentsError(failures);
   }
+
+  // 1b. Plugin manifest preflight. The Claude plugin manifest update
+  //     happens after artifact writes today, but discovering a missing
+  //     or invalid manifest at that point leaves the tree partially
+  //     updated (20 runtime files written, plugin.json untouched). Check
+  //     readability + JSON validity now, before any writes, so a missing
+  //     manifest is a clean abort with no side effects.
+  preflightPluginJson(pluginJsonPath);
 
   // 2. Lowering and writing pass. Iterate adapters in canonical
   //    runtime order, specs in caller-declaration order.

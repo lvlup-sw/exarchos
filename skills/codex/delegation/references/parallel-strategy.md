@@ -28,16 +28,17 @@ Task({ description: "Task 002", prompt: "..." })
 ```
 
 
-## Dispatch Mode Comparison
+## Subagent Dispatch Properties
 
-| Aspect | Subagent (default) | Agent Teams (Claude only) |
-|--------|---------------------|----------------------|
-| Parallel dispatch | Multiple `spawn_agent` invocations in one message | Named teammates in agent team |
-| Waiting | `wait_agent({ task_id })` | `subagent completion signal (poll-based)` |
-| Visibility | None (background) | tmux split panes |
-| Model control | `recommendedModel` from config | Session model for all |
-| Max parallelism | Unlimited | One team, N teammates |
-| Resume on crash | Task results preserved | Teammates lost (worktrees survive) |
+| Aspect | Subagent dispatch |
+|--------|---------------------|
+| Parallel dispatch | Multiple `spawn_agent` invocations in one message |
+| Waiting | `wait_agent({ task_id })` |
+| Visibility | None (background) |
+| Model control | `recommendedModel` from config |
+| Max parallelism | Unlimited |
+| Resume on crash | Task results preserved |
+
 
 ## Waiting for Parallel Completion
 

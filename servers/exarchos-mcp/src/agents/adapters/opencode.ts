@@ -94,6 +94,12 @@ function buildFrontmatter(spec: AgentSpec): OpenCodeFrontmatter {
   if (spec.capabilities.includes('mcp:exarchos')) {
     fm.mcp = { exarchos: true };
   }
+  // `inherit` means "use the host session's current model" — OpenCode
+  // has no equivalent token, so omit the field and let the runtime pick
+  // its default. Concrete model names (e.g. `sonnet`) pass through.
+  if (spec.model && spec.model !== 'inherit') {
+    fm.model = spec.model;
+  }
   return fm;
 }
 

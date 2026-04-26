@@ -32,6 +32,7 @@ tools:
   bash: true
 mcp:
   exarchos: true
+model: sonnet
 ---
 Use this agent for low-complexity scaffolding tasks — file creation, boilerplate generation, and structural setup.
 

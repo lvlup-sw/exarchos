@@ -36,7 +36,7 @@ Rationalization patterns that violate this principle are catalogued in `referenc
 
 ### Delegation Modes
 
-The default `subagent` mode dispatches each task using the runtime's native spawn primitive (e.g., the `Task` tool on Claude Code / OpenCode / Cursor, `spawn_agent` on Codex, `task --agent` on Copilot). On runtimes without a subagent primitive (e.g. `generic`), delegation degrades to sequential in-session execution.
+The default `subagent` mode dispatches each task using the runtime's spawn primitive: `{{TASK_TOOL}}`. Runtimes without a subagent primitive (`hasSubagents: false`) fall back to sequential in-session execution.
 
 <!-- requires:team:agent-teams -->
 On Claude Code (and any future runtime declaring `team:agent-teams`), an additional `agent-team` mode is available — `Task` invocations bind to a `team_name` for interactive multi-pane coordination.
@@ -132,7 +132,7 @@ This runbook provides structured criteria for parallel vs sequential dispatch, t
 Dispatch all independent tasks using the runtime's native spawn primitive. On runtimes with subagent support, fan out in a **single message** so the dispatches run in parallel. On runtimes without a subagent primitive, execute each task sequentially against its prepared worktree and emit one operator-visible warning per batch so users know they are not getting parallelism.
 
 ```typescript
-{{SPAWN_AGENT_CALL description="Implement task-001: [title]" prompt="Task-specific context: requirements, file paths, acceptance criteria"}}
+{{SPAWN_AGENT_CALL agent="implementer" description="Implement task-001: [title]" prompt="Task-specific context: requirements, file paths, acceptance criteria"}}
 ```
 
 > **Note:** On Claude Code, the `exarchos-implementer` agent definition already contains the system prompt, model, isolation, skills, hooks, and memory — the dispatch prompt should carry ONLY task-specific context. On runtimes without native agent definitions, include the full implementer prompt template from `references/implementer-prompt.md` in the `prompt` field so the spawned agent has a self-contained context.
@@ -251,7 +251,7 @@ On runtimes with native session resume (e.g. Claude Code with an `agentId` in wo
 When session resume is unavailable, dispatch a fresh fixer agent using the runtime's native spawn primitive.
 
 ```typescript
-{{SPAWN_AGENT_CALL description="Fix failed task-001" prompt="Your implementation failed. [failure context from test output]. Apply adversarial verification: do NOT trust your previous self-assessment, re-read actual test output, identify root cause not symptoms. [Original task context]."}}
+{{SPAWN_AGENT_CALL agent="fixer" description="Fix failed task-001" prompt="Your implementation failed. [failure context from test output]. Apply adversarial verification: do NOT trust your previous self-assessment, re-read actual test output, identify root cause not symptoms. [Original task context]."}}
 ```
 
 After fix completes, run the `task-fix` runbook gate chain:

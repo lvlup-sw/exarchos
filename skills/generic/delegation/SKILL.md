@@ -36,7 +36,7 @@ Rationalization patterns that violate this principle are catalogued in `referenc
 
 ### Delegation Modes
 
-The default `subagent` mode dispatches each task using the runtime's native spawn primitive (e.g., the `Task` tool on Claude Code / OpenCode / Cursor, `spawn_agent` on Codex, `task --agent` on Copilot). On runtimes without a subagent primitive (e.g. `generic`), delegation degrades to sequential in-session execution.
+The default `subagent` mode dispatches each task using the runtime's spawn primitive: `[sequential execution]`. Runtimes without a subagent primitive (`hasSubagents: false`) fall back to sequential in-session execution.
 
 
 Use the `recommendedModel` from `prepare_delegation` task classifications when available. If no classification exists (e.g., fixer dispatch), omit `model` to inherit the session default.
@@ -139,7 +139,7 @@ For parallel grouping strategy and model selection, see `references/parallel-str
 Poll background tasks and collect results using the runtime's result-collection primitive:
 
 ```text
-[poll subagent result]
+[task output is the assistant's next message]
 ```
 
 After each subagent reports completion:
@@ -192,7 +192,7 @@ This is advisory — findings are recorded for the convergence view but do not b
 ### Failure Recovery
 
 When a task fails:
-1. Read the failure output from the runtime's result-collection primitive (`[poll subagent result]`)
+1. Read the failure output from the runtime's result-collection primitive (`[task output is the assistant's next message]`)
 2. Diagnose root cause — do NOT trust the implementer's self-assessment (see R3 adversarial posture)
 3. Fix the task using the resume-aware fixer flow below
 4. Run the `task-fix` runbook gate chain after the fix completes

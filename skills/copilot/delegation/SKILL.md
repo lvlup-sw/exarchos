@@ -36,7 +36,7 @@ Rationalization patterns that violate this principle are catalogued in `referenc
 
 ### Delegation Modes
 
-The default `subagent` mode dispatches each task using the runtime's native spawn primitive (e.g., the `Task` tool on Claude Code / OpenCode / Cursor, `spawn_agent` on Codex, `task --agent` on Copilot). On runtimes without a subagent primitive (e.g. `generic`), delegation degrades to sequential in-session execution.
+The default `subagent` mode dispatches each task using the runtime's spawn primitive: `task`. Runtimes without a subagent primitive (`hasSubagents: false`) fall back to sequential in-session execution.
 
 
 Use the `recommendedModel` from `prepare_delegation` task classifications when available. If no classification exists (e.g., fixer dispatch), omit `model` to inherit the session default.
@@ -122,7 +122,7 @@ This runbook provides structured criteria for parallel vs sequential dispatch, t
 Dispatch all independent tasks using the runtime's native spawn primitive. On runtimes with subagent support, fan out in a **single message** so the dispatches run in parallel. On runtimes without a subagent primitive, execute each task sequentially against its prepared worktree and emit one operator-visible warning per batch so users know they are not getting parallelism.
 
 ```typescript
-task --agent implementer "Implement task-001: [title]: Task-specific context: requirements, file paths, acceptance criteria"
+task --agent implementer 'Implement task-001: [title]: Task-specific context: requirements, file paths, acceptance criteria'
 ```
 
 > **Note:** On Claude Code, the `exarchos-implementer` agent definition already contains the system prompt, model, isolation, skills, hooks, and memory — the dispatch prompt should carry ONLY task-specific context. On runtimes without native agent definitions, include the full implementer prompt template from `references/implementer-prompt.md` in the `prompt` field so the spawned agent has a self-contained context.
@@ -139,7 +139,7 @@ For parallel grouping strategy and model selection, see `references/parallel-str
 Poll background tasks and collect results using the runtime's result-collection primitive:
 
 ```text
-`task` output (inline)
+task --agent reply (inline)
 ```
 
 After each subagent reports completion:
@@ -192,7 +192,7 @@ This is advisory — findings are recorded for the convergence view but do not b
 ### Failure Recovery
 
 When a task fails:
-1. Read the failure output from the runtime's result-collection primitive (``task` output (inline)`)
+1. Read the failure output from the runtime's result-collection primitive (`task --agent reply (inline)`)
 2. Diagnose root cause — do NOT trust the implementer's self-assessment (see R3 adversarial posture)
 3. Fix the task using the resume-aware fixer flow below
 4. Run the `task-fix` runbook gate chain after the fix completes
@@ -207,7 +207,7 @@ Dispatch a fix agent with the full failure context and the original task descrip
 When session resume is unavailable, dispatch a fresh fixer agent using the runtime's native spawn primitive.
 
 ```typescript
-task --agent implementer "Fix failed task-001: Your implementation failed. [failure context from test output]. Apply adversarial verification: do NOT trust your previous self-assessment, re-read actual test output, identify root cause not symptoms. [Original task context]."
+task --agent fixer 'Fix failed task-001: Your implementation failed. [failure context from test output]. Apply adversarial verification: do NOT trust your previous self-assessment, re-read actual test output, identify root cause not symptoms. [Original task context].'
 ```
 
 After fix completes, run the `task-fix` runbook gate chain:

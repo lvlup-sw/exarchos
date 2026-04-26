@@ -28,6 +28,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import { spawnSync } from 'node:child_process';
+import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 
 // ─── Locate repo root ──────────────────────────────────────────────────────
@@ -165,23 +166,16 @@ describe('build pipeline wiring (Task 6)', () => {
     });
 
     it('spawning the generator writes all 20 expected files and exits 0', () => {
-      // Use `tsx` from the repo's installed devDependencies. We invoke
-      // it via `node --import tsx` so the test does not depend on a
-      // PATH `tsx` shim. The CLI shim inside generate-agents.ts must
-      // honour `EXARCHOS_OUTPUT_ROOT` (or argv[2]) so we can redirect
-      // writes into the sandbox without touching the real repo.
-      // Resolve `tsx` from the repo's node_modules so the spawn does
-      // not depend on a global PATH shim. We set `cwd` to the sandbox
-      // so the generator's default `process.cwd()`-based `outputRoot`
-      // resolution writes there, but we still need `tsx` resolvable —
-      // hence the absolute path passed via `--import`.
-      const tsxEntry = path.join(
-        REPO_ROOT,
-        'node_modules',
-        'tsx',
-        'dist',
-        'loader.mjs',
-      );
+      // Resolve `tsx`'s loader entry via Node's standard module
+      // resolution from this test file's location. CI installs deps
+      // only inside `servers/exarchos-mcp/`, so a hardcoded
+      // `<REPO_ROOT>/node_modules/tsx/...` path misses on the runner
+      // when the root-level install did not run. Resolving via
+      // `createRequire(import.meta.url)` finds tsx in whichever
+      // node_modules the test is actually being executed from.
+      const requireFromTest = createRequire(import.meta.url);
+      const tsxPackageJson = requireFromTest.resolve('tsx/package.json');
+      const tsxEntry = path.join(path.dirname(tsxPackageJson), 'dist', 'loader.mjs');
       const result = spawnSync(
         process.execPath,
         ['--import', `file://${tsxEntry}`, GENERATOR_PATH],

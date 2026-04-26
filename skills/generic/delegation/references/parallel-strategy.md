@@ -28,22 +28,23 @@ Task({ description: "Task 002", prompt: "..." })
 ```
 
 
-## Dispatch Mode Comparison
+## Subagent Dispatch Properties
 
-| Aspect | Subagent (default) | Agent Teams (Claude only) |
-|--------|---------------------|----------------------|
-| Parallel dispatch | Multiple `[sequential execution]` invocations in one message | Named teammates in agent team |
-| Waiting | `[poll subagent result]` | `subagent completion signal (poll-based)` |
-| Visibility | None (background) | tmux split panes |
-| Model control | `recommendedModel` from config | Session model for all |
-| Max parallelism | Unlimited | One team, N teammates |
-| Resume on crash | Task results preserved | Teammates lost (worktrees survive) |
+| Aspect | Subagent dispatch |
+|--------|---------------------|
+| Parallel dispatch | Multiple `[sequential execution]` invocations in one message |
+| Waiting | `[task output is the assistant's next message]` |
+| Visibility | None (background) |
+| Model control | `recommendedModel` from config |
+| Max parallelism | Unlimited |
+| Resume on crash | Task results preserved |
+
 
 ## Waiting for Parallel Completion
 
 ```text
 // Wait for all background tasks via the runtime's result-collection primitive
-[poll subagent result]
+[task output is the assistant's next message]
 // (poll/await once per dispatched task_id)
 ```
 

@@ -176,12 +176,17 @@ describe('Agent Spec Definitions', () => {
     expect(REVIEWER.model).toBe('inherit');
     expect(REVIEWER.resumable).toBe(false);
     expect(REVIEWER.capabilities).toContain('fs:read');
-    expect(REVIEWER.capabilities).toContain('shell:exec');
     expect(REVIEWER.capabilities).toContain('mcp:exarchos');
+    // Reviewer is intentionally read-only — no shell access. Test runs
+    // / typecheck / git inspection are the orchestrator's job, not the
+    // reviewer's. Trust boundary is machine-enforced via capability
+    // absence rather than prompt-enforced.
+    expect(REVIEWER.capabilities).not.toContain('shell:exec');
     expect(REVIEWER.capabilities).not.toContain('fs:write');
     expect(REVIEWER.disallowedTools).toContain('Write');
     expect(REVIEWER.disallowedTools).toContain('Edit');
     expect(REVIEWER.disallowedTools).toContain('Agent');
+    expect(REVIEWER.disallowedTools).toContain('Bash');
     expect(REVIEWER.systemPrompt).toContain('{{reviewScope}}');
     expect(REVIEWER.systemPrompt).toContain('{{designRequirements}}');
     expect(REVIEWER.mcpServers).toEqual(['exarchos']);

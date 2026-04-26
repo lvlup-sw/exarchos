@@ -36,7 +36,7 @@ Rationalization patterns that violate this principle are catalogued in `referenc
 
 ### Delegation Modes
 
-The default `subagent` mode dispatches each task using the runtime's native spawn primitive (e.g., the `Task` tool on Claude Code / OpenCode / Cursor, `spawn_agent` on Codex, `task --agent` on Copilot). On runtimes without a subagent primitive (e.g. `generic`), delegation degrades to sequential in-session execution.
+The default `subagent` mode dispatches each task using the runtime's spawn primitive: `Task`. Runtimes without a subagent primitive (`hasSubagents: false`) fall back to sequential in-session execution.
 
 
 Use the `recommendedModel` from `prepare_delegation` task classifications when available. If no classification exists (e.g., fixer dispatch), omit `model` to inherit the session default.
@@ -143,7 +143,7 @@ For parallel grouping strategy and model selection, see `references/parallel-str
 Poll background tasks and collect results using the runtime's result-collection primitive:
 
 ```text
-[poll subagent result]
+Task() reply (inline)
 ```
 
 After each subagent reports completion:
@@ -196,7 +196,7 @@ This is advisory — findings are recorded for the convergence view but do not b
 ### Failure Recovery
 
 When a task fails:
-1. Read the failure output from the runtime's result-collection primitive (`[poll subagent result]`)
+1. Read the failure output from the runtime's result-collection primitive (`Task() reply (inline)`)
 2. Diagnose root cause — do NOT trust the implementer's self-assessment (see R3 adversarial posture)
 3. Fix the task using the resume-aware fixer flow below
 4. Run the `task-fix` runbook gate chain after the fix completes
@@ -212,7 +212,7 @@ When session resume is unavailable, dispatch a fresh fixer agent using the runti
 
 ```typescript
 Task({
-  subagent_type: "implementer",
+  subagent_type: "fixer",
   prompt: "Your implementation failed. [failure context from test output]. Apply adversarial verification: do NOT trust your previous self-assessment, re-read actual test output, identify root cause not symptoms. [Original task context]."
 })
 
