@@ -32,6 +32,7 @@ import {
 import { join, relative, resolve } from 'node:path';
 import { loadAllRuntimes } from './runtimes/load.js';
 import type { RuntimeMap } from './runtimes/types.js';
+import { RuntimeTokenKey } from './runtimes/types.js';
 import { resolveMainDeps, type MainDeps } from './cli-helpers.js';
 import { lintPlaceholders } from './placeholder-lint.js';
 
@@ -829,6 +830,14 @@ export function buildAllSkills(opts: {
     );
   }
 
+  // Pre-flight: every runtime YAML must declare every canonical token in
+  // its `placeholders` map. This is a forcing function that turns a
+  // missing entry into a single aggregated error naming every (runtime,
+  // token) pair, instead of a per-render `unknown placeholder` failure
+  // for whichever runtime iterates first. Implements Wave A coverage
+  // guarantee for `RuntimeTokenKey`.
+  assertRuntimeTokenCoverage(runtimes);
+
   // Pre-flight: enforce the placeholder vocabulary. Running this
   // *before* the renderer means a stray `{{NOT_A_REAL_TOKEN}}`
   // surfaces as a single aggregated error naming every offender,
@@ -930,6 +939,49 @@ export function buildAllSkills(opts: {
   }
 
   return { variantsWritten, referencesCopied, overridesUsed, warnings };
+}
+
+/**
+ * Pre-flight: enforce that every loaded runtime declares a value for
+ * every token in `RuntimeTokenKey`. Aggregates all missing
+ * (runtime, token) pairs into a single error so authors fix the YAML in
+ * one pass — without this, a typo or missed entry would only surface
+ * for whichever runtime renders the offending source first.
+ *
+ * Adding a token to `RuntimeTokenKey` and forgetting to add it to even
+ * one of the six runtime YAMLs is the most common Wave A authoring
+ * mistake; this check catches it before any rendering happens.
+ *
+ * Throws with a sorted (runtime, token) listing for determinism.
+ */
+function assertRuntimeTokenCoverage(runtimes: RuntimeMap[]): void {
+  const missing: Array<{ runtime: string; token: string }> = [];
+  for (const rt of runtimes) {
+    for (const token of RuntimeTokenKey) {
+      if (!Object.prototype.hasOwnProperty.call(rt.placeholders, token)) {
+        missing.push({ runtime: rt.name, token });
+      }
+    }
+  }
+  if (missing.length === 0) return;
+
+  // Sort by (token, runtime) so the message is reproducible regardless
+  // of YAML load order — most useful when the same token is missing on
+  // multiple runtimes.
+  missing.sort((a, b) =>
+    a.token === b.token ? a.runtime.localeCompare(b.runtime) : a.token.localeCompare(b.token),
+  );
+
+  const lines = missing.map(
+    (m) =>
+      `  - runtimes/${m.runtime}.yaml is missing required placeholder {{${m.token}}}`,
+  );
+  throw new Error(
+    `[build:skills] runtime token coverage check failed:\n${lines.join('\n')}\n\n` +
+      `Add the token to every runtimes/*.yaml placeholders map. ` +
+      `Required tokens (from RuntimeTokenKey in src/runtimes/types.ts): ` +
+      `[${[...RuntimeTokenKey].join(', ')}].`,
+  );
 }
 
 /**

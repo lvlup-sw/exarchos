@@ -334,13 +334,34 @@ function writeRuntimeFixtures(
 ): void {
   mkdirSync(runtimesDir, { recursive: true });
   const names = ['generic', 'claude', 'codex', 'opencode', 'copilot', 'cursor'];
+  // Wave A: every runtime YAML must declare every RuntimeTokenKey entry,
+  // so test fixtures need the full canonical set or `assertRuntimeTokenCoverage`
+  // fails the build before any of these task-007 fixtures get rendered.
+  // Tests that intentionally exercise per-runtime variation override
+  // individual entries via `overrides[name].placeholders`; tests that
+  // exercise vocabulary edge cases (e.g. `RuntimeWithNoPlaceholders`) pass
+  // an empty override map which the helper substitutes via union below.
   const defaultPlaceholders: Record<string, string> = {
     AGENT_LABEL: 'agent',
     SKILL_INVOCATION: 'call the skill',
+    MCP_PREFIX: 'mcp__test__',
+    COMMAND_PREFIX: '/',
+    TASK_TOOL: 'Task',
+    CHAIN: '[invoke {{next}} with {{args}}]',
+    SPAWN_AGENT_CALL: 'Task({ prompt: "{{prompt}}" })',
+    SUBAGENT_COMPLETION_HOOK: 'subagent completion signal (poll-based)',
+    SUBAGENT_RESULT_API: '[poll subagent result]',
   };
   for (const name of names) {
     const override = overrides[name]?.placeholders;
-    const placeholders = override ?? defaultPlaceholders;
+    // When a test passes a partial override, merge with defaults so the
+    // RuntimeTokenKey coverage check still passes. When the test wants a
+    // truly empty placeholder map (the original RuntimeWithNoPlaceholders
+    // case), it's testing the rendering path's tolerance for empty maps,
+    // which now requires the per-runtime token set; merge defaults so the
+    // contract being asserted (no `{{token}}` references → unchanged
+    // body) still holds without colliding with the new coverage check.
+    const placeholders = override !== undefined ? { ...defaultPlaceholders, ...override } : defaultPlaceholders;
     writeFileSync(join(runtimesDir, `${name}.yaml`), makeRuntimeYaml(name, placeholders));
   }
 }
