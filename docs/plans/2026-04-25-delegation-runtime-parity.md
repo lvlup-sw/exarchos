@@ -311,62 +311,105 @@ Each runtime YAML gets `supportedCapabilities` + corrections. Five worktrees in 
 
 ## P4 — Prose layer
 
-### Task 8: Capability-tokenized terms in skill prose
-**Phase:** RED → GREEN → REFACTOR
+> **Revision (2026-04-25, post-design-review + axiom backend-quality):** original Tasks 8/9/10 were sequential and shared the same files (`src/build-skills.ts`, `skills-src/delegation/SKILL.md`). After dimensional review (DIM-1 topology, DIM-3 contracts, DIM-5 hygiene) they collapse into two waves:
+>
+> - **Wave A** (this plan's Task 8 + Task 9, plus typed contracts and reference-pruning): renderer pipeline + source migration in one cohesive change.
+> - **Wave B** (Task 10): vocabulary lint, dispatched only after Wave A's source migration lands.
+>
+> The original Task 8/9/10 sub-steps remain authoritative as RED-test seeds; the wave shape just bundles them sensibly.
 
-1. **[RED]** Write test: `BuildSkills_SubagentCompletionHookToken_RendersPerRuntime`
-   - File: `src/build-skills.test.ts`
-   - Assert: rendering against `claude.yaml` produces `TeammateIdle hook`; against `opencode.yaml` produces `subagent completion signal (poll-based)`
-2. **[RED]** Write test: `BuildSkills_TaskListApiToken_OmittedOrAnnotatedPerRuntime`
-3. **[GREEN]** Edit `skills-src/delegation/SKILL.md` and references
-   - Replace literal `TeammateIdle`, `SubagentStart`, `TaskList`, `TaskUpdate`, `TaskOutput`, `SendMessage`, `TeamCreate`, `TeamDelete` with tokens
-   - Define token resolution in each `runtimes/<name>.yaml`
-4. **[GREEN]** Extend `src/build-skills.ts` token substitution
-   - Read new tokens from runtime YAML during render
-5. **[REFACTOR]** None
+### Wave A — Renderer pipeline + source migration (Task 8 + Task 9 bundled)
+**Phase:** RED → GREEN → REFACTOR
+**Branch:** `feat/runtime-parity-wave-a-renderer`
+**Files:** `src/build-skills.ts`, `src/runtimes/types.ts`, `skills-src/delegation/SKILL.md`, `skills-src/delegation/references/*`, `runtimes/*.yaml`
+
+#### Typed contracts (DIM-3, must land first)
+
+1. **`RuntimeTokenKey` enum** in `src/runtimes/types.ts` — union of every placeholder key valid in skill prose (existing 5 + Wave A additions). Build pre-flight asserts every runtime YAML defines every token in the enum, or fails with the offending runtime/token pair.
+2. **Guard parser consumes `SupportedCapabilityKey`** (already typed). `<!-- requires:not-a-cap -->` produces a build error citing file/line/unknown capability. Same for `<!-- requires:native:not-a-cap -->`.
+3. Both guard forms supported with explicit semantics:
+   - `<!-- requires:cap -->...<!-- /requires -->` — block included if `cap ∈ {native, advisory}`.
+   - `<!-- requires:native:cap -->...<!-- /requires -->` — block included only if `cap = native`.
+   - Nested guards are honored (outer guard elides everything inside before inner is evaluated).
+
+#### Token table (decision policy: tokenize when a sensible non-Claude rendering exists, otherwise guard)
+
+| Token | Claude | OpenCode | Cursor | Codex | Copilot |
+|-------|--------|----------|--------|-------|---------|
+| `{{SUBAGENT_COMPLETION_HOOK}}` | `TeammateIdle hook` | `subagent completion signal (poll-based)` | same as OpenCode | same as OpenCode | same as OpenCode |
+| `{{SUBAGENT_RESULT_API}}` | `TaskOutput({ task_id, block: true })` | `[poll subagent result]` | `[poll subagent result]` | `wait_agent({ task_id })` | `task` output (inline) |
+
+Anything not in the table that requires Claude-only behavior (e.g. `TaskList`/`TaskUpdate`/`SendMessage`, `agentId`, the `SubagentStart` hook, the `agent-team` mode) becomes a guard, not a token. Wave A is empowered to extend the table if a clean fallback emerges during implementation; the rule is the constraint.
+
+#### Reference-file pruning (DIM-5)
+
+Renderer scans the per-runtime rendered SKILL.md for `references/<file>` links and copies only the ones actually linked to `skills/<runtime>/<name>/references/`. So when the link to `agent-teams-saga.md` is wrapped `<!-- requires:team:agent-teams -->` and elided on non-Claude runtimes, the file is also not copied for those runtimes. Avoids per-line guards in long Claude-only references (`agent-teams-saga.md`, parts of `implementer-prompt.md`).
+
+#### Build-time hard errors (DIM-2)
+
+Each is a separate aggregated diagnostic, not a fatal-on-first-hit error.
+
+- Unknown token: `{{TYPO}}` referenced in source where no runtime defines it.
+- Unknown guard capability: `<!-- requires:typo -->` where `typo ∉ SupportedCapabilityKey`.
+- Token defined in some runtimes but used where another runtime's render path lacks a definition.
+- Orphan markdown after elision (empty list item, heading-only block with no body).
+- Idempotency: `buildAllSkills` invoked twice produces byte-identical output (assert in test; `skills:guard` CI already validates this externally).
+
+#### RED tests (extends original Task 8 + Task 9 set)
+
+1. `BuildSkills_SubagentCompletionHookToken_RendersPerRuntime` (orig 8.1)
+2. `BuildSkills_SubagentResultApiToken_RendersPerRuntime` (orig 8.2 generalized)
+3. `BuildSkills_TokenWithoutDefinition_FailsBuild` (DIM-2)
+4. `BuildSkills_RequiresGuard_ElidesUnsupportedSection` (orig 9.1)
+5. `BuildSkills_RequiresNativeGuard_AdvisoryRuntimeElides` (DIM-4 — assert `<!-- requires:native:session:resume -->` is included on Claude, elided on OpenCode/Cursor/Codex/Copilot where `session:resume` is `advisory`)
+6. `BuildSkills_UnknownGuardCapability_FailsBuild` (DIM-3)
+7. `BuildSkills_NestedGuards_Respected` (orig 9.2)
+8. `BuildSkills_OrphanReferenceFile_NotCopied` (DIM-5 — guarded link elided ⇒ referenced file not in output)
+9. `BuildSkills_RenderIdempotent` (DIM-7)
+
+#### GREEN
+
+- Implement renderer pipeline (token expansion → guard elision → reference pruning → idempotency check).
+- Migrate `skills-src/delegation/SKILL.md` and references to use tokens/guards per the policy table.
+- Wrap `agent-teams-saga.md` link in `<!-- requires:team:agent-teams -->`.
+- Wrap `agentId`/session-resume guidance in `<!-- requires:native:session:resume -->`.
+
+#### REFACTOR
+
+Document the token table and guard syntax inline in `skills-src/SKILL_AUTHORING.md` (create if absent) or top of `src/build-skills.ts`.
 
 **Dependencies:** Task 1, Tasks 7a–7e
-**Parallelizable:** Yes (with Task 9, 10)
-**Branch:** `feat/runtime-parity-prose-tokens`
+**Parallelizable:** No (collapses two former tasks)
 
 ---
 
-### Task 9: Capability-guarded sections (`<!-- requires:* -->`)
-**Phase:** RED → GREEN → REFACTOR
-
-1. **[RED]** Write test: `BuildSkills_RequiresGuard_ElidesUnsupportedSections`
-   - File: `src/build-skills.test.ts`
-   - Assert: a block fenced `<!-- requires:team:agent-teams -->` is included for `claude` render, omitted for `opencode` render
-2. **[RED]** Write test: `BuildSkills_RequiresGuard_NestedGuardsRespected`
-3. **[GREEN]** Implement guard parser in `src/build-skills.ts`
-   - Match `<!-- requires:<capability> -->` ... `<!-- /requires -->` blocks
-   - Elide block when runtime YAML's `supportedCapabilities` does not include the capability
-4. **[GREEN]** Edit `skills-src/delegation/SKILL.md`
-   - Wrap Agent Teams mode section in `<!-- requires:team:agent-teams -->`
-   - Wrap session-resume guidance in `<!-- requires:session:resume -->`
-   - Wrap `references/agent-teams-saga.md` reference in `<!-- requires:team:agent-teams -->`
-5. **[REFACTOR]** Document the guard syntax in `skills-src/README.md` (or equivalent)
-
-**Dependencies:** Task 1, Task 8
-**Parallelizable:** Yes (with Task 10)
-**Branch:** `feat/runtime-parity-prose-guards`
-
----
-
-### Task 10: Vocabulary lint extension
+### Wave B — Vocabulary lint (Task 10)
 **Phase:** RED → GREEN
+**Branch:** `feat/runtime-parity-wave-b-lint`
+**Depends on:** Wave A merged
+**Files:** `src/build-skills.ts` (lint hook), `src/build-skills.test.ts`
 
-1. **[RED]** Write test: `VocabularyLint_ClaudeOnlyTermOutsideGuard_FailsCI`
-   - File: `src/build-skills.test.ts`
-   - Inject a synthetic `skills-src/delegation/SKILL.md` containing `TeammateIdle` outside any guard or token; assert lint throws
-2. **[RED]** Write test: `VocabularyLint_ClaudeOnlyTermInsideGuard_Passes`
-3. **[GREEN]** Extend pre-flight lint in `src/build-skills.ts`
-   - Forbidden terms: `TeammateIdle`, `SubagentStart`, `TaskOutput`, `TaskList`, `TaskUpdate`, `SendMessage`, `TeamCreate`, `TeamDelete`, `agentId`, `agent-team`
-   - Allowed contexts: inside `<!-- requires:* -->` block; inside a `{{TOKEN}}` substitution
+#### Lint scope
 
-**Dependencies:** Task 9
-**Parallelizable:** Yes (with Task 9)
-**Branch:** `feat/runtime-parity-prose-lint`
+- Runs **post-render**, per-runtime, against rendered output bytes.
+- Forbidden terms (typed catalog, exported for reuse): `TeammateIdle`, `SubagentStart`, `TaskOutput`, `TaskList`, `TaskUpdate`, `SendMessage`, `TeamCreate`, `TeamDelete`, `agentId`.
+- Allowed contexts the lint must respect:
+  - Inside a fenced code block whose info-string contains `runtime:claude-only`
+  - Capability identifiers (e.g. literal string `team:agent-teams` as a YAML/code symbol) — explicit exclusion to avoid false positives
+- Failure message format: `<file>:<line>: forbidden term '<term>' in <runtime> render — wrap in <!-- requires:<cap> --> or tokenize as {{...}}`.
+
+#### RED tests
+
+1. `VocabularyLint_ForbiddenTermInClaudeRenderInsideGuard_Passes` (orig 10.2)
+2. `VocabularyLint_ForbiddenTermInOpenCodeRender_FailsCI` (extends orig 10.1 with cross-runtime case)
+3. `VocabularyLint_CapabilityIdentifierNotFlagged` (false-positive guard)
+
+#### GREEN
+
+Extend the existing `lintPlaceholders` pre-flight (or add a sibling post-render lint pass) in `src/build-skills.ts`.
+
+**Dependencies:** Wave A merged
+**Parallelizable:** No (single concern; small change)
 
 ---
 
