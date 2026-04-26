@@ -518,3 +518,141 @@ describe.skip('rehydration reducer — decisions fold (T025, DR-3) — SKIPPED: 
     // placeholder
   });
 });
+
+// ─── Fix 2 (T2.1) — state.patched.tasks fold ─────────────────────────────────
+//
+// Issue #1179: rehydration drops pending tasks. The reducer previously folded
+// only the `artifacts` subtree of `state.patched`, ignoring `tasks`. Pending
+// tasks (those declared in state.json by the planner but not yet emitted as
+// `task.assigned`) were therefore invisible in the rehydration document, so
+// agents resuming a delegate phase saw only the in-flight subset.
+//
+// Contract: `state.patched.patch.tasks` carries the planner's full task list
+// (each entry has `id`, `title`, `status`). The reducer must seed taskProgress
+// from this list, then let subsequent dedicated `task.*` events override the
+// status. Status-aware upsert: events win over plan-state for the same id.
+describe('rehydration reducer — state.patched.tasks fold (Fix 2 / #1179)', () => {
+  it('Rehydration_StatePatchedTasksWithMixedStatuses_FoldsAllAndAppliesEventOverrides', () => {
+    // GIVEN: initial state plus a `workflow.started` event
+    const initial = rehydrationReducer.initial;
+    const started = makeEvent(
+      'workflow.started',
+      { featureId: 'feat-1179', workflowType: 'feature' },
+      1,
+    );
+    const afterStarted = rehydrationReducer.apply(initial, started);
+
+    // AND: a `state.patched` event whose patch.tasks declares 5 pending tasks
+    // — the canonical TaskSchema status enum is `pending|in_progress|complete|failed`
+    // (see workflow/schemas.ts:155). Note the reducer translates these into
+    // taskProgress entries (which use a separate but compatible status string).
+    const planPatched = makeEvent(
+      'state.patched',
+      {
+        featureId: 'feat-1179',
+        fields: ['tasks'],
+        patch: {
+          tasks: [
+            { id: 'T1', title: 'Task 1', status: 'pending' },
+            { id: 'T2', title: 'Task 2', status: 'pending' },
+            { id: 'T3', title: 'Task 3', status: 'pending' },
+            { id: 'T4', title: 'Task 4', status: 'pending' },
+            { id: 'T5', title: 'Task 5', status: 'pending' },
+          ],
+        },
+      },
+      2,
+    );
+    const afterPlan = rehydrationReducer.apply(afterStarted, planPatched);
+
+    // AND: dedicated task events for a subset (1 assigned, 2 completed)
+    const assignedT1 = makeEvent('task.assigned', { taskId: 'T1', title: 'Task 1' }, 3);
+    const completedT2 = makeEvent('task.completed', { taskId: 'T2' }, 4);
+    const completedT3 = makeEvent('task.completed', { taskId: 'T3' }, 5);
+
+    let next = rehydrationReducer.apply(afterPlan, assignedT1);
+    next = rehydrationReducer.apply(next, completedT2);
+    next = rehydrationReducer.apply(next, completedT3);
+
+    // THEN: taskProgress contains all 5 tasks (NOT just the ones with events).
+    // Pre-fix this returns 3 (the event-derived entries only); post-fix it
+    // returns 5 because pending tasks are seeded from state.patched.patch.tasks.
+    expect(next.taskProgress).toHaveLength(5);
+
+    // AND: the per-task status reflects event overrides where present, and
+    // falls back to the planner-declared "pending" otherwise.
+    const byId = new Map(next.taskProgress.map((t) => [t.id, t.status]));
+    expect(byId.get('T1')).toBe('assigned');
+    expect(byId.get('T2')).toBe('completed');
+    expect(byId.get('T3')).toBe('completed');
+    expect(byId.get('T4')).toBe('pending');
+    expect(byId.get('T5')).toBe('pending');
+
+    // AND: the count of completed entries matches the events that fired.
+    const completed = next.taskProgress.filter((t) => t.status === 'completed');
+    expect(completed).toHaveLength(2);
+
+    // AND: the resulting document still conforms to the schema.
+    expect(RehydrationDocumentSchema.safeParse(next).success).toBe(true);
+  });
+
+  it('Rehydration_StatePatchedTasksFollowedByPlanReexpansion_DoesNotResurrectCompleted', () => {
+    // GIVEN: a plan was patched and one task completed
+    const initial = rehydrationReducer.initial;
+    const firstPlan = rehydrationReducer.apply(
+      initial,
+      makeEvent(
+        'state.patched',
+        {
+          featureId: 'feat-x',
+          fields: ['tasks'],
+          patch: {
+            tasks: [
+              { id: 'A', title: 'A', status: 'pending' },
+              { id: 'B', title: 'B', status: 'pending' },
+            ],
+          },
+        },
+        1,
+      ),
+    );
+    const afterCompletion = rehydrationReducer.apply(
+      firstPlan,
+      makeEvent('task.completed', { taskId: 'A' }, 2),
+    );
+    expect(
+      afterCompletion.taskProgress.find((t) => t.id === 'A')?.status,
+    ).toBe('completed');
+
+    // WHEN: a later state.patched re-asserts the same plan (this happens when
+    // the planner stamps `tasks` again on a later set call). The patch still
+    // marks A as `pending` because state.json's TaskSchema is plan-state, not
+    // execution-state. The reducer must NOT regress A's status from `completed`
+    // back to `pending` — events are authoritative for execution status.
+    const secondPlan = rehydrationReducer.apply(
+      afterCompletion,
+      makeEvent(
+        'state.patched',
+        {
+          featureId: 'feat-x',
+          fields: ['tasks'],
+          patch: {
+            tasks: [
+              { id: 'A', title: 'A', status: 'pending' },
+              { id: 'B', title: 'B', status: 'pending' },
+              { id: 'C', title: 'C', status: 'pending' },
+            ],
+          },
+        },
+        3,
+      ),
+    );
+
+    // THEN: A stays completed, B stays pending, C is added pending.
+    const byId = new Map(secondPlan.taskProgress.map((t) => [t.id, t.status]));
+    expect(byId.get('A')).toBe('completed');
+    expect(byId.get('B')).toBe('pending');
+    expect(byId.get('C')).toBe('pending');
+    expect(secondPlan.taskProgress).toHaveLength(3);
+  });
+});
