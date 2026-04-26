@@ -477,6 +477,22 @@ export interface RenderContext {
   /** When provided, run `renderCallMacros(body, runtime)` as a
    *  pre-processing step before placeholder substitution. */
   runtime?: RuntimeMap;
+  /**
+   * When `true`, unknown `{{TOKEN}}` references are left intact instead
+   * of throwing. Used by the Wave C reference-render pass so legitimate
+   * handlebar-style template literals inside reference bodies (e.g.
+   * `{{#each hints}} ... {{category}} ... {{/each}}` in
+   * `implementer-prompt.md`) survive unchanged for downstream
+   * dispatch-time substitution.
+   *
+   * The SKILL.md render path keeps the strict default — vocabulary
+   * violations there are caught by the placeholder-lint pre-flight,
+   * so a loose render is unnecessary and would mask real authoring
+   * mistakes. Reference bodies are explicitly out of scope for the
+   * placeholder-lint (see `placeholder-lint.ts` header comment), so
+   * the only safe default for them is "leave unknown tokens alone".
+   */
+  lenientUnknownTokens?: boolean;
 }
 
 /**
@@ -518,7 +534,7 @@ export function render(
   return substitute(preprocessed, placeholders, {
     sourcePath: context.sourcePath ?? '<unknown>',
     runtimeName: context.runtimeName ?? '<unknown>',
-    throwOnUnknown: true,
+    throwOnUnknown: !context.lenientUnknownTokens,
   });
 }
 
@@ -1246,13 +1262,20 @@ export function buildAllSkills(opts: {
         }
       }
 
-      // References: copy only those linked from the per-runtime
+      // References: render only those linked from the per-runtime
       // rendered SKILL.md so guard-elided sections don't leak their
       // dependent reference files into runtimes that can't make use of
       // them. Files in `references/` not linked from the rendered
-      // SKILL.md are NOT copied. This is the Wave A "orphan pruning"
+      // SKILL.md are NOT written. This is the Wave A "orphan pruning"
       // pass — see `collectReferencedFiles` below for the link
       // discovery contract.
+      //
+      // Wave C: surviving Markdown references go through the same
+      // renderer pipeline that SKILL.md does (guards → CALL macros →
+      // tokens → claude-only fenced-block elision) so Claude-only
+      // prose inside a guarded section is invisible to non-Claude
+      // runtimes. Non-text references (binary blobs) byte-copy as
+      // before so we never corrupt them by re-encoding.
       if (existsSync(join(skillDir, 'references'))) {
         // Re-read the just-written rendered SKILL.md so we scan exactly
         // what reached disk (including override files written verbatim).
@@ -1262,10 +1285,11 @@ export function buildAllSkills(opts: {
           join(skillDir, 'references'),
         );
         const before = written.size;
-        copyLinkedReferences(
+        renderLinkedReferences(
           join(skillDir, 'references'),
           join(outSkillDir, 'references'),
           linked,
+          rt,
           written,
         );
         referencesCopied += written.size - before;
@@ -1426,6 +1450,129 @@ function copyLinkedReferences(
     const contents = readFileSync(srcFile);
     writeFileSync(destFile, contents);
     utimesSync(destFile, srcStat.atime, srcStat.mtime);
+    if (writtenPaths) writtenPaths.add(resolve(destFile));
+  }
+}
+
+/**
+ * File extensions whose contents go through the same render pipeline
+ * SKILL.md uses (guards → CALL macros → tokens → claude-only fenced-block
+ * elision). Anything not in this set is byte-copied so binary blobs
+ * (PNGs, GIFs, screenshots embedded in references) survive intact.
+ *
+ * Conservative on purpose — if an author drops a `.json` schema or
+ * `.yaml` snippet into `references/` they almost certainly want it
+ * verbatim. Markdown is the only format that actually carries
+ * `{{TOKEN}}` and `<!-- requires:* -->` syntax in the source tree, so
+ * narrowing to `.md` keeps the blast radius of the new pipeline tiny.
+ */
+const RENDERED_REFERENCE_EXTENSIONS: ReadonlySet<string> = new Set([
+  '.md',
+  '.markdown',
+]);
+
+/**
+ * Wave C: render the references files in `linked` from `srcRefs` to
+ * `destRefs`, applying the same per-runtime pipeline as SKILL.md.
+ * Symmetric with `copyLinkedReferences` (which it replaces in
+ * `buildAllSkills`): files outside `linked` are skipped so an elided
+ * guard's referenced files do not bleed into runtimes that don't link
+ * to them.
+ *
+ * Pipeline for Markdown references (matches the SKILL.md pipeline in
+ * `buildAllSkills` exactly):
+ *   1. `applyRequiresGuards` — elide blocks whose required capability
+ *      isn't declared by the runtime.
+ *   2. `renderCallMacros` — expand `{{CALL ...}}` to the runtime's
+ *      preferred facade.
+ *   3. `render` — substitute `{{TOKEN}}` placeholders.
+ *   4. `elideClaudeOnlyCodeBlocks` — drop fenced blocks tagged
+ *      `runtime:claude-only` from non-Claude renders.
+ *   5. `assertNoUnresolvedPlaceholders` — fail fast on a residual
+ *      `{{...}}` so a typo in a reference surfaces with the same
+ *      diagnostic shape as a SKILL.md typo.
+ *
+ * Non-Markdown references (anything outside
+ * `RENDERED_REFERENCE_EXTENSIONS`) byte-copy unchanged with mtime
+ * preservation, identical to the pre-Wave-C behavior. This keeps
+ * binary blobs intact while the new pipeline only touches the file
+ * formats that actually carry placeholder/guard syntax.
+ *
+ * @param srcRefs - Source `references/` directory.
+ * @param destRefs - Per-runtime destination `references/` directory.
+ * @param linked - Reference paths (relative to `srcRefs`) that survive
+ *   the link-prune pass; everything else is dropped.
+ * @param runtime - Target runtime; drives placeholder substitution,
+ *   guard evaluation, and Claude-only elision.
+ * @param writtenPaths - Optional accumulator for the stale-cleanup
+ *   pass in `buildAllSkills`. Mirrors the `copyLinkedReferences`
+ *   contract so the caller can swap implementations transparently.
+ */
+function renderLinkedReferences(
+  srcRefs: string,
+  destRefs: string,
+  linked: Set<string>,
+  runtime: RuntimeMap,
+  writtenPaths?: Set<string>,
+): void {
+  if (linked.size === 0) return;
+  // Materialize parent dir before writing children.
+  mkdirSync(destRefs, { recursive: true });
+
+  for (const rel of linked) {
+    const srcFile = join(srcRefs, rel);
+    if (!existsSync(srcFile)) continue;
+    const srcStat = statSync(srcFile);
+    if (!srcStat.isFile()) continue;
+    const destFile = join(destRefs, rel);
+    mkdirSync(dirname(destFile), { recursive: true });
+
+    // Decide pipeline vs byte-copy by file extension. Markdown
+    // references go through the same render passes as SKILL.md so
+    // guards/tokens/claude-only blocks behave identically. Everything
+    // else (binary blobs, JSON, YAML) is preserved verbatim with
+    // mtime so existing reference assets aren't corrupted by an
+    // accidental re-encoding pass.
+    const dotIdx = rel.lastIndexOf('.');
+    const ext = dotIdx === -1 ? '' : rel.slice(dotIdx).toLowerCase();
+    if (RENDERED_REFERENCE_EXTENSIONS.has(ext)) {
+      const body = readFileSync(srcFile, 'utf8');
+      try {
+        const guardElided = applyRequiresGuards(body, runtime, srcFile);
+        const macroExpanded = renderCallMacros(guardElided, runtime);
+        // `lenientUnknownTokens: true` — references legitimately carry
+        // handlebar-style template literals (e.g. `{{category}}`,
+        // `{{#each hints}}`) that are populated downstream at dispatch
+        // time, not by the renderer. Throwing on unknown tokens here
+        // would force authors to rewrite every template-bearing
+        // reference. The placeholder-lint already excludes references
+        // by design (see `placeholder-lint.ts` header comment) — the
+        // renderer matches that contract by leaving unknowns intact.
+        const rendered = elideClaudeOnlyCodeBlocks(
+          render(macroExpanded, runtime.placeholders, {
+            sourcePath: srcFile,
+            runtimeName: runtime.name,
+            lenientUnknownTokens: true,
+          }),
+          runtime,
+        );
+        writeFileSync(destFile, rendered);
+      } catch (err) {
+        // Re-throw with source file context if the inner error doesn't
+        // already mention it — mirrors the SKILL.md branch's wrapping
+        // behavior so a CALL macro / placeholder failure inside a
+        // reference points the author at the exact file.
+        const msg = err instanceof Error ? err.message : String(err);
+        if (msg.includes(srcFile)) throw err;
+        throw new Error(`Reference render error in ${srcFile}: ${msg}`);
+      }
+    } else {
+      // Binary or non-Markdown reference: byte-copy with mtime
+      // preserved so timestamp-sensitive consumers see no churn.
+      const contents = readFileSync(srcFile);
+      writeFileSync(destFile, contents);
+      utimesSync(destFile, srcStat.atime, srcStat.mtime);
+    }
     if (writtenPaths) writtenPaths.add(resolve(destFile));
   }
 }
