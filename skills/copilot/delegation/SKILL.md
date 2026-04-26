@@ -126,7 +126,7 @@ This runbook provides structured criteria for parallel vs sequential dispatch, t
 Dispatch all independent tasks using the runtime's native spawn primitive. On runtimes with subagent support, fan out in a **single message** so the dispatches run in parallel. On runtimes without a subagent primitive, execute each task sequentially against its prepared worktree and emit one operator-visible warning per batch so users know they are not getting parallelism.
 
 ```typescript
-/delegate "Implement task-001: [title]: Task-specific context: requirements, file paths, acceptance criteria"
+task --agent implementer "Implement task-001: [title]: Task-specific context: requirements, file paths, acceptance criteria"
 ```
 
 > **Note:** On Claude Code, the `exarchos-implementer` agent definition already contains the system prompt, model, isolation, skills, hooks, and memory — the dispatch prompt should carry ONLY task-specific context. On runtimes without native agent definitions, include the full implementer prompt template from `references/implementer-prompt.md` in the `prompt` field so the spawned agent has a self-contained context.
@@ -235,7 +235,7 @@ For the full recovery flow with a concrete example, see `references/worked-examp
 Dispatch a fix agent with the full failure context and the original task description. On runtimes that support session resume (e.g. Claude Code with an `agentId` in workflow state), prefer resuming the original agent so it retains its implementer context; otherwise dispatch a fresh fixer agent using the runtime's native spawn primitive.
 
 ```typescript
-/delegate "Fix failed task-001: Your implementation failed. [failure context from test output]. Apply adversarial verification: do NOT trust your previous self-assessment, re-read actual test output, identify root cause not symptoms. [Original task context]."
+task --agent implementer "Fix failed task-001: Your implementation failed. [failure context from test output]. Apply adversarial verification: do NOT trust your previous self-assessment, re-read actual test output, identify root cause not symptoms. [Original task context]."
 ```
 
 After fix completes, run the `task-fix` runbook gate chain:
