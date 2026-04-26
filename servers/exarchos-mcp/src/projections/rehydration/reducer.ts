@@ -29,8 +29,21 @@ import {
   type RehydrationDocument,
 } from './schema.js';
 
-/** Terminal task states this reducer recognises as taskProgress statuses. */
-type TaskProgressStatus = 'assigned' | 'completed' | 'failed';
+/**
+ * Task statuses surfaced by this reducer.
+ *
+ *  - `assigned` / `completed` / `failed` come from dedicated `task.*` events.
+ *  - `pending` is seeded from `state.patched.patch.tasks` (the planner's
+ *    declared task list — see Fix 2 / #1179) so plan-state tasks that have
+ *    not yet been dispatched still appear in the rehydration document.
+ *
+ * Event-derived statuses are *authoritative* over plan-derived statuses:
+ * once a task has been observed assigned/completed/failed via events, a
+ * later state.patched re-asserting the plan must NOT regress it back to
+ * `pending` (the planner stamps the plan repeatedly; events carry execution
+ * truth).
+ */
+type TaskProgressStatus = 'pending' | 'assigned' | 'completed' | 'failed';
 
 /** Structural shape of a single taskProgress entry in the rehydration doc. */
 type TaskProgressEntry = RehydrationDocument['taskProgress'][number];
@@ -180,6 +193,96 @@ function upsertTaskProgress(
   return next;
 }
 
+/**
+ * Decode the `data.patch.tasks` subtree of a `state.patched` event into a
+ * minimal `{ id, status }[]` projection (Fix 2 / #1179).
+ *
+ * The workflow-side `TaskSchema` (workflow/schemas.ts) carries many fields,
+ * but the rehydration document only consumes id + status. Anything that
+ * isn't a non-empty string `id` is skipped — the patch could carry an
+ * intentionally partial entry (e.g. only `title` updates) that we should
+ * not invent an id for.
+ *
+ * Returns `undefined` when the event has no tasks subtree OR the subtree is
+ * empty / unactionable, so callers can short-circuit and avoid bumping
+ * `projectionSequence` for no-op patches.
+ */
+interface ExtractedPlanTask {
+  readonly id: string;
+  readonly status: TaskProgressStatus;
+}
+
+function extractPlanTasks(
+  data: WorkflowEvent['data'],
+): readonly ExtractedPlanTask[] | undefined {
+  if (!data) return undefined;
+  const patch = data['patch'];
+  if (!patch || typeof patch !== 'object' || Array.isArray(patch)) {
+    return undefined;
+  }
+  const tasksRaw = (patch as Record<string, unknown>)['tasks'];
+  if (!Array.isArray(tasksRaw)) {
+    return undefined;
+  }
+
+  const out: ExtractedPlanTask[] = [];
+  for (const entry of tasksRaw) {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) continue;
+    const e = entry as Record<string, unknown>;
+    const id = typeof e['id'] === 'string' ? (e['id'] as string) : undefined;
+    if (!id) continue;
+    // The plan-side TaskSchema status is `pending|in_progress|complete|failed`.
+    // Map onto the reducer's TaskProgressStatus surface; anything else (or
+    // missing) becomes `pending` because the plan-state assertion is "this
+    // task exists" — refining its execution status is the events' job.
+    const rawStatus = e['status'];
+    const status: TaskProgressStatus =
+      rawStatus === 'failed'
+        ? 'failed'
+        : rawStatus === 'complete' || rawStatus === 'completed'
+          ? 'completed'
+          : rawStatus === 'in_progress'
+            ? 'assigned'
+            : 'pending';
+    out.push({ id, status });
+  }
+
+  return out.length > 0 ? out : undefined;
+}
+
+/**
+ * Pure helper — fold a plan-derived task list into the existing taskProgress.
+ *
+ * Plan-derived statuses are *seed-only*: an event-derived status (assigned /
+ * completed / failed) for the same id always wins. This guarantees that a
+ * later state.patched re-asserting the plan cannot resurrect a completed
+ * task back to pending. New ids in the plan are appended with their
+ * plan-declared status; ids already present keep their stronger status.
+ */
+function foldPlanTasks(
+  progress: readonly TaskProgressEntry[],
+  planTasks: readonly ExtractedPlanTask[],
+): TaskProgressEntry[] {
+  const next = progress.slice();
+  const indexById = new Map(next.map((entry, idx) => [entry.id, idx]));
+  for (const planTask of planTasks) {
+    const existingIdx = indexById.get(planTask.id);
+    if (existingIdx === undefined) {
+      next.push({ id: planTask.id, status: planTask.status });
+      indexById.set(planTask.id, next.length - 1);
+      continue;
+    }
+    // Preserve the existing status — events are authoritative over plan
+    // re-assertions. Only fill in a status for entries that somehow lack
+    // one (defensive; the schema requires status to be a string).
+    const existing = next[existingIdx];
+    if (!existing.status) {
+      next[existingIdx] = { ...existing, status: planTask.status };
+    }
+  }
+  return next;
+}
+
 // ─── Per-prefix handlers ────────────────────────────────────────────────────
 //
 // Each handler accepts (state, event) where `event.type` has already been
@@ -293,35 +396,56 @@ function applyWorkflowGuardFailed(
 
 /**
  * Handler for `state.patched` — folds the `data.patch.artifacts` subtree into
- * rehydration `artifacts` (T025). The plan references `workflow.set`, but
- * `workflow set` emits `state.patched` under the hood — see
- * `servers/exarchos-mcp/src/workflow/tools.ts` ~L759. Other subtrees (e.g.
- * `tasks`) are surfaced via their own dedicated events (task.*) and are not
- * re-derived from state.patched here.
+ * rehydration `artifacts` (T025) AND, post Fix 2 / #1179, folds
+ * `data.patch.tasks` into `taskProgress` as plan-state assertions.
+ *
+ * `state.patched` is the canonical event behind `exarchos_workflow set` — see
+ * `servers/exarchos-mcp/src/workflow/tools.ts` ~L759. Pre-fix this handler
+ * deliberately ignored the `tasks` subtree on the assumption that dedicated
+ * `task.*` events would always cover the tasks list. In practice planners
+ * stamp the full task list via `workflow set` before any `task.assigned`
+ * event fires, so pending tasks went missing from the rehydration document.
+ *
+ * Both subtrees are independent — the event may carry one, the other, both,
+ * or neither. The handler treats them as independent contributions to a
+ * single (potentially merged) state delta and bumps `projectionSequence`
+ * once per actionable event (DR-1, no mutation; counter monotonicity).
  */
 function applyStatePatched(
   state: RehydrationDocument,
   event: WorkflowEvent,
 ): RehydrationDocument {
   const artifactsPatch = extractArtifactsPatch(event.data);
-  if (!artifactsPatch) {
-    // No artifacts subtree, or no actionable entries: no-op.
+  const planTasks = extractPlanTasks(event.data);
+  if (!artifactsPatch && !planTasks) {
+    // No actionable subtrees: no-op. Return identity so callers that rely
+    // on structural sharing for change detection see "unhandled".
     return state;
   }
-  // Fold the diff: drop unset keys first (so an `unset` entry can't be
-  // resurrected by a same-event `set`), then overlay the upserts. Build a
-  // fresh object rather than mutating to preserve reducer purity (DR-1).
-  const nextArtifacts: Record<string, string> = { ...state.artifacts };
-  for (const key of artifactsPatch.unset) {
-    delete nextArtifacts[key];
+
+  let nextArtifacts: Record<string, string> = state.artifacts;
+  if (artifactsPatch) {
+    // Fold the diff: drop unset keys first (so an `unset` entry can't be
+    // resurrected by a same-event `set`), then overlay the upserts. Build a
+    // fresh object rather than mutating to preserve reducer purity (DR-1).
+    nextArtifacts = { ...state.artifacts };
+    for (const key of artifactsPatch.unset) {
+      delete nextArtifacts[key];
+    }
+    for (const [key, value] of Object.entries(artifactsPatch.set)) {
+      nextArtifacts[key] = value;
+    }
   }
-  for (const [key, value] of Object.entries(artifactsPatch.set)) {
-    nextArtifacts[key] = value;
-  }
+
+  const nextTaskProgress = planTasks
+    ? foldPlanTasks(state.taskProgress, planTasks)
+    : state.taskProgress;
+
   return {
     ...state,
     projectionSequence: state.projectionSequence + 1,
     artifacts: nextArtifacts,
+    taskProgress: nextTaskProgress,
   };
 }
 
