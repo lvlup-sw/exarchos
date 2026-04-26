@@ -115,11 +115,17 @@ describe('handleCheckEventEmissions', () => {
   it('CheckEventEmissions_AllExpectedEventsPresent_ReturnsNoHints', async () => {
     mockViewState = { phase: 'delegate' };
 
+    // Post Fix 3 (#1180), the delegate-phase model-emitted contract is the
+    // SoT registry filtered to model events: task.assigned + team.spawned +
+    // team.task.planned + team.teammate.dispatched + team.disbanded +
+    // task.progressed (6 events). All must be present for hints to be empty.
     mockStore.query.mockResolvedValueOnce([
-      { type: 'team.spawned', streamId: 'test', sequence: 1, timestamp: '2026-01-01T00:00:00Z' },
-      { type: 'team.task.planned', streamId: 'test', sequence: 2, timestamp: '2026-01-01T00:00:00Z' },
-      { type: 'team.teammate.dispatched', streamId: 'test', sequence: 3, timestamp: '2026-01-01T00:00:00Z' },
-      { type: 'task.progressed', streamId: 'test', sequence: 4, timestamp: '2026-01-01T00:00:00Z' },
+      { type: 'task.assigned', streamId: 'test', sequence: 1, timestamp: '2026-01-01T00:00:00Z' },
+      { type: 'team.spawned', streamId: 'test', sequence: 2, timestamp: '2026-01-01T00:00:00Z' },
+      { type: 'team.task.planned', streamId: 'test', sequence: 3, timestamp: '2026-01-01T00:00:00Z' },
+      { type: 'team.teammate.dispatched', streamId: 'test', sequence: 4, timestamp: '2026-01-01T00:00:00Z' },
+      { type: 'team.disbanded', streamId: 'test', sequence: 5, timestamp: '2026-01-01T00:00:00Z' },
+      { type: 'task.progressed', streamId: 'test', sequence: 6, timestamp: '2026-01-01T00:00:00Z' },
     ]);
 
     const result: ToolResult = await handleCheckEventEmissions(
@@ -133,7 +139,7 @@ describe('handleCheckEventEmissions', () => {
       phase: 'delegate',
       hints: [],
       complete: true,
-      checked: 4,
+      checked: 6,
       missing: 0,
     });
   });
@@ -141,11 +147,15 @@ describe('handleCheckEventEmissions', () => {
   it('CheckEventEmissions_MissingTeamSpawned_ReturnsHint', async () => {
     mockViewState = { phase: 'delegate' };
 
-    // Only team.task.planned, team.teammate.dispatched, and task.progressed present, missing team.spawned
+    // All delegate-phase model events present except `team.spawned` — the
+    // expected-events list (post Fix 3 / #1180) covers task.assigned +
+    // team.* + task.progressed, so we seed every other type explicitly.
     mockStore.query.mockResolvedValueOnce([
-      { type: 'team.task.planned', streamId: 'test', sequence: 1, timestamp: '2026-01-01T00:00:00Z' },
-      { type: 'team.teammate.dispatched', streamId: 'test', sequence: 2, timestamp: '2026-01-01T00:00:00Z' },
-      { type: 'task.progressed', streamId: 'test', sequence: 3, timestamp: '2026-01-01T00:00:00Z' },
+      { type: 'task.assigned', streamId: 'test', sequence: 1, timestamp: '2026-01-01T00:00:00Z' },
+      { type: 'team.task.planned', streamId: 'test', sequence: 2, timestamp: '2026-01-01T00:00:00Z' },
+      { type: 'team.teammate.dispatched', streamId: 'test', sequence: 3, timestamp: '2026-01-01T00:00:00Z' },
+      { type: 'team.disbanded', streamId: 'test', sequence: 4, timestamp: '2026-01-01T00:00:00Z' },
+      { type: 'task.progressed', streamId: 'test', sequence: 5, timestamp: '2026-01-01T00:00:00Z' },
     ]);
 
     const result: ToolResult = await handleCheckEventEmissions(
@@ -209,11 +219,15 @@ describe('handleCheckEventEmissions', () => {
   it('CheckEventEmissions_EmitsGateEvent_FireAndForget', async () => {
     mockViewState = { phase: 'delegate' };
 
+    // Seed the full delegate-phase model-event contract (post Fix 3 / #1180)
+    // so `passed: true` reflects the all-events-present case.
     mockStore.query.mockResolvedValueOnce([
-      { type: 'team.spawned', streamId: 'test', sequence: 1, timestamp: '2026-01-01T00:00:00Z' },
-      { type: 'team.task.planned', streamId: 'test', sequence: 2, timestamp: '2026-01-01T00:00:00Z' },
-      { type: 'team.teammate.dispatched', streamId: 'test', sequence: 3, timestamp: '2026-01-01T00:00:00Z' },
-      { type: 'task.progressed', streamId: 'test', sequence: 4, timestamp: '2026-01-01T00:00:00Z' },
+      { type: 'task.assigned', streamId: 'test', sequence: 1, timestamp: '2026-01-01T00:00:00Z' },
+      { type: 'team.spawned', streamId: 'test', sequence: 2, timestamp: '2026-01-01T00:00:00Z' },
+      { type: 'team.task.planned', streamId: 'test', sequence: 3, timestamp: '2026-01-01T00:00:00Z' },
+      { type: 'team.teammate.dispatched', streamId: 'test', sequence: 4, timestamp: '2026-01-01T00:00:00Z' },
+      { type: 'team.disbanded', streamId: 'test', sequence: 5, timestamp: '2026-01-01T00:00:00Z' },
+      { type: 'task.progressed', streamId: 'test', sequence: 6, timestamp: '2026-01-01T00:00:00Z' },
     ]);
 
     await handleCheckEventEmissions({ featureId: 'test-feature' }, STATE_DIR, mockStore as unknown as EventStore);

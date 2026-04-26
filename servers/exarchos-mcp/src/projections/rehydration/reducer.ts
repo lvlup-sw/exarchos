@@ -505,26 +505,97 @@ function applyReviewEscalated(
 // SoT introspection — exposes the per-phase set of event types the reducer
 // recognises so that downstream surfaces (`PHASE_EXPECTED_EVENTS` in
 // orchestrate/check-event-emissions.ts; the delegate-phase playbook events
-// list in workflow/playbooks.ts) can derive their lists from a single source
+// list in workflow/playbooks.ts) derive their lists from a single source
 // instead of maintaining independent copies that drift silently.
 //
-// In the RED state of TDD this returns ONLY the events whose handlers are
-// already wired into `apply()` below (`task.assigned/completed/failed` for
-// the delegate phases). The aligning GREEN step extends both the registry
-// and the dispatch table to cover the full delegate event contract — see
-// reducer.delegate-contract.test.ts.
+// "Recognises" is broader than "folds into projection state". A handler may
+// either (a) fold the event into the rehydration document — `task.*` status
+// changes upsert taskProgress entries — or (b) acknowledge the event as a
+// known coordination/observability beat that bumps `projectionSequence` but
+// otherwise leaves the document unchanged. Pattern (b) matters because
+// hints + playbook need to advertise these coordination events to the model
+// even when no document field tracks them; without recognition here they
+// fall through the dispatcher's default branch and silently drift back out
+// of the contract.
+//
+// Only `model`-source events belong in these lists: `PHASE_EXPECTED_EVENTS`
+// throws at module load if a non-model event leaks through, and
+// `gate.executed` (auto-emitted by withTelemetry) deliberately stays out of
+// the playbook events surface since the model never emits it directly.
+
+/**
+ * Canonical model-emitted event contract for the `delegate` phase
+ * (feature workflow).
+ *
+ * Fold semantics:
+ *   - `task.assigned/completed/failed` upsert taskProgress entries (T023).
+ *   - `team.*` and `task.progressed` are recognised coordination beats —
+ *     handlers acknowledge them (so the dispatcher does not fall through
+ *     to the default branch) but make no document mutation today. They are
+ *     load-bearing for the SoT contract: hints/playbook advertise them to
+ *     the model, and recognising them here keeps the three lists aligned.
+ */
+export const DELEGATE_PHASE_EVENT_TYPES = [
+  'task.assigned',
+  'task.completed',
+  'task.failed',
+  'team.spawned',
+  'team.task.planned',
+  'team.teammate.dispatched',
+  'team.disbanded',
+  'task.progressed',
+] as const;
+
+/**
+ * Canonical model-emitted event contract for the `overhaul-delegate` phase
+ * (refactor workflow). Mirrors {@link DELEGATE_PHASE_EVENT_TYPES} minus
+ * `task.progressed` — the refactor-track delegation does not run TDD and
+ * therefore does not emit per-phase progression beats.
+ */
+export const OVERHAUL_DELEGATE_PHASE_EVENT_TYPES = [
+  'task.assigned',
+  'task.completed',
+  'task.failed',
+  'team.spawned',
+  'team.task.planned',
+  'team.teammate.dispatched',
+  'team.disbanded',
+] as const;
 
 export function getRegisteredEventTypes(phase: string): readonly string[] {
   switch (phase) {
     case 'delegate':
+      return DELEGATE_PHASE_EVENT_TYPES;
     case 'overhaul-delegate':
-      // Pre-Fix-3 surface: the reducer only folds task.* status changes for
-      // delegate phases. Hints + playbook will fail their equality assertions
-      // until GREEN broadens this set.
-      return ['task.assigned', 'task.completed', 'task.failed'];
+      return OVERHAUL_DELEGATE_PHASE_EVENT_TYPES;
     default:
       return [];
   }
+}
+
+/**
+ * Recognised-but-non-folding handler for delegate-phase coordination beats
+ * (`team.*` events, `task.progressed`).
+ *
+ * Currently a no-op on document fields — these events are load-bearing for
+ * the SoT contract (hints/playbook advertise them; recognition here keeps
+ * the three lists aligned per #1180) but carry no projection mutation
+ * today. We do NOT bump `projectionSequence` on these events: monotonicity
+ * of that counter is reserved for events that actually mutate document
+ * state (DR-3 contract for the rehydration projection). Returning identity
+ * preserves the same "unhandled" structural-sharing semantic the
+ * dispatcher's default branch uses.
+ *
+ * If a future change folds any of these into a document field, switch this
+ * handler (or split it per event) to return a new state with an incremented
+ * `projectionSequence` — the existing `task.*`/`workflow.*` handlers above
+ * are the canonical pattern.
+ */
+function applyCoordinationEventNoOp(
+  state: RehydrationDocument,
+  _event: WorkflowEvent,
+): RehydrationDocument {
+  return state;
 }
 
 // ─── Reducer (thin dispatcher) ──────────────────────────────────────────────
@@ -564,6 +635,19 @@ export const rehydrationReducer: ProjectionReducer<RehydrationDocument, Workflow
         return applyReviewCompleted(state, event);
       case 'review.escalated':
         return applyReviewEscalated(state, event);
+
+      // ── team.* + task.progressed — delegate-phase coordination beats ─────
+      // Recognised by the SoT registry (DELEGATE_PHASE_EVENT_TYPES /
+      // OVERHAUL_DELEGATE_PHASE_EVENT_TYPES) so that hints + playbook stay
+      // aligned with the reducer's known event surface (#1180, DIM-3). No
+      // document mutation today — see applyCoordinationEventNoOp for the
+      // rationale and the upgrade path if a fold is added later.
+      case 'team.spawned':
+      case 'team.task.planned':
+      case 'team.teammate.dispatched':
+      case 'team.disbanded':
+      case 'task.progressed':
+        return applyCoordinationEventNoOp(state, event);
 
       // ── decision.* — NOT YET WIRED ───────────────────────────────────────
       // No `decision.*` event type is registered in the event-store.
