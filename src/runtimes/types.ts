@@ -42,12 +42,47 @@ const DetectionSchema = z
   .strict();
 
 /**
+ * Canonical capability vocabulary (mirror of
+ * `servers/exarchos-mcp/src/agents/capabilities.ts`). Duplicated here to
+ * avoid a cross-package import from the root build into the MCP server
+ * source tree. The two enums must stay in sync; the alignment is asserted
+ * by per-runtime YAML tests (e.g. `servers/exarchos-mcp/src/runtimes/
+ * codex.test.ts`) which load both surfaces and cross-check.
+ *
+ * Implements: delegation runtime parity, Task 7 (runtime YAML updates).
+ */
+const SupportedCapabilityKey = z.enum([
+  'fs:read',
+  'fs:write',
+  'shell:exec',
+  'subagent:spawn',
+  'subagent:completion-signal',
+  'subagent:start-signal',
+  'mcp:exarchos',
+  'isolation:worktree',
+  'team:agent-teams',
+  'session:resume',
+]);
+
+/**
+ * Three-state support classification. Mirror of `SupportLevel` from
+ * `servers/exarchos-mcp/src/agents/adapters/types.ts` — see that file for
+ * the canonical contract. `unsupported` capabilities are omitted from the
+ * YAML map entirely; consumers detect non-support by absence.
+ */
+const SupportLevel = z.enum(['native', 'advisory']);
+
+/**
  * The runtime map schema.
  *
  * `.strict()` at the top level ensures unknown fields are rejected, which
  * catches typos in hand-authored YAML. The `placeholders` map is intentionally
  * open-ended (`Record<string, string>`) because the placeholder vocabulary
  * grows over time as new skills introduce new substitution keys.
+ *
+ * `supportedCapabilities` is optional during the runtime-parity rollout
+ * (Task 7a–7e land in parallel); once every YAML declares it, this field
+ * becomes required.
  */
 export const RuntimeMapSchema = z
   .object({
@@ -58,6 +93,14 @@ export const RuntimeMapSchema = z
     skillsInstallPath: z.string(),
     detection: DetectionSchema,
     placeholders: z.record(z.string(), z.string()),
+    // Zod v4's `z.record(enum, value)` enforces exhaustive coverage of
+    // every enum key — but `unsupported` capabilities are deliberately
+    // omitted from the YAML map (consumers detect by absence). Use
+    // `z.partialRecord` so missing keys are accepted while present keys
+    // are still constrained to the valid enum vocabulary.
+    supportedCapabilities: z
+      .partialRecord(SupportedCapabilityKey, SupportLevel)
+      .optional(),
   })
   .strict();
 
