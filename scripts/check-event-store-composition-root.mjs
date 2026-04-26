@@ -16,6 +16,10 @@
  *   - servers/exarchos-mcp/src/index.ts
  *   - servers/exarchos-mcp/src/core/context.ts
  *   - servers/exarchos-mcp/src/cli-commands/assemble-context.ts
+ *   - servers/exarchos-mcp/src/cli-commands/pre-compact.ts
+ *   - servers/exarchos-mcp/src/views/tools.ts (canonical container — the
+ *     lazy fallback inside getOrCreateEventStore is the only allowed
+ *     instantiation; production paths register canonical first)
  *
  * Excluded automatically (test/bench surface):
  *   - **\/*.test.ts
@@ -46,10 +50,18 @@ const ALLOWLIST = new Set([
   'index.ts',
   path.join('core', 'context.ts'),
   path.join('cli-commands', 'assemble-context.ts'),
+  path.join('cli-commands', 'pre-compact.ts'),
+  path.join('views', 'tools.ts'),
 ]);
 
 // Word-boundary `new EventStore` — won't match `new EventStoreSomething`.
 const ROGUE_PATTERN = /\bnew\s+EventStore\s*\(/;
+
+// Heuristic comment skip: line begins with `//` (after optional indent) or
+// `*` (block-comment continuation, after optional indent + optional `/`).
+// Misses `/* ... */` on the same line, but that's vanishingly rare for the
+// patterns we care about (the rogue construction is an actual statement).
+const COMMENT_LINE = /^\s*(?:\/\/|\*|\/\*)/;
 
 function parseArgs(argv) {
   const args = { srcRoot: DEFAULT_SRC_ROOT };
@@ -130,6 +142,7 @@ function findViolations(srcRoot) {
     }
     const lines = content.split('\n');
     for (let i = 0; i < lines.length; i++) {
+      if (COMMENT_LINE.test(lines[i])) continue;
       if (ROGUE_PATTERN.test(lines[i])) {
         violations.push({
           path: relPath,

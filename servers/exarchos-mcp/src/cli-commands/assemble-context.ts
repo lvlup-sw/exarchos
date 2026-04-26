@@ -26,6 +26,7 @@ import { promisify } from 'node:util';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { EventStore } from '../event-store/store.js';
+import { registerCanonicalEventStore } from '../views/tools.js';
 import { workflowLogger } from '../logger.js';
 import { HUMAN_CHECKPOINT_PHASES } from '../workflow/human-checkpoint-phases.js';
 import { getHSMDefinition } from '../workflow/state-machine.js';
@@ -361,6 +362,10 @@ export async function handleAssembleContext(
   let eventStore: EventStore | null = new EventStore(stateDir);
   try {
     await eventStore.initialize();
+    // Register as canonical so any handlers reached transitively from
+    // assemble-context (e.g. via dispatched composite calls) see this
+    // exact instance — fix for #1182.
+    registerCanonicalEventStore(eventStore, stateDir);
   } catch (err) {
     workflowLogger.warn(
       {

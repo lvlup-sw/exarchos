@@ -4,6 +4,7 @@ import { coercedStringArray } from '../coerce.js';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { EventStore } from '../event-store/store.js';
+import { storeLogger } from '../logger.js';
 import type { WorkflowEvent } from '../event-store/schemas.js';
 import { formatResult, pickFields, type ToolResult } from '../format.js';
 import { TERMINAL_PHASES } from '../workflow/terminal-phases.js';
@@ -116,33 +117,59 @@ function createMaterializer(stateDir: string): ViewMaterializer {
   return materializer;
 }
 
-// ─── Singleton Cache for ViewMaterializer and EventStore ──────────────────
+// ─── Canonical EventStore Registry ────────────────────────────────────────
 //
-// Design rationale: Module-level mutable state is appropriate here because
-// the MCP server is single-threaded, processing one tool request at a time
-// over stdio. There is no concurrent access, so no synchronization is needed.
-// The cache avoids recreating EventStore and ViewMaterializer on every query,
-// which would discard the materializer's high-water marks and force full
-// event replay. Cache entries are only invalidated when stateDir changes,
-// ensuring both instances remain valid for the active working directory.
+// `getOrCreateEventStore` is an indirection to the canonical EventStore
+// that `initializeContext` (or a CLI bootstrapper) registered for this
+// process. It does NOT instantiate its own — the previous implementation
+// did, which produced an in-process second instance that bypassed the
+// #971 PID lock and corrupted event sequences (see #1182, RCA at
+// docs/rca/2026-04-26-v29-event-projection-cluster.md).
 
-// ─── Cached EventStore ──────────────────────────────────────────────────────
-
-let cachedEventStore: EventStore | null = null;
-let cachedEventStoreDir: string | null = null;
+let canonicalEventStore: EventStore | null = null;
+let canonicalEventStoreDir: string | null = null;
 
 /**
- * Factory/cache: returns a cached EventStore for the given stateDir.
- * Used by consumers (orchestrate handlers, CLI commands, view projections)
- * that don't receive EventStore via DispatchContext.
+ * Register the canonical EventStore for this process. Called from
+ * `initializeContext` (MCP server boot) and from CLI command
+ * bootstrappers that construct their own EventStore via
+ * `new EventStore(...) + .initialize()`.
+ *
+ * After registration, `getOrCreateEventStore(stateDir)` returns the same
+ * instance for subsequent handler calls.
+ */
+export function registerCanonicalEventStore(
+  store: EventStore,
+  stateDir: string,
+): void {
+  canonicalEventStore = store;
+  canonicalEventStoreDir = stateDir;
+}
+
+/**
+ * Returns the canonical EventStore for the given stateDir.
+ *
+ * Production: `initializeContext` (or a CLI bootstrapper) registers the
+ * canonical instance before any handler runs, so this returns it.
+ *
+ * Tests that bypass the bootstrap path fall through to a lazy-create.
+ * This fallback is intentional but logged so the path is visible — if
+ * the warning ever surfaces in a production log, something has skipped
+ * the bootstrap and this file's invariant is broken.
  */
 export function getOrCreateEventStore(stateDir: string): EventStore {
-  if (cachedEventStore && cachedEventStoreDir === stateDir) {
-    return cachedEventStore;
+  if (canonicalEventStore && canonicalEventStoreDir === stateDir) {
+    return canonicalEventStore;
   }
-  cachedEventStore = new EventStore(stateDir);
-  cachedEventStoreDir = stateDir;
-  return cachedEventStore;
+  storeLogger.warn(
+    { stateDir, callerStack: new Error('lazy-create').stack?.split('\n').slice(2, 5) },
+    'getOrCreateEventStore lazy-creating EventStore — caller did not run through ' +
+      'initializeContext or a CLI bootstrapper. Production paths should never hit this branch.',
+  );
+  const store = new EventStore(stateDir);
+  canonicalEventStore = store;
+  canonicalEventStoreDir = stateDir;
+  return store;
 }
 
 // ─── Cached Materializer ─────────────────────────────────────────────────────
@@ -160,12 +187,12 @@ export function getOrCreateMaterializer(stateDir: string): ViewMaterializer {
   return cachedMaterializer;
 }
 
-/** For testing: reset the singleton cache */
+/** For testing: reset the singleton cache (materializer + canonical EventStore reference). */
 export function resetMaterializerCache(): void {
   cachedMaterializer = null;
   cachedStateDir = null;
-  cachedEventStore = null;
-  cachedEventStoreDir = null;
+  canonicalEventStore = null;
+  canonicalEventStoreDir = null;
 }
 
 // ─── Helper: query delta events using materializer high-water mark ──────────

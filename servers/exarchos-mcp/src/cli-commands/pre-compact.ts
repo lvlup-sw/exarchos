@@ -1,11 +1,16 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { listStateFiles } from '../workflow/state-store.js';
-import { getOrCreateEventStore } from '../views/tools.js';
+import {
+  getOrCreateEventStore,
+  registerCanonicalEventStore,
+} from '../views/tools.js';
+import { EventStore } from '../event-store/store.js';
 import { dispatch } from '../core/dispatch.js';
 import type { DispatchContext } from '../core/dispatch.js';
 import { handleAssembleContext } from './assemble-context.js';
 import type { CommandResult } from './types.js';
+import { workflowLogger } from '../logger.js';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -62,12 +67,31 @@ export async function handlePreCompact(
     return { continue: true };
   }
 
-  // Build a minimal DispatchContext once. `getOrCreateEventStore` caches by
-  // stateDir so repeated pre-compact invocations in the same process share
-  // the same handle (same pattern used by other CLI adapters). Telemetry is
-  // disabled here — the hook path is latency-sensitive and the composite's
-  // own logging covers the observability needs of pre-compact callers.
-  const eventStore = getOrCreateEventStore(stateDir);
+  // Build a minimal DispatchContext once. As a CLI entrypoint, pre-compact
+  // is responsible for bootstrapping its own EventStore and registering it
+  // as the process-wide canonical so any downstream handler (dispatched
+  // through composite) sees the same instance — fix for #1182.
+  //
+  // Subsequent pre-compact invocations in the same process re-use the
+  // canonical via `getOrCreateEventStore`. Telemetry is disabled here —
+  // the hook path is latency-sensitive and the composite's own logging
+  // covers the observability needs of pre-compact callers.
+  let eventStore: EventStore;
+  try {
+    eventStore = getOrCreateEventStore(stateDir);
+  } catch {
+    // First pre-compact call in this process: bootstrap the canonical.
+    eventStore = new EventStore(stateDir);
+    try {
+      await eventStore.initialize();
+    } catch (err) {
+      workflowLogger.warn(
+        { err: err instanceof Error ? err.message : String(err) },
+        'EventStore init failed in pre-compact — proceeding without PID lock',
+      );
+    }
+    registerCanonicalEventStore(eventStore, stateDir);
+  }
   const ctx: DispatchContext = {
     stateDir,
     eventStore,

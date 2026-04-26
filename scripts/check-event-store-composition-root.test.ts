@@ -85,7 +85,7 @@ describe('check-event-store-composition-root CLI (Fix 1, #1182)', () => {
 
   it('Detects_RogueInstantiation_ExitsNonZero', () => {
     const { srcRoot, cleanup } = makeFixtureSrc({
-      'views/tools.ts':
+      'orchestrate/some-handler.ts':
         "import { EventStore } from '../event-store/store.js';\n" +
         'export function getStore(dir: string) {\n' +
         '  return new EventStore(dir);\n' +
@@ -94,7 +94,7 @@ describe('check-event-store-composition-root CLI (Fix 1, #1182)', () => {
     try {
       const { status, stderr } = runCheck(['--src-root', srcRoot]);
       expect(status).toBe(1);
-      expect(stderr).toMatch(/views\/tools\.ts/);
+      expect(stderr).toMatch(/orchestrate\/some-handler\.ts/);
       expect(stderr).toMatch(/new EventStore/);
     } finally {
       cleanup();
@@ -144,9 +144,28 @@ describe('check-event-store-composition-root CLI (Fix 1, #1182)', () => {
     }
   });
 
+  it('SkipsCommentLines_DocstringMentioningPattern_ExitsZero', () => {
+    // The script must distinguish actual `new EventStore(...)` calls from
+    // prose mentions of the pattern (e.g. RCA references in docstrings).
+    const { srcRoot, cleanup } = makeFixtureSrc({
+      'orchestrate/some-handler.ts':
+        '/**\n' +
+        ' * Migrated away from `new EventStore(...)`. See RCA.\n' +
+        ' */\n' +
+        '// new EventStore(stateDir) — no longer used\n' +
+        'export const x = 1;\n',
+    });
+    try {
+      const { status, stderr } = runCheck(['--src-root', srcRoot]);
+      expect(status, `stderr: ${stderr}`).toBe(0);
+    } finally {
+      cleanup();
+    }
+  });
+
   it('Reports_AllViolations_NotJustFirst', () => {
     const { srcRoot, cleanup } = makeFixtureSrc({
-      'views/tools.ts':
+      'orchestrate/some-handler.ts':
         "import { EventStore } from '../event-store/store.js';\n" +
         'export const a = new EventStore("/tmp");\n',
       'review/tools.ts':
@@ -156,7 +175,7 @@ describe('check-event-store-composition-root CLI (Fix 1, #1182)', () => {
     try {
       const { status, stderr } = runCheck(['--src-root', srcRoot]);
       expect(status).toBe(1);
-      expect(stderr).toMatch(/views\/tools\.ts/);
+      expect(stderr).toMatch(/orchestrate\/some-handler\.ts/);
       expect(stderr).toMatch(/review\/tools\.ts/);
     } finally {
       cleanup();
