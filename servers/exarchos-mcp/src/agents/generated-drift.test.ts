@@ -9,7 +9,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
-import { generateAllAgentFiles } from './generate-cc-agents.js';
+import { generateAllAgentFiles, deriveClaudeToolsFromCapabilities } from './generate-cc-agents.js';
 import { ALL_AGENT_SPECS } from './definitions.js';
 
 // ─── Helper: Parse YAML Frontmatter ─────────────────────────────────────────
@@ -103,7 +103,9 @@ describe('Generated Agent File Drift', () => {
       const content = fs.readFileSync(filePath, 'utf-8');
       const fm = parseFrontmatter(content);
 
-      const expectedTools = `[${spec.tools.map(t => `"${t}"`).join(', ')}]`;
+      // Use the derivation shim (TEMPORARY — replaced by Task 4a snapshot test).
+      const derivedTools = deriveClaudeToolsFromCapabilities(spec);
+      const expectedTools = `[${derivedTools.map(t => `"${t}"`).join(', ')}]`;
       expect(
         fm.tools,
         `Frontmatter tools mismatch for spec '${spec.id}'`,
