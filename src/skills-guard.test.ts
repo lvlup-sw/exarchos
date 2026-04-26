@@ -280,6 +280,81 @@ describe('skills-guard — task 023', () => {
 });
 
 /**
+ * Task 13: extend `skills:guard` to detect drift in the generated
+ * `agents/` tree as well as `skills/`.
+ *
+ * Today the guard only checks `skills/`. A developer who hand-edits
+ * `agents/implementer.md` (or any of the four agent files emitted by
+ * `generate-agents.ts`) can land that drift in main without the CI
+ * guard catching it. This test asserts the guard fans out to a second
+ * `git diff --exit-code agents/` check and fails on any agents drift.
+ *
+ * Test mechanic mirrors `SkillsGuard_DirectSkillEdit_Detected`:
+ *   1. Seed a temp project as usual (skills clean, committed).
+ *   2. Commit an `agents/implementer.md` whose content differs from
+ *      the canonical generator output.
+ *   3. After the guard runs, `git diff agents/` against HEAD must be
+ *      non-empty (the regeneration overwrote the hand-edit).
+ *
+ * To avoid wiring the full real `generateAgents` registry into a temp
+ * sandbox (which would require copying every adapter/spec module),
+ * this test injects a deterministic regenerator that just writes a
+ * known canonical body to `agents/implementer.md`. The production
+ * default invokes `generate-agents.ts` via tsx in a child process —
+ * see `defaultRegenerateAgents` in `skills-guard.ts`.
+ */
+describe('skills-guard — task 13 agents/ drift', () => {
+  it('SkillsGuard_AgentsDirDrift_FailsCheck', () => {
+    const root = provisionProject();
+
+    // Seed a committed `agents/implementer.md` whose content differs
+    // from what the (injected) regenerator below will produce. After
+    // the guard regenerates, `git diff agents/` against HEAD will be
+    // non-empty — this is exactly the same drift-detection mechanic
+    // the `skills/` check already uses.
+    const agentsDir = join(root, 'agents');
+    mkdirSync(agentsDir, { recursive: true });
+    writeFileSync(
+      join(agentsDir, 'implementer.md'),
+      'HAND EDITED — not canonical\n',
+    );
+
+    const gitEnv = {
+      ...process.env,
+      GIT_AUTHOR_NAME: 'test',
+      GIT_AUTHOR_EMAIL: 'test@example.com',
+      GIT_COMMITTER_NAME: 'test',
+      GIT_COMMITTER_EMAIL: 'test@example.com',
+    };
+    execSync('git add -A', { cwd: root, env: gitEnv });
+    execSync('git commit -q -m "drifted agents file"', {
+      cwd: root,
+      env: gitEnv,
+    });
+
+    // Inject a deterministic regenerator so the test does not need
+    // the real adapter registry. After the guard calls this, the
+    // file's content differs from HEAD — the drift state we need
+    // the guard to detect.
+    const regenerateAgents = (cwd: string): void => {
+      writeFileSync(
+        join(cwd, 'agents', 'implementer.md'),
+        'CANONICAL implementer body\n',
+      );
+    };
+
+    const result = runSkillsGuard({ cwd: root, regenerateAgents });
+
+    expect(result.ok).toBe(false);
+    expect(result.exitCode).not.toBe(0);
+    // The diff body should mention the agents file path so a
+    // developer can see *which* file drifted, just like the
+    // `skills/` check does.
+    expect(result.message).toMatch(/agents\/implementer\.md/);
+  });
+});
+
+/**
  * Task 011: skills:guard tolerance for rendered `{{CALL}}` macro output.
  *
  * This is an integration-level determinism test. `renderCallMacros` emits
