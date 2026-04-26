@@ -14,7 +14,6 @@ import {
   ANTHROPIC_NATIVE_CACHING,
   createInMemoryResolver,
 } from './capabilities/resolver.js';
-import { registerCanonicalEventStore } from './views/tools.js';
 
 // Storage backend
 import type { StorageBackend } from './storage/backend.js';
@@ -190,12 +189,6 @@ export async function createServer(
   configureStateStoreBackend(backend);
 
   const eventStore = new EventStore(stateDir, { backend });
-  // Register as the process-wide canonical so handlers obtaining via
-  // `getOrCreateEventStore(stateDir)` see this exact instance — fix for
-  // #1182. (The full bootstrap path through `initializeContext` registers
-  // identically; this `createServer` shim duplicates the call so library
-  // callers / tests hitting this entrypoint share the same wiring.)
-  registerCanonicalEventStore(eventStore, stateDir);
 
   // SnapshotStore is still module-level (out of scope for EventStore threading)
   configureCleanupSnapshotStore(new SnapshotStore(stateDir));

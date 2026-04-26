@@ -17,9 +17,7 @@
  *   - servers/exarchos-mcp/src/core/context.ts
  *   - servers/exarchos-mcp/src/cli-commands/assemble-context.ts
  *   - servers/exarchos-mcp/src/cli-commands/pre-compact.ts
- *   - servers/exarchos-mcp/src/views/tools.ts (canonical container — the
- *     lazy fallback inside getOrCreateEventStore is the only allowed
- *     instantiation; production paths register canonical first)
+ *   - servers/exarchos-mcp/src/evals/run-evals-cli.ts
  *
  * Excluded automatically (test/bench surface):
  *   - **\/*.test.ts
@@ -51,7 +49,7 @@ const ALLOWLIST = new Set([
   path.join('core', 'context.ts'),
   path.join('cli-commands', 'assemble-context.ts'),
   path.join('cli-commands', 'pre-compact.ts'),
-  path.join('views', 'tools.ts'),
+  path.join('evals', 'run-evals-cli.ts'),
 ]);
 
 // Word-boundary `new EventStore` — won't match `new EventStoreSomething`.

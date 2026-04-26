@@ -1,10 +1,6 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { listStateFiles } from '../workflow/state-store.js';
-import {
-  getOrCreateEventStore,
-  registerCanonicalEventStore,
-} from '../views/tools.js';
 import { EventStore } from '../event-store/store.js';
 import { dispatch } from '../core/dispatch.js';
 import type { DispatchContext } from '../core/dispatch.js';
@@ -67,30 +63,17 @@ export async function handlePreCompact(
     return { continue: true };
   }
 
-  // Build a minimal DispatchContext once. As a CLI entrypoint, pre-compact
-  // is responsible for bootstrapping its own EventStore and registering it
-  // as the process-wide canonical so any downstream handler (dispatched
-  // through composite) sees the same instance — fix for #1182.
-  //
-  // Subsequent pre-compact invocations in the same process re-use the
-  // canonical via `getOrCreateEventStore`. Telemetry is disabled here —
-  // the hook path is latency-sensitive and the composite's own logging
-  // covers the observability needs of pre-compact callers.
-  let eventStore: EventStore;
+  // CLI entrypoint: bootstrap own EventStore (separate process boundary).
+  // Telemetry is disabled here — the hook path is latency-sensitive and the
+  // composite's own logging covers the observability needs of pre-compact.
+  const eventStore = new EventStore(stateDir);
   try {
-    eventStore = getOrCreateEventStore(stateDir);
-  } catch {
-    // First pre-compact call in this process: bootstrap the canonical.
-    eventStore = new EventStore(stateDir);
-    try {
-      await eventStore.initialize();
-    } catch (err) {
-      workflowLogger.warn(
-        { err: err instanceof Error ? err.message : String(err) },
-        'EventStore init failed in pre-compact — proceeding without PID lock',
-      );
-    }
-    registerCanonicalEventStore(eventStore, stateDir);
+    await eventStore.initialize();
+  } catch (err) {
+    workflowLogger.warn(
+      { err: err instanceof Error ? err.message : String(err) },
+      'EventStore init failed in pre-compact — proceeding without PID lock',
+    );
   }
   const ctx: DispatchContext = {
     stateDir,

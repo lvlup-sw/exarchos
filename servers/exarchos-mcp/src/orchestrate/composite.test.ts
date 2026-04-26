@@ -189,6 +189,7 @@ describe('handleOrchestrate', () => {
       expect(handleTaskClaim).toHaveBeenCalledWith(
         { taskId: 't1', agentId: 'agent-1', streamId: 's1' },
         STATE_DIR,
+        CTX.eventStore,
       );
     });
 
@@ -211,6 +212,7 @@ describe('handleOrchestrate', () => {
       expect(handleTaskComplete).toHaveBeenCalledWith(
         { taskId: 't1', result: { artifacts: ['file.ts'] }, streamId: 's1' },
         STATE_DIR,
+        CTX.eventStore,
       );
     });
 
@@ -234,6 +236,7 @@ describe('handleOrchestrate', () => {
       expect(handleTaskFail).toHaveBeenCalledWith(
         { taskId: 't1', error: 'something broke', diagnostics: { log: 'details' }, streamId: 's1' },
         STATE_DIR,
+        CTX.eventStore,
       );
     });
   });

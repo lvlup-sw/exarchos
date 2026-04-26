@@ -2,7 +2,6 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { EventStore } from '../event-store/store.js';
 import { SnapshotStore } from '../views/snapshot-store.js';
-import { registerCanonicalEventStore } from '../views/tools.js';
 import type { DispatchContext } from './dispatch.js';
 import type { StorageBackend } from '../storage/backend.js';
 import {
@@ -108,10 +107,6 @@ export async function initializeContext(
   await eventStore.initialize(
     options?.waitForLock ? { waitForLock: true } : undefined,
   );
-  // Register as the process-wide canonical so handlers obtaining via
-  // `getOrCreateEventStore(stateDir)` see this exact instance — fix for
-  // #1182 (in-process EventStore duplication).
-  registerCanonicalEventStore(eventStore, stateDir);
 
   // SnapshotStore is still module-level (out of scope for EventStore threading)
   configureCleanupSnapshotStore(new SnapshotStore(stateDir));

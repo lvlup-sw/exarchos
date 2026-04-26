@@ -160,9 +160,9 @@ function adaptArgsWithStateDirAndEventStore<T>(
 }
 
 const ACTION_HANDLERS: Readonly<Record<string, ActionHandler>> = {
-  task_claim: adapt(handleTaskClaim),
-  task_complete: adapt(handleTaskComplete),
-  task_fail: adapt(handleTaskFail),
+  task_claim: adaptWithEventStore(handleTaskClaim),
+  task_complete: adaptWithEventStore(handleTaskComplete),
+  task_fail: adaptWithEventStore(handleTaskFail),
   review_triage: adaptWithEventStore(handleReviewTriage),
   prepare_delegation: adaptWithCtx(handlePrepareDelegation),
   prepare_synthesis: adaptWithEventStore(handlePrepareSynthesis),
