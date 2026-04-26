@@ -3,10 +3,10 @@
 // Lowers a runtime-agnostic `AgentSpec` into a Claude Code agent definition
 // file (Markdown with YAML frontmatter).
 //
-// Output is byte-identical to the legacy `generate-cc-agents.ts` generator
-// (deleted in Task 14). Drift is guarded by the snapshot regression test in
-// `generate-agents.test.ts` (Task 11) — if any of the rendering helpers below
-// change behaviour, that test will fail with a byte-level diff.
+// Output is byte-pinned by the snapshot regression suite in
+// `generate-agents.test.ts`, which compares `claudeAdapter.lowerSpec`
+// against the committed `agents/*.md` fixtures. If any rendering helper
+// below changes behaviour, that test fails with a byte-level diff.
 //
 // See docs/designs/2026-04-25-delegation-runtime-parity.md §4.
 // ────────────────────────────────────────────────────────────────────────────
@@ -18,9 +18,8 @@ import { buildSupportMap } from './support-levels.js';
 // ─── Capability → Claude tools translation ─────────────────────────────────
 //
 // Specs declare runtime-agnostic `capabilities`; Claude consumes a flat
-// `tools` array in frontmatter. Translation is inlined here (was previously
-// shimmed via `generate-cc-agents.ts`) so the Claude adapter is a single,
-// self-contained lowering pass.
+// `tools` array in frontmatter. Translation lives here so the Claude
+// adapter is a single, self-contained lowering pass.
 //
 // Exported because `handler.ts` and `generated-drift.test.ts` re-derive the
 // same array when shaping the `agent_spec` MCP response and when asserting

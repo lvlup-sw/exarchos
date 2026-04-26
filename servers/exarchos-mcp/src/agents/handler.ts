@@ -10,8 +10,8 @@ import { ALL_AGENT_SPECS } from './definitions.js';
 import type { AgentSpec } from './types.js';
 // Derive the Claude `tools` array from the runtime-agnostic capability
 // declarations so the `agent_spec` MCP response stays shape-stable. Sourced
-// from the Claude adapter (the canonical lowering site) since Task 14 inlined
-// it there and deleted the legacy `generate-cc-agents.ts` shim.
+// from the Claude adapter, which is the canonical lowering site for
+// capability -> Claude-tool translation.
 import { deriveClaudeToolsFromCapabilities } from './adapters/claude.js';
 
 // ─── Schema ─────────────────────────────────────────────────────────────────
