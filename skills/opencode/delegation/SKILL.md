@@ -127,7 +127,7 @@ Dispatch all independent tasks using the runtime's native spawn primitive. On ru
 
 ```typescript
 Task({
-  subagent_type: "exarchos-implementer",
+  subagent_type: "implementer",
   prompt: "Task-specific context: requirements, file paths, acceptance criteria"
 })
 
@@ -240,7 +240,7 @@ Dispatch a fix agent with the full failure context and the original task descrip
 
 ```typescript
 Task({
-  subagent_type: "exarchos-implementer",
+  subagent_type: "implementer",
   prompt: "Your implementation failed. [failure context from test output]. Apply adversarial verification: do NOT trust your previous self-assessment, re-read actual test output, identify root cause not symptoms. [Original task context]."
 })
 
