@@ -18,7 +18,6 @@ const mockStore = {
 };
 
 vi.mock('../views/tools.js', () => ({
-  getOrCreateEventStore: () => mockStore,
   getOrCreateMaterializer: () => ({}),
 }));
 
@@ -84,6 +83,7 @@ describe('handlePostMerge', () => {
     const result = await handlePostMerge(
       { featureId: 'feat-123', prUrl: 'https://github.com/org/repo/pull/42', mergeSha: 'abc1234' },
       STATE_DIR,
+      mockStore as unknown as EventStore,
     );
 
     // Assert
@@ -106,6 +106,7 @@ describe('handlePostMerge', () => {
     const result = await handlePostMerge(
       { featureId: 'feat-123', prUrl: 'https://github.com/org/repo/pull/42', mergeSha: 'abc1234' },
       STATE_DIR,
+      mockStore as unknown as EventStore,
     );
 
     // Assert
@@ -128,6 +129,7 @@ describe('handlePostMerge', () => {
     await handlePostMerge(
       { featureId: 'feat-123', prUrl: 'https://github.com/org/repo/pull/42', mergeSha: 'abc1234' },
       STATE_DIR,
+      mockStore as unknown as EventStore,
     );
 
     // Assert
@@ -155,6 +157,7 @@ describe('handlePostMerge', () => {
     await handlePostMerge(
       { featureId: 'feat-123', prUrl: 'https://github.com/org/repo/pull/42', mergeSha: 'abc1234' },
       STATE_DIR,
+      mockStore as unknown as EventStore,
     );
 
     // Assert
@@ -171,6 +174,7 @@ describe('handlePostMerge', () => {
     const result = await handlePostMerge(
       { featureId: 'feat-123', prUrl: '', mergeSha: 'abc1234' },
       STATE_DIR,
+      mockStore as unknown as EventStore,
     );
 
     // Assert
@@ -184,6 +188,7 @@ describe('handlePostMerge', () => {
     const result = await handlePostMerge(
       { featureId: 'feat-123', prUrl: 'https://github.com/org/repo/pull/42', mergeSha: '' },
       STATE_DIR,
+      mockStore as unknown as EventStore,
     );
 
     // Assert
@@ -197,6 +202,7 @@ describe('handlePostMerge', () => {
     const result = await handlePostMerge(
       { featureId: '', prUrl: 'https://github.com/org/repo/pull/42', mergeSha: 'abc1234' },
       STATE_DIR,
+      mockStore as unknown as EventStore,
     );
 
     // Assert
@@ -215,6 +221,7 @@ describe('handlePostMerge', () => {
     await handlePostMerge(
       { featureId: 'feat-123', prUrl: 'https://github.com/org/repo/pull/42', mergeSha: 'abc1234' },
       STATE_DIR,
+      mockStore as unknown as EventStore,
     );
 
     // Assert

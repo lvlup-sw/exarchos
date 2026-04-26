@@ -178,6 +178,7 @@ export function withTelemetry(
               return handleCheckEventEmissions(
                 { featureId: featureIdForHints },
                 eventStore.dir,
+                eventStore,
               );
             })(),
             new Promise<null>((resolve) => setTimeout(() => resolve(null), HINT_TIMEOUT_MS)),

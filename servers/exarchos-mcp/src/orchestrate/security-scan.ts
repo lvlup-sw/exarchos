@@ -6,7 +6,7 @@
 // ────────────────────────────────────────────────────────────────────────────
 
 import type { ToolResult } from '../format.js';
-import { getOrCreateEventStore } from '../views/tools.js';
+import type { EventStore } from '../event-store/store.js';
 import { emitGateEvent } from './gate-utils.js';
 
 // ─── Types ─────────────────────────────────────────────────────────────────
@@ -196,6 +196,7 @@ function generateReport(findings: readonly SecurityFinding[]): string {
 export async function handleSecurityScan(
   args: SecurityScanArgs,
   stateDir: string,
+  eventStore: EventStore,
 ): Promise<ToolResult> {
   // Guard clause: validate required inputs
   if (!args.featureId) {
@@ -219,7 +220,7 @@ export async function handleSecurityScan(
 
   // Emit gate.executed event (fire-and-forget: emission failure must not break the gate check)
   try {
-    const store = getOrCreateEventStore(stateDir);
+    const store = eventStore;
     await emitGateEvent(store, args.featureId, 'security-scan', 'quality', passed, {
       dimension: 'D1',
       phase: 'review',

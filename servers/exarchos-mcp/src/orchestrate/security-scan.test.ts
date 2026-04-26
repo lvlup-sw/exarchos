@@ -14,7 +14,6 @@ const mockStore = {
 };
 
 vi.mock('../views/tools.js', () => ({
-  getOrCreateEventStore: () => mockStore,
   getOrCreateMaterializer: () => ({}),
 }));
 
@@ -279,7 +278,7 @@ describe('handleSecurityScan', () => {
   describe('input validation', () => {
     it('handleSecurityScan_MissingFeatureId_ReturnsError', async () => {
       const args = { featureId: '', diffContent: '' };
-      const result = await handleSecurityScan(args, STATE_DIR);
+      const result = await handleSecurityScan(args, STATE_DIR, mockStore as unknown as EventStore);
       expect(result.success).toBe(false);
       expect(result.error?.code).toBe('INVALID_INPUT');
       expect(result.error?.message).toContain('featureId');
@@ -287,7 +286,7 @@ describe('handleSecurityScan', () => {
 
     it('handleSecurityScan_MissingDiffContent_ReturnsError', async () => {
       const args = { featureId: 'feat-1' };
-      const result = await handleSecurityScan(args, STATE_DIR);
+      const result = await handleSecurityScan(args, STATE_DIR, mockStore as unknown as EventStore);
       expect(result.success).toBe(false);
       expect(result.error?.code).toBe('INVALID_INPUT');
       expect(result.error?.message).toContain('diffContent');
@@ -299,7 +298,7 @@ describe('handleSecurityScan', () => {
   describe('no findings', () => {
     it('handleSecurityScan_CleanDiff_ReturnsPassed', async () => {
       const args = { featureId: 'feat-1', diffContent: makeCleanDiff() };
-      const result = await handleSecurityScan(args, STATE_DIR);
+      const result = await handleSecurityScan(args, STATE_DIR, mockStore as unknown as EventStore);
 
       expect(result.success).toBe(true);
       const data = result.data as {
@@ -316,7 +315,7 @@ describe('handleSecurityScan', () => {
 
     it('handleSecurityScan_EmptyDiff_ReturnsPassed', async () => {
       const args = { featureId: 'feat-1', diffContent: '' };
-      const result = await handleSecurityScan(args, STATE_DIR);
+      const result = await handleSecurityScan(args, STATE_DIR, mockStore as unknown as EventStore);
 
       expect(result.success).toBe(true);
       const data = result.data as {
@@ -333,7 +332,7 @@ describe('handleSecurityScan', () => {
   describe('findings detected', () => {
     it('handleSecurityScan_FindingsDetected_ReturnsFailWithCount', async () => {
       const args = { featureId: 'feat-1', diffContent: makeApiKeyDiff() };
-      const result = await handleSecurityScan(args, STATE_DIR);
+      const result = await handleSecurityScan(args, STATE_DIR, mockStore as unknown as EventStore);
 
       expect(result.success).toBe(true);
       const data = result.data as {
@@ -350,7 +349,7 @@ describe('handleSecurityScan', () => {
 
     it('handleSecurityScan_MultipleIssues_ReturnsAllFindings', async () => {
       const args = { featureId: 'feat-1', diffContent: makeMultiIssueDiff() };
-      const result = await handleSecurityScan(args, STATE_DIR);
+      const result = await handleSecurityScan(args, STATE_DIR, mockStore as unknown as EventStore);
 
       expect(result.success).toBe(true);
       const data = result.data as {
@@ -368,7 +367,7 @@ describe('handleSecurityScan', () => {
   describe('gate event emission', () => {
     it('handleSecurityScan_CleanDiff_EmitsGatePassedEvent', async () => {
       const args = { featureId: 'feat-1', diffContent: makeCleanDiff() };
-      await handleSecurityScan(args, STATE_DIR);
+      await handleSecurityScan(args, STATE_DIR, mockStore as unknown as EventStore);
 
       expect(mockStore.append).toHaveBeenCalledTimes(1);
       const appendCall = mockStore.append.mock.calls[0];
@@ -395,7 +394,7 @@ describe('handleSecurityScan', () => {
 
     it('handleSecurityScan_WithFindings_EmitsGateFailedEvent', async () => {
       const args = { featureId: 'feat-1', diffContent: makeApiKeyDiff() };
-      await handleSecurityScan(args, STATE_DIR);
+      await handleSecurityScan(args, STATE_DIR, mockStore as unknown as EventStore);
 
       expect(mockStore.append).toHaveBeenCalledTimes(1);
       const appendCall = mockStore.append.mock.calls[0];
@@ -416,7 +415,7 @@ describe('handleSecurityScan', () => {
   describe('phase in gate event details', () => {
     it('handleSecurityScan_EmitsGateEvent_IncludesPhaseInDetails', async () => {
       const args = { featureId: 'feat-1', diffContent: makeCleanDiff() };
-      await handleSecurityScan(args, STATE_DIR);
+      await handleSecurityScan(args, STATE_DIR, mockStore as unknown as EventStore);
 
       expect(mockStore.append).toHaveBeenCalledTimes(1);
       const appendCall = mockStore.append.mock.calls[0];
@@ -433,7 +432,7 @@ describe('handleSecurityScan', () => {
   describe('report format', () => {
     it('handleSecurityScan_CleanReport_ContainsMarkdownHeading', async () => {
       const args = { featureId: 'feat-1', diffContent: makeCleanDiff() };
-      const result = await handleSecurityScan(args, STATE_DIR);
+      const result = await handleSecurityScan(args, STATE_DIR, mockStore as unknown as EventStore);
 
       const data = result.data as { report: string };
       expect(data.report).toContain('## Security Scan Report');
@@ -441,7 +440,7 @@ describe('handleSecurityScan', () => {
 
     it('handleSecurityScan_FindingsReport_ContainsMarkdownHeading', async () => {
       const args = { featureId: 'feat-1', diffContent: makeApiKeyDiff() };
-      const result = await handleSecurityScan(args, STATE_DIR);
+      const result = await handleSecurityScan(args, STATE_DIR, mockStore as unknown as EventStore);
 
       const data = result.data as { report: string };
       expect(data.report).toContain('## Security Scan Report');

@@ -6,7 +6,7 @@ import * as path from 'node:path';
 import { EventStore, SequenceConflictError } from '../event-store/store.js';
 import { validateAgentEvent } from '../event-store/schemas.js';
 import { formatResult, toEventAck, type ToolResult } from '../format.js';
-import { getOrCreateMaterializer, getOrCreateEventStore } from '../views/tools.js';
+import { getOrCreateMaterializer } from '../views/tools.js';
 import { TASK_DETAIL_VIEW } from '../views/task-detail-view.js';
 import type { TaskDetailViewState } from '../views/task-detail-view.js';
 import { readStateFile, writeStateFile, VersionConflictError } from '../workflow/state-store.js';
@@ -51,6 +51,7 @@ export async function handleTaskClaim(
     streamId: string;
   },
   stateDir: string,
+  eventStore: EventStore,
 ): Promise<ToolResult> {
   if (!args.taskId) {
     return {
@@ -75,7 +76,7 @@ export async function handleTaskClaim(
 
   for (let attempt = 0; attempt < MAX_CLAIM_RETRIES; attempt++) {
     try {
-      return await attemptTaskClaim(args, stateDir);
+      return await attemptTaskClaim(args, stateDir, eventStore);
     } catch (err) {
       if (err instanceof SequenceConflictError) {
         // Exponential backoff: baseDelay * 2^attempt + jitter
@@ -106,9 +107,10 @@ export async function handleTaskClaim(
 async function attemptTaskClaim(
   args: { taskId: string; agentId: string; streamId: string },
   stateDir: string,
+  eventStore: EventStore,
 ): Promise<ToolResult> {
   const materializer = getOrCreateMaterializer(stateDir);
-  const store = getOrCreateEventStore(stateDir);
+  const store = eventStore;
 
   // Load snapshot (if any) and query all events for the stream
   await materializer.loadFromSnapshot(args.streamId, TASK_DETAIL_VIEW);
@@ -178,6 +180,7 @@ export async function handleTaskComplete(
     streamId: string;
   },
   stateDir: string,
+  eventStore: EventStore,
 ): Promise<ToolResult> {
   if (!args.taskId) {
     return {
@@ -193,7 +196,7 @@ export async function handleTaskComplete(
     };
   }
 
-  const store = getOrCreateEventStore(stateDir);
+  const store = eventStore;
 
   // Manual evidence bypass: docs-only or non-code tasks can skip gate checks
   const manualBypass = args.evidence?.type === 'manual' && args.evidence.passed === true;
@@ -322,7 +325,8 @@ export async function handleTaskFail(
     diagnostics?: Record<string, unknown>;
     streamId: string;
   },
-  stateDir: string,
+  _stateDir: string,
+  eventStore: EventStore,
 ): Promise<ToolResult> {
   if (!args.taskId) {
     return {
@@ -345,7 +349,7 @@ export async function handleTaskFail(
     };
   }
 
-  const store = getOrCreateEventStore(stateDir);
+  const store = eventStore;
 
   const data: Record<string, unknown> = {
     taskId: args.taskId,
@@ -376,9 +380,7 @@ export async function handleTaskFail(
 
 // ─── Registration Function ──────────────────────────────────────────────────
 
-export function registerTaskTools(server: McpServer, stateDir: string, _eventStore: EventStore): void {
-  // eventStore parameter kept for backward compatibility but no longer used;
-  // tasks now use the shared singleton from views/tools.ts
+export function registerTaskTools(server: McpServer, stateDir: string, eventStore: EventStore): void {
   server.tool(
     'exarchos_task_claim',
     'Claim a task for execution by an agent',
@@ -387,7 +389,7 @@ export function registerTaskTools(server: McpServer, stateDir: string, _eventSto
       agentId: z.string().min(1),
       streamId: z.string().min(1),
     },
-    async (args) => formatResult(await handleTaskClaim(args, stateDir)),
+    async (args) => formatResult(await handleTaskClaim(args, stateDir, eventStore)),
   );
 
   server.tool(
@@ -403,7 +405,7 @@ export function registerTaskTools(server: McpServer, stateDir: string, _eventSto
       }).optional(),
       streamId: z.string().min(1),
     },
-    async (args) => formatResult(await handleTaskComplete(args, stateDir)),
+    async (args) => formatResult(await handleTaskComplete(args, stateDir, eventStore)),
   );
 
   server.tool(
@@ -415,6 +417,6 @@ export function registerTaskTools(server: McpServer, stateDir: string, _eventSto
       diagnostics: z.record(z.string(), z.unknown()).optional(),
       streamId: z.string().min(1),
     },
-    async (args) => formatResult(await handleTaskFail(args, stateDir)),
+    async (args) => formatResult(await handleTaskFail(args, stateDir, eventStore)),
   );
 }

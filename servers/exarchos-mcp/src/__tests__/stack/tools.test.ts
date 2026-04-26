@@ -39,7 +39,7 @@ describe('handleStackStatus', () => {
     });
 
     // Act
-    const result = await handleStackStatus({ streamId: 'wf-001' }, tempDir);
+    const result = await handleStackStatus({ streamId: 'wf-001' }, tempDir, store);
 
     // Assert
     expect(result.success).toBe(true);
@@ -55,14 +55,14 @@ describe('handleStackStatus', () => {
   });
 
   it('without streamId returns empty positions', async () => {
-    const result = await handleStackStatus({}, tempDir);
+    const result = await handleStackStatus({}, tempDir, store);
 
     expect(result.success).toBe(true);
     expect(result.data).toEqual([]);
   });
 
   it('with non-existent stream returns empty positions', async () => {
-    const result = await handleStackStatus({ streamId: 'non-existent' }, tempDir);
+    const result = await handleStackStatus({ streamId: 'non-existent' }, tempDir, store);
 
     expect(result.success).toBe(true);
     expect(result.data).toEqual([]);
@@ -83,7 +83,7 @@ describe('handleStackStatus', () => {
       data: { taskId: 't2', title: 'Task 2' },
     });
 
-    const result = await handleStackStatus({ streamId: 'wf-001' }, tempDir);
+    const result = await handleStackStatus({ streamId: 'wf-001' }, tempDir, store);
 
     expect(result.success).toBe(true);
     const positions = result.data as Array<{ position: number; taskId: string }>;
@@ -99,6 +99,7 @@ describe('handleStackPlace', () => {
     const result = await handleStackPlace(
       { streamId: 'wf-001', position: 1, taskId: 't1', branch: 'feature/t1' },
       tempDir,
+      store,
     );
 
     expect(result.success).toBe(true);
@@ -119,6 +120,7 @@ describe('handleStackPlace', () => {
     const result = await handleStackPlace(
       { streamId: 'wf-001', position: 2, taskId: 't2', prUrl: 'https://github.com/pr/42' },
       tempDir,
+      store,
     );
 
     expect(result.success).toBe(true);
@@ -138,6 +140,7 @@ describe('handleStackPlace', () => {
     const result = await handleStackPlace(
       { streamId: 'wf-001', position: 1, taskId: 't1', branch: 'feature/t1' },
       tempDir,
+      store,
     );
 
     expect(result.success).toBe(true);
@@ -150,6 +153,7 @@ describe('handleStackPlace', () => {
     const result = await handleStackPlace(
       { streamId: '', position: 1, taskId: 't1' },
       tempDir,
+      store,
     );
 
     expect(result.success).toBe(false);
@@ -160,6 +164,7 @@ describe('handleStackPlace', () => {
     const result = await handleStackPlace(
       { streamId: 'wf-001', position: 1, taskId: '' },
       tempDir,
+      store,
     );
 
     expect(result.success).toBe(false);
@@ -171,10 +176,11 @@ describe('handleStackPlace', () => {
     await handleStackPlace(
       { streamId: 'wf-001', position: 1, taskId: 't1', branch: 'feature/t1' },
       tempDir,
+      store,
     );
 
     // Check status
-    const status = await handleStackStatus({ streamId: 'wf-001' }, tempDir);
+    const status = await handleStackStatus({ streamId: 'wf-001' }, tempDir, store);
 
     expect(status.success).toBe(true);
     const positions = status.data as Array<{ position: number; taskId: string; branch?: string }>;
@@ -188,17 +194,20 @@ describe('handleStackPlace', () => {
     await handleStackPlace(
       { streamId: 'wf-001', position: 1, taskId: 't1', branch: 'feature/t1' },
       tempDir,
+      store,
     );
     await handleStackPlace(
       { streamId: 'wf-001', position: 2, taskId: 't2', branch: 'feature/t2' },
       tempDir,
+      store,
     );
     await handleStackPlace(
       { streamId: 'wf-001', position: 3, taskId: 't3' },
       tempDir,
+      store,
     );
 
-    const status = await handleStackStatus({ streamId: 'wf-001' }, tempDir);
+    const status = await handleStackStatus({ streamId: 'wf-001' }, tempDir, store);
 
     expect(status.success).toBe(true);
     const positions = status.data as Array<{ position: number; taskId: string }>;
@@ -212,6 +221,7 @@ describe('handleStackPlace', () => {
     const result = await handleStackPlace(
       { streamId: 'wf-001', position: -1, taskId: 't1' },
       tempDir,
+      store,
     );
 
     expect(result.success).toBe(false);
@@ -223,6 +233,7 @@ describe('handleStackPlace', () => {
     const result = await handleStackPlace(
       { streamId: 'wf-001', position: 1.5, taskId: 't1' },
       tempDir,
+      store,
     );
 
     expect(result.success).toBe(false);
@@ -234,6 +245,7 @@ describe('handleStackPlace', () => {
     const result = await handleStackPlace(
       { streamId: 'wf-001', position: NaN, taskId: 't1' },
       tempDir,
+      store,
     );
 
     expect(result.success).toBe(false);
@@ -245,6 +257,7 @@ describe('handleStackPlace', () => {
     const result = await handleStackPlace(
       { streamId: 'wf-001', position: 0, taskId: 't1' },
       tempDir,
+      store,
     );
 
     expect(result.success).toBe(true);
@@ -274,6 +287,7 @@ describe('handleStackStatus error path', () => {
     const result = await handleStackStatus(
       { streamId: 'INVALID_STREAM_ID!!' },
       tempDir,
+      store,
     );
 
     expect(result.success).toBe(false);
@@ -302,6 +316,7 @@ describe('handleStackStatus pagination', () => {
     const result = await handleStackStatus(
       { streamId: 'wf-paginate', limit: 3 },
       tempDir,
+      store,
     );
 
     // Assert
@@ -321,6 +336,7 @@ describe('handleStackStatus pagination', () => {
     const result = await handleStackStatus(
       { streamId: 'wf-paginate-offset', offset: 5, limit: 3 },
       tempDir,
+      store,
     );
 
     // Assert
@@ -340,6 +356,7 @@ describe('handleStackStatus pagination', () => {
     const result = await handleStackStatus(
       { streamId: 'wf-paginate-all' },
       tempDir,
+      store,
     );
 
     // Assert
@@ -356,6 +373,7 @@ describe('handleStackStatus pagination', () => {
     const result = await handleStackStatus(
       { streamId: 'wf-paginate-beyond', offset: 10 },
       tempDir,
+      store,
     );
 
     // Assert
@@ -372,6 +390,7 @@ describe('handleStackStatus pagination', () => {
     const result = await handleStackStatus(
       { streamId: 'wf-paginate-offset-only', offset: 3 },
       tempDir,
+      store,
     );
 
     // Assert
@@ -403,7 +422,7 @@ describe('handleStackStatus CQRS rewire', () => {
     });
 
     // Act
-    const result = await handleStackStatus({ streamId: 'wf-rewire' }, tempDir);
+    const result = await handleStackStatus({ streamId: 'wf-rewire' }, tempDir, store);
 
     // Assert: same results as before the rewire
     expect(result.success).toBe(true);
@@ -418,7 +437,7 @@ describe('handleStackStatus CQRS rewire', () => {
   });
 
   it('handleStackStatus_NoStreamId_ReturnsEmpty', async () => {
-    const result = await handleStackStatus({}, tempDir);
+    const result = await handleStackStatus({}, tempDir, store);
 
     expect(result.success).toBe(true);
     expect(result.data).toEqual([]);
@@ -441,6 +460,7 @@ describe('registerStackTools', () => {
     const result = await handleStackPlace(
       { streamId: 'wf-consolidation', position: 1, taskId: 't1', branch: 'feature/t1' },
       tempDir,
+      store,
     );
     expect(result.success).toBe(true);
 
@@ -454,17 +474,19 @@ describe('registerStackTools', () => {
     const result1 = await handleStackPlace(
       { streamId: 'wf-cache-test', position: 1, taskId: 't1', branch: 'feat/t1' },
       tempDir,
+      store,
     );
     expect(result1.success).toBe(true);
 
     const result2 = await handleStackPlace(
       { streamId: 'wf-cache-test', position: 2, taskId: 't2', branch: 'feat/t2' },
       tempDir,
+      store,
     );
     expect(result2.success).toBe(true);
 
     // Both events should be visible via status (same cached store instance)
-    const status = await handleStackStatus({ streamId: 'wf-cache-test' }, tempDir);
+    const status = await handleStackStatus({ streamId: 'wf-cache-test' }, tempDir, store);
     expect(status.success).toBe(true);
     const positions = status.data as Array<{ position: number; taskId: string }>;
     expect(positions).toHaveLength(2);

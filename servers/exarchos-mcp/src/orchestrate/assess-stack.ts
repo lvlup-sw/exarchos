@@ -11,7 +11,6 @@ import type { VcsProvider, CiStatus, PrComment as VcsPrComment } from '../vcs/pr
 import { requiresGitHub } from '../vcs/require-github.js';
 import { createVcsProvider } from '../vcs/factory.js';
 import type { EventStore } from '../event-store/store.js';
-import { getOrCreateEventStore } from '../views/tools.js';
 import type { ToolResult } from '../format.js';
 import { orchestrateLogger } from '../logger.js';
 
@@ -430,7 +429,8 @@ async function emitShepherdCompleted(
 
 export async function handleAssessStack(
   args: { featureId: string; prNumbers: number[] },
-  stateDir: string,
+  _stateDir: string,
+  injectedEventStore: EventStore,
   provider?: VcsProvider,
   registry: ReviewAdapterRegistry = createReviewAdapterRegistry(),
 ): Promise<ToolResult> {
@@ -453,7 +453,7 @@ export async function handleAssessStack(
   }
 
   const vcs = provider ?? await createVcsProvider();
-  const eventStore = getOrCreateEventStore(stateDir);
+  const eventStore = injectedEventStore;
 
   // Query current iteration count from event store
   const iterationCount = await getIterationCount(eventStore, args.featureId);

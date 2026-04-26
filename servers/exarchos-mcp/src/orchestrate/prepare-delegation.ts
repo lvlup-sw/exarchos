@@ -15,7 +15,6 @@ import { orchestrateLogger } from '../logger.js';
 import type { DispatchContext } from '../core/dispatch.js';
 import {
   getOrCreateMaterializer,
-  getOrCreateEventStore,
   queryDeltaEvents,
 } from '../views/tools.js';
 import {
@@ -277,7 +276,10 @@ export async function handlePrepareDelegation(
 
   try {
     const materializer = getOrCreateMaterializer(stateDir);
-    const store = getOrCreateEventStore(stateDir);
+    if (!ctx?.eventStore) {
+      throw new Error('handlePrepareDelegation: ctx.eventStore required');
+    }
+    const store = ctx.eventStore;
     const streamId = args.featureId;
 
     // ─── DR-1: Branch Ancestry Preflight ────────────────────────────────

@@ -6,6 +6,7 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { ToolResult } from '../format.js';
+import type { EventStore } from '../event-store/store.js';
 
 // ─── Mock pure TS design-completeness module ────────────────────────────────
 
@@ -24,7 +25,6 @@ const mockStore = {
 };
 
 vi.mock('../views/tools.js', () => ({
-  getOrCreateEventStore: () => mockStore,
   getOrCreateMaterializer: () => ({}),
 }));
 
@@ -57,7 +57,7 @@ describe('handleDesignCompleteness', () => {
       const args = { featureId: '' };
 
       // Act
-      const result = await handleDesignCompleteness(args, STATE_DIR);
+      const result = await handleDesignCompleteness(args, STATE_DIR, mockStore as unknown as EventStore);
 
       // Assert
       expect(result.success).toBe(false);
@@ -84,6 +84,7 @@ describe('handleDesignCompleteness', () => {
       const result = await handleDesignCompleteness(
         { featureId: 'test-feature' },
         STATE_DIR,
+      mockStore as unknown as EventStore,
       );
 
       // Assert
@@ -126,6 +127,7 @@ describe('handleDesignCompleteness', () => {
       const result = await handleDesignCompleteness(
         { featureId: 'test-feature' },
         STATE_DIR,
+      mockStore as unknown as EventStore,
       );
 
       // Assert
@@ -167,6 +169,7 @@ describe('handleDesignCompleteness', () => {
       await handleDesignCompleteness(
         { featureId: 'test-feature' },
         STATE_DIR,
+      mockStore as unknown as EventStore,
       );
 
       // Assert — gate.executed event emitted with correct payload
@@ -221,6 +224,7 @@ describe('handleDesignCompleteness', () => {
       await handleDesignCompleteness(
         { featureId: 'test-feature' },
         STATE_DIR,
+      mockStore as unknown as EventStore,
       );
 
       // Assert — gate.executed event includes phase: 'ideate' in details
@@ -256,6 +260,7 @@ describe('handleDesignCompleteness', () => {
       await handleDesignCompleteness(
         { featureId: 'test-feature', stateFile: '/custom/state.json' },
         STATE_DIR,
+      mockStore as unknown as EventStore,
       );
 
       // Assert — the pure TS function was called with the custom state file
@@ -281,6 +286,7 @@ describe('handleDesignCompleteness', () => {
       await handleDesignCompleteness(
         { featureId: 'test-feature' },
         STATE_DIR,
+      mockStore as unknown as EventStore,
       );
 
       // Assert — the pure TS function was called with stateDir-derived path
@@ -306,6 +312,7 @@ describe('handleDesignCompleteness', () => {
       await handleDesignCompleteness(
         { featureId: 'test-feature', designPath: '/tmp/my-design.md' },
         STATE_DIR,
+      mockStore as unknown as EventStore,
       );
 
       // Assert — the pure TS function was called with the design file path

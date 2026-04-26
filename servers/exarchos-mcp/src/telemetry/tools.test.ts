@@ -52,7 +52,7 @@ describe('handleViewTelemetry', () => {
       ]);
 
       // Act
-      const result = await handleViewTelemetry({}, stateDir);
+      const result = await handleViewTelemetry({}, stateDir, new EventStore(stateDir));
 
       // Assert
       expect(result.success).toBe(true);
@@ -81,7 +81,7 @@ describe('handleViewTelemetry', () => {
       ]);
 
       // Act
-      const result = await handleViewTelemetry({ compact: false }, stateDir);
+      const result = await handleViewTelemetry({ compact: false }, stateDir, new EventStore(stateDir));
 
       // Assert
       expect(result.success).toBe(true);
@@ -107,7 +107,7 @@ describe('handleViewTelemetry', () => {
       ]);
 
       // Act
-      const result = await handleViewTelemetry({ tool: 'event_query' }, stateDir);
+      const result = await handleViewTelemetry({ tool: 'event_query' }, stateDir, new EventStore(stateDir));
 
       // Assert
       expect(result.success).toBe(true);
@@ -129,7 +129,7 @@ describe('handleViewTelemetry', () => {
       ]);
 
       // Act
-      const result = await handleViewTelemetry({ sort: 'tokens' }, stateDir);
+      const result = await handleViewTelemetry({ sort: 'tokens' }, stateDir, new EventStore(stateDir));
 
       // Assert
       expect(result.success).toBe(true);
@@ -155,7 +155,7 @@ describe('handleViewTelemetry', () => {
       ]);
 
       // Act
-      const result = await handleViewTelemetry({ sort: 'invocations' }, stateDir);
+      const result = await handleViewTelemetry({ sort: 'invocations' }, stateDir, new EventStore(stateDir));
 
       // Assert
       expect(result.success).toBe(true);
@@ -181,7 +181,7 @@ describe('handleViewTelemetry', () => {
       ]);
 
       // Act
-      const result = await handleViewTelemetry({ sort: 'duration' }, stateDir);
+      const result = await handleViewTelemetry({ sort: 'duration' }, stateDir, new EventStore(stateDir));
 
       // Assert
       expect(result.success).toBe(true);
@@ -208,6 +208,7 @@ describe('handleViewTelemetry', () => {
       const result = await handleViewTelemetry(
         { sort: 'tokens', limit: 2 },
         stateDir,
+      new EventStore(stateDir),
       );
 
       // Assert
@@ -224,7 +225,7 @@ describe('handleViewTelemetry', () => {
   describe('empty state', () => {
     it('should return empty tools when no events exist', async () => {
       // Act
-      const result = await handleViewTelemetry({}, stateDir);
+      const result = await handleViewTelemetry({}, stateDir, new EventStore(stateDir));
 
       // Assert
       expect(result.success).toBe(true);
@@ -252,7 +253,7 @@ describe('handleViewTelemetry', () => {
       await seedTelemetryEvents(stateDir, largeEvents);
 
       // Act
-      const result = await handleViewTelemetry({}, stateDir);
+      const result = await handleViewTelemetry({}, stateDir, new EventStore(stateDir));
 
       // Assert
       expect(result.success).toBe(true);

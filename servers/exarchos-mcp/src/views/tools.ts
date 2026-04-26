@@ -116,34 +116,11 @@ function createMaterializer(stateDir: string): ViewMaterializer {
   return materializer;
 }
 
-// ─── Singleton Cache for ViewMaterializer and EventStore ──────────────────
-//
-// Design rationale: Module-level mutable state is appropriate here because
-// the MCP server is single-threaded, processing one tool request at a time
-// over stdio. There is no concurrent access, so no synchronization is needed.
-// The cache avoids recreating EventStore and ViewMaterializer on every query,
-// which would discard the materializer's high-water marks and force full
-// event replay. Cache entries are only invalidated when stateDir changes,
-// ensuring both instances remain valid for the active working directory.
-
-// ─── Cached EventStore ──────────────────────────────────────────────────────
-
-let cachedEventStore: EventStore | null = null;
-let cachedEventStoreDir: string | null = null;
-
-/**
- * Factory/cache: returns a cached EventStore for the given stateDir.
- * Used by consumers (orchestrate handlers, CLI commands, view projections)
- * that don't receive EventStore via DispatchContext.
- */
-export function getOrCreateEventStore(stateDir: string): EventStore {
-  if (cachedEventStore && cachedEventStoreDir === stateDir) {
-    return cachedEventStore;
-  }
-  cachedEventStore = new EventStore(stateDir);
-  cachedEventStoreDir = stateDir;
-  return cachedEventStore;
-}
+// EventStore is no longer obtained through this module. After the
+// constructor-injection refactor (#1182), every consumer receives the
+// EventStore via DispatchContext. The previous registry/lazy-fallback
+// pattern was eliminated to avoid the DIM-1 recurrence trap — see
+// docs/rca/2026-04-26-v29-event-projection-cluster.md.
 
 // ─── Cached Materializer ─────────────────────────────────────────────────────
 
@@ -160,12 +137,10 @@ export function getOrCreateMaterializer(stateDir: string): ViewMaterializer {
   return cachedMaterializer;
 }
 
-/** For testing: reset the singleton cache */
+/** For testing: reset the singleton materializer cache. */
 export function resetMaterializerCache(): void {
   cachedMaterializer = null;
   cachedStateDir = null;
-  cachedEventStore = null;
-  cachedEventStoreDir = null;
 }
 
 // ─── Helper: query delta events using materializer high-water mark ──────────

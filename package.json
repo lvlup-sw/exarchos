@@ -32,7 +32,7 @@
     "typecheck": "tsc --noEmit",
     "version:sync": "bash scripts/sync-versions.sh",
     "version:check": "bash scripts/sync-versions.sh --check",
-    "validate": "bash scripts/validate-plugin.sh && node scripts/check-prefix-fingerprint.mjs && node scripts/check-prose-lint.mjs",
+    "validate": "bash scripts/validate-plugin.sh && node scripts/check-prefix-fingerprint.mjs && node scripts/check-prose-lint.mjs && node scripts/check-event-store-composition-root.mjs",
     "docs:dev": "cd documentation && npm run docs:dev",
     "docs:build": "cd documentation && npm run docs:build",
     "docs:preview": "cd documentation && npm run docs:preview"

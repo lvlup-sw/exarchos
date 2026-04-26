@@ -114,6 +114,7 @@ export async function handleView(
         await handleStackStatus(
           rest as { streamId?: string; limit?: number; offset?: number },
           stateDir,
+          eventStore,
         ),
         startedAt,
       );
@@ -129,6 +130,7 @@ export async function handleView(
             prUrl?: string;
           },
           stateDir,
+          eventStore,
         ),
         startedAt,
       );
@@ -143,6 +145,7 @@ export async function handleView(
             limit?: number;
           },
           stateDir,
+          eventStore,
         ),
         startedAt,
       );

@@ -1,17 +1,12 @@
 // ─── Provenance Chain Action Tests ──────────────────────────────────────────
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import type { EventStore } from '../event-store/store.js';
 
 // ─── Mock pure TS provenance-chain module ───────────────────────────────────
 
 vi.mock('./pure/provenance-chain.js', () => ({
   verifyProvenanceChain: vi.fn(),
-}));
-
-// ─── Mock event store and gate utils ────────────────────────────────────────
-
-vi.mock('../views/tools.js', () => ({
-  getOrCreateEventStore: vi.fn(() => ({})),
 }));
 
 vi.mock('./gate-utils.js', () => ({
@@ -24,6 +19,7 @@ import { handleProvenanceChain } from './provenance-chain.js';
 
 const mockedVerify = vi.mocked(verifyProvenanceChain);
 const mockedEmitGateEvent = vi.mocked(emitGateEvent);
+const mockStore = { append: vi.fn(), query: vi.fn() } as unknown as EventStore;
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -38,6 +34,7 @@ describe('handleProvenanceChain', () => {
     const result = await handleProvenanceChain(
       { featureId: '', designPath: '/tmp/design.md', planPath: '/tmp/plan.md' },
       stateDir,
+      mockStore,
     );
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('INVALID_INPUT');
@@ -48,6 +45,7 @@ describe('handleProvenanceChain', () => {
     const result = await handleProvenanceChain(
       { featureId: 'test-feat', designPath: '', planPath: '/tmp/plan.md' },
       stateDir,
+      mockStore,
     );
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('INVALID_INPUT');
@@ -58,6 +56,7 @@ describe('handleProvenanceChain', () => {
     const result = await handleProvenanceChain(
       { featureId: 'test-feat', designPath: '/tmp/design.md', planPath: '' },
       stateDir,
+      mockStore,
     );
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('INVALID_INPUT');
@@ -80,6 +79,7 @@ describe('handleProvenanceChain', () => {
     const result = await handleProvenanceChain(
       { featureId: 'test-feat', designPath: '/tmp/design.md', planPath: '/tmp/plan.md' },
       stateDir,
+      mockStore,
     );
 
     expect(result.success).toBe(true);
@@ -111,6 +111,7 @@ describe('handleProvenanceChain', () => {
     const result = await handleProvenanceChain(
       { featureId: 'test-feat', designPath: '/tmp/design.md', planPath: '/tmp/plan.md' },
       stateDir,
+      mockStore,
     );
 
     expect(result.success).toBe(true);
@@ -142,6 +143,7 @@ describe('handleProvenanceChain', () => {
     const result = await handleProvenanceChain(
       { featureId: 'test-feat', designPath: '/tmp/design.md', planPath: '/tmp/plan.md' },
       stateDir,
+      mockStore,
     );
 
     expect(result.success).toBe(false);
@@ -165,6 +167,7 @@ describe('handleProvenanceChain', () => {
     await handleProvenanceChain(
       { featureId: 'test-feat', designPath: '/tmp/design.md', planPath: '/tmp/plan.md' },
       stateDir,
+      mockStore,
     );
 
     expect(mockedEmitGateEvent).toHaveBeenCalledWith(
@@ -200,6 +203,7 @@ describe('handleProvenanceChain', () => {
     await handleProvenanceChain(
       { featureId: 'test-feat', designPath: '/tmp/design.md', planPath: '/tmp/plan.md' },
       stateDir,
+      mockStore,
     );
 
     // Assert
@@ -232,6 +236,7 @@ describe('handleProvenanceChain', () => {
     const result = await handleProvenanceChain(
       { featureId: 'test-feat', designPath: '/tmp/design.md', planPath: '/tmp/plan.md' },
       stateDir,
+      mockStore,
     );
 
     expect(result.success).toBe(true);
@@ -254,6 +259,7 @@ describe('handleProvenanceChain', () => {
     const result = await handleProvenanceChain(
       { featureId: 'test-feat', designPath: '/tmp/design.md', planPath: '/tmp/plan.md' },
       stateDir,
+      mockStore,
     );
 
     expect(result.success).toBe(true);

@@ -192,6 +192,7 @@ describe('EventStore Stale .seq Cross-Validation', () => {
     const result = await handleTaskClaim(
       { taskId: 't-stale', agentId: 'agent-stale', streamId },
       runDir,
+      store1,
     );
 
     expect(result.success).toBe(true);

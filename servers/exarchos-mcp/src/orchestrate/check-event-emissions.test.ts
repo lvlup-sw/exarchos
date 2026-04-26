@@ -20,7 +20,6 @@ const mockMaterializer = {
 };
 
 vi.mock('../views/tools.js', () => ({
-  getOrCreateEventStore: () => mockStore,
   getOrCreateMaterializer: () => mockMaterializer,
   queryDeltaEvents: vi.fn().mockResolvedValue([]),
 }));
@@ -82,6 +81,7 @@ describe('handleCheckEventEmissions', () => {
     const result: ToolResult = await handleCheckEventEmissions(
       {} as { featureId: string },
       STATE_DIR,
+      mockStore as unknown as EventStore,
     );
 
     expect(result.success).toBe(false);
@@ -92,6 +92,7 @@ describe('handleCheckEventEmissions', () => {
     const result: ToolResult = await handleCheckEventEmissions(
       { featureId: 'INVALID_ID!' },
       STATE_DIR,
+      mockStore as unknown as EventStore,
     );
 
     expect(result.success).toBe(false);
@@ -103,6 +104,7 @@ describe('handleCheckEventEmissions', () => {
     const result: ToolResult = await handleCheckEventEmissions(
       { featureId: 'valid-id', workflowId: 'BAD ID!!' },
       STATE_DIR,
+      mockStore as unknown as EventStore,
     );
 
     expect(result.success).toBe(false);
@@ -123,6 +125,7 @@ describe('handleCheckEventEmissions', () => {
     const result: ToolResult = await handleCheckEventEmissions(
       { featureId: 'test-feature' },
       STATE_DIR,
+      mockStore as unknown as EventStore,
     );
 
     expect(result.success).toBe(true);
@@ -148,6 +151,7 @@ describe('handleCheckEventEmissions', () => {
     const result: ToolResult = await handleCheckEventEmissions(
       { featureId: 'test-feature' },
       STATE_DIR,
+      mockStore as unknown as EventStore,
     );
 
     expect(result.success).toBe(true);
@@ -168,6 +172,7 @@ describe('handleCheckEventEmissions', () => {
     const result: ToolResult = await handleCheckEventEmissions(
       { featureId: 'test-feature' },
       STATE_DIR,
+      mockStore as unknown as EventStore,
     );
 
     expect(result.success).toBe(true);
@@ -188,6 +193,7 @@ describe('handleCheckEventEmissions', () => {
     const result: ToolResult = await handleCheckEventEmissions(
       { featureId: 'test-feature' },
       STATE_DIR,
+      mockStore as unknown as EventStore,
     );
 
     expect(result.success).toBe(true);
@@ -210,7 +216,7 @@ describe('handleCheckEventEmissions', () => {
       { type: 'task.progressed', streamId: 'test', sequence: 4, timestamp: '2026-01-01T00:00:00Z' },
     ]);
 
-    await handleCheckEventEmissions({ featureId: 'test-feature' }, STATE_DIR);
+    await handleCheckEventEmissions({ featureId: 'test-feature' }, STATE_DIR, mockStore as unknown as EventStore);
 
     expect(mockStore.append).toHaveBeenCalled();
     const appendCall = mockStore.append.mock.calls[0];
@@ -233,6 +239,7 @@ describe('handleCheckEventEmissions', () => {
     const result: ToolResult = await handleCheckEventEmissions(
       { featureId: 'test-feature' },
       STATE_DIR,
+      mockStore as unknown as EventStore,
     );
 
     expect(result.success).toBe(true);
@@ -247,6 +254,7 @@ describe('handleCheckEventEmissions', () => {
     await handleCheckEventEmissions(
       { featureId: 'test-feature', workflowId: 'custom-stream' },
       STATE_DIR,
+      mockStore as unknown as EventStore,
     );
 
     expect(queryDeltaEvents).toHaveBeenCalledWith(

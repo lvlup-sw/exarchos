@@ -7,7 +7,7 @@
 
 import { execFileSync } from 'node:child_process';
 import type { ToolResult } from '../format.js';
-import { getOrCreateEventStore } from '../views/tools.js';
+import type { EventStore } from '../event-store/store.js';
 import { emitGateEvent } from './gate-utils.js';
 import { runStaticAnalysis } from './pure/static-analysis.js';
 import type { RunCommandFn, CommandResult } from './pure/static-analysis.js';
@@ -61,7 +61,8 @@ const execCommandRunner: RunCommandFn = (
 
 export async function handleStaticAnalysis(
   args: StaticAnalysisArgs,
-  stateDir: string,
+  _stateDir: string,
+  eventStore: EventStore,
 ): Promise<ToolResult> {
   // Input validation
   if (!args.featureId) {
@@ -97,7 +98,7 @@ export async function handleStaticAnalysis(
 
   // Emit gate.executed event (fire-and-forget: emission failure must not break the gate check)
   try {
-    const store = getOrCreateEventStore(stateDir);
+    const store = eventStore;
     await emitGateEvent(store, args.featureId, 'static-analysis', 'quality', passed, {
       dimension: 'D2',
       phase: 'delegate',

@@ -40,7 +40,6 @@ const mockMaterializer = {
 };
 
 vi.mock('../views/tools.js', () => ({
-  getOrCreateEventStore: () => mockStore,
   getOrCreateMaterializer: () => mockMaterializer,
   queryDeltaEvents: vi.fn().mockResolvedValue([]),
 }));
@@ -64,7 +63,7 @@ describe('handleContextEconomy', () => {
   describe('input validation', () => {
     it('handleContextEconomy_MissingFeatureId_ReturnsError', async () => {
       const args = { featureId: '' };
-      const result = await handleContextEconomy(args, STATE_DIR);
+      const result = await handleContextEconomy(args, STATE_DIR, mockStore as unknown as EventStore);
       expect(result.success).toBe(false);
       expect(result.error?.code).toBe('INVALID_INPUT');
       expect(result.error?.message).toContain('featureId');
@@ -84,7 +83,7 @@ describe('handleContextEconomy', () => {
       });
 
       const args = { featureId: 'feat-1' };
-      const result = await handleContextEconomy(args, STATE_DIR);
+      const result = await handleContextEconomy(args, STATE_DIR, mockStore as unknown as EventStore);
 
       expect(result.success).toBe(true);
       const data = result.data as {
@@ -114,7 +113,7 @@ describe('handleContextEconomy', () => {
       });
 
       const args = { featureId: 'feat-1' };
-      const result = await handleContextEconomy(args, STATE_DIR);
+      const result = await handleContextEconomy(args, STATE_DIR, mockStore as unknown as EventStore);
 
       expect(result.success).toBe(true);
       const data = result.data as {
@@ -141,7 +140,7 @@ describe('handleContextEconomy', () => {
       });
 
       const args = { featureId: 'feat-1' };
-      await handleContextEconomy(args, STATE_DIR);
+      await handleContextEconomy(args, STATE_DIR, mockStore as unknown as EventStore);
 
       expect(mockEmitGateEvent).toHaveBeenCalledTimes(1);
       expect(mockEmitGateEvent).toHaveBeenCalledWith(
@@ -168,7 +167,7 @@ describe('handleContextEconomy', () => {
       });
 
       const args = { featureId: 'feat-1' };
-      await handleContextEconomy(args, STATE_DIR);
+      await handleContextEconomy(args, STATE_DIR, mockStore as unknown as EventStore);
 
       expect(mockEmitGateEvent).toHaveBeenCalledTimes(1);
       const details = mockEmitGateEvent.mock.calls[0][5] as Record<string, unknown>;
@@ -183,7 +182,7 @@ describe('handleContextEconomy', () => {
       mockGetDiff.mockReturnValue(null);
 
       const args = { featureId: 'feat-1' };
-      const result = await handleContextEconomy(args, STATE_DIR);
+      const result = await handleContextEconomy(args, STATE_DIR, mockStore as unknown as EventStore);
 
       expect(result.success).toBe(false);
       expect(result.error?.code).toBe('DIFF_ERROR');
@@ -241,7 +240,7 @@ describe('handleContextEconomy', () => {
       mockTelemetryState.totalInvocations = 10;
 
       const args = { featureId: 'feat-1' };
-      const result = await handleContextEconomy(args, STATE_DIR);
+      const result = await handleContextEconomy(args, STATE_DIR, mockStore as unknown as EventStore);
 
       expect(result.success).toBe(true);
       const data = result.data as {
@@ -274,7 +273,7 @@ describe('handleContextEconomy', () => {
       mockTelemetryState.totalInvocations = 0;
 
       const args = { featureId: 'feat-1' };
-      const result = await handleContextEconomy(args, STATE_DIR);
+      const result = await handleContextEconomy(args, STATE_DIR, mockStore as unknown as EventStore);
 
       expect(result.success).toBe(true);
       const data = result.data as {

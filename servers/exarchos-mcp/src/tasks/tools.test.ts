@@ -44,6 +44,7 @@ describe('handleTaskClaim (materialized view)', () => {
     const result = await handleTaskClaim(
       { taskId: 't1', agentId: 'agent-2', streamId: 'wf-mat' },
       tempDir,
+      store,
     );
 
     // Assert: should return ALREADY_CLAIMED via materialized view check
@@ -73,6 +74,7 @@ describe('handleTaskClaim (materialized view)', () => {
     const result = await handleTaskClaim(
       { taskId: 't2', agentId: 'agent-2', streamId: 'wf-comp' },
       tempDir,
+      store,
     );
 
     // Assert
@@ -101,6 +103,7 @@ describe('handleTaskClaim (materialized view)', () => {
     const result = await handleTaskClaim(
       { taskId: 't3', agentId: 'agent-2', streamId: 'wf-fail' },
       tempDir,
+      store,
     );
 
     // Assert
@@ -120,6 +123,7 @@ describe('handleTaskClaim (materialized view)', () => {
     const result = await handleTaskClaim(
       { taskId: 't5', agentId: 'agent-1', streamId: 'wf-fb-comp' },
       tempDir,
+      store,
     );
 
     // Assert: fallback raw-event scan should catch terminal state
@@ -139,6 +143,7 @@ describe('handleTaskClaim (materialized view)', () => {
     const result = await handleTaskClaim(
       { taskId: 't6', agentId: 'agent-1', streamId: 'wf-fb-fail' },
       tempDir,
+      store,
     );
 
     // Assert: fallback raw-event scan should catch terminal state
@@ -158,6 +163,7 @@ describe('handleTaskClaim (materialized view)', () => {
     const result = await handleTaskClaim(
       { taskId: 't4', agentId: 'agent-1', streamId: 'wf-open' },
       tempDir,
+      store,
     );
 
     // Assert
@@ -211,6 +217,7 @@ describe('handleTaskClaim Exponential Backoff', () => {
     const result = await handleTaskClaim(
       { taskId: 't-bo', agentId: 'agent-1', streamId: 'wf-backoff' },
       tempDir,
+      store,
     );
 
     // Assert: Should fail after exhausting retries (MAX_CLAIM_RETRIES = 3)
@@ -253,6 +260,7 @@ describe('handleTaskClaim Exponential Backoff', () => {
     const result = await handleTaskClaim(
       { taskId: 't-rf', agentId: 'agent-1', streamId: 'wf-retry-fail' },
       tempDir,
+      store,
     );
 
     // Assert
@@ -286,6 +294,7 @@ describe('handleTaskClaim Exponential Backoff', () => {
     const result = await handleTaskClaim(
       { taskId: 't-cap', agentId: 'agent-1', streamId: 'wf-cap' },
       tempDir,
+      store,
     );
 
     // Assert: with Math.random mocked to 0, total delay is deterministic:
@@ -332,6 +341,7 @@ describe('Task event idempotency keys', () => {
     const result = await handleTaskComplete(
       { taskId: 't-idem-1', streamId: 'wf-idem-comp' },
       tempDir,
+      store,
     );
 
     // Assert: task.completed event should have an idempotency key
@@ -366,6 +376,7 @@ describe('Task event idempotency keys', () => {
     const result = await handleTaskFail(
       { taskId: 't-idem-2', error: 'Something broke', streamId: 'wf-idem-fail' },
       tempDir,
+      store,
     );
 
     // Assert: task.failed event should have an idempotency key
@@ -405,6 +416,7 @@ describe('task_complete evidence field', () => {
     const result = await handleTaskComplete(
       { taskId: 't-ev-1', streamId: 'wf-ev-1', evidence },
       tempDir,
+      store,
     );
 
     // Assert
@@ -437,6 +449,7 @@ describe('task_complete evidence field', () => {
     const result = await handleTaskComplete(
       { taskId: 't-ev-2', streamId: 'wf-ev-2' },
       tempDir,
+      store,
     );
 
     // Assert
@@ -475,6 +488,7 @@ describe('task_complete evidence field', () => {
     const result = await handleTaskComplete(
       { taskId: 't-ev-3', streamId: 'wf-ev-3', evidence },
       tempDir,
+      store,
     );
 
     // Assert
@@ -513,6 +527,7 @@ describe('task_complete evidence field', () => {
     const result = await handleTaskComplete(
       { taskId: 't-ev-4', streamId: 'wf-ev-4', evidence },
       tempDir,
+      store,
     );
 
     // Assert
@@ -551,6 +566,7 @@ describe('task_complete evidence field', () => {
     const result = await handleTaskComplete(
       { taskId: 't-prov-1', streamId: 'wf-prov-1', result: provenanceResult },
       tempDir,
+      store,
     );
 
     // Assert
@@ -584,6 +600,7 @@ describe('task_complete evidence field', () => {
     const result = await handleTaskComplete(
       { taskId: 't-prov-2', streamId: 'wf-prov-2', result: { artifacts: ['artifact1'] } },
       tempDir,
+      store,
     );
 
     // Assert
@@ -662,6 +679,7 @@ describe('handleTaskComplete gate enforcement', () => {
     const result = await handleTaskComplete(
       { taskId: 'T-01', streamId: 'wf-gate-1', result: { summary: 'done' } },
       tempDir,
+      store,
     );
 
     // Assert
@@ -689,6 +707,7 @@ describe('handleTaskComplete gate enforcement', () => {
     const result = await handleTaskComplete(
       { taskId: 'T-01', streamId: 'wf-gate-2' },
       tempDir,
+      store,
     );
 
     // Assert
@@ -711,6 +730,7 @@ describe('handleTaskComplete gate enforcement', () => {
     const result = await handleTaskComplete(
       { taskId: 'T-01', streamId: 'wf-gate-3' },
       tempDir,
+      store,
     );
 
     // Assert
@@ -734,6 +754,7 @@ describe('handleTaskComplete gate enforcement', () => {
     const result = await handleTaskComplete(
       { taskId: 'T-01', streamId: 'wf-gate-d2-1', result: { summary: 'done' } },
       tempDir,
+      store,
     );
 
     // Assert: should reject because D2 gate is missing
@@ -762,6 +783,7 @@ describe('handleTaskComplete gate enforcement', () => {
     const result = await handleTaskComplete(
       { taskId: 'T-01', streamId: 'wf-gate-d2-2' },
       tempDir,
+      store,
     );
 
     // Assert
@@ -788,6 +810,7 @@ describe('handleTaskComplete gate enforcement', () => {
     const result = await handleTaskComplete(
       { taskId: 'T-01', streamId: 'wf-gate-d2-3' },
       tempDir,
+      store,
     );
 
     // Assert
@@ -815,6 +838,7 @@ describe('handleTaskComplete gate enforcement', () => {
     const result = await handleTaskComplete(
       { taskId: 'T-01', streamId: 'wf-gate-pw-1' },
       tempDir,
+      store,
     );
 
     // Assert: should accept project-wide static-analysis gate
@@ -837,6 +861,7 @@ describe('handleTaskComplete gate enforcement', () => {
     const result = await handleTaskComplete(
       { taskId: 'T-01', streamId: 'wf-gate-undef', result: { summary: 'done' } },
       tempDir,
+      store,
     );
 
     // Assert: graceful rejection, not a crash
@@ -860,6 +885,7 @@ describe('handleTaskComplete gate enforcement', () => {
     const result = await handleTaskComplete(
       { taskId: 'T-01', streamId: 'wf-gate-nodetails', result: { summary: 'done' } },
       tempDir,
+      store,
     );
 
     // Assert: GATE_NOT_PASSED because details.taskId doesn't match
@@ -883,6 +909,7 @@ describe('handleTaskComplete batch gate failures', () => {
     const result = await handleTaskComplete(
       { taskId: 'T-B1', streamId: 'wf-batch-1' },
       tempDir,
+      store,
     );
 
     // Assert: both unmet gates reported in a single response
@@ -911,6 +938,7 @@ describe('handleTaskComplete batch gate failures', () => {
     const result = await handleTaskComplete(
       { taskId: 'T-B2', streamId: 'wf-batch-2' },
       tempDir,
+      store,
     );
 
     // Assert: only static-analysis reported
@@ -945,6 +973,7 @@ describe('handleTaskComplete workflow state sync', () => {
     const result = await handleTaskComplete(
       { taskId: 'task-1', streamId: featureId },
       tempDir,
+      store,
     );
 
     // Assert: completion succeeded
@@ -985,10 +1014,12 @@ describe('handleTaskComplete workflow state sync', () => {
     const result1 = await handleTaskComplete(
       { taskId: 'task-1', streamId: featureId },
       tempDir,
+      store,
     );
     const result2 = await handleTaskComplete(
       { taskId: 'task-2', streamId: featureId },
       tempDir,
+      store,
     );
 
     // Assert: both completions succeeded

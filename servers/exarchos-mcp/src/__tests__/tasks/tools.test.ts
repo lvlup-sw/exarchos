@@ -11,7 +11,6 @@ import {
   resetModuleEventStore,
 } from '../../tasks/tools.js';
 import {
-  getOrCreateEventStore,
   resetMaterializerCache,
 } from '../../views/tools.js';
 
@@ -37,6 +36,7 @@ describe('handleTaskClaim', () => {
     const result = await handleTaskClaim(
       { taskId: 't1', agentId: 'agent-1', streamId: 'wf-001' },
       tempDir,
+      store,
     );
 
     expect(result.success).toBe(true);
@@ -56,6 +56,7 @@ describe('handleTaskClaim', () => {
     const result = await handleTaskClaim(
       { taskId: '', agentId: 'agent-1', streamId: 'wf-001' },
       tempDir,
+      store,
     );
 
     expect(result.success).toBe(false);
@@ -66,6 +67,7 @@ describe('handleTaskClaim', () => {
     const result = await handleTaskClaim(
       { taskId: 't1', agentId: 'agent-1', streamId: '' },
       tempDir,
+      store,
     );
 
     expect(result.success).toBe(false);
@@ -76,6 +78,7 @@ describe('handleTaskClaim', () => {
     const result = await handleTaskClaim(
       { taskId: 't1', agentId: '', streamId: 'wf-001' },
       tempDir,
+      store,
     );
 
     expect(result.success).toBe(false);
@@ -87,6 +90,7 @@ describe('handleTaskClaim', () => {
     const result = await handleTaskClaim(
       { taskId: 't1', agentId: 'agent-1', streamId: 'wf-001' },
       tempDir,
+      store,
     );
 
     expect(result.success).toBe(true);
@@ -110,6 +114,7 @@ describe('handleTaskClaim', () => {
     const first = await handleTaskClaim(
       { taskId: 't1', agentId: 'agent-1', streamId: 'wf-001' },
       tempDir,
+      store,
     );
     expect(first.success).toBe(true);
 
@@ -117,6 +122,7 @@ describe('handleTaskClaim', () => {
     const second = await handleTaskClaim(
       { taskId: 't1', agentId: 'agent-2', streamId: 'wf-001' },
       tempDir,
+      store,
     );
     expect(second.success).toBe(false);
     expect(second.error?.code).toBe('ALREADY_CLAIMED');
@@ -127,12 +133,14 @@ describe('handleTaskClaim', () => {
     const first = await handleTaskClaim(
       { taskId: 'task-1', agentId: 'agent-1', streamId: 'wf-001' },
       tempDir,
+      store,
     );
     expect(first.success).toBe(true);
 
     const second = await handleTaskClaim(
       { taskId: 'task-2', agentId: 'agent-2', streamId: 'wf-001' },
       tempDir,
+      store,
     );
     expect(second.success).toBe(true);
   });
@@ -141,6 +149,7 @@ describe('handleTaskClaim', () => {
     const first = await handleTaskClaim(
       { taskId: 't1', agentId: 'agent-1', streamId: 'wf-001' },
       tempDir,
+      store,
     );
     expect(first.success).toBe(true);
 
@@ -148,6 +157,7 @@ describe('handleTaskClaim', () => {
     const second = await handleTaskClaim(
       { taskId: 't1', agentId: 'agent-1', streamId: 'wf-001' },
       tempDir,
+      store,
     );
     expect(second.success).toBe(false);
     expect(second.error?.code).toBe('ALREADY_CLAIMED');
@@ -173,6 +183,7 @@ describe('handleTaskComplete', () => {
         streamId: 'wf-001',
       },
       tempDir,
+      store,
     );
 
     expect(result.success).toBe(true);
@@ -202,6 +213,7 @@ describe('handleTaskComplete', () => {
     const result = await handleTaskComplete(
       { taskId: 't1', streamId: 'wf-001' },
       tempDir,
+      store,
     );
 
     expect(result.success).toBe(true);
@@ -217,6 +229,7 @@ describe('handleTaskComplete', () => {
     const result = await handleTaskComplete(
       { taskId: '', streamId: 'wf-001' },
       tempDir,
+      store,
     );
 
     expect(result.success).toBe(false);
@@ -228,6 +241,7 @@ describe('handleTaskComplete', () => {
     const result = await handleTaskComplete(
       { taskId: 't1', streamId: '' },
       tempDir,
+      store,
     );
 
     expect(result.success).toBe(false);
@@ -253,6 +267,7 @@ describe('handleTaskComplete', () => {
         streamId: 'wf-002',
       },
       tempDir,
+      store,
     );
 
     expect(result.success).toBe(true);
@@ -282,6 +297,7 @@ describe('handleTaskComplete', () => {
     const result = await handleTaskComplete(
       { taskId: 't1', streamId: 'wf-001' },
       tempDir,
+      store,
     );
 
     expect(result.success).toBe(true);
@@ -296,6 +312,7 @@ describe('handleTaskComplete', () => {
     const result = await handleTaskComplete(
       { taskId: 't1', streamId: 'wf-001' },
       '/nonexistent/path/complete-test',
+      store,
     );
 
     expect(result.success).toBe(false);
@@ -312,6 +329,7 @@ describe('handleTaskComplete manual evidence bypass', () => {
         streamId: 'wf-manual',
       },
       tempDir,
+      store,
     );
 
     expect(result.success).toBe(true);
@@ -331,6 +349,7 @@ describe('handleTaskComplete manual evidence bypass', () => {
         streamId: 'wf-manual-fail',
       },
       tempDir,
+      store,
     );
 
     expect(result.success).toBe(false);
@@ -345,6 +364,7 @@ describe('handleTaskComplete manual evidence bypass', () => {
         streamId: 'wf-test-type',
       },
       tempDir,
+      store,
     );
 
     expect(result.success).toBe(false);
@@ -362,6 +382,7 @@ describe('handleTaskFail', () => {
         streamId: 'wf-001',
       },
       tempDir,
+      store,
     );
 
     expect(result.success).toBe(true);
@@ -381,6 +402,7 @@ describe('handleTaskFail', () => {
     const result = await handleTaskFail(
       { taskId: 't1', error: 'Unknown error', streamId: 'wf-001' },
       tempDir,
+      store,
     );
 
     expect(result.success).toBe(true);
@@ -399,6 +421,7 @@ describe('handleTaskFail', () => {
     const result = await handleTaskFail(
       { taskId: '', error: 'some error', streamId: 'wf-001' },
       tempDir,
+      store,
     );
 
     expect(result.success).toBe(false);
@@ -410,6 +433,7 @@ describe('handleTaskFail', () => {
     const result = await handleTaskFail(
       { taskId: 't1', error: '', streamId: 'wf-001' },
       tempDir,
+      store,
     );
 
     expect(result.success).toBe(false);
@@ -420,6 +444,7 @@ describe('handleTaskFail', () => {
     const result = await handleTaskFail(
       { taskId: 't1', error: 'some error', streamId: '' },
       tempDir,
+      store,
     );
 
     expect(result.success).toBe(false);
@@ -431,6 +456,7 @@ describe('handleTaskFail', () => {
     const result = await handleTaskFail(
       { taskId: 't1', error: 'Compilation error', streamId: 'wf-001' },
       tempDir,
+      store,
     );
 
     expect(result.success).toBe(true);
@@ -468,6 +494,7 @@ describe('registerTaskTools', () => {
     const result = await handleTaskClaim(
       { taskId: 't1', agentId: 'agent-1', streamId: 'wf-consolidation' },
       tempDir,
+      store,
     );
     expect(result.success).toBe(true);
 
@@ -480,12 +507,12 @@ describe('registerTaskTools', () => {
 // ─── TOCTOU Race Condition Fix ──────────────────────────────────────────────
 
 describe('handleTaskClaim TOCTOU protection', () => {
-  // Get the shared singleton store that handleTaskClaim actually uses
+  // Use the test's `store` (the same instance passed as the third arg to
+  // handleTaskClaim) so spies hit the actual write path.
   let sharedStore: EventStore;
 
   beforeEach(() => {
-    // Trigger singleton creation so we can spy on the correct instance
-    sharedStore = getOrCreateEventStore(tempDir);
+    sharedStore = store;
   });
 
   it('retries on SequenceConflictError from concurrent append', async () => {
@@ -513,6 +540,7 @@ describe('handleTaskClaim TOCTOU protection', () => {
     const result = await handleTaskClaim(
       { taskId: 't-race', agentId: 'agent-racer', streamId: 'wf-race' },
       tempDir,
+      store,
     );
 
     // Assert: should succeed after retrying
@@ -540,6 +568,7 @@ describe('handleTaskClaim TOCTOU protection', () => {
     const result = await handleTaskClaim(
       { taskId: 't-seq', agentId: 'agent-seq', streamId: 'wf-seq' },
       tempDir,
+      store,
     );
 
     // Assert: claim succeeded
@@ -576,6 +605,7 @@ describe('handleTaskClaim TOCTOU protection', () => {
     const result = await handleTaskClaim(
       { taskId: 't-exhaust', agentId: 'agent-exhaust', streamId: 'wf-exhaust' },
       tempDir,
+      store,
     );
 
     // Assert: should fail with CLAIM_FAILED
@@ -604,6 +634,7 @@ describe('handleTaskClaim TOCTOU protection', () => {
     const result = await handleTaskClaim(
       { taskId: 't-mixed', agentId: 'agent-mixed', streamId: 'wf-mixed' },
       tempDir,
+      store,
     );
 
     // Assert: claim succeeded

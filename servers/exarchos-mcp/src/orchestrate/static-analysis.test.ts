@@ -2,6 +2,7 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { ToolResult } from '../format.js';
+import type { EventStore } from '../event-store/store.js';
 
 // ─── Mock the pure TS static analysis module ────────────────────────────────
 
@@ -19,7 +20,6 @@ const mockStore = {
 };
 
 vi.mock('../views/tools.js', () => ({
-  getOrCreateEventStore: () => mockStore,
   getOrCreateMaterializer: () => ({}),
 }));
 
@@ -96,7 +96,7 @@ describe('handleStaticAnalysis', () => {
       const args = { featureId: '' };
 
       // Act
-      const result = await handleStaticAnalysis(args, STATE_DIR);
+      const result = await handleStaticAnalysis(args, STATE_DIR, mockStore as unknown as EventStore);
 
       // Assert
       expect(result.success).toBe(false);
@@ -115,7 +115,7 @@ describe('handleStaticAnalysis', () => {
       const args = { featureId: 'feat-1', repoRoot: '/home/user/project' };
 
       // Act
-      const result = await handleStaticAnalysis(args, STATE_DIR);
+      const result = await handleStaticAnalysis(args, STATE_DIR, mockStore as unknown as EventStore);
 
       // Assert
       expect(result.success).toBe(true);
@@ -142,7 +142,7 @@ describe('handleStaticAnalysis', () => {
       const args = { featureId: 'feat-1', repoRoot: '/home/user/project' };
 
       // Act
-      const result = await handleStaticAnalysis(args, STATE_DIR);
+      const result = await handleStaticAnalysis(args, STATE_DIR, mockStore as unknown as EventStore);
 
       // Assert
       expect(result.success).toBe(true);
@@ -170,7 +170,7 @@ describe('handleStaticAnalysis', () => {
       const args = { featureId: 'feat-1', repoRoot: '/home/user/project' };
 
       // Act
-      await handleStaticAnalysis(args, STATE_DIR);
+      await handleStaticAnalysis(args, STATE_DIR, mockStore as unknown as EventStore);
 
       // Assert
       expect(mockStore.append).toHaveBeenCalledTimes(1);
@@ -208,7 +208,7 @@ describe('handleStaticAnalysis', () => {
       const args = { featureId: 'feat-1', repoRoot: '/home/user/project' };
 
       // Act
-      await handleStaticAnalysis(args, STATE_DIR);
+      await handleStaticAnalysis(args, STATE_DIR, mockStore as unknown as EventStore);
 
       // Assert
       expect(mockStore.append).toHaveBeenCalledTimes(1);
@@ -233,7 +233,7 @@ describe('handleStaticAnalysis', () => {
       const args = { featureId: 'feat-1', repoRoot: '/nonexistent' };
 
       // Act
-      const result = await handleStaticAnalysis(args, STATE_DIR);
+      const result = await handleStaticAnalysis(args, STATE_DIR, mockStore as unknown as EventStore);
 
       // Assert
       expect(result.success).toBe(false);
@@ -257,7 +257,7 @@ describe('handleStaticAnalysis', () => {
       };
 
       // Act
-      await handleStaticAnalysis(args, STATE_DIR);
+      await handleStaticAnalysis(args, STATE_DIR, mockStore as unknown as EventStore);
 
       // Assert
       expect(mockRunStaticAnalysis).toHaveBeenCalledTimes(1);
@@ -284,7 +284,7 @@ describe('handleStaticAnalysis', () => {
       const args = { featureId: 'feat-1', repoRoot: '/home/user/project' };
 
       // Act
-      await handleStaticAnalysis(args, STATE_DIR);
+      await handleStaticAnalysis(args, STATE_DIR, mockStore as unknown as EventStore);
 
       // Assert
       expect(mockRunStaticAnalysis).toHaveBeenCalledTimes(1);
