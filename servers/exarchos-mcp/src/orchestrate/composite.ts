@@ -6,6 +6,7 @@
 
 import { wrap, wrapWithPassthrough, type ToolResult } from '../format.js';
 import type { DispatchContext } from '../core/dispatch.js';
+import type { EventStore } from '../event-store/store.js';
 import { handleDescribe } from '../describe/handler.js';
 import { handleRunbook } from '../runbooks/handler.js';
 import { TOOL_REGISTRY } from '../registry.js';
@@ -114,6 +115,27 @@ function adaptArgsWithEventStore<T>(handler: (args: T) => ToolResult | Promise<T
   return async (args, _stateDir, ctx) => {
     const enriched = ctx?.eventStore ? { ...args, eventStore: ctx.eventStore } : args;
     return handler(enriched as unknown as T);
+  };
+}
+
+/**
+ * Wraps a typed handler that takes `(args, stateDir, eventStore)` — the
+ * canonical shape for orchestrate handlers that need to append events.
+ * Threads `ctx.eventStore` as the third positional arg so handlers
+ * obtain the EventStore from the dispatch context rather than from a
+ * module-global registry. See docs/rca/2026-04-26-v29-event-projection-
+ * cluster.md (constructor injection refactor).
+ */
+function adaptWithEventStore<T>(
+  handler: (args: T, stateDir: string, eventStore: EventStore) => Promise<ToolResult>,
+): ActionHandler {
+  return async (args, stateDir, ctx) => {
+    if (!ctx?.eventStore) {
+      throw new Error(
+        `${handler.name}: ctx.eventStore required (handler dispatched without DispatchContext)`,
+      );
+    }
+    return handler(args as unknown as T, stateDir, ctx.eventStore);
   };
 }
 
