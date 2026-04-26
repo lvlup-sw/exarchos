@@ -78,10 +78,12 @@ describe('CopilotAdapter', () => {
 
     expect(Array.isArray(data.tools)).toBe(true);
     // Specifically NOT a boolean map (that would be the OpenCode shape).
-    expect(typeof data.tools).not.toBe('object');
-    // Wait — arrays are typeof 'object' too. The correct invariant is:
-    // it's an array, not a plain record.
+    // Distinguish array from plain record: arrays are also typeof 'object',
+    // so guard on Array.isArray, then assert no entry is a boolean.
     const tools = data.tools as unknown[];
+    for (const entry of tools) {
+      expect(typeof entry).not.toBe('boolean');
+    }
     // Copilot tool names — derived from the capability→copilot binding
     // documented at the top of `copilot.ts`. Implementer requires fs:read,
     // fs:write, shell:exec → `read`, `write`, `shell`.
