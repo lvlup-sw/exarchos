@@ -23,8 +23,9 @@
  *   - `DelegationOpenCodeVariant_UsesTaskTool`
  *   - `DelegationCodexVariant_UsesNativePrimitive`
  *   - `DelegationCopilotVariant_UsesDelegateSlashCommand`
- *   - `DelegationCursorVariant_ContainsSequentialDirective`
- *     + `DelegationCursorVariant_ContainsWarningText`
+ *   - `DelegationCursorVariant_UsesNativeTaskTool`
+ *     + `DelegationCursorVariant_NoLongerEmitsSequentialFallback`
+ *     (refreshed in Task 7d after Cursor 2.5 shipped native sub-agents).
  *   - `DelegationGenericVariant_SequentialFallback`
  *
  * Implements: DR-1, DR-5, DR-6, DR-8, OQ-2.
@@ -129,21 +130,21 @@ describe('task 017 — delegation skill refactor', () => {
     expect(rendered).toContain('run_in_background');
   });
 
-  it('DelegationCursorVariant_ContainsSequentialDirective', () => {
+  it('DelegationCursorVariant_UsesNativeTaskTool', () => {
     const rendered = readVariant('cursor');
-    // Cursor has no subagent primitive — delegation degrades to sequential
-    // execution in the current session. The generic fallback text uses
-    // the word "sequentially" explicitly.
-    expect(rendered.toLowerCase()).toContain('sequentially');
+    // Cursor 2.5+ ships native sub-agents (Task 7d, 2026-04-25): the
+    // rendered variant must invoke `Task({ ... })`, not the prior
+    // sequential-fallback prose.
+    expect(rendered).toContain('Task({');
+    expect(rendered).toContain('subagent_type');
   });
 
-  it('DelegationCursorVariant_ContainsWarningText', () => {
+  it('DelegationCursorVariant_NoLongerEmitsSequentialFallback', () => {
     const rendered = readVariant('cursor');
-    // The cursor runtime map embeds an operator-visible warning because
-    // users expect parallelism — the literal token "Cursor" should land
-    // somewhere in the rendered body to signal the runtime-specific
-    // degradation.
-    expect(rendered).toContain('Cursor');
+    // Guard against regression to the pre-Cursor-2.5 prose-degradation
+    // marker. The runtime map no longer claims "no in-session subagent
+    // primitive" — that phrase must not leak into the rendered skill.
+    expect(rendered).not.toContain('no in-session subagent primitive');
   });
 
   it('DelegationOpenCodeVariant_UsesTaskTool', () => {

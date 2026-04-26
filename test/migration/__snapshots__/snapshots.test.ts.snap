@@ -13461,9 +13461,11 @@ This runbook provides structured criteria for parallel vs sequential dispatch, t
 Dispatch all independent tasks using the runtime's native spawn primitive. On runtimes with subagent support, fan out in a **single message** so the dispatches run in parallel. On runtimes without a subagent primitive, execute each task sequentially against its prepared worktree and emit one operator-visible warning per batch so users know they are not getting parallelism.
 
 \`\`\`typescript
-Cursor CLI has no in-session subagent primitive. Execute each task sequentially
-in the current session, visiting each worktree in turn. Emit a single warning
-once per delegation batch so operators know they are not getting parallelism.
+Task({
+  subagent_type: "implementer",
+  description: "Implement task-001: [title]",
+  prompt: "Task-specific context: requirements, file paths, acceptance criteria"
+})
 
 \`\`\`
 
@@ -13573,9 +13575,11 @@ For the full recovery flow with a concrete example, see \`references/worked-exam
 Dispatch a fix agent with the full failure context and the original task description. On runtimes that support session resume (e.g. Claude Code with an \`agentId\` in workflow state), prefer resuming the original agent so it retains its implementer context; otherwise dispatch a fresh fixer agent using the runtime's native spawn primitive.
 
 \`\`\`typescript
-Cursor CLI has no in-session subagent primitive. Execute each task sequentially
-in the current session, visiting each worktree in turn. Emit a single warning
-once per delegation batch so operators know they are not getting parallelism.
+Task({
+  subagent_type: "implementer",
+  description: "Fix failed task-001",
+  prompt: "Your implementation failed. [failure context from test output]. Apply adversarial verification: do NOT trust your previous self-assessment, re-read actual test output, identify root cause not symptoms. [Original task context]."
+})
 
 \`\`\`
 
