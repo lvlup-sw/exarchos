@@ -32,6 +32,22 @@ capabilities:
   hasHooks: true
   hasSkillChaining: true
   mcpPrefix: "mcp__plugin_exarchos_exarchos__"
+# Fine-grained support matrix consumed by the prose renderer (Tasks 8/9)
+# to gate `<!-- requires:* -->` and `<!-- requires:native:* -->` blocks.
+# Claude is the reference runtime — every capability is `native`. This
+# mirrors `claudeAdapter.supportLevels` in
+# `servers/exarchos-mcp/src/agents/adapters/claude.ts`.
+supportedCapabilities:
+  fs:read: native
+  fs:write: native
+  shell:exec: native
+  subagent:spawn: native
+  subagent:completion-signal: native
+  subagent:start-signal: native
+  mcp:exarchos: native
+  isolation:worktree: native
+  team:agent-teams: native
+  session:resume: native
 skillsInstallPath: "~/.claude/skills"
 detection:
   binaries:

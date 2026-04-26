@@ -42,12 +42,31 @@ const DetectionSchema = z
   .strict();
 
 /**
+ * Per-capability support level for the prose renderer (Tasks 8/9).
+ *
+ * Mirrors the `SupportLevel` shape used by adapters in
+ * `servers/exarchos-mcp/src/agents/adapters/types.ts`, minus `unsupported`.
+ * Capabilities the runtime does not support at all are simply absent from
+ * the `supportedCapabilities` YAML map — only `native` and `advisory`
+ * appear, so the renderer can distinguish `<!-- requires:* -->` (any
+ * support) from `<!-- requires:native:* -->` (native only) guards.
+ */
+const SupportedCapabilitiesSchema = z.record(
+  z.string(),
+  z.enum(['native', 'advisory']),
+);
+
+/**
  * The runtime map schema.
  *
  * `.strict()` at the top level ensures unknown fields are rejected, which
  * catches typos in hand-authored YAML. The `placeholders` map is intentionally
  * open-ended (`Record<string, string>`) because the placeholder vocabulary
  * grows over time as new skills introduce new substitution keys.
+ *
+ * `supportedCapabilities` is optional during the rollout of Task 7a-7e
+ * (one runtime YAML at a time). Once every runtime declares the field the
+ * optionality may be tightened.
  */
 export const RuntimeMapSchema = z
   .object({
@@ -58,6 +77,7 @@ export const RuntimeMapSchema = z
     skillsInstallPath: z.string(),
     detection: DetectionSchema,
     placeholders: z.record(z.string(), z.string()),
+    supportedCapabilities: SupportedCapabilitiesSchema.optional(),
   })
   .strict();
 
