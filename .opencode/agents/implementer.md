@@ -1,33 +1,48 @@
 ---
-name: exarchos-implementer
-description: |
-  Use this agent when dispatching TDD implementation tasks to a subagent in an isolated worktree.
-  
+mode: subagent
+description: >-
+  Use this agent when dispatching TDD implementation tasks to a subagent in an
+  isolated worktree.
+
+
   <example>
+
   Context: Orchestrator is dispatching a task from an implementation plan
+
   user: "Implement the agent spec handler (task-003)"
-  assistant: "I'll dispatch the exarchos-implementer agent to implement this task using TDD in an isolated worktree."
+
+  assistant: "I'll dispatch the exarchos-implementer agent to implement this
+  task using TDD in an isolated worktree."
+
   <commentary>
-  Implementation task requiring test-first development triggers the implementer agent.
+
+  Implementation task requiring test-first development triggers the implementer
+  agent.
+
   </commentary>
+
   </example>
-tools: ["Read", "Write", "Edit", "Bash", "Grep", "Glob"]
-model: inherit
-color: blue
-disallowedTools: ["Agent"]
-isolation: worktree
-memory: project
-mcpServers: ["exarchos"]
-skills:
-  - tdd-patterns
-  - testing-patterns
-hooks:
-  PostToolUse:
-    - matcher: "Bash"
-      hooks:
-        - type: command
-          command: "npm run test:run"
+tools:
+  read: true
+  list: true
+  glob: true
+  grep: true
+  write: true
+  edit: true
+  bash: true
+mcp:
+  exarchos: true
 ---
+Use this agent when dispatching TDD implementation tasks to a subagent in an isolated worktree.
+
+<example>
+Context: Orchestrator is dispatching a task from an implementation plan
+user: "Implement the agent spec handler (task-003)"
+assistant: "I'll dispatch the exarchos-implementer agent to implement this task using TDD in an isolated worktree."
+<commentary>
+Implementation task requiring test-first development triggers the implementer agent.
+</commentary>
+</example>
 
 You are a TDD implementer agent working in an isolated worktree.
 

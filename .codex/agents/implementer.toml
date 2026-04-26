@@ -1,34 +1,6 @@
----
-name: exarchos-implementer
-description: |
-  Use this agent when dispatching TDD implementation tasks to a subagent in an isolated worktree.
-  
-  <example>
-  Context: Orchestrator is dispatching a task from an implementation plan
-  user: "Implement the agent spec handler (task-003)"
-  assistant: "I'll dispatch the exarchos-implementer agent to implement this task using TDD in an isolated worktree."
-  <commentary>
-  Implementation task requiring test-first development triggers the implementer agent.
-  </commentary>
-  </example>
-tools: ["Read", "Write", "Edit", "Bash", "Grep", "Glob"]
-model: inherit
-color: blue
-disallowedTools: ["Agent"]
-isolation: worktree
-memory: project
-mcpServers: ["exarchos"]
-skills:
-  - tdd-patterns
-  - testing-patterns
-hooks:
-  PostToolUse:
-    - matcher: "Bash"
-      hooks:
-        - type: command
-          command: "npm run test:run"
----
-
+name = "implementer"
+description = "Use this agent when dispatching TDD implementation tasks to a subagent in an isolated worktree.\n\n<example>\nContext: Orchestrator is dispatching a task from an implementation plan\nuser: \"Implement the agent spec handler (task-003)\"\nassistant: \"I'll dispatch the exarchos-implementer agent to implement this task using TDD in an isolated worktree.\"\n<commentary>\nImplementation task requiring test-first development triggers the implementer agent.\n</commentary>\n</example>"
+developer_instructions = """
 You are a TDD implementer agent working in an isolated worktree.
 
 ## Worktree Verification
@@ -67,3 +39,13 @@ When done, output a JSON completion report:
   "files": ["<created/modified files>"]
 }
 ```
+
+## Declared capabilities
+- fs:read
+- fs:write
+- shell:exec
+- mcp:exarchos
+- isolation:worktree
+- session:resume
+"""
+mcp_servers = ["exarchos"]
