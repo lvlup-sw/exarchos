@@ -141,3 +141,23 @@ For any workflow where `exarchos_workflow get` reports phase=synthesize and revi
 
 - The five sub-bugs in #1184 may not all collapse into one fix; treat each as a separate small task contingent on the Phase 3 plan.
 - The `delegation-runtime-parity` workflow that produced the reproduction is itself a closed feature workflow — its corrupted log doesn't need to be repaired for the cluster fix to land. Repair it only if needed for ongoing local dogfooding.
+
+## Final implementation (2026-04-26)
+
+Phase 1 shipped in two iterations:
+
+**Iteration 1** (commit `7b262ee4`, since superseded): Registry-with-lazy-fallback pattern. Module-global `canonicalEventStore` set by `registerCanonicalEventStore()`, returned by `getOrCreateEventStore()` with a logged-warning lazy-create fallback for tests.
+
+**Iteration 2** (commits `0b9db7d6`, `06da8d31`, `c1ae6f8d`, `0f892032`): Constructor injection through `DispatchContext`. Driven by research convergence (Seemann, Fowler, Microsoft .NET DI guidelines): the lazy fallback was the recurrence trap that originally caused #1182, just relocated behind a logged warning that CI noise would swallow.
+
+The final implementation:
+- `views/tools.ts` no longer exports `getOrCreateEventStore` or `registerCanonicalEventStore`. The module-globals are gone.
+- All 16 production handlers (orchestrate × 14, review × 1, telemetry × 1) accept `EventStore` as a typed parameter. The composite dispatcher (`orchestrate/composite.ts`, `views/composite.ts`) threads `ctx.eventStore` to each.
+- CLI entrypoints (`pre-compact`, `evals/run-evals-cli`, `assemble-context`) bootstrap their own `EventStore` via `new EventStore + initialize` — separate process boundaries, PID lock holds.
+- Test fixtures (~17 files) updated to construct the EventStore in `beforeEach` and pass it as the third arg to handler calls.
+- `scripts/check-event-store-composition-root.mjs` allowlist shrinks to 4 paths: `index.ts`, `core/context.ts`, `cli-commands/{assemble-context, pre-compact}.ts`, `evals/run-evals-cli.ts`.
+- `__tests__/event-store/single-composition-root.test.ts` asserts the new contract: `getOrCreateEventStore` and `registerCanonicalEventStore` must NOT exist as exports; concurrent appends through `ctx.eventStore` produce monotonic unique sequences.
+
+Validation: typecheck clean (root + MCP server), root suite 625/625, MCP suite 5720/5725 (5 pre-existing `gates.test.ts` baseline failures unchanged).
+
+Tracking workflow: `refactor-eventstore-constructor-injection`. Plan: `docs/plans/2026-04-26-eventstore-constructor-injection.md`.
