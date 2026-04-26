@@ -3,6 +3,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { ToolResult } from '../format.js';
 import { EVENT_EMISSION_REGISTRY } from '../event-store/schemas.js';
+import type { EventStore } from '../event-store/store.js';
 
 // ─── Mock event store + materializer ────────────────────────────────────────
 

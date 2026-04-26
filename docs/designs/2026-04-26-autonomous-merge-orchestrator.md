@@ -85,7 +85,8 @@ export interface MergeOrchestrateOutput {
   readonly preflight: MergePreflightResult;
   readonly mergeSha?: string;
   readonly rollbackSha?: string;
-  readonly rollbackReason?: 'preflight-failed' | 'merge-failed' | 'verification-failed' | 'timeout';
+  readonly abortReason?: 'preflight-failed';
+  readonly rollbackReason?: 'merge-failed' | 'verification-failed' | 'timeout';
 }
 ```
 
@@ -102,7 +103,7 @@ exarchos merge-orchestrate (CLI)     exarchos_orchestrate({action:"merge_orchest
                             v
                 handleMergeOrchestrate(args, ctx)             <- orchestrate/merge-orchestrate.ts
                             v
-  1. Read WorkflowState.mergeOrchestrator (resume if phase != 'completed' / 'aborted')
+  1. Read WorkflowState.mergeOrchestrator (resume only if phase ∉ {'completed', 'aborted', 'rolled-back'})
                             v
   2. preflight(args, gitExec)                                 <- pure/merge-preflight.ts
        a. validateBranchAncestry  (existing)

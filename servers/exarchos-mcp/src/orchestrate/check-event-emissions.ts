@@ -30,11 +30,26 @@ import { getRegisteredEventTypes } from '../projections/rehydration/reducer.js';
 // them directly). Other phases continue to declare their expected-events
 // inline because the reducer does not yet model them.
 
-/** Filter a SoT event-type list to only those whose emission source is `model`. */
+/**
+ * Filter a SoT event-type list to only those whose emission source is `model`.
+ * Throws on any input event name that isn't registered in EVENT_EMISSION_REGISTRY,
+ * so a typo in the reducer's SoT registry can never silently disappear from the
+ * derived phase-expected-events list (which would mask drift between SoT and
+ * the registry — exactly the DIM-3 contract violation #1180 was filed against).
+ */
 function modelEmittedOnly(types: readonly string[]): readonly EventType[] {
-  return types.filter(
-    (t) => EVENT_EMISSION_REGISTRY[t as EventType] === 'model',
-  ) as readonly EventType[];
+  const out: EventType[] = [];
+  for (const t of types) {
+    const source = EVENT_EMISSION_REGISTRY[t as EventType];
+    if (source === undefined) {
+      throw new Error(
+        `modelEmittedOnly: '${t}' is not registered in EVENT_EMISSION_REGISTRY — ` +
+          `register it (or fix the typo at the SoT) so phase-expected-events stays consistent.`,
+      );
+    }
+    if (source === 'model') out.push(t as EventType);
+  }
+  return out;
 }
 
 export const PHASE_EXPECTED_EVENTS: Readonly<Record<string, readonly EventType[]>> = {

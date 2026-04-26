@@ -296,7 +296,10 @@ export async function handleViewTasks(
         if (!id || merged[id]) continue;
         // Map TaskSchema status (`pending|in_progress|complete|failed`) onto
         // the TaskDetail status union. The schema preprocesses 'completed' →
-        // 'complete' so handle both spellings defensively.
+        // 'complete' so handle both spellings defensively. Plan-state
+        // 'pending' must surface as 'pending' so a not-yet-dispatched task
+        // is never reported as 'assigned' (which means dispatched to a
+        // teammate) — see #1184 / CR feedback on PR #1185.
         const rawStatus = e['status'];
         const status: TaskDetail['status'] =
           rawStatus === 'failed'
@@ -305,7 +308,7 @@ export async function handleViewTasks(
               ? 'completed'
               : rawStatus === 'in_progress'
                 ? 'in-progress'
-                : 'assigned';
+                : 'pending';
         merged[id] = {
           taskId: id,
           title: typeof e['title'] === 'string' ? (e['title'] as string) : '',
@@ -874,21 +877,28 @@ export async function handleViewSynthesisReadiness(
     // Fix 2 (#1184) — review status is plan-state stamped via `workflow set`
     // (state.reviews); the synthesis-readiness projection only watches
     // `gate.executed`, so reviews recorded directly into state.json never
-    // surface as passed. Reach into state.json and OR the projection-derived
-    // value with the state-derived one so both sources count.
+    // surface as passed. state.json is the planner's source of truth — when
+    // an entry exists there, prefer it; otherwise fall back to the projection.
+    // This avoids a stale projection-derived `true` sticking after the
+    // planner re-stamps a review back to a non-passed status.
     const state = await readWorkflowStateJson(stateDir, streamId);
     const reviews = (state?.['reviews'] as Record<string, unknown> | undefined) ?? {};
-    const isPassed = (key: string): boolean => {
+    const reviewStatus = (
+      key: string,
+    ): { present: boolean; passed: boolean } => {
       const r = reviews[key];
-      return (
-        !!r &&
-        typeof r === 'object' &&
-        !Array.isArray(r) &&
-        (r as Record<string, unknown>)['status'] === 'passed'
-      );
+      if (!r || typeof r !== 'object' || Array.isArray(r)) {
+        return { present: false, passed: false };
+      }
+      return {
+        present: true,
+        passed: (r as Record<string, unknown>)['status'] === 'passed',
+      };
     };
-    const specPassed = view.review.specPassed || isPassed('spec-review');
-    const qualityPassed = view.review.qualityPassed || isPassed('quality-review');
+    const spec = reviewStatus('spec-review');
+    const quality = reviewStatus('quality-review');
+    const specPassed = spec.present ? spec.passed : view.review.specPassed;
+    const qualityPassed = quality.present ? quality.passed : view.review.qualityPassed;
 
     // Fix 2 (#1184) — task counts: the projection counts events; state.json
     // is the planner's stamp. Mirror the workflow_status fix for consistency.

@@ -101,7 +101,7 @@ These imports are mandatory; tasks that reimplement them fail review.
    - File: `servers/exarchos-mcp/src/event-store/schemas.test.ts`
    - Expected failure: event types not registered.
 
-2. [GREEN] Register payload schemas keyed `merge.preflight`, `merge.executed`, `merge.rollback`. Reason enum on rollback: `'preflight-failed' | 'merge-failed' | 'verification-failed' | 'timeout'`.
+2. [GREEN] Register payload schemas keyed `merge.preflight`, `merge.executed`, `merge.rollback`. Reason enum on rollback: `'merge-failed' | 'verification-failed' | 'timeout'` (preflight failures surface as `phase: 'aborted'` with `abortReason: 'preflight-failed'`, never as a rollback).
 
 3. [REFACTOR] None.
 
@@ -358,7 +358,7 @@ These imports are mandatory; tasks that reimplement them fail review.
    - `featureHsm_MergeCompletedEvent_LeavesMergePendingState`
    - File: `servers/exarchos-mcp/src/workflow/state-machine.test.ts` (extend)
 
-2. [GREEN] Add `merge-pending` substate to feature HSM in `hsm-definitions.ts`. Transition predicate: enter `merge-pending` when most recent `task.completed` carries a `worktree` association and `mergeOrchestrator?.phase` is not `completed`. Exit on `merge.executed` or `merge.rollback`.
+2. [GREEN] Add `merge-pending` substate to feature HSM in `hsm-definitions.ts`. Transition predicate: enter `merge-pending` when most recent `task.completed` carries a `worktree` association and `mergeOrchestrator?.phase` is not `completed`. Exit on `merge.executed`, `merge.rollback`, or `aborted` (the preflight-failed escape hatch).
 
 3. [REFACTOR] Extract worktree-detection predicate into a named helper.
 

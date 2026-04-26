@@ -278,8 +278,7 @@ register({
     {
       tool: 'exarchos_event',
       action: 'append',
-      purpose:
-        'Emit task.assigned on dispatch, gate.executed on post-delegation check',
+      purpose: 'Emit task.assigned on dispatch',
     },
     {
       tool: 'exarchos_event',
