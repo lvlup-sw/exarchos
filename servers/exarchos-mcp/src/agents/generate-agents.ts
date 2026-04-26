@@ -366,3 +366,47 @@ export function generateAgents(
 // ─── Re-exports for convenience ────────────────────────────────────────────
 
 export { IMPLEMENTER, FIXER, REVIEWER, SCAFFOLDER };
+
+// ─── CLI entry point ───────────────────────────────────────────────────────
+//
+// `npm run generate:agents` (Task 6) invokes this file directly via tsx.
+// We gate on `process.argv[1]` rather than an `import.meta.url`-equality
+// check because tsx loaders rewrite the script URL in ways that vary by
+// version; the argv path is stable across `tsx`, `node --import tsx`,
+// and `bun run`.
+//
+// Two hooks:
+//   • `EXARCHOS_OUTPUT_ROOT` (env) — redirect writes to a sandbox. Used
+//     by build-pipeline.test.ts to verify the wiring without touching
+//     the real repo.
+//   • `process.argv[2]` — same purpose, takes precedence over the env
+//     var. Convenient for ad-hoc operator invocations.
+//
+// Default behaviour: write into `process.cwd()` (which the npm script
+// resolves to the repo root).
+
+const isCliInvocation =
+  process.argv[1] !== undefined &&
+  (process.argv[1].endsWith('generate-agents.ts') ||
+    process.argv[1].endsWith('generate-agents.js'));
+
+if (isCliInvocation) {
+  const outputRoot =
+    process.argv[2] ?? process.env.EXARCHOS_OUTPUT_ROOT ?? process.cwd();
+  try {
+    const result = generateAgents({ outputRoot });
+    process.stderr.write(
+      `Generated ${result.filesWritten.length} agent files under ${outputRoot}\n`,
+    );
+    if (result.pluginJsonUpdated) {
+      process.stderr.write(`Updated ${path.join(outputRoot, '.claude-plugin', 'plugin.json')}\n`);
+    }
+  } catch (err) {
+    if (err instanceof GenerateAgentsError) {
+      process.stderr.write(`${err.message}\n`);
+    } else {
+      process.stderr.write(`generate-agents failed: ${(err as Error).message}\n`);
+    }
+    process.exit(1);
+  }
+}
