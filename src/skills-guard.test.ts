@@ -38,6 +38,17 @@ function makeTempDir(): string {
   return dir;
 }
 
+/**
+ * No-op `regenerateAgents` callback for tests that exercise only the
+ * `skills/` half of the guard. The real default tries to spawn
+ * `tsx servers/exarchos-mcp/src/agents/generate-agents.ts` against
+ * `cwd`, which doesn't exist in a temp sandbox. Tests that *want* to
+ * exercise the agents path inject their own writer instead.
+ */
+const noopRegenerateAgents = (_cwd: string): void => {
+  /* intentionally empty */
+};
+
 afterEach(() => {
   while (tempDirs.length > 0) {
     const d = tempDirs.pop()!;
@@ -195,7 +206,7 @@ describe('skills-guard — task 023', () => {
   it('SkillsGuard_CleanBuild_Passes', () => {
     const root = provisionProject();
 
-    const result = runSkillsGuard({ cwd: root });
+    const result = runSkillsGuard({ cwd: root, regenerateAgents: noopRegenerateAgents });
 
     expect(result.ok).toBe(true);
     expect(result.exitCode).toBe(0);
@@ -216,7 +227,7 @@ describe('skills-guard — task 023', () => {
       'Hello {{AGENT_LABEL}} — updated\n',
     );
 
-    const result = runSkillsGuard({ cwd: root });
+    const result = runSkillsGuard({ cwd: root, regenerateAgents: noopRegenerateAgents });
 
     expect(result.ok).toBe(false);
     expect(result.exitCode).not.toBe(0);
@@ -231,7 +242,7 @@ describe('skills-guard — task 023', () => {
       'Hello {{AGENT_LABEL}} — changed\n',
     );
 
-    const result = runSkillsGuard({ cwd: root });
+    const result = runSkillsGuard({ cwd: root, regenerateAgents: noopRegenerateAgents });
 
     expect(result.ok).toBe(false);
     // Remediation must name the build command so a developer can copy
@@ -269,7 +280,7 @@ describe('skills-guard — task 023', () => {
       env: gitEnv,
     });
 
-    const result = runSkillsGuard({ cwd: root });
+    const result = runSkillsGuard({ cwd: root, regenerateAgents: noopRegenerateAgents });
 
     expect(result.ok).toBe(false);
     expect(result.exitCode).not.toBe(0);
@@ -381,7 +392,7 @@ describe('skills-guard — task 011 CALL macro determinism', () => {
     // First guard invocation: the seed build already committed the
     // rendered output; the guard rebuilds in-process and diffs against
     // HEAD. If rendering is deterministic, the diff is empty.
-    const firstResult = runSkillsGuard({ cwd: root });
+    const firstResult = runSkillsGuard({ cwd: root, regenerateAgents: noopRegenerateAgents });
     expect(firstResult.ok).toBe(true);
     expect(firstResult.exitCode).toBe(0);
 
@@ -408,7 +419,7 @@ describe('skills-guard — task 011 CALL macro determinism', () => {
       runtimesDir: join(root, 'runtimes'),
     });
 
-    const secondResult = runSkillsGuard({ cwd: root });
+    const secondResult = runSkillsGuard({ cwd: root, regenerateAgents: noopRegenerateAgents });
     expect(secondResult.ok).toBe(true);
     expect(secondResult.exitCode).toBe(0);
   });
