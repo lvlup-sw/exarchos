@@ -17,7 +17,7 @@ describe('AgentSpec Types', () => {
       id: 'implementer' as AgentSpecId,
       description: 'TDD implementer',
       systemPrompt: 'You are an implementer',
-      tools: ['Read', 'Write', 'Edit'],
+      capabilities: ['fs:read', 'fs:write'],
       disallowedTools: ['Agent'],
       model: 'inherit',
       isolation: 'worktree',
@@ -32,7 +32,7 @@ describe('AgentSpec Types', () => {
     expect(spec.id).toBe('implementer');
     expect(spec.description).toBe('TDD implementer');
     expect(spec.systemPrompt).toBe('You are an implementer');
-    expect(spec.tools).toEqual(['Read', 'Write', 'Edit']);
+    expect(spec.capabilities).toEqual(['fs:read', 'fs:write']);
     expect(spec.disallowedTools).toEqual(['Agent']);
     expect(spec.model).toBe('inherit');
     expect(spec.isolation).toBe('worktree');
@@ -50,7 +50,7 @@ describe('AgentSpec Types', () => {
       id: 'reviewer' as AgentSpecId,
       description: 'Code reviewer',
       systemPrompt: 'You review code',
-      tools: ['Read'],
+      capabilities: ['fs:read'],
       model: 'sonnet',
       skills: [],
       validationRules: [],
@@ -68,7 +68,7 @@ describe('AgentSpec Types', () => {
       id: 'scaffolder' as AgentSpecId,
       description: 'Scaffolder',
       systemPrompt: 'scaffold',
-      tools: ['Read'],
+      capabilities: ['fs:read'],
       model: 'sonnet',
       effort: 'low',
       skills: [],
@@ -80,7 +80,7 @@ describe('AgentSpec Types', () => {
       id: 'implementer' as AgentSpecId,
       description: 'Implementer',
       systemPrompt: 'implement',
-      tools: ['Read'],
+      capabilities: ['fs:read'],
       model: 'opus',
       effort: 'medium',
       skills: [],
@@ -92,7 +92,7 @@ describe('AgentSpec Types', () => {
       id: 'fixer' as AgentSpecId,
       description: 'Fixer',
       systemPrompt: 'fix',
-      tools: ['Read'],
+      capabilities: ['fs:read'],
       model: 'opus',
       effort: 'high',
       skills: [],
@@ -104,7 +104,7 @@ describe('AgentSpec Types', () => {
       id: 'reviewer' as AgentSpecId,
       description: 'Reviewer',
       systemPrompt: 'review',
-      tools: ['Read'],
+      capabilities: ['fs:read'],
       model: 'opus',
       effort: 'max',
       skills: [],
@@ -116,7 +116,7 @@ describe('AgentSpec Types', () => {
       id: 'implementer' as AgentSpecId,
       description: 'Implementer',
       systemPrompt: 'implement',
-      tools: ['Read'],
+      capabilities: ['fs:read'],
       model: 'inherit',
       skills: [],
       validationRules: [],
@@ -141,12 +141,11 @@ describe('Agent Spec Definitions', () => {
     expect(IMPLEMENTER.isolation).toBe('worktree');
     expect(IMPLEMENTER.resumable).toBe(true);
     expect(IMPLEMENTER.memoryScope).toBe('project');
-    expect(IMPLEMENTER.tools).toContain('Read');
-    expect(IMPLEMENTER.tools).toContain('Write');
-    expect(IMPLEMENTER.tools).toContain('Edit');
-    expect(IMPLEMENTER.tools).toContain('Bash');
-    expect(IMPLEMENTER.tools).toContain('Grep');
-    expect(IMPLEMENTER.tools).toContain('Glob');
+    expect(IMPLEMENTER.capabilities).toContain('fs:read');
+    expect(IMPLEMENTER.capabilities).toContain('fs:write');
+    expect(IMPLEMENTER.capabilities).toContain('shell:exec');
+    expect(IMPLEMENTER.capabilities).toContain('mcp:exarchos');
+    expect(IMPLEMENTER.capabilities).toContain('isolation:worktree');
     expect(IMPLEMENTER.disallowedTools).toContain('Agent');
     expect(IMPLEMENTER.skills.length).toBeGreaterThanOrEqual(2);
     const skillNames = IMPLEMENTER.skills.map(s => s.name);
@@ -165,10 +164,10 @@ describe('Agent Spec Definitions', () => {
     expect(FIXER.resumable).toBe(false);
     expect(FIXER.model).toBe('inherit');
     expect(FIXER.systemPrompt).toContain('{{failureContext}}');
-    expect(FIXER.tools).toContain('Read');
-    expect(FIXER.tools).toContain('Write');
-    expect(FIXER.tools).toContain('Edit');
-    expect(FIXER.tools).toContain('Bash');
+    expect(FIXER.capabilities).toContain('fs:read');
+    expect(FIXER.capabilities).toContain('fs:write');
+    expect(FIXER.capabilities).toContain('shell:exec');
+    expect(FIXER.capabilities).toContain('mcp:exarchos');
     expect(FIXER.mcpServers).toEqual(['exarchos']);
   });
 
@@ -176,12 +175,10 @@ describe('Agent Spec Definitions', () => {
     expect(REVIEWER.id).toBe('reviewer');
     expect(REVIEWER.model).toBe('inherit');
     expect(REVIEWER.resumable).toBe(false);
-    expect(REVIEWER.tools).toContain('Read');
-    expect(REVIEWER.tools).toContain('Grep');
-    expect(REVIEWER.tools).toContain('Glob');
-    expect(REVIEWER.tools).toContain('Bash');
-    expect(REVIEWER.tools).not.toContain('Write');
-    expect(REVIEWER.tools).not.toContain('Edit');
+    expect(REVIEWER.capabilities).toContain('fs:read');
+    expect(REVIEWER.capabilities).toContain('shell:exec');
+    expect(REVIEWER.capabilities).toContain('mcp:exarchos');
+    expect(REVIEWER.capabilities).not.toContain('fs:write');
     expect(REVIEWER.disallowedTools).toContain('Write');
     expect(REVIEWER.disallowedTools).toContain('Edit');
     expect(REVIEWER.disallowedTools).toContain('Agent');
@@ -198,13 +195,11 @@ describe('Agent Spec Definitions', () => {
     expect(SCAFFOLDER.isolation).toBe('worktree');
     expect(SCAFFOLDER.resumable).toBe(false);
 
-    // Assert: tools include standard development tools
-    expect(SCAFFOLDER.tools).toContain('Read');
-    expect(SCAFFOLDER.tools).toContain('Write');
-    expect(SCAFFOLDER.tools).toContain('Edit');
-    expect(SCAFFOLDER.tools).toContain('Bash');
-    expect(SCAFFOLDER.tools).toContain('Grep');
-    expect(SCAFFOLDER.tools).toContain('Glob');
+    // Assert: capabilities include filesystem + shell + MCP access
+    expect(SCAFFOLDER.capabilities).toContain('fs:read');
+    expect(SCAFFOLDER.capabilities).toContain('fs:write');
+    expect(SCAFFOLDER.capabilities).toContain('shell:exec');
+    expect(SCAFFOLDER.capabilities).toContain('mcp:exarchos');
 
     // Assert: Agent tool is disallowed
     expect(SCAFFOLDER.disallowedTools).toContain('Agent');
@@ -230,15 +225,20 @@ describe('Agent Spec Definitions', () => {
     expect(ids).toContain('scaffolder');
   });
 
-  it('AllSpecs_ToolsAreValid_KnownToolNames', () => {
-    const KNOWN_TOOLS = new Set(['Read', 'Write', 'Edit', 'Bash', 'Grep', 'Glob', 'Agent', 'WebFetch', 'WebSearch']);
+  it('AllSpecs_CapabilitiesAreValid_KnownCapabilityNames', () => {
+    const KNOWN_CAPS = new Set([
+      'fs:read', 'fs:write', 'shell:exec',
+      'subagent:spawn', 'subagent:completion-signal', 'subagent:start-signal',
+      'mcp:exarchos', 'isolation:worktree', 'team:agent-teams', 'session:resume',
+    ]);
+    const KNOWN_DISALLOWED = new Set(['Read', 'Write', 'Edit', 'Bash', 'Grep', 'Glob', 'Agent', 'WebFetch', 'WebSearch']);
     for (const spec of ALL_AGENT_SPECS) {
-      for (const tool of spec.tools) {
-        expect(KNOWN_TOOLS.has(tool), `${spec.id}: unknown tool '${tool}'`).toBe(true);
+      for (const cap of spec.capabilities) {
+        expect(KNOWN_CAPS.has(cap), `${spec.id}: unknown capability '${cap}'`).toBe(true);
       }
       if (spec.disallowedTools) {
         for (const tool of spec.disallowedTools) {
-          expect(KNOWN_TOOLS.has(tool), `${spec.id}: unknown disallowed tool '${tool}'`).toBe(true);
+          expect(KNOWN_DISALLOWED.has(tool), `${spec.id}: unknown disallowed tool '${tool}'`).toBe(true);
         }
       }
     }

@@ -1,8 +1,9 @@
 // ─── Agent Spec Definitions ────────────────────────────────────────────────
 //
-// Concrete agent specifications for subagent dispatch. Each spec defines
-// the tools, system prompt template, validation rules, and behavioral
-// parameters for a specific agent role.
+// Concrete agent specifications for subagent dispatch. Each spec declares
+// runtime-agnostic capabilities; runtime adapters translate capabilities
+// into runtime-specific tool/permission shapes (e.g. Claude tool arrays).
+// See docs/designs/2026-04-25-delegation-runtime-parity.md §3.
 // ────────────────────────────────────────────────────────────────────────────
 
 import type { AgentSpec } from './types.js';
@@ -60,7 +61,14 @@ When done, output a JSON completion report:
   "files": ["<created/modified files>"]
 }
 \`\`\``,
-  tools: ['Read', 'Write', 'Edit', 'Bash', 'Grep', 'Glob'],
+  capabilities: [
+    'fs:read',
+    'fs:write',
+    'shell:exec',
+    'mcp:exarchos',
+    'isolation:worktree',
+    'session:resume',
+  ],
   disallowedTools: ['Agent'],
   model: 'inherit',
   isolation: 'worktree',
@@ -127,7 +135,12 @@ When done, output a JSON completion report:
   "files": ["<created/modified files>"]
 }
 \`\`\``,
-  tools: ['Read', 'Write', 'Edit', 'Bash', 'Grep', 'Glob'],
+  capabilities: [
+    'fs:read',
+    'fs:write',
+    'shell:exec',
+    'mcp:exarchos',
+  ],
   disallowedTools: ['Agent'],
   model: 'inherit',
   skills: [
@@ -186,7 +199,11 @@ When done, output a JSON completion report:
   "files": ["<reviewed files>"]
 }
 \`\`\``,
-  tools: ['Read', 'Grep', 'Glob', 'Bash'],
+  capabilities: [
+    'fs:read',
+    'shell:exec',
+    'mcp:exarchos',
+  ],
   disallowedTools: ['Write', 'Edit', 'Agent'],
   model: 'inherit',
   skills: [],
@@ -244,7 +261,13 @@ When done, output a JSON completion report:
   "files": ["<created/modified files>"]
 }
 \`\`\``,
-  tools: ['Read', 'Write', 'Edit', 'Bash', 'Grep', 'Glob'],
+  capabilities: [
+    'fs:read',
+    'fs:write',
+    'shell:exec',
+    'mcp:exarchos',
+    'isolation:worktree',
+  ],
   disallowedTools: ['Agent'],
   model: 'sonnet',
   effort: 'low',

@@ -10,6 +10,32 @@ import * as path from 'node:path';
 import type { AgentSpec, AgentValidationRule } from './types.js';
 import { ALL_AGENT_SPECS } from './definitions.js';
 
+// TEMPORARY: removed by Task 4a/14 — see plan
+// docs/plans/2026-04-25-delegation-runtime-parity.md.
+//
+// Specs now declare runtime-agnostic `capabilities` (Task 2). The Claude
+// adapter (Task 4a) and the eventual replacement of this generator (Task 14)
+// own the capability-to-Claude-tools translation. Until those land, derive
+// the legacy `tools` array here so generated agent files stay byte-identical
+// with the pre-rewrite output.
+export function deriveClaudeToolsFromCapabilities(spec: AgentSpec): readonly string[] {
+  const caps = new Set<string>(spec.capabilities);
+  const tools: string[] = [];
+  // Reviewer historically used a different ordering: [Read, Grep, Glob, Bash].
+  // All other roles used [Read, Write, Edit, Bash, Grep, Glob]. Preserve both
+  // verbatim so the snapshot test in Task 4a sees zero drift.
+  if (spec.id === 'reviewer') {
+    if (caps.has('fs:read')) tools.push('Read', 'Grep', 'Glob');
+    if (caps.has('shell:exec')) tools.push('Bash');
+    return tools;
+  }
+  if (caps.has('fs:read')) tools.push('Read');
+  if (caps.has('fs:write')) tools.push('Write', 'Edit');
+  if (caps.has('shell:exec')) tools.push('Bash');
+  if (caps.has('fs:read')) tools.push('Grep', 'Glob');
+  return tools;
+}
+
 // ─── Trigger-to-Matcher Mapping ─────────────────────────────────────────────
 
 const TRIGGER_MAP: Record<string, { hookType: string; matcher: string }> = {
@@ -102,7 +128,9 @@ export function generateAgentMarkdown(spec: AgentSpec): string {
     frontmatter += `description: "${spec.description}"\n`;
   }
 
-  frontmatter += `tools: [${spec.tools.map(t => `"${t}"`).join(', ')}]\n`;
+  // TEMPORARY: removed by Task 4a/14 — derive legacy Claude tools array from capabilities.
+  const derivedTools = deriveClaudeToolsFromCapabilities(spec);
+  frontmatter += `tools: [${derivedTools.map(t => `"${t}"`).join(', ')}]\n`;
   frontmatter += `model: ${spec.model}\n`;
 
   // Optional: color
