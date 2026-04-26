@@ -1291,6 +1291,11 @@ export function buildAllSkills(opts: {
           linked,
           rt,
           written,
+          // Wave C: aggregate vocabulary-lint findings against rendered
+          // reference bytes into the same list the SKILL.md pass uses.
+          // The build's post-loop check below converts every offender
+          // — SKILL.md or reference — into one consolidated diagnostic.
+          vocabularyFindings,
         );
         referencesCopied += written.size - before;
       }
@@ -1507,6 +1512,13 @@ const RENDERED_REFERENCE_EXTENSIONS: ReadonlySet<string> = new Set([
  * @param writtenPaths - Optional accumulator for the stale-cleanup
  *   pass in `buildAllSkills`. Mirrors the `copyLinkedReferences`
  *   contract so the caller can swap implementations transparently.
+ * @param vocabularyFindings - Optional accumulator for Wave C's
+ *   vocabulary-lint extension. After rendering each Markdown
+ *   reference, the bytes about to hit disk are scanned for forbidden
+ *   Claude-only terms via `lintRenderedSkill`; findings are appended
+ *   here using the reference file path as `sourcePath` so the
+ *   aggregated diagnostic in `buildAllSkills` points authors at the
+ *   actual offender (not the SKILL.md that linked it).
  */
 function renderLinkedReferences(
   srcRefs: string,
@@ -1514,6 +1526,7 @@ function renderLinkedReferences(
   linked: Set<string>,
   runtime: RuntimeMap,
   writtenPaths?: Set<string>,
+  vocabularyFindings?: VocabularyLintFinding[],
 ): void {
   if (linked.size === 0) return;
   // Materialize parent dir before writing children.
@@ -1556,6 +1569,17 @@ function renderLinkedReferences(
           }),
           runtime,
         );
+        // Wave C: scan the rendered reference bytes for forbidden
+        // Claude-only terms. Findings are aggregated into the shared
+        // accumulator (one per occurrence per runtime) so the build's
+        // post-loop diagnostic surfaces every offender at once with
+        // the reference file path — authors can jump straight to the
+        // line, no need to grep through SKILL.md links.
+        if (vocabularyFindings) {
+          vocabularyFindings.push(
+            ...lintRenderedSkill(rendered, srcFile, runtime),
+          );
+        }
         writeFileSync(destFile, rendered);
       } catch (err) {
         // Re-throw with source file context if the inner error doesn't
