@@ -17,6 +17,8 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
+import matter from 'gray-matter';
+import { parse as parseToml } from '@iarna/toml';
 import {
   generateAgents,
   GenerateAgentsError,
@@ -33,7 +35,7 @@ import { codexAdapter } from './adapters/codex.js';
 import { OpenCodeAdapter } from './adapters/opencode.js';
 import { CursorAdapter } from './adapters/cursor.js';
 import { CopilotAdapter } from './adapters/copilot.js';
-import type { RuntimeAdapter } from './adapters/types.js';
+import type { RuntimeAdapter, Runtime } from './adapters/types.js';
 
 // ─── Test utilities ────────────────────────────────────────────────────────
 
@@ -380,4 +382,178 @@ describe('generateAgents', () => {
     expect(toolsBlock).not.toContain('isolation:worktree');
     expect(toolsBlock).not.toContain('session:resume');
   });
+});
+
+// ─── Per-runtime smoke validation ──────────────────────────────────────────
+//
+// Parse every (runtime × spec) artifact emitted by the adapter
+// `lowerSpec` path and assert it is structurally well-formed for the
+// runtime that consumes it: required frontmatter (or TOML) keys present,
+// values of the expected type, and a non-empty body.
+//
+// Why this gate exists: a typo in any adapter would otherwise ship
+// malformed YAML/TOML to a runtime and only be caught when a user tried
+// to dispatch the agent. The smoke tests parse with `gray-matter` (for
+// markdown-with-frontmatter runtimes) or `@iarna/toml` (for codex), so
+// any structural breakage surfaces here at build time.
+//
+// Required-field expectations are derived by reading each adapter's
+// `lowerSpec`:
+//   • Claude (`agents/<id>.md`): YAML `name`, `description`, `model`;
+//     non-empty body.
+//   • OpenCode (`.opencode/agents/<id>.md`): YAML `mode` ('subagent'),
+//     `description`, `tools` (object map); non-empty body.
+//   • Cursor (`.cursor/agents/<id>.md`): YAML `name`, `description`,
+//     `model`; non-empty body.
+//   • Copilot (`.github/agents/<id>.agent.md`): YAML `description`,
+//     `tools` (string array); non-empty body. Copilot's adapter omits
+//     `name` because the file path encodes it.
+//   • Codex (`.codex/agents/<id>.toml`): top-level (NOT under `[agent]`)
+//     `name`, `description`, `developer_instructions`. Codex does not
+//     emit `model` from `lowerSpec`.
+
+const RUNTIMES = ['claude', 'codex', 'opencode', 'cursor', 'copilot'] as const;
+const SPECS = ['implementer', 'fixer', 'reviewer', 'scaffolder'] as const;
+
+const SMOKE_ADAPTERS: Record<Runtime, RuntimeAdapter> = {
+  claude: claudeAdapter,
+  codex: codexAdapter,
+  opencode: OpenCodeAdapter,
+  cursor: CursorAdapter,
+  copilot: new CopilotAdapter(),
+};
+
+const SMOKE_SPECS: Record<(typeof SPECS)[number], AgentSpec> = {
+  implementer: IMPLEMENTER,
+  fixer: FIXER,
+  reviewer: REVIEWER,
+  scaffolder: SCAFFOLDER,
+};
+
+interface FrontmatterCheck {
+  data: Record<string, unknown>;
+  body: string;
+}
+
+function parseFrontmatter(contents: string): FrontmatterCheck {
+  const parsed = matter(contents);
+  return {
+    data: parsed.data as Record<string, unknown>,
+    body: parsed.content,
+  };
+}
+
+function expectNonEmptyString(
+  value: unknown,
+  label: string,
+): asserts value is string {
+  expect(typeof value, `${label} must be a string`).toBe('string');
+  expect(
+    (value as string).trim().length,
+    `${label} must be non-empty`,
+  ).toBeGreaterThan(0);
+}
+
+describe('Per-runtime smoke validation', () => {
+  for (const runtime of RUNTIMES) {
+    for (const spec of SPECS) {
+      it(`GenerateAgents_${runtime}_${spec}_WellFormed`, () => {
+        const adapter = SMOKE_ADAPTERS[runtime];
+        const agentSpec = SMOKE_SPECS[spec];
+        const lowered = adapter.lowerSpec(agentSpec);
+
+        // Path basics: every adapter must produce a non-empty path with
+        // an extension. Catches "" or undefined slipping through.
+        expect(lowered.path.length).toBeGreaterThan(0);
+        expect(path.extname(lowered.path).length).toBeGreaterThan(0);
+        expect(lowered.contents.length).toBeGreaterThan(0);
+
+        if (runtime === 'codex') {
+          // Codex emits TOML. Parse and assert the top-level keys
+          // produced by `codex.ts` (no `[agent]` table; `model` is not
+          // emitted by `lowerSpec`).
+          let parsed: Record<string, unknown>;
+          try {
+            parsed = parseToml(lowered.contents) as Record<string, unknown>;
+          } catch (err) {
+            throw new Error(
+              `codex/${spec} TOML failed to parse: ${(err as Error).message}`,
+            );
+          }
+          expectNonEmptyString(parsed.name, `codex/${spec} name`);
+          expectNonEmptyString(
+            parsed.description,
+            `codex/${spec} description`,
+          );
+          expectNonEmptyString(
+            parsed.developer_instructions,
+            `codex/${spec} developer_instructions`,
+          );
+          // The agent id is a closed set; the file's `name` must equal
+          // the spec id so dispatch-by-name works.
+          expect(parsed.name).toBe(agentSpec.id);
+          return;
+        }
+
+        // All non-codex runtimes emit Markdown with YAML frontmatter.
+        const { data, body } = parseFrontmatter(lowered.contents);
+
+        // Body must carry the agent's instructions — empty body would
+        // mean the runtime sees a system-prompt-less agent.
+        expect(
+          body.trim().length,
+          `${runtime}/${spec} body must be non-empty`,
+        ).toBeGreaterThan(0);
+
+        // Common requirement across all four markdown runtimes.
+        expectNonEmptyString(
+          data.description,
+          `${runtime}/${spec} description`,
+        );
+
+        if (runtime === 'claude') {
+          expectNonEmptyString(data.name, `claude/${spec} name`);
+          expectNonEmptyString(data.model, `claude/${spec} model`);
+          // The Claude generator namespaces names as `exarchos-<id>`.
+          expect(data.name).toBe(`exarchos-${agentSpec.id}`);
+        } else if (runtime === 'cursor') {
+          expectNonEmptyString(data.name, `cursor/${spec} name`);
+          expectNonEmptyString(data.model, `cursor/${spec} model`);
+          expect(data.name).toBe(agentSpec.id);
+        } else if (runtime === 'opencode') {
+          // OpenCode encodes the agent name in the file path; the
+          // structured fields the runtime depends on are `mode`,
+          // `description`, and the `tools` boolean map.
+          expectNonEmptyString(data.mode, `opencode/${spec} mode`);
+          expect(data.mode).toBe('subagent');
+          expect(
+            typeof data.tools === 'object' && data.tools !== null,
+            `opencode/${spec} tools must be an object map`,
+          ).toBe(true);
+          // Every value in the tools map must be a boolean (OpenCode
+          // contract — runtime ignores non-boolean entries silently,
+          // which is exactly the kind of bug this gate catches).
+          for (const [tool, enabled] of Object.entries(
+            data.tools as Record<string, unknown>,
+          )) {
+            expect(
+              typeof enabled,
+              `opencode/${spec} tools.${tool} must be boolean`,
+            ).toBe('boolean');
+          }
+        } else if (runtime === 'copilot') {
+          // Copilot's adapter omits `name` (file path encodes it) but
+          // requires `description` and a `tools` array. The runtime
+          // rejects custom agents that lack either.
+          expect(
+            Array.isArray(data.tools),
+            `copilot/${spec} tools must be an array`,
+          ).toBe(true);
+          for (const tool of data.tools as unknown[]) {
+            expectNonEmptyString(tool, `copilot/${spec} tools entry`);
+          }
+        }
+      });
+    }
+  }
 });
