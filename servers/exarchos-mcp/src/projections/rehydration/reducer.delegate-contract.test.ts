@@ -2,6 +2,20 @@ import { describe, it, expect } from 'vitest';
 import { getRegisteredEventTypes } from './reducer.js';
 import { PHASE_EXPECTED_EVENTS } from '../../orchestrate/check-event-emissions.js';
 import { getPlaybook } from '../../workflow/playbooks.js';
+import { EVENT_EMISSION_REGISTRY, type EventType } from '../../event-store/schemas.js';
+
+/**
+ * Filter a reducer-registry list to the model-emitted subset — the contract
+ * surface visible to hints and playbook. Auto-emitted events (task.completed,
+ * task.failed) are recognised by the reducer for state folding but never
+ * advertised to the model, so they live in the SoT but not in either
+ * downstream surface.
+ */
+function modelEmittedRegisteredEventTypes(phase: string): readonly EventType[] {
+  return getRegisteredEventTypes(phase).filter(
+    (t) => EVENT_EMISSION_REGISTRY[t as EventType] === 'model',
+  ) as readonly EventType[];
+}
 
 /**
  * Fix 3 (#1180) — DIM-3 single-source-of-truth for the delegate event contract.
@@ -29,7 +43,7 @@ import { getPlaybook } from '../../workflow/playbooks.js';
 describe('delegate event contract — single source of truth (#1180, DIM-3)', () => {
   it('PHASE_EXPECTED_EVENTS_delegate_EqualsReducerRegisteredSet', () => {
     // GIVEN: the reducer's registered event-type set for the delegate phase
-    const reducerSet = new Set<string>(getRegisteredEventTypes('delegate'));
+    const reducerSet = new Set<string>(modelEmittedRegisteredEventTypes('delegate'));
 
     // AND: the eventHints generator's expected-event list for the delegate phase
     const hintsSet = new Set<string>(PHASE_EXPECTED_EVENTS['delegate'] ?? []);
@@ -49,7 +63,7 @@ describe('delegate event contract — single source of truth (#1180, DIM-3)', ()
 
   it('PHASE_EXPECTED_EVENTS_overhaulDelegate_EqualsReducerRegisteredSet', () => {
     // Same SoT contract for the refactor-workflow `overhaul-delegate` phase.
-    const reducerSet = new Set<string>(getRegisteredEventTypes('overhaul-delegate'));
+    const reducerSet = new Set<string>(modelEmittedRegisteredEventTypes('overhaul-delegate'));
     const hintsSet = new Set<string>(PHASE_EXPECTED_EVENTS['overhaul-delegate'] ?? []);
 
     const onlyInReducer = [...reducerSet].filter((t) => !hintsSet.has(t)).sort();
@@ -63,7 +77,7 @@ describe('delegate event contract — single source of truth (#1180, DIM-3)', ()
 
   it('Playbook_delegate_EventTypes_EqualReducerRegisteredSet', () => {
     // GIVEN: the reducer's registered event-type set for the delegate phase
-    const reducerSet = new Set<string>(getRegisteredEventTypes('delegate'));
+    const reducerSet = new Set<string>(modelEmittedRegisteredEventTypes('delegate'));
 
     // AND: the delegate playbook's declared event-emission contract
     const playbook = getPlaybook('feature', 'delegate');
@@ -84,7 +98,7 @@ describe('delegate event contract — single source of truth (#1180, DIM-3)', ()
   });
 
   it('Playbook_overhaulDelegate_EventTypes_EqualReducerRegisteredSet', () => {
-    const reducerSet = new Set<string>(getRegisteredEventTypes('overhaul-delegate'));
+    const reducerSet = new Set<string>(modelEmittedRegisteredEventTypes('overhaul-delegate'));
     const playbook = getPlaybook('refactor', 'overhaul-delegate');
     expect(playbook).not.toBeNull();
     const playbookSet = new Set<string>(
