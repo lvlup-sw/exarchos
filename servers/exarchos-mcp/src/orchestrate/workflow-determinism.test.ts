@@ -26,7 +26,6 @@ const mockStore = {
 };
 
 vi.mock('../views/tools.js', () => ({
-  getOrCreateEventStore: () => mockStore,
   getOrCreateMaterializer: () => ({}),
 }));
 
@@ -49,7 +48,7 @@ describe('handleWorkflowDeterminism', () => {
   describe('input validation', () => {
     it('handleWorkflowDeterminism_MissingFeatureId_ReturnsError', async () => {
       const args = { featureId: '' };
-      const result = await handleWorkflowDeterminism(args, STATE_DIR);
+      const result = await handleWorkflowDeterminism(args, STATE_DIR, mockStore as unknown as EventStore);
       expect(result.success).toBe(false);
       expect(result.error?.code).toBe('INVALID_INPUT');
       expect(result.error?.message).toContain('featureId');
@@ -71,7 +70,7 @@ describe('handleWorkflowDeterminism', () => {
       });
 
       const args = { featureId: 'feat-1' };
-      const result = await handleWorkflowDeterminism(args, STATE_DIR);
+      const result = await handleWorkflowDeterminism(args, STATE_DIR, mockStore as unknown as EventStore);
 
       expect(result.success).toBe(true);
       const data = result.data as { passed: boolean; findingCount: number; report: string };
@@ -100,7 +99,7 @@ describe('handleWorkflowDeterminism', () => {
       });
 
       const args = { featureId: 'feat-1' };
-      const result = await handleWorkflowDeterminism(args, STATE_DIR);
+      const result = await handleWorkflowDeterminism(args, STATE_DIR, mockStore as unknown as EventStore);
 
       expect(result.success).toBe(true);
       const data = result.data as { passed: boolean; findingCount: number; report: string };
@@ -125,7 +124,7 @@ describe('handleWorkflowDeterminism', () => {
       });
 
       const args = { featureId: 'feat-1' };
-      await handleWorkflowDeterminism(args, STATE_DIR);
+      await handleWorkflowDeterminism(args, STATE_DIR, mockStore as unknown as EventStore);
 
       expect(mockEmitGateEvent).toHaveBeenCalledTimes(1);
       expect(mockEmitGateEvent).toHaveBeenCalledWith(
@@ -146,7 +145,7 @@ describe('handleWorkflowDeterminism', () => {
       mockGetDiff.mockReturnValue(null);
 
       const args = { featureId: 'feat-1' };
-      const result = await handleWorkflowDeterminism(args, STATE_DIR);
+      const result = await handleWorkflowDeterminism(args, STATE_DIR, mockStore as unknown as EventStore);
 
       expect(result.success).toBe(false);
       expect(result.error?.code).toBe('DIFF_ERROR');

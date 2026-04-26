@@ -143,6 +143,7 @@ export async function handleView(
             limit?: number;
           },
           stateDir,
+          eventStore,
         ),
         startedAt,
       );

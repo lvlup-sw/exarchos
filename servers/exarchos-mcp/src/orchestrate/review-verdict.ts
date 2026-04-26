@@ -7,7 +7,7 @@
 
 import type { ToolResult } from '../format.js';
 import type { PluginFinding } from '../review/check-catalog.js';
-import { getOrCreateEventStore } from '../views/tools.js';
+import type { EventStore } from '../event-store/store.js';
 import { emitGateEvent } from './gate-utils.js';
 
 // ─── Argument & Result Types ────────────────────────────────────────────────
@@ -102,6 +102,7 @@ export function generateVerdictReport(
 export async function handleReviewVerdict(
   args: ReviewVerdictArgs,
   stateDir: string,
+  eventStore: EventStore,
 ): Promise<ToolResult> {
   // Input validation
   if (!args.featureId) {
@@ -155,7 +156,7 @@ export async function handleReviewVerdict(
   if (args.dimensionResults) {
     for (const [key, entry] of Object.entries(args.dimensionResults)) {
       try {
-        const store = getOrCreateEventStore(stateDir);
+        const store = eventStore;
         await emitGateEvent(store, args.featureId, `review-${key}`, 'review', entry.passed, {
           dimension: key,
           phase: 'review',
@@ -171,7 +172,7 @@ export async function handleReviewVerdict(
     : undefined;
 
   try {
-    const store = getOrCreateEventStore(stateDir);
+    const store = eventStore;
     await emitGateEvent(store, args.featureId, 'review-verdict', 'review', verdict === 'APPROVED', {
       verdict,
       phase: 'review',

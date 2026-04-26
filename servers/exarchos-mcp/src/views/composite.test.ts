@@ -244,6 +244,7 @@ describe('handleView', () => {
       expect(handleViewTelemetry).toHaveBeenCalledWith(
         { compact: true, tool: 'workflow_get' },
         STATE_DIR,
+        expect.anything(),
       );
     });
   });

@@ -6,8 +6,8 @@
 // ────────────────────────────────────────────────────────────────────────────
 
 import type { ToolResult } from '../format.js';
+import type { EventStore } from '../event-store/store.js';
 import {
-  getOrCreateEventStore,
   getOrCreateMaterializer,
   queryDeltaEvents,
 } from '../views/tools.js';
@@ -51,6 +51,7 @@ function applyPhaseFilter(
 export async function handleCheckConvergence(
   args: CheckConvergenceArgs,
   stateDir: string,
+  eventStore: EventStore,
 ): Promise<ToolResult> {
   // Guard clause: validate required inputs
   if (!args.featureId) {
@@ -60,7 +61,7 @@ export async function handleCheckConvergence(
     };
   }
 
-  const store = getOrCreateEventStore(stateDir);
+  const store = eventStore;
   const materializer = getOrCreateMaterializer(stateDir);
   const streamId = args.workflowId ?? args.featureId;
 

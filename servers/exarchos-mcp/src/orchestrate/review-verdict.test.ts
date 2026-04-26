@@ -14,7 +14,6 @@ const mockStore = {
 };
 
 vi.mock('../views/tools.js', () => ({
-  getOrCreateEventStore: () => mockStore,
   getOrCreateMaterializer: () => ({}),
 }));
 
@@ -88,7 +87,7 @@ describe('handleReviewVerdict', () => {
   describe('input validation', () => {
     it('handleReviewVerdict_MissingFeatureId_ReturnsError', async () => {
       const args = { featureId: '', high: 0, medium: 0, low: 0 };
-      const result = await handleReviewVerdict(args, STATE_DIR);
+      const result = await handleReviewVerdict(args, STATE_DIR, mockStore as unknown as EventStore);
       expect(result.success).toBe(false);
       expect(result.error?.code).toBe('INVALID_INPUT');
       expect(result.error?.message).toContain('featureId');
@@ -96,21 +95,21 @@ describe('handleReviewVerdict', () => {
 
     it('handleReviewVerdict_NegativeHigh_ReturnsError', async () => {
       const args = { featureId: 'feat-1', high: -1, medium: 0, low: 0 };
-      const result = await handleReviewVerdict(args, STATE_DIR);
+      const result = await handleReviewVerdict(args, STATE_DIR, mockStore as unknown as EventStore);
       expect(result.success).toBe(false);
       expect(result.error?.code).toBe('INVALID_INPUT');
     });
 
     it('handleReviewVerdict_NonFiniteHigh_ReturnsError', async () => {
       const args = { featureId: 'feat-1', high: NaN, medium: 0, low: 0 };
-      const result = await handleReviewVerdict(args, STATE_DIR);
+      const result = await handleReviewVerdict(args, STATE_DIR, mockStore as unknown as EventStore);
       expect(result.success).toBe(false);
       expect(result.error?.code).toBe('INVALID_INPUT');
     });
 
     it('handleReviewVerdict_InfinityMedium_ReturnsError', async () => {
       const args = { featureId: 'feat-1', high: 0, medium: Infinity, low: 0 };
-      const result = await handleReviewVerdict(args, STATE_DIR);
+      const result = await handleReviewVerdict(args, STATE_DIR, mockStore as unknown as EventStore);
       expect(result.success).toBe(false);
       expect(result.error?.code).toBe('INVALID_INPUT');
     });
@@ -121,7 +120,7 @@ describe('handleReviewVerdict', () => {
   describe('approved verdict', () => {
     it('handleReviewVerdict_NoHighFindings_ReturnsApproved', async () => {
       const args = { featureId: 'feat-1', high: 0, medium: 1, low: 3 };
-      const result = await handleReviewVerdict(args, STATE_DIR);
+      const result = await handleReviewVerdict(args, STATE_DIR, mockStore as unknown as EventStore);
 
       expect(result.success).toBe(true);
       const data = result.data as {
@@ -140,7 +139,7 @@ describe('handleReviewVerdict', () => {
 
     it('handleReviewVerdict_ZeroFindings_ReturnsApproved', async () => {
       const args = { featureId: 'feat-1', high: 0, medium: 0, low: 0 };
-      const result = await handleReviewVerdict(args, STATE_DIR);
+      const result = await handleReviewVerdict(args, STATE_DIR, mockStore as unknown as EventStore);
 
       expect(result.success).toBe(true);
       const data = result.data as { verdict: string };
@@ -153,7 +152,7 @@ describe('handleReviewVerdict', () => {
   describe('needs fixes verdict', () => {
     it('handleReviewVerdict_HighFindings_ReturnsNeedsFixes', async () => {
       const args = { featureId: 'feat-1', high: 2, medium: 1, low: 0 };
-      const result = await handleReviewVerdict(args, STATE_DIR);
+      const result = await handleReviewVerdict(args, STATE_DIR, mockStore as unknown as EventStore);
 
       expect(result.success).toBe(true);
       const data = result.data as {
@@ -172,7 +171,7 @@ describe('handleReviewVerdict', () => {
 
     it('handleReviewVerdict_SingleHighFinding_ReturnsNeedsFixes', async () => {
       const args = { featureId: 'feat-1', high: 1, medium: 0, low: 0 };
-      const result = await handleReviewVerdict(args, STATE_DIR);
+      const result = await handleReviewVerdict(args, STATE_DIR, mockStore as unknown as EventStore);
 
       expect(result.success).toBe(true);
       const data = result.data as { verdict: string };
@@ -191,7 +190,7 @@ describe('handleReviewVerdict', () => {
         low: 0,
         blockedReason: 'security-audit-pending',
       };
-      const result = await handleReviewVerdict(args, STATE_DIR);
+      const result = await handleReviewVerdict(args, STATE_DIR, mockStore as unknown as EventStore);
 
       expect(result.success).toBe(true);
       const data = result.data as {
@@ -211,7 +210,7 @@ describe('handleReviewVerdict', () => {
         low: 0,
         blockedReason: 'Critical flaw',
       };
-      const result = await handleReviewVerdict(args, STATE_DIR);
+      const result = await handleReviewVerdict(args, STATE_DIR, mockStore as unknown as EventStore);
 
       expect(result.success).toBe(true);
       const data = result.data as { verdict: string };
@@ -224,7 +223,7 @@ describe('handleReviewVerdict', () => {
   describe('report format', () => {
     it('handleReviewVerdict_Report_ContainsMarkdownHeading', async () => {
       const args = { featureId: 'feat-1', high: 0, medium: 1, low: 2 };
-      const result = await handleReviewVerdict(args, STATE_DIR);
+      const result = await handleReviewVerdict(args, STATE_DIR, mockStore as unknown as EventStore);
 
       const data = result.data as { report: string };
       expect(data.report).toContain('## Review Verdict:');
@@ -232,7 +231,7 @@ describe('handleReviewVerdict', () => {
 
     it('handleReviewVerdict_NeedsFixes_ReportContainsRoutingInstruction', async () => {
       const args = { featureId: 'feat-1', high: 2, medium: 0, low: 0 };
-      const result = await handleReviewVerdict(args, STATE_DIR);
+      const result = await handleReviewVerdict(args, STATE_DIR, mockStore as unknown as EventStore);
 
       const data = result.data as { report: string };
       expect(data.report).toMatch(/delegate.*fixes/i);
@@ -240,7 +239,7 @@ describe('handleReviewVerdict', () => {
 
     it('handleReviewVerdict_Report_ContainsFindingSummary', async () => {
       const args = { featureId: 'feat-1', high: 1, medium: 2, low: 3 };
-      const result = await handleReviewVerdict(args, STATE_DIR);
+      const result = await handleReviewVerdict(args, STATE_DIR, mockStore as unknown as EventStore);
 
       const data = result.data as { report: string };
       expect(data.report).toContain('1 high, 2 medium, 3 low');
@@ -252,7 +251,7 @@ describe('handleReviewVerdict', () => {
   describe('gate event emission', () => {
     it('handleReviewVerdict_EmitsSummaryGateEvent', async () => {
       const args = { featureId: 'feat-1', high: 0, medium: 2, low: 1 };
-      await handleReviewVerdict(args, STATE_DIR);
+      await handleReviewVerdict(args, STATE_DIR, mockStore as unknown as EventStore);
 
       expect(mockStore.append).toHaveBeenCalledTimes(1);
       const appendCall = mockStore.append.mock.calls[0];
@@ -281,7 +280,7 @@ describe('handleReviewVerdict', () => {
 
     it('handleReviewVerdict_NeedsFixes_EmitsFailedGateEvent', async () => {
       const args = { featureId: 'feat-1', high: 3, medium: 0, low: 0 };
-      await handleReviewVerdict(args, STATE_DIR);
+      await handleReviewVerdict(args, STATE_DIR, mockStore as unknown as EventStore);
 
       const appendCall = mockStore.append.mock.calls[0];
       const event = appendCall[1] as {
@@ -309,7 +308,7 @@ describe('handleReviewVerdict', () => {
           D1: { passed: true, findingCount: 0 },
         },
       };
-      await handleReviewVerdict(args, STATE_DIR);
+      await handleReviewVerdict(args, STATE_DIR, mockStore as unknown as EventStore);
 
       // Per-dimension event includes phase
       const perDimCall = mockStore.append.mock.calls[0];
@@ -322,7 +321,7 @@ describe('handleReviewVerdict', () => {
 
     it('handleReviewVerdict_SummaryEvent_IncludesPhaseInDetails', async () => {
       const args = { featureId: 'feat-1', high: 0, medium: 0, low: 0 };
-      await handleReviewVerdict(args, STATE_DIR);
+      await handleReviewVerdict(args, STATE_DIR, mockStore as unknown as EventStore);
 
       expect(mockStore.append).toHaveBeenCalledTimes(1);
       const summaryCall = mockStore.append.mock.calls[0];
@@ -347,7 +346,7 @@ describe('handleReviewVerdict', () => {
           { source: 'catalog', severity: 'HIGH', message: 'Empty catch block' },
           { source: 'catalog', severity: 'MEDIUM', message: 'TODO found' },
         ],
-      }, STATE_DIR);
+      }, STATE_DIR, mockStore as unknown as EventStore);
       expect(result.success).toBe(true);
       expect((result as { data: { high: number } }).data.high).toBe(1); // 0 native + 1 plugin HIGH
       expect((result as { data: { medium: number } }).data.medium).toBe(2); // 1 native + 1 plugin MEDIUM
@@ -363,7 +362,7 @@ describe('handleReviewVerdict', () => {
         pluginFindings: [
           { source: 'axiom', severity: 'HIGH', dimension: 'DIM-2', file: 'src/foo.ts', line: 42, message: 'Swallowed error' },
         ],
-      }, STATE_DIR);
+      }, STATE_DIR, mockStore as unknown as EventStore);
       expect(result.success).toBe(true);
       expect((result as { data: { verdict: string } }).data.verdict).toBe('NEEDS_FIXES');
     });
@@ -377,7 +376,7 @@ describe('handleReviewVerdict', () => {
         pluginFindings: [
           { source: 'catalog', severity: 'MEDIUM', message: 'Non-null assertion' },
         ],
-      }, STATE_DIR);
+      }, STATE_DIR, mockStore as unknown as EventStore);
       expect(result.success).toBe(true);
       expect((result as { data: { verdict: string } }).data.verdict).toBe('APPROVED');
       expect((result as { data: { medium: number } }).data.medium).toBe(1);
@@ -390,7 +389,7 @@ describe('handleReviewVerdict', () => {
         medium: 2,
         low: 1,
         pluginFindings: [],
-      }, STATE_DIR);
+      }, STATE_DIR, mockStore as unknown as EventStore);
       expect(result.success).toBe(true);
       expect((result as { data: { high: number } }).data.high).toBe(0);
       expect((result as { data: { medium: number } }).data.medium).toBe(2);
@@ -405,7 +404,7 @@ describe('handleReviewVerdict', () => {
         high: 1,
         medium: 0,
         low: 0,
-      }, STATE_DIR);
+      }, STATE_DIR, mockStore as unknown as EventStore);
       expect(result.success).toBe(true);
       expect((result as { data: { verdict: string } }).data.verdict).toBe('NEEDS_FIXES');
     });
@@ -425,7 +424,7 @@ describe('handleReviewVerdict', () => {
           D2: { passed: false, findingCount: 3 },
         },
       };
-      await handleReviewVerdict(args, STATE_DIR);
+      await handleReviewVerdict(args, STATE_DIR, mockStore as unknown as EventStore);
 
       // 2 per-dimension + 1 summary = 3 total
       expect(mockStore.append).toHaveBeenCalledTimes(3);

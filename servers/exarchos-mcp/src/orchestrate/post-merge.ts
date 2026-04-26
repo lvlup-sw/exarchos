@@ -8,7 +8,7 @@
 
 import { spawnSync } from 'node:child_process';
 import type { ToolResult } from '../format.js';
-import { getOrCreateEventStore } from '../views/tools.js';
+import type { EventStore } from '../event-store/store.js';
 import { emitGateEvent } from './gate-utils.js';
 import { checkPostMerge } from './pure/post-merge.js';
 import type { CommandResult } from './pure/post-merge.js';
@@ -60,6 +60,7 @@ function execCommandRunner(
 export async function handlePostMerge(
   args: PostMergeArgs,
   stateDir: string,
+  eventStore: EventStore,
 ): Promise<ToolResult> {
   // Guard clauses: validate all required inputs
   if (!args.featureId) {
@@ -96,7 +97,7 @@ export async function handlePostMerge(
 
   // Emit gate.executed event for flywheel integration (fire-and-forget)
   try {
-    const store = getOrCreateEventStore(stateDir);
+    const store = eventStore;
     await emitGateEvent(store, args.featureId, 'post-merge', 'post-merge', passed, {
       dimension: 'D4',
       phase: 'synthesize',

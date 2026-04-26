@@ -26,7 +26,7 @@ import { runAll } from './harness.js';
 import type { EvalEventStore } from './harness.js';
 import type { RunSummary } from './types.js';
 import { formatMultiSuiteReport } from './reporters/cli-reporter.js';
-import { getOrCreateEventStore } from '../views/tools.js';
+import { EventStore } from '../event-store/store.js';
 import { resolveStateDir } from '../utils/paths.js';
 
 const VALID_LAYERS = ['regression', 'capability', 'reliability'] as const;
@@ -85,7 +85,9 @@ async function main(): Promise<number> {
 
   const evalsDir = resolveEvalsDir();
   const stateDir = resolveStateDir();
-  const store = getOrCreateEventStore(stateDir);
+  // CLI entrypoint — bootstrap own EventStore (separate process boundary).
+  const store = new EventStore(stateDir);
+  await store.initialize();
   const eventStore: EvalEventStore = {
     append: async (streamId, event) => {
       await store.append(streamId, event as Parameters<typeof store.append>[1]);

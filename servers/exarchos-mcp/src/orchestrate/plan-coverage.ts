@@ -7,7 +7,7 @@
 
 import { readFile } from 'node:fs/promises';
 import type { ToolResult } from '../format.js';
-import { getOrCreateEventStore } from '../views/tools.js';
+import type { EventStore } from '../event-store/store.js';
 import { emitGateEvent } from './gate-utils.js';
 
 // ─── Result Types ──────────────────────────────────────────────────────────
@@ -670,6 +670,7 @@ function buildReport(
 export async function handlePlanCoverage(
   args: { featureId: string; designPath: string; planPath: string },
   stateDir: string,
+  eventStore: EventStore,
 ): Promise<ToolResult> {
   // Input validation
   if (!args.featureId) {
@@ -742,7 +743,7 @@ export async function handlePlanCoverage(
 
   // Emit gate.executed event (fire-and-forget)
   try {
-    const store = getOrCreateEventStore(stateDir);
+    const store = eventStore;
     await emitGateEvent(store, args.featureId, 'plan-coverage', 'planning', result.passed, {
       dimension: 'D1',
       phase: 'plan',

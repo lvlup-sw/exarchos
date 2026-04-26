@@ -6,7 +6,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import type { ToolResult } from '../format.js';
-import { getOrCreateEventStore } from '../views/tools.js';
+import type { EventStore } from '../event-store/store.js';
 import { emitGateEvent, getDiff } from './gate-utils.js';
 import { checkWorkflowDeterminism } from './pure/workflow-determinism.js';
 
@@ -28,7 +28,8 @@ interface WorkflowDeterminismResult {
 
 export async function handleWorkflowDeterminism(
   args: WorkflowDeterminismArgs,
-  stateDir: string,
+  _stateDir: string,
+  eventStore: EventStore,
 ): Promise<ToolResult> {
   // Guard clause: validate required inputs
   if (!args.featureId) {
@@ -56,7 +57,7 @@ export async function handleWorkflowDeterminism(
 
   // Emit gate.executed event (fire-and-forget)
   try {
-    const store = getOrCreateEventStore(stateDir);
+    const store = eventStore;
     await emitGateEvent(store, args.featureId, 'workflow-determinism', 'quality', passed, {
       dimension: 'D5',
       phase: 'review',

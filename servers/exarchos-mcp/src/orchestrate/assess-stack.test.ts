@@ -11,14 +11,13 @@ import type { VcsProvider, CiStatus, ReviewStatus, PrComment } from '../vcs/prov
 const mockAppend = vi.fn();
 const mockQuery = vi.fn();
 
-vi.mock('../event-store/store.js', () => ({
-  EventStore: vi.fn().mockImplementation(() => ({
-    append: mockAppend,
-    query: mockQuery,
-  })),
-}));
-
+import type { EventStore } from '../event-store/store.js';
 import { handleAssessStack } from './assess-stack.js';
+
+const mockEventStore = {
+  append: mockAppend,
+  query: mockQuery,
+} as unknown as EventStore;
 import type { ReviewAdapterRegistry, ProviderAdapter, ReviewerKind } from '../review/types.js';
 
 const STATE_DIR = '/tmp/test-assess-stack';
@@ -78,7 +77,7 @@ describe('handleAssessStack', () => {
   describe('input validation', () => {
     it('AssessStack_MissingFeatureId_ReturnsInvalidInput', async () => {
       const args = { featureId: '', prNumbers: [1] };
-      const result = await handleAssessStack(args, STATE_DIR);
+      const result = await handleAssessStack(args, STATE_DIR, mockEventStore);
       expect(result.success).toBe(false);
       expect(result.error?.code).toBe('INVALID_INPUT');
       expect(result.error?.message).toContain('featureId');
@@ -86,7 +85,7 @@ describe('handleAssessStack', () => {
 
     it('AssessStack_MissingPrNumbers_ReturnsInvalidInput', async () => {
       const args = { featureId: 'test-feature', prNumbers: [] };
-      const result = await handleAssessStack(args, STATE_DIR);
+      const result = await handleAssessStack(args, STATE_DIR, mockEventStore);
       expect(result.success).toBe(false);
       expect(result.error?.code).toBe('INVALID_INPUT');
       expect(result.error?.message).toContain('prNumbers');
@@ -111,6 +110,7 @@ describe('handleAssessStack', () => {
       const result = await handleAssessStack(
         { featureId: 'test-feature', prNumbers: [42] },
         STATE_DIR,
+        mockEventStore,
         provider,
       );
 
@@ -130,6 +130,7 @@ describe('handleAssessStack', () => {
       const result = await handleAssessStack(
         { featureId: 'test-feature', prNumbers: [42] },
         STATE_DIR,
+        mockEventStore,
         provider,
       );
 
@@ -148,6 +149,7 @@ describe('handleAssessStack', () => {
       const result = await handleAssessStack(
         { featureId: 'test-feature', prNumbers: [42] },
         STATE_DIR,
+        mockEventStore,
         provider,
       );
 
@@ -177,6 +179,7 @@ describe('handleAssessStack', () => {
       const result = await handleAssessStack(
         { featureId: 'test-feature', prNumbers: [42] },
         STATE_DIR,
+        mockEventStore,
         provider,
       );
 
@@ -209,6 +212,7 @@ describe('handleAssessStack', () => {
       const result = await handleAssessStack(
         { featureId: 'test-feature', prNumbers: [42] },
         STATE_DIR,
+        mockEventStore,
         provider,
       );
 
@@ -237,6 +241,7 @@ describe('handleAssessStack', () => {
       const result = await handleAssessStack(
         { featureId: 'test-feature', prNumbers: [42] },
         STATE_DIR,
+        mockEventStore,
         provider,
       );
 
@@ -265,6 +270,7 @@ describe('handleAssessStack', () => {
       const result = await handleAssessStack(
         { featureId: 'test-feature', prNumbers: [42] },
         STATE_DIR,
+        mockEventStore,
         provider,
       );
 
@@ -289,6 +295,7 @@ describe('handleAssessStack', () => {
       const result = await handleAssessStack(
         { featureId: 'test-feature', prNumbers: [42] },
         STATE_DIR,
+        mockEventStore,
         provider,
       );
 
@@ -322,6 +329,7 @@ describe('handleAssessStack', () => {
       const result = await handleAssessStack(
         { featureId: 'test-feature', prNumbers: [42] },
         STATE_DIR,
+        mockEventStore,
         provider,
       );
 
@@ -345,6 +353,7 @@ describe('handleAssessStack', () => {
       const result = await handleAssessStack(
         { featureId: 'test-feature', prNumbers: [42] },
         STATE_DIR,
+        mockEventStore,
         provider,
       );
 
@@ -364,6 +373,7 @@ describe('handleAssessStack', () => {
       const result = await handleAssessStack(
         { featureId: 'test-feature', prNumbers: [42] },
         STATE_DIR,
+        mockEventStore,
         provider,
       );
 
@@ -392,6 +402,7 @@ describe('handleAssessStack', () => {
       const result = await handleAssessStack(
         { featureId: 'test-feature', prNumbers: [42] },
         STATE_DIR,
+        mockEventStore,
         provider,
       );
 
@@ -414,6 +425,7 @@ describe('handleAssessStack', () => {
       await handleAssessStack(
         { featureId: 'test-feature', prNumbers: [42] },
         STATE_DIR,
+        mockEventStore,
         provider,
       );
 
@@ -452,6 +464,7 @@ describe('handleAssessStack', () => {
       await handleAssessStack(
         { featureId: 'test-feature', prNumbers: [42] },
         STATE_DIR,
+        mockEventStore,
         provider,
       );
 
@@ -482,6 +495,7 @@ describe('handleAssessStack', () => {
       await handleAssessStack(
         { featureId: 'test-feature', prNumbers: [42] },
         STATE_DIR,
+        mockEventStore,
         provider,
       );
 
@@ -509,6 +523,7 @@ describe('handleAssessStack', () => {
       await handleAssessStack(
         { featureId: 'test-feature', prNumbers: [42] },
         STATE_DIR,
+        mockEventStore,
         provider,
       );
 
@@ -529,6 +544,7 @@ describe('handleAssessStack', () => {
       await handleAssessStack(
         { featureId: 'test-feature', prNumbers: [42] },
         STATE_DIR,
+        mockEventStore,
         provider,
       );
 
@@ -568,6 +584,7 @@ describe('handleAssessStack', () => {
       await handleAssessStack(
         { featureId: 'test-feature', prNumbers: [42] },
         STATE_DIR,
+        mockEventStore,
         provider,
       );
 
@@ -592,6 +609,7 @@ describe('handleAssessStack', () => {
       await handleAssessStack(
         { featureId: 'test-feature', prNumbers: [42] },
         STATE_DIR,
+        mockEventStore,
         provider,
       );
 
@@ -619,6 +637,7 @@ describe('handleAssessStack', () => {
       await handleAssessStack(
         { featureId: 'test-feature', prNumbers: [42] },
         STATE_DIR,
+        mockEventStore,
         provider,
       );
 
@@ -659,6 +678,7 @@ describe('handleAssessStack', () => {
       await handleAssessStack(
         { featureId: 'test-feature', prNumbers: [42] },
         STATE_DIR,
+        mockEventStore,
         provider,
       );
 
@@ -688,6 +708,7 @@ describe('handleAssessStack', () => {
       await handleAssessStack(
         { featureId: 'test-feature', prNumbers: [42] },
         STATE_DIR,
+        mockEventStore,
         provider,
       );
 
@@ -716,6 +737,7 @@ describe('handleAssessStack', () => {
       await handleAssessStack(
         { featureId: 'test-feature', prNumbers: [42] },
         STATE_DIR,
+        mockEventStore,
         provider,
       );
 
@@ -745,6 +767,7 @@ describe('handleAssessStack', () => {
       const result = await handleAssessStack(
         { featureId: 'test-feature', prNumbers: [42] },
         STATE_DIR,
+        mockEventStore,
         provider,
       );
 
@@ -778,6 +801,7 @@ describe('handleAssessStack', () => {
       const result = await handleAssessStack(
         { featureId: 'test-feature', prNumbers: [42] },
         STATE_DIR,
+        mockEventStore,
         provider,
       );
 
@@ -809,6 +833,7 @@ describe('handleAssessStack', () => {
       const result = await handleAssessStack(
         { featureId: 'test-feature', prNumbers: [42] },
         STATE_DIR,
+        mockEventStore,
         provider,
       );
 
@@ -836,6 +861,7 @@ describe('handleAssessStack', () => {
       const result = await handleAssessStack(
         { featureId: 'test-feature', prNumbers: [42] },
         STATE_DIR,
+        mockEventStore,
         provider,
       );
 
@@ -861,6 +887,7 @@ describe('handleAssessStack', () => {
       const result = await handleAssessStack(
         { featureId: 'test-feature', prNumbers: [42] },
         STATE_DIR,
+        mockEventStore,
         provider,
       );
 
@@ -947,6 +974,7 @@ describe('handleAssessStack', () => {
       await handleAssessStack(
         { featureId: 'test-feature', prNumbers: [42] },
         STATE_DIR,
+        mockEventStore,
         provider,
         registry,
       );
@@ -976,6 +1004,7 @@ describe('handleAssessStack', () => {
       const result = await handleAssessStack(
         { featureId: 'test-feature', prNumbers: [42] },
         STATE_DIR,
+        mockEventStore,
         provider,
         registry,
       );

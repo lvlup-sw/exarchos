@@ -2,7 +2,8 @@
 
 import { z } from 'zod';
 import type { ToolResult } from '../format.js';
-import { getOrCreateMaterializer, getOrCreateEventStore } from '../views/tools.js';
+import type { EventStore } from '../event-store/store.js';
+import { getOrCreateMaterializer } from '../views/tools.js';
 import { TELEMETRY_VIEW } from './telemetry-projection.js';
 import type { TelemetryViewState, ToolMetrics } from './telemetry-projection.js';
 import { TELEMETRY_STREAM } from './constants.js';
@@ -53,6 +54,7 @@ const SORT_FIELDS: Record<string, keyof ToolMetrics> = {
 export async function handleViewTelemetry(
   args: unknown,
   stateDir: string,
+  eventStore: EventStore,
 ): Promise<ToolResult> {
   const parseResult = ViewTelemetryArgsSchema.safeParse(args);
   if (!parseResult.success) {
@@ -67,7 +69,7 @@ export async function handleViewTelemetry(
   const validated = parseResult.data;
 
   try {
-    const store = getOrCreateEventStore(stateDir);
+    const store = eventStore;
     const materializer = getOrCreateMaterializer(stateDir);
 
     // Materialize the telemetry view from the telemetry stream

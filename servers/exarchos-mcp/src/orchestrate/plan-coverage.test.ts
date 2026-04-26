@@ -6,6 +6,7 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { ToolResult } from '../format.js';
+import type { EventStore } from '../event-store/store.js';
 
 // ─── Mock event store ────────────────────────────────────────────────────────
 
@@ -15,7 +16,6 @@ const mockStore = {
 };
 
 vi.mock('../views/tools.js', () => ({
-  getOrCreateEventStore: () => mockStore,
   getOrCreateMaterializer: () => ({}),
 }));
 
@@ -701,7 +701,7 @@ describe('handlePlanCoverage', () => {
   describe('input validation', () => {
     it('handlePlanCoverage_MissingFeatureId_ReturnsError', async () => {
       const args = { featureId: '', designPath: '/tmp/design.md', planPath: '/tmp/plan.md' };
-      const result = await handlePlanCoverage(args, STATE_DIR);
+      const result = await handlePlanCoverage(args, STATE_DIR, mockStore as unknown as EventStore);
       expect(result.success).toBe(false);
       expect(result.error?.code).toBe('INVALID_INPUT');
       expect(result.error?.message).toContain('featureId');
@@ -709,7 +709,7 @@ describe('handlePlanCoverage', () => {
 
     it('handlePlanCoverage_MissingDesignPath_ReturnsError', async () => {
       const args = { featureId: 'feat-1', designPath: '', planPath: '/tmp/plan.md' };
-      const result = await handlePlanCoverage(args, STATE_DIR);
+      const result = await handlePlanCoverage(args, STATE_DIR, mockStore as unknown as EventStore);
       expect(result.success).toBe(false);
       expect(result.error?.code).toBe('INVALID_INPUT');
       expect(result.error?.message).toContain('designPath');
@@ -717,7 +717,7 @@ describe('handlePlanCoverage', () => {
 
     it('handlePlanCoverage_MissingPlanPath_ReturnsError', async () => {
       const args = { featureId: 'feat-1', designPath: '/tmp/design.md', planPath: '' };
-      const result = await handlePlanCoverage(args, STATE_DIR);
+      const result = await handlePlanCoverage(args, STATE_DIR, mockStore as unknown as EventStore);
       expect(result.success).toBe(false);
       expect(result.error?.code).toBe('INVALID_INPUT');
       expect(result.error?.message).toContain('planPath');
@@ -773,7 +773,7 @@ describe('handlePlanCoverage', () => {
         planPath: '/tmp/plan.md',
       };
 
-      const result = await handlePlanCoverage(args, STATE_DIR);
+      const result = await handlePlanCoverage(args, STATE_DIR, mockStore as unknown as EventStore);
 
       expect(result.success).toBe(true);
       const data = result.data as {
@@ -816,7 +816,7 @@ describe('handlePlanCoverage', () => {
         planPath: '/tmp/plan.md',
       };
 
-      await handlePlanCoverage(args, STATE_DIR);
+      await handlePlanCoverage(args, STATE_DIR, mockStore as unknown as EventStore);
 
       expect(mockStore.append).toHaveBeenCalledTimes(1);
       const appendCall = mockStore.append.mock.calls[0];
@@ -857,7 +857,7 @@ describe('handlePlanCoverage', () => {
         planPath: '/tmp/plan.md',
       };
 
-      const result = await handlePlanCoverage(args, STATE_DIR);
+      const result = await handlePlanCoverage(args, STATE_DIR, mockStore as unknown as EventStore);
 
       expect(result.success).toBe(false);
       expect(result.error?.code).toBe('FILE_ERROR');
@@ -883,7 +883,7 @@ describe('handlePlanCoverage', () => {
         planPath: '/tmp/plan.md',
       };
 
-      const result = await handlePlanCoverage(args, STATE_DIR);
+      const result = await handlePlanCoverage(args, STATE_DIR, mockStore as unknown as EventStore);
 
       expect(result.success).toBe(false);
       expect(result.error?.code).toBe('NO_DESIGN_SECTIONS');
@@ -913,7 +913,7 @@ describe('handlePlanCoverage', () => {
         planPath: '/tmp/plan.md',
       };
 
-      const result = await handlePlanCoverage(args, STATE_DIR);
+      const result = await handlePlanCoverage(args, STATE_DIR, mockStore as unknown as EventStore);
 
       expect(result.success).toBe(false);
       expect(result.error?.code).toBe('NO_PLAN_TASKS');

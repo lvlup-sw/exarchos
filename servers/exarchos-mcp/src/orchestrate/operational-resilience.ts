@@ -6,7 +6,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import type { ToolResult } from '../format.js';
-import { getOrCreateEventStore } from '../views/tools.js';
+import type { EventStore } from '../event-store/store.js';
 import { emitGateEvent, getDiff } from './gate-utils.js';
 import { checkOperationalResilience } from './pure/operational-resilience.js';
 
@@ -29,6 +29,7 @@ interface OperationalResilienceResult {
 export async function handleOperationalResilience(
   args: OperationalResilienceArgs,
   stateDir: string,
+  eventStore: EventStore,
 ): Promise<ToolResult> {
   // Guard clause: validate required inputs
   if (!args.featureId) {
@@ -69,7 +70,7 @@ export async function handleOperationalResilience(
 
   // Emit gate.executed event (fire-and-forget)
   try {
-    const store = getOrCreateEventStore(stateDir);
+    const store = eventStore;
     await emitGateEvent(store, args.featureId, 'operational-resilience', 'quality', passed, {
       dimension: 'D4',
       phase: 'review',

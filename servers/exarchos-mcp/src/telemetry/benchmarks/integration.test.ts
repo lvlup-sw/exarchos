@@ -28,7 +28,7 @@ describe('Telemetry Integration', () => {
 
     // Act — call the telemetry view handler
     const { handleViewTelemetry } = await import('../tools.js');
-    const result = await handleViewTelemetry({}, stateDir);
+    const result = await handleViewTelemetry({}, stateDir, store);
 
     // Assert
     expect(result.success).toBe(true);
@@ -82,7 +82,7 @@ describe('Telemetry Integration', () => {
 
     // Act
     const { handleViewTelemetry } = await import('../tools.js');
-    const result = await handleViewTelemetry({}, stateDir);
+    const result = await handleViewTelemetry({}, stateDir, store);
 
     // Assert
     expect(result.success).toBe(true);

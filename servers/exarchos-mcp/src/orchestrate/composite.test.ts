@@ -303,6 +303,7 @@ describe('handleOrchestrate', () => {
       expect(handlePostMerge).toHaveBeenCalledWith(
         { featureId: 'feat-123', prUrl: 'https://github.com/org/repo/pull/42', mergeSha: 'abc1234' },
         STATE_DIR,
+        CTX.eventStore,
       );
     });
 
@@ -324,6 +325,7 @@ describe('handleOrchestrate', () => {
       expect(handleAssessStack).toHaveBeenCalledWith(
         { featureId: 'feat-789', prNumbers: [101, 102] },
         STATE_DIR,
+        CTX.eventStore,
       );
     });
 
@@ -368,6 +370,7 @@ describe('handleOrchestrate', () => {
       expect(handleTddCompliance).toHaveBeenCalledWith(
         { featureId: 'feat-300', taskId: 't1', branch: 'feat-branch' },
         STATE_DIR,
+        CTX.eventStore,
       );
     });
 
@@ -390,6 +393,7 @@ describe('handleOrchestrate', () => {
       expect(handlePlanCoverage).toHaveBeenCalledWith(
         { featureId: 'feat-100', designPath: '/tmp/design.md', planPath: '/tmp/plan.md' },
         STATE_DIR,
+        CTX.eventStore,
       );
     });
   });
