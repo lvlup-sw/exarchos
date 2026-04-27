@@ -1,3 +1,8 @@
+---
+name: parallel-strategy
+description: Parallel dispatch and result-collection strategy for subagent teammates.
+---
+
 # Parallel Execution Strategy
 
 ## Identifying Parallel Groups
@@ -83,7 +88,7 @@ Agent Teams supports one team per session. If you need more parallel groups than
 ```text
 // Wait for all background tasks via the runtime's result-collection primitive
 {{SUBAGENT_RESULT_API}}
-// (poll/await once per dispatched task_id)
+// (poll/await per task_id on poll-based runtimes; inline on runtimes that return replies in the dispatching turn)
 ```
 
 ## Model Selection Guide

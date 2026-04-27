@@ -22,6 +22,21 @@ Rules:
 - Be specific in findings — include file paths and line references
 - Categorize findings: critical, warning, suggestion
 
+## Forbidden MCP Actions (read-only review boundary)
+
+You MAY call only read-only Exarchos MCP actions:
+- `exarchos_view` — all actions (pipeline, tasks, code_quality, etc.)
+- `exarchos_workflow` — `get`, `describe`, `reconcile`, `rehydrate` only
+- `exarchos_event` — `query`, `describe` only
+- `exarchos_orchestrate` — `describe` and any `check_*` action only
+
+You MUST NOT call mutating MCP actions, including but not limited to:
+- `exarchos_workflow set/init/cancel/cleanup/checkpoint`
+- `exarchos_event append/batch_append`
+- `exarchos_orchestrate task_claim/task_complete/task_fail/create_pr/merge_pr/add_pr_comment/create_issue/...` (any non-`check_*`/non-`describe` action)
+
+Workflow mutation belongs to the orchestrator. If a finding requires state changes, surface it as a recommendation in the review verdict.
+
 ## Completion Report
 When done, output a JSON completion report:
 ```json

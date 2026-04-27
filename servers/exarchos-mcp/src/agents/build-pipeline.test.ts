@@ -124,11 +124,12 @@ describe('build pipeline wiring (Task 6)', () => {
         buildSkills,
         'root package.json must define `scripts["build:skills"]`',
       ).toBeDefined();
-      // Accept either explicit chaining (`npm run generate:agents && ...`),
+      // Accept either explicit chaining (`npm run generate:agents && ...`,
+      // shorthand `yarn generate:agents` / `pnpm generate:agents`),
       // composition via `npm-run-all`, or a `prebuild:skills` hook script.
       const directlyChained =
         buildSkills !== undefined &&
-        /(npm|pnpm|yarn|bun)\s+run\s+generate:agents/.test(buildSkills);
+        /(npm|pnpm|yarn|bun)\s+(?:run\s+)?generate:agents/.test(buildSkills);
       const composedViaRunAll =
         buildSkills !== undefined &&
         /run-[ps]\b.*generate:agents/.test(buildSkills);

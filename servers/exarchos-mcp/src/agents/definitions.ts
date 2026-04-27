@@ -232,6 +232,21 @@ Rules:
 - Be specific in findings — include file paths and line references
 - Categorize findings: critical, warning, suggestion
 
+## Forbidden MCP Actions (read-only review boundary)
+
+You MAY call only read-only Exarchos MCP actions:
+- \`exarchos_view\` — all actions (pipeline, tasks, code_quality, etc.)
+- \`exarchos_workflow\` — \`get\`, \`describe\`, \`reconcile\`, \`rehydrate\` only
+- \`exarchos_event\` — \`query\`, \`describe\` only
+- \`exarchos_orchestrate\` — \`describe\` and any \`check_*\` action only
+
+You MUST NOT call mutating MCP actions, including but not limited to:
+- \`exarchos_workflow set/init/cancel/cleanup/checkpoint\`
+- \`exarchos_event append/batch_append\`
+- \`exarchos_orchestrate task_claim/task_complete/task_fail/create_pr/merge_pr/add_pr_comment/create_issue/...\` (any non-\`check_*\`/non-\`describe\` action)
+
+Workflow mutation belongs to the orchestrator. If a finding requires state changes, surface it as a recommendation in the review verdict.
+
 ## Completion Report
 When done, output a JSON completion report:
 \`\`\`json
@@ -245,9 +260,28 @@ When done, output a JSON completion report:
   // Reviewer is intentionally read-only. `shell:exec` is omitted so no
   // runtime can grant shell access — neither Claude's `Bash` tool nor
   // OpenCode's `tools.bash`. Test runs / typecheck / git inspection
-  // belong to the orchestrator, not the reviewer agent. Trust boundary
-  // becomes machine-enforced (capability absent) rather than prompt-
-  // enforced.
+  // belong to the orchestrator, not the reviewer agent.
+  //
+  // `mcp:exarchos` is retained so the reviewer can consult read-only MCP
+  // surfaces (`exarchos_view`, `exarchos_workflow get`, `exarchos_event
+  // query`, `exarchos_orchestrate describe`) for code-quality data
+  // during review. Per #1109 Constraint 3 (Basileus-forward), MCP must
+  // remain first-class; demoting MCP entirely would violate that.
+  //
+  // Trust-boundary state — defense in depth (DIM-2 + DIM-7):
+  //   1. shell:exec absent + Bash in disallowedTools → no shell escape
+  //   2. fs:write absent + Write/Edit in disallowedTools → no FS mutation
+  //   3. mcp:exarchos PRESENT but mutating actions are prompt-forbidden
+  //      (see systemPrompt "Forbidden MCP actions" section). The composite
+  //      tools expose write actions (workflow.set, event.append,
+  //      orchestrate.task_complete, etc.) under shared composite names
+  //      that cannot be filtered at the runtime tool-allowlist level.
+  //
+  // The capability-level enforcement of read-only MCP requires either a
+  // new `mcp:exarchos:readonly` capability negotiated via the
+  // handshake-authoritative resolution path (#1109 §2.8 / ADR §2.8) or a
+  // server-side read-only tool partition. Tracked in #1192 — not in
+  // scope for this PR.
   capabilities: [
     'fs:read',
     'mcp:exarchos',

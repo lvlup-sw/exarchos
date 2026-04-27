@@ -176,11 +176,16 @@ describe('Agent Spec Definitions', () => {
     expect(REVIEWER.model).toBe('inherit');
     expect(REVIEWER.resumable).toBe(false);
     expect(REVIEWER.capabilities).toContain('fs:read');
+    // Per #1109 Constraint 3 (Basileus-forward), MCP remains first-class
+    // for the reviewer so it can consult read-only views (exarchos_view,
+    // workflow.get, event.query, orchestrate.describe/check_*) during
+    // review. Mutating MCP actions are forbidden at the prompt layer
+    // (see Forbidden MCP Actions section in systemPrompt) — capability-
+    // level filtering of mutating composite-tool actions requires a
+    // separate `mcp:exarchos:readonly` capability negotiated via the
+    // handshake-authoritative resolver (#1109 §2.8) and is tracked as
+    // follow-up work.
     expect(REVIEWER.capabilities).toContain('mcp:exarchos');
-    // Reviewer is intentionally read-only — no shell access. Test runs
-    // / typecheck / git inspection are the orchestrator's job, not the
-    // reviewer's. Trust boundary is machine-enforced via capability
-    // absence rather than prompt-enforced.
     expect(REVIEWER.capabilities).not.toContain('shell:exec');
     expect(REVIEWER.capabilities).not.toContain('fs:write');
     expect(REVIEWER.disallowedTools).toContain('Write');
@@ -189,6 +194,9 @@ describe('Agent Spec Definitions', () => {
     expect(REVIEWER.disallowedTools).toContain('Bash');
     expect(REVIEWER.systemPrompt).toContain('{{reviewScope}}');
     expect(REVIEWER.systemPrompt).toContain('{{designRequirements}}');
+    // Defense-in-depth: prompt-layer guard explicitly forbids mutating
+    // MCP actions until capability-level enforcement lands.
+    expect(REVIEWER.systemPrompt).toContain('Forbidden MCP Actions');
     expect(REVIEWER.mcpServers).toEqual(['exarchos']);
   });
 

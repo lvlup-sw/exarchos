@@ -630,7 +630,7 @@ metadata:
 
 # Delegation Skill
 
-Dispatch implementation tasks to Claude Code subagents with proper context, worktree isolation, and TDD requirements. This skill follows a three-step flow: **Prepare, Dispatch, Monitor.**
+Dispatch implementation tasks to subagents with proper context, worktree isolation, and TDD requirements. This skill follows a three-step flow: **Prepare, Dispatch, Monitor.**
 
 ## Triggers
 
@@ -655,7 +655,7 @@ Rationalization patterns that violate this principle are catalogued in \`referen
 
 ### Delegation Modes
 
-The default \`subagent\` mode dispatches each task using the runtime's native spawn primitive (e.g., the \`Task\` tool on Claude Code / OpenCode / Cursor, \`spawn_agent\` on Codex, \`task --agent\` on Copilot). On runtimes without a subagent primitive (e.g. \`generic\`), delegation degrades to sequential in-session execution.
+The default \`subagent\` mode dispatches each task using the runtime's spawn primitive: \`Task\`. Runtimes without a subagent primitive (\`hasSubagents: false\`) fall back to sequential in-session execution.
 
 
 On Claude Code (and any future runtime declaring \`team:agent-teams\`), an additional \`agent-team\` mode is available — \`Task\` invocations bind to a \`team_name\` for interactive multi-pane coordination.
@@ -682,6 +682,25 @@ Before dispatching, query decision runbooks to classify the work and select the 
 
 Use the \`prepare_delegation\` composite action to validate readiness in a single call. This replaces manual script invocations and individual checks.
 
+> **Authoritative spec:** the canonical list of preconditions, blockers, and arguments for \`prepare_delegation\` lives in the runtime — query it with \`exarchos_orchestrate({ action: "describe", actions: ["prepare_delegation"] })\` if anything in this skill drifts from observed behavior. Treat the runtime \`describe\` output as the source of truth.
+
+### Step 0 — Pre-emit (required before \`prepare_delegation\`)
+
+Before calling \`prepare_delegation\`, the workflow stream must contain a \`task.assigned\` event for each task. The readiness view counts these events to populate \`taskCount\`; without them, \`prepare_delegation\` returns \`{ ready: false, blockers: ["no task.assigned events found ..."] }\`.
+
+\`\`\`typescript
+exarchos_event({
+  action: "batch_append",
+  stream: "<featureId>",
+  events: tasks.map((t) => ({
+    type: "task.assigned",
+    data: { taskId: t.id, title: t.title, branch: t.branch },
+  })),
+})
+\`\`\`
+
+### Step 1 — Prepare (readiness check)
+
 \`\`\`typescript
 exarchos_orchestrate({
   action: "prepare_delegation",
@@ -696,6 +715,8 @@ The composite action performs:
 3. **Quality signal assembly** — queries \`code_quality\` view; if \`gatePassRate < 0.80\`, returns quality hints to embed in prompts. Emits \`gate.executed('plan-coverage')\` on success (no pre-query needed)
 4. **Benchmark detection** — sets \`verification.hasBenchmarks\` if any task has benchmark criteria
 5. **Readiness verdict** — returns \`{ ready: true, worktrees: [...], qualityHints: [...] }\` or \`{ ready: false, reason: "..." }\`
+
+**If \`blocked: true\` with \`reason: "current-branch-protected"\`:** the response includes a \`hint\` field (e.g. "checkout the feature/phase branch before dispatching delegation"). Apply the hint, then re-call.
 
 **If \`ready: false\`:** Stop. Report the reason to the user. Do not proceed.
 
@@ -776,6 +797,7 @@ The delegate phase requires these events (checked by \`check-event-emissions\`):
 
 | Event | When | Emitted By |
 |-------|------|------------|
+| \`task.assigned\` | Before \`prepare_delegation\` (one per task; see Step 0) | Orchestrator |
 | \`team.spawned\` | After team creation, before dispatch | Orchestrator |
 | \`team.task.planned\` | For each task in the plan (use \`batch_append\`) | Orchestrator |
 | \`team.teammate.dispatched\` | After each subagent is spawned | Orchestrator |
@@ -792,7 +814,7 @@ See \`references/agent-teams-saga.md\` for full event schemas and emission order
 
 ### Subagent Monitoring
 
-Poll background tasks and collect results using the runtime's result-collection primitive:
+Collect background task results using the runtime's result-collection primitive (this may be a poll/await per task or inline replies, depending on the runtime):
 
 \`\`\`text
 TaskOutput({ task_id, block: true })
@@ -857,7 +879,7 @@ This is advisory — findings are recorded for the convergence view but do not b
 When a task fails:
 1. Read the failure output from the runtime's result-collection primitive (\`TaskOutput({ task_id, block: true })\`)
 2. Diagnose root cause — do NOT trust the implementer's self-assessment (see R3 adversarial posture)
-3. Fix the task using the resume-aware fixer flow below
+3. Fix the task using the fixer flow below — resume the original agent on runtimes with native session resume, otherwise dispatch a fresh fixer agent
 4. Run the \`task-fix\` runbook gate chain after the fix completes
 
 For the full recovery flow with a concrete example, see \`references/worked-example.md\`.
@@ -4887,7 +4909,7 @@ metadata:
 
 # Delegation Skill
 
-Dispatch implementation tasks to Claude Code subagents with proper context, worktree isolation, and TDD requirements. This skill follows a three-step flow: **Prepare, Dispatch, Monitor.**
+Dispatch implementation tasks to subagents with proper context, worktree isolation, and TDD requirements. This skill follows a three-step flow: **Prepare, Dispatch, Monitor.**
 
 ## Triggers
 
@@ -4912,7 +4934,7 @@ Rationalization patterns that violate this principle are catalogued in \`referen
 
 ### Delegation Modes
 
-The default \`subagent\` mode dispatches each task using the runtime's native spawn primitive (e.g., the \`Task\` tool on Claude Code / OpenCode / Cursor, \`spawn_agent\` on Codex, \`task --agent\` on Copilot). On runtimes without a subagent primitive (e.g. \`generic\`), delegation degrades to sequential in-session execution.
+The default \`subagent\` mode dispatches each task using the runtime's spawn primitive: \`spawn_agent\`. Runtimes without a subagent primitive (\`hasSubagents: false\`) fall back to sequential in-session execution.
 
 
 Use the \`recommendedModel\` from \`prepare_delegation\` task classifications when available. If no classification exists (e.g., fixer dispatch), omit \`model\` to inherit the session default.
@@ -4930,6 +4952,25 @@ Before dispatching, query decision runbooks to classify the work and select the 
 
 Use the \`prepare_delegation\` composite action to validate readiness in a single call. This replaces manual script invocations and individual checks.
 
+> **Authoritative spec:** the canonical list of preconditions, blockers, and arguments for \`prepare_delegation\` lives in the runtime — query it with \`exarchos_orchestrate({ action: "describe", actions: ["prepare_delegation"] })\` if anything in this skill drifts from observed behavior. Treat the runtime \`describe\` output as the source of truth.
+
+### Step 0 — Pre-emit (required before \`prepare_delegation\`)
+
+Before calling \`prepare_delegation\`, the workflow stream must contain a \`task.assigned\` event for each task. The readiness view counts these events to populate \`taskCount\`; without them, \`prepare_delegation\` returns \`{ ready: false, blockers: ["no task.assigned events found ..."] }\`.
+
+\`\`\`typescript
+exarchos_event({
+  action: "batch_append",
+  stream: "<featureId>",
+  events: tasks.map((t) => ({
+    type: "task.assigned",
+    data: { taskId: t.id, title: t.title, branch: t.branch },
+  })),
+})
+\`\`\`
+
+### Step 1 — Prepare (readiness check)
+
 \`\`\`typescript
 exarchos_orchestrate({
   action: "prepare_delegation",
@@ -4944,6 +4985,8 @@ The composite action performs:
 3. **Quality signal assembly** — queries \`code_quality\` view; if \`gatePassRate < 0.80\`, returns quality hints to embed in prompts. Emits \`gate.executed('plan-coverage')\` on success (no pre-query needed)
 4. **Benchmark detection** — sets \`verification.hasBenchmarks\` if any task has benchmark criteria
 5. **Readiness verdict** — returns \`{ ready: true, worktrees: [...], qualityHints: [...] }\` or \`{ ready: false, reason: "..." }\`
+
+**If \`blocked: true\` with \`reason: "current-branch-protected"\`:** the response includes a \`hint\` field (e.g. "checkout the feature/phase branch before dispatching delegation"). Apply the hint, then re-call.
 
 **If \`ready: false\`:** Stop. Report the reason to the user. Do not proceed.
 
@@ -5016,7 +5059,7 @@ For parallel grouping strategy and model selection, see \`references/parallel-st
 
 ### Subagent Monitoring
 
-Poll background tasks and collect results using the runtime's result-collection primitive:
+Collect background task results using the runtime's result-collection primitive (this may be a poll/await per task or inline replies, depending on the runtime):
 
 \`\`\`text
 wait_agent({ task_id })
@@ -5074,7 +5117,7 @@ This is advisory — findings are recorded for the convergence view but do not b
 When a task fails:
 1. Read the failure output from the runtime's result-collection primitive (\`wait_agent({ task_id })\`)
 2. Diagnose root cause — do NOT trust the implementer's self-assessment (see R3 adversarial posture)
-3. Fix the task using the resume-aware fixer flow below
+3. Fix the task using the fixer flow below — resume the original agent on runtimes with native session resume, otherwise dispatch a fresh fixer agent
 4. Run the \`task-fix\` runbook gate chain after the fix completes
 
 For the full recovery flow with a concrete example, see \`references/worked-example.md\`.
@@ -9098,7 +9141,7 @@ metadata:
 
 # Delegation Skill
 
-Dispatch implementation tasks to Claude Code subagents with proper context, worktree isolation, and TDD requirements. This skill follows a three-step flow: **Prepare, Dispatch, Monitor.**
+Dispatch implementation tasks to subagents with proper context, worktree isolation, and TDD requirements. This skill follows a three-step flow: **Prepare, Dispatch, Monitor.**
 
 ## Triggers
 
@@ -9123,7 +9166,7 @@ Rationalization patterns that violate this principle are catalogued in \`referen
 
 ### Delegation Modes
 
-The default \`subagent\` mode dispatches each task using the runtime's native spawn primitive (e.g., the \`Task\` tool on Claude Code / OpenCode / Cursor, \`spawn_agent\` on Codex, \`task --agent\` on Copilot). On runtimes without a subagent primitive (e.g. \`generic\`), delegation degrades to sequential in-session execution.
+The default \`subagent\` mode dispatches each task using the runtime's spawn primitive: \`task\`. Runtimes without a subagent primitive (\`hasSubagents: false\`) fall back to sequential in-session execution.
 
 
 Use the \`recommendedModel\` from \`prepare_delegation\` task classifications when available. If no classification exists (e.g., fixer dispatch), omit \`model\` to inherit the session default.
@@ -9141,6 +9184,25 @@ Before dispatching, query decision runbooks to classify the work and select the 
 
 Use the \`prepare_delegation\` composite action to validate readiness in a single call. This replaces manual script invocations and individual checks.
 
+> **Authoritative spec:** the canonical list of preconditions, blockers, and arguments for \`prepare_delegation\` lives in the runtime — query it with \`exarchos_orchestrate({ action: "describe", actions: ["prepare_delegation"] })\` if anything in this skill drifts from observed behavior. Treat the runtime \`describe\` output as the source of truth.
+
+### Step 0 — Pre-emit (required before \`prepare_delegation\`)
+
+Before calling \`prepare_delegation\`, the workflow stream must contain a \`task.assigned\` event for each task. The readiness view counts these events to populate \`taskCount\`; without them, \`prepare_delegation\` returns \`{ ready: false, blockers: ["no task.assigned events found ..."] }\`.
+
+\`\`\`typescript
+exarchos_event({
+  action: "batch_append",
+  stream: "<featureId>",
+  events: tasks.map((t) => ({
+    type: "task.assigned",
+    data: { taskId: t.id, title: t.title, branch: t.branch },
+  })),
+})
+\`\`\`
+
+### Step 1 — Prepare (readiness check)
+
 \`\`\`typescript
 exarchos_orchestrate({
   action: "prepare_delegation",
@@ -9155,6 +9217,8 @@ The composite action performs:
 3. **Quality signal assembly** — queries \`code_quality\` view; if \`gatePassRate < 0.80\`, returns quality hints to embed in prompts. Emits \`gate.executed('plan-coverage')\` on success (no pre-query needed)
 4. **Benchmark detection** — sets \`verification.hasBenchmarks\` if any task has benchmark criteria
 5. **Readiness verdict** — returns \`{ ready: true, worktrees: [...], qualityHints: [...] }\` or \`{ ready: false, reason: "..." }\`
+
+**If \`blocked: true\` with \`reason: "current-branch-protected"\`:** the response includes a \`hint\` field (e.g. "checkout the feature/phase branch before dispatching delegation"). Apply the hint, then re-call.
 
 **If \`ready: false\`:** Stop. Report the reason to the user. Do not proceed.
 
@@ -9209,7 +9273,7 @@ This runbook provides structured criteria for parallel vs sequential dispatch, t
 Dispatch all independent tasks using the runtime's native spawn primitive. On runtimes with subagent support, fan out in a **single message** so the dispatches run in parallel. On runtimes without a subagent primitive, execute each task sequentially against its prepared worktree and emit one operator-visible warning per batch so users know they are not getting parallelism.
 
 \`\`\`typescript
-task --agent implementer "Implement task-001: [title]: Task-specific context: requirements, file paths, acceptance criteria"
+task --agent implementer 'Implement task-001: [title]: Task-specific context: requirements, file paths, acceptance criteria'
 \`\`\`
 
 > **Note:** On Claude Code, the \`exarchos-implementer\` agent definition already contains the system prompt, model, isolation, skills, hooks, and memory — the dispatch prompt should carry ONLY task-specific context. On runtimes without native agent definitions, include the full implementer prompt template from \`references/implementer-prompt.md\` in the \`prompt\` field so the spawned agent has a self-contained context.
@@ -9223,10 +9287,10 @@ For parallel grouping strategy and model selection, see \`references/parallel-st
 
 ### Subagent Monitoring
 
-Poll background tasks and collect results using the runtime's result-collection primitive:
+Collect background task results using the runtime's result-collection primitive (this may be a poll/await per task or inline replies, depending on the runtime):
 
 \`\`\`text
-\`task\` output (inline)
+task --agent reply (inline)
 \`\`\`
 
 After each subagent reports completion:
@@ -9279,9 +9343,9 @@ This is advisory — findings are recorded for the convergence view but do not b
 ### Failure Recovery
 
 When a task fails:
-1. Read the failure output from the runtime's result-collection primitive (\`\`task\` output (inline)\`)
+1. Read the failure output from the runtime's result-collection primitive (\`task --agent reply (inline)\`)
 2. Diagnose root cause — do NOT trust the implementer's self-assessment (see R3 adversarial posture)
-3. Fix the task using the resume-aware fixer flow below
+3. Fix the task using the fixer flow below — resume the original agent on runtimes with native session resume, otherwise dispatch a fresh fixer agent
 4. Run the \`task-fix\` runbook gate chain after the fix completes
 
 For the full recovery flow with a concrete example, see \`references/worked-example.md\`.
@@ -9294,7 +9358,7 @@ Dispatch a fix agent with the full failure context and the original task descrip
 When session resume is unavailable, dispatch a fresh fixer agent using the runtime's native spawn primitive.
 
 \`\`\`typescript
-task --agent implementer "Fix failed task-001: Your implementation failed. [failure context from test output]. Apply adversarial verification: do NOT trust your previous self-assessment, re-read actual test output, identify root cause not symptoms. [Original task context]."
+task --agent fixer 'Fix failed task-001: Your implementation failed. [failure context from test output]. Apply adversarial verification: do NOT trust your previous self-assessment, re-read actual test output, identify root cause not symptoms. [Original task context].'
 \`\`\`
 
 After fix completes, run the \`task-fix\` runbook gate chain:
@@ -13301,7 +13365,7 @@ metadata:
 
 # Delegation Skill
 
-Dispatch implementation tasks to Claude Code subagents with proper context, worktree isolation, and TDD requirements. This skill follows a three-step flow: **Prepare, Dispatch, Monitor.**
+Dispatch implementation tasks to subagents with proper context, worktree isolation, and TDD requirements. This skill follows a three-step flow: **Prepare, Dispatch, Monitor.**
 
 ## Triggers
 
@@ -13326,7 +13390,7 @@ Rationalization patterns that violate this principle are catalogued in \`referen
 
 ### Delegation Modes
 
-The default \`subagent\` mode dispatches each task using the runtime's native spawn primitive (e.g., the \`Task\` tool on Claude Code / OpenCode / Cursor, \`spawn_agent\` on Codex, \`task --agent\` on Copilot). On runtimes without a subagent primitive (e.g. \`generic\`), delegation degrades to sequential in-session execution.
+The default \`subagent\` mode dispatches each task using the runtime's spawn primitive: \`Task\`. Runtimes without a subagent primitive (\`hasSubagents: false\`) fall back to sequential in-session execution.
 
 
 Use the \`recommendedModel\` from \`prepare_delegation\` task classifications when available. If no classification exists (e.g., fixer dispatch), omit \`model\` to inherit the session default.
@@ -13344,6 +13408,25 @@ Before dispatching, query decision runbooks to classify the work and select the 
 
 Use the \`prepare_delegation\` composite action to validate readiness in a single call. This replaces manual script invocations and individual checks.
 
+> **Authoritative spec:** the canonical list of preconditions, blockers, and arguments for \`prepare_delegation\` lives in the runtime — query it with \`exarchos_orchestrate({ action: "describe", actions: ["prepare_delegation"] })\` if anything in this skill drifts from observed behavior. Treat the runtime \`describe\` output as the source of truth.
+
+### Step 0 — Pre-emit (required before \`prepare_delegation\`)
+
+Before calling \`prepare_delegation\`, the workflow stream must contain a \`task.assigned\` event for each task. The readiness view counts these events to populate \`taskCount\`; without them, \`prepare_delegation\` returns \`{ ready: false, blockers: ["no task.assigned events found ..."] }\`.
+
+\`\`\`typescript
+exarchos_event({
+  action: "batch_append",
+  stream: "<featureId>",
+  events: tasks.map((t) => ({
+    type: "task.assigned",
+    data: { taskId: t.id, title: t.title, branch: t.branch },
+  })),
+})
+\`\`\`
+
+### Step 1 — Prepare (readiness check)
+
 \`\`\`typescript
 exarchos_orchestrate({
   action: "prepare_delegation",
@@ -13358,6 +13441,8 @@ The composite action performs:
 3. **Quality signal assembly** — queries \`code_quality\` view; if \`gatePassRate < 0.80\`, returns quality hints to embed in prompts. Emits \`gate.executed('plan-coverage')\` on success (no pre-query needed)
 4. **Benchmark detection** — sets \`verification.hasBenchmarks\` if any task has benchmark criteria
 5. **Readiness verdict** — returns \`{ ready: true, worktrees: [...], qualityHints: [...] }\` or \`{ ready: false, reason: "..." }\`
+
+**If \`blocked: true\` with \`reason: "current-branch-protected"\`:** the response includes a \`hint\` field (e.g. "checkout the feature/phase branch before dispatching delegation"). Apply the hint, then re-call.
 
 **If \`ready: false\`:** Stop. Report the reason to the user. Do not proceed.
 
@@ -13431,10 +13516,10 @@ For parallel grouping strategy and model selection, see \`references/parallel-st
 
 ### Subagent Monitoring
 
-Poll background tasks and collect results using the runtime's result-collection primitive:
+Collect background task results using the runtime's result-collection primitive (this may be a poll/await per task or inline replies, depending on the runtime):
 
 \`\`\`text
-[poll subagent result]
+Task() reply (inline)
 \`\`\`
 
 After each subagent reports completion:
@@ -13487,9 +13572,9 @@ This is advisory — findings are recorded for the convergence view but do not b
 ### Failure Recovery
 
 When a task fails:
-1. Read the failure output from the runtime's result-collection primitive (\`[poll subagent result]\`)
+1. Read the failure output from the runtime's result-collection primitive (\`Task() reply (inline)\`)
 2. Diagnose root cause — do NOT trust the implementer's self-assessment (see R3 adversarial posture)
-3. Fix the task using the resume-aware fixer flow below
+3. Fix the task using the fixer flow below — resume the original agent on runtimes with native session resume, otherwise dispatch a fresh fixer agent
 4. Run the \`task-fix\` runbook gate chain after the fix completes
 
 For the full recovery flow with a concrete example, see \`references/worked-example.md\`.
@@ -13503,7 +13588,7 @@ When session resume is unavailable, dispatch a fresh fixer agent using the runti
 
 \`\`\`typescript
 Task({
-  subagent_type: "implementer",
+  subagent_type: "fixer",
   description: "Fix failed task-001",
   prompt: "Your implementation failed. [failure context from test output]. Apply adversarial verification: do NOT trust your previous self-assessment, re-read actual test output, identify root cause not symptoms. [Original task context]."
 })
@@ -17514,7 +17599,7 @@ metadata:
 
 # Delegation Skill
 
-Dispatch implementation tasks to Claude Code subagents with proper context, worktree isolation, and TDD requirements. This skill follows a three-step flow: **Prepare, Dispatch, Monitor.**
+Dispatch implementation tasks to subagents with proper context, worktree isolation, and TDD requirements. This skill follows a three-step flow: **Prepare, Dispatch, Monitor.**
 
 ## Triggers
 
@@ -17539,7 +17624,7 @@ Rationalization patterns that violate this principle are catalogued in \`referen
 
 ### Delegation Modes
 
-The default \`subagent\` mode dispatches each task using the runtime's native spawn primitive (e.g., the \`Task\` tool on Claude Code / OpenCode / Cursor, \`spawn_agent\` on Codex, \`task --agent\` on Copilot). On runtimes without a subagent primitive (e.g. \`generic\`), delegation degrades to sequential in-session execution.
+The default \`subagent\` mode dispatches each task using the runtime's spawn primitive: \`[sequential execution]\`. Runtimes without a subagent primitive (\`hasSubagents: false\`) fall back to sequential in-session execution.
 
 
 Use the \`recommendedModel\` from \`prepare_delegation\` task classifications when available. If no classification exists (e.g., fixer dispatch), omit \`model\` to inherit the session default.
@@ -17557,6 +17642,25 @@ Before dispatching, query decision runbooks to classify the work and select the 
 
 Use the \`prepare_delegation\` composite action to validate readiness in a single call. This replaces manual script invocations and individual checks.
 
+> **Authoritative spec:** the canonical list of preconditions, blockers, and arguments for \`prepare_delegation\` lives in the runtime — query it with \`exarchos_orchestrate({ action: "describe", actions: ["prepare_delegation"] })\` if anything in this skill drifts from observed behavior. Treat the runtime \`describe\` output as the source of truth.
+
+### Step 0 — Pre-emit (required before \`prepare_delegation\`)
+
+Before calling \`prepare_delegation\`, the workflow stream must contain a \`task.assigned\` event for each task. The readiness view counts these events to populate \`taskCount\`; without them, \`prepare_delegation\` returns \`{ ready: false, blockers: ["no task.assigned events found ..."] }\`.
+
+\`\`\`typescript
+exarchos_event({
+  action: "batch_append",
+  stream: "<featureId>",
+  events: tasks.map((t) => ({
+    type: "task.assigned",
+    data: { taskId: t.id, title: t.title, branch: t.branch },
+  })),
+})
+\`\`\`
+
+### Step 1 — Prepare (readiness check)
+
 \`\`\`typescript
 exarchos_orchestrate({
   action: "prepare_delegation",
@@ -17571,6 +17675,8 @@ The composite action performs:
 3. **Quality signal assembly** — queries \`code_quality\` view; if \`gatePassRate < 0.80\`, returns quality hints to embed in prompts. Emits \`gate.executed('plan-coverage')\` on success (no pre-query needed)
 4. **Benchmark detection** — sets \`verification.hasBenchmarks\` if any task has benchmark criteria
 5. **Readiness verdict** — returns \`{ ready: true, worktrees: [...], qualityHints: [...] }\` or \`{ ready: false, reason: "..." }\`
+
+**If \`blocked: true\` with \`reason: "current-branch-protected"\`:** the response includes a \`hint\` field (e.g. "checkout the feature/phase branch before dispatching delegation"). Apply the hint, then re-call.
 
 **If \`ready: false\`:** Stop. Report the reason to the user. Do not proceed.
 
@@ -17639,10 +17745,10 @@ For parallel grouping strategy and model selection, see \`references/parallel-st
 
 ### Subagent Monitoring
 
-Poll background tasks and collect results using the runtime's result-collection primitive:
+Collect background task results using the runtime's result-collection primitive (this may be a poll/await per task or inline replies, depending on the runtime):
 
 \`\`\`text
-[poll subagent result]
+[task output is the assistant's next message]
 \`\`\`
 
 After each subagent reports completion:
@@ -17695,9 +17801,9 @@ This is advisory — findings are recorded for the convergence view but do not b
 ### Failure Recovery
 
 When a task fails:
-1. Read the failure output from the runtime's result-collection primitive (\`[poll subagent result]\`)
+1. Read the failure output from the runtime's result-collection primitive (\`[task output is the assistant's next message]\`)
 2. Diagnose root cause — do NOT trust the implementer's self-assessment (see R3 adversarial posture)
-3. Fix the task using the resume-aware fixer flow below
+3. Fix the task using the fixer flow below — resume the original agent on runtimes with native session resume, otherwise dispatch a fresh fixer agent
 4. Run the \`task-fix\` runbook gate chain after the fix completes
 
 For the full recovery flow with a concrete example, see \`references/worked-example.md\`.
@@ -21717,7 +21823,7 @@ metadata:
 
 # Delegation Skill
 
-Dispatch implementation tasks to Claude Code subagents with proper context, worktree isolation, and TDD requirements. This skill follows a three-step flow: **Prepare, Dispatch, Monitor.**
+Dispatch implementation tasks to subagents with proper context, worktree isolation, and TDD requirements. This skill follows a three-step flow: **Prepare, Dispatch, Monitor.**
 
 ## Triggers
 
@@ -21742,7 +21848,7 @@ Rationalization patterns that violate this principle are catalogued in \`referen
 
 ### Delegation Modes
 
-The default \`subagent\` mode dispatches each task using the runtime's native spawn primitive (e.g., the \`Task\` tool on Claude Code / OpenCode / Cursor, \`spawn_agent\` on Codex, \`task --agent\` on Copilot). On runtimes without a subagent primitive (e.g. \`generic\`), delegation degrades to sequential in-session execution.
+The default \`subagent\` mode dispatches each task using the runtime's spawn primitive: \`Task\`. Runtimes without a subagent primitive (\`hasSubagents: false\`) fall back to sequential in-session execution.
 
 
 Use the \`recommendedModel\` from \`prepare_delegation\` task classifications when available. If no classification exists (e.g., fixer dispatch), omit \`model\` to inherit the session default.
@@ -21760,6 +21866,25 @@ Before dispatching, query decision runbooks to classify the work and select the 
 
 Use the \`prepare_delegation\` composite action to validate readiness in a single call. This replaces manual script invocations and individual checks.
 
+> **Authoritative spec:** the canonical list of preconditions, blockers, and arguments for \`prepare_delegation\` lives in the runtime — query it with \`exarchos_orchestrate({ action: "describe", actions: ["prepare_delegation"] })\` if anything in this skill drifts from observed behavior. Treat the runtime \`describe\` output as the source of truth.
+
+### Step 0 — Pre-emit (required before \`prepare_delegation\`)
+
+Before calling \`prepare_delegation\`, the workflow stream must contain a \`task.assigned\` event for each task. The readiness view counts these events to populate \`taskCount\`; without them, \`prepare_delegation\` returns \`{ ready: false, blockers: ["no task.assigned events found ..."] }\`.
+
+\`\`\`typescript
+exarchos_event({
+  action: "batch_append",
+  stream: "<featureId>",
+  events: tasks.map((t) => ({
+    type: "task.assigned",
+    data: { taskId: t.id, title: t.title, branch: t.branch },
+  })),
+})
+\`\`\`
+
+### Step 1 — Prepare (readiness check)
+
 \`\`\`typescript
 exarchos_orchestrate({
   action: "prepare_delegation",
@@ -21774,6 +21899,8 @@ The composite action performs:
 3. **Quality signal assembly** — queries \`code_quality\` view; if \`gatePassRate < 0.80\`, returns quality hints to embed in prompts. Emits \`gate.executed('plan-coverage')\` on success (no pre-query needed)
 4. **Benchmark detection** — sets \`verification.hasBenchmarks\` if any task has benchmark criteria
 5. **Readiness verdict** — returns \`{ ready: true, worktrees: [...], qualityHints: [...] }\` or \`{ ready: false, reason: "..." }\`
+
+**If \`blocked: true\` with \`reason: "current-branch-protected"\`:** the response includes a \`hint\` field (e.g. "checkout the feature/phase branch before dispatching delegation"). Apply the hint, then re-call.
 
 **If \`ready: false\`:** Stop. Report the reason to the user. Do not proceed.
 
@@ -21846,10 +21973,10 @@ For parallel grouping strategy and model selection, see \`references/parallel-st
 
 ### Subagent Monitoring
 
-Poll background tasks and collect results using the runtime's result-collection primitive:
+Collect background task results using the runtime's result-collection primitive (this may be a poll/await per task or inline replies, depending on the runtime):
 
 \`\`\`text
-[poll subagent result]
+Task() reply (inline)
 \`\`\`
 
 After each subagent reports completion:
@@ -21902,9 +22029,9 @@ This is advisory — findings are recorded for the convergence view but do not b
 ### Failure Recovery
 
 When a task fails:
-1. Read the failure output from the runtime's result-collection primitive (\`[poll subagent result]\`)
+1. Read the failure output from the runtime's result-collection primitive (\`Task() reply (inline)\`)
 2. Diagnose root cause — do NOT trust the implementer's self-assessment (see R3 adversarial posture)
-3. Fix the task using the resume-aware fixer flow below
+3. Fix the task using the fixer flow below — resume the original agent on runtimes with native session resume, otherwise dispatch a fresh fixer agent
 4. Run the \`task-fix\` runbook gate chain after the fix completes
 
 For the full recovery flow with a concrete example, see \`references/worked-example.md\`.
@@ -21918,7 +22045,7 @@ When session resume is unavailable, dispatch a fresh fixer agent using the runti
 
 \`\`\`typescript
 Task({
-  subagent_type: "implementer",
+  subagent_type: "fixer",
   prompt: "Your implementation failed. [failure context from test output]. Apply adversarial verification: do NOT trust your previous self-assessment, re-read actual test output, identify root cause not symptoms. [Original task context]."
 })
 

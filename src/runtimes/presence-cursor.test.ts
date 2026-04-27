@@ -65,19 +65,22 @@ describe('runtimes/cursor.yaml presence', () => {
     const spawn = runtime.placeholders.SPAWN_AGENT_CALL;
 
     // The Cursor adapter (Task 4d) writes `.cursor/agents/<id>.md` with
-    // frontmatter `name: <id>`. The YAML's spawn template must reference
-    // the same agent name the adapter generates.
+    // frontmatter `name: <id>`. The spawn template must accept that
+    // generated name via the `{{agent}}` placeholder rendered at dispatch.
+    expect(spawn).toContain('{{agent}}');
+
     const { CursorAdapter } = await import(
       '../../servers/exarchos-mcp/src/agents/adapters/cursor.js'
     );
     const path = CursorAdapter.agentFilePath('implementer');
-    // Extract `implementer` from `.cursor/agents/implementer.md`.
     const match = path.match(/([^/]+)\.md$/);
     expect(match).not.toBeNull();
     const agentName = match![1];
     expect(agentName).toBe('implementer');
 
-    expect(spawn).toContain(agentName);
+    // Renderer substitution: `{{agent}}` → adapter-generated name yields
+    // a call that references the literal agent name.
+    expect(spawn.replaceAll('{{agent}}', agentName)).toContain(agentName);
   });
 
   it('CursorYaml_SupportedCapabilities_FiveNativeTwoAdvisory', () => {

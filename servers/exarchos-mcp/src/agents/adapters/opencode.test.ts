@@ -53,7 +53,7 @@ describe('OpenCodeAdapter', () => {
   });
 
   it('OpenCodeAdapter_LowerReviewer_EmitsReadOnlyTools', () => {
-    // REVIEWER declares fs:read + shell:exec + mcp:exarchos (no fs:write).
+    // REVIEWER declares fs:read + mcp:exarchos (no fs:write, no shell:exec).
     const { contents } = OpenCodeAdapter.lowerSpec(REVIEWER);
     const { data } = splitFrontmatter(contents);
 

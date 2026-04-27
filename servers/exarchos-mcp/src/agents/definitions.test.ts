@@ -49,7 +49,10 @@ describe('AgentSpec capability declarations', () => {
     expect(REVIEWER.capabilities).toEqual(
       expect.arrayContaining(['fs:read', 'mcp:exarchos']),
     );
-    // Reviewer is read-only: must not declare write capability.
+    // Reviewer is read-only: must not declare write capability. MCP
+    // remains declared (per #1109 Constraint 3) so the reviewer can call
+    // read-only views; mutating MCP actions are forbidden at the prompt
+    // layer (see Forbidden MCP Actions in REVIEWER.systemPrompt).
     expect(REVIEWER.capabilities).not.toContain('fs:write');
   });
 

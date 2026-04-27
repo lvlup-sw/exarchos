@@ -11,7 +11,7 @@ metadata:
 
 # Delegation Skill
 
-Dispatch implementation tasks to Claude Code subagents with proper context, worktree isolation, and TDD requirements. This skill follows a three-step flow: **Prepare, Dispatch, Monitor.**
+Dispatch implementation tasks to subagents with proper context, worktree isolation, and TDD requirements. This skill follows a three-step flow: **Prepare, Dispatch, Monitor.**
 
 ## Triggers
 
@@ -191,7 +191,7 @@ See `references/agent-teams-saga.md` for full event schemas and emission order.
 
 ### Subagent Monitoring
 
-Poll background tasks and collect results using the runtime's result-collection primitive:
+Collect background task results using the runtime's result-collection primitive (this may be a poll/await per task or inline replies, depending on the runtime):
 
 ```text
 {{SUBAGENT_RESULT_API}}
@@ -257,7 +257,7 @@ This is advisory — findings are recorded for the convergence view but do not b
 When a task fails:
 1. Read the failure output from the runtime's result-collection primitive (`{{SUBAGENT_RESULT_API}}`)
 2. Diagnose root cause — do NOT trust the implementer's self-assessment (see R3 adversarial posture)
-3. Fix the task using the resume-aware fixer flow below
+3. Fix the task using the fixer flow below — resume the original agent on runtimes with native session resume, otherwise dispatch a fresh fixer agent
 4. Run the `task-fix` runbook gate chain after the fix completes
 
 For the full recovery flow with a concrete example, see `references/worked-example.md`.

@@ -11,7 +11,7 @@ metadata:
 
 # Delegation Skill
 
-Dispatch implementation tasks to Claude Code subagents with proper context, worktree isolation, and TDD requirements. This skill follows a three-step flow: **Prepare, Dispatch, Monitor.**
+Dispatch implementation tasks to subagents with proper context, worktree isolation, and TDD requirements. This skill follows a three-step flow: **Prepare, Dispatch, Monitor.**
 
 ## Triggers
 
@@ -54,6 +54,25 @@ Before dispatching, query decision runbooks to classify the work and select the 
 
 Use the `prepare_delegation` composite action to validate readiness in a single call. This replaces manual script invocations and individual checks.
 
+> **Authoritative spec:** the canonical list of preconditions, blockers, and arguments for `prepare_delegation` lives in the runtime — query it with `exarchos_orchestrate({ action: "describe", actions: ["prepare_delegation"] })` if anything in this skill drifts from observed behavior. Treat the runtime `describe` output as the source of truth.
+
+### Step 0 — Pre-emit (required before `prepare_delegation`)
+
+Before calling `prepare_delegation`, the workflow stream must contain a `task.assigned` event for each task. The readiness view counts these events to populate `taskCount`; without them, `prepare_delegation` returns `{ ready: false, blockers: ["no task.assigned events found ..."] }`.
+
+```typescript
+exarchos_event({
+  action: "batch_append",
+  stream: "<featureId>",
+  events: tasks.map((t) => ({
+    type: "task.assigned",
+    data: { taskId: t.id, title: t.title, branch: t.branch },
+  })),
+})
+```
+
+### Step 1 — Prepare (readiness check)
+
 ```typescript
 exarchos_orchestrate({
   action: "prepare_delegation",
@@ -68,6 +87,8 @@ The composite action performs:
 3. **Quality signal assembly** — queries `code_quality` view; if `gatePassRate < 0.80`, returns quality hints to embed in prompts. Emits `gate.executed('plan-coverage')` on success (no pre-query needed)
 4. **Benchmark detection** — sets `verification.hasBenchmarks` if any task has benchmark criteria
 5. **Readiness verdict** — returns `{ ready: true, worktrees: [...], qualityHints: [...] }` or `{ ready: false, reason: "..." }`
+
+**If `blocked: true` with `reason: "current-branch-protected"`:** the response includes a `hint` field (e.g. "checkout the feature/phase branch before dispatching delegation"). Apply the hint, then re-call.
 
 **If `ready: false`:** Stop. Report the reason to the user. Do not proceed.
 
@@ -136,7 +157,7 @@ For parallel grouping strategy and model selection, see `references/parallel-str
 
 ### Subagent Monitoring
 
-Poll background tasks and collect results using the runtime's result-collection primitive:
+Collect background task results using the runtime's result-collection primitive (this may be a poll/await per task or inline replies, depending on the runtime):
 
 ```text
 [task output is the assistant's next message]
@@ -194,7 +215,7 @@ This is advisory — findings are recorded for the convergence view but do not b
 When a task fails:
 1. Read the failure output from the runtime's result-collection primitive (`[task output is the assistant's next message]`)
 2. Diagnose root cause — do NOT trust the implementer's self-assessment (see R3 adversarial posture)
-3. Fix the task using the resume-aware fixer flow below
+3. Fix the task using the fixer flow below — resume the original agent on runtimes with native session resume, otherwise dispatch a fresh fixer agent
 4. Run the `task-fix` runbook gate chain after the fix completes
 
 For the full recovery flow with a concrete example, see `references/worked-example.md`.
