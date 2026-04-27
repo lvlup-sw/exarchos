@@ -39,7 +39,8 @@ import { OpenCodeWriter } from './writers/opencode.js';
 
 // ─── Constants ────────────────────────────────────────────────────────────
 
-export const INIT_STREAM_ID = 'exarchos-init';
+import { INIT_STREAM_ID } from '../../core/infra-streams.js';
+export { INIT_STREAM_ID };
 
 // ─── Types ────────────────────────────────────────────────────────────────
 

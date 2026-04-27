@@ -8,6 +8,7 @@ import type { WorkflowEvent } from '../event-store/schemas.js';
 import { formatResult, pickFields, type ToolResult } from '../format.js';
 import { logger } from '../logger.js';
 import { TERMINAL_PHASES } from '../workflow/terminal-phases.js';
+import { isFeatureStream } from '../core/infra-streams.js';
 import { ViewMaterializer } from './materializer.js';
 import { SnapshotStore } from './snapshot-store.js';
 import {
@@ -405,8 +406,11 @@ export async function handleViewPipeline(
     const store = eventStore;
     const materializer = getOrCreateMaterializer(stateDir);
 
-    // Materialize all streams to get phase info for filtering
-    const streamIds = await discoverStreams(stateDir, store);
+    // Materialize all streams to get phase info for filtering. Infrastructure
+    // streams (exarchos-init, exarchos-doctor, telemetry) are excluded — they
+    // never emit workflow.started so they would surface as phantom rows with
+    // empty featureId/workflowType/phase (#1187).
+    const streamIds = (await discoverStreams(stateDir, store)).filter(isFeatureStream);
     const allWorkflows: PipelineViewState[] = [];
 
     for (const streamId of streamIds) {
