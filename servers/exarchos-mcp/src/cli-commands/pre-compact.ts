@@ -70,10 +70,19 @@ export async function handlePreCompact(
   try {
     await eventStore.initialize();
   } catch (err) {
+    // Non-PidLockError init failures (filesystem, permissions, etc.) leave
+    // the store with `initialized=false` and `sidecarMode=false`. In that
+    // state `append()` would skip the sidecar branch and write through the
+    // primary path without the PID lock — exactly the multi-process race
+    // the lock exists to prevent. Skip the checkpoint dispatch entirely and
+    // let compaction proceed: graceful degradation > corrupted event stream.
+    // PidLockError is handled internally by initialize() and never reaches
+    // this catch (it transitions to sidecar mode + initialized=true).
     workflowLogger.warn(
       { err: err instanceof Error ? err.message : String(err) },
-      'EventStore init failed in pre-compact — proceeding without PID lock',
+      'EventStore init failed in pre-compact — skipping checkpoint dispatch to preserve event-stream integrity',
     );
+    return { continue: true };
   }
   const ctx: DispatchContext = {
     stateDir,
