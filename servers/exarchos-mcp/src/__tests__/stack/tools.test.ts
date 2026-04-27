@@ -477,9 +477,10 @@ describe('registerStackTools', () => {
     expect(events).toHaveLength(1);
   });
 
-  it('both handlers share the same EventStore via getOrCreateEventStore', async () => {
-    // Without registration, both handlers use getOrCreateEventStore which caches
-    // a singleton — events written by handleStackPlace should be visible to handleStackStatus
+  it('both handlers share the same EventStore via the injected store', async () => {
+    // Both handlers receive the same `store` instance through their third
+    // positional arg — events written by handleStackPlace must be visible
+    // to handleStackStatus on the same EventStore.
     const result1 = await handleStackPlace(
       { streamId: 'wf-cache-test', position: 1, taskId: 't1', branch: 'feat/t1' },
       tempDir,
@@ -494,7 +495,7 @@ describe('registerStackTools', () => {
     );
     expect(result2.success).toBe(true);
 
-    // Both events should be visible via status (same cached store instance)
+    // Both events should be visible via status on the shared injected store
     const status = await handleStackStatus({ streamId: 'wf-cache-test' }, tempDir, store);
     expect(status.success).toBe(true);
     const positions = status.data as Array<{ position: number; taskId: string }>;
