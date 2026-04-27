@@ -113,7 +113,8 @@ export type BuildProbesFn = (ctx: DispatchContext) => DoctorProbes;
  * not tied to any workflow, so a dedicated stream keeps diagnostic
  * history separate from workflow streams.
  */
-export const DOCTOR_STREAM_ID = 'exarchos-doctor';
+import { DOCTOR_STREAM_ID } from '../../core/infra-streams.js';
+export { DOCTOR_STREAM_ID };
 
 /**
  * Testable seam — accepts an explicit `checks` list and `buildProbes`

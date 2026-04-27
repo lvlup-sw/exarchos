@@ -316,6 +316,7 @@ export async function handlePrepareDelegation(
           blocked: true,
           reason: protectionResult.reason,
           currentBranch: protectionResult.currentBranch,
+          ...(protectionResult.hint ? { hint: protectionResult.hint } : {}),
         },
       };
     }

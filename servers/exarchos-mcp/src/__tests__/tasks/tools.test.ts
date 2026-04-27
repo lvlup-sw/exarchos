@@ -356,12 +356,33 @@ describe('handleTaskComplete manual evidence bypass', () => {
     expect(result.error?.code).toBe('GATE_NOT_PASSED');
   });
 
-  it('handleTaskComplete_NonManualEvidence_StillRequiresGates', async () => {
+  it('handleTaskComplete_NonManualEvidenceWithPassedAndOutput_BypassesGates', async () => {
+    // Updated for #1189: the bypass is orthogonal to evidence.type
+    // (SRP — separate "what kind of proof" from "whether to skip
+    // prerequisites"). Any evidence with `passed === true` AND a
+    // non-empty `output` asserts work succeeded, regardless of type.
+    // The narrow `type === 'manual'` interpretation predated #1189.
     const result = await handleTaskComplete(
       {
         taskId: 't-test-type',
         evidence: { type: 'test', output: 'all passed', passed: true },
         streamId: 'wf-test-type',
+      },
+      tempDir,
+      store,
+    );
+
+    expect(result.success).toBe(true);
+  });
+
+  it('handleTaskComplete_NonManualEvidenceWithEmptyOutput_StillRequiresGates', async () => {
+    // Empty output is the sanity guard — passed===true alone is not
+    // enough to bypass; substantive proof is required (#1189).
+    const result = await handleTaskComplete(
+      {
+        taskId: 't-test-empty',
+        evidence: { type: 'test', output: '', passed: true },
+        streamId: 'wf-test-empty',
       },
       tempDir,
       store,

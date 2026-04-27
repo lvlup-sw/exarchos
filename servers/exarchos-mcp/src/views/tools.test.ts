@@ -1256,4 +1256,41 @@ describe('Backend Integration (Task 12)', () => {
 
     querySpy.mockRestore();
   });
+
+  // ─── #1187: pipeline view filters infra streams ───────────────────────────
+  describe('handleViewPipeline infra-stream filter (#1187)', () => {
+    it('Pipeline_WithInfraStreams_ExcludesPhantomRows', async () => {
+      // GIVEN: one real feature workflow stream alongside the three reserved
+      // infrastructure streams (exarchos-init, exarchos-doctor, telemetry)
+      await store.append('feat-real', {
+        type: 'workflow.started',
+        data: { featureId: 'real-feature', workflowType: 'feature' },
+      });
+      await store.append('exarchos-init', {
+        type: 'init.executed',
+        data: { runtime: 'claude' },
+      });
+      await store.append('exarchos-doctor', {
+        type: 'diagnostic.executed',
+        data: { check: 'mcp-handshake' },
+      });
+      await store.append('telemetry', {
+        type: 'tool.invoked',
+        data: { tool: 'exarchos_view', argsBytes: 12 },
+      });
+
+      // WHEN: pipeline view materializes all discovered streams
+      const result = await handleViewPipeline({}, tmpDir, store);
+
+      // THEN: only the feature workflow appears — infra streams are filtered
+      // out before materialization, so no phantom rows with empty featureId
+      // leak into the response.
+      expect(result.success).toBe(true);
+      const data = result.data as { workflows: Array<{ featureId: string }>; total: number };
+      expect(data.total).toBe(1);
+      expect(data.workflows).toHaveLength(1);
+      expect(data.workflows[0]?.featureId).toBe('real-feature');
+      expect(data.workflows.every((w) => w.featureId !== '')).toBe(true);
+    });
+  });
 });
