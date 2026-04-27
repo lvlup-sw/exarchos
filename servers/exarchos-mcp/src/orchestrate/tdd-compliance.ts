@@ -6,7 +6,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import type { ToolResult } from '../format.js';
-import { getOrCreateEventStore } from '../views/tools.js';
+import type { EventStore } from '../event-store/store.js';
 import { emitGateEvent } from './gate-utils.js';
 import { checkTddCompliance } from './pure/tdd-compliance.js';
 
@@ -24,6 +24,7 @@ interface TddComplianceArgs {
 export async function handleTddCompliance(
   args: TddComplianceArgs,
   stateDir: string,
+  eventStore: EventStore,
 ): Promise<ToolResult> {
   // Validate required args
   if (!args.featureId) {
@@ -61,7 +62,7 @@ export async function handleTddCompliance(
 
   // Emit gate.executed event (fire-and-forget)
   try {
-    const store = getOrCreateEventStore(stateDir);
+    const store = eventStore;
     await emitGateEvent(store, args.featureId, 'tdd-compliance', 'testing', passed, {
       dimension: 'D1',
       phase: 'delegate',

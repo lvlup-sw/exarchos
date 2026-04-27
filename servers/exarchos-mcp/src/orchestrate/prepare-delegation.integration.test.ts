@@ -14,10 +14,7 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import { handlePrepareDelegation } from './prepare-delegation.js';
 import { handleOrchestrate } from './composite.js';
-import {
-  getOrCreateEventStore,
-  resetMaterializerCache,
-} from '../views/tools.js';
+import { resetMaterializerCache } from '../views/tools.js';
 import { EventStore } from '../event-store/store.js';
 import type { DispatchContext } from '../core/dispatch.js';
 
@@ -57,10 +54,16 @@ async function flushAsyncQueue(ms = 50): Promise<void> {
 }
 
 describe('handlePrepareDelegation — event persistence (integration)', () => {
-  it('persists preflight.blocked to the real store when branch is protected', async () => {
+  it('persists preflight.blocked to the injected EventStore when branch is protected', async () => {
     const args = { featureId: 'test-integration-stream' };
+    const ctxStore = new EventStore(tmpDir);
+    const ctx: DispatchContext = {
+      stateDir: tmpDir,
+      eventStore: ctxStore,
+      enableTelemetry: false,
+    };
 
-    const result = await handlePrepareDelegation(args, tmpDir);
+    const result = await handlePrepareDelegation(args, tmpDir, ctx);
     await flushAsyncQueue();
 
     expect(result.success).toBe(true);
@@ -73,8 +76,7 @@ describe('handlePrepareDelegation — event persistence (integration)', () => {
     expect(data.reason).toBe('current-branch-protected');
     expect(data.currentBranch).toBe('main');
 
-    const store = getOrCreateEventStore(tmpDir);
-    const events = await store.query('test-integration-stream', {
+    const events = await ctxStore.query('test-integration-stream', {
       type: 'preflight.blocked',
     });
 
@@ -88,13 +90,23 @@ describe('handlePrepareDelegation — event persistence (integration)', () => {
     expect(eventData.details.currentBranch).toBe('main');
   });
 
-  // Reproduces the production MCP topology: the handler writes via the
-  // factory-cached EventStore (`getOrCreateEventStore`), while MCP callers
-  // query via `ctx.eventStore` — a distinct instance at the same stateDir.
-  it('event persists across distinct EventStore instances pointing at the same stateDir', async () => {
+  // The constructor-injection refactor (#1182) requires every reader to
+  // share the same EventStore instance the handler used. A "freshReader"
+  // EventStore at the same stateDir must still see events on disk, but
+  // sequence-counter coherence is only guaranteed when the same instance
+  // is used for both writes and reads — that is enforced by single-
+  // composition-root wiring at the MCP server level. This test verifies
+  // the on-disk events are present (write-side persistence).
+  it('event persists to disk and is readable by a second EventStore instance', async () => {
     const args = { featureId: 'test-cross-instance' };
+    const ctxStore = new EventStore(tmpDir);
+    const ctx: DispatchContext = {
+      stateDir: tmpDir,
+      eventStore: ctxStore,
+      enableTelemetry: false,
+    };
 
-    await handlePrepareDelegation(args, tmpDir);
+    await handlePrepareDelegation(args, tmpDir, ctx);
     await flushAsyncQueue(200);
 
     const freshReader = new EventStore(tmpDir);

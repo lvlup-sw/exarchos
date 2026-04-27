@@ -1,11 +1,12 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { listStateFiles } from '../workflow/state-store.js';
-import { getOrCreateEventStore } from '../views/tools.js';
+import { EventStore } from '../event-store/store.js';
 import { dispatch } from '../core/dispatch.js';
 import type { DispatchContext } from '../core/dispatch.js';
 import { handleAssembleContext } from './assemble-context.js';
 import type { CommandResult } from './types.js';
+import { workflowLogger } from '../logger.js';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -62,12 +63,27 @@ export async function handlePreCompact(
     return { continue: true };
   }
 
-  // Build a minimal DispatchContext once. `getOrCreateEventStore` caches by
-  // stateDir so repeated pre-compact invocations in the same process share
-  // the same handle (same pattern used by other CLI adapters). Telemetry is
-  // disabled here — the hook path is latency-sensitive and the composite's
-  // own logging covers the observability needs of pre-compact callers.
-  const eventStore = getOrCreateEventStore(stateDir);
+  // CLI entrypoint: bootstrap own EventStore (separate process boundary).
+  // Telemetry is disabled here — the hook path is latency-sensitive and the
+  // composite's own logging covers the observability needs of pre-compact.
+  const eventStore = new EventStore(stateDir);
+  try {
+    await eventStore.initialize();
+  } catch (err) {
+    // Non-PidLockError init failures (filesystem, permissions, etc.) leave
+    // the store with `initialized=false` and `sidecarMode=false`. In that
+    // state `append()` would skip the sidecar branch and write through the
+    // primary path without the PID lock — exactly the multi-process race
+    // the lock exists to prevent. Skip the checkpoint dispatch entirely and
+    // let compaction proceed: graceful degradation > corrupted event stream.
+    // PidLockError is handled internally by initialize() and never reaches
+    // this catch (it transitions to sidecar mode + initialized=true).
+    workflowLogger.warn(
+      { err: err instanceof Error ? err.message : String(err) },
+      'EventStore init failed in pre-compact — skipping checkpoint dispatch to preserve event-stream integrity',
+    );
+    return { continue: true };
+  }
   const ctx: DispatchContext = {
     stateDir,
     eventStore,

@@ -29,8 +29,21 @@ import {
   type RehydrationDocument,
 } from './schema.js';
 
-/** Terminal task states this reducer recognises as taskProgress statuses. */
-type TaskProgressStatus = 'assigned' | 'completed' | 'failed';
+/**
+ * Task statuses surfaced by this reducer.
+ *
+ *  - `assigned` / `completed` / `failed` come from dedicated `task.*` events.
+ *  - `pending` is seeded from `state.patched.patch.tasks` (the planner's
+ *    declared task list — see Fix 2 / #1179) so plan-state tasks that have
+ *    not yet been dispatched still appear in the rehydration document.
+ *
+ * Event-derived statuses are *authoritative* over plan-derived statuses:
+ * once a task has been observed assigned/completed/failed via events, a
+ * later state.patched re-asserting the plan must NOT regress it back to
+ * `pending` (the planner stamps the plan repeatedly; events carry execution
+ * truth).
+ */
+type TaskProgressStatus = 'pending' | 'assigned' | 'completed' | 'failed';
 
 /** Structural shape of a single taskProgress entry in the rehydration doc. */
 type TaskProgressEntry = RehydrationDocument['taskProgress'][number];
@@ -180,6 +193,115 @@ function upsertTaskProgress(
   return next;
 }
 
+/**
+ * Decode the `data.patch.tasks` subtree of a `state.patched` event into a
+ * minimal `{ id, status }[]` projection (Fix 2 / #1179).
+ *
+ * The workflow-side `TaskSchema` (workflow/schemas.ts) carries many fields,
+ * but the rehydration document only consumes id + status. Anything that
+ * isn't a non-empty string `id` is skipped — the patch could carry an
+ * intentionally partial entry (e.g. only `title` updates) that we should
+ * not invent an id for.
+ *
+ * Returns `undefined` when the event has no tasks subtree OR the subtree is
+ * empty / unactionable, so callers can short-circuit and avoid bumping
+ * `projectionSequence` for no-op patches.
+ */
+interface ExtractedPlanTask {
+  readonly id: string;
+  readonly status: TaskProgressStatus;
+}
+
+function extractPlanTasks(
+  data: WorkflowEvent['data'],
+): readonly ExtractedPlanTask[] | undefined {
+  if (!data) return undefined;
+  const patch = data['patch'];
+  if (!patch || typeof patch !== 'object' || Array.isArray(patch)) {
+    return undefined;
+  }
+  const tasksRaw = (patch as Record<string, unknown>)['tasks'];
+  if (!Array.isArray(tasksRaw)) {
+    return undefined;
+  }
+
+  const out: ExtractedPlanTask[] = [];
+  for (const entry of tasksRaw) {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) continue;
+    const e = entry as Record<string, unknown>;
+    const id = typeof e['id'] === 'string' ? (e['id'] as string) : undefined;
+    if (!id) continue;
+    // The plan-side TaskSchema status is `pending|in_progress|complete|failed`.
+    // Map onto the reducer's TaskProgressStatus surface; anything else (or
+    // missing) becomes `pending` because the plan-state assertion is "this
+    // task exists" — refining its execution status is the events' job.
+    const rawStatus = e['status'];
+    const status: TaskProgressStatus =
+      rawStatus === 'failed'
+        ? 'failed'
+        : rawStatus === 'complete' || rawStatus === 'completed'
+          ? 'completed'
+          : rawStatus === 'in_progress'
+            ? 'assigned'
+            : 'pending';
+    out.push({ id, status });
+  }
+
+  return out.length > 0 ? out : undefined;
+}
+
+// Status precedence — higher values "outrank" lower ones. Plan-derived
+// statuses can advance an entry up the ladder but never back down it.
+// `completed` and `failed` are siblings at the top: an event that put a
+// task into either terminal state cannot be regressed by plan re-assertions.
+const STATUS_RANK: Readonly<Record<TaskProgressStatus, number>> = {
+  pending: 0,
+  assigned: 1,
+  completed: 2,
+  failed: 2,
+};
+
+/**
+ * Pure helper — fold a plan-derived task list into the existing taskProgress.
+ *
+ * Monotonic status promotion: a plan-carried status can advance an existing
+ * entry up the precedence ladder (pending → assigned → completed/failed),
+ * but never back down. This covers the missing-event flows #1180 was filed
+ * against — a state.patched re-assertion can promote `assigned` to
+ * `completed` even when the dedicated task.completed event never fired —
+ * while still preventing the regression case (a re-assertion of `pending`
+ * over a `completed` entry is ignored). New ids in the plan are appended
+ * with their plan-declared status. Per CR review 4178067854.
+ */
+function foldPlanTasks(
+  progress: readonly TaskProgressEntry[],
+  planTasks: readonly ExtractedPlanTask[],
+): TaskProgressEntry[] {
+  const next = progress.slice();
+  const indexById = new Map(next.map((entry, idx) => [entry.id, idx]));
+  for (const planTask of planTasks) {
+    const existingIdx = indexById.get(planTask.id);
+    if (existingIdx === undefined) {
+      next.push({ id: planTask.id, status: planTask.status });
+      indexById.set(planTask.id, next.length - 1);
+      continue;
+    }
+    const existing = next[existingIdx];
+    // The schema widens status to z.string() (forward-compat for explicit
+    // schema revs), so look up via a typed accessor that returns 0 for
+    // any unknown value — anything not in the recognised ladder is treated
+    // as the lowest rank, never blocking a known-status promotion.
+    const rankOf = (s: string): number =>
+      Object.prototype.hasOwnProperty.call(STATUS_RANK, s)
+        ? STATUS_RANK[s as TaskProgressStatus]
+        : 0;
+    if (rankOf(planTask.status) > rankOf(existing.status)) {
+      next[existingIdx] = { ...existing, status: planTask.status };
+    }
+  }
+  return next;
+}
+
 // ─── Per-prefix handlers ────────────────────────────────────────────────────
 //
 // Each handler accepts (state, event) where `event.type` has already been
@@ -293,35 +415,56 @@ function applyWorkflowGuardFailed(
 
 /**
  * Handler for `state.patched` — folds the `data.patch.artifacts` subtree into
- * rehydration `artifacts` (T025). The plan references `workflow.set`, but
- * `workflow set` emits `state.patched` under the hood — see
- * `servers/exarchos-mcp/src/workflow/tools.ts` ~L759. Other subtrees (e.g.
- * `tasks`) are surfaced via their own dedicated events (task.*) and are not
- * re-derived from state.patched here.
+ * rehydration `artifacts` (T025) AND, post Fix 2 / #1179, folds
+ * `data.patch.tasks` into `taskProgress` as plan-state assertions.
+ *
+ * `state.patched` is the canonical event behind `exarchos_workflow set` — see
+ * `servers/exarchos-mcp/src/workflow/tools.ts` ~L759. Pre-fix this handler
+ * deliberately ignored the `tasks` subtree on the assumption that dedicated
+ * `task.*` events would always cover the tasks list. In practice planners
+ * stamp the full task list via `workflow set` before any `task.assigned`
+ * event fires, so pending tasks went missing from the rehydration document.
+ *
+ * Both subtrees are independent — the event may carry one, the other, both,
+ * or neither. The handler treats them as independent contributions to a
+ * single (potentially merged) state delta and bumps `projectionSequence`
+ * once per actionable event (DR-1, no mutation; counter monotonicity).
  */
 function applyStatePatched(
   state: RehydrationDocument,
   event: WorkflowEvent,
 ): RehydrationDocument {
   const artifactsPatch = extractArtifactsPatch(event.data);
-  if (!artifactsPatch) {
-    // No artifacts subtree, or no actionable entries: no-op.
+  const planTasks = extractPlanTasks(event.data);
+  if (!artifactsPatch && !planTasks) {
+    // No actionable subtrees: no-op. Return identity so callers that rely
+    // on structural sharing for change detection see "unhandled".
     return state;
   }
-  // Fold the diff: drop unset keys first (so an `unset` entry can't be
-  // resurrected by a same-event `set`), then overlay the upserts. Build a
-  // fresh object rather than mutating to preserve reducer purity (DR-1).
-  const nextArtifacts: Record<string, string> = { ...state.artifacts };
-  for (const key of artifactsPatch.unset) {
-    delete nextArtifacts[key];
+
+  let nextArtifacts: Record<string, string> = state.artifacts;
+  if (artifactsPatch) {
+    // Fold the diff: drop unset keys first (so an `unset` entry can't be
+    // resurrected by a same-event `set`), then overlay the upserts. Build a
+    // fresh object rather than mutating to preserve reducer purity (DR-1).
+    nextArtifacts = { ...state.artifacts };
+    for (const key of artifactsPatch.unset) {
+      delete nextArtifacts[key];
+    }
+    for (const [key, value] of Object.entries(artifactsPatch.set)) {
+      nextArtifacts[key] = value;
+    }
   }
-  for (const [key, value] of Object.entries(artifactsPatch.set)) {
-    nextArtifacts[key] = value;
-  }
+
+  const nextTaskProgress = planTasks
+    ? foldPlanTasks(state.taskProgress, planTasks)
+    : state.taskProgress;
+
   return {
     ...state,
     projectionSequence: state.projectionSequence + 1,
     artifacts: nextArtifacts,
+    taskProgress: nextTaskProgress,
   };
 }
 
@@ -376,6 +519,104 @@ function applyReviewEscalated(
   };
 }
 
+// ─── Registered event-type accessor (Fix 3 / #1180, DIM-3) ─────────────────
+//
+// SoT introspection — exposes the per-phase set of event types the reducer
+// recognises so that downstream surfaces (`PHASE_EXPECTED_EVENTS` in
+// orchestrate/check-event-emissions.ts; the delegate-phase playbook events
+// list in workflow/playbooks.ts) derive their lists from a single source
+// instead of maintaining independent copies that drift silently.
+//
+// "Recognises" is broader than "folds into projection state". A handler may
+// either (a) fold the event into the rehydration document — `task.*` status
+// changes upsert taskProgress entries — or (b) acknowledge the event as a
+// known coordination/observability beat that bumps `projectionSequence` but
+// otherwise leaves the document unchanged. Pattern (b) matters because
+// hints + playbook need to advertise these coordination events to the model
+// even when no document field tracks them; without recognition here they
+// fall through the dispatcher's default branch and silently drift back out
+// of the contract.
+//
+// Only `model`-source events belong in these lists: `PHASE_EXPECTED_EVENTS`
+// throws at module load if a non-model event leaks through, and
+// `gate.executed` (auto-emitted by withTelemetry) deliberately stays out of
+// the playbook events surface since the model never emits it directly.
+
+/**
+ * Canonical model-emitted event contract for the `delegate` phase
+ * (feature workflow).
+ *
+ * Fold semantics:
+ *   - `task.assigned/completed/failed` upsert taskProgress entries (T023).
+ *   - `team.*` and `task.progressed` are recognised coordination beats —
+ *     handlers acknowledge them (so the dispatcher does not fall through
+ *     to the default branch) but make no document mutation today. They are
+ *     load-bearing for the SoT contract: hints/playbook advertise them to
+ *     the model, and recognising them here keeps the three lists aligned.
+ */
+export const DELEGATE_PHASE_EVENT_TYPES = [
+  'task.assigned',
+  'task.completed',
+  'task.failed',
+  'team.spawned',
+  'team.task.planned',
+  'team.teammate.dispatched',
+  'team.disbanded',
+  'task.progressed',
+] as const;
+
+/**
+ * Canonical model-emitted event contract for the `overhaul-delegate` phase
+ * (refactor workflow). Mirrors {@link DELEGATE_PHASE_EVENT_TYPES} minus
+ * `task.progressed` — the refactor-track delegation does not run TDD and
+ * therefore does not emit per-phase progression beats.
+ */
+export const OVERHAUL_DELEGATE_PHASE_EVENT_TYPES = [
+  'task.assigned',
+  'task.completed',
+  'task.failed',
+  'team.spawned',
+  'team.task.planned',
+  'team.teammate.dispatched',
+  'team.disbanded',
+] as const;
+
+export function getRegisteredEventTypes(phase: string): readonly string[] {
+  switch (phase) {
+    case 'delegate':
+      return DELEGATE_PHASE_EVENT_TYPES;
+    case 'overhaul-delegate':
+      return OVERHAUL_DELEGATE_PHASE_EVENT_TYPES;
+    default:
+      return [];
+  }
+}
+
+/**
+ * Recognised-but-non-folding handler for delegate-phase coordination beats
+ * (`team.*` events, `task.progressed`).
+ *
+ * Currently a no-op on document fields — these events are load-bearing for
+ * the SoT contract (hints/playbook advertise them; recognition here keeps
+ * the three lists aligned per #1180) but carry no projection mutation
+ * today. We do NOT bump `projectionSequence` on these events: monotonicity
+ * of that counter is reserved for events that actually mutate document
+ * state (DR-3 contract for the rehydration projection). Returning identity
+ * preserves the same "unhandled" structural-sharing semantic the
+ * dispatcher's default branch uses.
+ *
+ * If a future change folds any of these into a document field, switch this
+ * handler (or split it per event) to return a new state with an incremented
+ * `projectionSequence` — the existing `task.*`/`workflow.*` handlers above
+ * are the canonical pattern.
+ */
+function applyCoordinationEventNoOp(
+  state: RehydrationDocument,
+  _event: WorkflowEvent,
+): RehydrationDocument {
+  return state;
+}
+
 // ─── Reducer (thin dispatcher) ──────────────────────────────────────────────
 
 export const rehydrationReducer: ProjectionReducer<RehydrationDocument, WorkflowEvent> = {
@@ -413,6 +654,19 @@ export const rehydrationReducer: ProjectionReducer<RehydrationDocument, Workflow
         return applyReviewCompleted(state, event);
       case 'review.escalated':
         return applyReviewEscalated(state, event);
+
+      // ── team.* + task.progressed — delegate-phase coordination beats ─────
+      // Recognised by the SoT registry (DELEGATE_PHASE_EVENT_TYPES /
+      // OVERHAUL_DELEGATE_PHASE_EVENT_TYPES) so that hints + playbook stay
+      // aligned with the reducer's known event surface (#1180, DIM-3). No
+      // document mutation today — see applyCoordinationEventNoOp for the
+      // rationale and the upgrade path if a fold is added later.
+      case 'team.spawned':
+      case 'team.task.planned':
+      case 'team.teammate.dispatched':
+      case 'team.disbanded':
+      case 'task.progressed':
+        return applyCoordinationEventNoOp(state, event);
 
       // ── decision.* — NOT YET WIRED ───────────────────────────────────────
       // No `decision.*` event type is registered in the event-store.

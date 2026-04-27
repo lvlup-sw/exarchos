@@ -4,7 +4,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import type { EventStore } from '../event-store/store.js';
 import { formatResult, toEventAck, type ToolResult } from '../format.js';
-import { getOrCreateMaterializer, getOrCreateEventStore } from '../views/tools.js';
+import { getOrCreateMaterializer } from '../views/tools.js';
 import { STACK_VIEW } from '../views/stack-view.js';
 import type { StackViewState } from '../views/stack-view.js';
 
@@ -17,13 +17,14 @@ export async function handleStackStatus(
     offset?: number;
   },
   stateDir: string,
+  eventStore: EventStore,
 ): Promise<ToolResult> {
   if (!args.streamId) {
     return { success: true, data: [] };
   }
 
   try {
-    const store = getOrCreateEventStore(stateDir);
+    const store = eventStore;
     const materializer = getOrCreateMaterializer(stateDir);
 
     await materializer.loadFromSnapshot(args.streamId, STACK_VIEW);
@@ -64,7 +65,8 @@ export async function handleStackPlace(
     branch?: string;
     prUrl?: string;
   },
-  stateDir: string,
+  _stateDir: string,
+  eventStore: EventStore,
 ): Promise<ToolResult> {
   if (!args.streamId) {
     return {
@@ -87,7 +89,7 @@ export async function handleStackPlace(
     };
   }
 
-  const store = getOrCreateEventStore(stateDir);
+  const store = eventStore;
 
   const data: Record<string, unknown> = {
     position: args.position,
@@ -122,7 +124,7 @@ export async function handleStackPlace(
 
 // ─── Registration Function ──────────────────────────────────────────────────
 
-export function registerStackTools(server: McpServer, stateDir: string, _eventStore: EventStore): void {
+export function registerStackTools(server: McpServer, stateDir: string, eventStore: EventStore): void {
   server.tool(
     'exarchos_stack_status',
     'Get current stack positions from stack.position-filled events',
@@ -131,7 +133,7 @@ export function registerStackTools(server: McpServer, stateDir: string, _eventSt
       limit: z.number().int().positive().optional(),
       offset: z.number().int().nonnegative().optional(),
     },
-    async (args) => formatResult(await handleStackStatus(args, stateDir)),
+    async (args) => formatResult(await handleStackStatus(args, stateDir, eventStore)),
   );
 
   server.tool(
@@ -144,6 +146,6 @@ export function registerStackTools(server: McpServer, stateDir: string, _eventSt
       branch: z.string().optional(),
       prUrl: z.string().optional(),
     },
-    async (args) => formatResult(await handleStackPlace(args, stateDir)),
+    async (args) => formatResult(await handleStackPlace(args, stateDir, eventStore)),
   );
 }

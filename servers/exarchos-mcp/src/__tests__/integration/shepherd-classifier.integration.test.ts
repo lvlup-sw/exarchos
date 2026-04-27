@@ -77,9 +77,12 @@ describe('shepherd → classifier integration (#1159)', () => {
       },
     ];
 
+    const { EventStore } = await import('../../event-store/store.js');
+    const eventStore = new EventStore(STATE_DIR);
     const assessResult = await handleAssessStack(
       { featureId: 'feat-integration', prNumbers: [42] },
       STATE_DIR,
+      eventStore,
       mockProvider(comments),
     );
 

@@ -1,15 +1,14 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // Mock dependencies before importing the module under test
-vi.mock('../views/tools.js', () => ({
-  getOrCreateEventStore: vi.fn(() => ({
-    append: vi.fn().mockResolvedValue(undefined),
-  })),
-}));
-
 vi.mock('./gate-utils.js', () => ({
   emitGateEvent: vi.fn().mockResolvedValue(undefined),
 }));
+
+// Stub EventStore for handler injection
+const mockStore = {
+  append: vi.fn().mockResolvedValue(undefined),
+};
 
 // We mock fs/promises for handleTaskDecomposition integration test
 vi.mock('node:fs/promises', async (importOriginal) => {
@@ -21,7 +20,7 @@ vi.mock('node:fs/promises', async (importOriginal) => {
 });
 
 import { readFile } from 'node:fs/promises';
-import { getOrCreateEventStore } from '../views/tools.js';
+import type { EventStore } from '../event-store/store.js';
 import { emitGateEvent } from './gate-utils.js';
 import {
   parseTaskBlocks,
@@ -32,7 +31,6 @@ import {
 } from './task-decomposition.js';
 
 const mockedEmitGateEvent = vi.mocked(emitGateEvent);
-const mockedGetOrCreateEventStore = vi.mocked(getOrCreateEventStore);
 const mockedReadFile = vi.mocked(readFile);
 
 // ─── Fixture Data ─────────────────────────────────────────────────────────
@@ -327,15 +325,12 @@ describe('handleTaskDecomposition', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    mockedGetOrCreateEventStore.mockReturnValue({
-      append: vi.fn().mockResolvedValue(undefined),
-    } as unknown as ReturnType<typeof getOrCreateEventStore>);
   });
 
   it('HandleTaskDecomposition_MissingFeatureId_ReturnsError', async () => {
     const args = { featureId: '', planPath: 'docs/plans/test.md' };
 
-    const result = await handleTaskDecomposition(args, stateDir);
+    const result = await handleTaskDecomposition(args, stateDir, mockStore as unknown as EventStore);
 
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('INVALID_INPUT');
@@ -344,7 +339,7 @@ describe('handleTaskDecomposition', () => {
   it('HandleTaskDecomposition_MissingPlanPath_ReturnsError', async () => {
     const args = { featureId: 'test-feature', planPath: '' };
 
-    const result = await handleTaskDecomposition(args, stateDir);
+    const result = await handleTaskDecomposition(args, stateDir, mockStore as unknown as EventStore);
 
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('INVALID_INPUT');
@@ -355,7 +350,7 @@ describe('handleTaskDecomposition', () => {
     mockedReadFile.mockResolvedValue(WELL_DECOMPOSED_PLAN);
 
     // Act
-    const result = await handleTaskDecomposition(baseArgs, stateDir);
+    const result = await handleTaskDecomposition(baseArgs, stateDir, mockStore as unknown as EventStore);
 
     // Assert
     expect(result.success).toBe(true);
@@ -377,7 +372,7 @@ describe('handleTaskDecomposition', () => {
     // Should emit gate event
     expect(mockedEmitGateEvent).toHaveBeenCalledOnce();
     expect(mockedEmitGateEvent).toHaveBeenCalledWith(
-      expect.anything(),
+      mockStore,
       'test-feature',
       'task-decomposition',
       'planning',

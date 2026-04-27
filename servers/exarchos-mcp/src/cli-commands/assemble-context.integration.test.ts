@@ -134,10 +134,13 @@ describe('assemble-context integration: behavioral guidance round-trip', () => {
     expect(result.contextDocument).toContain('exarchos_event');
     expect(result.contextDocument).toContain('exarchos_orchestrate');
 
-    // Assert — contains event types from the delegate playbook
+    // Assert — contains event types from the delegate playbook.
+    // gate.executed is auto-emitted by withTelemetry middleware and explicitly
+    // excluded from the model-event contract per #1180 — assert on the
+    // model-emitted set instead.
     expect(result.contextDocument).toContain('task.assigned');
     expect(result.contextDocument).toContain('team.spawned');
-    expect(result.contextDocument).toContain('gate.executed');
+    expect(result.contextDocument).toContain('task.progressed');
   });
 
   it('preCompactToSessionStart_ReviewPhase_HasToolInstructions', async () => {

@@ -8,20 +8,53 @@
 import type { EventType } from '../event-store/schemas.js';
 import { EVENT_DATA_SCHEMAS, EVENT_EMISSION_REGISTRY } from '../event-store/schemas.js';
 import type { ToolResult } from '../format.js';
+import type { EventStore } from '../event-store/store.js';
 import {
-  getOrCreateEventStore,
   getOrCreateMaterializer,
   queryDeltaEvents,
 } from '../views/tools.js';
 import { WORKFLOW_STATE_VIEW } from '../views/workflow-state-projection.js';
 import type { WorkflowStateView } from '../views/workflow-state-projection.js';
 import { emitGateEvent } from './gate-utils.js';
+import { getRegisteredEventTypes } from '../projections/rehydration/reducer.js';
 
 // ─── Phase-to-Expected-Events Registry ──────────────────────────────────────
+//
+// Source-of-truth for the delegate / overhaul-delegate phases is the
+// rehydration reducer (Fix 3 / #1180, DIM-3) — `getRegisteredEventTypes`
+// returns the canonical event set the reducer recognises for each phase,
+// and the playbook events list derives from the same accessor. Both
+// surfaces filter the SoT to model-emitted events here (auto-emitted
+// task.completed / task.failed are recognised by the reducer for state
+// folding but never appear in hints/playbook because the model never emits
+// them directly). Other phases continue to declare their expected-events
+// inline because the reducer does not yet model them.
+
+/**
+ * Filter a SoT event-type list to only those whose emission source is `model`.
+ * Throws on any input event name that isn't registered in EVENT_EMISSION_REGISTRY,
+ * so a typo in the reducer's SoT registry can never silently disappear from the
+ * derived phase-expected-events list (which would mask drift between SoT and
+ * the registry — exactly the DIM-3 contract violation #1180 was filed against).
+ */
+function modelEmittedOnly(types: readonly string[]): readonly EventType[] {
+  const out: EventType[] = [];
+  for (const t of types) {
+    const source = EVENT_EMISSION_REGISTRY[t as EventType];
+    if (source === undefined) {
+      throw new Error(
+        `modelEmittedOnly: '${t}' is not registered in EVENT_EMISSION_REGISTRY — ` +
+          `register it (or fix the typo at the SoT) so phase-expected-events stays consistent.`,
+      );
+    }
+    if (source === 'model') out.push(t as EventType);
+  }
+  return out;
+}
 
 export const PHASE_EXPECTED_EVENTS: Readonly<Record<string, readonly EventType[]>> = {
-  'delegate': ['team.spawned', 'team.task.planned', 'team.teammate.dispatched', 'task.progressed'],
-  'overhaul-delegate': ['team.spawned', 'team.task.planned', 'team.teammate.dispatched'],
+  'delegate': modelEmittedOnly(getRegisteredEventTypes('delegate')),
+  'overhaul-delegate': modelEmittedOnly(getRegisteredEventTypes('overhaul-delegate')),
   'review': ['team.spawned', 'team.task.planned', 'team.teammate.dispatched', 'team.disbanded', 'review.routed'],
   'overhaul-review': ['team.spawned', 'team.task.planned', 'team.teammate.dispatched', 'team.disbanded', 'review.routed'],
   'synthesize': ['team.spawned', 'team.disbanded', 'review.routed', 'stack.submitted', 'shepherd.iteration'],
@@ -95,6 +128,7 @@ function extractRequiredFields(eventType: EventType): string[] | undefined {
 export async function handleCheckEventEmissions(
   args: CheckEventEmissionsArgs,
   stateDir: string,
+  eventStore: EventStore,
 ): Promise<ToolResult> {
   // Guard clause: validate required inputs
   if (!args.featureId) {
@@ -118,7 +152,7 @@ export async function handleCheckEventEmissions(
     };
   }
 
-  const store = getOrCreateEventStore(stateDir);
+  const store = eventStore;
   const materializer = getOrCreateMaterializer(stateDir);
   const streamId = args.workflowId ?? args.featureId;
 

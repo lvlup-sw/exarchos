@@ -2,6 +2,7 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { ToolResult } from '../format.js';
+import type { EventStore } from '../event-store/store.js';
 
 // ─── Mock event store + materializer ────────────────────────────────────────
 
@@ -19,7 +20,6 @@ const mockMaterializer = {
 };
 
 vi.mock('../views/tools.js', () => ({
-  getOrCreateEventStore: () => mockStore,
   getOrCreateMaterializer: () => mockMaterializer,
   queryDeltaEvents: vi.fn().mockResolvedValue([]),
 }));
@@ -40,6 +40,7 @@ describe('handleCheckConvergence', () => {
     const result: ToolResult = await handleCheckConvergence(
       {} as { featureId: string },
       STATE_DIR,
+      mockStore as unknown as EventStore,
     );
 
     expect(result.success).toBe(false);
@@ -63,6 +64,7 @@ describe('handleCheckConvergence', () => {
     const result: ToolResult = await handleCheckConvergence(
       { featureId: 'test-feature' },
       STATE_DIR,
+      mockStore as unknown as EventStore,
     );
 
     expect(result.success).toBe(true);
@@ -87,6 +89,7 @@ describe('handleCheckConvergence', () => {
     const result: ToolResult = await handleCheckConvergence(
       { featureId: 'test-feature' },
       STATE_DIR,
+      mockStore as unknown as EventStore,
     );
 
     expect(result.success).toBe(true);
@@ -108,6 +111,7 @@ describe('handleCheckConvergence', () => {
     const result: ToolResult = await handleCheckConvergence(
       { featureId: 'cold-start' },
       STATE_DIR,
+      mockStore as unknown as EventStore,
     );
 
     expect(result.success).toBe(true);
@@ -132,7 +136,7 @@ describe('handleCheckConvergence', () => {
       },
     };
 
-    await handleCheckConvergence({ featureId: 'test-feature' }, STATE_DIR);
+    await handleCheckConvergence({ featureId: 'test-feature' }, STATE_DIR, mockStore as unknown as EventStore);
 
     // Verify gate event was emitted (fire-and-forget)
     expect(mockStore.append).toHaveBeenCalled();
@@ -152,7 +156,7 @@ describe('handleCheckConvergence', () => {
       },
     };
 
-    await handleCheckConvergence({ featureId: 'test-feature' }, STATE_DIR);
+    await handleCheckConvergence({ featureId: 'test-feature' }, STATE_DIR, mockStore as unknown as EventStore);
 
     // Verify gate event includes phase: 'meta'
     expect(mockStore.append).toHaveBeenCalled();
@@ -178,6 +182,7 @@ describe('handleCheckConvergence', () => {
     const result: ToolResult = await handleCheckConvergence(
       { featureId: 'test-feature' },
       STATE_DIR,
+      mockStore as unknown as EventStore,
     );
 
     // Handler should still succeed despite emission failure
@@ -198,6 +203,7 @@ describe('handleCheckConvergence', () => {
     await handleCheckConvergence(
       { featureId: 'test-feature', workflowId: 'custom-stream' },
       STATE_DIR,
+      mockStore as unknown as EventStore,
     );
 
     // Should use workflowId as the stream ID
@@ -250,6 +256,7 @@ describe('handleCheckConvergence', () => {
     const result: ToolResult = await handleCheckConvergence(
       { featureId: 'test-feature', phase: 'review' },
       STATE_DIR,
+      mockStore as unknown as EventStore,
     );
 
     expect(result.success).toBe(true);
@@ -309,6 +316,7 @@ describe('handleCheckConvergence', () => {
     const result: ToolResult = await handleCheckConvergence(
       { featureId: 'test-feature' },
       STATE_DIR,
+      mockStore as unknown as EventStore,
     );
 
     expect(result.success).toBe(true);
@@ -355,6 +363,7 @@ describe('handleCheckConvergence', () => {
     const result: ToolResult = await handleCheckConvergence(
       { featureId: 'test-feature' },
       STATE_DIR,
+      mockStore as unknown as EventStore,
     );
 
     expect(result.data.dimensions.D1).toEqual({

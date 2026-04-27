@@ -6,6 +6,7 @@ import * as path from 'node:path';
 import { EventStore } from '../event-store/store.js';
 import type { WorkflowEvent } from '../event-store/schemas.js';
 import { formatResult, pickFields, type ToolResult } from '../format.js';
+import { logger } from '../logger.js';
 import { TERMINAL_PHASES } from '../workflow/terminal-phases.js';
 import { ViewMaterializer } from './materializer.js';
 import { SnapshotStore } from './snapshot-store.js';
@@ -116,34 +117,11 @@ function createMaterializer(stateDir: string): ViewMaterializer {
   return materializer;
 }
 
-// ─── Singleton Cache for ViewMaterializer and EventStore ──────────────────
-//
-// Design rationale: Module-level mutable state is appropriate here because
-// the MCP server is single-threaded, processing one tool request at a time
-// over stdio. There is no concurrent access, so no synchronization is needed.
-// The cache avoids recreating EventStore and ViewMaterializer on every query,
-// which would discard the materializer's high-water marks and force full
-// event replay. Cache entries are only invalidated when stateDir changes,
-// ensuring both instances remain valid for the active working directory.
-
-// ─── Cached EventStore ──────────────────────────────────────────────────────
-
-let cachedEventStore: EventStore | null = null;
-let cachedEventStoreDir: string | null = null;
-
-/**
- * Factory/cache: returns a cached EventStore for the given stateDir.
- * Used by consumers (orchestrate handlers, CLI commands, view projections)
- * that don't receive EventStore via DispatchContext.
- */
-export function getOrCreateEventStore(stateDir: string): EventStore {
-  if (cachedEventStore && cachedEventStoreDir === stateDir) {
-    return cachedEventStore;
-  }
-  cachedEventStore = new EventStore(stateDir);
-  cachedEventStoreDir = stateDir;
-  return cachedEventStore;
-}
+// EventStore is no longer obtained through this module. After the
+// constructor-injection refactor (#1182), every consumer receives the
+// EventStore via DispatchContext. The previous registry/lazy-fallback
+// pattern was eliminated to avoid the DIM-1 recurrence trap — see
+// docs/rca/2026-04-26-v29-event-projection-cluster.md.
 
 // ─── Cached Materializer ─────────────────────────────────────────────────────
 
@@ -160,12 +138,10 @@ export function getOrCreateMaterializer(stateDir: string): ViewMaterializer {
   return cachedMaterializer;
 }
 
-/** For testing: reset the singleton cache */
+/** For testing: reset the singleton materializer cache. */
 export function resetMaterializerCache(): void {
   cachedMaterializer = null;
   cachedStateDir = null;
-  cachedEventStore = null;
-  cachedEventStoreDir = null;
 }
 
 // ─── Helper: query delta events using materializer high-water mark ──────────
@@ -213,6 +189,58 @@ async function discoverStreams(stateDir: string, store?: EventStore): Promise<st
   }
 }
 
+// ─── Helper: read state.json (Fix 2 / #1184) ───────────────────────────────
+//
+// Several view handlers must consult `<id>.state.json` for plan-state facts
+// that the event projection cannot derive (review status, declared task
+// count, declared task list, dimension findings). The handlers stay
+// best-effort: a missing/corrupt state file falls back to the projection-
+// derived value rather than failing the view query, because state.json is
+// the planner's stamp and not all callers (CLI tools, tests, in-flight
+// workflows) will have one yet.
+async function readWorkflowStateJson(
+  stateDir: string,
+  workflowId: string,
+): Promise<Record<string, unknown> | null> {
+  const file = path.join(stateDir, `${workflowId}.state.json`);
+  let raw: string;
+  try {
+    raw = await fs.readFile(file, 'utf-8');
+  } catch (err) {
+    // ENOENT is the legitimate "no plan-state stamp yet" case (CLI tools,
+    // tests, in-flight workflows before first `workflow set`) — fall back
+    // silently to projection-derived values. Other I/O errors are NOT
+    // expected and would mask real corruption if treated as a clean miss.
+    if ((err as NodeJS.ErrnoException)?.code === 'ENOENT') return null;
+    logger.warn(
+      { err: err instanceof Error ? err.message : String(err), file },
+      'readWorkflowStateJson: I/O error reading state.json — falling back to projection',
+    );
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      return parsed as Record<string, unknown>;
+    }
+    logger.warn(
+      { file, type: Array.isArray(parsed) ? 'array' : typeof parsed },
+      'readWorkflowStateJson: state.json is not an object — falling back to projection',
+    );
+    return null;
+  } catch (err) {
+    // Corrupt JSON: surface a warning so the corruption is observable in
+    // logs even though we keep serving views from the projection. Without
+    // this, a long-lived bad state.json would silently disagree with
+    // workflow_status / synthesis_readiness / convergence forever.
+    logger.warn(
+      { err: err instanceof Error ? err.message : String(err), file },
+      'readWorkflowStateJson: failed to parse state.json — falling back to projection',
+    );
+    return null;
+  }
+}
+
 // ─── View Workflow Status Handler ──────────────────────────────────────────
 
 export async function handleViewWorkflowStatus(
@@ -232,7 +260,16 @@ export async function handleViewWorkflowStatus(
       events,
     );
 
-    return { success: true, data: view };
+    // Fix 2 (#1184) — `tasksTotal` is a plan-state fact: the planner stamps
+    // the full task list via `workflow set` (state.patched events), and
+    // `task.assigned` only fires for tasks that get dispatched. Sourcing the
+    // count from state.tasks.length avoids under-reporting when the planner
+    // has declared work that hasn't been kicked off yet.
+    const state = await readWorkflowStateJson(stateDir, streamId);
+    const stateTasks = state?.['tasks'];
+    const tasksTotal = Array.isArray(stateTasks) ? stateTasks.length : view.tasksTotal;
+
+    return { success: true, data: { ...view, tasksTotal } };
   } catch (err) {
     return {
       success: false,
@@ -269,7 +306,51 @@ export async function handleViewTasks(
       events,
     );
 
-    let tasks: TaskDetail[] = Object.values(view.tasks);
+    // Fix 2 (#1184) — the task-detail projection is event-sourced and only
+    // populates entries that have a `task.assigned` event. The planner often
+    // stamps the full task list via `workflow set` before any dispatch, so
+    // we merge state.tasks into the projection: event-sourced detail wins
+    // (it has assignee, status, tddPhase, etc.); state-sourced entries fill
+    // in the gaps so plan-declared pending tasks appear.
+    const state = await readWorkflowStateJson(stateDir, streamId);
+    const stateTasksRaw = state?.['tasks'];
+    const merged: Record<string, TaskDetail> = { ...view.tasks };
+    if (Array.isArray(stateTasksRaw)) {
+      for (const entry of stateTasksRaw) {
+        if (!entry || typeof entry !== 'object' || Array.isArray(entry)) continue;
+        const e = entry as Record<string, unknown>;
+        const id = typeof e['id'] === 'string' ? (e['id'] as string) : undefined;
+        if (!id || merged[id]) continue;
+        // Map TaskSchema status (`pending|in_progress|complete|failed`) onto
+        // the TaskDetail status union. The schema preprocesses 'completed' →
+        // 'complete' so handle both spellings defensively. Plan-state
+        // 'pending' must surface as 'pending' so a not-yet-dispatched task
+        // is never reported as 'assigned' (which means dispatched to a
+        // teammate) — see #1184 / CR feedback on PR #1185.
+        const rawStatus = e['status'];
+        const status: TaskDetail['status'] =
+          rawStatus === 'failed'
+            ? 'failed'
+            : rawStatus === 'complete' || rawStatus === 'completed'
+              ? 'completed'
+              : rawStatus === 'in_progress'
+                ? 'in-progress'
+                : 'pending';
+        merged[id] = {
+          taskId: id,
+          title: typeof e['title'] === 'string' ? (e['title'] as string) : '',
+          status,
+          ...(typeof e['branch'] === 'string' ? { branch: e['branch'] as string } : {}),
+          ...(typeof e['worktreePath'] === 'string'
+            ? { worktree: e['worktreePath'] as string }
+            : {}),
+          ...(typeof e['teammateName'] === 'string'
+            ? { assignee: e['teammateName'] as string }
+            : {}),
+        };
+      }
+    }
+    let tasks: TaskDetail[] = Object.values(merged);
 
     // Apply optional filter
     if (args.filter) {
@@ -820,7 +901,84 @@ export async function handleViewSynthesisReadiness(
       events,
     );
 
-    return { success: true, data: view };
+    // Fix 2 (#1184) — review status is plan-state stamped via `workflow set`
+    // (state.reviews); the synthesis-readiness projection only watches
+    // `gate.executed`, so reviews recorded directly into state.json never
+    // surface as passed. state.json is the planner's source of truth — when
+    // an entry exists there, prefer it; otherwise fall back to the projection.
+    // This avoids a stale projection-derived `true` sticking after the
+    // planner re-stamps a review back to a non-passed status.
+    const state = await readWorkflowStateJson(stateDir, streamId);
+    const reviews = (state?.['reviews'] as Record<string, unknown> | undefined) ?? {};
+    const reviewStatus = (
+      key: string,
+    ): { present: boolean; passed: boolean } => {
+      const r = reviews[key];
+      if (!r || typeof r !== 'object' || Array.isArray(r)) {
+        return { present: false, passed: false };
+      }
+      return {
+        present: true,
+        passed: (r as Record<string, unknown>)['status'] === 'passed',
+      };
+    };
+    const spec = reviewStatus('spec-review');
+    const quality = reviewStatus('quality-review');
+    const specPassed = spec.present ? spec.passed : view.review.specPassed;
+    const qualityPassed = quality.present ? quality.passed : view.review.qualityPassed;
+
+    // Fix 2 (#1184) — task counts: the projection counts events; state.json
+    // is the planner's stamp. Both `total` AND `completed` need the
+    // state.json fallback — projection-derived completed count is
+    // event-driven, so in the missing-event flows this PR is fixing it
+    // would underreport (state.tasks shows complete but no task.completed
+    // event ever fired). CR review 4178067854.
+    const stateTasks = state?.['tasks'];
+    const tasksTotal = Array.isArray(stateTasks) ? stateTasks.length : view.tasks.total;
+    const tasksCompleted = Array.isArray(stateTasks)
+      ? stateTasks.filter((t) => {
+          if (!t || typeof t !== 'object' || Array.isArray(t)) return false;
+          const status = (t as Record<string, unknown>)['status'];
+          return status === 'complete' || status === 'completed';
+        }).length
+      : view.tasks.completed;
+
+    // Fix 2 (T2.6) — distinguish null (not measured) from false (failed) when
+    // generating blocker text. The projection's tests.* fields initialize to
+    // null; only `test.result` / `typecheck.result` events flip them to a
+    // boolean. Saying "tests not passing" when no test ever ran is misleading.
+    const blockers: string[] = [];
+    if (tasksTotal === 0) {
+      blockers.push('no tasks tracked');
+    } else if (tasksCompleted !== tasksTotal) {
+      blockers.push(
+        `tasks incomplete: ${tasksCompleted}/${tasksTotal} completed`,
+      );
+    }
+    if (!specPassed) blockers.push('spec review not passed');
+    if (!qualityPassed) blockers.push('quality review not passed');
+    if (view.tests.lastRunPassed === null) {
+      blockers.push('tests not measured');
+    } else if (view.tests.lastRunPassed !== true) {
+      blockers.push('tests not passing');
+    }
+    if (view.tests.typecheckPassed === null) {
+      blockers.push('typecheck not measured');
+    } else if (view.tests.typecheckPassed !== true) {
+      blockers.push('typecheck not passing');
+    }
+    if (view.stack.conflicts) blockers.push('stack has unresolved conflicts');
+
+    const ready = blockers.length === 0;
+    const data: SynthesisReadinessState = {
+      ...view,
+      ready,
+      blockers,
+      tasks: { ...view.tasks, total: tasksTotal, completed: tasksCompleted },
+      review: { ...view.review, specPassed, qualityPassed },
+    };
+
+    return { success: true, data };
   } catch (err) {
     return {
       success: false,
@@ -912,6 +1070,35 @@ export async function handleViewConvergence(
       CONVERGENCE_VIEW,
       events,
     );
+
+    // Fix 2 (#1184) — when `gate.executed` events don't cover all dimensions,
+    // fall back to `state.reviews.findingsByDimension`. The reviewer stamps
+    // findings into state.json via `workflow set` even when the gate harness
+    // didn't run, so an unchecked dimension here may still have ground-truth
+    // data that should mark it as covered. We don't synthesize gate results
+    // (we lack pass/fail timestamps), but we DO remove the dimension from
+    // `uncheckedDimensions` so consumers stop blocking on a phantom gap.
+    const state = await readWorkflowStateJson(stateDir, streamId);
+    const reviews = state?.['reviews'];
+    const findingsByDimension =
+      reviews && typeof reviews === 'object' && !Array.isArray(reviews)
+        ? (reviews as Record<string, unknown>)['findingsByDimension']
+        : undefined;
+    if (
+      findingsByDimension &&
+      typeof findingsByDimension === 'object' &&
+      !Array.isArray(findingsByDimension) &&
+      view.uncheckedDimensions.length > 0
+    ) {
+      const covered = new Set(Object.keys(findingsByDimension as Record<string, unknown>));
+      const remaining = view.uncheckedDimensions.filter((d) => !covered.has(d));
+      if (remaining.length !== view.uncheckedDimensions.length) {
+        return {
+          success: true,
+          data: { ...view, uncheckedDimensions: remaining },
+        };
+      }
+    }
 
     return { success: true, data: view };
   } catch (err) {

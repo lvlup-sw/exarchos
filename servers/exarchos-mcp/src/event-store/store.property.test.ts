@@ -188,10 +188,16 @@ describe('EventStore Stale .seq Cross-Validation', () => {
     resetModuleEventStore();
     resetMaterializerCache();
 
+    // Fresh instance — exercises the stale-.seq + JSONL cross-check bootstrap
+    // path. Reusing store1 here would carry its in-memory sequenceCounters
+    // forward and silently bypass the regression we're guarding against.
+    const store2 = new EventStore(runDir);
+
     // Call handleTaskClaim — should succeed, not fail with CLAIM_FAILED
     const result = await handleTaskClaim(
       { taskId: 't-stale', agentId: 'agent-stale', streamId },
       runDir,
+      store2,
     );
 
     expect(result.success).toBe(true);

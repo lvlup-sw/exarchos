@@ -4,7 +4,6 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import {
   getOrCreateMaterializer,
-  getOrCreateEventStore,
   resetMaterializerCache,
   handleViewWorkflowStatus,
   handleViewTasks,
@@ -16,65 +15,34 @@ import {
   handleViewQualityCorrelation,
   handleViewProvenance,
   handleViewIdeateReadiness,
+  handleViewSynthesisReadiness,
+  handleViewConvergence,
 } from './tools.js';
 import { EventStore } from '../event-store/store.js';
 import { InMemoryBackend } from '../storage/memory-backend.js';
 
-describe('Singleton Cache', () => {
+// The "Singleton Cache" describe block that previously tested
+// `getOrCreateEventStore` was deleted alongside that function. The
+// constructor-injection refactor (#1182) eliminated the registry
+// entirely; handlers receive EventStore via DispatchContext, and the
+// composition-root CI script enforces no rogue instantiations.
+// See docs/plans/2026-04-26-eventstore-constructor-injection.md.
+
+describe('Materializer Cache', () => {
   beforeEach(() => {
     resetMaterializerCache();
   });
 
-  describe('cache synchronization', () => {
-    it('should return same instances for same stateDir', () => {
-      const mat1 = getOrCreateMaterializer('/tmp/dir-A');
-      const mat2 = getOrCreateMaterializer('/tmp/dir-A');
-      expect(mat1).toBe(mat2);
+  it('returns same materializer for same stateDir', () => {
+    const mat1 = getOrCreateMaterializer('/tmp/dir-A');
+    const mat2 = getOrCreateMaterializer('/tmp/dir-A');
+    expect(mat1).toBe(mat2);
+  });
 
-      const store1 = getOrCreateEventStore('/tmp/dir-A');
-      const store2 = getOrCreateEventStore('/tmp/dir-A');
-      expect(store1).toBe(store2);
-    });
-
-    it('should create new instances when stateDir changes', () => {
-      const matA = getOrCreateMaterializer('/tmp/dir-A');
-      const matB = getOrCreateMaterializer('/tmp/dir-B');
-      expect(matA).not.toBe(matB);
-
-      const storeA = getOrCreateEventStore('/tmp/dir-A');
-      const storeB = getOrCreateEventStore('/tmp/dir-B');
-      expect(storeA).not.toBe(storeB);
-    });
-
-    it('should invalidate EventStore cache when Materializer stateDir changes', () => {
-      // Step 1: Populate both caches with dir-A
-      const matA = getOrCreateMaterializer('/tmp/dir-A');
-      const storeA = getOrCreateEventStore('/tmp/dir-A');
-
-      // Step 2: Change stateDir via materializer
-      const matB = getOrCreateMaterializer('/tmp/dir-B');
-      expect(matB).not.toBe(matA);
-
-      // Step 3: EventStore should NOT return dir-A's instance
-      // BUG: Before fix, cachedStateDir === "dir-B" but cachedEventStore
-      // still points to dir-A's EventStore, so it returns the stale instance.
-      const storeB = getOrCreateEventStore('/tmp/dir-B');
-      expect(storeB).not.toBe(storeA);
-    });
-
-    it('should invalidate Materializer cache when EventStore stateDir changes', () => {
-      // Step 1: Populate both caches with dir-A
-      const matA = getOrCreateMaterializer('/tmp/dir-A');
-      const storeA = getOrCreateEventStore('/tmp/dir-A');
-
-      // Step 2: Change stateDir via event store
-      const storeB = getOrCreateEventStore('/tmp/dir-B');
-      expect(storeB).not.toBe(storeA);
-
-      // Step 3: Materializer should NOT return dir-A's instance
-      const matB = getOrCreateMaterializer('/tmp/dir-B');
-      expect(matB).not.toBe(matA);
-    });
+  it('creates new materializer when stateDir changes', () => {
+    const matA = getOrCreateMaterializer('/tmp/dir-A');
+    const matB = getOrCreateMaterializer('/tmp/dir-B');
+    expect(matA).not.toBe(matB);
   });
 });
 
@@ -656,6 +624,278 @@ describe('View Handlers', () => {
       expect(skills).toHaveProperty('delegation');
       expect(skills['delegation'].evalScore).toBe(0.9);
       expect(skills['delegation'].gatePassRate).toBe(1);
+    });
+  });
+
+  // ─── Fix 2 (T2.2 / T2.3) — view handlers source from state.json ──────────
+  //
+  // Issue #1184: CQRS views disagree with state.json. View projections derived
+  // facts only from the event stream — when dedicated events were missing or
+  // the planner stamped state directly, the views silently dropped that data.
+  //
+  // Fix: the affected view handlers must consult `<id>.state.json` as the
+  // authoritative source for plan-state facts (review status, declared task
+  // count, declared task list) and use events only for execution facts.
+  //
+  // Spec deviation note: the plan (Fix 2 / T2.2) names `views/composite.test.ts`
+  // as the test file. composite.test.ts mocks every handler in `./tools.js`, so
+  // tests there cannot actually exercise the handler logic that pulls from
+  // state.json. tools.test.ts is the existing handler-integration test surface
+  // (real EventStore + tmpDir) — placing the integration tests here lets them
+  // genuinely fail RED and pass GREEN. composite.test.ts continues to validate
+  // routing only.
+
+  /** Build a minimally schema-valid state.json file at <tmpDir>/<id>.state.json. */
+  async function writeStateJson(
+    dir: string,
+    featureId: string,
+    overrides: Record<string, unknown>,
+  ): Promise<string> {
+    const now = new Date().toISOString();
+    const base: Record<string, unknown> = {
+      version: '1.1',
+      featureId,
+      workflowType: 'feature',
+      createdAt: now,
+      updatedAt: now,
+      phase: 'delegate',
+      artifacts: { design: null, plan: null, pr: null },
+      tasks: [],
+      worktrees: {},
+      reviews: {},
+      synthesis: {
+        integrationBranch: null,
+        mergeOrder: [],
+        mergedBranches: [],
+        prUrl: null,
+        prFeedback: [],
+      },
+      _version: 1,
+      _history: {},
+      _checkpoint: {
+        timestamp: now,
+        phase: 'delegate',
+        summary: 'Test state',
+        operationsSince: 0,
+        fixCycleCount: 0,
+        lastActivityTimestamp: now,
+        staleAfterMinutes: 120,
+      },
+      ...overrides,
+    };
+    const file = path.join(dir, `${featureId}.state.json`);
+    await fs.writeFile(file, JSON.stringify(base, null, 2), 'utf-8');
+    return file;
+  }
+
+  describe('Fix 2 — synthesis_readiness sources review status from state.json', () => {
+    it('SynthesisReadiness_StateReviewsPassed_NoGateExecutedEvents_ReportsSpecAndQualityPassed', async () => {
+      // GIVEN: state.json declares both spec-review and quality-review passed
+      // — but NO `gate.executed` events exist. Pre-fix the view sees both as
+      // false because the projection only watches events.
+      const featureId = 'wf-fix2-reviews';
+      await writeStateJson(tmpDir, featureId, {
+        reviews: {
+          'spec-review': { status: 'passed' },
+          'quality-review': { status: 'passed' },
+        },
+      });
+
+      // Act
+      const result = await handleViewSynthesisReadiness(
+        { workflowId: featureId },
+        tmpDir,
+        store,
+      );
+
+      // Assert
+      expect(result.success).toBe(true);
+      const data = result.data as {
+        review: { specPassed: boolean; qualityPassed: boolean };
+      };
+      expect(data.review.specPassed).toBe(true);
+      expect(data.review.qualityPassed).toBe(true);
+    });
+  });
+
+  describe('Fix 2 — workflow_status sources tasksTotal from state.json', () => {
+    it('WorkflowStatus_StateTasksLengthFive_OnlyTwoCompletedEvents_ReportsTasksTotalFive', async () => {
+      // GIVEN: state.json declares 5 tasks, but the event stream only has
+      // task.completed for 2 of them (no task.assigned events at all — the
+      // planner stamped tasks directly via workflow set without dispatching).
+      const featureId = 'wf-fix2-tasks-total';
+      await writeStateJson(tmpDir, featureId, {
+        tasks: [
+          { id: 'T1', title: 'Task 1', status: 'pending', blockedBy: [] },
+          { id: 'T2', title: 'Task 2', status: 'pending', blockedBy: [] },
+          { id: 'T3', title: 'Task 3', status: 'complete', blockedBy: [] },
+          { id: 'T4', title: 'Task 4', status: 'complete', blockedBy: [] },
+          { id: 'T5', title: 'Task 5', status: 'pending', blockedBy: [] },
+        ],
+      });
+
+      await store.append(featureId, {
+        streamId: featureId,
+        sequence: 1,
+        timestamp: new Date().toISOString(),
+        type: 'task.completed',
+        data: { taskId: 'T3' },
+        schemaVersion: '1.0',
+      });
+      await store.append(featureId, {
+        streamId: featureId,
+        sequence: 2,
+        timestamp: new Date().toISOString(),
+        type: 'task.completed',
+        data: { taskId: 'T4' },
+        schemaVersion: '1.0',
+      });
+
+      // Act
+      const result = await handleViewWorkflowStatus(
+        { workflowId: featureId },
+        tmpDir,
+        store,
+      );
+
+      // Assert: tasksTotal must reflect state.json (5), not event count (0).
+      expect(result.success).toBe(true);
+      const data = result.data as { tasksTotal: number };
+      expect(data.tasksTotal).toBe(5);
+    });
+  });
+
+  describe('Fix 2 — view tasks returns full state.tasks list', () => {
+    it('ViewTasks_StateTasksDeclaredButFewEvents_ReturnsAllStateEntries', async () => {
+      // GIVEN: state.json with 5 tasks, only 2 have task.assigned events
+      const featureId = 'wf-fix2-tasks-list';
+      await writeStateJson(tmpDir, featureId, {
+        tasks: [
+          { id: 'T1', title: 'Task 1', status: 'pending', blockedBy: [] },
+          { id: 'T2', title: 'Task 2', status: 'pending', blockedBy: [] },
+          { id: 'T3', title: 'Task 3', status: 'pending', blockedBy: [] },
+          { id: 'T4', title: 'Task 4', status: 'pending', blockedBy: [] },
+          { id: 'T5', title: 'Task 5', status: 'pending', blockedBy: [] },
+        ],
+      });
+
+      await store.append(featureId, {
+        streamId: featureId,
+        sequence: 1,
+        timestamp: new Date().toISOString(),
+        type: 'task.assigned',
+        data: { taskId: 'T1', title: 'Task 1' },
+        schemaVersion: '1.0',
+      });
+      await store.append(featureId, {
+        streamId: featureId,
+        sequence: 2,
+        timestamp: new Date().toISOString(),
+        type: 'task.assigned',
+        data: { taskId: 'T2', title: 'Task 2' },
+        schemaVersion: '1.0',
+      });
+
+      // Act
+      const result = await handleViewTasks(
+        { workflowId: featureId },
+        tmpDir,
+        store,
+      );
+
+      // Assert: all 5 entries returned
+      expect(result.success).toBe(true);
+      const tasks = result.data as Array<{ taskId?: string; id?: string }>;
+      expect(tasks).toHaveLength(5);
+      const ids = tasks.map((t) => (t.taskId ?? t.id) as string).sort();
+      expect(ids).toEqual(['T1', 'T2', 'T3', 'T4', 'T5']);
+    });
+  });
+
+  describe('Fix 2 — synthesis_readiness distinguishes null (not measured) from false (failed)', () => {
+    it('SynthesisReadiness_TestsAndTypecheckNeverRan_ReportsNotMeasuredBlockers', async () => {
+      // GIVEN: state.json with no test.result or typecheck.result events
+      // (the projection's `tests.lastRunPassed` and `tests.typecheckPassed`
+      // initialize to `null` in this case). Pre-fix the blocker text says
+      // "tests not passing" / "typecheck not passing" — which is misleading
+      // because they were never measured. Post-fix the wording must distinguish.
+      const featureId = 'wf-fix2-tests-null';
+      await writeStateJson(tmpDir, featureId, {
+        // Make tasks fully accounted for so they don't add their own blocker
+        // that masks the test/typecheck assertion.
+        tasks: [
+          { id: 'T1', title: 'Task 1', status: 'complete', blockedBy: [] },
+        ],
+        reviews: {
+          'spec-review': { status: 'passed' },
+          'quality-review': { status: 'passed' },
+        },
+      });
+
+      // Seed an aligned task event so the tasks block doesn't crowd the assertion
+      await store.append(featureId, {
+        streamId: featureId,
+        sequence: 1,
+        timestamp: new Date().toISOString(),
+        type: 'task.assigned',
+        data: { taskId: 'T1', title: 'Task 1' },
+        schemaVersion: '1.0',
+      });
+      await store.append(featureId, {
+        streamId: featureId,
+        sequence: 2,
+        timestamp: new Date().toISOString(),
+        type: 'task.completed',
+        data: { taskId: 'T1' },
+        schemaVersion: '1.0',
+      });
+
+      // Act
+      const result = await handleViewSynthesisReadiness(
+        { workflowId: featureId },
+        tmpDir,
+        store,
+      );
+
+      // Assert: blockers reflect "not measured" not "not passing"
+      expect(result.success).toBe(true);
+      const data = result.data as { blockers: string[] };
+      expect(data.blockers).not.toContain('tests not passing');
+      expect(data.blockers).not.toContain('typecheck not passing');
+      expect(data.blockers).toContain('tests not measured');
+      expect(data.blockers).toContain('typecheck not measured');
+    });
+  });
+
+  describe('Fix 2 — convergence falls back to state.reviews.findingsByDimension', () => {
+    it('Convergence_StateFindingsCoverDimensions_RemovesFromUnchecked', async () => {
+      // GIVEN: state.reviews.findingsByDimension stamps findings for D1 + D2,
+      // but no gate.executed events ever fired for those dimensions. Pre-fix
+      // the convergence view kept D1 + D2 in uncheckedDimensions because it
+      // only consumed gate events. Post-fix the state.json fallback kicks in.
+      const featureId = 'wf-fix2-convergence';
+      await writeStateJson(tmpDir, featureId, {
+        reviews: {
+          findingsByDimension: {
+            D1: [{ severity: 'low', summary: 'minor doc nit' }],
+            D2: [],
+          },
+        },
+      });
+
+      const result = await handleViewConvergence(
+        { workflowId: featureId },
+        tmpDir,
+        store,
+      );
+
+      expect(result.success).toBe(true);
+      const data = result.data as { uncheckedDimensions: string[] };
+      // D1 and D2 must NOT appear in uncheckedDimensions — state.json
+      // covered them. Other dimensions may still be unchecked depending on
+      // the projection's defaults.
+      expect(data.uncheckedDimensions).not.toContain('D1');
+      expect(data.uncheckedDimensions).not.toContain('D2');
     });
   });
 });
