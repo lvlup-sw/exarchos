@@ -2,6 +2,7 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { ToolResult } from '../format.js';
+import type { EventStore } from '../event-store/store.js';
 
 // ─── Mock pure TS tdd-compliance module ─────────────────────────────────────
 
@@ -17,7 +18,6 @@ const mockStore = {
 };
 
 vi.mock('../views/tools.js', () => ({
-  getOrCreateEventStore: () => mockStore,
   getOrCreateMaterializer: () => ({}),
 }));
 
@@ -62,7 +62,7 @@ describe('handleTddCompliance', () => {
     };
 
     // Act
-    const result = await handleTddCompliance(args, STATE_DIR);
+    const result = await handleTddCompliance(args, STATE_DIR, mockStore as unknown as EventStore);
 
     // Assert
     expect(result.success).toBe(true);
@@ -112,7 +112,7 @@ describe('handleTddCompliance', () => {
     };
 
     // Act
-    const result = await handleTddCompliance(args, STATE_DIR);
+    const result = await handleTddCompliance(args, STATE_DIR, mockStore as unknown as EventStore);
 
     // Assert
     expect(result.success).toBe(true);
@@ -152,7 +152,7 @@ describe('handleTddCompliance', () => {
     };
 
     // Act
-    await handleTddCompliance(args, STATE_DIR);
+    await handleTddCompliance(args, STATE_DIR, mockStore as unknown as EventStore);
 
     // Assert
     expect(mockStore.append).toHaveBeenCalledOnce();
@@ -197,7 +197,7 @@ describe('handleTddCompliance', () => {
     };
 
     // Act
-    await handleTddCompliance(args, STATE_DIR);
+    await handleTddCompliance(args, STATE_DIR, mockStore as unknown as EventStore);
 
     // Assert
     expect(mockStore.append).toHaveBeenCalledOnce();
@@ -217,7 +217,7 @@ describe('handleTddCompliance', () => {
     const args = { featureId: '', taskId: 'T-04', branch: 'feature/widget' };
 
     // Act
-    const result = await handleTddCompliance(args, STATE_DIR);
+    const result = await handleTddCompliance(args, STATE_DIR, mockStore as unknown as EventStore);
 
     // Assert
     expect(result.success).toBe(false);
@@ -230,7 +230,7 @@ describe('handleTddCompliance', () => {
     const args = { featureId: 'feat-widget', taskId: '', branch: 'feature/widget' };
 
     // Act
-    const result = await handleTddCompliance(args, STATE_DIR);
+    const result = await handleTddCompliance(args, STATE_DIR, mockStore as unknown as EventStore);
 
     // Assert
     expect(result.success).toBe(false);
@@ -243,7 +243,7 @@ describe('handleTddCompliance', () => {
     const args = { featureId: 'feat-widget', taskId: 'T-04', branch: '' };
 
     // Act
-    const result = await handleTddCompliance(args, STATE_DIR);
+    const result = await handleTddCompliance(args, STATE_DIR, mockStore as unknown as EventStore);
 
     // Assert
     expect(result.success).toBe(false);
@@ -275,7 +275,7 @@ describe('handleTddCompliance', () => {
     };
 
     // Act
-    await handleTddCompliance(args, STATE_DIR);
+    await handleTddCompliance(args, STATE_DIR, mockStore as unknown as EventStore);
 
     // Assert — verify the checker was called with correct baseBranch
     expect(checkTddCompliance).toHaveBeenCalledWith(
@@ -309,7 +309,7 @@ describe('handleTddCompliance', () => {
     };
 
     // Act
-    await handleTddCompliance(args, STATE_DIR);
+    await handleTddCompliance(args, STATE_DIR, mockStore as unknown as EventStore);
 
     // Assert — verify the checker was called with default baseBranch 'main'
     expect(checkTddCompliance).toHaveBeenCalledWith(

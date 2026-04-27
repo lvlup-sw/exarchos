@@ -1,8 +1,11 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as path from 'node:path';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
+import { EventStore } from '../event-store/store.js';
 import type { PRDiffMetadata } from './types.js';
+
+let mockEventStore: EventStore;
 
 // ─── Test Fixtures ──────────────────────────────────────────────────────────
 
@@ -43,6 +46,12 @@ describe('handleReviewTriage', () => {
 
   beforeEach(async () => {
     tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'review-triage-test-'));
+    mockEventStore = new EventStore(tmpDir);
+    await mockEventStore.initialize();
+  });
+
+  afterEach(async () => {
+    if (tmpDir) await fs.rm(tmpDir, { recursive: true, force: true });
   });
 
   async function importHandler() {
@@ -59,7 +68,7 @@ describe('handleReviewTriage', () => {
       pendingCodeRabbitReviews: 0,
     };
 
-    const result = await handleReviewTriage(args as Record<string, unknown>, tmpDir);
+    const result = await handleReviewTriage(args as Record<string, unknown>, tmpDir, mockEventStore);
 
     expect(result.success).toBe(true);
     const data = result.data as {
@@ -84,7 +93,7 @@ describe('handleReviewTriage', () => {
       pendingCodeRabbitReviews: 0,
     };
 
-    await handleReviewTriage(args as Record<string, unknown>, tmpDir);
+    await handleReviewTriage(args as Record<string, unknown>, tmpDir, mockEventStore);
 
     // Verify events were written to the JSONL file
     const eventsPath = path.join(tmpDir, 'test-events.events.jsonl');
@@ -109,7 +118,7 @@ describe('handleReviewTriage', () => {
       pendingCodeRabbitReviews: 0,
     };
 
-    await handleReviewTriage(args as Record<string, unknown>, tmpDir);
+    await handleReviewTriage(args as Record<string, unknown>, tmpDir, mockEventStore);
 
     // Read the emitted events
     const eventsPath = path.join(tmpDir, 'test-routed-shape.events.jsonl');
@@ -144,7 +153,7 @@ describe('handleReviewTriage', () => {
       pendingCodeRabbitReviews: 8, // >6 triggers 'high' velocity
     };
 
-    const result = await handleReviewTriage(args as Record<string, unknown>, tmpDir);
+    const result = await handleReviewTriage(args as Record<string, unknown>, tmpDir, mockEventStore);
 
     expect(result.success).toBe(true);
     const data = result.data as {
@@ -169,7 +178,7 @@ describe('handleReviewTriage', () => {
       prs: [lowRiskPR()],
     };
 
-    const result = await handleReviewTriage(args as Record<string, unknown>, tmpDir);
+    const result = await handleReviewTriage(args as Record<string, unknown>, tmpDir, mockEventStore);
 
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('INVALID_INPUT');
@@ -185,7 +194,7 @@ describe('handleReviewTriage', () => {
       pendingCodeRabbitReviews: 0,
     };
 
-    const result = await handleReviewTriage(args as Record<string, unknown>, tmpDir);
+    const result = await handleReviewTriage(args as Record<string, unknown>, tmpDir, mockEventStore);
 
     expect(result.success).toBe(true);
     const data = result.data as {
@@ -211,6 +220,10 @@ describe('orchestrate review_triage action', () => {
 
   beforeEach(async () => {
     tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'orchestrate-review-test-'));
+  });
+
+  afterEach(async () => {
+    if (tmpDir) await fs.rm(tmpDir, { recursive: true, force: true });
   });
 
   it('should route review_triage action to handleReviewTriage', async () => {

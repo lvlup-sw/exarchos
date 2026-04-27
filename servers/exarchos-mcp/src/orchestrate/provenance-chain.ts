@@ -6,7 +6,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import type { ToolResult } from '../format.js';
-import { getOrCreateEventStore } from '../views/tools.js';
+import type { EventStore } from '../event-store/store.js';
 import { emitGateEvent } from './gate-utils.js';
 import { verifyProvenanceChain } from './pure/provenance-chain.js';
 
@@ -29,8 +29,22 @@ interface ProvenanceChainResult {
 
 export async function handleProvenanceChain(
   args: { featureId: string; designPath: string; planPath: string },
-  stateDir: string,
+  _stateDir: string,
+  eventStore: EventStore,
 ): Promise<ToolResult> {
+  // Fail-fast on miswired DispatchContext: a missing eventStore here is a
+  // wiring bug, not a transient error. Without this guard the fire-and-forget
+  // emit below silently swallows the failure. See PR #1185 / CR review 4177990662.
+  if (!eventStore) {
+    return {
+      success: false,
+      error: {
+        code: 'MISWIRED_CONTEXT',
+        message: 'handleProvenanceChain: eventStore is required',
+      },
+    };
+  }
+
   if (!args.featureId) {
     return {
       success: false,
@@ -78,7 +92,7 @@ export async function handleProvenanceChain(
 
   // Emit gate.executed event (fire-and-forget)
   try {
-    const store = getOrCreateEventStore(stateDir);
+    const store = eventStore;
     await emitGateEvent(store, args.featureId, 'provenance-chain', 'planning', passed, {
       dimension: 'D1',
       phase: 'plan',

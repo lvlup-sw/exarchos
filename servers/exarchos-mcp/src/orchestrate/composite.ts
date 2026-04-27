@@ -6,6 +6,7 @@
 
 import { wrap, wrapWithPassthrough, type ToolResult } from '../format.js';
 import type { DispatchContext } from '../core/dispatch.js';
+import type { EventStore } from '../event-store/store.js';
 import { handleDescribe } from '../describe/handler.js';
 import { handleRunbook } from '../runbooks/handler.js';
 import { TOOL_REGISTRY } from '../registry.js';
@@ -118,6 +119,27 @@ function adaptArgsWithEventStore<T>(handler: (args: T) => ToolResult | Promise<T
 }
 
 /**
+ * Wraps a typed handler that takes `(args, stateDir, eventStore)` — the
+ * canonical shape for orchestrate handlers that need to append events.
+ * Threads `ctx.eventStore` as the third positional arg so handlers
+ * obtain the EventStore from the dispatch context rather than from a
+ * module-global registry. See docs/rca/2026-04-26-v29-event-projection-
+ * cluster.md (constructor injection refactor).
+ */
+function adaptWithEventStore<T>(
+  handler: (args: T, stateDir: string, eventStore: EventStore) => Promise<ToolResult>,
+): ActionHandler {
+  return async (args, stateDir, ctx) => {
+    if (!ctx?.eventStore) {
+      throw new Error(
+        `${handler.name}: ctx.eventStore required (handler dispatched without DispatchContext)`,
+      );
+    }
+    return handler(args as unknown as T, stateDir, ctx.eventStore);
+  };
+}
+
+/**
  * Wraps a typed handler that needs BOTH `stateDir` and `eventStore` from
  * DispatchContext injected into a single args object. Use this when the
  * underlying handler accepts a single bag of args containing all dependencies
@@ -138,27 +160,27 @@ function adaptArgsWithStateDirAndEventStore<T>(
 }
 
 const ACTION_HANDLERS: Readonly<Record<string, ActionHandler>> = {
-  task_claim: adapt(handleTaskClaim),
-  task_complete: adapt(handleTaskComplete),
-  task_fail: adapt(handleTaskFail),
-  review_triage: handleReviewTriage,
+  task_claim: adaptWithEventStore(handleTaskClaim),
+  task_complete: adaptWithEventStore(handleTaskComplete),
+  task_fail: adaptWithEventStore(handleTaskFail),
+  review_triage: adaptWithEventStore(handleReviewTriage),
   prepare_delegation: adaptWithCtx(handlePrepareDelegation),
-  prepare_synthesis: adapt(handlePrepareSynthesis),
-  assess_stack: adapt(handleAssessStack),
-  check_design_completeness: adapt(handleDesignCompleteness),
-  check_plan_coverage: adapt(handlePlanCoverage),
-  check_tdd_compliance: adapt(handleTddCompliance),
-  check_post_merge: adapt(handlePostMerge),
-  check_static_analysis: adapt(handleStaticAnalysis),
-  check_security_scan: adapt(handleSecurityScan),
-  check_context_economy: adapt(handleContextEconomy),
-  check_operational_resilience: adapt(handleOperationalResilience),
-  check_workflow_determinism: adapt(handleWorkflowDeterminism),
-  check_review_verdict: adapt(handleReviewVerdict),
-  check_convergence: adapt(handleCheckConvergence),
-  check_provenance_chain: adapt(handleProvenanceChain),
-  check_task_decomposition: adapt(handleTaskDecomposition),
-  check_event_emissions: adapt(handleCheckEventEmissions),
+  prepare_synthesis: adaptWithEventStore(handlePrepareSynthesis),
+  assess_stack: adaptWithEventStore(handleAssessStack),
+  check_design_completeness: adaptWithEventStore(handleDesignCompleteness),
+  check_plan_coverage: adaptWithEventStore(handlePlanCoverage),
+  check_tdd_compliance: adaptWithEventStore(handleTddCompliance),
+  check_post_merge: adaptWithEventStore(handlePostMerge),
+  check_static_analysis: adaptWithEventStore(handleStaticAnalysis),
+  check_security_scan: adaptWithEventStore(handleSecurityScan),
+  check_context_economy: adaptWithEventStore(handleContextEconomy),
+  check_operational_resilience: adaptWithEventStore(handleOperationalResilience),
+  check_workflow_determinism: adaptWithEventStore(handleWorkflowDeterminism),
+  check_review_verdict: adaptWithEventStore(handleReviewVerdict),
+  check_convergence: adaptWithEventStore(handleCheckConvergence),
+  check_provenance_chain: adaptWithEventStore(handleProvenanceChain),
+  check_task_decomposition: adaptWithEventStore(handleTaskDecomposition),
+  check_event_emissions: adaptWithEventStore(handleCheckEventEmissions),
   agent_spec: adapt(handleAgentSpec),
   extract_task: adapt(handleExtractTask),
   review_diff: adapt(handleReviewDiff),

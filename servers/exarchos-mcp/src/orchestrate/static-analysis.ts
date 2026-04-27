@@ -7,7 +7,7 @@
 
 import { execFileSync } from 'node:child_process';
 import type { ToolResult } from '../format.js';
-import { getOrCreateEventStore } from '../views/tools.js';
+import type { EventStore } from '../event-store/store.js';
 import { emitGateEvent } from './gate-utils.js';
 import { runStaticAnalysis } from './pure/static-analysis.js';
 import type { RunCommandFn, CommandResult } from './pure/static-analysis.js';
@@ -61,8 +61,23 @@ const execCommandRunner: RunCommandFn = (
 
 export async function handleStaticAnalysis(
   args: StaticAnalysisArgs,
-  stateDir: string,
+  _stateDir: string,
+  eventStore: EventStore,
 ): Promise<ToolResult> {
+  // Fail-fast on miswired DispatchContext: a missing eventStore here is a
+  // wiring bug, not a transient error. Without this guard the fire-and-forget
+  // emit below silently swallows the failure and the gate runs without
+  // telemetry. See PR #1185 / CR review 4177990662.
+  if (!eventStore) {
+    return {
+      success: false,
+      error: {
+        code: 'MISWIRED_CONTEXT',
+        message: 'handleStaticAnalysis: eventStore is required',
+      },
+    };
+  }
+
   // Input validation
   if (!args.featureId) {
     return {
@@ -97,7 +112,7 @@ export async function handleStaticAnalysis(
 
   // Emit gate.executed event (fire-and-forget: emission failure must not break the gate check)
   try {
-    const store = getOrCreateEventStore(stateDir);
+    const store = eventStore;
     await emitGateEvent(store, args.featureId, 'static-analysis', 'quality', passed, {
       dimension: 'D2',
       phase: 'delegate',

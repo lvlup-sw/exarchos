@@ -1,6 +1,7 @@
 // ─── Operational Resilience Action Tests ────────────────────────────────────
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import type { EventStore } from '../event-store/store.js';
 
 // ─── Mock gate-utils (getDiff + emitGateEvent) ─────────────────────────────
 
@@ -26,7 +27,6 @@ const mockStore = {
 };
 
 vi.mock('../views/tools.js', () => ({
-  getOrCreateEventStore: () => mockStore,
   getOrCreateMaterializer: () => ({}),
 }));
 
@@ -49,7 +49,7 @@ describe('handleOperationalResilience', () => {
   describe('input validation', () => {
     it('handleOperationalResilience_MissingFeatureId_ReturnsError', async () => {
       const args = { featureId: '' };
-      const result = await handleOperationalResilience(args, STATE_DIR);
+      const result = await handleOperationalResilience(args, STATE_DIR, mockStore as unknown as EventStore);
       expect(result.success).toBe(false);
       expect(result.error?.code).toBe('INVALID_INPUT');
       expect(result.error?.message).toContain('featureId');
@@ -68,7 +68,7 @@ describe('handleOperationalResilience', () => {
       });
 
       const args = { featureId: 'feat-1' };
-      const result = await handleOperationalResilience(args, STATE_DIR);
+      const result = await handleOperationalResilience(args, STATE_DIR, mockStore as unknown as EventStore);
 
       expect(result.success).toBe(true);
       const data = result.data as { passed: boolean; findingCount: number; report: string };
@@ -94,7 +94,7 @@ describe('handleOperationalResilience', () => {
       });
 
       const args = { featureId: 'feat-1' };
-      const result = await handleOperationalResilience(args, STATE_DIR);
+      const result = await handleOperationalResilience(args, STATE_DIR, mockStore as unknown as EventStore);
 
       expect(result.success).toBe(true);
       const data = result.data as { passed: boolean; findingCount: number; report: string };
@@ -116,7 +116,7 @@ describe('handleOperationalResilience', () => {
       });
 
       const args = { featureId: 'feat-1' };
-      await handleOperationalResilience(args, STATE_DIR);
+      await handleOperationalResilience(args, STATE_DIR, mockStore as unknown as EventStore);
 
       expect(mockEmitGateEvent).toHaveBeenCalledTimes(1);
       expect(mockEmitGateEvent).toHaveBeenCalledWith(
@@ -137,7 +137,7 @@ describe('handleOperationalResilience', () => {
       mockGetDiff.mockReturnValue(null);
 
       const args = { featureId: 'feat-1' };
-      const result = await handleOperationalResilience(args, STATE_DIR);
+      const result = await handleOperationalResilience(args, STATE_DIR, mockStore as unknown as EventStore);
 
       expect(result.success).toBe(false);
       expect(result.error?.code).toBe('DIFF_ERROR');

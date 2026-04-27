@@ -7,7 +7,8 @@
 
 import { execSync } from 'node:child_process';
 import type { ToolResult } from '../format.js';
-import { getOrCreateMaterializer, getOrCreateEventStore } from '../views/tools.js';
+import type { EventStore } from '../event-store/store.js';
+import { getOrCreateMaterializer } from '../views/tools.js';
 import { TASK_DETAIL_VIEW } from '../views/task-detail-view.js';
 import type { TaskDetailViewState } from '../views/task-detail-view.js';
 import { emitGateEvent } from './gate-utils.js';
@@ -173,6 +174,7 @@ function checkTaskCompletion(
 export async function handlePrepareSynthesis(
   args: { featureId: string },
   stateDir: string,
+  eventStore: EventStore,
 ): Promise<ToolResult> {
   // 1. Validate input
   if (!args.featureId) {
@@ -186,7 +188,7 @@ export async function handlePrepareSynthesis(
 
   try {
     const materializer = getOrCreateMaterializer(stateDir);
-    const store = getOrCreateEventStore(stateDir);
+    const store = eventStore;
 
     // 2. Query task detail view for completion status
     await materializer.loadFromSnapshot(streamId, TASK_DETAIL_VIEW);

@@ -13,7 +13,7 @@ export interface TaskDetail {
   branch?: string;
   worktree?: string;
   assignee?: string;
-  status: 'assigned' | 'claimed' | 'in-progress' | 'completed' | 'failed';
+  status: 'pending' | 'assigned' | 'claimed' | 'in-progress' | 'completed' | 'failed';
   tddPhase?: string;
   artifacts?: string[];
   duration?: number;

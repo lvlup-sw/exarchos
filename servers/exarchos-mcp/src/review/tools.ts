@@ -5,7 +5,7 @@
 // ────────────────────────────────────────────────────────────────────────────
 
 import type { ToolResult } from '../format.js';
-import { EventStore } from '../event-store/store.js';
+import type { EventStore } from '../event-store/store.js';
 import { detectVelocity } from './velocity.js';
 import { dispatchReviews } from './dispatch.js';
 import type { PRDiffMetadata, ReviewContext, ReviewDispatch } from './types.js';
@@ -92,7 +92,8 @@ function summarizeDispatches(dispatches: ReviewDispatch[]): DispatchSummary {
 
 export async function handleReviewTriage(
   args: Record<string, unknown>,
-  stateDir: string,
+  _stateDir: string,
+  eventStore: EventStore,
 ): Promise<ToolResult> {
   const input = parseInput(args);
   if (isError(input)) return input;
@@ -105,9 +106,9 @@ export async function handleReviewTriage(
   const velocity = detectVelocity(context);
   const dispatches = dispatchReviews(input.prs, velocity);
 
-  // Emit review.routed events (skip if no dispatches)
+  // Emit review.routed events (skip if no dispatches). EventStore is
+  // injected via DispatchContext — never instantiated here (#1182).
   if (dispatches.length > 0) {
-    const eventStore = new EventStore(stateDir);
     await emitRoutedEvents(eventStore, input.featureId, dispatches);
   }
 

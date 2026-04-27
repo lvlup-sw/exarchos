@@ -1,4 +1,6 @@
 import { getRequiredReviewsPrerequisite } from './review-contract.js';
+import { getRegisteredEventTypes } from '../projections/rehydration/reducer.js';
+import { EVENT_EMISSION_REGISTRY, type EventType } from '../event-store/schemas.js';
 
 // ─── Phase Playbook Types ──────────────────────────────────────────────────
 
@@ -111,6 +113,93 @@ function terminalPlaybook(
   };
 }
 
+// ─── Delegate-Phase Event Contract (SoT, #1180, DIM-3) ───────────────────
+//
+// Per-event prose metadata (`when` + required `fields`) for every event in
+// the delegate-phase contract. The PHASE TYPES themselves come from
+// `getRegisteredEventTypes(...)` in the rehydration reducer — this map is a
+// LOOKUP keyed by event type, not an independent list. Adding an event to
+// the playbook without first adding it to the reducer's registry is caught
+// at module load by the assertion below: a SoT event with no metadata entry
+// throws so the playbook can never silently advertise a bare event type.
+//
+// Conversely, removing an event from the SoT silently drops its playbook
+// entry (the metadata entry simply becomes unused) — that direction is fine
+// because the SoT is the contract; orphaned metadata does no harm.
+
+const DELEGATE_PHASE_EVENT_METADATA: Readonly<
+  Record<string, Pick<EventInstruction, 'when' | 'fields'>>
+> = {
+  'task.assigned': {
+    when: 'On dispatch of each task',
+    fields: ['taskId', 'title', 'worktree'],
+  },
+  'task.completed': {
+    when: 'On task completion (typically via exarchos_orchestrate task_complete)',
+    fields: ['taskId'],
+  },
+  'task.failed': {
+    when: 'On task failure (typically via exarchos_orchestrate task_fail)',
+    fields: ['taskId'],
+  },
+  'team.spawned': {
+    when: 'After team creation',
+    fields: ['teamSize', 'teammateNames', 'taskCount', 'dispatchMode'],
+  },
+  'team.task.planned': {
+    when: 'For each task planned for the team',
+  },
+  'team.teammate.dispatched': {
+    when: 'After each agent spawn',
+  },
+  'team.disbanded': {
+    when: 'After all tasks collected',
+    fields: ['totalDurationMs', 'tasksCompleted', 'tasksFailed'],
+  },
+  'task.progressed': {
+    when: 'After each TDD phase transition (red/green/refactor)',
+  },
+};
+
+/**
+ * Derive a phase's `events` list from the SoT — the rehydration reducer's
+ * registered event types (#1180, DIM-3) — filtered to model-emitted events.
+ *
+ * Auto-emitted events (e.g. `task.completed` / `task.failed`, fired by the
+ * `task_complete` / `task_fail` orchestrate handlers) are recognised by the
+ * reducer for state folding but never appear in the playbook because the
+ * model never emits them directly — listing them would mislead the agent
+ * into manually appending duplicates of events the runtime already emits.
+ *
+ * Metadata (`when`, `fields`) is looked up from
+ * {@link DELEGATE_PHASE_EVENT_METADATA}; any SoT event missing a metadata
+ * entry throws so the playbook cannot ship a bare event with no
+ * human-readable guidance.
+ */
+function delegatePhaseEvents(phase: 'delegate' | 'overhaul-delegate'): readonly EventInstruction[] {
+  return getRegisteredEventTypes(phase)
+    .filter((type) => {
+      const source = EVENT_EMISSION_REGISTRY[type as EventType];
+      if (source === undefined) {
+        throw new Error(
+          `playbooks: SoT event '${type}' (phase '${phase}') is not registered in EVENT_EMISSION_REGISTRY. ` +
+            `Register it (or fix the typo at the SoT) so phase-expected-events stays consistent.`,
+        );
+      }
+      return source === 'model';
+    })
+    .map((type) => {
+      const meta = DELEGATE_PHASE_EVENT_METADATA[type];
+      if (!meta) {
+        throw new Error(
+          `playbooks: missing DELEGATE_PHASE_EVENT_METADATA entry for SoT event '${type}' (phase '${phase}'). ` +
+            `Add the event to DELEGATE_PHASE_EVENT_METADATA in workflow/playbooks.ts.`,
+        );
+      }
+      return { type, ...meta };
+    });
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // Feature Workflow Playbooks
 // ═══════════════════════════════════════════════════════════════════════════
@@ -198,8 +287,7 @@ register({
     {
       tool: 'exarchos_event',
       action: 'append',
-      purpose:
-        'Emit task.assigned on dispatch, gate.executed on post-delegation check',
+      purpose: 'Emit task.assigned on dispatch',
     },
     {
       tool: 'exarchos_event',
@@ -212,21 +300,11 @@ register({
       purpose: 'Mark individual task complete',
     },
   ],
-  events: [
-    { type: 'task.assigned', when: 'On dispatch of each task', fields: ['taskId', 'title', 'worktree'] },
-    { type: 'team.spawned', when: 'After team creation', fields: ['teamSize', 'teammateNames', 'taskCount', 'dispatchMode'] },
-    {
-      type: 'team.teammate.dispatched',
-      when: 'After each agent spawn',
-    },
-    { type: 'team.disbanded', when: 'After all tasks collected', fields: ['totalDurationMs', 'tasksCompleted', 'tasksFailed'] },
-    {
-      type: 'gate.executed',
-      when: 'After post-delegation-check.sh runs',
-      fields: ['gateName', 'layer', 'passed'],
-    },
-    { type: 'task.progressed', when: 'After each TDD phase transition (red/green/refactor)' },
-  ],
+  // Events derived from the rehydration reducer's SoT registry
+  // (#1180, DIM-3) — see `delegatePhaseEvents`. `gate.executed` was
+  // previously listed here but is auto-emitted by the telemetry
+  // middleware and explicitly excluded from the model-event contract.
+  events: delegatePhaseEvents('delegate'),
   transitionCriteria: 'All tasks complete → review',
   guardPrerequisites:
     "tasks[].status = 'complete' for every task",
@@ -800,11 +878,9 @@ register({
       purpose: 'Mark individual task complete',
     },
   ],
-  events: [
-    { type: 'task.assigned', when: 'On dispatch of each task', fields: ['taskId', 'title', 'worktree'] },
-    { type: 'team.spawned', when: 'After team creation', fields: ['teamSize', 'teammateNames', 'taskCount', 'dispatchMode'] },
-    { type: 'team.disbanded', when: 'After all tasks collected', fields: ['totalDurationMs', 'tasksCompleted', 'tasksFailed'] },
-  ],
+  // Events derived from the rehydration reducer's SoT registry
+  // (#1180, DIM-3) — see `delegatePhaseEvents`.
+  events: delegatePhaseEvents('overhaul-delegate'),
   transitionCriteria: 'All tasks complete → overhaul-review',
   guardPrerequisites: 'allTasksComplete',
   validationScripts: [],

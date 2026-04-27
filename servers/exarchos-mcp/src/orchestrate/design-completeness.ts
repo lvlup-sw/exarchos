@@ -8,7 +8,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import type { ToolResult } from '../format.js';
-import { getOrCreateEventStore } from '../views/tools.js';
+import type { EventStore } from '../event-store/store.js';
 import { emitGateEvent } from './gate-utils.js';
 import { handleDesignCompleteness as runDesignCompleteness } from './pure/design-completeness.js';
 
@@ -17,6 +17,7 @@ import { handleDesignCompleteness as runDesignCompleteness } from './pure/design
 export async function handleDesignCompleteness(
   args: { featureId: string; stateFile?: string; designPath?: string },
   stateDir: string,
+  eventStore: EventStore,
 ): Promise<ToolResult> {
   // 1. Validate input
   if (!args.featureId) {
@@ -47,7 +48,7 @@ export async function handleDesignCompleteness(
 
   // 3. Emit gate.executed event
   try {
-    const store = getOrCreateEventStore(stateDir);
+    const store = eventStore;
     await emitGateEvent(store, streamId, 'design-completeness', 'design', parsed.passed, {
       dimension: 'D1',
       phase: 'ideate',

@@ -36,7 +36,7 @@ describe('Token Economy Benchmarks', () => {
     }
 
     // Act
-    const result = await handleViewTelemetry({ compact: true }, stateDir);
+    const result = await handleViewTelemetry({ compact: true }, stateDir, store);
 
     // Assert
     expect(result.success).toBe(true);
@@ -55,7 +55,7 @@ describe('Token Economy Benchmarks', () => {
     }
 
     // Act
-    const result = await handleViewTelemetry({ tool: 'workflow_get', compact: true }, stateDir);
+    const result = await handleViewTelemetry({ tool: 'workflow_get', compact: true }, stateDir, store);
 
     // Assert
     expect(result.success).toBe(true);

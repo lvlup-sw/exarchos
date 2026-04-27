@@ -11,7 +11,6 @@ import type { DelegationReadinessState } from '../views/delegation-readiness-vie
 
 vi.mock('../views/tools.js', () => ({
   getOrCreateMaterializer: vi.fn(),
-  getOrCreateEventStore: vi.fn(),
   queryDeltaEvents: vi.fn(),
 }));
 
@@ -41,7 +40,6 @@ vi.mock('../workflow/checkpoint.js', () => ({
 
 import {
   getOrCreateMaterializer,
-  getOrCreateEventStore,
   queryDeltaEvents,
 } from '../views/tools.js';
 import { generateQualityHints } from '../quality/hints.js';
@@ -167,12 +165,26 @@ function setupMaterializer(
     append: vi.fn().mockResolvedValue(undefined),
     listStreams: vi.fn().mockReturnValue(null),
   };
-  vi.mocked(getOrCreateEventStore).mockReturnValue(
-    mockStore as unknown as ReturnType<typeof getOrCreateEventStore>,
-  );
   vi.mocked(queryDeltaEvents).mockResolvedValue([]);
 
   return { mockMaterializer, mockStore };
+}
+
+// Default mock store + ctx for tests that don't need a custom one. Tests
+// that need a captured store from setupMaterializer can build their own
+// ctx via makeCtx(localStore, STATE_DIR).
+const mockStore = {
+  query: vi.fn().mockResolvedValue([]),
+  append: vi.fn().mockResolvedValue(undefined),
+  listStreams: vi.fn().mockReturnValue(null),
+};
+
+function makeCtx(store: { append: unknown; query: unknown }, stateDir: string) {
+  return {
+    stateDir,
+    eventStore: store as unknown as import('../event-store/store.js').EventStore,
+    enableTelemetry: false,
+  };
 }
 
 // ─── Tests ──────────────────────────────────────────────────────────────────
@@ -195,7 +207,7 @@ describe('handlePrepareDelegation', () => {
     const args = {} as { featureId: string };
 
     // Act
-    const result = await handlePrepareDelegation(args, STATE_DIR);
+    const result = await handlePrepareDelegation(args, STATE_DIR, makeCtx(mockStore, STATE_DIR));
 
     // Assert
     expect(result.success).toBe(false);
@@ -210,7 +222,7 @@ describe('handlePrepareDelegation', () => {
     const args = { featureId: 'test-feature' };
 
     // Act
-    const result = await handlePrepareDelegation(args, STATE_DIR);
+    const result = await handlePrepareDelegation(args, STATE_DIR, makeCtx(mockStore, STATE_DIR));
 
     // Assert
     expect(result.success).toBe(true);
@@ -233,7 +245,7 @@ describe('handlePrepareDelegation', () => {
     const args = { featureId: 'test-feature' };
 
     // Act
-    const result = await handlePrepareDelegation(args, STATE_DIR);
+    const result = await handlePrepareDelegation(args, STATE_DIR, makeCtx(mockStore, STATE_DIR));
 
     // Assert
     expect(result.success).toBe(true);
@@ -260,7 +272,7 @@ describe('handlePrepareDelegation', () => {
     };
 
     // Act
-    const result = await handlePrepareDelegation(args, STATE_DIR);
+    const result = await handlePrepareDelegation(args, STATE_DIR, makeCtx(mockStore, STATE_DIR));
 
     // Assert
     expect(result.success).toBe(true);
@@ -287,7 +299,7 @@ describe('handlePrepareDelegation', () => {
     const args = { featureId: 'test-feature' };
 
     // Act
-    const result = await handlePrepareDelegation(args, STATE_DIR);
+    const result = await handlePrepareDelegation(args, STATE_DIR, makeCtx(mockStore, STATE_DIR));
 
     // Assert
     expect(result.success).toBe(true);
@@ -311,7 +323,7 @@ describe('handlePrepareDelegation', () => {
     const args = { featureId: 'test-feature' };
 
     // Act
-    await handlePrepareDelegation(args, STATE_DIR);
+    await handlePrepareDelegation(args, STATE_DIR, makeCtx(mockStore, STATE_DIR));
 
     // Assert
     expect(emitGateEvent).toHaveBeenCalledOnce();
@@ -338,7 +350,7 @@ describe('handlePrepareDelegation', () => {
     const args = { featureId: 'test-feature' };
 
     // Act
-    await handlePrepareDelegation(args, STATE_DIR);
+    await handlePrepareDelegation(args, STATE_DIR, makeCtx(mockStore, STATE_DIR));
 
     // Assert
     expect(emitGateEvent).toHaveBeenCalledOnce();
@@ -354,7 +366,7 @@ describe('handlePrepareDelegation', () => {
     const args = { featureId: 'test-feature' };
 
     // Act
-    await handlePrepareDelegation(args, STATE_DIR);
+    await handlePrepareDelegation(args, STATE_DIR, makeCtx(mockStore, STATE_DIR));
 
     // Assert
     expect(emitGateEvent).not.toHaveBeenCalled();
@@ -371,7 +383,7 @@ describe('handlePrepareDelegation', () => {
     const args = { featureId: 'test-feature' };
 
     // Act
-    const result = await handlePrepareDelegation(args, STATE_DIR);
+    const result = await handlePrepareDelegation(args, STATE_DIR, makeCtx(mockStore, STATE_DIR));
 
     // Assert
     expect(result.success).toBe(true);
@@ -395,7 +407,7 @@ describe('handlePrepareDelegation', () => {
     const args = { featureId: 'test-feature' };
 
     // Act
-    const result = await handlePrepareDelegation(args, STATE_DIR);
+    const result = await handlePrepareDelegation(args, STATE_DIR, makeCtx(mockStore, STATE_DIR));
 
     // Assert
     expect(result.success).toBe(true);
@@ -420,7 +432,7 @@ describe('handlePrepareDelegation', () => {
     const args = { featureId: 'test-feature' };
 
     // Act
-    const result = await handlePrepareDelegation(args, STATE_DIR);
+    const result = await handlePrepareDelegation(args, STATE_DIR, makeCtx(mockStore, STATE_DIR));
 
     // Assert
     expect(result.success).toBe(true);
@@ -449,7 +461,7 @@ describe('handlePrepareDelegation', () => {
     const args = { featureId: 'test-feature', nativeIsolation: true };
 
     // Act
-    const result = await handlePrepareDelegation(args, STATE_DIR);
+    const result = await handlePrepareDelegation(args, STATE_DIR, makeCtx(mockStore, STATE_DIR));
 
     // Assert: ready=true AND readiness.blockers is empty (consistent)
     expect(result.success).toBe(true);
@@ -476,7 +488,7 @@ describe('handlePrepareDelegation', () => {
     const args = { featureId: 'test-feature', nativeIsolation: true };
 
     // Act
-    const result = await handlePrepareDelegation(args, STATE_DIR);
+    const result = await handlePrepareDelegation(args, STATE_DIR, makeCtx(mockStore, STATE_DIR));
 
     // Assert: readiness.blockers contains ONLY non-worktree items
     expect(result.success).toBe(true);
@@ -507,7 +519,7 @@ describe('handlePrepareDelegation', () => {
     const args = { featureId: 'test-feature' };
 
     // Act
-    const result = await handlePrepareDelegation(args, STATE_DIR);
+    const result = await handlePrepareDelegation(args, STATE_DIR, makeCtx(mockStore, STATE_DIR));
 
     // Assert: ALL blockers present including worktree ones
     expect(result.success).toBe(true);
@@ -540,7 +552,7 @@ describe('handlePrepareDelegation', () => {
     const args = { featureId: 'test-feature', nativeIsolation: true };
 
     // Act
-    const result = await handlePrepareDelegation(args, STATE_DIR);
+    const result = await handlePrepareDelegation(args, STATE_DIR, makeCtx(mockStore, STATE_DIR));
 
     // Assert — should be ready despite worktree blockers
     expect(result.success).toBe(true);
@@ -563,7 +575,7 @@ describe('handlePrepareDelegation', () => {
     const args = { featureId: 'test-feature' };
 
     // Act
-    const result = await handlePrepareDelegation(args, STATE_DIR);
+    const result = await handlePrepareDelegation(args, STATE_DIR, makeCtx(mockStore, STATE_DIR));
 
     // Assert — should NOT be ready because of worktree blockers
     expect(result.success).toBe(true);
@@ -587,7 +599,7 @@ describe('handlePrepareDelegation', () => {
     const args = { featureId: 'test-feature', nativeIsolation: true };
 
     // Act
-    const result = await handlePrepareDelegation(args, STATE_DIR);
+    const result = await handlePrepareDelegation(args, STATE_DIR, makeCtx(mockStore, STATE_DIR));
 
     // Assert — still not ready because plan not approved (non-worktree blocker persists)
     expect(result.success).toBe(true);
@@ -609,7 +621,7 @@ describe('handlePrepareDelegation', () => {
     const args = { featureId: 'test-feature', nativeIsolation: true };
 
     // Act
-    const result = await handlePrepareDelegation(args, STATE_DIR);
+    const result = await handlePrepareDelegation(args, STATE_DIR, makeCtx(mockStore, STATE_DIR));
 
     // Assert — quality hints still present
     expect(result.success).toBe(true);
@@ -636,7 +648,7 @@ describe('handlePrepareDelegation', () => {
     const args = { featureId: 'test-feature' };
 
     // Act
-    const result = await handlePrepareDelegation(args, STATE_DIR);
+    const result = await handlePrepareDelegation(args, STATE_DIR, makeCtx(mockStore, STATE_DIR));
 
     // Assert
     expect(result.success).toBe(true);
@@ -663,7 +675,7 @@ describe('handlePrepareDelegation', () => {
     const args = { featureId: 'test-feature' };
 
     // Act
-    const result = await handlePrepareDelegation(args, STATE_DIR);
+    const result = await handlePrepareDelegation(args, STATE_DIR, makeCtx(mockStore, STATE_DIR));
 
     // Assert
     expect(result.success).toBe(true);
@@ -694,7 +706,7 @@ describe('handlePrepareDelegation', () => {
     };
 
     // Act
-    const result = await handlePrepareDelegation(args, STATE_DIR);
+    const result = await handlePrepareDelegation(args, STATE_DIR, makeCtx(mockStore, STATE_DIR));
 
     // Assert — proceeds past ancestry check, returns readiness data
     expect(result.success).toBe(true);
@@ -722,7 +734,7 @@ describe('handlePrepareDelegation', () => {
     const args = { featureId: 'test-feature' };
 
     // Act
-    const result = await handlePrepareDelegation(args, STATE_DIR);
+    const result = await handlePrepareDelegation(args, STATE_DIR, makeCtx(mockStore, STATE_DIR));
 
     // Assert
     expect(result.success).toBe(true);
@@ -752,7 +764,7 @@ describe('handlePrepareDelegation', () => {
     const args = { featureId: 'test-feature' };
 
     // Act
-    const result = await handlePrepareDelegation(args, STATE_DIR);
+    const result = await handlePrepareDelegation(args, STATE_DIR, makeCtx(mockStore, STATE_DIR));
 
     // Assert: blocked with the dedicated reason — ancestry never even runs
     expect(result.success).toBe(true);
@@ -794,7 +806,7 @@ describe('handlePrepareDelegation', () => {
     };
 
     // Act
-    await handlePrepareDelegation(args, STATE_DIR);
+    await handlePrepareDelegation(args, STATE_DIR, makeCtx(mockStore, STATE_DIR));
 
     // Assert: ancestry ran against current branch, never against featureId
     const call = vi.mocked(validateBranchAncestry).mock.calls[0];
@@ -816,7 +828,7 @@ describe('handlePrepareDelegation', () => {
     const args = { featureId: 'test-feature' };
 
     // Act
-    const result = await handlePrepareDelegation(args, STATE_DIR);
+    const result = await handlePrepareDelegation(args, STATE_DIR, makeCtx(mockStore, STATE_DIR));
 
     // Assert — proceeds normally, returns readiness
     expect(result.success).toBe(true);
@@ -847,7 +859,7 @@ describe('handlePrepareDelegation', () => {
     const args = { featureId: 'test-feature' };
 
     // Act
-    await handlePrepareDelegation(args, STATE_DIR);
+    await handlePrepareDelegation(args, STATE_DIR, makeCtx(mockStore, STATE_DIR));
 
     // Assert: preflight.executed event emitted
     const appendCalls = mockStore.append.mock.calls;
@@ -875,7 +887,7 @@ describe('handlePrepareDelegation', () => {
     const args = { featureId: 'test-feature' };
 
     // Act
-    await handlePrepareDelegation(args, STATE_DIR);
+    await handlePrepareDelegation(args, STATE_DIR, makeCtx(mockStore, STATE_DIR));
 
     // Assert: preflight.blocked event emitted
     const appendCalls = mockStore.append.mock.calls;
@@ -904,7 +916,7 @@ describe('handlePrepareDelegation', () => {
     const args = { featureId: 'test-feature' };
 
     // Act
-    await handlePrepareDelegation(args, STATE_DIR);
+    await handlePrepareDelegation(args, STATE_DIR, makeCtx(mockStore, STATE_DIR));
 
     // Assert: preflight.blocked event emitted
     const appendCalls = mockStore.append.mock.calls;
@@ -935,7 +947,7 @@ describe('handlePrepareDelegation', () => {
     const args = { featureId: 'test-feature' };
 
     // Act
-    const result = await handlePrepareDelegation(args, STATE_DIR);
+    const result = await handlePrepareDelegation(args, STATE_DIR, makeCtx(mockStore, STATE_DIR));
 
     // Assert: gated response
     expect(result.success).toBe(true);
@@ -978,7 +990,7 @@ describe('handlePrepareDelegation', () => {
     };
 
     // Act
-    const result = await handlePrepareDelegation(args, STATE_DIR);
+    const result = await handlePrepareDelegation(args, STATE_DIR, makeCtx(mockStore, STATE_DIR));
 
     // Assert: proceeds to task classification — not gated
     expect(result.success).toBe(true);
@@ -1010,7 +1022,7 @@ describe('handlePrepareDelegation', () => {
       };
 
       // Act
-      const result = await handlePrepareDelegation(args, STATE_DIR);
+      const result = await handlePrepareDelegation(args, STATE_DIR, makeCtx(mockStore, STATE_DIR));
 
       // Assert
       expect(result.success).toBe(true);
@@ -1114,7 +1126,7 @@ describe('handlePrepareDelegation', () => {
       const args = { featureId: 'test-feature' };
 
       // Act
-      const result = await handlePrepareDelegation(args, STATE_DIR);
+      const result = await handlePrepareDelegation(args, STATE_DIR, makeCtx(mockStore, STATE_DIR));
 
       // Assert
       expect(result.success).toBe(true);
@@ -1210,7 +1222,7 @@ describe('handlePrepareDelegation', () => {
       };
 
       // Act
-      const result = await handlePrepareDelegation(args, STATE_DIR);
+      const result = await handlePrepareDelegation(args, STATE_DIR, makeCtx(mockStore, STATE_DIR));
 
       // Assert
       expect(result.success).toBe(true);
@@ -1272,7 +1284,7 @@ describe('handlePrepareDelegation', () => {
       };
 
       // Act -- no ctx passed
-      const result = await handlePrepareDelegation(args, STATE_DIR);
+      const result = await handlePrepareDelegation(args, STATE_DIR, makeCtx(mockStore, STATE_DIR));
 
       // Assert -- uses DEFAULTS.agents
       expect(result.success).toBe(true);

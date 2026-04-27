@@ -52,7 +52,7 @@ describe('handleViewTelemetry', () => {
       ]);
 
       // Act
-      const result = await handleViewTelemetry({}, stateDir);
+      const result = await handleViewTelemetry({}, stateDir, new EventStore(stateDir));
 
       // Assert
       expect(result.success).toBe(true);
@@ -81,7 +81,7 @@ describe('handleViewTelemetry', () => {
       ]);
 
       // Act
-      const result = await handleViewTelemetry({ compact: false }, stateDir);
+      const result = await handleViewTelemetry({ compact: false }, stateDir, new EventStore(stateDir));
 
       // Assert
       expect(result.success).toBe(true);
@@ -107,7 +107,7 @@ describe('handleViewTelemetry', () => {
       ]);
 
       // Act
-      const result = await handleViewTelemetry({ tool: 'event_query' }, stateDir);
+      const result = await handleViewTelemetry({ tool: 'event_query' }, stateDir, new EventStore(stateDir));
 
       // Assert
       expect(result.success).toBe(true);
@@ -129,7 +129,7 @@ describe('handleViewTelemetry', () => {
       ]);
 
       // Act
-      const result = await handleViewTelemetry({ sort: 'tokens' }, stateDir);
+      const result = await handleViewTelemetry({ sort: 'tokens' }, stateDir, new EventStore(stateDir));
 
       // Assert
       expect(result.success).toBe(true);
@@ -155,7 +155,7 @@ describe('handleViewTelemetry', () => {
       ]);
 
       // Act
-      const result = await handleViewTelemetry({ sort: 'invocations' }, stateDir);
+      const result = await handleViewTelemetry({ sort: 'invocations' }, stateDir, new EventStore(stateDir));
 
       // Assert
       expect(result.success).toBe(true);
@@ -181,7 +181,7 @@ describe('handleViewTelemetry', () => {
       ]);
 
       // Act
-      const result = await handleViewTelemetry({ sort: 'duration' }, stateDir);
+      const result = await handleViewTelemetry({ sort: 'duration' }, stateDir, new EventStore(stateDir));
 
       // Assert
       expect(result.success).toBe(true);
@@ -208,6 +208,7 @@ describe('handleViewTelemetry', () => {
       const result = await handleViewTelemetry(
         { sort: 'tokens', limit: 2 },
         stateDir,
+      new EventStore(stateDir),
       );
 
       // Assert
@@ -224,7 +225,7 @@ describe('handleViewTelemetry', () => {
   describe('empty state', () => {
     it('should return empty tools when no events exist', async () => {
       // Act
-      const result = await handleViewTelemetry({}, stateDir);
+      const result = await handleViewTelemetry({}, stateDir, new EventStore(stateDir));
 
       // Assert
       expect(result.success).toBe(true);
@@ -252,7 +253,7 @@ describe('handleViewTelemetry', () => {
       await seedTelemetryEvents(stateDir, largeEvents);
 
       // Act
-      const result = await handleViewTelemetry({}, stateDir);
+      const result = await handleViewTelemetry({}, stateDir, new EventStore(stateDir));
 
       // Assert
       expect(result.success).toBe(true);
@@ -270,18 +271,24 @@ describe('handleViewTelemetry', () => {
       const badDir = await createTempDir();
       resetMaterializerCache();
 
-      // Write a corrupt JSONL file that will fail JSON.parse during query
-      const corruptFile = path.join(badDir, 'telemetry.events.jsonl');
-      await fs.mkdir(badDir, { recursive: true });
-      await fs.writeFile(corruptFile, '{not valid json\n', 'utf-8');
+      try {
+        // Write a corrupt JSONL file that will fail JSON.parse during query
+        const corruptFile = path.join(badDir, 'telemetry.events.jsonl');
+        await fs.mkdir(badDir, { recursive: true });
+        await fs.writeFile(corruptFile, '{not valid json\n', 'utf-8');
 
-      // Act
-      const result = await handleViewTelemetry({}, badDir);
+        // Act — pass an EventStore pointed at the corrupt dir so the handler
+        // exercises the same composition-root contract the rest of the suite uses.
+        const result = await handleViewTelemetry({}, badDir, new EventStore(badDir));
 
-      // Assert
-      expect(result.success).toBe(false);
-      expect(result.error).toBeDefined();
-      expect(result.error?.code).toBe('VIEW_ERROR');
+        // Assert
+        expect(result.success).toBe(false);
+        expect(result.error).toBeDefined();
+        expect(result.error?.code).toBe('VIEW_ERROR');
+      } finally {
+        // Don't leak temp dirs across runs — see CR review 4178011813.
+        await fs.rm(badDir, { recursive: true, force: true });
+      }
     });
   });
 });
