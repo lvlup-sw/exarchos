@@ -892,6 +892,133 @@ describe('handleTaskComplete gate enforcement', () => {
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('GATE_NOT_PASSED');
   });
+
+  // ─── #1189: Tolerant Reader for gate.executed shape ────────────────────────
+  describe('#1189 — gate consultation tolerates alt shapes', () => {
+    it('HandleTaskComplete_GateWithTopLevelTaskId_RecognizedAsPassing', async () => {
+      // GIVEN: operator-emitted gate.executed events with taskId at the
+      // top level of `data` (alongside gateName/layer/passed) — the
+      // shape an operator naturally writes when manually satisfying a
+      // gate. The canonical handler-emitted shape places taskId inside
+      // data.details.taskId; both should be honored (Tolerant Reader,
+      // Postel's Law).
+      const store = new EventStore(tempDir);
+      await store.append('wf-gate-tlid', {
+        type: 'task.assigned',
+        data: { taskId: 'T-01', title: 'Top-level taskId test', assignee: 'agent-1' },
+      });
+      await store.append('wf-gate-tlid', {
+        type: 'gate.executed',
+        data: { gateName: 'tdd-compliance', layer: 'delegate', passed: true, taskId: 'T-01' },
+      });
+      await store.append('wf-gate-tlid', {
+        type: 'gate.executed',
+        data: { gateName: 'static-analysis', layer: 'quality', passed: true, taskId: 'T-01' },
+      });
+
+      const result = await handleTaskComplete(
+        { taskId: 'T-01', streamId: 'wf-gate-tlid' },
+        tempDir,
+        store,
+      );
+
+      expect(result.success).toBe(true);
+    });
+
+    it('HandleTaskComplete_GateWithTopLevelTaskIdMismatch_RejectsCompletion', async () => {
+      // GIVEN: a gate event with top-level taskId that does NOT match
+      // the task being completed. The Tolerant Reader must still
+      // enforce the taskId equality contract.
+      const store = new EventStore(tempDir);
+      await store.append('wf-gate-tlid-mm', {
+        type: 'task.assigned',
+        data: { taskId: 'T-01', title: 'Mismatch test', assignee: 'agent-1' },
+      });
+      await store.append('wf-gate-tlid-mm', {
+        type: 'gate.executed',
+        data: { gateName: 'tdd-compliance', layer: 'delegate', passed: true, taskId: 'T-99' },
+      });
+
+      const result = await handleTaskComplete(
+        { taskId: 'T-01', streamId: 'wf-gate-tlid-mm' },
+        tempDir,
+        store,
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe('GATE_NOT_PASSED');
+    });
+
+    it('HandleTaskComplete_NonManualEvidenceWithPassedTrue_BypassesGate', async () => {
+      // GIVEN: a task with no gate.executed events but operator-supplied
+      // `evidence.passed === true` and a non-empty output. The bypass
+      // mechanism is orthogonal to evidence.type (SRP — separate
+      // "what kind of proof" from "whether to skip prerequisites").
+      const store = new EventStore(tempDir);
+      await store.append('wf-evbypass', {
+        type: 'task.assigned',
+        data: { taskId: 'T-01', title: 'Evidence bypass', assignee: 'agent-1' },
+      });
+
+      const result = await handleTaskComplete(
+        {
+          taskId: 'T-01',
+          streamId: 'wf-evbypass',
+          evidence: { type: 'test', output: '5727 tests passed', passed: true },
+        },
+        tempDir,
+        store,
+      );
+
+      expect(result.success).toBe(true);
+    });
+
+    it('HandleTaskComplete_EvidenceWithEmptyOutput_DoesNotBypass', async () => {
+      // GIVEN: passed===true but no actual proof. Empty output is a
+      // sanity guard — bypass requires substantive evidence, not just
+      // an assertion.
+      const store = new EventStore(tempDir);
+      await store.append('wf-evempty', {
+        type: 'task.assigned',
+        data: { taskId: 'T-01', title: 'Empty evidence', assignee: 'agent-1' },
+      });
+
+      const result = await handleTaskComplete(
+        {
+          taskId: 'T-01',
+          streamId: 'wf-evempty',
+          evidence: { type: 'test', output: '', passed: true },
+        },
+        tempDir,
+        store,
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe('GATE_NOT_PASSED');
+    });
+
+    it('HandleTaskComplete_ManualEvidenceBypass_StillWorks', async () => {
+      // Backward compatibility: the original `evidence.type === 'manual'`
+      // bypass (per #940) must still work after the broadening.
+      const store = new EventStore(tempDir);
+      await store.append('wf-manual', {
+        type: 'task.assigned',
+        data: { taskId: 'T-01', title: 'Manual evidence', assignee: 'agent-1' },
+      });
+
+      const result = await handleTaskComplete(
+        {
+          taskId: 'T-01',
+          streamId: 'wf-manual',
+          evidence: { type: 'manual', output: 'docs-only task — no gates run', passed: true },
+        },
+        tempDir,
+        store,
+      );
+
+      expect(result.success).toBe(true);
+    });
+  });
 });
 
 // ─── Batch Gate Failures (DR-2) ──────────────────────────────────────────────

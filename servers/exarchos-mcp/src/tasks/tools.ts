@@ -203,24 +203,41 @@ export async function handleTaskComplete(
 
   const store = eventStore;
 
-  // Manual evidence bypass: docs-only or non-code tasks can skip gate checks
-  const manualBypass = args.evidence?.type === 'manual' && args.evidence.passed === true;
+  // Evidence-based bypass (#1189): orthogonal to evidence.type (SRP —
+  // separate "what kind of proof" from "whether to skip prerequisites").
+  // Any evidence with passed===true AND substantive (non-empty) output
+  // asserts work succeeded; the type tag is metadata about the proof,
+  // not the override mechanism. Preserves the original `type === 'manual'`
+  // behavior (#940) since manual evidence will satisfy passed===true plus
+  // a non-empty output.
+  const evidenceBypass =
+    args.evidence?.passed === true && (args.evidence.output ?? '').length > 0;
 
   // Gate enforcement: verify D1 (TDD compliance) and D2 (static analysis) gates passed for this task
   const gateEvents = await store.query(args.streamId, { type: 'gate.executed' });
 
+  // Tolerant Reader (#1189): taskId may live at `data.details.taskId`
+  // (canonical handler-emitted shape) or at `data.taskId` (operator-emitted
+  // shape, e.g. when satisfying a gate manually via exarchos_event append).
+  // Both shapes are valid per the GateExecutedData schema (which is not
+  // .strict()). If a top-level taskId is present, it is authoritative;
+  // otherwise fall back to the canonical details.taskId, with a missing
+  // taskId on the canonical path indicating a project-wide gate.
   const hasPassingGate = (gateName: string): boolean =>
     gateEvents.some((e) => {
       const d = e.data as Record<string, unknown> | undefined;
       if (!d) return false;
+      if (d.gateName !== gateName || d.passed !== true) return false;
+      if (typeof d.taskId === 'string') {
+        return d.taskId === args.taskId;
+      }
       const details = d.details as Record<string, unknown> | undefined;
-      return d.gateName === gateName && d.passed === true &&
-        (details != null && (!details.taskId || details.taskId === args.taskId));
+      return details != null && (!details.taskId || details.taskId === args.taskId);
     });
 
   const unmetGates: string[] = [];
-  if (!manualBypass && !hasPassingGate('tdd-compliance')) unmetGates.push('tdd-compliance');
-  if (!manualBypass && !hasPassingGate('static-analysis')) unmetGates.push('static-analysis');
+  if (!evidenceBypass && !hasPassingGate('tdd-compliance')) unmetGates.push('tdd-compliance');
+  if (!evidenceBypass && !hasPassingGate('static-analysis')) unmetGates.push('static-analysis');
   if (unmetGates.length > 0) {
     return {
       success: false,
