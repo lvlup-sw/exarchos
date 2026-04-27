@@ -194,4 +194,14 @@ describe('assertCurrentBranchNotProtected', () => {
     const result = assertCurrentBranchNotProtected(null);
     expect(result.blocked).toBe(false);
   });
+
+  it('assertCurrentBranchNotProtected_OnMain_IncludesRemediationHint', () => {
+    // #1190 UX nit: blocker payloads must include actionable remediation,
+    // not just a reason code. Operators should not need to grep CLAUDE.md
+    // to recover from a blocked dispatch.
+    const result = assertCurrentBranchNotProtected('main');
+    expect(result.blocked).toBe(true);
+    expect(result.hint).toBeDefined();
+    expect(result.hint).toMatch(/checkout|feature/i);
+  });
 });

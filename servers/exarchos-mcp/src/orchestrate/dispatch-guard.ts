@@ -25,6 +25,12 @@ export interface CurrentBranchProtectionResult {
   readonly blocked: boolean;
   readonly reason?: 'current-branch-protected';
   readonly currentBranch?: string;
+  /**
+   * Operator-facing remediation hint (#1190). Present when `blocked: true`
+   * so callers don't need to consult external docs to recover. Omitted
+   * when `blocked: false` (no remediation needed).
+   */
+  readonly hint?: string;
 }
 
 export type GitExec = (args: readonly string[]) => string;
@@ -131,6 +137,7 @@ export function assertCurrentBranchNotProtected(
       blocked: true,
       reason: 'current-branch-protected',
       currentBranch,
+      hint: `checkout the feature/phase branch before dispatching delegation (HEAD is on ${currentBranch})`,
     };
   }
   return { blocked: false };
