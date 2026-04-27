@@ -23,9 +23,6 @@ description: >-
 tools:
   - read
   - mcp__exarchos
-mcp:
-  exarchos:
-    enabled: true
 ---
 
 You are a code reviewer agent. You analyze code for quality, correctness, and design compliance.

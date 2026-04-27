@@ -56,11 +56,11 @@ Task({
 
 ## Step 5: Monitor Progress
 
-For background tasks, poll/await using the runtime's result-collection primitive:
+For background tasks, collect results using the runtime's result-collection primitive:
 ```text
 inline reply from task --agent (no separate collection API)
-// task_id: task-001-id
 ```
+If the runtime uses a poll/await API, pass the `task_id` returned at dispatch time. Inline-reply runtimes deliver results as the subagent's next message — no `task_id` is needed.
 
 
 ## Step 6: Collect Results

@@ -92,6 +92,22 @@ describe('CopilotAdapter', () => {
     expect(tools).toContain('shell');
   });
 
+  it('CopilotAdapter_LowerImplementer_OmitsMcpFrontmatterBlock', () => {
+    // The Copilot CLI loader does not honor an `mcp:` (or `mcp-servers:`)
+    // block in custom-agent frontmatter when shaped as `{ enabled: true }`
+    // — MCP servers are registered out-of-band (`gh mcp add` / shared
+    // `mcp.json`) and per-agent gating is the `mcp__<server>` tool entry.
+    // Locks the regression fix; previously the adapter emitted a spurious
+    // `mcp: { exarchos: { enabled: true } }` block that was silently ignored.
+    const { contents } = adapter.lowerSpec(IMPLEMENTER_FIXTURE);
+    const { data } = parseFrontmatter(contents);
+
+    expect(data).not.toHaveProperty('mcp');
+    expect(data).not.toHaveProperty('mcp-servers');
+    // The `mcp__exarchos` tool entry remains the sole gating mechanism.
+    expect(data.tools).toContain('mcp__exarchos');
+  });
+
   it('CopilotAdapter_ValidateSupport_RejectsClaudeOnlyHooks', () => {
     const specWithStartHook: AgentSpec = {
       ...IMPLEMENTER_FIXTURE,

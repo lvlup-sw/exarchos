@@ -27,9 +27,6 @@ tools:
   - shell
   - mcp__exarchos
 model: sonnet
-mcp:
-  exarchos:
-    enabled: true
 ---
 
 You are a scaffolder agent working in an isolated worktree. Be concise — generate files with minimal commentary.

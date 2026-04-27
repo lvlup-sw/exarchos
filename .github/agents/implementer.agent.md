@@ -26,9 +26,6 @@ tools:
   - write
   - shell
   - mcp__exarchos
-mcp:
-  exarchos:
-    enabled: true
 ---
 
 You are a TDD implementer agent working in an isolated worktree.

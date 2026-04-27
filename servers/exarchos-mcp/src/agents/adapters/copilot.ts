@@ -25,7 +25,7 @@
 //   fs:write                    → `write`
 //   shell:exec                  → `shell`
 //   subagent:spawn              → `task`
-//   mcp:exarchos                → `mcp__exarchos` (and `mcp` config block)
+//   mcp:exarchos                → `mcp__exarchos` tool entry only
 //   isolation:worktree          → advisory; emits no tool entry
 //   subagent:start-signal       → unsupported (Copilot has no equivalent hook)
 //   subagent:completion-signal  → unsupported
@@ -75,7 +75,6 @@ interface CopilotFrontmatter {
   description: string;
   tools: string[];
   model?: string;
-  mcp?: Record<string, { enabled: true }>;
 }
 
 export class CopilotAdapter implements RuntimeAdapter {
@@ -124,10 +123,14 @@ export class CopilotAdapter implements RuntimeAdapter {
       frontmatter.model = spec.model;
     }
 
-    // Emit `mcp` config block when the spec declares mcp:exarchos.
-    if (spec.capabilities.includes('mcp:exarchos')) {
-      frontmatter.mcp = { exarchos: { enabled: true } };
-    }
+    // MCP server enablement is NOT declared in agent frontmatter for the
+    // Copilot CLI. Servers are registered out-of-band (e.g. `gh mcp add`
+    // or a shared `mcp.json`); per-agent gating happens via the
+    // `mcp__<server>` tool entry already present in `tools` above.
+    // The `mcp-servers:` field documented for cloud-agent custom agents
+    // expects `{ type, command, args, tools, env }` — not `{ enabled }` —
+    // and is not honored by the CLI loader regardless. Emitting any
+    // `mcp:` block here was non-standard and silently ignored.
 
     const yamlBlock = stringifyYaml(frontmatter).trimEnd();
     const contents = `---\n${yamlBlock}\n---\n\n${spec.systemPrompt}\n`;

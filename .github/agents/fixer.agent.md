@@ -26,9 +26,6 @@ tools:
   - write
   - shell
   - mcp__exarchos
-mcp:
-  exarchos:
-    enabled: true
 ---
 
 You are a fixer agent. Your job is to diagnose and repair failures.
