@@ -997,6 +997,30 @@ describe('handleTaskComplete gate enforcement', () => {
       expect(result.error?.code).toBe('GATE_NOT_PASSED');
     });
 
+    it('HandleTaskComplete_EvidenceWithWhitespaceOnlyOutput_DoesNotBypass', async () => {
+      // GIVEN: passed===true with whitespace-only output. The substantive-
+      // proof guard must trim before the length check — otherwise "   "
+      // (or "\t\n") would trivially bypass while contributing no evidence.
+      const store = new EventStore(tempDir);
+      await store.append('wf-evws', {
+        type: 'task.assigned',
+        data: { taskId: 'T-01', title: 'Whitespace evidence', assignee: 'agent-1' },
+      });
+
+      const result = await handleTaskComplete(
+        {
+          taskId: 'T-01',
+          streamId: 'wf-evws',
+          evidence: { type: 'test', output: '   \t\n  ', passed: true },
+        },
+        tempDir,
+        store,
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe('GATE_NOT_PASSED');
+    });
+
     it('HandleTaskComplete_ManualEvidenceBypass_StillWorks', async () => {
       // Backward compatibility: the original `evidence.type === 'manual'`
       // bypass (per #940) must still work after the broadening.

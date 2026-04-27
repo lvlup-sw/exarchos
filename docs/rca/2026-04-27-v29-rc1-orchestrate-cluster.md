@@ -80,17 +80,29 @@ Per-action `.strict()` is the right safety choice (catches caller typos). The pr
 
 ### Fix
 
-In `core/dispatch.ts`, before per-action `safeParse`, filter `rest` to keys present in the matching action's schema shape:
+In `core/dispatch.ts`, before per-action `safeParse`, drop only keys declared on a *sibling* action's schema. Keys declared on the matching action's schema, and keys not declared on any action, both pass through. The leaked sibling defaults disappear; caller typos still hit `.strict()` and are reported with a clear unrecognized-key error.
 
 ```typescript
-const actionShapeKeys = new Set(Object.keys(matchingAction.schema.shape));
+const actionShape = (matchingAction.schema as { shape?: Record<string, unknown> }).shape;
+const siblingKeys = new Set<string>();
+for (const a of registeredTool.actions) {
+  if (a === matchingAction) continue;
+  const shape = (a.schema as { shape?: Record<string, unknown> }).shape;
+  if (shape && typeof shape === 'object') {
+    for (const k of Object.keys(shape)) siblingKeys.add(k);
+  }
+}
 const cleaned = Object.fromEntries(
-  Object.entries(rest).filter(([k]) => actionShapeKeys.has(k))
+  Object.entries(rest).filter(([k]) => {
+    const inAction = !!actionShape && Object.prototype.hasOwnProperty.call(actionShape, k);
+    if (inAction) return true;
+    return !siblingKeys.has(k); // keep unknown caller keys; drop only leaked sibling defaults
+  })
 );
 const parsed = matchingAction.schema.safeParse(cleaned);
 ```
 
-Pure function, single boundary, preserves `.strict()` typo-detection on caller-supplied keys (because the only stripped keys are ones that came from the parent-default mechanism, not the caller).
+Pure function, single boundary, preserves `.strict()` typo-detection on caller-supplied keys (the only stripped keys are ones that belong to a sibling action's schema, which is exactly the parent-default leak surface).
 
 This is **Tolerant Dispatch** — the boundary tolerates upstream's well-meaning over-supply while the per-action schema retains its strict contract for caller-originated keys. Analogous to Microsoft's [forward-compatible data contracts](https://learn.microsoft.com/dotnet/framework/wcf/feature-details/forward-compatible-data-contracts) (extra fields ignored at deserialization).
 
@@ -134,7 +146,7 @@ Conflates two orthogonal concerns: *what kind of proof* (`evidence.type`) and *w
 Two complementary changes — both Tolerant Reader (Postel's Law) applied at the same boundary:
 
 1. **Broaden `hasPassingGate`** to accept `taskId` at either `data.taskId` (top level) or `data.details.taskId` (nested), preserving back-compat with handler-emitted events while accepting operator-emitted events.
-2. **Broaden `manualBypass`** to accept any `evidence?.passed === true` (regardless of `evidence.type`). This separates evidence-type-tag from override-mechanism per **SRP**.
+2. **Broaden the evidence bypass** to accept any `evidence?.passed === true` *and* a non-empty `evidence.output` (after trimming whitespace), regardless of `evidence.type`. The non-empty-output guard is a sanity check — it preserves the "substantive proof" intent of the original `manual` bypass while removing the type-tag conflation. This separates evidence-type-tag from override-mechanism per **SRP**.
 
 The two changes are independent — either alone would unblock the issue's repro. Both together close the loop.
 

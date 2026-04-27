@@ -205,13 +205,14 @@ export async function handleTaskComplete(
 
   // Evidence-based bypass (#1189): orthogonal to evidence.type (SRP —
   // separate "what kind of proof" from "whether to skip prerequisites").
-  // Any evidence with passed===true AND substantive (non-empty) output
+  // Any evidence with passed===true AND substantive (non-whitespace) output
   // asserts work succeeded; the type tag is metadata about the proof,
   // not the override mechanism. Preserves the original `type === 'manual'`
   // behavior (#940) since manual evidence will satisfy passed===true plus
-  // a non-empty output.
+  // a non-empty output. Trim before length-check so whitespace-only output
+  // (e.g. "   ") cannot trivially bypass the gate.
   const evidenceBypass =
-    args.evidence?.passed === true && (args.evidence.output ?? '').length > 0;
+    args.evidence?.passed === true && (args.evidence.output ?? '').trim().length > 0;
 
   // Gate enforcement: verify D1 (TDD compliance) and D2 (static analysis) gates passed for this task
   const gateEvents = await store.query(args.streamId, { type: 'gate.executed' });
