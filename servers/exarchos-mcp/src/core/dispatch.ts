@@ -309,7 +309,42 @@ export async function dispatch(
     }
 
     const { action: _action, ...rest } = args;
-    const parsed = matchingAction.schema.safeParse(rest);
+    // Tolerant Dispatch (#1188): the MCP SDK validates against the flattened
+    // parent schema (buildRegistrationSchema) and applies sibling-action
+    // defaults (e.g. `nativeIsolation` from prepare_delegation, `outputFormat`
+    // from agent_spec) to every payload. Per-action schemas use .strict()
+    // to catch caller typos, so those leaked defaults would be rejected as
+    // unrecognized keys.
+    //
+    // Strip only sibling-action keys: a key declared on some other action's
+    // schema but not on the matching action's. Keys that aren't declared
+    // anywhere (caller typos) pass through so .strict() still rejects
+    // them — preserving the typo-detection guard.
+    const actionShape = (matchingAction.schema as { shape?: Record<string, unknown> }).shape;
+    const cleanedRest =
+      actionShape && typeof actionShape === 'object'
+        ? (() => {
+            const siblingKeys = new Set<string>();
+            for (const a of registeredTool.actions) {
+              if (a === matchingAction) continue;
+              const shape = (a.schema as { shape?: Record<string, unknown> }).shape;
+              if (shape && typeof shape === 'object') {
+                for (const k of Object.keys(shape)) siblingKeys.add(k);
+              }
+            }
+            return Object.fromEntries(
+              Object.entries(rest).filter(([k]) => {
+                const inAction = Object.prototype.hasOwnProperty.call(actionShape, k);
+                if (inAction) return true;
+                // Drop sibling-action keys (leaked parent defaults). Keep
+                // unknown keys so the per-action .strict() guard rejects
+                // caller typos with a clear error.
+                return !siblingKeys.has(k);
+              }),
+            );
+          })()
+        : rest;
+    const parsed = matchingAction.schema.safeParse(cleanedRest);
     if (!parsed.success) {
       const context = `${tool}/${actionName}`;
       return {

@@ -1,4 +1,5 @@
-export const TELEMETRY_STREAM = 'telemetry';
+import { TELEMETRY_STREAM } from '../core/infra-streams.js';
+export { TELEMETRY_STREAM };
 
 // ─── Threshold Constants ─────────────────────────────────────────────────────
 

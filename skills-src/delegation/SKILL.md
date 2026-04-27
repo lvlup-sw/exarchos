@@ -64,6 +64,25 @@ Before dispatching, query decision runbooks to classify the work and select the 
 
 Use the `prepare_delegation` composite action to validate readiness in a single call. This replaces manual script invocations and individual checks.
 
+> **Authoritative spec:** the canonical list of preconditions, blockers, and arguments for `prepare_delegation` lives in the runtime — query it with `exarchos_orchestrate({ action: "describe", actions: ["prepare_delegation"] })` if anything in this skill drifts from observed behavior. Treat the runtime `describe` output as the source of truth.
+
+### Step 0 — Pre-emit (required before `prepare_delegation`)
+
+Before calling `prepare_delegation`, the workflow stream must contain a `task.assigned` event for each task. The readiness view counts these events to populate `taskCount`; without them, `prepare_delegation` returns `{ ready: false, blockers: ["no task.assigned events found ..."] }`.
+
+```typescript
+exarchos_event({
+  action: "batch_append",
+  stream: "<featureId>",
+  events: tasks.map((t) => ({
+    type: "task.assigned",
+    data: { taskId: t.id, title: t.title, branch: t.branch },
+  })),
+})
+```
+
+### Step 1 — Prepare (readiness check)
+
 ```typescript
 exarchos_orchestrate({
   action: "prepare_delegation",
@@ -78,6 +97,8 @@ The composite action performs:
 3. **Quality signal assembly** — queries `code_quality` view; if `gatePassRate < 0.80`, returns quality hints to embed in prompts. Emits `gate.executed('plan-coverage')` on success (no pre-query needed)
 4. **Benchmark detection** — sets `verification.hasBenchmarks` if any task has benchmark criteria
 5. **Readiness verdict** — returns `{ ready: true, worktrees: [...], qualityHints: [...] }` or `{ ready: false, reason: "..." }`
+
+**If `blocked: true` with `reason: "current-branch-protected"`:** the response includes a `hint` field (e.g. "checkout the feature/phase branch before dispatching delegation"). Apply the hint, then re-call.
 
 **If `ready: false`:** Stop. Report the reason to the user. Do not proceed.
 
@@ -152,6 +173,7 @@ The delegate phase requires these events (checked by `check-event-emissions`):
 
 | Event | When | Emitted By |
 |-------|------|------------|
+| `task.assigned` | Before `prepare_delegation` (one per task; see Step 0) | Orchestrator |
 | `team.spawned` | After team creation, before dispatch | Orchestrator |
 | `team.task.planned` | For each task in the plan (use `batch_append`) | Orchestrator |
 | `team.teammate.dispatched` | After each subagent is spawned | Orchestrator |
