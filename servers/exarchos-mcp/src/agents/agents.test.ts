@@ -181,9 +181,12 @@ describe('Agent Spec Definitions', () => {
     expect(REVIEWER.resumable).toBe(false);
     expect(REVIEWER.capabilities).toContain('fs:read');
     // Per #1109 Constraint 3 (Basileus-forward), MCP remains first-class
-    // for the reviewer so it can consult read-only views (exarchos_view,
-    // workflow.get, event.query, orchestrate.describe/check_*) during
-    // review. Mutating MCP actions are forbidden at the prompt layer
+    // for the reviewer so it can consult read-only views (exarchos_view's
+    // pure-read actions, workflow.get/describe, event.query/describe,
+    // orchestrate.describe). Mutating MCP actions — including every
+    // orchestrate.check_* (each emits a gate.executed event), workflow
+    // .reconcile/rehydrate, view.code_quality (emits regressions), and
+    // all explicit writes — are forbidden at the prompt layer
     // (see Forbidden MCP Actions section in systemPrompt) — capability-
     // level filtering of mutating composite-tool actions requires a
     // separate `mcp:exarchos:readonly` capability negotiated via the

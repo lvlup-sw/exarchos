@@ -139,6 +139,7 @@ For dispatch strategy decisions, query the decision runbook:
 
 This runbook provides structured criteria for parallel vs sequential dispatch, team sizing, and failure escalation.
 
+
 ### Parallel Dispatch
 
 Dispatch all independent tasks using the runtime's native spawn primitive in a **single message** so the dispatches run in parallel.
@@ -165,7 +166,7 @@ For parallel grouping strategy and model selection, see `references/parallel-str
 Collect background task results using the runtime's result-collection primitive (this may be a poll/await per task or inline replies, depending on the runtime):
 
 ```text
-Task() reply (inline)
+Task() reply (inline, no poll)
 ```
 
 After each subagent reports completion:
@@ -218,7 +219,7 @@ This is advisory — findings are recorded for the convergence view but do not b
 ### Failure Recovery
 
 When a task fails:
-1. Read the failure output from the runtime's result-collection primitive (`Task() reply (inline)`)
+1. Read the failure output from the runtime's result-collection primitive (`Task() reply (inline, no poll)`)
 2. Diagnose root cause — do NOT trust the implementer's self-assessment (see R3 adversarial posture)
 3. Fix the task using the fixer flow below
 4. Run the `task-fix` runbook gate chain after the fix completes

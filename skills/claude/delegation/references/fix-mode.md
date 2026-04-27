@@ -42,7 +42,7 @@ Or auto-invoked after review failures.
 
    ```typescript
    Task({
-     subagent_type: "exarchos-implementer",
+     subagent_type: "exarchos-fixer",
      run_in_background: true,
      description: "Fix: [issue summary]",
      prompt: "[fixer-prompt template with issue details]"
@@ -85,12 +85,12 @@ exarchos_workflow get with fields: ["tasks"]
 ### Decision Flow
 
 1. **agentId available?** → Resume with failure context
-2. **agentId unavailable?** → Fresh dispatch with `exarchos-fixer` agent type
+2. **agentId unavailable?** → Fresh dispatch via the runtime's spawn primitive with the fixer agent (e.g. `subagent_type: "exarchos-fixer"` on Claude Code, the equivalent agent name on other runtimes)
 3. **Resume fails?** → Fall back to fresh dispatch
 
 ### Gate Chain After Fix
 
-After any fix (resume or fresh dispatch), run the `task-fix` runbook:
+After the fix completes, run the `task-fix` runbook:
 ```typescript
 exarchos_orchestrate({ action: "runbook", id: "task-fix" })
 ```

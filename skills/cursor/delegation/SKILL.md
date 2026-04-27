@@ -139,6 +139,7 @@ For dispatch strategy decisions, query the decision runbook:
 
 This runbook provides structured criteria for parallel vs sequential dispatch, team sizing, and failure escalation.
 
+
 ### Parallel Dispatch
 
 Dispatch all independent tasks using the runtime's native spawn primitive in a **single message** so the dispatches run in parallel.

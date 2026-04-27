@@ -148,6 +148,7 @@ For dispatch strategy decisions, query the decision runbook:
 
 This runbook provides structured criteria for parallel vs sequential dispatch, team sizing, and failure escalation.
 
+
 ### Parallel Dispatch
 
 Dispatch all independent tasks using the runtime's native spawn primitive in a **single message** so the dispatches run in parallel.
@@ -272,7 +273,7 @@ Dispatch a fresh fixer agent using the runtime's native spawn primitive, carryin
 
 ```typescript
 Task({
-  subagent_type: "exarchos-implementer",
+  subagent_type: "exarchos-fixer",
   run_in_background: true,
   description: "Fix failed task-001",
   prompt: "Your implementation failed. [failure context from test output]. Apply adversarial verification: do NOT trust your previous self-assessment, re-read actual test output, identify root cause not symptoms. [Original task context]."

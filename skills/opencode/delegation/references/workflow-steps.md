@@ -58,7 +58,7 @@ Task({
 
 For background tasks, poll/await using the runtime's result-collection primitive:
 ```text
-Task() reply (inline)
+Task() reply (inline, no poll)
 // task_id: task-001-id
 ```
 

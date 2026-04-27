@@ -55,7 +55,7 @@ Or auto-invoked after review failures.
 
 ### Gate Chain After Fix
 
-After any fix (resume or fresh dispatch), run the `task-fix` runbook:
+After the fix completes, run the `task-fix` runbook:
 ```typescript
 exarchos_orchestrate({ action: "runbook", id: "task-fix" })
 ```

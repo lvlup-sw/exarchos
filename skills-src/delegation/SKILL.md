@@ -150,6 +150,7 @@ For dispatch strategy decisions, query the decision runbook:
 
 This runbook provides structured criteria for parallel vs sequential dispatch, team sizing, and failure escalation.
 
+<!-- requires:subagent:spawn -->
 ### Parallel Dispatch
 
 Dispatch all independent tasks using the runtime's native spawn primitive in a **single message** so the dispatches run in parallel.
@@ -159,6 +160,7 @@ Dispatch all independent tasks using the runtime's native spawn primitive in a *
 ```
 
 > **Note:** Include the full implementer prompt template from `references/implementer-prompt.md` in the dispatch payload so the spawned agent has a self-contained context — runtimes that pre-bind the implementer prompt to a named agent will discard the redundant content automatically.
+<!-- /requires -->
 
 For parallel grouping strategy and model selection, see `references/parallel-strategy.md`.
 

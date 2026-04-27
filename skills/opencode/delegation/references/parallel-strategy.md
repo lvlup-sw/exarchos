@@ -46,7 +46,7 @@ Task({
 | Aspect | Subagent dispatch |
 |--------|---------------------|
 | Parallel dispatch | Multiple `Task` invocations in one message |
-| Waiting | `Task() reply (inline)` |
+| Waiting | `Task() reply (inline, no poll)` |
 | Visibility | None (background) |
 | Model control | `recommendedModel` from `prepare_delegation` (computed from the config cascade) |
 | Max parallelism | Unlimited |
@@ -57,7 +57,7 @@ Task({
 
 ```text
 // Wait for all background tasks via the runtime's result-collection primitive
-Task() reply (inline)
+Task() reply (inline, no poll)
 // (poll/await per task_id on poll-based runtimes; inline on runtimes that return replies in the dispatching turn)
 ```
 
