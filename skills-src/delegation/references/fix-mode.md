@@ -38,26 +38,21 @@ Or auto-invoked after review failures.
    - Include full issue context
    - Specify target worktree
 
-4. **Dispatch fixers** — fresh dispatch is the default, with resume as an opt-in optimization on runtimes that support it:
+4. **Dispatch fixers** — dispatch a fresh fixer agent using the runtime's native spawn primitive:
 
-   **Fresh dispatch (cross-platform default):**
    ```typescript
-   Task({
-     subagent_type: "exarchos-fixer",
-     run_in_background: true,
-     description: "Fix: [issue summary]",
-     prompt: "[fixer-prompt template with issue details]"
-   })
+   {{SPAWN_AGENT_CALL agent="fixer" description="Fix: [issue summary]" prompt="[fixer-prompt template with issue details]"}}
    ```
 
    <!-- requires:native:session:resume -->
-   **Resume (runtimes with native session:resume, e.g. Claude Code):**
+   **Optimization (opt-in):** On runtimes with native session resume (e.g. Claude Code with an `agentId` in workflow state), you may resume the original agent instead so it retains its implementer context:
    ```typescript
    Task({
      resume: "[agentId from workflow state]",
      prompt: "Your implementation failed. [failure context]. Apply adversarial verification."
    })
    ```
+   Fresh dispatch above remains correct and is the canonical default.
    <!-- /requires -->
 
 5. **Re-review after fixes**:

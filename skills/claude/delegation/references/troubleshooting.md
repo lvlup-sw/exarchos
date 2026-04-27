@@ -40,7 +40,7 @@ If `exarchos_orchestrate` with `action: "task_claim"` returns ALREADY_CLAIMED:
 **Cause:** The runtime's native task list was modified, but exarchos workflow state was not synced. The `all-tasks-complete` guard checks the exarchos workflow `tasks[]` array, NOT any runtime-native task list.
 
 
-On Claude Code with Agent Teams, this typically happens when teammates update their `TaskList` via `TaskUpdate` but the orchestrator hasn't mirrored those statuses into exarchos workflow state.
+With Agent Teams enabled, this typically happens when teammates update their runtime task list (for example via `TaskUpdate`) but the orchestrator hasn't mirrored those statuses into exarchos workflow state.
 
 
 **Solution:** Before transitioning to review, call `exarchos_workflow set` with updated task statuses:

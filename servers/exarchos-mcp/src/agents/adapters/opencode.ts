@@ -23,8 +23,10 @@ import { buildSupportMap } from './support-levels.js';
 
 /**
  * OpenCode covers fs/shell/subagent-spawn/MCP natively, treats
- * `isolation:worktree` as advisory (orchestrator-managed), and rejects
- * Claude-only primitives (Agent Teams, signal hooks, session:resume).
+ * `isolation:worktree` and `session:resume` as advisory (orchestrator-
+ * managed for worktree; expressible in prose for resume but without a
+ * native primitive), and rejects Claude-only signaling primitives
+ * (Agent Teams, signal hooks).
  */
 const OPENCODE_SUPPORT_LEVELS = buildSupportMap('native', {
   'isolation:worktree': 'advisory',

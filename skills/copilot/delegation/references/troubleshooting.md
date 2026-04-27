@@ -22,7 +22,7 @@ If `git worktree add` fails:
 
 ## Subagent Not Responding
 If a spawned subagent doesn't respond:
-1. Check task output via the runtime's result-collection primitive (`task --agent reply (inline)`)
+1. Check task output via the runtime's result-collection primitive (`inline reply from task --agent (no separate collection API)`)
 2. If the subagent is stuck: stop it with the runtime's task-stop primitive and re-dispatch
 
 ## Task Claim Conflict

@@ -22,12 +22,12 @@ Group B (depends on Group A):
 
 ## Dispatching Parallel Tasks
 
-**Critical:** Use single message with multiple Task calls:
+**Critical:** Use a single message with multiple subagent invocations — the runtime's spawn primitive renders the parallel dispatch:
 
 ```typescript
 // CORRECT: Single message, parallel execution
-Task({ description: "Task 001", prompt: "..." })
-Task({ description: "Task 002", prompt: "..." })
+task --agent implementer 'Task 001: <full context for Task 001>'
+task --agent implementer 'Task 002: <full context for Task 002>'
 
 // WRONG: Separate messages = sequential
 ```
@@ -38,9 +38,9 @@ Task({ description: "Task 002", prompt: "..." })
 | Aspect | Subagent dispatch |
 |--------|---------------------|
 | Parallel dispatch | Multiple `task` invocations in one message |
-| Waiting | `task --agent reply (inline)` |
+| Waiting | `inline reply from task --agent (no separate collection API)` |
 | Visibility | None (background) |
-| Model control | `recommendedModel` from config |
+| Model control | `recommendedModel` from `prepare_delegation` (computed from the config cascade) |
 | Max parallelism | Unlimited |
 | Resume on crash | Task results preserved |
 
@@ -49,7 +49,7 @@ Task({ description: "Task 002", prompt: "..." })
 
 ```text
 // Wait for all background tasks via the runtime's result-collection primitive
-task --agent reply (inline)
+inline reply from task --agent (no separate collection API)
 // (poll/await per task_id on poll-based runtimes; inline on runtimes that return replies in the dispatching turn)
 ```
 

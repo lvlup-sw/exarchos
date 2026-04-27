@@ -1,8 +1,13 @@
+---
+name: implementer-prompt
+description: Canonical implementer prompt template — embedded in agent definitions on runtimes with native agent support, dispatched inline on others.
+---
+
 # Implementer Prompt Template
 
-**Note:** On Claude Code, this template is compiled into `servers/exarchos-mcp/src/agents/definitions.ts` (IMPLEMENTER spec) and the native agent file `agents/exarchos-implementer.md` is generated from the registry at build time. This reference document is the canonical prompt evolution record and is used directly by cross-platform clients (Cursor, Copilot CLI, etc.) that lack native agent support.
+**Note:** On runtimes with native agent definitions (e.g. Claude Code), this template is compiled into `servers/exarchos-mcp/src/agents/definitions.ts` (IMPLEMENTER spec) and the rendered agent file (e.g. `agents/exarchos-implementer.md`) is generated from the registry at build time. This reference document is the canonical prompt evolution record and is used directly by runtime clients without native agent support (Cursor, Copilot CLI, etc.).
 
-Use this template when dispatching tasks via the Task tool.
+Use this template when dispatching tasks via the runtime's spawn primitive.
 
 ## Quality Hints Integration
 

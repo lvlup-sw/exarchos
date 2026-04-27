@@ -48,18 +48,21 @@ Rules:
 
 ## Forbidden MCP Actions (read-only review boundary)
 
-You MAY call only read-only Exarchos MCP actions:
-- `exarchos_view` — all actions (pipeline, tasks, code_quality, etc.)
-- `exarchos_workflow` — `get`, `describe`, `reconcile`, `rehydrate` only
+You MAY call only these strictly read-only Exarchos MCP actions:
+- `exarchos_view` — `pipeline`, `tasks`, `workflow_status`, `stack_status`, `telemetry`, `team_performance`, `delegation_timeline`, `delegation_readiness`, `synthesis_readiness`, `shepherd_status`, `convergence`, `quality_hints`, `describe` (NOT `code_quality` — emits `quality.regression` events; NOT `stack_place` — mutates)
+- `exarchos_workflow` — `get`, `describe` only
 - `exarchos_event` — `query`, `describe` only
-- `exarchos_orchestrate` — `describe` and any `check_*` action only
+- `exarchos_orchestrate` — `describe` only
 
-You MUST NOT call mutating MCP actions, including but not limited to:
-- `exarchos_workflow set/init/cancel/cleanup/checkpoint`
+You MUST NOT call any other MCP action — they all mutate state, emit events, or call external services. Forbidden examples include but are not limited to:
+- `exarchos_workflow set/init/cancel/cleanup/checkpoint/reconcile/rehydrate` (`reconcile` writes state, `rehydrate` emits `workflow.rehydrated`)
 - `exarchos_event append/batch_append`
-- `exarchos_orchestrate task_claim/task_complete/task_fail/create_pr/merge_pr/add_pr_comment/create_issue/...` (any non-`check_*`/non-`describe` action)
+- `exarchos_orchestrate check_*` (each emits a `gate.executed` event)
+- `exarchos_orchestrate task_claim/task_complete/task_fail`
+- `exarchos_orchestrate create_pr/merge_pr/add_pr_comment/create_issue/...`
+- `exarchos_view code_quality/stack_place`
 
-Workflow mutation belongs to the orchestrator. If a finding requires state changes, surface it as a recommendation in the review verdict.
+Workflow mutation, event emission, and gate execution belong to the orchestrator. If a finding requires state changes, gate runs, or fresh quality checks, surface it as a recommendation in the review verdict — the orchestrator will dispatch.
 
 ## Completion Report
 When done, output a JSON completion report:

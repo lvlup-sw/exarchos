@@ -36,7 +36,7 @@ Rationalization patterns that violate this principle are catalogued in `referenc
 
 ### Delegation Modes
 
-The default `subagent` mode dispatches each task using the runtime's spawn primitive: `[sequential execution]`. Runtimes without a subagent primitive (`hasSubagents: false`) fall back to sequential in-session execution.
+The default `subagent` mode dispatches each task using the runtime's spawn primitive: `[sequential execution]`.
 
 
 Use the `recommendedModel` from `prepare_delegation` task classifications when available. If no classification exists (e.g., fixer dispatch), omit `model` to inherit the session default.
@@ -140,13 +140,13 @@ This runbook provides structured criteria for parallel vs sequential dispatch, t
 
 ### Parallel Dispatch
 
-Dispatch all independent tasks using the runtime's native spawn primitive. On runtimes with subagent support, fan out in a **single message** so the dispatches run in parallel. On runtimes without a subagent primitive, execute each task sequentially against its prepared worktree and emit one operator-visible warning per batch so users know they are not getting parallelism.
+Dispatch all independent tasks using the runtime's native spawn primitive in a **single message** so the dispatches run in parallel.
 
 ```typescript
 Execute each task sequentially in the current session, one at a time, against the prepared worktrees.
 ```
 
-> **Note:** On Claude Code, the `exarchos-implementer` agent definition already contains the system prompt, model, isolation, skills, hooks, and memory — the dispatch prompt should carry ONLY task-specific context. On runtimes without native agent definitions, include the full implementer prompt template from `references/implementer-prompt.md` in the `prompt` field so the spawned agent has a self-contained context.
+> **Note:** Include the full implementer prompt template from `references/implementer-prompt.md` in the dispatch payload so the spawned agent has a self-contained context — runtimes that pre-bind the implementer prompt to a named agent will discard the redundant content automatically.
 
 For parallel grouping strategy and model selection, see `references/parallel-strategy.md`.
 
@@ -215,21 +215,19 @@ This is advisory — findings are recorded for the convergence view but do not b
 When a task fails:
 1. Read the failure output from the runtime's result-collection primitive (`[task output is the assistant's next message]`)
 2. Diagnose root cause — do NOT trust the implementer's self-assessment (see R3 adversarial posture)
-3. Fix the task using the fixer flow below — resume the original agent on runtimes with native session resume, otherwise dispatch a fresh fixer agent
+3. Fix the task using the fixer flow below
 4. Run the `task-fix` runbook gate chain after the fix completes
 
 For the full recovery flow with a concrete example, see `references/worked-example.md`.
 
 ### Fix Failed Tasks
 
-Dispatch a fix agent with the full failure context and the original task description.
-
-
-When session resume is unavailable, dispatch a fresh fixer agent using the runtime's native spawn primitive.
+Dispatch a fresh fixer agent using the runtime's native spawn primitive, carrying the full failure context and the original task description:
 
 ```typescript
 Execute each task sequentially in the current session, one at a time, against the prepared worktrees.
 ```
+
 
 After fix completes, run the `task-fix` runbook gate chain:
 `exarchos_orchestrate({ action: "runbook", id: "task-fix" })`

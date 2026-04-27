@@ -32,7 +32,11 @@ describe('AgentSpec Types', () => {
     expect(spec.id).toBe('implementer');
     expect(spec.description).toBe('TDD implementer');
     expect(spec.systemPrompt).toBe('You are an implementer');
-    expect(spec.capabilities).toEqual(['fs:read', 'fs:write']);
+    // Assert capability membership without coupling to ordering — declared
+    // capabilities are a set, not a sequence (DIM-4: test behavior, not
+    // implementation detail).
+    expect(spec.capabilities).toEqual(expect.arrayContaining(['fs:read', 'fs:write']));
+    expect(spec.capabilities).toHaveLength(2);
     expect(spec.disallowedTools).toEqual(['Agent']);
     expect(spec.model).toBe('inherit');
     expect(spec.isolation).toBe('worktree');

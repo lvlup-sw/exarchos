@@ -1283,6 +1283,7 @@ export function buildAllSkills(opts: {
         const linked = collectReferencedFiles(
           renderedBody,
           join(skillDir, 'references'),
+          rt,
         );
         const before = written.size;
         renderLinkedReferences(
@@ -1385,12 +1386,24 @@ function extractDirectLinks(body: string, referencesDir: string): Set<string> {
  * though the skill would break in practice when the user follows the
  * first link.
  *
+ * Runtime-aware: each reference file's content is run through
+ * `applyRequiresGuards` against `runtime` before its outgoing links
+ * are extracted. This prevents links inside elided `<!-- requires:* -->`
+ * blocks from spuriously pulling files into the runtime variant — the
+ * elided block has been pruned for the rendered SKILL.md and the
+ * transitive scan must honor the same elision when descending into
+ * referenced files (Sentry #1181 LOW).
+ *
  * Files that exist on disk but are not in the returned set are pruned
  * by `copyLinkedReferences`. The `referencesDir` argument filters out
  * matches that don't correspond to an on-disk file — typo'd links
  * surface via the lint, not here.
  */
-function collectReferencedFiles(body: string, referencesDir: string): Set<string> {
+function collectReferencedFiles(
+  body: string,
+  referencesDir: string,
+  runtime: RuntimeMap,
+): Set<string> {
   const linked = new Set<string>();
   // BFS over the link graph rooted at `body`. Each visited reference
   // file contributes its own outgoing links, expanding the set until
@@ -1413,7 +1426,12 @@ function collectReferencedFiles(body: string, referencesDir: string): Set<string
       // Binary or unreadable — no outgoing links to traverse.
       continue;
     }
-    for (const next of extractDirectLinks(refBody, referencesDir)) {
+    // Apply runtime guards so links inside `<!-- requires:* -->` blocks
+    // that elide for this runtime are NOT followed (Sentry #1181 LOW).
+    // Diagnostics from the guard parser surface with the reference
+    // file's path so authors can fix offending guards in place.
+    const guardedRefBody = applyRequiresGuards(refBody, runtime, filePath);
+    for (const next of extractDirectLinks(guardedRefBody, referencesDir)) {
       if (!linked.has(next)) {
         linked.add(next);
         queue.push(next);

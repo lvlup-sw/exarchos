@@ -22,12 +22,12 @@ Group B (depends on Group A):
 
 ## Dispatching Parallel Tasks
 
-**Critical:** Use single message with multiple Task calls:
+**Critical:** Use a single message with multiple subagent invocations — the runtime's spawn primitive renders the parallel dispatch:
 
 ```typescript
 // CORRECT: Single message, parallel execution
-Task({ description: "Task 001", prompt: "..." })
-Task({ description: "Task 002", prompt: "..." })
+Execute each task sequentially in the current session, one at a time, against the prepared worktrees.
+Execute each task sequentially in the current session, one at a time, against the prepared worktrees.
 
 // WRONG: Separate messages = sequential
 ```
@@ -40,7 +40,7 @@ Task({ description: "Task 002", prompt: "..." })
 | Parallel dispatch | Multiple `[sequential execution]` invocations in one message |
 | Waiting | `[task output is the assistant's next message]` |
 | Visibility | None (background) |
-| Model control | `recommendedModel` from config |
+| Model control | `recommendedModel` from `prepare_delegation` (computed from the config cascade) |
 | Max parallelism | Unlimited |
 | Resume on crash | Task results preserved |
 

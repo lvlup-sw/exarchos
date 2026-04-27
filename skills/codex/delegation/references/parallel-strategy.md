@@ -22,12 +22,20 @@ Group B (depends on Group A):
 
 ## Dispatching Parallel Tasks
 
-**Critical:** Use single message with multiple Task calls:
+**Critical:** Use a single message with multiple subagent invocations — the runtime's spawn primitive renders the parallel dispatch:
 
 ```typescript
 // CORRECT: Single message, parallel execution
-Task({ description: "Task 001", prompt: "..." })
-Task({ description: "Task 002", prompt: "..." })
+spawn_agent({
+  agent_type: "default",
+  message: "Task 001\n\n<full context for Task 001>"
+})
+
+spawn_agent({
+  agent_type: "default",
+  message: "Task 002\n\n<full context for Task 002>"
+})
+
 
 // WRONG: Separate messages = sequential
 ```
@@ -40,7 +48,7 @@ Task({ description: "Task 002", prompt: "..." })
 | Parallel dispatch | Multiple `spawn_agent` invocations in one message |
 | Waiting | `wait_agent({ task_id })` |
 | Visibility | None (background) |
-| Model control | `recommendedModel` from config |
+| Model control | `recommendedModel` from `prepare_delegation` (computed from the config cascade) |
 | Max parallelism | Unlimited |
 | Resume on crash | Task results preserved |
 

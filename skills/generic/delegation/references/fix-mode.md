@@ -38,16 +38,10 @@ Or auto-invoked after review failures.
    - Include full issue context
    - Specify target worktree
 
-4. **Dispatch fixers** — fresh dispatch is the default, with resume as an opt-in optimization on runtimes that support it:
+4. **Dispatch fixers** — dispatch a fresh fixer agent using the runtime's native spawn primitive:
 
-   **Fresh dispatch (cross-platform default):**
    ```typescript
-   Task({
-     subagent_type: "exarchos-fixer",
-     run_in_background: true,
-     description: "Fix: [issue summary]",
-     prompt: "[fixer-prompt template with issue details]"
-   })
+   Execute each task sequentially in the current session, one at a time, against the prepared worktrees.
    ```
 
    

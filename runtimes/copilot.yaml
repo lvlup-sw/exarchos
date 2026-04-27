@@ -84,8 +84,9 @@ placeholders:
   # Wave A (P4 prose layer) — Copilot has no completion hook; the local
   # `task` primitive returns inline so the result is observable directly.
   SUBAGENT_COMPLETION_HOOK: "subagent completion signal (poll-based)"
-  # Copilot's `task --agent <name>` returns subagent output inline; no
-  # separate result API call is needed. The value is wrapped in
-  # backticks at usage sites in the delegation skill, so it must not
-  # contain its own backticks.
-  SUBAGENT_RESULT_API: "task --agent reply (inline)"
+  # Copilot's `task --agent <name>` returns subagent output inline; there
+  # is no separate result-collection API. The token value is descriptive
+  # prose (rendered inside backticks at the call site) — it must not
+  # contain its own backticks and must not look like an executable
+  # command (since operators must NOT run anything to "collect" results).
+  SUBAGENT_RESULT_API: "inline reply from task --agent (no separate collection API)"

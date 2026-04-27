@@ -22,12 +22,12 @@ Group B (depends on Group A):
 
 ## Dispatching Parallel Tasks
 
-**Critical:** Use single message with multiple Task calls:
+**Critical:** Use a single message with multiple subagent invocations — the runtime's spawn primitive renders the parallel dispatch:
 
 ```typescript
 // CORRECT: Single message, parallel execution
-Task({ description: "Task 001", prompt: "..." })
-Task({ description: "Task 002", prompt: "..." })
+{{SPAWN_AGENT_CALL agent="implementer" description="Task 001" prompt="<full context for Task 001>"}}
+{{SPAWN_AGENT_CALL agent="implementer" description="Task 002" prompt="<full context for Task 002>"}}
 
 // WRONG: Separate messages = sequential
 ```
@@ -66,7 +66,7 @@ Agent Teams supports one team per session. If you need more parallel groups than
 | Parallel dispatch | Multiple `{{TASK_TOOL}}` invocations in one message |
 | Waiting | `{{SUBAGENT_RESULT_API}}` |
 | Visibility | None (background) |
-| Model control | `recommendedModel` from config |
+| Model control | `recommendedModel` from `prepare_delegation` (computed from the config cascade) |
 | Max parallelism | Unlimited |
 | Resume on crash | Task results preserved |
 

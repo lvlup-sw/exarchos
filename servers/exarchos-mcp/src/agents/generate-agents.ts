@@ -357,11 +357,24 @@ export function generateAgents(
 
   // 2. Lowering and writing pass. Iterate adapters in canonical
   //    runtime order, specs in caller-declaration order.
+  //
+  // Path-traversal guard (DIM-7): adapter-provided `lowered.path` is
+  // resolved against `outputRoot`, then validated to ensure the result
+  // stays inside the root. A malicious or buggy adapter that returns
+  // `../../../etc/passwd` or an absolute path must be rejected before
+  // any directory creation or file write touches the filesystem.
+  const resolvedRoot = path.resolve(outputRoot);
   const filesWritten: string[] = [];
   for (const adapter of adapters) {
     for (const spec of specs) {
       const lowered = adapter.lowerSpec(spec);
       const absPath = path.resolve(outputRoot, lowered.path);
+      const rel = path.relative(resolvedRoot, absPath);
+      if (rel === '' || rel.startsWith('..') || path.isAbsolute(rel)) {
+        throw new Error(
+          `generateAgents: adapter '${adapter.runtime}' produced path '${lowered.path}' that escapes outputRoot ('${resolvedRoot}')`,
+        );
+      }
       const dir = path.dirname(absPath);
       try {
         fs.mkdirSync(dir, { recursive: true });
