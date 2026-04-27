@@ -6,7 +6,7 @@ import * as path from 'node:path';
 import { EventStore, SequenceConflictError } from '../event-store/store.js';
 import { validateAgentEvent } from '../event-store/schemas.js';
 import { formatResult, toEventAck, type ToolResult } from '../format.js';
-import { getOrCreateMaterializer } from '../views/tools.js';
+import { getOrCreateMaterializer, resetMaterializerCache } from '../views/tools.js';
 import { TASK_DETAIL_VIEW } from '../views/task-detail-view.js';
 import type { TaskDetailViewState } from '../views/task-detail-view.js';
 import { readStateFile, writeStateFile, VersionConflictError } from '../workflow/state-store.js';
@@ -31,19 +31,18 @@ function alreadyClaimedResult(taskId: string): ToolResult {
   };
 }
 
-// ─── resetModuleEventStore (no-op since the constructor-injection refactor) ──
+// ─── resetModuleEventStore (delegates to the shared materializer cache) ──────
 
 /**
- * No-op kept for backward compatibility with test files that call
- * `resetModuleEventStore()` in `beforeEach` / `afterEach`. The
- * constructor-injection refactor (#1182) deleted the module-globals this
- * function used to clear — every handler now receives `EventStore` via
- * `DispatchContext`, so per-test isolation comes from constructing a new
- * `EventStore` per test, not from resetting shared state. The export
- * survives only so existing call sites compile; new tests should not call it.
+ * Reset the shared materializer cache used by the task module. The
+ * constructor-injection refactor (#1182) deleted the module-global
+ * EventStore this used to also clear, but the materializer cache in
+ * `views/tools.ts` is still shared across tests in the same process and
+ * needs to be cleared between cases for proper isolation. Per CR review
+ * 4178011813 — a no-op shim was misleading; do the actual reset.
  */
 export function resetModuleEventStore(): void {
-  // No module-level state remains to reset.
+  resetMaterializerCache();
 }
 
 // ─── handleTaskClaim ──────────────────────────────────────────────────────

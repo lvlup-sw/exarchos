@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as path from 'node:path';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
@@ -48,6 +48,10 @@ describe('handleReviewTriage', () => {
     tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'review-triage-test-'));
     mockEventStore = new EventStore(tmpDir);
     await mockEventStore.initialize();
+  });
+
+  afterEach(async () => {
+    if (tmpDir) await fs.rm(tmpDir, { recursive: true, force: true });
   });
 
   async function importHandler() {
@@ -216,6 +220,10 @@ describe('orchestrate review_triage action', () => {
 
   beforeEach(async () => {
     tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'orchestrate-review-test-'));
+  });
+
+  afterEach(async () => {
+    if (tmpDir) await fs.rm(tmpDir, { recursive: true, force: true });
   });
 
   it('should route review_triage action to handleReviewTriage', async () => {

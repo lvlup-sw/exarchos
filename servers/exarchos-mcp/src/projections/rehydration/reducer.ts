@@ -253,11 +253,12 @@ function extractPlanTasks(
 /**
  * Pure helper — fold a plan-derived task list into the existing taskProgress.
  *
- * Plan-derived statuses are *seed-only*: an event-derived status (assigned /
- * completed / failed) for the same id always wins. This guarantees that a
- * later state.patched re-asserting the plan cannot resurrect a completed
- * task back to pending. New ids in the plan are appended with their
- * plan-declared status; ids already present keep their stronger status.
+ * Plan-derived statuses can only *upgrade* a task that's still `pending`
+ * (one-way promotion). Once an event has moved a task to assigned /
+ * completed / failed, a later state.patched re-assertion cannot revert it.
+ * New ids in the plan are appended with their plan-declared status; ids
+ * already present at `pending` may move forward when state.json carries a
+ * stronger status (covers the missing-event flows #1180 was filed against).
  */
 function foldPlanTasks(
   progress: readonly TaskProgressEntry[],
@@ -272,11 +273,15 @@ function foldPlanTasks(
       indexById.set(planTask.id, next.length - 1);
       continue;
     }
-    // Preserve the existing status — events are authoritative over plan
-    // re-assertions. Only fill in a status for entries that somehow lack
-    // one (defensive; the schema requires status to be a string).
+    // One-way upgrade from `pending` only: events remain authoritative for
+    // tasks that have ever been event-tracked (assigned/completed/failed),
+    // but a task seeded as `pending` can be promoted by later state.patched
+    // re-assertions when the dedicated task.* events are missing (the
+    // missing-event class #1180 was filed against). The reverse direction
+    // (e.g. `completed` → `pending`) is forbidden — a re-assertion of the
+    // plan can never resurrect a completed task. Per CR review 4178011813.
     const existing = next[existingIdx];
-    if (!existing.status) {
+    if (existing.status === 'pending' && planTask.status !== 'pending') {
       next[existingIdx] = { ...existing, status: planTask.status };
     }
   }

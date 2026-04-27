@@ -271,19 +271,24 @@ describe('handleViewTelemetry', () => {
       const badDir = await createTempDir();
       resetMaterializerCache();
 
-      // Write a corrupt JSONL file that will fail JSON.parse during query
-      const corruptFile = path.join(badDir, 'telemetry.events.jsonl');
-      await fs.mkdir(badDir, { recursive: true });
-      await fs.writeFile(corruptFile, '{not valid json\n', 'utf-8');
+      try {
+        // Write a corrupt JSONL file that will fail JSON.parse during query
+        const corruptFile = path.join(badDir, 'telemetry.events.jsonl');
+        await fs.mkdir(badDir, { recursive: true });
+        await fs.writeFile(corruptFile, '{not valid json\n', 'utf-8');
 
-      // Act — pass an EventStore pointed at the corrupt dir so the handler
-      // exercises the same composition-root contract the rest of the suite uses.
-      const result = await handleViewTelemetry({}, badDir, new EventStore(badDir));
+        // Act — pass an EventStore pointed at the corrupt dir so the handler
+        // exercises the same composition-root contract the rest of the suite uses.
+        const result = await handleViewTelemetry({}, badDir, new EventStore(badDir));
 
-      // Assert
-      expect(result.success).toBe(false);
-      expect(result.error).toBeDefined();
-      expect(result.error?.code).toBe('VIEW_ERROR');
+        // Assert
+        expect(result.success).toBe(false);
+        expect(result.error).toBeDefined();
+        expect(result.error?.code).toBe('VIEW_ERROR');
+      } finally {
+        // Don't leak temp dirs across runs — see CR review 4178011813.
+        await fs.rm(badDir, { recursive: true, force: true });
+      }
     });
   });
 });

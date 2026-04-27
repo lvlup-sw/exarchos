@@ -9,9 +9,9 @@
  *     extended to invoke it.
  *   - GREEN: a Node script walks `servers/exarchos-mcp/src/**` looking
  *     for `new EventStore(...)` outside the documented composition root
- *     (index.ts, core/context.ts, cli-commands/assemble-context.ts) and
- *     outside test/bench files. Exit 0 = clean, 1 = violations, 2 = env
- *     errors.
+ *     (5 entries: index.ts, core/context.ts, cli-commands/assemble-context.ts,
+ *     cli-commands/pre-compact.ts, evals/run-evals-cli.ts) and outside
+ *     test/bench files. Exit 0 = clean, 1 = violations, 2 = env errors.
  *
  * Rationale: see docs/rca/2026-04-26-v29-event-projection-cluster.md
  * (DIM-1 finding). Without a CI gate, a future caller could re-introduce

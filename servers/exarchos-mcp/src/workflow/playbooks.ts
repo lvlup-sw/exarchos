@@ -178,7 +178,16 @@ const DELEGATE_PHASE_EVENT_METADATA: Readonly<
  */
 function delegatePhaseEvents(phase: 'delegate' | 'overhaul-delegate'): readonly EventInstruction[] {
   return getRegisteredEventTypes(phase)
-    .filter((type) => EVENT_EMISSION_REGISTRY[type as EventType] === 'model')
+    .filter((type) => {
+      const source = EVENT_EMISSION_REGISTRY[type as EventType];
+      if (source === undefined) {
+        throw new Error(
+          `playbooks: SoT event '${type}' (phase '${phase}') is not registered in EVENT_EMISSION_REGISTRY. ` +
+            `Register it (or fix the typo at the SoT) so phase-expected-events stays consistent.`,
+        );
+      }
+      return source === 'model';
+    })
     .map((type) => {
       const meta = DELEGATE_PHASE_EVENT_METADATA[type];
       if (!meta) {

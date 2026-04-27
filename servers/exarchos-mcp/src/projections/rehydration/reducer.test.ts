@@ -565,17 +565,19 @@ describe('rehydration reducer — state.patched.tasks fold (Fix 2 / #1179)', () 
     );
     const afterPlan = rehydrationReducer.apply(afterStarted, planPatched);
 
-    // AND: dedicated task events for a subset (1 assigned, 2 completed)
+    // AND: dedicated task events for a subset (1 assigned, 2 completed, 1 failed)
     const assignedT1 = makeEvent('task.assigned', { taskId: 'T1', title: 'Task 1' }, 3);
     const completedT2 = makeEvent('task.completed', { taskId: 'T2' }, 4);
     const completedT3 = makeEvent('task.completed', { taskId: 'T3' }, 5);
+    const failedT4 = makeEvent('task.failed', { taskId: 'T4', error: 'boom' }, 6);
 
     let next = rehydrationReducer.apply(afterPlan, assignedT1);
     next = rehydrationReducer.apply(next, completedT2);
     next = rehydrationReducer.apply(next, completedT3);
+    next = rehydrationReducer.apply(next, failedT4);
 
     // THEN: taskProgress contains all 5 tasks (NOT just the ones with events).
-    // Pre-fix this returns 3 (the event-derived entries only); post-fix it
+    // Pre-fix this returns 4 (the event-derived entries only); post-fix it
     // returns 5 because pending tasks are seeded from state.patched.patch.tasks.
     expect(next.taskProgress).toHaveLength(5);
 
@@ -585,7 +587,7 @@ describe('rehydration reducer — state.patched.tasks fold (Fix 2 / #1179)', () 
     expect(byId.get('T1')).toBe('assigned');
     expect(byId.get('T2')).toBe('completed');
     expect(byId.get('T3')).toBe('completed');
-    expect(byId.get('T4')).toBe('pending');
+    expect(byId.get('T4')).toBe('failed');
     expect(byId.get('T5')).toBe('pending');
 
     // AND: the count of completed entries matches the events that fired.
@@ -624,13 +626,23 @@ describe('rehydration reducer — state.patched.tasks fold (Fix 2 / #1179)', () 
       afterCompletion.taskProgress.find((t) => t.id === 'A')?.status,
     ).toBe('completed');
 
+    // AND: a later task.failed event for B
+    const afterFailure = rehydrationReducer.apply(
+      afterCompletion,
+      makeEvent('task.failed', { taskId: 'B', error: 'boom' }, 3),
+    );
+    expect(
+      afterFailure.taskProgress.find((t) => t.id === 'B')?.status,
+    ).toBe('failed');
+
     // WHEN: a later state.patched re-asserts the same plan (this happens when
     // the planner stamps `tasks` again on a later set call). The patch still
-    // marks A as `pending` because state.json's TaskSchema is plan-state, not
-    // execution-state. The reducer must NOT regress A's status from `completed`
-    // back to `pending` — events are authoritative for execution status.
+    // marks A and B as `pending` because state.json's TaskSchema is plan-state,
+    // not execution-state. The reducer must NOT regress A back to `pending`
+    // (completed) or B back to `pending` (failed) — events are authoritative
+    // for execution status.
     const secondPlan = rehydrationReducer.apply(
-      afterCompletion,
+      afterFailure,
       makeEvent(
         'state.patched',
         {
@@ -644,14 +656,14 @@ describe('rehydration reducer — state.patched.tasks fold (Fix 2 / #1179)', () 
             ],
           },
         },
-        3,
+        4,
       ),
     );
 
-    // THEN: A stays completed, B stays pending, C is added pending.
+    // THEN: A stays completed, B stays failed, C is added pending.
     const byId = new Map(secondPlan.taskProgress.map((t) => [t.id, t.status]));
     expect(byId.get('A')).toBe('completed');
-    expect(byId.get('B')).toBe('pending');
+    expect(byId.get('B')).toBe('failed');
     expect(byId.get('C')).toBe('pending');
     expect(secondPlan.taskProgress).toHaveLength(3);
   });

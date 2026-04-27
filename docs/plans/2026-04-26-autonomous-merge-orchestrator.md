@@ -358,7 +358,7 @@ These imports are mandatory; tasks that reimplement them fail review.
    - `featureHsm_MergeCompletedEvent_LeavesMergePendingState`
    - File: `servers/exarchos-mcp/src/workflow/state-machine.test.ts` (extend)
 
-2. [GREEN] Add `merge-pending` substate to feature HSM in `hsm-definitions.ts`. Transition predicate: enter `merge-pending` when most recent `task.completed` carries a `worktree` association and `mergeOrchestrator?.phase` is not `completed`. Exit on `merge.executed`, `merge.rollback`, or `aborted` (the preflight-failed escape hatch).
+2. [GREEN] Add `merge-pending` substate to feature HSM in `hsm-definitions.ts`. Define a single shared exclusion set `EXCLUDED_MERGE_PHASES = {completed, rolled-back, aborted}` used by both this entry predicate and the next-action surfacing in T19, so the two surfaces can never disagree about when `merge-pending` is "live". Transition predicate: enter `merge-pending` when most recent `task.completed` carries a `worktree` association and `mergeOrchestrator?.phase ∉ EXCLUDED_MERGE_PHASES`. Exit on `merge.executed`, `merge.rollback`, or `aborted`.
 
 3. [REFACTOR] Extract worktree-detection predicate into a named helper.
 
@@ -392,7 +392,7 @@ These imports are mandatory; tasks that reimplement them fail review.
    - `computeNextActions_MergeOrchestratorRolledBack_OmitsMergeOrchestrate`
    - `computeNextActions_MergeOrchestratorAborted_OmitsMergeOrchestrate`
 
-2. [GREEN] Guard the clause from T18 to require `mergeOrchestrator?.phase` not in `{completed, rolled-back, aborted}`.
+2. [GREEN] Guard the clause from T18 with the same `EXCLUDED_MERGE_PHASES` set defined in T17 — `mergeOrchestrator?.phase ∉ EXCLUDED_MERGE_PHASES`. Reusing the constant keeps the entry predicate (T17) and surfacing filter (here) in lockstep so a `merge-pending` HSM state can never sit live without a corresponding next-action.
 
 3. [REFACTOR] None.
 

@@ -11,7 +11,7 @@
 Five bugs filed against v2.9.0-rc.1 share two root causes:
 
 1. **Multiple `EventStore` instances per process** write to the same `events.jsonl` with independent in-memory `sequenceCounters` Maps. The PID lock added by #971 only protects against cross-process contention — it cannot protect against same-process duplication. Result: duplicate and non-monotonic sequence numbers in the main event log (#1182).
-2. **Projection/view layer reads events but ignores state.patched updates** for subtrees the original projection author considered "owned" by dedicated event types. When the dedicated events aren't emitted (or are corrupted by root cause 1), projections silently drop facts that exist in `state.json` (#1179, #1184). #1180 is the documentation/contract drift this strategy creates. #1183 is the snapshot writer either reading sequence cursors corrupted by root cause 1, or independently failing to refresh the snapshot file after emitting `workflow.checkpoint_written`.
+2. **Projection/view layer reads events but ignores state.patched updates** for subtrees the original projection author considered "owned" by dedicated event types. When the dedicated events aren't emitted (or are corrupted by root cause 1), projections silently drop facts that exist in `state.json` (#1179, #1184). #1180 is the documentation/contract drift this strategy creates. #1183 turned out to be a misdiagnosis (the user `stat`'d `<id>.workflow-state.snapshot.json`, a file the system never produces — the actual snapshot writer materializes to `<id>.projections.jsonl`, covered by 12/12 existing checkpoint tests).
 
 #1178 (`feat(rehydrate-foundation)`, merged 2026-04-25 just before rc.1) did not introduce root cause 1 — that has been latent since #1021/#59789196 (2026-03-13). #1178 introduced the projection/rehydration read paths that depend on monotonic sequences and consistent task projections, which is what made the latent bug observable as user-facing wrong-state symptoms.
 
@@ -92,7 +92,7 @@ Two events with sequence 6, written ~2ms apart, line order does not match timest
 | `tasksTotal=8` while `tasksCompleted=24` | #1184 (3) | `total` and `completed` sourced from different reducers |
 | `tasks` view returns 8 of 24 | #1184 (4) | Same root cause as #1179 |
 | `convergence` misses D1/D2/D4/D5 | #1184 (5) | View only reads `gate.executed`; review skill emits dimension findings into `state.reviews.findingsByDimension` instead |
-| Snapshot file never refreshed after `workflow.checkpoint_written` | #1183 | Snapshot writer either not wired to event, or sequence cursor blocked by #1182 corruption — needs verification once root cause 1 is fixed |
+| Snapshot file never refreshed after `workflow.checkpoint_written` | #1183 | Misdiagnosis — the user `stat`'d a file the system never produces; actual snapshot writes go to `<id>.projections.jsonl` and are covered by 12/12 checkpoint tests (closed as duplicate of #1182) |
 
 ## Fix Plan
 
@@ -106,11 +106,9 @@ Two events with sequence 6, written ~2ms apart, line order does not match timest
 
 **Task 1182-D:** Repair the corrupted `delegation-runtime-parity.events.jsonl` for local dogfooding (or document that the workflow must be re-initialized — the file isn't load-bearing).
 
-### Phase 2 — Verify or fix snapshot writer (#1183)
+### Phase 2 — #1183 closed as misdiagnosis
 
-> **Outcome (resolved 2026-04-26):** The artifact this phase pointed at (`<id>.workflow-state.snapshot.json`) does not exist in the codebase. The actual snapshot writer materializes to `<id>.projections.jsonl`, and 12/12 existing checkpoint tests cover the refresh path. #1183 was a misdiagnosis: the user `stat`'d a file the system never produces. Closed as duplicate of #1182.
-
-After Phase 1 lands, re-run `exarchos_workflow checkpoint` against a fresh workflow and inspect `<id>.projections.jsonl`'s `savedAt` timestamp. If the snapshot is now refreshed correctly, #1183 was downstream of #1182 — close. If still stale, the snapshot writer has its own bug per the issue's hypothesis (wrong event subscription, gate condition, or stream).
+The artifact this phase originally pointed at (`<id>.workflow-state.snapshot.json`) does not exist in the codebase. The actual snapshot writer materializes to `<id>.projections.jsonl`, and 12/12 existing checkpoint tests cover the refresh path. #1183 was a misdiagnosis: the user `stat`'d a file the system never produces. Closed as duplicate of #1182, no Phase 2 work required.
 
 ### Phase 3 — Fix projection/view layer (#1179, #1184)
 
@@ -136,8 +134,9 @@ For any workflow where `exarchos_workflow get` reports phase=synthesize and revi
 - `view.tasks` returns all entries from `state.tasks` (#1184)
 - `convergence` reflects all dimensions covered by `state.reviews.findings` (#1184)
 - Rehydrate `taskProgress` returns all planned tasks with correct status mix (#1179)
-- After `exarchos_workflow checkpoint`, snapshot `savedAt` is within 1s of event timestamp (#1183)
 - `eventHints.missing` only lists events the reducer actually consumes (#1180)
+
+(The earlier acceptance criterion `snapshot savedAt within 1s of event timestamp (#1183)` is removed — see Phase 2 above. #1183 is closed as a misdiagnosis, not a still-open verification target.)
 
 ## Out of Scope
 

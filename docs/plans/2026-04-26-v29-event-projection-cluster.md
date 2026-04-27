@@ -31,7 +31,7 @@ All other `new EventStore(...)` outside `**/*.test.ts`, `**/__tests__/**`, `**/*
 ## Fix 1 — Single composition root for EventStore (PR #1)
 
 **Branch:** `fix/v29-event-projection-cluster`
-**Resolves:** #1182. Likely unblocks #1183 (verify post-merge).
+**Resolves:** #1182. Closes #1183 as a misdiagnosis (see T1.5).
 
 ### Tasks (TDD order)
 
@@ -86,23 +86,22 @@ Body:
 ```
 ## Summary
 - Removes rogue in-process EventStore instantiations that bypassed the #971 PID lock
-- Adds ESLint guard preventing recurrence outside the documented composition root
+- Adds a composition-root validation script preventing recurrence outside the documented allowlist
 - Adds production-shape integration test that catches the regression class
 
 ## Changes
 - Delete getOrCreateEventStore from views/tools.ts; thread EventStore via DispatchContext
 - Refactor review/tools.ts:emitRoutedEvents to receive EventStore via context
-- Add no-restricted-syntax ESLint rule scoped to servers/exarchos-mcp/src/**/*.ts
+- Add scripts/check-event-store-composition-root.mjs (wired into `npm run validate`)
 - Add __tests__/event-store/single-composition-root.test.ts (production-shape concurrent emissions)
 - Document composition root invariant in RCA and inline comments
 
 ## Test Plan
 - [ ] npm run typecheck clean
-- [ ] npm run lint -- --max-warnings 0 (now 0; was 2 against HEAD)
+- [ ] node scripts/check-event-store-composition-root.mjs (now 0 violations; was 2 against HEAD)
 - [ ] npm run test:run (root + servers/exarchos-mcp)
-- [ ] Manual: init oneshot workflow, emit checkpoint, verify snapshot.savedAt matches event timestamp (#1183 verification)
 
-Resolves #1182. May resolve #1183 (verified in T1.5).
+Resolves #1182. Closes #1183 as a misdiagnosis (the file the user `stat`'d never exists; the actual snapshot writer goes to `<id>.projections.jsonl`, covered by 12/12 existing checkpoint tests).
 ```
 
 ## Fix 2 — Projections fold full `state.patched` payload (PR #2, stacked on PR #1)
@@ -204,7 +203,7 @@ Title: `fix(rehydrate): single source of truth for delegate event contract (#118
 ## Cleanup
 
 After all 3 PRs merge:
-- Close #1182, #1179, #1184, #1180 (and #1183 if T1.5 confirmed it auto-resolved)
+- Close #1182, #1179, #1184, #1180. #1183 closes as a misdiagnosis (see T1.5)
 - Update RCA file with final commit SHAs
 - Run `/exarchos:cleanup` to resolve workflow state to `completed`
 
