@@ -250,15 +250,28 @@ function extractPlanTasks(
   return out.length > 0 ? out : undefined;
 }
 
+// Status precedence — higher values "outrank" lower ones. Plan-derived
+// statuses can advance an entry up the ladder but never back down it.
+// `completed` and `failed` are siblings at the top: an event that put a
+// task into either terminal state cannot be regressed by plan re-assertions.
+const STATUS_RANK: Readonly<Record<TaskProgressStatus, number>> = {
+  pending: 0,
+  assigned: 1,
+  completed: 2,
+  failed: 2,
+};
+
 /**
  * Pure helper — fold a plan-derived task list into the existing taskProgress.
  *
- * Plan-derived statuses can only *upgrade* a task that's still `pending`
- * (one-way promotion). Once an event has moved a task to assigned /
- * completed / failed, a later state.patched re-assertion cannot revert it.
- * New ids in the plan are appended with their plan-declared status; ids
- * already present at `pending` may move forward when state.json carries a
- * stronger status (covers the missing-event flows #1180 was filed against).
+ * Monotonic status promotion: a plan-carried status can advance an existing
+ * entry up the precedence ladder (pending → assigned → completed/failed),
+ * but never back down. This covers the missing-event flows #1180 was filed
+ * against — a state.patched re-assertion can promote `assigned` to
+ * `completed` even when the dedicated task.completed event never fired —
+ * while still preventing the regression case (a re-assertion of `pending`
+ * over a `completed` entry is ignored). New ids in the plan are appended
+ * with their plan-declared status. Per CR review 4178067854.
  */
 function foldPlanTasks(
   progress: readonly TaskProgressEntry[],
@@ -273,15 +286,16 @@ function foldPlanTasks(
       indexById.set(planTask.id, next.length - 1);
       continue;
     }
-    // One-way upgrade from `pending` only: events remain authoritative for
-    // tasks that have ever been event-tracked (assigned/completed/failed),
-    // but a task seeded as `pending` can be promoted by later state.patched
-    // re-assertions when the dedicated task.* events are missing (the
-    // missing-event class #1180 was filed against). The reverse direction
-    // (e.g. `completed` → `pending`) is forbidden — a re-assertion of the
-    // plan can never resurrect a completed task. Per CR review 4178011813.
     const existing = next[existingIdx];
-    if (existing.status === 'pending' && planTask.status !== 'pending') {
+    // The schema widens status to z.string() (forward-compat for explicit
+    // schema revs), so look up via a typed accessor that returns 0 for
+    // any unknown value — anything not in the recognised ladder is treated
+    // as the lowest rank, never blocking a known-status promotion.
+    const rankOf = (s: string): number =>
+      Object.prototype.hasOwnProperty.call(STATUS_RANK, s)
+        ? STATUS_RANK[s as TaskProgressStatus]
+        : 0;
+    if (rankOf(planTask.status) > rankOf(existing.status)) {
       next[existingIdx] = { ...existing, status: planTask.status };
     }
   }

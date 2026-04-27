@@ -137,7 +137,7 @@ Resolves #1182. Closes #1183 as a misdiagnosis (the file the user `stat`'d never
 #### T2.4 GREEN — Fold state.patched.tasks in reducer
 
 - In `projections/rehydration/reducer.ts:296`, remove the "ignore tasks subtree" branch.
-- Status-aware upsert: pending entries from `state.patched.patch.tasks`, overridden by subsequent `task.assigned/completed/failed` events.
+- Monotonic status promotion: plan-state can advance an existing task one-way up the precedence ladder (`pending → assigned → completed/failed`) — both seeding new pending entries AND promoting an `assigned` entry to `completed/failed` when state.json carries the stronger status (covers the missing-event flows). Plan-state can never regress a task back down (a re-assertion of `pending` over a completed entry is ignored).
 - Acceptance: T2.1 passes.
 
 #### T2.5 GREEN — View handlers source from state.json

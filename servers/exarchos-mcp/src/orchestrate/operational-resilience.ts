@@ -28,7 +28,7 @@ interface OperationalResilienceResult {
 
 export async function handleOperationalResilience(
   args: OperationalResilienceArgs,
-  stateDir: string,
+  _stateDir: string,
   eventStore: EventStore,
 ): Promise<ToolResult> {
   // Guard clause: validate required inputs
@@ -70,8 +70,7 @@ export async function handleOperationalResilience(
 
   // Emit gate.executed event (fire-and-forget)
   try {
-    const store = eventStore;
-    await emitGateEvent(store, args.featureId, 'operational-resilience', 'quality', passed, {
+    await emitGateEvent(eventStore, args.featureId, 'operational-resilience', 'quality', passed, {
       dimension: 'D4',
       phase: 'review',
       findingCount,

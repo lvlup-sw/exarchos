@@ -112,7 +112,7 @@ The artifact this phase originally pointed at (`<id>.workflow-state.snapshot.jso
 
 ### Phase 3 — Fix projection/view layer (#1179, #1184)
 
-**Task 1179:** In `projections/rehydration/reducer.ts`, fold `state.patched.patch.tasks` into `taskProgress` as a plan-state assertion. Status-aware upsert: pending entries from state.patched, completed/failed entries from task.* events override.
+**Task 1179:** In `projections/rehydration/reducer.ts`, fold `state.patched.patch.tasks` into `taskProgress` as a plan-state assertion. Monotonic status promotion (one-way upgrade up the precedence ladder `pending → assigned → completed/failed`): plan-state can advance an existing task when state.json carries a stronger status than the projection has, but cannot regress it. New ids are appended with their plan-declared status; later `task.*` events still override per the ranking rule.
 
 **Task 1184-1:** Composite views (`synthesis_readiness`, `workflow_status`, `convergence`) should read review status, task counts, and dimension findings from `state.json` directly (the source of truth), not from event-derived projections. Where the view layer wants to remain event-driven, fold `state.patched` updates the same way as the reducer fix above.
 

@@ -53,17 +53,26 @@ const ALLOWLIST = new Set([
 ]);
 
 // Word-boundary `new EventStore(` — won't match `new EventStoreSomething(`.
-// `s` flag + `\s+` between tokens makes this match across multi-line
-// formattings like `new\nEventStore(`. We scan the whole-file content
-// (not line-by-line) so the rogue pattern can't be hidden behind a
-// linebreak. The `g` flag lets us iterate every match's offset.
-const ROGUE_PATTERN = /\bnew\s+EventStore\s*\(/gs;
+// Allow arbitrary whitespace AND inline block comments between tokens, so
+// formattings like `new\nEventStore(` and `new /*x*/ EventStore(` are still
+// detected. The `s` flag lets `.` cross newlines (used inside the
+// block-comment alternation); `g` lets us iterate every match's offset.
+const TOKEN_GAP = '(?:\\s|/\\*[\\s\\S]*?\\*/)+';
+const ROGUE_PATTERN = new RegExp(`\\bnew${TOKEN_GAP}EventStore\\s*\\(`, 'gs');
 
-// Heuristic comment skip: line begins with `//` (after optional indent) or
-// `*` (block-comment continuation, after optional indent + optional `/`).
-// Misses `/* ... */` on the same line, but that's vanishingly rare for the
-// patterns we care about (the rogue construction is an actual statement).
-const COMMENT_LINE = /^\s*(?:\/\/|\*|\/\*)/;
+// Strip line/block comments before pattern matching so a rogue
+// `new EventStore(...)` cannot hide behind a leading `/* note */` or `//`.
+// Comments are replaced with same-length whitespace (preserving newlines)
+// so match offsets still resolve to the correct source line for the
+// violations report. We do NOT strip string literals — `"new EventStore(...)"`
+// inside a string would still match, but the false-positive rate for that
+// pattern in production code is essentially zero.
+function stripComments(content) {
+  const blank = (s) => s.replace(/[^\n]/g, ' ');
+  return content
+    .replace(/\/\*[\s\S]*?\*\//g, blank)
+    .replace(/\/\/[^\n]*/g, blank);
+}
 
 function parseArgs(argv) {
   const args = { srcRoot: DEFAULT_SRC_ROOT };
@@ -149,23 +158,22 @@ function findViolations(srcRoot) {
       );
       process.exit(2);
     }
-    // Scan the whole file content as a single string so multi-line
-    // `new\nEventStore(` formattings are detected. `lastIndex` lets us
-    // map each match back to a line for the violations report.
+    // Strip comments first so a rogue construction can't hide behind
+    // leading `//` or `/* ... */`. Then scan the (preserved-length)
+    // stripped content as a single string — multi-line and inline-block
+    // formattings both get caught. We keep newlines in place during
+    // stripping so the line-index recovery from match offset stays accurate.
+    const stripped = stripComments(content);
     ROGUE_PATTERN.lastIndex = 0;
     const lines = content.split('\n');
     let match;
-    while ((match = ROGUE_PATTERN.exec(content)) !== null) {
-      // Recover the line index for the match offset.
+    while ((match = ROGUE_PATTERN.exec(stripped)) !== null) {
       const offset = match.index;
-      const lineIdx = content.slice(0, offset).split('\n').length - 1;
-      // Skip if the line begins with a comment marker — preserves the
-      // existing heuristic so docstrings and inline notes don't trip the gate.
-      if (COMMENT_LINE.test(lines[lineIdx])) continue;
+      const lineIdx = stripped.slice(0, offset).split('\n').length - 1;
       violations.push({
         path: relPath,
         line: lineIdx + 1,
-        excerpt: lines[lineIdx].trim(),
+        excerpt: lines[lineIdx]?.trim() ?? '<line not recoverable>',
       });
     }
   }

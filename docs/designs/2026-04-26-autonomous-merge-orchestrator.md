@@ -90,7 +90,7 @@ export interface MergeOrchestrateOutput {
 }
 ```
 
-The Zod schemas backing these are derived from the types in the same file, eliminating schema-runtime drift by construction (DIM-3).
+The TypeScript types backing these are derived from the Zod schemas in the same file via `z.infer`, eliminating schema-runtime drift by construction (DIM-3).
 
 ### Composer flow
 

@@ -928,9 +928,20 @@ export async function handleViewSynthesisReadiness(
     const qualityPassed = quality.present ? quality.passed : view.review.qualityPassed;
 
     // Fix 2 (#1184) — task counts: the projection counts events; state.json
-    // is the planner's stamp. Mirror the workflow_status fix for consistency.
+    // is the planner's stamp. Both `total` AND `completed` need the
+    // state.json fallback — projection-derived completed count is
+    // event-driven, so in the missing-event flows this PR is fixing it
+    // would underreport (state.tasks shows complete but no task.completed
+    // event ever fired). CR review 4178067854.
     const stateTasks = state?.['tasks'];
     const tasksTotal = Array.isArray(stateTasks) ? stateTasks.length : view.tasks.total;
+    const tasksCompleted = Array.isArray(stateTasks)
+      ? stateTasks.filter((t) => {
+          if (!t || typeof t !== 'object' || Array.isArray(t)) return false;
+          const status = (t as Record<string, unknown>)['status'];
+          return status === 'complete' || status === 'completed';
+        }).length
+      : view.tasks.completed;
 
     // Fix 2 (T2.6) — distinguish null (not measured) from false (failed) when
     // generating blocker text. The projection's tests.* fields initialize to
@@ -939,9 +950,9 @@ export async function handleViewSynthesisReadiness(
     const blockers: string[] = [];
     if (tasksTotal === 0) {
       blockers.push('no tasks tracked');
-    } else if (view.tasks.completed !== tasksTotal) {
+    } else if (tasksCompleted !== tasksTotal) {
       blockers.push(
-        `tasks incomplete: ${view.tasks.completed}/${tasksTotal} completed`,
+        `tasks incomplete: ${tasksCompleted}/${tasksTotal} completed`,
       );
     }
     if (!specPassed) blockers.push('spec review not passed');
@@ -963,7 +974,7 @@ export async function handleViewSynthesisReadiness(
       ...view,
       ready,
       blockers,
-      tasks: { ...view.tasks, total: tasksTotal },
+      tasks: { ...view.tasks, total: tasksTotal, completed: tasksCompleted },
       review: { ...view.review, specPassed, qualityPassed },
     };
 
