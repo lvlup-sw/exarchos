@@ -357,6 +357,71 @@ describe('dispatch', () => {
     });
   });
 
+  describe('parent-tool default-key leak (#1188)', () => {
+    it('Dispatch_LeakedSiblingDefaults_DoesNotRejectStrictPerActionSchema', async () => {
+      // Reproduces #1188: the MCP SDK applies defaults from the flattened
+      // parent schema (via buildRegistrationSchema) to every payload
+      // before dispatch sees it. Sibling-action defaults like
+      // `nativeIsolation` (from prepare_delegation) and `outputFormat`
+      // (from agent_spec) end up on payloads for actions whose schema is
+      // .strict() — like `check_tdd_compliance` — causing
+      // "Unrecognized key(s) in object" rejections.
+      //
+      // Dispatch must strip parent-tool defaults that are not declared
+      // in the matching action's schema before per-action validation
+      // (Tolerant Dispatch). The per-action .strict() guard is
+      // preserved for caller-supplied keys.
+      const { dispatch } = await import('./dispatch.js');
+
+      const result = await dispatch(
+        'exarchos_orchestrate',
+        {
+          action: 'check_tdd_compliance',
+          featureId: 'leak-test',
+          taskId: 'T1',
+          branch: 'feat/leak-test',
+          // Leaked defaults from sibling actions — caller never supplies these:
+          nativeIsolation: false, // from prepare_delegation
+          outputFormat: 'full', // from agent_spec
+        },
+        { stateDir: tmpDir, eventStore, enableTelemetry: false },
+      );
+
+      // The handler may still fail (no real git/test fixtures), but it
+      // must NOT fail with INVALID_INPUT mentioning the leaked keys.
+      if (!result.success) {
+        const message = result.error?.message ?? '';
+        expect(message).not.toMatch(/Unrecognized key\(s\)/);
+        expect(message).not.toMatch(/nativeIsolation/);
+        expect(message).not.toMatch(/outputFormat/);
+      }
+    });
+
+    it('Dispatch_CallerTypo_StillRejected', async () => {
+      // Tolerant Dispatch must NOT swallow caller typos — keys not
+      // declared on any action's schema are caller errors and should
+      // surface clearly via the per-action .strict() rejection.
+      const { dispatch } = await import('./dispatch.js');
+
+      const result = await dispatch(
+        'exarchos_orchestrate',
+        {
+          action: 'check_tdd_compliance',
+          featureId: 'typo-test',
+          taskId: 'T1',
+          branch: 'feat/typo-test',
+          // Caller-supplied typo — not declared on any orchestrate action.
+          totallyMadeUpKey: 'this is a typo',
+        },
+        { stateDir: tmpDir, eventStore, enableTelemetry: false },
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe('INVALID_INPUT');
+      expect(result.error?.message).toMatch(/totallyMadeUpKey/);
+    });
+  });
+
   describe('doctor action wiring', () => {
     it('Dispatch_ExarchosOrchestrateDoctor_RoutesToOrchestrateCompositeAndReturnsValidDoctorOutput', async () => {
       // Arrange
