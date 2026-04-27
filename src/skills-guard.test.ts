@@ -315,6 +315,59 @@ describe('skills-guard — task 023', () => {
  * see `defaultRegenerateAgents` in `skills-guard.ts`.
  */
 describe('skills-guard — task 13 agents/ drift', () => {
+  /**
+   * Regression for Sentry #1181 HIGH: the guard must detect drift in
+   * EVERY agent output tree, not only `agents/` (Claude). When a non-
+   * Claude adapter (`.codex/`, `.cursor/`, `.opencode/`, `.github/`)
+   * regenerates a different artifact than what's committed, CI must
+   * fail — otherwise stale runtime artifacts can land on main.
+   *
+   * This test seeds a drifted `.codex/agents/implementer.toml`,
+   * injects a regenerator that writes the canonical body for it, and
+   * asserts the guard surfaces the drift. The four non-Claude
+   * directories share the same code path so a single representative
+   * regression is sufficient.
+   */
+  it('SkillsGuard_NonClaudeAgentsDirDrift_FailsCheck', () => {
+    const root = provisionProject();
+
+    const codexAgentsDir = join(root, '.codex', 'agents');
+    mkdirSync(codexAgentsDir, { recursive: true });
+    writeFileSync(
+      join(codexAgentsDir, 'implementer.toml'),
+      '# HAND EDITED — not canonical\n',
+    );
+
+    const gitEnv = {
+      ...process.env,
+      GIT_AUTHOR_NAME: 'test',
+      GIT_AUTHOR_EMAIL: 'test@example.com',
+      GIT_COMMITTER_NAME: 'test',
+      GIT_COMMITTER_EMAIL: 'test@example.com',
+    };
+    execSync('git add -A', { cwd: root, env: gitEnv });
+    execSync('git commit -q -m "drifted codex agents file"', {
+      cwd: root,
+      env: gitEnv,
+    });
+
+    // Regenerator writes the canonical Codex body — different from
+    // the committed hand-edited content above, so `git diff
+    // .codex/agents/` will be non-empty.
+    const regenerateAgents = (cwd: string): void => {
+      writeFileSync(
+        join(cwd, '.codex', 'agents', 'implementer.toml'),
+        '# CANONICAL codex implementer body\n',
+      );
+    };
+
+    const result = runSkillsGuard({ cwd: root, regenerateAgents });
+
+    expect(result.ok).toBe(false);
+    expect(result.exitCode).not.toBe(0);
+    expect(result.message).toMatch(/\.codex\/agents\/implementer\.toml/);
+  });
+
   it('SkillsGuard_AgentsDirDrift_FailsCheck', () => {
     const root = provisionProject();
 

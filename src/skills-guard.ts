@@ -191,12 +191,30 @@ export function runSkillsGuard(opts: SkillsGuardOptions): SkillsGuardResult {
     );
   }
 
-  // Step 2b: diff `agents/` vs HEAD. Same skip rule as the skills
-  // diff — only run if the regeneration itself succeeded.
+  // Step 2b: diff every agent output tree vs HEAD. Same skip rule as
+  // the skills diff — only run if the regeneration itself succeeded.
+  //
+  // The adapter list (`servers/exarchos-mcp/src/agents/adapters/`)
+  // writes agents into five distinct trees per runtime. Checking only
+  // `agents/` (Claude) lets stale Codex/Cursor/OpenCode/Copilot files
+  // slip through CI (Sentry #1181 HIGH). The pathspecs below mirror
+  // each adapter's `agentFilePath()` directory prefix:
+  //   - claude.ts   → agents/<id>.md
+  //   - codex.ts    → .codex/agents/<id>.toml
+  //   - cursor.ts   → .cursor/agents/<id>.md
+  //   - opencode.ts → .opencode/agents/<id>.md
+  //   - copilot.ts  → .github/agents/<id>.agent.md
+  // When a new runtime adapter lands, add its agent dir here.
   if (!agentsBuildFailed) {
     const agentsDiff = checkGitDiff(
       cwd,
-      'agents/',
+      [
+        'agents/',
+        '.codex/agents/',
+        '.cursor/agents/',
+        '.opencode/agents/',
+        '.github/agents/',
+      ],
       REMEDIATION_AGENTS,
       'agents',
     );
@@ -233,12 +251,13 @@ export function runSkillsGuard(opts: SkillsGuardOptions): SkillsGuardResult {
  */
 function checkGitDiff(
   cwd: string,
-  pathspec: string,
+  pathspec: string | readonly string[],
   remediation: string,
   label: string,
 ): string | null {
+  const pathspecs = typeof pathspec === 'string' ? [pathspec] : [...pathspec];
   try {
-    execFileSync('git', ['diff', '--exit-code', '--', pathspec], {
+    execFileSync('git', ['diff', '--exit-code', '--', ...pathspecs], {
       cwd,
       stdio: ['ignore', 'pipe', 'pipe'],
     });

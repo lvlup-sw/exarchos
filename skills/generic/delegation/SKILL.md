@@ -113,16 +113,8 @@ Build subagent prompts using `references/implementer-prompt.md` as the template.
 
 ### Prompt Construction
 
-**Claude Code (native agent definitions):**
 
-The `exarchos-implementer` agent spec already includes the system prompt, model, isolation, skills, hooks, and memory. The dispatch prompt should contain ONLY task-specific context:
-1. Full task description (requirements, acceptance criteria)
-2. Working directory (worktree path from Step 1)
-3. File paths to create/modify and test file paths
-4. Quality hints (if any)
-5. PBT flag when `propertyTests: true`
-
-**Cross-platform (full prompt template):**
+**Full prompt template (default):**
 
 For each task:
 1. Fill the implementer prompt template with task-specific details
