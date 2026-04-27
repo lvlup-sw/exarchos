@@ -250,7 +250,7 @@ These imports are mandatory; tasks that reimplement them fail review.
    - File: `servers/exarchos-mcp/src/orchestrate/merge-orchestrate.test.ts`
    - Expected failure: handler does not exist.
 
-2. [GREEN] Implement `handleMergeOrchestrate(args, ctx)`. Reads `WorkflowState.mergeOrchestrator` (resume support), invokes `mergePreflight`, emits via `emitGateEvent(ctx.eventStore, args.featureId, 'merge.preflight', 'merge', preflight.passed, payload)`, calls `handleExecuteMerge` if passed, persists `mergeOrchestrator` field at each transition. Receives `EventStore` via `ctx.eventStore` only.
+2. [GREEN] Implement `handleMergeOrchestrate(args, ctx)`. Reads `WorkflowState.mergeOrchestrator` (resume support), invokes `mergePreflight`, emits a dedicated `merge.preflight` event via `ctx.eventStore.append(streamId, { type: 'merge.preflight', data: payload })` (NOT `emitGateEvent`, which produces a `gate.executed` envelope and would never match the dedicated schemas registered in T03). Calls `handleExecuteMerge` if passed, persists `mergeOrchestrator` field at each transition. Receives `EventStore` via `ctx.eventStore` only.
 
 3. [REFACTOR] None.
 
@@ -321,7 +321,7 @@ These imports are mandatory; tasks that reimplement them fail review.
    - File: `servers/exarchos-mcp/src/orchestrate/execute-merge.test.ts`
    - Expected failure: handler does not exist.
 
-2. [GREEN] Implement `handleExecuteMerge(args, ctx)`. Calls `executeMerge` from pure module, threads `vcsMerge` adapter that uses `createVcsProvider({ config: ctx.projectConfig })` + existing `handleMergePr`. Emits `merge.executed` via `emitGateEvent`. 120s timeout on every `execFileSync('git', ...)` call.
+2. [GREEN] Implement `handleExecuteMerge(args, ctx)`. Calls `executeMerge` from pure module, threads `vcsMerge` adapter that uses `createVcsProvider({ config: ctx.projectConfig })` + existing `handleMergePr`. Emits dedicated `merge.executed` / `merge.rollback` events via `ctx.eventStore.append(...)` directly — NOT `emitGateEvent` — so the payload shape matches the schemas registered in T03. 120s timeout on every `execFileSync('git', ...)` call.
 
 3. [REFACTOR] None.
 

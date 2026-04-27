@@ -463,16 +463,36 @@ describe('registerStackTools', () => {
   });
 
   it('should register handlers that use the provided EventStore', async () => {
-    const mockServer = { tool: vi.fn() } as unknown as import('@modelcontextprotocol/sdk/server/mcp.js').McpServer;
+    // Drive the registered MCP callback (not the bare handler) so this test
+    // actually catches a regression where registerStackTools wired the wrong
+    // store. Capture the callback passed to mockServer.tool() — see the
+    // server.tool(...) registrations in src/stack/tools.ts for the arg shape.
+    // CR review 4177990662: "Test behavior not implementation".
+    const toolMock = vi.fn();
+    const mockServer = { tool: toolMock } as unknown as import('@modelcontextprotocol/sdk/server/mcp.js').McpServer;
     registerStackTools(mockServer, tempDir, store);
 
-    const result = await handleStackPlace(
-      { streamId: 'wf-consolidation', position: 1, taskId: 't1', branch: 'feature/t1' },
-      tempDir,
-      store,
+    // The 4th positional arg to server.tool() is the async callback. Find
+    // the exarchos_stack_place registration and invoke its callback.
+    const placeCall = toolMock.mock.calls.find(
+      (call) => call[0] === 'exarchos_stack_place',
     );
-    expect(result.success).toBe(true);
+    expect(placeCall).toBeDefined();
+    const placeCallback = placeCall![3] as (
+      args: Record<string, unknown>,
+    ) => Promise<unknown>;
 
+    const result = (await placeCallback({
+      streamId: 'wf-consolidation',
+      position: 1,
+      taskId: 't1',
+      branch: 'feature/t1',
+    })) as { content: Array<{ type: string; text: string }> };
+
+    // formatResult wraps successful results — the callback returns an MCP
+    // tool response envelope, but we only need to assert the side effect
+    // landed on the injected `store` to confirm wiring is correct.
+    expect(result).toBeDefined();
     const events = await store.query('wf-consolidation', { type: 'stack.position-filled' });
     expect(events).toHaveLength(1);
   });

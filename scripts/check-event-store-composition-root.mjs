@@ -52,8 +52,12 @@ const ALLOWLIST = new Set([
   path.join('evals', 'run-evals-cli.ts'),
 ]);
 
-// Word-boundary `new EventStore` — won't match `new EventStoreSomething`.
-const ROGUE_PATTERN = /\bnew\s+EventStore\s*\(/;
+// Word-boundary `new EventStore(` — won't match `new EventStoreSomething(`.
+// `s` flag + `\s+` between tokens makes this match across multi-line
+// formattings like `new\nEventStore(`. We scan the whole-file content
+// (not line-by-line) so the rogue pattern can't be hidden behind a
+// linebreak. The `g` flag lets us iterate every match's offset.
+const ROGUE_PATTERN = /\bnew\s+EventStore\s*\(/gs;
 
 // Heuristic comment skip: line begins with `//` (after optional indent) or
 // `*` (block-comment continuation, after optional indent + optional `/`).
@@ -132,22 +136,37 @@ function findViolations(srcRoot) {
     if (isExcluded(relPath)) continue;
     if (isAllowlisted(relPath)) continue;
 
+    // Fail closed on read errors: an unreadable file under the gate's scan
+    // root is not the same as a clean file. Silently skipping would let
+    // permission/IO issues hide a rogue construction. See PR #1185 / CR
+    // review 4177990662.
     let content;
     try {
       content = readFileSync(filePath, 'utf8');
-    } catch {
-      continue;
+    } catch (err) {
+      process.stderr.write(
+        `check-event-store-composition-root: failed to read ${relPath}: ${err.message}\n`,
+      );
+      process.exit(2);
     }
+    // Scan the whole file content as a single string so multi-line
+    // `new\nEventStore(` formattings are detected. `lastIndex` lets us
+    // map each match back to a line for the violations report.
+    ROGUE_PATTERN.lastIndex = 0;
     const lines = content.split('\n');
-    for (let i = 0; i < lines.length; i++) {
-      if (COMMENT_LINE.test(lines[i])) continue;
-      if (ROGUE_PATTERN.test(lines[i])) {
-        violations.push({
-          path: relPath,
-          line: i + 1,
-          excerpt: lines[i].trim(),
-        });
-      }
+    let match;
+    while ((match = ROGUE_PATTERN.exec(content)) !== null) {
+      // Recover the line index for the match offset.
+      const offset = match.index;
+      const lineIdx = content.slice(0, offset).split('\n').length - 1;
+      // Skip if the line begins with a comment marker — preserves the
+      // existing heuristic so docstrings and inline notes don't trip the gate.
+      if (COMMENT_LINE.test(lines[lineIdx])) continue;
+      violations.push({
+        path: relPath,
+        line: lineIdx + 1,
+        excerpt: lines[lineIdx].trim(),
+      });
     }
   }
   return violations;

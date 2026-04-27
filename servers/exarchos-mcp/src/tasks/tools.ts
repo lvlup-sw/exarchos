@@ -31,13 +31,19 @@ function alreadyClaimedResult(taskId: string): ToolResult {
   };
 }
 
-// ─── resetModuleEventStore (kept for backward compat with existing tests) ───
+// ─── resetModuleEventStore (no-op since the constructor-injection refactor) ──
 
-/** For testing: reset task module state. Now delegates to the shared singleton cache. */
+/**
+ * No-op kept for backward compatibility with test files that call
+ * `resetModuleEventStore()` in `beforeEach` / `afterEach`. The
+ * constructor-injection refactor (#1182) deleted the module-globals this
+ * function used to clear — every handler now receives `EventStore` via
+ * `DispatchContext`, so per-test isolation comes from constructing a new
+ * `EventStore` per test, not from resetting shared state. The export
+ * survives only so existing call sites compile; new tests should not call it.
+ */
 export function resetModuleEventStore(): void {
-  // No module-level state to reset; the shared singleton in views/tools.ts
-  // is reset via resetMaterializerCache(). This export is kept so existing
-  // test files that call resetModuleEventStore() continue to compile.
+  // No module-level state remains to reset.
 }
 
 // ─── handleTaskClaim ──────────────────────────────────────────────────────

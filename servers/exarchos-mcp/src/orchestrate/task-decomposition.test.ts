@@ -372,7 +372,7 @@ describe('handleTaskDecomposition', () => {
     // Should emit gate event
     expect(mockedEmitGateEvent).toHaveBeenCalledOnce();
     expect(mockedEmitGateEvent).toHaveBeenCalledWith(
-      expect.anything(),
+      mockStore,
       'test-feature',
       'task-decomposition',
       'planning',

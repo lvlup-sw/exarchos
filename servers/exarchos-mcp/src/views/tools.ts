@@ -6,6 +6,7 @@ import * as path from 'node:path';
 import { EventStore } from '../event-store/store.js';
 import type { WorkflowEvent } from '../event-store/schemas.js';
 import { formatResult, pickFields, type ToolResult } from '../format.js';
+import { logger } from '../logger.js';
 import { TERMINAL_PHASES } from '../workflow/terminal-phases.js';
 import { ViewMaterializer } from './materializer.js';
 import { SnapshotStore } from './snapshot-store.js';
@@ -201,15 +202,41 @@ async function readWorkflowStateJson(
   stateDir: string,
   workflowId: string,
 ): Promise<Record<string, unknown> | null> {
+  const file = path.join(stateDir, `${workflowId}.state.json`);
+  let raw: string;
   try {
-    const file = path.join(stateDir, `${workflowId}.state.json`);
-    const raw = await fs.readFile(file, 'utf-8');
+    raw = await fs.readFile(file, 'utf-8');
+  } catch (err) {
+    // ENOENT is the legitimate "no plan-state stamp yet" case (CLI tools,
+    // tests, in-flight workflows before first `workflow set`) — fall back
+    // silently to projection-derived values. Other I/O errors are NOT
+    // expected and would mask real corruption if treated as a clean miss.
+    if ((err as NodeJS.ErrnoException)?.code === 'ENOENT') return null;
+    logger.warn(
+      { err: err instanceof Error ? err.message : String(err), file },
+      'readWorkflowStateJson: I/O error reading state.json — falling back to projection',
+    );
+    return null;
+  }
+  try {
     const parsed = JSON.parse(raw);
     if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
       return parsed as Record<string, unknown>;
     }
+    logger.warn(
+      { file, type: Array.isArray(parsed) ? 'array' : typeof parsed },
+      'readWorkflowStateJson: state.json is not an object — falling back to projection',
+    );
     return null;
-  } catch {
+  } catch (err) {
+    // Corrupt JSON: surface a warning so the corruption is observable in
+    // logs even though we keep serving views from the projection. Without
+    // this, a long-lived bad state.json would silently disagree with
+    // workflow_status / synthesis_readiness / convergence forever.
+    logger.warn(
+      { err: err instanceof Error ? err.message : String(err), file },
+      'readWorkflowStateJson: failed to parse state.json — falling back to projection',
+    );
     return null;
   }
 }

@@ -32,6 +32,19 @@ export async function handleProvenanceChain(
   _stateDir: string,
   eventStore: EventStore,
 ): Promise<ToolResult> {
+  // Fail-fast on miswired DispatchContext: a missing eventStore here is a
+  // wiring bug, not a transient error. Without this guard the fire-and-forget
+  // emit below silently swallows the failure. See PR #1185 / CR review 4177990662.
+  if (!eventStore) {
+    return {
+      success: false,
+      error: {
+        code: 'MISWIRED_CONTEXT',
+        message: 'handleProvenanceChain: eventStore is required',
+      },
+    };
+  }
+
   if (!args.featureId) {
     return {
       success: false,

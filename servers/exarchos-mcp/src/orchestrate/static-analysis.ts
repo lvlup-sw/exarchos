@@ -64,6 +64,20 @@ export async function handleStaticAnalysis(
   _stateDir: string,
   eventStore: EventStore,
 ): Promise<ToolResult> {
+  // Fail-fast on miswired DispatchContext: a missing eventStore here is a
+  // wiring bug, not a transient error. Without this guard the fire-and-forget
+  // emit below silently swallows the failure and the gate runs without
+  // telemetry. See PR #1185 / CR review 4177990662.
+  if (!eventStore) {
+    return {
+      success: false,
+      error: {
+        code: 'MISWIRED_CONTEXT',
+        message: 'handleStaticAnalysis: eventStore is required',
+      },
+    };
+  }
+
   // Input validation
   if (!args.featureId) {
     return {
