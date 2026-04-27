@@ -18,7 +18,7 @@ Research convergence (Seemann, Fowler, Microsoft .NET DI guidelines):
 - `views/tools.ts` no longer exports `getOrCreateEventStore`, `registerCanonicalEventStore`, or `cachedEventStore` module globals
 - All ~12 production call sites receive `EventStore` via parameter (handler signature or DispatchContext)
 - ~17 test files construct their own `DispatchContext` in `beforeEach`
-- The composition-root allowlist in `scripts/check-event-store-composition-root.mjs` shrinks from 5 paths to 4 (drops `views/tools.ts`)
+- The composition-root allowlist in `scripts/check-event-store-composition-root.mjs` lists 5 paths after the refactor: `index.ts`, `core/context.ts`, and the three CLI subprocess entrypoints (`cli-commands/assemble-context.ts`, `cli-commands/pre-compact.ts`, `evals/run-evals-cli.ts`). The deleted `views/tools.ts:getOrCreateEventStore` and `review/tools.ts:new EventStore(...)` no longer appear.
 - The single-composition-root integration test asserts the new contract: handlers invoked through `dispatch()` receive `ctx.eventStore`
 
 ## Execution waves

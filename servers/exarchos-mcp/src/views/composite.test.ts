@@ -183,7 +183,7 @@ describe('handleView', () => {
       expect(handleStackStatus).toHaveBeenCalledWith(
         { streamId: 'stream-1', limit: 3, offset: 1 },
         STATE_DIR,
-        expect.anything(),
+        CTX.eventStore,
       );
     });
   });
@@ -221,7 +221,7 @@ describe('handleView', () => {
           prUrl: 'https://github.com/org/repo/pull/1',
         },
         STATE_DIR,
-        expect.anything(),
+        CTX.eventStore,
       );
     });
   });
@@ -246,7 +246,7 @@ describe('handleView', () => {
       expect(handleViewTelemetry).toHaveBeenCalledWith(
         { compact: true, tool: 'workflow_get' },
         STATE_DIR,
-        expect.anything(),
+        CTX.eventStore,
       );
     });
   });

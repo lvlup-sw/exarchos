@@ -179,7 +179,7 @@ function main() {
     `Found ${violations.length} rogue \`new EventStore\` instantiation(s) outside the composition root.\n`,
   );
   process.stderr.write(
-    'Composition root files (allowed): index.ts, core/context.ts, cli-commands/assemble-context.ts\n',
+    'Composition root files (allowed): index.ts, core/context.ts, cli-commands/assemble-context.ts, cli-commands/pre-compact.ts, evals/run-evals-cli.ts\n',
   );
   process.stderr.write('Test/bench files are excluded automatically.\n\n');
   for (const v of violations) {

@@ -276,8 +276,9 @@ describe('handleViewTelemetry', () => {
       await fs.mkdir(badDir, { recursive: true });
       await fs.writeFile(corruptFile, '{not valid json\n', 'utf-8');
 
-      // Act
-      const result = await handleViewTelemetry({}, badDir);
+      // Act — pass an EventStore pointed at the corrupt dir so the handler
+      // exercises the same composition-root contract the rest of the suite uses.
+      const result = await handleViewTelemetry({}, badDir, new EventStore(badDir));
 
       // Assert
       expect(result.success).toBe(false);

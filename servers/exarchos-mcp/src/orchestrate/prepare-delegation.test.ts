@@ -11,7 +11,6 @@ import type { DelegationReadinessState } from '../views/delegation-readiness-vie
 
 vi.mock('../views/tools.js', () => ({
   getOrCreateMaterializer: vi.fn(),
-  getOrCreateEventStore: vi.fn(),
   queryDeltaEvents: vi.fn(),
 }));
 
@@ -41,7 +40,6 @@ vi.mock('../workflow/checkpoint.js', () => ({
 
 import {
   getOrCreateMaterializer,
-  getOrCreateEventStore,
   queryDeltaEvents,
 } from '../views/tools.js';
 import { generateQualityHints } from '../quality/hints.js';

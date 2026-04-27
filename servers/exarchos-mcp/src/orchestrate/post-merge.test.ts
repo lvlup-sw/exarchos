@@ -1,6 +1,7 @@
 // ─── Post-Merge Gate Handler Tests ──────────────────────────────────────────
 
 import { vi, describe, it, expect, beforeEach } from 'vitest';
+import type { EventStore } from '../event-store/store.js';
 
 // ─── Mock the pure TS post-merge module ──────────────────────────────────────
 

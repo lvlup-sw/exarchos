@@ -108,7 +108,9 @@ Two events with sequence 6, written ~2ms apart, line order does not match timest
 
 ### Phase 2 — Verify or fix snapshot writer (#1183)
 
-After Phase 1 lands, re-run `exarchos_workflow checkpoint` against a fresh workflow and inspect `<id>.workflow-state.snapshot.json`'s `savedAt` timestamp. If the snapshot is now refreshed correctly, #1183 was downstream of #1182 — close. If still stale, the snapshot writer has its own bug per the issue's hypothesis (wrong event subscription, gate condition, or stream).
+> **Outcome (resolved 2026-04-26):** The artifact this phase pointed at (`<id>.workflow-state.snapshot.json`) does not exist in the codebase. The actual snapshot writer materializes to `<id>.projections.jsonl`, and 12/12 existing checkpoint tests cover the refresh path. #1183 was a misdiagnosis: the user `stat`'d a file the system never produces. Closed as duplicate of #1182.
+
+After Phase 1 lands, re-run `exarchos_workflow checkpoint` against a fresh workflow and inspect `<id>.projections.jsonl`'s `savedAt` timestamp. If the snapshot is now refreshed correctly, #1183 was downstream of #1182 — close. If still stale, the snapshot writer has its own bug per the issue's hypothesis (wrong event subscription, gate condition, or stream).
 
 ### Phase 3 — Fix projection/view layer (#1179, #1184)
 
@@ -155,7 +157,7 @@ The final implementation:
 - All 16 production handlers (orchestrate × 14, review × 1, telemetry × 1) accept `EventStore` as a typed parameter. The composite dispatcher (`orchestrate/composite.ts`, `views/composite.ts`) threads `ctx.eventStore` to each.
 - CLI entrypoints (`pre-compact`, `evals/run-evals-cli`, `assemble-context`) bootstrap their own `EventStore` via `new EventStore + initialize` — separate process boundaries, PID lock holds.
 - Test fixtures (~17 files) updated to construct the EventStore in `beforeEach` and pass it as the third arg to handler calls.
-- `scripts/check-event-store-composition-root.mjs` allowlist shrinks to 4 paths: `index.ts`, `core/context.ts`, `cli-commands/{assemble-context, pre-compact}.ts`, `evals/run-evals-cli.ts`.
+- `scripts/check-event-store-composition-root.mjs` allowlist lists 5 paths: `index.ts`, `core/context.ts`, `cli-commands/assemble-context.ts`, `cli-commands/pre-compact.ts`, `evals/run-evals-cli.ts`.
 - `__tests__/event-store/single-composition-root.test.ts` asserts the new contract: `getOrCreateEventStore` and `registerCanonicalEventStore` must NOT exist as exports; concurrent appends through `ctx.eventStore` produce monotonic unique sequences.
 
 Validation: typecheck clean (root + MCP server), root suite 625/625, MCP suite 5720/5725 (5 pre-existing `gates.test.ts` baseline failures unchanged).

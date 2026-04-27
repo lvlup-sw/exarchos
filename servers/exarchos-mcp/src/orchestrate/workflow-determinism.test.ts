@@ -1,6 +1,7 @@
 // ─── Workflow Determinism Action Tests ──────────────────────────────────────
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import type { EventStore } from '../event-store/store.js';
 
 // ─── Mock gate-utils (getDiff + emitGateEvent) ─────────────────────────────
 

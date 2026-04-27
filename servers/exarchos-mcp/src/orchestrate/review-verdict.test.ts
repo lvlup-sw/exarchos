@@ -5,6 +5,7 @@
 // ────────────────────────────────────────────────────────────────────────────
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import type { EventStore } from '../event-store/store.js';
 
 // ─── Mock event store ────────────────────────────────────────────────────────
 

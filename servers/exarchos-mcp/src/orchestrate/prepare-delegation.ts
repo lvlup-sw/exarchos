@@ -264,7 +264,7 @@ function createGitExec(): (args: readonly string[]) => string {
 export async function handlePrepareDelegation(
   args: { featureId: string; tasks?: TaskInput[]; nativeIsolation?: boolean },
   stateDir: string,
-  ctx?: DispatchContext,
+  ctx: DispatchContext,
 ): Promise<ToolResult> {
   // Validate input
   if (!args.featureId) {
@@ -276,9 +276,6 @@ export async function handlePrepareDelegation(
 
   try {
     const materializer = getOrCreateMaterializer(stateDir);
-    if (!ctx?.eventStore) {
-      throw new Error('handlePrepareDelegation: ctx.eventStore required');
-    }
     const store = ctx.eventStore;
     const streamId = args.featureId;
 

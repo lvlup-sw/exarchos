@@ -270,9 +270,18 @@ describe('handleStackPlace', () => {
   });
 
   it('when store.append() throws returns PLACE_FAILED', async () => {
+    // Inject a store that throws on append to exercise the PLACE_FAILED
+    // error path (the real `store` here writes to a tempDir and would succeed).
+    const failingStore = {
+      append: vi
+        .fn()
+        .mockRejectedValue(new Error('simulated EventStore append failure')),
+      query: vi.fn().mockResolvedValue([]),
+    } as unknown as EventStore;
     const result = await handleStackPlace(
       { streamId: 'wf-001', position: 1, taskId: 't1' },
       '/nonexistent/path/that/does/not/exist',
+      failingStore,
     );
 
     expect(result.success).toBe(false);

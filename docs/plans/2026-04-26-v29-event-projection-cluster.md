@@ -23,6 +23,8 @@ For Fix 1's enforcement, the **canonical EventStore composition root** is:
 | `servers/exarchos-mcp/src/index.ts` | Long-running MCP server entrypoint |
 | `servers/exarchos-mcp/src/core/context.ts` | `initializeContext` — shared with embedded callers |
 | `servers/exarchos-mcp/src/cli-commands/assemble-context.ts` | CLI subprocess (separate process — PID lock works) |
+| `servers/exarchos-mcp/src/cli-commands/pre-compact.ts` | Claude Code pre-compact hook (separate process) |
+| `servers/exarchos-mcp/src/evals/run-evals-cli.ts` | Eval runner CLI (separate process) |
 
 All other `new EventStore(...)` outside `**/*.test.ts`, `**/__tests__/**`, `**/*.bench.ts` is a CI failure.
 
@@ -33,16 +35,19 @@ All other `new EventStore(...)` outside `**/*.test.ts`, `**/__tests__/**`, `**/*
 
 ### Tasks (TDD order)
 
-#### T1.1 RED — ESLint guard test
+#### T1.1 RED — Composition-root validation script
 
-- Add `eslint.config.js` rule `no-restricted-syntax` matching `NewExpression[callee.name='EventStore']` scoped to `servers/exarchos-mcp/src/**/*.ts` with overrides for the composition root files + test/bench glob.
-- Confirm rule fires on `views/tools.ts:143` and `review/tools.ts:110` against current HEAD.
-- Confirm rule does NOT fire on the three composition-root files.
-- Acceptance: `npm run lint -- --max-warnings 0` against pre-fix code reports exactly 2 violations at the expected lines.
+- Add `scripts/check-event-store-composition-root.mjs` walking `servers/exarchos-mcp/src/**/*.ts` and failing on any `new EventStore(...)` outside the documented allowlist (5 entries: `index.ts`, `core/context.ts`, `cli-commands/{assemble-context, pre-compact}.ts`, `evals/run-evals-cli.ts`). Test/bench files excluded automatically.
+- Confirm script fires on `views/tools.ts:143` and `review/tools.ts:110` against current HEAD.
+- Confirm script does NOT fire on the five composition-root files.
+- Wire the script into `npm run validate`.
+- Acceptance: running the script against pre-fix HEAD reports exactly 2 violations at the expected lines.
+
+> **Note (final implementation):** The plan originally proposed an ESLint `no-restricted-syntax` rule. During implementation we shipped a standalone validation script instead — easier to wire into `npm run validate` and CI without entangling project-wide ESLint config.
 
 #### T1.2 RED — Production-shape integration test
 
-- New file: `servers/exarchos-mcp/src/__tests__/event-store-single-root.test.ts`.
+- New file: `servers/exarchos-mcp/src/__tests__/event-store/single-composition-root.test.ts`.
 - Boot via `createServer` (or moral equivalent — the same path `index.ts` uses).
 - Fire concurrent emissions across two tool surfaces that previously each held their own EventStore: e.g., `exarchos_orchestrate({action: 'check_event_emissions'})` (which was using `getOrCreateEventStore`) and any `exarchos_event` append on the same stream.
 - Assertion 1: `unique(sequences) === count(events)` per stream
@@ -55,7 +60,7 @@ All other `new EventStore(...)` outside `**/*.test.ts`, `**/__tests__/**`, `**/*
 - Delete `getOrCreateEventStore` and `cachedEventStore`/`cachedEventStoreDir` module globals from `views/tools.ts`.
 - Update every caller of `getOrCreateEventStore` to receive `EventStore` from `DispatchContext` instead. Surface area is bounded — `grep -rln getOrCreateEventStore` shows the call sites.
 - For `review/tools.ts:110` (`emitRoutedEvents`), change the call signature so the caller passes the EventStore from context.
-- Acceptance: T1.1 ESLint guard passes (0 violations). T1.2 integration test passes. Existing test suite passes.
+- Acceptance: T1.1 validation script passes (0 violations). T1.2 integration test passes. Existing test suite passes.
 
 #### T1.4 REFACTOR — Document the composition root invariant
 
@@ -65,9 +70,11 @@ All other `new EventStore(...)` outside `**/*.test.ts`, `**/__tests__/**`, `**/*
 
 #### T1.5 Verify #1183
 
+> **Outcome (resolved 2026-04-26):** The artifact this step originally pointed at (`<id>.workflow-state.snapshot.json`) does not exist in the codebase — the actual snapshot writer materializes to `<id>.projections.jsonl`, and 12/12 existing checkpoint tests cover the refresh path. #1183 was a misdiagnosis: the user `stat`'d a file the system never produces. Closed as duplicate of #1182.
+
 - After T1.3 lands locally, init a fresh workflow (`exarchos_workflow init featureId=test-1183-verify workflowType=oneshot`)
 - Append a few events, transition phases, then `exarchos_workflow checkpoint`
-- Inspect `<id>.workflow-state.snapshot.json` `savedAt` — should match the `workflow.checkpoint_written` event timestamp ± 1s
+- Inspect `<id>.projections.jsonl` `savedAt` — should match the `workflow.checkpoint_written` event timestamp ± 1s
 - If yes: comment on #1183 closing as "resolved by #1182 fix — snapshot writer was reading sequence cursors corrupted by the rogue EventStore instances"
 - If no: file a separate scoped issue for the snapshot writer bug
 
@@ -86,7 +93,7 @@ Body:
 - Delete getOrCreateEventStore from views/tools.ts; thread EventStore via DispatchContext
 - Refactor review/tools.ts:emitRoutedEvents to receive EventStore via context
 - Add no-restricted-syntax ESLint rule scoped to servers/exarchos-mcp/src/**/*.ts
-- Add __tests__/event-store-single-root.test.ts (production-shape concurrent emissions)
+- Add __tests__/event-store/single-composition-root.test.ts (production-shape concurrent emissions)
 - Document composition root invariant in RCA and inline comments
 
 ## Test Plan
