@@ -515,46 +515,32 @@ describe('handleMergeOrchestrate integration — rollback timeline (T24)', () =>
     const raw = await fs.readFile(stateFile, 'utf-8');
     const state = JSON.parse(raw) as {
       phase: string;
-      mergeOrchestrator?: { phase?: string; taskId?: string };
+      mergeOrchestrator?: { phase?: string; taskId?: string; reason?: string; rollbackSha?: string };
       featureId: string;
+      workflowType: string;
     };
 
-    // Softened: the on-disk phase is currently 'executing' (Wiring Gap 1
-    // below). Strict design intent — `phase === 'rolled-back'` — is exercised
-    // by the next-actions contract via synthesized state.
-    expect(state.mergeOrchestrator?.phase).toBeDefined();
-    expect(state.mergeOrchestrator?.phase).not.toBe('pending');
+    // T27 persists the terminal phase before emitting `merge.rollback`, so
+    // the on-disk `mergeOrchestrator.phase` reflects the actual outcome.
+    // (Originally softened to `not.toBe('pending')` while T27 was a known
+    //  gap; now strict per the design.)
+    expect(state.mergeOrchestrator?.phase).toBe('rolled-back');
+    expect(state.mergeOrchestrator?.reason).toBe('merge-failed');
+    expect(typeof state.mergeOrchestrator?.rollbackSha).toBe('string');
 
     // T19 contract: when state carries `mergeOrchestrator.phase ===
     // 'rolled-back'`, `merge_orchestrate` is omitted from next-actions.
+    // Workflow-level `phase` is synthesized to `merge-pending` because the
+    // integration test doesn't run the HSM evaluator that would auto-
+    // transition the top-level phase. T26 added `merge-pending` to
+    // `FeaturePhaseSchema`, so the synthesis is schema-valid.
     const hsm = createFeatureHSM();
-    const synthesizedRolledBackState = {
+    const realStateAtMergePending = {
+      ...state,
       phase: 'merge-pending',
-      workflowType: 'feature',
-      featureId: state.featureId,
-      mergeOrchestrator: {
-        phase: 'rolled-back',
-        taskId: state.mergeOrchestrator?.taskId ?? 'T24',
-      },
     };
-    const actions = computeNextActions(synthesizedRolledBackState, hsm);
+    const actions = computeNextActions(realStateAtMergePending, hsm);
     const verbs = actions.map((a) => a.verb);
     expect(verbs).not.toContain('merge_orchestrate');
   });
 });
-
-// ─── Wiring gaps surfaced by T24 (filed for follow-up) ─────────────────────
-//
-//   1. `handleExecuteMerge` does not persist `mergeOrchestrator.phase =
-//      'rolled-back'` after a vcsMerge failure. Pure executor returns
-//      `{ phase: 'rolled-back', ... }` and the handler emits the
-//      `merge.rollback` event, but the state file is left at the prior
-//      `phase: 'executing'` write. Test 2 assertion above is softened
-//      accordingly.
-//   2. `FeaturePhaseSchema` (Zod enum in `workflow/schemas.ts`) does not
-//      include `merge-pending`, even though T17's HSM defines it as an
-//      `implementation` substate. Persisting state with `phase:
-//      'merge-pending'` fails Zod validation, so the integration test seeds
-//      `delegate` and synthesizes `merge-pending` in-memory for the
-//      next-actions assertion.
-// ───────────────────────────────────────────────────────────────────────────

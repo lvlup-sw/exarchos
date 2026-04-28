@@ -6,6 +6,7 @@ import {
   OneshotPhaseSchema,
   WorkflowTypeSchema,
   MergeOrchestratorStateSchema,
+  FeaturePhaseSchema,
 } from './schemas.js';
 import { z } from 'zod';
 
@@ -646,5 +647,23 @@ describe('FeatureWorkflowStateSchema mergeOrchestrator field', () => {
     };
     const result = FeatureWorkflowStateSchema.safeParse(input);
     expect(result.success).toBe(false);
+  });
+});
+
+// ─── T26: FeaturePhaseSchema includes merge-pending substate ──────────────
+//
+// T17 added 'merge-pending' as an HSM substate of 'implementation' (sibling
+// of 'delegate' / 'review'). The disk schema must accept it so workflow
+// state files can persist that phase value end-to-end (e.g. via the HSM's
+// merge-pending entry transition).
+
+describe('FeaturePhaseSchema (T26)', () => {
+  it('FeaturePhaseSchema_MergePending_Parses', () => {
+    expect(FeaturePhaseSchema.safeParse('merge-pending').success).toBe(true);
+  });
+
+  it('FeaturePhaseSchema_TypoInMergePending_Rejects', () => {
+    expect(FeaturePhaseSchema.safeParse('merge-Pending').success).toBe(false);
+    expect(FeaturePhaseSchema.safeParse('merge_pending').success).toBe(false);
   });
 });

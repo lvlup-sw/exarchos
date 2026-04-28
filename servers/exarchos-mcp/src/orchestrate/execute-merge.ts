@@ -60,8 +60,29 @@ interface VcsMergeAdapter {
   }): Promise<{ mergeSha: string }>;
 }
 
+/**
+ * Discriminated union over the three phase transitions the executor writes:
+ *   • `executing`   — intermediate, BEFORE vcsMerge (T09)
+ *   • `completed`   — terminal success, AFTER vcsMerge resolves (T27)
+ *   • `rolled-back` — terminal failure, AFTER `git reset --hard` (T27)
+ *
+ * The terminal-phase shapes carry the result-specific fields (`mergeSha` /
+ * `reason`) so a state file is self-describing without re-fetching the event
+ * stream. Without these terminal writes, disk state would stay at
+ * 'executing' indefinitely after a merge completes or rolls back, breaking
+ * HSM exit guards and resume semantics.
+ */
+export type ExecutorPersistStatePayload =
+  | { phase: 'executing'; rollbackSha: string }
+  | { phase: 'completed'; rollbackSha: string; mergeSha: string }
+  | {
+      phase: 'rolled-back';
+      rollbackSha: string;
+      reason: 'merge-failed' | 'verification-failed' | 'timeout';
+    };
+
 interface PersistStateCallback {
-  (state: { phase: 'executing'; rollbackSha: string }): Promise<void> | void;
+  (state: ExecutorPersistStatePayload): Promise<void> | void;
 }
 
 // Internal handler signature accepts the public args plus optional DI hooks.
@@ -121,8 +142,13 @@ function buildDefaultVcsMerge(
 
 /**
  * Build the default `persistState` callback. Reads the workflow state file
- * at `<stateDir>/<featureId>.state.json`, sets `mergeOrchestrator` to the
- * intermediate `executing` shape, and writes back atomically.
+ * at `<stateDir>/<featureId>.state.json`, merges the supplied phase payload
+ * into `mergeOrchestrator`, and writes back atomically.
+ *
+ * Spreading the entire payload (rather than picking individual fields) means
+ * terminal-phase fields like `mergeSha` and `reason` ride alongside the
+ * always-present `phase` + `rollbackSha`, keeping the state file self-
+ * describing.
  */
 function buildDefaultPersistState(
   featureId: string,
@@ -131,18 +157,17 @@ function buildDefaultPersistState(
   taskId: string | undefined,
   stateDir: string,
 ): PersistStateCallback {
-  return async ({ phase, rollbackSha }) => {
+  return async (payload) => {
     const stateFile = path.join(stateDir, `${featureId}.state.json`);
     const state = await readStateFile(stateFile);
     const next = {
       ...state,
       mergeOrchestrator: {
         ...((state as Record<string, unknown>).mergeOrchestrator as Record<string, unknown> | undefined),
-        phase,
         sourceBranch,
         targetBranch,
         ...(taskId !== undefined ? { taskId } : {}),
-        rollbackSha,
+        ...payload,
       },
     };
     await writeStateFile(stateFile, next as typeof state);
@@ -210,6 +235,15 @@ export async function handleExecuteMerge(
   }
 
   if (result.phase === 'completed') {
+    // T27 — persist terminal phase BEFORE event emission so observers
+    // reading state at event-emit time see the final phase. Without this
+    // write, disk state stays at 'executing' (T09) forever.
+    await persistState({
+      phase: 'completed',
+      rollbackSha: result.rollbackSha,
+      mergeSha: result.mergeSha,
+    });
+
     // Direct stream append — NOT wrapped in `gate.executed`. The dedicated
     // `merge.executed` schema (T03) lives at the top level so observability
     // and HSM guards can match on it directly.
@@ -235,9 +269,15 @@ export async function handleExecuteMerge(
   }
 
   // T16 — phase: 'rolled-back'. The pure executor already ran
-  // `git reset --hard <rollbackSha>`. Emit `merge.rollback` so the workflow
-  // event stream and HSM observability dashboards see the categorized reason,
-  // then surface a structured error to the caller.
+  // `git reset --hard <rollbackSha>`. T27 — persist terminal phase BEFORE
+  // emitting so the HSM merge-pending exit guard and the next-actions
+  // omission filter (T19) see the rolled-back phase on subsequent reads.
+  await persistState({
+    phase: 'rolled-back',
+    rollbackSha: result.rollbackSha,
+    reason: result.reason,
+  });
+
   await ctx.eventStore.append(args.featureId, {
     type: 'merge.rollback',
     data: {

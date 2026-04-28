@@ -65,6 +65,7 @@ export const FeaturePhaseSchema = z.enum([
   'plan',
   'plan-review',
   'delegate',
+  'merge-pending',
   'review',
   'synthesize',
   'completed',

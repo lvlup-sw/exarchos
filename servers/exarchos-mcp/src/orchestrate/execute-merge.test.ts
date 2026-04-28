@@ -280,3 +280,161 @@ describe('handleExecuteMerge rollback (T16)', () => {
     });
   });
 });
+
+// ─── T27: handleExecuteMerge persists terminal phase ──────────────────────
+//
+// The pure executor (T09) writes the intermediate `phase: 'executing'` shape
+// before invoking vcsMerge. After T27, the handler is responsible for the
+// terminal-phase write so disk state always reflects the actual outcome:
+//   • completed  → persist {phase, rollbackSha, mergeSha}
+//   • rolled-back → persist {phase, rollbackSha, reason}
+// Without this, a successful merge or rollback leaves disk state at
+// 'executing' indefinitely, breaking HSM exit guards and resume semantics.
+
+describe('handleExecuteMerge terminal-phase persistence (T27)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('handleExecuteMerge_OnCompleted_PersistsCompletedPhaseWithMergeSha', async () => {
+    const ctx = makeMockCtx();
+    const vcsMerge = vi.fn().mockResolvedValue({ mergeSha: MERGE_SHA });
+    const persistState = vi.fn().mockResolvedValue(undefined);
+
+    await handleExecuteMerge(
+      {
+        featureId: 'feat-x',
+        sourceBranch: 'feat/x',
+        targetBranch: 'main',
+        taskId: 'T11',
+        strategy: 'squash',
+        vcsMerge,
+        persistState,
+        gitExec: makeGitExec(),
+      },
+      ctx,
+    );
+
+    // Two persistState calls now: executing (T09) → completed (T27).
+    expect(persistState).toHaveBeenCalledTimes(2);
+    expect(persistState).toHaveBeenNthCalledWith(2, {
+      phase: 'completed',
+      rollbackSha: ROLLBACK_SHA,
+      mergeSha: MERGE_SHA,
+    });
+  });
+
+  it('handleExecuteMerge_OnRolledBack_PersistsRolledBackPhaseWithReason', async () => {
+    const ctx = makeMockCtx();
+    const vcsMerge = vi.fn().mockRejectedValue(new Error('merge conflict'));
+    const persistState = vi.fn().mockResolvedValue(undefined);
+
+    await handleExecuteMerge(
+      {
+        featureId: 'feat-x',
+        sourceBranch: 'feat/x',
+        targetBranch: 'main',
+        taskId: 'T11',
+        strategy: 'squash',
+        vcsMerge,
+        persistState,
+        gitExec: makeGitExec(),
+      },
+      ctx,
+    );
+
+    expect(persistState).toHaveBeenCalledTimes(2);
+    expect(persistState).toHaveBeenNthCalledWith(2, {
+      phase: 'rolled-back',
+      rollbackSha: ROLLBACK_SHA,
+      reason: 'merge-failed',
+    });
+  });
+
+  it('handleExecuteMerge_OnCompleted_PersistsBeforeMergeExecutedEmit', async () => {
+    const ctx = makeMockCtx();
+    const callOrder: string[] = [];
+
+    const persistState = vi.fn().mockImplementation(async (state: unknown) => {
+      const phase = (state as { phase: string }).phase;
+      callOrder.push(`persist:${phase}`);
+    });
+    const vcsMerge = vi.fn().mockImplementation(async () => {
+      callOrder.push('vcsMerge');
+      return { mergeSha: MERGE_SHA };
+    });
+    const eventStore = makeMockEventStore();
+    (eventStore.append as ReturnType<typeof vi.fn>).mockImplementation(
+      async (_stream: string, event: { type: string }) => {
+        callOrder.push(`event:${event.type}`);
+        return { sequence: 1, type: event.type, timestamp: '' };
+      },
+    );
+
+    await handleExecuteMerge(
+      {
+        featureId: 'feat-x',
+        sourceBranch: 'feat/x',
+        targetBranch: 'main',
+        taskId: 'T11',
+        strategy: 'squash',
+        vcsMerge,
+        persistState,
+        gitExec: makeGitExec(),
+      },
+      { ...ctx, eventStore },
+    );
+
+    // Order: persist(executing) → vcsMerge → persist(completed) → event(merge.executed)
+    // Persisting BEFORE the event means observers reading state at event-emit
+    // time see the right phase.
+    expect(callOrder).toEqual([
+      'persist:executing',
+      'vcsMerge',
+      'persist:completed',
+      'event:merge.executed',
+    ]);
+  });
+
+  it('handleExecuteMerge_OnRolledBack_PersistsBeforeMergeRollbackEmit', async () => {
+    const ctx = makeMockCtx();
+    const callOrder: string[] = [];
+
+    const persistState = vi.fn().mockImplementation(async (state: unknown) => {
+      const phase = (state as { phase: string }).phase;
+      callOrder.push(`persist:${phase}`);
+    });
+    const vcsMerge = vi.fn().mockImplementation(async () => {
+      callOrder.push('vcsMerge');
+      throw new Error('merge conflict');
+    });
+    const eventStore = makeMockEventStore();
+    (eventStore.append as ReturnType<typeof vi.fn>).mockImplementation(
+      async (_stream: string, event: { type: string }) => {
+        callOrder.push(`event:${event.type}`);
+        return { sequence: 1, type: event.type, timestamp: '' };
+      },
+    );
+
+    await handleExecuteMerge(
+      {
+        featureId: 'feat-x',
+        sourceBranch: 'feat/x',
+        targetBranch: 'main',
+        taskId: 'T11',
+        strategy: 'squash',
+        vcsMerge,
+        persistState,
+        gitExec: makeGitExec(),
+      },
+      { ...ctx, eventStore },
+    );
+
+    expect(callOrder).toEqual([
+      'persist:executing',
+      'vcsMerge',
+      'persist:rolled-back',
+      'event:merge.rollback',
+    ]);
+  });
+});
