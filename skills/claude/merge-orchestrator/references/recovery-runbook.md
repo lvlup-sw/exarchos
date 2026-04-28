@@ -64,7 +64,9 @@ git reset --hard <rollbackSha-from-the-event-log>
 
 # Where <rollbackSha-from-the-event-log> can be retrieved via:
 exarchos_event query stream=<featureId> filter='{"type":"merge.executed"}'
-# or the most recent merge.preflight event
+# or the most recent merge.rollback event for a rolled-back run.
+# (merge.preflight does NOT carry rollbackSha — it runs before the rollback
+# anchor is captured.)
 ```
 
 If `rollbackError` is absent, the reset succeeded and the working tree is back to the recorded state — proceed to the conflict-resolution flow below.
@@ -78,9 +80,10 @@ For merge conflicts (most common cause of `merge-failed`):
 3. Resolve conflicts manually
 4. `git add` the resolved files
 5. `git commit` to complete the merge
-6. **Do not** re-dispatch `merge_orchestrate` — the merge is now done manually. Mark the workflow's `mergeOrchestrator.phase` as `completed` via `mcp__plugin_exarchos_exarchos__exarchos_workflow set` and emit a `merge.executed` event manually:
+6. **Do not** re-dispatch `merge_orchestrate` — the merge is now done manually. Follow the repository's event-first commit-point invariant (#1109 §1): emit the `merge.executed` event FIRST, then update `mergeOrchestrator.phase` to `completed` via `mcp__plugin_exarchos_exarchos__exarchos_workflow set`. Reversing the order risks a state-file/event-stream divergence if the event append fails after the state write.
 
 ```typescript
+// Event first — the repository treats event append as the commit point.
 mcp__plugin_exarchos_exarchos__exarchos_event({ action: "append", stream: "<featureId>", event: {
   type: "merge.executed",
   data: {
@@ -90,7 +93,17 @@ mcp__plugin_exarchos_exarchos__exarchos_event({ action: "append", stream: "<feat
     mergeSha: "<the-manual-merge-commit-sha>",
     rollbackSha: "<rollbackSha-from-prior-event>",
   },
-}})
+}});
+
+// Then update workflow state to reflect the terminal phase.
+mcp__plugin_exarchos_exarchos__exarchos_workflow({ action: "set", featureId: "<featureId>",
+  updates: { mergeOrchestrator: {
+    phase: "completed",
+    sourceBranch: "<source>", targetBranch: "<target>",
+    taskId: "<task-id>",
+    mergeSha: "<the-manual-merge-commit-sha>",
+    rollbackSha: "<rollbackSha-from-prior-event>",
+  } } });
 ```
 
 This is one of the rare cases where manual event emission is appropriate — the merge happened outside the orchestrator's control, but the event log must reflect the actual state for downstream projections to work.

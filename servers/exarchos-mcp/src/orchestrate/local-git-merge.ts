@@ -85,14 +85,31 @@ export function buildLocalGitMergeAdapter(
         ]);
         break;
 
-      case 'rebase':
-        // Rebase source onto target, then fast-forward target. Source's
-        // history is rewritten — appropriate for ephemeral subagent branches.
-        gitOrThrow(gitExec, repoRoot, ['checkout', sourceBranch]);
-        gitOrThrow(gitExec, repoRoot, ['rebase', targetBranch]);
-        gitOrThrow(gitExec, repoRoot, ['checkout', targetBranch]);
-        gitOrThrow(gitExec, repoRoot, ['merge', '--ff-only', sourceBranch]);
+      case 'rebase': {
+        // Rebase via an ephemeral branch so the source ref is never mutated.
+        // The executor's rollback path is `git reset --hard <rollbackSha>` on
+        // the currently-checked-out branch — if rebase mutated `sourceBranch`
+        // and rollback ran while it was checked out, sourceBranch would be
+        // reset to the *target* SHA, corrupting it. Keeping source untouched
+        // means the executor's reset-target rollback is sufficient.
+        const tmpBranch = `__exarchos_merge_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+        try {
+          gitOrThrow(gitExec, repoRoot, ['checkout', '-b', tmpBranch, sourceBranch]);
+          gitOrThrow(gitExec, repoRoot, ['rebase', targetBranch]);
+          gitOrThrow(gitExec, repoRoot, ['checkout', targetBranch]);
+          gitOrThrow(gitExec, repoRoot, ['merge', '--ff-only', tmpBranch]);
+        } catch (err) {
+          // Best-effort: abort any in-flight rebase so the worktree isn't
+          // left in REBASING state, then return to target before re-throwing
+          // so the executor's reset --hard <rollbackSha> targets the right ref.
+          gitExec(repoRoot, ['rebase', '--abort']);
+          gitExec(repoRoot, ['checkout', targetBranch]);
+          throw err;
+        } finally {
+          gitExec(repoRoot, ['branch', '-D', tmpBranch]);
+        }
         break;
+      }
     }
 
     const sha = gitOrThrow(gitExec, repoRoot, ['rev-parse', 'HEAD']).trim();

@@ -119,6 +119,7 @@ describe('handleExecuteMerge (T15)', () => {
         taskId: 'T11',
         sourceBranch: 'feat/x',
         targetBranch: 'main',
+        strategy: 'squash',
         mergeSha: MERGE_SHA,
         rollbackSha: ROLLBACK_SHA,
       },
@@ -439,7 +440,7 @@ describe('handleExecuteMerge terminal-phase persistence (T27)', () => {
     });
   });
 
-  it('handleExecuteMerge_OnCompleted_PersistsBeforeMergeExecutedEmit', async () => {
+  it('handleExecuteMerge_OnCompleted_EmitsMergeExecutedBeforePersistingTerminalState', async () => {
     const ctx = makeMockCtx();
     const callOrder: string[] = [];
 
@@ -473,18 +474,20 @@ describe('handleExecuteMerge terminal-phase persistence (T27)', () => {
       { ...ctx, eventStore },
     );
 
-    // Order: persist(executing) → vcsMerge → persist(completed) → event(merge.executed)
-    // Persisting BEFORE the event means observers reading state at event-emit
-    // time see the right phase.
+    // Event-first commit point (#1109 §1): the terminal event MUST be appended
+    // before the state file is mutated. If the event append fails, replay can
+    // still reconstruct from the event stream; if the state write fails after,
+    // a reconcile recovers the terminal phase from the recorded event.
+    // Order: persist(executing) → vcsMerge → event(merge.executed) → persist(completed)
     expect(callOrder).toEqual([
       'persist:executing',
       'vcsMerge',
-      'persist:completed',
       'event:merge.executed',
+      'persist:completed',
     ]);
   });
 
-  it('handleExecuteMerge_OnRolledBack_PersistsBeforeMergeRollbackEmit', async () => {
+  it('handleExecuteMerge_OnRolledBack_EmitsMergeRollbackBeforePersistingTerminalState', async () => {
     const ctx = makeMockCtx();
     const callOrder: string[] = [];
 
@@ -521,8 +524,8 @@ describe('handleExecuteMerge terminal-phase persistence (T27)', () => {
     expect(callOrder).toEqual([
       'persist:executing',
       'vcsMerge',
-      'persist:rolled-back',
       'event:merge.rollback',
+      'persist:rolled-back',
     ]);
   });
 });

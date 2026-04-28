@@ -112,6 +112,9 @@ type OrchestratorPersistState = (
     readonly phase: 'aborted';
     readonly preflight: MergePreflightResult;
     readonly abortReason: 'preflight-failed';
+    readonly sourceBranch: string;
+    readonly targetBranch: string;
+    readonly taskId?: string;
   },
 ) => Promise<void> | void;
 
@@ -153,8 +156,19 @@ function defaultGitExec(repoRoot: string, args: readonly string[]): GitExecResul
     });
     return { stdout, exitCode: 0 };
   } catch (err) {
+    // Surface git's stderr (merge conflicts, ref errors) in the returned
+    // stdout so the preflight failure surfaces the actual cause rather than
+    // an opaque exit code.
     const status = (err as { status?: number }).status;
-    return { stdout: '', exitCode: typeof status === 'number' ? status : 1 };
+    const stderr = (err as { stderr?: string | Buffer }).stderr;
+    const stdout = (err as { stdout?: string | Buffer }).stdout;
+    const message = [
+      typeof stdout === 'string' ? stdout : stdout?.toString('utf-8') ?? '',
+      typeof stderr === 'string' ? stderr : stderr?.toString('utf-8') ?? '',
+    ]
+      .filter(Boolean)
+      .join('\n');
+    return { stdout: message, exitCode: typeof status === 'number' ? status : 1 };
   }
 }
 
@@ -171,14 +185,14 @@ function buildDefaultPersistState(
   return async (next) => {
     const stateFile = path.join(stateDir, `${featureId}.state.json`);
     const state = await readStateFile(stateFile);
+    // REPLACE the `mergeOrchestrator` block instead of shallow-merging onto
+    // any prior attempt. Spreading the previous object would carry stale
+    // `mergeSha`, `rollbackSha`, or old failure metadata into a fresh
+    // terminal write (e.g., `aborted` after a previous `executing`),
+    // leaving contradictory state for resume/status consumers.
     const updated = {
       ...state,
-      mergeOrchestrator: {
-        ...((state as Record<string, unknown>).mergeOrchestrator as
-          | Record<string, unknown>
-          | undefined),
-        ...next,
-      },
+      mergeOrchestrator: { ...next },
     };
     await writeStateFile(stateFile, updated as typeof state);
   };
@@ -198,11 +212,14 @@ function buildDefaultReadState(
     try {
       const state = await readStateFile(stateFile);
       return state as unknown as { mergeOrchestrator?: Record<string, unknown> };
-    } catch {
-      // Missing or unreadable state file → resume falls through to fresh
-      // dispatch. Errors here are not fatal: the persistState path will
-      // surface any underlying problems on the write side.
-      return undefined;
+    } catch (err) {
+      // Only treat "state file does not exist" as resumable absence — a
+      // corrupt or unreadable file MUST surface so resume:true doesn't
+      // silently degrade into a fresh dispatch and emit a duplicate
+      // preflight/merge attempt.
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code === 'ENOENT') return undefined;
+      throw err;
     }
   };
 }
@@ -291,8 +308,18 @@ export async function handleMergeOrchestrate(
     let existing: Awaited<ReturnType<OrchestratorReadState>>;
     try {
       existing = await readState();
-    } catch {
-      existing = undefined;
+    } catch (err) {
+      // `readState` returns undefined for ENOENT (no prior state — fall
+      // through to fresh dispatch). Anything else (corrupt file, IO error)
+      // must surface — silently swallowing would let resume:true emit a
+      // duplicate preflight/merge against an unreadable state file.
+      return {
+        success: false,
+        error: {
+          code: 'STATE_READ_FAILED',
+          message: `Resume read failed: ${err instanceof Error ? err.message : String(err)}`,
+        },
+      };
     }
     const merge = existing?.mergeOrchestrator;
     const phase = typeof merge?.phase === 'string' ? merge.phase : undefined;
@@ -416,6 +443,9 @@ export async function handleMergeOrchestrate(
             phase: 'aborted',
             preflight,
             abortReason: 'preflight-failed',
+            sourceBranch: args.sourceBranch,
+            targetBranch: args.targetBranch,
+            ...(args.taskId !== undefined ? { taskId: args.taskId } : {}),
           }),
         ),
       );

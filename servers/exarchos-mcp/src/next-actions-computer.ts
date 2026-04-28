@@ -105,13 +105,18 @@ export function computeNextActions(
     const moPhase = state.mergeOrchestrator?.phase;
     const terminated = moPhase !== undefined && EXCLUDED_MERGE_PHASES.has(moPhase);
     if (!terminated) {
-      const taskId = state.mergeOrchestrator?.taskId ?? 'unknown';
-      const streamId = state.featureId ?? 'unknown';
+      // Only surface an idempotency key when both segments are real. An
+      // `'unknown'` fallback would collapse unrelated invocations onto the
+      // same key, defeating de-duplication.
+      const taskId = state.mergeOrchestrator?.taskId;
+      const streamId = state.featureId;
       const candidate: NextAction = {
         verb: 'merge_orchestrate',
         reason: 'Pending subagent worktree merge',
         validTargets: ['merge_orchestrate'],
-        idempotencyKey: `${streamId}:merge_orchestrate:${taskId}`,
+        ...(taskId && streamId
+          ? { idempotencyKey: `${streamId}:merge_orchestrate:${taskId}` }
+          : {}),
       };
       const parsed = NextAction.safeParse(candidate);
       if (!parsed.success) {

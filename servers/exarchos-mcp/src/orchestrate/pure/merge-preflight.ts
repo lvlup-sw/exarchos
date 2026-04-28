@@ -91,14 +91,24 @@ export function detectDrift(
   gitExec: GitExec,
   repoRoot: string = process.cwd(),
 ): DriftResult {
+  // Fail closed: a non-zero exit from `git status` or `git rev-parse` means
+  // the working state is unknown — treat it as drift rather than as
+  // "no files / not detached", which would let a broken repo or bad
+  // `repoRoot` slip through preflight.
   const status = gitExec(repoRoot, ['status', '--porcelain']);
-  const uncommittedFiles = parsePorcelainPaths(status.stdout);
+  const uncommittedFiles = status.exitCode === 0
+    ? parsePorcelainPaths(status.stdout)
+    : ['<git status failed>'];
 
+  // For `git diff --cached --quiet`, exit code is the signal: 0=clean, 1=dirty.
+  // Any other non-zero code means the command itself failed — treat as stale.
   const cached = gitExec(repoRoot, ['diff', '--cached', '--quiet']);
   const indexStale = cached.exitCode !== 0;
 
   const head = gitExec(repoRoot, ['rev-parse', '--abbrev-ref', 'HEAD']);
-  const detachedHead = head.stdout.trim() === 'HEAD';
+  // Treat a failed rev-parse as detached (unknown HEAD state) so preflight
+  // refuses to merge into an indeterminate target.
+  const detachedHead = head.exitCode !== 0 || head.stdout.trim() === 'HEAD';
 
   const clean =
     uncommittedFiles.length === 0 && !indexStale && !detachedHead;

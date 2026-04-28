@@ -981,6 +981,9 @@ export const MergeExecutedData = z.object({
   taskId: z.string().optional(),
   sourceBranch: z.string().min(1),
   targetBranch: z.string().min(1),
+  /** Operator-selected merge strategy. Captured for event-log fidelity so
+   * observability and replay don't have to re-derive it from state. */
+  strategy: z.enum(['squash', 'rebase', 'merge']).optional(),
   mergeSha: z.string().min(1),
   rollbackSha: z.string().min(1),
 });
@@ -989,7 +992,9 @@ export const MergeExecutedData = z.object({
  * merge.rollback — emitted when a merge is reverted. `reason` is a closed
  * enum so observability dashboards don't fragment across free-form text.
  * Preflight failures are NOT a rollback cause — they short-circuit before
- * any merge occurs.
+ * any merge occurs. `rollbackError` carries the reset-failure detail when
+ * `git reset --hard <rollbackSha>` itself failed: presence signals the
+ * worktree may be in an indeterminate state, so consumers can page operators.
  */
 export const MergeRollbackData = z.object({
   taskId: z.string().optional(),
@@ -997,6 +1002,7 @@ export const MergeRollbackData = z.object({
   targetBranch: z.string().min(1),
   rollbackSha: z.string().min(1),
   reason: z.enum(['merge-failed', 'verification-failed', 'timeout']),
+  rollbackError: z.string().min(1).optional(),
 });
 
 // ─── Event Data Schemas Map ─────────────────────────────────────────────────

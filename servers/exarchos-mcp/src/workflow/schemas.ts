@@ -192,15 +192,33 @@ export const WorktreeSchema = z.object({
 
 // ─── Merge Orchestrator State Schema (DR-MO-1 / DR-MO-2) ───────────────────
 
+/** Persisted shape of `mergeOrchestrator.preflight`. Mirrors
+ * `MergePreflightResult` from `pure/merge-preflight.ts` at the field-presence
+ * level; sub-result shapes are kept open so this schema doesn't have to
+ * track every dispatch-guard tweak. The `.passthrough()` accommodates
+ * forward-compatible additions emitted by newer composer versions. */
+const MergeOrchestratorPreflightSchema = z.object({
+  passed: z.boolean(),
+  failureReasons: z.array(z.string()).optional(),
+  ancestry: z.unknown().optional(),
+  currentBranchProtection: z.unknown().optional(),
+  worktree: z.unknown().optional(),
+  drift: z.unknown().optional(),
+}).passthrough();
+
 export const MergeOrchestratorStateSchema = z.object({
   phase: z.enum(['pending', 'executing', 'completed', 'rolled-back', 'aborted']),
-  sourceBranch: z.string().min(1),
-  targetBranch: z.string().min(1),
+  // `sourceBranch`/`targetBranch` are present on every non-aborted phase. The
+  // pre-preflight `aborted` write may not yet carry them, so they are
+  // optional at the schema level — `.passthrough()` preserves any extras
+  // (e.g. `abortReason`, `rollbackError`) that consumers depend on.
+  sourceBranch: z.string().min(1).optional(),
+  targetBranch: z.string().min(1).optional(),
   taskId: z.string().optional(),
   rollbackSha: z.string().optional(),
   mergeSha: z.string().optional(),
-  preflight: z.unknown().optional(), // detailed shape comes in T06/T07; opaque for now
-});
+  preflight: MergeOrchestratorPreflightSchema.optional(),
+}).passthrough();
 
 // ─── Synthesis Schema ───────────────────────────────────────────────────────
 

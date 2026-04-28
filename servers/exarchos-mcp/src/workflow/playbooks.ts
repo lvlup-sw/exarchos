@@ -341,17 +341,17 @@ register({
     {
       type: 'merge.preflight',
       when: 'After dispatch-guard suite runs (before merge attempt or abort)',
-      fields: ['taskId', 'sourceBranch', 'targetBranch', 'passed', 'ancestry', 'worktree', 'currentBranchProtection', 'drift'],
+      fields: ['taskId', 'sourceBranch', 'targetBranch', 'passed', 'ancestry', 'worktree', 'currentBranchProtection', 'drift', 'failureReasons'],
     },
     {
       type: 'merge.executed',
       when: 'After merge commit lands successfully on the target branch',
-      fields: ['taskId', 'sourceBranch', 'targetBranch', 'mergeSha', 'strategy'],
+      fields: ['taskId', 'sourceBranch', 'targetBranch', 'mergeSha', 'rollbackSha', 'strategy'],
     },
     {
       type: 'merge.rollback',
       when: 'When merge fails post-commit and the rollback path runs',
-      fields: ['taskId', 'targetBranch', 'rollbackSha', 'reason'],
+      fields: ['taskId', 'sourceBranch', 'targetBranch', 'rollbackSha', 'reason', 'rollbackError'],
     },
   ],
   transitionCriteria:

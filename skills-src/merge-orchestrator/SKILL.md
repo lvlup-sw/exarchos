@@ -108,7 +108,7 @@ Three events are emitted directly to the workflow's event stream (stream id = `f
 | `merge.executed`  | On successful local merge | `mergeSha`, `rollbackSha`, `taskId`, source/target branches |
 | `merge.rollback`  | On post-merge failure followed by reset | `rollbackSha`, `reason`, `taskId`, source/target branches |
 
-These events are auto-emitted by the handler — do **not** manually append them via `{{MCP_PREFIX}}exarchos_event`.
+These events are auto-emitted by the handler — do **not** manually append them via `{{MCP_PREFIX}}exarchos_event` during normal operation. Manual emission is only sanctioned during the documented manual-recovery flow in [`recovery-runbook.md`](references/recovery-runbook.md) when a merge has been completed out-of-band (e.g., conflict resolution) and the event log must be brought back in sync — follow that runbook's event-first sequencing.
 
 > Discover the event payload schemas via `{{MCP_PREFIX}}exarchos_event({ action: "describe", eventTypes: ["merge.preflight", "merge.executed", "merge.rollback"] })`.
 

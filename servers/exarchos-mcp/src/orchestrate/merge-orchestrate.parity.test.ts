@@ -41,7 +41,9 @@ import {
   callCli as harnessCallCli,
   callMcp as harnessCallMcp,
   normalize as harnessNormalize,
+  applyExitOverrideRecursively,
 } from '../__tests__/parity-harness.js';
+import { buildCli } from '../adapters/cli.js';
 
 import { handleMergeOrchestrate } from './merge-orchestrate.js';
 import type { MergePreflightResult } from './pure/merge-preflight.js';
@@ -300,5 +302,92 @@ describe('exarchos merge-orchestrate CLI↔MCP parity (T22, DR-MO-1)', () => {
     expect(JSON.stringify(normalize(cliRollback))).toEqual(
       JSON.stringify(normalize(mcpRollback)),
     );
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Top-level `exarchos merge-orchestrate` parity (#1109 §2 verification)
+  //
+  // The auto-generated `exarchos orch merge_orchestrate` and the promoted
+  // top-level `exarchos merge-orchestrate` command both dispatch through
+  // the same composite, but only the auto-generated path was previously
+  // exercised. Commander registration + top-level exit-code mapping for
+  // the promoted surface need their own parity assertion or they can
+  // regress silently.
+  // ─────────────────────────────────────────────────────────────────────────
+  it('mergeOrchestrate_TopLevelCli_MatchesMcpToolResult', async () => {
+    restoreStub = stubCompositeHandler(
+      'exarchos_orchestrate',
+      buildMergeOrchestrateCompositeStub('success'),
+    );
+
+    const cliArm = await createArm('merge-orch-parity-toplevel-cli-');
+    arms.push(cliArm);
+    const mcpArm = await createArm('merge-orch-parity-toplevel-mcp-');
+    arms.push(mcpArm);
+
+    // Top-level CLI invocation: `exarchos merge-orchestrate <flags>` (no
+    // intermediate `orch` subcommand). Inline the harness's stdout/stderr
+    // mocking so we can construct the right argv shape without overloading
+    // the shared `callCli(toolAlias, action, ...)` signature.
+    const program = buildCli(cliArm.ctx);
+    applyExitOverrideRecursively(program);
+    const capturedStdout: string[] = [];
+    const stdoutSpy = vi
+      .spyOn(process.stdout, 'write')
+      .mockImplementation((chunk: unknown) => {
+        capturedStdout.push(typeof chunk === 'string' ? chunk : String(chunk));
+        return true;
+      });
+    const stderrSpy = vi
+      .spyOn(process.stderr, 'write')
+      .mockImplementation(() => true);
+    const savedExitCode = process.exitCode;
+    process.exitCode = undefined;
+    try {
+      await program.parseAsync([
+        'node',
+        'exarchos',
+        'merge-orchestrate',
+        '--feature-id',
+        PARITY_ARGS.featureId,
+        '--source-branch',
+        PARITY_ARGS.sourceBranch,
+        '--target-branch',
+        PARITY_ARGS.targetBranch,
+        '--task-id',
+        PARITY_ARGS.taskId,
+        '--strategy',
+        PARITY_ARGS.strategy,
+        '--json',
+      ]);
+    } finally {
+      stdoutSpy.mockRestore();
+      stderrSpy.mockRestore();
+    }
+    process.exitCode = savedExitCode;
+
+    const stdoutText = capturedStdout.join('').trim();
+    const firstBrace = stdoutText.indexOf('{');
+    expect(firstBrace).toBeGreaterThanOrEqual(0);
+    const newlineIdx = stdoutText.indexOf('\n', firstBrace);
+    const jsonText = newlineIdx > 0
+      ? stdoutText.slice(firstBrace, newlineIdx)
+      : stdoutText.slice(firstBrace);
+    const cliResult = JSON.parse(jsonText) as ToolResult;
+
+    const mcpResult = await harnessCallMcp(mcpArm.ctx, 'exarchos_orchestrate', {
+      action: 'merge_orchestrate',
+      ...PARITY_ARGS,
+    });
+
+    expect(cliResult.success).toBe(true);
+    expect(mcpResult.success).toBe(true);
+    const cliData = cliResult.data as { phase: string; mergeSha: string };
+    expect(cliData.phase).toBe('completed');
+    expect(cliData.mergeSha).toBe(MERGE_SHA);
+
+    // Byte-equal parity invariant — the promoted CLI surface MUST project
+    // the same ToolResult shape as the MCP composite.
+    expect(normalize(cliResult)).toEqual(normalize(mcpResult));
   });
 });

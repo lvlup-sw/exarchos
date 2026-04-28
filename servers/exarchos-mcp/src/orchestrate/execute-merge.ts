@@ -84,6 +84,8 @@ export type ExecutorPersistStatePayload =
       phase: 'rolled-back';
       rollbackSha: string;
       reason: 'merge-failed' | 'verification-failed' | 'timeout';
+      /** Set when `git reset --hard` itself failed; worktree is indeterminate. */
+      rollbackError?: string;
     };
 
 interface PersistStateCallback {
@@ -102,7 +104,11 @@ export interface HandleExecuteMergeInput extends HandleExecuteMergeArgs {
 
 // ─── Default adapters ──────────────────────────────────────────────────────
 
-/** Default `gitExec`: synchronous shell-out with 120s timeout. */
+/** Default `gitExec`: synchronous shell-out with 120s timeout.
+ * Captures stderr so failures (merge conflicts, ref errors) surface in the
+ * returned `stdout` channel rather than vanishing — `gitOrThrow` includes
+ * this output in the thrown error so categorization and operator diagnostics
+ * have the actual git failure message. */
 function defaultGitExec(repoRoot: string, args: readonly string[]): { stdout: string; exitCode: number } {
   try {
     const stdout = execFileSync('git', [...args], {
@@ -114,7 +120,15 @@ function defaultGitExec(repoRoot: string, args: readonly string[]): { stdout: st
     return { stdout, exitCode: 0 };
   } catch (err) {
     const status = (err as { status?: number }).status;
-    return { stdout: '', exitCode: typeof status === 'number' ? status : 1 };
+    const stderr = (err as { stderr?: string | Buffer }).stderr;
+    const stdout = (err as { stdout?: string | Buffer }).stdout;
+    const message = [
+      typeof stdout === 'string' ? stdout : stdout?.toString('utf-8') ?? '',
+      typeof stderr === 'string' ? stderr : stderr?.toString('utf-8') ?? '',
+    ]
+      .filter(Boolean)
+      .join('\n');
+    return { stdout: message, exitCode: typeof status === 'number' ? status : 1 };
   }
 }
 
@@ -246,28 +260,60 @@ export async function handleExecuteMerge(
     };
   }
 
-  // T29: wrap terminal persistState in try/catch so a CAS exhaustion on
-  // the terminal write surfaces as STATE_CONFLICT (not an unhandled throw).
+  // Event-first commit point (#1109 §1): append the terminal event BEFORE
+  // mutating the state file. If append fails, the state file stays at
+  // `executing` and a subsequent reconcile/projection rebuild reflects only
+  // what the event store recorded — no silent state/event divergence. If
+  // the state write fails after a successful append, projection replay
+  // still reconstructs the terminal phase from the recorded event.
+  if (result.phase === 'completed') {
+    // Direct stream append — NOT wrapped in `gate.executed`. The dedicated
+    // `merge.executed` schema (T03) lives at the top level so observability
+    // and HSM guards can match on it directly.
+    await ctx.eventStore.append(args.featureId, {
+      type: 'merge.executed',
+      data: {
+        ...(args.taskId !== undefined ? { taskId: args.taskId } : {}),
+        sourceBranch: args.sourceBranch,
+        targetBranch: args.targetBranch,
+        strategy: args.strategy,
+        mergeSha: result.mergeSha,
+        rollbackSha: result.rollbackSha,
+      },
+    });
+  } else {
+    // T16 — phase: 'rolled-back'. The pure executor already ran
+    // `git reset --hard <rollbackSha>`. Surface `rollbackError` (when the
+    // reset itself failed) so consumers can detect an indeterminate worktree.
+    await ctx.eventStore.append(args.featureId, {
+      type: 'merge.rollback',
+      data: {
+        ...(args.taskId !== undefined ? { taskId: args.taskId } : {}),
+        sourceBranch: args.sourceBranch,
+        targetBranch: args.targetBranch,
+        rollbackSha: result.rollbackSha,
+        reason: result.reason,
+        ...(result.rollbackError !== undefined ? { rollbackError: result.rollbackError } : {}),
+      },
+    });
+  }
+
+  // Persist terminal phase to workflow state. CAS exhaustion surfaces as
+  // STATE_CONFLICT — the event has already committed, so a projection
+  // rebuild can still recover the terminal phase even if this write fails.
   try {
     if (result.phase === 'completed') {
-      // T27 — persist terminal phase BEFORE event emission so observers
-      // reading state at event-emit time see the final phase. Without this
-      // write, disk state stays at 'executing' (T09) forever.
       await persistState({
         phase: 'completed',
         rollbackSha: result.rollbackSha,
         mergeSha: result.mergeSha,
       });
     } else {
-      // T16 — phase: 'rolled-back'. The pure executor already ran
-      // `git reset --hard <rollbackSha>`. T27 — persist terminal phase
-      // BEFORE emitting so the HSM merge-pending exit guard and the
-      // next-actions omission filter (T19) see the rolled-back phase on
-      // subsequent reads.
       await persistState({
         phase: 'rolled-back',
         rollbackSha: result.rollbackSha,
         reason: result.reason,
+        ...(result.rollbackError !== undefined ? { rollbackError: result.rollbackError } : {}),
       });
     }
   } catch (err) {
@@ -284,20 +330,6 @@ export async function handleExecuteMerge(
   }
 
   if (result.phase === 'completed') {
-    // Direct stream append — NOT wrapped in `gate.executed`. The dedicated
-    // `merge.executed` schema (T03) lives at the top level so observability
-    // and HSM guards can match on it directly.
-    await ctx.eventStore.append(args.featureId, {
-      type: 'merge.executed',
-      data: {
-        ...(args.taskId !== undefined ? { taskId: args.taskId } : {}),
-        sourceBranch: args.sourceBranch,
-        targetBranch: args.targetBranch,
-        mergeSha: result.mergeSha,
-        rollbackSha: result.rollbackSha,
-      },
-    });
-
     return {
       success: true,
       data: {
@@ -307,18 +339,6 @@ export async function handleExecuteMerge(
       },
     };
   }
-
-
-  await ctx.eventStore.append(args.featureId, {
-    type: 'merge.rollback',
-    data: {
-      ...(args.taskId !== undefined ? { taskId: args.taskId } : {}),
-      sourceBranch: args.sourceBranch,
-      targetBranch: args.targetBranch,
-      rollbackSha: result.rollbackSha,
-      reason: result.reason,
-    },
-  });
 
   return {
     success: false,
@@ -330,6 +350,7 @@ export async function handleExecuteMerge(
       phase: 'rolled-back' as const,
       rollbackSha: result.rollbackSha,
       reason: result.reason,
+      ...(result.rollbackError !== undefined ? { rollbackError: result.rollbackError } : {}),
     },
   };
 }

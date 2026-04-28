@@ -107,10 +107,24 @@ const mergePendingEntry: Guard = {
 const mergePendingExit: Guard = {
   id: 'merge-pending-exit',
   description:
-    'merge.executed, merge.rollback, or merge.aborted must be present (or mergeOrchestrator.phase must be terminal)',
+    'A merge.executed/merge.rollback/merge.aborted must follow the latest task.completed (or mergeOrchestrator.phase must be terminal)',
   evaluate: (state: Record<string, unknown>): GuardResult => {
     const events = (state._events as readonly Record<string, unknown>[]) ?? [];
-    const hasTerminalEvent = events.some(
+    // Cycle-scoped: only terminal events that follow the latest task.completed
+    // count. A history-wide `some()` would stay true forever after the first
+    // merge cycle, so subsequent task.completed → merge-pending entries would
+    // exit immediately on stale events from prior cycles.
+    let latestTaskCompletedIdx = -1;
+    for (let i = events.length - 1; i >= 0; i -= 1) {
+      if (events[i]?.type === 'task.completed') {
+        latestTaskCompletedIdx = i;
+        break;
+      }
+    }
+    const cycleEvents = latestTaskCompletedIdx >= 0
+      ? events.slice(latestTaskCompletedIdx + 1)
+      : events;
+    const hasTerminalEvent = cycleEvents.some(
       (e) =>
         e.type === 'merge.executed' ||
         e.type === 'merge.rollback' ||
@@ -123,7 +137,7 @@ const mergePendingExit: Guard = {
     return {
       passed: false,
       reason:
-        'merge-pending-exit not satisfied: no merge.executed/merge.rollback/merge.aborted event found and mergeOrchestrator.phase is not terminal',
+        'merge-pending-exit not satisfied: no merge.executed/merge.rollback/merge.aborted event found after the latest task.completed and mergeOrchestrator.phase is not terminal',
     };
   },
 };

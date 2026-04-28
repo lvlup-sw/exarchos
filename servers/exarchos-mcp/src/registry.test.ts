@@ -566,6 +566,9 @@ describe('TOOL_REGISTRY', () => {
           'add_pr_comment',
           'create_issue',
           'init',
+          // DR-MO-1 / DR-MO-2: explicit assertion so a future registry edit
+          // cannot quietly drop the autonomous merge orchestrator action.
+          'merge_orchestrate',
         ]),
       );
     });

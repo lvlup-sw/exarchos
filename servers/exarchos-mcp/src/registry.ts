@@ -325,6 +325,11 @@ export const ALL_PHASES: ReadonlySet<string> = new Set([
   'plan',
   'plan-review',
   'delegate',
+  // Substate of `delegate` — entered when a worktree-task's autonomous merge
+  // is pending. Must be in this set so phase-gated actions (notably
+  // `merge_orchestrate` itself) remain dispatchable while the workflow sits
+  // in this phase.
+  'merge-pending',
   'review',
   'synthesize',
   // Debug workflow

@@ -72,7 +72,7 @@ const PASSING_PREFLIGHT = {
   passed: true,
   ancestry: { passed: true, missing: [] as string[], target: 'main' },
   currentBranchProtection: { blocked: false, branch: 'feat/x' },
-  worktree: { isMain: true, repoRoot: '/repo' },
+  worktree: { isMain: true, actual: '/repo', expected: '/repo' },
   drift: {
     clean: true,
     uncommittedFiles: [] as string[],
@@ -221,12 +221,17 @@ describe('handleMergeOrchestrate (T12 — preflight-fail abort)', () => {
       ctx,
     );
 
-    // 1. persistState invoked with the abort shape.
+    // 1. persistState invoked with the abort shape, carrying source/target so
+    //    a downstream consumer can render the aborted record without
+    //    re-reading the event stream.
     expect(persistState).toHaveBeenCalledTimes(1);
     expect(persistState).toHaveBeenCalledWith({
       phase: 'aborted',
       preflight: FAILING_PREFLIGHT,
       abortReason: 'preflight-failed',
+      sourceBranch: 'feat/x',
+      targetBranch: 'main',
+      taskId: 'T12',
     });
 
     // 2. ToolResult is a structured failure with code 'PREFLIGHT_FAILED'.

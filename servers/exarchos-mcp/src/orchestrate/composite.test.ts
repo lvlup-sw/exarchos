@@ -787,6 +787,9 @@ describe('handleOrchestrate', () => {
         featureId: 'feat-x',
         sourceBranch: 'feat/x',
         targetBranch: 'main',
+        // Required-no-default per registry contract — assert it is forwarded
+        // so a future schema-shape regression cannot silently drop it.
+        strategy: 'squash',
       };
 
       // Act
@@ -800,6 +803,7 @@ describe('handleOrchestrate', () => {
         featureId: 'feat-x',
         sourceBranch: 'feat/x',
         targetBranch: 'main',
+        strategy: 'squash',
       });
       expect(call[1]).toBe(CTX);
     });
