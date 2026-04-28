@@ -51,7 +51,12 @@ import {
   handleExecuteMerge as defaultHandleExecuteMerge,
   type HandleExecuteMergeInput,
 } from './execute-merge.js';
-import { readStateFile, writeStateFile } from '../workflow/state-store.js';
+import {
+  readStateFile,
+  writeStateFile,
+  VersionConflictError,
+} from '../workflow/state-store.js';
+import { EXCLUDED_MERGE_PHASES } from '../workflow/hsm-definitions.js';
 
 // ─── Args schema ───────────────────────────────────────────────────────────
 
@@ -63,7 +68,15 @@ export const HandleMergeOrchestrateArgsSchema = z.object({
   strategy: z.enum(['squash', 'rebase', 'merge']).default('squash'),
   /** Reserved for T13. Not honored in T11. */
   dryRun: z.boolean().optional(),
-  /** Reserved for T14. Not honored in T11. */
+  /**
+   * When true, the handler consults existing `mergeOrchestrator` state
+   * (via the `readState` adapter / default state-store reader) before
+   * dispatching. If the existing phase is terminal
+   * (see {@link EXCLUDED_MERGE_PHASES}), the handler short-circuits and
+   * returns the existing result with no new events / no executor call.
+   * Otherwise (e.g. `pending`), it falls through to preflight + executor
+   * as if it were a fresh dispatch.
+   */
   resume: z.boolean().optional(),
   /** Optional override for the repository root used by the preflight gitExec. */
   repoRoot: z.string().optional(),
@@ -84,8 +97,8 @@ type ExecuteMergeAdapter = (
 
 /**
  * Persistence callback for the orchestrator's `mergeOrchestrator` state
- * field. T12 only emits the `aborted` shape; T13/T14 will extend the
- * union with `dry-run` and `resuming` shapes.
+ * field. T12 emits the `aborted` shape; further shapes (e.g. `pending`,
+ * `executing`) may be added by future tasks.
  */
 type OrchestratorPersistState = (
   state: {
@@ -95,11 +108,25 @@ type OrchestratorPersistState = (
   },
 ) => Promise<void> | void;
 
+/**
+ * Read callback for the orchestrator's resume path (T14). Returns the
+ * subset of workflow state the resume logic cares about, or `undefined`
+ * if no state exists yet. Default implementation reads the state file
+ * via `readStateFile`. Tests inject a mock to bypass the file system.
+ */
+type OrchestratorReadState = () => Promise<
+  | {
+      readonly mergeOrchestrator?: Record<string, unknown>;
+    }
+  | undefined
+>;
+
 export interface HandleMergeOrchestrateInput extends HandleMergeOrchestrateArgs {
   readonly preflight?: PreflightAdapter;
   readonly executeMerge?: ExecuteMergeAdapter;
   readonly gitExec?: GitExec;
   readonly persistState?: OrchestratorPersistState;
+  readonly readState?: OrchestratorReadState;
 }
 
 // ─── Default gitExec ───────────────────────────────────────────────────────
@@ -148,6 +175,57 @@ function buildDefaultPersistState(
     };
     await writeStateFile(stateFile, updated as typeof state);
   };
+}
+
+/**
+ * Default `readState` adapter. Reads the workflow state file at
+ * `<stateDir>/<featureId>.state.json` and returns it (or `undefined` if
+ * the file does not yet exist). Used by the T14 resume path.
+ */
+function buildDefaultReadState(
+  featureId: string,
+  stateDir: string,
+): OrchestratorReadState {
+  return async () => {
+    const stateFile = path.join(stateDir, `${featureId}.state.json`);
+    try {
+      const state = await readStateFile(stateFile);
+      return state as unknown as { mergeOrchestrator?: Record<string, unknown> };
+    } catch {
+      // Missing or unreadable state file → resume falls through to fresh
+      // dispatch. Errors here are not fatal: the persistState path will
+      // surface any underlying problems on the write side.
+      return undefined;
+    }
+  };
+}
+
+// ─── State-write retry (T14 / DR-MO-2) ─────────────────────────────────────
+//
+// Mirrors `handleTaskClaim`'s optimistic-concurrency retry loop. On
+// `VersionConflictError` we exponential-backoff and retry up to
+// MAX_STATE_RETRIES times. After exhaustion the underlying error bubbles
+// out — the top-level handler maps it to a `STATE_CONFLICT` ToolResult so
+// callers see a structured failure (not a raw exception).
+
+const MAX_STATE_RETRIES = 3;
+const STATE_BASE_DELAY_MS = 50;
+
+async function withStateRetry<T>(fn: () => Promise<T>): Promise<T> {
+  for (let attempt = 0; attempt < MAX_STATE_RETRIES; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      if (!(err instanceof VersionConflictError)) throw err;
+      if (attempt === MAX_STATE_RETRIES - 1) throw err;
+      const delay =
+        STATE_BASE_DELAY_MS * Math.pow(2, attempt) +
+        Math.random() * STATE_BASE_DELAY_MS;
+      await new Promise((r) => setTimeout(r, delay));
+    }
+  }
+  // Unreachable: the loop either returns or throws on every iteration.
+  throw new Error('withStateRetry: unreachable');
 }
 
 /**
@@ -214,6 +292,50 @@ export async function handleMergeOrchestrate(
   const gitExec = input.gitExec ?? defaultGitExec;
   const persistState =
     input.persistState ?? buildDefaultPersistState(args.featureId, ctx.stateDir);
+  const readState =
+    input.readState ?? buildDefaultReadState(args.featureId, ctx.stateDir);
+
+  // ─── 0. Resume short-circuit (T14) ───────────────────────────────────────
+  // When `resume: true`, consult existing `mergeOrchestrator` state. If the
+  // phase is terminal (per EXCLUDED_MERGE_PHASES — `completed`, `rolled-back`,
+  // `aborted`), return the prior result without re-emitting events or
+  // re-invoking the executor. Non-terminal phases (e.g. `pending`) fall
+  // through to a fresh preflight + executor run, which is safe because the
+  // executor handlers are idempotent on already-merged target branches.
+  //
+  // When `resume` is falsy we deliberately skip the state read — fresh
+  // dispatch semantics mean prior state must NOT influence the outcome.
+  if (args.resume === true) {
+    let existing: Awaited<ReturnType<OrchestratorReadState>>;
+    try {
+      existing = await readState();
+    } catch {
+      existing = undefined;
+    }
+    const merge = existing?.mergeOrchestrator;
+    const phase = typeof merge?.phase === 'string' ? merge.phase : undefined;
+    if (phase !== undefined && EXCLUDED_MERGE_PHASES.has(phase)) {
+      // Terminal-phase resume: surface the recorded result verbatim. We
+      // treat `completed` as success and any other terminal state
+      // (`rolled-back`, `aborted`) as a structured failure so callers can
+      // distinguish them.
+      if (phase === 'completed') {
+        return {
+          success: true,
+          data: { ...merge },
+        };
+      }
+      return {
+        success: false,
+        error: {
+          code: phase === 'aborted' ? 'PREFLIGHT_FAILED' : 'MERGE_ROLLED_BACK',
+          message: `Resume: merge already in terminal phase '${phase}'`,
+        },
+        data: { ...merge },
+      };
+    }
+    // phase === 'pending' (or undefined): fall through to fresh dispatch.
+  }
 
   // ─── 1. Run preflight ────────────────────────────────────────────────────
   let preflight: MergePreflightResult;
@@ -281,11 +403,33 @@ export async function handleMergeOrchestrate(
     // observers (HSM guards, status views) see the aborted phase even if
     // the caller drops the ToolResult on the floor. The executor must NOT
     // run on this path.
-    await persistState({
-      phase: 'aborted',
-      preflight,
-      abortReason: 'preflight-failed',
-    });
+    //
+    // T14: wrap in `withStateRetry` so concurrent writers (e.g. another
+    // orchestrator process bumping the same workflow file) don't fail us
+    // permanently on a single CAS conflict. After MAX_STATE_RETRIES the
+    // VersionConflictError bubbles out and is mapped to STATE_CONFLICT.
+    try {
+      await withStateRetry(() =>
+        Promise.resolve(
+          persistState({
+            phase: 'aborted',
+            preflight,
+            abortReason: 'preflight-failed',
+          }),
+        ),
+      );
+    } catch (err) {
+      if (err instanceof VersionConflictError) {
+        return {
+          success: false,
+          error: {
+            code: 'STATE_CONFLICT',
+            message: `Workflow state version conflict after ${MAX_STATE_RETRIES} retries`,
+          },
+        };
+      }
+      throw err;
+    }
     return {
       success: false,
       error: {
