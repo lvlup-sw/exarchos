@@ -83,7 +83,7 @@ describe('runtimes/cursor.yaml presence', () => {
     expect(spawn.replaceAll('{{agent}}', agentName)).toContain(agentName);
   });
 
-  it('CursorYaml_SupportedCapabilities_FiveNativeTwoAdvisory', () => {
+  it('CursorYaml_SupportedCapabilities_SixNativeTwoAdvisory', () => {
     const raw = loadCursorYamlRaw();
     const sc = raw.supportedCapabilities;
     expect(sc).toBeDefined();
@@ -96,14 +96,22 @@ describe('runtimes/cursor.yaml presence', () => {
     const advisory = Object.entries(map).filter(([, v]) => v === 'advisory');
     const unsupported = Object.entries(map).filter(([, v]) => v === 'unsupported');
 
-    // Per discovery §3 + Task 4f: 5 native + 2 advisory + 0 unsupported (omitted).
-    expect(native).toHaveLength(5);
+    // Per discovery §3 + Task 4f + #1192 T09 readonly tier:
+    // 6 native + 2 advisory + 0 unsupported (omitted).
+    expect(native).toHaveLength(6);
     expect(advisory).toHaveLength(2);
     expect(unsupported).toHaveLength(0);
 
     const nativeKeys = native.map(([k]) => k).sort();
     expect(nativeKeys).toEqual(
-      ['fs:read', 'fs:write', 'mcp:exarchos', 'shell:exec', 'subagent:spawn'].sort(),
+      [
+        'fs:read',
+        'fs:write',
+        'mcp:exarchos',
+        'mcp:exarchos:readonly',
+        'shell:exec',
+        'subagent:spawn',
+      ].sort(),
     );
 
     const advisoryKeys = advisory.map(([k]) => k).sort();

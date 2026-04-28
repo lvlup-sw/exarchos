@@ -54,26 +54,27 @@ function loadCodexYaml(): CodexYamlShape {
 }
 
 describe('runtimes/codex.yaml supportedCapabilities (Task 7b)', () => {
-  it('CodexYaml_SupportedCapabilities_FiveNativeTwoAdvisory', () => {
+  it('CodexYaml_SupportedCapabilities_SixNativeTwoAdvisory', () => {
     const yaml = loadCodexYaml();
 
     expect(yaml.supportedCapabilities).toBeDefined();
     const map = yaml.supportedCapabilities ?? {};
 
-    // Native (5): the runtime has a first-class primitive for each.
+    // Native (6): the runtime has a first-class primitive for each.
     expect(map['fs:read']).toBe('native');
     expect(map['fs:write']).toBe('native');
     expect(map['shell:exec']).toBe('native');
     expect(map['subagent:spawn']).toBe('native');
     expect(map['mcp:exarchos']).toBe('native');
+    expect(map['mcp:exarchos:readonly']).toBe('native');
 
     // Advisory (2): the spec may declare these but Codex has no primitive
     // to enforce them — orchestrator-managed.
     expect(map['isolation:worktree']).toBe('advisory');
     expect(map['session:resume']).toBe('advisory');
 
-    // Exactly 7 keys total (5 native + 2 advisory).
-    expect(Object.keys(map)).toHaveLength(7);
+    // Exactly 8 keys total (6 native + 2 advisory).
+    expect(Object.keys(map)).toHaveLength(8);
   });
 
   it('CodexYaml_SupportedCapabilities_ExcludesClaudeOnlyCapabilities', () => {
