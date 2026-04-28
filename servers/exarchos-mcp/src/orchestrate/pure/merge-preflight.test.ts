@@ -4,6 +4,9 @@
  * T04 scope: detectDrift clean-tree path only.
  * T05 extended coverage to dirty-tree, stale-index, and detached-HEAD cases.
  * T06 adds mergePreflight composer happy-path coverage.
+ * T07 adds mergePreflight failure-path coverage — each guard driven to fail
+ *     independently to prove `passed = false` and verbatim sub-field
+ *     propagation from the underlying guard.
  */
 
 import { describe, it, expect } from 'vitest';
@@ -202,5 +205,137 @@ describe('mergePreflight — happy path (T06)', () => {
     expect(result.drift.uncommittedFiles).toEqual([]);
     expect(result.drift.indexStale).toBe(false);
     expect(result.drift.detachedHead).toBe(false);
+  });
+});
+
+// ─── mergePreflight failure paths (T07) ─────────────────────────────────────
+
+describe('mergePreflight — failure paths (T07)', () => {
+  it('mergePreflight_AncestryMissing_PassedFalseAndAncestryReasonAncestry', async () => {
+    // Drive ancestry to fail: `merge-base --is-ancestor` returns exit 1,
+    // which the adapter surfaces as `Error & { status: 1 }`, which
+    // validateBranchAncestry classifies as ancestry-missing.
+    const gitExec = makeGitExec([
+      {
+        args: ['merge-base', '--is-ancestor', 'feat/x', 'main'],
+        stdout: '',
+        exitCode: 1,
+      },
+      {
+        args: ['rev-parse', '--abbrev-ref', 'HEAD'],
+        stdout: 'feat/x\n',
+        exitCode: 0,
+      },
+      { args: ['status', '--porcelain'], stdout: '', exitCode: 0 },
+      { args: ['diff', '--cached', '--quiet'], stdout: '', exitCode: 0 },
+    ]);
+
+    const result = await mergePreflight({
+      sourceBranch: 'feat/x',
+      targetBranch: 'main',
+      gitExec,
+      cwd: '/tmp/repo',
+    });
+
+    expect(result.passed).toBe(false);
+    // Verbatim sub-field copy from validateBranchAncestry's failure shape.
+    expect(result.ancestry.passed).toBe(false);
+    expect(result.ancestry.reason).toBe('ancestry');
+    expect(result.ancestry.missing).toEqual(['feat/x']);
+    expect(result.ancestry.blocked).toBe(true);
+  });
+
+  it('mergePreflight_OnProtectedBranch_PassedFalseAndProtectionBlocked', async () => {
+    // Drive current-branch protection to fail: HEAD is on `main`.
+    const gitExec = makeGitExec([
+      {
+        args: ['merge-base', '--is-ancestor', 'feat/x', 'main'],
+        stdout: '',
+        exitCode: 0,
+      },
+      {
+        args: ['rev-parse', '--abbrev-ref', 'HEAD'],
+        stdout: 'main\n',
+        exitCode: 0,
+      },
+      { args: ['status', '--porcelain'], stdout: '', exitCode: 0 },
+      { args: ['diff', '--cached', '--quiet'], stdout: '', exitCode: 0 },
+    ]);
+
+    const result = await mergePreflight({
+      sourceBranch: 'feat/x',
+      targetBranch: 'main',
+      gitExec,
+      cwd: '/tmp/repo',
+    });
+
+    expect(result.passed).toBe(false);
+    expect(result.currentBranchProtection.blocked).toBe(true);
+    expect(result.currentBranchProtection.reason).toBe('current-branch-protected');
+    expect(result.currentBranchProtection.currentBranch).toBe('main');
+  });
+
+  it('mergePreflight_FromSubagentWorktree_PassedFalseAndWorktreeNotMain', async () => {
+    // Drive worktree assertion to fail: cwd contains `.claude/worktrees/`.
+    const gitExec = makeGitExec([
+      {
+        args: ['merge-base', '--is-ancestor', 'feat/x', 'main'],
+        stdout: '',
+        exitCode: 0,
+      },
+      {
+        args: ['rev-parse', '--abbrev-ref', 'HEAD'],
+        stdout: 'feat/x\n',
+        exitCode: 0,
+      },
+      { args: ['status', '--porcelain'], stdout: '', exitCode: 0 },
+      { args: ['diff', '--cached', '--quiet'], stdout: '', exitCode: 0 },
+    ]);
+
+    const subagentCwd = '/repo/.claude/worktrees/agent-abc';
+    const result = await mergePreflight({
+      sourceBranch: 'feat/x',
+      targetBranch: 'main',
+      gitExec,
+      cwd: subagentCwd,
+    });
+
+    expect(result.passed).toBe(false);
+    expect(result.worktree.isMain).toBe(false);
+    expect(result.worktree.actual).toBe(subagentCwd);
+  });
+
+  it('mergePreflight_DirtyTree_PassedFalseAndDriftFieldPopulated', async () => {
+    // Drive drift to fail: `git status --porcelain` reports dirty files.
+    const gitExec = makeGitExec([
+      {
+        args: ['merge-base', '--is-ancestor', 'feat/x', 'main'],
+        stdout: '',
+        exitCode: 0,
+      },
+      {
+        args: ['rev-parse', '--abbrev-ref', 'HEAD'],
+        stdout: 'feat/x\n',
+        exitCode: 0,
+      },
+      {
+        args: ['status', '--porcelain'],
+        stdout: ' M src/foo.ts\n?? src/bar.ts\n',
+        exitCode: 0,
+      },
+      { args: ['diff', '--cached', '--quiet'], stdout: '', exitCode: 0 },
+    ]);
+
+    const result = await mergePreflight({
+      sourceBranch: 'feat/x',
+      targetBranch: 'main',
+      gitExec,
+      cwd: '/tmp/repo',
+    });
+
+    expect(result.passed).toBe(false);
+    expect(result.drift.clean).toBe(false);
+    expect(result.drift.uncommittedFiles.length).toBeGreaterThan(0);
+    expect(result.drift.uncommittedFiles).toEqual(['src/foo.ts', 'src/bar.ts']);
   });
 });
