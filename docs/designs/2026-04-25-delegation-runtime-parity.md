@@ -57,7 +57,7 @@ The new domain type is a typed enum of capabilities declared by an agent spec. C
 | `team:agent-teams` | Tmux-based parallel UI | `--mode agent-team` | — | — | — | — |
 | `session:resume` | Resume by `agentId` | native | — | — | — | — |
 
-Capabilities are encoded in `servers/exarchos-mcp/src/agents/capabilities.ts` as a Zod discriminated union. Agent specs in `definitions.ts` declare `capabilities: Capability[]`. The Claude tool array (`Read`, `Write`, etc.) disappears from the registry; it reappears only inside `adapters/claude.ts` during lowering. This is the dependency-direction inversion required by Hexagonal Architecture and the semantic-translation discipline required by ACL.
+Capabilities are encoded in `servers/exarchos-mcp/src/agents/capabilities.ts` as a Zod `z.enum([...])` of string-key capability identifiers. Agent specs in `definitions.ts` declare `capabilities: Capability[]`. The Claude tool array (`Read`, `Write`, etc.) disappears from the registry; it reappears only inside `adapters/claude.ts` during lowering. This is the dependency-direction inversion required by Hexagonal Architecture and the semantic-translation discipline required by ACL.
 
 Each runtime declares `supportedCapabilities: Capability[]` in `runtimes/<name>.yaml`. A spec requiring `team:agent-teams` against a runtime that doesn't declare it produces a build-time error from the renderer, not a silent omission.
 
