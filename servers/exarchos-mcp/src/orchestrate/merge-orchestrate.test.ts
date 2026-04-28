@@ -16,8 +16,15 @@
 //   4. executor adapter is NEVER invoked when preflight fails.
 //   5. `merge.preflight` event is still emitted with `passed: false`.
 //
-// Out of scope (T13/T14):
-//   • dryRun
+// T13 — dry-run path. Asserts:
+//   6. with `dryRun: true` and a passing preflight, the executor adapter is
+//      NEVER invoked.
+//   7. with `dryRun: true` and a passing preflight, returns
+//      { success: true, data: { dryRun: true, preflight, phase: 'pending' } }
+//      WITHOUT persisting `mergeOrchestrator` state (dry-run is observation
+//      only).
+//
+// Out of scope (T14):
 //   • resume
 // ────────────────────────────────────────────────────────────────────────────
 
@@ -279,5 +286,73 @@ describe('handleMergeOrchestrate (T12 — preflight-fail abort)', () => {
         },
       },
     ]);
+  });
+});
+
+describe('handleMergeOrchestrate (T13 — dry-run path)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('handleMergeOrchestrate_DryRunFlag_RunsPreflightAndSkipsExecutor', async () => {
+    const ctx = makeMockCtx();
+    const preflight = vi.fn().mockResolvedValue(PASSING_PREFLIGHT);
+    const executeMerge = vi.fn();
+    const persistState = vi.fn().mockResolvedValue(undefined);
+
+    await handleMergeOrchestrate(
+      {
+        featureId: 'feat-x',
+        sourceBranch: 'feat/x',
+        targetBranch: 'main',
+        taskId: 'T13',
+        strategy: 'squash',
+        dryRun: true,
+        preflight,
+        executeMerge,
+        persistState,
+      },
+      ctx,
+    );
+
+    // Preflight must still run — dry-run is observation, not bypass.
+    expect(preflight).toHaveBeenCalledTimes(1);
+    // Executor must NEVER run on a dry-run path.
+    expect(executeMerge).not.toHaveBeenCalled();
+  });
+
+  it('handleMergeOrchestrate_DryRunPassedTrue_ReturnsToolResultSuccess', async () => {
+    const ctx = makeMockCtx();
+    const preflight = vi.fn().mockResolvedValue(PASSING_PREFLIGHT);
+    const executeMerge = vi.fn();
+    const persistState = vi.fn().mockResolvedValue(undefined);
+
+    const result = await handleMergeOrchestrate(
+      {
+        featureId: 'feat-x',
+        sourceBranch: 'feat/x',
+        targetBranch: 'main',
+        taskId: 'T13',
+        strategy: 'squash',
+        dryRun: true,
+        preflight,
+        executeMerge,
+        persistState,
+      },
+      ctx,
+    );
+
+    // Successful dry-run shape — phase 'pending' signals "would proceed".
+    expect(result.success).toBe(true);
+    expect(result.data).toEqual({
+      dryRun: true,
+      preflight: PASSING_PREFLIGHT,
+      phase: 'pending',
+    });
+
+    // Dry-run must NOT persist `mergeOrchestrator` state — it's pure
+    // observation. Persistence on the dry-run path would corrupt the
+    // workflow state with a transient phase that has no real effect.
+    expect(persistState).not.toHaveBeenCalled();
   });
 });
