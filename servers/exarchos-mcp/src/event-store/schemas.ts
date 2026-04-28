@@ -88,6 +88,7 @@ export const EventTypes = [
   'merge.preflight',
   'merge.executed',
   'merge.rollback',
+  'command.resolved',
 ] as const;
 
 export type EventType = typeof EventTypes[number];
@@ -289,6 +290,12 @@ export const EVENT_EMISSION_REGISTRY: Record<EventType, EventEmissionSource> = {
   'merge.preflight': 'auto',
   'merge.executed': 'auto',
   'merge.rollback': 'auto',
+
+  // auto — emitted by the test/typecheck/install runtime resolver (#1199 T15).
+  // Audit-only: records where each command resolution came from so downstream
+  // graceful-skip semantics can distinguish a configured null from an
+  // unresolved command for which we should bail with remediation guidance.
+  'command.resolved': 'auto',
 };
 
 // ─── Base Event Schema ──────────────────────────────────────────────────────
@@ -1005,6 +1012,29 @@ export const MergeRollbackData = z.object({
   rollbackError: z.string().min(1).optional(),
 });
 
+// ─── Command Resolver Event Data (#1199 T15) ────────────────────────────────
+
+/**
+ * command.resolved — emitted by the test/typecheck/install runtime resolver
+ * (#1199). Audit-only: captures where each command resolution came from so
+ * downstream graceful-skip semantics (T17) can distinguish a configured
+ * `null` from an unresolved command for which we should bail with
+ * remediation guidance. Not folded by any state reducer.
+ */
+export const CommandResolvedEventSchema = z.object({
+  /** Field that was resolved: 'test' | 'typecheck' | 'install'. */
+  field: z.enum(['test', 'typecheck', 'install']),
+  /** The resolved command string, or null if unresolved. */
+  command: z.string().min(1).nullable(),
+  /** Where the value came from. */
+  source: z.enum(['config', 'detection', 'override', 'unresolved']),
+  /** Repo root or worktree path the resolution applied to. */
+  repoRoot: z.string().min(1),
+  /** When source is 'unresolved' or for ancillary diagnostic context. Optional. */
+  remediation: z.string().optional(),
+});
+export type CommandResolvedEvent = z.infer<typeof CommandResolvedEventSchema>;
+
 // ─── Event Data Schemas Map ─────────────────────────────────────────────────
 
 export const EVENT_DATA_SCHEMAS: Partial<Record<EventType, z.ZodSchema>> = {
@@ -1139,6 +1169,9 @@ export const EVENT_DATA_SCHEMAS: Partial<Record<EventType, z.ZodSchema>> = {
   'merge.preflight': MergePreflightData,
   'merge.executed': MergeExecutedData,
   'merge.rollback': MergeRollbackData,
+
+  // Command resolver (#1199 T15) — audit trail for runtime resolver decisions.
+  'command.resolved': CommandResolvedEventSchema,
 };
 
 // ─── TypeScript Types ───────────────────────────────────────────────────────
@@ -1292,6 +1325,7 @@ export type EventDataMap = {
   'merge.preflight': MergePreflight;
   'merge.executed': MergeExecuted;
   'merge.rollback': MergeRollback;
+  'command.resolved': CommandResolvedEvent;
 };
 
 // ─── Event Catalog Serialization ────────────────────────────────────────────
