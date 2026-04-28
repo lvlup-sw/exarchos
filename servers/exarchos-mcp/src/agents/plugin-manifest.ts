@@ -1,3 +1,4 @@
+import * as fs from 'node:fs';
 import { z } from 'zod';
 
 /**
@@ -57,3 +58,41 @@ export const PluginManifestSchema = z
   .passthrough();
 
 export type PluginManifest = z.infer<typeof PluginManifestSchema>;
+
+/**
+ * Reads `.claude-plugin/plugin.json` (or any file matching the schema)
+ * from disk, parses JSON, and validates against {@link PluginManifestSchema}.
+ *
+ * Throws a descriptive `Error` (always including the file path) for:
+ *   - read failures (missing file, permissions, etc.)
+ *   - JSON syntax errors (preserves parse-position info from `JSON.parse`)
+ *   - schema violations (full Zod issue list, JSON-formatted)
+ *
+ * Single-shot synchronous read by design — manifest is small, callers
+ * are CLI/preflight paths, and sync I/O keeps error semantics simple.
+ */
+export function readPluginManifest(path: string): PluginManifest {
+  let raw: string;
+  try {
+    raw = fs.readFileSync(path, 'utf8');
+  } catch (e) {
+    throw new Error(
+      `readPluginManifest: failed to read ${path}: ${(e as Error).message}`,
+    );
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (e) {
+    throw new Error(
+      `readPluginManifest: invalid JSON in ${path}: ${(e as Error).message}`,
+    );
+  }
+  const result = PluginManifestSchema.safeParse(parsed);
+  if (!result.success) {
+    throw new Error(
+      `readPluginManifest: schema violation in ${path}:\n${JSON.stringify(result.error.issues, null, 2)}`,
+    );
+  }
+  return result.data;
+}
