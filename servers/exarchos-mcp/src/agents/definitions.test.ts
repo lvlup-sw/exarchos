@@ -114,8 +114,7 @@ describe('AgentSpec capability declarations', () => {
   // execute against whatever shell cwd the agent has drifted to — anchoring
   // via $(git rev-parse --show-toplevel) ensures the worktree is what's tested.
   it('Hooks_PostTestCommand_IsGitToplevelAnchored', () => {
-    const all = [IMPLEMENTER, FIXER, REVIEWER, SCAFFOLDER];
-    for (const spec of all) {
+    for (const spec of ALL_AGENT_SPECS) {
       const postTestRules = (spec.validationRules ?? []).filter(
         (r) => r.trigger === 'post-test' && typeof r.command === 'string',
       );

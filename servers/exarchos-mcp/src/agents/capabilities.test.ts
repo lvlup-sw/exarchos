@@ -35,5 +35,14 @@ describe('Capability vocabulary', () => {
 
   it('CapabilityKeys_IsReadonly', () => {
     expect(Object.isFrozen(CAPABILITY_KEYS)).toBe(true);
+    // `Object.freeze` alone does not protect Set internals — verify that
+    // mutators actually throw (the freezeCapabilityKeys helper replaces
+    // .add/.delete/.clear with throwing stubs).
+    const mutable = CAPABILITY_KEYS as unknown as Set<string>;
+    const sizeBefore = CAPABILITY_KEYS.size;
+    expect(() => mutable.add('not-a-real-capability')).toThrow(TypeError);
+    expect(() => mutable.delete('fs:read')).toThrow(TypeError);
+    expect(() => mutable.clear()).toThrow(TypeError);
+    expect(CAPABILITY_KEYS.size).toBe(sizeBefore);
   });
 });

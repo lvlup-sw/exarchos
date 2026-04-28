@@ -15,6 +15,7 @@ Group B (depends on Group A):
 - Task 004: API handlers
 ```
 
+
 ## Dispatching Parallel Tasks
 
 **Critical:** Use a single message with multiple subagent invocations — the runtime's spawn primitive renders the parallel dispatch:
@@ -36,13 +37,14 @@ Task({
 ```
 
 
+
 ## Dispatch Properties
 
-Subagent dispatch is the universal parallelism mode (available in every
-runtime). On runtimes with the `agent-teams` capability, a second canonical
-table follows that places Subagent and Agent Teams modes side-by-side across
-every dispatch property — use it when choosing between modes or comparing
-their semantics.
+Subagent dispatch is the universal parallelism mode on runtimes that
+support `subagent:spawn`. On runtimes with the `agent-teams` capability, a
+second canonical table follows that places Subagent and Agent Teams modes
+side-by-side across every dispatch property — use it when choosing between
+modes or comparing their semantics.
 
 | Property | Subagent Mode |
 |----------|------------------------------------------------------------------------|
@@ -55,6 +57,7 @@ their semantics.
 | Model control | `recommendedModel` per task from `prepare_delegation` (config cascade) |
 | Max parallelism | Unlimited |
 | Resume on crash | Task results preserved |
+
 
 
 ## Waiting for Parallel Completion

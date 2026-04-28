@@ -58,7 +58,7 @@ Workflow task state includes additional fields for resume-aware fixer flow on ru
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `agentId` | string | Runtime agent ID for resume. Canonical source: the runtime's stop-event hook payload (e.g., `SubagentStop` on Claude Code; equivalent on Codex/Copilot). |
+| `agentId` | string | Runtime agent ID for resume. Canonical source: the runtime's stop-event hook payload. |
 | `agentResumed` | boolean | Whether this agent was resumed (vs. fresh dispatch). |
 | `lastExitReason` | string | Completion status (e.g., `"success"`, `"failure"`, `"timeout"`). Canonical source: the runtime's stop-event hook payload. |
 

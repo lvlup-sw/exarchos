@@ -15,6 +15,7 @@ Group B (depends on Group A):
 - Task 004: API handlers
 ```
 
+
 ## Dispatching Parallel Tasks
 
 **Critical:** Use a single message with multiple subagent invocations — the runtime's spawn primitive renders the parallel dispatch:
@@ -65,13 +66,14 @@ Teammates use Claude Code's native shared task list for claim/complete tracking.
 
 Agent Teams supports one team per session. If you need more parallel groups than teammates, assign multiple tasks per teammate (sequential within the group).
 
+
 ## Dispatch Properties
 
-Subagent dispatch is the universal parallelism mode (available in every
-runtime). On runtimes with the `agent-teams` capability, a second canonical
-table follows that places Subagent and Agent Teams modes side-by-side across
-every dispatch property — use it when choosing between modes or comparing
-their semantics.
+Subagent dispatch is the universal parallelism mode on runtimes that
+support `subagent:spawn`. On runtimes with the `agent-teams` capability, a
+second canonical table follows that places Subagent and Agent Teams modes
+side-by-side across every dispatch property — use it when choosing between
+modes or comparing their semantics.
 
 | Property | Subagent Mode |
 |----------|------------------------------------------------------------------------|
@@ -99,6 +101,7 @@ their semantics.
 | Model control | `recommendedModel` per task from `prepare_delegation` (config cascade) | Session model shared by all teammates |
 | Max parallelism | Unlimited | One team, N teammates |
 | Resume on crash | Task results preserved | Worktrees survive; teammates lost |
+
 
 ## Waiting for Parallel Completion
 

@@ -15,6 +15,7 @@ Group B (depends on Group A):
 - Task 004: API handlers
 ```
 
+<!-- requires:subagent:spawn -->
 ## Dispatching Parallel Tasks
 
 **Critical:** Use a single message with multiple subagent invocations — the runtime's spawn primitive renders the parallel dispatch:
@@ -26,6 +27,7 @@ Group B (depends on Group A):
 
 // WRONG: Separate messages = sequential
 ```
+<!-- /requires -->
 
 <!-- requires:team:agent-teams -->
 ## Agent Teams Dispatch
@@ -54,13 +56,14 @@ Teammates use Claude Code's native shared task list for claim/complete tracking.
 Agent Teams supports one team per session. If you need more parallel groups than teammates, assign multiple tasks per teammate (sequential within the group).
 <!-- /requires -->
 
+<!-- requires:subagent:spawn -->
 ## Dispatch Properties
 
-Subagent dispatch is the universal parallelism mode (available in every
-runtime). On runtimes with the `agent-teams` capability, a second canonical
-table follows that places Subagent and Agent Teams modes side-by-side across
-every dispatch property — use it when choosing between modes or comparing
-their semantics.
+Subagent dispatch is the universal parallelism mode on runtimes that
+support `subagent:spawn`. On runtimes with the `agent-teams` capability, a
+second canonical table follows that places Subagent and Agent Teams modes
+side-by-side across every dispatch property — use it when choosing between
+modes or comparing their semantics.
 
 | Property | Subagent Mode |
 |----------|------------------------------------------------------------------------|
@@ -73,6 +76,7 @@ their semantics.
 | Model control | `recommendedModel` per task from `prepare_delegation` (config cascade) |
 | Max parallelism | Unlimited |
 | Resume on crash | Task results preserved |
+<!-- /requires -->
 
 <!-- requires:team:agent-teams -->
 ### Canonical Comparison: Subagent vs Agent Teams
@@ -90,6 +94,7 @@ their semantics.
 | Resume on crash | Task results preserved | Worktrees survive; teammates lost |
 <!-- /requires -->
 
+<!-- requires:subagent:spawn -->
 ## Waiting for Parallel Completion
 
 ```text
@@ -97,6 +102,7 @@ their semantics.
 {{SUBAGENT_RESULT_API}}
 // (poll/await per task_id on poll-based runtimes; inline on runtimes that return replies in the dispatching turn)
 ```
+<!-- /requires -->
 
 ## Model Selection Guide
 

@@ -231,7 +231,16 @@ describe('createMcpServer', () => {
   it('READ_ONLY_ACTIONS_ExposesAllowlistShape', () => {
     // Sanity check the constant shape so T05 / T06-T10 can rely on it.
     expect(READ_ONLY_ACTIONS.exarchos_workflow).toEqual(
-      expect.arrayContaining(['get', 'describe', 'reconcile', 'rehydrate']),
+      expect.arrayContaining(['get', 'describe']),
+    );
+    // `reconcile` and `rehydrate` are mutating (event-emitting + state
+    // rewrite) and must NOT appear in the workflow allowlist — see the
+    // dispatch.ts comment block.
+    expect(READ_ONLY_ACTIONS.exarchos_workflow).not.toEqual(
+      expect.arrayContaining(['reconcile']),
+    );
+    expect(READ_ONLY_ACTIONS.exarchos_workflow).not.toEqual(
+      expect.arrayContaining(['rehydrate']),
     );
     expect(READ_ONLY_ACTIONS.exarchos_event).toEqual(
       expect.arrayContaining(['query', 'describe']),

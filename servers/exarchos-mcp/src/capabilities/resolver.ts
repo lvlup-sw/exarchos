@@ -47,6 +47,14 @@ function isMcpExarchosFamily(cap: Capability): boolean {
   return MCP_EXARCHOS_FAMILY.has(cap);
 }
 
+function uniqueMcpTiers(caps: readonly Capability[]): Capability[] {
+  const seen = new Set<Capability>();
+  for (const c of caps) {
+    if (isMcpExarchosFamily(c)) seen.add(c);
+  }
+  return [...seen];
+}
+
 /**
  * Per ADR ontological-data-fabric §2.8: capability resolution is
  * handshake-authoritative. For the `mcp:exarchos` family, the handshake
@@ -80,12 +88,28 @@ export function resolveEffectiveCapabilities(
 
   // mcp:exarchos family: handshake authoritative — pick the handshake's
   // declared tier if present; otherwise fall back to yaml's declared tier.
-  const handshakeMcp = handshakeCaps.find(isMcpExarchosFamily);
-  if (handshakeMcp !== undefined) {
-    effective.add(handshakeMcp);
-  } else {
-    const yamlMcp = yamlCaps.find(isMcpExarchosFamily);
-    if (yamlMcp !== undefined) effective.add(yamlMcp);
+  //
+  // Fail closed when a single source declares more than one distinct tier
+  // (e.g., both `mcp:exarchos` and `mcp:exarchos:readonly`). Silently
+  // picking by array order would let a misconfigured spec hand out broader
+  // privileges than intended. Reject the session instead so the operator
+  // sees the contradiction.
+  const handshakeMcpTiers = uniqueMcpTiers(handshakeCaps);
+  if (handshakeMcpTiers.length > 1) {
+    throw new Error(
+      `Capability resolution failed: handshake declares conflicting mcp:exarchos tiers (${handshakeMcpTiers.join(', ')}). Pick exactly one.`,
+    );
+  }
+  const yamlMcpTiers = uniqueMcpTiers(yamlCaps);
+  if (yamlMcpTiers.length > 1) {
+    throw new Error(
+      `Capability resolution failed: runtime YAML declares conflicting mcp:exarchos tiers (${yamlMcpTiers.join(', ')}). Pick exactly one.`,
+    );
+  }
+  if (handshakeMcpTiers.length === 1) {
+    effective.add(handshakeMcpTiers[0]);
+  } else if (yamlMcpTiers.length === 1) {
+    effective.add(yamlMcpTiers[0]);
   }
 
   return freezeSet(effective);

@@ -35,9 +35,22 @@ export function atomicWriteFile(target: string, content: string | Buffer): void 
       fs.writeSync(fd, content);
     }
     fs.fsyncSync(fd);
-  } finally {
-    fs.closeSync(fd);
+  } catch (err: unknown) {
+    // Write or fsync failed — close fd and unlink the tmp before rethrowing
+    // so a stale `*.tmp` doesn't accumulate alongside `target`.
+    try {
+      fs.closeSync(fd);
+    } catch {
+      /* best-effort */
+    }
+    try {
+      fs.unlinkSync(tmp);
+    } catch {
+      /* best-effort cleanup — don't mask the original error */
+    }
+    throw err;
   }
+  fs.closeSync(fd);
 
   try {
     fs.renameSync(tmp, target);

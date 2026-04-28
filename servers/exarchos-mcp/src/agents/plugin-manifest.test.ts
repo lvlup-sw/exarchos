@@ -53,11 +53,14 @@ describe('PluginManifestSchema', () => {
     ).toThrow();
   });
 
-  it('PluginManifestSchema_AcceptsActualLivePluginJson', () => {
-    const repoRoot = path.resolve(__dirname, '../../../..');
-    const livePath = path.join(repoRoot, '.claude-plugin/plugin.json');
-    const live = JSON.parse(fs.readFileSync(livePath, 'utf8')) as unknown;
-    expect(() => PluginManifestSchema.parse(live)).not.toThrow();
+  it('PluginManifestSchema_AcceptsRepresentativeManifest', () => {
+    // Self-contained fixture mirrors the live `.claude-plugin/plugin.json`
+    // shape (agents, commands, skills, mcpServers, metadata) without
+    // coupling the test to whatever the repo root currently holds — keeps
+    // the test deterministic and runnable from a packaged tarball.
+    const fixturePath = path.join(__dirname, '__fixtures__/plugin-manifest.fixture.json');
+    const fixture = JSON.parse(fs.readFileSync(fixturePath, 'utf8')) as unknown;
+    expect(() => PluginManifestSchema.parse(fixture)).not.toThrow();
   });
 });
 

@@ -74,7 +74,13 @@ export interface DispatchContext {
 // action surface returns deterministic data without auto-emitting events
 // or mutating workflow / event store state.
 export const READ_ONLY_ACTIONS = {
-  exarchos_workflow: ['get', 'describe', 'reconcile', 'rehydrate'],
+  // Excluded as mutating: `reconcile` reapplies events to overwrite the
+  // on-disk state file; `rehydrate` emits a `workflow.rehydrated` event
+  // (per its tool contract) and may persist a fresh snapshot. Both touch
+  // the event/state stores and are not safe under the readonly tier — a
+  // read-only viewer should consume the latest known state via `get` (or
+  // `exarchos_view`) instead.
+  exarchos_workflow: ['get', 'describe'],
   exarchos_event: ['query', 'describe'],
   // Orchestrate read-only set: descriptive actions (`describe`, `runbook`,
   // `agent_spec`, `doctor`), pure-analysis gate checks (`check_*`),
