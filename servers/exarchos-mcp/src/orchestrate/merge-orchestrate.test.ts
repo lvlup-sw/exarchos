@@ -1,4 +1,4 @@
-// ─── handleMergeOrchestrate tests (T11) ────────────────────────────────────
+// ─── handleMergeOrchestrate tests (T11 + T12) ──────────────────────────────
 //
 // T11 — happy path. Top-level orchestrator handler that composes preflight
 // (T06/T07) with executor (T15) and emits the `merge.preflight` event for
@@ -9,8 +9,14 @@
 //   2. emits `merge.preflight` exactly once (direct stream append, NOT
 //      wrapped in `gate.executed` — the dedicated schema (T03) is top-level).
 //
-// Out of scope (T12/T13/T14):
-//   • preflight-fail abort branch
+// T12 — preflight-fail abort branch. Asserts:
+//   3. persistState invoked with
+//      { phase: 'aborted', preflight, abortReason: 'preflight-failed' }
+//      and ToolResult is { success: false, error: { code: 'PREFLIGHT_FAILED' } }.
+//   4. executor adapter is NEVER invoked when preflight fails.
+//   5. `merge.preflight` event is still emitted with `passed: false`.
+//
+// Out of scope (T13/T14):
 //   • dryRun
 //   • resume
 // ────────────────────────────────────────────────────────────────────────────
@@ -50,6 +56,25 @@ const PASSING_PREFLIGHT = {
   ancestry: { passed: true, missing: [] as string[], target: 'main' },
   currentBranchProtection: { blocked: false, branch: 'feat/x' },
   worktree: { isMain: true, repoRoot: '/repo' },
+  drift: {
+    clean: true,
+    uncommittedFiles: [] as string[],
+    indexStale: false,
+    detachedHead: false,
+  },
+};
+
+const FAILING_PREFLIGHT = {
+  passed: false,
+  // Ancestry not satisfied — feat/x not in main.
+  ancestry: {
+    passed: false,
+    blocked: true,
+    reason: 'ancestry' as const,
+    missing: ['feat/x'],
+  },
+  currentBranchProtection: { blocked: false, currentBranch: 'feat/x' },
+  worktree: { isMain: true, actual: '/repo', expected: '/repo' },
   drift: {
     clean: true,
     uncommittedFiles: [] as string[],
@@ -141,6 +166,116 @@ describe('handleMergeOrchestrate (T11)', () => {
           sourceBranch: 'feat/x',
           targetBranch: 'main',
           passed: true,
+        },
+      },
+    ]);
+  });
+});
+
+describe('handleMergeOrchestrate (T12 — preflight-fail abort)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('handleMergeOrchestrate_PreflightFails_PersistsPhaseAbortedAndReturnsToolResultFailure', async () => {
+    const ctx = makeMockCtx();
+    const preflight = vi.fn().mockResolvedValue(FAILING_PREFLIGHT);
+    const executeMerge = vi.fn();
+    const persistState = vi.fn().mockResolvedValue(undefined);
+
+    const result = await handleMergeOrchestrate(
+      {
+        featureId: 'feat-x',
+        sourceBranch: 'feat/x',
+        targetBranch: 'main',
+        taskId: 'T12',
+        strategy: 'squash',
+        preflight,
+        executeMerge,
+        persistState,
+      },
+      ctx,
+    );
+
+    // 1. persistState invoked with the abort shape.
+    expect(persistState).toHaveBeenCalledTimes(1);
+    expect(persistState).toHaveBeenCalledWith({
+      phase: 'aborted',
+      preflight: FAILING_PREFLIGHT,
+      abortReason: 'preflight-failed',
+    });
+
+    // 2. ToolResult is a structured failure with code 'PREFLIGHT_FAILED'.
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('PREFLIGHT_FAILED');
+    expect(typeof result.error?.message).toBe('string');
+    expect(result.error?.message.length).toBeGreaterThan(0);
+    expect(result.data).toEqual({
+      phase: 'aborted',
+      preflight: FAILING_PREFLIGHT,
+    });
+  });
+
+  it('handleMergeOrchestrate_PreflightFails_DoesNotInvokeExecutor', async () => {
+    const ctx = makeMockCtx();
+    const preflight = vi.fn().mockResolvedValue(FAILING_PREFLIGHT);
+    const executeMerge = vi.fn();
+    const persistState = vi.fn().mockResolvedValue(undefined);
+
+    await handleMergeOrchestrate(
+      {
+        featureId: 'feat-x',
+        sourceBranch: 'feat/x',
+        targetBranch: 'main',
+        taskId: 'T12',
+        strategy: 'squash',
+        preflight,
+        executeMerge,
+        persistState,
+      },
+      ctx,
+    );
+
+    // Critical: the executor adapter must NEVER be invoked when preflight
+    // fails. A successful merge after a failing preflight would defeat the
+    // purpose of the gate.
+    expect(executeMerge).not.toHaveBeenCalled();
+  });
+
+  it('handleMergeOrchestrate_PreflightFails_EmitsMergePreflightWithPassedFalse', async () => {
+    const ctx = makeMockCtx();
+    const preflight = vi.fn().mockResolvedValue(FAILING_PREFLIGHT);
+    const executeMerge = vi.fn();
+    const persistState = vi.fn().mockResolvedValue(undefined);
+
+    await handleMergeOrchestrate(
+      {
+        featureId: 'feat-x',
+        sourceBranch: 'feat/x',
+        targetBranch: 'main',
+        taskId: 'T12',
+        strategy: 'squash',
+        preflight,
+        executeMerge,
+        persistState,
+      },
+      ctx,
+    );
+
+    const appendMock = ctx.eventStore.append as ReturnType<typeof vi.fn>;
+    const preflightCalls = appendMock.mock.calls.filter(
+      (call) => (call[1] as { type?: string } | undefined)?.type === 'merge.preflight',
+    );
+    expect(preflightCalls).toHaveLength(1);
+    expect(preflightCalls[0]).toEqual([
+      'feat-x',
+      {
+        type: 'merge.preflight',
+        data: {
+          taskId: 'T12',
+          sourceBranch: 'feat/x',
+          targetBranch: 'main',
+          passed: false,
         },
       },
     ]);
