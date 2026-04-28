@@ -77,7 +77,7 @@ modes or comparing their semantics.
 
 | Property | Subagent Mode |
 |----------|------------------------------------------------------------------------|
-| Parallel dispatch | Multiple `Task` invocations in one message |
+| Parallel dispatch | Multiple subagent invocations in one message (see example above) |
 | Waiting / monitoring | `TaskOutput({ task_id, block: true })` (no live visibility) |
 | Visibility | None (background) |
 | Cross-task deps | Orchestrator manages phases |
@@ -92,7 +92,7 @@ modes or comparing their semantics.
 
 | Property | Subagent Mode | Agent Teams Mode |
 |----------|---------------------------------------------------------------|---------------------------------------------------------|
-| Parallel dispatch | Multiple `Task` invocations in one message | Named teammates in one agent team |
+| Parallel dispatch | Multiple subagent invocations in one message | Named teammates in one agent team |
 | Waiting / monitoring | `TaskOutput({ task_id, block: true })` (no live visibility) | `TeammateIdle` hook + tmux split panes |
 | Visibility | None (background) | tmux split panes |
 | Cross-task deps | Orchestrator manages phases | Shared task list + unblocked-task detection |

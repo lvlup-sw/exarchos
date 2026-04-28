@@ -40,7 +40,7 @@ modes or comparing their semantics.
 
 | Property | Subagent Mode |
 |----------|------------------------------------------------------------------------|
-| Parallel dispatch | Multiple `task` invocations in one message |
+| Parallel dispatch | Multiple subagent invocations in one message (see example above) |
 | Waiting / monitoring | `inline reply from task --agent (no separate collection API)` (no live visibility) |
 | Visibility | None (background) |
 | Cross-task deps | Orchestrator manages phases |
