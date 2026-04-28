@@ -71,7 +71,6 @@ const PARITY_ARGS = {
   targetBranch: 'main',
   taskId: 'T22',
   strategy: 'squash' as const,
-  prId: '123',
 };
 
 // ─── Arm helpers ───────────────────────────────────────────────────────────

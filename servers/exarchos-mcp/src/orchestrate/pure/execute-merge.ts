@@ -58,7 +58,7 @@ export interface ExecuteMergeArgs {
   vcsMerge: (args: {
     sourceBranch: string;
     targetBranch: string;
-    strategy: string;
+    strategy: MergeStrategy;
   }) => Promise<{ mergeSha: string }>;
   persistState: (state: {
     phase: 'executing';

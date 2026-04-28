@@ -89,8 +89,6 @@ export const HandleMergeOrchestrateArgsSchema = z.object({
   resume: z.boolean().optional(),
   /** Optional override for the repository root used by the preflight gitExec. */
   repoRoot: z.string().optional(),
-  /** PR id forwarded to the default executor's vcsMerge adapter. */
-  prId: z.string().optional(),
 });
 
 export type HandleMergeOrchestrateArgs = z.infer<typeof HandleMergeOrchestrateArgsSchema>;
@@ -259,7 +257,6 @@ export async function handleMergeOrchestrate(
     dryRun: input.dryRun,
     resume: input.resume,
     repoRoot: input.repoRoot,
-    prId: input.prId,
   });
   if (!parsed.success) {
     return {
@@ -455,7 +452,6 @@ export async function handleMergeOrchestrate(
       targetBranch: args.targetBranch,
       ...(args.taskId !== undefined ? { taskId: args.taskId } : {}),
       strategy: args.strategy,
-      ...(args.prId !== undefined ? { prId: args.prId } : {}),
       ...(args.repoRoot !== undefined ? { repoRoot: args.repoRoot } : {}),
     },
     ctx,

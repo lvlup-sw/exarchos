@@ -1,7 +1,10 @@
 // ─── handleExecuteMerge — orchestrate handler (T15, DR-MO-2) ───────────────
 //
 // Wraps the pure `executeMerge` (T08+T09+T10) with:
-//   • a VCS adapter built from `createVcsProvider(ctx.projectConfig)`
+//   • a local-git merge adapter via `buildLocalGitMergeAdapter` (#1194 —
+//     replaced the previous remote VcsProvider call so the recorded
+//     rollbackSha actually corresponds to a local ref the executor's
+//     `git reset --hard` rollback can undo)
 //   • a `gitExec` adapter using `execFileSync` (120s timeout, matches
 //     post-merge.ts:48)
 //   • a `persistState` callback that updates the workflow state's
@@ -10,10 +13,10 @@
 //     event stream (stream id = featureId) carrying both the post-merge
 //     `mergeSha` and the pre-merge `rollbackSha`
 //
-// The VCS adapter is intentionally injectable via `args.vcsMerge` so tests
-// can bypass `createVcsProvider`. Same for `gitExec` and `persistState`.
-// In production, the composite dispatcher (T20) constructs the defaults
-// from `ctx.projectConfig` + `ctx.stateDir`.
+// The merge adapter is injectable via `args.vcsMerge` so tests bypass real
+// git operations. Same for `gitExec` and `persistState`. In production,
+// the composite dispatcher (T20) constructs the defaults from `ctx.stateDir`
+// and the working tree.
 //
 // T16 extends this with the `phase: 'rolled-back'` branch: the pure executor
 // has already run `git reset --hard <rollbackSha>`, so the handler emits a
@@ -28,7 +31,7 @@ import { z } from 'zod';
 import type { ToolResult } from '../format.js';
 import type { DispatchContext } from '../core/dispatch.js';
 import { executeMerge, type GitExec, type MergeStrategy } from './pure/execute-merge.js';
-import { createVcsProvider } from '../vcs/factory.js';
+import { buildLocalGitMergeAdapter } from './local-git-merge.js';
 import {
   readStateFile,
   writeStateFile,
@@ -46,13 +49,7 @@ export const HandleExecuteMergeArgsSchema = z.object({
   sourceBranch: z.string().min(1),
   targetBranch: z.string().min(1),
   taskId: z.string().optional(),
-  strategy: z.enum(['squash', 'rebase', 'merge']).default('squash'),
-  /**
-   * VCS pull/merge request id. When omitted, the default `vcsMerge` adapter
-   * cannot resolve a PR to merge through and will reject. Tests inject a
-   * stub `vcsMerge` and skip this requirement.
-   */
-  prId: z.string().optional(),
+  strategy: z.enum(['squash', 'rebase', 'merge']),
   repoRoot: z.string().optional(),
 });
 
@@ -64,7 +61,7 @@ interface VcsMergeAdapter {
   (args: {
     sourceBranch: string;
     targetBranch: string;
-    strategy: string;
+    strategy: MergeStrategy;
   }): Promise<{ mergeSha: string }>;
 }
 
@@ -122,30 +119,16 @@ function defaultGitExec(repoRoot: string, args: readonly string[]): { stdout: st
 }
 
 /**
- * Build the default VCS merge adapter from a configured project's VCS
- * provider. Requires a `prId` to be present on the input args; without one
- * we cannot translate a (sourceBranch, targetBranch) pair into a provider
- * `mergePr(prId, strategy)` call.
+ * Build the default `vcsMerge` adapter — a *local* `git merge` of source
+ * into target. See `local-git-merge.ts` for the full contract; the executor
+ * uses this adapter so the recorded `rollbackSha` actually corresponds to
+ * a local ref the rollback `git reset --hard` can undo (#1194).
  */
 function buildDefaultVcsMerge(
   input: HandleExecuteMergeInput,
-  ctx: DispatchContext,
+  gitExec: GitExec,
 ): VcsMergeAdapter {
-  return async ({ strategy }) => {
-    if (!input.prId) {
-      throw new Error(
-        'handleExecuteMerge: prId is required when vcsMerge adapter is not injected',
-      );
-    }
-    const provider = await createVcsProvider({ config: ctx.projectConfig });
-    const result = await provider.mergePr(input.prId, strategy);
-    if (!result.merged || !result.sha) {
-      throw new Error(
-        `vcs mergePr did not complete: merged=${result.merged}, error=${result.error ?? 'none'}`,
-      );
-    }
-    return { mergeSha: result.sha };
-  };
+  return buildLocalGitMergeAdapter(gitExec, input.repoRoot ?? process.cwd());
 }
 
 /**
@@ -195,7 +178,6 @@ export async function handleExecuteMerge(
     targetBranch: input.targetBranch,
     taskId: input.taskId,
     strategy: input.strategy,
-    prId: input.prId,
     repoRoot: input.repoRoot,
   });
   if (!parsed.success) {
@@ -210,7 +192,7 @@ export async function handleExecuteMerge(
   const args = parsed.data;
 
   const gitExec = input.gitExec ?? defaultGitExec;
-  const vcsMerge = input.vcsMerge ?? buildDefaultVcsMerge(input, ctx);
+  const vcsMerge = input.vcsMerge ?? buildDefaultVcsMerge(input, gitExec);
   const rawPersistState =
     input.persistState ??
     buildDefaultPersistState(

@@ -219,7 +219,6 @@ describe('Merge orchestrator happy timeline (T23, DR-MO-1, DR-MO-2)', () => {
         targetBranch: TARGET_BRANCH,
         taskId: TASK_ID,
         strategy: 'squash',
-        prId: 'PR-23',
 
         // DI overrides — typed-only, never crossed over the wire.
         preflight: async (): Promise<MergePreflightResult> => PASSING_PREFLIGHT,

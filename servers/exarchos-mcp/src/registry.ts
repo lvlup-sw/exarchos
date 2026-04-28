@@ -969,7 +969,6 @@ const orchestrateActions: readonly ToolAction[] = [
       dryRun: z.boolean().optional(),
       resume: z.boolean().optional(),
       repoRoot: z.string().optional(),
-      prId: z.string().optional(),
     }),
     phases: ALL_PHASES,
     roles: ROLE_LEAD,
