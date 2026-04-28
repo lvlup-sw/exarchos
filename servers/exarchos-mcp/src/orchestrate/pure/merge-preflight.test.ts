@@ -42,6 +42,12 @@ describe('detectDrift — clean tree (T04)', () => {
   it('detectDrift_CleanTree_ReturnsCleanTrue', () => {
     const gitExec = makeGitExec([
       { args: ['status', '--porcelain'], stdout: '', exitCode: 0 },
+      { args: ['diff', '--cached', '--quiet'], stdout: '', exitCode: 0 },
+      {
+        args: ['rev-parse', '--abbrev-ref', 'HEAD'],
+        stdout: 'main\n',
+        exitCode: 0,
+      },
     ]);
 
     const result = detectDrift(gitExec, '/repo');
@@ -52,10 +58,73 @@ describe('detectDrift — clean tree (T04)', () => {
   it('detectDrift_NoUncommittedFiles_EmptyList', () => {
     const gitExec = makeGitExec([
       { args: ['status', '--porcelain'], stdout: '', exitCode: 0 },
+      { args: ['diff', '--cached', '--quiet'], stdout: '', exitCode: 0 },
+      {
+        args: ['rev-parse', '--abbrev-ref', 'HEAD'],
+        stdout: 'main\n',
+        exitCode: 0,
+      },
     ]);
 
     const result = detectDrift(gitExec, '/repo');
 
     expect(result.uncommittedFiles).toEqual([]);
+  });
+});
+
+describe('detectDrift — drift extensions (T05)', () => {
+  it('detectDrift_UncommittedFiles_ListsThemAndCleanFalse', () => {
+    const gitExec = makeGitExec([
+      {
+        args: ['status', '--porcelain'],
+        stdout: ' M src/foo.ts\n?? src/bar.ts\n',
+        exitCode: 0,
+      },
+      { args: ['diff', '--cached', '--quiet'], stdout: '', exitCode: 0 },
+      {
+        args: ['rev-parse', '--abbrev-ref', 'HEAD'],
+        stdout: 'main\n',
+        exitCode: 0,
+      },
+    ]);
+
+    const result = detectDrift(gitExec, '/repo');
+
+    expect(result.uncommittedFiles).toEqual(['src/foo.ts', 'src/bar.ts']);
+    expect(result.clean).toBe(false);
+  });
+
+  it('detectDrift_StaleIndex_IndexStaleTrue', () => {
+    const gitExec = makeGitExec([
+      { args: ['status', '--porcelain'], stdout: '', exitCode: 0 },
+      { args: ['diff', '--cached', '--quiet'], stdout: '', exitCode: 1 },
+      {
+        args: ['rev-parse', '--abbrev-ref', 'HEAD'],
+        stdout: 'main\n',
+        exitCode: 0,
+      },
+    ]);
+
+    const result = detectDrift(gitExec, '/repo');
+
+    expect(result.indexStale).toBe(true);
+    expect(result.clean).toBe(false);
+  });
+
+  it('detectDrift_DetachedHead_DetachedHeadTrue', () => {
+    const gitExec = makeGitExec([
+      { args: ['status', '--porcelain'], stdout: '', exitCode: 0 },
+      { args: ['diff', '--cached', '--quiet'], stdout: '', exitCode: 0 },
+      {
+        args: ['rev-parse', '--abbrev-ref', 'HEAD'],
+        stdout: 'HEAD\n',
+        exitCode: 0,
+      },
+    ]);
+
+    const result = detectDrift(gitExec, '/repo');
+
+    expect(result.detachedHead).toBe(true);
+    expect(result.clean).toBe(false);
   });
 });
