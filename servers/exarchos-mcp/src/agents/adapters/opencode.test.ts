@@ -77,6 +77,23 @@ describe('OpenCodeAdapter', () => {
     }
   });
 
+  it('OpenCodeAdapter_LowerSpec_Readonly_GrantsExarchosTool', () => {
+    // Item 1, T10 (#1192): the readonly tier of mcp:exarchos must still
+    // surface the exarchos MCP server in OpenCode's `mcp` map. The server-
+    // side allowlist (T04) is what enforces read-only action filtering;
+    // the adapter just needs to grant the tool so the agent can dial it.
+    const spec: AgentSpec = {
+      ...IMPLEMENTER,
+      capabilities: ['fs:read', 'mcp:exarchos:readonly'],
+    };
+    const { contents } = OpenCodeAdapter.lowerSpec(spec);
+    const { data } = splitFrontmatter(contents);
+
+    const mcp = data.mcp as Record<string, true> | undefined;
+    expect(mcp).toBeDefined();
+    expect(mcp?.exarchos).toBe(true);
+  });
+
   it('OpenCodeAdapter_LowerSpec_BodyContainsSpecDescriptionAndSystemPromptSentinels', () => {
     const { contents } = OpenCodeAdapter.lowerSpec(IMPLEMENTER);
     const { body } = splitFrontmatter(contents);
