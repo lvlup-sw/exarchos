@@ -5,6 +5,7 @@ import {
   TaskStatusSchema,
   OneshotPhaseSchema,
   WorkflowTypeSchema,
+  MergeOrchestratorStateSchema,
 } from './schemas.js';
 import { z } from 'zod';
 
@@ -543,5 +544,45 @@ describe('WorkflowState integration', () => {
 describe('Discovery workflow type schema', () => {
   it('WorkflowTypeSchema_Discovery_Accepted', () => {
     expect(WorkflowTypeSchema.safeParse('discovery').success).toBe(true);
+  });
+});
+
+// ─── MergeOrchestratorStateSchema Tests (DR-MO-1 / DR-MO-2) ────────────────
+
+describe('MergeOrchestratorStateSchema', () => {
+  it('MergeOrchestratorStateSchema_ValidPendingState_Parses', () => {
+    const input = {
+      phase: 'pending',
+      sourceBranch: 'feature/x',
+      targetBranch: 'main',
+    };
+    const result = MergeOrchestratorStateSchema.parse(input);
+    expect(result).toEqual(input);
+  });
+
+  it('MergeOrchestratorStateSchema_InvalidPhase_Rejects', () => {
+    const result = MergeOrchestratorStateSchema.safeParse({
+      phase: 'bogus',
+      sourceBranch: 'a',
+      targetBranch: 'b',
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('MergeOrchestratorStateSchema_PreflightFieldOptional_Parses', () => {
+    const minimal = MergeOrchestratorStateSchema.safeParse({
+      phase: 'pending',
+      sourceBranch: 'feature/x',
+      targetBranch: 'main',
+    });
+    expect(minimal.success).toBe(true);
+
+    const withPreflight = MergeOrchestratorStateSchema.safeParse({
+      phase: 'pending',
+      sourceBranch: 'feature/x',
+      targetBranch: 'main',
+      preflight: { passed: true },
+    });
+    expect(withPreflight.success).toBe(true);
   });
 });
