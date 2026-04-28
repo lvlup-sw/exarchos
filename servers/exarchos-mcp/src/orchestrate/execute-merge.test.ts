@@ -1,4 +1,4 @@
-// ─── handleExecuteMerge tests (T15) ────────────────────────────────────────
+// ─── handleExecuteMerge tests (T15 + T16) ───────────────────────────────────
 //
 // T15 — happy path. Wraps the pure `executeMerge` (T08+T09+T10) with a
 // VCS provider adapter and event-store emission. Asserts:
@@ -8,7 +8,13 @@
 //   3. persists the `executing` intermediate state (with rollbackSha) BEFORE
 //      the VCS merge call, so a crash mid-merge is recoverable
 //
-// T16 (next task) covers the rolled-back path; tests for that live elsewhere.
+// T16 — rollback path. When the VCS merge rejects, the pure executor
+// returns `phase: 'rolled-back'` after running `git reset --hard <rollbackSha>`.
+// The handler must:
+//   1. emit `merge.rollback` to the workflow's event stream carrying the
+//      categorized reason ('merge-failed' | 'verification-failed' | 'timeout')
+//   2. invoke `git reset --hard <rollbackSha>` so HEAD matches the captured sha
+//   3. return a structured `ToolResult` failure with code `MERGE_ROLLED_BACK`
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { EventStore } from '../event-store/store.js';
@@ -157,6 +163,120 @@ describe('handleExecuteMerge (T15)', () => {
     expect(persistState).toHaveBeenCalledWith({
       phase: 'executing',
       rollbackSha: ROLLBACK_SHA,
+    });
+  });
+});
+
+describe('handleExecuteMerge rollback (T16)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('handleExecuteMerge_PureExecuteMergeRollsBack_EmitsMergeRollbackWithReason', async () => {
+    const ctx = makeMockCtx();
+    // vcsMerge rejects → categorized as 'merge-failed' (default bucket).
+    const vcsMerge = vi.fn().mockRejectedValue(new Error('merge conflict'));
+    const persistState = vi.fn().mockResolvedValue(undefined);
+
+    const result = await handleExecuteMerge(
+      {
+        featureId: 'feat-x',
+        sourceBranch: 'feat/x',
+        targetBranch: 'main',
+        taskId: 'T11',
+        strategy: 'squash',
+        vcsMerge,
+        persistState,
+        gitExec: makeGitExec(),
+      },
+      ctx,
+    );
+
+    expect(result.success).toBe(false);
+    // Direct stream append to the merge.rollback type — NOT wrapped in
+    // gate.executed and NOT a merge.executed event.
+    expect(ctx.eventStore.append).toHaveBeenCalledTimes(1);
+    expect(ctx.eventStore.append).toHaveBeenCalledWith('feat-x', {
+      type: 'merge.rollback',
+      data: {
+        taskId: 'T11',
+        sourceBranch: 'feat/x',
+        targetBranch: 'main',
+        rollbackSha: ROLLBACK_SHA,
+        reason: 'merge-failed',
+      },
+    });
+  });
+
+  it('handleExecuteMerge_AfterRollback_HeadMatchesRecordedSha', async () => {
+    const ctx = makeMockCtx();
+    const vcsMerge = vi.fn().mockRejectedValue(new Error('merge conflict'));
+    const persistState = vi.fn().mockResolvedValue(undefined);
+
+    // Track the gitExec calls so we can assert that `git reset --hard <sha>`
+    // was invoked with the recorded rollback sha after the failure.
+    const gitCalls: ReadonlyArray<string>[] = [];
+    const gitExec = vi.fn().mockImplementation(
+      (_repo: string, args: readonly string[]) => {
+        gitCalls.push([...args]);
+        if (args[0] === 'rev-parse' && args[1] === 'HEAD') {
+          return { stdout: `${ROLLBACK_SHA}\n`, exitCode: 0 };
+        }
+        // git reset --hard <sha>
+        return { stdout: '', exitCode: 0 };
+      },
+    );
+
+    await handleExecuteMerge(
+      {
+        featureId: 'feat-x',
+        sourceBranch: 'feat/x',
+        targetBranch: 'main',
+        taskId: 'T11',
+        strategy: 'squash',
+        vcsMerge,
+        persistState,
+        gitExec,
+      },
+      ctx,
+    );
+
+    // The pure executor invokes `git reset --hard <rollbackSha>` on failure.
+    const resetCall = gitCalls.find(
+      (a) => a[0] === 'reset' && a[1] === '--hard',
+    );
+    expect(resetCall).toBeDefined();
+    expect(resetCall![2]).toBe(ROLLBACK_SHA);
+  });
+
+  it('handleExecuteMerge_RollbackPath_ReturnsToolResultFailureWithStructuredError', async () => {
+    const ctx = makeMockCtx();
+    const vcsMerge = vi.fn().mockRejectedValue(new Error('verification check failed'));
+    const persistState = vi.fn().mockResolvedValue(undefined);
+
+    const result = await handleExecuteMerge(
+      {
+        featureId: 'feat-x',
+        sourceBranch: 'feat/x',
+        targetBranch: 'main',
+        taskId: 'T11',
+        strategy: 'squash',
+        vcsMerge,
+        persistState,
+        gitExec: makeGitExec(),
+      },
+      ctx,
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('MERGE_ROLLED_BACK');
+    expect(typeof result.error?.message).toBe('string');
+    expect(result.error?.message.length ?? 0).toBeGreaterThan(0);
+    // The handler also surfaces `data` so the caller can introspect.
+    expect(result.data).toMatchObject({
+      phase: 'rolled-back',
+      rollbackSha: ROLLBACK_SHA,
+      reason: 'verification-failed',
     });
   });
 });

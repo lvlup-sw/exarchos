@@ -15,10 +15,10 @@
 // In production, the composite dispatcher (T20) constructs the defaults
 // from `ctx.projectConfig` + `ctx.stateDir`.
 //
-// SCOPE: Happy path only. The `phase: 'rolled-back'` branch is not yet
-// translated into a `merge.rollback` event — that is T16's responsibility.
-// On rolled-back, this handler returns a structured error rather than
-// silently swallowing the failure.
+// T16 extends this with the `phase: 'rolled-back'` branch: the pure executor
+// has already run `git reset --hard <rollbackSha>`, so the handler emits a
+// `merge.rollback` event (categorized reason: 'merge-failed' |
+// 'verification-failed' | 'timeout') and returns a structured error.
 // ───────────────────────────────────────────────────────────────────────────
 
 import { execFileSync } from 'node:child_process';
@@ -234,14 +234,26 @@ export async function handleExecuteMerge(
     };
   }
 
-  // T16 will translate phase: 'rolled-back' into a `merge.rollback` event.
-  // For T15 we surface the rollback as a structured error so callers do not
-  // silently treat a rolled-back merge as success.
+  // T16 — phase: 'rolled-back'. The pure executor already ran
+  // `git reset --hard <rollbackSha>`. Emit `merge.rollback` so the workflow
+  // event stream and HSM observability dashboards see the categorized reason,
+  // then surface a structured error to the caller.
+  await ctx.eventStore.append(args.featureId, {
+    type: 'merge.rollback',
+    data: {
+      ...(args.taskId !== undefined ? { taskId: args.taskId } : {}),
+      sourceBranch: args.sourceBranch,
+      targetBranch: args.targetBranch,
+      rollbackSha: result.rollbackSha,
+      reason: result.reason,
+    },
+  });
+
   return {
     success: false,
     error: {
       code: 'MERGE_ROLLED_BACK',
-      message: `merge rolled back (reason: ${result.reason}); merge.rollback emission lands in T16`,
+      message: `Merge of ${args.sourceBranch} into ${args.targetBranch} rolled back: ${result.reason}`,
     },
     data: {
       phase: 'rolled-back' as const,
