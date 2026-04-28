@@ -141,6 +141,38 @@ describe('ClaudeAdapter_GenerateMarkdown_HandlesYamlSpecialChars', () => {
     expect(hooks.PostToolUse[0].hooks[0].command).toBe(command);
   });
 
+  it('ClaudeAdapter_HookCommand_WithSubshell_RendersValidYaml', () => {
+    // #1192 Item 4, T24 — regression guard for the exact hook-command
+    // shape T25 will introduce: `npm --prefix "$(git rev-parse
+    // --show-toplevel)" run test:run`. This combines a `$(...)` shell
+    // substitution with embedded double quotes inside a YAML scalar —
+    // the precise input the pre-T02 string-concat renderer mangled.
+    //
+    // T25 anchors hook commands to the git toplevel so they survive
+    // sub-agent worktree `cd`s (see CLAUDE.md "Worktree Hygiene"). That
+    // anchoring is only safe if this rendered scalar parses back to the
+    // identity. Locking the property here lets T25 land without needing
+    // to re-prove YAML safety in the same change.
+    const command = 'npm --prefix "$(git rev-parse --show-toplevel)" run test:run';
+    const spec = withOverrides(IMPLEMENTER, {
+      validationRules: [
+        { trigger: 'post-test', rule: 'All tests must pass', command },
+      ],
+    });
+    const md = generateClaudeAgentMarkdown(spec);
+    // 1. The frontmatter must parse without throwing.
+    const parsed = parseYaml(extractFrontmatter(md)) as Record<string, unknown>;
+    // 2. The hook command must round-trip byte-for-byte.
+    const hooks = parsed.hooks as Record<string, Array<{
+      matcher: string;
+      hooks: Array<{ type: string; command: string }>;
+    }>>;
+    expect(hooks).toBeDefined();
+    expect(hooks.PostToolUse).toBeDefined();
+    expect(hooks.PostToolUse).toHaveLength(1);
+    expect(hooks.PostToolUse[0].hooks[0].command).toBe(command);
+  });
+
   it('DisallowedTool_WithEmbeddedColon_RoundTripsThroughYamlParse', () => {
     // Synthetic case: a tool name with a colon. Not a realistic Claude
     // tool name, but it proves the renderer escapes scalar list entries
