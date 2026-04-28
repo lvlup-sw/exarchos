@@ -12,7 +12,7 @@
 import { describe, it, expect } from 'vitest';
 import type { AgentSpec } from '../types.js';
 import type { Capability } from '../capabilities.js';
-import { codexAdapter } from './codex.js';
+import { codexAdapter, tomlBasicString } from './codex.js';
 
 const baseSpec: AgentSpec = {
   id: 'implementer',
@@ -82,5 +82,22 @@ describe('CodexAdapter', () => {
 
   it('CodexAdapter_FallbackFlag_DefaultsToFalse', () => {
     expect(codexAdapter.customAgentResolutionWorks).toBe(false);
+  });
+});
+
+describe('tomlBasicString', () => {
+  it('TomlBasicString_EscapesBackspace', () => {
+    expect(tomlBasicString('a\bb')).toBe('"a\\bb"');
+  });
+
+  it('TomlBasicString_EscapesFormfeed', () => {
+    expect(tomlBasicString('a\fb')).toBe('"a\\fb"');
+  });
+
+  it('TomlBasicString_EscapesAllControlChars_InOrder', () => {
+    // Asserts no double-escaping bugs and stable order with a cocktail input.
+    const input = 'q"\\\b\f\n\r\tx';
+    const got = tomlBasicString(input);
+    expect(got).toBe('"q\\"\\\\\\b\\f\\n\\r\\tx"');
   });
 });

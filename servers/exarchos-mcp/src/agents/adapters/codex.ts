@@ -40,8 +40,15 @@ const CODEX_SUPPORT_LEVELS = buildSupportMap('native', {
 });
 
 /** Escape characters disallowed inside a TOML basic string. */
-function tomlBasicString(value: string): string {
-  return `"${value.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n').replace(/\r/g, '\\r').replace(/\t/g, '\\t')}"`;
+export function tomlBasicString(value: string): string {
+  return `"${value
+    .replace(/\\/g, '\\\\')
+    .replace(/"/g, '\\"')
+    .replace(/\x08/g, '\\b')
+    .replace(/\f/g, '\\f')
+    .replace(/\n/g, '\\n')
+    .replace(/\r/g, '\\r')
+    .replace(/\t/g, '\\t')}"`;
 }
 
 /**
