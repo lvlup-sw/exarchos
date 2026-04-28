@@ -8,6 +8,7 @@ import { existsSync, appendFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
 import type { ToolResult } from '../format.js';
+import { resolveTestRuntime } from '../config/test-runtime-resolver.js';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -151,20 +152,38 @@ function createWorktree(repoRoot: string, worktreePath: string, branchName: stri
   }
 }
 
-function runNpmInstall(worktreePath: string): CheckResult {
-  if (!existsSync(join(worktreePath, 'package.json'))) {
-    return { name: 'npm install', status: 'skip', detail: 'no package.json in worktree' };
+function runInstallStep(worktreePath: string): CheckResult {
+  const resolved = resolveTestRuntime(worktreePath);
+
+  if (resolved.install === null) {
+    return {
+      name: 'install',
+      status: 'skip',
+      detail: resolved.remediation ?? 'no recognized package manager',
+    };
   }
 
+  // Parse "<cmd> <arg1> <arg2> ..." into cmd + args. The resolver only emits
+  // commands assembled from a known allowlist (npm install / bun install /
+  // pnpm install --frozen-lockfile / yarn install --immutable), so a simple
+  // whitespace split is safe here.
+  const parts = resolved.install.split(/\s+/).filter((p) => p.length > 0);
+  const cmd = parts[0];
+  const cmdArgs = parts.slice(1);
+
   try {
-    execFileSync('npm', ['install', '--silent'], {
+    execFileSync(cmd, cmdArgs, {
       encoding: 'utf-8',
       cwd: worktreePath,
       stdio: ['pipe', 'pipe', 'pipe'],
     });
-    return { name: 'npm install completed', status: 'pass' };
+    return { name: 'install', status: 'pass', detail: resolved.install };
   } catch {
-    return { name: 'npm install completed', status: 'fail', detail: `npm install failed in ${worktreePath}` };
+    return {
+      name: 'install',
+      status: 'fail',
+      detail: `${resolved.install} failed in ${worktreePath}`,
+    };
   }
 }
 
@@ -231,12 +250,12 @@ export function handleSetupWorktree(args: SetupWorktreeArgs): ToolResult {
   // Step 3: Create worktree
   checks.push(createWorktree(args.repoRoot, worktreePath, branchName));
 
-  // Step 4: npm install (only if worktree exists)
+  // Step 4: install (resolver-driven: picks npm/pnpm/yarn/bun based on lockfiles)
   const worktreeReady = checks[2].status !== 'fail';
   if (worktreeReady) {
-    checks.push(runNpmInstall(worktreePath));
+    checks.push(runInstallStep(worktreePath));
   } else {
-    checks.push({ name: 'npm install', status: 'skip', detail: 'worktree not available' });
+    checks.push({ name: 'install', status: 'skip', detail: 'worktree not available' });
   }
 
   // Step 5: Baseline tests (only if worktree exists)

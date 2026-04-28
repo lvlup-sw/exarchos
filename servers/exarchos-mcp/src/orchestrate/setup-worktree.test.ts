@@ -5,6 +5,7 @@ import { handleSetupWorktree } from './setup-worktree.js';
 vi.mock('node:fs', () => ({
   existsSync: vi.fn(),
   readFileSync: vi.fn(),
+  readdirSync: vi.fn(),
   writeFileSync: vi.fn(),
   appendFileSync: vi.fn(),
 }));
@@ -14,12 +15,28 @@ vi.mock('node:child_process', () => ({
   execFileSync: vi.fn(),
 }));
 
-import { existsSync, readFileSync, appendFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, appendFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
+
+// Default valid package.json with test:run script (so the resolver picks the
+// npm path with test:run available — keeps the install step at 'pass').
+const VALID_PACKAGE_JSON = JSON.stringify({
+  name: 'fixture',
+  scripts: { 'test:run': 'vitest run', typecheck: 'tsc --noEmit' },
+});
+
+function defaultReadFileSync(p: unknown): string {
+  const path = String(p);
+  if (path.endsWith('package.json')) return VALID_PACKAGE_JSON;
+  return '';
+}
 
 describe('handleSetupWorktree', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    // readdirSync is used by the resolver for .csproj fallback — keep it safe.
+    vi.mocked(readdirSync).mockReturnValue([] as unknown as ReturnType<typeof readdirSync>);
+    vi.mocked(readFileSync).mockImplementation(defaultReadFileSync as never);
   });
 
   afterEach(() => {
@@ -29,7 +46,6 @@ describe('handleSetupWorktree', () => {
   // ── Test 9: Derived paths are correct ───────────────────────────────────
 
   it('DerivedPaths_AreCorrect', () => {
-    // Set up: gitignore check passes, branch exists, worktree exists and valid, has package.json, tests pass
     vi.mocked(execFileSync).mockImplementation((cmd: unknown, args: unknown) => {
       const cmdStr = String(cmd);
       const argsArr = args as string[];
@@ -62,11 +78,6 @@ describe('handleSetupWorktree', () => {
   // ── Test 1: Full setup succeeds ─────────────────────────────────────────
 
   it('FullSetup_AllStepsPass', () => {
-    // git check-ignore succeeds (already ignored)
-    // git show-ref fails (branch does not exist) -> branch creation succeeds
-    // worktree does not exist -> worktree add succeeds
-    // package.json exists -> npm install succeeds
-    // tests pass
     vi.mocked(execFileSync).mockImplementation((cmd: unknown, args: unknown) => {
       const cmdStr = String(cmd);
       const argsArr = args as string[];
@@ -84,9 +95,7 @@ describe('handleSetupWorktree', () => {
     });
     vi.mocked(existsSync).mockImplementation((p: unknown) => {
       const path = String(p);
-      // worktree dir does not exist yet
       if (path === '/repo/.worktrees/task-001-setup') return false;
-      // package.json exists after worktree creation
       if (path === '/repo/.worktrees/task-001-setup/package.json') return true;
       return false;
     });
@@ -111,7 +120,7 @@ describe('handleSetupWorktree', () => {
       const cmdStr = String(cmd);
       const argsArr = args as string[];
       if (cmdStr === 'git' && argsArr.includes('check-ignore')) return '';
-      if (cmdStr === 'git' && argsArr.includes('show-ref')) return ''; // branch exists
+      if (cmdStr === 'git' && argsArr.includes('show-ref')) return '';
       if (cmdStr === 'git' && argsArr.includes('rev-parse')) return '.git';
       if (cmdStr === 'npm' && argsArr.includes('install')) return '';
       if (cmdStr === 'npm' && argsArr.includes('test:run')) return '';
@@ -133,7 +142,6 @@ describe('handleSetupWorktree', () => {
     expect(result.success).toBe(true);
     const data = result.data as { passed: boolean; report: string };
     expect(data.passed).toBe(true);
-    // Step 2 should pass (branch already exists)
     expect(data.report).toContain('already exists');
   });
 
@@ -145,14 +153,14 @@ describe('handleSetupWorktree', () => {
       const argsArr = args as string[];
       if (cmdStr === 'git' && argsArr.includes('check-ignore')) return '';
       if (cmdStr === 'git' && argsArr.includes('show-ref')) return '';
-      if (cmdStr === 'git' && argsArr.includes('rev-parse')) return '.git'; // valid worktree
+      if (cmdStr === 'git' && argsArr.includes('rev-parse')) return '.git';
       if (cmdStr === 'npm' && argsArr.includes('install')) return '';
       if (cmdStr === 'npm' && argsArr.includes('test:run')) return '';
       return '';
     });
     vi.mocked(existsSync).mockImplementation((p: unknown) => {
       const path = String(p);
-      if (path === '/repo/.worktrees/task-003-db') return true; // worktree dir exists
+      if (path === '/repo/.worktrees/task-003-db') return true;
       if (path === '/repo/.worktrees/task-003-db/package.json') return true;
       return false;
     });
@@ -179,12 +187,10 @@ describe('handleSetupWorktree', () => {
       if (cmdStr === 'git' && argsArr.includes('check-ignore')) {
         gitignoreCheckCallCount++;
         if (gitignoreCheckCallCount === 1) {
-          // First call: not ignored
           const error = new Error('not ignored') as Error & { status: number };
           error.status = 1;
           throw error;
         }
-        // Second call: now ignored after we added it
         return '';
       }
       if (cmdStr === 'git' && argsArr.includes('show-ref')) return '';
@@ -195,12 +201,17 @@ describe('handleSetupWorktree', () => {
     });
     vi.mocked(existsSync).mockImplementation((p: unknown) => {
       const path = String(p);
-      if (path === '/repo/.gitignore') return true; // .gitignore exists
+      if (path === '/repo/.gitignore') return true;
       if (path === '/repo/.worktrees/task-004-api') return true;
       if (path === '/repo/.worktrees/task-004-api/package.json') return true;
       return false;
     });
-    vi.mocked(readFileSync).mockReturnValue('node_modules/\n');
+    vi.mocked(readFileSync).mockImplementation((p: unknown) => {
+      const path = String(p);
+      if (path === '/repo/.gitignore') return 'node_modules/\n';
+      if (path.endsWith('package.json')) return VALID_PACKAGE_JSON;
+      return '';
+    });
 
     const result = handleSetupWorktree({
       repoRoot: '/repo',
@@ -215,7 +226,7 @@ describe('handleSetupWorktree', () => {
     );
   });
 
-  // ── Test 5: npm install fails ───────────────────────────────────────────
+  // ── Test 5: install fails ───────────────────────────────────────────────
 
   it('NpmInstallFails_Step4Fails', () => {
     vi.mocked(execFileSync).mockImplementation((cmd: unknown, args: unknown) => {
@@ -355,5 +366,232 @@ describe('handleSetupWorktree', () => {
 
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('INVALID_INPUT');
+  });
+
+  // ── T09 install-step tests (resolver-driven, lockfile-aware) ────────────
+
+  it('runInstallStep_NoPackageJson_SkipsWithReason', () => {
+    vi.mocked(execFileSync).mockImplementation((cmd: unknown, args: unknown) => {
+      const cmdStr = String(cmd);
+      const argsArr = args as string[];
+      if (cmdStr === 'git' && argsArr.includes('check-ignore')) return '';
+      if (cmdStr === 'git' && argsArr.includes('show-ref')) return '';
+      if (cmdStr === 'git' && argsArr.includes('rev-parse')) return '.git';
+      // npm/pnpm/yarn/bun should NOT be invoked when package.json is absent.
+      if (cmdStr === 'npm' || cmdStr === 'pnpm' || cmdStr === 'yarn' || cmdStr === 'bun') {
+        throw new Error(`unexpected install invocation: ${cmdStr}`);
+      }
+      return '';
+    });
+    vi.mocked(existsSync).mockImplementation((p: unknown) => {
+      const path = String(p);
+      // Worktree exists so step 4 runs; no package.json or lockfiles.
+      if (path === '/repo/.worktrees/task-100-empty') return true;
+      return false;
+    });
+
+    const result = handleSetupWorktree({
+      repoRoot: '/repo',
+      taskId: 'task-100',
+      taskName: 'empty',
+      skipTests: true,
+    });
+
+    expect(result.success).toBe(true);
+    const data = result.data as { report: string; checks: { skip: number } };
+    expect(data.checks.skip).toBeGreaterThanOrEqual(1);
+    // Step 4 surfaces the resolver's remediation in the report
+    expect(data.report).toMatch(/SKIP.*install/);
+  });
+
+  it('runInstallStep_NpmProject_RunsNpmInstall', () => {
+    vi.mocked(execFileSync).mockImplementation((cmd: unknown, args: unknown) => {
+      const cmdStr = String(cmd);
+      const argsArr = args as string[];
+      if (cmdStr === 'git' && argsArr.includes('check-ignore')) return '';
+      if (cmdStr === 'git' && argsArr.includes('show-ref')) return '';
+      if (cmdStr === 'git' && argsArr.includes('rev-parse')) return '.git';
+      return '';
+    });
+    vi.mocked(existsSync).mockImplementation((p: unknown) => {
+      const path = String(p);
+      if (path === '/repo/.worktrees/task-101-npm') return true;
+      if (path === '/repo/.worktrees/task-101-npm/package.json') return true;
+      return false;
+    });
+
+    const result = handleSetupWorktree({
+      repoRoot: '/repo',
+      taskId: 'task-101',
+      taskName: 'npm',
+      skipTests: true,
+    });
+
+    expect(result.success).toBe(true);
+    const data = result.data as { passed: boolean };
+    expect(data.passed).toBe(true);
+    expect(execFileSync).toHaveBeenCalledWith(
+      'npm',
+      ['install'],
+      expect.objectContaining({ cwd: '/repo/.worktrees/task-101-npm' }),
+    );
+  });
+
+  it('runInstallStep_PnpmLockfilePresent_DoesNotRunNpmInstall_RunsPnpmInstall', () => {
+    vi.mocked(execFileSync).mockImplementation((cmd: unknown, args: unknown) => {
+      const cmdStr = String(cmd);
+      const argsArr = args as string[];
+      if (cmdStr === 'git' && argsArr.includes('check-ignore')) return '';
+      if (cmdStr === 'git' && argsArr.includes('show-ref')) return '';
+      if (cmdStr === 'git' && argsArr.includes('rev-parse')) return '.git';
+      return '';
+    });
+    vi.mocked(existsSync).mockImplementation((p: unknown) => {
+      const path = String(p);
+      if (path === '/repo/.worktrees/task-102-pnpm') return true;
+      if (path === '/repo/.worktrees/task-102-pnpm/package.json') return true;
+      if (path === '/repo/.worktrees/task-102-pnpm/pnpm-lock.yaml') return true;
+      return false;
+    });
+    // pnpm scripts: include "test" (resolver requires "test" for pnpm path).
+    vi.mocked(readFileSync).mockImplementation((p: unknown) => {
+      const path = String(p);
+      if (path.endsWith('package.json')) {
+        return JSON.stringify({
+          name: 'fixture-pnpm',
+          scripts: { test: 'vitest run', typecheck: 'tsc --noEmit' },
+        });
+      }
+      return '';
+    });
+
+    const result = handleSetupWorktree({
+      repoRoot: '/repo',
+      taskId: 'task-102',
+      taskName: 'pnpm',
+      skipTests: true,
+    });
+
+    expect(result.success).toBe(true);
+    expect(execFileSync).toHaveBeenCalledWith(
+      'pnpm',
+      ['install', '--frozen-lockfile'],
+      expect.objectContaining({ cwd: '/repo/.worktrees/task-102-pnpm' }),
+    );
+    // Critical: the destructive npm-install path must NOT have been triggered.
+    const npmInstallCalls = vi.mocked(execFileSync).mock.calls.filter(
+      (call) => call[0] === 'npm' && Array.isArray(call[1]) && (call[1] as string[])[0] === 'install',
+    );
+    expect(npmInstallCalls).toHaveLength(0);
+  });
+
+  it('runInstallStep_YarnLockfilePresent_RunsYarnInstall', () => {
+    vi.mocked(execFileSync).mockImplementation((cmd: unknown, args: unknown) => {
+      const cmdStr = String(cmd);
+      const argsArr = args as string[];
+      if (cmdStr === 'git' && argsArr.includes('check-ignore')) return '';
+      if (cmdStr === 'git' && argsArr.includes('show-ref')) return '';
+      if (cmdStr === 'git' && argsArr.includes('rev-parse')) return '.git';
+      return '';
+    });
+    vi.mocked(existsSync).mockImplementation((p: unknown) => {
+      const path = String(p);
+      if (path === '/repo/.worktrees/task-103-yarn') return true;
+      if (path === '/repo/.worktrees/task-103-yarn/package.json') return true;
+      if (path === '/repo/.worktrees/task-103-yarn/yarn.lock') return true;
+      return false;
+    });
+    vi.mocked(readFileSync).mockImplementation((p: unknown) => {
+      const path = String(p);
+      if (path.endsWith('package.json')) {
+        return JSON.stringify({
+          name: 'fixture-yarn',
+          scripts: { test: 'vitest run', typecheck: 'tsc --noEmit' },
+        });
+      }
+      return '';
+    });
+
+    const result = handleSetupWorktree({
+      repoRoot: '/repo',
+      taskId: 'task-103',
+      taskName: 'yarn',
+      skipTests: true,
+    });
+
+    expect(result.success).toBe(true);
+    expect(execFileSync).toHaveBeenCalledWith(
+      'yarn',
+      ['install', '--immutable'],
+      expect.objectContaining({ cwd: '/repo/.worktrees/task-103-yarn' }),
+    );
+  });
+
+  it('runInstallStep_BunLockfilePresent_RunsBunInstall', () => {
+    vi.mocked(execFileSync).mockImplementation((cmd: unknown, args: unknown) => {
+      const cmdStr = String(cmd);
+      const argsArr = args as string[];
+      if (cmdStr === 'git' && argsArr.includes('check-ignore')) return '';
+      if (cmdStr === 'git' && argsArr.includes('show-ref')) return '';
+      if (cmdStr === 'git' && argsArr.includes('rev-parse')) return '.git';
+      return '';
+    });
+    vi.mocked(existsSync).mockImplementation((p: unknown) => {
+      const path = String(p);
+      if (path === '/repo/.worktrees/task-104-bun') return true;
+      if (path === '/repo/.worktrees/task-104-bun/package.json') return true;
+      if (path === '/repo/.worktrees/task-104-bun/bun.lockb') return true;
+      return false;
+    });
+
+    const result = handleSetupWorktree({
+      repoRoot: '/repo',
+      taskId: 'task-104',
+      taskName: 'bun',
+      skipTests: true,
+    });
+
+    expect(result.success).toBe(true);
+    expect(execFileSync).toHaveBeenCalledWith(
+      'bun',
+      ['install'],
+      expect.objectContaining({ cwd: '/repo/.worktrees/task-104-bun' }),
+    );
+  });
+
+  it('runInstallStep_BunPriorityOverPnpm_BunWins', () => {
+    vi.mocked(execFileSync).mockImplementation((cmd: unknown, args: unknown) => {
+      const cmdStr = String(cmd);
+      const argsArr = args as string[];
+      if (cmdStr === 'git' && argsArr.includes('check-ignore')) return '';
+      if (cmdStr === 'git' && argsArr.includes('show-ref')) return '';
+      if (cmdStr === 'git' && argsArr.includes('rev-parse')) return '.git';
+      return '';
+    });
+    vi.mocked(existsSync).mockImplementation((p: unknown) => {
+      const path = String(p);
+      if (path === '/repo/.worktrees/task-105-priority') return true;
+      if (path === '/repo/.worktrees/task-105-priority/package.json') return true;
+      // Both lockfiles present — bun wins per resolver priority chain.
+      if (path === '/repo/.worktrees/task-105-priority/bun.lockb') return true;
+      if (path === '/repo/.worktrees/task-105-priority/pnpm-lock.yaml') return true;
+      return false;
+    });
+
+    const result = handleSetupWorktree({
+      repoRoot: '/repo',
+      taskId: 'task-105',
+      taskName: 'priority',
+      skipTests: true,
+    });
+
+    expect(result.success).toBe(true);
+    expect(execFileSync).toHaveBeenCalledWith(
+      'bun',
+      ['install'],
+      expect.objectContaining({ cwd: '/repo/.worktrees/task-105-priority' }),
+    );
+    const pnpmCalls = vi.mocked(execFileSync).mock.calls.filter((c) => c[0] === 'pnpm');
+    expect(pnpmCalls).toHaveLength(0);
   });
 });
