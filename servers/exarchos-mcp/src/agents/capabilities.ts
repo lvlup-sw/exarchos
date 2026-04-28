@@ -15,3 +15,11 @@ export const Capability = z.enum([
 ]);
 
 export type Capability = z.infer<typeof Capability>;
+
+/**
+ * Canonical source for tests and adapters that need to enumerate or validate
+ * against the full capability vocabulary. Frozen to prevent runtime mutation.
+ */
+export const CAPABILITY_KEYS: ReadonlySet<Capability> = Object.freeze(
+  new Set(Capability.options),
+);
