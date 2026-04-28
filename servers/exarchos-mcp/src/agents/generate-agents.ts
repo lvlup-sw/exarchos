@@ -323,8 +323,15 @@ export function generateAgents(
   // stays inside the root. A malicious or buggy adapter that returns
   // `../../../etc/passwd` or an absolute path must be rejected before
   // any directory creation or file write touches the filesystem.
+  //
+  // Rollback bookkeeping (T17): track every artifact path this run
+  // CREATES (vs. overwrites). If the manifest write below throws, those
+  // newly-created files are unlinked so the on-disk state matches the
+  // pre-run state. Files that already existed before the run are left
+  // intact — rollback is scoped to "things this run produced".
   const resolvedRoot = path.resolve(outputRoot);
   const filesWritten: string[] = [];
+  const newlyCreatedArtifacts: string[] = [];
   for (const adapter of adapters) {
     for (const spec of specs) {
       const lowered = adapter.lowerSpec(spec);
@@ -345,6 +352,12 @@ export function generateAgents(
           }' spec '${spec.id}': ${(err as Error).message}`,
         );
       }
+      // Capture pre-existence BEFORE the write so rollback never unlinks
+      // a file the user had on disk before this run started. `fs.statSync`
+      // with `throwIfNoEntry: false` returns `undefined` for missing
+      // paths and avoids the deprecated-for-some-uses `fs.existsSync`.
+      const preExisted =
+        fs.statSync(absPath, { throwIfNoEntry: false }) !== undefined;
       try {
         fs.writeFileSync(absPath, lowered.contents, 'utf-8');
       } catch (err) {
@@ -355,17 +368,52 @@ export function generateAgents(
         );
       }
       filesWritten.push(absPath);
+      if (!preExisted) {
+        newlyCreatedArtifacts.push(absPath);
+      }
     }
   }
 
   // 3. Plugin.json update. Only Claude has a manifest today; the other
   //    runtimes load agents via filesystem convention.
-  updatePluginJson(pluginJsonPath, specs);
+  //
+  // Rollback contract (T17): on manifest write failure, unlink every
+  // path in `newlyCreatedArtifacts` (best-effort — individual unlink
+  // errors must NOT mask the original manifest error) and re-throw a
+  // wrapped error that names the original cause and the rollback
+  // count. This closes the partial-state gap where a manifest failure
+  // would otherwise leave 20 fresh files on disk while plugin.json
+  // still pointed at the prior generation.
+  try {
+    updatePluginJson(pluginJsonPath, specs);
+  } catch (e) {
+    rollbackArtifacts(newlyCreatedArtifacts);
+    throw new Error(
+      `generate-agents: manifest write failed; rolled back ${newlyCreatedArtifacts.length} new artifacts. Original error: ${
+        (e as Error).message
+      }`,
+    );
+  }
 
   return {
     filesWritten,
     pluginJsonUpdated: true,
   };
+}
+
+/**
+ * Best-effort cleanup helper for T17 rollback. Unlinks every path in
+ * `paths`, swallowing per-file errors so a partial cleanup never masks
+ * the original failure that triggered the rollback.
+ */
+function rollbackArtifacts(paths: readonly string[]): void {
+  for (const p of paths) {
+    try {
+      fs.unlinkSync(p);
+    } catch {
+      /* best-effort cleanup — surface the original error, not this one */
+    }
+  }
 }
 
 // ─── Re-exports for convenience ────────────────────────────────────────────

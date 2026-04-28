@@ -13,12 +13,31 @@
 // 5 in docs/plans/2026-04-25-delegation-runtime-parity.md.
 // ────────────────────────────────────────────────────────────────────────────
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import matter from 'gray-matter';
 import { parse as parseToml } from '@iarna/toml';
+
+// ─── Test-controlled writePluginManifest ──────────────────────────────────
+//
+// Most tests want the real implementation; the rollback tests below need to
+// inject a synthetic write failure. We hoist a `vi.fn` and route the module
+// through a partial mock that delegates to the real implementation by
+// default, so behaviour is transparent unless an individual test installs
+// `mockImplementationOnce(...)`.
+const writePluginManifestMock = vi.hoisted(() => vi.fn());
+vi.mock('./plugin-manifest.js', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('./plugin-manifest.js')>();
+  writePluginManifestMock.mockImplementation(actual.writePluginManifest);
+  return {
+    ...actual,
+    writePluginManifest: writePluginManifestMock,
+  };
+});
+
 import {
   generateAgents,
   GenerateAgentsError,
@@ -557,4 +576,144 @@ describe('Per-runtime smoke validation', () => {
       });
     }
   }
+});
+
+// ─── Manifest-write rollback (T17) ─────────────────────────────────────────
+//
+// If `writePluginManifest` throws after per-runtime artifact files have
+// been written, `generateAgents` must unlink every artifact it CREATED
+// during the failed run (best-effort), so the on-disk state matches the
+// pre-run state for newly-created paths. Pre-existing files are left
+// untouched: rollback is scoped to "things this run produced", not "things
+// that happened to share a target path".
+//
+// Refs #1192 (Items 3+5+17), T17.
+describe('generateAgents — manifest write failure rollback', () => {
+  let tmp: string;
+  let pluginJsonPath: string;
+
+  beforeEach(() => {
+    tmp = makeTempDir();
+    pluginJsonPath = makeTempPluginJson(tmp);
+  });
+
+  afterEach(() => {
+    rmrf(tmp);
+    // Re-bind to the real implementation so subsequent test files /
+    // re-runs see the genuine writePluginManifest behaviour.
+    writePluginManifestMock.mockReset();
+  });
+
+  it('GenerateAgents_RollsBackArtifacts_OnManifestWriteFailure', async () => {
+    // Snapshot the pre-run state of every per-runtime directory under tmp.
+    // Anything not in this set is "newly created by this run" and must be
+    // unlinked when the manifest write fails.
+    const pluginManifest = await import('./plugin-manifest.js');
+    writePluginManifestMock.mockImplementation(() => {
+      throw new Error('simulated manifest write failure');
+    });
+
+    const expectedArtifacts: string[] = [];
+    for (const adapter of ALL_ADAPTERS) {
+      for (const spec of CANONICAL_SPECS) {
+        expectedArtifacts.push(
+          path.join(tmp, adapter.agentFilePath(spec.id)),
+        );
+      }
+    }
+
+    // None of these exist before the run.
+    for (const p of expectedArtifacts) {
+      expect(fs.existsSync(p), `expected ${p} not to exist pre-run`).toBe(
+        false,
+      );
+    }
+
+    let caught: unknown;
+    try {
+      generateAgents({
+        outputRoot: tmp,
+        specs: CANONICAL_SPECS,
+        adapters: ALL_ADAPTERS,
+        pluginJsonPath,
+      });
+    } catch (err) {
+      caught = err;
+    }
+
+    // Sanity: writePluginManifest was actually called (so we exercised the
+    // rollback path) and the original failure surfaced.
+    expect(writePluginManifestMock).toHaveBeenCalled();
+    expect(caught).toBeInstanceOf(Error);
+    expect((caught as Error).message).toMatch(
+      /simulated manifest write failure/,
+    );
+
+    // Every newly-created artifact must have been unlinked.
+    for (const p of expectedArtifacts) {
+      expect(
+        fs.existsSync(p),
+        `expected ${p} to be rolled back (unlinked) after manifest failure`,
+      ).toBe(false);
+    }
+
+    // The plugin manifest itself was NOT created by this run, and must
+    // still exist (preflight passed; we just blocked the rewrite).
+    expect(fs.existsSync(pluginJsonPath)).toBe(true);
+    // Touch reference so vitest doesn't flag the import as unused — we
+    // want the dynamic import to confirm the mock-bound module resolves.
+    expect(typeof pluginManifest.writePluginManifest).toBe('function');
+  });
+
+  it('GenerateAgents_PreservesPreExistingFiles_OnManifestWriteFailure', () => {
+    writePluginManifestMock.mockImplementation(() => {
+      throw new Error('simulated manifest write failure');
+    });
+
+    // Pre-create a file at one of the per-runtime artifact paths with
+    // sentinel contents. Rollback must NOT unlink it — the run did not
+    // create it.
+    const preexistingPath = path.join(
+      tmp,
+      claudeAdapter.agentFilePath(IMPLEMENTER.id),
+    );
+    fs.mkdirSync(path.dirname(preexistingPath), { recursive: true });
+    const sentinel = 'PRE-EXISTING-SENTINEL\n';
+    fs.writeFileSync(preexistingPath, sentinel, 'utf-8');
+
+    // Also pre-create a non-artifact file in the same directory to
+    // confirm rollback never touches files outside its tracked set.
+    const bystander = path.join(
+      path.dirname(preexistingPath),
+      'bystander.md',
+    );
+    fs.writeFileSync(bystander, 'BYSTANDER\n', 'utf-8');
+
+    let caught: unknown;
+    try {
+      generateAgents({
+        outputRoot: tmp,
+        specs: CANONICAL_SPECS,
+        adapters: ALL_ADAPTERS,
+        pluginJsonPath,
+      });
+    } catch (err) {
+      caught = err;
+    }
+
+    expect(caught).toBeInstanceOf(Error);
+
+    // Pre-existing artifact-path file still present. Note: the run will
+    // have OVERWRITTEN it with the lowered contents before the manifest
+    // failure, but the file itself must remain on disk — rollback only
+    // unlinks paths that did NOT exist pre-run.
+    expect(
+      fs.existsSync(preexistingPath),
+      'pre-existing artifact file must NOT be unlinked by rollback',
+    ).toBe(true);
+
+    // Bystander file untouched (was never an artifact target).
+    expect(fs.existsSync(bystander)).toBe(true);
+    expect(fs.readFileSync(bystander, 'utf-8')).toBe('BYSTANDER\n');
+  });
 });
