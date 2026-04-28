@@ -55,7 +55,9 @@ import {
   readStateFile,
   writeStateFile,
   VersionConflictError,
+  StateStoreError,
 } from '../workflow/state-store.js';
+import { ErrorCode } from '../workflow/schemas.js';
 import { EXCLUDED_MERGE_PHASES } from '../workflow/hsm-definitions.js';
 import {
   withStateRetry,
@@ -184,7 +186,20 @@ function buildDefaultPersistState(
 ): OrchestratorPersistState {
   return async (next) => {
     const stateFile = path.join(stateDir, `${featureId}.state.json`);
-    const state = await readStateFile(stateFile);
+    // STATE_NOT_FOUND is a non-fatal "first write" — preflight can fail on
+    // a workflow whose state file hasn't been initialized yet, and the
+    // unhandled StateStoreError would otherwise crash the server. Fall
+    // through to a baseline state object so the abort write can land.
+    let state: Awaited<ReturnType<typeof readStateFile>>;
+    try {
+      state = await readStateFile(stateFile);
+    } catch (err) {
+      if (err instanceof StateStoreError && err.code === ErrorCode.STATE_NOT_FOUND) {
+        state = {} as Awaited<ReturnType<typeof readStateFile>>;
+      } else {
+        throw err;
+      }
+    }
     // REPLACE the `mergeOrchestrator` block instead of shallow-merging onto
     // any prior attempt. Spreading the previous object would carry stale
     // `mergeSha`, `rollbackSha`, or old failure metadata into a fresh
@@ -217,8 +232,12 @@ function buildDefaultReadState(
       // corrupt or unreadable file MUST surface so resume:true doesn't
       // silently degrade into a fresh dispatch and emit a duplicate
       // preflight/merge attempt.
-      const code = (err as NodeJS.ErrnoException).code;
-      if (code === 'ENOENT') return undefined;
+      // `readStateFile` translates ENOENT into a StateStoreError with
+      // ErrorCode.STATE_NOT_FOUND — match on that, not the underlying
+      // NodeJS errno (which never escapes the state-store boundary).
+      if (err instanceof StateStoreError && err.code === ErrorCode.STATE_NOT_FOUND) {
+        return undefined;
+      }
       throw err;
     }
   };

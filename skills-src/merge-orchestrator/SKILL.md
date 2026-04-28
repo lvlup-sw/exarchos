@@ -51,7 +51,7 @@ Do **not** activate this skill:
 |----------|---------------------|----------------|
 | `merge`  | `git merge --no-ff --no-edit <source>` — explicit merge commit | Preserves the subagent's commit history with a visible merge boundary. |
 | `squash` | `git merge --squash <source>` then `git commit` — single squash commit on target | Subagent commit history is noise; one logical change should land as one commit. |
-| `rebase` | rebases source onto target then ff-merges — linear history | No merge commit; integration branch stays linear. Source branch history is rewritten (acceptable for ephemeral subagent branches). |
+| `rebase` | rebases an ephemeral copy of source onto target then ff-merges target — linear history | No merge commit; integration branch stays linear. The original source ref is preserved (the rebase runs on a temporary branch that is deleted afterward), so an executor rollback only needs to reset target. |
 
 Strategy is required at the schema layer (#1127 collision check, #1109 §2 user-visible parity). There is no implicit default — operator intent is always explicit in the event log.
 
@@ -143,7 +143,7 @@ When invoked without `resume`, prior state is deliberately ignored — fresh-dis
 | Don't | Do Instead |
 |-------|------------|
 | Use this skill to merge a remote PR | Use `merge_pr` in the synthesize phase |
-| Manually emit `merge.preflight` / `merge.executed` / `merge.rollback` | Let the handler auto-emit; manual emission causes duplicates |
+| Manually emit `merge.preflight` / `merge.executed` / `merge.rollback` in normal flow | Let the handler auto-emit; manual emission causes duplicates (one exception: documented manual-recovery flow in [`recovery-runbook.md`](references/recovery-runbook.md)) |
 | Wrap merge events under `gate.executed` | Direct stream append with the dedicated event type — these are state transitions, not gate executions |
 | Re-dispatch after a `rolled-back` outcome without inspecting the reason | Read `data.reason` and `data.rollbackError`; address the root cause first |
 | Omit `--strategy` / `strategy:` field expecting a default | Strategy is required; supply `squash` / `merge` / `rebase` explicitly |

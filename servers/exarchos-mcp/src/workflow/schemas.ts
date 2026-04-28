@@ -208,15 +208,24 @@ const MergeOrchestratorPreflightSchema = z.object({
 
 export const MergeOrchestratorStateSchema = z.object({
   phase: z.enum(['pending', 'executing', 'completed', 'rolled-back', 'aborted']),
-  // `sourceBranch`/`targetBranch` are present on every non-aborted phase. The
-  // pre-preflight `aborted` write may not yet carry them, so they are
-  // optional at the schema level — `.passthrough()` preserves any extras
-  // (e.g. `abortReason`, `rollbackError`) that consumers depend on.
+  // Branch fields are populated on every phase except the very first
+  // pre-preflight `aborted` write — optional so the schema accepts that
+  // edge case without rejection.
   sourceBranch: z.string().min(1).optional(),
   targetBranch: z.string().min(1).optional(),
   taskId: z.string().optional(),
+  // Operator-selected merge strategy — set on `executing`/`completed`/
+  // `rolled-back` writes via the executor.
+  strategy: z.enum(['squash', 'rebase', 'merge']).optional(),
   rollbackSha: z.string().optional(),
   mergeSha: z.string().optional(),
+  // Terminal-failure descriptors. `reason` and `rollbackError` come from
+  // the executor's rolled-back write; `abortReason` from the orchestrator's
+  // preflight-fail abort write. Modeling them explicitly gives downstream
+  // consumers strong typing instead of leaning on `.passthrough()`.
+  reason: z.enum(['merge-failed', 'verification-failed', 'timeout']).optional(),
+  rollbackError: z.string().min(1).optional(),
+  abortReason: z.string().min(1).optional(),
   preflight: MergeOrchestratorPreflightSchema.optional(),
 }).passthrough();
 

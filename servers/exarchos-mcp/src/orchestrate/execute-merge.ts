@@ -36,7 +36,9 @@ import {
   readStateFile,
   writeStateFile,
   VersionConflictError,
+  StateStoreError,
 } from '../workflow/state-store.js';
+import { ErrorCode } from '../workflow/schemas.js';
 import {
   withStateRetry,
   MAX_STATE_RETRIES,
@@ -150,10 +152,19 @@ function buildDefaultVcsMerge(
  * at `<stateDir>/<featureId>.state.json`, merges the supplied phase payload
  * into `mergeOrchestrator`, and writes back atomically.
  *
- * Spreading the entire payload (rather than picking individual fields) means
- * terminal-phase fields like `mergeSha` and `reason` ride alongside the
- * always-present `phase` + `rollbackSha`, keeping the state file self-
- * describing.
+ * Shallow-merges (rather than replacing) the existing `mergeOrchestrator`
+ * block so terminal-phase fields like `mergeSha` and `reason` ride alongside
+ * the always-present `phase` + `rollbackSha`. This is intentionally
+ * different from `merge-orchestrate.ts`'s `buildDefaultPersistState`, which
+ * REPLACES the block on `aborted`: the executor progresses through
+ * `executing` → `completed`/`rolled-back`, so merging preserves
+ * `sourceBranch`/`targetBranch`/`taskId` written during `executing`. The
+ * orchestrator's abort writes a fresh terminal record with no intermediate,
+ * so replacement there prevents stale fields from a prior attempt.
+ *
+ * STATE_NOT_FOUND is treated as "first write" so a missing state file
+ * (extremely rare in practice — workflow.started writes it — but possible
+ * after a manual delete) does not crash the executor.
  */
 function buildDefaultPersistState(
   featureId: string,
@@ -164,7 +175,16 @@ function buildDefaultPersistState(
 ): PersistStateCallback {
   return async (payload) => {
     const stateFile = path.join(stateDir, `${featureId}.state.json`);
-    const state = await readStateFile(stateFile);
+    let state: Awaited<ReturnType<typeof readStateFile>>;
+    try {
+      state = await readStateFile(stateFile);
+    } catch (err) {
+      if (err instanceof StateStoreError && err.code === ErrorCode.STATE_NOT_FOUND) {
+        state = {} as Awaited<ReturnType<typeof readStateFile>>;
+      } else {
+        throw err;
+      }
+    }
     const next = {
       ...state,
       mergeOrchestrator: {

@@ -83,12 +83,13 @@ const PASSING_PREFLIGHT = {
 
 const FAILING_PREFLIGHT = {
   passed: false,
-  // Ancestry not satisfied — feat/x not in main.
+  // Ancestry not satisfied — target ('main') is not an ancestor of source
+  // ('feat/x'), i.e., source is not up-to-date with target.
   ancestry: {
     passed: false,
     blocked: true,
     reason: 'ancestry' as const,
-    missing: ['feat/x'],
+    missing: ['main'],
   },
   currentBranchProtection: { blocked: false, currentBranch: 'feat/x' },
   worktree: { isMain: true, actual: '/repo', expected: '/repo' },

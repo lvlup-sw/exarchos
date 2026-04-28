@@ -106,6 +106,11 @@ export function buildLocalGitMergeAdapter(
           gitExec(repoRoot, ['checkout', targetBranch]);
           throw err;
         } finally {
+          // Always leave HEAD on target before deleting the tmp branch —
+          // `git branch -D <current>` fails silently and would leak the
+          // ephemeral ref on disk. Idempotent: if checkout already landed
+          // on target during the happy path, the second checkout is a no-op.
+          gitExec(repoRoot, ['checkout', targetBranch]);
           gitExec(repoRoot, ['branch', '-D', tmpBranch]);
         }
         break;

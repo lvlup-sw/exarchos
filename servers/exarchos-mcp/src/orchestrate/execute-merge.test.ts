@@ -280,6 +280,66 @@ describe('handleExecuteMerge rollback (T16)', () => {
       reason: 'verification-failed',
     });
   });
+
+  // The rollback-reset-failure path is the only one that should populate
+  // `rollbackError` end-to-end — exercising it here keeps the operator
+  // recovery contract (state file + emitted event + ToolResult all carry
+  // the indeterminate-worktree signal) covered by the test suite.
+  it('handleExecuteMerge_RollbackResetFails_SurfacesRollbackErrorOnEventAndToolResult', async () => {
+    const ctx = makeMockCtx();
+    const vcsMerge = vi.fn().mockRejectedValue(new Error('merge conflict'));
+    const persistState = vi.fn().mockResolvedValue(undefined);
+
+    const gitExec = vi.fn().mockImplementation(
+      (_repo: string, args: readonly string[]) => {
+        if (args[0] === 'rev-parse' && args[1] === 'HEAD') {
+          return { stdout: `${ROLLBACK_SHA}\n`, exitCode: 0 };
+        }
+        if (args[0] === 'reset' && args[1] === '--hard') {
+          // Simulate `git reset --hard` itself failing: the worktree is now
+          // in an indeterminate state and operators must intervene.
+          return { stdout: 'fatal: index.lock present', exitCode: 1 };
+        }
+        return { stdout: '', exitCode: 0 };
+      },
+    );
+
+    const result = await handleExecuteMerge(
+      {
+        featureId: 'feat-x',
+        sourceBranch: 'feat/x',
+        targetBranch: 'main',
+        taskId: 'T11',
+        strategy: 'squash',
+        vcsMerge,
+        persistState,
+        gitExec,
+      },
+      ctx,
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('MERGE_ROLLED_BACK');
+    expect(result.data).toMatchObject({
+      phase: 'rolled-back',
+      rollbackSha: ROLLBACK_SHA,
+      reason: 'merge-failed',
+    });
+    // `rollbackError` rides on the ToolResult `data` so callers can detect
+    // the indeterminate worktree without re-querying the event stream.
+    expect((result.data as { rollbackError?: string }).rollbackError).toContain(
+      'reset --hard',
+    );
+
+    // Same signal must appear on the emitted `merge.rollback` event so
+    // event-stream consumers (projections, dashboards, alerting) see it
+    // without reading the state file.
+    expect(ctx.eventStore.append).toHaveBeenCalledTimes(1);
+    const [, eventPayload] = (ctx.eventStore.append as ReturnType<typeof vi.fn>)
+      .mock.calls[0];
+    expect(eventPayload.type).toBe('merge.rollback');
+    expect(eventPayload.data.rollbackError).toContain('reset --hard');
+  });
 });
 
 // ─── T29: Executor's persistState retries on VersionConflictError ─────────

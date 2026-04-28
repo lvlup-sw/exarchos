@@ -173,9 +173,16 @@ export async function mergePreflight(
   const repoRoot = args.cwd ?? process.cwd();
   const adapter = adaptToDispatchGuardExec(args.gitExec, repoRoot);
 
+  // Merge-preflight intent: source must be up-to-date with target (i.e.,
+  // target IS an ancestor of source). `validateBranchAncestry(integration,
+  // [upstream...])` checks each upstream is an ancestor of integration, so
+  // the merge preflight passes `sourceBranch` as the integration arg and
+  // `[targetBranch]` as the required upstream. The synthesis-flow caller
+  // uses the opposite direction (target=main, upstream=feature-branches)
+  // because there the assertion is "all features have landed in main."
   const ancestry = await validateBranchAncestry(
-    args.targetBranch,
-    [args.sourceBranch],
+    args.sourceBranch,
+    [args.targetBranch],
     adapter,
   );
   const currentBranch = getCurrentBranch(adapter);

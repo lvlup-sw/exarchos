@@ -62,9 +62,10 @@ git log --oneline -5
 git checkout <integration-branch>
 git reset --hard <rollbackSha-from-the-event-log>
 
-# Where <rollbackSha-from-the-event-log> can be retrieved via:
-exarchos_event query stream=<featureId> filter='{"type":"merge.executed"}'
-# or the most recent merge.rollback event for a rolled-back run.
+# Where <rollbackSha-from-the-event-log> can be retrieved from the most recent
+# merge.executed (completed run) or merge.rollback (rolled-back run) event:
+exarchos_event query stream=<featureId> filter='{"type":"merge.rollback"}'
+# fall back to merge.executed if no rollback was emitted.
 # (merge.preflight does NOT carry rollbackSha — it runs before the rollback
 # anchor is captured.)
 ```

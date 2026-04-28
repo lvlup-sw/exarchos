@@ -144,9 +144,11 @@ describe('mergePreflight — happy path (T06)', () => {
    */
   function makeHappyGitExec(): GitExec {
     return makeGitExec([
-      // validateBranchAncestry: merge-base --is-ancestor source target
+      // validateBranchAncestry: merge-base --is-ancestor target source
+      // (preflight asserts target IS an ancestor of source — i.e., source is
+      // up-to-date with target, so the merge is conflict-free.)
       {
-        args: ['merge-base', '--is-ancestor', 'feat/x', 'main'],
+        args: ['merge-base', '--is-ancestor', 'main', 'feat/x'],
         stdout: '',
         exitCode: 0,
       },
@@ -217,7 +219,7 @@ describe('mergePreflight — failure paths (T07)', () => {
     // validateBranchAncestry classifies as ancestry-missing.
     const gitExec = makeGitExec([
       {
-        args: ['merge-base', '--is-ancestor', 'feat/x', 'main'],
+        args: ['merge-base', '--is-ancestor', 'main', 'feat/x'],
         stdout: '',
         exitCode: 1,
       },
@@ -241,7 +243,9 @@ describe('mergePreflight — failure paths (T07)', () => {
     // Verbatim sub-field copy from validateBranchAncestry's failure shape.
     expect(result.ancestry.passed).toBe(false);
     expect(result.ancestry.reason).toBe('ancestry');
-    expect(result.ancestry.missing).toEqual(['feat/x']);
+    // Missing entry is `main` because the preflight asserts target IS an
+    // ancestor of source — when it isn't, the missing list names the target.
+    expect(result.ancestry.missing).toEqual(['main']);
     expect(result.ancestry.blocked).toBe(true);
   });
 
@@ -249,7 +253,7 @@ describe('mergePreflight — failure paths (T07)', () => {
     // Drive current-branch protection to fail: HEAD is on `main`.
     const gitExec = makeGitExec([
       {
-        args: ['merge-base', '--is-ancestor', 'feat/x', 'main'],
+        args: ['merge-base', '--is-ancestor', 'main', 'feat/x'],
         stdout: '',
         exitCode: 0,
       },
@@ -279,7 +283,7 @@ describe('mergePreflight — failure paths (T07)', () => {
     // Drive worktree assertion to fail: cwd contains `.claude/worktrees/`.
     const gitExec = makeGitExec([
       {
-        args: ['merge-base', '--is-ancestor', 'feat/x', 'main'],
+        args: ['merge-base', '--is-ancestor', 'main', 'feat/x'],
         stdout: '',
         exitCode: 0,
       },
@@ -309,7 +313,7 @@ describe('mergePreflight — failure paths (T07)', () => {
     // Drive drift to fail: `git status --porcelain` reports dirty files.
     const gitExec = makeGitExec([
       {
-        args: ['merge-base', '--is-ancestor', 'feat/x', 'main'],
+        args: ['merge-base', '--is-ancestor', 'main', 'feat/x'],
         stdout: '',
         exitCode: 0,
       },
