@@ -121,4 +121,153 @@ describe('executeMerge', () => {
     ]);
     expect(result.phase).toBe('completed');
   });
+
+  // ─── T10: rollback paths ────────────────────────────────────────────────
+
+  it('executeMerge_VcsMergeRejects_ResetsToRollbackShaWithReasonMergeFailed', async () => {
+    const gitCalls: Array<readonly string[]> = [];
+    const gitExec: GitExec = vi.fn((_repoRoot: string, args: readonly string[]) => {
+      gitCalls.push(args);
+      if (args[0] === 'rev-parse' && args[1] === 'HEAD') {
+        return { stdout: 'abc\n', exitCode: 0 };
+      }
+      if (args[0] === 'reset' && args[1] === '--hard') {
+        return { stdout: '', exitCode: 0 };
+      }
+      throw new Error(`unexpected git args: ${args.join(' ')}`);
+    });
+    const vcsMerge = vi.fn(async () => {
+      throw new Error('merge conflict in foo.ts');
+    });
+    const persistState = vi.fn(async () => {});
+
+    const result = await executeMerge({
+      sourceBranch: 'feat/x',
+      targetBranch: 'main',
+      strategy: 'squash',
+      gitExec,
+      vcsMerge,
+      persistState,
+      repoRoot: '/some/repo',
+    });
+
+    expect(result).toEqual({
+      phase: 'rolled-back',
+      rollbackSha: 'abc',
+      reason: 'merge-failed',
+    });
+    expect(gitCalls).toContainEqual(['reset', '--hard', 'abc']);
+  });
+
+  it('executeMerge_VerificationFails_ReasonVerificationFailed', async () => {
+    // Categorization convention: err.message matches /verification/i.
+    const gitExec: GitExec = vi.fn((_repoRoot: string, args: readonly string[]) => {
+      if (args[0] === 'rev-parse' && args[1] === 'HEAD') {
+        return { stdout: 'abc\n', exitCode: 0 };
+      }
+      if (args[0] === 'reset' && args[1] === '--hard') {
+        return { stdout: '', exitCode: 0 };
+      }
+      throw new Error(`unexpected git args: ${args.join(' ')}`);
+    });
+    const vcsMerge = vi.fn(async () => {
+      throw new Error('post-merge verification failed: tests red');
+    });
+    const persistState = vi.fn(async () => {});
+
+    const result = await executeMerge({
+      sourceBranch: 'feat/x',
+      targetBranch: 'main',
+      strategy: 'squash',
+      gitExec,
+      vcsMerge,
+      persistState,
+      repoRoot: '/some/repo',
+    });
+
+    expect(result).toEqual({
+      phase: 'rolled-back',
+      rollbackSha: 'abc',
+      reason: 'verification-failed',
+    });
+  });
+
+  it('executeMerge_GitTimeout_ReasonTimeout', async () => {
+    // Categorization convention: err.name === 'TimeoutError' OR (err as any).code === 'ETIMEDOUT'.
+    const gitExec: GitExec = vi.fn((_repoRoot: string, args: readonly string[]) => {
+      if (args[0] === 'rev-parse' && args[1] === 'HEAD') {
+        return { stdout: 'abc\n', exitCode: 0 };
+      }
+      if (args[0] === 'reset' && args[1] === '--hard') {
+        return { stdout: '', exitCode: 0 };
+      }
+      throw new Error(`unexpected git args: ${args.join(' ')}`);
+    });
+    const vcsMerge = vi.fn(async () => {
+      const err = new Error('operation timed out');
+      (err as Error & { code?: string }).code = 'ETIMEDOUT';
+      throw err;
+    });
+    const persistState = vi.fn(async () => {});
+
+    const result = await executeMerge({
+      sourceBranch: 'feat/x',
+      targetBranch: 'main',
+      strategy: 'squash',
+      gitExec,
+      vcsMerge,
+      persistState,
+      repoRoot: '/some/repo',
+    });
+
+    expect(result).toEqual({
+      phase: 'rolled-back',
+      rollbackSha: 'abc',
+      reason: 'timeout',
+    });
+  });
+
+  it('executeMerge_RollbackPath_AfterReset_PhaseRolledBack', async () => {
+    // Ordering: git reset --hard <sha> must execute BEFORE the rolled-back result is returned.
+    const calls: string[] = [];
+    const gitExec: GitExec = vi.fn((_repoRoot: string, args: readonly string[]) => {
+      if (args[0] === 'rev-parse' && args[1] === 'HEAD') {
+        calls.push('rev-parse-HEAD');
+        return { stdout: 'abc\n', exitCode: 0 };
+      }
+      if (args[0] === 'reset' && args[1] === '--hard') {
+        calls.push(`reset-hard-${args[2]}`);
+        return { stdout: '', exitCode: 0 };
+      }
+      throw new Error(`unexpected git args: ${args.join(' ')}`);
+    });
+    const vcsMerge = vi.fn(async () => {
+      calls.push('vcsMerge-rejects');
+      throw new Error('boom');
+    });
+    const persistState = vi.fn(async (state: { phase: 'executing'; rollbackSha: string }) => {
+      calls.push(`persistState({phase:${state.phase}})`);
+    });
+
+    const result = await executeMerge({
+      sourceBranch: 'feat/x',
+      targetBranch: 'main',
+      strategy: 'squash',
+      gitExec,
+      vcsMerge,
+      persistState,
+      repoRoot: '/some/repo',
+    });
+
+    // Reset must happen before the result is finalized.
+    const resetIdx = calls.indexOf('reset-hard-abc');
+    const mergeIdx = calls.indexOf('vcsMerge-rejects');
+    expect(resetIdx).toBeGreaterThan(-1);
+    expect(mergeIdx).toBeGreaterThan(-1);
+    expect(resetIdx).toBeGreaterThan(mergeIdx);
+    expect(result.phase).toBe('rolled-back');
+    if (result.phase === 'rolled-back') {
+      expect(result.rollbackSha).toBe('abc');
+    }
+  });
 });
