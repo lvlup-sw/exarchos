@@ -59,19 +59,19 @@ Workflow task state includes additional fields for resume-aware fixer flow on ru
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `agentId` | string | Runtime agent ID for resume. Canonical source: runtime stop-hook payload (e.g. `SubagentStop` on Claude Code). |
+| `agentId` | string | Runtime agent ID for resume. Canonical source: the runtime's stop-event hook payload (e.g., `SubagentStop` on Claude Code; equivalent on Codex/Copilot). |
 | `agentResumed` | boolean | Whether this agent was resumed (vs. fresh dispatch). |
-| `lastExitReason` | string | Completion status (e.g., `"success"`, `"failure"`, `"timeout"`). Canonical source: `SubagentStop` hook payload. |
+| `lastExitReason` | string | Completion status (e.g., `"success"`, `"failure"`, `"timeout"`). Canonical source: the runtime's stop-event hook payload. |
 
-The `SubagentStop` hook (`hooks/hooks.json`) is the **canonical source** for `agentId` and `lastExitReason`. When the hook fires for `exarchos-implementer` or `exarchos-fixer` agents, the orchestrator persists the hook payload fields into `tasks[id=taskId]`. This enables the resume-first strategy in the fixer flow: when a task fails, the orchestrator can resume the original agent with failure context rather than dispatching a fresh fixer.
+The runtime's stop-event hook (registered via the runtime's hook configuration) is the **canonical source** for `agentId` and `lastExitReason`. When the hook fires for `exarchos-implementer` or `exarchos-fixer` agents, the orchestrator persists the hook payload fields into `tasks[id=taskId]`. This enables the resume-first strategy in the fixer flow: when a task fails, the orchestrator can resume the original agent with failure context rather than dispatching a fresh fixer.
 
-**State update on SubagentStop hook:**
+**State update on agent stop-event hook:**
 ```text
 action: "set", featureId: "<id>", updates: {
   "tasks[id=<taskId>]": {
-    "agentId": "<from SubagentStop hook payload: agent_id>",
+    "agentId": "<from stop-event hook payload: agent_id>",
     "agentResumed": false,
-    "lastExitReason": "<from SubagentStop hook payload: exit_reason>"
+    "lastExitReason": "<from stop-event hook payload: exit_reason>"
   }
 }
 ```
