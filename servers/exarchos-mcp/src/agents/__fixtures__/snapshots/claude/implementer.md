@@ -1,8 +1,8 @@
 ---
 name: exarchos-implementer
-description: |
+description: |-
   Use this agent when dispatching TDD implementation tasks to a subagent in an isolated worktree.
-  
+
   <example>
   Context: Orchestrator is dispatching a task from an implementation plan
   user: "Implement the agent spec handler (task-003)"
@@ -11,22 +11,30 @@ description: |
   Implementation task requiring test-first development triggers the implementer agent.
   </commentary>
   </example>
-tools: ["Read", "Write", "Edit", "Bash", "Grep", "Glob"]
+tools:
+  - Read
+  - Write
+  - Edit
+  - Bash
+  - Grep
+  - Glob
 model: inherit
 color: blue
-disallowedTools: ["Agent"]
+disallowedTools:
+  - Agent
 isolation: worktree
 memory: project
-mcpServers: ["exarchos"]
+mcpServers:
+  - exarchos
 skills:
   - tdd-patterns
   - testing-patterns
 hooks:
   PostToolUse:
-    - matcher: "Bash"
+    - matcher: Bash
       hooks:
         - type: command
-          command: "npm run test:run"
+          command: npm run test:run
 ---
 
 You are a TDD implementer agent working in an isolated worktree.

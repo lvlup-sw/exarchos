@@ -10,24 +10,21 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
+import { parse as parseYaml } from 'yaml';
 import { claudeAdapter, deriveClaudeToolsFromCapabilities } from './adapters/claude.js';
 import { ALL_AGENT_SPECS } from './definitions.js';
 
 // ─── Helper: Parse YAML Frontmatter ─────────────────────────────────────────
-
-function parseFrontmatter(content: string): Record<string, string> {
-  const parts = content.split('---');
-  if (parts.length < 3) return {};
-  const yaml = parts[1].trim();
-  const result: Record<string, string> = {};
-  for (const line of yaml.split('\n')) {
-    // Only match top-level key: value pairs (no leading whitespace)
-    const match = line.match(/^(\w+):\s*(.+)$/);
-    if (match) {
-      result[match[1]] = match[2].replace(/^"(.*)"$/, '$1');
-    }
-  }
-  return result;
+//
+// Use a real YAML parser. The previous regex-based parser only matched
+// flow-style scalars (`tools: ["a", "b"]` on one line) which was an
+// artefact of the hand-rolled string-concat renderer; the YAML library
+// emits structured values (block lists, block scalars, etc) and the
+// drift contract is on the *parsed* value, not the byte form.
+function parseFrontmatter(content: string): Record<string, unknown> {
+  const match = content.match(/^---\n([\s\S]*?)\n---/);
+  if (!match) return {};
+  return (parseYaml(match[1]) ?? {}) as Record<string, unknown>;
 }
 
 // ─── Shared Setup ───────────────────────────────────────────────────────────
@@ -110,13 +107,14 @@ describe('Generated Agent File Drift', () => {
       const content = fs.readFileSync(filePath, 'utf-8');
       const fm = parseFrontmatter(content);
 
-      // Use the derivation shim (TEMPORARY — replaced by Task 4a snapshot test).
-      const derivedTools = deriveClaudeToolsFromCapabilities(spec);
-      const expectedTools = `[${derivedTools.map(t => `"${t}"`).join(', ')}]`;
+      // Compare parsed arrays — the YAML renderer may emit either
+      // block-style or flow-style sequences; the drift contract is
+      // semantic equality with the derivation shim, not byte form.
+      const derivedTools = [...deriveClaudeToolsFromCapabilities(spec)];
       expect(
         fm.tools,
         `Frontmatter tools mismatch for spec '${spec.id}'`,
-      ).toBe(expectedTools);
+      ).toEqual(derivedTools);
     }
   });
 

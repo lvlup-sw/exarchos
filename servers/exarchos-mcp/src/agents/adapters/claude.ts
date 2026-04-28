@@ -11,6 +11,7 @@
 // See docs/designs/2026-04-25-delegation-runtime-parity.md §4.
 // ────────────────────────────────────────────────────────────────────────────
 
+import { stringify as stringifyYaml } from 'yaml';
 import type { AgentSpec, AgentValidationRule } from '../types.js';
 import type { RuntimeAdapter, ValidationResult } from './types.js';
 import { buildSupportMap } from './support-levels.js';
@@ -52,14 +53,19 @@ const TRIGGER_MAP: Record<string, { hookType: string; matcher: string }> = {
 
 // ─── Build Hooks from Rules ─────────────────────────────────────────────────
 
+interface ClaudeHookEntry {
+  matcher: string;
+  hooks: Array<{ type: string; command: string }>;
+}
+
 /**
  * Maps validation rules to the Claude hook format.
  * Rules without a `command` property are skipped.
  */
 function buildHooksFromRules(
   rules: readonly AgentValidationRule[],
-): Record<string, Array<{ matcher: string; hooks: Array<{ type: string; command: string }> }>> {
-  const hooks: Record<string, Array<{ matcher: string; hooks: Array<{ type: string; command: string }> }>> = {};
+): Record<string, ClaudeHookEntry[]> {
+  const hooks: Record<string, ClaudeHookEntry[]> = {};
 
   for (const rule of rules) {
     if (!rule.command) continue;
@@ -82,30 +88,6 @@ function buildHooksFromRules(
   return hooks;
 }
 
-// ─── YAML Serialization Helpers ─────────────────────────────────────────────
-
-function serializeHooksYaml(
-  hooks: Record<string, Array<{ matcher: string; hooks: Array<{ type: string; command: string }> }>>,
-  indent: number,
-): string {
-  const pad = ' '.repeat(indent);
-  let yaml = '';
-
-  for (const [hookType, hookList] of Object.entries(hooks)) {
-    yaml += `${pad}${hookType}:\n`;
-    for (const hookEntry of hookList) {
-      yaml += `${pad}  - matcher: "${hookEntry.matcher}"\n`;
-      yaml += `${pad}    hooks:\n`;
-      for (const h of hookEntry.hooks) {
-        yaml += `${pad}      - type: ${h.type}\n`;
-        yaml += `${pad}        command: "${h.command}"\n`;
-      }
-    }
-  }
-
-  return yaml;
-}
-
 // ─── Generate Agent Markdown ────────────────────────────────────────────────
 
 /**
@@ -113,39 +95,36 @@ function serializeHooksYaml(
  * (Markdown with YAML frontmatter + system prompt body). Output is
  * byte-pinned by `generate-agents.test.ts`'s snapshot regression suite.
  *
+ * Frontmatter is built as a plain JS object and serialized with
+ * `yaml.stringify` (yaml@^2.8.2). This eliminates the previous
+ * string-concat path and the `serializeHooksYaml` helper, both of which
+ * mishandled embedded quotes, colons, leading whitespace, and shell
+ * `$(...)` substitutions in user-supplied scalar values. See #1192
+ * Item 2 (and Item 4, which adds quote-bearing hook commands).
+ *
  * Exported so `generated-drift.test.ts` can assert per-spec markdown
  * generation in isolation. Production callers should go through the
  * `claudeAdapter.lowerSpec` entry point below.
  */
 export function generateClaudeAgentMarkdown(spec: AgentSpec): string {
-  let frontmatter = '---\n';
+  // Build the frontmatter as a plain JS object so the YAML library
+  // owns scalar escaping. Field ordering is preserved to minimise the
+  // snapshot diff against the committed fixtures.
+  const frontmatter: Record<string, unknown> = {};
 
-  // Required fields
-  frontmatter += `name: exarchos-${spec.id}\n`;
-
-  // Description: multi-line uses YAML block scalar, single-line uses quoted string
-  if (spec.description.includes('\n')) {
-    frontmatter += 'description: |\n';
-    for (const line of spec.description.split('\n')) {
-      frontmatter += `  ${line}\n`;
-    }
-  } else {
-    frontmatter += `description: "${spec.description}"\n`;
-  }
+  frontmatter.name = `exarchos-${spec.id}`;
+  frontmatter.description = spec.description;
 
   // Lower capabilities to Claude's flat `tools` array.
-  const derivedTools = deriveClaudeToolsFromCapabilities(spec);
-  frontmatter += `tools: [${derivedTools.map(t => `"${t}"`).join(', ')}]\n`;
-  frontmatter += `model: ${spec.model}\n`;
+  frontmatter.tools = [...deriveClaudeToolsFromCapabilities(spec)];
+  frontmatter.model = spec.model;
 
-  // Optional: color
   if (spec.color) {
-    frontmatter += `color: ${spec.color}\n`;
+    frontmatter.color = spec.color;
   }
 
-  // Optional: disallowedTools
   if (spec.disallowedTools && spec.disallowedTools.length > 0) {
-    frontmatter += `disallowedTools: [${spec.disallowedTools.map(t => `"${t}"`).join(', ')}]\n`;
+    frontmatter.disallowedTools = [...spec.disallowedTools];
   }
 
   // Isolation: derive from capabilities so the spec has a single source
@@ -154,17 +133,15 @@ export function generateClaudeAgentMarkdown(spec: AgentSpec): string {
   // avoid the support-validation/render split that produced two
   // disagreeing answers.
   if (spec.capabilities.includes('isolation:worktree')) {
-    frontmatter += `isolation: worktree\n`;
+    frontmatter.isolation = 'worktree';
   }
 
-  // Optional: memory (mapped from memoryScope)
   if (spec.memoryScope) {
-    frontmatter += `memory: ${spec.memoryScope}\n`;
+    frontmatter.memory = spec.memoryScope;
   }
 
-  // Optional: maxTurns
   if (spec.maxTurns !== undefined) {
-    frontmatter += `maxTurns: ${spec.maxTurns}\n`;
+    frontmatter.maxTurns = spec.maxTurns;
   }
 
   // mcpServers: derive from `mcp:exarchos` capability for the same
@@ -172,27 +149,35 @@ export function generateClaudeAgentMarkdown(spec: AgentSpec): string {
   // is wired today; if/when additional MCP servers become first-class
   // capabilities, extend this list with parallel checks.
   if (spec.capabilities.includes('mcp:exarchos')) {
-    frontmatter += `mcpServers: ["exarchos"]\n`;
+    frontmatter.mcpServers = ['exarchos'];
   }
 
-  // Optional: skills (array format)
   if (spec.skills.length > 0) {
-    frontmatter += 'skills:\n';
-    for (const skill of spec.skills) {
-      frontmatter += `  - ${skill.name}\n`;
-    }
+    frontmatter.skills = spec.skills.map((s) => s.name);
   }
 
-  // Optional: hooks (from validation rules)
   const hooks = buildHooksFromRules(spec.validationRules);
   if (Object.keys(hooks).length > 0) {
-    frontmatter += 'hooks:\n';
-    frontmatter += serializeHooksYaml(hooks, 2);
+    frontmatter.hooks = hooks;
   }
 
-  frontmatter += '---\n';
+  // `lineWidth: 0` disables auto-wrapping so long descriptions don't
+  // get folded into multi-line block scalars on every render (the
+  // snapshot suite would then drift on any cosmetic length change).
+  //
+  // `defaultStringType: 'PLAIN'` lets the YAML library decide per-scalar:
+  // safe values render unquoted (matches the prior renderer's intent
+  // for things like `name: exarchos-implementer`), values containing
+  // YAML-significant characters get auto-quoted, and multi-line strings
+  // become block scalars. This is the safest default and produces the
+  // smallest semantic diff against the previous hand-rolled output.
+  const yamlText = stringifyYaml(frontmatter, {
+    lineWidth: 0,
+    defaultStringType: 'PLAIN',
+    defaultKeyType: 'PLAIN',
+  });
 
-  return `${frontmatter}\n${spec.systemPrompt}\n`;
+  return `---\n${yamlText}---\n\n${spec.systemPrompt}\n`;
 }
 
 // ─── Adapter ────────────────────────────────────────────────────────────────
