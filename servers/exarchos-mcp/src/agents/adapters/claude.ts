@@ -144,11 +144,25 @@ export function generateClaudeAgentMarkdown(spec: AgentSpec): string {
     frontmatter.maxTurns = spec.maxTurns;
   }
 
-  // mcpServers: derive from `mcp:exarchos` capability for the same
+  // mcpServers: derive from `mcp:exarchos*` capabilities for the same
   // single-source-of-truth reason as isolation above. Only `exarchos`
   // is wired today; if/when additional MCP servers become first-class
   // capabilities, extend this list with parallel checks.
-  if (spec.capabilities.includes('mcp:exarchos')) {
+  //
+  // Both `mcp:exarchos` (full) and `mcp:exarchos:readonly` (restricted
+  // tier — #1192 Item 1, T03) map to the same `mcpServers` grant.
+  // Claude Code's frontmatter only exposes whole-server allow/deny;
+  // there is no per-action allowlist surface in the agent file format,
+  // so per-action enforcement for the readonly tier happens server-side
+  // at dispatch time via `READ_ONLY_ACTIONS` / `enforceReadonlyGate`
+  // in `core/dispatch.ts` (T04). Granting the server here is the
+  // necessary precondition for that gate to fire — without the grant,
+  // a readonly-only spec would be unable to invoke even the read-only
+  // action subset.
+  if (
+    spec.capabilities.includes('mcp:exarchos') ||
+    spec.capabilities.includes('mcp:exarchos:readonly')
+  ) {
     frontmatter.mcpServers = ['exarchos'];
   }
 
