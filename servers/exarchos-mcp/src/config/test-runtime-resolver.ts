@@ -10,7 +10,7 @@
 // become a compatibility shim layered on top of this resolver.
 // ────────────────────────────────────────────────────────────────────────────
 
-import { existsSync, readdirSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import * as path from 'node:path';
 
 export type ResolutionSource = 'config' | 'detection' | 'override' | 'unresolved';
@@ -51,6 +51,46 @@ interface DetectionResult {
   typecheck: string | null;
   install: string | null;
   detected: boolean;
+  /**
+   * When set, the project markers were detected but the package.json scripts
+   * required to run tests are missing. The resolver should surface this as
+   * an `unresolved` source with the supplied remediation text.
+   */
+  unresolvedReason?: string;
+}
+
+interface PackageJsonShape {
+  scripts?: Record<string, unknown>;
+}
+
+interface PackageJsonReadResult {
+  json: PackageJsonShape | null;
+  malformed: boolean;
+}
+
+function readPackageJson(repoRoot: string): PackageJsonReadResult {
+  const pjPath = path.join(repoRoot, 'package.json');
+  let raw: string;
+  try {
+    raw = readFileSync(pjPath, 'utf8');
+  } catch {
+    return { json: null, malformed: false };
+  }
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (parsed && typeof parsed === 'object') {
+      return { json: parsed as PackageJsonShape, malformed: false };
+    }
+    return { json: {}, malformed: false };
+  } catch {
+    return { json: null, malformed: true };
+  }
+}
+
+function hasScript(pkg: PackageJsonShape | null, name: string): boolean {
+  if (!pkg || !pkg.scripts || typeof pkg.scripts !== 'object') return false;
+  const value = pkg.scripts[name];
+  return typeof value === 'string' && value.trim().length > 0;
 }
 
 /**
@@ -78,37 +118,82 @@ function detectNodePackageManager(
 function detect(repoRoot: string): DetectionResult {
   // Priority order: package.json > *.csproj > Cargo.toml > pyproject.toml
   const pm = detectNodePackageManager(repoRoot);
-  if (pm === 'bun') {
-    return {
-      test: 'bun test',
-      typecheck: 'tsc --noEmit',
-      install: 'bun install',
-      detected: true,
-    };
-  }
-  if (pm === 'pnpm') {
-    return {
-      test: 'pnpm test',
-      typecheck: 'tsc --noEmit',
-      install: 'pnpm install --frozen-lockfile',
-      detected: true,
-    };
-  }
-  if (pm === 'yarn') {
-    return {
-      test: 'yarn test',
-      typecheck: 'tsc --noEmit',
-      install: 'yarn install --immutable',
-      detected: true,
-    };
-  }
-  if (pm === 'npm') {
-    return {
-      test: 'npm run test:run',
-      typecheck: 'npm run typecheck',
-      install: 'npm install',
-      detected: true,
-    };
+  if (pm !== null) {
+    const { json: pkg, malformed } = readPackageJson(repoRoot);
+    if (malformed) {
+      return {
+        test: null,
+        typecheck: null,
+        install: null,
+        detected: true,
+        unresolvedReason:
+          'Malformed package.json: failed to parse JSON. Fix the syntax error or add a .exarchos.yml with explicit test/typecheck/install commands.',
+      };
+    }
+    if (pm === 'bun') {
+      // bun has a built-in `bun test` runner that does not depend on a
+      // `scripts.test` entry — never fail script-existence on bun test.
+      return {
+        test: 'bun test',
+        typecheck: 'tsc --noEmit',
+        install: 'bun install',
+        detected: true,
+      };
+    }
+    if (pm === 'pnpm') {
+      if (!hasScript(pkg, 'test')) {
+        return {
+          test: null,
+          typecheck: null,
+          install: 'pnpm install --frozen-lockfile',
+          detected: true,
+          unresolvedReason:
+            'package.json is missing a "test" script. Add a "test" entry under scripts (e.g., "test": "vitest run") or define test/typecheck commands in .exarchos.yml.',
+        };
+      }
+      return {
+        test: 'pnpm test',
+        typecheck: hasScript(pkg, 'typecheck') ? 'pnpm run typecheck' : 'tsc --noEmit',
+        install: 'pnpm install --frozen-lockfile',
+        detected: true,
+      };
+    }
+    if (pm === 'yarn') {
+      if (!hasScript(pkg, 'test')) {
+        return {
+          test: null,
+          typecheck: null,
+          install: 'yarn install --immutable',
+          detected: true,
+          unresolvedReason:
+            'package.json is missing a "test" script. Add a "test" entry under scripts (e.g., "test": "vitest run") or define test/typecheck commands in .exarchos.yml.',
+        };
+      }
+      return {
+        test: 'yarn test',
+        typecheck: hasScript(pkg, 'typecheck') ? 'yarn run typecheck' : 'tsc --noEmit',
+        install: 'yarn install --immutable',
+        detected: true,
+      };
+    }
+    if (pm === 'npm') {
+      if (!hasScript(pkg, 'test:run')) {
+        return {
+          test: null,
+          typecheck: null,
+          install: 'npm install',
+          detected: true,
+          unresolvedReason:
+            'package.json is missing a "test:run" script. Add a "test:run" entry under scripts (e.g., "test:run": "vitest run") or define test/typecheck commands in .exarchos.yml.',
+        };
+      }
+      return {
+        test: 'npm run test:run',
+        typecheck: hasScript(pkg, 'typecheck') ? 'npm run typecheck' : 'tsc --noEmit',
+        install: 'npm install',
+        detected: true,
+      };
+    }
   }
 
   try {
@@ -158,6 +243,16 @@ export function resolveTestRuntime(repoRoot: string, options?: ResolveOptions): 
       install: null,
       source: 'unresolved',
       remediation: UNRESOLVED_REMEDIATION,
+    };
+  }
+
+  if (det.unresolvedReason) {
+    return {
+      test: det.test,
+      typecheck: det.typecheck,
+      install: det.install,
+      source: 'unresolved',
+      remediation: det.unresolvedReason,
     };
   }
 

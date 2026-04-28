@@ -25,7 +25,10 @@ describe('resolveTestRuntime', () => {
 
   it('resolveTestRuntime_NodeProject_ReturnsNpmCommands', () => {
     const dir = makeTmpDir();
-    writeFileSync(join(dir, 'package.json'), '{}');
+    writeFileSync(
+      join(dir, 'package.json'),
+      JSON.stringify({ scripts: { 'test:run': 'vitest run', typecheck: 'tsc --noEmit' } }),
+    );
 
     const result = resolveTestRuntime(dir);
 
@@ -122,7 +125,10 @@ describe('resolveTestRuntime', () => {
 
   it('resolveTestRuntime_OverridePartial_MergesWithDetection', () => {
     const dir = makeTmpDir();
-    writeFileSync(join(dir, 'package.json'), '{}');
+    writeFileSync(
+      join(dir, 'package.json'),
+      JSON.stringify({ scripts: { 'test:run': 'vitest run', typecheck: 'tsc --noEmit' } }),
+    );
 
     const result = resolveTestRuntime(dir, { override: { test: 'bun test' } });
 
@@ -146,7 +152,10 @@ describe('resolveTestRuntime', () => {
 
   it('resolveTestRuntime_PriorityPackageJsonWinsOverPyproject', () => {
     const dir = makeTmpDir();
-    writeFileSync(join(dir, 'package.json'), '{}');
+    writeFileSync(
+      join(dir, 'package.json'),
+      JSON.stringify({ scripts: { 'test:run': 'vitest run', typecheck: 'tsc --noEmit' } }),
+    );
     writeFileSync(join(dir, 'pyproject.toml'), '[project]');
 
     const result = resolveTestRuntime(dir);
@@ -174,7 +183,7 @@ describe('resolveTestRuntime', () => {
 
   it('resolveTestRuntime_PnpmProject_DetectsPnpmLockfile', () => {
     const dir = makeTmpDir();
-    writeFileSync(join(dir, 'package.json'), '{}');
+    writeFileSync(join(dir, 'package.json'), JSON.stringify({ scripts: { test: 'vitest run' } }));
     writeFileSync(join(dir, 'pnpm-lock.yaml'), '');
 
     const result = resolveTestRuntime(dir);
@@ -189,7 +198,7 @@ describe('resolveTestRuntime', () => {
 
   it('resolveTestRuntime_YarnProject_DetectsYarnLockfile', () => {
     const dir = makeTmpDir();
-    writeFileSync(join(dir, 'package.json'), '{}');
+    writeFileSync(join(dir, 'package.json'), JSON.stringify({ scripts: { test: 'vitest run' } }));
     writeFileSync(join(dir, 'yarn.lock'), '');
 
     const result = resolveTestRuntime(dir);
@@ -204,7 +213,10 @@ describe('resolveTestRuntime', () => {
 
   it('resolveTestRuntime_NpmProject_NoAltLockfile_ReturnsNpmCommands', () => {
     const dir = makeTmpDir();
-    writeFileSync(join(dir, 'package.json'), '{}');
+    writeFileSync(
+      join(dir, 'package.json'),
+      JSON.stringify({ scripts: { 'test:run': 'vitest run', typecheck: 'tsc --noEmit' } }),
+    );
     writeFileSync(join(dir, 'package-lock.json'), '{}');
 
     const result = resolveTestRuntime(dir);
@@ -235,7 +247,7 @@ describe('resolveTestRuntime', () => {
 
   it('resolveTestRuntime_PnpmAndYarnLockfiles_PnpmWins', () => {
     const dir = makeTmpDir();
-    writeFileSync(join(dir, 'package.json'), '{}');
+    writeFileSync(join(dir, 'package.json'), JSON.stringify({ scripts: { test: 'vitest run' } }));
     writeFileSync(join(dir, 'pnpm-lock.yaml'), '');
     writeFileSync(join(dir, 'yarn.lock'), '');
 
@@ -259,5 +271,134 @@ describe('resolveTestRuntime', () => {
     expect(result.test).toBeNull();
     expect(result.typecheck).toBeNull();
     expect(result.install).toBeNull();
+  });
+
+  // ─── T06: Script-existence checks (closes #1174 mechanism) ────────────────
+
+  it('resolveTestRuntime_NpmProjectMissingTestRunScript_ReturnsUnresolvedTestWithRemediation', () => {
+    const dir = makeTmpDir();
+    writeFileSync(
+      join(dir, 'package.json'),
+      JSON.stringify({ scripts: { build: 'tsc' } }),
+    );
+
+    const result = resolveTestRuntime(dir);
+
+    expect(result.test).toBeNull();
+    expect(result.source).toBe('unresolved');
+    expect(result.remediation).toBeDefined();
+    expect(result.remediation!.length).toBeGreaterThan(0);
+    // Remediation must mention either .exarchos.yml or the missing script name.
+    expect(
+      result.remediation!.includes('.exarchos.yml') || result.remediation!.includes('test:run'),
+    ).toBe(true);
+    // install command stays populated so callers can still install deps.
+    expect(result.install).toBe('npm install');
+  });
+
+  it('resolveTestRuntime_NpmProjectWithTestRunScript_ReturnsNpmRunTestRun', () => {
+    const dir = makeTmpDir();
+    writeFileSync(
+      join(dir, 'package.json'),
+      JSON.stringify({ scripts: { 'test:run': 'vitest run', typecheck: 'tsc --noEmit' } }),
+    );
+
+    const result = resolveTestRuntime(dir);
+
+    expect(result).toEqual({
+      test: 'npm run test:run',
+      typecheck: 'npm run typecheck',
+      install: 'npm install',
+      source: 'detection',
+    });
+  });
+
+  it('resolveTestRuntime_NpmProjectMissingTypecheckScript_FallsBackToTscNoEmit', () => {
+    const dir = makeTmpDir();
+    writeFileSync(
+      join(dir, 'package.json'),
+      JSON.stringify({ scripts: { 'test:run': 'vitest run' } }),
+    );
+
+    const result = resolveTestRuntime(dir);
+
+    expect(result).toEqual({
+      test: 'npm run test:run',
+      typecheck: 'tsc --noEmit',
+      install: 'npm install',
+      source: 'detection',
+    });
+  });
+
+  it('resolveTestRuntime_PnpmProjectMissingTestScript_ReturnsUnresolvedWithRemediation', () => {
+    const dir = makeTmpDir();
+    writeFileSync(join(dir, 'package.json'), JSON.stringify({ scripts: { build: 'tsc' } }));
+    writeFileSync(join(dir, 'pnpm-lock.yaml'), '');
+
+    const result = resolveTestRuntime(dir);
+
+    expect(result.test).toBeNull();
+    expect(result.source).toBe('unresolved');
+    expect(result.remediation).toBeDefined();
+    expect(
+      result.remediation!.includes('.exarchos.yml') || result.remediation!.includes('test'),
+    ).toBe(true);
+  });
+
+  it('resolveTestRuntime_YarnProjectMissingTestScript_ReturnsUnresolvedWithRemediation', () => {
+    const dir = makeTmpDir();
+    writeFileSync(join(dir, 'package.json'), JSON.stringify({ scripts: { build: 'tsc' } }));
+    writeFileSync(join(dir, 'yarn.lock'), '');
+
+    const result = resolveTestRuntime(dir);
+
+    expect(result.test).toBeNull();
+    expect(result.source).toBe('unresolved');
+    expect(result.remediation).toBeDefined();
+    expect(
+      result.remediation!.includes('.exarchos.yml') || result.remediation!.includes('test'),
+    ).toBe(true);
+  });
+
+  it('resolveTestRuntime_BunProjectMissingTestScript_StillReturnsBunTest', () => {
+    const dir = makeTmpDir();
+    writeFileSync(join(dir, 'package.json'), JSON.stringify({ scripts: { build: 'tsc' } }));
+    writeFileSync(join(dir, 'bun.lockb'), '');
+
+    const result = resolveTestRuntime(dir);
+
+    expect(result).toEqual({
+      test: 'bun test',
+      typecheck: 'tsc --noEmit',
+      install: 'bun install',
+      source: 'detection',
+    });
+  });
+
+  it('resolveTestRuntime_NpmProjectScriptsFieldAbsent_ReturnsUnresolved', () => {
+    const dir = makeTmpDir();
+    writeFileSync(join(dir, 'package.json'), JSON.stringify({ name: 'no-scripts-here' }));
+
+    const result = resolveTestRuntime(dir);
+
+    expect(result.test).toBeNull();
+    expect(result.source).toBe('unresolved');
+    expect(result.remediation).toBeDefined();
+    expect(
+      result.remediation!.includes('.exarchos.yml') || result.remediation!.includes('test:run'),
+    ).toBe(true);
+  });
+
+  it('resolveTestRuntime_NpmProjectMalformedPackageJson_HandlesGracefully', () => {
+    const dir = makeTmpDir();
+    writeFileSync(join(dir, 'package.json'), '{ "name": "broken", "scripts": {');
+
+    const result = resolveTestRuntime(dir);
+
+    expect(result.test).toBeNull();
+    expect(result.typecheck).toBeNull();
+    expect(result.source).toBe('unresolved');
+    expect(result.remediation).toBeDefined();
+    expect(result.remediation!.toLowerCase()).toContain('package.json');
   });
 });
