@@ -189,6 +189,18 @@ export const WorktreeSchema = z.object({
   { message: 'Either taskId or tasks (non-empty) must be provided' },
 );
 
+// ─── Merge Orchestrator State Schema (DR-MO-1 / DR-MO-2) ───────────────────
+
+export const MergeOrchestratorStateSchema = z.object({
+  phase: z.enum(['pending', 'executing', 'completed', 'rolled-back', 'aborted']),
+  sourceBranch: z.string().min(1),
+  targetBranch: z.string().min(1),
+  taskId: z.string().optional(),
+  rollbackSha: z.string().optional(),
+  mergeSha: z.string().optional(),
+  preflight: z.unknown().optional(), // detailed shape comes in T06/T07; opaque for now
+});
+
 // ─── Synthesis Schema ───────────────────────────────────────────────────────
 
 export const SynthesisSchema = z.object({
