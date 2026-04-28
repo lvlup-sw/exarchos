@@ -39,6 +39,11 @@ export interface ToolResult {
     gate?: string;
     operationsSince?: number;
     threshold?: number;
+    // T04 (Issue #1192): the readonly capability gate uses these fields to
+    // identify which composite tool / action was rejected so callers can
+    // correlate a CAPABILITY_DENIED rejection back to a specific dispatch.
+    tool?: string;
+    action?: string;
   };
   readonly warnings?: readonly string[];
   readonly _meta?: unknown;
