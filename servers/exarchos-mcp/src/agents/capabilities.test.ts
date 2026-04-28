@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { Capability } from './capabilities.js';
+import { Capability, CAPABILITY_KEYS } from './capabilities.js';
 
 describe('Capability vocabulary', () => {
   it('Capability_RejectsUnknownVerb_ZodFails', () => {
@@ -26,5 +26,14 @@ describe('Capability vocabulary', () => {
     for (const member of vocabulary) {
       expect(() => Capability.parse(member)).not.toThrow();
     }
+  });
+
+  it('CapabilityKeys_MatchesEnumValues', () => {
+    expect(CAPABILITY_KEYS).toEqual(new Set(Capability.options));
+    expect(CAPABILITY_KEYS.size).toBe(Capability.options.length);
+  });
+
+  it('CapabilityKeys_IsReadonly', () => {
+    expect(Object.isFrozen(CAPABILITY_KEYS)).toBe(true);
   });
 });
