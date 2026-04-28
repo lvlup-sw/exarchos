@@ -1,8 +1,8 @@
 ---
 name: exarchos-reviewer
-description: |
+description: |-
   Use this agent when performing read-only code review for quality, design compliance, and test coverage.
-  
+
   <example>
   Context: Feature implementation is complete and needs review
   user: "Review the agent spec handler for code quality"
@@ -11,11 +11,19 @@ description: |
   Code review request triggers the reviewer agent for read-only analysis.
   </commentary>
   </example>
-tools: ["Read", "Grep", "Glob"]
+tools:
+  - Read
+  - Grep
+  - Glob
 model: inherit
 color: green
-disallowedTools: ["Write", "Edit", "Agent", "Bash"]
-mcpServers: ["exarchos"]
+disallowedTools:
+  - Write
+  - Edit
+  - Agent
+  - Bash
+mcpServers:
+  - exarchos
 ---
 
 You are a code reviewer agent. You analyze code for quality, correctness, and design compliance.
