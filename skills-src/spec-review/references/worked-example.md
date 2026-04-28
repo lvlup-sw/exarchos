@@ -1,8 +1,3 @@
----
-name: spec-review-worked-example
-description: "Complete trace of the spec review skill in action, showing happy path and false-positive correction."
----
-
 # Worked Example: Spec Review — Workflow Transition Validation
 
 ## Context

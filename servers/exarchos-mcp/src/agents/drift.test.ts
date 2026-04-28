@@ -7,17 +7,13 @@
 
 import { describe, it, expect } from 'vitest';
 import { ALL_AGENT_SPECS } from './definitions.js';
+import { CAPABILITY_KEYS } from './capabilities.js';
+import { deriveClaudeToolsFromCapabilities } from './adapters/claude.js';
 
 // ─── Known Names ───────────────────────────────────────────────────────────
 
 const KNOWN_DISALLOWED_TOOLS: ReadonlySet<string> = new Set([
   'Read', 'Write', 'Edit', 'Bash', 'Grep', 'Glob', 'Agent', 'WebFetch', 'WebSearch',
-]);
-
-const KNOWN_CAPABILITIES: ReadonlySet<string> = new Set([
-  'fs:read', 'fs:write', 'shell:exec',
-  'subagent:spawn', 'subagent:completion-signal', 'subagent:start-signal',
-  'mcp:exarchos', 'isolation:worktree', 'team:agent-teams', 'session:resume',
 ]);
 
 // ─── Template Var Pattern ──────────────────────────────────────────────────
@@ -33,8 +29,8 @@ describe('Agent Spec Drift Prevention', () => {
     for (const spec of ALL_AGENT_SPECS) {
       for (const cap of spec.capabilities) {
         expect(
-          KNOWN_CAPABILITIES.has(cap),
-          `${spec.id}: capability '${cap}' is not in the known set: ${[...KNOWN_CAPABILITIES].join(', ')}`,
+          CAPABILITY_KEYS.has(cap),
+          `${spec.id}: capability '${cap}' is not in the known set: ${[...CAPABILITY_KEYS].join(', ')}`,
         ).toBe(true);
       }
       if (spec.disallowedTools) {
@@ -73,23 +69,12 @@ describe('Agent Spec Drift Prevention', () => {
   });
 
   it('AllAgentSpecs_DisallowedToolsNotInDerivedTools_NoOverlap', () => {
-    // After Task 4a/14 this drift check moves into the Claude adapter snapshot.
-    // Until then, we sanity-check against the derivation shim.
+    // Use the canonical Claude derivation helper so this check stays in lock-step
+    // with what `agents/*.md` actually grants. Cross-adapter coverage lives in
+    // each adapter's own snapshot test (see runtimes/*.test.ts).
     for (const spec of ALL_AGENT_SPECS) {
       if (!spec.disallowedTools) continue;
-      // Reproduce the same derivation shape used by the temporary shim so the
-      // assertion still describes "what Claude sees". Direct fs:write/shell:exec
-      // mapping is sufficient to detect overlap with disallowedTools.
-      const derived = new Set<string>();
-      if (spec.capabilities.includes('fs:read')) {
-        derived.add('Read'); derived.add('Grep'); derived.add('Glob');
-      }
-      if (spec.capabilities.includes('fs:write')) {
-        derived.add('Write'); derived.add('Edit');
-      }
-      if (spec.capabilities.includes('shell:exec')) {
-        derived.add('Bash');
-      }
+      const derived = new Set<string>(deriveClaudeToolsFromCapabilities(spec));
       for (const disallowed of spec.disallowedTools) {
         expect(
           derived.has(disallowed),

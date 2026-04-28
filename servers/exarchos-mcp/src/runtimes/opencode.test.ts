@@ -52,6 +52,7 @@ const EXPECTED_NATIVE = [
   'shell:exec',
   'subagent:spawn',
   'mcp:exarchos',
+  'mcp:exarchos:readonly',
 ] as const;
 
 const EXPECTED_ADVISORY = [
@@ -79,7 +80,7 @@ function loadOpencodeYaml(): Record<string, unknown> {
 }
 
 describe('runtimes/opencode.yaml supportedCapabilities', () => {
-  it('OpencodeYaml_SupportedCapabilities_FiveNativeTwoAdvisory', () => {
+  it('OpencodeYaml_SupportedCapabilities_SixNativeTwoAdvisory', () => {
     const data = loadOpencodeYaml();
     const supported = data.supportedCapabilities;
 

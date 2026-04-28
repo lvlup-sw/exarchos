@@ -43,4 +43,5 @@ When done, output a JSON completion report:
 - mcp:exarchos
 - isolation:worktree
 """
+sandbox_mode = "workspace-write"
 mcp_servers = ["exarchos"]

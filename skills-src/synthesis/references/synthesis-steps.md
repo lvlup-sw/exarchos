@@ -1,7 +1,3 @@
----
-name: synthesis-steps
----
-
 # Synthesis Process
 
 ## Step 1: Verify Readiness

@@ -1,7 +1,3 @@
----
-paths: "**/*.ts", "**/*.tsx", "**/*.cs"
----
-
 # Coding Standards
 
 Apply these standards when reviewing or writing TypeScript or C# code.

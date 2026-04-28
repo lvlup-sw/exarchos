@@ -1,8 +1,3 @@
----
-name: parallel-strategy
-description: Parallel dispatch and result-collection strategy for subagent teammates.
----
-
 # Parallel Execution Strategy
 
 ## Identifying Parallel Groups
@@ -20,38 +15,10 @@ Group B (depends on Group A):
 - Task 004: API handlers
 ```
 
-## Dispatching Parallel Tasks
-
-**Critical:** Use a single message with multiple subagent invocations — the runtime's spawn primitive renders the parallel dispatch:
-
-```typescript
-// CORRECT: Single message, parallel execution
-Execute each task sequentially in the current session, one at a time, against the prepared worktrees.
-Execute each task sequentially in the current session, one at a time, against the prepared worktrees.
-
-// WRONG: Separate messages = sequential
-```
 
 
-## Subagent Dispatch Properties
-
-| Aspect | Subagent dispatch |
-|--------|---------------------|
-| Parallel dispatch | Multiple `[sequential execution]` invocations in one message |
-| Waiting | `[task output is the assistant's next message]` |
-| Visibility | None (background) |
-| Model control | `recommendedModel` from `prepare_delegation` (computed from the config cascade) |
-| Max parallelism | Unlimited |
-| Resume on crash | Task results preserved |
 
 
-## Waiting for Parallel Completion
-
-```text
-// Wait for all background tasks via the runtime's result-collection primitive
-[task output is the assistant's next message]
-// (poll/await per task_id on poll-based runtimes; inline on runtimes that return replies in the dispatching turn)
-```
 
 ## Model Selection Guide
 

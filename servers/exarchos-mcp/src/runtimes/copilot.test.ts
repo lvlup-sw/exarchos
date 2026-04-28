@@ -113,7 +113,7 @@ describe('runtimes/copilot.yaml — local task --agent primitive', () => {
     expect(referencesBareName).toBe(true);
   });
 
-  it('CopilotYaml_SupportedCapabilities_FiveNativeTwoAdvisory', () => {
+  it('CopilotYaml_SupportedCapabilities_SixNativeTwoAdvisory', () => {
     const data = loadCopilotYaml();
     const supported = data.supportedCapabilities;
 
@@ -127,8 +127,9 @@ describe('runtimes/copilot.yaml — local task --agent primitive', () => {
 
     const map = supported as Record<string, unknown>;
 
-    // Per Task 4f's COPILOT_SUPPORT_LEVELS:
-    //   native (5):    fs:read, fs:write, shell:exec, subagent:spawn, mcp:exarchos
+    // Per COPILOT_SUPPORT_LEVELS (Task 4f + #1192 T08 readonly tier):
+    //   native (6):    fs:read, fs:write, shell:exec, subagent:spawn,
+    //                  mcp:exarchos, mcp:exarchos:readonly
     //   advisory (2):  isolation:worktree, session:resume
     //   unsupported (3, omitted): subagent:completion-signal,
     //                             subagent:start-signal, team:agent-teams
@@ -138,6 +139,7 @@ describe('runtimes/copilot.yaml — local task --agent primitive', () => {
       'shell:exec',
       'subagent:spawn',
       'mcp:exarchos',
+      'mcp:exarchos:readonly',
     ];
     const expectedAdvisory = ['isolation:worktree', 'session:resume'];
 

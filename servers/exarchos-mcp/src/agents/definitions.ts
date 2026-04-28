@@ -121,7 +121,7 @@ When done, output a JSON completion report:
   ],
   validationRules: [
     { trigger: 'pre-write', rule: 'Test file must exist before implementation file is written' },
-    { trigger: 'post-test', rule: 'All tests must pass', command: 'npm run test:run' },
+    { trigger: 'post-test', rule: 'All tests must pass', command: 'npm --prefix "$(git rev-parse --show-toplevel)" run test:run' },
   ],
   resumable: true,
   memoryScope: 'project',
@@ -190,7 +190,7 @@ When done, output a JSON completion report:
     { name: 'tdd-patterns', content: '' },
   ],
   validationRules: [
-    { trigger: 'post-test', rule: 'All tests must pass after fix', command: 'npm run test:run' },
+    { trigger: 'post-test', rule: 'All tests must pass after fix', command: 'npm --prefix "$(git rev-parse --show-toplevel)" run test:run' },
   ],
   resumable: false,
   mcpServers: ['exarchos'],
@@ -232,24 +232,6 @@ Rules:
 - Be specific in findings — include file paths and line references
 - Categorize findings: critical, warning, suggestion
 
-## Forbidden MCP Actions (read-only review boundary)
-
-You MAY call only these strictly read-only Exarchos MCP actions:
-- \`exarchos_view\` — \`pipeline\`, \`tasks\`, \`workflow_status\`, \`stack_status\`, \`telemetry\`, \`team_performance\`, \`delegation_timeline\`, \`delegation_readiness\`, \`synthesis_readiness\`, \`shepherd_status\`, \`convergence\`, \`quality_hints\`, \`describe\` (NOT \`code_quality\` — emits \`quality.regression\` events; NOT \`stack_place\` — mutates)
-- \`exarchos_workflow\` — \`get\`, \`describe\` only
-- \`exarchos_event\` — \`query\`, \`describe\` only
-- \`exarchos_orchestrate\` — \`describe\` only
-
-You MUST NOT call any other MCP action — they all mutate state, emit events, or call external services. Forbidden examples include but are not limited to:
-- \`exarchos_workflow set/init/cancel/cleanup/checkpoint/reconcile/rehydrate\` (\`reconcile\` writes state, \`rehydrate\` emits \`workflow.rehydrated\`)
-- \`exarchos_event append/batch_append\`
-- \`exarchos_orchestrate check_*\` (each emits a \`gate.executed\` event)
-- \`exarchos_orchestrate task_claim/task_complete/task_fail\`
-- \`exarchos_orchestrate create_pr/merge_pr/add_pr_comment/create_issue/...\`
-- \`exarchos_view code_quality/stack_place\`
-
-Workflow mutation, event emission, and gate execution belong to the orchestrator. If a finding requires state changes, gate runs, or fresh quality checks, surface it as a recommendation in the review verdict — the orchestrator will dispatch.
-
 ## Completion Report
 When done, output a JSON completion report:
 \`\`\`json
@@ -265,29 +247,24 @@ When done, output a JSON completion report:
   // OpenCode's `tools.bash`. Test runs / typecheck / git inspection
   // belong to the orchestrator, not the reviewer agent.
   //
-  // `mcp:exarchos` is retained so the reviewer can consult read-only MCP
-  // surfaces (`exarchos_view`, `exarchos_workflow get`, `exarchos_event
-  // query`, `exarchos_orchestrate describe`) for code-quality data
-  // during review. Per #1109 Constraint 3 (Basileus-forward), MCP must
-  // remain first-class; demoting MCP entirely would violate that.
+  // `mcp:exarchos:readonly` is declared (NOT the full `mcp:exarchos`)
+  // so the reviewer can consult read-only MCP surfaces (`exarchos_view`
+  // pure-read actions, `exarchos_workflow get/describe`, `exarchos_event
+  // query/describe`, `exarchos_orchestrate describe`) while mutating
+  // composite-tool actions are blocked at the dispatch layer (T04).
+  // Per #1109 Constraint 3 (Basileus-forward), MCP remains first-class;
+  // the readonly tier preserves that without exposing write actions.
   //
   // Trust-boundary state — defense in depth (DIM-2 + DIM-7):
   //   1. shell:exec absent + Bash in disallowedTools → no shell escape
   //   2. fs:write absent + Write/Edit in disallowedTools → no FS mutation
-  //   3. mcp:exarchos PRESENT but mutating actions are prompt-forbidden
-  //      (see systemPrompt "Forbidden MCP actions" section). The composite
-  //      tools expose write actions (workflow.set, event.append,
-  //      orchestrate.task_complete, etc.) under shared composite names
-  //      that cannot be filtered at the runtime tool-allowlist level.
-  //
-  // The capability-level enforcement of read-only MCP requires either a
-  // new `mcp:exarchos:readonly` capability negotiated via the
-  // handshake-authoritative resolution path (#1109 §2.8 / ADR §2.8) or a
-  // server-side read-only tool partition. Tracked in #1192 — not in
-  // scope for this PR.
+  //   3. mcp:exarchos:readonly (without mcp:exarchos) → dispatch-layer
+  //      gate rejects mutating composite actions (workflow.set,
+  //      event.append, orchestrate.task_complete, etc.) structurally,
+  //      not via prose. See `core/dispatch.ts` readonly action allowlist.
   capabilities: [
     'fs:read',
-    'mcp:exarchos',
+    'mcp:exarchos:readonly',
   ],
   disallowedTools: ['Write', 'Edit', 'Agent', 'Bash'],
   model: 'inherit',

@@ -1,7 +1,3 @@
----
-name: thorough-track
----
-
 # Thorough Track
 
 ## Purpose

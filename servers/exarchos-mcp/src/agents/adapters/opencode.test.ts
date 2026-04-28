@@ -77,11 +77,33 @@ describe('OpenCodeAdapter', () => {
     }
   });
 
-  it('OpenCodeAdapter_LowerSpec_BodyContainsSpecDescription', () => {
+  it('OpenCodeAdapter_LowerSpec_Readonly_GrantsExarchosTool', () => {
+    // Item 1, T10 (#1192): the readonly tier of mcp:exarchos must still
+    // surface the exarchos MCP server in OpenCode's `mcp` map. The server-
+    // side allowlist (T04) is what enforces read-only action filtering;
+    // the adapter just needs to grant the tool so the agent can dial it.
+    const spec: AgentSpec = {
+      ...IMPLEMENTER,
+      capabilities: ['fs:read', 'mcp:exarchos:readonly'],
+    };
+    const { contents } = OpenCodeAdapter.lowerSpec(spec);
+    const { data } = splitFrontmatter(contents);
+
+    const mcp = data.mcp as Record<string, true> | undefined;
+    expect(mcp).toBeDefined();
+    expect(mcp?.exarchos).toBe(true);
+  });
+
+  it('OpenCodeAdapter_LowerSpec_BodyContainsSpecDescriptionAndSystemPromptSentinels', () => {
     const { contents } = OpenCodeAdapter.lowerSpec(IMPLEMENTER);
     const { body } = splitFrontmatter(contents);
     // The lowered markdown body must include the spec's systemPrompt content
     // (or, at minimum, the spec's description so dispatch context is preserved).
     expect(body).toContain(IMPLEMENTER.description);
+    // Sentinels from IMPLEMENTER.systemPrompt — structural anchors unlikely to
+    // be edited. Without these, a regression dropping most of systemPrompt
+    // would still pass the description-only assertion. See #1192 Item 10.
+    expect(body).toContain('## Task');
+    expect(body).toContain('{{taskDescription}}');
   });
 });

@@ -45,6 +45,7 @@ supportedCapabilities:
   subagent:completion-signal: native
   subagent:start-signal: native
   mcp:exarchos: native
+  mcp:exarchos:readonly: native
   isolation:worktree: native
   team:agent-teams: native
   session:resume: native

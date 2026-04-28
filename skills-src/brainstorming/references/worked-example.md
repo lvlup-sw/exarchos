@@ -1,8 +1,3 @@
----
-name: brainstorming-worked-example
-description: "Complete trace of the brainstorming skill in action, showing happy path and pivot recovery."
----
-
 # Worked Example: Brainstorming — Event Deduplication
 
 ## Context

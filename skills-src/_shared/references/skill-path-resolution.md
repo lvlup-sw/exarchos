@@ -1,8 +1,3 @@
----
-name: skill-path-resolution
-description: "Resolve @skills/<name>/SKILL.md paths to ~/.claude/skills/<name>/SKILL.md."
----
-
 # Skill Path Resolution
 
 `@skills/<name>/SKILL.md` resolves to `~/.claude/skills/<name>/SKILL.md`.

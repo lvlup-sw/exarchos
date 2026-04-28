@@ -64,6 +64,7 @@ export const SupportedCapabilityKey = z.enum([
   'subagent:completion-signal',
   'subagent:start-signal',
   'mcp:exarchos',
+  'mcp:exarchos:readonly',
   'isolation:worktree',
   'team:agent-teams',
   'session:resume',

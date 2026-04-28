@@ -40,8 +40,15 @@ const CODEX_SUPPORT_LEVELS = buildSupportMap('native', {
 });
 
 /** Escape characters disallowed inside a TOML basic string. */
-function tomlBasicString(value: string): string {
-  return `"${value.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n').replace(/\r/g, '\\r').replace(/\t/g, '\\t')}"`;
+export function tomlBasicString(value: string): string {
+  return `"${value
+    .replace(/\\/g, '\\\\')
+    .replace(/"/g, '\\"')
+    .replace(/\x08/g, '\\b')
+    .replace(/\f/g, '\\f')
+    .replace(/\n/g, '\\n')
+    .replace(/\r/g, '\\r')
+    .replace(/\t/g, '\\t')}"`;
 }
 
 /**
@@ -58,6 +65,38 @@ function tomlMultilineString(value: string): string {
 /** Render a TOML inline array of basic strings. */
 function tomlStringArray(values: readonly string[]): string {
   return `[${values.map(tomlBasicString).join(', ')}]`;
+}
+
+/**
+ * Derive Codex's `sandbox_mode` from the spec's declared capabilities.
+ *
+ * Codex's TOML format has no per-tool allowlist primitive (cf. Claude's
+ * `tools` array or OpenCode's `tools` boolean map). The single structural
+ * gate the runtime exposes is `sandbox_mode`, with three documented
+ * values:
+ *
+ *   - `read-only`        — process is barred from filesystem writes and
+ *                          shell execution outside its session bounds.
+ *   - `workspace-write`  — process may write within the workspace and
+ *                          spawn shell commands from it.
+ *   - `danger-full-access` — no sandbox; not used here.
+ *
+ * Mapping (parallels `deriveClaudeToolsFromCapabilities` in claude.ts):
+ *
+ *   - capabilities lack BOTH `fs:write` and `shell:exec` → `read-only`
+ *   - capabilities include EITHER `fs:write` or `shell:exec` → `workspace-write`
+ *
+ * Without this derivation, REVIEWER (read-only) and IMPLEMENTER (write +
+ * shell) would lower to byte-identical sandbox configurations — the
+ * negative-capability guarantee in REVIEWER's spec would be prose-only.
+ * Issue #1192 Item 6, T27.
+ */
+function deriveCodexSandboxMode(spec: AgentSpec): 'read-only' | 'workspace-write' {
+  const caps = new Set<string>(spec.capabilities);
+  if (caps.has('fs:write') || caps.has('shell:exec')) {
+    return 'workspace-write';
+  }
+  return 'read-only';
 }
 
 /**
@@ -85,9 +124,22 @@ function lowerSpec(spec: AgentSpec): { path: string; contents: string } {
     `developer_instructions = ${tomlMultilineString(renderDeveloperInstructions(spec))}`,
   );
 
+  // Negative-capability enforcement (#1192 Item 6, T27): emit a
+  // capability-derived `sandbox_mode` so the runtime structurally honors
+  // the spec's fs/shell declarations rather than falling back to a
+  // session default that may grant more access than the spec authorized.
+  lines.push(`sandbox_mode = ${tomlBasicString(deriveCodexSandboxMode(spec))}`);
+
   if (spec.mcpServers && spec.mcpServers.length > 0) {
     lines.push(`mcp_servers = ${tomlStringArray([...spec.mcpServers])}`);
-  } else if (spec.capabilities.includes('mcp:exarchos')) {
+  } else if (
+    spec.capabilities.includes('mcp:exarchos') ||
+    spec.capabilities.includes('mcp:exarchos:readonly')
+  ) {
+    // Both the broad and readonly capabilities grant the same Codex
+    // mcp_servers entry — Codex's TOML format has no per-action sub-grant
+    // primitive. The server-side action allowlist (T04 dispatch gate) is
+    // what enforces the readonly tier; this adapter just opens the channel.
     lines.push(`mcp_servers = ${tomlStringArray(['exarchos'])}`);
   }
 

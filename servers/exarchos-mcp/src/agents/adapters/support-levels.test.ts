@@ -56,6 +56,7 @@ const NON_CLAUDE_EXPECTED: Readonly<Record<Capability, SupportLevel>> = {
   'shell:exec': 'native',
   'subagent:spawn': 'native',
   'mcp:exarchos': 'native',
+  'mcp:exarchos:readonly': 'native',
   'isolation:worktree': 'advisory',
   'session:resume': 'advisory',
   'subagent:completion-signal': 'unsupported',

@@ -72,6 +72,7 @@ supportedCapabilities:
   shell:exec: native
   subagent:spawn: native
   mcp:exarchos: native
+  mcp:exarchos:readonly: native
   isolation:worktree: advisory
   session:resume: advisory
   # Omitted (unsupported on Codex):

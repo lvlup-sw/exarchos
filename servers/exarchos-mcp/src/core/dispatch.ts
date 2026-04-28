@@ -54,6 +54,136 @@ export interface DispatchContext {
   readonly capabilityResolver?: CapabilityResolver;
 }
 
+// ─── T04: Server-side Read-only Action Allowlist (Issue #1192) ─────────────
+//
+// Composite-tool actions that are safe to invoke under the
+// `mcp:exarchos:readonly` capability tier. Anything NOT listed here (for a
+// given tool) is treated as mutating and rejected with CAPABILITY_DENIED
+// when the effective capability set contains `mcp:exarchos:readonly` but
+// NOT `mcp:exarchos`.
+//
+// The tier merge rule: a spec that holds BOTH `mcp:exarchos` and
+// `mcp:exarchos:readonly` keeps full access (less-restrictive wins). The
+// gate fires only when the readonly tier is the only `mcp:exarchos*` cap
+// the resolver reports — see `enforceReadonlyGate` below.
+//
+// Exported so T05 (resolver tier merge) and T06-T10 (per-runtime adapters)
+// can reference the same allowlist instead of duplicating action lists.
+//
+// `'*'` for `exarchos_view` means the entire tool is read-only — every
+// action surface returns deterministic data without auto-emitting events
+// or mutating workflow / event store state.
+export const READ_ONLY_ACTIONS = {
+  // Excluded as mutating: `reconcile` reapplies events to overwrite the
+  // on-disk state file; `rehydrate` emits a `workflow.rehydrated` event
+  // (per its tool contract) and may persist a fresh snapshot. Both touch
+  // the event/state stores and are not safe under the readonly tier — a
+  // read-only viewer should consume the latest known state via `get` (or
+  // `exarchos_view`) instead.
+  exarchos_workflow: ['get', 'describe'],
+  exarchos_event: ['query', 'describe'],
+  // Orchestrate read-only set: descriptive actions (`describe`, `runbook`,
+  // `agent_spec`, `doctor`), pure-analysis gate checks (`check_*`),
+  // information extractors (`extract_task`, `review_diff`,
+  // `verify_worktree`, `select_debug_track`, `investigation_timer`,
+  // `assess_refactor_scope`), validators (`validate_pr_body`,
+  // `validate_pr_stack`, `verify_doc_links`, `verify_review_triage`,
+  // `verify_worktree_baseline`, `verify_delegation_saga`,
+  // `spec_coverage_check`, `needs_schema_sync`, `generate_traceability`,
+  // `classify_review_items`), readiness queries (`prepare_review`), and
+  // the read-only VCS surfaces (`check_ci`, `list_prs`,
+  // `get_pr_comments`).
+  //
+  // Excluded as mutating: `task_claim`, `task_complete`, `task_fail`
+  // (event-emitting), `prepare_delegation`, `prepare_synthesis`,
+  // `assess_stack` (event-emitting / `shepherd.*`), `setup_worktree`,
+  // `merge_orchestrate`, `merge_pr`, `create_pr`, `create_issue`,
+  // `add_pr_comment`, `init`, `new_project`, `prune_stale_workflows`,
+  // `request_synthesize`, `finalize_oneshot`, `reconcile_state`,
+  // `extract_fix_tasks`, `pre_synthesis_check`, `post_delegation_check`,
+  // `debug_review_gate`, `check_pr_comments` (queries gh state but is
+  // grouped with synthesis review actions and may emit), and the
+  // `review_triage` orchestrator.
+  exarchos_orchestrate: [
+    'describe',
+    'runbook',
+    'agent_spec',
+    'doctor',
+    'check_static_analysis',
+    'check_security_scan',
+    'check_context_economy',
+    'check_operational_resilience',
+    'check_workflow_determinism',
+    'check_review_verdict',
+    'check_convergence',
+    'check_provenance_chain',
+    'check_design_completeness',
+    'check_plan_coverage',
+    'check_tdd_compliance',
+    'check_post_merge',
+    'check_task_decomposition',
+    'check_event_emissions',
+    'check_coderabbit',
+    'check_polish_scope',
+    'check_coverage_thresholds',
+    'check_ci',
+    'extract_task',
+    'review_diff',
+    'verify_worktree',
+    'verify_worktree_baseline',
+    'verify_delegation_saga',
+    'verify_doc_links',
+    'verify_review_triage',
+    'select_debug_track',
+    'investigation_timer',
+    'assess_refactor_scope',
+    'validate_pr_body',
+    'validate_pr_stack',
+    'spec_coverage_check',
+    'needs_schema_sync',
+    'generate_traceability',
+    'classify_review_items',
+    'prepare_review',
+    'list_prs',
+    'get_pr_comments',
+  ],
+  exarchos_view: '*',
+} as const;
+
+export type ReadOnlyActionsMap = typeof READ_ONLY_ACTIONS;
+
+/**
+ * Apply the readonly capability gate. Returns a structured CAPABILITY_DENIED
+ * ToolResult when the effective capability set forbids `action` on `tool`,
+ * or `null` when the call is allowed to proceed.
+ *
+ * Gate rule: fires only when `mcp:exarchos:readonly` is present AND
+ * `mcp:exarchos` is NOT present (less-restrictive tier wins on merge).
+ */
+export function enforceReadonlyGate(
+  tool: string,
+  action: string,
+  resolver: CapabilityResolver | undefined,
+): ToolResult | null {
+  if (!resolver) return null;
+  if (!resolver.has('mcp:exarchos:readonly')) return null;
+  if (resolver.has('mcp:exarchos')) return null;
+
+  const allowed = (READ_ONLY_ACTIONS as Record<string, readonly string[] | '*'>)[tool];
+  if (allowed === '*') return null;
+  if (allowed && allowed.includes(action)) return null;
+
+  return {
+    success: false,
+    error: {
+      code: 'CAPABILITY_DENIED',
+      message: `Action "${action}" on tool "${tool}" requires the mcp:exarchos capability; only mcp:exarchos:readonly is granted.`,
+      tool,
+      action,
+    },
+  };
+}
+
 // ─── Composite Handler Map ──────────────────────────────────────────────────
 
 /**
@@ -356,6 +486,14 @@ export async function dispatch(
     // Thread the validated args forward so downstream handlers get the
     // coerced shape (z.preprocess effects, defaults, etc.).
     args = { action: actionName, ...parsed.data } as Record<string, unknown>;
+
+    // T04 (Issue #1192): apply the readonly capability gate AFTER schema
+    // validation so callers still get INVALID_INPUT for malformed payloads
+    // that happen to target a denied action — the readonly gate is for
+    // capability shaping, not input validation. Gate is built-in only;
+    // custom tools manage their own capability surface.
+    const denied = enforceReadonlyGate(tool, actionName, ctx.capabilityResolver);
+    if (denied) return denied;
   }
 
   const coreHandler = builtInHandler

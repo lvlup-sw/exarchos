@@ -25,6 +25,8 @@ description: >-
 model: inherit
 readonly: false
 is_background: false
+mcp:
+  exarchos: true
 ---
 You are a fixer agent. Your job is to diagnose and repair failures.
 

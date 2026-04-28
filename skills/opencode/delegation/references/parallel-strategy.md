@@ -1,8 +1,3 @@
----
-name: parallel-strategy
-description: Parallel dispatch and result-collection strategy for subagent teammates.
----
-
 # Parallel Execution Strategy
 
 ## Identifying Parallel Groups
@@ -19,6 +14,7 @@ Group B (depends on Group A):
 - Task 003: Implementation
 - Task 004: API handlers
 ```
+
 
 ## Dispatching Parallel Tasks
 
@@ -41,16 +37,27 @@ Task({
 ```
 
 
-## Subagent Dispatch Properties
 
-| Aspect | Subagent dispatch |
-|--------|---------------------|
-| Parallel dispatch | Multiple `Task` invocations in one message |
-| Waiting | `Task() reply (inline, no poll)` |
+## Dispatch Properties
+
+Subagent dispatch is the universal parallelism mode on runtimes that
+support `subagent:spawn`. On runtimes with the `agent-teams` capability, a
+second canonical table follows that places Subagent and Agent Teams modes
+side-by-side across every dispatch property — use it when choosing between
+modes or comparing their semantics.
+
+| Property | Subagent Mode |
+|----------|------------------------------------------------------------------------|
+| Parallel dispatch | Multiple subagent invocations in one message (see example above) |
+| Waiting / monitoring | `Task() reply (inline, no poll)` (no live visibility) |
 | Visibility | None (background) |
-| Model control | `recommendedModel` from `prepare_delegation` (computed from the config cascade) |
+| Cross-task deps | Orchestrator manages phases |
+| State updates | Orchestrator updates state |
+| Quality gates | Manual via `post_delegation_check` action |
+| Model control | `recommendedModel` per task from `prepare_delegation` (config cascade) |
 | Max parallelism | Unlimited |
 | Resume on crash | Task results preserved |
+
 
 
 ## Waiting for Parallel Completion

@@ -38,6 +38,7 @@ const REQUIRED_CAPABILITY_KEYS = [
   'subagent:completion-signal',
   'subagent:start-signal',
   'mcp:exarchos',
+  'mcp:exarchos:readonly',
   'isolation:worktree',
   'team:agent-teams',
   'session:resume',
@@ -57,7 +58,7 @@ function loadClaudeYaml(): Record<string, unknown> {
 }
 
 describe('runtimes/claude.yaml supportedCapabilities', () => {
-  it('ClaudeYaml_SupportedCapabilities_AllTenAreNative', () => {
+  it('ClaudeYaml_SupportedCapabilities_AllElevenAreNative', () => {
     const data = loadClaudeYaml();
     const supported = data.supportedCapabilities;
 
@@ -76,7 +77,7 @@ describe('runtimes/claude.yaml supportedCapabilities', () => {
       expect(map[key], `capability '${key}' should be 'native'`).toBe('native');
     }
 
-    // No additional keys beyond the canonical ten.
+    // No additional keys beyond the canonical eleven.
     expect(Object.keys(map).sort()).toEqual([...REQUIRED_CAPABILITY_KEYS].sort());
   });
 
