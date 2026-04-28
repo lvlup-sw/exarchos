@@ -1,6 +1,6 @@
 // ─── Test Runtime Resolver Tests ────────────────────────────────────────────
 
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -532,5 +532,168 @@ describe('resolveTestRuntime', () => {
         },
       }),
     ).toThrow(/Invalid \.exarchos\.yml/);
+  });
+
+  // ─── T16 (#1199): command.resolved event emission ─────────────────────────
+
+  it('resolveTestRuntime_NoEventStore_NoEmissions', () => {
+    const dir = makeTmpDir();
+    writeFileSync(
+      join(dir, 'package.json'),
+      JSON.stringify({ scripts: { 'test:run': 'vitest run' } }),
+    );
+
+    // No eventStore option — must succeed without emission and without error.
+    const result = resolveTestRuntime(dir);
+    expect(result.source).toBe('detection');
+    // Sanity: no spy, nothing to assert on. The fact that this returns is the assertion.
+  });
+
+  it('resolveTestRuntime_WithEventStoreNpmDetection_EmitsThreeDetectionEvents', () => {
+    const dir = makeTmpDir();
+    writeFileSync(
+      join(dir, 'package.json'),
+      JSON.stringify({ scripts: { 'test:run': 'vitest run', typecheck: 'tsc --noEmit' } }),
+    );
+    const append = vi.fn();
+    const eventStore = { append };
+
+    const result = resolveTestRuntime(dir, { eventStore, stream: 'feat-123' });
+
+    expect(append).toHaveBeenCalledTimes(3);
+    const calls = append.mock.calls.map((c) => c[1]);
+    const byField = new Map<string, { type: string; data: Record<string, unknown> }>(
+      calls.map((e) => [(e.data as { field: string }).field, e as { type: string; data: Record<string, unknown> }]),
+    );
+
+    expect(byField.get('test')).toEqual({
+      type: 'command.resolved',
+      data: { field: 'test', command: result.test, source: 'detection', repoRoot: dir },
+    });
+    expect(byField.get('typecheck')).toEqual({
+      type: 'command.resolved',
+      data: { field: 'typecheck', command: result.typecheck, source: 'detection', repoRoot: dir },
+    });
+    expect(byField.get('install')).toEqual({
+      type: 'command.resolved',
+      data: { field: 'install', command: result.install, source: 'detection', repoRoot: dir },
+    });
+  });
+
+  it('resolveTestRuntime_WithEventStoreOverride_EmitsOverrideSourcePerOverriddenField', () => {
+    const dir = makeTmpDir();
+    writeFileSync(
+      join(dir, 'package.json'),
+      JSON.stringify({ scripts: { 'test:run': 'vitest run' } }),
+    );
+    const append = vi.fn();
+
+    resolveTestRuntime(dir, {
+      override: { test: 'custom-test' },
+      eventStore: { append },
+      stream: 'feat-x',
+    });
+
+    const calls = append.mock.calls.map((c) => c[1]);
+    const byField = new Map<string, { data: { source: string } }>(
+      calls.map((e) => [(e.data as { field: string }).field, e as { data: { source: string } }]),
+    );
+    expect(byField.get('test')?.data.source).toBe('override');
+    expect(byField.get('typecheck')?.data.source).toBe('detection');
+    expect(byField.get('install')?.data.source).toBe('detection');
+  });
+
+  it('resolveTestRuntime_WithEventStoreConfig_EmitsConfigSource', () => {
+    const dir = makeTmpDir();
+    // No package.json or other markers — detection produces nothing.
+    const append = vi.fn();
+
+    resolveTestRuntime(dir, {
+      loadConfig: () => ({
+        config: { test: 'cfg-test', typecheck: 'cfg-typecheck' },
+        path: '/x/.exarchos.yml',
+      }),
+      eventStore: { append },
+      stream: 'feat-cfg',
+    });
+
+    const calls = append.mock.calls.map((c) => c[1]);
+    const byField = new Map<string, { data: { source: string; command: string | null; remediation?: string } }>(
+      calls.map((e) => [
+        (e.data as { field: string }).field,
+        e as { data: { source: string; command: string | null; remediation?: string } },
+      ]),
+    );
+    expect(byField.get('test')?.data.source).toBe('config');
+    expect(byField.get('test')?.data.command).toBe('cfg-test');
+    expect(byField.get('typecheck')?.data.source).toBe('config');
+    expect(byField.get('typecheck')?.data.command).toBe('cfg-typecheck');
+    expect(byField.get('install')?.data.source).toBe('unresolved');
+    expect(byField.get('install')?.data.command).toBeNull();
+  });
+
+  it('resolveTestRuntime_WithEventStoreUnresolved_EmitsUnresolvedSourceWithRemediation', () => {
+    const dir = makeTmpDir();
+    // Empty dir, no config -> unresolved.
+    const append = vi.fn();
+
+    resolveTestRuntime(dir, { eventStore: { append }, stream: 'feat-u' });
+
+    expect(append).toHaveBeenCalledTimes(3);
+    const calls = append.mock.calls.map((c) => c[1]);
+    for (const evt of calls) {
+      const data = evt.data as { source: string; command: string | null; remediation?: string };
+      expect(data.source).toBe('unresolved');
+      expect(data.command).toBeNull();
+      expect(typeof data.remediation).toBe('string');
+      expect((data.remediation ?? '').length).toBeGreaterThan(0);
+    }
+  });
+
+  it('resolveTestRuntime_WithEventStoreThrows_ResolutionStillSucceeds', () => {
+    const dir = makeTmpDir();
+    writeFileSync(
+      join(dir, 'package.json'),
+      JSON.stringify({ scripts: { 'test:run': 'vitest run' } }),
+    );
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const append = vi.fn(() => {
+      throw new Error('boom');
+    });
+
+    const result = resolveTestRuntime(dir, { eventStore: { append }, stream: 'feat-y' });
+
+    expect(result.test).toBe('npm run test:run');
+    expect(result.source).toBe('detection');
+    warn.mockRestore();
+  });
+
+  it('resolveTestRuntime_EventStoreWithoutStream_Throws', () => {
+    const dir = makeTmpDir();
+    writeFileSync(
+      join(dir, 'package.json'),
+      JSON.stringify({ scripts: { 'test:run': 'vitest run' } }),
+    );
+    const append = vi.fn();
+
+    expect(() =>
+      resolveTestRuntime(dir, { eventStore: { append } }),
+    ).toThrow(/stream.*required.*eventStore/i);
+  });
+
+  it('resolveTestRuntime_StreamPassedToEachAppend', () => {
+    const dir = makeTmpDir();
+    writeFileSync(
+      join(dir, 'package.json'),
+      JSON.stringify({ scripts: { 'test:run': 'vitest run' } }),
+    );
+    const append = vi.fn();
+
+    resolveTestRuntime(dir, { eventStore: { append }, stream: 'my-feat-stream' });
+
+    expect(append).toHaveBeenCalledTimes(3);
+    for (const call of append.mock.calls) {
+      expect(call[0]).toBe('my-feat-stream');
+    }
   });
 });

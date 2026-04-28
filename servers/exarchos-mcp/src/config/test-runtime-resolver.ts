@@ -33,6 +33,28 @@ export interface ResolveOptions {
   };
   /** For testing: inject the config loader. Defaults to loadExarchosConfig from T12. */
   loadConfig?: (worktreePath: string) => LoadResult | null;
+
+  /**
+   * EventStore for emitting `command.resolved` events. When undefined, no
+   * events are emitted (allows callers like CLI tooling that runs before init
+   * to resolve commands without requiring an EventStore). When provided,
+   * three events are emitted per call (one per field).
+   *
+   * Constructor-injection only — the resolver MUST NOT instantiate or look up
+   * an EventStore itself. See PR #1185 (single-composition-root).
+   */
+  eventStore?: {
+    append: (
+      stream: string,
+      event: { type: string; data: unknown },
+    ) => void | Promise<void>;
+  };
+
+  /**
+   * Stream ID to emit on. REQUIRED when `eventStore` is provided. Typically
+   * the featureId of the active workflow.
+   */
+  stream?: string;
 }
 
 /** Allowlist pattern for command overrides. Rejects shell metacharacters (;|&$`(){}!<>). */
@@ -228,6 +250,13 @@ export function resolveTestRuntime(repoRoot: string, options?: ResolveOptions): 
     if (override.install !== undefined) assertSafe('install', override.install);
   }
 
+  // Validate emission contract up-front: eventStore requires stream.
+  if (options?.eventStore && (options.stream === undefined || options.stream === '')) {
+    throw new Error(
+      'resolveTestRuntime: stream is required when eventStore is provided',
+    );
+  }
+
   const det = detect(repoRoot);
 
   // Load config (T12 — propagates schema/parse errors as hard failures).
@@ -271,41 +300,101 @@ export function resolveTestRuntime(repoRoot: string, options?: ResolveOptions): 
     source = 'unresolved';
   }
 
-  // Detection produced markers but had a specific unresolvedReason (e.g.
-  // malformed package.json, missing test script). Override and config take
-  // precedence: if either supplied `test`, the project is resolvable. If
-  // neither did, surface the detection-specific remediation rather than the
-  // generic one.
+  // Compute the final ResolvedRuntime first so emission has the same view as
+  // the caller. Two tricky cases below:
+  //   1) Detection had `unresolvedReason` (e.g., missing test:run script) and
+  //      neither override nor config supplied `test`. The aggregate result is
+  //      flagged 'unresolved' with the detection-specific remediation.
+  //   2) Nothing contributed at all → generic 'unresolved'.
+
+  let result: ResolvedRuntime;
+  // Per-field event source/command for emission. Derived from the same layer
+  // tracking that drives the aggregate, but unresolved fields are emitted
+  // with source: 'unresolved' rather than null.
+  let perFieldEvents: { field: 'test' | 'typecheck' | 'install'; command: string | null; source: ResolutionSource }[];
+  let eventRemediation: string | undefined;
+
   if (
     det.unresolvedReason &&
     testPick.layer !== 'override' &&
     testPick.layer !== 'config'
   ) {
-    return {
+    result = {
       test: det.test,
       typecheck: det.typecheck,
       install: det.install,
       source: 'unresolved',
       remediation: det.unresolvedReason,
     };
-  }
-
-  // If nothing contributed at all (no detection markers, no config, no
-  // override), return generic unresolved.
-  if (source === 'unresolved') {
-    return {
+    eventRemediation = det.unresolvedReason;
+    // For the partial-detection case, every field is reported as 'unresolved'
+    // on the audit log — the project is not safely runnable.
+    perFieldEvents = [
+      { field: 'test', command: result.test, source: 'unresolved' },
+      { field: 'typecheck', command: result.typecheck, source: 'unresolved' },
+      { field: 'install', command: result.install, source: 'unresolved' },
+    ];
+  } else if (source === 'unresolved') {
+    result = {
       test: null,
       typecheck: null,
       install: null,
       source: 'unresolved',
       remediation: UNRESOLVED_REMEDIATION,
     };
+    eventRemediation = UNRESOLVED_REMEDIATION;
+    perFieldEvents = [
+      { field: 'test', command: null, source: 'unresolved' },
+      { field: 'typecheck', command: null, source: 'unresolved' },
+      { field: 'install', command: null, source: 'unresolved' },
+    ];
+  } else {
+    result = {
+      test: testPick.value,
+      typecheck: typecheckPick.value,
+      install: installPick.value,
+      source,
+    };
+    const layerToSource = (layer: Layer | null): ResolutionSource =>
+      layer === null ? 'unresolved' : layer;
+    perFieldEvents = [
+      { field: 'test', command: testPick.value, source: layerToSource(testPick.layer) },
+      { field: 'typecheck', command: typecheckPick.value, source: layerToSource(typecheckPick.layer) },
+      { field: 'install', command: installPick.value, source: layerToSource(installPick.layer) },
+    ];
   }
 
-  return {
-    test: testPick.value,
-    typecheck: typecheckPick.value,
-    install: installPick.value,
-    source,
-  };
+  // Emit per-field events. Resolution succeeds even if emission fails
+  // (DIM-7 resilience): we catch and warn but never propagate.
+  if (options?.eventStore && options.stream) {
+    const stream = options.stream;
+    const store = options.eventStore;
+    for (const ev of perFieldEvents) {
+      try {
+        const data: { field: string; command: string | null; source: ResolutionSource; repoRoot: string; remediation?: string } = {
+          field: ev.field,
+          command: ev.command,
+          source: ev.source,
+          repoRoot,
+        };
+        if (eventRemediation !== undefined) {
+          data.remediation = eventRemediation;
+        }
+        const maybe = store.append(stream, { type: 'command.resolved', data });
+        if (maybe && typeof (maybe as Promise<void>).then === 'function') {
+          (maybe as Promise<void>).catch((err: unknown) => {
+            console.warn(
+              `[test-runtime-resolver] command.resolved emission failed: ${String((err as Error)?.message ?? err)}`,
+            );
+          });
+        }
+      } catch (err) {
+        console.warn(
+          `[test-runtime-resolver] command.resolved emission failed: ${String((err as Error)?.message ?? err)}`,
+        );
+      }
+    }
+  }
+
+  return result;
 }
