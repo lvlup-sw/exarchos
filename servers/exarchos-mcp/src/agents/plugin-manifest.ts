@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+import { atomicWriteFile } from '../utils/atomic-write.js';
+
 /**
  * Zod schema for `.claude-plugin/plugin.json`.
  *
@@ -57,3 +59,27 @@ export const PluginManifestSchema = z
   .passthrough();
 
 export type PluginManifest = z.infer<typeof PluginManifestSchema>;
+
+/**
+ * Atomically write a plugin manifest to disk.
+ *
+ * Validates `manifest` via {@link PluginManifestSchema} BEFORE any disk I/O
+ * — if the manifest is malformed, no temp file is staged and the target is
+ * not touched. On valid input the JSON is staged to a sibling temp file
+ * (via {@link atomicWriteFile}: temp + fsync + rename), so concurrent
+ * readers either see the prior contents or the new contents — never a
+ * partial write. On rename failure the temp is best-effort cleaned up and
+ * the original error is rethrown.
+ *
+ * Output formatting: `JSON.stringify(manifest, null, 2)` + trailing
+ * newline. Matches the conventional shape of `.claude-plugin/plugin.json`.
+ *
+ * Used by T16 to rewire `updatePluginJson` in `generate-agents.ts` so the
+ * plugin manifest write path goes through the same validated atomic-write
+ * surface as the projection sidecar.
+ */
+export function writePluginManifest(filePath: string, manifest: PluginManifest): void {
+  const validated = PluginManifestSchema.parse(manifest);
+  const json = JSON.stringify(validated, null, 2) + '\n';
+  atomicWriteFile(filePath, json);
+}

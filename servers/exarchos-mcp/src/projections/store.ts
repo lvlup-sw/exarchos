@@ -20,11 +20,11 @@
  * concurrency is out of scope.
  */
 
-import * as crypto from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
 import { storeLogger } from '../logger.js';
+import { atomicWriteFile } from '../utils/atomic-write.js';
 import { SnapshotRecord } from './snapshot-schema.js';
 
 /** Default sidecar size cap when `SNAPSHOT_MAX_RECORDS` is unset or invalid. */
@@ -217,28 +217,6 @@ function applySizeCap(
   const prunedCount = dataLines.length - maxRecords;
   const retained = dataLines.slice(prunedCount);
   return { content: retained.join('\n') + '\n', prunedCount };
-}
-
-function atomicWriteFile(target: string, content: string): void {
-  const tmp = `${target}.${process.pid}.${crypto.randomBytes(6).toString('hex')}.tmp`;
-  const fd = fs.openSync(tmp, 'w');
-  try {
-    fs.writeSync(fd, content);
-    fs.fsyncSync(fd);
-  } finally {
-    fs.closeSync(fd);
-  }
-
-  try {
-    fs.renameSync(tmp, target);
-  } catch (err: unknown) {
-    try {
-      fs.unlinkSync(tmp);
-    } catch {
-      /* best-effort cleanup — don't mask the original error */
-    }
-    throw err;
-  }
 }
 
 function readIfExists(target: string): string {
