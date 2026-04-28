@@ -17,6 +17,8 @@ This skill uses VCS operations through Exarchos MCP actions (`check_ci`, `list_p
 These actions automatically detect and route to the correct VCS provider (GitHub, GitLab, Azure DevOps).
 No `gh`/`glab`/`az` commands needed — the MCP server handles provider dispatch.
 
+> The `merge_pr` invoked here is the remote PR merge primitive (synthesize-phase). It is distinct from `merge_orchestrate` (`@skills/merge-orchestrator/SKILL.md`), which is the local `git merge` orchestrator used during the upstream `merge-pending` substate. This skill never invokes `merge_orchestrate`.
+
 Iterative loop that shepherds published PRs through CI checks and code reviews to merge readiness. Uses the `assess_stack` composite action for all PR health checks, fixing failures and addressing feedback until the stack is green.
 
 > **Note:** Shepherd is not a separate HSM phase. It operates as a loop within the `synthesize` phase. The workflow phase remains `synthesize` throughout the shepherd iteration cycle. Events (`shepherd.iteration`, `ci.status`) and the `shepherd_status` view track loop progress without requiring a phase transition.

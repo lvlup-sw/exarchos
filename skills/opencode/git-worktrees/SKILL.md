@@ -177,6 +177,14 @@ When delegation skill spawns parallel tasks:
 6. Merge branches in dependency order
 7. Clean up worktrees
 
+## Merge-Pending Handoff
+
+When a subagent completes a task in its worktree, the workflow's HSM transitions from `delegate` to `feature/merge-pending`. The `merge_orchestrate` action lands the worktree's branch onto the integration branch via a local `git merge` with a recorded rollback SHA — see `@skills/merge-orchestrator/SKILL.md` for the full handoff protocol.
+
+Worktree cleanup (step 7 above) runs after the merge orchestrator reports `phase: 'completed'`.
+
+This is **not** the same as the synthesize-phase remote PR merge (`merge_pr`). `merge_orchestrate` operates on local refs in the main worktree; `merge_pr` calls the VCS provider once the integration branch is ready for the human-review PR.
+
 ## Completion Criteria
 
 For worktree setup:

@@ -102,13 +102,14 @@ function findAllSkillMdFiles(root: string, excludeFragments: string[] = []): str
 
 describe('task 018 — post-migration structural invariants', () => {
   it('PostMigration_SkillsTree_ContainsExpectedSkillMdFiles', () => {
-    // 16 skills × 6 runtimes = 96 SKILL.md files under `skills/`.
+    // 17 skills × 6 runtimes = 102 SKILL.md files under `skills/`.
     // v2.8.0 added discovery workflow skill per #1080.
+    // v2.9.0 added merge-orchestrator skill per #1193 / #1194.
     const files = findAllSkillMdFiles(SKILLS_DIR, ['/test-fixtures/']);
     expect(
       files.length,
-      `expected 96 SKILL.md files under skills/ (16 skills × 6 runtimes), found ${files.length}`,
-    ).toBe(96);
+      `expected 102 SKILL.md files under skills/ (17 skills × 6 runtimes), found ${files.length}`,
+    ).toBe(102);
   });
 
   it('PostMigration_SkillsSrcTree_ContainsNoCommittedGeneratedFiles', () => {

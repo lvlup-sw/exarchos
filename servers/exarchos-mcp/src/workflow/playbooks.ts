@@ -361,7 +361,7 @@ register({
   validationScripts: [],
   humanCheckpoint: false,
   compactGuidance:
-    'Autonomous merge dispatch. Call exarchos_orchestrate merge_orchestrate to run the preflight composer and (if it passes) execute the merge. The handler is resumable — if mergeOrchestrator.phase is already executing/completed/rolled-back/aborted on entry, it short-circuits. Events: merge.preflight is emitted with the structured ancestry/worktree/currentBranchProtection/drift sub-results so event-sourced timeline reconstruction works without reading state; merge.executed records mergeSha + strategy; merge.rollback records categorized reason. Use exarchos_event query to reconstruct the merge timeline. Use exarchos_workflow get to inspect mergeOrchestrator state on resume. The HSM exits merge-pending back to delegate once any terminal merge event is observed.',
+    'Local-git merge handoff. Call exarchos_orchestrate merge_orchestrate to land the subagent worktree branch on the integration branch via local git merge with recorded rollback sha. NOT a remote PR merge — that is merge_pr in synthesize. Runs preflight (ancestry / current-branch / main-worktree / drift), records HEAD as rollback anchor, runs git merge per strategy, and on failure git reset --hard <rollbackSha>. Strategy required (no default). Resumable: terminal phases (completed / rolled-back / aborted) short-circuit on re-entry. Events auto-emitted: merge.preflight carries structured guard sub-results + failureReasons; merge.executed records mergeSha; merge.rollback records reason + optional rollbackError. Use exarchos_event describe before any manual emission. HSM exits merge-pending back to delegate on terminal merge event. Full guidance: @skills/merge-orchestrator/SKILL.md.',
 });
 
 register({

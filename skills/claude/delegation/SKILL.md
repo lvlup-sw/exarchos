@@ -343,6 +343,14 @@ For the full transition table, consult `@skills/workflow-state/references/phase-
 
 > **Before transitioning to review:** You MUST first update all task statuses to `"complete"` via `exarchos_workflow set` with the tasks array. The phase transition will be rejected by the guard if any task is still pending/in_progress/failed. Update tasks first, then set the phase in a separate call.
 
+### Worktree-Bearing Tasks: Auto-Detour to `merge-pending`
+
+When a `task.completed` event carries a worktree association (`data.worktree` or `data.worktreePath`), the HSM auto-transitions through `feature/merge-pending` before reaching `review`. The `next_actions` projection surfaces a `merge_orchestrate` verb (idempotency-keyed by `${streamId}:merge_orchestrate:${taskId}`) so a runtime that consumes `next_actions` will dispatch the merge automatically.
+
+The merge lands the subagent's branch on the integration branch via a local `git merge` with a recorded rollback SHA — see `@skills/merge-orchestrator/SKILL.md`. The HSM exits `merge-pending` back to `delegate` once the merge terminates (`completed` / `rolled-back` / `aborted`), at which point `delegate` either re-enters `merge-pending` for the next worktree-bearing task or transitions on to `review` when all delegation is complete.
+
+This detour is invisible to the delegation skill itself — the all-tasks-complete guard still gates the `delegate → review` transition. The merge-pending substate just sits between task completion and the next dispatch decision.
+
 ### Task Status Values
 
 | Status | When to use |
