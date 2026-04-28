@@ -1,8 +1,8 @@
 ---
 name: exarchos-fixer
-description: |
+description: |-
   Use this agent when a task has failed and needs diagnosis and repair with adversarial verification.
-  
+
   <example>
   Context: A delegated task failed its quality gates or tests
   user: "Task-005 failed TDD compliance — fix it"
@@ -11,19 +11,27 @@ description: |
   Failed task requiring root cause analysis and targeted fix triggers the fixer agent.
   </commentary>
   </example>
-tools: ["Read", "Write", "Edit", "Bash", "Grep", "Glob"]
+tools:
+  - Read
+  - Write
+  - Edit
+  - Bash
+  - Grep
+  - Glob
 model: inherit
 color: red
-disallowedTools: ["Agent"]
-mcpServers: ["exarchos"]
+disallowedTools:
+  - Agent
+mcpServers:
+  - exarchos
 skills:
   - tdd-patterns
 hooks:
   PostToolUse:
-    - matcher: "Bash"
+    - matcher: Bash
       hooks:
         - type: command
-          command: "npm run test:run"
+          command: npm --prefix "$(git rev-parse --show-toplevel)" run test:run
 ---
 
 You are a fixer agent. Your job is to diagnose and repair failures.
