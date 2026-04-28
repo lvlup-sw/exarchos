@@ -57,6 +57,10 @@ import {
   VersionConflictError,
 } from '../workflow/state-store.js';
 import { EXCLUDED_MERGE_PHASES } from '../workflow/hsm-definitions.js';
+import {
+  withStateRetry,
+  MAX_STATE_RETRIES,
+} from '../workflow/state-retry.js';
 
 // ─── Args schema ───────────────────────────────────────────────────────────
 
@@ -200,33 +204,9 @@ function buildDefaultReadState(
   };
 }
 
-// ─── State-write retry (T14 / DR-MO-2) ─────────────────────────────────────
-//
-// Mirrors `handleTaskClaim`'s optimistic-concurrency retry loop. On
-// `VersionConflictError` we exponential-backoff and retry up to
-// MAX_STATE_RETRIES times. After exhaustion the underlying error bubbles
-// out — the top-level handler maps it to a `STATE_CONFLICT` ToolResult so
-// callers see a structured failure (not a raw exception).
-
-const MAX_STATE_RETRIES = 3;
-const STATE_BASE_DELAY_MS = 50;
-
-async function withStateRetry<T>(fn: () => Promise<T>): Promise<T> {
-  for (let attempt = 0; attempt < MAX_STATE_RETRIES; attempt++) {
-    try {
-      return await fn();
-    } catch (err) {
-      if (!(err instanceof VersionConflictError)) throw err;
-      if (attempt === MAX_STATE_RETRIES - 1) throw err;
-      const delay =
-        STATE_BASE_DELAY_MS * Math.pow(2, attempt) +
-        Math.random() * STATE_BASE_DELAY_MS;
-      await new Promise((r) => setTimeout(r, delay));
-    }
-  }
-  // Unreachable: the loop either returns or throws on every iteration.
-  throw new Error('withStateRetry: unreachable');
-}
+// State-write retry (T14 / DR-MO-2): optimistic-concurrency on
+// `VersionConflictError`. Extracted to a shared module in T29 — also used
+// by `handleExecuteMerge`. See `workflow/state-retry.ts` for the contract.
 
 /**
  * Derive a short, operator-facing reason string from a failed preflight
@@ -334,7 +314,14 @@ export async function handleMergeOrchestrate(
         data: { ...merge },
       };
     }
-    // phase === 'pending' (or undefined): fall through to fresh dispatch.
+    // Any non-terminal phase (`pending`, `executing`, or undefined) falls
+    // through to a fresh preflight + executor run. The mid-run `executing`
+    // case is the most subtle: a crash during a previous attempt left state
+    // at `executing` with a `rollbackSha` pinned, but the merge itself may
+    // or may not have applied. Re-running is safe because the underlying
+    // VCS handlers are idempotent on already-merged branches and a
+    // re-recorded rollback sha from the fresh `git rev-parse HEAD` will
+    // reflect post-merge HEAD if the prior run did succeed.
   }
 
   // ─── 1. Run preflight ────────────────────────────────────────────────────

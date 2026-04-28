@@ -281,6 +281,94 @@ describe('handleExecuteMerge rollback (T16)', () => {
   });
 });
 
+// ─── T29: Executor's persistState retries on VersionConflictError ─────────
+//
+// `handleExecuteMerge`'s default `persistState` writes to disk via
+// `writeStateFile`, which throws `VersionConflictError` when a concurrent
+// writer raced. T14 added the retry loop only in the orchestrator; T29
+// extracts it to a shared module and applies it here so the executor's
+// intermediate `executing` write + terminal `completed`/`rolled-back`
+// writes are equally race-tolerant.
+
+import { VersionConflictError } from '../workflow/state-store.js';
+
+describe('handleExecuteMerge default persistState retries on VersionConflictError (T29)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('handleExecuteMerge_DefaultPersistState_VersionConflictThenSucceeds_RetriesAndCompletes', async () => {
+    // We exercise the retry by injecting a `persistState` that simulates a
+    // VersionConflictError on the first 'executing' write, then succeeds
+    // on the retry. The handler must NOT bubble the error out — the merge
+    // should complete normally.
+    let executingAttempt = 0;
+    const persistState = vi.fn().mockImplementation(async (state: { phase: string }) => {
+      if (state.phase === 'executing') {
+        executingAttempt += 1;
+        if (executingAttempt === 1) {
+          throw new VersionConflictError('simulated CAS race');
+        }
+      }
+    });
+    const ctx = makeMockCtx();
+    const vcsMerge = vi.fn().mockResolvedValue({ mergeSha: MERGE_SHA });
+
+    // Wrap the injected persistState in the same retry helper the handler
+    // uses internally — i.e. assert the handler exposes/honors the retry
+    // contract for caller-injected hooks too.
+    const result = await handleExecuteMerge(
+      {
+        featureId: 'feat-x',
+        sourceBranch: 'feat/x',
+        targetBranch: 'main',
+        taskId: 'T11',
+        strategy: 'squash',
+        vcsMerge,
+        persistState,
+        gitExec: makeGitExec(),
+      },
+      ctx,
+    );
+
+    expect(result.success).toBe(true);
+    // 1st attempt threw, 2nd succeeded for executing; then 1 terminal write.
+    expect(executingAttempt).toBe(2);
+    // Handler called persistState 3 times: executing(retry-1)=throw,
+    // executing(retry-2)=success, completed=success.
+    expect(persistState).toHaveBeenCalledTimes(3);
+  });
+
+  it('handleExecuteMerge_DefaultPersistState_VersionConflictExhausted_BubblesErrorAsToolResult', async () => {
+    // Persistent VersionConflictError → handler exhausts retries and
+    // returns a structured failure (not a thrown exception).
+    const persistState = vi.fn().mockImplementation(async () => {
+      throw new VersionConflictError('persistent CAS race');
+    });
+    const ctx = makeMockCtx();
+    const vcsMerge = vi.fn().mockResolvedValue({ mergeSha: MERGE_SHA });
+
+    const result = await handleExecuteMerge(
+      {
+        featureId: 'feat-x',
+        sourceBranch: 'feat/x',
+        targetBranch: 'main',
+        taskId: 'T11',
+        strategy: 'squash',
+        vcsMerge,
+        persistState,
+        gitExec: makeGitExec(),
+      },
+      ctx,
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('STATE_CONFLICT');
+    // 3 retries × 1 (executing only — vcsMerge never runs after exhaustion).
+    expect(persistState).toHaveBeenCalledTimes(3);
+  });
+});
+
 // ─── T27: handleExecuteMerge persists terminal phase ──────────────────────
 //
 // The pure executor (T09) writes the intermediate `phase: 'executing'` shape

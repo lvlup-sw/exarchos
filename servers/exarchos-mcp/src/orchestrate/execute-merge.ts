@@ -29,7 +29,15 @@ import type { ToolResult } from '../format.js';
 import type { DispatchContext } from '../core/dispatch.js';
 import { executeMerge, type GitExec, type MergeStrategy } from './pure/execute-merge.js';
 import { createVcsProvider } from '../vcs/factory.js';
-import { readStateFile, writeStateFile } from '../workflow/state-store.js';
+import {
+  readStateFile,
+  writeStateFile,
+  VersionConflictError,
+} from '../workflow/state-store.js';
+import {
+  withStateRetry,
+  MAX_STATE_RETRIES,
+} from '../workflow/state-retry.js';
 
 // ─── Args schema ───────────────────────────────────────────────────────────
 
@@ -203,7 +211,7 @@ export async function handleExecuteMerge(
 
   const gitExec = input.gitExec ?? defaultGitExec;
   const vcsMerge = input.vcsMerge ?? buildDefaultVcsMerge(input, ctx);
-  const persistState =
+  const rawPersistState =
     input.persistState ??
     buildDefaultPersistState(
       args.featureId,
@@ -212,6 +220,17 @@ export async function handleExecuteMerge(
       args.taskId,
       ctx.stateDir,
     );
+
+  // T29: wrap every state write in `withStateRetry` so concurrent writers
+  // (e.g. another orchestrate handler updating the same workflow state file)
+  // don't fail this merge permanently on a single CAS conflict. Wraps both
+  // injected and default `persistState` so caller-supplied hooks share the
+  // same race-tolerance contract.
+  const persistState: PersistStateCallback = async (state) => {
+    await withStateRetry(async () => {
+      await rawPersistState(state);
+    });
+  };
 
   let result;
   try {
@@ -225,6 +244,17 @@ export async function handleExecuteMerge(
       ...(args.repoRoot !== undefined ? { repoRoot: args.repoRoot } : {}),
     });
   } catch (err) {
+    // T29: optimistic-concurrency exhaustion → structured STATE_CONFLICT
+    // ToolResult so callers see a categorized failure (not a raw exception).
+    if (err instanceof VersionConflictError) {
+      return {
+        success: false,
+        error: {
+          code: 'STATE_CONFLICT',
+          message: `Workflow state version conflict after ${MAX_STATE_RETRIES} retries: ${err.message}`,
+        },
+      };
+    }
     return {
       success: false,
       error: {
@@ -234,16 +264,44 @@ export async function handleExecuteMerge(
     };
   }
 
-  if (result.phase === 'completed') {
-    // T27 — persist terminal phase BEFORE event emission so observers
-    // reading state at event-emit time see the final phase. Without this
-    // write, disk state stays at 'executing' (T09) forever.
-    await persistState({
-      phase: 'completed',
-      rollbackSha: result.rollbackSha,
-      mergeSha: result.mergeSha,
-    });
+  // T29: wrap terminal persistState in try/catch so a CAS exhaustion on
+  // the terminal write surfaces as STATE_CONFLICT (not an unhandled throw).
+  try {
+    if (result.phase === 'completed') {
+      // T27 — persist terminal phase BEFORE event emission so observers
+      // reading state at event-emit time see the final phase. Without this
+      // write, disk state stays at 'executing' (T09) forever.
+      await persistState({
+        phase: 'completed',
+        rollbackSha: result.rollbackSha,
+        mergeSha: result.mergeSha,
+      });
+    } else {
+      // T16 — phase: 'rolled-back'. The pure executor already ran
+      // `git reset --hard <rollbackSha>`. T27 — persist terminal phase
+      // BEFORE emitting so the HSM merge-pending exit guard and the
+      // next-actions omission filter (T19) see the rolled-back phase on
+      // subsequent reads.
+      await persistState({
+        phase: 'rolled-back',
+        rollbackSha: result.rollbackSha,
+        reason: result.reason,
+      });
+    }
+  } catch (err) {
+    if (err instanceof VersionConflictError) {
+      return {
+        success: false,
+        error: {
+          code: 'STATE_CONFLICT',
+          message: `Workflow state version conflict after ${MAX_STATE_RETRIES} retries: ${err.message}`,
+        },
+      };
+    }
+    throw err;
+  }
 
+  if (result.phase === 'completed') {
     // Direct stream append — NOT wrapped in `gate.executed`. The dedicated
     // `merge.executed` schema (T03) lives at the top level so observability
     // and HSM guards can match on it directly.
@@ -268,15 +326,6 @@ export async function handleExecuteMerge(
     };
   }
 
-  // T16 — phase: 'rolled-back'. The pure executor already ran
-  // `git reset --hard <rollbackSha>`. T27 — persist terminal phase BEFORE
-  // emitting so the HSM merge-pending exit guard and the next-actions
-  // omission filter (T19) see the rolled-back phase on subsequent reads.
-  await persistState({
-    phase: 'rolled-back',
-    rollbackSha: result.rollbackSha,
-    reason: result.reason,
-  });
 
   await ctx.eventStore.append(args.featureId, {
     type: 'merge.rollback',
