@@ -45,4 +45,39 @@ describe('computeNextActions (T040, DR-8)', () => {
 
     expect(actions).toEqual([]);
   });
+
+  // T18 (DR-MO-1): when the workflow is parked in `merge-pending` and the
+  // merge orchestrator hasn't already terminated, surface a `merge_orchestrate`
+  // action verb so callers can auto-trigger the subagent worktree merge.
+  it('computeNextActions_MergePendingPhase_ReturnsMergeOrchestrate', () => {
+    const hsm = getHSMDefinition('feature');
+    const state = {
+      phase: 'merge-pending',
+      workflowType: 'feature',
+      mergeOrchestrator: { phase: 'pending', taskId: 'T11' },
+      featureId: 'feat-x',
+    };
+
+    const actions = computeNextActions(state, hsm);
+
+    const merge = actions.find((a) => a.verb === 'merge_orchestrate');
+    expect(merge).toBeDefined();
+    expect(merge?.validTargets).toEqual(['merge_orchestrate']);
+    expect(merge?.reason).toBe('Pending subagent worktree merge');
+  });
+
+  it('computeNextActions_MergeOrchestratorPending_IncludesIdempotencyKey', () => {
+    const hsm = getHSMDefinition('feature');
+    const state = {
+      phase: 'merge-pending',
+      workflowType: 'feature',
+      mergeOrchestrator: { phase: 'pending', taskId: 'T11' },
+      featureId: 'feat-x',
+    };
+
+    const actions = computeNextActions(state, hsm);
+
+    const merge = actions.find((a) => a.verb === 'merge_orchestrate');
+    expect(merge?.idempotencyKey).toBe('feat-x:merge_orchestrate:T11');
+  });
 });
