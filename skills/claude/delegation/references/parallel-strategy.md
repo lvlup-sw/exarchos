@@ -70,28 +70,40 @@ Teammates use Claude Code's native shared task list for claim/complete tracking.
 
 Agent Teams supports one team per session. If you need more parallel groups than teammates, assign multiple tasks per teammate (sequential within the group).
 
-## Subagent Dispatch Properties
+## Dispatch Properties
 
-| Aspect | Subagent dispatch |
-|--------|---------------------|
+Subagent dispatch is the universal parallelism mode (available in every
+runtime). On runtimes with the `agent-teams` capability, a second canonical
+table follows that places Subagent and Agent Teams modes side-by-side across
+every dispatch property — use it when choosing between modes or comparing
+their semantics.
+
+| Property | Subagent Mode |
+|----------|------------------------------------------------------------------------|
 | Parallel dispatch | Multiple `Task` invocations in one message |
-| Waiting | `TaskOutput({ task_id, block: true })` |
+| Waiting / monitoring | `TaskOutput({ task_id, block: true })` (no live visibility) |
 | Visibility | None (background) |
-| Model control | `recommendedModel` from `prepare_delegation` (computed from the config cascade) |
+| Cross-task deps | Orchestrator manages phases |
+| State updates | Orchestrator updates state |
+| Quality gates | Manual via `post_delegation_check` action |
+| Model control | `recommendedModel` per task from `prepare_delegation` (config cascade) |
 | Max parallelism | Unlimited |
 | Resume on crash | Task results preserved |
 
 
-## Agent Teams Dispatch Properties (Claude only)
+### Canonical Comparison: Subagent vs Agent Teams
 
-| Aspect | Agent Teams |
-|--------|---------------------|
-| Parallel dispatch | Named teammates in agent team |
-| Waiting | `TeammateIdle hook` |
-| Visibility | tmux split panes |
-| Model control | Session model for all |
-| Max parallelism | One team, N teammates |
-| Resume on crash | Teammates lost (worktrees survive) |
+| Property | Subagent Mode | Agent Teams Mode |
+|----------|---------------------------------------------------------------|---------------------------------------------------------|
+| Parallel dispatch | Multiple `Task` invocations in one message | Named teammates in one agent team |
+| Waiting / monitoring | `TaskOutput({ task_id, block: true })` (no live visibility) | `TeammateIdle` hook + tmux split panes |
+| Visibility | None (background) | tmux split panes |
+| Cross-task deps | Orchestrator manages phases | Shared task list + unblocked-task detection |
+| State updates | Orchestrator updates state | `TeammateIdle` hook auto-updates via state bridge |
+| Quality gates | Manual via `post_delegation_check` action | Automatic via `TeammateIdle` hook |
+| Model control | `recommendedModel` per task from `prepare_delegation` (config cascade) | Session model shared by all teammates |
+| Max parallelism | Unlimited | One team, N teammates |
+| Resume on crash | Task results preserved | Worktrees survive; teammates lost |
 
 ## Waiting for Parallel Completion
 
@@ -124,17 +136,7 @@ When using `--mode agent-team`, the orchestrator creates named teammates and del
 
 Each teammate receives the full implementer prompt including TDD requirements, file paths, and commit strategy.
 
-### Subagent vs Agent Teams Parallelism
-
-| Aspect | Task Tool (Subagent) | Agent Teams (Teammate) |
-|--------|---------------------|----------------------|
-| Parallelism | Multiple `Task()` calls in one message | Named teammates in one team |
-| Cross-task deps | Orchestrator manages phases | Shared task list + unblocked task detection |
-| Monitoring | `TaskOutput` polling | tmux panes + `TeammateIdle` hook |
-| State updates | Orchestrator updates state | Hook auto-updates via state bridge |
-| Model per task | Yes (`recommendedModel` per Task) | No (session model for all) |
-| Quality gates | Manual via `post_delegation_check` action | Automatic via `TeammateIdle` hook |
-| Recovery | Task results preserved | Worktrees survive, teammates lost |
+For a side-by-side comparison of dispatch, monitoring, state, model, and recovery semantics across both modes, see the canonical [Dispatch Properties](#dispatch-properties) table above.
 
 ### Shared Task List Coordination
 

@@ -33,14 +33,23 @@ task --agent implementer 'Task 002: <full context for Task 002>'
 ```
 
 
-## Subagent Dispatch Properties
+## Dispatch Properties
 
-| Aspect | Subagent dispatch |
-|--------|---------------------|
+Subagent dispatch is the universal parallelism mode (available in every
+runtime). On runtimes with the `agent-teams` capability, a second canonical
+table follows that places Subagent and Agent Teams modes side-by-side across
+every dispatch property — use it when choosing between modes or comparing
+their semantics.
+
+| Property | Subagent Mode |
+|----------|------------------------------------------------------------------------|
 | Parallel dispatch | Multiple `task` invocations in one message |
-| Waiting | `inline reply from task --agent (no separate collection API)` |
+| Waiting / monitoring | `inline reply from task --agent (no separate collection API)` (no live visibility) |
 | Visibility | None (background) |
-| Model control | `recommendedModel` from `prepare_delegation` (computed from the config cascade) |
+| Cross-task deps | Orchestrator manages phases |
+| State updates | Orchestrator updates state |
+| Quality gates | Manual via `post_delegation_check` action |
+| Model control | `recommendedModel` per task from `prepare_delegation` (config cascade) |
 | Max parallelism | Unlimited |
 | Resume on crash | Task results preserved |
 
