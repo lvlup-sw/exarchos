@@ -108,6 +108,29 @@ describe('CopilotAdapter', () => {
     expect(data.tools).toContain('mcp__exarchos');
   });
 
+  it('CopilotAdapter_LowerSpec_Readonly_GrantsExarchosTool', () => {
+    // T03 added `mcp:exarchos:readonly` to the Capability enum and T04 wired
+    // a server-side action allowlist. The adapter must lower the readonly
+    // capability to the same `mcp__exarchos` tool entry as the broad
+    // `mcp:exarchos` capability — runtime gating happens at the dispatch
+    // layer, not in the per-runtime tool name. Without this entry, the
+    // `CAPABILITY_TO_TOOL` Record fails the exhaustive `Record<Capability, …>`
+    // typecheck and any spec listing the readonly cap silently emits no
+    // tool entry at all.
+    const readonlySpec: AgentSpec = {
+      ...IMPLEMENTER_FIXTURE,
+      capabilities: ['fs:read', 'mcp:exarchos:readonly'],
+    };
+    const { contents } = adapter.lowerSpec(readonlySpec);
+    const { data } = parseFrontmatter(contents);
+
+    expect(Array.isArray(data.tools)).toBe(true);
+    expect(data.tools).toContain('mcp__exarchos');
+    // And the broad capability is NOT in the spec — the readonly cap alone
+    // must produce the tool entry.
+    expect(readonlySpec.capabilities).not.toContain('mcp:exarchos');
+  });
+
   it('CopilotAdapter_ValidateSupport_RejectsClaudeOnlyHooks', () => {
     const specWithStartHook: AgentSpec = {
       ...IMPLEMENTER_FIXTURE,
