@@ -8,9 +8,12 @@
 // DI'd `vcsMerge` adapter and `persistState` callback. Records the rollback
 // sha, persists the `executing` intermediate state, then invokes the merge
 // adapter and returns `{ phase: 'completed', mergeSha, rollbackSha }`.
-// T10 will widen `ExecuteMergeResult` with rollback / failure variants.
 //
-// Implements: DR-MO-2 (merge execution with rollback) — happy path slice.
+// T10 — rollback paths: on `vcsMerge` rejection, `git reset --hard <rollbackSha>`
+// and return `{ phase: 'rolled-back', rollbackSha, reason }`. The reason is
+// categorized as 'timeout' | 'verification-failed' | 'merge-failed'.
+//
+// Implements: DR-MO-2 (merge execution with rollback).
 // ───────────────────────────────────────────────────────────────────────────
 
 export type GitExec = (
@@ -64,12 +67,22 @@ export interface ExecuteMergeArgs {
   repoRoot?: string;
 }
 
-// T10 will widen this with: { phase: 'rolled-back'; rollbackSha: string; reason: ... }
-export type ExecuteMergeResult = {
-  phase: 'completed';
-  mergeSha: string;
-  rollbackSha: string;
-};
+export type RollbackReason = 'merge-failed' | 'verification-failed' | 'timeout';
+
+export type ExecuteMergeResult =
+  | { phase: 'completed'; mergeSha: string; rollbackSha: string }
+  | { phase: 'rolled-back'; rollbackSha: string; reason: RollbackReason };
+
+// Categorization convention: timeout = err.name === 'TimeoutError' OR (err as any).code === 'ETIMEDOUT';
+// verification-failed = err.message matches /verification/i; otherwise merge-failed.
+function categorizeFailure(err: unknown): RollbackReason {
+  if (err instanceof Error) {
+    const code = (err as Error & { code?: string }).code;
+    if (err.name === 'TimeoutError' || code === 'ETIMEDOUT') return 'timeout';
+    if (/verification/i.test(err.message)) return 'verification-failed';
+  }
+  return 'merge-failed';
+}
 
 /**
  * Execute a merge with a recorded rollback anchor.
@@ -91,13 +104,17 @@ export async function executeMerge(
   // 2) persist intermediate state so a crash here is recoverable
   await args.persistState({ phase: 'executing', rollbackSha });
 
-  // 3) call vcs merge (T10 will catch rejections and roll back)
-  const { mergeSha } = await args.vcsMerge({
-    sourceBranch: args.sourceBranch,
-    targetBranch: args.targetBranch,
-    strategy: args.strategy,
-  });
-
-  // 4) return completed
-  return { phase: 'completed', mergeSha, rollbackSha };
+  // 3) call vcs merge — on rejection, reset to rollback sha and categorize.
+  try {
+    const { mergeSha } = await args.vcsMerge({
+      sourceBranch: args.sourceBranch,
+      targetBranch: args.targetBranch,
+      strategy: args.strategy,
+    });
+    return { phase: 'completed', mergeSha, rollbackSha };
+  } catch (err) {
+    args.gitExec(args.repoRoot ?? process.cwd(), ['reset', '--hard', rollbackSha]);
+    const reason = categorizeFailure(err);
+    return { phase: 'rolled-back', rollbackSha, reason };
+  }
 }
