@@ -1,22 +1,24 @@
 import * as fs from 'node:fs';
 import { z } from 'zod';
 
+import { atomicWriteFile } from '../utils/atomic-write.js';
+
 /**
  * Zod schema for `.claude-plugin/plugin.json`.
  *
  * Source of truth for plugin manifest validation across the MCP server.
  * Mirrors the live shape of the manifest. `.passthrough()` is applied so
  * forward-compat fields the generator does not manage are preserved when
- * we round-trip the file (T15 will write through this schema).
+ * we round-trip the file.
  *
  * Required fields are tightly typed; the rest are optional/passthrough so
  * we tolerate evolving Claude Code plugin manifests without churning the
  * schema.
  *
  * Consumers:
- *   - T14: `readPluginManifest` (typed read helper)
- *   - T15: `writePluginManifest` (atomic write helper)
- *   - T16: `generate-agents.ts` rewires preflight + update via these helpers
+ *   - readPluginManifest (typed read helper)
+ *   - writePluginManifest (atomic write helper)
+ *   - generate-agents.ts will rewire preflight + update via these helpers (T16)
  */
 
 /** Canonical agent path: `./agents/<kebab-id>.md`. */
@@ -67,9 +69,6 @@ export type PluginManifest = z.infer<typeof PluginManifestSchema>;
  *   - read failures (missing file, permissions, etc.)
  *   - JSON syntax errors (preserves parse-position info from `JSON.parse`)
  *   - schema violations (full Zod issue list, JSON-formatted)
- *
- * Single-shot synchronous read by design — manifest is small, callers
- * are CLI/preflight paths, and sync I/O keeps error semantics simple.
  */
 export function readPluginManifest(path: string): PluginManifest {
   let raw: string;
@@ -95,4 +94,20 @@ export function readPluginManifest(path: string): PluginManifest {
     );
   }
   return result.data;
+}
+
+/**
+ * Atomically write a plugin manifest to disk.
+ *
+ * Validates `manifest` via {@link PluginManifestSchema} BEFORE any disk I/O.
+ * On valid input the JSON is staged to a sibling temp file (via
+ * {@link atomicWriteFile}: temp + fsync + rename), so concurrent readers
+ * either see the prior contents or the new contents — never a partial
+ * write. On rename failure the temp is best-effort cleaned up and the
+ * original error is rethrown.
+ */
+export function writePluginManifest(filePath: string, manifest: PluginManifest): void {
+  const validated = PluginManifestSchema.parse(manifest);
+  const json = JSON.stringify(validated, null, 2) + '\n';
+  atomicWriteFile(filePath, json);
 }

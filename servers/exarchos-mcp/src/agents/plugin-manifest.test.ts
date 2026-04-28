@@ -1,9 +1,14 @@
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { PluginManifestSchema, readPluginManifest } from './plugin-manifest.js';
+import {
+  PluginManifestSchema,
+  readPluginManifest,
+  writePluginManifest,
+  type PluginManifest,
+} from './plugin-manifest.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -49,9 +54,6 @@ describe('PluginManifestSchema', () => {
   });
 
   it('PluginManifestSchema_AcceptsActualLivePluginJson', () => {
-    // Read the actual .claude-plugin/plugin.json and assert it parses.
-    // Regression guard against schema drift.
-    // __dirname = servers/exarchos-mcp/src/agents → repoRoot is 4 levels up.
     const repoRoot = path.resolve(__dirname, '../../../..');
     const livePath = path.join(repoRoot, '.claude-plugin/plugin.json');
     const live = JSON.parse(fs.readFileSync(livePath, 'utf8')) as unknown;
@@ -109,12 +111,11 @@ describe('readPluginManifest', () => {
     }
     expect(caught).toBeDefined();
     expect(caught!.message).toContain(file);
-    // Parse-position info from JSON.parse (e.g., "position N" or "line/column")
     expect(caught!.message).toMatch(/position|line|column|JSON/i);
   });
 
   it('ReadPluginManifest_ThrowsDescriptive_OnSchemaViolation', () => {
-    const file = makeTmpFile(JSON.stringify({ name: 'x' })); // missing `agents`
+    const file = makeTmpFile(JSON.stringify({ name: 'x' }));
     let caught: Error | undefined;
     try {
       readPluginManifest(file);
@@ -125,5 +126,80 @@ describe('readPluginManifest', () => {
     expect(caught!.message).toContain(file);
     expect(caught!.message).toContain('schema violation');
     expect(caught!.message).toContain('agents');
+  });
+});
+
+describe('writePluginManifest', () => {
+  const createdDirs: string[] = [];
+
+  function makeTmpDir(): string {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'exarchos-plugin-manifest-'));
+    createdDirs.push(dir);
+    return dir;
+  }
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    while (createdDirs.length > 0) {
+      const dir = createdDirs.pop();
+      if (dir !== undefined) {
+        fs.rmSync(dir, { recursive: true, force: true });
+      }
+    }
+  });
+
+  const validManifest: PluginManifest = {
+    name: 'exarchos',
+    description: 'Test description',
+    version: '0.0.0',
+    author: { name: 'Test Author' },
+    agents: ['./agents/implementer.md', './agents/reviewer.md'],
+    commands: './commands/',
+    skills: './skills/',
+    metadata: { compat: { minBinaryVersion: '2.9.0-rc.1' } },
+  };
+
+  it('WritePluginManifest_AtomicReplace_RoundTrips', () => {
+    const dir = makeTmpDir();
+    const target = path.join(dir, 'plugin.json');
+    writePluginManifest(target, validManifest);
+    const raw = fs.readFileSync(target, 'utf8');
+    const parsed = PluginManifestSchema.parse(JSON.parse(raw));
+    expect(parsed).toEqual(validManifest);
+  });
+
+  it('WritePluginManifest_RejectsInvalidShape', () => {
+    const dir = makeTmpDir();
+    const target = path.join(dir, 'plugin.json');
+    const invalid = {
+      name: 'exarchos',
+      agents: ['not-a-valid-path'],
+    } as unknown as PluginManifest;
+    expect(() => writePluginManifest(target, invalid)).toThrow();
+    expect(fs.existsSync(target)).toBe(false);
+    const entries = fs.readdirSync(dir);
+    expect(entries.filter((e) => e.includes('.tmp'))).toEqual([]);
+  });
+
+  it('WritePluginManifest_PreservesOriginalOnRenameError', () => {
+    const dir = makeTmpDir();
+    const target = path.join(dir, 'plugin.json');
+    fs.mkdirSync(target);
+    const dirInodeBefore = fs.statSync(target).ino;
+    const dirIsDirBefore = fs.statSync(target).isDirectory();
+    expect(() => writePluginManifest(target, validManifest)).toThrow();
+    const statAfter = fs.statSync(target);
+    expect(statAfter.isDirectory()).toBe(dirIsDirBefore);
+    expect(statAfter.ino).toBe(dirInodeBefore);
+    const entries = fs.readdirSync(dir);
+    expect(entries.filter((e) => e.includes('.tmp'))).toEqual([]);
+  });
+
+  it('WritePluginManifest_TempFileCreatedAndRemoved_OnSuccess', () => {
+    const dir = makeTmpDir();
+    const target = path.join(dir, 'plugin.json');
+    writePluginManifest(target, validManifest);
+    const entries = fs.readdirSync(dir);
+    expect(entries).toEqual(['plugin.json']);
   });
 });
