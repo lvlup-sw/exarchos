@@ -1,7 +1,3 @@
----
-name: merge-verification
----
-
 # Merge Verification Guide
 
 ## Why Verify?

@@ -1,7 +1,3 @@
----
-name: hotfix-track
----
-
 # Hotfix Track
 
 ## Purpose

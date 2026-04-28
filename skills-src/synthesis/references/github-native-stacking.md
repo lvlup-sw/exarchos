@@ -1,7 +1,3 @@
----
-name: github-native-stacking
----
-
 # GitHub-Native PR Stacking
 
 PR stacking creates a chain of dependent pull requests that merge bottom-up into `main`. Each PR targets the previous PR's branch as its base, forming a reviewable sequence of incremental changes.

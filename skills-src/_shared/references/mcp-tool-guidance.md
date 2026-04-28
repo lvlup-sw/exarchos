@@ -1,8 +1,3 @@
----
-name: mcp-tool-guidance
-description: "Prefer specialized MCP tools over generic CLI approaches."
----
-
 # MCP Tool Guidance
 
 Use specialized MCP tools over generic approaches:

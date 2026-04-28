@@ -1,8 +1,3 @@
----
-name: parallel-strategy
-description: Parallel dispatch and result-collection strategy for subagent teammates.
----
-
 # Parallel Execution Strategy
 
 ## Identifying Parallel Groups

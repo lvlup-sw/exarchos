@@ -1,7 +1,3 @@
----
-name: workflow-steps
----
-
 # Delegation Workflow Steps
 
 ## Step 1: Prepare Environment
