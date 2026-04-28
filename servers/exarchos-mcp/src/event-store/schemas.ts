@@ -283,13 +283,12 @@ export const EVENT_EMISSION_REGISTRY: Record<EventType, EventEmissionSource> = {
   'eval.case.completed': 'planned',
   'eval.run.completed': 'planned',
 
-  // planned — emitted by merge-orchestrator (T11/T15/T16, DR-MO-2). The
-  // schemas are registered up-front; emission lands with the orchestrator
-  // handlers. Preflight failures DO NOT route through merge.rollback —
-  // they surface as `phase: 'aborted'` with `abortReason: 'preflight-failed'`.
-  'merge.preflight': 'planned',
-  'merge.executed': 'planned',
-  'merge.rollback': 'planned',
+  // auto — emitted by the merge_orchestrate composite action (DR-MO-1).
+  // Preflight failures DO NOT route through merge.rollback — they surface
+  // as `phase: 'aborted'` with `abortReason: 'preflight-failed'`.
+  'merge.preflight': 'auto',
+  'merge.executed': 'auto',
+  'merge.rollback': 'auto',
 };
 
 // ─── Base Event Schema ──────────────────────────────────────────────────────
