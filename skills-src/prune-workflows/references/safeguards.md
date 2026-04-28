@@ -1,7 +1,3 @@
----
-name: prune-safeguards
----
-
 # Prune Safeguards
 
 The `prune_stale_workflows` orchestrate action runs two safeguards on each

@@ -1,7 +1,3 @@
----
-name: oneshot-choice-state
----
-
 # Oneshot Choice State: `implementing → ?`
 
 The oneshot workflow has a UML *choice state* at the end of `implementing`.

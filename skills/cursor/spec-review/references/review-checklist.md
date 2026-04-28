@@ -1,8 +1,3 @@
----
-name: spec-review-checklist
-description: "Validation script invocations and report template for spec compliance verification."
----
-
 # Spec Review Checklist
 
 ## Adversarial Review Posture

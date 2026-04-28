@@ -1,8 +1,3 @@
----
-name: implementation-planning-worked-example
-description: "Complete trace of the implementation planning skill in action, showing happy path and re-planning after gap detection."
----
-
 # Worked Example: Implementation Planning — Event Stream Compaction
 
 ## Context

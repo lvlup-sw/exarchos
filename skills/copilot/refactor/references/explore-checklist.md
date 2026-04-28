@@ -1,7 +1,3 @@
----
-name: explore-checklist
----
-
 # Refactor Exploration Checklist
 
 ## Scope Assessment

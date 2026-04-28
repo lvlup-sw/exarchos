@@ -1,7 +1,3 @@
----
-paths: "**/*.ts", "**/*.tsx", "**/*.cs"
----
-
 # TDD Rules
 
 Enforce strict TDD when modifying TypeScript or C# files.

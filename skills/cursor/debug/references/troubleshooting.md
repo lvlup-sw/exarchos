@@ -1,7 +1,3 @@
----
-name: troubleshooting
----
-
 # Troubleshooting
 
 ## MCP Tool Call Failed
