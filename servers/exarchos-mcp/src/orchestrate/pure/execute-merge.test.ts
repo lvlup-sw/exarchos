@@ -6,7 +6,7 @@
 // ───────────────────────────────────────────────────────────────────────────
 
 import { describe, it, expect, vi } from 'vitest';
-import { recordRollbackPoint, type GitExec } from './execute-merge.js';
+import { recordRollbackPoint, executeMerge, type GitExec } from './execute-merge.js';
 
 describe('recordRollbackPoint', () => {
   it('recordRollbackPoint_HappyPath_ReturnsHeadSha', () => {
@@ -52,5 +52,73 @@ describe('recordRollbackPoint', () => {
     const result = recordRollbackPoint(gitExec, '/some/repo');
 
     expect('error' in result).toBe(true);
+  });
+});
+
+describe('executeMerge', () => {
+  it('executeMerge_MergeSucceeds_ReturnsMergeShaAndPhaseCompleted', async () => {
+    const gitExec: GitExec = vi.fn((_repoRoot: string, args: readonly string[]) => {
+      expect(args).toEqual(['rev-parse', 'HEAD']);
+      return { stdout: 'rollback-sha-abc\n', exitCode: 0 };
+    });
+    const vcsMerge = vi.fn(async () => ({ mergeSha: 'merge-sha-xyz' }));
+    const persistState = vi.fn(async () => {});
+
+    const result = await executeMerge({
+      sourceBranch: 'feat/x',
+      targetBranch: 'main',
+      strategy: 'squash',
+      gitExec,
+      vcsMerge,
+      persistState,
+    });
+
+    expect(result).toEqual({
+      phase: 'completed',
+      mergeSha: 'merge-sha-xyz',
+      rollbackSha: 'rollback-sha-abc',
+    });
+    expect(vcsMerge).toHaveBeenCalledWith({
+      sourceBranch: 'feat/x',
+      targetBranch: 'main',
+      strategy: 'squash',
+    });
+  });
+
+  it('executeMerge_RecordsRollbackShaBeforeMergeCall_OrderingPreserved', async () => {
+    const calls: string[] = [];
+
+    const gitExec: GitExec = vi.fn((_repoRoot: string, args: readonly string[]) => {
+      if (args[0] === 'rev-parse' && args[1] === 'HEAD') {
+        calls.push('rev-parse-HEAD');
+        return { stdout: 'rollback-sha-abc\n', exitCode: 0 };
+      }
+      throw new Error(`unexpected git args: ${args.join(' ')}`);
+    });
+
+    const persistState = vi.fn(async (state: { phase: 'executing'; rollbackSha: string }) => {
+      calls.push(`persistState({phase:${state.phase},rollbackSha:${state.rollbackSha}})`);
+    });
+
+    const vcsMerge = vi.fn(async () => {
+      calls.push('vcsMerge');
+      return { mergeSha: 'merge-sha-xyz' };
+    });
+
+    const result = await executeMerge({
+      sourceBranch: 'feat/x',
+      targetBranch: 'main',
+      strategy: 'squash',
+      gitExec,
+      vcsMerge,
+      persistState,
+    });
+
+    expect(calls).toEqual([
+      'rev-parse-HEAD',
+      'persistState({phase:executing,rollbackSha:rollback-sha-abc})',
+      'vcsMerge',
+    ]);
+    expect(result.phase).toBe('completed');
   });
 });
