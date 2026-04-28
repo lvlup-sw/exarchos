@@ -151,7 +151,7 @@ function createWorktree(repoRoot: string, worktreePath: string, branchName: stri
   }
 }
 
-function runNpmInstall(worktreePath: string): CheckResult {
+export function runNpmInstall(worktreePath: string): CheckResult {
   if (!existsSync(join(worktreePath, 'package.json'))) {
     return { name: 'npm install', status: 'skip', detail: 'no package.json in worktree' };
   }
@@ -168,7 +168,7 @@ function runNpmInstall(worktreePath: string): CheckResult {
   }
 }
 
-function runBaselineTests(worktreePath: string, skipTests: boolean): CheckResult {
+export function runBaselineTests(worktreePath: string, skipTests: boolean): CheckResult {
   if (skipTests) {
     return { name: 'Baseline tests pass', status: 'skip', detail: '--skip-tests' };
   }
