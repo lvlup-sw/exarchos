@@ -9,6 +9,9 @@
 // docs/research/2026-04-25-delegation-platform-agnosticity.md §3.
 // ────────────────────────────────────────────────────────────────────────────
 
+import { readFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, it, expect } from 'vitest';
 import type { AgentSpec } from '../types.js';
 import type { Capability } from '../capabilities.js';
@@ -177,6 +180,40 @@ describe('CodexAdapter', () => {
     expect(reviewerSandbox?.[1]).toBe('read-only');
     expect(implementerSandbox?.[1]).toBe('workspace-write');
     expect(r.contents).not.toEqual(i.contents);
+  });
+
+  // ─── On-disk artifact divergence (Issue #1192 Item 6, T28) ────────────────
+  //
+  // T27 above asserts `lowerSpec` produces divergent surfaces for REVIEWER vs
+  // IMPLEMENTER. T28 catches the orthogonal failure mode: drift between the
+  // adapter's *output* and the committed `.codex/agents/*.toml` artifacts.
+  // Without this guard, an adapter change that's never re-rendered (or a hand
+  // edit to a TOML file) could silently restore byte-identical surfaces in
+  // the artifacts shipped to consumers, even while T27 keeps passing.
+  // ──────────────────────────────────────────────────────────────────────────
+  it('CodexArtifact_OnDisk_REVIEWER_AND_IMPLEMENTER_HaveDistinctToolSurfaces', () => {
+    // Resolve repo root from this test file's location:
+    //   servers/exarchos-mcp/src/agents/adapters/codex.test.ts
+    //     → ../../../../..  = repo root
+    const here = dirname(fileURLToPath(import.meta.url));
+    const repoRoot = resolve(here, '../../../../..');
+    const reviewerToml = readFileSync(
+      resolve(repoRoot, '.codex/agents/reviewer.toml'),
+      'utf8',
+    );
+    const implementerToml = readFileSync(
+      resolve(repoRoot, '.codex/agents/implementer.toml'),
+      'utf8',
+    );
+
+    // Each artifact must declare the sandbox_mode that matches its spec's
+    // capabilities — read-only for REVIEWER, workspace-write for IMPLEMENTER.
+    expect(reviewerToml).toMatch(/^sandbox_mode\s*=\s*"read-only"\s*$/m);
+    expect(implementerToml).toMatch(
+      /^sandbox_mode\s*=\s*"workspace-write"\s*$/m,
+    );
+    // And the artifacts as a whole must not be byte-identical.
+    expect(reviewerToml).not.toBe(implementerToml);
   });
 });
 
