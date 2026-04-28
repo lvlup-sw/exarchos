@@ -325,6 +325,11 @@ export const ALL_PHASES: ReadonlySet<string> = new Set([
   'plan',
   'plan-review',
   'delegate',
+  // Substate of `delegate` — entered when a worktree-task's autonomous merge
+  // is pending. Must be in this set so phase-gated actions (notably
+  // `merge_orchestrate` itself) remain dispatchable while the workflow sits
+  // in this phase.
+  'merge-pending',
   'review',
   'synthesize',
   // Debug workflow
@@ -951,6 +956,31 @@ const orchestrateActions: readonly ToolAction[] = [
     gate: { blocking: false, dimension: 'D4' },
     autoEmits: [
       { event: 'gate.executed', condition: 'always' },
+    ],
+  },
+  // ─── Merge Orchestrator (DR-MO-1) ─────────────────────────────────────────
+  {
+    name: 'merge_orchestrate',
+    description: 'Top-level merge orchestrator: runs preflight, emits merge.preflight, then delegates to the executor on pass. Handles abort/dryRun/resume per DR-MO-1.',
+    schema: z.object({
+      featureId: z.string().min(1),
+      sourceBranch: z.string().min(1),
+      targetBranch: z.string().min(1),
+      taskId: z.string().optional(),
+      // Required-no-default — matches `merge_pr.strategy` per #1127, gives
+      // CLI/MCP user-visible parity (#1109 §2), and keeps operator intent
+      // explicit in the event log (DIM-2 / DIM-3).
+      strategy: z.enum(['squash', 'rebase', 'merge']),
+      dryRun: z.boolean().optional(),
+      resume: z.boolean().optional(),
+      repoRoot: z.string().optional(),
+    }),
+    phases: ALL_PHASES,
+    roles: ROLE_LEAD,
+    autoEmits: [
+      { event: 'merge.preflight', condition: 'always' },
+      { event: 'merge.executed', condition: 'conditional', description: 'When preflight passes and execute succeeds' },
+      { event: 'merge.rollback', condition: 'conditional', description: 'When execute fails after a merge SHA was produced' },
     ],
   },
   {
@@ -1676,7 +1706,7 @@ export const TOOL_REGISTRY: readonly CompositeTool[] = [
     description: 'Task coordination — claim, complete, and fail tasks',
     actions: orchestrateActions,
     cli: { alias: 'orch' },
-    slimDescription: 'Task coordination, quality gates, validation actions, and VCS operations. Use describe(actions) for schemas.\n\nActions: task_claim, task_complete, task_fail, review_triage, prepare_delegation, prepare_synthesis, assess_stack, check_static_analysis, check_security_scan, check_context_economy, check_operational_resilience, check_workflow_determinism, check_review_verdict, check_convergence, check_provenance_chain, check_design_completeness, check_plan_coverage, check_tdd_compliance, check_post_merge, check_task_decomposition, check_event_emissions, extract_task, review_diff, verify_worktree, select_debug_track, investigation_timer, check_coverage_thresholds, assess_refactor_scope, check_pr_comments, validate_pr_body, validate_pr_stack, debug_review_gate, extract_fix_tasks, generate_traceability, spec_coverage_check, verify_worktree_baseline, setup_worktree, verify_delegation_saga, post_delegation_check, reconcile_state, pre_synthesis_check, new_project, runbook, agent_spec, doctor, create_pr, merge_pr, check_ci, list_prs, get_pr_comments, add_pr_comment, create_issue',
+    slimDescription: 'Task coordination, quality gates, validation actions, and VCS operations. Use describe(actions) for schemas.\n\nActions: task_claim, task_complete, task_fail, review_triage, prepare_delegation, prepare_synthesis, assess_stack, check_static_analysis, check_security_scan, check_context_economy, check_operational_resilience, check_workflow_determinism, check_review_verdict, check_convergence, check_provenance_chain, check_design_completeness, check_plan_coverage, check_tdd_compliance, check_post_merge, check_task_decomposition, check_event_emissions, extract_task, review_diff, verify_worktree, select_debug_track, investigation_timer, check_coverage_thresholds, assess_refactor_scope, check_pr_comments, validate_pr_body, validate_pr_stack, debug_review_gate, extract_fix_tasks, generate_traceability, spec_coverage_check, verify_worktree_baseline, setup_worktree, verify_delegation_saga, post_delegation_check, reconcile_state, pre_synthesis_check, new_project, runbook, agent_spec, doctor, create_pr, merge_pr, check_ci, list_prs, get_pr_comments, add_pr_comment, create_issue, merge_orchestrate',
   },
   {
     name: 'exarchos_view',

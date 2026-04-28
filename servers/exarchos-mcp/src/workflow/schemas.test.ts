@@ -5,6 +5,8 @@ import {
   TaskStatusSchema,
   OneshotPhaseSchema,
   WorkflowTypeSchema,
+  MergeOrchestratorStateSchema,
+  FeaturePhaseSchema,
 } from './schemas.js';
 import { z } from 'zod';
 
@@ -543,5 +545,125 @@ describe('WorkflowState integration', () => {
 describe('Discovery workflow type schema', () => {
   it('WorkflowTypeSchema_Discovery_Accepted', () => {
     expect(WorkflowTypeSchema.safeParse('discovery').success).toBe(true);
+  });
+});
+
+// ─── MergeOrchestratorStateSchema Tests (DR-MO-1 / DR-MO-2) ────────────────
+
+describe('MergeOrchestratorStateSchema', () => {
+  it('MergeOrchestratorStateSchema_ValidPendingState_Parses', () => {
+    const input = {
+      phase: 'pending',
+      sourceBranch: 'feature/x',
+      targetBranch: 'main',
+    };
+    const result = MergeOrchestratorStateSchema.parse(input);
+    expect(result).toEqual(input);
+  });
+
+  it('MergeOrchestratorStateSchema_InvalidPhase_Rejects', () => {
+    const result = MergeOrchestratorStateSchema.safeParse({
+      phase: 'bogus',
+      sourceBranch: 'a',
+      targetBranch: 'b',
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('MergeOrchestratorStateSchema_PreflightFieldOptional_Parses', () => {
+    const minimal = MergeOrchestratorStateSchema.safeParse({
+      phase: 'pending',
+      sourceBranch: 'feature/x',
+      targetBranch: 'main',
+    });
+    expect(minimal.success).toBe(true);
+
+    const withPreflight = MergeOrchestratorStateSchema.safeParse({
+      phase: 'pending',
+      sourceBranch: 'feature/x',
+      targetBranch: 'main',
+      preflight: { passed: true },
+    });
+    expect(withPreflight.success).toBe(true);
+  });
+});
+
+// ─── FeatureWorkflowState mergeOrchestrator field (DR-MO-1 / DR-MO-2) ──────
+
+describe('FeatureWorkflowStateSchema mergeOrchestrator field', () => {
+  const baseFeatureFixture = {
+    version: '1.1',
+    workflowType: 'feature' as const,
+    featureId: 'merge-orchestrator-feature',
+    phase: 'delegate' as const,
+    createdAt: '2026-04-26T00:00:00Z',
+    updatedAt: '2026-04-26T00:00:00Z',
+    artifacts: { design: null, plan: null, pr: null },
+    tasks: [],
+    worktrees: {},
+    reviews: {},
+    integration: null,
+    synthesis: {
+      integrationBranch: null,
+      mergeOrder: [],
+      mergedBranches: [],
+      prUrl: null,
+      prFeedback: [],
+    },
+  };
+
+  it('FeatureWorkflowState_RoundTripsWithMergeOrchestratorField_Equal', async () => {
+    const { FeatureWorkflowStateSchema } = await import('./schemas.js');
+    const input = {
+      ...baseFeatureFixture,
+      mergeOrchestrator: {
+        phase: 'pending' as const,
+        sourceBranch: 'feat/x',
+        targetBranch: 'main',
+      },
+    };
+    const parsed = FeatureWorkflowStateSchema.parse(input);
+    expect(parsed.mergeOrchestrator).toEqual(input.mergeOrchestrator);
+  });
+
+  it('FeatureWorkflowState_OmittedMergeOrchestrator_StillValid', async () => {
+    const { FeatureWorkflowStateSchema } = await import('./schemas.js');
+    const result = FeatureWorkflowStateSchema.safeParse(baseFeatureFixture);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.mergeOrchestrator).toBeUndefined();
+    }
+  });
+
+  it('FeatureWorkflowState_InvalidMergeOrchestratorPhase_Rejects', async () => {
+    const { FeatureWorkflowStateSchema } = await import('./schemas.js');
+    const input = {
+      ...baseFeatureFixture,
+      mergeOrchestrator: {
+        phase: 'bogus',
+        sourceBranch: 'feat/x',
+        targetBranch: 'main',
+      },
+    };
+    const result = FeatureWorkflowStateSchema.safeParse(input);
+    expect(result.success).toBe(false);
+  });
+});
+
+// ─── T26: FeaturePhaseSchema includes merge-pending substate ──────────────
+//
+// T17 added 'merge-pending' as an HSM substate of 'implementation' (sibling
+// of 'delegate' / 'review'). The disk schema must accept it so workflow
+// state files can persist that phase value end-to-end (e.g. via the HSM's
+// merge-pending entry transition).
+
+describe('FeaturePhaseSchema (T26)', () => {
+  it('FeaturePhaseSchema_MergePending_Parses', () => {
+    expect(FeaturePhaseSchema.safeParse('merge-pending').success).toBe(true);
+  });
+
+  it('FeaturePhaseSchema_TypoInMergePending_Rejects', () => {
+    expect(FeaturePhaseSchema.safeParse('merge-Pending').success).toBe(false);
+    expect(FeaturePhaseSchema.safeParse('merge_pending').success).toBe(false);
   });
 });

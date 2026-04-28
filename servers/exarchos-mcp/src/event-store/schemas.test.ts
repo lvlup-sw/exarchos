@@ -42,6 +42,9 @@ import {
   CiStatusData,
   CommentPostedData,
   CommentResolvedData,
+  MergePreflightData,
+  MergeExecutedData,
+  MergeRollbackData,
   EVENT_EMISSION_REGISTRY,
   EVENT_DATA_SCHEMAS,
   type EventEmissionSource,
@@ -461,7 +464,7 @@ describe('EventTypes', () => {
   });
 
   it('EventTypes_HasExpectedCount', () => {
-    expect(EventTypes).toHaveLength(80);
+    expect(EventTypes).toHaveLength(83);
   });
 
   it('EventTypes_IncludesSessionTagged', () => {
@@ -2296,5 +2299,148 @@ describe('WorkflowProjectionDegradedData', () => {
     // Also surface via the serializeEventCatalog emission guide output.
     const catalog = serializeEventCatalog();
     expect(catalog.bySource.auto).toContain('workflow.projection_degraded');
+  });
+});
+
+// ─── T03: merge.preflight / merge.executed / merge.rollback (DR-MO-2) ───────
+
+describe('MergePreflightData', () => {
+  it('MergePreflightEventSchema_ValidPayload_Parses', () => {
+    // DR-MO-2: merge.preflight payload — captures the preflight outcome for
+    // a candidate merge. Preflight failures DO NOT route through merge.rollback;
+    // they surface as `phase: 'aborted'` with `abortReason: 'preflight-failed'`.
+    expect(EventTypes).toContain('merge.preflight');
+
+    const schema = EVENT_DATA_SCHEMAS['merge.preflight' as typeof EventTypes[number]];
+    expect(schema).toBeDefined();
+
+    const result = MergePreflightData.safeParse({
+      taskId: 'T11',
+      sourceBranch: 'feat/x',
+      targetBranch: 'main',
+      passed: true,
+    });
+    expect(result.success, JSON.stringify(result)).toBe(true);
+    if (result.success) {
+      expect(result.data.taskId).toBe('T11');
+      expect(result.data.sourceBranch).toBe('feat/x');
+      expect(result.data.targetBranch).toBe('main');
+      expect(result.data.passed).toBe(true);
+    }
+  });
+
+  it('MergePreflightEventSchema_NestedSubResults_RoundTrip', () => {
+    // DR-MO-1 AC#1: the structured guard sub-results (ancestry, worktree,
+    // currentBranchProtection, drift) must round-trip through the event
+    // schema so event-sourced timeline reconstruction works without
+    // reading the workflow state file.
+    const payload = {
+      taskId: 'T11',
+      sourceBranch: 'feat/x',
+      targetBranch: 'main',
+      passed: false,
+      ancestry: {
+        passed: false,
+        reason: 'ancestry' as const,
+        missing: ['main'],
+      },
+      currentBranchProtection: {
+        blocked: false,
+      },
+      worktree: {
+        isMain: true,
+        actual: '/repo',
+        expected: '/repo',
+      },
+      drift: {
+        clean: true,
+        uncommittedFiles: [],
+        indexStale: false,
+        detachedHead: false,
+      },
+      failureReasons: ['ancestry missing: main'],
+    };
+    const result = MergePreflightData.safeParse(payload);
+    expect(result.success, JSON.stringify(result)).toBe(true);
+    if (result.success) {
+      expect(result.data.ancestry?.missing).toEqual(['main']);
+      expect(result.data.worktree?.isMain).toBe(true);
+      expect(result.data.drift?.clean).toBe(true);
+      expect(result.data.currentBranchProtection?.blocked).toBe(false);
+      expect(result.data.failureReasons).toEqual(['ancestry missing: main']);
+    }
+  });
+
+  it('MergePreflightEventSchema_LegacyPayloadWithoutSubResults_StillParses', () => {
+    // Backward-compatibility: events emitted before the schema widening
+    // omit the nested sub-results. They must still parse.
+    const result = MergePreflightData.safeParse({
+      taskId: 'T11',
+      sourceBranch: 'feat/x',
+      targetBranch: 'main',
+      passed: true,
+    });
+    expect(result.success).toBe(true);
+  });
+});
+
+describe('MergeExecutedData', () => {
+  it('MergeExecutedEventSchema_ValidPayload_Parses', () => {
+    // DR-MO-2: merge.executed payload — records the post-merge SHA along with
+    // the rollbackSha (the parent commit on the target branch prior to merge)
+    // so a subsequent rollback handler can `git reset --hard <rollbackSha>`.
+    expect(EventTypes).toContain('merge.executed');
+
+    const schema = EVENT_DATA_SCHEMAS['merge.executed' as typeof EventTypes[number]];
+    expect(schema).toBeDefined();
+
+    const result = MergeExecutedData.safeParse({
+      taskId: 'T11',
+      sourceBranch: 'feat/x',
+      targetBranch: 'main',
+      mergeSha: 'a'.repeat(40),
+      rollbackSha: 'b'.repeat(40),
+    });
+    expect(result.success, JSON.stringify(result)).toBe(true);
+    if (result.success) {
+      expect(result.data.mergeSha).toBe('a'.repeat(40));
+      expect(result.data.rollbackSha).toBe('b'.repeat(40));
+    }
+  });
+});
+
+describe('MergeRollbackData', () => {
+  it('MergeRollbackEventSchema_ValidPayload_Parses', () => {
+    // DR-MO-2: merge.rollback payload — emitted when a merge is reverted.
+    // reason is a closed enum: 'merge-failed' | 'verification-failed' | 'timeout'.
+    expect(EventTypes).toContain('merge.rollback');
+
+    const schema = EVENT_DATA_SCHEMAS['merge.rollback' as typeof EventTypes[number]];
+    expect(schema).toBeDefined();
+
+    const result = MergeRollbackData.safeParse({
+      taskId: 'T11',
+      sourceBranch: 'feat/x',
+      targetBranch: 'main',
+      rollbackSha: 'b'.repeat(40),
+      reason: 'merge-failed',
+    });
+    expect(result.success, JSON.stringify(result)).toBe(true);
+    if (result.success) {
+      expect(result.data.reason).toBe('merge-failed');
+    }
+  });
+
+  it('MergeRollbackEventSchema_UnknownReason_Rejects', () => {
+    // DR-MO-2: reason enum is closed — bogus values must fail parsing so
+    // observability isn't fragmented by free-form rollback reasons.
+    const result = MergeRollbackData.safeParse({
+      taskId: 'T11',
+      sourceBranch: 'feat/x',
+      targetBranch: 'main',
+      rollbackSha: 'b'.repeat(40),
+      reason: 'bogus',
+    });
+    expect(result.success).toBe(false);
   });
 });

@@ -499,10 +499,10 @@ describe('TOOL_REGISTRY', () => {
   });
 
   describe('exarchos_orchestrate', () => {
-    it('should have 64 actions for task management, review triage, gate checks, validation handlers, runbooks, agent spec, oneshot/pruning, doctor, init, VCS, classify_review_items (#1159), and composite actions', () => {
+    it('should have 65 actions for task management, review triage, gate checks, validation handlers, runbooks, agent spec, oneshot/pruning, doctor, init, VCS, classify_review_items (#1159), merge_orchestrate (DR-MO-1), and composite actions', () => {
       const composite = findComposite('exarchos_orchestrate');
       expect(composite).toBeDefined();
-      expect(composite!.actions).toHaveLength(64);
+      expect(composite!.actions).toHaveLength(65);
 
       const actionNames = composite!.actions.map((a) => a.name);
       expect(actionNames).toEqual(
@@ -566,6 +566,9 @@ describe('TOOL_REGISTRY', () => {
           'add_pr_comment',
           'create_issue',
           'init',
+          // DR-MO-1 / DR-MO-2: explicit assertion so a future registry edit
+          // cannot quietly drop the autonomous merge orchestrator action.
+          'merge_orchestrate',
         ]),
       );
     });

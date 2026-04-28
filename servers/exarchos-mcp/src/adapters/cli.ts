@@ -14,6 +14,7 @@ import {
   buildInvalidInput,
   VALIDATION_ERROR_CODE,
 } from './schema-to-flags.js';
+import { HandleMergeOrchestrateArgsSchema } from '../orchestrate/merge-orchestrate.js';
 import { prettyPrint, printError } from './cli-format.js';
 // NOTE: `./schema-introspection.js` is intentionally NOT imported at the top
 // level. It pulls `zod-to-json-schema`, the state-machine topology serializer,
@@ -548,6 +549,79 @@ export function buildCli(ctx: DispatchContext): Command {
         : CLI_EXIT_CODES.SUCCESS;
     });
   }
+
+  // ─── Top-level `exarchos merge-orchestrate` command (T21, DR-MO-1) ──────
+  //
+  // Promoted to a top-level verb (like `doctor` and `init`) so an operator
+  // types `exarchos merge-orchestrate ...` instead of
+  // `exarchos orch merge-orchestrate ...`. Under the hood it dispatches
+  // through `exarchos_orchestrate` so the CLI and MCP paths share one
+  // handler (`handleMergeOrchestrate`) and one validation gate.
+  //
+  // The flag set is auto-generated from `HandleMergeOrchestrateArgsSchema`
+  // (the same schema imported by the MCP action registration in T20), so
+  // CLI/MCP arg parity is preserved by construction — no hand-written
+  // duplicate flag table to drift.
+  //
+  // Exit-code mapping (DR-MO-1 / design CLI surface):
+  //   - Success                  → SUCCESS (exit 0)
+  //   - Zod validation at CLI    → INVALID_INPUT (exit 1)
+  //   - Handler error (PREFLIGHT_FAILED, MERGE_ROLLED_BACK, etc.)
+  //                              → HANDLER_ERROR (exit 2)
+  //   - Uncaught throw           → UNCAUGHT_EXCEPTION (exit 3)
+  const mergeOrchestrateCmd = program
+    .command('merge-orchestrate')
+    .description('Run the autonomous merge orchestrator: preflight, optional execute, rollback on failure.');
+  addFlagsFromSchema(mergeOrchestrateCmd, HandleMergeOrchestrateArgsSchema);
+
+  mergeOrchestrateCmd.action(async (opts: Record<string, unknown>) => {
+    const { json, ...flagOpts } = opts;
+    const isJson = Boolean(json);
+
+    // ─── INVALID_INPUT (exit 1): Zod validation at CLI layer ────────────
+    const coerced = coerceFlags(flagOpts, HandleMergeOrchestrateArgsSchema);
+    const parsed = HandleMergeOrchestrateArgsSchema.safeParse(coerced);
+    if (!parsed.success) {
+      const err = formatValidationError(
+        parsed.error,
+        'exarchos_orchestrate/merge_orchestrate',
+      );
+      emitResult({ success: false, error: err }, isJson);
+      process.exitCode = CLI_EXIT_CODES.INVALID_INPUT;
+      return;
+    }
+
+    // ─── Dispatch ────────────────────────────────────────────────────────
+    let result: ToolResult;
+    try {
+      result = await dispatch(
+        'exarchos_orchestrate',
+        { action: 'merge_orchestrate', ...parsed.data },
+        ctx,
+      );
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      emitResult(
+        { success: false, error: { code: 'UNCAUGHT_EXCEPTION', message } },
+        isJson,
+      );
+      process.exitCode = CLI_EXIT_CODES.UNCAUGHT_EXCEPTION;
+      return;
+    }
+
+    emitResult(result, isJson);
+
+    // Preserve INVALID_INPUT for handler-reported validation failures so a
+    // bad arg that slips past CLI Zod but is caught by the handler still
+    // reports exit 1 (parity with the doctor/init pattern).
+    if (result.success) {
+      process.exitCode = CLI_EXIT_CODES.SUCCESS;
+    } else if (result.error?.code === VALIDATION_ERROR_CODE) {
+      process.exitCode = CLI_EXIT_CODES.INVALID_INPUT;
+    } else {
+      process.exitCode = CLI_EXIT_CODES.HANDLER_ERROR;
+    }
+  });
 
   return program;
 }

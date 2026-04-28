@@ -6,6 +6,11 @@ export const NextAction = z.object({
   reason: z.string(),
   validTargets: z.array(z.string()).optional(),
   hint: z.string().optional(),
+  // T18 (DR-MO-1): action verbs that carry a side-effect (e.g.
+  // `merge_orchestrate`) include an idempotency key so callers can de-duplicate
+  // auto-triggered work across rehydrations of the same workflow state. Empty
+  // strings are rejected — an empty key collapses unrelated invocations.
+  idempotencyKey: z.string().min(1).optional(),
 });
 
 export type NextAction = z.infer<typeof NextAction>;

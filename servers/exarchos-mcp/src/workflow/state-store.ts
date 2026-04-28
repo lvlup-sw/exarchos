@@ -694,6 +694,59 @@ function applyEventToState(
       return true;
     }
 
+    // ─── Merge orchestrator projections (#1109 §1 reconstructability) ──────
+    // Replace `mergeOrchestrator` rather than spread so each terminal event
+    // produces a self-consistent block — no stale fields from prior phases.
+    case 'merge.preflight': {
+      if (!data) return false;
+      // Only failed preflight produces a terminal `aborted` phase. A passed
+      // preflight is observation; the executor's merge.executed/rollback
+      // produces the next terminal write.
+      if (data.passed === false) {
+        state.mergeOrchestrator = {
+          phase: 'aborted' as const,
+          preflight: data,
+          abortReason: 'preflight-failed' as const,
+          ...(data.taskId !== undefined ? { taskId: data.taskId } : {}),
+          ...(data.sourceBranch !== undefined ? { sourceBranch: data.sourceBranch } : {}),
+          ...(data.targetBranch !== undefined ? { targetBranch: data.targetBranch } : {}),
+        };
+        state.updatedAt = event.timestamp;
+        return true;
+      }
+      return false;
+    }
+
+    case 'merge.executed': {
+      if (!data) return false;
+      state.mergeOrchestrator = {
+        phase: 'completed' as const,
+        ...(data.taskId !== undefined ? { taskId: data.taskId } : {}),
+        ...(data.sourceBranch !== undefined ? { sourceBranch: data.sourceBranch } : {}),
+        ...(data.targetBranch !== undefined ? { targetBranch: data.targetBranch } : {}),
+        ...(data.strategy !== undefined ? { strategy: data.strategy } : {}),
+        ...(data.mergeSha !== undefined ? { mergeSha: data.mergeSha } : {}),
+        ...(data.rollbackSha !== undefined ? { rollbackSha: data.rollbackSha } : {}),
+      };
+      state.updatedAt = event.timestamp;
+      return true;
+    }
+
+    case 'merge.rollback': {
+      if (!data) return false;
+      state.mergeOrchestrator = {
+        phase: 'rolled-back' as const,
+        ...(data.taskId !== undefined ? { taskId: data.taskId } : {}),
+        ...(data.sourceBranch !== undefined ? { sourceBranch: data.sourceBranch } : {}),
+        ...(data.targetBranch !== undefined ? { targetBranch: data.targetBranch } : {}),
+        ...(data.rollbackSha !== undefined ? { rollbackSha: data.rollbackSha } : {}),
+        ...(data.reason !== undefined ? { reason: data.reason } : {}),
+        ...(data.rollbackError !== undefined ? { rollbackError: data.rollbackError } : {}),
+      };
+      state.updatedAt = event.timestamp;
+      return true;
+    }
+
     default:
       // Unknown event types are skipped
       return false;

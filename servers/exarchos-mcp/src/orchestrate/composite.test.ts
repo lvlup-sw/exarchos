@@ -93,6 +93,10 @@ vi.mock('./init/index.js', () => ({
   handleInit: vi.fn(),
 }));
 
+vi.mock('./merge-orchestrate.js', () => ({
+  handleMergeOrchestrate: vi.fn(),
+}));
+
 vi.mock('../agents/handler.js', async (importOriginal) => {
   const actual = await importOriginal() as Record<string, unknown>;
   return {
@@ -128,6 +132,7 @@ import { handleGetPrComments } from './vcs/get-pr-comments.js';
 import { handleAddPrComment } from './vcs/add-pr-comment.js';
 import { handleCreateIssue } from './vcs/create-issue.js';
 import { handleInit } from './init/index.js';
+import { handleMergeOrchestrate } from './merge-orchestrate.js';
 import { TOOL_REGISTRY } from '../registry.js';
 import { handleOrchestrate } from './composite.js';
 
@@ -762,6 +767,56 @@ describe('handleOrchestrate', () => {
       expect(orchestrate).toBeDefined();
       const actionNames = orchestrate!.actions.map((a) => a.name);
       expect(actionNames).toContain('init');
+    });
+  });
+
+  // ─── Merge Orchestrate Routing ──────────────────────────────────────────
+
+  describe('merge orchestrate routing', () => {
+    it('compositeOrchestrate_ActionMergeOrchestrate_RoutesToHandleMergeOrchestrate', async () => {
+      // Arrange
+      const expected = successResult({
+        phase: 'completed',
+        mergeSha: 'a'.repeat(40),
+        rollbackSha: 'b'.repeat(40),
+        preflight: { passed: true },
+      });
+      vi.mocked(handleMergeOrchestrate).mockResolvedValue(expected);
+      const args = {
+        action: 'merge_orchestrate',
+        featureId: 'feat-x',
+        sourceBranch: 'feat/x',
+        targetBranch: 'main',
+        // Required-no-default per registry contract — assert it is forwarded
+        // so a future schema-shape regression cannot silently drop it.
+        strategy: 'squash',
+      };
+
+      // Act
+      const result = await handleOrchestrate(args, CTX);
+
+      // Assert — handler is registered via adaptCtx, so it receives (args, ctx)
+      expectEnvelopedSuccess(result, expected);
+      expect(handleMergeOrchestrate).toHaveBeenCalledTimes(1);
+      const call = vi.mocked(handleMergeOrchestrate).mock.calls[0];
+      expect(call[0]).toEqual({
+        featureId: 'feat-x',
+        sourceBranch: 'feat/x',
+        targetBranch: 'main',
+        strategy: 'squash',
+      });
+      expect(call[1]).toBe(CTX);
+    });
+
+    it('OrchestrateRegistry_ActionList_IncludesMergeOrchestrate', () => {
+      // Arrange — registry must enumerate merge_orchestrate so dispatch-level
+      // schema validation accepts the action.
+      const orchestrate = TOOL_REGISTRY.find((t) => t.name === 'exarchos_orchestrate');
+      expect(orchestrate).toBeDefined();
+
+      // Assert
+      const actionNames = orchestrate!.actions.map((a) => a.name);
+      expect(actionNames).toContain('merge_orchestrate');
     });
   });
 

@@ -17,6 +17,8 @@ This skill uses VCS operations through Exarchos MCP actions (`create_pr`, `merge
 These actions automatically detect and route to the correct VCS provider (GitHub, GitLab, Azure DevOps).
 No `gh`/`glab`/`az` commands needed — the MCP server handles provider dispatch.
 
+> **Not to be confused with `merge_orchestrate`.** This skill calls `merge_pr` to land a user-facing PR on `main` via the VCS provider — a remote operation. `merge_orchestrate` (`@skills/merge-orchestrator/SKILL.md`) is the upstream sibling: a local `git merge` of a subagent worktree branch onto the integration branch during the `delegate → merge-pending → delegate` HSM loop. Synthesize never invokes `merge_orchestrate`; merge-pending never invokes `merge_pr`.
+
 ## Overview
 
 Submit stacked PRs after review phase completes. The `prepare_synthesis` composite action consolidates readiness checks, stack verification, test validation, and quality signal analysis into a single call -- eliminating the multi-script coordination that historically caused synthesis failures.

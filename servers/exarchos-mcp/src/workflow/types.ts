@@ -11,6 +11,7 @@ import type {
   TaskSchema,
   WorktreeStatusSchema,
   WorktreeSchema,
+  MergeOrchestratorStateSchema,
   SynthesisSchema,
   ArtifactsSchema,
   FeatureIdSchema,
@@ -49,6 +50,8 @@ export type Task = z.infer<typeof TaskSchema>;
 
 export type WorktreeStatus = z.infer<typeof WorktreeStatusSchema>;
 export type Worktree = z.infer<typeof WorktreeSchema>;
+
+export type MergeOrchestratorState = z.infer<typeof MergeOrchestratorStateSchema>;
 
 export type Synthesis = z.infer<typeof SynthesisSchema>;
 export type Artifacts = z.infer<typeof ArtifactsSchema>;

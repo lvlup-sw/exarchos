@@ -65,6 +65,7 @@ export const FeaturePhaseSchema = z.enum([
   'plan',
   'plan-review',
   'delegate',
+  'merge-pending',
   'review',
   'synthesize',
   'completed',
@@ -189,6 +190,45 @@ export const WorktreeSchema = z.object({
   { message: 'Either taskId or tasks (non-empty) must be provided' },
 );
 
+// ─── Merge Orchestrator State Schema (DR-MO-1 / DR-MO-2) ───────────────────
+
+/** Persisted shape of `mergeOrchestrator.preflight`. Mirrors
+ * `MergePreflightResult` from `pure/merge-preflight.ts` at the field-presence
+ * level; sub-result shapes are kept open so this schema doesn't have to
+ * track every dispatch-guard tweak. The `.passthrough()` accommodates
+ * forward-compatible additions emitted by newer composer versions. */
+const MergeOrchestratorPreflightSchema = z.object({
+  passed: z.boolean(),
+  failureReasons: z.array(z.string()).optional(),
+  ancestry: z.unknown().optional(),
+  currentBranchProtection: z.unknown().optional(),
+  worktree: z.unknown().optional(),
+  drift: z.unknown().optional(),
+}).passthrough();
+
+export const MergeOrchestratorStateSchema = z.object({
+  phase: z.enum(['pending', 'executing', 'completed', 'rolled-back', 'aborted']),
+  // Branch fields are populated on every phase except the very first
+  // pre-preflight `aborted` write — optional so the schema accepts that
+  // edge case without rejection.
+  sourceBranch: z.string().min(1).optional(),
+  targetBranch: z.string().min(1).optional(),
+  taskId: z.string().optional(),
+  // Operator-selected merge strategy — set on `executing`/`completed`/
+  // `rolled-back` writes via the executor.
+  strategy: z.enum(['squash', 'rebase', 'merge']).optional(),
+  rollbackSha: z.string().optional(),
+  mergeSha: z.string().optional(),
+  // Terminal-failure descriptors. `reason` and `rollbackError` come from
+  // the executor's rolled-back write; `abortReason` from the orchestrator's
+  // preflight-fail abort write. Modeling them explicitly gives downstream
+  // consumers strong typing instead of leaning on `.passthrough()`.
+  reason: z.enum(['merge-failed', 'verification-failed', 'timeout']).optional(),
+  rollbackError: z.string().min(1).optional(),
+  abortReason: z.string().min(1).optional(),
+  preflight: MergeOrchestratorPreflightSchema.optional(),
+}).passthrough();
+
 // ─── Synthesis Schema ───────────────────────────────────────────────────────
 
 export const SynthesisSchema = z.object({
@@ -288,6 +328,7 @@ const BaseWorkflowStateSchema = z.object({
 export const FeatureWorkflowStateSchema = BaseWorkflowStateSchema.extend({
   workflowType: z.literal('feature'),
   phase: FeaturePhaseSchema,
+  mergeOrchestrator: MergeOrchestratorStateSchema.optional(),
 });
 
 export const DebugWorkflowStateSchema = BaseWorkflowStateSchema.extend({

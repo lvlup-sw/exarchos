@@ -45,4 +45,90 @@ describe('computeNextActions (T040, DR-8)', () => {
 
     expect(actions).toEqual([]);
   });
+
+  // T18 (DR-MO-1): when the workflow is parked in `merge-pending` and the
+  // merge orchestrator hasn't already terminated, surface a `merge_orchestrate`
+  // action verb so callers can auto-trigger the subagent worktree merge.
+  it('computeNextActions_MergePendingPhase_ReturnsMergeOrchestrate', () => {
+    const hsm = getHSMDefinition('feature');
+    const state = {
+      phase: 'merge-pending',
+      workflowType: 'feature',
+      mergeOrchestrator: { phase: 'pending', taskId: 'T11' },
+      featureId: 'feat-x',
+    };
+
+    const actions = computeNextActions(state, hsm);
+
+    const merge = actions.find((a) => a.verb === 'merge_orchestrate');
+    expect(merge).toBeDefined();
+    expect(merge?.validTargets).toEqual(['merge_orchestrate']);
+    expect(merge?.reason).toBe('Pending subagent worktree merge');
+  });
+
+  it('computeNextActions_MergeOrchestratorPending_IncludesIdempotencyKey', () => {
+    const hsm = getHSMDefinition('feature');
+    const state = {
+      phase: 'merge-pending',
+      workflowType: 'feature',
+      mergeOrchestrator: { phase: 'pending', taskId: 'T11' },
+      featureId: 'feat-x',
+    };
+
+    const actions = computeNextActions(state, hsm);
+
+    const merge = actions.find((a) => a.verb === 'merge_orchestrate');
+    expect(merge?.idempotencyKey).toBe('feat-x:merge_orchestrate:T11');
+  });
+
+  // T19 (DR-MO-1): when the merge orchestrator has already terminated
+  // (phase ∈ EXCLUDED_MERGE_PHASES = { 'completed', 'rolled-back', 'aborted' }),
+  // the `merge_orchestrate` next-action MUST be omitted so callers cannot
+  // re-trigger a merge that has already resolved. The omission filter shares
+  // the EXCLUDED_MERGE_PHASES constant with the HSM `merge-pending` entry
+  // predicate (T17) — they MUST stay in lockstep.
+  it('computeNextActions_MergeOrchestratorCompleted_OmitsMergeOrchestrate', () => {
+    const hsm = getHSMDefinition('feature');
+    const state = {
+      phase: 'merge-pending',
+      workflowType: 'feature',
+      mergeOrchestrator: { phase: 'completed', taskId: 'T11' },
+      featureId: 'feat-x',
+    };
+
+    const actions = computeNextActions(state, hsm);
+
+    const merge = actions.find((a) => a.verb === 'merge_orchestrate');
+    expect(merge).toBeUndefined();
+  });
+
+  it('computeNextActions_MergeOrchestratorRolledBack_OmitsMergeOrchestrate', () => {
+    const hsm = getHSMDefinition('feature');
+    const state = {
+      phase: 'merge-pending',
+      workflowType: 'feature',
+      mergeOrchestrator: { phase: 'rolled-back', taskId: 'T11' },
+      featureId: 'feat-x',
+    };
+
+    const actions = computeNextActions(state, hsm);
+
+    const merge = actions.find((a) => a.verb === 'merge_orchestrate');
+    expect(merge).toBeUndefined();
+  });
+
+  it('computeNextActions_MergeOrchestratorAborted_OmitsMergeOrchestrate', () => {
+    const hsm = getHSMDefinition('feature');
+    const state = {
+      phase: 'merge-pending',
+      workflowType: 'feature',
+      mergeOrchestrator: { phase: 'aborted', taskId: 'T11' },
+      featureId: 'feat-x',
+    };
+
+    const actions = computeNextActions(state, hsm);
+
+    const merge = actions.find((a) => a.verb === 'merge_orchestrate');
+    expect(merge).toBeUndefined();
+  });
 });

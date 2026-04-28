@@ -22,8 +22,8 @@ The most important section of this design. Each row is a piece of infrastructure
 | Current branch + protected-branch check | `dispatch-guard.ts:106` `getCurrentBranch`, `:126` `assertCurrentBranchNotProtected` | Imported and called as-is. |
 | Main worktree assertion | `dispatch-guard.ts:147` `assertMainWorktree(cwd?)` | Imported and called as-is. |
 | Composition pattern | `prepare-delegation.ts:295-360` (composes all four guards in sequence) | Followed verbatim. |
-| Multi-VCS provider | `vcs/factory.ts:21` `createVcsProvider({ config: ctx.projectConfig })` (GitHub / GitLab / Azure DevOps) | Used for any PR-aware step. No raw `gh`. |
-| PR merge | `vcs/merge-pr.ts` | Called by the executor; orchestrator does not reimplement merge. |
+| Multi-VCS provider | `vcs/factory.ts:21` `createVcsProvider({ config: ctx.projectConfig })` (GitHub / GitLab / Azure DevOps) | **Not used by `merge_orchestrate`** — its merge is local-git (#1194). VCS provider remains in use by `merge_pr` and other synthesize-phase remote operations. |
+| Local git merge | `execFileSync('git', ['merge', ...])` via `orchestrate/local-git-merge.ts` (#1194) | Production `vcsMerge` adapter. The executor's recorded `rollbackSha` corresponds to a real local ref the rollback `git reset --hard` can undo. |
 | Worktree validation pattern | `verify-worktree.ts`, `verify-worktree-baseline.ts` | Drift detection extends this pattern in-place; no parallel module. |
 | Git command exec | `setup-worktree.ts:32` `gitExec(repoRoot, args)` helper using `execFileSync('git', ['-C', repoRoot, ...])` | Same shape, 120s timeout matching `post-merge.ts:48`. |
 | Event emission | `gate-utils.ts:emitGateEvent(store, featureId, gateName, gateType, passed, payload)` | All five orchestrator events emitted through this. |
@@ -44,8 +44,10 @@ Flat, matching every other handler in `orchestrate/`. No sub-directory.
 servers/exarchos-mcp/src/orchestrate/
   merge-orchestrate.ts            # Composer: preflight -> emit; resumes from WorkflowState.mergeOrchestrator
   merge-orchestrate.test.ts
-  execute-merge.ts                # Executor: record rollback SHA -> delegate to vcs/merge-pr -> reset on failure
+  execute-merge.ts                # Executor: record rollback SHA -> local git merge -> reset on failure
   execute-merge.test.ts
+  local-git-merge.ts              # Production vcsMerge adapter: local `git merge` of source into target (#1194)
+  local-git-merge.test.ts         # Integration: real temp git repos, real merges, rollback round-trip
   pure/
     merge-preflight.ts            # Pure composer over dispatch-guard fns + drift detection
     merge-preflight.test.ts
@@ -159,11 +161,13 @@ Composes the existing dispatch guards into a single merge-time check.
 
 ### DR-MO-2: Merge execution with rollback
 
-The executor records a recovery point before the merge, delegates the merge itself to the existing VCS provider, and resets to the recovery point on any failure.
+The executor records a recovery point before the merge, performs a *local* `git merge` of source into target, and resets to the recovery point on any failure.
+
+> **Revised post-#1194:** earlier drafts of this section delegated the merge to `vcs/merge-pr.ts` (a remote VCS provider call). That made the recorded `rollbackSha` dead code in production — a server-side merge does not move local HEAD, so `git reset --hard <rollbackSha>` is a no-op. The orchestrator's preflight (worktree drift, ancestry, main-worktree assertion) and rollback (`git reset --hard`) are local-git semantics; the executor must use a matching local-git primitive. The remote PR merge is a different concern handled by `merge_pr` in the synthesize-phase shepherd loop.
 
 **Capabilities**
 - Record pre-merge `HEAD` via `git rev-parse HEAD` and persist to `WorkflowState.mergeOrchestrator.rollbackSha` *before* the merge command runs.
-- Delegate the merge to `vcs/merge-pr.ts`, which routes through `VcsProvider` (GitHub / GitLab / Azure DevOps).
+- Perform the merge via `buildLocalGitMergeAdapter` (`orchestrate/local-git-merge.ts`): checks out `targetBranch`, runs `git merge --no-ff` / `--squash` / rebase + ff-only depending on strategy, captures the new HEAD as `mergeSha`. No `prId`, no remote API call.
 - On merge failure or post-merge verification failure, run `git reset --hard <rollbackSha>` and emit `merge.rollback` with a categorized reason (`merge-failed`, `verification-failed`, `timeout`).
 - Emit distinct events for success (`merge.executed`) and rollback (`merge.rollback`).
 

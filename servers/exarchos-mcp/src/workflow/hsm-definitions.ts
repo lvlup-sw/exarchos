@@ -1,5 +1,146 @@
 import { guards, composeGuards } from './guards.js';
+import type { Guard, GuardResult } from './guards.js';
 import type { HSMDefinition, State, Transition } from './state-machine.js';
+
+// ─── Merge Orchestrator Phase Filtering (T17 / T19) ─────────────────────────
+
+/**
+ * Phases of `state.mergeOrchestrator.phase` that mean the merge has already
+ * terminated and a `merge-pending` transition should NOT fire (and the
+ * `merge_orchestrate` next-action should NOT be surfaced).
+ *
+ * Shared by:
+ *   - The feature HSM `merge-pending` entry predicate (this file, T17).
+ *   - `next-actions-computer` surfacing filter (T19).
+ *
+ * Reusing one constant keeps the entry predicate and the surfacing filter in
+ * lockstep so a `merge-pending` HSM state can never sit live without a
+ * corresponding next-action, and a completed/rolled-back merge can never be
+ * re-entered.
+ */
+export const EXCLUDED_MERGE_PHASES: ReadonlySet<string> = new Set<string>([
+  'completed',
+  'rolled-back',
+  'aborted',
+]);
+
+// ─── merge-pending guards (T17 / DR-MO-1, DR-MO-2) ──────────────────────────
+
+/**
+ * Returns the most recent `task.completed` event from `state._events`, or
+ * undefined if none exist.
+ */
+function findLatestTaskCompleted(
+  events: readonly Record<string, unknown>[],
+): Record<string, unknown> | undefined {
+  for (let i = events.length - 1; i >= 0; i -= 1) {
+    if (events[i]?.type === 'task.completed') return events[i];
+  }
+  return undefined;
+}
+
+/**
+ * True when the most recent `task.completed` event in `state._events` carries
+ * a worktree association (either `data.worktree` or `data.worktreePath`).
+ *
+ * Captures the design's "task whose state carries a `worktree` association"
+ * trigger from DR-MO-1 / DR-MO-2.
+ */
+function latestTaskCompletedHasWorktree(state: Record<string, unknown>): boolean {
+  const events = (state._events as readonly Record<string, unknown>[]) ?? [];
+  const latest = findLatestTaskCompleted(events);
+  if (!latest) return false;
+  const data = latest.data as Record<string, unknown> | undefined;
+  if (!data) return false;
+  return Boolean(data.worktree) || Boolean(data.worktreePath);
+}
+
+/**
+ * True when `state.mergeOrchestrator?.phase` is NOT one of the terminal
+ * `EXCLUDED_MERGE_PHASES`. Undefined / missing is treated as "not excluded"
+ * (i.e. transition is permitted) — first-time entry has no prior phase.
+ */
+function mergeOrchestratorPhaseNotExcluded(state: Record<string, unknown>): boolean {
+  const merge = state.mergeOrchestrator as Record<string, unknown> | undefined;
+  const phase = typeof merge?.phase === 'string' ? merge.phase : undefined;
+  if (phase === undefined) return true;
+  return !EXCLUDED_MERGE_PHASES.has(phase);
+}
+
+/**
+ * Guard for `delegate → merge-pending`: fires when the most recent
+ * `task.completed` carries a worktree association AND the merge orchestrator
+ * has not already terminated for this feature.
+ */
+const mergePendingEntry: Guard = {
+  id: 'merge-pending-entry',
+  description:
+    'Most recent task.completed must carry a worktree association and mergeOrchestrator must not already be in a terminal phase',
+  evaluate: (state: Record<string, unknown>): GuardResult => {
+    if (!latestTaskCompletedHasWorktree(state)) {
+      return {
+        passed: false,
+        reason:
+          'merge-pending-entry not satisfied: latest task.completed event lacks data.worktree / data.worktreePath',
+        expectedShape: {
+          _events: [{ type: 'task.completed', data: { worktree: '<worktree-path>' } }],
+        },
+      };
+    }
+    if (!mergeOrchestratorPhaseNotExcluded(state)) {
+      const merge = state.mergeOrchestrator as Record<string, unknown> | undefined;
+      const phase = typeof merge?.phase === 'string' ? merge.phase : '<unknown>';
+      return {
+        passed: false,
+        reason: `merge-pending-entry not satisfied: mergeOrchestrator.phase='${phase}' is in EXCLUDED_MERGE_PHASES`,
+      };
+    }
+    return true;
+  },
+};
+
+/**
+ * Guard for `merge-pending → delegate`: fires when the event stream contains
+ * a `merge.executed`, `merge.rollback`, or any explicit abort signal
+ * (`merge.aborted`, or `mergeOrchestrator.phase === 'aborted'`).
+ */
+const mergePendingExit: Guard = {
+  id: 'merge-pending-exit',
+  description:
+    'A merge.executed/merge.rollback/merge.aborted must follow the latest task.completed (or mergeOrchestrator.phase must be terminal)',
+  evaluate: (state: Record<string, unknown>): GuardResult => {
+    const events = (state._events as readonly Record<string, unknown>[]) ?? [];
+    // Cycle-scoped: only terminal events that follow the latest task.completed
+    // count. A history-wide `some()` would stay true forever after the first
+    // merge cycle, so subsequent task.completed → merge-pending entries would
+    // exit immediately on stale events from prior cycles.
+    let latestTaskCompletedIdx = -1;
+    for (let i = events.length - 1; i >= 0; i -= 1) {
+      if (events[i]?.type === 'task.completed') {
+        latestTaskCompletedIdx = i;
+        break;
+      }
+    }
+    const cycleEvents = latestTaskCompletedIdx >= 0
+      ? events.slice(latestTaskCompletedIdx + 1)
+      : events;
+    const hasTerminalEvent = cycleEvents.some(
+      (e) =>
+        e.type === 'merge.executed' ||
+        e.type === 'merge.rollback' ||
+        e.type === 'merge.aborted',
+    );
+    if (hasTerminalEvent) return true;
+    const merge = state.mergeOrchestrator as Record<string, unknown> | undefined;
+    const phase = typeof merge?.phase === 'string' ? merge.phase : undefined;
+    if (phase !== undefined && EXCLUDED_MERGE_PHASES.has(phase)) return true;
+    return {
+      passed: false,
+      reason:
+        'merge-pending-exit not satisfied: no merge.executed/merge.rollback/merge.aborted event found after the latest task.completed and mergeOrchestrator.phase is not terminal',
+    };
+  },
+};
 
 // ─── Feature Workflow HSM ───────────────────────────────────────────────────
 
@@ -18,6 +159,15 @@ export function createFeatureHSM(): HSMDefinition {
     },
     delegate: { id: 'delegate', type: 'atomic', parent: 'implementation' },
     review: { id: 'review', type: 'atomic', parent: 'implementation' },
+    // T17: substate entered when a delegated subagent worktree task completes
+    // and an autonomous merge is required before progressing. Exits back to
+    // `delegate` once `merge.executed` / `merge.rollback` / `merge.aborted`
+    // is observed.
+    'merge-pending': {
+      id: 'merge-pending',
+      type: 'atomic',
+      parent: 'implementation',
+    },
     synthesize: { id: 'synthesize', type: 'atomic' },
     completed: { id: 'completed', type: 'final' },
     cancelled: { id: 'cancelled', type: 'final' },
@@ -41,6 +191,13 @@ export function createFeatureHSM(): HSMDefinition {
       guards.allTasksComplete,
       guards.teamDisbandedEmitted,
     ) },
+    // T17: auto-trigger entry into `merge-pending` when a delegated task
+    // completed inside a subagent worktree and the merge has not already
+    // terminated. See DR-MO-1 / DR-MO-2.
+    { from: 'delegate', to: 'merge-pending', guard: mergePendingEntry },
+    // T17: exit `merge-pending` once the merge has been executed, rolled
+    // back, or explicitly aborted.
+    { from: 'merge-pending', to: 'delegate', guard: mergePendingExit },
     { from: 'review', to: 'synthesize', guard: guards.allReviewsPassed },
     {
       from: 'review',

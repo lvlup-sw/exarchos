@@ -85,6 +85,9 @@ export const EventTypes = [
   'provider.unknown-tier',
   'provider.parse-error',
   'dispatch.classified',
+  'merge.preflight',
+  'merge.executed',
+  'merge.rollback',
 ] as const;
 
 export type EventType = typeof EventTypes[number];
@@ -279,6 +282,13 @@ export const EVENT_EMISSION_REGISTRY: Record<EventType, EventEmissionSource> = {
   'eval.run.started': 'planned',
   'eval.case.completed': 'planned',
   'eval.run.completed': 'planned',
+
+  // auto — emitted by the merge_orchestrate composite action (DR-MO-1).
+  // Preflight failures DO NOT route through merge.rollback — they surface
+  // as `phase: 'aborted'` with `abortReason: 'preflight-failed'`.
+  'merge.preflight': 'auto',
+  'merge.executed': 'auto',
+  'merge.rollback': 'auto',
 };
 
 // ─── Base Event Schema ──────────────────────────────────────────────────────
@@ -896,6 +906,105 @@ export const CommentResolvedData = z.object({
   resolvedBy: z.enum(['author', 'outdated', 'manual']).describe('How the thread was resolved'),
 });
 
+// ─── Merge Orchestrator Event Data (DR-MO-2) ───────────────────────────────
+
+// DR-MO-1 AC#1 — preflight sub-result schemas, mirrored from the pure-helper
+// types (`AncestryResult`, `WorktreeAssertionResult`,
+// `CurrentBranchProtectionResult`, `DriftResult`). Re-defined here as Zod
+// shapes so the event payload is the canonical source of truth for
+// event-sourced timeline reconstruction — readers do not need to read the
+// workflow state file to learn *why* preflight failed.
+
+const MergePreflightAncestryData = z.object({
+  passed: z.boolean(),
+  blocked: z.boolean().optional(),
+  checks: z.array(z.string()).optional(),
+  reason: z.enum(['ancestry', 'git-error']).optional(),
+  missing: z.array(z.string()).optional(),
+  error: z.string().optional(),
+});
+
+const MergePreflightCurrentBranchProtectionData = z.object({
+  blocked: z.boolean(),
+  reason: z.literal('current-branch-protected').optional(),
+  currentBranch: z.string().optional(),
+  hint: z.string().optional(),
+});
+
+const MergePreflightWorktreeData = z.object({
+  isMain: z.boolean(),
+  actual: z.string(),
+  expected: z.string(),
+});
+
+const MergePreflightDriftData = z.object({
+  clean: z.boolean(),
+  uncommittedFiles: z.array(z.string()),
+  indexStale: z.boolean(),
+  detachedHead: z.boolean(),
+});
+
+/**
+ * merge.preflight — captures the outcome of the preflight gate run before a
+ * candidate merge. Preflight failures DO NOT route through merge.rollback;
+ * they surface as `phase: 'aborted'` with `abortReason: 'preflight-failed'`
+ * (handled in T11/T12). The event is recorded for observability either way.
+ *
+ * The structured sub-results (`ancestry`, `currentBranchProtection`,
+ * `worktree`, `drift`) are required when any guard runs (DR-MO-1 AC#1) so
+ * downstream consumers can reconstruct the failure mode from the event log
+ * alone. They are `.optional()` only to keep older events (emitted before
+ * the schema widening) parseable.
+ *
+ * `failureReasons` carries the operator-facing diagnostic that
+ * `describePreflightFailure` produces when `passed === false`.
+ */
+export const MergePreflightData = z.object({
+  taskId: z.string().optional(),
+  sourceBranch: z.string().min(1),
+  targetBranch: z.string().min(1),
+  passed: z.boolean(),
+  ancestry: MergePreflightAncestryData.optional(),
+  currentBranchProtection: MergePreflightCurrentBranchProtectionData.optional(),
+  worktree: MergePreflightWorktreeData.optional(),
+  drift: MergePreflightDriftData.optional(),
+  failureReasons: z.array(z.string()).optional(),
+});
+
+/**
+ * merge.executed — records that a merge has been performed. `mergeSha` is
+ * the resulting commit on the target branch; `rollbackSha` is the parent
+ * commit captured prior to merge so a downstream rollback handler can
+ * `git reset --hard <rollbackSha>` deterministically.
+ */
+export const MergeExecutedData = z.object({
+  taskId: z.string().optional(),
+  sourceBranch: z.string().min(1),
+  targetBranch: z.string().min(1),
+  /** Operator-selected merge strategy. Captured for event-log fidelity so
+   * observability and replay don't have to re-derive it from state. */
+  strategy: z.enum(['squash', 'rebase', 'merge']).optional(),
+  mergeSha: z.string().min(1),
+  rollbackSha: z.string().min(1),
+});
+
+/**
+ * merge.rollback — emitted when a merge is reverted. `reason` is a closed
+ * enum so observability dashboards don't fragment across free-form text.
+ * Preflight failures are NOT a rollback cause — they short-circuit before
+ * any merge occurs. `rollbackError` carries the reset-failure detail when
+ * `git reset --hard <rollbackSha>` itself failed: presence signals the
+ * worktree may be in an indeterminate state, so consumers can page operators.
+ */
+export const MergeRollbackData = z.object({
+  taskId: z.string().optional(),
+  sourceBranch: z.string().min(1),
+  targetBranch: z.string().min(1),
+  rollbackSha: z.string().min(1),
+  reason: z.enum(['merge-failed', 'verification-failed', 'timeout']),
+  rollbackError: z.string().min(1).optional(),
+});
+
 // ─── Event Data Schemas Map ─────────────────────────────────────────────────
 
 export const EVENT_DATA_SCHEMAS: Partial<Record<EventType, z.ZodSchema>> = {
@@ -1025,6 +1134,11 @@ export const EVENT_DATA_SCHEMAS: Partial<Record<EventType, z.ZodSchema>> = {
       low: z.number().int().nonnegative(),
     }),
   }),
+
+  // Merge orchestrator (T03, DR-MO-2)
+  'merge.preflight': MergePreflightData,
+  'merge.executed': MergeExecutedData,
+  'merge.rollback': MergeRollbackData,
 };
 
 // ─── TypeScript Types ───────────────────────────────────────────────────────
@@ -1099,6 +1213,9 @@ export type CommentPosted = z.infer<typeof CommentPostedData>;
 export type CommentResolved = z.infer<typeof CommentResolvedData>;
 export type DiagnosticExecuted = z.infer<typeof DiagnosticExecutedDataSchema>;
 export type InitExecuted = z.infer<typeof InitExecutedDataSchema>;
+export type MergePreflight = z.infer<typeof MergePreflightData>;
+export type MergeExecuted = z.infer<typeof MergeExecutedData>;
+export type MergeRollback = z.infer<typeof MergeRollbackData>;
 
 // ─── Event Data Map ─────────────────────────────────────────────────────────
 
@@ -1172,6 +1289,9 @@ export type EventDataMap = {
   'comment.resolved': CommentResolved;
   'diagnostic.executed': DiagnosticExecuted;
   'init.executed': InitExecuted;
+  'merge.preflight': MergePreflight;
+  'merge.executed': MergeExecuted;
+  'merge.rollback': MergeRollback;
 };
 
 // ─── Event Catalog Serialization ────────────────────────────────────────────
