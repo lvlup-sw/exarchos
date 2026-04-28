@@ -6,6 +6,10 @@ describe('Capability vocabulary', () => {
     expect(() => Capability.parse('bogus')).toThrow();
   });
 
+  it('Capability_Parses_MCPExarchosReadonly', () => {
+    expect(Capability.parse('mcp:exarchos:readonly')).toBe('mcp:exarchos:readonly');
+  });
+
   it('Capability_AllVocabularyMembersValid_AllParse', () => {
     const vocabulary = [
       'fs:read',
