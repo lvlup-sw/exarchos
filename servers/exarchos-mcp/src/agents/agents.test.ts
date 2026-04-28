@@ -183,16 +183,13 @@ describe('Agent Spec Definitions', () => {
     // Per #1109 Constraint 3 (Basileus-forward), MCP remains first-class
     // for the reviewer so it can consult read-only views (exarchos_view's
     // pure-read actions, workflow.get/describe, event.query/describe,
-    // orchestrate.describe). Mutating MCP actions — including every
-    // orchestrate.check_* (each emits a gate.executed event), workflow
-    // .reconcile/rehydrate, view.code_quality (emits regressions), and
-    // all explicit writes — are forbidden at the prompt layer
-    // (see Forbidden MCP Actions section in systemPrompt) — capability-
-    // level filtering of mutating composite-tool actions requires a
-    // separate `mcp:exarchos:readonly` capability negotiated via the
-    // handshake-authoritative resolver (#1109 §2.8) and is tracked as
-    // follow-up work.
-    expect(REVIEWER.capabilities).toContain('mcp:exarchos');
+    // orchestrate.describe). T11: the trust boundary is now enforced
+    // structurally by the `mcp:exarchos:readonly` capability tier (T03)
+    // combined with the dispatch-layer action allowlist (T04) — not by
+    // prose-layer prohibitions. The previous "Forbidden MCP Actions"
+    // systemPrompt block is therefore removed.
+    expect(REVIEWER.capabilities).toContain('mcp:exarchos:readonly');
+    expect(REVIEWER.capabilities).not.toContain('mcp:exarchos');
     expect(REVIEWER.capabilities).not.toContain('shell:exec');
     expect(REVIEWER.capabilities).not.toContain('fs:write');
     expect(REVIEWER.disallowedTools).toContain('Write');
@@ -201,9 +198,9 @@ describe('Agent Spec Definitions', () => {
     expect(REVIEWER.disallowedTools).toContain('Bash');
     expect(REVIEWER.systemPrompt).toContain('{{reviewScope}}');
     expect(REVIEWER.systemPrompt).toContain('{{designRequirements}}');
-    // Defense-in-depth: prompt-layer guard explicitly forbids mutating
-    // MCP actions until capability-level enforcement lands.
-    expect(REVIEWER.systemPrompt).toContain('Forbidden MCP Actions');
+    // The prose "Forbidden MCP Actions" guard is gone — capability-tier
+    // + dispatch-layer enforcement supersedes it.
+    expect(REVIEWER.systemPrompt).not.toContain('Forbidden MCP Actions');
     expect(REVIEWER.mcpServers).toEqual(['exarchos']);
   });
 
@@ -249,7 +246,8 @@ describe('Agent Spec Definitions', () => {
     const KNOWN_CAPS = new Set([
       'fs:read', 'fs:write', 'shell:exec',
       'subagent:spawn', 'subagent:completion-signal', 'subagent:start-signal',
-      'mcp:exarchos', 'isolation:worktree', 'team:agent-teams', 'session:resume',
+      'mcp:exarchos', 'mcp:exarchos:readonly',
+      'isolation:worktree', 'team:agent-teams', 'session:resume',
     ]);
     const KNOWN_DISALLOWED = new Set(['Read', 'Write', 'Edit', 'Bash', 'Grep', 'Glob', 'Agent', 'WebFetch', 'WebSearch']);
     for (const spec of ALL_AGENT_SPECS) {
