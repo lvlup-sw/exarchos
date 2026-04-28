@@ -35,6 +35,7 @@ import { codexAdapter } from './adapters/codex.js';
 import { OpenCodeAdapter } from './adapters/opencode.js';
 import { CursorAdapter } from './adapters/cursor.js';
 import { CopilotAdapter } from './adapters/copilot.js';
+import { RUNTIMES } from './adapters/types.js';
 import type { RuntimeAdapter, Runtime } from './adapters/types.js';
 
 // ─── Test utilities ────────────────────────────────────────────────────────
@@ -413,7 +414,6 @@ describe('generateAgents', () => {
 //     `name`, `description`, `developer_instructions`. Codex does not
 //     emit `model` from `lowerSpec`.
 
-const RUNTIMES = ['claude', 'codex', 'opencode', 'cursor', 'copilot'] as const;
 const SPECS = ['implementer', 'fixer', 'reviewer', 'scaffolder'] as const;
 
 const SMOKE_ADAPTERS: Record<Runtime, RuntimeAdapter> = {
