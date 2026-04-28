@@ -94,7 +94,14 @@ function lowerSpec(spec: AgentSpec): { path: string; contents: string } {
 
   if (spec.mcpServers && spec.mcpServers.length > 0) {
     lines.push(`mcp_servers = ${tomlStringArray([...spec.mcpServers])}`);
-  } else if (spec.capabilities.includes('mcp:exarchos')) {
+  } else if (
+    spec.capabilities.includes('mcp:exarchos') ||
+    spec.capabilities.includes('mcp:exarchos:readonly')
+  ) {
+    // Both the broad and readonly capabilities grant the same Codex
+    // mcp_servers entry — Codex's TOML format has no per-action sub-grant
+    // primitive. The server-side action allowlist (T04 dispatch gate) is
+    // what enforces the readonly tier; this adapter just opens the channel.
     lines.push(`mcp_servers = ${tomlStringArray(['exarchos'])}`);
   }
 

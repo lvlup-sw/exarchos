@@ -83,6 +83,56 @@ describe('CodexAdapter', () => {
   it('CodexAdapter_FallbackFlag_DefaultsToFalse', () => {
     expect(codexAdapter.customAgentResolutionWorks).toBe(false);
   });
+
+  it('CodexAdapter_LowerSpec_Readonly_GrantsExarchosTool', () => {
+    // T03 added `mcp:exarchos:readonly` to the Capability enum and T04 wired
+    // a server-side action allowlist. The Codex adapter must lower the
+    // readonly capability to the same `mcp_servers = ["exarchos"]` entry as
+    // the broad `mcp:exarchos` capability — runtime gating happens at the
+    // dispatch layer, not in the per-runtime tool name. Without this entry,
+    // any spec listing the readonly cap (without the broad cap) would silently
+    // emit no `mcp_servers` line at all and the agent could not invoke even
+    // readonly tools.
+    const readonlySpec: AgentSpec = {
+      ...baseSpec,
+      mcpServers: undefined,
+      capabilities: [
+        'fs:read',
+        'mcp:exarchos:readonly',
+        'isolation:worktree',
+      ] as readonly Capability[],
+    };
+    const { contents } = codexAdapter.lowerSpec(readonlySpec);
+
+    // Top-level mcp_servers = ["exarchos"] line must be present.
+    expect(contents).toMatch(/^mcp_servers\s*=\s*\["exarchos"\]\s*$/m);
+    // And the broad capability must NOT be in the spec — the readonly cap
+    // alone must produce the mcp_servers entry.
+    expect(readonlySpec.capabilities).not.toContain('mcp:exarchos');
+  });
+
+  it('CodexAdapter_LowerSpec_FullCap_BehaviorUnchanged', () => {
+    // Snapshot regression: the broad `mcp:exarchos` capability still emits
+    // the same `mcp_servers = ["exarchos"]` line. Adding readonly support
+    // must not perturb the existing path.
+    const fullSpec: AgentSpec = {
+      ...baseSpec,
+      mcpServers: undefined,
+    };
+    const { contents } = codexAdapter.lowerSpec(fullSpec);
+    expect(contents).toMatch(/^mcp_servers\s*=\s*\["exarchos"\]\s*$/m);
+  });
+
+  it('CodexAdapter_ValidateSupport_AcceptsReadonlyCapability', () => {
+    // The readonly cap must be classified as `native` (not `unsupported`)
+    // so specs declaring it pass validation.
+    const readonlySpec: AgentSpec = {
+      ...baseSpec,
+      capabilities: ['fs:read', 'mcp:exarchos:readonly'] as readonly Capability[],
+    };
+    const result = codexAdapter.validateSupport(readonlySpec);
+    expect(result.ok).toBe(true);
+  });
 });
 
 describe('tomlBasicString', () => {
