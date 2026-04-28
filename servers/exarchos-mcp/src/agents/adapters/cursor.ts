@@ -47,16 +47,44 @@ function agentFilePath(agentName: string): string {
   return `.cursor/agents/${agentName}.md`;
 }
 
+/**
+ * Frontmatter shape emitted into `.cursor/agents/<id>.md`. The optional
+ * `mcp` field gates per-agent MCP server enablement; mirrors the shape
+ * used by the OpenCode adapter.
+ */
+interface CursorFrontmatter {
+  name: string;
+  description: string;
+  model: 'inherit';
+  readonly: boolean;
+  is_background: boolean;
+  mcp?: Record<string, true>;
+}
+
 function lowerSpec(spec: AgentSpec): { path: string; contents: string } {
   const readonly = !spec.capabilities.includes('fs:write');
 
-  const frontmatter = {
+  const frontmatter: CursorFrontmatter = {
     name: spec.id,
     description: spec.description,
-    model: 'inherit' as const,
+    model: 'inherit',
     readonly,
     is_background: false,
   };
+
+  // Item 1, T09: grant the exarchos MCP server when either capability tier
+  // is present. Both tiers map to the same server entry — the readonly
+  // distinction is enforced server-side via the action allowlist gate
+  // (see core/dispatch.ts), not at the cursor adapter layer. The
+  // less-restrictive sibling (`mcp:exarchos`) wins on merge per the
+  // handshake-authoritative resolver, but at the YAML level both tiers
+  // result in the same `mcp.exarchos = true` grant.
+  if (
+    spec.capabilities.includes('mcp:exarchos') ||
+    spec.capabilities.includes('mcp:exarchos:readonly')
+  ) {
+    frontmatter.mcp = { exarchos: true };
+  }
 
   const yaml = stringifyYaml(frontmatter).trimEnd();
   const contents = `---\n${yaml}\n---\n${spec.systemPrompt}`;
