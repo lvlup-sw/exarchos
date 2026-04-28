@@ -108,4 +108,22 @@ describe('AgentSpec capability declarations', () => {
     };
     expect(bad).toBeDefined();
   });
+
+  // Issue #1192 Item 4 (T26): every spec with a post-test validationRule must
+  // anchor its command to the git toplevel. Bare `npm run test:run` would
+  // execute against whatever shell cwd the agent has drifted to — anchoring
+  // via $(git rev-parse --show-toplevel) ensures the worktree is what's tested.
+  it('Hooks_PostTestCommand_IsGitToplevelAnchored', () => {
+    const all = [IMPLEMENTER, FIXER, REVIEWER, SCAFFOLDER];
+    for (const spec of all) {
+      const postTestRules = (spec.validationRules ?? []).filter(
+        (r) => r.trigger === 'post-test' && typeof r.command === 'string',
+      );
+      for (const rule of postTestRules) {
+        expect(rule.command, `${spec.id} post-test command must anchor to git toplevel`).toContain(
+          '$(git rev-parse --show-toplevel)',
+        );
+      }
+    }
+  });
 });
