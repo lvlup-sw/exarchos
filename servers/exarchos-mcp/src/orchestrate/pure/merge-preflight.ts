@@ -29,11 +29,35 @@ export type GitExec = (
 ) => GitExecResult;
 
 export interface DriftResult {
-  /** True when the working tree has no uncommitted changes. */
+  /** True when the working tree has no uncommitted changes, the index is
+   * not stale, and HEAD is on a named branch. */
   readonly clean: boolean;
-  /** Files reported by `git status --porcelain` (empty in clean-tree branch). */
+  /** Files reported by `git status --porcelain`. */
   readonly uncommittedFiles: readonly string[];
-  // T05 will extend with: indexStale, detachedHead.
+  /** True when `git diff --cached --quiet` reports staged-but-uncommitted
+   * changes (exit code != 0). */
+  readonly indexStale: boolean;
+  /** True when HEAD is detached (i.e., `git rev-parse --abbrev-ref HEAD`
+   * returns the literal string "HEAD"). */
+  readonly detachedHead: boolean;
+}
+
+// ─── Helpers ────────────────────────────────────────────────────────────────
+
+/**
+ * Parse `git status --porcelain` output into a list of paths.
+ *
+ * Each non-empty line has the form `XY <path>` where XY is two status
+ * characters followed by a space. We slice from index 3 to extract the
+ * path. Renames (`R  old -> new`) are reported via the full segment as a
+ * v1 minimal-handling decision; callers only care that the working tree
+ * is dirty, not the exact file accounting.
+ */
+function parsePorcelainPaths(stdout: string): readonly string[] {
+  return stdout
+    .split('\n')
+    .filter((line) => line.length > 0)
+    .map((line) => line.slice(3));
 }
 
 // ─── detectDrift ────────────────────────────────────────────────────────────
@@ -41,18 +65,30 @@ export interface DriftResult {
 /**
  * Detect working-tree drift relative to HEAD.
  *
- * T04 scope: clean-tree branch only. When `git status --porcelain` returns
- * empty stdout we report `clean: true` and an empty `uncommittedFiles`
- * list. Parsing of dirty-tree porcelain output, stale-index detection, and
- * detached-HEAD reporting are deferred to T05.
+ * Reports three independent drift signals:
+ *   1. `uncommittedFiles` — paths from `git status --porcelain`.
+ *   2. `indexStale` — `git diff --cached --quiet` exited non-zero (staged
+ *      changes present that aren't yet committed).
+ *   3. `detachedHead` — `git rev-parse --abbrev-ref HEAD` returned `HEAD`.
+ *
+ * `clean` is true only when all three signals are absent. Per DR-MO-4,
+ * this is fail-only — no auto-recovery is attempted here.
  */
 export function detectDrift(
   gitExec: GitExec,
   repoRoot: string = process.cwd(),
 ): DriftResult {
   const status = gitExec(repoRoot, ['status', '--porcelain']);
-  const trimmed = status.stdout.trim();
-  const clean = trimmed.length === 0;
-  const uncommittedFiles: readonly string[] = [];
-  return { clean, uncommittedFiles };
+  const uncommittedFiles = parsePorcelainPaths(status.stdout);
+
+  const cached = gitExec(repoRoot, ['diff', '--cached', '--quiet']);
+  const indexStale = cached.exitCode !== 0;
+
+  const head = gitExec(repoRoot, ['rev-parse', '--abbrev-ref', 'HEAD']);
+  const detachedHead = head.stdout.trim() === 'HEAD';
+
+  const clean =
+    uncommittedFiles.length === 0 && !indexStale && !detachedHead;
+
+  return { clean, uncommittedFiles, indexStale, detachedHead };
 }
