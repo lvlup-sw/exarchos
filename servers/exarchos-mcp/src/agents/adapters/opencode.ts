@@ -93,7 +93,13 @@ function buildFrontmatter(spec: AgentSpec): OpenCodeFrontmatter {
     description: spec.description,
     tools: capabilitiesToTools(spec.capabilities),
   };
-  if (spec.capabilities.includes('mcp:exarchos')) {
+  // Both `mcp:exarchos` and `mcp:exarchos:readonly` grant the same MCP
+  // tool entry — the read-only tier is enforced server-side by the
+  // dispatch action allowlist (T04), not by withholding the tool.
+  if (
+    spec.capabilities.includes('mcp:exarchos') ||
+    spec.capabilities.includes('mcp:exarchos:readonly')
+  ) {
     fm.mcp = { exarchos: true };
   }
   // `inherit` means "use the host session's current model" — OpenCode
