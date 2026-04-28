@@ -4,7 +4,8 @@
 // composer (T06/T07) with the executor handler (T15) under one coherent
 // entry point.
 //
-// SCOPE — T11 covers the happy path; T12 adds the abort branch:
+// SCOPE — T11 covers the happy path; T12 adds the abort branch; T13 adds
+// the dry-run short-circuit:
 //   • run preflight via the injectable composer
 //   • emit `merge.preflight` to the stream (direct append, NOT wrapped in
 //     `gate.executed` — the dedicated schema (T03) is top-level so HSM
@@ -15,9 +16,14 @@
 //     `mergeOrchestrator: { phase: 'aborted', preflight, abortReason:
 //     'preflight-failed' }` to workflow state and return a structured
 //     `PREFLIGHT_FAILED` ToolResult WITHOUT invoking the executor.
+//   • on `dryRun: true` (T13), short-circuit AFTER preflight emission but
+//     BEFORE persistence/executor. Returns
+//     `{ success: preflight.passed, data: { dryRun: true, preflight, phase } }`
+//     where `phase` is `'pending'` on pass and `'aborted'` on fail. Dry-run
+//     is observation-only: NEVER persists state (would leave a transient
+//     phase that never resolves) and NEVER invokes the executor.
 //
 // Out of scope (handled in subsequent tasks):
-//   • T13 — `args.dryRun` (run preflight, emit, persist, do NOT execute).
 //   • T14 — `args.resume` + concurrency retry.
 //   • T20 — composite registration.
 //
@@ -239,7 +245,37 @@ export async function handleMergeOrchestrate(
     },
   });
 
-  // ─── 3. Preflight-fail abort branch (T12) ────────────────────────────────
+  // ─── 3. Dry-run short-circuit (T13) ──────────────────────────────────────
+  // Dry-run is observation-only: preflight has already run and emitted, so
+  // operators get the same gate signal as a real run, but we MUST NOT
+  // persist `mergeOrchestrator` state (would leave a transient phase that
+  // never resolves) and MUST NOT invoke the executor (would actually merge).
+  if (args.dryRun === true) {
+    if (preflight.passed) {
+      return {
+        success: true,
+        data: {
+          dryRun: true as const,
+          preflight,
+          phase: 'pending' as const,
+        },
+      };
+    }
+    return {
+      success: false,
+      error: {
+        code: 'PREFLIGHT_FAILED',
+        message: `Preflight failed: ${describePreflightFailure(preflight)}`,
+      },
+      data: {
+        dryRun: true as const,
+        preflight,
+        phase: 'aborted' as const,
+      },
+    };
+  }
+
+  // ─── 4. Preflight-fail abort branch (T12) ────────────────────────────────
   if (!preflight.passed) {
     // Persist the abort to workflow state BEFORE returning so downstream
     // observers (HSM guards, status views) see the aborted phase even if
@@ -263,7 +299,7 @@ export async function handleMergeOrchestrate(
     };
   }
 
-  // ─── 4. Delegate to executor ─────────────────────────────────────────────
+  // ─── 5. Delegate to executor ─────────────────────────────────────────────
   const execResult = await executeMergeFn(
     {
       featureId: args.featureId,
@@ -281,7 +317,7 @@ export async function handleMergeOrchestrate(
     return execResult;
   }
 
-  // ─── 5. Combine results ──────────────────────────────────────────────────
+  // ─── 6. Combine results ──────────────────────────────────────────────────
   const execData = execResult.data as {
     phase: 'completed';
     mergeSha: string;
