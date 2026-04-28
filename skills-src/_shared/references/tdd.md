@@ -26,10 +26,27 @@ Enforce strict TDD when modifying TypeScript or C# files.
 | Framework | Vitest | TUnit |
 | Test files | `foo.test.ts` (co-located) | `Foo.Tests.cs` (co-located) |
 | Naming | `Method_Scenario_Outcome` | `Method_Scenario_Outcome` |
-| Run | `npm run test:run` | `dotnet test` |
+| Run | see `.exarchos.yml` for project-specific commands | see `.exarchos.yml` for project-specific commands |
 | Pattern | Arrange / Act / Assert | Arrange / Act / Assert |
 | Mocking | `vi.mock()`, `vi.fn()` | NSubstitute (`Substitute.For<T>()`) |
 | PBT | `@fast-check/vitest` | FsCheck |
+
+### Test commands
+
+Exarchos resolves test/typecheck/install commands from your project's `.exarchos.yml`
+(seeded from filesystem detection at workflow init). To override the auto-detected
+defaults, edit the file:
+
+```yaml
+# .exarchos.yml
+test: bun test
+typecheck: tsc --noEmit
+install: bun install
+```
+
+When no `.exarchos.yml` is present and detection cannot resolve a command (e.g.,
+an npm project missing a `test:run` script), the relevant gate is skipped with
+remediation text rather than failed.
 
 For test code patterns and examples, see `@skills/delegation/references/testing-patterns.md`.
 For property-based testing templates, see `@skills/delegation/references/pbt-patterns.md`.
