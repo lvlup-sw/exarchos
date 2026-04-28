@@ -77,11 +77,16 @@ describe('OpenCodeAdapter', () => {
     }
   });
 
-  it('OpenCodeAdapter_LowerSpec_BodyContainsSpecDescription', () => {
+  it('OpenCodeAdapter_LowerSpec_BodyContainsSpecDescriptionAndSystemPromptSentinels', () => {
     const { contents } = OpenCodeAdapter.lowerSpec(IMPLEMENTER);
     const { body } = splitFrontmatter(contents);
     // The lowered markdown body must include the spec's systemPrompt content
     // (or, at minimum, the spec's description so dispatch context is preserved).
     expect(body).toContain(IMPLEMENTER.description);
+    // Sentinels from IMPLEMENTER.systemPrompt — structural anchors unlikely to
+    // be edited. Without these, a regression dropping most of systemPrompt
+    // would still pass the description-only assertion. See #1192 Item 10.
+    expect(body).toContain('## Task');
+    expect(body).toContain('{{taskDescription}}');
   });
 });
