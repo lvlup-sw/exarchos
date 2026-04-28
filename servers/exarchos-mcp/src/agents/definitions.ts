@@ -121,7 +121,7 @@ When done, output a JSON completion report:
   ],
   validationRules: [
     { trigger: 'pre-write', rule: 'Test file must exist before implementation file is written' },
-    { trigger: 'post-test', rule: 'All tests must pass', command: 'npm run test:run' },
+    { trigger: 'post-test', rule: 'All tests must pass', command: 'npm --prefix "$(git rev-parse --show-toplevel)" run test:run' },
   ],
   resumable: true,
   memoryScope: 'project',
@@ -190,7 +190,7 @@ When done, output a JSON completion report:
     { name: 'tdd-patterns', content: '' },
   ],
   validationRules: [
-    { trigger: 'post-test', rule: 'All tests must pass after fix', command: 'npm run test:run' },
+    { trigger: 'post-test', rule: 'All tests must pass after fix', command: 'npm --prefix "$(git rev-parse --show-toplevel)" run test:run' },
   ],
   resumable: false,
   mcpServers: ['exarchos'],

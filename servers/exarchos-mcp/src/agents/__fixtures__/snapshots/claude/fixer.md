@@ -31,7 +31,7 @@ hooks:
     - matcher: Bash
       hooks:
         - type: command
-          command: npm run test:run
+          command: npm --prefix "$(git rev-parse --show-toplevel)" run test:run
 ---
 
 You are a fixer agent. Your job is to diagnose and repair failures.
