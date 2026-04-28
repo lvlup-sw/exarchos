@@ -586,3 +586,65 @@ describe('MergeOrchestratorStateSchema', () => {
     expect(withPreflight.success).toBe(true);
   });
 });
+
+// ─── FeatureWorkflowState mergeOrchestrator field (DR-MO-1 / DR-MO-2) ──────
+
+describe('FeatureWorkflowStateSchema mergeOrchestrator field', () => {
+  const baseFeatureFixture = {
+    version: '1.1',
+    workflowType: 'feature' as const,
+    featureId: 'merge-orchestrator-feature',
+    phase: 'delegate' as const,
+    createdAt: '2026-04-26T00:00:00Z',
+    updatedAt: '2026-04-26T00:00:00Z',
+    artifacts: { design: null, plan: null, pr: null },
+    tasks: [],
+    worktrees: {},
+    reviews: {},
+    integration: null,
+    synthesis: {
+      integrationBranch: null,
+      mergeOrder: [],
+      mergedBranches: [],
+      prUrl: null,
+      prFeedback: [],
+    },
+  };
+
+  it('FeatureWorkflowState_RoundTripsWithMergeOrchestratorField_Equal', async () => {
+    const { FeatureWorkflowStateSchema } = await import('./schemas.js');
+    const input = {
+      ...baseFeatureFixture,
+      mergeOrchestrator: {
+        phase: 'pending' as const,
+        sourceBranch: 'feat/x',
+        targetBranch: 'main',
+      },
+    };
+    const parsed = FeatureWorkflowStateSchema.parse(input);
+    expect(parsed.mergeOrchestrator).toEqual(input.mergeOrchestrator);
+  });
+
+  it('FeatureWorkflowState_OmittedMergeOrchestrator_StillValid', async () => {
+    const { FeatureWorkflowStateSchema } = await import('./schemas.js');
+    const result = FeatureWorkflowStateSchema.safeParse(baseFeatureFixture);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.mergeOrchestrator).toBeUndefined();
+    }
+  });
+
+  it('FeatureWorkflowState_InvalidMergeOrchestratorPhase_Rejects', async () => {
+    const { FeatureWorkflowStateSchema } = await import('./schemas.js');
+    const input = {
+      ...baseFeatureFixture,
+      mergeOrchestrator: {
+        phase: 'bogus',
+        sourceBranch: 'feat/x',
+        targetBranch: 'main',
+      },
+    };
+    const result = FeatureWorkflowStateSchema.safeParse(input);
+    expect(result.success).toBe(false);
+  });
+});

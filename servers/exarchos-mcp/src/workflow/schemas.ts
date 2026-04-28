@@ -300,6 +300,7 @@ const BaseWorkflowStateSchema = z.object({
 export const FeatureWorkflowStateSchema = BaseWorkflowStateSchema.extend({
   workflowType: z.literal('feature'),
   phase: FeaturePhaseSchema,
+  mergeOrchestrator: MergeOrchestratorStateSchema.optional(),
 });
 
 export const DebugWorkflowStateSchema = BaseWorkflowStateSchema.extend({
