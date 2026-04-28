@@ -85,6 +85,9 @@ export const EventTypes = [
   'provider.unknown-tier',
   'provider.parse-error',
   'dispatch.classified',
+  'merge.preflight',
+  'merge.executed',
+  'merge.rollback',
 ] as const;
 
 export type EventType = typeof EventTypes[number];
@@ -279,6 +282,14 @@ export const EVENT_EMISSION_REGISTRY: Record<EventType, EventEmissionSource> = {
   'eval.run.started': 'planned',
   'eval.case.completed': 'planned',
   'eval.run.completed': 'planned',
+
+  // planned — emitted by merge-orchestrator (T11/T15/T16, DR-MO-2). The
+  // schemas are registered up-front; emission lands with the orchestrator
+  // handlers. Preflight failures DO NOT route through merge.rollback —
+  // they surface as `phase: 'aborted'` with `abortReason: 'preflight-failed'`.
+  'merge.preflight': 'planned',
+  'merge.executed': 'planned',
+  'merge.rollback': 'planned',
 };
 
 // ─── Base Event Schema ──────────────────────────────────────────────────────
@@ -896,6 +907,50 @@ export const CommentResolvedData = z.object({
   resolvedBy: z.enum(['author', 'outdated', 'manual']).describe('How the thread was resolved'),
 });
 
+// ─── Merge Orchestrator Event Data (DR-MO-2) ───────────────────────────────
+
+/**
+ * merge.preflight — captures the outcome of the preflight gate run before a
+ * candidate merge. Preflight failures DO NOT route through merge.rollback;
+ * they surface as `phase: 'aborted'` with `abortReason: 'preflight-failed'`
+ * (handled in T11/T12). The event is recorded for observability either way.
+ */
+export const MergePreflightData = z.object({
+  taskId: z.string().optional(),
+  sourceBranch: z.string().min(1),
+  targetBranch: z.string().min(1),
+  passed: z.boolean(),
+  failureReasons: z.array(z.string()).optional(),
+});
+
+/**
+ * merge.executed — records that a merge has been performed. `mergeSha` is
+ * the resulting commit on the target branch; `rollbackSha` is the parent
+ * commit captured prior to merge so a downstream rollback handler can
+ * `git reset --hard <rollbackSha>` deterministically.
+ */
+export const MergeExecutedData = z.object({
+  taskId: z.string().optional(),
+  sourceBranch: z.string().min(1),
+  targetBranch: z.string().min(1),
+  mergeSha: z.string().min(1),
+  rollbackSha: z.string().min(1),
+});
+
+/**
+ * merge.rollback — emitted when a merge is reverted. `reason` is a closed
+ * enum so observability dashboards don't fragment across free-form text.
+ * Preflight failures are NOT a rollback cause — they short-circuit before
+ * any merge occurs.
+ */
+export const MergeRollbackData = z.object({
+  taskId: z.string().optional(),
+  sourceBranch: z.string().min(1),
+  targetBranch: z.string().min(1),
+  rollbackSha: z.string().min(1),
+  reason: z.enum(['merge-failed', 'verification-failed', 'timeout']),
+});
+
 // ─── Event Data Schemas Map ─────────────────────────────────────────────────
 
 export const EVENT_DATA_SCHEMAS: Partial<Record<EventType, z.ZodSchema>> = {
@@ -1025,6 +1080,11 @@ export const EVENT_DATA_SCHEMAS: Partial<Record<EventType, z.ZodSchema>> = {
       low: z.number().int().nonnegative(),
     }),
   }),
+
+  // Merge orchestrator (T03, DR-MO-2)
+  'merge.preflight': MergePreflightData,
+  'merge.executed': MergeExecutedData,
+  'merge.rollback': MergeRollbackData,
 };
 
 // ─── TypeScript Types ───────────────────────────────────────────────────────
@@ -1099,6 +1159,9 @@ export type CommentPosted = z.infer<typeof CommentPostedData>;
 export type CommentResolved = z.infer<typeof CommentResolvedData>;
 export type DiagnosticExecuted = z.infer<typeof DiagnosticExecutedDataSchema>;
 export type InitExecuted = z.infer<typeof InitExecutedDataSchema>;
+export type MergePreflight = z.infer<typeof MergePreflightData>;
+export type MergeExecuted = z.infer<typeof MergeExecutedData>;
+export type MergeRollback = z.infer<typeof MergeRollbackData>;
 
 // ─── Event Data Map ─────────────────────────────────────────────────────────
 
@@ -1172,6 +1235,9 @@ export type EventDataMap = {
   'comment.resolved': CommentResolved;
   'diagnostic.executed': DiagnosticExecuted;
   'init.executed': InitExecuted;
+  'merge.preflight': MergePreflight;
+  'merge.executed': MergeExecuted;
+  'merge.rollback': MergeRollback;
 };
 
 // ─── Event Catalog Serialization ────────────────────────────────────────────
