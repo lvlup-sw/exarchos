@@ -85,12 +85,15 @@ For merge conflicts (most common cause of `merge-failed`):
 
 ```typescript
 // Event first — the repository treats event append as the commit point.
+// Use the same `strategy` the original dispatch was invoked with so the
+// projected state matches what the auto-emit path would have produced.
 {{MCP_PREFIX}}exarchos_event({ action: "append", stream: "<featureId>", event: {
   type: "merge.executed",
   data: {
     taskId: "<task-id>",
     sourceBranch: "<source>",
     targetBranch: "<target>",
+    strategy: "<squash|merge|rebase>",
     mergeSha: "<the-manual-merge-commit-sha>",
     rollbackSha: "<rollbackSha-from-prior-event>",
   },
@@ -102,6 +105,7 @@ For merge conflicts (most common cause of `merge-failed`):
     phase: "completed",
     sourceBranch: "<source>", targetBranch: "<target>",
     taskId: "<task-id>",
+    strategy: "<squash|merge|rebase>",
     mergeSha: "<the-manual-merge-commit-sha>",
     rollbackSha: "<rollbackSha-from-prior-event>",
   } } });

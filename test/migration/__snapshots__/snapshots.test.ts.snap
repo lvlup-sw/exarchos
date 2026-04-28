@@ -1917,7 +1917,7 @@ Do **not** activate this skill:
 |----------|---------------------|----------------|
 | \`merge\`  | \`git merge --no-ff --no-edit <source>\` — explicit merge commit | Preserves the subagent's commit history with a visible merge boundary. |
 | \`squash\` | \`git merge --squash <source>\` then \`git commit\` — single squash commit on target | Subagent commit history is noise; one logical change should land as one commit. |
-| \`rebase\` | rebases source onto target then ff-merges — linear history | No merge commit; integration branch stays linear. Source branch history is rewritten (acceptable for ephemeral subagent branches). |
+| \`rebase\` | rebases an ephemeral copy of source onto target then ff-merges target — linear history | No merge commit; integration branch stays linear. The original source ref is preserved (the rebase runs on a temporary branch that is deleted afterward), so an executor rollback only needs to reset target. |
 
 Strategy is required at the schema layer (#1127 collision check, #1109 §2 user-visible parity). There is no implicit default — operator intent is always explicit in the event log.
 
@@ -1974,7 +1974,7 @@ Three events are emitted directly to the workflow's event stream (stream id = \`
 | \`merge.executed\`  | On successful local merge | \`mergeSha\`, \`rollbackSha\`, \`taskId\`, source/target branches |
 | \`merge.rollback\`  | On post-merge failure followed by reset | \`rollbackSha\`, \`reason\`, \`taskId\`, source/target branches |
 
-These events are auto-emitted by the handler — do **not** manually append them via \`mcp__plugin_exarchos_exarchos__exarchos_event\`.
+These events are auto-emitted by the handler — do **not** manually append them via \`mcp__plugin_exarchos_exarchos__exarchos_event\` during normal operation. Manual emission is only sanctioned during the documented manual-recovery flow in [\`recovery-runbook.md\`](references/recovery-runbook.md) when a merge has been completed out-of-band (e.g., conflict resolution) and the event log must be brought back in sync — follow that runbook's event-first sequencing.
 
 > Discover the event payload schemas via \`mcp__plugin_exarchos_exarchos__exarchos_event({ action: "describe", eventTypes: ["merge.preflight", "merge.executed", "merge.rollback"] })\`.
 
@@ -2009,7 +2009,7 @@ When invoked without \`resume\`, prior state is deliberately ignored — fresh-d
 | Don't | Do Instead |
 |-------|------------|
 | Use this skill to merge a remote PR | Use \`merge_pr\` in the synthesize phase |
-| Manually emit \`merge.preflight\` / \`merge.executed\` / \`merge.rollback\` | Let the handler auto-emit; manual emission causes duplicates |
+| Manually emit \`merge.preflight\` / \`merge.executed\` / \`merge.rollback\` in normal flow | Let the handler auto-emit; manual emission causes duplicates (one exception: documented manual-recovery flow in [\`recovery-runbook.md\`](references/recovery-runbook.md)) |
 | Wrap merge events under \`gate.executed\` | Direct stream append with the dedicated event type — these are state transitions, not gate executions |
 | Re-dispatch after a \`rolled-back\` outcome without inspecting the reason | Read \`data.reason\` and \`data.rollbackError\`; address the root cause first |
 | Omit \`--strategy\` / \`strategy:\` field expecting a default | Strategy is required; supply \`squash\` / \`merge\` / \`rebase\` explicitly |
@@ -2027,7 +2027,7 @@ The HSM exits \`merge-pending\` back to \`delegate\` regardless of merge outcome
 
 ## Schema Discovery
 
-Use \`mcp__plugin_exarchos_exarchos__exarchos_orchestrate({ action: "describe", actions: ["merge_orchestrate"] })\` for the argument schema. Use \`mcp__plugin_exarchos_exarchos__exarchos_workflow({ action: "describe", playbook: "feature" })\` for the full feature-workflow phase playbook (which includes \`merge-pending\`). Use \`mcp__plugin_exarchos_exarchos__exarchos_event({ action: "describe", eventTypes: ["merge.preflight", "merge.executed", "merge.rollback"] })\` for event payload shapes.
+For the argument schema, call \`mcp__plugin_exarchos_exarchos__exarchos_orchestrate({ action: "describe", actions: ["merge_orchestrate"] })\`. The full feature-workflow phase playbook (which includes \`merge-pending\`) is available via \`mcp__plugin_exarchos_exarchos__exarchos_workflow({ action: "describe", playbook: "feature" })\`. Event payload shapes come from \`mcp__plugin_exarchos_exarchos__exarchos_event({ action: "describe", eventTypes: ["merge.preflight", "merge.executed", "merge.rollback"] })\`.
 
 ## Completion Criteria
 
@@ -6347,7 +6347,7 @@ Do **not** activate this skill:
 |----------|---------------------|----------------|
 | \`merge\`  | \`git merge --no-ff --no-edit <source>\` — explicit merge commit | Preserves the subagent's commit history with a visible merge boundary. |
 | \`squash\` | \`git merge --squash <source>\` then \`git commit\` — single squash commit on target | Subagent commit history is noise; one logical change should land as one commit. |
-| \`rebase\` | rebases source onto target then ff-merges — linear history | No merge commit; integration branch stays linear. Source branch history is rewritten (acceptable for ephemeral subagent branches). |
+| \`rebase\` | rebases an ephemeral copy of source onto target then ff-merges target — linear history | No merge commit; integration branch stays linear. The original source ref is preserved (the rebase runs on a temporary branch that is deleted afterward), so an executor rollback only needs to reset target. |
 
 Strategy is required at the schema layer (#1127 collision check, #1109 §2 user-visible parity). There is no implicit default — operator intent is always explicit in the event log.
 
@@ -6404,7 +6404,7 @@ Three events are emitted directly to the workflow's event stream (stream id = \`
 | \`merge.executed\`  | On successful local merge | \`mergeSha\`, \`rollbackSha\`, \`taskId\`, source/target branches |
 | \`merge.rollback\`  | On post-merge failure followed by reset | \`rollbackSha\`, \`reason\`, \`taskId\`, source/target branches |
 
-These events are auto-emitted by the handler — do **not** manually append them via \`mcp__exarchos__exarchos_event\`.
+These events are auto-emitted by the handler — do **not** manually append them via \`mcp__exarchos__exarchos_event\` during normal operation. Manual emission is only sanctioned during the documented manual-recovery flow in [\`recovery-runbook.md\`](references/recovery-runbook.md) when a merge has been completed out-of-band (e.g., conflict resolution) and the event log must be brought back in sync — follow that runbook's event-first sequencing.
 
 > Discover the event payload schemas via \`mcp__exarchos__exarchos_event({ action: "describe", eventTypes: ["merge.preflight", "merge.executed", "merge.rollback"] })\`.
 
@@ -6439,7 +6439,7 @@ When invoked without \`resume\`, prior state is deliberately ignored — fresh-d
 | Don't | Do Instead |
 |-------|------------|
 | Use this skill to merge a remote PR | Use \`merge_pr\` in the synthesize phase |
-| Manually emit \`merge.preflight\` / \`merge.executed\` / \`merge.rollback\` | Let the handler auto-emit; manual emission causes duplicates |
+| Manually emit \`merge.preflight\` / \`merge.executed\` / \`merge.rollback\` in normal flow | Let the handler auto-emit; manual emission causes duplicates (one exception: documented manual-recovery flow in [\`recovery-runbook.md\`](references/recovery-runbook.md)) |
 | Wrap merge events under \`gate.executed\` | Direct stream append with the dedicated event type — these are state transitions, not gate executions |
 | Re-dispatch after a \`rolled-back\` outcome without inspecting the reason | Read \`data.reason\` and \`data.rollbackError\`; address the root cause first |
 | Omit \`--strategy\` / \`strategy:\` field expecting a default | Strategy is required; supply \`squash\` / \`merge\` / \`rebase\` explicitly |
@@ -6457,7 +6457,7 @@ The HSM exits \`merge-pending\` back to \`delegate\` regardless of merge outcome
 
 ## Schema Discovery
 
-Use \`mcp__exarchos__exarchos_orchestrate({ action: "describe", actions: ["merge_orchestrate"] })\` for the argument schema. Use \`mcp__exarchos__exarchos_workflow({ action: "describe", playbook: "feature" })\` for the full feature-workflow phase playbook (which includes \`merge-pending\`). Use \`mcp__exarchos__exarchos_event({ action: "describe", eventTypes: ["merge.preflight", "merge.executed", "merge.rollback"] })\` for event payload shapes.
+For the argument schema, call \`mcp__exarchos__exarchos_orchestrate({ action: "describe", actions: ["merge_orchestrate"] })\`. The full feature-workflow phase playbook (which includes \`merge-pending\`) is available via \`mcp__exarchos__exarchos_workflow({ action: "describe", playbook: "feature" })\`. Event payload shapes come from \`mcp__exarchos__exarchos_event({ action: "describe", eventTypes: ["merge.preflight", "merge.executed", "merge.rollback"] })\`.
 
 ## Completion Criteria
 
@@ -10769,7 +10769,7 @@ Do **not** activate this skill:
 |----------|---------------------|----------------|
 | \`merge\`  | \`git merge --no-ff --no-edit <source>\` — explicit merge commit | Preserves the subagent's commit history with a visible merge boundary. |
 | \`squash\` | \`git merge --squash <source>\` then \`git commit\` — single squash commit on target | Subagent commit history is noise; one logical change should land as one commit. |
-| \`rebase\` | rebases source onto target then ff-merges — linear history | No merge commit; integration branch stays linear. Source branch history is rewritten (acceptable for ephemeral subagent branches). |
+| \`rebase\` | rebases an ephemeral copy of source onto target then ff-merges target — linear history | No merge commit; integration branch stays linear. The original source ref is preserved (the rebase runs on a temporary branch that is deleted afterward), so an executor rollback only needs to reset target. |
 
 Strategy is required at the schema layer (#1127 collision check, #1109 §2 user-visible parity). There is no implicit default — operator intent is always explicit in the event log.
 
@@ -10826,7 +10826,7 @@ Three events are emitted directly to the workflow's event stream (stream id = \`
 | \`merge.executed\`  | On successful local merge | \`mergeSha\`, \`rollbackSha\`, \`taskId\`, source/target branches |
 | \`merge.rollback\`  | On post-merge failure followed by reset | \`rollbackSha\`, \`reason\`, \`taskId\`, source/target branches |
 
-These events are auto-emitted by the handler — do **not** manually append them via \`mcp__exarchos__exarchos_event\`.
+These events are auto-emitted by the handler — do **not** manually append them via \`mcp__exarchos__exarchos_event\` during normal operation. Manual emission is only sanctioned during the documented manual-recovery flow in [\`recovery-runbook.md\`](references/recovery-runbook.md) when a merge has been completed out-of-band (e.g., conflict resolution) and the event log must be brought back in sync — follow that runbook's event-first sequencing.
 
 > Discover the event payload schemas via \`mcp__exarchos__exarchos_event({ action: "describe", eventTypes: ["merge.preflight", "merge.executed", "merge.rollback"] })\`.
 
@@ -10861,7 +10861,7 @@ When invoked without \`resume\`, prior state is deliberately ignored — fresh-d
 | Don't | Do Instead |
 |-------|------------|
 | Use this skill to merge a remote PR | Use \`merge_pr\` in the synthesize phase |
-| Manually emit \`merge.preflight\` / \`merge.executed\` / \`merge.rollback\` | Let the handler auto-emit; manual emission causes duplicates |
+| Manually emit \`merge.preflight\` / \`merge.executed\` / \`merge.rollback\` in normal flow | Let the handler auto-emit; manual emission causes duplicates (one exception: documented manual-recovery flow in [\`recovery-runbook.md\`](references/recovery-runbook.md)) |
 | Wrap merge events under \`gate.executed\` | Direct stream append with the dedicated event type — these are state transitions, not gate executions |
 | Re-dispatch after a \`rolled-back\` outcome without inspecting the reason | Read \`data.reason\` and \`data.rollbackError\`; address the root cause first |
 | Omit \`--strategy\` / \`strategy:\` field expecting a default | Strategy is required; supply \`squash\` / \`merge\` / \`rebase\` explicitly |
@@ -10879,7 +10879,7 @@ The HSM exits \`merge-pending\` back to \`delegate\` regardless of merge outcome
 
 ## Schema Discovery
 
-Use \`mcp__exarchos__exarchos_orchestrate({ action: "describe", actions: ["merge_orchestrate"] })\` for the argument schema. Use \`mcp__exarchos__exarchos_workflow({ action: "describe", playbook: "feature" })\` for the full feature-workflow phase playbook (which includes \`merge-pending\`). Use \`mcp__exarchos__exarchos_event({ action: "describe", eventTypes: ["merge.preflight", "merge.executed", "merge.rollback"] })\` for event payload shapes.
+For the argument schema, call \`mcp__exarchos__exarchos_orchestrate({ action: "describe", actions: ["merge_orchestrate"] })\`. The full feature-workflow phase playbook (which includes \`merge-pending\`) is available via \`mcp__exarchos__exarchos_workflow({ action: "describe", playbook: "feature" })\`. Event payload shapes come from \`mcp__exarchos__exarchos_event({ action: "describe", eventTypes: ["merge.preflight", "merge.executed", "merge.rollback"] })\`.
 
 ## Completion Criteria
 
@@ -15201,7 +15201,7 @@ Do **not** activate this skill:
 |----------|---------------------|----------------|
 | \`merge\`  | \`git merge --no-ff --no-edit <source>\` — explicit merge commit | Preserves the subagent's commit history with a visible merge boundary. |
 | \`squash\` | \`git merge --squash <source>\` then \`git commit\` — single squash commit on target | Subagent commit history is noise; one logical change should land as one commit. |
-| \`rebase\` | rebases source onto target then ff-merges — linear history | No merge commit; integration branch stays linear. Source branch history is rewritten (acceptable for ephemeral subagent branches). |
+| \`rebase\` | rebases an ephemeral copy of source onto target then ff-merges target — linear history | No merge commit; integration branch stays linear. The original source ref is preserved (the rebase runs on a temporary branch that is deleted afterward), so an executor rollback only needs to reset target. |
 
 Strategy is required at the schema layer (#1127 collision check, #1109 §2 user-visible parity). There is no implicit default — operator intent is always explicit in the event log.
 
@@ -15258,7 +15258,7 @@ Three events are emitted directly to the workflow's event stream (stream id = \`
 | \`merge.executed\`  | On successful local merge | \`mergeSha\`, \`rollbackSha\`, \`taskId\`, source/target branches |
 | \`merge.rollback\`  | On post-merge failure followed by reset | \`rollbackSha\`, \`reason\`, \`taskId\`, source/target branches |
 
-These events are auto-emitted by the handler — do **not** manually append them via \`mcp__exarchos__exarchos_event\`.
+These events are auto-emitted by the handler — do **not** manually append them via \`mcp__exarchos__exarchos_event\` during normal operation. Manual emission is only sanctioned during the documented manual-recovery flow in [\`recovery-runbook.md\`](references/recovery-runbook.md) when a merge has been completed out-of-band (e.g., conflict resolution) and the event log must be brought back in sync — follow that runbook's event-first sequencing.
 
 > Discover the event payload schemas via \`mcp__exarchos__exarchos_event({ action: "describe", eventTypes: ["merge.preflight", "merge.executed", "merge.rollback"] })\`.
 
@@ -15293,7 +15293,7 @@ When invoked without \`resume\`, prior state is deliberately ignored — fresh-d
 | Don't | Do Instead |
 |-------|------------|
 | Use this skill to merge a remote PR | Use \`merge_pr\` in the synthesize phase |
-| Manually emit \`merge.preflight\` / \`merge.executed\` / \`merge.rollback\` | Let the handler auto-emit; manual emission causes duplicates |
+| Manually emit \`merge.preflight\` / \`merge.executed\` / \`merge.rollback\` in normal flow | Let the handler auto-emit; manual emission causes duplicates (one exception: documented manual-recovery flow in [\`recovery-runbook.md\`](references/recovery-runbook.md)) |
 | Wrap merge events under \`gate.executed\` | Direct stream append with the dedicated event type — these are state transitions, not gate executions |
 | Re-dispatch after a \`rolled-back\` outcome without inspecting the reason | Read \`data.reason\` and \`data.rollbackError\`; address the root cause first |
 | Omit \`--strategy\` / \`strategy:\` field expecting a default | Strategy is required; supply \`squash\` / \`merge\` / \`rebase\` explicitly |
@@ -15311,7 +15311,7 @@ The HSM exits \`merge-pending\` back to \`delegate\` regardless of merge outcome
 
 ## Schema Discovery
 
-Use \`mcp__exarchos__exarchos_orchestrate({ action: "describe", actions: ["merge_orchestrate"] })\` for the argument schema. Use \`mcp__exarchos__exarchos_workflow({ action: "describe", playbook: "feature" })\` for the full feature-workflow phase playbook (which includes \`merge-pending\`). Use \`mcp__exarchos__exarchos_event({ action: "describe", eventTypes: ["merge.preflight", "merge.executed", "merge.rollback"] })\` for event payload shapes.
+For the argument schema, call \`mcp__exarchos__exarchos_orchestrate({ action: "describe", actions: ["merge_orchestrate"] })\`. The full feature-workflow phase playbook (which includes \`merge-pending\`) is available via \`mcp__exarchos__exarchos_workflow({ action: "describe", playbook: "feature" })\`. Event payload shapes come from \`mcp__exarchos__exarchos_event({ action: "describe", eventTypes: ["merge.preflight", "merge.executed", "merge.rollback"] })\`.
 
 ## Completion Criteria
 
@@ -19604,7 +19604,7 @@ Do **not** activate this skill:
 |----------|---------------------|----------------|
 | \`merge\`  | \`git merge --no-ff --no-edit <source>\` — explicit merge commit | Preserves the subagent's commit history with a visible merge boundary. |
 | \`squash\` | \`git merge --squash <source>\` then \`git commit\` — single squash commit on target | Subagent commit history is noise; one logical change should land as one commit. |
-| \`rebase\` | rebases source onto target then ff-merges — linear history | No merge commit; integration branch stays linear. Source branch history is rewritten (acceptable for ephemeral subagent branches). |
+| \`rebase\` | rebases an ephemeral copy of source onto target then ff-merges target — linear history | No merge commit; integration branch stays linear. The original source ref is preserved (the rebase runs on a temporary branch that is deleted afterward), so an executor rollback only needs to reset target. |
 
 Strategy is required at the schema layer (#1127 collision check, #1109 §2 user-visible parity). There is no implicit default — operator intent is always explicit in the event log.
 
@@ -19661,7 +19661,7 @@ Three events are emitted directly to the workflow's event stream (stream id = \`
 | \`merge.executed\`  | On successful local merge | \`mergeSha\`, \`rollbackSha\`, \`taskId\`, source/target branches |
 | \`merge.rollback\`  | On post-merge failure followed by reset | \`rollbackSha\`, \`reason\`, \`taskId\`, source/target branches |
 
-These events are auto-emitted by the handler — do **not** manually append them via \`mcp__exarchos__exarchos_event\`.
+These events are auto-emitted by the handler — do **not** manually append them via \`mcp__exarchos__exarchos_event\` during normal operation. Manual emission is only sanctioned during the documented manual-recovery flow in [\`recovery-runbook.md\`](references/recovery-runbook.md) when a merge has been completed out-of-band (e.g., conflict resolution) and the event log must be brought back in sync — follow that runbook's event-first sequencing.
 
 > Discover the event payload schemas via \`mcp__exarchos__exarchos_event({ action: "describe", eventTypes: ["merge.preflight", "merge.executed", "merge.rollback"] })\`.
 
@@ -19696,7 +19696,7 @@ When invoked without \`resume\`, prior state is deliberately ignored — fresh-d
 | Don't | Do Instead |
 |-------|------------|
 | Use this skill to merge a remote PR | Use \`merge_pr\` in the synthesize phase |
-| Manually emit \`merge.preflight\` / \`merge.executed\` / \`merge.rollback\` | Let the handler auto-emit; manual emission causes duplicates |
+| Manually emit \`merge.preflight\` / \`merge.executed\` / \`merge.rollback\` in normal flow | Let the handler auto-emit; manual emission causes duplicates (one exception: documented manual-recovery flow in [\`recovery-runbook.md\`](references/recovery-runbook.md)) |
 | Wrap merge events under \`gate.executed\` | Direct stream append with the dedicated event type — these are state transitions, not gate executions |
 | Re-dispatch after a \`rolled-back\` outcome without inspecting the reason | Read \`data.reason\` and \`data.rollbackError\`; address the root cause first |
 | Omit \`--strategy\` / \`strategy:\` field expecting a default | Strategy is required; supply \`squash\` / \`merge\` / \`rebase\` explicitly |
@@ -19714,7 +19714,7 @@ The HSM exits \`merge-pending\` back to \`delegate\` regardless of merge outcome
 
 ## Schema Discovery
 
-Use \`mcp__exarchos__exarchos_orchestrate({ action: "describe", actions: ["merge_orchestrate"] })\` for the argument schema. Use \`mcp__exarchos__exarchos_workflow({ action: "describe", playbook: "feature" })\` for the full feature-workflow phase playbook (which includes \`merge-pending\`). Use \`mcp__exarchos__exarchos_event({ action: "describe", eventTypes: ["merge.preflight", "merge.executed", "merge.rollback"] })\` for event payload shapes.
+For the argument schema, call \`mcp__exarchos__exarchos_orchestrate({ action: "describe", actions: ["merge_orchestrate"] })\`. The full feature-workflow phase playbook (which includes \`merge-pending\`) is available via \`mcp__exarchos__exarchos_workflow({ action: "describe", playbook: "feature" })\`. Event payload shapes come from \`mcp__exarchos__exarchos_event({ action: "describe", eventTypes: ["merge.preflight", "merge.executed", "merge.rollback"] })\`.
 
 ## Completion Criteria
 
@@ -24034,7 +24034,7 @@ Do **not** activate this skill:
 |----------|---------------------|----------------|
 | \`merge\`  | \`git merge --no-ff --no-edit <source>\` — explicit merge commit | Preserves the subagent's commit history with a visible merge boundary. |
 | \`squash\` | \`git merge --squash <source>\` then \`git commit\` — single squash commit on target | Subagent commit history is noise; one logical change should land as one commit. |
-| \`rebase\` | rebases source onto target then ff-merges — linear history | No merge commit; integration branch stays linear. Source branch history is rewritten (acceptable for ephemeral subagent branches). |
+| \`rebase\` | rebases an ephemeral copy of source onto target then ff-merges target — linear history | No merge commit; integration branch stays linear. The original source ref is preserved (the rebase runs on a temporary branch that is deleted afterward), so an executor rollback only needs to reset target. |
 
 Strategy is required at the schema layer (#1127 collision check, #1109 §2 user-visible parity). There is no implicit default — operator intent is always explicit in the event log.
 
@@ -24091,7 +24091,7 @@ Three events are emitted directly to the workflow's event stream (stream id = \`
 | \`merge.executed\`  | On successful local merge | \`mergeSha\`, \`rollbackSha\`, \`taskId\`, source/target branches |
 | \`merge.rollback\`  | On post-merge failure followed by reset | \`rollbackSha\`, \`reason\`, \`taskId\`, source/target branches |
 
-These events are auto-emitted by the handler — do **not** manually append them via \`mcp__exarchos__exarchos_event\`.
+These events are auto-emitted by the handler — do **not** manually append them via \`mcp__exarchos__exarchos_event\` during normal operation. Manual emission is only sanctioned during the documented manual-recovery flow in [\`recovery-runbook.md\`](references/recovery-runbook.md) when a merge has been completed out-of-band (e.g., conflict resolution) and the event log must be brought back in sync — follow that runbook's event-first sequencing.
 
 > Discover the event payload schemas via \`mcp__exarchos__exarchos_event({ action: "describe", eventTypes: ["merge.preflight", "merge.executed", "merge.rollback"] })\`.
 
@@ -24126,7 +24126,7 @@ When invoked without \`resume\`, prior state is deliberately ignored — fresh-d
 | Don't | Do Instead |
 |-------|------------|
 | Use this skill to merge a remote PR | Use \`merge_pr\` in the synthesize phase |
-| Manually emit \`merge.preflight\` / \`merge.executed\` / \`merge.rollback\` | Let the handler auto-emit; manual emission causes duplicates |
+| Manually emit \`merge.preflight\` / \`merge.executed\` / \`merge.rollback\` in normal flow | Let the handler auto-emit; manual emission causes duplicates (one exception: documented manual-recovery flow in [\`recovery-runbook.md\`](references/recovery-runbook.md)) |
 | Wrap merge events under \`gate.executed\` | Direct stream append with the dedicated event type — these are state transitions, not gate executions |
 | Re-dispatch after a \`rolled-back\` outcome without inspecting the reason | Read \`data.reason\` and \`data.rollbackError\`; address the root cause first |
 | Omit \`--strategy\` / \`strategy:\` field expecting a default | Strategy is required; supply \`squash\` / \`merge\` / \`rebase\` explicitly |
@@ -24144,7 +24144,7 @@ The HSM exits \`merge-pending\` back to \`delegate\` regardless of merge outcome
 
 ## Schema Discovery
 
-Use \`mcp__exarchos__exarchos_orchestrate({ action: "describe", actions: ["merge_orchestrate"] })\` for the argument schema. Use \`mcp__exarchos__exarchos_workflow({ action: "describe", playbook: "feature" })\` for the full feature-workflow phase playbook (which includes \`merge-pending\`). Use \`mcp__exarchos__exarchos_event({ action: "describe", eventTypes: ["merge.preflight", "merge.executed", "merge.rollback"] })\` for event payload shapes.
+For the argument schema, call \`mcp__exarchos__exarchos_orchestrate({ action: "describe", actions: ["merge_orchestrate"] })\`. The full feature-workflow phase playbook (which includes \`merge-pending\`) is available via \`mcp__exarchos__exarchos_workflow({ action: "describe", playbook: "feature" })\`. Event payload shapes come from \`mcp__exarchos__exarchos_event({ action: "describe", eventTypes: ["merge.preflight", "merge.executed", "merge.rollback"] })\`.
 
 ## Completion Criteria
 

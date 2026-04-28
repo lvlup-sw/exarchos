@@ -56,7 +56,7 @@ const ROLLBACK_SHA = 'b'.repeat(40);
 
 const PASSING_PREFLIGHT: MergePreflightResult = {
   passed: true,
-  ancestry: { passed: true, missing: [], target: 'main' },
+  ancestry: { passed: true, checks: ['ancestry'] },
   currentBranchProtection: { blocked: false, currentBranch: 'feat/x' },
   worktree: { isMain: true, actual: '/repo', expected: '/repo' },
   drift: {
@@ -65,7 +65,7 @@ const PASSING_PREFLIGHT: MergePreflightResult = {
     indexStale: false,
     detachedHead: false,
   },
-} as MergePreflightResult;
+};
 
 const PARITY_ARGS = {
   featureId: 'feat-x',

@@ -65,6 +65,19 @@ import {
 } from '../workflow/state-retry.js';
 
 // ─── Args schema ───────────────────────────────────────────────────────────
+//
+// Note: this handler validates inputs via Zod (`safeParse` below) rather than
+// the manual guard-clause pattern most other orchestrate handlers use. The
+// deviation is deliberate — the merge orchestrator surface is rich (six
+// fields, three of them booleans/enums with exact-value semantics, plus
+// optional repoRoot) and is reachable through DI overrides that bypass the
+// MCP registration boundary's Zod validation. Centralizing validation here
+// keeps the contract enforceable at every entry point, including in-process
+// test callers that wouldn't otherwise hit MCP. The schema is also
+// reused by `cli.ts` as the source of truth for `exarchos
+// merge-orchestrate` flag coercion (#1109 §2 user-visible parity), so a
+// manual guard-clause sweep here would have to be duplicated in three
+// places.
 
 export const HandleMergeOrchestrateArgsSchema = z.object({
   featureId: z.string().min(1),

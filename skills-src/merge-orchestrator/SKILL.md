@@ -161,7 +161,7 @@ The HSM exits `merge-pending` back to `delegate` regardless of merge outcome —
 
 ## Schema Discovery
 
-Use `{{MCP_PREFIX}}exarchos_orchestrate({ action: "describe", actions: ["merge_orchestrate"] })` for the argument schema. Use `{{MCP_PREFIX}}exarchos_workflow({ action: "describe", playbook: "feature" })` for the full feature-workflow phase playbook (which includes `merge-pending`). Use `{{MCP_PREFIX}}exarchos_event({ action: "describe", eventTypes: ["merge.preflight", "merge.executed", "merge.rollback"] })` for event payload shapes.
+For the argument schema, call `{{MCP_PREFIX}}exarchos_orchestrate({ action: "describe", actions: ["merge_orchestrate"] })`. The full feature-workflow phase playbook (which includes `merge-pending`) is available via `{{MCP_PREFIX}}exarchos_workflow({ action: "describe", playbook: "feature" })`. Event payload shapes come from `{{MCP_PREFIX}}exarchos_event({ action: "describe", eventTypes: ["merge.preflight", "merge.executed", "merge.rollback"] })`.
 
 ## Completion Criteria
 

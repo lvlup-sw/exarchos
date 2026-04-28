@@ -42,6 +42,7 @@ import type { EventStore } from '../event-store/store.js';
 import type { DispatchContext } from '../core/dispatch.js';
 
 import { handleMergeOrchestrate } from './merge-orchestrate.js';
+import type { MergePreflightResult } from './pure/merge-preflight.js';
 import { VersionConflictError } from '../workflow/state-store.js';
 
 // ─── Test helpers ──────────────────────────────────────────────────────────
@@ -68,10 +69,13 @@ function makeMockCtx(overrides: Partial<DispatchContext> = {}): DispatchContext 
 const MERGE_SHA = 'a'.repeat(40);
 const ROLLBACK_SHA = 'b'.repeat(40);
 
-const PASSING_PREFLIGHT = {
+// Type the fixture so it stays in lockstep with the production
+// `MergePreflightResult` contract — an untyped fixture lets fields like
+// `branch` vs `currentBranch` drift silently while tests still pass.
+const PASSING_PREFLIGHT: MergePreflightResult = {
   passed: true,
-  ancestry: { passed: true, missing: [] as string[], target: 'main' },
-  currentBranchProtection: { blocked: false, branch: 'feat/x' },
+  ancestry: { passed: true, checks: ['ancestry'] },
+  currentBranchProtection: { blocked: false, currentBranch: 'feat/x' },
   worktree: { isMain: true, actual: '/repo', expected: '/repo' },
   drift: {
     clean: true,
