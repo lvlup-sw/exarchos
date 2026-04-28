@@ -315,6 +315,56 @@ register({
 });
 
 register({
+  phase: 'merge-pending',
+  workflowType: 'feature',
+  skill: 'merge-orchestrator',
+  skillRef: '@skills/merge-orchestrator/SKILL.md',
+  tools: [
+    {
+      tool: 'exarchos_orchestrate',
+      action: 'merge_orchestrate',
+      purpose:
+        'Run preflight + execute merge for the worktree-associated task; resumes idempotently on retry',
+    },
+    {
+      tool: 'exarchos_workflow',
+      action: 'get',
+      purpose: 'Read mergeOrchestrator state to detect prior phase and rollback points',
+    },
+    {
+      tool: 'exarchos_event',
+      action: 'query',
+      purpose: 'Reconstruct merge timeline from merge.preflight/executed/rollback events',
+    },
+  ],
+  events: [
+    {
+      type: 'merge.preflight',
+      when: 'After dispatch-guard suite runs (before merge attempt or abort)',
+      fields: ['taskId', 'sourceBranch', 'targetBranch', 'passed', 'ancestry', 'worktree', 'currentBranchProtection', 'drift'],
+    },
+    {
+      type: 'merge.executed',
+      when: 'After merge commit lands successfully on the target branch',
+      fields: ['taskId', 'sourceBranch', 'targetBranch', 'mergeSha', 'strategy'],
+    },
+    {
+      type: 'merge.rollback',
+      when: 'When merge fails post-commit and the rollback path runs',
+      fields: ['taskId', 'targetBranch', 'rollbackSha', 'reason'],
+    },
+  ],
+  transitionCriteria:
+    'merge.executed → delegate (next worktree) | merge.rollback / merge.aborted → delegate (drop back, mergeOrchestrator terminal)',
+  guardPrerequisites:
+    "mergeOrchestrator.phase ∉ {completed, rolled-back, aborted} AND latest task.completed carries a worktree association",
+  validationScripts: [],
+  humanCheckpoint: false,
+  compactGuidance:
+    'Autonomous merge dispatch. Call exarchos_orchestrate merge_orchestrate to run the preflight composer and (if it passes) execute the merge. The handler is resumable — if mergeOrchestrator.phase is already executing/completed/rolled-back/aborted on entry, it short-circuits. Events: merge.preflight is emitted with the structured ancestry/worktree/currentBranchProtection/drift sub-results so event-sourced timeline reconstruction works without reading state; merge.executed records mergeSha + strategy; merge.rollback records categorized reason. Use exarchos_event query to reconstruct the merge timeline. Use exarchos_workflow get to inspect mergeOrchestrator state on resume. The HSM exits merge-pending back to delegate once any terminal merge event is observed.',
+});
+
+register({
   phase: 'review',
   workflowType: 'feature',
   skill: 'quality-review',

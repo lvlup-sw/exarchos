@@ -962,7 +962,10 @@ const orchestrateActions: readonly ToolAction[] = [
       sourceBranch: z.string().min(1),
       targetBranch: z.string().min(1),
       taskId: z.string().optional(),
-      strategy: z.enum(['squash', 'rebase', 'merge']).optional(),
+      // Required-no-default — matches `merge_pr.strategy` per #1127, gives
+      // CLI/MCP user-visible parity (#1109 §2), and keeps operator intent
+      // explicit in the event log (DIM-2 / DIM-3).
+      strategy: z.enum(['squash', 'rebase', 'merge']),
       dryRun: z.boolean().optional(),
       resume: z.boolean().optional(),
       repoRoot: z.string().optional(),

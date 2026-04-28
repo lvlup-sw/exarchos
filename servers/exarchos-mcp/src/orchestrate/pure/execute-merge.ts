@@ -71,7 +71,17 @@ export type RollbackReason = 'merge-failed' | 'verification-failed' | 'timeout';
 
 export type ExecuteMergeResult =
   | { phase: 'completed'; mergeSha: string; rollbackSha: string }
-  | { phase: 'rolled-back'; rollbackSha: string; reason: RollbackReason };
+  | {
+      phase: 'rolled-back';
+      rollbackSha: string;
+      reason: RollbackReason;
+      /**
+       * Set when `git reset --hard <rollbackSha>` itself failed during the
+       * rollback path. The working tree is in an indeterminate state and
+       * requires operator intervention. Absent when rollback succeeded.
+       */
+      rollbackError?: string;
+    };
 
 // Categorization convention: timeout = err.name === 'TimeoutError' OR (err as any).code === 'ETIMEDOUT';
 // verification-failed = err.message matches /verification/i; otherwise merge-failed.
@@ -113,8 +123,23 @@ export async function executeMerge(
     });
     return { phase: 'completed', mergeSha, rollbackSha };
   } catch (err) {
-    args.gitExec(args.repoRoot ?? process.cwd(), ['reset', '--hard', rollbackSha]);
     const reason = categorizeFailure(err);
-    return { phase: 'rolled-back', rollbackSha, reason };
+    // Inspect the reset result so a stranded working tree is surfaced to
+    // callers rather than silently masked under `phase: 'rolled-back'`.
+    let rollbackError: string | undefined;
+    try {
+      const reset = args.gitExec(
+        args.repoRoot ?? process.cwd(),
+        ['reset', '--hard', rollbackSha],
+      );
+      if (reset.exitCode !== 0) {
+        rollbackError = `git reset --hard ${rollbackSha} exited ${reset.exitCode}`;
+      }
+    } catch (resetErr) {
+      rollbackError = resetErr instanceof Error ? resetErr.message : String(resetErr);
+    }
+    return rollbackError === undefined
+      ? { phase: 'rolled-back', rollbackSha, reason }
+      : { phase: 'rolled-back', rollbackSha, reason, rollbackError };
   }
 }

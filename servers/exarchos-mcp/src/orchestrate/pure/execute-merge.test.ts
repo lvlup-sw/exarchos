@@ -270,4 +270,74 @@ describe('executeMerge', () => {
       expect(result.rollbackSha).toBe('abc');
     }
   });
+
+  it('executeMerge_ResetExitsNonZero_SurfacesRollbackError', async () => {
+    // When the rollback `git reset --hard` itself fails, the working tree is
+    // stranded. The handler must NOT silently return phase: 'rolled-back' as
+    // if rollback succeeded — it must surface a `rollbackError` field so the
+    // caller can escalate to operator intervention.
+    const gitExec: GitExec = vi.fn((_repoRoot: string, args: readonly string[]) => {
+      if (args[0] === 'rev-parse' && args[1] === 'HEAD') {
+        return { stdout: 'abc\n', exitCode: 0 };
+      }
+      if (args[0] === 'reset' && args[1] === '--hard') {
+        return { stdout: '', exitCode: 128 };
+      }
+      throw new Error(`unexpected git args: ${args.join(' ')}`);
+    });
+    const vcsMerge = vi.fn(async () => {
+      throw new Error('merge conflict');
+    });
+    const persistState = vi.fn(async () => {});
+
+    const result = await executeMerge({
+      sourceBranch: 'feat/x',
+      targetBranch: 'main',
+      strategy: 'squash',
+      gitExec,
+      vcsMerge,
+      persistState,
+      repoRoot: '/some/repo',
+    });
+
+    expect(result.phase).toBe('rolled-back');
+    if (result.phase === 'rolled-back') {
+      expect(result.rollbackSha).toBe('abc');
+      expect(result.reason).toBe('merge-failed');
+      expect(result.rollbackError).toMatch(/exited 128/);
+    }
+  });
+
+  it('executeMerge_ResetThrows_SurfacesRollbackError', async () => {
+    // Same contract as above when gitExec throws (rather than returns a
+    // non-zero exitCode).
+    const gitExec: GitExec = vi.fn((_repoRoot: string, args: readonly string[]) => {
+      if (args[0] === 'rev-parse' && args[1] === 'HEAD') {
+        return { stdout: 'abc\n', exitCode: 0 };
+      }
+      if (args[0] === 'reset' && args[1] === '--hard') {
+        throw new Error('git binary missing');
+      }
+      throw new Error(`unexpected git args: ${args.join(' ')}`);
+    });
+    const vcsMerge = vi.fn(async () => {
+      throw new Error('boom');
+    });
+    const persistState = vi.fn(async () => {});
+
+    const result = await executeMerge({
+      sourceBranch: 'feat/x',
+      targetBranch: 'main',
+      strategy: 'squash',
+      gitExec,
+      vcsMerge,
+      persistState,
+      repoRoot: '/some/repo',
+    });
+
+    expect(result.phase).toBe('rolled-back');
+    if (result.phase === 'rolled-back') {
+      expect(result.rollbackError).toMatch(/git binary missing/);
+    }
+  });
 });

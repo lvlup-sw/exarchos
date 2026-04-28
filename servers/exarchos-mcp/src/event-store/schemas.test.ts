@@ -2328,6 +2328,60 @@ describe('MergePreflightData', () => {
       expect(result.data.passed).toBe(true);
     }
   });
+
+  it('MergePreflightEventSchema_NestedSubResults_RoundTrip', () => {
+    // DR-MO-1 AC#1: the structured guard sub-results (ancestry, worktree,
+    // currentBranchProtection, drift) must round-trip through the event
+    // schema so event-sourced timeline reconstruction works without
+    // reading the workflow state file.
+    const payload = {
+      taskId: 'T11',
+      sourceBranch: 'feat/x',
+      targetBranch: 'main',
+      passed: false,
+      ancestry: {
+        passed: false,
+        reason: 'ancestry' as const,
+        missing: ['main'],
+      },
+      currentBranchProtection: {
+        blocked: false,
+      },
+      worktree: {
+        isMain: true,
+        actual: '/repo',
+        expected: '/repo',
+      },
+      drift: {
+        clean: true,
+        uncommittedFiles: [],
+        indexStale: false,
+        detachedHead: false,
+      },
+      failureReasons: ['ancestry missing: main'],
+    };
+    const result = MergePreflightData.safeParse(payload);
+    expect(result.success, JSON.stringify(result)).toBe(true);
+    if (result.success) {
+      expect(result.data.ancestry?.missing).toEqual(['main']);
+      expect(result.data.worktree?.isMain).toBe(true);
+      expect(result.data.drift?.clean).toBe(true);
+      expect(result.data.currentBranchProtection?.blocked).toBe(false);
+      expect(result.data.failureReasons).toEqual(['ancestry missing: main']);
+    }
+  });
+
+  it('MergePreflightEventSchema_LegacyPayloadWithoutSubResults_StillParses', () => {
+    // Backward-compatibility: events emitted before the schema widening
+    // omit the nested sub-results. They must still parse.
+    const result = MergePreflightData.safeParse({
+      taskId: 'T11',
+      sourceBranch: 'feat/x',
+      targetBranch: 'main',
+      passed: true,
+    });
+    expect(result.success).toBe(true);
+  });
 });
 
 describe('MergeExecutedData', () => {

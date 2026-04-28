@@ -69,7 +69,12 @@ export const HandleMergeOrchestrateArgsSchema = z.object({
   sourceBranch: z.string().min(1),
   targetBranch: z.string().min(1),
   taskId: z.string().optional(),
-  strategy: z.enum(['squash', 'rebase', 'merge']).default('squash'),
+  // Required, no default — aligns with `merge_pr.strategy` (registry.ts)
+  // per #1127, makes operator intent explicit in the event log (DIM-2),
+  // and gives CLI/MCP user-visible parity (#1109 §2). Defaults at the
+  // schema layer were dead code: every existing call site already passes
+  // strategy explicitly.
+  strategy: z.enum(['squash', 'rebase', 'merge']),
   /** Reserved for T13. Not honored in T11. */
   dryRun: z.boolean().optional(),
   /**
@@ -344,6 +349,11 @@ export async function handleMergeOrchestrate(
   }
 
   // ─── 2. Emit merge.preflight (direct append — see header note) ───────────
+  // DR-MO-1 AC#1 / DR-MO-2: include the structured sub-results
+  // (ancestry / currentBranchProtection / worktree / drift) so the event
+  // log is self-sufficient for timeline reconstruction. Also surface
+  // `failureReasons` when the preflight failed so observability and
+  // operators see the same diagnostic returned in the ToolResult.
   await ctx.eventStore.append(args.featureId, {
     type: 'merge.preflight',
     data: {
@@ -351,6 +361,13 @@ export async function handleMergeOrchestrate(
       sourceBranch: args.sourceBranch,
       targetBranch: args.targetBranch,
       passed: preflight.passed,
+      ancestry: preflight.ancestry,
+      currentBranchProtection: preflight.currentBranchProtection,
+      worktree: preflight.worktree,
+      drift: preflight.drift,
+      ...(preflight.passed
+        ? {}
+        : { failureReasons: [describePreflightFailure(preflight)] }),
     },
   });
 

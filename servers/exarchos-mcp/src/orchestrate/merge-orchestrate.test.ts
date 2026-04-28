@@ -174,6 +174,9 @@ describe('handleMergeOrchestrate (T11)', () => {
       (call) => (call[1] as { type?: string } | undefined)?.type === 'merge.preflight',
     );
     expect(preflightCalls).toHaveLength(1);
+    // DR-MO-1 AC#1: emit must include the structured preflight sub-results
+    // (ancestry / currentBranchProtection / worktree / drift) so the event
+    // log alone is sufficient for timeline reconstruction.
     expect(preflightCalls[0]).toEqual([
       'feat-x',
       {
@@ -183,6 +186,10 @@ describe('handleMergeOrchestrate (T11)', () => {
           sourceBranch: 'feat/x',
           targetBranch: 'main',
           passed: true,
+          ancestry: PASSING_PREFLIGHT.ancestry,
+          currentBranchProtection: PASSING_PREFLIGHT.currentBranchProtection,
+          worktree: PASSING_PREFLIGHT.worktree,
+          drift: PASSING_PREFLIGHT.drift,
         },
       },
     ]);
@@ -284,18 +291,21 @@ describe('handleMergeOrchestrate (T12 — preflight-fail abort)', () => {
       (call) => (call[1] as { type?: string } | undefined)?.type === 'merge.preflight',
     );
     expect(preflightCalls).toHaveLength(1);
-    expect(preflightCalls[0]).toEqual([
-      'feat-x',
-      {
-        type: 'merge.preflight',
-        data: {
-          taskId: 'T12',
-          sourceBranch: 'feat/x',
-          targetBranch: 'main',
-          passed: false,
-        },
-      },
-    ]);
+    // DR-MO-1 AC#1 + MEDIUM fix: failing emits include sub-results AND a
+    // populated `failureReasons` mirroring the operator-facing diagnostic.
+    const [, emitted] = preflightCalls[0] as [string, { data: Record<string, unknown> }];
+    expect(emitted.data).toMatchObject({
+      taskId: 'T12',
+      sourceBranch: 'feat/x',
+      targetBranch: 'main',
+      passed: false,
+      ancestry: FAILING_PREFLIGHT.ancestry,
+      currentBranchProtection: FAILING_PREFLIGHT.currentBranchProtection,
+      worktree: FAILING_PREFLIGHT.worktree,
+      drift: FAILING_PREFLIGHT.drift,
+    });
+    expect(Array.isArray(emitted.data.failureReasons)).toBe(true);
+    expect((emitted.data.failureReasons as string[])[0]).toMatch(/ancestry/);
   });
 });
 

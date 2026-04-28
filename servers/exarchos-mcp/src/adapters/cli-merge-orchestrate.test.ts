@@ -93,6 +93,8 @@ describe('exarchos merge-orchestrate CLI', () => {
       'feat/x',
       '--target-branch',
       'main',
+      '--strategy',
+      'squash',
     ]);
 
     // Assert: dispatch was called with translated camelCase args via the
@@ -132,10 +134,34 @@ describe('exarchos merge-orchestrate CLI', () => {
       'feat/x',
       '--target-branch',
       'main',
+      '--strategy',
+      'squash',
     ]);
 
     // Assert: exit 2 (HANDLER_ERROR), not exit 1 (INVALID_INPUT).
     expect(process.exitCode).toBe(CLI_EXIT_CODES.HANDLER_ERROR);
+  });
+
+  it('cliMergeOrchestrate_MissingStrategy_ExitCode1', async () => {
+    // Strategy is required-no-default (#1127, #1109 §2). Omitting --strategy
+    // must produce INVALID_INPUT at the boundary, not silently apply a
+    // schema default. See docs/designs/2026-04-26-autonomous-merge-orchestrator.md.
+    const program = buildCli(ctx);
+
+    await program.parseAsync([
+      'node',
+      'exarchos',
+      'merge-orchestrate',
+      '--feature-id',
+      'foo',
+      '--source-branch',
+      'feat/x',
+      '--target-branch',
+      'main',
+    ]);
+
+    expect(dispatch).not.toHaveBeenCalled();
+    expect(process.exitCode).toBe(CLI_EXIT_CODES.INVALID_INPUT);
   });
 
   it('cliMergeOrchestrate_InvalidStrategy_ExitCode1', async () => {
@@ -179,6 +205,8 @@ describe('exarchos merge-orchestrate CLI', () => {
       'feat/x',
       '--target-branch',
       'main',
+      '--strategy',
+      'squash',
       '--dry-run',
     ]);
 
