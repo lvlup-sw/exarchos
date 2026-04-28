@@ -53,9 +53,56 @@ interface DetectionResult {
   detected: boolean;
 }
 
+/**
+ * Detect the Node-ecosystem package manager in use for a project.
+ *
+ * Returns the package manager based on lockfile presence, in priority order:
+ *   bun > pnpm > yarn > npm (default).
+ *
+ * Lockfiles only matter when a `package.json` declares the project — a stray
+ * `bun.lockb` from a partial git checkout should not promote a non-Node tree
+ * to Node detection. Returns `null` when no `package.json` is present.
+ */
+function detectNodePackageManager(
+  repoRoot: string,
+): 'bun' | 'pnpm' | 'yarn' | 'npm' | null {
+  if (!existsSync(path.join(repoRoot, 'package.json'))) {
+    return null;
+  }
+  if (existsSync(path.join(repoRoot, 'bun.lockb'))) return 'bun';
+  if (existsSync(path.join(repoRoot, 'pnpm-lock.yaml'))) return 'pnpm';
+  if (existsSync(path.join(repoRoot, 'yarn.lock'))) return 'yarn';
+  return 'npm';
+}
+
 function detect(repoRoot: string): DetectionResult {
   // Priority order: package.json > *.csproj > Cargo.toml > pyproject.toml
-  if (existsSync(path.join(repoRoot, 'package.json'))) {
+  const pm = detectNodePackageManager(repoRoot);
+  if (pm === 'bun') {
+    return {
+      test: 'bun test',
+      typecheck: 'tsc --noEmit',
+      install: 'bun install',
+      detected: true,
+    };
+  }
+  if (pm === 'pnpm') {
+    return {
+      test: 'pnpm test',
+      typecheck: 'tsc --noEmit',
+      install: 'pnpm install --frozen-lockfile',
+      detected: true,
+    };
+  }
+  if (pm === 'yarn') {
+    return {
+      test: 'yarn test',
+      typecheck: 'tsc --noEmit',
+      install: 'yarn install --immutable',
+      detected: true,
+    };
+  }
+  if (pm === 'npm') {
     return {
       test: 'npm run test:run',
       typecheck: 'npm run typecheck',

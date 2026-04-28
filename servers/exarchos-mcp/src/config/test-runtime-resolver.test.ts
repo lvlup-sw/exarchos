@@ -156,4 +156,108 @@ describe('resolveTestRuntime', () => {
     expect(result.install).toBe('npm install');
     expect(result.source).toBe('detection');
   });
+
+  it('resolveTestRuntime_BunProject_DetectsBunLockfile', () => {
+    const dir = makeTmpDir();
+    writeFileSync(join(dir, 'package.json'), '{}');
+    writeFileSync(join(dir, 'bun.lockb'), '');
+
+    const result = resolveTestRuntime(dir);
+
+    expect(result).toEqual({
+      test: 'bun test',
+      typecheck: 'tsc --noEmit',
+      install: 'bun install',
+      source: 'detection',
+    });
+  });
+
+  it('resolveTestRuntime_PnpmProject_DetectsPnpmLockfile', () => {
+    const dir = makeTmpDir();
+    writeFileSync(join(dir, 'package.json'), '{}');
+    writeFileSync(join(dir, 'pnpm-lock.yaml'), '');
+
+    const result = resolveTestRuntime(dir);
+
+    expect(result).toEqual({
+      test: 'pnpm test',
+      typecheck: 'tsc --noEmit',
+      install: 'pnpm install --frozen-lockfile',
+      source: 'detection',
+    });
+  });
+
+  it('resolveTestRuntime_YarnProject_DetectsYarnLockfile', () => {
+    const dir = makeTmpDir();
+    writeFileSync(join(dir, 'package.json'), '{}');
+    writeFileSync(join(dir, 'yarn.lock'), '');
+
+    const result = resolveTestRuntime(dir);
+
+    expect(result).toEqual({
+      test: 'yarn test',
+      typecheck: 'tsc --noEmit',
+      install: 'yarn install --immutable',
+      source: 'detection',
+    });
+  });
+
+  it('resolveTestRuntime_NpmProject_NoAltLockfile_ReturnsNpmCommands', () => {
+    const dir = makeTmpDir();
+    writeFileSync(join(dir, 'package.json'), '{}');
+    writeFileSync(join(dir, 'package-lock.json'), '{}');
+
+    const result = resolveTestRuntime(dir);
+
+    expect(result).toEqual({
+      test: 'npm run test:run',
+      typecheck: 'npm run typecheck',
+      install: 'npm install',
+      source: 'detection',
+    });
+  });
+
+  it('resolveTestRuntime_BunAndPnpmLockfiles_BunWins', () => {
+    const dir = makeTmpDir();
+    writeFileSync(join(dir, 'package.json'), '{}');
+    writeFileSync(join(dir, 'bun.lockb'), '');
+    writeFileSync(join(dir, 'pnpm-lock.yaml'), '');
+
+    const result = resolveTestRuntime(dir);
+
+    expect(result).toEqual({
+      test: 'bun test',
+      typecheck: 'tsc --noEmit',
+      install: 'bun install',
+      source: 'detection',
+    });
+  });
+
+  it('resolveTestRuntime_PnpmAndYarnLockfiles_PnpmWins', () => {
+    const dir = makeTmpDir();
+    writeFileSync(join(dir, 'package.json'), '{}');
+    writeFileSync(join(dir, 'pnpm-lock.yaml'), '');
+    writeFileSync(join(dir, 'yarn.lock'), '');
+
+    const result = resolveTestRuntime(dir);
+
+    expect(result).toEqual({
+      test: 'pnpm test',
+      typecheck: 'tsc --noEmit',
+      install: 'pnpm install --frozen-lockfile',
+      source: 'detection',
+    });
+  });
+
+  it('resolveTestRuntime_BunLockfileWithoutPackageJson_FallsThroughToUnresolved', () => {
+    const dir = makeTmpDir();
+    writeFileSync(join(dir, 'bun.lockb'), '');
+
+    const result = resolveTestRuntime(dir);
+
+    expect(result.source).toBe('unresolved');
+    expect(result.test).toBeNull();
+    expect(result.typecheck).toBeNull();
+    expect(result.install).toBeNull();
+  });
 });
