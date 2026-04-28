@@ -175,16 +175,17 @@ function buildDefaultPersistState(
 ): PersistStateCallback {
   return async (payload) => {
     const stateFile = path.join(stateDir, `${featureId}.state.json`);
-    let state: Awaited<ReturnType<typeof readStateFile>>;
-    try {
-      state = await readStateFile(stateFile);
-    } catch (err) {
-      if (err instanceof StateStoreError && err.code === ErrorCode.STATE_NOT_FOUND) {
-        state = {} as Awaited<ReturnType<typeof readStateFile>>;
-      } else {
-        throw err;
-      }
-    }
+    // Let `StateStoreError(STATE_NOT_FOUND)` propagate — the executor's
+    // terminal event was already appended (event-first commit point), so
+    // a missing state file is a recovery scenario the caller must handle,
+    // not something to paper over with an invented baseline. Faking state
+    // here would land an incomplete record on disk and trip write-time
+    // schema validation anyway.
+    const state = await readStateFile(stateFile);
+    // Capture CAS version before mutation so the write enforces optimistic
+    // concurrency. Without `expectedVersion`, `writeStateFile` skips the
+    // CAS check entirely, defeating the surrounding `withStateRetry`.
+    const expectedVersion = (state as Record<string, unknown>)._version as number | undefined ?? 1;
     const next = {
       ...state,
       mergeOrchestrator: {
@@ -195,7 +196,7 @@ function buildDefaultPersistState(
         ...payload,
       },
     };
-    await writeStateFile(stateFile, next as typeof state);
+    await writeStateFile(stateFile, next as typeof state, { expectedVersion });
   };
 }
 
@@ -271,6 +272,18 @@ export async function handleExecuteMerge(
         },
       };
     }
+    // Persisting the intermediate `executing` phase touches the state file;
+    // a missing/corrupt file there must surface as a categorized failure
+    // rather than masquerading as MERGE_FAILED.
+    if (err instanceof StateStoreError) {
+      return {
+        success: false,
+        error: {
+          code: err.code === ErrorCode.STATE_NOT_FOUND ? 'STATE_READ_FAILED' : err.code,
+          message: err.message,
+        },
+      };
+    }
     return {
       success: false,
       error: {
@@ -343,6 +356,20 @@ export async function handleExecuteMerge(
         error: {
           code: 'STATE_CONFLICT',
           message: `Workflow state version conflict after ${MAX_STATE_RETRIES} retries: ${err.message}`,
+        },
+      };
+    }
+    // Surface other StateStoreErrors (notably STATE_NOT_FOUND when the
+    // workflow's state file is missing) as structured failures. The
+    // terminal `merge.executed` / `merge.rollback` event has already been
+    // appended above, so projection rebuild can still recover the terminal
+    // phase from the event stream even if this write fails.
+    if (err instanceof StateStoreError) {
+      return {
+        success: false,
+        error: {
+          code: err.code === ErrorCode.STATE_NOT_FOUND ? 'STATE_READ_FAILED' : err.code,
+          message: err.message,
         },
       };
     }

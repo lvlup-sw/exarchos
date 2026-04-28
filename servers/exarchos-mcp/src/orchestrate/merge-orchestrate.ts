@@ -199,20 +199,17 @@ function buildDefaultPersistState(
 ): OrchestratorPersistState {
   return async (next) => {
     const stateFile = path.join(stateDir, `${featureId}.state.json`);
-    // STATE_NOT_FOUND is a non-fatal "first write" — preflight can fail on
-    // a workflow whose state file hasn't been initialized yet, and the
-    // unhandled StateStoreError would otherwise crash the server. Fall
-    // through to a baseline state object so the abort write can land.
-    let state: Awaited<ReturnType<typeof readStateFile>>;
-    try {
-      state = await readStateFile(stateFile);
-    } catch (err) {
-      if (err instanceof StateStoreError && err.code === ErrorCode.STATE_NOT_FOUND) {
-        state = {} as Awaited<ReturnType<typeof readStateFile>>;
-      } else {
-        throw err;
-      }
-    }
+    // Let `StateStoreError(STATE_NOT_FOUND)` propagate so the handler can
+    // surface a structured `STATE_READ_FAILED` ToolResult. Inventing a
+    // baseline state here would land an incomplete record on disk and
+    // trip write-time schema validation anyway.
+    const state = await readStateFile(stateFile);
+    // Capture the CAS version BEFORE mutating so the write enforces
+    // optimistic concurrency. Without `expectedVersion`, `writeStateFile`
+    // skips the CAS check entirely, which makes the surrounding
+    // `withStateRetry` non-functional and leaves concurrent writers free
+    // to clobber each other. `_version` defaults to 1 for legacy files.
+    const expectedVersion = (state as Record<string, unknown>)._version as number | undefined ?? 1;
     // REPLACE the `mergeOrchestrator` block instead of shallow-merging onto
     // any prior attempt. Spreading the previous object would carry stale
     // `mergeSha`, `rollbackSha`, or old failure metadata into a fresh
@@ -222,7 +219,7 @@ function buildDefaultPersistState(
       ...state,
       mergeOrchestrator: { ...next },
     };
-    await writeStateFile(stateFile, updated as typeof state);
+    await writeStateFile(stateFile, updated as typeof state, { expectedVersion });
   };
 }
 
@@ -488,6 +485,24 @@ export async function handleMergeOrchestrate(
           error: {
             code: 'STATE_CONFLICT',
             message: `Workflow state version conflict after ${MAX_STATE_RETRIES} retries`,
+          },
+        };
+      }
+      // Surface other StateStoreErrors (notably STATE_NOT_FOUND if the
+      // workflow's state file is missing) as structured failures rather
+      // than letting them propagate as unhandled exceptions. The
+      // `merge.preflight` event was already emitted, so projection rebuild
+      // can still reconstruct the aborted phase from events alone.
+      if (err instanceof StateStoreError) {
+        return {
+          success: false,
+          error: {
+            code: err.code === ErrorCode.STATE_NOT_FOUND ? 'STATE_READ_FAILED' : err.code,
+            message: err.message,
+          },
+          data: {
+            phase: 'aborted' as const,
+            preflight,
           },
         };
       }
