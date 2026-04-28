@@ -192,19 +192,37 @@ function runBaselineTests(worktreePath: string, skipTests: boolean): CheckResult
     return { name: 'Baseline tests pass', status: 'skip', detail: '--skip-tests' };
   }
 
-  if (!existsSync(join(worktreePath, 'package.json'))) {
-    return { name: 'Baseline tests pass', status: 'skip', detail: 'no package.json in worktree' };
+  const resolved = resolveTestRuntime(worktreePath);
+
+  if (resolved.test === null) {
+    return {
+      name: 'Baseline tests pass',
+      status: 'skip',
+      detail: resolved.remediation ?? 'no test command resolved',
+    };
   }
 
+  // Parse "<cmd> <arg1> ..." into cmd + args. The resolver only emits commands
+  // assembled from a known allowlist (npm run test:run / pnpm test / yarn test
+  // / bun test / pytest / cargo test / dotnet test), so a simple whitespace
+  // split is safe here.
+  const parts = resolved.test.split(/\s+/).filter((p) => p.length > 0);
+  const cmd = parts[0];
+  const cmdArgs = parts.slice(1);
+
   try {
-    execFileSync('npm', ['run', 'test:run'], {
+    execFileSync(cmd, cmdArgs, {
       encoding: 'utf-8',
       cwd: worktreePath,
       stdio: ['pipe', 'pipe', 'pipe'],
     });
     return { name: 'Baseline tests pass', status: 'pass' };
   } catch {
-    return { name: 'Baseline tests pass', status: 'fail', detail: `npm run test:run failed in ${worktreePath}` };
+    return {
+      name: 'Baseline tests pass',
+      status: 'fail',
+      detail: `${resolved.test} failed in ${worktreePath}`,
+    };
   }
 }
 

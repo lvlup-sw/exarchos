@@ -559,6 +559,189 @@ describe('handleSetupWorktree', () => {
     );
   });
 
+  // ── T10 baseline-tests tests (resolver-driven) ─────────────────────────
+
+  it('runBaselineTests_PnpmProject_RunsPnpmTest', () => {
+    vi.mocked(execFileSync).mockImplementation((cmd: unknown, args: unknown) => {
+      const cmdStr = String(cmd);
+      const argsArr = args as string[];
+      if (cmdStr === 'git' && argsArr.includes('check-ignore')) return '';
+      if (cmdStr === 'git' && argsArr.includes('show-ref')) return '';
+      if (cmdStr === 'git' && argsArr.includes('rev-parse')) return '.git';
+      return '';
+    });
+    vi.mocked(existsSync).mockImplementation((p: unknown) => {
+      const path = String(p);
+      if (path === '/repo/.worktrees/task-200-pnpm-test') return true;
+      if (path === '/repo/.worktrees/task-200-pnpm-test/package.json') return true;
+      if (path === '/repo/.worktrees/task-200-pnpm-test/pnpm-lock.yaml') return true;
+      return false;
+    });
+    vi.mocked(readFileSync).mockImplementation((p: unknown) => {
+      const path = String(p);
+      if (path.endsWith('package.json')) {
+        return JSON.stringify({
+          name: 'fixture-pnpm',
+          scripts: { test: 'vitest run', typecheck: 'tsc --noEmit' },
+        });
+      }
+      return '';
+    });
+
+    const result = handleSetupWorktree({
+      repoRoot: '/repo',
+      taskId: 'task-200',
+      taskName: 'pnpm-test',
+    });
+
+    expect(result.success).toBe(true);
+    expect(execFileSync).toHaveBeenCalledWith(
+      'pnpm',
+      ['test'],
+      expect.objectContaining({ cwd: '/repo/.worktrees/task-200-pnpm-test' }),
+    );
+  });
+
+  it('runBaselineTests_BunProject_RunsBunTest', () => {
+    vi.mocked(execFileSync).mockImplementation((cmd: unknown, args: unknown) => {
+      const cmdStr = String(cmd);
+      const argsArr = args as string[];
+      if (cmdStr === 'git' && argsArr.includes('check-ignore')) return '';
+      if (cmdStr === 'git' && argsArr.includes('show-ref')) return '';
+      if (cmdStr === 'git' && argsArr.includes('rev-parse')) return '.git';
+      return '';
+    });
+    vi.mocked(existsSync).mockImplementation((p: unknown) => {
+      const path = String(p);
+      if (path === '/repo/.worktrees/task-201-bun-test') return true;
+      if (path === '/repo/.worktrees/task-201-bun-test/package.json') return true;
+      if (path === '/repo/.worktrees/task-201-bun-test/bun.lockb') return true;
+      return false;
+    });
+
+    const result = handleSetupWorktree({
+      repoRoot: '/repo',
+      taskId: 'task-201',
+      taskName: 'bun-test',
+    });
+
+    expect(result.success).toBe(true);
+    expect(execFileSync).toHaveBeenCalledWith(
+      'bun',
+      ['test'],
+      expect.objectContaining({ cwd: '/repo/.worktrees/task-201-bun-test' }),
+    );
+  });
+
+  it('runBaselineTests_NpmMissingTestRunScript_SkipsWithRemediation', () => {
+    vi.mocked(execFileSync).mockImplementation((cmd: unknown, args: unknown) => {
+      const cmdStr = String(cmd);
+      const argsArr = args as string[];
+      if (cmdStr === 'git' && argsArr.includes('check-ignore')) return '';
+      if (cmdStr === 'git' && argsArr.includes('show-ref')) return '';
+      if (cmdStr === 'git' && argsArr.includes('rev-parse')) return '.git';
+      // npm run test:run must NOT be invoked when no test:run script exists.
+      if (cmdStr === 'npm' && argsArr[0] === 'run') {
+        throw new Error(`unexpected npm run invocation: ${argsArr.join(' ')}`);
+      }
+      return '';
+    });
+    vi.mocked(existsSync).mockImplementation((p: unknown) => {
+      const path = String(p);
+      if (path === '/repo/.worktrees/task-202-no-testrun') return true;
+      if (path === '/repo/.worktrees/task-202-no-testrun/package.json') return true;
+      return false;
+    });
+    vi.mocked(readFileSync).mockImplementation((p: unknown) => {
+      const path = String(p);
+      if (path.endsWith('package.json')) {
+        // npm path (no lockfiles) but package.json lacks "test:run" script.
+        return JSON.stringify({
+          name: 'fixture-no-testrun',
+          scripts: { build: 'tsc' },
+        });
+      }
+      return '';
+    });
+
+    const result = handleSetupWorktree({
+      repoRoot: '/repo',
+      taskId: 'task-202',
+      taskName: 'no-testrun',
+    });
+
+    expect(result.success).toBe(true);
+    const data = result.data as { report: string; checks: { skip: number } };
+    expect(data.checks.skip).toBeGreaterThanOrEqual(1);
+    // Resolver remediation references either .exarchos.yml or test:run.
+    expect(data.report).toMatch(/Baseline tests pass.*(test:run|\.exarchos\.yml)/);
+  });
+
+  it('runBaselineTests_PythonProject_RunsPytest', () => {
+    vi.mocked(execFileSync).mockImplementation((cmd: unknown, args: unknown) => {
+      const cmdStr = String(cmd);
+      const argsArr = args as string[];
+      if (cmdStr === 'git' && argsArr.includes('check-ignore')) return '';
+      if (cmdStr === 'git' && argsArr.includes('show-ref')) return '';
+      if (cmdStr === 'git' && argsArr.includes('rev-parse')) return '.git';
+      return '';
+    });
+    vi.mocked(existsSync).mockImplementation((p: unknown) => {
+      const path = String(p);
+      if (path === '/repo/.worktrees/task-203-python') return true;
+      // No package.json — Python project marker only.
+      if (path === '/repo/.worktrees/task-203-python/pyproject.toml') return true;
+      return false;
+    });
+
+    const result = handleSetupWorktree({
+      repoRoot: '/repo',
+      taskId: 'task-203',
+      taskName: 'python',
+    });
+
+    expect(result.success).toBe(true);
+    expect(execFileSync).toHaveBeenCalledWith(
+      'pytest',
+      [],
+      expect.objectContaining({ cwd: '/repo/.worktrees/task-203-python' }),
+    );
+  });
+
+  it('runBaselineTests_NoMarkers_SkipsWithRemediation', () => {
+    vi.mocked(execFileSync).mockImplementation((cmd: unknown, args: unknown) => {
+      const cmdStr = String(cmd);
+      const argsArr = args as string[];
+      if (cmdStr === 'git' && argsArr.includes('check-ignore')) return '';
+      if (cmdStr === 'git' && argsArr.includes('show-ref')) return '';
+      if (cmdStr === 'git' && argsArr.includes('rev-parse')) return '.git';
+      // No test runner should be invoked when no markers are present.
+      if (cmdStr === 'npm' || cmdStr === 'pnpm' || cmdStr === 'yarn' || cmdStr === 'bun' || cmdStr === 'pytest' || cmdStr === 'cargo' || cmdStr === 'dotnet') {
+        throw new Error(`unexpected test invocation: ${cmdStr}`);
+      }
+      return '';
+    });
+    vi.mocked(existsSync).mockImplementation((p: unknown) => {
+      const path = String(p);
+      // Worktree exists but has no project markers.
+      if (path === '/repo/.worktrees/task-204-bare') return true;
+      return false;
+    });
+
+    const result = handleSetupWorktree({
+      repoRoot: '/repo',
+      taskId: 'task-204',
+      taskName: 'bare',
+    });
+
+    expect(result.success).toBe(true);
+    const data = result.data as { report: string; checks: { skip: number } };
+    expect(data.checks.skip).toBeGreaterThanOrEqual(1);
+    expect(data.report).toMatch(/SKIP.*Baseline tests pass/);
+    // The unresolved-state remediation mentions .exarchos.yml or override.
+    expect(data.report).toMatch(/Baseline tests pass.*(\.exarchos\.yml|override|markers)/);
+  });
+
   it('runInstallStep_BunPriorityOverPnpm_BunWins', () => {
     vi.mocked(execFileSync).mockImplementation((cmd: unknown, args: unknown) => {
       const cmdStr = String(cmd);
