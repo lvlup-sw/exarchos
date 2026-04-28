@@ -26,7 +26,7 @@ interface ProjectDetection {
 
 // ─── Project Detection ──────────────────────────────────────────────────────
 
-function detectProjectType(worktreePath: string): ProjectDetection | undefined {
+export function detectProjectType(worktreePath: string): ProjectDetection | undefined {
   if (existsSync(`${worktreePath}/package.json`)) {
     return {
       projectType: 'Node.js',
