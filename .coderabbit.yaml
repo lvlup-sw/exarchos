@@ -34,6 +34,11 @@ reviews:
       instructions: "Prioritize security: auth, input validation, error handling."
     - path: "docs/**"
       instructions: "Check for accuracy and completeness. Light review only."
+    - path: "skills-src/*/references/**/*.md"
+      instructions: |
+        Reference files are includes, not standalone skill entry points.
+        Do NOT require YAML frontmatter on these files.
+        See CLAUDE.md "Reference-file frontmatter" rule.
 
   coding_guidelines:
     - title: TypeScript SOLID Principles

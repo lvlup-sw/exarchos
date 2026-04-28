@@ -39,6 +39,7 @@ cd servers/exarchos-mcp && npm run test:run
 - **Skill frontmatter** — `name` (kebab-case), `description` (<=1,024 chars), `metadata`
 - **Skill metadata** — Skills invoking Exarchos MCP tools MUST include `metadata.mcp-server: exarchos` in frontmatter. Utility/standards skills without MCP dependency are exempt.
 - **Skills source-of-truth** — Edit `skills-src/<name>/SKILL.md`, then run `npm run build:skills` and commit both the source and the regenerated `skills/` tree. Direct edits to `skills/<runtime>/**` will fail the `skills:guard` CI check.
+- **Reference-file frontmatter** — Files under `skills-src/<skill>/references/*.md` MUST NOT have YAML frontmatter. Frontmatter is reserved for skill entry points (`SKILL.md`, `commands/*.md`, `rules/*.md`). Reference files are includes; frontmatter is metadata noise that triggers spurious validator complaints.
 
 ## Workflow Dispatch Conventions
 
