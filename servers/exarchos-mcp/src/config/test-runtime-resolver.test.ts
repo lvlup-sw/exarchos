@@ -401,4 +401,136 @@ describe('resolveTestRuntime', () => {
     expect(result.remediation).toBeDefined();
     expect(result.remediation!.toLowerCase()).toContain('package.json');
   });
+
+  // ─── T13: Config precedence (override > config > detection) ──────────────
+
+  it('resolveTestRuntime_ConfigPresentWithTest_OverridesDetection', () => {
+    const dir = makeTmpDir();
+    writeFileSync(
+      join(dir, 'package.json'),
+      JSON.stringify({ scripts: { 'test:run': 'vitest run', typecheck: 'tsc --noEmit' } }),
+    );
+
+    const result = resolveTestRuntime(dir, {
+      loadConfig: () => ({ config: { test: 'jest' }, source: '/x/.exarchos.yml' }),
+    });
+
+    expect(result.test).toBe('jest');
+    expect(result.source).toBe('config');
+    // typecheck/install fall through to detection, populated not null
+    expect(result.typecheck).toBe('npm run typecheck');
+    expect(result.install).toBe('npm install');
+  });
+
+  it('resolveTestRuntime_ConfigPartial_FallsBackToDetectionForMissingFields', () => {
+    const dir = makeTmpDir();
+    writeFileSync(
+      join(dir, 'package.json'),
+      JSON.stringify({ scripts: { 'test:run': 'vitest run', typecheck: 'tsc --noEmit' } }),
+    );
+
+    const result = resolveTestRuntime(dir, {
+      loadConfig: () => ({ config: { test: 'jest' }, source: '/x/.exarchos.yml' }),
+    });
+
+    expect(result.test).toBe('jest');
+    expect(result.typecheck).toBe('npm run typecheck');
+    expect(result.install).toBe('npm install');
+    expect(result.source).toBe('config');
+  });
+
+  it('resolveTestRuntime_ConfigAbsent_FallsBackToDetection', () => {
+    const dir = makeTmpDir();
+    writeFileSync(
+      join(dir, 'package.json'),
+      JSON.stringify({ scripts: { 'test:run': 'vitest run', typecheck: 'tsc --noEmit' } }),
+    );
+
+    const result = resolveTestRuntime(dir, { loadConfig: () => null });
+
+    expect(result).toEqual({
+      test: 'npm run test:run',
+      typecheck: 'npm run typecheck',
+      install: 'npm install',
+      source: 'detection',
+    });
+  });
+
+  it('resolveTestRuntime_OverrideAndConfig_OverrideWins', () => {
+    const dir = makeTmpDir();
+    writeFileSync(
+      join(dir, 'package.json'),
+      JSON.stringify({ scripts: { 'test:run': 'vitest run', typecheck: 'tsc --noEmit' } }),
+    );
+
+    const result = resolveTestRuntime(dir, {
+      override: { test: 'bun test' },
+      loadConfig: () => ({ config: { test: 'jest' }, source: '/x/.exarchos.yml' }),
+    });
+
+    expect(result.test).toBe('bun test');
+    expect(result.source).toBe('override');
+  });
+
+  it('resolveTestRuntime_OverrideAndConfig_PerField', () => {
+    const dir = makeTmpDir();
+    writeFileSync(
+      join(dir, 'package.json'),
+      JSON.stringify({ scripts: { 'test:run': 'vitest run', typecheck: 'tsc --noEmit' } }),
+    );
+
+    const result = resolveTestRuntime(dir, {
+      override: { test: 'bun test' },
+      loadConfig: () => ({ config: { typecheck: 'tsc --strict' }, source: '/x/.exarchos.yml' }),
+    });
+
+    expect(result.test).toBe('bun test');
+    expect(result.typecheck).toBe('tsc --strict');
+    expect(result.install).toBe('npm install');
+    expect(result.source).toBe('override');
+  });
+
+  it('resolveTestRuntime_ConfigOnly_NoDetectionMarkers_SourceIsConfig', () => {
+    const dir = makeTmpDir();
+
+    const result = resolveTestRuntime(dir, {
+      loadConfig: () => ({ config: { test: 'pytest' }, source: '/x/.exarchos.yml' }),
+    });
+
+    expect(result).toEqual({
+      test: 'pytest',
+      typecheck: null,
+      install: null,
+      source: 'config',
+    });
+  });
+
+  it('resolveTestRuntime_NoConfigNoDetection_ReturnsUnresolved', () => {
+    const dir = makeTmpDir();
+
+    const result = resolveTestRuntime(dir, { loadConfig: () => null });
+
+    expect(result.test).toBeNull();
+    expect(result.typecheck).toBeNull();
+    expect(result.install).toBeNull();
+    expect(result.source).toBe('unresolved');
+    expect(result.remediation).toBeDefined();
+    expect(result.remediation!.length).toBeGreaterThan(0);
+  });
+
+  it('resolveTestRuntime_ConfigSchemaErrorPropagates', () => {
+    const dir = makeTmpDir();
+    writeFileSync(
+      join(dir, 'package.json'),
+      JSON.stringify({ scripts: { 'test:run': 'vitest run' } }),
+    );
+
+    expect(() =>
+      resolveTestRuntime(dir, {
+        loadConfig: () => {
+          throw new Error('Invalid .exarchos.yml at /x/.exarchos.yml: test: contains disallowed shell metacharacters');
+        },
+      }),
+    ).toThrow(/Invalid \.exarchos\.yml/);
+  });
 });

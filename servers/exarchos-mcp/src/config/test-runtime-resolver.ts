@@ -12,6 +12,7 @@
 
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import * as path from 'node:path';
+import { loadExarchosConfig, type LoadResult } from './load-exarchos-config.js';
 
 export type ResolutionSource = 'config' | 'detection' | 'override' | 'unresolved';
 
@@ -30,6 +31,8 @@ export interface ResolveOptions {
     typecheck?: string;
     install?: string;
   };
+  /** For testing: inject the config loader. Defaults to loadExarchosConfig from T12. */
+  loadConfig?: (worktreePath: string) => LoadResult | null;
 }
 
 /** Allowlist pattern for command overrides. Rejects shell metacharacters (;|&$`(){}!<>). */
@@ -227,26 +230,57 @@ export function resolveTestRuntime(repoRoot: string, options?: ResolveOptions): 
 
   const det = detect(repoRoot);
 
-  if (override && (override.test || override.typecheck || override.install)) {
-    return {
-      test: override.test ?? det.test,
-      typecheck: override.typecheck ?? det.typecheck,
-      install: override.install ?? det.install,
-      source: 'override',
-    };
+  // Load config (T12 — propagates schema/parse errors as hard failures).
+  const loadConfig = options?.loadConfig ?? loadExarchosConfig;
+  const configResult = loadConfig(repoRoot);
+  const config = configResult?.config;
+
+  // Per-field merge: override > config > detection.
+  type Layer = 'override' | 'config' | 'detection';
+  const pick = (
+    overrideVal: string | undefined,
+    configVal: string | undefined,
+    detectVal: string | null,
+  ): { value: string | null; layer: Layer | null } => {
+    if (overrideVal !== undefined) return { value: overrideVal, layer: 'override' };
+    if (configVal !== undefined) return { value: configVal, layer: 'config' };
+    if (detectVal !== null) return { value: detectVal, layer: 'detection' };
+    return { value: null, layer: null };
+  };
+
+  const testPick = pick(override?.test, config?.test, det.test);
+  const typecheckPick = pick(override?.typecheck, config?.typecheck, det.typecheck);
+  const installPick = pick(override?.install, config?.install, det.install);
+
+  const contributingLayers = new Set<Layer>(
+    [testPick.layer, typecheckPick.layer, installPick.layer].filter(
+      (l): l is Layer => l !== null,
+    ),
+  );
+
+  // Aggregate source label = highest-precedence layer that contributed any
+  // non-null field. override > config > detection > unresolved.
+  let source: ResolutionSource;
+  if (contributingLayers.has('override')) {
+    source = 'override';
+  } else if (contributingLayers.has('config')) {
+    source = 'config';
+  } else if (contributingLayers.has('detection')) {
+    source = 'detection';
+  } else {
+    source = 'unresolved';
   }
 
-  if (!det.detected) {
-    return {
-      test: null,
-      typecheck: null,
-      install: null,
-      source: 'unresolved',
-      remediation: UNRESOLVED_REMEDIATION,
-    };
-  }
-
-  if (det.unresolvedReason) {
+  // Detection produced markers but had a specific unresolvedReason (e.g.
+  // malformed package.json, missing test script). Override and config take
+  // precedence: if either supplied `test`, the project is resolvable. If
+  // neither did, surface the detection-specific remediation rather than the
+  // generic one.
+  if (
+    det.unresolvedReason &&
+    testPick.layer !== 'override' &&
+    testPick.layer !== 'config'
+  ) {
     return {
       test: det.test,
       typecheck: det.typecheck,
@@ -256,10 +290,22 @@ export function resolveTestRuntime(repoRoot: string, options?: ResolveOptions): 
     };
   }
 
+  // If nothing contributed at all (no detection markers, no config, no
+  // override), return generic unresolved.
+  if (source === 'unresolved') {
+    return {
+      test: null,
+      typecheck: null,
+      install: null,
+      source: 'unresolved',
+      remediation: UNRESOLVED_REMEDIATION,
+    };
+  }
+
   return {
-    test: det.test,
-    typecheck: det.typecheck,
-    install: det.install,
-    source: 'detection',
+    test: testPick.value,
+    typecheck: typecheckPick.value,
+    install: installPick.value,
+    source,
   };
 }
