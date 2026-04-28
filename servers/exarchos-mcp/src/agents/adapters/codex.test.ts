@@ -13,6 +13,7 @@ import { describe, it, expect } from 'vitest';
 import type { AgentSpec } from '../types.js';
 import type { Capability } from '../capabilities.js';
 import { codexAdapter, tomlBasicString } from './codex.js';
+import { REVIEWER, IMPLEMENTER } from '../definitions.js';
 
 const baseSpec: AgentSpec = {
   id: 'implementer',
@@ -132,6 +133,50 @@ describe('CodexAdapter', () => {
     };
     const result = codexAdapter.validateSupport(readonlySpec);
     expect(result.ok).toBe(true);
+  });
+
+  // ─── Negative-capability enforcement (Issue #1192 Item 6, T27) ────────────
+  //
+  // Codex's TOML format exposes a structural `sandbox_mode` primitive that
+  // controls fs/shell access. Prior to T27, `lowerSpec` emitted no
+  // `sandbox_mode` line at all — so REVIEWER (no fs:write, no shell:exec)
+  // and IMPLEMENTER (both) produced byte-identical tool surfaces. The
+  // negative-capability guarantee in REVIEWER's spec (read-only) was
+  // therefore prose-only, not structural.
+  //
+  // Mapping (matches Claude's deriveClaudeToolsFromCapabilities pattern):
+  //   - no fs:write AND no shell:exec  → sandbox_mode = "read-only"
+  //   - has fs:write OR  has shell:exec → sandbox_mode = "workspace-write"
+  // ──────────────────────────────────────────────────────────────────────────
+
+  it('CodexAdapter_LowerSpec_OmitsWriteAccess_WhenSpecLacksFsWrite', () => {
+    const { contents } = codexAdapter.lowerSpec(REVIEWER);
+    // REVIEWER declares neither fs:write nor shell:exec; sandbox_mode
+    // must lock the artifact to read-only at the runtime layer.
+    expect(contents).toMatch(/^sandbox_mode\s*=\s*"read-only"\s*$/m);
+    // And it MUST NOT promote to workspace-write.
+    expect(contents).not.toMatch(/^sandbox_mode\s*=\s*"workspace-write"\s*$/m);
+  });
+
+  it('CodexAdapter_LowerSpec_IncludesWriteAccess_WhenSpecHasFsWrite', () => {
+    const { contents } = codexAdapter.lowerSpec(IMPLEMENTER);
+    // IMPLEMENTER declares fs:write + shell:exec; sandbox_mode must grant
+    // workspace-write so the runtime allows file writes and shell exec.
+    expect(contents).toMatch(/^sandbox_mode\s*=\s*"workspace-write"\s*$/m);
+    expect(contents).not.toMatch(/^sandbox_mode\s*=\s*"read-only"\s*$/m);
+  });
+
+  it('CodexAdapter_LowerSpec_REVIEWER_AND_IMPLEMENTER_HaveDistinctToolSurfaces', () => {
+    const r = codexAdapter.lowerSpec(REVIEWER);
+    const i = codexAdapter.lowerSpec(IMPLEMENTER);
+    // Beyond the trivial id/description differences, the rendered
+    // sandbox_mode line must differ — REVIEWER's read-only contract is
+    // structurally enforced at the adapter layer, not just by prompt prose.
+    const reviewerSandbox = r.contents.match(/^sandbox_mode\s*=\s*"([^"]+)"\s*$/m);
+    const implementerSandbox = i.contents.match(/^sandbox_mode\s*=\s*"([^"]+)"\s*$/m);
+    expect(reviewerSandbox?.[1]).toBe('read-only');
+    expect(implementerSandbox?.[1]).toBe('workspace-write');
+    expect(r.contents).not.toEqual(i.contents);
   });
 });
 

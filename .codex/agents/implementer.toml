@@ -91,4 +91,5 @@ When done, output a JSON completion report:
 - isolation:worktree
 - session:resume
 """
+sandbox_mode = "workspace-write"
 mcp_servers = ["exarchos"]
