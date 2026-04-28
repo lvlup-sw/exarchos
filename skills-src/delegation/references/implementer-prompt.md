@@ -1,8 +1,13 @@
+---
+name: implementer-prompt
+description: Canonical implementer prompt template — embedded in agent definitions on runtimes with native agent support, dispatched inline on others.
+---
+
 # Implementer Prompt Template
 
-**Note:** On Claude Code, this template is compiled into `servers/exarchos-mcp/src/agents/definitions.ts` (IMPLEMENTER spec) and the native agent file `agents/exarchos-implementer.md` is generated from the registry at build time. This reference document is the canonical prompt evolution record and is used directly by cross-platform clients (Cursor, Copilot CLI, etc.) that lack native agent support.
+**Note:** On runtimes with native agent definitions (e.g. Claude Code), this template is compiled into `servers/exarchos-mcp/src/agents/definitions.ts` (IMPLEMENTER spec) and the rendered agent file (e.g. `agents/exarchos-implementer.md`) is generated from the registry at build time. This reference document is the canonical prompt evolution record and is used directly by runtime clients without native agent support (Cursor, Copilot CLI, etc.).
 
-Use this template when dispatching tasks via the Task tool.
+Use this template when dispatching tasks via the runtime's spawn primitive.
 
 ## Quality Hints Integration
 
@@ -133,6 +138,7 @@ describe('[ComponentName]', () => {
 - [ ] No extra code beyond requirements
 - [ ] All tests in worktree pass
 
+<!-- requires:team:agent-teams -->
 ## Coordination (Native APIs)
 <!-- Agent Teams mode only. Remove this section for subagent mode. -->
 - Use `TaskList` to see available tasks and their statuses
@@ -158,6 +164,7 @@ describe('[ComponentName]', () => {
 {historicalIntelligence}
 
 > This data is injected at spawn time. The SubagentStart hook provides only live coordination updates.
+<!-- /requires -->
 
 ## Quality Signals
 <!-- Populated at dispatch time by orchestrator when quality hints are available. -->
@@ -277,11 +284,15 @@ When done, report:
 
 ## Usage Example
 
+Build the prompt body (worktree path, task description, files, TDD phases, expected test, success criteria) following the template above, then dispatch via the runtime's spawn primitive. The macro expands to whichever invocation form your runtime uses (`Task({ description, prompt })` on Claude/Cursor/OpenCode, `spawn_agent({ message })` on Codex, `task --agent <name> '<message>'` on Copilot):
+
 ```typescript
-Task({
-  subagent_type: "general-purpose",
-  description: "Implement user validation",
-  prompt: `
+{{SPAWN_AGENT_CALL agent="implementer" description="Implement user validation" prompt="<full prompt body — see template structure above>"}}
+```
+
+The prompt body itself is what makes the dispatch self-contained. A worked example payload follows:
+
+```text
 # Task: Implement User Email Validation
 
 ## Working Directory
@@ -291,17 +302,17 @@ Task({
 
 Before making ANY file changes, you MUST verify you are in a worktree:
 
-1. Run: \`pwd\`
-2. Verify the path contains \`.worktrees/\`
+1. Run: `pwd`
+2. Verify the path contains `.worktrees/`
 3. If NOT in a worktree directory:
    - STOP immediately
    - Report: "ERROR: Working directory is not a worktree. Aborting task."
    - DO NOT proceed with any file modifications
 
 **Example verification:**
-\`\`\`bash
-pwd | grep -q "\\.worktrees" || { echo "ERROR: Not in worktree!"; exit 1; }
-\`\`\`
+```bash
+pwd | grep -q "\.worktrees" || { echo "ERROR: Not in worktree!"; exit 1; }
+```
 
 This check prevents accidental modifications to the main project root, which would cause merge conflicts with other parallel tasks.
 
@@ -314,10 +325,10 @@ Implement email validation for user registration. The validator should:
 ## Files to Modify
 
 ### Create/Modify:
-- \`src/validators/email.ts\` - Email validation function
+- `src/validators/email.ts` - Email validation function
 
 ### Test Files:
-- \`src/validators/email.test.ts\` - Validation tests
+- `src/validators/email.test.ts` - Validation tests
 
 ## TDD Requirements (MANDATORY)
 
@@ -326,14 +337,14 @@ You MUST follow strict Test-Driven Development:
 ### Phase 1: RED - Write Failing Test
 
 1. Create test file at src/validators/email.test.ts
-2. Write test: \`validateEmail_InvalidFormat_ReturnsError\`
-3. Run tests: \`npm run test:run\`
+2. Write test: `validateEmail_InvalidFormat_ReturnsError`
+3. Run tests: `npm run test:run`
 4. VERIFY test fails for the expected reason
 
 ### Phase 2: GREEN - Minimum Implementation
 
 1. Write minimum code in src/validators/email.ts
-2. Run tests: \`npm run test:run\`
+2. Run tests: `npm run test:run`
 3. VERIFY test passes
 
 ### Phase 3: REFACTOR - Clean Up
@@ -344,7 +355,7 @@ You MUST follow strict Test-Driven Development:
 
 ## Expected Test
 
-\`\`\`typescript
+```typescript
 describe('validateEmail', () => {
   it('should return error when email format is invalid', async () => {
     // Arrange
@@ -358,7 +369,7 @@ describe('validateEmail', () => {
     expect(result.error).toContain('format');
   });
 });
-\`\`\`
+```
 
 ## Success Criteria
 
@@ -367,8 +378,6 @@ describe('validateEmail', () => {
 - [ ] Implementation passes test
 - [ ] No extra code beyond requirements
 - [ ] All tests in worktree pass
-`
-})
 ```
 
 ## Key Principles
@@ -380,6 +389,7 @@ describe('validateEmail', () => {
 5. **Git-First** - Standard git commit + push. PR creation handled by synthesis phase.
 6. **Clear Success Criteria** - Checkboxes for completion
 
+<!-- requires:team:agent-teams -->
 ## Agent Teams vs Subagent Mode
 
 The table below shows which sections to include per dispatch mode. Unmarked sections (TDD Requirements, Files, Success Criteria, Completion) are **always included** in both modes.
@@ -398,3 +408,4 @@ The table below shows which sections to include per dispatch mode. Unmarked sect
 ## MCP Auto-Loading
 
 Teammates automatically load project MCP servers (including Exarchos). The Coordination and Workflow Intelligence sections guide WHICH tools to use, not HOW to access them. Do not include MCP connection instructions or tool registration details in the spawn prompt.
+<!-- /requires -->

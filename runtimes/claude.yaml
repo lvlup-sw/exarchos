@@ -32,6 +32,22 @@ capabilities:
   hasHooks: true
   hasSkillChaining: true
   mcpPrefix: "mcp__plugin_exarchos_exarchos__"
+# Fine-grained support matrix consumed by the prose renderer (Tasks 8/9)
+# to gate `<!-- requires:* -->` and `<!-- requires:native:* -->` blocks.
+# Claude is the reference runtime — every capability is `native`. This
+# mirrors `claudeAdapter.supportLevels` in
+# `servers/exarchos-mcp/src/agents/adapters/claude.ts`.
+supportedCapabilities:
+  fs:read: native
+  fs:write: native
+  shell:exec: native
+  subagent:spawn: native
+  subagent:completion-signal: native
+  subagent:start-signal: native
+  mcp:exarchos: native
+  isolation:worktree: native
+  team:agent-teams: native
+  session:resume: native
 skillsInstallPath: "~/.claude/skills"
 detection:
   binaries:
@@ -46,8 +62,16 @@ placeholders:
   CHAIN: 'Skill({ skill: "exarchos:{{next}}", args: "{{args}}" })'
   SPAWN_AGENT_CALL: |
     Task({
-      subagent_type: "exarchos-implementer",
+      subagent_type: "exarchos-{{agent}}",
       run_in_background: true,
       description: "{{description}}",
       prompt: "{{prompt}}"
     })
+  # Wave A (P4 prose layer) — see docs/plans/2026-04-25-delegation-runtime-parity.md.
+  # `SUBAGENT_COMPLETION_HOOK` names the runtime primitive that signals
+  # a subagent has finished work. Claude has the first-class `TeammateIdle`
+  # hook; other runtimes expose a poll-based completion signal.
+  SUBAGENT_COMPLETION_HOOK: "TeammateIdle hook"
+  # `SUBAGENT_RESULT_API` is the runtime call used to retrieve a finished
+  # subagent's output. Claude exposes the synchronous `TaskOutput` block.
+  SUBAGENT_RESULT_API: "TaskOutput({ task_id, block: true })"

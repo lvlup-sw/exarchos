@@ -28,6 +28,7 @@ action: "set", featureId: "<id>", updates: {
 action: "set", featureId: "<id>", phase: "review"
 ```
 
+
 ## Agent Team Mode (Single-Writer)
 
 Only the orchestrator mutates `workflow.tasks[]` via `exarchos_workflow set`. Hooks emit events but never mutate state directly.
@@ -50,13 +51,14 @@ action: "set", featureId: "<id>", updates: {
 
 The `/exarchos:synthesize` skill reads `verification.hasBenchmarks` and applies the `has-benchmarks` label via `gh pr edit <number> --add-label has-benchmarks`.
 
+
 ## Agent ID Tracking
 
-Workflow task state includes additional fields for resume-aware fixer flow:
+Workflow task state includes additional fields for resume-aware fixer flow on runtimes with native session resume:
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `agentId` | string | Claude Code agent ID for resume. Canonical source: `SubagentStop` hook payload. |
+| `agentId` | string | Runtime agent ID for resume. Canonical source: runtime stop-hook payload (e.g. `SubagentStop` on Claude Code). |
 | `agentResumed` | boolean | Whether this agent was resumed (vs. fresh dispatch). |
 | `lastExitReason` | string | Completion status (e.g., `"success"`, `"failure"`, `"timeout"`). Canonical source: `SubagentStop` hook payload. |
 

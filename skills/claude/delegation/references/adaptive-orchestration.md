@@ -1,5 +1,6 @@
 # Adaptive Orchestration
 
+
 When using Agent Teams mode, the orchestrator can leverage historical data for smarter team composition.
 
 ## Pre-Delegation Intelligence

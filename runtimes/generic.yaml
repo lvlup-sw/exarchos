@@ -40,3 +40,11 @@ placeholders:
   TASK_TOOL: "[sequential execution]"
   CHAIN: "[Invoke the exarchos:{{next}} skill with args: {{args}}]"
   SPAWN_AGENT_CALL: "Execute each task sequentially in the current session, one at a time, against the prepared worktrees."
+  # Wave A (P4 prose layer) — generic has `hasSubagents: false`, so the
+  # delegation skill renders sequential in-session execution. There is
+  # no subagent to "complete" or to fetch a "result" from; the work
+  # happens inline. The tokens are kept (so the renderer doesn't fall
+  # back to a missing-token error) but reworded to describe in-session
+  # checkpoints rather than a subagent channel.
+  SUBAGENT_COMPLETION_HOOK: "in-session checkpoint (no subagent channel)"
+  SUBAGENT_RESULT_API: "[task output is the assistant's next message]"

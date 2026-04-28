@@ -1,8 +1,9 @@
 // ─── Agent Spec Definitions ────────────────────────────────────────────────
 //
-// Concrete agent specifications for subagent dispatch. Each spec defines
-// the tools, system prompt template, validation rules, and behavioral
-// parameters for a specific agent role.
+// Concrete agent specifications for subagent dispatch. Each spec declares
+// runtime-agnostic capabilities; runtime adapters translate capabilities
+// into runtime-specific tool/permission shapes (e.g. Claude tool arrays).
+// See docs/designs/2026-04-25-delegation-runtime-parity.md §3.
 // ────────────────────────────────────────────────────────────────────────────
 
 import type { AgentSpec } from './types.js';
@@ -29,6 +30,49 @@ Before making ANY file changes:
 1. Run: \`pwd\`
 2. Verify the path contains \`.worktrees/\`
 3. If NOT in worktree: STOP and report error
+
+## Worktree Hygiene (MANDATORY — applies to every command, not just startup)
+
+The startup check above only verifies you booted in the right place. Shell
+\`cd\` and script runners can leave you in another worktree mid-task. Once
+that happens, subsequent \`git\` commands execute against whatever worktree
+your shell is sitting in — and commits land on the wrong branch. Recent
+sessions have seen this corrupt the orchestrator's main worktree HEAD.
+
+Rules:
+
+1. **All \`git\` commands must use \`git -C <my-worktree-path>\`.** Never rely
+   on the shell's working directory for git. Capture your worktree path at
+   startup (from \`pwd\`) and use it explicitly for every \`git add\`,
+   \`git commit\`, \`git status\`, \`git log\`, etc.
+2. **Run scripts with \`npm --prefix <my-worktree-path> run …\`** or with an
+   explicit \`cd <my-worktree-path> && …\` guard. Do not \`cd\` to the main
+   repository root (or any path outside \`.worktrees/\`) and then run git
+   commands.
+3. **If a command must run from a specific directory, restore the
+   worktree cwd immediately after.** If you need one-off output from
+   \`cd /some/other/place && some-cmd\`, follow it with \`cd <my-worktree-path>\`
+   before the next git operation.
+4. **Never \`git reset --hard\` outside your worktree.** If you believe
+   you've accidentally committed to a branch in another worktree, STOP
+   and report it — do not try to self-heal with a reset in the parent
+   repo.
+
+Concrete example — **wrong vs right** for running typecheck in the
+completion gate:
+
+\`\`\`bash
+# WRONG — cds into main worktree, then subsequent git ops contaminate it
+cd /home/user/repo && npm run typecheck
+git status     # now runs in /home/user/repo, not the worktree
+
+# RIGHT — uses --prefix, shell cwd never leaves the worktree
+npm --prefix "$WORKTREE" run typecheck
+git -C "$WORKTREE" status
+\`\`\`
+
+Where \`$WORKTREE\` is the absolute path captured at startup (the \`pwd\`
+output from the Worktree Verification step above).
 
 ## Task
 {{taskDescription}}
@@ -60,7 +104,14 @@ When done, output a JSON completion report:
   "files": ["<created/modified files>"]
 }
 \`\`\``,
-  tools: ['Read', 'Write', 'Edit', 'Bash', 'Grep', 'Glob'],
+  capabilities: [
+    'fs:read',
+    'fs:write',
+    'shell:exec',
+    'mcp:exarchos',
+    'isolation:worktree',
+    'session:resume',
+  ],
   disallowedTools: ['Agent'],
   model: 'inherit',
   isolation: 'worktree',
@@ -127,7 +178,12 @@ When done, output a JSON completion report:
   "files": ["<created/modified files>"]
 }
 \`\`\``,
-  tools: ['Read', 'Write', 'Edit', 'Bash', 'Grep', 'Glob'],
+  capabilities: [
+    'fs:read',
+    'fs:write',
+    'shell:exec',
+    'mcp:exarchos',
+  ],
   disallowedTools: ['Agent'],
   model: 'inherit',
   skills: [
@@ -171,10 +227,28 @@ Code review request triggers the reviewer agent for read-only analysis.
 5. Produce structured review verdict
 
 Rules:
-- You have READ-ONLY access — do not modify any files
-- Bash is restricted to read-only commands only (e.g., git diff, git log, test runners in dry-run mode). NEVER use Bash to create, edit, or delete files.
+- You have READ-ONLY access — no shell or filesystem-write tools are available
+- Use Read/Grep/Glob to inspect code. If a finding requires running tests or a typecheck to confirm, surface it as a recommendation in the review verdict — the orchestrator will dispatch a separate run
 - Be specific in findings — include file paths and line references
 - Categorize findings: critical, warning, suggestion
+
+## Forbidden MCP Actions (read-only review boundary)
+
+You MAY call only these strictly read-only Exarchos MCP actions:
+- \`exarchos_view\` — \`pipeline\`, \`tasks\`, \`workflow_status\`, \`stack_status\`, \`telemetry\`, \`team_performance\`, \`delegation_timeline\`, \`delegation_readiness\`, \`synthesis_readiness\`, \`shepherd_status\`, \`convergence\`, \`quality_hints\`, \`describe\` (NOT \`code_quality\` — emits \`quality.regression\` events; NOT \`stack_place\` — mutates)
+- \`exarchos_workflow\` — \`get\`, \`describe\` only
+- \`exarchos_event\` — \`query\`, \`describe\` only
+- \`exarchos_orchestrate\` — \`describe\` only
+
+You MUST NOT call any other MCP action — they all mutate state, emit events, or call external services. Forbidden examples include but are not limited to:
+- \`exarchos_workflow set/init/cancel/cleanup/checkpoint/reconcile/rehydrate\` (\`reconcile\` writes state, \`rehydrate\` emits \`workflow.rehydrated\`)
+- \`exarchos_event append/batch_append\`
+- \`exarchos_orchestrate check_*\` (each emits a \`gate.executed\` event)
+- \`exarchos_orchestrate task_claim/task_complete/task_fail\`
+- \`exarchos_orchestrate create_pr/merge_pr/add_pr_comment/create_issue/...\`
+- \`exarchos_view code_quality/stack_place\`
+
+Workflow mutation, event emission, and gate execution belong to the orchestrator. If a finding requires state changes, gate runs, or fresh quality checks, surface it as a recommendation in the review verdict — the orchestrator will dispatch.
 
 ## Completion Report
 When done, output a JSON completion report:
@@ -186,8 +260,36 @@ When done, output a JSON completion report:
   "files": ["<reviewed files>"]
 }
 \`\`\``,
-  tools: ['Read', 'Grep', 'Glob', 'Bash'],
-  disallowedTools: ['Write', 'Edit', 'Agent'],
+  // Reviewer is intentionally read-only. `shell:exec` is omitted so no
+  // runtime can grant shell access — neither Claude's `Bash` tool nor
+  // OpenCode's `tools.bash`. Test runs / typecheck / git inspection
+  // belong to the orchestrator, not the reviewer agent.
+  //
+  // `mcp:exarchos` is retained so the reviewer can consult read-only MCP
+  // surfaces (`exarchos_view`, `exarchos_workflow get`, `exarchos_event
+  // query`, `exarchos_orchestrate describe`) for code-quality data
+  // during review. Per #1109 Constraint 3 (Basileus-forward), MCP must
+  // remain first-class; demoting MCP entirely would violate that.
+  //
+  // Trust-boundary state — defense in depth (DIM-2 + DIM-7):
+  //   1. shell:exec absent + Bash in disallowedTools → no shell escape
+  //   2. fs:write absent + Write/Edit in disallowedTools → no FS mutation
+  //   3. mcp:exarchos PRESENT but mutating actions are prompt-forbidden
+  //      (see systemPrompt "Forbidden MCP actions" section). The composite
+  //      tools expose write actions (workflow.set, event.append,
+  //      orchestrate.task_complete, etc.) under shared composite names
+  //      that cannot be filtered at the runtime tool-allowlist level.
+  //
+  // The capability-level enforcement of read-only MCP requires either a
+  // new `mcp:exarchos:readonly` capability negotiated via the
+  // handshake-authoritative resolution path (#1109 §2.8 / ADR §2.8) or a
+  // server-side read-only tool partition. Tracked in #1192 — not in
+  // scope for this PR.
+  capabilities: [
+    'fs:read',
+    'mcp:exarchos',
+  ],
+  disallowedTools: ['Write', 'Edit', 'Agent', 'Bash'],
   model: 'inherit',
   skills: [],
   validationRules: [],
@@ -244,7 +346,13 @@ When done, output a JSON completion report:
   "files": ["<created/modified files>"]
 }
 \`\`\``,
-  tools: ['Read', 'Write', 'Edit', 'Bash', 'Grep', 'Glob'],
+  capabilities: [
+    'fs:read',
+    'fs:write',
+    'shell:exec',
+    'mcp:exarchos',
+    'isolation:worktree',
+  ],
   disallowedTools: ['Agent'],
   model: 'sonnet',
   effort: 'low',

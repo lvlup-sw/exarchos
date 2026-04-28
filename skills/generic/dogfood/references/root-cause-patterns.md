@@ -144,7 +144,7 @@ Each pattern includes a **Debug trace check** showing which MCP self-service que
 ### Missing Workflow Instructions
 **Symptom:** Orchestrator skips required tool calls or doesn't follow the expected workflow.
 **Examples:**
-- Delegation phase uses Claude Code Task/TaskUpdate but never calls `exarchos_workflow set`
+- Delegation phase mutates the runtime's native task list but never calls `exarchos_workflow set`
 - No events emitted during an entire workflow phase
 - PR bodies don't follow the template
 

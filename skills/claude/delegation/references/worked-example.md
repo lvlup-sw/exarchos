@@ -55,8 +55,9 @@ Task({
 
 ## 3. Monitor — Happy Path (task-001)
 
-```typescript
-TaskOutput({ task_id: "task-001-id", block: true })
+```text
+TaskOutput({ task_id, block: true })
+// task_id: task-001-id
 // Result: tests pass, implementation complete
 ```
 
@@ -74,8 +75,9 @@ exarchos_event({ action: "append", stream: "add-email-validation",
 
 ## 4. Monitor — Failure Recovery (task-002)
 
-```typescript
-TaskOutput({ task_id: "task-002-id", block: true })
+```text
+TaskOutput({ task_id, block: true })
+// task_id: task-002-id
 // Result: test fails — DNS mock not wired, MX lookup hits network
 ```
 

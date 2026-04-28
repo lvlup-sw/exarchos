@@ -1,36 +1,33 @@
 # GitHub Copilot CLI runtime map.
 #
 # ============================================================================
-# Recon findings (2026-04-08, github/copilot-cli @ main)
+# Recon findings (2026-04-25, github/copilot-cli @ main)
 # ============================================================================
 #
 # Sources consulted:
-#   1. https://raw.githubusercontent.com/github/copilot-cli/main/README.md
+#   1. https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/create-custom-agents-for-cli
+#      Documents the local custom-agent format: Markdown with YAML
+#      frontmatter at `~/.copilot/agents/<name>.agent.md` (user) or
+#      `.github/agents/<name>.agent.md` (project). Subagents launched by
+#      the `task` tool run in an isolated context within the current
+#      session.
+#   2. https://docs.github.com/copilot/how-tos/copilot-cli/use-copilot-cli-agents/invoke-custom-agents
+#      Describes four invocation styles for custom agents: slash-command,
+#      explicit, inferred, and programmatic. The programmatic form is
+#      `task --agent <name>` and is what tool-driven dispatch uses.
+#   3. https://raw.githubusercontent.com/github/copilot-cli/main/README.md
 #      Confirms `~/.copilot/` is the canonical user config dir for Copilot
-#      CLI (e.g. `~/.copilot/lsp-config.json`) and that the CLI is a
-#      slash-command-driven interactive shell.
-#   2. https://raw.githubusercontent.com/github/copilot-cli/main/changelog.md
-#      Confirms two distinct delegation primitives:
-#        - `/delegate`: "delegate a task asynchronously to Copilot coding
-#          agent. Any unstaged changes will be committed to a new branch, a
-#          PR will be opened in your GitHub repository, and Copilot will
-#          complete work in the background." (v0.0.353+)
-#        - `task` tool / custom agents: "Sub-agents launched by the task
-#          tool are assigned human-readable IDs" and "Add configure-copilot
-#          sub-agent for managing MCP servers, custom agents, and skills
-#          via the task tool". Custom agents are pulled from
-#          `~/.copilot/agents`, `.github/agents`, or the org `.github` repo.
-#      There is also a `subagentStart` hook, a `/tasks` view, and an
-#      `&`-prefix shortcut that behaves like `/delegate`.
+#      CLI (e.g. `~/.copilot/lsp-config.json`).
 #
-# Why we pick /delegate over the `task` tool:
-#   Exarchos's worktree fan-out pattern is inherently async: we create
-#   worktrees, hand each one to an implementer, and collect results later.
-#   `/delegate` maps more cleanly onto that shape (async, PR-producing,
-#   background) than a synchronous in-session `task` tool call, and it is
-#   the documented user-visible primitive. The `task` / custom-agent path
-#   is a valid alternative and may be used by a future variant runtime map
-#   if in-session parallelism is ever preferred.
+# Spawn primitive — local `task --agent <name>`:
+#   Exarchos's worktree fan-out is in-session: the orchestrator dispatches
+#   subagents, monitors their progress, and feeds results into convergence
+#   gates within the same workflow. The `task` tool with `--agent <name>`
+#   gives us exactly that shape — local, in-session, isolated context per
+#   subagent, results returned inline. (The other Copilot delegation
+#   primitive, `/delegate`, ships work asynchronously to the cloud Copilot
+#   Coding Agent and opens a PR; that is a different product and not the
+#   right fit for this orchestrator.)
 #
 # Skills install to `~/.copilot/skills` to match the rest of the
 # `~/.copilot/**` config family (agents, lsp-config.json). Copilot CLI
@@ -38,7 +35,8 @@
 #
 # ============================================================================
 #
-# Implements: DR-4, DR-5 (copilot branch)
+# Implements: DR-4, DR-5 (copilot branch); Task 7e of
+# docs/plans/2026-04-25-delegation-runtime-parity.md
 name: copilot
 # preferredFacade: cli — Copilot CLI's MCP integration is nascent, so
 # slash-command/CLI invocations remain the canonical user-facing path.
@@ -50,6 +48,19 @@ capabilities:
   hasHooks: false
   hasSkillChaining: false
   mcpPrefix: "mcp__exarchos__"
+# supportedCapabilities — mirrors `copilotAdapter.supportLevels` (Task 4f).
+# Native: covered by a first-class Copilot CLI primitive. Advisory: no
+# first-class primitive; orchestrator-managed and degrades gracefully.
+# Unsupported capabilities (subagent:start-signal,
+# subagent:completion-signal, team:agent-teams) are absent by contract.
+supportedCapabilities:
+  fs:read: native
+  fs:write: native
+  shell:exec: native
+  subagent:spawn: native
+  mcp:exarchos: native
+  isolation:worktree: advisory
+  session:resume: advisory
 skillsInstallPath: "~/.copilot/skills"
 detection:
   binaries:
@@ -58,6 +69,24 @@ detection:
 placeholders:
   MCP_PREFIX: "mcp__exarchos__"
   COMMAND_PREFIX: "/"
-  TASK_TOOL: "/delegate"
+  TASK_TOOL: "task"
   CHAIN: "[Invoke the exarchos:{{next}} skill with args: {{args}}]"
-  SPAWN_AGENT_CALL: '/delegate "{{description}}: {{prompt}}"'
+  # SPAWN_AGENT_CALL — programmatic invocation of a local custom agent.
+  # `task --agent <name>` keys off the `<name>.agent.md` filename in
+  # `.github/agents/` (project scope) or `~/.copilot/agents/` (user
+  # scope). `{{agent}}` is filled in by the dispatcher with the spec id
+  # (implementer | fixer | reviewer | scaffolder) so each delegation
+  # routes to the matching `.github/agents/<id>.agent.md`. The
+  # description+prompt payload is single-quoted so embedded `"` survive
+  # CLI parsing; embedded `'` in the payload must be escaped (e.g.
+  # ANSI-C `'\''` style or stdin-driven invocation).
+  SPAWN_AGENT_CALL: "task --agent {{agent}} '{{description}}: {{prompt}}'"
+  # Wave A (P4 prose layer) — Copilot has no completion hook; the local
+  # `task` primitive returns inline so the result is observable directly.
+  SUBAGENT_COMPLETION_HOOK: "subagent completion signal (poll-based)"
+  # Copilot's `task --agent <name>` returns subagent output inline; there
+  # is no separate result-collection API. The token value is descriptive
+  # prose (rendered inside backticks at the call site) — it must not
+  # contain its own backticks and must not look like an executable
+  # command (since operators must NOT run anything to "collect" results).
+  SUBAGENT_RESULT_API: "inline reply from task --agent (no separate collection API)"

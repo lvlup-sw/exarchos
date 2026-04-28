@@ -1,8 +1,12 @@
 // ─── Agent Spec Types ──────────────────────────────────────────────────────
 //
 // Defines the shape of agent specifications for subagent dispatch.
-// These types are consumed by the agent_spec handler and definitions.
+// Specs declare runtime-agnostic `capabilities`; runtime tool naming
+// (e.g. Claude tool arrays) belongs in adapters, not here.
+// See docs/designs/2026-04-25-delegation-runtime-parity.md §3.
 // ────────────────────────────────────────────────────────────────────────────
+
+import type { Capability } from './capabilities.js';
 
 /** A skill that can be loaded into an agent's context. */
 export interface AgentSkill {
@@ -25,7 +29,7 @@ export interface AgentSpec {
   readonly id: AgentSpecId;
   readonly description: string;
   readonly systemPrompt: string;
-  readonly tools: readonly string[];
+  readonly capabilities: readonly Capability[];
   readonly disallowedTools?: readonly string[];
   readonly model: 'opus' | 'sonnet' | 'haiku' | 'inherit';
   readonly effort?: 'low' | 'medium' | 'high' | 'max';

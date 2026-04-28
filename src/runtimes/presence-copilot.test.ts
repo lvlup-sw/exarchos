@@ -1,15 +1,20 @@
 /**
  * Presence test for `runtimes/copilot.yaml`.
  *
- * GitHub Copilot CLI exposes a `/delegate` slash command that delegates a
- * task asynchronously to the Copilot coding agent (the background /
- * pull-request flavor). This is Exarchos's chosen delegation primitive on
- * Copilot because our worktree-fanout flow is already async-friendly and
- * because `/delegate` is the user-visible, documented surface. In-session
- * subagents also exist via the `task` tool / custom-agent mechanism but
- * require more setup.
+ * GitHub Copilot CLI exposes the `task` tool with a `--agent <name>`
+ * programmatic flag that locally spawns a custom agent in the current
+ * session (isolated context, results returned inline). This is the
+ * primitive Exarchos uses for worktree fan-out. The other Copilot
+ * delegation primitive, `/delegate`, ships work asynchronously to the
+ * cloud Copilot Coding Agent and opens a PR — wrong shape for an
+ * in-session orchestrator, so we deliberately do not use it.
  *
- * Implements: DR-4, DR-5 (copilot branch)
+ * Capability-mapping detail (mirrors `copilotAdapter.supportLevels`)
+ * lives in `servers/exarchos-mcp/src/runtimes/copilot.test.ts` (Task 7e);
+ * this presence test only covers the load-bearing field smoke checks.
+ *
+ * Implements: DR-4, DR-5 (copilot branch); Task 7e of
+ * docs/plans/2026-04-25-delegation-runtime-parity.md
  */
 
 import { describe, it, expect } from 'vitest';
@@ -31,9 +36,13 @@ describe('runtimes/copilot.yaml presence', () => {
     expect(runtime.capabilities.hasSubagents).toBe(true);
   });
 
-  it('CopilotYaml_SpawnAgentCall_UsesDelegateSlashCommand', () => {
+  it('CopilotYaml_SpawnAgentCall_UsesLocalTaskAgentPrimitive', () => {
     const runtime = loadRuntime(COPILOT_YAML);
-    expect(runtime.placeholders.SPAWN_AGENT_CALL).toContain('/delegate');
+    // Local custom-agent dispatch via the `task` tool with `--agent` flag.
+    // See `servers/exarchos-mcp/src/runtimes/copilot.test.ts` for the
+    // adapter-alignment + capability-mapping assertions.
+    expect(runtime.placeholders.SPAWN_AGENT_CALL).toContain('task --agent');
+    expect(runtime.placeholders.SPAWN_AGENT_CALL).not.toContain('/delegate');
   });
 
   it('CopilotYaml_SkillsInstallPath_CopilotConfig', () => {

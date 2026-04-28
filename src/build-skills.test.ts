@@ -334,13 +334,34 @@ function writeRuntimeFixtures(
 ): void {
   mkdirSync(runtimesDir, { recursive: true });
   const names = ['generic', 'claude', 'codex', 'opencode', 'copilot', 'cursor'];
+  // Wave A: every runtime YAML must declare every RuntimeTokenKey entry,
+  // so test fixtures need the full canonical set or `assertRuntimeTokenCoverage`
+  // fails the build before any of these task-007 fixtures get rendered.
+  // Tests that intentionally exercise per-runtime variation override
+  // individual entries via `overrides[name].placeholders`; tests that
+  // exercise vocabulary edge cases (e.g. `RuntimeWithNoPlaceholders`) pass
+  // an empty override map which the helper substitutes via union below.
   const defaultPlaceholders: Record<string, string> = {
     AGENT_LABEL: 'agent',
     SKILL_INVOCATION: 'call the skill',
+    MCP_PREFIX: 'mcp__test__',
+    COMMAND_PREFIX: '/',
+    TASK_TOOL: 'Task',
+    CHAIN: '[invoke {{next}} with {{args}}]',
+    SPAWN_AGENT_CALL: 'Task({ prompt: "{{prompt}}" })',
+    SUBAGENT_COMPLETION_HOOK: 'subagent completion signal (poll-based)',
+    SUBAGENT_RESULT_API: '[poll subagent result]',
   };
   for (const name of names) {
     const override = overrides[name]?.placeholders;
-    const placeholders = override ?? defaultPlaceholders;
+    // When a test passes a partial override, merge with defaults so the
+    // RuntimeTokenKey coverage check still passes. When the test wants a
+    // truly empty placeholder map (the original RuntimeWithNoPlaceholders
+    // case), it's testing the rendering path's tolerance for empty maps,
+    // which now requires the per-runtime token set; merge defaults so the
+    // contract being asserted (no `{{token}}` references → unchanged
+    // body) still holds without colliding with the new coverage check.
+    const placeholders = override !== undefined ? { ...defaultPlaceholders, ...override } : defaultPlaceholders;
     writeFileSync(join(runtimesDir, `${name}.yaml`), makeRuntimeYaml(name, placeholders));
   }
 }
@@ -386,7 +407,14 @@ describe('buildAllSkills — task 007', () => {
     const outDir = join(root, 'skills');
     const runtimesDir = join(root, 'runtimes');
     mkdirSync(join(srcDir, 'foo', 'references'), { recursive: true });
-    writeFileSync(join(srcDir, 'foo', 'SKILL.md'), '{{AGENT_LABEL}}');
+    // Wave A: references must be linked from the rendered SKILL.md to be
+    // copied (orphan pruning). The original task-007 contract — every
+    // file under `references/` mirrored unconditionally — was replaced
+    // by the link-scanning pass in `copyLinkedReferences`.
+    writeFileSync(
+      join(srcDir, 'foo', 'SKILL.md'),
+      '{{AGENT_LABEL}} — see [note](references/note.md)',
+    );
     writeFileSync(join(srcDir, 'foo', 'references', 'note.md'), 'a shared reference');
     writeRuntimeFixtures(runtimesDir);
 
@@ -1063,5 +1091,1199 @@ describe('buildAllSkills — task 009: render-time CALL macro failures', () => {
     expect(err!.message).toContain('bad-args');
     // Error must reference schema validation failure (from validateCallMacro)
     expect(err!.message).toMatch(/failed schema validation/i);
+  });
+});
+
+// -----------------------------------------------------------------------------
+// Wave A — P4 prose layer: capability-aware renderer (Task 8/9 of
+// docs/plans/2026-04-25-delegation-runtime-parity.md).
+//
+// These tests cover the new behaviors layered on top of the existing renderer:
+//   - SUBAGENT_COMPLETION_HOOK / SUBAGENT_RESULT_API token vocabulary
+//   - Per-runtime token coverage assertion (RuntimeTokenKey enum)
+//   - `<!-- requires:* -->` and `<!-- requires:native:* -->` guards
+//   - Reference-pruning (only links surviving elision are copied)
+//   - Render idempotency (back-to-back builds produce byte-identical output)
+//
+// Each test below uses synthetic fixtures so the assertions don't couple to
+// the real `skills-src/delegation/**` migration that lands in the source-
+// migration GREEN commit (commit 7 of the GREEN sequence).
+// -----------------------------------------------------------------------------
+
+describe('buildAllSkills — Wave A: capability-aware prose renderer', () => {
+  /**
+   * Local helper: build a runtime YAML body with optional placeholder
+   * overrides and an optional `supportedCapabilities` map. We need this here
+   * (rather than reusing the top-level `makeRuntimeYaml` / `writeRuntimeFixtures`)
+   * because Wave A tests have to vary `supportedCapabilities` to exercise
+   * guard semantics and the `RuntimeTokenKey` coverage check.
+   */
+  function makeWaveARuntimeYaml(
+    name: string,
+    placeholders: Record<string, string>,
+    supportedCapabilities?: Record<string, 'native' | 'advisory'>,
+  ): string {
+    const escape = (s: string): string =>
+      s.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n');
+    const placeholderLines =
+      Object.keys(placeholders).length === 0
+        ? '  {}'
+        : Object.entries(placeholders)
+            .map(([k, v]) => `  ${k}: "${escape(v)}"`)
+            .join('\n');
+    const lines: string[] = [
+      `name: ${name}`,
+      `preferredFacade: mcp`,
+      `capabilities:`,
+      `  hasSubagents: true`,
+      `  hasSlashCommands: true`,
+      `  hasHooks: true`,
+      `  hasSkillChaining: true`,
+      `  mcpPrefix: "mcp__${name}__"`,
+      `skillsInstallPath: "~/.${name}/skills"`,
+      `detection:`,
+      `  binaries:`,
+      `    - ${name}`,
+      `  envVars:`,
+      `    - ${name.toUpperCase()}_SESSION`,
+      `placeholders:`,
+      placeholderLines,
+    ];
+    if (supportedCapabilities) {
+      lines.push('supportedCapabilities:');
+      for (const [cap, level] of Object.entries(supportedCapabilities)) {
+        lines.push(`  ${cap}: ${level}`);
+      }
+    }
+    lines.push('');
+    return lines.join('\n');
+  }
+
+  // Default placeholder set. Includes the two new Wave A tokens that every
+  // runtime must declare (per the token-table policy in the dispatch spec).
+  // Tests that intentionally omit one of these tokens will write a runtime
+  // YAML with a custom (incomplete) placeholder map.
+  const FULL_PLACEHOLDERS: Record<string, string> = {
+    MCP_PREFIX: 'mcp__test__',
+    COMMAND_PREFIX: '/',
+    TASK_TOOL: 'Task',
+    CHAIN: '[Invoke {{next}} with {{args}}]',
+    SPAWN_AGENT_CALL: 'Task({ prompt: "{{prompt}}" })',
+    SUBAGENT_COMPLETION_HOOK: 'subagent completion signal (poll-based)',
+    SUBAGENT_RESULT_API: '[poll subagent result]',
+  };
+
+  /**
+   * Per-runtime supportedCapabilities maps used across the tests. These
+   * mirror the real shape of `runtimes/*.yaml` so guard semantics behave
+   * identically to production.
+   */
+  const SUPPORTED_BY_RUNTIME: Record<string, Record<string, 'native' | 'advisory'>> = {
+    claude: {
+      'fs:read': 'native',
+      'fs:write': 'native',
+      'shell:exec': 'native',
+      'subagent:spawn': 'native',
+      'subagent:completion-signal': 'native',
+      'subagent:start-signal': 'native',
+      'mcp:exarchos': 'native',
+      'isolation:worktree': 'native',
+      'team:agent-teams': 'native',
+      'session:resume': 'native',
+    },
+    codex: {
+      'fs:read': 'native',
+      'fs:write': 'native',
+      'shell:exec': 'native',
+      'subagent:spawn': 'native',
+      'mcp:exarchos': 'native',
+      'isolation:worktree': 'advisory',
+      'session:resume': 'advisory',
+    },
+    opencode: {
+      'fs:read': 'native',
+      'fs:write': 'native',
+      'shell:exec': 'native',
+      'subagent:spawn': 'native',
+      'mcp:exarchos': 'native',
+      'isolation:worktree': 'advisory',
+      'session:resume': 'advisory',
+    },
+    cursor: {
+      'fs:read': 'native',
+      'fs:write': 'native',
+      'shell:exec': 'native',
+      'subagent:spawn': 'native',
+      'mcp:exarchos': 'native',
+      'isolation:worktree': 'advisory',
+      'session:resume': 'advisory',
+    },
+    copilot: {
+      'fs:read': 'native',
+      'fs:write': 'native',
+      'shell:exec': 'native',
+      'subagent:spawn': 'native',
+      'mcp:exarchos': 'native',
+      'isolation:worktree': 'advisory',
+      'session:resume': 'advisory',
+    },
+    generic: {
+      'fs:read': 'native',
+      'fs:write': 'native',
+      'shell:exec': 'native',
+      // generic intentionally omits subagent:spawn so guard tests can exercise
+      // the absent-cap branch when needed.
+    },
+  };
+
+  /**
+   * Lay down a full set of six runtime YAMLs with the given per-runtime
+   * placeholder overrides. All YAMLs include `supportedCapabilities` from
+   * `SUPPORTED_BY_RUNTIME` so guard tests have realistic data.
+   */
+  function writeWaveARuntimeFixtures(
+    runtimesDir: string,
+    perRuntimePlaceholders: Record<string, Record<string, string>>,
+  ): void {
+    mkdirSync(runtimesDir, { recursive: true });
+    const names = ['generic', 'claude', 'codex', 'opencode', 'copilot', 'cursor'];
+    for (const name of names) {
+      writeFileSync(
+        join(runtimesDir, `${name}.yaml`),
+        makeWaveARuntimeYaml(
+          name,
+          perRuntimePlaceholders[name] ?? FULL_PLACEHOLDERS,
+          SUPPORTED_BY_RUNTIME[name],
+        ),
+      );
+    }
+  }
+
+  it('BuildSkills_SubagentCompletionHookToken_RendersPerRuntime', () => {
+    const root = makeTempDir();
+    const srcDir = join(root, 'skills-src');
+    const outDir = join(root, 'skills');
+    const runtimesDir = join(root, 'runtimes');
+    mkdirSync(join(srcDir, 'foo'), { recursive: true });
+    writeFileSync(
+      join(srcDir, 'foo', 'SKILL.md'),
+      'Wait via {{SUBAGENT_COMPLETION_HOOK}} on this runtime.',
+    );
+
+    const claudePh = { ...FULL_PLACEHOLDERS, SUBAGENT_COMPLETION_HOOK: 'TeammateIdle hook' };
+    const codexPh = {
+      ...FULL_PLACEHOLDERS,
+      SUBAGENT_COMPLETION_HOOK: 'subagent completion signal (poll-based)',
+    };
+    writeWaveARuntimeFixtures(runtimesDir, {
+      claude: claudePh,
+      codex: codexPh,
+      opencode: codexPh,
+      cursor: codexPh,
+      copilot: codexPh,
+      generic: codexPh,
+    });
+
+    buildAllSkills({ srcDir, outDir, runtimesDir });
+
+    const claudeOut = readFileSync(join(outDir, 'claude', 'foo', 'SKILL.md'), 'utf8');
+    expect(claudeOut).toContain('TeammateIdle hook');
+    const codexOut = readFileSync(join(outDir, 'codex', 'foo', 'SKILL.md'), 'utf8');
+    expect(codexOut).toContain('subagent completion signal (poll-based)');
+    expect(codexOut).not.toContain('TeammateIdle');
+  });
+
+  it('BuildSkills_SubagentResultApiToken_RendersPerRuntime', () => {
+    const root = makeTempDir();
+    const srcDir = join(root, 'skills-src');
+    const outDir = join(root, 'skills');
+    const runtimesDir = join(root, 'runtimes');
+    mkdirSync(join(srcDir, 'foo'), { recursive: true });
+    writeFileSync(
+      join(srcDir, 'foo', 'SKILL.md'),
+      'Collect results via {{SUBAGENT_RESULT_API}}',
+    );
+
+    const claudePh = {
+      ...FULL_PLACEHOLDERS,
+      SUBAGENT_RESULT_API: 'TaskOutput({ task_id, block: true })',
+    };
+    const codexPh = {
+      ...FULL_PLACEHOLDERS,
+      SUBAGENT_RESULT_API: 'wait_agent({ task_id })',
+    };
+    const copilotPh = {
+      ...FULL_PLACEHOLDERS,
+      SUBAGENT_RESULT_API: '`task` output (inline)',
+    };
+    writeWaveARuntimeFixtures(runtimesDir, {
+      claude: claudePh,
+      codex: codexPh,
+      opencode: codexPh,
+      cursor: codexPh,
+      copilot: copilotPh,
+      generic: codexPh,
+    });
+
+    buildAllSkills({ srcDir, outDir, runtimesDir });
+
+    expect(readFileSync(join(outDir, 'claude', 'foo', 'SKILL.md'), 'utf8')).toContain(
+      'TaskOutput({ task_id, block: true })',
+    );
+    expect(readFileSync(join(outDir, 'codex', 'foo', 'SKILL.md'), 'utf8')).toContain(
+      'wait_agent({ task_id })',
+    );
+    expect(readFileSync(join(outDir, 'copilot', 'foo', 'SKILL.md'), 'utf8')).toContain(
+      '`task` output (inline)',
+    );
+  });
+
+  it('BuildSkills_TokenWithoutDefinition_FailsBuild', () => {
+    // One runtime omits SUBAGENT_COMPLETION_HOOK from its placeholder map.
+    // The build must fail with an aggregated diagnostic naming the runtime
+    // and the missing token, rather than only crashing at the per-runtime
+    // render step (which would name the file but not point at the YAML).
+    const root = makeTempDir();
+    const srcDir = join(root, 'skills-src');
+    const outDir = join(root, 'skills');
+    const runtimesDir = join(root, 'runtimes');
+    mkdirSync(join(srcDir, 'foo'), { recursive: true });
+    writeFileSync(
+      join(srcDir, 'foo', 'SKILL.md'),
+      'Use {{SUBAGENT_COMPLETION_HOOK}}.',
+    );
+
+    const incompletePh = { ...FULL_PLACEHOLDERS };
+    delete incompletePh.SUBAGENT_COMPLETION_HOOK;
+
+    writeWaveARuntimeFixtures(runtimesDir, {
+      // codex is incomplete on purpose
+      codex: incompletePh,
+    });
+
+    let err: Error | undefined;
+    try {
+      buildAllSkills({ srcDir, outDir, runtimesDir });
+    } catch (e) {
+      err = e as Error;
+    }
+    expect(err).toBeDefined();
+    expect(err!.message).toContain('SUBAGENT_COMPLETION_HOOK');
+    expect(err!.message).toContain('codex');
+  });
+
+  it('BuildSkills_RequiresGuard_ElidesUnsupportedSection', () => {
+    const root = makeTempDir();
+    const srcDir = join(root, 'skills-src');
+    const outDir = join(root, 'skills');
+    const runtimesDir = join(root, 'runtimes');
+    mkdirSync(join(srcDir, 'foo'), { recursive: true });
+    // Body has a section that depends on `team:agent-teams` capability.
+    // Claude has it (native); OpenCode does not declare it at all → elide.
+    writeFileSync(
+      join(srcDir, 'foo', 'SKILL.md'),
+      [
+        '# Foo',
+        '',
+        'Always-rendered intro.',
+        '',
+        '<!-- requires:team:agent-teams -->',
+        '## Agent Teams Section',
+        'This is Claude-only content.',
+        '<!-- /requires -->',
+        '',
+        'Always-rendered outro.',
+        '',
+      ].join('\n'),
+    );
+    writeWaveARuntimeFixtures(runtimesDir, {});
+
+    buildAllSkills({ srcDir, outDir, runtimesDir });
+
+    const claudeOut = readFileSync(join(outDir, 'claude', 'foo', 'SKILL.md'), 'utf8');
+    expect(claudeOut).toContain('Agent Teams Section');
+    expect(claudeOut).toContain('Claude-only content');
+    // Guard markers themselves must not leak into the rendered output.
+    expect(claudeOut).not.toContain('<!-- requires:');
+    expect(claudeOut).not.toContain('<!-- /requires -->');
+
+    const opencodeOut = readFileSync(
+      join(outDir, 'opencode', 'foo', 'SKILL.md'),
+      'utf8',
+    );
+    expect(opencodeOut).not.toContain('Agent Teams Section');
+    expect(opencodeOut).not.toContain('Claude-only content');
+    expect(opencodeOut).toContain('Always-rendered intro.');
+    expect(opencodeOut).toContain('Always-rendered outro.');
+  });
+
+  it('BuildSkills_RequiresNativeGuard_AdvisoryRuntimeElides', () => {
+    const root = makeTempDir();
+    const srcDir = join(root, 'skills-src');
+    const outDir = join(root, 'skills');
+    const runtimesDir = join(root, 'runtimes');
+    mkdirSync(join(srcDir, 'foo'), { recursive: true });
+    writeFileSync(
+      join(srcDir, 'foo', 'SKILL.md'),
+      [
+        'intro',
+        '<!-- requires:native:session:resume -->',
+        'native-only resume strategy block',
+        '<!-- /requires -->',
+        'outro',
+      ].join('\n'),
+    );
+    writeWaveARuntimeFixtures(runtimesDir, {});
+
+    buildAllSkills({ srcDir, outDir, runtimesDir });
+
+    // Claude declares session:resume = native → block is rendered.
+    const claudeOut = readFileSync(join(outDir, 'claude', 'foo', 'SKILL.md'), 'utf8');
+    expect(claudeOut).toContain('native-only resume strategy block');
+
+    // OpenCode/Cursor/Codex/Copilot mark session:resume as advisory → elided.
+    for (const rt of ['opencode', 'cursor', 'codex', 'copilot']) {
+      const out = readFileSync(join(outDir, rt, 'foo', 'SKILL.md'), 'utf8');
+      expect(out).not.toContain('native-only resume strategy block');
+      expect(out).toContain('intro');
+      expect(out).toContain('outro');
+    }
+  });
+
+  it('BuildSkills_UnknownGuardCapability_FailsBuild', () => {
+    const root = makeTempDir();
+    const srcDir = join(root, 'skills-src');
+    const outDir = join(root, 'skills');
+    const runtimesDir = join(root, 'runtimes');
+    mkdirSync(join(srcDir, 'foo'), { recursive: true });
+    writeFileSync(
+      join(srcDir, 'foo', 'SKILL.md'),
+      [
+        'intro',
+        '<!-- requires:not-a-real-cap -->',
+        'body',
+        '<!-- /requires -->',
+        'outro',
+      ].join('\n'),
+    );
+    writeWaveARuntimeFixtures(runtimesDir, {});
+
+    let err: Error | undefined;
+    try {
+      buildAllSkills({ srcDir, outDir, runtimesDir });
+    } catch (e) {
+      err = e as Error;
+    }
+    expect(err).toBeDefined();
+    // Diagnostic must name the offending capability and the source file/line.
+    expect(err!.message).toContain('not-a-real-cap');
+    expect(err!.message).toMatch(/SKILL\.md/);
+    // 1-indexed line number of the opening guard
+    expect(err!.message).toMatch(/:2/);
+  });
+
+  it('BuildSkills_NestedGuards_Respected', () => {
+    // Outer guard is for a cap the runtime LACKS → the entire block elides.
+    // The inner guard's evaluation MUST NOT contribute the inner block to the
+    // output even though, evaluated in isolation, the inner cap is supported.
+    const root = makeTempDir();
+    const srcDir = join(root, 'skills-src');
+    const outDir = join(root, 'skills');
+    const runtimesDir = join(root, 'runtimes');
+    mkdirSync(join(srcDir, 'foo'), { recursive: true });
+    writeFileSync(
+      join(srcDir, 'foo', 'SKILL.md'),
+      [
+        'intro',
+        '<!-- requires:team:agent-teams -->',
+        'outer body',
+        '<!-- requires:fs:read -->',
+        'inner body that would otherwise survive',
+        '<!-- /requires -->',
+        'outer trailer',
+        '<!-- /requires -->',
+        'outro',
+      ].join('\n'),
+    );
+    writeWaveARuntimeFixtures(runtimesDir, {});
+
+    buildAllSkills({ srcDir, outDir, runtimesDir });
+
+    // OpenCode lacks team:agent-teams → outer elides, inner is invisible too.
+    const opencodeOut = readFileSync(
+      join(outDir, 'opencode', 'foo', 'SKILL.md'),
+      'utf8',
+    );
+    expect(opencodeOut).not.toContain('outer body');
+    expect(opencodeOut).not.toContain('inner body');
+    expect(opencodeOut).not.toContain('outer trailer');
+    expect(opencodeOut).toContain('intro');
+    expect(opencodeOut).toContain('outro');
+
+    // Claude has both → both blocks render.
+    const claudeOut = readFileSync(join(outDir, 'claude', 'foo', 'SKILL.md'), 'utf8');
+    expect(claudeOut).toContain('outer body');
+    expect(claudeOut).toContain('inner body that would otherwise survive');
+    expect(claudeOut).toContain('outer trailer');
+  });
+
+  it('BuildSkills_OrphanReferenceFile_NotCopied', () => {
+    const root = makeTempDir();
+    const srcDir = join(root, 'skills-src');
+    const outDir = join(root, 'skills');
+    const runtimesDir = join(root, 'runtimes');
+    mkdirSync(join(srcDir, 'foo', 'references'), { recursive: true });
+    // Link to references/foo.md is INSIDE a guard for team:agent-teams.
+    // Claude has it (link survives → file copied); OpenCode does not (link
+    // elides → file pruned from OpenCode's references tree).
+    writeFileSync(
+      join(srcDir, 'foo', 'SKILL.md'),
+      [
+        '# Foo',
+        '<!-- requires:team:agent-teams -->',
+        'See [foo](references/foo.md) for details.',
+        '<!-- /requires -->',
+        'See [bar](references/bar.md) always.',
+      ].join('\n'),
+    );
+    writeFileSync(join(srcDir, 'foo', 'references', 'foo.md'), 'foo content');
+    writeFileSync(join(srcDir, 'foo', 'references', 'bar.md'), 'bar content');
+    writeWaveARuntimeFixtures(runtimesDir, {});
+
+    buildAllSkills({ srcDir, outDir, runtimesDir });
+
+    // Claude: both reference files copied.
+    expect(existsSync(join(outDir, 'claude', 'foo', 'references', 'foo.md'))).toBe(true);
+    expect(existsSync(join(outDir, 'claude', 'foo', 'references', 'bar.md'))).toBe(true);
+    // OpenCode: foo.md pruned (link elided), bar.md present (always-linked).
+    expect(existsSync(join(outDir, 'opencode', 'foo', 'references', 'foo.md'))).toBe(
+      false,
+    );
+    expect(existsSync(join(outDir, 'opencode', 'foo', 'references', 'bar.md'))).toBe(
+      true,
+    );
+  });
+
+  it('BuildSkills_RenderIdempotent', () => {
+    const root = makeTempDir();
+    const srcDir = join(root, 'skills-src');
+    const outDir = join(root, 'skills');
+    const runtimesDir = join(root, 'runtimes');
+    mkdirSync(join(srcDir, 'foo', 'references'), { recursive: true });
+    writeFileSync(
+      join(srcDir, 'foo', 'SKILL.md'),
+      [
+        '# Foo {{TASK_TOOL}}',
+        '<!-- requires:team:agent-teams -->',
+        'agent teams',
+        '<!-- /requires -->',
+        'See [bar](references/bar.md).',
+      ].join('\n'),
+    );
+    writeFileSync(join(srcDir, 'foo', 'references', 'bar.md'), 'bar');
+    writeWaveARuntimeFixtures(runtimesDir, {});
+
+    buildAllSkills({ srcDir, outDir, runtimesDir });
+
+    // Snapshot every output file's bytes after the first run.
+    const snapshot = new Map<string, Buffer>();
+    const walk = (dir: string): void => {
+      if (!existsSync(dir)) return;
+      const { readdirSync: rds, statSync: sts } = require('node:fs') as typeof import('node:fs');
+      for (const entry of rds(dir)) {
+        const full = join(dir, entry);
+        const st = sts(full);
+        if (st.isDirectory()) walk(full);
+        else if (st.isFile()) snapshot.set(full, readFileSync(full));
+      }
+    };
+    walk(outDir);
+
+    // Second run must produce byte-identical output.
+    buildAllSkills({ srcDir, outDir, runtimesDir });
+
+    const snapshot2 = new Map<string, Buffer>();
+    walk2: {
+      const stack: string[] = [outDir];
+      while (stack.length > 0) {
+        const cur = stack.pop()!;
+        if (!existsSync(cur)) continue;
+        for (const entry of (require('node:fs') as typeof import('node:fs')).readdirSync(
+          cur,
+        )) {
+          const full = join(cur, entry);
+          const st = (require('node:fs') as typeof import('node:fs')).statSync(full);
+          if (st.isDirectory()) stack.push(full);
+          else if (st.isFile()) snapshot2.set(full, readFileSync(full));
+        }
+      }
+      break walk2;
+    }
+
+    expect(snapshot2.size).toBe(snapshot.size);
+    for (const [path, bytes] of snapshot.entries()) {
+      const after = snapshot2.get(path);
+      expect(after, `missing after rebuild: ${path}`).toBeDefined();
+      expect(
+        after!.equals(bytes),
+        `byte mismatch on ${path}`,
+      ).toBe(true);
+    }
+  });
+});
+
+// -----------------------------------------------------------------------------
+// Wave B — P4 prose layer: post-render vocabulary lint enforcement.
+//
+// Wave A added the typed `<!-- requires:* -->` / `<!-- requires:native:* -->`
+// guard parser, the `RuntimeTokenKey` token-coverage check, and migrated the
+// `delegation/` skill source to use tokens/guards instead of Claude-only
+// literals.
+//
+// Wave B adds the *enforcement gate*: a lint that runs post-render, per
+// runtime, against the rendered SKILL.md output bytes. If a Claude-only
+// term (e.g. `TaskOutput`, `TeammateIdle`, `SubagentStart`) appears in a
+// non-Claude render outside an explicitly-allowed context, the build
+// fails. This is what prevents future skill edits from quietly
+// re-introducing Claude-only prose into non-Claude renders.
+//
+// Allowed contexts the lint MUST respect:
+//   1. Claude render (which is the canonical home for Claude-only prose)
+//   2. Inside a fenced code block whose info-string contains
+//      `runtime:claude-only` — these blocks are kept verbatim in the
+//      Claude render and elided wholesale from non-Claude renders, so
+//      a forbidden term inside one never reaches a non-Claude render to
+//      begin with.
+//   3. Substrings of capability identifiers like `team:agent-teams` —
+//      not in the forbidden list at all (deliberately).
+// -----------------------------------------------------------------------------
+
+describe('buildAllSkills — Wave B: post-render vocabulary lint', () => {
+  /**
+   * Local helpers duplicated from the Wave A describe block so this
+   * describe is self-contained. Wave A's helpers live inside its own
+   * describe scope; rather than refactor those out, we reproduce the
+   * minimal subset needed for Wave B fixtures.
+   */
+  const FULL_PLACEHOLDERS_B: Record<string, string> = {
+    MCP_PREFIX: 'mcp__test__',
+    COMMAND_PREFIX: '/',
+    TASK_TOOL: 'Task',
+    CHAIN: '[Invoke {{next}} with {{args}}]',
+    SPAWN_AGENT_CALL: 'Task({ prompt: "{{prompt}}" })',
+    SUBAGENT_COMPLETION_HOOK: 'subagent completion signal (poll-based)',
+    SUBAGENT_RESULT_API: '[poll subagent result]',
+  };
+
+  // Mirror of the production capability matrix per runtime: only Claude
+  // declares the Claude-only primitives (`team:agent-teams`,
+  // `subagent:completion-signal`, `subagent:start-signal`). Wave B's
+  // lint uses these declarations to decide which runtime is exempt
+  // from the forbidden-term check.
+  const NON_CLAUDE_CAPS: Record<string, 'native' | 'advisory'> = {
+    'fs:read': 'native',
+    'fs:write': 'native',
+    'shell:exec': 'native',
+    'subagent:spawn': 'native',
+    'mcp:exarchos': 'native',
+    'isolation:worktree': 'advisory',
+    'session:resume': 'advisory',
+  };
+  const SUPPORTED_BY_RUNTIME_B: Record<
+    string,
+    Record<string, 'native' | 'advisory'>
+  > = {
+    claude: {
+      'fs:read': 'native',
+      'fs:write': 'native',
+      'shell:exec': 'native',
+      'subagent:spawn': 'native',
+      'subagent:completion-signal': 'native',
+      'subagent:start-signal': 'native',
+      'mcp:exarchos': 'native',
+      'isolation:worktree': 'native',
+      'team:agent-teams': 'native',
+      'session:resume': 'native',
+    },
+    opencode: NON_CLAUDE_CAPS,
+    codex: NON_CLAUDE_CAPS,
+    cursor: NON_CLAUDE_CAPS,
+    copilot: NON_CLAUDE_CAPS,
+    // generic intentionally omits subagent:spawn so the runtime test
+    // matrix matches Wave A's fixture; doesn't materially affect Wave B
+    // assertions because we only assert against claude + opencode.
+    generic: {
+      'fs:read': 'native',
+      'fs:write': 'native',
+      'shell:exec': 'native',
+    },
+  };
+
+  function makeWaveBRuntimeYaml(
+    name: string,
+    placeholders: Record<string, string>,
+    supportedCapabilities: Record<string, 'native' | 'advisory'>,
+  ): string {
+    const escape = (s: string): string =>
+      s.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n');
+    const placeholderLines = Object.entries(placeholders)
+      .map(([k, v]) => `  ${k}: "${escape(v)}"`)
+      .join('\n');
+    const lines: string[] = [
+      `name: ${name}`,
+      `preferredFacade: mcp`,
+      `capabilities:`,
+      `  hasSubagents: true`,
+      `  hasSlashCommands: true`,
+      `  hasHooks: true`,
+      `  hasSkillChaining: true`,
+      `  mcpPrefix: "mcp__${name}__"`,
+      `skillsInstallPath: "~/.${name}/skills"`,
+      `detection:`,
+      `  binaries:`,
+      `    - ${name}`,
+      `  envVars:`,
+      `    - ${name.toUpperCase()}_SESSION`,
+      `placeholders:`,
+      placeholderLines,
+      'supportedCapabilities:',
+    ];
+    for (const [cap, level] of Object.entries(supportedCapabilities)) {
+      lines.push(`  ${cap}: ${level}`);
+    }
+    lines.push('');
+    return lines.join('\n');
+  }
+
+  /**
+   * Lay down all six runtimes (the loader requires the full set). Wave
+   * B only asserts against claude + opencode, but the build pipeline
+   * fails fast on a missing required runtime; the other four are
+   * provided as no-op stand-ins with the non-Claude capability matrix.
+   */
+  function writeWaveBRuntimeFixtures(runtimesDir: string): void {
+    mkdirSync(runtimesDir, { recursive: true });
+    const names = ['generic', 'claude', 'codex', 'opencode', 'copilot', 'cursor'];
+    for (const name of names) {
+      writeFileSync(
+        join(runtimesDir, `${name}.yaml`),
+        makeWaveBRuntimeYaml(
+          name,
+          FULL_PLACEHOLDERS_B,
+          SUPPORTED_BY_RUNTIME_B[name],
+        ),
+      );
+    }
+  }
+
+  it('VocabularyLint_ForbiddenTermInClaudeRenderInsideRequiresGuard_Passes', () => {
+    // The forbidden term `TaskList` appears inside a `team:agent-teams`
+    // requires-guard. Claude declares `team:agent-teams: native` so the
+    // block is included in the Claude render. Wave B's lint must NOT
+    // false-positive on that case — the term is in its legitimate home.
+    // OpenCode does not declare the cap, so the guard elides the entire
+    // block; `TaskList` never appears in OpenCode's render either.
+    const root = makeTempDir();
+    const srcDir = join(root, 'skills-src');
+    const outDir = join(root, 'skills');
+    const runtimesDir = join(root, 'runtimes');
+    mkdirSync(join(srcDir, 'foo'), { recursive: true });
+    writeFileSync(
+      join(srcDir, 'foo', 'SKILL.md'),
+      [
+        '# Foo',
+        '<!-- requires:team:agent-teams -->',
+        'uses TaskList for coordination',
+        '<!-- /requires -->',
+        'always-on outro',
+      ].join('\n'),
+    );
+    writeWaveBRuntimeFixtures(runtimesDir);
+
+    // Build must succeed (no throw). The Claude render contains
+    // `TaskList`; the OpenCode render does not.
+    expect(() => buildAllSkills({ srcDir, outDir, runtimesDir })).not.toThrow();
+
+    const claudeOut = readFileSync(join(outDir, 'claude', 'foo', 'SKILL.md'), 'utf8');
+    expect(claudeOut).toContain('TaskList');
+    const opencodeOut = readFileSync(
+      join(outDir, 'opencode', 'foo', 'SKILL.md'),
+      'utf8',
+    );
+    expect(opencodeOut).not.toContain('TaskList');
+  });
+
+  it('VocabularyLint_ForbiddenTermInOpenCodeRender_FailsCI', () => {
+    // `TaskOutput` appears outside any guard or code block. It survives
+    // into both renders. Claude is exempt from the lint (Claude is the
+    // canonical home for Claude-only prose), but OpenCode is not — the
+    // build must throw with a diagnostic naming the term, source path,
+    // line number, and runtime.
+    const root = makeTempDir();
+    const srcDir = join(root, 'skills-src');
+    const outDir = join(root, 'skills');
+    const runtimesDir = join(root, 'runtimes');
+    mkdirSync(join(srcDir, 'foo'), { recursive: true });
+    writeFileSync(
+      join(srcDir, 'foo', 'SKILL.md'),
+      [
+        '# Foo',
+        '',
+        'always-on intro',
+        '',
+        'TaskOutput({ task_id: x, block: true }) // raw call in prose',
+        '',
+        'always-on outro',
+      ].join('\n'),
+    );
+    writeWaveBRuntimeFixtures(runtimesDir);
+
+    let err: Error | undefined;
+    try {
+      buildAllSkills({ srcDir, outDir, runtimesDir });
+    } catch (e) {
+      err = e as Error;
+    }
+    expect(err).toBeDefined();
+    // Diagnostic must name the offending term.
+    expect(err!.message).toContain('TaskOutput');
+    // Diagnostic must name the runtime (opencode) where the term landed
+    // in a non-Claude render.
+    expect(err!.message).toContain('opencode');
+    // Diagnostic must point at the source file path so the author can
+    // jump straight to the offender.
+    expect(err!.message).toMatch(/foo\/SKILL\.md/);
+    // Diagnostic must include the source line number (5 in our fixture).
+    expect(err!.message).toMatch(/:5/);
+    // Remediation must point authors at the requires-guard syntax or
+    // the runtime:claude-only code-block escape hatch.
+    expect(err!.message).toMatch(/requires:|runtime:claude-only/);
+  });
+
+  it('VocabularyLint_RuntimeClaudeOnlyCodeBlock_ElidedFromNonClaudeRender', () => {
+    // Fenced code block with info-string containing `runtime:claude-only`.
+    // The block is kept verbatim in the Claude render (so an agent on
+    // Claude can copy-paste the snippet) and elided wholesale from
+    // non-Claude renders. The lint passes for both because the term
+    // either lives in its legitimate Claude home or is invisible to the
+    // non-Claude runtime.
+    const root = makeTempDir();
+    const srcDir = join(root, 'skills-src');
+    const outDir = join(root, 'skills');
+    const runtimesDir = join(root, 'runtimes');
+    mkdirSync(join(srcDir, 'foo'), { recursive: true });
+    writeFileSync(
+      join(srcDir, 'foo', 'SKILL.md'),
+      [
+        '# Foo',
+        '',
+        'always-on intro',
+        '',
+        '```ts runtime:claude-only',
+        'TaskOutput({ task_id: x, block: true })',
+        '```',
+        '',
+        'always-on outro',
+      ].join('\n'),
+    );
+    writeWaveBRuntimeFixtures(runtimesDir);
+
+    expect(() => buildAllSkills({ srcDir, outDir, runtimesDir })).not.toThrow();
+
+    const claudeOut = readFileSync(join(outDir, 'claude', 'foo', 'SKILL.md'), 'utf8');
+    // Claude keeps the entire fenced block verbatim — both the snippet
+    // and its surrounding fences must survive.
+    expect(claudeOut).toContain('TaskOutput({ task_id: x, block: true })');
+
+    const opencodeOut = readFileSync(
+      join(outDir, 'opencode', 'foo', 'SKILL.md'),
+      'utf8',
+    );
+    // OpenCode render must NOT contain `TaskOutput` at all — the entire
+    // fenced block is elided so the term never reaches the lint.
+    expect(opencodeOut).not.toContain('TaskOutput');
+    // The opening fence info-string must not leak either.
+    expect(opencodeOut).not.toContain('runtime:claude-only');
+    // Surrounding always-on prose still renders.
+    expect(opencodeOut).toContain('always-on intro');
+    expect(opencodeOut).toContain('always-on outro');
+  });
+
+  it('VocabularyLint_CapabilityIdentifierNotFlagged', () => {
+    // The literal `team:agent-teams` is a capability identifier; it
+    // shows up in skill prose (e.g. as a YAML key in an embedded code
+    // sample). The substring `agent-teams` is intentionally NOT in the
+    // forbidden list to dodge this false-positive class. Belt-and-
+    // suspenders: confirm an OpenCode render that contains the literal
+    // capability identifier passes the lint cleanly.
+    const root = makeTempDir();
+    const srcDir = join(root, 'skills-src');
+    const outDir = join(root, 'skills');
+    const runtimesDir = join(root, 'runtimes');
+    mkdirSync(join(srcDir, 'foo'), { recursive: true });
+    writeFileSync(
+      join(srcDir, 'foo', 'SKILL.md'),
+      [
+        '# Foo',
+        '',
+        'Capabilities map snippet:',
+        '',
+        '```yaml',
+        'supportedCapabilities:',
+        '  team:agent-teams: native',
+        '```',
+        '',
+        'outro',
+      ].join('\n'),
+    );
+    writeWaveBRuntimeFixtures(runtimesDir);
+
+    expect(() => buildAllSkills({ srcDir, outDir, runtimesDir })).not.toThrow();
+
+    const opencodeOut = readFileSync(
+      join(outDir, 'opencode', 'foo', 'SKILL.md'),
+      'utf8',
+    );
+    // The literal capability identifier survives into OpenCode's render
+    // (it's not in any guard, it's just descriptive prose). The lint
+    // does NOT fire because `agent-teams` is not in the forbidden list.
+    expect(opencodeOut).toContain('team:agent-teams');
+  });
+});
+
+// -----------------------------------------------------------------------------
+// Wave C — P4 prose layer: extend the renderer pipeline + vocabulary lint to
+// cover reference files (skills-src/<name>/references/*.md).
+//
+// Wave A applied token expansion + guard elision + Claude-only-block elision
+// only to SKILL.md. Wave B added the post-render vocabulary lint, also only
+// against SKILL.md. References were copied byte-for-byte by
+// `copyTreePreservingMtime` / `copyLinkedReferences`, which let Claude-only
+// prose (e.g. `TaskList`, `agentId`, `SubagentStop`) slip into non-Claude
+// runtimes through the references tree.
+//
+// Wave C closes that gap: the renderer pipeline runs against every reference
+// body that survives the link-prune pass, and the vocabulary lint scans those
+// rendered reference bytes per runtime. Source migration brings the few
+// remaining unguarded Claude-only mentions in `delegation/references/*.md`
+// into the same tokens/guards regime that Wave A applied to SKILL.md.
+// -----------------------------------------------------------------------------
+
+describe('buildAllSkills — Wave C: reference rendering + lint', () => {
+  // Wave C reuses Wave B's full-placeholder fixture verbatim — the same
+  // forbidden-term catalog and runtime-capability matrix apply here. The
+  // helpers are duplicated locally so this describe block is self-contained
+  // and doesn't depend on the order Wave B's helpers are declared in.
+  const FULL_PLACEHOLDERS_C: Record<string, string> = {
+    MCP_PREFIX: 'mcp__test__',
+    COMMAND_PREFIX: '/',
+    TASK_TOOL: 'Task',
+    CHAIN: '[Invoke {{next}} with {{args}}]',
+    SPAWN_AGENT_CALL: 'Task({ prompt: "{{prompt}}" })',
+    SUBAGENT_COMPLETION_HOOK: 'subagent completion signal (poll-based)',
+    SUBAGENT_RESULT_API: '[poll subagent result]',
+  };
+
+  const NON_CLAUDE_CAPS_C: Record<string, 'native' | 'advisory'> = {
+    'fs:read': 'native',
+    'fs:write': 'native',
+    'shell:exec': 'native',
+    'subagent:spawn': 'native',
+    'mcp:exarchos': 'native',
+    'isolation:worktree': 'advisory',
+    'session:resume': 'advisory',
+  };
+
+  const SUPPORTED_BY_RUNTIME_C: Record<
+    string,
+    Record<string, 'native' | 'advisory'>
+  > = {
+    claude: {
+      'fs:read': 'native',
+      'fs:write': 'native',
+      'shell:exec': 'native',
+      'subagent:spawn': 'native',
+      'subagent:completion-signal': 'native',
+      'subagent:start-signal': 'native',
+      'mcp:exarchos': 'native',
+      'isolation:worktree': 'native',
+      'team:agent-teams': 'native',
+      'session:resume': 'native',
+    },
+    opencode: NON_CLAUDE_CAPS_C,
+    codex: NON_CLAUDE_CAPS_C,
+    cursor: NON_CLAUDE_CAPS_C,
+    copilot: NON_CLAUDE_CAPS_C,
+    generic: {
+      'fs:read': 'native',
+      'fs:write': 'native',
+      'shell:exec': 'native',
+    },
+  };
+
+  function makeWaveCRuntimeYaml(
+    name: string,
+    placeholders: Record<string, string>,
+    supportedCapabilities: Record<string, 'native' | 'advisory'>,
+  ): string {
+    const escape = (s: string): string =>
+      s.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n');
+    const placeholderLines = Object.entries(placeholders)
+      .map(([k, v]) => `  ${k}: "${escape(v)}"`)
+      .join('\n');
+    const lines: string[] = [
+      `name: ${name}`,
+      `preferredFacade: mcp`,
+      `capabilities:`,
+      `  hasSubagents: true`,
+      `  hasSlashCommands: true`,
+      `  hasHooks: true`,
+      `  hasSkillChaining: true`,
+      `  mcpPrefix: "mcp__${name}__"`,
+      `skillsInstallPath: "~/.${name}/skills"`,
+      `detection:`,
+      `  binaries:`,
+      `    - ${name}`,
+      `  envVars:`,
+      `    - ${name.toUpperCase()}_SESSION`,
+      `placeholders:`,
+      placeholderLines,
+      'supportedCapabilities:',
+    ];
+    for (const [cap, level] of Object.entries(supportedCapabilities)) {
+      lines.push(`  ${cap}: ${level}`);
+    }
+    lines.push('');
+    return lines.join('\n');
+  }
+
+  function writeWaveCRuntimeFixtures(
+    runtimesDir: string,
+    perRuntimePlaceholders: Record<string, Record<string, string>> = {},
+  ): void {
+    mkdirSync(runtimesDir, { recursive: true });
+    const names = ['generic', 'claude', 'codex', 'opencode', 'copilot', 'cursor'];
+    for (const name of names) {
+      writeFileSync(
+        join(runtimesDir, `${name}.yaml`),
+        makeWaveCRuntimeYaml(
+          name,
+          perRuntimePlaceholders[name] ?? FULL_PLACEHOLDERS_C,
+          SUPPORTED_BY_RUNTIME_C[name],
+        ),
+      );
+    }
+  }
+
+  it('BuildSkills_ReferenceFile_TokenExpansion_RendersPerRuntime', () => {
+    // A reference body using the same `{{TOKEN}}` placeholder vocabulary as
+    // SKILL.md must be expanded per-runtime before being written to disk.
+    // Pre-Wave-C the reference was copied byte-for-byte, so the literal
+    // `{{SUBAGENT_COMPLETION_HOOK}}` would survive into every runtime's
+    // references/foo.md — a broken reference for whichever runtime an agent
+    // happens to load.
+    const root = makeTempDir();
+    const srcDir = join(root, 'skills-src');
+    const outDir = join(root, 'skills');
+    const runtimesDir = join(root, 'runtimes');
+    mkdirSync(join(srcDir, 'foo', 'references'), { recursive: true });
+    writeFileSync(
+      join(srcDir, 'foo', 'SKILL.md'),
+      ['# Foo', 'See [foo](references/foo.md) for details.'].join('\n'),
+    );
+    writeFileSync(
+      join(srcDir, 'foo', 'references', 'foo.md'),
+      'See {{SUBAGENT_COMPLETION_HOOK}} for details.',
+    );
+
+    const claudePh = {
+      ...FULL_PLACEHOLDERS_C,
+      SUBAGENT_COMPLETION_HOOK: 'TeammateIdle hook',
+    };
+    const nonClaudePh = {
+      ...FULL_PLACEHOLDERS_C,
+      SUBAGENT_COMPLETION_HOOK: 'subagent completion signal (poll-based)',
+    };
+    writeWaveCRuntimeFixtures(runtimesDir, {
+      claude: claudePh,
+      codex: nonClaudePh,
+      opencode: nonClaudePh,
+      cursor: nonClaudePh,
+      copilot: nonClaudePh,
+      generic: nonClaudePh,
+    });
+
+    buildAllSkills({ srcDir, outDir, runtimesDir });
+
+    const claudeRef = readFileSync(
+      join(outDir, 'claude', 'foo', 'references', 'foo.md'),
+      'utf8',
+    );
+    expect(claudeRef).toContain('TeammateIdle hook');
+    expect(claudeRef).not.toContain('{{SUBAGENT_COMPLETION_HOOK}}');
+
+    const opencodeRef = readFileSync(
+      join(outDir, 'opencode', 'foo', 'references', 'foo.md'),
+      'utf8',
+    );
+    expect(opencodeRef).toContain('subagent completion signal (poll-based)');
+    expect(opencodeRef).not.toContain('{{SUBAGENT_COMPLETION_HOOK}}');
+    // Cross-leak check: the Claude rendering must not bleed into OpenCode.
+    expect(opencodeRef).not.toContain('TeammateIdle');
+  });
+
+  it('BuildSkills_ReferenceFile_RequiresGuard_ElidesUnsupportedSection', () => {
+    // A `<!-- requires:team:agent-teams -->` guard inside a reference body
+    // must elide on runtimes that don't declare the cap, identical to how
+    // it works in SKILL.md. The Claude render keeps the inner block; the
+    // OpenCode render drops it entirely.
+    const root = makeTempDir();
+    const srcDir = join(root, 'skills-src');
+    const outDir = join(root, 'skills');
+    const runtimesDir = join(root, 'runtimes');
+    mkdirSync(join(srcDir, 'foo', 'references'), { recursive: true });
+    writeFileSync(
+      join(srcDir, 'foo', 'SKILL.md'),
+      ['# Foo', 'See [foo](references/foo.md) for details.'].join('\n'),
+    );
+    writeFileSync(
+      join(srcDir, 'foo', 'references', 'foo.md'),
+      [
+        'always-on intro',
+        '<!-- requires:team:agent-teams -->',
+        'TeamCreate is here',
+        '<!-- /requires -->',
+        'always-on outro',
+      ].join('\n'),
+    );
+    writeWaveCRuntimeFixtures(runtimesDir);
+
+    buildAllSkills({ srcDir, outDir, runtimesDir });
+
+    const claudeRef = readFileSync(
+      join(outDir, 'claude', 'foo', 'references', 'foo.md'),
+      'utf8',
+    );
+    expect(claudeRef).toContain('TeamCreate is here');
+    // Guard markers themselves never leak.
+    expect(claudeRef).not.toContain('<!-- requires:');
+    expect(claudeRef).not.toContain('<!-- /requires -->');
+
+    const opencodeRef = readFileSync(
+      join(outDir, 'opencode', 'foo', 'references', 'foo.md'),
+      'utf8',
+    );
+    expect(opencodeRef).not.toContain('TeamCreate');
+    expect(opencodeRef).toContain('always-on intro');
+    expect(opencodeRef).toContain('always-on outro');
+  });
+
+  it('BuildSkills_ReferenceFile_RuntimeClaudeOnlyCodeBlock_Elided', () => {
+    // A fenced code block tagged `runtime:claude-only` inside a reference
+    // must survive in the Claude render and elide wholesale in non-Claude
+    // renders, matching SKILL.md semantics.
+    const root = makeTempDir();
+    const srcDir = join(root, 'skills-src');
+    const outDir = join(root, 'skills');
+    const runtimesDir = join(root, 'runtimes');
+    mkdirSync(join(srcDir, 'foo', 'references'), { recursive: true });
+    writeFileSync(
+      join(srcDir, 'foo', 'SKILL.md'),
+      ['# Foo', 'See [foo](references/foo.md) for details.'].join('\n'),
+    );
+    writeFileSync(
+      join(srcDir, 'foo', 'references', 'foo.md'),
+      [
+        'always-on intro',
+        '',
+        '```ts runtime:claude-only',
+        'TaskOutput({ task_id: x, block: true })',
+        '```',
+        '',
+        'always-on outro',
+      ].join('\n'),
+    );
+    writeWaveCRuntimeFixtures(runtimesDir);
+
+    buildAllSkills({ srcDir, outDir, runtimesDir });
+
+    const claudeRef = readFileSync(
+      join(outDir, 'claude', 'foo', 'references', 'foo.md'),
+      'utf8',
+    );
+    expect(claudeRef).toContain('TaskOutput({ task_id: x, block: true })');
+
+    const opencodeRef = readFileSync(
+      join(outDir, 'opencode', 'foo', 'references', 'foo.md'),
+      'utf8',
+    );
+    // The entire block (call + fences + info-string) is gone.
+    expect(opencodeRef).not.toContain('TaskOutput');
+    expect(opencodeRef).not.toContain('runtime:claude-only');
+    expect(opencodeRef).toContain('always-on intro');
+    expect(opencodeRef).toContain('always-on outro');
+  });
+
+  it('VocabularyLint_ForbiddenTermInReferenceFile_FailsCI', () => {
+    // A forbidden term lives in an unguarded reference body. The lint must
+    // fire for non-Claude renders and the diagnostic must point at the
+    // reference file path (not the SKILL.md path) so authors can jump
+    // straight to the offender.
+    const root = makeTempDir();
+    const srcDir = join(root, 'skills-src');
+    const outDir = join(root, 'skills');
+    const runtimesDir = join(root, 'runtimes');
+    mkdirSync(join(srcDir, 'foo', 'references'), { recursive: true });
+    writeFileSync(
+      join(srcDir, 'foo', 'SKILL.md'),
+      ['# Foo', 'See [bad](references/bad.md).'].join('\n'),
+    );
+    writeFileSync(
+      join(srcDir, 'foo', 'references', 'bad.md'),
+      [
+        'always-on intro',
+        '',
+        'uses TaskList for coordination',
+        '',
+        'always-on outro',
+      ].join('\n'),
+    );
+    writeWaveCRuntimeFixtures(runtimesDir);
+
+    let err: Error | undefined;
+    try {
+      buildAllSkills({ srcDir, outDir, runtimesDir });
+    } catch (e) {
+      err = e as Error;
+    }
+    expect(err).toBeDefined();
+    expect(err!.message).toContain('TaskList');
+    expect(err!.message).toContain('opencode');
+    // The diagnostic must point at the reference file, not at SKILL.md.
+    // (The exact term lives in references/bad.md, line 3.)
+    expect(err!.message).toMatch(/references\/bad\.md/);
+    expect(err!.message).not.toMatch(/foo\/SKILL\.md:/);
+    expect(err!.message).toMatch(/:3/);
+    expect(err!.message).toMatch(/requires:|runtime:claude-only/);
+  });
+
+  it('VocabularyLint_RealDelegationReferences_AllRuntimesPass', () => {
+    // Regression gate: build the real `skills-src/` tree against the real
+    // `runtimes/` YAMLs and confirm Wave C's source migration + renderer
+    // extension keeps every runtime free of forbidden Claude-only prose.
+    // This test pins the migrated state so future PRs to references can't
+    // silently re-introduce a leak.
+    const REPO_SRC_DIR = resolve(__dirname, '..', 'skills-src');
+    const REPO_RUNTIMES_DIR_C = resolve(__dirname, '..', 'runtimes');
+    const root = makeTempDir();
+    const outDir = join(root, 'skills-out');
+
+    expect(() =>
+      buildAllSkills({
+        srcDir: REPO_SRC_DIR,
+        outDir,
+        runtimesDir: REPO_RUNTIMES_DIR_C,
+      }),
+    ).not.toThrow();
   });
 });

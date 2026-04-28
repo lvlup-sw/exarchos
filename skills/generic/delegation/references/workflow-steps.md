@@ -53,33 +53,15 @@ Task({
 })
 ```
 
-### Agent Teams Dispatch (enhanced)
-
-When using `--mode agent-team`:
-1. **Pre-delegation intelligence:** Query `exarchos_view team_performance` for historical metrics
-2. **Team creation:** Create team with named teammates, each assigned to a worktree
-3. **Task list setup:** Create native Claude Code tasks with dependency annotations
-4. **Natural language delegation:** Describe tasks to teammates with full implementer prompt content (MUST include Commit Strategy section with `git commit`/`git push` instructions)
-5. **Event emission:** Append `team.spawned` event with `event.data`: teamSize, teammateNames, taskCount, dispatchMode
-
-Teammates self-coordinate via shared task list. No `Task()` calls needed.
 
 ## Step 5: Monitor Progress
 
-For background tasks:
-```typescript
-TaskOutput({ task_id: "task-001-id", block: true })
+For background tasks, collect results using the runtime's result-collection primitive:
+```text
+[task output is the assistant's next message]
 ```
+If the runtime uses a poll/await API, pass the `task_id` returned at dispatch time. Inline-reply runtimes deliver results as the subagent's next message — no `task_id` is needed.
 
-### Agent Teams Monitoring (enhanced)
-
-When using `--mode agent-team`:
-- Teammates visible in tmux split panes
-- `TeammateIdle` hook auto-runs quality gates (typecheck, tests, clean worktree)
-- On quality pass: emits `team.task.completed` event with performance data
-- On quality fail: exit code 2 sends feedback, emits `team.task.failed` event
-- Hook scans task graph for newly unblocked tasks for teammates to claim
-- Orchestrator monitors via `exarchos_view delegation_timeline` for bottleneck detection
 
 ## Step 6: Collect Results
 
@@ -104,15 +86,6 @@ exarchos_orchestrate({
 
 **On `passed: false`:** Failures detected. Review the per-task status report. Address incomplete tasks or failing tests before proceeding.
 
-### Agent Teams Collection (enhanced)
-
-When using `--mode agent-team`:
-- `TeammateIdle` hook bridges real-time Agent Teams with persistent Exarchos state
-- On quality gate pass: task marked "complete" + `team.task.completed` event emitted
-- On quality gate fail: exit code 2 sends feedback + `team.task.failed` event emitted
-- Rich event data: taskId, teammateName, durationMs, filesChanged, testsPassed
-- After all teammates finish: append `team.disbanded` event with summary metrics
-- Run `exarchos_orchestrate({ action: "post_delegation_check" })` as usual for final validation
 
 ## Step 7: Schema Sync (Auto-Detection)
 

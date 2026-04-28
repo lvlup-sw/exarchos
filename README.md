@@ -69,6 +69,29 @@ The CLI is the universal surface. Each runtime talks to it through whichever inv
 | **GitHub Copilot CLI** | CLI | First-class | Via Copilot's runtime |
 | Anything else | CLI | Generic bundle | Whatever your agent supports |
 
+### Capability matrix
+
+What each runtime supports, by capability. Generated from `runtimes/<name>.yaml`'s `supportedCapabilities` map — the same source-of-truth the skill renderer uses to gate `<!-- requires:* -->` blocks. See [`skills-src/SKILL_AUTHORING.md`](skills-src/SKILL_AUTHORING.md) for the authoring contract.
+
+<!-- BEGIN-CAPABILITY-MATRIX -->
+| Capability | claude | codex | copilot | cursor | opencode | generic |
+|------------|:------:|:-----:|:-------:|:------:|:--------:|:-------:|
+| fs:read | ● | ● | ● | ● | ● | – |
+| fs:write | ● | ● | ● | ● | ● | – |
+| shell:exec | ● | ● | ● | ● | ● | – |
+| subagent:spawn | ● | ● | ● | ● | ● | – |
+| subagent:completion-signal | ● | ○ | ○ | ○ | ○ | – |
+| subagent:start-signal | ● | ○ | ○ | ○ | ○ | – |
+| mcp:exarchos | ● | ● | ● | ● | ● | – |
+| isolation:worktree | ● | ◐ | ◐ | ◐ | ◐ | – |
+| team:agent-teams | ● | ○ | ○ | ○ | ○ | – |
+| session:resume | ● | ◐ | ◐ | ◐ | ◐ | – |
+
+**Legend:** `●` native (first-class runtime primitive) · `◐` advisory (orchestrator-managed, no enforcement primitive) · `○` unsupported (omitted from runtime map by contract) · `–` unknown (runtime declares no capability map yet — fallback target).
+<!-- END-CAPABILITY-MATRIX -->
+
+Claude Code is the reference target — every capability is native there. Other runtimes are degraded gracefully: capabilities marked advisory are still usable but rely on orchestrator coordination rather than a runtime-enforced primitive, and unsupported capabilities are skipped at render time so skills don't reference primitives the runtime can't honor.
+
 ## Install
 
 The CLI works universally. For Claude Code, the recommended install path is the plugin.

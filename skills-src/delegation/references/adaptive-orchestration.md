@@ -1,5 +1,6 @@
 # Adaptive Orchestration
 
+<!-- requires:team:agent-teams -->
 When using Agent Teams mode, the orchestrator can leverage historical data for smarter team composition.
 
 ## Pre-Delegation Intelligence
@@ -29,3 +30,4 @@ Two CQRS views provide team analytics:
 
 - `exarchos_view` with `action: 'team_performance'` -- Query before delegation for team sizing and module assignment. Returns teammate metrics (tasks completed, avg duration, module expertise, quality gate pass rates) and team sizing recommendations.
 - `exarchos_view` with `action: 'delegation_timeline'` -- Query after delegation for retrospective analysis. Returns task timeline with bottleneck detection (longest task, blocking dependencies).
+<!-- /requires -->

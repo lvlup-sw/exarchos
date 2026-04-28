@@ -1,13 +1,11 @@
 # Cursor CLI runtime map.
 #
-# Cursor CLI (`cursor-agent`, also invoked as `cursor`) has no in-session
-# subagent primitive comparable to Claude's `Task` tool or Codex's
-# `spawn_agent`. Exarchos therefore degrades delegation on Cursor to
-# sequential execution in the current session and emits a single
-# operator-visible warning per batch so the user is never quietly
-# serialised without knowing.
+# Cursor 2.5 (early 2026) shipped native sub-agents: Markdown with YAML
+# frontmatter at `.cursor/agents/<name>.md`, invoked via the `Task` tool
+# with the same shape as Claude. Exarchos targets that primitive
+# directly — `SPAWN_AGENT_CALL` mirrors Claude's `Task({...})` invocation.
 #
-# Slash commands, hooks, and skill chaining are all marked false because
+# Slash commands, hooks, and skill chaining are still marked false because
 # even when Cursor provides command-palette-like UX, exposing them to
 # Exarchos in a runtime-agnostic way would require per-session wiring we
 # do not have. Skills install to `~/.cursor/skills` to match the rest of
@@ -17,6 +15,16 @@
 # by Cursor) and `cursor` (the Electron GUI's CLI shim) because either
 # can be the entry point depending on how the user installed.
 #
+# `supportedCapabilities` mirrors `cursorAdapter.supportLevels` in
+# `servers/exarchos-mcp/src/agents/adapters/cursor.ts`:
+#   - 5 native: `fs:read`, `fs:write`, `shell:exec`, `subagent:spawn`, `mcp:exarchos`
+#   - 2 advisory: `isolation:worktree` (orchestrator manages worktree
+#     fan-out; the runtime cannot enforce the boundary), `session:resume`
+#     (Cursor has session continuity but no first-class resume primitive
+#     Exarchos can bind to)
+#   - unsupported (omitted by contract): `subagent:completion-signal`,
+#     `subagent:start-signal`, `team:agent-teams` — Claude-only primitives
+#
 # Implements: DR-4, DR-5 (cursor), DR-6, OQ-4
 name: cursor
 # preferredFacade: mcp — Cursor has first-class MCP client support via
@@ -24,11 +32,19 @@ name: cursor
 # See documentation/facade-and-deployment.md for facade selection rationale.
 preferredFacade: mcp
 capabilities:
-  hasSubagents: false
+  hasSubagents: true
   hasSlashCommands: false
   hasHooks: false
   hasSkillChaining: false
   mcpPrefix: "mcp__exarchos__"
+supportedCapabilities:
+  fs:read: native
+  fs:write: native
+  shell:exec: native
+  subagent:spawn: native
+  mcp:exarchos: native
+  isolation:worktree: advisory
+  session:resume: advisory
 skillsInstallPath: "~/.cursor/skills"
 detection:
   binaries:
@@ -38,9 +54,24 @@ detection:
 placeholders:
   MCP_PREFIX: "mcp__exarchos__"
   COMMAND_PREFIX: ""
-  TASK_TOOL: "[sequential execution]"
+  TASK_TOOL: "Task"
   CHAIN: "[Invoke the exarchos:{{next}} skill with args: {{args}}]"
+  # `{{agent}}` is filled in by the dispatcher with the spec id
+  # (implementer | fixer | reviewer | scaffolder) so each delegation
+  # routes to the matching `.cursor/agents/<id>.md` definition.
+  # `{{description}}` and `{{prompt}}` are filled with task metadata —
+  # JSON-string semantics, so embedded `"` and newlines must be escaped.
   SPAWN_AGENT_CALL: |
-    Cursor CLI has no in-session subagent primitive. Execute each task sequentially
-    in the current session, visiting each worktree in turn. Emit a single warning
-    once per delegation batch so operators know they are not getting parallelism.
+    Task({
+      subagent_type: "{{agent}}",
+      description: "{{description}}",
+      prompt: "{{prompt}}"
+    })
+  # Wave A (P4 prose layer) — Cursor 2.5 has no completion hook; prose
+  # describes a poll-based signal.
+  SUBAGENT_COMPLETION_HOOK: "subagent completion signal (poll-based)"
+  # Cursor's `Task({...})` call returns the subagent's reply inline in
+  # the assistant turn that issued it — there is no separate poll API.
+  # Prose describes that semantics directly so the rendered skill is
+  # actionable rather than abstract.
+  SUBAGENT_RESULT_API: "Task() reply (inline)"
