@@ -154,3 +154,68 @@ describe('ClaudeAdapter_GenerateMarkdown_HandlesYamlSpecialChars', () => {
     expect(parsed.disallowedTools).toEqual(['Agent', 'Server:Restart']);
   });
 });
+
+// ─── mcp:exarchos:readonly capability wiring (#1192 Item 1, T06) ──────────
+//
+// The readonly capability tier is enforced server-side at dispatch time
+// (see `READ_ONLY_ACTIONS` + `enforceReadonlyGate` in core/dispatch.ts,
+// task T04). Claude Code's frontmatter only grants/denies MCP servers at
+// the whole-server granularity (`mcpServers: ["exarchos"]`) — there is no
+// per-action allowlist surface in the agent file format. Therefore an
+// agent whose ONLY mcp tier is `mcp:exarchos:readonly` must still receive
+// the `mcpServers: ["exarchos"]` grant in frontmatter; the dispatch-layer
+// gate handles per-action enforcement at runtime.
+//
+// Without this wiring, a spec carrying only `mcp:exarchos:readonly` would
+// render frontmatter that omits the exarchos server entirely, leaving the
+// agent unable to invoke even the read-only action subset.
+describe('ClaudeAdapter_LowerSpec_McpReadonlyTier', () => {
+  function withOverrides(spec: AgentSpec, overrides: Partial<AgentSpec>): AgentSpec {
+    return { ...spec, ...overrides };
+  }
+
+  it('ClaudeAdapter_LowerSpec_ReadonlyMaps_To_ExarchosMcpServerGrant', () => {
+    // Spec holds `mcp:exarchos:readonly` (and NOT `mcp:exarchos`).
+    // Expect the adapter to still emit the `exarchos` server entry so
+    // the agent can reach the dispatch-layer readonly gate at all.
+    const spec = withOverrides(IMPLEMENTER, {
+      capabilities: ['fs:read', 'mcp:exarchos:readonly'],
+    });
+    const md = generateClaudeAgentMarkdown(spec);
+    const fm = parseYaml(extractFrontmatter(md)) as Record<string, unknown>;
+    expect(fm.mcpServers).toEqual(['exarchos']);
+  });
+
+  it('ClaudeAdapter_LowerSpec_FullMcpCap_StillEmitsExarchosServerGrant', () => {
+    // Sanity: pre-existing behavior unchanged for `mcp:exarchos`.
+    const spec = withOverrides(IMPLEMENTER, {
+      capabilities: ['fs:read', 'mcp:exarchos'],
+    });
+    const md = generateClaudeAgentMarkdown(spec);
+    const fm = parseYaml(extractFrontmatter(md)) as Record<string, unknown>;
+    expect(fm.mcpServers).toEqual(['exarchos']);
+  });
+
+  it('ClaudeAdapter_LowerSpec_NoMcpCap_OmitsMcpServersField', () => {
+    // Sanity: when neither tier is present, `mcpServers` is not emitted
+    // at all (so the readonly wiring is provably gated on capability,
+    // not unconditional).
+    const spec = withOverrides(IMPLEMENTER, {
+      capabilities: ['fs:read'],
+    });
+    const md = generateClaudeAgentMarkdown(spec);
+    const fm = parseYaml(extractFrontmatter(md)) as Record<string, unknown>;
+    expect(fm.mcpServers).toBeUndefined();
+  });
+
+  it('ClaudeAdapter_ValidateSupport_ReadonlyTier_IsNative', () => {
+    // Claude is the reference runtime — every capability is `native`.
+    // The readonly tier was added to the Capability enum in T03; if the
+    // claude support map weren't refreshed, validateSupport would reject
+    // a spec that uses it.
+    const spec = withOverrides(IMPLEMENTER, {
+      capabilities: ['fs:read', 'mcp:exarchos:readonly'],
+    });
+    expect(claudeAdapter.validateSupport(spec)).toEqual({ ok: true });
+  });
+});
