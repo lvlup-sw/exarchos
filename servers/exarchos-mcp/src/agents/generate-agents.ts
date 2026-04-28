@@ -43,6 +43,7 @@ import {
   type Runtime,
   type RuntimeAdapter,
 } from './adapters/types.js';
+import { readPluginManifest, writePluginManifest } from './plugin-manifest.js';
 
 // ─── Default registry ──────────────────────────────────────────────────────
 
@@ -224,6 +225,10 @@ function validateAllPairs(
  * a partially regenerated tree.
  */
 function preflightPluginJson(pluginJsonPath: string): void {
+  // Preserve the structured GenerateAgentsError on missing-file so callers
+  // (and tests) keep the same operator-facing failure shape; everything
+  // else (JSON syntax, schema violations) is delegated to
+  // readPluginManifest which throws a descriptive plain Error.
   if (!fs.existsSync(pluginJsonPath)) {
     throw new GenerateAgentsError([
       {
@@ -236,31 +241,7 @@ function preflightPluginJson(pluginJsonPath: string): void {
       },
     ]);
   }
-  let raw: string;
-  try {
-    raw = fs.readFileSync(pluginJsonPath, 'utf-8');
-  } catch (err) {
-    throw new Error(
-      `generateAgents: failed to read plugin manifest at ${pluginJsonPath}: ${
-        (err as Error).message
-      }`,
-    );
-  }
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch (err) {
-    throw new Error(
-      `generateAgents: plugin manifest at ${pluginJsonPath} is not valid JSON: ${
-        (err as Error).message
-      }`,
-    );
-  }
-  if (typeof parsed !== 'object' || parsed === null) {
-    throw new Error(
-      `generateAgents: plugin manifest at ${pluginJsonPath} must be a JSON object`,
-    );
-  }
+  readPluginManifest(pluginJsonPath);
 }
 
 /**
@@ -277,34 +258,13 @@ function updatePluginJson(
   pluginJsonPath: string,
   specs: readonly AgentSpec[],
 ): void {
-  let raw: string;
-  try {
-    raw = fs.readFileSync(pluginJsonPath, 'utf-8');
-  } catch (err) {
-    throw new Error(
-      `generateAgents: failed to read plugin manifest at ${pluginJsonPath}: ${
-        (err as Error).message
-      }`,
-    );
-  }
-  // Already preflighted; re-parse defensively in case the manifest
-  // changed between preflight and write (rare but possible during
-  // concurrent runs).
-  const manifest = JSON.parse(raw) as { agents?: unknown; [k: string]: unknown };
+  // Re-read defensively in case the manifest changed between preflight
+  // and write (rare but possible during concurrent runs). The write goes
+  // through atomicWriteFile (temp + fsync + rename) via writePluginManifest
+  // so concurrent readers never observe a partial write.
+  const manifest = readPluginManifest(pluginJsonPath);
   manifest.agents = specs.map((s) => `./agents/${s.id}.md`);
-  try {
-    fs.writeFileSync(
-      pluginJsonPath,
-      JSON.stringify(manifest, null, 2) + '\n',
-      'utf-8',
-    );
-  } catch (err) {
-    throw new Error(
-      `generateAgents: failed to write plugin manifest at ${pluginJsonPath}: ${
-        (err as Error).message
-      }`,
-    );
-  }
+  writePluginManifest(pluginJsonPath, manifest);
 }
 
 // ─── Entry point ───────────────────────────────────────────────────────────
