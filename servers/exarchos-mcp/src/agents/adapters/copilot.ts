@@ -26,6 +26,11 @@
 //   shell:exec                  → `shell`
 //   subagent:spawn              → `task`
 //   mcp:exarchos                → `mcp__exarchos` tool entry only
+//   mcp:exarchos:readonly       → `mcp__exarchos` (same tool name; the
+//                                 server-side dispatch gate from T04 is
+//                                 what enforces the readonly action
+//                                 allowlist — Copilot's tool array has
+//                                 no per-action sub-grant primitive)
 //   isolation:worktree          → advisory; emits no tool entry
 //   subagent:start-signal       → unsupported (Copilot has no equivalent hook)
 //   subagent:completion-signal  → unsupported
@@ -63,6 +68,7 @@ const CAPABILITY_TO_TOOL: Record<Capability, string | null> = {
   'shell:exec': 'shell',
   'subagent:spawn': 'task',
   'mcp:exarchos': 'mcp__exarchos',
+  'mcp:exarchos:readonly': 'mcp__exarchos',
   'isolation:worktree': null,
   'subagent:start-signal': null,
   'subagent:completion-signal': null,
