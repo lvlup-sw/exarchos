@@ -12,6 +12,7 @@
 //   - model: 'fast' | 'inherit' | <model>    (we always emit 'inherit')
 //   - readonly: bool (default false)         (true → spec lacks fs:write)
 //   - is_background: bool (default false)
+//   - mcp?: Record<string, true>             (per-server enablement)
 //
 // Isolation note: Cursor does NOT have an explicit `isolation:worktree`
 // mode equivalent to Claude's worktree-isolated subagents. The
@@ -61,6 +62,35 @@ interface CursorFrontmatter {
   mcp?: Record<string, true>;
 }
 
+/**
+ * Strip the hard "STOP if pwd doesn't contain `.worktrees/`" worktree
+ * guard from a systemPrompt when the target runtime treats
+ * `isolation:worktree` as advisory rather than native (Cursor's case
+ * today — see CURSOR_SUPPORT_LEVELS).
+ *
+ * The guard lives in two known H2 subsections in the canonical specs
+ * (`definitions.ts`):
+ *   - `## Worktree Verification` — the startup STOP block
+ *   - `## Worktree Hygiene (MANDATORY ...)` — the extended per-command rules
+ *
+ * Both are predicated on the runtime actually placing the agent inside
+ * a `.worktrees/` path; under advisory isolation that assumption fails
+ * and the guards would always trip.
+ *
+ * The match is conservative: anchored on the exact H2 headings and
+ * stops at the next H2 (or end of string). If a future spec drops these
+ * sections or renames the headings, this is a silent no-op rather than
+ * an over-eager strip that clobbers unrelated content.
+ *
+ * The source `definitions.ts` IMPLEMENTER/SCAFFOLDER specs keep the
+ * guards verbatim (Claude and other native-isolation runtimes still
+ * need them).
+ */
+function stripAdvisoryWorktreeGuard(systemPrompt: string): string {
+  const pattern = /(?:^|\n)## Worktree (?:Verification|Hygiene)[^\n]*\n[\s\S]*?(?=\n## |\n?$)/g;
+  return systemPrompt.replace(pattern, '');
+}
+
 function lowerSpec(spec: AgentSpec): { path: string; contents: string } {
   const readonly = !spec.capabilities.includes('fs:write');
 
@@ -75,10 +105,7 @@ function lowerSpec(spec: AgentSpec): { path: string; contents: string } {
   // Item 1, T09: grant the exarchos MCP server when either capability tier
   // is present. Both tiers map to the same server entry — the readonly
   // distinction is enforced server-side via the action allowlist gate
-  // (see core/dispatch.ts), not at the cursor adapter layer. The
-  // less-restrictive sibling (`mcp:exarchos`) wins on merge per the
-  // handshake-authoritative resolver, but at the YAML level both tiers
-  // result in the same `mcp.exarchos = true` grant.
+  // (see core/dispatch.ts), not at the cursor adapter layer.
   if (
     spec.capabilities.includes('mcp:exarchos') ||
     spec.capabilities.includes('mcp:exarchos:readonly')
@@ -86,8 +113,17 @@ function lowerSpec(spec: AgentSpec): { path: string; contents: string } {
     frontmatter.mcp = { exarchos: true };
   }
 
+  // Item 7, T29: Cursor treats `isolation:worktree` as advisory (see
+  // CURSOR_SUPPORT_LEVELS). Strip the hard guard so the rendered
+  // agent doesn't trip on a runtime that doesn't enforce worktree
+  // placement.
+  const renderedPrompt =
+    CURSOR_SUPPORT_LEVELS['isolation:worktree'] === 'advisory'
+      ? stripAdvisoryWorktreeGuard(spec.systemPrompt)
+      : spec.systemPrompt;
+
   const yaml = stringifyYaml(frontmatter).trimEnd();
-  const contents = `---\n${yaml}\n---\n${spec.systemPrompt}`;
+  const contents = `---\n${yaml}\n---\n${renderedPrompt}`;
 
   return { path: agentFilePath(spec.id), contents };
 }
