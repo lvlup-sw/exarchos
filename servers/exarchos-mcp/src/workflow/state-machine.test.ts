@@ -8,6 +8,7 @@ import {
   executeTransition,
 } from './state-machine.js';
 import type { SerializedTopology, WorkflowTypeSummary } from './state-machine.js';
+import { EXCLUDED_MERGE_PHASES } from './hsm-definitions.js';
 
 describe('serializeTopology', () => {
   it('SerializeTopology_FeatureWorkflow_ReturnsStatesAndTransitions', () => {
@@ -198,5 +199,97 @@ describe('Discovery workflow', () => {
     const result = executeTransition(hsm, state, 'cancelled');
     expect(result.success).toBe(true);
     expect(result.newPhase).toBe('cancelled');
+  });
+});
+
+// ─── Feature workflow merge-pending substate (T17 / DR-MO-1, DR-MO-2) ───────
+
+describe('Feature workflow merge-pending substate', () => {
+  it('exposes EXCLUDED_MERGE_PHASES as a reusable constant', () => {
+    // Sanity check: T19 will import this same constant.
+    expect(EXCLUDED_MERGE_PHASES).toBeInstanceOf(Set);
+    expect(EXCLUDED_MERGE_PHASES.has('completed')).toBe(true);
+    expect(EXCLUDED_MERGE_PHASES.has('rolled-back')).toBe(true);
+    expect(EXCLUDED_MERGE_PHASES.has('aborted')).toBe(true);
+    expect(EXCLUDED_MERGE_PHASES.has('pending')).toBe(false);
+    expect(EXCLUDED_MERGE_PHASES.has('executing')).toBe(false);
+  });
+
+  it('featureHsm_TaskCompletedWithWorktree_TransitionsToMergePending', () => {
+    const hsm = getHSMDefinition('feature');
+    const state = {
+      phase: 'delegate',
+      _events: [
+        {
+          type: 'task.completed',
+          data: {
+            taskId: 'T01',
+            worktree: '/path/to/worktree',
+          },
+        },
+      ],
+    };
+    const result = executeTransition(hsm, state, 'merge-pending');
+    expect(result.success).toBe(true);
+    expect(result.newPhase).toBe('merge-pending');
+  });
+
+  it('featureHsm_TaskCompletedWithoutWorktree_DoesNotTransitionToMergePending', () => {
+    const hsm = getHSMDefinition('feature');
+    const state = {
+      phase: 'delegate',
+      _events: [
+        {
+          type: 'task.completed',
+          data: {
+            taskId: 'T01',
+            // no worktree / worktreePath — task ran in-process
+          },
+        },
+      ],
+    };
+    const result = executeTransition(hsm, state, 'merge-pending');
+    expect(result.success).toBe(false);
+    expect(result.errorCode).toBe('GUARD_FAILED');
+  });
+
+  it('featureHsm_MergeCompletedEvent_LeavesMergePendingState', () => {
+    const hsm = getHSMDefinition('feature');
+    const state = {
+      phase: 'merge-pending',
+      mergeOrchestrator: { phase: 'completed' },
+      _events: [
+        {
+          type: 'task.completed',
+          data: { taskId: 'T01', worktree: '/path/to/worktree' },
+        },
+        {
+          type: 'merge.executed',
+          data: { taskId: 'T01' },
+        },
+      ],
+    };
+    const result = executeTransition(hsm, state, 'delegate');
+    expect(result.success).toBe(true);
+    expect(result.newPhase).toBe('delegate');
+  });
+
+  it('featureHsm_TaskCompletedWithWorktree_DoesNotTransitionWhenMergeCompleted', () => {
+    // Excluded phase guard: even with a worktree-bearing task.completed, do
+    // not re-enter merge-pending if the merge already terminated.
+    const hsm = getHSMDefinition('feature');
+    const state = {
+      phase: 'delegate',
+      mergeOrchestrator: { phase: 'completed' },
+      _events: [
+        {
+          type: 'task.completed',
+          data: { taskId: 'T01', worktree: '/path/to/worktree' },
+        },
+      ],
+    };
+    const result = executeTransition(hsm, state, 'merge-pending');
+    expect(result.success).toBe(false);
+    expect(result.errorCode).toBe('GUARD_FAILED');
   });
 });
