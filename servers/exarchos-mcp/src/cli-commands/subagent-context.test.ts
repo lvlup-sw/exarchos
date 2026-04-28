@@ -110,10 +110,10 @@ describe('subagent-context', () => {
       expect(deniedOrchestrate!.actions).toContain('assess_stack');
       // 4 original + 13 check_ actions + 20 new handler actions + 3 oneshot/prune actions
       // (prune_stale_workflows, request_synthesize, finalize_oneshot) + 1 classify_review_items
-      // (#1159) = 41.
+      // (#1159) + 1 merge_orchestrate (DR-MO-1) = 42.
       // Doctor now has ALL_PHASES so it's allowed, not denied.
       // Bump this number when new lead-only actions are registered.
-      expect(deniedOrchestrate!.actions).toHaveLength(41);
+      expect(deniedOrchestrate!.actions).toHaveLength(42);
     });
 
     it('should include event actions for delegate phase with teammate role', () => {
@@ -170,7 +170,8 @@ describe('subagent-context', () => {
       );
       expect(deniedOrchestrate).toBeDefined();
       // Bumped to 46 with the addition of classify_review_items (#1159).
-      expect(deniedOrchestrate!.actions.length).toBe(46);
+      // Bumped to 47 with the addition of merge_orchestrate (DR-MO-1).
+      expect(deniedOrchestrate!.actions.length).toBe(47);
     });
 
     it('should deny workflow init and cancel for teammate role', () => {

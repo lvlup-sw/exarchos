@@ -80,6 +80,7 @@ import { handleGetPrComments } from './vcs/get-pr-comments.js';
 import { handleAddPrComment } from './vcs/add-pr-comment.js';
 import { handleCreateIssue } from './vcs/create-issue.js';
 import { handleInit } from './init/index.js';
+import { handleMergeOrchestrate } from './merge-orchestrate.js';
 
 // ─── Action Router ──────────────────────────────────────────────────────────
 
@@ -237,6 +238,10 @@ const ACTION_HANDLERS: Readonly<Record<string, ActionHandler>> = {
   get_pr_comments: adaptCtx(handleGetPrComments),
   add_pr_comment: adaptCtx(handleAddPrComment),
   create_issue: adaptCtx(handleCreateIssue),
+  // Merge orchestrator (DR-MO-1) — composes preflight + executor under one
+  // public entry point. The internal `handleExecuteMerge` (T15) is NOT
+  // registered here; only `merge_orchestrate` is the public action verb.
+  merge_orchestrate: adaptCtx(handleMergeOrchestrate),
 };
 
 /** Exported for sync test — ensures registry.ts stays in sync with handler keys. */

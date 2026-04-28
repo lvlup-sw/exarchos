@@ -953,6 +953,29 @@ const orchestrateActions: readonly ToolAction[] = [
       { event: 'gate.executed', condition: 'always' },
     ],
   },
+  // ─── Merge Orchestrator (DR-MO-1) ─────────────────────────────────────────
+  {
+    name: 'merge_orchestrate',
+    description: 'Top-level merge orchestrator: runs preflight, emits merge.preflight, then delegates to the executor on pass. Handles abort/dryRun/resume per DR-MO-1.',
+    schema: z.object({
+      featureId: z.string().min(1),
+      sourceBranch: z.string().min(1),
+      targetBranch: z.string().min(1),
+      taskId: z.string().optional(),
+      strategy: z.enum(['squash', 'rebase', 'merge']).optional(),
+      dryRun: z.boolean().optional(),
+      resume: z.boolean().optional(),
+      repoRoot: z.string().optional(),
+      prId: z.string().optional(),
+    }),
+    phases: ALL_PHASES,
+    roles: ROLE_LEAD,
+    autoEmits: [
+      { event: 'merge.preflight', condition: 'always' },
+      { event: 'merge.executed', condition: 'conditional', description: 'When preflight passes and execute succeeds' },
+      { event: 'merge.rollback', condition: 'conditional', description: 'When execute fails after a merge SHA was produced' },
+    ],
+  },
   {
     name: 'check_task_decomposition',
     description: 'Task decomposition quality check at plan boundary. Emits gate.executed event with dimension D5.',
