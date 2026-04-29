@@ -94,12 +94,21 @@ jobs:
         with:
           node-version: '24'
           cache: npm
-          cache-dependency-path: servers/exarchos-mcp/package-lock.json
+          cache-dependency-path: |
+            package-lock.json
+            servers/exarchos-mcp/package-lock.json
 
       # `compiled-binary-mcp.test.ts` shells out to
       # `bun run scripts/build-binary.ts` from the repo root — bun must
       # be on PATH or the spawn fails with `exit null`.
       - uses: oven-sh/setup-bun@v2
+
+      # Install root deps so `bun build --compile` can resolve
+      # `@inquirer/prompts` (root dep) reached via the install-skills
+      # bridge module when bundling `servers/exarchos-mcp/src/index.ts`.
+      - name: Install root dependencies
+        working-directory: ${{ github.workspace }}
+        run: npm ci
 
       - run: npm ci
       - run: npx tsc --noEmit
