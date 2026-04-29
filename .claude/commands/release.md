@@ -110,23 +110,32 @@ gh release view "v${VERSION}"               # confirm 10 assets attached
 
 If `publish-release` ever attaches a different number of assets, the invariant is enforced by `scripts/release-workflow.test.ts` — fix the matrix or the test, never bypass.
 
-### 7. (Optional) Local plugin cache sync
+### 7. Bump the marketplace pin (REQUIRED)
 
-The marketplace sync is orthogonal to the binary release — it updates the `lvlup-sw` marketplace clone so your *local Claude Code session* picks up the new plugin version without waiting for the CDN. End users installing via `curl … | bash` don't need this.
+The `lvlup-sw/.github` marketplace `marketplace.json` declares the version that `/plugin install exarchos@lvlup-sw` will resolve. **End users installing through Claude Code's plugin path resolve through this file** — if it isn't bumped, the published npm version is unreachable via the plugin surface and `/plugin install` keeps serving the previous pin (or a stale npm-cache entry of it). The bootstrap installer (`curl … | bash`) is independent of this; the plugin path is not.
 
 ```bash
-bash scripts/sync-marketplace.sh            # bumps marketplace.json + prunes stale cache
-bash scripts/sync-marketplace.sh --check    # verify
+bash scripts/sync-marketplace.sh            # bumps marketplace.json + prunes stale cache + pushes
+bash scripts/sync-marketplace.sh --check    # verify after
 ```
 
-If the push fails (branch protection on the marketplace repo), push it manually:
+The script commits and pushes to `lvlup-sw/.github` automatically. If the push fails (branch protection or stale local clone), resolve it before moving on — do not skip this step:
 
 ```bash
 cd ~/.claude/plugins/marketplaces/lvlup-sw
+git pull --rebase origin main
 git push origin main
 ```
 
-### 8. Smoke-test the install (recommended for `-rc` tags)
+Verify the remote actually advanced:
+
+```bash
+gh api repos/lvlup-sw/.github/contents/.claude-plugin/marketplace.json --jq '.content' \
+  | base64 -d | jq -r '.plugins[] | select(.name=="exarchos") | .version'
+# must print ${VERSION}
+```
+
+### 8. Smoke-test the install (REQUIRED for `-rc` tags)
 
 The whole point of an rc tag is to dogfood the install path before stable. Run it.
 
@@ -154,7 +163,7 @@ Tell the user:
 - The version that was released
 - Tag created and pushed
 - GitHub Release URL (`gh release view "v${VERSION}" --json url --jq .url`)
-- Whether the marketplace was synced
+- Marketplace pin bumped (verified via the `gh api` check in step 7)
 - For `-rc` tags: the exact `bash scripts/get-exarchos.sh --version v${VERSION}` command
 
 ---
