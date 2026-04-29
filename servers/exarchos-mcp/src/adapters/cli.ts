@@ -575,27 +575,15 @@ export function buildCli(ctx: DispatchContext): Command {
     .option('--agent <name>', 'Target agent runtime (claude, codex, opencode, copilot, cursor, generic). Auto-detected when omitted.')
     .action(async (opts: { agent?: string }) => {
       try {
-        const installSkillsSpecifier = '../../../../src/install-skills.js';
-        const embeddedSpecifier = '../../../../src/runtimes/embedded.js';
-        const [installSkillsMod, embeddedMod] = await Promise.all([
-          import(installSkillsSpecifier),
-          import(embeddedSpecifier),
-        ]);
-        const installSkills = (
-          installSkillsMod as {
-            installSkills: (args: {
-              agent?: string;
-              runtimes: unknown[];
-            }) => Promise<void>;
-          }
-        ).installSkills;
-        const loadEmbeddedRuntimes = (
-          embeddedMod as {
-            loadEmbeddedRuntimes: () => Record<string, unknown>;
-          }
-        ).loadEmbeddedRuntimes;
-        const runtimes = Object.values(loadEmbeddedRuntimes());
-        await installSkills({ agent: opts.agent, runtimes });
+        // Bridge file imports `installSkills()` + the embedded runtime
+        // loader from the workspace-root `src/` tree. The bridge is
+        // excluded from MCP server tsc (rootDir: ./src) but still bundled
+        // by `bun build --compile`, which follows static imports
+        // regardless of tsc's rootDir contract.
+        const { runInstallSkills } = await import(
+          '../cli-commands/install-skills-bridge.js'
+        );
+        await runInstallSkills({ agent: opts.agent });
         process.exitCode = CLI_EXIT_CODES.SUCCESS;
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);

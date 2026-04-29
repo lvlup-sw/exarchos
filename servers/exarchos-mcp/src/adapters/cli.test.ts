@@ -570,22 +570,16 @@ describe('commanderErrorToResult mapping table (F-024-CMDR)', () => {
 // ─── #1201: install-skills Commander subcommand ─────────────────────────────
 //
 // Asserts that `exarchos install-skills --agent <name>` is registered on the
-// CLI program and that the action handler calls `installSkills()` from the
-// root `src/install-skills.ts` module with the runtime maps loaded from the
-// embedded codegen module. The installer is stubbed so no spawn/IO happens.
+// CLI program and that the action handler delegates to the bridge module
+// with the resolved agent name. The bridge owns the cross-package import of
+// the root `src/install-skills.ts` and embedded runtime maps; mocking it
+// here keeps the dispatcher contract test focused on Commander wiring.
 
-const installSkillsMock =
-  vi.fn<(opts: Record<string, unknown>) => Promise<void>>();
+const installSkillsBridgeMock =
+  vi.fn<(opts: { agent?: string }) => Promise<void>>();
 
-vi.mock('../../../../src/install-skills.js', () => ({
-  installSkills: (opts: Record<string, unknown>) => installSkillsMock(opts),
-}));
-
-vi.mock('../../../../src/runtimes/embedded.js', () => ({
-  loadEmbeddedRuntimes: () => ({
-    claude: { name: 'claude', skillsInstallPath: '~/.claude/skills' },
-    generic: { name: 'generic', skillsInstallPath: '~/.agents/skills' },
-  }),
+vi.mock('../cli-commands/install-skills-bridge.js', () => ({
+  runInstallSkills: (opts: { agent?: string }) => installSkillsBridgeMock(opts),
 }));
 
 describe('install-skills subcommand', () => {
@@ -593,7 +587,7 @@ describe('install-skills subcommand', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    installSkillsMock.mockResolvedValue();
+    installSkillsBridgeMock.mockResolvedValue();
     ctx = createTestContext();
   });
 
@@ -608,17 +602,9 @@ describe('install-skills subcommand', () => {
       'claude',
     ]);
 
-    expect(installSkillsMock).toHaveBeenCalledTimes(1);
-    const call = installSkillsMock.mock.calls[0]?.[0] as
-      | Record<string, unknown>
-      | undefined;
+    expect(installSkillsBridgeMock).toHaveBeenCalledTimes(1);
+    const call = installSkillsBridgeMock.mock.calls[0]?.[0];
     expect(call).toBeDefined();
     expect(call?.agent).toBe('claude');
-    // Handler must pass the embedded runtime maps to the installer so the
-    // resolved `claude` runtime is reachable without re-loading YAML at
-    // user-install time.
-    const runtimes = call?.runtimes as Array<{ name: string }> | undefined;
-    expect(runtimes).toBeDefined();
-    expect(runtimes?.some((r) => r.name === 'claude')).toBe(true);
   });
 });
