@@ -566,3 +566,45 @@ describe('commanderErrorToResult mapping table (F-024-CMDR)', () => {
     expect(exitCode).toBe(CLI_EXIT_CODES.UNCAUGHT_EXCEPTION);
   });
 });
+
+// ─── #1201: install-skills Commander subcommand ─────────────────────────────
+//
+// Asserts that `exarchos install-skills --agent <name>` is registered on the
+// CLI program and that the action handler delegates to the bridge module
+// with the resolved agent name. The bridge owns the cross-package import of
+// the root `src/install-skills.ts` and embedded runtime maps; mocking it
+// here keeps the dispatcher contract test focused on Commander wiring.
+
+const installSkillsBridgeMock =
+  vi.fn<(opts: { agent?: string }) => Promise<void>>();
+
+vi.mock('../cli-commands/install-skills-bridge.js', () => ({
+  runInstallSkills: (opts: { agent?: string }) => installSkillsBridgeMock(opts),
+}));
+
+describe('install-skills subcommand', () => {
+  let ctx: DispatchContext;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    installSkillsBridgeMock.mockResolvedValue();
+    ctx = createTestContext();
+  });
+
+  it('cli_InstallSkillsSubcommand_DispatchesToInstaller', async () => {
+    const program = buildCli(ctx);
+
+    await program.parseAsync([
+      'node',
+      'exarchos',
+      'install-skills',
+      '--agent',
+      'claude',
+    ]);
+
+    expect(installSkillsBridgeMock).toHaveBeenCalledTimes(1);
+    const call = installSkillsBridgeMock.mock.calls[0]?.[0];
+    expect(call).toBeDefined();
+    expect(call?.agent).toBe('claude');
+  });
+});
