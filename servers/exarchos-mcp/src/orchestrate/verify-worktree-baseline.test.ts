@@ -3,15 +3,20 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 vi.mock('node:fs', () => ({
   existsSync: vi.fn(),
   readdirSync: vi.fn(),
+  readFileSync: vi.fn(),
 }));
 
 vi.mock('node:child_process', () => ({
   execFileSync: vi.fn(),
 }));
 
-import { existsSync, readdirSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { handleVerifyWorktreeBaseline } from './verify-worktree-baseline.js';
+
+// Helper: package.json contents declaring a `test:run` script (required by the
+// resolver's npm code path).
+const NPM_PACKAGE_JSON = JSON.stringify({ scripts: { 'test:run': 'vitest run' } });
 
 describe('handleVerifyWorktreeBaseline', () => {
   const stateDir = '/tmp/test-state';
@@ -22,12 +27,16 @@ describe('handleVerifyWorktreeBaseline', () => {
 
   it('NodeProject_TestsPass_ReturnsPassedTrue', async () => {
     vi.mocked(existsSync).mockImplementation((p) => {
-      if (String(p) === '/worktree') return true;
-      if (String(p) === '/worktree/package.json') return true;
-      if (String(p) === '/worktree/Cargo.toml') return false;
+      const s = String(p);
+      if (s === '/worktree') return true;
+      if (s === '/worktree/package.json') return true;
       return false;
     });
     vi.mocked(readdirSync).mockReturnValue([]);
+    vi.mocked(readFileSync).mockImplementation((p) => {
+      if (String(p).endsWith('package.json')) return NPM_PACKAGE_JSON;
+      throw new Error(`unexpected readFileSync: ${String(p)}`);
+    });
     vi.mocked(execFileSync).mockReturnValue('Tests passed\n');
 
     const result = await handleVerifyWorktreeBaseline({ worktreePath: '/worktree' }, stateDir);
@@ -42,9 +51,8 @@ describe('handleVerifyWorktreeBaseline', () => {
 
   it('DotNetProject_TestsPass_ReturnsPassedTrue', async () => {
     vi.mocked(existsSync).mockImplementation((p) => {
-      if (String(p) === '/worktree') return true;
-      if (String(p) === '/worktree/package.json') return false;
-      if (String(p) === '/worktree/Cargo.toml') return false;
+      const s = String(p);
+      if (s === '/worktree') return true;
       return false;
     });
     vi.mocked(readdirSync).mockReturnValue(['MyApp.csproj' as unknown as ReturnType<typeof readdirSync>[number]]);
@@ -61,9 +69,9 @@ describe('handleVerifyWorktreeBaseline', () => {
 
   it('RustProject_TestsPass_ReturnsPassedTrue', async () => {
     vi.mocked(existsSync).mockImplementation((p) => {
-      if (String(p) === '/worktree') return true;
-      if (String(p) === '/worktree/package.json') return false;
-      if (String(p) === '/worktree/Cargo.toml') return true;
+      const s = String(p);
+      if (s === '/worktree') return true;
+      if (s === '/worktree/Cargo.toml') return true;
       return false;
     });
     vi.mocked(readdirSync).mockReturnValue([]);
@@ -80,9 +88,8 @@ describe('handleVerifyWorktreeBaseline', () => {
 
   it('UnknownProjectType_ReturnsError', async () => {
     vi.mocked(existsSync).mockImplementation((p) => {
-      if (String(p) === '/worktree') return true;
-      if (String(p) === '/worktree/package.json') return false;
-      if (String(p) === '/worktree/Cargo.toml') return false;
+      const s = String(p);
+      if (s === '/worktree') return true;
       return false;
     });
     vi.mocked(readdirSync).mockReturnValue([]);
@@ -96,12 +103,16 @@ describe('handleVerifyWorktreeBaseline', () => {
 
   it('TestsFail_ReturnsPassedFalse', async () => {
     vi.mocked(existsSync).mockImplementation((p) => {
-      if (String(p) === '/worktree') return true;
-      if (String(p) === '/worktree/package.json') return true;
-      if (String(p) === '/worktree/Cargo.toml') return false;
+      const s = String(p);
+      if (s === '/worktree') return true;
+      if (s === '/worktree/package.json') return true;
       return false;
     });
     vi.mocked(readdirSync).mockReturnValue([]);
+    vi.mocked(readFileSync).mockImplementation((p) => {
+      if (String(p).endsWith('package.json')) return NPM_PACKAGE_JSON;
+      throw new Error(`unexpected readFileSync: ${String(p)}`);
+    });
 
     const error = new Error('Process exited with code 1') as Error & {
       status: number;
@@ -153,5 +164,154 @@ describe('handleVerifyWorktreeBaseline', () => {
 
     expect(result.success).toBe(false);
     expect(result.error).toMatchObject({ code: 'NOT_GIT_WORKTREE' });
+  });
+
+  // ── T08 additions: behavior changes from resolver migration ─────────────
+
+  it('detectProjectType_PythonProject_ReturnsPytestNow', async () => {
+    // Intentional gap closure: prior to T08 a Python project (pyproject.toml
+    // only) returned UNKNOWN_PROJECT_TYPE. The unified resolver now detects
+    // it and selects pytest.
+    vi.mocked(existsSync).mockImplementation((p) => {
+      const s = String(p);
+      if (s === '/worktree') return true;
+      if (s === '/worktree/pyproject.toml') return true;
+      return false;
+    });
+    vi.mocked(readdirSync).mockReturnValue([]);
+    vi.mocked(execFileSync).mockReturnValue('=== 5 passed in 0.42s ===\n');
+
+    const result = await handleVerifyWorktreeBaseline({ worktreePath: '/worktree' }, stateDir);
+
+    expect(result.success).toBe(true);
+    const data = result.data as { passed: boolean; projectType: string; testCommand: string };
+    expect(data.passed).toBe(true);
+    expect(data.projectType).toBe('Python');
+    expect(data.testCommand).toBe('pytest');
+    // Verify pytest was invoked with no args (cmd='pytest', args=[]).
+    const calls = vi.mocked(execFileSync).mock.calls;
+    const pytestCall = calls.find((c) => String(c[0]) === 'pytest');
+    expect(pytestCall).toBeDefined();
+    expect(pytestCall?.[1]).toEqual([]);
+  });
+
+  it('detectProjectType_BunProject_ReturnsBunTest', async () => {
+    vi.mocked(existsSync).mockImplementation((p) => {
+      const s = String(p);
+      if (s === '/worktree') return true;
+      if (s === '/worktree/package.json') return true;
+      if (s === '/worktree/bun.lockb') return true;
+      return false;
+    });
+    vi.mocked(readdirSync).mockReturnValue([]);
+    // bun does not require scripts.test, but the resolver still reads package.json.
+    vi.mocked(readFileSync).mockImplementation((p) => {
+      if (String(p).endsWith('package.json')) return JSON.stringify({});
+      throw new Error(`unexpected readFileSync: ${String(p)}`);
+    });
+    vi.mocked(execFileSync).mockReturnValue('bun test passed\n');
+
+    const result = await handleVerifyWorktreeBaseline({ worktreePath: '/worktree' }, stateDir);
+
+    expect(result.success).toBe(true);
+    const data = result.data as { passed: boolean; projectType: string; testCommand: string };
+    expect(data.projectType).toBe('Node.js (bun)');
+    expect(data.testCommand).toBe('bun test');
+    const calls = vi.mocked(execFileSync).mock.calls;
+    const bunCall = calls.find((c) => String(c[0]) === 'bun');
+    expect(bunCall?.[1]).toEqual(['test']);
+  });
+
+  // ── #1199 shepherd fix: honor config-sourced runtimes ──────────────────
+  // Regression: prior to this fix `toProjectDetection` rejected any runtime
+  // whose `source !== 'detection'`, which meant a `.exarchos.yml`-supplied
+  // test command would surface as UNKNOWN_PROJECT_TYPE — breaking the very
+  // Basileus-forward configuration path the resolver was added to enable.
+  it('ConfigSourcedTestCommand_KnownRunner_HonoredByHandler', async () => {
+    vi.mocked(existsSync).mockImplementation((p) => {
+      const s = String(p);
+      if (s === '/worktree') return true;
+      // No detection markers; the only signal comes from .exarchos.yml.
+      if (s === '/worktree/.exarchos.yml') return true;
+      return false;
+    });
+    vi.mocked(readdirSync).mockReturnValue([]);
+    vi.mocked(readFileSync).mockImplementation((p) => {
+      if (String(p).endsWith('.exarchos.yml')) {
+        return 'test: pytest\n';
+      }
+      throw new Error(`unexpected readFileSync: ${String(p)}`);
+    });
+    vi.mocked(execFileSync).mockImplementation((cmd) => {
+      if (String(cmd) === 'git') return '.git\n';
+      return '=== 1 passed ===\n' as unknown as Buffer;
+    });
+
+    const result = await handleVerifyWorktreeBaseline({ worktreePath: '/worktree' }, stateDir);
+
+    expect(result.success).toBe(true);
+    const data = result.data as { passed: boolean; projectType: string; testCommand: string };
+    expect(data.passed).toBe(true);
+    // pytest is in the built-in label set, so the projectType is recognized.
+    expect(data.projectType).toBe('Python');
+    expect(data.testCommand).toBe('pytest');
+  });
+
+  it('ConfigSourcedTestCommand_UnknownRunner_GetsConfiguredLabel', async () => {
+    vi.mocked(existsSync).mockImplementation((p) => {
+      const s = String(p);
+      if (s === '/worktree') return true;
+      if (s === '/worktree/.exarchos.yml') return true;
+      return false;
+    });
+    vi.mocked(readdirSync).mockReturnValue([]);
+    vi.mocked(readFileSync).mockImplementation((p) => {
+      if (String(p).endsWith('.exarchos.yml')) {
+        return 'test: make test\n';
+      }
+      throw new Error(`unexpected readFileSync: ${String(p)}`);
+    });
+    vi.mocked(execFileSync).mockImplementation((cmd) => {
+      if (String(cmd) === 'git') return '.git\n';
+      return 'Tests OK\n' as unknown as Buffer;
+    });
+
+    const result = await handleVerifyWorktreeBaseline({ worktreePath: '/worktree' }, stateDir);
+
+    expect(result.success).toBe(true);
+    const data = result.data as { passed: boolean; projectType: string; testCommand: string };
+    expect(data.passed).toBe(true);
+    // `make test` isn't in the built-in label set, so we surface a
+    // source-tagged fallback rather than UNKNOWN_PROJECT_TYPE.
+    expect(data.projectType).toBe('Configured (.exarchos.yml)');
+    expect(data.testCommand).toBe('make test');
+  });
+
+  it('detectProjectType_PnpmProject_ReturnsPnpmTest', async () => {
+    vi.mocked(existsSync).mockImplementation((p) => {
+      const s = String(p);
+      if (s === '/worktree') return true;
+      if (s === '/worktree/package.json') return true;
+      if (s === '/worktree/pnpm-lock.yaml') return true;
+      return false;
+    });
+    vi.mocked(readdirSync).mockReturnValue([]);
+    // pnpm path requires a `test` script in package.json.
+    vi.mocked(readFileSync).mockImplementation((p) => {
+      if (String(p).endsWith('package.json'))
+        return JSON.stringify({ scripts: { test: 'vitest run' } });
+      throw new Error(`unexpected readFileSync: ${String(p)}`);
+    });
+    vi.mocked(execFileSync).mockReturnValue('pnpm tests passed\n');
+
+    const result = await handleVerifyWorktreeBaseline({ worktreePath: '/worktree' }, stateDir);
+
+    expect(result.success).toBe(true);
+    const data = result.data as { passed: boolean; projectType: string; testCommand: string };
+    expect(data.projectType).toBe('Node.js (pnpm)');
+    expect(data.testCommand).toBe('pnpm test');
+    const calls = vi.mocked(execFileSync).mock.calls;
+    const pnpmCall = calls.find((c) => String(c[0]) === 'pnpm');
+    expect(pnpmCall?.[1]).toEqual(['test']);
   });
 });

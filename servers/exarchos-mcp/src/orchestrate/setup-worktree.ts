@@ -8,6 +8,8 @@ import { existsSync, appendFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
 import type { ToolResult } from '../format.js';
+import { resolveTestRuntime } from '../config/test-runtime-resolver.js';
+import { splitCommand } from '../config/tokenize-command.js';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -151,20 +153,48 @@ function createWorktree(repoRoot: string, worktreePath: string, branchName: stri
   }
 }
 
-function runNpmInstall(worktreePath: string): CheckResult {
-  if (!existsSync(join(worktreePath, 'package.json'))) {
-    return { name: 'npm install', status: 'skip', detail: 'no package.json in worktree' };
+function runInstallStep(worktreePath: string): CheckResult {
+  const resolved = resolveTestRuntime(worktreePath);
+
+  if (resolved.install === null) {
+    return {
+      name: 'install',
+      status: 'skip',
+      detail: resolved.remediation ?? 'no recognized package manager',
+    };
+  }
+
+  // Quote-aware tokenizer (config/override commands may carry quoted args
+  // like `"./bin/runner" install`). Detection-sourced commands work either
+  // way; using the same tokenizer everywhere keeps argv semantics aligned.
+  let cmd: string;
+  let cmdArgs: readonly string[];
+  try {
+    ({ cmd, args: cmdArgs } = splitCommand(resolved.install));
+  } catch (err) {
+    return {
+      name: 'install',
+      status: 'fail',
+      detail: `unparseable install command "${resolved.install}": ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
+  if (cmd === '') {
+    return { name: 'install', status: 'skip', detail: 'empty install command' };
   }
 
   try {
-    execFileSync('npm', ['install', '--silent'], {
+    execFileSync(cmd, cmdArgs as string[], {
       encoding: 'utf-8',
       cwd: worktreePath,
       stdio: ['pipe', 'pipe', 'pipe'],
     });
-    return { name: 'npm install completed', status: 'pass' };
+    return { name: 'install', status: 'pass', detail: resolved.install };
   } catch {
-    return { name: 'npm install completed', status: 'fail', detail: `npm install failed in ${worktreePath}` };
+    return {
+      name: 'install',
+      status: 'fail',
+      detail: `${resolved.install} failed in ${worktreePath}`,
+    };
   }
 }
 
@@ -173,19 +203,45 @@ function runBaselineTests(worktreePath: string, skipTests: boolean): CheckResult
     return { name: 'Baseline tests pass', status: 'skip', detail: '--skip-tests' };
   }
 
-  if (!existsSync(join(worktreePath, 'package.json'))) {
-    return { name: 'Baseline tests pass', status: 'skip', detail: 'no package.json in worktree' };
+  const resolved = resolveTestRuntime(worktreePath);
+
+  if (resolved.test === null) {
+    return {
+      name: 'Baseline tests pass',
+      status: 'skip',
+      detail: resolved.remediation ?? 'no test command resolved',
+    };
+  }
+
+  // Quote-aware tokenizer — same rationale as runInstallStep.
+  let cmd: string;
+  let cmdArgs: readonly string[];
+  try {
+    ({ cmd, args: cmdArgs } = splitCommand(resolved.test));
+  } catch (err) {
+    return {
+      name: 'Baseline tests pass',
+      status: 'fail',
+      detail: `unparseable test command "${resolved.test}": ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
+  if (cmd === '') {
+    return { name: 'Baseline tests pass', status: 'skip', detail: 'empty test command' };
   }
 
   try {
-    execFileSync('npm', ['run', 'test:run'], {
+    execFileSync(cmd, cmdArgs as string[], {
       encoding: 'utf-8',
       cwd: worktreePath,
       stdio: ['pipe', 'pipe', 'pipe'],
     });
     return { name: 'Baseline tests pass', status: 'pass' };
   } catch {
-    return { name: 'Baseline tests pass', status: 'fail', detail: `npm run test:run failed in ${worktreePath}` };
+    return {
+      name: 'Baseline tests pass',
+      status: 'fail',
+      detail: `${resolved.test} failed in ${worktreePath}`,
+    };
   }
 }
 
@@ -231,12 +287,12 @@ export function handleSetupWorktree(args: SetupWorktreeArgs): ToolResult {
   // Step 3: Create worktree
   checks.push(createWorktree(args.repoRoot, worktreePath, branchName));
 
-  // Step 4: npm install (only if worktree exists)
+  // Step 4: install (resolver-driven: picks npm/pnpm/yarn/bun based on lockfiles)
   const worktreeReady = checks[2].status !== 'fail';
   if (worktreeReady) {
-    checks.push(runNpmInstall(worktreePath));
+    checks.push(runInstallStep(worktreePath));
   } else {
-    checks.push({ name: 'npm install', status: 'skip', detail: 'worktree not available' });
+    checks.push({ name: 'install', status: 'skip', detail: 'worktree not available' });
   }
 
   // Step 5: Baseline tests (only if worktree exists)

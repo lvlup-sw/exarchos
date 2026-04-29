@@ -28,6 +28,8 @@ import {
   type VcsEnvironment,
   type VcsDetectorDeps,
 } from '../../vcs/detector.js';
+import { seedExarchosConfig } from './seed-exarchos-config.js';
+import { execSync } from 'node:child_process';
 
 // ─── Canonical writer list (lazy — populated by handleInit) ──────────────
 
@@ -165,18 +167,59 @@ function getAllWriters(): ReadonlyArray<RuntimeConfigWriter> {
 }
 
 /**
+ * Resolve the repo root for config seeding. Mirrors the loader's pattern
+ * (`git rev-parse --show-toplevel`), with a `process.cwd()` fallback so
+ * non-git directories still get a consistent answer. Exported so the
+ * post-init seed step can be exercised without going through the full
+ * `handleInit` import chain (which pulls in EventStore).
+ */
+export function findRepoRootForSeed(): string | null {
+  try {
+    const out = execSync('git rev-parse --show-toplevel', {
+      cwd: process.cwd(),
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+    }).trim();
+    if (out) return out;
+  } catch {
+    /* not a git repo — fall through */
+  }
+  return process.cwd() || null;
+}
+
+/**
+ * The post-init seed step `handleInit` performs. Extracted so callers
+ * (and tests) can reuse the exact same wiring without re-implementing
+ * the find-root logic. Always best-effort — never throws.
+ */
+export function runPostInitSeed(): void {
+  try {
+    const repoRoot = findRepoRootForSeed();
+    if (repoRoot) seedExarchosConfig(repoRoot);
+  } catch {
+    /* seeding is additive — never fail on seeder error */
+  }
+}
+
+/**
  * Production entry point — binds real writers, VCS detector, and deps
- * factory.
+ * factory. Also seeds `.exarchos.yml` from detection (idempotent —
+ * never overwrites). Seeding failures are non-fatal.
  */
 export async function handleInit(
   args: HandleInitArgs,
   ctx: DispatchContext,
 ): Promise<ToolResult> {
-  return handleInitWithWriters(
+  const result = await handleInitWithWriters(
     args,
     ctx,
     getAllWriters(),
     defaultDetectVcsProvider,
     defaultBuildWriterDeps,
   );
+
+  // Seed `.exarchos.yml` post-init. Best-effort: errors do not fail init.
+  runPostInitSeed();
+
+  return result;
 }

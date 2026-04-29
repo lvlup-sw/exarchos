@@ -1,13 +1,17 @@
 // ─── Verify Worktree Baseline Orchestrate Action ────────────────────────────
 //
-// Validates a worktree path, auto-detects project type (Node.js, .NET, Rust),
-// runs the appropriate test command, and returns a structured markdown report.
-// Ported from scripts/verify-worktree-baseline.sh.
+// Validates a worktree path, delegates project-type/test-command resolution to
+// the unified test runtime resolver (`config/test-runtime-resolver.ts`), runs
+// the resolved test command, and returns a structured markdown report.
+// Ported from scripts/verify-worktree-baseline.sh; migrated to resolver in
+// refactor #1199 T08, intentionally closing the prior Python detection gap.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { existsSync, readdirSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import type { ToolResult } from '../format.js';
+import { resolveTestRuntime, type ResolvedRuntime } from '../config/test-runtime-resolver.js';
+import { splitCommand } from '../config/tokenize-command.js';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -15,7 +19,21 @@ interface VerifyWorktreeBaselineArgs {
   readonly worktreePath: string;
 }
 
-type ProjectType = 'Node.js' | '.NET' | 'Rust';
+type DetectedProjectType =
+  | 'Node.js'
+  | 'Node.js (bun)'
+  | 'Node.js (pnpm)'
+  | 'Node.js (yarn)'
+  | '.NET'
+  | 'Rust'
+  | 'Python';
+
+/**
+ * Project type label. Detection paths use the narrow `DetectedProjectType`
+ * union; config/override paths fall back to a source-tagged label when the
+ * test command isn't in the built-in set.
+ */
+type ProjectType = DetectedProjectType | 'Configured (.exarchos.yml)' | 'Override';
 
 interface ProjectDetection {
   readonly projectType: ProjectType;
@@ -24,43 +42,53 @@ interface ProjectDetection {
   readonly args: readonly string[];
 }
 
-// ─── Project Detection ──────────────────────────────────────────────────────
+// ─── Project Detection (delegates to resolver) ──────────────────────────────
+
+/**
+ * Map a resolver test-command string to a human-readable project-type label.
+ * Discriminates the widened `ProjectType` union from the resolver's
+ * package-manager-aware test command.
+ */
+function projectTypeFromTestCommand(test: string): DetectedProjectType | undefined {
+  if (test === 'npm run test:run') return 'Node.js';
+  if (test === 'bun test') return 'Node.js (bun)';
+  if (test === 'pnpm test') return 'Node.js (pnpm)';
+  if (test === 'yarn test') return 'Node.js (yarn)';
+  if (test === 'dotnet test') return '.NET';
+  if (test === 'cargo test') return 'Rust';
+  if (test === 'pytest') return 'Python';
+  return undefined;
+}
+
+function toProjectDetection(runtime: ResolvedRuntime): ProjectDetection | undefined {
+  // Honor the resolver's output regardless of source (#1109 MCP-parity):
+  // a `.exarchos.yml`-supplied test command is just as authoritative as one
+  // produced by detection, and overrides supplied to setup-worktree should be
+  // runnable too. The only blocking condition is "no test command at all".
+  if (runtime.test === null) return undefined;
+  // Quote-aware tokenizer (config/override commands may include quoted args
+  // like `pytest -k "slow api"`). Throws on unterminated quotes — surface
+  // that as an unknown project type rather than crashing the handler.
+  let cmd: string;
+  let args: readonly string[];
+  try {
+    ({ cmd, args } = splitCommand(runtime.test));
+  } catch {
+    return undefined;
+  }
+  if (cmd === '') return undefined;
+  // For config/override sources we may not have a built-in label for the test
+  // command (e.g., `make test`). Fall back to a source-tagged label so the
+  // report is still informative.
+  const projectType =
+    projectTypeFromTestCommand(runtime.test) ??
+    (runtime.source === 'config' ? 'Configured (.exarchos.yml)' : 'Override');
+  return { projectType, testCommand: runtime.test, cmd, args };
+}
 
 function detectProjectType(worktreePath: string): ProjectDetection | undefined {
-  if (existsSync(`${worktreePath}/package.json`)) {
-    return {
-      projectType: 'Node.js',
-      testCommand: 'npm run test:run',
-      cmd: 'npm',
-      args: ['run', 'test:run'],
-    };
-  }
-
-  // Check for *.csproj files
-  try {
-    const entries = readdirSync(worktreePath);
-    if (entries.some((e) => String(e).endsWith('.csproj'))) {
-      return {
-        projectType: '.NET',
-        testCommand: 'dotnet test',
-        cmd: 'dotnet',
-        args: ['test'],
-      };
-    }
-  } catch {
-    // readdirSync failure — fall through
-  }
-
-  if (existsSync(`${worktreePath}/Cargo.toml`)) {
-    return {
-      projectType: 'Rust',
-      testCommand: 'cargo test',
-      cmd: 'cargo',
-      args: ['test'],
-    };
-  }
-
-  return undefined;
+  const runtime = resolveTestRuntime(worktreePath);
+  return toProjectDetection(runtime);
 }
 
 // ─── Report Formatting ──────────────────────────────────────────────────────
@@ -134,14 +162,14 @@ export async function handleVerifyWorktreeBaseline(
     };
   }
 
-  // 3. Detect project type
+  // 3. Detect project type via the unified resolver
   const detection = detectProjectType(worktreePath);
   if (!detection) {
     return {
       success: false,
       error: {
         code: 'UNKNOWN_PROJECT_TYPE',
-        message: `No recognized project files found in ${worktreePath} (package.json, *.csproj, Cargo.toml). Manual verification required.`,
+        message: `No recognized project files found in ${worktreePath} (package.json, *.csproj, Cargo.toml, pyproject.toml). Manual verification required.`,
       },
     };
   }

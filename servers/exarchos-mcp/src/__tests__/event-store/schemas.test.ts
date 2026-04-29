@@ -406,12 +406,12 @@ describe('StackEnqueuedData', () => {
 
 describe('EventTypes', () => {
   it('EventTypes_CountMatchesRegisteredTypes', () => {
-    // Locked to the current registered-type count. Bumped to 83 with the
-    // addition of merge.preflight / merge.executed / merge.rollback
-    // (T03, DR-MO-2) for the merge-orchestrator schema registration.
-    // When new event types are added, bump this number alongside
-    // their registration in `event-store/schemas.ts`.
-    expect(EventTypes).toHaveLength(83);
+    // Locked to the current registered-type count. Bumped to 84 with the
+    // addition of command.resolved (#1199 T15) for the test/typecheck/install
+    // runtime resolver. Previous bump (83) was merge.preflight / merge.executed /
+    // merge.rollback (T03, DR-MO-2). When new event types are added, bump this
+    // number alongside their registration in `event-store/schemas.ts`.
+    expect(EventTypes).toHaveLength(84);
   });
 
   it('should include workflow-level types', () => {

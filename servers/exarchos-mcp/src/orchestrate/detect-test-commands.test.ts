@@ -94,4 +94,30 @@ describe('detectTestCommands', () => {
     expect(() => detectTestCommands(dir, 'test | grep')).toThrow('Invalid testCommand');
     expect(() => detectTestCommands(dir, 'test$(whoami)')).toThrow('Invalid testCommand');
   });
+
+  // SHIM-COMPAT: Documents the pre-#1174 fallback that the wrapper preserves
+  // on top of resolveTestRuntime. T17 removes this fallback when graceful-skip
+  // routes the resolver's `unresolved` signal up to gate consumers.
+  it('DetectTestCommands_BarePackageJson_ShimFallsBackToNpmCommands', async () => {
+    const dir = await makeTmpDir();
+    // Bare package.json with no scripts.test:run — resolver classifies this
+    // as `source: 'unresolved'`. The shim must mask that and return the
+    // legacy hardcoded npm commands.
+    await writeFile(path.join(dir, 'package.json'), '{}');
+
+    const result = detectTestCommands(dir);
+
+    expect(result).toEqual({ test: 'npm run test:run', typecheck: 'npm run typecheck' });
+  });
+
+  // SHIM-COMPAT: When the resolver returns `unresolved` with no package.json
+  // (e.g., empty repo), the shim does NOT inject npm commands. Only the
+  // package.json path triggers the legacy fallback.
+  it('DetectTestCommands_UnresolvedNoPackageJson_ShimDoesNotFallback', async () => {
+    const dir = await makeTmpDir();
+
+    const result = detectTestCommands(dir);
+
+    expect(result).toEqual({ test: null, typecheck: null });
+  });
 });

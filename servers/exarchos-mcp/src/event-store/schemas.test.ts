@@ -45,6 +45,7 @@ import {
   MergePreflightData,
   MergeExecutedData,
   MergeRollbackData,
+  CommandResolvedEventSchema,
   EVENT_EMISSION_REGISTRY,
   EVENT_DATA_SCHEMAS,
   type EventEmissionSource,
@@ -464,7 +465,7 @@ describe('EventTypes', () => {
   });
 
   it('EventTypes_HasExpectedCount', () => {
-    expect(EventTypes).toHaveLength(83);
+    expect(EventTypes).toHaveLength(84);
   });
 
   it('EventTypes_IncludesSessionTagged', () => {
@@ -2440,6 +2441,124 @@ describe('MergeRollbackData', () => {
       targetBranch: 'main',
       rollbackSha: 'b'.repeat(40),
       reason: 'bogus',
+    });
+    expect(result.success).toBe(false);
+  });
+});
+
+// ─── T15 (#1199): command.resolved event schema ─────────────────────────────
+
+describe('CommandResolvedEventSchema', () => {
+  // Audit-only event emitted by the test/typecheck/install runtime resolver
+  // (#1199). Records where each command resolution came from so downstream
+  // graceful-skip semantics (T17) can distinguish a configured `null` from
+  // an unresolved command for which we should bail with remediation guidance.
+
+  it('CommandResolved_Registered_InEventTypesAndRegistry', () => {
+    expect(EventTypes).toContain('command.resolved');
+    expect(EVENT_EMISSION_REGISTRY['command.resolved']).toBe('auto');
+    const schema = EVENT_DATA_SCHEMAS['command.resolved' as typeof EventTypes[number]];
+    expect(schema).toBeDefined();
+  });
+
+  it('commandResolved_AllFieldsValid_AcceptsConfigSource', () => {
+    const result = CommandResolvedEventSchema.safeParse({
+      field: 'test',
+      command: 'pytest',
+      source: 'config',
+      repoRoot: '/x',
+    });
+    expect(result.success, JSON.stringify(result)).toBe(true);
+    if (result.success) {
+      expect(result.data.field).toBe('test');
+      expect(result.data.command).toBe('pytest');
+      expect(result.data.source).toBe('config');
+      expect(result.data.repoRoot).toBe('/x');
+    }
+  });
+
+  it('commandResolved_DetectionSource_Validates', () => {
+    const result = CommandResolvedEventSchema.safeParse({
+      field: 'typecheck',
+      command: 'tsc --noEmit',
+      source: 'detection',
+      repoRoot: '/x',
+    });
+    expect(result.success, JSON.stringify(result)).toBe(true);
+    if (result.success) {
+      expect(result.data.source).toBe('detection');
+    }
+  });
+
+  it('commandResolved_OverrideSource_Validates', () => {
+    const result = CommandResolvedEventSchema.safeParse({
+      field: 'install',
+      command: 'npm ci',
+      source: 'override',
+      repoRoot: '/x',
+    });
+    expect(result.success, JSON.stringify(result)).toBe(true);
+    if (result.success) {
+      expect(result.data.source).toBe('override');
+    }
+  });
+
+  it('commandResolved_UnresolvedWithNullCommandAndRemediation_Validates', () => {
+    const result = CommandResolvedEventSchema.safeParse({
+      field: 'test',
+      command: null,
+      source: 'unresolved',
+      repoRoot: '/x',
+      remediation: 'set commands.test in .exarchos.yml',
+    });
+    expect(result.success, JSON.stringify(result)).toBe(true);
+    if (result.success) {
+      expect(result.data.command).toBeNull();
+      expect(result.data.source).toBe('unresolved');
+      expect(result.data.remediation).toBe('set commands.test in .exarchos.yml');
+    }
+  });
+
+  it('commandResolved_UnknownSource_Rejected', () => {
+    const result = CommandResolvedEventSchema.safeParse({
+      field: 'test',
+      command: 'pytest',
+      source: 'magic',
+      repoRoot: '/x',
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('commandResolved_UnknownField_Rejected', () => {
+    // Only test/typecheck/install are valid fields — a hypothetical 'lint'
+    // resolver doesn't exist yet; if it ever does, the enum is widened
+    // intentionally rather than via a free-form string.
+    const result = CommandResolvedEventSchema.safeParse({
+      field: 'lint',
+      command: 'eslint .',
+      source: 'config',
+      repoRoot: '/x',
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('commandResolved_EmptyCommand_Rejected', () => {
+    // Empty string isn't a meaningful command — the resolver should emit
+    // command: null with source: 'unresolved' instead.
+    const result = CommandResolvedEventSchema.safeParse({
+      field: 'test',
+      command: '',
+      source: 'config',
+      repoRoot: '/x',
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('commandResolved_MissingRepoRoot_Rejected', () => {
+    const result = CommandResolvedEventSchema.safeParse({
+      field: 'test',
+      command: 'pytest',
+      source: 'config',
     });
     expect(result.success).toBe(false);
   });

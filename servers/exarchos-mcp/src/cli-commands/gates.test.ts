@@ -22,12 +22,15 @@ vi.mock('../event-store/hook-event-writer.js', () => ({
   writeHookEvent: vi.fn().mockResolvedValue(undefined),
 }));
 
-// Mock detect-test-commands — defaults to returning npm typecheck/test:run
-// so existing tests continue to work. Individual tests can override via mockDetect.
-vi.mock('../orchestrate/detect-test-commands.js', () => ({
-  detectTestCommands: vi.fn().mockReturnValue({
-    typecheck: 'npm run typecheck',
+// Mock the test-runtime resolver — defaults to a successful npm-project
+// resolution so existing tests continue to work. Individual tests can
+// override the return value (e.g. to simulate `unresolved`).
+vi.mock('../config/test-runtime-resolver.js', () => ({
+  resolveTestRuntime: vi.fn().mockReturnValue({
     test: 'npm run test:run',
+    typecheck: 'npm run typecheck',
+    install: 'npm install',
+    source: 'detection',
   }),
 }));
 
@@ -62,12 +65,21 @@ vi.mock('node:fs/promises', async (importOriginal) => {
 
 import { execSync } from 'node:child_process';
 import { writeHookEvent } from '../event-store/hook-event-writer.js';
-import { detectTestCommands } from '../orchestrate/detect-test-commands.js';
+import { resolveTestRuntime } from '../config/test-runtime-resolver.js';
 import { handleTaskGate, handleTeammateGate, runQualityChecks, findActiveWorkflowState, findUnblockedTasks, resetQualityRetries, readTeamConfig, resolveTeammateFromConfig } from './gates.js';
 import type { CommandResult } from './types.js';
 
 const mockExecSync = vi.mocked(execSync);
-const mockDetectTestCommands = vi.mocked(detectTestCommands);
+const mockResolveTestRuntime = vi.mocked(resolveTestRuntime);
+
+// Helper: build a default ResolvedRuntime for npm-project happy path.
+// Tests that need `unresolved` or alternate package managers override per-call.
+const npmResolved = () => ({
+  test: 'npm run test:run',
+  typecheck: 'npm run typecheck',
+  install: 'npm install',
+  source: 'detection' as const,
+});
 
 describe('Quality Gate Commands', () => {
   beforeEach(() => {
@@ -334,25 +346,39 @@ describe('Quality Gate Commands', () => {
     });
 
     it('RunQualityChecks_NoTestsDetected_SkipsTestAndTypecheck', async () => {
-      // Arrange — detectTestCommands returns null for both
-      mockDetectTestCommands.mockReturnValueOnce({ test: null, typecheck: null });
+      // Arrange — resolver reports unresolved (e.g., empty directory). The gate
+      // must skip gracefully and surface the resolver's remediation, not run
+      // typecheck/test, but still verify the working tree is clean.
+      mockResolveTestRuntime.mockReturnValueOnce({
+        test: null,
+        typecheck: null,
+        install: null,
+        source: 'unresolved',
+        remediation:
+          'No project markers detected. Add a .exarchos.yml with test/typecheck/install commands or pass an override.',
+      });
       mockExecSync.mockReturnValue(Buffer.from(''));
 
       // Act
       const result = await runQualityChecks('/tmp/worktree');
 
-      // Assert — only git status should be called (clean-worktree check)
-      expect(result).toEqual({ continue: true });
-      expect(mockExecSync).toHaveBeenCalledTimes(1);
-      expect(mockExecSync).toHaveBeenCalledWith(
-        'git status --porcelain',
-        expect.objectContaining({ cwd: '/tmp/worktree' }),
-      );
+      // Assert — handler returns success (skip), no commands invoked.
+      expect(result.continue).toBe(true);
+      expect(result.error).toBeUndefined();
+      expect(typeof result.message).toBe('string');
+      expect(String(result.message)).toContain('skipped');
+      // Resolver-skip path short-circuits before the git status check.
+      expect(mockExecSync).not.toHaveBeenCalled();
     });
 
     it('RunQualityChecks_CustomTestCommand_UsesDetectedCommand', async () => {
-      // Arrange — detectTestCommands returns custom commands
-      mockDetectTestCommands.mockReturnValueOnce({ test: 'cargo test', typecheck: 'cargo check' });
+      // Arrange — resolver returns custom commands (e.g., cargo project)
+      mockResolveTestRuntime.mockReturnValueOnce({
+        test: 'cargo test',
+        typecheck: 'cargo check',
+        install: null,
+        source: 'detection',
+      });
       mockExecSync.mockReturnValue(Buffer.from(''));
 
       // Act
@@ -367,6 +393,142 @@ describe('Quality Gate Commands', () => {
       expect(mockExecSync).toHaveBeenCalledWith(
         'cargo test',
         expect.objectContaining({ cwd: '/tmp/worktree' }),
+      );
+    });
+  });
+
+  // ─── T17 (#1174 closure): Graceful skip with remediation ──────────────────
+  //
+  // Closes #1174 at the consumer layer. When the resolver cannot produce a
+  // test command (missing `test:run` script, no project markers, etc.) the
+  // task-gate handler must skip gracefully and surface the resolver's
+  // remediation text — not return GATE_FAILED on every task transition.
+
+  describe('graceful skip with remediation (T17, closes #1174)', () => {
+    it('taskGate_NpmProjectMissingTestRunScript_SkipsGracefullyWithRemediation', async () => {
+      // Arrange — resolver reports that the project is an npm project but is
+      // missing the `test:run` script. Source 'unresolved' carries the
+      // resolver-authored remediation.
+      mockResolveTestRuntime.mockReturnValueOnce({
+        test: null,
+        typecheck: null,
+        install: 'npm install',
+        source: 'unresolved',
+        remediation:
+          'package.json is missing a "test:run" script. Add a "test:run" entry under scripts (e.g., "test:run": "vitest run") or define test/typecheck commands in .exarchos.yml.',
+      });
+      mockExecSync.mockReturnValue(Buffer.from(''));
+
+      const input: Record<string, unknown> = {
+        hook_event_name: 'TaskCompleted',
+        task_subject: 'Add feature X',
+        task_output: 'Done',
+        cwd: '/tmp/missing-test-run',
+      };
+
+      // Act
+      const result = await handleTaskGate(input);
+
+      // Assert — handler returns success (skip), no GATE_FAILED, remediation
+      // text is surfaced via the result message.
+      expect(result.error).toBeUndefined();
+      expect(result.continue).toBe(true);
+      expect(typeof result.message).toBe('string');
+      const message = String(result.message);
+      expect(message).toContain('skipped');
+      // Remediation must mention either the missing script or the override file.
+      expect(message).toMatch(/test:run|\.exarchos\.yml/);
+    });
+
+    it('taskGate_NoProjectMarkers_SkipsGracefullyWithRemediation', async () => {
+      // Arrange — resolver finds no markers at all (empty dir, foreign tree).
+      mockResolveTestRuntime.mockReturnValueOnce({
+        test: null,
+        typecheck: null,
+        install: null,
+        source: 'unresolved',
+        remediation:
+          'No project markers detected. Add a .exarchos.yml with test/typecheck/install commands or pass an override.',
+      });
+      mockExecSync.mockReturnValue(Buffer.from(''));
+
+      const input: Record<string, unknown> = {
+        hook_event_name: 'TaskCompleted',
+        task_subject: 'Add feature Y',
+        task_output: 'Done',
+        cwd: '/tmp/no-markers',
+      };
+
+      // Act
+      const result = await handleTaskGate(input);
+
+      // Assert — graceful skip, remediation surfaced.
+      expect(result.error).toBeUndefined();
+      expect(result.continue).toBe(true);
+      const message = String(result.message);
+      expect(message).toContain('skipped');
+      expect(message).toMatch(/\.exarchos\.yml|project markers/);
+    });
+
+    it('taskGate_NpmProjectWithTestRunScript_StillRunsTests', async () => {
+      // Arrange — happy-path regression: npm with test:run still executes the
+      // typecheck + test commands and the clean-worktree check.
+      mockResolveTestRuntime.mockReturnValueOnce(npmResolved());
+      mockExecSync.mockReturnValue(Buffer.from(''));
+
+      const input: Record<string, unknown> = {
+        hook_event_name: 'TaskCompleted',
+        task_subject: 'Add feature Z',
+        task_output: 'Done',
+        cwd: '/tmp/npm-happy',
+      };
+
+      // Act
+      const result = await handleTaskGate(input);
+
+      // Assert — checks ran (typecheck + test:run + git status) and gate passed.
+      expect(result.error).toBeUndefined();
+      expect(result.continue).toBe(true);
+      expect(mockExecSync).toHaveBeenCalledWith(
+        'npm run typecheck',
+        expect.objectContaining({ cwd: '/tmp/npm-happy' }),
+      );
+      expect(mockExecSync).toHaveBeenCalledWith(
+        'npm run test:run',
+        expect.objectContaining({ cwd: '/tmp/npm-happy' }),
+      );
+    });
+
+    it('taskGate_PnpmProjectWithTestScript_RunsPnpmTest', async () => {
+      // Arrange — pnpm-project resolution is honored end-to-end.
+      mockResolveTestRuntime.mockReturnValueOnce({
+        test: 'pnpm test',
+        typecheck: 'tsc --noEmit',
+        install: 'pnpm install --frozen-lockfile',
+        source: 'detection',
+      });
+      mockExecSync.mockReturnValue(Buffer.from(''));
+
+      const input: Record<string, unknown> = {
+        hook_event_name: 'TaskCompleted',
+        task_subject: 'pnpm regression check',
+        task_output: 'Done',
+        cwd: '/tmp/pnpm-project',
+      };
+
+      // Act
+      const result = await handleTaskGate(input);
+
+      // Assert — pnpm test was executed (not npm run test:run).
+      expect(result.error).toBeUndefined();
+      expect(result.continue).toBe(true);
+      expect(mockExecSync).toHaveBeenCalledWith(
+        'pnpm test',
+        expect.objectContaining({ cwd: '/tmp/pnpm-project' }),
+      );
+      expect(mockExecSync).not.toHaveBeenCalledWith(
+        'npm run test:run',
+        expect.anything(),
       );
     });
   });

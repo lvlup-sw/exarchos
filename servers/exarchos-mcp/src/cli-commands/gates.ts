@@ -12,22 +12,43 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import type { CommandResult } from './types.js';
 import { writeHookEvent } from '../event-store/hook-event-writer.js';
-import { detectTestCommands } from '../orchestrate/detect-test-commands.js';
+import { resolveTestRuntime } from '../config/test-runtime-resolver.js';
 import { resolveStateDir } from '../utils/paths.js';
 
 // ─── Core Quality Check Runner ─────────────────────────────────────────────
 
 /**
  * Run quality checks sequentially in the given working directory.
- * Uses `detectTestCommands()` to determine which typecheck/test commands
+ * Uses `resolveTestRuntime()` to determine which typecheck/test commands
  * to run (if any), then always checks for a clean worktree.
  * Stops at the first failure and returns a GATE_FAILED error.
  * Returns `{ continue: true }` when all checks pass.
+ *
+ * Closes #1174: when the resolver cannot determine a test command
+ * (e.g., a package.json without `test:run`, or a directory with no
+ * project markers), the gate skips gracefully and surfaces the
+ * remediation text instead of producing GATE_FAILED.
  */
 export async function runQualityChecks(cwd: string): Promise<CommandResult> {
-  const cmds = detectTestCommands(cwd);
+  const resolved = resolveTestRuntime(cwd);
 
-  // Run typecheck if detected (commands from detectTestCommands are hardcoded trusted strings)
+  // Graceful skip with remediation when no test command can be resolved.
+  // This replaces the previous behavior where missing/ambiguous project
+  // configuration produced a GATE_FAILED on every task transition.
+  if (resolved.source === 'unresolved') {
+    const detail = resolved.remediation ?? 'no test runtime resolved';
+    return {
+      continue: true,
+      message: `task-gate: skipped — ${detail}`,
+    };
+  }
+
+  const cmds: { test: string | null; typecheck: string | null } = {
+    test: resolved.test,
+    typecheck: resolved.typecheck,
+  };
+
+  // Run typecheck if detected (commands from the resolver are assembled from a known allowlist)
   if (cmds.typecheck) {
     try {
       execSync(cmds.typecheck, {
@@ -49,7 +70,7 @@ export async function runQualityChecks(cwd: string): Promise<CommandResult> {
     }
   }
 
-  // Run tests if detected (commands from detectTestCommands are hardcoded trusted strings)
+  // Run tests if detected (commands from the resolver are assembled from a known allowlist)
   if (cmds.test) {
     try {
       execSync(cmds.test, {
