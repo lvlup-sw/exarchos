@@ -149,7 +149,15 @@ jobs:
         with:
           node-version: '24'
           cache: npm
-          cache-dependency-path: servers/exarchos-mcp/package-lock.json
+          cache-dependency-path: |
+            package-lock.json
+            servers/exarchos-mcp/package-lock.json
+
+      # Install root deps so bun's bundler can resolve `@inquirer/prompts`
+      # and `js-yaml` reached via the install-skills bridge module
+      # (servers/exarchos-mcp/src/cli-commands/install-skills-bridge.js → src/install-skills.ts).
+      - name: Install root dependencies
+        run: npm ci
 
       # Install MCP-server runtime deps so `bun build --compile` can
       # resolve `pino`, `commander`, `@modelcontextprotocol/sdk`,
