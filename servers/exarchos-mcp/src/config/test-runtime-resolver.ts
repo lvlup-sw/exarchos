@@ -354,11 +354,27 @@ export function resolveTestRuntime(repoRoot: string, options?: ResolveOptions): 
   //   2) Nothing contributed at all → generic 'unresolved'.
 
   let result: ResolvedRuntime;
-  // Per-field event source/command for emission. Derived from the same layer
-  // tracking that drives the aggregate, but unresolved fields are emitted
-  // with source: 'unresolved' rather than null.
-  let perFieldEvents: { field: 'test' | 'typecheck' | 'install'; command: string | null; source: ResolutionSource }[];
-  let eventRemediation: string | undefined;
+  // Per-field event source/command/remediation for emission. Derived from the
+  // same layer tracking that drives the aggregate, but unresolved fields are
+  // emitted with source: 'unresolved' rather than null. The schema requires a
+  // non-empty remediation string for every `source: 'unresolved'` event, so
+  // each entry carries its own — even in the "partial detection" case (e.g.,
+  // .NET/Rust/Python where typecheck/install have no resolver default).
+  type PerFieldEvent = {
+    field: 'test' | 'typecheck' | 'install';
+    command: string | null;
+    source: ResolutionSource;
+    /** Required when source === 'unresolved'. */
+    remediation?: string;
+  };
+  let perFieldEvents: PerFieldEvent[];
+
+  // Per-field remediation builder for the partial-unresolved case. Avoids
+  // hard-coding project-type strings in the message — the resolver shouldn't
+  // know whether it's looking at .NET vs Rust at this layer.
+  const fieldUnresolvedRemediation = (field: 'typecheck' | 'install'): string =>
+    `No ${field} command available for this project from detection. ` +
+    `Add a "${field}" entry to .exarchos.yml or pass an override.`;
 
   if (
     det.unresolvedReason &&
@@ -380,18 +396,23 @@ export function resolveTestRuntime(repoRoot: string, options?: ResolveOptions): 
       source: 'unresolved',
       remediation: det.unresolvedReason,
     };
-    eventRemediation = det.unresolvedReason;
     perFieldEvents = [
-      { field: 'test', command: null, source: 'unresolved' },
+      { field: 'test', command: null, source: 'unresolved', remediation: det.unresolvedReason },
       {
         field: 'typecheck',
         command: typecheckPick.value,
         source: layerToSource(typecheckPick.layer),
+        ...(typecheckPick.layer === null
+          ? { remediation: fieldUnresolvedRemediation('typecheck') }
+          : {}),
       },
       {
         field: 'install',
         command: installPick.value,
         source: layerToSource(installPick.layer),
+        ...(installPick.layer === null
+          ? { remediation: fieldUnresolvedRemediation('install') }
+          : {}),
       },
     ];
   } else if (source === 'unresolved') {
@@ -402,11 +423,10 @@ export function resolveTestRuntime(repoRoot: string, options?: ResolveOptions): 
       source: 'unresolved',
       remediation: UNRESOLVED_REMEDIATION,
     };
-    eventRemediation = UNRESOLVED_REMEDIATION;
     perFieldEvents = [
-      { field: 'test', command: null, source: 'unresolved' },
-      { field: 'typecheck', command: null, source: 'unresolved' },
-      { field: 'install', command: null, source: 'unresolved' },
+      { field: 'test', command: null, source: 'unresolved', remediation: UNRESOLVED_REMEDIATION },
+      { field: 'typecheck', command: null, source: 'unresolved', remediation: UNRESOLVED_REMEDIATION },
+      { field: 'install', command: null, source: 'unresolved', remediation: UNRESOLVED_REMEDIATION },
     ];
   } else {
     result = {
@@ -417,10 +437,26 @@ export function resolveTestRuntime(repoRoot: string, options?: ResolveOptions): 
     };
     const layerToSource = (layer: Layer | null): ResolutionSource =>
       layer === null ? 'unresolved' : layer;
+    const buildEvent = (
+      field: 'test' | 'typecheck' | 'install',
+      pick: { value: string | null; layer: Layer | null },
+    ): PerFieldEvent => {
+      if (pick.layer === null) {
+        // Detected projects (e.g., .NET / Rust / Python) leave secondary
+        // fields null — the per-field event must still satisfy the schema's
+        // unresolved-with-remediation invariant.
+        const remediation =
+          field === 'test'
+            ? UNRESOLVED_REMEDIATION
+            : fieldUnresolvedRemediation(field);
+        return { field, command: pick.value, source: 'unresolved', remediation };
+      }
+      return { field, command: pick.value, source: layerToSource(pick.layer) };
+    };
     perFieldEvents = [
-      { field: 'test', command: testPick.value, source: layerToSource(testPick.layer) },
-      { field: 'typecheck', command: typecheckPick.value, source: layerToSource(typecheckPick.layer) },
-      { field: 'install', command: installPick.value, source: layerToSource(installPick.layer) },
+      buildEvent('test', testPick),
+      buildEvent('typecheck', typecheckPick),
+      buildEvent('install', installPick),
     ];
   }
 
@@ -437,8 +473,8 @@ export function resolveTestRuntime(repoRoot: string, options?: ResolveOptions): 
           source: ev.source,
           repoRoot,
         };
-        if (eventRemediation !== undefined) {
-          data.remediation = eventRemediation;
+        if (ev.remediation !== undefined) {
+          data.remediation = ev.remediation;
         }
         const maybe = store.append(stream, { type: 'command.resolved', data });
         if (maybe && typeof (maybe as Promise<void>).then === 'function') {

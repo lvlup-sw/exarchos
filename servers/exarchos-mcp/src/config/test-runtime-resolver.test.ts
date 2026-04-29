@@ -709,6 +709,60 @@ describe('resolveTestRuntime', () => {
     }
   });
 
+  it('resolveTestRuntime_DotNetDetection_PartialFieldsEmitUnresolvedWithRemediation', async () => {
+    // #1199 shepherd cycle 2 (sentry MEDIUM): for projects whose detection
+    // produces only a `test` command (.NET, Rust, Python), the per-field
+    // events for `typecheck` and `install` MUST satisfy the discriminated
+    // schema's invariant `source: 'unresolved' ⇒ non-empty remediation`.
+    // Previously these events shipped without a remediation field, which the
+    // schema (post-CR5 hardening) rejects at write time.
+    const dir = makeTmpDir();
+    writeFileSync(join(dir, 'MyApp.csproj'), '<Project></Project>');
+    const append = vi.fn();
+
+    const result = resolveTestRuntime(dir, { eventStore: { append }, stream: 'feat-net' });
+
+    expect(result.test).toBe('dotnet test');
+    expect(result.typecheck).toBeNull();
+    expect(result.install).toBeNull();
+    expect(result.source).toBe('detection');
+
+    expect(append).toHaveBeenCalledTimes(3);
+    const calls = append.mock.calls.map((c) => c[1]);
+    const byField = new Map<
+      string,
+      { data: { source: string; command: string | null; remediation?: string } }
+    >(
+      calls.map((e) => [
+        (e.data as { field: string }).field,
+        e as { data: { source: string; command: string | null; remediation?: string } },
+      ]),
+    );
+
+    const testEvt = byField.get('test');
+    expect(testEvt?.data.source).toBe('detection');
+    expect(testEvt?.data.command).toBe('dotnet test');
+    expect(testEvt?.data.remediation).toBeUndefined();
+
+    for (const field of ['typecheck', 'install'] as const) {
+      const evt = byField.get(field);
+      expect(evt?.data.source).toBe('unresolved');
+      expect(evt?.data.command).toBeNull();
+      expect(typeof evt?.data.remediation).toBe('string');
+      expect((evt?.data.remediation ?? '').length).toBeGreaterThan(0);
+      // Field-specific remediation, not the project-wide one.
+      expect(evt?.data.remediation).toContain(field);
+    }
+
+    // Schema validation — the new discriminated union must accept all three
+    // events.
+    const { CommandResolvedEventSchema } = await import('../event-store/schemas.js');
+    for (const evt of calls) {
+      const parsed = CommandResolvedEventSchema.safeParse(evt.data);
+      expect(parsed.success).toBe(true);
+    }
+  });
+
   it('resolveTestRuntime_WithEventStoreThrows_ResolutionStillSucceeds', () => {
     const dir = makeTmpDir();
     writeFileSync(
