@@ -566,3 +566,59 @@ describe('commanderErrorToResult mapping table (F-024-CMDR)', () => {
     expect(exitCode).toBe(CLI_EXIT_CODES.UNCAUGHT_EXCEPTION);
   });
 });
+
+// ─── #1201: install-skills Commander subcommand ─────────────────────────────
+//
+// Asserts that `exarchos install-skills --agent <name>` is registered on the
+// CLI program and that the action handler calls `installSkills()` from the
+// root `src/install-skills.ts` module with the runtime maps loaded from the
+// embedded codegen module. The installer is stubbed so no spawn/IO happens.
+
+const installSkillsMock =
+  vi.fn<(opts: Record<string, unknown>) => Promise<void>>();
+
+vi.mock('../../../../src/install-skills.js', () => ({
+  installSkills: (opts: Record<string, unknown>) => installSkillsMock(opts),
+}));
+
+vi.mock('../../../../src/runtimes/embedded.js', () => ({
+  loadEmbeddedRuntimes: () => ({
+    claude: { name: 'claude', skillsInstallPath: '~/.claude/skills' },
+    generic: { name: 'generic', skillsInstallPath: '~/.agents/skills' },
+  }),
+}));
+
+describe('install-skills subcommand', () => {
+  let ctx: DispatchContext;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    installSkillsMock.mockResolvedValue();
+    ctx = createTestContext();
+  });
+
+  it('cli_InstallSkillsSubcommand_DispatchesToInstaller', async () => {
+    const program = buildCli(ctx);
+
+    await program.parseAsync([
+      'node',
+      'exarchos',
+      'install-skills',
+      '--agent',
+      'claude',
+    ]);
+
+    expect(installSkillsMock).toHaveBeenCalledTimes(1);
+    const call = installSkillsMock.mock.calls[0]?.[0] as
+      | Record<string, unknown>
+      | undefined;
+    expect(call).toBeDefined();
+    expect(call?.agent).toBe('claude');
+    // Handler must pass the embedded runtime maps to the installer so the
+    // resolved `claude` runtime is reachable without re-loading YAML at
+    // user-install time.
+    const runtimes = call?.runtimes as Array<{ name: string }> | undefined;
+    expect(runtimes).toBeDefined();
+    expect(runtimes?.some((r) => r.name === 'claude')).toBe(true);
+  });
+});
