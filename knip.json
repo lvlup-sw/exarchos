@@ -13,11 +13,15 @@
         "src/install-skills.ts",
         "src/skills-guard.ts",
         "src/placeholder-lint.ts",
-        "scripts/*.test.ts"
+        "scripts/*.test.ts",
+        "test/**/*.test.ts",
+        "test/**/*.mjs"
       ],
       "project": [
         "src/**/*.ts",
-        "scripts/**/*.ts"
+        "scripts/**/*.ts",
+        "test/**/*.ts",
+        "test/**/*.mjs"
       ]
     },
     "servers/exarchos-mcp": {
