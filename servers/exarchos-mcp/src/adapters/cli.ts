@@ -550,6 +550,66 @@ export function buildCli(ctx: DispatchContext): Command {
     });
   }
 
+  // ─── Top-level `exarchos install-skills` command (#1201) ───────────────
+  //
+  // Bridges the documented `exarchos install-skills [--agent <name>]`
+  // surface (README.md line 119, `documentation/guide/installation.md`)
+  // to the existing `installSkills()` implementation in the root
+  // `src/install-skills.ts` module. The runtime maps are sourced from
+  // the build-time codegen module `src/runtimes/runtimes.generated.ts`
+  // (loaded via `loadEmbeddedRuntimes`) so the compiled binary works on
+  // a user's host without any on-disk `runtimes/*.yaml`.
+  //
+  // The `installSkills()` module is dynamically imported so cold-start
+  // for `wf status` etc. doesn't pay the cost of pulling in
+  // `@inquirer/prompts` (lazy-loaded inside the installer for the
+  // ambiguous-runtime prompt path). The import specifiers are kept in
+  // variables so TypeScript does not statically resolve the cross-package
+  // path — the MCP server's `tsc` rootDir is `./src`, but the actual
+  // modules live under the workspace root `src/`. At bundle time
+  // (`bun build --compile`) the bundler resolves these strings; at vitest
+  // runtime the test mocks them via `vi.mock` against the same string.
+  program
+    .command('install-skills')
+    .description('Install the Exarchos skills bundle for a target agent runtime')
+    .option('--agent <name>', 'Target agent runtime (claude, codex, opencode, copilot, cursor, generic). Auto-detected when omitted.')
+    .action(async (opts: { agent?: string }) => {
+      try {
+        const installSkillsSpecifier = '../../../../src/install-skills.js';
+        const embeddedSpecifier = '../../../../src/runtimes/embedded.js';
+        const [installSkillsMod, embeddedMod] = await Promise.all([
+          import(installSkillsSpecifier),
+          import(embeddedSpecifier),
+        ]);
+        const installSkills = (
+          installSkillsMod as {
+            installSkills: (args: {
+              agent?: string;
+              runtimes: unknown[];
+            }) => Promise<void>;
+          }
+        ).installSkills;
+        const loadEmbeddedRuntimes = (
+          embeddedMod as {
+            loadEmbeddedRuntimes: () => Record<string, unknown>;
+          }
+        ).loadEmbeddedRuntimes;
+        const runtimes = Object.values(loadEmbeddedRuntimes());
+        await installSkills({ agent: opts.agent, runtimes });
+        process.exitCode = CLI_EXIT_CODES.SUCCESS;
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        // Forward the child-process exit code when the underlying `npx skills add`
+        // call failed; otherwise treat as an unexpected exception.
+        const exitCode =
+          typeof (err as { exitCode?: unknown }).exitCode === 'number'
+            ? ((err as { exitCode: number }).exitCode as number)
+            : CLI_EXIT_CODES.UNCAUGHT_EXCEPTION;
+        printError({ code: 'INSTALL_SKILLS_FAILED', message });
+        process.exitCode = exitCode;
+      }
+    });
+
   // ─── Top-level `exarchos merge-orchestrate` command (T21, DR-MO-1) ──────
   //
   // Promoted to a top-level verb (like `doctor` and `init`) so an operator
