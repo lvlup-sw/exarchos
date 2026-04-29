@@ -29,7 +29,7 @@
     "prepare": "tsc",
     "bench": "cd servers/exarchos-mcp && npx vitest bench",
     "test": "vitest",
-    "test:unit": "vitest run --project unit --project integration",
+    "test:unit": "vitest run --project unit",
     "test:process": "vitest run --project process --passWithNoTests",
     "test:all": "vitest run",
     "test:run": "npm run test:unit",

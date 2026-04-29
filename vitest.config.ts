@@ -10,16 +10,11 @@ export default defineConfig({
           name: 'unit',
           include: [
             'src/**/*.test.ts',
+            'benchmarks/**/*.test.ts',
+            'scripts/**/*.test.ts',
             'test/fixtures/**/*.test.ts',
             'test/setup/**/*.test.ts',
-            'servers/exarchos-mcp/src/**/*.test.ts',
           ],
-        },
-      },
-      {
-        test: {
-          name: 'integration',
-          include: ['servers/exarchos-mcp/src/__tests__/**/*.test.ts'],
         },
       },
       {
