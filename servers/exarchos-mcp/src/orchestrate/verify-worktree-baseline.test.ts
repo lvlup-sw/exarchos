@@ -222,6 +222,71 @@ describe('handleVerifyWorktreeBaseline', () => {
     expect(bunCall?.[1]).toEqual(['test']);
   });
 
+  // ── #1199 shepherd fix: honor config-sourced runtimes ──────────────────
+  // Regression: prior to this fix `toProjectDetection` rejected any runtime
+  // whose `source !== 'detection'`, which meant a `.exarchos.yml`-supplied
+  // test command would surface as UNKNOWN_PROJECT_TYPE — breaking the very
+  // Basileus-forward configuration path the resolver was added to enable.
+  it('ConfigSourcedTestCommand_KnownRunner_HonoredByHandler', async () => {
+    vi.mocked(existsSync).mockImplementation((p) => {
+      const s = String(p);
+      if (s === '/worktree') return true;
+      // No detection markers; the only signal comes from .exarchos.yml.
+      if (s === '/worktree/.exarchos.yml') return true;
+      return false;
+    });
+    vi.mocked(readdirSync).mockReturnValue([]);
+    vi.mocked(readFileSync).mockImplementation((p) => {
+      if (String(p).endsWith('.exarchos.yml')) {
+        return 'test: pytest\n';
+      }
+      throw new Error(`unexpected readFileSync: ${String(p)}`);
+    });
+    vi.mocked(execFileSync).mockImplementation((cmd) => {
+      if (String(cmd) === 'git') return '.git\n';
+      return '=== 1 passed ===\n' as unknown as Buffer;
+    });
+
+    const result = await handleVerifyWorktreeBaseline({ worktreePath: '/worktree' }, stateDir);
+
+    expect(result.success).toBe(true);
+    const data = result.data as { passed: boolean; projectType: string; testCommand: string };
+    expect(data.passed).toBe(true);
+    // pytest is in the built-in label set, so the projectType is recognized.
+    expect(data.projectType).toBe('Python');
+    expect(data.testCommand).toBe('pytest');
+  });
+
+  it('ConfigSourcedTestCommand_UnknownRunner_GetsConfiguredLabel', async () => {
+    vi.mocked(existsSync).mockImplementation((p) => {
+      const s = String(p);
+      if (s === '/worktree') return true;
+      if (s === '/worktree/.exarchos.yml') return true;
+      return false;
+    });
+    vi.mocked(readdirSync).mockReturnValue([]);
+    vi.mocked(readFileSync).mockImplementation((p) => {
+      if (String(p).endsWith('.exarchos.yml')) {
+        return 'test: make test\n';
+      }
+      throw new Error(`unexpected readFileSync: ${String(p)}`);
+    });
+    vi.mocked(execFileSync).mockImplementation((cmd) => {
+      if (String(cmd) === 'git') return '.git\n';
+      return 'Tests OK\n' as unknown as Buffer;
+    });
+
+    const result = await handleVerifyWorktreeBaseline({ worktreePath: '/worktree' }, stateDir);
+
+    expect(result.success).toBe(true);
+    const data = result.data as { passed: boolean; projectType: string; testCommand: string };
+    expect(data.passed).toBe(true);
+    // `make test` isn't in the built-in label set, so we surface a
+    // source-tagged fallback rather than UNKNOWN_PROJECT_TYPE.
+    expect(data.projectType).toBe('Configured (.exarchos.yml)');
+    expect(data.testCommand).toBe('make test');
+  });
+
   it('detectProjectType_PnpmProject_ReturnsPnpmTest', async () => {
     vi.mocked(existsSync).mockImplementation((p) => {
       const s = String(p);

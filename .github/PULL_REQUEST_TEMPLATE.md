@@ -7,10 +7,6 @@
 <!-- Scannable list. Use **Bold** for component names and — (em-dash) as separator -->
 - **Component** — Brief description of what changed
 
-## Test Plan
-
-<!-- 1-2 sentences: Testing approach and coverage summary -->
-
 ---
 
 **Results:** Tests X · Build 0 errors
@@ -40,7 +36,9 @@ applicable box; explain N/A cases.
      DIM-1 Topology, DIM-2 Observability, DIM-3 Contracts, DIM-4 Test Fidelity,
      DIM-5 Hygiene, DIM-6 Architecture, DIM-7 Resilience, DIM-8 Prose Quality.  -->
 
-## Test plan
+## Test Plan
+
+<!-- 1-2 sentences on testing approach, then the coverage checklist below. -->
 
 - [ ] `npm run typecheck` clean
 - [ ] `npm run test:run` (root) — pass count: ...

@@ -14,7 +14,8 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import type { ToolResult } from '../format.js';
-import { detectTestCommands } from './detect-test-commands.js';
+import { resolveTestRuntime } from '../config/test-runtime-resolver.js';
+import { splitCommand } from '../config/tokenize-command.js';
 import type { VcsProvider } from '../vcs/provider.js';
 import { createVcsProvider } from '../vcs/factory.js';
 
@@ -396,22 +397,42 @@ function checkTestsPass(
     return;
   }
 
-  let cmds: import('./detect-test-commands.js').TestCommands;
+  // Use the resolver directly — same pattern as cli-commands/gates.ts (#1109
+  // MCP-parity; consumers see identical resolver output). Graceful skip on
+  // `unresolved` matches the #1174 contract: missing/ambiguous project config
+  // produces SKIP with remediation, never npm-against-pnpm-or-yarn.
+  let resolved: ReturnType<typeof resolveTestRuntime>;
   try {
-    cmds = detectTestCommands(repoRoot, testCommand);
+    resolved = resolveTestRuntime(
+      repoRoot,
+      testCommand ? { override: { test: testCommand } } : undefined,
+    );
   } catch (err) {
     checkFail(ctx, 'Tests pass', err instanceof Error ? err.message : String(err));
     return;
   }
+
+  if (resolved.source === 'unresolved') {
+    const detail = resolved.remediation ?? 'no test runtime resolved';
+    checkSkip(ctx, `Tests pass — ${detail}`);
+    return;
+  }
+
+  const cmds = { test: resolved.test, typecheck: resolved.typecheck };
 
   if (cmds.test === null) {
     checkSkip(ctx, 'Tests pass (no test runner detected)');
     return;
   }
 
+  // Quote-aware tokenizer (config/override commands may contain quoted args).
   try {
-    const [testProg, ...testArgs] = cmds.test.split(/\s+/);
-    execFileSync(testProg, testArgs, {
+    const { cmd: testProg, args: testArgs } = splitCommand(cmds.test);
+    if (testProg === '') {
+      checkFail(ctx, 'Tests pass', 'empty test command');
+      return;
+    }
+    execFileSync(testProg, testArgs as string[], {
       cwd: repoRoot,
       timeout: 120_000,
       stdio: ['pipe', 'pipe', 'pipe'],
@@ -423,8 +444,12 @@ function checkTestsPass(
 
   if (cmds.typecheck !== null) {
     try {
-      const [tcProg, ...tcArgs] = cmds.typecheck.split(/\s+/);
-      execFileSync(tcProg, tcArgs, {
+      const { cmd: tcProg, args: tcArgs } = splitCommand(cmds.typecheck);
+      if (tcProg === '') {
+        checkFail(ctx, 'Tests pass', 'empty typecheck command');
+        return;
+      }
+      execFileSync(tcProg, tcArgs as string[], {
         cwd: repoRoot,
         timeout: 60_000,
         stdio: ['pipe', 'pipe', 'pipe'],

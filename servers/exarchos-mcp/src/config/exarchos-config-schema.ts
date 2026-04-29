@@ -7,11 +7,15 @@ import { z } from 'zod';
  * `orchestrate/detect-test-commands.ts` and `config/test-runtime-resolver.ts`.
  * Any field omitted from the file falls back to detection (Stage 3).
  */
-const SAFE_COMMAND_REGEX = /^[a-zA-Z0-9_\-\s:.=\/+,@"'\\]+$/;
+// Intentionally allow plain space (` `) but reject control whitespace
+// (`\n`, `\t`, `\r`, etc.) — newlines can split shell commands when a
+// downstream consumer ever moves to a shell-aware execution path.
+const SAFE_COMMAND_REGEX = /^[a-zA-Z0-9_\- :.=\/+,@"'\\]+$/;
 
 const safeCommand = z
   .string()
-  .min(1)
+  .trim()
+  .min(1, 'must not be empty or whitespace-only')
   .regex(SAFE_COMMAND_REGEX, 'contains disallowed shell metacharacters');
 
 export const ExarchosConfigSchema = z

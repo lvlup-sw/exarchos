@@ -54,7 +54,11 @@ function makeState(overrides: Record<string, unknown> = {}): string {
 }
 
 function setupValidState(stateJson: string): void {
-  vi.mocked(existsSync).mockReturnValue(true);
+  // Test intent: no .exarchos.yml present — pure detection path. Without this
+  // discrimination the universal readFileSync mock returns the workflow state
+  // JSON for every path, which the resolver tries to validate as a config and
+  // (correctly) rejects.
+  vi.mocked(existsSync).mockImplementation((p) => !String(p).endsWith('.exarchos.yml'));
   vi.mocked(readFileSync).mockReturnValue(stateJson);
 }
 

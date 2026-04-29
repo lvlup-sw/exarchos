@@ -196,7 +196,9 @@ describe('resolveTestRuntime', () => {
     });
   });
 
-  it('resolveTestRuntime_YarnProject_DetectsYarnLockfile', () => {
+  it('resolveTestRuntime_YarnClassicProject_UsesFrozenLockfile', () => {
+    // No Berry signals (.yarnrc.yml, .yarn/releases/, packageManager) → Classic.
+    // `--immutable` is Berry-only; Classic projects must get `--frozen-lockfile`.
     const dir = makeTmpDir();
     writeFileSync(join(dir, 'package.json'), JSON.stringify({ scripts: { test: 'vitest run' } }));
     writeFileSync(join(dir, 'yarn.lock'), '');
@@ -206,9 +208,37 @@ describe('resolveTestRuntime', () => {
     expect(result).toEqual({
       test: 'yarn test',
       typecheck: 'tsc --noEmit',
-      install: 'yarn install --immutable',
+      install: 'yarn install --frozen-lockfile',
       source: 'detection',
     });
+  });
+
+  it('resolveTestRuntime_YarnBerryProject_UsesImmutable_ViaYarnrcYml', () => {
+    const dir = makeTmpDir();
+    writeFileSync(join(dir, 'package.json'), JSON.stringify({ scripts: { test: 'vitest run' } }));
+    writeFileSync(join(dir, 'yarn.lock'), '');
+    writeFileSync(join(dir, '.yarnrc.yml'), 'nodeLinker: node-modules\n');
+
+    const result = resolveTestRuntime(dir);
+
+    expect(result.install).toBe('yarn install --immutable');
+    expect(result.source).toBe('detection');
+  });
+
+  it('resolveTestRuntime_YarnBerryProject_UsesImmutable_ViaPackageManagerField', () => {
+    const dir = makeTmpDir();
+    writeFileSync(
+      join(dir, 'package.json'),
+      JSON.stringify({
+        scripts: { test: 'vitest run' },
+        packageManager: 'yarn@3.6.0',
+      }),
+    );
+    writeFileSync(join(dir, 'yarn.lock'), '');
+
+    const result = resolveTestRuntime(dir);
+
+    expect(result.install).toBe('yarn install --immutable');
   });
 
   it('resolveTestRuntime_NpmProject_NoAltLockfile_ReturnsNpmCommands', () => {
@@ -488,6 +518,35 @@ describe('resolveTestRuntime', () => {
     expect(result.typecheck).toBe('tsc --strict');
     expect(result.install).toBe('npm install');
     expect(result.source).toBe('override');
+  });
+
+  it('resolveTestRuntime_DetectionUnresolved_PreservesConfigInstallAndTypecheck', () => {
+    // #1199 shepherd fix: when detection produces an `unresolvedReason`
+    // (e.g., npm package without a `test:run` script) but config supplied
+    // typecheck/install, those values must be honored — not overwritten by
+    // the detection-only result. Per documented precedence override > config
+    // > detection, a still-usable install command should not be silently
+    // dropped just because the test command can't be determined.
+    const dir = makeTmpDir();
+    writeFileSync(
+      join(dir, 'package.json'),
+      // No `test:run` script → npm path triggers unresolvedReason.
+      JSON.stringify({ scripts: { build: 'tsc' } }),
+    );
+
+    const result = resolveTestRuntime(dir, {
+      loadConfig: () => ({
+        config: { typecheck: 'tsc --noEmit', install: 'npm ci' },
+        source: '/x/.exarchos.yml',
+      }),
+    });
+
+    expect(result.source).toBe('unresolved');
+    expect(result.test).toBeNull();
+    // Config-supplied install/typecheck survive the unresolved-test path.
+    expect(result.typecheck).toBe('tsc --noEmit');
+    expect(result.install).toBe('npm ci');
+    expect(result.remediation).toBeDefined();
   });
 
   it('resolveTestRuntime_ConfigOnly_NoDetectionMarkers_SourceIsConfig', () => {

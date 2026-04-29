@@ -27,8 +27,12 @@ export interface TestCommands {
   typecheck: string | null;
 }
 
-/** Allowlist pattern for test command overrides. Rejects shell metacharacters (;|&$`(){}!<>). */
-const SAFE_COMMAND_PATTERN = /^[a-zA-Z0-9_\-\s:.=\/+,@"'\\]+$/;
+/**
+ * Allowlist pattern for test command overrides. Rejects shell metacharacters
+ * (`;|&$\``(){}!<>) and control whitespace (`\n`, `\t`, `\r`); plain spaces
+ * are permitted as token separators.
+ */
+const SAFE_COMMAND_PATTERN = /^[a-zA-Z0-9_\- :.=\/+,@"'\\]+$/;
 
 export function detectTestCommands(repoRoot: string, override?: string): TestCommands {
   if (override) {

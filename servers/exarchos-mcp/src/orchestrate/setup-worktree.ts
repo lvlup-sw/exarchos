@@ -9,6 +9,7 @@ import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
 import type { ToolResult } from '../format.js';
 import { resolveTestRuntime } from '../config/test-runtime-resolver.js';
+import { splitCommand } from '../config/tokenize-command.js';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -163,16 +164,26 @@ function runInstallStep(worktreePath: string): CheckResult {
     };
   }
 
-  // Parse "<cmd> <arg1> <arg2> ..." into cmd + args. The resolver only emits
-  // commands assembled from a known allowlist (npm install / bun install /
-  // pnpm install --frozen-lockfile / yarn install --immutable), so a simple
-  // whitespace split is safe here.
-  const parts = resolved.install.split(/\s+/).filter((p) => p.length > 0);
-  const cmd = parts[0];
-  const cmdArgs = parts.slice(1);
+  // Quote-aware tokenizer (config/override commands may carry quoted args
+  // like `"./bin/runner" install`). Detection-sourced commands work either
+  // way; using the same tokenizer everywhere keeps argv semantics aligned.
+  let cmd: string;
+  let cmdArgs: readonly string[];
+  try {
+    ({ cmd, args: cmdArgs } = splitCommand(resolved.install));
+  } catch (err) {
+    return {
+      name: 'install',
+      status: 'fail',
+      detail: `unparseable install command "${resolved.install}": ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
+  if (cmd === '') {
+    return { name: 'install', status: 'skip', detail: 'empty install command' };
+  }
 
   try {
-    execFileSync(cmd, cmdArgs, {
+    execFileSync(cmd, cmdArgs as string[], {
       encoding: 'utf-8',
       cwd: worktreePath,
       stdio: ['pipe', 'pipe', 'pipe'],
@@ -202,16 +213,24 @@ function runBaselineTests(worktreePath: string, skipTests: boolean): CheckResult
     };
   }
 
-  // Parse "<cmd> <arg1> ..." into cmd + args. The resolver only emits commands
-  // assembled from a known allowlist (npm run test:run / pnpm test / yarn test
-  // / bun test / pytest / cargo test / dotnet test), so a simple whitespace
-  // split is safe here.
-  const parts = resolved.test.split(/\s+/).filter((p) => p.length > 0);
-  const cmd = parts[0];
-  const cmdArgs = parts.slice(1);
+  // Quote-aware tokenizer — same rationale as runInstallStep.
+  let cmd: string;
+  let cmdArgs: readonly string[];
+  try {
+    ({ cmd, args: cmdArgs } = splitCommand(resolved.test));
+  } catch (err) {
+    return {
+      name: 'Baseline tests pass',
+      status: 'fail',
+      detail: `unparseable test command "${resolved.test}": ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
+  if (cmd === '') {
+    return { name: 'Baseline tests pass', status: 'skip', detail: 'empty test command' };
+  }
 
   try {
-    execFileSync(cmd, cmdArgs, {
+    execFileSync(cmd, cmdArgs as string[], {
       encoding: 'utf-8',
       cwd: worktreePath,
       stdio: ['pipe', 'pipe', 'pipe'],

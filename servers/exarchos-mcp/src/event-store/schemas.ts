@@ -1021,18 +1021,28 @@ export const MergeRollbackData = z.object({
  * `null` from an unresolved command for which we should bail with
  * remediation guidance. Not folded by any state reducer.
  */
-export const CommandResolvedEventSchema = z.object({
-  /** Field that was resolved: 'test' | 'typecheck' | 'install'. */
+// Discriminated on `source` so contradictory shapes (e.g. `source: 'config'`
+// + `command: null`, or `source: 'unresolved'` + a runnable command) are
+// rejected at the schema boundary. Downstream graceful-skip logic relies on
+// `source === 'unresolved'` implying `command === null` and a non-empty
+// `remediation`.
+const CommandResolvedBase = z.object({
   field: z.enum(['test', 'typecheck', 'install']),
-  /** The resolved command string, or null if unresolved. */
-  command: z.string().min(1).nullable(),
-  /** Where the value came from. */
-  source: z.enum(['config', 'detection', 'override', 'unresolved']),
-  /** Repo root or worktree path the resolution applied to. */
   repoRoot: z.string().min(1),
-  /** When source is 'unresolved' or for ancillary diagnostic context. Optional. */
-  remediation: z.string().optional(),
 });
+
+export const CommandResolvedEventSchema = z.discriminatedUnion('source', [
+  CommandResolvedBase.extend({
+    source: z.enum(['config', 'detection', 'override']),
+    command: z.string().min(1),
+    remediation: z.string().optional(),
+  }),
+  CommandResolvedBase.extend({
+    source: z.literal('unresolved'),
+    command: z.null(),
+    remediation: z.string().min(1),
+  }),
+]);
 export type CommandResolvedEvent = z.infer<typeof CommandResolvedEventSchema>;
 
 // ─── Event Data Schemas Map ─────────────────────────────────────────────────

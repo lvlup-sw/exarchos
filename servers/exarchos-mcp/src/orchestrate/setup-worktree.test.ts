@@ -485,7 +485,9 @@ describe('handleSetupWorktree', () => {
     expect(npmInstallCalls).toHaveLength(0);
   });
 
-  it('runInstallStep_YarnLockfilePresent_RunsYarnInstall', () => {
+  it('runInstallStep_YarnClassicLockfilePresent_RunsYarnInstallFrozen', () => {
+    // No Berry signals → Classic. `--immutable` is Berry-only; Classic must
+    // get `--frozen-lockfile`.
     vi.mocked(execFileSync).mockImplementation((cmd: unknown, args: unknown) => {
       const cmdStr = String(cmd);
       const argsArr = args as string[];
@@ -522,8 +524,51 @@ describe('handleSetupWorktree', () => {
     expect(result.success).toBe(true);
     expect(execFileSync).toHaveBeenCalledWith(
       'yarn',
-      ['install', '--immutable'],
+      ['install', '--frozen-lockfile'],
       expect.objectContaining({ cwd: '/repo/.worktrees/task-103-yarn' }),
+    );
+  });
+
+  it('runInstallStep_YarnBerryViaYarnrcYml_RunsYarnInstallImmutable', () => {
+    vi.mocked(execFileSync).mockImplementation((cmd: unknown, args: unknown) => {
+      const cmdStr = String(cmd);
+      const argsArr = args as string[];
+      if (cmdStr === 'git' && argsArr.includes('check-ignore')) return '';
+      if (cmdStr === 'git' && argsArr.includes('show-ref')) return '';
+      if (cmdStr === 'git' && argsArr.includes('rev-parse')) return '.git';
+      return '';
+    });
+    vi.mocked(existsSync).mockImplementation((p: unknown) => {
+      const path = String(p);
+      if (path === '/repo/.worktrees/task-103-berry') return true;
+      if (path === '/repo/.worktrees/task-103-berry/package.json') return true;
+      if (path === '/repo/.worktrees/task-103-berry/yarn.lock') return true;
+      if (path === '/repo/.worktrees/task-103-berry/.yarnrc.yml') return true;
+      return false;
+    });
+    vi.mocked(readFileSync).mockImplementation((p: unknown) => {
+      const path = String(p);
+      if (path.endsWith('package.json')) {
+        return JSON.stringify({
+          name: 'fixture-berry',
+          scripts: { test: 'vitest run' },
+        });
+      }
+      return '';
+    });
+
+    const result = handleSetupWorktree({
+      repoRoot: '/repo',
+      taskId: 'task-103',
+      taskName: 'berry',
+      skipTests: true,
+    });
+
+    expect(result.success).toBe(true);
+    expect(execFileSync).toHaveBeenCalledWith(
+      'yarn',
+      ['install', '--immutable'],
+      expect.objectContaining({ cwd: '/repo/.worktrees/task-103-berry' }),
     );
   });
 

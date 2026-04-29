@@ -12,7 +12,10 @@
 
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import * as path from 'node:path';
+import { logger } from '../logger.js';
 import { loadExarchosConfig, type LoadResult } from './load-exarchos-config.js';
+
+const resolverLogger = logger.child({ subsystem: 'test-runtime-resolver' });
 
 export type ResolutionSource = 'config' | 'detection' | 'override' | 'unresolved';
 
@@ -57,14 +60,23 @@ export interface ResolveOptions {
   stream?: string;
 }
 
-/** Allowlist pattern for command overrides. Rejects shell metacharacters (;|&$`(){}!<>). */
-const SAFE_COMMAND_PATTERN = /^[a-zA-Z0-9_\-\s:.=\/+,@"'\\]+$/;
+/**
+ * Allowlist pattern for command overrides. Rejects shell metacharacters
+ * (`;|&$\``(){}!<>) and control whitespace (`\n`, `\t`, `\r`) — only plain
+ * spaces are allowed as token separators. Mirrors the .exarchos.yml schema
+ * pattern in `exarchos-config-schema.ts` for unified semantics.
+ */
+const SAFE_COMMAND_PATTERN = /^[a-zA-Z0-9_\- :.=\/+,@"'\\]+$/;
 
 const UNRESOLVED_REMEDIATION =
   'No project markers detected. Add a .exarchos.yml with test/typecheck/install commands or pass an override.';
 
 function assertSafe(label: string, value: string): void {
-  if (!SAFE_COMMAND_PATTERN.test(value)) {
+  const trimmed = value.trim();
+  if (trimmed.length === 0) {
+    throw new Error(`Invalid ${label} override: must not be empty or whitespace-only`);
+  }
+  if (!SAFE_COMMAND_PATTERN.test(trimmed)) {
     throw new Error(
       `Invalid ${label} override: contains disallowed characters. Must match ${SAFE_COMMAND_PATTERN}`,
     );
@@ -86,6 +98,8 @@ interface DetectionResult {
 
 interface PackageJsonShape {
   scripts?: Record<string, unknown>;
+  /** Yarn Berry / pnpm corepack signal. Used to discriminate Yarn versions. */
+  packageManager?: string;
 }
 
 interface PackageJsonReadResult {
@@ -125,8 +139,11 @@ function hasScript(pkg: PackageJsonShape | null, name: string): boolean {
  *   bun > pnpm > yarn > npm (default).
  *
  * Lockfiles only matter when a `package.json` declares the project — a stray
- * `bun.lockb` from a partial git checkout should not promote a non-Node tree
- * to Node detection. Returns `null` when no `package.json` is present.
+ * lockfile from a partial git checkout should not promote a non-Node tree to
+ * Node detection. Returns `null` when no `package.json` is present.
+ *
+ * Bun: accepts both `bun.lock` (Bun 1.3+ default, text-based) and `bun.lockb`
+ * (legacy binary format, still supported).
  */
 function detectNodePackageManager(
   repoRoot: string,
@@ -134,10 +151,33 @@ function detectNodePackageManager(
   if (!existsSync(path.join(repoRoot, 'package.json'))) {
     return null;
   }
-  if (existsSync(path.join(repoRoot, 'bun.lockb'))) return 'bun';
+  if (
+    existsSync(path.join(repoRoot, 'bun.lock')) ||
+    existsSync(path.join(repoRoot, 'bun.lockb'))
+  ) {
+    return 'bun';
+  }
   if (existsSync(path.join(repoRoot, 'pnpm-lock.yaml'))) return 'pnpm';
   if (existsSync(path.join(repoRoot, 'yarn.lock'))) return 'yarn';
   return 'npm';
+}
+
+/**
+ * Yarn Berry (v2+) uses `yarn install --immutable`; Yarn Classic (v1) does
+ * not understand that flag. Berry projects always carry one of:
+ *   - `.yarnrc.yml` (Berry-only config file; v1 uses `.yarnrc`)
+ *   - `.yarn/releases/` (Berry-bundled binary)
+ *   - `packageManager: "yarn@>=2..."` field in package.json
+ * Detect any of these signals; absence implies Yarn Classic.
+ */
+function isYarnBerry(repoRoot: string, pkg: PackageJsonShape | null): boolean {
+  if (existsSync(path.join(repoRoot, '.yarnrc.yml'))) return true;
+  if (existsSync(path.join(repoRoot, '.yarn', 'releases'))) return true;
+  const declared = pkg?.['packageManager'];
+  if (typeof declared === 'string' && /^yarn@(?:[2-9]|\d{2,})\b/.test(declared)) {
+    return true;
+  }
+  return false;
 }
 
 function detect(repoRoot: string): DetectionResult {
@@ -184,11 +224,17 @@ function detect(repoRoot: string): DetectionResult {
       };
     }
     if (pm === 'yarn') {
+      // `--immutable` is Berry-only; Classic (v1) rejects it. Pick the install
+      // command from the detected version. Both versions still get the same
+      // test/typecheck shape — those scripts are user-defined.
+      const yarnInstall = isYarnBerry(repoRoot, pkg)
+        ? 'yarn install --immutable'
+        : 'yarn install --frozen-lockfile';
       if (!hasScript(pkg, 'test')) {
         return {
           test: null,
           typecheck: null,
-          install: 'yarn install --immutable',
+          install: yarnInstall,
           detected: true,
           unresolvedReason:
             'package.json is missing a "test" script. Add a "test" entry under scripts (e.g., "test": "vitest run") or define test/typecheck commands in .exarchos.yml.',
@@ -197,7 +243,7 @@ function detect(repoRoot: string): DetectionResult {
       return {
         test: 'yarn test',
         typecheck: hasScript(pkg, 'typecheck') ? 'yarn run typecheck' : 'tsc --noEmit',
-        install: 'yarn install --immutable',
+        install: yarnInstall,
         detected: true,
       };
     }
@@ -319,20 +365,34 @@ export function resolveTestRuntime(repoRoot: string, options?: ResolveOptions): 
     testPick.layer !== 'override' &&
     testPick.layer !== 'config'
   ) {
+    // Detection couldn't produce a runnable test command, but override/config
+    // may still have contributed valid `typecheck` or `install` values —
+    // honor them per the documented precedence (override > config > detection).
+    // The aggregate source remains `unresolved` because `test` is unrunnable,
+    // but per-field events keep their actual source so the audit trail is
+    // accurate.
+    const layerToSource = (layer: Layer | null): ResolutionSource =>
+      layer === null ? 'unresolved' : layer;
     result = {
-      test: det.test,
-      typecheck: det.typecheck,
-      install: det.install,
+      test: null,
+      typecheck: typecheckPick.value,
+      install: installPick.value,
       source: 'unresolved',
       remediation: det.unresolvedReason,
     };
     eventRemediation = det.unresolvedReason;
-    // For the partial-detection case, every field is reported as 'unresolved'
-    // on the audit log — the project is not safely runnable.
     perFieldEvents = [
-      { field: 'test', command: result.test, source: 'unresolved' },
-      { field: 'typecheck', command: result.typecheck, source: 'unresolved' },
-      { field: 'install', command: result.install, source: 'unresolved' },
+      { field: 'test', command: null, source: 'unresolved' },
+      {
+        field: 'typecheck',
+        command: typecheckPick.value,
+        source: layerToSource(typecheckPick.layer),
+      },
+      {
+        field: 'install',
+        command: installPick.value,
+        source: layerToSource(installPick.layer),
+      },
     ];
   } else if (source === 'unresolved') {
     result = {
@@ -383,14 +443,16 @@ export function resolveTestRuntime(repoRoot: string, options?: ResolveOptions): 
         const maybe = store.append(stream, { type: 'command.resolved', data });
         if (maybe && typeof (maybe as Promise<void>).then === 'function') {
           (maybe as Promise<void>).catch((err: unknown) => {
-            console.warn(
-              `[test-runtime-resolver] command.resolved emission failed: ${String((err as Error)?.message ?? err)}`,
+            resolverLogger.warn(
+              { err: (err as Error)?.message ?? String(err) },
+              'command.resolved emission failed',
             );
           });
         }
       } catch (err) {
-        console.warn(
-          `[test-runtime-resolver] command.resolved emission failed: ${String((err as Error)?.message ?? err)}`,
+        resolverLogger.warn(
+          { err: (err as Error)?.message ?? String(err) },
+          'command.resolved emission failed',
         );
       }
     }
