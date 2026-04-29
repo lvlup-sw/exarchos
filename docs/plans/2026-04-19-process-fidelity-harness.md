@@ -374,7 +374,7 @@ Three things: (a) a preflight check that fails the `process` project fast with a
 
 **Verification:**
 - [ ] Preflight tests pass (3 tests).
-- [ ] Barrel exports exactly 5 symbols + 4 types.
+- [ ] Barrel exports exactly 5 symbols + 6 types (HermeticEnv, SpawnMcpClientOpts, SpawnedMcpClient, RunCliOpts, CliResult, Normalized).
 - [ ] `process-tracker` and `preflight` are not accessible from the barrel.
 - [ ] Global afterEach only registered for the `process` project, not `unit`.
 - [ ] When PR 2 adds its first test, running `test:process` without prior `npm link` must produce the actionable preflight error. Verify manually by simulating: `env PATH=/usr/bin npm run test:process` after PR 2 lands — must fail with the documented message.
