@@ -1,7 +1,7 @@
 {
   "name": "exarchos",
   "description": "A local-first SDLC workflow harness — structured, durable state for coding agents, with convergence gates, agent teams, and full audit trail.",
-  "version": "2.9.0-rc.1",
+  "version": "2.9.0-rc.2",
   "author": {
     "name": "LevelUp Software"
   },
@@ -41,7 +41,7 @@
   },
   "metadata": {
     "compat": {
-      "minBinaryVersion": "2.9.0-rc.1"
+      "minBinaryVersion": "2.9.0-rc.2"
     }
   }
 }

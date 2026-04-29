@@ -123,7 +123,7 @@ function startHeartbeat(actionName: string): () => void {
 export function buildCli(ctx: DispatchContext): Command {
   const program = new Command('exarchos')
     .description('Agent governance for AI coding — event-sourced SDLC workflows')
-    .version('2.9.0-rc.1');
+    .version('2.9.0-rc.2');
 
   // ─── Auto-generated tool commands ──────────────────────────────────────────
 
@@ -375,7 +375,7 @@ export function buildCli(ctx: DispatchContext): Command {
   // We assign the return value to `process.exitCode` to preserve the
   // DR-3 exit-code contract (0 = ok, 1 = drift detected).
   //
-  // NOTE: Commander's top-level `.version('2.9.0-rc.1')` above registers
+  // NOTE: Commander's top-level `.version('2.9.0-rc.2')` above registers
   // `--version` as a flag on the root program; this `version` subcommand
   // is distinct because it takes the `--check-plugin-root <path>` option.
   program
@@ -393,7 +393,7 @@ export function buildCli(ctx: DispatchContext): Command {
       const { handleVersionCheck } = await import('../cli-commands/version.js');
       const exitCode = await handleVersionCheck({
         pluginRoot: opts.checkPluginRoot,
-        binaryVersion: '2.9.0-rc.1',
+        binaryVersion: '2.9.0-rc.2',
       });
       process.exitCode = exitCode;
     });

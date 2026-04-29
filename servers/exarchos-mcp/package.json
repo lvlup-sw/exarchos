@@ -1,6 +1,6 @@
 {
   "name": "@lvlup-sw/exarchos-mcp",
-  "version": "2.9.0-rc.1",
+  "version": "2.9.0-rc.2",
   "main": "dist/index.js",
   "type": "module",
   "scripts": {

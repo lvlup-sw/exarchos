@@ -73,7 +73,7 @@ const DELEGATE_PHASES = new Set(['delegate', 'overhaul-delegate']);
 // pulls the full MCP bootstrap graph and blows the cold-start budget.
 // Both strings must stay in lock-step; a failing parity test lives in
 // `src/__tests__/workflow/index.test.ts`.
-const SESSION_START_BINARY_VERSION = '2.9.0-rc.1';
+const SESSION_START_BINARY_VERSION = '2.9.0-rc.2';
 
 // ─── Type Guard ──────────────────────────────────────────────────────────────
 

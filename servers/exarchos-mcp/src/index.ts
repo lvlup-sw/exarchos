@@ -47,7 +47,7 @@ export const SERVER_NAME = 'exarchos-mcp';
 // `adapters/mcp.ts` MUST be bumped in lockstep with `package.json` and
 // `.claude-plugin/plugin.json.metadata.compat.minBinaryVersion`. See
 // the v2.9 release blockers in PR #1176 description.
-export const SERVER_VERSION = '2.9.0-rc.1';
+export const SERVER_VERSION = '2.9.0-rc.2';
 
 // ─── Mode Detection ─────────────────────────────────────────────────────────
 
