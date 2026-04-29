@@ -44,15 +44,15 @@ Before any fixture code lands, the build must know where fixture self-tests run 
 1. Update `vitest.config.ts` at repo root to define `projects`:
    ```typescript
    projects: [
-     { name: 'unit',        include: ['src/**/*.test.ts', 'test/fixtures/**/*.test.ts', 'servers/exarchos-mcp/src/**/*.test.ts'] },
-     { name: 'integration', include: ['servers/exarchos-mcp/src/__tests__/**/*.test.ts'] },
-     { name: 'process',     include: ['test/process/**/*.test.ts'], testTimeout: 15000 },
+     { name: 'unit',    include: ['src/**/*.test.ts', 'benchmarks/**/*.test.ts', 'scripts/**/*.test.ts', 'test/fixtures/**/*.test.ts', 'test/setup/**/*.test.ts'] },
+     { name: 'process', include: ['test/process/**/*.test.ts'], testTimeout: 15000, setupFiles: ['./test/setup/global.ts'] },
    ]
    ```
+   Note: `servers/exarchos-mcp/**` is intentionally NOT included — that workspace has its own deps and its own CI job. Including it here would force root `npm ci` to install the MCP server's deps and break Root Package CI.
 2. Update root `package.json` scripts:
    ```
-   "test:unit":    "vitest run --project unit --project integration",
-   "test:process": "vitest run --project process",
+   "test:unit":    "vitest run --project unit",
+   "test:process": "vitest run --project process --passWithNoTests",
    "test:all":     "vitest run",
    "test:run":     "npm run test:unit"   // preserve existing CI behavior
    ```
