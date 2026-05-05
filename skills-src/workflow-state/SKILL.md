@@ -93,11 +93,48 @@ Use `{{MCP_PREFIX}}exarchos_workflow` with `action: "set"` with `featureId` and 
 
 - **Update phase**: `phase: "delegate"`
 - **Set artifact path**: `updates: { "artifacts.design": "docs/designs/2026-01-05-feature.md" }`
-- **Mark task complete**: `updates: { "tasks[id=001].status": "complete", "tasks[id=001].completedAt": "<timestamp>" }`
+- **Mark task complete (by index)**: `updates: { "tasks[0].status": "complete", "tasks[0].completedAt": "<timestamp>" }`
 - **Add worktree**: `updates: { "worktrees.wt-001": { "branch": "feature/001-types", "taskId": "001", "status": "active" } }`
 - **Phase + updates together**: `phase: "delegate"`, `updates: { "artifacts.plan": "docs/plans/plan.md" }`
 
 Worktree status values: `'active' | 'merged' | 'removed'`
+
+#### Editing the `tasks` array
+
+The dot-path parser used by `set updates` recognizes only **numeric** array brackets (`tasks[0]`, `tasks[1]`, …). Keyed forms like `tasks[id=T-001]` are NOT supported — they are silently treated as a literal property name and write to a bogus top-level key. Three patterns are supported:
+
+1. **Replace the whole array** (use this when the plan is being revised wholesale; matches the issue #1003 contract):
+   ```typescript
+   exarchos_workflow({
+     action: "set",
+     featureId: "<id>",
+     updates: { tasks: [
+       { id: "T-001", title: "...", status: "pending" },
+       { id: "T-002", title: "...", status: "pending" },
+     ]},
+   })
+   ```
+
+2. **Edit one task by its array index**:
+   ```typescript
+   exarchos_workflow({
+     action: "set",
+     featureId: "<id>",
+     updates: { "tasks[0].status": "complete", "tasks[0].completedAt": "<ts>" },
+   })
+   ```
+   First read `tasks` (`action: "get", query: "tasks"`) to find the index of the task you want to edit, then set by that index.
+
+3. **Append a new task** by writing to the next-free index. If the array currently has length `N`, write to `tasks[N]`:
+   ```typescript
+   // Suppose tasks already contains T-001 and T-002 (length 2). To append:
+   exarchos_workflow({
+     action: "set",
+     featureId: "<id>",
+     updates: { "tasks[2]": { id: "T-003", title: "Follow-up", status: "pending" } },
+   })
+   ```
+   The parser allows writing one slot past the current length (`MAX_ARRAY_GAP = 1`); writing further out (`tasks[5]` against a length-2 array) throws `INVALID_INPUT`. Read the current `tasks` length before appending.
 
 ### Get Summary
 
