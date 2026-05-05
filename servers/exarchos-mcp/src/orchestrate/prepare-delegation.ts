@@ -285,7 +285,7 @@ export function computeScopedWorktrees(
   const expected = taskIds.length;
   const pending = expected - readyInWave;
 
-  const blockers = readiness.blockers.flatMap(blocker => {
+  let blockers = readiness.blockers.flatMap(blocker => {
     // Only touch the canonical "<N> worktrees pending" message; pass
     // through other worktree-class blockers (failed, no-worktrees-expected).
     if (!/^\d+ worktrees pending$/.test(blocker)) {
@@ -296,6 +296,19 @@ export function computeScopedWorktrees(
     }
     return [`${pending} worktrees pending`];
   });
+
+  // F-iter3 (#1213, sentry HIGH r3186305844): if the global readiness has no
+  // "N worktrees pending" blocker (because the global state was ready) but
+  // the wave subset still has pending worktrees, synthesise one. Without
+  // this the caller sees an empty blockers array and dispatches prematurely
+  // (e.g. mixed legacy/modern `worktree.created` events leave the global
+  // view consistent but the wave-projection is not).
+  if (
+    pending > 0 &&
+    !blockers.some(b => /^\d+ worktrees pending$/.test(b))
+  ) {
+    blockers = [...blockers, `${pending} worktrees pending`];
+  }
 
   return { expected, ready: readyInWave, pending, blockers };
 }

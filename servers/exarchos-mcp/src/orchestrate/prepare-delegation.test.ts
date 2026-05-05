@@ -1738,4 +1738,57 @@ describe('computeScopedWorktrees', () => {
     // contract; canonical comparison only changes the match logic).
     expect(result.blockers).toContain('1 worktrees pending');
   });
+
+  // F-iter3 (#1213, sentry HIGH r3186305844): the global readiness can be
+  // empty of "N worktrees pending" blockers (because globally everything is
+  // ready) while a wave subset still has unready members. Without an
+  // explicit synthesise step the caller saw `blockers === []` and dispatched
+  // prematurely. The next three tests pin the synthesise / no-synthesise /
+  // existing-rewrite behaviours.
+  it('ComputeScopedWorktrees_GlobalReadyButWavePending_SynthesisesBlocker', () => {
+    // Globally only T-001 is ready and the projection has no
+    // "N worktrees pending" blocker (e.g. global expected==1 / ready==1
+    // because the global expected count was scoped to the ready set, OR a
+    // mix of legacy/modern worktree.created events). The wave addresses
+    // T-002 — which is not ready. Without synthesis the caller would see
+    // blockers===[] and dispatch.
+    const state = readiness(['T-001'], 1, []);
+    const result = computeScopedWorktrees(state, [{ id: 'T-002' }]);
+    expect(result.expected).toBe(1);
+    expect(result.ready).toBe(0);
+    expect(result.pending).toBe(1);
+    expect(result.blockers).toContain('1 worktrees pending');
+  });
+
+  it('ComputeScopedWorktrees_GlobalAndWaveReady_NoBlockerSynthesised', () => {
+    // Globally and wave-locally the only task is ready. No blocker should
+    // be synthesised; result.blockers must remain empty.
+    const state = readiness(['T-001'], 1, []);
+    const result = computeScopedWorktrees(state, [{ id: 'T-001' }]);
+    expect(result.expected).toBe(1);
+    expect(result.ready).toBe(1);
+    expect(result.pending).toBe(0);
+    expect(result.blockers).toEqual([]);
+  });
+
+  it('ComputeScopedWorktrees_GlobalHasPendingBlocker_RewrittenToWaveCount', () => {
+    // Existing transformation contract: the global "5 worktrees pending"
+    // blocker must be rewritten to the wave-scoped count, not duplicated
+    // or left at the global value.
+    const state = readiness(['T-001'], 5, ['5 worktrees pending']);
+    const result = computeScopedWorktrees(state, [
+      { id: 'T-001' }, // ready
+      { id: 'T-002' }, // not ready
+    ]);
+    expect(result.expected).toBe(2);
+    expect(result.ready).toBe(1);
+    expect(result.pending).toBe(1);
+    expect(result.blockers).toContain('1 worktrees pending');
+    expect(result.blockers).not.toContain('5 worktrees pending');
+    // Synthesise step must not produce a duplicate "1 worktrees pending".
+    const matches = result.blockers.filter(b =>
+      /^\d+ worktrees pending$/.test(b),
+    );
+    expect(matches).toHaveLength(1);
+  });
 });
