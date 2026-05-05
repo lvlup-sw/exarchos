@@ -117,7 +117,13 @@ function readyDelegationReadiness(): DelegationReadinessState {
     blockers: [],
     plan: { approved: true, taskCount: 2, artifactPresent: true },
     quality: { queried: true, gatePassRate: null, regressions: [] },
-    worktrees: { expected: 2, ready: 2, failed: [] },
+    worktrees: {
+      expected: 2,
+      ready: 2,
+      failed: [],
+      assignedTaskIds: ['task-1', 'task-2'],
+      readyTaskIds: ['task-1', 'task-2'],
+    },
   };
 }
 
@@ -127,7 +133,13 @@ function notReadyDelegationReadiness(): DelegationReadinessState {
     blockers: ['plan not approved', 'no task.assigned events found — emit task.assigned events for each task via exarchos_event before calling prepare_delegation'],
     plan: { approved: false, taskCount: 0, artifactPresent: false },
     quality: { queried: false, gatePassRate: null, regressions: [] },
-    worktrees: { expected: 0, ready: 0, failed: [] },
+    worktrees: {
+      expected: 0,
+      ready: 0,
+      failed: [],
+      assignedTaskIds: [],
+      readyTaskIds: [],
+    },
   };
 }
 
@@ -438,7 +450,7 @@ describe('handlePrepareDelegation', () => {
       blockers: ['Plan artifact is missing'],
       plan: { approved: true, taskCount: 2, artifactPresent: false },
       quality: { queried: true, gatePassRate: null, regressions: [] },
-      worktrees: { expected: 2, ready: 2, failed: [] },
+      worktrees: { expected: 2, ready: 2, failed: [], assignedTaskIds: [], readyTaskIds: [] },
     };
     setupMaterializer(state, undefined, drState);
     const args = { featureId: 'test-feature' };
@@ -465,7 +477,7 @@ describe('handlePrepareDelegation', () => {
       blockers: [],
       plan: { approved: true, taskCount: 2, artifactPresent: true },
       quality: { queried: true, gatePassRate: null, regressions: [] },
-      worktrees: { expected: 2, ready: 2, failed: [] },
+      worktrees: { expected: 2, ready: 2, failed: [], assignedTaskIds: [], readyTaskIds: [] },
     };
     setupMaterializer(state, undefined, drState);
     vi.mocked(generateQualityHints).mockReturnValue([]);
@@ -479,6 +491,100 @@ describe('handlePrepareDelegation', () => {
     expect(data.readiness.blockers).toEqual([]);
   });
 
+  // ─── DR-T-2 (T-05): wave-scoped worktree readiness ─────────────────────
+
+  it('PrepareDelegation_TasksArgSubsetReady_NoBlocker', async () => {
+    // Projection has 5 assigned, 3 ready (subset). tasks arg names the
+    // 3 ready ones — wave is complete, no worktree blocker should fire.
+    const state = readyWorkflowState();
+    const drState: DelegationReadinessState = {
+      ready: false,
+      blockers: ['2 worktrees pending'], // global view: 2 of 5 still pending
+      plan: { approved: true, taskCount: 5, artifactPresent: true },
+      quality: { queried: true, gatePassRate: null, regressions: [] },
+      worktrees: {
+        expected: 5, ready: 3, failed: [],
+        assignedTaskIds: ['t1', 't2', 't3', 't4', 't5'],
+        readyTaskIds: ['t1', 't2', 't3'],
+      },
+    };
+    setupMaterializer(state, undefined, drState);
+    vi.mocked(generateQualityHints).mockReturnValue([]);
+    const args = {
+      featureId: 'test-feature',
+      tasks: [
+        { id: 't1', title: 'A' },
+        { id: 't2', title: 'B' },
+        { id: 't3', title: 'C' },
+      ],
+    };
+
+    const result = await handlePrepareDelegation(args, STATE_DIR, makeCtx(mockStore, STATE_DIR));
+
+    expect(result.success).toBe(true);
+    const data = result.data as { ready: boolean; readiness: DelegationReadinessState };
+    expect(data.ready).toBe(true);
+    expect(data.readiness.blockers).not.toContain(expect.stringContaining('worktrees pending'));
+  });
+
+  it('PrepareDelegation_TasksArgSubsetPending_ExactPendingCountInBlocker', async () => {
+    // Projection has 33 assigned, 0 ready. tasks arg names 3 pending.
+    // Blocker should report 3 worktrees pending, not 33.
+    const state = readyWorkflowState();
+    const drState: DelegationReadinessState = {
+      ready: false,
+      blockers: ['33 worktrees pending'],
+      plan: { approved: true, taskCount: 33, artifactPresent: true },
+      quality: { queried: true, gatePassRate: null, regressions: [] },
+      worktrees: {
+        expected: 33, ready: 0, failed: [],
+        assignedTaskIds: Array.from({ length: 33 }, (_, i) => `T-${String(i + 1).padStart(3, '0')}`),
+        readyTaskIds: [],
+      },
+    };
+    setupMaterializer(state, undefined, drState);
+    const args = {
+      featureId: 'test-feature',
+      tasks: [
+        { id: 'T-001', title: 'A' },
+        { id: 'T-002', title: 'B' },
+        { id: 'T-003', title: 'C' },
+      ],
+    };
+
+    const result = await handlePrepareDelegation(args, STATE_DIR, makeCtx(mockStore, STATE_DIR));
+
+    expect(result.success).toBe(true);
+    const data = result.data as { ready: boolean; readiness: DelegationReadinessState; blockers: string[] };
+    expect(data.ready).toBe(false);
+    expect(data.readiness.blockers).toContain('3 worktrees pending');
+    expect(data.readiness.blockers).not.toContain('33 worktrees pending');
+  });
+
+  it('PrepareDelegation_NoTasksArg_AllAssignedConsidered', async () => {
+    // Without tasks arg, the global blocker passes through unchanged.
+    const state = readyWorkflowState();
+    const drState: DelegationReadinessState = {
+      ready: false,
+      blockers: ['10 worktrees pending'],
+      plan: { approved: true, taskCount: 10, artifactPresent: true },
+      quality: { queried: true, gatePassRate: null, regressions: [] },
+      worktrees: {
+        expected: 10, ready: 0, failed: [],
+        assignedTaskIds: Array.from({ length: 10 }, (_, i) => `t-${i}`),
+        readyTaskIds: [],
+      },
+    };
+    setupMaterializer(state, undefined, drState);
+    const args = { featureId: 'test-feature' }; // no tasks arg
+
+    const result = await handlePrepareDelegation(args, STATE_DIR, makeCtx(mockStore, STATE_DIR));
+
+    expect(result.success).toBe(true);
+    const data = result.data as { ready: boolean; readiness: DelegationReadinessState };
+    expect(data.readiness.blockers).toContain('10 worktrees pending');
+  });
+
   // ─── DR-5: nativeIsolation readiness.blockers consistency ─────────────────
 
   it('handlePrepareDelegation_NativeIsolation_ExcludesWorktreeBlockers', async () => {
@@ -489,7 +595,7 @@ describe('handlePrepareDelegation', () => {
       blockers: ['worktrees pending', 'no worktrees expected'],
       plan: { approved: true, taskCount: 2, artifactPresent: true },
       quality: { queried: true, gatePassRate: null, regressions: [] },
-      worktrees: { expected: 2, ready: 0, failed: [] },
+      worktrees: { expected: 2, ready: 0, failed: [], assignedTaskIds: [], readyTaskIds: [] },
     };
     setupMaterializer(state, undefined, drState);
     vi.mocked(generateQualityHints).mockReturnValue([]);
@@ -517,7 +623,7 @@ describe('handlePrepareDelegation', () => {
       blockers: ['plan not approved', 'worktrees pending'],
       plan: { approved: false, taskCount: 0, artifactPresent: false },
       quality: { queried: false, gatePassRate: null, regressions: [] },
-      worktrees: { expected: 2, ready: 0, failed: [] },
+      worktrees: { expected: 2, ready: 0, failed: [], assignedTaskIds: [], readyTaskIds: [] },
     };
     setupMaterializer(state, undefined, drState);
     const args = { featureId: 'test-feature', nativeIsolation: true };
@@ -548,7 +654,7 @@ describe('handlePrepareDelegation', () => {
       blockers: ['plan not approved', 'worktrees pending'],
       plan: { approved: false, taskCount: 0, artifactPresent: false },
       quality: { queried: true, gatePassRate: null, regressions: [] },
-      worktrees: { expected: 2, ready: 0, failed: [] },
+      worktrees: { expected: 2, ready: 0, failed: [], assignedTaskIds: [], readyTaskIds: [] },
     };
     setupMaterializer(state, undefined, drState);
     const args = { featureId: 'test-feature' };
@@ -581,7 +687,7 @@ describe('handlePrepareDelegation', () => {
       blockers: ['no worktrees expected'],
       plan: { approved: true, taskCount: 2, artifactPresent: true },
       quality: { queried: true, gatePassRate: null, regressions: [] },
-      worktrees: { expected: 0, ready: 0, failed: [] },
+      worktrees: { expected: 0, ready: 0, failed: [], assignedTaskIds: [], readyTaskIds: [] },
     };
     setupMaterializer(state, undefined, drState);
     vi.mocked(generateQualityHints).mockReturnValue([]);
@@ -605,7 +711,7 @@ describe('handlePrepareDelegation', () => {
       blockers: ['no worktrees expected'],
       plan: { approved: true, taskCount: 2, artifactPresent: true },
       quality: { queried: true, gatePassRate: null, regressions: [] },
-      worktrees: { expected: 0, ready: 0, failed: [] },
+      worktrees: { expected: 0, ready: 0, failed: [], assignedTaskIds: [], readyTaskIds: [] },
     };
     setupMaterializer(state, undefined, drState);
     const args = { featureId: 'test-feature' };
@@ -629,7 +735,7 @@ describe('handlePrepareDelegation', () => {
       blockers: ['plan not approved', 'no worktrees expected'],
       plan: { approved: false, taskCount: 0, artifactPresent: false },
       quality: { queried: true, gatePassRate: null, regressions: [] },
-      worktrees: { expected: 0, ready: 0, failed: [] },
+      worktrees: { expected: 0, ready: 0, failed: [], assignedTaskIds: [], readyTaskIds: [] },
     };
     setupMaterializer(state, undefined, drState);
     const args = { featureId: 'test-feature', nativeIsolation: true };
@@ -677,7 +783,7 @@ describe('handlePrepareDelegation', () => {
     const state = readyWorkflowState();
     const drState: DelegationReadinessState = {
       ...readyDelegationReadiness(),
-      worktrees: { expected: 3, ready: 3, failed: [] },
+      worktrees: { expected: 3, ready: 3, failed: [], assignedTaskIds: [], readyTaskIds: [] },
     };
     setupMaterializer(state, undefined, drState);
     vi.mocked(generateQualityHints).mockReturnValue([]);
