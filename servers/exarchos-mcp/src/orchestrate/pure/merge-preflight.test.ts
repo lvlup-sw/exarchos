@@ -309,6 +309,61 @@ describe('mergePreflight — failure paths (T07)', () => {
     expect(result.worktree.actual).toBe(subagentCwd);
   });
 
+  it('mergePreflight_AncestryFails_MessageIncludesRebaseInstructionAndRunbookLink', async () => {
+    // T-15 / DR-6: when ancestry fails (source branch is not a descendant of
+    // target), the preflight must surface a remediation hint that
+    // (a) instructs the operator to run `git rebase`, and
+    // (b) links to the runbook section
+    //     `skills-src/delegation/SKILL.md#when-integration-advances-mid-wave`
+    //     so the operator can find the manual rebase + rollback procedure
+    //     without consulting external docs.
+    //
+    // Auto-rebase is explicitly deferred to #1119; this test asserts the
+    // human-facing message only.
+    const gitExec = makeGitExec([
+      {
+        args: ['merge-base', '--is-ancestor', 'main', 'feat/x'],
+        stdout: '',
+        exitCode: 1,
+      },
+      {
+        args: ['rev-parse', '--abbrev-ref', 'HEAD'],
+        stdout: 'feat/x\n',
+        exitCode: 0,
+      },
+      { args: ['status', '--porcelain'], stdout: '', exitCode: 0 },
+      { args: ['diff', '--cached', '--quiet'], stdout: '', exitCode: 0 },
+    ]);
+
+    const result = await mergePreflight({
+      sourceBranch: 'feat/x',
+      targetBranch: 'main',
+      gitExec,
+      cwd: '/tmp/repo',
+    });
+
+    expect(result.passed).toBe(false);
+    expect(result.ancestry.passed).toBe(false);
+    expect(result.ancestry.reason).toBe('ancestry');
+
+    // Remediation hint MUST be populated on ancestry failures.
+    expect(result.ancestry.hint).toBeDefined();
+    const hint = result.ancestry.hint!;
+
+    // (a) Manual remediation command must be discoverable verbatim.
+    expect(hint).toContain('git rebase');
+    // The hint should name the actual target branch so the operator can
+    // copy-paste without resolving placeholders.
+    expect(hint).toContain('main');
+
+    // (b) Link to the runbook section. The anchor must match the heading
+    // added to skills-src/delegation/SKILL.md (## When integration advances
+    // mid-wave → #when-integration-advances-mid-wave).
+    expect(hint).toContain(
+      'skills-src/delegation/SKILL.md#when-integration-advances-mid-wave',
+    );
+  });
+
   it('mergePreflight_DirtyTree_PassedFalseAndDriftFieldPopulated', async () => {
     // Drive drift to fail: `git status --porcelain` reports dirty files.
     const gitExec = makeGitExec([
