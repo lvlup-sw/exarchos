@@ -232,42 +232,63 @@ function computeDesyncBlockers(
 }
 
 /**
- * DR-T-2 (#1206, T-05): when a `tasks` filter is provided, replace the
- * global "N worktrees pending" blocker with one scoped to the wave.
+ * DR-T-2 (#1206, T-05) / fix-005 (#1213): pure helper that recomputes
+ * worktree counts and blockers against a wave subset.
  *
- * Behavior:
- * - No `tasks` arg → blockers pass through unchanged.
- * - `tasks` arg present and the wave subset is fully ready → drop the
- *   "worktrees pending" blocker entirely.
- * - `tasks` arg present with M of the wave still pending → replace the
- *   global "N worktrees pending" with "M worktrees pending".
+ * Returns:
+ * - `expected` — the size of the wave (or the projection's expected when
+ *   no filter is provided).
+ * - `ready` — count of wave members whose worktree is in `readyTaskIds`
+ *   (or the projection's global `ready` when no filter is provided).
+ * - `pending` — `expected - ready`.
+ * - `blockers` — `readiness.blockers` with the canonical
+ *   `"<N> worktrees pending"` message rewritten to the wave-scoped count
+ *   (dropped entirely when the wave is fully ready). Other worktree-class
+ *   blockers (e.g., "no worktrees expected", baseline failures) pass
+ *   through unchanged — they're stream-global signals, not wave-scoped.
  *
- * Other worktree blockers (e.g., baseline failures, "no worktrees
- * expected") pass through — they're stream-global signals, not wave-scoped.
+ * Pure: no I/O, no shared state. Exported for unit testing.
  */
-function scopeWorktreeBlocker(
+export interface ScopedWorktreesResult {
+  readonly expected: number;
+  readonly ready: number;
+  readonly pending: number;
+  readonly blockers: readonly string[];
+}
+
+export function computeScopedWorktrees(
   readiness: DelegationReadinessState,
   tasksFilter: readonly { id: string }[] | undefined,
-): readonly string[] {
+): ScopedWorktreesResult {
   if (!tasksFilter || tasksFilter.length === 0) {
-    return readiness.blockers;
+    return {
+      expected: readiness.worktrees.expected,
+      ready: readiness.worktrees.ready,
+      pending: Math.max(0, readiness.worktrees.expected - readiness.worktrees.ready),
+      blockers: readiness.blockers,
+    };
   }
 
   const taskIds = tasksFilter.map(t => t.id);
-  const readyInWave = taskIds.filter(id => readiness.worktrees.readyTaskIds.includes(id)).length;
-  const pendingInWave = taskIds.length - readyInWave;
+  const readyInWave = taskIds.filter(id =>
+    readiness.worktrees.readyTaskIds.includes(id),
+  ).length;
+  const expected = taskIds.length;
+  const pending = expected - readyInWave;
 
-  return readiness.blockers.flatMap(blocker => {
+  const blockers = readiness.blockers.flatMap(blocker => {
     // Only touch the canonical "<N> worktrees pending" message; pass
     // through other worktree-class blockers (failed, no-worktrees-expected).
     if (!/^\d+ worktrees pending$/.test(blocker)) {
       return [blocker];
     }
-    if (pendingInWave === 0) {
+    if (pending === 0) {
       return []; // wave is complete — drop the blocker
     }
-    return [`${pendingInWave} worktrees pending`];
+    return [`${pending} worktrees pending`];
   });
+
+  return { expected, ready: readyInWave, pending, blockers };
 }
 
 // ─── Quality Hint Assembly ──────────────────────────────────────────────────
@@ -514,18 +535,21 @@ export async function handlePrepareDelegation(
     // `prepare_delegation` and `delegation_readiness` reported different
     // blocker lists for identical workflow state (axiom DIM-1, #1109 §2).
     //
-    // DR-T-2 (#1206, T-05): when a `tasks` arg is provided, scope the
-    // worktrees-pending blocker to that subset using assignedTaskIds and
-    // readyTaskIds from the projection. Prevents the documented "wave-by-
-    // wave dispatch" pattern from being blocked by the global per-stream
-    // count when only a subset is being prepared.
-    const scopedBlockers = scopeWorktreeBlocker(readiness, args.tasks);
+    // DR-T-2 (#1206, T-05) / fix-005 (#1213): when a `tasks` arg is
+    // provided, scope the worktrees-pending blocker AND the numeric
+    // expected/ready counts to that subset. Prevents the documented
+    // "wave-by-wave dispatch" pattern from being blocked by the global
+    // per-stream count when only a subset is being prepared, and keeps
+    // the visible numeric surfaces in lockstep with the (possibly
+    // rewritten) blocker string so callers don't see "expected: 5 /
+    // ready: 2" alongside a "1 worktrees pending" blocker.
+    const scoped = computeScopedWorktrees(readiness, args.tasks);
 
     // When nativeIsolation is true, filter out worktree-related blockers
     // (Claude Code handles worktree isolation natively via `isolation: "worktree"`).
     const baseBlockers = args.nativeIsolation
-      ? scopedBlockers.filter(b => !isWorktreeBlocker(b))
-      : scopedBlockers;
+      ? scoped.blockers.filter(b => !isWorktreeBlocker(b))
+      : scoped.blockers;
 
     // ready is computed off the wave-scoped + native-filtered blockers,
     // BEFORE appending the desync diagnostic — drift is informational, it
@@ -545,6 +569,11 @@ export async function handlePrepareDelegation(
       ...readiness,
       ready: effectiveReady,
       blockers: effectiveBlockers,
+      worktrees: {
+        ...readiness.worktrees,
+        expected: scoped.expected,
+        ready: scoped.ready,
+      },
     };
 
     // Build result
