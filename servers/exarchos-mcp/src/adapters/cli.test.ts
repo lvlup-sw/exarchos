@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
+import { fileURLToPath } from 'node:url';
 import type { ToolResult } from '../format.js';
 
 // ─── Mocks ──────────────────────────────────────────────────────────────────
@@ -673,9 +674,11 @@ function findHostBinary(): string | null {
   if (!platform) return null;
   const ext = platform === 'windows' ? '.exe' : '';
   // cli.test.ts lives at servers/exarchos-mcp/src/adapters/, so the repo
-  // root is four directories up.
+  // root is four directories up. CodeRabbit #3 (#1213): use fileURLToPath
+  // not URL().pathname — on Windows the latter yields `/C:/...` (leading
+  // slash) which breaks path.resolve.
   const repoRoot = path.resolve(
-    path.dirname(new URL(import.meta.url).pathname),
+    path.dirname(fileURLToPath(import.meta.url)),
     '..',
     '..',
     '..',
