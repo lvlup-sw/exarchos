@@ -571,6 +571,42 @@ describe('DelegationReadinessView', () => {
       expect(state.ready).toBe(false);
       expect(state.blockers).toContain('plan not approved');
     });
+
+    // ─── #1213 / Sentry #1: isReady consistency with computeBlockers ──────
+    it('Apply_PlanArtifactMissing_OtherGatesPass_SetsReadyFalse', () => {
+      // Regression: isReady() previously omitted plan.artifactPresent, so a
+      // workflow with approved plan + assigned task + worktree created could
+      // report ready=true while computeBlockers() still listed
+      // "Plan artifact is missing". This test asserts ready is gated on
+      // plan.artifactPresent matching the blocker logic.
+      let state = delegationReadinessProjection.init();
+
+      // Approve plan
+      state = delegationReadinessProjection.apply(state, makeEvent('workflow.transition', {
+        from: 'planning',
+        to: 'plan-review',
+        trigger: 'PLAN_COMPLETE',
+        featureId: 'feat-1',
+      }, 1));
+
+      // Assign a task
+      state = delegationReadinessProjection.apply(state, makeEvent('task.assigned', {
+        taskId: 'task-1',
+        title: 'Task 1',
+        worktree: '/tmp/wt-1',
+      }, 2));
+
+      // Worktree created
+      state = delegationReadinessProjection.apply(state, makeEvent('worktree.created', {
+        worktreePath: '/tmp/wt-1',
+        taskId: 'task-1',
+      }, 3));
+
+      // Plan artifact never captured → still missing
+      expect(state.plan.artifactPresent).toBe(false);
+      expect(state.blockers).toContain('Plan artifact is missing');
+      expect(state.ready).toBe(false);
+    });
   });
 
   // ─── DR-3: Blocker message references events ──────────────────────────────

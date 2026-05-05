@@ -76,6 +76,7 @@ function computeBlockers(state: Omit<DelegationReadinessState, 'ready' | 'blocke
 function isReady(state: Omit<DelegationReadinessState, 'ready' | 'blockers'>): boolean {
   return (
     state.plan.approved &&
+    state.plan.artifactPresent &&
     state.worktrees.ready >= state.worktrees.expected &&
     state.worktrees.expected > 0 &&
     state.worktrees.failed.length === 0
