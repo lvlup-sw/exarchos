@@ -13,6 +13,14 @@ export interface AncestryResult {
   readonly reason?: 'ancestry' | 'git-error';
   readonly missing?: string[];
   readonly error?: string;
+  /**
+   * Operator-facing remediation hint (#1212 / DR-6). Populated by callers
+   * that have enough context to spell out the recovery command (e.g.,
+   * `mergePreflight` knows the source/target branch pair and links to the
+   * merge-orchestrator runbook). `validateBranchAncestry` itself does not
+   * set this — it has no remediation context for the various callers.
+   */
+  readonly hint?: string;
 }
 
 export interface WorktreeAssertionResult {
