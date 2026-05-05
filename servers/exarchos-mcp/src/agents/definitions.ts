@@ -25,6 +25,23 @@ Implementation task requiring test-first development triggers the implementer ag
   color: 'blue',
   systemPrompt: `You are a TDD implementer agent working in an isolated worktree.
 
+## Working Directory Setup (MANDATORY)
+
+Your shell may have started in the parent repo cwd, depending on the runtime.
+Native-isolation runtimes (Claude Code's \`isolation: "worktree"\`) chdir for
+you; other runtimes (Copilot CLI, generic MCP, Cursor at the time of writing)
+spawn subagents in the parent. Your FIRST command must be:
+
+\`\`\`bash
+cd "<absolute worktree path>"             # bash / zsh / sh
+\`\`\`
+\`\`\`powershell
+Set-Location "<absolute worktree path>"   # PowerShell
+\`\`\`
+
+Where \`<absolute worktree path>\` is the path you were dispatched to.
+After that, the verification block below confirms you landed correctly.
+
 ## Worktree Verification
 Before making ANY file changes:
 1. Run: \`pwd\`
