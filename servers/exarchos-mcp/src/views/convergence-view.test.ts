@@ -203,4 +203,49 @@ describe('ConvergenceView', () => {
       expect(next).toBe(state);
     });
   });
+
+  // ─── T-10: Skipped gates render as SKIP, not PASS ──────────────────────
+
+  describe('apply - skipped gate (T-10)', () => {
+    it('convergenceView_D2GateSkipped_RendersAsSkipNotPass', () => {
+      // A static-analysis gate that ran in a no-toolchain repo emits
+      // gate.executed with passed=false, details.skipped=true,
+      // details.skipReason='no-toolchain'. The convergence view must
+      // expose this as a skipped/inconclusive result, NOT mark D2 as
+      // converged (passed). See DR-4 in the v2.9 dogfood plan.
+      const state = convergenceProjection.init();
+      const event = makeEvent('gate.executed', {
+        gateName: 'static-analysis',
+        layer: 'quality',
+        passed: false,
+        details: {
+          dimension: 'D2',
+          phase: 'delegate',
+          skipped: true,
+          skipReason: 'no-toolchain',
+          passCount: 0,
+          failCount: 0,
+        },
+      });
+
+      const next = convergenceProjection.apply(state, event);
+
+      // D2 must be present (the event was applied) but NOT converged —
+      // skip is inconclusive, not green.
+      expect(next.dimensions['D2']).toBeDefined();
+      expect(next.dimensions['D2'].converged).toBe(false);
+
+      // The single gate result must surface the skipped flag so
+      // downstream rendering can distinguish skip from fail.
+      expect(next.dimensions['D2'].gateResults).toHaveLength(1);
+      const gateResult = next.dimensions['D2'].gateResults[0];
+      expect(gateResult.gateName).toBe('static-analysis');
+      expect(gateResult.passed).toBe(false);
+      expect(gateResult.skipped).toBe(true);
+      expect(gateResult.skipReason).toBe('no-toolchain');
+
+      // Overall convergence cannot be true when D2 is skipped.
+      expect(next.overallConverged).toBe(false);
+    });
+  });
 });
