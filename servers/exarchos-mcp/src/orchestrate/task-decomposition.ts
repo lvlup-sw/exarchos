@@ -278,33 +278,45 @@ export function validateTaskStructure(block: string): TaskStructureResult {
 // ─── Dependency DAG Validation ──────────────────────────────────────────
 
 /**
- * Validate that the dependency graph among tasks is a DAG (no cycles).
+ * fix-008 (review #1213): build the canonical-ID lookup tables in one place.
  *
- * Uses iterative DFS with explicit stack tracking. Each node has three states:
- * - 0 = unvisited
- * - 1 = in-progress (on the DFS stack)
- * - 2 = done (fully explored)
- *
- * A cycle is detected when we encounter a node that is in-progress.
+ * Returns the `visitState` (canonical \u2192 0/1/2 cycle marker), the
+ * `canonicalToOriginal` map (used to surface error messages with the
+ * caller's original ID spelling), and the `depsMap` (canonical \u2192
+ * canonical[] adjacency). May short-circuit with an `error` describing a
+ * duplicate ID or unresolved dependency \u2014 both halt validation up front
+ * before any DFS work runs.
  */
-export function validateDependencyDAG(tasks: readonly DagTask[]): DagValidationResult {
-  // Cycle/unresolved comparisons run on the canonical ID (`canonicaliseTaskId`)
-  // so that `T-002`, `T002`, and `002` are treated as the same task. We keep
-  // a parallel map to recover the original ID for error messages.
+type CanonicalMaps = {
+  readonly kind: 'ok';
+  readonly visitState: Map<string, number>;
+  readonly canonicalToOriginal: Map<string, string>;
+  readonly depsMap: Map<string, readonly string[]>;
+};
+
+type CanonicalMapsError = {
+  readonly kind: 'error';
+  readonly result: DagValidationResult;
+};
+
+function buildCanonicalMaps(
+  tasks: readonly DagTask[],
+): CanonicalMaps | CanonicalMapsError {
   const visitState = new Map<string, number>();
   const canonicalToOriginal = new Map<string, string>();
 
   for (const task of tasks) {
     const canonical = canonicaliseTaskId(task.id);
     if (canonicalToOriginal.has(canonical)) {
-      return { valid: false, cyclePath: `Duplicate task ID: ${task.id}` };
+      return {
+        kind: 'error',
+        result: { valid: false, cyclePath: `Duplicate task ID: ${task.id}` },
+      };
     }
     visitState.set(canonical, 0);
     canonicalToOriginal.set(canonical, task.id);
   }
 
-  // Build adjacency map (canonical task -> canonical deps), reject
-  // unresolved references against the canonical key set.
   const depsMap = new Map<string, readonly string[]>();
   for (const task of tasks) {
     const canonicalSelf = canonicaliseTaskId(task.id);
@@ -313,8 +325,11 @@ export function validateDependencyDAG(tasks: readonly DagTask[]): DagValidationR
       const canonicalDep = canonicaliseTaskId(dep);
       if (!canonicalToOriginal.has(canonicalDep)) {
         return {
-          valid: false,
-          cyclePath: `Unresolved dependency: ${task.id} depends on unknown ${dep}`,
+          kind: 'error',
+          result: {
+            valid: false,
+            cyclePath: `Unresolved dependency: ${task.id} depends on unknown ${dep}`,
+          },
         };
       }
       canonicalDeps.push(canonicalDep);
@@ -322,55 +337,103 @@ export function validateDependencyDAG(tasks: readonly DagTask[]): DagValidationR
     depsMap.set(canonicalSelf, canonicalDeps);
   }
 
-  // Iterative DFS over canonical IDs.
-  for (const task of tasks) {
-    const canonicalRoot = canonicaliseTaskId(task.id);
-    if (visitState.get(canonicalRoot) !== 0) {
+  return { kind: 'ok', visitState, canonicalToOriginal, depsMap };
+}
+
+/**
+ * fix-008 (review #1213): iterative DFS over the canonical adjacency.
+ *
+ * `visit` is mutated in place (caller-owned). On detecting a cycle the
+ * function returns a `DagValidationResult` carrying the offending edge
+ * (in original-ID spelling); on a clean traversal it returns `null` so
+ * the outer loop can advance to the next root.
+ *
+ * Stack entries are `[canonicalNode, phase]` where phase is `'enter'` for
+ * descent and `'exit'` for the post-order mark; this lets the iterative
+ * DFS mirror the recursive shape (pre-order discover, post-order finish)
+ * without recursion overhead or stack-depth limits on large plans.
+ */
+function dfsCycleCheck(
+  root: string,
+  adj: ReadonlyMap<string, readonly string[]>,
+  visit: Map<string, number>,
+  canonicalToOriginal: ReadonlyMap<string, string>,
+): DagValidationResult | null {
+  const stack: Array<[string, 'enter' | 'exit']> = [[root, 'enter']];
+
+  while (stack.length > 0) {
+    const [node, phase] = stack.pop()!;
+
+    if (phase === 'exit') {
+      visit.set(node, 2);
       continue;
     }
 
-    // Stack entries: [canonicalNode, phase] where phase is 'enter' or 'exit'
-    const stack: Array<[string, 'enter' | 'exit']> = [[canonicalRoot, 'enter']];
+    const state = visit.get(node);
 
-    while (stack.length > 0) {
-      const [node, phase] = stack.pop()!;
+    // Already fully explored
+    if (state === 2) {
+      continue;
+    }
 
-      if (phase === 'exit') {
-        visitState.set(node, 2);
-        continue;
+    // Cycle: node is in-progress (already on the DFS stack)
+    if (state === 1) {
+      return { valid: false, cyclePath: canonicalToOriginal.get(node) ?? node };
+    }
+
+    visit.set(node, 1);
+    stack.push([node, 'exit']);
+
+    const deps = adj.get(node) ?? [];
+    for (const dep of deps) {
+      const depState = visit.get(dep);
+      if (depState === 1) {
+        // Cycle found \u2014 report using original IDs.
+        const nodeOriginal = canonicalToOriginal.get(node) ?? node;
+        const depOriginal = canonicalToOriginal.get(dep) ?? dep;
+        return { valid: false, cyclePath: `${nodeOriginal} \u2192 ${depOriginal}` };
       }
-
-      const state = visitState.get(node);
-
-      // Already fully explored
-      if (state === 2) {
-        continue;
-      }
-
-      // Cycle: node is in-progress (already on the DFS stack)
-      if (state === 1) {
-        return { valid: false, cyclePath: canonicalToOriginal.get(node) ?? node };
-      }
-
-      // Mark in-progress
-      visitState.set(node, 1);
-      stack.push([node, 'exit']);
-
-      // Push dependencies
-      const deps = depsMap.get(node) ?? [];
-      for (const dep of deps) {
-        const depState = visitState.get(dep);
-        if (depState === 1) {
-          // Cycle found \u2014 report using original IDs.
-          const nodeOriginal = canonicalToOriginal.get(node) ?? node;
-          const depOriginal = canonicalToOriginal.get(dep) ?? dep;
-          return { valid: false, cyclePath: `${nodeOriginal} \u2192 ${depOriginal}` };
-        }
-        if (depState === 0) {
-          stack.push([dep, 'enter']);
-        }
+      if (depState === 0) {
+        stack.push([dep, 'enter']);
       }
     }
+  }
+
+  return null;
+}
+
+/**
+ * Validate that the dependency graph among tasks is a DAG (no cycles).
+ *
+ * Uses iterative DFS with explicit stack tracking. Each node has three states:
+ * - 0 = unvisited
+ * - 1 = in-progress (on the DFS stack)
+ * - 2 = done (fully explored)
+ *
+ * A cycle is detected when we encounter a node that is in-progress. Map-
+ * construction and the DFS itself are extracted to `buildCanonicalMaps`
+ * and `dfsCycleCheck` so this function reads as orchestration only.
+ */
+export function validateDependencyDAG(tasks: readonly DagTask[]): DagValidationResult {
+  // Cycle/unresolved comparisons run on the canonical ID
+  // (`canonicaliseTaskId`) so that `T-002`, `T002`, and `002` are treated
+  // as the same task. We keep a parallel map to recover the original ID
+  // for error messages.
+  const maps = buildCanonicalMaps(tasks);
+  if (maps.kind === 'error') return maps.result;
+
+  for (const task of tasks) {
+    const canonicalRoot = canonicaliseTaskId(task.id);
+    if (maps.visitState.get(canonicalRoot) !== 0) {
+      continue;
+    }
+    const cycle = dfsCycleCheck(
+      canonicalRoot,
+      maps.depsMap,
+      maps.visitState,
+      maps.canonicalToOriginal,
+    );
+    if (cycle !== null) return cycle;
   }
 
   return { valid: true };
