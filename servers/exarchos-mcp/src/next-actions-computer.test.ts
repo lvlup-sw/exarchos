@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { computeNextActions } from './next-actions-computer.js';
 import { NextAction } from './next-action.js';
-import { getHSMDefinition } from './workflow/state-machine.js';
+import { getHSMDefinition, executeTransition } from './workflow/state-machine.js';
 
 describe('computeNextActions (T040, DR-8)', () => {
   it('NextActions_Given_PlanPhase_Then_IncludesDelegateTransition', () => {
@@ -130,5 +130,64 @@ describe('computeNextActions (T040, DR-8)', () => {
 
     const merge = actions.find((a) => a.verb === 'merge_orchestrate');
     expect(merge).toBeUndefined();
+  });
+
+  // fix-001 (review #1213, T-01): verifies #1208's fix at HEAD.
+  //
+  // Scenario from the dogfood report: a workflow parked in `delegate` emits
+  // `task.completed` with `data.worktreePath`. PR #1193 wired the
+  // `delegate → merge-pending` transition (guarded by the
+  // `merge-pending-entry` predicate that inspects the latest task.completed
+  // for a worktree association) and the `merge_orchestrate` next-action
+  // verb. This test stitches both ends together: starting from the
+  // `delegate` phase, the HSM transition succeeds and `computeNextActions`
+  // surfaces the `merge_orchestrate` verb. If either end regresses (the
+  // guard stops recognizing `worktreePath`, or the next-action computer
+  // stops surfacing `merge_orchestrate` in `merge-pending`), this test
+  // fails — closing the original #1208 reproduction.
+  it('mergePendingDetour_TaskCompletedWithWorktreePath_SurfacesMergeOrchestrateVerb', () => {
+    const hsm = getHSMDefinition('feature');
+
+    // Workflow parked in `delegate` with a recently-completed task that
+    // carries a worktree path. Mirror the event-store stub used elsewhere
+    // in this suite (`state._events` is the canonical shape for HSM guards).
+    const initial = {
+      phase: 'delegate',
+      workflowType: 'feature',
+      featureId: 'feat-x',
+      _events: [
+        {
+          type: 'task.completed',
+          data: { taskId: 'T11', worktreePath: '/tmp/.worktrees/feat-x-T11' },
+        },
+      ],
+    };
+
+    // Drive the HSM transition the same way prepare_synthesis / merge
+    // orchestration would: this is the "detour" that #1208 originally
+    // reported as missing. Should succeed at HEAD.
+    const transition = executeTransition(hsm, initial, 'merge-pending');
+    expect(transition.success).toBe(true);
+
+    // The transitioned state is what callers project against
+    // computeNextActions to compute the rehydration envelope's
+    // `next_actions` field.
+    const transitioned = {
+      phase: 'merge-pending',
+      workflowType: 'feature',
+      featureId: 'feat-x',
+      // mergeOrchestrator is set by handleMergeOrchestrate; absent at this
+      // step, which the surfacing filter treats as "not yet terminated".
+    };
+
+    const actions = computeNextActions(transitioned, hsm);
+    const merge = actions.find((a) => a.verb === 'merge_orchestrate');
+
+    // PASS = #1208 fixed-in-#1193 confirmed at HEAD. FAIL would surface a
+    // residual regression in either the HSM detour or the next-action
+    // surfacing.
+    expect(merge).toBeDefined();
+    expect(merge?.validTargets).toEqual(['merge_orchestrate']);
+    expect(merge?.reason).toBe('Pending subagent worktree merge');
   });
 });
