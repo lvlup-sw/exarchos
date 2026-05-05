@@ -16,6 +16,24 @@ Before dispatch, query `exarchos_view` with `action: 'quality_hints'` and `skill
 ## Working Directory
 [Absolute path to worktree or project root]
 
+## Working Directory Setup (MANDATORY)
+
+Your shell may have started in the parent repo cwd, depending on the runtime.
+Native-isolation runtimes (Claude Code's `isolation: "worktree"`) chdir for
+you; other runtimes (Copilot CLI, generic MCP, Cursor at the time of writing)
+spawn subagents in the parent. Your FIRST command must be:
+
+```bash
+cd "<absolute worktree path>"             # bash / zsh / sh
+```
+```powershell
+Set-Location "<absolute worktree path>"   # PowerShell
+```
+
+Where `<absolute worktree path>` is the path from the **Working Directory**
+section above. After that, the verification block below confirms you landed
+correctly.
+
 ## CRITICAL: Worktree Verification (MANDATORY)
 
 Before making ANY file changes, you MUST verify you are in a worktree:
@@ -292,6 +310,22 @@ The prompt body itself is what makes the dispatch self-contained. A worked examp
 
 ## Working Directory
 /home/user/project/.worktrees/task-003
+
+## Working Directory Setup (MANDATORY)
+
+Your shell may have started in the parent repo cwd, depending on the runtime.
+Native-isolation runtimes (Claude Code's `isolation: "worktree"`) chdir for
+you; other runtimes (Copilot CLI, generic MCP, Cursor at the time of writing)
+spawn subagents in the parent. Your FIRST command must be:
+
+```bash
+cd "/home/user/project/.worktrees/task-003"             # bash / zsh / sh
+```
+```powershell
+Set-Location "/home/user/project/.worktrees/task-003"   # PowerShell
+```
+
+After that, the verification block below confirms you landed correctly.
 
 ## CRITICAL: Worktree Verification (MANDATORY)
 

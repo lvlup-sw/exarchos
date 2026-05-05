@@ -4,7 +4,7 @@
 // validation steps: gitignore, branch, worktree, npm install, baseline tests.
 // ────────────────────────────────────────────────────────────────────────────
 
-import { existsSync, appendFileSync } from 'node:fs';
+import { existsSync, appendFileSync, readFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
 import type { ToolResult } from '../format.js';
@@ -13,12 +13,34 @@ import { splitCommand } from '../config/tokenize-command.js';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
-interface SetupWorktreeArgs {
+export interface SetupWorktreeArgs {
   readonly repoRoot: string;
   readonly taskId: string;
   readonly taskName: string;
   readonly baseBranch?: string;
   readonly skipTests?: boolean;
+  /**
+   * DR-3 (T-09, #1204): explicit branch override. When supplied, takes
+   * precedence over workflow-state and the legacy default. Lets callers
+   * override the planned branch without mutating workflow state.
+   */
+  readonly branch?: string;
+  /**
+   * DR-3 (T-09, #1204): used by the composite adapter for `featureId`
+   * routing in the registry schema. Not consumed by the handler directly —
+   * the adapter pre-loads workflow state from this and threads it via the
+   * second positional argument.
+   */
+  readonly featureId?: string;
+}
+
+/**
+ * Minimal shape of the workflow state needed by the handler. The composite
+ * adapter materializes the full WorkflowStateView and projects this subset;
+ * tests can pass a literal without instantiating a projection.
+ */
+interface SetupWorktreeWorkflowState {
+  readonly tasks?: ReadonlyArray<{ id: string; branch?: string }>;
 }
 
 type CheckStatus = 'pass' | 'fail' | 'skip';
@@ -82,52 +104,170 @@ function formatReport(
 
 // ─── Step Functions ─────────────────────────────────────────────────────────
 
+// DR-1 (T-07, #1203): direct-read the repo's `.gitignore`. The previous
+// implementation used `git check-ignore -q .worktrees/`, which honors any
+// ignore source (global excludes, .git/info/exclude, parent globs). When
+// a non-repo source matched, the function reported PASS without writing
+// to the repo file — a fresh clone or CI run then saw `.worktrees/` as
+// untracked, breaking subsequent `merge_orchestrate` preflights.
+//
+// New contract: PASS means "the repo's `.gitignore` lists `.worktrees/`."
+// The detail string reflects exactly which path the function took
+// (already present / added / created with entry).
+//
+// fix-007 (review #1213): orchestration-only — read/format helpers
+// extracted below so each concern (read vs error formatting vs control
+// flow) sits in its own function and stays easy to read in isolation.
 function ensureGitignored(repoRoot: string): CheckResult {
-  // Check if .worktrees/ is already gitignored
-  try {
-    execFileSync('git', ['-C', repoRoot, 'check-ignore', '-q', '.worktrees/'], {
-      encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
-    return { name: '.worktrees is gitignored', status: 'pass' };
-  } catch {
-    // Not ignored — add to .gitignore
-  }
-
   const gitignorePath = join(repoRoot, '.gitignore');
+
+  let detail: 'already present' | 'added' | 'created with entry';
+  let needsAppend: boolean;
+  // CodeRabbit #7: when the existing .gitignore lacks a trailing newline,
+  // a bare append produces `dist.worktrees/\n` (single concatenated line)
+  // instead of two distinct entries. Prepend a newline if needed so the
+  // boundary is preserved.
+  let prependNewline = false;
+
   if (existsSync(gitignorePath)) {
-    appendFileSync(gitignorePath, '.worktrees/\n');
+    const readResult = readGitignoreLines(gitignorePath);
+    if (readResult.kind === 'error') {
+      return formatGitignoreError(`Failed to read ${gitignorePath}`, readResult.err);
+    }
+
+    if (containsWorktreesEntry(readResult.contents)) {
+      return { name: '.worktrees is gitignored', status: 'pass', detail: 'already present' };
+    }
+
+    detail = 'added';
+    needsAppend = true;
+    prependNewline =
+      readResult.contents.length > 0 && !readResult.contents.endsWith('\n');
   } else {
-    // Create new .gitignore with the entry
-    appendFileSync(gitignorePath, '.worktrees/\n');
+    detail = 'created with entry';
+    needsAppend = true;
   }
 
-  // Verify it worked
+  if (needsAppend) {
+    try {
+      const payload = (prependNewline ? '\n' : '') + '.worktrees/\n';
+      appendFileSync(gitignorePath, payload);
+    } catch (err) {
+      const verb = detail === 'created with entry' ? 'create' : 'append to';
+      return formatGitignoreError(`Failed to ${verb} ${gitignorePath}`, err);
+    }
+  }
+
+  return { name: '.worktrees is gitignored', status: 'pass', detail };
+}
+
+/**
+ * fix-007 (#1213): I/O wrapper that returns either the file contents or a
+ * structured error. Centralizes the readFileSync try/catch so the
+ * orchestrator can stay flat.
+ */
+type ReadGitignoreResult =
+  | { kind: 'ok'; contents: string }
+  | { kind: 'error'; err: unknown };
+
+function readGitignoreLines(gitignorePath: string): ReadGitignoreResult {
   try {
-    execFileSync('git', ['-C', repoRoot, 'check-ignore', '-q', '.worktrees/'], {
-      encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
-    return { name: '.worktrees is gitignored', status: 'pass', detail: 'added to .gitignore' };
-  } catch {
-    return { name: '.worktrees is gitignored', status: 'fail', detail: 'Failed to add to .gitignore' };
+    return { kind: 'ok', contents: readFileSync(gitignorePath, 'utf-8') };
+  } catch (err) {
+    return { kind: 'error', err };
   }
 }
 
-function createBranch(repoRoot: string, branchName: string, baseBranch: string): CheckResult {
+/**
+ * fix-007 (#1213): single-source formatter for the gitignore-step CheckResult
+ * `fail` shape. Keeps the `${prefix}: ${message}` convention in one place so
+ * any future adjustment to the detail string lives in one function.
+ */
+function formatGitignoreError(prefix: string, err: unknown): CheckResult {
+  const message = err instanceof Error ? err.message : String(err);
+  return {
+    name: '.worktrees is gitignored',
+    status: 'fail',
+    detail: `${prefix}: ${message}`,
+  };
+}
+
+/**
+ * Returns true if `contents` has a non-comment, non-negated line matching
+ * `.worktrees` or `.worktrees/`. Comments (#) and negations (!) don't
+ * count — those would not actually ignore the directory.
+ */
+function containsWorktreesEntry(contents: string): boolean {
+  for (const rawLine of contents.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (line === '' || line.startsWith('#') || line.startsWith('!')) continue;
+    if (line === '.worktrees' || line === '.worktrees/') return true;
+  }
+  return false;
+}
+
+// ─── DR-3 (T-09, #1204): branch-name resolution ─────────────────────────────
+//
+// Resolution priority:
+//   1. args.branch                              — explicit caller override
+//   2. workflow.tasks[id=<taskId>].branch       — planned branch from state
+//   3. `feature/<taskId>-<taskName>`            — legacy default
+//
+// Returns the resolved name plus a `source` tag used to annotate the
+// "Branch created" check detail. Pure: no I/O, easy to unit-test.
+
+type BranchSource = 'arg' | 'workflow state' | 'default';
+
+interface ResolvedBranch {
+  readonly name: string;
+  readonly source: BranchSource;
+}
+
+function resolveBranchName(
+  args: SetupWorktreeArgs,
+  workflowState?: SetupWorktreeWorkflowState,
+): ResolvedBranch {
+  if (args.branch && args.branch.length > 0) {
+    return { name: args.branch, source: 'arg' };
+  }
+  const planned = workflowState?.tasks?.find((t) => t.id === args.taskId)?.branch;
+  if (planned && planned.length > 0) {
+    return { name: planned, source: 'workflow state' };
+  }
+  return { name: `feature/${args.taskId}-${args.taskName}`, source: 'default' };
+}
+
+function createBranch(
+  repoRoot: string,
+  branchName: string,
+  baseBranch: string,
+  source: BranchSource,
+): CheckResult {
   // Check if branch already exists
   try {
     gitExec(repoRoot, ['show-ref', '--verify', '--quiet', `refs/heads/${branchName}`]);
-    return { name: `Branch created`, status: 'pass', detail: `${branchName} already exists` };
+    return {
+      name: `Branch created`,
+      status: 'pass',
+      detail: `${branchName} already exists (from ${source})`,
+    };
   } catch {
     // Branch does not exist — create it
   }
 
   try {
     gitExec(repoRoot, ['branch', branchName, baseBranch]);
-    return { name: `Branch created`, status: 'pass', detail: `${branchName} from ${baseBranch}` };
+    return {
+      name: `Branch created`,
+      status: 'pass',
+      detail: `${branchName} from ${baseBranch} (from ${source})`,
+    };
   } catch {
-    return { name: `Branch created`, status: 'fail', detail: `Failed to create ${branchName} from ${baseBranch}` };
+    return {
+      name: `Branch created`,
+      status: 'fail',
+      detail: `Failed to create ${branchName} from ${baseBranch} (from ${source})`,
+    };
   }
 }
 
@@ -247,7 +387,10 @@ function runBaselineTests(worktreePath: string, skipTests: boolean): CheckResult
 
 // ─── Handler ────────────────────────────────────────────────────────────────
 
-export function handleSetupWorktree(args: SetupWorktreeArgs): ToolResult {
+export function handleSetupWorktree(
+  args: SetupWorktreeArgs,
+  workflowState?: SetupWorktreeWorkflowState,
+): ToolResult {
   // Validate required args
   if (!args.repoRoot) {
     return {
@@ -271,9 +414,12 @@ export function handleSetupWorktree(args: SetupWorktreeArgs): ToolResult {
   const baseBranch = args.baseBranch ?? 'main';
   const skipTests = args.skipTests ?? false;
 
-  // Derive paths
+  // DR-3 (T-09, #1204): resolve branch with priority args > state > default.
+  // Worktree directory still uses the legacy `<taskId>-<taskName>` layout —
+  // the override only changes the git-branch ref, not the on-disk path.
+  const resolvedBranch = resolveBranchName(args, workflowState);
+  const branchName = resolvedBranch.name;
   const worktreeName = `${args.taskId}-${args.taskName}`;
-  const branchName = `feature/${worktreeName}`;
   const worktreePath = join(args.repoRoot, '.worktrees', worktreeName);
 
   const checks: CheckResult[] = [];
@@ -282,7 +428,7 @@ export function handleSetupWorktree(args: SetupWorktreeArgs): ToolResult {
   checks.push(ensureGitignored(args.repoRoot));
 
   // Step 2: Create feature branch
-  checks.push(createBranch(args.repoRoot, branchName, baseBranch));
+  checks.push(createBranch(args.repoRoot, branchName, baseBranch, resolvedBranch.source));
 
   // Step 3: Create worktree
   checks.push(createWorktree(args.repoRoot, worktreePath, branchName));

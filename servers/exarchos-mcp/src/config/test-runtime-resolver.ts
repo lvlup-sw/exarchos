@@ -68,8 +68,16 @@ export interface ResolveOptions {
  */
 const SAFE_COMMAND_PATTERN = /^[a-zA-Z0-9_\- :.=\/+,@"'\\]+$/;
 
+// Remediation copy for the "no project markers detected" branch. Includes a
+// minimal `.exarchos.yml` example so a dispatched agent has something
+// concrete to paste, plus a pointer to the workflow-state skill where the
+// configuration story is documented end-to-end. Format chosen to render
+// readably in both Markdown contexts and plain-text logs.
 const UNRESOLVED_REMEDIATION =
-  'No project markers detected. Add a .exarchos.yml with test/typecheck/install commands or pass an override.';
+  'No project markers detected. Add a .exarchos.yml at the repo root, ' +
+  'for example: `test: pytest`, `typecheck: pyright`, `install: pip install -e .`. ' +
+  'See skills-src/workflow-state/SKILL.md for the full configuration reference, ' +
+  'or pass an override (test/typecheck/install) to this resolver.';
 
 function assertSafe(label: string, value: string): void {
   const trimmed = value.trim();

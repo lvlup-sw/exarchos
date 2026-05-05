@@ -296,6 +296,115 @@ for phase transitions, guards, and playbook guidance. Use
 `exarchos_orchestrate({ action: "describe", actions: ["check_tdd_compliance", "task_complete"] })`
 for orchestrate action schemas.
 
+---
+
+## When integration advances mid-wave
+
+Runbook for recovering when a subagent worktree's branch has diverged from the
+integration branch. Triggered by `merge_orchestrate` ancestry preflight: the
+failure message links here verbatim and includes the manual `git rebase`
+command. Auto-rebase is **not** wired today (tracked in #1119) — operators
+must drive recovery by hand.
+
+### Symptom
+
+The merge-orchestrator reports an ancestry failure of the form:
+
+```text
+source branch <feature-branch> is not a descendant of <integration-branch>.
+Rebase manually with: git rebase <integration-branch> (run from the <feature-branch> worktree).
+Runbook: skills-src/delegation/SKILL.md#when-integration-advances-mid-wave
+```
+
+This means the integration branch advanced (typically because an earlier
+worktree merge landed) while the failing worktree was still in flight.
+Fast-forward merge is no longer safe — the working branch must catch up
+first.
+
+### Why this happens
+
+Each subagent worktree is created at the integration branch's tip at
+dispatch time. When the orchestrator merges sibling worktrees serially,
+each merge moves the integration branch forward. A worktree that was
+dispatched against an older integration tip will fail the ancestry
+preflight when its turn comes.
+
+This is expected behavior under the current single-writer merge contract —
+preflight is fail-only on purpose so the operator stays in control.
+
+### Recovery procedure
+
+Before each step, verify you are in the **main worktree** (not the failing
+subagent worktree) and that `git status` is clean.
+
+1. **Capture the rollback SHA** before doing anything destructive:
+
+   ```bash
+   git rev-parse <feature-branch> > /tmp/rollback.sha
+   ```
+
+   Keep this until the merge has been verified. If anything goes wrong,
+   `git reset --hard "$(cat /tmp/rollback.sha)"` on the feature branch
+   restores the pre-rebase state. The filename is intentionally
+   branch-name-free so slash-delimited branches like `feature/dr-6`
+   don't break the path with embedded `/` characters.
+
+2. **Rebase the feature branch onto the current integration tip:**
+
+   ```bash
+   cd <feature-worktree-path>
+   git fetch origin
+   git rebase <integration-branch>
+   ```
+
+   Resolve any conflicts that surface. The conflicts are real — they reflect
+   genuine drift between the two branches, not preflight noise. Do **not**
+   pass `--strategy-option=theirs` blindly; that drops the subagent's work.
+
+3. **Re-run ancestry preflight from the main worktree:**
+
+   ```typescript
+   exarchos_orchestrate({
+     action: "merge_orchestrate",
+     featureId: "<featureId>",
+     taskId: "<taskId>",
+   })
+   ```
+
+   The preflight should now pass. Proceed with the orchestrator's normal
+   merge flow.
+
+### Rollback procedure
+
+If the rebase produces conflicts you cannot resolve safely, or the merge
+still fails after rebase:
+
+1. **Reset the feature branch** to the captured rollback SHA:
+
+   ```bash
+   cd <feature-worktree-path>
+   git rebase --abort   # if mid-rebase
+   git reset --hard "$(cat /tmp/rollback.sha)"
+   ```
+
+2. **Mark the task `failed`** in workflow state and dispatch a fixer (see
+   the Failure Recovery section above). Do **not** delete the worktree —
+   the fixer needs the original branch state to diagnose the conflict.
+
+3. **Record the incident** by emitting a `merge.aborted` event with
+   `reason: "ancestry-rebase-conflict"` and the failing branch's pre-rebase
+   SHA so the convergence view captures the rollback.
+
+### Why no auto-rebase yet
+
+Auto-rebase is deferred to issue #1119. Today the orchestrator stops at
+the ancestry preflight on purpose: a botched auto-rebase across diverged
+worktrees risks silently dropping subagent work, and the recovery path
+above is short enough that operator-driven rebase is preferable to
+clever-but-fragile automation.
+
+---
+
 ## Transition
 
 After all tasks complete, **auto-continue immediately** (no user confirmation):

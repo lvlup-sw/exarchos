@@ -21,8 +21,10 @@
     "!**/trigger-tests"
   ],
   "scripts": {
-    "build": "tsc && npm run build:binary && npm run build:skills",
+    "build": "npm run codegen:runtimes && tsc && npm run build:binary && npm run build:skills",
     "build:binary": "bun run scripts/build-binary.ts --all",
+    "codegen:runtimes": "bun run scripts/codegen-runtimes.ts",
+    "runtimes:guard": "npm run codegen:runtimes && git diff --exit-code -- src/runtimes/embedded.ts || (echo 'src/runtimes/embedded.ts is out of sync with runtimes/*.yaml — run npm run codegen:runtimes' && exit 1)",
     "generate:agents": "tsx servers/exarchos-mcp/src/agents/generate-agents.ts",
     "build:skills": "npm run generate:agents && node dist/build-skills.js",
     "skills:guard": "node dist/skills-guard.js",

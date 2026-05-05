@@ -461,6 +461,14 @@ export function deepMerge(
 /**
  * Parse a dot-path string into segments, handling array bracket notation.
  * Example: "tasks[0].status" -> ["tasks", 0, "status"]
+ *
+ * fix-004 (#1213, T-17c): keyed-access bracket forms such as
+ * `tasks[id=T-001]` are explicitly rejected. Earlier behavior fell
+ * through to treat the whole `tasks[id=T-001]` chunk as a literal property
+ * name and silently wrote to a bogus top-level key, returning success
+ * while the actual task was untouched. The parser now throws so callers
+ * get loud feedback and reach for the supported by-index form documented
+ * in `skills-src/workflow-state/SKILL.md`.
  */
 function parsePath(dotPath: string): Array<string | number> {
   const segments: Array<string | number> = [];
@@ -472,15 +480,48 @@ function parsePath(dotPath: string): Array<string | number> {
     if (bracketMatch) {
       segments.push(bracketMatch[1]);
       segments.push(parseInt(bracketMatch[2], 10));
-    } else {
-      // Check for standalone bracket: "[0]"
-      const standaloneBracket = part.match(/^\[(\d+)\]$/);
-      if (standaloneBracket) {
-        segments.push(parseInt(standaloneBracket[1], 10));
-      } else {
-        segments.push(part);
-      }
+      continue;
     }
+
+    // Check for standalone bracket: "[0]"
+    const standaloneBracket = part.match(/^\[(\d+)\]$/);
+    if (standaloneBracket) {
+      segments.push(parseInt(standaloneBracket[1], 10));
+      continue;
+    }
+
+    // fix-004: detect non-numeric bracket content and reject loudly. Match
+    // any `[...]` whose body is NOT pure digits — covers `tasks[id=001]`,
+    // `tasks[id=T-001]`, `tasks[name=foo]`, `tasks[*]`, etc.
+    const nonNumericBracket = part.match(/^([^[]*)\[([^\]]*)\]$/);
+    if (nonNumericBracket && !/^\d+$/.test(nonNumericBracket[2])) {
+      throw new StateStoreError(
+        ErrorCode.INVALID_INPUT,
+        `keyed array access is not supported in dot-paths (got "${part}" in "${dotPath}"). ` +
+          `The parser only recognizes numeric brackets, e.g. "tasks[0].status". ` +
+          `To edit one task, first read tasks (action: "get", query: "tasks"), ` +
+          `then write to its array index. To append, write to "tasks[<length>]". ` +
+          `See skills-src/workflow-state/SKILL.md for the supported patterns.`,
+      );
+    }
+
+    // CodeRabbit #18 (#1213): catch malformed and compound bracket forms
+    // that the patterns above don't recognize but which still contain
+    // bracket characters. Examples: `tasks[0][1]` (compound double
+    // index), `tasks[id=T-001` (unterminated), `tasks]` (mismatched
+    // close), `[]` (empty body). Falling through here would push the
+    // whole literal as a property name — same silent-success bug
+    // fix-004 closed for keyed access. Reject loudly with the same
+    // remediation guidance.
+    if (part.includes('[') || part.includes(']')) {
+      throw new StateStoreError(
+        ErrorCode.INVALID_INPUT,
+        `Malformed array access in dot-path segment "${part}" (from "${dotPath}"). ` +
+          `Use numeric brackets only, e.g. "tasks[0].status".`,
+      );
+    }
+
+    segments.push(part);
   }
 
   return segments;

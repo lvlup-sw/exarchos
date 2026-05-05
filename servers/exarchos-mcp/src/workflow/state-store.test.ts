@@ -875,3 +875,107 @@ describe('applyDotPath array replacement (#1003)', () => {
     expect(tasks.some(t => t.id === '001')).toBe(false);
   });
 });
+
+// ─── T-17 (DR-8c): documented array-insertion syntax in workflow_set ─────────
+//
+// `skills-src/workflow-state/SKILL.md` previously documented `tasks[id=001]`
+// as the pattern for editing a single task in place. The parser does NOT
+// support keyed array access — `parsePath` only recognizes numeric brackets
+// (`[\d+]`). The supported insertion patterns are:
+//   1. Replace the entire array: `updates: { tasks: [...] }`
+//   2. Replace one element by index: `updates: { 'tasks[0].status': '...' }`
+//   3. Append by next index: `updates: { 'tasks[<length>]': { id, title } }`
+//      — `assertArrayBounds` allows `index <= arr.length + MAX_ARRAY_GAP` so
+//      writing at the current `arr.length` slot performs a real append.
+//
+// This test pins option (3) so the SKILL.md worked example can rely on it.
+describe('applyDotPath array append syntax (T-17)', () => {
+  it('workflowSetParser_ArrayInsertionSyntax_AppendsNewEntry', () => {
+    // Arrange — start with a 2-element task array, mimicking a workflow that
+    // already received its first plan and now wants to add a follow-up task
+    // without rewriting the whole list.
+    const obj: Record<string, unknown> = {
+      tasks: [
+        { id: 'T-001', title: 'Existing 1', status: 'complete' },
+        { id: 'T-002', title: 'Existing 2', status: 'in_progress' },
+      ],
+    };
+
+    // Act — append by writing at index === current array length.
+    // This is the syntax `skills-src/workflow-state/SKILL.md` documents.
+    applyDotPath(obj, 'tasks[2]', {
+      id: 'T-003',
+      title: 'New follow-up',
+      status: 'pending',
+    });
+
+    // Assert — array grew by exactly one entry; existing entries unchanged.
+    const tasks = obj.tasks as Array<Record<string, unknown>>;
+    expect(tasks).toHaveLength(3);
+    expect(tasks[0]).toEqual({ id: 'T-001', title: 'Existing 1', status: 'complete' });
+    expect(tasks[1]).toEqual({ id: 'T-002', title: 'Existing 2', status: 'in_progress' });
+    expect(tasks[2]).toEqual({ id: 'T-003', title: 'New follow-up', status: 'pending' });
+  });
+
+  it('workflowSetParser_ArrayInsertionSyntax_KeyedAccessFormThrowsClearError', () => {
+    // fix-004 (review #1213, T-17c): the keyed-access form `tasks[id=T-001]`
+    // used to be silently misapplied (parser fell through to a literal
+    // property name and created a bogus top-level key). That was the worst
+    // possible failure mode — caller saw `success: true` while the actual
+    // task was untouched. The parser now throws a clear error so callers
+    // get loud feedback and can switch to the by-index form documented in
+    // skills-src/workflow-state/SKILL.md.
+    const obj: Record<string, unknown> = {
+      tasks: [{ id: 'T-001', status: 'pending' }],
+    };
+
+    expect(() => applyDotPath(obj, 'tasks[id=T-001].status', 'complete')).toThrow(
+      /keyed array access.*not supported/i,
+    );
+
+    // The legitimate task entry remains untouched (no silent
+    // misapplication side-effect either).
+    const tasks = obj.tasks as Array<Record<string, unknown>>;
+    expect(tasks[0].status).toBe('pending');
+    expect(obj['tasks[id=T-001]']).toBeUndefined();
+
+    // The legitimate by-index form continues to work and is the only
+    // supported way to update one task in place.
+    applyDotPath(obj, 'tasks[0].status', 'complete');
+    expect(tasks[0].status).toBe('complete');
+  });
+
+  // ─── #1213 / CodeRabbit #18: malformed/compound bracket forms ─────────
+  it('parsePath_CompoundBrackets_TasksZeroOne_ThrowsMalformedError', () => {
+    // `tasks[0][1]` is a compound double-index form the parser does not
+    // recognize. Without an explicit guard it would fall through and be
+    // pushed as a literal property name — same silent-success bug
+    // fix-004 closed for keyed access. Now rejected loudly.
+    const obj: Record<string, unknown> = { tasks: [['a', 'b']] };
+
+    expect(() => applyDotPath(obj, 'tasks[0][1]', 'updated')).toThrow(
+      /malformed array access/i,
+    );
+  });
+
+  it('parsePath_UnterminatedBracket_TasksKeyedNoClose_ThrowsMalformedError', () => {
+    // `tasks[id=T-001` (no closing bracket) is not a valid bracket form.
+    // The non-numeric guard requires `[...]`, so this falls past it. The
+    // new compound/malformed guard catches it.
+    const obj: Record<string, unknown> = { tasks: [{ id: 'T-001' }] };
+
+    expect(() =>
+      applyDotPath(obj, 'tasks[id=T-001.status', 'complete'),
+    ).toThrow(/malformed array access/i);
+  });
+
+  it('parsePath_MismatchedCloseBracket_TasksClose_ThrowsMalformedError', () => {
+    // `tasks]` has only a closing bracket. None of the bracket patterns
+    // match, but the bare `]` should still be rejected as malformed.
+    const obj: Record<string, unknown> = { tasks: [] };
+
+    expect(() => applyDotPath(obj, 'tasks].status', 'complete')).toThrow(
+      /malformed array access/i,
+    );
+  });
+});

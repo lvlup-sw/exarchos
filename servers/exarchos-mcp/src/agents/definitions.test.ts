@@ -109,6 +109,31 @@ describe('AgentSpec capability declarations', () => {
     expect(bad).toBeDefined();
   });
 
+  // DR-2 (T-08, #1204): IMPLEMENTER prompt must include an explicit
+  // "Working Directory Setup" recovery step BEFORE the verification block.
+  // Some runtimes (Copilot CLI, generic MCP) spawn subagents in the parent
+  // repo cwd. Without an explicit `cd <worktree>` first, the verification
+  // `pwd | grep .worktrees` fails on turn 0 and the agent aborts before
+  // doing any work. The recovery step makes the prompt robust across all
+  // runtime environments — basileus-forward (#1109 Constraint 3).
+  it('ImplementerSpec_PromptBody_IncludesCdIntoWorktreeBeforeVerification', () => {
+    const prompt = IMPLEMENTER.systemPrompt;
+
+    // The new section header must be present.
+    const wdSetupIndex = prompt.indexOf('## Working Directory Setup');
+    expect(wdSetupIndex, 'IMPLEMENTER systemPrompt must include "## Working Directory Setup"').toBeGreaterThan(-1);
+
+    // It must come BEFORE the verification block, not after.
+    const verificationIndex = prompt.indexOf('## Worktree Verification');
+    expect(verificationIndex).toBeGreaterThan(-1);
+    expect(wdSetupIndex).toBeLessThan(verificationIndex);
+
+    // Both bash and PowerShell entry forms must be available.
+    const setupSection = prompt.slice(wdSetupIndex, verificationIndex);
+    expect(setupSection).toMatch(/\bcd\b/);
+    expect(setupSection).toMatch(/Set-Location/);
+  });
+
   // Issue #1192 Item 4 (T26): every spec with a post-test validationRule must
   // anchor its command to the git toplevel. Bare `npm run test:run` would
   // execute against whatever shell cwd the agent has drifted to — anchoring

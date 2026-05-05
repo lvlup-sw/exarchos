@@ -28,6 +28,8 @@ import {
   validateDependencyDAG,
   checkParallelSafety,
   handleTaskDecomposition,
+  extractDependencies,
+  extractFiles,
 } from './task-decomposition.js';
 
 const mockedEmitGateEvent = vi.mocked(emitGateEvent);
@@ -237,6 +239,141 @@ Test names:
     expect(result.hasTests).toBe(true);
     expect(result.testCount).toBeGreaterThanOrEqual(2);
   });
+
+  // ─── T-12 description-span contract (DR-5 step 1/3) ──────────────────────
+  //
+  // The description span is "everything between the task heading and the next
+  // field-header (`**...**:`) or section header (`### `)". The first
+  // field-header encountered (e.g. `**Goal:**` or `**Description:**`) is
+  // *included* as the description introducer; the SECOND field-header (e.g.
+  // `**Files:**`, `**Acceptance criteria:**`) terminates the span. This lets
+  // plans authored to the standard `@skills/implementation-planning` shape
+  // (which uses `**Goal:**`, not `**Description:**`) score correctly.
+
+  it('validateTaskStructure_TaskWithGoalSection_CountsGoalProseAsDescription', () => {
+    // Block uses `**Goal:**` (not `**Description:**`) followed by ~50 words of
+    // substantive prose. The new contract counts that prose as the
+    // description; the legacy `**Description:**`-literal parser reports 0.
+    const block = `### Task T-01: Author the schema module
+
+**Goal:** Define the schema module that exposes per-record validation rules
+across the ingestion pipeline, declaring both the input row shape and the
+projected normalized shape consumed by the downstream alerting layer. The
+module must carry a frozen sample-set so future schema drift is caught at
+build time rather than at runtime when the dashboard renders empty results.
+
+**Files:**
+- \`src/schema/module.ts\`
+- \`src/schema/module.test.ts\`
+
+**Tests:**
+- [RED] \`Schema_Validate_RejectsMalformedRow\`
+
+**Dependencies:** None
+**Parallelizable:** Yes`;
+
+    const result = validateTaskStructure(block);
+
+    expect(result.hasDescription).toBe(true);
+    expect(result.descriptionWordCount).toBeGreaterThan(10);
+  });
+
+  it('validateTaskStructure_TaskWithMultipleSections_DescriptionStopsAtNextFieldHeader', () => {
+    // Block carries `**Goal:**` content followed by `**Acceptance criteria:**`.
+    // The description span includes the Goal prose only; words after the
+    // Acceptance criteria field-header MUST NOT be folded into the
+    // description count.
+    const block = `### Task T-02: Wire the gate handler
+
+**Goal:** Wire the freshly authored gate handler into the orchestrate dispatch
+table so the workflow surface can invoke it directly without bash detour.
+
+**Acceptance criteria:**
+- The gate handler appears in the dispatch table alongside its peers and the
+  acceptance suite covers every documented status code with a dedicated
+  characterization assertion that exercises the surrounding event emission.
+
+**Files:**
+- \`src/orchestrate/gate-handler.ts\``;
+
+    const result = validateTaskStructure(block);
+
+    // "Wire the freshly authored gate handler into the orchestrate dispatch
+    // table so the workflow surface can invoke it directly without bash detour."
+    // ~22 words. Acceptance criteria adds ~30 words; if those leak in the
+    // count would jump well past 30.
+    expect(result.hasDescription).toBe(true);
+    expect(result.descriptionWordCount).toBeGreaterThan(10);
+    expect(result.descriptionWordCount).toBeLessThan(30);
+  });
+
+  // F20 (#1213): only `**Goal:**` / `**Description:**` headers introduce
+  // the description span. Tasks that open with `**Files:**` /
+  // `**Dependencies:**` / `**Tests:**` etc. used to mis-count the inline
+  // tail of those headers as description prose, which silently satisfied
+  // the 10-word threshold and masked legitimate missing-description
+  // failures.
+  it('ExtractDescription_TaskBeginsWithFilesHeader_DoesNotCountFilesAsDescription', () => {
+    // The first field header after the title is `**Files:**`, with multiple
+    // backtick-quoted paths inline. The whole block carries NO narrative
+    // prose: no naked sentence, no `**Goal:**`, no `**Description:**`.
+    // The validator must therefore report a missing description.
+    const block = `### Task T-99: terse files-only task
+
+**Files:** \`src/foo.ts\`, \`src/bar.ts\`, \`src/baz.ts\`, \`src/quux.ts\`, \`src/zap.ts\`, \`src/widget.ts\`
+
+**Tests:**
+- [RED] \`Foo_Bar_Baz\`
+
+**Dependencies:** None
+**Parallelizable:** No`;
+
+    const result = validateTaskStructure(block);
+
+    // The 6 paths inline on the **Files:** header would, under the old
+    // first-field-wins rule, contribute several words and could push past
+    // the 10-word threshold. With the F20 fix that header terminates the
+    // description scan instead of introducing it, so the count is zero
+    // and `hasDescription` is false.
+    expect(result.hasDescription).toBe(false);
+    expect(result.descriptionWordCount).toBeLessThanOrEqual(10);
+  });
+
+  it('ExtractDescription_TaskBeginsWithDependenciesHeader_DoesNotCountDepsAsDescription', () => {
+    // Same shape, different leading non-description header. Same rule.
+    const block = `### Task T-77: deps-first task
+
+**Dependencies:** T001, T002, T003, T004, T005, T006, T007, T008, T009, T010, T011
+
+**Files:**
+- \`src/foo.ts\`
+
+**Tests:**
+- [RED] \`Foo_Bar_Baz\`
+
+**Parallelizable:** No`;
+
+    const result = validateTaskStructure(block);
+
+    expect(result.hasDescription).toBe(false);
+    expect(result.descriptionWordCount).toBeLessThanOrEqual(10);
+  });
+
+  it('validateTaskStructure_NoFieldHeaders_FullBodyCounted', () => {
+    // Block has naked prose under the task heading with no field-headers at
+    // all. The new contract counts the entire body as the description.
+    const block = `### Task T-03: Naked prose task
+
+This task has no field headers whatsoever. The author wrote a brief paragraph
+of substantive narrative prose describing the work to be done, and trusted
+that the structural validator would still recognize the description as
+present without requiring a literal Description field-header marker.`;
+
+    const result = validateTaskStructure(block);
+
+    expect(result.hasDescription).toBe(true);
+    expect(result.descriptionWordCount).toBeGreaterThan(20);
+  });
 });
 
 describe('validateDependencyDAG', () => {
@@ -266,6 +403,297 @@ describe('validateDependencyDAG', () => {
     // The cycle path should mention both T-01 and T-02
     expect(result.cyclePath).toContain('T-01');
     expect(result.cyclePath).toContain('T-02');
+  });
+});
+
+// ─── T-13 dependency-parser contract (DR-5 step 2/3) ────────────────────
+//
+// `extractDependencies` MUST anchor strictly to the `**Dependencies:**` line
+// and MUST match both `T-XX` and `TXX` formats via a single regex
+// `\b(T-?\d+)\b`. There is NO greedy `[0-9]+` fallback — if the deps line
+// contains no `T<id>`/`T-<id>` token, the helper returns `[]`.
+//
+// Normalization decision (documented for posterity): the helper returns
+// matches **verbatim** — `T-001` stays `T-001`, `T002` stays `T002`. The
+// equivalence between `T-NNN`, `TNNN`, and `NNN` is handled at comparison
+// time inside `validateDependencyDAG` (canonical form: strip leading
+// `T-?` and leading zeros). Doing it here would conflate task-ID forms
+// emitted by `parseTaskBlocks`, which preserves the form as written.
+
+describe('extractDependencies', () => {
+  it('extractDependencies_ThyphenIdFormat_ReturnsTIds', () => {
+    const block = `### Task T-XX: example
+
+**Description:** sample task body that should be ignored by the dependency
+parser entirely. Numbers like 24 in prose must not leak.
+
+**Dependencies:** T-001, T-002
+**Parallelizable:** No`;
+
+    expect(extractDependencies(block)).toEqual(['T-001', 'T-002']);
+  });
+
+  it('extractDependencies_NoHyphenIdFormat_ReturnsTIds', () => {
+    const block = `### Task TXX: example
+
+**Description:** sample task body.
+
+**Dependencies:** T001, T002
+**Parallelizable:** No`;
+
+    // Verbatim — see header comment for normalization decision.
+    expect(extractDependencies(block)).toEqual(['T001', 'T002']);
+  });
+
+  it('extractDependencies_NarrativeContainsRollup24h_DoesNotExtract24', () => {
+    // Regression for the agency-csl-auto-pr fixture (T-13). Task 033's deps
+    // line embeds prose that contains `Rollup24h`. The greedy `[0-9]+`
+    // fallback used to scrape `24` out of `Rollup24h` and treat it as an
+    // unknown dependency. The new parser must return only the T-id.
+    const block = `### Task 033: SLO sample-size dashboard panel
+
+**Description:** add a Grafana panel.
+
+**Dependencies:** T002 (\`GetCslSloRollup24h\` exposes sample size per SLO)
+**Parallelizable:** No`;
+
+    const deps = extractDependencies(block);
+    expect(deps).toEqual(['T002']);
+    expect(deps).not.toContain('24');
+  });
+
+  it('extractDependencies_NoTIdsAtAll_ReturnsEmptyArray', () => {
+    const block = `### Task T-01: example
+
+**Description:** sample.
+
+**Dependencies:** none
+**Parallelizable:** No`;
+
+    expect(extractDependencies(block)).toEqual([]);
+  });
+
+  it('extractDependencies_DigitsInOtherLines_NotExtracted', () => {
+    // Deps line is empty — must not fall back to digit-scraping the wider
+    // block (which contains `2024` in prose, file paths with version-like
+    // numbers, etc.).
+    const block = `### Task T-01: build the 2024 rollup pipeline
+
+**Description:** Process 1000 records per second from the 24-hour buffer.
+
+**Files:**
+- \`src/v1/api-2024.ts\`
+
+**Dependencies:**
+**Parallelizable:** No`;
+
+    expect(extractDependencies(block)).toEqual([]);
+  });
+});
+
+// ─── T-14 file-conflict extension-filter contract (DR-5 step 3/3) ────────
+//
+// `extractFiles` MUST require a known file extension before treating a
+// backtick-quoted token as a file path. Tokens like `imageProvenance.isFirstParty`
+// (TypeScript record-field references in narrative prose) MUST NOT match.
+// This closes the final fixture-level `parallelSafe === true` assertion in
+// `task-decomposition.fixtures.test.ts`.
+//
+// Allowed extensions:
+//   ts | tsx | js | jsx | mjs | cjs | json | md | yml | yaml | sh | ps1
+//   sql | kql | bicep | cs | csproj | sln | go | rs | toml
+//
+// The same extension allowlist must apply to both `extractFiles` and the
+// inline file-path pattern inside `validateTaskStructure`. After T-14
+// REFACTOR they share a module-level `FILE_EXTENSION_ALLOWLIST` constant.
+
+describe('extractFiles', () => {
+  it('extractFiles_DottedIdentifierLikeFieldName_NotMatched', () => {
+    // Regression for the agency-csl-auto-pr fixture. TypeScript record-field
+    // references in narrative prose used to be scraped as file paths because
+    // the prior regex required only `.<alphabetic>` after a backtick token.
+    // The tightened regex limits matches to a known-extension allowlist.
+    const block = `### Task T-01: example
+
+**Goal:** When the upstream signal flips, propagate \`imageProvenance.isFirstParty\`
+through the projection so downstream consumers see the change without polling.
+
+**Files:**
+- \`src/projection/provenance.ts\`
+
+**Dependencies:** None
+**Parallelizable:** Yes`;
+
+    const files = extractFiles(block);
+    expect(files).not.toContain('imageProvenance.isFirstParty');
+  });
+
+  it('extractFiles_KnownExtension_Matched', () => {
+    // Sanity: the allowlist MUST cover the canonical project extensions
+    // used in real plans (TypeScript source, JSON config, Markdown docs).
+    const block = `### Task T-01: example
+
+**Goal:** Author the module, the config, and the readme entry.
+
+**Files:**
+- \`src/foo.ts\`
+- \`config.json\`
+- \`README.md\`
+
+**Dependencies:** None
+**Parallelizable:** No`;
+
+    const files = extractFiles(block);
+    expect(files).toContain('src/foo.ts');
+    expect(files).toContain('config.json');
+    expect(files).toContain('README.md');
+  });
+
+  it('extractFiles_UnknownExtension_NotMatched', () => {
+    // The allowlist is closed. A backtick-quoted token whose suffix is not
+    // on the list (e.g. `.unknownext`) MUST NOT match, even if its shape
+    // otherwise resembles a path.
+    const block = `### Task T-01: example
+
+**Goal:** Reference an unknown-suffix token.
+
+The token \`some.unknownext\` appears in prose but is not a real file path
+the validator should treat as a target.
+
+**Dependencies:** None
+**Parallelizable:** No`;
+
+    const files = extractFiles(block);
+    expect(files).not.toContain('some.unknownext');
+  });
+
+  // ─── #1213 / CodeRabbit #17: inline **Files:** header parsing ─────────
+  it('extractFiles_InlineFilesHeader_CapturesPathOnSameLine', () => {
+    // Regression: when the **Files:** header carries paths inline on the
+    // same line (instead of a multi-line list), the parser dropped them
+    // because it `continue`-d past the header without inspecting the tail.
+    // Now the inline tail is captured before falling through to the next
+    // line.
+    const block = `### Task T-01: example
+
+**Goal:** Inline files header.
+
+**Files:** \`src/inline-only.ts\`
+
+**Dependencies:** None
+**Parallelizable:** No`;
+
+    const files = extractFiles(block);
+    expect(files).toContain('src/inline-only.ts');
+  });
+
+  it('extractFiles_InlineFilesHeader_MultiplePaths_AllCaptured', () => {
+    // Multiple comma-separated inline paths on the **Files:** header line.
+    const block = `### Task T-02: example
+
+**Goal:** Multiple inline paths.
+
+**Files:** \`src/a.ts\`, \`src/b.ts\`, \`config.json\`
+
+**Dependencies:** None
+**Parallelizable:** No`;
+
+    const files = extractFiles(block);
+    expect(files).toContain('src/a.ts');
+    expect(files).toContain('src/b.ts');
+    expect(files).toContain('config.json');
+  });
+
+  // ─── F21 (#1213): explicit Files section is authoritative even if empty
+  it('ExtractFiles_ExplicitFilesNone_ReturnsEmptyAndSkipsFallback', () => {
+    // The author declared the Files section explicitly and put `none`
+    // there (no allowlisted paths). Other parts of the task body
+    // contain unrelated backtick-quoted paths (e.g. a snippet showing
+    // a *prior* file the task replaces, or an example reference). The
+    // explicit Files section is authoritative — fallback inference
+    // MUST NOT scrape those unrelated backticks and pollute the file
+    // count, which would produce false parallel-conflict reports.
+    const block = `### Task T-99: pure prose / docs task
+
+**Goal:** Update the narrative description in the README so it reflects
+the renamed module \`unrelated.ts\` mentioned in the prior commit. Also
+clarify the snippet about \`example.json\` from earlier docs.
+
+**Files:** none
+
+**Tests:**
+- [RED] \`Doc_Update_NoFiles\`
+
+**Dependencies:** None
+**Parallelizable:** Yes`;
+
+    const files = extractFiles(block);
+    // The unrelated `unrelated.ts` and `example.json` backticks elsewhere
+    // in the task body MUST NOT be returned. The explicit Files section
+    // declared zero paths, and that's the answer.
+    expect(files).not.toContain('unrelated.ts');
+    expect(files).not.toContain('example.json');
+    expect(files).toEqual([]);
+  });
+
+  it('ExtractFiles_NoFilesSection_FallsBackToWholeBlockInference', () => {
+    // No explicit **Files:** header anywhere in the block — preserve
+    // existing behavior of scraping the whole block for backtick paths
+    // with allowlisted extensions. (Regression-guard for the legacy
+    // shape; without this assertion the F21 fix would silently break
+    // tasks that omit the Files header entirely.)
+    const block = `### Task T-50: legacy shape, no Files header
+
+**Goal:** Edit \`src/legacy.ts\` and \`src/legacy.test.ts\` to reflect
+the new contract.
+
+**Tests:**
+- [RED] \`Legacy_Contract_Honored\`
+
+**Dependencies:** None
+**Parallelizable:** No`;
+
+    const files = extractFiles(block);
+    expect(files).toContain('src/legacy.ts');
+    expect(files).toContain('src/legacy.test.ts');
+  });
+
+  it('checkParallelSafety_AgencyCslLikeNarrative_NoFalseConflicts', () => {
+    // End-to-end regression on the agency-csl shape: two parallel tasks
+    // that share dotted-identifier *field-name* references in prose but
+    // have disjoint *file* targets must NOT be flagged as conflicting.
+    const blockA = `### Task T-001: producer side
+
+**Goal:** Emit the \`imageProvenance.isFirstParty\` signal and the
+\`mutatingTool.detected\` flag from the upstream extractor.
+
+**Files:**
+- \`src/extractor/producer.ts\`
+- \`src/extractor/producer.test.ts\`
+
+**Dependencies:** None
+**Parallelizable:** Yes`;
+
+    const blockB = `### Task T-002: consumer side
+
+**Goal:** React to \`imageProvenance.isFirstParty\` and \`mutatingTool.detected\`
+on the projection side without coupling to the producer module.
+
+**Files:**
+- \`src/projection/consumer.ts\`
+- \`src/projection/consumer.test.ts\`
+
+**Dependencies:** None
+**Parallelizable:** Yes`;
+
+    const tasks = [
+      { id: 'T-001', isParallel: true, files: extractFiles(blockA) },
+      { id: 'T-002', isParallel: true, files: extractFiles(blockB) },
+    ];
+
+    const result = checkParallelSafety(tasks);
+    expect(result.safe).toBe(true);
+    expect(result.conflicts).toHaveLength(0);
   });
 });
 

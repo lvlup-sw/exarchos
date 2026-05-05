@@ -39,6 +39,7 @@ import type { DelegationReadinessState } from '../views/delegation-readiness-vie
 import { generateQualityHints } from '../quality/hints.js';
 import type { QualityHint } from '../quality/hints.js';
 import { emitGateEvent } from './gate-utils.js';
+import { canonicaliseTaskId } from './task-decomposition.js';
 import { queryTelemetryState } from '../telemetry/telemetry-queries.js';
 import type { TelemetryViewState } from '../telemetry/telemetry-projection.js';
 import {
@@ -202,6 +203,114 @@ const WORKTREE_BLOCKER_PATTERNS = [
 
 function isWorktreeBlocker(blocker: string): boolean {
   return WORKTREE_BLOCKER_PATTERNS.some(p => blocker.includes(p));
+}
+
+/**
+ * DR-T-3 (#1212, T-06): produce a state-vs-plan desync diagnostic when
+ * the projection's plan.taskCount diverges from workflowState.tasks.length.
+ *
+ * Diagnostic-only: does NOT gate readiness on its own. The blocker is
+ * appended to the visible list so an operator notices, but the ready
+ * gate is computed without it.
+ *
+ * Suppressed at empty baseline (plan.taskCount === 0) to avoid noise on
+ * fresh workflows where the projection hasn't seen task.assigned events
+ * yet.
+ */
+function computeDesyncBlockers(
+  workflowState: WorkflowStateView,
+  readiness: DelegationReadinessState,
+): readonly string[] {
+  const stateTasks = Array.isArray(workflowState.tasks) ? workflowState.tasks.length : 0;
+  const planCount = readiness.plan.taskCount;
+
+  if (planCount === 0) return []; // baseline — no diagnostic
+  if (stateTasks === planCount) return [];
+
+  return [
+    `state-vs-plan desync: workflow.tasks has ${stateTasks} entries but plan.taskCount is ${planCount} (likely stale state after plan-review revision)`,
+  ];
+}
+
+/**
+ * DR-T-2 (#1206, T-05) / fix-005 (#1213): pure helper that recomputes
+ * worktree counts and blockers against a wave subset.
+ *
+ * Returns:
+ * - `expected` — the size of the wave (or the projection's expected when
+ *   no filter is provided).
+ * - `ready` — count of wave members whose worktree is in `readyTaskIds`
+ *   (or the projection's global `ready` when no filter is provided).
+ * - `pending` — `expected - ready`.
+ * - `blockers` — `readiness.blockers` with the canonical
+ *   `"<N> worktrees pending"` message rewritten to the wave-scoped count
+ *   (dropped entirely when the wave is fully ready). Other worktree-class
+ *   blockers (e.g., "no worktrees expected", baseline failures) pass
+ *   through unchanged — they're stream-global signals, not wave-scoped.
+ *
+ * Pure: no I/O, no shared state. Exported for unit testing.
+ */
+export interface ScopedWorktreesResult {
+  readonly expected: number;
+  readonly ready: number;
+  readonly pending: number;
+  readonly blockers: readonly string[];
+}
+
+export function computeScopedWorktrees(
+  readiness: DelegationReadinessState,
+  tasksFilter: readonly { id: string }[] | undefined,
+): ScopedWorktreesResult {
+  if (!tasksFilter || tasksFilter.length === 0) {
+    return {
+      expected: readiness.worktrees.expected,
+      ready: readiness.worktrees.ready,
+      pending: Math.max(0, readiness.worktrees.expected - readiness.worktrees.ready),
+      blockers: readiness.blockers,
+    };
+  }
+
+  // F19 (#1213): canonicalise IDs before comparing. Callers may pass
+  // `T-001`/`T001`/`001` interchangeably; the projection's `readyTaskIds`
+  // preserves the form recorded by upstream emitters. Without
+  // canonicalisation a wave addressed as `T-001` reports "1 worktrees
+  // pending" even when the projection holds `T001` as ready.
+  const canonicalReady = new Set(
+    readiness.worktrees.readyTaskIds.map(canonicaliseTaskId),
+  );
+  const taskIds = tasksFilter.map(t => t.id);
+  const readyInWave = taskIds.filter(id =>
+    canonicalReady.has(canonicaliseTaskId(id)),
+  ).length;
+  const expected = taskIds.length;
+  const pending = expected - readyInWave;
+
+  let blockers = readiness.blockers.flatMap(blocker => {
+    // Only touch the canonical "<N> worktrees pending" message; pass
+    // through other worktree-class blockers (failed, no-worktrees-expected).
+    if (!/^\d+ worktrees pending$/.test(blocker)) {
+      return [blocker];
+    }
+    if (pending === 0) {
+      return []; // wave is complete — drop the blocker
+    }
+    return [`${pending} worktrees pending`];
+  });
+
+  // F-iter3 (#1213, sentry HIGH r3186305844): if the global readiness has no
+  // "N worktrees pending" blocker (because the global state was ready) but
+  // the wave subset still has pending worktrees, synthesise one. Without
+  // this the caller sees an empty blockers array and dispatches prematurely
+  // (e.g. mixed legacy/modern `worktree.created` events leave the global
+  // view consistent but the wave-projection is not).
+  if (
+    pending > 0 &&
+    !blockers.some(b => /^\d+ worktrees pending$/.test(b))
+  ) {
+    blockers = [...blockers, `${pending} worktrees pending`];
+  }
+
+  return { expected, ready: readyInWave, pending, blockers };
 }
 
 // ─── Quality Hint Assembly ──────────────────────────────────────────────────
@@ -441,28 +550,52 @@ export async function handlePrepareDelegation(
       drEvents,
     );
 
-    // Supplementary check: plan artifact existence (not tracked by the readiness view)
-    const hasPlanArtifact = Boolean(workflowState.artifacts?.plan);
-    const additionalBlockers: string[] = [];
-    if (!hasPlanArtifact) {
-      additionalBlockers.push('Plan artifact is missing');
-    }
-
-    // Merge readiness from view with supplementary checks
-    const allBlockers = [...readiness.blockers, ...additionalBlockers];
+    // DR-T-1 (#1205, T-03): plan-artifact presence is tracked by the
+    // delegation-readiness projection itself (T-02). The handler trusts
+    // the view as the single source of truth and does not run a parallel
+    // filesystem/state check. This eliminates the prior divergence where
+    // `prepare_delegation` and `delegation_readiness` reported different
+    // blocker lists for identical workflow state (axiom DIM-1, #1109 §2).
+    //
+    // DR-T-2 (#1206, T-05) / fix-005 (#1213): when a `tasks` arg is
+    // provided, scope the worktrees-pending blocker AND the numeric
+    // expected/ready counts to that subset. Prevents the documented
+    // "wave-by-wave dispatch" pattern from being blocked by the global
+    // per-stream count when only a subset is being prepared, and keeps
+    // the visible numeric surfaces in lockstep with the (possibly
+    // rewritten) blocker string so callers don't see "expected: 5 /
+    // ready: 2" alongside a "1 worktrees pending" blocker.
+    const scoped = computeScopedWorktrees(readiness, args.tasks);
 
     // When nativeIsolation is true, filter out worktree-related blockers
-    // (Claude Code handles worktree isolation natively via `isolation: "worktree"`)
-    const effectiveBlockers = args.nativeIsolation
-      ? allBlockers.filter(b => !isWorktreeBlocker(b))
-      : allBlockers;
+    // (Claude Code handles worktree isolation natively via `isolation: "worktree"`).
+    const baseBlockers = args.nativeIsolation
+      ? scoped.blockers.filter(b => !isWorktreeBlocker(b))
+      : scoped.blockers;
 
-    const effectiveReady = effectiveBlockers.length === 0;
+    // ready is computed off the wave-scoped + native-filtered blockers,
+    // BEFORE appending the desync diagnostic — drift is informational, it
+    // does not gate dispatch on its own (per #1212 design).
+    const effectiveReady = baseBlockers.length === 0;
+
+    // DR-T-3 (#1212, T-06): state-vs-plan desync diagnostic. Compares the
+    // projection's plan.taskCount (incremented by task.assigned events)
+    // against workflowState.tasks.length. When the two diverge after a
+    // plan-review revision, the operator should notice before dispatching
+    // against stale state.
+    const desyncBlockers = computeDesyncBlockers(workflowState, readiness);
+
+    const effectiveBlockers = [...baseBlockers, ...desyncBlockers];
 
     const effectiveReadiness: DelegationReadinessState = {
       ...readiness,
       ready: effectiveReady,
       blockers: effectiveBlockers,
+      worktrees: {
+        ...readiness.worktrees,
+        expected: scoped.expected,
+        ready: scoped.ready,
+      },
     };
 
     // Build result

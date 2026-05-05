@@ -623,6 +623,64 @@ export function buildCli(ctx: DispatchContext): Command {
     }
   });
 
+  // ─── Top-level `exarchos install-skills` command (T-16, DR-7, #1201) ────
+  //
+  // Bridges the documented `exarchos install-skills [--agent <name>]`
+  // surface (README.md "Install Skills" section, `documentation/guide/
+  // installation.md`) to the `installSkills()` implementation in the
+  // root `src/install-skills.ts` module.
+  //
+  // CLI-only by design: the underlying installer writes to the local
+  // filesystem (e.g. `~/.claude/skills/`) and shells out to
+  // `npx skills add`, neither of which makes sense over an MCP stdio
+  // transport. The `cli-only` annotation in the description is part
+  // of the surface contract — agent callers reading `--help` (or any
+  // future schema-introspection output) see immediately that there is
+  // no MCP equivalent.
+  //
+  // The bridge module (`cli-commands/install-skills-bridge.js`) owns
+  // the cross-package import of `installSkills()` because the MCP
+  // server's tsc `rootDir: "./src"` would otherwise reject the path
+  // with TS6059. Authored as JS (tsc `allowJs: false`) so the static
+  // imports survive type-checking; bun's `--compile` bundler still
+  // follows them at build time.
+  //
+  // Exit-code mapping (DR-3 contract):
+  //   - Success                      → SUCCESS (exit 0)
+  //   - `npx skills add` non-zero    → forwarded child code (`exitCode`
+  //                                    on the thrown InstallSkillsError)
+  //   - Any other thrown error       → UNCAUGHT_EXCEPTION (exit 3)
+  program
+    .command('install-skills')
+    .description(
+      'Install the Exarchos skills bundle for a target agent runtime (cli-only — no MCP equivalent)',
+    )
+    .option(
+      '--agent <name>',
+      'Target agent runtime (claude, codex, opencode, copilot, cursor, generic). Auto-detected when omitted.',
+    )
+    .action(async (opts: { agent?: string }) => {
+      try {
+        const { runInstallSkills } = await import(
+          '../cli-commands/install-skills-bridge.js'
+        );
+        await runInstallSkills({ agent: opts.agent });
+        process.exitCode = CLI_EXIT_CODES.SUCCESS;
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        const candidateExitCode =
+          typeof err === 'object' && err !== null && 'exitCode' in err
+            ? (err as { exitCode?: unknown }).exitCode
+            : undefined;
+        const exitCode =
+          typeof candidateExitCode === 'number'
+            ? candidateExitCode
+            : CLI_EXIT_CODES.UNCAUGHT_EXCEPTION;
+        printError({ code: 'INSTALL_SKILLS_FAILED', message });
+        process.exitCode = exitCode;
+      }
+    });
+
   return program;
 }
 

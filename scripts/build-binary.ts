@@ -42,7 +42,10 @@
  */
 import { $ } from 'bun';
 import { mkdirSync } from 'node:fs';
+import { resolve, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { TARGETS, type Target } from './build-binary-targets.js';
+import { generateEmbeddedRuntimesModule } from './codegen-runtimes.js';
 
 // Re-export so existing importers of `./build-binary.js` keep working.
 export { TARGETS };
@@ -77,7 +80,32 @@ function getHostTarget(): Target {
   return match;
 }
 
+/**
+ * Codegen `src/runtimes/embedded.ts` BEFORE every `bun build --compile`
+ * call so the bundled artifact always embeds an up-to-date runtimes
+ * module. The compiled binary is the primary install path for
+ * `install-skills` (#1213, #1214) — the YAML files don't ship inside
+ * the bundle, so the bridge MUST resolve runtimes from the embedded
+ * import. Re-running codegen here makes the binary self-consistent
+ * even when a developer skipped `npm run codegen:runtimes` before
+ * hitting `npm run build:binary`. CI's `runtimes:guard` separately
+ * enforces drift on the checked-in copy.
+ */
+function codegenEmbeddedRuntimes(): void {
+  const here = dirname(fileURLToPath(import.meta.url));
+  const root = resolve(here, '..');
+  generateEmbeddedRuntimesModule({
+    runtimesDir: resolve(root, 'runtimes'),
+    outFile: resolve(root, 'src/runtimes/embedded.ts'),
+  });
+}
+
 async function buildOne(target: Target): Promise<void> {
+  // Regenerate the embedded runtimes module before bundling so that
+  // the produced binary cannot ship a stale embedded array. See the
+  // helper's docstring for the full rationale.
+  codegenEmbeddedRuntimes();
+
   const ext = target.os === 'windows' ? '.exe' : '';
   const outfile = `dist/bin/exarchos-${target.os}-${target.arch}${ext}`;
   mkdirSync('dist/bin', { recursive: true });
