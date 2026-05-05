@@ -441,21 +441,18 @@ export async function handlePrepareDelegation(
       drEvents,
     );
 
-    // Supplementary check: plan artifact existence (not tracked by the readiness view)
-    const hasPlanArtifact = Boolean(workflowState.artifacts?.plan);
-    const additionalBlockers: string[] = [];
-    if (!hasPlanArtifact) {
-      additionalBlockers.push('Plan artifact is missing');
-    }
-
-    // Merge readiness from view with supplementary checks
-    const allBlockers = [...readiness.blockers, ...additionalBlockers];
-
+    // DR-T-1 (#1205, T-03): plan-artifact presence is tracked by the
+    // delegation-readiness projection itself (T-02). The handler trusts
+    // the view as the single source of truth and does not run a parallel
+    // filesystem/state check. This eliminates the prior divergence where
+    // `prepare_delegation` and `delegation_readiness` reported different
+    // blocker lists for identical workflow state (axiom DIM-1, #1109 §2).
+    //
     // When nativeIsolation is true, filter out worktree-related blockers
-    // (Claude Code handles worktree isolation natively via `isolation: "worktree"`)
+    // (Claude Code handles worktree isolation natively via `isolation: "worktree"`).
     const effectiveBlockers = args.nativeIsolation
-      ? allBlockers.filter(b => !isWorktreeBlocker(b))
-      : allBlockers;
+      ? readiness.blockers.filter(b => !isWorktreeBlocker(b))
+      : readiness.blockers;
 
     const effectiveReady = effectiveBlockers.length === 0;
 

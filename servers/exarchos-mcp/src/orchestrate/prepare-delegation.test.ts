@@ -115,7 +115,7 @@ function readyDelegationReadiness(): DelegationReadinessState {
   return {
     ready: true,
     blockers: [],
-    plan: { approved: true, taskCount: 2 },
+    plan: { approved: true, taskCount: 2, artifactPresent: true },
     quality: { queried: true, gatePassRate: null, regressions: [] },
     worktrees: { expected: 2, ready: 2, failed: [] },
   };
@@ -125,7 +125,7 @@ function notReadyDelegationReadiness(): DelegationReadinessState {
   return {
     ready: false,
     blockers: ['plan not approved', 'no task.assigned events found — emit task.assigned events for each task via exarchos_event before calling prepare_delegation'],
-    plan: { approved: false, taskCount: 0 },
+    plan: { approved: false, taskCount: 0, artifactPresent: false },
     quality: { queried: false, gatePassRate: null, regressions: [] },
     worktrees: { expected: 0, ready: 0, failed: [] },
   };
@@ -421,27 +421,62 @@ describe('handlePrepareDelegation', () => {
     expect(data.readiness.ready).toBe(false);
   });
 
-  it('HandlePrepareDelegation_ViewReadyButPlanArtifactMissing_ReturnsBlocker', async () => {
-    // Arrange: view says ready, but workflow state has no plan artifact
+  // DR-T-1 (T-03): plan-artifact blocker comes ONLY from the projection.
+  // This replaces a previous test that asserted a handler-side supplementary
+  // check fired when artifacts.plan was missing in workflow state. After T-03
+  // the handler trusts the projection — single source of truth (#1205).
+  it('HandlePrepareDelegation_BlockerList_MatchesDelegationReadinessView', async () => {
+    // Arrange: projection reports the plan-artifact blocker; handler should
+    // surface it verbatim with no extra emission. workflow state's
+    // artifacts.plan is irrelevant here — the projection is authoritative.
     const state = {
       ...readyWorkflowState(),
       artifacts: { design: 'design.md', plan: null, pr: null },
     };
-    const drState = readyDelegationReadiness();
+    const drState: DelegationReadinessState = {
+      ready: false,
+      blockers: ['Plan artifact is missing'],
+      plan: { approved: true, taskCount: 2, artifactPresent: false },
+      quality: { queried: true, gatePassRate: null, regressions: [] },
+      worktrees: { expected: 2, ready: 2, failed: [] },
+    };
     setupMaterializer(state, undefined, drState);
     const args = { featureId: 'test-feature' };
 
-    // Act
     const result = await handlePrepareDelegation(args, STATE_DIR, makeCtx(mockStore, STATE_DIR));
 
-    // Assert
     expect(result.success).toBe(true);
-    const data = result.data as {
-      ready: boolean;
-      blockers: string[];
-    };
+    const data = result.data as { ready: boolean; blockers: string[] };
     expect(data.ready).toBe(false);
-    expect(data.blockers).toContain('Plan artifact is missing');
+    // Blocker should appear EXACTLY ONCE — handler trusts projection, no
+    // duplicate emission from a supplementary check.
+    expect(data.blockers).toEqual(['Plan artifact is missing']);
+  });
+
+  it('HandlePrepareDelegation_ViewReady_NoSupplementaryPlanArtifactCheck', async () => {
+    // Arrange: projection says ready (artifactPresent: true) but workflow
+    // state lacks artifacts.plan. Handler must NOT add a side blocker.
+    const state = {
+      ...readyWorkflowState(),
+      artifacts: { design: 'design.md', plan: null, pr: null },
+    };
+    const drState: DelegationReadinessState = {
+      ready: true,
+      blockers: [],
+      plan: { approved: true, taskCount: 2, artifactPresent: true },
+      quality: { queried: true, gatePassRate: null, regressions: [] },
+      worktrees: { expected: 2, ready: 2, failed: [] },
+    };
+    setupMaterializer(state, undefined, drState);
+    vi.mocked(generateQualityHints).mockReturnValue([]);
+    const args = { featureId: 'test-feature' };
+
+    const result = await handlePrepareDelegation(args, STATE_DIR, makeCtx(mockStore, STATE_DIR));
+
+    expect(result.success).toBe(true);
+    const data = result.data as { ready: boolean; readiness: DelegationReadinessState };
+    expect(data.ready).toBe(true);
+    expect(data.readiness.blockers).toEqual([]);
   });
 
   // ─── DR-5: nativeIsolation readiness.blockers consistency ─────────────────
@@ -452,7 +487,7 @@ describe('handlePrepareDelegation', () => {
     const drState: DelegationReadinessState = {
       ready: false,
       blockers: ['worktrees pending', 'no worktrees expected'],
-      plan: { approved: true, taskCount: 2 },
+      plan: { approved: true, taskCount: 2, artifactPresent: true },
       quality: { queried: true, gatePassRate: null, regressions: [] },
       worktrees: { expected: 2, ready: 0, failed: [] },
     };
@@ -480,7 +515,7 @@ describe('handlePrepareDelegation', () => {
     const drState: DelegationReadinessState = {
       ready: false,
       blockers: ['plan not approved', 'worktrees pending'],
-      plan: { approved: false, taskCount: 0 },
+      plan: { approved: false, taskCount: 0, artifactPresent: false },
       quality: { queried: false, gatePassRate: null, regressions: [] },
       worktrees: { expected: 2, ready: 0, failed: [] },
     };
@@ -511,7 +546,7 @@ describe('handlePrepareDelegation', () => {
     const drState: DelegationReadinessState = {
       ready: false,
       blockers: ['plan not approved', 'worktrees pending'],
-      plan: { approved: false, taskCount: 0 },
+      plan: { approved: false, taskCount: 0, artifactPresent: false },
       quality: { queried: true, gatePassRate: null, regressions: [] },
       worktrees: { expected: 2, ready: 0, failed: [] },
     };
@@ -531,8 +566,9 @@ describe('handlePrepareDelegation', () => {
     expect(data.ready).toBe(false);
     expect(data.readiness.blockers).toContain('plan not approved');
     expect(data.readiness.blockers).toContain('worktrees pending');
-    // Plan artifact missing is added as supplementary check
-    expect(data.readiness.blockers).toContain('Plan artifact is missing');
+    // Plan artifact missing now comes from the projection itself (T-02);
+    // the handler does not emit a supplementary copy (T-03).
+    // (This fixture's drState.blockers does not include it, so it should NOT appear here.)
   });
 
   // ─── T-15: nativeIsolation parameter ──────────────────────────────────────
@@ -543,7 +579,7 @@ describe('handlePrepareDelegation', () => {
     const drState: DelegationReadinessState = {
       ready: false,
       blockers: ['no worktrees expected'],
-      plan: { approved: true, taskCount: 2 },
+      plan: { approved: true, taskCount: 2, artifactPresent: true },
       quality: { queried: true, gatePassRate: null, regressions: [] },
       worktrees: { expected: 0, ready: 0, failed: [] },
     };
@@ -567,7 +603,7 @@ describe('handlePrepareDelegation', () => {
     const drState: DelegationReadinessState = {
       ready: false,
       blockers: ['no worktrees expected'],
-      plan: { approved: true, taskCount: 2 },
+      plan: { approved: true, taskCount: 2, artifactPresent: true },
       quality: { queried: true, gatePassRate: null, regressions: [] },
       worktrees: { expected: 0, ready: 0, failed: [] },
     };
@@ -591,7 +627,7 @@ describe('handlePrepareDelegation', () => {
     const drState: DelegationReadinessState = {
       ready: false,
       blockers: ['plan not approved', 'no worktrees expected'],
-      plan: { approved: false, taskCount: 0 },
+      plan: { approved: false, taskCount: 0, artifactPresent: false },
       quality: { queried: true, gatePassRate: null, regressions: [] },
       worktrees: { expected: 0, ready: 0, failed: [] },
     };
