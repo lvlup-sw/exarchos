@@ -120,7 +120,19 @@ jobs:
         with:
           node-version: '24'
           cache: npm
-          cache-dependency-path: servers/exarchos-mcp/package-lock.json
+          # Both lockfiles must be cache keys — root deps (js-yaml,
+          # @inquirer/prompts) are reachable from the MCP build entry via
+          # `servers/exarchos-mcp/src/cli-commands/install-skills-bridge.js`
+          # → `../../../../src/runtimes/load.js` (added in #1213).
+          cache-dependency-path: |
+            package-lock.json
+            servers/exarchos-mcp/package-lock.json
+
+      - name: Install root dependencies
+        # The MCP build entry transitively imports `src/runtimes/load.ts`
+        # which requires `js-yaml`; without root deps the bun --compile step
+        # fails with "Could not resolve: js-yaml".
+        run: npm ci
 
       - name: Install MCP server dependencies
         working-directory: servers/exarchos-mcp
