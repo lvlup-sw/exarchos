@@ -177,9 +177,16 @@ function formatAncestryRemediation(
   sourceBranch: string,
   targetBranch: string,
 ): string {
+  // CodeRabbit #1213/#6: omit the source-branch arg from the rebase hint.
+  // `git rebase <target> <source>` checks `<source>` out, which fails when
+  // the same branch is checked out in another worktree (the common case
+  // here — operator runs from the feature worktree). The two-arg form
+  // also forces a hard branch checkout instead of using the operator's
+  // current HEAD, which is rarely what they want. Run from the feature
+  // worktree with `git rebase <target>`.
   return (
     `source branch ${sourceBranch} is not a descendant of ${targetBranch}. ` +
-    `Rebase manually with: git rebase ${targetBranch} ${sourceBranch}. ` +
+    `Rebase manually with: git rebase ${targetBranch} (run from the ${sourceBranch} worktree). ` +
     `Runbook: skills-src/delegation/SKILL.md#when-integration-advances-mid-wave`
   );
 }
