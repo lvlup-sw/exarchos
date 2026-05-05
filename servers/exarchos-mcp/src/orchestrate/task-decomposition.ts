@@ -190,15 +190,41 @@ export function extractDescriptionSpan(lines: readonly string[]): string[] {
     if (/^###\s/.test(line)) {
       break;
     }
-    const fieldMatch = /^\*\*\w[\w\s]*:\*\*\s?(.*)$/.exec(line);
+    // F20 (#1213): capture the LABEL inside `**...:**` separately so we
+    // can distinguish description introducers (`**Goal:**`,
+    // `**Description:**`) from non-description structural headers
+    // (`**Files:**`, `**Tests:**`, `**Dependencies:**`,
+    // `**Parallelizable:**`, `**Acceptance criteria:**`, …).
+    //
+    // Previously the FIRST `**Field:**` line was treated as the
+    // description introducer regardless of label. Tasks that opened with
+    // `**Files:** \`a.ts\`, \`b.ts\`, \`c.ts\``, etc. inadvertently had
+    // their inline file list counted as description prose, satisfying
+    // the 10-word threshold and masking missing-description failures.
+    //
+    // Now: only `Goal` / `Description` (case-insensitive) introduce the
+    // span. Any other label terminates the scan immediately, leaving
+    // any preceding naked-prose lines as the description (handles the
+    // legacy "no field-headers at all" shape via the `else` branch
+    // below).
+    const fieldMatch = /^\*\*(\w[\w\s]*?):\*\*\s?(.*)$/.exec(line);
     if (fieldMatch) {
+      const label = (fieldMatch[1] ?? '').trim();
+      const isDescriptionIntroducer = /^(goal|description)$/i.test(label);
       if (firstFieldSeen) {
         // Second field-header — terminate the description span.
         break;
       }
-      // First field-header — drop the `**Field:**` label, keep inline tail.
+      if (!isDescriptionIntroducer) {
+        // Non-description header reached before any introducer —
+        // terminate the scan WITHOUT swallowing this line. Any naked
+        // prose preceding it (already pushed to `descLines`) remains
+        // the description.
+        break;
+      }
+      // First description-introducer — drop the label, keep inline tail.
       firstFieldSeen = true;
-      descLines.push(fieldMatch[1] ?? '');
+      descLines.push(fieldMatch[2] ?? '');
       continue;
     }
     descLines.push(line);

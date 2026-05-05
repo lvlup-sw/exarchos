@@ -307,6 +307,58 @@ table so the workflow surface can invoke it directly without bash detour.
     expect(result.descriptionWordCount).toBeLessThan(30);
   });
 
+  // F20 (#1213): only `**Goal:**` / `**Description:**` headers introduce
+  // the description span. Tasks that open with `**Files:**` /
+  // `**Dependencies:**` / `**Tests:**` etc. used to mis-count the inline
+  // tail of those headers as description prose, which silently satisfied
+  // the 10-word threshold and masked legitimate missing-description
+  // failures.
+  it('ExtractDescription_TaskBeginsWithFilesHeader_DoesNotCountFilesAsDescription', () => {
+    // The first field header after the title is `**Files:**`, with multiple
+    // backtick-quoted paths inline. The whole block carries NO narrative
+    // prose: no naked sentence, no `**Goal:**`, no `**Description:**`.
+    // The validator must therefore report a missing description.
+    const block = `### Task T-99: terse files-only task
+
+**Files:** \`src/foo.ts\`, \`src/bar.ts\`, \`src/baz.ts\`, \`src/quux.ts\`, \`src/zap.ts\`, \`src/widget.ts\`
+
+**Tests:**
+- [RED] \`Foo_Bar_Baz\`
+
+**Dependencies:** None
+**Parallelizable:** No`;
+
+    const result = validateTaskStructure(block);
+
+    // The 6 paths inline on the **Files:** header would, under the old
+    // first-field-wins rule, contribute several words and could push past
+    // the 10-word threshold. With the F20 fix that header terminates the
+    // description scan instead of introducing it, so the count is zero
+    // and `hasDescription` is false.
+    expect(result.hasDescription).toBe(false);
+    expect(result.descriptionWordCount).toBeLessThanOrEqual(10);
+  });
+
+  it('ExtractDescription_TaskBeginsWithDependenciesHeader_DoesNotCountDepsAsDescription', () => {
+    // Same shape, different leading non-description header. Same rule.
+    const block = `### Task T-77: deps-first task
+
+**Dependencies:** T001, T002, T003, T004, T005, T006, T007, T008, T009, T010, T011
+
+**Files:**
+- \`src/foo.ts\`
+
+**Tests:**
+- [RED] \`Foo_Bar_Baz\`
+
+**Parallelizable:** No`;
+
+    const result = validateTaskStructure(block);
+
+    expect(result.hasDescription).toBe(false);
+    expect(result.descriptionWordCount).toBeLessThanOrEqual(10);
+  });
+
   it('validateTaskStructure_NoFieldHeaders_FullBodyCounted', () => {
     // Block has naked prose under the task heading with no field-headers at
     // all. The new contract counts the entire body as the description.
