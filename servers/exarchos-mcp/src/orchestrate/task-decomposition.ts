@@ -591,9 +591,18 @@ export function extractFiles(block: string): string[] {
   const lines = block.split('\n');
   const filesSectionLines: string[] = [];
   let inFilesSection = false;
+  // F21 (#1213): track whether the block contained an explicit **Files:**
+  // header at all. If so, the section is AUTHORITATIVE — even when it
+  // declares zero allowlisted paths (e.g. `**Files:** none`, an empty
+  // section, or paths with non-allowlisted extensions only). Without
+  // this flag, an empty Files section silently fell through to
+  // whole-block inference and scraped unrelated backticks elsewhere in
+  // the body, producing false-positive parallel-conflict reports.
+  let sawFilesSection = false;
   for (const line of lines) {
     if (/^\*\*Files:\*\*/i.test(line)) {
       inFilesSection = true;
+      sawFilesSection = true;
       // CodeRabbit #17 (#1213): if the **Files:** header line itself
       // contains paths after the colon (inline form, e.g.
       // `**Files:** \`a.ts\`, \`b.ts\``), capture them. Without this,
@@ -606,13 +615,19 @@ export function extractFiles(block: string): string[] {
     }
     if (inFilesSection) {
       if (/^###\s/.test(line) || /^\*\*\w[\w\s]*:\*\*/.test(line)) {
-        break;
+        inFilesSection = false;
+        continue;
       }
       filesSectionLines.push(line);
     }
   }
 
-  if (filesSectionLines.length > 0) {
+  if (sawFilesSection) {
+    // Authoritative path: an explicit **Files:** section was present.
+    // Return whatever IT declares (possibly empty); do NOT fall through
+    // to whole-block inference. This prevents `**Files:** none` (or an
+    // empty section) from being silently overridden by unrelated
+    // backticks elsewhere in the task body.
     const filesSection = filesSectionLines.join('\n');
     const declared: string[] = [];
     const sectionPattern = new RegExp(FILE_PATH_PATTERN_SOURCE, 'g');
@@ -620,13 +635,11 @@ export function extractFiles(block: string): string[] {
     while ((m = sectionPattern.exec(filesSection)) !== null) {
       declared.push(m[1]);
     }
-    if (declared.length > 0) {
-      return declared;
-    }
+    return declared;
   }
 
-  // Fallback: scan the whole block for backtick-quoted paths with an
-  // allowlisted extension.
+  // Fallback: no explicit **Files:** section appeared at all. Scan the
+  // whole block for backtick-quoted paths with an allowlisted extension.
   const blockPattern = new RegExp(FILE_PATH_PATTERN_SOURCE, 'g');
   const files: string[] = [];
   let match: RegExpExecArray | null;

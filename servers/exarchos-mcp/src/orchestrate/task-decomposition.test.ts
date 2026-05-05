@@ -604,6 +604,60 @@ the validator should treat as a target.
     expect(files).toContain('config.json');
   });
 
+  // ─── F21 (#1213): explicit Files section is authoritative even if empty
+  it('ExtractFiles_ExplicitFilesNone_ReturnsEmptyAndSkipsFallback', () => {
+    // The author declared the Files section explicitly and put `none`
+    // there (no allowlisted paths). Other parts of the task body
+    // contain unrelated backtick-quoted paths (e.g. a snippet showing
+    // a *prior* file the task replaces, or an example reference). The
+    // explicit Files section is authoritative — fallback inference
+    // MUST NOT scrape those unrelated backticks and pollute the file
+    // count, which would produce false parallel-conflict reports.
+    const block = `### Task T-99: pure prose / docs task
+
+**Goal:** Update the narrative description in the README so it reflects
+the renamed module \`unrelated.ts\` mentioned in the prior commit. Also
+clarify the snippet about \`example.json\` from earlier docs.
+
+**Files:** none
+
+**Tests:**
+- [RED] \`Doc_Update_NoFiles\`
+
+**Dependencies:** None
+**Parallelizable:** Yes`;
+
+    const files = extractFiles(block);
+    // The unrelated `unrelated.ts` and `example.json` backticks elsewhere
+    // in the task body MUST NOT be returned. The explicit Files section
+    // declared zero paths, and that's the answer.
+    expect(files).not.toContain('unrelated.ts');
+    expect(files).not.toContain('example.json');
+    expect(files).toEqual([]);
+  });
+
+  it('ExtractFiles_NoFilesSection_FallsBackToWholeBlockInference', () => {
+    // No explicit **Files:** header anywhere in the block — preserve
+    // existing behavior of scraping the whole block for backtick paths
+    // with allowlisted extensions. (Regression-guard for the legacy
+    // shape; without this assertion the F21 fix would silently break
+    // tasks that omit the Files header entirely.)
+    const block = `### Task T-50: legacy shape, no Files header
+
+**Goal:** Edit \`src/legacy.ts\` and \`src/legacy.test.ts\` to reflect
+the new contract.
+
+**Tests:**
+- [RED] \`Legacy_Contract_Honored\`
+
+**Dependencies:** None
+**Parallelizable:** No`;
+
+    const files = extractFiles(block);
+    expect(files).toContain('src/legacy.ts');
+    expect(files).toContain('src/legacy.test.ts');
+  });
+
   it('checkParallelSafety_AgencyCslLikeNarrative_NoFalseConflicts', () => {
     // End-to-end regression on the agency-csl shape: two parallel tasks
     // that share dotted-identifier *field-name* references in prose but
