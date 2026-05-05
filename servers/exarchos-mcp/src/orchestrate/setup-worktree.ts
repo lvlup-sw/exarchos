@@ -13,7 +13,7 @@ import { splitCommand } from '../config/tokenize-command.js';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
-interface SetupWorktreeArgs {
+export interface SetupWorktreeArgs {
   readonly repoRoot: string;
   readonly taskId: string;
   readonly taskName: string;

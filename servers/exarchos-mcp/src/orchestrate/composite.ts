@@ -56,7 +56,7 @@ import { handleClassifyReviewItems } from './classify-review-items.js';
 import { handleGenerateTraceability } from './generate-traceability.js';
 import { handleSpecCoverageCheck } from './spec-coverage-check.js';
 import { handleVerifyWorktreeBaseline } from './verify-worktree-baseline.js';
-import { handleSetupWorktree } from './setup-worktree.js';
+import { handleSetupWorktree, type SetupWorktreeArgs } from './setup-worktree.js';
 import { handleVerifyDelegationSaga } from './verify-delegation-saga.js';
 import { handlePostDelegationCheck } from './post-delegation-check.js';
 import { handleReconcileState } from './reconcile-state.js';
@@ -198,10 +198,13 @@ function adaptSetupWorktree(): ActionHandler {
       }
     }
 
-    return handleSetupWorktree(
-      args as unknown as Parameters<typeof handleSetupWorktree>[0],
-      workflowState,
-    );
+    // fix-005 (review #1213): the previous double-cast
+    // (`args as unknown as Parameters<typeof handleSetupWorktree>[0]`)
+    // defeated the type system. Cast directly to the exported
+    // SetupWorktreeArgs — the registry hands `args` as a generic record,
+    // and handleSetupWorktree validates required fields at runtime, so a
+    // single cast at this adapter boundary is the narrowest sound option.
+    return handleSetupWorktree(args as unknown as SetupWorktreeArgs, workflowState);
   };
 }
 
