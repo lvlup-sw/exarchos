@@ -30,7 +30,7 @@ describe('DelegationReadinessView', () => {
       expect(state.blockers).toContain('plan not approved');
       expect(state.blockers).toContain('no task.assigned events found — emit task.assigned events for each task via exarchos_event before calling prepare_delegation');
       expect(state.blockers).not.toContain('quality signals not queried');
-      expect(state.plan).toEqual({ approved: false, taskCount: 0 });
+      expect(state.plan).toEqual({ approved: false, taskCount: 0, artifactPresent: false });
       expect(state.quality).toEqual({
         queried: false,
         gatePassRate: null,
@@ -41,6 +41,14 @@ describe('DelegationReadinessView', () => {
         ready: 0,
         failed: [],
       });
+    });
+
+    it('Init_PlanArtifactMissing_BlockerPresent', () => {
+      // T-02: plan-artifact presence is now tracked in the projection (DR-T-1).
+      const state = delegationReadinessProjection.init();
+
+      expect(state.plan.artifactPresent).toBe(false);
+      expect(state.blockers).toContain('Plan artifact is missing');
     });
   });
 
@@ -313,6 +321,50 @@ describe('DelegationReadinessView', () => {
 
       expect(next).toBe(state);
     });
+
+    // ─── DR-T-1 (T-02): plan-artifact projection fold ──────────────────────
+
+    it('Apply_StatePatched_NestedArtifactsPlan_FlipsArtifactPresent', () => {
+      const state = delegationReadinessProjection.init();
+      const event = makeEvent('state.patched', {
+        featureId: 'feat-1',
+        fields: ['artifacts'],
+        patch: { artifacts: { plan: 'docs/plans/foo.md' } },
+      });
+
+      const next = delegationReadinessProjection.apply(state, event);
+
+      expect(next.plan.artifactPresent).toBe(true);
+      expect(next.blockers).not.toContain('Plan artifact is missing');
+    });
+
+    it('Apply_StatePatched_DotPathArtifactsPlan_FlipsArtifactPresent', () => {
+      const state = delegationReadinessProjection.init();
+      const event = makeEvent('state.patched', {
+        featureId: 'feat-1',
+        fields: ['artifacts.plan'],
+        patch: { 'artifacts.plan': 'docs/plans/foo.md' },
+      });
+
+      const next = delegationReadinessProjection.apply(state, event);
+
+      expect(next.plan.artifactPresent).toBe(true);
+      expect(next.blockers).not.toContain('Plan artifact is missing');
+    });
+
+    it('Apply_StatePatched_ArtifactsPlanEmpty_DoesNotFlipArtifactPresent', () => {
+      const state = delegationReadinessProjection.init();
+      const event = makeEvent('state.patched', {
+        featureId: 'feat-1',
+        fields: ['artifacts.plan'],
+        patch: { 'artifacts.plan': '' },
+      });
+
+      const next = delegationReadinessProjection.apply(state, event);
+
+      expect(next.plan.artifactPresent).toBe(false);
+      expect(next.blockers).toContain('Plan artifact is missing');
+    });
   });
 
   // ─── T8: All conditions met → ready ───────────────────────────────────────
@@ -329,18 +381,25 @@ describe('DelegationReadinessView', () => {
         featureId: 'feat-1',
       }, 1));
 
+      // DR-T-1: capture plan artifact (now required for full readiness)
+      state = delegationReadinessProjection.apply(state, makeEvent('state.patched', {
+        featureId: 'feat-1',
+        fields: ['artifacts.plan'],
+        patch: { 'artifacts.plan': 'docs/plans/feat-1.md' },
+      }, 2));
+
       // Assign a task
       state = delegationReadinessProjection.apply(state, makeEvent('task.assigned', {
         taskId: 'task-1',
         title: 'Implement feature A',
         worktree: '/tmp/wt-1',
-      }, 2));
+      }, 3));
 
       // Worktree created
       state = delegationReadinessProjection.apply(state, makeEvent('worktree.created', {
         worktreePath: '/tmp/wt-1',
         taskId: 'task-1',
-      }, 3));
+      }, 4));
 
       expect(state.ready).toBe(true);
       expect(state.blockers).toEqual([]);
@@ -356,18 +415,25 @@ describe('DelegationReadinessView', () => {
         patch: { planReview: { approved: true } },
       }, 1));
 
+      // DR-T-1: capture plan artifact
+      state = delegationReadinessProjection.apply(state, makeEvent('state.patched', {
+        featureId: 'feat-1',
+        fields: ['artifacts.plan'],
+        patch: { 'artifacts.plan': 'docs/plans/feat-1.md' },
+      }, 2));
+
       // Assign a task
       state = delegationReadinessProjection.apply(state, makeEvent('task.assigned', {
         taskId: 'task-1',
         title: 'Implement feature A',
         worktree: '/tmp/wt-1',
-      }, 2));
+      }, 3));
 
       // Worktree created
       state = delegationReadinessProjection.apply(state, makeEvent('worktree.created', {
         worktreePath: '/tmp/wt-1',
         taskId: 'task-1',
-      }, 3));
+      }, 4));
 
       expect(state.ready).toBe(true);
       expect(state.blockers).toEqual([]);

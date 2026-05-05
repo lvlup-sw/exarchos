@@ -13,6 +13,7 @@ export interface DelegationReadinessState {
   readonly plan: {
     readonly approved: boolean;
     readonly taskCount: number;
+    readonly artifactPresent: boolean;
   };
   readonly quality: {
     readonly queried: boolean;
@@ -33,6 +34,10 @@ function computeBlockers(state: Omit<DelegationReadinessState, 'ready' | 'blocke
 
   if (!state.plan.approved) {
     blockers.push('plan not approved');
+  }
+
+  if (!state.plan.artifactPresent) {
+    blockers.push('Plan artifact is missing');
   }
 
   if (state.plan.taskCount === 0) {
@@ -211,9 +216,28 @@ function handleStatePatched(
       ? planReview.approved
       : undefined;
 
-  if (approved !== undefined && approved !== state.plan.approved) {
+  // DR-T-1 (#1205): Resolve artifacts.plan presence from nested or dot-path form.
+  // Truthy non-empty string = present; empty string = absent.
+  const artifacts = data.patch.artifacts as { plan?: unknown } | undefined;
+  const artifactsPlanDotPath = data.patch['artifacts.plan'];
+  const artifactsPlanRaw = artifactsPlanDotPath !== undefined
+    ? artifactsPlanDotPath
+    : artifacts?.plan;
+  const artifactPresent = artifactsPlanRaw === undefined
+    ? undefined
+    : typeof artifactsPlanRaw === 'string' && artifactsPlanRaw.length > 0;
+
+  const planChanged =
+    (approved !== undefined && approved !== state.plan.approved) ||
+    (artifactPresent !== undefined && artifactPresent !== state.plan.artifactPresent);
+
+  if (planChanged) {
     return withReadiness({
-      plan: { ...state.plan, approved },
+      plan: {
+        ...state.plan,
+        ...(approved !== undefined ? { approved } : {}),
+        ...(artifactPresent !== undefined ? { artifactPresent } : {}),
+      },
       quality: state.quality,
       worktrees: state.worktrees,
     });
@@ -227,8 +251,12 @@ function handleStatePatched(
 export const delegationReadinessProjection: ViewProjection<DelegationReadinessState> = {
   init: (): DelegationReadinessState => ({
     ready: false,
-    blockers: ['plan not approved', 'no task.assigned events found — emit task.assigned events for each task via exarchos_event before calling prepare_delegation'],
-    plan: { approved: false, taskCount: 0 },
+    blockers: [
+      'plan not approved',
+      'Plan artifact is missing',
+      'no task.assigned events found — emit task.assigned events for each task via exarchos_event before calling prepare_delegation',
+    ],
+    plan: { approved: false, taskCount: 0, artifactPresent: false },
     quality: { queried: false, gatePassRate: null, regressions: [] },
     worktrees: { expected: 0, ready: 0, failed: [] },
   }),
