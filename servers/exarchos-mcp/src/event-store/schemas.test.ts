@@ -6,6 +6,7 @@ import {
   AGENT_EVENT_TYPES,
   EventTypes,
   WorkflowEventBase,
+  TaskAssignedData,
   TeamSpawnedData,
   TeamTaskAssignedData,
   TeamTaskCompletedData,
@@ -2561,5 +2562,47 @@ describe('CommandResolvedEventSchema', () => {
       source: 'config',
     });
     expect(result.success).toBe(false);
+  });
+});
+
+// ─── T-17 (DR-8b): task.assigned hint catalog includes optional `branch` ────
+//
+// Orchestrators discover the `task.assigned` event shape via the published
+// schema (rendered as JSON-schema by `handleEventTypeDescribe` /
+// `serializeEventCatalog`'s `hasSchema` flag). The dogfood report flagged
+// that callers couldn't tell whether `branch` was supported on
+// `task.assigned`; this test pins the contract so the catalog stays aligned
+// with `setup_worktree`'s branch-resolution priority (T-09) and with
+// `skills-src/delegation/SKILL.md`'s pre-emit example.
+describe('TaskAssignedData hint catalog', () => {
+  it('eventEmissionCatalog_TaskAssigned_OptionalBranchField', () => {
+    // Schema must accept a payload that includes branch...
+    const withBranch = TaskAssignedData.safeParse({
+      taskId: 'T-001',
+      title: 'Wire setup_worktree branch resolution',
+      branch: 'feature/v290/T-001-branch-resolution',
+    });
+    expect(withBranch.success).toBe(true);
+
+    // ...and a payload that omits it (branch must be optional, not required).
+    const withoutBranch = TaskAssignedData.safeParse({
+      taskId: 'T-002',
+      title: 'No branch yet',
+    });
+    expect(withoutBranch.success).toBe(true);
+
+    // Catalog rendering: the JSON-schema view that callers consume via
+    // `event.describe({ eventTypes: ['task.assigned'] })` must list `branch`
+    // as a property and must NOT mark it required.
+    const json = zodToJsonSchema(TaskAssignedData) as {
+      properties?: Record<string, unknown>;
+      required?: string[];
+    };
+    expect(json.properties).toBeDefined();
+    expect(json.properties).toHaveProperty('branch');
+    // `branch` must be present and optional (i.e., not in the required[]
+    // array — required[] may be absent entirely if no fields are required).
+    const required = json.required ?? [];
+    expect(required).not.toContain('branch');
   });
 });
