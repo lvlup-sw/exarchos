@@ -566,3 +566,162 @@ describe('commanderErrorToResult mapping table (F-024-CMDR)', () => {
     expect(exitCode).toBe(CLI_EXIT_CODES.UNCAUGHT_EXCEPTION);
   });
 });
+
+// ─── T-16 / DR-7: install-skills CLI subcommand ──────────────────────────────
+//
+// `exarchos install-skills [--agent <name>]` is documented in README.md and
+// `documentation/guide/installation.md` but was never wired into the
+// Commander program in v2.9. T-16 ships the wiring as a single isolated
+// commit so it's easy to revert if the surface needs to grow.
+//
+// This subcommand is intentionally CLI-only — `installSkills()` writes to
+// the local filesystem (e.g. `~/.claude/skills/`) and shells out to
+// `npx skills add`, neither of which makes sense over an MCP transport.
+// The help text carries an explicit `cli-only` annotation so an agent
+// reading the schema/help output knows not to attempt the equivalent over
+// the MCP surface.
+
+vi.mock('../cli-commands/install-skills-bridge.js', () => ({
+  runInstallSkills: vi.fn(async () => {}),
+}));
+
+describe('install-skills subcommand (T-16, DR-7)', () => {
+  let ctx: DispatchContext;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    ctx = createTestContext();
+  });
+
+  it('cli_InstallSkillsSubcommand_RegisteredInRegistry', () => {
+    // The subcommand must be present on the Commander program so that
+    // `exarchos install-skills` resolves to a real action handler instead
+    // of producing `error: unknown command 'install-skills'`. We assert
+    // both the registration and the documented `--agent` flag — the two
+    // pieces a user (or agent) sees from `--help`.
+    const program = buildCli(ctx);
+    const installSkillsCmd = program.commands.find(
+      (c) => c.name() === 'install-skills',
+    );
+    expect(installSkillsCmd).toBeDefined();
+    const optionFlags = installSkillsCmd?.options.map((o) => o.flags) ?? [];
+    expect(optionFlags.some((f) => f.includes('--agent'))).toBe(true);
+  });
+
+  it('cli_InstallSkills_HelpTextSaysCliOnly', () => {
+    // Surface annotation: the `cli-only` marker tells agent callers that
+    // this subcommand has no MCP equivalent. Putting it in the description
+    // (not just a code comment) means it shows up in `--help` output and
+    // any future schema introspection.
+    const program = buildCli(ctx);
+    const installSkillsCmd = program.commands.find(
+      (c) => c.name() === 'install-skills',
+    );
+    expect(installSkillsCmd).toBeDefined();
+    const helpText = installSkillsCmd?.description() ?? '';
+    expect(helpText.toLowerCase()).toContain('cli-only');
+  });
+
+  it('cli_InstallSkillsSubcommand_DispatchesToBridge', async () => {
+    // Smoke check on the wiring: parsing the subcommand should reach the
+    // bridge module (which encapsulates the cross-package import of the
+    // root `installSkills()` implementation). The bridge is mocked above
+    // so no real spawn / IO happens during this test.
+    const program = buildCli(ctx);
+    await program.parseAsync([
+      'node',
+      'exarchos',
+      'install-skills',
+      '--agent',
+      'claude',
+    ]);
+
+    const { runInstallSkills } = await import(
+      '../cli-commands/install-skills-bridge.js'
+    );
+    expect(runInstallSkills).toHaveBeenCalledTimes(1);
+    expect(runInstallSkills).toHaveBeenCalledWith(
+      expect.objectContaining({ agent: 'claude' }),
+    );
+  });
+});
+
+// ─── T-16 / DR-7: install-skills binary smoke (conditional) ──────────────────
+//
+// Cheap end-to-end probe against the compiled binary at
+// `dist/bin/exarchos-<os>-<arch>`. Skipped when the binary is absent so
+// developers without a local build don't see a phantom failure; CI runs
+// `npm run build` before tests, so the binary IS present there.
+//
+// We assert only on `install-skills --help` (not a full invocation) because
+// the underlying `npx skills add` is interactive and cannot run to
+// completion under vitest spawn without TTY allocation. Reaching `--help`
+// proves Commander registered the subcommand inside the bundled binary
+// and that the `cli-only` annotation survives through `bun build --compile`.
+// The pre-T-16 binary failed this with `error: unknown command 'install-skills'`.
+
+function findHostBinary(): string | null {
+  const arch = process.arch === 'arm64' ? 'arm64' : 'x64';
+  const platform =
+    process.platform === 'darwin'
+      ? 'darwin'
+      : process.platform === 'linux'
+        ? 'linux'
+        : process.platform === 'win32'
+          ? 'windows'
+          : null;
+  if (!platform) return null;
+  const ext = platform === 'windows' ? '.exe' : '';
+  // cli.test.ts lives at servers/exarchos-mcp/src/adapters/, so the repo
+  // root is four directories up.
+  const repoRoot = path.resolve(
+    path.dirname(new URL(import.meta.url).pathname),
+    '..',
+    '..',
+    '..',
+    '..',
+  );
+  const candidate = path.join(repoRoot, 'dist', 'bin', `exarchos-${platform}-${arch}${ext}`);
+  return fs.existsSync(candidate) ? candidate : null;
+}
+
+const SMOKE_BINARY = findHostBinary();
+
+describe.skipIf(!SMOKE_BINARY)(
+  'install-skills binary smoke (T-16, DR-7)',
+  () => {
+    let homeTmp: string;
+    let stateTmp: string;
+
+    beforeEach(() => {
+      homeTmp = fs.mkdtempSync(path.join(os.tmpdir(), 'exarchos-T16-home-'));
+      stateTmp = fs.mkdtempSync(path.join(os.tmpdir(), 'exarchos-T16-state-'));
+    });
+
+    afterEach(() => {
+      // Best-effort cleanup. Errors are swallowed because the smoke test's
+      // value is in the spawn assertion, not in tempdir hygiene; CI will
+      // GC the runner anyway.
+      try {
+        fs.rmSync(homeTmp, { recursive: true, force: true });
+        fs.rmSync(stateTmp, { recursive: true, force: true });
+      } catch {
+        // ignore
+      }
+    });
+
+    it('cli_InstallSkillsBinary_HelpAgainstTempHome_ExitsZero', async () => {
+      if (!SMOKE_BINARY) throw new Error('binary check should have skipped');
+      const { spawnSync } = await import('node:child_process');
+      const result = spawnSync(SMOKE_BINARY, ['install-skills', '--help'], {
+        encoding: 'utf-8',
+        timeout: 30_000,
+        env: { ...process.env, HOME: homeTmp, WORKFLOW_STATE_DIR: stateTmp },
+      });
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain('install-skills');
+      expect(result.stdout).toContain('--agent');
+      expect(result.stdout.toLowerCase()).toContain('cli-only');
+    });
+  },
+);
