@@ -983,4 +983,114 @@ describe('handleSetupWorktree', () => {
       expect(data.passed).toBe(false);
     });
   });
+
+  // ─── DR-3 (T-09, #1204): branch-override resolution ───────────────────────
+  //
+  // Resolution priority: args.branch > workflow.tasks[id=<taskId>].branch >
+  // legacy `feature/<id>-<name>` default. The "Branch created" check report
+  // includes a source-attribution suffix indicating which path was taken
+  // (`from arg`, `from workflow state`, or `default`).
+
+  describe('branch-override resolution (DR-3)', () => {
+    function setupHappyPathMocks() {
+      vi.mocked(execFileSync).mockImplementation((cmd: unknown, args: unknown) => {
+        const cmdStr = String(cmd);
+        const argsArr = args as string[];
+        if (cmdStr === 'git' && argsArr.includes('show-ref')) {
+          // Branch does not exist — handler proceeds to create it.
+          const error = new Error('not found') as Error & { status: number };
+          error.status = 1;
+          throw error;
+        }
+        if (cmdStr === 'git' && argsArr.includes('branch')) return '';
+        if (cmdStr === 'git' && argsArr.includes('worktree')) return '';
+        if (cmdStr === 'git' && argsArr.includes('rev-parse')) return '.git';
+        if (cmdStr === 'npm' || cmdStr === 'pnpm' || cmdStr === 'yarn' || cmdStr === 'bun') return '';
+        return '';
+      });
+      vi.mocked(existsSync).mockImplementation((p: unknown) => {
+        const path = String(p);
+        if (path === '/repo/.gitignore') return true;
+        // Worktree dir does NOT exist initially — `git worktree add` is invoked.
+        if (path.endsWith('/package.json')) return true;
+        return false;
+      });
+      vi.mocked(readFileSync).mockImplementation((p: unknown) => {
+        const path = String(p);
+        if (path === '/repo/.gitignore') return '.worktrees/\n';
+        if (path.endsWith('package.json')) return VALID_PACKAGE_JSON;
+        return '';
+      });
+    }
+
+    it('setupWorktree_WorkflowTasksHasBranch_UsesItOverDefault', () => {
+      setupHappyPathMocks();
+      const workflowState = {
+        tasks: [
+          { id: 'T-001', title: 't', status: 'pending', branch: 'feature/foo/t001' },
+        ],
+      };
+
+      const result = handleSetupWorktree(
+        {
+          repoRoot: '/repo',
+          taskId: 'T-001',
+          taskName: 'user-model',
+          skipTests: true,
+        },
+        workflowState,
+      );
+
+      expect(result.success).toBe(true);
+      const data = result.data as { branchName: string; report: string };
+      expect(data.branchName).toBe('feature/foo/t001');
+      expect(data.report).toMatch(/Branch created.*from workflow state/i);
+      // Verify `git branch` was called with the planned name, not the legacy default.
+      const branchCalls = vi.mocked(execFileSync).mock.calls.filter(
+        (c) => c[0] === 'git' && Array.isArray(c[1]) && (c[1] as string[]).includes('branch') && (c[1] as string[]).includes('feature/foo/t001'),
+      );
+      expect(branchCalls.length).toBeGreaterThan(0);
+    });
+
+    it('setupWorktree_ArgBranchOverridesWorkflowState', () => {
+      setupHappyPathMocks();
+      const workflowState = {
+        tasks: [
+          { id: 'T-002', title: 't', status: 'pending', branch: 'feature/state/branch' },
+        ],
+      };
+
+      const result = handleSetupWorktree(
+        {
+          repoRoot: '/repo',
+          taskId: 'T-002',
+          taskName: 'auth',
+          skipTests: true,
+          branch: 'feature/arg/branch',
+        },
+        workflowState,
+      );
+
+      expect(result.success).toBe(true);
+      const data = result.data as { branchName: string; report: string };
+      expect(data.branchName).toBe('feature/arg/branch');
+      expect(data.report).toMatch(/Branch created.*from arg/i);
+    });
+
+    it('setupWorktree_NoBranchAnywhere_UsesLegacyDefault', () => {
+      setupHappyPathMocks();
+
+      const result = handleSetupWorktree({
+        repoRoot: '/repo',
+        taskId: 'T-003',
+        taskName: 'db',
+        skipTests: true,
+      });
+
+      expect(result.success).toBe(true);
+      const data = result.data as { branchName: string; report: string };
+      expect(data.branchName).toBe('feature/T-003-db');
+      expect(data.report).toMatch(/Branch created.*default/i);
+    });
+  });
 });
