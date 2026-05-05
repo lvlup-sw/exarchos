@@ -74,6 +74,50 @@ interface TaskDecompositionResult {
   readonly report: string;
 }
 
+// ─── Constants ──────────────────────────────────────────────────────────
+
+/**
+ * Closed-set allowlist of file extensions accepted as real file paths by
+ * `extractFiles` and `validateTaskStructure`. Tokens whose suffix is not
+ * on this list (e.g. `imageProvenance.isFirstParty` — a TypeScript
+ * record-field reference in narrative prose) are intentionally rejected
+ * to avoid false parallel-safety conflicts on dotted-identifier tokens.
+ *
+ * Extensions are mirrored across both call sites; centralising here keeps
+ * the two regexes in lockstep (T-14 REFACTOR).
+ */
+export const FILE_EXTENSION_ALLOWLIST: readonly string[] = [
+  'ts',
+  'tsx',
+  'js',
+  'jsx',
+  'mjs',
+  'cjs',
+  'json',
+  'md',
+  'yml',
+  'yaml',
+  'sh',
+  'ps1',
+  'sql',
+  'kql',
+  'bicep',
+  'cs',
+  'csproj',
+  'sln',
+  'go',
+  'rs',
+  'toml',
+];
+
+/**
+ * Regex source fragment matching a backtick-quoted file path whose suffix
+ * is on `FILE_EXTENSION_ALLOWLIST`. The capture group brackets the path so
+ * the same source compiles for both `match` (line-level scanning) and
+ * `exec` (capture-group extraction) call sites.
+ */
+const FILE_PATH_PATTERN_SOURCE = `\`([a-zA-Z0-9_./-]+\\.(?:${FILE_EXTENSION_ALLOWLIST.join('|')}))\``;
+
 // ─── Parse Task Blocks ──────────────────────────────────────────────────
 
 /**
@@ -187,13 +231,11 @@ export function validateTaskStructure(block: string): TaskStructureResult {
   const hasDescription = descriptionWordCount > 10;
 
   // --- File targets ---
-  // Match backtick-quoted paths whose suffix is on the closed extension
-  // allowlist. Without the allowlist, dotted-identifier tokens like
+  // Match backtick-quoted paths whose suffix is on `FILE_EXTENSION_ALLOWLIST`.
+  // Without the allowlist, dotted-identifier tokens like
   // `imageProvenance.isFirstParty` (record-field references in prose) used
-  // to match and pollute the file count / parallel-safety check. The
-  // allowlist intentionally mirrors `extractFiles` below — see T-14 REFACTOR
-  // for the centralised constant.
-  const filePattern = /`[a-zA-Z0-9_./-]+\.(?:ts|tsx|js|jsx|mjs|cjs|json|md|yml|yaml|sh|ps1|sql|kql|bicep|cs|csproj|sln|go|rs|toml)`/g;
+  // to match and pollute the file count / parallel-safety check.
+  const filePattern = new RegExp(FILE_PATH_PATTERN_SOURCE, 'g');
   let fileCount = 0;
   for (const line of lines) {
     const matches = line.match(filePattern);
@@ -450,8 +492,6 @@ function isParallelizable(block: string): boolean {
  * in the block — explicit declarations are the source of truth.
  */
 export function extractFiles(block: string): string[] {
-  const filePattern = /`([a-zA-Z0-9_./-]+\.(?:ts|tsx|js|jsx|mjs|cjs|json|md|yml|yaml|sh|ps1|sql|kql|bicep|cs|csproj|sln|go|rs|toml))`/g;
-
   // Prefer files declared under an explicit `**Files:**` section when
   // present. Capture lines from the `**Files:**` header until the next
   // field-header (`**Word:**`) or section header (`### `).
@@ -474,8 +514,8 @@ export function extractFiles(block: string): string[] {
   if (filesSectionLines.length > 0) {
     const filesSection = filesSectionLines.join('\n');
     const declared: string[] = [];
+    const sectionPattern = new RegExp(FILE_PATH_PATTERN_SOURCE, 'g');
     let m: RegExpExecArray | null;
-    const sectionPattern = new RegExp(filePattern.source, 'g');
     while ((m = sectionPattern.exec(filesSection)) !== null) {
       declared.push(m[1]);
     }
@@ -486,9 +526,9 @@ export function extractFiles(block: string): string[] {
 
   // Fallback: scan the whole block for backtick-quoted paths with an
   // allowlisted extension.
+  const blockPattern = new RegExp(FILE_PATH_PATTERN_SOURCE, 'g');
   const files: string[] = [];
   let match: RegExpExecArray | null;
-  const blockPattern = new RegExp(filePattern.source, 'g');
   while ((match = blockPattern.exec(block)) !== null) {
     files.push(match[1]);
   }
