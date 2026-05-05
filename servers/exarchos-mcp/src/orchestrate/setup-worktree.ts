@@ -19,6 +19,28 @@ interface SetupWorktreeArgs {
   readonly taskName: string;
   readonly baseBranch?: string;
   readonly skipTests?: boolean;
+  /**
+   * DR-3 (T-09, #1204): explicit branch override. When supplied, takes
+   * precedence over workflow-state and the legacy default. Lets callers
+   * override the planned branch without mutating workflow state.
+   */
+  readonly branch?: string;
+  /**
+   * DR-3 (T-09, #1204): used by the composite adapter for `featureId`
+   * routing in the registry schema. Not consumed by the handler directly —
+   * the adapter pre-loads workflow state from this and threads it via the
+   * second positional argument.
+   */
+  readonly featureId?: string;
+}
+
+/**
+ * Minimal shape of the workflow state needed by the handler. The composite
+ * adapter materializes the full WorkflowStateView and projects this subset;
+ * tests can pass a literal without instantiating a projection.
+ */
+interface SetupWorktreeWorkflowState {
+  readonly tasks?: ReadonlyArray<{ id: string; branch?: string }>;
 }
 
 type CheckStatus = 'pass' | 'fail' | 'skip';
@@ -150,20 +172,68 @@ function containsWorktreesEntry(contents: string): boolean {
   return false;
 }
 
-function createBranch(repoRoot: string, branchName: string, baseBranch: string): CheckResult {
+// ─── DR-3 (T-09, #1204): branch-name resolution ─────────────────────────────
+//
+// Resolution priority:
+//   1. args.branch                              — explicit caller override
+//   2. workflow.tasks[id=<taskId>].branch       — planned branch from state
+//   3. `feature/<taskId>-<taskName>`            — legacy default
+//
+// Returns the resolved name plus a `source` tag used to annotate the
+// "Branch created" check detail. Pure: no I/O, easy to unit-test.
+
+type BranchSource = 'arg' | 'workflow state' | 'default';
+
+interface ResolvedBranch {
+  readonly name: string;
+  readonly source: BranchSource;
+}
+
+function resolveBranchName(
+  args: SetupWorktreeArgs,
+  workflowState?: SetupWorktreeWorkflowState,
+): ResolvedBranch {
+  if (args.branch && args.branch.length > 0) {
+    return { name: args.branch, source: 'arg' };
+  }
+  const planned = workflowState?.tasks?.find((t) => t.id === args.taskId)?.branch;
+  if (planned && planned.length > 0) {
+    return { name: planned, source: 'workflow state' };
+  }
+  return { name: `feature/${args.taskId}-${args.taskName}`, source: 'default' };
+}
+
+function createBranch(
+  repoRoot: string,
+  branchName: string,
+  baseBranch: string,
+  source: BranchSource,
+): CheckResult {
   // Check if branch already exists
   try {
     gitExec(repoRoot, ['show-ref', '--verify', '--quiet', `refs/heads/${branchName}`]);
-    return { name: `Branch created`, status: 'pass', detail: `${branchName} already exists` };
+    return {
+      name: `Branch created`,
+      status: 'pass',
+      detail: `${branchName} already exists (from ${source})`,
+    };
   } catch {
     // Branch does not exist — create it
   }
 
   try {
     gitExec(repoRoot, ['branch', branchName, baseBranch]);
-    return { name: `Branch created`, status: 'pass', detail: `${branchName} from ${baseBranch}` };
+    return {
+      name: `Branch created`,
+      status: 'pass',
+      detail: `${branchName} from ${baseBranch} (from ${source})`,
+    };
   } catch {
-    return { name: `Branch created`, status: 'fail', detail: `Failed to create ${branchName} from ${baseBranch}` };
+    return {
+      name: `Branch created`,
+      status: 'fail',
+      detail: `Failed to create ${branchName} from ${baseBranch} (from ${source})`,
+    };
   }
 }
 
@@ -283,7 +353,10 @@ function runBaselineTests(worktreePath: string, skipTests: boolean): CheckResult
 
 // ─── Handler ────────────────────────────────────────────────────────────────
 
-export function handleSetupWorktree(args: SetupWorktreeArgs): ToolResult {
+export function handleSetupWorktree(
+  args: SetupWorktreeArgs,
+  workflowState?: SetupWorktreeWorkflowState,
+): ToolResult {
   // Validate required args
   if (!args.repoRoot) {
     return {
@@ -307,9 +380,12 @@ export function handleSetupWorktree(args: SetupWorktreeArgs): ToolResult {
   const baseBranch = args.baseBranch ?? 'main';
   const skipTests = args.skipTests ?? false;
 
-  // Derive paths
+  // DR-3 (T-09, #1204): resolve branch with priority args > state > default.
+  // Worktree directory still uses the legacy `<taskId>-<taskName>` layout —
+  // the override only changes the git-branch ref, not the on-disk path.
+  const resolvedBranch = resolveBranchName(args, workflowState);
+  const branchName = resolvedBranch.name;
   const worktreeName = `${args.taskId}-${args.taskName}`;
-  const branchName = `feature/${worktreeName}`;
   const worktreePath = join(args.repoRoot, '.worktrees', worktreeName);
 
   const checks: CheckResult[] = [];
@@ -318,7 +394,7 @@ export function handleSetupWorktree(args: SetupWorktreeArgs): ToolResult {
   checks.push(ensureGitignored(args.repoRoot));
 
   // Step 2: Create feature branch
-  checks.push(createBranch(args.repoRoot, branchName, baseBranch));
+  checks.push(createBranch(args.repoRoot, branchName, baseBranch, resolvedBranch.source));
 
   // Step 3: Create worktree
   checks.push(createWorktree(args.repoRoot, worktreePath, branchName));
