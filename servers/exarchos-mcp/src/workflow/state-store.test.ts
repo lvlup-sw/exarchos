@@ -917,27 +917,27 @@ describe('applyDotPath array append syntax (T-17)', () => {
     expect(tasks[2]).toEqual({ id: 'T-003', title: 'New follow-up', status: 'pending' });
   });
 
-  it('workflowSetParser_ArrayInsertionSyntax_KeyedAccessFormIsNotSupported', () => {
-    // The SKILL.md guidance previously hinted at `tasks[id=001]` — confirm
-    // the parser does NOT honor that form. `parsePath` only recognizes
-    // numeric brackets (`tasks[0]`); `tasks[id=T-001]` falls through as a
-    // literal property name and silently writes to a bogus top-level key.
-    // This test pins that behavior so a future parser change that adds
-    // keyed support is forced to update both this test and the SKILL.md
-    // worked example simultaneously.
+  it('workflowSetParser_ArrayInsertionSyntax_KeyedAccessFormThrowsClearError', () => {
+    // fix-004 (review #1213, T-17c): the keyed-access form `tasks[id=T-001]`
+    // used to be silently misapplied (parser fell through to a literal
+    // property name and created a bogus top-level key). That was the worst
+    // possible failure mode — caller saw `success: true` while the actual
+    // task was untouched. The parser now throws a clear error so callers
+    // get loud feedback and can switch to the by-index form documented in
+    // skills-src/workflow-state/SKILL.md.
     const obj: Record<string, unknown> = {
       tasks: [{ id: 'T-001', status: 'pending' }],
     };
 
-    applyDotPath(obj, 'tasks[id=T-001].status', 'complete');
+    expect(() => applyDotPath(obj, 'tasks[id=T-001].status', 'complete')).toThrow(
+      /keyed array access.*not supported/i,
+    );
 
-    // The legitimate task entry was NOT updated.
+    // The legitimate task entry remains untouched (no silent
+    // misapplication side-effect either).
     const tasks = obj.tasks as Array<Record<string, unknown>>;
     expect(tasks[0].status).toBe('pending');
-
-    // Instead, a bogus top-level key was created (silent misapplication).
-    // Documenting this here so callers know they need the by-index form.
-    expect(obj['tasks[id=T-001]']).toBeDefined();
+    expect(obj['tasks[id=T-001]']).toBeUndefined();
 
     // The legitimate by-index form continues to work and is the only
     // supported way to update one task in place.
