@@ -168,14 +168,16 @@ describe('computeNextActions (T040, DR-8)', () => {
     // reported as missing. Should succeed at HEAD.
     const transition = executeTransition(hsm, initial, 'merge-pending');
     expect(transition.success).toBe(true);
+    expect(transition.newPhase).toBe('merge-pending');
 
-    // The transitioned state is what callers project against
-    // computeNextActions to compute the rehydration envelope's
-    // `next_actions` field.
+    // CodeRabbit #16 (#1213): drive computeNextActions with the phase the
+    // HSM actually emitted instead of a manually-rebuilt literal. If
+    // executeTransition is ever modified to land on a different phase,
+    // this test will fail loudly instead of silently passing on a
+    // hardcoded 'merge-pending'.
     const transitioned = {
-      phase: 'merge-pending',
-      workflowType: 'feature',
-      featureId: 'feat-x',
+      ...initial,
+      phase: transition.newPhase!,
       // mergeOrchestrator is set by handleMergeOrchestrate; absent at this
       // step, which the surfacing filter treats as "not yet terminated".
     };
