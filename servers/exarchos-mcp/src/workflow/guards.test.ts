@@ -1004,6 +1004,39 @@ describe('oneshotPlanSet', () => {
     const result = guards.oneshotPlanSet.evaluate(state);
     expect(result).not.toBe(true);
   });
+
+  // F23 (#1213): align guard with the `delegationReadinessProjection`
+  // contract — `artifacts.plan` MUST be a non-empty string (plan
+  // contents or path). Non-string truthy values (true, objects,
+  // numbers) used to satisfy the guard, which diverged from the
+  // projection's `artifactPresent = typeof === 'string' && .length > 0`
+  // narrowing. Now both surfaces enforce the same shape.
+  it('oneshotPlanSet_rejectsNonStringTruthyValues', () => {
+    // Patches that wrote `artifacts.plan = true` or `= 1` or `= {}`
+    // previously silently advanced the workflow. None of these are
+    // valid plan artifacts; all must fail the guard.
+    const cases: ReadonlyArray<{ label: string; plan: unknown }> = [
+      { label: 'boolean true', plan: true },
+      { label: 'number 1', plan: 1 },
+      { label: 'plain object', plan: {} },
+      { label: 'object with path field', plan: { path: 'plan.md' } },
+      { label: 'array', plan: ['plan.md'] },
+    ];
+    for (const { label, plan } of cases) {
+      const state: Record<string, unknown> = {
+        featureId: 'test-feature',
+        artifacts: { plan },
+      };
+      const result = guards.oneshotPlanSet.evaluate(state);
+      expect(
+        result,
+        `expected non-string plan (${label}) to fail the guard`,
+      ).not.toBe(true);
+      const failure = result as GuardFailure;
+      expect(failure.passed).toBe(false);
+      expect(failure.reason).toContain('artifacts.plan');
+    }
+  });
 });
 
 // ─── Discovery Workflow Guard Tests (#1080) ────────────────────────────────

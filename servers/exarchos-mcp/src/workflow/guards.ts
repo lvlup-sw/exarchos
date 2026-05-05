@@ -743,7 +743,7 @@ export const guards = {
   oneshotPlanSet: {
     id: 'oneshot-plan-set',
     description:
-      'Oneshot workflow plan artifact is captured in state.artifacts.plan. `oneshot.planSummary` is a pipeline-view hint, not a plan, and is not sufficient alone to transition plan → implementing.',
+      'Oneshot workflow plan artifact is captured in state.artifacts.plan as a non-empty string (plan contents or path). `oneshot.planSummary` is a pipeline-view hint, not a plan, and is not sufficient alone to transition plan → implementing.',
     evaluate: (state: Record<string, unknown>): GuardResult => {
       // Tightened: require `artifacts.plan` as the primary (and only
       // sufficient) condition. Previously either `oneshot.planSummary`
@@ -753,6 +753,17 @@ export const guards = {
       // with no persisted plan artifact at all. `planSummary` is still
       // recommended as a human-readable label, but it is not the artifact
       // the guard enforces.
+      //
+      // F23 (#1213): tightened further to require a STRING. Previously
+      // any non-string truthy value (e.g. `true`, an object, a number)
+      // also satisfied the guard, which diverged from the
+      // `delegationReadinessProjection`'s `artifactPresent` projection
+      // (which already required `typeof === 'string' && .length > 0`).
+      // Aligning the two surfaces on "non-empty string" is the most
+      // defensible contract — `artifacts.plan` is a plan path or plan
+      // contents, both of which are strings. Patches that set
+      // `artifacts.plan = true` or `= {}` no longer silently advance
+      // the workflow.
       const artifacts = state.artifacts as Record<string, unknown> | undefined;
       const plan = artifacts?.plan;
       // Whitespace-only plan strings are not a real plan artifact — they
@@ -760,12 +771,11 @@ export const guards = {
       // oneshot transition `plan → implementing` with a blank document.
       // Require at least one non-whitespace character.
       if (typeof plan === 'string' && plan.trim().length > 0) return true;
-      if (plan != null && typeof plan !== 'string') return true;
       const featureId = typeof state.featureId === 'string' ? state.featureId : '<featureId>';
       return {
         passed: false,
         reason:
-          'oneshot-plan-set not satisfied: state.artifacts.plan is required (a non-empty plan artifact) before transitioning plan → implementing. `oneshot.planSummary` alone does not satisfy this guard.',
+          'oneshot-plan-set not satisfied: state.artifacts.plan is required (a non-empty string of plan contents or a plan path) before transitioning plan → implementing. `oneshot.planSummary` alone does not satisfy this guard, and non-string values (true, objects, numbers) are not accepted.',
         expectedShape: { artifacts: { plan: '<one-page plan contents or path>' } },
         suggestedFix: {
           tool: 'exarchos_workflow',
