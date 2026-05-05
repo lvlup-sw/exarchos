@@ -160,6 +160,51 @@ function adaptArgsWithStateDirAndEventStore<T>(
   };
 }
 
+/**
+ * DR-3 (T-09, #1204): adapter for `setup_worktree` that pre-loads workflow
+ * state when `featureId` and `ctx.eventStore` are both supplied. The handler
+ * itself stays synchronous and source-of-truth for the resolution priority
+ * (args.branch > workflowState.tasks[id].branch > legacy default); this
+ * adapter just feeds it the materialized `tasks` list so it can look up the
+ * planned branch. Falls back to no workflow state when either prerequisite
+ * is missing — preserves the legacy default behavior.
+ */
+function adaptSetupWorktree(): ActionHandler {
+  return async (args, stateDir, ctx) => {
+    const featureId = (args as { featureId?: string }).featureId;
+    let workflowState: { tasks?: Array<{ id: string; branch?: string }> } | undefined;
+
+    if (featureId && ctx?.eventStore) {
+      try {
+        const { getOrCreateMaterializer, queryDeltaEvents } = await import('../views/tools.js');
+        const { WORKFLOW_STATE_VIEW } = await import('../views/workflow-state-projection.js');
+        const materializer = getOrCreateMaterializer(stateDir);
+        const events = await queryDeltaEvents(
+          ctx.eventStore,
+          materializer,
+          featureId,
+          WORKFLOW_STATE_VIEW,
+        );
+        const view = materializer.materialize<{ tasks: Array<{ id: string; branch?: string }> }>(
+          featureId,
+          WORKFLOW_STATE_VIEW,
+          events,
+        );
+        workflowState = { tasks: view.tasks };
+      } catch {
+        // Best-effort: missing/unreadable state is not a setup_worktree
+        // failure — handler falls back to legacy default branch.
+        workflowState = undefined;
+      }
+    }
+
+    return handleSetupWorktree(
+      args as unknown as Parameters<typeof handleSetupWorktree>[0],
+      workflowState,
+    );
+  };
+}
+
 const ACTION_HANDLERS: Readonly<Record<string, ActionHandler>> = {
   task_claim: adaptWithEventStore(handleTaskClaim),
   task_complete: adaptWithEventStore(handleTaskComplete),
@@ -199,7 +244,7 @@ const ACTION_HANDLERS: Readonly<Record<string, ActionHandler>> = {
   generate_traceability: adaptArgs(handleGenerateTraceability),
   spec_coverage_check: adaptArgs(handleSpecCoverageCheck),
   verify_worktree_baseline: adapt(handleVerifyWorktreeBaseline),
-  setup_worktree: adaptArgs(handleSetupWorktree),
+  setup_worktree: adaptSetupWorktree(),
   verify_delegation_saga: adaptArgs(handleVerifyDelegationSaga),
   post_delegation_check: adaptArgsWithEventStore(handlePostDelegationCheck),
   reconcile_state: adaptArgsWithEventStore(handleReconcileState),
