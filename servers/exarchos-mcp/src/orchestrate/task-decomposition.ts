@@ -74,6 +74,50 @@ interface TaskDecompositionResult {
   readonly report: string;
 }
 
+// ─── Constants ──────────────────────────────────────────────────────────
+
+/**
+ * Closed-set allowlist of file extensions accepted as real file paths by
+ * `extractFiles` and `validateTaskStructure`. Tokens whose suffix is not
+ * on this list (e.g. `imageProvenance.isFirstParty` — a TypeScript
+ * record-field reference in narrative prose) are intentionally rejected
+ * to avoid false parallel-safety conflicts on dotted-identifier tokens.
+ *
+ * Extensions are mirrored across both call sites; centralising here keeps
+ * the two regexes in lockstep (T-14 REFACTOR).
+ */
+export const FILE_EXTENSION_ALLOWLIST: readonly string[] = [
+  'ts',
+  'tsx',
+  'js',
+  'jsx',
+  'mjs',
+  'cjs',
+  'json',
+  'md',
+  'yml',
+  'yaml',
+  'sh',
+  'ps1',
+  'sql',
+  'kql',
+  'bicep',
+  'cs',
+  'csproj',
+  'sln',
+  'go',
+  'rs',
+  'toml',
+];
+
+/**
+ * Regex source fragment matching a backtick-quoted file path whose suffix
+ * is on `FILE_EXTENSION_ALLOWLIST`. The capture group brackets the path so
+ * the same source compiles for both `match` (line-level scanning) and
+ * `exec` (capture-group extraction) call sites.
+ */
+const FILE_PATH_PATTERN_SOURCE = `\`([a-zA-Z0-9_./-]+\\.(?:${FILE_EXTENSION_ALLOWLIST.join('|')}))\``;
+
 // ─── Parse Task Blocks ──────────────────────────────────────────────────
 
 /**
@@ -187,7 +231,11 @@ export function validateTaskStructure(block: string): TaskStructureResult {
   const hasDescription = descriptionWordCount > 10;
 
   // --- File targets ---
-  const filePattern = /`[a-zA-Z0-9_./-]+\.[a-zA-Z]+`/g;
+  // Match backtick-quoted paths whose suffix is on `FILE_EXTENSION_ALLOWLIST`.
+  // Without the allowlist, dotted-identifier tokens like
+  // `imageProvenance.isFirstParty` (record-field references in prose) used
+  // to match and pollute the file count / parallel-safety check.
+  const filePattern = new RegExp(FILE_PATH_PATTERN_SOURCE, 'g');
   let fileCount = 0;
   for (const line of lines) {
     const matches = line.match(filePattern);
@@ -432,12 +480,56 @@ function isParallelizable(block: string): boolean {
 
 /**
  * Extract backtick-quoted file paths from a task block.
+ *
+ * The path's suffix MUST be on a closed extension allowlist; tokens whose
+ * suffix is anything else (e.g. `imageProvenance.isFirstParty` —
+ * a TypeScript record-field reference in narrative prose) are not treated
+ * as file paths. Without this filter the parallel-safety check produces
+ * false conflicts on dotted-identifier tokens shared between tasks.
+ *
+ * If the block contains an explicit `**Files:**` section, paths declared
+ * under that section take precedence over inferred matches found elsewhere
+ * in the block — explicit declarations are the source of truth.
  */
-function extractFiles(block: string): string[] {
-  const filePattern = /`([a-zA-Z0-9_./-]+\.[a-zA-Z]+)`/g;
+export function extractFiles(block: string): string[] {
+  // Prefer files declared under an explicit `**Files:**` section when
+  // present. Capture lines from the `**Files:**` header until the next
+  // field-header (`**Word:**`) or section header (`### `).
+  const lines = block.split('\n');
+  const filesSectionLines: string[] = [];
+  let inFilesSection = false;
+  for (const line of lines) {
+    if (/^\*\*Files:\*\*/i.test(line)) {
+      inFilesSection = true;
+      continue;
+    }
+    if (inFilesSection) {
+      if (/^###\s/.test(line) || /^\*\*\w[\w\s]*:\*\*/.test(line)) {
+        break;
+      }
+      filesSectionLines.push(line);
+    }
+  }
+
+  if (filesSectionLines.length > 0) {
+    const filesSection = filesSectionLines.join('\n');
+    const declared: string[] = [];
+    const sectionPattern = new RegExp(FILE_PATH_PATTERN_SOURCE, 'g');
+    let m: RegExpExecArray | null;
+    while ((m = sectionPattern.exec(filesSection)) !== null) {
+      declared.push(m[1]);
+    }
+    if (declared.length > 0) {
+      return declared;
+    }
+  }
+
+  // Fallback: scan the whole block for backtick-quoted paths with an
+  // allowlisted extension.
+  const blockPattern = new RegExp(FILE_PATH_PATTERN_SOURCE, 'g');
   const files: string[] = [];
   let match: RegExpExecArray | null;
-  while ((match = filePattern.exec(block)) !== null) {
+  while ((match = blockPattern.exec(block)) !== null) {
     files.push(match[1]);
   }
   return files;
