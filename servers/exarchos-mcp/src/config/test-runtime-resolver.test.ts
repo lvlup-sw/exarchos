@@ -809,4 +809,29 @@ describe('resolveTestRuntime', () => {
       expect(call[0]).toBe('my-feat-stream');
     }
   });
+
+  // ─── T-17 (DR-8a): remediation copy must teach next step ───────────────
+  // Empty repos and missing-script repos surface `source: 'unresolved'`
+  // with a `remediation` string. That string is the *only* breadcrumb a
+  // dispatched agent gets — it must include either an inline example
+  // showing what to write or a link to the user-facing docs explaining
+  // .exarchos.yml. A bare "configure your project" message is not enough.
+  it('testRuntimeResolver_RemediationMessage_IncludesDocLinkOrExample', () => {
+    const dir = makeTmpDir();
+
+    const result = resolveTestRuntime(dir);
+
+    expect(result.source).toBe('unresolved');
+    expect(result.remediation).toBeDefined();
+    const message = result.remediation!;
+    // A concrete, actionable hint: either a YAML snippet a caller could
+    // paste, or a doc anchor the caller can follow. We accept either form
+    // so future docs reorganization doesn't constrain the message.
+    const hasInlineYamlExample = /test:\s/.test(message);
+    const hasDocLink = /https?:\/\/|skills-src\/|docs\//.test(message);
+    expect(
+      hasInlineYamlExample || hasDocLink,
+      `remediation must include an inline YAML example (a "test:" key) or a doc link, got: ${message}`,
+    ).toBe(true);
+  });
 });

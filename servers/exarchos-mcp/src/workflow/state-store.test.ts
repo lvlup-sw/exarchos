@@ -875,3 +875,73 @@ describe('applyDotPath array replacement (#1003)', () => {
     expect(tasks.some(t => t.id === '001')).toBe(false);
   });
 });
+
+// ─── T-17 (DR-8c): documented array-insertion syntax in workflow_set ─────────
+//
+// `skills-src/workflow-state/SKILL.md` previously documented `tasks[id=001]`
+// as the pattern for editing a single task in place. The parser does NOT
+// support keyed array access — `parsePath` only recognizes numeric brackets
+// (`[\d+]`). The supported insertion patterns are:
+//   1. Replace the entire array: `updates: { tasks: [...] }`
+//   2. Replace one element by index: `updates: { 'tasks[0].status': '...' }`
+//   3. Append by next index: `updates: { 'tasks[<length>]': { id, title } }`
+//      — `assertArrayBounds` allows `index <= arr.length + MAX_ARRAY_GAP` so
+//      writing at the current `arr.length` slot performs a real append.
+//
+// This test pins option (3) so the SKILL.md worked example can rely on it.
+describe('applyDotPath array append syntax (T-17)', () => {
+  it('workflowSetParser_ArrayInsertionSyntax_AppendsNewEntry', () => {
+    // Arrange — start with a 2-element task array, mimicking a workflow that
+    // already received its first plan and now wants to add a follow-up task
+    // without rewriting the whole list.
+    const obj: Record<string, unknown> = {
+      tasks: [
+        { id: 'T-001', title: 'Existing 1', status: 'complete' },
+        { id: 'T-002', title: 'Existing 2', status: 'in_progress' },
+      ],
+    };
+
+    // Act — append by writing at index === current array length.
+    // This is the syntax `skills-src/workflow-state/SKILL.md` documents.
+    applyDotPath(obj, 'tasks[2]', {
+      id: 'T-003',
+      title: 'New follow-up',
+      status: 'pending',
+    });
+
+    // Assert — array grew by exactly one entry; existing entries unchanged.
+    const tasks = obj.tasks as Array<Record<string, unknown>>;
+    expect(tasks).toHaveLength(3);
+    expect(tasks[0]).toEqual({ id: 'T-001', title: 'Existing 1', status: 'complete' });
+    expect(tasks[1]).toEqual({ id: 'T-002', title: 'Existing 2', status: 'in_progress' });
+    expect(tasks[2]).toEqual({ id: 'T-003', title: 'New follow-up', status: 'pending' });
+  });
+
+  it('workflowSetParser_ArrayInsertionSyntax_KeyedAccessFormIsNotSupported', () => {
+    // The SKILL.md guidance previously hinted at `tasks[id=001]` — confirm
+    // the parser does NOT honor that form. `parsePath` only recognizes
+    // numeric brackets (`tasks[0]`); `tasks[id=T-001]` falls through as a
+    // literal property name and silently writes to a bogus top-level key.
+    // This test pins that behavior so a future parser change that adds
+    // keyed support is forced to update both this test and the SKILL.md
+    // worked example simultaneously.
+    const obj: Record<string, unknown> = {
+      tasks: [{ id: 'T-001', status: 'pending' }],
+    };
+
+    applyDotPath(obj, 'tasks[id=T-001].status', 'complete');
+
+    // The legitimate task entry was NOT updated.
+    const tasks = obj.tasks as Array<Record<string, unknown>>;
+    expect(tasks[0].status).toBe('pending');
+
+    // Instead, a bogus top-level key was created (silent misapplication).
+    // Documenting this here so callers know they need the by-index form.
+    expect(obj['tasks[id=T-001]']).toBeDefined();
+
+    // The legitimate by-index form continues to work and is the only
+    // supported way to update one task in place.
+    applyDotPath(obj, 'tasks[0].status', 'complete');
+    expect(tasks[0].status).toBe('complete');
+  });
+});
