@@ -237,6 +237,89 @@ Test names:
     expect(result.hasTests).toBe(true);
     expect(result.testCount).toBeGreaterThanOrEqual(2);
   });
+
+  // ─── T-12 description-span contract (DR-5 step 1/3) ──────────────────────
+  //
+  // The description span is "everything between the task heading and the next
+  // field-header (`**...**:`) or section header (`### `)". The first
+  // field-header encountered (e.g. `**Goal:**` or `**Description:**`) is
+  // *included* as the description introducer; the SECOND field-header (e.g.
+  // `**Files:**`, `**Acceptance criteria:**`) terminates the span. This lets
+  // plans authored to the standard `@skills/implementation-planning` shape
+  // (which uses `**Goal:**`, not `**Description:**`) score correctly.
+
+  it('validateTaskStructure_TaskWithGoalSection_CountsGoalProseAsDescription', () => {
+    // Block uses `**Goal:**` (not `**Description:**`) followed by ~50 words of
+    // substantive prose. The new contract counts that prose as the
+    // description; the legacy `**Description:**`-literal parser reports 0.
+    const block = `### Task T-01: Author the schema module
+
+**Goal:** Define the schema module that exposes per-record validation rules
+across the ingestion pipeline, declaring both the input row shape and the
+projected normalized shape consumed by the downstream alerting layer. The
+module must carry a frozen sample-set so future schema drift is caught at
+build time rather than at runtime when the dashboard renders empty results.
+
+**Files:**
+- \`src/schema/module.ts\`
+- \`src/schema/module.test.ts\`
+
+**Tests:**
+- [RED] \`Schema_Validate_RejectsMalformedRow\`
+
+**Dependencies:** None
+**Parallelizable:** Yes`;
+
+    const result = validateTaskStructure(block);
+
+    expect(result.hasDescription).toBe(true);
+    expect(result.descriptionWordCount).toBeGreaterThan(10);
+  });
+
+  it('validateTaskStructure_TaskWithMultipleSections_DescriptionStopsAtNextFieldHeader', () => {
+    // Block carries `**Goal:**` content followed by `**Acceptance criteria:**`.
+    // The description span includes the Goal prose only; words after the
+    // Acceptance criteria field-header MUST NOT be folded into the
+    // description count.
+    const block = `### Task T-02: Wire the gate handler
+
+**Goal:** Wire the freshly authored gate handler into the orchestrate dispatch
+table so the workflow surface can invoke it directly without bash detour.
+
+**Acceptance criteria:**
+- The gate handler appears in the dispatch table alongside its peers and the
+  acceptance suite covers every documented status code with a dedicated
+  characterization assertion that exercises the surrounding event emission.
+
+**Files:**
+- \`src/orchestrate/gate-handler.ts\``;
+
+    const result = validateTaskStructure(block);
+
+    // "Wire the freshly authored gate handler into the orchestrate dispatch
+    // table so the workflow surface can invoke it directly without bash detour."
+    // ~22 words. Acceptance criteria adds ~30 words; if those leak in the
+    // count would jump well past 30.
+    expect(result.hasDescription).toBe(true);
+    expect(result.descriptionWordCount).toBeGreaterThan(10);
+    expect(result.descriptionWordCount).toBeLessThan(30);
+  });
+
+  it('validateTaskStructure_NoFieldHeaders_FullBodyCounted', () => {
+    // Block has naked prose under the task heading with no field-headers at
+    // all. The new contract counts the entire body as the description.
+    const block = `### Task T-03: Naked prose task
+
+This task has no field headers whatsoever. The author wrote a brief paragraph
+of substantive narrative prose describing the work to be done, and trusted
+that the structural validator would still recognize the description as
+present without requiring a literal Description field-header marker.`;
+
+    const result = validateTaskStructure(block);
+
+    expect(result.hasDescription).toBe(true);
+    expect(result.descriptionWordCount).toBeGreaterThan(20);
+  });
 });
 
 describe('validateDependencyDAG', () => {
