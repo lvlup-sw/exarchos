@@ -944,4 +944,38 @@ describe('applyDotPath array append syntax (T-17)', () => {
     applyDotPath(obj, 'tasks[0].status', 'complete');
     expect(tasks[0].status).toBe('complete');
   });
+
+  // ─── #1213 / CodeRabbit #18: malformed/compound bracket forms ─────────
+  it('parsePath_CompoundBrackets_TasksZeroOne_ThrowsMalformedError', () => {
+    // `tasks[0][1]` is a compound double-index form the parser does not
+    // recognize. Without an explicit guard it would fall through and be
+    // pushed as a literal property name — same silent-success bug
+    // fix-004 closed for keyed access. Now rejected loudly.
+    const obj: Record<string, unknown> = { tasks: [['a', 'b']] };
+
+    expect(() => applyDotPath(obj, 'tasks[0][1]', 'updated')).toThrow(
+      /malformed array access/i,
+    );
+  });
+
+  it('parsePath_UnterminatedBracket_TasksKeyedNoClose_ThrowsMalformedError', () => {
+    // `tasks[id=T-001` (no closing bracket) is not a valid bracket form.
+    // The non-numeric guard requires `[...]`, so this falls past it. The
+    // new compound/malformed guard catches it.
+    const obj: Record<string, unknown> = { tasks: [{ id: 'T-001' }] };
+
+    expect(() =>
+      applyDotPath(obj, 'tasks[id=T-001.status', 'complete'),
+    ).toThrow(/malformed array access/i);
+  });
+
+  it('parsePath_MismatchedCloseBracket_TasksClose_ThrowsMalformedError', () => {
+    // `tasks]` has only a closing bracket. None of the bracket patterns
+    // match, but the bare `]` should still be rejected as malformed.
+    const obj: Record<string, unknown> = { tasks: [] };
+
+    expect(() => applyDotPath(obj, 'tasks].status', 'complete')).toThrow(
+      /malformed array access/i,
+    );
+  });
 });

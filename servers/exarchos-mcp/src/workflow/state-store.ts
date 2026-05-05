@@ -505,6 +505,22 @@ function parsePath(dotPath: string): Array<string | number> {
       );
     }
 
+    // CodeRabbit #18 (#1213): catch malformed and compound bracket forms
+    // that the patterns above don't recognize but which still contain
+    // bracket characters. Examples: `tasks[0][1]` (compound double
+    // index), `tasks[id=T-001` (unterminated), `tasks]` (mismatched
+    // close), `[]` (empty body). Falling through here would push the
+    // whole literal as a property name — same silent-success bug
+    // fix-004 closed for keyed access. Reject loudly with the same
+    // remediation guidance.
+    if (part.includes('[') || part.includes(']')) {
+      throw new StateStoreError(
+        ErrorCode.INVALID_INPUT,
+        `Malformed array access in dot-path segment "${part}" (from "${dotPath}"). ` +
+          `Use numeric brackets only, e.g. "tasks[0].status".`,
+      );
+    }
+
     segments.push(part);
   }
 
