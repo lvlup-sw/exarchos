@@ -240,37 +240,49 @@ export function validateTaskStructure(block: string): TaskStructureResult {
  * A cycle is detected when we encounter a node that is in-progress.
  */
 export function validateDependencyDAG(tasks: readonly DagTask[]): DagValidationResult {
+  // Cycle/unresolved comparisons run on the canonical ID (`canonicaliseTaskId`)
+  // so that `T-002`, `T002`, and `002` are treated as the same task. We keep
+  // a parallel map to recover the original ID for error messages.
   const visitState = new Map<string, number>();
-  const taskIds = new Set<string>();
+  const canonicalToOriginal = new Map<string, string>();
 
   for (const task of tasks) {
-    // Reject duplicate task IDs
-    if (taskIds.has(task.id)) {
+    const canonical = canonicaliseTaskId(task.id);
+    if (canonicalToOriginal.has(canonical)) {
       return { valid: false, cyclePath: `Duplicate task ID: ${task.id}` };
     }
-    visitState.set(task.id, 0);
-    taskIds.add(task.id);
+    visitState.set(canonical, 0);
+    canonicalToOriginal.set(canonical, task.id);
   }
 
-  // Build adjacency map (task -> deps), reject unresolved references
+  // Build adjacency map (canonical task -> canonical deps), reject
+  // unresolved references against the canonical key set.
   const depsMap = new Map<string, readonly string[]>();
   for (const task of tasks) {
+    const canonicalSelf = canonicaliseTaskId(task.id);
+    const canonicalDeps: string[] = [];
     for (const dep of task.deps) {
-      if (!taskIds.has(dep)) {
-        return { valid: false, cyclePath: `Unresolved dependency: ${task.id} depends on unknown ${dep}` };
+      const canonicalDep = canonicaliseTaskId(dep);
+      if (!canonicalToOriginal.has(canonicalDep)) {
+        return {
+          valid: false,
+          cyclePath: `Unresolved dependency: ${task.id} depends on unknown ${dep}`,
+        };
       }
+      canonicalDeps.push(canonicalDep);
     }
-    depsMap.set(task.id, task.deps);
+    depsMap.set(canonicalSelf, canonicalDeps);
   }
 
-  // Iterative DFS
+  // Iterative DFS over canonical IDs.
   for (const task of tasks) {
-    if (visitState.get(task.id) !== 0) {
+    const canonicalRoot = canonicaliseTaskId(task.id);
+    if (visitState.get(canonicalRoot) !== 0) {
       continue;
     }
 
-    // Stack entries: [node, phase] where phase is 'enter' or 'exit'
-    const stack: Array<[string, 'enter' | 'exit']> = [[task.id, 'enter']];
+    // Stack entries: [canonicalNode, phase] where phase is 'enter' or 'exit'
+    const stack: Array<[string, 'enter' | 'exit']> = [[canonicalRoot, 'enter']];
 
     while (stack.length > 0) {
       const [node, phase] = stack.pop()!;
@@ -289,7 +301,7 @@ export function validateDependencyDAG(tasks: readonly DagTask[]): DagValidationR
 
       // Cycle: node is in-progress (already on the DFS stack)
       if (state === 1) {
-        return { valid: false, cyclePath: node };
+        return { valid: false, cyclePath: canonicalToOriginal.get(node) ?? node };
       }
 
       // Mark in-progress
@@ -301,8 +313,10 @@ export function validateDependencyDAG(tasks: readonly DagTask[]): DagValidationR
       for (const dep of deps) {
         const depState = visitState.get(dep);
         if (depState === 1) {
-          // Cycle found
-          return { valid: false, cyclePath: `${node} \u2192 ${dep}` };
+          // Cycle found \u2014 report using original IDs.
+          const nodeOriginal = canonicalToOriginal.get(node) ?? node;
+          const depOriginal = canonicalToOriginal.get(dep) ?? dep;
+          return { valid: false, cyclePath: `${nodeOriginal} \u2192 ${depOriginal}` };
         }
         if (depState === 0) {
           stack.push([dep, 'enter']);
@@ -353,6 +367,22 @@ export function checkParallelSafety(tasks: readonly ParallelTask[]): ParallelSaf
 
 /**
  * Extract dependency task IDs from a task block's **Dependencies:** field.
+ *
+ * Anchors strictly to the `**Dependencies:**` line — never falls back to
+ * digit-scraping the wider block, which used to pull tokens like `24` out
+ * of narrative prose ("`GetCslSloRollup24h`") and report them as unknown
+ * dependencies.
+ *
+ * Matches both `T-NNN` and `TNNN` formats via a single word-boundary regex
+ * (`\b(T-?\d+)\b`). The returned matches are verbatim — `T-001` stays
+ * `T-001`, `T002` stays `T002`. The equivalence between `T-NNN`, `TNNN`,
+ * and `NNN` (bare numeric IDs emitted by `parseTaskBlocks` for `### Task
+ * 002:` headings) is handled at comparison time inside
+ * `validateDependencyDAG`, not here, so this helper does not silently
+ * mutate caller-visible IDs.
+ *
+ * Returns `[]` if no `T<id>`/`T-<id>` token is present (e.g. `none`,
+ * empty, or "Task 1, Task 2"-style narrative without a recognised id).
  */
 export function extractDependencies(block: string): string[] {
   const lines = block.split('\n');
@@ -362,17 +392,29 @@ export function extractDependencies(block: string): string[] {
       if (!depsLine || /^none$/i.test(depsLine)) {
         return [];
       }
-      // Try T-XX format first
-      const tRefs = depsLine.match(/T-[0-9]+/g);
-      if (tRefs && tRefs.length > 0) {
-        return tRefs;
-      }
-      // Fall back to plain numeric (e.g., "Task 1, Task 2" or "1, 2")
-      const numRefs = depsLine.match(/[0-9]+/g);
-      return numRefs ?? [];
+      const tRefs = depsLine.match(/\bT-?\d+\b/g);
+      return tRefs ?? [];
     }
   }
   return [];
+}
+
+/**
+ * Canonicalise a task ID for cycle/unresolved-dependency comparison.
+ *
+ * Three forms are treated as equivalent: `T-002`, `T002`, and `002`. The
+ * canonical form strips an optional leading `T-?` and then strips leading
+ * zeros (so `T-01`, `T01`, `01`, and `1` all collapse to `1`).
+ *
+ * This bridges `parseTaskBlocks` (which preserves the form as written —
+ * `T-XX` or bare numeric) and `extractDependencies` (which preserves
+ * verbatim `T-NNN`/`TNNN` tokens from the deps line). Without this
+ * normalisation, plans that mix forms — e.g. a fixture with bare-numeric
+ * task IDs and `T<id>`-prefixed dependency references — would report
+ * spurious unresolved-dependency errors.
+ */
+function canonicaliseTaskId(id: string): string {
+  return id.replace(/^T-?/i, '').replace(/^0+/, '') || '0';
 }
 
 /**
