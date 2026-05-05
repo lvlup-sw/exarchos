@@ -1,7 +1,7 @@
-// ─── check_task_decomposition: parser false-positive fixture (RED gate) ─────
+// ─── check_task_decomposition: parser false-positive fixture (regression) ───
 //
-// This test file is the characterization RED gate for the three parser
-// false-positives documented in
+// This test file is the characterization regression suite for the three
+// parser false-positives documented in
 // `exarchos-issue-check_task_decomposition-parser-false-positives.md`. It runs
 // `handleTaskDecomposition` against a real-shape plan fixture captured from the
 // `agency-csl-auto-pr` dogfood and asserts the parser does NOT produce false
@@ -9,8 +9,9 @@
 // shape (Goal / TDD steps / Acceptance criteria / Dependencies / Parallelizable)
 // rather than a literal `**Description:**` field.
 //
-// **All three tests in this file are expected to FAIL on current code.** They
-// go green incrementally as downstream parser fixes land:
+// **All three tests in this file are regression tests — these should now
+// pass.** Previously failing on the v2.9.0 RED baseline, they went green
+// incrementally as the downstream parser fixes landed:
 //
 //   - `taskDecomposition_AgencyCslAutoPr_AllTasksWellDecomposed`
 //       Targets Bug 1 (Description span parsing). Current parser only counts
@@ -41,7 +42,9 @@
 //       declared under an explicit `**Files:**` section).
 //
 // Per the v2.9.0 dogfood-bundle plan T-11, this file does NOT modify production
-// parser code. The single commit captures the failing baseline.
+// parser code. It is a regression test suite (previously the failing
+// baseline) that exists to detect any future re-introduction of the three
+// false positives.
 // ────────────────────────────────────────────────────────────────────────────
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';

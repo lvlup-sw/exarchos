@@ -47,6 +47,12 @@ Set-Location "<absolute worktree path>"   # PowerShell
 Where `<absolute worktree path>` is the path you were dispatched to.
 After that, the verification block below confirms you landed correctly.
 
+## Worktree Verification
+Before making ANY file changes:
+1. Run: `pwd`
+2. Verify the path contains `.worktrees/`
+3. If NOT in worktree: STOP and report error
+
 ## Task
 {{taskDescription}}
 

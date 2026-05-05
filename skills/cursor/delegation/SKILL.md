@@ -339,9 +339,9 @@ must drive recovery by hand.
 
 The merge-orchestrator reports an ancestry failure of the form:
 
-```
+```text
 source branch <feature-branch> is not a descendant of <integration-branch>.
-Rebase manually with: git rebase <integration-branch> <feature-branch>.
+Rebase manually with: git rebase <integration-branch> (run from the <feature-branch> worktree).
 Runbook: skills-src/delegation/SKILL.md#when-integration-advances-mid-wave
 ```
 
@@ -369,12 +369,14 @@ subagent worktree) and that `git status` is clean.
 1. **Capture the rollback SHA** before doing anything destructive:
 
    ```bash
-   git rev-parse <feature-branch> > /tmp/rollback-<feature-branch>.sha
+   git rev-parse <feature-branch> > /tmp/rollback.sha
    ```
 
    Keep this until the merge has been verified. If anything goes wrong,
-   `git reset --hard $(cat /tmp/rollback-<feature-branch>.sha)` on the
-   feature branch restores the pre-rebase state.
+   `git reset --hard "$(cat /tmp/rollback.sha)"` on the feature branch
+   restores the pre-rebase state. The filename is intentionally
+   branch-name-free so slash-delimited branches like `feature/dr-6`
+   don't break the path with embedded `/` characters.
 
 2. **Rebase the feature branch onto the current integration tip:**
 
@@ -411,7 +413,7 @@ still fails after rebase:
    ```bash
    cd <feature-worktree-path>
    git rebase --abort   # if mid-rebase
-   git reset --hard $(cat /tmp/rollback-<feature-branch>.sha)
+   git reset --hard "$(cat /tmp/rollback.sha)"
    ```
 
 2. **Mark the task `failed`** in workflow state and dispatch a fixer (see

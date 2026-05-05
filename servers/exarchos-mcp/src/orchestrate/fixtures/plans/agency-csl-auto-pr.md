@@ -3,7 +3,7 @@
 This fixture is a minimal subset of the real `docs/plans/2026-04-29-agency-csl-auto-pr.md`
 plan (33 tasks total) captured to reproduce the three parser false-positive failure
 modes documented in
-[`exarchos-issue-check_task_decomposition-parser-false-positives.md`](../../../../../../../exarchos-issue-check_task_decomposition-parser-false-positives.md).
+[`exarchos-issue-check_task_decomposition-parser-false-positives.md`](../../../../../../exarchos-issue-check_task_decomposition-parser-false-positives.md).
 
 The plan structure is the standard `@skills/implementation-planning` shape: each
 task has a `**Goal:**` paragraph (not `**Description:**`), TDD step lists with
