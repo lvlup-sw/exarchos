@@ -91,6 +91,23 @@ describe('Quality Gate Commands', () => {
   });
 
   describe('handleTaskGate', () => {
+    // Default isolation: point WORKFLOW_STATE_DIR at an empty temp dir so the
+    // production bypass (active-workflow → skip checks) doesn't fire by accident
+    // when the dev machine has unrelated workflow state on disk. The nested
+    // `workflow bypass` describe overrides this for its specific scenarios.
+    let defaultStateDir: string;
+    const originalStateDir = process.env.WORKFLOW_STATE_DIR;
+
+    beforeEach(() => {
+      defaultStateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'task-gate-default-'));
+      process.env.WORKFLOW_STATE_DIR = defaultStateDir;
+    });
+
+    afterEach(async () => {
+      process.env.WORKFLOW_STATE_DIR = originalStateDir;
+      await fsp.rm(defaultStateDir, { recursive: true, force: true });
+    });
+
     it('should parse TaskCompleted input with task_subject correctly', async () => {
       // Arrange
       mockExecSync.mockReturnValue(Buffer.from(''));
