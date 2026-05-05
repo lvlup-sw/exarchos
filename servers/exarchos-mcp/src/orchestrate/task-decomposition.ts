@@ -118,11 +118,17 @@ export function parseTaskBlocks(content: string): TaskBlock[] {
  * Validate a task block for description quality, file targets, and test
  * expectations.
  *
- * Description parsing:
- * - Scans for `**Description:**` inline text
- * - Continues collecting text across blank lines
- * - Stops at next field header (`**Field:**`) or section header (`###`)
- * - Counts all words in collected description text
+ * Description parsing (DR-5 step 1):
+ * - The description span is "everything between the task heading and the
+ *   next field-header (`**Word:**`) or section header (`### `)".
+ * - The FIRST field-header encountered (e.g. `**Goal:**` or
+ *   `**Description:**`) is treated as a description introducer and is
+ *   *included* in the span — its inline tail and the prose that follows
+ *   count as description. The SECOND field-header terminates the span.
+ * - This matches the standard `@skills/implementation-planning` shape
+ *   (`**Goal:**` + paragraph) without relying on a literal `**Description:**`
+ *   field-header.
+ * - When the block has no field-headers at all, the entire body counts.
  *
  * File detection: backtick-quoted paths like `path/to/file.ext`
  *
@@ -132,27 +138,35 @@ export function parseTaskBlocks(content: string): TaskBlock[] {
 export function validateTaskStructure(block: string): TaskStructureResult {
   const lines = block.split('\n');
 
-  // --- Description ---
-  let descText = '';
-  let inDesc = false;
+  // --- Description (span from heading to next structural header) ---
+  // Skip the heading line itself; capture lines until either a `### ` section
+  // header or the SECOND `**Field:**` line. The first field-header acts as a
+  // description introducer (its trailing inline text is captured).
+  const descLines: string[] = [];
+  let firstFieldSeen = false;
+  // Skip the leading heading line if present.
+  const start = lines.length > 0 && /^###\s+Task\s+/.test(lines[0]) ? 1 : 0;
 
-  for (const line of lines) {
-    if (/^\*\*Description:\*\*/.test(line)) {
-      // Extract inline text after **Description:**
-      const inline = line.replace(/^\*\*Description:\*\*\s*/, '');
-      descText = inline;
-      inDesc = true;
-      continue;
+  for (let i = start; i < lines.length; i++) {
+    const line = lines[i];
+    if (/^###\s/.test(line)) {
+      break;
     }
-    if (inDesc) {
-      // Stop at next field header or section header
-      if (/^\*\*/.test(line) || /^###/.test(line)) {
+    const fieldMatch = /^\*\*\w[\w\s]*:\*\*\s?(.*)$/.exec(line);
+    if (fieldMatch) {
+      if (firstFieldSeen) {
+        // Second field-header — terminate the description span.
         break;
       }
-      descText += ' ' + line;
+      // First field-header — drop the `**Field:**` label, keep inline tail.
+      firstFieldSeen = true;
+      descLines.push(fieldMatch[1] ?? '');
+      continue;
     }
+    descLines.push(line);
   }
 
+  const descText = descLines.join(' ');
   const descWords = descText
     .trim()
     .split(/\s+/)
