@@ -27,6 +27,15 @@ interface StaticAnalysisResult {
   readonly passCount: number;
   readonly failCount: number;
   readonly report: string;
+  /**
+   * True when the gate could not actually run (no recognized toolchain).
+   * Distinct from `passed:false` (which means a real failure) — callers
+   * should treat skipped gates as inconclusive, not green. See DR-4 in
+   * docs/plans/2026-05-04-v290-dogfood-bundle.md.
+   */
+  readonly skipped?: boolean;
+  /** Reason code when `skipped` is true (e.g. 'no-toolchain'). */
+  readonly skipReason?: string;
 }
 
 // ─── Command Runner Adapter ─────────────────────────────────────────────────
@@ -107,6 +116,12 @@ export async function handleStaticAnalysis(
     };
   }
 
+  // T-10 / DR-4: 'skip' status means no recognized toolchain — gate is
+  // inconclusive, not green. Map to passed=false + skipped=true so
+  // convergence-view can surface it as skipped, and emit the gate event
+  // with details.skipped + details.skipReason so projections can render
+  // SKIP distinctly from PASS / FAIL.
+  const skipped = analysisResult.status === 'skip';
   const passed = analysisResult.status === 'pass';
   const { passCount, failCount, output } = analysisResult;
 
@@ -118,6 +133,7 @@ export async function handleStaticAnalysis(
       phase: 'delegate',
       passCount,
       failCount,
+      ...(skipped ? { skipped: true, skipReason: analysisResult.skipReason ?? 'no-toolchain' } : {}),
       ...(args.taskId ? { taskId: args.taskId } : {}),
     });
   } catch { /* fire-and-forget */ }
@@ -128,6 +144,7 @@ export async function handleStaticAnalysis(
     passCount,
     failCount,
     report: output,
+    ...(skipped ? { skipped: true, skipReason: analysisResult.skipReason ?? 'no-toolchain' } : {}),
   };
 
   return { success: true, data: result };

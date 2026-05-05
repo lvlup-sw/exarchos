@@ -11,6 +11,12 @@
  * Exit code semantics (mapped to status field):
  *   'pass'  = all checks pass (warnings OK)
  *   'fail'  = errors found in one or more tools
+ *   'skip'  = no applicable toolchain detected (inconclusive — distinct from
+ *             'pass' so the gate cannot falsely-green repos with no
+ *             recognized toolchain). When this status is returned, the
+ *             `skipReason` field carries the reason code (currently only
+ *             'no-toolchain'). See DR-4 in
+ *             docs/plans/2026-05-04-v290-dogfood-bundle.md.
  *   'error' = usage error (missing repo root, no package.json)
  */
 
@@ -51,13 +57,32 @@ export interface StaticAnalysisInput {
   readonly runCommand: RunCommandFn;
 }
 
+/**
+ * Reason code for a 'skip' status. Currently only 'no-toolchain' is emitted
+ * (no recognized project files in repoRoot). The union is open for future
+ * skip reasons (e.g. 'all-checks-skipped-by-flag') without a breaking change.
+ */
+export type StaticAnalysisSkipReason = 'no-toolchain';
+
 export interface StaticAnalysisResult {
-  /** Overall status: pass, fail, or error. */
-  readonly status: 'pass' | 'fail' | 'error';
+  /**
+   * Overall status.
+   *
+   * - 'pass'  — all applicable checks passed
+   * - 'fail'  — one or more checks failed
+   * - 'skip'  — no applicable toolchain detected (inconclusive); see
+   *             `skipReason` for the reason code. Distinct from 'pass' so
+   *             the gate does not falsely-green a repo with no recognized
+   *             toolchain. See DR-4 in v2.9 dogfood plan.
+   * - 'error' — usage error (missing/invalid repo root, etc.)
+   */
+  readonly status: 'pass' | 'fail' | 'skip' | 'error';
   /** Structured markdown report. */
   readonly output: string;
   /** Error message when status is 'error'. */
   readonly error?: string;
+  /** Reason code when status is 'skip'. */
+  readonly skipReason?: StaticAnalysisSkipReason;
   /** Number of checks that passed. */
   readonly passCount: number;
   /** Number of checks that failed. */
@@ -308,6 +333,10 @@ export function runStaticAnalysis(input: StaticAnalysisInput): StaticAnalysisRes
   const projectType = detectProjectType(repoRoot);
 
   if (!projectType) {
+    // T-10 / DR-4: no recognized toolchain returns 'skip' (inconclusive),
+    // NOT 'pass'. A pass would falsely-green any repo missing a toolchain
+    // marker. Callers (handler + convergence view) translate this into a
+    // skipped/inconclusive gate result rather than a passing one.
     const output = [
       '## Static Analysis Report',
       '',
@@ -317,12 +346,13 @@ export function runStaticAnalysis(input: StaticAnalysisInput): StaticAnalysisRes
       '',
       '---',
       '',
-      '**Result: PASS** (0/0 checks — no applicable toolchain detected)',
+      '**Result: SKIP** (no applicable toolchain detected)',
     ].join('\n');
 
     return {
-      status: 'pass',
+      status: 'skip',
       output,
+      skipReason: 'no-toolchain',
       passCount: 0,
       failCount: 0,
       projectType: undefined,
