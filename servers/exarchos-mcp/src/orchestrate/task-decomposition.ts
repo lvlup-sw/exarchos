@@ -354,7 +354,7 @@ export function checkParallelSafety(tasks: readonly ParallelTask[]): ParallelSaf
 /**
  * Extract dependency task IDs from a task block's **Dependencies:** field.
  */
-function extractDependencies(block: string): string[] {
+export function extractDependencies(block: string): string[] {
   const lines = block.split('\n');
   for (const line of lines) {
     if (/^\*\*Dependencies:\*\*/.test(line)) {

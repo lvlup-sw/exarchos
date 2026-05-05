@@ -28,6 +28,7 @@ import {
   validateDependencyDAG,
   checkParallelSafety,
   handleTaskDecomposition,
+  extractDependencies,
 } from './task-decomposition.js';
 
 const mockedEmitGateEvent = vi.mocked(emitGateEvent);
@@ -349,6 +350,91 @@ describe('validateDependencyDAG', () => {
     // The cycle path should mention both T-01 and T-02
     expect(result.cyclePath).toContain('T-01');
     expect(result.cyclePath).toContain('T-02');
+  });
+});
+
+// ─── T-13 dependency-parser contract (DR-5 step 2/3) ────────────────────
+//
+// `extractDependencies` MUST anchor strictly to the `**Dependencies:**` line
+// and MUST match both `T-XX` and `TXX` formats via a single regex
+// `\b(T-?\d+)\b`. There is NO greedy `[0-9]+` fallback — if the deps line
+// contains no `T<id>`/`T-<id>` token, the helper returns `[]`.
+//
+// Normalization decision (documented for posterity): the helper returns
+// matches **verbatim** — `T-001` stays `T-001`, `T002` stays `T002`. The
+// equivalence between `T-NNN`, `TNNN`, and `NNN` is handled at comparison
+// time inside `validateDependencyDAG` (canonical form: strip leading
+// `T-?` and leading zeros). Doing it here would conflate task-ID forms
+// emitted by `parseTaskBlocks`, which preserves the form as written.
+
+describe('extractDependencies', () => {
+  it('extractDependencies_ThyphenIdFormat_ReturnsTIds', () => {
+    const block = `### Task T-XX: example
+
+**Description:** sample task body that should be ignored by the dependency
+parser entirely. Numbers like 24 in prose must not leak.
+
+**Dependencies:** T-001, T-002
+**Parallelizable:** No`;
+
+    expect(extractDependencies(block)).toEqual(['T-001', 'T-002']);
+  });
+
+  it('extractDependencies_NoHyphenIdFormat_ReturnsTIds', () => {
+    const block = `### Task TXX: example
+
+**Description:** sample task body.
+
+**Dependencies:** T001, T002
+**Parallelizable:** No`;
+
+    // Verbatim — see header comment for normalization decision.
+    expect(extractDependencies(block)).toEqual(['T001', 'T002']);
+  });
+
+  it('extractDependencies_NarrativeContainsRollup24h_DoesNotExtract24', () => {
+    // Regression for the agency-csl-auto-pr fixture (T-13). Task 033's deps
+    // line embeds prose that contains `Rollup24h`. The greedy `[0-9]+`
+    // fallback used to scrape `24` out of `Rollup24h` and treat it as an
+    // unknown dependency. The new parser must return only the T-id.
+    const block = `### Task 033: SLO sample-size dashboard panel
+
+**Description:** add a Grafana panel.
+
+**Dependencies:** T002 (\`GetCslSloRollup24h\` exposes sample size per SLO)
+**Parallelizable:** No`;
+
+    const deps = extractDependencies(block);
+    expect(deps).toEqual(['T002']);
+    expect(deps).not.toContain('24');
+  });
+
+  it('extractDependencies_NoTIdsAtAll_ReturnsEmptyArray', () => {
+    const block = `### Task T-01: example
+
+**Description:** sample.
+
+**Dependencies:** none
+**Parallelizable:** No`;
+
+    expect(extractDependencies(block)).toEqual([]);
+  });
+
+  it('extractDependencies_DigitsInOtherLines_NotExtracted', () => {
+    // Deps line is empty — must not fall back to digit-scraping the wider
+    // block (which contains `2024` in prose, file paths with version-like
+    // numbers, etc.).
+    const block = `### Task T-01: build the 2024 rollup pipeline
+
+**Description:** Process 1000 records per second from the 24-hour buffer.
+
+**Files:**
+- \`src/v1/api-2024.ts\`
+
+**Dependencies:**
+**Parallelizable:** No`;
+
+    expect(extractDependencies(block)).toEqual([]);
   });
 });
 
