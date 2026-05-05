@@ -46,6 +46,8 @@ import { generateQualityHints } from '../quality/hints.js';
 import { emitGateEvent } from './gate-utils.js';
 import { handlePrepareDelegation, classifyTask } from './prepare-delegation.js';
 import type { TaskClassification } from './prepare-delegation.js';
+import { delegationReadinessProjection } from '../views/delegation-readiness-view.js';
+import type { WorkflowEvent } from '../event-store/schemas.js';
 import {
   validateBranchAncestry,
   assertMainWorktree,
@@ -438,31 +440,64 @@ describe('handlePrepareDelegation', () => {
   // check fired when artifacts.plan was missing in workflow state. After T-03
   // the handler trusts the projection — single source of truth (#1205).
   it('HandlePrepareDelegation_BlockerList_MatchesDelegationReadinessView', async () => {
-    // Arrange: projection reports the plan-artifact blocker; handler should
-    // surface it verbatim with no extra emission. workflow state's
-    // artifacts.plan is irrelevant here — the projection is authoritative.
+    // fix-003 (review #1213, T-03): true parity test — replay the SAME
+    // event stream through both the handler (via the mocked materializer)
+    // and `delegationReadinessProjection.apply` directly, then deep-equal
+    // the resulting blockers arrays. Earlier revisions of this test only
+    // asserted the handler did not append a supplementary blocker; they
+    // never invoked the projection itself, so a divergence in the
+    // projection's blocker generation could pass undetected.
+
+    // ── Step 1: build a minimal event stream that exercises the
+    // plan-artifact branch.
+    // - workflow.transition → plan-review flips planReview.approved to true.
+    // - state.patched without artifacts.plan keeps artifactPresent at false.
+    // - task.assigned x2 + worktree.created x2 satisfy the worktree gate.
+    const events: WorkflowEvent[] = [
+      { type: 'workflow.transition', data: { to: 'plan-review' } } as unknown as WorkflowEvent,
+      { type: 'task.assigned', data: { taskId: 'task-1' } } as unknown as WorkflowEvent,
+      { type: 'task.assigned', data: { taskId: 'task-2' } } as unknown as WorkflowEvent,
+      { type: 'worktree.created', data: { taskId: 'task-1', worktreePath: '/w/1' } } as unknown as WorkflowEvent,
+      { type: 'worktree.created', data: { taskId: 'task-2', worktreePath: '/w/2' } } as unknown as WorkflowEvent,
+    ];
+
+    // ── Step 2: replay events through the projection — this is the
+    // delegation_readiness view as a caller would observe it.
+    let projectedView = delegationReadinessProjection.init();
+    for (const ev of events) {
+      projectedView = delegationReadinessProjection.apply(projectedView, ev);
+    }
+
+    // Sanity-check the projection: plan-artifact blocker must be present
+    // (because no state.patched flipped artifactPresent), AND no worktree
+    // pending (both created). If this ever stops being true the test
+    // fixture needs updating.
+    expect(projectedView.blockers).toContain('Plan artifact is missing');
+    expect(projectedView.blockers.find(b => /worktrees pending/.test(b))).toBeUndefined();
+
+    // ── Step 3: feed the SAME projection result into the handler. Workflow
+    // state's `artifacts.plan` is irrelevant — the projection is authoritative.
     const state = {
       ...readyWorkflowState(),
+      // Match projection's view of tasks: 2 entries, no plan artifact.
       artifacts: { design: 'design.md', plan: null, pr: null },
     };
-    const drState: DelegationReadinessState = {
-      ready: false,
-      blockers: ['Plan artifact is missing'],
-      plan: { approved: true, taskCount: 2, artifactPresent: false },
-      quality: { queried: true, gatePassRate: null, regressions: [] },
-      worktrees: { expected: 2, ready: 2, failed: [], assignedTaskIds: [], readyTaskIds: [] },
-    };
-    setupMaterializer(state, undefined, drState);
+    setupMaterializer(state, undefined, projectedView);
     const args = { featureId: 'test-feature' };
 
     const result = await handlePrepareDelegation(args, STATE_DIR, makeCtx(mockStore, STATE_DIR));
 
+    // ── Step 4: deep-equal the blocker arrays. The handler must not
+    // mutate or supplement what the projection produced (no `tasks` arg
+    // here, so the wave-scoping helper is a passthrough).
     expect(result.success).toBe(true);
-    const data = result.data as { ready: boolean; blockers: string[] };
-    expect(data.ready).toBe(false);
-    // Blocker should appear EXACTLY ONCE — handler trusts projection, no
-    // duplicate emission from a supplementary check.
-    expect(data.blockers).toEqual(['Plan artifact is missing']);
+    const data = result.data as {
+      ready: boolean;
+      readiness: DelegationReadinessState;
+      blockers: string[];
+    };
+    expect(data.readiness.blockers).toEqual(projectedView.blockers);
+    expect(data.blockers).toEqual([...projectedView.blockers]);
   });
 
   it('HandlePrepareDelegation_ViewReady_NoSupplementaryPlanArtifactCheck', async () => {
