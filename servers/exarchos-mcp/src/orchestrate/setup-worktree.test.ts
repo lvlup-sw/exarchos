@@ -226,6 +226,52 @@ describe('handleSetupWorktree', () => {
     );
   });
 
+  // ── #1213 / CodeRabbit #7: gitignore append must preserve line boundary ─
+
+  it('WorktreesNotGitignored_ExistingGitignoreNoTrailingNewline_PrependsNewline', () => {
+    // Existing .gitignore lacks trailing newline (ends with "dist", no \n).
+    // A bare append would produce "dist.worktrees/\n" — a single
+    // concatenated line that no longer ignores either path. The fix
+    // prepends a newline so the final contents are "dist\n.worktrees/\n".
+    vi.mocked(execFileSync).mockImplementation((cmd: unknown, args: unknown) => {
+      const cmdStr = String(cmd);
+      const argsArr = args as string[];
+      if (cmdStr === 'git' && argsArr.includes('show-ref')) return '';
+      if (cmdStr === 'git' && argsArr.includes('rev-parse')) return '.git';
+      if (cmdStr === 'npm' && argsArr.includes('install')) return '';
+      if (cmdStr === 'npm' && argsArr.includes('test:run')) return '';
+      return '';
+    });
+    vi.mocked(existsSync).mockImplementation((p: unknown) => {
+      const path = String(p);
+      if (path === '/repo/.gitignore') return true;
+      if (path === '/repo/.worktrees/task-004b-newline') return true;
+      if (path === '/repo/.worktrees/task-004b-newline/package.json') return true;
+      return false;
+    });
+    vi.mocked(readFileSync).mockImplementation((p: unknown) => {
+      const path = String(p);
+      // Crucially: NO trailing newline here.
+      if (path === '/repo/.gitignore') return 'dist';
+      if (path.endsWith('package.json')) return VALID_PACKAGE_JSON;
+      return '';
+    });
+
+    const result = handleSetupWorktree({
+      repoRoot: '/repo',
+      taskId: 'task-004b',
+      taskName: 'newline',
+    });
+
+    expect(result.success).toBe(true);
+    // The append payload MUST start with \n so the final content is
+    // "dist\n.worktrees/\n", not "dist.worktrees/\n".
+    expect(appendFileSync).toHaveBeenCalledWith(
+      '/repo/.gitignore',
+      '\n.worktrees/\n',
+    );
+  });
+
   // ── Test 5: install fails ───────────────────────────────────────────────
 
   it('NpmInstallFails_Step4Fails', () => {

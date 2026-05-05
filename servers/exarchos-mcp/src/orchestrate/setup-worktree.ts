@@ -123,6 +123,11 @@ function ensureGitignored(repoRoot: string): CheckResult {
 
   let detail: 'already present' | 'added' | 'created with entry';
   let needsAppend: boolean;
+  // CodeRabbit #7: when the existing .gitignore lacks a trailing newline,
+  // a bare append produces `dist.worktrees/\n` (single concatenated line)
+  // instead of two distinct entries. Prepend a newline if needed so the
+  // boundary is preserved.
+  let prependNewline = false;
 
   if (existsSync(gitignorePath)) {
     const readResult = readGitignoreLines(gitignorePath);
@@ -136,6 +141,8 @@ function ensureGitignored(repoRoot: string): CheckResult {
 
     detail = 'added';
     needsAppend = true;
+    prependNewline =
+      readResult.contents.length > 0 && !readResult.contents.endsWith('\n');
   } else {
     detail = 'created with entry';
     needsAppend = true;
@@ -143,7 +150,8 @@ function ensureGitignored(repoRoot: string): CheckResult {
 
   if (needsAppend) {
     try {
-      appendFileSync(gitignorePath, '.worktrees/\n');
+      const payload = (prependNewline ? '\n' : '') + '.worktrees/\n';
+      appendFileSync(gitignorePath, payload);
     } catch (err) {
       const verb = detail === 'created with entry' ? 'create' : 'append to';
       return formatGitignoreError(`Failed to ${verb} ${gitignorePath}`, err);
