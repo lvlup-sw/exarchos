@@ -101,6 +101,15 @@ jobs:
       # be on PATH or the spawn fails with `exit null`.
       - uses: oven-sh/setup-bun@v2
 
+      # CodeRabbit/CI #1213: install root deps so `bun build --compile`
+      # (invoked from compiled-binary-mcp.test.ts) can resolve
+      # `js-yaml` (src/runtimes/load.ts) and `@inquirer/prompts`
+      # (src/install-skills.ts) — both declared in the root
+      # package.json but otherwise absent on the runner.
+      - name: Install root dependencies
+        working-directory: .
+        run: npm ci
+
       - run: npm ci
       - run: npx tsc --noEmit
       - run: npm run test:run
@@ -150,6 +159,17 @@ jobs:
           node-version: '24'
           cache: npm
           cache-dependency-path: servers/exarchos-mcp/package-lock.json
+
+      # CodeRabbit/CI #1213: install root deps so `bun build --compile`
+      # can resolve modules imported via the cross-tree bridge — e.g.
+      # `js-yaml` (from `src/runtimes/load.ts`) and `@inquirer/prompts`
+      # (from `src/install-skills.ts`) which the MCP entry point reaches
+      # transitively. Both are declared in root `package.json` but were
+      # absent on the runner because only `servers/exarchos-mcp` had a
+      # `npm ci`. The bundler then errored with "Could not resolve
+      # 'js-yaml'" / "Could not resolve '@inquirer/prompts'".
+      - name: Install root dependencies
+        run: npm ci
 
       # Install MCP-server runtime deps so `bun build --compile` can
       # resolve `pino`, `commander`, `@modelcontextprotocol/sdk`,
