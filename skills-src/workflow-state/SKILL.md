@@ -101,7 +101,7 @@ Worktree status values: `'active' | 'merged' | 'removed'`
 
 #### Editing the `tasks` array
 
-The dot-path parser used by `set updates` recognizes only **numeric** array brackets (`tasks[0]`, `tasks[1]`, …). Keyed forms like `tasks[id=T-001]` are NOT supported — they are silently treated as a literal property name and write to a bogus top-level key. Three patterns are supported:
+The dot-path parser used by `set updates` recognizes only **numeric** array brackets (`tasks[0]`, `tasks[1]`, …). Keyed forms like `tasks[id=T-001]` are NOT supported and now throw an `INVALID_INPUT` error with a clear message — earlier versions silently wrote to a bogus top-level key, returning `success: true` while the actual task was untouched. Three patterns are supported:
 
 1. **Replace the whole array** (use this when the plan is being revised wholesale; matches the issue #1003 contract):
    ```typescript
