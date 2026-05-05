@@ -115,14 +115,59 @@ export function parseTaskBlocks(content: string): TaskBlock[] {
 // ─── Validate Task Structure ────────────────────────────────────────────
 
 /**
+ * Extract the description span from a task block's lines.
+ *
+ * The description span is "everything between the task heading and the next
+ * field-header (`**Word:**`) or section header (`### `)" — with the caveat
+ * that the FIRST field-header encountered is treated as a description
+ * introducer and is *included* in the span (its inline tail is captured;
+ * the prose after it is also captured). The SECOND field-header terminates
+ * the span.
+ *
+ * This handles the three canonical block shapes:
+ * - Standard implementation-planning shape (`**Goal:**` + paragraph followed
+ *   by `**Files:**`, `**Tests:**`, etc.) — Goal prose counts as description.
+ * - Legacy explicit `**Description:**` shape — Description prose counts.
+ * - Naked-prose shape (no field-headers at all) — full body counts.
+ *
+ * Returned as the array of captured raw lines (not yet word-counted) so
+ * callers can decide how to render or score them.
+ */
+export function extractDescriptionSpan(lines: readonly string[]): string[] {
+  const descLines: string[] = [];
+  let firstFieldSeen = false;
+
+  // Skip the leading task-heading line if present so its title text doesn't
+  // pollute the description count.
+  const start = lines.length > 0 && /^###\s+Task\s+/.test(lines[0]) ? 1 : 0;
+
+  for (let i = start; i < lines.length; i++) {
+    const line = lines[i];
+    if (/^###\s/.test(line)) {
+      break;
+    }
+    const fieldMatch = /^\*\*\w[\w\s]*:\*\*\s?(.*)$/.exec(line);
+    if (fieldMatch) {
+      if (firstFieldSeen) {
+        // Second field-header — terminate the description span.
+        break;
+      }
+      // First field-header — drop the `**Field:**` label, keep inline tail.
+      firstFieldSeen = true;
+      descLines.push(fieldMatch[1] ?? '');
+      continue;
+    }
+    descLines.push(line);
+  }
+
+  return descLines;
+}
+
+/**
  * Validate a task block for description quality, file targets, and test
  * expectations.
  *
- * Description parsing:
- * - Scans for `**Description:**` inline text
- * - Continues collecting text across blank lines
- * - Stops at next field header (`**Field:**`) or section header (`###`)
- * - Counts all words in collected description text
+ * Description parsing (DR-5 step 1): see `extractDescriptionSpan` above.
  *
  * File detection: backtick-quoted paths like `path/to/file.ext`
  *
@@ -132,27 +177,8 @@ export function parseTaskBlocks(content: string): TaskBlock[] {
 export function validateTaskStructure(block: string): TaskStructureResult {
   const lines = block.split('\n');
 
-  // --- Description ---
-  let descText = '';
-  let inDesc = false;
-
-  for (const line of lines) {
-    if (/^\*\*Description:\*\*/.test(line)) {
-      // Extract inline text after **Description:**
-      const inline = line.replace(/^\*\*Description:\*\*\s*/, '');
-      descText = inline;
-      inDesc = true;
-      continue;
-    }
-    if (inDesc) {
-      // Stop at next field header or section header
-      if (/^\*\*/.test(line) || /^###/.test(line)) {
-        break;
-      }
-      descText += ' ' + line;
-    }
-  }
-
+  // --- Description (span from heading to next structural header) ---
+  const descText = extractDescriptionSpan(lines).join(' ');
   const descWords = descText
     .trim()
     .split(/\s+/)
