@@ -205,6 +205,33 @@ function isWorktreeBlocker(blocker: string): boolean {
 }
 
 /**
+ * DR-T-3 (#1212, T-06): produce a state-vs-plan desync diagnostic when
+ * the projection's plan.taskCount diverges from workflowState.tasks.length.
+ *
+ * Diagnostic-only: does NOT gate readiness on its own. The blocker is
+ * appended to the visible list so an operator notices, but the ready
+ * gate is computed without it.
+ *
+ * Suppressed at empty baseline (plan.taskCount === 0) to avoid noise on
+ * fresh workflows where the projection hasn't seen task.assigned events
+ * yet.
+ */
+function computeDesyncBlockers(
+  workflowState: WorkflowStateView,
+  readiness: DelegationReadinessState,
+): readonly string[] {
+  const stateTasks = Array.isArray(workflowState.tasks) ? workflowState.tasks.length : 0;
+  const planCount = readiness.plan.taskCount;
+
+  if (planCount === 0) return []; // baseline — no diagnostic
+  if (stateTasks === planCount) return [];
+
+  return [
+    `state-vs-plan desync: workflow.tasks has ${stateTasks} entries but plan.taskCount is ${planCount} (likely stale state after plan-review revision)`,
+  ];
+}
+
+/**
  * DR-T-2 (#1206, T-05): when a `tasks` filter is provided, replace the
  * global "N worktrees pending" blocker with one scoped to the wave.
  *
@@ -496,11 +523,23 @@ export async function handlePrepareDelegation(
 
     // When nativeIsolation is true, filter out worktree-related blockers
     // (Claude Code handles worktree isolation natively via `isolation: "worktree"`).
-    const effectiveBlockers = args.nativeIsolation
+    const baseBlockers = args.nativeIsolation
       ? scopedBlockers.filter(b => !isWorktreeBlocker(b))
       : scopedBlockers;
 
-    const effectiveReady = effectiveBlockers.length === 0;
+    // ready is computed off the wave-scoped + native-filtered blockers,
+    // BEFORE appending the desync diagnostic — drift is informational, it
+    // does not gate dispatch on its own (per #1212 design).
+    const effectiveReady = baseBlockers.length === 0;
+
+    // DR-T-3 (#1212, T-06): state-vs-plan desync diagnostic. Compares the
+    // projection's plan.taskCount (incremented by task.assigned events)
+    // against workflowState.tasks.length. When the two diverge after a
+    // plan-review revision, the operator should notice before dispatching
+    // against stale state.
+    const desyncBlockers = computeDesyncBlockers(workflowState, readiness);
+
+    const effectiveBlockers = [...baseBlockers, ...desyncBlockers];
 
     const effectiveReadiness: DelegationReadinessState = {
       ...readiness,

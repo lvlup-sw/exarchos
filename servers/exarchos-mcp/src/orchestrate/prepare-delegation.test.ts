@@ -491,6 +491,104 @@ describe('handlePrepareDelegation', () => {
     expect(data.readiness.blockers).toEqual([]);
   });
 
+  // ─── DR-T-3 (T-06): state-vs-plan desync diagnostic ────────────────────
+
+  it('PrepareDelegation_TaskCountExceedsStateTasks_AddsDesyncBlocker', async () => {
+    // Projection has 33 task.assigned events (plan.taskCount = 33), but
+    // workflow state has only 31 entries in tasks[]. Plan revision likely
+    // added two without re-syncing state — surface the drift.
+    const state = {
+      ...readyWorkflowState(),
+      tasks: Array.from({ length: 31 }, (_, i) => ({
+        id: `T-${String(i + 1).padStart(3, '0')}`,
+        title: `Task ${i + 1}`,
+        status: 'pending',
+      })),
+    };
+    const drState: DelegationReadinessState = {
+      ready: false,
+      blockers: [],
+      plan: { approved: true, taskCount: 33, artifactPresent: true },
+      quality: { queried: true, gatePassRate: null, regressions: [] },
+      worktrees: {
+        expected: 33, ready: 0, failed: [],
+        assignedTaskIds: Array.from({ length: 33 }, (_, i) => `T-${String(i + 1).padStart(3, '0')}`),
+        readyTaskIds: [],
+      },
+    };
+    setupMaterializer(state, undefined, drState);
+    const args = { featureId: 'test-feature' };
+
+    const result = await handlePrepareDelegation(args, STATE_DIR, makeCtx(mockStore, STATE_DIR));
+
+    expect(result.success).toBe(true);
+    const data = result.data as { readiness: DelegationReadinessState };
+    const desync = data.readiness.blockers.find(b => /state-vs-plan desync/.test(b));
+    expect(desync).toBeDefined();
+    expect(desync).toContain('31');
+    expect(desync).toContain('33');
+  });
+
+  it('PrepareDelegation_StateTasksExceedPlanCount_AddsDesyncBlocker', async () => {
+    // Reverse: state has more entries than plan.taskCount. Either drift
+    // direction triggers the diagnostic.
+    const state = {
+      ...readyWorkflowState(),
+      tasks: Array.from({ length: 5 }, (_, i) => ({
+        id: `t-${i}`,
+        title: `T ${i}`,
+        status: 'pending',
+      })),
+    };
+    const drState: DelegationReadinessState = {
+      ready: false,
+      blockers: [],
+      plan: { approved: true, taskCount: 3, artifactPresent: true },
+      quality: { queried: true, gatePassRate: null, regressions: [] },
+      worktrees: {
+        expected: 3, ready: 0, failed: [],
+        assignedTaskIds: ['t-0', 't-1', 't-2'],
+        readyTaskIds: [],
+      },
+    };
+    setupMaterializer(state, undefined, drState);
+    const args = { featureId: 'test-feature' };
+
+    const result = await handlePrepareDelegation(args, STATE_DIR, makeCtx(mockStore, STATE_DIR));
+
+    expect(result.success).toBe(true);
+    const data = result.data as { readiness: DelegationReadinessState };
+    expect(data.readiness.blockers.find(b => /state-vs-plan desync/.test(b))).toBeDefined();
+  });
+
+  it('PrepareDelegation_TaskCountMatchesStateTasks_NoDesyncBlocker', async () => {
+    // Counts match — no drift, no diagnostic.
+    const state = readyWorkflowState();
+    setupMaterializer(state); // uses readyDelegationReadiness()
+    vi.mocked(generateQualityHints).mockReturnValue([]);
+    const args = { featureId: 'test-feature' };
+
+    const result = await handlePrepareDelegation(args, STATE_DIR, makeCtx(mockStore, STATE_DIR));
+
+    expect(result.success).toBe(true);
+    const data = result.data as { readiness: DelegationReadinessState };
+    expect(data.readiness.blockers.find(b => /state-vs-plan desync/.test(b))).toBeUndefined();
+  });
+
+  it('PrepareDelegation_PlanTaskCountZero_NoDesyncBlockerEvenIfStateEmpty', async () => {
+    // Initial state — no tasks anywhere yet. Diagnostic should not fire
+    // at the empty-state baseline (blocker would be noise).
+    const state = notReadyWorkflowState();
+    setupMaterializer(state); // uses notReadyDelegationReadiness()
+    const args = { featureId: 'test-feature' };
+
+    const result = await handlePrepareDelegation(args, STATE_DIR, makeCtx(mockStore, STATE_DIR));
+
+    expect(result.success).toBe(true);
+    const data = result.data as { readiness: DelegationReadinessState };
+    expect(data.readiness.blockers.find(b => /state-vs-plan desync/.test(b))).toBeUndefined();
+  });
+
   // ─── DR-T-2 (T-05): wave-scoped worktree readiness ─────────────────────
 
   it('PrepareDelegation_TasksArgSubsetReady_NoBlocker', async () => {
