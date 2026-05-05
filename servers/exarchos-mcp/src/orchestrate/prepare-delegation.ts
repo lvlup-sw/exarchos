@@ -39,6 +39,7 @@ import type { DelegationReadinessState } from '../views/delegation-readiness-vie
 import { generateQualityHints } from '../quality/hints.js';
 import type { QualityHint } from '../quality/hints.js';
 import { emitGateEvent } from './gate-utils.js';
+import { canonicaliseTaskId } from './task-decomposition.js';
 import { queryTelemetryState } from '../telemetry/telemetry-queries.js';
 import type { TelemetryViewState } from '../telemetry/telemetry-projection.js';
 import {
@@ -269,9 +270,17 @@ export function computeScopedWorktrees(
     };
   }
 
+  // F19 (#1213): canonicalise IDs before comparing. Callers may pass
+  // `T-001`/`T001`/`001` interchangeably; the projection's `readyTaskIds`
+  // preserves the form recorded by upstream emitters. Without
+  // canonicalisation a wave addressed as `T-001` reports "1 worktrees
+  // pending" even when the projection holds `T001` as ready.
+  const canonicalReady = new Set(
+    readiness.worktrees.readyTaskIds.map(canonicaliseTaskId),
+  );
   const taskIds = tasksFilter.map(t => t.id);
   const readyInWave = taskIds.filter(id =>
-    readiness.worktrees.readyTaskIds.includes(id),
+    canonicalReady.has(canonicaliseTaskId(id)),
   ).length;
   const expected = taskIds.length;
   const pending = expected - readyInWave;

@@ -523,8 +523,12 @@ export function extractDependencies(block: string): string[] {
  * normalisation, plans that mix forms — e.g. a fixture with bare-numeric
  * task IDs and `T<id>`-prefixed dependency references — would report
  * spurious unresolved-dependency errors.
+ *
+ * Exported so cross-module comparators (e.g. `computeScopedWorktrees`,
+ * which compares caller-supplied task IDs against projection-held
+ * `readyTaskIds`) collapse mixed forms identically.
  */
-function canonicaliseTaskId(id: string): string {
+export function canonicaliseTaskId(id: string): string {
   return id.replace(/^T-?/i, '').replace(/^0+/, '') || '0';
 }
 

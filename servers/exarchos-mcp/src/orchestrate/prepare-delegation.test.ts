@@ -44,7 +44,11 @@ import {
 } from '../views/tools.js';
 import { generateQualityHints } from '../quality/hints.js';
 import { emitGateEvent } from './gate-utils.js';
-import { handlePrepareDelegation, classifyTask } from './prepare-delegation.js';
+import {
+  handlePrepareDelegation,
+  classifyTask,
+  computeScopedWorktrees,
+} from './prepare-delegation.js';
 import type { TaskClassification } from './prepare-delegation.js';
 import { delegationReadinessProjection } from '../views/delegation-readiness-view.js';
 import type { WorkflowEvent } from '../event-store/schemas.js';
@@ -1657,5 +1661,81 @@ describe('handlePrepareDelegation', () => {
       const result = classifyTask({ id: '006', title: 'Implement handler' }, DEFAULTS.agents);
       expect(result.recommendedModel).toBe('opus');
     });
+  });
+});
+
+// ─── F19 (#1213): computeScopedWorktrees task-ID canonicalisation ──────────
+//
+// Callers may pass `T-001`/`T001`/`001` interchangeably; the projection's
+// `readyTaskIds` preserves the form recorded by upstream emitters. Strict
+// string-equality comparisons mis-fire on this drift and produce false
+// "<N> worktrees pending" blockers. The helper now canonicalises both
+// sides via `canonicaliseTaskId` (collapses `T-NNN`/`TNNN`/`NNN` to a
+// shared `<digits>` form) before comparing.
+
+describe('computeScopedWorktrees', () => {
+  function readiness(
+    readyTaskIds: readonly string[],
+    expected: number,
+    blockers: readonly string[] = [],
+  ): DelegationReadinessState {
+    return {
+      ready: readyTaskIds.length === expected,
+      blockers,
+      plan: { approved: true, taskCount: expected, artifactPresent: true },
+      quality: { queried: true, gatePassRate: null, regressions: [] },
+      worktrees: {
+        expected,
+        ready: readyTaskIds.length,
+        failed: [],
+        assignedTaskIds: [],
+        readyTaskIds: [...readyTaskIds],
+      },
+    };
+  }
+
+  it('ComputeScopedWorktrees_HyphenedVsUnhyphenedIds_TreatedEqual', () => {
+    // Wave addresses tasks with the hyphenated form `T-001`/`T-002`; the
+    // projection holds the unhyphenated form `T001`/`T002` (e.g. because
+    // an upstream task.assigned event normalised them differently). Both
+    // tasks ARE worktree-ready, so the wave-scoped count must report
+    // 2/2 ready and zero pending — not "2 worktrees pending".
+    const state = readiness(['T001', 'T002'], 2, ['2 worktrees pending']);
+    const result = computeScopedWorktrees(state, [
+      { id: 'T-001' },
+      { id: 'T-002' },
+    ]);
+    expect(result.expected).toBe(2);
+    expect(result.ready).toBe(2);
+    expect(result.pending).toBe(0);
+    // The "2 worktrees pending" blocker must drop because the wave is
+    // fully ready under canonical comparison.
+    expect(result.blockers).not.toContain('2 worktrees pending');
+  });
+
+  it('ComputeScopedWorktrees_PlainNumericInArgs_MatchesTPrefixedReady', () => {
+    // Wave passes plain-numeric IDs (`001`, `002`); projection records
+    // the `T-`-prefixed form. Canonical comparison still matches.
+    const state = readiness(['T-001', 'T-002'], 2);
+    const result = computeScopedWorktrees(state, [{ id: '001' }, { id: '002' }]);
+    expect(result.expected).toBe(2);
+    expect(result.ready).toBe(2);
+    expect(result.pending).toBe(0);
+  });
+
+  it('ComputeScopedWorktrees_MismatchedIds_StillReportsPending', () => {
+    // Sanity: when a wave member is genuinely missing from
+    // readyTaskIds (regardless of form), pending is non-zero.
+    const state = readiness(['T-001'], 2, ['1 worktrees pending']);
+    const result = computeScopedWorktrees(state, [
+      { id: 'T-001' }, // ready
+      { id: 'T-099' }, // not ready
+    ]);
+    expect(result.expected).toBe(2);
+    expect(result.ready).toBe(1);
+    expect(result.pending).toBe(1);
+    // Blocker rewritten to wave-scoped count (matches existing scoping
+    // contract; canonical comparison only changes the match logic).
+    expect(result.blockers).toContain('1 worktrees pending');
   });
 });
