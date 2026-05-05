@@ -515,6 +515,43 @@ the validator should treat as a target.
     expect(files).not.toContain('some.unknownext');
   });
 
+  // ─── #1213 / CodeRabbit #17: inline **Files:** header parsing ─────────
+  it('extractFiles_InlineFilesHeader_CapturesPathOnSameLine', () => {
+    // Regression: when the **Files:** header carries paths inline on the
+    // same line (instead of a multi-line list), the parser dropped them
+    // because it `continue`-d past the header without inspecting the tail.
+    // Now the inline tail is captured before falling through to the next
+    // line.
+    const block = `### Task T-01: example
+
+**Goal:** Inline files header.
+
+**Files:** \`src/inline-only.ts\`
+
+**Dependencies:** None
+**Parallelizable:** No`;
+
+    const files = extractFiles(block);
+    expect(files).toContain('src/inline-only.ts');
+  });
+
+  it('extractFiles_InlineFilesHeader_MultiplePaths_AllCaptured', () => {
+    // Multiple comma-separated inline paths on the **Files:** header line.
+    const block = `### Task T-02: example
+
+**Goal:** Multiple inline paths.
+
+**Files:** \`src/a.ts\`, \`src/b.ts\`, \`config.json\`
+
+**Dependencies:** None
+**Parallelizable:** No`;
+
+    const files = extractFiles(block);
+    expect(files).toContain('src/a.ts');
+    expect(files).toContain('src/b.ts');
+    expect(files).toContain('config.json');
+  });
+
   it('checkParallelSafety_AgencyCslLikeNarrative_NoFalseConflicts', () => {
     // End-to-end regression on the agency-csl shape: two parallel tasks
     // that share dotted-identifier *field-name* references in prose but

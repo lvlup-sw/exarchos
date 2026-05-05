@@ -564,6 +564,14 @@ export function extractFiles(block: string): string[] {
   for (const line of lines) {
     if (/^\*\*Files:\*\*/i.test(line)) {
       inFilesSection = true;
+      // CodeRabbit #17 (#1213): if the **Files:** header line itself
+      // contains paths after the colon (inline form, e.g.
+      // `**Files:** \`a.ts\`, \`b.ts\``), capture them. Without this,
+      // single-line Files headers were silently dropped.
+      const inlineTail = line.replace(/^\*\*Files:\*\*\s*/i, '');
+      if (inlineTail.length > 0) {
+        filesSectionLines.push(inlineTail);
+      }
       continue;
     }
     if (inFilesSection) {
