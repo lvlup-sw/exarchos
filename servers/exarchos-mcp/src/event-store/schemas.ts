@@ -337,7 +337,13 @@ export const WorkflowStartedData = z.object({
 export const TaskAssignedData = z.object({
   taskId: z.string().describe('Unique identifier for the task'),
   title: z.string().describe('Human-readable task title'),
-  branch: z.string().optional().describe('Git branch for this task'),
+  // Optional. When present, downstream tools (e.g., setup_worktree) may
+  // honor this as the planned branch for the task — see the resolution
+  // priority documented on SetupWorktreeArgs (`args.branch >
+  // workflow.tasks[id].branch > default`). Aligns the event hint with the
+  // workflow-state shape so orchestrators can pre-emit the same branch
+  // they later set on the workflow.
+  branch: z.string().optional().describe('Git branch for this task (planned). Optional.'),
   worktree: z.string().optional().describe('Path to the git worktree for isolation'),
   assignee: z.string().optional().describe('Agent or user assigned to this task'),
 });

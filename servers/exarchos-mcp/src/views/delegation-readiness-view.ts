@@ -13,6 +13,7 @@ export interface DelegationReadinessState {
   readonly plan: {
     readonly approved: boolean;
     readonly taskCount: number;
+    readonly artifactPresent: boolean;
   };
   readonly quality: {
     readonly queried: boolean;
@@ -23,6 +24,19 @@ export interface DelegationReadinessState {
     readonly expected: number;
     readonly ready: number;
     readonly failed: readonly string[];
+    /**
+     * DR-T-2 (#1206): per-task ID tracking for wave scoping. Populated by
+     * `task.assigned` events; deduplicated. `expected` is derived from
+     * `assignedTaskIds.length` and kept for back-compat consumers.
+     */
+    readonly assignedTaskIds: readonly string[];
+    /**
+     * DR-T-2 (#1206): per-task ID tracking for wave scoping. Populated by
+     * `worktree.created` events that carry `data.taskId`; deduplicated.
+     * `ready` is derived from `readyTaskIds.length` plus a fallback
+     * counter for legacy events without taskId. See handleWorktreeCreated.
+     */
+    readonly readyTaskIds: readonly string[];
   };
 }
 
@@ -33,6 +47,10 @@ function computeBlockers(state: Omit<DelegationReadinessState, 'ready' | 'blocke
 
   if (!state.plan.approved) {
     blockers.push('plan not approved');
+  }
+
+  if (!state.plan.artifactPresent) {
+    blockers.push('Plan artifact is missing');
   }
 
   if (state.plan.taskCount === 0) {
@@ -58,6 +76,7 @@ function computeBlockers(state: Omit<DelegationReadinessState, 'ready' | 'blocke
 function isReady(state: Omit<DelegationReadinessState, 'ready' | 'blockers'>): boolean {
   return (
     state.plan.approved &&
+    state.plan.artifactPresent &&
     state.worktrees.ready >= state.worktrees.expected &&
     state.worktrees.expected > 0 &&
     state.worktrees.failed.length === 0
@@ -142,6 +161,14 @@ function handleTaskAssigned(
   const data = event.data as { taskId?: string } | undefined;
   if (!data?.taskId) return state;
 
+  // DR-T-2 (#1206): dedup by taskId. Multiple `task.assigned` events with
+  // the same taskId (e.g. from rehydration replay) must not double-count.
+  if (state.worktrees.assignedTaskIds.includes(data.taskId)) {
+    return state;
+  }
+
+  const assignedTaskIds = [...state.worktrees.assignedTaskIds, data.taskId];
+
   return withReadiness({
     plan: {
       ...state.plan,
@@ -150,15 +177,39 @@ function handleTaskAssigned(
     quality: state.quality,
     worktrees: {
       ...state.worktrees,
-      expected: state.worktrees.expected + 1,
+      expected: assignedTaskIds.length, // derived
+      assignedTaskIds,
     },
   });
 }
 
 function handleWorktreeCreated(
   state: DelegationReadinessState,
-  _event: WorkflowEvent,
+  event: WorkflowEvent,
 ): DelegationReadinessState {
+  const data = event.data as { taskId?: string; worktreePath?: string } | undefined;
+  const taskId = data?.taskId;
+
+  // DR-T-2 (#1206): when the event carries a taskId, dedupe and add to
+  // readyTaskIds. When it doesn't (legacy), bump the count via fallback
+  // delta so totals stay sensible but per-task scoping skips it.
+  if (taskId) {
+    if (state.worktrees.readyTaskIds.includes(taskId)) {
+      return state;
+    }
+    const readyTaskIds = [...state.worktrees.readyTaskIds, taskId];
+    return withReadiness({
+      plan: state.plan,
+      quality: state.quality,
+      worktrees: {
+        ...state.worktrees,
+        ready: state.worktrees.ready + 1,
+        readyTaskIds,
+      },
+    });
+  }
+
+  // Legacy: no taskId on event. Bump count only.
   return withReadiness({
     plan: state.plan,
     quality: state.quality,
@@ -211,9 +262,28 @@ function handleStatePatched(
       ? planReview.approved
       : undefined;
 
-  if (approved !== undefined && approved !== state.plan.approved) {
+  // DR-T-1 (#1205): Resolve artifacts.plan presence from nested or dot-path form.
+  // Truthy non-empty string = present; empty string = absent.
+  const artifacts = data.patch.artifacts as { plan?: unknown } | undefined;
+  const artifactsPlanDotPath = data.patch['artifacts.plan'];
+  const artifactsPlanRaw = artifactsPlanDotPath !== undefined
+    ? artifactsPlanDotPath
+    : artifacts?.plan;
+  const artifactPresent = artifactsPlanRaw === undefined
+    ? undefined
+    : typeof artifactsPlanRaw === 'string' && artifactsPlanRaw.length > 0;
+
+  const planChanged =
+    (approved !== undefined && approved !== state.plan.approved) ||
+    (artifactPresent !== undefined && artifactPresent !== state.plan.artifactPresent);
+
+  if (planChanged) {
     return withReadiness({
-      plan: { ...state.plan, approved },
+      plan: {
+        ...state.plan,
+        ...(approved !== undefined ? { approved } : {}),
+        ...(artifactPresent !== undefined ? { artifactPresent } : {}),
+      },
       quality: state.quality,
       worktrees: state.worktrees,
     });
@@ -227,10 +297,20 @@ function handleStatePatched(
 export const delegationReadinessProjection: ViewProjection<DelegationReadinessState> = {
   init: (): DelegationReadinessState => ({
     ready: false,
-    blockers: ['plan not approved', 'no task.assigned events found — emit task.assigned events for each task via exarchos_event before calling prepare_delegation'],
-    plan: { approved: false, taskCount: 0 },
+    blockers: [
+      'plan not approved',
+      'Plan artifact is missing',
+      'no task.assigned events found — emit task.assigned events for each task via exarchos_event before calling prepare_delegation',
+    ],
+    plan: { approved: false, taskCount: 0, artifactPresent: false },
     quality: { queried: false, gatePassRate: null, regressions: [] },
-    worktrees: { expected: 0, ready: 0, failed: [] },
+    worktrees: {
+      expected: 0,
+      ready: 0,
+      failed: [],
+      assignedTaskIds: [],
+      readyTaskIds: [],
+    },
   }),
 
   apply: (view: DelegationReadinessState, event: WorkflowEvent): DelegationReadinessState => {

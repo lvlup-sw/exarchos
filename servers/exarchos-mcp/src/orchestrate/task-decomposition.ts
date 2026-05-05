@@ -74,6 +74,50 @@ interface TaskDecompositionResult {
   readonly report: string;
 }
 
+// ─── Constants ──────────────────────────────────────────────────────────
+
+/**
+ * Closed-set allowlist of file extensions accepted as real file paths by
+ * `extractFiles` and `validateTaskStructure`. Tokens whose suffix is not
+ * on this list (e.g. `imageProvenance.isFirstParty` — a TypeScript
+ * record-field reference in narrative prose) are intentionally rejected
+ * to avoid false parallel-safety conflicts on dotted-identifier tokens.
+ *
+ * Extensions are mirrored across both call sites; centralising here keeps
+ * the two regexes in lockstep (T-14 REFACTOR).
+ */
+export const FILE_EXTENSION_ALLOWLIST: readonly string[] = [
+  'ts',
+  'tsx',
+  'js',
+  'jsx',
+  'mjs',
+  'cjs',
+  'json',
+  'md',
+  'yml',
+  'yaml',
+  'sh',
+  'ps1',
+  'sql',
+  'kql',
+  'bicep',
+  'cs',
+  'csproj',
+  'sln',
+  'go',
+  'rs',
+  'toml',
+];
+
+/**
+ * Regex source fragment matching a backtick-quoted file path whose suffix
+ * is on `FILE_EXTENSION_ALLOWLIST`. The capture group brackets the path so
+ * the same source compiles for both `match` (line-level scanning) and
+ * `exec` (capture-group extraction) call sites.
+ */
+const FILE_PATH_PATTERN_SOURCE = `\`([a-zA-Z0-9_./-]+\\.(?:${FILE_EXTENSION_ALLOWLIST.join('|')}))\``;
+
 // ─── Parse Task Blocks ──────────────────────────────────────────────────
 
 /**
@@ -115,14 +159,85 @@ export function parseTaskBlocks(content: string): TaskBlock[] {
 // ─── Validate Task Structure ────────────────────────────────────────────
 
 /**
+ * Extract the description span from a task block's lines.
+ *
+ * The description span is "everything between the task heading and the next
+ * field-header (`**Word:**`) or section header (`### `)" — with the caveat
+ * that the FIRST field-header encountered is treated as a description
+ * introducer and is *included* in the span (its inline tail is captured;
+ * the prose after it is also captured). The SECOND field-header terminates
+ * the span.
+ *
+ * This handles the three canonical block shapes:
+ * - Standard implementation-planning shape (`**Goal:**` + paragraph followed
+ *   by `**Files:**`, `**Tests:**`, etc.) — Goal prose counts as description.
+ * - Legacy explicit `**Description:**` shape — Description prose counts.
+ * - Naked-prose shape (no field-headers at all) — full body counts.
+ *
+ * Returned as the array of captured raw lines (not yet word-counted) so
+ * callers can decide how to render or score them.
+ */
+export function extractDescriptionSpan(lines: readonly string[]): string[] {
+  const descLines: string[] = [];
+  let firstFieldSeen = false;
+
+  // Skip the leading task-heading line if present so its title text doesn't
+  // pollute the description count.
+  const start = lines.length > 0 && /^###\s+Task\s+/.test(lines[0]) ? 1 : 0;
+
+  for (let i = start; i < lines.length; i++) {
+    const line = lines[i];
+    if (/^###\s/.test(line)) {
+      break;
+    }
+    // F20 (#1213): capture the LABEL inside `**...:**` separately so we
+    // can distinguish description introducers (`**Goal:**`,
+    // `**Description:**`) from non-description structural headers
+    // (`**Files:**`, `**Tests:**`, `**Dependencies:**`,
+    // `**Parallelizable:**`, `**Acceptance criteria:**`, …).
+    //
+    // Previously the FIRST `**Field:**` line was treated as the
+    // description introducer regardless of label. Tasks that opened with
+    // `**Files:** \`a.ts\`, \`b.ts\`, \`c.ts\``, etc. inadvertently had
+    // their inline file list counted as description prose, satisfying
+    // the 10-word threshold and masking missing-description failures.
+    //
+    // Now: only `Goal` / `Description` (case-insensitive) introduce the
+    // span. Any other label terminates the scan immediately, leaving
+    // any preceding naked-prose lines as the description (handles the
+    // legacy "no field-headers at all" shape via the `else` branch
+    // below).
+    const fieldMatch = /^\*\*(\w[\w\s]*?):\*\*\s?(.*)$/.exec(line);
+    if (fieldMatch) {
+      const label = (fieldMatch[1] ?? '').trim();
+      const isDescriptionIntroducer = /^(goal|description)$/i.test(label);
+      if (firstFieldSeen) {
+        // Second field-header — terminate the description span.
+        break;
+      }
+      if (!isDescriptionIntroducer) {
+        // Non-description header reached before any introducer —
+        // terminate the scan WITHOUT swallowing this line. Any naked
+        // prose preceding it (already pushed to `descLines`) remains
+        // the description.
+        break;
+      }
+      // First description-introducer — drop the label, keep inline tail.
+      firstFieldSeen = true;
+      descLines.push(fieldMatch[2] ?? '');
+      continue;
+    }
+    descLines.push(line);
+  }
+
+  return descLines;
+}
+
+/**
  * Validate a task block for description quality, file targets, and test
  * expectations.
  *
- * Description parsing:
- * - Scans for `**Description:**` inline text
- * - Continues collecting text across blank lines
- * - Stops at next field header (`**Field:**`) or section header (`###`)
- * - Counts all words in collected description text
+ * Description parsing (DR-5 step 1): see `extractDescriptionSpan` above.
  *
  * File detection: backtick-quoted paths like `path/to/file.ext`
  *
@@ -132,27 +247,8 @@ export function parseTaskBlocks(content: string): TaskBlock[] {
 export function validateTaskStructure(block: string): TaskStructureResult {
   const lines = block.split('\n');
 
-  // --- Description ---
-  let descText = '';
-  let inDesc = false;
-
-  for (const line of lines) {
-    if (/^\*\*Description:\*\*/.test(line)) {
-      // Extract inline text after **Description:**
-      const inline = line.replace(/^\*\*Description:\*\*\s*/, '');
-      descText = inline;
-      inDesc = true;
-      continue;
-    }
-    if (inDesc) {
-      // Stop at next field header or section header
-      if (/^\*\*/.test(line) || /^###/.test(line)) {
-        break;
-      }
-      descText += ' ' + line;
-    }
-  }
-
+  // --- Description (span from heading to next structural header) ---
+  const descText = extractDescriptionSpan(lines).join(' ');
   const descWords = descText
     .trim()
     .split(/\s+/)
@@ -161,7 +257,11 @@ export function validateTaskStructure(block: string): TaskStructureResult {
   const hasDescription = descriptionWordCount > 10;
 
   // --- File targets ---
-  const filePattern = /`[a-zA-Z0-9_./-]+\.[a-zA-Z]+`/g;
+  // Match backtick-quoted paths whose suffix is on `FILE_EXTENSION_ALLOWLIST`.
+  // Without the allowlist, dotted-identifier tokens like
+  // `imageProvenance.isFirstParty` (record-field references in prose) used
+  // to match and pollute the file count / parallel-safety check.
+  const filePattern = new RegExp(FILE_PATH_PATTERN_SOURCE, 'g');
   let fileCount = 0;
   for (const line of lines) {
     const matches = line.match(filePattern);
@@ -204,6 +304,131 @@ export function validateTaskStructure(block: string): TaskStructureResult {
 // ─── Dependency DAG Validation ──────────────────────────────────────────
 
 /**
+ * fix-008 (review #1213): build the canonical-ID lookup tables in one place.
+ *
+ * Returns the `visitState` (canonical \u2192 0/1/2 cycle marker), the
+ * `canonicalToOriginal` map (used to surface error messages with the
+ * caller's original ID spelling), and the `depsMap` (canonical \u2192
+ * canonical[] adjacency). May short-circuit with an `error` describing a
+ * duplicate ID or unresolved dependency \u2014 both halt validation up front
+ * before any DFS work runs.
+ */
+type CanonicalMaps = {
+  readonly kind: 'ok';
+  readonly visitState: Map<string, number>;
+  readonly canonicalToOriginal: Map<string, string>;
+  readonly depsMap: Map<string, readonly string[]>;
+};
+
+type CanonicalMapsError = {
+  readonly kind: 'error';
+  readonly result: DagValidationResult;
+};
+
+function buildCanonicalMaps(
+  tasks: readonly DagTask[],
+): CanonicalMaps | CanonicalMapsError {
+  const visitState = new Map<string, number>();
+  const canonicalToOriginal = new Map<string, string>();
+
+  for (const task of tasks) {
+    const canonical = canonicaliseTaskId(task.id);
+    if (canonicalToOriginal.has(canonical)) {
+      return {
+        kind: 'error',
+        result: { valid: false, cyclePath: `Duplicate task ID: ${task.id}` },
+      };
+    }
+    visitState.set(canonical, 0);
+    canonicalToOriginal.set(canonical, task.id);
+  }
+
+  const depsMap = new Map<string, readonly string[]>();
+  for (const task of tasks) {
+    const canonicalSelf = canonicaliseTaskId(task.id);
+    const canonicalDeps: string[] = [];
+    for (const dep of task.deps) {
+      const canonicalDep = canonicaliseTaskId(dep);
+      if (!canonicalToOriginal.has(canonicalDep)) {
+        return {
+          kind: 'error',
+          result: {
+            valid: false,
+            cyclePath: `Unresolved dependency: ${task.id} depends on unknown ${dep}`,
+          },
+        };
+      }
+      canonicalDeps.push(canonicalDep);
+    }
+    depsMap.set(canonicalSelf, canonicalDeps);
+  }
+
+  return { kind: 'ok', visitState, canonicalToOriginal, depsMap };
+}
+
+/**
+ * fix-008 (review #1213): iterative DFS over the canonical adjacency.
+ *
+ * `visit` is mutated in place (caller-owned). On detecting a cycle the
+ * function returns a `DagValidationResult` carrying the offending edge
+ * (in original-ID spelling); on a clean traversal it returns `null` so
+ * the outer loop can advance to the next root.
+ *
+ * Stack entries are `[canonicalNode, phase]` where phase is `'enter'` for
+ * descent and `'exit'` for the post-order mark; this lets the iterative
+ * DFS mirror the recursive shape (pre-order discover, post-order finish)
+ * without recursion overhead or stack-depth limits on large plans.
+ */
+function dfsCycleCheck(
+  root: string,
+  adj: ReadonlyMap<string, readonly string[]>,
+  visit: Map<string, number>,
+  canonicalToOriginal: ReadonlyMap<string, string>,
+): DagValidationResult | null {
+  const stack: Array<[string, 'enter' | 'exit']> = [[root, 'enter']];
+
+  while (stack.length > 0) {
+    const [node, phase] = stack.pop()!;
+
+    if (phase === 'exit') {
+      visit.set(node, 2);
+      continue;
+    }
+
+    const state = visit.get(node);
+
+    // Already fully explored
+    if (state === 2) {
+      continue;
+    }
+
+    // Cycle: node is in-progress (already on the DFS stack)
+    if (state === 1) {
+      return { valid: false, cyclePath: canonicalToOriginal.get(node) ?? node };
+    }
+
+    visit.set(node, 1);
+    stack.push([node, 'exit']);
+
+    const deps = adj.get(node) ?? [];
+    for (const dep of deps) {
+      const depState = visit.get(dep);
+      if (depState === 1) {
+        // Cycle found \u2014 report using original IDs.
+        const nodeOriginal = canonicalToOriginal.get(node) ?? node;
+        const depOriginal = canonicalToOriginal.get(dep) ?? dep;
+        return { valid: false, cyclePath: `${nodeOriginal} \u2192 ${depOriginal}` };
+      }
+      if (depState === 0) {
+        stack.push([dep, 'enter']);
+      }
+    }
+  }
+
+  return null;
+}
+
+/**
  * Validate that the dependency graph among tasks is a DAG (no cycles).
  *
  * Uses iterative DFS with explicit stack tracking. Each node has three states:
@@ -211,78 +436,30 @@ export function validateTaskStructure(block: string): TaskStructureResult {
  * - 1 = in-progress (on the DFS stack)
  * - 2 = done (fully explored)
  *
- * A cycle is detected when we encounter a node that is in-progress.
+ * A cycle is detected when we encounter a node that is in-progress. Map-
+ * construction and the DFS itself are extracted to `buildCanonicalMaps`
+ * and `dfsCycleCheck` so this function reads as orchestration only.
  */
 export function validateDependencyDAG(tasks: readonly DagTask[]): DagValidationResult {
-  const visitState = new Map<string, number>();
-  const taskIds = new Set<string>();
+  // Cycle/unresolved comparisons run on the canonical ID
+  // (`canonicaliseTaskId`) so that `T-002`, `T002`, and `002` are treated
+  // as the same task. We keep a parallel map to recover the original ID
+  // for error messages.
+  const maps = buildCanonicalMaps(tasks);
+  if (maps.kind === 'error') return maps.result;
 
   for (const task of tasks) {
-    // Reject duplicate task IDs
-    if (taskIds.has(task.id)) {
-      return { valid: false, cyclePath: `Duplicate task ID: ${task.id}` };
-    }
-    visitState.set(task.id, 0);
-    taskIds.add(task.id);
-  }
-
-  // Build adjacency map (task -> deps), reject unresolved references
-  const depsMap = new Map<string, readonly string[]>();
-  for (const task of tasks) {
-    for (const dep of task.deps) {
-      if (!taskIds.has(dep)) {
-        return { valid: false, cyclePath: `Unresolved dependency: ${task.id} depends on unknown ${dep}` };
-      }
-    }
-    depsMap.set(task.id, task.deps);
-  }
-
-  // Iterative DFS
-  for (const task of tasks) {
-    if (visitState.get(task.id) !== 0) {
+    const canonicalRoot = canonicaliseTaskId(task.id);
+    if (maps.visitState.get(canonicalRoot) !== 0) {
       continue;
     }
-
-    // Stack entries: [node, phase] where phase is 'enter' or 'exit'
-    const stack: Array<[string, 'enter' | 'exit']> = [[task.id, 'enter']];
-
-    while (stack.length > 0) {
-      const [node, phase] = stack.pop()!;
-
-      if (phase === 'exit') {
-        visitState.set(node, 2);
-        continue;
-      }
-
-      const state = visitState.get(node);
-
-      // Already fully explored
-      if (state === 2) {
-        continue;
-      }
-
-      // Cycle: node is in-progress (already on the DFS stack)
-      if (state === 1) {
-        return { valid: false, cyclePath: node };
-      }
-
-      // Mark in-progress
-      visitState.set(node, 1);
-      stack.push([node, 'exit']);
-
-      // Push dependencies
-      const deps = depsMap.get(node) ?? [];
-      for (const dep of deps) {
-        const depState = visitState.get(dep);
-        if (depState === 1) {
-          // Cycle found
-          return { valid: false, cyclePath: `${node} \u2192 ${dep}` };
-        }
-        if (depState === 0) {
-          stack.push([dep, 'enter']);
-        }
-      }
-    }
+    const cycle = dfsCycleCheck(
+      canonicalRoot,
+      maps.depsMap,
+      maps.visitState,
+      maps.canonicalToOriginal,
+    );
+    if (cycle !== null) return cycle;
   }
 
   return { valid: true };
@@ -327,8 +504,24 @@ export function checkParallelSafety(tasks: readonly ParallelTask[]): ParallelSaf
 
 /**
  * Extract dependency task IDs from a task block's **Dependencies:** field.
+ *
+ * Anchors strictly to the `**Dependencies:**` line — never falls back to
+ * digit-scraping the wider block, which used to pull tokens like `24` out
+ * of narrative prose ("`GetCslSloRollup24h`") and report them as unknown
+ * dependencies.
+ *
+ * Matches both `T-NNN` and `TNNN` formats via a single word-boundary regex
+ * (`\b(T-?\d+)\b`). The returned matches are verbatim — `T-001` stays
+ * `T-001`, `T002` stays `T002`. The equivalence between `T-NNN`, `TNNN`,
+ * and `NNN` (bare numeric IDs emitted by `parseTaskBlocks` for `### Task
+ * 002:` headings) is handled at comparison time inside
+ * `validateDependencyDAG`, not here, so this helper does not silently
+ * mutate caller-visible IDs.
+ *
+ * Returns `[]` if no `T<id>`/`T-<id>` token is present (e.g. `none`,
+ * empty, or "Task 1, Task 2"-style narrative without a recognised id).
  */
-function extractDependencies(block: string): string[] {
+export function extractDependencies(block: string): string[] {
   const lines = block.split('\n');
   for (const line of lines) {
     if (/^\*\*Dependencies:\*\*/.test(line)) {
@@ -336,17 +529,33 @@ function extractDependencies(block: string): string[] {
       if (!depsLine || /^none$/i.test(depsLine)) {
         return [];
       }
-      // Try T-XX format first
-      const tRefs = depsLine.match(/T-[0-9]+/g);
-      if (tRefs && tRefs.length > 0) {
-        return tRefs;
-      }
-      // Fall back to plain numeric (e.g., "Task 1, Task 2" or "1, 2")
-      const numRefs = depsLine.match(/[0-9]+/g);
-      return numRefs ?? [];
+      const tRefs = depsLine.match(/\bT-?\d+\b/g);
+      return tRefs ?? [];
     }
   }
   return [];
+}
+
+/**
+ * Canonicalise a task ID for cycle/unresolved-dependency comparison.
+ *
+ * Three forms are treated as equivalent: `T-002`, `T002`, and `002`. The
+ * canonical form strips an optional leading `T-?` and then strips leading
+ * zeros (so `T-01`, `T01`, `01`, and `1` all collapse to `1`).
+ *
+ * This bridges `parseTaskBlocks` (which preserves the form as written —
+ * `T-XX` or bare numeric) and `extractDependencies` (which preserves
+ * verbatim `T-NNN`/`TNNN` tokens from the deps line). Without this
+ * normalisation, plans that mix forms — e.g. a fixture with bare-numeric
+ * task IDs and `T<id>`-prefixed dependency references — would report
+ * spurious unresolved-dependency errors.
+ *
+ * Exported so cross-module comparators (e.g. `computeScopedWorktrees`,
+ * which compares caller-supplied task IDs against projection-held
+ * `readyTaskIds`) collapse mixed forms identically.
+ */
+export function canonicaliseTaskId(id: string): string {
+  return id.replace(/^T-?/i, '').replace(/^0+/, '') || '0';
 }
 
 /**
@@ -364,12 +573,77 @@ function isParallelizable(block: string): boolean {
 
 /**
  * Extract backtick-quoted file paths from a task block.
+ *
+ * The path's suffix MUST be on a closed extension allowlist; tokens whose
+ * suffix is anything else (e.g. `imageProvenance.isFirstParty` —
+ * a TypeScript record-field reference in narrative prose) are not treated
+ * as file paths. Without this filter the parallel-safety check produces
+ * false conflicts on dotted-identifier tokens shared between tasks.
+ *
+ * If the block contains an explicit `**Files:**` section, paths declared
+ * under that section take precedence over inferred matches found elsewhere
+ * in the block — explicit declarations are the source of truth.
  */
-function extractFiles(block: string): string[] {
-  const filePattern = /`([a-zA-Z0-9_./-]+\.[a-zA-Z]+)`/g;
+export function extractFiles(block: string): string[] {
+  // Prefer files declared under an explicit `**Files:**` section when
+  // present. Capture lines from the `**Files:**` header until the next
+  // field-header (`**Word:**`) or section header (`### `).
+  const lines = block.split('\n');
+  const filesSectionLines: string[] = [];
+  let inFilesSection = false;
+  // F21 (#1213): track whether the block contained an explicit **Files:**
+  // header at all. If so, the section is AUTHORITATIVE — even when it
+  // declares zero allowlisted paths (e.g. `**Files:** none`, an empty
+  // section, or paths with non-allowlisted extensions only). Without
+  // this flag, an empty Files section silently fell through to
+  // whole-block inference and scraped unrelated backticks elsewhere in
+  // the body, producing false-positive parallel-conflict reports.
+  let sawFilesSection = false;
+  for (const line of lines) {
+    if (/^\*\*Files:\*\*/i.test(line)) {
+      inFilesSection = true;
+      sawFilesSection = true;
+      // CodeRabbit #17 (#1213): if the **Files:** header line itself
+      // contains paths after the colon (inline form, e.g.
+      // `**Files:** \`a.ts\`, \`b.ts\``), capture them. Without this,
+      // single-line Files headers were silently dropped.
+      const inlineTail = line.replace(/^\*\*Files:\*\*\s*/i, '');
+      if (inlineTail.length > 0) {
+        filesSectionLines.push(inlineTail);
+      }
+      continue;
+    }
+    if (inFilesSection) {
+      if (/^###\s/.test(line) || /^\*\*\w[\w\s]*:\*\*/.test(line)) {
+        inFilesSection = false;
+        continue;
+      }
+      filesSectionLines.push(line);
+    }
+  }
+
+  if (sawFilesSection) {
+    // Authoritative path: an explicit **Files:** section was present.
+    // Return whatever IT declares (possibly empty); do NOT fall through
+    // to whole-block inference. This prevents `**Files:** none` (or an
+    // empty section) from being silently overridden by unrelated
+    // backticks elsewhere in the task body.
+    const filesSection = filesSectionLines.join('\n');
+    const declared: string[] = [];
+    const sectionPattern = new RegExp(FILE_PATH_PATTERN_SOURCE, 'g');
+    let m: RegExpExecArray | null;
+    while ((m = sectionPattern.exec(filesSection)) !== null) {
+      declared.push(m[1]);
+    }
+    return declared;
+  }
+
+  // Fallback: no explicit **Files:** section appeared at all. Scan the
+  // whole block for backtick-quoted paths with an allowlisted extension.
+  const blockPattern = new RegExp(FILE_PATH_PATTERN_SOURCE, 'g');
   const files: string[] = [];
   let match: RegExpExecArray | null;
-  while ((match = filePattern.exec(block)) !== null) {
+  while ((match = blockPattern.exec(block)) !== null) {
     files.push(match[1]);
   }
   return files;

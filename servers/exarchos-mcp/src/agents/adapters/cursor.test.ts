@@ -120,16 +120,24 @@ describe('CursorAdapter', () => {
   // the prose is absent.
   // ────────────────────────────────────────────────────────────────────────
 
-  it('CursorAdapter_LowerSpec_StripsHardWorktreeGuard_ForAdvisoryIsolation', () => {
+  it('CursorAdapter_LowerSpec_StripsHygieneButRetainsVerification_ForAdvisoryIsolation', () => {
+    // CodeRabbit #1213/#2: the lighter `## Worktree Verification` startup
+    // STOP block is retained for cursor (advisory isolation still benefits
+    // from a sanity check), while the heavier `## Worktree Hygiene`
+    // per-command rule block IS stripped (its rules are unworkable when
+    // the runtime doesn't actually place the agent inside `.worktrees/`).
     expect(IMPLEMENTER.systemPrompt).toMatch(/## Worktree Verification/);
+    expect(IMPLEMENTER.systemPrompt).toMatch(/## Worktree Hygiene/);
     expect(IMPLEMENTER.systemPrompt).toMatch(/STOP and report error/);
 
     const { contents } = CursorAdapter.lowerSpec(IMPLEMENTER);
     const { body } = splitFrontmatter(contents);
 
-    expect(body).not.toMatch(/## Worktree Verification/);
+    // Verification block is RETAINED.
+    expect(body).toMatch(/## Worktree Verification/);
+    expect(body).toMatch(/STOP and report error/);
+    // Hygiene block is STRIPPED.
     expect(body).not.toMatch(/## Worktree Hygiene/);
-    expect(body).not.toMatch(/STOP and report error/);
 
     expect(body).toContain('TDD implementer agent');
     expect(body).toContain('## Task');
@@ -137,15 +145,18 @@ describe('CursorAdapter', () => {
     expect(body).toContain('## Completion Report');
   });
 
-  it('CursorAdapter_LowerSpec_StripsHardWorktreeGuard_FromScaffolder', () => {
+  it('CursorAdapter_LowerSpec_RetainsVerificationBlock_FromScaffolder', () => {
+    // Same retention contract for SCAFFOLDER: verification stays, hygiene
+    // (if any) goes.
     expect(SCAFFOLDER.systemPrompt).toMatch(/## Worktree Verification/);
     expect(SCAFFOLDER.systemPrompt).toMatch(/STOP and report error/);
 
     const { contents } = CursorAdapter.lowerSpec(SCAFFOLDER);
     const { body } = splitFrontmatter(contents);
 
-    expect(body).not.toMatch(/## Worktree Verification/);
-    expect(body).not.toMatch(/STOP and report error/);
+    expect(body).toMatch(/## Worktree Verification/);
+    expect(body).toMatch(/STOP and report error/);
+    expect(body).not.toMatch(/## Worktree Hygiene/);
 
     expect(body).toContain('scaffolder agent');
     expect(body).toContain('## Task');

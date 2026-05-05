@@ -44,8 +44,14 @@ import {
 } from '../views/tools.js';
 import { generateQualityHints } from '../quality/hints.js';
 import { emitGateEvent } from './gate-utils.js';
-import { handlePrepareDelegation, classifyTask } from './prepare-delegation.js';
+import {
+  handlePrepareDelegation,
+  classifyTask,
+  computeScopedWorktrees,
+} from './prepare-delegation.js';
 import type { TaskClassification } from './prepare-delegation.js';
+import { delegationReadinessProjection } from '../views/delegation-readiness-view.js';
+import type { WorkflowEvent } from '../event-store/schemas.js';
 import {
   validateBranchAncestry,
   assertMainWorktree,
@@ -115,9 +121,15 @@ function readyDelegationReadiness(): DelegationReadinessState {
   return {
     ready: true,
     blockers: [],
-    plan: { approved: true, taskCount: 2 },
+    plan: { approved: true, taskCount: 2, artifactPresent: true },
     quality: { queried: true, gatePassRate: null, regressions: [] },
-    worktrees: { expected: 2, ready: 2, failed: [] },
+    worktrees: {
+      expected: 2,
+      ready: 2,
+      failed: [],
+      assignedTaskIds: ['task-1', 'task-2'],
+      readyTaskIds: ['task-1', 'task-2'],
+    },
   };
 }
 
@@ -125,9 +137,15 @@ function notReadyDelegationReadiness(): DelegationReadinessState {
   return {
     ready: false,
     blockers: ['plan not approved', 'no task.assigned events found — emit task.assigned events for each task via exarchos_event before calling prepare_delegation'],
-    plan: { approved: false, taskCount: 0 },
+    plan: { approved: false, taskCount: 0, artifactPresent: false },
     quality: { queried: false, gatePassRate: null, regressions: [] },
-    worktrees: { expected: 0, ready: 0, failed: [] },
+    worktrees: {
+      expected: 0,
+      ready: 0,
+      failed: [],
+      assignedTaskIds: [],
+      readyTaskIds: [],
+    },
   };
 }
 
@@ -421,27 +439,335 @@ describe('handlePrepareDelegation', () => {
     expect(data.readiness.ready).toBe(false);
   });
 
-  it('HandlePrepareDelegation_ViewReadyButPlanArtifactMissing_ReturnsBlocker', async () => {
-    // Arrange: view says ready, but workflow state has no plan artifact
+  // DR-T-1 (T-03): plan-artifact blocker comes ONLY from the projection.
+  // This replaces a previous test that asserted a handler-side supplementary
+  // check fired when artifacts.plan was missing in workflow state. After T-03
+  // the handler trusts the projection — single source of truth (#1205).
+  it('HandlePrepareDelegation_BlockerList_MatchesDelegationReadinessView', async () => {
+    // fix-003 (review #1213, T-03): true parity test — replay the SAME
+    // event stream through both the handler (via the mocked materializer)
+    // and `delegationReadinessProjection.apply` directly, then deep-equal
+    // the resulting blockers arrays. Earlier revisions of this test only
+    // asserted the handler did not append a supplementary blocker; they
+    // never invoked the projection itself, so a divergence in the
+    // projection's blocker generation could pass undetected.
+
+    // ── Step 1: build a minimal event stream that exercises the
+    // plan-artifact branch.
+    // - workflow.transition → plan-review flips planReview.approved to true.
+    // - state.patched without artifacts.plan keeps artifactPresent at false.
+    // - task.assigned x2 + worktree.created x2 satisfy the worktree gate.
+    const events: WorkflowEvent[] = [
+      { type: 'workflow.transition', data: { to: 'plan-review' } } as unknown as WorkflowEvent,
+      { type: 'task.assigned', data: { taskId: 'task-1' } } as unknown as WorkflowEvent,
+      { type: 'task.assigned', data: { taskId: 'task-2' } } as unknown as WorkflowEvent,
+      { type: 'worktree.created', data: { taskId: 'task-1', worktreePath: '/w/1' } } as unknown as WorkflowEvent,
+      { type: 'worktree.created', data: { taskId: 'task-2', worktreePath: '/w/2' } } as unknown as WorkflowEvent,
+    ];
+
+    // ── Step 2: replay events through the projection — this is the
+    // delegation_readiness view as a caller would observe it.
+    let projectedView = delegationReadinessProjection.init();
+    for (const ev of events) {
+      projectedView = delegationReadinessProjection.apply(projectedView, ev);
+    }
+
+    // Sanity-check the projection: plan-artifact blocker must be present
+    // (because no state.patched flipped artifactPresent), AND no worktree
+    // pending (both created). If this ever stops being true the test
+    // fixture needs updating.
+    expect(projectedView.blockers).toContain('Plan artifact is missing');
+    expect(projectedView.blockers.find(b => /worktrees pending/.test(b))).toBeUndefined();
+
+    // ── Step 3: feed the SAME projection result into the handler. Workflow
+    // state's `artifacts.plan` is irrelevant — the projection is authoritative.
+    const state = {
+      ...readyWorkflowState(),
+      // Match projection's view of tasks: 2 entries, no plan artifact.
+      artifacts: { design: 'design.md', plan: null, pr: null },
+    };
+    setupMaterializer(state, undefined, projectedView);
+    const args = { featureId: 'test-feature' };
+
+    const result = await handlePrepareDelegation(args, STATE_DIR, makeCtx(mockStore, STATE_DIR));
+
+    // ── Step 4: deep-equal the blocker arrays. The handler must not
+    // mutate or supplement what the projection produced (no `tasks` arg
+    // here, so the wave-scoping helper is a passthrough).
+    expect(result.success).toBe(true);
+    const data = result.data as {
+      ready: boolean;
+      readiness: DelegationReadinessState;
+      blockers: string[];
+    };
+    expect(data.readiness.blockers).toEqual(projectedView.blockers);
+    expect(data.blockers).toEqual([...projectedView.blockers]);
+  });
+
+  it('HandlePrepareDelegation_ViewReady_NoSupplementaryPlanArtifactCheck', async () => {
+    // Arrange: projection says ready (artifactPresent: true) but workflow
+    // state lacks artifacts.plan. Handler must NOT add a side blocker.
     const state = {
       ...readyWorkflowState(),
       artifacts: { design: 'design.md', plan: null, pr: null },
     };
-    const drState = readyDelegationReadiness();
+    const drState: DelegationReadinessState = {
+      ready: true,
+      blockers: [],
+      plan: { approved: true, taskCount: 2, artifactPresent: true },
+      quality: { queried: true, gatePassRate: null, regressions: [] },
+      worktrees: { expected: 2, ready: 2, failed: [], assignedTaskIds: [], readyTaskIds: [] },
+    };
+    setupMaterializer(state, undefined, drState);
+    vi.mocked(generateQualityHints).mockReturnValue([]);
+    const args = { featureId: 'test-feature' };
+
+    const result = await handlePrepareDelegation(args, STATE_DIR, makeCtx(mockStore, STATE_DIR));
+
+    expect(result.success).toBe(true);
+    const data = result.data as { ready: boolean; readiness: DelegationReadinessState };
+    expect(data.ready).toBe(true);
+    expect(data.readiness.blockers).toEqual([]);
+  });
+
+  // ─── DR-T-3 (T-06): state-vs-plan desync diagnostic ────────────────────
+
+  it('PrepareDelegation_TaskCountExceedsStateTasks_AddsDesyncBlocker', async () => {
+    // Projection has 33 task.assigned events (plan.taskCount = 33), but
+    // workflow state has only 31 entries in tasks[]. Plan revision likely
+    // added two without re-syncing state — surface the drift.
+    const state = {
+      ...readyWorkflowState(),
+      tasks: Array.from({ length: 31 }, (_, i) => ({
+        id: `T-${String(i + 1).padStart(3, '0')}`,
+        title: `Task ${i + 1}`,
+        status: 'pending',
+      })),
+    };
+    const drState: DelegationReadinessState = {
+      ready: false,
+      blockers: [],
+      plan: { approved: true, taskCount: 33, artifactPresent: true },
+      quality: { queried: true, gatePassRate: null, regressions: [] },
+      worktrees: {
+        expected: 33, ready: 0, failed: [],
+        assignedTaskIds: Array.from({ length: 33 }, (_, i) => `T-${String(i + 1).padStart(3, '0')}`),
+        readyTaskIds: [],
+      },
+    };
     setupMaterializer(state, undefined, drState);
     const args = { featureId: 'test-feature' };
 
-    // Act
     const result = await handlePrepareDelegation(args, STATE_DIR, makeCtx(mockStore, STATE_DIR));
 
-    // Assert
     expect(result.success).toBe(true);
-    const data = result.data as {
-      ready: boolean;
-      blockers: string[];
+    const data = result.data as { readiness: DelegationReadinessState };
+    const desync = data.readiness.blockers.find(b => /state-vs-plan desync/.test(b));
+    expect(desync).toBeDefined();
+    expect(desync).toContain('31');
+    expect(desync).toContain('33');
+  });
+
+  it('PrepareDelegation_StateTasksExceedPlanCount_AddsDesyncBlocker', async () => {
+    // Reverse: state has more entries than plan.taskCount. Either drift
+    // direction triggers the diagnostic.
+    const state = {
+      ...readyWorkflowState(),
+      tasks: Array.from({ length: 5 }, (_, i) => ({
+        id: `t-${i}`,
+        title: `T ${i}`,
+        status: 'pending',
+      })),
     };
+    const drState: DelegationReadinessState = {
+      ready: false,
+      blockers: [],
+      plan: { approved: true, taskCount: 3, artifactPresent: true },
+      quality: { queried: true, gatePassRate: null, regressions: [] },
+      worktrees: {
+        expected: 3, ready: 0, failed: [],
+        assignedTaskIds: ['t-0', 't-1', 't-2'],
+        readyTaskIds: [],
+      },
+    };
+    setupMaterializer(state, undefined, drState);
+    const args = { featureId: 'test-feature' };
+
+    const result = await handlePrepareDelegation(args, STATE_DIR, makeCtx(mockStore, STATE_DIR));
+
+    expect(result.success).toBe(true);
+    const data = result.data as { readiness: DelegationReadinessState };
+    expect(data.readiness.blockers.find(b => /state-vs-plan desync/.test(b))).toBeDefined();
+  });
+
+  it('PrepareDelegation_TaskCountMatchesStateTasks_NoDesyncBlocker', async () => {
+    // Counts match — no drift, no diagnostic.
+    const state = readyWorkflowState();
+    setupMaterializer(state); // uses readyDelegationReadiness()
+    vi.mocked(generateQualityHints).mockReturnValue([]);
+    const args = { featureId: 'test-feature' };
+
+    const result = await handlePrepareDelegation(args, STATE_DIR, makeCtx(mockStore, STATE_DIR));
+
+    expect(result.success).toBe(true);
+    const data = result.data as { readiness: DelegationReadinessState };
+    expect(data.readiness.blockers.find(b => /state-vs-plan desync/.test(b))).toBeUndefined();
+  });
+
+  it('PrepareDelegation_PlanTaskCountZero_NoDesyncBlockerEvenIfStateEmpty', async () => {
+    // Initial state — no tasks anywhere yet. Diagnostic should not fire
+    // at the empty-state baseline (blocker would be noise).
+    const state = notReadyWorkflowState();
+    setupMaterializer(state); // uses notReadyDelegationReadiness()
+    const args = { featureId: 'test-feature' };
+
+    const result = await handlePrepareDelegation(args, STATE_DIR, makeCtx(mockStore, STATE_DIR));
+
+    expect(result.success).toBe(true);
+    const data = result.data as { readiness: DelegationReadinessState };
+    expect(data.readiness.blockers.find(b => /state-vs-plan desync/.test(b))).toBeUndefined();
+  });
+
+  // ─── DR-T-2 (T-05): wave-scoped worktree readiness ─────────────────────
+
+  it('PrepareDelegation_TasksArgSubsetReady_NoBlocker', async () => {
+    // Projection has 5 assigned, 3 ready (subset). tasks arg names the
+    // 3 ready ones — wave is complete, no worktree blocker should fire.
+    const state = readyWorkflowState();
+    const drState: DelegationReadinessState = {
+      ready: false,
+      blockers: ['2 worktrees pending'], // global view: 2 of 5 still pending
+      plan: { approved: true, taskCount: 5, artifactPresent: true },
+      quality: { queried: true, gatePassRate: null, regressions: [] },
+      worktrees: {
+        expected: 5, ready: 3, failed: [],
+        assignedTaskIds: ['t1', 't2', 't3', 't4', 't5'],
+        readyTaskIds: ['t1', 't2', 't3'],
+      },
+    };
+    setupMaterializer(state, undefined, drState);
+    vi.mocked(generateQualityHints).mockReturnValue([]);
+    const args = {
+      featureId: 'test-feature',
+      tasks: [
+        { id: 't1', title: 'A' },
+        { id: 't2', title: 'B' },
+        { id: 't3', title: 'C' },
+      ],
+    };
+
+    const result = await handlePrepareDelegation(args, STATE_DIR, makeCtx(mockStore, STATE_DIR));
+
+    expect(result.success).toBe(true);
+    const data = result.data as { ready: boolean; readiness: DelegationReadinessState };
+    expect(data.ready).toBe(true);
+    // fix-006 (review #1213): explicit predicate avoids the
+    // `not.toContain(expect.stringContaining(...))` asymmetric-matcher
+    // construction whose semantics vary across vitest versions.
+    expect(data.readiness.blockers.find(b => /worktrees pending/.test(b))).toBeUndefined();
+  });
+
+  it('PrepareDelegation_TasksArgSubsetPending_ExactPendingCountInBlocker', async () => {
+    // Projection has 33 assigned, 0 ready. tasks arg names 3 pending.
+    // Blocker should report 3 worktrees pending, not 33.
+    const state = readyWorkflowState();
+    const drState: DelegationReadinessState = {
+      ready: false,
+      blockers: ['33 worktrees pending'],
+      plan: { approved: true, taskCount: 33, artifactPresent: true },
+      quality: { queried: true, gatePassRate: null, regressions: [] },
+      worktrees: {
+        expected: 33, ready: 0, failed: [],
+        assignedTaskIds: Array.from({ length: 33 }, (_, i) => `T-${String(i + 1).padStart(3, '0')}`),
+        readyTaskIds: [],
+      },
+    };
+    setupMaterializer(state, undefined, drState);
+    const args = {
+      featureId: 'test-feature',
+      tasks: [
+        { id: 'T-001', title: 'A' },
+        { id: 'T-002', title: 'B' },
+        { id: 'T-003', title: 'C' },
+      ],
+    };
+
+    const result = await handlePrepareDelegation(args, STATE_DIR, makeCtx(mockStore, STATE_DIR));
+
+    expect(result.success).toBe(true);
+    const data = result.data as { ready: boolean; readiness: DelegationReadinessState; blockers: string[] };
     expect(data.ready).toBe(false);
-    expect(data.blockers).toContain('Plan artifact is missing');
+    expect(data.readiness.blockers).toContain('3 worktrees pending');
+    expect(data.readiness.blockers).not.toContain('33 worktrees pending');
+  });
+
+  it('PrepareDelegation_NoTasksArg_AllAssignedConsidered', async () => {
+    // Without tasks arg, the global blocker passes through unchanged.
+    const state = readyWorkflowState();
+    const drState: DelegationReadinessState = {
+      ready: false,
+      blockers: ['10 worktrees pending'],
+      plan: { approved: true, taskCount: 10, artifactPresent: true },
+      quality: { queried: true, gatePassRate: null, regressions: [] },
+      worktrees: {
+        expected: 10, ready: 0, failed: [],
+        assignedTaskIds: Array.from({ length: 10 }, (_, i) => `t-${i}`),
+        readyTaskIds: [],
+      },
+    };
+    setupMaterializer(state, undefined, drState);
+    const args = { featureId: 'test-feature' }; // no tasks arg
+
+    const result = await handlePrepareDelegation(args, STATE_DIR, makeCtx(mockStore, STATE_DIR));
+
+    expect(result.success).toBe(true);
+    const data = result.data as { ready: boolean; readiness: DelegationReadinessState };
+    expect(data.readiness.blockers).toContain('10 worktrees pending');
+  });
+
+  // fix-005 (review #1213): wave-scoping must update both blockers AND the
+  // numeric worktrees.expected/ready surfaces, not just the blocker strings.
+  // Plan T-05 specified a pure helper computeScopedWorktrees(readiness,
+  // tasksFilter) returning { expected, ready, pending } so all three counts
+  // stay in lockstep. This test asserts effectiveReadiness.worktrees mirrors
+  // the wave subset rather than the global stream-wide count.
+  it('PrepareDelegation_TasksArgSubset_EffectiveReadinessReportsScopedWorktreeCounts', async () => {
+    // Projection has 5 assigned, 2 ready (global). The wave names 3 of those
+    // 5 — 2 ready, 1 pending. Effective readiness must report
+    // worktrees.expected === 3 and worktrees.ready === 2 (NOT 5/2).
+    const state = readyWorkflowState();
+    const drState: DelegationReadinessState = {
+      ready: false,
+      blockers: ['3 worktrees pending'], // global view: 3 of 5 still pending
+      plan: { approved: true, taskCount: 5, artifactPresent: true },
+      quality: { queried: true, gatePassRate: null, regressions: [] },
+      worktrees: {
+        expected: 5, ready: 2, failed: [],
+        assignedTaskIds: ['t1', 't2', 't3', 't4', 't5'],
+        readyTaskIds: ['t1', 't2'],
+      },
+    };
+    setupMaterializer(state, undefined, drState);
+    const args = {
+      featureId: 'test-feature',
+      tasks: [
+        { id: 't1', title: 'A' }, // ready
+        { id: 't2', title: 'B' }, // ready
+        { id: 't3', title: 'C' }, // pending
+      ],
+    };
+
+    const result = await handlePrepareDelegation(args, STATE_DIR, makeCtx(mockStore, STATE_DIR));
+
+    expect(result.success).toBe(true);
+    const data = result.data as { ready: boolean; readiness: DelegationReadinessState };
+    // Wave size is 3 (not 5). One pending in the wave (t3).
+    expect(data.readiness.worktrees.expected).toBe(args.tasks.length);
+    expect(data.readiness.worktrees.expected).toBe(3);
+    expect(data.readiness.worktrees.ready).toBe(2);
+    // Blocker reports the wave-scoped pending count.
+    expect(data.readiness.blockers).toContain('1 worktrees pending');
+    expect(data.readiness.blockers).not.toContain('3 worktrees pending');
   });
 
   // ─── DR-5: nativeIsolation readiness.blockers consistency ─────────────────
@@ -452,9 +778,9 @@ describe('handlePrepareDelegation', () => {
     const drState: DelegationReadinessState = {
       ready: false,
       blockers: ['worktrees pending', 'no worktrees expected'],
-      plan: { approved: true, taskCount: 2 },
+      plan: { approved: true, taskCount: 2, artifactPresent: true },
       quality: { queried: true, gatePassRate: null, regressions: [] },
-      worktrees: { expected: 2, ready: 0, failed: [] },
+      worktrees: { expected: 2, ready: 0, failed: [], assignedTaskIds: [], readyTaskIds: [] },
     };
     setupMaterializer(state, undefined, drState);
     vi.mocked(generateQualityHints).mockReturnValue([]);
@@ -480,9 +806,9 @@ describe('handlePrepareDelegation', () => {
     const drState: DelegationReadinessState = {
       ready: false,
       blockers: ['plan not approved', 'worktrees pending'],
-      plan: { approved: false, taskCount: 0 },
+      plan: { approved: false, taskCount: 0, artifactPresent: false },
       quality: { queried: false, gatePassRate: null, regressions: [] },
-      worktrees: { expected: 2, ready: 0, failed: [] },
+      worktrees: { expected: 2, ready: 0, failed: [], assignedTaskIds: [], readyTaskIds: [] },
     };
     setupMaterializer(state, undefined, drState);
     const args = { featureId: 'test-feature', nativeIsolation: true };
@@ -511,9 +837,9 @@ describe('handlePrepareDelegation', () => {
     const drState: DelegationReadinessState = {
       ready: false,
       blockers: ['plan not approved', 'worktrees pending'],
-      plan: { approved: false, taskCount: 0 },
+      plan: { approved: false, taskCount: 0, artifactPresent: false },
       quality: { queried: true, gatePassRate: null, regressions: [] },
-      worktrees: { expected: 2, ready: 0, failed: [] },
+      worktrees: { expected: 2, ready: 0, failed: [], assignedTaskIds: [], readyTaskIds: [] },
     };
     setupMaterializer(state, undefined, drState);
     const args = { featureId: 'test-feature' };
@@ -531,8 +857,9 @@ describe('handlePrepareDelegation', () => {
     expect(data.ready).toBe(false);
     expect(data.readiness.blockers).toContain('plan not approved');
     expect(data.readiness.blockers).toContain('worktrees pending');
-    // Plan artifact missing is added as supplementary check
-    expect(data.readiness.blockers).toContain('Plan artifact is missing');
+    // Plan artifact missing now comes from the projection itself (T-02);
+    // the handler does not emit a supplementary copy (T-03).
+    // (This fixture's drState.blockers does not include it, so it should NOT appear here.)
   });
 
   // ─── T-15: nativeIsolation parameter ──────────────────────────────────────
@@ -543,9 +870,9 @@ describe('handlePrepareDelegation', () => {
     const drState: DelegationReadinessState = {
       ready: false,
       blockers: ['no worktrees expected'],
-      plan: { approved: true, taskCount: 2 },
+      plan: { approved: true, taskCount: 2, artifactPresent: true },
       quality: { queried: true, gatePassRate: null, regressions: [] },
-      worktrees: { expected: 0, ready: 0, failed: [] },
+      worktrees: { expected: 0, ready: 0, failed: [], assignedTaskIds: [], readyTaskIds: [] },
     };
     setupMaterializer(state, undefined, drState);
     vi.mocked(generateQualityHints).mockReturnValue([]);
@@ -567,9 +894,9 @@ describe('handlePrepareDelegation', () => {
     const drState: DelegationReadinessState = {
       ready: false,
       blockers: ['no worktrees expected'],
-      plan: { approved: true, taskCount: 2 },
+      plan: { approved: true, taskCount: 2, artifactPresent: true },
       quality: { queried: true, gatePassRate: null, regressions: [] },
-      worktrees: { expected: 0, ready: 0, failed: [] },
+      worktrees: { expected: 0, ready: 0, failed: [], assignedTaskIds: [], readyTaskIds: [] },
     };
     setupMaterializer(state, undefined, drState);
     const args = { featureId: 'test-feature' };
@@ -591,9 +918,9 @@ describe('handlePrepareDelegation', () => {
     const drState: DelegationReadinessState = {
       ready: false,
       blockers: ['plan not approved', 'no worktrees expected'],
-      plan: { approved: false, taskCount: 0 },
+      plan: { approved: false, taskCount: 0, artifactPresent: false },
       quality: { queried: true, gatePassRate: null, regressions: [] },
-      worktrees: { expected: 0, ready: 0, failed: [] },
+      worktrees: { expected: 0, ready: 0, failed: [], assignedTaskIds: [], readyTaskIds: [] },
     };
     setupMaterializer(state, undefined, drState);
     const args = { featureId: 'test-feature', nativeIsolation: true };
@@ -641,7 +968,7 @@ describe('handlePrepareDelegation', () => {
     const state = readyWorkflowState();
     const drState: DelegationReadinessState = {
       ...readyDelegationReadiness(),
-      worktrees: { expected: 3, ready: 3, failed: [] },
+      worktrees: { expected: 3, ready: 3, failed: [], assignedTaskIds: [], readyTaskIds: [] },
     };
     setupMaterializer(state, undefined, drState);
     vi.mocked(generateQualityHints).mockReturnValue([]);
@@ -1334,5 +1661,134 @@ describe('handlePrepareDelegation', () => {
       const result = classifyTask({ id: '006', title: 'Implement handler' }, DEFAULTS.agents);
       expect(result.recommendedModel).toBe('opus');
     });
+  });
+});
+
+// ─── F19 (#1213): computeScopedWorktrees task-ID canonicalisation ──────────
+//
+// Callers may pass `T-001`/`T001`/`001` interchangeably; the projection's
+// `readyTaskIds` preserves the form recorded by upstream emitters. Strict
+// string-equality comparisons mis-fire on this drift and produce false
+// "<N> worktrees pending" blockers. The helper now canonicalises both
+// sides via `canonicaliseTaskId` (collapses `T-NNN`/`TNNN`/`NNN` to a
+// shared `<digits>` form) before comparing.
+
+describe('computeScopedWorktrees', () => {
+  function readiness(
+    readyTaskIds: readonly string[],
+    expected: number,
+    blockers: readonly string[] = [],
+  ): DelegationReadinessState {
+    return {
+      ready: readyTaskIds.length === expected,
+      blockers,
+      plan: { approved: true, taskCount: expected, artifactPresent: true },
+      quality: { queried: true, gatePassRate: null, regressions: [] },
+      worktrees: {
+        expected,
+        ready: readyTaskIds.length,
+        failed: [],
+        assignedTaskIds: [],
+        readyTaskIds: [...readyTaskIds],
+      },
+    };
+  }
+
+  it('ComputeScopedWorktrees_HyphenedVsUnhyphenedIds_TreatedEqual', () => {
+    // Wave addresses tasks with the hyphenated form `T-001`/`T-002`; the
+    // projection holds the unhyphenated form `T001`/`T002` (e.g. because
+    // an upstream task.assigned event normalised them differently). Both
+    // tasks ARE worktree-ready, so the wave-scoped count must report
+    // 2/2 ready and zero pending — not "2 worktrees pending".
+    const state = readiness(['T001', 'T002'], 2, ['2 worktrees pending']);
+    const result = computeScopedWorktrees(state, [
+      { id: 'T-001' },
+      { id: 'T-002' },
+    ]);
+    expect(result.expected).toBe(2);
+    expect(result.ready).toBe(2);
+    expect(result.pending).toBe(0);
+    // The "2 worktrees pending" blocker must drop because the wave is
+    // fully ready under canonical comparison.
+    expect(result.blockers).not.toContain('2 worktrees pending');
+  });
+
+  it('ComputeScopedWorktrees_PlainNumericInArgs_MatchesTPrefixedReady', () => {
+    // Wave passes plain-numeric IDs (`001`, `002`); projection records
+    // the `T-`-prefixed form. Canonical comparison still matches.
+    const state = readiness(['T-001', 'T-002'], 2);
+    const result = computeScopedWorktrees(state, [{ id: '001' }, { id: '002' }]);
+    expect(result.expected).toBe(2);
+    expect(result.ready).toBe(2);
+    expect(result.pending).toBe(0);
+  });
+
+  it('ComputeScopedWorktrees_MismatchedIds_StillReportsPending', () => {
+    // Sanity: when a wave member is genuinely missing from
+    // readyTaskIds (regardless of form), pending is non-zero.
+    const state = readiness(['T-001'], 2, ['1 worktrees pending']);
+    const result = computeScopedWorktrees(state, [
+      { id: 'T-001' }, // ready
+      { id: 'T-099' }, // not ready
+    ]);
+    expect(result.expected).toBe(2);
+    expect(result.ready).toBe(1);
+    expect(result.pending).toBe(1);
+    // Blocker rewritten to wave-scoped count (matches existing scoping
+    // contract; canonical comparison only changes the match logic).
+    expect(result.blockers).toContain('1 worktrees pending');
+  });
+
+  // F-iter3 (#1213, sentry HIGH r3186305844): the global readiness can be
+  // empty of "N worktrees pending" blockers (because globally everything is
+  // ready) while a wave subset still has unready members. Without an
+  // explicit synthesise step the caller saw `blockers === []` and dispatched
+  // prematurely. The next three tests pin the synthesise / no-synthesise /
+  // existing-rewrite behaviours.
+  it('ComputeScopedWorktrees_GlobalReadyButWavePending_SynthesisesBlocker', () => {
+    // Globally only T-001 is ready and the projection has no
+    // "N worktrees pending" blocker (e.g. global expected==1 / ready==1
+    // because the global expected count was scoped to the ready set, OR a
+    // mix of legacy/modern worktree.created events). The wave addresses
+    // T-002 — which is not ready. Without synthesis the caller would see
+    // blockers===[] and dispatch.
+    const state = readiness(['T-001'], 1, []);
+    const result = computeScopedWorktrees(state, [{ id: 'T-002' }]);
+    expect(result.expected).toBe(1);
+    expect(result.ready).toBe(0);
+    expect(result.pending).toBe(1);
+    expect(result.blockers).toContain('1 worktrees pending');
+  });
+
+  it('ComputeScopedWorktrees_GlobalAndWaveReady_NoBlockerSynthesised', () => {
+    // Globally and wave-locally the only task is ready. No blocker should
+    // be synthesised; result.blockers must remain empty.
+    const state = readiness(['T-001'], 1, []);
+    const result = computeScopedWorktrees(state, [{ id: 'T-001' }]);
+    expect(result.expected).toBe(1);
+    expect(result.ready).toBe(1);
+    expect(result.pending).toBe(0);
+    expect(result.blockers).toEqual([]);
+  });
+
+  it('ComputeScopedWorktrees_GlobalHasPendingBlocker_RewrittenToWaveCount', () => {
+    // Existing transformation contract: the global "5 worktrees pending"
+    // blocker must be rewritten to the wave-scoped count, not duplicated
+    // or left at the global value.
+    const state = readiness(['T-001'], 5, ['5 worktrees pending']);
+    const result = computeScopedWorktrees(state, [
+      { id: 'T-001' }, // ready
+      { id: 'T-002' }, // not ready
+    ]);
+    expect(result.expected).toBe(2);
+    expect(result.ready).toBe(1);
+    expect(result.pending).toBe(1);
+    expect(result.blockers).toContain('1 worktrees pending');
+    expect(result.blockers).not.toContain('5 worktrees pending');
+    // Synthesise step must not produce a duplicate "1 worktrees pending".
+    const matches = result.blockers.filter(b =>
+      /^\d+ worktrees pending$/.test(b),
+    );
+    expect(matches).toHaveLength(1);
   });
 });

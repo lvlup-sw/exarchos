@@ -63,31 +63,37 @@ interface CursorFrontmatter {
 }
 
 /**
- * Strip the hard "STOP if pwd doesn't contain `.worktrees/`" worktree
- * guard from a systemPrompt when the target runtime treats
- * `isolation:worktree` as advisory rather than native (Cursor's case
- * today — see CURSOR_SUPPORT_LEVELS).
+ * Strip the heavy `## Worktree Hygiene` per-command rule block from a
+ * systemPrompt when the target runtime treats `isolation:worktree` as
+ * advisory rather than native (Cursor's case today — see
+ * CURSOR_SUPPORT_LEVELS).
  *
- * The guard lives in two known H2 subsections in the canonical specs
- * (`definitions.ts`):
- *   - `## Worktree Verification` — the startup STOP block
- *   - `## Worktree Hygiene (MANDATORY ...)` — the extended per-command rules
+ * CodeRabbit #1213/#2: the lighter `## Worktree Verification` startup
+ * STOP block IS retained for cursor. Operators on advisory-isolation
+ * runtimes still need an explicit "verify your cwd before editing"
+ * checkpoint — without it, a subagent that boots in the parent repo
+ * silently writes to the wrong directory. The cursor adapter previously
+ * stripped both blocks for symmetry, but the verification block has
+ * value even under advisory isolation (it's a sanity check, not a hard
+ * runtime invariant).
  *
- * Both are predicated on the runtime actually placing the agent inside
- * a `.worktrees/` path; under advisory isolation that assumption fails
- * and the guards would always trip.
+ * The hygiene block (per-command `git -C` + `npm --prefix` rules) IS
+ * still stripped — it depends on the runtime actually placing the
+ * agent inside `.worktrees/`, and on advisory isolation that
+ * assumption fails and the rules would force an unworkable command
+ * style.
  *
- * The match is conservative: anchored on the exact H2 headings and
- * stops at the next H2 (or end of string). If a future spec drops these
- * sections or renames the headings, this is a silent no-op rather than
+ * The match is conservative: anchored on the exact H2 heading and
+ * stops at the next H2 (or end of string). If a future spec drops the
+ * section or renames the heading, this is a silent no-op rather than
  * an over-eager strip that clobbers unrelated content.
  *
  * The source `definitions.ts` IMPLEMENTER/SCAFFOLDER specs keep the
- * guards verbatim (Claude and other native-isolation runtimes still
- * need them).
+ * full guard verbatim (Claude and other native-isolation runtimes
+ * still need both blocks).
  */
 function stripAdvisoryWorktreeGuard(systemPrompt: string): string {
-  const pattern = /(?:^|\n)## Worktree (?:Verification|Hygiene)[^\n]*\n[\s\S]*?(?=\n## |\n?$)/g;
+  const pattern = /(?:^|\n)## Worktree Hygiene[^\n]*\n[\s\S]*?(?=\n## |\n?$)/g;
   return systemPrompt.replace(pattern, '');
 }
 

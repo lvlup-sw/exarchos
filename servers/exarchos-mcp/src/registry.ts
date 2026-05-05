@@ -1193,6 +1193,12 @@ const orchestrateActions: readonly ToolAction[] = [
       taskName: z.string().min(1),
       baseBranch: z.string().optional(),
       skipTests: z.boolean().optional(),
+      // DR-3 (T-09, #1204): resolution priority is
+      //   `branch` > `workflow.tasks[id=taskId].branch` > legacy default.
+      // Provide `featureId` to let the composite adapter look up the planned
+      // branch from workflow state when `branch` is not supplied.
+      branch: z.string().min(1).optional(),
+      featureId: z.string().min(1).optional(),
     }),
     phases: DELEGATE_PHASES,
     roles: ROLE_LEAD,

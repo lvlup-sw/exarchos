@@ -159,13 +159,48 @@ function adaptToDispatchGuardExec(
 }
 
 /**
+ * Build the operator-facing remediation hint for an ancestry-failed merge
+ * preflight (T-15 / DR-6, #1212). The hint must be self-contained so the
+ * operator can recover without consulting external docs:
+ *
+ *   1. The exact `git rebase` command, with both branch names interpolated
+ *      so it is copy-pasteable.
+ *   2. A link to the runbook section in the delegation skill that
+ *      documents the manual rebase + rollback procedure. The anchor
+ *      `#when-integration-advances-mid-wave` is the slugified heading
+ *      added in `skills-src/delegation/SKILL.md` under task T-15.
+ *
+ * No auto-rebase is invoked here; per the plan, automation is deferred
+ * to issue #1119.
+ */
+function formatAncestryRemediation(
+  sourceBranch: string,
+  targetBranch: string,
+): string {
+  // CodeRabbit #1213/#6: omit the source-branch arg from the rebase hint.
+  // `git rebase <target> <source>` checks `<source>` out, which fails when
+  // the same branch is checked out in another worktree (the common case
+  // here — operator runs from the feature worktree). The two-arg form
+  // also forces a hard branch checkout instead of using the operator's
+  // current HEAD, which is rarely what they want. Run from the feature
+  // worktree with `git rebase <target>`.
+  return (
+    `source branch ${sourceBranch} is not a descendant of ${targetBranch}. ` +
+    `Rebase manually with: git rebase ${targetBranch} (run from the ${sourceBranch} worktree). ` +
+    `Runbook: skills-src/delegation/SKILL.md#when-integration-advances-mid-wave`
+  );
+}
+
+/**
  * Compose all four preflight guards into a single result. DR-MO-1
  * (topology preflight) requires that ancestry, current-branch
  * protection, main-worktree assertion, and working-tree drift all
  * pass before a merge is attempted.
  *
- * T06 covers only the happy path; T07 will exercise each failure
- * branch independently.
+ * T06 covers only the happy path; T07 exercises each failure
+ * branch independently. T-15 (#1212, DR-6) added the ancestry-failure
+ * remediation hint so operators can recover without consulting
+ * external docs.
  */
 export async function mergePreflight(
   args: MergePreflightArgs,
@@ -180,11 +215,29 @@ export async function mergePreflight(
   // `[targetBranch]` as the required upstream. The synthesis-flow caller
   // uses the opposite direction (target=main, upstream=feature-branches)
   // because there the assertion is "all features have landed in main."
-  const ancestry = await validateBranchAncestry(
+  const ancestryRaw = await validateBranchAncestry(
     args.sourceBranch,
     [args.targetBranch],
     adapter,
   );
+
+  // T-15: when ancestry fails because the source has diverged from the
+  // target (`reason: 'ancestry'`), enrich the result with a remediation
+  // hint that names the manual rebase command and links to the runbook.
+  // We do this here rather than inside `validateBranchAncestry` because
+  // only the merge-preflight caller knows the appropriate runbook target —
+  // other callers (synthesis-flow) need different remediation copy.
+  const ancestry: AncestryResult =
+    ancestryRaw.reason === 'ancestry'
+      ? {
+          ...ancestryRaw,
+          hint: formatAncestryRemediation(
+            args.sourceBranch,
+            args.targetBranch,
+          ),
+        }
+      : ancestryRaw;
+
   const currentBranch = getCurrentBranch(adapter);
   const currentBranchProtection = assertCurrentBranchNotProtected(currentBranch);
   const worktree = assertMainWorktree(repoRoot);

@@ -307,7 +307,11 @@ describe('runStaticAnalysis', () => {
   // ============================================================
 
   describe('usage errors', () => {
-    it('empty directory with no project files returns pass (no applicable toolchain)', () => {
+    it('empty directory with no project files returns skip (no applicable toolchain)', () => {
+      // T-10: no-toolchain repos produce a 'skip' (inconclusive) result so
+      // the static-analysis gate cannot falsely-green a project that has
+      // no recognized toolchain. See DR-4 in
+      // docs/plans/2026-05-04-v290-dogfood-bundle.md.
       const emptyDir = path.join(tmpDir, 'empty');
       fs.mkdirSync(emptyDir, { recursive: true });
 
@@ -316,7 +320,8 @@ describe('runStaticAnalysis', () => {
         runCommand: successRunner(),
       });
 
-      expect(result.status).toBe('pass');
+      expect(result.status).toBe('skip');
+      expect(result.skipReason).toBe('no-toolchain');
       expect(result.projectType).toBeUndefined();
       expect(result.output).toContain('No recognized project type');
     });
@@ -483,10 +488,36 @@ describe('runStaticAnalysis', () => {
         runCommand: successRunner(),
       });
 
-      expect(result.status).toBe('pass');
+      // T-10: no-toolchain now resolves to 'skip' instead of 'pass' so the
+      // gate is honestly inconclusive rather than falsely-green.
+      expect(result.status).toBe('skip');
       expect(result.projectType).toBeUndefined();
       expect(result.passCount).toBe(0);
       expect(result.failCount).toBe(0);
+    });
+
+    // ─── T-10: SKIP status for unsupported toolchains ──────────────────────
+
+    it('runStaticAnalysis_NoToolchainDetected_ReturnsSkipStatus', () => {
+      // A directory with no recognized project file (no package.json,
+      // no *.csproj/*.sln, no go.mod, no Cargo.toml) should yield a
+      // 'skip' status with skipReason='no-toolchain' rather than a
+      // false-green 'pass'.
+      const repoRoot = createProjectDir({ 'README.md': '# Empty repo' });
+
+      const result = runStaticAnalysis({
+        repoRoot,
+        runCommand: successRunner(),
+      });
+
+      expect(result.status).toBe('skip');
+      expect(result.skipReason).toBe('no-toolchain');
+      expect(result.projectType).toBeUndefined();
+      expect(result.passCount).toBe(0);
+      expect(result.failCount).toBe(0);
+      // Output should announce SKIP, not PASS, in the result line.
+      expect(result.output).toContain('Result: SKIP');
+      expect(result.output).not.toContain('Result: PASS');
     });
 
     it('.NET project reports failure when dotnet build fails', () => {

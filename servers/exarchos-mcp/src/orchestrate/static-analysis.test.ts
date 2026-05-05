@@ -79,6 +79,26 @@ function makeErrorResult() {
   };
 }
 
+function makeSkipResult() {
+  return {
+    status: 'skip' as const,
+    output: [
+      '## Static Analysis Report',
+      '',
+      '**Repository:** `/home/user/empty-repo`',
+      '',
+      '- **SKIP**: No recognized project type (no package.json, *.csproj, go.mod, or Cargo.toml)',
+      '',
+      '---',
+      '',
+      '**Result: SKIP** (no applicable toolchain detected)',
+    ].join('\n'),
+    skipReason: 'no-toolchain' as const,
+    passCount: 0,
+    failCount: 0,
+  };
+}
+
 // ─── Tests ───────────────────────────────────────────────────────────────────
 
 describe('handleStaticAnalysis', () => {
@@ -239,6 +259,58 @@ describe('handleStaticAnalysis', () => {
       expect(result.success).toBe(false);
       expect(result.error?.code).toBe('SCRIPT_ERROR');
       expect(result.error?.message).toContain('No package.json found');
+    });
+  });
+
+  // ─── Skip Status (T-10: no-toolchain inconclusive) ───────────────────
+
+  describe('skip status from analysis', () => {
+    it('handleStaticAnalysis_SkipStatus_EmitsEventWithSkippedTrue', async () => {
+      // Arrange: pure function reports skip / no-toolchain.
+      mockRunStaticAnalysis.mockReturnValue(makeSkipResult());
+
+      const args = { featureId: 'feat-1', repoRoot: '/home/user/empty-repo' };
+
+      // Act
+      const result = await handleStaticAnalysis(args, STATE_DIR, mockStore as unknown as EventStore);
+
+      // Assert: handler returns success with passed=false + skipped=true.
+      expect(result.success).toBe(true);
+      const data = result.data as {
+        passed: boolean;
+        skipped: boolean;
+        skipReason?: string;
+        passCount: number;
+        failCount: number;
+        report: string;
+      };
+      expect(data.passed).toBe(false);
+      expect(data.skipped).toBe(true);
+      expect(data.skipReason).toBe('no-toolchain');
+      expect(data.passCount).toBe(0);
+      expect(data.failCount).toBe(0);
+      expect(data.report).toContain('Result: SKIP');
+
+      // Assert: gate.executed event reflects skip in details payload.
+      expect(mockStore.append).toHaveBeenCalledTimes(1);
+      const appendCall = mockStore.append.mock.calls[0];
+      expect(appendCall[0]).toBe('feat-1');
+      const event = appendCall[1] as {
+        type: string;
+        data: {
+          gateName: string;
+          layer: string;
+          passed: boolean;
+          details: Record<string, unknown>;
+        };
+      };
+      expect(event.type).toBe('gate.executed');
+      expect(event.data.gateName).toBe('static-analysis');
+      expect(event.data.layer).toBe('quality');
+      expect(event.data.passed).toBe(false);
+      expect(event.data.details.dimension).toBe('D2');
+      expect(event.data.details.skipped).toBe(true);
+      expect(event.data.details.skipReason).toBe('no-toolchain');
     });
   });
 

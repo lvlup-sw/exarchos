@@ -19,12 +19,31 @@ const DIMENSION_LABELS: Record<string, string> = {
 
 // ─── View State Interface ─────────────────────────────────────────────────
 
+/**
+ * A single gate result captured under a convergence dimension.
+ *
+ * `skipped` and `skipReason` are populated when the underlying gate could not
+ * actually run (e.g. static-analysis on a repo with no recognized toolchain).
+ * A skipped gate has `passed: false` AND `skipped: true` — this is distinct
+ * from a real failure (passed: false, skipped undefined/false). The dimension
+ * is treated as not-converged in either case so a skip never falsely-greens
+ * convergence. See DR-4 in docs/plans/2026-05-04-v290-dogfood-bundle.md.
+ */
+export interface ConvergenceGateResult {
+  readonly gateName: string;
+  readonly passed: boolean;
+  readonly timestamp: string;
+  readonly phase?: string;
+  readonly skipped?: boolean;
+  readonly skipReason?: string;
+}
+
 export interface ConvergenceViewState {
   readonly featureId: string;
   readonly dimensions: Record<string, {
     readonly dimension: string;       // 'D1' | 'D2' | 'D3' | 'D4' | 'D5'
     readonly label: string;           // Human-readable name
-    readonly gateResults: Array<{ gateName: string; passed: boolean; timestamp: string; phase?: string }>;
+    readonly gateResults: ConvergenceGateResult[];
     readonly converged: boolean;      // All gates for this dimension passed
     readonly lastChecked: string | null;
   }>;
@@ -35,16 +54,18 @@ export interface ConvergenceViewState {
 // ─── Convergence Predicates ────────────────────────────────────────────────
 
 function isDimensionConverged(
-  gateResults: Array<{ gateName: string; passed: boolean; timestamp: string; phase?: string }>,
+  gateResults: ConvergenceGateResult[],
 ): boolean {
   if (gateResults.length === 0) return false;
 
-  // Check only the latest result per unique gate name so retries can recover
-  const latestByGate = new Map<string, boolean>();
+  // Check only the latest result per unique gate name so retries can recover.
+  // A gate is only "green" when passed AND not skipped — a skipped gate is
+  // inconclusive, never converged (T-10 / DR-4).
+  const latestByGate = new Map<string, { passed: boolean; skipped: boolean }>();
   for (const r of gateResults) {
-    latestByGate.set(r.gateName, r.passed);
+    latestByGate.set(r.gateName, { passed: r.passed, skipped: r.skipped === true });
   }
-  return [...latestByGate.values()].every((passed) => passed);
+  return [...latestByGate.values()].every((v) => v.passed && !v.skipped);
 }
 
 function computeUncheckedDimensions(
@@ -86,13 +107,22 @@ function handleGateExecuted(
 
   const passed = data.passed ?? false;
   const phase = data.details?.phase as string | undefined;
+  // T-10 / DR-4: surface skipped/skipReason from the event details so
+  // downstream rendering can distinguish a skipped (inconclusive) gate
+  // from a true pass or fail. A skipped gate is never converged.
+  const skipped = data.details?.skipped === true ? true : undefined;
+  const skipReason = typeof data.details?.skipReason === 'string'
+    ? (data.details.skipReason as string)
+    : undefined;
   const existing = state.dimensions[dimension];
 
-  const newGateResult = {
+  const newGateResult: ConvergenceGateResult = {
     gateName: data.gateName,
     passed,
     timestamp: event.timestamp,
     ...(phase !== undefined && { phase }),
+    ...(skipped !== undefined && { skipped }),
+    ...(skipReason !== undefined && { skipReason }),
   };
 
   const updatedGateResults = existing
