@@ -187,7 +187,13 @@ export function validateTaskStructure(block: string): TaskStructureResult {
   const hasDescription = descriptionWordCount > 10;
 
   // --- File targets ---
-  const filePattern = /`[a-zA-Z0-9_./-]+\.[a-zA-Z]+`/g;
+  // Match backtick-quoted paths whose suffix is on the closed extension
+  // allowlist. Without the allowlist, dotted-identifier tokens like
+  // `imageProvenance.isFirstParty` (record-field references in prose) used
+  // to match and pollute the file count / parallel-safety check. The
+  // allowlist intentionally mirrors `extractFiles` below — see T-14 REFACTOR
+  // for the centralised constant.
+  const filePattern = /`[a-zA-Z0-9_./-]+\.(?:ts|tsx|js|jsx|mjs|cjs|json|md|yml|yaml|sh|ps1|sql|kql|bicep|cs|csproj|sln|go|rs|toml)`/g;
   let fileCount = 0;
   for (const line of lines) {
     const matches = line.match(filePattern);
@@ -432,12 +438,58 @@ function isParallelizable(block: string): boolean {
 
 /**
  * Extract backtick-quoted file paths from a task block.
+ *
+ * The path's suffix MUST be on a closed extension allowlist; tokens whose
+ * suffix is anything else (e.g. `imageProvenance.isFirstParty` —
+ * a TypeScript record-field reference in narrative prose) are not treated
+ * as file paths. Without this filter the parallel-safety check produces
+ * false conflicts on dotted-identifier tokens shared between tasks.
+ *
+ * If the block contains an explicit `**Files:**` section, paths declared
+ * under that section take precedence over inferred matches found elsewhere
+ * in the block — explicit declarations are the source of truth.
  */
 export function extractFiles(block: string): string[] {
-  const filePattern = /`([a-zA-Z0-9_./-]+\.[a-zA-Z]+)`/g;
+  const filePattern = /`([a-zA-Z0-9_./-]+\.(?:ts|tsx|js|jsx|mjs|cjs|json|md|yml|yaml|sh|ps1|sql|kql|bicep|cs|csproj|sln|go|rs|toml))`/g;
+
+  // Prefer files declared under an explicit `**Files:**` section when
+  // present. Capture lines from the `**Files:**` header until the next
+  // field-header (`**Word:**`) or section header (`### `).
+  const lines = block.split('\n');
+  const filesSectionLines: string[] = [];
+  let inFilesSection = false;
+  for (const line of lines) {
+    if (/^\*\*Files:\*\*/i.test(line)) {
+      inFilesSection = true;
+      continue;
+    }
+    if (inFilesSection) {
+      if (/^###\s/.test(line) || /^\*\*\w[\w\s]*:\*\*/.test(line)) {
+        break;
+      }
+      filesSectionLines.push(line);
+    }
+  }
+
+  if (filesSectionLines.length > 0) {
+    const filesSection = filesSectionLines.join('\n');
+    const declared: string[] = [];
+    let m: RegExpExecArray | null;
+    const sectionPattern = new RegExp(filePattern.source, 'g');
+    while ((m = sectionPattern.exec(filesSection)) !== null) {
+      declared.push(m[1]);
+    }
+    if (declared.length > 0) {
+      return declared;
+    }
+  }
+
+  // Fallback: scan the whole block for backtick-quoted paths with an
+  // allowlisted extension.
   const files: string[] = [];
   let match: RegExpExecArray | null;
-  while ((match = filePattern.exec(block)) !== null) {
+  const blockPattern = new RegExp(filePattern.source, 'g');
+  while ((match = blockPattern.exec(block)) !== null) {
     files.push(match[1]);
   }
   return files;
