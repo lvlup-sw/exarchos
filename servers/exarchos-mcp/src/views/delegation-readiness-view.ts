@@ -24,6 +24,19 @@ export interface DelegationReadinessState {
     readonly expected: number;
     readonly ready: number;
     readonly failed: readonly string[];
+    /**
+     * DR-T-2 (#1206): per-task ID tracking for wave scoping. Populated by
+     * `task.assigned` events; deduplicated. `expected` is derived from
+     * `assignedTaskIds.length` and kept for back-compat consumers.
+     */
+    readonly assignedTaskIds: readonly string[];
+    /**
+     * DR-T-2 (#1206): per-task ID tracking for wave scoping. Populated by
+     * `worktree.created` events that carry `data.taskId`; deduplicated.
+     * `ready` is derived from `readyTaskIds.length` plus a fallback
+     * counter for legacy events without taskId. See handleWorktreeCreated.
+     */
+    readonly readyTaskIds: readonly string[];
   };
 }
 
@@ -147,6 +160,14 @@ function handleTaskAssigned(
   const data = event.data as { taskId?: string } | undefined;
   if (!data?.taskId) return state;
 
+  // DR-T-2 (#1206): dedup by taskId. Multiple `task.assigned` events with
+  // the same taskId (e.g. from rehydration replay) must not double-count.
+  if (state.worktrees.assignedTaskIds.includes(data.taskId)) {
+    return state;
+  }
+
+  const assignedTaskIds = [...state.worktrees.assignedTaskIds, data.taskId];
+
   return withReadiness({
     plan: {
       ...state.plan,
@@ -155,15 +176,39 @@ function handleTaskAssigned(
     quality: state.quality,
     worktrees: {
       ...state.worktrees,
-      expected: state.worktrees.expected + 1,
+      expected: assignedTaskIds.length, // derived
+      assignedTaskIds,
     },
   });
 }
 
 function handleWorktreeCreated(
   state: DelegationReadinessState,
-  _event: WorkflowEvent,
+  event: WorkflowEvent,
 ): DelegationReadinessState {
+  const data = event.data as { taskId?: string; worktreePath?: string } | undefined;
+  const taskId = data?.taskId;
+
+  // DR-T-2 (#1206): when the event carries a taskId, dedupe and add to
+  // readyTaskIds. When it doesn't (legacy), bump the count via fallback
+  // delta so totals stay sensible but per-task scoping skips it.
+  if (taskId) {
+    if (state.worktrees.readyTaskIds.includes(taskId)) {
+      return state;
+    }
+    const readyTaskIds = [...state.worktrees.readyTaskIds, taskId];
+    return withReadiness({
+      plan: state.plan,
+      quality: state.quality,
+      worktrees: {
+        ...state.worktrees,
+        ready: state.worktrees.ready + 1,
+        readyTaskIds,
+      },
+    });
+  }
+
+  // Legacy: no taskId on event. Bump count only.
   return withReadiness({
     plan: state.plan,
     quality: state.quality,
@@ -258,7 +303,13 @@ export const delegationReadinessProjection: ViewProjection<DelegationReadinessSt
     ],
     plan: { approved: false, taskCount: 0, artifactPresent: false },
     quality: { queried: false, gatePassRate: null, regressions: [] },
-    worktrees: { expected: 0, ready: 0, failed: [] },
+    worktrees: {
+      expected: 0,
+      ready: 0,
+      failed: [],
+      assignedTaskIds: [],
+      readyTaskIds: [],
+    },
   }),
 
   apply: (view: DelegationReadinessState, event: WorkflowEvent): DelegationReadinessState => {

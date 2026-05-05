@@ -40,6 +40,8 @@ describe('DelegationReadinessView', () => {
         expected: 0,
         ready: 0,
         failed: [],
+        assignedTaskIds: [],
+        readyTaskIds: [],
       });
     });
 
@@ -175,6 +177,48 @@ describe('DelegationReadinessView', () => {
       expect(state.plan.taskCount).toBe(2);
       expect(state.worktrees.expected).toBe(2);
     });
+
+    // ─── DR-T-2 (T-04): per-task ID tracking ──────────────────────────────
+
+    it('Apply_TaskAssigned_AccumulatesAssignedTaskIds', () => {
+      let state = delegationReadinessProjection.init();
+      state = delegationReadinessProjection.apply(state, makeEvent('task.assigned', {
+        taskId: 'task-1', title: 'A',
+      }, 1));
+      state = delegationReadinessProjection.apply(state, makeEvent('task.assigned', {
+        taskId: 'task-2', title: 'B',
+      }, 2));
+
+      expect(state.worktrees.assignedTaskIds).toEqual(['task-1', 'task-2']);
+    });
+
+    it('Apply_DuplicateTaskAssigned_DeduplicatesByTaskId', () => {
+      let state = delegationReadinessProjection.init();
+      state = delegationReadinessProjection.apply(state, makeEvent('task.assigned', {
+        taskId: 'task-1', title: 'A',
+      }, 1));
+      state = delegationReadinessProjection.apply(state, makeEvent('task.assigned', {
+        taskId: 'task-1', title: 'A again',
+      }, 2));
+
+      // Same taskId — assignedTaskIds and counts both deduplicated.
+      expect(state.worktrees.assignedTaskIds).toEqual(['task-1']);
+      expect(state.worktrees.expected).toBe(1);
+      expect(state.plan.taskCount).toBe(1);
+    });
+
+    it('Apply_LegacyExpectedCount_DerivedFromAssignedTaskIds', () => {
+      let state = delegationReadinessProjection.init();
+      state = delegationReadinessProjection.apply(state, makeEvent('task.assigned', {
+        taskId: 'task-1', title: 'A',
+      }, 1));
+      state = delegationReadinessProjection.apply(state, makeEvent('task.assigned', {
+        taskId: 'task-2', title: 'B',
+      }, 2));
+
+      // expected count is now derived from assignedTaskIds.length
+      expect(state.worktrees.expected).toBe(state.worktrees.assignedTaskIds.length);
+    });
   });
 
   // ─── T5: worktree.created ─────────────────────────────────────────────────
@@ -190,6 +234,48 @@ describe('DelegationReadinessView', () => {
       const next = delegationReadinessProjection.apply(state, event);
 
       expect(next.worktrees.ready).toBe(1);
+    });
+
+    // DR-T-2 (T-04): track readyTaskIds keyed by taskId in event data.
+    it('Apply_WorktreeCreatedWithTaskId_AddsToReadyTaskIds', () => {
+      const state = delegationReadinessProjection.init();
+      const event = makeEvent('worktree.created', {
+        worktreePath: '/tmp/wt-1',
+        taskId: 'task-1',
+      });
+
+      const next = delegationReadinessProjection.apply(state, event);
+
+      expect(next.worktrees.readyTaskIds).toEqual(['task-1']);
+      expect(next.worktrees.ready).toBe(1);
+    });
+
+    it('Apply_DuplicateWorktreeCreated_DeduplicatesByTaskId', () => {
+      let state = delegationReadinessProjection.init();
+      state = delegationReadinessProjection.apply(state, makeEvent('worktree.created', {
+        worktreePath: '/tmp/wt-1', taskId: 'task-1',
+      }, 1));
+      state = delegationReadinessProjection.apply(state, makeEvent('worktree.created', {
+        worktreePath: '/tmp/wt-1', taskId: 'task-1',
+      }, 2));
+
+      expect(state.worktrees.readyTaskIds).toEqual(['task-1']);
+      expect(state.worktrees.ready).toBe(1);
+    });
+
+    it('Apply_WorktreeCreatedWithoutTaskId_StillIncrementsReadyCount', () => {
+      // Back-compat: legacy worktree.created events without taskId still
+      // bump the count (using path as a fallback identity) but do not
+      // contribute to per-task scoping.
+      const state = delegationReadinessProjection.init();
+      const event = makeEvent('worktree.created', {
+        worktreePath: '/tmp/wt-1',
+        // taskId omitted
+      });
+
+      const next = delegationReadinessProjection.apply(state, event);
+
+      expect(next.worktrees.ready).toBeGreaterThanOrEqual(1);
     });
   });
 
