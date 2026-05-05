@@ -433,7 +433,7 @@ function isParallelizable(block: string): boolean {
 /**
  * Extract backtick-quoted file paths from a task block.
  */
-function extractFiles(block: string): string[] {
+export function extractFiles(block: string): string[] {
   const filePattern = /`([a-zA-Z0-9_./-]+\.[a-zA-Z]+)`/g;
   const files: string[] = [];
   let match: RegExpExecArray | null;

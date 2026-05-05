@@ -29,6 +29,7 @@ import {
   checkParallelSafety,
   handleTaskDecomposition,
   extractDependencies,
+  extractFiles,
 } from './task-decomposition.js';
 
 const mockedEmitGateEvent = vi.mocked(emitGateEvent);
@@ -435,6 +436,121 @@ parser entirely. Numbers like 24 in prose must not leak.
 **Parallelizable:** No`;
 
     expect(extractDependencies(block)).toEqual([]);
+  });
+});
+
+// ─── T-14 file-conflict extension-filter contract (DR-5 step 3/3) ────────
+//
+// `extractFiles` MUST require a known file extension before treating a
+// backtick-quoted token as a file path. Tokens like `imageProvenance.isFirstParty`
+// (TypeScript record-field references in narrative prose) MUST NOT match.
+// This closes the final fixture-level `parallelSafe === true` assertion in
+// `task-decomposition.fixtures.test.ts`.
+//
+// Allowed extensions:
+//   ts | tsx | js | jsx | mjs | cjs | json | md | yml | yaml | sh | ps1
+//   sql | kql | bicep | cs | csproj | sln | go | rs | toml
+//
+// The same extension allowlist must apply to both `extractFiles` and the
+// inline file-path pattern inside `validateTaskStructure`. After T-14
+// REFACTOR they share a module-level `FILE_EXTENSION_ALLOWLIST` constant.
+
+describe('extractFiles', () => {
+  it('extractFiles_DottedIdentifierLikeFieldName_NotMatched', () => {
+    // Regression for the agency-csl-auto-pr fixture. TypeScript record-field
+    // references in narrative prose used to be scraped as file paths because
+    // the prior regex required only `.<alphabetic>` after a backtick token.
+    // The tightened regex limits matches to a known-extension allowlist.
+    const block = `### Task T-01: example
+
+**Goal:** When the upstream signal flips, propagate \`imageProvenance.isFirstParty\`
+through the projection so downstream consumers see the change without polling.
+
+**Files:**
+- \`src/projection/provenance.ts\`
+
+**Dependencies:** None
+**Parallelizable:** Yes`;
+
+    const files = extractFiles(block);
+    expect(files).not.toContain('imageProvenance.isFirstParty');
+  });
+
+  it('extractFiles_KnownExtension_Matched', () => {
+    // Sanity: the allowlist MUST cover the canonical project extensions
+    // used in real plans (TypeScript source, JSON config, Markdown docs).
+    const block = `### Task T-01: example
+
+**Goal:** Author the module, the config, and the readme entry.
+
+**Files:**
+- \`src/foo.ts\`
+- \`config.json\`
+- \`README.md\`
+
+**Dependencies:** None
+**Parallelizable:** No`;
+
+    const files = extractFiles(block);
+    expect(files).toContain('src/foo.ts');
+    expect(files).toContain('config.json');
+    expect(files).toContain('README.md');
+  });
+
+  it('extractFiles_UnknownExtension_NotMatched', () => {
+    // The allowlist is closed. A backtick-quoted token whose suffix is not
+    // on the list (e.g. `.unknownext`) MUST NOT match, even if its shape
+    // otherwise resembles a path.
+    const block = `### Task T-01: example
+
+**Goal:** Reference an unknown-suffix token.
+
+The token \`some.unknownext\` appears in prose but is not a real file path
+the validator should treat as a target.
+
+**Dependencies:** None
+**Parallelizable:** No`;
+
+    const files = extractFiles(block);
+    expect(files).not.toContain('some.unknownext');
+  });
+
+  it('checkParallelSafety_AgencyCslLikeNarrative_NoFalseConflicts', () => {
+    // End-to-end regression on the agency-csl shape: two parallel tasks
+    // that share dotted-identifier *field-name* references in prose but
+    // have disjoint *file* targets must NOT be flagged as conflicting.
+    const blockA = `### Task T-001: producer side
+
+**Goal:** Emit the \`imageProvenance.isFirstParty\` signal and the
+\`mutatingTool.detected\` flag from the upstream extractor.
+
+**Files:**
+- \`src/extractor/producer.ts\`
+- \`src/extractor/producer.test.ts\`
+
+**Dependencies:** None
+**Parallelizable:** Yes`;
+
+    const blockB = `### Task T-002: consumer side
+
+**Goal:** React to \`imageProvenance.isFirstParty\` and \`mutatingTool.detected\`
+on the projection side without coupling to the producer module.
+
+**Files:**
+- \`src/projection/consumer.ts\`
+- \`src/projection/consumer.test.ts\`
+
+**Dependencies:** None
+**Parallelizable:** Yes`;
+
+    const tasks = [
+      { id: 'T-001', isParallel: true, files: extractFiles(blockA) },
+      { id: 'T-002', isParallel: true, files: extractFiles(blockB) },
+    ];
+
+    const result = checkParallelSafety(tasks);
+    expect(result.safe).toBe(true);
+    expect(result.conflicts).toHaveLength(0);
   });
 });
 
