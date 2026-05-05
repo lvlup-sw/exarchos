@@ -822,4 +822,165 @@ describe('handleSetupWorktree', () => {
     const pnpmCalls = vi.mocked(execFileSync).mock.calls.filter((c) => c[0] === 'pnpm');
     expect(pnpmCalls).toHaveLength(0);
   });
+
+  // ─── DR-1 (T-07, #1203): direct-read .gitignore, honest PASS message ──
+
+  describe('ensureGitignored direct-read behavior', () => {
+    function setupBaseExecMocks() {
+      // Generic happy-path mocks for show-ref / rev-parse / install / test.
+      vi.mocked(execFileSync).mockImplementation((cmd: unknown, args: unknown) => {
+        const cmdStr = String(cmd);
+        const argsArr = args as string[];
+        if (cmdStr === 'git' && argsArr.includes('show-ref')) return '';
+        if (cmdStr === 'git' && argsArr.includes('rev-parse')) return '.git';
+        if (cmdStr === 'npm') return '';
+        if (cmdStr === 'pnpm') return '';
+        if (cmdStr === 'yarn') return '';
+        if (cmdStr === 'bun') return '';
+        return '';
+      });
+    }
+
+    it('ensureGitignored_AlreadyPresent_ReportsAlreadyPresent', () => {
+      setupBaseExecMocks();
+      vi.mocked(existsSync).mockImplementation((p: unknown) => {
+        const path = String(p);
+        if (path === '/repo/.gitignore') return true;
+        if (path === '/repo/.worktrees/T-001-x') return true;
+        if (path === '/repo/.worktrees/T-001-x/package.json') return true;
+        return false;
+      });
+      vi.mocked(readFileSync).mockImplementation((p: unknown) => {
+        const path = String(p);
+        if (path === '/repo/.gitignore') return 'node_modules/\n.worktrees/\n';
+        if (path.endsWith('package.json')) return VALID_PACKAGE_JSON;
+        return '';
+      });
+
+      const result = handleSetupWorktree({
+        repoRoot: '/repo', taskId: 'T-001', taskName: 'x',
+      });
+
+      expect(result.success).toBe(true);
+      const data = result.data as { passed: boolean; report: string };
+      expect(data.report).toMatch(/PASS.*\.worktrees is gitignored.*already present/i);
+      expect(appendFileSync).not.toHaveBeenCalledWith('/repo/.gitignore', expect.anything());
+    });
+
+    it('ensureGitignored_NotPresent_AppendsAndReportsAdded', () => {
+      setupBaseExecMocks();
+      vi.mocked(existsSync).mockImplementation((p: unknown) => {
+        const path = String(p);
+        if (path === '/repo/.gitignore') return true;
+        if (path === '/repo/.worktrees/T-002-y') return true;
+        if (path === '/repo/.worktrees/T-002-y/package.json') return true;
+        return false;
+      });
+      vi.mocked(readFileSync).mockImplementation((p: unknown) => {
+        const path = String(p);
+        if (path === '/repo/.gitignore') return 'node_modules/\n';
+        if (path.endsWith('package.json')) return VALID_PACKAGE_JSON;
+        return '';
+      });
+
+      const result = handleSetupWorktree({
+        repoRoot: '/repo', taskId: 'T-002', taskName: 'y',
+      });
+
+      expect(result.success).toBe(true);
+      const data = result.data as { report: string };
+      expect(data.report).toMatch(/PASS.*\.worktrees is gitignored.*added/i);
+      expect(appendFileSync).toHaveBeenCalledWith('/repo/.gitignore', '.worktrees/\n');
+    });
+
+    it('ensureGitignored_FileMissing_CreatesWithEntry', () => {
+      setupBaseExecMocks();
+      vi.mocked(existsSync).mockImplementation((p: unknown) => {
+        const path = String(p);
+        if (path === '/repo/.gitignore') return false;
+        if (path === '/repo/.worktrees/T-003-z') return true;
+        if (path === '/repo/.worktrees/T-003-z/package.json') return true;
+        return false;
+      });
+      vi.mocked(readFileSync).mockImplementation((p: unknown) => {
+        const path = String(p);
+        if (path.endsWith('package.json')) return VALID_PACKAGE_JSON;
+        return '';
+      });
+
+      const result = handleSetupWorktree({
+        repoRoot: '/repo', taskId: 'T-003', taskName: 'z',
+      });
+
+      expect(result.success).toBe(true);
+      const data = result.data as { report: string };
+      expect(data.report).toMatch(/PASS.*\.worktrees is gitignored.*created/i);
+      expect(appendFileSync).toHaveBeenCalledWith('/repo/.gitignore', '.worktrees/\n');
+    });
+
+    it('ensureGitignored_GlobalIgnoreOnlyMatch_StillReportsHonestlyAndUpdatesRepoGitignore', () => {
+      // Critical regression coverage for #1203: a non-repo source (e.g.,
+      // global gitignore, .git/info/exclude) might tell `git check-ignore`
+      // the path is ignored. Repo `.gitignore` itself is empty of this entry
+      // and `git status` from a fresh clone would show .worktrees/ as
+      // untracked. The new contract: PASS message reflects the repo file
+      // state truthfully, and we always update the repo file when needed.
+      setupBaseExecMocks();
+      vi.mocked(existsSync).mockImplementation((p: unknown) => {
+        const path = String(p);
+        if (path === '/repo/.gitignore') return true;
+        if (path === '/repo/.worktrees/T-004-a') return true;
+        if (path === '/repo/.worktrees/T-004-a/package.json') return true;
+        return false;
+      });
+      vi.mocked(readFileSync).mockImplementation((p: unknown) => {
+        const path = String(p);
+        if (path === '/repo/.gitignore') return 'node_modules/\n'; // .worktrees absent
+        if (path.endsWith('package.json')) return VALID_PACKAGE_JSON;
+        return '';
+      });
+
+      const result = handleSetupWorktree({
+        repoRoot: '/repo', taskId: 'T-004', taskName: 'a',
+      });
+
+      expect(result.success).toBe(true);
+      const data = result.data as { report: string };
+      // Even if a global ignore would have matched, the repo file is
+      // missing — function must add and report 'added' truthfully.
+      expect(data.report).toMatch(/added/i);
+      expect(appendFileSync).toHaveBeenCalledWith('/repo/.gitignore', '.worktrees/\n');
+      // No git check-ignore call — function works directly off the repo file.
+      const checkIgnoreCalls = vi.mocked(execFileSync).mock.calls.filter(
+        (c) => Array.isArray(c[1]) && (c[1] as string[]).includes('check-ignore'),
+      );
+      expect(checkIgnoreCalls).toHaveLength(0);
+    });
+
+    it('ensureGitignored_AppendThrows_ReportsFail', () => {
+      setupBaseExecMocks();
+      vi.mocked(existsSync).mockImplementation((p: unknown) => {
+        const path = String(p);
+        if (path === '/repo/.gitignore') return true;
+        return false;
+      });
+      vi.mocked(readFileSync).mockImplementation((p: unknown) => {
+        const path = String(p);
+        if (path === '/repo/.gitignore') return 'node_modules/\n';
+        return '';
+      });
+      vi.mocked(appendFileSync).mockImplementation(() => {
+        throw new Error('EACCES: permission denied');
+      });
+
+      const result = handleSetupWorktree({
+        repoRoot: '/repo', taskId: 'T-005', taskName: 'b',
+      });
+
+      expect(result.success).toBe(true); // overall flow succeeds at I/O level
+      const data = result.data as { passed: boolean; report: string };
+      expect(data.report).toMatch(/FAIL.*\.worktrees is gitignored.*EACCES/i);
+      expect(data.passed).toBe(false);
+    });
+  });
 });

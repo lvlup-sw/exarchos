@@ -4,7 +4,7 @@
 // validation steps: gitignore, branch, worktree, npm install, baseline tests.
 // ────────────────────────────────────────────────────────────────────────────
 
-import { existsSync, appendFileSync } from 'node:fs';
+import { existsSync, appendFileSync, readFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
 import type { ToolResult } from '../format.js';
@@ -82,36 +82,72 @@ function formatReport(
 
 // ─── Step Functions ─────────────────────────────────────────────────────────
 
+// DR-1 (T-07, #1203): direct-read the repo's `.gitignore`. The previous
+// implementation used `git check-ignore -q .worktrees/`, which honors any
+// ignore source (global excludes, .git/info/exclude, parent globs). When
+// a non-repo source matched, the function reported PASS without writing
+// to the repo file — a fresh clone or CI run then saw `.worktrees/` as
+// untracked, breaking subsequent `merge_orchestrate` preflights.
+//
+// New contract: PASS means "the repo's `.gitignore` lists `.worktrees/`."
+// The detail string reflects exactly which path the function took
+// (already present / added / created with entry).
 function ensureGitignored(repoRoot: string): CheckResult {
-  // Check if .worktrees/ is already gitignored
-  try {
-    execFileSync('git', ['-C', repoRoot, 'check-ignore', '-q', '.worktrees/'], {
-      encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
-    return { name: '.worktrees is gitignored', status: 'pass' };
-  } catch {
-    // Not ignored — add to .gitignore
-  }
-
   const gitignorePath = join(repoRoot, '.gitignore');
+
+  let detail: 'already present' | 'added' | 'created with entry';
+  let needsAppend: boolean;
+
   if (existsSync(gitignorePath)) {
-    appendFileSync(gitignorePath, '.worktrees/\n');
+    let contents: string;
+    try {
+      contents = readFileSync(gitignorePath, 'utf-8');
+    } catch (err) {
+      return {
+        name: '.worktrees is gitignored',
+        status: 'fail',
+        detail: `Failed to read ${gitignorePath}: ${err instanceof Error ? err.message : String(err)}`,
+      };
+    }
+
+    if (containsWorktreesEntry(contents)) {
+      return { name: '.worktrees is gitignored', status: 'pass', detail: 'already present' };
+    }
+
+    detail = 'added';
+    needsAppend = true;
   } else {
-    // Create new .gitignore with the entry
-    appendFileSync(gitignorePath, '.worktrees/\n');
+    detail = 'created with entry';
+    needsAppend = true;
   }
 
-  // Verify it worked
-  try {
-    execFileSync('git', ['-C', repoRoot, 'check-ignore', '-q', '.worktrees/'], {
-      encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
-    return { name: '.worktrees is gitignored', status: 'pass', detail: 'added to .gitignore' };
-  } catch {
-    return { name: '.worktrees is gitignored', status: 'fail', detail: 'Failed to add to .gitignore' };
+  if (needsAppend) {
+    try {
+      appendFileSync(gitignorePath, '.worktrees/\n');
+    } catch (err) {
+      return {
+        name: '.worktrees is gitignored',
+        status: 'fail',
+        detail: `Failed to ${detail === 'created with entry' ? 'create' : 'append to'} ${gitignorePath}: ${err instanceof Error ? err.message : String(err)}`,
+      };
+    }
   }
+
+  return { name: '.worktrees is gitignored', status: 'pass', detail };
+}
+
+/**
+ * Returns true if `contents` has a non-comment, non-negated line matching
+ * `.worktrees` or `.worktrees/`. Comments (#) and negations (!) don't
+ * count — those would not actually ignore the directory.
+ */
+function containsWorktreesEntry(contents: string): boolean {
+  for (const rawLine of contents.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (line === '' || line.startsWith('#') || line.startsWith('!')) continue;
+    if (line === '.worktrees' || line === '.worktrees/') return true;
+  }
+  return false;
 }
 
 function createBranch(repoRoot: string, branchName: string, baseBranch: string): CheckResult {
