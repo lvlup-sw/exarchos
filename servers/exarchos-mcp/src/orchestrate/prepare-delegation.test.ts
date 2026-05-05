@@ -622,7 +622,10 @@ describe('handlePrepareDelegation', () => {
     expect(result.success).toBe(true);
     const data = result.data as { ready: boolean; readiness: DelegationReadinessState };
     expect(data.ready).toBe(true);
-    expect(data.readiness.blockers).not.toContain(expect.stringContaining('worktrees pending'));
+    // fix-006 (review #1213): explicit predicate avoids the
+    // `not.toContain(expect.stringContaining(...))` asymmetric-matcher
+    // construction whose semantics vary across vitest versions.
+    expect(data.readiness.blockers.find(b => /worktrees pending/.test(b))).toBeUndefined();
   });
 
   it('PrepareDelegation_TasksArgSubsetPending_ExactPendingCountInBlocker', async () => {
@@ -681,6 +684,51 @@ describe('handlePrepareDelegation', () => {
     expect(result.success).toBe(true);
     const data = result.data as { ready: boolean; readiness: DelegationReadinessState };
     expect(data.readiness.blockers).toContain('10 worktrees pending');
+  });
+
+  // fix-005 (review #1213): wave-scoping must update both blockers AND the
+  // numeric worktrees.expected/ready surfaces, not just the blocker strings.
+  // Plan T-05 specified a pure helper computeScopedWorktrees(readiness,
+  // tasksFilter) returning { expected, ready, pending } so all three counts
+  // stay in lockstep. This test asserts effectiveReadiness.worktrees mirrors
+  // the wave subset rather than the global stream-wide count.
+  it('PrepareDelegation_TasksArgSubset_EffectiveReadinessReportsScopedWorktreeCounts', async () => {
+    // Projection has 5 assigned, 2 ready (global). The wave names 3 of those
+    // 5 — 2 ready, 1 pending. Effective readiness must report
+    // worktrees.expected === 3 and worktrees.ready === 2 (NOT 5/2).
+    const state = readyWorkflowState();
+    const drState: DelegationReadinessState = {
+      ready: false,
+      blockers: ['3 worktrees pending'], // global view: 3 of 5 still pending
+      plan: { approved: true, taskCount: 5, artifactPresent: true },
+      quality: { queried: true, gatePassRate: null, regressions: [] },
+      worktrees: {
+        expected: 5, ready: 2, failed: [],
+        assignedTaskIds: ['t1', 't2', 't3', 't4', 't5'],
+        readyTaskIds: ['t1', 't2'],
+      },
+    };
+    setupMaterializer(state, undefined, drState);
+    const args = {
+      featureId: 'test-feature',
+      tasks: [
+        { id: 't1', title: 'A' }, // ready
+        { id: 't2', title: 'B' }, // ready
+        { id: 't3', title: 'C' }, // pending
+      ],
+    };
+
+    const result = await handlePrepareDelegation(args, STATE_DIR, makeCtx(mockStore, STATE_DIR));
+
+    expect(result.success).toBe(true);
+    const data = result.data as { ready: boolean; readiness: DelegationReadinessState };
+    // Wave size is 3 (not 5). One pending in the wave (t3).
+    expect(data.readiness.worktrees.expected).toBe(args.tasks.length);
+    expect(data.readiness.worktrees.expected).toBe(3);
+    expect(data.readiness.worktrees.ready).toBe(2);
+    // Blocker reports the wave-scoped pending count.
+    expect(data.readiness.blockers).toContain('1 worktrees pending');
+    expect(data.readiness.blockers).not.toContain('3 worktrees pending');
   });
 
   // ─── DR-5: nativeIsolation readiness.blockers consistency ─────────────────
