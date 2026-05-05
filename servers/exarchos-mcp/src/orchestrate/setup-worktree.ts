@@ -114,6 +114,10 @@ function formatReport(
 // New contract: PASS means "the repo's `.gitignore` lists `.worktrees/`."
 // The detail string reflects exactly which path the function took
 // (already present / added / created with entry).
+//
+// fix-007 (review #1213): orchestration-only — read/format helpers
+// extracted below so each concern (read vs error formatting vs control
+// flow) sits in its own function and stays easy to read in isolation.
 function ensureGitignored(repoRoot: string): CheckResult {
   const gitignorePath = join(repoRoot, '.gitignore');
 
@@ -121,18 +125,12 @@ function ensureGitignored(repoRoot: string): CheckResult {
   let needsAppend: boolean;
 
   if (existsSync(gitignorePath)) {
-    let contents: string;
-    try {
-      contents = readFileSync(gitignorePath, 'utf-8');
-    } catch (err) {
-      return {
-        name: '.worktrees is gitignored',
-        status: 'fail',
-        detail: `Failed to read ${gitignorePath}: ${err instanceof Error ? err.message : String(err)}`,
-      };
+    const readResult = readGitignoreLines(gitignorePath);
+    if (readResult.kind === 'error') {
+      return formatGitignoreError(`Failed to read ${gitignorePath}`, readResult.err);
     }
 
-    if (containsWorktreesEntry(contents)) {
+    if (containsWorktreesEntry(readResult.contents)) {
       return { name: '.worktrees is gitignored', status: 'pass', detail: 'already present' };
     }
 
@@ -147,15 +145,43 @@ function ensureGitignored(repoRoot: string): CheckResult {
     try {
       appendFileSync(gitignorePath, '.worktrees/\n');
     } catch (err) {
-      return {
-        name: '.worktrees is gitignored',
-        status: 'fail',
-        detail: `Failed to ${detail === 'created with entry' ? 'create' : 'append to'} ${gitignorePath}: ${err instanceof Error ? err.message : String(err)}`,
-      };
+      const verb = detail === 'created with entry' ? 'create' : 'append to';
+      return formatGitignoreError(`Failed to ${verb} ${gitignorePath}`, err);
     }
   }
 
   return { name: '.worktrees is gitignored', status: 'pass', detail };
+}
+
+/**
+ * fix-007 (#1213): I/O wrapper that returns either the file contents or a
+ * structured error. Centralizes the readFileSync try/catch so the
+ * orchestrator can stay flat.
+ */
+type ReadGitignoreResult =
+  | { kind: 'ok'; contents: string }
+  | { kind: 'error'; err: unknown };
+
+function readGitignoreLines(gitignorePath: string): ReadGitignoreResult {
+  try {
+    return { kind: 'ok', contents: readFileSync(gitignorePath, 'utf-8') };
+  } catch (err) {
+    return { kind: 'error', err };
+  }
+}
+
+/**
+ * fix-007 (#1213): single-source formatter for the gitignore-step CheckResult
+ * `fail` shape. Keeps the `${prefix}: ${message}` convention in one place so
+ * any future adjustment to the detail string lives in one function.
+ */
+function formatGitignoreError(prefix: string, err: unknown): CheckResult {
+  const message = err instanceof Error ? err.message : String(err);
+  return {
+    name: '.worktrees is gitignored',
+    status: 'fail',
+    detail: `${prefix}: ${message}`,
+  };
 }
 
 /**
