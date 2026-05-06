@@ -81,7 +81,14 @@ describe('withHermeticEnv', () => {
     expect(process.cwd()).toBe(originalCwd);
   });
 
-  it('WithHermeticEnv_ConcurrentCallers_GetNonOverlappingTmpDirs', async () => {
+  it('WithHermeticEnv_ConcurrentCallers_GetNonOverlappingTmpDirsAndIsolatedProcessState', async () => {
+    // The helper holds a module-level FIFO mutex around its env-mutation /
+    // callback / cleanup region, so even when scheduled with Promise.all
+    // each callback observes a process state that matches the env it was
+    // handed. This test exercises both:
+    //   (a) tmp dirs are unique across calls, and
+    //   (b) within each callback, process.env.HOME / EXARCHOS_STATE_DIR /
+    //       cwd are consistent with that call's env (no interleaving leak).
     const COUNT = 100;
     const ids: string[] = [];
     const homeDirs: string[] = [];
@@ -89,10 +96,21 @@ describe('withHermeticEnv', () => {
     await Promise.all(
       Array.from({ length: COUNT }, () =>
         withHermeticEnv(async (env) => {
+          // Isolation assertions — would fail if the mutex ever regressed.
+          expect(process.env.HOME).toBe(env.homeDir);
+          expect(process.env.EXARCHOS_STATE_DIR).toBe(env.stateDir);
+          expect(process.cwd()).toBe(env.cwdDir);
+
           ids.push(env.testId);
           homeDirs.push(env.homeDir);
-          // Small delay to force interleaving.
+          // Small delay to force scheduler interleaving — under the mutex
+          // this still serializes; without the mutex the env asserts above
+          // would flake under concurrent callers.
           await new Promise((resolve) => setImmediate(resolve));
+
+          // Re-assert after the await: env must still be ours.
+          expect(process.env.HOME).toBe(env.homeDir);
+          expect(process.cwd()).toBe(env.cwdDir);
         }),
       ),
     );

@@ -16,16 +16,17 @@ import {
  * Behavior:
  * - If no children are alive: returns silently.
  * - If children are alive: force-kills them via `processTracker.killAll`,
- *   clears the registry, then throws an Error whose message lists each
- *   leaked child's PID and its original spawn command. The force-kill is
- *   fire-and-forget (the surrounding test already failed — we just need to
- *   ensure the leaks don't persist into the next test).
+ *   awaits the SIGTERM→SIGKILL sequence, clears the registry, then throws an
+ *   Error whose message lists each leaked child's PID and its original spawn
+ *   command.
  *
- * Not async: vitest's `afterEach` accepts either a sync or async callback,
- * but keeping this sync keeps the API surface in design §5.5 honest and lets
- * callers `expect(() => expectNoLeakedProcesses()).toThrow()`.
+ * Async because the SIGTERM→SIGKILL dance must complete before the next test
+ * starts; the previous fire-and-forget design risked unhandled rejections in
+ * killAll and let stubborn children leak across tests. Vitest's `afterEach`
+ * accepts an async callback, so the only adjustment for callers is to await
+ * (or `return`) the promise — see `test/setup/global.ts`.
  */
-export function expectNoLeakedProcesses(): void {
+export async function expectNoLeakedProcesses(): Promise<void> {
   const leaked = listAlive();
   if (leaked.length === 0) {
     return;
@@ -35,18 +36,14 @@ export function expectNoLeakedProcesses(): void {
   // ChildProcess and spawnargs can become unreliable on some platforms.
   const descriptions = leaked.map((child) => describeLeak(child));
 
-  // Kick off force-kill before clearing the registry: killAll() is async but
-  // reads `listAlive()` synchronously on entry and sends SIGTERM before its
-  // first await, so the kill dispatch happens in this microtask.
-  const killPromise = killAll({ timeoutMs: 3000 });
-
-  // Clear the registry synchronously so the next test starts with a fresh
-  // tracker regardless of whether the caller awaits the SIGTERM→SIGKILL dance.
-  clear();
-
-  // Fire-and-forget: the test has already failed. The OS reap can finish on
-  // its own schedule; the test runner is about to move on.
-  void killPromise;
+  // Await the full SIGTERM→SIGKILL sequence so any rejection surfaces and the
+  // next test starts with no live children. `clear()` runs in `finally` so
+  // registry state never strands on a kill error.
+  try {
+    await killAll({ timeoutMs: 3000 });
+  } finally {
+    clear();
+  }
 
   const lines = descriptions.map((d) => `  - ${d}`).join('\n');
   throw new Error(

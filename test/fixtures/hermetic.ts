@@ -16,6 +16,19 @@ export interface HermeticEnv {
 }
 
 /**
+ * Module-level FIFO mutex. `withHermeticEnv` mutates process-global state
+ * (`HOME`, `EXARCHOS_STATE_DIR`, `cwd`); concurrent invocations would
+ * interleave save/restore and leak each other's environment. Serializing
+ * the env-mutation+callback+cleanup region keeps callers visibly hermetic
+ * even when called from `Promise.all`.
+ *
+ * The lock is process-local (one per test worker). Vitest runs each worker
+ * in its own Node process, so this does not introduce cross-worker
+ * contention.
+ */
+let hermeticEnvLock: Promise<void> = Promise.resolve();
+
+/**
  * Runs `callback` inside a hermetic process environment.
  *
  * Guarantees (design §4.3, §5.1):
@@ -28,68 +41,86 @@ export interface HermeticEnv {
  *  - Cleanup failures (e.g., locked files on Windows) log a warning via
  *    `console.warn` and do NOT throw — test outcome is preserved.
  *  - Concurrent callers receive non-overlapping tmp dirs (ids are UUIDs).
+ *  - Concurrent callers see isolated process state for the duration of their
+ *    callback: a module-level mutex serializes the env-mutation + callback +
+ *    cleanup region so HOME/EXARCHOS_STATE_DIR/cwd cannot interleave.
  */
 export async function withHermeticEnv<T>(
   callback: (env: HermeticEnv) => Promise<T>,
 ): Promise<T> {
-  const testId = randomUUID();
-  const tmpRoot = path.join(os.tmpdir(), `exarchos-hermetic-${testId}`);
-  const homeDir = path.join(tmpRoot, 'home');
-  const stateDir = path.join(tmpRoot, 'state');
-  const cwdDir = path.join(tmpRoot, 'cwd');
-  const gitDir = path.join(tmpRoot, 'git');
-
-  // Save ambient state before mutation so we can restore in `finally`.
-  const originalHome = process.env.HOME;
-  const originalStateDir = process.env.EXARCHOS_STATE_DIR;
-  const originalCwd = process.cwd();
-
-  // Create tmp tree.
-  await fs.mkdir(homeDir, { recursive: true });
-  await fs.mkdir(stateDir, { recursive: true });
-  await fs.mkdir(cwdDir, { recursive: true });
-  await fs.mkdir(gitDir, { recursive: true });
-
-  // git init — quiet; no output on success.
-  await execFileAsync('git', ['init', '-q', gitDir]);
-
-  // Mutate ambient state.
-  process.env.HOME = homeDir;
-  process.env.EXARCHOS_STATE_DIR = stateDir;
-  process.chdir(cwdDir);
-
-  const env: HermeticEnv = { homeDir, stateDir, cwdDir, gitDir, testId };
+  // Acquire the mutex. Each caller chains itself onto the lock and only
+  // proceeds once the previous holder has released. The release is fired in
+  // the outer `finally` below so a throw never strands the queue.
+  let releaseLock!: () => void;
+  const waitTurn = hermeticEnvLock;
+  hermeticEnvLock = new Promise<void>((resolve) => {
+    releaseLock = resolve;
+  });
+  await waitTurn;
 
   try {
-    return await callback(env);
-  } finally {
-    // Restore ambient state first so even a cleanup failure leaves the
-    // process in a sane state.
-    process.chdir(originalCwd);
-    if (originalHome === undefined) {
-      delete process.env.HOME;
-    } else {
-      process.env.HOME = originalHome;
-    }
-    if (originalStateDir === undefined) {
-      delete process.env.EXARCHOS_STATE_DIR;
-    } else {
-      process.env.EXARCHOS_STATE_DIR = originalStateDir;
-    }
+    const testId = randomUUID();
+    const tmpRoot = path.join(os.tmpdir(), `exarchos-hermetic-${testId}`);
+    const homeDir = path.join(tmpRoot, 'home');
+    const stateDir = path.join(tmpRoot, 'state');
+    const cwdDir = path.join(tmpRoot, 'cwd');
+    const gitDir = path.join(tmpRoot, 'git');
 
-    // Unconditional tmp-tree removal. Cleanup failures log a warning but
-    // never throw — axiom DIM-7 (resource-release symmetry): the acquirer
-    // must always release, but tests must not be made flaky by best-effort
-    // cleanup racing with OS-level file locks.
+    // Save ambient state before mutation so we can restore in `finally`.
+    const originalHome = process.env.HOME;
+    const originalStateDir = process.env.EXARCHOS_STATE_DIR;
+    const originalCwd = process.cwd();
+
+    // Create tmp tree.
+    await fs.mkdir(homeDir, { recursive: true });
+    await fs.mkdir(stateDir, { recursive: true });
+    await fs.mkdir(cwdDir, { recursive: true });
+    await fs.mkdir(gitDir, { recursive: true });
+
+    // git init — quiet; no output on success.
+    await execFileAsync('git', ['init', '-q', gitDir]);
+
+    // Mutate ambient state.
+    process.env.HOME = homeDir;
+    process.env.EXARCHOS_STATE_DIR = stateDir;
+    process.chdir(cwdDir);
+
+    const env: HermeticEnv = { homeDir, stateDir, cwdDir, gitDir, testId };
+
     try {
-      await fs.rm(tmpRoot, { recursive: true, force: true, maxRetries: 3 });
-    } catch (err) {
-      // eslint-disable-next-line no-console
-      console.warn(
-        `[withHermeticEnv] cleanup failed for ${tmpRoot}: ${
-          err instanceof Error ? err.message : String(err)
-        }`,
-      );
+      return await callback(env);
+    } finally {
+      // Restore ambient state first so even a cleanup failure leaves the
+      // process in a sane state.
+      process.chdir(originalCwd);
+      if (originalHome === undefined) {
+        delete process.env.HOME;
+      } else {
+        process.env.HOME = originalHome;
+      }
+      if (originalStateDir === undefined) {
+        delete process.env.EXARCHOS_STATE_DIR;
+      } else {
+        process.env.EXARCHOS_STATE_DIR = originalStateDir;
+      }
+
+      // Unconditional tmp-tree removal. Cleanup failures log a warning but
+      // never throw — axiom DIM-7 (resource-release symmetry): the acquirer
+      // must always release, but tests must not be made flaky by best-effort
+      // cleanup racing with OS-level file locks.
+      try {
+        await fs.rm(tmpRoot, { recursive: true, force: true, maxRetries: 3 });
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.warn(
+          `[withHermeticEnv] cleanup failed for ${tmpRoot}: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        );
+      }
     }
+  } finally {
+    // Always release the mutex, even if the callback or cleanup threw.
+    releaseLock();
   }
 }
