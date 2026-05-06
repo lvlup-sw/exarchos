@@ -267,6 +267,22 @@ export async function handleTaskComplete(
     if (args.result.files) {
       data.files = args.result.files;
     }
+    // #1208 / DR-MO-1, DR-MO-2 — forward the worktree association so the
+    // rehydration projection's merge-pending detour fires (the HSM
+    // `mergePendingEntry` guard reads `data.worktree` / `data.worktreePath`
+    // on the latest task.completed). Pre-fix these fields were silently
+    // dropped here, so the auto-detour documented in
+    // `skills-src/delegation/SKILL.md` § "Worktree-Bearing Tasks" never
+    // triggered.
+    if (typeof args.result.worktree === 'string' && args.result.worktree.length > 0) {
+      data.worktree = args.result.worktree;
+    }
+    if (
+      typeof args.result.worktreePath === 'string' &&
+      args.result.worktreePath.length > 0
+    ) {
+      data.worktreePath = args.result.worktreePath;
+    }
   }
 
   // Evidence storage: include evidence and set verified flag

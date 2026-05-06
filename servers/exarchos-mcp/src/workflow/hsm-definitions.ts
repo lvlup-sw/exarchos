@@ -44,7 +44,10 @@ function findLatestTaskCompleted(
  * a worktree association (either `data.worktree` or `data.worktreePath`).
  *
  * Captures the design's "task whose state carries a `worktree` association"
- * trigger from DR-MO-1 / DR-MO-2.
+ * trigger from DR-MO-1 / DR-MO-2. The same predicate is reused by the
+ * rehydration projection (`eventDataHasWorktreeAssociation` in
+ * projections/rehydration/reducer.ts) so HSM guard and projection observe
+ * the same trigger condition — see #1208.
  */
 function latestTaskCompletedHasWorktree(state: Record<string, unknown>): boolean {
   const events = (state._events as readonly Record<string, unknown>[]) ?? [];

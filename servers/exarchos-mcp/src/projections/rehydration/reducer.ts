@@ -310,6 +310,24 @@ function foldPlanTasks(
 // never mutate the input. Each handled result bumps `projectionSequence`
 // exactly once.
 
+/**
+ * Predicate (#1208 / DR-MO-1, DR-MO-2) — true when the event's `data` carries
+ * a worktree association via `worktree` OR `worktreePath`. Centralised so the
+ * rehydration projection (this file) and the HSM `mergePendingEntry` guard
+ * (workflow/hsm-definitions.ts) compute the same trigger.
+ */
+export function eventDataHasWorktreeAssociation(
+  data: WorkflowEvent['data'],
+): boolean {
+  if (!data) return false;
+  const w = data['worktree'];
+  const p = data['worktreePath'];
+  return (
+    (typeof w === 'string' && w.length > 0) ||
+    (typeof p === 'string' && p.length > 0)
+  );
+}
+
 /** Handlers for `task.*` events — taskProgress fold (T023). */
 function applyTaskEvent(
   state: RehydrationDocument,
@@ -322,10 +340,65 @@ function applyTaskEvent(
     // so that replay over partial/legacy data cannot corrupt taskProgress.
     return state;
   }
+  // #1208 / DR-MO-1 auto-detour: when a `task.completed` carries a worktree
+  // association AND the merge orchestrator has not already terminated for
+  // this task, project the workflow into the `merge-pending` substate and
+  // seed the `mergeOrchestrator` segment so `nextActionsFromResult` can
+  // surface `merge_orchestrate`. Idempotent: a re-folded same-taskId event
+  // will not regress a terminal merge phase back to `pending`.
+  let nextWorkflowState = state.workflowState;
+  if (
+    status === 'completed' &&
+    eventDataHasWorktreeAssociation(event.data)
+  ) {
+    const existing = state.workflowState.mergeOrchestrator;
+    const existingTerminal =
+      existing !== undefined &&
+      existing.taskId === taskId &&
+      existing.phase !== 'pending';
+    if (!existingTerminal) {
+      nextWorkflowState = {
+        ...state.workflowState,
+        phase: 'merge-pending',
+        mergeOrchestrator: { taskId, phase: 'pending' },
+      };
+    }
+  }
   return {
     ...state,
     projectionSequence: state.projectionSequence + 1,
     taskProgress: upsertTaskProgress(state.taskProgress, taskId, status),
+    workflowState: nextWorkflowState,
+  };
+}
+
+/**
+ * Handler for `merge.executed` / `merge.rollback` / `merge.aborted` — exits
+ * the `merge-pending` substate by stamping the terminal phase on
+ * `mergeOrchestrator` and reverting `workflowState.phase` to `delegate`.
+ *
+ * The exit phase is derived from the event type (caller-provided). Mirrors
+ * the HSM `mergePendingExit` guard in `workflow/hsm-definitions.ts` so the
+ * rehydration projection observes the same lifecycle the HSM defines.
+ */
+function applyMergeTerminalEvent(
+  state: RehydrationDocument,
+  event: WorkflowEvent,
+  terminalPhase: 'completed' | 'rolled-back' | 'aborted',
+): RehydrationDocument {
+  // No-op when there is nothing to terminate — protects replay over partial
+  // streams (a rogue merge.* event without a preceding worktree task.completed
+  // must not invent a mergeOrchestrator entry).
+  const existing = state.workflowState.mergeOrchestrator;
+  if (!existing) return state;
+  return {
+    ...state,
+    projectionSequence: state.projectionSequence + 1,
+    workflowState: {
+      ...state.workflowState,
+      phase: 'delegate',
+      mergeOrchestrator: { taskId: existing.taskId, phase: terminalPhase },
+    },
   };
 }
 
@@ -654,6 +727,14 @@ export const rehydrationReducer: ProjectionReducer<RehydrationDocument, Workflow
         return applyReviewCompleted(state, event);
       case 'review.escalated':
         return applyReviewEscalated(state, event);
+
+      // ── merge.* — merge-orchestrator lifecycle (#1208 / DR-MO-1) ─────────
+      case 'merge.executed':
+        return applyMergeTerminalEvent(state, event, 'completed');
+      case 'merge.rollback':
+        return applyMergeTerminalEvent(state, event, 'rolled-back');
+      case 'merge.aborted':
+        return applyMergeTerminalEvent(state, event, 'aborted');
 
       // ── team.* + task.progressed — delegate-phase coordination beats ─────
       // Recognised by the SoT registry (DELEGATE_PHASE_EVENT_TYPES /
