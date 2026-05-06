@@ -43,3 +43,67 @@ export const PARITY_CONTRACT: ParitySpec[] = [
     fieldsAllowedToDiffer: ['_transport.requestId'],
   },
 ];
+
+/**
+ * Resolve a dot-path (e.g. `data.featureId`) against a value. Returns
+ * `{ found: true, value }` or `{ found: false }` so callers can
+ * distinguish a missing path from a present-but-undefined value.
+ */
+function resolveDotPath(
+  source: unknown,
+  dotPath: string,
+): { found: true; value: unknown } | { found: false } {
+  const parts = dotPath.split('.');
+  let cursor: unknown = source;
+  for (const part of parts) {
+    if (cursor === null || typeof cursor !== 'object') {
+      return { found: false };
+    }
+    if (!Object.prototype.hasOwnProperty.call(cursor, part)) {
+      return { found: false };
+    }
+    cursor = (cursor as Record<string, unknown>)[part];
+  }
+  return { found: true, value: cursor };
+}
+
+/**
+ * Assert that two envelopes (one from CLI, one from MCP) match according
+ * to a `ParitySpec`. Throws an `Error` whose message includes the
+ * offending dot-path on first divergence so vitest's failure renderer
+ * shows the diff inline.
+ *
+ * Allowed-to-differ paths are not checked; required paths must be
+ * present on both sides and `===`/deep-equal after normalization. We
+ * use a structural string compare via JSON for complex values to keep
+ * the helper dependency-free.
+ */
+export function assertParity(
+  cliResult: unknown,
+  mcpResult: unknown,
+  spec: ParitySpec,
+): void {
+  for (const dotPath of spec.fieldsRequiringEquality) {
+    const cli = resolveDotPath(cliResult, dotPath);
+    const mcp = resolveDotPath(mcpResult, dotPath);
+
+    if (!cli.found || !mcp.found) {
+      const missing: string[] = [];
+      if (!cli.found) missing.push('cli');
+      if (!mcp.found) missing.push('mcp');
+      throw new Error(
+        `parity violation [${spec.action}]: required field "${dotPath}" missing from ` +
+          `${missing.join(' and ')}`,
+      );
+    }
+
+    const cliJson = JSON.stringify(cli.value);
+    const mcpJson = JSON.stringify(mcp.value);
+    if (cliJson !== mcpJson) {
+      throw new Error(
+        `parity violation [${spec.action}]: required field "${dotPath}" differs — ` +
+          `cli=${cliJson} mcp=${mcpJson}`,
+      );
+    }
+  }
+}
