@@ -236,21 +236,23 @@ jobs:
   # The project's setupFiles assert `exarchos` is on PATH, so we build
   # the host (linux-x64) binary and symlink it before invoking vitest.
   #
-  # Currently empty (`--passWithNoTests`); the first process-fidelity
-  # tests land in P2. The job is wired now (T1.8) so the gate exists
-  # the moment those tests appear.
+  # The job covers the full process-fidelity matrix landed in W1–W5 of
+  # the v2.9.0 e2e harness:
+  #   - P1 fixtures (preflight, runCli, spawnMcpClient, normalizers)
+  #   - P2 saga primitives + #1208 regression
+  #   - P3 parity tests (workflow.describe, event.query, workflow.rehydrate
+  #     with F6.1 reconstructability)
+  #   - P4 CLI surface tests (version, doctor, install-skills, schema,
+  #     topology, emissions, mcp start/stop)
   #
-  # Non-blocking until T3.7 (P3 parity gate) lands. See
-  # docs/plans/2026-05-05-e2e-v29-revisited.md.
   # Linux only — Windows process fidelity is v2.10 P5.
+  #
+  # Blocking gate as of T3.7 — closes #1109 invariants #1 and #2.
   # ─────────────────────────────────────────────────────────────────────
   e2e-process:
     name: E2E Process (linux-x64)
     if: github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request'
     runs-on: ubuntu-latest
-    # Non-blocking until T3.7 (P3 parity gate) lands. See
-    # docs/plans/2026-05-05-e2e-v29-revisited.md.
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
 
