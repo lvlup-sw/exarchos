@@ -20,8 +20,11 @@ describe('PARITY_CONTRACT', () => {
     // The describe envelope's user-meaningful core: phase, featureId, tasks
     // must agree across transports. Mid-flight correction renamed this
     // from `view.describe` — describe lives on `_workflow`, not `_view`.
+    // T3.4 follow-up: the underlying envelope wraps the workflow document
+    // under `data`, so the literal dot-paths used by `assertParity` carry
+    // a `data.` prefix.
     expect(spec!.fieldsRequiringEquality).toEqual(
-      expect.arrayContaining(['phase', 'featureId', 'tasks']),
+      expect.arrayContaining(['data.phase', 'data.featureId', 'data.tasks']),
     );
   });
 

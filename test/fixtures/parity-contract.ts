@@ -39,7 +39,11 @@ export type ParitySpec = {
 export const PARITY_CONTRACT: ParitySpec[] = [
   {
     action: 'workflow.describe',
-    fieldsRequiringEquality: ['phase', 'featureId', 'tasks'],
+    // The CLI/MCP envelope wraps the workflow document under `data` —
+    // see `wf status --json` and `exarchos_workflow.get` outputs. The
+    // parity check uses literal dot-paths (resolveDotPath in this
+    // file), so the leading `data.` is required.
+    fieldsRequiringEquality: ['data.phase', 'data.featureId', 'data.tasks'],
     fieldsAllowedToDiffer: ['_transport.requestId'],
   },
 ];
