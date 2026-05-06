@@ -37,6 +37,21 @@ export function createMcpServer(ctx: DispatchContext): McpServer {
   );
 
   for (const tool of getFullRegistry()) {
+    // Tier model — INTENTIONAL asymmetry between MCP and CLI surfaces.
+    //
+    // `hidden: true` means the tool is excluded from MCP `tools/list` (so it
+    // is not advertised to model-side agents and does not consume their
+    // context budget) but remains reachable via the CLI for operators,
+    // scripts, and introspection (`exarchos schema`, `exarchos sy ...`).
+    //
+    // The companion CLI introspection path (`listSchemas()` in
+    // `./schema-introspection.ts`) deliberately returns the FULL registry
+    // and tags hidden tools so users can see they exist while understanding
+    // they are internal / not part of the model-facing contract.
+    //
+    // See bug #1218 for the triage that fixed this asymmetry as
+    // intentional, and registry.ts:`CompositeTool.hidden` for the field
+    // contract.
     if (tool.hidden) continue;
     const inputSchema = buildRegistrationSchema(tool.actions);
     const description = buildToolDescription(tool, ctx.slimRegistration ?? false);
