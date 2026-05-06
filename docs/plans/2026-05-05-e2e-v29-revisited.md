@@ -11,11 +11,57 @@ Plan-review surfaced three implementation hazards. All resolved against current 
 
 | Hazard | Resolution | Source |
 |--------|-----------|--------|
-| CLI invocation shape for `view.*` actions | **Two-word subcommand**: `exarchos view describe <featureId>`, `exarchos view event_log`, `exarchos view rehydrate`. Auto-generated from MCP tool registry per `cli.ts:130-148` (`exarchos <tool-stripped-prefix> <action>`). Args are passed as flags via `addFlagsFromSchema` — `--feature-id <id>` rather than positional in most cases. | `servers/exarchos-mcp/src/adapters/cli.ts:130-148` |
+| CLI invocation shape for parity actions | **Two-word subcommand** auto-generated from MCP tool registry per `cli.ts:130-148` (`exarchos <tool-stripped-prefix> <action>`). Args are passed as flags via `addFlagsFromSchema` — `--feature-id <id>` rather than positional in most cases. | `servers/exarchos-mcp/src/adapters/cli.ts:130-148` |
 | `exarchos_event` action name for emitting events | **`append`** (not `emit`). Confirmed in `playbooks.ts`, `runbooks/definitions.ts`, `describe/handler.ts:309`. | `servers/exarchos-mcp/src/runbooks/definitions.ts:35` et al. |
 | CI workflow integration | `ci.yml` invokes `npm run test:run` twice (root + mcp); no `test:process` job exists. Plan now adds T1.8 to wire it as a non-blocking job in W1, and T3.7 flips it to gating. | `.github/workflows/ci.yml:71,123` |
 
 Plan tasks updated to use confirmed names. The first-task-of-affected-wave verification overhead is eliminated.
+
+## Mid-flight correction (post-D1-saga, 2026-05-05)
+
+The original design + plan referenced three actions on `exarchos_view` that **do not exist** in the actual registry. Discovered when the D1-saga implementer (T2.1/T2.2/T2.3) had to map them to real surfaces. Corrected mapping:
+
+| Plan reference (incorrect) | Actual location | Corrected CLI / MCP call |
+|----------------------------|-----------------|--------------------------|
+| `exarchos_view { action: 'describe' }` | `exarchos_workflow { action: 'describe' }` | `exarchos workflow describe --feature-id <id>` / `exarchos_workflow.describe` |
+| `exarchos_view { action: 'event_log' }` | `exarchos_event { action: 'query', stream: <featureId> }` | `exarchos event query --stream <id>` / `exarchos_event.query`. Note `stream` (not `featureId`) is the schema key. |
+| `exarchos_view { action: 'rehydrate' }` | `exarchos_workflow { action: 'rehydrate' }` | `exarchos workflow rehydrate --feature-id <id>` / `exarchos_workflow.rehydrate` |
+
+`exarchos_view`'s **actual** actions are: `pipeline`, `tasks`, `workflow_status`, `stack_status`, `stack_place`, `telemetry`, `team_performance`, `delegation_timeline`, `code_quality`, `quality_hints`, `delegation_readiness`, `synthesis_readiness`, `shepherd_status`, `convergence` (per `servers/exarchos-mcp/src/registry.ts:1718-1726`). None match the parity-test design's needs; describe/event-log/rehydrate live on `_workflow` and `_event` instead.
+
+**Tasks T3.1, T3.4–T3.6 use the corrected tool/action mappings.** PARITY_CONTRACT entries become `workflow.describe`, `event.query`, `workflow.rehydrate` (not `view.describe`, `view.event_log`, `view.rehydrate`).
+
+Additional verified MCP shapes (for T2.4 / Wave E and parity tests):
+
+```typescript
+// event append:
+{ name: 'exarchos_event', arguments: {
+    action: 'append',
+    stream: '<featureId>',                  // NOT featureId
+    event: { type, data },                  // event body lives under `event` key
+    idempotencyKey: '<optional>',
+}}
+
+// event query (returns data: WorkflowEvent[] post-normalize):
+{ name: 'exarchos_event', arguments: {
+    action: 'query',
+    stream: '<featureId>',
+}}
+```
+
+## v2.9 dogfood bugs surfaced + fixed during D1
+
+D1's CLI smoke + install-skills tests surfaced **3 v2.9 bugs**, each fixed in a separate PR targeting `main` directly:
+
+| Bug | PR | Status | v2.9 GA blocker? |
+|-----|----|----|--------|
+| #1216 — `version` subcommand prints hardcoded `2.8.3` | [#1219](https://github.com/lvlup-sw/exarchos/pull/1219) | Open | Yes (preflight cascade) |
+| #1217 — `install-skills` non-interactive no-op | [#1222](https://github.com/lvlup-sw/exarchos/pull/1222) | Open | **YES — primary GA blocker** |
+| #1218 — CLI/MCP schema asymmetry (intentional) | [#1221](https://github.com/lvlup-sw/exarchos/pull/1221) | Open | No (doc-only) |
+
+P4 will rebase onto `main` after these merge. T4.3's 3 install-skills tests already pass against #1222's fix (verified in F3's report).
+
+Also surfaced separately: #1220 — subagent worktree isolation gap (non-implementer types). Not blocking; tracked.
 
 ## Wave structure
 
@@ -479,13 +525,15 @@ Each integration branch becomes one PR (P1, P2, P4, P3). W4 reserved for any cro
 **Dependencies:** T1.7
 **Parallelizable:** Yes (with T3.1/T3.2 — different files)
 
-### Task T3.4: `parity-view-describe.test.ts`
+### Task T3.4: `parity-workflow-describe.test.ts`
 
-1. **[RED]** Create `test/process/parity-view-describe.test.ts`:
-   - `viewDescribe_cliVsMcp_envelopesMatchAfterNormalize` — run a 3-step saga via `driveSaga`, then:
-     - **CLI side:** `runCli({ args: ['view', 'describe', '--feature-id', featureId, '--json'] })` and parse stdout. (Two-word subcommand pattern auto-generated from MCP tool registry per plan §"Pre-revision verification". Confirm exact flag name — `--feature-id` vs `--featureId` — via `exarchos view describe --help` at task start; commander typically kebab-cases.)
-     - **MCP side:** `client.callTool({ name: 'exarchos_view', arguments: { action: 'describe', featureId } })`.
-     - Apply `normalize` to both, then `assertParity(cli, mcp, PARITY_CONTRACT.find(s => s.action === 'view.describe'))`.
+(Renamed from `parity-view-describe` per the mid-flight correction — describe lives on `_workflow`.)
+
+1. **[RED]** Create `test/process/parity-workflow-describe.test.ts`:
+   - `workflowDescribe_cliVsMcp_envelopesMatchAfterNormalize` — run a 3-step saga via `driveSaga`, then:
+     - **CLI side:** `runCli({ args: ['workflow', 'describe', '--feature-id', featureId, '--json'] })` and parse stdout. (Two-word subcommand pattern auto-generated. Confirm exact flag name via `exarchos workflow describe --help` at task start; commander kebab-cases.)
+     - **MCP side:** `client.callTool({ name: 'exarchos_workflow', arguments: { action: 'describe', featureId } })`.
+     - Apply `normalize` to both, then `assertParity(cli, mcp, PARITY_CONTRACT.find(s => s.action === 'workflow.describe'))`.
    - Run: may fail if there is real divergence; that is a real bug to fix in [GREEN].
 
 2. **[GREEN]** If divergence found, fix in CLI adapter or MCP handler depending on which side is wrong (treat MCP envelope as the canonical source, per design §3 Basileus-forward).
@@ -496,13 +544,15 @@ Each integration branch becomes one PR (P1, P2, P4, P3). W4 reserved for any cro
 **Dependencies:** T3.1, T3.2, T3.3, T2.3 (driveSaga)
 **Parallelizable:** No (sequential parity tests)
 
-### Task T3.5: `parity-view-event-log.test.ts`
+### Task T3.5: `parity-event-query.test.ts`
 
-1. **[RED]** Add `view.event_log` entry to `PARITY_CONTRACT` (if not added in T3.1).
-2. **[RED]** Create `test/process/parity-view-event-log.test.ts`:
-   - `viewEventLog_cliVsMcp_envelopesMatchAfterNormalize` — same shape as T3.4 with action `event_log`.
-   - **CLI invocation:** `runCli({ args: ['view', 'event-log', '--feature-id', featureId, '--json'] })` (commander kebab-cases `event_log` → `event-log` by convention; verify via `--help` at task start).
-   - **MCP invocation:** `client.callTool({ name: 'exarchos_view', arguments: { action: 'event_log', featureId } })`.
+(Renamed from `parity-view-event-log` per the mid-flight correction — event log lives on `_event` as the `query` action.)
+
+1. **[RED]** Add `event.query` entry to `PARITY_CONTRACT` (if not added in T3.1).
+2. **[RED]** Create `test/process/parity-event-query.test.ts`:
+   - `eventQuery_cliVsMcp_envelopesMatchAfterNormalize` — same shape as T3.4 with action `query` on `_event`.
+   - **CLI invocation:** `runCli({ args: ['event', 'query', '--stream', featureId, '--json'] })` — note `--stream` flag (the schema discriminator), NOT `--feature-id`.
+   - **MCP invocation:** `client.callTool({ name: 'exarchos_event', arguments: { action: 'query', stream: featureId } })`.
    - Run.
 
 3. **[GREEN]** If divergence, fix.
@@ -511,14 +561,16 @@ Each integration branch becomes one PR (P1, P2, P4, P3). W4 reserved for any cro
 **Dependencies:** T3.4
 **Parallelizable:** No
 
-### Task T3.6: `parity-view-rehydrate.test.ts` + F6.1 reconstructability
+### Task T3.6: `parity-workflow-rehydrate.test.ts` + F6.1 reconstructability
 
-1. **[RED]** Add `view.rehydrate` entry to `PARITY_CONTRACT`.
-2. **[RED]** Create `test/process/parity-view-rehydrate.test.ts` with two tests:
-   - `viewRehydrate_cliVsMcp_envelopesMatchAfterNormalize` — parity check, same shape as T3.4/T3.5.
-     - **CLI invocation:** `runCli({ args: ['view', 'rehydrate', '--feature-id', featureId, '--json'] })`.
-     - **MCP invocation:** `client.callTool({ name: 'exarchos_view', arguments: { action: 'rehydrate', featureId } })`.
-   - `viewRehydrate_replayedEvents_reconstructEqualProjection` — drive saga in server A, `snapshotEventStream`, spawn fresh server B, `replayInto`, assert B's `rehydrate` equals A's `rehydrate` (modulo normalize). **This is the F6.1 invariant test.**
+(Renamed from `parity-view-rehydrate` per the mid-flight correction — rehydrate lives on `_workflow`.)
+
+1. **[RED]** Add `workflow.rehydrate` entry to `PARITY_CONTRACT`.
+2. **[RED]** Create `test/process/parity-workflow-rehydrate.test.ts` with two tests:
+   - `workflowRehydrate_cliVsMcp_envelopesMatchAfterNormalize` — parity check, same shape as T3.4/T3.5.
+     - **CLI invocation:** `runCli({ args: ['workflow', 'rehydrate', '--feature-id', featureId, '--json'] })`.
+     - **MCP invocation:** `client.callTool({ name: 'exarchos_workflow', arguments: { action: 'rehydrate', featureId } })`.
+   - `workflowRehydrate_replayedEvents_reconstructEqualProjection` — drive saga in server A, `snapshotEventStream`, spawn fresh server B, `replayInto`, assert B's `rehydrate` equals A's `rehydrate` (modulo normalize). **This is the F6.1 invariant test.**
    - Run.
 
 3. **[GREEN]** If either fails, fix the projection or the event-replay primitive depending on root cause.
