@@ -61,6 +61,54 @@ export const PARITY_CONTRACT: ParitySpec[] = [
     fieldsRequiringEquality: ['success', 'data', 'next_actions'],
     fieldsAllowedToDiffer: ['_transport.requestId', '_meta', '_perf'],
   },
+  {
+    action: 'workflow.rehydrate',
+    // `wf rehydrate --feature-id <id>` (CLI) and `exarchos_workflow.rehydrate`
+    // (MCP) both return the canonical result envelope:
+    //   { success, data: <RehydrationDocument>, next_actions, _meta,
+    //     _perf, _cacheHints }
+    // where the rehydration document is `{ v, projectionSequence,
+    // behavioralGuidance, workflowState, taskProgress, decisions,
+    // artifacts, blockers }` (see
+    // `servers/exarchos-mcp/src/workflow/rehydrate.ts`).
+    //
+    // Required-equality dot-paths cover:
+    //   - `success`              — boolean status; both must succeed.
+    //   - `data.workflowState`   — canonical workflow state record
+    //                              (featureId, phase, workflowType).
+    //                              The single most user-meaningful slice
+    //                              of the document.
+    //   - `data.taskProgress`    — derived task list folded from
+    //                              `task.assigned` / `task.completed`
+    //                              events. Order and per-task fields
+    //                              must agree across transports.
+    //   - `data.projectionSequence` — sequence number of the last event
+    //                              folded into the projection. After the
+    //                              same N events on both sides this MUST
+    //                              equal — divergence here flags a
+    //                              projection-determinism bug. NOT
+    //                              normalized away (`projectionSequence`
+    //                              is not in `SEQUENCE_KEYS`), so we get
+    //                              real numeric equality, not placeholder
+    //                              equality.
+    //
+    // `_cacheHints` is allowed to differ: it carries advisory caching
+    // metadata (`ttl`, `position`) that is transport-shape-stable today
+    // but is not part of the load-bearing reconstructability invariant —
+    // F6.1 only requires the projection itself reconstruct identically.
+    fieldsRequiringEquality: [
+      'success',
+      'data.workflowState',
+      'data.taskProgress',
+      'data.projectionSequence',
+    ],
+    fieldsAllowedToDiffer: [
+      '_transport.requestId',
+      '_meta',
+      '_perf',
+      '_cacheHints',
+    ],
+  },
 ];
 
 /**

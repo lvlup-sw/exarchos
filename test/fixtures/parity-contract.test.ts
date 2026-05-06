@@ -40,6 +40,25 @@ describe('PARITY_CONTRACT', () => {
     );
   });
 
+  it('paritySpec_workflowRehydrate_listsRequiredFields', () => {
+    const spec = PARITY_CONTRACT.find((s) => s.action === 'workflow.rehydrate');
+    expect(spec).toBeDefined();
+    expect(spec!.fieldsRequiringEquality.length).toBeGreaterThan(0);
+    // The user-meaningful core of the rehydration document: workflow
+    // state, task progress derived from events, and the projection
+    // sequence (which must match across transports after the same N
+    // events — projectionSequence is NOT normalized so this is real
+    // numeric equality).
+    expect(spec!.fieldsRequiringEquality).toEqual(
+      expect.arrayContaining([
+        'success',
+        'data.workflowState',
+        'data.taskProgress',
+        'data.projectionSequence',
+      ]),
+    );
+  });
+
   it('paritySpec_actionUniqueness_eachActionHasOneEntry', () => {
     const seen = new Set<string>();
     for (const spec of PARITY_CONTRACT) {
