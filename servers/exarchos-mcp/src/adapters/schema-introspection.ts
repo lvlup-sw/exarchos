@@ -52,14 +52,31 @@ export function resolveSchemaRef(ref: string): Record<string, unknown> {
 
 /**
  * Lists all tools and their actions from the registry.
- * Returns a summary with tool name and action name/description pairs.
+ *
+ * Tier model — INTENTIONAL asymmetry with the MCP `tools/list` surface.
+ * `listSchemas()` returns the FULL registry, including `hidden: true` tools
+ * (e.g. `exarchos_sync`). The MCP adapter (`./mcp.ts`) skips hidden tools
+ * during `registerTool()` so they stay off the model-facing surface. The
+ * CLI introspection path keeps them visible because the CLI is the operator
+ * / script / debugging surface, where seeing the complete registry is the
+ * desired behavior.
+ *
+ * Each returned entry carries a `hidden` boolean so callers (CLI renderers,
+ * docs generators, parity tests) can mark or filter hidden tools without
+ * having to re-walk the registry.
+ *
+ * See bug #1218 for the triage that locked this asymmetry in as
+ * intentional, and `registry.ts:CompositeTool.hidden` for the field
+ * contract.
  */
 export function listSchemas(): Array<{
   tool: string;
+  hidden: boolean;
   actions: Array<{ name: string; description: string }>;
 }> {
   return getFullRegistry().map((tool) => ({
     tool: tool.name,
+    hidden: tool.hidden === true,
     actions: tool.actions.map((action) => ({
       name: action.name,
       description: action.description,
