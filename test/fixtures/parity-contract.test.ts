@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { PARITY_CONTRACT } from './parity-contract.js';
+import { PARITY_CONTRACT, assertParity, type ParitySpec } from './parity-contract.js';
 
 /**
  * T3.1 — parity contract schema + first entry.
@@ -31,5 +31,37 @@ describe('PARITY_CONTRACT', () => {
       expect(seen.has(spec.action)).toBe(false);
       seen.add(spec.action);
     }
+  });
+});
+
+describe('assertParity', () => {
+  const spec: ParitySpec = {
+    action: 'test.action',
+    fieldsRequiringEquality: ['phase', 'data.featureId'],
+    fieldsAllowedToDiffer: ['_transport.requestId'],
+  };
+
+  it('assertParity_equalEnvelopes_passes', () => {
+    const cli = { phase: 'plan', data: { featureId: 'x' }, _transport: { requestId: 'cli-1' } };
+    const mcp = { phase: 'plan', data: { featureId: 'x' }, _transport: { requestId: 'mcp-1' } };
+    expect(() => assertParity(cli, mcp, spec)).not.toThrow();
+  });
+
+  it('assertParity_diffInRequiredField_throws', () => {
+    const cli = { phase: 'plan', data: { featureId: 'x' } };
+    const mcp = { phase: 'review', data: { featureId: 'x' } };
+    expect(() => assertParity(cli, mcp, spec)).toThrow(/phase/);
+  });
+
+  it('assertParity_diffInAllowedField_passes', () => {
+    const cli = { phase: 'plan', data: { featureId: 'x' }, _transport: { requestId: 'A' } };
+    const mcp = { phase: 'plan', data: { featureId: 'x' }, _transport: { requestId: 'B' } };
+    expect(() => assertParity(cli, mcp, spec)).not.toThrow();
+  });
+
+  it('assertParity_missingRequiredField_throws', () => {
+    const cli = { phase: 'plan' };
+    const mcp = { phase: 'plan', data: { featureId: 'x' } };
+    expect(() => assertParity(cli, mcp, spec)).toThrow(/data\.featureId/);
   });
 });
