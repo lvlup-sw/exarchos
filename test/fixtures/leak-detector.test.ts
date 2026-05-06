@@ -36,9 +36,9 @@ describe('expectNoLeakedProcesses', () => {
     clear();
   });
 
-  it('ExpectNoLeakedProcesses_NoAliveChildren_Passes', () => {
-    // Empty registry -> must not throw.
-    expect(() => expectNoLeakedProcesses()).not.toThrow();
+  it('ExpectNoLeakedProcesses_NoAliveChildren_Passes', async () => {
+    // Empty registry -> must not reject.
+    await expect(expectNoLeakedProcesses()).resolves.toBeUndefined();
   });
 
   it('ExpectNoLeakedProcesses_LiveChildRemaining_ThrowsAndForceKills', async () => {
@@ -48,10 +48,10 @@ describe('expectNoLeakedProcesses', () => {
     // Sanity: child is alive before we assert.
     expect(listAlive()).toContain(child);
 
-    expect(() => expectNoLeakedProcesses()).toThrow();
+    await expect(expectNoLeakedProcesses()).rejects.toThrow();
 
-    // After the throw, the leak detector should have force-killed the child.
-    await waitForExit(child);
+    // After the rejection, the leak detector should have force-killed the
+    // child and awaited its exit before throwing.
     expect(child.exitCode !== null || child.signalCode !== null).toBe(true);
   });
 
@@ -59,14 +59,13 @@ describe('expectNoLeakedProcesses', () => {
     const child = spawnLongLived();
     register(child);
 
-    try {
-      expectNoLeakedProcesses();
-    } catch {
+    await expectNoLeakedProcesses().catch(() => {
       // expected
-    }
+    });
 
-    // Registry must be cleared so subsequent tests start clean.
-    await waitForExit(child);
+    // Registry must be cleared so subsequent tests start clean. killAll is
+    // now awaited inside the helper, so by the time we get here the child
+    // has already exited.
     expect(listAlive()).toEqual([]);
   });
 
@@ -78,7 +77,7 @@ describe('expectNoLeakedProcesses', () => {
 
     let caught: unknown;
     try {
-      expectNoLeakedProcesses();
+      await expectNoLeakedProcesses();
     } catch (err) {
       caught = err;
     }

@@ -7,6 +7,6 @@ import { assertExarchosOnPath } from './preflight.js';
 // correctly stays dormant until PR 2 adds the first process-fidelity test.
 assertExarchosOnPath();
 
-afterEach(() => {
-  expectNoLeakedProcesses();
+afterEach(async () => {
+  await expectNoLeakedProcesses();
 });
