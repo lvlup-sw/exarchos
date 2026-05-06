@@ -1,6 +1,7 @@
 import { Command, CommanderError } from 'commander';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { getFullRegistry } from '../registry.js';
 import { dispatch } from '../core/dispatch.js';
 import type { DispatchContext } from '../core/dispatch.js';
@@ -110,6 +111,49 @@ function startHeartbeat(actionName: string): () => void {
   return () => clearInterval(timer);
 }
 
+// ─── Package Version Resolution (Bug #1216) ─────────────────────────────────
+
+/**
+ * Resolve the running binary's version from the MCP server's `package.json`.
+ *
+ * The CLI is built from `servers/exarchos-mcp/`, so the source-of-truth
+ * version lives in `<that-package>/package.json`. We walk upward from this
+ * module until we find a `package.json`, then return its `version` field.
+ *
+ * Falls back to `'unknown'` if the file cannot be read or parsed — both
+ * `--version` (registered via `program.version()`) and the `version`
+ * subcommand share this resolver, so any failure is symmetric.
+ *
+ * Bug context: previously, the `version` subcommand printed the literal
+ * `'2.8.3'`, which drifted from `program.version()`'s literal as the
+ * package was bumped. Reading from `package.json` keeps both in lockstep
+ * with `npm version` automation. See issue #1216.
+ */
+function resolvePackageVersion(): string {
+  try {
+    const here = path.dirname(fileURLToPath(import.meta.url));
+    // Walk up to find the nearest package.json (works from src/, dist/, or
+    // the bundled binary's resolved __dirname).
+    let dir = here;
+    for (let i = 0; i < 8; i++) {
+      const candidate = path.join(dir, 'package.json');
+      if (fs.existsSync(candidate)) {
+        const parsed = JSON.parse(fs.readFileSync(candidate, 'utf8')) as {
+          version?: unknown;
+        };
+        if (typeof parsed.version === 'string') return parsed.version;
+        break;
+      }
+      const parent = path.resolve(dir, '..');
+      if (parent === dir) break;
+      dir = parent;
+    }
+  } catch {
+    // fall through
+  }
+  return 'unknown';
+}
+
 // ─── CLI Command Tree Generator ─────────────────────────────────────────────
 
 /**
@@ -121,9 +165,10 @@ function startHeartbeat(actionName: string): () => void {
  * Also registers the `schema` introspection command and `mcp` server mode.
  */
 export function buildCli(ctx: DispatchContext): Command {
+  const packageVersion = resolvePackageVersion();
   const program = new Command('exarchos')
     .description('Agent governance for AI coding — event-sourced SDLC workflows')
-    .version('2.9.0-rc.3');
+    .version(packageVersion);
 
   // ─── Auto-generated tool commands ──────────────────────────────────────────
 
@@ -385,7 +430,9 @@ export function buildCli(ctx: DispatchContext): Command {
     .action(async (opts: { checkPluginRoot?: string }) => {
       if (!opts.checkPluginRoot) {
         // Plain `exarchos version` — print the version string and exit.
-        process.stdout.write('2.8.3\n');
+        // Bug #1216: source from package.json so this stays in lockstep
+        // with `--version` (registered via `program.version()` above).
+        process.stdout.write(`${packageVersion}\n`);
         process.exitCode = CLI_EXIT_CODES.SUCCESS;
         return;
       }
@@ -393,7 +440,7 @@ export function buildCli(ctx: DispatchContext): Command {
       const { handleVersionCheck } = await import('../cli-commands/version.js');
       const exitCode = await handleVersionCheck({
         pluginRoot: opts.checkPluginRoot,
-        binaryVersion: '2.9.0-rc.3',
+        binaryVersion: packageVersion,
       });
       process.exitCode = exitCode;
     });
@@ -406,9 +453,17 @@ export function buildCli(ctx: DispatchContext): Command {
     .action(async (ref?: string) => {
       const { listSchemas, resolveSchemaRef } = await import('./schema-introspection.js');
       if (!ref) {
+        // The CLI surface intentionally lists the FULL registry — including
+        // tools that the MCP adapter hides from `tools/list` (e.g.
+        // `exarchos_sync`). We append `(hidden)` so users can see at a
+        // glance which entries are operator-only and not part of the
+        // model-facing contract. See bug #1218 and
+        // `schema-introspection.ts:listSchemas` for the tier-model
+        // rationale.
         const schemas = listSchemas();
         for (const tool of schemas) {
-          process.stdout.write(`\n${tool.tool}:\n`);
+          const marker = tool.hidden ? ' (hidden)' : '';
+          process.stdout.write(`\n${tool.tool}${marker}:\n`);
           for (const action of tool.actions) {
             process.stdout.write(`  ${action.name} — ${action.description}\n`);
           }

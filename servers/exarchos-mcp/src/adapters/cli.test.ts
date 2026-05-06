@@ -268,6 +268,72 @@ describe('mcp command', () => {
   });
 });
 
+// ─── Bug #1216: version subcommand reads from package.json ──────────────────
+
+describe('version subcommand', () => {
+  let ctx: DispatchContext;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    ctx = createTestContext();
+  });
+
+  /**
+   * Read the package.json the CLI is built from. The cli.ts module
+   * lives at `<repo>/servers/exarchos-mcp/src/adapters/cli.ts`, so the
+   * MCP server's package.json is at `<repo>/servers/exarchos-mcp/package.json`.
+   */
+  function readPkgVersion(): string {
+    const here = path.dirname(fileURLToPath(import.meta.url));
+    const pkgPath = path.resolve(here, '..', '..', 'package.json');
+    const raw = fs.readFileSync(pkgPath, 'utf8');
+    return JSON.parse(raw).version as string;
+  }
+
+  it('VersionSubcommand_PrintsPackageJsonVersion_NotHardcodedLiteral', async () => {
+    // Arrange — capture stdout writes during `exarchos version`.
+    const program = buildCli(ctx);
+    const writes: string[] = [];
+    const stdoutSpy = vi
+      .spyOn(process.stdout, 'write')
+      .mockImplementation((chunk: unknown) => {
+        writes.push(String(chunk));
+        return true;
+      });
+
+    // Act — invoke the version subcommand without flags.
+    await program.parseAsync(['node', 'exarchos', 'version']);
+
+    // Assert — printed value matches package.json.version exactly.
+    const expected = readPkgVersion();
+    const printed = writes.join('').trim();
+    expect(printed).toBe(expected);
+
+    stdoutSpy.mockRestore();
+  });
+
+  it('VersionSubcommand_MatchesProgramVersionFlag', async () => {
+    // The subcommand and `--version` flag must agree — they both
+    // describe the same running binary.
+    const program = buildCli(ctx);
+    const writes: string[] = [];
+    const stdoutSpy = vi
+      .spyOn(process.stdout, 'write')
+      .mockImplementation((chunk: unknown) => {
+        writes.push(String(chunk));
+        return true;
+      });
+
+    await program.parseAsync(['node', 'exarchos', 'version']);
+    const subcommandOutput = writes.join('').trim();
+    const programVersion = program.version();
+
+    expect(subcommandOutput).toBe(programVersion);
+
+    stdoutSpy.mockRestore();
+  });
+});
+
 // ─── Task 25: Init Scaffolding Command ────────────────────────────────────────
 
 describe('init command', () => {
