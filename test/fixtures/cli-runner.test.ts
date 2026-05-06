@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { runCli } from './cli-runner.js';
-import { listAlive, clear } from './process-tracker.js';
+import { listAlive, clear, killAll } from './process-tracker.js';
 
 /**
  * Tests for the target-agnostic CLI invoker `runCli`.
@@ -14,9 +14,13 @@ import { listAlive, clear } from './process-tracker.js';
  * project binary so that the suite has no dependency beyond `node` itself.
  */
 
-afterEach(() => {
-  // Defensive: ensure tracker state does not leak between tests. runCli must
-  // unregister on close, so under normal conditions this is a no-op.
+afterEach(async () => {
+  // Defensive: terminate any OS-level children BEFORE dropping tracker state.
+  // runCli must unregister on close, so under normal conditions killAll is a
+  // no-op (listAlive() returns []). If runCli regresses and a child outlives
+  // the test, clearing the registry without killing first would leak the
+  // process. Order matters: kill, then clear.
+  await killAll({ timeoutMs: 1000 });
   clear();
 });
 
