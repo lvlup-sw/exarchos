@@ -406,9 +406,17 @@ export function buildCli(ctx: DispatchContext): Command {
     .action(async (ref?: string) => {
       const { listSchemas, resolveSchemaRef } = await import('./schema-introspection.js');
       if (!ref) {
+        // The CLI surface intentionally lists the FULL registry — including
+        // tools that the MCP adapter hides from `tools/list` (e.g.
+        // `exarchos_sync`). We append `(hidden)` so users can see at a
+        // glance which entries are operator-only and not part of the
+        // model-facing contract. See bug #1218 and
+        // `schema-introspection.ts:listSchemas` for the tier-model
+        // rationale.
         const schemas = listSchemas();
         for (const tool of schemas) {
-          process.stdout.write(`\n${tool.tool}:\n`);
+          const marker = tool.hidden ? ' (hidden)' : '';
+          process.stdout.write(`\n${tool.tool}${marker}:\n`);
           for (const action of tool.actions) {
             process.stdout.write(`  ${action.name} — ${action.description}\n`);
           }
