@@ -157,6 +157,26 @@ describe('runCli', () => {
     expect(result.durationMs).toBeLessThan(60_000);
   });
 
+  it('runCli_defaultCommand_resolvesToExarchos', async () => {
+    // When `command` is omitted, runCli must default to the v2.9 single-binary
+    // surface: `exarchos`. We verify this without depending on `exarchos`
+    // being installed on PATH by isolating PATH so the spawn fails with
+    // ENOENT, then asserting the failing command name is `exarchos`.
+    const isolatedPath = mkdtempSync(join(tmpdir(), 'run-cli-default-cmd-'));
+    try {
+      await expect(
+        runCli({
+          // command intentionally omitted — the default must kick in.
+          args: ['version'],
+          env: { PATH: isolatedPath },
+          timeout: 5_000,
+        }),
+      ).rejects.toThrow(/exarchos/);
+    } finally {
+      rmSync(isolatedPath, { recursive: true, force: true });
+    }
+  });
+
   it('RunCli_RegistersWithProcessTracker_UnregistersOnExit', async () => {
     expect(listAlive()).toHaveLength(0);
 
