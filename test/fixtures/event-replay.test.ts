@@ -1,0 +1,181 @@
+// Source: docs/designs/2026-05-05-e2e-v29-revisited.md §4.2
+import { describe, it, expect, afterEach, beforeAll } from 'vitest';
+import * as path from 'node:path';
+import * as fs from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { spawnMcpClient, type SpawnedMcpClient } from './mcp-client.js';
+import { withHermeticEnv } from './hermetic.js';
+import { clear, listAlive } from './process-tracker.js';
+import { snapshotEventStream } from './event-replay.js';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const REPO_ROOT = path.resolve(__dirname, '..', '..');
+const TSX_BIN = path.join(REPO_ROOT, 'node_modules', '.bin', 'tsx');
+const MCP_ENTRY = path.join(
+  REPO_ROOT,
+  'servers',
+  'exarchos-mcp',
+  'src',
+  'index.ts',
+);
+
+const REAL_MCP_ARGS = [TSX_BIN, MCP_ENTRY, 'mcp'];
+
+/**
+ * Track clients across a single test so teardown can clean up handles even
+ * when an assertion fails mid-test and `terminate()` never runs.
+ */
+const activeClients: SpawnedMcpClient[] = [];
+function track<T extends SpawnedMcpClient>(c: T): T {
+  activeClients.push(c);
+  return c;
+}
+
+describe('event-replay primitives', () => {
+  beforeAll(() => {
+    // Confirm the MCP entrypoint is reachable; the fixture self-tests are part
+    // of the `unit` project which does not gate on `exarchos` binary presence.
+    if (!fs.existsSync(TSX_BIN)) {
+      throw new Error(
+        `tsx binary not found at ${TSX_BIN}. Run \`npm install\` in the repo root.`,
+      );
+    }
+    if (!fs.existsSync(MCP_ENTRY)) {
+      throw new Error(`MCP entry not found at ${MCP_ENTRY}.`);
+    }
+  });
+
+  afterEach(async () => {
+    while (activeClients.length > 0) {
+      const c = activeClients.pop();
+      if (!c) continue;
+      try {
+        await c.terminate();
+      } catch {
+        // ignore — teardown best effort
+      }
+    }
+    for (const child of listAlive()) {
+      try {
+        child.kill('SIGKILL');
+      } catch {
+        // ignore
+      }
+    }
+    clear();
+  });
+
+  describe('snapshotEventStream', () => {
+    it('snapshotEventStream_freshFeature_returnsEmptySnapshot', async () => {
+      await withHermeticEnv(async (env) => {
+        const spawned = track(
+          await spawnMcpClient({
+            command: 'node',
+            args: REAL_MCP_ARGS,
+            stateDir: env.stateDir,
+            timeout: 20_000,
+          }),
+        );
+        const snap = await snapshotEventStream(spawned, 'fresh-feat');
+        expect(snap.featureId).toBe('fresh-feat');
+        expect(snap.events).toEqual([]);
+      });
+    }, 30_000);
+
+    it('snapshotEventStream_afterEvents_includesAllEventsInOrder', async () => {
+      await withHermeticEnv(async (env) => {
+        const spawned = track(
+          await spawnMcpClient({
+            command: 'node',
+            args: REAL_MCP_ARGS,
+            stateDir: env.stateDir,
+            timeout: 20_000,
+          }),
+        );
+
+        // Drive a small saga: workflow init + 2 event appends.
+        await spawned.client.callTool({
+          name: 'exarchos_workflow',
+          arguments: {
+            action: 'init',
+            featureId: 'saga-order',
+            workflowType: 'feature',
+          },
+        });
+        await spawned.client.callTool({
+          name: 'exarchos_event',
+          arguments: {
+            action: 'append',
+            stream: 'saga-order',
+            event: {
+              type: 'task.assigned',
+              data: { taskId: 't1', title: 'first task' },
+            },
+          },
+        });
+        await spawned.client.callTool({
+          name: 'exarchos_event',
+          arguments: {
+            action: 'append',
+            stream: 'saga-order',
+            event: {
+              type: 'task.progressed',
+              data: { taskId: 't1', tddPhase: 'red' },
+            },
+          },
+        });
+
+        const snap = await snapshotEventStream(spawned, 'saga-order');
+        expect(snap.featureId).toBe('saga-order');
+        // workflow init auto-emits workflow.started; then 2 explicit appends.
+        expect(snap.events.length).toBeGreaterThanOrEqual(3);
+        const types = snap.events.map(
+          (e) => (e as Record<string, unknown>).type,
+        );
+        // Order is preserved: workflow.started must precede task events.
+        const startedIdx = types.indexOf('workflow.started');
+        const assignedIdx = types.indexOf('task.assigned');
+        const progressedIdx = types.indexOf('task.progressed');
+        expect(startedIdx).toBeGreaterThanOrEqual(0);
+        expect(assignedIdx).toBeGreaterThan(startedIdx);
+        expect(progressedIdx).toBeGreaterThan(assignedIdx);
+      });
+    }, 30_000);
+
+    it('snapshotEventStream_appliesNormalize_replacesTimestamps', async () => {
+      await withHermeticEnv(async (env) => {
+        const spawned = track(
+          await spawnMcpClient({
+            command: 'node',
+            args: REAL_MCP_ARGS,
+            stateDir: env.stateDir,
+            timeout: 20_000,
+          }),
+        );
+
+        await spawned.client.callTool({
+          name: 'exarchos_workflow',
+          arguments: {
+            action: 'init',
+            featureId: 'norm-feat',
+            workflowType: 'feature',
+          },
+        });
+
+        const snap = await snapshotEventStream(spawned, 'norm-feat');
+        expect(snap.events.length).toBeGreaterThanOrEqual(1);
+        for (const e of snap.events) {
+          const obj = e as Record<string, unknown>;
+          // Normalized timestamps must be the placeholder, not an ISO string.
+          if ('timestamp' in obj) {
+            expect(obj.timestamp).toBe('<TIMESTAMP>');
+          }
+          // Normalized sequences must be the placeholder, not a number.
+          if ('sequence' in obj) {
+            expect(obj.sequence).toBe('<SEQ>');
+          }
+        }
+      });
+    }, 30_000);
+  });
+});
