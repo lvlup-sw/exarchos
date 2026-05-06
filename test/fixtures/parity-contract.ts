@@ -46,6 +46,21 @@ export const PARITY_CONTRACT: ParitySpec[] = [
     fieldsRequiringEquality: ['data.phase', 'data.featureId', 'data.tasks'],
     fieldsAllowedToDiffer: ['_transport.requestId'],
   },
+  {
+    action: 'event.query',
+    // `event query --stream <id>` (CLI) and `exarchos_event.query` (MCP)
+    // both return the canonical result envelope:
+    //   { success, data: [...events], next_actions, _meta, _perf }
+    // The user-meaningful core is the events array under `data` plus
+    // the boolean `success` and empty `next_actions`. After
+    // `normalize`, per-event `sequence` and `timestamp` are replaced
+    // with placeholders so the events array deep-compares cleanly.
+    // `_meta` and `_perf` are intentionally NOT required: `_perf.ms`
+    // and `_perf.bytes`/`_perf.tokens` are non-deterministic across
+    // runs, and `_meta` may carry transport-specific advisory keys.
+    fieldsRequiringEquality: ['success', 'data', 'next_actions'],
+    fieldsAllowedToDiffer: ['_transport.requestId', '_meta', '_perf'],
+  },
 ];
 
 /**
