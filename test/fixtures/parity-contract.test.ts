@@ -28,6 +28,18 @@ describe('PARITY_CONTRACT', () => {
     );
   });
 
+  it('paritySpec_eventQuery_listsRequiredFields', () => {
+    const spec = PARITY_CONTRACT.find((s) => s.action === 'event.query');
+    expect(spec).toBeDefined();
+    expect(spec!.fieldsRequiringEquality.length).toBeGreaterThan(0);
+    // The events array under `data` is the user-meaningful core that
+    // must agree across transports. Both transports also surface
+    // `success` and `next_actions` on the canonical envelope.
+    expect(spec!.fieldsRequiringEquality).toEqual(
+      expect.arrayContaining(['data', 'success', 'next_actions']),
+    );
+  });
+
   it('paritySpec_actionUniqueness_eachActionHasOneEntry', () => {
     const seen = new Set<string>();
     for (const spec of PARITY_CONTRACT) {
