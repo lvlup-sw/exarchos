@@ -76,6 +76,30 @@ describe('listSchemas', () => {
       }
     }
   });
+
+  // Bug #1218: the CLI introspection surface lists the FULL registry
+  // (including tools that MCP `tools/list` filters out). To keep that
+  // asymmetry visible — without breaking anything — every entry now carries
+  // a `hidden` flag so renderers can mark hidden tools as operator-only.
+  it('ListSchemas_TagsHiddenTools_PreservingTierModel', () => {
+    const schemas = listSchemas();
+
+    const sync = schemas.find((s) => s.tool === 'exarchos_sync');
+    expect(sync, 'exarchos_sync must remain in the CLI introspection surface').toBeDefined();
+    expect(sync!.hidden).toBe(true);
+
+    // All currently visible composite tools must report hidden === false.
+    for (const visibleName of [
+      'exarchos_workflow',
+      'exarchos_event',
+      'exarchos_orchestrate',
+      'exarchos_view',
+    ]) {
+      const tool = schemas.find((s) => s.tool === visibleName);
+      expect(tool, `${visibleName} must be present in CLI listSchemas()`).toBeDefined();
+      expect(tool!.hidden).toBe(false);
+    }
+  });
 });
 
 describe('resolveTopologyRef', () => {

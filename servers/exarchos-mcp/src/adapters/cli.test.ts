@@ -28,10 +28,16 @@ vi.mock('./schema-introspection.js', () => ({
   listSchemas: vi.fn(() => [
     {
       tool: 'exarchos_workflow',
+      hidden: false,
       actions: [
         { name: 'init', description: 'Initialize a new workflow' },
         { name: 'get', description: 'Read workflow state' },
       ],
+    },
+    {
+      tool: 'exarchos_sync',
+      hidden: true,
+      actions: [{ name: 'now', description: 'Trigger immediate sync' }],
     },
   ]),
   resolveSchemaRef: vi.fn(() => ({
@@ -204,6 +210,26 @@ describe('schema command', () => {
     const output = stdoutSpy.mock.calls.map(([s]) => s).join('');
     expect(output).toContain('exarchos_workflow');
     expect(output).toContain('init');
+
+    stdoutSpy.mockRestore();
+  });
+
+  // Bug #1218: hidden tools (e.g. exarchos_sync) MUST stay in the CLI
+  // schema listing — the asymmetry with MCP `tools/list` is intentional —
+  // but they should be marked `(hidden)` so the operator can see they are
+  // not part of the model-facing contract.
+  it('SchemaCommand_NoArgs_MarksHiddenTools', async () => {
+    // Arrange
+    const program = buildCli(ctx);
+    const stdoutSpy = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
+
+    // Act
+    await program.parseAsync(['node', 'exarchos', 'schema']);
+
+    // Assert
+    const output = stdoutSpy.mock.calls.map(([s]) => s).join('');
+    expect(output).toMatch(/^exarchos_workflow:$/m);
+    expect(output).toMatch(/^exarchos_sync \(hidden\):$/m);
 
     stdoutSpy.mockRestore();
   });
