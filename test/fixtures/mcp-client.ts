@@ -156,13 +156,20 @@ export async function spawnMcpClient(
   // Reach into the transport for the ChildProcess reference. The SDK does
   // not expose it publicly, but we need it for lifecycle management and
   // leak detection. Verified against @modelcontextprotocol/sdk 1.29.
-  const transportInternals = transport as unknown as { _process?: ChildProcess };
-  const child = transportInternals._process;
-  if (!child) {
+  const transportInternals = transport as unknown as { _process?: unknown };
+  const candidate = transportInternals._process;
+  if (
+    !candidate ||
+    typeof candidate !== 'object' ||
+    typeof (candidate as ChildProcess).kill !== 'function' ||
+    typeof (candidate as ChildProcess).pid !== 'number'
+  ) {
     throw new Error(
-      'spawnMcpClient: transport did not expose a child process after start()',
+      "spawnMcpClient: transport did not expose a ChildProcess after start() — " +
+        "@modelcontextprotocol/sdk internals may have changed (verified against 1.29)",
     );
   }
+  const child = candidate as ChildProcess;
   processTracker.register(child);
 
   // ── connect race: initialize vs timeout vs premature exit ────────────────

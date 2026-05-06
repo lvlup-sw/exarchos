@@ -114,26 +114,41 @@ function startHeartbeat(actionName: string): () => void {
 // ─── Package Version Resolution (Bug #1216) ─────────────────────────────────
 
 /**
- * Resolve the running binary's version from the MCP server's `package.json`.
+ * Build-time injected version. `scripts/build-binary.ts` passes
+ * `--define EXARCHOS_BUILD_VERSION="<version>"` to `bun build --compile`
+ * so the compiled binary advertises the right version even though the
+ * bundle has no on-disk `package.json` to walk up to. Stays `undefined`
+ * for `bun run` / `node` invocations, which fall through to the runtime
+ * `package.json` walk below.
+ */
+declare const EXARCHOS_BUILD_VERSION: string | undefined;
+
+/**
+ * Resolve the running binary's version.
  *
- * The CLI is built from `servers/exarchos-mcp/`, so the source-of-truth
- * version lives in `<that-package>/package.json`. We walk upward from this
- * module until we find a `package.json`, then return its `version` field.
+ * Strategy (in order):
+ *   1. Build-time `EXARCHOS_BUILD_VERSION` constant injected by
+ *      `scripts/build-binary.ts` via `bun build --define`. This is the
+ *      authoritative source for the compiled binary.
+ *   2. Walk upward from this module to find a `package.json` and read
+ *      its `version` field. Works from `src/`, `dist/`, and any
+ *      `bun run` / `node` invocation that has the source tree on disk.
+ *   3. Fall back to `'unknown'` so failure modes stay symmetric across
+ *      `--version` and the `version` subcommand.
  *
- * Falls back to `'unknown'` if the file cannot be read or parsed — both
- * `--version` (registered via `program.version()`) and the `version`
- * subcommand share this resolver, so any failure is symmetric.
- *
- * Bug context: previously, the `version` subcommand printed the literal
- * `'2.8.3'`, which drifted from `program.version()`'s literal as the
- * package was bumped. Reading from `package.json` keeps both in lockstep
- * with `npm version` automation. See issue #1216.
+ * Bug context: previously the `version` subcommand printed the literal
+ * `'2.8.3'`, drifting from `program.version()` as the package bumped. The
+ * resolver keeps both surfaces in lockstep with `npm version`. See #1216.
  */
 function resolvePackageVersion(): string {
+  if (
+    typeof EXARCHOS_BUILD_VERSION === 'string' &&
+    EXARCHOS_BUILD_VERSION.length > 0
+  ) {
+    return EXARCHOS_BUILD_VERSION;
+  }
   try {
     const here = path.dirname(fileURLToPath(import.meta.url));
-    // Walk up to find the nearest package.json (works from src/, dist/, or
-    // the bundled binary's resolved __dirname).
     let dir = here;
     for (let i = 0; i < 8; i++) {
       const candidate = path.join(dir, 'package.json');

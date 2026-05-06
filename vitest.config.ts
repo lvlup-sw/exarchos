@@ -8,6 +8,11 @@ export default defineConfig({
       {
         test: {
           name: 'unit',
+          // Root-package unit tests only. Tests under `servers/exarchos-mcp/`
+          // are owned by that workspace's own `vitest.config.ts` (which sets up
+          // the `bun:sqlite` alias and resolves `@fast-check/vitest` from the
+          // nested `node_modules/`). CI runs them via `cd servers/exarchos-mcp
+          // && npm run test:run`.
           include: [
             'src/**/*.test.ts',
             'benchmarks/**/*.test.ts',
@@ -17,27 +22,7 @@ export default defineConfig({
             'test/migration/**/*.test.ts',
             'test/smoke/**/*.test.ts',
             'test/e2e/**/*.test.ts',
-            'servers/exarchos-mcp/src/**/*.test.ts',
           ],
-          // Prevent cross-project duplicate execution: __tests__ is owned by
-          // the `integration` project below. Without this, the unit project's
-          // `servers/exarchos-mcp/src/**/*.test.ts` glob would also match it.
-          // We re-list the vitest defaults so they are preserved when
-          // `exclude` is set explicitly.
-          exclude: [
-            '**/node_modules/**',
-            '**/dist/**',
-            '**/cypress/**',
-            '**/.{idea,git,cache,output,temp}/**',
-            '**/{karma,rollup,webpack,vite,vitest,jest,ava,babel,nyc,cypress,tsup,build,eslint,prettier}.config.*',
-            'servers/exarchos-mcp/src/__tests__/**/*.test.ts',
-          ],
-        },
-      },
-      {
-        test: {
-          name: 'integration',
-          include: ['servers/exarchos-mcp/src/__tests__/**/*.test.ts'],
         },
       },
       {

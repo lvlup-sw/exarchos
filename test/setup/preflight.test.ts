@@ -58,7 +58,7 @@ describe('assertExarchosOnPath', () => {
 });
 
 describe('assertExarchosVersion', () => {
-  it('assertExarchosOnPath_staleBinary_throwsVersionMismatch', async () => {
+  it('assertExarchosVersion_staleBinary_throwsVersionMismatch', async () => {
     // Stub the version resolver to simulate a binary that advertises an
     // older v2.8 release. The check must reject with both the expected
     // major.minor and the actual version named in the message.

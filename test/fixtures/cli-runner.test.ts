@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from 'vitest';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { runCli } from './cli-runner.js';
@@ -135,11 +135,9 @@ describe('runCli', () => {
         cwd: tmp,
       });
 
-      // Realpath-match: macOS `/tmp` often resolves to `/private/tmp`, so
-      // we only require that the reported cwd ends with the tmp basename.
-      expect(result.stdout.endsWith(tmp) || tmp.endsWith(result.stdout)).toBe(
-        true,
-      );
+      // macOS `/tmp` resolves through a symlink to `/private/tmp`, so
+      // canonicalize both sides before comparing.
+      expect(realpathSync(result.stdout)).toBe(realpathSync(tmp));
       expect(result.exitCode).toBe(0);
     } finally {
       rmSync(tmp, { recursive: true, force: true });

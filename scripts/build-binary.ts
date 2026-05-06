@@ -41,11 +41,30 @@
  * test file in the same commit.
  */
 import { $ } from 'bun';
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, readFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { TARGETS, type Target } from './build-binary-targets.js';
 import { generateEmbeddedRuntimesModule } from './codegen-runtimes.js';
+
+/**
+ * Read the canonical version from root `package.json`. Inlined into the
+ * compiled binary via `--define` so `--version` and the `version` subcommand
+ * survive `bun build --compile` (the compiled bundle has no on-disk
+ * `package.json` to walk up to). See `adapters/cli.ts:resolvePackageVersion`
+ * for the runtime fallback.
+ */
+function readBuildVersion(): string {
+  const here = dirname(fileURLToPath(import.meta.url));
+  const root = resolve(here, '..');
+  const pkg = JSON.parse(
+    readFileSync(resolve(root, 'package.json'), 'utf8'),
+  ) as { version?: unknown };
+  if (typeof pkg.version !== 'string') {
+    throw new Error('root package.json is missing a string `version` field');
+  }
+  return pkg.version;
+}
 
 // Re-export so existing importers of `./build-binary.js` keep working.
 export { TARGETS };
@@ -112,8 +131,11 @@ async function buildOne(target: Target): Promise<void> {
 
   // `bun build --compile` produces a single executable that embeds the Bun
   // runtime + the bundled JS graph. --target selects the host-OS bun
-  // runtime to embed (for cross-compilation).
-  await $`bun build servers/exarchos-mcp/src/index.ts --compile --target=${target.bunTarget} --outfile ${outfile}`;
+  // runtime to embed (for cross-compilation). --define inlines the package
+  // version so `--version` works inside the bundled binary (no on-disk
+  // package.json to walk up to).
+  const versionDefine = `EXARCHOS_BUILD_VERSION="${readBuildVersion()}"`;
+  await $`bun build servers/exarchos-mcp/src/index.ts --compile --target=${target.bunTarget} --define ${versionDefine} --outfile ${outfile}`;
 
   console.log(`Built ${outfile}`);
 }

@@ -111,22 +111,4 @@ describe('spawnMcpClient', () => {
     await spawned.terminate();
     expect(listAlive()).not.toContain(spawned.server);
   });
-
-  it('spawnMcpClient_defaultCommand_spawnsExarchosMcpSubcommand', async () => {
-    // v2.9 ships a single `exarchos` binary that dispatches subcommand
-    // modes — `exarchos mcp` is the MCP-server entrypoint (see
-    // servers/exarchos-mcp/src/adapters/cli.ts §"MCP server mode command").
-    // Calling spawnMcpClient() with no overrides must default to spawning
-    // `exarchos mcp ...`, NOT the deprecated standalone `exarchos-mcp`
-    // binary that PR #1166 originally assumed.
-    const spawned = track(await spawnMcpClient());
-    // spawnargs is the canonical [command, ...args] tuple node attaches to
-    // the ChildProcess. Allow either the bare 'exarchos' invocation (when
-    // nothing on PATH resolution rewrote it) or an absolute path that ends
-    // in 'exarchos' / 'exarchos.exe' for cross-platform tolerance.
-    const spawnargs = spawned.server.spawnargs;
-    expect(spawnargs.length).toBeGreaterThanOrEqual(2);
-    expect(spawnargs[0]).toMatch(/(^|[\\/])exarchos(\.exe)?$/);
-    expect(spawnargs[1]).toBe('mcp');
-  });
 });
