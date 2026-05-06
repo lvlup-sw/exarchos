@@ -10,9 +10,24 @@ import * as processTracker from './process-tracker.js';
  * See design §5.2 for field semantics.
  */
 export interface SpawnMcpClientOpts {
-  /** Executable name (resolved on PATH). Defaults to `'exarchos-mcp'`. */
+  /**
+   * Executable name (resolved on PATH). Defaults to `'exarchos'`.
+   *
+   * v2.9 ships a single `exarchos` binary with subcommand mode dispatch
+   * (see `servers/exarchos-mcp/src/adapters/cli.ts` §"MCP server mode
+   * command"). The MCP server is reached via `exarchos mcp`, NOT a
+   * separate `exarchos-mcp` binary. To override (e.g. for tests that
+   * need a mock stdio server), pass an explicit `command` AND remember
+   * that any provided `args` will be prepended with `'mcp'` only when
+   * the default command is in effect — see `args` below.
+   */
   command?: string;
-  /** Argv passed to the child. */
+  /**
+   * Argv passed to the child. When `command` is left at its default
+   * (`'exarchos'`), the spawned argv is `['mcp', ...args]` so callers
+   * never need to repeat the subcommand. When `command` is overridden,
+   * `args` is passed through verbatim.
+   */
   args?: string[];
   /** Extra env vars merged with the child's default environment. */
   env?: Record<string, string>;
@@ -37,12 +52,21 @@ export interface SpawnedMcpClient {
   stderr: string[];
 }
 
-const DEFAULT_COMMAND = 'exarchos-mcp';
+const DEFAULT_COMMAND = 'exarchos';
+const DEFAULT_SUBCOMMAND = 'mcp';
 const DEFAULT_TIMEOUT_MS = 10_000;
 const FORCE_KILL_GRACE_MS = 3_000;
 
 /**
  * Spawns an MCP server binary over stdio and returns a connected `Client`.
+ *
+ * Defaults (v2.9 mode-dispatch pattern):
+ *   - `command`: `'exarchos'` — the single shipped binary.
+ *   - `args`: `['mcp', ...userArgs]` — `mcp` selects the MCP server mode
+ *     (see `servers/exarchos-mcp/src/adapters/cli.ts`). Any args the
+ *     caller supplies are appended after `mcp`. When the caller overrides
+ *     `command` (e.g. with `'node'` for a mock server), `args` is passed
+ *     through verbatim and `mcp` is NOT prepended.
  *
  * Guarantees (per design §5.2):
  *   - Returns only after `client.connect(transport)` completes (i.e. after
@@ -59,11 +83,19 @@ export async function spawnMcpClient(
 ): Promise<SpawnedMcpClient> {
   const {
     command = DEFAULT_COMMAND,
-    args = [],
+    args: callerArgs = [],
     env: extraEnv,
     stateDir,
     timeout = DEFAULT_TIMEOUT_MS,
   } = opts;
+  // When the caller leaves `command` at its default we are spawning the
+  // mode-dispatched `exarchos` binary, so prepend the `mcp` subcommand.
+  // Explicit overrides (tests using `node mock-server.mjs`, alternative
+  // wrappers, etc.) get their args verbatim.
+  const usingDefaultCommand = opts.command === undefined;
+  const args = usingDefaultCommand
+    ? [DEFAULT_SUBCOMMAND, ...callerArgs]
+    : callerArgs;
 
   // Merge extra env with an optional EXARCHOS_STATE_DIR shortcut. The
   // transport applies its own default-env allowlist; we only pass through
