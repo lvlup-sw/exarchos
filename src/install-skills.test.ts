@@ -11,8 +11,16 @@
  */
 
 import { describe, it, expect, vi } from 'vitest';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import type { RuntimeMap } from './runtimes/types.js';
-import { installSkills, type SpawnResult } from './install-skills.js';
+import {
+  installSkills,
+  mapRuntimeToSkillsCliAgent,
+  registerExarchosInClaudeJson,
+  type SpawnResult,
+} from './install-skills.js';
 
 /**
  * Minimal valid runtime map factory for unit-test use. Overrides let each
@@ -76,12 +84,18 @@ describe('installSkills scaffold (task 019)', () => {
       spawn: spawn.fn,
       log: (msg) => logs.push(msg),
       homeDir: () => '/home/tester',
+      registerMcp: () => {},
     });
 
-    // spawn was called with skills/<name> == skills/claude
+    // After the #1217 non-interactive fix, spawn must include the upstream
+    // skills CLI agent identifier (claude → claude-code) and the
+    // non-interactive flag set. Asserting `--agent claude-code` is enough
+    // to prove runtime resolution drove the correct argv.
     expect(spawn.calls).toHaveLength(1);
     const args = spawn.calls[0].args;
-    expect(args).toContain('skills/claude');
+    const agentIdx = args.indexOf('--agent');
+    expect(agentIdx).toBeGreaterThanOrEqual(0);
+    expect(args[agentIdx + 1]).toBe('claude-code');
   });
 
   it('InstallSkills_WithAgentFlag_ConstructsCorrectNpxCommand', async () => {
@@ -93,18 +107,28 @@ describe('installSkills scaffold (task 019)', () => {
       spawn: spawn.fn,
       log: () => {},
       homeDir: () => '/home/tester',
+      registerMcp: () => {},
     });
 
     expect(spawn.calls).toHaveLength(1);
     const { cmd, args } = spawn.calls[0];
     expect(cmd).toBe('npx');
+    // Post-#1217 argv: non-interactive flags drive the upstream `skills`
+    // CLI to install every skill into the claude-code agent home without
+    // any prompts. `--target`/`skills/<name>` were never valid upstream
+    // flags and have been removed.
     expect(args).toEqual([
+      '--yes',
       'skills',
       'add',
       'github:lvlup-sw/exarchos',
-      'skills/claude',
-      '--target',
-      '/home/tester/.claude/skills',
+      '--skill',
+      '*',
+      '--agent',
+      'claude-code',
+      '-y',
+      '-g',
+      '--copy',
     ]);
   });
 
@@ -122,12 +146,17 @@ describe('installSkills scaffold (task 019)', () => {
       spawn,
       log,
       homeDir: () => '/home/tester',
+      registerMcp: () => {},
     });
 
     // Find the log line that contains the command and assert it precedes
     // the spawn invocation.
     const logIdx = events.findIndex(
-      (e) => e.kind === 'log' && e.payload.includes('npx skills add'),
+      (e) =>
+        e.kind === 'log' &&
+        e.payload.includes('npx') &&
+        e.payload.includes('skills') &&
+        e.payload.includes('add'),
     );
     const spawnIdx = events.findIndex((e) => e.kind === 'spawn');
     expect(logIdx).toBeGreaterThanOrEqual(0);
@@ -135,7 +164,11 @@ describe('installSkills scaffold (task 019)', () => {
     expect(logIdx).toBeLessThan(spawnIdx);
   });
 
-  it('InstallSkills_WithAgentFlag_ExpandsTildeInInstallPath', async () => {
+  it('InstallSkills_WithAgentFlag_MapsRuntimeToUpstreamAgentId', async () => {
+    // Post-#1217: `--target` is not a valid upstream `skills` CLI flag
+    // (it was always silently ignored). The fix routes installs through
+    // `--agent <id>` instead, where <id> is the upstream agent identifier
+    // mapped from our internal runtime name.
     const spawn = fakeSpawn();
 
     await installSkills({
@@ -144,14 +177,16 @@ describe('installSkills scaffold (task 019)', () => {
       spawn: spawn.fn,
       log: () => {},
       homeDir: () => '/home/alice',
+      registerMcp: () => {},
     });
 
     const args = spawn.calls[0].args;
-    const targetIdx = args.indexOf('--target');
-    expect(targetIdx).toBeGreaterThanOrEqual(0);
-    expect(args[targetIdx + 1]).toBe('/home/alice/.claude/skills');
-    // Tilde must be fully gone.
-    expect(args[targetIdx + 1]).not.toContain('~');
+    const agentIdx = args.indexOf('--agent');
+    expect(agentIdx).toBeGreaterThanOrEqual(0);
+    // claude → claude-code per mapRuntimeToSkillsCliAgent.
+    expect(args[agentIdx + 1]).toBe('claude-code');
+    // Sanity: the dead `--target` flag really is gone.
+    expect(args).not.toContain('--target');
   });
 
   it('InstallSkills_UnknownAgent_ThrowsWithSupportedList', async () => {
@@ -239,7 +274,7 @@ describe('installSkills error handling (task 021)', () => {
     // Exact command for manual retry must appear in errLog output.
     const joined = errLines.join('\n');
     expect(joined).toContain(
-      'npx skills add github:lvlup-sw/exarchos skills/claude --target /home/tester/.claude/skills',
+      'npx --yes skills add github:lvlup-sw/exarchos --skill * --agent claude-code -y -g --copy',
     );
   });
 
@@ -261,6 +296,7 @@ describe('installSkills error handling (task 021)', () => {
       homeDir: () => '/home/tester',
       isInteractive: true,
       prompt,
+      registerMcp: () => {},
       detectDeps: {
         which: (cmd) =>
           cmd === 'claude' || cmd === 'codex' ? `/fake/bin/${cmd}` : null,
@@ -270,7 +306,11 @@ describe('installSkills error handling (task 021)', () => {
 
     expect(prompt).toHaveBeenCalledTimes(1);
     expect(spawn.calls).toHaveLength(1);
-    expect(spawn.calls[0].args).toContain('skills/claude');
+    // Post-#1217: `skills/claude` positional is gone; agent identity is
+    // now expressed through `--agent claude-code`.
+    const args = spawn.calls[0].args;
+    const agentIdx = args.indexOf('--agent');
+    expect(args[agentIdx + 1]).toBe('claude-code');
   });
 
   it('InstallSkills_AmbiguousDetection_NonInteractiveExitsNonZero', async () => {
@@ -370,13 +410,121 @@ describe('installSkills error handling (task 021)', () => {
       detectDeps: { which: () => null, env: {} },
     });
 
-    // Should have spawned with skills/generic.
+    // Should have spawned for the upstream `universal` agent (our
+    // `generic` runtime maps to upstream `universal` per
+    // mapRuntimeToSkillsCliAgent).
     expect(spawn.calls).toHaveLength(1);
-    expect(spawn.calls[0].args).toContain('skills/generic');
+    const args = spawn.calls[0].args;
+    const agentIdx = args.indexOf('--agent');
+    expect(agentIdx).toBeGreaterThanOrEqual(0);
+    expect(args[agentIdx + 1]).toBe('universal');
 
     // A clear fallback message should be logged.
     const joined = logs.join('\n');
     expect(joined.toLowerCase()).toContain('no agent detected');
     expect(joined.toLowerCase()).toContain('generic');
+  });
+});
+
+// ─── #1217 — non-interactive support ─────────────────────────────────────────
+
+describe('mapRuntimeToSkillsCliAgent (#1217)', () => {
+  it('mapRuntimeToSkillsCliAgent_claude_returnsClaudeCode', () => {
+    expect(mapRuntimeToSkillsCliAgent('claude')).toBe('claude-code');
+  });
+  it('mapRuntimeToSkillsCliAgent_copilot_returnsGithubCopilot', () => {
+    expect(mapRuntimeToSkillsCliAgent('copilot')).toBe('github-copilot');
+  });
+  it('mapRuntimeToSkillsCliAgent_generic_returnsUniversal', () => {
+    expect(mapRuntimeToSkillsCliAgent('generic')).toBe('universal');
+  });
+  it('mapRuntimeToSkillsCliAgent_codex_passesThrough', () => {
+    expect(mapRuntimeToSkillsCliAgent('codex')).toBe('codex');
+  });
+  it('mapRuntimeToSkillsCliAgent_unknown_passesThrough', () => {
+    // Forward-compat: unmapped names go through unchanged so a future
+    // runtime added in runtimes/<name>.yaml works automatically as long
+    // as <name> matches an upstream agent ID.
+    expect(mapRuntimeToSkillsCliAgent('zencoder')).toBe('zencoder');
+  });
+});
+
+describe('registerExarchosInClaudeJson (#1217)', () => {
+  function makeTmpHome(): string {
+    return fs.mkdtempSync(path.join(os.tmpdir(), 'exarchos-claudejson-'));
+  }
+
+  it('registerExarchosInClaudeJson_emptyHome_writesFreshFile', () => {
+    const home = makeTmpHome();
+    try {
+      registerExarchosInClaudeJson(home);
+      const raw = fs.readFileSync(path.join(home, '.claude.json'), 'utf8');
+      const parsed = JSON.parse(raw);
+      expect(parsed).toMatchObject({
+        mcpServers: {
+          exarchos: {
+            type: 'stdio',
+            command: 'exarchos',
+            args: ['mcp'],
+            env: {
+              WORKFLOW_STATE_DIR: path.join(home, '.claude', 'workflow-state'),
+            },
+          },
+        },
+      });
+    } finally {
+      fs.rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  it('registerExarchosInClaudeJson_existingUserServers_arePreserved', () => {
+    const home = makeTmpHome();
+    try {
+      const existing = {
+        mcpServers: {
+          'user-thing': { type: 'stdio', command: 'whatever' },
+        },
+        somethingElse: 42,
+      };
+      fs.writeFileSync(
+        path.join(home, '.claude.json'),
+        JSON.stringify(existing, null, 2),
+        'utf8',
+      );
+
+      registerExarchosInClaudeJson(home);
+
+      const parsed = JSON.parse(
+        fs.readFileSync(path.join(home, '.claude.json'), 'utf8'),
+      ) as Record<string, unknown>;
+      expect((parsed.mcpServers as Record<string, unknown>)['user-thing']).toEqual({
+        type: 'stdio',
+        command: 'whatever',
+      });
+      expect((parsed.mcpServers as Record<string, unknown>).exarchos).toBeDefined();
+      expect(parsed.somethingElse).toBe(42);
+    } finally {
+      fs.rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  it('registerExarchosInClaudeJson_idempotent_secondCallPreservesMtime', async () => {
+    const home = makeTmpHome();
+    try {
+      registerExarchosInClaudeJson(home);
+      const configPath = path.join(home, '.claude.json');
+      const beforeMtime = fs.statSync(configPath).mtimeMs;
+
+      // Force a small wall-clock delay so any second write would visibly
+      // bump mtimeMs. 20ms is comfortably above filesystem mtime resolution
+      // on every supported platform.
+      await new Promise((r) => setTimeout(r, 20));
+
+      registerExarchosInClaudeJson(home);
+      const afterMtime = fs.statSync(configPath).mtimeMs;
+      expect(afterMtime).toBe(beforeMtime);
+    } finally {
+      fs.rmSync(home, { recursive: true, force: true });
+    }
   });
 });
