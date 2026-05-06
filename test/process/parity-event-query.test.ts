@@ -22,6 +22,7 @@ import { driveSaga } from '../fixtures/saga-driver.js';
 import { withHermeticEnv } from '../fixtures/hermetic.js';
 import { normalize } from '../fixtures/normalizers.js';
 import { PARITY_CONTRACT, assertParity } from '../fixtures/parity-contract.js';
+import { extractEnvelope } from '../fixtures/mcp-envelope.js';
 
 // Pin the spawned MCP server and CLI to THIS worktree's freshly built
 // binary. The npm-linked `exarchos` on PATH points at whatever checkout
@@ -37,25 +38,6 @@ const WORKTREE_BINARY = path.resolve(
   'bin',
   'exarchos-linux-x64',
 );
-
-/**
- * The MCP `tools/call` result wraps the envelope as a JSON-encoded text
- * content block: `{ content: [{ type: 'text', text: '<json>' }] }`. Pull
- * the text out and parse it back into the underlying envelope shape so
- * we can compare structurally with the CLI's `--json` stdout.
- *
- * NOTE (T3.6 follow-up): T3.5 keeps this helper inline mirroring T3.4.
- * Once T3.6 lands the third copy, lift to `test/fixtures/mcp-envelope.ts`
- * and import from all three call sites.
- */
-function extractEnvelope(toolCallResult: unknown): unknown {
-  const r = toolCallResult as { content?: Array<{ type: string; text?: string }> };
-  const text = r.content?.find((c) => c.type === 'text')?.text;
-  if (typeof text !== 'string') {
-    throw new Error('expected MCP tools/call result to contain a text content block');
-  }
-  return JSON.parse(text);
-}
 
 describe('parity: exarchos event query — CLI ↔ MCP', () => {
   it('eventQuery_cliVsMcp_envelopesMatchAfterNormalize', async () => {

@@ -24,6 +24,7 @@ import { driveSaga } from '../fixtures/saga-driver.js';
 import { withHermeticEnv } from '../fixtures/hermetic.js';
 import { normalize } from '../fixtures/normalizers.js';
 import { PARITY_CONTRACT, assertParity } from '../fixtures/parity-contract.js';
+import { extractEnvelope } from '../fixtures/mcp-envelope.js';
 
 // Pin the spawned MCP server and CLI to THIS worktree's freshly built
 // binary. The npm-linked `exarchos` on PATH points at whatever checkout
@@ -39,21 +40,6 @@ const WORKTREE_BINARY = path.resolve(
   'bin',
   'exarchos-linux-x64',
 );
-
-/**
- * The MCP `tools/call` result wraps the envelope as a JSON-encoded text
- * content block: `{ content: [{ type: 'text', text: '<json>' }] }`. Pull
- * the text out and parse it back into the underlying envelope shape so
- * we can compare structurally with the CLI's `--json` stdout.
- */
-function extractEnvelope(toolCallResult: unknown): unknown {
-  const r = toolCallResult as { content?: Array<{ type: string; text?: string }> };
-  const text = r.content?.find((c) => c.type === 'text')?.text;
-  if (typeof text !== 'string') {
-    throw new Error('expected MCP tools/call result to contain a text content block');
-  }
-  return JSON.parse(text);
-}
 
 describe('parity: exarchos workflow describe — CLI ↔ MCP', () => {
   it('workflowDescribe_cliVsMcp_envelopesMatchAfterNormalize', async () => {
