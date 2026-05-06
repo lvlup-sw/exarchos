@@ -5,16 +5,35 @@ import { register, unregister } from './process-tracker.js';
  * Target-agnostic CLI invoker for the process-fidelity harness.
  *
  * Design: docs/designs/2026-04-19-process-fidelity-harness.md §5.3
+ * v2.9 retarget: docs/designs/2026-05-05-e2e-v29-revisited.md
+ *
+ * v2.9 collapsed the CLI surface into a single `exarchos` binary with
+ * subcommands (e.g. `exarchos install-skills`, `exarchos version`,
+ * `exarchos mcp`). The legacy multi-binary names like `exarchos-install`
+ * no longer exist. Accordingly `command` defaults to `'exarchos'` so the
+ * common case is a one-liner — callers only set `command` to override
+ * (e.g. `'node'` for inline interpreter scripts in tests).
  *
  * - Non-zero exit codes do NOT throw; the caller asserts on `exitCode`.
  * - Timeouts reject with an Error; the child is SIGKILLed before rejection.
  * - Every spawned child is registered with the process-tracker so leaks can
  *   be detected by `expectNoLeakedProcesses()`.
+ *
+ * @example
+ *   // v2.9 default surface — install skills via the single binary.
+ *   await runCli({ args: ['install-skills'] });
+ *
+ * @example
+ *   // Override for inline node scripts in unit tests.
+ *   await runCli({ command: 'node', args: ['-e', 'process.exit(0)'] });
  */
 
 export interface RunCliOpts {
-  /** Binary or interpreter to execute (e.g. `'node'`, `'exarchos-install'`). */
-  command: string;
+  /**
+   * Binary or interpreter to execute. Defaults to `'exarchos'` — the v2.9
+   * single-binary surface. Override with e.g. `'node'` for inline scripts.
+   */
+  command?: string;
   /** Arguments passed to the command. */
   args?: string[];
   /** Env vars merged over `process.env`. Values here override the parent env. */
@@ -38,11 +57,23 @@ const DEFAULT_TIMEOUT_MS = 30_000;
 
 /**
  * Spawn `command` with `args`, collect stdout/stderr, and resolve with the
- * structured result. Rejects only on timeout.
+ * structured result. Rejects only on timeout (or on `child_process.spawn`
+ * `error` events such as `ENOENT`).
+ *
+ * `command` defaults to `'exarchos'` — the v2.9 single-binary surface. This
+ * keeps the common e2e idiom a one-liner:
+ *
+ *   await runCli({ args: ['install-skills'] });
+ *
+ * Tests that need to invoke another interpreter (e.g. `node -e '<script>'`)
+ * pass `command` explicitly.
+ *
+ * Design: docs/designs/2026-04-19-process-fidelity-harness.md §5.3
+ * v2.9 retarget: docs/designs/2026-05-05-e2e-v29-revisited.md
  */
 export function runCli(opts: RunCliOpts): Promise<CliResult> {
   const {
-    command,
+    command = 'exarchos',
     args = [],
     env,
     cwd = process.cwd(),
