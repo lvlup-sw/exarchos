@@ -6,7 +6,11 @@ import { fileURLToPath } from 'node:url';
 import { spawnMcpClient, type SpawnedMcpClient } from './mcp-client.js';
 import { withHermeticEnv } from './hermetic.js';
 import { clear, listAlive } from './process-tracker.js';
-import { snapshotEventStream } from './event-replay.js';
+import {
+  snapshotEventStream,
+  replayInto,
+  type EventSnapshot,
+} from './event-replay.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
@@ -177,5 +181,123 @@ describe('event-replay primitives', () => {
         }
       });
     }, 30_000);
+  });
+
+  describe('replayInto', () => {
+    it('replayInto_emptyTarget_appliesAllEvents', async () => {
+      // Source server: drive a saga and snapshot it.
+      const snap = await withHermeticEnv(async (env) => {
+        const sourceSpawned = track(
+          await spawnMcpClient({
+            command: 'node',
+            args: REAL_MCP_ARGS,
+            stateDir: env.stateDir,
+            timeout: 20_000,
+          }),
+        );
+        await sourceSpawned.client.callTool({
+          name: 'exarchos_workflow',
+          arguments: {
+            action: 'init',
+            featureId: 'replay-feat',
+            workflowType: 'feature',
+          },
+        });
+        await sourceSpawned.client.callTool({
+          name: 'exarchos_event',
+          arguments: {
+            action: 'append',
+            stream: 'replay-feat',
+            event: {
+              type: 'task.assigned',
+              data: { taskId: 'r1', title: 'replay task' },
+            },
+          },
+        });
+        const captured = await snapshotEventStream(
+          sourceSpawned,
+          'replay-feat',
+        );
+        await sourceSpawned.terminate();
+        // Drop from active tracker since we already terminated.
+        const idx = activeClients.indexOf(sourceSpawned);
+        if (idx >= 0) activeClients.splice(idx, 1);
+        return captured;
+      });
+
+      // Target server: fresh hermetic env, replay into it, then snapshot.
+      await withHermeticEnv(async (env) => {
+        const targetSpawned = track(
+          await spawnMcpClient({
+            command: 'node',
+            args: REAL_MCP_ARGS,
+            stateDir: env.stateDir,
+            timeout: 20_000,
+          }),
+        );
+        await replayInto(targetSpawned, snap);
+        const after = await snapshotEventStream(targetSpawned, 'replay-feat');
+        expect(after.events).toEqual(snap.events);
+      });
+    }, 60_000);
+
+    it('replayInto_idempotent_secondCallNoOp', async () => {
+      // Build snapshot.
+      const snap: EventSnapshot = await withHermeticEnv(async (env) => {
+        const sourceSpawned = track(
+          await spawnMcpClient({
+            command: 'node',
+            args: REAL_MCP_ARGS,
+            stateDir: env.stateDir,
+            timeout: 20_000,
+          }),
+        );
+        await sourceSpawned.client.callTool({
+          name: 'exarchos_workflow',
+          arguments: {
+            action: 'init',
+            featureId: 'idem-feat',
+            workflowType: 'feature',
+          },
+        });
+        await sourceSpawned.client.callTool({
+          name: 'exarchos_event',
+          arguments: {
+            action: 'append',
+            stream: 'idem-feat',
+            event: {
+              type: 'task.assigned',
+              data: { taskId: 'i1', title: 'idem task' },
+            },
+          },
+        });
+        const captured = await snapshotEventStream(sourceSpawned, 'idem-feat');
+        await sourceSpawned.terminate();
+        const idx = activeClients.indexOf(sourceSpawned);
+        if (idx >= 0) activeClients.splice(idx, 1);
+        return captured;
+      });
+
+      await withHermeticEnv(async (env) => {
+        const targetSpawned = track(
+          await spawnMcpClient({
+            command: 'node',
+            args: REAL_MCP_ARGS,
+            stateDir: env.stateDir,
+            timeout: 20_000,
+          }),
+        );
+
+        await replayInto(targetSpawned, snap);
+        const after1 = await snapshotEventStream(targetSpawned, 'idem-feat');
+        expect(after1.events.length).toBe(snap.events.length);
+
+        // Second replay must be a no-op.
+        await replayInto(targetSpawned, snap);
+        const after2 = await snapshotEventStream(targetSpawned, 'idem-feat');
+        expect(after2.events.length).toBe(snap.events.length);
+        expect(after2.events).toEqual(after1.events);
+      });
+    }, 60_000);
   });
 });

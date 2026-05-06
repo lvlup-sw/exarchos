@@ -118,3 +118,88 @@ export async function snapshotEventStream(
 
   return { featureId, events: normalizedEvents };
 }
+
+/**
+ * Replay the events in `snapshot` into `client`'s MCP server, which is
+ * assumed to be hooked up to a fresh state directory (or at least one whose
+ * `snapshot.featureId` stream is empty or already a prefix of `snapshot`).
+ *
+ * Idempotence:
+ *   - Pre-fetches the target's existing event count for `snapshot.featureId`
+ *     and skips that many events from the head of the snapshot. So a second
+ *     `replayInto` with the same snapshot is a no-op.
+ *   - The server-side `idempotencyKey` mechanism is not relied on for skip
+ *     semantics because re-issuing an `event append` for an existing
+ *     idempotencyKey returns the original ack rather than throwing — but
+ *     skipping client-side avoids any chance of re-emitting hooks/channels.
+ *
+ * Synchronous-on-append assumption:
+ *   - `handleEventAppend` writes through the `EventStore` synchronously in
+ *     the request lifetime, so once a `callTool` resolves the projection is
+ *     readable. No post-replay polling against a `rehydrate` view is needed
+ *     for the F6.1 reconstructability assertion P3 will build on top.
+ */
+export async function replayInto(
+  client: SpawnedMcpClient,
+  snapshot: EventSnapshot,
+): Promise<void> {
+  // Idempotence: how many events does the target already have?
+  const existing = await snapshotEventStream(client, snapshot.featureId);
+  const skip = existing.events.length;
+
+  if (skip >= snapshot.events.length) {
+    return; // nothing to do
+  }
+
+  for (let i = skip; i < snapshot.events.length; i++) {
+    const ev = snapshot.events[i] as Record<string, unknown>;
+    const type = ev.type;
+    if (typeof type !== 'string' || type.length === 0) {
+      throw new Error(
+        `replayInto: snapshot event at index ${i} has no string 'type' field`,
+      );
+    }
+
+    // Build the event body for `event append`. We deliberately drop fields
+    // the server controls (streamId, sequence, timestamp) — those are
+    // assigned by the target server on append. We forward the semantic
+    // fields the schema accepts.
+    const body: Record<string, unknown> = { type };
+    if (ev.data !== undefined) body.data = ev.data;
+    if (typeof ev.correlationId === 'string') body.correlationId = ev.correlationId;
+    if (typeof ev.causationId === 'string') body.causationId = ev.causationId;
+    if (typeof ev.agentId === 'string') body.agentId = ev.agentId;
+    if (typeof ev.agentRole === 'string') body.agentRole = ev.agentRole;
+    if (typeof ev.tenantId === 'string') body.tenantId = ev.tenantId;
+    if (typeof ev.organizationId === 'string') body.organizationId = ev.organizationId;
+    if (typeof ev.source === 'string') body.source = ev.source;
+
+    // Forward idempotencyKey as a top-level append arg (not inside event)
+    // when the source event recorded one. This preserves the server's
+    // duplicate-suppression semantics (so an auto-emitted `workflow.started`
+    // re-appears identically post-replay rather than producing a divergent
+    // row).
+    const appendArgs: Record<string, unknown> = {
+      action: 'append',
+      stream: snapshot.featureId,
+      event: body,
+    };
+    if (typeof ev.idempotencyKey === 'string') {
+      appendArgs.idempotencyKey = ev.idempotencyKey;
+    }
+
+    const raw = await client.client.callTool({
+      name: 'exarchos_event',
+      arguments: appendArgs,
+    });
+    const envelope = unwrapToolResult(raw);
+    if (envelope.success === false) {
+      // Surface the error with the offending event index for debuggability.
+      throw new Error(
+        `replayInto: append failed at snapshot index ${i} (type='${type}'): ${
+          envelope.error?.code ?? 'UNKNOWN'
+        } ${envelope.error?.message ?? ''}`,
+      );
+    }
+  }
+}
