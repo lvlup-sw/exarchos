@@ -92,12 +92,12 @@ describe('#1208 — task.completed{worktreePath} auto-detours to merge-pending',
         ]);
 
         // Halt-on-throw — if any step errored, surface it for diagnostics.
-        const failedStep = transcript.steps.find((s) => s.error !== undefined);
-        if (failedStep) {
+        const failedStep = transcript.steps.find((s) => s.kind === 'error');
+        if (failedStep && failedStep.kind === 'error') {
           throw new Error(
             `Saga halted at ${failedStep.call.tool}/${
               (failedStep.call.arguments as { action?: string }).action ?? '?'
-            }: ${failedStep.error?.message}`,
+            }: ${failedStep.error.message}`,
           );
         }
 

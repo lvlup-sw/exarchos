@@ -55,7 +55,8 @@ describe('driveSaga', () => {
     expect(transcript.steps).toHaveLength(1);
     const step = transcript.steps[0];
     expect(step.call).toEqual(calls[0]);
-    expect(step.error).toBeUndefined();
+    expect(step.kind).toBe('success');
+    if (step.kind !== 'success') throw new Error('unreachable');
     // Mock server returns echo:hi as a text content block.
     expect(step.result).toMatchObject({
       content: [{ type: 'text', text: 'echo:hi' }],
@@ -74,6 +75,7 @@ describe('driveSaga', () => {
     const transcript = await driveSaga(spawned, calls);
     expect(transcript.steps).toHaveLength(3);
     const messages = transcript.steps.map((s) => {
+      if (s.kind !== 'success') throw new Error('expected success step');
       const r = s.result as { content?: Array<{ text?: string }> };
       return r.content?.[0]?.text;
     });
@@ -105,26 +107,26 @@ describe('driveSaga', () => {
           throw new Error('driveSaga should have halted before call 3');
         },
       },
-    } as unknown as SpawnedMcpClient;
+    };
 
     const calls: SagaCall[] = [
       { tool: 'echo', arguments: { message: 'before' } },
       { tool: 'echo', arguments: { message: 'will-throw' } },
       { tool: 'echo', arguments: { message: 'never executed' } },
     ];
+    // The stub satisfies SagaToolClient (the minimal { client: { callTool } }
+    // surface driveSaga consumes) directly, no SpawnedMcpClient cast needed.
     const transcript = await driveSaga(stubClient, calls);
 
     // First call succeeds, second throws, third never runs.
     expect(transcript.steps).toHaveLength(2);
-    expect(transcript.steps[0].error).toBeUndefined();
-    expect(transcript.steps[0].result).toBeDefined();
+    expect(transcript.steps[0].kind).toBe('success');
+    expect(transcript.steps[1].kind).toBe('error');
 
-    expect(transcript.steps[1].error).toBeDefined();
-    expect(transcript.steps[1].error?.message).toBe(
-      'synthetic transport failure',
-    );
-    expect(transcript.steps[1].error?.name).toBe('SyntheticTransportError');
-    expect(transcript.steps[1].result).toBeUndefined();
+    const errorStep = transcript.steps[1];
+    if (errorStep.kind !== 'error') throw new Error('unreachable');
+    expect(errorStep.error.message).toBe('synthetic transport failure');
+    expect(errorStep.error.name).toBe('SyntheticTransportError');
 
     // Halt verification: the stub increments callIndex per call; if a third
     // call leaked through it would have thrown the "should have halted"

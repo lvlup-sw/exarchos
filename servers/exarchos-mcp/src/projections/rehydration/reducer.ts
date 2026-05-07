@@ -322,9 +322,11 @@ export function eventDataHasWorktreeAssociation(
   if (!data) return false;
   const w = data['worktree'];
   const p = data['worktreePath'];
+  // Trim before length-checking — a whitespace-only string is not a real
+  // worktree association and must not trigger the merge-pending detour.
   return (
-    (typeof w === 'string' && w.length > 0) ||
-    (typeof p === 'string' && p.length > 0)
+    (typeof w === 'string' && w.trim().length > 0) ||
+    (typeof p === 'string' && p.trim().length > 0)
   );
 }
 
