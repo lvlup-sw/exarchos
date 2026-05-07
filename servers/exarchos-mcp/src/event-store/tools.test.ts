@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as path from 'node:path';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { EventStore } from './store.js';
 import { AtomicAppender } from './atomic-appender.js';
@@ -687,5 +687,183 @@ describe('sidecar mode sequencePending', () => {
       expect(ack.sequencePending).toBe(true);
       expect(ack.sequence).toBe(-1);
     }
+  });
+});
+
+// ─── C11: SubagentStreamRouter wiring on team.disbanded (#1224) ─────────────
+//
+// `handleEventAppend` MUST intercept `team.disbanded` events and route them
+// through `SubagentStreamRouter.emitDisbanded`. The router queries the parent
+// stream for the actual `task.completed` count scoped to the team and writes
+// the corrected event — discarding any agent-supplied `tasksCompleted` value.
+// This closes #1224 at the consumer level: the off-by-N bug originates in the
+// agent-side in-memory tally; the server is now the single source of truth.
+
+describe('handleEventAppend team.disbanded routing (C11, #1224)', () => {
+  /**
+   * Helper: seed the parent stream with N task.completed events for a given
+   * team via `handleEventAppend`. The router scans the parent JSONL and
+   * counts entries whose `data.teamId` matches.
+   */
+  async function seedTaskCompleted(
+    stream: string,
+    teamId: string,
+    taskIds: string[],
+  ): Promise<void> {
+    for (const taskId of taskIds) {
+      const result = await handleEventAppend(
+        {
+          stream,
+          event: {
+            type: 'task.completed',
+            data: { taskId, teamId },
+          },
+        },
+        tempDir,
+        eventStore,
+      );
+      if (!result.success) {
+        throw new Error(`seed task.completed failed: ${JSON.stringify(result.error)}`);
+      }
+    }
+  }
+
+  /**
+   * Read all events from a parent stream's JSONL. Returns parsed records.
+   */
+  async function readStreamJsonl(stream: string): Promise<Array<Record<string, unknown>>> {
+    const jsonlPath = path.join(tempDir, `${stream}.events.jsonl`);
+    const contents = await readFile(jsonlPath, 'utf-8');
+    return contents
+      .split('\n')
+      .filter((line) => line.length > 0)
+      .map((line) => JSON.parse(line) as Record<string, unknown>);
+  }
+
+  it('handleEventAppend_teamDisbanded_recomputesTasksCompleted', async () => {
+    const stream = 'parent-stream-c11-1';
+    const teamId = 'team-alpha';
+
+    // Seed parent stream with 3 task.completed events for the team.
+    await seedTaskCompleted(stream, teamId, ['t-1', 't-2', 't-3']);
+
+    // Caller supplies a wildly wrong tasksCompleted (the #1224 regression).
+    const result = await handleEventAppend(
+      {
+        stream,
+        event: {
+          type: 'team.disbanded',
+          data: {
+            teamId,
+            tasksCompleted: 999, // caller-supplied tally — MUST be overridden
+            tasksFailed: 0,
+            totalDurationMs: 1000,
+          },
+        },
+      },
+      tempDir,
+      eventStore,
+    );
+
+    expect(result.success).toBe(true);
+
+    const events = await readStreamJsonl(stream);
+    const disbanded = events.find((e) => e.type === 'team.disbanded');
+    expect(disbanded).toBeDefined();
+    const data = disbanded!.data as Record<string, unknown>;
+    // The router queried the parent stream and recomputed tasksCompleted = 3,
+    // overriding the 999 the caller supplied.
+    expect(data.tasksCompleted).toBe(3);
+    expect(data.tasksFailed).toBe(0);
+    expect(data.totalDurationMs).toBe(1000);
+    expect(data.teamId).toBe(teamId);
+  });
+
+  it('handleEventAppend_teamDisbanded_supplyAgnosticTallyIgnored', async () => {
+    // Three independent streams — each with the same N task.completed events —
+    // but the caller passes a different (wrong) tasksCompleted in each call.
+    // All three persisted events MUST report the same recomputed value (2).
+    const cases: Array<{ stream: string; supplied: number | undefined }> = [
+      { stream: 'parent-stream-c11-2a', supplied: 0 },
+      { stream: 'parent-stream-c11-2b', supplied: 999 },
+      { stream: 'parent-stream-c11-2c', supplied: undefined },
+    ];
+
+    for (const { stream, supplied } of cases) {
+      const teamId = `team-${stream}`;
+      await seedTaskCompleted(stream, teamId, ['x-1', 'x-2']);
+
+      const data: Record<string, unknown> = {
+        teamId,
+        tasksFailed: 0,
+        totalDurationMs: 500,
+      };
+      if (supplied !== undefined) {
+        data.tasksCompleted = supplied;
+      }
+
+      const result = await handleEventAppend(
+        {
+          stream,
+          event: { type: 'team.disbanded', data },
+        },
+        tempDir,
+        eventStore,
+      );
+      expect(result.success).toBe(true);
+
+      const events = await readStreamJsonl(stream);
+      const disbanded = events.find((e) => e.type === 'team.disbanded');
+      expect(disbanded).toBeDefined();
+      const persisted = disbanded!.data as Record<string, unknown>;
+      // Recomputed from parent-stream task.completed query — always 2 here.
+      expect(persisted.tasksCompleted).toBe(2);
+    }
+  });
+
+  it('handleEventAppend_nonDisbandedTypes_unchanged', async () => {
+    // Pinning regression: the interception MUST only fire for type ===
+    // 'team.disbanded'. Other event types follow the legacy `appendValidated`
+    // path and persist whatever the caller supplied.
+    const stream = 'parent-stream-c11-3';
+
+    // task.completed should NOT be intercepted — caller's data is preserved.
+    const taskRes = await handleEventAppend(
+      {
+        stream,
+        event: {
+          type: 'task.completed',
+          data: { taskId: 'pinning-task', verified: true },
+        },
+      },
+      tempDir,
+      eventStore,
+    );
+    expect(taskRes.success).toBe(true);
+
+    // workflow.started should NOT be intercepted.
+    const wfRes = await handleEventAppend(
+      {
+        stream,
+        event: {
+          type: 'workflow.started',
+          data: { featureId: 'pinning-feat', workflowType: 'feature' },
+        },
+      },
+      tempDir,
+      eventStore,
+    );
+    expect(wfRes.success).toBe(true);
+
+    const events = await readStreamJsonl(stream);
+    const taskCompleted = events.find((e) => e.type === 'task.completed');
+    expect(taskCompleted).toBeDefined();
+    const taskData = taskCompleted!.data as Record<string, unknown>;
+    expect(taskData.verified).toBe(true);
+
+    const workflowStarted = events.find((e) => e.type === 'workflow.started');
+    expect(workflowStarted).toBeDefined();
+    const wfData = workflowStarted!.data as Record<string, unknown>;
+    expect(wfData.featureId).toBe('pinning-feat');
   });
 });
