@@ -44,6 +44,24 @@ export interface WorkflowListEntry {
   _checkpoint: {
     lastActivityTimestamp: string;
   };
+  /**
+   * C8 (#1117) — secondary staleness signal: ISO timestamp of the most-recent
+   * `workflow.transition` event for the workflow. Captures "stuck in phase X
+   * for N days" even when reads keep `lastActivityTimestamp` fresh. Optional
+   * for backward compatibility; legacy entries fall back to single-signal
+   * scoring on `_checkpoint.lastActivityTimestamp`.
+   */
+  phaseTransitionTimestamp?: string;
+  /**
+   * C8 (#1117) — secondary staleness signal: ISO timestamp of the latest
+   * commit on the workflow's tracked branch (UTC seconds from
+   * `git log -1 --format=%ct`, converted to ISO). Absence of activity within
+   * the threshold window contributes a stale signal. Optional — workflows
+   * without a tracked branch (and absent-branch readers) leave this
+   * undefined; the selector treats undefined as "no evidence of branch
+   * progress" rather than penalising the workflow.
+   */
+  branchActivityTimestamp?: string;
 }
 
 export interface PruneConfig {
@@ -109,6 +127,23 @@ function isBeyondThreshold(
   return minutesSince(checkpoint.lastActivityTimestamp, now) > thresholdMinutes;
 }
 
+/**
+ * C8 (#1117): is a secondary signal timestamp stale relative to the
+ * threshold? Treats `undefined` as "no evidence of progress" — the
+ * caller decides whether that means stale (true) or fresh (false) by
+ * passing an explicit `whenAbsent` flag.
+ */
+function signalIsStale(
+  timestamp: string | undefined,
+  thresholdMinutes: number,
+  now: Date,
+  whenAbsent: boolean,
+): boolean {
+  if (timestamp === undefined) return whenAbsent;
+  if (Number.isNaN(new Date(timestamp).valueOf())) return whenAbsent;
+  return minutesSince(timestamp, now) > thresholdMinutes;
+}
+
 function isTerminalPhase(phase: string): boolean {
   return baseIsTerminalPhase(phase);
 }
@@ -156,7 +191,64 @@ export function selectPruneCandidates(
       continue;
     }
 
-    if (!isBeyondThreshold(entry._checkpoint, thresholdMinutes, now)) {
+    // C8 (#1117): multi-signal staleness scoring.
+    //
+    // Single-signal gating on `_checkpoint.lastActivityTimestamp` produced
+    // false-fresh reads because that field is bumped by every MCP `get` /
+    // `describe` call. The orchestrator's polling kept stuck workflows
+    // perpetually fresh.
+    //
+    // Composition (no single false-fresh path):
+    //   - When neither secondary signal is supplied (legacy entries),
+    //     fall back to the original single-signal threshold check. This
+    //     preserves the contract for callers that haven't yet been wired
+    //     to derive the secondary signals.
+    //   - When at least one secondary signal IS supplied, a workflow is
+    //     stale iff the phase-transition signal is stale AND
+    //     (the lastActivity signal is stale OR the branch is inactive).
+    //     Recent phase progress alone keeps a workflow fresh; recent
+    //     branch activity combined with a fresh `lastActivityTimestamp`
+    //     also keeps it fresh.
+    //
+    // `branchActivityTimestamp === undefined` is treated as "no evidence
+    // of branch progress" (i.e. stale), but the workflow is only flagged
+    // when the phase-transition signal is ALSO stale, so workflows
+    // without a tracked branch are not penalised on that signal alone.
+    const lastActivityStale = isBeyondThreshold(
+      entry._checkpoint,
+      thresholdMinutes,
+      now,
+    );
+    const hasSecondarySignal =
+      entry.phaseTransitionTimestamp !== undefined ||
+      entry.branchActivityTimestamp !== undefined;
+
+    let isStale: boolean;
+    if (!hasSecondarySignal) {
+      // Legacy single-signal path.
+      isStale = lastActivityStale;
+    } else {
+      const phaseStale = signalIsStale(
+        entry.phaseTransitionTimestamp,
+        thresholdMinutes,
+        now,
+        // No phaseTransition timestamp recorded → treat as stale (no
+        // evidence of progress). This is the #1117 false-fresh path.
+        true,
+      );
+      const branchInactive = signalIsStale(
+        entry.branchActivityTimestamp,
+        thresholdMinutes,
+        now,
+        // No branchActivityTimestamp recorded → treat as "no evidence of
+        // branch progress" (stale signal). The phase-stale gate prevents
+        // this from over-flagging branch-less workflows.
+        true,
+      );
+      isStale = phaseStale && (lastActivityStale || branchInactive);
+    }
+
+    if (!isStale) {
       excluded.push({ featureId: entry.featureId, reason: 'fresh' });
       continue;
     }
@@ -211,6 +303,26 @@ export interface PruneHandlerDeps {
   /** Reads the top-level branchName from a workflow state file. */
   readBranchName: (featureId: string, stateDir: string) => Promise<string | undefined>;
   safeguards: PruneSafeguards;
+  /**
+   * C8 (#1117) — read the most-recent `workflow.transition` event timestamp
+   * for a workflow. Returns `undefined` when the event store has no transition
+   * events on that stream (or when querying fails). The handler enriches
+   * `WorkflowListEntry`s with this value so `selectPruneCandidates` can apply
+   * multi-signal staleness scoring without doing IO itself.
+   */
+  readPhaseTransitionTimestamp: (featureId: string) => Promise<string | undefined>;
+  /**
+   * C8 (#1117) — read the latest commit timestamp on a workflow's tracked
+   * branch as an ISO string. Returns `undefined` when:
+   *   - the workflow has no tracked branch
+   *   - `git log` fails (no remote, branch missing, git not installed)
+   * Workflows without a branch are not penalised: the selector treats
+   * `undefined` as "no evidence of branch progress" but the phase-transition
+   * gate prevents that from forcing a stale verdict on its own.
+   */
+  readBranchActivityTimestamp: (
+    branchName: string | undefined,
+  ) => Promise<string | undefined>;
 }
 
 export interface PruneSkipped {
@@ -313,6 +425,80 @@ async function defaultReadBranchName(
   }
 }
 
+/**
+ * C8 (#1117) — production reader for the latest `workflow.transition` event
+ * timestamp on a stream. Returns `undefined` when the stream has no
+ * transition events or when the query throws (a query failure is treated as
+ * "no signal", matching the safeguard convention elsewhere in this module).
+ *
+ * The `EventStore.query` filter accepts a `type` and a `limit`; we ask only
+ * for the most recent transition rather than scanning the full history. The
+ * store returns events in stream order, so the last element is the newest.
+ */
+function makeReadPhaseTransitionTimestamp(
+  ctx?: DispatchContext,
+): (featureId: string) => Promise<string | undefined> {
+  if (!ctx?.eventStore) {
+    return async () => undefined;
+  }
+  const eventStore = ctx.eventStore;
+  return async (featureId: string) => {
+    try {
+      const events = await eventStore.query(featureId, {
+        type: 'workflow.transition',
+      });
+      if (!Array.isArray(events) || events.length === 0) return undefined;
+      const newest = events[events.length - 1];
+      const ts = newest?.timestamp;
+      return typeof ts === 'string' ? ts : undefined;
+    } catch {
+      return undefined;
+    }
+  };
+}
+
+/**
+ * C8 (#1117) — production reader for the latest commit timestamp on a
+ * workflow's tracked branch. Reuses the `git log` shell-out pattern from
+ * {@link defaultHasRecentCommits} in `prune-safeguards.ts` rather than
+ * introducing a new VCS dependency. `--format=%ct` returns UTC seconds since
+ * epoch, which we convert to an ISO timestamp so it composes with the other
+ * signals.
+ *
+ * Returns `undefined` when:
+ *   - `branchName` is absent or contains characters outside the safe
+ *     git-ref alphabet
+ *   - `git log` fails (unknown ref, git not installed, timeout)
+ */
+async function defaultReadBranchActivityTimestamp(
+  branchName: string | undefined,
+): Promise<string | undefined> {
+  if (!branchName) return undefined;
+  // Same allowed-character guard `prune-safeguards.ts` uses before
+  // embedding the branch name in a shell argument. Refuse to run git
+  // against suspicious refs rather than passing them through.
+  if (!/^[A-Za-z0-9/_.\-]+$/.test(branchName) || branchName.includes('..')) {
+    return undefined;
+  }
+  try {
+    const { execSync } = await import('node:child_process');
+    const output = execSync(
+      `git log -1 --format=%ct refs/heads/${branchName}`,
+      {
+        encoding: 'utf-8',
+        timeout: 10_000,
+        stdio: ['pipe', 'pipe', 'pipe'],
+      },
+    ).trim();
+    if (!output) return undefined;
+    const epochSeconds = Number.parseInt(output, 10);
+    if (!Number.isFinite(epochSeconds) || epochSeconds <= 0) return undefined;
+    return new Date(epochSeconds * 1000).toISOString();
+  } catch {
+    return undefined;
+  }
+}
+
 /** Production dep bundle — real `handleList`/`handleCancel` + default safeguards. */
 function productionDeps(_ctx?: DispatchContext): PruneHandlerDeps {
   return {
@@ -325,6 +511,8 @@ function productionDeps(_ctx?: DispatchContext): PruneHandlerDeps {
       ),
     readBranchName: defaultReadBranchName,
     safeguards: defaultSafeguards(),
+    readPhaseTransitionTimestamp: makeReadPhaseTransitionTimestamp(_ctx),
+    readBranchActivityTimestamp: defaultReadBranchActivityTimestamp,
   };
 }
 
@@ -706,9 +894,35 @@ export async function handlePruneStaleWorkflows(
   //   - 'skip': malformed silently excluded, diagnostics omitted from response
   const malformedHandling = pruneConfig?.malformedHandling ?? 'report';
 
+  // 1a. C8 (#1117): enrich each entry with secondary staleness signals
+  // BEFORE pure selection. The selector stays IO-free; the handler is the
+  // only layer that touches the event store / git. Failures on individual
+  // entries fall back to `undefined`, which the selector treats as "no
+  // evidence of progress" without bypassing the phase-stale gate.
+  const enrichedEntries: WorkflowListEntry[] = await Promise.all(
+    entries.map(async (entry) => {
+      const [phaseTransitionTimestamp, branchName] = await Promise.all([
+        deps.readPhaseTransitionTimestamp(entry.featureId),
+        deps.readBranchName(entry.featureId, stateDir),
+      ]);
+      const branchActivityTimestamp = await deps.readBranchActivityTimestamp(
+        branchName,
+      );
+      return {
+        ...entry,
+        ...(phaseTransitionTimestamp !== undefined
+          ? { phaseTransitionTimestamp }
+          : {}),
+        ...(branchActivityTimestamp !== undefined
+          ? { branchActivityTimestamp }
+          : {}),
+      };
+    }),
+  );
+
   // 2. Pure selection.
   const { candidates: selectedCandidates } = selectPruneCandidates(
-    entries,
+    enrichedEntries,
     {
       thresholdMinutes,
       ...(includeOneShot !== undefined ? { includeOneShot } : {}),
