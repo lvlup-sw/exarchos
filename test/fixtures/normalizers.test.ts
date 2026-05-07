@@ -136,4 +136,28 @@ describe('normalize()', () => {
     // A plain string with no patterns should pass through unchanged.
     expect(normalize('hello world')).toBe('hello world');
   });
+
+  // T3.3 — envelope parity extensions.
+  it('normalize_jsonKeyOrdering_canonicalizesAlphabetical', () => {
+    // CLI and MCP transports may emit object keys in different insertion
+    // orders. Parity tests deep-equal structures, so normalize must
+    // canonicalize key order recursively.
+    const a = { b: 1, a: 2, nested: { y: 1, x: 2 } };
+    const b = { a: 2, b: 1, nested: { x: 2, y: 1 } };
+    expect(JSON.stringify(normalize(a))).toBe(JSON.stringify(normalize(b)));
+    // And the canonical order is alphabetical.
+    expect(Object.keys(normalize(a))).toEqual(['a', 'b', 'nested']);
+  });
+
+  it('normalize_transportRequestId_replacedWithPlaceholder', () => {
+    // The `_transport.requestId` field is a per-call identifier that
+    // legitimately differs across CLI and MCP transports. Replace with
+    // a placeholder so it deep-equals.
+    const input = {
+      phase: 'plan',
+      _transport: { requestId: 'abc-123-xyz' },
+    };
+    const out = normalize(input) as { _transport: { requestId: string } };
+    expect(out._transport.requestId).toBe('<REQ_ID>');
+  });
 });

@@ -97,11 +97,19 @@ export async function spawnMcpClient(
     ? [DEFAULT_SUBCOMMAND, ...callerArgs]
     : callerArgs;
 
-  // Merge extra env with an optional EXARCHOS_STATE_DIR shortcut. The
-  // transport applies its own default-env allowlist; we only pass through
-  // the explicit overrides here.
+  // Merge extra env with an optional state-dir shortcut. The actual env
+  // var the binary reads is `WORKFLOW_STATE_DIR` (see
+  // servers/exarchos-mcp/src/utils/paths.ts:54). Pre-fix we set
+  // `EXARCHOS_STATE_DIR`, which the binary silently ignored — every
+  // spawnMcpClient call quietly shared the host's default state dir
+  // (`~/.exarchos/state` or `~/.claude/workflow-state`), invalidating
+  // the F6.1 reconstructability test (both "independent" servers were
+  // reading the same store). Set both for safety: `WORKFLOW_STATE_DIR`
+  // is the load-bearing one, `EXARCHOS_STATE_DIR` is preserved in case
+  // any downstream tool grows that surface.
   const env: Record<string, string> = { ...(extraEnv ?? {}) };
   if (stateDir !== undefined) {
+    env.WORKFLOW_STATE_DIR = stateDir;
     env.EXARCHOS_STATE_DIR = stateDir;
   }
 

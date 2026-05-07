@@ -65,14 +65,21 @@ function walk(node: unknown): unknown {
   if (typeof node === 'object') {
     const obj = node as Record<string, unknown>;
     const isJsonRpc = obj.jsonrpc === '2.0';
+    const isTransport = isTransportEnvelope(obj);
     const result: Record<string, unknown> = {};
-    for (const key of Object.keys(obj)) {
+    // Sort keys so CLI- and MCP-emitted envelopes deep-equal regardless
+    // of insertion order. Recursive walk inherits the canonicalization.
+    for (const key of [...Object.keys(obj)].sort()) {
       const v = obj[key];
       if (SEQUENCE_KEYS.has(key)) {
         result[key] = SEQ_PLACEHOLDER;
         continue;
       }
       if (isJsonRpc && key === 'id') {
+        result[key] = REQ_ID_PLACEHOLDER;
+        continue;
+      }
+      if (isTransport && key === 'requestId') {
         result[key] = REQ_ID_PLACEHOLDER;
         continue;
       }
@@ -83,6 +90,23 @@ function walk(node: unknown): unknown {
 
   // Numbers, booleans, bigints, symbols, functions — pass through unchanged.
   return node;
+}
+
+/**
+ * Heuristic for "this object IS the `_transport` envelope itself, so
+ * `requestId` on it should be normalized." We can't rely on the parent
+ * key name from inside `walk` without threading context, so instead we
+ * fingerprint the shape: a small object whose only keys are a subset of
+ * the known transport fields. This covers `{ requestId, transport? }`
+ * variants emitted by the CLI/MCP adapters without false-positive
+ * matching arbitrary user objects that happen to have a `requestId`.
+ */
+function isTransportEnvelope(obj: Record<string, unknown>): boolean {
+  const keys = Object.keys(obj);
+  if (keys.length === 0 || keys.length > 4) return false;
+  if (typeof obj.requestId !== 'string') return false;
+  const knownKeys = new Set(['requestId', 'transport', 'kind', 'tool']);
+  return keys.every((k) => knownKeys.has(k));
 }
 
 function normalizeString(s: string): string {
