@@ -29,12 +29,9 @@ import {
   shouldEnforceCheckpoint,
   type CheckpointEnforcementConfig,
 } from './checkpoint.js';
-import { mapInternalToExternalType } from './events.js';
 import { workflowLogger } from '../logger.js';
-import { getHSMDefinition, executeTransition, findTransition, isBuiltInWorkflowType } from './state-machine.js';
-import { applyPhaseSkips } from './phase-skip.js';
-import { getRegisteredGuard } from '../config/register.js';
-import { executeGuard } from '../config/guards.js';
+import { getHSMDefinition, isBuiltInWorkflowType } from './state-machine.js';
+import { hsmTransitionGuard } from './hsm-transition-guard.js';
 import { getPlaybook } from './playbooks.js';
 import { getRequiredReviews } from './review-contract.js';
 import { formatResult, type ToolResult } from '../format.js';
@@ -395,50 +392,6 @@ function projectState(
   };
 }
 
-// ─── Event Emission Helper ──────────────────────────────────────────────────
-
-interface TransitionEventRecord {
-  readonly type: string;
-  readonly from: string;
-  readonly to: string;
-  readonly trigger: string;
-  readonly metadata?: Record<string, unknown>;
-}
-
-/**
- * Emit transition events to the external JSONL event store.
- * Used by both the success path (after CAS write) and the failure path
- * (diagnostic events like guard-failed, circuit-open).
- *
- * @returns Error message string on failure, undefined on success or when no events to emit.
- */
-async function emitTransitionEvents(
-  featureId: string,
-  events: readonly TransitionEventRecord[],
-  eventStore: EventStore | null,
-): Promise<string | undefined> {
-  if (!eventStore || events.length === 0) return undefined;
-  try {
-    for (const evt of events) {
-      await eventStore.append(featureId, {
-        type: mapInternalToExternalType(evt.type) as import('../event-store/schemas.js').EventType,
-        correlationId: featureId,
-        source: 'workflow',
-        data: {
-          from: evt.from,
-          to: evt.to,
-          trigger: evt.trigger,
-          featureId,
-          ...(evt.metadata ?? {}),
-        },
-      });
-    }
-    return undefined;
-  } catch (err) {
-    return err instanceof Error ? err.message : String(err);
-  }
-}
-
 // ─── handleSet ──────────────────────────────────────────────────────────────
 
 const MAX_CAS_RETRIES = 3;
@@ -619,146 +572,44 @@ export async function handleSet(
       );
     }
 
-    // ─── Phase transition (guards evaluate against updated state) ──────
-    // Collect transition events for event-first emission before CAS write
-    let pendingTransitionEvents: TransitionEventRecord[] = [];
+    // ─── Phase transition — routed through HSMTransitionGuard ──────────
+    // The dispatch contract for guarded phase transitions is owned by the
+    // `HSMTransitionGuard` primitive (see `hsm-transition-guard.ts` /
+    // Primitive 3 in `docs/designs/2026-05-06-v29-bug-cluster-combined-fix.md`).
+    // It evaluates the composite guard, emits exactly one of
+    // `workflow.transition` or `workflow.guard-failed` per attempt, and
+    // returns a structured result. `handleSet` is now responsible only
+    // for state mutation on success and CAS persistence — guard evaluation
+    // and event emission live behind the primitive's interface.
+    //
+    // `pendingTransitionEventsCount` and `transitionTopSequence` are kept
+    // so the post-transition path can update `_eventSequence` and surface
+    // `sidecarPending` without re-querying the event store.
+    let pendingTransitionEventsCount = 0;
+    let transitionTopSequence: number | undefined;
 
     if (input.phase) {
-      let hsm = getHSMDefinition(state.workflowType);
-
-      // Apply phase skips from project config if configured
-      if (options?.skipPhases && options.skipPhases.length > 0) {
-        hsm = applyPhaseSkips(hsm, options.skipPhases);
-      }
-
-      // ─── Custom guard pre-check (async) ──────────────────────────────
-      // Custom guards run shell commands (async) so they execute here at
-      // the orchestrator layer, before the synchronous HSM transition.
-      // Built-in guards remain inline in executeTransition.
       const fromPhase = state.phase;
-      const pendingTransition = findTransition(hsm, fromPhase, input.phase);
-      if (pendingTransition?.guard) {
-        const registeredGuard = getRegisteredGuard(
-          `${state.workflowType}:${pendingTransition.guard.id}`,
-        );
-        if (registeredGuard) {
-          const guardResult = await executeGuard(registeredGuard);
-          if (!guardResult.passed) {
-            if (eventStore) {
-              await emitTransitionEvents(input.featureId, [{
-                type: 'guard-failed',
-                from: fromPhase,
-                to: input.phase,
-                trigger: 'execute-transition',
-                metadata: {
-                  guard: pendingTransition.guard.id,
-                  error: guardResult.error,
-                },
-              }], eventStore);
-            }
-            return {
-              success: false,
-              error: {
-                code: ErrorCode.GUARD_FAILED,
-                message: `Custom guard '${pendingTransition.guard.id}' failed: ${guardResult.error ?? 'command exited non-zero'}`,
-                ...(guardResult.output ? { output: guardResult.output } : {}),
-              },
-            };
-          }
-        } else if (pendingTransition.guard.custom) {
-          // Fail closed: custom guard not found in registry — only applies to
-          // guards explicitly defined in custom workflow configs (guard.custom
-          // flag), not inherited built-in guards from extended parent HSMs.
-          return {
-            success: false,
-            error: {
-              code: ErrorCode.GUARD_FAILED,
-              message: `Custom guard '${pendingTransition.guard.id}' is not registered. Ensure registerCustomWorkflows() was called.`,
-            },
-          };
-        }
-      }
-
-      const result = executeTransition(hsm, mutableState, input.phase);
-
-      if (!result.success) {
-        // Emit diagnostic events (guard-failed, circuit-open) before returning error.
-        // These are emitted BEFORE state write since no state change occurs on failure.
-        await emitTransitionEvents(input.featureId, result.events, eventStore);
-
-        const errorCode = result.errorCode ?? ErrorCode.INVALID_TRANSITION;
-        return {
-          success: false,
-          error: {
-            code: errorCode,
-            message: result.errorMessage ?? `Transition failed to '${input.phase}'`,
-            ...(result.validTargets?.length ? { validTargets: result.validTargets } : {}),
-            ...(result.guardExpectedShape ? { expectedShape: result.guardExpectedShape } : {}),
-            ...(result.guardSuggestedFix ? { suggestedFix: result.guardSuggestedFix } : {}),
-          },
-        };
-      }
-
-      if (!result.idempotent && result.newPhase) {
-        // Collect transition events for event-first emission
-        pendingTransitionEvents = result.events.map((e) => ({
-          type: e.type,
-          from: e.from,
-          to: e.to,
-          trigger: e.trigger,
-          metadata: e.metadata,
-        }));
-
-        // Mutate state
-        mutableState.phase = result.newPhase;
-
-        // Apply history updates
-        if (result.historyUpdates) {
-          const history = { ...(mutableState._history as Record<string, string>) };
-          for (const [key, value] of Object.entries(result.historyUpdates)) {
-            history[key] = value;
-          }
-          mutableState._history = history;
-        }
-
-        // Reset checkpoint counter on phase transition
-        mutableState._checkpoint = resetCounter(
-          mutableState._checkpoint as WorkflowState['_checkpoint'],
-          result.newPhase,
-        );
-      }
-
-      // Clean up transient guard-evaluation field — not persisted to state
-      delete mutableState._requiredReviews;
-    }
-
-    // ─── Event-first: append transition events BEFORE CAS write ───────
-    // Idempotency keys prevent duplicate events on CAS retry.
-    let highestEventSequence: number | undefined;
-
-    if (eventStore && pendingTransitionEvents.length > 0) {
+      let attemptResult;
       try {
-        for (const transitionEvent of pendingTransitionEvents) {
-          const idempotencyKey = `${input.featureId}:${transitionEvent.type}:${transitionEvent.from}:${transitionEvent.to}:${expectedVersion}`;
-          const event = await eventStore.append(input.featureId, {
-            type: mapInternalToExternalType(transitionEvent.type) as import('../event-store/schemas.js').EventType,
-            correlationId: input.featureId,
-            source: 'workflow',
-            data: {
-              from: transitionEvent.from,
-              to: transitionEvent.to,
-              trigger: transitionEvent.trigger,
-              featureId: input.featureId,
-              ...(transitionEvent.metadata ?? {}),
-            },
-          }, { idempotencyKey });
-
-          if (highestEventSequence === undefined || event.sequence > highestEventSequence) {
-            highestEventSequence = event.sequence;
-          }
-        }
+        attemptResult = await hsmTransitionGuard.attempt(
+          input.featureId,
+          fromPhase,
+          input.phase,
+          {
+            state: mutableState,
+            workflowType: state.workflowType as string,
+            skipPhases: options?.skipPhases,
+            idempotencyKeySuffix: String(expectedVersion),
+            eventStore,
+          },
+        );
       } catch (err) {
-        // Event-first: if event append fails, do NOT update state
+        // Event-first contract: a thrown error from the primitive
+        // means an event-store append failed (the only synchronous
+        // failure mode on the success path). Surface it as
+        // EVENT_APPEND_FAILED and abort the CAS write — state must
+        // not advance past the unwritten event boundary.
         return {
           success: false,
           error: {
@@ -767,7 +618,78 @@ export async function handleSet(
           },
         };
       }
+
+      if (!attemptResult.ok) {
+        if (attemptResult.reason === 'no-transition-defined') {
+          return {
+            success: false,
+            error: {
+              code: ErrorCode.INVALID_TRANSITION,
+              message: attemptResult.errorMessage,
+              ...(attemptResult.validTargets.length
+                ? { validTargets: attemptResult.validTargets }
+                : {}),
+            },
+          };
+        }
+        // reason === 'guard-failed' (or CIRCUIT_OPEN, mapped to errorCode)
+        const guardFailure = attemptResult.failures[0];
+        const errorPayload: Record<string, unknown> = {
+          code:
+            attemptResult.errorCode === 'CIRCUIT_OPEN'
+              ? ErrorCode.CIRCUIT_OPEN
+              : ErrorCode.GUARD_FAILED,
+          message: attemptResult.errorMessage,
+        };
+        if (guardFailure?.expectedShape) {
+          errorPayload.expectedShape = guardFailure.expectedShape;
+        }
+        if (guardFailure?.suggestedFix) {
+          errorPayload.suggestedFix = guardFailure.suggestedFix;
+        }
+        return {
+          success: false,
+          error: errorPayload as ToolResult['error'],
+        };
+      }
+
+      // ok: true — apply state mutation. Idempotent attempts are no-ops.
+      if (!attemptResult.idempotent) {
+        mutableState.phase = attemptResult.newPhase;
+
+        if (Object.keys(attemptResult.historyUpdates).length > 0) {
+          const history = {
+            ...(mutableState._history as Record<string, string>),
+          };
+          for (const [key, value] of Object.entries(
+            attemptResult.historyUpdates,
+          )) {
+            history[key] = value;
+          }
+          mutableState._history = history;
+        }
+
+        // Reset checkpoint counter on phase transition.
+        mutableState._checkpoint = resetCounter(
+          mutableState._checkpoint as WorkflowState['_checkpoint'],
+          attemptResult.newPhase,
+        );
+
+        pendingTransitionEventsCount = attemptResult.emittedEvents.length;
+        if (attemptResult.transitionEvent.sequence > 0) {
+          transitionTopSequence = attemptResult.transitionEvent.sequence;
+        }
+      }
+
+      // Clean up transient guard-evaluation field — not persisted to state.
+      delete mutableState._requiredReviews;
     }
+
+    // Transition events are now emitted inside `hsmTransitionGuard.attempt`
+    // — see Primitive 3 in `docs/designs/2026-05-06-v29-bug-cluster-combined-fix.md`.
+    // Idempotency keys are derived from `expectedVersion`, so CAS retries
+    // through this loop are still safely deduplicated by the event store.
+    let highestEventSequence: number | undefined = transitionTopSequence;
 
     // ─── Event-first: append state.patched event for v2 field updates ──
     const updateKeys = input.updates ? Object.keys(input.updates) : [];
@@ -917,7 +839,7 @@ export async function handleSet(
     // does not change within a single handleSet invocation.
     const patchEmitted = isEventSourced(state as unknown as Record<string, unknown>)
       && eventStore != null && updateKeys.length > 0;
-    const emittedEvents = pendingTransitionEvents.length > 0 || patchEmitted;
+    const emittedEvents = pendingTransitionEventsCount > 0 || patchEmitted;
     const sidecarPending = emittedEvents && eventStore?.inSidecarMode === true;
 
     return {
