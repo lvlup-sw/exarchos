@@ -22,6 +22,7 @@ model: inherit
 color: red
 disallowedTools:
   - Agent
+isolation: worktree
 mcpServers:
   - exarchos
 skills:

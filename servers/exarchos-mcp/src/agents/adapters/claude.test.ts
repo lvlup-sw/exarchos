@@ -69,6 +69,25 @@ describe('Claude adapter', () => {
       expect(claudeAdapter.validateSupport(spec)).toEqual({ ok: true });
     }
   });
+
+  // ─── C5 (#1220): worktree isolation rendered for write-capable specs ─────
+  //
+  // The adapter renders `isolation: worktree` only when the spec declares
+  // the `'isolation:worktree'` capability (see claude.ts:135–137). FIXER
+  // and SCAFFOLDER must produce that frontmatter field so the Claude Code
+  // runtime spawns them in an isolated worktree on parallel dispatch.
+
+  it('claudeAdapter_fixerSpec_rendersWorktreeIsolation', () => {
+    const out = claudeAdapter.lowerSpec(FIXER);
+    const fm = parseYaml(extractFrontmatter(out.contents)) as Record<string, unknown>;
+    expect(fm.isolation).toBe('worktree');
+  });
+
+  it('claudeAdapter_scaffolderSpec_rendersWorktreeIsolation', () => {
+    const out = claudeAdapter.lowerSpec(SCAFFOLDER);
+    const fm = parseYaml(extractFrontmatter(out.contents)) as Record<string, unknown>;
+    expect(fm.isolation).toBe('worktree');
+  });
 });
 
 // ─── Adversarial YAML field tests ──────────────────────────────────────────
