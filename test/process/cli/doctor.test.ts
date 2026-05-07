@@ -19,9 +19,28 @@ describe('exarchos doctor', () => {
       const result = await runCli({ args: ['doctor', '--json'] });
       expect(result.exitCode).toBe(0);
 
-      // Single-line JSON ToolResult shape per cli.ts emitResult(--json).
-      const parsed: unknown = JSON.parse(result.stdout.trim());
-      expect(parsed).toMatchObject({ success: true });
+      // Single-line JSON ToolResult shape per cli.ts emitResult(--json):
+      //   { success, data: { checks: DoctorCheck[], summary }, ... }
+      const parsed = JSON.parse(result.stdout.trim()) as {
+        success: boolean;
+        data: {
+          checks: { name: string; category: string; status: string }[];
+          summary: { passed: number; warnings: number; failed: number; skipped: number };
+        };
+      };
+
+      expect(parsed.success).toBe(true);
+      expect(parsed.data.checks.length).toBeGreaterThan(0);
+      // Spot-check known stable check identifiers — guards against a
+      // regression that drops the checks array entirely or renames the
+      // load-bearing diagnostics.
+      const checkNames = parsed.data.checks.map((c) => c.name);
+      expect(checkNames).toEqual(
+        expect.arrayContaining(['node-version', 'state-dir', 'variables']),
+      );
+      // No failed checks in a hermetic env (warnings are tolerated for
+      // skipped agent runtimes / plugin-version probes).
+      expect(parsed.data.summary.failed).toBe(0);
     });
   });
 });
