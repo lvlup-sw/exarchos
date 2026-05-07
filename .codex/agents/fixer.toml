@@ -42,6 +42,7 @@ When done, output a JSON completion report:
 - fs:write
 - shell:exec
 - mcp:exarchos
+- isolation:worktree
 """
 sandbox_mode = "workspace-write"
 mcp_servers = ["exarchos"]

@@ -200,9 +200,11 @@ When done, output a JSON completion report:
     'fs:write',
     'shell:exec',
     'mcp:exarchos',
+    'isolation:worktree',
   ],
   disallowedTools: ['Agent'],
   model: 'inherit',
+  isolation: 'worktree',
   skills: [
     { name: 'tdd-patterns', content: '' },
   ],

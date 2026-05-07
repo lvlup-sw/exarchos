@@ -94,6 +94,33 @@ describe('AgentSpec capability declarations', () => {
     );
   });
 
+  // ─── C5 (#1220): isolation:worktree on write-capable specs ────────────────
+  //
+  // The Claude adapter only renders `isolation: worktree` frontmatter when the
+  // spec declares the `'isolation:worktree'` capability (see
+  // `adapters/claude.ts:135–137`). FIXER and SCAFFOLDER both have `fs:write`
+  // and `shell:exec`, so they must declare `isolation:worktree` — otherwise
+  // parallel dispatch corrupts the orchestrator's main worktree (#1220).
+  // REVIEWER is read-only and intentionally does NOT declare it; this test
+  // pins that posture so the C5 fix doesn't over-correct.
+
+  it('FIXER_capabilities_includesIsolationWorktree', () => {
+    expect(FIXER.capabilities).toContain('isolation:worktree');
+  });
+
+  it('SCAFFOLDER_capabilities_includesIsolationWorktree', () => {
+    expect(SCAFFOLDER.capabilities).toContain('isolation:worktree');
+  });
+
+  it('REVIEWER_capabilities_readOnlyDoesNotRequireIsolation', () => {
+    // Pin the read-only posture: REVIEWER must not have write/shell caps,
+    // and correspondingly does not need worktree isolation. This prevents
+    // C5 from accidentally adding isolation everywhere.
+    expect(REVIEWER.capabilities).not.toContain('fs:write');
+    expect(REVIEWER.capabilities).not.toContain('shell:exec');
+    expect(REVIEWER.capabilities).not.toContain('isolation:worktree');
+  });
+
   it('AgentSpec_RejectsUnknownCapability_TypecheckFails', () => {
     // @ts-expect-error - 'bogus' is not a valid Capability
     const bad: AgentSpec = {
