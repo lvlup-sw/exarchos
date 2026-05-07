@@ -23,6 +23,24 @@ function makeEvent<T extends Record<string, unknown>>(
   } as WorkflowEvent;
 }
 
+/**
+ * Helper — produce a rehydration document seeded as a feature workflow
+ * already in `delegate` phase. Used by detour tests so they exercise the
+ * realistic precondition (the detour gate post-#1208-rev requires
+ * workflowType='feature' AND phase ∈ {delegate, merge-pending}).
+ */
+function featureInDelegate(featureId = 'wf-test') {
+  let s = rehydrationReducer.apply(
+    rehydrationReducer.initial,
+    makeEvent('workflow.started', { featureId, workflowType: 'feature' }, 0),
+  );
+  s = rehydrationReducer.apply(
+    s,
+    makeEvent('workflow.transition', { from: '', to: 'delegate' }, 1),
+  );
+  return s;
+}
+
 describe('rehydration reducer — initial state (T022, DR-3)', () => {
   it('Rehydration_NoEvents_ReturnsMinimalInitial', () => {
     // GIVEN: no events
@@ -679,13 +697,13 @@ describe('rehydration reducer — state.patched.tasks fold (Fix 2 / #1179)', () 
 // the substate was never observable from rehydration.
 describe('rehydration reducer — worktree auto-detour (#1208)', () => {
   it('Rehydration_TaskCompletedWithWorktreePath_StampsMergePending', () => {
-    const initial = rehydrationReducer.initial;
+    const seeded = featureInDelegate();
     const completed = makeEvent(
       'task.completed',
       { taskId: '001', worktreePath: '/tmp/wt/001' },
-      1,
+      2,
     );
-    const next = rehydrationReducer.apply(initial, completed);
+    const next = rehydrationReducer.apply(seeded, completed);
 
     expect(next.workflowState.phase).toBe('merge-pending');
     expect(next.workflowState.mergeOrchestrator).toEqual({
@@ -696,13 +714,13 @@ describe('rehydration reducer — worktree auto-detour (#1208)', () => {
   });
 
   it('Rehydration_TaskCompletedWithWorktree_StampsMergePending', () => {
-    const initial = rehydrationReducer.initial;
+    const seeded = featureInDelegate();
     const completed = makeEvent(
       'task.completed',
       { taskId: '002', worktree: '.worktrees/002' },
-      1,
+      2,
     );
-    const next = rehydrationReducer.apply(initial, completed);
+    const next = rehydrationReducer.apply(seeded, completed);
 
     expect(next.workflowState.phase).toBe('merge-pending');
     expect(next.workflowState.mergeOrchestrator).toEqual({
@@ -712,24 +730,73 @@ describe('rehydration reducer — worktree auto-detour (#1208)', () => {
   });
 
   it('Rehydration_TaskCompletedNoWorktree_LeavesPhaseUntouched', () => {
-    const initial = rehydrationReducer.initial;
-    const completed = makeEvent('task.completed', { taskId: '003' }, 1);
-    const next = rehydrationReducer.apply(initial, completed);
+    const seeded = featureInDelegate();
+    const completed = makeEvent('task.completed', { taskId: '003' }, 2);
+    const next = rehydrationReducer.apply(seeded, completed);
 
-    // Phase remains the initial default — no worktree association, no detour.
-    expect(next.workflowState.phase).toBe('');
+    // No worktree association, no detour — phase stays in `delegate`.
+    expect(next.workflowState.phase).toBe('delegate');
+    expect(next.workflowState.mergeOrchestrator).toBeUndefined();
+  });
+
+  it('Rehydration_TaskCompletedWithWorktreeOnRefactorWorkflow_DoesNotDetour', () => {
+    // Coderabbit P2-saga: refactor / debug / oneshot / discovery streams
+    // do NOT have `merge-pending` in their HSM, so a worktree-bearing
+    // task.completed on a non-feature workflow must leave phase untouched.
+    let s = rehydrationReducer.apply(
+      rehydrationReducer.initial,
+      makeEvent(
+        'workflow.started',
+        { featureId: 'rf-1', workflowType: 'refactor' },
+        0,
+      ),
+    );
+    s = rehydrationReducer.apply(
+      s,
+      makeEvent('workflow.transition', { from: '', to: 'delegate' }, 1),
+    );
+    const next = rehydrationReducer.apply(
+      s,
+      makeEvent('task.completed', { taskId: 'r1', worktree: '.wt/r1' }, 2),
+    );
+    expect(next.workflowState.phase).toBe('delegate');
+    expect(next.workflowState.mergeOrchestrator).toBeUndefined();
+  });
+
+  it('Rehydration_TaskCompletedWithWorktreeFeatureOutsideDelegate_DoesNotDetour', () => {
+    // Even on a feature workflow, the detour must not fire from a phase
+    // outside `delegate` / `merge-pending`. A task.completed during e.g.
+    // `synthesize` would otherwise rewrite phase to merge-pending and
+    // confuse downstream HSM consumers.
+    let s = rehydrationReducer.apply(
+      rehydrationReducer.initial,
+      makeEvent(
+        'workflow.started',
+        { featureId: 'feat-out', workflowType: 'feature' },
+        0,
+      ),
+    );
+    s = rehydrationReducer.apply(
+      s,
+      makeEvent('workflow.transition', { from: '', to: 'synthesize' }, 1),
+    );
+    const next = rehydrationReducer.apply(
+      s,
+      makeEvent('task.completed', { taskId: 'fo', worktree: '.wt/fo' }, 2),
+    );
+    expect(next.workflowState.phase).toBe('synthesize');
     expect(next.workflowState.mergeOrchestrator).toBeUndefined();
   });
 
   it('Rehydration_MergeExecuted_RevertsPhaseAndStampsTerminal', () => {
-    const initial = rehydrationReducer.initial;
+    const seeded = featureInDelegate();
     const stampedPending = rehydrationReducer.apply(
-      initial,
-      makeEvent('task.completed', { taskId: '004', worktree: '.wt/004' }, 1),
+      seeded,
+      makeEvent('task.completed', { taskId: '004', worktree: '.wt/004' }, 2),
     );
     const afterMerge = rehydrationReducer.apply(
       stampedPending,
-      makeEvent('merge.executed', { taskId: '004', mergeSha: 'abc' }, 2),
+      makeEvent('merge.executed', { taskId: '004', mergeSha: 'abc' }, 3),
     );
 
     expect(afterMerge.workflowState.phase).toBe('delegate');
@@ -740,14 +807,14 @@ describe('rehydration reducer — worktree auto-detour (#1208)', () => {
   });
 
   it('Rehydration_MergeRollback_RevertsPhaseAndStampsRolledBack', () => {
-    const initial = rehydrationReducer.initial;
+    const seeded = featureInDelegate();
     const stamped = rehydrationReducer.apply(
-      initial,
-      makeEvent('task.completed', { taskId: '005', worktree: '.wt/005' }, 1),
+      seeded,
+      makeEvent('task.completed', { taskId: '005', worktree: '.wt/005' }, 2),
     );
     const after = rehydrationReducer.apply(
       stamped,
-      makeEvent('merge.rollback', { taskId: '005', reason: 'preflight' }, 2),
+      makeEvent('merge.rollback', { taskId: '005', reason: 'preflight' }, 3),
     );
 
     expect(after.workflowState.phase).toBe('delegate');
@@ -755,14 +822,14 @@ describe('rehydration reducer — worktree auto-detour (#1208)', () => {
   });
 
   it('Rehydration_MergeAborted_RevertsPhaseAndStampsAborted', () => {
-    const initial = rehydrationReducer.initial;
+    const seeded = featureInDelegate();
     const stamped = rehydrationReducer.apply(
-      initial,
-      makeEvent('task.completed', { taskId: '006', worktree: '.wt/006' }, 1),
+      seeded,
+      makeEvent('task.completed', { taskId: '006', worktree: '.wt/006' }, 2),
     );
     const after = rehydrationReducer.apply(
       stamped,
-      makeEvent('merge.aborted', { taskId: '006', reason: 'manual' }, 2),
+      makeEvent('merge.aborted', { taskId: '006', reason: 'manual' }, 3),
     );
 
     expect(after.workflowState.phase).toBe('delegate');
@@ -772,14 +839,16 @@ describe('rehydration reducer — worktree auto-detour (#1208)', () => {
   it('Rehydration_MergeTerminalEventWithoutPriorPending_NoOps', () => {
     // Replay over a partial stream where the merge.* event has no preceding
     // worktree task.completed must not fabricate a mergeOrchestrator entry.
-    const initial = rehydrationReducer.initial;
+    const seeded = featureInDelegate();
     const next = rehydrationReducer.apply(
-      initial,
-      makeEvent('merge.executed', { taskId: '007', mergeSha: 'def' }, 1),
+      seeded,
+      makeEvent('merge.executed', { taskId: '007', mergeSha: 'def' }, 2),
     );
     expect(next.workflowState.mergeOrchestrator).toBeUndefined();
-    // No projectionSequence bump — handler returned identity.
-    expect(next.projectionSequence).toBe(0);
+    // projectionSequence reflects the seed (started + transition) only — the
+    // merge.executed handler returned identity since there was nothing to
+    // terminate.
+    expect(next.projectionSequence).toBe(seeded.projectionSequence);
   });
 
   it('Rehydration_RefoldedSameTaskCompleted_DoesNotRegressTerminalMerge', () => {
@@ -787,19 +856,19 @@ describe('rehydration reducer — worktree auto-detour (#1208)', () => {
     // merge has already terminated, the terminal mergeOrchestrator phase must
     // not regress to `pending` (otherwise next_actions would re-surface
     // merge_orchestrate after a successful merge).
-    const initial = rehydrationReducer.initial;
+    const seeded = featureInDelegate();
     const stamped = rehydrationReducer.apply(
-      initial,
-      makeEvent('task.completed', { taskId: '008', worktree: '.wt/008' }, 1),
+      seeded,
+      makeEvent('task.completed', { taskId: '008', worktree: '.wt/008' }, 2),
     );
     const merged = rehydrationReducer.apply(
       stamped,
-      makeEvent('merge.executed', { taskId: '008', mergeSha: 'sha' }, 2),
+      makeEvent('merge.executed', { taskId: '008', mergeSha: 'sha' }, 3),
     );
     // Re-apply the same worktree task.completed (replay scenario).
     const refolded = rehydrationReducer.apply(
       merged,
-      makeEvent('task.completed', { taskId: '008', worktree: '.wt/008' }, 1),
+      makeEvent('task.completed', { taskId: '008', worktree: '.wt/008' }, 4),
     );
     expect(refolded.workflowState.phase).toBe('delegate');
     expect(refolded.workflowState.mergeOrchestrator?.phase).toBe('completed');

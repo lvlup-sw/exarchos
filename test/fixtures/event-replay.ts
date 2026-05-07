@@ -104,11 +104,17 @@ export async function snapshotEventStream(
   }
 
   const data = envelope.data;
-  // `handleEventQuery` returns `data: events[]`. Treat unset / non-array as
-  // empty so a fresh feature returns an empty snapshot rather than throwing.
-  const events: NormalizedEvent[] = Array.isArray(data)
-    ? (data as NormalizedEvent[])
-    : [];
+  // `handleEventQuery` returns `data: events[]`. A fresh feature returns
+  // `data: []` (a real empty array) — anything else (undefined, object,
+  // string) is a contract regression on the wire format and must throw,
+  // otherwise replay-fixture consumers would conflate "broken response" with
+  // "genuinely empty stream" and silently mask test failures.
+  if (!Array.isArray(data)) {
+    throw new Error(
+      `snapshotEventStream: event query for '${featureId}' returned non-array data; got ${typeof data} (${JSON.stringify(data)?.slice(0, 80) ?? 'undefined'})`,
+    );
+  }
+  const events: NormalizedEvent[] = data as NormalizedEvent[];
 
   // Normalize at the boundary so callers can assert structural equality
   // without snapshotting transient values (timestamps, sequences, UUIDs).
@@ -147,8 +153,26 @@ export async function replayInto(
   const existing = await snapshotEventStream(client, snapshot.featureId);
   const skip = existing.events.length;
 
+  // Verify the target's existing events are actually a prefix of the
+  // snapshot before short-circuiting. Comparing only counts would let a
+  // target that has `n` *different* events either silently no-op (when
+  // `n >= snapshot.events.length`) or append onto the wrong history (when
+  // `n < snapshot.events.length`). Fail fast on mismatch — replay onto a
+  // divergent target is a programming error in the test, not a recoverable
+  // state.
+  if (skip > 0) {
+    const expectedPrefix = snapshot.events.slice(0, skip);
+    if (JSON.stringify(existing.events) !== JSON.stringify(expectedPrefix)) {
+      throw new Error(
+        `replayInto: target stream '${snapshot.featureId}' is not a prefix of the snapshot ` +
+          `(target has ${skip} events, snapshot has ${snapshot.events.length}); ` +
+          `aborting before divergent append.`,
+      );
+    }
+  }
+
   if (skip >= snapshot.events.length) {
-    return; // nothing to do
+    return; // nothing to do — target is already a full prefix
   }
 
   for (let i = skip; i < snapshot.events.length; i++) {

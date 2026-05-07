@@ -346,9 +346,28 @@ function applyTaskEvent(
   // seed the `mergeOrchestrator` segment so `nextActionsFromResult` can
   // surface `merge_orchestrate`. Idempotent: a re-folded same-taskId event
   // will not regress a terminal merge phase back to `pending`.
+  //
+  // Scope (per coderabbit / #1109 Constraint 1 — event-sourcing integrity):
+  // gated on workflowType='feature' AND a phase compatible with the
+  // `merge-pending` substate. `createFeatureHSM()` is the only HSM that
+  // defines `merge-pending`, so detouring a refactor / debug / oneshot /
+  // discovery stream — or a feature stream already past `delegate` (e.g.
+  // `synthesize`, `completed`) — would project an impossible state and
+  // confuse next-action / HSM consumers downstream.
+  //
+  // Compatible phases: `''` (initial — production flows reach `delegate`
+  // implicitly via `prepare_delegation` without emitting a
+  // `workflow.transition`), `delegate` (canonical entry), and
+  // `merge-pending` (re-entrant). All other phases are blocked.
   let nextWorkflowState = state.workflowState;
+  const detourablePhase =
+    state.workflowState.phase === '' ||
+    state.workflowState.phase === 'delegate' ||
+    state.workflowState.phase === 'merge-pending';
   if (
     status === 'completed' &&
+    state.workflowState.workflowType === 'feature' &&
+    detourablePhase &&
     eventDataHasWorktreeAssociation(event.data)
   ) {
     const existing = state.workflowState.mergeOrchestrator;

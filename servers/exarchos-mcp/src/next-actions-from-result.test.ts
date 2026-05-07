@@ -89,9 +89,9 @@ describe('nextActionsFromResult — shape recognition', () => {
   });
 
   it('prefers shape 1 when both shapes could match', () => {
-    // Top-level fields take precedence — keeps the cheap, common path
-    // unchanged for handler payloads that happen to include a workflowState
-    // sibling for downstream consumers.
+    // Top-level fields take precedence for phase / workflowType — keeps the
+    // cheap, common path unchanged for handler payloads that happen to
+    // include a workflowState sibling for downstream consumers.
     const actions = nextActionsFromResult(
       ok({
         phase: 'ideate',
@@ -104,6 +104,47 @@ describe('nextActionsFromResult — shape recognition', () => {
       }),
     );
     expect(actions.map((a) => a.verb)).toEqual(['plan']);
+  });
+
+  it('backfills mergeOrchestrator from workflowState when shape 1 supplies phase', () => {
+    // Coderabbit P2-saga: shape 1 (handler payload) carries phase +
+    // workflowType at the top level but not mergeOrchestrator — that field
+    // lives on the workflowState segment. Without backfill, a payload with
+    // top-level phase='merge-pending' + nested workflowState.mergeOrchestrator
+    // would drop the orchestration context and miss `merge_orchestrate`.
+    const actions = nextActionsFromResult(
+      ok({
+        phase: 'merge-pending',
+        workflowType: 'feature',
+        featureId: 'p2-backfill',
+        workflowState: {
+          featureId: 'p2-backfill',
+          phase: 'merge-pending',
+          workflowType: 'feature',
+          mergeOrchestrator: { taskId: '042', phase: 'pending' },
+        },
+      }),
+    );
+    expect(actions.some((a) => a.verb === 'merge_orchestrate')).toBe(true);
+    const mo = actions.find((a) => a.verb === 'merge_orchestrate');
+    expect(mo?.idempotencyKey).toBe('p2-backfill:merge_orchestrate:042');
+  });
+
+  it('reads mergeOrchestrator at top level when shape 1 carries it directly', () => {
+    // Defensive: if a future handler ever returns mergeOrchestrator at the
+    // top level (alongside phase + workflowType), the parser must not require
+    // a workflowState wrapper.
+    const actions = nextActionsFromResult(
+      ok({
+        phase: 'merge-pending',
+        workflowType: 'feature',
+        featureId: 'top-level-mo',
+        mergeOrchestrator: { taskId: '099', phase: 'pending' },
+      }),
+    );
+    expect(actions.some((a) => a.verb === 'merge_orchestrate')).toBe(true);
+    const mo = actions.find((a) => a.verb === 'merge_orchestrate');
+    expect(mo?.idempotencyKey).toBe('top-level-mo:merge_orchestrate:099');
   });
 
   it('returns [] for unknown workflowType in shape 2', () => {

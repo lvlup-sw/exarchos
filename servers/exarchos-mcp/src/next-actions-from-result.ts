@@ -54,19 +54,36 @@ export function nextActionsFromResult(result: ToolResult): readonly NextAction[]
   let featureId =
     typeof dataRecord.featureId === 'string' ? dataRecord.featureId : undefined;
   let mergeOrchestrator: { taskId?: string; phase?: string } | undefined;
+  if (
+    typeof dataRecord.mergeOrchestrator === 'object' &&
+    dataRecord.mergeOrchestrator !== null
+  ) {
+    const mo = dataRecord.mergeOrchestrator as Record<string, unknown>;
+    mergeOrchestrator = {
+      ...(typeof mo.taskId === 'string' ? { taskId: mo.taskId } : {}),
+      ...(typeof mo.phase === 'string' ? { phase: mo.phase } : {}),
+    };
+  }
 
-  // Shape 2 — rehydration document. Only consulted when the top-level
-  // shape did not carry phase / workflowType, so the cheaper (and far
-  // more common) handler shape is preferred when both could match.
-  if ((!phase || !workflowType) && typeof dataRecord.workflowState === 'object'
-      && dataRecord.workflowState !== null) {
+  // Shape 2 — rehydration document. Backfill any field shape 1 did not
+  // populate. Read `mergeOrchestrator` regardless of whether shape 1 had
+  // phase/workflowType: handler payloads (shape 1) carry phase + workflowType
+  // at the top level but typically NOT mergeOrchestrator; that field lives on
+  // the workflowState segment. Without this backfill, a payload with both
+  // top-level phase + nested workflowState.mergeOrchestrator would drop the
+  // merge-orchestration context and miss `merge_orchestrate` in next_actions.
+  if (typeof dataRecord.workflowState === 'object' && dataRecord.workflowState !== null) {
     const ws = dataRecord.workflowState as Record<string, unknown>;
     if (!phase && typeof ws.phase === 'string') phase = ws.phase;
     if (!workflowType && typeof ws.workflowType === 'string') {
       workflowType = ws.workflowType;
     }
     if (!featureId && typeof ws.featureId === 'string') featureId = ws.featureId;
-    if (typeof ws.mergeOrchestrator === 'object' && ws.mergeOrchestrator !== null) {
+    if (
+      mergeOrchestrator === undefined &&
+      typeof ws.mergeOrchestrator === 'object' &&
+      ws.mergeOrchestrator !== null
+    ) {
       const mo = ws.mergeOrchestrator as Record<string, unknown>;
       mergeOrchestrator = {
         ...(typeof mo.taskId === 'string' ? { taskId: mo.taskId } : {}),

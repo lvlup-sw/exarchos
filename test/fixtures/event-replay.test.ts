@@ -225,6 +225,17 @@ describe('event-replay primitives', () => {
         return captured;
       });
 
+      // Source-side guardrail: without these, a failed source setup (workflow
+      // init or event append silently broken) would leave `snap.events`
+      // empty, and the target-equality assertion below would compare two
+      // empty arrays — a false green. Pin the expected source shape.
+      expect(snap.events.length).toBeGreaterThanOrEqual(2);
+      const srcTypes = snap.events.map(
+        (e) => (e as Record<string, unknown>).type,
+      );
+      expect(srcTypes).toContain('workflow.started');
+      expect(srcTypes).toContain('task.assigned');
+
       // Target server: fresh hermetic env, replay into it, then snapshot.
       await withHermeticEnv(async (env) => {
         const targetSpawned = track(
@@ -277,6 +288,15 @@ describe('event-replay primitives', () => {
         if (idx >= 0) activeClients.splice(idx, 1);
         return captured;
       });
+
+      // Source-side guardrail (parallel to replayInto_emptyTarget_*): block
+      // the false-green where both source and target produce empty arrays.
+      expect(snap.events.length).toBeGreaterThanOrEqual(2);
+      const srcTypes = snap.events.map(
+        (e) => (e as Record<string, unknown>).type,
+      );
+      expect(srcTypes).toContain('workflow.started');
+      expect(srcTypes).toContain('task.assigned');
 
       await withHermeticEnv(async (env) => {
         const targetSpawned = track(
