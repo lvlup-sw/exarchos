@@ -69,6 +69,7 @@ export async function withHermeticEnv<T>(
     // Save ambient state before mutation so we can restore in `finally`.
     const originalHome = process.env.HOME;
     const originalStateDir = process.env.EXARCHOS_STATE_DIR;
+    const originalWorkflowStateDir = process.env.WORKFLOW_STATE_DIR;
     const originalCwd = process.cwd();
 
     // Create tmp tree.
@@ -80,8 +81,16 @@ export async function withHermeticEnv<T>(
     // git init — quiet; no output on success.
     await execFileAsync('git', ['init', '-q', gitDir]);
 
-    // Mutate ambient state.
+    // Mutate ambient state. The load-bearing var is `WORKFLOW_STATE_DIR`
+    // (the only one `resolveStateDir()` reads — see
+    // servers/exarchos-mcp/src/utils/paths.ts:54). Pre-fix only
+    // `EXARCHOS_STATE_DIR` was set, which the binary silently ignored —
+    // every "hermetic" test was actually reading/writing the host's
+    // default state dir, invalidating F2/F3 isolation guarantees and
+    // making the F6.1 reconstructability test a false positive (both
+    // "independent" servers shared one store). Set both for safety.
     process.env.HOME = homeDir;
+    process.env.WORKFLOW_STATE_DIR = stateDir;
     process.env.EXARCHOS_STATE_DIR = stateDir;
     process.chdir(cwdDir);
 
@@ -102,6 +111,11 @@ export async function withHermeticEnv<T>(
         delete process.env.EXARCHOS_STATE_DIR;
       } else {
         process.env.EXARCHOS_STATE_DIR = originalStateDir;
+      }
+      if (originalWorkflowStateDir === undefined) {
+        delete process.env.WORKFLOW_STATE_DIR;
+      } else {
+        process.env.WORKFLOW_STATE_DIR = originalWorkflowStateDir;
       }
 
       // Unconditional tmp-tree removal. Cleanup failures log a warning but
