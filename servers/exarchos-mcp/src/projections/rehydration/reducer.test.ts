@@ -851,6 +851,47 @@ describe('rehydration reducer — worktree auto-detour (#1208)', () => {
     expect(next.projectionSequence).toBe(seeded.projectionSequence);
   });
 
+  it('Rehydration_TaskCompletedWithWhitespaceWorktree_DoesNotDetour', () => {
+    // Sentry HIGH: a whitespace-only `worktree` value is not a real
+    // association; predicate must reject it. Without the trim, the rehydration
+    // projection would diverge from the HSM guard's predicate, causing live
+    // state and rehydrated state to disagree on whether merge-pending fired.
+    const seeded = featureInDelegate();
+    const completed = makeEvent(
+      'task.completed',
+      { taskId: 'ws', worktree: '   ' },
+      2,
+    );
+    const next = rehydrationReducer.apply(seeded, completed);
+    expect(next.workflowState.phase).toBe('delegate');
+    expect(next.workflowState.mergeOrchestrator).toBeUndefined();
+  });
+
+  it('Rehydration_RefoldedTerminalMergeEvent_IsNoOp', () => {
+    // Sentry LOW: a duplicate merge.* event at the SAME taskId + terminalPhase
+    // must not bump projectionSequence — that would diverge replay count from
+    // truth-of-events count and produce phantom mutations for snapshot cadence
+    // and fingerprint comparisons.
+    const seeded = featureInDelegate();
+    const stamped = rehydrationReducer.apply(
+      seeded,
+      makeEvent('task.completed', { taskId: '009', worktree: '.wt/009' }, 2),
+    );
+    const merged = rehydrationReducer.apply(
+      stamped,
+      makeEvent('merge.executed', { taskId: '009', mergeSha: 'abc' }, 3),
+    );
+    const beforeSequence = merged.projectionSequence;
+
+    // Re-apply the SAME merge.executed (replay scenario or duplicate emission).
+    const refolded = rehydrationReducer.apply(
+      merged,
+      makeEvent('merge.executed', { taskId: '009', mergeSha: 'abc' }, 4),
+    );
+    expect(refolded.projectionSequence).toBe(beforeSequence);
+    expect(refolded.workflowState.mergeOrchestrator?.phase).toBe('completed');
+  });
+
   it('Rehydration_RefoldedSameTaskCompleted_DoesNotRegressTerminalMerge', () => {
     // Idempotency: when replay re-applies a worktree task.completed AFTER the
     // merge has already terminated, the terminal mergeOrchestrator phase must

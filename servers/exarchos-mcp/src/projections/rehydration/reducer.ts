@@ -412,6 +412,17 @@ function applyMergeTerminalEvent(
   // must not invent a mergeOrchestrator entry).
   const existing = state.workflowState.mergeOrchestrator;
   if (!existing) return state;
+  // Idempotent no-op when this terminal event has already been folded — a
+  // duplicate merge.executed / merge.rollback / merge.aborted at the same
+  // taskId + terminalPhase must NOT bump projectionSequence, otherwise replay
+  // count diverges from the truth-of-events count and downstream consumers
+  // (snapshot cadence, fingerprint comparisons) observe phantom mutations.
+  if (
+    existing.phase === terminalPhase &&
+    state.workflowState.phase === 'delegate'
+  ) {
+    return state;
+  }
   return {
     ...state,
     projectionSequence: state.projectionSequence + 1,
