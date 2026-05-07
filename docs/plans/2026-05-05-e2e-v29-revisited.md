@@ -255,7 +255,7 @@ Each integration branch becomes one PR (P1, P2, P4, P3). W4 reserved for any cro
    - All three: import `snapshotEventStream` — fails (module does not exist).
 
 2. **[GREEN]** Create `test/fixtures/event-replay.ts`:
-   - Export `snapshotEventStream(client, featureId): Promise<EventSnapshot>` — calls `client.callTool({ name: 'exarchos_view', arguments: { action: 'event_log', featureId } })`, parses the result, applies `normalize`, returns `{ featureId, events: NormalizedEvent[] }`.
+   - Export `snapshotEventStream(client, featureId): Promise<EventSnapshot>` — calls `client.callTool({ name: 'exarchos_event', arguments: { action: 'query', stream: featureId } })` (per mid-flight correction §0; `stream` is the schema key, not `featureId`), parses the result, applies `normalize`, returns `{ featureId, events: NormalizedEvent[] }`.
    - Define `EventSnapshot` and `NormalizedEvent` types.
 
 3. **[REFACTOR]** None expected.
@@ -273,7 +273,7 @@ Each integration branch becomes one PR (P1, P2, P4, P3). W4 reserved for any cro
 
 2. **[GREEN]** Add to `test/fixtures/event-replay.ts`:
    - `replayInto(client, snapshot): Promise<void>` — for each event in snapshot, call `client.callTool({ name: 'exarchos_event', arguments: { action: 'append', ...event } })`. Action name `'append'` confirmed against `servers/exarchos-mcp/src/runbooks/definitions.ts:35` (see plan §"Pre-revision verification").
-   - After all events appended, poll `exarchos_view({ action: 'rehydrate' })` until projection's `_eventSequence` matches snapshot's last event sequence (timeout 5s).
+   - After all events appended, poll `exarchos_workflow({ action: 'rehydrate' })` (per mid-flight correction §0; `rehydrate` lives on `_workflow`, not `_view`) until projection's `_eventSequence` matches snapshot's last event sequence (timeout 5s).
 
 3. **[REFACTOR]** Extract poll logic to `awaitProjectionCatchUp` helper if used twice.
 
@@ -470,16 +470,16 @@ Each integration branch becomes one PR (P1, P2, P4, P3). W4 reserved for any cro
 - `test/process/parity-view-{describe,event-log,rehydrate}.test.ts` all pass.
 - The rehydrate parity test also asserts F6.1 reconstructability via `replayInto(snapshotEventStream(...))`.
 
-### Task T3.1: `parity-contract.ts` schema + `view.describe` entry
+### Task T3.1: `parity-contract.ts` schema + `workflow.describe` entry
 
 1. **[RED]** Create `test/fixtures/parity-contract.test.ts`:
-   - `paritySpec_describeAction_listsRequiredFields` — assert `PARITY_CONTRACT` includes an entry for `view.describe` and that its `fieldsRequiringEquality` contains at least `phase`, `featureId`, `tasks`.
+   - `paritySpec_describeAction_listsRequiredFields` — assert `PARITY_CONTRACT` includes an entry for `workflow.describe` and that its `fieldsRequiringEquality` contains at least `phase`, `featureId`, `tasks`.
    - `paritySpec_actionUniqueness_eachActionHasOneEntry` — no duplicate `action` strings.
    - Run: fail (module does not exist).
 
 2. **[GREEN]** Create `test/fixtures/parity-contract.ts`:
    - `ParitySpec` type per design §4.3.
-   - `PARITY_CONTRACT` array with one entry: `{ action: 'view.describe', fieldsRequiringEquality: ['phase', 'featureId', 'tasks'], fieldsAllowedToDiffer: ['_transport.requestId'] }`.
+   - `PARITY_CONTRACT` array with one entry: `{ action: 'workflow.describe', fieldsRequiringEquality: ['phase', 'featureId', 'tasks'], fieldsAllowedToDiffer: ['_transport.requestId'] }` (per mid-flight correction §0; `describe` lives on `_workflow`, not `_view`).
 
 3. **[REFACTOR]** None.
 
