@@ -373,11 +373,29 @@ function applyTaskEvent(
     eventDataHasWorktreeAssociation(event.data)
   ) {
     const existing = state.workflowState.mergeOrchestrator;
-    const existingTerminal =
+    // Skip the (re)stamp in two distinct cases:
+    //
+    //   1. `conflictsWithActiveOther` — an active pending merge already exists
+    //      for a DIFFERENT task. Clobbering it would let a subsequent
+    //      merge.executed / merge.rollback / merge.aborted fire against the
+    //      wrong taskId in `applyMergeTerminalEvent`. Preserve the active
+    //      pending; the second task's worktree merge gets picked up after
+    //      the first task's terminal event lands.
+    //
+    //   2. `sameTaskTerminal` — the same task already has a TERMINAL
+    //      mergeOrchestrator phase. Idempotency: a re-folded task.completed
+    //      (replay scenario) must not regress the terminal phase back to
+    //      'pending', otherwise next_actions would re-surface
+    //      merge_orchestrate after a successful merge.
+    const conflictsWithActiveOther =
+      existing !== undefined &&
+      existing.taskId !== taskId &&
+      existing.phase === 'pending';
+    const sameTaskTerminal =
       existing !== undefined &&
       existing.taskId === taskId &&
       existing.phase !== 'pending';
-    if (!existingTerminal) {
+    if (!conflictsWithActiveOther && !sameTaskTerminal) {
       nextWorkflowState = {
         ...state.workflowState,
         phase: 'merge-pending',
