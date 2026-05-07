@@ -1,8 +1,9 @@
 import { z, ZodError } from 'zod';
 import { EventStore, SequenceConflictError } from './store.js';
-import { EVENT_DATA_SCHEMAS, type EventType } from './schemas.js';
+import { EVENT_DATA_SCHEMAS, type EventType, WorkflowEventBase } from './schemas.js';
 import { pickFields, toEventAck, type EventAck, type ToolResult } from '../format.js';
 import { buildValidatedEvent } from './event-factory.js';
+import { randomUUID } from 'node:crypto';
 
 /**
  * Build an EventAck from a stored event. When the event has a non-positive
@@ -205,6 +206,146 @@ export async function handleBatchAppend(
 
   const store = eventStore;
 
+  // Sidecar mode: AtomicAppender does not model the JSONL/sidecar split, so we
+  // preserve the legacy EventStore.batchAppend path when another process holds
+  // the PID lock. Normal-mode batches route through AtomicAppender (C2).
+  if (store.inSidecarMode) {
+    return handleBatchAppendLegacy(args, store);
+  }
+
+  // Pre-dedup within batch by per-event idempotencyKey (preserves the
+  // single-key-dedup contract `batchAppend_IdempotencyKey_DeduplicatesAcrossBatch`
+  // exercises). The appender itself dedups across calls via the batch
+  // idempotencyKey we derive below.
+  const seenBatchKeys = new Set<string>();
+  const dedupedEvents: Array<Record<string, unknown>> = [];
+  for (const event of args.events) {
+    const key = event.idempotencyKey as string | undefined;
+    if (key !== undefined) {
+      if (seenBatchKeys.has(key)) continue;
+      seenBatchKeys.add(key);
+    }
+    dedupedEvents.push(event);
+  }
+
+  // Validate envelope only (matches legacy EventStore.batchAppend behavior:
+  // type must be a known EventType, but the per-type data schema is enforced
+  // elsewhere — we don't tighten that contract here). Boundary misplaced-field
+  // detection already ran above. The placeholder sequence/streamId fields are
+  // overwritten by AtomicAppender; they're present only because the schema
+  // requires them.
+  type ValidatedEvent = {
+    type: EventType;
+    data?: Record<string, unknown>;
+    correlationId?: string;
+    causationId?: string;
+    agentId?: string;
+    agentRole?: string;
+    tenantId?: string;
+    organizationId?: string;
+    source?: string;
+    timestamp?: string;
+  };
+  let validatedEvents: ValidatedEvent[];
+  try {
+    validatedEvents = dedupedEvents.map((event) => {
+      const parsed = WorkflowEventBase.parse({
+        ...event,
+        streamId: args.stream,
+        sequence: 1, // placeholder; AtomicAppender allocates the real sequence
+        timestamp: event.timestamp ?? new Date().toISOString(),
+      });
+      const out: ValidatedEvent = { type: parsed.type as EventType };
+      if (parsed.data !== undefined) out.data = parsed.data;
+      if (parsed.correlationId !== undefined) out.correlationId = parsed.correlationId;
+      if (parsed.causationId !== undefined) out.causationId = parsed.causationId;
+      if (parsed.agentId !== undefined) out.agentId = parsed.agentId;
+      if (parsed.agentRole !== undefined) out.agentRole = parsed.agentRole;
+      if (parsed.tenantId !== undefined) out.tenantId = parsed.tenantId;
+      if (parsed.organizationId !== undefined) out.organizationId = parsed.organizationId;
+      if (parsed.source !== undefined) out.source = parsed.source;
+      if (parsed.timestamp !== undefined) out.timestamp = parsed.timestamp;
+      return out;
+    });
+  } catch (err) {
+    if (err instanceof ZodError) {
+      return {
+        success: false,
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: `Batch validation failed: ${err.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; ')}`,
+        },
+      };
+    }
+    return {
+      success: false,
+      error: {
+        code: 'BATCH_APPEND_FAILED',
+        message: err instanceof Error ? err.message : String(err),
+      },
+    };
+  }
+
+  // If dedup pruned everything (all events shared a key already in flight), the
+  // legacy contract returns success with empty data. Match that for byte-compat.
+  if (validatedEvents.length === 0) {
+    return { success: true, data: [] };
+  }
+
+  // Derive the batch idempotencyKey:
+  //   - All events share one key  -> use it (preserves cross-batch retry semantics).
+  //   - Mixed or absent           -> synthesize a fresh UUID (no cross-batch dedup).
+  // The AtomicAppender's idempotency cache is keyed by this batch key; subsequent
+  // batches that pass the same key get the cached events back without re-appending.
+  const perEventKeys = dedupedEvents
+    .map((e) => e.idempotencyKey as string | undefined)
+    .filter((k): k is string => typeof k === 'string');
+  let batchIdempotencyKey: string;
+  if (perEventKeys.length === dedupedEvents.length && perEventKeys.length > 0) {
+    const allSame = perEventKeys.every((k) => k === perEventKeys[0]);
+    batchIdempotencyKey = allSame ? perEventKeys[0] : `batch:${randomUUID()}`;
+  } else {
+    batchIdempotencyKey = `batch:${randomUUID()}`;
+  }
+
+  const appender = store.getAppender();
+  const result = await appender.append(args.stream, validatedEvents, batchIdempotencyKey);
+
+  if (!result.ok) {
+    return {
+      success: false,
+      error: {
+        code: 'BATCH_APPEND_FAILED',
+        message: result.cause ? result.cause.message : `Append failed: ${result.reason}`,
+      },
+    };
+  }
+
+  // Map AppendResult.sequences/eventIds back to EventAck shape — preserves the
+  // success envelope `{success: true, data: EventAck[]}` callers depend on.
+  const acks: EventAck[] = result.sequences.map((sequence, i) => {
+    const ack = toEventAck({
+      streamId: args.stream,
+      sequence,
+      type: validatedEvents[i].type,
+    });
+    return ack.sequence <= 0 ? { ...ack, sequence: -1, sequencePending: true } : ack;
+  });
+  return { success: true, data: acks };
+}
+
+/**
+ * Legacy four-phase batch append path. Retained for sidecar mode where the
+ * AtomicAppender's filesystem assumptions don't hold (sidecar mode routes
+ * writes to a separate file with deferred sequence allocation).
+ */
+async function handleBatchAppendLegacy(
+  args: {
+    stream: string;
+    events: Array<Record<string, unknown>>;
+  },
+  store: EventStore,
+): Promise<ToolResult> {
   try {
     const storeEvents = args.events.map((event) => ({
       type: event.type as EventType,

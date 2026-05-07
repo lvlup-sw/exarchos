@@ -11,6 +11,7 @@ import { storeLogger } from '../logger.js';
 import { isPidAlive } from '../utils/process.js';
 import { getSidecarPath } from './hook-event-writer.js';
 import { validateStreamId } from '../shared/validation.js';
+import { AtomicAppender } from './atomic-appender.js';
 
 // ─── Sequence Conflict Error ────────────────────────────────────────────────
 
@@ -227,6 +228,10 @@ export class EventStore {
   /** Optional storage backend for delegating reads */
   private readonly backend?: StorageBackend;
 
+  /** Lazily-instantiated AtomicAppender — single instance per stateDir so per-stream
+   *  locks and sequence counters share state across handler calls. */
+  private atomicAppender?: AtomicAppender;
+
   constructor(private readonly stateDir: string, options?: EventStoreOptions) {
     this.lockFilePath = path.join(stateDir, '.event-store.lock');
     this.maxIdempotencyKeys = parseEnvInt('EXARCHOS_MAX_IDEMPOTENCY_KEYS', 200);
@@ -246,6 +251,18 @@ export class EventStore {
   /** Returns true when this instance is in sidecar mode (PID lock held by another process). */
   get inSidecarMode(): boolean {
     return this.sidecarMode;
+  }
+
+  /**
+   * Returns the lazily-created AtomicAppender bound to this event store's
+   * state directory. Single instance per EventStore so per-stream locks and
+   * the in-memory sequence/idempotency caches share state across consumers.
+   */
+  getAppender(): AtomicAppender {
+    if (!this.atomicAppender) {
+      this.atomicAppender = new AtomicAppender({ stateDir: this.stateDir });
+    }
+    return this.atomicAppender;
   }
 
   // ─── PID Lock ──────────────────────────────────────────────────────────────
