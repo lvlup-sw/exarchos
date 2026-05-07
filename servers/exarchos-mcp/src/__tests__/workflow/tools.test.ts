@@ -2051,13 +2051,16 @@ describe('Guaranteed Event Append', () => {
     const checkpointCalls = appendCalls.filter((c) => c.type === 'workflow.checkpoint');
     expect(checkpointCalls.length).toBe(1);
     expect(checkpointCalls[0].idempotencyKey).toBeDefined();
-    // Key pattern: ${featureId}:checkpoint:${phase}:${version}
+    // Key pattern: ${featureId}:checkpoint:${phase}:${version}:${handoffDigest}
     // The version used in the key is the state's version at read time (before checkpoint writes).
     // handleInit writes with version increment, so the on-disk version after init is 2,
     // but handleCheckpoint reads the state and uses _version from that read.
-    // Verify the key matches the expected pattern (phase=ideate, version from state read)
+    // C3 (#1241): a 16-char sha256 prefix of `JSON.stringify(input.handoff ?? {})`
+    // is appended so refinement calls within the same phase land as
+    // distinct events. No-handoff calls produce a stable digest (`{}`),
+    // preserving prior dedup behavior.
     expect(checkpointCalls[0].idempotencyKey).toMatch(
-      /^ckpt-idem-key:checkpoint:ideate:\d+$/,
+      /^ckpt-idem-key:checkpoint:ideate:\d+:[0-9a-f]{16}$/,
     );
   });
 });

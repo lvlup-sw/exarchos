@@ -256,3 +256,144 @@ describe('WorkflowTool_RegistersRehydrateAction (T033, DR-5)', () => {
     expect(parsed.success).toBe(true);
   });
 });
+
+// ─── C3 (#1241): handleCheckpoint payload-digest idempotencyKey ─────────────
+//
+// `handleCheckpoint` previously built its idempotencyKey from
+// `${featureId}:checkpoint:${phase}:${state._version}`. Because
+// `handleCheckpoint` does NOT bump `state._version`, a second checkpoint
+// within the same phase (no version-bumping action between calls)
+// collided on this key. Combined with #1228's phantom-claim path (closed
+// by C2 at the handler boundary), the second call returned `success:
+// true` while the event was silently dropped.
+//
+// Fix: include a sha256 prefix of the handoff payload in the key.
+// `JSON.stringify(undefined ?? {}) === '{}'` is stable, so no-handoff
+// callers continue to dedup as before. Refinement callers passing
+// distinct handoff payloads now produce distinct events.
+//
+// (The `handoff` field is not yet in `CheckpointInputSchema` — that's
+// #1240. We cast through `any` here so the digest path is exercised
+// even with the current schema; behavior for today's callers is
+// unchanged because none populate `handoff`.)
+
+describe('HandleCheckpoint_PayloadDigestIdempotencyKey (C3, closes #1241)', () => {
+  let tempDir: string;
+
+  beforeEach(async () => {
+    // Un-mock `./tools.js` so this suite hits real `handleInit` and
+    // `handleCheckpoint`; the file-level mock above stubs them for
+    // envelope-conformance assertions only.
+    vi.doUnmock('./tools.js');
+    vi.resetModules();
+
+    tempDir = await mkdtemp(path.join(tmpdir(), 'checkpoint-idem-'));
+  });
+
+  afterEach(async () => {
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  it('handleCheckpoint_refinementInSamePhase_landsTwoEvents', async () => {
+    // GIVEN: a feature initialized in `ideate` with `_version=1` and no
+    // intervening phase transition between two checkpoint calls (so
+    // `state._version` is identical on both calls — the prior key shape
+    // collided on this).
+    const { handleInit, handleCheckpoint } = await import('./tools.js');
+    const store = new EventStore(tempDir);
+    const featureId = 'wf-c3-refinement';
+
+    const init = await handleInit(
+      { featureId, workflowType: 'feature' },
+      tempDir,
+      store,
+    );
+    expect(init.success).toBe(true);
+
+    // WHEN: two `handleCheckpoint` calls land in the same phase with
+    // distinct `handoff` payloads. The schema doesn't formally accept
+    // `handoff` yet (see #1240) — cast through `any` so the digest path
+    // is exercised today.
+    const first = await handleCheckpoint(
+      { featureId, handoff: { context: 'first' } } as unknown as Parameters<typeof handleCheckpoint>[0],
+      tempDir,
+      store,
+    );
+    expect(first.success).toBe(true);
+
+    const second = await handleCheckpoint(
+      { featureId, handoff: { context: 'second' } } as unknown as Parameters<typeof handleCheckpoint>[0],
+      tempDir,
+      store,
+    );
+    expect(second.success).toBe(true);
+
+    // THEN: two `workflow.checkpoint` events are visible AND each
+    // event's `idempotencyKey` carries a distinct sha256-prefix segment
+    // for its `handoff` payload. (Asserting only `length === 2` is too
+    // weak: `writeStateFile` auto-bumps `_version`, so the legacy
+    // version-only key also yielded two events — but for the wrong
+    // reason. The digest segment is the load-bearing fix for #1241,
+    // because production refinement may land at the same `_version`.)
+    const { createHash } = await import('node:crypto');
+    const firstDigest = createHash('sha256')
+      .update(JSON.stringify({ context: 'first' }))
+      .digest('hex')
+      .slice(0, 16);
+    const secondDigest = createHash('sha256')
+      .update(JSON.stringify({ context: 'second' }))
+      .digest('hex')
+      .slice(0, 16);
+
+    const events = await store.query(featureId, { type: 'workflow.checkpoint' });
+    expect(events.length).toBe(2);
+    const keys = events.map((e) => (e as unknown as { idempotencyKey?: string }).idempotencyKey ?? '');
+    expect(keys[0].endsWith(`:${firstDigest}`)).toBe(true);
+    expect(keys[1].endsWith(`:${secondDigest}`)).toBe(true);
+    expect(keys[0]).not.toBe(keys[1]);
+  });
+
+  it('handleCheckpoint_noHandoffPayload_legacyKeyShapeStable', async () => {
+    // GIVEN: a feature initialized in `ideate`, then a single no-handoff
+    // checkpoint. Backwards compat: callers passing no `handoff` must
+    // produce a key whose digest segment matches `sha256('{}').slice(0, 16)`
+    // (since `JSON.stringify(undefined ?? {}) === '{}'`). This pins the
+    // digest segment so historical replay (events written before #1240
+    // wires `handoff`) remains dedup-stable across versions of the
+    // codebase: the same call shape always produces the same key.
+    const { createHash } = await import('node:crypto');
+    const { handleInit, handleCheckpoint } = await import('./tools.js');
+    const store = new EventStore(tempDir);
+    const featureId = 'wf-c3-no-handoff';
+
+    const init = await handleInit(
+      { featureId, workflowType: 'feature' },
+      tempDir,
+      store,
+    );
+    expect(init.success).toBe(true);
+
+    // WHEN: a `handleCheckpoint` call lands with no handoff payload.
+    const result = await handleCheckpoint(
+      { featureId },
+      tempDir,
+      store,
+    );
+    expect(result.success).toBe(true);
+
+    // THEN: the persisted `workflow.checkpoint` event's `idempotencyKey`
+    // ends with the deterministic digest of `{}` — the digest is stable
+    // across calls, so a *second* no-handoff checkpoint at the same
+    // version would collide on this exact key (legacy dedup preserved).
+    const expectedDigest = createHash('sha256')
+      .update(JSON.stringify({}))
+      .digest('hex')
+      .slice(0, 16);
+
+    const events = await store.query(featureId, { type: 'workflow.checkpoint' });
+    expect(events.length).toBe(1);
+    const persisted = events[0] as unknown as { idempotencyKey?: string };
+    expect(persisted.idempotencyKey).toBeTypeOf('string');
+    expect(persisted.idempotencyKey?.endsWith(`:${expectedDigest}`)).toBe(true);
+  });
+});

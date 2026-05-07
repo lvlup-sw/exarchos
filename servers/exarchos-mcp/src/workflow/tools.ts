@@ -35,6 +35,7 @@ import { hsmTransitionGuard } from './hsm-transition-guard.js';
 import { getPlaybook } from './playbooks.js';
 import { getRequiredReviews } from './review-contract.js';
 import { formatResult, type ToolResult } from '../format.js';
+import { createHash } from 'node:crypto';
 import * as fs from 'node:fs/promises';
 import type { EventStore } from '../event-store/store.js';
 import type { ViewMaterializer } from '../views/materializer.js';
@@ -895,7 +896,24 @@ export async function handleCheckpoint(
     input.summary,
   );
 
-  // Emit checkpoint event to external store (event-first, guaranteed)
+  // Emit checkpoint event to external store (event-first, guaranteed).
+  //
+  // C3 (#1241): include a sha256 prefix of the `handoff` payload in the
+  // idempotency key so refinement calls (same featureId+phase+version
+  // but distinct handoff content) land as distinct events. The schema
+  // does not yet declare `handoff` — that wiring is #1240, scheduled to
+  // land after this PR. Reading the field from `input` via a typed
+  // cast keeps the digest path forward-compatible without scope-creep
+  // into the schema. `JSON.stringify(undefined ?? {})` is `'{}'`, so
+  // current callers (which never set `handoff`) get a stable digest
+  // and identical dedup behavior to the prior version-only key.
+  const handoff = (input as { handoff?: unknown }).handoff ?? {};
+  const handoffDigest = createHash('sha256')
+    .update(JSON.stringify(handoff))
+    .digest('hex')
+    .slice(0, 16);
+  const checkpointIdempotencyKey =
+    `${input.featureId}:checkpoint:${state.phase}:${state._version}:${handoffDigest}`;
   if (eventStore) {
     try {
       await eventStore.append(input.featureId, {
@@ -907,7 +925,7 @@ export async function handleCheckpoint(
           phase: state.phase,
           featureId: input.featureId,
         },
-      }, { idempotencyKey: `${input.featureId}:checkpoint:${state.phase}:${state._version}` });
+      }, { idempotencyKey: checkpointIdempotencyKey });
     } catch (err) {
       return {
         success: false,
