@@ -505,6 +505,51 @@ describe('handleBatchAppend', () => {
       expect(persistedSeqs[i]).toBe(i + 1);
     }
   });
+
+  it('batchAppend_MixedKeysAcrossBatches_NoCrossBatchDedup', async () => {
+    // C10 polish: pin the cross-batch idempotency divergence documented at
+    // tools.ts:295-309. When events in a batch carry distinct per-event
+    // idempotencyKeys, the handler synthesizes a fresh `batch:<uuid>`
+    // idempotencyKey for the AtomicAppender. Resubmitting the SAME logical
+    // batch a second time gets a DIFFERENT synthesized key, so cross-batch
+    // dedup is intentionally not preserved — both batches land in the stream.
+    const batchEvents = [
+      { type: 'task.assigned', data: { taskId: 't1' }, idempotencyKey: 'mixed-k1' },
+      { type: 'task.assigned', data: { taskId: 't2' }, idempotencyKey: 'mixed-k2' },
+    ];
+
+    const first = await handleBatchAppend(
+      { stream: 'mixed-keys-test', events: batchEvents },
+      tempDir,
+      eventStore,
+    );
+    expect(first.success).toBe(true);
+    expect((first.data as EventAck[]).length).toBe(2);
+
+    // Resubmit the IDENTICAL batch payload (same per-event keys, same data).
+    const second = await handleBatchAppend(
+      { stream: 'mixed-keys-test', events: batchEvents },
+      tempDir,
+      eventStore,
+    );
+    expect(second.success).toBe(true);
+    // Documented divergence: NOT deduped against the first batch — fresh events.
+    expect((second.data as EventAck[]).length).toBe(2);
+
+    // Sequences from the second batch must be strictly greater than first.
+    const firstSeqs = (first.data as EventAck[]).map(a => a.sequence);
+    const secondSeqs = (second.data as EventAck[]).map(a => a.sequence);
+    expect(Math.min(...secondSeqs)).toBeGreaterThan(Math.max(...firstSeqs));
+
+    // The stream contains 4 distinct events — no cross-batch dedup occurred.
+    const queryResult = await handleEventQuery(
+      { stream: 'mixed-keys-test' },
+      tempDir,
+      eventStore,
+    );
+    expect(queryResult.success).toBe(true);
+    expect(queryResult.data).toHaveLength(4);
+  });
 });
 
 // ─── Dot-path field projection in event queries ─────────────────────────────

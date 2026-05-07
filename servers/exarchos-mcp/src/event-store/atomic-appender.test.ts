@@ -170,4 +170,70 @@ describe('AtomicAppender', () => {
     const linesAfter = contentsAfter.trim().split('\n').filter(l => l.length > 0);
     expect(linesAfter).toHaveLength(2);
   });
+
+  it('AtomicAppender_idempotencyCache_capsAtThreshold', async () => {
+    // C10 polish: port EXARCHOS_MAX_IDEMPOTENCY_KEYS cap from legacy EventStore
+    // (store.ts:798) to AtomicAppender so long-running streams don't grow the
+    // idempotency cache unboundedly. Eviction is FIFO (insertion order) to
+    // match the legacy semantics — oldest key out first.
+    const prevCap = process.env.EXARCHOS_MAX_IDEMPOTENCY_KEYS;
+    process.env.EXARCHOS_MAX_IDEMPOTENCY_KEYS = '5';
+    try {
+      const appender = new AtomicAppender({ stateDir });
+      const streamId = 'test-stream-cap';
+
+      // Append 7 events with 7 distinct idempotencyKeys.
+      for (let i = 1; i <= 7; i++) {
+        const r = await appender.append(
+          streamId,
+          [{ type: 'task.assigned', data: { n: i } }],
+          `key-${i}`,
+        );
+        expect(r.ok).toBe(true);
+      }
+
+      // The two oldest keys (`key-1`, `key-2`) must have been evicted.
+      // Retrying them therefore does NOT hit the cache — a fresh event with
+      // a NEW sequence is appended (acceptable since JSONL replay still
+      // serves the original event, but the in-memory cache is bounded).
+      const retryOldest = await appender.append(
+        streamId,
+        [{ type: 'task.assigned', data: { n: 1, retry: true } }],
+        'key-1',
+      );
+      expect(retryOldest.ok).toBe(true);
+      if (retryOldest.ok) {
+        // Cache miss → new sequence allocated (would have been [1] had it cached).
+        expect(retryOldest.sequences).toEqual([8]);
+      }
+
+      const retrySecondOldest = await appender.append(
+        streamId,
+        [{ type: 'task.assigned', data: { n: 2, retry: true } }],
+        'key-2',
+      );
+      expect(retrySecondOldest.ok).toBe(true);
+      if (retrySecondOldest.ok) {
+        expect(retrySecondOldest.sequences).toEqual([9]);
+      }
+
+      // Conversely, a still-cached recent key (`key-7`) MUST hit the cache:
+      // retry returns the original sequence (7), no new event appended.
+      const retryRecent = await appender.append(
+        streamId,
+        [{ type: 'task.assigned', data: { n: 7, retry: true } }],
+        'key-7',
+      );
+      expect(retryRecent.ok).toBe(true);
+      if (retryRecent.ok) {
+        expect(retryRecent.sequences).toEqual([7]);
+      }
+    } finally {
+      if (prevCap === undefined) {
+        delete process.env.EXARCHOS_MAX_IDEMPOTENCY_KEYS;
+      } else {
+        process.env.EXARCHOS_MAX_IDEMPOTENCY_KEYS = prevCap;
+      }
+    }
+  });
 });

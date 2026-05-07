@@ -33,6 +33,10 @@ import type { AtomicAppender } from '../event-store/atomic-appender.js';
  * model — when that lands, this implementation flattens to a query over
  * `stream_id LIKE '<parent>/%'` and the parent emit on `team.disbanded`
  * remains.
+ *
+ * This module ships ahead of its consumer site. Wiring lands in commit C11
+ * (intercepting `team.disbanded` in `handleEventAppend`); see design
+ * Primitive 2 'Consumer changes' subsection.
  */
 
 /**
