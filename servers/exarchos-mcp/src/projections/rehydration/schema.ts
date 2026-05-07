@@ -10,10 +10,36 @@ export const BehavioralGuidanceSchema = z.object({
   tools: z.unknown().optional(),
 });
 
+/**
+ * Sub-state of the merge orchestrator surfaced on the rehydration envelope so
+ * that `next_actions` consumers can decide whether to surface a
+ * `merge_orchestrate` verb (idempotency-keyed) without querying the event
+ * store directly. Set by the rehydration reducer when a worktree-bearing
+ * `task.completed` is observed (#1208 / DR-MO-1) and updated on
+ * `merge.executed` / `merge.rollback` / `merge.aborted`.
+ */
+export const RehydrationMergeOrchestratorSchema = z.object({
+  /** Task whose worktree merge is pending / has terminated. */
+  taskId: z.string(),
+  /**
+   * `pending` — merge has been requested but not yet executed.
+   * `completed` / `rolled-back` / `aborted` — terminal; do not re-surface
+   * `merge_orchestrate`.
+   */
+  phase: z.enum(['pending', 'completed', 'rolled-back', 'aborted']),
+});
+
 export const WorkflowStateSchema = z.object({
   featureId: z.string(),
   phase: z.string(),
   workflowType: z.string(),
+  /**
+   * Merge orchestrator sub-state (see {@link RehydrationMergeOrchestratorSchema}).
+   * Optional — only present once a worktree-bearing task.completed has been
+   * folded. Read by `nextActionsFromResult` to drive the
+   * `merge_orchestrate` verb surfacing.
+   */
+  mergeOrchestrator: RehydrationMergeOrchestratorSchema.optional(),
 });
 
 export const StableSectionsSchema = z.object({

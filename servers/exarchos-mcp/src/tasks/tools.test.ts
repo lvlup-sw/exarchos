@@ -580,6 +580,85 @@ describe('task_complete evidence field', () => {
     expect(data.files).toEqual(['src/foo.ts', 'src/foo.test.ts']);
   });
 
+  it('handleTaskComplete_WithWorktreeInResult_ForwardsToEventData', async () => {
+    // #1208 / DR-MO-1, DR-MO-2 — `task.completed.data.worktree` and
+    // `worktreePath` are the trigger for the rehydration projection's
+    // merge-pending detour and the HSM `mergePendingEntry` guard. Pre-fix the
+    // handler silently dropped these fields from `args.result`, so the
+    // documented auto-detour (`skills-src/delegation/SKILL.md` § "Worktree-
+    // Bearing Tasks") never fired end-to-end. This test pins the forwarding.
+    const store = new EventStore(tempDir);
+    await store.append('wf-wt-1', {
+      type: 'task.assigned',
+      data: { taskId: 't-wt-1', title: 'Worktree task', assignee: 'agent-1' },
+    });
+    await store.append('wf-wt-1', {
+      type: 'gate.executed',
+      data: { gateName: 'tdd-compliance', layer: 'task', passed: true, details: { taskId: 't-wt-1' } },
+    });
+    await store.append('wf-wt-1', {
+      type: 'gate.executed',
+      data: { gateName: 'static-analysis', layer: 'quality', passed: true, details: { taskId: 't-wt-1' } },
+    });
+
+    const result = await handleTaskComplete(
+      {
+        taskId: 't-wt-1',
+        streamId: 'wf-wt-1',
+        result: {
+          worktree: '.worktrees/t-wt-1',
+          worktreePath: '/tmp/wt/t-wt-1',
+        },
+      },
+      tempDir,
+      store,
+    );
+
+    expect(result.success).toBe(true);
+    const events = await store.query('wf-wt-1');
+    const completedEvent = events.find((e) => e.type === 'task.completed');
+    expect(completedEvent).toBeDefined();
+    const data = completedEvent!.data as Record<string, unknown>;
+    expect(data.worktree).toBe('.worktrees/t-wt-1');
+    expect(data.worktreePath).toBe('/tmp/wt/t-wt-1');
+  });
+
+  it('handleTaskComplete_WithEmptyWorktreeStrings_OmitsFromEventData', async () => {
+    // Empty / blank worktree strings carry no association — guard against
+    // callers passing `''` from optional CLI args and accidentally tripping
+    // the merge-pending detour with no real worktree to merge.
+    const store = new EventStore(tempDir);
+    await store.append('wf-wt-2', {
+      type: 'task.assigned',
+      data: { taskId: 't-wt-2', title: 'Empty wt task', assignee: 'agent-1' },
+    });
+    await store.append('wf-wt-2', {
+      type: 'gate.executed',
+      data: { gateName: 'tdd-compliance', layer: 'task', passed: true, details: { taskId: 't-wt-2' } },
+    });
+    await store.append('wf-wt-2', {
+      type: 'gate.executed',
+      data: { gateName: 'static-analysis', layer: 'quality', passed: true, details: { taskId: 't-wt-2' } },
+    });
+
+    const result = await handleTaskComplete(
+      {
+        taskId: 't-wt-2',
+        streamId: 'wf-wt-2',
+        result: { worktree: '', worktreePath: '' },
+      },
+      tempDir,
+      store,
+    );
+
+    expect(result.success).toBe(true);
+    const events = await store.query('wf-wt-2');
+    const completedEvent = events.find((e) => e.type === 'task.completed');
+    const data = completedEvent!.data as Record<string, unknown>;
+    expect(data).not.toHaveProperty('worktree');
+    expect(data).not.toHaveProperty('worktreePath');
+  });
+
   it('handleTaskComplete_WithoutProvenance_OmitsFields', async () => {
     // Arrange
     const store = new EventStore(tempDir);

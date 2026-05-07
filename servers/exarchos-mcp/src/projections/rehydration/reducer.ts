@@ -310,6 +310,26 @@ function foldPlanTasks(
 // never mutate the input. Each handled result bumps `projectionSequence`
 // exactly once.
 
+/**
+ * Predicate (#1208 / DR-MO-1, DR-MO-2) — true when the event's `data` carries
+ * a worktree association via `worktree` OR `worktreePath`. Centralised so the
+ * rehydration projection (this file) and the HSM `mergePendingEntry` guard
+ * (workflow/hsm-definitions.ts) compute the same trigger.
+ */
+export function eventDataHasWorktreeAssociation(
+  data: WorkflowEvent['data'],
+): boolean {
+  if (!data) return false;
+  const w = data['worktree'];
+  const p = data['worktreePath'];
+  // Trim before length-checking — a whitespace-only string is not a real
+  // worktree association and must not trigger the merge-pending detour.
+  return (
+    (typeof w === 'string' && w.trim().length > 0) ||
+    (typeof p === 'string' && p.trim().length > 0)
+  );
+}
+
 /** Handlers for `task.*` events — taskProgress fold (T023). */
 function applyTaskEvent(
   state: RehydrationDocument,
@@ -322,10 +342,113 @@ function applyTaskEvent(
     // so that replay over partial/legacy data cannot corrupt taskProgress.
     return state;
   }
+  // #1208 / DR-MO-1 auto-detour: when a `task.completed` carries a worktree
+  // association AND the merge orchestrator has not already terminated for
+  // this task, project the workflow into the `merge-pending` substate and
+  // seed the `mergeOrchestrator` segment so `nextActionsFromResult` can
+  // surface `merge_orchestrate`. Idempotent: a re-folded same-taskId event
+  // will not regress a terminal merge phase back to `pending`.
+  //
+  // Scope (per coderabbit / #1109 Constraint 1 — event-sourcing integrity):
+  // gated on workflowType='feature' AND a phase compatible with the
+  // `merge-pending` substate. `createFeatureHSM()` is the only HSM that
+  // defines `merge-pending`, so detouring a refactor / debug / oneshot /
+  // discovery stream — or a feature stream already past `delegate` (e.g.
+  // `synthesize`, `completed`) — would project an impossible state and
+  // confuse next-action / HSM consumers downstream.
+  //
+  // Compatible phases: `''` (initial — production flows reach `delegate`
+  // implicitly via `prepare_delegation` without emitting a
+  // `workflow.transition`), `delegate` (canonical entry), and
+  // `merge-pending` (re-entrant). All other phases are blocked.
+  let nextWorkflowState = state.workflowState;
+  const detourablePhase =
+    state.workflowState.phase === '' ||
+    state.workflowState.phase === 'delegate' ||
+    state.workflowState.phase === 'merge-pending';
+  if (
+    status === 'completed' &&
+    state.workflowState.workflowType === 'feature' &&
+    detourablePhase &&
+    eventDataHasWorktreeAssociation(event.data)
+  ) {
+    const existing = state.workflowState.mergeOrchestrator;
+    // Skip the (re)stamp in two distinct cases:
+    //
+    //   1. `conflictsWithActiveOther` — an active pending merge already exists
+    //      for a DIFFERENT task. Clobbering it would let a subsequent
+    //      merge.executed / merge.rollback / merge.aborted fire against the
+    //      wrong taskId in `applyMergeTerminalEvent`. Preserve the active
+    //      pending; the second task's worktree merge gets picked up after
+    //      the first task's terminal event lands.
+    //
+    //   2. `sameTaskTerminal` — the same task already has a TERMINAL
+    //      mergeOrchestrator phase. Idempotency: a re-folded task.completed
+    //      (replay scenario) must not regress the terminal phase back to
+    //      'pending', otherwise next_actions would re-surface
+    //      merge_orchestrate after a successful merge.
+    const conflictsWithActiveOther =
+      existing !== undefined &&
+      existing.taskId !== taskId &&
+      existing.phase === 'pending';
+    const sameTaskTerminal =
+      existing !== undefined &&
+      existing.taskId === taskId &&
+      existing.phase !== 'pending';
+    if (!conflictsWithActiveOther && !sameTaskTerminal) {
+      nextWorkflowState = {
+        ...state.workflowState,
+        phase: 'merge-pending',
+        mergeOrchestrator: { taskId, phase: 'pending' },
+      };
+    }
+  }
   return {
     ...state,
     projectionSequence: state.projectionSequence + 1,
     taskProgress: upsertTaskProgress(state.taskProgress, taskId, status),
+    workflowState: nextWorkflowState,
+  };
+}
+
+/**
+ * Handler for `merge.executed` / `merge.rollback` / `merge.aborted` — exits
+ * the `merge-pending` substate by stamping the terminal phase on
+ * `mergeOrchestrator` and reverting `workflowState.phase` to `delegate`.
+ *
+ * The exit phase is derived from the event type (caller-provided). Mirrors
+ * the HSM `mergePendingExit` guard in `workflow/hsm-definitions.ts` so the
+ * rehydration projection observes the same lifecycle the HSM defines.
+ */
+function applyMergeTerminalEvent(
+  state: RehydrationDocument,
+  event: WorkflowEvent,
+  terminalPhase: 'completed' | 'rolled-back' | 'aborted',
+): RehydrationDocument {
+  // No-op when there is nothing to terminate — protects replay over partial
+  // streams (a rogue merge.* event without a preceding worktree task.completed
+  // must not invent a mergeOrchestrator entry).
+  const existing = state.workflowState.mergeOrchestrator;
+  if (!existing) return state;
+  // Idempotent no-op when this terminal event has already been folded — a
+  // duplicate merge.executed / merge.rollback / merge.aborted at the same
+  // taskId + terminalPhase must NOT bump projectionSequence, otherwise replay
+  // count diverges from the truth-of-events count and downstream consumers
+  // (snapshot cadence, fingerprint comparisons) observe phantom mutations.
+  if (
+    existing.phase === terminalPhase &&
+    state.workflowState.phase === 'delegate'
+  ) {
+    return state;
+  }
+  return {
+    ...state,
+    projectionSequence: state.projectionSequence + 1,
+    workflowState: {
+      ...state.workflowState,
+      phase: 'delegate',
+      mergeOrchestrator: { taskId: existing.taskId, phase: terminalPhase },
+    },
   };
 }
 
@@ -654,6 +777,14 @@ export const rehydrationReducer: ProjectionReducer<RehydrationDocument, Workflow
         return applyReviewCompleted(state, event);
       case 'review.escalated':
         return applyReviewEscalated(state, event);
+
+      // ── merge.* — merge-orchestrator lifecycle (#1208 / DR-MO-1) ─────────
+      case 'merge.executed':
+        return applyMergeTerminalEvent(state, event, 'completed');
+      case 'merge.rollback':
+        return applyMergeTerminalEvent(state, event, 'rolled-back');
+      case 'merge.aborted':
+        return applyMergeTerminalEvent(state, event, 'aborted');
 
       // ── team.* + task.progressed — delegate-phase coordination beats ─────
       // Recognised by the SoT registry (DELEGATE_PHASE_EVENT_TYPES /

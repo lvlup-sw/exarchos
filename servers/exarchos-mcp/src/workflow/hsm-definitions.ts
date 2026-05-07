@@ -1,6 +1,8 @@
 import { guards, composeGuards } from './guards.js';
 import type { Guard, GuardResult } from './guards.js';
 import type { HSMDefinition, State, Transition } from './state-machine.js';
+import { eventDataHasWorktreeAssociation } from '../projections/rehydration/reducer.js';
+import type { WorkflowEvent } from '../event-store/schemas.js';
 
 // ─── Merge Orchestrator Phase Filtering (T17 / T19) ─────────────────────────
 
@@ -44,15 +46,26 @@ function findLatestTaskCompleted(
  * a worktree association (either `data.worktree` or `data.worktreePath`).
  *
  * Captures the design's "task whose state carries a `worktree` association"
- * trigger from DR-MO-1 / DR-MO-2.
+ * trigger from DR-MO-1 / DR-MO-2. The same predicate is reused by the
+ * rehydration projection (`eventDataHasWorktreeAssociation` in
+ * projections/rehydration/reducer.ts) so HSM guard and projection observe
+ * the same trigger condition — see #1208.
  */
 function latestTaskCompletedHasWorktree(state: Record<string, unknown>): boolean {
   const events = (state._events as readonly Record<string, unknown>[]) ?? [];
   const latest = findLatestTaskCompleted(events);
   if (!latest) return false;
-  const data = latest.data as Record<string, unknown> | undefined;
-  if (!data) return false;
-  return Boolean(data.worktree) || Boolean(data.worktreePath);
+  // Single source of truth: delegate to the rehydration reducer's predicate
+  // so the HSM guard and the rehydration projection NEVER diverge on what
+  // counts as a worktree association. Per #1109 Constraint 1
+  // (event-sourcing integrity), the live HSM and the replayed projection
+  // must observe the same trigger — otherwise a whitespace-only worktree
+  // value would advance the live state to merge-pending while the
+  // rehydrated state would not, and consumers downstream would miss
+  // merge_orchestrate after a server restart.
+  return eventDataHasWorktreeAssociation(
+    latest.data as WorkflowEvent['data'],
+  );
 }
 
 /**
