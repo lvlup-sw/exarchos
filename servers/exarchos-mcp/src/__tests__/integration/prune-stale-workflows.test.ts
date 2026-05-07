@@ -92,6 +92,11 @@ function makeRealDeps(
     // a non-undefined value so safeguard stubs are actually consulted.
     readBranchName: async (featureId) => `feat/${featureId}`,
     safeguards,
+    // C8 (#1117): integration tests don't seed `workflow.transition` events
+    // or fixture branches; default to "no signal" so `selectPruneCandidates`
+    // stays on the legacy single-signal path it was authored against.
+    readPhaseTransitionTimestamp: async () => undefined,
+    readBranchActivityTimestamp: async () => undefined,
   };
 }
 
