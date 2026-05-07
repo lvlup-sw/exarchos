@@ -159,10 +159,14 @@ function resolveHSM(
  *      success, emit ONLY `workflow.transition` (plus any compound
  *      entry/exit / fix-cycle siblings produced by the HSM walk).
  *
- * Atomicity invariant: at most one of `workflow.transition` /
- * `workflow.guard-failed` is appended per (featureId, targetPhase,
- * attempt) tuple. The idempotency key on the event store dedups CAS
- * retries from the orchestrator.
+ * Atomicity guarantees:
+ *   - Binary outcome atomicity: at most one of `workflow.transition` /
+ *     `workflow.guard-failed` is appended per attempt outcome. The
+ *     idempotency key on the event store dedups CAS retries.
+ *   - Compound entry/exit events in the success path are NOT all-or-none:
+ *     they are sequenced through `EventStore.append` independently, so a
+ *     mid-loop throw can leave a partial trail. Stronger atomicity
+ *     arrives in #1259's substrate refactor.
  */
 export class DefaultHSMTransitionGuard implements HSMTransitionGuard {
   async attempt(

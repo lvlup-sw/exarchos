@@ -62,6 +62,21 @@ export interface AtomicAppenderOptions {
   stateDir: string;
   /** Test-only failure-injection writer; defaults to the production filesystem writer. */
   writeFn?: WriteFn;
+  /**
+   * Per-stream cap on cached idempotencyKey entries. Defaults to env
+   * `EXARCHOS_MAX_IDEMPOTENCY_KEYS` (or 200 when unset / invalid). Eviction
+   * is FIFO (insertion order) — matches the legacy `EventStore` semantics
+   * at `event-store/store.ts:798`.
+   */
+  maxIdempotencyKeys?: number;
+}
+
+function parseEnvInt(envVar: string, defaultValue: number): number {
+  const raw = process.env[envVar];
+  if (raw === undefined) return defaultValue;
+  const parsed = parseInt(raw, 10);
+  if (isNaN(parsed) || parsed <= 0) return defaultValue;
+  return parsed;
 }
 
 interface PersistedEvent {
@@ -115,10 +130,14 @@ export class AtomicAppender {
   /** streamId → idempotencyKey → committed event(s). Populated only after success. */
   private readonly idempotencyCache = new Map<string, Map<string, PersistedEvent[]>>();
   private readonly idempotencyInitialized = new Set<string>();
+  /** Per-stream cap on idempotencyCache size; FIFO eviction matches legacy EventStore. */
+  private readonly maxIdempotencyKeys: number;
 
   constructor(options: AtomicAppenderOptions) {
     this.stateDir = options.stateDir;
     this.writeFn = options.writeFn;
+    this.maxIdempotencyKeys =
+      options.maxIdempotencyKeys ?? parseEnvInt('EXARCHOS_MAX_IDEMPOTENCY_KEYS', 200);
   }
 
   async append(
@@ -223,6 +242,14 @@ export class AtomicAppender {
       this.idempotencyCache.set(streamId, cache);
     }
     cache.set(idempotencyKey, persisted);
+    // FIFO eviction at cap — matches legacy EventStore.cacheIdempotencyKey
+    // semantics (store.ts:798). Map iteration order is insertion order, so
+    // `keys().next().value` is the oldest entry.
+    while (cache.size > this.maxIdempotencyKeys) {
+      const oldest = cache.keys().next().value;
+      if (oldest === undefined) break;
+      cache.delete(oldest);
+    }
     this.sequenceCounters.set(streamId, finalSequence);
 
     return {
@@ -280,6 +307,14 @@ export class AtomicAppender {
         const existing = cache.get(parsed.idempotencyKey) ?? [];
         existing.push(parsed);
         cache.set(parsed.idempotencyKey, existing);
+        // FIFO eviction at cap during rebuild — preserves the most-recent
+        // N keys (matches legacy `keyed.slice(-this.maxIdempotencyKeys)` at
+        // store.ts:1227 since insertion order tracks file order).
+        while (cache.size > this.maxIdempotencyKeys) {
+          const oldest = cache.keys().next().value;
+          if (oldest === undefined) break;
+          cache.delete(oldest);
+        }
       }
     }
     this.sequenceCounters.set(streamId, maxSeq);
