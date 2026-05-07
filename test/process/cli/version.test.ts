@@ -34,4 +34,11 @@ describe('exarchos --version', () => {
       expect(result.stdout.trim()).toBe(expected);
     });
   });
+
+  it('version_unknownFlag_exitsNonZero', async () => {
+    await withHermeticEnv(async () => {
+      const result = await runCli({ args: ['--definitely-unknown-flag'] });
+      expect(result.exitCode).not.toBe(0);
+    });
+  });
 });

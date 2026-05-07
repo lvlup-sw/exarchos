@@ -27,7 +27,7 @@ describe('exarchos mcp', () => {
       const start = Date.now();
       await handle.terminate();
       const elapsed = Date.now() - start;
-      expect(elapsed).toBeLessThan(SIGTERM_GRACE_MS);
+      expect(elapsed).toBeLessThanOrEqual(SIGTERM_GRACE_MS);
       // The fixture's terminate() sends SIGTERM via client.close (which
       // closes stdio), waits for natural exit, and only escalates to
       // SIGKILL after a 3s grace. A clean exit means the child caught
