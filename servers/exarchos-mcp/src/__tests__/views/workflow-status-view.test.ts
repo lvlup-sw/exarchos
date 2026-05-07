@@ -182,4 +182,73 @@ describe('WorkflowStatusView', () => {
       expect(view.tasksFailed).toBe(0);
     });
   });
+
+  // ── C4 (#1226): projection dedup by taskId ────────────────────────────
+  // Duplicate task.assigned / task.completed events (from #1228 retries or
+  // #1230 historical replay) must be counted at most once per taskId so the
+  // counters remain monotonic and tasksCompleted <= tasksTotal.
+
+  describe('workflowStatus_replayWithDuplicateTaskCompleted_dedupsByTaskId', () => {
+    it('counts a single task.completed when the same taskId appears twice', () => {
+      const events = [
+        makeEvent(1, 'workflow.started', { featureId: 'f1', workflowType: 'feature' }),
+        makeEvent(2, 'task.assigned', { taskId: 't1', title: 'Task 1' }),
+        makeEvent(3, 'task.completed', { taskId: 't1' }),
+        makeEvent(4, 'task.completed', { taskId: 't1' }),
+      ];
+
+      const view = materializer.materialize<WorkflowStatusViewState>(
+        'wf-dedup-1',
+        WORKFLOW_STATUS_VIEW,
+        events,
+      );
+
+      expect(view.tasksTotal).toBe(1);
+      expect(view.tasksCompleted).toBe(1);
+    });
+
+    it('also dedups task.assigned by taskId (symmetric guard)', () => {
+      const events = [
+        makeEvent(1, 'workflow.started', { featureId: 'f1', workflowType: 'feature' }),
+        makeEvent(2, 'task.assigned', { taskId: 't1', title: 'Task 1' }),
+        makeEvent(3, 'task.assigned', { taskId: 't1', title: 'Task 1 (retry)' }),
+        makeEvent(4, 'task.assigned', { taskId: 't2', title: 'Task 2' }),
+      ];
+
+      const view = materializer.materialize<WorkflowStatusViewState>(
+        'wf-dedup-2',
+        WORKFLOW_STATUS_VIEW,
+        events,
+      );
+
+      expect(view.tasksTotal).toBe(2);
+    });
+  });
+
+  describe('workflowStatus_tasksCompletedExceedsTotal_invariantHolds', () => {
+    it('keeps tasksCompleted <= tasksTotal under any duplicate-event sequence (#1226)', () => {
+      // Pathological log: two assigns and many duplicate completes for the
+      // same taskId. Pre-fix this drove tasksCompleted past tasksTotal.
+      const events = [
+        makeEvent(1, 'workflow.started', { featureId: 'f1', workflowType: 'feature' }),
+        makeEvent(2, 'task.assigned', { taskId: 't1', title: 'Task 1' }),
+        makeEvent(3, 'task.assigned', { taskId: 't2', title: 'Task 2' }),
+        makeEvent(4, 'task.completed', { taskId: 't1' }),
+        makeEvent(5, 'task.completed', { taskId: 't1' }),
+        makeEvent(6, 'task.completed', { taskId: 't1' }),
+        makeEvent(7, 'task.completed', { taskId: 't2' }),
+        makeEvent(8, 'task.completed', { taskId: 't2' }),
+      ];
+
+      const view = materializer.materialize<WorkflowStatusViewState>(
+        'wf-invariant',
+        WORKFLOW_STATUS_VIEW,
+        events,
+      );
+
+      expect(view.tasksCompleted).toBeLessThanOrEqual(view.tasksTotal);
+      expect(view.tasksTotal).toBe(2);
+      expect(view.tasksCompleted).toBe(2);
+    });
+  });
 });
