@@ -270,7 +270,16 @@ export async function handleViewWorkflowStatus(
     const stateTasks = state?.['tasks'];
     const tasksTotal = Array.isArray(stateTasks) ? stateTasks.length : view.tasksTotal;
 
-    return { success: true, data: { ...view, tasksTotal } };
+    // C4 (#1226) — strip projection-internal dedup bookkeeping from the
+    // public envelope. The `_seen*TaskIds` arrays are needed for replay
+    // correctness but must not leak into the response shape.
+    const {
+      _seenAssignedTaskIds: _ignoredAssigned,
+      _seenCompletedTaskIds: _ignoredCompleted,
+      ...publicView
+    } = view;
+
+    return { success: true, data: { ...publicView, tasksTotal } };
   } catch (err) {
     return {
       success: false,
