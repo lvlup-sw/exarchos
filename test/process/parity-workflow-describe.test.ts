@@ -68,7 +68,10 @@ describe('parity: exarchos workflow describe — CLI ↔ MCP', () => {
             arguments: {
               action: 'append',
               stream: featureId,
-              event: { type: 'task.assigned', data: { taskId: 't1' } },
+              event: {
+                type: 'task.assigned',
+                data: { taskId: 't1', title: 'Task 1' },
+              },
             },
           },
           {
@@ -76,7 +79,10 @@ describe('parity: exarchos workflow describe — CLI ↔ MCP', () => {
             arguments: {
               action: 'append',
               stream: featureId,
-              event: { type: 'task.assigned', data: { taskId: 't2' } },
+              event: {
+                type: 'task.assigned',
+                data: { taskId: 't2', title: 'Task 2' },
+              },
             },
           },
         ]);
@@ -117,7 +123,14 @@ describe('parity: exarchos workflow describe — CLI ↔ MCP', () => {
         const cliResult = await runCli({
           command: WORKTREE_BINARY,
           args: ['workflow', 'status', '--feature-id', featureId, '--json'],
-          env: { EXARCHOS_STATE_DIR: env.stateDir },
+          // WORKFLOW_STATE_DIR is the load-bearing var the binary reads
+          // (utils/paths.ts:54). EXARCHOS_STATE_DIR is preserved alongside
+          // for forward-compat. Setting both here makes the test
+          // self-documenting and resilient to runCli env-merge changes.
+          env: {
+            WORKFLOW_STATE_DIR: env.stateDir,
+            EXARCHOS_STATE_DIR: env.stateDir,
+          },
         });
         expect(cliResult.exitCode).toBe(0);
         const cliEnvelope = JSON.parse(cliResult.stdout);

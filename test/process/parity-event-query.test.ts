@@ -138,7 +138,12 @@ describe('parity: exarchos event query — CLI ↔ MCP', () => {
         const cliResult = await runCli({
           command: WORKTREE_BINARY,
           args: ['event', 'query', '--stream', featureId, '--json'],
-          env: { EXARCHOS_STATE_DIR: env.stateDir },
+          // WORKFLOW_STATE_DIR is the load-bearing var
+          // (servers/exarchos-mcp/src/utils/paths.ts:54).
+          env: {
+            WORKFLOW_STATE_DIR: env.stateDir,
+            EXARCHOS_STATE_DIR: env.stateDir,
+          },
         });
         expect(cliResult.exitCode).toBe(0);
         const cliEnvelope = JSON.parse(cliResult.stdout);
