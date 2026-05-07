@@ -1,8 +1,9 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as path from 'node:path';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { EventStore } from './store.js';
+import { AtomicAppender } from './atomic-appender.js';
 import { handleEventAppend, handleEventQuery, handleBatchAppend } from './tools.js';
 import type { EventAck } from '../format.js';
 
@@ -408,6 +409,101 @@ describe('handleBatchAppend', () => {
     expect(batch1Seqs[2] - batch1Seqs[1]).toBe(1);
     expect(batch2Seqs[1] - batch2Seqs[0]).toBe(1);
     expect(batch2Seqs[2] - batch2Seqs[1]).toBe(1);
+  });
+
+  // ─── C2: AtomicAppender migration regression tests ────────────────────────
+
+  it('handleEventBatchAppend_appenderFails_returnsStructuredErrorNotSilentSuccess', async () => {
+    // #1228 regression: when the underlying appender returns a structured
+    // failure, the handler MUST NOT swallow it into `{success: true}`. The
+    // four-phase legacy path could silently lose the partial-write failure
+    // mode that AtomicAppender now surfaces explicitly.
+    //
+    // Inject a failure by spying on AtomicAppender.prototype.append. The post-
+    // migration handler obtains its appender via the EventStore wiring, so a
+    // prototype spy intercepts it regardless of where it's instantiated.
+    const appendSpy = vi
+      .spyOn(AtomicAppender.prototype, 'append')
+      .mockResolvedValueOnce({
+        ok: false,
+        reason: 'io-error',
+        cause: new Error('simulated jsonl write failure'),
+      });
+
+    try {
+      const result = await handleBatchAppend(
+        {
+          stream: 'failure-test',
+          events: [
+            { type: 'task.assigned', data: { taskId: 't1' } },
+            { type: 'task.assigned', data: { taskId: 't2' } },
+          ],
+        },
+        tempDir,
+        eventStore,
+      );
+
+      // Must surface a structured error envelope, not silent success.
+      expect(result.success).toBe(false);
+      expect(result.error).toBeDefined();
+      expect(result.error!.code).toBe('BATCH_APPEND_FAILED');
+      // The cause's message must propagate to the caller (observability).
+      expect(result.error!.message).toContain('simulated jsonl write failure');
+
+      // No events landed in the stream.
+      const queryResult = await handleEventQuery({ stream: 'failure-test' }, tempDir, eventStore);
+      expect(queryResult.success).toBe(true);
+      expect(queryResult.data).toHaveLength(0);
+    } finally {
+      appendSpy.mockRestore();
+    }
+  });
+
+  it('handleEventBatchAppend_concurrentCalls_noDuplicateSequences', async () => {
+    // #1230 regression: many concurrent handler calls must produce events with
+    // disjoint sequence numbers in the resulting stream — no two events share
+    // a sequence, and the persisted set is exactly 1..(2*N).
+    const N = 8;
+    const batches = Array.from({ length: N }, (_, i) =>
+      handleBatchAppend(
+        {
+          stream: 'concurrent-test',
+          events: [
+            { type: 'task.assigned', data: { taskId: `b${i}-1` } },
+            { type: 'task.assigned', data: { taskId: `b${i}-2` } },
+          ],
+        },
+        tempDir,
+        eventStore,
+      ),
+    );
+
+    const results = await Promise.all(batches);
+
+    for (const r of results) {
+      expect(r.success).toBe(true);
+    }
+
+    // Sequence numbers returned to handlers must all be unique.
+    const allSeqs: number[] = [];
+    for (const r of results) {
+      const acks = r.data as EventAck[];
+      for (const ack of acks) {
+        allSeqs.push(ack.sequence);
+      }
+    }
+    const uniqueSeqs = new Set(allSeqs);
+    expect(uniqueSeqs.size).toBe(allSeqs.length);
+
+    // Stream-level invariant: 2*N events, sequences 1..2*N exactly.
+    const queryResult = await handleEventQuery({ stream: 'concurrent-test' }, tempDir, eventStore);
+    expect(queryResult.success).toBe(true);
+    const events = queryResult.data as Array<{ sequence: number }>;
+    expect(events).toHaveLength(2 * N);
+    const persistedSeqs = events.map(e => e.sequence).sort((a, b) => a - b);
+    for (let i = 0; i < persistedSeqs.length; i++) {
+      expect(persistedSeqs[i]).toBe(i + 1);
+    }
   });
 });
 
