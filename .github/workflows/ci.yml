@@ -229,6 +229,60 @@ jobs:
       - name: Run validate-no-legacy rollup
         run: bash scripts/validate-no-legacy.sh
 
+  # ─────────────────────────────────────────────────────────────────────
+  # e2e-process
+  # ─────────────────────────────────────────────────────────────────────
+  # Runs the `process` vitest project against a real compiled binary.
+  # The project's setupFiles assert `exarchos` is on PATH, so we build
+  # the host (linux-x64) binary and symlink it before invoking vitest.
+  #
+  # Currently empty (`--passWithNoTests`); the first process-fidelity
+  # tests land in P2. The job is wired now (T1.8) so the gate exists
+  # the moment those tests appear.
+  #
+  # Non-blocking until T3.7 (P3 parity gate) lands. See
+  # docs/plans/2026-05-05-e2e-v29-revisited.md.
+  # Linux only — Windows process fidelity is v2.10 P5.
+  # ─────────────────────────────────────────────────────────────────────
+  e2e-process:
+    name: E2E Process (linux-x64)
+    if: github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    # Non-blocking until T3.7 (P3 parity gate) lands. See
+    # docs/plans/2026-05-05-e2e-v29-revisited.md.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: npm
+
+      - uses: oven-sh/setup-bun@v2
+
+      # Root deps (vitest, build-binary toolchain) and MCP-server deps
+      # (pino, commander, @modelcontextprotocol/sdk, zod, yaml) must
+      # both be installed before bun-compiling the binary.
+      - name: Install root dependencies
+        run: npm ci
+
+      - name: Install MCP server dependencies
+        working-directory: servers/exarchos-mcp
+        run: npm ci
+
+      - name: Build host binary (linux-x64)
+        run: bun run scripts/build-binary.ts --target linux-x64
+
+      - name: Symlink exarchos onto PATH
+        run: sudo ln -s "$PWD/dist/bin/exarchos-linux-x64" /usr/local/bin/exarchos
+
+      - name: Verify exarchos on PATH
+        run: which exarchos && exarchos --version
+
+      - name: Run process-fidelity suite
+        run: npm run test:process
+
   ci-gate:
     name: CI Gate
     runs-on: self-hosted
