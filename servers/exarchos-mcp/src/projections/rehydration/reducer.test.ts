@@ -51,8 +51,8 @@ describe('rehydration reducer — initial state (T022, DR-3)', () => {
     const result = RehydrationDocumentSchema.safeParse(initial);
     expect(result.success).toBe(true);
 
-    // AND: the versioned envelope carries v === 1 and projectionSequence === 0
-    expect(initial.v).toBe(1);
+    // AND: the versioned envelope carries v === 2 and projectionSequence === 0
+    expect(initial.v).toBe(2);
     expect(initial.projectionSequence).toBe(0);
 
     // AND: volatile sections are empty containers

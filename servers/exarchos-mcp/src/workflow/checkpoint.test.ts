@@ -575,12 +575,43 @@ describe('handleCheckpoint — handoff dispatch wiring (T4, #1240)', () => {
     expect(typeof data.phase).toBe('string');
   });
 
-  // T2 (handoff reducer) has not landed at the time T4 ran. When merged,
-  // promote this `it.todo` to a real assertion against
-  // `latestHandoff.context`.
-  it.todo(
-    'handleCheckpoint_HandoffPayload_RehydrationProjectsLatestHandoff (gated on T2 reducer merge)',
-  );
+  it('handleCheckpoint_HandoffPayload_RehydrationProjectsLatestHandoff', async () => {
+    // GIVEN: an initialized workflow.
+    const featureId = 'wf-t4-handoff-projects';
+    const init = await handleInit(
+      { featureId, workflowType: 'feature' },
+      stateDir,
+      store,
+    );
+    expect(init.success).toBe(true);
+
+    // WHEN: we checkpoint with a handoff payload.
+    const ck = await handleCheckpoint(
+      {
+        featureId,
+        handoff: {
+          context: 'WORKFLOW_STATE_DIR is the load-bearing env var',
+          nextSteps: ['Rebase --onto origin/main <boundary>'],
+          suggestions: ['Cross-reference SHAs in CodeRabbit threads'],
+        },
+      },
+      stateDir,
+      store,
+    );
+    expect(ck.success).toBe(true);
+
+    // THEN: rehydrate projects the handoff into latestHandoff.
+    const rh = await handleRehydrate(
+      { featureId },
+      { eventStore: store, stateDir },
+    );
+    expect(rh.success).toBe(true);
+    const doc = rh.data as RehydrationDocument;
+    expect(doc.latestHandoff?.context).toMatch(/WORKFLOW_STATE_DIR/);
+    expect(doc.latestHandoff?.nextSteps).toEqual(['Rebase --onto origin/main <boundary>']);
+    expect(doc.recentHandoffs).toHaveLength(1);
+    expect(doc.recentHandoffs[0].context).toMatch(/WORKFLOW_STATE_DIR/);
+  });
 
   it('handleCheckpoint_RefinementSamePhase_LandsSecondEvent_1228Regression', async () => {
     // GIVEN: an initialized workflow. Two consecutive checkpoints with no
