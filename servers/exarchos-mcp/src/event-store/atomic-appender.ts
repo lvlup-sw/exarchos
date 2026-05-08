@@ -148,6 +148,35 @@ export class AtomicAppender {
     return this.locks.runExclusive(streamId, () => this.appendLocked(streamId, events, idempotencyKey));
   }
 
+  /**
+   * Compute-then-append under a single per-stream lock.
+   *
+   * `compute` runs while the per-stream lock is held; the events it returns
+   * are appended in the same critical section. This is the primitive
+   * `SubagentStreamRouter.emitDisbanded` needs: it queries the parent stream
+   * for `task.completed` events scoped to a team and immediately appends
+   * `team.disbanded` with the count. Without the lock-coupled compute,
+   * concurrent `onTaskCompleted` calls (which are serialized through the
+   * same lock) can be in flight when the read happens, producing a stale
+   * count and an off-by-N `tasksCompleted` — the exact regression #1224
+   * was meant to close.
+   *
+   * `compute` must NOT call back into `append`/`appendComputed` for the
+   * same `streamId`: the Promise-chain mutex is non-reentrant and a
+   * recursive call deadlocks the chain. Side reads (e.g. `fs.readFile`
+   * on the JSONL) are fine.
+   */
+  async appendComputed(
+    streamId: string,
+    idempotencyKey: string,
+    compute: () => Promise<EventInput[]>,
+  ): Promise<AppendResult> {
+    return this.locks.runExclusive(streamId, async () => {
+      const events = await compute();
+      return this.appendLocked(streamId, events, idempotencyKey);
+    });
+  }
+
   private async appendLocked(
     streamId: string,
     events: EventInput[],
@@ -325,6 +354,12 @@ export class AtomicAppender {
    * Truncate the most-recent N JSONL lines from a stream file. Used to unwind
    * a partial append on `.seq` failure so the caller's all-or-none contract
    * holds. JSONL is line-delimited so truncation by line count is safe.
+   *
+   * Performs an atomic temp-file + rename rather than an in-place rewrite:
+   * concurrent readers (projection materializers, log tailers) never observe
+   * a partially written file. The per-stream lock already serializes
+   * appenders, so this only matters for external readers that don't
+   * coordinate through the lock.
    */
   private async rollbackJsonlAppend(filePath: string, lineCount: number): Promise<void> {
     const raw = await fs.readFile(filePath, 'utf-8');
@@ -336,7 +371,14 @@ export class AtomicAppender {
     const trailingEmpty = allLines[allLines.length - 1] === '' ? 1 : 0;
     const keep = allLines.slice(0, allLines.length - lineCount - trailingEmpty);
     const rewritten = keep.length === 0 ? '' : keep.join('\n') + '\n';
-    await fs.writeFile(filePath, rewritten, 'utf-8');
+    const tmpPath = `${filePath}.rollback-${randomUUID()}.tmp`;
+    try {
+      await fs.writeFile(tmpPath, rewritten, 'utf-8');
+      await fs.rename(tmpPath, filePath);
+    } catch (err) {
+      await fs.rm(tmpPath, { force: true }).catch(() => {});
+      throw err;
+    }
   }
 
   private getEventFilePath(streamId: string): string {

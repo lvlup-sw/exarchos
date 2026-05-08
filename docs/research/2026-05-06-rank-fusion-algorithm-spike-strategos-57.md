@@ -94,7 +94,7 @@ This means the highest-leverage knob Strategos can expose is not a fancier algor
 
 In the past 18 months, weighted RRF has gone from a Qdrant-client convenience to a first-class feature in Elasticsearch (8.16 GA, 2025-09), Qdrant (server-side), Pearson, and kdb-x. The math is a one-line generalization of Cormack RRF:
 
-```
+```text
 fused_score(d) = Σ_L  weight_L  /  (k + rank_L(d))
 ```
 
@@ -104,7 +104,7 @@ When all `weight_L = 1.0`, this reduces exactly to Cormack 2009. So weighted RRF
 
 Among score-aware fusion methods, only **DBSF** (Distribution-Based Score Fusion, Qdrant) is genuinely stateless per query and preserves library purity:
 
-```
+```text
 For each ranked list:
   μ ← mean(scores), σ ← stdev(scores)
   low ← μ - 3σ, high ← μ + 3σ

@@ -160,25 +160,33 @@ export class SubagentStreamRouter implements SubagentStreamRouterContract {
     // Source of truth: query the parent stream for task.completed events
     // scoped to this team. NEVER use an in-memory counter — that's the
     // exact double-bookkeeping that produced #1224.
-    const tasksCompleted = await this.countTaskCompletedForTeam(
-      parentStreamId,
-      summary.teamId,
-    );
-
+    //
+    // The count read MUST run under the appender's per-stream lock. A naive
+    // `count() ; append()` two-step lets concurrent `onTaskCompleted` calls
+    // (which serialize through the same lock for their writes) sit between
+    // the steps — the read sees a stale JSONL, and `team.disbanded` lands
+    // with a count that misses the in-flight completions. `appendComputed`
+    // closes the read+append into a single critical section.
     const idempotencyKey = `${summary.teamId}:team.disbanded`;
-    const result = await this.appender.append(
+    const result = await this.appender.appendComputed(
       parentStreamId,
-      [
-        {
-          type: 'team.disbanded',
-          data: {
-            ...summary,
-            tasksCompleted,
-          },
-          source: 'subagent-stream-router',
-        },
-      ],
       idempotencyKey,
+      async () => {
+        const tasksCompleted = await this.countTaskCompletedForTeam(
+          parentStreamId,
+          summary.teamId,
+        );
+        return [
+          {
+            type: 'team.disbanded',
+            data: {
+              ...summary,
+              tasksCompleted,
+            },
+            source: 'subagent-stream-router',
+          },
+        ];
+      },
     );
     if (!result.ok) {
       throw new Error(

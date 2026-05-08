@@ -372,7 +372,17 @@ export class DefaultHSMTransitionGuard implements HSMTransitionGuard {
           },
           idempotencyKey ? { idempotencyKey } : undefined,
         );
-        if (evt.type === 'transition') {
+        // The state machine emits one primary lifecycle event per attempt:
+        // 'transition' for normal phase moves, 'cancel' for user-cancel,
+        // 'cleanup' for the universal mergeVerified→completed transition
+        // (state-machine.ts:532, :578, :752). Capture the sequence on any of
+        // these so the caller's _eventSequence projection cursor advances on
+        // cancel/cleanup paths too.
+        if (
+          evt.type === 'transition' ||
+          evt.type === 'cancel' ||
+          evt.type === 'cleanup'
+        ) {
           transitionSequence = appended.sequence;
         }
       }

@@ -8,24 +8,18 @@
 
 import type { AgentSpec } from './types.js';
 
-// ─── Implementer ────────────────────────────────────────────────────────────
-
-export const IMPLEMENTER: AgentSpec = {
-  id: 'implementer',
-  description: `Use this agent when dispatching TDD implementation tasks to a subagent in an isolated worktree.
-
-<example>
-Context: Orchestrator is dispatching a task from an implementation plan
-user: "Implement the agent spec handler (task-003)"
-assistant: "I'll dispatch the exarchos-implementer agent to implement this task using TDD in an isolated worktree."
-<commentary>
-Implementation task requiring test-first development triggers the implementer agent.
-</commentary>
-</example>`,
-  color: 'blue',
-  systemPrompt: `You are a TDD implementer agent working in an isolated worktree.
-
-## Working Directory Setup (MANDATORY)
+// ─── Shared worktree-entry contract ─────────────────────────────────────────
+//
+// Every isolated agent (IMPLEMENTER, FIXER, SCAFFOLDER) must boot into the
+// dispatched worktree before touching the filesystem. Native-isolation
+// runtimes (Claude Code's `isolation: "worktree"`) chdir for the agent;
+// other runtimes (Copilot CLI, generic MCP, Cursor) spawn subagents in the
+// parent. Without an explicit cd + verify, the agent can edit the parent
+// repo and corrupt the orchestrator's main worktree HEAD.
+//
+// Single source of truth — avoids drift across agent prompts (the gap that
+// produced the original C11 review finding for FIXER).
+const WORKTREE_ENTRY_CONTRACT = `## Working Directory Setup (MANDATORY)
 
 Your shell may have started in the parent repo cwd, depending on the runtime.
 Native-isolation runtimes (Claude Code's \`isolation: "worktree"\`) chdir for
@@ -89,7 +83,26 @@ git -C "$WORKTREE" status
 \`\`\`
 
 Where \`$WORKTREE\` is the absolute path captured at startup (the \`pwd\`
-output from the Worktree Verification step above).
+output from the Worktree Verification step above).`;
+
+// ─── Implementer ────────────────────────────────────────────────────────────
+
+export const IMPLEMENTER: AgentSpec = {
+  id: 'implementer',
+  description: `Use this agent when dispatching TDD implementation tasks to a subagent in an isolated worktree.
+
+<example>
+Context: Orchestrator is dispatching a task from an implementation plan
+user: "Implement the agent spec handler (task-003)"
+assistant: "I'll dispatch the exarchos-implementer agent to implement this task using TDD in an isolated worktree."
+<commentary>
+Implementation task requiring test-first development triggers the implementer agent.
+</commentary>
+</example>`,
+  color: 'blue',
+  systemPrompt: `You are a TDD implementer agent working in an isolated worktree.
+
+${WORKTREE_ENTRY_CONTRACT}
 
 ## Task
 {{taskDescription}}
@@ -160,7 +173,9 @@ Failed task requiring root cause analysis and targeted fix triggers the fixer ag
 </commentary>
 </example>`,
   color: 'red',
-  systemPrompt: `You are a fixer agent. Your job is to diagnose and repair failures.
+  systemPrompt: `You are a fixer agent working in an isolated worktree. Your job is to diagnose and repair failures.
+
+${WORKTREE_ENTRY_CONTRACT}
 
 ## Failure Context
 {{failureContext}}
@@ -310,11 +325,7 @@ Simple file creation and boilerplate generation triggers the scaffolder agent wi
   color: 'cyan',
   systemPrompt: `You are a scaffolder agent working in an isolated worktree. Be concise — generate files with minimal commentary.
 
-## Worktree Verification
-Before making ANY file changes:
-1. Run: \`pwd\`
-2. Verify the path contains \`.worktrees/\`
-3. If NOT in worktree: STOP and report error
+${WORKTREE_ENTRY_CONTRACT}
 
 ## Task
 {{taskDescription}}

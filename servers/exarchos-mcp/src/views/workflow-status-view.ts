@@ -8,12 +8,21 @@ export const WORKFLOW_STATUS_VIEW = 'workflow-status';
 // ─── View State ────────────────────────────────────────────────────────────
 
 /**
- * Public view shape returned to callers.
+ * Internal projection state. Public callers receive the strip-down version
+ * via `views/tools.ts` (the `_seen*` fields are deleted before the view
+ * envelope is returned).
  *
- * The `_seenAssignedTaskIds` / `_seenCompletedTaskIds` arrays are projection
- * bookkeeping for taskId dedup (#1226). They are arrays (not `Set`s) so that
- * snapshot serialization through `JSON.stringify` round-trips losslessly. The
- * leading underscore signals that callers should not inspect them.
+ * Dedup bookkeeping for taskId (#1226) is stored as `Record<string, true>`
+ * rather than `string[]`:
+ *
+ *   - O(1) membership check (was O(n) `.includes` per event → O(n²) replay).
+ *   - O(1) insert (was `[...arr, id]` per event → O(n) per insert).
+ *   - JSON-serializable (Sets are not), so snapshot round-trip is preserved.
+ *
+ * The maps grow with the number of distinct taskIds seen; for pathological
+ * long-running workflows callers should compact via snapshot truncation.
+ * The replay-cost / memory-growth tradeoff favours the map for any workflow
+ * with more than ~100 tasks, which all production workflows now exceed.
  */
 export interface WorkflowStatusViewState {
   featureId: string;
@@ -24,9 +33,9 @@ export interface WorkflowStatusViewState {
   tasksCompleted: number;
   tasksFailed: number;
   /** Internal: taskIds already counted toward tasksTotal. */
-  _seenAssignedTaskIds: string[];
+  _seenAssignedTaskIds: Record<string, true>;
   /** Internal: taskIds already counted toward tasksCompleted. */
-  _seenCompletedTaskIds: string[];
+  _seenCompletedTaskIds: Record<string, true>;
 }
 
 // ─── Projection ────────────────────────────────────────────────────────────
@@ -38,6 +47,29 @@ function extractTaskId(event: WorkflowEvent): string | undefined {
   return typeof data.taskId === 'string' ? data.taskId : undefined;
 }
 
+/**
+ * Coerce legacy snapshot shapes (the original `string[]`) to the current
+ * `Record<string, true>` shape. Snapshots written before this projection
+ * was migrated still load with arrays; without the coercion, the new
+ * `view._seen*[taskId]` lookup returns `undefined` (because non-numeric
+ * indexing on arrays does), the dedup guard collapses, and tasksCompleted
+ * can exceed tasksTotal — exactly the #1226 invariant violation the dedup
+ * is supposed to prevent.
+ */
+function asSeenSet(seen: unknown): Record<string, true> {
+  if (Array.isArray(seen)) {
+    const result: Record<string, true> = {};
+    for (const id of seen) {
+      if (typeof id === 'string') result[id] = true;
+    }
+    return result;
+  }
+  if (seen && typeof seen === 'object') {
+    return seen as Record<string, true>;
+  }
+  return {};
+}
+
 export const workflowStatusProjection: ViewProjection<WorkflowStatusViewState> = {
   init: () => ({
     featureId: '',
@@ -47,8 +79,8 @@ export const workflowStatusProjection: ViewProjection<WorkflowStatusViewState> =
     tasksTotal: 0,
     tasksCompleted: 0,
     tasksFailed: 0,
-    _seenAssignedTaskIds: [],
-    _seenCompletedTaskIds: [],
+    _seenAssignedTaskIds: {},
+    _seenCompletedTaskIds: {},
   }),
 
   apply: (view, event) => {
@@ -85,13 +117,17 @@ export const workflowStatusProjection: ViewProjection<WorkflowStatusViewState> =
         if (taskId === undefined) {
           return { ...view, tasksTotal: view.tasksTotal + 1 };
         }
-        if (view._seenAssignedTaskIds.includes(taskId)) {
-          return view;
+        const seen = asSeenSet(view._seenAssignedTaskIds);
+        if (seen[taskId]) {
+          // Defensive coercion: ensure post-condition is the new shape so
+          // subsequent applies do O(1) lookups instead of falling back to
+          // asSeenSet on every event.
+          return { ...view, _seenAssignedTaskIds: seen };
         }
         return {
           ...view,
           tasksTotal: view.tasksTotal + 1,
-          _seenAssignedTaskIds: [...view._seenAssignedTaskIds, taskId],
+          _seenAssignedTaskIds: { ...seen, [taskId]: true },
         };
       }
 
@@ -100,13 +136,14 @@ export const workflowStatusProjection: ViewProjection<WorkflowStatusViewState> =
         if (taskId === undefined) {
           return { ...view, tasksCompleted: view.tasksCompleted + 1 };
         }
-        if (view._seenCompletedTaskIds.includes(taskId)) {
-          return view;
+        const seen = asSeenSet(view._seenCompletedTaskIds);
+        if (seen[taskId]) {
+          return { ...view, _seenCompletedTaskIds: seen };
         }
         return {
           ...view,
           tasksCompleted: view.tasksCompleted + 1,
-          _seenCompletedTaskIds: [...view._seenCompletedTaskIds, taskId],
+          _seenCompletedTaskIds: { ...seen, [taskId]: true },
         };
       }
 

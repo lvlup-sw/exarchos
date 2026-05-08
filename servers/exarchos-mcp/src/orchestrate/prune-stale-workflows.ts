@@ -481,15 +481,19 @@ async function defaultReadBranchActivityTimestamp(
     return undefined;
   }
   try {
-    const { execSync } = await import('node:child_process');
-    const output = execSync(
-      `git log -1 --format=%ct refs/heads/${branchName}`,
-      {
-        encoding: 'utf-8',
-        timeout: 10_000,
-        stdio: ['pipe', 'pipe', 'pipe'],
-      },
-    ).trim();
+    const { execFile } = await import('node:child_process');
+    const { promisify } = await import('node:util');
+    const execFileAsync = promisify(execFile);
+    // execFile (not execSync) so that handlePruneStaleWorkflows's
+    // Promise.all over per-workflow readers does not block the event loop.
+    // Args are passed as an array — branchName is regex-validated above so
+    // shell metacharacters can't reach the spawned process either way.
+    const { stdout } = await execFileAsync(
+      'git',
+      ['log', '-1', '--format=%ct', `refs/heads/${branchName}`],
+      { encoding: 'utf-8', timeout: 10_000 },
+    );
+    const output = stdout.trim();
     if (!output) return undefined;
     const epochSeconds = Number.parseInt(output, 10);
     if (!Number.isFinite(epochSeconds) || epochSeconds <= 0) return undefined;
