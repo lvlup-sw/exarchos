@@ -454,7 +454,7 @@ export const WorkflowGuardFailedData = z.object({
  * the rehydration projection (`latestHandoff` / `recentHandoffs`) derives
  * its content from this payload.
  */
-const HandoffEntryData = z.object({
+export const HandoffEntryData = z.object({
   context: z.string().max(2048).optional(),
   nextSteps: z.array(z.string().max(256)).max(10).optional(),
   suggestions: z.array(z.string().max(256)).max(10).optional(),

@@ -9,7 +9,12 @@ import type {
   CheckpointInput,
   WorkflowState,
 } from './types.js';
-import { ErrorCode, isReservedField, WorkflowTypeSchema } from './schemas.js';
+import {
+  CheckpointInputSchema,
+  ErrorCode,
+  isReservedField,
+  WorkflowTypeSchema,
+} from './schemas.js';
 import {
   initStateFile,
   readStateFile,
@@ -868,6 +873,30 @@ export async function handleCheckpoint(
   stateDir: string,
   eventStore: EventStore | null,
 ): Promise<ToolResult> {
+  // T4 (#1240) — validate the dispatch payload at the handler boundary
+  // before any state-file I/O or event emission. The MCP tool registration
+  // (`server.tool` below) only declares `featureId` and `summary` in its
+  // raw shape, so a `handoff` value forwarded from the CLI/SDK reaches
+  // here untyped. Re-parsing through `CheckpointInputSchema` enforces
+  // `HandoffEntryData`'s per-field byte caps (DIM-7) and strips any
+  // unknown keys before the value is digested into the idempotency key
+  // or persisted on the event. Returning a structured INVALID_INPUT
+  // failure (rather than throwing) matches the rest of the dispatch
+  // surface and lets the counter stay un-reset on rejection.
+  const parsed = CheckpointInputSchema.safeParse(input);
+  if (!parsed.success) {
+    return {
+      success: false,
+      error: {
+        code: ErrorCode.INVALID_INPUT,
+        message: `Invalid checkpoint input: ${parsed.error.issues
+          .map((i) => `${i.path.join('.')}: ${i.message}`)
+          .join('; ')}`,
+      },
+    };
+  }
+  const validated = parsed.data;
+
   const stateFile = path.join(stateDir, `${input.featureId}.state.json`);
 
   let state: WorkflowState;
@@ -900,16 +929,14 @@ export async function handleCheckpoint(
   //
   // C3 (#1241): include a sha256 prefix of the `handoff` payload in the
   // idempotency key so refinement calls (same featureId+phase+version
-  // but distinct handoff content) land as distinct events. The schema
-  // does not yet declare `handoff` — that wiring is #1240, scheduled to
-  // land after this PR. Reading the field from `input` via a typed
-  // cast keeps the digest path forward-compatible without scope-creep
-  // into the schema. `JSON.stringify(undefined ?? {})` is `'{}'`, so
-  // current callers (which never set `handoff`) get a stable digest
-  // and identical dedup behavior to the prior version-only key.
-  const handoff = (input as { handoff?: unknown }).handoff ?? {};
+  // but distinct handoff content) land as distinct events. T4 (#1240)
+  // formalizes `handoff` on `CheckpointInputSchema` — `validated.handoff`
+  // is now typed against `HandoffEntryData` and missing/undefined drops
+  // through to the legacy `JSON.stringify({}) === '{}'` digest, keeping
+  // dedup behaviour stable for pre-#1240 callers.
+  const handoff = validated.handoff;
   const handoffDigest = createHash('sha256')
-    .update(JSON.stringify(handoff))
+    .update(JSON.stringify(handoff ?? {}))
     .digest('hex')
     .slice(0, 16);
   const checkpointIdempotencyKey =
@@ -920,10 +947,17 @@ export async function handleCheckpoint(
         type: 'workflow.checkpoint' as import('../event-store/schemas.js').EventType,
         correlationId: input.featureId,
         source: 'workflow',
+        // T4 (#1240): persist the handoff payload on the event when the
+        // caller supplied one. Spread-on-condition keeps `data.handoff`
+        // absent for legacy callers — historical events on disk lacked
+        // this key entirely, and the rehydration projection's `v:1`
+        // tolerant schema relies on that absence rather than an explicit
+        // `null` to flag pre-#1240 entries.
         data: {
           counter: 0,
           phase: state.phase,
           featureId: input.featureId,
+          ...(handoff !== undefined && { handoff }),
         },
       }, { idempotencyKey: checkpointIdempotencyKey });
     } catch (err) {
@@ -1233,8 +1267,23 @@ export function registerWorkflowTools(server: McpServer, stateDir: string, event
 
   server.tool(
     'exarchos_workflow_checkpoint',
-    'Create an explicit checkpoint, resetting the operation counter',
-    { featureId: featureIdParam, summary: z.string().optional() },
+    'Create an explicit checkpoint, resetting the operation counter. Optional `handoff` payload (context/nextSteps/suggestions) is persisted on the workflow.checkpoint event for the rehydration projection (#1240).',
+    {
+      featureId: featureIdParam,
+      summary: z.string().optional(),
+      // T4 (#1240): expose the handoff field at the MCP tool boundary.
+      // The handler re-validates against `CheckpointInputSchema` (which
+      // composes `HandoffEntryData`) so an MCP caller bypassing this
+      // shape — older client, manual JSON-RPC — still hits the same
+      // byte-cap rejection path.
+      handoff: z
+        .object({
+          context: z.string().max(2048).optional(),
+          nextSteps: z.array(z.string().max(256)).max(10).optional(),
+          suggestions: z.array(z.string().max(256)).max(10).optional(),
+        })
+        .optional(),
+    },
     async (args) => formatResult(await handleCheckpoint(args, stateDir, eventStore)),
   );
 }
