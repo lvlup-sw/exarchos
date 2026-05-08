@@ -502,6 +502,79 @@ describe('SqliteBackend outbox retry behavior', () => {
   });
 });
 
+// ─── DR-2 AC3 Substitutability Witness (T13) ────────────────────────────────
+//
+// DR-2 AC3 (durable-event-store-substrate plan): "Test-doubles use
+// `MemoryBackend` injected through the same context shape." Phase 2
+// introduces `DispatchContext.storage: StorageBackend`; this witness pins
+// the contract that both production (`SqliteBackend`) and test-double
+// (`InMemoryBackend`) implementations are substitutable through the
+// `StorageBackend` interface alone, with no implementation-specific
+// downcasts. The parametric `describe.each` block above already exercises
+// the full method surface against both backends; this targeted test
+// names the substitutability invariant explicitly so a future refactor
+// cannot silently drop one branch of the abstraction.
+describe('StorageBackend DR-2 AC3 substitutability witness (T13)', () => {
+  it('StorageBackend_AcceptsBothImpls_AsParametricFixture', async () => {
+    // Both implementations must be assignable to the `StorageBackend`
+    // type without any cast. The TypeScript compiler enforces this at
+    // build time; the runtime assertions below additionally verify that
+    // a small multi-method sequence — the surface Phase 2's
+    // DispatchContext.storage will exercise — works uniformly through
+    // the interface.
+    const memBackend: StorageBackend = new InMemoryBackend();
+    memBackend.initialize();
+
+    const dir = mkdtempSync(join(tmpdir(), 'witness-t13-'));
+    const sqliteBackend: StorageBackend = new SqliteBackend(join(dir, 'test.db'));
+    sqliteBackend.initialize();
+
+    try {
+      for (const b of [memBackend, sqliteBackend]) {
+        // Event append + sequence read.
+        b.appendEvent('witness-stream', makeEvent({ sequence: 1, streamId: 'witness-stream' }));
+        expect(b.getSequence('witness-stream')).toBe(1);
+
+        // State CAS round-trip.
+        b.setState('witness-feat', makeState({ featureId: 'witness-feat' }));
+        expect(b.getState('witness-feat')).not.toBeNull();
+
+        // Outbox add + drain (returns DrainResult shape).
+        b.addOutboxEntry('witness-stream', makeEvent({ sequence: 1, streamId: 'witness-stream' }));
+        const drain = await b.drainOutbox('witness-stream', makeSender());
+        expect(drain).toMatchObject({ sent: expect.any(Number), failed: expect.any(Number) });
+
+        // View cache round-trip.
+        b.setViewCache('witness-stream', 'witness-view', { ok: true }, 1);
+        expect(b.getViewCache('witness-stream', 'witness-view')).not.toBeNull();
+      }
+    } finally {
+      memBackend.close();
+      sqliteBackend.close();
+      rmSync(dir, { recursive: true });
+    }
+  });
+
+  it('StorageBackend_RuntimeIntegrityPragma_IsOptionalAndDivergent', () => {
+    // The interface marks `runIntegrityPragma` as optional; only
+    // SqliteBackend implements it. Phase 2 callers must guard with a
+    // presence check rather than assuming uniform availability. This
+    // test pins the divergence so Phase 2 cannot silently start
+    // depending on it for InMemoryBackend.
+    const memBackend: StorageBackend = new InMemoryBackend();
+    const sqliteBackend: StorageBackend = new SqliteBackend(':memory:');
+    try {
+      memBackend.initialize();
+      sqliteBackend.initialize();
+      expect(memBackend.runIntegrityPragma).toBeUndefined();
+      expect(typeof sqliteBackend.runIntegrityPragma).toBe('function');
+    } finally {
+      memBackend.close();
+      sqliteBackend.close();
+    }
+  });
+});
+
 describe('InMemoryBackend outbox retry behavior', () => {
   /**
    * After the v2.9 outbox-drain fix, InMemoryBackend keeps failed entries
