@@ -89,6 +89,14 @@ export const EventTypes = [
   'merge.executed',
   'merge.rollback',
   'command.resolved',
+  // Durable event-store substrate (#1259) — deprecation telemetry + migration
+  // pipeline. T02 / T03 / T04 of the substrate plan.
+  'hsm.deprecated_action_invoked',
+  'spec.legacy_capabilities_array',
+  'phase.contract_missing',
+  'migration.legacy_jsonl_imported',
+  'migration.completed',
+  'migration.failed',
 ] as const;
 
 export type EventType = typeof EventTypes[number];
@@ -296,6 +304,30 @@ export const EVENT_EMISSION_REGISTRY: Record<EventType, EventEmissionSource> = {
   // graceful-skip semantics can distinguish a configured null from an
   // unresolved command for which we should bail with remediation guidance.
   'command.resolved': 'auto',
+
+  // auto — emitted by the HSM API single-path migration (#1259 T02 / DR-4).
+  // Each invocation of a deprecated action (e.g., `workflow.set({phase})`)
+  // emits this event so the migration window can be measured before the
+  // legacy path is removed.
+  'hsm.deprecated_action_invoked': 'auto',
+
+  // auto — emitted during spec validation when a spec uses the legacy
+  // `capabilities[]` array shape (#1259 T03 / DR-6). Drives the
+  // capability-posture migration telemetry.
+  'spec.legacy_capabilities_array': 'auto',
+
+  // auto — emitted once at lifecycle start per phase that lacks a typed
+  // contract (#1259 T03 / DR-7). Drives the phase-contract migration
+  // telemetry.
+  'phase.contract_missing': 'auto',
+
+  // auto — emitted by the JSONL→SQLite migration importer (#1259 T04 / DR-9).
+  // Per-file completion event during the import; the `migration.completed`
+  // aggregate event closes the run; `migration.failed` records a failure
+  // with partial-progress counters for resume/retry.
+  'migration.legacy_jsonl_imported': 'auto',
+  'migration.completed': 'auto',
+  'migration.failed': 'auto',
 };
 
 // ─── Base Event Schema ──────────────────────────────────────────────────────
@@ -1075,6 +1107,86 @@ export const CommandResolvedEventSchema = z.discriminatedUnion('source', [
 ]);
 export type CommandResolvedEvent = z.infer<typeof CommandResolvedEventSchema>;
 
+// ─── Durable Event-Store Substrate Event Data (#1259) ───────────────────────
+
+/**
+ * hsm.deprecated_action_invoked — telemetry for the HSM API single-path
+ * migration (T02, DR-4 / DR-10). Each invocation of a deprecated action
+ * (e.g. `workflow.set({phase})`) emits one of these so the migration window
+ * can be measured before the legacy path is removed.
+ *
+ * `action` — the deprecated action identifier (e.g. `'set({phase})'`).
+ * `invokedBy` — caller surface (e.g. `'orchestrator'`, `'cli'`, `'mcp'`).
+ *
+ * Fields are required strings (`min(1)`) so deprecation events without
+ * actionable telemetry fail at the schema boundary rather than fragmenting
+ * downstream dashboards with empty rows.
+ */
+export const HsmDeprecatedActionInvokedData = z.object({
+  action: z.string().min(1).describe('Deprecated action identifier'),
+  invokedBy: z.string().min(1).describe('Caller surface that invoked the deprecated action'),
+});
+
+/**
+ * spec.legacy_capabilities_array — emitted during spec validation when a
+ * spec uses the legacy `capabilities[]` array shape (T03, DR-6 / DR-10).
+ * Drives capability-posture migration telemetry during the transition window.
+ *
+ * `capabilities` is allowed to be empty — an empty legacy-shape array is
+ * still a legacy-shape signal worth recording.
+ */
+export const SpecLegacyCapabilitiesArrayData = z.object({
+  specName: z.string().min(1).describe('Spec name carrying the legacy capabilities array'),
+  capabilities: z.array(z.string()).describe('Capability identifiers in the legacy array shape'),
+});
+
+/**
+ * phase.contract_missing — emitted once at lifecycle start per phase that
+ * lacks a typed contract (T03, DR-7 / DR-10). Drives phase-contract
+ * migration telemetry; the pruner falls back to single-signal pruning for
+ * phases without contracts.
+ */
+export const PhaseContractMissingData = z.object({
+  phaseName: z.string().min(1).describe('Phase missing a typed contract'),
+});
+
+/**
+ * migration.legacy_jsonl_imported — per-file completion event from the
+ * JSONL→SQLite migration importer (T04, DR-9 / DR-10).
+ *
+ * `eventCount` and `durationMs` are non-negative — a file with zero events
+ * (e.g. an empty stream) is a valid import outcome.
+ */
+export const MigrationLegacyJsonlImportedData = z.object({
+  sourcePath: z.string().min(1).describe('Absolute path of the JSONL file imported'),
+  eventCount: z.number().int().nonnegative().describe('Number of events imported from this file'),
+  durationMs: z.number().nonnegative().describe('Wall-clock import duration in milliseconds'),
+});
+
+/**
+ * migration.completed — final aggregate event after a successful run of the
+ * JSONL→SQLite migration importer (T04, DR-9 / DR-10). Zero-file completion
+ * is valid: the lock holder still records completion so siblings unblock
+ * without re-running.
+ */
+export const MigrationCompletedData = z.object({
+  filesImported: z.number().int().nonnegative().describe('Total JSONL files successfully imported'),
+  eventsImported: z.number().int().nonnegative().describe('Total events successfully imported'),
+  totalDurationMs: z.number().nonnegative().describe('Total wall-clock import duration in milliseconds'),
+});
+
+/**
+ * migration.failed — emitted when the JSONL→SQLite migration importer
+ * fails (T04, DR-9 / DR-10). Carries the operator-facing failure reason
+ * (`min(1)` — empty reasons fragment observability) plus partial-progress
+ * counters so operators can resume or retry from a known point.
+ */
+export const MigrationFailedData = z.object({
+  reason: z.string().min(1).describe('Operator-facing failure reason'),
+  partialFilesImported: z.number().int().nonnegative().describe('Files imported before the failure'),
+  partialEventsImported: z.number().int().nonnegative().describe('Events imported before the failure'),
+});
+
 // ─── Event Data Schemas Map ─────────────────────────────────────────────────
 
 export const EVENT_DATA_SCHEMAS: Partial<Record<EventType, z.ZodSchema>> = {
@@ -1212,6 +1324,14 @@ export const EVENT_DATA_SCHEMAS: Partial<Record<EventType, z.ZodSchema>> = {
 
   // Command resolver (#1199 T15) — audit trail for runtime resolver decisions.
   'command.resolved': CommandResolvedEventSchema,
+
+  // Durable event-store substrate (#1259) — T02 / T03 / T04.
+  'hsm.deprecated_action_invoked': HsmDeprecatedActionInvokedData,
+  'spec.legacy_capabilities_array': SpecLegacyCapabilitiesArrayData,
+  'phase.contract_missing': PhaseContractMissingData,
+  'migration.legacy_jsonl_imported': MigrationLegacyJsonlImportedData,
+  'migration.completed': MigrationCompletedData,
+  'migration.failed': MigrationFailedData,
 };
 
 // ─── TypeScript Types ───────────────────────────────────────────────────────
@@ -1289,6 +1409,12 @@ export type InitExecuted = z.infer<typeof InitExecutedDataSchema>;
 export type MergePreflight = z.infer<typeof MergePreflightData>;
 export type MergeExecuted = z.infer<typeof MergeExecutedData>;
 export type MergeRollback = z.infer<typeof MergeRollbackData>;
+export type HsmDeprecatedActionInvoked = z.infer<typeof HsmDeprecatedActionInvokedData>;
+export type SpecLegacyCapabilitiesArray = z.infer<typeof SpecLegacyCapabilitiesArrayData>;
+export type PhaseContractMissing = z.infer<typeof PhaseContractMissingData>;
+export type MigrationLegacyJsonlImported = z.infer<typeof MigrationLegacyJsonlImportedData>;
+export type MigrationCompleted = z.infer<typeof MigrationCompletedData>;
+export type MigrationFailed = z.infer<typeof MigrationFailedData>;
 
 // ─── Event Data Map ─────────────────────────────────────────────────────────
 
@@ -1366,6 +1492,12 @@ export type EventDataMap = {
   'merge.executed': MergeExecuted;
   'merge.rollback': MergeRollback;
   'command.resolved': CommandResolvedEvent;
+  'hsm.deprecated_action_invoked': HsmDeprecatedActionInvoked;
+  'spec.legacy_capabilities_array': SpecLegacyCapabilitiesArray;
+  'phase.contract_missing': PhaseContractMissing;
+  'migration.legacy_jsonl_imported': MigrationLegacyJsonlImported;
+  'migration.completed': MigrationCompleted;
+  'migration.failed': MigrationFailed;
 };
 
 // ─── Event Catalog Serialization ────────────────────────────────────────────
