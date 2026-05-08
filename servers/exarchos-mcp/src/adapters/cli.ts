@@ -273,6 +273,25 @@ export function buildCli(ctx: DispatchContext): Command {
           const hasSuggestions =
             Array.isArray(suggestionsOpt) && suggestionsOpt.length > 0;
 
+          // Reject the conflict where the operator passes both the raw
+          // `--handoff '{...}'` JSON flag AND any convenience flag. Without
+          // this guard the reshape block below would silently overwrite
+          // the JSON-supplied handoff with the synthesized convenience
+          // object — losing data the operator explicitly supplied. The
+          // two surfaces are mutually exclusive: `--handoff` is the full
+          // shape, the convenience flags are field-level sugar.
+          if (
+            flagOpts.handoff !== undefined &&
+            (hasContext || hasNextSteps || hasSuggestions)
+          ) {
+            const err = buildInvalidInput(
+              `${tool.name}/${action.name}: --handoff is mutually exclusive with --context/--next-steps/--suggestions; pass either the full --handoff JSON or the convenience flags, not both`,
+            );
+            emitResult({ success: false, error: err }, isJson, format);
+            process.exitCode = CLI_EXIT_CODES.INVALID_INPUT;
+            return;
+          }
+
           if (hasContext || hasNextSteps || hasSuggestions) {
             // Synthesize `handoff` from the convenience flags. Spread-on-
             // condition keeps the shape minimal so the rehydration

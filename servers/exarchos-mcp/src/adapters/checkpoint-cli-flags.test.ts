@@ -260,6 +260,47 @@ describe('wf checkpoint — handoff convenience flags (T5, #1240)', () => {
     expect(handoff.nextSteps).toBeUndefined();
   });
 
+  it('CheckpointCli_HandoffJsonAndConvenienceFlag_RejectsAsInvalidInput', async () => {
+    // GIVEN: a `wf checkpoint` invocation that passes BOTH the raw
+    //        `--handoff '{"context":"a"}'` JSON flag AND a convenience
+    //        flag (`--context "b"`) on the same command line.
+    // WHEN: the CLI dispatches.
+    // THEN: the invocation MUST fail with INVALID_INPUT — silently
+    //       overwriting the JSON-passed handoff with the synthesized
+    //       convenience-flag object would lose data the operator
+    //       explicitly supplied. Mutual exclusion is the contract the
+    //       error message must convey.
+    //
+    // Regression guard for Sentry bug-prediction on PR #1297
+    // (servers/exarchos-mcp/src/adapters/cli.ts:276-291): pre-fix the
+    // reshape block ran unconditionally and clobbered `flagOpts.handoff`.
+    const { result, exitCode, dispatchedArgs } = await runWfCheckpointCli(ctx, [
+      'node',
+      'exarchos',
+      'wf',
+      'checkpoint',
+      '--feature-id',
+      'cli-handoff-conflict',
+      '--handoff',
+      '{"context":"from-json"}',
+      '--context',
+      'from-convenience',
+      '--json',
+    ]);
+
+    expect(exitCode).toBe(CLI_EXIT_CODES.INVALID_INPUT);
+    expect(result.success).toBe(false);
+    if (result.success === false) {
+      expect(result.error.code).toBe('INVALID_INPUT');
+      expect(result.error.message).toMatch(/--handoff/);
+      expect(result.error.message).toMatch(
+        /--context|--next-steps|--suggestions|mutually exclusive/i,
+      );
+    }
+    // Dispatch must NOT be invoked when the CLI rejects pre-dispatch.
+    expect(dispatchedArgs).toEqual({});
+  });
+
   it('CheckpointCli_NoHandoffFlags_OmitsHandoff', async () => {
     // GIVEN: a `wf checkpoint` invocation with NO handoff convenience
     //        flags (only `--feature-id`).
