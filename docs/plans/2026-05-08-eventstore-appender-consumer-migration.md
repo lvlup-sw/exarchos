@@ -200,10 +200,13 @@ Target: store.ts ≤ 500 LoC post-delete (down from 1380).
 ### T8: Audit tests/benches that reference deleted private state
 
 Grep for references to deleted symbols across `__tests__/`, `*.test.ts`,
-`*.bench.ts`:
+`*.bench.ts`. Run from the repo root with the qualified path (the
+EventStore lives under `servers/exarchos-mcp/src/`, not the repo-root
+`src/`):
 
-```
-grep -rn "withLock\|sequenceCounters\|idempotencyCache" src --include='*.ts'
+```bash
+grep -rn "withLock\|sequenceCounters\|idempotencyCache" \
+  servers/exarchos-mcp/src --include='*.ts'
 ```
 
 For each hit:

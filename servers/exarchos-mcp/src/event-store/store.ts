@@ -633,13 +633,35 @@ export class EventStore {
       throw result.cause ?? new Error(`Append failed: ${result.reason}`);
     }
 
+    // Cache-hit branch: return the originally-persisted event verbatim and
+    // SKIP backend/outbox replication. Those side effects already ran when
+    // the original commit landed; running them again with the current
+    // request payload would replicate data that was never written to JSONL
+    // (the bug CR-thread #3205805943 closes).
+    if (result.kind === 'cache-hit') {
+      const cached = result.persistedEvents[0];
+      return {
+        streamId: cached.streamId,
+        sequence: cached.sequence,
+        type: cached.type,
+        timestamp: cached.timestamp,
+        ...(cached.idempotencyKey !== undefined ? { idempotencyKey: cached.idempotencyKey } : {}),
+        ...(cached.data !== undefined ? { data: cached.data } : {}),
+        ...(cached.correlationId !== undefined ? { correlationId: cached.correlationId } : {}),
+        ...(cached.causationId !== undefined ? { causationId: cached.causationId } : {}),
+        ...(cached.agentId !== undefined ? { agentId: cached.agentId } : {}),
+        ...(cached.agentRole !== undefined ? { agentRole: cached.agentRole } : {}),
+        ...(cached.source !== undefined ? { source: cached.source } : {}),
+        ...(cached.schemaVersion !== undefined ? { schemaVersion: cached.schemaVersion } : {}),
+      } as WorkflowEvent;
+    }
+
     const fullEvent: WorkflowEvent = {
       ...event,
       streamId,
       sequence: result.sequences[0],
-      // Timestamp comes back from the appender so cache-hit retries return
-      // the original persisted timestamp (the legacy contract some tests
-      // assert via `expect(second).toEqual(first)`).
+      // Timestamp comes back from the appender so the synthesized event
+      // matches the persisted shape exactly.
       timestamp: result.timestamps[0],
     } as WorkflowEvent;
 
@@ -756,6 +778,28 @@ export class EventStore {
       throw result.cause ?? new Error(`Batch append failed: ${result.reason}`);
     }
 
+    // Cache-hit branch: return the original persisted events verbatim and
+    // skip backend/outbox (already done at original commit time). See
+    // delegateAppend for the same pattern + design rationale.
+    if (result.kind === 'cache-hit') {
+      return result.persistedEvents.map(
+        (e) => ({
+          streamId: e.streamId,
+          sequence: e.sequence,
+          type: e.type,
+          timestamp: e.timestamp,
+          ...(e.idempotencyKey !== undefined ? { idempotencyKey: e.idempotencyKey } : {}),
+          ...(e.data !== undefined ? { data: e.data } : {}),
+          ...(e.correlationId !== undefined ? { correlationId: e.correlationId } : {}),
+          ...(e.causationId !== undefined ? { causationId: e.causationId } : {}),
+          ...(e.agentId !== undefined ? { agentId: e.agentId } : {}),
+          ...(e.agentRole !== undefined ? { agentRole: e.agentRole } : {}),
+          ...(e.source !== undefined ? { source: e.source } : {}),
+          ...(e.schemaVersion !== undefined ? { schemaVersion: e.schemaVersion } : {}),
+        } as WorkflowEvent),
+      );
+    }
+
     const fullEvents: WorkflowEvent[] = deduped.map((event, i) => ({
       ...event,
       sequence: result.sequences[i],
@@ -841,11 +885,23 @@ export class EventStore {
    * Read the current max sequence for a stream directly from JSONL
    * (bypassing any storage backend). Used by the sidecar merge path so
    * synthetic sidecar sequences never collide with real JSONL-durable
-   * events when the backend is lagging — the JSONL append is the barrier
-   * for correctness (see `replicateBackend`/`writeOutbox`: JSONL is source of truth,
-   * backend dual-write is best-effort). Prefers the O(1) `.seq` file and
-   * falls back to JSONL line-counting; returns the backend sequence only
-   * when no local JSONL exists.
+   * events when the backend is lagging.
+   *
+   * Post-#1293, the substrate preserves corrupt histories (gaps, duplicate
+   * sequences, offset starts). The previous cross-validation —
+   * `parsed.sequence === lineCount` — was a JSONL-era hack that flagged
+   * legitimate post-migration histories as stale and rebased the sidecar
+   * baseline below the real high-water mark. The current logic trusts a
+   * valid `.seq` value as the authoritative max-sequence read; the
+   * line-count fallback is reserved for the genuinely-missing-or-corrupt
+   * `.seq` case (no `.seq` file, or contents that don't parse as a
+   * non-negative integer).
+   *
+   * For broken histories where line count diverges from max-sequence
+   * (e.g. JSONL `[5,6,7]`), the JSONL line count would have returned 3,
+   * causing sidecar synthetic sequences to start at 4 — colliding with
+   * already-durable events at 5,6,7. Reading max-sequence from the JSONL
+   * directly (via `SEQUENCE_REGEX`) gives the correct baseline.
    */
   private async readJsonlMaxSequence(streamId: string): Promise<number> {
     const mainPath = this.getEventFilePath(streamId);
@@ -860,23 +916,32 @@ export class EventStore {
       const content = await fs.readFile(seqPath, 'utf-8');
       const parsed = JSON.parse(content);
       if (typeof parsed.sequence === 'number' && parsed.sequence >= 0) {
-        // Cross-validate against JSONL so a stale .seq (e.g. interrupted
-        // write) doesn't feed the sidecar path a wrong baseline.
-        try {
-          const jsonl = await fs.readFile(mainPath, 'utf-8');
-          const lineCount = jsonl.trim().split('\n').filter(Boolean).length;
-          if (parsed.sequence === lineCount) return parsed.sequence;
-        } catch {
-          return parsed.sequence;
-        }
+        // Trust the .seq value. Cross-validating against JSONL line count
+        // mis-flagged broken histories that the migration explicitly
+        // preserves (see CR thread 3205805932 / outside-diff for store.ts:858-879).
+        return parsed.sequence;
       }
     } catch {
-      // .seq unreadable — fall through to JSONL line count.
+      // .seq missing or malformed — fall through to JSONL max-sequence scan.
     }
 
+    // Fallback: scan JSONL for the highest persisted sequence. Uses
+    // SEQUENCE_REGEX to avoid full JSON.parse per line; this is the same
+    // recovery semantic AtomicAppender.rebuildCachesFromJsonl uses on
+    // first contact, kept consistent so sidecar and appender agree on
+    // the baseline.
     try {
       const jsonl = await fs.readFile(mainPath, 'utf-8');
-      return jsonl.trim().split('\n').filter(Boolean).length;
+      let maxSeq = 0;
+      for (const line of jsonl.split('\n')) {
+        if (line.length === 0) continue;
+        const m = SEQUENCE_REGEX.exec(line);
+        if (m) {
+          const s = Number.parseInt(m[1], 10);
+          if (Number.isFinite(s) && s > maxSeq) maxSeq = s;
+        }
+      }
+      return maxSeq;
     } catch {
       return 0;
     }
@@ -908,19 +973,19 @@ export class EventStore {
     const offset = filters?.offset ?? 0;
     const limit = filters?.limit;
 
-    // Fast-skip relies on the invariant that line N contains sequence N
-    // (monotonically increasing); only safe when filtering solely by sequence.
-    const canFastSkip = filters?.sinceSequence !== undefined
-      && !filters.type && !filters.since && !filters.until;
-    let lineCount = 0;
-
+    // Pre-#1293, a "fast-skip" optimization assumed line N contains sequence
+    // N and skipped by physical line count alone. After the migration
+    // preserves corrupt histories (gaps, duplicates, offset starts), that
+    // invariant no longer holds — `[5,6,7]` with `sinceSequence: 6` would
+    // skip all three lines and miss event 7. Always use the regex-based
+    // parsed-sequence comparison; the JSON.parse cost is paid only by
+    // events that survive the filter, so the optimization wasn't load-
+    // bearing for the common case anyway. (CR thread 3205805940 /
+    // outside-diff for store.ts:911-922.)
     for await (const line of rl) {
       if (!line.trim()) continue;
-      lineCount++;
 
-      if (canFastSkip && lineCount <= filters!.sinceSequence!) continue;
-
-      if (!canFastSkip && filters?.sinceSequence !== undefined) {
+      if (filters?.sinceSequence !== undefined) {
         const seqMatch = SEQUENCE_REGEX.exec(line);
         if (seqMatch) {
           const extractedSeq = parseInt(seqMatch[1], 10);
@@ -931,11 +996,9 @@ export class EventStore {
       const parsed = JSON.parse(line);
       const event = migrateEvent(parsed) as WorkflowEvent;
 
-      if (!canFastSkip) {
-        if (filters?.type && event.type !== filters.type) continue;
-        if (filters?.since && event.timestamp < filters.since) continue;
-        if (filters?.until && event.timestamp > filters.until) continue;
-      }
+      if (filters?.type && event.type !== filters.type) continue;
+      if (filters?.since && event.timestamp < filters.since) continue;
+      if (filters?.until && event.timestamp > filters.until) continue;
 
       if (skipped < offset) {
         skipped++;

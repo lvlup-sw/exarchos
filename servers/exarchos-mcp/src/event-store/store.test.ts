@@ -2095,6 +2095,47 @@ describe('EventStore appendValidated', () => {
     expect(content.trim().split('\n')).toHaveLength(1);
   });
 
+  // ─── Cache-hit semantics (#1293 D1, CR review 4248944836 thread 3205805943) ─
+  //
+  // Retrying with the same idempotencyKey but a DIFFERENT payload must:
+  //   1. Return the ORIGINALLY persisted event (not a synthesized version of
+  //      the current request body — that would replicate data that was never
+  //      written to JSONL).
+  //   2. NOT trigger backend/outbox replication (already done at original
+  //      commit time — re-running would create duplicate/inconsistent state).
+
+  it('append_idempotencyRetryWithDifferentPayload_returnsOriginalAndSkipsReplication', async () => {
+    let backendCalls = 0;
+    const backend = {
+      appendEvent: () => { backendCalls++; },
+      getSequence: () => 0,
+      queryEvents: async () => [],
+      getMaxSequence: () => 0,
+    };
+    const store = new EventStore(tempDir, { backend: backend as never });
+
+    // Original commit: payload A
+    const first = await store.append(
+      'my-workflow',
+      { type: 'task.assigned', data: { payload: 'A' } },
+      { idempotencyKey: 'shared-key' },
+    );
+    expect(first.sequence).toBe(1);
+    expect((first.data as { payload: string }).payload).toBe('A');
+    expect(backendCalls).toBe(1);
+
+    // Retry with same key, DIFFERENT payload. Must return original (A, seq 1)
+    // and NOT call backend a second time.
+    const retry = await store.append(
+      'my-workflow',
+      { type: 'task.assigned', data: { payload: 'B-DIFFERENT' } },
+      { idempotencyKey: 'shared-key' },
+    );
+    expect(retry.sequence).toBe(1);
+    expect((retry.data as { payload: string }).payload).toBe('A'); // not 'B-DIFFERENT'
+    expect(backendCalls).toBe(1); // unchanged — no second replication
+  });
+
   it('appendValidated_RespectsExpectedSequence', async () => {
     const store = new EventStore(tempDir);
 

@@ -129,9 +129,10 @@ observation to fix.
                               <stream>.events.jsonl
                               <stream>.seq
 
-#1259 swap point: replace `new AtomicAppender(...)` at the EventStore
-constructor with `new SqliteAppender(...)`. Same `AppendResult` shape,
-same per-stream serialization semantics.
+#1259 swap point: replace `new AtomicAppender(...)` inside
+`EventStore.getAppender()` (the lazy-construction site) with
+`new SqliteAppender(...)`. Same `AppendResult` shape, same per-stream
+serialization semantics.
 ```
 
 ## Out of scope

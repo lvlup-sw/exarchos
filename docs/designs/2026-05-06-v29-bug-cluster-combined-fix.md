@@ -2,8 +2,8 @@
 
 **Workflow:** `v29-bug-cluster` (feature)
 **Date:** 2026-05-06
-**Status:** Design — pending plan-review and TDD plan
-**Closes:** #1230, #1228, #1241, #1226, #1224, #1220, #1225, #1117
+**Status:** Shipped (2026-05-08) — primitives + C2 consumer migration both landed on `feature/v29-bug-cluster`
+**Closes:** #1230, #1228, #1241, #1226, #1224, #1220, #1225, #1117, #1293
 **Related spikes:** #1239 (parent — checkpoint handoff enrichment), #1259 (follow-up — durable substrate, v2.10.0)
 **Cross-cutting:** #1109 (event-sourcing + MCP parity + basileus-forward)
 

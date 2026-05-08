@@ -24,18 +24,62 @@ import { validateStreamId } from '../shared/validation.js';
  * `AppendResult` shape, same per-stream serialization semantics.
  */
 
+/**
+ * Public-shaped persisted event surfaced on cache-hit so callers can return
+ * the actual stored shape (not a synthesized event from the request body).
+ *
+ * Mirrors the internal `PersistedEvent` but is exported so consumers like
+ * `EventStore.delegateAppend` can hand it back to their own callers without
+ * reaching into AtomicAppender internals.
+ *
+ * `eventId` is included for traceability — callers that don't need it can
+ * ignore the field. Other extension fields flow through the index signature.
+ */
+export interface PublicPersistedEvent {
+  streamId: string;
+  sequence: number;
+  type: string;
+  timestamp: string;
+  eventId: string;
+  idempotencyKey?: string;
+  data?: Record<string, unknown>;
+  [k: string]: unknown;
+}
+
 export type AppendResult =
   | {
       ok: true;
+      /**
+       * Distinguishes a fresh commit from a cache-hit so callers can:
+       *   - Return the actual persisted shape (not a synthesized version
+       *     of the current request body — a retry with the same key but
+       *     a different payload would otherwise replicate the wrong data).
+       *   - Skip supplementary side effects (backend dual-write, outbox)
+       *     that already ran when the original commit happened.
+       */
+      kind: 'committed';
       sequences: number[];
       eventIds: string[];
       /**
        * The timestamp on each persisted event, in the same order as
-       * `sequences` / `eventIds`. On cache hits these are the original
-       * persisted timestamps (NOT recomputed), so callers reconstructing
-       * the public event shape get a stable round-trip across retries.
+       * `sequences` / `eventIds`. Callers reconstructing the public event
+       * shape get a stable round-trip across retries.
        */
       timestamps: string[];
+    }
+  | {
+      ok: true;
+      kind: 'cache-hit';
+      sequences: number[];
+      eventIds: string[];
+      timestamps: string[];
+      /**
+       * The events ORIGINALLY persisted under this idempotency key. The
+       * caller's CURRENT request payload is irrelevant — return THIS to
+       * the caller and skip backend/outbox replication (already done at
+       * commit time).
+       */
+      persistedEvents: PublicPersistedEvent[];
     }
   | {
       ok: false;
@@ -290,9 +334,14 @@ export class AtomicAppender {
       if (cachedEvents && cachedEvents.length > 0) {
         return {
           ok: true,
+          kind: 'cache-hit',
           sequences: cachedEvents.map(e => e.sequence),
           eventIds: cachedEvents.map(e => e.eventId),
           timestamps: cachedEvents.map(e => e.timestamp),
+          // Surface the originally-persisted events so callers don't
+          // reconstruct from the (possibly different) current request
+          // payload — that's the bug CR-thread #3205805943 closes.
+          persistedEvents: cachedEvents.map(e => ({ ...e } as PublicPersistedEvent)),
         };
       }
     }
@@ -395,6 +444,7 @@ export class AtomicAppender {
 
     return {
       ok: true,
+      kind: 'committed',
       sequences: persisted.map(e => e.sequence),
       eventIds: persisted.map(e => e.eventId),
       timestamps: persisted.map(e => e.timestamp),
