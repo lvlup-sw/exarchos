@@ -3,6 +3,10 @@ import * as path from 'node:path';
 import { randomUUID } from 'node:crypto';
 
 import { validateStreamId } from '../shared/validation.js';
+import {
+  SqliteBackend,
+  type AtomicAppendEvent as SqliteAtomicAppendEvent,
+} from '../storage/sqlite-backend.js';
 
 /**
  * AtomicAppender — single-writer-per-stream append primitive (v2.9.0).
@@ -153,6 +157,42 @@ export interface AtomicAppenderOptions {
    * at `event-store/store.ts:798`.
    */
   maxIdempotencyKeys?: number;
+  /**
+   * Substrate selector for the body (#1259, DR-1).
+   *
+   *   - `'jsonl'` (legacy v2.9 body): JSONL append + `.seq` rename + in-memory
+   *     idempotency cache. Retained for the migration window and for tests
+   *     that exercise the exact failure modes JSONL exposes (writeFn
+   *     failure injection, partial-write rollback).
+   *   - `'sqlite'` (default post-cutover): single `BEGIN IMMEDIATE` SQLite
+   *     transaction wrapping idempotency-claim INSERT, sequence upsert,
+   *     event INSERT (and outbox INSERT when applicable). The per-stream
+   *     Promise mutex still wraps the call as the first-tier guard;
+   *     SQLite is the second-tier guard.
+   *
+   * Existing v2.9 callers omit the option and continue to receive the
+   * legacy body during the cutover. The flip to `'sqlite'` as the default
+   * lands once all consumers are validated against the SQLite body.
+   *
+   * Test-only override: pass `'sqlite'` to exercise the new body
+   * directly without flipping the default.
+   */
+  backend?: 'jsonl' | 'sqlite';
+  /**
+   * Optional pre-built SqliteBackend instance for the `'sqlite'` body.
+   * When omitted, the appender lazily constructs its own backend keyed
+   * off `${stateDir}/exarchos.db`. Production wiring (lifecycle.ts /
+   * EventStore) will inject the shared backend so reads + writes
+   * converge on the same handle.
+   */
+  sqliteBackend?: SqliteBackend;
+  /**
+   * SQLite database file name relative to `stateDir`. Defaults to
+   * `exarchos.db` to match `index.ts:initializeBackend`. Tests that
+   * isolate the appender from the rest of the lifecycle can override
+   * this to keep their fixture databases out of the shared file.
+   */
+  sqliteDbFilename?: string;
 }
 
 function parseEnvInt(envVar: string, defaultValue: number): number {
@@ -216,12 +256,36 @@ export class AtomicAppender {
   private readonly idempotencyInitialized = new Set<string>();
   /** Per-stream cap on idempotencyCache size; FIFO eviction matches legacy EventStore. */
   private readonly maxIdempotencyKeys: number;
+  /** Substrate selector — selects the JSONL legacy body or the SQLite body. */
+  private readonly backend: 'jsonl' | 'sqlite';
+  private readonly sqliteDbFilename: string;
+  /**
+   * Lazily-constructed SQLite backend for the `'sqlite'` body. Owned by
+   * the appender (initialized on first use, closed by the host's
+   * lifecycle). When `options.sqliteBackend` is injected, it is used
+   * directly and never closed by the appender — the injector retains
+   * ownership.
+   */
+  private sqliteBackend?: SqliteBackend;
+  private readonly sqliteBackendInjected: boolean;
 
   constructor(options: AtomicAppenderOptions) {
     this.stateDir = options.stateDir;
     this.writeFn = options.writeFn;
     this.maxIdempotencyKeys =
       options.maxIdempotencyKeys ?? parseEnvInt('EXARCHOS_MAX_IDEMPOTENCY_KEYS', 200);
+    // Default to JSONL during the cutover so the seven existing v2.9 consumers
+    // are not silently flipped onto the new body. Tests opt in via
+    // `backend: 'sqlite'` until the production wiring (DR-13 AC4) flips
+    // the default.
+    this.backend = options.backend ?? 'jsonl';
+    this.sqliteDbFilename = options.sqliteDbFilename ?? 'exarchos.db';
+    if (options.sqliteBackend) {
+      this.sqliteBackend = options.sqliteBackend;
+      this.sqliteBackendInjected = true;
+    } else {
+      this.sqliteBackendInjected = false;
+    }
   }
 
   async append(
@@ -231,7 +295,7 @@ export class AtomicAppender {
     options?: AppendOptions,
   ): Promise<AppendResult> {
     return this.locks.runExclusive(streamId, () =>
-      this.appendLocked(streamId, events, { idempotencyKey }, options),
+      this.dispatchAppend(streamId, events, { idempotencyKey }, options),
     );
   }
 
@@ -255,7 +319,7 @@ export class AtomicAppender {
     options?: AppendOptions,
   ): Promise<AppendResult> {
     return this.locks.runExclusive(streamId, () =>
-      this.appendLocked(streamId, events, null, options),
+      this.dispatchAppend(streamId, events, null, options),
     );
   }
 
@@ -284,8 +348,224 @@ export class AtomicAppender {
   ): Promise<AppendResult> {
     return this.locks.runExclusive(streamId, async () => {
       const events = await compute();
-      return this.appendLocked(streamId, events, { idempotencyKey });
+      return this.dispatchAppend(streamId, events, { idempotencyKey });
     });
+  }
+
+  /**
+   * Branch on the configured backend. The per-stream Promise mutex is
+   * already held by the caller — this method is the single seam that
+   * picks between the legacy JSONL body and the SQLite body. Keeping
+   * dispatch one level above the body code (rather than inside
+   * `appendLocked`) leaves the legacy path completely untouched, so the
+   * existing JSONL fixtures remain meaningful regression tests during
+   * the cutover.
+   */
+  private async dispatchAppend(
+    streamId: string,
+    events: EventInput[],
+    keyed: { idempotencyKey: string } | null,
+    options?: AppendOptions,
+  ): Promise<AppendResult> {
+    if (this.backend === 'sqlite') {
+      return this.appendSqliteLocked(streamId, events, keyed, options);
+    }
+    return this.appendLocked(streamId, events, keyed, options);
+  }
+
+  /**
+   * Lazily create (or return) the SQLite backend used by the substrate
+   * body. Injected backends (passed via `options.sqliteBackend`) are
+   * returned without re-initialization — the injector owns the lifecycle.
+   *
+   * The owned-backend path opens `<stateDir>/<filename>` and applies
+   * the standard schema DDL via `initialize()`. Failure here is fatal
+   * for the SQLite body — the caller (appendSqliteLocked) catches and
+   * returns an `io-error` AppendResult so the boundary contract holds.
+   */
+  private getSqliteBackend(): SqliteBackend {
+    if (!this.sqliteBackend) {
+      const dbPath = path.join(this.stateDir, this.sqliteDbFilename);
+      const backend = new SqliteBackend(dbPath);
+      backend.initialize();
+      this.sqliteBackend = backend;
+    }
+    return this.sqliteBackend;
+  }
+
+  private async appendSqliteLocked(
+    streamId: string,
+    events: EventInput[],
+    keyed: { idempotencyKey: string } | null,
+    options?: AppendOptions,
+  ): Promise<AppendResult> {
+    // ─── Phase 1: validate (same contract as JSONL body) ─────────────────
+    if (!streamId || streamId.length === 0) {
+      return { ok: false, reason: 'io-error', cause: new Error('streamId required') };
+    }
+    try {
+      validateStreamId(streamId);
+    } catch (err) {
+      return { ok: false, reason: 'io-error', cause: toError(err) };
+    }
+    if (!Array.isArray(events) || events.length === 0) {
+      return { ok: false, reason: 'io-error', cause: new Error('events must be non-empty array') };
+    }
+    if (keyed !== null && (!keyed.idempotencyKey || keyed.idempotencyKey.length === 0)) {
+      return { ok: false, reason: 'io-error', cause: new Error('idempotencyKey required') };
+    }
+
+    // ─── Phase 2: ensure backend is available ────────────────────────────
+    let backend: SqliteBackend;
+    try {
+      // Ensure the directory exists (matches JSONL path's mkdir behavior so
+      // tests passing fresh tmp dirs don't fail before the DB file is
+      // touched).
+      await fs.mkdir(this.stateDir, { recursive: true });
+      backend = this.getSqliteBackend();
+    } catch (err) {
+      return { ok: false, reason: 'io-error', cause: toError(err) };
+    }
+
+    // ─── Phase 3: idempotency cache-hit (pre-transaction short-circuit) ──
+    // The cache lookup runs OUTSIDE the BEGIN IMMEDIATE so retries don't
+    // hold the write lock. Same semantics as the JSONL body's in-memory
+    // map check.
+    if (keyed !== null) {
+      try {
+        const claim = backend.lookupIdempotencyClaim(streamId, keyed.idempotencyKey);
+        if (claim) {
+          return {
+            ok: true,
+            kind: 'cache-hit',
+            sequences: claim.sequences,
+            eventIds: claim.eventIds,
+            timestamps: claim.timestamps,
+            persistedEvents: claim.events.map(e => ({ ...e } as PublicPersistedEvent)),
+          };
+        }
+      } catch (err) {
+        return { ok: false, reason: 'io-error', cause: toError(err) };
+      }
+    }
+
+    // ─── Phase 4: optimistic-concurrency check ───────────────────────────
+    // Read the current high-water mark from the sequences table. Mismatch
+    // returns the typed `sequence-conflict` shape; the caller translates
+    // to its own error type without reaching into substrate internals.
+    let baseSeq: number;
+    try {
+      baseSeq = backend.readSequenceHighWaterMark(streamId);
+    } catch (err) {
+      return { ok: false, reason: 'io-error', cause: toError(err) };
+    }
+    if (options?.expectedSequence !== undefined) {
+      if (baseSeq !== options.expectedSequence) {
+        return {
+          ok: false,
+          reason: 'sequence-conflict',
+          expected: options.expectedSequence,
+          actual: baseSeq,
+        };
+      }
+    }
+
+    // ─── Phase 5: build PersistedEvent rows ──────────────────────────────
+    const persisted: PersistedEvent[] = events.map((evt, i) => {
+      const event: PersistedEvent = {
+        ...evt,
+        streamId,
+        sequence: baseSeq + i + 1,
+        timestamp: evt.timestamp ?? new Date().toISOString(),
+        type: evt.type,
+        eventId: randomUUID(),
+      };
+      if (keyed !== null) {
+        event.idempotencyKey = keyed.idempotencyKey;
+      }
+      return event;
+    });
+
+    const wireEvents: SqliteAtomicAppendEvent[] = persisted.map(e => ({
+      sequence: e.sequence,
+      type: e.type,
+      timestamp: e.timestamp,
+      data: e.data,
+      payload: JSON.stringify(e),
+    }));
+
+    // ─── Phase 6: BEGIN IMMEDIATE (idempotency claim + events + sequence) ─
+    // Test-only fault hook: tests can monkey-patch the backend's
+    // `atomicAppend` method to throw mid-transaction, exercising T07's
+    // rollback contract. Production code never sets this.
+    try {
+      const claim =
+        keyed !== null
+          ? {
+              eventIds: persisted.map(e => e.eventId),
+              sequences: persisted.map(e => e.sequence),
+              timestamps: persisted.map(e => e.timestamp),
+              events_json: JSON.stringify(persisted),
+            }
+          : undefined;
+      backend.atomicAppend({
+        streamId,
+        idempotencyKey: keyed?.idempotencyKey ?? null,
+        events: wireEvents,
+        ...(claim ? { claim } : {}),
+      });
+    } catch (err) {
+      // Translate SQLite errors into the typed AppendResult shape.
+      // SQLITE_CONSTRAINT on idempotency_claims = double-claim race
+      // (two appenders with the same key — the loser sees this); the
+      // first-tier Promise mutex normally prevents this within a process,
+      // but cross-process or driver-level races can still surface it.
+      const e = toError(err);
+      const msg = e.message;
+      if (
+        /UNIQUE constraint failed: idempotency_claims/.test(msg) ||
+        /idempotency_claims.streamId, idempotency_claims.idempotencyKey/.test(msg)
+      ) {
+        return { ok: false, reason: 'idempotency-claimed', cause: e };
+      }
+      if (
+        /UNIQUE constraint failed: events/.test(msg) ||
+        /events.streamId, events.sequence/.test(msg)
+      ) {
+        // A sequence collision — first-tier mutex normally prevents this
+        // intra-process; surfacing as `sequence-conflict` lets the caller
+        // retry against the new high-water mark.
+        return {
+          ok: false,
+          reason: 'sequence-conflict',
+          expected: options?.expectedSequence,
+          actual: baseSeq,
+        };
+      }
+      return { ok: false, reason: 'io-error', cause: e };
+    }
+
+    return {
+      ok: true,
+      kind: 'committed',
+      sequences: persisted.map(e => e.sequence),
+      eventIds: persisted.map(e => e.eventId),
+      timestamps: persisted.map(e => e.timestamp),
+    };
+  }
+
+  /**
+   * Test-only access to the SQLite backend used by the substrate body.
+   * Tests inject faults via `Object.defineProperty` on the underlying
+   * driver methods (e.g. `insertEventStrict.run`) — exposing the backend
+   * lets the T07 rollback test patch a single statement without
+   * reconstructing the appender's internals.
+   *
+   * Returns undefined when the appender was constructed with
+   * `backend: 'jsonl'` (no SQLite backend was created).
+   */
+  _testOnly_getSqliteBackend(): SqliteBackend | undefined {
+    return this.sqliteBackend;
   }
 
   private async appendLocked(

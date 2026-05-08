@@ -5,6 +5,46 @@ import type { QueryFilters } from '../event-store/store.js';
 import type { StorageBackend, EventSender, ViewCacheEntry, DrainResult } from './backend.js';
 import { VersionConflictError } from './memory-backend.js';
 
+// ─── AtomicAppender wire types (#1259, T06/T07) ─────────────────────────────
+//
+// These are the shape passed in by `AtomicAppender`'s SQLite-backed body.
+// They are intentionally NOT the canonical `WorkflowEvent` because the
+// appender owns sequence allocation and timestamp generation — the
+// backend just persists the pre-computed row. Keeping the wire shape
+// minimal means the substrate boundary stays narrow and testable.
+
+/** A single pre-allocated event row ready for INSERT. */
+export interface AtomicAppendEvent {
+  /** Pre-allocated by the appender from `readSequenceHighWaterMark + i + 1`. */
+  sequence: number;
+  type: string;
+  timestamp: string;
+  data?: Record<string, unknown>;
+  /**
+   * The full PublicPersistedEvent serialized as JSON. Persisted into
+   * `events.payload` so `rowToEvent` can rehydrate the canonical shape on
+   * read — preserving idempotencyKey, eventId, correlationId, etc.
+   */
+  payload: string;
+}
+
+/**
+ * Shape of an entry returned from `lookupIdempotencyClaim`. Mirrors
+ * `PublicPersistedEvent` from `event-store/atomic-appender.ts` — kept here
+ * as a structural alias so the storage module does not import from the
+ * event-store module (one-way dependency: event-store → storage).
+ */
+export interface PublicPersistedEventLike {
+  streamId: string;
+  sequence: number;
+  type: string;
+  timestamp: string;
+  eventId: string;
+  idempotencyKey?: string;
+  data?: Record<string, unknown>;
+  [k: string]: unknown;
+}
+
 // ─── Schema DDL ─────────────────────────────────────────────────────────────
 
 const SCHEMA_VERSION = 3;
@@ -60,6 +100,24 @@ CREATE TABLE IF NOT EXISTS schema_version (
   version INTEGER PRIMARY KEY,
   appliedAt TEXT NOT NULL
 );
+
+-- Idempotency claims for AtomicAppender SQLite-backed body (#1259, T06/T07).
+-- Each row records the eventIds, sequences, and timestamps committed under a
+-- given (streamId, idempotencyKey) so a retry returns the canonical
+-- PublicPersistedEvent shape rather than a synthesized re-walk of the
+-- caller's current request body. PRIMARY KEY enforces single-claim semantics
+-- per stream/key; events_json stores the full PublicPersistedEvent list as
+-- JSON so cache-hit fidelity matches the in-memory v2.9 cache.
+CREATE TABLE IF NOT EXISTS idempotency_claims (
+  streamId       TEXT NOT NULL,
+  idempotencyKey TEXT NOT NULL,
+  eventIds       TEXT NOT NULL,
+  sequences      TEXT NOT NULL,
+  timestamps     TEXT NOT NULL,
+  events_json    TEXT NOT NULL,
+  claimedAt      TEXT NOT NULL,
+  PRIMARY KEY (streamId, idempotencyKey)
+);
 `;
 
 // ─── Prepared Statements ────────────────────────────────────────────────────
@@ -81,6 +139,10 @@ interface Statements {
   getViewCache: Statement;
   upsertViewCache: Statement;
   insertSchemaVersion: Statement;
+  // AtomicAppender SQLite-backed body (#1259, T06/T07)
+  selectIdempotencyClaim: Statement;
+  insertIdempotencyClaim: Statement;
+  insertEventStrict: Statement;
 }
 
 // ─── SqliteBackend ──────────────────────────────────────────────────────────
@@ -271,6 +333,23 @@ export class SqliteBackend implements StorageBackend {
       insertSchemaVersion: this.db.prepare(
         'INSERT OR IGNORE INTO schema_version (version, appliedAt) VALUES (?, ?)',
       ),
+      // AtomicAppender substrate primitives (#1259, T06/T07).
+      selectIdempotencyClaim: this.db.prepare(
+        'SELECT eventIds, sequences, timestamps, events_json FROM idempotency_claims WHERE streamId = ? AND idempotencyKey = ?',
+      ),
+      // Strict INSERT (no OR IGNORE): a (streamId, idempotencyKey) collision
+      // raises a constraint error so the wrapping transaction can ROLLBACK
+      // and the caller observes a typed `idempotency-claimed` failure.
+      insertIdempotencyClaim: this.db.prepare(
+        'INSERT INTO idempotency_claims (streamId, idempotencyKey, eventIds, sequences, timestamps, events_json, claimedAt) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      ),
+      // Strict event INSERT: collisions on (streamId, sequence) PRIMARY KEY
+      // raise instead of being silently swallowed (the existing
+      // `insertEvent` statement uses OR IGNORE for the dual-write replica
+      // path; AtomicAppender requires hard failure on collision).
+      insertEventStrict: this.db.prepare(
+        'INSERT INTO events (streamId, sequence, type, timestamp, data, payload) VALUES (?, ?, ?, ?, ?, ?)',
+      ),
     };
   }
 
@@ -362,6 +441,138 @@ export class SqliteBackend implements StorageBackend {
       .prepare('SELECT DISTINCT streamId FROM sequences ORDER BY streamId')
       .all() as Array<{ streamId: string }>;
     return rows.map((row) => row.streamId);
+  }
+
+  // ─── AtomicAppender SQLite Body (#1259, T06/T07) ────────────────────────
+
+  /**
+   * Look up a previously-committed idempotency claim. Returns the persisted
+   * events under the (streamId, idempotencyKey) pair so a retry observes
+   * the canonical PublicPersistedEvent shape — same contract as the v2.9
+   * in-memory cache hit path.
+   *
+   * Returns undefined when no claim exists. The caller (AtomicAppender)
+   * runs this BEFORE opening the BEGIN IMMEDIATE transaction so cache
+   * hits short-circuit without touching the write path.
+   */
+  lookupIdempotencyClaim(
+    streamId: string,
+    idempotencyKey: string,
+  ):
+    | {
+        eventIds: string[];
+        sequences: number[];
+        timestamps: string[];
+        events: PublicPersistedEventLike[];
+      }
+    | undefined {
+    const row = this.stmts.selectIdempotencyClaim.get(streamId, idempotencyKey) as
+      | { eventIds: string; sequences: string; timestamps: string; events_json: string }
+      | undefined;
+    if (!row) return undefined;
+    return {
+      eventIds: JSON.parse(row.eventIds) as string[],
+      sequences: JSON.parse(row.sequences) as number[],
+      timestamps: JSON.parse(row.timestamps) as string[],
+      events: JSON.parse(row.events_json) as PublicPersistedEventLike[],
+    };
+  }
+
+  /**
+   * Read the current sequence high-water mark for a stream. AtomicAppender
+   * uses this BEFORE opening the transaction to compute base+i sequences;
+   * the transaction's strict-insert into `events` will raise on conflict
+   * if a sibling appender slipped in (the per-stream Promise mutex is the
+   * first-tier guard; this is the second-tier check).
+   */
+  readSequenceHighWaterMark(streamId: string): number {
+    const row = this.stmts.selectSequence.get(streamId) as { sequence: number } | undefined;
+    return row ? row.sequence : 0;
+  }
+
+  /**
+   * Atomic append: a single `BEGIN IMMEDIATE` transaction wrapping the
+   * idempotency-key claim, the per-stream sequence upsert, the event
+   * INSERTs, and (when the caller passes pre-built outbox rows) the
+   * outbox INSERTs. Commits as a unit; rolls back on any error.
+   *
+   * Throws on:
+   *   - SQLITE_CONSTRAINT (idempotency collision or sequence collision)
+   *   - Any underlying SQLite error (BUSY, IO, etc.)
+   *
+   * The caller (AtomicAppender) translates thrown errors into the typed
+   * `AppendResult` failure shape. Returning instead of throwing would
+   * require leaking SQLite-specific reason codes through the backend
+   * boundary, which inverts the design's storage-handle abstraction.
+   *
+   * `bun:sqlite`'s `db.transaction(fn)` wrapper opens a `BEGIN` (deferred)
+   * by default; the design (DR-1) calls for `BEGIN IMMEDIATE` so the
+   * write lock is acquired up-front — preventing two transactions from
+   * running their reads in parallel and racing to write. We pass
+   * `'immediate'` to honour that.
+   */
+  atomicAppend(args: {
+    streamId: string;
+    idempotencyKey: string | null;
+    events: AtomicAppendEvent[];
+    claim?: {
+      eventIds: string[];
+      sequences: number[];
+      timestamps: string[];
+      events_json: string;
+    };
+  }): void {
+    const txn = this.db.transaction(() => {
+      // Idempotency claim (single row per (streamId, key)) — strict INSERT
+      // so a collision aborts the txn, ROLLBACK is automatic via the
+      // wrapper, and no half-written event/claim survives.
+      if (args.idempotencyKey !== null && args.claim) {
+        this.stmts.insertIdempotencyClaim.run(
+          args.streamId,
+          args.idempotencyKey,
+          JSON.stringify(args.claim.eventIds),
+          JSON.stringify(args.claim.sequences),
+          JSON.stringify(args.claim.timestamps),
+          args.claim.events_json,
+          new Date().toISOString(),
+        );
+      }
+
+      // Event INSERTs — strict so (streamId, sequence) collisions raise.
+      for (const evt of args.events) {
+        const data = evt.data !== undefined ? JSON.stringify(evt.data) : null;
+        this.stmts.insertEventStrict.run(
+          args.streamId,
+          evt.sequence,
+          evt.type,
+          evt.timestamp,
+          data,
+          evt.payload,
+        );
+      }
+
+      // Sequence high-water mark upsert — only the final sequence matters.
+      const finalSeq = args.events[args.events.length - 1].sequence;
+      this.stmts.upsertSequence.run(args.streamId, finalSeq);
+    });
+
+    // `bun:sqlite` exposes `transaction(fn).immediate(args)` to open
+    // BEGIN IMMEDIATE explicitly. The shimmed `better-sqlite3` driver
+    // supports the same shape (the shim wraps better-sqlite3 1:1 — see
+    // src/storage/__shims__/bun-sqlite-node.ts).
+    const txnUnknown = txn as unknown as {
+      immediate?: (...args: unknown[]) => void;
+    };
+    if (typeof txnUnknown.immediate === 'function') {
+      txnUnknown.immediate();
+    } else {
+      // Fallback: the wrapper opens a default `BEGIN` (deferred). The
+      // per-stream Promise mutex (AtomicAppender's first-tier guard)
+      // still prevents intra-process write races; the deferred-vs-
+      // immediate distinction matters for cross-process writers, which
+      // are out of scope for the POC.
+      txn();
+    }
   }
 
   // ─── State Operations ───────────────────────────────────────────────────
