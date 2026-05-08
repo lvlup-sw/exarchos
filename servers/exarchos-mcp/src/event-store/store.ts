@@ -2,6 +2,7 @@ import * as fs from 'node:fs/promises';
 import { createReadStream, openSync, closeSync, writeSync, unlinkSync } from 'node:fs';
 import { createInterface } from 'node:readline';
 import * as path from 'node:path';
+import { randomUUID as randomUUIDFn } from 'node:crypto';
 import { WorkflowEventBase } from './schemas.js';
 import type { WorkflowEvent } from './schemas.js';
 import type { Outbox } from '../sync/outbox.js';
@@ -11,6 +12,11 @@ import { storeLogger } from '../logger.js';
 import { isPidAlive } from '../utils/process.js';
 import { getSidecarPath } from './hook-event-writer.js';
 import { validateStreamId } from '../shared/validation.js';
+import { AtomicAppender } from './atomic-appender.js';
+import {
+  SubagentStreamRouter,
+  type SubagentStreamRouterContract,
+} from '../agents/subagent-stream-router.js';
 
 // ─── Sequence Conflict Error ────────────────────────────────────────────────
 
@@ -105,15 +111,6 @@ function mergeByTimestamp(
   return out;
 }
 
-/** Parse an integer from an environment variable with a fallback default. */
-function parseEnvInt(envVar: string, defaultValue: number): number {
-  const raw = process.env[envVar];
-  if (raw === undefined) return defaultValue;
-  const parsed = parseInt(raw, 10);
-  if (isNaN(parsed) || parsed <= 0) return defaultValue;
-  return parsed;
-}
-
 // ─── Event Store Options ────────────────────────────────────────────────────
 
 export interface EventStoreOptions {
@@ -192,21 +189,23 @@ const DEFAULT_WAIT_MAX_DELAY_MS = 100;
  * Multiple EventStore instances sharing the same stateDir without PID lock will corrupt data.
  */
 export class EventStore {
-  private sequenceCounters: Map<string, number> = new Map();
-  private locks: Map<string, Promise<void>> = new Map();
-
-  /** In-memory dedup cache: streamId -> (idempotencyKey -> event) */
-  private idempotencyCache: Map<string, Map<string, WorkflowEvent>> = new Map();
   /**
-   * Maximum number of idempotency keys retained per stream.
-   * Keys older than this limit are evicted via FIFO.
-   * Retries with evicted keys will NOT be deduplicated.
-   * Acceptable because retries occur within the same session, not across long time spans.
+   * After the #1293 consumer migration, all append paths delegate to a
+   * single shared AtomicAppender (see `getAppender()` below). The previous
+   * per-EventStore lock map, sequence counter map, and idempotency cache
+   * are removed — they were the second of two disjoint write paths that
+   * raced on the same JSONL files. The AtomicAppender now owns:
+   *   - per-stream lock (`StreamLockManager`)
+   *   - sequence counter (rebuilt from JSONL on first contact)
+   *   - idempotency cache (with `appendUnkeyed` for callers that don't
+   *     want dedup — preserves the legacy "no-key-skips-dedup" contract
+   *     without polluting the cache with synthetic one-shot keys)
+   *
+   * #1259 swap point: `getAppender()` returns the substrate. Replacing
+   * `new AtomicAppender(...)` with `new SqliteAppender(...)` in that
+   * lazy-construction site is the only change SQLite migration requires
+   * at the EventStore boundary.
    */
-  private readonly maxIdempotencyKeys: number;
-
-  /** Tracks which streams have had their idempotency cache rebuilt from JSONL */
-  private idempotencyCacheInitialized: Set<string> = new Set();
 
   /** Whether initialize() has been called */
   private initialized = false;
@@ -227,9 +226,17 @@ export class EventStore {
   /** Optional storage backend for delegating reads */
   private readonly backend?: StorageBackend;
 
+  /** Lazily-instantiated AtomicAppender — single instance per stateDir so per-stream
+   *  locks and sequence counters share state across handler calls. */
+  private atomicAppender?: AtomicAppender;
+
+  /** Lazily-instantiated SubagentStreamRouter — single instance per EventStore
+   *  so the router shares the same AtomicAppender (and therefore the same
+   *  per-stream lock + idempotency cache) used by every other consumer. */
+  private streamRouter?: SubagentStreamRouterContract;
+
   constructor(private readonly stateDir: string, options?: EventStoreOptions) {
     this.lockFilePath = path.join(stateDir, '.event-store.lock');
-    this.maxIdempotencyKeys = parseEnvInt('EXARCHOS_MAX_IDEMPOTENCY_KEYS', 200);
     this.backend = options?.backend;
   }
 
@@ -246,6 +253,44 @@ export class EventStore {
   /** Returns true when this instance is in sidecar mode (PID lock held by another process). */
   get inSidecarMode(): boolean {
     return this.sidecarMode;
+  }
+
+  /**
+   * Returns the lazily-created AtomicAppender bound to this event store's
+   * state directory. Single instance per EventStore so per-stream locks and
+   * the in-memory sequence/idempotency caches share state across consumers.
+   *
+   * #1259 swap point: replace the constructor call below with a SQLite
+   * (or other durable) appender that exposes the same `AppendResult`
+   * shape and per-stream serialization semantics. No other change is
+   * required — `append`, `appendValidated`, `batchAppend`, and the
+   * `SubagentStreamRouter` all delegate through this instance, so a
+   * one-line swap here flips the entire write substrate. The migration
+   * doc is at docs/designs/2026-05-08-eventstore-appender-consumer-migration.md.
+   */
+  getAppender(): AtomicAppender {
+    if (!this.atomicAppender) {
+      this.atomicAppender = new AtomicAppender({ stateDir: this.stateDir });
+    }
+    return this.atomicAppender;
+  }
+
+  /**
+   * Returns the lazily-created SubagentStreamRouter bound to this event
+   * store's state directory. Backed by `getAppender()` so the router shares
+   * the per-stream lock + idempotency cache. Used by `handleEventAppend` to
+   * intercept `team.disbanded` events and recompute `tasksCompleted` from
+   * the parent stream — discarding the agent-side in-memory tally that
+   * produces #1224's off-by-N counts.
+   */
+  getStreamRouter(): SubagentStreamRouterContract {
+    if (!this.streamRouter) {
+      this.streamRouter = new SubagentStreamRouter({
+        appender: this.getAppender(),
+        stateDir: this.stateDir,
+      });
+    }
+    return this.streamRouter;
   }
 
   // ─── PID Lock ──────────────────────────────────────────────────────────────
@@ -451,24 +496,6 @@ export class EventStore {
     });
   }
 
-  private async withLock<T>(streamId: string, fn: () => Promise<T>): Promise<T> {
-    const existing = this.locks.get(streamId) ?? Promise.resolve();
-    let release: () => void;
-    const lock = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    this.locks.set(streamId, lock);
-    try {
-      await existing;
-      return await fn();
-    } finally {
-      release!();
-      if (this.locks.get(streamId) === lock) {
-        this.locks.delete(streamId);
-      }
-    }
-  }
-
   /**
    * Write an event to the sidecar file for later merging by the primary process.
    * Returns a synthetic WorkflowEvent with sequence 0 (pending assignment).
@@ -522,24 +549,22 @@ export class EventStore {
     if (this.sidecarMode) {
       return this.writeToSidecar(streamId, event, options?.idempotencyKey);
     }
-    return this.withLock(streamId, async () => {
-      const cached = await this.checkIdempotencyAndSequence(streamId, options);
-      if (cached) return cached;
-
-      const sequence = (this.sequenceCounters.get(streamId) ?? 0) + 1;
-
-      const fullEvent = WorkflowEventBase.parse({
-        ...event,
-        streamId,
-        sequence,
-        timestamp: event.timestamp || new Date().toISOString(),
-        idempotencyKey: options?.idempotencyKey ?? event.idempotencyKey,
-      });
-
-      await this.persistAndReplicate(streamId, fullEvent);
-      this.sequenceCounters.set(streamId, sequence);
-      return fullEvent;
+    // Validate FIRST, before delegating: the legacy contract throws synchronously
+    // on schema violations, so callers don't need to await the AtomicAppender
+    // round-trip for that error class.
+    const idempotencyKey = options?.idempotencyKey ?? event.idempotencyKey;
+    const timestamp = event.timestamp || new Date().toISOString();
+    // Sequence is allocated by AtomicAppender; pass a placeholder so Zod's
+    // positive-integer guard accepts the schema. The synthesized return value
+    // overwrites this with the authoritative sequence.
+    const candidate = WorkflowEventBase.parse({
+      ...event,
+      streamId,
+      sequence: 1,
+      timestamp,
+      idempotencyKey,
     });
+    return this.delegateAppend(streamId, candidate, idempotencyKey, options);
   }
 
   /**
@@ -555,108 +580,128 @@ export class EventStore {
     if (this.sidecarMode) {
       return this.writeToSidecar(streamId, event, options?.idempotencyKey ?? event.idempotencyKey);
     }
-    return this.withLock(streamId, async () => {
-      const cached = await this.checkIdempotencyAndSequence(streamId, options);
-      if (cached) return cached;
-
-      const sequence = (this.sequenceCounters.get(streamId) ?? 0) + 1;
-
-      // Construct the final event WITHOUT Zod parse
-      const fullEvent: WorkflowEvent = {
-        ...event,
-        streamId,
-        sequence,
-        timestamp: event.timestamp || new Date().toISOString(),
-        idempotencyKey: options?.idempotencyKey ?? event.idempotencyKey,
-      } as WorkflowEvent;
-
-      await this.persistAndReplicate(streamId, fullEvent);
-      this.sequenceCounters.set(streamId, sequence);
-      return fullEvent;
-    });
+    const idempotencyKey = options?.idempotencyKey ?? event.idempotencyKey;
+    const timestamp = event.timestamp || new Date().toISOString();
+    const prepared: WorkflowEvent = {
+      ...event,
+      streamId,
+      timestamp,
+      idempotencyKey,
+    } as WorkflowEvent;
+    return this.delegateAppend(streamId, prepared, idempotencyKey, options);
   }
 
   /**
-   * Shared pre-append checks: rebuild idempotency cache, check for cached duplicate,
-   * initialize sequence counter, and validate optimistic concurrency.
-   * Returns the cached event if idempotency key matched, otherwise undefined.
-   * Must be called within withLock().
+   * Shared post-validation path: delegate to AtomicAppender, translate the
+   * typed result back into the legacy `WorkflowEvent` return shape, then run
+   * supplementary backend + outbox replication. Sidecar mode short-circuits
+   * before this method is reached.
+   *
+   * The AtomicAppender holds the per-stream lock for the duration of its
+   * append; backend and outbox writes happen after the lock is released.
+   * That ordering matches the legacy semantics — both were already
+   * "supplementary, log-on-failure" — and avoids extending the critical
+   * section across remote calls.
    */
-  private async checkIdempotencyAndSequence(
+  private async delegateAppend(
     streamId: string,
+    event: WorkflowEvent,
+    idempotencyKey: string | undefined,
     options?: AppendOptions,
-  ): Promise<WorkflowEvent | undefined> {
-    // Rebuild idempotency cache from JSONL on first access per stream
-    if (options?.idempotencyKey && !this.idempotencyCacheInitialized.has(streamId)) {
-      await this.rebuildIdempotencyCache(streamId);
-    }
+  ): Promise<WorkflowEvent> {
+    const appender = this.getAppender();
+    const appendOptions =
+      options?.expectedSequence !== undefined
+        ? { expectedSequence: options.expectedSequence }
+        : undefined;
+    // Strip mutable scaffolding fields that AtomicAppender re-derives.
+    // sequence + eventId come back from the appender; streamId + timestamp +
+    // idempotencyKey are passed through verbatim because we already pinned
+    // them above.
+    const { sequence: _ignoredSeq, ...eventInputBase } = event as WorkflowEvent & { sequence?: number };
+    const result = idempotencyKey
+      ? await appender.append(streamId, [eventInputBase], idempotencyKey, appendOptions)
+      : await appender.appendUnkeyed(streamId, [eventInputBase], appendOptions);
 
-    // Idempotency check: return cached event if key was already seen
-    if (options?.idempotencyKey) {
-      const streamCache = this.idempotencyCache.get(streamId);
-      const cached = streamCache?.get(options.idempotencyKey);
-      if (cached) return cached;
-    }
-
-    // Initialize sequence from file if not cached
-    if (!this.sequenceCounters.has(streamId)) {
-      await this.initializeSequence(streamId);
-    }
-
-    // Optimistic concurrency check
-    if (options?.expectedSequence !== undefined) {
-      // Re-read from file for freshest state
-      await this.initializeSequence(streamId);
-      const actualSequence = this.sequenceCounters.get(streamId) ?? 0;
-
-      if (actualSequence !== options.expectedSequence) {
-        throw new SequenceConflictError(options.expectedSequence, actualSequence);
-      }
-    }
-
-    return undefined;
-  }
-
-  /**
-   * Shared post-construct logic: write to JSONL, cache idempotency key,
-   * dual-write to backend, and write to outbox.
-   * Must be called within withLock().
-   */
-  private async persistAndReplicate(streamId: string, fullEvent: WorkflowEvent): Promise<void> {
-    await this.writeEvents(streamId, [fullEvent]);
-    this.cacheIdempotencyKey(streamId, fullEvent);
-
-    // Backend dual-write: replicate to backend if available
-    // JSONL is the source of truth; backend write failure is logged but does not fail the append
-    if (this.backend) {
-      try {
-        this.backend.appendEvent(streamId, fullEvent);
-      } catch (err) {
-        storeLogger.warn(
-          { err: err instanceof Error ? err.message : String(err), streamId, sequence: fullEvent.sequence },
-          'Backend dual-write failed — stores may diverge',
+    if (!result.ok) {
+      if (result.reason === 'sequence-conflict') {
+        throw new SequenceConflictError(
+          result.expected ?? options?.expectedSequence ?? -1,
+          result.actual ?? -1,
         );
       }
+      throw result.cause ?? new Error(`Append failed: ${result.reason}`);
     }
 
-    /**
-     * Outbox integration: write supplementary entry under the same lock.
-     *
-     * KNOWN LIMITATION — Atomicity gap: The JSONL event append (above) and
-     * this outbox write are NOT transactionally atomic. A crash between them
-     * could leave an event in JSONL without a corresponding outbox entry.
-     * This is acceptable because:
-     * 1. The outbox is supplementary — JSONL is the source of truth
-     * 2. The sync layer reconciles from JSONL, catching any missed entries
-     * 3. In-process lock serialization prevents concurrent partial writes
-     */
-    if (this.outbox) {
-      try {
-        await this.outbox.addEntry(streamId, fullEvent);
-      } catch (err) {
-        // Outbox is supplementary; log but don't fail the append
-        storeLogger.error({ err: err instanceof Error ? err.message : String(err) }, 'Outbox entry failed');
-      }
+    // Cache-hit branch: return the originally-persisted event verbatim and
+    // SKIP backend/outbox replication. Those side effects already ran when
+    // the original commit landed; running them again with the current
+    // request payload would replicate data that was never written to JSONL
+    // (the bug CR-thread #3205805943 closes).
+    if (result.kind === 'cache-hit') {
+      const cached = result.persistedEvents[0];
+      return {
+        streamId: cached.streamId,
+        sequence: cached.sequence,
+        type: cached.type,
+        timestamp: cached.timestamp,
+        ...(cached.idempotencyKey !== undefined ? { idempotencyKey: cached.idempotencyKey } : {}),
+        ...(cached.data !== undefined ? { data: cached.data } : {}),
+        ...(cached.correlationId !== undefined ? { correlationId: cached.correlationId } : {}),
+        ...(cached.causationId !== undefined ? { causationId: cached.causationId } : {}),
+        ...(cached.agentId !== undefined ? { agentId: cached.agentId } : {}),
+        ...(cached.agentRole !== undefined ? { agentRole: cached.agentRole } : {}),
+        ...(cached.source !== undefined ? { source: cached.source } : {}),
+        ...(cached.schemaVersion !== undefined ? { schemaVersion: cached.schemaVersion } : {}),
+      } as WorkflowEvent;
+    }
+
+    const fullEvent: WorkflowEvent = {
+      ...event,
+      streamId,
+      sequence: result.sequences[0],
+      // Timestamp comes back from the appender so the synthesized event
+      // matches the persisted shape exactly.
+      timestamp: result.timestamps[0],
+    } as WorkflowEvent;
+
+    this.replicateBackend(streamId, fullEvent);
+    await this.writeOutbox(streamId, fullEvent);
+    return fullEvent;
+  }
+
+  /** Best-effort backend dual-write — JSONL is the source of truth. */
+  private replicateBackend(streamId: string, event: WorkflowEvent): void {
+    if (!this.backend) return;
+    try {
+      this.backend.appendEvent(streamId, event);
+    } catch (err) {
+      storeLogger.warn(
+        { err: err instanceof Error ? err.message : String(err), streamId, sequence: event.sequence },
+        'Backend dual-write failed — stores may diverge',
+      );
+    }
+  }
+
+  /**
+   * Best-effort outbox replication. JSONL is the source of truth; the sync
+   * layer reconciles any missed entries from JSONL on next pass.
+   *
+   * KNOWN LIMITATION — Atomicity gap (carried over from the legacy path):
+   * The JSONL append (in AtomicAppender) and this outbox write are NOT
+   * transactionally atomic. A crash between them leaves an event in JSONL
+   * without a corresponding outbox entry. Sync reconciliation closes the
+   * gap on next pass.
+   */
+  private async writeOutbox(streamId: string, event: WorkflowEvent): Promise<void> {
+    if (!this.outbox) return;
+    try {
+      await this.outbox.addEntry(streamId, event);
+    } catch (err) {
+      storeLogger.error(
+        { err: err instanceof Error ? err.message : String(err) },
+        'Outbox entry failed',
+      );
     }
   }
 
@@ -671,134 +716,105 @@ export class EventStore {
       }
       return results;
     }
-    return this.withLock(streamId, async () => {
-      // Rebuild idempotency cache if any event has an idempotency key
-      const hasIdempotencyKeys = events.some(e => e.idempotencyKey);
-      if (hasIdempotencyKeys && !this.idempotencyCacheInitialized.has(streamId)) {
-        await this.rebuildIdempotencyCache(streamId);
-      }
 
-      // Initialize sequence from file if not cached
-      if (!this.sequenceCounters.has(streamId)) {
-        await this.initializeSequence(streamId);
-      }
+    if (events.length === 0) return [];
 
-      // Phase 1: Validate all events before writing any (atomic: all-or-nothing)
-      const toAppend: WorkflowEvent[] = [];
-      const batchKeys = new Set<string>();
-      let nextSequence = (this.sequenceCounters.get(streamId) ?? 0) + 1;
-
-      for (const event of events) {
-        // Idempotency dedup within batch and against cache
-        if (event.idempotencyKey) {
-          const streamCache = this.idempotencyCache.get(streamId);
-          const cached = streamCache?.get(event.idempotencyKey);
-          if (cached) continue;
-
-          // Also check within this batch (O(1) Set lookup)
-          if (batchKeys.has(event.idempotencyKey)) continue;
-          batchKeys.add(event.idempotencyKey);
-        }
-
-        const fullEvent = WorkflowEventBase.parse({
-          ...event,
-          streamId,
-          sequence: nextSequence,
-          timestamp: event.timestamp || new Date().toISOString(),
-          idempotencyKey: event.idempotencyKey,
-        });
-        toAppend.push(fullEvent);
-        nextSequence++;
-      }
-
-      // Phase 2: Write all validated events in a single append
-      if (toAppend.length > 0) {
-        await this.writeEvents(streamId, toAppend);
-        for (const fullEvent of toAppend) {
-          this.cacheIdempotencyKey(streamId, fullEvent);
-        }
-
-        // Backend dual-write: replicate batch to backend if available
-        if (this.backend) {
-          try {
-            for (const fullEvent of toAppend) {
-              this.backend.appendEvent(streamId, fullEvent);
-            }
-          } catch (err) {
-            storeLogger.warn(
-              { err: err instanceof Error ? err.message : String(err), streamId, count: toAppend.length },
-              'Backend batch dual-write failed — stores may diverge',
-            );
-          }
-        }
-
-        // Outbox replication: write entries for at-least-once delivery
-        if (this.outbox) {
-          for (const fullEvent of toAppend) {
-            try {
-              await this.outbox.addEntry(streamId, fullEvent);
-            } catch (err) {
-              storeLogger.error(
-                { err: err instanceof Error ? err.message : String(err) },
-                'Outbox entry failed during batch append',
-              );
-            }
-          }
-        }
-      }
-
-      return toAppend;
+    // Validate every event up front so a malformed input fails before any
+    // sequence is allocated. Sequence is a placeholder; AtomicAppender
+    // re-derives the authoritative values inside the lock.
+    const validated: WorkflowEvent[] = events.map((event) => {
+      const timestamp = event.timestamp || new Date().toISOString();
+      return WorkflowEventBase.parse({
+        ...event,
+        streamId,
+        sequence: 1,
+        timestamp,
+        idempotencyKey: event.idempotencyKey,
+      });
     });
-  }
 
-  // ─── Shared Helpers ────────────────────────────────────────────────────────
-
-  /** Writes events to JSONL and updates the .seq counter file. */
-  private async writeEvents(streamId: string, events: WorkflowEvent[]): Promise<void> {
-    if (events.length === 0) return;
-
-    const filePath = this.getEventFilePath(streamId);
-
-    // Ensure directory exists
-    await fs.mkdir(path.dirname(filePath), { recursive: true });
-
-    // Append as JSONL
-    const lines = events.map(e => JSON.stringify(e)).join('\n') + '\n';
-    await fs.appendFile(filePath, lines, 'utf-8');
-
-    // Update in-memory sequence counter
-    const finalSequence = events[events.length - 1].sequence;
-    this.sequenceCounters.set(streamId, finalSequence);
-
-    // Write sequence counter atomically (best-effort: JSONL is source of truth)
-    const seqPath = this.getSeqFilePath(streamId);
-    const tmpPath = `${seqPath}.tmp`;
-    try {
-      await fs.writeFile(tmpPath, JSON.stringify({ sequence: finalSequence }), 'utf-8');
-      await fs.rename(tmpPath, seqPath);
-    } catch {
-      // Best-effort: JSONL is source of truth, .seq is just a cache
-      await fs.rm(tmpPath, { force: true }).catch(() => {});
-      await fs.rm(seqPath, { force: true }).catch(() => {});
+    // Intra-batch dedup: if any two events share an idempotencyKey, keep
+    // the first and drop the rest. Matches the legacy contract.
+    const seenBatchKeys = new Set<string>();
+    const deduped: WorkflowEvent[] = [];
+    for (const event of validated) {
+      if (event.idempotencyKey && seenBatchKeys.has(event.idempotencyKey)) continue;
+      if (event.idempotencyKey) seenBatchKeys.add(event.idempotencyKey);
+      deduped.push(event);
     }
-  }
+    if (deduped.length === 0) return [];
 
-  /** Caches an event's idempotency key with FIFO eviction. */
-  private cacheIdempotencyKey(streamId: string, event: WorkflowEvent): void {
-    if (!event.idempotencyKey) return;
+    // Choose a batch idempotency key:
+    //   - all events share one key  → that key (preserves cross-batch retry).
+    //   - any event has a key but they differ → synthesize batch:<uuid> so
+    //     cross-batch retries don't dedup against a partial overlap.
+    //   - all events keyless → unkeyed append (no cache pollution).
+    const eventKeys = deduped.map((e) => e.idempotencyKey).filter((k): k is string => !!k);
+    const allHaveKeys = eventKeys.length === deduped.length;
+    const allSameKey = allHaveKeys && eventKeys.every((k) => k === eventKeys[0]);
 
-    let streamCache = this.idempotencyCache.get(streamId);
-    if (!streamCache) {
-      streamCache = new Map();
-      this.idempotencyCache.set(streamId, streamCache);
+    const appender = this.getAppender();
+    const eventInputs = deduped.map((e) => {
+      const { sequence: _ignored, ...input } = e as WorkflowEvent & { sequence?: number };
+      return input;
+    });
+
+    let result: import('./atomic-appender.js').AppendResult;
+    if (eventKeys.length === 0) {
+      result = await appender.appendUnkeyed(streamId, eventInputs);
+    } else {
+      const batchKey = allSameKey ? eventKeys[0] : `batch:${randomUUIDFn()}`;
+      result = await appender.append(streamId, eventInputs, batchKey);
     }
-    streamCache.set(event.idempotencyKey, event);
 
-    // FIFO eviction: remove oldest key when cache exceeds max
-    if (streamCache.size > this.maxIdempotencyKeys) {
-      const oldest = streamCache.keys().next().value;
-      if (oldest) streamCache.delete(oldest);
+    if (!result.ok) {
+      if (result.reason === 'idempotency-claimed') {
+        // Legacy semantics: a cache hit on the (single) batch key returns the
+        // cached events. AtomicAppender already returns ok:true with cached
+        // sequences/eventIds for that path, so this branch only fires on the
+        // structural failure case — surface it.
+        throw new Error(`Batch append failed: ${result.reason}`);
+      }
+      throw result.cause ?? new Error(`Batch append failed: ${result.reason}`);
     }
+
+    // Cache-hit branch: return the original persisted events verbatim and
+    // skip backend/outbox (already done at original commit time). See
+    // delegateAppend for the same pattern + design rationale.
+    if (result.kind === 'cache-hit') {
+      return result.persistedEvents.map(
+        (e) => ({
+          streamId: e.streamId,
+          sequence: e.sequence,
+          type: e.type,
+          timestamp: e.timestamp,
+          ...(e.idempotencyKey !== undefined ? { idempotencyKey: e.idempotencyKey } : {}),
+          ...(e.data !== undefined ? { data: e.data } : {}),
+          ...(e.correlationId !== undefined ? { correlationId: e.correlationId } : {}),
+          ...(e.causationId !== undefined ? { causationId: e.causationId } : {}),
+          ...(e.agentId !== undefined ? { agentId: e.agentId } : {}),
+          ...(e.agentRole !== undefined ? { agentRole: e.agentRole } : {}),
+          ...(e.source !== undefined ? { source: e.source } : {}),
+          ...(e.schemaVersion !== undefined ? { schemaVersion: e.schemaVersion } : {}),
+        } as WorkflowEvent),
+      );
+    }
+
+    const fullEvents: WorkflowEvent[] = deduped.map((event, i) => ({
+      ...event,
+      sequence: result.sequences[i],
+      timestamp: result.timestamps[i],
+    }));
+
+    // Supplementary replication, post-success, mirrors the legacy ordering.
+    for (const fullEvent of fullEvents) {
+      this.replicateBackend(streamId, fullEvent);
+    }
+    for (const fullEvent of fullEvents) {
+      await this.writeOutbox(streamId, fullEvent);
+    }
+
+    return fullEvents;
   }
 
   async query(streamId: string, filters?: QueryFilters): Promise<WorkflowEvent[]> {
@@ -850,7 +866,7 @@ export class EventStore {
 
     // Derive `mainMax` from the JSONL source-of-truth whenever it exists,
     // even in backend mode. Backend dual-write is best-effort (see
-    // `persistAndReplicate`), so `backend.getSequence()` can lag the real
+    // `replicateBackend`/`writeOutbox`), so `backend.getSequence()` can lag the real
     // JSONL high-water mark and cause synthetic sidecar sequences to
     // collide with already-durable events. Only fall back to the backend
     // counter when there is no local JSONL to read (e.g., remote-only
@@ -869,11 +885,23 @@ export class EventStore {
    * Read the current max sequence for a stream directly from JSONL
    * (bypassing any storage backend). Used by the sidecar merge path so
    * synthetic sidecar sequences never collide with real JSONL-durable
-   * events when the backend is lagging — the JSONL append is the barrier
-   * for correctness (see `persistAndReplicate`: JSONL is source of truth,
-   * backend dual-write is best-effort). Prefers the O(1) `.seq` file and
-   * falls back to JSONL line-counting; returns the backend sequence only
-   * when no local JSONL exists.
+   * events when the backend is lagging.
+   *
+   * Post-#1293, the substrate preserves corrupt histories (gaps, duplicate
+   * sequences, offset starts). The previous cross-validation —
+   * `parsed.sequence === lineCount` — was a JSONL-era hack that flagged
+   * legitimate post-migration histories as stale and rebased the sidecar
+   * baseline below the real high-water mark. The current logic trusts a
+   * valid `.seq` value as the authoritative max-sequence read; the
+   * line-count fallback is reserved for the genuinely-missing-or-corrupt
+   * `.seq` case (no `.seq` file, or contents that don't parse as a
+   * non-negative integer).
+   *
+   * For broken histories where line count diverges from max-sequence
+   * (e.g. JSONL `[5,6,7]`), the JSONL line count would have returned 3,
+   * causing sidecar synthetic sequences to start at 4 — colliding with
+   * already-durable events at 5,6,7. Reading max-sequence from the JSONL
+   * directly (via `SEQUENCE_REGEX`) gives the correct baseline.
    */
   private async readJsonlMaxSequence(streamId: string): Promise<number> {
     const mainPath = this.getEventFilePath(streamId);
@@ -888,23 +916,32 @@ export class EventStore {
       const content = await fs.readFile(seqPath, 'utf-8');
       const parsed = JSON.parse(content);
       if (typeof parsed.sequence === 'number' && parsed.sequence >= 0) {
-        // Cross-validate against JSONL so a stale .seq (e.g. interrupted
-        // write) doesn't feed the sidecar path a wrong baseline.
-        try {
-          const jsonl = await fs.readFile(mainPath, 'utf-8');
-          const lineCount = jsonl.trim().split('\n').filter(Boolean).length;
-          if (parsed.sequence === lineCount) return parsed.sequence;
-        } catch {
-          return parsed.sequence;
-        }
+        // Trust the .seq value. Cross-validating against JSONL line count
+        // mis-flagged broken histories that the migration explicitly
+        // preserves (see CR thread 3205805932 / outside-diff for store.ts:858-879).
+        return parsed.sequence;
       }
     } catch {
-      // .seq unreadable — fall through to JSONL line count.
+      // .seq missing or malformed — fall through to JSONL max-sequence scan.
     }
 
+    // Fallback: scan JSONL for the highest persisted sequence. Uses
+    // SEQUENCE_REGEX to avoid full JSON.parse per line; this is the same
+    // recovery semantic AtomicAppender.rebuildCachesFromJsonl uses on
+    // first contact, kept consistent so sidecar and appender agree on
+    // the baseline.
     try {
       const jsonl = await fs.readFile(mainPath, 'utf-8');
-      return jsonl.trim().split('\n').filter(Boolean).length;
+      let maxSeq = 0;
+      for (const line of jsonl.split('\n')) {
+        if (line.length === 0) continue;
+        const m = SEQUENCE_REGEX.exec(line);
+        if (m) {
+          const s = Number.parseInt(m[1], 10);
+          if (Number.isFinite(s) && s > maxSeq) maxSeq = s;
+        }
+      }
+      return maxSeq;
     } catch {
       return 0;
     }
@@ -936,19 +973,19 @@ export class EventStore {
     const offset = filters?.offset ?? 0;
     const limit = filters?.limit;
 
-    // Fast-skip relies on the invariant that line N contains sequence N
-    // (monotonically increasing); only safe when filtering solely by sequence.
-    const canFastSkip = filters?.sinceSequence !== undefined
-      && !filters.type && !filters.since && !filters.until;
-    let lineCount = 0;
-
+    // Pre-#1293, a "fast-skip" optimization assumed line N contains sequence
+    // N and skipped by physical line count alone. After the migration
+    // preserves corrupt histories (gaps, duplicates, offset starts), that
+    // invariant no longer holds — `[5,6,7]` with `sinceSequence: 6` would
+    // skip all three lines and miss event 7. Always use the regex-based
+    // parsed-sequence comparison; the JSON.parse cost is paid only by
+    // events that survive the filter, so the optimization wasn't load-
+    // bearing for the common case anyway. (CR thread 3205805940 /
+    // outside-diff for store.ts:911-922.)
     for await (const line of rl) {
       if (!line.trim()) continue;
-      lineCount++;
 
-      if (canFastSkip && lineCount <= filters!.sinceSequence!) continue;
-
-      if (!canFastSkip && filters?.sinceSequence !== undefined) {
+      if (filters?.sinceSequence !== undefined) {
         const seqMatch = SEQUENCE_REGEX.exec(line);
         if (seqMatch) {
           const extractedSeq = parseInt(seqMatch[1], 10);
@@ -959,11 +996,9 @@ export class EventStore {
       const parsed = JSON.parse(line);
       const event = migrateEvent(parsed) as WorkflowEvent;
 
-      if (!canFastSkip) {
-        if (filters?.type && event.type !== filters.type) continue;
-        if (filters?.since && event.timestamp < filters.since) continue;
-        if (filters?.until && event.timestamp > filters.until) continue;
-      }
+      if (filters?.type && event.type !== filters.type) continue;
+      if (filters?.since && event.timestamp < filters.since) continue;
+      if (filters?.until && event.timestamp > filters.until) continue;
 
       if (skipped < offset) {
         skipped++;
@@ -1191,146 +1226,22 @@ export class EventStore {
     }
   }
 
+  /**
+   * Clean up orphaned `.seq.tmp` files left behind by a crashed atomic
+   * sequence write, and ensure the AtomicAppender will rebuild its
+   * sequence counter for this stream from JSONL on next contact.
+   *
+   * Pre-#1293 this was the legacy "re-read sequence from disk" recovery
+   * path used after a SequenceConflictError. The new substrate makes
+   * sequence rebuild implicit (every first-contact append rebuilds from
+   * JSONL under the lock), so this method now does only the housekeeping
+   * the rebuild can't safely do during an append:
+   *   - delete `<stream>.seq.tmp` if a previous process crashed mid-write.
+   * Sequence counters live inside AtomicAppender and self-recover via the
+   * normal append path.
+   */
   async refreshSequence(streamId: string): Promise<void> {
-    await this.initializeSequence(streamId);
-  }
-
-  private async rebuildIdempotencyCache(streamId: string): Promise<void> {
-    if (this.idempotencyCacheInitialized.has(streamId)) return;
-    // Do NOT mark as initialized yet — wait until cache is fully populated
-
-    const filePath = this.getEventFilePath(streamId);
-    try {
-      await fs.access(filePath);
-    } catch {
-      this.idempotencyCacheInitialized.add(streamId); // Mark even if no file
-      return;
-    }
-
-    const input = createReadStream(filePath, { encoding: 'utf-8' });
-    const rl = createInterface({ input, crlfDelay: Infinity });
-
-    // Collect all events with idempotency keys
-    const keyed: Array<{ key: string; event: WorkflowEvent }> = [];
-
-    for await (const line of rl) {
-      if (!line.trim()) continue;
-      // Pre-filter: skip lines that don't contain an idempotency key (avoids JSON.parse)
-      if (!line.includes('"idempotencyKey"')) continue;
-      const event = JSON.parse(line) as WorkflowEvent;
-      if (event.idempotencyKey) {
-        keyed.push({ key: event.idempotencyKey, event });
-      }
-    }
-
-    // Take only the last MAX_IDEMPOTENCY_KEYS entries
-    const toCache = keyed.slice(-this.maxIdempotencyKeys);
-
-    if (toCache.length > 0) {
-      const streamCache = new Map<string, WorkflowEvent>();
-      for (const { key, event } of toCache) {
-        streamCache.set(key, event);
-      }
-      this.idempotencyCache.set(streamId, streamCache);
-    }
-
-    this.idempotencyCacheInitialized.add(streamId); // Mark AFTER fully populated
-  }
-
-  private async initializeSequence(streamId: string): Promise<void> {
-    // Delegate to backend if available
-    if (this.backend) {
-      const seq = this.backend.getSequence(streamId);
-      this.sequenceCounters.set(streamId, seq);
-      return;
-    }
-
-    // Try .seq file first (O(1)), cross-validated against JSONL line count
-    const seqPath = this.getSeqFilePath(streamId);
-    // Clean up orphaned .seq.tmp files left by crashed atomic writes
-    const tmpPath = `${seqPath}.tmp`;
+    const tmpPath = `${this.getSeqFilePath(streamId)}.tmp`;
     await fs.rm(tmpPath, { force: true }).catch(() => {});
-    try {
-      const content = await fs.readFile(seqPath, 'utf-8');
-      const parsed = JSON.parse(content);
-      if (typeof parsed.sequence === 'number' && parsed.sequence >= 0) {
-        // Cross-validate against JSONL line count to detect stale .seq files
-        const filePath = this.getEventFilePath(streamId);
-        try {
-          const jsonlContent = await fs.readFile(filePath, 'utf-8');
-          const lineCount = jsonlContent.trim().split('\n').filter(Boolean).length;
-          if (parsed.sequence !== lineCount) {
-            storeLogger.warn(
-              { streamId, seqFile: parsed.sequence, jsonlLines: lineCount },
-              'Stale .seq detected — falling through to JSONL',
-            );
-            // Fall through to JSONL line counting below
-          } else {
-            this.sequenceCounters.set(streamId, parsed.sequence);
-            return;
-          }
-        } catch {
-          // JSONL unreadable — trust .seq value
-          this.sequenceCounters.set(streamId, parsed.sequence);
-          return;
-        }
-      }
-    } catch {
-      // Fall through to line counting
-    }
-
-    // Fallback: count lines in JSONL file (O(n)) with full monotonicity validation
-    const filePath = this.getEventFilePath(streamId);
-    try {
-      const content = await fs.readFile(filePath, 'utf-8');
-      const lines = content.trim().split('\n').filter(Boolean);
-
-      if (lines.length > 0) {
-        // Full monotonicity check: every event must have sequence === lineIndex + 1
-        let needsRepair = false;
-        for (let i = 0; i < lines.length; i++) {
-          const match = SEQUENCE_REGEX.exec(lines[i]);
-          const seq = match ? parseInt(match[1], 10) : NaN;
-          if (seq !== i + 1) {
-            needsRepair = true;
-            break;
-          }
-        }
-
-        if (needsRepair) {
-          storeLogger.warn(
-            { streamId, lineCount: lines.length },
-            'Sequence corruption detected — repairing stream with monotonic re-sequencing',
-          );
-          // Re-sequence all events with correct monotonic sequence numbers
-          const repaired: string[] = [];
-          for (let i = 0; i < lines.length; i++) {
-            const event = JSON.parse(lines[i]) as WorkflowEvent;
-            const fixed = { ...event, sequence: i + 1 };
-            repaired.push(JSON.stringify(fixed));
-          }
-          const tmpJsonl = `${filePath}.repair.tmp`;
-          await fs.writeFile(tmpJsonl, repaired.join('\n') + '\n', 'utf-8');
-          await fs.rename(tmpJsonl, filePath);
-          // Update .seq cache to match repaired state
-          const seqPath = this.getSeqFilePath(streamId);
-          const tmpPath = `${seqPath}.tmp`;
-          try {
-            await fs.writeFile(tmpPath, JSON.stringify({ sequence: lines.length }), 'utf-8');
-            await fs.rename(tmpPath, seqPath);
-          } catch {
-            await fs.rm(tmpPath, { force: true }).catch(() => {});
-          }
-        }
-      }
-
-      this.sequenceCounters.set(streamId, lines.length);
-    } catch (err) {
-      storeLogger.warn(
-        { streamId, err: err instanceof Error ? err.message : String(err) },
-        'Failed to initialize sequence from JSONL — defaulting to 0',
-      );
-      this.sequenceCounters.set(streamId, 0);
-    }
   }
 }

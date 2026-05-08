@@ -1,8 +1,51 @@
 import { z, ZodError } from 'zod';
+import * as fs from 'node:fs/promises';
+import * as path from 'node:path';
 import { EventStore, SequenceConflictError } from './store.js';
-import { EVENT_DATA_SCHEMAS, type EventType } from './schemas.js';
+import { EVENT_DATA_SCHEMAS, type EventType, WorkflowEventBase } from './schemas.js';
 import { pickFields, toEventAck, type EventAck, type ToolResult } from '../format.js';
 import { buildValidatedEvent } from './event-factory.js';
+import { randomUUID } from 'node:crypto';
+
+/**
+ * Find the highest-sequence `team.disbanded` event for a given team in the
+ * parent stream's JSONL. Used by the C11 router-interception path to fabricate
+ * an EventAck after `SubagentStreamRouter.emitDisbanded` (which has a void
+ * return type) writes the corrected event. Returns -1 when the file can't be
+ * read; the caller maps that to `sequencePending` via `toSafeEventAck`.
+ */
+async function readLatestDisbandedSequence(
+  stateDir: string,
+  streamId: string,
+  teamId: string,
+): Promise<number> {
+  const filePath = path.join(stateDir, `${streamId}.events.jsonl`);
+  let raw: string;
+  try {
+    raw = await fs.readFile(filePath, 'utf-8');
+  } catch {
+    return -1;
+  }
+  let maxSeq = -1;
+  for (const line of raw.split('\n')) {
+    if (line.length === 0) continue;
+    let parsed: { type?: string; sequence?: number; data?: { teamId?: string } };
+    try {
+      parsed = JSON.parse(line) as typeof parsed;
+    } catch {
+      continue;
+    }
+    if (
+      parsed.type === 'team.disbanded'
+      && parsed.data?.teamId === teamId
+      && typeof parsed.sequence === 'number'
+      && parsed.sequence > maxSeq
+    ) {
+      maxSeq = parsed.sequence;
+    }
+  }
+  return maxSeq;
+}
 
 /**
  * Build an EventAck from a stored event. When the event has a non-positive
@@ -96,6 +139,76 @@ export async function handleEventAppend(
         message: `Event fields placed at wrong level — ${misplaced.map(f => `"${f}"`).join(', ')} should be inside "data", not at the top level. Wrap them: { type: "${eventType}", data: { ${misplaced.join(', ')}: ... } }`,
       },
     };
+  }
+
+  // ─── C11: SubagentStreamRouter interception for team.disbanded (#1224) ───
+  //
+  // Agents bookkeep `tasksCompleted` in memory and frequently get the count
+  // wrong (the #1224 off-by-N regression). The router queries the parent
+  // stream for the actual `task.completed` count scoped to `teamId` — server
+  // side enforcement at the boundary. Sidecar mode skips the router because
+  // the router's JSONL scan won't see writes that haven't been merged from
+  // the sidecar yet; the legacy path still preserves order.
+  if (eventType === 'team.disbanded' && !store.inSidecarMode) {
+    const data = (args.event.data ?? {}) as Record<string, unknown>;
+    const teamId = data.teamId as string | undefined;
+    if (typeof teamId === 'string' && teamId.length > 0) {
+      // Construct DisbandedSummary — explicitly DROP `tasksCompleted` even if
+      // the caller supplied one. The router computes the authoritative value.
+      // Pass through every other field; the router persists them verbatim.
+      const summary: Record<string, unknown> = { teamId };
+      for (const [key, value] of Object.entries(data)) {
+        if (key === 'tasksCompleted' || key === 'teamId') continue;
+        summary[key] = value;
+      }
+      // Required by the schema and the router's DisbandedSummary contract.
+      if (typeof summary.totalDurationMs !== 'number') {
+        summary.totalDurationMs = 0;
+      }
+      if (typeof summary.tasksFailed !== 'number') {
+        summary.tasksFailed = 0;
+      }
+
+      try {
+        const router = store.getStreamRouter();
+        await router.emitDisbanded(args.stream, summary as {
+          teamId: string;
+          totalDurationMs: number;
+          tasksFailed: number;
+          [k: string]: unknown;
+        });
+        // Recover the allocated sequence from the JSONL — the router's
+        // void return type doesn't surface it, and AtomicAppender's per-
+        // stream lock guarantees the most recent `team.disbanded` for this
+        // teamId is the one we just wrote. Falls back to -1/sequencePending
+        // when the file isn't readable for any reason; callers already
+        // tolerate that shape via `toSafeEventAck`.
+        const sequence = await readLatestDisbandedSequence(
+          stateDir,
+          args.stream,
+          teamId,
+        );
+        return {
+          success: true,
+          data: toSafeEventAck({
+            streamId: args.stream,
+            sequence,
+            type: eventType,
+          }),
+        };
+      } catch (err) {
+        return {
+          success: false,
+          error: {
+            code: 'APPEND_FAILED',
+            message: err instanceof Error ? err.message : String(err),
+          },
+        };
+      }
+    }
+    // Fall through to the legacy path when teamId is missing — the router
+    // can't scope its query without it, and the schema-level validation
+    // below will produce the right error message.
   }
 
   try {
@@ -205,6 +318,165 @@ export async function handleBatchAppend(
 
   const store = eventStore;
 
+  // Sidecar mode: AtomicAppender does not model the JSONL/sidecar split, so we
+  // preserve the legacy EventStore.batchAppend path when another process holds
+  // the PID lock. Normal-mode batches route through AtomicAppender (C2).
+  if (store.inSidecarMode) {
+    return handleBatchAppendLegacy(args, store);
+  }
+
+  // Pre-dedup within batch by per-event idempotencyKey (preserves the
+  // single-key-dedup contract `batchAppend_IdempotencyKey_DeduplicatesAcrossBatch`
+  // exercises). The appender itself dedups across calls via the batch
+  // idempotencyKey we derive below.
+  const seenBatchKeys = new Set<string>();
+  const dedupedEvents: Array<Record<string, unknown>> = [];
+  for (const event of args.events) {
+    const key = event.idempotencyKey as string | undefined;
+    if (key !== undefined) {
+      if (seenBatchKeys.has(key)) continue;
+      seenBatchKeys.add(key);
+    }
+    dedupedEvents.push(event);
+  }
+
+  // Validate envelope only (matches legacy EventStore.batchAppend behavior:
+  // type must be a known EventType, but the per-type data schema is enforced
+  // elsewhere — we don't tighten that contract here). Boundary misplaced-field
+  // detection already ran above. The placeholder sequence/streamId fields are
+  // overwritten by AtomicAppender; they're present only because the schema
+  // requires them.
+  type ValidatedEvent = {
+    type: EventType;
+    data?: Record<string, unknown>;
+    correlationId?: string;
+    causationId?: string;
+    agentId?: string;
+    agentRole?: string;
+    tenantId?: string;
+    organizationId?: string;
+    source?: string;
+    timestamp?: string;
+  };
+  let validatedEvents: ValidatedEvent[];
+  try {
+    validatedEvents = dedupedEvents.map((event) => {
+      const parsed = WorkflowEventBase.parse({
+        ...event,
+        streamId: args.stream,
+        sequence: 1, // placeholder; AtomicAppender allocates the real sequence
+        timestamp: event.timestamp ?? new Date().toISOString(),
+      });
+      const out: ValidatedEvent = { type: parsed.type as EventType };
+      if (parsed.data !== undefined) out.data = parsed.data;
+      if (parsed.correlationId !== undefined) out.correlationId = parsed.correlationId;
+      if (parsed.causationId !== undefined) out.causationId = parsed.causationId;
+      if (parsed.agentId !== undefined) out.agentId = parsed.agentId;
+      if (parsed.agentRole !== undefined) out.agentRole = parsed.agentRole;
+      if (parsed.tenantId !== undefined) out.tenantId = parsed.tenantId;
+      if (parsed.organizationId !== undefined) out.organizationId = parsed.organizationId;
+      if (parsed.source !== undefined) out.source = parsed.source;
+      if (parsed.timestamp !== undefined) out.timestamp = parsed.timestamp;
+      return out;
+    });
+  } catch (err) {
+    if (err instanceof ZodError) {
+      return {
+        success: false,
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: `Batch validation failed: ${err.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; ')}`,
+        },
+      };
+    }
+    return {
+      success: false,
+      error: {
+        code: 'BATCH_APPEND_FAILED',
+        message: err instanceof Error ? err.message : String(err),
+      },
+    };
+  }
+
+  // If dedup pruned everything (all events shared a key already in flight), the
+  // legacy contract returns success with empty data. Match that for byte-compat.
+  if (validatedEvents.length === 0) {
+    return { success: true, data: [] };
+  }
+
+  // Derive the batch idempotencyKey:
+  //   - All events share one key  -> use it (preserves cross-batch retry semantics).
+  //   - Mixed or absent           -> synthesize a fresh UUID (no cross-batch dedup).
+  // The AtomicAppender's idempotency cache is keyed by this batch key; subsequent
+  // batches that pass the same key get the cached events back without re-appending.
+  const perEventKeys = dedupedEvents
+    .map((e) => e.idempotencyKey as string | undefined)
+    .filter((k): k is string => typeof k === 'string');
+  let batchIdempotencyKey: string;
+  if (perEventKeys.length === dedupedEvents.length && perEventKeys.length > 0) {
+    const allSame = perEventKeys.every((k) => k === perEventKeys[0]);
+    batchIdempotencyKey = allSame ? perEventKeys[0] : `batch:${randomUUID()}`;
+  } else {
+    batchIdempotencyKey = `batch:${randomUUID()}`;
+  }
+
+  const appender = store.getAppender();
+  const result = await appender.append(args.stream, validatedEvents, batchIdempotencyKey);
+
+  if (!result.ok) {
+    return {
+      success: false,
+      error: {
+        code: 'BATCH_APPEND_FAILED',
+        message: result.cause ? result.cause.message : `Append failed: ${result.reason}`,
+      },
+    };
+  }
+
+  // Map AppendResult.sequences/eventIds back to EventAck shape — preserves the
+  // success envelope `{success: true, data: EventAck[]}` callers depend on.
+  //
+  // Cache-hit branch: a retry reusing the same `batchIdempotencyKey` may
+  // pass FEWER events than the originally-cached batch (or different
+  // events entirely). `result.sequences.length` reflects the cached
+  // batch, NOT `validatedEvents.length`. Indexing `validatedEvents[i]`
+  // for the type field would crash with `Cannot read properties of
+  // undefined` whenever the cached batch is longer (Sentry comment
+  // 3205861163). Use `persistedEvents[i].type` from the appender's
+  // cache-hit payload instead — that's the type ACTUALLY persisted, which
+  // is what the EventAck should reflect.
+  const acks: EventAck[] = result.kind === 'cache-hit'
+    ? result.persistedEvents.map((e, i) => {
+        const ack = toEventAck({
+          streamId: args.stream,
+          sequence: result.sequences[i],
+          type: e.type,
+        });
+        return ack.sequence <= 0 ? { ...ack, sequence: -1, sequencePending: true } : ack;
+      })
+    : result.sequences.map((sequence, i) => {
+        const ack = toEventAck({
+          streamId: args.stream,
+          sequence,
+          type: validatedEvents[i].type,
+        });
+        return ack.sequence <= 0 ? { ...ack, sequence: -1, sequencePending: true } : ack;
+      });
+  return { success: true, data: acks };
+}
+
+/**
+ * Legacy four-phase batch append path. Retained for sidecar mode where the
+ * AtomicAppender's filesystem assumptions don't hold (sidecar mode routes
+ * writes to a separate file with deferred sequence allocation).
+ */
+async function handleBatchAppendLegacy(
+  args: {
+    stream: string;
+    events: Array<Record<string, unknown>>;
+  },
+  store: EventStore,
+): Promise<ToolResult> {
   try {
     const storeEvents = args.events.map((event) => ({
       type: event.type as EventType,

@@ -584,29 +584,32 @@ describe('EventStore Sequence Persistence', () => {
   });
 
   // Append succeeds even when .seq write fails
-  it('EventStore_SeqWriteFails_AppendStillSucceeds', async () => {
+  it('EventStore_SeqWriteFails_AppendRollsBackJsonl', async () => {
+    // After the AtomicAppender migration (#1293), `.seq` failure is no
+    // longer swallowed: that silent-success path was the substrate-level
+    // half of #1228 (phantom idempotencyKey on partial-write failure).
+    // The all-or-none contract requires the JSONL append to roll back
+    // when the .seq write fails, and the error to surface to the caller.
     const store = new EventStore(tempDir);
 
-    // First append succeeds normally
     await store.append('my-workflow', { type: 'workflow.started' });
 
-    // Make the .seq file path a directory so writeFile will fail
+    // Make the .seq file path a directory so the rename target fails.
     const seqPath = path.join(tempDir, 'my-workflow.seq');
     await fs.rm(seqPath, { force: true });
     await fs.mkdir(seqPath);
 
-    // Second append should still succeed despite .seq write failure
-    const event = await store.append('my-workflow', { type: 'task.assigned' });
-    expect(event.sequence).toBe(2);
-    expect(event.type).toBe('task.assigned');
+    // Second append must surface the error; JSONL is rolled back to its
+    // pre-attempt state (1 line, not 2).
+    await expect(
+      store.append('my-workflow', { type: 'task.assigned' }),
+    ).rejects.toThrow();
 
-    // Verify the JSONL file has both events (source of truth)
     const filePath = path.join(tempDir, 'my-workflow.events.jsonl');
     const content = await fs.readFile(filePath, 'utf-8');
-    const lines = content.trim().split('\n');
-    expect(lines).toHaveLength(2);
+    const lines = content.trim().split('\n').filter(Boolean);
+    expect(lines).toHaveLength(1);
 
-    // Clean up: remove the directory so afterEach can clean up
     await fs.rm(seqPath, { recursive: true, force: true });
   });
 
@@ -1445,31 +1448,31 @@ describe('EventStore Sequence Invariant', () => {
     expect(event.sequence).toBe(4);
   });
 
-  it('InitializeSequence_BrokenInvariant_AutoRepairs', async () => {
-    // Create a JSONL file where first line has wrong sequence
+  it('InitializeSequence_BrokenInvariant_ContinuesFromMaxSequence', async () => {
+    // Post-#1293 migration: the legacy auto-repair-by-rewriting-JSONL behavior
+    // is gone. AtomicAppender reads max(sequence) from the JSONL and continues
+    // from max+1, leaving the corrupted history in place. This is correct
+    // for #1259 (SQLite uses MAX(sequence)+1; aggressive in-place rewrites
+    // were a JSONL-era hack that risks data loss on flaky disks).
     const filePath = path.join(tempDir, 'broken-seq.events.jsonl');
     const events = [
       { streamId: 'broken-seq', sequence: 5, type: 'workflow.started', timestamp: '2025-01-01T00:00:00.000Z', schemaVersion: '1.0' },
       { streamId: 'broken-seq', sequence: 6, type: 'task.assigned', timestamp: '2025-01-01T00:00:01.000Z', schemaVersion: '1.0' },
     ];
     await fs.writeFile(filePath, events.map(e => JSON.stringify(e)).join('\n') + '\n', 'utf-8');
-
-    // Delete .seq file to force fallback path with invariant check
-    const seqPath = path.join(tempDir, 'broken-seq.seq');
-    await fs.rm(seqPath, { force: true });
+    await fs.rm(path.join(tempDir, 'broken-seq.seq'), { force: true });
 
     const store = new EventStore(tempDir);
-    // Auto-repair: re-sequences to 1,2 then appends as 3
     const event = await store.append('broken-seq', { type: 'task.claimed' });
-    expect(event.sequence).toBe(3);
+    // Continues from max(seq)+1 = 7; the existing offset-5 lines are unchanged.
+    expect(event.sequence).toBe(7);
 
-    // Verify repaired file
     const content = await fs.readFile(filePath, 'utf-8');
     const lines = content.trim().split('\n').filter(Boolean);
     expect(lines).toHaveLength(3);
-    for (let i = 0; i < lines.length; i++) {
-      expect(JSON.parse(lines[i]).sequence).toBe(i + 1);
-    }
+    expect(JSON.parse(lines[0]).sequence).toBe(5);
+    expect(JSON.parse(lines[1]).sequence).toBe(6);
+    expect(JSON.parse(lines[2]).sequence).toBe(7);
   });
 
   // T25: Blank-line tolerance
@@ -1499,9 +1502,10 @@ describe('EventStore Sequence Invariant', () => {
 // ─── Sequence Invariant Under Compaction ──────────────────────────────────────
 
 describe('EventStore Sequence Invariant Under Compaction', () => {
-  it('initializeSequence_CompactedFile_AutoRepairsSequences', async () => {
-    // Arrange: create a JSONL file simulating compaction where middle events
-    // were removed. 3 lines but last event has sequence 5 (gap).
+  it('initializeSequence_CompactedFile_ContinuesFromMaxSequence', async () => {
+    // Post-#1293: max(sequence)+1 semantics. Compaction-style gaps are
+    // preserved in the history; new appends continue past the highest
+    // observed sequence. SQL `MAX(sequence)+1` does the same for #1259.
     const filePath = path.join(tempDir, 'compacted.events.jsonl');
     const events = [
       { streamId: 'compacted', sequence: 1, type: 'workflow.started', timestamp: '2025-01-01T00:00:00.000Z', schemaVersion: '1.0' },
@@ -1509,24 +1513,16 @@ describe('EventStore Sequence Invariant Under Compaction', () => {
       { streamId: 'compacted', sequence: 5, type: 'workflow.transition', timestamp: '2025-01-01T00:00:02.000Z', schemaVersion: '1.0' },
     ];
     await fs.writeFile(filePath, events.map(e => JSON.stringify(e)).join('\n') + '\n', 'utf-8');
-
-    // Delete .seq file to force fallback to JSONL line counting with invariant check
-    const seqPath = path.join(tempDir, 'compacted.seq');
-    await fs.rm(seqPath, { force: true });
+    await fs.rm(path.join(tempDir, 'compacted.seq'), { force: true });
 
     const store = new EventStore(tempDir);
-
-    // Act: auto-repair re-sequences the 3 events to 1,2,3 then appends as 4
     const event = await store.append('compacted', { type: 'task.claimed' });
-    expect(event.sequence).toBe(4);
+    expect(event.sequence).toBe(6);
 
-    // Verify repaired file
     const content = await fs.readFile(filePath, 'utf-8');
     const lines = content.trim().split('\n').filter(Boolean);
     expect(lines).toHaveLength(4);
-    for (let i = 0; i < lines.length; i++) {
-      expect(JSON.parse(lines[i]).sequence).toBe(i + 1);
-    }
+    expect(JSON.parse(lines[3]).sequence).toBe(6);
   });
 
   it('initializeSequence_ValidFile_SetsCorrectSequence', async () => {
@@ -1552,8 +1548,10 @@ describe('EventStore Sequence Invariant Under Compaction', () => {
     expect(event.sequence).toBe(4);
   });
 
-  it('initializeSequence_FirstEventNotOne_AutoRepairsSequences', async () => {
-    // Arrange: create a JSONL file where first event starts at sequence 2
+  it('initializeSequence_FirstEventNotOne_ContinuesFromMaxSequence', async () => {
+    // Post-#1293: offset-from-1 history is preserved; appends continue
+    // past max(sequence). The legacy "renumber from 1" rewrite was a
+    // JSONL-era hack incompatible with #1259's SQL semantics.
     const filePath = path.join(tempDir, 'offset-seq.events.jsonl');
     const events = [
       { streamId: 'offset-seq', sequence: 2, type: 'workflow.started', timestamp: '2025-01-01T00:00:00.000Z', schemaVersion: '1.0' },
@@ -1561,24 +1559,16 @@ describe('EventStore Sequence Invariant Under Compaction', () => {
       { streamId: 'offset-seq', sequence: 4, type: 'workflow.transition', timestamp: '2025-01-01T00:00:02.000Z', schemaVersion: '1.0' },
     ];
     await fs.writeFile(filePath, events.map(e => JSON.stringify(e)).join('\n') + '\n', 'utf-8');
-
-    // Delete .seq file to force fallback
-    const seqPath = path.join(tempDir, 'offset-seq.seq');
-    await fs.rm(seqPath, { force: true });
+    await fs.rm(path.join(tempDir, 'offset-seq.seq'), { force: true });
 
     const store = new EventStore(tempDir);
-
-    // Act: auto-repair re-sequences to 1,2,3 then appends as 4
     const event = await store.append('offset-seq', { type: 'task.claimed' });
-    expect(event.sequence).toBe(4);
+    expect(event.sequence).toBe(5);
 
-    // Verify repaired file
     const content = await fs.readFile(filePath, 'utf-8');
     const lines = content.trim().split('\n').filter(Boolean);
     expect(lines).toHaveLength(4);
-    for (let i = 0; i < lines.length; i++) {
-      expect(JSON.parse(lines[i]).sequence).toBe(i + 1);
-    }
+    expect(JSON.parse(lines[3]).sequence).toBe(5);
   });
 });
 
@@ -1978,23 +1968,36 @@ describe('EventStore StorageBackend Integration', () => {
     expect(content.trim().split('\n')).toHaveLength(1);
   });
 
-  it('EventStore_getSequence_DelegatesToBackend', async () => {
-    const backend = new InMemoryBackend();
-    const store = new EventStore(tempDir, { backend });
+  it('EventStore_acrossRestart_continuesFromJsonlMaxSequence', async () => {
+    // Post-#1293 migration: AtomicAppender owns the sequence counter and
+    // rebuilds it from JSONL on first contact. Backend.getSequence is no
+    // longer the seq-init source — JSONL is the source of truth, backend
+    // is a supplementary dual-write target. The test verifies that a new
+    // EventStore instance (simulating restart) correctly continues
+    // sequence numbering across the boundary EVEN WHEN backend disagrees.
+    //
+    // Per CR review 4249046281: the prior version of this test reused the
+    // same `InMemoryBackend` instance, so `backend.getSequence()` would
+    // happily return 3 too. To prove JSONL is the load-bearing source, the
+    // restart store gets a FRESH backend that returns 0 — if AtomicAppender
+    // were still consulting backend.getSequence on init, the next append
+    // would land at sequence 1 (backend's view) and collide with the
+    // existing JSONL events at 1..3. The test asserts seq=4, so the
+    // initialization path went through JSONL.
+    const backend1 = new InMemoryBackend();
+    const store = new EventStore(tempDir, { backend: backend1 });
 
     await store.append('my-workflow', { type: 'workflow.started' });
     await store.append('my-workflow', { type: 'task.assigned' });
     await store.append('my-workflow', { type: 'workflow.transition' });
 
-    const seqSpy = vi.spyOn(backend, 'getSequence');
-
-    // Create a new store with the same backend (simulating restart)
-    const store2 = new EventStore(tempDir, { backend });
+    // Restart with a *fresh* backend whose getSequence returns 0. Forces
+    // the diverged-state path: backend says 0, JSONL says 3.
+    const backend2 = new InMemoryBackend();
+    expect(backend2.getSequence('my-workflow')).toBe(0);
+    const store2 = new EventStore(tempDir, { backend: backend2 });
     const event = await store2.append('my-workflow', { type: 'task.claimed' });
-
-    // Backend's getSequence should have been used for initialization
-    expect(seqSpy).toHaveBeenCalledWith('my-workflow');
-    expect(event.sequence).toBe(4);
+    expect(event.sequence).toBe(4); // JSONL wins over backend.
   });
 
   it('append_BackendWriteFails_StillSucceedsWithWarning', async () => {
@@ -2104,6 +2107,60 @@ describe('EventStore appendValidated', () => {
     expect(content.trim().split('\n')).toHaveLength(1);
   });
 
+  // ─── Cache-hit semantics (#1293 D1, CR review 4248944836 thread 3205805943) ─
+  //
+  // Retrying with the same idempotencyKey but a DIFFERENT payload must:
+  //   1. Return the ORIGINALLY persisted event (not a synthesized version of
+  //      the current request body — that would replicate data that was never
+  //      written to JSONL).
+  //   2. NOT trigger backend/outbox replication (already done at original
+  //      commit time — re-running would create duplicate/inconsistent state).
+
+  it('append_idempotencyRetryWithDifferentPayload_returnsOriginalAndSkipsReplication', async () => {
+    // Two side-effect counters cover both supplementary replication paths:
+    // backend dual-write AND outbox replay. Both must fire exactly once
+    // (on the original commit), not on the cache-hit retry. CR review
+    // 4249046281 asked for the outbox half explicitly — without it, a
+    // future regression that re-fired the outbox on cache-hit could
+    // pass the original test.
+    let backendCalls = 0;
+    let outboxCalls = 0;
+    const backend = {
+      appendEvent: () => { backendCalls++; },
+      getSequence: () => 0,
+      queryEvents: async () => [],
+      getMaxSequence: () => 0,
+    };
+    const outbox = {
+      addEntry: async () => { outboxCalls++; },
+    };
+    const store = new EventStore(tempDir, { backend: backend as never });
+    store.setOutbox(outbox as never);
+
+    // Original commit: payload A
+    const first = await store.append(
+      'my-workflow',
+      { type: 'task.assigned', data: { payload: 'A' } },
+      { idempotencyKey: 'shared-key' },
+    );
+    expect(first.sequence).toBe(1);
+    expect((first.data as { payload: string }).payload).toBe('A');
+    expect(backendCalls).toBe(1);
+    expect(outboxCalls).toBe(1);
+
+    // Retry with same key, DIFFERENT payload. Must return original (A, seq 1)
+    // AND must skip BOTH supplementary replications.
+    const retry = await store.append(
+      'my-workflow',
+      { type: 'task.assigned', data: { payload: 'B-DIFFERENT' } },
+      { idempotencyKey: 'shared-key' },
+    );
+    expect(retry.sequence).toBe(1);
+    expect((retry.data as { payload: string }).payload).toBe('A'); // not 'B-DIFFERENT'
+    expect(backendCalls).toBe(1); // unchanged — no second backend replication
+    expect(outboxCalls).toBe(1); // unchanged — no second outbox entry
+  });
+
   it('appendValidated_RespectsExpectedSequence', async () => {
     const store = new EventStore(tempDir);
 
@@ -2181,8 +2238,9 @@ describe('EventStore appendValidated', () => {
 // ─── Sequence Corruption Detection and Repair (#943) ────────────────────────
 
 describe('EventStore Sequence Corruption Repair', () => {
-  it('initializeSequence_DuplicateSequences_RepairsAutomatically', async () => {
-    // Arrange: manually write a JSONL file with duplicate sequence numbers
+  it('initializeSequence_DuplicateSequences_ContinuesFromMaxSequence', async () => {
+    // Post-#1293: max(sequence)+1 semantics. Duplicate sequences are
+    // preserved in history; new appends continue from max+1.
     const filePath = path.join(tempDir, 'corrupt-stream.events.jsonl');
     const corruptEvents = [
       JSON.stringify({ streamId: 'corrupt-stream', sequence: 1, type: 'workflow.started', timestamp: '2026-01-01T00:00:00Z', schemaVersion: '1.0' }),
@@ -2192,25 +2250,21 @@ describe('EventStore Sequence Corruption Repair', () => {
     ];
     await fs.writeFile(filePath, corruptEvents.join('\n') + '\n', 'utf-8');
 
-    // Act: create a new EventStore and append (triggers initializeSequence)
     const store = new EventStore(tempDir);
     const event = await store.append('corrupt-stream', { type: 'task.completed' });
+    // max(1, 2, 3, 3) + 1 = 4. Original duplicates preserved.
+    expect(event.sequence).toBe(4);
 
-    // Assert: the new event gets sequence 5 (4 existing + 1 new)
-    expect(event.sequence).toBe(5);
-
-    // Verify the repaired file has monotonic sequences
     const content = await fs.readFile(filePath, 'utf-8');
     const lines = content.trim().split('\n').filter(Boolean);
-    expect(lines).toHaveLength(5); // 4 repaired + 1 new
-    for (let i = 0; i < lines.length; i++) {
-      const parsed = JSON.parse(lines[i]);
-      expect(parsed.sequence).toBe(i + 1);
-    }
+    expect(lines).toHaveLength(5);
+    expect(JSON.parse(lines[2]).sequence).toBe(3);
+    expect(JSON.parse(lines[3]).sequence).toBe(3); // duplicate preserved
+    expect(JSON.parse(lines[4]).sequence).toBe(4);
   });
 
-  it('initializeSequence_GapInSequences_RepairsAutomatically', async () => {
-    // Arrange: JSONL with a gap (1, 2, 4 — missing 3)
+  it('initializeSequence_GapInSequences_ContinuesFromMaxSequence', async () => {
+    // Post-#1293: gaps are preserved; new appends continue from max+1.
     const filePath = path.join(tempDir, 'gap-stream.events.jsonl');
     const gapEvents = [
       JSON.stringify({ streamId: 'gap-stream', sequence: 1, type: 'workflow.started', timestamp: '2026-01-01T00:00:00Z', schemaVersion: '1.0' }),
@@ -2219,21 +2273,15 @@ describe('EventStore Sequence Corruption Repair', () => {
     ];
     await fs.writeFile(filePath, gapEvents.join('\n') + '\n', 'utf-8');
 
-    // Act: create store and append
     const store = new EventStore(tempDir);
     const event = await store.append('gap-stream', { type: 'workflow.transition' });
+    expect(event.sequence).toBe(5);
 
-    // Assert: new event gets sequence 4 (3 existing lines + 1)
-    expect(event.sequence).toBe(4);
-
-    // Verify repaired sequences
     const content = await fs.readFile(filePath, 'utf-8');
     const lines = content.trim().split('\n').filter(Boolean);
     expect(lines).toHaveLength(4);
-    for (let i = 0; i < lines.length; i++) {
-      const parsed = JSON.parse(lines[i]);
-      expect(parsed.sequence).toBe(i + 1);
-    }
+    expect(JSON.parse(lines[2]).sequence).toBe(4); // gap preserved
+    expect(JSON.parse(lines[3]).sequence).toBe(5);
   });
 
   it('initializeSequence_HealthyStream_NoRepairNeeded', async () => {

@@ -211,6 +211,89 @@ describe('selectPruneCandidates', () => {
     expect(candidates.map((c) => c.featureId)).toEqual(['impl']);
     expect(excluded.find((e) => e.featureId === 'plan')?.reason).toBe('phase-excluded');
   });
+
+  // ─── C8 (#1117): multi-signal staleness ──────────────────────────────────
+  //
+  // The single-signal gate on `_checkpoint.lastActivityTimestamp` is refreshed
+  // by ANY MCP read (`get`, `describe`), so a workflow polled by the
+  // orchestrator looks "fresh" forever. Two secondary signals close the
+  // false-fresh path:
+  //
+  // - `phaseTransitionTimestamp` — derived from the most-recent
+  //   `workflow.transition` event. Captures "stuck in phase X for N days"
+  //   even when reads keep `lastActivityTimestamp` fresh.
+  // - `branchActivityTimestamp` — `git log -1 --format=%ct` on the tracked
+  //   branch. Treats absence-of-activity in the threshold window as a
+  //   stale signal. Skipped silently when no branch is tracked.
+  //
+  // Composition:
+  //   stale = phaseTransition stale AND (lastActivity stale OR branch inactive)
+  // When neither secondary signal is supplied, the legacy single-signal path
+  // is preserved (existing tests above keep their semantics).
+
+  it('selectPruneCandidates_phaseStuckButReadActive_flagsAsStale', () => {
+    // Repro of #1117: phase entered 7d ago, but lastActivityTimestamp is 1h
+    // old because the orchestrator polls the workflow with read tools that
+    // refresh the checkpoint. The pruner used to mark this fresh and never
+    // touch it. Multi-signal scoring must catch it.
+    const entries: WorkflowListEntry[] = [
+      {
+        featureId: 'stuck-but-polled',
+        workflowType: 'feature',
+        phase: 'implementing',
+        stateFile: '/tmp/stuck-but-polled.state.json',
+        _checkpoint: { lastActivityTimestamp: minutesAgo(60) }, // 1h — fresh
+        phaseTransitionTimestamp: minutesAgo(60 * 24 * 21), // 21d — stale vs 14d default
+      },
+    ];
+
+    const { candidates } = selectPruneCandidates(entries, {}, NOW);
+
+    expect(candidates.map((c) => c.featureId)).toEqual(['stuck-but-polled']);
+  });
+
+  it('selectPruneCandidates_branchInactiveAndPhaseStuck_flagsAsStale', () => {
+    // Both secondary signals stale → flagged.
+    const entries: WorkflowListEntry[] = [
+      {
+        featureId: 'branch-and-phase-stuck',
+        workflowType: 'feature',
+        phase: 'implementing',
+        stateFile: '/tmp/branch-and-phase-stuck.state.json',
+        _checkpoint: { lastActivityTimestamp: minutesAgo(60) }, // fresh by reads
+        phaseTransitionTimestamp: minutesAgo(60 * 24 * 21), // 21d — stale vs 14d
+        branchActivityTimestamp: minutesAgo(60 * 24 * 21), // 21d — stale vs 14d
+      },
+    ];
+
+    const { candidates } = selectPruneCandidates(entries, {}, NOW);
+
+    expect(candidates.map((c) => c.featureId)).toEqual(['branch-and-phase-stuck']);
+  });
+
+  it('selectPruneCandidates_recentTransitionAndCommit_doesNotFlag', () => {
+    // Recent phase transition AND recent branch activity → NOT flagged.
+    // Pinned to prevent the new signals from creating false positives on
+    // legitimately active workflows.
+    const entries: WorkflowListEntry[] = [
+      {
+        featureId: 'actively-progressing',
+        workflowType: 'feature',
+        phase: 'implementing',
+        stateFile: '/tmp/actively-progressing.state.json',
+        // Even with an old lastActivityTimestamp, recent phase progress
+        // should keep this fresh.
+        _checkpoint: { lastActivityTimestamp: minutesAgo(60 * 24 * 30) }, // 30d
+        phaseTransitionTimestamp: minutesAgo(60), // 1h — fresh
+        branchActivityTimestamp: minutesAgo(60), // 1h — fresh
+      },
+    ];
+
+    const { candidates, excluded } = selectPruneCandidates(entries, {}, NOW);
+
+    expect(candidates.map((c) => c.featureId)).toEqual([]);
+    expect(excluded.map((e) => e.featureId)).toEqual(['actively-progressing']);
+  });
 });
 
 // ─── Handler Tests ──────────────────────────────────────────────────────────
@@ -267,11 +350,19 @@ function makeDeps(overrides: Partial<PruneHandlerDeps> = {}): PruneHandlerDeps &
     hasOpenPR: vi.fn().mockResolvedValue(false),
     hasRecentCommits: vi.fn().mockResolvedValue(false),
   };
+  // C8 (#1117): default to "no signal" for the secondary staleness signals.
+  // Existing handler tests gated only on `_checkpoint.lastActivityTimestamp`;
+  // returning `undefined` keeps the selector on the legacy single-signal
+  // path so those tests retain their semantics.
+  const phaseTransitionSpy = vi.fn().mockResolvedValue(undefined);
+  const branchActivitySpy = vi.fn().mockResolvedValue(undefined);
   return {
     handleList: listSpy,
     handleCancel: cancelSpy,
     readBranchName: branchSpy,
     safeguards,
+    readPhaseTransitionTimestamp: phaseTransitionSpy,
+    readBranchActivityTimestamp: branchActivitySpy,
     listSpy,
     cancelSpy,
     branchSpy,
