@@ -7,7 +7,7 @@ import { VersionConflictError } from './memory-backend.js';
 
 // ─── Schema DDL ─────────────────────────────────────────────────────────────
 
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 3;
 
 const SCHEMA_DDL = `
 CREATE TABLE IF NOT EXISTS events (
@@ -164,11 +164,19 @@ export class SqliteBackend implements StorageBackend {
   /**
    * Run incremental schema migrations for existing databases.
    * V1 -> V2: Add payload column to events table for full event preservation.
+   * V2 -> V3: Scaffolding step (no DDL change). Reserves SCHEMA_VERSION=3 so
+   *           later tasks (T02-T04, T12) can register new event types and
+   *           tolerant deserialization under a versioned DB shape.
+   *
+   * Each step short-circuits if its target version is already present in the
+   * `schema_version` table, so running migrateSchema() twice on a V3 DB is a
+   * no-op (idempotent).
    */
   private migrateSchema(): void {
-    // Check if payload column already exists
+    // V1 -> V2: payload column. Idempotent via PRAGMA-driven column check —
+    // this predates the schema_version table being used as a migration ledger.
     const columns = this.db
-      .prepare("PRAGMA table_info(events)")
+      .prepare('PRAGMA table_info(events)')
       .all() as Array<{ name: string }>;
 
     const hasPayload = columns.some((col) => col.name === 'payload');
@@ -176,6 +184,29 @@ export class SqliteBackend implements StorageBackend {
     if (!hasPayload) {
       this.db.exec('ALTER TABLE events ADD COLUMN payload TEXT');
     }
+
+    // V2 -> V3: gated by the schema_version ledger. Only runs when version 3
+    // has not yet been recorded. The step body itself is a no-op today
+    // (scaffolding for downstream tasks); idempotency comes from the version
+    // check, not the body.
+    const v3Existing = this.db
+      .prepare('SELECT version FROM schema_version WHERE version = ?')
+      .get(3) as { version: number } | undefined;
+
+    if (!v3Existing) {
+      this.migrateV2ToV3();
+    }
+  }
+
+  /**
+   * V2 -> V3 migration step. Currently a no-op pass-through — registered as a
+   * named helper so downstream foundation tasks (T02-T04 register new event
+   * types, T12 wires tolerant deserialization) have a single seam to extend
+   * without rewriting the runner.
+   */
+  private migrateV2ToV3(): void {
+    // No-op. SCHEMA_VERSION=3 itself is recorded by the ledger insert in
+    // initialize() once this method returns.
   }
 
   private prepareStatements(): Statements {
