@@ -24,7 +24,14 @@ import { randomUUID } from 'node:crypto';
 
 export type AppendResult =
   | { ok: true; sequences: number[]; eventIds: string[] }
-  | { ok: false; reason: 'idempotency-claimed' | 'sequence-conflict' | 'io-error'; cause?: Error };
+  | {
+      ok: false;
+      reason: 'idempotency-claimed' | 'sequence-conflict' | 'io-error';
+      cause?: Error;
+      /** Populated on `sequence-conflict` so callers can translate to typed errors. */
+      expected?: number;
+      actual?: number;
+    };
 
 export interface EventInput {
   type: string;
@@ -37,6 +44,26 @@ export interface EventInput {
   source?: string;
   schemaVersion?: string;
   [k: string]: unknown;
+}
+
+/**
+ * Per-call append options. Optimistic-concurrency support lives here so
+ * `EventStore`'s legacy `expectedSequence` callers can migrate cleanly.
+ *
+ * Re-entrancy: do NOT pass `expectedSequence` from inside an
+ * `appendComputed` callback — the check runs after `rebuildCachesFromJsonl`
+ * which is the same lock context the callback is already holding. The
+ * caller's outer-most `append` invocation owns the check.
+ */
+export interface AppendOptions {
+  /**
+   * The current sequence counter the caller observed before issuing this
+   * append. Compared against the in-memory counter under the per-stream
+   * lock; a mismatch returns `{ ok: false, reason: 'sequence-conflict',
+   * expected, actual }` so the caller can translate to a typed error
+   * without needing access to internal state.
+   */
+  expectedSequence?: number;
 }
 
 /**
@@ -144,8 +171,35 @@ export class AtomicAppender {
     streamId: string,
     events: EventInput[],
     idempotencyKey: string,
+    options?: AppendOptions,
   ): Promise<AppendResult> {
-    return this.locks.runExclusive(streamId, () => this.appendLocked(streamId, events, idempotencyKey));
+    return this.locks.runExclusive(streamId, () =>
+      this.appendLocked(streamId, events, { idempotencyKey }, options),
+    );
+  }
+
+  /**
+   * Append without idempotency dedup.
+   *
+   * Used by callers (e.g. `EventStore.append` for events without an explicit
+   * key) that want a single write but no cache entry. Equivalent to passing
+   * a synthetic key, except:
+   *   - The idempotency cache is NOT polluted with one-shot keys (which
+   *     would FIFO-evict legitimate retry keys at the configured cap).
+   *   - The persisted event has `idempotencyKey: undefined`, so a JSONL
+   *     scan will not associate it with any retry chain.
+   *
+   * Sequence allocation, JSONL write, .seq write, and rollback semantics
+   * are identical to `append`.
+   */
+  async appendUnkeyed(
+    streamId: string,
+    events: EventInput[],
+    options?: AppendOptions,
+  ): Promise<AppendResult> {
+    return this.locks.runExclusive(streamId, () =>
+      this.appendLocked(streamId, events, null, options),
+    );
   }
 
   /**
@@ -173,14 +227,15 @@ export class AtomicAppender {
   ): Promise<AppendResult> {
     return this.locks.runExclusive(streamId, async () => {
       const events = await compute();
-      return this.appendLocked(streamId, events, idempotencyKey);
+      return this.appendLocked(streamId, events, { idempotencyKey });
     });
   }
 
   private async appendLocked(
     streamId: string,
     events: EventInput[],
-    idempotencyKey: string,
+    keyed: { idempotencyKey: string } | null,
+    options?: AppendOptions,
   ): Promise<AppendResult> {
     // ─── Phase 1: validate ───────────────────────────────────────────────
     if (!streamId || streamId.length === 0) {
@@ -189,11 +244,15 @@ export class AtomicAppender {
     if (!Array.isArray(events) || events.length === 0) {
       return { ok: false, reason: 'io-error', cause: new Error('events must be non-empty array') };
     }
-    if (!idempotencyKey || idempotencyKey.length === 0) {
+    if (keyed !== null && (!keyed.idempotencyKey || keyed.idempotencyKey.length === 0)) {
       return { ok: false, reason: 'io-error', cause: new Error('idempotencyKey required') };
     }
 
     // Idempotency check — rebuild cache from JSONL on first contact with stream.
+    // Even unkeyed appends rebuild here so the sequence counter is authoritative
+    // (the `.seq` value is read during rebuild). Skipping the rebuild for
+    // unkeyed callers would re-introduce overlapping-allocation under
+    // concurrency from a fresh process.
     if (!this.idempotencyInitialized.has(streamId)) {
       try {
         await this.rebuildCachesFromJsonl(streamId);
@@ -202,27 +261,51 @@ export class AtomicAppender {
       }
       this.idempotencyInitialized.add(streamId);
     }
-    const streamIdemCache = this.idempotencyCache.get(streamId);
-    const cachedEvents = streamIdemCache?.get(idempotencyKey);
-    if (cachedEvents && cachedEvents.length > 0) {
-      return {
-        ok: true,
-        sequences: cachedEvents.map(e => e.sequence),
-        eventIds: cachedEvents.map(e => e.eventId),
-      };
+    if (keyed !== null) {
+      const streamIdemCache = this.idempotencyCache.get(streamId);
+      const cachedEvents = streamIdemCache?.get(keyed.idempotencyKey);
+      if (cachedEvents && cachedEvents.length > 0) {
+        return {
+          ok: true,
+          sequences: cachedEvents.map(e => e.sequence),
+          eventIds: cachedEvents.map(e => e.eventId),
+        };
+      }
+    }
+
+    // ─── Phase 1b: optimistic-concurrency check ──────────────────────────
+    // Compare the caller's observed sequence (if any) against the
+    // post-rebuild authoritative counter. Mismatch returns a typed result
+    // so callers can translate to their own error shape (e.g.
+    // EventStore.SequenceConflictError) without reaching into internals.
+    if (options?.expectedSequence !== undefined) {
+      const actual = this.sequenceCounters.get(streamId) ?? 0;
+      if (actual !== options.expectedSequence) {
+        return {
+          ok: false,
+          reason: 'sequence-conflict',
+          expected: options.expectedSequence,
+          actual,
+        };
+      }
     }
 
     // ─── Phase 2: allocate sequences ─────────────────────────────────────
     const baseSeq = (this.sequenceCounters.get(streamId) ?? 0);
-    const persisted: PersistedEvent[] = events.map((evt, i) => ({
-      ...evt,
-      streamId,
-      sequence: baseSeq + i + 1,
-      timestamp: evt.timestamp ?? new Date().toISOString(),
-      type: evt.type,
-      eventId: randomUUID(),
-      idempotencyKey,
-    }));
+    const persisted: PersistedEvent[] = events.map((evt, i) => {
+      const event: PersistedEvent = {
+        ...evt,
+        streamId,
+        sequence: baseSeq + i + 1,
+        timestamp: evt.timestamp ?? new Date().toISOString(),
+        type: evt.type,
+        eventId: randomUUID(),
+      };
+      if (keyed !== null) {
+        event.idempotencyKey = keyed.idempotencyKey;
+      }
+      return event;
+    });
     const finalSequence = persisted[persisted.length - 1].sequence;
 
     // ─── Phase 3: write JSONL ────────────────────────────────────────────
@@ -265,19 +348,24 @@ export class AtomicAppender {
     // ─── Phase 5: cache idempotencyKey (commit point) ────────────────────
     // ONLY reached if all prior phases succeeded. This is the bug-#1228 fix:
     // the key is admissible for retry until and unless the append commits.
-    let cache = this.idempotencyCache.get(streamId);
-    if (!cache) {
-      cache = new Map();
-      this.idempotencyCache.set(streamId, cache);
-    }
-    cache.set(idempotencyKey, persisted);
-    // FIFO eviction at cap — matches legacy EventStore.cacheIdempotencyKey
-    // semantics (store.ts:798). Map iteration order is insertion order, so
-    // `keys().next().value` is the oldest entry.
-    while (cache.size > this.maxIdempotencyKeys) {
-      const oldest = cache.keys().next().value;
-      if (oldest === undefined) break;
-      cache.delete(oldest);
+    // Skipped entirely for unkeyed appends — those callers explicitly opted
+    // out of dedup, and writing them to the cache would FIFO-evict
+    // legitimate retry keys at the configured cap.
+    if (keyed !== null) {
+      let cache = this.idempotencyCache.get(streamId);
+      if (!cache) {
+        cache = new Map();
+        this.idempotencyCache.set(streamId, cache);
+      }
+      cache.set(keyed.idempotencyKey, persisted);
+      // FIFO eviction at cap — matches legacy EventStore.cacheIdempotencyKey
+      // semantics (store.ts:798). Map iteration order is insertion order, so
+      // `keys().next().value` is the oldest entry.
+      while (cache.size > this.maxIdempotencyKeys) {
+        const oldest = cache.keys().next().value;
+        if (oldest === undefined) break;
+        cache.delete(oldest);
+      }
     }
     this.sequenceCounters.set(streamId, finalSequence);
 

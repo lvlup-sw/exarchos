@@ -236,4 +236,129 @@ describe('AtomicAppender', () => {
       }
     }
   });
+
+  // ─── expectedSequence (T1, #1293) ────────────────────────────────────────
+  //
+  // Optimistic-concurrency check: callers that observed a sequence before
+  // calling append want to fail the append if the stream advanced under
+  // them. The check must run under the per-stream lock so concurrent
+  // appends can't slip a counter advance between the read and the write.
+
+  it('AtomicAppender_appendWithMatchingExpectedSequence_succeeds', async () => {
+    const appender = new AtomicAppender({ stateDir });
+    const streamId = 'expected-seq-match';
+
+    // Stream is empty → counter is 0.
+    const result = await appender.append(
+      streamId,
+      [{ type: 'task.assigned', data: { n: 1 } }],
+      'k1',
+      { expectedSequence: 0 },
+    );
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.sequences).toEqual([1]);
+  });
+
+  it('AtomicAppender_appendWithStaleExpectedSequence_returnsSequenceConflict', async () => {
+    const appender = new AtomicAppender({ stateDir });
+    const streamId = 'expected-seq-stale';
+
+    // Advance counter to 1.
+    await appender.append(streamId, [{ type: 'task.assigned', data: { n: 1 } }], 'k1');
+
+    // Caller observed sequence 0 but counter is now 1 — conflict.
+    const result = await appender.append(
+      streamId,
+      [{ type: 'task.assigned', data: { n: 2 } }],
+      'k2',
+      { expectedSequence: 0 },
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.reason).toBe('sequence-conflict');
+      expect(result.expected).toBe(0);
+      expect(result.actual).toBe(1);
+    }
+  });
+
+  it('AtomicAppender_expectedSequenceUndefined_skipsCheck', async () => {
+    const appender = new AtomicAppender({ stateDir });
+    const streamId = 'expected-seq-undef';
+
+    // Without expectedSequence, counter mismatches don't fail.
+    await appender.append(streamId, [{ type: 'task.assigned' }], 'k1');
+    const result = await appender.append(
+      streamId,
+      [{ type: 'task.assigned' }],
+      'k2', // no options — must succeed regardless of counter state
+    );
+    expect(result.ok).toBe(true);
+  });
+
+  // ─── appendUnkeyed (T2, #1293) ───────────────────────────────────────────
+  //
+  // Bypasses idempotency dedup for callers that don't have a meaningful
+  // retry semantics (e.g. EventStore.append callers with no key). The
+  // alternative — synthesizing a random key per call — would FIFO-evict
+  // legitimate retry keys at the cap.
+
+  it('AtomicAppender_appendUnkeyed_writesEventsAndAdvancesSequence', async () => {
+    const appender = new AtomicAppender({ stateDir });
+    const streamId = 'unkeyed-basic';
+
+    const r1 = await appender.appendUnkeyed(streamId, [{ type: 'task.assigned' }]);
+    const r2 = await appender.appendUnkeyed(streamId, [{ type: 'task.completed' }]);
+    expect(r1.ok && r2.ok).toBe(true);
+    if (r1.ok) expect(r1.sequences).toEqual([1]);
+    if (r2.ok) expect(r2.sequences).toEqual([2]);
+
+    // JSONL persists both events with no idempotencyKey field.
+    const jsonl = await readFile(path.join(stateDir, `${streamId}.events.jsonl`), 'utf-8');
+    const lines = jsonl.trim().split('\n');
+    expect(lines).toHaveLength(2);
+    for (const line of lines) {
+      const evt = JSON.parse(line);
+      expect(evt.idempotencyKey).toBeUndefined();
+    }
+  });
+
+  it('AtomicAppender_appendUnkeyed_doesNotPopulateIdempotencyCache', async () => {
+    // Cap the cache aggressively so legitimate keys would evict if unkeyed
+    // calls polluted the cache. With the bypass, the cap is unaffected.
+    const appender = new AtomicAppender({ stateDir, maxIdempotencyKeys: 2 });
+    const streamId = 'unkeyed-no-pollute';
+
+    // Seed two keyed entries — these MUST stay in the cache.
+    await appender.append(streamId, [{ type: 'task.assigned' }], 'keep-a');
+    await appender.append(streamId, [{ type: 'task.assigned' }], 'keep-b');
+
+    // 5 unkeyed appends — would evict both if the cache were polluted.
+    for (let i = 0; i < 5; i++) {
+      await appender.appendUnkeyed(streamId, [{ type: 'task.assigned' }]);
+    }
+
+    // Retry both keyed entries; they should still be cache-hit (returns
+    // the original sequence, no new events appended).
+    const retryA = await appender.append(streamId, [{ type: 'x' }], 'keep-a');
+    const retryB = await appender.append(streamId, [{ type: 'x' }], 'keep-b');
+    expect(retryA.ok && retryB.ok).toBe(true);
+    if (retryA.ok) expect(retryA.sequences).toEqual([1]);
+    if (retryB.ok) expect(retryB.sequences).toEqual([2]);
+  });
+
+  it('AtomicAppender_appendUnkeyed_concurrentCallsSerialize', async () => {
+    const appender = new AtomicAppender({ stateDir });
+    const streamId = 'unkeyed-concurrent';
+
+    const results = await Promise.all([
+      appender.appendUnkeyed(streamId, [{ type: 'task.assigned' }]),
+      appender.appendUnkeyed(streamId, [{ type: 'task.assigned' }]),
+      appender.appendUnkeyed(streamId, [{ type: 'task.assigned' }]),
+    ]);
+    for (const r of results) expect(r.ok).toBe(true);
+
+    const seqs = results.flatMap(r => (r.ok ? r.sequences : []));
+    expect([...seqs].sort((a, b) => a - b)).toEqual([1, 2, 3]);
+    expect(new Set(seqs).size).toBe(3);
+  });
 });
