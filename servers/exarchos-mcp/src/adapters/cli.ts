@@ -221,10 +221,83 @@ export function buildCli(ctx: DispatchContext): Command {
         actionCmd.option('--follow', 'Stream events as NDJSON frames until the source closes');
       }
 
+      // T5 (#1240): convenience flags on `wf checkpoint` so agents emit a
+      // structured handoff payload without having to type nested JSON.
+      // The flags map to the `handoff` field on the dispatch surface
+      // (which `addFlagsFromSchema` already exposes as
+      // `--handoff <json-or-csv>` for power-user / scripting parity).
+      // `--context` accepts inline strings only — the `@<path>` substitution
+      // sugar is OUT OF SCOPE here (#1245, scheduled v2.12.0). The
+      // variadic syntax `<step...>` lets agents repeat `--next-steps a
+      // --next-steps b` to build the array, mirroring how the MCP arm
+      // would receive `nextSteps: ['a', 'b']`.
+      const isWorkflowCheckpoint =
+        tool.name === 'exarchos_workflow' && action.name === 'checkpoint';
+      if (isWorkflowCheckpoint) {
+        actionCmd.option(
+          '--context <string>',
+          'Handoff context (single inline string, max 2KB). Maps to handoff.context.',
+        );
+        actionCmd.option(
+          '--next-steps <step...>',
+          'Repeatable handoff next-step entry; pass once per entry. Maps to handoff.nextSteps.',
+        );
+        actionCmd.option(
+          '--suggestions <suggestion...>',
+          'Repeatable handoff suggestion entry; pass once per entry. Maps to handoff.suggestions.',
+        );
+      }
+
       actionCmd.action(async (opts: Record<string, unknown>) => {
         const { json, follow, ...flagOpts } = opts;
         const isJson = Boolean(json);
         const format = action.cli?.format;
+
+        // ─── T5 (#1240): convenience-flag → handoff reshape ───────────────
+        // Done BEFORE `coerceFlags` / `safeParse` so the synthesised
+        // `handoff` is the value that hits both schema validation and
+        // dispatch. Critical contract: when NONE of the convenience
+        // flags are present, `handoff` MUST stay ABSENT — not be set
+        // to `{ context: undefined, nextSteps: undefined, ... }`. The
+        // C3 (#1241) digest is `sha256(handoff ?? {})`, and an
+        // all-undefined object stringifies to `{}` only by coincidence;
+        // explicit absence keeps the digest stable for pre-T5 callers
+        // and for the parity contract with the MCP arm (which passes
+        // `handoff` undefined when the caller didn't populate it).
+        if (isWorkflowCheckpoint) {
+          const ctxOpt = flagOpts.context;
+          const nextStepsOpt = flagOpts.nextSteps;
+          const suggestionsOpt = flagOpts.suggestions;
+          const hasContext = typeof ctxOpt === 'string';
+          const hasNextSteps = Array.isArray(nextStepsOpt) && nextStepsOpt.length > 0;
+          const hasSuggestions =
+            Array.isArray(suggestionsOpt) && suggestionsOpt.length > 0;
+
+          if (hasContext || hasNextSteps || hasSuggestions) {
+            // Synthesize `handoff` from the convenience flags. Spread-on-
+            // condition keeps the shape minimal so the rehydration
+            // projection's `latestHandoff` snapshot only carries what
+            // the operator actually supplied (e.g. `{ context: 'x' }`
+            // and not `{ context: 'x', nextSteps: undefined,
+            // suggestions: undefined }`). The handler's
+            // `CheckpointInputSchema.handoff` is a Zod object with all
+            // three fields optional, so omitting them is valid input.
+            flagOpts.handoff = {
+              ...(hasContext ? { context: ctxOpt as string } : {}),
+              ...(hasNextSteps ? { nextSteps: nextStepsOpt as string[] } : {}),
+              ...(hasSuggestions
+                ? { suggestions: suggestionsOpt as string[] }
+                : {}),
+            };
+          }
+          // Strip the convenience-flag aliases so they don't leak into
+          // dispatch args (the schema doesn't declare them; they'd be
+          // silently ignored, but cleaning them up here keeps the
+          // dispatched payload shaped exactly like the MCP arm's).
+          delete flagOpts.context;
+          delete flagOpts.nextSteps;
+          delete flagOpts.suggestions;
+        }
 
         // ─── T042: `--follow` streaming branch ─────────────────────────────
         if (isEventQuery && follow === true) {

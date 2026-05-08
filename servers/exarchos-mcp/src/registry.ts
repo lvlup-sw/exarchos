@@ -593,6 +593,26 @@ const workflowActions: readonly ToolAction[] = [
     schema: z.object({
       featureId: featureIdSchema,
       summary: z.string().optional(),
+      // T5 (#1240): formal `handoff` field on the dispatch surface so the
+      // MCP arm validates the same shape `handleCheckpoint` re-validates
+      // internally via `CheckpointInputSchema`. Without this, dispatch
+      // silently strips `handoff` (registry per-action schemas are
+      // non-strict) and an MCP caller passing `handoff` would observe a
+      // successful checkpoint with no persisted handoff payload — the
+      // CLI would honour the convenience flags while MCP would not,
+      // breaking DR-3 surface parity. The byte caps mirror
+      // `event-store/schemas.ts:HandoffEntryData` and
+      // `workflow/schemas.ts:CheckpointHandoffSchema` exactly; the
+      // handler re-parses against `CheckpointInputSchema` so the cap is
+      // ultimately enforced on a single line of code, but registering it
+      // here makes the contract visible to schema introspection
+      // (`exarchos schema describe wf.checkpoint`) and to the auto-gen
+      // CLI flag table.
+      handoff: z.object({
+        context: z.string().max(2048).optional(),
+        nextSteps: z.array(z.string().max(256)).max(10).optional(),
+        suggestions: z.array(z.string().max(256)).max(10).optional(),
+      }).optional(),
     }),
     phases: ALL_PHASES,
     roles: ROLE_LEAD,
