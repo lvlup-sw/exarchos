@@ -382,17 +382,33 @@ export class AtomicAppender {
     const finalSequence = persisted[persisted.length - 1].sequence;
 
     // ─── Phase 3: write JSONL ────────────────────────────────────────────
+    //
+    // The `WriteFn` test hook contract explicitly permits throwing AFTER
+    // `runDefault()` completes (see WriteFn comment for the use case:
+    // partial-failure simulation). The naive catch path "nothing was
+    // written" assumption is therefore wrong for after-runDefault throws;
+    // the JSONL lines are on disk but we'd return ok:false, causing
+    // a retry to write the same lines again — duplicate sequences.
+    // Track runDefault completion and roll back on after-runDefault throws
+    // so the all-or-none contract holds for both pre- and post-runDefault
+    // failures.
     const jsonlPath = this.getEventFilePath(streamId);
     const seqPath = this.getSeqFilePath(streamId);
     const lines = persisted.map(e => JSON.stringify(e)).join('\n') + '\n';
+    let jsonlRunDefaultCompleted = false;
     try {
       await fs.mkdir(path.dirname(jsonlPath), { recursive: true });
       await this.runWrite('jsonl', jsonlPath, lines, async () => {
         await fs.appendFile(jsonlPath, lines, 'utf-8');
+        jsonlRunDefaultCompleted = true;
       });
     } catch (err) {
-      // No partial state to roll back: nothing was written, idempotencyKey
-      // never reached the cache, sequence counter never advanced.
+      if (jsonlRunDefaultCompleted) {
+        // Test hook (or future custom WriteFn) threw after the actual
+        // append. Roll back the partial write so the next attempt starts
+        // from a clean slate.
+        await this.rollbackJsonlAppend(jsonlPath, persisted.length).catch(() => {});
+      }
       return { ok: false, reason: 'io-error', cause: toError(err) };
     }
 
@@ -401,12 +417,22 @@ export class AtomicAppender {
     // caller MUST NOT see a silent success — that's exactly what hid #1228.
     // We unwind the JSONL append on .seq failure to preserve the all-or-none
     // contract callers rely on.
+    //
+    // Same WriteFn-after-runDefault hazard as Phase 3: if `writeFn` throws
+    // AFTER the rename completed, the .seq is durable on disk but we're
+    // about to roll back the JSONL. That leaves .seq pointing past the
+    // rolled-back JSONL — the bug that mis-sized sidecar synthetic
+    // sequences. Track the seq runDefault completion and remove .seq when
+    // it ran but the wrapper threw, so the next caller's rebuild reads
+    // max-sequence from JSONL fresh.
     const tmpPath = `${seqPath}.tmp`;
     const seqContents = JSON.stringify({ sequence: finalSequence });
+    let seqRunDefaultCompleted = false;
     try {
       await this.runWrite('seq', seqPath, seqContents, async () => {
         await fs.writeFile(tmpPath, seqContents, 'utf-8');
         await fs.rename(tmpPath, seqPath);
+        seqRunDefaultCompleted = true;
       });
     } catch (err) {
       // Roll back the JSONL append: rewrite the file without the lines we just
@@ -415,6 +441,13 @@ export class AtomicAppender {
       // becomes the recovery target for the next appender via the cache rebuild).
       await fs.rm(tmpPath, { force: true }).catch(() => {});
       await this.rollbackJsonlAppend(jsonlPath, persisted.length).catch(() => {});
+      if (seqRunDefaultCompleted) {
+        // The .seq was actually renamed into place before the wrapper
+        // threw. Remove it so it doesn't sit ahead of the rolled-back
+        // JSONL; rebuild paths re-derive max-sequence from JSONL on
+        // first contact.
+        await fs.rm(seqPath, { force: true }).catch(() => {});
+      }
       return { ok: false, reason: 'io-error', cause: toError(err) };
     }
 

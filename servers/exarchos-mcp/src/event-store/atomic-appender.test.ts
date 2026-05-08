@@ -119,6 +119,94 @@ describe('AtomicAppender', () => {
     }
   });
 
+  // ─── WriteFn after-runDefault rollback (CR review 4248981786) ────────────
+  //
+  // The WriteFn contract permits throwing AFTER `runDefault()` completes
+  // (partial-failure simulation). Without rollback, the JSONL/.seq writes
+  // are durable on disk but the append returns `ok: false`, so a retry
+  // would produce duplicate sequences (JSONL phase) or leave .seq ahead
+  // of the rolled-back JSONL (seq phase).
+
+  it('AtomicAppender_jsonlWriteFnThrowsAfterRunDefault_rollsBackJsonl', async () => {
+    const streamId = 'after-run-default-jsonl';
+    const appender = new AtomicAppender({
+      stateDir,
+      writeFn: async (phase, _filePath, _contents, runDefault) => {
+        if (phase === 'jsonl') {
+          await runDefault(); // actually writes the JSONL
+          throw new Error('after-runDefault failure'); // then throws
+        }
+        await runDefault();
+      },
+    });
+
+    const result = await appender.append(
+      streamId,
+      [{ type: 'task.assigned', data: { n: 1 } }],
+      'idem-after-default',
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toBe('io-error');
+
+    // The append should have been rolled back. Either the file does not
+    // exist or it is empty.
+    const jsonlPath = path.join(stateDir, `${streamId}.events.jsonl`);
+    let exists = true;
+    try {
+      await access(jsonlPath);
+    } catch {
+      exists = false;
+    }
+    if (exists) {
+      const raw = await readFile(jsonlPath, 'utf-8');
+      expect(raw.trim()).toBe('');
+    }
+  });
+
+  it('AtomicAppender_seqWriteFnThrowsAfterRunDefault_rollsBackJsonlAndDeletesSeq', async () => {
+    const streamId = 'after-run-default-seq';
+    const appender = new AtomicAppender({
+      stateDir,
+      writeFn: async (phase, _filePath, _contents, runDefault) => {
+        if (phase === 'seq') {
+          await runDefault(); // .seq is renamed into place
+          throw new Error('after-runDefault seq failure');
+        }
+        await runDefault();
+      },
+    });
+
+    const result = await appender.append(
+      streamId,
+      [{ type: 'task.assigned', data: { n: 1 } }],
+      'idem-seq-after-default',
+    );
+    expect(result.ok).toBe(false);
+
+    // JSONL must be empty / absent (rolled back).
+    const jsonlPath = path.join(stateDir, `${streamId}.events.jsonl`);
+    let jsonlExists = true;
+    try {
+      await access(jsonlPath);
+    } catch {
+      jsonlExists = false;
+    }
+    if (jsonlExists) {
+      const raw = await readFile(jsonlPath, 'utf-8');
+      expect(raw.trim()).toBe('');
+    }
+
+    // .seq must NOT remain ahead of the rolled-back JSONL.
+    const seqPath = path.join(stateDir, `${streamId}.seq`);
+    let seqExists = true;
+    try {
+      await access(seqPath);
+    } catch {
+      seqExists = false;
+    }
+    expect(seqExists).toBe(false);
+  });
+
   it('AtomicAppender_successfulAppend_commitsAllPhases', async () => {
     const appender = new AtomicAppender({ stateDir });
     const streamId = 'test-stream-success';

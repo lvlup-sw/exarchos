@@ -435,14 +435,33 @@ export async function handleBatchAppend(
 
   // Map AppendResult.sequences/eventIds back to EventAck shape — preserves the
   // success envelope `{success: true, data: EventAck[]}` callers depend on.
-  const acks: EventAck[] = result.sequences.map((sequence, i) => {
-    const ack = toEventAck({
-      streamId: args.stream,
-      sequence,
-      type: validatedEvents[i].type,
-    });
-    return ack.sequence <= 0 ? { ...ack, sequence: -1, sequencePending: true } : ack;
-  });
+  //
+  // Cache-hit branch: a retry reusing the same `batchIdempotencyKey` may
+  // pass FEWER events than the originally-cached batch (or different
+  // events entirely). `result.sequences.length` reflects the cached
+  // batch, NOT `validatedEvents.length`. Indexing `validatedEvents[i]`
+  // for the type field would crash with `Cannot read properties of
+  // undefined` whenever the cached batch is longer (Sentry comment
+  // 3205861163). Use `persistedEvents[i].type` from the appender's
+  // cache-hit payload instead — that's the type ACTUALLY persisted, which
+  // is what the EventAck should reflect.
+  const acks: EventAck[] = result.kind === 'cache-hit'
+    ? result.persistedEvents.map((e, i) => {
+        const ack = toEventAck({
+          streamId: args.stream,
+          sequence: result.sequences[i],
+          type: e.type,
+        });
+        return ack.sequence <= 0 ? { ...ack, sequence: -1, sequencePending: true } : ack;
+      })
+    : result.sequences.map((sequence, i) => {
+        const ack = toEventAck({
+          streamId: args.stream,
+          sequence,
+          type: validatedEvents[i].type,
+        });
+        return ack.sequence <= 0 ? { ...ack, sequence: -1, sequencePending: true } : ack;
+      });
   return { success: true, data: acks };
 }
 

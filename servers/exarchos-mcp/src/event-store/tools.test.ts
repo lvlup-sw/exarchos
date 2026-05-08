@@ -350,6 +350,54 @@ describe('handleBatchAppend', () => {
     expect(queryResult.data).toHaveLength(1);
   });
 
+  // ─── Cache-hit out-of-bounds (Sentry comment 3205861163) ─────────────────
+  //
+  // A batch retry that reuses the same per-event idempotencyKey but submits
+  // FEWER events than the originally-cached batch must not crash on
+  // out-of-bounds access of validatedEvents[i]. Cache-hit returns the
+  // ORIGINAL persisted batch (longer than current request).
+
+  it('batchAppend_cacheHitWithFewerCurrentEvents_returnsOriginalBatchWithoutCrash', async () => {
+    const store = new EventStore(tempDir);
+
+    // Original commit: 3 events, all sharing one idempotencyKey so the
+    // batch derives that as the batchIdempotencyKey.
+    const first = await handleBatchAppend(
+      {
+        stream: 'my-workflow',
+        events: [
+          { type: 'task.assigned', data: { taskId: 't1' }, idempotencyKey: 'shared-batch' },
+          { type: 'task.assigned', data: { taskId: 't2' }, idempotencyKey: 'shared-batch' },
+          { type: 'task.assigned', data: { taskId: 't3' }, idempotencyKey: 'shared-batch' },
+        ],
+      },
+      tempDir,
+      store,
+    );
+    expect(first.success).toBe(true);
+
+    // Retry with FEWER events but same shared key. Pre-fix this would
+    // crash (TypeError: cannot read properties of undefined) because
+    // result.sequences had 3 entries but validatedEvents (post intra-
+    // batch dedup) had only 1. Post-fix: the cache-hit branch reads
+    // type from persistedEvents[i].type instead.
+    const retry = await handleBatchAppend(
+      {
+        stream: 'my-workflow',
+        events: [
+          { type: 'task.assigned', data: { taskId: 't1' }, idempotencyKey: 'shared-batch' },
+        ],
+      },
+      tempDir,
+      store,
+    );
+    expect(retry.success).toBe(true);
+    const acks = retry.data as Array<{ streamId: string; sequence: number; type: string }>;
+    // Returns the ORIGINAL committed batch, not the truncated retry.
+    expect(acks.length).toBeGreaterThanOrEqual(1);
+    expect(acks[0].sequence).toBe(1);
+  });
+
   it('batchAppend_ConcurrentWrite_RespectsStreamLock', async () => {
     // Arrange: two concurrent batch appends on the same stream
     const batch1 = handleBatchAppend(
