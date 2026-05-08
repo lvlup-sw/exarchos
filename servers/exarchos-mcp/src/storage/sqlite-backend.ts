@@ -150,6 +150,107 @@ interface Statements {
 const MAX_OUTBOX_RETRIES = 5;
 
 /**
+ * Bounded retry policy for SQLITE_BUSY surfaced by the substrate
+ * `atomicAppend` write path (#1259, T09, DR-12).
+ *
+ * The C-level `busy_timeout` pragma is intentionally NOT set — the
+ * design (DR-12) routes BUSY recovery through the JS layer so the
+ * appender owns observability of retry counts. With `busy_timeout` left
+ * at the SQLite default (0), every BUSY surfaces as a thrown error and
+ * this layer alone decides whether to retry or escalate.
+ *
+ * Backoff: `min(baseDelayMs * 2^(attempt-1), maxDelayMs)`. With
+ * `baseDelayMs=5, maxDelayMs=100`, the budget across 4 inter-attempt
+ * sleeps tops out near 5+10+20+40 = 75 ms — well below the per-call
+ * latency budgets of upstream consumers (event_batch_append SLO).
+ */
+const SQLITE_BUSY_RETRY_POLICY = {
+  maxAttempts: 5,
+  baseDelayMs: 5,
+  maxDelayMs: 100,
+} as const;
+
+/**
+ * Thrown by `atomicAppend` when SQLITE_BUSY persists past the retry
+ * budget. Carries the most-recent driver error as `cause` so the
+ * caller (AtomicAppender) can surface a structured `storage_busy`
+ * reason without re-inspecting the SQLite error code itself.
+ *
+ * Distinct error class (rather than re-using SqliteError) because the
+ * boundary contract is: SqliteBackend throws either a generic
+ * SqliteError (caller treats as io-error) or this typed exhausted
+ * marker (caller maps to storage_busy). Keeping the distinction in
+ * the type system means the translation is unambiguous.
+ */
+export class SqliteBusyExhaustedError extends Error {
+  override readonly name = 'SqliteBusyExhaustedError';
+  readonly code = 'SQLITE_BUSY_EXHAUSTED';
+  constructor(
+    public readonly attempts: number,
+    public override readonly cause: Error,
+  ) {
+    super(`SQLITE_BUSY persisted after ${attempts} attempts: ${cause.message}`);
+  }
+}
+
+/**
+ * Thrown by `initialize()` when the SQLite database file cannot be
+ * opened or read because its bytes are not a valid SQLite database
+ * (`SQLITE_NOTADB`) or are structurally broken (`SQLITE_CORRUPT`).
+ * The substrate makes corruption a non-recoverable, operator-visible
+ * event by design (#1259, T10, DR-12) — auto-rebuilding would silently
+ * destroy the evidence operators need to diagnose root cause and would
+ * mask data-loss surfaces.
+ *
+ * The message is deliberately operator-facing: it names the file path
+ * and instructs the operator to inspect manually. Consumers should not
+ * catch this error and continue — it terminates lifecycle startup.
+ */
+export class SqliteCorruptError extends Error {
+  override readonly name = 'SqliteCorruptError';
+  readonly code = 'SQLITE_CORRUPT';
+  constructor(
+    public readonly dbPath: string,
+    public override readonly cause: Error,
+  ) {
+    super(
+      `SQLite database at ${dbPath} is corrupt or not a database (${cause.message}). ` +
+        `Manual operator remediation required: inspect the file, restore from backup, ` +
+        `or move it aside before retrying. Auto-rebuild is intentionally disabled.`,
+    );
+  }
+}
+
+/**
+ * Detect SQLITE_BUSY in a thrown driver error. `bun:sqlite` and
+ * `better-sqlite3` (the test-time shim) both expose `.code` as a
+ * stringified SQLite error code on their thrown `SqliteError`
+ * instances. Falls back to a defensive `false` for non-Error throws.
+ */
+function isSqliteBusy(err: unknown): boolean {
+  if (!err || typeof err !== 'object') return false;
+  const code = (err as { code?: unknown }).code;
+  return code === 'SQLITE_BUSY';
+}
+
+/**
+ * Detect SQLITE_CORRUPT and SQLITE_NOTADB. Both surface during
+ * `initialize()` against a malformed file and both are operator-fatal
+ * in the same way — the substrate cannot proceed and auto-recovery is
+ * by design refused.
+ */
+function isSqliteCorrupt(err: unknown): boolean {
+  if (!err || typeof err !== 'object') return false;
+  const code = (err as { code?: unknown }).code;
+  return code === 'SQLITE_CORRUPT' || code === 'SQLITE_NOTADB';
+}
+
+/** Sleep helper used by the BUSY retry layer. Resolves after `ms` milliseconds. */
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+/**
  * SQLite-backed implementation of StorageBackend.
  * Uses bun:sqlite for synchronous, high-performance operations.
  * Supports WAL mode for concurrent read/write access.
@@ -511,7 +612,7 @@ export class SqliteBackend implements StorageBackend {
    * running their reads in parallel and racing to write. We pass
    * `'immediate'` to honour that.
    */
-  atomicAppend(args: {
+  async atomicAppend(args: {
     streamId: string;
     idempotencyKey: string | null;
     events: AtomicAppendEvent[];
@@ -521,7 +622,7 @@ export class SqliteBackend implements StorageBackend {
       timestamps: string[];
       events_json: string;
     };
-  }): void {
+  }): Promise<void> {
     const txn = this.db.transaction(() => {
       // Idempotency claim (single row per (streamId, key)) — strict INSERT
       // so a collision aborts the txn, ROLLBACK is automatic via the
@@ -563,16 +664,52 @@ export class SqliteBackend implements StorageBackend {
     const txnUnknown = txn as unknown as {
       immediate?: (...args: unknown[]) => void;
     };
-    if (typeof txnUnknown.immediate === 'function') {
-      txnUnknown.immediate();
-    } else {
-      // Fallback: the wrapper opens a default `BEGIN` (deferred). The
-      // per-stream Promise mutex (AtomicAppender's first-tier guard)
-      // still prevents intra-process write races; the deferred-vs-
-      // immediate distinction matters for cross-process writers, which
-      // are out of scope for the POC.
-      txn();
+    const runOnce = (): void => {
+      if (typeof txnUnknown.immediate === 'function') {
+        txnUnknown.immediate();
+      } else {
+        // Fallback: the wrapper opens a default `BEGIN` (deferred). The
+        // per-stream Promise mutex (AtomicAppender's first-tier guard)
+        // still prevents intra-process write races; the deferred-vs-
+        // immediate distinction matters for cross-process writers, which
+        // are out of scope for the POC.
+        txn();
+      }
+    };
+
+    // Bounded retry loop over SQLITE_BUSY — DR-12 (#1259, T09).
+    // Each attempt opens a FRESH transaction (BEGIN IMMEDIATE re-issues
+    // because the wrapper's `runOnce` re-enters the helper). Non-BUSY
+    // errors propagate immediately — they're transactional faults the
+    // caller must surface as `idempotency-claimed` / `sequence-conflict`
+    // / `io-error`, not as retry candidates.
+    let lastErr: Error | undefined;
+    for (let attempt = 1; attempt <= SQLITE_BUSY_RETRY_POLICY.maxAttempts; attempt++) {
+      try {
+        runOnce();
+        return;
+      } catch (err) {
+        if (!isSqliteBusy(err)) {
+          throw err;
+        }
+        lastErr = err instanceof Error ? err : new Error(String(err));
+        if (attempt < SQLITE_BUSY_RETRY_POLICY.maxAttempts) {
+          // Exponential backoff capped at maxDelayMs. attempt=1 → 5ms,
+          // attempt=2 → 10ms, attempt=3 → 20ms, attempt=4 → 40ms.
+          const delay = Math.min(
+            SQLITE_BUSY_RETRY_POLICY.baseDelayMs * Math.pow(2, attempt - 1),
+            SQLITE_BUSY_RETRY_POLICY.maxDelayMs,
+          );
+          await sleep(delay);
+        }
+      }
     }
+    // Budget exhausted — surface a typed marker so the caller maps it
+    // to `reason: 'storage_busy'` without inspecting SQLite reason codes.
+    throw new SqliteBusyExhaustedError(
+      SQLITE_BUSY_RETRY_POLICY.maxAttempts,
+      lastErr ?? new Error('SQLITE_BUSY (no captured cause)'),
+    );
   }
 
   // ─── State Operations ───────────────────────────────────────────────────

@@ -5,6 +5,7 @@ import { randomUUID } from 'node:crypto';
 import { validateStreamId } from '../shared/validation.js';
 import {
   SqliteBackend,
+  SqliteBusyExhaustedError,
   type AtomicAppendEvent as SqliteAtomicAppendEvent,
 } from '../storage/sqlite-backend.js';
 
@@ -87,7 +88,14 @@ export type AppendResult =
     }
   | {
       ok: false;
-      reason: 'idempotency-claimed' | 'sequence-conflict' | 'io-error';
+      /**
+       * `storage_busy` — SQLite-backed body only. The substrate retried the
+       * BEGIN IMMEDIATE transaction up to its budget (5 attempts with
+       * exponential backoff capped at 100 ms) and SQLITE_BUSY persisted on
+       * every attempt. Caller may retry at the application layer or
+       * surface to the operator as substrate contention.
+       */
+      reason: 'idempotency-claimed' | 'sequence-conflict' | 'io-error' | 'storage_busy';
       cause?: Error;
       /** Populated on `sequence-conflict` so callers can translate to typed errors. */
       expected?: number;
@@ -508,7 +516,7 @@ export class AtomicAppender {
               events_json: JSON.stringify(persisted),
             }
           : undefined;
-      backend.atomicAppend({
+      await backend.atomicAppend({
         streamId,
         idempotencyKey: keyed?.idempotencyKey ?? null,
         events: wireEvents,
@@ -520,6 +528,13 @@ export class AtomicAppender {
       // (two appenders with the same key — the loser sees this); the
       // first-tier Promise mutex normally prevents this within a process,
       // but cross-process or driver-level races can still surface it.
+      // SqliteBusyExhaustedError is the typed marker raised by the
+      // substrate's bounded SQLITE_BUSY retry loop (T09, DR-12) —
+      // translate it to the public `storage_busy` reason without
+      // re-inspecting the original SQLite error code.
+      if (err instanceof SqliteBusyExhaustedError) {
+        return { ok: false, reason: 'storage_busy', cause: err };
+      }
       const e = toError(err);
       const msg = e.message;
       if (
