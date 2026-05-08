@@ -23,7 +23,18 @@ import { randomUUID } from 'node:crypto';
  */
 
 export type AppendResult =
-  | { ok: true; sequences: number[]; eventIds: string[] }
+  | {
+      ok: true;
+      sequences: number[];
+      eventIds: string[];
+      /**
+       * The timestamp on each persisted event, in the same order as
+       * `sequences` / `eventIds`. On cache hits these are the original
+       * persisted timestamps (NOT recomputed), so callers reconstructing
+       * the public event shape get a stable round-trip across retries.
+       */
+      timestamps: string[];
+    }
   | {
       ok: false;
       reason: 'idempotency-claimed' | 'sequence-conflict' | 'io-error';
@@ -269,6 +280,7 @@ export class AtomicAppender {
           ok: true,
           sequences: cachedEvents.map(e => e.sequence),
           eventIds: cachedEvents.map(e => e.eventId),
+          timestamps: cachedEvents.map(e => e.timestamp),
         };
       }
     }
@@ -373,6 +385,7 @@ export class AtomicAppender {
       ok: true,
       sequences: persisted.map(e => e.sequence),
       eventIds: persisted.map(e => e.eventId),
+      timestamps: persisted.map(e => e.timestamp),
     };
   }
 

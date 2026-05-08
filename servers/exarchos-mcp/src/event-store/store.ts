@@ -2,6 +2,7 @@ import * as fs from 'node:fs/promises';
 import { createReadStream, openSync, closeSync, writeSync, unlinkSync } from 'node:fs';
 import { createInterface } from 'node:readline';
 import * as path from 'node:path';
+import { randomUUID as randomUUIDFn } from 'node:crypto';
 import { WorkflowEventBase } from './schemas.js';
 import type { WorkflowEvent } from './schemas.js';
 import type { Outbox } from '../sync/outbox.js';
@@ -566,24 +567,22 @@ export class EventStore {
     if (this.sidecarMode) {
       return this.writeToSidecar(streamId, event, options?.idempotencyKey);
     }
-    return this.withLock(streamId, async () => {
-      const cached = await this.checkIdempotencyAndSequence(streamId, options);
-      if (cached) return cached;
-
-      const sequence = (this.sequenceCounters.get(streamId) ?? 0) + 1;
-
-      const fullEvent = WorkflowEventBase.parse({
-        ...event,
-        streamId,
-        sequence,
-        timestamp: event.timestamp || new Date().toISOString(),
-        idempotencyKey: options?.idempotencyKey ?? event.idempotencyKey,
-      });
-
-      await this.persistAndReplicate(streamId, fullEvent);
-      this.sequenceCounters.set(streamId, sequence);
-      return fullEvent;
+    // Validate FIRST, before delegating: the legacy contract throws synchronously
+    // on schema violations, so callers don't need to await the AtomicAppender
+    // round-trip for that error class.
+    const idempotencyKey = options?.idempotencyKey ?? event.idempotencyKey;
+    const timestamp = event.timestamp || new Date().toISOString();
+    // Sequence is allocated by AtomicAppender; pass a placeholder so Zod's
+    // positive-integer guard accepts the schema. The synthesized return value
+    // overwrites this with the authoritative sequence.
+    const candidate = WorkflowEventBase.parse({
+      ...event,
+      streamId,
+      sequence: 1,
+      timestamp,
+      idempotencyKey,
     });
+    return this.delegateAppend(streamId, candidate, idempotencyKey, options);
   }
 
   /**
@@ -599,25 +598,107 @@ export class EventStore {
     if (this.sidecarMode) {
       return this.writeToSidecar(streamId, event, options?.idempotencyKey ?? event.idempotencyKey);
     }
-    return this.withLock(streamId, async () => {
-      const cached = await this.checkIdempotencyAndSequence(streamId, options);
-      if (cached) return cached;
+    const idempotencyKey = options?.idempotencyKey ?? event.idempotencyKey;
+    const timestamp = event.timestamp || new Date().toISOString();
+    const prepared: WorkflowEvent = {
+      ...event,
+      streamId,
+      timestamp,
+      idempotencyKey,
+    } as WorkflowEvent;
+    return this.delegateAppend(streamId, prepared, idempotencyKey, options);
+  }
 
-      const sequence = (this.sequenceCounters.get(streamId) ?? 0) + 1;
+  /**
+   * Shared post-validation path: delegate to AtomicAppender, translate the
+   * typed result back into the legacy `WorkflowEvent` return shape, then run
+   * supplementary backend + outbox replication. Sidecar mode short-circuits
+   * before this method is reached.
+   *
+   * The AtomicAppender holds the per-stream lock for the duration of its
+   * append; backend and outbox writes happen after the lock is released.
+   * That ordering matches the legacy semantics — both were already
+   * "supplementary, log-on-failure" — and avoids extending the critical
+   * section across remote calls.
+   */
+  private async delegateAppend(
+    streamId: string,
+    event: WorkflowEvent,
+    idempotencyKey: string | undefined,
+    options?: AppendOptions,
+  ): Promise<WorkflowEvent> {
+    const appender = this.getAppender();
+    const appendOptions =
+      options?.expectedSequence !== undefined
+        ? { expectedSequence: options.expectedSequence }
+        : undefined;
+    // Strip mutable scaffolding fields that AtomicAppender re-derives.
+    // sequence + eventId come back from the appender; streamId + timestamp +
+    // idempotencyKey are passed through verbatim because we already pinned
+    // them above.
+    const { sequence: _ignoredSeq, ...eventInputBase } = event as WorkflowEvent & { sequence?: number };
+    const result = idempotencyKey
+      ? await appender.append(streamId, [eventInputBase], idempotencyKey, appendOptions)
+      : await appender.appendUnkeyed(streamId, [eventInputBase], appendOptions);
 
-      // Construct the final event WITHOUT Zod parse
-      const fullEvent: WorkflowEvent = {
-        ...event,
-        streamId,
-        sequence,
-        timestamp: event.timestamp || new Date().toISOString(),
-        idempotencyKey: options?.idempotencyKey ?? event.idempotencyKey,
-      } as WorkflowEvent;
+    if (!result.ok) {
+      if (result.reason === 'sequence-conflict') {
+        throw new SequenceConflictError(
+          result.expected ?? options?.expectedSequence ?? -1,
+          result.actual ?? -1,
+        );
+      }
+      throw result.cause ?? new Error(`Append failed: ${result.reason}`);
+    }
 
-      await this.persistAndReplicate(streamId, fullEvent);
-      this.sequenceCounters.set(streamId, sequence);
-      return fullEvent;
-    });
+    const fullEvent: WorkflowEvent = {
+      ...event,
+      streamId,
+      sequence: result.sequences[0],
+      // Timestamp comes back from the appender so cache-hit retries return
+      // the original persisted timestamp (the legacy contract some tests
+      // assert via `expect(second).toEqual(first)`).
+      timestamp: result.timestamps[0],
+    } as WorkflowEvent;
+
+    this.replicateBackend(streamId, fullEvent);
+    await this.writeOutbox(streamId, fullEvent);
+    return fullEvent;
+  }
+
+  /** Best-effort backend dual-write — JSONL is the source of truth. */
+  private replicateBackend(streamId: string, event: WorkflowEvent): void {
+    if (!this.backend) return;
+    try {
+      this.backend.appendEvent(streamId, event);
+    } catch (err) {
+      storeLogger.warn(
+        { err: err instanceof Error ? err.message : String(err), streamId, sequence: event.sequence },
+        'Backend dual-write failed — stores may diverge',
+      );
+    }
+  }
+
+  /**
+   * Best-effort outbox replication. JSONL is the source of truth; the sync
+   * layer reconciles any missed entries from JSONL on next pass.
+   *
+   * KNOWN LIMITATION — Atomicity gap (carried over from the legacy path):
+   * The JSONL append (in AtomicAppender) and this outbox write are NOT
+   * transactionally atomic. A crash between them leaves an event in JSONL
+   * without a corresponding outbox entry. Sync reconciliation closes the
+   * gap on next pass.
+   */
+  private async writeOutbox(streamId: string, event: WorkflowEvent): Promise<void> {
+    if (!this.outbox) return;
+    try {
+      await this.outbox.addEntry(streamId, event);
+    } catch (err) {
+      storeLogger.error(
+        { err: err instanceof Error ? err.message : String(err) },
+        'Outbox entry failed',
+      );
+    }
   }
 
   /**
@@ -715,84 +796,83 @@ export class EventStore {
       }
       return results;
     }
-    return this.withLock(streamId, async () => {
-      // Rebuild idempotency cache if any event has an idempotency key
-      const hasIdempotencyKeys = events.some(e => e.idempotencyKey);
-      if (hasIdempotencyKeys && !this.idempotencyCacheInitialized.has(streamId)) {
-        await this.rebuildIdempotencyCache(streamId);
-      }
 
-      // Initialize sequence from file if not cached
-      if (!this.sequenceCounters.has(streamId)) {
-        await this.initializeSequence(streamId);
-      }
+    if (events.length === 0) return [];
 
-      // Phase 1: Validate all events before writing any (atomic: all-or-nothing)
-      const toAppend: WorkflowEvent[] = [];
-      const batchKeys = new Set<string>();
-      let nextSequence = (this.sequenceCounters.get(streamId) ?? 0) + 1;
-
-      for (const event of events) {
-        // Idempotency dedup within batch and against cache
-        if (event.idempotencyKey) {
-          const streamCache = this.idempotencyCache.get(streamId);
-          const cached = streamCache?.get(event.idempotencyKey);
-          if (cached) continue;
-
-          // Also check within this batch (O(1) Set lookup)
-          if (batchKeys.has(event.idempotencyKey)) continue;
-          batchKeys.add(event.idempotencyKey);
-        }
-
-        const fullEvent = WorkflowEventBase.parse({
-          ...event,
-          streamId,
-          sequence: nextSequence,
-          timestamp: event.timestamp || new Date().toISOString(),
-          idempotencyKey: event.idempotencyKey,
-        });
-        toAppend.push(fullEvent);
-        nextSequence++;
-      }
-
-      // Phase 2: Write all validated events in a single append
-      if (toAppend.length > 0) {
-        await this.writeEvents(streamId, toAppend);
-        for (const fullEvent of toAppend) {
-          this.cacheIdempotencyKey(streamId, fullEvent);
-        }
-
-        // Backend dual-write: replicate batch to backend if available
-        if (this.backend) {
-          try {
-            for (const fullEvent of toAppend) {
-              this.backend.appendEvent(streamId, fullEvent);
-            }
-          } catch (err) {
-            storeLogger.warn(
-              { err: err instanceof Error ? err.message : String(err), streamId, count: toAppend.length },
-              'Backend batch dual-write failed — stores may diverge',
-            );
-          }
-        }
-
-        // Outbox replication: write entries for at-least-once delivery
-        if (this.outbox) {
-          for (const fullEvent of toAppend) {
-            try {
-              await this.outbox.addEntry(streamId, fullEvent);
-            } catch (err) {
-              storeLogger.error(
-                { err: err instanceof Error ? err.message : String(err) },
-                'Outbox entry failed during batch append',
-              );
-            }
-          }
-        }
-      }
-
-      return toAppend;
+    // Validate every event up front so a malformed input fails before any
+    // sequence is allocated. Sequence is a placeholder; AtomicAppender
+    // re-derives the authoritative values inside the lock.
+    const validated: WorkflowEvent[] = events.map((event) => {
+      const timestamp = event.timestamp || new Date().toISOString();
+      return WorkflowEventBase.parse({
+        ...event,
+        streamId,
+        sequence: 1,
+        timestamp,
+        idempotencyKey: event.idempotencyKey,
+      });
     });
+
+    // Intra-batch dedup: if any two events share an idempotencyKey, keep
+    // the first and drop the rest. Matches the legacy contract.
+    const seenBatchKeys = new Set<string>();
+    const deduped: WorkflowEvent[] = [];
+    for (const event of validated) {
+      if (event.idempotencyKey && seenBatchKeys.has(event.idempotencyKey)) continue;
+      if (event.idempotencyKey) seenBatchKeys.add(event.idempotencyKey);
+      deduped.push(event);
+    }
+    if (deduped.length === 0) return [];
+
+    // Choose a batch idempotency key:
+    //   - all events share one key  → that key (preserves cross-batch retry).
+    //   - any event has a key but they differ → synthesize batch:<uuid> so
+    //     cross-batch retries don't dedup against a partial overlap.
+    //   - all events keyless → unkeyed append (no cache pollution).
+    const eventKeys = deduped.map((e) => e.idempotencyKey).filter((k): k is string => !!k);
+    const allHaveKeys = eventKeys.length === deduped.length;
+    const allSameKey = allHaveKeys && eventKeys.every((k) => k === eventKeys[0]);
+
+    const appender = this.getAppender();
+    const eventInputs = deduped.map((e) => {
+      const { sequence: _ignored, ...input } = e as WorkflowEvent & { sequence?: number };
+      return input;
+    });
+
+    let result: import('./atomic-appender.js').AppendResult;
+    if (eventKeys.length === 0) {
+      result = await appender.appendUnkeyed(streamId, eventInputs);
+    } else {
+      const batchKey = allSameKey ? eventKeys[0] : `batch:${randomUUIDFn()}`;
+      result = await appender.append(streamId, eventInputs, batchKey);
+    }
+
+    if (!result.ok) {
+      if (result.reason === 'idempotency-claimed') {
+        // Legacy semantics: a cache hit on the (single) batch key returns the
+        // cached events. AtomicAppender already returns ok:true with cached
+        // sequences/eventIds for that path, so this branch only fires on the
+        // structural failure case — surface it.
+        throw new Error(`Batch append failed: ${result.reason}`);
+      }
+      throw result.cause ?? new Error(`Batch append failed: ${result.reason}`);
+    }
+
+    const fullEvents: WorkflowEvent[] = deduped.map((event, i) => ({
+      ...event,
+      sequence: result.sequences[i],
+      timestamp: result.timestamps[i],
+    }));
+
+    // Supplementary replication, post-success, mirrors the legacy ordering.
+    for (const fullEvent of fullEvents) {
+      this.replicateBackend(streamId, fullEvent);
+    }
+    for (const fullEvent of fullEvents) {
+      await this.writeOutbox(streamId, fullEvent);
+    }
+
+    return fullEvents;
   }
 
   // ─── Shared Helpers ────────────────────────────────────────────────────────
