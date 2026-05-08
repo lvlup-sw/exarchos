@@ -1974,18 +1974,30 @@ describe('EventStore StorageBackend Integration', () => {
     // longer the seq-init source — JSONL is the source of truth, backend
     // is a supplementary dual-write target. The test verifies that a new
     // EventStore instance (simulating restart) correctly continues
-    // sequence numbering across the boundary.
-    const backend = new InMemoryBackend();
-    const store = new EventStore(tempDir, { backend });
+    // sequence numbering across the boundary EVEN WHEN backend disagrees.
+    //
+    // Per CR review 4249046281: the prior version of this test reused the
+    // same `InMemoryBackend` instance, so `backend.getSequence()` would
+    // happily return 3 too. To prove JSONL is the load-bearing source, the
+    // restart store gets a FRESH backend that returns 0 — if AtomicAppender
+    // were still consulting backend.getSequence on init, the next append
+    // would land at sequence 1 (backend's view) and collide with the
+    // existing JSONL events at 1..3. The test asserts seq=4, so the
+    // initialization path went through JSONL.
+    const backend1 = new InMemoryBackend();
+    const store = new EventStore(tempDir, { backend: backend1 });
 
     await store.append('my-workflow', { type: 'workflow.started' });
     await store.append('my-workflow', { type: 'task.assigned' });
     await store.append('my-workflow', { type: 'workflow.transition' });
 
-    // Restart simulation — a fresh EventStore reads the JSONL state.
-    const store2 = new EventStore(tempDir, { backend });
+    // Restart with a *fresh* backend whose getSequence returns 0. Forces
+    // the diverged-state path: backend says 0, JSONL says 3.
+    const backend2 = new InMemoryBackend();
+    expect(backend2.getSequence('my-workflow')).toBe(0);
+    const store2 = new EventStore(tempDir, { backend: backend2 });
     const event = await store2.append('my-workflow', { type: 'task.claimed' });
-    expect(event.sequence).toBe(4);
+    expect(event.sequence).toBe(4); // JSONL wins over backend.
   });
 
   it('append_BackendWriteFails_StillSucceedsWithWarning', async () => {
@@ -2105,14 +2117,25 @@ describe('EventStore appendValidated', () => {
   //      commit time — re-running would create duplicate/inconsistent state).
 
   it('append_idempotencyRetryWithDifferentPayload_returnsOriginalAndSkipsReplication', async () => {
+    // Two side-effect counters cover both supplementary replication paths:
+    // backend dual-write AND outbox replay. Both must fire exactly once
+    // (on the original commit), not on the cache-hit retry. CR review
+    // 4249046281 asked for the outbox half explicitly — without it, a
+    // future regression that re-fired the outbox on cache-hit could
+    // pass the original test.
     let backendCalls = 0;
+    let outboxCalls = 0;
     const backend = {
       appendEvent: () => { backendCalls++; },
       getSequence: () => 0,
       queryEvents: async () => [],
       getMaxSequence: () => 0,
     };
+    const outbox = {
+      addEntry: async () => { outboxCalls++; },
+    };
     const store = new EventStore(tempDir, { backend: backend as never });
+    store.setOutbox(outbox as never);
 
     // Original commit: payload A
     const first = await store.append(
@@ -2123,9 +2146,10 @@ describe('EventStore appendValidated', () => {
     expect(first.sequence).toBe(1);
     expect((first.data as { payload: string }).payload).toBe('A');
     expect(backendCalls).toBe(1);
+    expect(outboxCalls).toBe(1);
 
     // Retry with same key, DIFFERENT payload. Must return original (A, seq 1)
-    // and NOT call backend a second time.
+    // AND must skip BOTH supplementary replications.
     const retry = await store.append(
       'my-workflow',
       { type: 'task.assigned', data: { payload: 'B-DIFFERENT' } },
@@ -2133,7 +2157,8 @@ describe('EventStore appendValidated', () => {
     );
     expect(retry.sequence).toBe(1);
     expect((retry.data as { payload: string }).payload).toBe('A'); // not 'B-DIFFERENT'
-    expect(backendCalls).toBe(1); // unchanged — no second replication
+    expect(backendCalls).toBe(1); // unchanged — no second backend replication
+    expect(outboxCalls).toBe(1); // unchanged — no second outbox entry
   });
 
   it('appendValidated_RespectsExpectedSequence', async () => {

@@ -205,7 +205,8 @@ This is the right shape regardless of substrate — projections should be idempo
 - **`phaseTransitionTimestamp`** — last `workflow.transition` event's timestamp. Captures "stuck in phase X for N days" even when reads keep activity fresh.
 - **`branchActivity`** — `git log -1 --format=%ct` on the feature branch when the workflow tracks a branch. Captures "branch hasn't moved" as an independent signal.
 
-Staleness becomes the AND of `lastActivityTimestamp > threshold` OR (`phaseTransitionTimestamp > threshold` AND no branch activity in window). The exact composition gets refined in TDD; the contract is multi-signal scoring rather than single-signal heuristic.
+Shipped composition (per `prune-stale-workflows.ts:248`):
+`isStale = phaseStale && (lastActivityStale || branchInactive)`. The phase-stale gate is the dominant predicate — recent phase progress alone keeps a workflow fresh — and the inner OR closes the false-fresh path that #1117 originally caught (orchestrator polls keep `lastActivityTimestamp` artificially fresh, but no branch activity over the window flips `branchInactive` true and the workflow is flagged). When neither secondary signal is supplied, the legacy single-signal `lastActivityStale` path is preserved for backward compat.
 
 #1259 generalizes this to phase-declared activity contracts. v2.9.0 ships hardcoded signal composition; v2.10/v2.11 generalizes to a contract.
 
