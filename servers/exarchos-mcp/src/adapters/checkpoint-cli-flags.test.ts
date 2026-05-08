@@ -100,26 +100,39 @@ async function runWfCheckpointCli(
   const savedExit = process.exitCode;
   process.exitCode = undefined;
 
+  // CodeRabbit minor on PR #1297: capture the per-call exit code BEFORE
+  // the finally block restores `process.exitCode`. If `parseAsync` threw
+  // a non-CommanderError it rethrows out of this function, but the
+  // restore must still run so the mutated global doesn't leak into
+  // subsequent tests in the same Vitest worker.
   let commanderErr: CommanderError | undefined;
+  let exitCode = 0;
   try {
     await program.parseAsync([...argv]);
   } catch (err) {
     if (err instanceof CommanderError) {
       commanderErr = err;
     } else {
+      // Compute the exit code from the partial run so the restore in
+      // `finally` is unconditional, then rethrow.
+      exitCode =
+        typeof process.exitCode === 'number'
+          ? process.exitCode
+          : 0;
       throw err;
     }
   } finally {
+    if (commanderErr !== undefined || exitCode === 0) {
+      exitCode =
+        typeof process.exitCode === 'number'
+          ? process.exitCode
+          : commanderErr?.exitCode ?? exitCode;
+    }
+    process.exitCode = savedExit;
     stdoutSpy.mockRestore();
     stderrSpy.mockRestore();
     dispatchSpy.mockRestore();
   }
-
-  const exitCode =
-    typeof process.exitCode === 'number'
-      ? process.exitCode
-      : commanderErr?.exitCode ?? 0;
-  process.exitCode = savedExit;
 
   const stdout = stdoutBuf.join('');
   const stderr = stderrBuf.join('');
