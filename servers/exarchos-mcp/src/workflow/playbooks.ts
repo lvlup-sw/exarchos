@@ -16,6 +16,21 @@ export interface EventInstruction {
   readonly fields?: readonly string[];
 }
 
+/**
+ * Auto-emitted event surface (#1227, T6). Lists events the runtime emits on
+ * the model's behalf — e.g. `task.completed` / `task.failed` fired by the
+ * `task_complete` / `task_fail` orchestrate handlers. Distinct from
+ * {@link EventInstruction} to make it impossible to accidentally invite the
+ * model to manually re-emit a runtime-owned event.
+ *
+ * `source` is fixed to `'auto'`; `emittedBy` names the runtime surface that
+ * fires the event (typically an `exarchos_orchestrate <action>` invocation).
+ */
+export interface AutoEmittedEventInstruction extends EventInstruction {
+  readonly source: 'auto';
+  readonly emittedBy: string;
+}
+
 export interface PhasePlaybook {
   readonly phase: string;
   readonly workflowType: string;
@@ -23,6 +38,11 @@ export interface PhasePlaybook {
   readonly skillRef: string;
   readonly tools: readonly ToolInstruction[];
   readonly events: readonly EventInstruction[];
+  /**
+   * Events the runtime emits on the model's behalf for this phase (#1227).
+   * Phases without runtime-emitted events leave this undefined.
+   */
+  readonly autoEmittedEvents?: readonly AutoEmittedEventInstruction[];
   readonly transitionCriteria: string;
   readonly guardPrerequisites: string;
   readonly validationScripts: readonly string[];
@@ -200,6 +220,60 @@ function delegatePhaseEvents(phase: 'delegate' | 'overhaul-delegate'): readonly 
     });
 }
 
+// ─── Delegate-Phase Auto-Emitted Event Contract (#1227, T6) ──────────────────
+//
+// Sibling to {@link DELEGATE_PHASE_EVENT_METADATA} — surfaces events the
+// runtime emits on the model's behalf (e.g. `task.completed` / `task.failed`
+// fired by the `task_complete` / `task_fail` orchestrate handlers). The
+// `events` array deliberately excludes these to avoid inviting duplicate
+// emissions; this map exists so downstream surfaces (telemetry, docs, agent
+// context) can still discover them as part of the phase contract.
+//
+// Same SoT discipline as the model-event side: any auto-source event in
+// `getRegisteredEventTypes(phase)` without a metadata entry here throws at
+// module load.
+
+const DELEGATE_PHASE_AUTO_EVENT_METADATA: Readonly<
+  Record<string, Pick<AutoEmittedEventInstruction, 'when' | 'fields' | 'emittedBy'>>
+> = {
+  'task.completed': {
+    when: 'After task_complete orchestrate action succeeds',
+    fields: ['taskId', 'evidence', 'verified', 'files', 'implements'],
+    emittedBy: 'exarchos_orchestrate task_complete',
+  },
+  'task.failed': {
+    when: 'After task_fail orchestrate action',
+    fields: ['taskId', 'error', 'diagnostics'],
+    emittedBy: 'exarchos_orchestrate task_fail',
+  },
+};
+
+/**
+ * Sibling to {@link delegatePhaseEvents} — derives the auto-emitted event
+ * surface for a delegate phase from the SoT registry, filtered to events
+ * with `source === 'auto'`. Throws if a SoT auto event has no metadata
+ * entry in {@link DELEGATE_PHASE_AUTO_EVENT_METADATA}.
+ */
+function delegateAutoEmittedEvents(
+  phase: 'delegate' | 'overhaul-delegate',
+): readonly AutoEmittedEventInstruction[] {
+  return getRegisteredEventTypes(phase)
+    .filter((type) => {
+      const source = EVENT_EMISSION_REGISTRY[type as EventType];
+      return source === 'auto';
+    })
+    .map((type) => {
+      const meta = DELEGATE_PHASE_AUTO_EVENT_METADATA[type];
+      if (!meta) {
+        throw new Error(
+          `playbooks: missing DELEGATE_PHASE_AUTO_EVENT_METADATA entry for SoT auto-emitted event '${type}' (phase '${phase}'). ` +
+            `Add the event to DELEGATE_PHASE_AUTO_EVENT_METADATA in workflow/playbooks.ts.`,
+        );
+      }
+      return { type, source: 'auto' as const, ...meta };
+    });
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // Feature Workflow Playbooks
 // ═══════════════════════════════════════════════════════════════════════════
@@ -305,6 +379,12 @@ register({
   // previously listed here but is auto-emitted by the telemetry
   // middleware and explicitly excluded from the model-event contract.
   events: delegatePhaseEvents('delegate'),
+  // Auto-emitted events (#1227, T6) — `task.completed` / `task.failed`
+  // fired by the `task_complete` / `task_fail` orchestrate handlers.
+  // Sibling to `events` so downstream surfaces (telemetry, docs, agent
+  // context) can discover them without inviting the model to manually
+  // re-emit runtime-owned events.
+  autoEmittedEvents: delegateAutoEmittedEvents('delegate'),
   transitionCriteria: 'All tasks complete → review',
   guardPrerequisites:
     "tasks[].status = 'complete' for every task",
@@ -931,6 +1011,8 @@ register({
   // Events derived from the rehydration reducer's SoT registry
   // (#1180, DIM-3) — see `delegatePhaseEvents`.
   events: delegatePhaseEvents('overhaul-delegate'),
+  // Auto-emitted events (#1227, T6) — see `delegateAutoEmittedEvents`.
+  autoEmittedEvents: delegateAutoEmittedEvents('overhaul-delegate'),
   transitionCriteria: 'All tasks complete → overhaul-review',
   guardPrerequisites: 'allTasksComplete',
   validationScripts: [],
