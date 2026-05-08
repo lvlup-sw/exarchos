@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { WorkflowTypeSchema } from './workflow/schemas.js';
+import { CheckpointHandoffSchema, WorkflowTypeSchema } from './workflow/schemas.js';
 import { agentSpecSchema as agentSpecSchemaForRegistry } from './agents/handler.js';
 export { coercedRecord, coercedPositiveInt, coercedNonnegativeInt, coercedStringArray } from './coerce.js';
 import { coercedRecord, coercedPositiveInt, coercedNonnegativeInt, coercedStringArray } from './coerce.js';
@@ -600,19 +600,16 @@ const workflowActions: readonly ToolAction[] = [
       // non-strict) and an MCP caller passing `handoff` would observe a
       // successful checkpoint with no persisted handoff payload — the
       // CLI would honour the convenience flags while MCP would not,
-      // breaking DR-3 surface parity. The byte caps mirror
-      // `event-store/schemas.ts:HandoffEntryData` and
-      // `workflow/schemas.ts:CheckpointHandoffSchema` exactly; the
-      // handler re-parses against `CheckpointInputSchema` so the cap is
-      // ultimately enforced on a single line of code, but registering it
-      // here makes the contract visible to schema introspection
-      // (`exarchos schema describe wf.checkpoint`) and to the auto-gen
-      // CLI flag table.
-      handoff: z.object({
-        context: z.string().max(2048).optional(),
-        nextSteps: z.array(z.string().max(256)).max(10).optional(),
-        suggestions: z.array(z.string().max(256)).max(10).optional(),
-      }).optional(),
+      // breaking DR-3 surface parity.
+      //
+      // CodeRabbit nitpick on PR #1297: reuse the canonical
+      // `CheckpointHandoffSchema` rather than redefining the shape inline.
+      // The handler re-parses against `CheckpointInputSchema` so the
+      // strictObject cap is ultimately enforced on a single line of code;
+      // composing the canonical schema here keeps schema introspection
+      // (`exarchos schema describe wf.checkpoint`) and the auto-gen CLI
+      // flag table aligned with the handler's contract.
+      handoff: CheckpointHandoffSchema.optional(),
     }),
     phases: ALL_PHASES,
     roles: ROLE_LEAD,

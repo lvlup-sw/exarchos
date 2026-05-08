@@ -453,8 +453,15 @@ export const WorkflowGuardFailedData = z.object({
  * + phase + featureId. Per-field byte caps (DIM-7) prevent unbounded growth;
  * the rehydration projection (`latestHandoff` / `recentHandoffs`) derives
  * its content from this payload.
+ *
+ * CodeRabbit major on PR #1297: strictObject rejects unknown keys so a
+ * malformed event payload (typo, future-version key, structured-clone
+ * artifact) fails validation at the persisted-event boundary rather
+ * than being silently truncated and folded into the rehydration
+ * projection's `latestHandoff`. Mirrors the dispatch-side strictness
+ * in `workflow/schemas.ts:CheckpointHandoffSchema` exactly.
  */
-export const HandoffEntryData = z.object({
+export const HandoffEntryData = z.strictObject({
   context: z.string().max(2048).optional(),
   nextSteps: z.array(z.string().max(256)).max(10).optional(),
   suggestions: z.array(z.string().max(256)).max(10).optional(),

@@ -12,7 +12,19 @@ import { coercedStringArray } from '../coerce.js';
 // change with it — a co-located schemas.test.ts assertion (added in T1
 // for the persisted side) plus the explicit cross-reference comment
 // here are the load-bearing guard.
-const CheckpointHandoffSchema = z.object({
+//
+// CodeRabbit major on PR #1297: `z.strictObject()` rejects unknown
+// keys instead of silently stripping them. A malformed payload — typo,
+// future-version field a pre-#1240 client doesn't know to filter,
+// structured-clone artifact — must surface as INVALID_INPUT rather
+// than a silently-truncated persisted handoff.
+//
+// Exported (was const-internal) so the registry composite-tool schema
+// and the legacy `exarchos_workflow_checkpoint` server.tool definition
+// reuse one source of truth instead of declaring inline copies that
+// can desync — same axiom-distill consolidation rationale as the
+// CheckpointInputSchema reuse below.
+export const CheckpointHandoffSchema = z.strictObject({
   context: z.string().max(2048).optional(),
   nextSteps: z.array(z.string().max(256)).max(10).optional(),
   suggestions: z.array(z.string().max(256)).max(10).optional(),

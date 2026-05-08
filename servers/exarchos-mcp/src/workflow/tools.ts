@@ -10,6 +10,7 @@ import type {
   WorkflowState,
 } from './types.js';
 import {
+  CheckpointHandoffSchema,
   CheckpointInputSchema,
   ErrorCode,
   isReservedField,
@@ -971,16 +972,6 @@ export async function handleCheckpoint(
     }
   }
 
-  // Update lastActivityTimestamp
-  const checkpoint = mutableState._checkpoint as Record<string, unknown>;
-  checkpoint.lastActivityTimestamp = new Date().toISOString();
-
-  // Update top-level timestamp
-  mutableState.updatedAt = new Date().toISOString();
-
-  // Write back to disk
-  await writeStateFile(stateFile, mutableState as WorkflowState);
-
   // T034 (DR-6) — materialize the rehydration projection. Performed AFTER
   // the `workflow.checkpoint` event above is appended so the snapshot folds
   // that event into the projection too (the rehydration reducer treats
@@ -1120,6 +1111,23 @@ export async function handleCheckpoint(
       };
     }
   }
+
+  // CodeRabbit major on PR #1297 (tools.ts:930-960): the version-advancing
+  // `writeStateFile` MUST be deferred until AFTER the snapshot fold and
+  // `workflow.checkpoint_written` append both succeed. The idempotency
+  // key for the `workflow.checkpoint` event above includes
+  // `state._version`, and `writeStateFile` advances disk `_version` from
+  // N to N+1 as a side effect of writing. If the write happened earlier
+  // and any later step failed, the operator's retry would read N+1,
+  // compute a different idempotency key, and the event-store dedup would
+  // miss — duplicating the checkpoint event on the stream. Deferring the
+  // write is the minimum-mutation fix that keeps retries collapsing onto
+  // one checkpoint event by holding `_version` stable until the whole
+  // bundle commits.
+  const checkpoint = mutableState._checkpoint as Record<string, unknown>;
+  checkpoint.lastActivityTimestamp = new Date().toISOString();
+  mutableState.updatedAt = new Date().toISOString();
+  await writeStateFile(stateFile, mutableState as WorkflowState);
 
   // Issue #1082 Tier 3: surface sidecar-mode degradation (see handleInit/handleSet).
   const sidecarPending = eventStore?.inSidecarMode === true;
@@ -1276,13 +1284,13 @@ export function registerWorkflowTools(server: McpServer, stateDir: string, event
       // composes `HandoffEntryData`) so an MCP caller bypassing this
       // shape — older client, manual JSON-RPC — still hits the same
       // byte-cap rejection path.
-      handoff: z
-        .object({
-          context: z.string().max(2048).optional(),
-          nextSteps: z.array(z.string().max(256)).max(10).optional(),
-          suggestions: z.array(z.string().max(256)).max(10).optional(),
-        })
-        .optional(),
+      //
+      // CodeRabbit nitpick on PR #1297: reuse the canonical
+      // `CheckpointHandoffSchema` instead of an inline z.object copy.
+      // Same shape, single source of truth — a future cap change
+      // can't desync this surface from `CheckpointInputSchema` and
+      // strictObject rejection of unknown keys carries through.
+      handoff: CheckpointHandoffSchema.optional(),
     },
     async (args) => formatResult(await handleCheckpoint(args, stateDir, eventStore)),
   );

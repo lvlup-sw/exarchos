@@ -501,6 +501,89 @@ describe('handleCheckpoint — materializes rehydration projection (T034, DR-6)'
       store.query = realQuery;
     }
   });
+
+  it('CheckpointHandler_RetryAfterCheckpointWrittenFails_DoesNotDuplicateCheckpointEvent', async () => {
+    // CodeRabbit major on PR #1297 (tools.ts:930-960):
+    //   `checkpointIdempotencyKey` is derived from `state._version`. The
+    //   handler appends `workflow.checkpoint` (key includes _version=N),
+    //   then `writeStateFile` advances disk _version to N+1, then later
+    //   the snapshot fold + `workflow.checkpoint_written` append run.
+    //   If those latter steps fail and the operator retries, the next
+    //   call reads disk _version=N+1, computes a DIFFERENT idempotency
+    //   key, and the event-store dedup misses — the retry appends a
+    //   second `workflow.checkpoint` event. End state: two checkpoint
+    //   events on the stream for one operator-intended checkpoint, with
+    //   the second carrying the same handoff payload as the first.
+    //
+    //   The fix is to defer `writeStateFile` (the version-advancing
+    //   write) until AFTER `workflow.checkpoint_written` succeeds, so
+    //   any partial-failure retry reads the same _version=N and
+    //   regenerates the same idempotency key — dedup catches it.
+    const featureId = 'wf-cp-retry-idempotency';
+    const initResult = await handleInit(
+      { featureId, workflowType: 'feature' },
+      stateDir,
+      store,
+    );
+    expect(initResult.success).toBe(true);
+
+    const handoff = { context: 'partial-recovery test' };
+
+    // Inject a single failure on the SECOND eventStore.append call.
+    // Append #1 = `workflow.checkpoint` (succeeds, advances stream).
+    // After that, the handler runs writeStateFile + snapshot fold +
+    // appendSnapshot. The next append is `workflow.checkpoint_written`
+    // — that's the one we fail. Real-world analogue: transient EIO on
+    // the event-store backend after the initial commit landed.
+    const realAppend = store.append.bind(store);
+    let appendCount = 0;
+    let injecting = true;
+    store.append = (async (...args) => {
+      appendCount += 1;
+      if (injecting && appendCount === 2) {
+        throw new Error('simulated workflow.checkpoint_written append failure');
+      }
+      return realAppend(...(args as Parameters<typeof realAppend>));
+    }) as typeof store.append;
+
+    try {
+      // Attempt 1: fails on the second append.
+      const first = await handleCheckpoint(
+        { featureId, summary: 'attempt 1', handoff },
+        stateDir,
+        store,
+      );
+      expect(first.success).toBe(false);
+      expect(first.error?.code).toBe('EVENT_APPEND_FAILED');
+      expect(first.error?.message).toMatch(/checkpoint_written/);
+
+      // Operator retries with the same args. Lift the injector first.
+      injecting = false;
+      const second = await handleCheckpoint(
+        { featureId, summary: 'attempt 1', handoff },
+        stateDir,
+        store,
+      );
+      expect(second.success).toBe(true);
+    } finally {
+      store.append = realAppend;
+    }
+
+    // ASSERT: exactly ONE `workflow.checkpoint` event survived the
+    // retry. The dedup invariant is the contract: same featureId +
+    // phase + version + handoff digest → same idempotency key → one
+    // event. Two events here proves the version-advance ordering
+    // bug — disk _version moved between the two attempts so the
+    // second attempt's key didn't match the first's.
+    const events = await store.query(featureId);
+    const checkpointEvents = events.filter((e) => e.type === 'workflow.checkpoint');
+    expect(checkpointEvents.length).toBe(1);
+
+    // And exactly one `workflow.checkpoint_written` from the successful
+    // retry. (The first attempt failed before this event was appended.)
+    const writtenEvents = events.filter((e) => e.type === 'workflow.checkpoint_written');
+    expect(writtenEvents.length).toBe(1);
+  });
 });
 
 // ─── T4 (#1240): handleCheckpoint handoff dispatch wiring ────────────────────
@@ -720,6 +803,54 @@ describe('handleCheckpoint — handoff dispatch wiring (T4, #1240)', () => {
     expect(result.error?.code).toBe('INVALID_INPUT');
 
     // No event landed.
+    const eventsAfter = await store.query(featureId, {
+      type: 'workflow.checkpoint',
+    });
+    expect(eventsAfter.length).toBe(0);
+  });
+
+  it('handleCheckpoint_HandoffWithUnknownKey_ReturnsValidationError', async () => {
+    // CodeRabbit major on PR #1297 (workflow/schemas.ts:15-19):
+    //   `CheckpointHandoffSchema` (and its mirror `HandoffEntryData`)
+    //   uses `z.object()`, which silently strips unknown keys. A
+    //   malformed payload — typo'd field, future-version field a
+    //   pre-#1240 client doesn't know to filter, accidental injection
+    //   of a structured-clone artifact — is sanitized away rather
+    //   than surfaced. The strictObject contract requires unknown
+    //   keys to fail validation so callers see a clear INVALID_INPUT
+    //   instead of a silently-stripped persistence.
+    const featureId = 'wf-t4-handoff-unknown-key';
+    const init = await handleInit(
+      { featureId, workflowType: 'feature' },
+      stateDir,
+      store,
+    );
+    expect(init.success).toBe(true);
+
+    const eventsBeforeCount = (
+      await store.query(featureId, { type: 'workflow.checkpoint' })
+    ).length;
+    expect(eventsBeforeCount).toBe(0);
+
+    const result = await handleCheckpoint(
+      // Extra `notes` key is not part of HandoffEntryData; must reject.
+      {
+        featureId,
+        handoff: {
+          context: 'valid context',
+          notes: 'this is not a real field',
+        },
+      } as unknown as Parameters<typeof handleCheckpoint>[0],
+      stateDir,
+      store,
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('INVALID_INPUT');
+    // The error message should name the offending key so operators
+    // diagnose the malformed payload directly from the envelope.
+    expect(result.error?.message).toMatch(/notes|unrecognized|unknown/i);
+
     const eventsAfter = await store.query(featureId, {
       type: 'workflow.checkpoint',
     });

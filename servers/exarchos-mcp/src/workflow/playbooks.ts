@@ -98,6 +98,19 @@ export function renderPlaybook(playbook: PhasePlaybook): string {
     lines.push('**Events to emit:** None');
   }
 
+  // CodeRabbit major on PR #1297: render the autoEmittedEvents sibling
+  // surface so the model knows which events the runtime fires on its
+  // behalf. The `events:` line above is intentionally exclusive of these
+  // (delegatePhaseEvents filters source==='model'); rendering them on a
+  // separate line preserves that contract while making the auto-emit
+  // surface visible to consumers reading the rendered guidance.
+  if (playbook.autoEmittedEvents && playbook.autoEmittedEvents.length > 0) {
+    const autoEntries = playbook.autoEmittedEvents
+      .map((e) => `${e.type} (${e.emittedBy}) — ${e.when}`)
+      .join(', ');
+    lines.push(`**Auto-emitted events:** ${autoEntries}`);
+  }
+
   lines.push(
     `**Transition:** ${playbook.transitionCriteria} | Guard: ${playbook.guardPrerequisites || 'None'}`,
   );
@@ -259,7 +272,19 @@ function delegateAutoEmittedEvents(
 ): readonly AutoEmittedEventInstruction[] {
   return getRegisteredEventTypes(phase)
     .filter((type) => {
+      // CodeRabbit major on PR #1297 (playbooks.ts:257-264): mirror
+      // the fail-fast behavior of `delegatePhaseEvents`. Treating
+      // `EVENT_EMISSION_REGISTRY[type] === undefined` as a non-match
+      // silently drops misregistered types from the auto-emit surface.
+      // Throwing surfaces the misregistration at module load —
+      // symmetric defense across both event sources.
       const source = EVENT_EMISSION_REGISTRY[type as EventType];
+      if (source === undefined) {
+        throw new Error(
+          `playbooks: SoT event '${type}' (phase '${phase}') is not registered in EVENT_EMISSION_REGISTRY. ` +
+            `Register it (or fix the typo at the SoT) so phase-auto-emitted-events stays consistent.`,
+        );
+      }
       return source === 'auto';
     })
     .map((type) => {
@@ -1377,6 +1402,14 @@ export interface SerializedPhasePlaybook {
   readonly skillRef: string;
   readonly tools: readonly ToolInstruction[];
   readonly events: readonly EventInstruction[];
+  /**
+   * Auto-emitted event surface for delegate-shaped phases (#1227, T6).
+   * Carried through serialization so CLI describe / telemetry / agent
+   * context consumers see the runtime-emitted events as part of the
+   * phase contract. Phases without auto-emit leave this undefined —
+   * explicit absence (not `[]`) keeps the contract minimal.
+   */
+  readonly autoEmittedEvents?: readonly AutoEmittedEventInstruction[];
   readonly transitionCriteria: string;
   readonly guardPrerequisites: string;
   readonly validationScripts: readonly string[];
@@ -1403,6 +1436,13 @@ export function serializePlaybooks(workflowType: string): SerializedPlaybooks {
       skillRef: playbook.skillRef,
       tools: [...playbook.tools],
       events: [...playbook.events],
+      // CodeRabbit major on PR #1297: thread autoEmittedEvents through
+      // the serialized contract. Spread-on-condition keeps the field
+      // absent for phases that don't declare it (matching the
+      // PhasePlaybook shape) — the digest-stable contract from T6.
+      ...(playbook.autoEmittedEvents !== undefined && {
+        autoEmittedEvents: [...playbook.autoEmittedEvents],
+      }),
       transitionCriteria: playbook.transitionCriteria,
       guardPrerequisites: playbook.guardPrerequisites,
       validationScripts: [...playbook.validationScripts],

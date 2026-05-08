@@ -43,6 +43,21 @@ describe('renderPlaybook', () => {
     const rendered = renderPlaybook(playbook);
     expect(rendered.length).toBeLessThan(300);
   });
+
+  it('renderPlaybook_DelegatePhase_IncludesAutoEmittedEvents', () => {
+    // CodeRabbit major on PR #1297: PhasePlaybook gained an
+    // autoEmittedEvents field but renderPlaybook() never surfaces it,
+    // so consumers reading the rendered guidance can't tell that
+    // task.completed / task.failed are runtime-emitted. The render
+    // MUST advertise them as a distinct surface from `events:` so the
+    // model knows not to manually re-emit them.
+    const playbook = getPlaybook('feature', 'delegate')!;
+    const rendered = renderPlaybook(playbook);
+    expect(rendered).toMatch(/Auto-?emitted|auto[- ]emit/i);
+    expect(rendered).toContain('task.completed');
+    expect(rendered).toContain('task.failed');
+    expect(rendered).toContain('exarchos_orchestrate task_complete');
+  });
 });
 
 // ─── Task 2: Feature Workflow Playbook Entries ──────────────────────────────
@@ -274,6 +289,46 @@ describe('serializePlaybooks', () => {
 
   it('SerializePlaybooks_Unknown_Throws', () => {
     expect(() => serializePlaybooks('nonexistent')).toThrow();
+  });
+
+  it('SerializePlaybooks_DelegatePhase_IncludesAutoEmittedEvents', () => {
+    // CodeRabbit major on PR #1297: PhasePlaybook gained an
+    // autoEmittedEvents field but serializePlaybooks() drops it on the
+    // way out, so any consumer reading the serialized contract (CLI
+    // describe, telemetry, agent context) sees no auto-emit surface
+    // for the delegate phase. The serialized shape MUST carry the
+    // field through with type, source, emittedBy, when, and fields
+    // intact for each runtime-emitted event.
+    const result = serializePlaybooks('feature');
+    const delegate = result.phases['delegate'] as {
+      autoEmittedEvents?: readonly {
+        type: string;
+        source: string;
+        emittedBy: string;
+        when: string;
+        fields?: readonly string[];
+      }[];
+    };
+    expect(delegate.autoEmittedEvents).toBeDefined();
+    const auto = delegate.autoEmittedEvents!;
+    const types = auto.map((e) => e.type);
+    expect(types).toContain('task.completed');
+    expect(types).toContain('task.failed');
+    const completed = auto.find((e) => e.type === 'task.completed')!;
+    expect(completed.source).toBe('auto');
+    expect(completed.emittedBy).toBe('exarchos_orchestrate task_complete');
+    expect(completed.fields).toContain('taskId');
+  });
+
+  it('SerializePlaybooks_NonDelegatePhase_OmitsAutoEmittedEvents', () => {
+    // Phases without runtime-emitted events leave the field undefined
+    // on the in-memory PhasePlaybook; the serialized shape must mirror
+    // that — explicit absence (not `[]`) keeps the contract minimal.
+    const result = serializePlaybooks('feature');
+    const ideate = result.phases['ideate'] as {
+      autoEmittedEvents?: readonly unknown[];
+    };
+    expect(ideate.autoEmittedEvents).toBeUndefined();
   });
 });
 
