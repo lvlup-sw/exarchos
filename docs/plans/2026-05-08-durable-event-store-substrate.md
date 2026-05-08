@@ -15,28 +15,30 @@ Link: [`docs/designs/2026-05-08-durable-event-store-substrate.md`](../designs/20
 
 ## Summary
 
-- Total tasks: 56
-- Parallel groups: 6 (P1–P6 below)
-- Estimated test count: ~85 (one task = one focused behavior; some property/integration tasks generate >1 test)
+- Total tasks: 61 (T01–T61; T12, T13 added in revision; T57–T61 added in revision)
+- Parallel groups: 7 (P1–P7 below)
+- Estimated test count: ~92 (one task = one focused behavior; some property/integration tasks generate >1 test)
 - Design coverage: 14 of 14 DR requirements covered
+- Revision history:
+  - 2026-05-08 r1: gate.executed plan-review found 8 gaps. Added T12 (tolerant deserialization), T13 (StorageBackend wiring witness), T57 (lifecycle wires migration runner), T58 (lifecycle wires topology loader), T59 (handshake override priority), T60 (cross-process migration-lock convergence), T61 (AtomicAppender consumer enumeration). Phase 0 worktree row added to parallelization table.
 
 ## Spec Traceability
 
 | Design DR | Requirement Summary | Acceptance Test (parent) | Inner Task IDs |
 |---|---|---|---|
-| DR-1 | SQLite source-of-truth + AtomicAppender body swap | T05 | T06–T11 |
-| DR-2 | Storage handle DI through `DispatchContext` | T14 | T15–T17 |
+| DR-1 | SQLite source-of-truth + AtomicAppender body swap | T05 | T06–T11, T61 |
+| DR-2 | Storage handle DI through `DispatchContext` | T14 | T13, T15–T17 |
 | DR-3 | Stream ID namespacing + cross-stream query reducer | T23 | T24–T28 |
 | DR-4 | `workflow.set({phase})` deprecation rerouting | T35 | T36–T41 |
 | DR-5 | `workflow.transition` guard-failure error envelope | T42 | T42 |
-| DR-6 | AgentPosture spec field + resolver derivation | T29 | T30–T34 |
-| DR-7 | Typed phase-contract loader + generic pruner scorer | T43 | T44–T48 |
-| DR-8 | JSONL→SQLite migration + archive + lock | T18 | T19–T22 |
+| DR-6 | AgentPosture spec field + resolver derivation | T29 | T30–T34, T59 |
+| DR-7 | Typed phase-contract loader + generic pruner scorer | T43 | T44–T48, T58 |
+| DR-8 | JSONL→SQLite migration + archive + lock | T18 | T19–T22, T57 |
 | DR-9 | Migration emits structured events | T20 | T20–T22 |
-| DR-10 | Schema V3 + tolerant deserialization | T01 | T02–T04 |
+| DR-10 | Schema V3 + tolerant deserialization | T01 | T02–T04, T12 |
 | DR-11 | `outputSchema` bumped + `describe` entries updated | T39 | T40–T41 |
-| DR-12 | Substrate failure-mode coverage (busy/corrupt/lock) | T08 | T08–T11, T22 |
-| DR-13 | POC validates seam (parametric backend tests) | T49 | T50–T55 |
+| DR-12 | Substrate failure-mode coverage (busy/corrupt/lock) | T08 | T08–T11, T22, T60 |
+| DR-13 | POC validates seam (parametric backend tests) | T49 | T50–T55, T61 |
 | DR-14 | v2.11 cleanup follow-up issue | T56 | T56 |
 
 ## Task Breakdown
@@ -124,6 +126,49 @@ Link: [`docs/designs/2026-05-08-durable-event-store-substrate.md`](../designs/20
 
 ---
 
+### Task 12: Tolerant V2→V3 deserialization
+
+**Goal:** Implements design section *Schema versioning (DIM-3, INV-1)*. Closes DR-10 AC2 — the V3 reader must observe V2-shape events unchanged. Without this, a partial migration or rollback path corrupts the event log.
+
+**Phase:** RED → GREEN
+**Test Layer:** integration
+**Implements:** DR-10
+**testingStrategy:** `{ exampleTests: true, propertyTests: false, benchmarks: false, testLayer: "integration" }`
+
+**TDD Steps:**
+1. [RED] Write test `EventReader_V3_DeserializesV2ShapedEventsUnchanged`
+   - File: `servers/exarchos-mcp/src/event-store/event-migration.test.ts` (existing file; add case)
+   - Plant a fixture row written under V2 schema; assert V3 reader returns the same `PublicPersistedEvent` shape that V2 produced (semantic equivalence; only V3-only fields default).
+   - Plant a V3 row alongside; assert both reads round-trip without coercion errors.
+2. [GREEN] Implement tolerant decode in the V3 reader path; unknown V3-only fields default; unknown V2 fields are ignored.
+
+**Verification:** Witness RED while reader assumes V3 fields are required; flips GREEN once tolerant decode is in place.
+**Dependencies:** T01
+**Parallelizable:** With T02, T03, T04
+
+---
+
+### Task 13: StorageBackend / MemoryBackend DI witness
+
+**Goal:** Implements design section *Storage primitive (C1, Q1)*. Closes DR-2 AC3 — verifies the existing `StorageBackend` interface and `MemoryBackend` implementation under `servers/exarchos-mcp/src/storage/` are reachable through the `DispatchContext` shape that Phase 2 will introduce. No new abstraction; this is a wiring witness.
+
+**Phase:** RED → GREEN
+**Test Layer:** unit
+**Implements:** DR-2
+**testingStrategy:** `{ exampleTests: true, propertyTests: false, benchmarks: false, testLayer: "unit" }`
+
+**TDD Steps:**
+1. [RED] Write test `StorageBackend_Interface_AdmitsBothSqliteAndMemoryImpls`
+   - File: `servers/exarchos-mcp/src/storage/__tests__/backend-contract.test.ts` (existing file; add case)
+   - Assert the `StorageBackend` type accepts both `SqliteBackend` and `MemoryBackend` instances; assert each implementation passes the existing backend contract suite.
+2. [GREEN] If the contract test already covers both implementations, this becomes a documentation-only addition referencing the existing coverage. Otherwise extend the contract test to enumerate both backends.
+
+**Verification:** Confirms the abstraction Phase 2 depends on is already in place; prevents Phase 2 from re-introducing a parallel abstraction.
+**Dependencies:** T01
+**Parallelizable:** With T02, T03, T04, T12
+
+---
+
 ## Phase 1 — Storage Substrate (group P1, parallel after Phase 0)
 
 ### Task 05: ACCEPTANCE — `AtomicAppender` SQLite-backed body produces same `AppendResult` shape
@@ -141,7 +186,7 @@ Link: [`docs/designs/2026-05-08-durable-event-store-substrate.md`](../designs/20
    - Expected failure: SQLite backend not implemented
    - Test asserts: same `AppendResult` shape, same per-stream serialization, same idempotency-key cache-hit semantics, same returned `PublicPersistedEvent` shape, against the SAME fixtures as `atomic-appender.test.ts`.
 
-**Dependencies:** T01–T04
+**Dependencies:** T01–T04, T12, T13
 **Parallelizable:** Anchor of P1
 
 ---
@@ -458,6 +503,27 @@ Link: [`docs/designs/2026-05-08-durable-event-store-substrate.md`](../designs/20
 
 ---
 
+### Task 60: Cross-process migration-lock convergence (CLI ↔ MCP)
+
+**Goal:** Implements design section *Migration plan (Q2, Q8)*. Closes DR-12 cross-process gap — design specifies *concurrent CLI + MCP-server starts converge on a single migration runner; the loser awaits completion*. T19 covers in-process two-claimer convergence; this task asserts the same property across OS-process boundaries.
+
+**Phase:** RED → GREEN
+**Test Layer:** integration
+**Acceptance Test Ref:** T18
+**Implements:** DR-8, DR-12
+**testingStrategy:** `{ exampleTests: true, propertyTests: false, benchmarks: false, testLayer: "integration" }`
+
+**TDD Steps:**
+1. [RED] Test `MigrationLock_CliAndMcpStartConcurrently_OneRunsOneAwaits`
+   - File: `servers/exarchos-mcp/src/storage/migration-lock-cross-process.test.ts`
+   - Fixture: spawn two child processes (one simulating CLI startup, one MCP-server startup) racing for the same `migration_lock` row. Assert exactly one runs the import; the other observes `migration.completed` and proceeds without re-running.
+2. [GREEN] Confirm the SQLite-backed lock primitive (T19) survives the cross-process boundary; if file-locking semantics differ, address via WAL mode + busy_timeout.
+
+**Dependencies:** T22
+**Parallelizable:** P3 (final)
+
+---
+
 ## Phase 4 — Cross-Stream Namespacing (group P4, parallel after P1)
 
 ### Task 23: ACCEPTANCE — namespaced stream IDs + cross-stream queries reduce over events table
@@ -698,6 +764,28 @@ Link: [`docs/designs/2026-05-08-durable-event-store-substrate.md`](../designs/20
 1. [RED] Test `AgentSpec_LegacyCapabilitiesArray_EmitsDeprecationEventAndEnvelope`
    - File: `servers/exarchos-mcp/src/agents/spec.test.ts`
 2. [GREEN] Spec validation path emits event when `capabilities[]` present without `posture`; consumers wrap with `_meta.deprecation`.
+
+**Dependencies:** T33
+**Parallelizable:** P5
+
+---
+
+### Task 59: Handshake declarations override yaml posture
+
+**Goal:** Implements design section *Capability posture (C5, Q5)*. Closes DR-6 AC3 — design specifies *handshake declarations override resolved capabilities*. T33 tests merge but does not pin the override priority; without this test a loose-merge implementation passes review.
+
+**Phase:** RED → GREEN
+**Test Layer:** integration
+**Acceptance Test Ref:** T29
+**Implements:** DR-6
+**testingStrategy:** `{ exampleTests: true, propertyTests: false, benchmarks: false, testLayer: "integration" }`
+
+**TDD Steps:**
+1. [RED] Test `Resolver_HandshakeOverridesYamlPosture_HandshakeWins`
+   - File: `servers/exarchos-mcp/src/capabilities/resolver.test.ts`
+   - Fixture: spec declares `posture: 'task-isolated'` (which maps to include `fs:write`); handshake declares `deny:fs:write`. Assert `EffectiveCapabilities.fs.write === false`.
+   - Inverse fixture: yaml posture `read-only`; handshake declares `allow:fs:write`. Assert `EffectiveCapabilities.fs.write === true`.
+2. [GREEN] Confirm resolver applies handshake last in the merge order; if the implementation merges symmetrically, fix to apply handshake as override.
 
 **Dependencies:** T33
 **Parallelizable:** P5
@@ -1128,6 +1216,71 @@ Link: [`docs/designs/2026-05-08-durable-event-store-substrate.md`](../designs/20
 
 ---
 
+### Task 57: Lifecycle wires migration runner at startup
+
+**Goal:** Implements design section *Migration plan (Q2, Q8)*. Closes DR-8 AC1 — design specifies *"Migration runs at lifecycle start when SQLite database has no rows in `schema_version` matching SCHEMA_VERSION 3"*. Phase 3 builds the runner primitives (T19–T22) and the cross-process lock (T60); this task wires them into `lifecycle.ts` startup so the migration actually fires.
+
+**Phase:** RED → GREEN → REFACTOR
+**Test Layer:** integration
+**Acceptance Test Ref:** T49
+**Implements:** DR-8
+**testingStrategy:** `{ exampleTests: true, propertyTests: false, benchmarks: false, testLayer: "integration", characterizationRequired: true }`
+
+**TDD Steps:**
+1. [RED] Test `Lifecycle_StartWithLegacyJsonl_TriggersMigrationBeforeFirstAppend`
+   - File: `servers/exarchos-mcp/src/storage/lifecycle.test.ts` (existing file; add case)
+   - Fixture: legacy `*.events.jsonl` files present, SQLite `schema_version` < 3. Lifecycle start. Assert migration runs to completion BEFORE the first runtime `AtomicAppender.append` call.
+   - Idempotency: a second lifecycle start (with `schema_version === 3`) is a no-op (no migration events emitted).
+2. [GREEN] In `lifecycle.ts`, after opening SQLite connection and before constructing `DispatchContext`, check schema version, claim migration lock, run importer, release on completion.
+3. [REFACTOR] Extract `runMigrationIfNeeded(storage)` into a sibling module under `storage/`.
+
+**Dependencies:** T55, T60
+**Parallelizable:** Sequential
+
+---
+
+### Task 58: Lifecycle wires topology loader + emits `phase.contract_missing` at startup
+
+**Goal:** Implements design section *Phase contract (C6, Q6)*. Closes DR-7 startup-wiring gap — design specifies the typed loader is *"called once at lifecycle start"* and emits `phase.contract_missing` per missing-contract phase *"once at startup"*. T44 implements the loader; T47 implements the emission inside the loader; T48 wires the contract into the pruner. This task wires `loadTopology()` into `lifecycle.ts` so the startup-emission semantics actually fire.
+
+**Phase:** RED → GREEN
+**Test Layer:** integration
+**Acceptance Test Ref:** T49
+**Implements:** DR-7
+**testingStrategy:** `{ exampleTests: true, propertyTests: false, benchmarks: false, testLayer: "integration" }`
+
+**TDD Steps:**
+1. [RED] Test `Lifecycle_Start_LoadsTopologyOnceAndEmitsContractMissingPerMissingPhase`
+   - File: `servers/exarchos-mcp/src/storage/lifecycle.test.ts` (existing file; add case)
+   - Fixture: `topology.yaml` with two phases declaring `staleness`, three missing. Lifecycle start. Assert `phase.contract_missing` emitted exactly three times (once per missing phase). Subsequent lifecycle start (within the same process) does NOT re-emit.
+2. [GREEN] In `lifecycle.ts`, call `loadTopology()` once at startup; cache the result; surface via `getTopology()`. The startup walk emits per-phase events for any phase missing `staleness`.
+
+**Dependencies:** T55, T57
+**Parallelizable:** Sequential (after T57 to avoid lifecycle test cross-pollination)
+
+---
+
+### Task 61: AtomicAppender consumer enumeration witness
+
+**Goal:** Implements design section *POC scope (acceptance criteria of #1259)*. Closes DR-13 AC3 — *"Zero changes required in any of the seven current consumers of `AtomicAppender` (verified by `grep -l AtomicAppender` enumeration)"*. T49 acceptance asserts the property at the test layer; this task makes the enumeration discrete and reviewable so the count is pinned and a regression in either direction (new consumer, removed consumer) is caught.
+
+**Phase:** RED → GREEN
+**Test Layer:** unit
+**Acceptance Test Ref:** T49
+**Implements:** DR-1, DR-13
+**testingStrategy:** `{ exampleTests: true, propertyTests: false, benchmarks: false, testLayer: "unit" }`
+
+**TDD Steps:**
+1. [RED] Test `AtomicAppender_ConsumerCount_MatchesBaselineEnumeration`
+   - File: `servers/exarchos-mcp/src/event-store/atomic-appender-consumers.test.ts`
+   - Greps `servers/exarchos-mcp/src/**/*.ts` (excluding `__tests__/` and `__shims__/`) for `import .* AtomicAppender` and asserts the resulting set matches a frozen baseline list checked into the test fixture.
+2. [GREEN] Establish the baseline by running the grep against the post-T55 tree and committing the enumeration. Any future drift fails this test, forcing an explicit acknowledgement.
+
+**Dependencies:** T55
+**Parallelizable:** Sequential
+
+---
+
 ## Phase 9 — Followup (sequential, last)
 
 ### Task 56: Open v2.11.0 cleanup follow-up issue
@@ -1142,30 +1295,32 @@ Link: [`docs/designs/2026-05-08-durable-event-store-substrate.md`](../designs/20
 **TDD Steps:**
 1. [GREEN] `gh issue create --title "v2.11 cleanup: remove durable-substrate deprecation shims" --body "..."` referencing this design's DR-4, DR-6, DR-7. Body lists exact removal sites and reviews telemetry counters before cut.
 
-**Dependencies:** T55
+**Dependencies:** T58, T61
 **Parallelizable:** No
 
 ---
 
 ## Parallelization Strategy
 
-After Phase 0 completes (T01–T04), six parallel groups can dispatch concurrently:
+After Phase 0 completes (T01–T04, T12, T13), seven parallel groups can dispatch concurrently:
 
 | Group | Tasks | Worktree branch |
 |---|---|---|
+| **P0** Foundation | T01–T04, T12, T13 | `feature/durable-substrate-foundation` (sequential prerequisite) |
 | **P1** Storage substrate | T05–T11 | `feature/durable-substrate-storage` |
 | **P2** DispatchContext | T14–T17 | `feature/durable-substrate-context` (depends on P1) |
-| **P3** Migration | T18–T22 | `feature/durable-substrate-migration` (depends on P2) |
+| **P3** Migration | T18–T22, T60 | `feature/durable-substrate-migration` (depends on P2) |
 | **P4** Cross-stream namespacing | T23–T28 | `feature/durable-substrate-namespacing` |
-| **P5** Capability posture | T29–T34 | `feature/durable-substrate-posture` |
+| **P5** Capability posture | T29–T34, T59 | `feature/durable-substrate-posture` |
 | **P6** HSM single-path | T35–T42 | `feature/durable-substrate-hsm` |
 | **P7** Phase contract | T43–T48 | `feature/durable-substrate-phase-contract` |
 
 **Sequential constraints:**
-- Phase 0 (T01–T04) → all parallel groups
+- P0 (T01–T04, T12, T13) → all parallel groups (P1–P7)
 - P1 → P2 → P3 (storage handle must exist before migration runs)
-- P3, P4, P5, P6, P7 → Phase 8 (integration / POC validation, T49–T55)
-- Phase 8 → Phase 9 (T56)
+- P3, P4, P5, P6, P7 → Phase 8 integration / POC validation (T49–T55)
+- Phase 8 → lifecycle-wiring tasks (T57 → T58) and consumer enumeration (T61)
+- T58, T61 → Phase 9 (T56)
 
 P4, P5, P6, P7 are mutually independent and run concurrently with P1→P2→P3 chain.
 
