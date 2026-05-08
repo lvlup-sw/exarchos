@@ -244,12 +244,12 @@ jobs:
 
             **Unix (macOS / Linux):**
             ```bash
-            curl -fsSL https://raw.githubusercontent.com/lvlup-sw/exarchos/main/scripts/get-exarchos.sh | bash
+            curl -fsSL https://lvlup-sw.github.io/exarchos/get-exarchos.sh | bash
             ```
 
             **Windows (PowerShell):**
             ```powershell
-            irm https://raw.githubusercontent.com/lvlup-sw/exarchos/main/scripts/get-exarchos.ps1 | iex
+            irm https://lvlup-sw.github.io/exarchos/get-exarchos.ps1 | iex
             ```
 
             ## Assets

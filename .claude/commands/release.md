@@ -143,8 +143,9 @@ The whole point of an rc tag is to dogfood the install path before stable. Run i
 # Real install — drops the binary at $HOME/.local/bin/exarchos:
 bash scripts/get-exarchos.sh --version "v${VERSION}"
 
-# Or via the public bootstrap entry-point once the release is live:
-curl -fsSL "https://raw.githubusercontent.com/lvlup-sw/exarchos/v${VERSION}/scripts/get-exarchos.sh" \
+# Or via the public bootstrap entry-point once the release is live
+# (served from GitHub Pages alongside the docs site, see docs.yml):
+curl -fsSL "https://lvlup-sw.github.io/exarchos/get-exarchos.sh" \
   | bash -s -- --version "v${VERSION}"
 
 exarchos --version                          # must print ${VERSION}
