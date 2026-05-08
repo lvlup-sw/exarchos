@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { WorkflowTypeSchema } from './workflow/schemas.js';
+import { CheckpointHandoffSchema, WorkflowTypeSchema } from './workflow/schemas.js';
 import { agentSpecSchema as agentSpecSchemaForRegistry } from './agents/handler.js';
 export { coercedRecord, coercedPositiveInt, coercedNonnegativeInt, coercedStringArray } from './coerce.js';
 import { coercedRecord, coercedPositiveInt, coercedNonnegativeInt, coercedStringArray } from './coerce.js';
@@ -593,6 +593,23 @@ const workflowActions: readonly ToolAction[] = [
     schema: z.object({
       featureId: featureIdSchema,
       summary: z.string().optional(),
+      // T5 (#1240): formal `handoff` field on the dispatch surface so the
+      // MCP arm validates the same shape `handleCheckpoint` re-validates
+      // internally via `CheckpointInputSchema`. Without this, dispatch
+      // silently strips `handoff` (registry per-action schemas are
+      // non-strict) and an MCP caller passing `handoff` would observe a
+      // successful checkpoint with no persisted handoff payload — the
+      // CLI would honour the convenience flags while MCP would not,
+      // breaking DR-3 surface parity.
+      //
+      // CodeRabbit nitpick on PR #1297: reuse the canonical
+      // `CheckpointHandoffSchema` rather than redefining the shape inline.
+      // The handler re-parses against `CheckpointInputSchema` so the
+      // strictObject cap is ultimately enforced on a single line of code;
+      // composing the canonical schema here keeps schema introspection
+      // (`exarchos schema describe wf.checkpoint`) and the auto-gen CLI
+      // flag table aligned with the handler's contract.
+      handoff: CheckpointHandoffSchema.optional(),
     }),
     phases: ALL_PHASES,
     roles: ROLE_LEAD,

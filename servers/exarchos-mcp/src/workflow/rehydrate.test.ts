@@ -84,7 +84,7 @@ describe('handleRehydrate — happy path (T031, DR-5)', () => {
     const parsed = RehydrationDocumentSchema.safeParse(doc);
     expect(parsed.success).toBe(true);
 
-    expect(doc.v).toBe(1);
+    expect(doc.v).toBe(2);
     // Every seeded event is handled by the rehydration reducer, so
     // `projectionSequence` must match the count of events.
     expect(doc.projectionSequence).toBe(4);
@@ -189,7 +189,7 @@ describe('handleRehydrate — happy path (T031, DR-5)', () => {
 
     expect(result.success).toBe(true);
     const doc = result.data as RehydrationDocument;
-    expect(doc.v).toBe(1);
+    expect(doc.v).toBe(2);
     expect(doc.projectionSequence).toBe(0);
     expect(doc.taskProgress).toEqual([]);
     expect(doc.blockers).toEqual([]);
@@ -412,9 +412,9 @@ describe('handleRehydrate — reducer throw degradation (T054, DR-18)', () => {
       expect(meta?.fallbackSource).toBe('state-store-only');
 
       // THEN (2): the returned `data` is a minimal fallback document seeded
-      //   from the state-store — v:1, sequence 0, populated workflowState.
+      //   from the state-store — v:2, sequence 0, populated workflowState.
       const doc = result.data as RehydrationDocument;
-      expect(doc.v).toBe(1);
+      expect(doc.v).toBe(2);
       expect(doc.projectionSequence).toBe(0);
       expect(doc.workflowState.featureId).toBe(featureId);
       expect(doc.workflowState.workflowType).toBe('feature');
@@ -597,10 +597,10 @@ describe('handleRehydrate — event-stream-unavailable degradation (T056, DR-18)
     expect(meta?.fallbackSource).toBe('state-store-only');
 
     // THEN (2): the returned `data` is a minimal fallback document seeded
-    //   from the state store — v:1, projectionSequence 0, populated
+    //   from the state store — v:2, projectionSequence 0, populated
     //   workflowState.
     const doc = result.data as RehydrationDocument;
-    expect(doc.v).toBe(1);
+    expect(doc.v).toBe(2);
     expect(doc.projectionSequence).toBe(0);
     expect(doc.workflowState.featureId).toBe(featureId);
     expect(doc.workflowState.workflowType).toBe('feature');

@@ -17,13 +17,20 @@
  * conditional `cache_control` markers) can segment the document without
  * duplicating the ordering policy.
  */
+import { z } from 'zod';
 import {
   BehavioralGuidanceSchema,
+  RehydrationDocumentSchema,
+  RehydrationDocumentSchemaV1,
   StableSectionsSchema,
   VolatileSectionsSchema,
   WorkflowStateSchema,
   type RehydrationDocument,
 } from './schema.js';
+import {
+  InvalidEnvelopeError,
+  upgradeRehydrationDocumentV1toV2,
+} from './upgrade.js';
 
 /**
  * Top-level stable section keys, in canonical serialization order.
@@ -110,4 +117,39 @@ export function serializeRehydrationDocument(doc: RehydrationDocument): string {
   }
 
   return JSON.stringify(ordered);
+}
+
+/**
+ * Probe schema for envelope-version routing — minimal `z.literal` union over
+ * `v` that lets `loadRehydrationDocument` decide which full schema to apply.
+ * Defined once at module scope so the compiled probe is shared across calls.
+ */
+const EnvelopeVersionProbe = z.object({
+  v: z.union([z.literal(1), z.literal(2)]),
+});
+
+/**
+ * Read entry point for rehydration documents — T3 (#1246-readside-migration).
+ *
+ * Probes the input envelope's `v` discriminator and routes:
+ *   - `v: 2` → full v:2 schema parse, returned as-is.
+ *   - `v: 1` → full v:1 schema parse, then `upgradeRehydrationDocumentV1toV2`
+ *     to produce a strict-mode-valid v:2 document with per-entry fail-open.
+ *   - neither → `InvalidEnvelopeError` (no silent fallback per DR-18). The
+ *     caller is responsible for surfacing corruption as a workflow state.
+ *
+ * Writers MUST NOT call this — they construct v:2 documents directly via
+ * `RehydrationDocumentSchema`. This is the only legitimate path that touches
+ * `RehydrationDocumentSchemaV1`.
+ */
+export function loadRehydrationDocument(raw: unknown): RehydrationDocument {
+  const probe = EnvelopeVersionProbe.safeParse(raw);
+  if (!probe.success) {
+    throw new InvalidEnvelopeError(probe.error);
+  }
+  if (probe.data.v === 2) {
+    return RehydrationDocumentSchema.parse(raw);
+  }
+  const v1doc = RehydrationDocumentSchemaV1.parse(raw);
+  return upgradeRehydrationDocumentV1toV2(v1doc);
 }

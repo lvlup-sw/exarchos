@@ -233,4 +233,62 @@ describe('CLI/MCP parity — workflow_checkpoint (C9, #1109)', () => {
     expect(cliResult.success).toBe(true);
     expect(normalize(cliResult)).toEqual(normalize(mcpResult));
   });
+
+  // ─── T5 (#1240) — handoff-bearing CLI/MCP envelope parity ─────────────
+  //
+  // Extends the no-handoff parity above to the new T5 surface. The CLI
+  // arm passes `handoff` as a JSON object via the harness (same shape
+  // the auto-generated `--handoff` flag accepts), and the MCP arm passes
+  // the equivalent dispatch payload. After T5 wires the convenience
+  // flags AND adds `handoff` to the registry's checkpoint schema, both
+  // arms must produce byte-equal envelopes. This is the second half of
+  // the DR-3 parity guarantee for the new field — without this test, a
+  // future schema drift on either surface (e.g. CLI strips a key the
+  // MCP keeps, or vice versa) would silently land.
+
+  it('CheckpointParity_McpCli_IdenticalEnvelope', async () => {
+    const featureId = 'c9-parity-checkpoint-handoff';
+
+    // Arrange — both arms initialized to the same starting state.
+    await initWorkflow(cliArm, featureId);
+    await initWorkflow(mcpArm, featureId);
+
+    // Identical handoff payload on both arms. Object value on the CLI
+    // side is JSON-stringified by the harness into `--handoff <json>`
+    // — Commander forwards the string into `coerceFlags`, which JSON-
+    // parses it back per the `field.type === 'object'` branch in
+    // `schema-to-flags.ts`. The MCP arm receives the object directly.
+    const handoff = {
+      context: 'T5 parity check: agent dispatch surface',
+      nextSteps: ['Verify CLI/MCP envelope byte-equality post-T5'],
+      suggestions: ['Pin parity test BEFORE merging T5'],
+    };
+
+    const mcpResult: ToolResult = await harnessCallMcp(
+      mcpArm.ctx,
+      'exarchos_workflow',
+      {
+        action: 'checkpoint',
+        featureId,
+        summary: 'C9 T5 parity handoff',
+        handoff,
+      },
+    );
+
+    const { result: cliResult, exitCode } = await harnessCallCli(
+      cliArm.ctx,
+      'wf',
+      'checkpoint',
+      { featureId, summary: 'C9 T5 parity handoff', handoff },
+    );
+
+    // Assert — exit-code success on the CLI arm, both envelopes equal
+    // after normalization. Wall-clock timestamps inside `_checkpoint`
+    // and the snapshot ISO field are collapsed to `<ISO>` by the
+    // shared normalizer.
+    expect(exitCode).toBe(CLI_EXIT_CODES.SUCCESS);
+    expect(mcpResult.success).toBe(true);
+    expect(cliResult.success).toBe(true);
+    expect(normalize(cliResult)).toEqual(normalize(mcpResult));
+  });
 });

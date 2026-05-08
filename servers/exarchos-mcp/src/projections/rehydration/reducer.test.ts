@@ -51,8 +51,8 @@ describe('rehydration reducer — initial state (T022, DR-3)', () => {
     const result = RehydrationDocumentSchema.safeParse(initial);
     expect(result.success).toBe(true);
 
-    // AND: the versioned envelope carries v === 1 and projectionSequence === 0
-    expect(initial.v).toBe(1);
+    // AND: the versioned envelope carries v === 2 and projectionSequence === 0
+    expect(initial.v).toBe(2);
     expect(initial.projectionSequence).toBe(0);
 
     // AND: volatile sections are empty containers
@@ -976,5 +976,311 @@ describe('rehydration reducer — worktree auto-detour (#1208)', () => {
     );
     expect(refolded.workflowState.phase).toBe('delegate');
     expect(refolded.workflowState.mergeOrchestrator?.phase).toBe('completed');
+  });
+});
+
+describe('rehydration reducer — workflow.checkpoint handoff fold (T2 / #1240 / #1246)', () => {
+  /**
+   * Helper — build a synthetic `workflow.checkpoint` event with a `handoff`
+   * sub-payload. Matches the registered `WorkflowCheckpointData` shape: the
+   * envelope carries `counter`, `phase`, `featureId` (load-bearing for the
+   * event-store schema) plus the optional `handoff` payload (#1240) the
+   * reducer projects into `latestHandoff` / `recentHandoffs`.
+   */
+  function makeCheckpoint(
+    sequence: number,
+    handoff: {
+      context?: string;
+      nextSteps?: string[];
+      suggestions?: string[];
+    } | undefined,
+    overrides: { phase?: string; counter?: number; timestamp?: string } = {},
+  ): WorkflowEvent {
+    const phase = overrides.phase ?? 'design';
+    const counter = overrides.counter ?? sequence;
+    const data: Record<string, unknown> = {
+      counter,
+      phase,
+      featureId: 'wf-test',
+    };
+    if (handoff !== undefined) {
+      data['handoff'] = handoff;
+    }
+    const evt: WorkflowEvent = {
+      streamId: 'wf-test',
+      sequence,
+      timestamp: overrides.timestamp ?? `2026-05-08T00:00:0${sequence % 10}.000Z`,
+      type: 'workflow.checkpoint',
+      schemaVersion: '1.0',
+      data,
+    } as WorkflowEvent;
+    return evt;
+  }
+
+  it('applyWorkflowCheckpoint_NonEmptyHandoff_SetsLatestHandoff', () => {
+    // GIVEN: the initial state
+    const initial = rehydrationReducer.initial;
+
+    // AND: a workflow.checkpoint event with a non-empty handoff payload
+    const evt = makeCheckpoint(
+      7,
+      {
+        context: 'design phase wrapping up',
+        nextSteps: ['run typecheck', 'open PR'],
+        suggestions: ['re-read CLAUDE.md'],
+      },
+      { timestamp: '2026-05-08T12:34:56.000Z' },
+    );
+
+    // WHEN: we fold the event through apply()
+    const next = rehydrationReducer.apply(initial, evt);
+
+    // THEN: latestHandoff equals the input fields with eventRef keyed by
+    // sequence + timestamp (v:2 contract — no `id` key).
+    expect(next.latestHandoff).toBeDefined();
+    expect(next.latestHandoff?.context).toBe('design phase wrapping up');
+    expect(next.latestHandoff?.nextSteps).toEqual(['run typecheck', 'open PR']);
+    expect(next.latestHandoff?.suggestions).toEqual(['re-read CLAUDE.md']);
+    expect(next.latestHandoff?.eventRef.sequence).toBe(7);
+    expect(next.latestHandoff?.eventRef.timestamp).toBe('2026-05-08T12:34:56.000Z');
+
+    // AND: NO `id` key on eventRef (v:2 strict-deprecation per #1246).
+    expect(Object.keys(next.latestHandoff!.eventRef).sort()).toEqual([
+      'sequence',
+      'timestamp',
+    ]);
+
+    // AND: recentHandoffs has been seeded with a single entry mirroring
+    // latestHandoff (most-recent-first, length 1).
+    expect(next.recentHandoffs).toHaveLength(1);
+    expect(next.recentHandoffs[0]).toEqual(next.latestHandoff);
+
+    // AND: projectionSequence was bumped exactly once for this handled event.
+    expect(next.projectionSequence).toBe(1);
+
+    // AND: purity — the initial state was not mutated.
+    expect(initial.latestHandoff).toBeUndefined();
+    expect(initial.recentHandoffs).toEqual([]);
+    expect(initial.projectionSequence).toBe(0);
+
+    // AND: the resulting document still conforms to RehydrationDocumentSchema.
+    expect(RehydrationDocumentSchema.safeParse(next).success).toBe(true);
+  });
+
+  it('applyWorkflowCheckpoint_EmptyHandoff_NoStateChange', () => {
+    // GIVEN: the initial state
+    const initial = rehydrationReducer.initial;
+
+    // CASE 1: handoff omitted entirely (legacy / non-handoff checkpoint)
+    const evtNoHandoff = makeCheckpoint(1, undefined);
+    const next1 = rehydrationReducer.apply(initial, evtNoHandoff);
+    expect(next1).toBe(initial);
+    expect(next1.projectionSequence).toBe(0);
+    expect(next1.latestHandoff).toBeUndefined();
+    expect(next1.recentHandoffs).toEqual([]);
+
+    // CASE 2: handoff present but all fields missing
+    const evtAllUndef = makeCheckpoint(2, {});
+    const next2 = rehydrationReducer.apply(initial, evtAllUndef);
+    expect(next2).toBe(initial);
+    expect(next2.projectionSequence).toBe(0);
+
+    // CASE 3: handoff present with explicit empty arrays + missing context
+    const evtEmptyArrays = makeCheckpoint(3, {
+      nextSteps: [],
+      suggestions: [],
+    });
+    const next3 = rehydrationReducer.apply(initial, evtEmptyArrays);
+    expect(next3).toBe(initial);
+    expect(next3.projectionSequence).toBe(0);
+  });
+
+  it('applyWorkflowCheckpoint_MultipleEvents_RecentHandoffsBoundedToThree', () => {
+    // GIVEN: an initial state we will fold 5 sequential checkpoint events into
+    let state = rehydrationReducer.initial;
+    for (let i = 1; i <= 5; i++) {
+      state = rehydrationReducer.apply(
+        state,
+        makeCheckpoint(i, {
+          context: `checkpoint ${i}`,
+          nextSteps: [`step-${i}`],
+        }),
+      );
+    }
+
+    // THEN: the bounded sliding window holds at most 3 entries
+    expect(state.recentHandoffs).toHaveLength(3);
+
+    // AND: ordering is most-recent-first (event 5, 4, 3)
+    expect(state.recentHandoffs[0]?.context).toBe('checkpoint 5');
+    expect(state.recentHandoffs[1]?.context).toBe('checkpoint 4');
+    expect(state.recentHandoffs[2]?.context).toBe('checkpoint 3');
+
+    // AND: eventRef.sequence ordering matches the most-recent-first contract
+    expect(state.recentHandoffs[0]?.eventRef.sequence).toBe(5);
+    expect(state.recentHandoffs[1]?.eventRef.sequence).toBe(4);
+    expect(state.recentHandoffs[2]?.eventRef.sequence).toBe(3);
+
+    // AND: latestHandoff tracks the head of the window (event 5)
+    expect(state.latestHandoff?.context).toBe('checkpoint 5');
+    expect(state.latestHandoff?.eventRef.sequence).toBe(5);
+
+    // AND: projectionSequence was bumped exactly once per handled event
+    expect(state.projectionSequence).toBe(5);
+
+    // AND: the resulting document still conforms to the v:2 envelope schema
+    // (the .max(3) constraint on recentHandoffs is enforced at parse time)
+    expect(RehydrationDocumentSchema.safeParse(state).success).toBe(true);
+  });
+
+  it('applyWorkflowCheckpoint_ReplayFromInitial_ReconstructsLatest', () => {
+    // GIVEN: a stream of N=4 sequential checkpoint events with non-empty
+    // handoff payloads (DR-3 replay invariant — fold from initial, not from a
+    // hand-crafted v:1 doc).
+    const events = [1, 2, 3, 4].map((i) =>
+      makeCheckpoint(i, {
+        context: `phase ${i} done`,
+        nextSteps: [`task-${i}`],
+        suggestions: [`hint-${i}`],
+      }),
+    );
+
+    // WHEN: we incrementally fold the stream
+    let incremental = rehydrationReducer.initial;
+    for (const evt of events) {
+      incremental = rehydrationReducer.apply(incremental, evt);
+    }
+
+    // AND: when we fully replay the same stream from a fresh initial doc
+    let replayed = rehydrationReducer.initial;
+    for (const evt of events) {
+      replayed = rehydrationReducer.apply(replayed, evt);
+    }
+
+    // THEN: the two folds produce identical documents (no replay drift)
+    expect(replayed).toEqual(incremental);
+
+    // AND: latestHandoff matches the most recent event (sequence 4)
+    expect(replayed.latestHandoff?.eventRef.sequence).toBe(4);
+    expect(replayed.latestHandoff?.context).toBe('phase 4 done');
+
+    // AND: recentHandoffs is bounded to 3 in most-recent-first order
+    expect(replayed.recentHandoffs.map((e) => e.eventRef.sequence)).toEqual([
+      4, 3, 2,
+    ]);
+
+    // AND: every entry's eventRef carries only {sequence, timestamp} (no id)
+    for (const entry of replayed.recentHandoffs) {
+      expect(Object.keys(entry.eventRef).sort()).toEqual([
+        'sequence',
+        'timestamp',
+      ]);
+    }
+
+    // AND: the document still parses against the v:2 schema
+    expect(RehydrationDocumentSchema.safeParse(replayed).success).toBe(true);
+  });
+
+  it('applyWorkflowCheckpoint_EventRefSequenceIsPrimary_NoIdField', () => {
+    // GIVEN: a sequence of checkpoint events folded into the initial state
+    let state = rehydrationReducer.initial;
+    for (let i = 10; i <= 12; i++) {
+      state = rehydrationReducer.apply(
+        state,
+        makeCheckpoint(i, {
+          context: `cp-${i}`,
+          nextSteps: [`step-${i}`],
+        }),
+      );
+    }
+
+    // THEN: every entry in recentHandoffs has an eventRef that contains ONLY
+    // {sequence, timestamp} — no `id` key smuggled in. Per #1246 v:2 strict
+    // deprecation, the schema's `.strict()` would already reject an `id`,
+    // but assert this directly via Object.keys for defense-in-depth.
+    expect(state.recentHandoffs.length).toBeGreaterThan(0);
+    for (const entry of state.recentHandoffs) {
+      const refKeys = Object.keys(entry.eventRef).sort();
+      expect(refKeys).toEqual(['sequence', 'timestamp']);
+      expect(refKeys).not.toContain('id');
+      // Sanity: types — sequence must be a non-negative integer per the v:2
+      // schema; timestamp must be a string.
+      expect(typeof entry.eventRef.sequence).toBe('number');
+      expect(Number.isInteger(entry.eventRef.sequence)).toBe(true);
+      expect(entry.eventRef.sequence).toBeGreaterThanOrEqual(0);
+      expect(typeof entry.eventRef.timestamp).toBe('string');
+    }
+
+    // AND: latestHandoff carries the same single-key pair when present.
+    expect(state.latestHandoff).toBeDefined();
+    expect(Object.keys(state.latestHandoff!.eventRef).sort()).toEqual([
+      'sequence',
+      'timestamp',
+    ]);
+  });
+
+  it('applyWorkflowCheckpoint_FreshReplayRecoversSnapshotDroppedEntries', () => {
+    // C1 audit (snapshot-vs-replay asymmetry, #1246): a hypothetical legacy
+    // v:1 snapshot would have been forced to drop a handoff entry whose
+    // pre-#1230 eventRef carried only an `id` and no usable `sequence`. Fresh
+    // replay-from-events of the SAME `workflow.checkpoint` events recovers
+    // that entry's content under v:2 because the underlying event has a valid
+    // post-#1230 sequence.
+    //
+    // This test does not depend on T3 (the read-back / migration path); it
+    // simply asserts that the reducer's fresh replay produces a complete
+    // recentHandoffs window even for entries a hypothetical legacy snapshot
+    // would have lacked.
+    //
+    // Setup: synthesise three checkpoint events with valid sequences. The
+    // middle event (sequence 22) is the one we model as "would have been
+    // dropped from a v:1 snapshot" — it's identical in shape to its siblings.
+    const evtA = makeCheckpoint(21, {
+      context: 'phase A done',
+      nextSteps: ['next-A'],
+    });
+    const evtB = makeCheckpoint(22, {
+      context: 'phase B done — entry the legacy snapshot dropped',
+      nextSteps: ['next-B'],
+    });
+    const evtC = makeCheckpoint(23, {
+      context: 'phase C done',
+      nextSteps: ['next-C'],
+    });
+
+    // WHEN: we fold all three events from a fresh initial document (the
+    // canonical replay-from-events path).
+    let replayed = rehydrationReducer.initial;
+    for (const evt of [evtA, evtB, evtC]) {
+      replayed = rehydrationReducer.apply(replayed, evt);
+    }
+
+    // THEN: the fresh-replay recentHandoffs contains all three entries —
+    // including the middle "would-have-been-dropped" entry — with correct
+    // eventRef.sequence keys derived from the events themselves (NOT from any
+    // v:1 `id` that a snapshot may have lost).
+    expect(replayed.recentHandoffs).toHaveLength(3);
+    const sequences = replayed.recentHandoffs.map((e) => e.eventRef.sequence);
+    expect(sequences).toEqual([23, 22, 21]); // most-recent-first
+
+    // AND: the recovered "dropped" entry carries its full content under v:2.
+    const recovered = replayed.recentHandoffs.find(
+      (e) => e.eventRef.sequence === 22,
+    );
+    expect(recovered).toBeDefined();
+    expect(recovered?.context).toBe(
+      'phase B done — entry the legacy snapshot dropped',
+    );
+    expect(recovered?.nextSteps).toEqual(['next-B']);
+    // AND: its eventRef has no v:1 `id` key (audit invariant).
+    expect(Object.keys(recovered!.eventRef).sort()).toEqual([
+      'sequence',
+      'timestamp',
+    ]);
+
+    // AND: the resulting document parses cleanly under the v:2 envelope
+    // (the read-side migration is T3's concern; this test asserts the
+    // reducer's write-side replay is complete on its own).
+    expect(RehydrationDocumentSchema.safeParse(replayed).success).toBe(true);
   });
 });

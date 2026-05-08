@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import {
   getPlaybook,
   renderPlaybook,
@@ -42,6 +42,21 @@ describe('renderPlaybook', () => {
     const playbook = getPlaybook('feature', 'completed')!;
     const rendered = renderPlaybook(playbook);
     expect(rendered.length).toBeLessThan(300);
+  });
+
+  it('renderPlaybook_DelegatePhase_IncludesAutoEmittedEvents', () => {
+    // CodeRabbit major on PR #1297: PhasePlaybook gained an
+    // autoEmittedEvents field but renderPlaybook() never surfaces it,
+    // so consumers reading the rendered guidance can't tell that
+    // task.completed / task.failed are runtime-emitted. The render
+    // MUST advertise them as a distinct surface from `events:` so the
+    // model knows not to manually re-emit them.
+    const playbook = getPlaybook('feature', 'delegate')!;
+    const rendered = renderPlaybook(playbook);
+    expect(rendered).toMatch(/Auto-?emitted|auto[- ]emit/i);
+    expect(rendered).toContain('task.completed');
+    expect(rendered).toContain('task.failed');
+    expect(rendered).toContain('exarchos_orchestrate task_complete');
   });
 });
 
@@ -274,6 +289,46 @@ describe('serializePlaybooks', () => {
 
   it('SerializePlaybooks_Unknown_Throws', () => {
     expect(() => serializePlaybooks('nonexistent')).toThrow();
+  });
+
+  it('SerializePlaybooks_DelegatePhase_IncludesAutoEmittedEvents', () => {
+    // CodeRabbit major on PR #1297: PhasePlaybook gained an
+    // autoEmittedEvents field but serializePlaybooks() drops it on the
+    // way out, so any consumer reading the serialized contract (CLI
+    // describe, telemetry, agent context) sees no auto-emit surface
+    // for the delegate phase. The serialized shape MUST carry the
+    // field through with type, source, emittedBy, when, and fields
+    // intact for each runtime-emitted event.
+    const result = serializePlaybooks('feature');
+    const delegate = result.phases['delegate'] as {
+      autoEmittedEvents?: readonly {
+        type: string;
+        source: string;
+        emittedBy: string;
+        when: string;
+        fields?: readonly string[];
+      }[];
+    };
+    expect(delegate.autoEmittedEvents).toBeDefined();
+    const auto = delegate.autoEmittedEvents!;
+    const types = auto.map((e) => e.type);
+    expect(types).toContain('task.completed');
+    expect(types).toContain('task.failed');
+    const completed = auto.find((e) => e.type === 'task.completed')!;
+    expect(completed.source).toBe('auto');
+    expect(completed.emittedBy).toBe('exarchos_orchestrate task_complete');
+    expect(completed.fields).toContain('taskId');
+  });
+
+  it('SerializePlaybooks_NonDelegatePhase_OmitsAutoEmittedEvents', () => {
+    // Phases without runtime-emitted events leave the field undefined
+    // on the in-memory PhasePlaybook; the serialized shape must mirror
+    // that — explicit absence (not `[]`) keeps the contract minimal.
+    const result = serializePlaybooks('feature');
+    const ideate = result.phases['ideate'] as {
+      autoEmittedEvents?: readonly unknown[];
+    };
+    expect(ideate.autoEmittedEvents).toBeUndefined();
   });
 });
 
@@ -581,5 +636,123 @@ describe('Oneshot workflow playbooks', () => {
     const planPhase: SerializedPhasePlaybook = serialized.phases['plan'];
     expect(typeof planPhase.transitionCriteria).toBe('string');
     expect(planPhase.transitionCriteria.length).toBeGreaterThan(0);
+  });
+});
+
+// ─── T6 (#1227): autoEmittedEvents sibling field on delegate-phase playbooks ─
+//
+// Auto-emitted events (`task.completed`, `task.failed`) are fired by
+// `task_complete` / `task_fail` orchestrate handlers — the model must NOT
+// emit them directly, so they're filtered out of the `events` array. But
+// downstream surfaces (telemetry, docs, agent context) still need to know
+// these events are part of the delegate-phase contract. The
+// `autoEmittedEvents` sibling field exposes them WITHOUT inviting the model
+// to manually re-emit them.
+
+describe('T6: autoEmittedEvents sibling field (#1227)', () => {
+  it('PhaseRegistration_DelegatePhase_ExposesAutoEmittedEvents', () => {
+    const playbook = getPlaybook('feature', 'delegate')!;
+    expect(playbook).not.toBeNull();
+    const auto = (playbook as { autoEmittedEvents?: readonly { type: string }[] })
+      .autoEmittedEvents;
+    expect(auto).toBeDefined();
+    expect(Array.isArray(auto)).toBe(true);
+    const types = new Set((auto ?? []).map((e) => e.type));
+    expect(types.has('task.completed')).toBe(true);
+    expect(types.has('task.failed')).toBe(true);
+  });
+
+  it('AutoEmittedEvents_TaskCompleted_HasEmittedByMetadata', () => {
+    const playbook = getPlaybook('feature', 'delegate')!;
+    const auto = (playbook as {
+      autoEmittedEvents?: readonly {
+        type: string;
+        source: string;
+        emittedBy?: string;
+        when?: string;
+        fields?: readonly string[];
+      }[];
+    }).autoEmittedEvents;
+    expect(auto).toBeDefined();
+    const completed = (auto ?? []).find((e) => e.type === 'task.completed');
+    expect(completed).toBeDefined();
+    expect(completed!.source).toBe('auto');
+    expect(completed!.emittedBy).toBe('exarchos_orchestrate task_complete');
+    expect(completed!.when).toBeTruthy();
+    const fields = completed!.fields ?? [];
+    expect(fields).toContain('taskId');
+    expect(fields).toContain('evidence');
+    expect(fields).toContain('verified');
+    expect(fields).toContain('files');
+    expect(fields).toContain('implements');
+  });
+
+  it('AutoEmittedEvents_TaskFailed_HasEmittedByMetadata', () => {
+    const playbook = getPlaybook('feature', 'delegate')!;
+    const auto = (playbook as {
+      autoEmittedEvents?: readonly {
+        type: string;
+        source: string;
+        emittedBy?: string;
+        when?: string;
+        fields?: readonly string[];
+      }[];
+    }).autoEmittedEvents;
+    expect(auto).toBeDefined();
+    const failed = (auto ?? []).find((e) => e.type === 'task.failed');
+    expect(failed).toBeDefined();
+    expect(failed!.source).toBe('auto');
+    expect(failed!.emittedBy).toBe('exarchos_orchestrate task_fail');
+    expect(failed!.when).toBeTruthy();
+    const fields = failed!.fields ?? [];
+    expect(fields).toContain('taskId');
+    expect(fields).toContain('error');
+    expect(fields).toContain('diagnostics');
+  });
+
+  it('PhaseEvents_NoOverlapWithAutoEmitted_DelegatePhase', () => {
+    const playbook = getPlaybook('feature', 'delegate')!;
+    const eventTypes = new Set(playbook.events.map((e) => e.type));
+    const auto = (playbook as { autoEmittedEvents?: readonly { type: string }[] })
+      .autoEmittedEvents;
+    expect(auto).toBeDefined();
+    const autoTypes = new Set((auto ?? []).map((e) => e.type));
+    const intersection = [...autoTypes].filter((t) => eventTypes.has(t));
+    expect(
+      intersection,
+      `events array and autoEmittedEvents must not overlap, found: ${intersection.join(', ')}`,
+    ).toEqual([]);
+  });
+
+  it('AutoEmittedEvents_SoTConsistency_ThrowsOnMissingMetadata', async () => {
+    // If a new auto-source event sneaks into the SoT registry without a
+    // corresponding DELEGATE_PHASE_AUTO_EVENT_METADATA entry, module load
+    // must throw — mirroring the existing model-event SoT check. Simulate
+    // by stubbing getRegisteredEventTypes to include an auto-source event
+    // that has no metadata entry (`workflow.cleanup`).
+    vi.resetModules();
+    vi.doMock('../projections/rehydration/reducer.js', () => ({
+      getRegisteredEventTypes: (phase: string) =>
+        phase === 'delegate' || phase === 'overhaul-delegate'
+          ? ['task.assigned', 'task.completed', 'task.failed', 'workflow.cleanup']
+          : [],
+    }));
+    await expect(import('./playbooks.js')).rejects.toThrow(
+      /DELEGATE_PHASE_AUTO_EVENT_METADATA/,
+    );
+    vi.doUnmock('../projections/rehydration/reducer.js');
+    vi.resetModules();
+  });
+
+  it('PhaseEvents_OverhaulDelegatePhase_ExposesAutoEmittedEvents', () => {
+    const playbook = getPlaybook('refactor', 'overhaul-delegate')!;
+    expect(playbook).not.toBeNull();
+    const auto = (playbook as { autoEmittedEvents?: readonly { type: string }[] })
+      .autoEmittedEvents;
+    expect(auto).toBeDefined();
+    expect(Array.isArray(auto)).toBe(true);
+    const types = new Set((auto ?? []).map((e) => e.type));
+    expect(types.has('task.completed')).toBe(true);
+    expect(types.has('task.failed')).toBe(true);
   });
 });

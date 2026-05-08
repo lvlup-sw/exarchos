@@ -501,4 +501,359 @@ describe('handleCheckpoint — materializes rehydration projection (T034, DR-6)'
       store.query = realQuery;
     }
   });
+
+  it('CheckpointHandler_RetryAfterCheckpointWrittenFails_DoesNotDuplicateCheckpointEvent', async () => {
+    // CodeRabbit major on PR #1297 (tools.ts:930-960):
+    //   `checkpointIdempotencyKey` is derived from `state._version`. The
+    //   handler appends `workflow.checkpoint` (key includes _version=N),
+    //   then `writeStateFile` advances disk _version to N+1, then later
+    //   the snapshot fold + `workflow.checkpoint_written` append run.
+    //   If those latter steps fail and the operator retries, the next
+    //   call reads disk _version=N+1, computes a DIFFERENT idempotency
+    //   key, and the event-store dedup misses — the retry appends a
+    //   second `workflow.checkpoint` event. End state: two checkpoint
+    //   events on the stream for one operator-intended checkpoint, with
+    //   the second carrying the same handoff payload as the first.
+    //
+    //   The fix is to defer `writeStateFile` (the version-advancing
+    //   write) until AFTER `workflow.checkpoint_written` succeeds, so
+    //   any partial-failure retry reads the same _version=N and
+    //   regenerates the same idempotency key — dedup catches it.
+    const featureId = 'wf-cp-retry-idempotency';
+    const initResult = await handleInit(
+      { featureId, workflowType: 'feature' },
+      stateDir,
+      store,
+    );
+    expect(initResult.success).toBe(true);
+
+    const handoff = { context: 'partial-recovery test' };
+
+    // Inject a single failure on the SECOND eventStore.append call.
+    // Append #1 = `workflow.checkpoint` (succeeds, advances stream).
+    // After that, the handler runs writeStateFile + snapshot fold +
+    // appendSnapshot. The next append is `workflow.checkpoint_written`
+    // — that's the one we fail. Real-world analogue: transient EIO on
+    // the event-store backend after the initial commit landed.
+    const realAppend = store.append.bind(store);
+    let appendCount = 0;
+    let injecting = true;
+    store.append = (async (...args) => {
+      appendCount += 1;
+      if (injecting && appendCount === 2) {
+        throw new Error('simulated workflow.checkpoint_written append failure');
+      }
+      return realAppend(...(args as Parameters<typeof realAppend>));
+    }) as typeof store.append;
+
+    try {
+      // Attempt 1: fails on the second append.
+      const first = await handleCheckpoint(
+        { featureId, summary: 'attempt 1', handoff },
+        stateDir,
+        store,
+      );
+      expect(first.success).toBe(false);
+      expect(first.error?.code).toBe('EVENT_APPEND_FAILED');
+      expect(first.error?.message).toMatch(/checkpoint_written/);
+
+      // Operator retries with the same args. Lift the injector first.
+      injecting = false;
+      const second = await handleCheckpoint(
+        { featureId, summary: 'attempt 1', handoff },
+        stateDir,
+        store,
+      );
+      expect(second.success).toBe(true);
+    } finally {
+      store.append = realAppend;
+    }
+
+    // ASSERT: exactly ONE `workflow.checkpoint` event survived the
+    // retry. The dedup invariant is the contract: same featureId +
+    // phase + version + handoff digest → same idempotency key → one
+    // event. Two events here proves the version-advance ordering
+    // bug — disk _version moved between the two attempts so the
+    // second attempt's key didn't match the first's.
+    const events = await store.query(featureId);
+    const checkpointEvents = events.filter((e) => e.type === 'workflow.checkpoint');
+    expect(checkpointEvents.length).toBe(1);
+
+    // And exactly one `workflow.checkpoint_written` from the successful
+    // retry. (The first attempt failed before this event was appended.)
+    const writtenEvents = events.filter((e) => e.type === 'workflow.checkpoint_written');
+    expect(writtenEvents.length).toBe(1);
+  });
+});
+
+// ─── T4 (#1240): handleCheckpoint handoff dispatch wiring ────────────────────
+//
+// T4 of the checkpoint-handoff bundle wires `handleCheckpoint` to accept a
+// formal `handoff` field on its input (validated against `HandoffEntryData`
+// from `event-store/schemas.ts`, exported by T1) and persist it on the
+// emitted `workflow.checkpoint` event's `data.handoff`. Backward compatibility
+// is mandatory — pre-#1240 callers (no `handoff`) must continue to work and
+// produce events whose `data` has no `handoff` key.
+//
+// The C3 (#1241) idempotency-key payload-digest fix already reads the field
+// off `input` via a typed cast, so the dedup behaviour for both
+// no-handoff (digest of `{}`) and refinement (distinct digests) callers is
+// already exercised by `tools.test.ts`. This suite asserts the schema-typed
+// field flows end-to-end through dispatch, and that the idempotency-digest
+// path lets a same-phase, same-version, distinct-handoff refinement land a
+// second event (Sentry regression for #1228 — phantom-claim path no longer
+// silently drops the second checkpoint).
+
+describe('handleCheckpoint — handoff dispatch wiring (T4, #1240)', () => {
+  let stateDir: string;
+  let store: EventStore;
+
+  beforeEach(async () => {
+    stateDir = await mkdtemp(path.join(tmpdir(), 'checkpoint-handoff-t4-'));
+    store = new EventStore(stateDir);
+  });
+
+  afterEach(async () => {
+    await rm(stateDir, { recursive: true, force: true });
+  });
+
+  it('handleCheckpoint_HandoffPayload_AppendsEventWithData', async () => {
+    // GIVEN: an initialized workflow.
+    const featureId = 'wf-t4-handoff-payload';
+    const initResult = await handleInit(
+      { featureId, workflowType: 'feature' },
+      stateDir,
+      store,
+    );
+    expect(initResult.success).toBe(true);
+
+    const handoff = {
+      context: 'Wave 1 implementer team finished T1-T3; T4 dispatch wiring next',
+      nextSteps: ['Wire handoff into handleCheckpoint', 'Add CLI flags'],
+      suggestions: ['Verify no-handoff backward compatibility'],
+    };
+
+    // WHEN: dispatch with a fully-populated handoff.
+    const result = await handleCheckpoint(
+      { featureId, handoff },
+      stateDir,
+      store,
+    );
+    expect(result.success).toBe(true);
+
+    // THEN: the event store has exactly one workflow.checkpoint event and
+    // its data carries the handoff field verbatim.
+    const events = await store.query(featureId, { type: 'workflow.checkpoint' });
+    expect(events.length).toBe(1);
+    const data = events[0]!.data as {
+      counter: number;
+      phase: string;
+      featureId: string;
+      handoff?: typeof handoff;
+    };
+    expect(data.handoff).toEqual(handoff);
+    // Pre-existing fields are preserved.
+    expect(data.featureId).toBe(featureId);
+    expect(data.counter).toBe(0);
+    expect(typeof data.phase).toBe('string');
+  });
+
+  it('handleCheckpoint_HandoffPayload_RehydrationProjectsLatestHandoff', async () => {
+    // GIVEN: an initialized workflow.
+    const featureId = 'wf-t4-handoff-projects';
+    const init = await handleInit(
+      { featureId, workflowType: 'feature' },
+      stateDir,
+      store,
+    );
+    expect(init.success).toBe(true);
+
+    // WHEN: we checkpoint with a handoff payload.
+    const ck = await handleCheckpoint(
+      {
+        featureId,
+        handoff: {
+          context: 'WORKFLOW_STATE_DIR is the load-bearing env var',
+          nextSteps: ['Rebase --onto origin/main <boundary>'],
+          suggestions: ['Cross-reference SHAs in CodeRabbit threads'],
+        },
+      },
+      stateDir,
+      store,
+    );
+    expect(ck.success).toBe(true);
+
+    // THEN: rehydrate projects the handoff into latestHandoff.
+    const rh = await handleRehydrate(
+      { featureId },
+      { eventStore: store, stateDir },
+    );
+    expect(rh.success).toBe(true);
+    const doc = rh.data as RehydrationDocument;
+    expect(doc.latestHandoff?.context).toMatch(/WORKFLOW_STATE_DIR/);
+    expect(doc.latestHandoff?.nextSteps).toEqual(['Rebase --onto origin/main <boundary>']);
+    expect(doc.recentHandoffs).toHaveLength(1);
+    expect(doc.recentHandoffs[0].context).toMatch(/WORKFLOW_STATE_DIR/);
+  });
+
+  it('handleCheckpoint_RefinementSamePhase_LandsSecondEvent_1228Regression', async () => {
+    // GIVEN: an initialized workflow. Two consecutive checkpoints with no
+    // intervening phase transition observe the same `state.phase`. Prior
+    // to #1241, the idempotency key was version-only and the second call
+    // collided silently. The C3 fix incorporates a sha256 digest of the
+    // handoff payload, so distinct-handoff refinements lands distinct
+    // events. T4 adds the formal schema field, and this test pins the
+    // end-to-end behaviour (#1228 phantom-drop regression).
+    const featureId = 'wf-t4-refinement-1228';
+    const init = await handleInit(
+      { featureId, workflowType: 'feature' },
+      stateDir,
+      store,
+    );
+    expect(init.success).toBe(true);
+
+    const first = await handleCheckpoint(
+      { featureId, handoff: { context: 'first refinement' } },
+      stateDir,
+      store,
+    );
+    expect(first.success).toBe(true);
+
+    const second = await handleCheckpoint(
+      { featureId, handoff: { context: 'second refinement' } },
+      stateDir,
+      store,
+    );
+    expect(second.success).toBe(true);
+
+    // THEN: both events are in the stream — the second was NOT silently
+    // suppressed by an idempotency-key collision.
+    const events = await store.query(featureId, { type: 'workflow.checkpoint' });
+    expect(events.length).toBe(2);
+    const dataFirst = events[0]!.data as { handoff?: { context?: string } };
+    const dataSecond = events[1]!.data as { handoff?: { context?: string } };
+    expect(dataFirst.handoff?.context).toBe('first refinement');
+    expect(dataSecond.handoff?.context).toBe('second refinement');
+  });
+
+  it('handleCheckpoint_NoHandoff_BackwardCompatible', async () => {
+    // GIVEN: an initialized workflow. WHEN: a checkpoint dispatch arrives
+    // without any `handoff` field (the historical / pre-#1240 caller
+    // shape), THEN the event lands successfully and its `data` does not
+    // carry a `handoff` key (so the on-disk JSONL stays semantically
+    // identical to pre-#1240 events for these callers).
+    const featureId = 'wf-t4-no-handoff';
+    const init = await handleInit(
+      { featureId, workflowType: 'feature' },
+      stateDir,
+      store,
+    );
+    expect(init.success).toBe(true);
+
+    const result = await handleCheckpoint({ featureId }, stateDir, store);
+    expect(result.success).toBe(true);
+
+    const events = await store.query(featureId, { type: 'workflow.checkpoint' });
+    expect(events.length).toBe(1);
+    const data = events[0]!.data as Record<string, unknown>;
+    expect('handoff' in data).toBe(false);
+
+    // Also: rehydrate's `latestHandoff` stays undefined.
+    const rh = await handleRehydrate(
+      { featureId },
+      { stateDir, eventStore: store },
+    );
+    expect(rh.success).toBe(true);
+    const doc = rh.data as RehydrationDocument;
+    expect(doc.latestHandoff).toBeUndefined();
+  });
+
+  it('handleCheckpoint_OversizedContext_ReturnsValidationError', async () => {
+    // GIVEN: an initialized workflow. WHEN: a checkpoint dispatch arrives
+    // with `context` longer than 2048 bytes (DIM-7 byte cap on
+    // HandoffEntryData), THEN the call returns a structured
+    // INVALID_INPUT error; no workflow.checkpoint event lands; the
+    // counter is NOT reset.
+    const featureId = 'wf-t4-oversized-context';
+    const init = await handleInit(
+      { featureId, workflowType: 'feature' },
+      stateDir,
+      store,
+    );
+    expect(init.success).toBe(true);
+
+    const eventsBeforeCount = (
+      await store.query(featureId, { type: 'workflow.checkpoint' })
+    ).length;
+    expect(eventsBeforeCount).toBe(0);
+
+    // 2049 ASCII bytes — one over the DIM-7 cap (2048).
+    const oversized = 'x'.repeat(2049);
+    const result = await handleCheckpoint(
+      // Cast through unknown so the over-cap value reaches the handler;
+      // the schema rejection at the boundary is what we're testing.
+      { featureId, handoff: { context: oversized } } as unknown as Parameters<
+        typeof handleCheckpoint
+      >[0],
+      stateDir,
+      store,
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('INVALID_INPUT');
+
+    // No event landed.
+    const eventsAfter = await store.query(featureId, {
+      type: 'workflow.checkpoint',
+    });
+    expect(eventsAfter.length).toBe(0);
+  });
+
+  it('handleCheckpoint_HandoffWithUnknownKey_ReturnsValidationError', async () => {
+    // CodeRabbit major on PR #1297 (workflow/schemas.ts:15-19):
+    //   `CheckpointHandoffSchema` (and its mirror `HandoffEntryData`)
+    //   uses `z.object()`, which silently strips unknown keys. A
+    //   malformed payload — typo'd field, future-version field a
+    //   pre-#1240 client doesn't know to filter, accidental injection
+    //   of a structured-clone artifact — is sanitized away rather
+    //   than surfaced. The strictObject contract requires unknown
+    //   keys to fail validation so callers see a clear INVALID_INPUT
+    //   instead of a silently-stripped persistence.
+    const featureId = 'wf-t4-handoff-unknown-key';
+    const init = await handleInit(
+      { featureId, workflowType: 'feature' },
+      stateDir,
+      store,
+    );
+    expect(init.success).toBe(true);
+
+    const eventsBeforeCount = (
+      await store.query(featureId, { type: 'workflow.checkpoint' })
+    ).length;
+    expect(eventsBeforeCount).toBe(0);
+
+    const result = await handleCheckpoint(
+      // Extra `notes` key is not part of HandoffEntryData; must reject.
+      {
+        featureId,
+        handoff: {
+          context: 'valid context',
+          notes: 'this is not a real field',
+        },
+      } as unknown as Parameters<typeof handleCheckpoint>[0],
+      stateDir,
+      store,
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('INVALID_INPUT');
+    // The error message should name the offending key so operators
+    // diagnose the malformed payload directly from the envelope.
+    expect(result.error?.message).toMatch(/notes|unrecognized|unknown/i);
+
+    const eventsAfter = await store.query(featureId, {
+      type: 'workflow.checkpoint',
+    });
+    expect(eventsAfter.length).toBe(0);
+  });
 });

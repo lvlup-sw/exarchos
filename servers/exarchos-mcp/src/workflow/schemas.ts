@@ -1,6 +1,35 @@
 import { z } from 'zod';
 import { coercedStringArray } from '../coerce.js';
 
+// T4 (#1240) — handoff payload shape for the checkpoint dispatch input.
+// This MIRRORS `event-store/schemas.ts:HandoffEntryData` exactly (same
+// per-field byte caps, same optionality). It is intentionally redefined
+// here rather than imported because `event-store/schemas.ts` already
+// imports `WorkflowTypeSchema` from this file, and pulling
+// `HandoffEntryData` from there would create a circular import. The two
+// schemas describe the same data on two different surfaces (dispatch
+// input vs persisted event payload). If one changes, the other must
+// change with it — a co-located schemas.test.ts assertion (added in T1
+// for the persisted side) plus the explicit cross-reference comment
+// here are the load-bearing guard.
+//
+// CodeRabbit major on PR #1297: `z.strictObject()` rejects unknown
+// keys instead of silently stripping them. A malformed payload — typo,
+// future-version field a pre-#1240 client doesn't know to filter,
+// structured-clone artifact — must surface as INVALID_INPUT rather
+// than a silently-truncated persisted handoff.
+//
+// Exported (was const-internal) so the registry composite-tool schema
+// and the legacy `exarchos_workflow_checkpoint` server.tool definition
+// reuse one source of truth instead of declaring inline copies that
+// can desync — same axiom-distill consolidation rationale as the
+// CheckpointInputSchema reuse below.
+export const CheckpointHandoffSchema = z.strictObject({
+  context: z.string().max(2048).optional(),
+  nextSteps: z.array(z.string().max(256)).max(10).optional(),
+  suggestions: z.array(z.string().max(256)).max(10).optional(),
+});
+
 // ─── Event Types ────────────────────────────────────────────────────────────
 
 export const EventTypeSchema = z.enum([
@@ -437,6 +466,12 @@ export const CleanupInputSchema = z.object({
 export const CheckpointInputSchema = z.object({
   featureId: FeatureIdSchema,
   summary: z.string().optional(),
+  // T4 (#1240) — optional handoff payload validated with per-field byte
+  // caps (DIM-7). Mirrors `event-store/schemas.ts:HandoffEntryData`
+  // exactly; see the `CheckpointHandoffSchema` declaration above for
+  // the cycle-avoidance rationale. Backward compat: pre-#1240 callers
+  // that omit this field continue to work unchanged.
+  handoff: CheckpointHandoffSchema.optional(),
 });
 
 // ─── Error Codes ────────────────────────────────────────────────────────────

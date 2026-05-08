@@ -447,10 +447,34 @@ export const WorkflowGuardFailedData = z.object({
   featureId: z.string(),
 });
 
+/**
+ * Handoff payload (#1240) — optional sub-object on `workflow.checkpoint`.
+ * Carries human-readable phase-exit notes alongside the structured counter
+ * + phase + featureId. Per-field byte caps (DIM-7) prevent unbounded growth;
+ * the rehydration projection (`latestHandoff` / `recentHandoffs`) derives
+ * its content from this payload.
+ *
+ * CodeRabbit major on PR #1297: strictObject rejects unknown keys so a
+ * malformed event payload (typo, future-version key, structured-clone
+ * artifact) fails validation at the persisted-event boundary rather
+ * than being silently truncated and folded into the rehydration
+ * projection's `latestHandoff`. Mirrors the dispatch-side strictness
+ * in `workflow/schemas.ts:CheckpointHandoffSchema` exactly.
+ */
+export const HandoffEntryData = z.strictObject({
+  context: z.string().max(2048).optional(),
+  nextSteps: z.array(z.string().max(256)).max(10).optional(),
+  suggestions: z.array(z.string().max(256)).max(10).optional(),
+});
+
 export const WorkflowCheckpointData = z.object({
   counter: z.number().int(),
   phase: z.string(),
   featureId: z.string(),
+  // Additive (#1240). Historical workflow.checkpoint events without handoff
+  // parse cleanly under .optional(). The event payload itself stays
+  // unversioned — only the rehydration projection envelope is versioned.
+  handoff: HandoffEntryData.optional(),
 });
 
 export const WorkflowCompoundEntryData = z.object({

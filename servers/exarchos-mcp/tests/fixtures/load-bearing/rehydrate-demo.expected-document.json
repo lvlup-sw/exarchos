@@ -1,5 +1,5 @@
 {
-  "v": 1,
+  "v": 2,
   "projectionSequence": 7,
   "behavioralGuidance": {
     "skill": "",
@@ -25,5 +25,6 @@
     "designDoc": "docs/design.md",
     "planDoc": "docs/plan.md"
   },
-  "blockers": []
+  "blockers": [],
+  "recentHandoffs": []
 }

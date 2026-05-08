@@ -3,7 +3,7 @@
 **Issue:** #1239
 **Workflow:** `spike-checkpoint-handoff-enrichment` (discovery)
 **Date:** 2026-05-06
-**Status:** Spike — design + POC. Not production wiring.
+**Status:** Implemented in `feature/v29-bug-cluster` (PR pending). Production wiring lives in `docs/designs/2026-05-08-checkpoint-handoff-bundle.md`; this doc is preserved for the original spike rationale.
 
 ## v2.9.0 bug-context that constrains this design
 
