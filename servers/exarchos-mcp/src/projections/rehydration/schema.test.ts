@@ -96,9 +96,11 @@ describe('rehydration document top-level schema (T013, DR-3)', () => {
     blockers: [],
   };
 
-  it('RehydrationDoc_VersionedSchema_RequiresV1', () => {
+  it('RehydrationDoc_VersionedSchema_RequiresV2', () => {
+    // Updated for v:2 envelope bump (#1246). The main schema now requires
+    // v: literal(2); legacy v:1 docs route through the read-back path.
     const validDoc = {
-      v: 1,
+      v: 2,
       projectionSequence: 0,
       ...minimalStable,
       ...minimalVolatile,
@@ -109,7 +111,7 @@ describe('rehydration document top-level schema (T013, DR-3)', () => {
 
     const wrongVersionDoc = {
       ...validDoc,
-      v: 2,
+      v: 1,
     };
     const wrongVersionResult = RehydrationDocumentSchema.safeParse(wrongVersionDoc);
     expect(wrongVersionResult.success).toBe(false);
@@ -121,7 +123,7 @@ describe('rehydration document top-level schema (T013, DR-3)', () => {
 
   it('RehydrationDoc_ProjectionSequence_RequiresNonNegativeInt', () => {
     const baseDoc = {
-      v: 1 as const,
+      v: 2 as const,
       ...minimalStable,
       ...minimalVolatile,
     };
@@ -169,7 +171,7 @@ describe('rehydration document serializer — stable-before-volatile order (T050
   it('DocumentSerialization_StableSectionsFirst_Always', () => {
     // Forward-declared doc: keys in canonical order.
     const forwardDoc: RehydrationDocument = {
-      v: 1,
+      v: 2,
       projectionSequence: 7,
       behavioralGuidance: stable.behavioralGuidance,
       workflowState: stable.workflowState,
@@ -178,12 +180,14 @@ describe('rehydration document serializer — stable-before-volatile order (T050
       artifacts: volatile.artifacts,
       blockers: volatile.blockers,
       nextAction: volatile.nextAction,
+      recentHandoffs: [],
     };
 
     // Reverse-declared doc: same field values, but object-literal key order
     // is deliberately inverted (volatile keys declared before stable keys, and
     // sibling keys flipped end-to-start).
     const reverseDoc = {
+      recentHandoffs: [],
       nextAction: volatile.nextAction,
       blockers: volatile.blockers,
       artifacts: volatile.artifacts,
@@ -192,14 +196,22 @@ describe('rehydration document serializer — stable-before-volatile order (T050
       workflowState: stable.workflowState,
       behavioralGuidance: stable.behavioralGuidance,
       projectionSequence: 7,
-      v: 1,
+      v: 2,
     } as RehydrationDocument;
 
     const forwardJson = serializeRehydrationDocument(forwardDoc);
     const reverseJson = serializeRehydrationDocument(reverseDoc);
 
-    // Expected canonical key order at top level.
-    const expectedKeyOrder = ['v', 'projectionSequence', ...STABLE_KEYS, ...VOLATILE_KEYS];
+    // Canonical key order at top level. Optional keys whose value is
+    // undefined (e.g. `latestHandoff` when no handoff has landed yet) are
+    // omitted by the serializer — preserving the optional-field contract —
+    // so we filter the expectation to keys actually populated on the doc.
+    const populatedKey = (key: string): boolean =>
+      Object.prototype.hasOwnProperty.call(forwardDoc, key) &&
+      (forwardDoc as Record<string, unknown>)[key] !== undefined;
+    const expectedKeyOrder = ['v', 'projectionSequence', ...STABLE_KEYS, ...VOLATILE_KEYS].filter(
+      populatedKey,
+    );
 
     // Both variants must surface the canonical key order.
     for (const json of [forwardJson, reverseJson]) {
@@ -225,7 +237,7 @@ describe('rehydration document serializer — stable-before-volatile order (T050
 
   it('DocumentSerialization_ReorderedInput_ProducesIdenticalBytes', () => {
     const docA: RehydrationDocument = {
-      v: 1,
+      v: 2,
       projectionSequence: 42,
       behavioralGuidance: stable.behavioralGuidance,
       workflowState: stable.workflowState,
@@ -234,10 +246,12 @@ describe('rehydration document serializer — stable-before-volatile order (T050
       artifacts: volatile.artifacts,
       blockers: volatile.blockers,
       nextAction: volatile.nextAction,
+      recentHandoffs: [],
     };
 
     // Same values, intentionally reversed JS key-declaration order.
     const docB = {
+      recentHandoffs: [],
       nextAction: volatile.nextAction,
       blockers: volatile.blockers,
       artifacts: volatile.artifacts,
@@ -246,7 +260,7 @@ describe('rehydration document serializer — stable-before-volatile order (T050
       workflowState: stable.workflowState,
       behavioralGuidance: stable.behavioralGuidance,
       projectionSequence: 42,
-      v: 1,
+      v: 2,
     } as RehydrationDocument;
 
     expect(serializeRehydrationDocument(docA)).toBe(serializeRehydrationDocument(docB));

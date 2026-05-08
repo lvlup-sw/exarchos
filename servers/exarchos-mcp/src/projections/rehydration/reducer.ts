@@ -59,7 +59,7 @@ type TaskProgressEntry = RehydrationDocument['taskProgress'][number];
  * is caught the moment this module is imported, rather than at first use.
  */
 const initialRehydrationDocument: RehydrationDocument = RehydrationDocumentSchema.parse({
-  v: 1,
+  v: 2,
   projectionSequence: 0,
   behavioralGuidance: {
     skill: '',
@@ -74,6 +74,10 @@ const initialRehydrationDocument: RehydrationDocument = RehydrationDocumentSchem
   decisions: [],
   artifacts: {},
   blockers: [],
+  // recentHandoffs defaults to [] via the schema; explicit here so the
+  // initial document is self-describing and `parse(...)` doesn't have to
+  // populate it as a side effect.
+  recentHandoffs: [],
 });
 
 // ─── Shared extractors ──────────────────────────────────────────────────────

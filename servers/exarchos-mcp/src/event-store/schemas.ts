@@ -447,10 +447,27 @@ export const WorkflowGuardFailedData = z.object({
   featureId: z.string(),
 });
 
+/**
+ * Handoff payload (#1240) — optional sub-object on `workflow.checkpoint`.
+ * Carries human-readable phase-exit notes alongside the structured counter
+ * + phase + featureId. Per-field byte caps (DIM-7) prevent unbounded growth;
+ * the rehydration projection (`latestHandoff` / `recentHandoffs`) derives
+ * its content from this payload.
+ */
+const HandoffEntryData = z.object({
+  context: z.string().max(2048).optional(),
+  nextSteps: z.array(z.string().max(256)).max(10).optional(),
+  suggestions: z.array(z.string().max(256)).max(10).optional(),
+});
+
 export const WorkflowCheckpointData = z.object({
   counter: z.number().int(),
   phase: z.string(),
   featureId: z.string(),
+  // Additive (#1240). Historical workflow.checkpoint events without handoff
+  // parse cleanly under .optional(). The event payload itself stays
+  // unversioned — only the rehydration projection envelope is versioned.
+  handoff: HandoffEntryData.optional(),
 });
 
 export const WorkflowCompoundEntryData = z.object({
