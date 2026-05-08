@@ -27,7 +27,6 @@ TS_TMPDIR="$TMPDIR/mcp-src"
 mkdir -p "$TS_TMPDIR/adapters" "$TS_TMPDIR/cli-commands"
 cp "$REPO_ROOT/servers/exarchos-mcp/src/index.ts"                    "$TS_TMPDIR/index.ts"
 cp "$REPO_ROOT/servers/exarchos-mcp/src/adapters/mcp.ts"             "$TS_TMPDIR/adapters/mcp.ts"
-cp "$REPO_ROOT/servers/exarchos-mcp/src/adapters/cli.ts"             "$TS_TMPDIR/adapters/cli.ts"
 cp "$REPO_ROOT/servers/exarchos-mcp/src/cli-commands/session-start.ts" "$TS_TMPDIR/cli-commands/session-start.ts"
 
 # Mirror the JSON sinks too.
@@ -73,14 +72,6 @@ poison_all_sinks() {
   sed -E "s/(^const SERVER_VERSION = )'[^']*'/\1'${bad}'/g" \
     "$TS_TMPDIR/adapters/mcp.ts" > "$TS_TMPDIR/adapters/mcp.ts.tmp"
   mv "$TS_TMPDIR/adapters/mcp.ts.tmp" "$TS_TMPDIR/adapters/mcp.ts"
-
-  sed -E "s/(\.version\()'[^']*'/\1'${bad}'/g" \
-    "$TS_TMPDIR/adapters/cli.ts" > "$TS_TMPDIR/adapters/cli.ts.tmp"
-  mv "$TS_TMPDIR/adapters/cli.ts.tmp" "$TS_TMPDIR/adapters/cli.ts"
-
-  sed -E "s/(binaryVersion: )'[^']*'/\1'${bad}'/g" \
-    "$TS_TMPDIR/adapters/cli.ts" > "$TS_TMPDIR/adapters/cli.ts.tmp"
-  mv "$TS_TMPDIR/adapters/cli.ts.tmp" "$TS_TMPDIR/adapters/cli.ts"
 
   sed -E "s/(^const SESSION_START_BINARY_VERSION = )'[^']*'/\1'${bad}'/g" \
     "$TS_TMPDIR/cli-commands/session-start.ts" > "$TS_TMPDIR/cli-commands/session-start.ts.tmp"
@@ -146,23 +137,11 @@ else
   fail "adapters/mcp.ts SERVER_VERSION=$MCP_TS_VER, expected=$PKG_VERSION"
 fi
 
-# ─── Test 6: SyncVersions_UpdatesAdapterCliTs_BothCallSites ─────────────────
+# ─── Test 6: SyncVersions_UpdatesSessionStartTs ─────────────────────────────
+# Note: the old Test 6 covered adapters/cli.ts literal sinks that were removed
+# in #1219 when cli.ts switched to resolvePackageVersion() at runtime.
 
-echo "Test 6: SyncVersions_UpdatesAdapterCliTs_BothCallSites"
-
-# .version() appears at the commander setup AND in inline doc text — the
-# substitution must touch BOTH so commentary stays correct (DIM-5: hygiene).
-CLI_VERSION_HITS=$(grep -E -c "\\.version\\('${PKG_VERSION}'\\)" "$TS_TMPDIR/adapters/cli.ts" || true)
-CLI_BINVER=$(read_quoted_after "$TS_TMPDIR/adapters/cli.ts" 'binaryVersion: ')
-if [[ "$CLI_VERSION_HITS" -ge 2 && "$CLI_BINVER" == "$PKG_VERSION" ]]; then
-  pass "adapters/cli.ts: .version() rewrites=${CLI_VERSION_HITS} (≥2), binaryVersion=$PKG_VERSION"
-else
-  fail "adapters/cli.ts: .version() rewrites=${CLI_VERSION_HITS}, binaryVersion=$CLI_BINVER, expected ≥2 + $PKG_VERSION"
-fi
-
-# ─── Test 7: SyncVersions_UpdatesSessionStartTs ─────────────────────────────
-
-echo "Test 7: SyncVersions_UpdatesSessionStartTs"
+echo "Test 6: SyncVersions_UpdatesSessionStartTs"
 
 SS_VER=$(read_quoted_after "$TS_TMPDIR/cli-commands/session-start.ts" '^const SESSION_START_BINARY_VERSION = ')
 if [[ "$SS_VER" == "$PKG_VERSION" ]]; then
@@ -173,7 +152,7 @@ fi
 
 # ─── Test 8: SyncVersions_Idempotent ─────────────────────────────────────────
 
-echo "Test 8: SyncVersions_Idempotent"
+echo "Test 7: SyncVersions_Idempotent"
 
 # Snapshot every sink.
 SNAPSHOT_BEFORE=$(cat \
@@ -182,7 +161,6 @@ SNAPSHOT_BEFORE=$(cat \
   "$TMPDIR/mcp-package.json" \
   "$TS_TMPDIR/index.ts" \
   "$TS_TMPDIR/adapters/mcp.ts" \
-  "$TS_TMPDIR/adapters/cli.ts" \
   "$TS_TMPDIR/cli-commands/session-start.ts" \
   | sha256sum)
 
@@ -194,19 +172,18 @@ SNAPSHOT_AFTER=$(cat \
   "$TMPDIR/mcp-package.json" \
   "$TS_TMPDIR/index.ts" \
   "$TS_TMPDIR/adapters/mcp.ts" \
-  "$TS_TMPDIR/adapters/cli.ts" \
   "$TS_TMPDIR/cli-commands/session-start.ts" \
   | sha256sum)
 
 if [[ "$SNAPSHOT_BEFORE" == "$SNAPSHOT_AFTER" ]]; then
-  pass "Running sync twice produces byte-identical output across all 7 sinks"
+  pass "Running sync twice produces byte-identical output across all 6 sinks"
 else
   fail "Second sync run mutated at least one sink"
 fi
 
-# ─── Test 9: SyncVersions_CheckMode_Passes_WhenInSync ───────────────────────
+# ─── Test 8: SyncVersions_CheckMode_Passes_WhenInSync ───────────────────────
 
-echo "Test 9: SyncVersions_CheckMode_Passes_WhenInSync"
+echo "Test 8: SyncVersions_CheckMode_Passes_WhenInSync"
 
 if bash "$SYNC_SCRIPT" "${SYNC_ARGS[@]}" --check >/dev/null 2>&1; then
   pass "--check exits 0 when all sinks match"
@@ -214,9 +191,9 @@ else
   fail "--check exits non-zero despite synced sinks"
 fi
 
-# ─── Test 10: SyncVersions_CheckMode_ReportsAllDrifts_NotJustFirst ──────────
+# ─── Test 9: SyncVersions_CheckMode_ReportsAllDrifts_NotJustFirst ───────────
 
-echo "Test 10: SyncVersions_CheckMode_ReportsAllDrifts_NotJustFirst"
+echo "Test 9: SyncVersions_CheckMode_ReportsAllDrifts_NotJustFirst"
 
 # Wipe every sink to a known-bad version, then run --check and confirm the
 # report covers every site rather than short-circuiting on the first error.
@@ -230,8 +207,6 @@ EXPECTED_HITS=(
   "servers/exarchos-mcp/package.json version"
   "src/index.ts SERVER_VERSION"
   "adapters/mcp.ts SERVER_VERSION"
-  "adapters/cli.ts .version()"
-  "adapters/cli.ts binaryVersion"
   "session-start.ts SESSION_START_BINARY_VERSION"
 )
 MISSING=0
@@ -242,12 +217,12 @@ for hit in "${EXPECTED_HITS[@]}"; do
   fi
 done
 if [[ $MISSING -eq 0 ]]; then
-  pass "--check reported drift across all 9 site labels (no short-circuit)"
+  pass "--check reported drift across all 7 site labels (no short-circuit)"
 fi
 
-# ─── Test 11: SyncVersions_FailsLoud_OnStructuralPatternMiss ────────────────
+# ─── Test 10: SyncVersions_FailsLoud_OnStructuralPatternMiss ────────────────
 
-echo "Test 11: SyncVersions_FailsLoud_OnStructuralPatternMiss"
+echo "Test 10: SyncVersions_FailsLoud_OnStructuralPatternMiss"
 
 # Replace the SERVER_VERSION line in index.ts with garbage so the prefix
 # regex no longer matches. The script must refuse to silently leave the
