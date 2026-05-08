@@ -147,4 +147,125 @@ describe('SqliteAtomicAppender', () => {
       expect(retried.sequences).toEqual([1]);
     }
   });
+
+  // ─── T09: SQLITE_BUSY bounded retry ──────────────────────────────────────
+  //
+  // The SQLite body must wrap its `BEGIN IMMEDIATE` transaction in a bounded
+  // retry loop. SQLITE_BUSY surfaces when another writer holds the database
+  // lock; per-stream concurrency in-process is already serialized by the
+  // Promise mutex, but cross-process writers (and bun:sqlite vs better-
+  // sqlite3 driver-level contention) can still raise BUSY against a fresh
+  // BEGIN IMMEDIATE attempt. The retry layer transparently re-runs the
+  // transaction up to 5 attempts with exponential backoff capped at 100 ms;
+  // on exhaustion the appender returns a typed `storage_busy` failure
+  // rather than escaping the SQLite reason code through the boundary.
+  //
+  // We inject the fault by replacing `insertEventStrict.run` with a stub
+  // that throws a SqliteError-shaped Error (`code: 'SQLITE_BUSY'`) for the
+  // first N attempts. The retry detection contract: the layer must look at
+  // `error.code === 'SQLITE_BUSY'`, not message-substring matching.
+
+  function makeBusyError(): Error {
+    const err = new Error('database is locked') as Error & { code?: string };
+    err.code = 'SQLITE_BUSY';
+    return err;
+  }
+
+  it('SqliteAtomicAppender_SqliteBusy_RetriesUpToFiveTimesWithBackoff', async () => {
+    const appender = new AtomicAppender({ stateDir, backend: 'sqlite' });
+
+    // Warm up so we have a concrete backend handle to patch.
+    const warmup = await appender.append(
+      'sqlite-busy-warmup',
+      [{ type: 'task.assigned', data: { warmup: true } }],
+      'warmup-key',
+    );
+    expect(warmup.ok).toBe(true);
+
+    const backend = appender._testOnly_getSqliteBackend();
+    expect(backend).toBeDefined();
+    if (!backend) return;
+
+    const stmts = (
+      backend as unknown as {
+        stmts: { insertEventStrict: { run: (...args: unknown[]) => unknown } };
+      }
+    ).stmts;
+    const originalRun = stmts.insertEventStrict.run.bind(stmts.insertEventStrict);
+    let attempts = 0;
+    stmts.insertEventStrict.run = (...args: unknown[]) => {
+      attempts += 1;
+      if (attempts <= 4) throw makeBusyError();
+      return originalRun(...args);
+    };
+
+    const t0 = Date.now();
+    let result: Awaited<ReturnType<typeof appender.append>>;
+    try {
+      result = await appender.append(
+        'sqlite-busy-retry',
+        [{ type: 'task.assigned', data: { idx: 1 } }],
+        'busy-retry-key',
+      );
+    } finally {
+      stmts.insertEventStrict.run = originalRun;
+    }
+    const elapsed = Date.now() - t0;
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.kind).toBe('committed');
+    expect(result.sequences).toEqual([1]);
+    // Five attempts: 4 BUSY throws + 1 success.
+    expect(attempts).toBe(5);
+    // Backoff bounded — 5+10+20+40 ≤ 75 ms total of intentional sleeps,
+    // capped well below 1 s. This proves there's no unbounded retry sleep.
+    expect(elapsed).toBeLessThan(1000);
+  });
+
+  it('SqliteAtomicAppender_SqliteBusy_ExceedsFiveAttempts_ReturnsStorageBusy', async () => {
+    const appender = new AtomicAppender({ stateDir, backend: 'sqlite' });
+
+    const warmup = await appender.append(
+      'sqlite-busy-exhaust-warmup',
+      [{ type: 'task.assigned', data: { warmup: true } }],
+      'warmup-key-exhaust',
+    );
+    expect(warmup.ok).toBe(true);
+
+    const backend = appender._testOnly_getSqliteBackend();
+    if (!backend) throw new Error('backend not initialized');
+
+    const stmts = (
+      backend as unknown as {
+        stmts: { insertEventStrict: { run: (...args: unknown[]) => unknown } };
+      }
+    ).stmts;
+    const originalRun = stmts.insertEventStrict.run.bind(stmts.insertEventStrict);
+    let attempts = 0;
+    stmts.insertEventStrict.run = (..._args: unknown[]) => {
+      attempts += 1;
+      throw makeBusyError();
+    };
+
+    let result: Awaited<ReturnType<typeof appender.append>>;
+    try {
+      result = await appender.append(
+        'sqlite-busy-exhaust',
+        [{ type: 'task.assigned', data: { idx: 1 } }],
+        'busy-exhaust-key',
+      );
+    } finally {
+      stmts.insertEventStrict.run = originalRun;
+    }
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.reason).toBe('storage_busy');
+    expect(result.cause).toBeInstanceOf(Error);
+    // Attempted 5 times before giving up (the budget). One more is fine —
+    // either reading is acceptable so long as it's bounded.
+    expect(attempts).toBeGreaterThanOrEqual(5);
+    expect(attempts).toBeLessThanOrEqual(6);
+  });
 });
