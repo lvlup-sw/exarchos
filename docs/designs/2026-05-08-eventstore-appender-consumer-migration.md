@@ -1,10 +1,16 @@
 ---
 title: EventStore consumer migration to AtomicAppender (C2 completion)
 date: 2026-05-08
-status: design
+status: implemented
 tracking: "#1293"
 related: ["#1224", "#1228", "#1230", "#1259", "#1265"]
 ---
+
+> **Status: Implemented on `feature/v29-bug-cluster` (2026-05-08).**
+> Commits: B1 `33bdaef3` (primitives) → B2 `95708da4` (migration + race
+> tests) → B3 `1e0fae7c` (legacy delete) → B4 (this docs pass). All
+> 6393 tests pass; `store.race.test.ts` closes the cross-path race
+> window. #1259 swap is now a one-line change at `EventStore.getAppender()`.
 
 # EventStore consumer migration to AtomicAppender
 

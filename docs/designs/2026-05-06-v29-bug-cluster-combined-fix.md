@@ -7,6 +7,14 @@
 **Related spikes:** #1239 (parent — checkpoint handoff enrichment), #1259 (follow-up — durable substrate, v2.10.0)
 **Cross-cutting:** #1109 (event-sourcing + MCP parity + basileus-forward)
 
+> **C2 closure note (2026-05-08):** the originally-deferred consumer
+> migration (the second half of the F1 family fix) shipped in #1293 on
+> this branch. PR #1265's primitives now have all consumers wired to
+> them; legacy four-phase `EventStore.append` machinery deleted.
+> Race regression tests (`store.race.test.ts`) close the cross-path
+> window CodeRabbit and Sentry both flagged on the post-fix re-review.
+> Migration design: [`docs/designs/2026-05-08-eventstore-appender-consumer-migration.md`](2026-05-08-eventstore-appender-consumer-migration.md).
+
 ## Problem
 
 Eight open bugs in milestone v2.9.0 collectively block production wiring of the checkpoint handoff enrichment work (#1240–#1246) and any further feature work that touches the event store, subagent dispatch, or workflow state machine. They are not eight independent defects — they cluster into three root-cause families.

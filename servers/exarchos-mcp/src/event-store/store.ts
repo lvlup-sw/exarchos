@@ -259,6 +259,14 @@ export class EventStore {
    * Returns the lazily-created AtomicAppender bound to this event store's
    * state directory. Single instance per EventStore so per-stream locks and
    * the in-memory sequence/idempotency caches share state across consumers.
+   *
+   * #1259 swap point: replace the constructor call below with a SQLite
+   * (or other durable) appender that exposes the same `AppendResult`
+   * shape and per-stream serialization semantics. No other change is
+   * required — `append`, `appendValidated`, `batchAppend`, and the
+   * `SubagentStreamRouter` all delegate through this instance, so a
+   * one-line swap here flips the entire write substrate. The migration
+   * doc is at docs/designs/2026-05-08-eventstore-appender-consumer-migration.md.
    */
   getAppender(): AtomicAppender {
     if (!this.atomicAppender) {
