@@ -28,7 +28,9 @@ export async function handleDesignCompleteness(
   }
 
   const streamId = args.featureId;
-  const stateFile = args.stateFile ?? `${stateDir}/${streamId}.json`;
+  // Canonical workflow-state filename convention: `${featureId}.state.json`
+  // (matches storage/lifecycle.ts, cli-commands/{assemble-context,subagent-context,gates}).
+  const stateFile = args.stateFile ?? `${stateDir}/${streamId}.state.json`;
 
   // 2. Call pure TypeScript implementation
   let parsed;

@@ -297,6 +297,38 @@ describe('handleDesignCompleteness', () => {
       );
     });
 
+    it('handleDesignCompleteness_NoStatePath_UsesCanonicalDotStateJsonSuffix', async () => {
+      // The canonical workflow-state filename convention used by the workflow
+      // store (storage/lifecycle.ts) and other gates (assemble-context,
+      // subagent-context, gates) is `${featureId}.state.json`. This gate must
+      // construct the same path so it actually finds the file the workflow
+      // store wrote.
+      //
+      // Arrange
+      mockRunDesignCompleteness.mockReturnValue({
+        passed: true,
+        advisory: true,
+        findings: [],
+        checkCount: 4,
+        passCount: 4,
+        failCount: 0,
+      });
+
+      // Act
+      await handleDesignCompleteness(
+        { featureId: 'test-feature' },
+        STATE_DIR,
+        mockStore as unknown as EventStore,
+      );
+
+      // Assert — exact path matches the canonical convention
+      expect(mockRunDesignCompleteness).toHaveBeenCalledWith(
+        expect.objectContaining({
+          stateFile: `${STATE_DIR}/test-feature.state.json`,
+        }),
+      );
+    });
+
     it('handleDesignCompleteness_DesignPathProvided_PassesToChecker', async () => {
       // Arrange
       mockRunDesignCompleteness.mockReturnValue({
