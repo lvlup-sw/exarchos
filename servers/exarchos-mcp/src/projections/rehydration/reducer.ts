@@ -623,6 +623,123 @@ function applyReviewCompleted(
 }
 
 /**
+ * Handler for `workflow.checkpoint` — folds the optional `data.handoff`
+ * sub-payload (#1240) into the volatile `latestHandoff` slot AND a bounded
+ * sliding window `recentHandoffs` (max 3, most-recent-first).
+ *
+ * Empty-handoff events (no `handoff` sub-object, OR a `handoff` whose only
+ * fields are missing/empty arrays) are intentionally folded as no-ops:
+ * `projectionSequence` is NOT bumped, mirroring the "unhandled / unactionable"
+ * convention used by the other handlers in this file. This keeps the
+ * monotone-counter contract aligned with the truth-of-events count for
+ * snapshot/fingerprint consumers.
+ *
+ * The entry's `eventRef` is keyed by `event.sequence` (#1246 v:2 contract;
+ * post-#1230 sequence uniqueness guarantees this is a stable primary key) and
+ * carries the source event's `timestamp` for human-readable audit. The v:2
+ * schema (`HandoffEntrySchemaV2`, `.strict()` on the inner object) rejects an
+ * `id` key, so this handler MUST NOT set one — the v:1 advisory `id` field is
+ * gone (DR-Q-V2 strict deprecation).
+ */
+function applyWorkflowCheckpoint(
+  state: RehydrationDocument,
+  event: WorkflowEvent,
+): RehydrationDocument {
+  const handoff = extractHandoff(event.data);
+  if (!handoff) {
+    // No actionable handoff payload — return identity (no projectionSequence
+    // bump). The non-handoff portion of `workflow.checkpoint` (counter, phase,
+    // featureId) is not projected onto the rehydration document today.
+    return state;
+  }
+  // Build the v:2 entry. `eventRef` carries ONLY {sequence, timestamp};
+  // `HandoffEntrySchemaV2`'s `.strict()` enforces the no-`id` invariant at
+  // the schema boundary, but we also avoid constructing one here.
+  const entry: RehydrationDocument['recentHandoffs'][number] = {
+    ...(handoff.context !== undefined ? { context: handoff.context } : {}),
+    ...(handoff.nextSteps !== undefined ? { nextSteps: handoff.nextSteps } : {}),
+    ...(handoff.suggestions !== undefined
+      ? { suggestions: handoff.suggestions }
+      : {}),
+    eventRef: {
+      sequence: event.sequence,
+      timestamp: event.timestamp,
+    },
+  };
+  return {
+    ...state,
+    projectionSequence: state.projectionSequence + 1,
+    latestHandoff: entry,
+    // Bounded sliding window — most-recent first; cap at 3 to bound the
+    // rehydration envelope's token cost. Older entries naturally fall off as
+    // new checkpoints land.
+    recentHandoffs: [entry, ...state.recentHandoffs].slice(0, 3),
+  };
+}
+
+/**
+ * Decode the `data.handoff` subtree of a `workflow.checkpoint` event into
+ * the projection-side handoff fields. Returns `undefined` when the event has
+ * no handoff OR the handoff carries no actionable fields, so callers can
+ * short-circuit without bumping `projectionSequence`.
+ *
+ * "Actionable" means at least one of: a non-empty `context` string, a
+ * non-empty `nextSteps` array, or a non-empty `suggestions` array. An empty
+ * array is treated identically to a missing field — empty handoff payloads
+ * are written by hooks/auto-emitters under non-checkpoint flows and must
+ * not generate noisy projection updates.
+ */
+interface ExtractedHandoff {
+  readonly context?: string;
+  // Mutable arrays here so that the assembled entry is assignable to
+  // `RehydrationDocument['recentHandoffs'][number]` — the schema's `z.array()`
+  // infers `string[]`, not `readonly string[]`. The reducer never mutates
+  // these values; the mutability is a Zod-inferred-type requirement, not a
+  // semantic one.
+  readonly nextSteps?: string[];
+  readonly suggestions?: string[];
+}
+
+function extractHandoff(
+  data: WorkflowEvent['data'],
+): ExtractedHandoff | undefined {
+  if (!data) return undefined;
+  const raw = data['handoff'];
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
+  const h = raw as Record<string, unknown>;
+  const context =
+    typeof h['context'] === 'string' && h['context'].length > 0
+      ? (h['context'] as string)
+      : undefined;
+  const nextSteps = Array.isArray(h['nextSteps'])
+    ? (h['nextSteps'] as unknown[]).filter(
+        (e): e is string => typeof e === 'string' && e.length > 0,
+      )
+    : undefined;
+  const suggestions = Array.isArray(h['suggestions'])
+    ? (h['suggestions'] as unknown[]).filter(
+        (e): e is string => typeof e === 'string' && e.length > 0,
+      )
+    : undefined;
+
+  // No actionable content → caller treats event as no-op (no projectionSequence
+  // bump). An empty array post-filter counts the same as a missing field.
+  const hasContext = context !== undefined;
+  const hasNextSteps = nextSteps !== undefined && nextSteps.length > 0;
+  const hasSuggestions = suggestions !== undefined && suggestions.length > 0;
+  if (!hasContext && !hasNextSteps && !hasSuggestions) return undefined;
+
+  // Normalise: drop empty-array fields so they don't surface as `[]` in the
+  // projection — match the optional-field contract on HandoffEntrySchemaV2
+  // (a missing field and an empty array carry the same "no entries" meaning).
+  return {
+    ...(hasContext ? { context } : {}),
+    ...(hasNextSteps ? { nextSteps } : {}),
+    ...(hasSuggestions ? { suggestions } : {}),
+  };
+}
+
+/**
  * Handler for `review.escalated` — escalation is inherently a blocker (per
  * ReviewEscalatedData). The reviewer bumped risk up; capture the reason.
  */
@@ -771,6 +888,9 @@ export const rehydrationReducer: ProjectionReducer<RehydrationDocument, Workflow
         return applyWorkflowTransition(state, event);
       case 'workflow.guard-failed':
         return applyWorkflowGuardFailed(state, event);
+      // workflow.checkpoint — handoff fold (T2 / #1240 / #1246, v:2 envelope)
+      case 'workflow.checkpoint':
+        return applyWorkflowCheckpoint(state, event);
 
       // ── state.* — artifacts fold (T025) ──────────────────────────────────
       case 'state.patched':
