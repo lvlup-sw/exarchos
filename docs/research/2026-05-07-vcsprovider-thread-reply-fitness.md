@@ -7,7 +7,7 @@
 
 ## Executive summary
 
-#1165 is **stale in v2.9.0 but fit-for-purpose in scope**. It is mis-milestoned, not obsolete. v2.9.0 GA has shipped (per `docs/contexts/2026-05-07-p4-shepherd-handoff.md`: "v2.9.0 GA already shipped — P1/P2/P3 merged") and the milestone has narrowed to install/cross-platform charter. The thread-reply primitive's only credible consumer — the autonomous shepherd loop — has been **decisively relocated to v2.11.0** under #1120 (self-healing PR shepherd) and #1263 (long-running headless daemon). The issue should follow.
+Issue `#1165` is **stale in v2.9.0 but fit-for-purpose in scope**. It is mis-milestoned, not obsolete. v2.9.0 GA has shipped (per `docs/contexts/2026-05-07-p4-shepherd-handoff.md`: "v2.9.0 GA already shipped — P1/P2/P3 merged") and the milestone has narrowed to install/cross-platform charter. The thread-reply primitive's only credible consumer — the autonomous shepherd loop — has been **decisively relocated to v2.11.0** under #1120 (self-healing PR shepherd) and #1263 (long-running headless daemon). The issue should follow.
 
 ## Disposition recommendation: **Move to v2.11.0 — Autonomous Orchestration**
 

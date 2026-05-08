@@ -159,11 +159,13 @@ function applyWorkflowCheckpoint(state, event) {
 ```bash
 exarchos workflow checkpoint <featureId> \
   --summary "Phase exit: P4 shepherd" \
-  --context "@docs/contexts/2026-05-07-p4-shepherd-handoff.md" \
+  --context "P4 shepherd loop ran for the v2.9 release branch; rebase boundary is the last green commit on main pre-merge-train, and the state-dir fix is gated on the npm run test:process Windows path." \
   --next-steps "Rebase --onto origin/main <boundary>" \
   --next-steps "Run npm run test:process to validate state-dir fix" \
   --suggestions "Cross-reference SHAs in CodeRabbit threads"
 ```
+
+> **`--context` accepts inline strings only.** The `@<path>` substitution form (loading `--context` from a file) is **out of scope** for T5 and tracked separately under #1245 / v2.12.0. Operators wanting file-backed context must inline the relevant excerpt today.
 
 Idempotency key adopts the spike's payload-digest form (#1241 already shipped this; verify on read):
 
