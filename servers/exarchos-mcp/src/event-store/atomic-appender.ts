@@ -2,6 +2,8 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { randomUUID } from 'node:crypto';
 
+import { validateStreamId } from '../shared/validation.js';
+
 /**
  * AtomicAppender — single-writer-per-stream append primitive (v2.9.0).
  *
@@ -251,6 +253,16 @@ export class AtomicAppender {
     // ─── Phase 1: validate ───────────────────────────────────────────────
     if (!streamId || streamId.length === 0) {
       return { ok: false, reason: 'io-error', cause: new Error('streamId required') };
+    }
+    // Defense in depth: reject streamIds that could escape `stateDir` via
+    // path separators or `..` segments. EventStore consumers already
+    // validate at the boundary, but AtomicAppender is also exposed to
+    // SubagentStreamRouter and event_batch_append directly; a guard here
+    // means future consumers can't bypass it.
+    try {
+      validateStreamId(streamId);
+    } catch (err) {
+      return { ok: false, reason: 'io-error', cause: toError(err) };
     }
     if (!Array.isArray(events) || events.length === 0) {
       return { ok: false, reason: 'io-error', cause: new Error('events must be non-empty array') };

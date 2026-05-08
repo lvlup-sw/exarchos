@@ -7,7 +7,7 @@
 
 ## TL;DR
 
-**Keep RRF as the core algorithm.** No published method beats RRF zero-shot on out-of-domain workloads, and Strategos's position as a library — score-scale agnostic, no labeled data, no LLM access, no GPU — rules out the methods that beat it (TM2C2 with tuned α, DAT, LTR). The literature is unanimous on this: production-default RRF, with per-source weighting as the highest-leverage knob.
+**Keep RRF as the core algorithm.** Based on the studies cited in this spike, no published method has been shown to beat RRF zero-shot on out-of-domain workloads, and Strategos's position as a library — score-scale agnostic, no labeled data, no LLM access, no GPU — rules out the methods that beat it on tuned settings (TM2C2 with tuned α, DAT, LTR). The reviewed literature converges on production-default RRF, with per-source weighting as the highest-leverage knob.
 
 **Two principled extensions to the original spec:**
 
@@ -34,15 +34,21 @@
 
 ### Production implementations
 
-- **Elasticsearch 8.16+:** RRF default; **weighted RRF** GA in 8.16 ([blog 2025-09-15](https://www.elastic.co/search-labs/blog/weighted-reciprocal-rank-fusion-rrf)).
-- **OpenSearch 2.19:** RRF in Neural Search plugin (Feb 2025).
-- **Qdrant 1.11+:** RRF + DBSF (Distribution-Based Score Fusion); supports weighted RRF in client lib.
-- **Weaviate 1.24+:** Relative Score Fusion (RSF) default; rankedFusion (RRF) optional.
-- **Azure AI Search:** RRF only.
-- **Pinecone:** convex combination (alpha) on hybrid index.
-- **Vespa:** linear combination + RRF.
-- **Solr (in flight):** RRF being added natively (KandaSearch blog).
-- **Pearson, kdb-x:** weighted RRF in production APIs.
+Each entry below is annotated with a confidence marker:
+- ✅ — direct citation in the linked source
+- ⚠️ provisional — claim is based on vendor docs/blog cross-referenced during this spike but not pinned to a specific release-note URL; verify before quoting.
+
+- **Elasticsearch 8.16+:** RRF default; **weighted RRF** GA in 8.16. ✅ ([Elastic search-labs blog, 2025-09-15](https://www.elastic.co/search-labs/blog/weighted-reciprocal-rank-fusion-rrf)).
+- **OpenSearch 2.19:** RRF in Neural Search plugin (Feb 2025). ⚠️ provisional — check OpenSearch 2.19 release notes / Neural Search plugin changelog.
+- **Qdrant 1.11+:** RRF + DBSF (Distribution-Based Score Fusion); weighted RRF in client lib. ⚠️ provisional — see Qdrant changelog for 1.11; DBSF announcement post.
+- **Weaviate 1.24+:** Relative Score Fusion (RSF) default; rankedFusion (RRF) optional. ⚠️ provisional — see Weaviate hybrid-search docs for the specific minor version.
+- **Azure AI Search:** RRF only. ⚠️ provisional — Microsoft Learn hybrid-search article.
+- **Pinecone:** convex combination (alpha) on hybrid index. ⚠️ provisional — Pinecone hybrid-search docs.
+- **Vespa:** linear combination + RRF. ⚠️ provisional — Vespa documentation on rank profiles.
+- **Solr (in flight):** RRF being added natively (KandaSearch blog). ⚠️ provisional — KandaSearch blog post; Solr JIRA ticket not pinned.
+- **Pearson, kdb-x:** weighted RRF in production APIs. ⚠️ provisional — vendor case studies, not pinned to a release.
+
+(The conclusion of the spike — "production-default RRF, with per-source weighting as the highest-leverage knob" — does not depend on any single platform claim being precise to the minor version. The Elasticsearch entry, which has a direct citation, is the load-bearing data point.)
 
 ### Critique / pragmatic posts
 

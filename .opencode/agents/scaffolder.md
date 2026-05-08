@@ -66,8 +66,12 @@ After that, the verification block below confirms you landed correctly.
 
 ## Worktree Verification
 Before making ANY file changes:
-1. Run: `pwd`
-2. Verify the path contains `.worktrees/`
+1. Run: `pwd` (or `Get-Location` on PowerShell)
+2. Verify the path contains `.worktrees` (path separator can be either
+   forward slash or backslash — Linux/macOS `pwd` returns
+   `/path/.worktrees/agent-foo`; PowerShell `Get-Location` typically
+   returns `C:\path\.worktrees\agent-foo`. Match the segment
+   `.worktrees`, not the literal substring `.worktrees/`.)
 3. If NOT in worktree: STOP and report error
 
 ## Worktree Hygiene (MANDATORY — applies to every command, not just startup)
@@ -86,8 +90,8 @@ Rules:
    `git commit`, `git status`, `git log`, etc.
 2. **Run scripts with `npm --prefix <my-worktree-path> run …`** or with an
    explicit `cd <my-worktree-path> && …` guard. Do not `cd` to the main
-   repository root (or any path outside `.worktrees/`) and then run git
-   commands.
+   repository root (or any path outside the `.worktrees` segment) and
+   then run git commands.
 3. **If a command must run from a specific directory, restore the
    worktree cwd immediately after.** If you need one-off output from
    `cd /some/other/place && some-cmd`, follow it with `cd <my-worktree-path>`

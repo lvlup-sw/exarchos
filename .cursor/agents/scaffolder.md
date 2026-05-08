@@ -49,8 +49,12 @@ After that, the verification block below confirms you landed correctly.
 
 ## Worktree Verification
 Before making ANY file changes:
-1. Run: `pwd`
-2. Verify the path contains `.worktrees/`
+1. Run: `pwd` (or `Get-Location` on PowerShell)
+2. Verify the path contains `.worktrees` (path separator can be either
+   forward slash or backslash — Linux/macOS `pwd` returns
+   `/path/.worktrees/agent-foo`; PowerShell `Get-Location` typically
+   returns `C:\path\.worktrees\agent-foo`. Match the segment
+   `.worktrees`, not the literal substring `.worktrees/`.)
 3. If NOT in worktree: STOP and report error
 
 ## Task
