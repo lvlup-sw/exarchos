@@ -727,6 +727,15 @@ export class SqliteBackend implements StorageBackend {
       events_json: string;
     };
   }): Promise<void> {
+    // Precondition: at least one event per call. The function indexes
+    // `args.events[args.events.length - 1].sequence` for the high-water
+    // mark upsert; an empty array there reads `undefined.sequence` and
+    // throws a cryptic `TypeError`. Surface a usable validation error
+    // instead. (CodeRabbit #10 / PR #1323, T70.)
+    if (args.events.length === 0) {
+      throw new Error('atomicAppend requires non-empty events array');
+    }
+
     const txn = this.db.transaction(() => {
       // Idempotency claim (single row per (streamId, key)) — strict INSERT
       // so a collision aborts the txn, ROLLBACK is automatic via the
