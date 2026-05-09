@@ -75,7 +75,7 @@ describe('JsonlImporter', () => {
       'utf-8',
     );
 
-    const result = await importJsonlFile(filePath, appender, backend);
+    const result = await importJsonlFile(filePath, appender, backend, stateDir);
 
     expect(result.ok).toBe(true);
     if (result.ok !== true) return;
@@ -99,11 +99,15 @@ describe('JsonlImporter', () => {
     // `__migration__` stream so callers (lifecycle.ts wiring in T57) can
     // observe per-file telemetry without inspecting the importer's
     // return value.
+    //
+    // T65 / CodeRabbit #3 (INV-1 portability): `sourcePath` is
+    // state-dir-relative, NOT the absolute on-disk path.
     const migrationEvents = backend.queryEvents('__migration__');
     const imported = migrationEvents.filter((e) => e.type === 'migration.legacy_jsonl_imported');
     expect(imported).toHaveLength(1);
     const data = imported[0].data as { sourcePath: string; eventCount: number; durationMs: number };
-    expect(data.sourcePath).toBe(filePath);
+    expect(data.sourcePath).toBe(`${streamId}.events.jsonl`);
+    expect(path.isAbsolute(data.sourcePath)).toBe(false);
     expect(data.eventCount).toBe(4);
     expect(data.durationMs).toBeGreaterThanOrEqual(0);
   });
@@ -121,7 +125,7 @@ describe('JsonlImporter', () => {
       'utf-8',
     );
 
-    const result = await importJsonlFile(filePath, appender, backend);
+    const result = await importJsonlFile(filePath, appender, backend, stateDir);
     expect(result.ok).toBe(true);
 
     // Source removed from `stateDir`.

@@ -1,3 +1,4 @@
+import * as path from 'node:path';
 import { z } from 'zod';
 import { WorkflowTypeSchema } from '../workflow/schemas.js';
 import { DoctorOutputSchema } from '../orchestrate/doctor/schema.js';
@@ -1156,9 +1157,27 @@ export const PhaseContractMissingData = z.object({
  *
  * `eventCount` and `durationMs` are non-negative — a file with zero events
  * (e.g. an empty stream) is a valid import outcome.
+ *
+ * INV-1 portability (T65, CodeRabbit #3): `sourcePath` is **state-dir-relative**.
+ * Absolute paths are rejected by the schema because they leak machine-specific
+ * identifiers (home directories, usernames) into the durable event log and
+ * prevent the SQLite store from being replayed on another machine — both
+ * locally (a teammate pulling a copy of the store) and on the future
+ * basileus-remote shared store (#1081). Both POSIX-absolute (e.g.
+ * `/var/exarchos/...`) and Windows-absolute (e.g. `C:\Users\...`) forms are
+ * rejected so the invariant holds regardless of which platform produced
+ * the event.
  */
 export const MigrationLegacyJsonlImportedData = z.object({
-  sourcePath: z.string().min(1).describe('Absolute path of the JSONL file imported'),
+  sourcePath: z
+    .string()
+    .min(1)
+    .refine((p) => !path.posix.isAbsolute(p) && !path.win32.isAbsolute(p), {
+      message: 'sourcePath must be relative to state-dir (INV-1 portability)',
+    })
+    .describe(
+      'State-dir-relative path of the JSONL file imported (absolute paths rejected for INV-1 portability)',
+    ),
   eventCount: z.number().int().nonnegative().describe('Number of events imported from this file'),
   durationMs: z.number().nonnegative().describe('Wall-clock import duration in milliseconds'),
 });
