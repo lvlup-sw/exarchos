@@ -75,7 +75,30 @@ export async function hydrateStream(
 }
 
 /**
- * Discovers all `*.events.jsonl` files in stateDir and hydrates each stream.
+ * Discovers all `*.events.jsonl` files in stateDir and hydrates each
+ * stream via direct `backend.appendEvent()` INSERT.
+ *
+ * **DO NOT call this from process startup.** The JSONL → SQLite import
+ * on startup is owned EXCLUSIVELY by `runJsonlToSqliteMigration`,
+ * fired via `initializeContext` → `runMigrationIfNeeded`. That path is
+ * lock-protected (DR-8), records `idempotency_claims`, archives source
+ * files into `.archive-v210/`, and is replay-safe.
+ *
+ * Pre-T74 `index.ts` called `hydrateAll(backend, stateDir)` BEFORE the
+ * migration runner fired. Because `hydrateAll` writes through
+ * `backend.appendEvent()` direct INSERT (no `idempotency_claims`
+ * recording), the migration's subsequent
+ * `appender.append(streamId, [...], idempotencyKey)` call found no
+ * claim, allocated fresh sequences/eventIds, and wrote a duplicate
+ * row for every imported event. The CLI parity tests saw `cli=6 mcp=3`.
+ *
+ * T74 removed the `hydrateAll` call from process startup. The function
+ * is retained for disaster-recovery and roundtrip-test scenarios that
+ * intentionally bypass the substrate's idempotency machinery (e.g.,
+ * "fresh empty backend, replay JSONL", which is exercised in
+ * `__tests__/e2e-persistence.test.ts` and `__tests__/crash-recovery.test.ts`).
+ * Production startup must NEVER pair `hydrateAll` with the migration
+ * runner — that combination is the duplicate-event bug.
  */
 export async function hydrateAll(
   backend: StorageBackend,
