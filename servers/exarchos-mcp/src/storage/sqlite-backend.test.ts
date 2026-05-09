@@ -515,6 +515,47 @@ describe('SqliteBackend Transactional Operations', () => {
   });
 });
 
+// ─── T70: atomicAppend empty-events precondition (CodeRabbit #10 / PR #1323) ─
+
+describe('SqliteBackend.atomicAppend empty-events guard (T70)', () => {
+  let backend: SqliteBackend;
+
+  beforeEach(() => {
+    backend = new SqliteBackend(':memory:');
+    backend.initialize();
+  });
+
+  afterEach(() => {
+    backend.close();
+  });
+
+  it('throws a structured validation error (not TypeError) when events array is empty', async () => {
+    // Empty-array call previously threw `TypeError: Cannot read properties
+    // of undefined (reading 'sequence')` because the function indexes
+    // args.events[args.events.length - 1] without a non-empty check.
+    // The contract is "at least one event per atomicAppend call"; violating
+    // it should surface as a clear validation error, not a cryptic
+    // undefined-property TypeError.
+    await expect(
+      backend.atomicAppend({
+        streamId: 'test-stream',
+        idempotencyKey: null,
+        events: [],
+      }),
+    ).rejects.toThrowError('atomicAppend requires non-empty events array');
+
+    // Also verify it's not a TypeError specifically — the cryptic shape
+    // we're trying to eliminate.
+    await expect(
+      backend.atomicAppend({
+        streamId: 'test-stream',
+        idempotencyKey: null,
+        events: [],
+      }),
+    ).rejects.not.toThrow(TypeError);
+  });
+});
+
 // ─── Issue 1: rowToEvent Round-Trip Preserves All Fields ────────────────────
 
 describe('SqliteBackend rowToEvent Round-Trip', () => {
