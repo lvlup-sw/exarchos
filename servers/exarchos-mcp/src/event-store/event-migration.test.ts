@@ -1,5 +1,11 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterEach } from 'vitest';
+import { Database } from 'bun:sqlite';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import { migrateEvent, EVENT_SCHEMA_VERSION } from './event-migration.js';
+import { SqliteBackend } from '../storage/sqlite-backend.js';
+import type { WorkflowEvent } from './schemas.js';
 
 describe('Event Migration', () => {
   it('EVENT_SCHEMA_VERSION_Exported_Is1_0', () => {
@@ -51,5 +57,165 @@ describe('Event Migration', () => {
     // Returns a copy since it enters the migration loop
     expect(result.streamId).toBe('test-stream');
     expect(result.schemaVersion).toBe('99.0');
+  });
+
+  // ─── DR-10 AC2: V3 reader tolerance for V2-era event rows ────────────────
+  //
+  // T12 — Tolerant V2->V3 deserialization. Pins the load-bearing safety
+  // property of the SCHEMA_VERSION=2 -> SCHEMA_VERSION=3 SQLite DDL bump:
+  // events written under V2 (i.e., before the version was bumped to 3)
+  // must deserialize unchanged when the V3 reader observes them.
+  //
+  // T01's V2->V3 step is a no-op pass-through — the events table DDL did
+  // not change between V2 and V3, and per-event `schemaVersion` is still
+  // '1.0' in both eras. This is therefore a CHARACTERIZATION test (no RED
+  // was constructible): we pin the existing tolerance behaviour so a
+  // future task that *does* change V2/V3 payload shape (e.g., adds a
+  // V3-only required field) is forced to either preserve byte-equivalence
+  // for V2 rows or wire a real per-event migration through `migrateEvent`.
+  //
+  // Two ingestion paths are exercised:
+  //   1. The per-event registry (`migrateEvent`) — relevant to the JSONL
+  //      reader path in `EventStore.queryMainJsonl`.
+  //   2. The SQLite reader path (`SqliteBackend.queryEvents` -> `rowToEvent`)
+  //      — relevant to backend-mode reads. A V2-era row is planted by
+  //      writing directly into a V3-initialized DB with the V2-style
+  //      payload format (a JSON-encoded WorkflowEvent). A V3-era row is
+  //      planted alongside via `appendEvent`. Both must round-trip without
+  //      coercion errors.
+  describe('EventReader_V3_DeserializesV2ShapedEventsUnchanged', () => {
+    let tempDir: string | undefined;
+    const backends: SqliteBackend[] = [];
+
+    afterEach(() => {
+      for (const b of backends) {
+        try {
+          b.close();
+        } catch {
+          // already closed
+        }
+      }
+      backends.length = 0;
+
+      if (tempDir) {
+        rmSync(tempDir, { recursive: true });
+        tempDir = undefined;
+      }
+    });
+
+    function createTempDb(): string {
+      tempDir = mkdtempSync(join(tmpdir(), 'exarchos-v2v3-'));
+      return join(tempDir, 'test.db');
+    }
+
+    function trackBackend(backend: SqliteBackend): SqliteBackend {
+      backends.push(backend);
+      return backend;
+    }
+
+    it('MigrateEvent_V2EraEvent_IsByteEquivalentUnderV3Reader', () => {
+      // V2-era events carry per-event `schemaVersion: '1.0'` (unchanged
+      // between V2 and V3 SQLite schema versions). The V3 reader's
+      // migrateEvent invocation must return the same reference: no copy,
+      // no field defaulting, no coercion.
+      const v2EraEvent = {
+        streamId: 'stream-v2',
+        sequence: 1,
+        type: 'workflow.started',
+        schemaVersion: EVENT_SCHEMA_VERSION,
+        timestamp: '2024-06-01T00:00:00.000Z',
+        correlationId: 'corr-pre-v3',
+        agentId: 'agent-v2',
+        agentRole: 'implementer',
+        source: 'mcp-tool',
+        data: { featureId: 'feat-pre-v3', workflowType: 'feature' as const },
+      };
+
+      const result = migrateEvent(v2EraEvent);
+
+      // Identity-equivalence pins the no-op contract: any future migration
+      // that touches '1.0' events without bumping EVENT_SCHEMA_VERSION will
+      // break this test.
+      expect(result).toBe(v2EraEvent);
+    });
+
+    it('SqliteV3Reader_PlantedV2RowAndV3Row_BothRoundTripUnchanged', () => {
+      const dbPath = createTempDb();
+
+      // Open with the current SqliteBackend (SCHEMA_VERSION = 3). This
+      // models the V3 reader observing a database that still contains
+      // rows written under the V2 backend (which used the same payload
+      // column shape T01 froze).
+      const backend = trackBackend(new SqliteBackend(dbPath));
+      backend.initialize();
+
+      // Plant a V2-era row directly via the underlying Database handle.
+      // This bypasses appendEvent's V3 code path so we can fix the exact
+      // bytes a V2 backend would have stored. The payload format under V2
+      // and V3 is identical (a JSON-encoded WorkflowEvent), so the V2 row
+      // is constructed from a known WorkflowEvent shape.
+      const v2Event: WorkflowEvent = {
+        streamId: 'stream-mixed',
+        sequence: 1,
+        type: 'workflow.started',
+        timestamp: '2024-06-01T00:00:00.000Z',
+        correlationId: 'corr-v2-era',
+        agentId: 'agent-v2',
+        source: 'mcp-tool',
+        schemaVersion: '1.0',
+        data: { featureId: 'feat-v2', workflowType: 'feature' },
+      };
+      const v2Payload = JSON.stringify(v2Event);
+      const v2DataCol = JSON.stringify(v2Event.data);
+
+      const db = (backend as unknown as { db: Database }).db;
+      db.prepare(
+        'INSERT INTO events (streamId, sequence, type, timestamp, data, payload) VALUES (?, ?, ?, ?, ?, ?)',
+      ).run(
+        v2Event.streamId,
+        v2Event.sequence,
+        v2Event.type,
+        v2Event.timestamp,
+        v2DataCol,
+        v2Payload,
+      );
+      db.prepare(
+        'INSERT INTO sequences (streamId, sequence) VALUES (?, ?) ON CONFLICT(streamId) DO UPDATE SET sequence = excluded.sequence',
+      ).run(v2Event.streamId, v2Event.sequence);
+
+      // Append a V3-era row through the normal V3 backend path so both
+      // shapes are present in a single read window.
+      const v3Event: WorkflowEvent = {
+        streamId: 'stream-mixed',
+        sequence: 2,
+        type: 'task.assigned',
+        timestamp: '2024-06-02T00:00:00.000Z',
+        correlationId: 'corr-v3-era',
+        agentId: 'agent-v3',
+        source: 'mcp-tool',
+        schemaVersion: '1.0',
+        data: { taskId: 't1', title: 'V3 task' },
+      };
+      backend.appendEvent('stream-mixed', v3Event);
+
+      // V3 reader observes both rows. Neither path should throw, and the
+      // V2 row must come back byte-equivalent (every WorkflowEvent field
+      // preserved). The V3 row must also round-trip.
+      const events = backend.queryEvents('stream-mixed');
+      expect(events).toHaveLength(2);
+
+      // V2 row: byte-equivalent under V3 reader. Check by JSON-canonical
+      // round-trip — the payload column is JSON-decoded by rowToEvent, so
+      // re-encoding the read result must equal the originally-planted
+      // payload string. This is the strictest form of "deserialize
+      // unchanged" the design requirement asks for.
+      expect(JSON.stringify(events[0])).toBe(v2Payload);
+      expect(events[0]).toEqual(v2Event);
+
+      // V3 row: also round-trips. Different `agentId`, different sequence,
+      // different correlationId — confirms the reader is not coercing or
+      // shadowing fields between the two rows.
+      expect(events[1]).toEqual(v3Event);
+    });
   });
 });

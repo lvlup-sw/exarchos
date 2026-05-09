@@ -13,10 +13,6 @@ import { isPidAlive } from '../utils/process.js';
 import { getSidecarPath } from './hook-event-writer.js';
 import { validateStreamId } from '../shared/validation.js';
 import { AtomicAppender } from './atomic-appender.js';
-import {
-  SubagentStreamRouter,
-  type SubagentStreamRouterContract,
-} from '../agents/subagent-stream-router.js';
 
 // ─── Sequence Conflict Error ────────────────────────────────────────────────
 
@@ -78,6 +74,19 @@ export interface QueryFilters {
   until?: string;
   limit?: number;
   offset?: number;
+  /**
+   * Cross-stream prefix filter (DR-3, design 2026-05-08-durable-event-store-substrate).
+   *
+   * When set, the query matches events whose `streamId` is exactly the prefix
+   * OR a descendant under the namespaced form `<prefix>/<segment>`. Substring
+   * matches (`<prefix>-extra`) are EXCLUDED — the comparison is structural,
+   * not lexical. Used by `EventStore.queryByType` to reduce over events
+   * across an entire feature's namespace.
+   *
+   * Honoured at the SQL/backend layer where possible; the JSONL fallback
+   * implements the same semantic in `EventStore.queryByType`.
+   */
+  streamPrefix?: string;
 }
 
 /** Pre-compiled regex for extracting the sequence number from a JSONL line before JSON.parse. */
@@ -115,6 +124,17 @@ function mergeByTimestamp(
 
 export interface EventStoreOptions {
   backend?: StorageBackend;
+  /**
+   * Substrate selector for the lazily-constructed `AtomicAppender` returned
+   * by `getAppender()`. This is independent of `backend` (the read-delegate
+   * `StorageBackend`) — it controls whether the appender's body uses the
+   * legacy JSONL writer or the SQLite-backed writer (#1259, DR-1).
+   *
+   * Defaults to JSONL during the cutover, matching `AtomicAppender`'s own
+   * default. Tests that exercise SQLite-backed cross-stream concurrency
+   * through the full `EventStore` API set this to `'sqlite'`.
+   */
+  appenderBackend?: 'jsonl' | 'sqlite';
 }
 
 // ─── Integrity Result ───────────────────────────────────────────────────────
@@ -230,14 +250,13 @@ export class EventStore {
    *  locks and sequence counters share state across handler calls. */
   private atomicAppender?: AtomicAppender;
 
-  /** Lazily-instantiated SubagentStreamRouter — single instance per EventStore
-   *  so the router shares the same AtomicAppender (and therefore the same
-   *  per-stream lock + idempotency cache) used by every other consumer. */
-  private streamRouter?: SubagentStreamRouterContract;
+  /** Substrate selector for the AtomicAppender (#1259, DR-1). */
+  private readonly appenderBackend?: 'jsonl' | 'sqlite';
 
   constructor(private readonly stateDir: string, options?: EventStoreOptions) {
     this.lockFilePath = path.join(stateDir, '.event-store.lock');
     this.backend = options?.backend;
+    this.appenderBackend = options?.appenderBackend;
   }
 
   /** Returns the state directory path used by this event store. */
@@ -263,34 +282,45 @@ export class EventStore {
    * #1259 swap point: replace the constructor call below with a SQLite
    * (or other durable) appender that exposes the same `AppendResult`
    * shape and per-stream serialization semantics. No other change is
-   * required — `append`, `appendValidated`, `batchAppend`, and the
-   * `SubagentStreamRouter` all delegate through this instance, so a
-   * one-line swap here flips the entire write substrate. The migration
-   * doc is at docs/designs/2026-05-08-eventstore-appender-consumer-migration.md.
+   * required — `append`, `appendValidated`, and `batchAppend` all delegate
+   * through this instance, so a one-line swap here flips the entire write
+   * substrate. The migration doc is at
+   * docs/designs/2026-05-08-eventstore-appender-consumer-migration.md.
    */
   getAppender(): AtomicAppender {
     if (!this.atomicAppender) {
-      this.atomicAppender = new AtomicAppender({ stateDir: this.stateDir });
+      this.atomicAppender = new AtomicAppender({
+        stateDir: this.stateDir,
+        ...(this.appenderBackend !== undefined && { backend: this.appenderBackend }),
+      });
     }
     return this.atomicAppender;
   }
 
   /**
-   * Returns the lazily-created SubagentStreamRouter bound to this event
-   * store's state directory. Backed by `getAppender()` so the router shares
-   * the per-stream lock + idempotency cache. Used by `handleEventAppend` to
-   * intercept `team.disbanded` events and recompute `tasksCompleted` from
-   * the parent stream — discarding the agent-side in-memory tally that
-   * produces #1224's off-by-N counts.
+   * Resolve the read-delegate `StorageBackend` for this store.
+   *
+   * Three cases (#1259, T52):
+   *   1. An explicit `backend` was passed to the constructor — use it.
+   *      This is the legacy dual-write case where JSONL is the source of
+   *      truth and the backend is a supplementary cache/replica.
+   *   2. `appenderBackend === 'sqlite'` was passed and no explicit
+   *      `backend` — route reads through the SQLite backend the appender
+   *      already owns. Without this, writes go to `<stateDir>/exarchos.db`
+   *      but reads look at JSONL and find nothing (the T52 RED).
+   *   3. Neither — return undefined so the read path falls back to JSONL.
+   *
+   * The SQLite backend is created lazily by the appender on first
+   * dispatched write (see `AtomicAppender.getSqliteBackend`). A read that
+   * happens before any write returns undefined here and the JSONL fallback
+   * legitimately yields `[]` — there is no data anywhere to return.
    */
-  getStreamRouter(): SubagentStreamRouterContract {
-    if (!this.streamRouter) {
-      this.streamRouter = new SubagentStreamRouter({
-        appender: this.getAppender(),
-        stateDir: this.stateDir,
-      });
+  private getReadBackend(): StorageBackend | undefined {
+    if (this.backend) return this.backend;
+    if (this.appenderBackend === 'sqlite') {
+      return this.getAppender()._testOnly_getSqliteBackend();
     }
-    return this.streamRouter;
+    return undefined;
   }
 
   // ─── PID Lock ──────────────────────────────────────────────────────────────
@@ -833,8 +863,9 @@ export class EventStore {
     }
 
     if (!sidecarExists) {
-      if (this.backend) {
-        return this.backend.queryEvents(streamId, filters);
+      const readBackend = this.getReadBackend();
+      if (readBackend) {
+        return readBackend.queryEvents(streamId, filters);
       }
       return this.queryMainJsonl(streamId, filters);
     }
@@ -849,8 +880,9 @@ export class EventStore {
       until: filters?.until,
       sinceSequence: filters?.sinceSequence,
     };
-    const rawMainEvents = this.backend
-      ? await this.backend.queryEvents(streamId, mainFilters)
+    const sidecarReadBackend = this.getReadBackend();
+    const rawMainEvents = sidecarReadBackend
+      ? await sidecarReadBackend.queryEvents(streamId, mainFilters)
       : await this.queryMainJsonl(streamId, mainFilters);
     // `mergeByTimestamp` requires both inputs to be time-ordered. JSONL
     // preserves stream (sequence) order and `StorageBackend.queryEvents()`
@@ -908,7 +940,13 @@ export class EventStore {
     try {
       await fs.access(mainPath);
     } catch {
-      return this.backend ? this.backend.getSequence(streamId) : 0;
+      // Resolve through `getReadBackend()` so `appenderBackend: 'sqlite'`
+      // mode (no explicit `backend` ctor arg) routes here too. Reading
+      // through `this.backend` directly would fall to the `0` literal in
+      // sqlite-substrate mode and rebase synthetic sidecar sequences below
+      // the SQLite-durable high-water mark (T62, INV-2 parity).
+      const readBackend = this.getReadBackend();
+      return readBackend ? readBackend.getSequence(streamId) : 0;
     }
 
     const seqPath = this.getSeqFilePath(streamId);
@@ -1092,6 +1130,181 @@ export class EventStore {
     }
 
     return events;
+  }
+
+  /**
+   * Cross-stream query reducer (DR-3).
+   *
+   * Returns every event of `eventType` whose `streamId` matches `filters.streamPrefix`
+   * — either as an exact match (`streamId === streamPrefix`) or as a namespaced
+   * descendant (`streamId.startsWith(streamPrefix + '/')`). The split avoids
+   * substring-style false positives (e.g. `feat-1-extra` is NOT a descendant of
+   * `feat-1`), matching the SQL clause documented in the design:
+   *
+   *   WHERE streamId LIKE ? || '/%' OR streamId = ?
+   *
+   * The `streamPrefix` itself is validated as a (possibly single-segment)
+   * stream id so namespaced inputs like `feat-1/sub-a` are admitted but
+   * pathological inputs (`..`, leading slash, etc.) are rejected at the
+   * boundary before the JSONL/SQL layer ever sees them.
+   *
+   * This is the canonical reducer for `team.disbanded` emission: count
+   * `task.completed` events across every subagent stream nested under the
+   * feature stream, without reading any derived state (INV-1).
+   *
+   * Implementation note: when a `StorageBackend` is attached and exposes a
+   * cross-stream query method, that path is preferred; otherwise the JSONL
+   * directory is scanned for `<prefix>.events.jsonl` and
+   * `<prefix>/<segment>.events.jsonl` files. Filters from `QueryFilters`
+   * (sinceSequence, since, until, limit, offset) apply globally to the
+   * merged result.
+   */
+  async queryByType(
+    eventType: string,
+    filters?: QueryFilters & { streamPrefix?: string },
+  ): Promise<WorkflowEvent[]> {
+    const prefix = filters?.streamPrefix;
+    if (!prefix) {
+      throw new Error(
+        'EventStore.queryByType requires filters.streamPrefix — use EventStore.query() for single-stream queries',
+      );
+    }
+    validateStreamId(prefix);
+
+    // Per-stream sub-filters: type is enforced here, prefix is dispatched
+    // by stream selection. Pagination/limit are applied AFTER the merge so
+    // they reflect the global ordering rather than per-stream slices.
+    const perStream: QueryFilters = { type: eventType };
+    if (filters?.sinceSequence !== undefined) perStream.sinceSequence = filters.sinceSequence;
+    if (filters?.since !== undefined) perStream.since = filters.since;
+    if (filters?.until !== undefined) perStream.until = filters.until;
+
+    // Backend fast-path: when the storage backend exposes a cross-stream
+    // type query, use the SQL clause directly (`LIKE ? || '/%' OR = ?`)
+    // and skip the per-stream merge below. Backends without the method
+    // (in-memory, remote) fall through to the listStreams() enumeration.
+    //
+    // Resolve through `getReadBackend()` so `appenderBackend: 'sqlite'`
+    // (no explicit `backend` ctor arg) routes here too — bypassing this
+    // abstraction is a CLI ↔ MCP parity-breaking pattern (T62, INV-2).
+    const readBackend = this.getReadBackend();
+    if (readBackend && typeof readBackend.queryEventsByType === 'function') {
+      const backendEvents = readBackend.queryEventsByType(eventType, prefix, perStream);
+      const sortedBackend = backendEvents.slice().sort((a, b) => {
+        const byTs = a.timestamp.localeCompare(b.timestamp);
+        return byTs !== 0 ? byTs : a.sequence - b.sequence;
+      });
+      const offset = filters?.offset ?? 0;
+      const limit = filters?.limit;
+      const slicedBackend = offset > 0 ? sortedBackend.slice(offset) : sortedBackend;
+      return limit !== undefined ? slicedBackend.slice(0, limit) : slicedBackend;
+    }
+
+    // Stream selection (fallback): enumerate streams via backend.listStreams()
+    // when present, plus the JSONL state-dir scan, then apply the structural
+    // prefix filter locally.
+    const matchingStreams = await this.listStreamsMatchingPrefix(prefix);
+
+    const merged: WorkflowEvent[] = [];
+    for (const streamId of matchingStreams) {
+      const events = await this.query(streamId, perStream);
+      for (const event of events) {
+        if (event.type === eventType) merged.push(event);
+      }
+    }
+
+    // Stable global ordering: timestamp first, sequence as tie-break.
+    merged.sort((a, b) => {
+      const byTs = a.timestamp.localeCompare(b.timestamp);
+      return byTs !== 0 ? byTs : a.sequence - b.sequence;
+    });
+
+    const offset = filters?.offset ?? 0;
+    const limit = filters?.limit;
+    const sliced = offset > 0 ? merged.slice(offset) : merged;
+    return limit !== undefined ? sliced.slice(0, limit) : sliced;
+  }
+
+  /**
+   * Enumerate streams whose `streamId` is the given prefix or a namespaced
+   * descendant under it. Prefers the backend's `listStreams()` when available
+   * (SQL query at the SqliteBackend layer reduces to
+   * `WHERE streamId LIKE ? || '/%' OR streamId = ?`); otherwise scans the
+   * state directory for matching `*.events.jsonl` files.
+   *
+   * Substring lookalikes (`feat-1-extra` for prefix `feat-1`) are excluded —
+   * the namespaced form requires a literal `/` to be a descendant.
+   */
+  private async listStreamsMatchingPrefix(prefix: string): Promise<string[]> {
+    const matches: string[] = [];
+    const seen = new Set<string>();
+
+    const considerStream = (streamId: string): void => {
+      if (seen.has(streamId)) return;
+      const isExact = streamId === prefix;
+      const isDescendant = streamId.startsWith(`${prefix}/`);
+      if (isExact || isDescendant) {
+        matches.push(streamId);
+        seen.add(streamId);
+      }
+    };
+
+    // Backend path: trust listStreams() to enumerate every stream the
+    // backend has seen; then apply the structural prefix filter locally
+    // so the SQL/JSONL paths stay behaviourally indistinguishable.
+    //
+    // Resolve through `getReadBackend()` so `appenderBackend: 'sqlite'`
+    // (no explicit `backend` ctor arg) routes here too — bypassing this
+    // abstraction is a CLI ↔ MCP parity-breaking pattern (T62, INV-2).
+    const readBackend = this.getReadBackend();
+    if (readBackend) {
+      for (const streamId of readBackend.listStreams()) {
+        considerStream(streamId);
+      }
+    }
+
+    // JSONL path: probe the exact stream's `<stateDir>/<prefix>.events.jsonl`
+    // (covers single-segment AND multi-segment exact matches like
+    // `feat-1/sub-a.events.jsonl`), then recursively walk the directory
+    // `<stateDir>/<prefix>/` so descendants at any depth are discovered.
+    // Recursion mirrors how the SQL fast-path's `LIKE ? || '/%'` clause
+    // matches, so JSONL and backend results stay behaviourally aligned.
+    const exactPath = `${path.join(this.stateDir, prefix)}.events.jsonl`;
+    try {
+      await fs.access(exactPath);
+      considerStream(prefix);
+    } catch {
+      // No exact-match JSONL — fall through to descendant walk.
+    }
+
+    const walkDir = async (relDir: string): Promise<void> => {
+      let entries: import('node:fs').Dirent[];
+      try {
+        entries = await fs.readdir(path.join(this.stateDir, relDir), {
+          withFileTypes: true,
+        });
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code === 'ENOENT') return;
+        throw err;
+      }
+      for (const entry of entries) {
+        const childRel = relDir === '' ? entry.name : `${relDir}/${entry.name}`;
+        if (entry.isFile() && entry.name.endsWith('.events.jsonl')) {
+          const streamId = childRel.slice(0, -'.events.jsonl'.length);
+          considerStream(streamId);
+        } else if (entry.isDirectory()) {
+          await walkDir(childRel);
+        }
+      }
+    };
+
+    if (prefix.length === 0) {
+      await walkDir('');
+    } else {
+      await walkDir(prefix);
+    }
+
+    return matches;
   }
 
   /**

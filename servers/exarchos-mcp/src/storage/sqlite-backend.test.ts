@@ -1,5 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { fc } from '@fast-check/vitest';
+import { mkdtemp, rm, writeFile, readFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import * as path from 'node:path';
 import type { WorkflowEvent } from '../event-store/schemas.js';
 import type { WorkflowState } from '../workflow/types.js';
 import type { EventSender } from './backend.js';
@@ -512,6 +515,47 @@ describe('SqliteBackend Transactional Operations', () => {
   });
 });
 
+// ─── T70: atomicAppend empty-events precondition (CodeRabbit #10 / PR #1323) ─
+
+describe('SqliteBackend.atomicAppend empty-events guard (T70)', () => {
+  let backend: SqliteBackend;
+
+  beforeEach(() => {
+    backend = new SqliteBackend(':memory:');
+    backend.initialize();
+  });
+
+  afterEach(() => {
+    backend.close();
+  });
+
+  it('throws a structured validation error (not TypeError) when events array is empty', async () => {
+    // Empty-array call previously threw `TypeError: Cannot read properties
+    // of undefined (reading 'sequence')` because the function indexes
+    // args.events[args.events.length - 1] without a non-empty check.
+    // The contract is "at least one event per atomicAppend call"; violating
+    // it should surface as a clear validation error, not a cryptic
+    // undefined-property TypeError.
+    await expect(
+      backend.atomicAppend({
+        streamId: 'test-stream',
+        idempotencyKey: null,
+        events: [],
+      }),
+    ).rejects.toThrowError('atomicAppend requires non-empty events array');
+
+    // Also verify it's not a TypeError specifically — the cryptic shape
+    // we're trying to eliminate.
+    await expect(
+      backend.atomicAppend({
+        streamId: 'test-stream',
+        idempotencyKey: null,
+        events: [],
+      }),
+    ).rejects.not.toThrow(TypeError);
+  });
+});
+
 // ─── Issue 1: rowToEvent Round-Trip Preserves All Fields ────────────────────
 
 describe('SqliteBackend rowToEvent Round-Trip', () => {
@@ -903,5 +947,72 @@ describe('SqliteBackend Cleanup Operations', () => {
   it('SqliteBackend_pruneEvents_NoEventsForStream_ReturnsZero', () => {
     const pruned = backend.pruneEvents('nonexistent', '2025-01-01T00:00:00.000Z');
     expect(pruned).toBe(0);
+  });
+});
+
+// ─── T10: SQLITE_CORRUPT startup raises structured error, no auto-rebuild ───
+//
+// DR-12 (#1259, T10): SQLite-backed substrate refuses to start against a
+// corrupt or non-database file. The lifecycle wires a hard stop here
+// because silent auto-rebuild would (a) destroy the byte evidence
+// operators need to root-cause the corruption and (b) potentially mask a
+// data-loss surface that should escalate to operator intervention.
+//
+// Tested at the SqliteBackend level so the contract is explicit at the
+// substrate boundary; lifecycle.ts can rely on `initialize()` throwing
+// without itself probing for corruption.
+
+describe('SqliteBackend Startup Corruption (T10)', () => {
+  let tmpDir: string;
+
+  beforeEach(async () => {
+    tmpDir = await mkdtemp(path.join(tmpdir(), 'sqlite-backend-corrupt-t10-'));
+  });
+
+  afterEach(async () => {
+    await rm(tmpDir, { recursive: true, force: true });
+  });
+
+  it('SqliteBackend_StartupCorruptDb_StructuredErrorNoAutoRebuild', async () => {
+    const dbPath = path.join(tmpDir, 'corrupt.db');
+    // Plant a malformed file: bytes that pass `open(2)` but fail SQLite's
+    // header validation. Surfaces as `SQLITE_NOTADB` in modern SQLite.
+    const garbage = Buffer.from('this is definitely not a sqlite database header');
+    await writeFile(dbPath, garbage);
+
+    const backend = new SqliteBackend(dbPath);
+    let thrown: unknown;
+    try {
+      backend.initialize();
+    } catch (err) {
+      thrown = err;
+    } finally {
+      try {
+        backend.close();
+      } catch {
+        // initialize() may have thrown before db was opened; ignore.
+      }
+    }
+
+    expect(thrown).toBeInstanceOf(Error);
+    const err = thrown as Error & { code?: string; cause?: unknown };
+
+    // Structured error class — operators / lifecycle code can branch on
+    // `err.name` or `instanceof` to distinguish corruption from generic
+    // SqliteError (transient I/O fault) without inspecting message text.
+    expect(err.name).toBe('SqliteCorruptError');
+    expect(err.code).toBe('SQLITE_CORRUPT');
+
+    // Operator remediation must be embedded in the message — keeps the
+    // structured error self-describing for log-only consumers.
+    expect(err.message).toMatch(/operator|remediation|inspect|manual/i);
+    // Path of the offending file is part of the message (so operator
+    // doesn't need to correlate against a separate log line).
+    expect(err.message).toContain(dbPath);
+
+    // No-auto-rebuild contract: the planted bytes survive intact. A
+    // silent rebuild would overwrite this file and lose the evidence.
+    const surviving = await readFile(dbPath);
+    expect(surviving.equals(garbage)).toBe(true);
   });
 });

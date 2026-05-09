@@ -1,6 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs/promises';
+import { readFileSync } from 'node:fs';
 import * as path from 'node:path';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import * as os from 'node:os';
 import { z } from 'zod';
 import { EventStore } from '../event-store/store.js';
@@ -12,6 +15,8 @@ import {
 } from '../registry.js';
 import type { CompositeTool } from '../registry.js';
 import type { DispatchContext } from './dispatch.js';
+import { InMemoryBackend } from '../storage/memory-backend.js';
+import type { StorageBackend } from '../storage/backend.js';
 
 describe('dispatch', () => {
   let tmpDir: string;
@@ -25,6 +30,46 @@ describe('dispatch', () => {
 
   afterEach(async () => {
     await fs.rm(tmpDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+  });
+
+  // ─── T15 (DR-2) — DispatchContext.storage field ─────────────────────────
+  //
+  // Pins the type-shape requirement from the durable-event-store-substrate
+  // design: `DispatchContext` carries an optional `storage: StorageBackend`
+  // field so the lifecycle wiring (T16) can inject the SQLite handle once
+  // at startup instead of leaving every consumer to reach for an ambient
+  // import. The acceptance test (`dispatch-context.acceptance.test.ts`)
+  // is the cross-cutting observable; this test pins the unit-level shape
+  // so a regression here surfaces in `dispatch.test.ts` first.
+  it('DispatchContext_TypeShape_IncludesStorageField', () => {
+    // Source-level grep — the interface declaration itself must carry the
+    // field. Test files are excluded from `tsc --noEmit` (see
+    // `tsconfig.json`) so the type-erased static check is not load-bearing
+    // by itself; the regex assertion below is.
+    const __dirname = dirname(fileURLToPath(import.meta.url));
+    const dispatchSrc = readFileSync(resolve(__dirname, 'dispatch.ts'), 'utf-8');
+    const ifaceMatch = dispatchSrc.match(
+      /export interface DispatchContext\s*\{[\s\S]*?\n\}/,
+    );
+    expect(ifaceMatch).not.toBeNull();
+    const ifaceBody = ifaceMatch![0];
+    expect(
+      /\bstorage\??:\s*StorageBackend\b/.test(ifaceBody),
+      `Expected DispatchContext interface to declare 'storage[?]: StorageBackend'.\n` +
+        `Body:\n${ifaceBody}`,
+    ).toBe(true);
+
+    // Static + runtime: a literal which sets `storage` on the canonical
+    // shape must be assignable. Without the interface field, this fails
+    // tsx compilation.
+    const backend: StorageBackend = new InMemoryBackend();
+    const ctx: DispatchContext = {
+      stateDir: tmpDir,
+      eventStore,
+      enableTelemetry: false,
+      storage: backend,
+    };
+    expect(ctx.storage).toBe(backend);
   });
 
   it('Dispatch_KnownTool_CallsHandler', async () => {

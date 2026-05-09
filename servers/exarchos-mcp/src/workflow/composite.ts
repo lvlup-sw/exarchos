@@ -1,4 +1,4 @@
-import { handleInit, handleGet, handleSet, handleReconcileState, handleCheckpoint } from './tools.js';
+import { handleInit, handleGet, handleSet, handleTransition, handleReconcileState, handleCheckpoint } from './tools.js';
 import { handleCancel } from './cancel.js';
 import { handleCleanup } from './cleanup.js';
 import { handleRehydrate } from './rehydrate.js';
@@ -8,6 +8,7 @@ import { applyCacheHints, wrap, wrapWithPassthrough, type Envelope, type ToolRes
 import type { DispatchContext } from '../core/dispatch.js';
 import { nextActionsFromResult } from '../next-actions-from-result.js';
 import type { CapabilityResolver } from '../capabilities/resolver.js';
+import { buildValidatedEvent } from '../event-store/event-factory.js';
 
 const workflowActions = TOOL_REGISTRY.find(t => t.name === 'exarchos_workflow')!.actions;
 
@@ -97,13 +98,104 @@ export async function handleWorkflow(
       if (skipPhases?.length) setOptions.skipPhases = skipPhases;
       if (requiredReviews?.length) setOptions.requiredReviews = requiredReviews;
       if (checkpoint) setOptions.checkpoint = checkpoint;
+      const setArgs = rest as Parameters<typeof handleSet>[0];
+
+      // T38/DR-4: emit `hsm.deprecated_action_invoked` whenever `set` is
+      // invoked with a `phase` argument. Best-effort emission BEFORE the
+      // handler runs so the migration-telemetry signal is recorded even
+      // when the underlying transition fails — agents inspecting the
+      // event stream see the deprecated invocation regardless of
+      // outcome. We still emit `_meta.deprecation` on the success path
+      // (T35 acceptance / DR-4); the event and the envelope are
+      // complementary signals.
+      const phaseInvoked =
+        typeof (setArgs as { phase?: unknown }).phase === 'string' &&
+        ((setArgs as { phase: string }).phase).length > 0;
+      if (phaseInvoked && eventStore) {
+        try {
+          // T72 — route through the canonical `buildValidatedEvent` +
+          // `appendValidated` helper. The bare `eventStore.append(...)`
+          // path was a side-channel that bypassed per-event-type data
+          // validation and the canonical envelope-population semantics
+          // every other system-boundary emitter (see
+          // `event-store/tools.ts`) honours. INV-1 (single emission
+          // path) and INV-5d (no manual append within an action handler)
+          // both require this routing. The helper validates the
+          // `HsmDeprecatedActionInvokedData` per-type schema and
+          // populates `schemaVersion` explicitly; the bare path left
+          // it to the Zod default and skipped data validation entirely.
+          //
+          // `featureId` is used as `correlationId` (the workflow stream
+          // is the unit of correlation here) and `source: 'workflow'`
+          // identifies the deprecation as originating from the
+          // workflow composite handler. Sequence `1` is a placeholder —
+          // `appendValidated` re-derives the authoritative sequence
+          // via the per-stream appender.
+          const featureId = (setArgs as { featureId: string }).featureId;
+          const validatedEvent = buildValidatedEvent(featureId, 1, {
+            type: 'hsm.deprecated_action_invoked',
+            correlationId: featureId,
+            source: 'workflow',
+            data: {
+              action: 'workflow.set.phase',
+              invokedBy: ctx.projectConfig ? 'workflow.composite' : 'workflow',
+            },
+          });
+          await eventStore.appendValidated(featureId, validatedEvent);
+        } catch {
+          // Best-effort telemetry — never block the underlying handler on
+          // a deprecation-event emission failure.
+        }
+      }
+
+      const result = await handleSet(
+        setArgs,
+        stateDir,
+        eventStore,
+        Object.keys(setOptions).length > 0
+          ? setOptions as Parameters<typeof handleSet>[3]
+          : undefined,
+      );
+
+      // T35/DR-4: surface `_meta.deprecation` on the response envelope so
+      // agents self-correct without human prompting. Only attached on the
+      // deprecated phase-write path (`phase` argument present).
+      const enriched: typeof result = phaseInvoked && result.success
+        ? {
+            ...result,
+            _meta: {
+              ...((result._meta as Record<string, unknown> | undefined) ?? {}),
+              deprecation: {
+                since: '2.10.0',
+                removeIn: '2.11.0',
+                replacement: 'transition',
+              },
+            },
+          }
+        : result;
+
+      return envelopeWrap(enriched, startedAt);
+    }
+    case 'transition': {
+      // T36/T37/DR-4 — canonical phase-mutation surface. Routes through the
+      // shared `applyTransition()` helper in `handleTransition`, which also
+      // backs the deprecated `set({phase})` path. Passes the same project-
+      // config-derived options as `set` so both surfaces honor identical
+      // skipPhases / requiredReviews / checkpoint policy.
+      const skipPhases = ctx.projectConfig?.workflow.skipPhases;
+      const requiredReviews = ctx.projectConfig?.workflow.requiredReviews;
+      const checkpoint = ctx.projectConfig?.checkpoint;
+      const transitionOptions: Record<string, unknown> = {};
+      if (skipPhases?.length) transitionOptions.skipPhases = skipPhases;
+      if (requiredReviews?.length) transitionOptions.requiredReviews = requiredReviews;
+      if (checkpoint) transitionOptions.checkpoint = checkpoint;
       return envelopeWrap(
-        await handleSet(
-          rest as Parameters<typeof handleSet>[0],
+        await handleTransition(
+          rest as unknown as Parameters<typeof handleTransition>[0],
           stateDir,
           eventStore,
-          Object.keys(setOptions).length > 0
-            ? setOptions as Parameters<typeof handleSet>[3]
+          Object.keys(transitionOptions).length > 0
+            ? transitionOptions as Parameters<typeof handleTransition>[3]
             : undefined,
         ),
         startedAt,
@@ -140,7 +232,7 @@ export async function handleWorkflow(
         success: false,
         error: {
           code: 'UNKNOWN_ACTION',
-          message: `Unknown action: ${String(action)}. Valid actions: init, get, set, cancel, cleanup, reconcile, checkpoint, rehydrate, describe`,
+          message: `Unknown action: ${String(action)}. Valid actions: init, get, set, transition, cancel, cleanup, reconcile, checkpoint, rehydrate, describe`,
         },
       };
   }

@@ -49,6 +49,23 @@ export interface ToolAction {
    * natively and ignore this flag.
    */
   readonly longRunning?: boolean;
+  /**
+   * DR-4 / DR-11 (durable-substrate, #1259) — when true, this action is
+   * scheduled for removal one release ahead and currently routes through a
+   * deprecation rerouting surface. Surfaces in `describe` entries so model-
+   * facing agents can self-correct toward the canonical action without
+   * human prompting.
+   */
+  readonly deprecated?: boolean;
+  /**
+   * DR-11 (durable-substrate, #1259) — typed Zod schema describing the
+   * action's response envelope. When present, the schema registers the
+   * `_meta.deprecation` sub-shape and is exposed via `describe` for
+   * structured client-side decoding. Pre-existing actions without an
+   * `outputSchema` continue to function unchanged; only the affected
+   * actions in the C4 (HSM single-path) bundle declare one in v2.10.
+   */
+  readonly outputSchema?: z.ZodTypeAny;
 }
 
 export interface CompositeTool {
@@ -465,6 +482,82 @@ function makeEventDescribeAction(): ToolAction {
   };
 }
 
+// ─── Output Schemas — `_meta.deprecation` Registration (DR-11, #1259) ──────
+//
+// The HSM single-path consolidation introduces a deprecation envelope on
+// the affected actions. `_meta.deprecation` describes the migration window
+// (since/removeIn) and the canonical replacement so agents can self-correct
+// without human prompting. The schemas below describe the typed sub-shape
+// registered in each action's `outputSchema`.
+//
+// Both `exarchos_workflow.set` and `exarchos_workflow.transition` register
+// the same typed sub-shape so the contract is symmetric across the
+// migration window — the canonical action does not currently emit
+// `_meta.deprecation`, but the schema slot stays declared so the surfaces
+// are interchangeable from a contract-introspection perspective. v2.11.0
+// removes the `set` action entirely (per DR-14); the `transition` schema
+// then drops the deprecation slot via a follow-up bump.
+//
+// The envelope version is implicitly bumped via this schema registration:
+// `_meta.envelopeVersion` callers can rely on the structured deprecation
+// payload appearing instead of (or alongside) any free-text warning that
+// may have surfaced via `result.warnings` historically.
+
+/**
+ * `_meta.deprecation` typed sub-shape (DR-4, DR-11). Surfaces on the response
+ * envelope of any action whose handler routes through a deprecation rerouting
+ * surface (currently: `exarchos_workflow.set` when `phase` is provided).
+ *
+ * `since` / `removeIn` use semver strings (validated as non-empty);
+ * `replacement` names the canonical action a caller should migrate to.
+ */
+export const MetaDeprecationSchema = z.object({
+  since: z.string().min(1).describe('Version when this action was deprecated (semver)'),
+  removeIn: z.string().min(1).describe('Version when this action is removed (semver)'),
+  replacement: z.string().min(1).describe('Canonical action name that supersedes this one'),
+});
+
+/**
+ * `outputSchema` for `exarchos_workflow.set` (DR-11). Both success and
+ * failure responses share the standard `ToolResult` shape, but the
+ * deprecated phase-write path additionally surfaces `_meta.deprecation`.
+ *
+ * Schema is permissive on the success branch (`data` is `unknown`) so the
+ * existing rich payloads (`phase`, `updatedAt`, `sidecarPending`) continue
+ * to validate without freezing the wire format. The deprecation sub-shape
+ * is the only field this version of the schema strictly types.
+ */
+export const WorkflowSetOutputSchema = z.object({
+  success: z.boolean(),
+  data: z.unknown().optional(),
+  error: z.unknown().optional(),
+  warnings: z.array(z.string()).optional(),
+  next_actions: z.array(z.unknown()).optional(),
+  _meta: z.object({
+    deprecation: MetaDeprecationSchema.optional(),
+  }).passthrough().optional(),
+  _perf: z.unknown().optional(),
+}).passthrough();
+
+/**
+ * `outputSchema` for `exarchos_workflow.transition` (DR-11). Symmetric to
+ * `WorkflowSetOutputSchema` so both arms of the C4 single-path consolidation
+ * advertise the same envelope contract — the canonical action does not emit
+ * `_meta.deprecation` itself, but registering the typed sub-shape keeps the
+ * surfaces interchangeable from a contract-introspection standpoint.
+ */
+export const WorkflowTransitionOutputSchema = z.object({
+  success: z.boolean(),
+  data: z.unknown().optional(),
+  error: z.unknown().optional(),
+  warnings: z.array(z.string()).optional(),
+  next_actions: z.array(z.unknown()).optional(),
+  _meta: z.object({
+    deprecation: MetaDeprecationSchema.optional(),
+  }).passthrough().optional(),
+  _perf: z.unknown().optional(),
+}).passthrough();
+
 // ─── Composite Tool: exarchos_workflow ───────────────────────────────────────
 
 const workflowActions: readonly ToolAction[] = [
@@ -507,7 +600,7 @@ const workflowActions: readonly ToolAction[] = [
   },
   {
     name: 'set',
-    description: 'Update workflow state fields or transition phase. Auto-emits workflow.transition events when phase is provided and differs from current phase (no-op if already at target phase) — do not duplicate via event append',
+    description: "Update workflow state fields or transition phase. Auto-emits workflow.transition events when phase is provided and differs from current phase (no-op if already at target phase) — do not duplicate via event append. DEPRECATED for phase transitions (since v2.10.0, removed in v2.11.0). Do NOT use — use action: 'transition' instead.",
     schema: z.object({
       featureId: featureIdSchema,
       updates: coercedRecord().optional(),
@@ -522,7 +615,28 @@ const workflowActions: readonly ToolAction[] = [
     autoEmits: [
       { event: 'workflow.transition', condition: 'conditional', description: 'When phase is provided and differs from current phase' },
       { event: 'state.patched', condition: 'always' },
+      { event: 'hsm.deprecated_action_invoked', condition: 'conditional', description: 'When phase is provided (deprecated path)' },
     ],
+    deprecated: true,
+    outputSchema: WorkflowSetOutputSchema,
+  },
+  {
+    name: 'transition',
+    description: 'Transition the workflow to a target phase. Canonical phase-mutation action. Routes through the HSM transition guard primitive — emits exactly one workflow.transition event on success, or returns a structured error envelope (validTargets, expectedShape, suggestedFix) on guard/topology failure.',
+    schema: z.object({
+      featureId: featureIdSchema,
+      target: z.string().min(1).describe('Target phase (must be a declared transition from the current phase)'),
+    }),
+    phases: ALL_PHASES,
+    roles: ROLE_LEAD,
+    cli: {
+      flags: { featureId: { alias: 'f' }, target: { alias: 't' } },
+      examples: ['exarchos wf transition -f my-feature -t plan'],
+    },
+    autoEmits: [
+      { event: 'workflow.transition', condition: 'always' },
+    ],
+    outputSchema: WorkflowTransitionOutputSchema,
   },
   {
     name: 'cancel',
@@ -1715,7 +1829,7 @@ export const TOOL_REGISTRY: readonly CompositeTool[] = [
     description: 'Workflow lifecycle management — init, read, update, cancel, cleanup, checkpoint, reconcile, and rehydrate workflows',
     actions: workflowActions,
     cli: { alias: 'wf' },
-    slimDescription: 'Workflow lifecycle management. Use describe(actions) for schemas.\n\nActions: init, get, set, cancel, cleanup, reconcile, checkpoint, rehydrate',
+    slimDescription: 'Workflow lifecycle management. Use describe(actions) for schemas.\n\nActions: init, get, set, transition, cancel, cleanup, reconcile, checkpoint, rehydrate',
   },
   {
     name: 'exarchos_event',

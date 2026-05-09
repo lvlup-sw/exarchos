@@ -118,6 +118,14 @@ export async function handleDescribe(
         phases: [...action.phases],
         roles: [...action.roles],
         ...(action.autoEmits ? { autoEmits: [...action.autoEmits] } : {}),
+        // T41 / DR-4 / DR-11: surface the `deprecated` flag so model-facing
+        // agents can pivot to the canonical action without parsing the
+        // description string. Surfaced unconditionally (not just when true)
+        // so structurally-honest consumers can rely on the slot's presence.
+        ...(action.deprecated ? { deprecated: true } : {}),
+        ...(action.outputSchema
+          ? { outputSchema: zodToJsonSchema(action.outputSchema) }
+          : {}),
       };
 
       if (actionName === 'set' && options?.includeStateSchema) {

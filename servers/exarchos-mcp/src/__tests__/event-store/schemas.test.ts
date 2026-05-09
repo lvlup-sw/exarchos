@@ -406,12 +406,17 @@ describe('StackEnqueuedData', () => {
 
 describe('EventTypes', () => {
   it('EventTypes_CountMatchesRegisteredTypes', () => {
-    // Locked to the current registered-type count. Bumped to 84 with the
-    // addition of command.resolved (#1199 T15) for the test/typecheck/install
-    // runtime resolver. Previous bump (83) was merge.preflight / merge.executed /
-    // merge.rollback (T03, DR-MO-2). When new event types are added, bump this
-    // number alongside their registration in `event-store/schemas.ts`.
-    expect(EventTypes).toHaveLength(84);
+    // Locked to the current registered-type count. Bumped to 90 with the
+    // addition of six durable event-store substrate event types (#1259
+    // T02 / T03 / T04): hsm.deprecated_action_invoked,
+    // spec.legacy_capabilities_array, phase.contract_missing,
+    // migration.legacy_jsonl_imported, migration.completed, migration.failed.
+    // Previous bump (84) was command.resolved (#1199 T15) for the
+    // test/typecheck/install runtime resolver. Earlier (83) was
+    // merge.preflight / merge.executed / merge.rollback (T03, DR-MO-2).
+    // When new event types are added, bump this number alongside their
+    // registration in `event-store/schemas.ts`.
+    expect(EventTypes).toHaveLength(90);
   });
 
   it('should include workflow-level types', () => {

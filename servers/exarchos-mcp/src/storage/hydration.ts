@@ -75,7 +75,16 @@ export async function hydrateStream(
 }
 
 /**
- * Discovers all `*.events.jsonl` files in stateDir and hydrates each stream.
+ * Discovers all `*.events.jsonl` files in stateDir and hydrates each
+ * stream via direct `backend.appendEvent()` INSERT.
+ *
+ * **DO NOT call this from process startup.** The function is retained
+ * for disaster-recovery and roundtrip-test scenarios that intentionally
+ * bypass the substrate's idempotency machinery (e.g., "fresh empty
+ * backend, replay JSONL", which is exercised in
+ * `__tests__/e2e-persistence.test.ts` and `__tests__/crash-recovery.test.ts`).
+ * Direct INSERTs bypass `idempotency_claims`, so pairing this with any
+ * other JSONL-importing path produces duplicate rows.
  */
 export async function hydrateAll(
   backend: StorageBackend,

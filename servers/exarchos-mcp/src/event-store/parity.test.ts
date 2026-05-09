@@ -11,12 +11,20 @@ import {
   normalize as harnessNormalize,
 } from '../__tests__/parity-harness.js';
 
-// ─── DR-3 Parity Tests: exarchos_event ──────────────────────────────────────
+// ─── DR-3 Parity Tests: exarchos_event + DR-11 deprecation envelope parity ─
 // Asserts that invoking `exarchos_event` actions through the CLI adapter and
 // the MCP-style `dispatch()` entry point produces structurally equivalent
 // ToolResult payloads. Differences that are expected (timestamps, UUIDs,
 // sequence numbers) are normalized before comparison. Runs sibling to the
 // task-014 (`exarchos_workflow`) parity suite.
+//
+// T53 / DR-11 also extends this file with a top-level
+// `describe('DR-11 Parity: workflow.set({phase}) _meta.deprecation envelope', ...)`
+// block that asserts byte-equivalence of the deprecation envelope across both
+// carriers. The deprecated `workflow.set({phase})` invocation must produce a
+// `_meta.deprecation` payload that round-trips identically through the CLI
+// and MCP entry points; the JSON.stringify of the (normalized) envelope is
+// the authoritative byte-equivalence assertion.
 
 // ─── Normalization Helpers ──────────────────────────────────────────────────
 
@@ -212,5 +220,134 @@ describe('DR-3: exarchos_event CLI/MCP parity', () => {
     expect(mcpResult.success).toBe(true);
     expect(cliResult.success).toBe(true);
     expect(normalize(cliResult)).toEqual(normalize(mcpResult));
+  });
+});
+
+// ─── DR-11 / T53 — workflow.set({phase}) deprecation envelope parity ────────
+//
+// Plan goal (docs/plans/2026-05-08-durable-event-store-substrate.md §T53):
+// "Parity test ensuring `_meta.deprecation` envelope is byte-equivalent
+// across CLI and MCP carriers per output-contract registration."
+//
+// The deprecated `workflow.set({phase: 'plan'})` invocation must surface a
+// `_meta.deprecation` payload of shape `{ since, removeIn, replacement }`
+// (see workflow-set-deprecation.acceptance.test.ts for the canonical shape).
+// Both the CLI carrier (`wf set --feature-id ... --phase plan`) and the MCP
+// carrier (`exarchos_workflow.set` via dispatch) MUST emit a byte-identical
+// envelope.
+//
+// File-location decision (recommended approach 1 from the dispatch prompt):
+// extending the existing `parity.test.ts` keeps the parity-suite topology
+// in one place and matches the plan's literal file reference. The new block
+// is scoped under its own `describe` so the existing `exarchos_event` block
+// keeps its semantic identity.
+//
+// Authoritative assertion: `JSON.stringify` of the normalized envelope on
+// each arm. We additionally do a structural deep-equal as a more specific
+// failure signal — if the strings differ, the deep-equal usually points at
+// the diverging key.
+
+describe('DR-11 Parity: workflow.set({phase}) _meta.deprecation envelope', () => {
+  let mcpHarness: ParityHarness;
+  let cliHarness: ParityHarness;
+
+  beforeEach(async () => {
+    mcpHarness = await makeHarness('depr-mcp');
+    cliHarness = await makeHarness('depr-cli');
+  });
+
+  afterEach(async () => {
+    await teardownHarness(mcpHarness);
+    await teardownHarness(cliHarness);
+  });
+
+  /**
+   * Prime a workflow into a state where `ideate → plan` is a valid
+   * transition. The deprecated path goes through the canonical
+   * `applyTransition` helper, which requires `artifacts.design` for a
+   * feature workflow's first phase change. Without this priming the
+   * underlying `set({phase})` would fail the HSM guard and we would
+   * compare error envelopes rather than success-path deprecation
+   * envelopes (defeating the purpose of the parity assertion).
+   */
+  async function primeForIdeateToPlan(
+    harness: ParityHarness,
+    featureId: string,
+  ): Promise<void> {
+    await harnessCallMcp(harness.ctx, 'exarchos_workflow', {
+      action: 'init',
+      featureId,
+      workflowType: 'feature',
+    });
+    await harnessCallMcp(harness.ctx, 'exarchos_workflow', {
+      action: 'set',
+      featureId,
+      updates: { 'artifacts.design': 'docs/design.md' },
+    });
+  }
+
+  it('WorkflowSetDeprecationParity_MetaEnvelope_CliAndMcp_ByteEqual', async () => {
+    const featureId = 'depr-parity-feature';
+
+    // Arrange — prime each arm to the same starting state.
+    await primeForIdeateToPlan(mcpHarness, featureId);
+    await primeForIdeateToPlan(cliHarness, featureId);
+
+    // Act — MCP carrier: `exarchos_workflow.set({phase: 'plan'})`.
+    const mcpResult = await harnessCallMcp(
+      mcpHarness.ctx,
+      'exarchos_workflow',
+      { action: 'set', featureId, phase: 'plan' },
+    );
+
+    // Act — CLI carrier: `wf set --feature-id ... --phase plan`.
+    const { result: cliResult } = await harnessCallCli(
+      cliHarness.ctx,
+      'wf',
+      'set',
+      { featureId, phase: 'plan' },
+    );
+
+    // Sanity: both arms succeeded so we are comparing success-envelope
+    // deprecation payloads, not error-path branches.
+    expect(mcpResult.success).toBe(true);
+    expect(cliResult.success).toBe(true);
+
+    const mcpMeta = (mcpResult as { _meta?: Record<string, unknown> })._meta;
+    const cliMeta = (cliResult as { _meta?: Record<string, unknown> })._meta;
+    expect(mcpMeta?.deprecation).toBeDefined();
+    expect(cliMeta?.deprecation).toBeDefined();
+
+    // Sanity: matches the canonical shape pinned by the T35 acceptance test.
+    expect(mcpMeta!.deprecation).toEqual({
+      since: '2.10.0',
+      removeIn: '2.11.0',
+      replacement: 'transition',
+    });
+
+    // ─── Authoritative byte-equivalence assertion ─────────────────────────
+    // The plan calls for "byte-identical" parity. We normalize each
+    // envelope (no-op today — the deprecation sub-shape is timestamp/UUID-
+    // free — but future-proof against accidental wall-clock-tagged fields)
+    // and JSON.stringify the result. If a future change introduces a
+    // time-sensitive field into the envelope, surfacing it here as a
+    // parity diff is exactly the signal we want; if the envelope shape
+    // legitimately needs such a field, the normalize() options can
+    // absorb it without weakening this assertion.
+    const mcpNormalized = normalize(mcpMeta!.deprecation);
+    const cliNormalized = normalize(cliMeta!.deprecation);
+
+    // Structural deep-equal first — if this fails, the failure message
+    // points at the diverging key, which is more useful than a string
+    // diff for debugging.
+    expect(cliNormalized).toEqual(mcpNormalized);
+
+    // Byte-identical stringification — the plan's authoritative parity
+    // contract. Stable key order is given by the source object literal in
+    // workflow/composite.ts; both arms route through the same code path,
+    // so the stringification ordering is identical by construction. This
+    // assertion guards against a future refactor that splits the carrier
+    // paths and reintroduces serialization-order drift.
+    expect(JSON.stringify(cliNormalized)).toBe(JSON.stringify(mcpNormalized));
   });
 });

@@ -7,6 +7,7 @@ import type { ConfigHookRunner } from '../hooks/config-hooks.js';
 import type { Outbox } from '../sync/outbox.js';
 import type { ChannelEmitter } from '../channel/emitter.js';
 import type { CapabilityResolver } from '../capabilities/resolver.js';
+import type { StorageBackend } from '../storage/backend.js';
 import { hasCustomToolHandlers, getCustomToolActionHandler, getFullRegistry } from '../registry.js';
 import {
   formatValidationError,
@@ -52,6 +53,22 @@ export interface DispatchContext {
    * field is omitted from the wire output.
    */
   readonly capabilityResolver?: CapabilityResolver;
+  /**
+   * Storage handle constructed once at startup (DR-2 of the
+   * durable-event-store-substrate design). Lifecycle wiring in
+   * `index.ts` / `core/context.ts` opens the SQLite (or in-memory)
+   * backend and threads it through the context so consumers do not
+   * reach for an ambient `bun:sqlite` import.
+   *
+   * Optional because (a) several CLI cold-start paths and a long tail
+   * of in-process tests construct `DispatchContext` literals without a
+   * storage handle (JSONL-only mode), and (b) the substrate work that
+   * relies on `ctx.storage` lives behind composite handlers that opt
+   * in by checking the field. When present, the same handle backs
+   * `eventStore` reads/writes (passed through as the `backend` option
+   * to `EventStore`); when absent, `EventStore` falls back to JSONL.
+   */
+  readonly storage?: StorageBackend;
 }
 
 // ─── T04: Server-side Read-only Action Allowlist (Issue #1192) ─────────────

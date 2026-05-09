@@ -242,6 +242,92 @@ describe('EventStore Query', () => {
 
 // ─── A06: Optimistic Concurrency ────────────────────────────────────────────
 
+// ─── T25: queryByType with streamPrefix (DR-3, cross-stream propagation) ────
+
+describe('EventStore queryByType with streamPrefix (T25)', () => {
+  it('EventStore_QueryByTypeWithStreamPrefix_ReturnsAllMatchingDescendantStreams', async () => {
+    const store = new EventStore(tempDir);
+    const featureId = 'feat-cross-1';
+    const subA = `${featureId}/subagent-a`;
+    const subB = `${featureId}/subagent-b`;
+    const otherFeature = 'feat-other';
+
+    // Each subagent stream gets a task.completed event scoped to the team.
+    await store.append(subA, {
+      type: 'task.completed',
+      data: { taskId: 'a-1', teamId: 'team-x' },
+    });
+    await store.append(subB, {
+      type: 'task.completed',
+      data: { taskId: 'b-1', teamId: 'team-x' },
+    });
+    // The parent feature stream itself can also carry task.completed events.
+    await store.append(featureId, {
+      type: 'task.completed',
+      data: { taskId: 'parent-1', teamId: 'team-x' },
+    });
+    // An UNRELATED feature must be excluded — its prefix doesn't match.
+    await store.append(otherFeature, {
+      type: 'task.completed',
+      data: { taskId: 'other-1', teamId: 'team-x' },
+    });
+    // A non-matching event type on a matching stream must be excluded.
+    await store.append(subA, {
+      type: 'task.assigned',
+      data: { taskId: 'a-2', teammateName: 'worker-a' },
+    });
+
+    const events = await store.queryByType('task.completed', {
+      streamPrefix: featureId,
+    });
+
+    // Three matches: parent + two subagents. The unrelated feature and the
+    // task.assigned event both stay out.
+    expect(events).toHaveLength(3);
+    const taskIds = events.map((e) => (e.data as { taskId?: string })?.taskId).sort();
+    expect(taskIds).toEqual(['a-1', 'b-1', 'parent-1']);
+    // Every event must come from a matching stream — either the prefix itself
+    // or a `<prefix>/<segment>` descendant.
+    for (const event of events) {
+      const isParent = event.streamId === featureId;
+      const isDescendant = event.streamId.startsWith(`${featureId}/`);
+      expect(isParent || isDescendant).toBe(true);
+    }
+  });
+
+  it('EventStore_QueryByTypeWithStreamPrefix_ExcludesAccidentalSubstringMatches', async () => {
+    // Pin: a stream named `feat-cross-1-extra` shares the prefix as a
+    // substring but is NOT a descendant under the namespaced form. The query
+    // must NOT include it.
+    const store = new EventStore(tempDir);
+    const featureId = 'feat-cross-1';
+    const lookalike = `${featureId}-extra`; // not `${featureId}/...`
+
+    await store.append(featureId, {
+      type: 'task.completed',
+      data: { taskId: 'parent-1', teamId: 'team-x' },
+    });
+    await store.append(lookalike, {
+      type: 'task.completed',
+      data: { taskId: 'lookalike-1', teamId: 'team-x' },
+    });
+
+    const events = await store.queryByType('task.completed', {
+      streamPrefix: featureId,
+    });
+    expect(events).toHaveLength(1);
+    expect((events[0].data as { taskId?: string })?.taskId).toBe('parent-1');
+  });
+
+  it('EventStore_QueryByTypeWithStreamPrefix_NoMatchingStreams_ReturnsEmpty', async () => {
+    const store = new EventStore(tempDir);
+    const events = await store.queryByType('task.completed', {
+      streamPrefix: 'no-such-feature',
+    });
+    expect(events).toEqual([]);
+  });
+});
+
 describe('EventStore Optimistic Concurrency', () => {
   it('should accept append with correct expectedSequence', async () => {
     const store = new EventStore(tempDir);

@@ -14,6 +14,14 @@ export interface EventMigration {
 /**
  * Registry of event migrations. Add new migrations here when the event schema evolves.
  * Migrations are applied in chain order: 1.0 → 1.1 → 1.2, etc.
+ *
+ * NOTE: This registry tracks per-event payload `schemaVersion` (string,
+ * e.g. '1.0'), independent of the SQLite DDL `SCHEMA_VERSION` integer in
+ * `storage/sqlite-backend.ts`. The durable-substrate plan's V2 -> V3
+ * migration is a SQLite DDL transition (T01) — see `migrateV2ToV3` in
+ * `sqlite-backend.ts`. T12 will register the first per-event tolerant
+ * deserialization migration here once new event types (T02-T04) are
+ * appended under V3.
  */
 export const eventMigrations: readonly EventMigration[] = [
   // Future migrations go here. Example:

@@ -309,15 +309,76 @@ describe('SqliteBackend Schema Migration V1->V2', () => {
     const backend = trackBackend(new SqliteBackend(dbPath));
     backend.initialize();
 
-    // Check the schema_version table contains the current SCHEMA_VERSION (2)
+    // Check the schema_version table contains the current SCHEMA_VERSION (3)
     const db = (backend as unknown as { db: Database }).db;
     const rows = db
       .prepare('SELECT version FROM schema_version ORDER BY version')
       .all() as Array<{ version: number }>;
 
     expect(rows.length).toBeGreaterThanOrEqual(1);
-    // The current SCHEMA_VERSION is 2 (from sqlite-backend.ts)
+    // The current SCHEMA_VERSION is 3 (from sqlite-backend.ts)
     const versions = rows.map((r) => r.version);
-    expect(versions).toContain(2);
+    expect(versions).toContain(3);
+  });
+
+  it('SchemaMigration_V2ToV3_AppliesIdempotently', () => {
+    const dbPath = createTempDb();
+
+    // Seed a fresh database at V2: full V2 schema (payload column present) +
+    // schema_version row at version 2. Simulates a DB created by an older
+    // SqliteBackend (SCHEMA_VERSION === 2).
+    const rawDb = createV1Database(dbPath);
+    rawDb.exec('ALTER TABLE events ADD COLUMN payload TEXT');
+    rawDb
+      .prepare('INSERT INTO schema_version (version, appliedAt) VALUES (?, ?)')
+      .run(2, '2024-01-01T00:00:00.000Z');
+
+    // Sanity: schema_version contains exactly one row at version 2.
+    const seededRows = rawDb
+      .prepare('SELECT version FROM schema_version ORDER BY version')
+      .all() as Array<{ version: number }>;
+    expect(seededRows).toEqual([{ version: 2 }]);
+
+    rawDb.close();
+
+    // First open: migration runner advances from V2 to V3.
+    const backend1 = trackBackend(new SqliteBackend(dbPath));
+    backend1.initialize();
+
+    const db1 = (backend1 as unknown as { db: Database }).db;
+    const rowsAfterFirst = db1
+      .prepare('SELECT version, appliedAt FROM schema_version ORDER BY version')
+      .all() as Array<{ version: number; appliedAt: string }>;
+    const versionsAfterFirst = rowsAfterFirst.map((r) => r.version);
+    expect(versionsAfterFirst).toContain(3);
+
+    // Capture the appliedAt for V3 so we can prove a second init doesn't
+    // re-execute the migration step. A re-run would either INSERT a duplicate
+    // row or overwrite the timestamp.
+    const v3Row = rowsAfterFirst.find((r) => r.version === 3);
+    expect(v3Row).toBeDefined();
+    const firstV3AppliedAt = v3Row!.appliedAt;
+
+    backend1.close();
+
+    // Second open: DB is already at V3. Migration runner must short-circuit
+    // and NOT re-execute the V2->V3 step.
+    const backend2 = trackBackend(new SqliteBackend(dbPath));
+    expect(() => backend2.initialize()).not.toThrow();
+
+    const db2 = (backend2 as unknown as { db: Database }).db;
+    const rowsAfterSecond = db2
+      .prepare('SELECT version, appliedAt FROM schema_version ORDER BY version')
+      .all() as Array<{ version: number; appliedAt: string }>;
+
+    // No duplicates introduced; the version set is unchanged.
+    expect(rowsAfterSecond.map((r) => r.version)).toEqual(
+      rowsAfterFirst.map((r) => r.version),
+    );
+
+    // V3 row's appliedAt is unchanged — proof the V2->V3 step was not
+    // re-executed on the second initialize.
+    const v3RowAfterSecond = rowsAfterSecond.find((r) => r.version === 3);
+    expect(v3RowAfterSecond?.appliedAt).toBe(firstV3AppliedAt);
   });
 });

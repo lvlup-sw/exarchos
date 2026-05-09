@@ -47,6 +47,12 @@ import {
   MergeExecutedData,
   MergeRollbackData,
   CommandResolvedEventSchema,
+  HsmDeprecatedActionInvokedData,
+  SpecLegacyCapabilitiesArrayData,
+  PhaseContractMissingData,
+  MigrationLegacyJsonlImportedData,
+  MigrationCompletedData,
+  MigrationFailedData,
   EVENT_EMISSION_REGISTRY,
   EVENT_DATA_SCHEMAS,
   type EventEmissionSource,
@@ -466,7 +472,12 @@ describe('EventTypes', () => {
   });
 
   it('EventTypes_HasExpectedCount', () => {
-    expect(EventTypes).toHaveLength(84);
+    // Bumped from 84 → 90 with the addition of six durable event-store
+    // substrate event types (#1259 T02 / T03 / T04):
+    //   hsm.deprecated_action_invoked, spec.legacy_capabilities_array,
+    //   phase.contract_missing, migration.legacy_jsonl_imported,
+    //   migration.completed, migration.failed.
+    expect(EventTypes).toHaveLength(90);
   });
 
   it('EventTypes_IncludesSessionTagged', () => {
@@ -2604,5 +2615,248 @@ describe('TaskAssignedData hint catalog', () => {
     // array — required[] may be absent entirely if no fields are required).
     const required = json.required ?? [];
     expect(required).not.toContain('branch');
+  });
+});
+
+// ─── T02 (DR-4, DR-10): hsm.deprecated_action_invoked event schema ──────────
+//
+// Telemetry signal for the HSM API single-path migration (DR-4). Each invocation
+// of a deprecated action (e.g., `workflow.set({phase})`) emits this event so the
+// migration window can be measured before removing the legacy path. Plan task T02.
+
+describe('HsmDeprecatedActionInvokedData', () => {
+  it('EventSchemas_HsmDeprecatedActionInvoked_ValidatesAndRoundtrips', () => {
+    expect(EventTypes).toContain('hsm.deprecated_action_invoked');
+    const schema = EVENT_DATA_SCHEMAS['hsm.deprecated_action_invoked' as typeof EventTypes[number]];
+    expect(schema).toBeDefined();
+
+    const payload = {
+      action: 'set({phase})',
+      invokedBy: 'orchestrator',
+    };
+    const result = HsmDeprecatedActionInvokedData.safeParse(payload);
+    expect(result.success, JSON.stringify(result)).toBe(true);
+    if (result.success) {
+      expect(result.data.action).toBe('set({phase})');
+      expect(result.data.invokedBy).toBe('orchestrator');
+    }
+  });
+
+  it('EventSchemas_HsmDeprecatedActionInvoked_MissingFields_Rejects', () => {
+    const missingAction = HsmDeprecatedActionInvokedData.safeParse({ invokedBy: 'orchestrator' });
+    expect(missingAction.success).toBe(false);
+
+    const missingInvokedBy = HsmDeprecatedActionInvokedData.safeParse({ action: 'set({phase})' });
+    expect(missingInvokedBy.success).toBe(false);
+  });
+});
+
+// ─── T03 (DR-6, DR-7, DR-10): spec.legacy_capabilities_array + ─────────────
+//                                phase.contract_missing event schemas
+//
+// `spec.legacy_capabilities_array` (DR-6) — emitted when a spec uses the legacy
+// `capabilities[]` array shape during the transition window so capability-posture
+// telemetry can drive the migration.
+// `phase.contract_missing` (DR-7) — emitted once at startup per phase that
+// lacks a typed contract so the phase-contract migration is observable.
+
+describe('SpecLegacyCapabilitiesArrayData', () => {
+  it('EventSchemas_SpecLegacyCapabilitiesArray_ValidatesAndRoundtrips', () => {
+    expect(EventTypes).toContain('spec.legacy_capabilities_array');
+    const schema = EVENT_DATA_SCHEMAS['spec.legacy_capabilities_array' as typeof EventTypes[number]];
+    expect(schema).toBeDefined();
+
+    const payload = {
+      specName: 'orchestrator-spec',
+      capabilities: ['plan', 'delegate', 'merge'],
+    };
+    const result = SpecLegacyCapabilitiesArrayData.safeParse(payload);
+    expect(result.success, JSON.stringify(result)).toBe(true);
+    if (result.success) {
+      expect(result.data.specName).toBe('orchestrator-spec');
+      expect(result.data.capabilities).toEqual(['plan', 'delegate', 'merge']);
+    }
+  });
+
+  it('EventSchemas_SpecLegacyCapabilitiesArray_EmptyCapabilitiesAccepted', () => {
+    // A legacy spec with an empty capabilities array is still a legacy-shape
+    // signal worth recording.
+    const result = SpecLegacyCapabilitiesArrayData.safeParse({
+      specName: 'empty-spec',
+      capabilities: [],
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('EventSchemas_SpecLegacyCapabilitiesArray_MissingFields_Rejects', () => {
+    const missingSpecName = SpecLegacyCapabilitiesArrayData.safeParse({ capabilities: ['x'] });
+    expect(missingSpecName.success).toBe(false);
+
+    const missingCapabilities = SpecLegacyCapabilitiesArrayData.safeParse({ specName: 's' });
+    expect(missingCapabilities.success).toBe(false);
+  });
+});
+
+describe('PhaseContractMissingData', () => {
+  it('EventSchemas_PhaseContractMissing_ValidatesAndRoundtrips', () => {
+    expect(EventTypes).toContain('phase.contract_missing');
+    const schema = EVENT_DATA_SCHEMAS['phase.contract_missing' as typeof EventTypes[number]];
+    expect(schema).toBeDefined();
+
+    const payload = { phaseName: 'design' };
+    const result = PhaseContractMissingData.safeParse(payload);
+    expect(result.success, JSON.stringify(result)).toBe(true);
+    if (result.success) {
+      expect(result.data.phaseName).toBe('design');
+    }
+  });
+
+  it('EventSchemas_PhaseContractMissing_MissingPhaseName_Rejects', () => {
+    const result = PhaseContractMissingData.safeParse({});
+    expect(result.success).toBe(false);
+  });
+});
+
+// ─── T04 (DR-9, DR-10): migration.* event schemas ──────────────────────────
+//
+// Migration pipeline observability for the JSONL→SQLite import (DR-9).
+// `migration.legacy_jsonl_imported` — per-file completion event.
+// `migration.completed` — final aggregate event after the import succeeds.
+// `migration.failed` — emitted on failure; includes partial-progress counters
+// so operators can resume or retry from a known point.
+
+describe('MigrationLegacyJsonlImportedData', () => {
+  it('EventSchemas_MigrationLegacyJsonlImported_ValidatesAndRoundtrips', () => {
+    expect(EventTypes).toContain('migration.legacy_jsonl_imported');
+    const schema = EVENT_DATA_SCHEMAS['migration.legacy_jsonl_imported' as typeof EventTypes[number]];
+    expect(schema).toBeDefined();
+
+    // T65: sourcePath is state-dir-relative for INV-1 portability (no
+    // absolute paths in the durable event log).
+    const payload = {
+      sourcePath: 'wf-1.events.jsonl',
+      eventCount: 142,
+      durationMs: 318,
+    };
+    const result = MigrationLegacyJsonlImportedData.safeParse(payload);
+    expect(result.success, JSON.stringify(result)).toBe(true);
+    if (result.success) {
+      expect(result.data.sourcePath).toBe('wf-1.events.jsonl');
+      expect(result.data.eventCount).toBe(142);
+      expect(result.data.durationMs).toBe(318);
+    }
+  });
+
+  it('EventSchemas_MigrationLegacyJsonlImported_NegativeCount_Rejects', () => {
+    const result = MigrationLegacyJsonlImportedData.safeParse({
+      sourcePath: 'streams/x.jsonl',
+      eventCount: -1,
+      durationMs: 10,
+    });
+    expect(result.success).toBe(false);
+  });
+
+  // T65 (CodeRabbit #3): persisting absolute paths into the source-of-truth
+  // event log leaks machine-specific identifiers (home directories, usernames)
+  // into the durable archive and breaks INV-1 portability — events should be
+  // replayable across machines (e.g. a developer pulling the SQLite from a
+  // teammate's setup) and across the future basileus-remote shared store
+  // (#1081). The schema must therefore reject absolute paths in `sourcePath`.
+  it('EventSchemas_MigrationLegacyJsonlImported_AbsolutePosixPath_Rejects', () => {
+    const result = MigrationLegacyJsonlImportedData.safeParse({
+      sourcePath: '/var/exarchos/streams/wf-1.events.jsonl',
+      eventCount: 0,
+      durationMs: 0,
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      const message = JSON.stringify(result.error.issues);
+      expect(message).toMatch(/relative/i);
+    }
+  });
+
+  it('EventSchemas_MigrationLegacyJsonlImported_AbsoluteWindowsPath_Rejects', () => {
+    const result = MigrationLegacyJsonlImportedData.safeParse({
+      sourcePath: 'C:\\Users\\dev\\.exarchos\\wf-1.events.jsonl',
+      eventCount: 0,
+      durationMs: 0,
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('EventSchemas_MigrationLegacyJsonlImported_RelativePath_Accepts', () => {
+    const result = MigrationLegacyJsonlImportedData.safeParse({
+      sourcePath: 'wf-1.events.jsonl',
+      eventCount: 3,
+      durationMs: 5,
+    });
+    expect(result.success, JSON.stringify(result)).toBe(true);
+    if (result.success) {
+      expect(result.data.sourcePath).toBe('wf-1.events.jsonl');
+    }
+  });
+});
+
+describe('MigrationCompletedData', () => {
+  it('EventSchemas_MigrationCompleted_ValidatesAndRoundtrips', () => {
+    expect(EventTypes).toContain('migration.completed');
+    const schema = EVENT_DATA_SCHEMAS['migration.completed' as typeof EventTypes[number]];
+    expect(schema).toBeDefined();
+
+    const payload = {
+      filesImported: 12,
+      eventsImported: 4_532,
+      totalDurationMs: 12_417,
+    };
+    const result = MigrationCompletedData.safeParse(payload);
+    expect(result.success, JSON.stringify(result)).toBe(true);
+    if (result.success) {
+      expect(result.data.filesImported).toBe(12);
+      expect(result.data.eventsImported).toBe(4_532);
+      expect(result.data.totalDurationMs).toBe(12_417);
+    }
+  });
+
+  it('EventSchemas_MigrationCompleted_ZeroFilesAccepted', () => {
+    // Completing a no-op migration (no JSONL files present) is still a valid
+    // outcome — the lock holder should record completion so siblings unblock.
+    const result = MigrationCompletedData.safeParse({
+      filesImported: 0,
+      eventsImported: 0,
+      totalDurationMs: 4,
+    });
+    expect(result.success).toBe(true);
+  });
+});
+
+describe('MigrationFailedData', () => {
+  it('EventSchemas_MigrationFailed_ValidatesAndRoundtrips', () => {
+    expect(EventTypes).toContain('migration.failed');
+    const schema = EVENT_DATA_SCHEMAS['migration.failed' as typeof EventTypes[number]];
+    expect(schema).toBeDefined();
+
+    const payload = {
+      reason: 'corrupt jsonl: parse error at line 42',
+      partialFilesImported: 3,
+      partialEventsImported: 211,
+    };
+    const result = MigrationFailedData.safeParse(payload);
+    expect(result.success, JSON.stringify(result)).toBe(true);
+    if (result.success) {
+      expect(result.data.reason).toBe('corrupt jsonl: parse error at line 42');
+      expect(result.data.partialFilesImported).toBe(3);
+      expect(result.data.partialEventsImported).toBe(211);
+    }
+  });
+
+  it('EventSchemas_MigrationFailed_EmptyReason_Rejects', () => {
+    // The reason field is the operator-facing diagnostic; an empty string
+    // would fragment observability with information-free failure events.
+    const result = MigrationFailedData.safeParse({
+      reason: '',
+      partialFilesImported: 0,
+      partialEventsImported: 0,
+    });
+    expect(result.success).toBe(false);
   });
 });

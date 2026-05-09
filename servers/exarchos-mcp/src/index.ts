@@ -81,74 +81,50 @@ export interface CreateServerOptions {
 /**
  * Attempt to initialize a SqliteBackend for the given state directory.
  *
- * Returns the initialized backend, or `undefined` if:
- * - better-sqlite3 is not available (missing native binary)
- * - The SQLite DB file is corrupt AND self-healing retry also fails
+ * Returns the initialized backend, or `undefined` only when better-sqlite3
+ * is not available (missing native binary). Initialization failures —
+ * including `SqliteCorruptError` (SQLITE_CORRUPT / SQLITE_NOTADB) — are
+ * NOT caught here. Per DR-12 / T10 / `SqliteCorruptError` doc, corruption
+ * is non-recoverable and operator-visible by design: silent auto-rebuild
+ * would destroy the byte evidence operators need to root-cause the
+ * corruption and would mask data-loss surfaces.
  *
- * Self-healing: if the DB file is corrupt, it is deleted and initialization
- * is retried once. JSONL files remain the source of truth, so data is
- * rehydrated on the next startup.
+ * The post-Tier-1 substrate has no JSONL-source-of-truth recovery path
+ * (#1259, #1327). A corrupt SQLite database is a hard fail — the caller
+ * should let the error propagate so startup terminates and the operator
+ * can inspect, restore from backup, or move the file aside before retry.
  */
 export async function initializeBackend(
   stateDir: string,
 ): Promise<StorageBackend | undefined> {
   const dbPath = path.join(stateDir, 'exarchos.db');
 
+  // Phase 1: load the SqliteBackend module. Failure here means
+  // better-sqlite3 (or bun:sqlite at the binary layer) is not available
+  // on this platform — degrade gracefully to JSONL-only mode rather than
+  // crashing on installs without a native binary.
+  let SqliteBackend: typeof import('./storage/sqlite-backend.js').SqliteBackend;
   try {
-    const { SqliteBackend } = await import('./storage/sqlite-backend.js');
-    const backend = new SqliteBackend(dbPath);
-
-    try {
-      backend.initialize();
-      return backend;
-    } catch (initErr) {
-      // Close the failed backend to release file handles before deleting
-      try { backend.close(); } catch { /* ignore close error on failed backend */ }
-
-      // Corrupt DB: delete and retry once (self-healing from JSONL source of truth)
-      logger.warn(
-        { err: initErr instanceof Error ? initErr.message : String(initErr) },
-        'SQLite DB corrupt — deleting and retrying',
-      );
-
-      try {
-        fs.unlinkSync(dbPath);
-      } catch (delErr) {
-        if ((delErr as NodeJS.ErrnoException).code !== 'ENOENT') {
-          logger.warn({ err: delErr instanceof Error ? delErr.message : String(delErr) }, 'Failed to delete corrupt DB file');
-        }
-      }
-
-      // Also clean up WAL and SHM files
-      for (const suffix of ['-wal', '-shm']) {
-        try { fs.unlinkSync(dbPath + suffix); } catch (delErr) {
-          if ((delErr as NodeJS.ErrnoException).code !== 'ENOENT') {
-            logger.warn({ err: delErr instanceof Error ? delErr.message : String(delErr) }, `Failed to delete ${suffix} file`);
-          }
-        }
-      }
-
-      try {
-        const retryBackend = new SqliteBackend(dbPath);
-        retryBackend.initialize();
-        logger.info('SQLite DB self-healed from JSONL source of truth');
-        return retryBackend;
-      } catch (retryErr) {
-        logger.warn(
-          { err: retryErr instanceof Error ? retryErr.message : String(retryErr) },
-          'SQLite retry failed — falling back to JSONL-only mode',
-        );
-        return undefined;
-      }
-    }
+    ({ SqliteBackend } = await import('./storage/sqlite-backend.js'));
   } catch (importErr) {
-    // better-sqlite3 not available (missing native binary)
     logger.warn(
       { err: importErr instanceof Error ? importErr.message : String(importErr) },
       'better-sqlite3 not available — running in JSONL-only mode',
     );
     return undefined;
   }
+
+  // Phase 2: open and initialize the database. We do NOT catch
+  // initialization failures. `SqliteBackend.initialize()` raises
+  // `SqliteCorruptError` (SQLITE_CORRUPT / SQLITE_NOTADB) and other
+  // typed errors that operators must see — silent auto-rebuild was the
+  // pre-Tier-1 behavior, and it depended on the JSONL→SQLite migration
+  // runner re-importing legacy event bytes. With Tier 1 ripped (#1259)
+  // there is no recovery path; deleting a corrupt DB now equals data
+  // loss. Let the error propagate.
+  const backend = new SqliteBackend(dbPath);
+  backend.initialize();
+  return backend;
 }
 
 // ─── Backend Cleanup ────────────────────────────────────────────────────────
@@ -204,7 +180,11 @@ export async function createServer(
       ? createInMemoryResolver([])
       : createInMemoryResolver([ANTHROPIC_NATIVE_CACHING]);
 
-  const ctx: DispatchContext = { stateDir, eventStore, enableTelemetry, capabilityResolver };
+  // DR-2 (T16): thread the storage handle (when present) onto the context
+  // so consumers do not need to import `bun:sqlite` directly. The same
+  // backend was already passed to `EventStore` above; surfacing it on
+  // `DispatchContext` is what closes the DI gap.
+  const ctx: DispatchContext = { stateDir, eventStore, enableTelemetry, capabilityResolver, storage: backend };
 
   // Lazy-load the MCP adapter so the CLI cold-start path doesn't incur the
   // MCP-SDK import cost. See module-level note on top of file.
@@ -277,15 +257,6 @@ async function main() {
   const backend = await initializeBackend(stateDir);
 
   if (backend) {
-    // Hydrate SQLite from JSONL source of truth and migrate legacy files
-    const { hydrateAll } = await import('./storage/hydration.js');
-    const { migrateLegacyStateFiles, migrateLegacyOutbox, cleanupLegacyFiles } = await import('./storage/migration.js');
-
-    await hydrateAll(backend, stateDir);
-    await migrateLegacyStateFiles(backend, stateDir);
-    await migrateLegacyOutbox(backend, stateDir);
-    await cleanupLegacyFiles(stateDir);
-
     registerBackendCleanup(backend);
   }
 

@@ -18,15 +18,6 @@ vi.mock('./workflow/state-store.js', async (importOriginal) => {
   };
 });
 
-// Mock the hydration module
-vi.mock('./storage/hydration.js', () => ({
-  hydrateAll: vi.fn().mockResolvedValue(undefined),
-}));
-
-// Mock the migration module
-vi.mock('./storage/migration.js', () => ({
-  migrateLegacyStateFiles: vi.fn().mockResolvedValue(undefined),
-}));
 
 // ─── Tests ──────────────────────────────────────────────────────────────────
 
@@ -95,9 +86,14 @@ describe('initializeBackend', () => {
     }
   });
 
-  it('initializeBackend_CorruptDB_DeletesAndRetries', async () => {
-    // Arrange
+  it('initializeBackend_CorruptDB_PropagatesSqliteCorruptError', async () => {
+    // Per DR-12 / T10 / SqliteCorruptError doc: corruption is non-recoverable
+    // and operator-visible by design. Pre-Tier-1 the wrapper would silently
+    // delete the corrupt DB and retry against the JSONL source-of-truth;
+    // post-#1259/#1327 the JSONL recovery path is gone, so the corruption
+    // MUST propagate as a typed error.
     const { initializeBackend } = await import('./index.js');
+    const { SqliteCorruptError } = await import('./storage/sqlite-backend.js');
     const tmpDir = '/tmp/test-sqlite-corrupt-' + Date.now();
     const { mkdirSync, writeFileSync } = await import('node:fs');
     const path = await import('node:path');
@@ -107,29 +103,20 @@ describe('initializeBackend', () => {
     const dbPath = path.join(tmpDir, 'exarchos.db');
     writeFileSync(dbPath, 'this is not a valid sqlite database');
 
-    // Act
-    const backend = await initializeBackend(tmpDir);
-
-    // Assert — should have self-healed (deleted corrupt DB and retried)
-    // If better-sqlite3 is available, we get a backend; otherwise undefined (fallback)
-    // Either way, it should not throw
-    if (backend) {
-      backend.close();
-    }
+    await expect(initializeBackend(tmpDir)).rejects.toBeInstanceOf(SqliteCorruptError);
   });
 
-  it('initializeBackend_AnyEnvironment_NeverThrows', async () => {
-    // Arrange — verifies the graceful fallback contract: initializeBackend
-    // never throws regardless of whether better-sqlite3 is available.
+  it('initializeBackend_FreshStateDir_DoesNotThrow', async () => {
+    // Verifies that a fresh stateDir (no DB file) reaches the SqliteBackend
+    // happy path without throwing. The graceful-fallback path (better-sqlite3
+    // missing) returns `undefined`; the happy path returns a backend.
     const { initializeBackend } = await import('./index.js');
-    const tmpDir = '/tmp/test-sqlite-missing-' + Date.now();
+    const tmpDir = '/tmp/test-sqlite-fresh-' + Date.now();
     const { mkdirSync } = await import('node:fs');
     mkdirSync(tmpDir, { recursive: true });
 
-    // Act — should not throw regardless
     const result = await initializeBackend(tmpDir);
 
-    // Assert — result is either a valid backend or undefined
     expect(result === undefined || typeof result === 'object').toBe(true);
     if (result) {
       result.close();

@@ -66,6 +66,23 @@ export interface StorageBackend {
   getSequence(streamId: string): number;
   listStreams(): string[];
 
+  /**
+   * Cross-stream query reducer (DR-3, optional).
+   *
+   * Returns every event of `eventType` whose `streamId` matches `streamPrefix`
+   * — either as an exact match or as a namespaced descendant
+   * (`streamId === streamPrefix` OR `streamId LIKE streamPrefix || '/%'`).
+   *
+   * Optional: backends without a meaningful cross-stream index can omit this
+   * method; `EventStore.queryByType` falls back to enumerating streams via
+   * `listStreams()` and applying the structural filter locally.
+   */
+  queryEventsByType?(
+    eventType: string,
+    streamPrefix: string,
+    filters?: QueryFilters,
+  ): WorkflowEvent[];
+
   // State operations
   getState(featureId: string): WorkflowState | null;
   setState(featureId: string, state: WorkflowState, expectedVersion?: number): void;
