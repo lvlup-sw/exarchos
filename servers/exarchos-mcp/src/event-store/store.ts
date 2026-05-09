@@ -124,6 +124,17 @@ function mergeByTimestamp(
 
 export interface EventStoreOptions {
   backend?: StorageBackend;
+  /**
+   * Substrate selector for the lazily-constructed `AtomicAppender` returned
+   * by `getAppender()`. This is independent of `backend` (the read-delegate
+   * `StorageBackend`) — it controls whether the appender's body uses the
+   * legacy JSONL writer or the SQLite-backed writer (#1259, DR-1).
+   *
+   * Defaults to JSONL during the cutover, matching `AtomicAppender`'s own
+   * default. Tests that exercise SQLite-backed cross-stream concurrency
+   * through the full `EventStore` API set this to `'sqlite'`.
+   */
+  appenderBackend?: 'jsonl' | 'sqlite';
 }
 
 // ─── Integrity Result ───────────────────────────────────────────────────────
@@ -239,9 +250,13 @@ export class EventStore {
    *  locks and sequence counters share state across handler calls. */
   private atomicAppender?: AtomicAppender;
 
+  /** Substrate selector for the AtomicAppender (#1259, DR-1). */
+  private readonly appenderBackend?: 'jsonl' | 'sqlite';
+
   constructor(private readonly stateDir: string, options?: EventStoreOptions) {
     this.lockFilePath = path.join(stateDir, '.event-store.lock');
     this.backend = options?.backend;
+    this.appenderBackend = options?.appenderBackend;
   }
 
   /** Returns the state directory path used by this event store. */
@@ -274,7 +289,10 @@ export class EventStore {
    */
   getAppender(): AtomicAppender {
     if (!this.atomicAppender) {
-      this.atomicAppender = new AtomicAppender({ stateDir: this.stateDir });
+      this.atomicAppender = new AtomicAppender({
+        stateDir: this.stateDir,
+        ...(this.appenderBackend !== undefined && { backend: this.appenderBackend }),
+      });
     }
     return this.atomicAppender;
   }
