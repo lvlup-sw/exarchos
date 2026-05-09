@@ -85,6 +85,7 @@ async function listProductionTsFiles(srcRoot: string): Promise<string[]> {
       if (!st.isFile()) continue;
       if (!name.endsWith('.ts')) continue;
       if (name.endsWith('.test.ts')) continue;
+      if (name.endsWith('.bench.ts')) continue;
       // Normalize to `src/...` form for stable assertions across
       // platforms (path.relative returns OS-flavored separators).
       const rel = path.relative(repoRoot, full).split(path.sep).join('/');
