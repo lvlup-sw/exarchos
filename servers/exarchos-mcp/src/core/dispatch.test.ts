@@ -634,8 +634,8 @@ describe('dispatch', () => {
 
     it('T12_CrossStreamIsolation_StreamAEmissionDoesNotBlockStreamB', async () => {
       // Arrange — both streams get a workflow.rehydrated, independently.
-      const streamA = 'feat-t12-streamA';
-      const streamB = 'feat-t12-streamB';
+      const streamA = 'feat-t12-stream-a';
+      const streamB = 'feat-t12-stream-b';
       const seqA = await seedRehydrated(streamA);
       const seqB = await seedRehydrated(streamB);
 
