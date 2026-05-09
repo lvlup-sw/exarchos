@@ -100,14 +100,25 @@ function reorder<T extends Record<string, unknown>>(
  * the caller's object-literal key-declaration order. The byte range up through
  * the last stable section is guaranteed to be identical for documents whose
  * stable fields match — which is the prompt-cache prefix invariant.
+ *
+ * Handles both v:2 (with `behavioralGuidance` in stable section) and v:3
+ * (without `behavioralGuidance`; `phasePlaybook` in volatile section).
+ * Full v:3 serialization is wired by T-05.
  */
 export function serializeRehydrationDocument(doc: RehydrationDocument): string {
   const ordered: Record<string, unknown> = {
     v: doc.v,
     projectionSequence: doc.projectionSequence,
-    behavioralGuidance: reorder(doc.behavioralGuidance, BEHAVIORAL_GUIDANCE_KEYS),
-    workflowState: reorder(doc.workflowState, WORKFLOW_STATE_KEYS),
   };
+
+  // v:2 has behavioralGuidance in stable sections; v:3 does not.
+  if (doc.v === 2) {
+    ordered['behavioralGuidance'] = reorder(
+      doc.behavioralGuidance,
+      BEHAVIORAL_GUIDANCE_KEYS,
+    );
+  }
+  ordered['workflowState'] = reorder(doc.workflowState, WORKFLOW_STATE_KEYS);
 
   for (const key of VOLATILE_KEYS) {
     const value = (doc as Record<string, unknown>)[key];
