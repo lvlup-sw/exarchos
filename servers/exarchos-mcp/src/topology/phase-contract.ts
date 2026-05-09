@@ -41,19 +41,49 @@ export type StalenessSignalName = z.infer<typeof StalenessSignalNameSchema>;
  * (in minutes). Per-signal thresholds let one phase mix signals with
  * different sensitivity windows (e.g. lastActivity at 60min, branchActivity
  * at 1440min for daily commits).
+ *
+ * `.strict()` is applied across the topology object schemas so a typo in
+ * `topology.yaml` (e.g. `treshholdMinutes`) fails loudly at load time
+ * rather than getting silently stripped by Zod's default unknown-key
+ * behavior. Operators editing the contract get a structured error that
+ * names the offending key, instead of a phase that pruner-evaluates with
+ * the wrong threshold (DR-7 fail-closed).
  */
-export const StalenessSignalSchema = z.object({
-  name: StalenessSignalNameSchema,
-  thresholdMinutes: z.number().int().positive(),
-});
+export const StalenessSignalSchema = z
+  .object({
+    name: StalenessSignalNameSchema,
+    thresholdMinutes: z.number().int().positive(),
+  })
+  .strict();
 
 export type StalenessSignal = z.infer<typeof StalenessSignalSchema>;
 
-export const PhaseContractSchema = z.object({
-  expectedMaxDwellMinutes: z.number().int().positive(),
-  signals: z.array(StalenessSignalSchema).min(1),
-  freshnessRequires: z.enum(['all', 'any']),
-});
+export const PhaseContractSchema = z
+  .object({
+    expectedMaxDwellMinutes: z.number().int().positive(),
+    signals: z.array(StalenessSignalSchema).min(1),
+    freshnessRequires: z.enum(['all', 'any']),
+  })
+  .strict()
+  // Reject duplicate signal names. The scorer keys verdicts by `signal.name`
+  // (`pruner/score.ts`), so duplicates would silently collapse to
+  // last-write-wins — masking the second declaration's threshold and
+  // breaking the operator's expressed intent. Fail-closed at load time
+  // matches the topology contract's overall posture (DR-7).
+  .superRefine(({ signals }, ctx) => {
+    const seen = new Set<StalenessSignalName>();
+    signals.forEach((signal, index) => {
+      if (seen.has(signal.name)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['signals', index, 'name'],
+          message: `Duplicate staleness signal name: ${signal.name}`,
+        });
+        return;
+      }
+      seen.add(signal.name);
+    });
+  });
 
 export type PhaseContract = z.infer<typeof PhaseContractSchema>;
 
@@ -62,14 +92,18 @@ export type PhaseContract = z.infer<typeof PhaseContractSchema>;
  * pruner falls back to the v2.9 single-signal heuristic and a
  * `phase.contract_missing` event is emitted at load time.
  */
-export const PhaseEntrySchema = z.object({
-  staleness: PhaseContractSchema.optional(),
-});
+export const PhaseEntrySchema = z
+  .object({
+    staleness: PhaseContractSchema.optional(),
+  })
+  .strict();
 
 export type PhaseEntry = z.infer<typeof PhaseEntrySchema>;
 
-export const TopologySchema = z.object({
-  phases: z.record(z.string(), PhaseEntrySchema),
-});
+export const TopologySchema = z
+  .object({
+    phases: z.record(z.string(), PhaseEntrySchema),
+  })
+  .strict();
 
 export type Topology = z.infer<typeof TopologySchema>;

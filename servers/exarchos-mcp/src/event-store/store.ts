@@ -940,7 +940,13 @@ export class EventStore {
     try {
       await fs.access(mainPath);
     } catch {
-      return this.backend ? this.backend.getSequence(streamId) : 0;
+      // Resolve through `getReadBackend()` so `appenderBackend: 'sqlite'`
+      // mode (no explicit `backend` ctor arg) routes here too. Reading
+      // through `this.backend` directly would fall to the `0` literal in
+      // sqlite-substrate mode and rebase synthetic sidecar sequences below
+      // the SQLite-durable high-water mark (T62, INV-2 parity).
+      const readBackend = this.getReadBackend();
+      return readBackend ? readBackend.getSequence(streamId) : 0;
     }
 
     const seqPath = this.getSeqFilePath(streamId);
@@ -1257,32 +1263,45 @@ export class EventStore {
       }
     }
 
-    // JSONL path: walk `<stateDir>` plus `<stateDir>/<prefix>` (descendants
-    // live one level deep under the feature directory). We only need two
-    // top-level lookups: the parent stream's `<prefix>.events.jsonl` and
-    // the descendants under `<prefix>/`.
+    // JSONL path: probe the exact stream's `<stateDir>/<prefix>.events.jsonl`
+    // (covers single-segment AND multi-segment exact matches like
+    // `feat-1/sub-a.events.jsonl`), then recursively walk the directory
+    // `<stateDir>/<prefix>/` so descendants at any depth are discovered.
+    // Recursion mirrors how the SQL fast-path's `LIKE ? || '/%'` clause
+    // matches, so JSONL and backend results stay behaviourally aligned.
+    const exactPath = `${path.join(this.stateDir, prefix)}.events.jsonl`;
     try {
-      const topEntries = await fs.readdir(this.stateDir, { withFileTypes: true });
-      for (const entry of topEntries) {
+      await fs.access(exactPath);
+      considerStream(prefix);
+    } catch {
+      // No exact-match JSONL — fall through to descendant walk.
+    }
+
+    const walkDir = async (relDir: string): Promise<void> => {
+      let entries: import('node:fs').Dirent[];
+      try {
+        entries = await fs.readdir(path.join(this.stateDir, relDir), {
+          withFileTypes: true,
+        });
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code === 'ENOENT') return;
+        throw err;
+      }
+      for (const entry of entries) {
+        const childRel = relDir === '' ? entry.name : `${relDir}/${entry.name}`;
         if (entry.isFile() && entry.name.endsWith('.events.jsonl')) {
-          const streamId = entry.name.slice(0, -'.events.jsonl'.length);
+          const streamId = childRel.slice(0, -'.events.jsonl'.length);
           considerStream(streamId);
-        } else if (entry.isDirectory() && entry.name === prefix) {
-          // A namespaced directory holds `<prefix>/<segment>.events.jsonl`.
-          const childEntries = await fs.readdir(
-            path.join(this.stateDir, entry.name),
-            { withFileTypes: true },
-          );
-          for (const child of childEntries) {
-            if (child.isFile() && child.name.endsWith('.events.jsonl')) {
-              const segment = child.name.slice(0, -'.events.jsonl'.length);
-              considerStream(`${prefix}/${segment}`);
-            }
-          }
+        } else if (entry.isDirectory()) {
+          await walkDir(childRel);
         }
       }
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+    };
+
+    if (prefix.length === 0) {
+      await walkDir('');
+    } else {
+      await walkDir(prefix);
     }
 
     return matches;

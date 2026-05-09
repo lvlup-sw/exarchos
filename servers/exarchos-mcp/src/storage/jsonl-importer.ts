@@ -181,11 +181,17 @@ export async function importJsonlFile(
 
     // Append through the canonical path. We use the original idempotency
     // key when present (so re-importing the same file is naturally
-    // idempotent against a partial run) and fall back to `appendUnkeyed`
-    // when it is absent.
-    const result = parsed.idempotencyKey
-      ? await appender.append(streamId, [eventInput], parsed.idempotencyKey)
-      : await appender.appendUnkeyed(streamId, [eventInput]);
+    // idempotent against a partial run); for legacy rows that lack one we
+    // synthesize a stable key from `<sourcePath>:line-<i>` so a retry of a
+    // partially-imported file replays as `cache-hit` for already-appended
+    // rows instead of duplicating them. The synthesized key lives only in
+    // the migration claims table — it never leaks into the persisted event
+    // body — so runtime appends targeting `streamId` post-migration are
+    // unaffected.
+    const importKey =
+      parsed.idempotencyKey ??
+      `import:${stateDir ? path.relative(stateDir, filePath) : path.basename(filePath)}:line-${i + 1}`;
+    const result = await appender.append(streamId, [eventInput], importKey);
 
     if (!result.ok) {
       return {
@@ -244,7 +250,22 @@ export async function importJsonlFile(
   // for one release as a forensic / rollback target. The archive
   // directory is created on demand so callers do not need to pre-stage
   // the path.
-  await archiveSourceFile(filePath);
+  //
+  // Archive failure surfaces as `ImportFileError` rather than a thrown
+  // exception so callers stay on the structured error path: events and
+  // the `migration.legacy_jsonl_imported` telemetry are already durable;
+  // only the post-commit move failed. Operators can retry safely thanks
+  // to the synthesized line-keyed idempotency above.
+  try {
+    await archiveSourceFile(filePath);
+  } catch (err) {
+    return {
+      ok: false,
+      reason: `Failed to archive imported JSONL ${filePath}: ${err instanceof Error ? err.message : String(err)}`,
+      cause: err instanceof Error ? err : new Error(String(err)),
+      eventCount,
+    };
+  }
 
   return { ok: true, eventCount, malformedLines, durationMs };
 }
