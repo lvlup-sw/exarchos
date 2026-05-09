@@ -21,6 +21,25 @@ import {
   __resetTopologyCacheForTesting,
 } from './loader.js';
 
+interface CapturedEvent {
+  streamId: string;
+  type: string;
+  data: unknown;
+}
+
+function makeEventSink(): {
+  events: CapturedEvent[];
+  emit: (streamId: string, event: { type: string; data: unknown }) => Promise<void>;
+} {
+  const events: CapturedEvent[] = [];
+  return {
+    events,
+    emit: async (streamId, event) => {
+      events.push({ streamId, type: event.type, data: event.data });
+    },
+  };
+}
+
 function writeTopology(yamlBody: string): string {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'topology-loader-'));
   const file = path.join(tmp, 'topology.yaml');
@@ -88,5 +107,63 @@ describe('TopologyLoader_LoadOnce_ReturnsImmutableTopology', () => {
     const file = writeTopology(COMPLETE_TOPOLOGY);
     const loaded = await loadTopology({ topologyPath: file });
     expect(getTopology()).toBe(loaded);
+  });
+});
+
+// ─── T47: phase.contract_missing emission on load ─────────────────────────────
+
+const PARTIAL_TOPOLOGY = `
+phases:
+  design:
+    staleness:
+      expectedMaxDwellMinutes: 60
+      freshnessRequires: all
+      signals:
+        - name: lastActivity
+          thresholdMinutes: 60
+  implement: {}
+  review: {}
+`;
+
+describe('Topology_StartupWithMissingContracts_EmitsPhaseContractMissingPerPhaseOnce', () => {
+  beforeEach(() => {
+    __resetTopologyCacheForTesting();
+  });
+
+  it('emits phase.contract_missing exactly once per phase missing the staleness block', async () => {
+    const file = writeTopology(PARTIAL_TOPOLOGY);
+    const sink = makeEventSink();
+    await loadTopology({ topologyPath: file, emit: sink.emit });
+
+    const missing = sink.events.filter((e) => e.type === 'phase.contract_missing');
+    expect(missing).toHaveLength(2);
+    const phaseNames = missing.map((e) => (e.data as { phaseName: string }).phaseName).sort();
+    expect(phaseNames).toEqual(['implement', 'review']);
+  });
+
+  it('subsequent calls within the same process do NOT re-emit', async () => {
+    const file = writeTopology(PARTIAL_TOPOLOGY);
+    const sink = makeEventSink();
+    await loadTopology({ topologyPath: file, emit: sink.emit });
+    await loadTopology({ topologyPath: file, emit: sink.emit });
+    await loadTopology({ topologyPath: file, emit: sink.emit });
+
+    const missing = sink.events.filter((e) => e.type === 'phase.contract_missing');
+    expect(missing).toHaveLength(2);
+  });
+
+  it('falls back to a no-op when no emit function is provided (loader testable in isolation)', async () => {
+    const file = writeTopology(PARTIAL_TOPOLOGY);
+    // Should not throw; emission silently skipped.
+    const topology = await loadTopology({ topologyPath: file });
+    expect(topology.phases.implement.staleness).toBeUndefined();
+    expect(topology.phases.review.staleness).toBeUndefined();
+  });
+
+  it('emits no events when every phase has a contract', async () => {
+    const file = writeTopology(COMPLETE_TOPOLOGY);
+    const sink = makeEventSink();
+    await loadTopology({ topologyPath: file, emit: sink.emit });
+    expect(sink.events.filter((e) => e.type === 'phase.contract_missing')).toHaveLength(0);
   });
 });
