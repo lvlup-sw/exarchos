@@ -59,12 +59,8 @@ type TaskProgressEntry = RehydrationDocument['taskProgress'][number];
  * is caught the moment this module is imported, rather than at first use.
  */
 const initialRehydrationDocument: RehydrationDocument = RehydrationDocumentSchema.parse({
-  v: 2,
+  v: 3,
   projectionSequence: 0,
-  behavioralGuidance: {
-    skill: '',
-    skillRef: '',
-  },
   workflowState: {
     featureId: '',
     phase: '',
@@ -78,6 +74,9 @@ const initialRehydrationDocument: RehydrationDocument = RehydrationDocumentSchem
   // initial document is self-describing and `parse(...)` doesn't have to
   // populate it as a side effect.
   recentHandoffs: [],
+  // phasePlaybook is composed live at handler time (T-20). Initial document
+  // seeds it to `null` per the v:3 schema's nullable contract.
+  phasePlaybook: null,
 });
 
 // ─── Shared extractors ──────────────────────────────────────────────────────
