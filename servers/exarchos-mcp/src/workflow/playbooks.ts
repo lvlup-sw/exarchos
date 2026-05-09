@@ -1420,6 +1420,61 @@ export interface SerializedPhasePlaybook {
 // ─── Serialization Functions ─────────────────────────────────────────────────
 
 /**
+ * Serialize a single {@link PhasePlaybook} into the
+ * {@link SerializedPhasePlaybook} JSON shape. Pure of side effects.
+ *
+ * Used by handler-time playbook composition (T-20: `handleRehydrate` /
+ * checkpoint envelopes attach a single phase's serialized playbook to the
+ * rehydration document). `serializePlaybooks` below delegates per-phase to
+ * this helper so the entry shape lives in one place.
+ *
+ * Spread-on-condition for `autoEmittedEvents` preserves absence (vs `[]`)
+ * for phases that don't declare auto-emit — matching the PhasePlaybook
+ * shape and the digest-stable contract from #1297 / T6.
+ */
+export function serializePhasePlaybookEntry(
+  playbook: PhasePlaybook,
+): SerializedPhasePlaybook {
+  return {
+    skill: playbook.skill,
+    skillRef: playbook.skillRef,
+    tools: [...playbook.tools],
+    events: [...playbook.events],
+    ...(playbook.autoEmittedEvents !== undefined && {
+      autoEmittedEvents: [...playbook.autoEmittedEvents],
+    }),
+    transitionCriteria: playbook.transitionCriteria,
+    guardPrerequisites: playbook.guardPrerequisites,
+    validationScripts: [...playbook.validationScripts],
+    humanCheckpoint: playbook.humanCheckpoint,
+    compactGuidance: playbook.compactGuidance,
+  };
+}
+
+/**
+ * Resolve and serialize the playbook for a single (workflowType, phase)
+ * pair. Used by handler-time composition (T-20: `handleRehydrate`; T-23:
+ * `handleCheckpoint`) so callers get a single entry point that returns a
+ * JSON-serializable shape directly attachable to the rehydration envelope.
+ *
+ * Returns `null` when no playbook is registered for the pair (terminal
+ * phases, unknown workflow types, or phases that legitimately have no
+ * authoring playbook). Surfacing the null explicitly is the contract — the
+ * v:3 rehydration envelope's `phasePlaybook` field is nullable, not
+ * optional, so callers can spread the return value directly without
+ * guarding for `undefined`.
+ *
+ * Pure function with no side effects.
+ */
+export function composePhasePlaybook(
+  workflowType: string,
+  phase: string,
+): SerializedPhasePlaybook | null {
+  const playbook = getPlaybook(workflowType, phase);
+  return playbook !== null ? serializePhasePlaybookEntry(playbook) : null;
+}
+
+/**
  * Serialize all playbooks for a given workflow type into a plain
  * JSON-serializable object keyed by phase name.
  *
@@ -1431,24 +1486,7 @@ export function serializePlaybooks(workflowType: string): SerializedPlaybooks {
   for (const [, playbook] of registry) {
     if (playbook.workflowType !== workflowType) continue;
 
-    phases[playbook.phase] = {
-      skill: playbook.skill,
-      skillRef: playbook.skillRef,
-      tools: [...playbook.tools],
-      events: [...playbook.events],
-      // CodeRabbit major on PR #1297: thread autoEmittedEvents through
-      // the serialized contract. Spread-on-condition keeps the field
-      // absent for phases that don't declare it (matching the
-      // PhasePlaybook shape) — the digest-stable contract from T6.
-      ...(playbook.autoEmittedEvents !== undefined && {
-        autoEmittedEvents: [...playbook.autoEmittedEvents],
-      }),
-      transitionCriteria: playbook.transitionCriteria,
-      guardPrerequisites: playbook.guardPrerequisites,
-      validationScripts: [...playbook.validationScripts],
-      humanCheckpoint: playbook.humanCheckpoint,
-      compactGuidance: playbook.compactGuidance,
-    };
+    phases[playbook.phase] = serializePhasePlaybookEntry(playbook);
   }
 
   const phaseCount = Object.keys(phases).length;
