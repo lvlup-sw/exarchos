@@ -347,6 +347,48 @@ export interface ParityFixture {
 }
 
 /**
+ * T-24 (rehydration-machinery-refactor) — delegate-phase rehydrate fixture.
+ *
+ * Drives a feature workflow into the `delegate` phase via two seed events
+ * (`workflow.started` then `workflow.transition` to `delegate`) so that
+ * `handleRehydrate` composes a non-null `phasePlaybook` (delegation skill,
+ * per the L4 registry — see `workflow/playbooks.ts`). Used by
+ * `workflow/parity.test.ts` to pin INV-2 — the v:3 rehydration envelope
+ * (including `phasePlaybook`) must be byte-equivalent across the CLI and
+ * MCP carriers. If a future change makes one carrier compose
+ * `phasePlaybook` differently than the other, the parity assertion fails.
+ *
+ * Seed via `eventStore.append` rather than `handleInit` + `handleTransition`
+ * so the fixture is independent of HSM guard state — the goal is to land
+ * the document in `delegate` phase, not to exercise the transition pipeline.
+ */
+export const DELEGATE_PHASE_REHYDRATE_FIXTURE: ParityFixture = {
+  name: 'delegate_phase_rehydrate',
+  description:
+    'rehydrate(featureId) on a feature workflow in `delegate` phase → v:3 envelope with composed phasePlaybook; CLI and MCP carriers must produce byte-equivalent ToolResults',
+  async setup(ctx: DispatchContext) {
+    const featureId = 'parity-rehydrate-delegate';
+    await ctx.eventStore.append(featureId, {
+      type: 'workflow.started',
+      data: { featureId, workflowType: 'feature' },
+    });
+    await ctx.eventStore.append(featureId, {
+      type: 'workflow.transition',
+      data: { from: '', to: 'delegate' },
+    });
+  },
+  cliCall: {
+    toolAlias: 'wf',
+    action: 'rehydrate',
+    flags: { featureId: 'parity-rehydrate-delegate' },
+  },
+  mcpCall: {
+    tool: 'exarchos_workflow',
+    args: { action: 'rehydrate', featureId: 'parity-rehydrate-delegate' },
+  },
+};
+
+/**
  * T42 / DR-5 — transition-guard-failure fixture. Drives an `ideate → plan`
  * transition WITHOUT the required `artifacts.design` field, so the HSM
  * primitive's composite guard fails. The structured error envelope
