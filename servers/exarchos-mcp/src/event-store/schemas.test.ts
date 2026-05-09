@@ -2731,15 +2731,17 @@ describe('MigrationLegacyJsonlImportedData', () => {
     const schema = EVENT_DATA_SCHEMAS['migration.legacy_jsonl_imported' as typeof EventTypes[number]];
     expect(schema).toBeDefined();
 
+    // T65: sourcePath is state-dir-relative for INV-1 portability (no
+    // absolute paths in the durable event log).
     const payload = {
-      sourcePath: '/var/exarchos/streams/wf-1.jsonl',
+      sourcePath: 'wf-1.events.jsonl',
       eventCount: 142,
       durationMs: 318,
     };
     const result = MigrationLegacyJsonlImportedData.safeParse(payload);
     expect(result.success, JSON.stringify(result)).toBe(true);
     if (result.success) {
-      expect(result.data.sourcePath).toBe('/var/exarchos/streams/wf-1.jsonl');
+      expect(result.data.sourcePath).toBe('wf-1.events.jsonl');
       expect(result.data.eventCount).toBe(142);
       expect(result.data.durationMs).toBe(318);
     }
@@ -2747,11 +2749,51 @@ describe('MigrationLegacyJsonlImportedData', () => {
 
   it('EventSchemas_MigrationLegacyJsonlImported_NegativeCount_Rejects', () => {
     const result = MigrationLegacyJsonlImportedData.safeParse({
-      sourcePath: '/x.jsonl',
+      sourcePath: 'streams/x.jsonl',
       eventCount: -1,
       durationMs: 10,
     });
     expect(result.success).toBe(false);
+  });
+
+  // T65 (CodeRabbit #3): persisting absolute paths into the source-of-truth
+  // event log leaks machine-specific identifiers (home directories, usernames)
+  // into the durable archive and breaks INV-1 portability — events should be
+  // replayable across machines (e.g. a developer pulling the SQLite from a
+  // teammate's setup) and across the future basileus-remote shared store
+  // (#1081). The schema must therefore reject absolute paths in `sourcePath`.
+  it('EventSchemas_MigrationLegacyJsonlImported_AbsolutePosixPath_Rejects', () => {
+    const result = MigrationLegacyJsonlImportedData.safeParse({
+      sourcePath: '/var/exarchos/streams/wf-1.events.jsonl',
+      eventCount: 0,
+      durationMs: 0,
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      const message = JSON.stringify(result.error.issues);
+      expect(message).toMatch(/relative/i);
+    }
+  });
+
+  it('EventSchemas_MigrationLegacyJsonlImported_AbsoluteWindowsPath_Rejects', () => {
+    const result = MigrationLegacyJsonlImportedData.safeParse({
+      sourcePath: 'C:\\Users\\dev\\.exarchos\\wf-1.events.jsonl',
+      eventCount: 0,
+      durationMs: 0,
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('EventSchemas_MigrationLegacyJsonlImported_RelativePath_Accepts', () => {
+    const result = MigrationLegacyJsonlImportedData.safeParse({
+      sourcePath: 'wf-1.events.jsonl',
+      eventCount: 3,
+      durationMs: 5,
+    });
+    expect(result.success, JSON.stringify(result)).toBe(true);
+    if (result.success) {
+      expect(result.data.sourcePath).toBe('wf-1.events.jsonl');
+    }
   });
 });
 
