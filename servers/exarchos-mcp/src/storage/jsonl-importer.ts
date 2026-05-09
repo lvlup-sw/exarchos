@@ -35,6 +35,14 @@ import { logger } from '../logger.js';
  *     `data: { sourcePath, eventCount, durationMs }`. Routed via
  *     `appender.appendUnkeyed` so the importer does not pollute any
  *     idempotency cache for the `__migration__` stream.
+ *   - `sourcePath` is **state-dir-relative** (T65, CodeRabbit #3 / INV-1
+ *     portability): callers pass `stateDir` and the importer emits
+ *     `path.relative(stateDir, filePath)` so the durable event log does
+ *     not leak machine-specific identifiers. The schema rejects absolute
+ *     paths via Zod refine, so callers MUST supply `stateDir` whenever
+ *     `filePath` lives inside one. When `stateDir` is omitted (only legacy
+ *     test paths today) the importer falls back to the file basename,
+ *     which keeps the schema happy while preserving observability.
  */
 
 export interface ImportFileResult {
@@ -87,6 +95,14 @@ export async function importJsonlFile(
   filePath: string,
   appender: AtomicAppender,
   _backend: SqliteBackend,
+  /**
+   * State-dir of the appender. When provided, the emitted
+   * `migration.legacy_jsonl_imported.sourcePath` is computed as
+   * `path.relative(stateDir, filePath)` — see T65 / INV-1 portability.
+   * Optional only to keep legacy test fixtures green; production callers
+   * (`runJsonlToSqliteMigration` in `migration.ts`) MUST supply it.
+   */
+  stateDir?: string,
 ): Promise<ImportFileResult | ImportFileError> {
   const start = Date.now();
   const basename = path.basename(filePath);
@@ -192,11 +208,22 @@ export async function importJsonlFile(
   // Routed through `appendUnkeyed` so the migration stream is treated as
   // a legitimate event stream (substrate-INV-1: migration steps are
   // events) rather than a side-channel write.
+  //
+  // T65 / CodeRabbit #3 (INV-1 portability): the persisted `sourcePath`
+  // is state-dir-relative — emitting an absolute path would leak machine
+  // identifiers (home directory, username) into the durable event log
+  // and break replay on another machine or via the future basileus-remote
+  // shared store (#1081). When the caller did not pass `stateDir` we fall
+  // back to the basename, which is safe and keeps the schema's relative-
+  // path invariant intact.
+  const relativeSourcePath = stateDir
+    ? path.relative(stateDir, filePath)
+    : path.basename(filePath);
   const emitResult = await appender.appendUnkeyed(MIGRATION_STREAM_ID, [
     {
       type: 'migration.legacy_jsonl_imported',
       data: {
-        sourcePath: filePath,
+        sourcePath: relativeSourcePath,
         eventCount,
         durationMs,
       },

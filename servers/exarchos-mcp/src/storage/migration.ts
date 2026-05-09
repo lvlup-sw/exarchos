@@ -297,7 +297,7 @@ export async function runJsonlToSqliteMigration(
         options._testOnlyFaultHook(filePath);
       }
 
-      const result = await importJsonlFile(filePath, appender, backend);
+      const result = await importJsonlFile(filePath, appender, backend, stateDir);
       if (!result.ok) {
         return failAndKeepLock(
           appender,
