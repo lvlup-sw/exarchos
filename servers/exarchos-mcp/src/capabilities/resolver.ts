@@ -10,6 +10,8 @@
  */
 
 import type { Capability } from '../agents/capabilities.js';
+import type { AgentPosture } from '../agents/spec.js';
+import { capabilitiesForPosture } from './posture-mapping.js';
 
 export interface CapabilityResolver {
   has(capability: string): boolean;
@@ -110,6 +112,91 @@ export function resolveEffectiveCapabilities(
     effective.add(handshakeMcpTiers[0]);
   } else if (yamlMcpTiers.length === 1) {
     effective.add(yamlMcpTiers[0]);
+  }
+
+  return freezeSet(effective);
+}
+
+// ─── T33 / DR-6: posture-driven resolution ────────────────────────────────
+
+/**
+ * Minimal posture-bearing slice of an AgentSpec. The full spec carries more
+ * fields (id, prompt, etc.) — `resolvePosture` only depends on `posture`.
+ */
+export interface PostureSpec {
+  readonly posture?: AgentPosture;
+}
+
+/**
+ * Runtime handshake input to `resolvePosture`. The handshake is the
+ * authoritative half of `yaml ⊕ handshake` — declarations here override
+ * posture-derived capabilities (DR-6 acceptance question 1 of INV-3).
+ *
+ * Three optional fields:
+ *   - `capabilities`: backwards-compatible flat list (treated as `allow`).
+ *   - `allow`: capabilities the handshake explicitly grants.
+ *   - `deny`: capabilities the handshake explicitly revokes (override-wins).
+ *
+ * Coordinates with #1139 — keep this shape stable. If extended, document
+ * the addition here and flag it in the resolver's JSDoc.
+ */
+export interface RuntimeHandshake {
+  readonly capabilities?: readonly Capability[];
+  readonly allow?: readonly Capability[];
+  readonly deny?: readonly Capability[];
+}
+
+/**
+ * `EffectiveCapabilities` is the immutable, frozen set returned to callers
+ * after `yaml ⊕ handshake` resolution. The shape is `ReadonlySet<Capability>`
+ * — coordinated with #1139's consumer. If the shape changes, update the
+ * coordination contract there.
+ */
+export type EffectiveCapabilities = ReadonlySet<Capability>;
+
+/**
+ * Resolve a spec's posture to an `EffectiveCapabilities` set, then layer the
+ * runtime handshake on top per `yaml ⊕ handshake` semantics.
+ *
+ * Merge order (load-bearing for INV-3 — basileus-forward):
+ *   1. Start from the posture-derived capability set (yaml half).
+ *   2. Union `handshake.capabilities` and `handshake.allow` (additive).
+ *   3. Subtract `handshake.deny` LAST so handshake denies override the
+ *      posture's grants. Handshake wins on conflicts.
+ *
+ * If the spec declares no posture, the function returns a frozen set
+ * containing only the handshake's allow/capabilities (minus its denies).
+ *
+ * The returned set is frozen; mutators throw.
+ */
+export function resolvePosture(
+  spec: PostureSpec,
+  handshake: RuntimeHandshake,
+): EffectiveCapabilities {
+  const effective = new Set<Capability>();
+
+  // (1) Posture-derived caps (yaml half of yaml ⊕ handshake).
+  if (spec.posture !== undefined) {
+    for (const c of capabilitiesForPosture(spec.posture)) {
+      effective.add(c);
+    }
+  }
+
+  // (2) Handshake-declared additions (union).
+  if (handshake.capabilities !== undefined) {
+    for (const c of handshake.capabilities) effective.add(c);
+  }
+  if (handshake.allow !== undefined) {
+    for (const c of handshake.allow) effective.add(c);
+  }
+
+  // (3) Handshake-declared denies LAST — handshake wins on conflict
+  // (DR-6, INV-3). Even if the posture grants `fs:write`, an explicit
+  // handshake `deny: ['fs:write']` revokes it. This ordering is the
+  // structural enforcement of "handshake declarations override resolved
+  // capabilities."
+  if (handshake.deny !== undefined) {
+    for (const c of handshake.deny) effective.delete(c);
   }
 
   return freezeSet(effective);
