@@ -14,16 +14,9 @@ describe('hooks.json configuration', () => {
     hooksConfig = JSON.parse(content);
   });
 
-  it('hooksJson_PreCompactMatcher_IsAutoForAllEvents', () => {
-    const preCompact = (hooksConfig as { hooks: { PreCompact: Array<{ matcher: string }> } }).hooks.PreCompact[0];
-    expect(preCompact.matcher).toBe('auto');
-  });
-
-  it('hooksJson_SessionStartMatcher_IncludesStartupAndResume', () => {
-    const sessionStart = (hooksConfig as { hooks: { SessionStart: Array<{ matcher: string }> } }).hooks.SessionStart[0];
-    expect(sessionStart.matcher).toContain('startup');
-    expect(sessionStart.matcher).toContain('resume');
-  });
+  // T-40 (rehydration-machinery-refactor): PreCompact and SessionStart hooks were
+  // removed in favor of user-invoked /checkpoint and /rehydrate commands. The
+  // assertions for those two matchers are intentionally absent.
 
   it('hooksJson_SubagentStop_DefinedForExarchosAgents', () => {
     const hooks = (hooksConfig as { hooks: Record<string, Array<{ matcher?: string; hooks: Array<{ type: string; command: string }> }>> }).hooks;
