@@ -118,6 +118,18 @@ function scanSourceForBunSqlite(source: string): boolean {
 }
 
 /**
+ * Minimal filesystem surface the walker uses. Injected so T68 fault
+ * fixtures can simulate permission-denied / I/O failures without
+ * touching the real filesystem.
+ */
+type WalkerFs = {
+  readdirSync: (dir: string) => string[];
+  statSync: (full: string) => { isDirectory: () => boolean; isFile: () => boolean };
+};
+
+const REAL_WALKER_FS: WalkerFs = { readdirSync, statSync };
+
+/**
  * Walk the production tree under `src/`, collecting every `.ts` file that:
  *   - is not under any directory named `storage`, `__shims__`, or `__tests__`;
  *   - is not a `.test.ts` or `.d.ts` file.
@@ -125,14 +137,14 @@ function scanSourceForBunSqlite(source: string): boolean {
  * The `storage/` exclusion is the principle: that directory IS the
  * abstraction; everything else must go through it.
  */
-function collectProductionTsFiles(rootDir: string): string[] {
+function collectProductionTsFiles(rootDir: string, fs: WalkerFs = REAL_WALKER_FS): string[] {
   const out: string[] = [];
   const stack: string[] = [rootDir];
   while (stack.length > 0) {
     const dir = stack.pop()!;
     let entries: string[];
     try {
-      entries = readdirSync(dir);
+      entries = fs.readdirSync(dir);
     } catch {
       continue;
     }
@@ -140,7 +152,7 @@ function collectProductionTsFiles(rootDir: string): string[] {
       const full = join(dir, entry);
       let st;
       try {
-        st = statSync(full);
+        st = fs.statSync(full);
       } catch {
         continue;
       }
@@ -280,5 +292,58 @@ describe('no legacy runtime deps', () => {
         expect(scanSourceForBunSqlite(f.src)).toBe(false);
       });
     }
+  });
+
+  // ─── T68 (CR #8) — walker must surface I/O errors loudly ────────────────
+  //
+  // The original walker wrapped both `readdirSync` and `statSync` in
+  // bare `try { … } catch {}` blocks that silently `continue`d on
+  // any error. A permission-denied directory or transient I/O fault
+  // mid-walk would cause the walker to skip the affected subtree and
+  // return a partial list. The INV-2 enforcement test would then
+  // happily green-light the missing-coverage walk — the worst kind
+  // of false negative, because the gate looks like it's protecting
+  // the invariant when it's actually blind to half the tree.
+  //
+  // DIM-2 (observability) requires test infra to fail loudly when
+  // its assumptions are violated. These fixtures inject an fs that
+  // throws to prove the walker no longer swallows errors.
+  describe('T68 walker fault surfaces', () => {
+    it('readdirSync_PermissionDenied_ThrowsWithPathContext', () => {
+      const failing = '/no-such/permission-denied-root';
+      const fs: WalkerFs = {
+        readdirSync: (dir: string): string[] => {
+          const err = new Error('EACCES: permission denied') as Error & { code?: string };
+          err.code = 'EACCES';
+          // Encode the offending path so the assertion can pin it.
+          throw Object.assign(err, { path: dir });
+        },
+        statSync: () => ({ isDirectory: () => false, isFile: () => false }),
+      };
+      expect(() => collectProductionTsFiles(failing, fs)).toThrowError(
+        new RegExp(failing.replace(/\//g, '\\/')),
+      );
+    });
+
+    it('statSync_PermissionDenied_ThrowsWithPathContext', () => {
+      // First readdir returns one entry; statSync on that entry blows up.
+      const root = '/synthetic/root';
+      const child = 'leaf.ts';
+      const fs: WalkerFs = {
+        readdirSync: (dir: string): string[] => {
+          if (dir === root) return [child];
+          return [];
+        },
+        statSync: (full: string) => {
+          const err = new Error('EACCES: permission denied') as Error & { code?: string };
+          err.code = 'EACCES';
+          throw Object.assign(err, { path: full });
+        },
+      };
+      const expectedPath = join(root, child);
+      expect(() => collectProductionTsFiles(root, fs)).toThrowError(
+        new RegExp(expectedPath.replace(/[\\/]/g, '[\\\\/]')),
+      );
+    });
   });
 });
