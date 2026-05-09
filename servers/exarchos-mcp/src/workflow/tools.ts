@@ -38,7 +38,7 @@ import {
 import { workflowLogger } from '../logger.js';
 import { getHSMDefinition, isBuiltInWorkflowType, getValidTransitions } from './state-machine.js';
 import { hsmTransitionGuard } from './hsm-transition-guard.js';
-import { getPlaybook } from './playbooks.js';
+import { getPlaybook, composePhasePlaybook } from './playbooks.js';
 import { getRequiredReviews } from './review-contract.js';
 import { formatResult, type ToolResult } from '../format.js';
 import { createHash } from 'node:crypto';
@@ -1405,6 +1405,22 @@ export async function handleCheckpoint(
   // Issue #1082 Tier 3: surface sidecar-mode degradation (see handleInit/handleSet).
   const sidecarPending = eventStore?.inSidecarMode === true;
 
+  // T-23 (rehydration-machinery-refactor §T-23) — compose `phasePlaybook`
+  // for the dispatch envelope using the shared helper that `handleRehydrate`
+  // also calls (T-20). After the `workflow.checkpoint` event has landed and
+  // BEFORE we build the return value so the envelope reflects the same
+  // (workflowType, phase) the checkpoint was recorded for. The helper
+  // returns `null` for unregistered pairs (e.g. discovery/completed) and a
+  // serialized `SerializedPhasePlaybook` for registered ones (e.g.
+  // feature/delegate → skill: 'delegation'). The v:3 envelope schema
+  // treats `phasePlaybook` as nullable, not optional, so we surface the
+  // null explicitly rather than omitting the field — CLI/SDK renderers
+  // spread the value without an `undefined` guard.
+  const phasePlaybook = composePhasePlaybook(
+    mutableState.workflowType,
+    state.phase,
+  );
+
   return {
     success: true,
     data: {
@@ -1415,6 +1431,10 @@ export async function handleCheckpoint(
       // the materialization block above skips entirely in that mode.
       ...(projectionSequence !== undefined && { projectionSequence }),
       ...(sidecarPending && { sidecarPending: true }),
+      // T-23: present unconditionally (null for unregistered pairs) — the
+      // v:3 envelope schema requires the field's presence, not just
+      // truthiness.
+      phasePlaybook,
     },
     _meta: buildCheckpointMeta(mutableState._checkpoint as WorkflowState['_checkpoint']),
   };
