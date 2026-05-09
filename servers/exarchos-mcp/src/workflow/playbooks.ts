@@ -1452,6 +1452,29 @@ export function serializePhasePlaybookEntry(
 }
 
 /**
+ * Resolve and serialize the playbook for a single (workflowType, phase)
+ * pair. Used by handler-time composition (T-20: `handleRehydrate`; T-23:
+ * `handleCheckpoint`) so callers get a single entry point that returns a
+ * JSON-serializable shape directly attachable to the rehydration envelope.
+ *
+ * Returns `null` when no playbook is registered for the pair (terminal
+ * phases, unknown workflow types, or phases that legitimately have no
+ * authoring playbook). Surfacing the null explicitly is the contract — the
+ * v:3 rehydration envelope's `phasePlaybook` field is nullable, not
+ * optional, so callers can spread the return value directly without
+ * guarding for `undefined`.
+ *
+ * Pure function with no side effects.
+ */
+export function composePhasePlaybook(
+  workflowType: string,
+  phase: string,
+): SerializedPhasePlaybook | null {
+  const playbook = getPlaybook(workflowType, phase);
+  return playbook !== null ? serializePhasePlaybookEntry(playbook) : null;
+}
+
+/**
  * Serialize all playbooks for a given workflow type into a plain
  * JSON-serializable object keyed by phase name.
  *
