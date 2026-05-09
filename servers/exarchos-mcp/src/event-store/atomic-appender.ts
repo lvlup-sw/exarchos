@@ -593,28 +593,19 @@ export class AtomicAppender {
         return { ok: false, reason: 'storage_busy', cause: err };
       }
       const e = toError(err);
-      const msg = e.message;
-      if (
-        /UNIQUE constraint failed: idempotency_claims/.test(msg) ||
-        /idempotency_claims.streamId, idempotency_claims.idempotencyKey/.test(msg)
-      ) {
-        return { ok: false, reason: 'idempotency-claimed', cause: e };
-      }
-      if (
-        /UNIQUE constraint failed: events/.test(msg) ||
-        /events.streamId, events.sequence/.test(msg)
-      ) {
-        // A sequence collision — first-tier mutex normally prevents this
-        // intra-process; surfacing as `sequence-conflict` lets the caller
-        // retry against the new high-water mark.
-        return {
-          ok: false,
-          reason: 'sequence-conflict',
-          expected: options?.expectedSequence,
-          actual: baseSeq,
-        };
-      }
-      return { ok: false, reason: 'io-error', cause: e };
+      // T64: pre-preflight values (`baseSeq`, our just-built `persisted`)
+      // are STALE if a concurrent writer slipped in between the
+      // preflight read and `atomicAppend`. Translation must re-read
+      // durable state from the backend so the loser's AppendResult
+      // reflects the canonical post-conflict shape.
+      return this.translateAtomicAppendError(
+        e,
+        backend,
+        streamId,
+        keyed,
+        options,
+        baseSeq,
+      );
     }
 
     return {
@@ -624,6 +615,102 @@ export class AtomicAppender {
       eventIds: persisted.map(e => e.eventId),
       timestamps: persisted.map(e => e.timestamp),
     };
+  }
+
+  /**
+   * Translate an `atomicAppend` failure into the typed `AppendResult`
+   * shape using FRESH durable reads (T64).
+   *
+   * The legacy translation reused the pre-preflight values (the
+   * just-allocated `persisted` rows for the idempotency-claim branch
+   * and `baseSeq` for the sequence-conflict branch). Both are stale
+   * once the conflict has fired — by definition, another writer
+   * advanced the durable state between the preflight read and
+   * `atomicAppend`. Returning stale values handed callers the wrong
+   * canonical shape:
+   *
+   *   - `idempotency-claimed` lost the WINNER's persisted events. The
+   *     contract (matching the JSONL body's cache-hit) is to surface
+   *     the events ACTUALLY persisted under the key, so the caller
+   *     returns the canonical shape to its own caller without
+   *     reconstructing from the (possibly different) current request.
+   *
+   *   - `sequence-conflict` reported `actual: baseSeq`. The actual
+   *     value is now the WINNER's high-water mark, so retrying against
+   *     `baseSeq` would just re-trigger the same conflict.
+   *
+   * Re-reads `lookupIdempotencyClaim` and (as a fallback) the
+   * sequence high-water mark to derive the canonical post-conflict
+   * shape. If the re-read itself fails (corrupt DB, lost connection),
+   * downgrades gracefully to the original error so the caller still
+   * sees a typed failure rather than an opaque exception.
+   */
+  private translateAtomicAppendError(
+    error: Error,
+    backend: SqliteBackend,
+    streamId: string,
+    keyed: { idempotencyKey: string } | null,
+    options: AppendOptions | undefined,
+    preflightBaseSeq: number,
+  ): AppendResult {
+    const msg = error.message;
+    const isIdempotencyConflict =
+      /UNIQUE constraint failed: idempotency_claims/.test(msg) ||
+      /idempotency_claims.streamId, idempotency_claims.idempotencyKey/.test(msg);
+    const isSequenceConflict =
+      /UNIQUE constraint failed: events/.test(msg) ||
+      /events.streamId, events.sequence/.test(msg);
+
+    if (isIdempotencyConflict && keyed !== null) {
+      // Re-read the now-committed claim. The race winner inserted a
+      // canonical row — surface those events as a cache-hit so the
+      // caller returns the actually-persisted shape, matching the
+      // JSONL body's cache-hit contract.
+      try {
+        const claim = backend.lookupIdempotencyClaim(streamId, keyed.idempotencyKey);
+        if (claim) {
+          return {
+            ok: true,
+            kind: 'cache-hit',
+            sequences: claim.sequences,
+            eventIds: claim.eventIds,
+            timestamps: claim.timestamps,
+            persistedEvents: claim.events.map(e => ({ ...e } as PublicPersistedEvent)),
+          };
+        }
+        // No claim found despite the conflict — race window between
+        // the conflict and our re-read (e.g. a rollback). Fall
+        // through to the bare `idempotency-claimed` shape so the
+        // caller still sees a typed failure.
+      } catch {
+        // Re-read itself failed — fall through to the bare error
+        // rather than escaping a second exception through the
+        // boundary.
+      }
+      return { ok: false, reason: 'idempotency-claimed', cause: error };
+    }
+
+    if (isSequenceConflict) {
+      // Re-read the high-water mark so the caller's retry computes
+      // against the WINNER's advanced sequence, not our pre-preflight
+      // value. On re-read failure, fall back to the preflight value
+      // (better than nothing — the caller still sees `sequence-conflict`
+      // and can retry).
+      let actual = preflightBaseSeq;
+      try {
+        actual = backend.readSequenceHighWaterMark(streamId);
+      } catch {
+        // Keep `actual = preflightBaseSeq`.
+      }
+      return {
+        ok: false,
+        reason: 'sequence-conflict',
+        expected: options?.expectedSequence,
+        actual,
+      };
+    }
+
+    return { ok: false, reason: 'io-error', cause: error };
   }
 
   /**
