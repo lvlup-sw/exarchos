@@ -2,8 +2,10 @@ import { describe, it, expect } from 'vitest';
 import {
   HandoffEntrySchemaV1,
   HandoffEntrySchemaV2,
+  PhasePlaybookSchema,
   RehydrationDocumentSchema,
   RehydrationDocumentSchemaV1,
+  RehydrationDocumentSchemaV2,
   StableSectionsSchema,
   VolatileSectionsSchema,
   type RehydrationDocument,
@@ -454,6 +456,142 @@ describe('RehydrationDocumentSchema v:2 envelope (T1, #1246)', () => {
     // The companion RehydrationDocumentSchemaV1 export accepts v:1 for the
     // read-back/migration path that T3 will consume.
     expect(RehydrationDocumentSchemaV1.safeParse(v1Doc).success).toBe(true);
+  });
+});
+
+// ─── T-01: PhasePlaybookSchema and v:3 envelope ─────────────────────────────
+
+describe('PhasePlaybookSchema (T-01, rehydration-machinery-refactor)', () => {
+  const minimalPlaybook = {
+    skill: 'delegation',
+    skillRef: '@skills/delegation/SKILL.md',
+    tools: [{ tool: 'exarchos_event', action: 'append', purpose: 'Emit task.assigned on dispatch' }],
+    events: [{ type: 'task.assigned', when: 'On dispatch of each task', fields: ['taskId', 'title', 'worktree'] }],
+    transitionCriteria: 'All tasks complete → review',
+    guardPrerequisites: "tasks[].status = 'complete' for every task",
+    validationScripts: ['post_delegation_check'],
+    humanCheckpoint: false,
+    compactGuidance: 'Dispatch implementation tasks.',
+  };
+
+  it('PhasePlaybookSchema_MinimalPlaybook_Parses', () => {
+    const result = PhasePlaybookSchema.safeParse(minimalPlaybook);
+    expect(result.success).toBe(true);
+  });
+
+  it('PhasePlaybookSchema_WithAutoEmittedEvents_Parses', () => {
+    const withAuto = {
+      ...minimalPlaybook,
+      autoEmittedEvents: [
+        {
+          type: 'task.completed',
+          when: 'After task_complete orchestrate action succeeds',
+          source: 'auto',
+          emittedBy: 'exarchos_orchestrate task_complete',
+        },
+      ],
+    };
+    const result = PhasePlaybookSchema.safeParse(withAuto);
+    expect(result.success).toBe(true);
+  });
+
+  it('PhasePlaybookSchema_NullValue_Parses', () => {
+    // phasePlaybook is nullable — null is the degraded/terminal-phase value
+    const result = PhasePlaybookSchema.safeParse(null);
+    expect(result.success).toBe(true);
+  });
+});
+
+describe('RehydrationDocumentSchema v:3 envelope (T-01)', () => {
+  const minimalWorkflowState = {
+    featureId: 'rehydration-machinery-refactor',
+    phase: 'delegate',
+    workflowType: 'refactor',
+  };
+
+  const minimalVolatileV3 = {
+    taskProgress: [],
+    decisions: [],
+    artifacts: {},
+    blockers: [],
+    recentHandoffs: [],
+    phasePlaybook: null,
+  };
+
+  it('RehydrationDocumentSchema_V3NullPlaybook_Parses', () => {
+    // Minimum valid v:3 doc with phasePlaybook: null
+    const v3Doc = {
+      v: 3,
+      projectionSequence: 0,
+      workflowState: minimalWorkflowState,
+      ...minimalVolatileV3,
+    };
+
+    const result = RehydrationDocumentSchema.safeParse(v3Doc);
+    expect(result.success).toBe(true);
+  });
+
+  it('RehydrationDocumentSchema_V3FullPlaybook_Parses', () => {
+    // v:3 doc with a fully populated phasePlaybook
+    const v3Doc = {
+      v: 3,
+      projectionSequence: 5,
+      workflowState: minimalWorkflowState,
+      taskProgress: [],
+      decisions: [],
+      artifacts: {},
+      blockers: [],
+      recentHandoffs: [],
+      phasePlaybook: {
+        skill: 'delegation',
+        skillRef: '@skills/delegation/SKILL.md',
+        tools: [{ tool: 'exarchos_event', action: 'append', purpose: 'Emit task.assigned on dispatch' }],
+        events: [{ type: 'task.assigned', when: 'On dispatch of each task', fields: ['taskId', 'title', 'worktree'] }],
+        autoEmittedEvents: [
+          {
+            type: 'task.completed',
+            when: 'After task_complete orchestrate action succeeds',
+            source: 'auto',
+            emittedBy: 'exarchos_orchestrate task_complete',
+          },
+        ],
+        transitionCriteria: 'All tasks complete → review',
+        guardPrerequisites: "tasks[].status = 'complete' for every task",
+        validationScripts: ['post_delegation_check'],
+        humanCheckpoint: false,
+        compactGuidance: 'Dispatch implementation tasks.',
+      },
+    };
+
+    const result = RehydrationDocumentSchema.safeParse(v3Doc);
+    expect(result.success).toBe(true);
+  });
+
+  it('RehydrationDocumentSchema_V2Doc_Fails', () => {
+    // v:2 docs must NOT parse against the new RehydrationDocumentSchema (v:3 only)
+    // They route through RehydrationDocumentSchemaV2 instead (T-03).
+    const v2Doc = {
+      v: 2,
+      projectionSequence: 0,
+      behavioralGuidance: {
+        skill: 'delegation',
+        skillRef: '@skills/delegation/SKILL.md',
+      },
+      workflowState: minimalWorkflowState,
+      taskProgress: [],
+      decisions: [],
+      artifacts: {},
+      blockers: [],
+      recentHandoffs: [],
+    };
+
+    // New schema requires v:3 — rejects v:2
+    const newSchemaResult = RehydrationDocumentSchema.safeParse(v2Doc);
+    expect(newSchemaResult.success).toBe(false);
+
+    // RehydrationDocumentSchemaV2 (the renamed old schema) accepts v:2
+    const v2SchemaResult = RehydrationDocumentSchemaV2.safeParse(v2Doc);
+    expect(v2SchemaResult.success).toBe(true);
   });
 });
 
