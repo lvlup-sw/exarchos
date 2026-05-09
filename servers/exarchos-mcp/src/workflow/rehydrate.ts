@@ -47,6 +47,7 @@ import {
 } from '../projections/rehydration/schema.js';
 import { SnapshotRecord } from '../projections/snapshot-schema.js';
 import type { ProjectionReducer } from '../projections/types.js';
+import { getPlaybook, serializePhasePlaybookEntry } from './playbooks.js';
 import { readStateFile } from './state-store.js';
 
 /** Input shape for the rehydrate handler. */
@@ -542,6 +543,22 @@ export async function handleRehydrate(
       stateDir,
     });
   }
+
+  // T-20 — compose phasePlaybook from the L4 registry. After the fold and
+  // BEFORE the `workflow.rehydrated` emission so the audit event's
+  // `tokenEstimate` reflects the composed envelope. `getPlaybook` returns
+  // null for terminal / unregistered (workflowType, phase) pairs; we
+  // surface that as `phasePlaybook: null` rather than omitting the field
+  // (the v:3 schema requires its presence). Pure additive composition —
+  // degraded paths (T-22) keep the reducer.initial null and are unchanged.
+  const playbook = getPlaybook(
+    document.workflowState.workflowType,
+    document.workflowState.phase,
+  );
+  document = {
+    ...document,
+    phasePlaybook: playbook !== null ? serializePhasePlaybookEntry(playbook) : null,
+  };
 
   // T032 — on successful hydrate, record an observability event with the
   // canonical payload from `WorkflowRehydratedData` (T008):
