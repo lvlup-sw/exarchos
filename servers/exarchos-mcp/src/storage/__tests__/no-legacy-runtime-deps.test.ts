@@ -45,6 +45,17 @@ const EXCLUDED_SEGMENTS = new Set(['storage', '__shims__', '__tests__']);
 const BUN_SQLITE_IMPORT_RE = /from\s+['"]bun:sqlite['"]/;
 
 /**
+ * Returns true iff `source` references `bun:sqlite` as a module
+ * specifier. T67 contract: must catch every import/export form.
+ *
+ * Initial RED implementation defers to the legacy regex so the
+ * loophole-coverage tests fail. GREEN replaces this with an AST walk.
+ */
+function scanSourceForBunSqlite(source: string): boolean {
+  return BUN_SQLITE_IMPORT_RE.test(source);
+}
+
+/**
  * Walk the production tree under `src/`, collecting every `.ts` file that:
  *   - is not under any directory named `storage`, `__shims__`, or `__tests__`;
  *   - is not a `.test.ts` or `.d.ts` file.
@@ -141,5 +152,71 @@ describe('no legacy runtime deps', () => {
         `StorageBackend abstraction surfaced on DispatchContext.storage. ` +
         `Found bun:sqlite imports in: ${offenders.join(', ')}`,
     ).toEqual([]);
+  });
+
+  // ─── T67 (CR #7) — scanner must catch ALL bun:sqlite import forms ───────
+  //
+  // The original regex `/from\s+['"]bun:sqlite['"]/` only matches
+  // `import x from 'bun:sqlite'` style. CI gate had loopholes for:
+  //   - side-effect imports:  import 'bun:sqlite'
+  //   - dynamic imports:      import('bun:sqlite')
+  //   - re-exports:           export * from 'bun:sqlite'
+  //
+  // These fixtures exercise every form against the active scanner.
+  // A regex-only scanner will fail on the side-effect, dynamic, and
+  // re-export fixtures — proving the loophole. The AST-based scanner
+  // (T67 GREEN) catches all of them.
+  describe('T67 scanner-form coverage', () => {
+    const FIXTURES: ReadonlyArray<{ name: string; src: string }> = [
+      {
+        name: 'default import',
+        src: `import Database from 'bun:sqlite';\nconst db = new Database();\n`,
+      },
+      {
+        name: 'named import',
+        src: `import { Database } from 'bun:sqlite';\nnew Database();\n`,
+      },
+      {
+        name: 'side-effect import',
+        src: `import 'bun:sqlite';\n`,
+      },
+      {
+        name: 'dynamic import',
+        src: `const m = await import('bun:sqlite');\nconsole.log(m);\n`,
+      },
+      {
+        name: 're-export all',
+        src: `export * from 'bun:sqlite';\n`,
+      },
+      {
+        name: 'named re-export',
+        src: `export { Database } from 'bun:sqlite';\n`,
+      },
+    ];
+
+    const NEGATIVE_FIXTURES: ReadonlyArray<{ name: string; src: string }> = [
+      {
+        name: 'unrelated module import',
+        src: `import { z } from 'zod';\nz.string();\n`,
+      },
+      {
+        name: 'string literal containing the spec but not an import',
+        // The literal appears but is never the module specifier of an
+        // import/export/dynamic-import call, so it must not match.
+        src: `const note = "see also bun:sqlite docs";\nconsole.log(note);\n`,
+      },
+    ];
+
+    for (const f of FIXTURES) {
+      it(`detects bun:sqlite in ${f.name}`, () => {
+        expect(scanSourceForBunSqlite(f.src)).toBe(true);
+      });
+    }
+
+    for (const f of NEGATIVE_FIXTURES) {
+      it(`does not flag ${f.name}`, () => {
+        expect(scanSourceForBunSqlite(f.src)).toBe(false);
+      });
+    }
   });
 });
