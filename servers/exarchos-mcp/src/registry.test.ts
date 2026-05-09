@@ -490,11 +490,16 @@ describe('TOOL_REGISTRY', () => {
   });
 
   describe('exarchos_workflow', () => {
-    it('should have 9 actions: init, get, set, cancel, cleanup, reconcile, rehydrate, checkpoint, describe', () => {
+    it('should have 10 actions: init, get, set, transition, cancel, cleanup, reconcile, rehydrate, checkpoint, describe', () => {
+      // T36/DR-4 (#1259): `transition` added as the canonical phase-mutation
+      // action; `set({phase})` retained as a deprecation rerouting surface
+      // for one release. Order matters — keep alongside `set` so registry
+      // discoverability surfaces the canonical replacement adjacent to the
+      // deprecated path.
       const composite = findComposite('exarchos_workflow');
       expect(composite).toBeDefined();
       const actionNames = composite!.actions.map((a) => a.name);
-      expect(actionNames).toEqual(['init', 'get', 'set', 'cancel', 'cleanup', 'reconcile', 'rehydrate', 'checkpoint', 'describe']);
+      expect(actionNames).toEqual(['init', 'get', 'set', 'transition', 'cancel', 'cleanup', 'reconcile', 'rehydrate', 'checkpoint', 'describe']);
     });
   });
 
