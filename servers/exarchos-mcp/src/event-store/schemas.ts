@@ -585,6 +585,10 @@ export const WorkflowRehydratedData = z.object({
   projectionSequence: z.number().int().nonnegative(),
   deliveryPath: z.enum(['direct', 'ndjson', 'snapshot']),
   tokenEstimate: z.number().int().nonnegative(),
+  // T-10: optional playbook-presence flags (v2.12 lifecycle alignment).
+  // Emission wired by T-21; absent in legacy events (additive, no version bump).
+  phaseHasPlaybook: z.boolean().optional(),
+  phasePlaybookComposed: z.boolean().optional(),
 });
 
 export const WorkflowSnapshotTakenData = z.object({
