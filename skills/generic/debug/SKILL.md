@@ -201,8 +201,8 @@ rehydrate
 
 Extended to support:
 - `workflowType: "debug"` field
-- Debug-specific phases handled by the SessionStart hook (which determines next action on resume)
-- Debug context provided by the SessionStart hook on session start
+- Debug-specific phases surfaced by `/exarchos:rehydrate <featureId>` (the rehydration document's `next_actions` envelope determines the next verb on resume)
+- Debug context surfaced via `/exarchos:rehydrate` at session start (no implicit hook)
 
 ## Completion Criteria
 

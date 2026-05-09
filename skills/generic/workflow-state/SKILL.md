@@ -142,7 +142,7 @@ For context restoration after summarization, use `mcp__exarchos__exarchos_workfl
 
 ### Reconcile State
 
-To verify state matches git reality, the SessionStart hook automatically reconciles on resume. For manual verification, run the reconciliation script:
+To verify state matches git reality, run `/exarchos:rehydrate <featureId>` — the rehydration projection folds events newer than the last snapshot and surfaces drift in the returned envelope. For deeper manual verification, run the reconciliation script:
 
 ```typescript
 exarchos_orchestrate({
@@ -255,21 +255,21 @@ If an Exarchos MCP tool returns an error:
 
 ### State Desync
 If workflow state doesn't match git reality:
-1. The SessionStart hook runs reconciliation automatically on resume
-2. If manual check needed: compare state file with `git log` and branch state
+1. Run `/exarchos:rehydrate <featureId>` — the rehydration projection folds in events newer than the last snapshot
+2. If manual check still needed: compare state file with `git log` and branch state
 3. Update state via `mcp__exarchos__exarchos_workflow` with `action: "set"` to match git truth
 
-### Checkpoint File Missing
-If the PreCompact hook can't find state to checkpoint:
+### Checkpoint Missing
+If `/exarchos:checkpoint` is invoked with no active workflow:
 1. Verify a workflow is active: call `mcp__exarchos__exarchos_workflow` with `action: "get"` and the featureId
-2. If no active workflow: the hook will silently skip (expected behavior)
-3. If workflow exists but checkpoint fails: check disk space and permissions
+2. If no active workflow: the checkpoint command will report "no active workflow" and exit cleanly
+3. If a workflow exists but checkpoint fails: check disk space and permissions on the event store
 
 ### Resume Finds Stale State
 If state references branches or worktrees that no longer exist:
-1. The SessionStart hook handles reconciliation automatically
-2. It updates state to reflect current git reality
-3. Missing branches are flagged in the session-start output
+1. Run `/exarchos:rehydrate <featureId>` — the rehydration document surfaces stale references
+2. Compare against `git branch -a` / `git worktree list` to identify drift
+3. Update via `exarchos_workflow set` to match git truth
 
 ### Multiple Active Workflows
 If multiple workflow state files exist:
