@@ -1,4 +1,4 @@
-import { handleInit, handleGet, handleSet, handleReconcileState, handleCheckpoint } from './tools.js';
+import { handleInit, handleGet, handleSet, handleTransition, handleReconcileState, handleCheckpoint } from './tools.js';
 import { handleCancel } from './cancel.js';
 import { handleCleanup } from './cleanup.js';
 import { handleRehydrate } from './rehydrate.js';
@@ -109,6 +109,31 @@ export async function handleWorkflow(
         startedAt,
       );
     }
+    case 'transition': {
+      // T36/T37/DR-4 — canonical phase-mutation surface. Routes through the
+      // shared `applyTransition()` helper in `handleTransition`, which also
+      // backs the deprecated `set({phase})` path. Passes the same project-
+      // config-derived options as `set` so both surfaces honor identical
+      // skipPhases / requiredReviews / checkpoint policy.
+      const skipPhases = ctx.projectConfig?.workflow.skipPhases;
+      const requiredReviews = ctx.projectConfig?.workflow.requiredReviews;
+      const checkpoint = ctx.projectConfig?.checkpoint;
+      const transitionOptions: Record<string, unknown> = {};
+      if (skipPhases?.length) transitionOptions.skipPhases = skipPhases;
+      if (requiredReviews?.length) transitionOptions.requiredReviews = requiredReviews;
+      if (checkpoint) transitionOptions.checkpoint = checkpoint;
+      return envelopeWrap(
+        await handleTransition(
+          rest as Parameters<typeof handleTransition>[0],
+          stateDir,
+          eventStore,
+          Object.keys(transitionOptions).length > 0
+            ? transitionOptions as Parameters<typeof handleTransition>[3]
+            : undefined,
+        ),
+        startedAt,
+      );
+    }
     case 'cancel':
       return envelopeWrap(await handleCancel(rest as Parameters<typeof handleCancel>[0], stateDir, eventStore), startedAt);
     case 'cleanup':
@@ -140,7 +165,7 @@ export async function handleWorkflow(
         success: false,
         error: {
           code: 'UNKNOWN_ACTION',
-          message: `Unknown action: ${String(action)}. Valid actions: init, get, set, cancel, cleanup, reconcile, checkpoint, rehydrate, describe`,
+          message: `Unknown action: ${String(action)}. Valid actions: init, get, set, transition, cancel, cleanup, reconcile, checkpoint, rehydrate, describe`,
         },
       };
   }
