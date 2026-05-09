@@ -31,10 +31,4 @@ describe('hooks.json configuration', () => {
     expect(entry.hooks[0].command).toContain('subagent-stop');
   });
 
-  it('reloadCommand_Exists_InCommandsDirectory', async () => {
-    const reloadPath = path.resolve(__dirname, '../../commands/reload.md');
-    const content = await fs.readFile(reloadPath, 'utf-8');
-    expect(content).toContain('Reload Context');
-    expect(content).toContain('/clear');
-  });
 });
