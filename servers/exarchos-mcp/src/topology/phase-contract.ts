@@ -15,16 +15,35 @@
 import { z } from 'zod';
 
 /**
+ * Known staleness-signal names. Mirrors the secondary signals already
+ * derived by `prune-stale-workflows.ts` for backward compatibility:
+ *
+ *   - `lastActivity`     ← `_checkpoint.lastActivityTimestamp`
+ *   - `phaseTransition`  ← latest `workflow.transition` event timestamp
+ *   - `branchActivity`   ← latest commit on the workflow's tracked branch
+ *
+ * Adding a new signal name requires updating both this enum AND the
+ * scorer's reduction over signals (`pruner/score.ts`) — fail-closed at
+ * load time keeps unknown names from silently no-op'ing.
+ */
+export const StalenessSignalNames = [
+  'lastActivity',
+  'phaseTransition',
+  'branchActivity',
+] as const;
+
+export const StalenessSignalNameSchema = z.enum(StalenessSignalNames);
+
+export type StalenessSignalName = z.infer<typeof StalenessSignalNameSchema>;
+
+/**
  * A single staleness signal: a named indicator with a per-signal threshold
  * (in minutes). Per-signal thresholds let one phase mix signals with
  * different sensitivity windows (e.g. lastActivity at 60min, branchActivity
  * at 1440min for daily commits).
- *
- * Signal `name` is open at this layer; T45 GREEN tightens it to a
- * known-enum after the unit suite asserts unknown names fail.
  */
 export const StalenessSignalSchema = z.object({
-  name: z.string().min(1),
+  name: StalenessSignalNameSchema,
   thresholdMinutes: z.number().int().positive(),
 });
 
