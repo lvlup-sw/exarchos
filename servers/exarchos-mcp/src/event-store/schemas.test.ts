@@ -2254,6 +2254,68 @@ describe('WorkflowRehydratedData', () => {
     });
     expect(result.success).toBe(false);
   });
+
+  // T-10: optional playbook fields (phaseHasPlaybook, phasePlaybookComposed)
+
+  it('Rehydrated_LegacyPayload_ParsesWithoutPlaybookFields', () => {
+    // Legacy events emitted before T-10 lack both optional fields.
+    // The schema must remain backward-compatible — absence of the fields is valid.
+    const schema = EVENT_DATA_SCHEMAS['workflow.rehydrated' as typeof EventTypes[number]];
+    expect(schema).toBeDefined();
+
+    const result = schema!.safeParse({
+      projectionSequence: 7,
+      deliveryPath: 'snapshot',
+      tokenEstimate: 800,
+    });
+    expect(result.success, JSON.stringify(result)).toBe(true);
+  });
+
+  it('Rehydrated_BothPlaybookFieldsTrue_Parses', () => {
+    // T-10: phaseHasPlaybook and phasePlaybookComposed are both present and true.
+    // This is the "playbook found and composed" path.
+    const schema = EVENT_DATA_SCHEMAS['workflow.rehydrated' as typeof EventTypes[number]];
+    expect(schema).toBeDefined();
+
+    const result = schema!.safeParse({
+      projectionSequence: 42,
+      deliveryPath: 'direct',
+      tokenEstimate: 1500,
+      phaseHasPlaybook: true,
+      phasePlaybookComposed: true,
+    });
+    expect(result.success, JSON.stringify(result)).toBe(true);
+  });
+
+  it('Rehydrated_AsymmetricPlaybookFields_Parses', () => {
+    // T-10: phaseHasPlaybook=true, phasePlaybookComposed=false.
+    // Playbook exists but was not composed into the envelope (e.g. suppressed).
+    const schema = EVENT_DATA_SCHEMAS['workflow.rehydrated' as typeof EventTypes[number]];
+    expect(schema).toBeDefined();
+
+    const result = schema!.safeParse({
+      projectionSequence: 42,
+      deliveryPath: 'ndjson',
+      tokenEstimate: 2000,
+      phaseHasPlaybook: true,
+      phasePlaybookComposed: false,
+    });
+    expect(result.success, JSON.stringify(result)).toBe(true);
+  });
+
+  it('Rehydrated_PlaybookFieldStringValue_Rejects', () => {
+    // T-10: phaseHasPlaybook must be boolean — string "yes" is rejected.
+    const schema = EVENT_DATA_SCHEMAS['workflow.rehydrated' as typeof EventTypes[number]];
+    expect(schema).toBeDefined();
+
+    const result = schema!.safeParse({
+      projectionSequence: 42,
+      deliveryPath: 'direct',
+      tokenEstimate: 1500,
+      phaseHasPlaybook: 'yes',
+    });
+    expect(result.success).toBe(false);
+  });
 });
 
 // ─── workflow.snapshot_taken (T009, DR-4) ───────────────────────────────────
