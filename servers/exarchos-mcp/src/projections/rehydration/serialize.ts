@@ -19,7 +19,6 @@
  */
 import { z } from 'zod';
 import {
-  BehavioralGuidanceSchema,
   RehydrationDocumentSchema,
   RehydrationDocumentSchemaV1,
   RehydrationDocumentSchemaV2,
@@ -67,12 +66,17 @@ export const VOLATILE_KEYS = Object.keys(VolatileSectionsSchema.shape) as Readon
 >;
 
 /**
- * Inner key order for each stable sub-section, derived from the sub-schemas'
- * `.shape` so the serializer tracks schema declaration order.
+ * v:2 read-back inner key order for the now-removed `behavioralGuidance`
+ * sub-section. Hardcoded (T-50) since `BehavioralGuidanceSchema` was deleted;
+ * any v:2 snapshot still on disk is normalized through this fixed order so
+ * serialization remains byte-deterministic during the v:2 → v:3 upgrade path.
  */
-const BEHAVIORAL_GUIDANCE_KEYS = Object.keys(BehavioralGuidanceSchema.shape) as ReadonlyArray<
-  keyof typeof BehavioralGuidanceSchema.shape
->;
+const BEHAVIORAL_GUIDANCE_KEYS = ['skill', 'skillRef', 'tools'] as const;
+
+/**
+ * Inner key order for stable sub-sections, derived from sub-schema `.shape` so
+ * the serializer tracks schema declaration order.
+ */
 const WORKFLOW_STATE_KEYS = Object.keys(WorkflowStateSchema.shape) as ReadonlyArray<
   keyof typeof WorkflowStateSchema.shape
 >;
