@@ -23,6 +23,12 @@ import { handleWorkflow } from '../workflow/composite.js';
 import { EventStore } from '../event-store/store.js';
 import type { DispatchContext } from '../core/dispatch.js';
 import { getHSMDefinition } from '../workflow/state-machine.js';
+import {
+  callCli,
+  callMcp,
+  normalize,
+  TRANSITION_GUARD_FAILURE_FIXTURE,
+} from '../__tests__/parity-harness.js';
 
 // ─── Fixture ────────────────────────────────────────────────────────────────
 
@@ -152,6 +158,57 @@ describe('WorkflowTransition_GuardFailure (T42, DR-5)', () => {
       action: 'transition',
       target: expect.any(String),
     });
+  });
+
+  it('WorkflowTransition_GuardFailure_CliMcpParityByteEquivalent', async () => {
+    // T42 / DR-5: drive both carriers through the shared fixture and
+    // assert byte-equivalence of the structured error envelope.
+    const cliDir = await fs.mkdtemp(path.join(os.tmpdir(), 'parity-guard-cli-'));
+    const mcpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'parity-guard-mcp-'));
+    try {
+      const cliCtx: DispatchContext = {
+        stateDir: cliDir,
+        eventStore: new EventStore(cliDir),
+        enableTelemetry: false,
+      };
+      const mcpCtx: DispatchContext = {
+        stateDir: mcpDir,
+        eventStore: new EventStore(mcpDir),
+        enableTelemetry: false,
+      };
+
+      await TRANSITION_GUARD_FAILURE_FIXTURE.setup(cliCtx);
+      await TRANSITION_GUARD_FAILURE_FIXTURE.setup(mcpCtx);
+
+      const { result: cliResult } = await callCli(
+        cliCtx,
+        TRANSITION_GUARD_FAILURE_FIXTURE.cliCall.toolAlias,
+        TRANSITION_GUARD_FAILURE_FIXTURE.cliCall.action,
+        TRANSITION_GUARD_FAILURE_FIXTURE.cliCall.flags,
+      );
+      const mcpResult = await callMcp(
+        mcpCtx,
+        TRANSITION_GUARD_FAILURE_FIXTURE.mcpCall.tool,
+        TRANSITION_GUARD_FAILURE_FIXTURE.mcpCall.args,
+      );
+
+      expect(cliResult.success).toBe(false);
+      expect(mcpResult.success).toBe(false);
+
+      // Drop _perf so wall-clock duration jitter doesn't break parity.
+      const opts = { dropKeys: new Set(['_perf']) };
+      expect(normalize(cliResult, opts)).toEqual(normalize(mcpResult, opts));
+
+      // Spot-check the structured envelope is preserved on both arms.
+      expect(cliResult.error?.code).toBe('GUARD_FAILED');
+      expect(mcpResult.error?.code).toBe('GUARD_FAILED');
+      expect(cliResult.error?.validTargets).toEqual(mcpResult.error?.validTargets);
+      expect(cliResult.error?.suggestedFix).toEqual(mcpResult.error?.suggestedFix);
+      expect(cliResult.error?.expectedShape).toEqual(mcpResult.error?.expectedShape);
+    } finally {
+      await fs.rm(cliDir, { recursive: true, force: true });
+      await fs.rm(mcpDir, { recursive: true, force: true });
+    }
   });
 
   it('WorkflowTransition_InvalidTarget_PopulatesValidTargetsAndSuggestedFix', async () => {

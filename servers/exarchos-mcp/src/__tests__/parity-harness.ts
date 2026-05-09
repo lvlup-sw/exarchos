@@ -308,3 +308,73 @@ export function normalize(value: unknown, options: NormalizeOptions = {}): unkno
 // ─── Re-exports for convenience ──────────────────────────────────────────────
 
 export { applyExitOverrideRecursively, commanderErrorToResult, type CliExitCode };
+
+// ─── Parity Fixtures (T42, DR-5) ────────────────────────────────────────────
+//
+// Self-contained fixture descriptors for the parity harness. Each fixture
+// describes a scenario both CLI and MCP arms must execute identically; the
+// `setup` callback primes the `DispatchContext` (state + events), and the
+// `act` callbacks invoke the action through each carrier. Suites import
+// the fixture and feed it into the equivalent of `expect(normalize(cli))
+// .toEqual(normalize(mcp))`.
+//
+// First fixture covers a transition-guard-failure case for DR-5: the
+// structured error envelope (validTargets / expectedShape / suggestedFix)
+// must be byte-equivalent across carriers. Adding more fixtures here keeps
+// the carrier-equivalence contract test-driven from a single source.
+
+export interface ParityFixture {
+  /** Stable identifier so suites can reference a single fixture. */
+  readonly name: string;
+  /** Human-readable description for failure messages. */
+  readonly description: string;
+  /**
+   * Prime a {@link DispatchContext} for the fixture (init workflow, append
+   * fixture events, etc.). Called once per arm with fresh context.
+   */
+  readonly setup: (ctx: DispatchContext) => Promise<void>;
+  /** CLI arm — invoked through {@link callCli}. */
+  readonly cliCall: {
+    readonly toolAlias: string;
+    readonly action: string;
+    readonly flags: Record<string, unknown>;
+  };
+  /** MCP arm — invoked through {@link callMcp}. */
+  readonly mcpCall: {
+    readonly tool: string;
+    readonly args: Record<string, unknown>;
+  };
+}
+
+/**
+ * T42 / DR-5 — transition-guard-failure fixture. Drives an `ideate → plan`
+ * transition WITHOUT the required `artifacts.design` field, so the HSM
+ * primitive's composite guard fails. The structured error envelope
+ * (validTargets / expectedShape / suggestedFix) must be byte-equivalent
+ * across CLI and MCP carriers.
+ */
+export const TRANSITION_GUARD_FAILURE_FIXTURE: ParityFixture = {
+  name: 'transition_guard_failure',
+  description:
+    'transition({target:"plan"}) without required artifacts → GUARD_FAILED with structured envelope',
+  async setup(ctx: DispatchContext) {
+    // Lazy-import the workflow handler so this module's import cost is
+    // bounded — parity-harness is loaded on every parity-test cold start.
+    const { handleInit } = await import('../workflow/tools.js');
+    await handleInit(
+      { featureId: 'parity-guard-fail', workflowType: 'feature' },
+      ctx.stateDir,
+      ctx.eventStore,
+    );
+    // NOTE: deliberately NOT priming `artifacts.design` so the guard fails.
+  },
+  cliCall: {
+    toolAlias: 'wf',
+    action: 'transition',
+    flags: { featureId: 'parity-guard-fail', target: 'plan' },
+  },
+  mcpCall: {
+    tool: 'exarchos_workflow',
+    args: { action: 'transition', featureId: 'parity-guard-fail', target: 'plan' },
+  },
+};
