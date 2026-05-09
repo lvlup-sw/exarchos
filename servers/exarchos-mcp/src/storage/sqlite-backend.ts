@@ -118,6 +118,21 @@ CREATE TABLE IF NOT EXISTS idempotency_claims (
   claimedAt      TEXT NOT NULL,
   PRIMARY KEY (streamId, idempotencyKey)
 );
+
+-- Single-row JSONL to SQLite migration lock (#1259, T19/T60, DR-8/DR-12).
+-- The id column is fixed at 1 so INSERT OR IGNORE claims a single
+-- well-known row; competing claimers (within a process or across CLI/MCP
+-- processes) use the integer-PRIMARY-KEY collision as the synchronization
+-- point. claimedAt records the wall-clock for operator forensics on
+-- failure (DR-12: failure leaves the row claimed for manual unblock).
+-- state is one of claimed or completed; once the holder records completed
+-- the row is considered released and a new run may CLAIM it.
+CREATE TABLE IF NOT EXISTS migration_lock (
+  id        INTEGER PRIMARY KEY CHECK (id = 1),
+  state     TEXT NOT NULL,
+  claimedAt TEXT NOT NULL,
+  releasedAt TEXT
+);
 `;
 
 // ─── Prepared Statements ────────────────────────────────────────────────────
@@ -938,6 +953,19 @@ export class SqliteBackend implements StorageBackend {
       .prepare('DELETE FROM events WHERE streamId = ? AND timestamp < ?')
       .run(streamId, beforeTimestamp);
     return result.changes;
+  }
+
+  // ─── Migration Lock Accessor (#1259, T19/T60) ──────────────────────────
+  //
+  // Substrate-internal seam: the migration-lock primitive needs SQL-level
+  // INSERT/UPDATE/SELECT against the `migration_lock` row that doesn't
+  // warrant a typed method on the storage interface (the lock semantics
+  // are an implementation detail of the JSONL→SQLite migration, not a
+  // first-class storage concept). Keeping the accessor narrowly named
+  // makes the boundary self-documenting: any non-lock SQL pokes MUST
+  // route through a typed method, not by widening this getter.
+  get _migrationLockDb(): Database {
+    return this.db;
   }
 
   // ─── Integrity Probe ────────────────────────────────────────────────────
