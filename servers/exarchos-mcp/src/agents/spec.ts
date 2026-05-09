@@ -39,24 +39,38 @@ const AgentSpecIdSchema = z.enum(['implementer', 'fixer', 'reviewer', 'scaffolde
  * `capabilities[]` specs still parse. After v2.11 cuts, posture becomes
  * required (DR-6 follow-up issue).
  */
-export const AgentSpecSchema = z.object({
-  id: AgentSpecIdSchema,
-  description: z.string(),
-  systemPrompt: z.string(),
-  posture: AgentPosture.optional(),
-  capabilities: z.array(Capability).optional(),
-  disallowedTools: z.array(z.string()).optional(),
-  model: z.enum(['opus', 'sonnet', 'haiku', 'inherit']),
-  effort: z.enum(['low', 'medium', 'high', 'max']).optional(),
-  color: z.string().optional(),
-  isolation: z.literal('worktree').optional(),
-  skills: z.array(AgentSkillSchema),
-  validationRules: z.array(AgentValidationRuleSchema),
-  resumable: z.boolean(),
-  memoryScope: z.enum(['user', 'project', 'local']).optional(),
-  maxTurns: z.number().optional(),
-  mcpServers: z.array(z.string()).optional(),
-});
+export const AgentSpecSchema = z
+  .object({
+    id: AgentSpecIdSchema,
+    description: z.string(),
+    systemPrompt: z.string(),
+    posture: AgentPosture.optional(),
+    capabilities: z.array(Capability).optional(),
+    disallowedTools: z.array(z.string()).optional(),
+    model: z.enum(['opus', 'sonnet', 'haiku', 'inherit']),
+    effort: z.enum(['low', 'medium', 'high', 'max']).optional(),
+    color: z.string().optional(),
+    isolation: z.literal('worktree').optional(),
+    skills: z.array(AgentSkillSchema),
+    validationRules: z.array(AgentValidationRuleSchema),
+    resumable: z.boolean(),
+    memoryScope: z.enum(['user', 'project', 'local']).optional(),
+    maxTurns: z.number().optional(),
+    mcpServers: z.array(z.string()).optional(),
+  })
+  // DR-6: posture and capabilities[] are mutually exclusive — a spec must
+  // pick one source of truth for capability declaration. Specs declaring
+  // both are rejected so silent precedence rules can't widen the trust
+  // boundary unintentionally.
+  .refine(
+    (spec) => !(spec.posture !== undefined && spec.capabilities !== undefined),
+    {
+      message:
+        'AgentSpec cannot declare both posture and capabilities — pick one. ' +
+        'Use posture for new specs; capabilities[] is deprecated and removed in v2.11.',
+      path: ['posture'],
+    },
+  );
 
 export type AgentSpecParsed = z.infer<typeof AgentSpecSchema>;
 
