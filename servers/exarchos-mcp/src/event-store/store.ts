@@ -1177,8 +1177,13 @@ export class EventStore {
     // type query, use the SQL clause directly (`LIKE ? || '/%' OR = ?`)
     // and skip the per-stream merge below. Backends without the method
     // (in-memory, remote) fall through to the listStreams() enumeration.
-    if (this.backend && typeof this.backend.queryEventsByType === 'function') {
-      const backendEvents = this.backend.queryEventsByType(eventType, prefix, perStream);
+    //
+    // Resolve through `getReadBackend()` so `appenderBackend: 'sqlite'`
+    // (no explicit `backend` ctor arg) routes here too — bypassing this
+    // abstraction is a CLI ↔ MCP parity-breaking pattern (T62, INV-2).
+    const readBackend = this.getReadBackend();
+    if (readBackend && typeof readBackend.queryEventsByType === 'function') {
+      const backendEvents = readBackend.queryEventsByType(eventType, prefix, perStream);
       const sortedBackend = backendEvents.slice().sort((a, b) => {
         const byTs = a.timestamp.localeCompare(b.timestamp);
         return byTs !== 0 ? byTs : a.sequence - b.sequence;
@@ -1241,8 +1246,13 @@ export class EventStore {
     // Backend path: trust listStreams() to enumerate every stream the
     // backend has seen; then apply the structural prefix filter locally
     // so the SQL/JSONL paths stay behaviourally indistinguishable.
-    if (this.backend) {
-      for (const streamId of this.backend.listStreams()) {
+    //
+    // Resolve through `getReadBackend()` so `appenderBackend: 'sqlite'`
+    // (no explicit `backend` ctor arg) routes here too — bypassing this
+    // abstraction is a CLI ↔ MCP parity-breaking pattern (T62, INV-2).
+    const readBackend = this.getReadBackend();
+    if (readBackend) {
+      for (const streamId of readBackend.listStreams()) {
         considerStream(streamId);
       }
     }
