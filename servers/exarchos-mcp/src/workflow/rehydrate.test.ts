@@ -630,3 +630,85 @@ describe('handleRehydrate — event-stream-unavailable degradation (T056, DR-18)
     expect(rehydrated).toHaveLength(0);
   });
 });
+
+/**
+ * T-20 — `handleRehydrate` composes `phasePlaybook`
+ *
+ * Implements rehydration-machinery-refactor §T-20 (P2 handler composition).
+ * After the projection fold completes and BEFORE `workflow.rehydrated` is
+ * emitted, the handler resolves the L4 playbook via
+ * `getPlaybook(workflowState.workflowType, workflowState.phase)` and:
+ *   - attaches the serialized playbook to `document.phasePlaybook` when
+ *     present (e.g. feature/delegate → delegation skill); OR
+ *   - attaches `null` for terminal / unregistered phases.
+ *
+ * This is pure additive composition — degraded paths (T-22) are unchanged.
+ */
+describe('handleRehydrate — phasePlaybook composition (T-20)', () => {
+  it('RehydrateHandler_DelegatePhase_AttachesSerializedPhasePlaybook', async () => {
+    // GIVEN: a feature workflow that has transitioned into the `delegate`
+    //   phase. The L4 registry has a `feature:delegate` playbook keyed to
+    //   the `delegation` skill (see workflow/playbooks.ts).
+    const featureId = 'rehydrate-phaseplaybook-delegate';
+    await store.append(featureId, {
+      type: 'workflow.started',
+      data: { featureId, workflowType: 'feature' },
+    });
+    await store.append(featureId, {
+      type: 'workflow.transition',
+      data: { from: '', to: 'delegate' },
+    });
+
+    // WHEN: we rehydrate.
+    const result = await handleRehydrate(
+      { featureId },
+      { eventStore: store, stateDir },
+    );
+
+    // THEN: the returned document carries a populated phasePlaybook whose
+    //   skill is `delegation` and whose events surface is non-empty.
+    expect(result.success).toBe(true);
+    const doc = result.data as RehydrationDocument;
+    expect(doc.workflowState.phase).toBe('delegate');
+    expect(doc.phasePlaybook).not.toBeNull();
+    // Narrow the nullable for the assertions below.
+    const playbook = doc.phasePlaybook;
+    if (playbook === null) {
+      throw new Error('expected phasePlaybook to be non-null');
+    }
+    expect(playbook.skill).toBe('delegation');
+    expect(playbook.events.length).toBeGreaterThan(0);
+
+    // The composed document still validates under v:3.
+    expect(RehydrationDocumentSchema.safeParse(doc).success).toBe(true);
+  });
+
+  it('RehydrateHandler_TerminalPhase_AttachesNullPhasePlaybook', async () => {
+    // GIVEN: a feature workflow that has transitioned into a phase with no
+    //   registered playbook (e.g. `shipped`). `getPlaybook` returns null
+    //   and the handler must surface that as `phasePlaybook: null` rather
+    //   than omitting the field (the v:3 schema requires its presence).
+    const featureId = 'rehydrate-phaseplaybook-terminal';
+    await store.append(featureId, {
+      type: 'workflow.started',
+      data: { featureId, workflowType: 'feature' },
+    });
+    await store.append(featureId, {
+      type: 'workflow.transition',
+      data: { from: '', to: 'shipped' },
+    });
+
+    // WHEN: we rehydrate.
+    const result = await handleRehydrate(
+      { featureId },
+      { eventStore: store, stateDir },
+    );
+
+    // THEN: phasePlaybook is exactly null (not undefined / not omitted).
+    expect(result.success).toBe(true);
+    const doc = result.data as RehydrationDocument;
+    expect(doc.workflowState.phase).toBe('shipped');
+    expect(doc.phasePlaybook).toBeNull();
+    expect(RehydrationDocumentSchema.safeParse(doc).success).toBe(true);
+  });
+});
