@@ -89,9 +89,12 @@ describe('AtomicAppender_SqliteBackend_DropsInBehindExistingInterface', () => {
   it('invalid streamId returns ok:false with io-error', async () => {
     const appender = new AtomicAppender({ stateDir, backend: 'sqlite' });
 
-    // Slashes are rejected by validateStreamId — same contract as JSONL body.
+    // A spaced stream id is rejected by validateStreamId — same contract as
+    // the JSONL body. Note: post-DR-3 (T24), `<feature-id>/<subagent-id>`
+    // is a VALID namespaced form, so the rejection target uses an
+    // unambiguously malformed input (whitespace + punctuation).
     const result = await appender.append(
-      'has/slashes',
+      'has bad chars!',
       [{ type: 'task.assigned' }],
       'idem-1',
     );
