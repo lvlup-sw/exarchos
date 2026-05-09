@@ -172,7 +172,7 @@ export async function handleWorkflow(
       if (checkpoint) transitionOptions.checkpoint = checkpoint;
       return envelopeWrap(
         await handleTransition(
-          rest as Parameters<typeof handleTransition>[0],
+          rest as unknown as Parameters<typeof handleTransition>[0],
           stateDir,
           eventStore,
           Object.keys(transitionOptions).length > 0
