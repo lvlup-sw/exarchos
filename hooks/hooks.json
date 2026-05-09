@@ -1,23 +1,5 @@
 {
   "hooks": {
-    "PreCompact": [{
-      "matcher": "auto",
-      "hooks": [{
-        "type": "command",
-        "command": "exarchos pre-compact",
-        "timeout": 30,
-        "statusMessage": "Saving workflow checkpoint..."
-      }]
-    }],
-    "SessionStart": [{
-      "matcher": "startup|resume",
-      "hooks": [{
-        "type": "command",
-        "command": "${CLAUDE_PLUGIN_ROOT}/hooks/session-start.sh",
-        "timeout": 10,
-        "statusMessage": "Checking for active workflows..."
-      }]
-    }],
     "PreToolUse": [{
       "matcher": "mcp__(plugin_exarchos_)?exarchos__.*",
       "hooks": [{
