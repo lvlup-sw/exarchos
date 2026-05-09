@@ -14,11 +14,12 @@
 #   TypeScript string literals (under <mcp-src-dir>/):
 #     index.ts                          export const SERVER_VERSION = '…'
 #     adapters/mcp.ts                   const SERVER_VERSION = '…'
-#     cli-commands/session-start.ts     const SESSION_START_BINARY_VERSION = '…'
 #
 #   Note: adapters/cli.ts used to be a sink (.version('…') + binaryVersion: '…')
 #   but since #1219 it reads the version at runtime via resolvePackageVersion()
-#   and is no longer a literal sink. It is intentionally absent from this list.
+#   and is no longer a literal sink. The former cli-commands/session-start sink
+#   was likewise removed when P5 of the rehydration-machinery refactor deleted
+#   that file wholesale. Both are intentionally absent from this list.
 #
 # Modes:
 #   default            patch every sink
@@ -92,7 +93,6 @@ done
 # same definition (DIM-1: no divergent paths).
 INDEX_TS="${MCP_SRC_DIR}/index.ts"
 MCP_TS="${MCP_SRC_DIR}/adapters/mcp.ts"
-SESSION_START_TS="${MCP_SRC_DIR}/cli-commands/session-start.ts"
 
 VERSION=$(node -e "console.log(require(process.argv[1]).version)" "${PACKAGE_JSON}")
 
@@ -145,7 +145,6 @@ ts_sites() {
   cat <<SITES
 ${INDEX_TS}|^export const SERVER_VERSION = |src/index.ts SERVER_VERSION
 ${MCP_TS}|^const SERVER_VERSION = |adapters/mcp.ts SERVER_VERSION
-${SESSION_START_TS}|^const SESSION_START_BINARY_VERSION = |cli-commands/session-start.ts SESSION_START_BINARY_VERSION
 SITES
 }
 
@@ -255,4 +254,3 @@ echo "  - ${MANIFEST_JSON#${REPO_ROOT}/} (.version)"
 echo "  - ${MCP_PACKAGE_JSON#${REPO_ROOT}/} (.version)"
 echo "  - ${INDEX_TS#${REPO_ROOT}/} (SERVER_VERSION)"
 echo "  - ${MCP_TS#${REPO_ROOT}/} (SERVER_VERSION)"
-echo "  - ${SESSION_START_TS#${REPO_ROOT}/} (SESSION_START_BINARY_VERSION)"

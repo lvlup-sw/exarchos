@@ -24,10 +24,9 @@ trap 'rm -rf "$TMPDIR"' EXIT
 # Mirror the real `servers/exarchos-mcp/src/` shape under TMPDIR so the
 # script's path resolution works unchanged.
 TS_TMPDIR="$TMPDIR/mcp-src"
-mkdir -p "$TS_TMPDIR/adapters" "$TS_TMPDIR/cli-commands"
+mkdir -p "$TS_TMPDIR/adapters"
 cp "$REPO_ROOT/servers/exarchos-mcp/src/index.ts"                    "$TS_TMPDIR/index.ts"
 cp "$REPO_ROOT/servers/exarchos-mcp/src/adapters/mcp.ts"             "$TS_TMPDIR/adapters/mcp.ts"
-cp "$REPO_ROOT/servers/exarchos-mcp/src/cli-commands/session-start.ts" "$TS_TMPDIR/cli-commands/session-start.ts"
 
 # Mirror the JSON sinks too.
 cp "$REPO_ROOT/.claude-plugin/plugin.json"                "$TMPDIR/plugin.json"
@@ -72,11 +71,25 @@ poison_all_sinks() {
   sed -E "s/(^const SERVER_VERSION = )'[^']*'/\1'${bad}'/g" \
     "$TS_TMPDIR/adapters/mcp.ts" > "$TS_TMPDIR/adapters/mcp.ts.tmp"
   mv "$TS_TMPDIR/adapters/mcp.ts.tmp" "$TS_TMPDIR/adapters/mcp.ts"
-
-  sed -E "s/(^const SESSION_START_BINARY_VERSION = )'[^']*'/\1'${bad}'/g" \
-    "$TS_TMPDIR/cli-commands/session-start.ts" > "$TS_TMPDIR/cli-commands/session-start.ts.tmp"
-  mv "$TS_TMPDIR/cli-commands/session-start.ts.tmp" "$TS_TMPDIR/cli-commands/session-start.ts"
 }
+
+# ─── Test 0: SyncVersions_DoesNotReferenceDeletedSessionStartTs (F-01) ──────
+#
+# Regression guard: P5 deleted servers/exarchos-mcp/src/cli-commands/session-start.ts.
+# The sync-versions sink registry must not still reference that path, otherwise
+# `--check` mode emits a MISSING: error and `npm run version:sync` (write mode)
+# fails on the patch_quoted_after "file not found" guard, breaking the release
+# workflow. This test runs --check against the real repo (no temp overrides)
+# and asserts the script never reports drift for the deleted file.
+
+echo "Test 0: SyncVersions_DoesNotReferenceDeletedSessionStartTs (F-01)"
+
+REAL_CHECK_OUTPUT=$(bash "$SYNC_SCRIPT" --check 2>&1 || true)
+if grep -qF "session-start.ts" <<<"$REAL_CHECK_OUTPUT"; then
+  fail "sync-versions.sh still references deleted session-start.ts:\n$(grep -F session-start.ts <<<"$REAL_CHECK_OUTPUT")"
+else
+  pass "sync-versions.sh sink registry no longer references deleted session-start.ts"
+fi
 
 # ─── Test 1: SyncVersions_UpdatesPluginJson ──────────────────────────────────
 
@@ -137,22 +150,15 @@ else
   fail "adapters/mcp.ts SERVER_VERSION=$MCP_TS_VER, expected=$PKG_VERSION"
 fi
 
-# ─── Test 6: SyncVersions_UpdatesSessionStartTs ─────────────────────────────
-# Note: the old Test 6 covered adapters/cli.ts literal sinks that were removed
-# in #1219 when cli.ts switched to resolvePackageVersion() at runtime.
+# ─── Test 6 (formerly 7): SyncVersions_Idempotent ───────────────────────────
+# Notes on missing tests in this slot:
+#   - The old Test 6 covered adapters/cli.ts literal sinks that were removed
+#     in #1219 when cli.ts switched to resolvePackageVersion() at runtime.
+#   - A second slot covered cli-commands/session-start.ts SESSION_START_BINARY_VERSION,
+#     dropped in F-01 when P5 of the rehydration-machinery refactor deleted
+#     that file wholesale.
 
-echo "Test 6: SyncVersions_UpdatesSessionStartTs"
-
-SS_VER=$(read_quoted_after "$TS_TMPDIR/cli-commands/session-start.ts" '^const SESSION_START_BINARY_VERSION = ')
-if [[ "$SS_VER" == "$PKG_VERSION" ]]; then
-  pass "session-start.ts SESSION_START_BINARY_VERSION → $PKG_VERSION"
-else
-  fail "session-start.ts SESSION_START_BINARY_VERSION=$SS_VER, expected=$PKG_VERSION"
-fi
-
-# ─── Test 8: SyncVersions_Idempotent ─────────────────────────────────────────
-
-echo "Test 7: SyncVersions_Idempotent"
+echo "Test 6: SyncVersions_Idempotent"
 
 # Snapshot every sink.
 SNAPSHOT_BEFORE=$(cat \
@@ -161,7 +167,6 @@ SNAPSHOT_BEFORE=$(cat \
   "$TMPDIR/mcp-package.json" \
   "$TS_TMPDIR/index.ts" \
   "$TS_TMPDIR/adapters/mcp.ts" \
-  "$TS_TMPDIR/cli-commands/session-start.ts" \
   | sha256sum)
 
 bash "$SYNC_SCRIPT" "${SYNC_ARGS[@]}" >/dev/null
@@ -172,18 +177,17 @@ SNAPSHOT_AFTER=$(cat \
   "$TMPDIR/mcp-package.json" \
   "$TS_TMPDIR/index.ts" \
   "$TS_TMPDIR/adapters/mcp.ts" \
-  "$TS_TMPDIR/cli-commands/session-start.ts" \
   | sha256sum)
 
 if [[ "$SNAPSHOT_BEFORE" == "$SNAPSHOT_AFTER" ]]; then
-  pass "Running sync twice produces byte-identical output across all 6 sinks"
+  pass "Running sync twice produces byte-identical output across all 5 sinks"
 else
   fail "Second sync run mutated at least one sink"
 fi
 
-# ─── Test 8: SyncVersions_CheckMode_Passes_WhenInSync ───────────────────────
+# ─── Test 7 (formerly 8): SyncVersions_CheckMode_Passes_WhenInSync ──────────
 
-echo "Test 8: SyncVersions_CheckMode_Passes_WhenInSync"
+echo "Test 7: SyncVersions_CheckMode_Passes_WhenInSync"
 
 if bash "$SYNC_SCRIPT" "${SYNC_ARGS[@]}" --check >/dev/null 2>&1; then
   pass "--check exits 0 when all sinks match"
@@ -191,9 +195,9 @@ else
   fail "--check exits non-zero despite synced sinks"
 fi
 
-# ─── Test 9: SyncVersions_CheckMode_ReportsAllDrifts_NotJustFirst ───────────
+# ─── Test 8 (formerly 9): SyncVersions_CheckMode_ReportsAllDrifts_NotJustFirst
 
-echo "Test 9: SyncVersions_CheckMode_ReportsAllDrifts_NotJustFirst"
+echo "Test 8: SyncVersions_CheckMode_ReportsAllDrifts_NotJustFirst"
 
 # Wipe every sink to a known-bad version, then run --check and confirm the
 # report covers every site rather than short-circuiting on the first error.
@@ -207,7 +211,6 @@ EXPECTED_HITS=(
   "servers/exarchos-mcp/package.json version"
   "src/index.ts SERVER_VERSION"
   "adapters/mcp.ts SERVER_VERSION"
-  "session-start.ts SESSION_START_BINARY_VERSION"
 )
 MISSING=0
 for hit in "${EXPECTED_HITS[@]}"; do
@@ -217,12 +220,12 @@ for hit in "${EXPECTED_HITS[@]}"; do
   fi
 done
 if [[ $MISSING -eq 0 ]]; then
-  pass "--check reported drift across all 7 site labels (no short-circuit)"
+  pass "--check reported drift across all 6 site labels (no short-circuit)"
 fi
 
-# ─── Test 10: SyncVersions_FailsLoud_OnStructuralPatternMiss ────────────────
+# ─── Test 9 (formerly 10): SyncVersions_FailsLoud_OnStructuralPatternMiss ───
 
-echo "Test 10: SyncVersions_FailsLoud_OnStructuralPatternMiss"
+echo "Test 9: SyncVersions_FailsLoud_OnStructuralPatternMiss"
 
 # Replace the SERVER_VERSION line in index.ts with garbage so the prefix
 # regex no longer matches. The script must refuse to silently leave the
