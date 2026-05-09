@@ -2,7 +2,7 @@
 
 All notable changes to Exarchos are documented in this file. Organized by semver release.
 
-## [Unreleased]
+## [2.10.0] - 2026-05-09
 
 ### Features
 - `preferredFacade` field on every runtime (`mcp` | `cli`) declaring the host's preferred invocation surface (cli-vs-mcp-facade-analysis, DR-1).

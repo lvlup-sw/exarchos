@@ -20,7 +20,7 @@ describe('assertExarchosOnPath', () => {
     const message = (caught as Error).message;
     expect(message).toContain(sentinel);
     expect(message).toContain('not found on PATH');
-    // Must name a v2.9 install remediation verbatim.
+    // Must name a v2.10 install remediation verbatim.
     expect(message).toMatch(/npm link|get-exarchos\.sh/);
   });
 
@@ -71,20 +71,20 @@ describe('assertExarchosVersion', () => {
     }
     expect(caught).toBeInstanceOf(Error);
     const message = (caught as Error).message;
-    expect(message).toContain('2.9');
+    expect(message).toContain('2.10');
     expect(message).toContain('2.8.3');
   });
 
   it('AssertExarchosVersion_MatchingMajorMinor_DoesNotThrow', async () => {
-    const stub = async () => '2.9.7';
+    const stub = async () => '2.10.7';
     await expect(
       assertExarchosVersion({ resolveVersion: stub }),
     ).resolves.toBeUndefined();
   });
 
   it('AssertExarchosVersion_PrereleaseSuffix_DoesNotThrow', async () => {
-    // Pre-release tags (e.g. `2.9.0-rc.3`) must compare on major.minor only.
-    const stub = async () => '2.9.0-rc.3';
+    // Pre-release tags (e.g. `2.10.0-rc.3`) must compare on major.minor only.
+    const stub = async () => '2.10.0-rc.3';
     await expect(
       assertExarchosVersion({ resolveVersion: stub }),
     ).resolves.toBeUndefined();
