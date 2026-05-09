@@ -65,6 +65,7 @@ export const EventTypes = [
   'remediation.succeeded',
   'quality.refinement.suggested',
   'session.tagged',
+  'session.machinery_consumed',
   'worktree.created',
   'worktree.baseline',
   'test.result',
@@ -220,6 +221,13 @@ export const EVENT_EMISSION_REGISTRY: Record<EventType, EventEmissionSource> = {
   'stack.restacked': 'auto',
   'stack.enqueued': 'auto',
   'eval.judge.calibrated': 'auto',
+
+  // auto — emitted by the dispatch-core interceptor on the first non-rehydrate
+  // handler invocation after a workflow.rehydrated event lands (T-12). Marks
+  // "the rehydrated agent has consumed the phase machinery and started doing
+  // real work" — useful for v2.12 lifecycle alignment (ps, wait --condition).
+  // Registration only; emission wired by T-12.
+  'session.machinery_consumed': 'auto',
 
   // model — must be emitted explicitly by the model via exarchos_event
   'team.spawned': 'model',
@@ -927,6 +935,30 @@ export const SessionTaggedData = z.object({
   branch: z.string().optional().describe('Git branch associated with this session'),
 });
 
+/**
+ * session.machinery_consumed — emitted by the dispatch-core interceptor on the
+ * first non-rehydrate handler invocation after a `workflow.rehydrated` event
+ * lands (T-11 registration; T-12 emission). Marks "the rehydrated agent has
+ * consumed the phase machinery and started doing real work" — useful for v2.12
+ * lifecycle alignment (`ps`, `wait --condition=machinery_consumed`).
+ *
+ * `rehydrateSequence` — the projectionSequence from the preceding
+ * `workflow.rehydrated` event, correlating this marker to the specific
+ * rehydration cycle that triggered it.
+ * `firstActionVerb` — the tool/handler name of the first real action, e.g.
+ * `"task_complete"`, `"exarchos_orchestrate"`. Non-empty string required so
+ * observability queries can group by action type.
+ * `firstActionAt` — ISO 8601 wall-clock timestamp of the first action, anchors
+ * the machinery consumption to a point in time for `wait --condition` queries.
+ */
+export const SessionMachineryConsumedDataSchema = z.object({
+  rehydrateSequence: z.number().int().nonnegative(),
+  firstActionVerb: z.string().min(1),
+  firstActionAt: z.string().datetime(),
+}).strict();
+
+export type SessionMachineryConsumedData = z.infer<typeof SessionMachineryConsumedDataSchema>;
+
 // ─── Readiness Event Data ───────────────────────────────────────────────────
 
 export const WorktreeCreatedData = z.object({
@@ -1285,6 +1317,7 @@ export const EVENT_DATA_SCHEMAS: Partial<Record<EventType, z.ZodSchema>> = {
 
   // Session
   'session.tagged': SessionTaggedData,
+  'session.machinery_consumed': SessionMachineryConsumedDataSchema,
 
   // Readiness
   'worktree.created': WorktreeCreatedData,
@@ -1419,6 +1452,7 @@ export type JudgeCalibrated = z.infer<typeof JudgeCalibratedDataSchema>;
 export type RemediationAttempted = z.infer<typeof RemediationAttemptedDataSchema>;
 export type RemediationSucceeded = z.infer<typeof RemediationSucceededDataSchema>;
 export type SessionTagged = z.infer<typeof SessionTaggedData>;
+// SessionMachineryConsumedData is exported alongside its schema above (co-located).
 export type WorktreeCreated = z.infer<typeof WorktreeCreatedData>;
 export type WorktreeBaseline = z.infer<typeof WorktreeBaselineData>;
 export type TestResult = z.infer<typeof TestResultData>;
@@ -1501,6 +1535,7 @@ export type EventDataMap = {
   'remediation.succeeded': RemediationSucceeded;
   'quality.refinement.suggested': RefinementSuggestedData;
   'session.tagged': SessionTagged;
+  'session.machinery_consumed': SessionMachineryConsumedData;
   'worktree.created': WorktreeCreated;
   'worktree.baseline': WorktreeBaseline;
   'test.result': TestResult;
