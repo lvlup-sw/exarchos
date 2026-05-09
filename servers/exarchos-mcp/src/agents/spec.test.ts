@@ -35,6 +35,56 @@ describe('AgentSpec posture field (T30, DR-6)', () => {
   });
 });
 
+describe('AgentSpec legacy capabilities[] deprecation (T34, DR-6)', () => {
+  it('AgentSpec_LegacyCapabilitiesArray_EmitsDeprecationEventAndEnvelope', async () => {
+    const result = validateAgentSpec({
+      ...validBaseSpec,
+      capabilities: ['fs:read', 'fs:write'],
+    });
+
+    // Event emitted via the canonical `spec.legacy_capabilities_array`
+    // type (registered in event-store/schemas.ts).
+    expect(result.events.length).toBe(1);
+    expect(result.events[0].type).toBe('spec.legacy_capabilities_array');
+    expect(result.events[0].data.specName).toBe('implementer');
+    expect(result.events[0].data.capabilities).toEqual(['fs:read', 'fs:write']);
+
+    // Canonical event-emission path: payload must validate against the
+    // registered `EVENT_DATA_SCHEMAS['spec.legacy_capabilities_array']`
+    // schema. validateAgentSpec must run the registered schema so any
+    // future drift between spec validator and event store fails fast.
+    const { EVENT_DATA_SCHEMAS } = await import('../event-store/schemas.js');
+    const eventSchema = EVENT_DATA_SCHEMAS['spec.legacy_capabilities_array'];
+    const parsed = eventSchema.safeParse(result.events[0].data);
+    expect(parsed.success).toBe(true);
+
+    // Consumer-facing deprecation envelope surfaces in `_meta.deprecation`.
+    expect(result._meta?.deprecation).toEqual({
+      since: '2.10.0',
+      removeIn: '2.11.0',
+      replacement: 'posture',
+    });
+
+    // wrapResponseWithDeprecation: any consumer response that consumes the
+    // validated spec must surface `_meta.deprecation` automatically.
+    const { wrapResponseWithDeprecation } = await import('./spec.js');
+    const wrapped = wrapResponseWithDeprecation({ result: 'ok' }, result);
+    expect((wrapped as { _meta?: { deprecation?: unknown } })._meta?.deprecation).toEqual({
+      since: '2.10.0',
+      removeIn: '2.11.0',
+      replacement: 'posture',
+    });
+
+    // A spec using posture (no legacy capabilities[]) emits no event AND
+    // wrapping is a no-op.
+    const modern = validateAgentSpec({ ...validBaseSpec, posture: 'task-isolated' });
+    expect(modern.events.length).toBe(0);
+    expect(modern._meta).toBeUndefined();
+    const modernWrapped = wrapResponseWithDeprecation({ result: 'ok' }, modern);
+    expect((modernWrapped as { _meta?: unknown })._meta).toBeUndefined();
+  });
+});
+
 describe('AgentSpec posture vs capabilities exclusivity (T31, DR-6)', () => {
   it('AgentSpec_BothPostureAndCapabilities_FailsValidationWithStructuredError', () => {
     const result = AgentSpecSchema.safeParse({
