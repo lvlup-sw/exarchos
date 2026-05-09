@@ -146,3 +146,65 @@ describe('scoreStaleness_without_contract_falls_back_to_v2_9_single_signal', () 
     expect(scoreStaleness(stale, undefined).isStale).toBe(true);
   });
 });
+
+describe('scoreStaleness_fail_closed_when_contract_and_signal_both_absent', () => {
+  // T66 (CR #6, DIM-7) — fail-closed.
+  //
+  // Pre-T66 the fallback path used `lastActivityMinutes ?? 0`, so a
+  // contractless phase whose state had no `lastActivityMinutes` signal
+  // was scored as `isStale: false` for any threshold > 0 — i.e. fresh
+  // FOREVER, regardless of how long the workflow had been quiescent.
+  //
+  // That violates DIM-7 (fail-closed): when the system has neither a
+  // declared contract NOR an evidence signal, the safer default is to
+  // mark the phase as stale (a candidate for pruning consideration), not
+  // fresh. The design's "missing contract → emit
+  // `phase.contract_missing` and degrade explicitly" principle implies
+  // degradation toward staleness, not freshness.
+
+  it('contract undefined AND lastActivityMinutes absent → stale (fail-closed)', () => {
+    const result = scoreStaleness({}, undefined);
+    expect(result.isStale).toBe(true);
+  });
+
+  it('exposes a diagnostic reason when fail-closed branch fires', () => {
+    const result = scoreStaleness({}, undefined);
+    expect(result.reason).toBe('no-contract-no-signal');
+  });
+
+  it('explicit threshold without a signal still fails closed', () => {
+    // Caller supplied a threshold but no evidence — the threshold has
+    // nothing to measure against. Fail-closed: stale.
+    const result = scoreStaleness({ thresholdMinutes: 60 }, undefined);
+    expect(result.isStale).toBe(true);
+    expect(result.reason).toBe('no-contract-no-signal');
+  });
+
+  it('lastActivity present (zero) is real evidence — does NOT fail closed', () => {
+    // Distinguishes "0 minutes since activity" (just happened) from
+    // "no signal at all". With evidence, the strict `>` v2.9 comparison
+    // applies normally.
+    const result = scoreStaleness(
+      { lastActivityMinutes: 0, thresholdMinutes: 60 },
+      undefined,
+    );
+    expect(result.isStale).toBe(false);
+    expect(result.reason).toBeUndefined();
+  });
+
+  it('contract present + all declared signals absent → existing per-signal path (not fail-closed reason)', () => {
+    // This test pins the boundary: the fail-closed reason fires ONLY in
+    // the no-contract path. With a contract declared, absent signals
+    // are already treated as stale by the per-signal reducer (its own
+    // `whenAbsent: true` convention), but they go through the contract
+    // branch and do not get the `no-contract-no-signal` diagnostic.
+    const contract: PhaseContract = {
+      expectedMaxDwellMinutes: 60,
+      freshnessRequires: 'all',
+      signals: [{ name: 'lastActivity', thresholdMinutes: 60 }],
+    };
+    const result = scoreStaleness({}, contract);
+    expect(result.isStale).toBe(true);
+    expect(result.reason).toBeUndefined();
+  });
+});
