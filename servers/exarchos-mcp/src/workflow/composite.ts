@@ -8,6 +8,7 @@ import { applyCacheHints, wrap, wrapWithPassthrough, type Envelope, type ToolRes
 import type { DispatchContext } from '../core/dispatch.js';
 import { nextActionsFromResult } from '../next-actions-from-result.js';
 import type { CapabilityResolver } from '../capabilities/resolver.js';
+import { buildValidatedEvent } from '../event-store/event-factory.js';
 
 const workflowActions = TOOL_REGISTRY.find(t => t.name === 'exarchos_workflow')!.actions;
 
@@ -112,17 +113,35 @@ export async function handleWorkflow(
         ((setArgs as { phase: string }).phase).length > 0;
       if (phaseInvoked && eventStore) {
         try {
-          await eventStore.append((setArgs as { featureId: string }).featureId, {
-            type: 'hsm.deprecated_action_invoked' as import(
-              '../event-store/schemas.js'
-            ).EventType,
-            correlationId: (setArgs as { featureId: string }).featureId,
+          // T72 — route through the canonical `buildValidatedEvent` +
+          // `appendValidated` helper. The bare `eventStore.append(...)`
+          // path was a side-channel that bypassed per-event-type data
+          // validation and the canonical envelope-population semantics
+          // every other system-boundary emitter (see
+          // `event-store/tools.ts`) honours. INV-1 (single emission
+          // path) and INV-5d (no manual append within an action handler)
+          // both require this routing. The helper validates the
+          // `HsmDeprecatedActionInvokedData` per-type schema and
+          // populates `schemaVersion` explicitly; the bare path left
+          // it to the Zod default and skipped data validation entirely.
+          //
+          // `featureId` is used as `correlationId` (the workflow stream
+          // is the unit of correlation here) and `source: 'workflow'`
+          // identifies the deprecation as originating from the
+          // workflow composite handler. Sequence `1` is a placeholder —
+          // `appendValidated` re-derives the authoritative sequence
+          // via the per-stream appender.
+          const featureId = (setArgs as { featureId: string }).featureId;
+          const validatedEvent = buildValidatedEvent(featureId, 1, {
+            type: 'hsm.deprecated_action_invoked',
+            correlationId: featureId,
             source: 'workflow',
             data: {
               action: 'workflow.set.phase',
               invokedBy: ctx.projectConfig ? 'workflow.composite' : 'workflow',
             },
           });
+          await eventStore.appendValidated(featureId, validatedEvent);
         } catch {
           // Best-effort telemetry — never block the underlying handler on
           // a deprecation-event emission failure.
