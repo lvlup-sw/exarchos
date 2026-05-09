@@ -204,7 +204,11 @@ export async function createServer(
       ? createInMemoryResolver([])
       : createInMemoryResolver([ANTHROPIC_NATIVE_CACHING]);
 
-  const ctx: DispatchContext = { stateDir, eventStore, enableTelemetry, capabilityResolver };
+  // DR-2 (T16): thread the storage handle (when present) onto the context
+  // so consumers do not need to import `bun:sqlite` directly. The same
+  // backend was already passed to `EventStore` above; surfacing it on
+  // `DispatchContext` is what closes the DI gap.
+  const ctx: DispatchContext = { stateDir, eventStore, enableTelemetry, capabilityResolver, storage: backend };
 
   // Lazy-load the MCP adapter so the CLI cold-start path doesn't incur the
   // MCP-SDK import cost. See module-level note on top of file.

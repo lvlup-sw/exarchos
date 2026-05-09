@@ -116,7 +116,7 @@ export async function initializeContext(
 
   // ─── Fast exit: no projectRoot → no config/vcs/hooks work ────────────────
   if (!options?.projectRoot) {
-    return { stateDir, eventStore, enableTelemetry, capabilityResolver };
+    return { stateDir, eventStore, enableTelemetry, capabilityResolver, storage: backend };
   }
 
   // ─── Cold-start aware config path ────────────────────────────────────────
@@ -157,6 +157,7 @@ export async function initializeContext(
       eventStore,
       enableTelemetry,
       capabilityResolver,
+      storage: backend,
       config: {},
       projectConfig,
       vcsProvider,
@@ -187,5 +188,5 @@ export async function initializeContext(
     }
   }
 
-  return { stateDir, eventStore, enableTelemetry, capabilityResolver, config, projectConfig, vcsProvider, hookRunner };
+  return { stateDir, eventStore, enableTelemetry, capabilityResolver, storage: backend, config, projectConfig, vcsProvider, hookRunner };
 }
