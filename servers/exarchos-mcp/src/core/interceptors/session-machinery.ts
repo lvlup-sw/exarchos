@@ -37,6 +37,7 @@
 
 import type { EventStore } from '../../event-store/store.js';
 import type { WorkflowEvent } from '../../event-store/schemas.js';
+import { workflowLogger } from '../../logger.js';
 
 // ─── Process-local cache ───────────────────────────────────────────────────
 
@@ -166,9 +167,19 @@ export async function runSessionMachineryConsumedInterceptor(
       },
     );
     machineryConsumedCache.set(streamId, rehydrateSequence);
-  } catch {
+  } catch (err) {
     // Swallow — see header comment. The interceptor is observability scaffolding
     // for v2.11/v2.12 lifecycle queries; it must not propagate failures
-    // into the dispatch return path.
+    // into the dispatch return path. Emit a structured warn so the swallow
+    // path is still visible to oncall (parity with handleRehydrate /
+    // buildDegradedResponse). F-05.
+    workflowLogger.warn(
+      {
+        streamId,
+        actionVerb,
+        err: err instanceof Error ? err.message : String(err),
+      },
+      'session-machinery interceptor swallowed error',
+    );
   }
 }
