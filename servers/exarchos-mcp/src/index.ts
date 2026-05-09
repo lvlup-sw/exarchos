@@ -229,10 +229,11 @@ function hookReadStdin(): Promise<string> {
 
 async function main() {
   // ─── Hook Command Fast Path ────────────────────────────────────────────────
-  // Hook commands (session-start, pre-compact, guard, etc.) are invoked as
-  // subprocesses by Claude Code with tight timeouts (5-10s). They only need
-  // lightweight state-dir access, not the full SQLite backend or hydration.
-  // Intercept them here before the expensive initialization path.
+  // Hook commands (guard, task-gate, teammate-gate, subagent-context,
+  // session-end) are invoked as subprocesses by Claude Code with tight
+  // timeouts (5-10s). They only need lightweight state-dir access, not the
+  // full SQLite backend or hydration. Intercept them here before the
+  // expensive initialization path.
   const hookCommand = process.argv[2];
   if (isHookCommand(hookCommand)) {
     const result = await handleHookCommand(

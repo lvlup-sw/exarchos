@@ -519,8 +519,8 @@ export function buildCli(ctx: DispatchContext): Command {
   // Standalone diagnostic that compares the running binary version
   // against the plugin root's declared `metadata.compat.minBinaryVersion`
   // (task 2.3). Shares the same `checkPluginRootCompatibility()` library
-  // as the session-start wiring, so there is exactly one source of truth
-  // for the compat policy.
+  // used by other compat-aware call sites, so there is exactly one source
+  // of truth for the compat policy.
   //
   // The subcommand is intentionally thin: it dispatches to
   // `handleVersionCheck`, which already prints and returns an exit code.
