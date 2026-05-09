@@ -42,17 +42,17 @@ function featureInDelegate(featureId = 'wf-test') {
 }
 
 describe('rehydration reducer — initial state (T022, DR-3)', () => {
-  it('Rehydration_NoEvents_ReturnsMinimalInitial', () => {
+  it('Rehydration_NoEvents_ReturnsV3InitialDocument', () => {
     // GIVEN: no events
     // WHEN: we read rehydrationReducer.initial
     const initial = rehydrationReducer.initial;
 
     // THEN: the initial document parses cleanly via RehydrationDocumentSchema
-    const result = RehydrationDocumentSchema.safeParse(initial);
-    expect(result.success).toBe(true);
+    // (v:3) and round-trips back to itself.
+    expect(RehydrationDocumentSchema.parse(initial)).toEqual(initial);
 
-    // AND: the versioned envelope carries v === 2 and projectionSequence === 0
-    expect(initial.v).toBe(2);
+    // AND: the versioned envelope carries v === 3 and projectionSequence === 0
+    expect(initial.v).toBe(3);
     expect(initial.projectionSequence).toBe(0);
 
     // AND: volatile sections are empty containers
@@ -62,12 +62,20 @@ describe('rehydration reducer — initial state (T022, DR-3)', () => {
     expect(initial.blockers).toEqual([]);
     expect(initial.nextAction).toBeUndefined();
 
+    // AND: phasePlaybook is null (v:3 nullable contract — null until T-20
+    // populates it live at handler time; not undefined so consumers can
+    // distinguish "no playbook" from "field absent").
+    expect(initial.phasePlaybook).toBeNull();
+
     // AND: stable sections carry minimal defaults (strings, possibly empty)
-    expect(typeof initial.behavioralGuidance.skill).toBe('string');
-    expect(typeof initial.behavioralGuidance.skillRef).toBe('string');
+    // Note: behavioralGuidance is NOT present in v:3 (dropped as vestigial).
     expect(typeof initial.workflowState.featureId).toBe('string');
     expect(typeof initial.workflowState.phase).toBe('string');
     expect(typeof initial.workflowState.workflowType).toBe('string');
+
+    // AND: handoff sliding window starts empty
+    expect(initial.recentHandoffs).toEqual([]);
+    expect(initial.latestHandoff).toBeUndefined();
   });
 
   it('Rehydration_ReducerIdentity_IsCanonical', () => {
