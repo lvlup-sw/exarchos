@@ -68,7 +68,7 @@ describe('Migration_LegacyJsonlPresent_ImportsAndArchivesUnderArchiveV210', () =
     const streamA = 'stream-alpha';
     const aLines = [
       JSON.stringify(makeEvent(streamA, 1, 'task.assigned', 0)),
-      JSON.stringify(makeEvent(streamA, 2, 'task.completed', 0)),
+      JSON.stringify(makeEvent(streamA, 2, 'task.completed', 1)),
     ];
     await writeFile(
       path.join(stateDir, `${streamA}.events.jsonl`),
@@ -81,7 +81,7 @@ describe('Migration_LegacyJsonlPresent_ImportsAndArchivesUnderArchiveV210', () =
     const bLines = [
       JSON.stringify(makeEvent(streamB, 1, 'task.assigned', 0)),
       'this is not valid JSON {{',
-      JSON.stringify(makeEvent(streamB, 2, 'task.completed', 0)),
+      JSON.stringify(makeEvent(streamB, 2, 'task.completed', 1)),
     ];
     await writeFile(
       path.join(stateDir, `${streamB}.events.jsonl`),
