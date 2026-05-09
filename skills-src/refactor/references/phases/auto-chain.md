@@ -32,28 +32,23 @@ explore → brief → polish-implement → polish-validate → polish-update-doc
 
 ### Polish Auto-Chain Commands
 
-After each phase, use the SessionStart hook with the featureId to determine the next action:
+After each phase, run `/exarchos:rehydrate <featureId>` and read the rehydration document's `next_actions` envelope to pick the next verb:
 
 ```text
 # After explore
-The SessionStart hook determines the next action automatically.
-Returns: AUTO:brief
+/exarchos:rehydrate <featureId>  →  next_actions[0].verb = brief
 
 # After brief
-The SessionStart hook determines the next action automatically.
-Returns: AUTO:polish-implement
+/exarchos:rehydrate <featureId>  →  next_actions[0].verb = polish-implement
 
 # After polish-implement
-The SessionStart hook determines the next action automatically.
-Returns: AUTO:polish-validate
+/exarchos:rehydrate <featureId>  →  next_actions[0].verb = polish-validate
 
 # After polish-validate (passed)
-The SessionStart hook determines the next action automatically.
-Returns: AUTO:polish-update-docs
+/exarchos:rehydrate <featureId>  →  next_actions[0].verb = polish-update-docs
 
 # After update-docs
-The SessionStart hook determines the next action automatically.
-Returns: WAIT:human-checkpoint:polish-update-docs
+/exarchos:rehydrate <featureId>  →  blockers[0] = human-checkpoint:polish-update-docs
 ```
 
 ### Polish Checkpoint
@@ -102,35 +97,18 @@ explore → brief → overhaul-plan → overhaul-plan-review → overhaul-delega
 
 ### Overhaul Auto-Chain Commands
 
-Use the SessionStart hook with the featureId after each phase:
+Run `/exarchos:rehydrate <featureId>` after each phase and read `next_actions[0].verb`:
 
 ```text
-# After explore
-Returns: AUTO:brief
-
-# After brief
-Returns: AUTO:overhaul-plan
-
-# After overhaul-plan
-Returns: AUTO:overhaul-plan-review
-
-# After overhaul-plan-review (approved)
-Returns: AUTO:overhaul-delegate
-
-# After overhaul-delegate
-Returns: AUTO:overhaul-review
-
-# After overhaul-review (passed)
-Returns: AUTO:overhaul-update-docs
-
-# After overhaul-review (failed)
-Returns: AUTO:delegate:--fixes
-
-# After overhaul-update-docs
-Returns: AUTO:synthesize
-
-# After synthesize
-Returns: WAIT:human-checkpoint:synthesize
+# After explore                          → next_actions[0].verb = brief
+# After brief                            → next_actions[0].verb = overhaul-plan
+# After overhaul-plan                    → next_actions[0].verb = overhaul-plan-review
+# After overhaul-plan-review (approved)  → next_actions[0].verb = overhaul-delegate
+# After overhaul-delegate                → next_actions[0].verb = overhaul-review
+# After overhaul-review (passed)         → next_actions[0].verb = overhaul-update-docs
+# After overhaul-review (failed)         → next_actions[0].verb = overhaul-delegate (with --fixes scope)
+# After overhaul-update-docs             → next_actions[0].verb = synthesize
+# After synthesize                       → blockers[0] = human-checkpoint:synthesize
 ```
 
 ### Overhaul Checkpoint
@@ -177,9 +155,7 @@ updates: { "implement.switchReason": "<reason>", "implement.switchedAt": "<ISO86
 phase: "overhaul-plan"
 updates: { "track": "overhaul" }
 
-# Next action returns
-The SessionStart hook determines the next action automatically.
-Returns: AUTO:overhaul-plan
+# Next action: run /exarchos:rehydrate <featureId> — next_actions[0].verb = overhaul-plan
 ```
 
 ## Failure Handling
