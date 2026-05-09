@@ -575,10 +575,23 @@ export async function handleRehydrate(
   // satisfy `z.number().int().nonnegative()` on the schema.
   const tokenEstimate = Math.ceil(JSON.stringify(document).length / 4);
 
+  // T-21 — surface playbook-presence flags on the audit event.
+  //   `phaseHasPlaybook`     — was a playbook registered for this
+  //                            (workflowType, phase) pair? (registry signal)
+  //   `phasePlaybookComposed` — did the handler actually attach it to the
+  //                            returned document? (handler signal)
+  // On the happy path both flags collapse to `phasePlaybook !== null`.
+  // T-22 (degraded paths) and T-23 (checkpoint composition) will diverge
+  // them so observability can distinguish "registry had it" from
+  // "this response carried it".
+  const phasePlaybookPresent = document.phasePlaybook !== null;
+
   const rehydratedData: WorkflowRehydrated = {
     projectionSequence: document.projectionSequence,
     deliveryPath,
     tokenEstimate,
+    phaseHasPlaybook: phasePlaybookPresent,
+    phasePlaybookComposed: phasePlaybookPresent,
   };
 
   // The observability emission must NOT turn a successful hydrate into a
