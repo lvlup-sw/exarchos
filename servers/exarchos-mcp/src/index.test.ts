@@ -18,12 +18,10 @@ vi.mock('./workflow/state-store.js', async (importOriginal) => {
   };
 });
 
-// Mock the hydration module
-vi.mock('./storage/hydration.js', () => ({
-  hydrateAll: vi.fn().mockResolvedValue(undefined),
-}));
-
-// Mock the migration module
+// Mock the migration module. T74: `index.ts` no longer dynamically
+// imports `./storage/hydration.js` (the JSONL → SQLite import on
+// startup is owned by `runJsonlToSqliteMigration` exclusively), so the
+// hydration-module mock that lived here was removed.
 vi.mock('./storage/migration.js', () => ({
   migrateLegacyStateFiles: vi.fn().mockResolvedValue(undefined),
 }));

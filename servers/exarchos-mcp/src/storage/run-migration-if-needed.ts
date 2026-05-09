@@ -1,4 +1,3 @@
-import { readdir } from 'node:fs/promises';
 import type { StorageBackend } from './backend.js';
 import type { SqliteBackend } from './sqlite-backend.js';
 import { runJsonlToSqliteMigration } from './migration.js';
@@ -16,12 +15,10 @@ import { logger } from '../logger.js';
  *      or `better-sqlite3` not available), do nothing — the migration
  *      cannot run without a SqliteBackend, and JSONL-only callers continue
  *      operating on legacy bodies.
- *   2. If there are no `*.events.jsonl` files in `stateDir` (excluding the
- *      `.archive-v210/` subdir, which `runJsonlToSqliteMigration` already
- *      filters out), AND the migration_lock row is in the `'completed'`
- *      state from a prior run, short-circuit to a strict no-op. This is
- *      the idempotency requirement of DR-8 AC1: re-launching the host on
- *      a state directory that was already migrated must NOT emit fresh
+ *   2. If the `migration_lock` row is in the `'completed'` state from a
+ *      prior run, short-circuit to a strict no-op. This is the
+ *      idempotency requirement of DR-8 AC1: re-launching the host on a
+ *      state directory that was already migrated must NOT emit fresh
  *      `migration.completed` events.
  *   3. Otherwise call `runJsonlToSqliteMigration` and surface any failure
  *      via a structured warning. The runner itself acquires/releases the
@@ -33,8 +30,25 @@ import { logger } from '../logger.js';
  * first time it sees a fresh DB, so by the time this function runs the
  * row is always present. The DR-8 sentinel that actually distinguishes
  * "first run on this stateDir" from "already migrated" is the
- * `migration_lock` row's `state` column plus the absence of remaining
- * legacy JSONL files.
+ * `migration_lock` row's `state` column.
+ *
+ * **T74 — why not also check for absent JSONL files.** A previous
+ * iteration also required `no *.events.jsonl files in stateDir` before
+ * short-circuiting (so an operator restoring from backup with fresh
+ * legacy JSONL would re-trigger the migration). That extra clause is
+ * load-bearing in theory but produces a duplicate-event bug in practice:
+ * the runtime atomic-appender path (in `backend: 'jsonl'` mode plus
+ * `EventStore.replicateBackend`) writes JSONL files for every runtime
+ * event, but those JSONL writes do NOT record `idempotency_claims` rows
+ * in SQLite. On the next process startup, the migration runner sees the
+ * runtime-written JSONL, tries to import it through the SQLite-backed
+ * appender path, finds no claim, allocates fresh sequences, and writes
+ * a duplicate row for every runtime event. The CLI parity tests then
+ * fail with `cli=2N mcp=N`. Dropping the file-presence check makes the
+ * short-circuit "if it ran once on this DB, never run again" — which
+ * matches the DR-8 AC1 wording. Operator restore-from-backup is a
+ * separate (rare) workflow that can be triggered explicitly via tooling
+ * if that need ever materializes.
  */
 export async function runMigrationIfNeeded(
   stateDir: string,
@@ -49,9 +63,14 @@ export async function runMigrationIfNeeded(
   const sqliteBackend = asSqliteBackend(backend);
   if (!sqliteBackend) return;
 
-  // Case 2: short-circuit when migration already completed AND no fresh
-  // JSONL files have appeared in stateDir.
-  if (await alreadyCompletedAndNoLegacyFiles(stateDir, sqliteBackend)) {
+  // Case 2: short-circuit when migration already completed.
+  //
+  // T74 — see header doc for why we no longer also require "no JSONL
+  // files in stateDir": that condition was tripped on every startup by
+  // the runtime appender's own JSONL writes, which made the migration
+  // re-import (and duplicate) every runtime event because runtime
+  // dual-write doesn't record `idempotency_claims`.
+  if (alreadyCompleted(sqliteBackend)) {
     return;
   }
 
@@ -99,10 +118,7 @@ function asSqliteBackend(backend: StorageBackend): SqliteBackend | undefined {
   return undefined;
 }
 
-async function alreadyCompletedAndNoLegacyFiles(
-  stateDir: string,
-  backend: SqliteBackend,
-): Promise<boolean> {
+function alreadyCompleted(backend: SqliteBackend): boolean {
   // Probe the lock row directly. We avoid importing `readMigrationLockState`
   // here so this module only depends on the SQL surface we actually use,
   // keeping the cold-start import graph minimal.
@@ -110,24 +126,5 @@ async function alreadyCompletedAndNoLegacyFiles(
   const row = db
     .prepare('SELECT state FROM migration_lock WHERE id = 1')
     .get() as { state?: string } | undefined;
-  if (!row || row.state !== 'completed') return false;
-
-  // Any `*.events.jsonl` in stateDir means a fresh batch arrived (operator
-  // restored from backup, etc.) and the migration should re-run on that
-  // new content. `runJsonlToSqliteMigration` filters out the
-  // `.archive-v210/` subdirectory, but the simplest implementation here
-  // mirrors that filter at the readdir layer so we don't need to peek
-  // into the archive at all.
-  let entries: string[];
-  try {
-    entries = await readdir(stateDir);
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
-      // No state dir → nothing to migrate.
-      return true;
-    }
-    throw err;
-  }
-  const jsonlFiles = entries.filter((f) => f.endsWith('.events.jsonl'));
-  return jsonlFiles.length === 0;
+  return row?.state === 'completed';
 }

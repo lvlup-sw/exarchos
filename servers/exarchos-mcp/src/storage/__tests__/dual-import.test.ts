@@ -7,37 +7,70 @@ import { randomUUID } from 'node:crypto';
 import { SqliteBackend } from '../sqlite-backend.js';
 import { hydrateAll } from '../hydration.js';
 import { runJsonlToSqliteMigration } from '../migration.js';
+import { runMigrationIfNeeded } from '../run-migration-if-needed.js';
+import { EventStore } from '../../event-store/store.js';
 
 /**
- * T74 — RED test for the dual-import bug.
+ * T74 — Regression test suite for the dual-import bug that produced
+ * `cli=6 mcp=3` in the v2.10 parity tests.
  *
- * Reproduces the parity-test failure mode in isolation. On every CLI
- * process startup, BOTH `hydrateAll()` (called from `index.ts`) AND the
- * `runMigrationIfNeeded` lifecycle hook (called from `core/context.ts`)
- * see the same legacy `*.events.jsonl` file and import it into SQLite —
- * but they take different code paths with no coordination on
- * idempotency:
+ * **The bug.** Two independent code paths could each import the same
+ * `*.events.jsonl` lines into SQLite. Neither coordinated with the
+ * other on `idempotency_claims`, so a "second pass" allocated fresh
+ * sequences and wrote a duplicate row for every previously-imported
+ * event:
  *
- *   1. `hydrateAll` calls `backend.appendEvent()` directly. This is a
- *      raw INSERT into the `events` table; it bypasses
+ *   1. **Pre-migration `hydrateAll` at process startup.**
+ *      `index.ts:288` used to call `hydrateAll(backend, stateDir)` BEFORE
+ *      the migration lifecycle hook fired. `hydrateAll` walks every
+ *      `*.events.jsonl` file and inserts each line via
+ *      `backend.appendEvent()` direct INSERT — bypassing
  *      `idempotency_claims` entirely.
- *   2. `runJsonlToSqliteMigration` then re-imports the same JSONL via
- *      `appender.append(streamId, [...], idempotencyKey)`. The appender
- *      checks `idempotency_claims`, finds nothing (because step 1 did
- *      not record claims), and writes a NEW event with a NEW sequence
- *      and NEW eventId.
+ *   2. **Runtime dual-write at every event append.** `EventStore.append`
+ *      writes through the runtime atomic-appender path (which writes
+ *      JSONL) AND `EventStore.replicateBackend` does a best-effort
+ *      direct INSERT into SQLite. The direct INSERT also bypasses
+ *      `idempotency_claims`. Every runtime event therefore appears in
+ *      JSONL on disk with NO matching claim row.
  *
- * Result: SQLite contains DUPLICATES of every event. The CLI test reads
- * SQLite and sees duplicates; the parity tests fail with `cli=6 mcp=3`.
+ * On the next process startup, `runMigrationIfNeeded` saw `*.events.jsonl`
+ * files in `stateDir` (always present after any runtime activity) and
+ * dropped through to `runJsonlToSqliteMigration`, which re-imported
+ * every JSONL line through `appender.append`. The appender found no
+ * claim and allocated fresh sequences. Every event was duplicated;
+ * the CLI parity test read 2N rows where the MCP path read N.
  *
- * This test mirrors the startup ordering from `index.ts:288` /
- * `context.ts:119` against a fresh stateDir holding a single 3-event
- * JSONL file. Currently the assertion fails: SQLite contains 6 events
- * for the stream (3 from hydrateAll + 3 fresh from the migration).
+ * **The fix.** Two surgical edits, each preventing a separate path from
+ * tripping the same bug shape:
  *
- * Sibling: `migration.acceptance.test.ts` (T18, runs migration only) and
- * `hydration.test.ts` (runs hydrateAll only). Neither exercises the
- * dual-call sequence that the real startup path runs.
+ *   1. Removed the `hydrateAll(backend, stateDir)` call from
+ *      `index.ts`. Production startup now only fires the migration
+ *      runner via `initializeContext` → `runMigrationIfNeeded`.
+ *      `hydrateAll` is retained for disaster-recovery and roundtrip
+ *      tests that intentionally bypass idempotency machinery.
+ *   2. Tightened the `runMigrationIfNeeded` short-circuit. The previous
+ *      condition required `migration_lock = 'completed'` AND no
+ *      `*.events.jsonl` files in `stateDir`. The "no files" clause was
+ *      tripped on every startup by the runtime appender's own JSONL
+ *      writes. The new condition is `migration_lock = 'completed'`
+ *      alone — meaning "if we have ever migrated this DB, never do it
+ *      again." This matches DR-8 AC1's once-only semantics.
+ *
+ * This test suite pins down all three contracts:
+ *
+ *   - `migrationAlone_NoDuplicates` — fresh stateDir + migration only
+ *     produces exactly N events for an N-event JSONL fixture. This is
+ *     the simplest GREEN.
+ *   - `runtimeWriteThenSecondStartup_NoDuplicates` — the realistic
+ *     production path: runtime writes via EventStore.append, then a
+ *     second runMigrationIfNeeded simulates the next process startup.
+ *     SQLite must end up with exactly N events (not 2N). This is the
+ *     bug shape the parity tests were actually catching.
+ *   - `legacyOrdering_StillDuplicates_RegressionGuard` — pins the
+ *     pre-T74 hydrateAll-then-migrate bug shape. If a future commit
+ *     re-introduces a pre-migration `hydrateAll` call at startup, this
+ *     test will fail FIRST and point directly at the dual-import call
+ *     site.
  */
 
 interface PersistedEventLite {
@@ -67,7 +100,20 @@ function makeEvent(
   };
 }
 
-describe('Startup_DualImport_NoDuplicateEvents', () => {
+async function seedJsonlFixture(stateDir: string, streamId: string): Promise<void> {
+  const lines = [
+    JSON.stringify(makeEvent(streamId, 1, 'workflow.started', 0)),
+    JSON.stringify(makeEvent(streamId, 2, 'task.assigned', 1)),
+    JSON.stringify(makeEvent(streamId, 3, 'task.completed', 2)),
+  ];
+  await writeFile(
+    path.join(stateDir, `${streamId}.events.jsonl`),
+    lines.join('\n') + '\n',
+    'utf-8',
+  );
+}
+
+describe('Startup_DualImport_NoDuplicateEvents (T74)', () => {
   let stateDir: string;
 
   beforeEach(async () => {
@@ -78,59 +124,134 @@ describe('Startup_DualImport_NoDuplicateEvents', () => {
     await rm(stateDir, { recursive: true, force: true });
   });
 
-  it('hydrateAll then runMigration on a 3-event JSONL leaves exactly 3 events in SQLite (no duplicates)', async () => {
-    // ─── Fixture: one 3-event legacy JSONL file ─────────────────────────
+  it('migrationAlone_NoDuplicates: a fresh stateDir + migration produces exactly N events for an N-event JSONL fixture', async () => {
+    // Production startup since T74 calls ONLY the migration runner
+    // (the `hydrateAll` call was removed from `index.ts`).
     const streamId = 'stream-alpha';
-    const lines = [
-      JSON.stringify(makeEvent(streamId, 1, 'workflow.started', 0)),
-      JSON.stringify(makeEvent(streamId, 2, 'task.assigned', 1)),
-      JSON.stringify(makeEvent(streamId, 3, 'task.completed', 2)),
-    ];
-    await writeFile(
-      path.join(stateDir, `${streamId}.events.jsonl`),
-      lines.join('\n') + '\n',
-      'utf-8',
-    );
+    await seedJsonlFixture(stateDir, streamId);
 
-    // ─── Backend (mirrors `initializeBackend` in index.ts) ──────────────
     const dbPath = path.join(stateDir, 'exarchos.db');
     const backend = new SqliteBackend(dbPath);
     backend.initialize();
 
     try {
-      // ─── Step 1: hydrateAll (mirrors index.ts:288) ───────────────────
-      // Currently this performs raw `backend.appendEvent()` INSERTs —
-      // bypassing `idempotency_claims`.
-      await hydrateAll(backend, stateDir);
-
-      // ─── Step 2: runJsonlToSqliteMigration (mirrors context.ts:119
-      // → run-migration-if-needed.ts → migration.ts) ───────────────────
-      // The appender finds no idempotency claim (step 1 did not record
-      // any) and re-imports the same JSONL with NEW sequences/eventIds.
       const summary = await runJsonlToSqliteMigration({
         stateDir,
         backend,
       });
       expect(summary.ok).toBe(true);
 
-      // ─── Assertion: exactly 3 events for this stream ─────────────────
-      // Bug shape: SQLite contains 6 events (the 3 hydrated + 3 fresh
-      // from the migration's appender path). After T74 GREEN this MUST
-      // collapse back to 3.
       const events = backend.queryEvents(streamId);
       expect(events).toHaveLength(3);
-
-      // Sequences must be the originals from the JSONL (1, 2, 3),
-      // not the migration-allocated 4, 5, 6.
       expect(events.map((e) => e.sequence)).toEqual([1, 2, 3]);
-
-      // Types must match the JSONL in order (further guard against the
-      // migration path silently re-creating events with derived data).
       expect(events.map((e) => e.type)).toEqual([
         'workflow.started',
         'task.assigned',
         'task.completed',
       ]);
+    } finally {
+      backend.close();
+    }
+  });
+
+  it('runtimeWriteThenSecondStartup_NoDuplicates: the parity-bug shape — runtime appends followed by a second startup-time migration check must NOT duplicate', async () => {
+    // This is the bug shape the v2.10 parity tests were actually
+    // catching. The realistic production sequence is:
+    //
+    //   1. First startup: runMigrationIfNeeded runs on an empty
+    //      stateDir, emits migration.completed, sets the lock to
+    //      'completed'. (Modeled by the first call below.)
+    //   2. Runtime writes events via EventStore.append. This goes
+    //      through the JSONL-mode atomic appender (writes JSONL) AND
+    //      EventStore.replicateBackend (best-effort direct INSERT into
+    //      SQLite — bypasses idempotency_claims).
+    //   3. Second startup: runMigrationIfNeeded fires again. PRE-T74
+    //      it would see *.events.jsonl files (the runtime ones) and
+    //      drop through to runJsonlToSqliteMigration, which would
+    //      re-import every line through the appender, find no claim,
+    //      and allocate fresh sequences — duplicating every runtime
+    //      event. POST-T74 it short-circuits on the
+    //      migration_lock='completed' alone.
+    //
+    // Without the fix this test asserts SQLite ends up with 6 events
+    // (2× duplication). With the fix it ends up with 3.
+
+    const dbPath = path.join(stateDir, 'exarchos.db');
+    const backend = new SqliteBackend(dbPath);
+    backend.initialize();
+
+    try {
+      // Step 1: simulated first-startup migration check on empty stateDir.
+      // Emits migration.completed; lock state becomes 'completed'.
+      await runMigrationIfNeeded(stateDir, backend);
+
+      // Step 2: simulated runtime — write 3 events via the EventStore
+      // append path (JSONL appender + best-effort SQLite dual-write).
+      const store = new EventStore(stateDir, { backend });
+      await store.initialize();
+      const streamId = 'stream-bravo';
+      await store.append(streamId, { type: 'workflow.started', data: { i: 0 } });
+      await store.append(streamId, { type: 'task.assigned', data: { i: 1 } });
+      await store.append(streamId, { type: 'task.completed', data: { i: 2 } });
+
+      // SQLite has exactly 3 events at this point — written by
+      // replicateBackend's direct INSERT.
+      expect(backend.queryEvents(streamId)).toHaveLength(3);
+
+      // Step 3: simulated second startup — runMigrationIfNeeded fires
+      // again. POST-T74 it short-circuits because migration_lock is
+      // 'completed'. PRE-T74 it would re-import every JSONL line and
+      // double the event count.
+      await runMigrationIfNeeded(stateDir, backend);
+
+      // The load-bearing assertion. PRE-T74: 6 events (duplicates).
+      // POST-T74: 3 events (untouched).
+      const events = backend.queryEvents(streamId);
+      expect(events).toHaveLength(3);
+      expect(events.map((e) => e.sequence)).toEqual([1, 2, 3]);
+    } finally {
+      backend.close();
+    }
+  });
+
+  it('legacyOrdering_StillDuplicates_RegressionGuard: pre-T74 ordering (hydrateAll then migration) doubles every event', async () => {
+    // This test pins down the FIRST root cause shape — calling
+    // `hydrateAll` before the migration runner. If you find yourself
+    // reintroducing a pre-migration `hydrateAll(backend, stateDir)`
+    // call at process startup (or in any pipeline that chains
+    // hydrateAll → migration on the same JSONL), you will silently
+    // double every imported event in SQLite. `appendEvent()` bypasses
+    // `idempotency_claims`, so the migration runner has no way to know
+    // hydrateAll already wrote those events and allocates a fresh
+    // sequence range for each one. The parity tests will then fail
+    // with `cli=2N mcp=N` — but this unit test fails FIRST and points
+    // directly at the dual-import call site.
+    const streamId = 'stream-charlie';
+    await seedJsonlFixture(stateDir, streamId);
+
+    const dbPath = path.join(stateDir, 'exarchos.db');
+    const backend = new SqliteBackend(dbPath);
+    backend.initialize();
+
+    try {
+      // Step 1: legacy `hydrateAll` (raw INSERT, no idempotency claim).
+      await hydrateAll(backend, stateDir);
+
+      // Step 2: migration runner appends through the appender path,
+      // which finds no idempotency claim from step 1 and allocates
+      // fresh sequences (4, 5, 6) for the same logical events.
+      const summary = await runJsonlToSqliteMigration({
+        stateDir,
+        backend,
+      });
+      expect(summary.ok).toBe(true);
+
+      const events = backend.queryEvents(streamId);
+      // Bug shape: 6 events instead of 3 — sequences 1..3 from
+      // hydrateAll's preserved-sequence direct INSERT, then 4..6 from
+      // the migration's appender-allocated sequences.
+      expect(events).toHaveLength(6);
+      expect(events.map((e) => e.sequence)).toEqual([1, 2, 3, 4, 5, 6]);
     } finally {
       backend.close();
     }

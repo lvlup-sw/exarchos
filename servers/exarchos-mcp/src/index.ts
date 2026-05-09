@@ -281,11 +281,21 @@ async function main() {
   const backend = await initializeBackend(stateDir);
 
   if (backend) {
-    // Hydrate SQLite from JSONL source of truth and migrate legacy files
-    const { hydrateAll } = await import('./storage/hydration.js');
+    // Migrate legacy non-JSONL files (state files, outbox) into SQLite.
+    //
+    // T74 — JSONL → SQLite import is owned EXCLUSIVELY by the migration
+    // runner (`runJsonlToSqliteMigration`) which fires from
+    // `initializeContext` → `runMigrationIfNeeded` below. We previously
+    // called `hydrateAll(backend, stateDir)` here, which read the same
+    // `*.events.jsonl` files via `backend.appendEvent()` direct INSERT.
+    // That bypassed `idempotency_claims`, so the subsequent migration
+    // pass through `appender.append(streamId, [...], idempotencyKey)`
+    // found no claim, allocated fresh sequences/eventIds, and wrote a
+    // duplicate row for every imported event. Result: parity tests saw
+    // `cli=6 mcp=3`. The migration runner is lock-protected (DR-8),
+    // claim-recording, and replay-safe — no second importer is needed.
     const { migrateLegacyStateFiles, migrateLegacyOutbox, cleanupLegacyFiles } = await import('./storage/migration.js');
 
-    await hydrateAll(backend, stateDir);
     await migrateLegacyStateFiles(backend, stateDir);
     await migrateLegacyOutbox(backend, stateDir);
     await cleanupLegacyFiles(stateDir);
