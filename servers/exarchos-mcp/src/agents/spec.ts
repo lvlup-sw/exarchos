@@ -137,6 +137,12 @@ export function validateAgentSpec(input: unknown): ValidateAgentSpecResult {
     // time. The validator does not bypass the appender — it returns the
     // structured event for the caller to flow through the appender.
     const eventSchema = EVENT_DATA_SCHEMAS['spec.legacy_capabilities_array'];
+    if (!eventSchema) {
+      throw new Error(
+        'Event schema "spec.legacy_capabilities_array" is not registered in EVENT_DATA_SCHEMAS — ' +
+          'this indicates the schema registry was not initialized correctly (INV-1: every event type must have a registered schema).',
+      );
+    }
     eventSchema.parse(data);
 
     events.push({
