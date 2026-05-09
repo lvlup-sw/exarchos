@@ -167,3 +167,56 @@ describe('Topology_StartupWithMissingContracts_EmitsPhaseContractMissingPerPhase
     expect(sink.events.filter((e) => e.type === 'phase.contract_missing')).toHaveLength(0);
   });
 });
+
+// ─── T71: concurrent first-load must not duplicate parse / emission ───────────
+//
+// CodeRabbit finding #11 (Major) — `loadTopology()` only checks the `cached`
+// field. Two concurrent first-time callers can both pass the `!cached` check,
+// both parse `topology.yaml`, and both emit `phase.contract_missing` per
+// missing phase before either assigns `cached`. INV-1 says the same trigger
+// (one startup) must yield the same number of events; the race violates this.
+//
+// Fix mirrors T63's Promise-cached singleton pattern in `atomic-appender.ts`.
+describe('Topology_ConcurrentFirstLoad_DoesNotDuplicateContractMissingEmission', () => {
+  beforeEach(() => {
+    __resetTopologyCacheForTesting();
+  });
+
+  it('two concurrent loadTopology() calls emit phase.contract_missing exactly once per missing phase', async () => {
+    const file = writeTopology(PARTIAL_TOPOLOGY);
+    const sink = makeEventSink();
+
+    const [a, b] = await Promise.all([
+      loadTopology({ topologyPath: file, emit: sink.emit }),
+      loadTopology({ topologyPath: file, emit: sink.emit }),
+    ]);
+
+    // Both callers see the same Topology instance (cache invariant).
+    expect(b).toBe(a);
+
+    // Two missing phases (`implement`, `review`) — exactly two emissions.
+    const missing = sink.events.filter((e) => e.type === 'phase.contract_missing');
+    expect(missing).toHaveLength(2);
+    const phaseNames = missing.map((e) => (e.data as { phaseName: string }).phaseName).sort();
+    expect(phaseNames).toEqual(['implement', 'review']);
+  });
+
+  it('N concurrent loadTopology() calls emit phase.contract_missing exactly once per missing phase', async () => {
+    const file = writeTopology(PARTIAL_TOPOLOGY);
+    const sink = makeEventSink();
+
+    const N = 8;
+    const results = await Promise.all(
+      Array.from({ length: N }, () => loadTopology({ topologyPath: file, emit: sink.emit })),
+    );
+
+    // All callers converge on the same Topology instance.
+    for (const r of results) {
+      expect(r).toBe(results[0]);
+    }
+
+    // Still exactly two emissions despite N first-callers.
+    const missing = sink.events.filter((e) => e.type === 'phase.contract_missing');
+    expect(missing).toHaveLength(2);
+  });
+});
