@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join, resolve, sep } from 'node:path';
+import ts from 'typescript';
 
 /**
  * Guard rail: better-sqlite3 is a test-only dependency.
@@ -42,17 +43,78 @@ function readPackageJson(path: string): PackageJson {
 // ─── Source-tree walker (T17) ───────────────────────────────────────────────
 
 const EXCLUDED_SEGMENTS = new Set(['storage', '__shims__', '__tests__']);
-const BUN_SQLITE_IMPORT_RE = /from\s+['"]bun:sqlite['"]/;
+const FORBIDDEN_MODULE_SPECIFIER = 'bun:sqlite';
 
 /**
  * Returns true iff `source` references `bun:sqlite` as a module
- * specifier. T67 contract: must catch every import/export form.
+ * specifier in ANY of the import/export forms TypeScript supports:
  *
- * Initial RED implementation defers to the legacy regex so the
- * loophole-coverage tests fail. GREEN replaces this with an AST walk.
+ *   - static value/type imports:     import x from 'bun:sqlite'
+ *                                    import { Database } from 'bun:sqlite'
+ *                                    import * as db from 'bun:sqlite'
+ *                                    import type { … } from 'bun:sqlite'
+ *   - side-effect import:            import 'bun:sqlite'
+ *   - dynamic import:                import('bun:sqlite')
+ *   - re-exports:                    export * from 'bun:sqlite'
+ *                                    export { Database } from 'bun:sqlite'
+ *
+ * Implementation: parses the source with the TypeScript compiler API
+ * and walks the AST. This replaces the previous regex
+ * `/from\s+['"]bun:sqlite['"]/`, which silently missed side-effect and
+ * dynamic forms (T67 / CR #7). Walking the AST also avoids matching
+ * the literal string when it appears in a comment or unrelated string
+ * literal.
+ *
+ * The TypeScript dependency is already present (it powers `npm run
+ * typecheck`) so this adds no new install surface.
  */
 function scanSourceForBunSqlite(source: string): boolean {
-  return BUN_SQLITE_IMPORT_RE.test(source);
+  const sf = ts.createSourceFile(
+    'scan.ts',
+    source,
+    ts.ScriptTarget.Latest,
+    /* setParentNodes */ false,
+    ts.ScriptKind.TS,
+  );
+
+  let found = false;
+  const visit = (node: ts.Node): void => {
+    if (found) return;
+    // import x from '…' / import { … } from '…' / import '…' / import type … from '…'
+    if (ts.isImportDeclaration(node)) {
+      if (
+        ts.isStringLiteral(node.moduleSpecifier) &&
+        node.moduleSpecifier.text === FORBIDDEN_MODULE_SPECIFIER
+      ) {
+        found = true;
+        return;
+      }
+    }
+    // export * from '…' / export { … } from '…'
+    if (ts.isExportDeclaration(node) && node.moduleSpecifier) {
+      if (
+        ts.isStringLiteral(node.moduleSpecifier) &&
+        node.moduleSpecifier.text === FORBIDDEN_MODULE_SPECIFIER
+      ) {
+        found = true;
+        return;
+      }
+    }
+    // import('…') — `import` keyword as call expression callee
+    if (
+      ts.isCallExpression(node) &&
+      node.expression.kind === ts.SyntaxKind.ImportKeyword
+    ) {
+      const [first] = node.arguments;
+      if (first && ts.isStringLiteral(first) && first.text === FORBIDDEN_MODULE_SPECIFIER) {
+        found = true;
+        return;
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sf);
+  return found;
 }
 
 /**
@@ -142,7 +204,7 @@ describe('no legacy runtime deps', () => {
     const offenders: string[] = [];
     for (const file of productionFiles) {
       const content = readFileSync(file, 'utf-8');
-      if (BUN_SQLITE_IMPORT_RE.test(content)) {
+      if (scanSourceForBunSqlite(content)) {
         offenders.push(file.split(`${sep}src${sep}`).pop() ?? file);
       }
     }
