@@ -1006,6 +1006,11 @@ async function enrichGuardFailureError(
  * `validTargets[]`, `expectedShape`, and `suggestedFix` populated. Existing
  * `validTargets` (from HSMTransitionGuard) is preserved when present; the
  * `suggestedFix` heuristic prefers the Levenshtein-closest valid target.
+ *
+ * Identical envelope shape across CLI and MCP carriers (T42 / DR-5): the
+ * `parity-harness.TRANSITION_GUARD_FAILURE_FIXTURE` test asserts byte
+ * equivalence so any drift in the failure-path serialization is caught at
+ * compile-time review rather than at runtime in client code.
  */
 function buildGuardFailureError(
   result: ToolResult,
