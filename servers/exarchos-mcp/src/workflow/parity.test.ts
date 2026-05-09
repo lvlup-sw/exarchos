@@ -10,8 +10,10 @@ import {
   callCli as harnessCallCli,
   callMcp as harnessCallMcp,
   normalize as harnessNormalize,
+  DELEGATE_PHASE_REHYDRATE_FIXTURE,
 } from '../__tests__/parity-harness.js';
 import type { ToolResult } from '../format.js';
+import type { RehydrationDocument } from '../projections/rehydration/schema.js';
 
 // ─── Task 014: CLI-vs-MCP Parity for exarchos_workflow (DR-3) ─────────────────
 // These tests prove that the CLI adapter (task 013 work) and the MCP adapter
@@ -159,6 +161,62 @@ describe('exarchos_workflow CLI/MCP parity (DR-3)', () => {
 
     expect(exitCode).toBe(CLI_EXIT_CODES.SUCCESS);
     expect(normalize(cliResult)).toEqual(normalize(mcpResult));
+  });
+
+  // ─── T-24 — delegate-phase rehydrate envelope parity (rehydration-machinery-refactor) ───
+  //
+  // Pins INV-2 (facade equivalence over shared dispatch core) for the v:3
+  // rehydration envelope. After T-20 / T-23, both `handleRehydrate` and
+  // `handleCheckpoint` compose a non-null `phasePlaybook` for delegate-phase
+  // workflows. This test drives the CLI and MCP carriers against an
+  // identical delegate-phase fixture, normalizes wall-clock / sequence-tied
+  // fields, and asserts byte-for-byte equivalent ToolResult envelopes —
+  // explicitly including `data.phasePlaybook`. If a future change makes one
+  // carrier compose `phasePlaybook` differently than the other (e.g. CLI
+  // skips composition, or MCP serializes a different field order), this
+  // assertion fails.
+  it('WorkflowParity_RehydrateDelegatePhase_ByteEquivalentEnvelopeIncludingPhasePlaybook', async () => {
+    // GIVEN: identical delegate-phase fixture primed on both arms.
+    await DELEGATE_PHASE_REHYDRATE_FIXTURE.setup(fixture.cliCtx);
+    await DELEGATE_PHASE_REHYDRATE_FIXTURE.setup(fixture.mcpCtx);
+
+    // WHEN: rehydrate via each carrier with identical args. Use the shared
+    //   `harnessCallMcp` directly here — it accepts the canonical
+    //   `{ action, ...args }` shape the fixture exposes, so we don't have
+    //   to split `action` back out of `mcpCall.args` to satisfy this
+    //   suite's local `callMcp` wrapper.
+    const mcpResult = await harnessCallMcp(
+      fixture.mcpCtx,
+      DELEGATE_PHASE_REHYDRATE_FIXTURE.mcpCall.tool,
+      DELEGATE_PHASE_REHYDRATE_FIXTURE.mcpCall.args,
+    );
+    const { result: cliResult, exitCode } = await callCli(
+      fixture.cliCtx,
+      DELEGATE_PHASE_REHYDRATE_FIXTURE.cliCall.toolAlias,
+      DELEGATE_PHASE_REHYDRATE_FIXTURE.cliCall.action,
+      DELEGATE_PHASE_REHYDRATE_FIXTURE.cliCall.flags as Record<string, string>,
+    );
+
+    // Both arms produced a successful rehydration.
+    expect(exitCode).toBe(CLI_EXIT_CODES.SUCCESS);
+    expect(cliResult.success).toBe(true);
+    expect(mcpResult.success).toBe(true);
+
+    // Sanity-check the precondition this test exists to pin: phasePlaybook
+    // is composed (non-null) on both arms. If T-20/T-23 ever regresses to
+    // null on the delegate phase, fail loudly with a phasePlaybook-specific
+    // message rather than a giant deep-equal diff.
+    const cliDoc = cliResult.data as RehydrationDocument;
+    const mcpDoc = mcpResult.data as RehydrationDocument;
+    expect(cliDoc.phasePlaybook).not.toBeNull();
+    expect(mcpDoc.phasePlaybook).not.toBeNull();
+
+    // THEN: byte-equivalent envelopes after wall-clock normalization.
+    // The deep-equal compares the ENTIRE ToolResult, so `data.phasePlaybook`
+    // is implicitly part of the byte-equivalence assertion. We additionally
+    // assert it explicitly to make the contract self-documenting.
+    expect(normalize(cliResult)).toEqual(normalize(mcpResult));
+    expect(cliDoc.phasePlaybook).toEqual(mcpDoc.phasePlaybook);
   });
 
   it('WorkflowParity_Set_CliAndMcp_ReturnEqualPayload', async () => {
