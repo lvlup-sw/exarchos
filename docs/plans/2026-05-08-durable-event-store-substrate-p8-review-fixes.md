@@ -249,11 +249,53 @@ This wave addresses findings surfaced during `/exarchos:shepherd` on PR #1323:
 
 ---
 
+### Task 74: Eliminate dual-import duplicate events at CLI startup (actual parity root cause)
+
+**Goal:** During T62 implementation, an agent discovered the real cause of the parity test failure: **two import paths run on every CLI process startup**, both importing legacy JSONL → SQLite, and they don't coordinate on idempotency.
+
+1. `hydrateAll()` (called from `servers/exarchos-mcp/src/index.ts:288`) imports JSONL into SQLite via `backend.appendEvent()` direct INSERT — **bypasses the `idempotency_claims` table**.
+2. `runMigrationIfNeeded()` then re-imports the same JSONL through `appender.append(streamId, [...], idempotencyKey)`. The appender checks `idempotency_claims`, finds nothing (because step 1 didn't record claims), and writes a **new event with a new sequence and new eventId** — duplicating the same logical event.
+
+Result: SQLite ends up with N copies of every event, each with a different `eventId`. The CLI test reads SQLite (sees duplicates); MCP — depending on its `getReadBackend()` resolution — may read JSONL or SQLite (sees the original count). This is **the parity bug** that T62 alone could not fix.
+
+Concurrent observation from the agent's repro: `migration-lock timed out without observing completion` appears in CLI startup logs, putting the migration in degraded mode. This is a separate but related issue.
+
+**Phase:** RED → GREEN
+**Test Layer:** integration (E2E parity tests + unit on the dual-import scenario)
+**Implements:** Real parity fix; **INV-1** (event-sourcing integrity — same logical event must appear in the log exactly once)
+
+**TDD Steps:**
+1. **[RED]** Write a unit test that reproduces the dual-import:
+   - Seed state-dir with a JSONL file containing 3 events (no SQLite yet)
+   - Call `hydrateAll()` then `runMigrationIfNeeded()` (in this order, mirroring `index.ts` startup)
+   - Assert SQLite contains exactly 3 events (currently fails: contains 6)
+   - Confirm parity tests are still RED at this point (they're the integration witness)
+2. **[GREEN]** Pick **one** import path and remove the other. Recommended: **delete the `hydrateAll`-side direct-insert import** and let `runMigrationIfNeeded` be the sole importer (it already uses the appender, which records idempotency claims). Reasoning:
+   - Single source of truth (one importer, one set of idempotency claims)
+   - Migration runner is already lock-protected (DR-8)
+   - `hydrateAll` becomes a pure projection rebuild from SQLite, which is its semantic purpose
+3. **[REFACTOR]** If the migration lock timeout (degraded-mode warning) persists after the dual-import fix, file a separate follow-up issue; do not address in this task.
+
+**Verification:**
+- Dual-import unit test GREEN (3 events, not 6)
+- Both E2E parity tests GREEN (`parity-event-query`, `parity-workflow-rehydrate`)
+- No regressions in `npm run test:run`
+- No `migration-lock timed out` appears in startup logs for fresh-state runs
+
+**Dependencies:**
+- Independent file from T62 (different files: `index.ts`, `run-migration-if-needed.ts`, possibly `jsonl-importer.ts`)
+- Can dispatch in parallel with P8b/c/d/e/f
+
+**Notes:**
+- This task supersedes T62 as the actual parity unblock. T62 (already merged) remains correct on its own merits — it's an INV-2 hardening fix unrelated to the dual-import bug.
+
+---
+
 ## Parallelization
 
 | Group | Tasks | Notes |
 |---|---|---|
-| **P8a (parity unblock)** | T62 | Critical path; unblocks PR merge once green |
+| **P8a (parity unblock)** | T62 (DONE), T74 | T62 merged; T74 is the actual parity fix discovered post-T62 |
 | **P8b (storage hardening)** | T63, T64, T65, T70 | All in `atomic-appender.ts` + `sqlite-backend.ts` + `schemas.ts` — coordinate to avoid merge conflicts |
 | **P8c (CI gate hygiene)** | T67, T68 | Same file (`no-legacy-runtime-deps.test.ts`); single-agent or sequential |
 | **P8d (resilience / fail-closed)** | T66, T71 | Independent files; can parallelize |
