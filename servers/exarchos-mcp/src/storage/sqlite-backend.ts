@@ -278,33 +278,56 @@ export class SqliteBackend implements StorageBackend {
   // ─── Lifecycle ──────────────────────────────────────────────────────────
 
   initialize(): void {
-    this.db = new Database(this.dbPath);
+    try {
+      this.db = new Database(this.dbPath);
 
-    // Tune the connection for concurrent read/write (WAL, NORMAL sync) and
-    // read-heavy access patterns (256 MB memory-mapped I/O).
-    // Note: `bun:sqlite` has no `.pragma()` helper — write-pragmas go through
-    // `db.exec()` and read-pragmas through `db.query().all()`.
-    this.applyConnectionPragmas();
+      // Tune the connection for concurrent read/write (WAL, NORMAL sync) and
+      // read-heavy access patterns (256 MB memory-mapped I/O).
+      // Note: `bun:sqlite` has no `.pragma()` helper — write-pragmas go through
+      // `db.exec()` and read-pragmas through `db.query().all()`.
+      this.applyConnectionPragmas();
 
-    // Execute schema DDL
-    this.db.exec(SCHEMA_DDL);
+      // Execute schema DDL
+      this.db.exec(SCHEMA_DDL);
 
-    // Run migrations for existing databases
-    this.migrateSchema();
+      // Run migrations for existing databases
+      this.migrateSchema();
 
-    // Track schema version
-    const existing = this.db
-      .prepare('SELECT version FROM schema_version WHERE version = ?')
-      .get(SCHEMA_VERSION) as { version: number } | undefined;
+      // Track schema version
+      const existing = this.db
+        .prepare('SELECT version FROM schema_version WHERE version = ?')
+        .get(SCHEMA_VERSION) as { version: number } | undefined;
 
-    if (!existing) {
-      this.db
-        .prepare('INSERT OR IGNORE INTO schema_version (version, appliedAt) VALUES (?, ?)')
-        .run(SCHEMA_VERSION, new Date().toISOString());
+      if (!existing) {
+        this.db
+          .prepare('INSERT OR IGNORE INTO schema_version (version, appliedAt) VALUES (?, ?)')
+          .run(SCHEMA_VERSION, new Date().toISOString());
+      }
+
+      // Initialize prepared statements
+      this.stmts = this.prepareStatements();
+    } catch (err) {
+      // SQLITE_CORRUPT / SQLITE_NOTADB at startup: refuse to proceed.
+      // The substrate intentionally does NOT auto-rebuild — silent rebuild
+      // would destroy the byte evidence operators need to root-cause the
+      // corruption and could mask a data-loss surface that should escalate
+      // to operator intervention. (#1259, T10, DR-12.)
+      //
+      // Best-effort close of any partially-opened handle so the malformed
+      // file isn't left locked against an operator's recovery tooling.
+      if (isSqliteCorrupt(err)) {
+        try {
+          this.db?.close();
+        } catch {
+          // ignore — we're already throwing the structured error
+        }
+        throw new SqliteCorruptError(
+          this.dbPath,
+          err instanceof Error ? err : new Error(String(err)),
+        );
+      }
+      throw err;
     }
-
-    // Initialize prepared statements
-    this.stmts = this.prepareStatements();
   }
 
   close(): void {
