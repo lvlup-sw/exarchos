@@ -273,8 +273,26 @@ export class AtomicAppender {
    * lifecycle). When `options.sqliteBackend` is injected, it is used
    * directly and never closed by the appender — the injector retains
    * ownership.
+   *
+   * **Singleton invariant (T63):** This field MUST only be assigned via
+   * the `sqliteBackendPromise` cache below. The legacy "check field then
+   * construct" pattern was race-prone because `runExclusive` only
+   * serializes per-stream — concurrent first-writes targeting different
+   * streams could both pass `!this.sqliteBackend` and each construct a
+   * fresh handle (the loser's handle then leaks). The Promise-cached
+   * singleton pattern (`sqliteBackendPromise`) closes that window by
+   * synchronously assigning the in-flight Promise before any await,
+   * so all concurrent callers converge on a single handle.
    */
   private sqliteBackend?: SqliteBackend;
+  /**
+   * Promise cache for the lazy SQLite backend init (T63). The first
+   * caller assigns this field synchronously before awaiting backend
+   * construction; subsequent callers await the same in-flight Promise
+   * and never trigger a duplicate construction. Once resolved, both
+   * this field and `sqliteBackend` reference the canonical handle.
+   */
+  private sqliteBackendPromise?: Promise<SqliteBackend>;
   private readonly sqliteBackendInjected: boolean;
 
   constructor(options: AtomicAppenderOptions) {
@@ -290,6 +308,11 @@ export class AtomicAppender {
     this.sqliteDbFilename = options.sqliteDbFilename ?? 'exarchos.db';
     if (options.sqliteBackend) {
       this.sqliteBackend = options.sqliteBackend;
+      // Pre-resolved Promise so the singleton invariant holds for the
+      // injected path too: any concurrent `getSqliteBackend()` call
+      // awaits a Promise that is already settled with the injected
+      // handle.
+      this.sqliteBackendPromise = Promise.resolve(options.sqliteBackend);
       this.sqliteBackendInjected = true;
     } else {
       this.sqliteBackendInjected = false;
@@ -388,15 +411,48 @@ export class AtomicAppender {
    * the standard schema DDL via `initialize()`. Failure here is fatal
    * for the SQLite body — the caller (appendSqliteLocked) catches and
    * returns an `io-error` AppendResult so the boundary contract holds.
+   *
+   * **Singleton via Promise cache (T63).** The legacy implementation
+   * checked `if (!this.sqliteBackend)` then constructed and assigned —
+   * race-prone because `runExclusive` only serializes per-stream, so
+   * concurrent first-writes targeting different streams could both
+   * pass the check and each construct a fresh handle. We now assign
+   * `sqliteBackendPromise` synchronously before any await, so all
+   * concurrent callers converge on a single in-flight Promise (and
+   * therefore a single backend). The `sqliteBackend` field is also
+   * populated when the Promise resolves so the synchronous test seam
+   * (`_testOnly_getSqliteBackend`) continues to work.
+   *
+   * Returns a Promise so future async-init steps (e.g. an awaited
+   * migration or remote handle warm-up) plug in without reopening the
+   * race window.
    */
-  private getSqliteBackend(): SqliteBackend {
-    if (!this.sqliteBackend) {
+  private async getSqliteBackend(): Promise<SqliteBackend> {
+    if (this.sqliteBackendPromise) {
+      return this.sqliteBackendPromise;
+    }
+    // Build and assign the in-flight Promise SYNCHRONOUSLY before
+    // awaiting — this is the single point where the singleton
+    // invariant is enforced. The async IIFE captures all init work
+    // (current: sync construction + initialize; future: any awaited
+    // step) inside one Promise that all concurrent callers share.
+    const inflight = (async (): Promise<SqliteBackend> => {
       const dbPath = path.join(this.stateDir, this.sqliteDbFilename);
       const backend = new SqliteBackend(dbPath);
       backend.initialize();
       this.sqliteBackend = backend;
+      return backend;
+    })();
+    this.sqliteBackendPromise = inflight;
+    try {
+      return await inflight;
+    } catch (err) {
+      // Init failed — clear the cached Promise so a subsequent call
+      // can retry from a clean slate. Without this, a transient init
+      // failure would permanently poison the appender.
+      this.sqliteBackendPromise = undefined;
+      throw err;
     }
-    return this.sqliteBackend;
   }
 
   private async appendSqliteLocked(
@@ -428,7 +484,10 @@ export class AtomicAppender {
       // tests passing fresh tmp dirs don't fail before the DB file is
       // touched).
       await fs.mkdir(this.stateDir, { recursive: true });
-      backend = this.getSqliteBackend();
+      // Lazy SQLite backend init — Promise-cached singleton (T63).
+      // Concurrent first-writes across distinct streams converge on a
+      // single backend handle even if init grows an awaited step.
+      backend = await this.getSqliteBackend();
     } catch (err) {
       return { ok: false, reason: 'io-error', cause: toError(err) };
     }
@@ -534,28 +593,19 @@ export class AtomicAppender {
         return { ok: false, reason: 'storage_busy', cause: err };
       }
       const e = toError(err);
-      const msg = e.message;
-      if (
-        /UNIQUE constraint failed: idempotency_claims/.test(msg) ||
-        /idempotency_claims.streamId, idempotency_claims.idempotencyKey/.test(msg)
-      ) {
-        return { ok: false, reason: 'idempotency-claimed', cause: e };
-      }
-      if (
-        /UNIQUE constraint failed: events/.test(msg) ||
-        /events.streamId, events.sequence/.test(msg)
-      ) {
-        // A sequence collision — first-tier mutex normally prevents this
-        // intra-process; surfacing as `sequence-conflict` lets the caller
-        // retry against the new high-water mark.
-        return {
-          ok: false,
-          reason: 'sequence-conflict',
-          expected: options?.expectedSequence,
-          actual: baseSeq,
-        };
-      }
-      return { ok: false, reason: 'io-error', cause: e };
+      // T64: pre-preflight values (`baseSeq`, our just-built `persisted`)
+      // are STALE if a concurrent writer slipped in between the
+      // preflight read and `atomicAppend`. Translation must re-read
+      // durable state from the backend so the loser's AppendResult
+      // reflects the canonical post-conflict shape.
+      return this.translateAtomicAppendError(
+        e,
+        backend,
+        streamId,
+        keyed,
+        options,
+        baseSeq,
+      );
     }
 
     return {
@@ -565,6 +615,102 @@ export class AtomicAppender {
       eventIds: persisted.map(e => e.eventId),
       timestamps: persisted.map(e => e.timestamp),
     };
+  }
+
+  /**
+   * Translate an `atomicAppend` failure into the typed `AppendResult`
+   * shape using FRESH durable reads (T64).
+   *
+   * The legacy translation reused the pre-preflight values (the
+   * just-allocated `persisted` rows for the idempotency-claim branch
+   * and `baseSeq` for the sequence-conflict branch). Both are stale
+   * once the conflict has fired — by definition, another writer
+   * advanced the durable state between the preflight read and
+   * `atomicAppend`. Returning stale values handed callers the wrong
+   * canonical shape:
+   *
+   *   - `idempotency-claimed` lost the WINNER's persisted events. The
+   *     contract (matching the JSONL body's cache-hit) is to surface
+   *     the events ACTUALLY persisted under the key, so the caller
+   *     returns the canonical shape to its own caller without
+   *     reconstructing from the (possibly different) current request.
+   *
+   *   - `sequence-conflict` reported `actual: baseSeq`. The actual
+   *     value is now the WINNER's high-water mark, so retrying against
+   *     `baseSeq` would just re-trigger the same conflict.
+   *
+   * Re-reads `lookupIdempotencyClaim` and (as a fallback) the
+   * sequence high-water mark to derive the canonical post-conflict
+   * shape. If the re-read itself fails (corrupt DB, lost connection),
+   * downgrades gracefully to the original error so the caller still
+   * sees a typed failure rather than an opaque exception.
+   */
+  private translateAtomicAppendError(
+    error: Error,
+    backend: SqliteBackend,
+    streamId: string,
+    keyed: { idempotencyKey: string } | null,
+    options: AppendOptions | undefined,
+    preflightBaseSeq: number,
+  ): AppendResult {
+    const msg = error.message;
+    const isIdempotencyConflict =
+      /UNIQUE constraint failed: idempotency_claims/.test(msg) ||
+      /idempotency_claims.streamId, idempotency_claims.idempotencyKey/.test(msg);
+    const isSequenceConflict =
+      /UNIQUE constraint failed: events/.test(msg) ||
+      /events.streamId, events.sequence/.test(msg);
+
+    if (isIdempotencyConflict && keyed !== null) {
+      // Re-read the now-committed claim. The race winner inserted a
+      // canonical row — surface those events as a cache-hit so the
+      // caller returns the actually-persisted shape, matching the
+      // JSONL body's cache-hit contract.
+      try {
+        const claim = backend.lookupIdempotencyClaim(streamId, keyed.idempotencyKey);
+        if (claim) {
+          return {
+            ok: true,
+            kind: 'cache-hit',
+            sequences: claim.sequences,
+            eventIds: claim.eventIds,
+            timestamps: claim.timestamps,
+            persistedEvents: claim.events.map(e => ({ ...e } as PublicPersistedEvent)),
+          };
+        }
+        // No claim found despite the conflict — race window between
+        // the conflict and our re-read (e.g. a rollback). Fall
+        // through to the bare `idempotency-claimed` shape so the
+        // caller still sees a typed failure.
+      } catch {
+        // Re-read itself failed — fall through to the bare error
+        // rather than escaping a second exception through the
+        // boundary.
+      }
+      return { ok: false, reason: 'idempotency-claimed', cause: error };
+    }
+
+    if (isSequenceConflict) {
+      // Re-read the high-water mark so the caller's retry computes
+      // against the WINNER's advanced sequence, not our pre-preflight
+      // value. On re-read failure, fall back to the preflight value
+      // (better than nothing — the caller still sees `sequence-conflict`
+      // and can retry).
+      let actual = preflightBaseSeq;
+      try {
+        actual = backend.readSequenceHighWaterMark(streamId);
+      } catch {
+        // Keep `actual = preflightBaseSeq`.
+      }
+      return {
+        ok: false,
+        reason: 'sequence-conflict',
+        expected: options?.expectedSequence,
+        actual,
+      };
+    }
+
+    return { ok: false, reason: 'io-error', cause: error };
   }
 
   /**
