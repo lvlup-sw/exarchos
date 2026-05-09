@@ -62,6 +62,43 @@ describe('initializeContext', () => {
     expect(ctx.eventStore).toBeDefined();
   });
 
+  // ─── T16 (DR-2) — storage handle threaded through DispatchContext ───────
+  //
+  // The lifecycle/startup path opens the storage handle once (SQLite or
+  // in-memory) and the constructed `DispatchContext` carries that
+  // handle on `ctx.storage`. Same instance — not a wrapper, not a
+  // freshly-constructed view. Consumers downstream of dispatch can
+  // then route raw access through the abstraction without reaching
+  // for an ambient `bun:sqlite` import (T17).
+  it('Lifecycle_Start_ConstructsStorageAndPassesViaContext', async () => {
+    const { initializeContext } = await import('./context.js');
+    const { InMemoryBackend } = await import('../storage/memory-backend.js');
+    const backend = new InMemoryBackend();
+    await backend.initialize();
+
+    const ctx = await initializeContext(tmpDir, { backend });
+
+    // Single source of truth: the very same instance the caller
+    // (lifecycle / `index.ts`) opened is what `DispatchContext.storage`
+    // references. If it were re-constructed inside `initializeContext`
+    // the WAL/busy_timeout pragmas + connection state would diverge
+    // from `EventStore`'s view.
+    expect(ctx.storage).toBeDefined();
+    expect(ctx.storage).toBe(backend);
+  });
+
+  // Without an injected backend, `storage` stays undefined — JSONL-only
+  // mode. Pinned so a later refactor that silently fabricates an
+  // in-memory backend doesn't mask a missing `initializeBackend()` call
+  // upstream in `index.ts`.
+  it('Lifecycle_Start_NoBackend_StorageUndefined', async () => {
+    const { initializeContext } = await import('./context.js');
+
+    const ctx = await initializeContext(tmpDir);
+
+    expect(ctx.storage).toBeUndefined();
+  });
+
   it('InitializeContext_ConfiguresStateStoreBackend', async () => {
     // Arrange
     const { initializeContext } = await import('./context.js');
