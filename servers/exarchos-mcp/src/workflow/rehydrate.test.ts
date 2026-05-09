@@ -712,3 +712,84 @@ describe('handleRehydrate — phasePlaybook composition (T-20)', () => {
     expect(RehydrationDocumentSchema.safeParse(doc).success).toBe(true);
   });
 });
+
+/**
+ * T-21 — `workflow.rehydrated` event payload exposes playbook-presence flags
+ *
+ * Implements rehydration-machinery-refactor §T-21 (P2 emission wiring).
+ * After T-20 the handler composes `document.phasePlaybook` (null for terminal
+ * / unregistered phases, a serialized playbook for delegate). T-21 widens the
+ * audit event so downstream observability can distinguish "phase had a
+ * playbook in the registry" (`phaseHasPlaybook`) from "the handler actually
+ * composed it onto this document" (`phasePlaybookComposed`). On the happy
+ * path both flags equal `phasePlaybook !== null`; T-22/T-23 will diverge them
+ * for degraded paths and checkpoint composition.
+ *
+ * The schema fields were added in T-10 (`WorkflowRehydratedData` in
+ * `event-store/schemas.ts`). T-21 wires emission only.
+ */
+describe('handleRehydrate — workflow.rehydrated extended fields (T-21)', () => {
+  it('RehydrateHandler_DelegatePhase_EmitsHasPlaybookAndComposedTrue', async () => {
+    // GIVEN: a feature workflow in `delegate` phase. Per T-20 the handler
+    //   composes a non-null phasePlaybook from the L4 registry.
+    const featureId = 'rehydrate-t21-delegate';
+    await store.append(featureId, {
+      type: 'workflow.started',
+      data: { featureId, workflowType: 'feature' },
+    });
+    await store.append(featureId, {
+      type: 'workflow.transition',
+      data: { from: '', to: 'delegate' },
+    });
+
+    // WHEN: we rehydrate.
+    const result = await handleRehydrate(
+      { featureId },
+      { eventStore: store, stateDir },
+    );
+    expect(result.success).toBe(true);
+
+    // THEN: the emitted `workflow.rehydrated` event carries both flags as
+    //   `true`, mirroring `phasePlaybook !== null` on the returned document.
+    const all = await store.query(featureId);
+    const rehydratedEvents = all.filter(
+      (e) => e.type === 'workflow.rehydrated',
+    );
+    expect(rehydratedEvents).toHaveLength(1);
+    const data = rehydratedEvents[0].data as WorkflowRehydrated;
+    expect(data.phaseHasPlaybook).toBe(true);
+    expect(data.phasePlaybookComposed).toBe(true);
+  });
+
+  it('RehydrateHandler_TerminalPhase_EmitsHasPlaybookAndComposedFalse', async () => {
+    // GIVEN: a feature workflow transitioned to a terminal phase with no
+    //   registered playbook. T-20 surfaces this as `phasePlaybook: null`.
+    const featureId = 'rehydrate-t21-terminal';
+    await store.append(featureId, {
+      type: 'workflow.started',
+      data: { featureId, workflowType: 'feature' },
+    });
+    await store.append(featureId, {
+      type: 'workflow.transition',
+      data: { from: '', to: 'shipped' },
+    });
+
+    // WHEN: we rehydrate.
+    const result = await handleRehydrate(
+      { featureId },
+      { eventStore: store, stateDir },
+    );
+    expect(result.success).toBe(true);
+
+    // THEN: the emitted event carries both flags as `false` — phase had no
+    //   playbook and none was composed onto the document.
+    const all = await store.query(featureId);
+    const rehydratedEvents = all.filter(
+      (e) => e.type === 'workflow.rehydrated',
+    );
+    expect(rehydratedEvents).toHaveLength(1);
+    const data = rehydratedEvents[0].data as WorkflowRehydrated;
+    expect(data.phaseHasPlaybook).toBe(false);
+    expect(data.phasePlaybookComposed).toBe(false);
+  });
+});
