@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtemp, rm, writeFile, stat } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile, stat, readdir, access } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -106,5 +106,40 @@ describe('JsonlImporter', () => {
     expect(data.sourcePath).toBe(filePath);
     expect(data.eventCount).toBe(4);
     expect(data.durationMs).toBeGreaterThanOrEqual(0);
+  });
+
+  it('JsonlImporter_AfterSuccess_MovesSourceToArchiveV210Folder', async () => {
+    const streamId = 'stream-archive-target';
+    const events = [
+      makeEvent(streamId, 1, 'workflow.started', 0),
+      makeEvent(streamId, 2, 'task.completed', 1),
+    ];
+    const filePath = path.join(stateDir, `${streamId}.events.jsonl`);
+    await writeFile(
+      filePath,
+      events.map((e) => JSON.stringify(e)).join('\n') + '\n',
+      'utf-8',
+    );
+
+    const result = await importJsonlFile(filePath, appender, backend);
+    expect(result.ok).toBe(true);
+
+    // Source removed from `stateDir`.
+    let sourceStillExists = true;
+    try {
+      await access(filePath);
+    } catch {
+      sourceStillExists = false;
+    }
+    expect(sourceStillExists).toBe(false);
+
+    // Source MOVED (not deleted) to `.archive-v210/<basename>`.
+    const archivedPath = path.join(stateDir, '.archive-v210', `${streamId}.events.jsonl`);
+    const archivedStat = await stat(archivedPath);
+    expect(archivedStat.isFile()).toBe(true);
+    // Archive directory was created on demand (the test fixture did not
+    // pre-create it).
+    const archiveEntries = await readdir(path.join(stateDir, '.archive-v210'));
+    expect(archiveEntries).toContain(`${streamId}.events.jsonl`);
   });
 });
