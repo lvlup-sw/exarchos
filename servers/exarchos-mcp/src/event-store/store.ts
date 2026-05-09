@@ -297,6 +297,32 @@ export class EventStore {
     return this.atomicAppender;
   }
 
+  /**
+   * Resolve the read-delegate `StorageBackend` for this store.
+   *
+   * Three cases (#1259, T52):
+   *   1. An explicit `backend` was passed to the constructor — use it.
+   *      This is the legacy dual-write case where JSONL is the source of
+   *      truth and the backend is a supplementary cache/replica.
+   *   2. `appenderBackend === 'sqlite'` was passed and no explicit
+   *      `backend` — route reads through the SQLite backend the appender
+   *      already owns. Without this, writes go to `<stateDir>/exarchos.db`
+   *      but reads look at JSONL and find nothing (the T52 RED).
+   *   3. Neither — return undefined so the read path falls back to JSONL.
+   *
+   * The SQLite backend is created lazily by the appender on first
+   * dispatched write (see `AtomicAppender.getSqliteBackend`). A read that
+   * happens before any write returns undefined here and the JSONL fallback
+   * legitimately yields `[]` — there is no data anywhere to return.
+   */
+  private getReadBackend(): StorageBackend | undefined {
+    if (this.backend) return this.backend;
+    if (this.appenderBackend === 'sqlite') {
+      return this.getAppender()._testOnly_getSqliteBackend();
+    }
+    return undefined;
+  }
+
   // ─── PID Lock ──────────────────────────────────────────────────────────────
 
   /**
@@ -837,8 +863,9 @@ export class EventStore {
     }
 
     if (!sidecarExists) {
-      if (this.backend) {
-        return this.backend.queryEvents(streamId, filters);
+      const readBackend = this.getReadBackend();
+      if (readBackend) {
+        return readBackend.queryEvents(streamId, filters);
       }
       return this.queryMainJsonl(streamId, filters);
     }
@@ -853,8 +880,9 @@ export class EventStore {
       until: filters?.until,
       sinceSequence: filters?.sinceSequence,
     };
-    const rawMainEvents = this.backend
-      ? await this.backend.queryEvents(streamId, mainFilters)
+    const sidecarReadBackend = this.getReadBackend();
+    const rawMainEvents = sidecarReadBackend
+      ? await sidecarReadBackend.queryEvents(streamId, mainFilters)
       : await this.queryMainJsonl(streamId, mainFilters);
     // `mergeByTimestamp` requires both inputs to be time-ordered. JSONL
     // preserves stream (sequence) order and `StorageBackend.queryEvents()`

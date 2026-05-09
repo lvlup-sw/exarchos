@@ -5,6 +5,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { EventStore } from './store.js';
 import { EventTypes } from './schemas.js';
+import type { WorkflowEvent } from './schemas.js';
 
 // ─── Shared Setup ─────────────────────────────────────────────────────────
 
@@ -42,14 +43,31 @@ const arbIdempotencyKey = fc.uuid();
 
 // ─── Property Tests ─────────────────────────────────────────────────────
 
-describe('EventStore Property Tests', () => {
+/**
+ * T52 (#1259, DR-1): the storage-primitive property suite is parametrized
+ * over both substrate bodies — the legacy JSONL writer and the new SQLite
+ * writer — so the substrate-agnostic invariants (sequence order, idempotent
+ * dedup, type-filter subset) hold for every implementation that backs the
+ * `EventStore` write boundary. The substrate is selected via
+ * `EventStoreOptions.appenderBackend` (added in T51) which plumbs through
+ * the lazy `getAppender()` site without affecting the read-delegate
+ * `StorageBackend`.
+ *
+ * The cross-substrate fold-determinism property below proves the DR-1
+ * acceptance criterion directly: `fold(events)` is identical regardless of
+ * which substrate persisted the writes.
+ */
+describe.each([
+  { backend: 'jsonl' as const },
+  { backend: 'sqlite' as const },
+])('EventStore Property Tests [$backend]', ({ backend }) => {
   describe('EventStore_AppendThenQuery_PreservesOrder', () => {
     it('for any sequence of N events (1-20), query() returns them sorted by ascending sequence', async () => {
       await fc.assert(
         fc.asyncProperty(arbEventSequence, async (events) => {
           // Each property run gets its own isolated store
           const runDir = await mkdtemp(path.join(tempDir, 'run-'));
-          const store = new EventStore(runDir);
+          const store = new EventStore(runDir, { appenderBackend: backend });
           const streamId = 'test-stream';
 
           // Append all events sequentially
@@ -83,7 +101,7 @@ describe('EventStore Property Tests', () => {
       await fc.assert(
         fc.asyncProperty(arbEvent, arbIdempotencyKey, async (event, key) => {
           const runDir = await mkdtemp(path.join(tempDir, 'run-'));
-          const store = new EventStore(runDir);
+          const store = new EventStore(runDir, { appenderBackend: backend });
           const streamId = 'test-stream';
 
           // Append twice with the same idempotency key
@@ -108,7 +126,7 @@ describe('EventStore Property Tests', () => {
       await fc.assert(
         fc.asyncProperty(arbEventSequence, arbEventType, async (events, filterType) => {
           const runDir = await mkdtemp(path.join(tempDir, 'run-'));
-          const store = new EventStore(runDir);
+          const store = new EventStore(runDir, { appenderBackend: backend });
           const streamId = 'test-stream';
 
           // Append all events
@@ -135,6 +153,85 @@ describe('EventStore Property Tests', () => {
           // Count of filtered type in full set must match filtered count
           const expectedCount = allEvents.filter((e) => e.type === filterType).length;
           expect(filtered).toHaveLength(expectedCount);
+        }),
+        { numRuns: 50 },
+      );
+    });
+  });
+});
+
+// ─── Cross-Substrate Fold-Determinism (DR-1, #1259) ───────────────────────
+
+/**
+ * Project a `WorkflowEvent` to the substrate-agnostic tuple
+ * `(streamId, sequence, type, data, idempotencyKey, schemaVersion)`.
+ *
+ * Timestamps are auto-generated at append-time (`WorkflowEventBase.timestamp`
+ * defaults to `new Date().toISOString()`), so two independent runs against
+ * disjoint stores will produce different timestamps even when fed the same
+ * event sequence. The DR-1 acceptance is "`fold(events)` is deterministic
+ * regardless of substrate" — fold is the projection of the persisted
+ * sequence to caller-meaningful state, which is exactly the schema-defined
+ * fields minus the wall-clock metadata. Comparing the projected tuples
+ * across substrates is the precise statement of replay-determinism for
+ * the storage primitive.
+ *
+ * If a substrate adds or drops a non-timestamp field for the same input,
+ * THAT is a real divergence and the property must surface it (don't extend
+ * the projection to paper over it without an explicit GREEN-phase fix).
+ */
+function project(event: WorkflowEvent): {
+  streamId: string;
+  sequence: number;
+  type: string;
+  data: Record<string, unknown> | undefined;
+  idempotencyKey: string | undefined;
+  schemaVersion: string;
+} {
+  return {
+    streamId: event.streamId,
+    sequence: event.sequence,
+    type: event.type,
+    data: event.data,
+    idempotencyKey: event.idempotencyKey,
+    schemaVersion: event.schemaVersion,
+  };
+}
+
+describe('EventStore Property Tests [cross-substrate]', () => {
+  describe('EventStore_FoldDeterminismAcrossSubstrates', () => {
+    it('for any event sequence, fold(jsonl-persisted) ≡ fold(sqlite-persisted) modulo timestamp', async () => {
+      await fc.assert(
+        fc.asyncProperty(arbEventSequence, async (events) => {
+          const streamId = 'cross-substrate-stream';
+
+          // Persist the same input to a fresh JSONL-backed store.
+          const jsonlDir = await mkdtemp(path.join(tempDir, 'jsonl-'));
+          const jsonlStore = new EventStore(jsonlDir, { appenderBackend: 'jsonl' });
+          for (const event of events) {
+            await jsonlStore.append(streamId, event);
+          }
+          const eventsJsonl = await jsonlStore.query(streamId);
+
+          // Persist the same input to a fresh SQLite-backed store.
+          const sqliteDir = await mkdtemp(path.join(tempDir, 'sqlite-'));
+          const sqliteStore = new EventStore(sqliteDir, { appenderBackend: 'sqlite' });
+          for (const event of events) {
+            await sqliteStore.append(streamId, event);
+          }
+          const eventsSqlite = await sqliteStore.query(streamId);
+
+          // Substrate-agnostic fold: project out the timestamp (auto-generated
+          // wall-clock metadata that necessarily differs across two
+          // independent writes) and compare the deterministic remainder.
+          const projectedJsonl = eventsJsonl.map(project);
+          const projectedSqlite = eventsSqlite.map(project);
+
+          // Same number of events out for the same number of events in.
+          expect(projectedSqlite).toHaveLength(projectedJsonl.length);
+
+          // Replay-determinism (DR-1): the projected views must be deeply equal.
+          expect(projectedSqlite).toEqual(projectedJsonl);
         }),
         { numRuns: 50 },
       );
