@@ -54,6 +54,17 @@ Fix any discrepancies.
 - Current: <what's in progress>
 - Next: <suggested next action>
 
+### House Rules (apply every action this turn forward)
+**Skill:** <phasePlaybook.skillRef or "(no playbook for this phase)">
+**Tools:** <phasePlaybook.tools rendered as bullets>
+**Required model-emitted events:** <phasePlaybook.events rendered as bullets — e.g. `task.progressed`, `phase.advanced`>
+**Auto-emitted events (runtime fires these):** <phasePlaybook.autoEmittedEvents rendered as bullets>
+**Transition:** <phasePlaybook.transitionCriteria> | Guard: <phasePlaybook.guardPrerequisites>
+**Validation scripts:** <phasePlaybook.validationScripts joined>
+
+### Event Emission Hints
+<_eventHints.missing rendered as bullets, or "(none — phase machinery satisfied)">
+
 ### Resume Instructions
 
 To continue this workflow in a new session:
@@ -63,6 +74,8 @@ To continue this workflow in a new session:
 ```
 
 Or start Claude Code fresh — the SessionStart hook will auto-discover active workflows.
+
+> **Discipline reminder:** every task transition this turn forward MUST land on the workflow event stream via `exarchos_event.append` or `/exarchos:delegate` subagent emission. Direct `Edit` / `Bash` / `git` actions on task branches without corresponding events will desync the workflow tracker (see RCA `docs/rca/2026-05-08-rehydrate-behavioral-gap.md`).
 ```
 
 ## Auto-Checkpoint Triggers
