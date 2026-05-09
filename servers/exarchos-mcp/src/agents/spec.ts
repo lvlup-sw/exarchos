@@ -14,6 +14,7 @@
 
 import { z } from 'zod';
 import { Capability } from './capabilities.js';
+import { EVENT_DATA_SCHEMAS } from '../event-store/schemas.js';
 
 /** Three canonical capability postures. See `capabilities/posture-mapping.ts`. */
 export const AgentPosture = z.enum(['read-only', 'task-isolated', 'shared-mutating']);
@@ -124,12 +125,23 @@ export function validateAgentSpec(input: unknown): ValidateAgentSpecResult {
   let _meta: ValidateAgentSpecResult['_meta'];
 
   if (spec.capabilities !== undefined && spec.posture === undefined) {
+    const data = {
+      specName: spec.id,
+      capabilities: [...spec.capabilities],
+    };
+
+    // Canonical event-emission path: validate the payload against the
+    // registered `spec.legacy_capabilities_array` schema before handing it
+    // off. This makes any future drift between the spec validator and the
+    // event store fail fast at validation, not at AtomicAppender.append
+    // time. The validator does not bypass the appender — it returns the
+    // structured event for the caller to flow through the appender.
+    const eventSchema = EVENT_DATA_SCHEMAS['spec.legacy_capabilities_array'];
+    eventSchema.parse(data);
+
     events.push({
       type: 'spec.legacy_capabilities_array',
-      data: {
-        specName: spec.id,
-        capabilities: [...spec.capabilities],
-      },
+      data,
     });
     _meta = {
       deprecation: {
@@ -141,4 +153,23 @@ export function validateAgentSpec(input: unknown): ValidateAgentSpecResult {
   }
 
   return _meta ? { spec, events, _meta } : { spec, events };
+}
+
+/**
+ * Wrap a consumer response with `_meta.deprecation` if the upstream spec
+ * validation produced a deprecation envelope. Pure function — does not
+ * mutate the input response.
+ *
+ * Use this at every consumer-response boundary that ingested a possibly-
+ * legacy spec, so the deprecation is surfaced uniformly across CLI / MCP
+ * carriers.
+ */
+export function wrapResponseWithDeprecation<T extends object>(
+  response: T,
+  validation: ValidateAgentSpecResult,
+): T | (T & { _meta: { deprecation: DeprecationEnvelope } }) {
+  if (validation._meta?.deprecation === undefined) {
+    return response;
+  }
+  return { ...response, _meta: { deprecation: validation._meta.deprecation } };
 }
