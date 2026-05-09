@@ -16,7 +16,10 @@
  */
 import * as fs from 'node:fs/promises';
 import { parse as parseYaml } from 'yaml';
+import { logger } from '../logger.js';
 import { TopologySchema, type Topology } from './phase-contract.js';
+
+const topologyLogger = logger.child({ subsystem: 'topology' });
 
 /**
  * Minimal event-emission shape — caller (lifecycle wiring) supplies an
@@ -65,16 +68,36 @@ export async function loadTopology(options: LoadTopologyOptions): Promise<Topolo
   const parsed = parseYaml(raw) as unknown;
   const topology = TopologySchema.parse(parsed);
 
-  // Emit once per missing-contract phase BEFORE caching, so a future
-  // explicit `__resetTopologyCacheForTesting()` re-runs emission too.
+  // Walk phases once. Collect names missing the `staleness` block so we
+  // can both:
+  //   - emit `phase.contract_missing` per missing phase (when an event
+  //     sink is wired — T58 supplies it from lifecycle); and
+  //   - surface a single warn-level log line listing every missing
+  //     phase, so operators see the gap even when running in a context
+  //     without an event sink (CLI dry-runs, test harnesses).
+  //
+  // We build the list before any `await` to keep the per-phase emission
+  // order deterministic.
+  const missingPhaseNames: string[] = [];
+  for (const [phaseName, phaseEntry] of Object.entries(topology.phases)) {
+    if (phaseEntry.staleness === undefined) {
+      missingPhaseNames.push(phaseName);
+    }
+  }
+
+  if (missingPhaseNames.length > 0) {
+    topologyLogger.warn(
+      { missingPhases: missingPhaseNames, count: missingPhaseNames.length },
+      'phase.contract_missing — phases lack typed staleness contracts; pruner falls back to single-signal heuristic',
+    );
+  }
+
   if (options.emit) {
-    for (const [phaseName, phaseEntry] of Object.entries(topology.phases)) {
-      if (phaseEntry.staleness === undefined) {
-        await options.emit(STARTUP_STREAM, {
-          type: 'phase.contract_missing',
-          data: { phaseName },
-        });
-      }
+    for (const phaseName of missingPhaseNames) {
+      await options.emit(STARTUP_STREAM, {
+        type: 'phase.contract_missing',
+        data: { phaseName },
+      });
     }
   }
 
