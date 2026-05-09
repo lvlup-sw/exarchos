@@ -115,6 +115,119 @@ describe('AtomicAppender race fixtures', () => {
     }
   });
 
+  // ─── T64: stale state after SQLite race conflict ─────────────────────────
+  //
+  // The SQLite body preflights idempotency cache + sequence high-water
+  // mark BEFORE opening the BEGIN IMMEDIATE transaction. If another
+  // writer commits between the preflight and the `atomicAppend()` call,
+  // the loser's `atomicAppend` raises a UNIQUE-constraint failure
+  // (idempotency_claims or events). Translation must NOT use the
+  // pre-preflight values — those are already stale.
+  //
+  // Concretely:
+  //   - On `idempotency-claimed`, the canonical contract (matching the
+  //     JSONL body's cache-hit behavior) is to surface the WINNER's
+  //     persisted events so the caller can return them to its own caller
+  //     without reconstructing from the (possibly different) current
+  //     request payload. Returning a bare error reason loses the
+  //     canonical event shape.
+  //   - On `sequence-conflict`, the `actual` field must reflect the
+  //     POST-conflict high-water mark, not the preflight `baseSeq` —
+  //     callers translating to typed retry errors need the current
+  //     value to compute the correct retry sequence.
+  //
+  // Realistic race surface: two AtomicAppender instances (same process,
+  // separate per-stream Promise mutexes) pointing at the same SQLite
+  // file simultaneously commit against the same (streamId, key). The
+  // first wins; the second's `atomicAppend` raises a UNIQUE-constraint
+  // failure on `idempotency_claims`.
+
+  it('SqliteAtomicAppender_RaceLoserOnIdempotencyConflict_ReturnsCacheHitFromDurableState', async () => {
+    const streamId = 'race-idem-conflict';
+    const idemKey = 'shared-key';
+
+    const appenderA = new AtomicAppender({ stateDir, backend: 'sqlite' });
+    const appenderB = new AtomicAppender({ stateDir, backend: 'sqlite' });
+
+    // Sequence the race deterministically: appender A commits first,
+    // then appender B attempts the same key. Both appenders share the
+    // same DB file (lazy init opens `<stateDir>/exarchos.db` for each).
+    const winnerEvents = [
+      { type: 'task.assigned', data: { winner: true, attempt: 'A' } },
+    ];
+    const loserEvents = [
+      { type: 'task.assigned', data: { winner: false, attempt: 'B' } },
+    ];
+
+    const winResult = await appenderA.append(streamId, winnerEvents, idemKey);
+    expect(winResult.ok).toBe(true);
+    if (!winResult.ok) return;
+    expect(winResult.kind).toBe('committed');
+    const winnerSequences = winResult.sequences;
+    const winnerEventIds = winResult.eventIds;
+    const winnerTimestamps = winResult.timestamps;
+
+    // Force the loser's preflight to MISS the cache (so it proceeds to
+    // `atomicAppend` and trips the UNIQUE-constraint fault). We achieve
+    // this by reaching into appenderB's internals and stubbing the
+    // backend's `lookupIdempotencyClaim` to return undefined for this
+    // (streamId, key). This simulates the real-world race window: B
+    // runs the lookup BEFORE A commits, sees no claim, and proceeds.
+    //
+    // After the lookup short-circuit is bypassed, B's `atomicAppend`
+    // races against A's already-committed claim and raises
+    // `UNIQUE constraint failed: idempotency_claims.streamId,
+    // idempotency_claims.idempotencyKey`.
+    const backendB = appenderB._testOnly_getSqliteBackend();
+    // First, warm B's backend via a no-op append on a different stream
+    // so the backend is constructed (so we can patch its method).
+    const warm = await appenderB.append(
+      'warmup-stream',
+      [{ type: 'noop' }],
+      'warmup-key',
+    );
+    expect(warm.ok).toBe(true);
+    const backend = appenderB._testOnly_getSqliteBackend();
+    if (!backend) throw new Error('backend not initialized for appenderB');
+    // Replace lookupIdempotencyClaim to return undefined for the test
+    // (streamId, key) pair, forcing B past the preflight cache hit and
+    // into the BEGIN IMMEDIATE path.
+    const originalLookup = backend.lookupIdempotencyClaim.bind(backend);
+    backend.lookupIdempotencyClaim = ((sid: string, key: string) => {
+      if (sid === streamId && key === idemKey) return undefined;
+      return originalLookup(sid, key);
+    }) as typeof backend.lookupIdempotencyClaim;
+    void backendB; // silence unused-binding lint
+
+    let loserResult: Awaited<ReturnType<typeof appenderB.append>>;
+    try {
+      loserResult = await appenderB.append(streamId, loserEvents, idemKey);
+    } finally {
+      backend.lookupIdempotencyClaim = originalLookup;
+    }
+
+    // Canonical contract: the loser observes the WINNER's persisted
+    // events as a cache-hit, NOT a bare `idempotency-claimed` error.
+    // This matches the JSONL body's behavior (`appendLocked` Phase 1
+    // cache hit returns `kind: 'cache-hit'` with `persistedEvents`).
+    expect(loserResult.ok).toBe(true);
+    if (!loserResult.ok) return;
+    expect(loserResult.kind).toBe('cache-hit');
+    expect(loserResult.sequences).toEqual(winnerSequences);
+    expect(loserResult.eventIds).toEqual(winnerEventIds);
+    expect(loserResult.timestamps).toEqual(winnerTimestamps);
+    // The persistedEvents must reflect the WINNER's payload, NOT B's
+    // current request body — the caller's CURRENT request payload is
+    // irrelevant; the canonical post-commit shape is what the caller
+    // returns to its own caller.
+    if (loserResult.kind !== 'cache-hit') return;
+    expect(loserResult.persistedEvents).toHaveLength(1);
+    expect(loserResult.persistedEvents[0].type).toBe('task.assigned');
+    expect(
+      (loserResult.persistedEvents[0].data as { winner?: boolean }).winner,
+    ).toBe(true);
+  });
+
   it('SqliteAtomicAppender_ConcurrentFirstWritesWithAsyncInitYield_StillConstructsOneBackend', async () => {
     // Stronger version: deliberately introduce an async yield inside
     // the lazy-init path (by patching the appender's getSqliteBackend
