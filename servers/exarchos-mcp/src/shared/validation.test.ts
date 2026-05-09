@@ -2,8 +2,10 @@ import { describe, it, expect } from 'vitest';
 import { validateStreamId, SAFE_STREAM_ID_PATTERN } from './validation.js';
 
 describe('SAFE_STREAM_ID_PATTERN', () => {
-  it('matches the expected regex', () => {
-    expect(SAFE_STREAM_ID_PATTERN).toEqual(/^[a-zA-Z0-9._-]+$/);
+  it('matches the expected regex (admits the optional namespaced form)', () => {
+    // DR-3: a single optional `/` separator divides a feature-id from a
+    // subagent-id. Each segment uses the legacy character class.
+    expect(SAFE_STREAM_ID_PATTERN).toEqual(/^[a-zA-Z0-9._-]+(\/[a-zA-Z0-9._-]+)?$/);
   });
 });
 
