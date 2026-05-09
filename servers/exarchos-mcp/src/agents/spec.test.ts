@@ -34,3 +34,21 @@ describe('AgentSpec posture field (T30, DR-6)', () => {
     expect(bad.success).toBe(false);
   });
 });
+
+describe('AgentSpec posture vs capabilities exclusivity (T31, DR-6)', () => {
+  it('AgentSpec_BothPostureAndCapabilities_FailsValidationWithStructuredError', () => {
+    const result = AgentSpecSchema.safeParse({
+      ...validBaseSpec,
+      posture: 'task-isolated',
+      capabilities: ['fs:read'],
+    });
+
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      // Error must reference both fields so the operator knows what to remove.
+      const message = JSON.stringify(result.error.issues);
+      expect(message).toMatch(/posture/);
+      expect(message).toMatch(/capabilities/);
+    }
+  });
+});
