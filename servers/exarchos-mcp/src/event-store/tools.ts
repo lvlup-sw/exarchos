@@ -1,51 +1,9 @@
 import { z, ZodError } from 'zod';
-import * as fs from 'node:fs/promises';
-import * as path from 'node:path';
 import { EventStore, SequenceConflictError } from './store.js';
 import { EVENT_DATA_SCHEMAS, type EventType, WorkflowEventBase } from './schemas.js';
 import { pickFields, toEventAck, type EventAck, type ToolResult } from '../format.js';
 import { buildValidatedEvent } from './event-factory.js';
 import { randomUUID } from 'node:crypto';
-
-/**
- * Find the highest-sequence `team.disbanded` event for a given team in the
- * parent stream's JSONL. Used by the C11 router-interception path to fabricate
- * an EventAck after `SubagentStreamRouter.emitDisbanded` (which has a void
- * return type) writes the corrected event. Returns -1 when the file can't be
- * read; the caller maps that to `sequencePending` via `toSafeEventAck`.
- */
-async function readLatestDisbandedSequence(
-  stateDir: string,
-  streamId: string,
-  teamId: string,
-): Promise<number> {
-  const filePath = path.join(stateDir, `${streamId}.events.jsonl`);
-  let raw: string;
-  try {
-    raw = await fs.readFile(filePath, 'utf-8');
-  } catch {
-    return -1;
-  }
-  let maxSeq = -1;
-  for (const line of raw.split('\n')) {
-    if (line.length === 0) continue;
-    let parsed: { type?: string; sequence?: number; data?: { teamId?: string } };
-    try {
-      parsed = JSON.parse(line) as typeof parsed;
-    } catch {
-      continue;
-    }
-    if (
-      parsed.type === 'team.disbanded'
-      && parsed.data?.teamId === teamId
-      && typeof parsed.sequence === 'number'
-      && parsed.sequence > maxSeq
-    ) {
-      maxSeq = parsed.sequence;
-    }
-  }
-  return maxSeq;
-}
 
 /**
  * Build an EventAck from a stored event. When the event has a non-positive
@@ -141,61 +99,37 @@ export async function handleEventAppend(
     };
   }
 
-  // ─── C11: SubagentStreamRouter interception for team.disbanded (#1224) ───
+  // ─── DR-3: cross-stream reducer for team.disbanded (T26) ─────────────────
   //
   // Agents bookkeep `tasksCompleted` in memory and frequently get the count
-  // wrong (the #1224 off-by-N regression). The router queries the parent
-  // stream for the actual `task.completed` count scoped to `teamId` — server
-  // side enforcement at the boundary. Sidecar mode skips the router because
-  // the router's JSONL scan won't see writes that haven't been merged from
-  // the sidecar yet; the legacy path still preserves order.
+  // wrong (the #1224 off-by-N regression). The handler reduces over the
+  // events table via `EventStore.queryByType` with `streamPrefix: <featureId>`,
+  // counting `task.completed` events scoped to `teamId` across the parent
+  // stream AND every namespaced subagent stream (`<featureId>/<subagent-id>`).
+  // No derived state is consulted — the only source of truth is the events
+  // table, satisfying INV-1 (stores-as-projections).
+  //
+  // Sidecar mode skips this path because the cross-stream reducer can't see
+  // writes that haven't been merged from the sidecar yet; the legacy path
+  // still preserves order.
   if (eventType === 'team.disbanded' && !store.inSidecarMode) {
     const data = (args.event.data ?? {}) as Record<string, unknown>;
     const teamId = data.teamId as string | undefined;
     if (typeof teamId === 'string' && teamId.length > 0) {
-      // Construct DisbandedSummary — explicitly DROP `tasksCompleted` even if
-      // the caller supplied one. The router computes the authoritative value.
-      // Pass through every other field; the router persists them verbatim.
-      const summary: Record<string, unknown> = { teamId };
-      for (const [key, value] of Object.entries(data)) {
-        if (key === 'tasksCompleted' || key === 'teamId') continue;
-        summary[key] = value;
-      }
-      // Required by the schema and the router's DisbandedSummary contract.
-      if (typeof summary.totalDurationMs !== 'number') {
-        summary.totalDurationMs = 0;
-      }
-      if (typeof summary.tasksFailed !== 'number') {
-        summary.tasksFailed = 0;
-      }
-
+      // Reduce over the events table: query every task.completed event whose
+      // stream is `<featureId>` or `<featureId>/<segment>`, filter by teamId,
+      // and count. The query runs BEFORE the team.disbanded append so the
+      // count reflects the team's complete set of children at emission time.
+      let tasksCompleted: number;
       try {
-        const router = store.getStreamRouter();
-        await router.emitDisbanded(args.stream, summary as {
-          teamId: string;
-          totalDurationMs: number;
-          tasksFailed: number;
-          [k: string]: unknown;
+        const taskCompletedEvents = await store.queryByType('task.completed', {
+          streamPrefix: args.stream,
         });
-        // Recover the allocated sequence from the JSONL — the router's
-        // void return type doesn't surface it, and AtomicAppender's per-
-        // stream lock guarantees the most recent `team.disbanded` for this
-        // teamId is the one we just wrote. Falls back to -1/sequencePending
-        // when the file isn't readable for any reason; callers already
-        // tolerate that shape via `toSafeEventAck`.
-        const sequence = await readLatestDisbandedSequence(
-          stateDir,
-          args.stream,
-          teamId,
-        );
-        return {
-          success: true,
-          data: toSafeEventAck({
-            streamId: args.stream,
-            sequence,
-            type: eventType,
-          }),
-        };
+        tasksCompleted = 0;
+        for (const event of taskCompletedEvents) {
+          const eventData = (event.data ?? {}) as Record<string, unknown>;
+          if (eventData.teamId === teamId) tasksCompleted += 1;
+        }
       } catch (err) {
         return {
           success: false,
@@ -205,10 +139,84 @@ export async function handleEventAppend(
           },
         };
       }
+
+      // Construct the persisted data: drop the caller-supplied tasksCompleted
+      // (it's the regression vector) and overwrite with the canonical count.
+      const persistedData: Record<string, unknown> = { teamId };
+      for (const [key, value] of Object.entries(data)) {
+        if (key === 'tasksCompleted' || key === 'teamId') continue;
+        persistedData[key] = value;
+      }
+      persistedData.tasksCompleted = tasksCompleted;
+      if (typeof persistedData.totalDurationMs !== 'number') {
+        persistedData.totalDurationMs = 0;
+      }
+      if (typeof persistedData.tasksFailed !== 'number') {
+        persistedData.tasksFailed = 0;
+      }
+
+      // Append the corrected event via the standard validated path. The
+      // append runs under AtomicAppender's per-stream lock so concurrent
+      // late-arriving task.completed events (which are themselves serialized
+      // through their own stream's lock) don't race with this emission's
+      // count read. If a late arrival lands AFTER the read, it lands AFTER
+      // this team.disbanded too — its count will simply be reflected in any
+      // subsequent re-emission, which is the expected convergence semantic.
+      try {
+        const validatedEvent = buildValidatedEvent(args.stream, 1, {
+          type: eventType,
+          data: persistedData,
+          correlationId: args.event.correlationId as string | undefined,
+          causationId: args.event.causationId as string | undefined,
+          agentId: args.event.agentId as string | undefined,
+          agentRole: args.event.agentRole as string | undefined,
+          tenantId: args.event.tenantId as string | undefined,
+          organizationId: args.event.organizationId as string | undefined,
+          source: args.event.source as string | undefined,
+          timestamp: args.event.timestamp as string | undefined,
+        });
+        const event = await store.appendValidated(
+          args.stream,
+          validatedEvent,
+          (args.expectedSequence !== undefined || args.idempotencyKey !== undefined)
+            ? {
+                expectedSequence: args.expectedSequence,
+                idempotencyKey: args.idempotencyKey,
+              }
+            : undefined,
+        );
+        return { success: true, data: toSafeEventAck(event) };
+      } catch (err) {
+        if (err instanceof ZodError) {
+          return {
+            success: false,
+            error: {
+              code: 'VALIDATION_ERROR',
+              message: `Event data validation failed for type '${eventType}': ${err.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; ')}`,
+            },
+          };
+        }
+        if (err instanceof SequenceConflictError) {
+          return {
+            success: false,
+            error: {
+              code: 'SEQUENCE_CONFLICT',
+              message: `Expected sequence ${err.expected}, actual ${err.actual}`,
+            },
+          };
+        }
+        return {
+          success: false,
+          error: {
+            code: 'APPEND_FAILED',
+            message: err instanceof Error ? err.message : String(err),
+          },
+        };
+      }
     }
-    // Fall through to the legacy path when teamId is missing — the router
-    // can't scope its query without it, and the schema-level validation
-    // below will produce the right error message.
+    // Fall through to the legacy path when teamId is missing — the cross-
+    // stream reducer can't scope its query without it, and the schema-level
+    // validation below will produce the right error message.
   }
 
   try {

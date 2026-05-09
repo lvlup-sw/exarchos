@@ -582,6 +582,72 @@ export class SqliteBackend implements StorageBackend {
     return rows.map((row) => row.streamId);
   }
 
+  /**
+   * Cross-stream query reducer (DR-3). Reduces over the events table for a
+   * single event type whose streamId is `streamPrefix` (parent stream) OR a
+   * namespaced descendant `<streamPrefix>/<segment>`. SQL clause matches the
+   * design verbatim:
+   *
+   *   WHERE type = ? AND (streamId LIKE ? || '/%' OR streamId = ?)
+   *
+   * Substring lookalikes (`<streamPrefix>-extra`) are excluded structurally
+   * because the LIKE pattern requires a literal `/` between prefix and
+   * descendant. The trailing optional filters (sinceSequence, since, until,
+   * limit, offset) parallel `queryEvents` so the cross-stream caller has the
+   * same shape available.
+   */
+  queryEventsByType(
+    eventType: string,
+    streamPrefix: string,
+    filters?: QueryFilters,
+  ): WorkflowEvent[] {
+    const conditions: string[] = ['type = ?', "(streamId LIKE ? || '/%' OR streamId = ?)"];
+    const params: unknown[] = [eventType, streamPrefix, streamPrefix];
+
+    if (filters?.sinceSequence !== undefined) {
+      conditions.push('sequence > ?');
+      params.push(filters.sinceSequence);
+    }
+    if (filters?.since) {
+      conditions.push('timestamp >= ?');
+      params.push(filters.since);
+    }
+    if (filters?.until) {
+      conditions.push('timestamp <= ?');
+      params.push(filters.until);
+    }
+
+    let sql = `SELECT streamId, sequence, type, timestamp, data, payload FROM events WHERE ${conditions.join(' AND ')} ORDER BY timestamp, streamId, sequence`;
+
+    if (filters?.limit !== undefined && filters?.offset !== undefined) {
+      sql += ` LIMIT ? OFFSET ?`;
+      params.push(filters.limit, filters.offset);
+    } else if (filters?.limit !== undefined) {
+      sql += ` LIMIT ?`;
+      params.push(filters.limit);
+    } else if (filters?.offset !== undefined) {
+      sql += ` LIMIT -1 OFFSET ?`;
+      params.push(filters.offset);
+    }
+
+    let stmt = this.queryStmtCache.get(sql);
+    if (!stmt) {
+      stmt = this.db.prepare(sql);
+      this.queryStmtCache.set(sql, stmt);
+    }
+
+    const rows = stmt.all(...params) as Array<{
+      streamId: string;
+      sequence: number;
+      type: string;
+      timestamp: string;
+      data: string | null;
+      payload: string | null;
+    }>;
+
+    return rows.map((row) => this.rowToEvent(row));
+  }
+
   // ─── AtomicAppender SQLite Body (#1259, T06/T07) ────────────────────────
 
   /**

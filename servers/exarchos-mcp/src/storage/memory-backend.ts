@@ -108,6 +108,44 @@ export class InMemoryBackend implements StorageBackend {
     return Array.from(this.events.keys());
   }
 
+  /**
+   * Cross-stream query reducer (DR-3). Mirrors `SqliteBackend.queryEventsByType`'s
+   * structural prefix filter:
+   *
+   *   streamId === streamPrefix OR streamId.startsWith(streamPrefix + '/')
+   *
+   * Substring lookalikes (`<streamPrefix>-extra`) are excluded — the descendant
+   * relation requires a literal `/` separator.
+   */
+  queryEventsByType(
+    eventType: string,
+    streamPrefix: string,
+    filters?: QueryFilters,
+  ): WorkflowEvent[] {
+    const collected: WorkflowEvent[] = [];
+    for (const [streamId, stream] of this.events.entries()) {
+      const isExact = streamId === streamPrefix;
+      const isDescendant = streamId.startsWith(`${streamPrefix}/`);
+      if (!isExact && !isDescendant) continue;
+      for (const event of stream) {
+        if (event.type !== eventType) continue;
+        if (filters?.sinceSequence !== undefined && event.sequence <= filters.sinceSequence) continue;
+        if (filters?.since && event.timestamp < filters.since) continue;
+        if (filters?.until && event.timestamp > filters.until) continue;
+        collected.push(event);
+      }
+    }
+    // Stable global ordering: timestamp first, sequence as tie-break.
+    collected.sort((a, b) => {
+      const byTs = a.timestamp.localeCompare(b.timestamp);
+      if (byTs !== 0) return byTs;
+      return a.sequence - b.sequence;
+    });
+    const offset = filters?.offset ?? 0;
+    const sliced = offset > 0 ? collected.slice(offset) : collected;
+    return filters?.limit !== undefined ? sliced.slice(0, filters.limit) : sliced;
+  }
+
   // ─── State Operations ───────────────────────────────────────────────────
 
   getState(featureId: string): WorkflowState | null {
