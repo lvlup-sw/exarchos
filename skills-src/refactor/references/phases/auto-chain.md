@@ -32,23 +32,23 @@ explore → brief → polish-implement → polish-validate → polish-update-doc
 
 ### Polish Auto-Chain Commands
 
-After each phase, run `/exarchos:rehydrate <featureId>` and read the rehydration document's `next_actions` envelope to pick the next verb:
+After each phase, run `{{COMMAND_PREFIX}}rehydrate <featureId>` and read the rehydration document's `next_actions` envelope to pick the next verb:
 
 ```text
 # After explore
-/exarchos:rehydrate <featureId>  →  next_actions[0].verb = brief
+{{COMMAND_PREFIX}}rehydrate <featureId>  →  next_actions[0].verb = brief
 
 # After brief
-/exarchos:rehydrate <featureId>  →  next_actions[0].verb = polish-implement
+{{COMMAND_PREFIX}}rehydrate <featureId>  →  next_actions[0].verb = polish-implement
 
 # After polish-implement
-/exarchos:rehydrate <featureId>  →  next_actions[0].verb = polish-validate
+{{COMMAND_PREFIX}}rehydrate <featureId>  →  next_actions[0].verb = polish-validate
 
 # After polish-validate (passed)
-/exarchos:rehydrate <featureId>  →  next_actions[0].verb = polish-update-docs
+{{COMMAND_PREFIX}}rehydrate <featureId>  →  next_actions[0].verb = polish-update-docs
 
 # After update-docs
-/exarchos:rehydrate <featureId>  →  blockers[0] = human-checkpoint:polish-update-docs
+{{COMMAND_PREFIX}}rehydrate <featureId>  →  blockers[0] = human-checkpoint:polish-update-docs
 ```
 
 ### Polish Checkpoint
@@ -97,7 +97,7 @@ explore → brief → overhaul-plan → overhaul-plan-review → overhaul-delega
 
 ### Overhaul Auto-Chain Commands
 
-Run `/exarchos:rehydrate <featureId>` after each phase and read `next_actions[0].verb`:
+Run `{{COMMAND_PREFIX}}rehydrate <featureId>` after each phase and read `next_actions[0].verb`:
 
 ```text
 # After explore                          → next_actions[0].verb = brief
@@ -155,7 +155,7 @@ updates: { "implement.switchReason": "<reason>", "implement.switchedAt": "<ISO86
 phase: "overhaul-plan"
 updates: { "track": "overhaul" }
 
-# Next action: run /exarchos:rehydrate <featureId> — next_actions[0].verb = overhaul-plan
+# Next action: run {{COMMAND_PREFIX}}rehydrate <featureId> — next_actions[0].verb = overhaul-plan
 ```
 
 ## Failure Handling

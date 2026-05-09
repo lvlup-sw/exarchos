@@ -76,7 +76,7 @@ If an Exarchos MCP tool returns an error:
 
 ## State Desync
 If workflow state doesn't match git reality:
-1. Run `/exarchos:rehydrate <featureId>` — the rehydration projection folds events newer than the last snapshot
+1. Run `/rehydrate <featureId>` — the rehydration projection folds events newer than the last snapshot
 2. If manual check still needed: compare state file with `git log` and branch state
 3. Update state via `mcp__plugin_exarchos_exarchos__exarchos_workflow` with `action: "set"` to match git truth
 
