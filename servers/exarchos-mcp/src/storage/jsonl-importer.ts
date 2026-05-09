@@ -1,4 +1,4 @@
-import { readFile } from 'node:fs/promises';
+import { readFile, mkdir, rename } from 'node:fs/promises';
 import * as path from 'node:path';
 
 import type { AtomicAppender, EventInput } from '../event-store/atomic-appender.js';
@@ -211,7 +211,23 @@ export async function importJsonlFile(
     };
   }
 
-  // Archive of the source file is performed by T21 in a follow-on commit.
+  // ─── Archive on success (T21) ────────────────────────────────────────
+  // Move the source file into `<dir>/.archive-v210/<basename>`. DR-8
+  // mandates a MOVE rather than DELETE so legacy bytes remain available
+  // for one release as a forensic / rollback target. The archive
+  // directory is created on demand so callers do not need to pre-stage
+  // the path.
+  await archiveSourceFile(filePath);
 
   return { ok: true, eventCount, malformedLines, durationMs };
+}
+
+async function archiveSourceFile(filePath: string): Promise<void> {
+  const dir = path.dirname(filePath);
+  const basename = path.basename(filePath);
+  const archiveDir = path.join(dir, '.archive-v210');
+  await mkdir(archiveDir, { recursive: true });
+  // `fs/promises.rename` is atomic-on-same-filesystem on POSIX. Cross-FS
+  // archive targets are out of scope (DR-8: archive lives next to source).
+  await rename(filePath, path.join(archiveDir, basename));
 }
