@@ -9,8 +9,10 @@
  * - New RehydrationDocumentSchema uses v: literal(3) and carries
  *   phasePlaybook in VolatileSectionsSchema.
  * - Drops behavioralGuidance from StableSectionsSchema (was vestigial,
- *   never populated in production). BehavioralGuidanceSchema export retained
- *   for T-50 removal.
+ *   never populated in production).
+ *
+ * T-50: BehavioralGuidanceSchema export removed; the zod literal is now
+ * inlined into StableSectionsSchemaV2, the only remaining consumer.
  *
  * History:
  * T011 lands stable prefix; T012 adds volatile sections; T013 composes the
@@ -20,18 +22,6 @@
  * key, and removes `eventRef.id` from the v:2 entry shape.
  */
 import { z } from 'zod';
-
-// ─── Kept for T-50 removal — no longer used in StableSectionsSchema ─────────
-
-/**
- * @deprecated No longer part of StableSectionsSchema (T-01). Retained for
- * T-50 full removal. Was vestigial in v:2 — never populated by any event.
- */
-export const BehavioralGuidanceSchema = z.object({
-  skill: z.string(),
-  skillRef: z.string(),
-  tools: z.unknown().optional(),
-});
 
 // ─── Phase Playbook Schema (T-01) ────────────────────────────────────────────
 
@@ -154,7 +144,11 @@ export type StableSections = z.infer<typeof StableSectionsSchema>;
  * RehydrationDocumentSchemaV2 only — not written by v:3 handlers.
  */
 const StableSectionsSchemaV2 = z.object({
-  behavioralGuidance: BehavioralGuidanceSchema,
+  behavioralGuidance: z.object({
+    skill: z.string(),
+    skillRef: z.string(),
+    tools: z.unknown().optional(),
+  }),
   workflowState: WorkflowStateSchema,
 });
 
