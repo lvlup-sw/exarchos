@@ -773,3 +773,166 @@ describe('initializeContext — migration runs at startup (T57, DR-8 AC1)', () =
     expect(archiveExists).toBe(false);
   });
 });
+
+// ─── T58 — Topology loader wired at lifecycle start (DR-7) ────────────────────
+//
+// Closes DR-7 startup-wiring gap: the design specifies the typed loader is
+// "called once at lifecycle start" and emits `phase.contract_missing` per
+// missing-contract phase "once at startup". T44 implemented the loader and
+// T47 implemented the emission inside it; this case asserts the wiring on
+// `initializeContext()` actually fires the once-per-startup-per-process
+// emission semantics.
+//
+// File-location decision: same rationale as T57 — `lifecycle.ts` exists but
+// is exclusively retention/compaction; the actual startup hook is
+// `initializeContext` in `core/context.ts`. Co-locate the test here with
+// `context.ts`.
+describe('initializeContext — topology loader wired at startup (T58, DR-7)', () => {
+  let tmpDir: string;
+
+  beforeEach(async () => {
+    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'context-topo-'));
+    vi.clearAllMocks();
+    // Reset the module-level topology cache between tests so each case
+    // starts in a "topology not loaded" state. Without this, the second
+    // test in the file would observe the cached topology from the first
+    // test and the once-per-startup-per-process semantics would be
+    // unobservable (it would look as though the second startup never
+    // emitted, but actually the FIRST test already populated the cache).
+    const { __resetTopologyCacheForTesting } = await import('../topology/loader.js');
+    __resetTopologyCacheForTesting();
+  });
+
+  afterEach(async () => {
+    await fs.rm(tmpDir, { recursive: true, force: true });
+    const { __resetTopologyCacheForTesting } = await import('../topology/loader.js');
+    __resetTopologyCacheForTesting();
+  });
+
+  // The PARTIAL_TOPOLOGY fixture mirrors `topology/loader.test.ts:115` —
+  // 2 phases declare a `staleness` block (`design`, `implement`), 3 do not
+  // (`review`, `merge`, `cleanup`). The loader walks `phases` and emits
+  // `phase.contract_missing` once per phase missing the contract.
+  const PARTIAL_TOPOLOGY = `
+phases:
+  design:
+    staleness:
+      expectedMaxDwellMinutes: 60
+      freshnessRequires: all
+      signals:
+        - name: lastActivity
+          thresholdMinutes: 60
+  implement:
+    staleness:
+      expectedMaxDwellMinutes: 120
+      freshnessRequires: any
+      signals:
+        - name: lastActivity
+          thresholdMinutes: 120
+        - name: branchActivity
+          thresholdMinutes: 120
+  review: {}
+  merge: {}
+  cleanup: {}
+`;
+
+  it('Context_InitializeWithTopologyMissingContracts_EmitsPhaseContractMissingOncePerMissingPhaseAtStartup', async () => {
+    const { initializeContext } = await import('./context.js');
+    const { getTopology } = await import('../topology/loader.js');
+    const { SqliteBackend } = await import('../storage/sqlite-backend.js');
+
+    // ─── Fixture: project root with a topology.yaml ────────────────────────
+    const projectRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'ctx-topo-proj-'));
+    await fs.writeFile(path.join(projectRoot, 'topology.yaml'), PARTIAL_TOPOLOGY, 'utf-8');
+
+    // Use a SQLite backend so `_substrate` events round-trip through the
+    // canonical durable substrate, the same path the production lifecycle
+    // walks. With JSONL-only mode the appender's stream-id validation +
+    // sidecar fallback would still work, but a SQLite backend lets us
+    // queryEvents('_substrate') deterministically with no sidecar merge.
+    const dbPath = path.join(tmpDir, 'exarchos.db');
+    const backend = new SqliteBackend(dbPath);
+    backend.initialize();
+
+    try {
+      // ─── Act 1: first initializeContext fires the loader ────────────────
+      const ctx1 = await initializeContext(tmpDir, { projectRoot, backend });
+      expect(ctx1.eventStore).toBeDefined();
+
+      // ─── Assertion 1: exactly 3 phase.contract_missing events emitted ──
+      const eventsAfterFirst = await ctx1.eventStore.query('_substrate');
+      const missingAfterFirst = eventsAfterFirst.filter(
+        (e) => e.type === 'phase.contract_missing',
+      );
+      expect(missingAfterFirst).toHaveLength(3);
+
+      // ─── Assertion 2: phaseName set matches the missing phases ──────────
+      const phaseNames = new Set(
+        missingAfterFirst.map((e) => (e.data as { phaseName: string }).phaseName),
+      );
+      expect(phaseNames).toEqual(new Set(['review', 'merge', 'cleanup']));
+
+      // ─── Assertion 3: getTopology() callable post-init ──────────────────
+      // Throws-if-not-loaded becomes pass-through after the wiring fires.
+      // This is the second observable side effect of the wiring (besides
+      // the events): downstream callers (e.g. pruner — T48) can now call
+      // `getTopology()` synchronously without any cold-start race.
+      expect(() => getTopology()).not.toThrow();
+      const loaded = getTopology();
+      expect(loaded.phases.design.staleness?.expectedMaxDwellMinutes).toBe(60);
+      expect(loaded.phases.review.staleness).toBeUndefined();
+
+      // ─── Act 2: second initializeContext on the same stateDir+projectRoot
+      const ctx2 = await initializeContext(tmpDir, { projectRoot, backend });
+      expect(ctx2.eventStore).toBeDefined();
+
+      // ─── Assertion 4 (idempotency): event count UNCHANGED ──────────────
+      // The loader's module-level cache short-circuits the second call →
+      // no fresh `phase.contract_missing` emissions. This is the
+      // "once at startup" semantics the design calls out for DR-7.
+      const eventsAfterSecond = await ctx2.eventStore.query('_substrate');
+      const missingAfterSecond = eventsAfterSecond.filter(
+        (e) => e.type === 'phase.contract_missing',
+      );
+      expect(missingAfterSecond).toHaveLength(3);
+    } finally {
+      backend.close();
+      await fs.rm(projectRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('Context_InitializeWithoutProjectRoot_DoesNotLoadTopology', async () => {
+    // CLI cold-start fast-exit (no projectRoot) bypasses topology loading
+    // entirely — `getTopology()` should still throw because
+    // `loadTopology()` was never called. This pins the fast-exit shape so
+    // a future refactor that unconditionally calls `loadTopology` would
+    // fail here (it would also drag the YAML loader into the cold-start
+    // import graph, blowing the DR-5 / task 021 p95=250ms budget).
+    const { initializeContext } = await import('./context.js');
+    const { getTopology } = await import('../topology/loader.js');
+
+    await initializeContext(tmpDir);
+
+    expect(() => getTopology()).toThrow(/load.*before/i);
+  });
+
+  it('Context_InitializeWithProjectRootButNoTopologyYaml_DoesNotThrow', async () => {
+    // When `topology.yaml` is absent from a projectRoot, the wiring must
+    // skip topology loading cleanly — never error. The pruner (T48) falls
+    // back to the v2.9 single-signal heuristic when no contract is loaded;
+    // the lifecycle hook honors the same "advisory, not required" stance.
+    const { initializeContext } = await import('./context.js');
+    const { getTopology } = await import('../topology/loader.js');
+
+    const projectRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'ctx-topo-empty-'));
+
+    try {
+      const ctx = await initializeContext(tmpDir, { projectRoot });
+      expect(ctx.eventStore).toBeDefined();
+      // No topology was loaded — accessor still throws.
+      expect(() => getTopology()).toThrow(/load.*before/i);
+    } finally {
+      await fs.rm(projectRoot, { recursive: true, force: true });
+    }
+  });
+});
