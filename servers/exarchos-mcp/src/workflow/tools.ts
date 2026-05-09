@@ -419,6 +419,15 @@ const MAX_CAS_RETRIES = 3;
  * the file is always a derived artifact.
  *
  * **Legacy v1 path:** Field-only updates write directly without events.
+ *
+ * **HSM single-path (DR-4, #1259):** Phase transitions route through the
+ * shared `hsmTransitionGuard.attempt` primitive in the same code path the
+ * canonical `handleTransition` handler uses. There is no second
+ * phase-write surface — both action handlers converge on this primitive
+ * for guard evaluation and event emission. The deprecated `set({phase})`
+ * surface additionally emits `hsm.deprecated_action_invoked` for migration
+ * telemetry; that emission is bolted on at the composite-handler boundary
+ * (DR-4 acceptance criteria; T38 GREEN).
  */
 export async function handleSet(
   input: SetInput,
