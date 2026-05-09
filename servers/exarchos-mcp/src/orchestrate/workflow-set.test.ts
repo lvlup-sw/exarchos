@@ -14,7 +14,7 @@
 // surface (no mocks at the boundary).
 // ────────────────────────────────────────────────────────────────────────────
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -164,5 +164,88 @@ describe('WorkflowSet_OnInvocation (T38, DR-4)', () => {
       (e) => e.type === 'hsm.deprecated_action_invoked',
     );
     expect(deprecationEvents.length).toBe(0);
+  });
+});
+
+// ─── T72: deprecation event routes through canonical emit helper ───────────
+//
+// CodeRabbit Major #12 (composite.ts:125) — the deprecation-emitter must
+// route through the canonical `buildValidatedEvent` + `appendValidated`
+// path used by every other system-boundary event emitter (see
+// `event-store/tools.ts`). Direct `eventStore.append(...)` is a
+// side-channel that bypasses per-event-type data validation and the
+// envelope-population semantics the canonical helper enforces.
+//
+// INV-1 (event-sourcing integrity — single emission path) and INV-5d
+// (action discriminator — manual append within an action handler is a
+// side-channel) both require the canonical helper. The witness here
+// spies on `appendValidated` and asserts it carries the deprecation
+// event with the canonical envelope fields populated.
+// ────────────────────────────────────────────────────────────────────────────
+
+describe('WorkflowSet_DeprecationEmit_CanonicalEnvelope (T72, INV-1, INV-5d)', () => {
+  it('WorkflowSet_OnPhaseInvocation_RoutesDeprecationThroughAppendValidated', async () => {
+    const featureId = 't72-canonical-emit';
+
+    await primeForIdeateToPlan(setCtx, featureId);
+
+    // Spy on the canonical helper. The bare `append` path bypasses this;
+    // the canonical path validates via `buildValidatedEvent` then writes
+    // through `appendValidated`. The witness asserts the deprecation
+    // event traverses `appendValidated` with the type set.
+    const appendValidatedSpy = vi.spyOn(setCtx.eventStore, 'appendValidated');
+
+    const result = await handleWorkflow(
+      { action: 'set', featureId, phase: 'plan' },
+      setCtx,
+    );
+    expect(result.success).toBe(true);
+
+    // The deprecation event MUST traverse the canonical helper. With the
+    // bare `append` path this spy never fires for the deprecation type.
+    const deprecationCall = appendValidatedSpy.mock.calls.find(([, evt]) =>
+      (evt as { type?: string }).type === 'hsm.deprecated_action_invoked',
+    );
+    expect(deprecationCall).toBeDefined();
+
+    appendValidatedSpy.mockRestore();
+  });
+
+  it('WorkflowSet_DeprecationEvent_CarriesCanonicalEnvelopeFields', async () => {
+    const featureId = 't72-envelope-fields';
+
+    await primeForIdeateToPlan(setCtx, featureId);
+
+    const result = await handleWorkflow(
+      { action: 'set', featureId, phase: 'plan' },
+      setCtx,
+    );
+    expect(result.success).toBe(true);
+
+    const events = await setCtx.eventStore.query(featureId);
+    const deprecation = events.find(
+      (e) => e.type === 'hsm.deprecated_action_invoked',
+    );
+    expect(deprecation).toBeDefined();
+
+    // Canonical envelope contract — every emitter must populate these.
+    // The canonical helper derives `correlationId`, `source`, and
+    // `schemaVersion` so all consumers see consistent envelopes (DR-3,
+    // INV-1). The bare-append path leaves `schemaVersion` to the Zod
+    // default; the canonical helper sets it explicitly via
+    // `buildValidatedEvent`.
+    expect(deprecation!.correlationId).toBeTruthy();
+    expect(deprecation!.source).toBeTruthy();
+    expect(deprecation!.schemaVersion).toBeTruthy();
+
+    // The deprecation event's `data` MUST satisfy the per-type schema
+    // (HsmDeprecatedActionInvokedData) — the canonical
+    // `buildValidatedEvent` enforces this; the bare-append path skips
+    // per-type validation entirely.
+    const data = deprecation!.data as { action: string; invokedBy: string };
+    expect(typeof data.action).toBe('string');
+    expect(data.action.length).toBeGreaterThan(0);
+    expect(typeof data.invokedBy).toBe('string');
+    expect(data.invokedBy.length).toBeGreaterThan(0);
   });
 });
