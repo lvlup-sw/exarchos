@@ -22,14 +22,16 @@ import {
   BehavioralGuidanceSchema,
   RehydrationDocumentSchema,
   RehydrationDocumentSchemaV1,
+  RehydrationDocumentSchemaV2,
   StableSectionsSchema,
   VolatileSectionsSchema,
   WorkflowStateSchema,
   type RehydrationDocument,
+  type RehydrationDocumentV3,
 } from './schema.js';
 import {
   InvalidEnvelopeError,
-  upgradeRehydrationDocumentV1toV2,
+  upgradeRehydrationDocument,
 } from './upgrade.js';
 
 /**
@@ -136,31 +138,39 @@ export function serializeRehydrationDocument(doc: RehydrationDocument): string {
  * Defined once at module scope so the compiled probe is shared across calls.
  */
 const EnvelopeVersionProbe = z.object({
-  v: z.union([z.literal(1), z.literal(2)]),
+  v: z.union([z.literal(1), z.literal(2), z.literal(3)]),
 });
 
 /**
- * Read entry point for rehydration documents — T3 (#1246-readside-migration).
+ * Read entry point for rehydration documents — T-03
+ * (rehydration-machinery-refactor) / T3 (#1246-readside-migration).
  *
- * Probes the input envelope's `v` discriminator and routes:
- *   - `v: 2` → full v:2 schema parse, returned as-is.
- *   - `v: 1` → full v:1 schema parse, then `upgradeRehydrationDocumentV1toV2`
- *     to produce a strict-mode-valid v:2 document with per-entry fail-open.
- *   - neither → `InvalidEnvelopeError` (no silent fallback per DR-18). The
- *     caller is responsible for surfacing corruption as a workflow state.
+ * Probes the input envelope's `v` discriminator and routes all versions to
+ * the current v:3 shape via the upgrade chain:
+ *   - `v: 3` → full v:3 schema parse, returned as-is (native pass-through).
+ *   - `v: 2` → full v:2 schema parse, then `upgradeRehydrationDocument`
+ *     to produce a strict-mode-valid v:3 document.
+ *   - `v: 1` → full v:1 schema parse, then `upgradeRehydrationDocument`
+ *     which chains v:1 → v:2 → v:3 with per-entry fail-open on handoff entries.
+ *   - none of the above → `InvalidEnvelopeError` (no silent fallback per DR-18).
+ *     The caller is responsible for surfacing corruption as a workflow state.
  *
- * Writers MUST NOT call this — they construct v:2 documents directly via
- * `RehydrationDocumentSchema`. This is the only legitimate path that touches
- * `RehydrationDocumentSchemaV1`.
+ * Always returns `RehydrationDocumentV3`. Writers MUST NOT call this — they
+ * construct v:3 documents directly via `RehydrationDocumentSchema`. This is
+ * the only legitimate path that touches `RehydrationDocumentSchemaV1` and
+ * `RehydrationDocumentSchemaV2`.
  */
-export function loadRehydrationDocument(raw: unknown): RehydrationDocument {
+export function loadRehydrationDocument(raw: unknown): RehydrationDocumentV3 {
   const probe = EnvelopeVersionProbe.safeParse(raw);
   if (!probe.success) {
     throw new InvalidEnvelopeError(probe.error);
   }
-  if (probe.data.v === 2) {
-    return RehydrationDocumentSchema.parse(raw);
+  switch (probe.data.v) {
+    case 3:
+      return RehydrationDocumentSchema.parse(raw);
+    case 2:
+      return upgradeRehydrationDocument(RehydrationDocumentSchemaV2.parse(raw));
+    case 1:
+      return upgradeRehydrationDocument(RehydrationDocumentSchemaV1.parse(raw));
   }
-  const v1doc = RehydrationDocumentSchemaV1.parse(raw);
-  return upgradeRehydrationDocumentV1toV2(v1doc);
 }
