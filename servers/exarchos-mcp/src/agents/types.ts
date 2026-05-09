@@ -24,11 +24,21 @@ export interface AgentValidationRule {
 /** Canonical agent spec IDs. */
 export type AgentSpecId = 'implementer' | 'fixer' | 'reviewer' | 'scaffolder';
 
+/** Three canonical capability postures (DR-6 of #1259). */
+export type AgentPosture = 'read-only' | 'task-isolated' | 'shared-mutating';
+
 /** Complete specification for a subagent. */
 export interface AgentSpec {
   readonly id: AgentSpecId;
   readonly description: string;
   readonly systemPrompt: string;
+  /**
+   * Capability posture (DR-6). Mutually exclusive with `capabilities`.
+   * The resolver derives the full capability set from posture + runtime
+   * handshake. Optional during the v2.10 migration window; required in
+   * v2.11.0 once the legacy `capabilities[]` shape is removed.
+   */
+  readonly posture?: AgentPosture;
   readonly capabilities: readonly Capability[];
   readonly disallowedTools?: readonly string[];
   readonly model: 'opus' | 'sonnet' | 'haiku' | 'inherit';
