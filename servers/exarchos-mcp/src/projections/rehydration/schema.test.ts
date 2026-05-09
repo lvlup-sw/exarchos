@@ -19,11 +19,9 @@ import { WorkflowCheckpointData } from '../../event-store/schemas.js';
 
 describe('rehydration document stable-sections schema (T011, DR-3)', () => {
   it('RehydrationDoc_MinimalStableSections_Parses', () => {
+    // Updated for v:3 (T-01): stable sections contain only workflowState.
+    // behavioralGuidance is dropped (vestigial in v:2, removed in v:3).
     const minimalInput = {
-      behavioralGuidance: {
-        skill: 'rehydrate-foundation',
-        skillRef: 'skills/claude-code/rehydrate-foundation/SKILL.md',
-      },
       workflowState: {
         featureId: 'rehydrate-foundation',
         phase: 'implementation',
@@ -39,6 +37,7 @@ describe('rehydration document stable-sections schema (T011, DR-3)', () => {
 
 describe('rehydration document volatile-sections schema (T012, DR-3)', () => {
   it('RehydrationDoc_FullVolatileSections_Parses', () => {
+    // Updated for v:3 (T-01): phasePlaybook is now a required field (nullable).
     const fullInput = {
       taskProgress: [
         { id: 'T011', status: 'complete' },
@@ -56,6 +55,7 @@ describe('rehydration document volatile-sections schema (T012, DR-3)', () => {
         verb: 'implement',
         reason: 'T013 composes stable + volatile into envelope',
       },
+      phasePlaybook: null,
     };
 
     const result = VolatileSectionsSchema.safeParse(fullInput);
@@ -79,11 +79,8 @@ describe('rehydration document volatile-sections schema (T012, DR-3)', () => {
 });
 
 describe('rehydration document top-level schema (T013, DR-3)', () => {
+  // Updated for v:3 (T-01): stable sections no longer include behavioralGuidance.
   const minimalStable = {
-    behavioralGuidance: {
-      skill: 'rehydrate-foundation',
-      skillRef: 'skills/claude-code/rehydrate-foundation/SKILL.md',
-    },
     workflowState: {
       featureId: 'rehydrate-foundation',
       phase: 'implementation',
@@ -96,13 +93,15 @@ describe('rehydration document top-level schema (T013, DR-3)', () => {
     decisions: [],
     artifacts: {},
     blockers: [],
+    phasePlaybook: null,
   };
 
-  it('RehydrationDoc_VersionedSchema_RequiresV2', () => {
-    // Updated for v:2 envelope bump (#1246). The main schema now requires
-    // v: literal(2); legacy v:1 docs route through the read-back path.
+  it('RehydrationDoc_VersionedSchema_RequiresV3', () => {
+    // Updated for v:3 envelope bump (T-01). The main schema now requires
+    // v: literal(3); legacy v:2 docs route through RehydrationDocumentSchemaV2
+    // and legacy v:1 docs route through RehydrationDocumentSchemaV1.
     const validDoc = {
-      v: 2,
+      v: 3,
       projectionSequence: 0,
       ...minimalStable,
       ...minimalVolatile,
@@ -113,7 +112,7 @@ describe('rehydration document top-level schema (T013, DR-3)', () => {
 
     const wrongVersionDoc = {
       ...validDoc,
-      v: 1,
+      v: 2,
     };
     const wrongVersionResult = RehydrationDocumentSchema.safeParse(wrongVersionDoc);
     expect(wrongVersionResult.success).toBe(false);
@@ -125,7 +124,7 @@ describe('rehydration document top-level schema (T013, DR-3)', () => {
 
   it('RehydrationDoc_ProjectionSequence_RequiresNonNegativeInt', () => {
     const baseDoc = {
-      v: 2 as const,
+      v: 3 as const,
       ...minimalStable,
       ...minimalVolatile,
     };
@@ -150,11 +149,8 @@ describe('rehydration document top-level schema (T013, DR-3)', () => {
 });
 
 describe('rehydration document serializer — stable-before-volatile order (T050, DR-14)', () => {
+  // Updated for v:3 (T-01): stable section no longer contains behavioralGuidance.
   const stable = {
-    behavioralGuidance: {
-      skill: 'rehydrate-foundation',
-      skillRef: 'skills/claude-code/rehydrate-foundation/SKILL.md',
-    },
     workflowState: {
       featureId: 'rehydrate-foundation',
       phase: 'implementation',
@@ -168,14 +164,14 @@ describe('rehydration document serializer — stable-before-volatile order (T050
     artifacts: { plan: 'docs/plans/2026-04-23-rehydrate-foundation.md' },
     blockers: ['awaiting T051'],
     nextAction: { verb: 'implement', reason: 'T050 serializer' },
+    phasePlaybook: null,
   };
 
   it('DocumentSerialization_StableSectionsFirst_Always', () => {
     // Forward-declared doc: keys in canonical order.
     const forwardDoc: RehydrationDocument = {
-      v: 2,
+      v: 3,
       projectionSequence: 7,
-      behavioralGuidance: stable.behavioralGuidance,
       workflowState: stable.workflowState,
       taskProgress: volatile.taskProgress,
       decisions: volatile.decisions,
@@ -183,12 +179,14 @@ describe('rehydration document serializer — stable-before-volatile order (T050
       blockers: volatile.blockers,
       nextAction: volatile.nextAction,
       recentHandoffs: [],
+      phasePlaybook: null,
     };
 
     // Reverse-declared doc: same field values, but object-literal key order
     // is deliberately inverted (volatile keys declared before stable keys, and
     // sibling keys flipped end-to-start).
     const reverseDoc = {
+      phasePlaybook: null,
       recentHandoffs: [],
       nextAction: volatile.nextAction,
       blockers: volatile.blockers,
@@ -196,9 +194,8 @@ describe('rehydration document serializer — stable-before-volatile order (T050
       decisions: volatile.decisions,
       taskProgress: volatile.taskProgress,
       workflowState: stable.workflowState,
-      behavioralGuidance: stable.behavioralGuidance,
       projectionSequence: 7,
-      v: 2,
+      v: 3,
     } as RehydrationDocument;
 
     const forwardJson = serializeRehydrationDocument(forwardDoc);
@@ -239,9 +236,8 @@ describe('rehydration document serializer — stable-before-volatile order (T050
 
   it('DocumentSerialization_ReorderedInput_ProducesIdenticalBytes', () => {
     const docA: RehydrationDocument = {
-      v: 2,
+      v: 3,
       projectionSequence: 42,
-      behavioralGuidance: stable.behavioralGuidance,
       workflowState: stable.workflowState,
       taskProgress: volatile.taskProgress,
       decisions: volatile.decisions,
@@ -249,10 +245,12 @@ describe('rehydration document serializer — stable-before-volatile order (T050
       blockers: volatile.blockers,
       nextAction: volatile.nextAction,
       recentHandoffs: [],
+      phasePlaybook: null,
     };
 
     // Same values, intentionally reversed JS key-declaration order.
     const docB = {
+      phasePlaybook: null,
       recentHandoffs: [],
       nextAction: volatile.nextAction,
       blockers: volatile.blockers,
@@ -260,9 +258,8 @@ describe('rehydration document serializer — stable-before-volatile order (T050
       decisions: volatile.decisions,
       taskProgress: volatile.taskProgress,
       workflowState: stable.workflowState,
-      behavioralGuidance: stable.behavioralGuidance,
       projectionSequence: 42,
-      v: 2,
+      v: 3,
     } as RehydrationDocument;
 
     expect(serializeRehydrationDocument(docA)).toBe(serializeRehydrationDocument(docB));
@@ -409,8 +406,8 @@ describe('HandoffEntrySchemaV1 (T1, #1246 read-back)', () => {
   });
 });
 
-describe('RehydrationDocumentSchema v:2 envelope (T1, #1246)', () => {
-  const minimalStable = {
+describe('RehydrationDocumentSchema version routing (T1, #1246 + T-01)', () => {
+  const minimalStableV2 = {
     behavioralGuidance: {
       skill: 'rehydrate-foundation',
       skillRef: 'skills/claude-code/rehydrate-foundation/SKILL.md',
@@ -430,22 +427,30 @@ describe('RehydrationDocumentSchema v:2 envelope (T1, #1246)', () => {
     recentHandoffs: [],
   };
 
-  it('RehydrationDocumentSchema_V2Literal_RejectsV1Documents', () => {
-    // Main schema accepts v:2 docs.
+  it('RehydrationDocumentSchema_V3Literal_RejectsV1AndV2Documents', () => {
+    // Updated for v:3 envelope bump (T-01). The main schema now requires
+    // v: literal(3); v:2 docs route through RehydrationDocumentSchemaV2 and
+    // v:1 docs route through RehydrationDocumentSchemaV1.
     const v2Doc = {
       v: 2,
       projectionSequence: 0,
-      ...minimalStable,
+      ...minimalStableV2,
       ...minimalVolatileV2,
     };
-    expect(RehydrationDocumentSchema.safeParse(v2Doc).success).toBe(true);
+
+    // Main schema (v:3) rejects v:2 docs.
+    expect(RehydrationDocumentSchema.safeParse(v2Doc).success).toBe(false);
+
+    // RehydrationDocumentSchemaV2 (renamed from the previous RehydrationDocumentSchema)
+    // accepts v:2 for the read-back/migration path that T-03 will consume.
+    expect(RehydrationDocumentSchemaV2.safeParse(v2Doc).success).toBe(true);
 
     // Main schema rejects v:1 docs — the read-side migration path
     // (loadRehydrationDocument) routes through RehydrationDocumentSchemaV1.
     const v1Doc = {
       v: 1,
       projectionSequence: 0,
-      ...minimalStable,
+      ...minimalStableV2,
       taskProgress: [],
       decisions: [],
       artifacts: {},
@@ -596,15 +601,18 @@ describe('RehydrationDocumentSchema v:3 envelope (T-01)', () => {
 });
 
 describe('VolatileSectionsSchema handoff fields (T1, #1240 + #1246)', () => {
+  // Updated for v:3 (T-01): phasePlaybook is now a required (nullable) field.
   const baseVolatile = {
     taskProgress: [],
     decisions: [],
     artifacts: {},
     blockers: [],
+    phasePlaybook: null,
   };
 
   it('VolatileSectionsSchema_HandoffFields_StrictBoundary', () => {
     // latestHandoff is optional, recentHandoffs defaults to [].
+    // phasePlaybook: null is required for v:3 volatile sections.
     const minimal = { ...baseVolatile };
     const result = VolatileSectionsSchema.safeParse(minimal);
     expect(result.success).toBe(true);
@@ -645,7 +653,7 @@ describe('VolatileSectionsSchema handoff fields (T1, #1240 + #1246)', () => {
 
     // Strict mode at the volatile-section boundary rejects unknown sibling keys —
     // prevents accidental v:1-shaped fields (e.g. an `eventRefId` typo) from
-    // surviving into a v:2 envelope.
+    // surviving into a v:3 envelope.
     expect(
       VolatileSectionsSchema.safeParse({
         ...baseVolatile,
