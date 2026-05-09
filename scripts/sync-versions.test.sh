@@ -78,6 +78,24 @@ poison_all_sinks() {
   mv "$TS_TMPDIR/cli-commands/session-start.ts.tmp" "$TS_TMPDIR/cli-commands/session-start.ts"
 }
 
+# ─── Test 0: SyncVersions_DoesNotReferenceDeletedSessionStartTs (F-01) ──────
+#
+# Regression guard: P5 deleted servers/exarchos-mcp/src/cli-commands/session-start.ts.
+# The sync-versions sink registry must not still reference that path, otherwise
+# `--check` mode emits a MISSING: error and `npm run version:sync` (write mode)
+# fails on the patch_quoted_after "file not found" guard, breaking the release
+# workflow. This test runs --check against the real repo (no temp overrides)
+# and asserts the script never reports drift for the deleted file.
+
+echo "Test 0: SyncVersions_DoesNotReferenceDeletedSessionStartTs (F-01)"
+
+REAL_CHECK_OUTPUT=$(bash "$SYNC_SCRIPT" --check 2>&1 || true)
+if grep -qF "session-start.ts" <<<"$REAL_CHECK_OUTPUT"; then
+  fail "sync-versions.sh still references deleted session-start.ts:\n$(grep -F session-start.ts <<<"$REAL_CHECK_OUTPUT")"
+else
+  pass "sync-versions.sh sink registry no longer references deleted session-start.ts"
+fi
+
 # ─── Test 1: SyncVersions_UpdatesPluginJson ──────────────────────────────────
 
 echo "Test 1: SyncVersions_UpdatesPluginJson_VersionAndMinBinaryVersion"
