@@ -26,6 +26,8 @@ import type {
   HandoffEntryV1,
   HandoffEntryV2,
   RehydrationDocument,
+  RehydrationDocumentV2,
+  RehydrationDocumentV3,
 } from './schema.js';
 
 /**
@@ -107,7 +109,7 @@ function degradedBlocker(scope: string, error: Error): Record<string, unknown> {
  */
 export function upgradeRehydrationDocumentV1toV2(
   v1doc: RehydrationDocumentV1,
-): RehydrationDocument {
+): RehydrationDocumentV2 {
   const blockers = [...v1doc.blockers];
 
   let latestHandoff: HandoffEntryV2 | undefined;
@@ -140,7 +142,7 @@ export function upgradeRehydrationDocumentV1toV2(
   // would carry the v:1 `v: 1` literal through and the strict v:2 envelope
   // schema would reject it. Spreading also makes it easy to accidentally
   // leak v:1-shaped fields if T1's schema gains optional fields later.
-  const v2doc: RehydrationDocument = {
+  const v2doc: RehydrationDocumentV2 = {
     v: 2,
     projectionSequence: v1doc.projectionSequence,
     behavioralGuidance: v1doc.behavioralGuidance,
@@ -155,4 +157,52 @@ export function upgradeRehydrationDocumentV1toV2(
   if (latestHandoff !== undefined) v2doc.latestHandoff = latestHandoff;
 
   return v2doc;
+}
+
+/**
+ * Upgrade a v:2 rehydration document to v:3 (T-02, rehydration-machinery-refactor).
+ *
+ * Pure field drop:
+ *   - `behavioralGuidance` is removed — it was vestigial in v:2 and is no
+ *     longer part of v:3 StableSectionsSchema.
+ *   - `phasePlaybook` is seeded `null` — it is composed at handler time
+ *     (T-20), not folded from events.
+ *
+ * All other fields (`workflowState`, `projectionSequence`, and every volatile
+ * section) are preserved verbatim.
+ */
+export function upgradeRehydrationDocumentV2toV3(
+  doc: RehydrationDocumentV2,
+): RehydrationDocumentV3 {
+  // Destructure to drop behavioralGuidance; spread the rest verbatim.
+  const { behavioralGuidance: _drop, ...rest } = doc;
+  return {
+    ...rest,
+    v: 3,
+    phasePlaybook: null,
+  };
+}
+
+/**
+ * Upgrade any versioned rehydration document to the latest (v:3) shape.
+ *
+ * Routes through the version chain:
+ *   v:1 → v:2  (upgradeRehydrationDocumentV1toV2)
+ *   v:2 → v:3  (upgradeRehydrationDocumentV2toV3)
+ *
+ * Returns a `RehydrationDocumentV3`. Only the read entry point
+ * (`loadRehydrationDocument` in `serialize.ts`, T-03) should call this;
+ * writers always emit v:3 directly.
+ */
+export function upgradeRehydrationDocument(
+  doc: RehydrationDocument,
+): RehydrationDocumentV3 {
+  if (doc.v === 1) {
+    return upgradeRehydrationDocumentV2toV3(upgradeRehydrationDocumentV1toV2(doc));
+  }
+  if (doc.v === 2) {
+    return upgradeRehydrationDocumentV2toV3(doc);
+  }
+  // v:3 — already at latest.
+  return doc;
 }
