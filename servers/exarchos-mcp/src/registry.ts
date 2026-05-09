@@ -489,6 +489,19 @@ function makeEventDescribeAction(): ToolAction {
 // (since/removeIn) and the canonical replacement so agents can self-correct
 // without human prompting. The schemas below describe the typed sub-shape
 // registered in each action's `outputSchema`.
+//
+// Both `exarchos_workflow.set` and `exarchos_workflow.transition` register
+// the same typed sub-shape so the contract is symmetric across the
+// migration window — the canonical action does not currently emit
+// `_meta.deprecation`, but the schema slot stays declared so the surfaces
+// are interchangeable from a contract-introspection perspective. v2.11.0
+// removes the `set` action entirely (per DR-14); the `transition` schema
+// then drops the deprecation slot via a follow-up bump.
+//
+// The envelope version is implicitly bumped via this schema registration:
+// `_meta.envelopeVersion` callers can rely on the structured deprecation
+// payload appearing instead of (or alongside) any free-text warning that
+// may have surfaced via `result.warnings` historically.
 
 /**
  * `_meta.deprecation` typed sub-shape (DR-4, DR-11). Surfaces on the response
