@@ -41,7 +41,8 @@ export async function handleHookCommand(
   parseStdin: (raw: string) => Record<string, unknown>,
   outputJson: (result: unknown) => void,
 ): Promise<HookResult> {
-  // Parse --plugin-root from argv if present (used by SessionStart hook)
+  // Parse --plugin-root from argv if present (passed by hooks that need
+  // to resolve plugin-relative paths before backend initialization).
   const pluginRootIdx = argv.indexOf('--plugin-root');
   if (pluginRootIdx !== -1 && argv[pluginRootIdx + 1]) {
     process.env.EXARCHOS_PLUGIN_ROOT = argv[pluginRootIdx + 1];

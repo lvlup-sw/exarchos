@@ -16,7 +16,6 @@
  *   - servers/exarchos-mcp/src/index.ts
  *   - servers/exarchos-mcp/src/core/context.ts
  *   - servers/exarchos-mcp/src/cli-commands/assemble-context.ts
- *   - servers/exarchos-mcp/src/cli-commands/pre-compact.ts
  *   - servers/exarchos-mcp/src/evals/run-evals-cli.ts
  *
  * Excluded automatically (test/bench surface):
@@ -48,7 +47,6 @@ const ALLOWLIST = new Set([
   'index.ts',
   path.join('core', 'context.ts'),
   path.join('cli-commands', 'assemble-context.ts'),
-  path.join('cli-commands', 'pre-compact.ts'),
   path.join('evals', 'run-evals-cli.ts'),
 ]);
 
@@ -206,7 +204,7 @@ function main() {
     `Found ${violations.length} rogue \`new EventStore\` instantiation(s) outside the composition root.\n`,
   );
   process.stderr.write(
-    'Composition root files (allowed): index.ts, core/context.ts, cli-commands/assemble-context.ts, cli-commands/pre-compact.ts, evals/run-evals-cli.ts\n',
+    'Composition root files (allowed): index.ts, core/context.ts, cli-commands/assemble-context.ts, evals/run-evals-cli.ts\n',
   );
   process.stderr.write('Test/bench files are excluded automatically.\n\n');
   for (const v of violations) {

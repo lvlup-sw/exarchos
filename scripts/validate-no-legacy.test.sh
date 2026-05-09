@@ -304,9 +304,8 @@ assert_file_absent \
 # NoLegacy_OrphanedCliCommandsAbsent — handler modules in cli-commands/ that
 # were ONLY consumed by the deleted cli.ts (subagent-stop, eval-run,
 # eval-capture, eval-compare, eval-calibrate, quality-check) must be deleted.
-# Live handlers (pre-compact, session-start, session-end, guard, gates,
-# subagent-context, assemble-context, version) stay — they are consumed by
-# adapters/hooks.ts or adapters/cli.ts.
+# Live handlers (session-end, guard, gates, subagent-context, assemble-context,
+# version) stay — they are consumed by adapters/hooks.ts or adapters/cli.ts.
 for orphan in subagent-stop eval-run eval-capture eval-compare eval-calibrate quality-check; do
   assert_file_absent \
     "NoLegacy_OrphanedCliCommandsAbsent ($orphan.ts)" \
