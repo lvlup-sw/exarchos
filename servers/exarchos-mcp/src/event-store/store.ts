@@ -78,6 +78,19 @@ export interface QueryFilters {
   until?: string;
   limit?: number;
   offset?: number;
+  /**
+   * Cross-stream prefix filter (DR-3, design 2026-05-08-durable-event-store-substrate).
+   *
+   * When set, the query matches events whose `streamId` is exactly the prefix
+   * OR a descendant under the namespaced form `<prefix>/<segment>`. Substring
+   * matches (`<prefix>-extra`) are EXCLUDED — the comparison is structural,
+   * not lexical. Used by `EventStore.queryByType` to reduce over events
+   * across an entire feature's namespace.
+   *
+   * Honoured at the SQL/backend layer where possible; the JSONL fallback
+   * implements the same semantic in `EventStore.queryByType`.
+   */
+  streamPrefix?: string;
 }
 
 /** Pre-compiled regex for extracting the sequence number from a JSONL line before JSON.parse. */
@@ -1092,6 +1105,158 @@ export class EventStore {
     }
 
     return events;
+  }
+
+  /**
+   * Cross-stream query reducer (DR-3).
+   *
+   * Returns every event of `eventType` whose `streamId` matches `filters.streamPrefix`
+   * — either as an exact match (`streamId === streamPrefix`) or as a namespaced
+   * descendant (`streamId.startsWith(streamPrefix + '/')`). The split avoids
+   * substring-style false positives (e.g. `feat-1-extra` is NOT a descendant of
+   * `feat-1`), matching the SQL clause documented in the design:
+   *
+   *   WHERE streamId LIKE ? || '/%' OR streamId = ?
+   *
+   * The `streamPrefix` itself is validated as a (possibly single-segment)
+   * stream id so namespaced inputs like `feat-1/sub-a` are admitted but
+   * pathological inputs (`..`, leading slash, etc.) are rejected at the
+   * boundary before the JSONL/SQL layer ever sees them.
+   *
+   * This is the canonical reducer for `team.disbanded` emission: count
+   * `task.completed` events across every subagent stream nested under the
+   * feature stream, without reading any derived state (INV-1).
+   *
+   * Implementation note: when a `StorageBackend` is attached and exposes a
+   * cross-stream query method, that path is preferred; otherwise the JSONL
+   * directory is scanned for `<prefix>.events.jsonl` and
+   * `<prefix>/<segment>.events.jsonl` files. Filters from `QueryFilters`
+   * (sinceSequence, since, until, limit, offset) apply globally to the
+   * merged result.
+   */
+  async queryByType(
+    eventType: string,
+    filters?: QueryFilters & { streamPrefix?: string },
+  ): Promise<WorkflowEvent[]> {
+    const prefix = filters?.streamPrefix;
+    if (!prefix) {
+      throw new Error(
+        'EventStore.queryByType requires filters.streamPrefix — use EventStore.query() for single-stream queries',
+      );
+    }
+    validateStreamId(prefix);
+
+    // Per-stream sub-filters: type is enforced here, prefix is dispatched
+    // by stream selection. Pagination/limit are applied AFTER the merge so
+    // they reflect the global ordering rather than per-stream slices.
+    const perStream: QueryFilters = { type: eventType };
+    if (filters?.sinceSequence !== undefined) perStream.sinceSequence = filters.sinceSequence;
+    if (filters?.since !== undefined) perStream.since = filters.since;
+    if (filters?.until !== undefined) perStream.until = filters.until;
+
+    // Backend fast-path: when the storage backend exposes a cross-stream
+    // type query, use the SQL clause directly (`LIKE ? || '/%' OR = ?`)
+    // and skip the per-stream merge below. Backends without the method
+    // (in-memory, remote) fall through to the listStreams() enumeration.
+    if (this.backend && typeof this.backend.queryEventsByType === 'function') {
+      const backendEvents = this.backend.queryEventsByType(eventType, prefix, perStream);
+      const sortedBackend = backendEvents.slice().sort((a, b) => {
+        const byTs = a.timestamp.localeCompare(b.timestamp);
+        return byTs !== 0 ? byTs : a.sequence - b.sequence;
+      });
+      const offset = filters?.offset ?? 0;
+      const limit = filters?.limit;
+      const slicedBackend = offset > 0 ? sortedBackend.slice(offset) : sortedBackend;
+      return limit !== undefined ? slicedBackend.slice(0, limit) : slicedBackend;
+    }
+
+    // Stream selection (fallback): enumerate streams via backend.listStreams()
+    // when present, plus the JSONL state-dir scan, then apply the structural
+    // prefix filter locally.
+    const matchingStreams = await this.listStreamsMatchingPrefix(prefix);
+
+    const merged: WorkflowEvent[] = [];
+    for (const streamId of matchingStreams) {
+      const events = await this.query(streamId, perStream);
+      for (const event of events) {
+        if (event.type === eventType) merged.push(event);
+      }
+    }
+
+    // Stable global ordering: timestamp first, sequence as tie-break.
+    merged.sort((a, b) => {
+      const byTs = a.timestamp.localeCompare(b.timestamp);
+      return byTs !== 0 ? byTs : a.sequence - b.sequence;
+    });
+
+    const offset = filters?.offset ?? 0;
+    const limit = filters?.limit;
+    const sliced = offset > 0 ? merged.slice(offset) : merged;
+    return limit !== undefined ? sliced.slice(0, limit) : sliced;
+  }
+
+  /**
+   * Enumerate streams whose `streamId` is the given prefix or a namespaced
+   * descendant under it. Prefers the backend's `listStreams()` when available
+   * (SQL query at the SqliteBackend layer reduces to
+   * `WHERE streamId LIKE ? || '/%' OR streamId = ?`); otherwise scans the
+   * state directory for matching `*.events.jsonl` files.
+   *
+   * Substring lookalikes (`feat-1-extra` for prefix `feat-1`) are excluded —
+   * the namespaced form requires a literal `/` to be a descendant.
+   */
+  private async listStreamsMatchingPrefix(prefix: string): Promise<string[]> {
+    const matches: string[] = [];
+    const seen = new Set<string>();
+
+    const considerStream = (streamId: string): void => {
+      if (seen.has(streamId)) return;
+      const isExact = streamId === prefix;
+      const isDescendant = streamId.startsWith(`${prefix}/`);
+      if (isExact || isDescendant) {
+        matches.push(streamId);
+        seen.add(streamId);
+      }
+    };
+
+    // Backend path: trust listStreams() to enumerate every stream the
+    // backend has seen; then apply the structural prefix filter locally
+    // so the SQL/JSONL paths stay behaviourally indistinguishable.
+    if (this.backend) {
+      for (const streamId of this.backend.listStreams()) {
+        considerStream(streamId);
+      }
+    }
+
+    // JSONL path: walk `<stateDir>` plus `<stateDir>/<prefix>` (descendants
+    // live one level deep under the feature directory). We only need two
+    // top-level lookups: the parent stream's `<prefix>.events.jsonl` and
+    // the descendants under `<prefix>/`.
+    try {
+      const topEntries = await fs.readdir(this.stateDir, { withFileTypes: true });
+      for (const entry of topEntries) {
+        if (entry.isFile() && entry.name.endsWith('.events.jsonl')) {
+          const streamId = entry.name.slice(0, -'.events.jsonl'.length);
+          considerStream(streamId);
+        } else if (entry.isDirectory() && entry.name === prefix) {
+          // A namespaced directory holds `<prefix>/<segment>.events.jsonl`.
+          const childEntries = await fs.readdir(
+            path.join(this.stateDir, entry.name),
+            { withFileTypes: true },
+          );
+          for (const child of childEntries) {
+            if (child.isFile() && child.name.endsWith('.events.jsonl')) {
+              const segment = child.name.slice(0, -'.events.jsonl'.length);
+              considerStream(`${prefix}/${segment}`);
+            }
+          }
+        }
+      }
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+    }
+
+    return matches;
   }
 
   /**
