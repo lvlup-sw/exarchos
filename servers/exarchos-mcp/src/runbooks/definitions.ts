@@ -63,7 +63,10 @@ export const AGENT_TEAMS_SAGA: RunbookDefinition = {
       note: 'Auto-emits workflow.transition' },
   ],
   templateVars: ['featureId', 'streamId', 'stream', 'event', 'events', 'teamId', 'stateFile', 'repoRoot'],
-  autoEmits: ['gate.executed', 'state.patched', 'workflow.transition'],
+  // T38/DR-4 (#1259): the `set({phase})` invocations in this runbook now emit
+  // `hsm.deprecated_action_invoked` as part of the deprecation rerouting
+  // surface. v2.11.0 removes the action and this emission goes with it.
+  autoEmits: ['gate.executed', 'hsm.deprecated_action_invoked', 'state.patched', 'workflow.transition'],
 };
 
 export const SYNTHESIS_FLOW: RunbookDefinition = {
@@ -80,7 +83,7 @@ export const SYNTHESIS_FLOW: RunbookDefinition = {
       note: 'Record PR URL in artifacts.prUrl' },
   ],
   templateVars: ['featureId', 'baseBranch'],
-  autoEmits: ['gate.executed', 'state.patched', 'workflow.transition'],
+  autoEmits: ['gate.executed', 'hsm.deprecated_action_invoked', 'state.patched', 'workflow.transition'],
 };
 
 export const SHEPHERD_ITERATION: RunbookDefinition = {

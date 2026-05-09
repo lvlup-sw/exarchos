@@ -490,11 +490,16 @@ describe('TOOL_REGISTRY', () => {
   });
 
   describe('exarchos_workflow', () => {
-    it('should have 9 actions: init, get, set, cancel, cleanup, reconcile, rehydrate, checkpoint, describe', () => {
+    it('should have 10 actions: init, get, set, transition, cancel, cleanup, reconcile, rehydrate, checkpoint, describe', () => {
+      // T36/DR-4 (#1259): `transition` added as the canonical phase-mutation
+      // action; `set({phase})` retained as a deprecation rerouting surface
+      // for one release. Order matters — keep alongside `set` so registry
+      // discoverability surfaces the canonical replacement adjacent to the
+      // deprecated path.
       const composite = findComposite('exarchos_workflow');
       expect(composite).toBeDefined();
       const actionNames = composite!.actions.map((a) => a.name);
-      expect(actionNames).toEqual(['init', 'get', 'set', 'cancel', 'cleanup', 'reconcile', 'rehydrate', 'checkpoint', 'describe']);
+      expect(actionNames).toEqual(['init', 'get', 'set', 'transition', 'cancel', 'cleanup', 'reconcile', 'rehydrate', 'checkpoint', 'describe']);
     });
   });
 
@@ -1435,5 +1440,73 @@ describe('check_tdd_compliance schema strictness', () => {
       base: 'feature/integration',
     });
     expect(result.success).toBe(false);
+  });
+});
+
+// ─── DR-11 (#1259): outputSchema registers _meta.deprecation ─────────────────
+describe('Registry_OutputSchema (T40, DR-11)', () => {
+  function findAction(toolName: string, actionName: string) {
+    const tool = TOOL_REGISTRY.find((t) => t.name === toolName);
+    return tool?.actions.find((a) => a.name === actionName);
+  }
+
+  it('Registry_OutputSchema_RegistersMetaDeprecationOnAffectedActions', () => {
+    // Both `set` (deprecated) and `transition` (canonical) declare an
+    // `outputSchema` typing the `_meta.deprecation` sub-shape.
+    const setAction = findAction('exarchos_workflow', 'set');
+    const transitionAction = findAction('exarchos_workflow', 'transition');
+
+    expect(setAction).toBeDefined();
+    expect(transitionAction).toBeDefined();
+    expect(setAction!.outputSchema).toBeDefined();
+    expect(transitionAction!.outputSchema).toBeDefined();
+
+    // The schema accepts a deprecation envelope with all three fields.
+    const goodEnvelope = {
+      success: true,
+      data: { phase: 'plan', updatedAt: '2026-05-08T00:00:00Z' },
+      _meta: {
+        deprecation: {
+          since: '2.10.0',
+          removeIn: '2.11.0',
+          replacement: 'transition',
+        },
+      },
+    };
+    expect(setAction!.outputSchema!.safeParse(goodEnvelope).success).toBe(true);
+    expect(transitionAction!.outputSchema!.safeParse(goodEnvelope).success).toBe(
+      true,
+    );
+
+    // The schema rejects deprecation envelopes missing required sub-fields
+    // (each of `since`, `removeIn`, `replacement` must be present + non-empty).
+    const missingReplacement = {
+      success: true,
+      _meta: { deprecation: { since: '2.10.0', removeIn: '2.11.0' } },
+    };
+    expect(setAction!.outputSchema!.safeParse(missingReplacement).success).toBe(
+      false,
+    );
+
+    const emptyReplacement = {
+      success: true,
+      _meta: {
+        deprecation: { since: '2.10.0', removeIn: '2.11.0', replacement: '' },
+      },
+    };
+    expect(setAction!.outputSchema!.safeParse(emptyReplacement).success).toBe(
+      false,
+    );
+
+    // The deprecation field is optional — responses without it (e.g. the
+    // canonical `transition` arm) still validate.
+    const noDeprecation = {
+      success: true,
+      data: { phase: 'plan', updatedAt: '2026-05-08T00:00:00Z' },
+      _meta: {},
+    };
+    expect(transitionAction!.outputSchema!.safeParse(noDeprecation).success).toBe(
+      true,
+    );
   });
 });
