@@ -195,7 +195,7 @@ export function upgradeRehydrationDocumentV2toV3(
  * writers always emit v:3 directly.
  */
 export function upgradeRehydrationDocument(
-  doc: RehydrationDocument,
+  doc: RehydrationDocumentV1 | RehydrationDocument,
 ): RehydrationDocumentV3 {
   if (doc.v === 1) {
     return upgradeRehydrationDocumentV2toV3(upgradeRehydrationDocumentV1toV2(doc));
