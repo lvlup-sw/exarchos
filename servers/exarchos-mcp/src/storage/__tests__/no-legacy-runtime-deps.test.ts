@@ -145,16 +145,29 @@ function collectProductionTsFiles(rootDir: string, fs: WalkerFs = REAL_WALKER_FS
     let entries: string[];
     try {
       entries = fs.readdirSync(dir);
-    } catch {
-      continue;
+    } catch (err) {
+      // T68 (CR #8 / DIM-2): never silently swallow walk failures.
+      // A permission-denied or transient I/O error here would cause
+      // the walker to return a partial list, and the INV-2 enforcement
+      // test would then green-light a walk that never visited half the
+      // tree. Surface the underlying error with path context so CI
+      // fails loudly instead of false-negative-passing.
+      throw new Error(
+        `walker readdirSync failed at ${dir}: ${(err as Error).message}`,
+        { cause: err },
+      );
     }
     for (const entry of entries) {
       const full = join(dir, entry);
       let st;
       try {
         st = fs.statSync(full);
-      } catch {
-        continue;
+      } catch (err) {
+        // T68: same rationale as above — re-throw with path context.
+        throw new Error(
+          `walker statSync failed at ${full}: ${(err as Error).message}`,
+          { cause: err },
+        );
       }
       if (st.isDirectory()) {
         if (EXCLUDED_SEGMENTS.has(entry)) continue;
