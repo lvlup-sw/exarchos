@@ -146,7 +146,7 @@ describe('InMemoryBackend State Operations', () => {
     backend.initialize();
 
     const state = makeState({ featureId: 'my-feature', _version: 3 } as Partial<WorkflowState>);
-    // Seed without expectedVersion (like migrateLegacyStateFiles does)
+    // Seed without expectedVersion (initial-write semantics)
     backend.setState('my-feature', state);
 
     // CAS write with expectedVersion matching state._version should succeed

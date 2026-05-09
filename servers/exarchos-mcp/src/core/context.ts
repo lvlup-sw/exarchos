@@ -21,7 +21,6 @@ import {
 // EventStore is now threaded via DispatchContext — no module-level injection needed
 import { configureCleanupSnapshotStore } from '../workflow/cleanup.js';
 import { configureStateStoreBackend } from '../workflow/state-store.js';
-import { runMigrationIfNeeded } from '../storage/run-migration-if-needed.js';
 import { loadTopology, type TopologyEventEmitter } from '../topology/loader.js';
 
 // ─── Config Detection ──────────────────────────────────────────────────────
@@ -109,14 +108,6 @@ export async function initializeContext(
   await eventStore.initialize(
     options?.waitForLock ? { waitForLock: true } : undefined,
   );
-
-  // T57 / DR-8 AC1 — fire the JSONL → SQLite migration runner here, after
-  // the EventStore's PID lock and SqliteBackend pragmas are in place but
-  // BEFORE we return a DispatchContext that could route any tool dispatch
-  // into an event append. The helper short-circuits when no SqliteBackend
-  // is in play (JSONL-only mode) and when a previous run already drained
-  // the legacy JSONL files (idempotent).
-  await runMigrationIfNeeded(stateDir, backend);
 
   // SnapshotStore is still module-level (out of scope for EventStore threading)
   configureCleanupSnapshotStore(new SnapshotStore(stateDir));

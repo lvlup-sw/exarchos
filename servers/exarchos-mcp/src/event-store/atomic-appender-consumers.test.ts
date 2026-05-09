@@ -35,8 +35,6 @@ import { fileURLToPath } from 'node:url';
 
 const FROZEN_IMPORT_BASELINE = [
   'src/event-store/store.ts',
-  'src/storage/jsonl-importer.ts',
-  'src/storage/migration.ts',
 ] as const;
 
 /**

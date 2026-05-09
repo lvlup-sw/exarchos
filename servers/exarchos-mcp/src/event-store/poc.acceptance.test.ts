@@ -37,13 +37,11 @@ import { AtomicAppender } from './atomic-appender.js';
  * the end of Phase 8.
  */
 
-const SEVEN_EXPECTED_CONSUMERS = [
+const EXPECTED_CONSUMERS = [
   'src/agents/spec.ts',
   'src/event-store/atomic-appender.ts',
   'src/event-store/store.ts',
   'src/event-store/tools.ts',
-  'src/storage/jsonl-importer.ts',
-  'src/storage/migration.ts',
   'src/storage/sqlite-backend.ts',
 ] as const;
 
@@ -97,7 +95,7 @@ async function listProductionTsFiles(srcRoot: string): Promise<string[]> {
   return results;
 }
 
-describe('Poc_SqliteBackend_AllSevenConsumersUnchangedAndBenchHits1000OpsPerSec', () => {
+describe('Poc_SqliteBackend_AllConsumersUnchangedAndBenchHits1000OpsPerSec', () => {
   let stateDir: string;
 
   beforeEach(async () => {
@@ -108,7 +106,7 @@ describe('Poc_SqliteBackend_AllSevenConsumersUnchangedAndBenchHits1000OpsPerSec'
     await rm(stateDir, { recursive: true, force: true });
   });
 
-  it('AC3 — exactly seven src consumers reference AtomicAppender', async () => {
+  it('AC3 — exactly the expected src consumers reference AtomicAppender', async () => {
     const srcRoot = resolveSrcRoot();
     const candidates = await listProductionTsFiles(srcRoot);
 
@@ -123,7 +121,7 @@ describe('Poc_SqliteBackend_AllSevenConsumersUnchangedAndBenchHits1000OpsPerSec'
     }
     consumers.sort();
 
-    expect(consumers).toEqual([...SEVEN_EXPECTED_CONSUMERS]);
+    expect(consumers).toEqual([...EXPECTED_CONSUMERS]);
   });
 
   it('Bench — SQLite-backed appender hits ≥ 1000 ops/sec/stream', async () => {
