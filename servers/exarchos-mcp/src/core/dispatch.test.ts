@@ -497,4 +497,277 @@ describe('dispatch', () => {
       expect(tallyTotal).toBe(data.checks.length);
     });
   });
+
+  // ─── T-12: session.machinery_consumed dispatch interceptor ─────────────────
+  //
+  // Plan: docs/plans/2026-05-08-rehydration-machinery-plan.md (T-12)
+  // Design: docs/research/2026-05-08-rehydrate-machinery-reinit.md §11.4 (P4)
+  //
+  // After a `workflow.rehydrated` event lands at sequence S on stream X, the
+  // dispatch core must emit ONE `session.machinery_consumed` event the next
+  // time a non-rehydrate L5 handler is invoked against stream X — keyed by
+  // S, with the action verb captured in `firstActionVerb`. Subsequent
+  // invocations on the same rehydrate-sequence are a no-op until another
+  // `workflow.rehydrated` lands on the stream. Cross-stream isolation: each
+  // stream tracks its own latest-rehydrated-sequence independently.
+  //
+  // The handler-stub strategy: the interceptor lives in `dispatch()` and is
+  // observable purely through the event stream — these tests stub the
+  // composite handler with a no-op spy, append a `workflow.rehydrated`
+  // event to seed the stream, dispatch a non-rehydrate action, then read
+  // the stream and assert on the `session.machinery_consumed` events.
+  describe('T-12 session.machinery_consumed interceptor', () => {
+    // Helper: clear the per-stream cache between tests so process-local
+    // state from one test doesn't leak into the next. The cache is exported
+    // for test access only (interceptor module).
+    async function resetMachineryCache(): Promise<void> {
+      const mod = await import('./interceptors/session-machinery.js');
+      mod.__resetMachineryConsumedCache();
+    }
+
+    beforeEach(async () => {
+      await resetMachineryCache();
+    });
+
+    afterEach(async () => {
+      await resetMachineryCache();
+    });
+
+    // Helper: seed a `workflow.rehydrated` event on the given stream and
+    // return the sequence it landed at. Mirrors the production emission
+    // shape from `workflow/rehydrate.ts` (projectionSequence/deliveryPath/
+    // tokenEstimate). Uses `appendValidated`-equivalent path via the
+    // standard `append()` API.
+    async function seedRehydrated(streamId: string): Promise<number> {
+      const ev = await eventStore.append(streamId, {
+        type: 'workflow.rehydrated',
+        data: {
+          projectionSequence: 1,
+          deliveryPath: 'direct',
+          tokenEstimate: 100,
+        },
+      });
+      return ev.sequence;
+    }
+
+    it('T12_FirstNonRehydrateInvocationAfterRehydrated_EmitsSessionMachineryConsumed', async () => {
+      // Arrange — seed a workflow.rehydrated event on the stream, then
+      // stub the composite so dispatch resolves cleanly without touching
+      // real state files.
+      const featureId = 'feat-t12-first';
+      const rehydratedSeq = await seedRehydrated(featureId);
+
+      const { stubCompositeHandler, dispatch } = await import('./dispatch.js');
+      const restore = stubCompositeHandler('exarchos_workflow', async () => ({
+        success: true,
+        data: { stub: true },
+      }));
+
+      try {
+        // Act — invoke a non-rehydrate L5 handler against the stream.
+        const result = await dispatch(
+          'exarchos_workflow',
+          { action: 'get', featureId },
+          { stateDir: tmpDir, eventStore, enableTelemetry: false },
+        );
+        expect(result.success).toBe(true);
+      } finally {
+        restore();
+      }
+
+      // Assert — exactly one session.machinery_consumed event landed on
+      // the stream, with rehydrateSequence pointing back at the rehydrated
+      // event's sequence and firstActionVerb capturing the dispatched action.
+      const events = await eventStore.query(featureId, {
+        type: 'session.machinery_consumed',
+      });
+      expect(events.length).toBe(1);
+      const data = events[0].data as {
+        rehydrateSequence: number;
+        firstActionVerb: string;
+        firstActionAt: string;
+      };
+      expect(data.rehydrateSequence).toBe(rehydratedSeq);
+      expect(typeof data.firstActionAt).toBe('string');
+      // ISO 8601 — Date.parse must succeed.
+      expect(Number.isNaN(Date.parse(data.firstActionAt))).toBe(false);
+    });
+
+    it('T12_SubsequentInvocationsOnSameRehydrateSequence_NoAdditionalEmissions', async () => {
+      // Arrange
+      const featureId = 'feat-t12-subsequent';
+      await seedRehydrated(featureId);
+
+      const { stubCompositeHandler, dispatch } = await import('./dispatch.js');
+      const restore = stubCompositeHandler('exarchos_workflow', async () => ({
+        success: true,
+        data: {},
+      }));
+
+      try {
+        // Act — three non-rehydrate dispatches against the same stream.
+        await dispatch(
+          'exarchos_workflow',
+          { action: 'get', featureId },
+          { stateDir: tmpDir, eventStore, enableTelemetry: false },
+        );
+        await dispatch(
+          'exarchos_workflow',
+          { action: 'get', featureId },
+          { stateDir: tmpDir, eventStore, enableTelemetry: false },
+        );
+        await dispatch(
+          'exarchos_workflow',
+          { action: 'describe' },
+          { stateDir: tmpDir, eventStore, enableTelemetry: false },
+        );
+      } finally {
+        restore();
+      }
+
+      // Assert — only the FIRST invocation produced a machinery_consumed.
+      const events = await eventStore.query(featureId, {
+        type: 'session.machinery_consumed',
+      });
+      expect(events.length).toBe(1);
+    });
+
+    it('T12_CrossStreamIsolation_StreamAEmissionDoesNotBlockStreamB', async () => {
+      // Arrange — both streams get a workflow.rehydrated, independently.
+      const streamA = 'feat-t12-stream-a';
+      const streamB = 'feat-t12-stream-b';
+      const seqA = await seedRehydrated(streamA);
+      const seqB = await seedRehydrated(streamB);
+
+      const { stubCompositeHandler, dispatch } = await import('./dispatch.js');
+      const restore = stubCompositeHandler('exarchos_workflow', async () => ({
+        success: true,
+        data: {},
+      }));
+
+      try {
+        // Act — dispatch against A first, then against B.
+        await dispatch(
+          'exarchos_workflow',
+          { action: 'get', featureId: streamA },
+          { stateDir: tmpDir, eventStore, enableTelemetry: false },
+        );
+        await dispatch(
+          'exarchos_workflow',
+          { action: 'get', featureId: streamB },
+          { stateDir: tmpDir, eventStore, enableTelemetry: false },
+        );
+      } finally {
+        restore();
+      }
+
+      // Assert — each stream has its own machinery_consumed pointing back
+      // at its own rehydrate sequence.
+      const eventsA = await eventStore.query(streamA, {
+        type: 'session.machinery_consumed',
+      });
+      const eventsB = await eventStore.query(streamB, {
+        type: 'session.machinery_consumed',
+      });
+      expect(eventsA.length).toBe(1);
+      expect(eventsB.length).toBe(1);
+      expect((eventsA[0].data as { rehydrateSequence: number }).rehydrateSequence).toBe(seqA);
+      expect((eventsB[0].data as { rehydrateSequence: number }).rehydrateSequence).toBe(seqB);
+    });
+
+    it('T12_RehydrateActionItself_DoesNotTriggerSessionMachineryConsumed', async () => {
+      // Arrange — seed a rehydrated event then dispatch the rehydrate
+      // action itself. The interceptor must short-circuit on the rehydrate
+      // verb to avoid same-tick recursion (rehydrate emits workflow.rehydrated
+      // on success; if the interceptor reacted to that, we'd loop).
+      const featureId = 'feat-t12-rehydrate-shortcircuit';
+      await seedRehydrated(featureId);
+
+      const { stubCompositeHandler, dispatch } = await import('./dispatch.js');
+      const restore = stubCompositeHandler('exarchos_workflow', async () => ({
+        success: true,
+        data: {},
+      }));
+
+      try {
+        // Act — dispatch the rehydrate action itself. (Stubbed handler so
+        // we don't invoke the real rehydrate side effects.)
+        await dispatch(
+          'exarchos_workflow',
+          { action: 'rehydrate', featureId },
+          { stateDir: tmpDir, eventStore, enableTelemetry: false },
+        );
+      } finally {
+        restore();
+      }
+
+      // Assert — no session.machinery_consumed was emitted.
+      const events = await eventStore.query(featureId, {
+        type: 'session.machinery_consumed',
+      });
+      expect(events.length).toBe(0);
+    });
+
+    it('T12_NoWorkflowRehydratedOnStream_NoEmission', async () => {
+      // Arrange — fresh stream with no workflow.rehydrated. The interceptor
+      // must not emit session.machinery_consumed when there's nothing to
+      // correlate against (would carry an undefined rehydrateSequence).
+      const featureId = 'feat-t12-no-rehydrate';
+
+      const { stubCompositeHandler, dispatch } = await import('./dispatch.js');
+      const restore = stubCompositeHandler('exarchos_workflow', async () => ({
+        success: true,
+        data: {},
+      }));
+
+      try {
+        // Act
+        await dispatch(
+          'exarchos_workflow',
+          { action: 'get', featureId },
+          { stateDir: tmpDir, eventStore, enableTelemetry: false },
+        );
+      } finally {
+        restore();
+      }
+
+      // Assert — nothing emitted.
+      const events = await eventStore.query(featureId, {
+        type: 'session.machinery_consumed',
+      });
+      expect(events.length).toBe(0);
+    });
+
+    it('T12_FirstActionVerb_CapturesDispatchedActionName', async () => {
+      // Arrange — seed rehydrated, then dispatch a specific verb.
+      const featureId = 'feat-t12-verb';
+      await seedRehydrated(featureId);
+
+      const { stubCompositeHandler, dispatch } = await import('./dispatch.js');
+      const restore = stubCompositeHandler('exarchos_workflow', async () => ({
+        success: true,
+        data: {},
+      }));
+
+      try {
+        // Act — `get` is a clearly non-rehydrate verb.
+        await dispatch(
+          'exarchos_workflow',
+          { action: 'get', featureId },
+          { stateDir: tmpDir, eventStore, enableTelemetry: false },
+        );
+      } finally {
+        restore();
+      }
+
+      // Assert — the firstActionVerb in the emitted event matches the
+      // dispatched action name.
+      const events = await eventStore.query(featureId, {
+        type: 'session.machinery_consumed',
+      });
+      expect(events.length).toBe(1);
+      const data = events[0].data as { firstActionVerb: string };
+      expect(data.firstActionVerb).toBe('get');
+    });
+  });
 });
