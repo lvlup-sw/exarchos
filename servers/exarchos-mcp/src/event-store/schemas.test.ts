@@ -473,12 +473,13 @@ describe('EventTypes', () => {
   });
 
   it('EventTypes_HasExpectedCount', () => {
-    // Bumped from 84 → 90 with the addition of six durable event-store
-    // substrate event types (#1259 T02 / T03 / T04):
+    // Bumped from 90 → 91 with the addition of session.machinery_consumed
+    // (T-11, rehydration-machinery-refactor). Previous bump (84 → 90) added
+    // six durable event-store substrate event types (#1259 T02 / T03 / T04):
     //   hsm.deprecated_action_invoked, spec.legacy_capabilities_array,
     //   phase.contract_missing, migration.legacy_jsonl_imported,
     //   migration.completed, migration.failed.
-    expect(EventTypes).toHaveLength(90);
+    expect(EventTypes).toHaveLength(91);
   });
 
   it('EventTypes_IncludesSessionTagged', () => {
