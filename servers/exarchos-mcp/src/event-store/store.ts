@@ -13,10 +13,6 @@ import { isPidAlive } from '../utils/process.js';
 import { getSidecarPath } from './hook-event-writer.js';
 import { validateStreamId } from '../shared/validation.js';
 import { AtomicAppender } from './atomic-appender.js';
-import {
-  SubagentStreamRouter,
-  type SubagentStreamRouterContract,
-} from '../agents/subagent-stream-router.js';
 
 // ─── Sequence Conflict Error ────────────────────────────────────────────────
 
@@ -243,11 +239,6 @@ export class EventStore {
    *  locks and sequence counters share state across handler calls. */
   private atomicAppender?: AtomicAppender;
 
-  /** Lazily-instantiated SubagentStreamRouter — single instance per EventStore
-   *  so the router shares the same AtomicAppender (and therefore the same
-   *  per-stream lock + idempotency cache) used by every other consumer. */
-  private streamRouter?: SubagentStreamRouterContract;
-
   constructor(private readonly stateDir: string, options?: EventStoreOptions) {
     this.lockFilePath = path.join(stateDir, '.event-store.lock');
     this.backend = options?.backend;
@@ -276,34 +267,16 @@ export class EventStore {
    * #1259 swap point: replace the constructor call below with a SQLite
    * (or other durable) appender that exposes the same `AppendResult`
    * shape and per-stream serialization semantics. No other change is
-   * required — `append`, `appendValidated`, `batchAppend`, and the
-   * `SubagentStreamRouter` all delegate through this instance, so a
-   * one-line swap here flips the entire write substrate. The migration
-   * doc is at docs/designs/2026-05-08-eventstore-appender-consumer-migration.md.
+   * required — `append`, `appendValidated`, and `batchAppend` all delegate
+   * through this instance, so a one-line swap here flips the entire write
+   * substrate. The migration doc is at
+   * docs/designs/2026-05-08-eventstore-appender-consumer-migration.md.
    */
   getAppender(): AtomicAppender {
     if (!this.atomicAppender) {
       this.atomicAppender = new AtomicAppender({ stateDir: this.stateDir });
     }
     return this.atomicAppender;
-  }
-
-  /**
-   * Returns the lazily-created SubagentStreamRouter bound to this event
-   * store's state directory. Backed by `getAppender()` so the router shares
-   * the per-stream lock + idempotency cache. Used by `handleEventAppend` to
-   * intercept `team.disbanded` events and recompute `tasksCompleted` from
-   * the parent stream — discarding the agent-side in-memory tally that
-   * produces #1224's off-by-N counts.
-   */
-  getStreamRouter(): SubagentStreamRouterContract {
-    if (!this.streamRouter) {
-      this.streamRouter = new SubagentStreamRouter({
-        appender: this.getAppender(),
-        stateDir: this.stateDir,
-      });
-    }
-    return this.streamRouter;
   }
 
   // ─── PID Lock ──────────────────────────────────────────────────────────────

@@ -335,14 +335,12 @@ export class AtomicAppender {
    * Compute-then-append under a single per-stream lock.
    *
    * `compute` runs while the per-stream lock is held; the events it returns
-   * are appended in the same critical section. This is the primitive
-   * `SubagentStreamRouter.emitDisbanded` needs: it queries the parent stream
-   * for `task.completed` events scoped to a team and immediately appends
-   * `team.disbanded` with the count. Without the lock-coupled compute,
-   * concurrent `onTaskCompleted` calls (which are serialized through the
-   * same lock) can be in flight when the read happens, producing a stale
-   * count and an off-by-N `tasksCompleted` — the exact regression #1224
-   * was meant to close.
+   * are appended in the same critical section. The original consumer was
+   * the v2.9 `SubagentStreamRouter.emitDisbanded` (retired in T27 in favor
+   * of the cross-stream `EventStore.queryByType` reducer). The primitive is
+   * retained because read-then-append callers (any pattern that derives a
+   * to-be-persisted value from the current stream contents) still benefit
+   * from the lock-coupled critical section to prevent stale reads.
    *
    * `compute` must NOT call back into `append`/`appendComputed` for the
    * same `streamId`: the Promise-chain mutex is non-reentrant and a
@@ -596,8 +594,10 @@ export class AtomicAppender {
     // Defense in depth: reject streamIds that could escape `stateDir` via
     // path separators or `..` segments. EventStore consumers already
     // validate at the boundary, but AtomicAppender is also exposed to
-    // SubagentStreamRouter and event_batch_append directly; a guard here
-    // means future consumers can't bypass it.
+    // event_batch_append directly; a guard here means future consumers
+    // can't bypass it. (Pre-T27 the `SubagentStreamRouter` was another
+    // direct consumer; that primitive has since been retired in favor of
+    // the cross-stream `EventStore.queryByType` reducer.)
     try {
       validateStreamId(streamId);
     } catch (err) {
