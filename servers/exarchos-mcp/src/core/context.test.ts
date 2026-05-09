@@ -839,24 +839,21 @@ phases:
   it('Context_InitializeWithTopologyMissingContracts_EmitsPhaseContractMissingOncePerMissingPhaseAtStartup', async () => {
     const { initializeContext } = await import('./context.js');
     const { getTopology } = await import('../topology/loader.js');
-    const { SqliteBackend } = await import('../storage/sqlite-backend.js');
 
     // ─── Fixture: project root with a topology.yaml ────────────────────────
     const projectRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'ctx-topo-proj-'));
     await fs.writeFile(path.join(projectRoot, 'topology.yaml'), PARTIAL_TOPOLOGY, 'utf-8');
 
-    // Use a SQLite backend so `_substrate` events round-trip through the
-    // canonical durable substrate, the same path the production lifecycle
-    // walks. With JSONL-only mode the appender's stream-id validation +
-    // sidecar fallback would still work, but a SQLite backend lets us
-    // queryEvents('_substrate') deterministically with no sidecar merge.
-    const dbPath = path.join(tmpDir, 'exarchos.db');
-    const backend = new SqliteBackend(dbPath);
-    backend.initialize();
-
     try {
       // ─── Act 1: first initializeContext fires the loader ────────────────
-      const ctx1 = await initializeContext(tmpDir, { projectRoot, backend });
+      // We do NOT inject a SqliteBackend here. The wiring under test routes
+      // emissions through `eventStore.append`, which uses the JSONL substrate
+      // by default. JSONL is the simplest read-path for this assertion: a
+      // `_substrate.events.jsonl` file with N lines == N emissions. Mixing
+      // a SQLite backend in would conflate the migration runner's JSONL→
+      // SQLite import with the topology loader's emissions and obscure the
+      // once-at-startup contract we're pinning here.
+      const ctx1 = await initializeContext(tmpDir, { projectRoot });
       expect(ctx1.eventStore).toBeDefined();
 
       // ─── Assertion 1: exactly 3 phase.contract_missing events emitted ──
@@ -882,21 +879,43 @@ phases:
       expect(loaded.phases.design.staleness?.expectedMaxDwellMinutes).toBe(60);
       expect(loaded.phases.review.staleness).toBeUndefined();
 
+      // ─── Pin the on-disk substrate state BEFORE the second startup ─────
+      // The JSONL substrate pinning is what makes the idempotency assertion
+      // robust to any internal substrate refactor: 3 lines now, 3 lines
+      // after a second `initializeContext`. If the loader's cache stops
+      // short-circuiting, this rises to 6 deterministically.
+      const jsonlPath = path.join(tmpDir, '_substrate.events.jsonl');
+      const jsonlAfterFirst = (await fs.readFile(jsonlPath, 'utf-8'))
+        .split('\n')
+        .filter((l) => l.trim()).length;
+      expect(jsonlAfterFirst).toBe(3);
+
       // ─── Act 2: second initializeContext on the same stateDir+projectRoot
-      const ctx2 = await initializeContext(tmpDir, { projectRoot, backend });
+      // The second EventStore enters sidecar mode (PID lock held by ctx1's
+      // EventStore), but `loadTopology()` short-circuits via its
+      // module-level cache before reaching `eventStore.append`, so neither
+      // a new JSONL line nor a sidecar entry is ever written.
+      const ctx2 = await initializeContext(tmpDir, { projectRoot });
       expect(ctx2.eventStore).toBeDefined();
 
-      // ─── Assertion 4 (idempotency): event count UNCHANGED ──────────────
+      // ─── Assertion 4 (idempotency, on-disk): JSONL line count UNCHANGED
       // The loader's module-level cache short-circuits the second call →
       // no fresh `phase.contract_missing` emissions. This is the
       // "once at startup" semantics the design calls out for DR-7.
+      const jsonlAfterSecond = (await fs.readFile(jsonlPath, 'utf-8'))
+        .split('\n')
+        .filter((l) => l.trim()).length;
+      expect(jsonlAfterSecond).toBe(3);
+
+      // ─── Assertion 5 (idempotency, query): no extra events visible ─────
+      // ctx2's EventStore is in sidecar mode, so `query('_substrate')`
+      // merges main JSONL (3 events) + sidecar (0 events). Total still 3.
       const eventsAfterSecond = await ctx2.eventStore.query('_substrate');
       const missingAfterSecond = eventsAfterSecond.filter(
         (e) => e.type === 'phase.contract_missing',
       );
       expect(missingAfterSecond).toHaveLength(3);
     } finally {
-      backend.close();
       await fs.rm(projectRoot, { recursive: true, force: true });
     }
   });

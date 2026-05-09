@@ -22,6 +22,7 @@ import {
 import { configureCleanupSnapshotStore } from '../workflow/cleanup.js';
 import { configureStateStoreBackend } from '../workflow/state-store.js';
 import { runMigrationIfNeeded } from '../storage/run-migration-if-needed.js';
+import { loadTopology, type TopologyEventEmitter } from '../topology/loader.js';
 
 // ─── Config Detection ──────────────────────────────────────────────────────
 
@@ -158,6 +159,16 @@ export async function initializeContext(
   const vcsProvider = await createVcsProvider({ config: projectConfig });
   const hookRunner = createConfigHookRunner(projectConfig);
 
+  // T58 / DR-7 — load `<projectRoot>/topology.yaml` once at lifecycle start.
+  // The loader's module-level cache short-circuits subsequent calls within
+  // the same process, satisfying the design's "once at startup" semantics
+  // for `phase.contract_missing` emission. Skip silently when the file is
+  // absent (the pruner falls back to the v2.9 single-signal heuristic per
+  // `topology/loader.ts` docstring). The cold-start fast-exit above
+  // (no projectRoot) already bypasses topology entirely — this branch is
+  // the only place wired.
+  await loadTopologyIfPresent(projectRoot, eventStore);
+
   if (!hasJsConfig) {
     // Still populate `config = {}` so callers that use `(ctx.config ?? {})`
     // and tests that assert the field is defined keep passing.
@@ -198,4 +209,61 @@ export async function initializeContext(
   }
 
   return { stateDir, eventStore, enableTelemetry, capabilityResolver, storage: backend, config, projectConfig, vcsProvider, hookRunner };
+}
+
+/**
+ * Lifecycle wiring for the topology loader (T58, DR-7).
+ *
+ * The design specifies the typed loader is *"called once at lifecycle start"*
+ * and emits `phase.contract_missing` per missing-contract phase *"once at
+ * startup"*. The loader itself (T44 / T47) owns the cache + per-missing-phase
+ * emission walk; this helper is just the wiring step that supplies the
+ * canonical project topology path (`<projectRoot>/topology.yaml`) and an
+ * emit adapter routed through the EventStore so events land on the durable
+ * `_substrate` stream.
+ *
+ * Behavior:
+ *   - File absent → silent no-op. The pruner (T48) falls back to the v2.9
+ *     single-signal heuristic when `getTopology()` is uncalled, so the
+ *     contract is "advisory, not required". This keeps repos that haven't
+ *     yet authored a `topology.yaml` from seeing startup errors.
+ *   - File present → call `loadTopology()`; the loader's cache makes the
+ *     emit walk fire exactly once per process, so a second
+ *     `initializeContext` on the same project is naturally idempotent.
+ *   - Failures during load → swallowed and logged via the loader's own
+ *     warn-level structured log line; we do not surface a startup error
+ *     here. The substrate is the load-bearing path; topology is advisory.
+ *
+ * The emit adapter does NOT supply an idempotency key — emissions are
+ * strictly once-per-startup-per-process via the loader's cache, so the
+ * usual "two writes, same key, second is a no-op" deduplication semantics
+ * are not the right cardinality here.
+ */
+async function loadTopologyIfPresent(
+  projectRoot: string,
+  eventStore: EventStore,
+): Promise<void> {
+  const topologyPath = path.join(projectRoot, 'topology.yaml');
+  try {
+    await fs.promises.access(topologyPath);
+  } catch {
+    // File absent (or unreadable) → skip topology loading entirely.
+    return;
+  }
+
+  const emit: TopologyEventEmitter = async (streamId, event) => {
+    await eventStore.append(streamId, {
+      type: event.type,
+      data: event.data,
+    });
+  };
+
+  try {
+    await loadTopology({ topologyPath, emit });
+  } catch {
+    // The loader already emits a structured warn-level log line when the
+    // YAML is malformed; swallow here so a bad topology doesn't take down
+    // the substrate-bearing startup path. Operators who care will see the
+    // log line; the pruner will fall back to the single-signal heuristic.
+  }
 }
