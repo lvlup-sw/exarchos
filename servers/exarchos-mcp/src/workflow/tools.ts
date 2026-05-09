@@ -670,6 +670,35 @@ export async function handleSet(
       }
 
       // ok: true — apply state mutation. Idempotent attempts are no-ops.
+      //
+      // INV-5b (T73 / CR #13): a no-op self-transition must be a no-op
+      // end-to-end — no state mutation, no event emission, no version
+      // bump, no `updatedAt` rewrite, no checkpoint counter increment.
+      // The HSM guard already short-circuits event emission upstream
+      // (see DefaultHSMTransitionGuard.attempt's idempotency branch);
+      // without this early-return `handleSet` would fall through to the
+      // checkpoint counter increment + `updatedAt` write + CAS persistence
+      // below, mutating `_version`, `updatedAt`, `_checkpoint.operations`,
+      // and `_checkpoint.lastActivityTimestamp` despite the guard's
+      // promise that nothing happened. Returning here also surfaces an
+      // explicit `idempotent: true` discriminator on the response so
+      // callers can distinguish a real transition from a no-op
+      // acknowledgement without inspecting events. Gated on `!input.updates`
+      // so a hypothetical caller passing `{ phase, updates }` together
+      // still gets the field-only path; today's callers (handleTransition
+      // → applyTransition) never combine the two.
+      if (attemptResult.idempotent && !input.updates) {
+        return {
+          success: true,
+          data: {
+            phase: state.phase,
+            updatedAt: state.updatedAt,
+            idempotent: true,
+          },
+          _meta: buildCheckpointMeta(state._checkpoint),
+        };
+      }
+
       if (!attemptResult.idempotent) {
         mutableState.phase = attemptResult.newPhase;
 
