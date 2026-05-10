@@ -31,6 +31,9 @@ function makeMockEventStore(): EventStore {
       type: 'merge.executed',
       timestamp: new Date().toISOString(),
     }),
+    // #1303: handler reads stream tail to compute expectedSequence before
+    // appending merge.executed / merge.rollback. Empty array → expectedSequence: 0.
+    query: vi.fn().mockResolvedValue([]),
   } as unknown as EventStore;
 }
 
@@ -113,17 +116,25 @@ describe('handleExecuteMerge (T15)', () => {
     expect(result.success).toBe(true);
     // Direct stream append — NOT wrapped in gate.executed.
     expect(ctx.eventStore.append).toHaveBeenCalledTimes(1);
-    expect(ctx.eventStore.append).toHaveBeenCalledWith('feat-x', {
-      type: 'merge.executed',
-      data: {
-        taskId: 'T11',
-        sourceBranch: 'feat/x',
-        targetBranch: 'main',
-        strategy: 'squash',
-        mergeSha: MERGE_SHA,
-        rollbackSha: ROLLBACK_SHA,
+    expect(ctx.eventStore.append).toHaveBeenCalledWith(
+      'feat-x',
+      {
+        type: 'merge.executed',
+        data: {
+          taskId: 'T11',
+          sourceBranch: 'feat/x',
+          targetBranch: 'main',
+          strategy: 'squash',
+          mergeSha: MERGE_SHA,
+          rollbackSha: ROLLBACK_SHA,
+        },
       },
-    });
+      // #1303: idempotencyKey + expectedSequence wired on merge.executed.
+      {
+        expectedSequence: 0,
+        idempotencyKey: 'feat-x:merge_orchestrate:T11:merge.executed',
+      },
+    );
   });
 
   it('handleExecuteMerge_BeforeRefMutation_RollbackShaPersistedToWorkflowState', async () => {
