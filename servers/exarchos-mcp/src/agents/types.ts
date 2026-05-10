@@ -1,12 +1,19 @@
 // ─── Agent Spec Types ──────────────────────────────────────────────────────
 //
-// Defines the shape of agent specifications for subagent dispatch.
-// Specs declare runtime-agnostic `capabilities`; runtime tool naming
-// (e.g. Claude tool arrays) belongs in adapters, not here.
-// See docs/designs/2026-04-25-delegation-runtime-parity.md §3.
+// Defines the shape of agent specifications for subagent dispatch. Specs
+// declare a `posture` (DR-6 trust tier); the capability resolver
+// (`capabilities/posture-mapping.ts:resolveCapabilities`) derives the
+// effective capability set from posture + agentId. Runtime tool naming
+// (e.g. Claude tool arrays) belongs in adapters, which call the resolver
+// at render time.
+//
+// v2.10-preview.1 (#1333): the legacy runtime-interface field
+// `capabilities: readonly Capability[]` was dropped — the resolver is the
+// single source of truth.
+//
+// See docs/designs/2026-04-25-delegation-runtime-parity.md §3 and
+// docs/designs/2026-05-09-v2-10-0-preview-1-substrate-stabilization.md.
 // ────────────────────────────────────────────────────────────────────────────
-
-import type { Capability } from './capabilities.js';
 
 /** A skill that can be loaded into an agent's context. */
 export interface AgentSkill {
@@ -33,13 +40,12 @@ export interface AgentSpec {
   readonly description: string;
   readonly systemPrompt: string;
   /**
-   * Capability posture (DR-6). Mutually exclusive with `capabilities`.
-   * The resolver derives the full capability set from posture + runtime
-   * handshake. Optional during the v2.10 migration window; required in
-   * v2.11.0 once the legacy `capabilities[]` shape is removed.
+   * Capability posture (DR-6). The single declarative authority on a
+   * spec's capability surface; the resolver derives the effective
+   * capability set from posture + agentId, then layers the runtime
+   * handshake on top.
    */
-  readonly posture?: AgentPosture;
-  readonly capabilities: readonly Capability[];
+  readonly posture: AgentPosture;
   readonly disallowedTools?: readonly string[];
   readonly model: 'opus' | 'sonnet' | 'haiku' | 'inherit';
   readonly effort?: 'low' | 'medium' | 'high' | 'max';

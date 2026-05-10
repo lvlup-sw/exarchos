@@ -28,8 +28,10 @@
 
 import { stringify as stringifyYaml } from 'yaml';
 import type { AgentSpec } from '../types.js';
+import type { Capability } from '../capabilities.js';
 import type { RuntimeAdapter, ValidationResult } from './types.js';
 import { buildSupportMap } from './support-levels.js';
+import { resolveCapabilities } from '../../capabilities/posture-mapping.js';
 
 /**
  * Cursor covers fs/shell/subagent-spawn/MCP natively, treats
@@ -98,7 +100,8 @@ function stripAdvisoryWorktreeGuard(systemPrompt: string): string {
 }
 
 function lowerSpec(spec: AgentSpec): { path: string; contents: string } {
-  const readonly = !spec.capabilities.includes('fs:write');
+  const resolved = resolveCapabilities(spec.posture, spec.id);
+  const readonly = !resolved.has('fs:write');
 
   const frontmatter: CursorFrontmatter = {
     name: spec.id,
@@ -113,8 +116,8 @@ function lowerSpec(spec: AgentSpec): { path: string; contents: string } {
   // distinction is enforced server-side via the action allowlist gate
   // (see core/dispatch.ts), not at the cursor adapter layer.
   if (
-    spec.capabilities.includes('mcp:exarchos') ||
-    spec.capabilities.includes('mcp:exarchos:readonly')
+    resolved.has('mcp:exarchos') ||
+    resolved.has('mcp:exarchos:readonly')
   ) {
     frontmatter.mcp = { exarchos: true };
   }
@@ -135,7 +138,8 @@ function lowerSpec(spec: AgentSpec): { path: string; contents: string } {
 }
 
 function validateSupport(spec: AgentSpec): ValidationResult {
-  const unsupported = spec.capabilities.filter(
+  const resolved = resolveCapabilities(spec.posture, spec.id);
+  const unsupported: Capability[] = [...resolved].filter(
     (cap) => CURSOR_SUPPORT_LEVELS[cap] === 'unsupported',
   );
   if (unsupported.length > 0) {

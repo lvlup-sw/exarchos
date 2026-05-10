@@ -8,11 +8,22 @@
 // See docs/designs/2026-04-25-delegation-runtime-parity.md §4.
 // ────────────────────────────────────────────────────────────────────────────
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { parse as parseYaml } from 'yaml';
 import { IMPLEMENTER, REVIEWER } from '../definitions.js';
-import type { AgentSpec } from '../types.js';
+import type { Capability } from '../capabilities.js';
 import { OpenCodeAdapter } from './opencode.js';
+import * as PostureMapping from '../../capabilities/posture-mapping.js';
+
+function forceCapabilities(caps: readonly Capability[]): void {
+  vi.spyOn(PostureMapping, 'resolveCapabilities').mockReturnValue(
+    Object.freeze(new Set<Capability>(caps)),
+  );
+}
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 /** Split a markdown string with `---`-delimited frontmatter into parsed parts. */
 function splitFrontmatter(contents: string): {
@@ -65,11 +76,16 @@ describe('OpenCodeAdapter', () => {
   });
 
   it('OpenCodeAdapter_ValidateSupport_RejectsClaudeOnlyHooks', () => {
-    const synthetic: AgentSpec = {
-      ...IMPLEMENTER,
-      capabilities: [...IMPLEMENTER.capabilities, 'subagent:completion-signal'],
-    };
-    const result = OpenCodeAdapter.validateSupport(synthetic);
+    forceCapabilities([
+      'fs:read',
+      'fs:write',
+      'shell:exec',
+      'mcp:exarchos',
+      'isolation:worktree',
+      'session:resume',
+      'subagent:completion-signal',
+    ]);
+    const result = OpenCodeAdapter.validateSupport(IMPLEMENTER);
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.reason).toMatch(/subagent:completion-signal/);
@@ -82,11 +98,8 @@ describe('OpenCodeAdapter', () => {
     // surface the exarchos MCP server in OpenCode's `mcp` map. The server-
     // side allowlist (T04) is what enforces read-only action filtering;
     // the adapter just needs to grant the tool so the agent can dial it.
-    const spec: AgentSpec = {
-      ...IMPLEMENTER,
-      capabilities: ['fs:read', 'mcp:exarchos:readonly'],
-    };
-    const { contents } = OpenCodeAdapter.lowerSpec(spec);
+    forceCapabilities(['fs:read', 'mcp:exarchos:readonly']);
+    const { contents } = OpenCodeAdapter.lowerSpec(IMPLEMENTER);
     const { data } = splitFrontmatter(contents);
 
     const mcp = data.mcp as Record<string, true> | undefined;

@@ -166,7 +166,7 @@ describe('generateAgents', () => {
     expect(written).toBe(expectedContents);
   });
 
-  it('GenerateAgents_UnsupportedCapability_ProducesAggregatedBuildError', () => {
+  it('GenerateAgents_UnsupportedCapability_ProducesAggregatedBuildError', async () => {
     // `team:agent-teams` is native on Claude but unsupported on every
     // other tier-1 runtime. Injecting a synthetic spec that declares it
     // exercises aggregation: a generator that fails on the first error
@@ -174,8 +174,24 @@ describe('generateAgents', () => {
     const synthetic: AgentSpec = {
       ...IMPLEMENTER,
       id: 'implementer', // keep id stable; IDs are a closed set
-      capabilities: [...IMPLEMENTER.capabilities, 'team:agent-teams'],
     };
+    // Force the resolver to include `team:agent-teams` so the synthetic
+    // spec exercises the unsupported-cap aggregation path. Restored in
+    // the finally block to avoid bleeding into adjacent tests.
+    const PostureMapping = await import('../capabilities/posture-mapping.js');
+    const spy = vi.spyOn(PostureMapping, 'resolveCapabilities').mockReturnValue(
+      Object.freeze(
+        new Set<import('./capabilities.js').Capability>([
+          'fs:read',
+          'fs:write',
+          'shell:exec',
+          'mcp:exarchos',
+          'isolation:worktree',
+          'session:resume',
+          'team:agent-teams',
+        ]),
+      ),
+    );
 
     let caught: unknown;
     try {
@@ -187,6 +203,8 @@ describe('generateAgents', () => {
       });
     } catch (err) {
       caught = err;
+    } finally {
+      spy.mockRestore();
     }
 
     expect(caught).toBeInstanceOf(GenerateAgentsError);

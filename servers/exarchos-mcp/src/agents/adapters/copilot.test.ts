@@ -11,10 +11,12 @@
 //   - https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/create-custom-agents-for-cli
 // ────────────────────────────────────────────────────────────────────────────
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { parse as parseYaml } from 'yaml';
 import type { AgentSpec } from '../types.js';
+import type { Capability } from '../capabilities.js';
 import { CopilotAdapter } from './copilot.js';
+import * as PostureMapping from '../../capabilities/posture-mapping.js';
 
 /** Split a Markdown-with-frontmatter document into `{ data, body }`. */
 function parseFrontmatter(contents: string): { data: Record<string, unknown>; body: string } {
@@ -27,19 +29,17 @@ function parseFrontmatter(contents: string): { data: Record<string, unknown>; bo
   return { data, body };
 }
 
-/** Minimal `AgentSpec` fixture for the canonical implementer. */
+/**
+ * Minimal `AgentSpec` fixture for the canonical implementer. Capabilities
+ * are derived from `posture` + `id` via `resolveCapabilities` (#1333), so
+ * the legacy `capabilities: [...]` array is no longer present on the
+ * fixture; the resolver yields the same set the literal used to encode.
+ */
 const IMPLEMENTER_FIXTURE: AgentSpec = {
   id: 'implementer',
   description: 'TDD implementer agent',
   systemPrompt: 'You are a TDD implementer.\n\nFollow Red-Green-Refactor.',
-  capabilities: [
-    'fs:read',
-    'fs:write',
-    'shell:exec',
-    'mcp:exarchos',
-    'isolation:worktree',
-    'session:resume',
-  ],
+  posture: 'task-isolated',
   model: 'inherit',
   isolation: 'worktree',
   skills: [],
@@ -48,6 +48,23 @@ const IMPLEMENTER_FIXTURE: AgentSpec = {
   memoryScope: 'project',
   mcpServers: ['exarchos'],
 };
+
+/**
+ * Force `resolveCapabilities` to return a hand-picked capability set for
+ * the next call. Used by tests that need a synthetic capability mix that
+ * no posture cleanly implies (e.g., probing an unsupported cap rejection).
+ * Caller must restore via `vi.restoreAllMocks` (the `afterEach` below
+ * does this).
+ */
+function forceCapabilities(caps: readonly Capability[]): void {
+  vi.spyOn(PostureMapping, 'resolveCapabilities').mockReturnValue(
+    Object.freeze(new Set<Capability>(caps)),
+  );
+}
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 describe('CopilotAdapter', () => {
   const adapter = new CopilotAdapter();
@@ -117,37 +134,41 @@ describe('CopilotAdapter', () => {
     // `CAPABILITY_TO_TOOL` Record fails the exhaustive `Record<Capability, …>`
     // typecheck and any spec listing the readonly cap silently emits no
     // tool entry at all.
-    const readonlySpec: AgentSpec = {
-      ...IMPLEMENTER_FIXTURE,
-      capabilities: ['fs:read', 'mcp:exarchos:readonly'],
-    };
-    const { contents } = adapter.lowerSpec(readonlySpec);
+    forceCapabilities(['fs:read', 'mcp:exarchos:readonly']);
+    const { contents } = adapter.lowerSpec(IMPLEMENTER_FIXTURE);
     const { data } = parseFrontmatter(contents);
 
     expect(Array.isArray(data.tools)).toBe(true);
     expect(data.tools).toContain('mcp__exarchos');
-    // And the broad capability is NOT in the spec — the readonly cap alone
-    // must produce the tool entry.
-    expect(readonlySpec.capabilities).not.toContain('mcp:exarchos');
   });
 
   it('CopilotAdapter_ValidateSupport_RejectsClaudeOnlyHooks', () => {
-    const specWithStartHook: AgentSpec = {
-      ...IMPLEMENTER_FIXTURE,
-      capabilities: [...IMPLEMENTER_FIXTURE.capabilities, 'subagent:start-signal'],
-    };
-    const result = adapter.validateSupport(specWithStartHook);
+    forceCapabilities([
+      'fs:read',
+      'fs:write',
+      'shell:exec',
+      'mcp:exarchos',
+      'isolation:worktree',
+      'session:resume',
+      'subagent:start-signal',
+    ]);
+    const result = adapter.validateSupport(IMPLEMENTER_FIXTURE);
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.reason).toMatch(/subagent:start-signal/);
       expect(result.fixHint.length).toBeGreaterThan(0);
     }
 
-    const specWithTeams: AgentSpec = {
-      ...IMPLEMENTER_FIXTURE,
-      capabilities: [...IMPLEMENTER_FIXTURE.capabilities, 'team:agent-teams'],
-    };
-    const teamsResult = adapter.validateSupport(specWithTeams);
+    forceCapabilities([
+      'fs:read',
+      'fs:write',
+      'shell:exec',
+      'mcp:exarchos',
+      'isolation:worktree',
+      'session:resume',
+      'team:agent-teams',
+    ]);
+    const teamsResult = adapter.validateSupport(IMPLEMENTER_FIXTURE);
     expect(teamsResult.ok).toBe(false);
   });
 

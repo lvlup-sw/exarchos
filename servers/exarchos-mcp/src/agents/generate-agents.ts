@@ -32,6 +32,7 @@ import * as path from 'node:path';
 
 import type { Capability } from './capabilities.js';
 import { ALL_AGENT_SPECS, IMPLEMENTER, FIXER, REVIEWER, SCAFFOLDER } from './definitions.js';
+import { resolveCapabilities } from '../capabilities/posture-mapping.js';
 import type { AgentSpec, AgentSpecId } from './types.js';
 import { claudeAdapter } from './adapters/claude.js';
 import { codexAdapter } from './adapters/codex.js';
@@ -189,7 +190,8 @@ function validateAllPairs(
       // adapter's `unsupported` check. We emit one failure entry per
       // offending capability so the aggregated report names every
       // problem, not just the first.
-      const offending = spec.capabilities.filter(
+      const resolvedCaps = resolveCapabilities(spec.posture, spec.id);
+      const offending: Capability[] = [...resolvedCaps].filter(
         (cap) => adapter.supportLevels[cap] === 'unsupported',
       );
       if (offending.length === 0) {

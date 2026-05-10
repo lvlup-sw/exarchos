@@ -45,44 +45,71 @@ describe('Posture-to-capability mapping properties (T32, DR-6)', () => {
   });
 });
 
-// ─── #1333 / DR-6: resolver covers every agent literal's legacy array ─────
+// ─── #1333 / DR-6: resolver covers every agent literal ────────────────────
 //
-// β-01 contract: enumerate every agent in `ALL_AGENT_SPECS` and assert that
-// `resolveCapabilities(spec.posture, spec.id)` produces exactly the same
-// capability set as the literal's legacy `capabilities[]` array. When this
-// passes, dropping the runtime-interface field becomes safe — the resolver
-// is the single source of truth.
+// Post-#1333 β-03 hard-cut: the runtime interface no longer carries
+// `capabilities: readonly Capability[]`; capabilities flow from `posture` +
+// `id` through `resolveCapabilities`. β-01's original RED form (set-
+// equality vs the legacy array) is therefore stale — the legacy array is
+// gone. The test now pins the per-agent canonical capability sets directly
+// so a future posture-table edit (or a per-agent overlay change) that
+// drops a capability from the audited surface fails loudly.
 //
-// The test enumerates ALL_AGENT_SPECS at runtime so adding a new agent is
-// caught automatically. RED until β-02 extends the posture mapping.
+// The expected sets are duplicated here from the audited legacy arrays
+// before the cut. If the trust surface needs to change (e.g. a new
+// capability promoted to a posture, or a new overlay), update both this
+// table and `posture-mapping.ts` in the same commit.
 
-describe('resolveCapabilities covers every agent literal (#1333 β-01)', () => {
-  it('ResolveCapabilities_AllAgentLiterals_ProduceSameSetAsLegacyArrays', () => {
+describe('resolveCapabilities covers every agent literal (#1333)', () => {
+  /** Capability sets the legacy `capabilities[]` literals carried per agent. */
+  const EXPECTED_PER_AGENT: Readonly<Record<string, ReadonlyArray<string>>> = {
+    implementer: [
+      'fs:read',
+      'fs:write',
+      'shell:exec',
+      'mcp:exarchos',
+      'isolation:worktree',
+      'session:resume',
+    ],
+    fixer: [
+      'fs:read',
+      'fs:write',
+      'shell:exec',
+      'mcp:exarchos',
+      'isolation:worktree',
+    ],
+    reviewer: ['fs:read', 'mcp:exarchos:readonly'],
+    scaffolder: [
+      'fs:read',
+      'fs:write',
+      'shell:exec',
+      'mcp:exarchos',
+      'isolation:worktree',
+    ],
+  };
+
+  it('ResolveCapabilities_AllAgentLiterals_ProduceCanonicalSets', () => {
     for (const spec of ALL_AGENT_SPECS) {
-      const posture = spec.posture;
+      const expected = EXPECTED_PER_AGENT[spec.id];
       expect(
-        posture,
-        `agent ${spec.id} must declare a posture so the resolver can derive its caps`,
+        expected,
+        `${spec.id}: missing canonical capability set in EXPECTED_PER_AGENT`,
       ).toBeDefined();
-      if (!posture) continue; // guard for type narrowing
 
-      const resolved = resolveCapabilities(posture, spec.id);
-      const expected = new Set<string>(spec.capabilities);
-      const actual = new Set<string>(resolved);
+      const resolved = resolveCapabilities(spec.posture, spec.id);
+      const expectedSet = new Set<string>(expected);
+      const actualSet = new Set<string>(resolved);
 
-      // Symmetric set-difference report — name the agent and the missing
-      // capabilities on either side so a failure points directly at the
-      // posture-mapping row that needs to grow.
-      const missingFromResolved = [...expected].filter((c) => !actual.has(c));
-      const extraFromResolved = [...actual].filter((c) => !expected.has(c));
+      const missingFromResolved = [...expectedSet].filter((c) => !actualSet.has(c));
+      const extraFromResolved = [...actualSet].filter((c) => !expectedSet.has(c));
 
       expect(
         missingFromResolved,
-        `agent=${spec.id} posture=${posture}: resolver missing caps from legacy array: ${JSON.stringify(missingFromResolved)}`,
+        `agent=${spec.id} posture=${spec.posture}: resolver missing caps: ${JSON.stringify(missingFromResolved)}`,
       ).toEqual([]);
       expect(
         extraFromResolved,
-        `agent=${spec.id} posture=${posture}: resolver returns caps not in legacy array: ${JSON.stringify(extraFromResolved)}`,
+        `agent=${spec.id} posture=${spec.posture}: resolver returns extra caps: ${JSON.stringify(extraFromResolved)}`,
       ).toEqual([]);
     }
   });

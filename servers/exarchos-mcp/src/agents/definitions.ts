@@ -139,14 +139,6 @@ When done, output a JSON completion report:
   "files": ["<created/modified files>"]
 }
 \`\`\``,
-  capabilities: [
-    'fs:read',
-    'fs:write',
-    'shell:exec',
-    'mcp:exarchos',
-    'isolation:worktree',
-    'session:resume',
-  ],
   disallowedTools: ['Agent'],
   model: 'inherit',
   isolation: 'worktree',
@@ -216,13 +208,6 @@ When done, output a JSON completion report:
   "files": ["<created/modified files>"]
 }
 \`\`\``,
-  capabilities: [
-    'fs:read',
-    'fs:write',
-    'shell:exec',
-    'mcp:exarchos',
-    'isolation:worktree',
-  ],
   disallowedTools: ['Agent'],
   model: 'inherit',
   isolation: 'worktree',
@@ -303,10 +288,6 @@ When done, output a JSON completion report:
   //      gate rejects mutating composite actions (workflow.set,
   //      event.append, orchestrate.task_complete, etc.) structurally,
   //      not via prose. See `core/dispatch.ts` readonly action allowlist.
-  capabilities: [
-    'fs:read',
-    'mcp:exarchos:readonly',
-  ],
   disallowedTools: ['Write', 'Edit', 'Agent', 'Bash'],
   model: 'inherit',
   skills: [],
@@ -361,13 +342,6 @@ When done, output a JSON completion report:
   "files": ["<created/modified files>"]
 }
 \`\`\``,
-  capabilities: [
-    'fs:read',
-    'fs:write',
-    'shell:exec',
-    'mcp:exarchos',
-    'isolation:worktree',
-  ],
   disallowedTools: ['Agent'],
   model: 'sonnet',
   effort: 'low',
