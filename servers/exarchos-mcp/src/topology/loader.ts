@@ -31,26 +31,9 @@ import { TopologySchema, type Topology } from './phase-contract.js';
 
 const topologyLogger = logger.child({ subsystem: 'topology' });
 
-/**
- * Minimal event-emission shape — caller (lifecycle wiring) supplies an
- * adapter over `EventStore.append`. Kept structural so unit tests pass
- * an in-memory sink.
- */
-export type TopologyEventEmitter = (
-  streamId: string,
-  event: { type: 'phase.contract_missing'; data: { phaseName: string } },
-) => Promise<void>;
-
 export interface LoadTopologyOptions {
   /** Absolute path to `topology.yaml`. T58 supplies the project default. */
   topologyPath: string;
-  /**
-   * Optional event emitter. When present, the loader emits
-   * `phase.contract_missing` once per missing-contract phase on first
-   * load. Absent → emission is a no-op (loader stays usable in pure
-   * unit contexts that don't need the event side effect).
-   */
-  emit?: TopologyEventEmitter;
 }
 
 let cached: Topology | undefined;

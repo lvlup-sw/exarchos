@@ -21,25 +21,6 @@ import {
   __resetTopologyCacheForTesting,
 } from './loader.js';
 
-interface CapturedEvent {
-  streamId: string;
-  type: string;
-  data: unknown;
-}
-
-function makeEventSink(): {
-  events: CapturedEvent[];
-  emit: (streamId: string, event: { type: string; data: unknown }) => Promise<void>;
-} {
-  const events: CapturedEvent[] = [];
-  return {
-    events,
-    emit: async (streamId, event) => {
-      events.push({ streamId, type: event.type, data: event.data });
-    },
-  };
-}
-
 function writeTopology(yamlBody: string): string {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'topology-loader-'));
   const file = path.join(tmp, 'topology.yaml');
@@ -127,18 +108,14 @@ describe('Topology_ConcurrentFirstLoad_SharesPromiseAndReturnsOneInstance', () =
 
   it('N concurrent loadTopology() calls converge on the same cached Topology instance', async () => {
     const file = writeTopology(COMPLETE_TOPOLOGY);
-    const sink = makeEventSink();
 
     const N = 8;
     const results = await Promise.all(
-      Array.from({ length: N }, () => loadTopology({ topologyPath: file, emit: sink.emit })),
+      Array.from({ length: N }, () => loadTopology({ topologyPath: file })),
     );
 
     for (const r of results) {
       expect(r).toBe(results[0]);
     }
-    // No phase.contract_missing emissions on the v2.11 path (the loader
-    // never emits — it throws or it succeeds).
-    expect(sink.events.filter((e) => e.type === 'phase.contract_missing')).toHaveLength(0);
   });
 });

@@ -50,12 +50,6 @@ Closes #1327 (Tier 2 JSONL rip), #1326 (idempotency-claims bypass — subsumed),
 - Render-time validation of CALL macros against the `TOOL_REGISTRY` — unknown actions and invalid args fail the build with the source file path and line number (DR-2).
 - Migration no-regression check (`src/build-skills.migration.test.ts`) — guards that existing Claude skill renders remain byte-identical after the dual-facade changes (DR-8).
 
-### Bug Fixes
-- `EventStore.query()` now merges events from the sidecar file (`{streamId}.hook-events.jsonl`) with main-stream events, so writes from non-primary MCP instances are visible to materializers and event-sourced gates immediately instead of being stranded until the primary restarts (#1082)
-
-### Observability
-- `exarchos_workflow init`, `set`, and `checkpoint` now surface `sidecarPending: true` in their response `data` when the underlying event append landed in the sidecar file (the event store is in sidecar mode). Mirrors the `sequencePending` ack on `exarchos_event append` so callers can detect degraded mode without inspecting storage internals (#1082)
-
 ### Breaking (wire-protocol)
 - **Malformed arguments now uniformly emit `INVALID_INPUT`** from the dispatch layer (DR-5). Previously divergent across adapters: CLI hard-exited via Commander's `requiredOption`; MCP returned `UNKNOWN_ACTION` (unknown action) or surfaced downstream `EVENT_APPEND_FAILED` (wrong type, no schema validation in dispatch path). External consumers pattern-matching on the old codes for malformed-argument scenarios should switch to `INVALID_INPUT`. Handler-reported errors that pass schema validation (e.g. genuine event-append failures) continue to use their domain-specific codes.
 

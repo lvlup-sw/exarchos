@@ -98,8 +98,8 @@ export interface EventStoreOptions {
  * (notably the doctor `storage-sqlite-health` check) can map to a
  * `CheckResult` status without type assertions (DIM-3):
  *   - `{ ok: true }`             → backend reports healthy
- *   - `{ ok: 'skipped', reason }` → no applicable backend (jsonl-only or
- *     a backend without `runIntegrityPragma`)
+ *   - `{ ok: 'skipped', reason }` → backend without `runIntegrityPragma`
+ *     (e.g., InMemoryBackend in test fixtures)
  *   - `{ ok: false, details }`   → backend reported corruption, or the
  *     probe exceeded its configured timeout
  */
@@ -674,18 +674,15 @@ export class EventStore {
    * The `streamPrefix` itself is validated as a (possibly single-segment)
    * stream id so namespaced inputs like `feat-1/sub-a` are admitted but
    * pathological inputs (`..`, leading slash, etc.) are rejected at the
-   * boundary before the JSONL/SQL layer ever sees them.
+   * boundary before the SQLite layer ever sees them.
    *
    * This is the canonical reducer for `team.disbanded` emission: count
    * `task.completed` events across every subagent stream nested under the
    * feature stream, without reading any derived state (INV-1).
    *
-   * Implementation note: when a `StorageBackend` is attached and exposes a
-   * cross-stream query method, that path is preferred; otherwise the JSONL
-   * directory is scanned for `<prefix>.events.jsonl` and
-   * `<prefix>/<segment>.events.jsonl` files. Filters from `QueryFilters`
-   * (sinceSequence, since, until, limit, offset) apply globally to the
-   * merged result.
+   * Implementation note: post-v2.11 the SQLite backend's cross-stream
+   * query is the only path. Filters from `QueryFilters` (sinceSequence,
+   * since, until, limit, offset) apply globally to the merged result.
    */
   async queryByType(
     eventType: string,

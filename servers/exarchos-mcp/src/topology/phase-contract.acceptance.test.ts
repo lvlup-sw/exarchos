@@ -25,20 +25,6 @@ interface CapturedEvent {
   data: unknown;
 }
 
-/** Minimal in-memory event sink — captures emissions without a real EventStore. */
-function makeEventSink(): {
-  events: CapturedEvent[];
-  emit: (streamId: string, event: { type: string; data: unknown }) => Promise<void>;
-} {
-  const events: CapturedEvent[] = [];
-  return {
-    events,
-    emit: async (streamId, event) => {
-      events.push({ streamId, type: event.type, data: event.data });
-    },
-  };
-}
-
 function writeTopologyFile(dir: string, body: string): string {
   const file = path.join(dir, 'topology.yaml');
   fs.writeFileSync(file, body, 'utf-8');
@@ -71,15 +57,11 @@ phases:
 `;
     writeTopologyFile(tmp, yaml);
     __resetTopologyCacheForTesting();
-    const sink = makeEventSink();
-    const topology = await loadTopology({ topologyPath: path.join(tmp, 'topology.yaml'), emit: sink.emit });
+    const topology = await loadTopology({ topologyPath: path.join(tmp, 'topology.yaml') });
 
     // Every phase has a typed contract.
     expect(topology.phases.design.staleness).toBeDefined();
     expect(topology.phases.implement.staleness).toBeDefined();
-
-    // No missing-contract events when every phase has a contract.
-    expect(sink.events.filter((e) => e.type === 'phase.contract_missing')).toHaveLength(0);
 
     // Scorer with `freshnessRequires: 'all'`: stale iff ANY declared signal is stale.
     const designContract = topology.phases.design.staleness!;
@@ -138,17 +120,12 @@ phases:
 `;
     writeTopologyFile(tmp, yaml);
     __resetTopologyCacheForTesting();
-    const sink = makeEventSink();
 
     // v2.11 (DR-7): topology with any phase missing `staleness` is
     // rejected at load time. The aggregated error names every offending
     // phase ID for INV-5a self-correction.
     await expect(
-      loadTopology({ topologyPath: path.join(tmp, 'topology.yaml'), emit: sink.emit }),
+      loadTopology({ topologyPath: path.join(tmp, 'topology.yaml') }),
     ).rejects.toThrow(/implement[\s\S]*review|review[\s\S]*implement/);
-
-    // Loader emits NO `phase.contract_missing` advisory events on the
-    // v2.11 path — it throws first.
-    expect(sink.events.filter((e) => e.type === 'phase.contract_missing')).toHaveLength(0);
   });
 });

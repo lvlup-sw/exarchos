@@ -100,21 +100,10 @@ phases:
     expect(message.toLowerCase()).toContain('staleness');
   });
 
-  it('does NOT emit phase.contract_missing events on the v2.11 hard-cut path', async () => {
-    const file = writeTopology(`
-phases:
-  implement: {}
-`);
-    const events: Array<{ type: string }> = [];
-    const emit = async (_streamId: string, event: { type: string; data: unknown }) => {
-      events.push({ type: event.type });
-    };
-    await expect(
-      loadTopology({ topologyPath: file, emit }),
-    ).rejects.toThrow();
-    // Pre-DR-7 (advisory) this would be 1; v2.11 should never emit.
-    expect(events.filter((e) => e.type === 'phase.contract_missing')).toHaveLength(0);
-  });
+  // The "does NOT emit phase.contract_missing events" test from earlier
+  // drafts is gone: the `emit` option itself was deleted from
+  // `LoadTopologyOptions` (the loader has no emission surface to test
+  // against). The throw is covered by the aggregate cases above.
 
   it('still loads a complete topology (every phase has a staleness block) without throwing', async () => {
     const file = writeTopology(`
