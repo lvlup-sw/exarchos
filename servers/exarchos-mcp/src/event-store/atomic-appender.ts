@@ -10,32 +10,28 @@ import {
 } from '../storage/sqlite-backend.js';
 
 /**
- * AtomicAppender — single-writer-per-stream append primitive (v2.9.0).
+ * AtomicAppender — single-writer-per-stream append primitive (v2.11).
  *
  * Closes the substrate-level half of #1230 (overlapping sequence allocation under
  * concurrency) and #1228 (phantom idempotencyKey claim on partial-write failure).
  *
- * The four-phase append (validate → allocate sequences → write JSONL → write .seq
- * → cache idempotencyKey) is serialized per stream with a Promise-chain mutex
- * (no `async-mutex` dep — the chain primitive is ~5 lines and matches semantics).
- * The idempotencyKey cache mutation is the LAST step: it commits ONLY after JSONL
- * and `.seq` writes both succeed. A failed append leaves the key uncommitted, so
- * retries are admissible (the bug #1228 closes).
+ * v2.11 substrate-cut (Phase 2): the JSONL primary body and `backend` discriminator
+ * were removed. The sole append path is now SQLite — `BEGIN IMMEDIATE` wrapping
+ * the idempotency-claim INSERT, sequence upsert, and event INSERT in one
+ * transaction. The per-stream Promise mutex remains as the first-tier guard;
+ * SQLite's transactional semantics are the second-tier guard. There is no
+ * dual-write fallback, no `.events.jsonl` / `.seq` machinery, no in-memory
+ * idempotency cache — every claim persists in `idempotency_claims` and
+ * survives process restart.
  *
- * This module is a NEW substrate; the existing four-phase path in `store.ts` is
- * intentionally untouched in this commit. Consumer migration lands in C2.
- *
- * The interface is the seam #1259's SQLite implementation drops into: same
- * `AppendResult` shape, same per-stream serialization semantics.
+ * The `dispatchAppend` indirection has been inlined into `append` /
+ * `appendUnkeyed` / `appendComputed`: each delegates directly to
+ * `appendSqliteLocked`.
  */
 
 /**
  * Public-shaped persisted event surfaced on cache-hit so callers can return
  * the actual stored shape (not a synthesized event from the request body).
- *
- * Mirrors the internal `PersistedEvent` but is exported so consumers like
- * `EventStore.delegateAppend` can hand it back to their own callers without
- * reaching into AtomicAppender internals.
  *
  * `eventId` is included for traceability — callers that don't need it can
  * ignore the field. Other extension fields flow through the index signature.
@@ -89,11 +85,11 @@ export type AppendResult =
   | {
       ok: false;
       /**
-       * `storage_busy` — SQLite-backed body only. The substrate retried the
-       * BEGIN IMMEDIATE transaction up to its budget (5 attempts with
-       * exponential backoff capped at 100 ms) and SQLITE_BUSY persisted on
-       * every attempt. Caller may retry at the application layer or
-       * surface to the operator as substrate contention.
+       * `storage_busy` — the substrate retried the BEGIN IMMEDIATE
+       * transaction up to its budget (5 attempts with exponential backoff
+       * capped at 100 ms) and SQLITE_BUSY persisted on every attempt.
+       * Caller may retry at the application layer or surface to the
+       * operator as substrate contention.
        */
       reason: 'idempotency-claimed' | 'sequence-conflict' | 'io-error' | 'storage_busy';
       cause?: Error;
@@ -120,78 +116,30 @@ export interface EventInput {
  * `EventStore`'s legacy `expectedSequence` callers can migrate cleanly.
  *
  * Re-entrancy: do NOT pass `expectedSequence` from inside an
- * `appendComputed` callback — the check runs after `rebuildCachesFromJsonl`
- * which is the same lock context the callback is already holding. The
- * caller's outer-most `append` invocation owns the check.
+ * `appendComputed` callback — the per-stream Promise mutex is the same
+ * lock context the callback is already holding. The caller's outer-most
+ * `append` invocation owns the check.
  */
 export interface AppendOptions {
   /**
    * The current sequence counter the caller observed before issuing this
-   * append. Compared against the in-memory counter under the per-stream
-   * lock; a mismatch returns `{ ok: false, reason: 'sequence-conflict',
-   * expected, actual }` so the caller can translate to a typed error
-   * without needing access to internal state.
+   * append. Compared against the durable high-water mark inside the
+   * BEGIN IMMEDIATE transaction; a mismatch returns
+   * `{ ok: false, reason: 'sequence-conflict', expected, actual }` so the
+   * caller can translate to a typed error without needing access to
+   * internal state.
    */
   expectedSequence?: number;
 }
 
-/**
- * Test-only failure-injection hook.
- *
- * Receives the phase being executed (`'jsonl'` or `'seq'`), the absolute file
- * path the default writer would target, the contents the default writer would
- * write, and a `runDefault` callback that performs the actual filesystem write.
- *
- * Production code passes no `writeFn`; the appender uses the default writer.
- * Tests can throw before / after / instead of calling `runDefault` to simulate
- * partial failures deterministically.
- */
-export type WriteFn = (
-  phase: 'jsonl' | 'seq',
-  filePath: string,
-  contents: string,
-  runDefault: () => Promise<void>,
-) => Promise<void>;
-
 export interface AtomicAppenderOptions {
-  /** Directory under which `<streamId>.events.jsonl` and `<streamId>.seq` live. */
+  /** Directory under which the SQLite database file lives. */
   stateDir: string;
-  /** Test-only failure-injection writer; defaults to the production filesystem writer. */
-  writeFn?: WriteFn;
   /**
-   * Per-stream cap on cached idempotencyKey entries. Defaults to env
-   * `EXARCHOS_MAX_IDEMPOTENCY_KEYS` (or 200 when unset / invalid). Eviction
-   * is FIFO (insertion order) — matches the legacy `EventStore` semantics
-   * at `event-store/store.ts:798`.
-   */
-  maxIdempotencyKeys?: number;
-  /**
-   * Substrate selector for the body (#1259, DR-1).
-   *
-   *   - `'jsonl'` (legacy v2.9 body): JSONL append + `.seq` rename + in-memory
-   *     idempotency cache. Retained for the migration window and for tests
-   *     that exercise the exact failure modes JSONL exposes (writeFn
-   *     failure injection, partial-write rollback).
-   *   - `'sqlite'` (default post-cutover): single `BEGIN IMMEDIATE` SQLite
-   *     transaction wrapping idempotency-claim INSERT, sequence upsert,
-   *     event INSERT (and outbox INSERT when applicable). The per-stream
-   *     Promise mutex still wraps the call as the first-tier guard;
-   *     SQLite is the second-tier guard.
-   *
-   * Existing v2.9 callers omit the option and continue to receive the
-   * legacy body during the cutover. The flip to `'sqlite'` as the default
-   * lands once all consumers are validated against the SQLite body.
-   *
-   * Test-only override: pass `'sqlite'` to exercise the new body
-   * directly without flipping the default.
-   */
-  backend?: 'jsonl' | 'sqlite';
-  /**
-   * Optional pre-built SqliteBackend instance for the `'sqlite'` body.
-   * When omitted, the appender lazily constructs its own backend keyed
-   * off `${stateDir}/exarchos.db`. Production wiring (lifecycle.ts /
-   * EventStore) will inject the shared backend so reads + writes
-   * converge on the same handle.
+   * Optional pre-built SqliteBackend instance. When omitted, the appender
+   * lazily constructs its own backend keyed off `${stateDir}/exarchos.db`.
+   * Production wiring (lifecycle.ts / EventStore) injects the shared
+   * backend so reads + writes converge on the same handle.
    */
   sqliteBackend?: SqliteBackend;
   /**
@@ -201,14 +149,6 @@ export interface AtomicAppenderOptions {
    * this to keep their fixture databases out of the shared file.
    */
   sqliteDbFilename?: string;
-}
-
-function parseEnvInt(envVar: string, defaultValue: number): number {
-  const raw = process.env[envVar];
-  if (raw === undefined) return defaultValue;
-  const parsed = parseInt(raw, 10);
-  if (isNaN(parsed) || parsed <= 0) return defaultValue;
-  return parsed;
 }
 
 interface PersistedEvent {
@@ -221,8 +161,6 @@ interface PersistedEvent {
   data?: Record<string, unknown>;
   [k: string]: unknown;
 }
-
-const SEQUENCE_REGEX = /"sequence":(\d+)/;
 
 /**
  * Per-stream Promise-chain mutex. Each `runExclusive` call appends a new step
@@ -255,24 +193,13 @@ class StreamLockManager {
 
 export class AtomicAppender {
   private readonly stateDir: string;
-  private readonly writeFn?: WriteFn;
   private readonly locks = new StreamLockManager();
-  /** Per-stream in-memory sequence high-water mark. Authoritative source is JSONL. */
-  private readonly sequenceCounters = new Map<string, number>();
-  /** streamId → idempotencyKey → committed event(s). Populated only after success. */
-  private readonly idempotencyCache = new Map<string, Map<string, PersistedEvent[]>>();
-  private readonly idempotencyInitialized = new Set<string>();
-  /** Per-stream cap on idempotencyCache size; FIFO eviction matches legacy EventStore. */
-  private readonly maxIdempotencyKeys: number;
-  /** Substrate selector — selects the JSONL legacy body or the SQLite body. */
-  private readonly backend: 'jsonl' | 'sqlite';
   private readonly sqliteDbFilename: string;
   /**
-   * Lazily-constructed SQLite backend for the `'sqlite'` body. Owned by
-   * the appender (initialized on first use, closed by the host's
-   * lifecycle). When `options.sqliteBackend` is injected, it is used
-   * directly and never closed by the appender — the injector retains
-   * ownership.
+   * Lazily-constructed SQLite backend. Owned by the appender (initialized
+   * on first use, closed by the host's lifecycle). When
+   * `options.sqliteBackend` is injected, it is used directly and never
+   * closed by the appender — the injector retains ownership.
    *
    * **Singleton invariant (T63):** This field MUST only be assigned via
    * the `sqliteBackendPromise` cache below. The legacy "check field then
@@ -297,14 +224,6 @@ export class AtomicAppender {
 
   constructor(options: AtomicAppenderOptions) {
     this.stateDir = options.stateDir;
-    this.writeFn = options.writeFn;
-    this.maxIdempotencyKeys =
-      options.maxIdempotencyKeys ?? parseEnvInt('EXARCHOS_MAX_IDEMPOTENCY_KEYS', 200);
-    // Default to JSONL during the cutover so the seven existing v2.9 consumers
-    // are not silently flipped onto the new body. Tests opt in via
-    // `backend: 'sqlite'` until the production wiring (DR-13 AC4) flips
-    // the default.
-    this.backend = options.backend ?? 'jsonl';
     this.sqliteDbFilename = options.sqliteDbFilename ?? 'exarchos.db';
     if (options.sqliteBackend) {
       this.sqliteBackend = options.sqliteBackend;
@@ -326,7 +245,7 @@ export class AtomicAppender {
     options?: AppendOptions,
   ): Promise<AppendResult> {
     return this.locks.runExclusive(streamId, () =>
-      this.dispatchAppend(streamId, events, { idempotencyKey }, options),
+      this.appendSqliteLocked(streamId, events, { idempotencyKey }, options),
     );
   }
 
@@ -334,15 +253,9 @@ export class AtomicAppender {
    * Append without idempotency dedup.
    *
    * Used by callers (e.g. `EventStore.append` for events without an explicit
-   * key) that want a single write but no cache entry. Equivalent to passing
-   * a synthetic key, except:
-   *   - The idempotency cache is NOT polluted with one-shot keys (which
-   *     would FIFO-evict legitimate retry keys at the configured cap).
-   *   - The persisted event has `idempotencyKey: undefined`, so a JSONL
-   *     scan will not associate it with any retry chain.
-   *
-   * Sequence allocation, JSONL write, .seq write, and rollback semantics
-   * are identical to `append`.
+   * key) that want a single write but no idempotency claim. The persisted
+   * event has `idempotencyKey: null` in storage, so it cannot collide with
+   * any retry chain.
    */
   async appendUnkeyed(
     streamId: string,
@@ -350,7 +263,7 @@ export class AtomicAppender {
     options?: AppendOptions,
   ): Promise<AppendResult> {
     return this.locks.runExclusive(streamId, () =>
-      this.dispatchAppend(streamId, events, null, options),
+      this.appendSqliteLocked(streamId, events, null, options),
     );
   }
 
@@ -358,17 +271,15 @@ export class AtomicAppender {
    * Compute-then-append under a single per-stream lock.
    *
    * `compute` runs while the per-stream lock is held; the events it returns
-   * are appended in the same critical section. The original consumer was
-   * the v2.9 `SubagentStreamRouter.emitDisbanded` (retired in T27 in favor
-   * of the cross-stream `EventStore.queryByType` reducer). The primitive is
-   * retained because read-then-append callers (any pattern that derives a
-   * to-be-persisted value from the current stream contents) still benefit
-   * from the lock-coupled critical section to prevent stale reads.
+   * are appended in the same critical section. Read-then-append callers
+   * (any pattern that derives a to-be-persisted value from the current stream
+   * contents) benefit from the lock-coupled critical section to prevent
+   * stale reads.
    *
    * `compute` must NOT call back into `append`/`appendComputed` for the
    * same `streamId`: the Promise-chain mutex is non-reentrant and a
-   * recursive call deadlocks the chain. Side reads (e.g. `fs.readFile`
-   * on the JSONL) are fine.
+   * recursive call deadlocks the chain. Side reads (e.g. backend queries)
+   * are fine.
    */
   async appendComputed(
     streamId: string,
@@ -377,29 +288,8 @@ export class AtomicAppender {
   ): Promise<AppendResult> {
     return this.locks.runExclusive(streamId, async () => {
       const events = await compute();
-      return this.dispatchAppend(streamId, events, { idempotencyKey });
+      return this.appendSqliteLocked(streamId, events, { idempotencyKey });
     });
-  }
-
-  /**
-   * Branch on the configured backend. The per-stream Promise mutex is
-   * already held by the caller — this method is the single seam that
-   * picks between the legacy JSONL body and the SQLite body. Keeping
-   * dispatch one level above the body code (rather than inside
-   * `appendLocked`) leaves the legacy path completely untouched, so the
-   * existing JSONL fixtures remain meaningful regression tests during
-   * the cutover.
-   */
-  private async dispatchAppend(
-    streamId: string,
-    events: EventInput[],
-    keyed: { idempotencyKey: string } | null,
-    options?: AppendOptions,
-  ): Promise<AppendResult> {
-    if (this.backend === 'sqlite') {
-      return this.appendSqliteLocked(streamId, events, keyed, options);
-    }
-    return this.appendLocked(streamId, events, keyed, options);
   }
 
   /**
@@ -409,7 +299,7 @@ export class AtomicAppender {
    *
    * The owned-backend path opens `<stateDir>/<filename>` and applies
    * the standard schema DDL via `initialize()`. Failure here is fatal
-   * for the SQLite body — the caller (appendSqliteLocked) catches and
+   * for the substrate — the caller (appendSqliteLocked) catches and
    * returns an `io-error` AppendResult so the boundary contract holds.
    *
    * **Singleton via Promise cache (T63).** The legacy implementation
@@ -420,14 +310,14 @@ export class AtomicAppender {
    * `sqliteBackendPromise` synchronously before any await, so all
    * concurrent callers converge on a single in-flight Promise (and
    * therefore a single backend). The `sqliteBackend` field is also
-   * populated when the Promise resolves so the synchronous test seam
-   * (`_testOnly_getSqliteBackend`) continues to work.
+   * populated when the Promise resolves so the synchronous accessor
+   * `getSqliteBackend()` continues to work.
    *
    * Returns a Promise so future async-init steps (e.g. an awaited
    * migration or remote handle warm-up) plug in without reopening the
    * race window.
    */
-  private async getSqliteBackend(): Promise<SqliteBackend> {
+  private async ensureSqliteBackend(): Promise<SqliteBackend> {
     if (this.sqliteBackendPromise) {
       return this.sqliteBackendPromise;
     }
@@ -461,7 +351,7 @@ export class AtomicAppender {
     keyed: { idempotencyKey: string } | null,
     options?: AppendOptions,
   ): Promise<AppendResult> {
-    // ─── Phase 1: validate (same contract as JSONL body) ─────────────────
+    // ─── Phase 1: validate ──────────────────────────────────────────────
     if (!streamId || streamId.length === 0) {
       return { ok: false, reason: 'io-error', cause: new Error('streamId required') };
     }
@@ -480,22 +370,20 @@ export class AtomicAppender {
     // ─── Phase 2: ensure backend is available ────────────────────────────
     let backend: SqliteBackend;
     try {
-      // Ensure the directory exists (matches JSONL path's mkdir behavior so
-      // tests passing fresh tmp dirs don't fail before the DB file is
-      // touched).
+      // Ensure the directory exists so tests passing fresh tmp dirs don't
+      // fail before the DB file is touched.
       await fs.mkdir(this.stateDir, { recursive: true });
       // Lazy SQLite backend init — Promise-cached singleton (T63).
       // Concurrent first-writes across distinct streams converge on a
       // single backend handle even if init grows an awaited step.
-      backend = await this.getSqliteBackend();
+      backend = await this.ensureSqliteBackend();
     } catch (err) {
       return { ok: false, reason: 'io-error', cause: toError(err) };
     }
 
     // ─── Phase 3: idempotency cache-hit (pre-transaction short-circuit) ──
     // The cache lookup runs OUTSIDE the BEGIN IMMEDIATE so retries don't
-    // hold the write lock. Same semantics as the JSONL body's in-memory
-    // map check.
+    // hold the write lock.
     if (keyed !== null) {
       try {
         const claim = backend.lookupIdempotencyClaim(streamId, keyed.idempotencyKey);
@@ -560,9 +448,6 @@ export class AtomicAppender {
     }));
 
     // ─── Phase 6: BEGIN IMMEDIATE (idempotency claim + events + sequence) ─
-    // Test-only fault hook: tests can monkey-patch the backend's
-    // `atomicAppend` method to throw mid-transaction, exercising T07's
-    // rollback contract. Production code never sets this.
     try {
       const claim =
         keyed !== null
@@ -630,10 +515,10 @@ export class AtomicAppender {
    * canonical shape:
    *
    *   - `idempotency-claimed` lost the WINNER's persisted events. The
-   *     contract (matching the JSONL body's cache-hit) is to surface
-   *     the events ACTUALLY persisted under the key, so the caller
-   *     returns the canonical shape to its own caller without
-   *     reconstructing from the (possibly different) current request.
+   *     contract is to surface the events ACTUALLY persisted under
+   *     the key, so the caller returns the canonical shape to its own
+   *     caller without reconstructing from the (possibly different)
+   *     current request.
    *
    *   - `sequence-conflict` reported `actual: baseSeq`. The actual
    *     value is now the WINNER's high-water mark, so retrying against
@@ -664,8 +549,7 @@ export class AtomicAppender {
     if (isIdempotencyConflict && keyed !== null) {
       // Re-read the now-committed claim. The race winner inserted a
       // canonical row — surface those events as a cache-hit so the
-      // caller returns the actually-persisted shape, matching the
-      // JSONL body's cache-hit contract.
+      // caller returns the actually-persisted shape.
       try {
         const claim = backend.lookupIdempotencyClaim(streamId, keyed.idempotencyKey);
         if (claim) {
@@ -714,317 +598,21 @@ export class AtomicAppender {
   }
 
   /**
-   * Test-only access to the SQLite backend used by the substrate body.
-   * Tests inject faults via `Object.defineProperty` on the underlying
-   * driver methods (e.g. `insertEventStrict.run`) — exposing the backend
-   * lets the T07 rollback test patch a single statement without
-   * reconstructing the appender's internals.
+   * Public access to the SQLite backend used by the substrate body.
    *
-   * Returns undefined when the appender was constructed with
-   * `backend: 'jsonl'` (no SQLite backend was created).
+   * Production read paths (e.g. `EventStore.getReadBackend()`) call this
+   * to converge on the single backend handle the appender owns. Tests
+   * inject faults via `Object.defineProperty` on the underlying driver
+   * methods — exposing the backend lets fixtures patch a single
+   * statement without reconstructing the appender's internals.
+   *
+   * Returns undefined when no append has happened yet (the backend is
+   * lazily constructed on first write). Production callers that hit
+   * this path before any write get the JSONL-equivalent empty-result
+   * fallback at the read layer.
    */
-  _testOnly_getSqliteBackend(): SqliteBackend | undefined {
+  getSqliteBackend(): SqliteBackend | undefined {
     return this.sqliteBackend;
-  }
-
-  private async appendLocked(
-    streamId: string,
-    events: EventInput[],
-    keyed: { idempotencyKey: string } | null,
-    options?: AppendOptions,
-  ): Promise<AppendResult> {
-    // ─── Phase 1: validate ───────────────────────────────────────────────
-    if (!streamId || streamId.length === 0) {
-      return { ok: false, reason: 'io-error', cause: new Error('streamId required') };
-    }
-    // Defense in depth: reject streamIds that could escape `stateDir` via
-    // path separators or `..` segments. EventStore consumers already
-    // validate at the boundary, but AtomicAppender is also exposed to
-    // event_batch_append directly; a guard here means future consumers
-    // can't bypass it. (Pre-T27 the `SubagentStreamRouter` was another
-    // direct consumer; that primitive has since been retired in favor of
-    // the cross-stream `EventStore.queryByType` reducer.)
-    try {
-      validateStreamId(streamId);
-    } catch (err) {
-      return { ok: false, reason: 'io-error', cause: toError(err) };
-    }
-    if (!Array.isArray(events) || events.length === 0) {
-      return { ok: false, reason: 'io-error', cause: new Error('events must be non-empty array') };
-    }
-    if (keyed !== null && (!keyed.idempotencyKey || keyed.idempotencyKey.length === 0)) {
-      return { ok: false, reason: 'io-error', cause: new Error('idempotencyKey required') };
-    }
-
-    // Idempotency check — rebuild cache from JSONL on first contact with stream.
-    // Even unkeyed appends rebuild here so the sequence counter is authoritative
-    // (the `.seq` value is read during rebuild). Skipping the rebuild for
-    // unkeyed callers would re-introduce overlapping-allocation under
-    // concurrency from a fresh process.
-    if (!this.idempotencyInitialized.has(streamId)) {
-      try {
-        await this.rebuildCachesFromJsonl(streamId);
-      } catch (err) {
-        return { ok: false, reason: 'io-error', cause: toError(err) };
-      }
-      this.idempotencyInitialized.add(streamId);
-    }
-    if (keyed !== null) {
-      const streamIdemCache = this.idempotencyCache.get(streamId);
-      const cachedEvents = streamIdemCache?.get(keyed.idempotencyKey);
-      if (cachedEvents && cachedEvents.length > 0) {
-        return {
-          ok: true,
-          kind: 'cache-hit',
-          sequences: cachedEvents.map(e => e.sequence),
-          eventIds: cachedEvents.map(e => e.eventId),
-          timestamps: cachedEvents.map(e => e.timestamp),
-          // Surface the originally-persisted events so callers don't
-          // reconstruct from the (possibly different) current request
-          // payload — that's the bug CR-thread #3205805943 closes.
-          persistedEvents: cachedEvents.map(e => ({ ...e } as PublicPersistedEvent)),
-        };
-      }
-    }
-
-    // ─── Phase 1b: optimistic-concurrency check ──────────────────────────
-    // Compare the caller's observed sequence (if any) against the
-    // post-rebuild authoritative counter. Mismatch returns a typed result
-    // so callers can translate to their own error shape (e.g.
-    // EventStore.SequenceConflictError) without reaching into internals.
-    if (options?.expectedSequence !== undefined) {
-      const actual = this.sequenceCounters.get(streamId) ?? 0;
-      if (actual !== options.expectedSequence) {
-        return {
-          ok: false,
-          reason: 'sequence-conflict',
-          expected: options.expectedSequence,
-          actual,
-        };
-      }
-    }
-
-    // ─── Phase 2: allocate sequences ─────────────────────────────────────
-    const baseSeq = (this.sequenceCounters.get(streamId) ?? 0);
-    const persisted: PersistedEvent[] = events.map((evt, i) => {
-      const event: PersistedEvent = {
-        ...evt,
-        streamId,
-        sequence: baseSeq + i + 1,
-        timestamp: evt.timestamp ?? new Date().toISOString(),
-        type: evt.type,
-        eventId: randomUUID(),
-      };
-      if (keyed !== null) {
-        event.idempotencyKey = keyed.idempotencyKey;
-      }
-      return event;
-    });
-    const finalSequence = persisted[persisted.length - 1].sequence;
-
-    // ─── Phase 3: write JSONL ────────────────────────────────────────────
-    //
-    // The `WriteFn` test hook contract explicitly permits throwing AFTER
-    // `runDefault()` completes (see WriteFn comment for the use case:
-    // partial-failure simulation). The naive catch path "nothing was
-    // written" assumption is therefore wrong for after-runDefault throws;
-    // the JSONL lines are on disk but we'd return ok:false, causing
-    // a retry to write the same lines again — duplicate sequences.
-    // Track runDefault completion and roll back on after-runDefault throws
-    // so the all-or-none contract holds for both pre- and post-runDefault
-    // failures.
-    const jsonlPath = this.getEventFilePath(streamId);
-    const seqPath = this.getSeqFilePath(streamId);
-    const lines = persisted.map(e => JSON.stringify(e)).join('\n') + '\n';
-    let jsonlRunDefaultCompleted = false;
-    try {
-      await fs.mkdir(path.dirname(jsonlPath), { recursive: true });
-      await this.runWrite('jsonl', jsonlPath, lines, async () => {
-        await fs.appendFile(jsonlPath, lines, 'utf-8');
-        jsonlRunDefaultCompleted = true;
-      });
-    } catch (err) {
-      if (jsonlRunDefaultCompleted) {
-        // Test hook (or future custom WriteFn) threw after the actual
-        // append. Roll back the partial write so the next attempt starts
-        // from a clean slate.
-        await this.rollbackJsonlAppend(jsonlPath, persisted.length).catch(() => {});
-      }
-      return { ok: false, reason: 'io-error', cause: toError(err) };
-    }
-
-    // ─── Phase 4: write .seq ─────────────────────────────────────────────
-    // Failure here is structured: the JSONL is the source of truth, but the
-    // caller MUST NOT see a silent success — that's exactly what hid #1228.
-    // We unwind the JSONL append on .seq failure to preserve the all-or-none
-    // contract callers rely on.
-    //
-    // Same WriteFn-after-runDefault hazard as Phase 3: if `writeFn` throws
-    // AFTER the rename completed, the .seq is durable on disk but we're
-    // about to roll back the JSONL. That leaves .seq pointing past the
-    // rolled-back JSONL — historically this also mis-sized synthetic
-    // sequences in the v2.10 sidecar merge path (deleted in v2.11, #1082).
-    // Track the seq runDefault completion and remove .seq when it ran but
-    // the wrapper threw, so the next caller's rebuild reads max-sequence
-    // from JSONL fresh.
-    const tmpPath = `${seqPath}.tmp`;
-    const seqContents = JSON.stringify({ sequence: finalSequence });
-    let seqRunDefaultCompleted = false;
-    try {
-      await this.runWrite('seq', seqPath, seqContents, async () => {
-        await fs.writeFile(tmpPath, seqContents, 'utf-8');
-        await fs.rename(tmpPath, seqPath);
-        seqRunDefaultCompleted = true;
-      });
-    } catch (err) {
-      // Roll back the JSONL append: rewrite the file without the lines we just
-      // appended. Best-effort cleanup of any tmp file. If rollback itself fails,
-      // we still surface the original .seq failure (the JSONL on-disk state
-      // becomes the recovery target for the next appender via the cache rebuild).
-      await fs.rm(tmpPath, { force: true }).catch(() => {});
-      await this.rollbackJsonlAppend(jsonlPath, persisted.length).catch(() => {});
-      if (seqRunDefaultCompleted) {
-        // The .seq was actually renamed into place before the wrapper
-        // threw. Remove it so it doesn't sit ahead of the rolled-back
-        // JSONL; rebuild paths re-derive max-sequence from JSONL on
-        // first contact.
-        await fs.rm(seqPath, { force: true }).catch(() => {});
-      }
-      return { ok: false, reason: 'io-error', cause: toError(err) };
-    }
-
-    // ─── Phase 5: cache idempotencyKey (commit point) ────────────────────
-    // ONLY reached if all prior phases succeeded. This is the bug-#1228 fix:
-    // the key is admissible for retry until and unless the append commits.
-    // Skipped entirely for unkeyed appends — those callers explicitly opted
-    // out of dedup, and writing them to the cache would FIFO-evict
-    // legitimate retry keys at the configured cap.
-    if (keyed !== null) {
-      let cache = this.idempotencyCache.get(streamId);
-      if (!cache) {
-        cache = new Map();
-        this.idempotencyCache.set(streamId, cache);
-      }
-      cache.set(keyed.idempotencyKey, persisted);
-      // FIFO eviction at cap — matches legacy EventStore.cacheIdempotencyKey
-      // semantics (store.ts:798). Map iteration order is insertion order, so
-      // `keys().next().value` is the oldest entry.
-      while (cache.size > this.maxIdempotencyKeys) {
-        const oldest = cache.keys().next().value;
-        if (oldest === undefined) break;
-        cache.delete(oldest);
-      }
-    }
-    this.sequenceCounters.set(streamId, finalSequence);
-
-    return {
-      ok: true,
-      kind: 'committed',
-      sequences: persisted.map(e => e.sequence),
-      eventIds: persisted.map(e => e.eventId),
-      timestamps: persisted.map(e => e.timestamp),
-    };
-  }
-
-  private async runWrite(
-    phase: 'jsonl' | 'seq',
-    filePath: string,
-    contents: string,
-    runDefault: () => Promise<void>,
-  ): Promise<void> {
-    if (this.writeFn) {
-      await this.writeFn(phase, filePath, contents, runDefault);
-    } else {
-      await runDefault();
-    }
-  }
-
-  /**
-   * Rebuild sequence counter and idempotencyKey cache from JSONL on first
-   * contact with a stream. Cheap on cold start; subsequent appends use the
-   * in-memory counters.
-   */
-  private async rebuildCachesFromJsonl(streamId: string): Promise<void> {
-    const filePath = this.getEventFilePath(streamId);
-    let raw: string;
-    try {
-      raw = await fs.readFile(filePath, 'utf-8');
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
-        return; // fresh stream
-      }
-      throw err;
-    }
-    let maxSeq = 0;
-    const cache = new Map<string, PersistedEvent[]>();
-    for (const line of raw.split('\n')) {
-      if (line.length === 0) continue;
-      const seqMatch = SEQUENCE_REGEX.exec(line);
-      if (seqMatch) {
-        const s = Number.parseInt(seqMatch[1], 10);
-        if (s > maxSeq) maxSeq = s;
-      }
-      let parsed: PersistedEvent;
-      try {
-        parsed = JSON.parse(line) as PersistedEvent;
-      } catch {
-        continue; // skip malformed line; JSONL is source of truth, but tolerate corruption
-      }
-      if (parsed.idempotencyKey) {
-        const existing = cache.get(parsed.idempotencyKey) ?? [];
-        existing.push(parsed);
-        cache.set(parsed.idempotencyKey, existing);
-        // FIFO eviction at cap during rebuild — preserves the most-recent
-        // N keys (matches legacy `keyed.slice(-this.maxIdempotencyKeys)` at
-        // store.ts:1227 since insertion order tracks file order).
-        while (cache.size > this.maxIdempotencyKeys) {
-          const oldest = cache.keys().next().value;
-          if (oldest === undefined) break;
-          cache.delete(oldest);
-        }
-      }
-    }
-    this.sequenceCounters.set(streamId, maxSeq);
-    this.idempotencyCache.set(streamId, cache);
-  }
-
-  /**
-   * Truncate the most-recent N JSONL lines from a stream file. Used to unwind
-   * a partial append on `.seq` failure so the caller's all-or-none contract
-   * holds. JSONL is line-delimited so truncation by line count is safe.
-   *
-   * Performs an atomic temp-file + rename rather than an in-place rewrite:
-   * concurrent readers (projection materializers, log tailers) never observe
-   * a partially written file. The per-stream lock already serializes
-   * appenders, so this only matters for external readers that don't
-   * coordinate through the lock.
-   */
-  private async rollbackJsonlAppend(filePath: string, lineCount: number): Promise<void> {
-    const raw = await fs.readFile(filePath, 'utf-8');
-    // The append wrote `lines.join('\n') + '\n'` so the file ends with a
-    // newline-terminated block of `lineCount` lines. Drop them.
-    const allLines = raw.split('\n');
-    // The trailing '\n' after the last newline yields an empty final element;
-    // preserve that to keep the file's line-terminator semantics consistent.
-    const trailingEmpty = allLines[allLines.length - 1] === '' ? 1 : 0;
-    const keep = allLines.slice(0, allLines.length - lineCount - trailingEmpty);
-    const rewritten = keep.length === 0 ? '' : keep.join('\n') + '\n';
-    const tmpPath = `${filePath}.rollback-${randomUUID()}.tmp`;
-    try {
-      await fs.writeFile(tmpPath, rewritten, 'utf-8');
-      await fs.rename(tmpPath, filePath);
-    } catch (err) {
-      await fs.rm(tmpPath, { force: true }).catch(() => {});
-      throw err;
-    }
-  }
-
-  private getEventFilePath(streamId: string): string {
-    return path.join(this.stateDir, `${streamId}.events.jsonl`);
-  }
-
-  private getSeqFilePath(streamId: string): string {
-    return path.join(this.stateDir, `${streamId}.seq`);
   }
 }
 

@@ -5,10 +5,8 @@ import * as path from 'node:path';
 import { randomUUID as randomUUIDFn } from 'node:crypto';
 import { WorkflowEventBase } from './schemas.js';
 import type { WorkflowEvent } from './schemas.js';
-import type { Outbox } from '../sync/outbox.js';
 import type { StorageBackend } from '../storage/backend.js';
 import { migrateEvent } from './event-migration.js';
-import { storeLogger } from '../logger.js';
 import { isPidAlive } from '../utils/process.js';
 import { validateStreamId } from '../shared/validation.js';
 import { AtomicAppender } from './atomic-appender.js';
@@ -209,9 +207,6 @@ export class EventStore {
   /** Path to the PID lock file */
   private lockFilePath: string;
 
-  /** Optional outbox for supplementary event replication */
-  private outbox?: Outbox;
-
   /** Optional storage backend for delegating reads */
   private readonly backend?: StorageBackend;
 
@@ -233,11 +228,6 @@ export class EventStore {
     return this.stateDir;
   }
 
-  /** Configure an optional outbox for event replication. */
-  setOutbox(outbox: Outbox): void {
-    this.outbox = outbox;
-  }
-
   /**
    * Returns the lazily-created AtomicAppender bound to this event store's
    * state directory. Single instance per EventStore so per-stream locks and
@@ -255,7 +245,6 @@ export class EventStore {
     if (!this.atomicAppender) {
       this.atomicAppender = new AtomicAppender({
         stateDir: this.stateDir,
-        ...(this.appenderBackend !== undefined && { backend: this.appenderBackend }),
       });
     }
     return this.atomicAppender;
@@ -264,25 +253,35 @@ export class EventStore {
   /**
    * Resolve the read-delegate `StorageBackend` for this store.
    *
-   * Three cases (#1259, T52):
-   *   1. An explicit `backend` was passed to the constructor — use it.
-   *      This is the legacy dual-write case where JSONL is the source of
-   *      truth and the backend is a supplementary cache/replica.
-   *   2. `appenderBackend === 'sqlite'` was passed and no explicit
-   *      `backend` — route reads through the SQLite backend the appender
-   *      already owns. Without this, writes go to `<stateDir>/exarchos.db`
-   *      but reads look at JSONL and find nothing (the T52 RED).
-   *   3. Neither — return undefined so the read path falls back to JSONL.
+   * v2.11 Phase 2 (substrate-cut): writes always flow through the SQLite
+   * appender, so reads converge on the same backend. The legacy
+   * "no-backend → JSONL fallback" branch is preserved as a defensive
+   * short-circuit when no append has happened yet (the appender's SQLite
+   * handle is constructed lazily on first write — `queryMainJsonl`
+   * returns `[]` for an empty stream which matches the empty-DB shape).
    *
-   * The SQLite backend is created lazily by the appender on first
-   * dispatched write (see `AtomicAppender.getSqliteBackend`). A read that
-   * happens before any write returns undefined here and the JSONL fallback
-   * legitimately yields `[]` — there is no data anywhere to return.
+   * Phase 3 collapses this to "always return the SQLite backend" once
+   * the JSONL read path is deleted.
+   *
+   *   1. An explicit `backend` was passed to the constructor — use it.
+   *      Legacy supplementary-read shape, retained for tests injecting
+   *      an `InMemoryBackend` to drive read-path assertions.
+   *   2. The appender already constructed its SQLite backend (any append
+   *      has happened on this `EventStore`) — route reads through that
+   *      backend so writes and reads share one view.
+   *   3. Neither — return undefined so the read path falls back to
+   *      `queryMainJsonl`, which legitimately yields `[]` for an empty
+   *      stream.
    */
   private getReadBackend(): StorageBackend | undefined {
     if (this.backend) return this.backend;
-    if (this.appenderBackend === 'sqlite') {
-      return this.getAppender()._testOnly_getSqliteBackend();
+    // The appender lazily constructs SQLite on first write; once present,
+    // reads must converge on that handle so query() sees what append()
+    // wrote (was previously gated on `appenderBackend === 'sqlite'`,
+    // collapsed here because SQLite is the only substrate post-Phase-2).
+    if (this.atomicAppender) {
+      const sqlite = this.atomicAppender.getSqliteBackend();
+      if (sqlite) return sqlite;
     }
     return undefined;
   }
@@ -529,14 +528,12 @@ export class EventStore {
 
   /**
    * Shared post-validation path: delegate to AtomicAppender, translate the
-   * typed result back into the legacy `WorkflowEvent` return shape, then run
-   * supplementary backend + outbox replication.
+   * typed result back into the legacy `WorkflowEvent` return shape.
    *
-   * The AtomicAppender holds the per-stream lock for the duration of its
-   * append; backend and outbox writes happen after the lock is released.
-   * That ordering matches the legacy semantics — both were already
-   * "supplementary, log-on-failure" — and avoids extending the critical
-   * section across remote calls.
+   * v2.11 substrate-cut (Phase 2) removed the supplementary
+   * `replicateBackend` / `writeOutbox` dual-write paths. The AtomicAppender's
+   * SQLite transaction is the single durable substrate; there is no
+   * post-lock replication step.
    */
   private async delegateAppend(
     streamId: string,
@@ -568,11 +565,11 @@ export class EventStore {
       throw result.cause ?? new Error(`Append failed: ${result.reason}`);
     }
 
-    // Cache-hit branch: return the originally-persisted event verbatim and
-    // SKIP backend/outbox replication. Those side effects already ran when
-    // the original commit landed; running them again with the current
-    // request payload would replicate data that was never written to JSONL
-    // (the bug CR-thread #3205805943 closes).
+    // Cache-hit branch: return the originally-persisted event verbatim. The
+    // SQLite substrate already holds the canonical row; the request payload
+    // is irrelevant to the returned shape (the bug CR-thread #3205805943
+    // closes — historically a retry with a different payload could have
+    // re-fired backend/outbox dual-writes; v2.11 removed those paths).
     if (result.kind === 'cache-hit') {
       const cached = result.persistedEvents[0];
       return {
@@ -600,44 +597,7 @@ export class EventStore {
       timestamp: result.timestamps[0],
     } as WorkflowEvent;
 
-    this.replicateBackend(streamId, fullEvent);
-    await this.writeOutbox(streamId, fullEvent);
     return fullEvent;
-  }
-
-  /** Best-effort backend dual-write — JSONL is the source of truth. */
-  private replicateBackend(streamId: string, event: WorkflowEvent): void {
-    if (!this.backend) return;
-    try {
-      this.backend.appendEvent(streamId, event);
-    } catch (err) {
-      storeLogger.warn(
-        { err: err instanceof Error ? err.message : String(err), streamId, sequence: event.sequence },
-        'Backend dual-write failed — stores may diverge',
-      );
-    }
-  }
-
-  /**
-   * Best-effort outbox replication. JSONL is the source of truth; the sync
-   * layer reconciles any missed entries from JSONL on next pass.
-   *
-   * KNOWN LIMITATION — Atomicity gap (carried over from the legacy path):
-   * The JSONL append (in AtomicAppender) and this outbox write are NOT
-   * transactionally atomic. A crash between them leaves an event in JSONL
-   * without a corresponding outbox entry. Sync reconciliation closes the
-   * gap on next pass.
-   */
-  private async writeOutbox(streamId: string, event: WorkflowEvent): Promise<void> {
-    if (!this.outbox) return;
-    try {
-      await this.outbox.addEntry(streamId, event);
-    } catch (err) {
-      storeLogger.error(
-        { err: err instanceof Error ? err.message : String(err) },
-        'Outbox entry failed',
-      );
-    }
   }
 
   async batchAppend(
@@ -705,9 +665,9 @@ export class EventStore {
       throw result.cause ?? new Error(`Batch append failed: ${result.reason}`);
     }
 
-    // Cache-hit branch: return the original persisted events verbatim and
-    // skip backend/outbox (already done at original commit time). See
-    // delegateAppend for the same pattern + design rationale.
+    // Cache-hit branch: return the original persisted events verbatim.
+    // See delegateAppend for the same pattern + design rationale (v2.11
+    // substrate-cut removed the dual-write replication paths).
     if (result.kind === 'cache-hit') {
       return result.persistedEvents.map(
         (e) => ({
@@ -732,14 +692,6 @@ export class EventStore {
       sequence: result.sequences[i],
       timestamp: result.timestamps[i],
     }));
-
-    // Supplementary replication, post-success, mirrors the legacy ordering.
-    for (const fullEvent of fullEvents) {
-      this.replicateBackend(streamId, fullEvent);
-    }
-    for (const fullEvent of fullEvents) {
-      await this.writeOutbox(streamId, fullEvent);
-    }
 
     return fullEvents;
   }
