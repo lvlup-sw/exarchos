@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
   selectPruneCandidates,
   handlePruneStaleWorkflows,
@@ -8,6 +8,72 @@ import {
 } from './prune-stale-workflows.js';
 import { orchestrateLogger } from '../logger.js';
 import type { ToolResult } from '../format.js';
+import type { Topology } from '../topology/phase-contract.js';
+
+// #1334 (β-07/β-08): the handler now calls `getTopology()` to obtain the
+// typed phase contracts that drive staleness scoring. The handler test
+// suite below is module-isolated and never wires up the real topology
+// loader, so we mock the loader to return a fixture topology by default.
+// Individual tests can override via `mockGetTopology.mockImplementationOnce(...)`
+// to exercise the "topology not loaded" skip path (β-08).
+const mockGetTopology = vi.fn<() => Topology>();
+
+vi.mock('../topology/loader.js', () => ({
+  getTopology: () => mockGetTopology(),
+  loadTopology: vi.fn(),
+  __resetTopologyCacheForTesting: vi.fn(),
+}));
+
+/**
+ * Build a minimal `Topology` fixture for prune-selector tests. Each phase
+ * gets a `staleness` block matching the typed contract schema in
+ * `topology/phase-contract.ts`. Defaults exercise the same single-signal
+ * (`lastActivity` only) verdict the legacy heuristic produced for entries
+ * without secondary signals, so existing assertions stay green when the
+ * selector is rewired through `scoreEntryThroughTopology`.
+ *
+ * Override `phases` to construct multi-signal contracts inline.
+ */
+function buildTestTopology(
+  phases?: Topology['phases'],
+  options: { lastActivityThresholdMinutes?: number } = {},
+): Topology {
+  const threshold = options.lastActivityThresholdMinutes ?? 20_160;
+  if (phases) return { phases };
+  const lastActivityOnly = (): Topology['phases'][string] => ({
+    staleness: {
+      expectedMaxDwellMinutes: threshold,
+      signals: [{ name: 'lastActivity', thresholdMinutes: threshold }],
+      freshnessRequires: 'all',
+    },
+  });
+  return {
+    phases: {
+      implementing: lastActivityOnly(),
+      plan: lastActivityOnly(),
+      delegate: lastActivityOnly(),
+      review: lastActivityOnly(),
+      synthesize: lastActivityOnly(),
+      ideate: lastActivityOnly(),
+      // Phases that the selector still consults a contract for, even
+      // though they're often filtered upstream by phaseExclusions or
+      // terminal-phase short-circuits. Pre-populate them so handler
+      // tests with mixed-phase fixtures don't trip the loader's
+      // missing-contract throw.
+    },
+  };
+}
+
+/**
+ * Build the same default topology with the `lastActivity` threshold
+ * pinned to a custom minute count. Used by tests that override
+ * `thresholdMinutes` (e.g. 60 minutes for fast staleness assertions).
+ */
+function buildTestTopologyWithThreshold(thresholdMinutes: number): Topology {
+  return buildTestTopology(undefined, {
+    lastActivityThresholdMinutes: thresholdMinutes,
+  });
+}
 
 /**
  * Build a minimal WorkflowListEntry fixture.
@@ -49,7 +115,7 @@ describe('selectPruneCandidates', () => {
       makeEntry({ featureId: 'c', phase: 'implementing', lastActivityTimestamp: stale }),
     ];
 
-    const { candidates, excluded } = selectPruneCandidates(entries, {}, NOW);
+    const { candidates, excluded } = selectPruneCandidates(entries, buildTestTopology(), {}, NOW);
 
     expect(candidates.map((c) => c.featureId).sort()).toEqual(['c']);
     const terminalExclusions = excluded.filter((e) => e.reason === 'terminal');
@@ -57,13 +123,14 @@ describe('selectPruneCandidates', () => {
   });
 
   it('excludes fresh workflows (within default threshold)', () => {
-    // Default threshold is 10080 minutes (7 days)
+    // Default threshold is 20160 minutes (14 days), encoded on the
+    // typed PhaseContract via `buildTestTopology()`.
     const entries: WorkflowListEntry[] = [
       makeEntry({ featureId: 'fresh', lastActivityTimestamp: minutesAgo(60) }), // 1h
       makeEntry({ featureId: 'stale', lastActivityTimestamp: minutesAgo(30_000) }),
     ];
 
-    const { candidates, excluded } = selectPruneCandidates(entries, {}, NOW);
+    const { candidates, excluded } = selectPruneCandidates(entries, buildTestTopology(), {}, NOW);
 
     expect(candidates.map((c) => c.featureId)).toEqual(['stale']);
     const freshExclusions = excluded.filter((e) => e.reason === 'fresh');
@@ -84,7 +151,7 @@ describe('selectPruneCandidates', () => {
       }),
     ];
 
-    const { candidates } = selectPruneCandidates(entries, {}, NOW);
+    const { candidates } = selectPruneCandidates(entries, buildTestTopology(), {}, NOW);
 
     expect(candidates.map((c) => c.featureId).sort()).toEqual(['a', 'b']);
     for (const candidate of candidates) {
@@ -101,6 +168,7 @@ describe('selectPruneCandidates', () => {
 
     const { candidates, excluded } = selectPruneCandidates(
       entries,
+      buildTestTopologyWithThreshold(60),
       { thresholdMinutes: 60 },
       NOW,
     );
@@ -119,6 +187,7 @@ describe('selectPruneCandidates', () => {
 
     const { candidates, excluded } = selectPruneCandidates(
       entries,
+      buildTestTopology(),
       { includeOneShot: false },
       NOW,
     );
@@ -135,7 +204,7 @@ describe('selectPruneCandidates', () => {
       makeEntry({ featureId: 'f1', workflowType: 'feature', lastActivityTimestamp: stale }),
     ];
 
-    const { candidates, excluded } = selectPruneCandidates(entries, {}, NOW);
+    const { candidates, excluded } = selectPruneCandidates(entries, buildTestTopology(), {}, NOW);
 
     expect(candidates.map((c) => c.featureId).sort()).toEqual(['f1', 'os1']);
     expect(excluded.filter((e) => e.reason === 'oneshot-excluded')).toEqual([]);
@@ -152,6 +221,7 @@ describe('selectPruneCandidates', () => {
 
     const { candidates, excluded } = selectPruneCandidates(
       entries,
+      buildTestTopology(),
       { phaseExclusions: ['delegate', 'review', 'synthesize'] },
       NOW,
     );
@@ -169,6 +239,7 @@ describe('selectPruneCandidates', () => {
 
     const { candidates, excluded } = selectPruneCandidates(
       entries,
+      buildTestTopology(),
       { phaseExclusions: ['delegate', 'review', 'synthesize'] },
       NOW,
     );
@@ -186,6 +257,7 @@ describe('selectPruneCandidates', () => {
 
     const { candidates, excluded } = selectPruneCandidates(
       entries,
+      buildTestTopology(),
       { phaseExclusions: ['delegate', 'review', 'synthesize'] },
       NOW,
     );
@@ -204,6 +276,7 @@ describe('selectPruneCandidates', () => {
     // Custom exclusions: only 'plan' excluded, 'implementing' is fine
     const { candidates, excluded } = selectPruneCandidates(
       entries,
+      buildTestTopology(),
       { phaseExclusions: ['plan'] },
       NOW,
     );
@@ -226,10 +299,31 @@ describe('selectPruneCandidates', () => {
   //   branch. Treats absence-of-activity in the threshold window as a
   //   stale signal. Skipped silently when no branch is tracked.
   //
-  // Composition:
+  // #1334 (β-07): the legacy heuristic
   //   stale = phaseTransition stale AND (lastActivity stale OR branch inactive)
-  // When neither secondary signal is supplied, the legacy single-signal path
-  // is preserved (existing tests above keep their semantics).
+  // is no longer expressible — DR-7 (#1332) hard-cut the untyped scorer
+  // and the contract reducer is `'all' | 'any'` only. These C8 tests now
+  // express the same intent through a typed PhaseContract that declares
+  // BOTH secondary signals with `freshnessRequires: 'any'`: the workflow
+  // is fresh iff at least one secondary signal is fresh, matching the
+  // semantics of "recent phase progress alone keeps fresh, recent branch
+  // activity alone keeps fresh".
+  function c8Topology(): Topology {
+    return {
+      phases: {
+        implementing: {
+          staleness: {
+            expectedMaxDwellMinutes: 20_160,
+            signals: [
+              { name: 'phaseTransition', thresholdMinutes: 20_160 },
+              { name: 'branchActivity', thresholdMinutes: 20_160 },
+            ],
+            freshnessRequires: 'any',
+          },
+        },
+      },
+    };
+  }
 
   it('selectPruneCandidates_phaseStuckButReadActive_flagsAsStale', () => {
     // Repro of #1117: phase entered 7d ago, but lastActivityTimestamp is 1h
@@ -247,7 +341,7 @@ describe('selectPruneCandidates', () => {
       },
     ];
 
-    const { candidates } = selectPruneCandidates(entries, {}, NOW);
+    const { candidates } = selectPruneCandidates(entries, c8Topology(), {}, NOW);
 
     expect(candidates.map((c) => c.featureId)).toEqual(['stuck-but-polled']);
   });
@@ -266,7 +360,7 @@ describe('selectPruneCandidates', () => {
       },
     ];
 
-    const { candidates } = selectPruneCandidates(entries, {}, NOW);
+    const { candidates } = selectPruneCandidates(entries, c8Topology(), {}, NOW);
 
     expect(candidates.map((c) => c.featureId)).toEqual(['branch-and-phase-stuck']);
   });
@@ -289,10 +383,72 @@ describe('selectPruneCandidates', () => {
       },
     ];
 
-    const { candidates, excluded } = selectPruneCandidates(entries, {}, NOW);
+    const { candidates, excluded } = selectPruneCandidates(entries, c8Topology(), {}, NOW);
 
     expect(candidates.map((c) => c.featureId)).toEqual([]);
     expect(excluded.map((e) => e.featureId)).toEqual(['actively-progressing']);
+  });
+
+  // ─── #1334 β-06: typed-contract scoring through Topology ───────────────────
+  //
+  // The orchestrator-side multi-signal heuristic
+  //   stale = phaseTransitionStale && (lastActivityStale || branchInactive)
+  // is not expressible by the typed `PhaseContract`'s `freshnessRequires:
+  // 'all' | 'any'` reducer, and DR-7 (#1332) hard-cut the untyped scorer
+  // path. The selector must accept a `Topology` argument and delegate
+  // staleness decisions to `scoreEntryThroughTopology`. This test asserts
+  // the topology argument exists AND its verdict — not the legacy
+  // heuristic — drives candidate selection.
+  it('SelectPruneCandidates_WithTopologyArgument_ReturnsCandidatesScoredByPhaseContract', () => {
+    // Topology: phase 'implementing' declares two signals with a 60-minute
+    // threshold and `freshnessRequires: 'all'`. With 'all', the entry is
+    // stale iff ANY declared signal is stale (or absent). Per
+    // `scoreStaleness`, an absent signal is treated as stale.
+    const topology = buildTestTopology({
+      implementing: {
+        staleness: {
+          expectedMaxDwellMinutes: 60,
+          signals: [
+            { name: 'lastActivity', thresholdMinutes: 60 },
+            { name: 'branchActivity', thresholdMinutes: 60 },
+          ],
+          freshnessRequires: 'all',
+        },
+      },
+    });
+
+    // Entry: lastActivity 30 min ago (fresh vs 60-min threshold), no
+    // branchActivityTimestamp (absent → contract treats as stale).
+    //
+    // - Legacy heuristic verdict: no secondary signal → fall back to single
+    //   signal vs default 20_160 min → 30 min < 20_160 → FRESH.
+    // - Typed contract verdict: lastActivity fresh + branchActivity absent
+    //   (stale) under `freshnessRequires: 'all'` → STALE.
+    //
+    // The two verdicts diverge, so this test pins which one the selector
+    // produces when called WITH a topology argument.
+    const entries: WorkflowListEntry[] = [
+      {
+        featureId: 'topology-driven',
+        workflowType: 'feature',
+        phase: 'implementing',
+        stateFile: '/tmp/topology-driven.state.json',
+        _checkpoint: { lastActivityTimestamp: minutesAgo(30) },
+      },
+    ];
+
+    // The new signature threads `topology` as the second positional
+    // argument. Once β-07 lands, this call compiles and passes.
+    const { candidates, excluded } = selectPruneCandidates(
+      entries,
+      topology,
+      {},
+      NOW,
+    );
+
+    // Topology-driven verdict, NOT the legacy heuristic's "fresh".
+    expect(candidates.map((c) => c.featureId)).toEqual(['topology-driven']);
+    expect(excluded.filter((e) => e.reason === 'fresh')).toEqual([]);
   });
 });
 
@@ -381,6 +537,78 @@ describe('handlePruneStaleWorkflows', () => {
   function staleIso(mins: number): string {
     return new Date(new Date(NOW_ISO).getTime() - mins * 60 * 1000).toISOString();
   }
+
+  // Reset the topology mock between tests; default to a successfully-loaded
+  // fixture so the handler stays on its happy path. β-08 tests opt out
+  // by reassigning the mock to throw "load before".
+  beforeEach(() => {
+    mockGetTopology.mockReset();
+    mockGetTopology.mockImplementation(() => buildTestTopology());
+  });
+
+  // ─── #1334 β-08: graceful skip when topology not loaded ────────────────────
+  //
+  // The CLI fast path (e.g. running `prune` outside a fully-bootstrapped
+  // MCP server) may invoke this handler before the lifecycle has called
+  // `loadTopology()`. Rather than letting the loader's "Topology not
+  // loaded: call loadTopology() before getTopology()" throw escape and
+  // surface as an unhandled rejection, the handler must catch it,
+  // return a structured `{ skipped: true, reason: 'topology_not_loaded' }`
+  // envelope, and emit a warning log so operators see why the prune ran
+  // produced no candidates.
+  it('PruneStaleWorkflows_TopologyNotLoaded_SkipsPruningWithLoggedReason', async () => {
+    const { ctx } = makeEventStoreStub();
+    const deps = makeDeps();
+    // Simulate loadTopology() never having been called: getTopology()
+    // throws the canonical "load before" error from `topology/loader.ts`.
+    mockGetTopology.mockImplementationOnce(() => {
+      throw new Error(
+        'Topology not loaded: call loadTopology() before getTopology()',
+      );
+    });
+
+    const warnSpy = vi
+      .spyOn(orchestrateLogger, 'warn')
+      .mockImplementation((() => {}) as never);
+
+    deps.listSpy.mockResolvedValue(
+      makeListResult([
+        { featureId: 'wf-a', lastActivityTimestamp: staleIso(30_000) },
+      ]),
+    );
+
+    const result = await handlePruneStaleWorkflows(
+      { dryRun: true, now: NOW_ISO },
+      STATE_DIR,
+      ctx,
+      deps,
+    );
+
+    expect(result.success).toBe(true);
+    expect(result.data).toMatchObject({
+      skipped: true,
+      reason: 'topology_not_loaded',
+    });
+
+    // The handler MUST have logged a warning carrying the same reason
+    // string so operators see why the run produced no candidates.
+    expect(warnSpy).toHaveBeenCalled();
+    const warnedWithReason = warnSpy.mock.calls.some((call) => {
+      const meta = call[0];
+      return (
+        typeof meta === 'object' &&
+        meta !== null &&
+        (meta as Record<string, unknown>).reason === 'topology_not_loaded'
+      );
+    });
+    expect(warnedWithReason).toBe(true);
+
+    // Skip path is read-only — no cancel, no list invocation needed
+    // beyond the no-op load — and certainly no event-append.
+    expect(deps.cancelSpy).not.toHaveBeenCalled();
+
+    warnSpy.mockRestore();
+  });
 
   it('dry run returns candidates without calling cancel', async () => {
     const { ctx } = makeEventStoreStub();
@@ -1254,7 +1482,10 @@ describe('handlePruneStaleWorkflows', () => {
 
   it('handlePrune_WithConfig_UsesConfiguredThreshold', async () => {
     const { append, ctx: baseCtx } = makeEventStoreStub();
-    // Provide projectConfig with staleAfterDays = 30 (= 43200 minutes)
+    // Provide projectConfig with staleAfterDays = 30 (= 43200 minutes).
+    // #1334 (β-07): per-phase staleness thresholds now live on the
+    // typed PhaseContract, so the topology fixture must mirror the
+    // intended threshold for this assertion to be meaningful.
     const ctx = {
       ...baseCtx,
       projectConfig: {
@@ -1267,6 +1498,9 @@ describe('handlePruneStaleWorkflows', () => {
         },
       },
     };
+    mockGetTopology.mockImplementation(() =>
+      buildTestTopologyWithThreshold(30 * 24 * 60 /* 30d in minutes */),
+    );
     const deps = makeDeps();
     // Entry at 20000 min is ~14 days — stale at default 7d, but fresh at 30d
     deps.listSpy.mockResolvedValue(
@@ -1706,6 +1940,11 @@ describe('handlePruneStaleWorkflows', () => {
         },
       },
     };
+    // #1334 (β-07): per-phase staleness thresholds live on the typed
+    // PhaseContract. The fixture mirrors the configured 30-day window.
+    mockGetTopology.mockImplementation(() =>
+      buildTestTopologyWithThreshold(30 * 24 * 60),
+    );
     const deps = makeDeps();
 
     // Construct a diverse entry set that exercises every knob:

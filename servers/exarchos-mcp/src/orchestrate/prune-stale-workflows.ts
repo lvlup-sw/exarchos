@@ -25,6 +25,10 @@ import { handleCancel } from '../workflow/cancel.js';
 import { isTerminalPhase as baseIsTerminalPhase } from '../workflow/terminal-phases.js';
 import { orchestrateLogger } from '../logger.js';
 import { defaultSafeguards, type PruneSafeguards } from './prune-safeguards.js';
+import { getTopology } from '../topology/loader.js';
+import type { Topology } from '../topology/phase-contract.js';
+import { scoreEntryThroughTopology } from '../pruner/coordinator.js';
+import type { StalenessState } from '../pruner/score.js';
 export type { PruneSafeguards } from './prune-safeguards.js';
 
 // 14 days in minutes — matches ResolvedProjectConfig.prune.staleAfterDays default.
@@ -118,55 +122,46 @@ function minutesSince(lastActivityTimestamp: string, now: Date): number {
   return Math.floor(diffMs / (60 * 1000));
 }
 
-/** True if the entry has been inactive longer than `thresholdMinutes`. */
-function isBeyondThreshold(
-  checkpoint: { lastActivityTimestamp: string },
-  thresholdMinutes: number,
-  now: Date,
-): boolean {
-  return minutesSince(checkpoint.lastActivityTimestamp, now) > thresholdMinutes;
-}
-
-/**
- * C8 (#1117): is a secondary signal timestamp stale relative to the
- * threshold? Treats `undefined` as "no evidence of progress" — the
- * caller decides whether that means stale (true) or fresh (false) by
- * passing an explicit `whenAbsent` flag.
- */
-function signalIsStale(
-  timestamp: string | undefined,
-  thresholdMinutes: number,
-  now: Date,
-  whenAbsent: boolean,
-): boolean {
-  if (timestamp === undefined) return whenAbsent;
-  if (Number.isNaN(new Date(timestamp).valueOf())) return whenAbsent;
-  return minutesSince(timestamp, now) > thresholdMinutes;
-}
-
 function isTerminalPhase(phase: string): boolean {
   return baseIsTerminalPhase(phase);
 }
 
 /**
- * Pure function: given a list of workflow entries and a config, partition
- * them into prune candidates and exclusions (with reasons).
+ * Pure function: given a list of workflow entries, a typed `Topology`,
+ * and a config, partition entries into prune candidates and exclusions
+ * (with reasons).
  *
  * Exclusion precedence (highest first):
  *   1. terminal phase  → reason: 'terminal'
- *   2. oneshot filter  → reason: 'oneshot-excluded' (only when `includeOneShot === false`)
- *   3. freshness       → reason: 'fresh'
+ *   2. phase exclusion → reason: 'phase-excluded'
+ *   3. oneshot filter  → reason: 'oneshot-excluded' (only when `includeOneShot === false`)
+ *   4. freshness       → reason: 'fresh'
+ *
+ * #1334 (β-07, v2.10.0-preview.1): the multi-signal staleness verdict is
+ * now read off the typed `PhaseContract` declared on the topology, via
+ * `scoreEntryThroughTopology`. The orchestrator-side
+ * `phaseStale && (lastActivityStale || branchInactive)` heuristic was
+ * not expressible by the typed contract's `freshnessRequires:
+ * 'all' | 'any'` reducer, so DR-7 (#1332) hard-cut the untyped scorer
+ * path and this layer now delegates verdicts to the contract instead.
+ * Per-phase policy lives in `topology.yaml`, not in this selector.
  *
  * @param entries  Workflow summaries (typically from `handleList`).
- * @param config   Threshold + oneshot toggle; all fields optional.
+ * @param topology Loaded topology with per-phase staleness contracts.
+ * @param config   Phase-exclusion + oneshot toggle; all fields optional.
+ *                 `thresholdMinutes` is no longer consulted for staleness
+ *                 (per-signal thresholds come from the contract); it is
+ *                 retained only as a clock-comparison reference for the
+ *                 selector's `stalenessMinutes` output and to compute
+ *                 minutes-deltas fed into the pure scorer.
  * @param now      Injectable clock for deterministic tests. Defaults to `new Date()`.
  */
 export function selectPruneCandidates(
   entries: WorkflowListEntry[],
+  topology: Topology,
   config: PruneConfig = {},
   now: Date = new Date(),
 ): PruneSelection {
-  const thresholdMinutes = config.thresholdMinutes ?? DEFAULT_THRESHOLD_MINUTES;
   const includeOneShot = config.includeOneShot ?? true;
   const phaseExclusionSet = config.phaseExclusions
     ? new Set(config.phaseExclusions)
@@ -191,62 +186,36 @@ export function selectPruneCandidates(
       continue;
     }
 
-    // C8 (#1117): multi-signal staleness scoring.
-    //
-    // Single-signal gating on `_checkpoint.lastActivityTimestamp` produced
-    // false-fresh reads because that field is bumped by every MCP `get` /
-    // `describe` call. The orchestrator's polling kept stuck workflows
-    // perpetually fresh.
-    //
-    // Composition (no single false-fresh path):
-    //   - When neither secondary signal is supplied (legacy entries),
-    //     fall back to the original single-signal threshold check. This
-    //     preserves the contract for callers that haven't yet been wired
-    //     to derive the secondary signals.
-    //   - When at least one secondary signal IS supplied, a workflow is
-    //     stale iff the phase-transition signal is stale AND
-    //     (the lastActivity signal is stale OR the branch is inactive).
-    //     Recent phase progress alone keeps a workflow fresh; recent
-    //     branch activity combined with a fresh `lastActivityTimestamp`
-    //     also keeps it fresh.
-    //
-    // `branchActivityTimestamp === undefined` is treated as "no evidence
-    // of branch progress" (i.e. stale), but the workflow is only flagged
-    // when the phase-transition signal is ALSO stale, so workflows
-    // without a tracked branch are not penalised on that signal alone.
-    const lastActivityStale = isBeyondThreshold(
-      entry._checkpoint,
-      thresholdMinutes,
-      now,
-    );
-    const hasSecondarySignal =
-      entry.phaseTransitionTimestamp !== undefined ||
-      entry.branchActivityTimestamp !== undefined;
+    // #1334 (β-07): score through the typed phase contract. The handler
+    // pre-enriches entries with secondary signal timestamps so this layer
+    // only needs to convert each ISO timestamp into minutes-since-now and
+    // hand the resulting `StalenessState` to the contract reducer.
+    const state: StalenessState = {
+      lastActivityMinutes: minutesSince(
+        entry._checkpoint.lastActivityTimestamp,
+        now,
+      ),
+      ...(entry.phaseTransitionTimestamp !== undefined &&
+      !Number.isNaN(new Date(entry.phaseTransitionTimestamp).valueOf())
+        ? {
+            phaseTransitionMinutes: minutesSince(
+              entry.phaseTransitionTimestamp,
+              now,
+            ),
+          }
+        : {}),
+      ...(entry.branchActivityTimestamp !== undefined &&
+      !Number.isNaN(new Date(entry.branchActivityTimestamp).valueOf())
+        ? {
+            branchActivityMinutes: minutesSince(
+              entry.branchActivityTimestamp,
+              now,
+            ),
+          }
+        : {}),
+    };
 
-    let isStale: boolean;
-    if (!hasSecondarySignal) {
-      // Legacy single-signal path.
-      isStale = lastActivityStale;
-    } else {
-      const phaseStale = signalIsStale(
-        entry.phaseTransitionTimestamp,
-        thresholdMinutes,
-        now,
-        // No phaseTransition timestamp recorded → treat as stale (no
-        // evidence of progress). This is the #1117 false-fresh path.
-        true,
-      );
-      const branchInactive = signalIsStale(
-        entry.branchActivityTimestamp,
-        thresholdMinutes,
-        now,
-        // No branchActivityTimestamp recorded → treat as "no evidence of
-        // branch progress" (stale signal). The phase-stale gate prevents
-        // this from over-flagging branch-less workflows.
-        true,
-      );
-      isStale = phaseStale && (lastActivityStale || branchInactive);
-    }
+    const { isStale } = scoreEntryThroughTopology(topology, entry.phase, state);
 
     if (!isStale) {
       excluded.push({ featureId: entry.featureId, reason: 'fresh' });
@@ -898,6 +867,38 @@ export async function handlePruneStaleWorkflows(
   //   - 'skip': malformed silently excluded, diagnostics omitted from response
   const malformedHandling = pruneConfig?.malformedHandling ?? 'report';
 
+  // #1334 (β-07/β-08): load the typed topology for staleness scoring.
+  // The selector now reads per-phase `PhaseContract`s off the topology
+  // and delegates verdicts to `scoreEntryThroughTopology`. The CLI fast
+  // path (e.g. running `prune` outside a fully-bootstrapped MCP server)
+  // may invoke this handler before the lifecycle has called
+  // `loadTopology()`. Rather than letting the loader's "Topology not
+  // loaded" throw escape and surface as an unhandled rejection, return
+  // a structured `{ skipped: true, reason: 'topology_not_loaded' }`
+  // envelope and emit a warning log so operators see why the prune ran
+  // produced no candidates.
+  let topologyForSelection: Topology;
+  try {
+    topologyForSelection = getTopology();
+  } catch (err) {
+    const reason = 'topology_not_loaded';
+    orchestrateLogger.warn(
+      {
+        action: 'prune_stale_workflows',
+        reason,
+        message: err instanceof Error ? err.message : String(err),
+      },
+      'prune skipped: topology not loaded',
+    );
+    return {
+      success: true,
+      data: {
+        skipped: true,
+        reason,
+      },
+    };
+  }
+
   // 1a. C8 (#1117): enrich each entry with secondary staleness signals
   // BEFORE pure selection. The selector stays IO-free; the handler is the
   // only layer that touches the event store / git. Failures on individual
@@ -924,9 +925,14 @@ export async function handlePruneStaleWorkflows(
     }),
   );
 
-  // 2. Pure selection.
+  // 2. Pure selection. #1334 (β-07): topology now drives staleness verdicts
+  // through the typed `PhaseContract`. The handler retrieves the loaded
+  // topology via `getTopology()`; if the loader has not run, the
+  // accessor throws and β-08 turns that into a structured skip envelope.
+  const topology = topologyForSelection;
   const { candidates: selectedCandidates } = selectPruneCandidates(
     enrichedEntries,
+    topology,
     {
       thresholdMinutes,
       ...(includeOneShot !== undefined ? { includeOneShot } : {}),
