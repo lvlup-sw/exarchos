@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtemp, rm, readFile } from 'node:fs/promises';
+import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 
@@ -97,15 +97,11 @@ describe('CrossStream bundle (DR-3, T28)', () => {
     );
     expect(disbandedResult.success).toBe(true);
 
-    // Verify by reading directly from the parent stream's JSONL — bypasses
-    // every cache and goes straight to the persisted source of truth.
-    const jsonlPath = path.join(stateDir, `${featureId}.events.jsonl`);
-    const contents = await readFile(jsonlPath, 'utf-8');
-    const lines = contents
-      .split('\n')
-      .filter((l) => l.length > 0)
-      .map((l) => JSON.parse(l) as { type: string; data?: Record<string, unknown> });
-    const disbanded = lines.find((e) => e.type === 'team.disbanded');
+    // Verify by reading from the parent stream via the durable substrate
+    // (post v2.11 substrate-cut: SQLite is the source of truth, the JSONL
+    // sidecar inspection that lived here previously is gone).
+    const events = await eventStore.query(featureId);
+    const disbanded = events.find((e) => e.type === 'team.disbanded');
     expect(disbanded).toBeDefined();
     const data = (disbanded!.data ?? {}) as Record<string, unknown>;
     expect(data.teamId).toBe(teamId);

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtemp, rm, readFile } from 'node:fs/promises';
+import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 
@@ -47,17 +47,14 @@ import { AtomicAppender } from './atomic-appender.js';
  *   monotonicity, total event count, no drops/duplicates) parametrize
  *   cleanly. The JSONL line-integrity check is substrate-specific and
  *   gated behind `if (backend === 'jsonl')`; the SQLite branch asserts
- *   the equivalent invariant via `getAppender()._testOnly_getSqliteBackend()`
+ *   the equivalent invariant via `getAppender().getSqliteBackend()`
  *   and `queryEvents(streamId)`.
  */
-describe.each([
-  { backend: 'jsonl' as const },
-  { backend: 'sqlite' as const },
-])('EventStore cross-path race [$backend] (#1293)', ({ backend }) => {
+describe('EventStore cross-path race (#1293)', () => {
   let stateDir: string;
 
   beforeEach(async () => {
-    stateDir = await mkdtemp(path.join(tmpdir(), `eventstore-race-${backend}-`));
+    stateDir = await mkdtemp(path.join(tmpdir(), 'eventstore-race-sqlite-'));
   });
 
   afterEach(async () => {
@@ -65,37 +62,21 @@ describe.each([
   });
 
   /**
-   * Substrate-agnostic verification helper.
+   * Read the persisted sequences for a stream via the SQLite substrate.
    *
-   *   - JSONL: read the on-disk `.events.jsonl`, parse line-by-line, and
-   *     return the sequences. The line-count check enforces "every line
-   *     parses" (the pre-#1293 race corrupted this).
-   *   - SQLite: query the events table for the stream and return the row
-   *     sequences. The PRIMARY KEY on (streamId, sequence) makes
-   *     duplicate detection redundant at the DB level, but the assertion
-   *     that the count matches the number of issued writes catches the
-   *     drop-on-conflict failure mode.
+   * Post v2.11 substrate-cut the JSONL parametric arm of this fixture
+   * was retired — every concurrent-append regression now lands in the
+   * single SQLite path, and the verifier reads via `queryEvents`. The
+   * PRIMARY KEY on (streamId, sequence) makes duplicate detection
+   * redundant at the DB level, but the assertion that the count matches
+   * the number of issued writes catches the drop-on-conflict failure
+   * mode.
    */
   async function readPersistedSequences(
     store: EventStore,
     streamId: string,
   ): Promise<number[]> {
-    if (backend === 'jsonl') {
-      const jsonl = await readFile(
-        path.join(stateDir, `${streamId}.events.jsonl`),
-        'utf-8',
-      );
-      const lines = jsonl.trim().split('\n').filter(Boolean);
-      // Every line must parse cleanly — no truncated or interleaved records.
-      const sequences: number[] = [];
-      for (const line of lines) {
-        const parsed = JSON.parse(line) as { sequence: number };
-        sequences.push(parsed.sequence);
-      }
-      return sequences;
-    }
-    // SQLite: query the events table directly via the appender's backend.
-    const sqliteBackend = store.getAppender()._testOnly_getSqliteBackend();
+    const sqliteBackend = store.getAppender().getSqliteBackend();
     if (!sqliteBackend) {
       throw new Error('expected SQLite backend on appender; got undefined');
     }
@@ -104,7 +85,7 @@ describe.each([
   }
 
   it('EventStore_concurrentLegacyAppendAndBatchAppend_strictSequenceMonotonicity', async () => {
-    const store = new EventStore(stateDir, { appenderBackend: backend });
+    const store = new EventStore(stateDir);
     const streamId = 'race-stream';
     const N = 50;
 
@@ -151,7 +132,7 @@ describe.each([
     // EventStore.append concurrency. Pre-migration this contended on a
     // separate lock from the AtomicAppender path; post-migration it
     // routes through the same per-stream serialization.
-    const store = new EventStore(stateDir, { appenderBackend: backend });
+    const store = new EventStore(stateDir);
     const streamId = 'append-only-race';
     const N = 100;
 
@@ -193,34 +174,32 @@ describe.each([
   // This case is JSONL-irrelevant (it constructs the appender directly
   // with `backend: 'sqlite'`) so it stays gated and runs only in the
   // SQLite arm of the `describe.each` to avoid duplicate work.
-  if (backend === 'sqlite') {
-    it('SqliteAtomicAppender_50ConcurrentAppendsOneStream_NoDuplicateSequences', async () => {
-      const appender = new AtomicAppender({ stateDir, backend: 'sqlite' });
-      const streamId = 'sqlite-50-concurrent';
-      const N = 50;
+  it('SqliteAtomicAppender_50ConcurrentAppendsOneStream_NoDuplicateSequences', async () => {
+    const appender = new AtomicAppender({ stateDir });
+    const streamId = 'sqlite-50-concurrent';
+    const N = 50;
 
-      const results = await Promise.all(
-        Array.from({ length: N }, (_, i) =>
-          appender.append(
-            streamId,
-            [{ type: 'task.assigned', data: { i } }],
-            `idem-${i}`,
-          ),
+    const results = await Promise.all(
+      Array.from({ length: N }, (_, i) =>
+        appender.append(
+          streamId,
+          [{ type: 'task.assigned', data: { i } }],
+          `idem-${i}`,
         ),
-      );
+      ),
+    );
 
-      for (const r of results) {
-        expect(r.ok).toBe(true);
-      }
-      const seqs = results.flatMap(r => (r.ok ? r.sequences : []));
-      expect(seqs).toHaveLength(N);
-      // Strict monotonicity + density: every sequence in 1..N appears once.
-      const sorted = [...seqs].sort((a, b) => a - b);
-      expect(sorted).toEqual(Array.from({ length: N }, (_, i) => i + 1));
-      // Uniqueness — implied by the equality above, but explicit for clarity.
-      expect(new Set(seqs).size).toBe(N);
-    });
-  }
+    for (const r of results) {
+      expect(r.ok).toBe(true);
+    }
+    const seqs = results.flatMap(r => (r.ok ? r.sequences : []));
+    expect(seqs).toHaveLength(N);
+    // Strict monotonicity + density: every sequence in 1..N appears once.
+    const sorted = [...seqs].sort((a, b) => a - b);
+    expect(sorted).toEqual(Array.from({ length: N }, (_, i) => i + 1));
+    // Uniqueness — implied by the equality above, but explicit for clarity.
+    expect(new Set(seqs).size).toBe(N);
+  });
 
   it('EventStore_concurrentLegacyAndDirectAppender_jsonlIntegrity', async () => {
     // Sentry's specific concern from the #1265 re-review:
@@ -229,7 +208,7 @@ describe.each([
     // reproduces that interleaving by issuing N legacy + N direct writes
     // simultaneously and verifying the substrate is internally
     // consistent (every record parses; sequences are unique and dense).
-    const store = new EventStore(stateDir, { appenderBackend: backend });
+    const store = new EventStore(stateDir);
     const streamId = 'sentry-flag';
     const N = 50;
 
@@ -303,7 +282,7 @@ describe('EventStore multi-stream linearizability [sqlite]', () => {
   });
 
   it('Multistream_NConcurrentStreamsXM_AllPerStreamSequencesDenseAndIsolated', async () => {
-    const store = new EventStore(stateDir, { appenderBackend: 'sqlite' });
+    const store = new EventStore(stateDir);
     const N = 20; // streams
     const M = 50; // events per stream
 
@@ -366,7 +345,7 @@ describe('EventStore multi-stream linearizability [sqlite]', () => {
     // Query each stream independently from the SQLite events table; the
     // `queryEvents` order-by-sequence guarantees we see them in commit
     // order. Each stream must have `1..M` densely.
-    const sqliteBackend = store.getAppender()._testOnly_getSqliteBackend();
+    const sqliteBackend = store.getAppender().getSqliteBackend();
     if (!sqliteBackend) {
       throw new Error('expected SQLite backend on appender; got undefined');
     }

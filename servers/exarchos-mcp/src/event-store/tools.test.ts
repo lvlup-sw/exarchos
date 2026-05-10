@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as path from 'node:path';
-import { mkdtemp, rm, writeFile, readFile } from 'node:fs/promises';
+import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { EventStore } from './store.js';
 import { AtomicAppender } from './atomic-appender.js';
@@ -735,15 +735,16 @@ describe('handleEventAppend team.disbanded routing (C11, #1224)', () => {
   }
 
   /**
-   * Read all events from a parent stream's JSONL. Returns parsed records.
+   * Read all events from a parent stream via the durable substrate.
+   *
+   * (Pre-v2.11 this scanned the JSONL fixture directly. Post substrate-cut
+   * the SQLite backend is the source of truth, so the function name is
+   * historical — kept to minimise diff churn — but the implementation
+   * goes through `EventStore.query`.)
    */
   async function readStreamJsonl(stream: string): Promise<Array<Record<string, unknown>>> {
-    const jsonlPath = path.join(tempDir, `${stream}.events.jsonl`);
-    const contents = await readFile(jsonlPath, 'utf-8');
-    return contents
-      .split('\n')
-      .filter((line) => line.length > 0)
-      .map((line) => JSON.parse(line) as Record<string, unknown>);
+    const events = await eventStore.query(stream);
+    return events.map((e) => e as unknown as Record<string, unknown>);
   }
 
   it('handleEventAppend_teamDisbanded_recomputesTasksCompleted', async () => {

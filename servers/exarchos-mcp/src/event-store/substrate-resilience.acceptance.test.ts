@@ -67,7 +67,7 @@ describe('Substrate_FailureModeCoverage_AllPathsExplicitAndObservable', () => {
     );
     expect(warmup.ok).toBe(true);
 
-    const backend = appender._testOnly_getSqliteBackend();
+    const backend = appender.getSqliteBackend();
     expect(backend).toBeDefined();
     if (!backend) return;
 
@@ -121,7 +121,7 @@ describe('Substrate_FailureModeCoverage_AllPathsExplicitAndObservable', () => {
     );
     expect(warmup.ok).toBe(true);
 
-    const backend = appender._testOnly_getSqliteBackend();
+    const backend = appender.getSqliteBackend();
     if (!backend) throw new Error('backend not initialized');
 
     const stmts = (

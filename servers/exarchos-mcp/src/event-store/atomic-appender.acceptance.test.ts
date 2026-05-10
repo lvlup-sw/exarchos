@@ -36,7 +36,7 @@ describe('AtomicAppender_SqliteBackend_DropsInBehindExistingInterface', () => {
   // ─── AppendResult shape — success path ───────────────────────────────────
 
   it('committed result returns ok:true with sequences, eventIds, timestamps', async () => {
-    const appender = new AtomicAppender({ stateDir, backend: 'sqlite' });
+    const appender = new AtomicAppender({ stateDir });
     const streamId = 'sqlite-acc-success';
 
     const result = await appender.append(
@@ -75,7 +75,7 @@ describe('AtomicAppender_SqliteBackend_DropsInBehindExistingInterface', () => {
   // ─── AppendResult shape — failure path ───────────────────────────────────
 
   it('validation failure returns ok:false with structured reason', async () => {
-    const appender = new AtomicAppender({ stateDir, backend: 'sqlite' });
+    const appender = new AtomicAppender({ stateDir });
 
     // Empty events array is a validation failure — same contract as JSONL body.
     const result = await appender.append('valid-stream', [], 'idem-bad');
@@ -87,7 +87,7 @@ describe('AtomicAppender_SqliteBackend_DropsInBehindExistingInterface', () => {
   });
 
   it('invalid streamId returns ok:false with io-error', async () => {
-    const appender = new AtomicAppender({ stateDir, backend: 'sqlite' });
+    const appender = new AtomicAppender({ stateDir });
 
     // A spaced stream id is rejected by validateStreamId — same contract as
     // the JSONL body. Note: post-DR-3 (T24), `<feature-id>/<subagent-id>`
@@ -107,7 +107,7 @@ describe('AtomicAppender_SqliteBackend_DropsInBehindExistingInterface', () => {
   // ─── Per-stream sequence allocation: strictly monotonic ──────────────────
 
   it('concurrent appends to one stream allocate strictly monotonic sequences', async () => {
-    const appender = new AtomicAppender({ stateDir, backend: 'sqlite' });
+    const appender = new AtomicAppender({ stateDir });
     const streamId = 'sqlite-acc-concurrent';
 
     const results = await Promise.all([
@@ -128,7 +128,7 @@ describe('AtomicAppender_SqliteBackend_DropsInBehindExistingInterface', () => {
   // ─── Idempotency: cache-hit semantics ────────────────────────────────────
 
   it('retry with same idempotencyKey returns cache-hit with original sequences', async () => {
-    const appender = new AtomicAppender({ stateDir, backend: 'sqlite' });
+    const appender = new AtomicAppender({ stateDir });
     const streamId = 'sqlite-acc-idem';
     const key = 'idem-cache-hit';
 
@@ -173,7 +173,7 @@ describe('AtomicAppender_SqliteBackend_DropsInBehindExistingInterface', () => {
   // ─── PublicPersistedEvent shape ──────────────────────────────────────────
 
   it('cache-hit persistedEvents carry the canonical PublicPersistedEvent fields', async () => {
-    const appender = new AtomicAppender({ stateDir, backend: 'sqlite' });
+    const appender = new AtomicAppender({ stateDir });
     const streamId = 'sqlite-acc-shape';
     const key = 'idem-shape';
 
@@ -203,7 +203,7 @@ describe('AtomicAppender_SqliteBackend_DropsInBehindExistingInterface', () => {
   // ─── appendUnkeyed bypasses idempotency cache ────────────────────────────
 
   it('appendUnkeyed writes events without populating idempotency cache', async () => {
-    const appender = new AtomicAppender({ stateDir, backend: 'sqlite' });
+    const appender = new AtomicAppender({ stateDir });
     const streamId = 'sqlite-acc-unkeyed';
 
     const r1 = await appender.appendUnkeyed(streamId, [{ type: 'task.assigned' }]);
@@ -216,7 +216,7 @@ describe('AtomicAppender_SqliteBackend_DropsInBehindExistingInterface', () => {
   // ─── expectedSequence (optimistic concurrency) ───────────────────────────
 
   it('expectedSequence mismatch returns sequence-conflict', async () => {
-    const appender = new AtomicAppender({ stateDir, backend: 'sqlite' });
+    const appender = new AtomicAppender({ stateDir });
     const streamId = 'sqlite-acc-expected';
 
     // Advance the counter to 1.

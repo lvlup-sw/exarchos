@@ -105,9 +105,14 @@ describe('EventStore single composition root (#1182, Fix 1)', () => {
       expect(sequences[i]).toBe(i + 1);
     }
 
-    const seqFile = path.join(tmpDir, `${streamId}.seq`);
-    const seqRaw = await fs.readFile(seqFile, 'utf8');
-    const seqContent = JSON.parse(seqRaw) as { sequence: number };
-    expect(seqContent.sequence).toBe(Math.max(...sequences));
+    // Substrate witness: post v2.11 substrate-cut the `.seq` sidecar
+    // file is gone (it was a JSONL-mode bookkeeping artefact). The
+    // SQLite `sequences` table is the durable counter; we verify
+    // it via the appender's exposed backend handle so the assertion
+    // still pins "the persisted high-water mark equals max(observed
+    // sequences)".
+    const sqlite = ctx.eventStore.getAppender().getSqliteBackend();
+    if (!sqlite) throw new Error('SQLite backend not initialized after appends');
+    expect(sqlite.readSequenceHighWaterMark(streamId)).toBe(Math.max(...sequences));
   });
 });
