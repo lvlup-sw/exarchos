@@ -67,18 +67,22 @@ async function writeMockEvents(
   streamId: string,
   events: Array<Record<string, unknown>>,
 ): Promise<void> {
-  const lines = events.map((e, i) =>
-    JSON.stringify({
-      ...e,
-      streamId,
-      sequence: i + 1,
-      timestamp: e.timestamp || '2026-01-01T00:00:00Z',
-    }),
-  );
-  await fs.writeFile(
-    path.join(stateDir, `${streamId}.events.jsonl`),
-    lines.join('\n') + '\n',
-  );
+  // v2.11 Phase 3 (substrate-cut): JSONL write path is gone. Seed
+  // events through `EventStore.append`, which routes to the SQLite
+  // substrate that `assemble-context` reads back through. We open a
+  // fresh store per call (lock acquired then immediately released by
+  // GC / process-exit handler) — adequate for synchronous test setup
+  // since no other process holds the lock during these tests.
+  const { EventStore } = await import('../event-store/store.js');
+  const store = new EventStore(stateDir);
+  for (const e of events) {
+    const { type, ...rest } = e as { type: string; timestamp?: string; data?: unknown };
+    await store.append(streamId, {
+      type,
+      timestamp: (rest.timestamp as string) || '2026-01-01T00:00:00Z',
+      data: (rest.data as Record<string, unknown>) ?? {},
+    });
+  }
 }
 
 async function cleanupDir(dir: string): Promise<void> {

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as os from 'node:os';
@@ -267,24 +267,31 @@ describe('handleViewTelemetry', () => {
 
   describe('error handling', () => {
     it('should return error result when materializer throws', async () => {
-      // Arrange — create a materializer that will fail by corrupting event data
+      // v2.11 Phase 3 (substrate-cut): the previous fixture planted a
+      // corrupt `*.events.jsonl` file to provoke a JSON.parse failure
+      // inside the JSONL read path. That path is gone — the SQLite
+      // substrate stores rows, not lines, and there is no analogous
+      // "corrupt this file to make the read throw" affordance. Stub the
+      // materializer's query path directly to force the handler's
+      // error branch instead.
       const badDir = await createTempDir();
       resetMaterializerCache();
 
       try {
-        // Write a corrupt JSONL file that will fail JSON.parse during query
-        const corruptFile = path.join(badDir, 'telemetry.events.jsonl');
-        await fs.mkdir(badDir, { recursive: true });
-        await fs.writeFile(corruptFile, '{not valid json\n', 'utf-8');
+        const store = new EventStore(badDir);
+        // Force `query()` to throw so handleViewTelemetry's catch path
+        // surfaces a structured error result.
+        const queryStub = vi
+          .spyOn(store, 'query')
+          .mockRejectedValue(new Error('synthetic materializer failure'));
 
-        // Act — pass an EventStore pointed at the corrupt dir so the handler
-        // exercises the same composition-root contract the rest of the suite uses.
-        const result = await handleViewTelemetry({}, badDir, new EventStore(badDir));
+        const result = await handleViewTelemetry({}, badDir, store);
 
-        // Assert
         expect(result.success).toBe(false);
         expect(result.error).toBeDefined();
         expect(result.error?.code).toBe('VIEW_ERROR');
+
+        queryStub.mockRestore();
       } finally {
         // Don't leak temp dirs across runs — see CR review 4178011813.
         await fs.rm(badDir, { recursive: true, force: true });
