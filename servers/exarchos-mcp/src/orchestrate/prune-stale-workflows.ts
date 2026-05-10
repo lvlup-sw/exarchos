@@ -122,32 +122,6 @@ function minutesSince(lastActivityTimestamp: string, now: Date): number {
   return Math.floor(diffMs / (60 * 1000));
 }
 
-/** True if the entry has been inactive longer than `thresholdMinutes`. */
-function isBeyondThreshold(
-  checkpoint: { lastActivityTimestamp: string },
-  thresholdMinutes: number,
-  now: Date,
-): boolean {
-  return minutesSince(checkpoint.lastActivityTimestamp, now) > thresholdMinutes;
-}
-
-/**
- * C8 (#1117): is a secondary signal timestamp stale relative to the
- * threshold? Treats `undefined` as "no evidence of progress" — the
- * caller decides whether that means stale (true) or fresh (false) by
- * passing an explicit `whenAbsent` flag.
- */
-function signalIsStale(
-  timestamp: string | undefined,
-  thresholdMinutes: number,
-  now: Date,
-  whenAbsent: boolean,
-): boolean {
-  if (timestamp === undefined) return whenAbsent;
-  if (Number.isNaN(new Date(timestamp).valueOf())) return whenAbsent;
-  return minutesSince(timestamp, now) > thresholdMinutes;
-}
-
 function isTerminalPhase(phase: string): boolean {
   return baseIsTerminalPhase(phase);
 }
@@ -188,7 +162,6 @@ export function selectPruneCandidates(
   config: PruneConfig = {},
   now: Date = new Date(),
 ): PruneSelection {
-  const thresholdMinutes = config.thresholdMinutes ?? DEFAULT_THRESHOLD_MINUTES;
   const includeOneShot = config.includeOneShot ?? true;
   const phaseExclusionSet = config.phaseExclusions
     ? new Set(config.phaseExclusions)
@@ -256,13 +229,6 @@ export function selectPruneCandidates(
       stalenessMinutes: minutesSince(entry._checkpoint.lastActivityTimestamp, now),
     });
   }
-
-  // The selector retains `thresholdMinutes` parity with config so that
-  // callers reading `config.thresholdMinutes` continue to thread their
-  // value end-to-end. The value is not consulted by the typed-contract
-  // staleness path (per-signal thresholds live on the contract), but
-  // remains part of the public config shape for backward compatibility.
-  void thresholdMinutes;
 
   return { candidates, excluded };
 }
