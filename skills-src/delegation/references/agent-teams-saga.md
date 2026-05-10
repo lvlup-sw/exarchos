@@ -191,7 +191,7 @@ If a compensating action itself fails after 3 retries, mark the workflow with `_
 
 | Constraint | Impact |
 |------------|--------|
-| **No session resumption** for teammates | Teammates are ephemeral. On restart, `{{COMMAND_PREFIX}}rehydrate` surfaces orphaned teams in the rehydration document but cannot restore them. Spawn new teammates if delegation is incomplete. |
+| **No session resumption** for teammates | Teammates are ephemeral. On restart, `{{COMMAND_PREFIX}}rehydrate <featureId>` surfaces orphaned teams in the rehydration document but cannot restore them. Spawn new teammates if delegation is incomplete. |
 | **One team per session** | Naturally enforces single-orchestrator invariant. No additional locking needed. |
 | **No nested teams** | Teammates cannot spawn sub-teams. Team composition is flat. |
 | **Permissions inherit from lead** | Do NOT set `mode` at spawn -- not respected. All teammates inherit the lead's permission mode. |

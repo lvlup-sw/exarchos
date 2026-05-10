@@ -27,7 +27,7 @@ State files store: task details, worktree locations, PR URLs, and review status.
 Activate this skill when:
 - Starting a new workflow (`/ideate`)
 - Transitioning between workflow phases
-- Restoring context after summarization (`/rehydrate`)
+- Restoring context after summarization (`/rehydrate <featureId>`)
 - Saving progress for later continuation (`/checkpoint`)
 
 ## Phase Transitions
@@ -256,7 +256,7 @@ If an Exarchos MCP tool returns an error:
 ### State Desync
 If workflow state doesn't match git reality:
 1. Run `/rehydrate <featureId>` — the rehydration projection folds in events newer than the last snapshot
-2. If manual check still needed: compare state file with `git log` and branch state
+2. If manual check still needed: compare the rehydration document's `workflowState` / `artifacts` with `git log` and branch state
 3. Update state via `mcp__exarchos__exarchos_workflow` with `action: "set"` to match git truth
 
 ### Checkpoint Missing

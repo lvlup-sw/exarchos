@@ -448,7 +448,7 @@ Activate this skill when:
 /exarchos:debug --escalate "Reason for escalation"
 
 # Resume after context compaction
-/exarchos:rehydrate
+/exarchos:rehydrate <featureId>
 \`\`\`
 
 ## Track Comparison
@@ -556,7 +556,7 @@ for phase transitions, guards, and playbook guidance.
 
 Debug workflows resume like feature workflows:
 \`\`\`bash
-/exarchos:rehydrate
+/exarchos:rehydrate <featureId>
 \`\`\`
 
 ### With Existing Skills
@@ -570,7 +570,7 @@ Debug workflows resume like feature workflows:
 Extended to support:
 - \`workflowType: "debug"\` field
 - Debug-specific phases surfaced by \`/exarchos:rehydrate <featureId>\` (the rehydration document's \`next_actions\` envelope determines the next verb on resume)
-- Debug context surfaced via \`/exarchos:rehydrate\` at session start (no implicit hook)
+- Debug context surfaced via \`/exarchos:rehydrate <featureId>\` at session start (no implicit hook)
 
 ## Completion Criteria
 
@@ -4358,7 +4358,7 @@ State files store: task details, worktree locations, PR URLs, and review status.
 Activate this skill when:
 - Starting a new workflow (\`/exarchos:ideate\`)
 - Transitioning between workflow phases
-- Restoring context after summarization (\`/exarchos:rehydrate\`)
+- Restoring context after summarization (\`/exarchos:rehydrate <featureId>\`)
 - Saving progress for later continuation (\`/exarchos:checkpoint\`)
 
 ## Phase Transitions
@@ -4587,7 +4587,7 @@ If an Exarchos MCP tool returns an error:
 ### State Desync
 If workflow state doesn't match git reality:
 1. Run \`/exarchos:rehydrate <featureId>\` — the rehydration projection folds in events newer than the last snapshot
-2. If manual check still needed: compare state file with \`git log\` and branch state
+2. If manual check still needed: compare the rehydration document's \`workflowState\` / \`artifacts\` with \`git log\` and branch state
 3. Update state via \`mcp__plugin_exarchos_exarchos__exarchos_workflow\` with \`action: "set"\` to match git truth
 
 ### Checkpoint Missing
@@ -5071,7 +5071,7 @@ debug --switch-thorough
 debug --escalate "Reason for escalation"
 
 # Resume after context compaction
-rehydrate
+rehydrate <featureId>
 \`\`\`
 
 ## Track Comparison
@@ -5179,7 +5179,7 @@ for phase transitions, guards, and playbook guidance.
 
 Debug workflows resume like feature workflows:
 \`\`\`bash
-rehydrate
+rehydrate <featureId>
 \`\`\`
 
 ### With Existing Skills
@@ -5193,7 +5193,7 @@ rehydrate
 Extended to support:
 - \`workflowType: "debug"\` field
 - Debug-specific phases surfaced by \`rehydrate <featureId>\` (the rehydration document's \`next_actions\` envelope determines the next verb on resume)
-- Debug context surfaced via \`rehydrate\` at session start (no implicit hook)
+- Debug context surfaced via \`rehydrate <featureId>\` at session start (no implicit hook)
 
 ## Completion Criteria
 
@@ -8934,7 +8934,7 @@ State files store: task details, worktree locations, PR URLs, and review status.
 Activate this skill when:
 - Starting a new workflow (\`ideate\`)
 - Transitioning between workflow phases
-- Restoring context after summarization (\`rehydrate\`)
+- Restoring context after summarization (\`rehydrate <featureId>\`)
 - Saving progress for later continuation (\`checkpoint\`)
 
 ## Phase Transitions
@@ -9163,7 +9163,7 @@ If an Exarchos MCP tool returns an error:
 ### State Desync
 If workflow state doesn't match git reality:
 1. Run \`rehydrate <featureId>\` — the rehydration projection folds in events newer than the last snapshot
-2. If manual check still needed: compare state file with \`git log\` and branch state
+2. If manual check still needed: compare the rehydration document's \`workflowState\` / \`artifacts\` with \`git log\` and branch state
 3. Update state via \`mcp__exarchos__exarchos_workflow\` with \`action: "set"\` to match git truth
 
 ### Checkpoint Missing
@@ -9647,7 +9647,7 @@ Activate this skill when:
 /debug --escalate "Reason for escalation"
 
 # Resume after context compaction
-/rehydrate
+/rehydrate <featureId>
 \`\`\`
 
 ## Track Comparison
@@ -9755,7 +9755,7 @@ for phase transitions, guards, and playbook guidance.
 
 Debug workflows resume like feature workflows:
 \`\`\`bash
-/rehydrate
+/rehydrate <featureId>
 \`\`\`
 
 ### With Existing Skills
@@ -9769,7 +9769,7 @@ Debug workflows resume like feature workflows:
 Extended to support:
 - \`workflowType: "debug"\` field
 - Debug-specific phases surfaced by \`/rehydrate <featureId>\` (the rehydration document's \`next_actions\` envelope determines the next verb on resume)
-- Debug context surfaced via \`/rehydrate\` at session start (no implicit hook)
+- Debug context surfaced via \`/rehydrate <featureId>\` at session start (no implicit hook)
 
 ## Completion Criteria
 
@@ -13502,7 +13502,7 @@ State files store: task details, worktree locations, PR URLs, and review status.
 Activate this skill when:
 - Starting a new workflow (\`/ideate\`)
 - Transitioning between workflow phases
-- Restoring context after summarization (\`/rehydrate\`)
+- Restoring context after summarization (\`/rehydrate <featureId>\`)
 - Saving progress for later continuation (\`/checkpoint\`)
 
 ## Phase Transitions
@@ -13731,7 +13731,7 @@ If an Exarchos MCP tool returns an error:
 ### State Desync
 If workflow state doesn't match git reality:
 1. Run \`/rehydrate <featureId>\` — the rehydration projection folds in events newer than the last snapshot
-2. If manual check still needed: compare state file with \`git log\` and branch state
+2. If manual check still needed: compare the rehydration document's \`workflowState\` / \`artifacts\` with \`git log\` and branch state
 3. Update state via \`mcp__exarchos__exarchos_workflow\` with \`action: "set"\` to match git truth
 
 ### Checkpoint Missing
@@ -14215,7 +14215,7 @@ debug --switch-thorough
 debug --escalate "Reason for escalation"
 
 # Resume after context compaction
-rehydrate
+rehydrate <featureId>
 \`\`\`
 
 ## Track Comparison
@@ -14323,7 +14323,7 @@ for phase transitions, guards, and playbook guidance.
 
 Debug workflows resume like feature workflows:
 \`\`\`bash
-rehydrate
+rehydrate <featureId>
 \`\`\`
 
 ### With Existing Skills
@@ -14337,7 +14337,7 @@ rehydrate
 Extended to support:
 - \`workflowType: "debug"\` field
 - Debug-specific phases surfaced by \`rehydrate <featureId>\` (the rehydration document's \`next_actions\` envelope determines the next verb on resume)
-- Debug context surfaced via \`rehydrate\` at session start (no implicit hook)
+- Debug context surfaced via \`rehydrate <featureId>\` at session start (no implicit hook)
 
 ## Completion Criteria
 
@@ -18080,7 +18080,7 @@ State files store: task details, worktree locations, PR URLs, and review status.
 Activate this skill when:
 - Starting a new workflow (\`ideate\`)
 - Transitioning between workflow phases
-- Restoring context after summarization (\`rehydrate\`)
+- Restoring context after summarization (\`rehydrate <featureId>\`)
 - Saving progress for later continuation (\`checkpoint\`)
 
 ## Phase Transitions
@@ -18309,7 +18309,7 @@ If an Exarchos MCP tool returns an error:
 ### State Desync
 If workflow state doesn't match git reality:
 1. Run \`rehydrate <featureId>\` — the rehydration projection folds in events newer than the last snapshot
-2. If manual check still needed: compare state file with \`git log\` and branch state
+2. If manual check still needed: compare the rehydration document's \`workflowState\` / \`artifacts\` with \`git log\` and branch state
 3. Update state via \`mcp__exarchos__exarchos_workflow\` with \`action: "set"\` to match git truth
 
 ### Checkpoint Missing
@@ -18793,7 +18793,7 @@ debug --switch-thorough
 debug --escalate "Reason for escalation"
 
 # Resume after context compaction
-rehydrate
+rehydrate <featureId>
 \`\`\`
 
 ## Track Comparison
@@ -18901,7 +18901,7 @@ for phase transitions, guards, and playbook guidance.
 
 Debug workflows resume like feature workflows:
 \`\`\`bash
-rehydrate
+rehydrate <featureId>
 \`\`\`
 
 ### With Existing Skills
@@ -18915,7 +18915,7 @@ rehydrate
 Extended to support:
 - \`workflowType: "debug"\` field
 - Debug-specific phases surfaced by \`rehydrate <featureId>\` (the rehydration document's \`next_actions\` envelope determines the next verb on resume)
-- Debug context surfaced via \`rehydrate\` at session start (no implicit hook)
+- Debug context surfaced via \`rehydrate <featureId>\` at session start (no implicit hook)
 
 ## Completion Criteria
 
@@ -22629,7 +22629,7 @@ State files store: task details, worktree locations, PR URLs, and review status.
 Activate this skill when:
 - Starting a new workflow (\`ideate\`)
 - Transitioning between workflow phases
-- Restoring context after summarization (\`rehydrate\`)
+- Restoring context after summarization (\`rehydrate <featureId>\`)
 - Saving progress for later continuation (\`checkpoint\`)
 
 ## Phase Transitions
@@ -22858,7 +22858,7 @@ If an Exarchos MCP tool returns an error:
 ### State Desync
 If workflow state doesn't match git reality:
 1. Run \`rehydrate <featureId>\` — the rehydration projection folds in events newer than the last snapshot
-2. If manual check still needed: compare state file with \`git log\` and branch state
+2. If manual check still needed: compare the rehydration document's \`workflowState\` / \`artifacts\` with \`git log\` and branch state
 3. Update state via \`mcp__exarchos__exarchos_workflow\` with \`action: "set"\` to match git truth
 
 ### Checkpoint Missing
@@ -23342,7 +23342,7 @@ Activate this skill when:
 /debug --escalate "Reason for escalation"
 
 # Resume after context compaction
-/rehydrate
+/rehydrate <featureId>
 \`\`\`
 
 ## Track Comparison
@@ -23450,7 +23450,7 @@ for phase transitions, guards, and playbook guidance.
 
 Debug workflows resume like feature workflows:
 \`\`\`bash
-/rehydrate
+/rehydrate <featureId>
 \`\`\`
 
 ### With Existing Skills
@@ -23464,7 +23464,7 @@ Debug workflows resume like feature workflows:
 Extended to support:
 - \`workflowType: "debug"\` field
 - Debug-specific phases surfaced by \`/rehydrate <featureId>\` (the rehydration document's \`next_actions\` envelope determines the next verb on resume)
-- Debug context surfaced via \`/rehydrate\` at session start (no implicit hook)
+- Debug context surfaced via \`/rehydrate <featureId>\` at session start (no implicit hook)
 
 ## Completion Criteria
 
@@ -27205,7 +27205,7 @@ State files store: task details, worktree locations, PR URLs, and review status.
 Activate this skill when:
 - Starting a new workflow (\`/ideate\`)
 - Transitioning between workflow phases
-- Restoring context after summarization (\`/rehydrate\`)
+- Restoring context after summarization (\`/rehydrate <featureId>\`)
 - Saving progress for later continuation (\`/checkpoint\`)
 
 ## Phase Transitions
@@ -27434,7 +27434,7 @@ If an Exarchos MCP tool returns an error:
 ### State Desync
 If workflow state doesn't match git reality:
 1. Run \`/rehydrate <featureId>\` — the rehydration projection folds in events newer than the last snapshot
-2. If manual check still needed: compare state file with \`git log\` and branch state
+2. If manual check still needed: compare the rehydration document's \`workflowState\` / \`artifacts\` with \`git log\` and branch state
 3. Update state via \`mcp__exarchos__exarchos_workflow\` with \`action: "set"\` to match git truth
 
 ### Checkpoint Missing

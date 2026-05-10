@@ -80,7 +80,7 @@ Activate this skill when:
 {{COMMAND_PREFIX}}debug --escalate "Reason for escalation"
 
 # Resume after context compaction
-{{COMMAND_PREFIX}}rehydrate
+{{COMMAND_PREFIX}}rehydrate <featureId>
 ```
 
 ## Track Comparison
@@ -188,7 +188,7 @@ for phase transitions, guards, and playbook guidance.
 
 Debug workflows resume like feature workflows:
 ```bash
-{{COMMAND_PREFIX}}rehydrate
+{{COMMAND_PREFIX}}rehydrate <featureId>
 ```
 
 ### With Existing Skills
@@ -202,7 +202,7 @@ Debug workflows resume like feature workflows:
 Extended to support:
 - `workflowType: "debug"` field
 - Debug-specific phases surfaced by `{{COMMAND_PREFIX}}rehydrate <featureId>` (the rehydration document's `next_actions` envelope determines the next verb on resume)
-- Debug context surfaced via `{{COMMAND_PREFIX}}rehydrate` at session start (no implicit hook)
+- Debug context surfaced via `{{COMMAND_PREFIX}}rehydrate <featureId>` at session start (no implicit hook)
 
 ## Completion Criteria
 

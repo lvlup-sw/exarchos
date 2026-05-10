@@ -27,7 +27,7 @@ Unified MCP server for workflow orchestration, event sourcing, CQRS views, and t
 | `cleanup` | Resolve a merged workflow to completed. Verifies merge, backfills synthesis metadata, force-resolves reviews, transitions to completed. Requires `mergeVerified: true` — pass after verifying PRs are merged via GitHub API |
 
 **Resume + checkpoint (explicit verbs, no implicit hooks):**
-- **`/rehydrate <featureId>`** — Re-injects workflow state, phase playbook, and behavioral guidance into the current context. Run this at the start of any session that resumes a workflow. Replaces the former auto-running SessionStart hook.
+- **`/rehydrate <featureId>`** — Re-injects workflow state and phase-playbook guidance into the current context. Run this at the start of any session that resumes a workflow. Replaces the former auto-running SessionStart hook.
 - **`/checkpoint`** — Captures a structured handoff (state, next-steps, suggestions) into the event store. Run this before context exhaustion or session handoff. Replaces the former auto-running PreCompact hook.
 - Valid phase transitions are documented in `references/phase-transitions.md` (replaces former `workflow_transitions` tool). `INVALID_TRANSITION` errors include valid targets with guard descriptions.
 
