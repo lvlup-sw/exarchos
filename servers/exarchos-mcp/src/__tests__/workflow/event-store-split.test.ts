@@ -49,8 +49,15 @@ describe('EventStoreSplit_Regression_GH1009', () => {
   beforeEach(async () => {
     stateDir = await fs.mkdtemp(path.join(os.tmpdir(), 'wf-split-store-'));
     backend = new InMemoryBackend();
-    // Create EventStore WITH backend — matches production configuration
-    sharedEventStore = new EventStore(stateDir, { backend });
+    // v2.11 substrate-cut: the legacy `{ backend }` constructor option
+    // was a JSONL-era dual-write read-delegate. Phase 2 removed the
+    // write-side replication, so injecting an InMemoryBackend as the
+    // read source would shadow the appender's SQLite handle and yield
+    // an empty view. The shared-store visibility invariant under test
+    // here only cares that writes and reads land on the SAME
+    // `EventStore`, which is true with no `backend` option (the read
+    // path resolves to the appender's SQLite handle).
+    sharedEventStore = new EventStore(stateDir);
     configureStateStoreBackend(backend);
   });
 
@@ -129,16 +136,23 @@ describe('EventStoreSplit_Regression_GH1009', () => {
     // In #1021's architecture, EventStore is always threaded via parameters.
     // This verifies that events appended via handleEventAppend are visible
     // to workflow hydration when using the same EventStore instance.
+    //
+    // v2.11 substrate-cut: the legacy "dual-write into the injected
+    // StorageBackend" path is gone (`replicateBackend` was removed in
+    // Phase 2). The shared-store visibility invariant now holds because
+    // both writes and reads go through the AtomicAppender's SQLite
+    // backend on the same `EventStore` instance — we verify by querying
+    // the store directly rather than the injected `backend` mock.
     await setupAtDelegate('shared-test');
 
     // Append events via handleEventAppend (the event tools path)
     await appendTeamSpawned('shared-test');
     await appendTeamDisbanded('shared-test');
 
-    // Verify: events ARE in the backend (dual-write via shared store)
-    const backendEvents = backend.queryEvents('shared-test');
-    expect(backendEvents.some((e) => e.type === 'team.spawned')).toBe(true);
-    expect(backendEvents.some((e) => e.type === 'team.disbanded')).toBe(true);
+    // Verify: events ARE visible via the shared EventStore.
+    const events = await sharedEventStore.query('shared-test');
+    expect(events.some((e) => e.type === 'team.spawned')).toBe(true);
+    expect(events.some((e) => e.type === 'team.disbanded')).toBe(true);
 
     // Act: Transition delegate -> review
     const result = await handleSet(

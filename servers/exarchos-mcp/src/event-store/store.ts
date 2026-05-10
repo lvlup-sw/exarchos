@@ -275,15 +275,13 @@ export class EventStore {
    */
   private getReadBackend(): StorageBackend | undefined {
     if (this.backend) return this.backend;
-    // The appender lazily constructs SQLite on first write; once present,
-    // reads must converge on that handle so query() sees what append()
-    // wrote (was previously gated on `appenderBackend === 'sqlite'`,
-    // collapsed here because SQLite is the only substrate post-Phase-2).
-    if (this.atomicAppender) {
-      const sqlite = this.atomicAppender.getSqliteBackend();
-      if (sqlite) return sqlite;
-    }
-    return undefined;
+    // SQLite is the only substrate post-Phase-2. Force-eager the
+    // appender's SQLite handle even when no append has happened yet
+    // on THIS `EventStore` instance — otherwise a fresh store
+    // constructed against an existing on-disk DB would miss the
+    // backend and fall through to `queryMainJsonl`, which now returns
+    // `[]` because JSONL writes are gone.
+    return this.getAppender().ensureSqliteBackendSync();
   }
 
   // ─── PID Lock ──────────────────────────────────────────────────────────────

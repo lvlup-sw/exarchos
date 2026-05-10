@@ -78,7 +78,7 @@ describe('AtomicAppender race fixtures', () => {
     SqliteBackend.prototype.initialize = initializeSpy;
 
     try {
-      const appender = new AtomicAppender({ stateDir, backend: 'sqlite' });
+      const appender = new AtomicAppender({ stateDir });
       // Concurrent first-writes to N distinct streams: the per-stream
       // mutex grants each its own critical section, so all enter
       // `appendSqliteLocked` simultaneously and all hit the lazy init.
@@ -108,7 +108,7 @@ describe('AtomicAppender race fixtures', () => {
 
       // The shared backend handle returned to all callers is the same
       // instance: cross-stream callers must converge.
-      const backend = appender._testOnly_getSqliteBackend();
+      const backend = appender.getSqliteBackend();
       expect(backend).toBeDefined();
     } finally {
       SqliteBackend.prototype.initialize = originalInitialize;
@@ -146,8 +146,8 @@ describe('AtomicAppender race fixtures', () => {
     const streamId = 'race-idem-conflict';
     const idemKey = 'shared-key';
 
-    const appenderA = new AtomicAppender({ stateDir, backend: 'sqlite' });
-    const appenderB = new AtomicAppender({ stateDir, backend: 'sqlite' });
+    const appenderA = new AtomicAppender({ stateDir });
+    const appenderB = new AtomicAppender({ stateDir });
 
     // Sequence the race deterministically: appender A commits first,
     // then appender B attempts the same key. Both appenders share the
@@ -178,7 +178,7 @@ describe('AtomicAppender race fixtures', () => {
     // races against A's already-committed claim and raises
     // `UNIQUE constraint failed: idempotency_claims.streamId,
     // idempotency_claims.idempotencyKey`.
-    const backendB = appenderB._testOnly_getSqliteBackend();
+    const backendB = appenderB.getSqliteBackend();
     // First, warm B's backend via a no-op append on a different stream
     // so the backend is constructed (so we can patch its method).
     const warm = await appenderB.append(
@@ -187,7 +187,7 @@ describe('AtomicAppender race fixtures', () => {
       'warmup-key',
     );
     expect(warm.ok).toBe(true);
-    const backend = appenderB._testOnly_getSqliteBackend();
+    const backend = appenderB.getSqliteBackend();
     if (!backend) throw new Error('backend not initialized for appenderB');
     // Replace lookupIdempotencyClaim to return undefined for the test
     // (streamId, key) pair on the FIRST call only (the preflight),
@@ -246,7 +246,7 @@ describe('AtomicAppender race fixtures', () => {
     // We track every SqliteBackend that gets initialized during the
     // burst. The Promise-cached singleton fix guarantees:
     //   (a) `initialize` is invoked exactly once,
-    //   (b) `_testOnly_getSqliteBackend()` returns that same handle.
+    //   (b) `getSqliteBackend()` returns that same handle.
     //
     // The previous sync field-guard pattern would have re-opened the
     // race the moment any future change introduced an `await` inside
@@ -260,7 +260,7 @@ describe('AtomicAppender race fixtures', () => {
     };
 
     try {
-      const appender = new AtomicAppender({ stateDir, backend: 'sqlite' });
+      const appender = new AtomicAppender({ stateDir });
       const N = 20;
       const results = await Promise.all(
         Array.from({ length: N }, (_, i) =>
@@ -279,7 +279,7 @@ describe('AtomicAppender race fixtures', () => {
       // across the burst, and the appender's lifecycle handle is
       // that same instance.
       expect(initialized).toHaveLength(1);
-      const exposed = appender._testOnly_getSqliteBackend();
+      const exposed = appender.getSqliteBackend();
       expect(exposed).toBe(initialized[0]);
     } finally {
       SqliteBackend.prototype.initialize = originalInitialize;
@@ -289,17 +289,23 @@ describe('AtomicAppender race fixtures', () => {
   it('SqliteAtomicAppender_LazyInitWithAsyncYield_PromiseCacheStillReturnsOneBackend', async () => {
     // Defensive test: the Promise-cached singleton must hold even when
     // an async step is introduced inside the lazy-init body. We verify
-    // by directly exercising the appender's async `getSqliteBackend`
-    // method concurrently and asserting all callers receive the SAME
-    // backend instance. Unlike a patch-based test, this exercises the
-    // production code path — the Promise cache is the only thing
-    // standing between concurrent callers and duplicate construction.
+    // by directly exercising the appender's private async
+    // `ensureSqliteBackend` method concurrently and asserting all
+    // callers receive the SAME backend instance. Unlike a patch-based
+    // test, this exercises the production code path — the Promise
+    // cache is the only thing standing between concurrent callers and
+    // duplicate construction.
     //
     // The legacy `if (!this.sqliteBackend) { construct; assign }`
     // pattern would PASS this test today (sync init means no
     // interleaving). The pattern is fragile: any future async-init
     // refactor (e.g. an awaited migration) re-opens the race. The
     // Promise-cached singleton makes the contract robust regardless.
+    //
+    // (v2.11 substrate-cut: the private async helper was renamed
+    // `getSqliteBackend` → `ensureSqliteBackend` to free the public
+    // name for the synchronous accessor used by `EventStore`'s
+    // read-backend resolution.)
     const originalInitialize = SqliteBackend.prototype.initialize;
     let constructionCount = 0;
     SqliteBackend.prototype.initialize = function (this: SqliteBackend) {
@@ -308,26 +314,22 @@ describe('AtomicAppender race fixtures', () => {
     };
 
     try {
-      const appender = new AtomicAppender({ stateDir, backend: 'sqlite' });
-      // Exercise the production lazy-init via N concurrent callers
-      // pretending to be the first appendSqliteLocked invocations.
-      // Each call awaits `getSqliteBackend()` exactly as the
-      // production code does.
-      type WithGet = AtomicAppender & {
-        getSqliteBackend?: () => Promise<SqliteBackend>;
+      const appender = new AtomicAppender({ stateDir });
+      type WithEnsure = AtomicAppender & {
+        ensureSqliteBackend?: () => Promise<SqliteBackend>;
       };
-      const internals = appender as WithGet;
-      // Sanity: the production method must be a Promise-returning
+      const internals = appender as WithEnsure;
+      // Sanity: the production helper must be a Promise-returning
       // function (post-T63). If it returns a bare SqliteBackend
       // synchronously (legacy shape), the field-check pattern is
       // load-bearing and the test should fail loudly so the
       // regression is visible.
-      expect(typeof internals.getSqliteBackend).toBe('function');
+      expect(typeof internals.ensureSqliteBackend).toBe('function');
 
       const N = 32;
       const handles = await Promise.all(
         Array.from({ length: N }, () =>
-          (internals.getSqliteBackend as () => Promise<SqliteBackend>).call(
+          (internals.ensureSqliteBackend as () => Promise<SqliteBackend>).call(
             appender,
           ),
         ),

@@ -1,4 +1,5 @@
 import * as fs from 'node:fs/promises';
+import { mkdirSync } from 'node:fs';
 import * as path from 'node:path';
 import { randomUUID } from 'node:crypto';
 
@@ -606,13 +607,46 @@ export class AtomicAppender {
    * methods — exposing the backend lets fixtures patch a single
    * statement without reconstructing the appender's internals.
    *
-   * Returns undefined when no append has happened yet (the backend is
-   * lazily constructed on first write). Production callers that hit
-   * this path before any write get the JSONL-equivalent empty-result
-   * fallback at the read layer.
+   * Returns undefined when no append has happened yet AND
+   * `ensureSqliteBackendSync()` has not been called. Read callers that
+   * need to converge on the same handle as writers (without scheduling
+   * a write) should use `ensureSqliteBackendSync()` to force lazy init.
    */
   getSqliteBackend(): SqliteBackend | undefined {
     return this.sqliteBackend;
+  }
+
+  /**
+   * Force-eager construction of the owned SQLite backend.
+   *
+   * Read paths that need to query the substrate WITHOUT first issuing
+   * a write (e.g. `EventStore.query()` on a freshly-constructed store
+   * pointing at an existing on-disk database) call this to make the
+   * SQLite handle observable via `getSqliteBackend()`. The lazy-init
+   * inside `appendSqliteLocked` covers the write-then-read case; this
+   * covers the read-before-write case.
+   *
+   * Synchronous: SqliteBackend's constructor + `initialize()` are both
+   * synchronous. If a future async-init step is added, this method
+   * stays sync by deferring that step into the `ensureSqliteBackend()`
+   * Promise — the call is a no-op when the backend has already been
+   * constructed.
+   */
+  ensureSqliteBackendSync(): SqliteBackend {
+    if (this.sqliteBackend) return this.sqliteBackend;
+    // Ensure the state dir exists before opening the DB (matches the
+    // mkdir performed inside the async write path so read-before-write
+    // callers don't ENOENT against a fresh tmp dir).
+    mkdirSync(this.stateDir, { recursive: true });
+    const dbPath = path.join(this.stateDir, this.sqliteDbFilename);
+    const backend = new SqliteBackend(dbPath);
+    backend.initialize();
+    this.sqliteBackend = backend;
+    // Pre-populate the Promise cache so any concurrent async path
+    // (`ensureSqliteBackend` from `appendSqliteLocked`) converges on
+    // this handle — singleton invariant unchanged.
+    this.sqliteBackendPromise = Promise.resolve(backend);
+    return backend;
   }
 }
 

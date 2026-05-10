@@ -34,7 +34,7 @@ describe('SqliteAtomicAppender', () => {
   });
 
   it('SqliteAtomicAppender_ConcurrentAppendsToSameStream_NoOverlapInSequenceAllocation', async () => {
-    const appender = new AtomicAppender({ stateDir, backend: 'sqlite' });
+    const appender = new AtomicAppender({ stateDir });
     const streamId = 'sqlite-concurrent-10';
 
     // Spawn 10 concurrent appends to the same stream. The append primitive
@@ -80,7 +80,7 @@ describe('SqliteAtomicAppender', () => {
   // ROLLBACK actually clears the idempotency_claims row.
 
   it('SqliteAtomicAppender_TransactionRollback_IdempotencyKeyNotCommitted', async () => {
-    const appender = new AtomicAppender({ stateDir, backend: 'sqlite' });
+    const appender = new AtomicAppender({ stateDir });
     const streamId = 'sqlite-txn-rollback';
     const idemKey = 'idem-rollback';
 
@@ -98,7 +98,7 @@ describe('SqliteAtomicAppender', () => {
     );
     expect(warmup.ok).toBe(true);
 
-    const backend = appender._testOnly_getSqliteBackend();
+    const backend = appender.getSqliteBackend();
     expect(backend).toBeDefined();
     if (!backend) return;
 
@@ -172,7 +172,7 @@ describe('SqliteAtomicAppender', () => {
   }
 
   it('SqliteAtomicAppender_SqliteBusy_RetriesUpToFiveTimesWithBackoff', async () => {
-    const appender = new AtomicAppender({ stateDir, backend: 'sqlite' });
+    const appender = new AtomicAppender({ stateDir });
 
     // Warm up so we have a concrete backend handle to patch.
     const warmup = await appender.append(
@@ -182,7 +182,7 @@ describe('SqliteAtomicAppender', () => {
     );
     expect(warmup.ok).toBe(true);
 
-    const backend = appender._testOnly_getSqliteBackend();
+    const backend = appender.getSqliteBackend();
     expect(backend).toBeDefined();
     if (!backend) return;
 
@@ -224,7 +224,7 @@ describe('SqliteAtomicAppender', () => {
   });
 
   it('SqliteAtomicAppender_SqliteBusy_ExceedsFiveAttempts_ReturnsStorageBusy', async () => {
-    const appender = new AtomicAppender({ stateDir, backend: 'sqlite' });
+    const appender = new AtomicAppender({ stateDir });
 
     const warmup = await appender.append(
       'sqlite-busy-exhaust-warmup',
@@ -233,7 +233,7 @@ describe('SqliteAtomicAppender', () => {
     );
     expect(warmup.ok).toBe(true);
 
-    const backend = appender._testOnly_getSqliteBackend();
+    const backend = appender.getSqliteBackend();
     if (!backend) throw new Error('backend not initialized');
 
     const stmts = (
