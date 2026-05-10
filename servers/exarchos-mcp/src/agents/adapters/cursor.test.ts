@@ -189,4 +189,16 @@ describe('CursorAdapter', () => {
     expect(IMPLEMENTER.systemPrompt).toBe(before);
     expect(IMPLEMENTER.systemPrompt).toMatch(/## Worktree Verification/);
   });
+
+  // ─── #1333 β-04: adapter routes capability rendering through resolver ────
+
+  it('CursorAdapter_RenderAgentSpec_CallsResolveCapabilitiesNotSpecField', () => {
+    const spy = vi.spyOn(PostureMapping, 'resolveCapabilities');
+    CursorAdapter.lowerSpec(IMPLEMENTER);
+    expect(spy).toHaveBeenCalled();
+    const calledWithSpecPair = spy.mock.calls.some(
+      (args) => args[0] === IMPLEMENTER.posture && args[1] === IMPLEMENTER.id,
+    );
+    expect(calledWithSpecPair).toBe(true);
+  });
 });

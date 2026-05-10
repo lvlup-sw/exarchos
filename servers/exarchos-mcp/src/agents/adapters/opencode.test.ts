@@ -119,4 +119,16 @@ describe('OpenCodeAdapter', () => {
     expect(body).toContain('## Task');
     expect(body).toContain('{{taskDescription}}');
   });
+
+  // ─── #1333 β-04: adapter routes capability rendering through resolver ────
+
+  it('OpenCodeAdapter_RenderAgentSpec_CallsResolveCapabilitiesNotSpecField', () => {
+    const spy = vi.spyOn(PostureMapping, 'resolveCapabilities');
+    OpenCodeAdapter.lowerSpec(IMPLEMENTER);
+    expect(spy).toHaveBeenCalled();
+    const calledWithSpecPair = spy.mock.calls.some(
+      (args) => args[0] === IMPLEMENTER.posture && args[1] === IMPLEMENTER.id,
+    );
+    expect(calledWithSpecPair).toBe(true);
+  });
 });

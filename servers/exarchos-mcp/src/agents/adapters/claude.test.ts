@@ -270,3 +270,24 @@ describe('ClaudeAdapter_LowerSpec_McpReadonlyTier', () => {
     expect(claudeAdapter.validateSupport(IMPLEMENTER)).toEqual({ ok: true });
   });
 });
+
+// ─── #1333 β-04: adapter routes capability rendering through resolver ──────
+//
+// Pin that the Claude adapter's render path invokes
+// `resolveCapabilities(spec.posture, spec.id)` rather than reading a
+// `spec.capabilities` field directly. The β-03 migration ensures this is
+// already true; the test exists to lock the contract so a future "speed
+// up by inlining" refactor can't reintroduce a divergent rendering path.
+
+describe('ClaudeAdapter capability rendering routes through resolver (#1333 β-04)', () => {
+  it('ClaudeAdapter_RenderAgentSpec_CallsResolveCapabilitiesNotSpecField', () => {
+    const spy = vi.spyOn(PostureMapping, 'resolveCapabilities');
+    claudeAdapter.lowerSpec(IMPLEMENTER);
+    expect(spy).toHaveBeenCalled();
+    // At least one call uses the spec's posture + id pair.
+    const calledWithSpecPair = spy.mock.calls.some(
+      (args) => args[0] === IMPLEMENTER.posture && args[1] === IMPLEMENTER.id,
+    );
+    expect(calledWithSpecPair).toBe(true);
+  });
+});

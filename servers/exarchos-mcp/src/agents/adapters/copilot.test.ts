@@ -180,4 +180,17 @@ describe('CopilotAdapter', () => {
     expect(body).toContain('TDD implementer');
     expect(body).toContain('Red-Green-Refactor');
   });
+
+  // ─── #1333 β-04: adapter routes capability rendering through resolver ────
+
+  it('CopilotAdapter_RenderAgentSpec_CallsResolveCapabilitiesNotSpecField', () => {
+    const spy = vi.spyOn(PostureMapping, 'resolveCapabilities');
+    adapter.lowerSpec(IMPLEMENTER_FIXTURE);
+    expect(spy).toHaveBeenCalled();
+    const calledWithSpecPair = spy.mock.calls.some(
+      (args) =>
+        args[0] === IMPLEMENTER_FIXTURE.posture && args[1] === IMPLEMENTER_FIXTURE.id,
+    );
+    expect(calledWithSpecPair).toBe(true);
+  });
 });

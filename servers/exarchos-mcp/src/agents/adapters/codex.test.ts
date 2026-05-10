@@ -216,6 +216,20 @@ describe('CodexAdapter', () => {
   });
 });
 
+// ─── #1333 β-04: adapter routes capability rendering through resolver ──────
+
+describe('CodexAdapter capability rendering routes through resolver (#1333 β-04)', () => {
+  it('CodexAdapter_RenderAgentSpec_CallsResolveCapabilitiesNotSpecField', () => {
+    const spy = vi.spyOn(PostureMapping, 'resolveCapabilities');
+    codexAdapter.lowerSpec(IMPLEMENTER);
+    expect(spy).toHaveBeenCalled();
+    const calledWithSpecPair = spy.mock.calls.some(
+      (args) => args[0] === IMPLEMENTER.posture && args[1] === IMPLEMENTER.id,
+    );
+    expect(calledWithSpecPair).toBe(true);
+  });
+});
+
 describe('tomlBasicString', () => {
   it('TomlBasicString_EscapesBackspace', () => {
     expect(tomlBasicString('a\bb')).toBe('"a\\bb"');
