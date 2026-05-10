@@ -942,9 +942,12 @@ export const SessionTaggedData = z.object({
  * consumed the phase machinery and started doing real work" — useful for v2.12
  * lifecycle alignment (`ps`, `wait --condition=machinery_consumed`).
  *
- * `rehydrateSequence` — the projectionSequence from the preceding
- * `workflow.rehydrated` event, correlating this marker to the specific
- * rehydration cycle that triggered it.
+ * `rehydrateSequence` — the **event-store sequence** of the preceding
+ * `workflow.rehydrated` event (i.e. `event.sequence`, NOT the embedded
+ * `data.projectionSequence`). Event-store sequence is globally monotonic
+ * over the stream, so two rehydrates that fold the same number of events
+ * still get distinct correlators — required for the per-rehydrate-cycle
+ * idempotency cache in `core/interceptors/session-machinery.ts`.
  * `firstActionVerb` — the tool/handler name of the first real action, e.g.
  * `"task_complete"`, `"exarchos_orchestrate"`. Non-empty string required so
  * observability queries can group by action type.
