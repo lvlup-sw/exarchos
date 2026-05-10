@@ -141,9 +141,7 @@ const MAX_INTELLIGENCE_LENGTH = 500;
 /**
  * Returns events relevant to the given modules.
  *
- * Pre-v2.11: scanned `*.events.jsonl` files in `stateDir`. v2.11 deletes
- * the JSONL substrate (`docs/designs/2026-05-09-v2-11-substrate-cut.md`),
- * so this function returns `[]`. The historical-intelligence summary in
+ * Currently returns `[]`. The historical-intelligence summary in
  * `assembleSubagentContext` becomes empty for non-team-mode subagents
  * until a SQLite-backed reimplementation lands.
  *

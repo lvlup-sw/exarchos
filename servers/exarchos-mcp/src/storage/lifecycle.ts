@@ -64,7 +64,7 @@ async function unlinkIfExists(filePath: string): Promise<void> {
 
 /**
  * Compact a completed workflow by archiving its final state and event count,
- * then deleting the associated JSONL event files and SQLite rows.
+ * then deleting the associated SQLite rows.
  *
  * No-ops if the workflow is active or recently completed.
  */
@@ -175,8 +175,7 @@ export async function checkCompaction(
     await compactWorkflow(backend, stateDir, featureId, policy);
   }
 
-  // Storage-size warning: the pre-v2.11 implementation summed JSONL file
-  // sizes. Post-v2.11 the substrate is SQLite WAL — operators inspect
+  // Storage-size warning: the substrate is SQLite WAL — operators inspect
   // size via `du events.db*` or `sqlite3 events.db ".dbinfo"`. The
   // policy.maxTotalSizeMB threshold is no longer applied at runtime;
   // a SQLite-aware reimplementation is tracked as v2.12 follow-up.
@@ -187,11 +186,8 @@ export async function checkCompaction(
 /**
  * Prune telemetry events older than `policy.telemetryRetentionDays`.
  *
- * Pre-v2.11: rotated `_telemetry.events.jsonl` files (.1 / .2 sibling
- * files) and pruned SQLite rows. v2.11 deletes the JSONL substrate, so
- * the file-rotation half is gone — this becomes a thin wrapper over
- * `backend.pruneEvents`. Naming is retained for caller compat
- * (`index.ts` cron tick).
+ * Thin wrapper over `backend.pruneEvents`. Naming is retained for caller
+ * compat (`index.ts` cron tick).
  */
 export async function rotateTelemetry(
   backend: StorageBackend | undefined,
