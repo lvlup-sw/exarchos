@@ -14,7 +14,6 @@ import {
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
-const TSX_BIN = path.join(REPO_ROOT, 'node_modules', '.bin', 'tsx');
 const MCP_ENTRY = path.join(
   REPO_ROOT,
   'servers',
@@ -23,7 +22,12 @@ const MCP_ENTRY = path.join(
   'index.ts',
 );
 
-const REAL_MCP_ARGS = [TSX_BIN, MCP_ENTRY, 'mcp'];
+// Spawn the MCP server with `bun` so `bun:sqlite` (imported by
+// `servers/exarchos-mcp/src/storage/sqlite-backend.ts` post-#1259) resolves
+// natively. `node tsx` is rejected by Node 24's ESM loader on the
+// `bun:` URL scheme. Bun is already pinned in CI via `oven-sh/setup-bun@v2`
+// and in the `setup-bun` step of the binary matrix workflow.
+const REAL_MCP_ARGS = [MCP_ENTRY, 'mcp'];
 
 /**
  * Track clients across a single test so teardown can clean up handles even
@@ -39,11 +43,6 @@ describe('event-replay primitives', () => {
   beforeAll(() => {
     // Confirm the MCP entrypoint is reachable; the fixture self-tests are part
     // of the `unit` project which does not gate on `exarchos` binary presence.
-    if (!fs.existsSync(TSX_BIN)) {
-      throw new Error(
-        `tsx binary not found at ${TSX_BIN}. Run \`npm install\` in the repo root.`,
-      );
-    }
     if (!fs.existsSync(MCP_ENTRY)) {
       throw new Error(`MCP entry not found at ${MCP_ENTRY}.`);
     }
@@ -74,7 +73,7 @@ describe('event-replay primitives', () => {
       await withHermeticEnv(async (env) => {
         const spawned = track(
           await spawnMcpClient({
-            command: 'node',
+            command: 'bun',
             args: REAL_MCP_ARGS,
             stateDir: env.stateDir,
             timeout: 20_000,
@@ -90,7 +89,7 @@ describe('event-replay primitives', () => {
       await withHermeticEnv(async (env) => {
         const spawned = track(
           await spawnMcpClient({
-            command: 'node',
+            command: 'bun',
             args: REAL_MCP_ARGS,
             stateDir: env.stateDir,
             timeout: 20_000,
@@ -150,7 +149,7 @@ describe('event-replay primitives', () => {
       await withHermeticEnv(async (env) => {
         const spawned = track(
           await spawnMcpClient({
-            command: 'node',
+            command: 'bun',
             args: REAL_MCP_ARGS,
             stateDir: env.stateDir,
             timeout: 20_000,
@@ -189,7 +188,7 @@ describe('event-replay primitives', () => {
       const snap = await withHermeticEnv(async (env) => {
         const sourceSpawned = track(
           await spawnMcpClient({
-            command: 'node',
+            command: 'bun',
             args: REAL_MCP_ARGS,
             stateDir: env.stateDir,
             timeout: 20_000,
@@ -240,7 +239,7 @@ describe('event-replay primitives', () => {
       await withHermeticEnv(async (env) => {
         const targetSpawned = track(
           await spawnMcpClient({
-            command: 'node',
+            command: 'bun',
             args: REAL_MCP_ARGS,
             stateDir: env.stateDir,
             timeout: 20_000,
@@ -257,7 +256,7 @@ describe('event-replay primitives', () => {
       const snap: EventSnapshot = await withHermeticEnv(async (env) => {
         const sourceSpawned = track(
           await spawnMcpClient({
-            command: 'node',
+            command: 'bun',
             args: REAL_MCP_ARGS,
             stateDir: env.stateDir,
             timeout: 20_000,
@@ -301,7 +300,7 @@ describe('event-replay primitives', () => {
       await withHermeticEnv(async (env) => {
         const targetSpawned = track(
           await spawnMcpClient({
-            command: 'node',
+            command: 'bun',
             args: REAL_MCP_ARGS,
             stateDir: env.stateDir,
             timeout: 20_000,
