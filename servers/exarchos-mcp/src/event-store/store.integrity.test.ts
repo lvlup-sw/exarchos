@@ -3,9 +3,12 @@
  *
  * The method enforces its own bounds (timeout, abort) internally so
  * callers (notably the doctor `storage-sqlite-health` check) never need
- * a raw sqlite handle. Without a backend the method reports Skipped
- * with a reason; with a healthy in-memory sqlite backend it reports
- * ok. Timeouts and abort-signals are honoured.
+ * a raw sqlite handle. Post-Phase-3 (v2.11 substrate-cut) the read
+ * backend is always present (SQLite force-eagered via
+ * `ensureSqliteBackendSync`), so the legacy "JSONL-only install →
+ * skipped" branch is gone — a default-constructed `EventStore`
+ * probes its own SQLite handle and reports `ok` for a fresh empty DB.
+ * Timeouts and abort-signals are honoured.
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
@@ -27,8 +30,29 @@ afterEach(async () => {
 });
 
 describe('EventStore.runIntegrityCheck', () => {
-  it('RunIntegrityCheck_JsonlOnlyInstall_ReturnsSkipped', async () => {
+  it('RunIntegrityCheck_DefaultStore_AutoProbesSqlite', async () => {
+    // v2.11 Phase 3: a default-constructed EventStore exposes the
+    // appender's owned SqliteBackend via `getReadBackend()`. The
+    // integrity probe runs against that handle and reports `ok` for
+    // a fresh empty DB (no JSONL-skip branch).
     const store = new EventStore(tempDir);
+
+    const result = await store.runIntegrityCheck();
+
+    expect(result.ok).toBe(true);
+  });
+
+  it('RunIntegrityCheck_NonSqliteBackend_ReturnsSkipped', async () => {
+    // A test fixture that injects an in-memory backend without
+    // `runIntegrityPragma` still gets the documented "skipped" path —
+    // the method reports it can't probe, with a reason.
+    const inMemoryBackend: Partial<StorageBackend> = {
+      listStreams: () => [],
+      queryEvents: () => [],
+    };
+    const store = new EventStore(tempDir, {
+      backend: inMemoryBackend as unknown as StorageBackend,
+    });
 
     const result = await store.runIntegrityCheck();
 

@@ -559,15 +559,12 @@ phases:
       expect(loaded.phases.review.staleness).toBeUndefined();
 
       // ─── Pin the on-disk substrate state BEFORE the second startup ─────
-      // The JSONL substrate pinning is what makes the idempotency assertion
-      // robust to any internal substrate refactor: 3 lines now, 3 lines
-      // after a second `initializeContext`. If the loader's cache stops
-      // short-circuiting, this rises to 6 deterministically.
-      const jsonlPath = path.join(tmpDir, '_substrate.events.jsonl');
-      const jsonlAfterFirst = (await fs.readFile(jsonlPath, 'utf-8'))
-        .split('\n')
-        .filter((l) => l.trim()).length;
-      expect(jsonlAfterFirst).toBe(3);
+      // v2.11 Phase 3 (substrate-cut): JSONL files no longer exist, so the
+      // pinning observable is now an event-store query count. Same
+      // semantic — 3 substrate events now, 3 after a second startup if
+      // the cache short-circuits; 6 if it doesn't.
+      const substrateAfterFirst = (await ctx1.eventStore.query('_substrate')).length;
+      expect(substrateAfterFirst).toBe(3);
 
       // ─── Act 2: invoke loadTopology() a second time directly ──────────
       //
@@ -589,14 +586,12 @@ phases:
       });
       expect(extraEmits).toBe(0);
 
-      // ─── Assertion 4 (idempotency, on-disk): JSONL line count UNCHANGED
+      // ─── Assertion 4 (idempotency, on-disk): event count UNCHANGED ────
       // The loader's module-level cache short-circuits the second call →
       // no fresh `phase.contract_missing` emissions. This is the
       // "once at startup" semantics the design calls out for DR-7.
-      const jsonlAfterSecond = (await fs.readFile(jsonlPath, 'utf-8'))
-        .split('\n')
-        .filter((l) => l.trim()).length;
-      expect(jsonlAfterSecond).toBe(3);
+      const substrateAfterSecond = (await ctx1.eventStore.query('_substrate')).length;
+      expect(substrateAfterSecond).toBe(3);
 
       // ─── Assertion 5 (idempotency, query): no extra events visible ─────
       const eventsAfterSecond = await ctx1.eventStore.query('_substrate');

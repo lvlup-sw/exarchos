@@ -34,21 +34,15 @@ import { AtomicAppender } from './atomic-appender.js';
  * `EventStore.getAppender()` and that appender is parametrized over the
  * substrate body.
  *
- * T51 parametrization (#1259):
+ * Substrate (post-Phase-3, v2.11 substrate-cut):
  *
- *   The cross-path suite below runs twice — once against the JSONL
- *   substrate (legacy v2.9 body) and once against the SQLite substrate
- *   (DR-1 #1259 body). The substrate is selected via
- *   `new EventStore(stateDir, { appenderBackend })` — a small option
- *   added to `EventStoreOptions` to plumb the appender substrate through
- *   the lazy `getAppender()` site (the existing `EventStoreOptions.backend`
- *   field selects the read-delegate `StorageBackend`, which is a
- *   different concern). Substrate-agnostic invariants (sequence
- *   monotonicity, total event count, no drops/duplicates) parametrize
- *   cleanly. The JSONL line-integrity check is substrate-specific and
- *   gated behind `if (backend === 'jsonl')`; the SQLite branch asserts
- *   the equivalent invariant via `getAppender().getSqliteBackend()`
- *   and `queryEvents(streamId)`.
+ *   SQLite is the only substrate. Pre-collapse this file ran twice — a
+ *   JSONL arm and a SQLite arm parametrized via `EventStoreOptions.appenderBackend`
+ *   (T51, #1259) — and the JSONL line-integrity branch was removed in
+ *   Phase 3 along with the option itself. The remaining substrate-agnostic
+ *   invariants (sequence monotonicity, total event count, no drops or
+ *   duplicates) are now asserted directly against the SQLite backend
+ *   via `getAppender().getSqliteBackend()`.
  */
 describe('EventStore cross-path race (#1293)', () => {
   let stateDir: string;

@@ -22,7 +22,17 @@ function makeEventInput(overrides: Record<string, unknown> = {}) {
 
 // ─── Crash Recovery Tests ───────────────────────────────────────────────────
 
-describe('Crash Recovery', () => {
+// v2.11 Phase 3 (substrate-cut): the dual-write crash-recovery semantic
+// this suite proves no longer exists. Pre-collapse the design was
+// "JSONL is durable, SQLite is the read replica — if SQLite dies we
+// rebuild from JSONL via hydrateAll". Phase 2 deleted JSONL writes;
+// Phase 3 deleted JSONL reads; SQLite WAL is now the durability
+// substrate. The truncated-line / SQLite-failure / consistency-after-
+// recovery tests below all assume a JSONL file the appender writes to
+// — which it doesn't. Skip until Phase 4's migration importer either
+// rewrites these as forward-recovery cases against the WAL or deletes
+// them as obsolete.
+describe.skip('Crash Recovery', () => {
   let tempDir: string;
 
   beforeEach(() => {

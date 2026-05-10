@@ -620,9 +620,17 @@ describe('handleViewPipeline', () => {
     expect(data.workflows).toHaveLength(3);
   });
 
-  it('should return VIEW_ERROR when discovered stream has invalid ID', async () => {
-    // Create an events file with uppercase characters in the name,
-    // which will cause assertSafeId to throw in SnapshotStore
+  // v2.11 Phase 3 (substrate-cut): the unreachable JSONL-discovery path
+  // this test exercised is gone. Pre-collapse, `discoverStreams` would
+  // fall through to a `fs.readdir` of `*.events.jsonl` files when the
+  // store had no backend; planting `INVALID_STREAM.events.jsonl` would
+  // then make `assertSafeId` throw inside `SnapshotStore`. After the
+  // collapse, stream discovery flows exclusively through the SQLite
+  // backend's `listStreams()`, which only knows about IDs that already
+  // passed `validateStreamId` on write — the malformed-filename code
+  // path is unreachable from the public API.
+  it.skip('should return VIEW_ERROR when discovered stream has invalid ID', async () => {
+    // Intentionally skipped — see Phase 3 collapse note above.
     await fs.writeFile(
       path.join(tempDir, 'INVALID_STREAM.events.jsonl'),
       JSON.stringify({ type: 'workflow.started', sequence: 1, streamId: 'INVALID_STREAM', timestamp: new Date().toISOString(), data: {} }) + '\n',

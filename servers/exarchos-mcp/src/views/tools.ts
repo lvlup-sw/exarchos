@@ -170,24 +170,17 @@ export async function queryDeltaEvents(
 // ─── Helper: discover all event stream files ───────────────────────────────
 
 async function discoverStreams(stateDir: string, store?: EventStore): Promise<string[]> {
-  // When a storage backend is available, use it for stream discovery
-  // (equivalent to SELECT DISTINCT streamId FROM events)
+  // v2.11 Phase 3 (substrate-cut): SQLite is the only substrate, so
+  // stream discovery always flows through `EventStore.listStreams()`
+  // (a SELECT DISTINCT streamId FROM events on the SqliteBackend).
+  // The legacy JSONL `fs.readdir` fallback was removed alongside the
+  // JSONL writer.
   if (store) {
-    const backendStreams = store.listStreams();
-    if (backendStreams !== null) {
-      return backendStreams;
-    }
+    return store.listStreams();
   }
-
-  // Fallback: scan directory for .events.jsonl files
-  try {
-    const files = await fs.readdir(stateDir);
-    return files
-      .filter((f) => f.endsWith('.events.jsonl'))
-      .map((f) => f.replace('.events.jsonl', ''));
-  } catch {
-    return [];
-  }
+  // No store wired (synthetic test fixtures only) — return empty.
+  void stateDir;
+  return [];
 }
 
 // ─── Helper: read state.json (Fix 2 / #1184) ───────────────────────────────

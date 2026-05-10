@@ -23,7 +23,17 @@ function makeEventInput(overrides: Record<string, unknown> = {}) {
 
 // ─── E2E Round-Trip Tests ───────────────────────────────────────────────────
 
-describe('E2E Persistence Round-Trip', () => {
+// v2.11 Phase 3 (substrate-cut): this entire suite exercises JSONL →
+// SQLite hydration via `hydrateAll(backend, stateDir)`. The JSONL
+// write-path was removed in Phase 2 — `EventStore.append` no longer
+// produces `*.events.jsonl` files for `hydrateAll` to read. The
+// migration importer that owns the bulk JSONL import contract is
+// scheduled for Phase 4 of the substrate-cut PR (per the plan,
+// "Do NOT touch index.ts:initializeBackend / migration importer —
+// those are Phase 4"). Skip the suite until Phase 4 either rewrites
+// these as migration-importer round-trips or deletes them outright;
+// they cannot pass in the intermediate state.
+describe.skip('E2E Persistence Round-Trip', () => {
   let tempDir: string;
 
   beforeEach(() => {
