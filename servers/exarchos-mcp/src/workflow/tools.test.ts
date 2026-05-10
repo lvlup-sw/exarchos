@@ -26,7 +26,10 @@ vi.mock('./tools.js', async (importOriginal) => {
     ...actual,
     handleInit: vi.fn().mockResolvedValue({ success: true, data: { phase: 'ideate' }, _meta: { checkpointAdvised: false } }),
     handleGet: vi.fn().mockResolvedValue({ success: true, data: { phase: 'ideate', featureId: 'f' }, _meta: { checkpointAdvised: false } }),
-    handleSet: vi.fn().mockResolvedValue({ success: true, data: { phase: 'plan', updatedAt: 'ts' }, _meta: { checkpointAdvised: false } }),
+    // T5a.1/DR-4 (#1259, v2.11): `handleSet` is no longer dispatched from
+    // the composite. `handleTransition` covers phase mutation; mock it here
+    // so the canonical action's envelope shape is witnessed.
+    handleTransition: vi.fn().mockResolvedValue({ success: true, data: { phase: 'plan', updatedAt: 'ts' }, _meta: { checkpointAdvised: false } }),
     handleCheckpoint: vi.fn().mockResolvedValue({ success: true, data: { phase: 'ideate' }, _meta: { checkpointAdvised: false } }),
     handleReconcileState: vi.fn().mockResolvedValue({ success: true, data: { reconciled: true, eventsApplied: 2 } }),
   };
@@ -106,9 +109,13 @@ describe('WorkflowToolResponses_AllActions_ReturnEnvelope (T036, DR-7)', () => {
     assertEnvelopeShape(result);
   });
 
-  it('set action returns Envelope', async () => {
+  // T5a.1/DR-4 (#1259, v2.11): the prior `set action returns Envelope`
+  // case is replaced with `transition`. `set` no longer dispatches through
+  // a handler; it returns a structured `UNKNOWN_ACTION` error envelope
+  // (covered by `composite.test.ts` and `composite.dr4-removal.test.ts`).
+  it('transition action returns Envelope', async () => {
     const result = await handleWorkflow(
-      { action: 'set', featureId: 'test', phase: 'plan' },
+      { action: 'transition', featureId: 'test', target: 'plan' },
       ctx,
     );
     assertEnvelopeShape(result);

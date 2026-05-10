@@ -61,12 +61,16 @@ describe('listSchemas', () => {
     // Check workflow has expected actions
     const workflow = schemas.find((s) => s.tool === 'exarchos_workflow')!;
     const actionNames = workflow.actions.map((a) => a.name);
+    // T5a.1/DR-4 (#1259, v2.11): `set` removed; `transition` is now the
+    // canonical phase-mutation action exposed in the schema introspection
+    // surface.
     expect(actionNames).toContain('init');
     expect(actionNames).toContain('get');
-    expect(actionNames).toContain('set');
+    expect(actionNames).toContain('transition');
     expect(actionNames).toContain('cancel');
     expect(actionNames).toContain('cleanup');
     expect(actionNames).toContain('reconcile');
+    expect(actionNames).not.toContain('set');
 
     // Each action has description
     for (const tool of schemas) {

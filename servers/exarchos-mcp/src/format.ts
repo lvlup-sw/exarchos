@@ -44,6 +44,11 @@ export interface ToolResult {
     // correlate a CAPABILITY_DENIED rejection back to a specific dispatch.
     tool?: string;
     action?: string;
+    // DR-4 (#1259, v2.11): structured `validActions` list emitted by the
+    // composite handler's UNKNOWN_ACTION fallback so agents can self-correct
+    // without parsing the message string. INV-5a (input ergonomics) — the
+    // hard-cut error envelope must surface the canonical action name.
+    validActions?: readonly string[];
   };
   readonly warnings?: readonly string[];
   readonly _meta?: unknown;
