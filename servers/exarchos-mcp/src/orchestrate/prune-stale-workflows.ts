@@ -901,12 +901,37 @@ export async function handlePruneStaleWorkflows(
   //   - 'skip': malformed silently excluded, diagnostics omitted from response
   const malformedHandling = pruneConfig?.malformedHandling ?? 'report';
 
-  // #1334 (β-07): load the typed topology for staleness scoring. The
-  // selector now reads per-phase `PhaseContract`s off the topology and
-  // delegates verdicts to `scoreEntryThroughTopology`. β-08 layers the
-  // graceful "topology not loaded" skip envelope on top of this load
-  // call.
-  const topologyForSelection: Topology = getTopology();
+  // #1334 (β-07/β-08): load the typed topology for staleness scoring.
+  // The selector now reads per-phase `PhaseContract`s off the topology
+  // and delegates verdicts to `scoreEntryThroughTopology`. The CLI fast
+  // path (e.g. running `prune` outside a fully-bootstrapped MCP server)
+  // may invoke this handler before the lifecycle has called
+  // `loadTopology()`. Rather than letting the loader's "Topology not
+  // loaded" throw escape and surface as an unhandled rejection, return
+  // a structured `{ skipped: true, reason: 'topology_not_loaded' }`
+  // envelope and emit a warning log so operators see why the prune ran
+  // produced no candidates.
+  let topologyForSelection: Topology;
+  try {
+    topologyForSelection = getTopology();
+  } catch (err) {
+    const reason = 'topology_not_loaded';
+    orchestrateLogger.warn(
+      {
+        action: 'prune_stale_workflows',
+        reason,
+        message: err instanceof Error ? err.message : String(err),
+      },
+      'prune skipped: topology not loaded',
+    );
+    return {
+      success: true,
+      data: {
+        skipped: true,
+        reason,
+      },
+    };
+  }
 
   // 1a. C8 (#1117): enrich each entry with secondary staleness signals
   // BEFORE pure selection. The selector stays IO-free; the handler is the
