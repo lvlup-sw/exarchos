@@ -38,36 +38,6 @@ async function fileExists(filePath: string): Promise<boolean> {
   }
 }
 
-/** Count lines in a JSONL file. Returns 0 if the file doesn't exist. */
-async function countJsonlLines(filePath: string): Promise<number> {
-  try {
-    const content = await fs.readFile(filePath, 'utf-8');
-    return content.trim().split('\n').filter(Boolean).length;
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return 0;
-    throw err;
-  }
-}
-
-/** Calculate total size of all *.events.jsonl files in a directory. */
-async function totalJsonlSizeBytes(stateDir: string): Promise<number> {
-  let totalBytes = 0;
-  let entries: string[];
-  try {
-    entries = await fs.readdir(stateDir);
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return 0;
-    throw err;
-  }
-  for (const entry of entries) {
-    if (entry.endsWith('.events.jsonl')) {
-      const stat = await fs.stat(path.join(stateDir, entry));
-      totalBytes += stat.size;
-    }
-  }
-  return totalBytes;
-}
-
 /** Check if a workflow phase is a terminal/completed phase. */
 function isCompletedPhase(phase: string): boolean {
   return phase === 'completed' || phase === 'cancelled';
@@ -146,9 +116,10 @@ export async function compactWorkflow(
     return;
   }
 
-  // Count events before archiving
-  const jsonlPath = path.join(stateDir, `${featureId}.events.jsonl`);
-  const eventCount = await countJsonlLines(jsonlPath);
+  // Count events from the SQLite backend (post-v2.11: SQLite is the only
+  // substrate). Fall back to 0 when no backend is wired (test fixtures
+  // that exercise the archive-write atomicity path without a backend).
+  const eventCount = backend ? backend.queryEvents(featureId).length : 0;
 
   // Write archive
   const archiveDir = path.join(stateDir, 'archives');
@@ -165,13 +136,6 @@ export async function compactWorkflow(
   const tmpPath = `${archivePath}.tmp.${Date.now()}`;
   await fs.writeFile(tmpPath, JSON.stringify(archive, null, 2), 'utf-8');
   await fs.rename(tmpPath, archivePath);
-
-  // Delete JSONL file
-  await unlinkIfExists(jsonlPath);
-
-  // Delete .seq file if it exists
-  const seqPath = path.join(stateDir, `${featureId}.seq`);
-  await unlinkIfExists(seqPath);
 
   // Delete state file
   await unlinkIfExists(stateFile);
@@ -211,68 +175,31 @@ export async function checkCompaction(
     await compactWorkflow(backend, stateDir, featureId, policy);
   }
 
-  // Check total storage size
-  const totalBytes = await totalJsonlSizeBytes(stateDir);
-  const totalSizeMB = totalBytes / (1024 * 1024);
-
-  if (totalSizeMB > policy.maxTotalSizeMB) {
-    logger.warn(
-      { totalSizeMB, limitMB: policy.maxTotalSizeMB },
-      `Total storage size ${totalSizeMB.toFixed(2)} MB exceeds limit of ${policy.maxTotalSizeMB} MB`,
-    );
-  }
+  // Storage-size warning: the pre-v2.11 implementation summed JSONL file
+  // sizes. Post-v2.11 the substrate is SQLite WAL — operators inspect
+  // size via `du events.db*` or `sqlite3 events.db ".dbinfo"`. The
+  // policy.maxTotalSizeMB threshold is no longer applied at runtime;
+  // a SQLite-aware reimplementation is tracked as v2.12 follow-up.
 }
 
 // ─── Telemetry Rotation ────────────────────────────────────────────────────
 
 /**
- * Rotate the telemetry JSONL file when it exceeds maxTelemetryEvents.
+ * Prune telemetry events older than `policy.telemetryRetentionDays`.
  *
- * Rotation strategy:
- * - Rename current file to .1 (if .1 exists, rename to .2 first; delete .2 if exists)
- * - Prune SQLite rows older than telemetryRetentionDays
- * - Keep at most 2 rotated files (.1 and .2)
+ * Pre-v2.11: rotated `_telemetry.events.jsonl` files (.1 / .2 sibling
+ * files) and pruned SQLite rows. v2.11 deletes the JSONL substrate, so
+ * the file-rotation half is gone — this becomes a thin wrapper over
+ * `backend.pruneEvents`. Naming is retained for caller compat
+ * (`index.ts` cron tick).
  */
 export async function rotateTelemetry(
   backend: StorageBackend | undefined,
-  stateDir: string,
+  _stateDir: string,
   policy: LifecyclePolicy,
 ): Promise<void> {
-  const telemetryJsonl = path.join(stateDir, `${TELEMETRY_STREAM}.events.jsonl`);
-
-  // Check if telemetry file exists
-  if (!await fileExists(telemetryJsonl)) {
-    return;
-  }
-
-  // Count events
-  const eventCount = await countJsonlLines(telemetryJsonl);
-
-  if (eventCount <= policy.maxTelemetryEvents) {
-    return;
-  }
-
-  // Rotate files: .2 <- .1 <- current
-  const rotated1 = `${telemetryJsonl}.1`;
-  const rotated2 = `${telemetryJsonl}.2`;
-
-  // Delete .2 if it exists
-  await unlinkIfExists(rotated2);
-
-  // Rename .1 to .2 if it exists
-  if (await fileExists(rotated1)) {
-    await fs.rename(rotated1, rotated2);
-  }
-
-  // Rename current to .1
-  await fs.rename(telemetryJsonl, rotated1);
-
-  // Prune old SQLite rows if backend is available
-  if (backend) {
-    const cutoff = new Date();
-    cutoff.setDate(cutoff.getDate() - policy.telemetryRetentionDays);
-    const cutoffIso = cutoff.toISOString();
-
-    backend.pruneEvents(TELEMETRY_STREAM, cutoffIso);
-  }
+  if (!backend) return;
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - policy.telemetryRetentionDays);
+  backend.pruneEvents(TELEMETRY_STREAM, cutoff.toISOString());
 }

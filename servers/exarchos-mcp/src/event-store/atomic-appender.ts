@@ -484,14 +484,14 @@ export class AtomicAppender {
       // preflight read and `atomicAppend`. Translation must re-read
       // durable state from the backend so the loser's AppendResult
       // reflects the canonical post-conflict shape.
-      return this.translateAtomicAppendError(
-        e,
+      return this.translateAtomicAppendError({
+        error: e,
         backend,
         streamId,
         keyed,
         options,
-        baseSeq,
-      );
+        preflightBaseSeq: baseSeq,
+      });
     }
 
     return {
@@ -531,14 +531,15 @@ export class AtomicAppender {
    * downgrades gracefully to the original error so the caller still
    * sees a typed failure rather than an opaque exception.
    */
-  private translateAtomicAppendError(
-    error: Error,
-    backend: SqliteBackend,
-    streamId: string,
-    keyed: { idempotencyKey: string } | null,
-    options: AppendOptions | undefined,
-    preflightBaseSeq: number,
-  ): AppendResult {
+  private translateAtomicAppendError(args: {
+    error: Error;
+    backend: SqliteBackend;
+    streamId: string;
+    keyed: { idempotencyKey: string } | null;
+    options: AppendOptions | undefined;
+    preflightBaseSeq: number;
+  }): AppendResult {
+    const { error, backend, streamId, keyed, options, preflightBaseSeq } = args;
     const msg = error.message;
     const isIdempotencyConflict =
       /UNIQUE constraint failed: idempotency_claims/.test(msg) ||
