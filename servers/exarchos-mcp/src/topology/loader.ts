@@ -14,10 +14,6 @@
  *     with single-signal heuristic fallback in the pruner) was removed in
  *     this phase. The event TYPE remains registered in `event-store/schemas.ts`
  *     for replay of v2.10-era events; the loader no longer emits it.
- *   - The optional `emit` parameter is retained on the options shape for
- *     historical-binary compatibility (callers may still wire an emitter)
- *     but is NEVER invoked for `phase.contract_missing`. It is harmless
- *     dead-code on the v2.11 path and can be removed in a follow-up.
  *
  * Design notes:
  *   - The loader is testable in isolation: the canonical topology path
