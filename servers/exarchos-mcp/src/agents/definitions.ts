@@ -1,9 +1,16 @@
 // ─── Agent Spec Definitions ────────────────────────────────────────────────
 //
 // Concrete agent specifications for subagent dispatch. Each spec declares
-// runtime-agnostic capabilities; runtime adapters translate capabilities
-// into runtime-specific tool/permission shapes (e.g. Claude tool arrays).
-// See docs/designs/2026-04-25-delegation-runtime-parity.md §3.
+// a runtime-agnostic `posture`; the resolver in
+// `capabilities/posture-mapping.ts` derives the effective capability set
+// from `(posture, id)`. Runtime adapters then translate capabilities into
+// runtime-specific tool/permission shapes (e.g. Claude tool arrays).
+//
+// v2.10-preview.1 (#1333): the legacy `capabilities: [...]` literal arrays
+// were removed; `posture` is now the only declarative authority.
+//
+// See docs/designs/2026-04-25-delegation-runtime-parity.md §3 and
+// docs/designs/2026-05-09-v2-10-0-preview-1-substrate-stabilization.md.
 // ────────────────────────────────────────────────────────────────────────────
 
 import type { AgentSpec } from './types.js';
