@@ -15,6 +15,7 @@ import { stringify as stringifyYaml } from 'yaml';
 import type { AgentSpec, AgentValidationRule } from '../types.js';
 import type { RuntimeAdapter, ValidationResult } from './types.js';
 import { buildSupportMap } from './support-levels.js';
+import { resolveCapabilities } from '../../capabilities/posture-mapping.js';
 
 // ─── Capability → Claude tools translation ─────────────────────────────────
 //
@@ -26,7 +27,7 @@ import { buildSupportMap } from './support-levels.js';
 // same array when shaping the `agent_spec` MCP response and when asserting
 // generated-file drift.
 export function deriveClaudeToolsFromCapabilities(spec: AgentSpec): readonly string[] {
-  const caps = new Set<string>(spec.capabilities);
+  const caps = resolveCapabilities(spec.posture, spec.id) as ReadonlySet<string>;
   const tools: string[] = [];
   // Reviewer historically used a different ordering: [Read, Grep, Glob, Bash].
   // All other roles used [Read, Write, Edit, Bash, Grep, Glob]. Preserve both
@@ -132,7 +133,8 @@ export function generateClaudeAgentMarkdown(spec: AgentSpec): string {
   // metadata, but the rendered frontmatter is driven by capabilities to
   // avoid the support-validation/render split that produced two
   // disagreeing answers.
-  if (spec.capabilities.includes('isolation:worktree')) {
+  const resolvedCaps = resolveCapabilities(spec.posture, spec.id);
+  if (resolvedCaps.has('isolation:worktree')) {
     frontmatter.isolation = 'worktree';
   }
 
@@ -160,8 +162,8 @@ export function generateClaudeAgentMarkdown(spec: AgentSpec): string {
   // a readonly-only spec would be unable to invoke even the read-only
   // action subset.
   if (
-    spec.capabilities.includes('mcp:exarchos') ||
-    spec.capabilities.includes('mcp:exarchos:readonly')
+    resolvedCaps.has('mcp:exarchos') ||
+    resolvedCaps.has('mcp:exarchos:readonly')
   ) {
     frontmatter.mcpServers = ['exarchos'];
   }
@@ -218,7 +220,7 @@ export const claudeAdapter: RuntimeAdapter = {
   },
 
   validateSupport(spec: AgentSpec): ValidationResult {
-    for (const cap of spec.capabilities) {
+    for (const cap of resolveCapabilities(spec.posture, spec.id)) {
       if (CLAUDE_SUPPORT_LEVELS[cap] === 'unsupported') {
         return {
           ok: false,

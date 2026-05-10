@@ -1,27 +1,30 @@
 // ─── Capability-Declared Agent Spec Tests ──────────────────────────────────
 //
-// Verifies that agent specs declare runtime-agnostic `capabilities` instead
+// Verifies that agent specs declare runtime-agnostic capabilities instead
 // of Claude-shaped `tools`. Runtime tool naming belongs in adapters, not in
-// the domain registry. See docs/designs/2026-04-25-delegation-runtime-parity.md
-// §3.
+// the domain registry.
+//
+// Post-#1333: capabilities are derived from `posture` + `id` via the
+// resolver in `capabilities/posture-mapping.ts`. The runtime interface
+// no longer carries a `capabilities[]` field; tests assert against the
+// resolved set instead.
+//
+// See docs/designs/2026-04-25-delegation-runtime-parity.md §3 and
+// docs/designs/2026-05-09-v2-10-0-preview-1-substrate-stabilization.md.
 // ────────────────────────────────────────────────────────────────────────────
 
 import { describe, it, expect } from 'vitest';
 import { IMPLEMENTER, FIXER, REVIEWER, SCAFFOLDER, ALL_AGENT_SPECS } from './definitions.js';
 import type { AgentSpec } from './types.js';
+import { resolveCapabilities } from '../capabilities/posture-mapping.js';
 
 describe('AgentSpec capability declarations', () => {
   it('AgentSpec_DeclaresCapabilities_NotClaudeTools', () => {
-    // IMPLEMENTER must declare capability vocabulary, not Claude tool names.
-    expect(IMPLEMENTER.capabilities).toEqual(
-      expect.arrayContaining([
-        'fs:read',
-        'fs:write',
-        'shell:exec',
-        'mcp:exarchos',
-        'isolation:worktree',
-      ]),
-    );
+    // IMPLEMENTER must derive capability vocabulary, not Claude tool names.
+    const caps = resolveCapabilities(IMPLEMENTER.posture, IMPLEMENTER.id);
+    for (const cap of ['fs:read', 'fs:write', 'shell:exec', 'mcp:exarchos', 'isolation:worktree'] as const) {
+      expect(caps.has(cap)).toBe(true);
+    }
 
     // No top-level Claude-shaped `tools` field on the domain spec.
     expect((IMPLEMENTER as unknown as Record<string, unknown>).tools).toBeUndefined();
@@ -29,38 +32,35 @@ describe('AgentSpec capability declarations', () => {
 
   it('AgentSpec_AllFourSpecs_DeclareCapabilities', () => {
     for (const spec of ALL_AGENT_SPECS) {
-      expect(Array.isArray(spec.capabilities)).toBe(true);
-      expect(spec.capabilities.length).toBeGreaterThan(0);
+      const caps = resolveCapabilities(spec.posture, spec.id);
+      expect(caps.size).toBeGreaterThan(0);
     }
   });
 
   it('AgentSpec_FixerCapabilities', () => {
-    expect(FIXER.capabilities).toEqual(
-      expect.arrayContaining([
-        'fs:read',
-        'fs:write',
-        'shell:exec',
-        'mcp:exarchos',
-      ]),
-    );
+    const caps = resolveCapabilities(FIXER.posture, FIXER.id);
+    for (const cap of ['fs:read', 'fs:write', 'shell:exec', 'mcp:exarchos'] as const) {
+      expect(caps.has(cap)).toBe(true);
+    }
   });
 
   it('AgentSpec_ReviewerCapabilities_ReadOnly', () => {
-    expect(REVIEWER.capabilities).toEqual(
-      expect.arrayContaining(['fs:read', 'mcp:exarchos:readonly']),
-    );
+    const caps = resolveCapabilities(REVIEWER.posture, REVIEWER.id);
+    expect(caps.has('fs:read')).toBe(true);
+    expect(caps.has('mcp:exarchos:readonly')).toBe(true);
     // Reviewer is read-only: must not declare write capability. The
     // mutating-MCP trust boundary is now capability-enforced via the
     // `mcp:exarchos:readonly` tier (T03/T04) rather than prompt-enforced.
-    expect(REVIEWER.capabilities).not.toContain('fs:write');
+    expect(caps.has('fs:write')).toBe(false);
   });
 
   it('REVIEWER_Capabilities_UsesReadonlyMCP', () => {
     // T11: REVIEWER migrates from `mcp:exarchos` to `mcp:exarchos:readonly`.
     // The dispatch-layer gate (T04) only fires when the readonly tier is
     // present AND the full tier is NOT — so we must drop `mcp:exarchos`.
-    expect(REVIEWER.capabilities).toContain('mcp:exarchos:readonly');
-    expect(REVIEWER.capabilities).not.toContain('mcp:exarchos');
+    const caps = resolveCapabilities(REVIEWER.posture, REVIEWER.id);
+    expect(caps.has('mcp:exarchos:readonly')).toBe(true);
+    expect(caps.has('mcp:exarchos')).toBe(false);
   });
 
   it('REVIEWER_SystemPrompt_LacksForbiddenActionsBlock', () => {
@@ -84,14 +84,10 @@ describe('AgentSpec capability declarations', () => {
   });
 
   it('AgentSpec_ScaffolderCapabilities', () => {
-    expect(SCAFFOLDER.capabilities).toEqual(
-      expect.arrayContaining([
-        'fs:read',
-        'fs:write',
-        'shell:exec',
-        'mcp:exarchos',
-      ]),
-    );
+    const caps = resolveCapabilities(SCAFFOLDER.posture, SCAFFOLDER.id);
+    for (const cap of ['fs:read', 'fs:write', 'shell:exec', 'mcp:exarchos'] as const) {
+      expect(caps.has(cap)).toBe(true);
+    }
   });
 
   // ─── C5 (#1220): isolation:worktree on write-capable specs ────────────────
@@ -105,29 +101,32 @@ describe('AgentSpec capability declarations', () => {
   // pins that posture so the C5 fix doesn't over-correct.
 
   it('FIXER_capabilities_includesIsolationWorktree', () => {
-    expect(FIXER.capabilities).toContain('isolation:worktree');
+    const caps = resolveCapabilities(FIXER.posture, FIXER.id);
+    expect(caps.has('isolation:worktree')).toBe(true);
   });
 
   it('SCAFFOLDER_capabilities_includesIsolationWorktree', () => {
-    expect(SCAFFOLDER.capabilities).toContain('isolation:worktree');
+    const caps = resolveCapabilities(SCAFFOLDER.posture, SCAFFOLDER.id);
+    expect(caps.has('isolation:worktree')).toBe(true);
   });
 
   it('REVIEWER_capabilities_readOnlyDoesNotRequireIsolation', () => {
     // Pin the read-only posture: REVIEWER must not have write/shell caps,
     // and correspondingly does not need worktree isolation. This prevents
     // C5 from accidentally adding isolation everywhere.
-    expect(REVIEWER.capabilities).not.toContain('fs:write');
-    expect(REVIEWER.capabilities).not.toContain('shell:exec');
-    expect(REVIEWER.capabilities).not.toContain('isolation:worktree');
+    const caps = resolveCapabilities(REVIEWER.posture, REVIEWER.id);
+    expect(caps.has('fs:write')).toBe(false);
+    expect(caps.has('shell:exec')).toBe(false);
+    expect(caps.has('isolation:worktree')).toBe(false);
   });
 
-  it('AgentSpec_RejectsUnknownCapability_TypecheckFails', () => {
-    // @ts-expect-error - 'bogus' is not a valid Capability
+  it('AgentSpec_RejectsUnknownPosture_TypecheckFails', () => {
+    // @ts-expect-error - 'bogus' is not a valid AgentPosture
     const bad: AgentSpec = {
       id: 'implementer',
       description: 'x',
       systemPrompt: 'x',
-      capabilities: ['bogus'],
+      posture: 'bogus',
       model: 'inherit',
       skills: [],
       validationRules: [],

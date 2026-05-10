@@ -6,11 +6,24 @@
 // See docs/designs/2026-04-25-delegation-runtime-parity.md §4.
 // ────────────────────────────────────────────────────────────────────────────
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { parse as parseYaml } from 'yaml';
 import { CursorAdapter } from './cursor.js';
 import { IMPLEMENTER, REVIEWER, SCAFFOLDER } from '../definitions.js';
 import type { AgentSpec } from '../types.js';
+import type { Capability } from '../capabilities.js';
+import * as PostureMapping from '../../capabilities/posture-mapping.js';
+
+/** Spy that forces `resolveCapabilities` to a hand-picked set for one test. */
+function forceCapabilities(caps: readonly Capability[]): void {
+  vi.spyOn(PostureMapping, 'resolveCapabilities').mockReturnValue(
+    Object.freeze(new Set<Capability>(caps)),
+  );
+}
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 /** Split a Markdown-with-YAML-frontmatter document into frontmatter + body. */
 function splitFrontmatter(contents: string): { data: Record<string, unknown>; body: string } {
@@ -51,11 +64,16 @@ describe('CursorAdapter', () => {
   });
 
   it('CursorAdapter_ValidateSupport_RejectsClaudeOnlyHooks', () => {
-    const synthetic: AgentSpec = {
-      ...IMPLEMENTER,
-      capabilities: [...IMPLEMENTER.capabilities, 'subagent:completion-signal'],
-    };
-    const result = CursorAdapter.validateSupport(synthetic);
+    forceCapabilities([
+      'fs:read',
+      'fs:write',
+      'shell:exec',
+      'mcp:exarchos',
+      'isolation:worktree',
+      'session:resume',
+      'subagent:completion-signal',
+    ]);
+    const result = CursorAdapter.validateSupport(IMPLEMENTER);
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.reason).toMatch(/subagent:completion-signal/);
@@ -78,33 +96,24 @@ describe('CursorAdapter', () => {
   // (see core/dispatch.ts), not at the cursor adapter layer.
   // ────────────────────────────────────────────────────────────────────────
   it('CursorAdapter_LowerSpec_Readonly_GrantsExarchosTool', () => {
-    const spec: AgentSpec = {
-      ...IMPLEMENTER,
-      capabilities: ['fs:read', 'mcp:exarchos:readonly'],
-    };
-    const { contents } = CursorAdapter.lowerSpec(spec);
+    forceCapabilities(['fs:read', 'mcp:exarchos:readonly']);
+    const { contents } = CursorAdapter.lowerSpec(IMPLEMENTER);
     const { data } = splitFrontmatter(contents);
     expect(data.mcp).toBeDefined();
     expect((data.mcp as Record<string, unknown>).exarchos).toBe(true);
   });
 
   it('CursorAdapter_LowerSpec_Full_GrantsExarchosTool', () => {
-    const spec: AgentSpec = {
-      ...IMPLEMENTER,
-      capabilities: ['fs:read', 'mcp:exarchos'],
-    };
-    const { contents } = CursorAdapter.lowerSpec(spec);
+    forceCapabilities(['fs:read', 'mcp:exarchos']);
+    const { contents } = CursorAdapter.lowerSpec(IMPLEMENTER);
     const { data } = splitFrontmatter(contents);
     expect(data.mcp).toBeDefined();
     expect((data.mcp as Record<string, unknown>).exarchos).toBe(true);
   });
 
   it('CursorAdapter_LowerSpec_NoMcpCapability_OmitsMcpField', () => {
-    const spec: AgentSpec = {
-      ...IMPLEMENTER,
-      capabilities: ['fs:read', 'fs:write'],
-    };
-    const { contents } = CursorAdapter.lowerSpec(spec);
+    forceCapabilities(['fs:read', 'fs:write']);
+    const { contents } = CursorAdapter.lowerSpec(IMPLEMENTER);
     const { data } = splitFrontmatter(contents);
     expect(data.mcp).toBeUndefined();
   });
@@ -179,5 +188,17 @@ describe('CursorAdapter', () => {
     CursorAdapter.lowerSpec(IMPLEMENTER);
     expect(IMPLEMENTER.systemPrompt).toBe(before);
     expect(IMPLEMENTER.systemPrompt).toMatch(/## Worktree Verification/);
+  });
+
+  // ─── #1333 β-04: adapter routes capability rendering through resolver ────
+
+  it('CursorAdapter_RenderAgentSpec_CallsResolveCapabilitiesNotSpecField', () => {
+    const spy = vi.spyOn(PostureMapping, 'resolveCapabilities');
+    CursorAdapter.lowerSpec(IMPLEMENTER);
+    expect(spy).toHaveBeenCalled();
+    const calledWithSpecPair = spy.mock.calls.some(
+      (args) => args[0] === IMPLEMENTER.posture && args[1] === IMPLEMENTER.id,
+    );
+    expect(calledWithSpecPair).toBe(true);
   });
 });

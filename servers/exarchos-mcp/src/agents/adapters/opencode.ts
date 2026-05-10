@@ -20,6 +20,7 @@ import type { Capability } from '../capabilities.js';
 import type { AgentSpec } from '../types.js';
 import type { RuntimeAdapter, ValidationResult } from './types.js';
 import { buildSupportMap } from './support-levels.js';
+import { resolveCapabilities } from '../../capabilities/posture-mapping.js';
 
 /**
  * OpenCode covers fs/shell/subagent-spawn/MCP natively, treats
@@ -51,9 +52,9 @@ type ToolKey = (typeof KNOWN_TOOLS)[number];
 
 /** Map a capability set to OpenCode's `tools` boolean map. */
 function capabilitiesToTools(
-  capabilities: readonly Capability[],
+  capabilities: ReadonlySet<Capability>,
 ): Record<ToolKey, boolean> {
-  const has = (c: Capability): boolean => capabilities.includes(c);
+  const has = (c: Capability): boolean => capabilities.has(c);
   const tools: Record<ToolKey, boolean> = {
     read: false,
     list: false,
@@ -88,17 +89,18 @@ interface OpenCodeFrontmatter {
 }
 
 function buildFrontmatter(spec: AgentSpec): OpenCodeFrontmatter {
+  const resolved = resolveCapabilities(spec.posture, spec.id);
   const fm: OpenCodeFrontmatter = {
     mode: 'subagent',
     description: spec.description,
-    tools: capabilitiesToTools(spec.capabilities),
+    tools: capabilitiesToTools(resolved),
   };
   // Both `mcp:exarchos` and `mcp:exarchos:readonly` grant the same MCP
   // tool entry — the read-only tier is enforced server-side by the
   // dispatch action allowlist (T04), not by withholding the tool.
   if (
-    spec.capabilities.includes('mcp:exarchos') ||
-    spec.capabilities.includes('mcp:exarchos:readonly')
+    resolved.has('mcp:exarchos') ||
+    resolved.has('mcp:exarchos:readonly')
   ) {
     fm.mcp = { exarchos: true };
   }
@@ -143,7 +145,8 @@ export const OpenCodeAdapter: RuntimeAdapter = {
   },
 
   validateSupport(spec: AgentSpec): ValidationResult {
-    const unsupported = spec.capabilities.filter(
+    const resolved = resolveCapabilities(spec.posture, spec.id);
+    const unsupported: Capability[] = [...resolved].filter(
       (c) => OPENCODE_SUPPORT_LEVELS[c] === 'unsupported',
     );
     if (unsupported.length === 0) {

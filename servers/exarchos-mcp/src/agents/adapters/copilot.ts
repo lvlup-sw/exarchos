@@ -45,6 +45,7 @@ import type { AgentSpec } from '../types.js';
 import type { Capability } from '../capabilities.js';
 import type { RuntimeAdapter, ValidationResult } from './types.js';
 import { buildSupportMap } from './support-levels.js';
+import { resolveCapabilities } from '../../capabilities/posture-mapping.js';
 
 /**
  * Copilot covers fs/shell/subagent-spawn/MCP natively. `isolation:worktree`
@@ -92,7 +93,7 @@ export class CopilotAdapter implements RuntimeAdapter {
   }
 
   validateSupport(spec: AgentSpec): ValidationResult {
-    for (const cap of spec.capabilities) {
+    for (const cap of resolveCapabilities(spec.posture, spec.id)) {
       if (COPILOT_SUPPORT_LEVELS[cap] === 'unsupported') {
         return {
           ok: false,
@@ -109,7 +110,8 @@ export class CopilotAdapter implements RuntimeAdapter {
   lowerSpec(spec: AgentSpec): { path: string; contents: string } {
     // Filter to native capabilities only — advisory caps are silently
     // tolerated and emit no tool entry.
-    const nativeCaps = spec.capabilities.filter(
+    const resolved = resolveCapabilities(spec.posture, spec.id);
+    const nativeCaps: Capability[] = [...resolved].filter(
       (cap) => COPILOT_SUPPORT_LEVELS[cap] === 'native',
     );
     const tools: string[] = [];

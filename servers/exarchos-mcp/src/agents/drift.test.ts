@@ -9,6 +9,7 @@ import { describe, it, expect } from 'vitest';
 import { ALL_AGENT_SPECS } from './definitions.js';
 import { CAPABILITY_KEYS } from './capabilities.js';
 import { deriveClaudeToolsFromCapabilities } from './adapters/claude.js';
+import { resolveCapabilities } from '../capabilities/posture-mapping.js';
 
 // ─── Known Names ───────────────────────────────────────────────────────────
 
@@ -27,7 +28,7 @@ const VALID_IDENTIFIER = /^[a-zA-Z_]\w*$/;
 describe('Agent Spec Drift Prevention', () => {
   it('AllAgentSpecs_ReferenceValidCapabilities_KnownNames', () => {
     for (const spec of ALL_AGENT_SPECS) {
-      for (const cap of spec.capabilities) {
+      for (const cap of resolveCapabilities(spec.posture, spec.id)) {
         expect(
           CAPABILITY_KEYS.has(cap),
           `${spec.id}: capability '${cap}' is not in the known set: ${[...CAPABILITY_KEYS].join(', ')}`,
