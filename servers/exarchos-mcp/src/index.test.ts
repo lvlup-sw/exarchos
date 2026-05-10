@@ -53,7 +53,7 @@ describe('createServer Backend Wiring', () => {
     expect(server).toBeDefined();
   });
 
-  it('createServer_WithoutBackend_WorksInJSONLFallbackMode', async () => {
+  it('createServer_WithoutBackend_ConfiguresStateStoreWithUndefined', async () => {
     // Arrange
     const { createServer } = await import('./index.js');
     const { configureStateStoreBackend } = await import('./workflow/state-store.js');

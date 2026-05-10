@@ -167,15 +167,19 @@ describe('EventStoreSplit_Regression_GH1009', () => {
     expect(data.phase).toBe('review');
   });
 
-  it('GH1009_SplitStoreImpossible_ParameterThreadingPreventsIt', async () => {
-    // In #1021's architecture, there's no module-level EventStore to get out of sync.
-    // All handlers receive EventStore explicitly. Verify that a separate store
-    // instance produces events invisible to the workflow store's backend.
-    const separateStore = new EventStore(stateDir); // No backend!
+  it('GH1009_SplitStoreImpossible_SqliteSubstrateMakesEventStoresShareStorage', async () => {
+    // In PR #1021's architecture, EventStore is threaded explicitly via
+    // function parameters — there is no module-level instance that could
+    // diverge. v2.11's substrate cut adds a stronger second invariant:
+    // even if two EventStore instances ARE constructed at the same
+    // stateDir, they both resolve to the same `events.db` SQLite handle,
+    // so writes via one are visible via queries on the other. The
+    // split-store divergence GH #1009 caught is now architecturally
+    // doubly-impossible.
+    const separateStore = new EventStore(stateDir);
 
     await setupAtDelegate('split-test');
 
-    // Append via separate store — goes to JSONL only
     const appendResult = await handleEventAppend(
       {
         stream: 'split-test',
@@ -191,9 +195,11 @@ describe('EventStoreSplit_Regression_GH1009', () => {
     );
     expect(appendResult.success).toBe(true);
 
-    // Verify the event is NOT in the shared backend
-    const backendEvents = backend.queryEvents('split-test');
-    const teamEvents = backendEvents.filter((e) => e.type === 'team.spawned');
-    expect(teamEvents).toHaveLength(0);
+    // The event written via `separateStore` is visible to `sharedEventStore`
+    // because both back onto the same SQLite file. This pins the new
+    // post-substrate-cut invariant: stateDir is the unit of isolation,
+    // not the EventStore instance.
+    const sharedEvents = await sharedEventStore.query('split-test');
+    expect(sharedEvents.some((e) => e.type === 'team.spawned')).toBe(true);
   });
 });

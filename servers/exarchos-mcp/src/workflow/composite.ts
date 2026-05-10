@@ -146,18 +146,10 @@ export async function handleWorkflow(
       // The previous v2.10 rerouting surface (`set({phase})` →
       // `transition`) is hard-cut. Surface `validActions` as a structured
       // field so agents can self-correct without parsing the message
-      // string (INV-5a — agent input ergonomics).
-      const validActions = [
-        'init',
-        'get',
-        'transition',
-        'cancel',
-        'cleanup',
-        'reconcile',
-        'checkpoint',
-        'rehydrate',
-        'describe',
-      ];
+      // string (INV-5a — agent input ergonomics). Derived from the
+      // canonical `workflowActions` registry so the list cannot drift when
+      // an action is added or renamed.
+      const validActions = workflowActions.map((a) => a.name);
       return {
         success: false,
         error: {

@@ -27,12 +27,12 @@ describe('handleDescribe', () => {
     expect(data).toHaveProperty('get');
   });
 
-  it('HandleDescribe_UnknownAction_ReturnsErrorWithValidTargets', async () => {
+  it('HandleDescribe_UnknownAction_ReturnsErrorWithValidActions', async () => {
     const result = await handleDescribe({ actions: ['nonexistent'] }, workflowTool.actions);
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('UNKNOWN_ACTION');
-    expect(result.error?.validTargets).toBeDefined();
-    expect(result.error?.validTargets?.length).toBeGreaterThan(0);
+    expect(result.error?.validActions).toBeDefined();
+    expect(result.error?.validActions?.length).toBeGreaterThan(0);
   });
 
   it('HandleDescribe_ActionWithAutoEmits_ReturnsEmissionMetadata', async () => {

@@ -875,10 +875,17 @@ export async function handleSet(
     //
     // v2.11 Phase 1: sidecar fallback (#1082) removed; no `sidecarPending`
     // envelope marker needed.
+    //
+    // Surface `workflowType` so `nextActionsFromResult` (called by
+    // `envelopeWrap` in composite.ts) can compute HATEOAS links — the
+    // helper requires both `phase` AND `workflowType` to look up the HSM.
+    // Without it, every successful `transition` would ship an empty
+    // `next_actions` array. Field is purely additive.
     return {
       success: true,
       data: {
         phase: mutableState.phase as string,
+        workflowType: mutableState.workflowType as string,
         updatedAt: mutableState.updatedAt as string,
       },
       _meta: buildCheckpointMeta(mutableState._checkpoint as WorkflowState['_checkpoint']),

@@ -51,7 +51,11 @@ export const AgentSpecSchema = z
     id: AgentSpecIdSchema,
     description: z.string(),
     systemPrompt: z.string(),
-    posture: AgentPosture.optional(),
+    // v2.11 (DR-6): posture is the only declarative authority on a spec's
+    // capability surface. Required at the trust boundary so a spec cannot
+    // declare neither `capabilities` (rejected below) nor `posture`,
+    // leaving the resolver with no input to derive from.
+    posture: AgentPosture,
     disallowedTools: z.array(z.string()).optional(),
     model: z.enum(['opus', 'sonnet', 'haiku', 'inherit']),
     effort: z.enum(['low', 'medium', 'high', 'max']).optional(),

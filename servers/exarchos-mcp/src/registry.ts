@@ -1808,7 +1808,7 @@ export const TOOL_REGISTRY: readonly CompositeTool[] = [
     description: 'Workflow lifecycle management — init, read, update, cancel, cleanup, checkpoint, reconcile, and rehydrate workflows',
     actions: workflowActions,
     cli: { alias: 'wf' },
-    slimDescription: 'Workflow lifecycle management. Use describe(actions) for schemas.\n\nActions: init, get, set, transition, cancel, cleanup, reconcile, checkpoint, rehydrate',
+    slimDescription: 'Workflow lifecycle management. Use describe(actions) for schemas.\n\nActions: init, get, transition, cancel, cleanup, reconcile, checkpoint, rehydrate',
   },
   {
     name: 'exarchos_event',

@@ -18,6 +18,7 @@ const validBaseSpec = {
   id: 'implementer' as const,
   description: 'desc',
   systemPrompt: 'prompt',
+  posture: 'task-isolated' as const,
   model: 'inherit' as const,
   skills: [],
   validationRules: [],
@@ -26,6 +27,10 @@ const validBaseSpec = {
 
 describe('AgentSpec DR-6 hard-cut: legacy capabilities[] rejected (T5b.1)', () => {
   it('AgentSpec_RejectsLegacyCapabilitiesArray', () => {
+    // A spec carrying BOTH posture (the v2.11 replacement) AND a legacy
+    // capabilities[] declaration must still hard-fail on the
+    // capabilities key — pinning that the rejection is unconditional,
+    // not just "missing posture means no validation."
     const result = AgentSpecSchema.safeParse({
       ...validBaseSpec,
       capabilities: ['fs:read', 'fs:write'],

@@ -104,7 +104,7 @@ export async function handleDescribe(
           error: {
             code: 'UNKNOWN_ACTION',
             message: `Unknown action: ${actionName}`,
-            validTargets: toolActions.map(a => a.name),
+            validActions: toolActions.map(a => a.name),
           },
         };
       }
