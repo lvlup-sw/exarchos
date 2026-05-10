@@ -18,7 +18,7 @@ Closes #1327 (Tier 2 JSONL rip), #1326 (idempotency-claims bypass — subsumed),
 #### Breaking — agent-facing contracts
 
 - **`workflow.set({ phase })` removed (DR-4).** The v2.10 deprecation rerouting handler is deleted. Agents calling `set` with a `phase` argument now receive a structured `UNKNOWN_ACTION` error envelope listing `validActions: ['transition', ...]`. The `_meta.deprecation` schema slot is retained one more release as a historical marker (drops in v2.12); `set` no longer populates it.
-- **Legacy `capabilities[]` arrays in agent specs removed (DR-6).** Specs declaring `capabilities: [...]` now fail validation with a typed error pointing to `posture` as the replacement. The `posture` field (`'read-only' | 'task-isolated' | 'shared-mutating'`) is the only authority over `yaml ⊕ handshake` capability resolution. Five `agents/*` definitions still carry legacy arrays consumed by runtime adapters at render time — out of scope for this cut, follow-up tracked.
+- **Legacy `capabilities[]` arrays in agent specs removed (DR-6).** Specs declaring `capabilities: [...]` now fail validation with a typed error pointing to `posture` as the replacement. The `posture` field (`'read-only' | 'task-isolated' | 'shared-mutating'`) is the only authority over `yaml ⊕ handshake` capability resolution. Four in-tree `AgentSpec` definitions (`IMPLEMENTER`, `FIXER`, `REVIEWER`, `SCAFFOLDER` in `servers/exarchos-mcp/src/agents/definitions.ts`) still carry legacy arrays consumed by runtime adapters at render time — out of scope for this cut, tracked in #1333.
 - **Topology phases require `staleness` blocks (DR-7).** `loadTopology()` throws on any phase missing a `staleness` declaration; the v2.10 advisory `phase.contract_missing` event-emission branch is gone. The pruner becomes a pure typed-contract scorer — the single-signal heuristic fallback is deleted. `core/context.ts:loadTopologyIfPresent` swallows the throw so a malformed topology does not block substrate startup; `getTopology()` continues to throw "load before" until a successful load.
 
 #### Productionized
@@ -28,7 +28,7 @@ Closes #1327 (Tier 2 JSONL rip), #1326 (idempotency-claims bypass — subsumed),
 #### Operational notes
 
 - **Forensic inspection.** Pre-v2.11 `cat *.events.jsonl` was the human-readable forensic path. Post-v2.11, use `sqlite3 events.db ".dump"` for raw inspection or `exarchos view` for typed queries.
-- **Vestigial JSONL read paths.** `storage/lifecycle.ts` and `cli-commands/subagent-context.ts` still read `*.events.jsonl` for cleanup/context-loading; these paths are dead in v2.11 (the runtime hard-errors before they could fire) and are flagged for a follow-up cleanup PR.
+- **Vestigial JSONL read paths removed.** `storage/lifecycle.ts` (`countJsonlLines`, `totalJsonlSizeBytes`, JSONL/seq cleanup in `compactWorkflow`, file-rotation half of `rotateTelemetry`, JSONL-byte-sum size warning in `checkCompaction`) and `cli-commands/subagent-context.ts` (`queryModuleHistory`'s JSONL scan) are deleted in this release. `queryModuleHistory` is retained as a no-op stub returning `[]` to preserve the call shape on the CLI hook hot path; SQLite-backed reimplementations of the historical-intelligence summary and the `policy.maxTotalSizeMB` threshold are tracked as v2.12 follow-ups.
 
 #### Subsumed by construction
 
