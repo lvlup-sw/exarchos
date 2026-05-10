@@ -1,12 +1,10 @@
 import * as fs from 'node:fs/promises';
-import { createReadStream, openSync, closeSync, writeSync, unlinkSync } from 'node:fs';
-import { createInterface } from 'node:readline';
+import { openSync, closeSync, writeSync, unlinkSync } from 'node:fs';
 import * as path from 'node:path';
 import { randomUUID as randomUUIDFn } from 'node:crypto';
 import { WorkflowEventBase } from './schemas.js';
 import type { WorkflowEvent } from './schemas.js';
 import type { StorageBackend } from '../storage/backend.js';
-import { migrateEvent } from './event-migration.js';
 import { isPidAlive } from '../utils/process.js';
 import { validateStreamId } from '../shared/validation.js';
 import { AtomicAppender } from './atomic-appender.js';
@@ -80,30 +78,15 @@ export interface QueryFilters {
    * not lexical. Used by `EventStore.queryByType` to reduce over events
    * across an entire feature's namespace.
    *
-   * Honoured at the SQL/backend layer where possible; the JSONL fallback
-   * implements the same semantic in `EventStore.queryByType`.
+   * Honoured at the SQL/backend layer (`SqliteBackend.queryEventsByType`).
    */
   streamPrefix?: string;
 }
-
-/** Pre-compiled regex for extracting the sequence number from a JSONL line before JSON.parse. */
-const SEQUENCE_REGEX = /"sequence":(\d+)/;
 
 // ─── Event Store Options ────────────────────────────────────────────────────
 
 export interface EventStoreOptions {
   backend?: StorageBackend;
-  /**
-   * Substrate selector for the lazily-constructed `AtomicAppender` returned
-   * by `getAppender()`. This is independent of `backend` (the read-delegate
-   * `StorageBackend`) — it controls whether the appender's body uses the
-   * legacy JSONL writer or the SQLite-backed writer (#1259, DR-1).
-   *
-   * Defaults to JSONL during the cutover, matching `AtomicAppender`'s own
-   * default. Tests that exercise SQLite-backed cross-stream concurrency
-   * through the full `EventStore` API set this to `'sqlite'`.
-   */
-  appenderBackend?: 'jsonl' | 'sqlite';
 }
 
 // ─── Integrity Result ───────────────────────────────────────────────────────
@@ -167,10 +150,14 @@ const DEFAULT_WAIT_MAX_DELAY_MS = 100;
 // ─── Event Store ────────────────────────────────────────────────────────────
 
 /**
- * Append-only event store backed by JSONL files with .seq sequence caches.
+ * Append-only event store backed by SQLite (substrate-cut, v2.11).
  *
- * When an optional `StorageBackend` is provided, reads (query, getSequence)
- * delegate to the backend while writes still go to JSONL first (dual-write).
+ * Reads and writes both flow through the appender's owned `SqliteBackend`
+ * — `getReadBackend()` always returns it, and `getAppender()` writes
+ * through the same handle. The legacy JSONL read/write path was removed
+ * in Phase 3; the optional `backend` constructor option is retained only
+ * for tests that inject an `InMemoryBackend` to drive read-path
+ * assertions.
  *
  * Cross-process safety: call `initialize()` before first use. The first
  * process to initialize acquires a PID lock; subsequent processes throw
@@ -214,13 +201,9 @@ export class EventStore {
    *  locks and sequence counters share state across handler calls. */
   private atomicAppender?: AtomicAppender;
 
-  /** Substrate selector for the AtomicAppender (#1259, DR-1). */
-  private readonly appenderBackend?: 'jsonl' | 'sqlite';
-
   constructor(private readonly stateDir: string, options?: EventStoreOptions) {
     this.lockFilePath = path.join(stateDir, '.event-store.lock');
     this.backend = options?.backend;
-    this.appenderBackend = options?.appenderBackend;
   }
 
   /** Returns the state directory path used by this event store. */
@@ -253,34 +236,20 @@ export class EventStore {
   /**
    * Resolve the read-delegate `StorageBackend` for this store.
    *
-   * v2.11 Phase 2 (substrate-cut): writes always flow through the SQLite
-   * appender, so reads converge on the same backend. The legacy
-   * "no-backend → JSONL fallback" branch is preserved as a defensive
-   * short-circuit when no append has happened yet (the appender's SQLite
-   * handle is constructed lazily on first write — `queryMainJsonl`
-   * returns `[]` for an empty stream which matches the empty-DB shape).
+   * v2.11 Phase 3 (substrate-cut, store collapse): SQLite is the only
+   * substrate. The legacy "no-backend → JSONL fallback" branch and the
+   * lazy `appenderBackend: 'sqlite'` selector were removed; reads always
+   * flow through the appender's owned `SqliteBackend` (force-eager via
+   * `ensureSqliteBackendSync()`). Resolves Sentry blocker r3213774862
+   * from #1323 (read-before-write returning `[]`).
    *
-   * Phase 3 collapses this to "always return the SQLite backend" once
-   * the JSONL read path is deleted.
-   *
-   *   1. An explicit `backend` was passed to the constructor — use it.
-   *      Legacy supplementary-read shape, retained for tests injecting
-   *      an `InMemoryBackend` to drive read-path assertions.
-   *   2. The appender already constructed its SQLite backend (any append
-   *      has happened on this `EventStore`) — route reads through that
-   *      backend so writes and reads share one view.
-   *   3. Neither — return undefined so the read path falls back to
-   *      `queryMainJsonl`, which legitimately yields `[]` for an empty
-   *      stream.
+   * The explicit `backend` constructor option is preserved as a test
+   * affordance: fixtures inject an `InMemoryBackend` to drive read-path
+   * assertions without touching the disk. In production no caller sets
+   * it.
    */
-  private getReadBackend(): StorageBackend | undefined {
+  private getReadBackend(): StorageBackend {
     if (this.backend) return this.backend;
-    // SQLite is the only substrate post-Phase-2. Force-eager the
-    // appender's SQLite handle even when no append has happened yet
-    // on THIS `EventStore` instance — otherwise a fresh store
-    // constructed against an existing on-disk DB would miss the
-    // backend and fall through to `queryMainJsonl`, which now returns
-    // `[]` because JSONL writes are gone.
     return this.getAppender().ensureSqliteBackendSync();
   }
 
@@ -468,16 +437,6 @@ export class EventStore {
         // Best-effort cleanup
       }
     });
-  }
-
-  private getEventFilePath(streamId: string): string {
-    validateStreamId(streamId);
-    return path.join(this.stateDir, `${streamId}.events.jsonl`);
-  }
-
-  private getSeqFilePath(streamId: string): string {
-    validateStreamId(streamId);
-    return path.join(this.stateDir, `${streamId}.seq`);
   }
 
   async append(
@@ -695,82 +654,10 @@ export class EventStore {
   }
 
   async query(streamId: string, filters?: QueryFilters): Promise<WorkflowEvent[]> {
-    // v2.11 Phase 1: sidecar merge path deleted (#1082). SQLite WAL handles
-    // cross-process concurrency natively; JSONL read path remains the
-    // backend-less default for stores that never attached one.
-    const readBackend = this.getReadBackend();
-    if (readBackend) {
-      return readBackend.queryEvents(streamId, filters);
-    }
-    return this.queryMainJsonl(streamId, filters);
-  }
-
-  /**
-   * Read events from the main `{streamId}.events.jsonl` file.
-   * Preserves the optimized fast-skip + early-termination loop.
-   */
-  private async queryMainJsonl(
-    streamId: string,
-    filters?: QueryFilters,
-  ): Promise<WorkflowEvent[]> {
-    const filePath = this.getEventFilePath(streamId);
-
-    try {
-      await fs.access(filePath);
-    } catch {
-      return [];
-    }
-
-    const events: WorkflowEvent[] = [];
-    const input = createReadStream(filePath, { encoding: 'utf-8' });
-    const rl = createInterface({ input, crlfDelay: Infinity });
-
-    let skipped = 0;
-    const offset = filters?.offset ?? 0;
-    const limit = filters?.limit;
-
-    // Pre-#1293, a "fast-skip" optimization assumed line N contains sequence
-    // N and skipped by physical line count alone. After the migration
-    // preserves corrupt histories (gaps, duplicates, offset starts), that
-    // invariant no longer holds — `[5,6,7]` with `sinceSequence: 6` would
-    // skip all three lines and miss event 7. Always use the regex-based
-    // parsed-sequence comparison; the JSON.parse cost is paid only by
-    // events that survive the filter, so the optimization wasn't load-
-    // bearing for the common case anyway. (CR thread 3205805940 /
-    // outside-diff for store.ts:911-922.)
-    for await (const line of rl) {
-      if (!line.trim()) continue;
-
-      if (filters?.sinceSequence !== undefined) {
-        const seqMatch = SEQUENCE_REGEX.exec(line);
-        if (seqMatch) {
-          const extractedSeq = parseInt(seqMatch[1], 10);
-          if (!isNaN(extractedSeq) && extractedSeq <= filters.sinceSequence) continue;
-        }
-      }
-
-      const parsed = JSON.parse(line);
-      const event = migrateEvent(parsed) as WorkflowEvent;
-
-      if (filters?.type && event.type !== filters.type) continue;
-      if (filters?.since && event.timestamp < filters.since) continue;
-      if (filters?.until && event.timestamp > filters.until) continue;
-
-      if (skipped < offset) {
-        skipped++;
-        continue;
-      }
-
-      events.push(event);
-
-      if (limit !== undefined && events.length >= limit) {
-        rl.close();
-        input.destroy();
-        break;
-      }
-    }
-
-    return events;
+    // v2.11 Phase 3: JSONL fallback removed. The read backend is always
+    // present (SqliteBackend force-eager via getReadBackend), so reads
+    // converge on the substrate the appender writes to.
+    return this.getReadBackend().queryEvents(streamId, filters);
   }
 
   /**
@@ -820,16 +707,16 @@ export class EventStore {
     if (filters?.since !== undefined) perStream.since = filters.since;
     if (filters?.until !== undefined) perStream.until = filters.until;
 
-    // Backend fast-path: when the storage backend exposes a cross-stream
-    // type query, use the SQL clause directly (`LIKE ? || '/%' OR = ?`)
-    // and skip the per-stream merge below. Backends without the method
-    // (in-memory, remote) fall through to the listStreams() enumeration.
-    //
-    // Resolve through `getReadBackend()` so `appenderBackend: 'sqlite'`
-    // (no explicit `backend` ctor arg) routes here too — bypassing this
-    // abstraction is a CLI ↔ MCP parity-breaking pattern (T62, INV-2).
+    // SQLite cross-stream fast-path: the SqliteBackend implements
+    // `queryEventsByType` with the SQL clause
+    //   WHERE streamId LIKE ? || '/%' OR streamId = ?
+    // matching the structural prefix semantic exactly. v2.11 Phase 3
+    // collapsed the JSONL listStreams enumeration fallback — the read
+    // backend is always present and SqliteBackend always implements this
+    // method. Test fixtures injecting an `InMemoryBackend` without
+    // `queryEventsByType` fall through to the per-stream merge below.
     const readBackend = this.getReadBackend();
-    if (readBackend && typeof readBackend.queryEventsByType === 'function') {
+    if (typeof readBackend.queryEventsByType === 'function') {
       const backendEvents = readBackend.queryEventsByType(eventType, prefix, perStream);
       const sortedBackend = backendEvents.slice().sort((a, b) => {
         const byTs = a.timestamp.localeCompare(b.timestamp);
@@ -841,10 +728,22 @@ export class EventStore {
       return limit !== undefined ? slicedBackend.slice(0, limit) : slicedBackend;
     }
 
-    // Stream selection (fallback): enumerate streams via backend.listStreams()
-    // when present, plus the JSONL state-dir scan, then apply the structural
-    // prefix filter locally.
-    const matchingStreams = await this.listStreamsMatchingPrefix(prefix);
+    // Backend without queryEventsByType (test fixtures, in-memory): use
+    // listStreams() to enumerate, apply the structural prefix filter
+    // locally, then merge per-stream results.
+    const matchingStreams: string[] = [];
+    {
+      const seen = new Set<string>();
+      for (const streamId of readBackend.listStreams()) {
+        if (seen.has(streamId)) continue;
+        const isExact = streamId === prefix;
+        const isDescendant = streamId.startsWith(`${prefix}/`);
+        if (isExact || isDescendant) {
+          matchingStreams.push(streamId);
+          seen.add(streamId);
+        }
+      }
+    }
 
     const merged: WorkflowEvent[] = [];
     for (const streamId of matchingStreams) {
@@ -867,97 +766,11 @@ export class EventStore {
   }
 
   /**
-   * Enumerate streams whose `streamId` is the given prefix or a namespaced
-   * descendant under it. Prefers the backend's `listStreams()` when available
-   * (SQL query at the SqliteBackend layer reduces to
-   * `WHERE streamId LIKE ? || '/%' OR streamId = ?`); otherwise scans the
-   * state directory for matching `*.events.jsonl` files.
-   *
-   * Substring lookalikes (`feat-1-extra` for prefix `feat-1`) are excluded —
-   * the namespaced form requires a literal `/` to be a descendant.
-   */
-  private async listStreamsMatchingPrefix(prefix: string): Promise<string[]> {
-    const matches: string[] = [];
-    const seen = new Set<string>();
-
-    const considerStream = (streamId: string): void => {
-      if (seen.has(streamId)) return;
-      const isExact = streamId === prefix;
-      const isDescendant = streamId.startsWith(`${prefix}/`);
-      if (isExact || isDescendant) {
-        matches.push(streamId);
-        seen.add(streamId);
-      }
-    };
-
-    // Backend path: trust listStreams() to enumerate every stream the
-    // backend has seen; then apply the structural prefix filter locally
-    // so the SQL/JSONL paths stay behaviourally indistinguishable.
-    //
-    // Resolve through `getReadBackend()` so `appenderBackend: 'sqlite'`
-    // (no explicit `backend` ctor arg) routes here too — bypassing this
-    // abstraction is a CLI ↔ MCP parity-breaking pattern (T62, INV-2).
-    const readBackend = this.getReadBackend();
-    if (readBackend) {
-      for (const streamId of readBackend.listStreams()) {
-        considerStream(streamId);
-      }
-    }
-
-    // JSONL path: probe the exact stream's `<stateDir>/<prefix>.events.jsonl`
-    // (covers single-segment AND multi-segment exact matches like
-    // `feat-1/sub-a.events.jsonl`), then recursively walk the directory
-    // `<stateDir>/<prefix>/` so descendants at any depth are discovered.
-    // Recursion mirrors how the SQL fast-path's `LIKE ? || '/%'` clause
-    // matches, so JSONL and backend results stay behaviourally aligned.
-    const exactPath = `${path.join(this.stateDir, prefix)}.events.jsonl`;
-    try {
-      await fs.access(exactPath);
-      considerStream(prefix);
-    } catch {
-      // No exact-match JSONL — fall through to descendant walk.
-    }
-
-    const walkDir = async (relDir: string): Promise<void> => {
-      let entries: import('node:fs').Dirent[];
-      try {
-        entries = await fs.readdir(path.join(this.stateDir, relDir), {
-          withFileTypes: true,
-        });
-      } catch (err) {
-        if ((err as NodeJS.ErrnoException).code === 'ENOENT') return;
-        throw err;
-      }
-      for (const entry of entries) {
-        const childRel = relDir === '' ? entry.name : `${relDir}/${entry.name}`;
-        if (entry.isFile() && entry.name.endsWith('.events.jsonl')) {
-          const streamId = childRel.slice(0, -'.events.jsonl'.length);
-          considerStream(streamId);
-        } else if (entry.isDirectory()) {
-          await walkDir(childRel);
-        }
-      }
-    };
-
-    if (prefix.length === 0) {
-      await walkDir('');
-    } else {
-      await walkDir(prefix);
-    }
-
-    return matches;
-  }
-
-  /**
    * List all known stream IDs.
-   * Delegates to backend when available; returns null otherwise
-   * (caller should fall back to directory scanning).
+   * Delegates to the read backend (always present post-Phase-3).
    */
-  listStreams(): string[] | null {
-    if (this.backend) {
-      return this.backend.listStreams();
-    }
-    return null;
+  listStreams(): string[] {
+    return this.getReadBackend().listStreams();
   }
 
   /**
@@ -970,26 +783,24 @@ export class EventStore {
    * has to duplicate that logic.
    *
    * Behaviour:
-   *   - No backend attached (JSONL-only install) → `{ok: 'skipped', ...}`
-   *   - Backend attached but does not implement `runIntegrityPragma`
-   *     (e.g. in-memory, remote) → `{ok: 'skipped', ...}`
+   *   - Backend does not implement `runIntegrityPragma` (e.g. in-memory,
+   *     remote test fixtures) → `{ok: 'skipped', ...}`
    *   - Backend verdict exactly `"ok"` → `{ok: true}`
    *   - Any other verdict → `{ok: false, details}` (corruption)
    *   - Probe exceeds `timeoutMs` → `{ok: false, details: 'integrity_check timed out after Nms'}`
    *   - External abort → rejects with AbortError (caller-initiated
    *     cancellation is an exception, not a result)
+   *
+   * After Phase 3, the read backend is always present (SQLite forced via
+   * `ensureSqliteBackendSync()` or an explicitly-injected fixture), so
+   * the legacy "no backend attached" skip branch is gone.
    */
   async runIntegrityCheck(opts?: {
     signal?: AbortSignal;
     timeoutMs?: number;
   }): Promise<IntegrityResult> {
-    if (!this.backend) {
-      return {
-        ok: 'skipped',
-        reason: 'JSONL-only install; no sqlite backend attached',
-      };
-    }
-    if (typeof this.backend.runIntegrityPragma !== 'function') {
+    const probeBackend = this.getReadBackend();
+    if (typeof probeBackend.runIntegrityPragma !== 'function') {
       return {
         ok: 'skipped',
         reason: 'backend does not support integrity_check (non-sqlite)',
@@ -1030,7 +841,7 @@ export class EventStore {
     const probePromise = (async (): Promise<IntegrityResult> => {
       // Non-null by the typeof guard above; capture into a local for
       // narrowing through the await boundary.
-      const probe = this.backend!.runIntegrityPragma!.bind(this.backend);
+      const probe = probeBackend.runIntegrityPragma!.bind(probeBackend);
       try {
         const verdict = await probe(controller.signal);
         if (verdict.trim().toLowerCase() === 'ok') {
@@ -1081,21 +892,17 @@ export class EventStore {
   }
 
   /**
-   * Clean up orphaned `.seq.tmp` files left behind by a crashed atomic
-   * sequence write, and ensure the AtomicAppender will rebuild its
-   * sequence counter for this stream from JSONL on next contact.
+   * Recovery hook retained for legacy callers (e.g. CLI restart paths
+   * that historically called this after a `SequenceConflictError`).
    *
-   * Pre-#1293 this was the legacy "re-read sequence from disk" recovery
-   * path used after a SequenceConflictError. The new substrate makes
-   * sequence rebuild implicit (every first-contact append rebuilds from
-   * JSONL under the lock), so this method now does only the housekeeping
-   * the rebuild can't safely do during an append:
-   *   - delete `<stream>.seq.tmp` if a previous process crashed mid-write.
-   * Sequence counters live inside AtomicAppender and self-recover via the
-   * normal append path.
+   * Pre-#1293 this rebuilt the in-memory sequence counter from disk.
+   * Post-substrate-cut, sequence rebuild is implicit (the SQLite
+   * substrate's `MAX(sequence)` query inside `AtomicAppender` rebuilds
+   * on first contact, and the `.seq.tmp` JSONL housekeeping artifact no
+   * longer exists). The method is a no-op kept only so external callers
+   * stay source-compatible across the cutover.
    */
   async refreshSequence(streamId: string): Promise<void> {
-    const tmpPath = `${this.getSeqFilePath(streamId)}.tmp`;
-    await fs.rm(tmpPath, { force: true }).catch(() => {});
+    validateStreamId(streamId);
   }
 }
