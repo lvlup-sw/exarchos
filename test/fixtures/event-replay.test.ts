@@ -2,6 +2,7 @@
 import { describe, it, expect, afterEach, beforeAll } from 'vitest';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { spawnMcpClient, type SpawnedMcpClient } from './mcp-client.js';
 import { withHermeticEnv } from './hermetic.js';
@@ -45,6 +46,16 @@ describe('event-replay primitives', () => {
     // of the `unit` project which does not gate on `exarchos` binary presence.
     if (!fs.existsSync(MCP_ENTRY)) {
       throw new Error(`MCP entry not found at ${MCP_ENTRY}.`);
+    }
+    // Bun preflight — every spawn site below uses `command: 'bun'`. A missing
+    // bun would surface late as an opaque ENOENT inside `transport.start()`;
+    // probe up-front so the failure message names the actual missing dep.
+    const probe = spawnSync('bun', ['--version'], { stdio: 'ignore' });
+    if (probe.error || probe.status !== 0) {
+      throw new Error(
+        `bun not found on PATH (required to spawn the MCP server because ` +
+          `it imports 'bun:sqlite'). Install via https://bun.sh and retry.`,
+      );
     }
   });
 
