@@ -1,19 +1,16 @@
 /**
- * T43 — ACCEPTANCE: phase contract loader + scorer + missing-event emission.
+ * T43 — ACCEPTANCE: phase contract loader + scorer (DR-7, v2.11 hard-cut).
  *
- * Validates DR-7 end-to-end:
+ * Validates DR-7 end-to-end on the v2.11 hard-cut surface:
  *   - typed `loadTopology()` parses `topology.yaml` into immutable `Topology`
- *   - pruner `scoreStaleness(state, contract)` honors typed contract when
- *     present (reduces over declared signals per `freshnessRequires`)
- *   - missing `staleness` block falls back to v2.9 single-signal heuristic
- *   - `phase.contract_missing` is emitted once per missing phase at load
+ *   - pruner `scoreStaleness(state, contract)` honors typed contract:
+ *       reduces over declared signals per `freshnessRequires`
+ *   - missing `staleness` block on any phase → loader THROWS (covered by
+ *     `loader.dr7-removal.test.ts`); the v2.10 advisory-fallback path
+ *     (`phase.contract_missing` emit + single-signal heuristic) was
+ *     removed in Phase 5c.
  *
- * Two fixtures: complete contracts (every phase declares staleness) and
- * partial contracts (some declare, some don't). Reuses the loader and
- * scorer modules from T44–T48. T58 will wire the loader into
- * `lifecycle.ts`; this acceptance test exercises the modules directly.
- *
- * Kept RED until T44+T45+T46+T47+T48 are GREEN.
+ * Single fixture: complete contracts (every phase declares staleness).
  */
 import { describe, it, expect } from 'vitest';
 import * as fs from 'node:fs';
@@ -125,7 +122,7 @@ phases:
     expect(allStale.isStale).toBe(true);
   });
 
-  it('partial contracts: pruner uses contract for declared phases; falls back to single-signal otherwise; emits per missing phase', async () => {
+  it('partial contracts: loader THROWS (v2.11 hard-cut); no advisory-fallback path remains', async () => {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'phase-contract-acc-partial-'));
     const yaml = `
 phases:
@@ -142,41 +139,16 @@ phases:
     writeTopologyFile(tmp, yaml);
     __resetTopologyCacheForTesting();
     const sink = makeEventSink();
-    const topology = await loadTopology({ topologyPath: path.join(tmp, 'topology.yaml'), emit: sink.emit });
 
-    // Declared phase has the contract; undeclared phases do not.
-    expect(topology.phases.design.staleness).toBeDefined();
-    expect(topology.phases.implement.staleness).toBeUndefined();
-    expect(topology.phases.review.staleness).toBeUndefined();
+    // v2.11 (DR-7): topology with any phase missing `staleness` is
+    // rejected at load time. The aggregated error names every offending
+    // phase ID for INV-5a self-correction.
+    await expect(
+      loadTopology({ topologyPath: path.join(tmp, 'topology.yaml'), emit: sink.emit }),
+    ).rejects.toThrow(/implement[\s\S]*review|review[\s\S]*implement/);
 
-    // Two missing-contract events emitted at load (one per missing phase).
-    const missing = sink.events.filter((e) => e.type === 'phase.contract_missing');
-    expect(missing).toHaveLength(2);
-    const phaseNames = missing.map((e) => (e.data as { phaseName: string }).phaseName).sort();
-    expect(phaseNames).toEqual(['implement', 'review']);
-
-    // Scorer for declared phase uses the contract.
-    const designResult = scoreStaleness(
-      {
-        lastActivityMinutes: 9999,
-      },
-      topology.phases.design.staleness,
-    );
-    expect(designResult.isStale).toBe(true);
-
-    // Scorer for undeclared phase falls back to v2.9 single-signal heuristic
-    // when contract is undefined: stale iff `lastActivityMinutes` exceeds the
-    // caller-provided threshold (default 20160 = 14 days).
-    const implementFallbackStale = scoreStaleness(
-      { lastActivityMinutes: 99_999, thresholdMinutes: 60 },
-      topology.phases.implement.staleness,
-    );
-    expect(implementFallbackStale.isStale).toBe(true);
-
-    const implementFallbackFresh = scoreStaleness(
-      { lastActivityMinutes: 10, thresholdMinutes: 60 },
-      topology.phases.implement.staleness,
-    );
-    expect(implementFallbackFresh.isStale).toBe(false);
+    // Loader emits NO `phase.contract_missing` advisory events on the
+    // v2.11 path — it throws first.
+    expect(sink.events.filter((e) => e.type === 'phase.contract_missing')).toHaveLength(0);
   });
 });
