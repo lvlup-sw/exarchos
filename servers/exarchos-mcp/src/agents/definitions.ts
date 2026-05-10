@@ -93,6 +93,7 @@ output from the Worktree Verification step above).`;
 
 export const IMPLEMENTER: AgentSpec = {
   id: 'implementer',
+  posture: 'task-isolated',
   description: `Use this agent when dispatching TDD implementation tasks to a subagent in an isolated worktree.
 
 <example>
@@ -166,6 +167,7 @@ When done, output a JSON completion report:
 
 export const FIXER: AgentSpec = {
   id: 'fixer',
+  posture: 'task-isolated',
   description: `Use this agent when a task has failed and needs diagnosis and repair with adversarial verification.
 
 <example>
@@ -238,6 +240,7 @@ When done, output a JSON completion report:
 
 export const REVIEWER: AgentSpec = {
   id: 'reviewer',
+  posture: 'read-only',
   description: `Use this agent when performing read-only code review for quality, design compliance, and test coverage.
 
 <example>
@@ -316,6 +319,7 @@ When done, output a JSON completion report:
 
 export const SCAFFOLDER: AgentSpec = {
   id: 'scaffolder',
+  posture: 'task-isolated',
   description: `Use this agent for low-complexity scaffolding tasks — file creation, boilerplate generation, and structural setup.
 
 <example>

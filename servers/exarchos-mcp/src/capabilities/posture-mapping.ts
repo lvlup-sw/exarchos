@@ -79,3 +79,25 @@ export function listPostures(): readonly AgentPosture[] {
 export function capabilitiesForPosture(posture: AgentPosture): ReadonlySet<Capability> {
   return POSTURE_CAPABILITY_MAP[posture];
 }
+
+// ─── #1333 / DR-6: posture + agentId → capability set ──────────────────────
+//
+// `resolveCapabilities` is the single source of truth at adapter render time
+// after the v2.10-preview.1 substrate cut. It collapses two previous paths
+// (`spec.capabilities` array literal + posture resolver) into one. Adapters
+// call this rather than reading `spec.capabilities`.
+//
+// β-01 stub: returns only the posture-derived set. β-02 will extend the
+// posture mapping to cover the long-tail capabilities currently declared on
+// each agent literal in `agents/definitions.ts`.
+
+/**
+ * Resolve the full capability set for an agent given its posture and id.
+ * Returns a frozen set whose mutators throw.
+ */
+export function resolveCapabilities(
+  posture: AgentPosture,
+  _agentId: string,
+): ReadonlySet<Capability> {
+  return POSTURE_CAPABILITY_MAP[posture];
+}
