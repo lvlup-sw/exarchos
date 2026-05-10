@@ -678,20 +678,25 @@ describe('validateCallMacro', () => {
   });
 
   it('ValidateCallMacro_InvalidArgs_FailsWithZodError', () => {
-    // exarchos_workflow set expects featureId as string, not number
+    // T5a.1/DR-4 (#1259, v2.11): the prior test exercised
+    // `exarchos_workflow.set`, removed in v2.11. `transition` is the
+    // canonical mutating action and replaces the validation case here —
+    // featureId must be a string and `target` must be a non-empty string.
     const ast: CallMacroAst = {
       tool: 'exarchos_workflow',
-      action: 'set',
-      args: { featureId: 123 },
+      action: 'transition',
+      args: { featureId: 123, target: 'plan' },
     };
     expect(() => validateCallMacro(ast)).toThrow(/validation|invalid|expected/i);
   });
 
   it('ValidateCallMacro_ValidCall_Passes', () => {
+    // T5a.1/DR-4 (#1259, v2.11): replaces the prior `set({phase})` case
+    // with the canonical `transition({target})` shape.
     const ast: CallMacroAst = {
       tool: 'exarchos_workflow',
-      action: 'set',
-      args: { featureId: 'my-feature', phase: 'plan' },
+      action: 'transition',
+      args: { featureId: 'my-feature', target: 'plan' },
     };
     expect(() => validateCallMacro(ast)).not.toThrow();
   });
@@ -1074,10 +1079,12 @@ describe('buildAllSkills — task 009: render-time CALL macro failures', () => {
     const srcDir = join(root, 'skills-src');
     const outDir = join(root, 'skills');
     mkdirSync(join(srcDir, 'bad-args'), { recursive: true });
-    // "set" requires at minimum featureId — empty args should fail validation
+    // T5a.1/DR-4 (#1259, v2.11): the prior fixture used `set` (removed in
+    // v2.11). `transition` requires at minimum `featureId` and `target` —
+    // empty args still fail schema validation, exercising the same path.
     writeFileSync(
       join(srcDir, 'bad-args', 'SKILL.md'),
-      '{{CALL exarchos_workflow set {}}}',
+      '{{CALL exarchos_workflow transition {}}}',
     );
 
     let err: Error | undefined;

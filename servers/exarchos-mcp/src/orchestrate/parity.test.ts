@@ -292,9 +292,12 @@ describe('exarchos_orchestrate CLI-vs-MCP parity', () => {
     // bypass triggers and we don't need to seed tdd/static-analysis gate events.
     const streamId = 'parity-complete-wf';
 
-    const seedStream = async (stateDir: string) => {
-      const store = new EventStore(stateDir);
-      await store.initialize();
+    // Reuse the arm's already-initialized EventStore. Pre-v2.11 a fresh
+    // `new EventStore(stateDir).initialize()` here silently entered sidecar
+    // mode under the existing PID lock; v2.11 (#1082) deletes that
+    // fallback, so the seed must operate on the same store the dispatch
+    // path will read through.
+    const seedStream = async (store: EventStore) => {
       await store.append(streamId, {
         type: 'task.assigned',
         data: { taskId: 't-parity-2', title: 'Parity complete', assignee: 'agent-parity' },
@@ -319,7 +322,7 @@ describe('exarchos_orchestrate CLI-vs-MCP parity', () => {
 
     const cliArm = await createArm('parity-complete-cli-');
     arms.push(cliArm);
-    await seedStream(cliArm.stateDir);
+    await seedStream(cliArm.ctx.eventStore);
 
     // Act (CLI)
     resetMaterializerCache();
@@ -327,7 +330,7 @@ describe('exarchos_orchestrate CLI-vs-MCP parity', () => {
 
     const mcpArm = await createArm('parity-complete-mcp-');
     arms.push(mcpArm);
-    await seedStream(mcpArm.stateDir);
+    await seedStream(mcpArm.ctx.eventStore);
 
     // Act (MCP)
     resetMaterializerCache();

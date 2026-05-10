@@ -25,9 +25,10 @@
 //     positive-case action: `exarchos_view` is wholesale read-only
 //     (READ_ONLY_ACTIONS.exarchos_view === '*'), so the gate is a pure
 //     no-op and any divergence has to come from facade-specific shaping.
-//   - `workflow set` is the negative-case action: it is the canonical
-//     mutating workflow operation (auto-emits state.patched in normal use)
-//     and is explicitly outside READ_ONLY_ACTIONS.exarchos_workflow.
+//   - `workflow transition` is the negative-case action: it is the
+//     canonical mutating phase-transition operation (post-DR-4 hard-cut
+//     of the prior `set` rerouting surface) and is explicitly outside
+//     READ_ONLY_ACTIONS.exarchos_workflow.
 //   - The stateDir is shared between the two arms so any deterministic
 //     read returns identical materialized output regardless of which
 //     facade is queried first.
@@ -139,22 +140,24 @@ describe('CLI/MCP parity under mcp:exarchos:readonly (Issue #1192, T12)', () => 
   });
 
   it('Readonly_MutatingAction_RejectsIdentically_From_CLI_AndMCP', async () => {
-    // Arrange — `workflow set` is the canonical mutating action; it is
-    // explicitly NOT on READ_ONLY_ACTIONS.exarchos_workflow.
+    // T5a.1/DR-4 (#1259, v2.11): `workflow transition` is the canonical
+    // mutating action (post-`set` hard-cut). It is explicitly NOT on
+    // READ_ONLY_ACTIONS.exarchos_workflow, so the readonly gate must
+    // reject it on both facades.
     const args = {
       featureId: 'parity-readonly-feature',
-      updates: { phase: 'ideate' },
+      target: 'plan',
     };
 
     // Act — both facades against the same ctx.
     const mcpResult = await harnessCallMcp(fixture.ctx, 'exarchos_workflow', {
-      action: 'set',
+      action: 'transition',
       ...args,
     });
     const { result: cliResult, exitCode } = await harnessCallCli(
       fixture.ctx,
       'wf',
-      'set',
+      'transition',
       args,
     );
 
@@ -173,8 +176,8 @@ describe('CLI/MCP parity under mcp:exarchos:readonly (Issue #1192, T12)', () => 
     expect(cliResult.error?.code).toBe('CAPABILITY_DENIED');
     expect(mcpResult.error?.tool).toBe('exarchos_workflow');
     expect(cliResult.error?.tool).toBe('exarchos_workflow');
-    expect(mcpResult.error?.action).toBe('set');
-    expect(cliResult.error?.action).toBe('set');
+    expect(mcpResult.error?.action).toBe('transition');
+    expect(cliResult.error?.action).toBe('transition');
 
     // Strongest assertion: the entire normalized error envelope matches.
     // If a future change adds a facade-specific field (e.g. CLI tacks on

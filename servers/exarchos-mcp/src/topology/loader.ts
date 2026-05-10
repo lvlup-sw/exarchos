@@ -1,20 +1,28 @@
 /**
- * Typed phase-contract loader (DR-7).
+ * Typed phase-contract loader (DR-7, v2.11 hard-cut).
  *
  * Exposes `loadTopology()` for one-time-at-startup parsing of
  * `topology.yaml` into a frozen, typed `Topology` object, and
  * `getTopology()` for subsequent in-process accessors.
  *
+ * v2.11 (DR-7) semantics:
+ *   - Every phase MUST declare a typed `staleness` block. Topology sources
+ *     containing one or more phases without `staleness` are REJECTED at
+ *     load time with a structured `Error` aggregating every offending
+ *     phase ID and an INV-5a self-correction breadcrumb.
+ *   - The pre-v2.11 advisory branch (warn-and-emit `phase.contract_missing`
+ *     with single-signal heuristic fallback in the pruner) was removed in
+ *     this phase. The event TYPE remains registered in `event-store/schemas.ts`
+ *     for replay of v2.10-era events; the loader no longer emits it.
+ *   - The optional `emit` parameter is retained on the options shape for
+ *     historical-binary compatibility (callers may still wire an emitter)
+ *     but is NEVER invoked for `phase.contract_missing`. It is harmless
+ *     dead-code on the v2.11 path and can be removed in a follow-up.
+ *
  * Design notes:
  *   - The loader is testable in isolation: the canonical topology path
- *     and an event emitter are explicit options, not hard-coded
- *     dependencies. T58 (Phase 8) wires this into `lifecycle.ts` with
- *     the production path and the canonical event store.
- *   - `phase.contract_missing` is emitted exactly once per phase missing
- *     a `staleness` block on first successful load. Repeat calls return
- *     the cached topology and do not re-emit. Concurrent first-loads
- *     (T71) share a Promise-cached singleton so racing callers also
- *     see a single emission per missing phase, not N (one per caller).
+ *     is an explicit option, not a hard-coded dependency. `core/context.ts`
+ *     wires this into `initializeContext()` with the production path.
  */
 import * as fs from 'node:fs/promises';
 import { parse as parseYaml } from 'yaml';
@@ -23,26 +31,9 @@ import { TopologySchema, type Topology } from './phase-contract.js';
 
 const topologyLogger = logger.child({ subsystem: 'topology' });
 
-/**
- * Minimal event-emission shape — caller (lifecycle wiring) supplies an
- * adapter over `EventStore.append`. Kept structural so unit tests pass
- * an in-memory sink.
- */
-export type TopologyEventEmitter = (
-  streamId: string,
-  event: { type: 'phase.contract_missing'; data: { phaseName: string } },
-) => Promise<void>;
-
 export interface LoadTopologyOptions {
   /** Absolute path to `topology.yaml`. T58 supplies the project default. */
   topologyPath: string;
-  /**
-   * Optional event emitter. When present, the loader emits
-   * `phase.contract_missing` once per missing-contract phase on first
-   * load. Absent → emission is a no-op (loader stays usable in pure
-   * unit contexts that don't need the event side effect).
-   */
-  emit?: TopologyEventEmitter;
 }
 
 let cached: Topology | undefined;
@@ -65,9 +56,6 @@ let cached: Topology | undefined;
  * not permanently poison the loader).
  */
 let loadingPromise: Promise<Topology> | undefined;
-
-/** Stream ID for substrate-level events emitted at startup. */
-const STARTUP_STREAM = '_substrate';
 
 /**
  * Recursively freeze a topology object. `Object.freeze` is shallow, but
@@ -99,16 +87,16 @@ export async function loadTopology(options: LoadTopologyOptions): Promise<Topolo
     const parsed = parseYaml(raw) as unknown;
     const topology = TopologySchema.parse(parsed);
 
-    // Walk phases once. Collect names missing the `staleness` block so we
-    // can both:
-    //   - emit `phase.contract_missing` per missing phase (when an event
-    //     sink is wired — T58 supplies it from lifecycle); and
-    //   - surface a single warn-level log line listing every missing
-    //     phase, so operators see the gap even when running in a context
-    //     without an event sink (CLI dry-runs, test harnesses).
+    // DR-7 v2.11 hard-cut — aggregate ALL phases lacking a `staleness`
+    // block, then THROW. Pre-v2.11 the loader logged a warn line and
+    // emitted `phase.contract_missing` advisory events; both branches
+    // are gone. Operators must repair every offending phase before
+    // startup proceeds.
     //
-    // We build the list before any `await` to keep the per-phase emission
-    // order deterministic.
+    // We aggregate (not first-fail) so a single startup attempt surfaces
+    // the entire repair set — INV-5a self-correction breadcrumb. The
+    // ordered walk over `Object.entries(topology.phases)` keeps the
+    // error-message phase order deterministic for snapshot-style tests.
     const missingPhaseNames: string[] = [];
     for (const [phaseName, phaseEntry] of Object.entries(topology.phases)) {
       if (phaseEntry.staleness === undefined) {
@@ -117,19 +105,16 @@ export async function loadTopology(options: LoadTopologyOptions): Promise<Topolo
     }
 
     if (missingPhaseNames.length > 0) {
-      topologyLogger.warn(
+      const message =
+        `Topology validation failed (DR-7): ${missingPhaseNames.length} phase(s) ` +
+        `missing required \`staleness\` contract: ${missingPhaseNames.join(', ')}. ` +
+        `Add a \`staleness\` block to each listed phase in topology.yaml ` +
+        `(declare \`expectedMaxDwellMinutes\`, \`signals\`, and \`freshnessRequires\`).`;
+      topologyLogger.error(
         { missingPhases: missingPhaseNames, count: missingPhaseNames.length },
-        'phase.contract_missing — phases lack typed staleness contracts; pruner falls back to single-signal heuristic',
+        message,
       );
-    }
-
-    if (options.emit) {
-      for (const phaseName of missingPhaseNames) {
-        await options.emit(STARTUP_STREAM, {
-          type: 'phase.contract_missing',
-          data: { phaseName },
-        });
-      }
+      throw new Error(message);
     }
 
     cached = deepFreeze(topology);

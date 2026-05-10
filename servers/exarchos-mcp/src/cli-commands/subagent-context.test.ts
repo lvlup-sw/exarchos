@@ -392,33 +392,22 @@ describe('subagent-context', () => {
     });
 
     describe('queryModuleHistory', () => {
-      it('should return relevant events when JSONL contains matching module references', async () => {
-        // Arrange
-        const jsonlContent = [
-          '{"streamId":"test","sequence":1,"timestamp":"2026-01-01T00:00:00Z","type":"workflow.fix-cycle","data":{"compoundStateId":"auth-review","count":2,"featureId":"test-feature"},"schemaVersion":"1.0"}',
-          '{"streamId":"test","sequence":2,"timestamp":"2026-01-01T00:00:01Z","type":"task.completed","data":{"taskId":"task-001","artifacts":["src/auth/login.ts"]},"schemaVersion":"1.0"}',
-          '{"streamId":"test","sequence":3,"timestamp":"2026-01-01T00:00:02Z","type":"task.completed","data":{"taskId":"task-002","artifacts":["src/api/routes.ts"]},"schemaVersion":"1.0"}',
-        ].join('\n');
+      // v2.11 substrate cut: queryModuleHistory is a no-op stub. The
+      // pre-v2.11 JSONL-scan implementation depended on `*.events.jsonl`
+      // files that the substrate cut deletes. A SQLite-backed
+      // reimplementation is tracked as v2.12 follow-up.
+      it('returns empty array (v2.11 stub — JSONL substrate gone)', async () => {
         await fs.writeFile(
           path.join(tempDir, 'test-feature.events.jsonl'),
-          jsonlContent,
+          '{"streamId":"test","sequence":1,"timestamp":"2026-01-01T00:00:00Z","type":"task.completed","data":{"taskId":"task-001","artifacts":["src/auth/login.ts"]},"schemaVersion":"1.0"}',
           'utf-8',
         );
-
-        // Act
         const result = await queryModuleHistory(tempDir, ['auth']);
-
-        // Assert — should return only events referencing 'auth'
-        expect(result.length).toBe(2);
-        expect(result[0]).toHaveProperty('type', 'workflow.fix-cycle');
-        expect(result[1]).toHaveProperty('type', 'task.completed');
+        expect(result).toEqual([]);
       });
 
-      it('should return empty array when state directory has no events', async () => {
-        // Act — tempDir is empty
+      it('returns empty array when state directory has no events', async () => {
         const result = await queryModuleHistory(tempDir, ['auth']);
-
-        // Assert
         expect(result).toEqual([]);
       });
     });
@@ -499,12 +488,13 @@ describe('subagent-context', () => {
       await cleanupDir(tempDir);
     });
 
-    it('should include non-empty context field when active workflow has relevant events', async () => {
-      // Arrange — active workflow + JSONL events with fix-cycle
+    // v2.11 substrate cut: queryModuleHistory is a no-op stub. The
+    // pre-v2.11 test asserted non-empty context; v2.11 always returns
+    // empty until a SQLite-backed reimplementation lands.
+    it('should return empty context field even with seeded JSONL fixtures (v2.11 stub)', async () => {
       await writeStateFile(tempDir, 'my-feature', 'delegate');
       const jsonlContent = [
         '{"streamId":"my-feature","sequence":1,"timestamp":"2026-01-01T00:00:00Z","type":"workflow.fix-cycle","data":{"compoundStateId":"auth-review","count":2,"featureId":"my-feature"},"schemaVersion":"1.0"}',
-        '{"streamId":"my-feature","sequence":2,"timestamp":"2026-01-01T00:00:01Z","type":"task.completed","data":{"taskId":"task-001","artifacts":["src/auth/login.ts"]},"schemaVersion":"1.0"}',
       ].join('\n');
       await fs.writeFile(
         path.join(tempDir, 'my-feature.events.jsonl'),
@@ -512,13 +502,10 @@ describe('subagent-context', () => {
         'utf-8',
       );
 
-      // Act
       const result = await handleSubagentContext({ cwd: '/tmp/wt-auth-service/src' });
 
-      // Assert
       expect(result).toHaveProperty('context');
-      expect(typeof result.context).toBe('string');
-      expect((result.context as string).length).toBeGreaterThan(0);
+      expect(result.context).toBe('');
     });
 
     it('should have empty context when active workflow exists but no events', async () => {
@@ -899,14 +886,15 @@ describe('subagent-context', () => {
       expect(result.liveTaskStatus as string).toContain('complete');
     });
 
-    it('should retain historical intelligence in subagent mode (no team config)', async () => {
-      // Arrange — active workflow WITHOUT team config
+    // v2.11 substrate cut: subagent mode no longer derives historical
+    // intelligence from JSONL files. The context field is always empty
+    // until a SQLite-backed reimplementation lands. The test still
+    // pins the structural shape (string field present, mode routing
+    // unchanged).
+    it('returns empty context in subagent mode (v2.11 stub — no team config)', async () => {
       const featureId = 'solo-feature';
       await writeStateFile(tempDir, featureId, 'delegate');
 
-      // EXARCHOS_TEAMS_DIR points to tempTeamsDir which has no config for this feature
-
-      // Add JSONL events that should be found
       const jsonlContent = [
         `{"streamId":"${featureId}","sequence":1,"timestamp":"2026-01-01T00:00:00Z","type":"workflow.fix-cycle","data":{"compoundStateId":"auth-review","count":2,"featureId":"${featureId}"},"schemaVersion":"1.0"}`,
       ].join('\n');
@@ -916,13 +904,10 @@ describe('subagent-context', () => {
         'utf-8',
       );
 
-      // Act
       const result = await handleSubagentContext({ cwd: '/tmp/wt-auth-service/src' });
 
-      // Assert — context should be non-empty (historical intelligence preserved in subagent mode)
       expect(typeof result.context).toBe('string');
-      expect((result.context as string).length).toBeGreaterThan(0);
-      expect(result.context as string).toContain('fix cycle');
+      expect(result.context).toBe('');
     });
 
     it('should always retain tool guidance regardless of mode', async () => {

@@ -5,7 +5,11 @@ import { EventStore } from '../event-store/store.js';
 vi.mock('./tools.js', () => ({
   handleInit: vi.fn().mockResolvedValue({ success: true, data: { phase: 'init-result' } }),
   handleGet: vi.fn().mockResolvedValue({ success: true, data: { phase: 'get-result' } }),
-  handleSet: vi.fn().mockResolvedValue({ success: true, data: { phase: 'set-result' } }),
+  // T5a.1/DR-4 (#1259, v2.11): `handleSet` is no longer dispatched from the
+  // composite handler. The action is removed; phase mutation routes through
+  // `handleTransition` directly. Mock retained for any indirect callers
+  // (none today) to keep this surface a no-op stub.
+  handleTransition: vi.fn().mockResolvedValue({ success: true, data: { phase: 'transition-result' } }),
   handleReconcileState: vi.fn().mockResolvedValue({ success: true, data: { reconciled: true, eventsApplied: 3 } }),
 }));
 
@@ -29,7 +33,7 @@ vi.mock('./rehydrate.js', () => ({
 }));
 
 import { handleWorkflow } from './composite.js';
-import { handleInit, handleGet, handleSet, handleReconcileState } from './tools.js';
+import { handleInit, handleGet, handleTransition, handleReconcileState } from './tools.js';
 import { handleCancel } from './cancel.js';
 import {
   ANTHROPIC_NATIVE_CACHING,
@@ -83,21 +87,41 @@ describe('handleWorkflow', () => {
     });
   });
 
-  describe('set action', () => {
-    it('should delegate to handleSet with correct args', async () => {
-      const args = { action: 'set', featureId: 'test', phase: 'delegate', updates: { track: 'polish' } };
+  // T5a.1/DR-4 (#1259, v2.11): the prior `set action` describe block
+  // exercised the deprecated rerouting path (`set({phase})` →
+  // `handleSet`). The action is removed in v2.11; phase mutation now routes
+  // through `transition` directly. Mirror the previous coverage shape on
+  // the canonical action so the dispatch wiring stays witnessed.
+  describe('transition action', () => {
+    it('should delegate to handleTransition with correct args', async () => {
+      const args = { action: 'transition', featureId: 'test', target: 'delegate' };
 
       const result = await handleWorkflow(args, ctx);
 
-      expect(handleSet).toHaveBeenCalledWith(
-        { featureId: 'test', phase: 'delegate', updates: { track: 'polish' } },
+      expect(handleTransition).toHaveBeenCalledWith(
+        { featureId: 'test', target: 'delegate' },
         stateDir,
         ctx.eventStore,
         undefined,
       );
       expect(result.success).toBe(true);
-      expect(result.data).toEqual({ phase: 'set-result' });
+      expect(result.data).toEqual({ phase: 'transition-result' });
       expect((result as Record<string, unknown>).next_actions).toEqual([]);
+    });
+  });
+
+  describe('set action (DR-4 hard-cut)', () => {
+    it('should return UNKNOWN_ACTION error with validActions', async () => {
+      const args = { action: 'set', featureId: 'test', phase: 'delegate' };
+
+      const result = await handleWorkflow(args, ctx);
+
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe('UNKNOWN_ACTION');
+      const validActions = (result.error as { validActions?: unknown })
+        ?.validActions;
+      expect(Array.isArray(validActions)).toBe(true);
+      expect(validActions as string[]).toContain('transition');
     });
   });
 

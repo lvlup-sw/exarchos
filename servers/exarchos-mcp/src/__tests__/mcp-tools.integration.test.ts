@@ -14,7 +14,7 @@ import { handleEvent } from '../event-store/composite.js';
 import { handleView } from '../views/composite.js';
 import { handleOrchestrate } from '../orchestrate/composite.js';
 import { handleSync } from '../sync/composite.js';
-import { configureWorkflowMaterializer } from '../workflow/tools.js';
+import { configureWorkflowMaterializer, handleSet } from '../workflow/tools.js';
 import { EventStore } from '../event-store/store.js';
 import { resetMaterializerCache } from '../views/tools.js';
 import type { DispatchContext } from '../core/dispatch.js';
@@ -50,8 +50,13 @@ afterEach(async () => {
 describe('Task 7: Workflow + Event Round-Trip Tests', () => {
   // ── Test 1: Workflow_InitGetSet_RoundTrip ─────────────────────────────────
 
-  describe('Workflow_InitGetSet_RoundTrip', () => {
-    it('should init, get, set, and get again with correct state', async () => {
+  describe('Workflow_InitGetTransition_RoundTrip', () => {
+    // T5a.1/DR-4 (#1259, v2.11): renamed from `Workflow_InitGetSet_RoundTrip`.
+    // The `set` MCP action is removed; phase mutation routes through
+    // `transition`. Artifact-field seeding (formerly via `set({updates})`)
+    // uses direct `handleSet` import — the function is still exported for
+    // internal use but is no longer exposed as an MCP-action surface.
+    it('should init, get, transition, and get again with correct state', async () => {
       // Arrange & Act: init
       const initResult = await handleWorkflow(
         { action: 'init', featureId: 'test-feat', workflowType: 'feature' },
@@ -71,17 +76,20 @@ describe('Task 7: Workflow + Event Round-Trip Tests', () => {
       expect(state1.featureId).toBe('test-feat');
       expect(state1.workflowType).toBe('feature');
 
-      // Act: set guard field and transition to plan
-      await handleWorkflow(
-        { action: 'set', featureId: 'test-feat', updates: { 'artifacts.design': 'docs/design.md' } },
-        ctx(),
+      // Act: seed guard field via direct handleSet (no longer reachable as
+      // an MCP action) and then transition to plan.
+      const c = ctx();
+      await handleSet(
+        { featureId: 'test-feat', updates: { 'artifacts.design': 'docs/design.md' } },
+        c.stateDir,
+        c.eventStore,
       );
-      const setResult = await handleWorkflow(
-        { action: 'set', featureId: 'test-feat', phase: 'plan' },
-        ctx(),
+      const transitionResult = await handleWorkflow(
+        { action: 'transition', featureId: 'test-feat', target: 'plan' },
+        c,
       );
-      expect(setResult.success).toBe(true);
-      expect((setResult.data as Record<string, unknown>).phase).toBe('plan');
+      expect(transitionResult.success).toBe(true);
+      expect((transitionResult.data as Record<string, unknown>).phase).toBe('plan');
 
       // Act: get after transition
       const getResult2 = await handleWorkflow(
@@ -256,17 +264,21 @@ describe('Task 8: View + Orchestrate + Sync Integration Tests', () => {
   describe('View_Pipeline_MaterializesFromEvents', () => {
     it('should return pipeline view reflecting workflow events', async () => {
       // Arrange: init a workflow (which creates a state file) and emit events
+      // T5a.1/DR-4 (v2.11): `set` MCP action removed. Direct `handleSet`
+      // call seeds the guard field; `transition` performs the phase change.
       await handleWorkflow(
         { action: 'init', featureId: 'pipeline-test', workflowType: 'feature' },
         ctx(),
       );
-      await handleWorkflow(
-        { action: 'set', featureId: 'pipeline-test', updates: { 'artifacts.design': 'design.md' } },
-        ctx(),
+      const pipelineCtx = ctx();
+      await handleSet(
+        { featureId: 'pipeline-test', updates: { 'artifacts.design': 'design.md' } },
+        pipelineCtx.stateDir,
+        pipelineCtx.eventStore,
       );
       await handleWorkflow(
-        { action: 'set', featureId: 'pipeline-test', phase: 'plan' },
-        ctx(),
+        { action: 'transition', featureId: 'pipeline-test', target: 'plan' },
+        pipelineCtx,
       );
 
       // Act: get pipeline view
@@ -383,14 +395,18 @@ describe('Task 9: Cross-Tool Lifecycle Integration Tests', () => {
       );
       expect(initResult.success).toBe(true);
 
-      // Step 2: Set guard field and transition to plan (emits workflow.transition)
-      await handleWorkflow(
-        { action: 'set', featureId: 'lifecycle-feat', updates: { 'artifacts.design': 'docs/design.md' } },
-        ctx(),
+      // Step 2: Seed guard field and transition to plan (emits workflow.transition)
+      // T5a.1/DR-4 (v2.11): `set` MCP action removed. Field seeding uses
+      // direct `handleSet`; phase transitions use the `transition` action.
+      const lifecycleCtx = ctx();
+      await handleSet(
+        { featureId: 'lifecycle-feat', updates: { 'artifacts.design': 'docs/design.md' } },
+        lifecycleCtx.stateDir,
+        lifecycleCtx.eventStore,
       );
       const toPlan = await handleWorkflow(
-        { action: 'set', featureId: 'lifecycle-feat', phase: 'plan' },
-        ctx(),
+        { action: 'transition', featureId: 'lifecycle-feat', target: 'plan' },
+        lifecycleCtx,
       );
       expect(toPlan.success).toBe(true);
       expect((toPlan.data as Record<string, unknown>).phase).toBe('plan');
@@ -422,25 +438,27 @@ describe('Task 9: Cross-Tool Lifecycle Integration Tests', () => {
       expect((getResult.data as Record<string, unknown>).phase).toBe('plan');
 
       // Step 5: Set plan artifact, transition to plan-review
-      await handleWorkflow(
-        { action: 'set', featureId: 'lifecycle-feat', updates: { 'artifacts.plan': 'docs/plan.md' } },
-        ctx(),
+      await handleSet(
+        { featureId: 'lifecycle-feat', updates: { 'artifacts.plan': 'docs/plan.md' } },
+        lifecycleCtx.stateDir,
+        lifecycleCtx.eventStore,
       );
       const toPlanReview = await handleWorkflow(
-        { action: 'set', featureId: 'lifecycle-feat', phase: 'plan-review' },
-        ctx(),
+        { action: 'transition', featureId: 'lifecycle-feat', target: 'plan-review' },
+        lifecycleCtx,
       );
       expect(toPlanReview.success).toBe(true);
       expect((toPlanReview.data as Record<string, unknown>).phase).toBe('plan-review');
 
       // Step 6: Set planReview.approved and transition to delegate
-      await handleWorkflow(
-        { action: 'set', featureId: 'lifecycle-feat', updates: { planReview: { approved: true } } },
-        ctx(),
+      await handleSet(
+        { featureId: 'lifecycle-feat', updates: { planReview: { approved: true } } },
+        lifecycleCtx.stateDir,
+        lifecycleCtx.eventStore,
       );
       const toDelegate = await handleWorkflow(
-        { action: 'set', featureId: 'lifecycle-feat', phase: 'delegate' },
-        ctx(),
+        { action: 'transition', featureId: 'lifecycle-feat', target: 'delegate' },
+        lifecycleCtx,
       );
       expect(toDelegate.success).toBe(true);
       expect((toDelegate.data as Record<string, unknown>).phase).toBe('delegate');

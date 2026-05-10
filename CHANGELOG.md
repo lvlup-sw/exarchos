@@ -4,6 +4,37 @@ All notable changes to Exarchos are documented in this file. Organized by semver
 
 ## [2.10.0] - 2026-05-09
 
+### v2.11 Substrate Cut (Breaking)
+
+Closes #1327 (Tier 2 JSONL rip), #1326 (idempotency-claims bypass — subsumed), #1328 (JSONL batch_append drop — subsumed), #1322 (DR-4 / DR-6 / DR-7 deprecation-shim removals + §5 `_testOnly_` productionization + §6 substrate-stream migration), #1082 (sidecar mode obsolete). Net deletion: ~4900 LOC across 87 files.
+
+#### Breaking — runtime substrate
+
+- **SQLite is mandatory.** `initializeBackend` returns a `SqliteBackend` or throws. The graceful `'better-sqlite3 not available — running in JSONL-only mode'` fallback is removed. Operators on machines without a SQLite driver must install `better-sqlite3` (Node) or run under `bun` (`bun:sqlite`); the error message names both.
+- **No upgrade path from v2.10 JSONL state directories.** Starting v2.11 against a state directory containing `*.events.jsonl` and no `events.db` throws with operator-actionable text ("stay on v2.10 or wipe state"). The one-shot JSONL→SQLite hydrator (`storage/hydration.ts`) is deleted; v2.10 remains available on the install URL for users who need to retain JSONL data.
+- **JSONL runtime substrate removed.** `AtomicAppender.appendLocked` (the JSONL body), the `backend: 'jsonl' | 'sqlite'` discriminator, `dispatchAppend` branch, `.seq` file machinery, `rebuildCachesFromJsonl`, the JSONL idempotency cache, `replicateBackend`, `writeOutbox`, the JSONL fallbacks in `EventStore.query()` and `listStreamsMatchingPrefix`, `queryMainJsonl`, `readJsonlMaxSequence`, `readSidecarForQuery`, `getEventFilePath`, and `getSeqFilePath` are all deleted. `getReadBackend()` always returns the SqliteBackend (no `undefined` short-circuit). Resolves the Sentry blocker `r3213774862` (#1323).
+- **Sidecar mode removed (#1082).** SQLite WAL handles concurrent access natively; `enterSidecarMode`, `getSidecarPath`, `EventStore.sidecarMode`, `writeSidecar`, the sidecar-merge in `query()`, `mergeByTimestamp`, and the `EventAck.sequencePending` field are all deleted. PID-lock contention now hard-throws by default (`waitForLock: true` retains retry).
+
+#### Breaking — agent-facing contracts
+
+- **`workflow.set({ phase })` removed (DR-4).** The v2.10 deprecation rerouting handler is deleted. Agents calling `set` with a `phase` argument now receive a structured `UNKNOWN_ACTION` error envelope listing `validActions: ['transition', ...]`. The `_meta.deprecation` schema slot is retained one more release as a historical marker (drops in v2.12); `set` no longer populates it.
+- **Legacy `capabilities[]` arrays in agent specs removed (DR-6).** Specs declaring `capabilities: [...]` now fail validation with a typed error pointing to `posture` as the replacement. The `posture` field (`'read-only' | 'task-isolated' | 'shared-mutating'`) is the only authority over `yaml ⊕ handshake` capability resolution. Four in-tree `AgentSpec` definitions (`IMPLEMENTER`, `FIXER`, `REVIEWER`, `SCAFFOLDER` in `servers/exarchos-mcp/src/agents/definitions.ts`) still carry legacy arrays consumed by runtime adapters at render time — out of scope for this cut, tracked in #1333.
+- **Topology phases require `staleness` blocks (DR-7).** `loadTopology()` throws on any phase missing a `staleness` declaration; the v2.10 advisory `phase.contract_missing` event-emission branch is gone. The pruner becomes a pure typed-contract scorer — the single-signal heuristic fallback is deleted. `core/context.ts:loadTopologyIfPresent` swallows the throw so a malformed topology does not block substrate startup; `getTopology()` continues to throw "load before" until a successful load.
+
+#### Productionized
+
+- **`_testOnly_getSqliteBackend` → `getSqliteBackend` (DR-4 §5).** The leak-named helper is renamed; `EventStore.getReadBackend()` calls it via the public name. Verified zero `_testOnly_*` references in production code paths.
+
+#### Operational notes
+
+- **Forensic inspection.** Pre-v2.11 `cat *.events.jsonl` was the human-readable forensic path. Post-v2.11, use `sqlite3 events.db ".dump"` for raw inspection or `exarchos view` for typed queries.
+- **Vestigial JSONL read paths removed.** `storage/lifecycle.ts` (`countJsonlLines`, `totalJsonlSizeBytes`, JSONL/seq cleanup in `compactWorkflow`, file-rotation half of `rotateTelemetry`, JSONL-byte-sum size warning in `checkCompaction`) and `cli-commands/subagent-context.ts` (`queryModuleHistory`'s JSONL scan) are deleted in this release. `queryModuleHistory` is retained as a no-op stub returning `[]` to preserve the call shape on the CLI hook hot path; SQLite-backed reimplementations of the historical-intelligence summary and the `policy.maxTotalSizeMB` threshold are tracked as v2.12 follow-ups.
+
+#### Subsumed by construction
+
+- **#1326 (idempotency-claims bypass).** The runtime appender's dual-write `replicateBackend → backend.appendEvent` path that bypassed `idempotency_claims` no longer exists; only the SQLite append path through `idempotency_claims` remains.
+- **#1328 (JSONL `batch_append` silently drops events).** The broken JSONL `batch_append` is deleted along with all other JSONL substrate machinery.
+
 ### Features
 - `preferredFacade` field on every runtime (`mcp` | `cli`) declaring the host's preferred invocation surface (cli-vs-mcp-facade-analysis, DR-1).
 - Dual-facade skill rendering foundation: runtime-level declaration wired through loader and renderer (DR-1).
@@ -18,12 +49,6 @@ All notable changes to Exarchos are documented in this file. Organized by semver
 - CLI rendering path with kebab-case flag mapping: `featureId: "X"` → `--feature-id X`, `dryRun: true` → `--dry-run`, trailing `--json` always appended (DR-2).
 - Render-time validation of CALL macros against the `TOOL_REGISTRY` — unknown actions and invalid args fail the build with the source file path and line number (DR-2).
 - Migration no-regression check (`src/build-skills.migration.test.ts`) — guards that existing Claude skill renders remain byte-identical after the dual-facade changes (DR-8).
-
-### Bug Fixes
-- `EventStore.query()` now merges events from the sidecar file (`{streamId}.hook-events.jsonl`) with main-stream events, so writes from non-primary MCP instances are visible to materializers and event-sourced gates immediately instead of being stranded until the primary restarts (#1082)
-
-### Observability
-- `exarchos_workflow init`, `set`, and `checkpoint` now surface `sidecarPending: true` in their response `data` when the underlying event append landed in the sidecar file (the event store is in sidecar mode). Mirrors the `sequencePending` ack on `exarchos_event append` so callers can detect degraded mode without inspecting storage internals (#1082)
 
 ### Breaking (wire-protocol)
 - **Malformed arguments now uniformly emit `INVALID_INPUT`** from the dispatch layer (DR-5). Previously divergent across adapters: CLI hard-exited via Commander's `requiredOption`; MCP returned `UNKNOWN_ACTION` (unknown action) or surfaced downstream `EVENT_APPEND_FAILED` (wrong type, no schema validation in dispatch path). External consumers pattern-matching on the old codes for malformed-argument scenarios should switch to `INVALID_INPUT`. Handler-reported errors that pass schema validation (e.g. genuine event-append failures) continue to use their domain-specific codes.

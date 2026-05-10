@@ -95,18 +95,20 @@ describe('handleReviewTriage', () => {
 
     await handleReviewTriage(args as Record<string, unknown>, tmpDir, mockEventStore);
 
-    // Verify events were written to the JSONL file
-    const eventsPath = path.join(tmpDir, 'test-events.events.jsonl');
-    const content = await fs.readFile(eventsPath, 'utf-8');
-    const events = content.trim().split('\n').map(line => JSON.parse(line));
+    // Verify events were emitted to the event store. v2.11 Phase 3
+    // (substrate-cut): JSONL files no longer exist — read through the
+    // store API which routes to the SqliteBackend.
+    const events = await mockEventStore.query('test-events');
 
     expect(events).toHaveLength(2);
     expect(events[0].type).toBe('review.routed');
     expect(events[1].type).toBe('review.routed');
-    expect(events[0].data.pr).toBe(10);
-    expect(events[1].data.pr).toBe(20);
-    expect(events[0].data.velocityTier).toBe('normal');
-    expect(events[0].data.semanticAugmented).toBe(false);
+    const data0 = events[0].data as { pr: number; velocityTier: string; semanticAugmented: boolean };
+    const data1 = events[1].data as { pr: number };
+    expect(data0.pr).toBe(10);
+    expect(data1.pr).toBe(20);
+    expect(data0.velocityTier).toBe('normal');
+    expect(data0.semanticAugmented).toBe(false);
   });
 
   it('HandleReviewTriage_DispatchedPR_EmitsReviewRoutedEvent', async () => {
@@ -120,10 +122,8 @@ describe('handleReviewTriage', () => {
 
     await handleReviewTriage(args as Record<string, unknown>, tmpDir, mockEventStore);
 
-    // Read the emitted events
-    const eventsPath = path.join(tmpDir, 'test-routed-shape.events.jsonl');
-    const content = await fs.readFile(eventsPath, 'utf-8');
-    const events = content.trim().split('\n').map(line => JSON.parse(line));
+    // Read the emitted events through the store (post-substrate-cut).
+    const events = await mockEventStore.query('test-routed-shape');
 
     expect(events).toHaveLength(1);
     expect(events[0].type).toBe('review.routed');
@@ -206,9 +206,10 @@ describe('handleReviewTriage', () => {
     expect(data.summary.coderabbit).toBe(0);
     expect(data.summary.selfHostedOnly).toBe(0);
 
-    // Verify no events file was created
-    const eventsPath = path.join(tmpDir, 'test-empty.events.jsonl');
-    await expect(fs.access(eventsPath)).rejects.toThrow();
+    // Verify no events were emitted (post-substrate-cut: query the
+    // store rather than checking for a JSONL file's absence).
+    const events = await mockEventStore.query('test-empty');
+    expect(events).toHaveLength(0);
   });
 
 });

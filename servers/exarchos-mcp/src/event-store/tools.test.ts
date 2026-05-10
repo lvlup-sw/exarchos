@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as path from 'node:path';
-import { mkdtemp, rm, writeFile, readFile } from 'node:fs/promises';
+import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { EventStore } from './store.js';
 import { AtomicAppender } from './atomic-appender.js';
@@ -696,93 +696,6 @@ describe('tenant field passthrough', () => {
   });
 });
 
-// ─── Sidecar Mode: sequence:0 fix (#1062) ──────────────────────────────────
-
-describe('sidecar mode sequencePending', () => {
-  async function createSidecarStore(dir: string): Promise<EventStore> {
-    // Write a PID lock with our own PID to force sidecar mode
-    const lockPath = path.join(dir, '.event-store.lock');
-    await writeFile(lockPath, String(process.pid), 'utf-8');
-    const store = new EventStore(dir);
-    await store.initialize();
-    return store;
-  }
-
-  it('HandleEventAppend_SidecarMode_ReturnsSequencePendingNotZero', async () => {
-    const store = await createSidecarStore(tempDir);
-    expect(store.inSidecarMode).toBe(true);
-
-    const result = await handleEventAppend(
-      {
-        stream: 'sidecar-test',
-        event: {
-          type: 'workflow.started',
-          data: { featureId: 'test-feat', workflowType: 'feature' },
-        },
-      },
-      tempDir,
-      store,
-    );
-
-    expect(result.success).toBe(true);
-    const ack = result.data as EventAck;
-    // Must NOT return sequence: 0 (which agents misinterpret as failure)
-    expect(ack.sequence).not.toBe(0);
-    // Should signal that sequence is pending assignment
-    expect(ack.sequencePending).toBe(true);
-    expect(ack.sequence).toBe(-1);
-    expect(ack.type).toBe('workflow.started');
-    expect(ack.streamId).toBe('sidecar-test');
-  });
-
-  it('HandleEventAppend_NormalMode_ReturnsPositiveSequence', async () => {
-    // Normal mode (no sidecar) — sequence must be >= 1
-    const result = await handleEventAppend(
-      {
-        stream: 'normal-test',
-        event: {
-          type: 'workflow.started',
-          data: { featureId: 'test-feat', workflowType: 'feature' },
-        },
-      },
-      tempDir,
-      eventStore,
-    );
-
-    expect(result.success).toBe(true);
-    const ack = result.data as EventAck;
-    expect(ack.sequence).toBeGreaterThanOrEqual(1);
-    // sequencePending should NOT be present (or be falsy) in normal mode
-    expect(ack.sequencePending).toBeFalsy();
-  });
-
-  it('HandleBatchAppend_SidecarMode_ReturnsSequencePending', async () => {
-    const store = await createSidecarStore(tempDir);
-    expect(store.inSidecarMode).toBe(true);
-
-    const result = await handleBatchAppend(
-      {
-        stream: 'sidecar-batch',
-        events: [
-          { type: 'task.assigned', data: { taskId: 't1' } },
-          { type: 'task.assigned', data: { taskId: 't2' } },
-        ],
-      },
-      tempDir,
-      store,
-    );
-
-    expect(result.success).toBe(true);
-    const acks = result.data as EventAck[];
-    expect(acks).toHaveLength(2);
-    for (const ack of acks) {
-      expect(ack.sequence).not.toBe(0);
-      expect(ack.sequencePending).toBe(true);
-      expect(ack.sequence).toBe(-1);
-    }
-  });
-});
-
 // ─── C11: SubagentStreamRouter wiring on team.disbanded (#1224) ─────────────
 //
 // `handleEventAppend` MUST intercept `team.disbanded` events and route them
@@ -822,15 +735,16 @@ describe('handleEventAppend team.disbanded routing (C11, #1224)', () => {
   }
 
   /**
-   * Read all events from a parent stream's JSONL. Returns parsed records.
+   * Read all events from a parent stream via the durable substrate.
+   *
+   * (Pre-v2.11 this scanned the JSONL fixture directly. Post substrate-cut
+   * the SQLite backend is the source of truth, so the function name is
+   * historical — kept to minimise diff churn — but the implementation
+   * goes through `EventStore.query`.)
    */
   async function readStreamJsonl(stream: string): Promise<Array<Record<string, unknown>>> {
-    const jsonlPath = path.join(tempDir, `${stream}.events.jsonl`);
-    const contents = await readFile(jsonlPath, 'utf-8');
-    return contents
-      .split('\n')
-      .filter((line) => line.length > 0)
-      .map((line) => JSON.parse(line) as Record<string, unknown>);
+    const events = await eventStore.query(stream);
+    return events.map((e) => e as unknown as Record<string, unknown>);
   }
 
   it('handleEventAppend_teamDisbanded_recomputesTasksCompleted', async () => {

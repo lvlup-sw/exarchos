@@ -1,23 +1,27 @@
 /**
- * Thin pruner coordinator (DR-7, T48 GREEN).
+ * Thin pruner coordinator (DR-7, v2.11 hard-cut).
  *
  * Walks per-phase entries, looks up the typed `PhaseContract` from the
  * loaded `Topology`, and delegates to the pure `scoreStaleness` scorer.
  *
- * This module is the wiring seam that T58 (lifecycle integration)
- * consumes from the orchestration handler in
- * `orchestrate/prune-stale-workflows.ts`. Keeping the topology lookup
- * here (and out of `score.ts`) preserves the scorer's purity — the
- * scorer takes a `PhaseContract | undefined`, never a `Topology`.
+ * v2.11 invariant: the topology loader (`topology/loader.ts`) THROWS on
+ * any phase missing a `staleness` block, so a production-loaded
+ * `Topology` cannot reach this coordinator with an undefined contract.
+ * If a caller constructs a synthetic Topology that lacks a contract for
+ * the requested phase (test seam, internal bug), this coordinator
+ * surfaces the missing-contract case loudly rather than silently falling
+ * back. The v2.9 single-signal heuristic was deleted in Phase 5c.
  */
 import type { Topology } from '../topology/phase-contract.js';
 import { scoreStaleness, type StalenessState, type StalenessScore } from './score.js';
 
 /**
  * Score one entry's staleness through the typed phase contract on
- * `topology`. When the entry's phase has no contract (e.g. the phase
- * isn't declared, or its `staleness` block is omitted), `scoreStaleness`
- * falls back to the v2.9 single-signal heuristic.
+ * `topology`. Throws when the phase is absent from the topology or
+ * declares no `staleness` block — both are violations of the v2.11
+ * loader invariant and indicate either:
+ *   - a synthetic test fixture (acceptable; tests should expect this throw); or
+ *   - an internal bug bypassing the loader's hard-cut.
  */
 export function scoreEntryThroughTopology(
   topology: Topology,
@@ -25,9 +29,20 @@ export function scoreEntryThroughTopology(
   state: StalenessState,
 ): StalenessScore {
   const phaseEntry = topology.phases[phase];
-  // Phase absent from topology → undefined contract → fallback. This
-  // mirrors `selectPruneCandidates`'s legacy single-signal path and
-  // keeps undeclared phases pruning under the default 14-day window.
-  const contract = phaseEntry?.staleness;
+  if (phaseEntry === undefined) {
+    throw new Error(
+      `Pruner cannot score phase "${phase}": phase is absent from topology. ` +
+        `(v2.11 invariant: the topology loader hard-throws on missing contracts; ` +
+        `reaching this branch indicates a synthetic Topology bypassing the loader.)`,
+    );
+  }
+  const contract = phaseEntry.staleness;
+  if (contract === undefined) {
+    throw new Error(
+      `Pruner cannot score phase "${phase}": no \`staleness\` contract declared. ` +
+        `(v2.11 DR-7: every phase must declare a staleness block; the loader ` +
+        `should have rejected this topology at startup.)`,
+    );
+  }
   return scoreStaleness(state, contract);
 }

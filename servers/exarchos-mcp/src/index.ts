@@ -59,9 +59,11 @@ export const SERVER_VERSION = '2.10.0';
  * invocation when it is the first positional argument (argv[2]). A looser
  * `argv.includes('mcp')` check is unsafe because feature IDs like
  * `exarchos event append -f mcp ...` or view names like `--view mcp` would
- * flip detection and push short-lived CLI callers onto server-mode
- * (first-wins + sidecar) semantics, silently diverting their writes to a
- * sidecar file instead of serialising onto the main JSONL (DR-5).
+ * flip detection. Pre-v2.11 this was load-bearing because mis-detecting
+ * MCP mode pushed CLI callers onto sidecar fallback semantics; post-v2.11
+ * (#1082 sidecar removal) the consequence is instead that CLI callers
+ * would skip `waitForLock: true` and hard-throw on contention rather than
+ * serialising — equally important to keep correct.
  *
  * Exported for unit testing; callers should pass `process.argv` directly.
  */
@@ -72,56 +74,115 @@ export function isMcpServerInvocation(argv: readonly string[]): boolean {
 // ─── Server Options ─────────────────────────────────────────────────────────
 
 export interface CreateServerOptions {
-  /** Optional storage backend for test injection. When omitted, JSONL-only mode. */
+  /**
+   * Optional storage backend for test injection. When omitted in test
+   * harnesses the backend is wired through the `createServer()` path
+   * directly; the production CLI/MCP entrypoint always goes through
+   * `initializeBackend()` which hard-fails if no SQLite driver is
+   * available (DR-3, v2.11 substrate-cut Phase 4).
+   */
   backend?: StorageBackend;
 }
 
 // ─── Backend Initialization ─────────────────────────────────────────────────
 
 /**
- * Attempt to initialize a SqliteBackend for the given state directory.
+ * Initialize a SqliteBackend for the given state directory.
  *
- * Returns the initialized backend, or `undefined` only when better-sqlite3
- * is not available (missing native binary). Initialization failures —
- * including `SqliteCorruptError` (SQLITE_CORRUPT / SQLITE_NOTADB) — are
- * NOT caught here. Per DR-12 / T10 / `SqliteCorruptError` doc, corruption
- * is non-recoverable and operator-visible by design: silent auto-rebuild
- * would destroy the byte evidence operators need to root-cause the
- * corruption and would mask data-loss surfaces.
+ * Post-v2.11 (substrate-cut DR-3 / Phase 4) the SQLite backend is the
+ * sole event-store substrate. There is no JSONL fallback, no migration
+ * importer, and no graceful degradation — the function either returns
+ * an initialized `SqliteBackend` or throws.
  *
- * The post-Tier-1 substrate has no JSONL-source-of-truth recovery path
- * (#1259, #1327). A corrupt SQLite database is a hard fail — the caller
- * should let the error propagate so startup terminates and the operator
- * can inspect, restore from backup, or move the file aside before retry.
+ * Failure modes:
+ *   1. SQLite driver unavailable. If the SqliteBackend module fails to
+ *      load (no `better-sqlite3` on Node, no `bun:sqlite` under Bun),
+ *      throws an Error naming both drivers and the resolution paths.
+ *      Pre-Phase-4 this branch logged a warning and returned `undefined`
+ *      so callers fell through to a "JSONL-only mode" the substrate no
+ *      longer supports.
+ *   2. Legacy v2.10 state directory. If `stateDir` contains any
+ *      `*.events.jsonl` files (the canonical v2.10 substrate marker)
+ *      AND no SQLite database file, throws telling the operator they
+ *      must either stay on v2.10 or wipe the state dir to start fresh
+ *      on v2.11. The JSONL importer that used to handle this on first
+ *      boot was removed in this phase.
+ *   3. Corrupt SQLite database. `SqliteBackend.initialize()` raises
+ *      `SqliteCorruptError` (SQLITE_CORRUPT / SQLITE_NOTADB). Per DR-12 /
+ *      T10 corruption is non-recoverable and operator-visible by design:
+ *      silent auto-rebuild would destroy the byte evidence operators
+ *      need to root-cause and would mask data-loss surfaces. The error
+ *      is not caught here — let it propagate so startup terminates.
  */
+/**
+ * Internal seam — production code lets the default loader run, tests can
+ * inject a stub that simulates `bun:sqlite`/`better-sqlite3` failing to
+ * resolve. Exported only so the Phase-4 hardening test can reach in;
+ * not part of the supported surface.
+ *
+ * @internal
+ */
+export type SqliteBackendLoader = () => Promise<{
+  SqliteBackend: typeof import('./storage/sqlite-backend.js').SqliteBackend;
+}>;
+
+const defaultSqliteBackendLoader: SqliteBackendLoader = () =>
+  import('./storage/sqlite-backend.js');
+
 export async function initializeBackend(
   stateDir: string,
-): Promise<StorageBackend | undefined> {
+  loadSqliteBackend: SqliteBackendLoader = defaultSqliteBackendLoader,
+): Promise<StorageBackend> {
   const dbPath = path.join(stateDir, 'exarchos.db');
 
-  // Phase 1: load the SqliteBackend module. Failure here means
-  // better-sqlite3 (or bun:sqlite at the binary layer) is not available
-  // on this platform — degrade gracefully to JSONL-only mode rather than
-  // crashing on installs without a native binary.
-  let SqliteBackend: typeof import('./storage/sqlite-backend.js').SqliteBackend;
+  // Phase A: legacy-state-dir guard. Cheap top-level scan — do not
+  // recurse. The presence of `*.events.jsonl` plus the absence of a
+  // SQLite database is the unambiguous v2.10 fingerprint. Operators
+  // hitting this need clear direction; silently producing a fresh
+  // empty SQLite DB next to the legacy JSONL would look successful
+  // but quietly orphan all of their prior workflow state.
+  let stateEntries: string[];
   try {
-    ({ SqliteBackend } = await import('./storage/sqlite-backend.js'));
-  } catch (importErr) {
-    logger.warn(
-      { err: importErr instanceof Error ? importErr.message : String(importErr) },
-      'better-sqlite3 not available — running in JSONL-only mode',
+    stateEntries = fs.readdirSync(stateDir);
+  } catch {
+    stateEntries = [];
+  }
+  const hasLegacyJsonl = stateEntries.some((name) => name.endsWith('.events.jsonl'));
+  const hasSqliteDb = stateEntries.some(
+    (name) => name === 'exarchos.db' || name === 'events.db',
+  );
+  if (hasLegacyJsonl && !hasSqliteDb) {
+    throw new Error(
+      `Legacy v2.10 JSONL state directory detected at ${stateDir}. ` +
+        `v2.11 has removed the JSONL importer — either stay on v2.10 ` +
+        `to use this state, or wipe the state directory to start fresh on v2.11.`,
     );
-    return undefined;
   }
 
-  // Phase 2: open and initialize the database. We do NOT catch
+  // Phase B: load the SqliteBackend module. Failure here means neither
+  // `better-sqlite3` (Node) nor `bun:sqlite` (Bun) resolves on this
+  // platform. Pre-v2.11 this branch logged and returned undefined, then
+  // callers limped along on the JSONL substrate. Post-DR-3 there is no
+  // JSONL substrate; failing here is the only correct behavior.
+  let SqliteBackend: typeof import('./storage/sqlite-backend.js').SqliteBackend;
+  try {
+    ({ SqliteBackend } = await loadSqliteBackend());
+  } catch (importErr) {
+    const reason = importErr instanceof Error ? importErr.message : String(importErr);
+    throw new Error(
+      `SQLite driver unavailable — install better-sqlite3 (Node) or run under bun (bun:sqlite). ` +
+        `Both drivers failed to load: ${reason}.`,
+    );
+  }
+
+  // Phase C: open and initialize the database. We do NOT catch
   // initialization failures. `SqliteBackend.initialize()` raises
   // `SqliteCorruptError` (SQLITE_CORRUPT / SQLITE_NOTADB) and other
   // typed errors that operators must see — silent auto-rebuild was the
   // pre-Tier-1 behavior, and it depended on the JSONL→SQLite migration
   // runner re-importing legacy event bytes. With Tier 1 ripped (#1259)
-  // there is no recovery path; deleting a corrupt DB now equals data
-  // loss. Let the error propagate.
+  // and the importer removed in Phase 4 there is no recovery path;
+  // deleting a corrupt DB now equals data loss. Let the error propagate.
   const backend = new SqliteBackend(dbPath);
   backend.initialize();
   return backend;
@@ -254,19 +315,18 @@ async function main() {
   // Ensure state directory exists
   fs.mkdirSync(stateDir, { recursive: true });
 
-  // Initialize SQLite backend with graceful fallback
+  // Initialize the SQLite backend. Post-v2.11 substrate-cut (DR-3 /
+  // Phase 4) this either returns a usable backend or throws — the
+  // pre-v2.11 "JSONL fallback" branch is gone. Errors propagate to
+  // `main()`'s catch, which logs and exits with code 1.
   const backend = await initializeBackend(stateDir);
+  registerBackendCleanup(backend);
 
-  if (backend) {
-    registerBackendCleanup(backend);
-  }
-
-  // DR-5: short-lived CLI invocations must block on the PID lock rather than
-  // enter sidecar mode, so two concurrent `exarchos event append` calls
-  // serialize onto the main JSONL. The long-running MCP server path still
-  // prefers first-wins + sidecar semantics because competing hook subprocesses
-  // cannot afford to wait. See `isMcpServerInvocation` for the rationale
-  // behind the strict positional check.
+  // DR-5: short-lived CLI invocations must block on the PID lock so two
+  // concurrent `exarchos event append` calls serialize onto the same store.
+  // The long-running MCP server path uses the default (no waitForLock) and
+  // therefore hard-throws on contention — sidecar fallback (#1082) was
+  // deleted in v2.11 alongside the JSONL substrate it side-channeled.
   const isMcpMode = isMcpServerInvocation(process.argv);
   const ctx = await initializeContext(stateDir, {
     backend,
@@ -283,20 +343,27 @@ async function main() {
   const program = buildCli(ctx);
 
   // ─── Execution-Mode Detection (F-021-5) ────────────────────────────────────
-  // Server-mode-only work (sidecar-event merge + lifecycle compaction) runs
-  // via a commander `preAction` hook instead of a positional `argv[2]` check.
-  // The hook fires immediately before the `mcp` subcommand's `action()` and
-  // is a no-op for every other command, which keeps CLI cold-start (`wf
-  // status`, `vw *`, `schema`, etc.) free of the work that only makes sense
-  // when the process stays alive. See DR-5 / task 021 cold-start budget.
+  // Server-mode-only work (hook-event sidecar merge + lifecycle compaction)
+  // runs via a commander `preAction` hook instead of a positional `argv[2]`
+  // check. The hook fires immediately before the `mcp` subcommand's
+  // `action()` and is a no-op for every other command, which keeps CLI
+  // cold-start (`wf status`, `vw *`, `schema`, etc.) free of the work that
+  // only makes sense when the process stays alive. See DR-5 / task 021
+  // cold-start budget.
   //
   // Future global flags like `--verbose` in front of `mcp` would have broken
   // the old `argv[2] === 'mcp'` check; the `actionCommand.name()` lookup is
   // robust to flag positioning. Coordinates with F-022-2.
+  //
+  // Note: the `inSidecarMode` gate that previously guarded this block was
+  // removed in v2.11 (#1082) — the EventStore no longer enters sidecar
+  // mode. The hook-event merger still runs unconditionally on the server
+  // path so writes from CLI hook subprocesses (which deliberately bypass
+  // the EventStore for cold-start reasons) get reconciled in.
   program.hook('preAction', async (_thisCommand, actionCommand) => {
     if (actionCommand.name() !== 'mcp') return;
 
-    if (!ctx.eventStore.inSidecarMode) {
+    {
       const { startPeriodicMerge } = await import('./storage/sidecar-scheduler.js');
       const drainHandle = await startPeriodicMerge(stateDir, ctx.eventStore, undefined, { immediate: true });
       process.on('exit', () => drainHandle.stop());

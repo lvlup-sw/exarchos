@@ -123,7 +123,6 @@ describe('Atomic Archive Writes', () => {
     const featureId = 'atomic-archive';
     const updatedAt = daysAgo(60);
     await writeState(stateDir, featureId, 'completed', updatedAt);
-    await writeEvents(stateDir, featureId, 3);
 
     const archiveDir = path.join(stateDir, 'archives');
     const archivePath = path.join(archiveDir, `${featureId}.archive.json`);
@@ -132,7 +131,9 @@ describe('Atomic Archive Writes', () => {
     // Clear tracked calls to focus on compactWorkflow
     writeFileCalls.length = 0;
 
-    // Act
+    // Act — backend=undefined leaves eventCount at 0 (post-v2.11: no
+    // JSONL-based count fallback). The atomicity property under test is
+    // the .tmp + rename pattern, not the eventCount value.
     await compactWorkflow(undefined, stateDir, featureId, policy);
 
     // Assert — writeFile was called to a .tmp file for the archive (not the final path)
@@ -147,7 +148,7 @@ describe('Atomic Archive Writes', () => {
     const archiveRaw = await readFile(archivePath, 'utf-8');
     const archive = JSON.parse(archiveRaw);
     expect(archive.featureId).toBe(featureId);
-    expect(archive.eventCount).toBe(3);
+    expect(archive.eventCount).toBe(0);
   });
 
   it('compactWorkflow_CrashDuringArchiveRename_PreservesExistingArchive', async () => {

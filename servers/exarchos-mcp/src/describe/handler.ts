@@ -12,12 +12,10 @@ import {
 import { serializeTopology, listWorkflowTypes } from '../workflow/state-machine.js';
 import { serializePlaybooks, listPlaybookWorkflowTypes } from '../workflow/playbooks.js';
 import { buildConfigDescription } from '../workflow/describe-config.js';
-import {
-  WorktreeSchema,
-  TaskSchema,
-  ArtifactsSchema,
-  SynthesisSchema,
-} from '../workflow/schemas.js';
+// T5a.1/DR-4 (#1259, v2.11): Worktree/Task/Artifacts/Synthesis schemas
+// were previously imported here to populate the `set` action's
+// stateSchema discoverability slot. The slot and its consumer
+// (`buildSetStateSchema`) are removed alongside the action.
 
 /**
  * Handles the `describe` action for composite tools.
@@ -106,7 +104,7 @@ export async function handleDescribe(
           error: {
             code: 'UNKNOWN_ACTION',
             message: `Unknown action: ${actionName}`,
-            validTargets: toolActions.map(a => a.name),
+            validActions: toolActions.map(a => a.name),
           },
         };
       }
@@ -128,9 +126,11 @@ export async function handleDescribe(
           : {}),
       };
 
-      if (actionName === 'set' && options?.includeStateSchema) {
-        actionResult.stateSchema = buildSetStateSchema();
-      }
+      // T5a.1/DR-4 (#1259, v2.11): the prior `set`-specific stateSchema
+      // attachment has nothing to hang off — the `set` action is removed.
+      // `options.includeStateSchema` is retained on the signature so
+      // callers compile, but no action currently surfaces a stateSchema
+      // entry. A successor surface will re-bind this in v2.12.
 
       results[actionName] = actionResult;
     }
@@ -161,47 +161,10 @@ export async function handleDescribe(
   return { success: true, data: results };
 }
 
-/**
- * Builds a state schema object documenting the known nested schemas
- * for the `set` action's `updates` parameter. The `updates` field
- * remains flexible (record of unknown), but this provides discoverable
- * guidance on the expected shapes of commonly used fields.
- */
-function buildSetStateSchema(): Record<string, { description: string; itemSchema: unknown }> {
-  return {
-    worktrees: {
-      description: 'Record of worktree paths to worktree objects. Each worktree tracks a branch, associated task(s), and status.',
-      itemSchema: zodToJsonSchema(WorktreeSchema),
-    },
-    tasks: {
-      description: 'Array of task objects. Each task has an id, title, status, and optional branch/timing/agent metadata.',
-      itemSchema: zodToJsonSchema(TaskSchema),
-    },
-    reviews: {
-      description: 'Record of review identifiers to review data. Each entry may use flat status (status/verdict at top level) or nested sub-reviews.',
-      itemSchema: {
-        type: 'object',
-        properties: {
-          status: { type: 'string', enum: ['pass', 'fail', 'approved', 'changes_requested'], description: 'Flat review status' },
-          verdict: { type: 'string', enum: ['pass', 'fail', 'approved', 'changes_requested'], description: 'Alternative to status' },
-          passed: { type: 'boolean', description: 'Boolean shorthand for pass/fail' },
-          reviewer: { type: 'string', description: 'Agent or user who performed the review' },
-          timestamp: { type: 'string', format: 'date-time' },
-        },
-        additionalProperties: true,
-        description: 'Flat: { status: "pass" } or nested sub-reviews: { specReview: { status: "pass" }, qualityReview: { verdict: "approved" } }',
-      },
-    },
-    artifacts: {
-      description: 'Artifact references (design doc, plan, PR URLs).',
-      itemSchema: zodToJsonSchema(ArtifactsSchema),
-    },
-    synthesis: {
-      description: 'Synthesis state: integration branch, merge order, merged branches, PR URL(s), and PR feedback.',
-      itemSchema: zodToJsonSchema(SynthesisSchema),
-    },
-  };
-}
+// T5a.1/DR-4 (#1259, v2.11): the prior `buildSetStateSchema` helper —
+// which described the `set` action's `updates` parameter shape — is
+// removed alongside the action itself. Re-introduce a successor helper
+// in v2.12 if a replacement surface needs equivalent discoverability.
 
 /**
  * Handles topology introspection for the workflow describe action.

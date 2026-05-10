@@ -424,12 +424,15 @@ describe('coercedStringArray', () => {
 
 describe('buildRegistrationSchema JSON Schema', () => {
   it('should emit type:object for coercedRecord fields', () => {
+    // T5a.1/DR-4 (#1259, v2.11): the prior assertion targeted the workflow
+    // tool's `updates` field on the now-removed `set` action. Re-pointed to
+    // the event tool's `event` field, which is also a `coercedRecord()`.
     const { zodToJsonSchema } = require('zod-to-json-schema') as typeof import('zod-to-json-schema');
-    const workflow = TOOL_REGISTRY.find((t) => t.name === 'exarchos_workflow')!;
-    const schema = buildRegistrationSchema(workflow.actions);
+    const event = TOOL_REGISTRY.find((t) => t.name === 'exarchos_event')!;
+    const schema = buildRegistrationSchema(event.actions);
     const json = zodToJsonSchema(schema) as Record<string, unknown>;
     const props = json.properties as Record<string, Record<string, unknown>>;
-    expect(props.updates).toEqual({ type: 'object', additionalProperties: {} });
+    expect(props.event).toEqual({ type: 'object', additionalProperties: {} });
   });
 
   it('should emit type:integer for coercedPositiveInt fields', () => {
@@ -490,16 +493,16 @@ describe('TOOL_REGISTRY', () => {
   });
 
   describe('exarchos_workflow', () => {
-    it('should have 10 actions: init, get, set, transition, cancel, cleanup, reconcile, rehydrate, checkpoint, describe', () => {
-      // T36/DR-4 (#1259): `transition` added as the canonical phase-mutation
-      // action; `set({phase})` retained as a deprecation rerouting surface
-      // for one release. Order matters — keep alongside `set` so registry
-      // discoverability surfaces the canonical replacement adjacent to the
-      // deprecated path.
+    it('should have 9 actions: init, get, transition, cancel, cleanup, reconcile, rehydrate, checkpoint, describe', () => {
+      // T5a.1/DR-4 (#1259, v2.11): `set` action removed (hard-cut from the
+      // v2.10 one-release deprecation rerouting surface). Callers receive a
+      // structured `UNKNOWN_ACTION` error with `validActions: ['transition',
+      // ...]` instructing them to migrate to the canonical `transition`
+      // action.
       const composite = findComposite('exarchos_workflow');
       expect(composite).toBeDefined();
       const actionNames = composite!.actions.map((a) => a.name);
-      expect(actionNames).toEqual(['init', 'get', 'set', 'transition', 'cancel', 'cleanup', 'reconcile', 'rehydrate', 'checkpoint', 'describe']);
+      expect(actionNames).toEqual(['init', 'get', 'transition', 'cancel', 'cleanup', 'reconcile', 'rehydrate', 'checkpoint', 'describe']);
     });
   });
 
@@ -775,20 +778,6 @@ describe('TOOL_REGISTRY', () => {
       }
     });
 
-    it('should coerce string updates in workflow set schema', () => {
-      const action = findAction('exarchos_workflow', 'set');
-      expect(action).toBeDefined();
-
-      const result = action!.schema.safeParse({
-        featureId: 'test-feature',
-        updates: '{"phase":"completed"}',
-      });
-      expect(result.success).toBe(true);
-      if (result.success) {
-        expect(result.data.updates).toEqual({ phase: 'completed' });
-      }
-    });
-
     it('should accept empty input for sync now', () => {
       const action = findAction('exarchos_sync', 'now');
       expect(action).toBeDefined();
@@ -883,10 +872,14 @@ describe('CLI hints on core workflow actions', () => {
     expect(action!.cli?.flags?.query?.alias).toBe('q');
   });
 
-  it('SetAction_HasFlagAliases', () => {
-    const action = findAction('exarchos_workflow', 'set');
+  it('TransitionAction_HasFlagAliases', () => {
+    // T5a.1/DR-4 (#1259, v2.11): replaces the prior `SetAction_HasFlagAliases`
+    // test. `set` is removed; `transition` is the canonical phase-mutation
+    // surface and now anchors this CLI flag-alias coverage.
+    const action = findAction('exarchos_workflow', 'transition');
     expect(action).toBeDefined();
     expect(action!.cli?.flags?.featureId?.alias).toBe('f');
+    expect(action!.cli?.flags?.target?.alias).toBe('t');
   });
 
   it('ViewTool_HasCliAlias', () => {
@@ -939,9 +932,11 @@ describe('CLI examples on common actions', () => {
     expect(getAction!.cli?.examples).toBeDefined();
     expect(getAction!.cli!.examples!.length).toBeGreaterThan(0);
 
-    const setAction = findAction('exarchos_workflow', 'set');
-    expect(setAction!.cli?.examples).toBeDefined();
-    expect(setAction!.cli!.examples!.length).toBeGreaterThan(0);
+    // T5a.1/DR-4 (#1259, v2.11): `set` removed; `transition` carries CLI
+    // example coverage as the canonical phase-mutation action.
+    const transitionAction = findAction('exarchos_workflow', 'transition');
+    expect(transitionAction!.cli?.examples).toBeDefined();
+    expect(transitionAction!.cli!.examples!.length).toBeGreaterThan(0);
 
     const pipelineAction = findAction('exarchos_view', 'pipeline');
     expect(pipelineAction!.cli?.examples).toBeDefined();
@@ -1444,6 +1439,11 @@ describe('check_tdd_compliance schema strictness', () => {
 });
 
 // ─── DR-11 (#1259): outputSchema registers _meta.deprecation ─────────────────
+//
+// T5a.1/DR-4 (v2.11): `set` action removed. Per INV-5b the
+// `_meta.deprecation` schema slot is retained on `transition` for one
+// more release as a historical marker (v2.12 drops the slot itself), so
+// this test is narrowed to cover only the canonical action.
 describe('Registry_OutputSchema (T40, DR-11)', () => {
   function findAction(toolName: string, actionName: string) {
     const tool = TOOL_REGISTRY.find((t) => t.name === toolName);
@@ -1451,14 +1451,9 @@ describe('Registry_OutputSchema (T40, DR-11)', () => {
   }
 
   it('Registry_OutputSchema_RegistersMetaDeprecationOnAffectedActions', () => {
-    // Both `set` (deprecated) and `transition` (canonical) declare an
-    // `outputSchema` typing the `_meta.deprecation` sub-shape.
-    const setAction = findAction('exarchos_workflow', 'set');
     const transitionAction = findAction('exarchos_workflow', 'transition');
 
-    expect(setAction).toBeDefined();
     expect(transitionAction).toBeDefined();
-    expect(setAction!.outputSchema).toBeDefined();
     expect(transitionAction!.outputSchema).toBeDefined();
 
     // The schema accepts a deprecation envelope with all three fields.
@@ -1473,7 +1468,6 @@ describe('Registry_OutputSchema (T40, DR-11)', () => {
         },
       },
     };
-    expect(setAction!.outputSchema!.safeParse(goodEnvelope).success).toBe(true);
     expect(transitionAction!.outputSchema!.safeParse(goodEnvelope).success).toBe(
       true,
     );
@@ -1484,9 +1478,9 @@ describe('Registry_OutputSchema (T40, DR-11)', () => {
       success: true,
       _meta: { deprecation: { since: '2.10.0', removeIn: '2.11.0' } },
     };
-    expect(setAction!.outputSchema!.safeParse(missingReplacement).success).toBe(
-      false,
-    );
+    expect(
+      transitionAction!.outputSchema!.safeParse(missingReplacement).success,
+    ).toBe(false);
 
     const emptyReplacement = {
       success: true,
@@ -1494,12 +1488,12 @@ describe('Registry_OutputSchema (T40, DR-11)', () => {
         deprecation: { since: '2.10.0', removeIn: '2.11.0', replacement: '' },
       },
     };
-    expect(setAction!.outputSchema!.safeParse(emptyReplacement).success).toBe(
-      false,
-    );
+    expect(
+      transitionAction!.outputSchema!.safeParse(emptyReplacement).success,
+    ).toBe(false);
 
-    // The deprecation field is optional — responses without it (e.g. the
-    // canonical `transition` arm) still validate.
+    // The deprecation field is optional — responses without it (the
+    // canonical `transition` arm never emits one) still validate.
     const noDeprecation = {
       success: true,
       data: { phase: 'plan', updatedAt: '2026-05-08T00:00:00Z' },

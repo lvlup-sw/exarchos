@@ -21,7 +21,7 @@ import {
 // EventStore is now threaded via DispatchContext — no module-level injection needed
 import { configureCleanupSnapshotStore } from '../workflow/cleanup.js';
 import { configureStateStoreBackend } from '../workflow/state-store.js';
-import { loadTopology, type TopologyEventEmitter } from '../topology/loader.js';
+import { loadTopology } from '../topology/loader.js';
 
 // ─── Config Detection ──────────────────────────────────────────────────────
 
@@ -72,16 +72,21 @@ function buildDefaultCapabilityResolver(): CapabilityResolver {
 // ─── Context Options ────────────────────────────────────────────────────────
 
 export interface InitializeContextOptions {
-  /** Optional storage backend for test injection. When omitted, JSONL-only mode. */
+  /**
+   * Optional storage backend for test injection. Production callers
+   * always thread an initialized SqliteBackend in (post-v2.11 DR-3
+   * substrate-cut: SQLite is the sole substrate, no JSONL fallback).
+   */
   readonly backend?: StorageBackend;
   /** Optional project root directory to load exarchos.config.ts/.js from. */
   readonly projectRoot?: string;
   /**
    * When true, the EventStore's `initialize()` blocks until the PID lock can
-   * be acquired rather than entering sidecar mode. Intended for short-lived
-   * CLI invocations that must serialize writes with any concurrent invocation
-   * (DR-5). Leave unset for long-running MCP server paths, which prefer the
-   * existing "first-wins + sidecar" semantics.
+   * be acquired rather than throwing immediately on contention. Intended for
+   * short-lived CLI invocations that must serialize writes with any
+   * concurrent invocation (DR-5). Leave unset for long-running MCP server
+   * paths, which hard-throw on contention (sidecar fallback was deleted in
+   * v2.11 — #1082).
    */
   readonly waitForLock?: boolean;
 }
@@ -151,13 +156,13 @@ export async function initializeContext(
   const hookRunner = createConfigHookRunner(projectConfig);
 
   // T58 / DR-7 — load `<projectRoot>/topology.yaml` once at lifecycle start.
-  // The loader's module-level cache short-circuits subsequent calls within
-  // the same process, satisfying the design's "once at startup" semantics
-  // for `phase.contract_missing` emission. Skip silently when the file is
-  // absent (the pruner falls back to the v2.9 single-signal heuristic per
-  // `topology/loader.ts` docstring). The cold-start fast-exit above
-  // (no projectRoot) already bypasses topology entirely — this branch is
-  // the only place wired.
+  // v2.11 hard-cut: the loader THROWS on any phase missing a `staleness`
+  // block. We swallow that throw here so a malformed topology does not
+  // take down the substrate-bearing startup path; the operator sees the
+  // structured error log line emitted by the loader and downstream
+  // callers see `getTopology()` continue to throw "load before".
+  // The cold-start fast-exit above (no projectRoot) already bypasses
+  // topology entirely — this branch is the only place wired.
   await loadTopologyIfPresent(projectRoot, eventStore);
 
   if (!hasJsConfig) {
@@ -205,34 +210,29 @@ export async function initializeContext(
 /**
  * Lifecycle wiring for the topology loader (T58, DR-7).
  *
- * The design specifies the typed loader is *"called once at lifecycle start"*
- * and emits `phase.contract_missing` per missing-contract phase *"once at
- * startup"*. The loader itself (T44 / T47) owns the cache + per-missing-phase
- * emission walk; this helper is just the wiring step that supplies the
- * canonical project topology path (`<projectRoot>/topology.yaml`) and an
- * emit adapter routed through the EventStore so events land on the durable
- * `_substrate` stream.
+ * The design specifies the typed loader is *"called once at lifecycle start"*.
+ * The loader itself owns the cache; this helper is the wiring step that
+ * supplies the canonical project topology path (`<projectRoot>/topology.yaml`).
  *
- * Behavior:
- *   - File absent → silent no-op. The pruner (T48) falls back to the v2.9
- *     single-signal heuristic when `getTopology()` is uncalled, so the
- *     contract is "advisory, not required". This keeps repos that haven't
- *     yet authored a `topology.yaml` from seeing startup errors.
- *   - File present → call `loadTopology()`; the loader's cache makes the
- *     emit walk fire exactly once per process, so a second
- *     `initializeContext` on the same project is naturally idempotent.
- *   - Failures during load → swallowed and logged via the loader's own
- *     warn-level structured log line; we do not surface a startup error
- *     here. The substrate is the load-bearing path; topology is advisory.
+ * v2.11 (Phase 5c, DR-7) behavior:
+ *   - File absent → silent no-op. Repos without a `topology.yaml` see no
+ *     startup error and `getTopology()` continues to throw "load before".
+ *   - File present + complete → call `loadTopology()`; the loader's cache
+ *     makes the parse fire exactly once per process.
+ *   - File present + missing-contract → loader THROWS (DR-7 hard-cut).
+ *     We swallow the throw here so a malformed topology does not bring
+ *     down the substrate-bearing startup path; operators see the
+ *     structured error log line emitted by the loader. The pruner cannot
+ *     score in this state because `getTopology()` will continue to throw.
  *
- * The emit adapter does NOT supply an idempotency key — emissions are
- * strictly once-per-startup-per-process via the loader's cache, so the
- * usual "two writes, same key, second is a no-op" deduplication semantics
- * are not the right cardinality here.
+ * The unused `eventStore` parameter is retained on the signature for
+ * binary compatibility with v2.10 callers; the v2.11 loader no longer
+ * emits any events, so no emit adapter is wired.
  */
 async function loadTopologyIfPresent(
   projectRoot: string,
-  eventStore: EventStore,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  _eventStore: EventStore,
 ): Promise<void> {
   const topologyPath = path.join(projectRoot, 'topology.yaml');
   try {
@@ -242,19 +242,13 @@ async function loadTopologyIfPresent(
     return;
   }
 
-  const emit: TopologyEventEmitter = async (streamId, event) => {
-    await eventStore.append(streamId, {
-      type: event.type,
-      data: event.data,
-    });
-  };
-
   try {
-    await loadTopology({ topologyPath, emit });
+    await loadTopology({ topologyPath });
   } catch {
-    // The loader already emits a structured warn-level log line when the
-    // YAML is malformed; swallow here so a bad topology doesn't take down
-    // the substrate-bearing startup path. Operators who care will see the
-    // log line; the pruner will fall back to the single-signal heuristic.
+    // The loader already emits a structured error log line when the
+    // YAML is malformed or contains phases missing the `staleness`
+    // block (DR-7 hard-cut). Swallow here so a bad topology doesn't
+    // take down the substrate-bearing startup path. Downstream callers
+    // see `getTopology()` continue to throw "load before".
   }
 }

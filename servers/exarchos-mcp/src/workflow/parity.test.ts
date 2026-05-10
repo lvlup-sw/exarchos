@@ -163,6 +163,12 @@ describe('exarchos_workflow CLI/MCP parity (DR-3)', () => {
     expect(normalize(cliResult)).toEqual(normalize(mcpResult));
   });
 
+  // T5a.1/DR-4 (#1259, v2.11): `WorkflowParity_Set_CliAndMcp_ReturnEqualPayload`
+  // removed — the `set` action is hard-cut from both adapters. Field
+  // updates and phase mutations are no longer authored through this
+  // surface; phase mutation flows through `transition` (covered by
+  // canonical-action parity coverage).
+
   // ─── T-24 — delegate-phase rehydrate envelope parity (rehydration-machinery-refactor) ───
   //
   // Pins INV-2 (facade equivalence over shared dispatch core) for the v:3
@@ -217,34 +223,5 @@ describe('exarchos_workflow CLI/MCP parity (DR-3)', () => {
     // assert it explicitly to make the contract self-documenting.
     expect(normalize(cliResult)).toEqual(normalize(mcpResult));
     expect(cliDoc.phasePlaybook).toEqual(mcpDoc.phasePlaybook);
-  });
-
-  it('WorkflowParity_Set_CliAndMcp_ReturnEqualPayload', async () => {
-    const featureId = 'parity-set-feature';
-    const workflowType = 'feature';
-
-    // Arrange: init both dirs so `set` has state to mutate.
-    await callMcp(fixture.mcpCtx, 'exarchos_workflow', 'init', { featureId, workflowType });
-    await callMcp(fixture.cliCtx, 'exarchos_workflow', 'init', { featureId, workflowType });
-
-    // Act — issue the same `set` call through both adapters. We set an
-    // artifacts field via --updates rather than a phase transition to keep
-    // the test focused on the payload shape (phase transitions trigger HSM
-    // guards that would dominate the assertion signal).
-    const updates = { 'artifacts.design': 'docs/design.md' };
-
-    const mcpResult = await callMcp(fixture.mcpCtx, 'exarchos_workflow', 'set', {
-      featureId,
-      updates,
-    });
-    const { result: cliResult, exitCode } = await callCli(
-      fixture.cliCtx,
-      'wf',
-      'set',
-      { featureId, updates: JSON.stringify(updates) },
-    );
-
-    expect(exitCode).toBe(CLI_EXIT_CODES.SUCCESS);
-    expect(normalize(cliResult)).toEqual(normalize(mcpResult));
   });
 });

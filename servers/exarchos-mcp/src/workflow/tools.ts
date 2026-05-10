@@ -198,19 +198,15 @@ export async function handleInit(
       extraFields,
     );
 
-    // Issue #1082 Tier 3: surface sidecar-mode degradation so callers can
-    // detect that the workflow.started event was written to the sidecar
-    // file rather than the main stream (the ack mirrors `sequencePending`
-    // on `exarchos_event append`).
-    const sidecarPending = eventStore?.inSidecarMode === true;
-
+    // v2.11 Phase 1: sidecar fallback (#1082) is gone — the event-store
+    // either writes through the SQLite WAL or hard-throws on lock
+    // contention. The `sidecarPending` envelope ack is no longer emitted.
     return {
       success: true,
       data: {
         featureId: state.featureId,
         workflowType: state.workflowType,
         phase: state.phase,
-        ...(sidecarPending && { sidecarPending: true }),
       },
       _meta: buildCheckpointMeta(state._checkpoint),
     };
@@ -599,8 +595,8 @@ export async function handleSet(
     // and event emission live behind the primitive's interface.
     //
     // `pendingTransitionEventsCount` and `transitionTopSequence` are kept
-    // so the post-transition path can update `_eventSequence` and surface
-    // `sidecarPending` without re-querying the event store.
+    // so the post-transition path can update `_eventSequence` without
+    // re-querying the event store.
     let pendingTransitionEventsCount = 0;
     let transitionTopSequence: number | undefined;
 
@@ -877,22 +873,20 @@ export async function handleSet(
     // Event-first: events already appended before CAS write with idempotency keys.
     // State write is the follow-up materialization step.
     //
-    // Issue #1082 Tier 3: when the event store is in sidecar mode AND this
-    // call emitted at least one event (transition or state.patched), surface
-    // `sidecarPending: true` so callers can detect degraded mode. Coarse-
-    // grained on purpose — the store's sidecar flag is the truth, and it
-    // does not change within a single handleSet invocation.
-    const patchEmitted = isEventSourced(state as unknown as Record<string, unknown>)
-      && eventStore != null && updateKeys.length > 0;
-    const emittedEvents = pendingTransitionEventsCount > 0 || patchEmitted;
-    const sidecarPending = emittedEvents && eventStore?.inSidecarMode === true;
-
+    // v2.11 Phase 1: sidecar fallback (#1082) removed; no `sidecarPending`
+    // envelope marker needed.
+    //
+    // Surface `workflowType` so `nextActionsFromResult` (called by
+    // `envelopeWrap` in composite.ts) can compute HATEOAS links — the
+    // helper requires both `phase` AND `workflowType` to look up the HSM.
+    // Without it, every successful `transition` would ship an empty
+    // `next_actions` array. Field is purely additive.
     return {
       success: true,
       data: {
         phase: mutableState.phase as string,
+        workflowType: mutableState.workflowType as string,
         updatedAt: mutableState.updatedAt as string,
-        ...(sidecarPending && { sidecarPending: true }),
       },
       _meta: buildCheckpointMeta(mutableState._checkpoint as WorkflowState['_checkpoint']),
     };
@@ -1402,12 +1396,10 @@ export async function handleCheckpoint(
   mutableState.updatedAt = new Date().toISOString();
   await writeStateFile(stateFile, mutableState as WorkflowState);
 
-  // Issue #1082 Tier 3: surface sidecar-mode degradation (see handleInit/handleSet).
-  const sidecarPending = eventStore?.inSidecarMode === true;
-
-  // T-23 (rehydration-machinery-refactor §T-23) — compose `phasePlaybook`
-  // for the dispatch envelope using the shared helper that `handleRehydrate`
-  // also calls (T-20). After the `workflow.checkpoint` event has landed and
+  // v2.11 substrate cut (#1082): sidecar fallback removed; no `sidecarPending`.
+  // T-23 (rehydration-machinery-refactor) — compose `phasePlaybook` for the
+  // dispatch envelope using the shared helper that `handleRehydrate` also
+  // calls (T-20). After the `workflow.checkpoint` event has landed and
   // BEFORE we build the return value so the envelope reflects the same
   // (workflowType, phase) the checkpoint was recorded for. The helper
   // returns `null` for unregistered pairs (e.g. discovery/completed) and a
@@ -1430,10 +1422,9 @@ export async function handleCheckpoint(
       // a follow-up query. Omitted when no event store is configured —
       // the materialization block above skips entirely in that mode.
       ...(projectionSequence !== undefined && { projectionSequence }),
-      ...(sidecarPending && { sidecarPending: true }),
       // T-23: present unconditionally (null for unregistered pairs) — the
       // v:3 envelope schema requires the field's presence, not just
-      // truthiness.
+      // truthiness. (#1082 sidecar field deleted in v2.11 substrate cut.)
       phasePlaybook,
     },
     _meta: buildCheckpointMeta(mutableState._checkpoint as WorkflowState['_checkpoint']),

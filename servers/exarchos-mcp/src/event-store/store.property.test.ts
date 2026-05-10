@@ -1,11 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { fc } from '@fast-check/vitest';
 import * as path from 'node:path';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { EventStore } from './store.js';
 import { EventTypes } from './schemas.js';
-import type { WorkflowEvent } from './schemas.js';
 
 // ─── Shared Setup ─────────────────────────────────────────────────────────
 
@@ -33,41 +32,29 @@ const arbEvent = arbEventType.map((type) => ({
 /** Generate an array of N events where N is between 1 and 20. */
 const arbEventSequence = fc.array(arbEvent, { minLength: 1, maxLength: 20 });
 
-/** Generate a valid stream ID (lowercase alphanumeric + hyphens). */
-const arbStreamId = fc
-  .stringMatching(/^[a-z][a-z0-9-]{2,19}$/)
-  .filter((s) => s.length >= 3);
-
 /** Generate a unique idempotency key. */
 const arbIdempotencyKey = fc.uuid();
 
 // ─── Property Tests ─────────────────────────────────────────────────────
 
 /**
- * T52 (#1259, DR-1): the storage-primitive property suite is parametrized
- * over both substrate bodies — the legacy JSONL writer and the new SQLite
- * writer — so the substrate-agnostic invariants (sequence order, idempotent
- * dedup, type-filter subset) hold for every implementation that backs the
- * `EventStore` write boundary. The substrate is selected via
- * `EventStoreOptions.appenderBackend` (added in T51) which plumbs through
- * the lazy `getAppender()` site without affecting the read-delegate
- * `StorageBackend`.
+ * Storage-primitive property suite over the (sole) SQLite substrate.
  *
- * The cross-substrate fold-determinism property below proves the DR-1
- * acceptance criterion directly: `fold(events)` is identical regardless of
- * which substrate persisted the writes.
+ * Pre-Phase-3 (v2.11 substrate-cut), this suite was parametrized over
+ * the legacy JSONL writer and the SQLite writer via
+ * `EventStoreOptions.appenderBackend` (T51, #1259). Phase 3 collapsed
+ * the option, leaving SQLite as the only substrate; the cross-substrate
+ * fold-determinism property and the stale-`.seq` cross-validation tests
+ * (which manipulated JSONL-only artifacts) were removed alongside.
  */
-describe.each([
-  { backend: 'jsonl' as const },
-  { backend: 'sqlite' as const },
-])('EventStore Property Tests [$backend]', ({ backend }) => {
+describe('EventStore Property Tests', () => {
   describe('EventStore_AppendThenQuery_PreservesOrder', () => {
     it('for any sequence of N events (1-20), query() returns them sorted by ascending sequence', async () => {
       await fc.assert(
         fc.asyncProperty(arbEventSequence, async (events) => {
           // Each property run gets its own isolated store
           const runDir = await mkdtemp(path.join(tempDir, 'run-'));
-          const store = new EventStore(runDir, { appenderBackend: backend });
+          const store = new EventStore(runDir);
           const streamId = 'test-stream';
 
           // Append all events sequentially
@@ -101,7 +88,7 @@ describe.each([
       await fc.assert(
         fc.asyncProperty(arbEvent, arbIdempotencyKey, async (event, key) => {
           const runDir = await mkdtemp(path.join(tempDir, 'run-'));
-          const store = new EventStore(runDir, { appenderBackend: backend });
+          const store = new EventStore(runDir);
           const streamId = 'test-stream';
 
           // Append twice with the same idempotency key
@@ -126,7 +113,7 @@ describe.each([
       await fc.assert(
         fc.asyncProperty(arbEventSequence, arbEventType, async (events, filterType) => {
           const runDir = await mkdtemp(path.join(tempDir, 'run-'));
-          const store = new EventStore(runDir, { appenderBackend: backend });
+          const store = new EventStore(runDir);
           const streamId = 'test-stream';
 
           // Append all events
@@ -157,150 +144,5 @@ describe.each([
         { numRuns: 50 },
       );
     });
-  });
-});
-
-// ─── Cross-Substrate Fold-Determinism (DR-1, #1259) ───────────────────────
-
-/**
- * Project a `WorkflowEvent` to the substrate-agnostic tuple
- * `(streamId, sequence, type, data, idempotencyKey, schemaVersion)`.
- *
- * Timestamps are auto-generated at append-time (`WorkflowEventBase.timestamp`
- * defaults to `new Date().toISOString()`), so two independent runs against
- * disjoint stores will produce different timestamps even when fed the same
- * event sequence. The DR-1 acceptance is "`fold(events)` is deterministic
- * regardless of substrate" — fold is the projection of the persisted
- * sequence to caller-meaningful state, which is exactly the schema-defined
- * fields minus the wall-clock metadata. Comparing the projected tuples
- * across substrates is the precise statement of replay-determinism for
- * the storage primitive.
- *
- * If a substrate adds or drops a non-timestamp field for the same input,
- * THAT is a real divergence and the property must surface it (don't extend
- * the projection to paper over it without an explicit GREEN-phase fix).
- */
-function project(event: WorkflowEvent): {
-  streamId: string;
-  sequence: number;
-  type: string;
-  data: Record<string, unknown> | undefined;
-  idempotencyKey: string | undefined;
-  schemaVersion: string;
-} {
-  return {
-    streamId: event.streamId,
-    sequence: event.sequence,
-    type: event.type,
-    data: event.data,
-    idempotencyKey: event.idempotencyKey,
-    schemaVersion: event.schemaVersion,
-  };
-}
-
-describe('EventStore Property Tests [cross-substrate]', () => {
-  describe('EventStore_FoldDeterminismAcrossSubstrates', () => {
-    it('for any event sequence, fold(jsonl-persisted) ≡ fold(sqlite-persisted) modulo timestamp', async () => {
-      await fc.assert(
-        fc.asyncProperty(arbEventSequence, async (events) => {
-          const streamId = 'cross-substrate-stream';
-
-          // Persist the same input to a fresh JSONL-backed store.
-          const jsonlDir = await mkdtemp(path.join(tempDir, 'jsonl-'));
-          const jsonlStore = new EventStore(jsonlDir, { appenderBackend: 'jsonl' });
-          for (const event of events) {
-            await jsonlStore.append(streamId, event);
-          }
-          const eventsJsonl = await jsonlStore.query(streamId);
-
-          // Persist the same input to a fresh SQLite-backed store.
-          const sqliteDir = await mkdtemp(path.join(tempDir, 'sqlite-'));
-          const sqliteStore = new EventStore(sqliteDir, { appenderBackend: 'sqlite' });
-          for (const event of events) {
-            await sqliteStore.append(streamId, event);
-          }
-          const eventsSqlite = await sqliteStore.query(streamId);
-
-          // Substrate-agnostic fold: project out the timestamp (auto-generated
-          // wall-clock metadata that necessarily differs across two
-          // independent writes) and compare the deterministic remainder.
-          const projectedJsonl = eventsJsonl.map(project);
-          const projectedSqlite = eventsSqlite.map(project);
-
-          // Same number of events out for the same number of events in.
-          expect(projectedSqlite).toHaveLength(projectedJsonl.length);
-
-          // Replay-determinism (DR-1): the projected views must be deeply equal.
-          expect(projectedSqlite).toEqual(projectedJsonl);
-        }),
-        { numRuns: 50 },
-      );
-    });
-  });
-});
-
-// ─── Stale .seq Cross-Validation Tests (#939) ────────────────────────────
-
-describe('EventStore Stale .seq Cross-Validation', () => {
-  it('initializeSequence_StaleSeqFile_UsesJsonlLineCount', async () => {
-    const runDir = await mkdtemp(path.join(tempDir, 'stale-seq-'));
-    const store1 = new EventStore(runDir);
-    const streamId = 'test-stale';
-
-    // Append 3 events via store1
-    await store1.append(streamId, { type: 'workflow.started', data: {} });
-    await store1.append(streamId, { type: 'task.assigned', data: {} });
-    await store1.append(streamId, { type: 'task.claimed', data: {} });
-
-    // Manually overwrite .seq with stale value (1 instead of 3)
-    const seqPath = path.join(runDir, `${streamId}.seq`);
-    await writeFile(seqPath, JSON.stringify({ sequence: 1 }), 'utf-8');
-
-    // Create a new store instance (forces re-initialization from disk)
-    const store2 = new EventStore(runDir);
-
-    // Append a 4th event — should get sequence 4, not 2
-    const event = await store2.append(streamId, { type: 'workflow.transition', data: {} });
-    expect(event.sequence).toBe(4);
-  });
-
-  it('handleTaskClaim_StaleSeqFile_ClaimSucceeds', async () => {
-    // Import the task tools
-    const { handleTaskClaim, resetModuleEventStore } = await import('../tasks/tools.js');
-    const { resetMaterializerCache } = await import('../views/tools.js');
-
-    const runDir = await mkdtemp(path.join(tempDir, 'stale-claim-'));
-    const store1 = new EventStore(runDir);
-    const streamId = 'wf-stale';
-
-    // Seed with initial events
-    await store1.append(streamId, { type: 'workflow.started', data: {} });
-    await store1.append(streamId, { type: 'task.assigned', data: {} });
-
-    // Write stale .seq (says 1, but JSONL has 2 events)
-    const seqPath = path.join(runDir, `${streamId}.seq`);
-    await writeFile(seqPath, JSON.stringify({ sequence: 1 }), 'utf-8');
-
-    // Reset module-level caches so handleTaskClaim creates a fresh store
-    resetModuleEventStore();
-    resetMaterializerCache();
-
-    // Fresh instance — exercises the stale-.seq + JSONL cross-check bootstrap
-    // path. Reusing store1 here would carry its in-memory sequenceCounters
-    // forward and silently bypass the regression we're guarding against.
-    const store2 = new EventStore(runDir);
-
-    // Call handleTaskClaim — should succeed, not fail with CLAIM_FAILED
-    const result = await handleTaskClaim(
-      { taskId: 't-stale', agentId: 'agent-stale', streamId },
-      runDir,
-      store2,
-    );
-
-    expect(result.success).toBe(true);
-
-    // Cleanup module state
-    resetModuleEventStore();
-    resetMaterializerCache();
   });
 });

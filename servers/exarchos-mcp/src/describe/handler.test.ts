@@ -27,12 +27,12 @@ describe('handleDescribe', () => {
     expect(data).toHaveProperty('get');
   });
 
-  it('HandleDescribe_UnknownAction_ReturnsErrorWithValidTargets', async () => {
+  it('HandleDescribe_UnknownAction_ReturnsErrorWithValidActions', async () => {
     const result = await handleDescribe({ actions: ['nonexistent'] }, workflowTool.actions);
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('UNKNOWN_ACTION');
-    expect(result.error?.validTargets).toBeDefined();
-    expect(result.error?.validTargets?.length).toBeGreaterThan(0);
+    expect(result.error?.validActions).toBeDefined();
+    expect(result.error?.validActions?.length).toBeGreaterThan(0);
   });
 
   it('HandleDescribe_ActionWithAutoEmits_ReturnsEmissionMetadata', async () => {
@@ -287,38 +287,14 @@ describe('handleDescribe playbook', () => {
   });
 });
 
-describe('handleDescribe stateSchema', () => {
-  it('HandleDescribe_SetAction_WithOptIn_IncludesStateSchema', async () => {
-    const result = await handleDescribe({ actions: ['set'] }, workflowActions, { includeStateSchema: true });
-    expect(result.success).toBe(true);
-    const data = result.data as Record<string, Record<string, unknown>>;
-    expect(data.set).toHaveProperty('stateSchema');
-    const stateSchema = data.set.stateSchema as Record<string, unknown>;
-    expect(stateSchema).toHaveProperty('worktrees');
-    expect(stateSchema).toHaveProperty('tasks');
-    expect(stateSchema).toHaveProperty('reviews');
-  });
-
-  it('HandleDescribe_SetAction_WithOptIn_StateSchemaIncludesEnumValues', async () => {
-    const result = await handleDescribe({ actions: ['set'] }, workflowActions, { includeStateSchema: true });
-    expect(result.success).toBe(true);
-    const data = result.data as Record<string, Record<string, unknown>>;
-    const stateSchema = data.set.stateSchema as Record<string, Record<string, unknown>>;
-    const worktreeSchema = stateSchema.worktrees as Record<string, unknown>;
-    const itemSchema = worktreeSchema.itemSchema as Record<string, Record<string, unknown>>;
-    // WorktreeStatusSchema enum values should appear in the status field
-    const statusProp = itemSchema.properties?.status as Record<string, unknown>;
-    expect(statusProp).toBeDefined();
-    expect(statusProp.enum).toEqual(['active', 'merged', 'removed']);
-  });
-
-  it('HandleDescribe_SetAction_WithoutOptIn_OmitsStateSchema', async () => {
-    const result = await handleDescribe({ actions: ['set'] }, workflowActions);
-    expect(result.success).toBe(true);
-    const data = result.data as Record<string, Record<string, unknown>>;
-    expect(data.set).not.toHaveProperty('stateSchema');
-  });
-
+// T5a.1/DR-4 (#1259, v2.11): the `handleDescribe stateSchema` block
+// previously verified that the `set` action's describe response
+// included a `stateSchema` discoverability sub-payload (and that other
+// actions didn't surface one). The `set` action is removed and the
+// `stateSchema` slot has no current consumer; the block is removed.
+// `HandleDescribe_NonSetAction_NoStateSchema` is preserved as a sanity
+// pin against accidental regressions on other actions.
+describe('handleDescribe stateSchema (post DR-4)', () => {
   it('HandleDescribe_NonSetAction_NoStateSchema', async () => {
     const result = await handleDescribe({ actions: ['get'] }, workflowActions, { includeStateSchema: true });
     expect(result.success).toBe(true);

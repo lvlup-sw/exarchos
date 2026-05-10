@@ -135,127 +135,27 @@ export async function findActiveWorkflowPhase(
 
 // ─── Historical Intelligence ──────────────────────────────────────────────
 
-/** Event types relevant for historical intelligence. */
-const HISTORY_EVENT_TYPES = new Set([
-  'workflow.fix-cycle',
-  'task.completed',
-  'task.failed',
-]);
-
-/** Maximum number of JSONL files to scan. */
-const MAX_FILES = 10;
-
-/** Maximum number of lines to read from end of each JSONL file. */
-const MAX_LINES_PER_FILE = 500;
-
 /** Maximum length of synthesized intelligence string. */
 const MAX_INTELLIGENCE_LENGTH = 500;
 
 /**
- * Check if a parsed event's data references any of the specified modules.
- * Searches compoundStateId, artifacts arrays, and taskId fields.
- */
-function eventReferencesModules(
-  event: Record<string, unknown>,
-  modules: string[],
-): boolean {
-  if (modules.length === 0) return false;
-
-  const data = event.data as Record<string, unknown> | undefined;
-  if (!data) return false;
-
-  const searchableFields: string[] = [];
-
-  if (typeof data.compoundStateId === 'string') {
-    searchableFields.push(data.compoundStateId);
-  }
-  if (typeof data.taskId === 'string') {
-    searchableFields.push(data.taskId);
-  }
-  if (Array.isArray(data.artifacts)) {
-    for (const artifact of data.artifacts) {
-      if (typeof artifact === 'string') {
-        searchableFields.push(artifact);
-      }
-    }
-  }
-
-  const combined = searchableFields.join(' ').toLowerCase();
-  return modules.some((m) => combined.includes(m.toLowerCase()));
-}
-
-/**
- * Expand module names into search terms by splitting on hyphens.
- * For example, 'auth-service' produces ['auth-service', 'auth', 'service'].
- */
-function expandModuleSearchTerms(modules: string[]): string[] {
-  const terms = new Set<string>();
-  for (const m of modules) {
-    terms.add(m);
-    // Also add individual segments for broader matching
-    const parts = m.split('-').filter((p) => p.length > 2);
-    for (const part of parts) {
-      terms.add(part);
-    }
-  }
-  return Array.from(terms);
-}
-
-/**
- * Scan JSONL event files for events relevant to specified modules.
- * Uses lightweight line-by-line JSON parsing (no full EventStore import) for CLI hook performance.
+ * Returns events relevant to the given modules.
+ *
+ * Pre-v2.11: scanned `*.events.jsonl` files in `stateDir`. v2.11 deletes
+ * the JSONL substrate (`docs/designs/2026-05-09-v2-11-substrate-cut.md`),
+ * so this function returns `[]`. The historical-intelligence summary in
+ * `assembleSubagentContext` becomes empty for non-team-mode subagents
+ * until a SQLite-backed reimplementation lands.
+ *
+ * Kept as a no-op rather than deleted to preserve the call shape used by
+ * `assembleSubagentContext` (CLI hook hot path) while tracking
+ * follow-up restoration as a v2.12 feature.
  */
 export async function queryModuleHistory(
-  stateDir: string,
-  modules: string[],
+  _stateDir: string,
+  _modules: string[],
 ): Promise<Array<Record<string, unknown>>> {
-  let entries: string[];
-  try {
-    entries = await fs.readdir(stateDir);
-  } catch {
-    return [];
-  }
-
-  const jsonlFiles = entries
-    .filter((f) => f.endsWith('.events.jsonl'))
-    .slice(0, MAX_FILES);
-
-  if (jsonlFiles.length === 0) return [];
-
-  const searchTerms = expandModuleSearchTerms(modules);
-  const results: Array<Record<string, unknown>> = [];
-
-  for (const file of jsonlFiles) {
-    try {
-      const content = await fs.readFile(path.join(stateDir, file), 'utf-8');
-      const allLines = content.split('\n').filter((line) => line.trim().length > 0);
-      // Take only the last MAX_LINES_PER_FILE lines for performance
-      const lines = allLines.slice(-MAX_LINES_PER_FILE);
-
-      for (const line of lines) {
-        try {
-          const event = JSON.parse(line) as Record<string, unknown>;
-          const eventType = event.type;
-
-          if (typeof eventType !== 'string' || !HISTORY_EVENT_TYPES.has(eventType)) {
-            continue;
-          }
-
-          if (eventReferencesModules(event, searchTerms)) {
-            results.push(event);
-          }
-        } catch {
-          // Skip unparseable lines
-          continue;
-        }
-      }
-    } catch {
-      // Skip unreadable files
-      continue;
-    }
-  }
-
-  return results;
+  return [];
 }
 
 /**

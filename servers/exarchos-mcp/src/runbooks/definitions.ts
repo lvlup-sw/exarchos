@@ -41,8 +41,9 @@ export const AGENT_TEAMS_SAGA: RunbookDefinition = {
       note: 'Atomic batch: ALL task events in one call' },
     { tool: 'native:TaskCreate', action: 'create', onFail: 'stop',
       note: 'Create N tasks, then wire dependencies' },
-    { tool: 'exarchos_workflow', action: 'set', onFail: 'stop',
-      note: 'Store task correlation — orchestrator is sole writer of workflow.tasks[]' },
+    { tool: 'exarchos_event', action: 'append', onFail: 'stop',
+      params: { type: 'state.patched' },
+      note: 'Store task correlation — emit state.patched directly (DR-4: `set({updates})` MCP surface removed in v2.11)' },
     { tool: 'exarchos_event', action: 'append', onFail: 'stop',
       params: { type: 'team.teammate.dispatched' },
       note: 'Emit per teammate. PIVOT POINT: past here, compensation is partial' },
@@ -58,15 +59,18 @@ export const AGENT_TEAMS_SAGA: RunbookDefinition = {
       note: 'Shutdown N teammates, then TeamDelete' },
     { tool: 'exarchos_orchestrate', action: 'post_delegation_check', onFail: 'stop',
       note: 'Verify all tasks complete, tests pass, branches exist' },
-    { tool: 'exarchos_workflow', action: 'set', onFail: 'stop',
-      params: { phase: 'review' },
-      note: 'Auto-emits workflow.transition' },
+    { tool: 'exarchos_workflow', action: 'transition', onFail: 'stop',
+      params: { target: 'review' },
+      note: 'Auto-emits workflow.transition (DR-4: replaces `set({phase})` rerouting in v2.11)' },
   ],
   templateVars: ['featureId', 'streamId', 'stream', 'event', 'events', 'teamId', 'stateFile', 'repoRoot'],
-  // T38/DR-4 (#1259): the `set({phase})` invocations in this runbook now emit
-  // `hsm.deprecated_action_invoked` as part of the deprecation rerouting
-  // surface. v2.11.0 removes the action and this emission goes with it.
-  autoEmits: ['gate.executed', 'hsm.deprecated_action_invoked', 'state.patched', 'workflow.transition'],
+  // T5a.1/DR-4 (#1259, v2.11): hard-cut of `workflow.set` removes the
+  // `hsm.deprecated_action_invoked` emission path. State patches now
+  // route through `exarchos_event.append` directly (the event type is
+  // carried via `params.type`, not `action.autoEmits`); the canonical
+  // phase-mutation event is `workflow.transition` emitted by the
+  // `transition` action.
+  autoEmits: ['gate.executed', 'workflow.transition'],
 };
 
 export const SYNTHESIS_FLOW: RunbookDefinition = {
@@ -79,11 +83,20 @@ export const SYNTHESIS_FLOW: RunbookDefinition = {
     { tool: 'exarchos_orchestrate', action: 'validate_pr_body', onFail: 'stop' },
     { tool: 'native:bash', action: 'gh_pr_create', onFail: 'stop',
       note: 'Create PR via gh CLI' },
-    { tool: 'exarchos_workflow', action: 'set', onFail: 'stop',
-      note: 'Record PR URL in artifacts.prUrl' },
+    { tool: 'exarchos_event', action: 'append', onFail: 'stop',
+      params: { type: 'state.patched' },
+      note: 'Record PR URL in artifacts.prUrl — emit state.patched directly (DR-4: `set` MCP surface removed in v2.11)' },
   ],
-  templateVars: ['featureId', 'baseBranch'],
-  autoEmits: ['gate.executed', 'hsm.deprecated_action_invoked', 'state.patched', 'workflow.transition'],
+  // T5a.1/DR-4 (v2.11): added `stream` and `event` template vars to cover
+  // the new `event.append` step's required schema fields.
+  templateVars: ['featureId', 'baseBranch', 'stream', 'event'],
+  // T5a.1/DR-4 (v2.11): `set` removed. The `hsm.deprecated_action_invoked`
+  // emission disappeared with it; remaining auto-emits are the canonical
+  // event types this synthesis flow still produces. `state.patched` is
+  // emitted via `event.append({type: 'state.patched'})` — that's a
+  // `params.type` value rather than an action-level `autoEmits` entry,
+  // so it does not appear in the computed-from-registry view.
+  autoEmits: ['gate.executed'],
 };
 
 export const SHEPHERD_ITERATION: RunbookDefinition = {

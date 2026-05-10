@@ -35,7 +35,9 @@ import {
 export const WORKFLOW_ACTIONS = [
   'init',
   'get',
-  'set',
+  // T5a.1/DR-4 (#1259, v2.11): `set` removed; `transition` is the
+  // canonical phase-mutation action and now anchors parity coverage.
+  'transition',
   'cancel',
   'cleanup',
   'reconcile',
@@ -178,11 +180,16 @@ export const ACTION_TABLE: readonly ActionSpec[] = [
     requiresInitSeed: true,
   },
   {
-    action: 'set',
-    cliActionFlag: 'set',
+    // T5a.1/DR-4 (#1259, v2.11): the prior `set` parity row exercised the
+    // deprecated rerouting surface. `transition` is the canonical
+    // phase-mutation action; a guard-failing call against a freshly-inited
+    // workflow still produces byte-identical CLI/MCP envelopes — which is
+    // what this gate measures.
+    action: 'transition',
+    cliActionFlag: 'transition',
     args: {
-      featureId: 'parity-all-set',
-      updates: { 'artifacts.design': 'docs/design.md' },
+      featureId: 'parity-all-transition',
+      target: 'plan',
     },
     requiresInitSeed: true,
   },

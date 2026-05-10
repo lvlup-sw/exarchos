@@ -62,9 +62,12 @@ describe('Runbook definitions', () => {
     // First step should be event-first: team.spawned
     expect(AGENT_TEAMS_SAGA.steps[0].tool).toBe('exarchos_event');
     expect(AGENT_TEAMS_SAGA.steps[0].params?.type).toBe('team.spawned');
-    // Last step should be workflow transition
+    // Last step should be workflow transition.
+    // T5a.1/DR-4 (#1259, v2.11): the prior `set({phase: 'review'})` step
+    // is replaced with `transition({target: 'review'})` after the `set`
+    // action's hard-cut.
     expect(AGENT_TEAMS_SAGA.steps[11].tool).toBe('exarchos_workflow');
-    expect(AGENT_TEAMS_SAGA.steps[11].action).toBe('set');
+    expect(AGENT_TEAMS_SAGA.steps[11].action).toBe('transition');
   });
 
   it('SynthesisFlow_HasFiveSteps', () => {

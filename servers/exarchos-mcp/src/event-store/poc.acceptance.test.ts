@@ -37,8 +37,13 @@ import { AtomicAppender } from './atomic-appender.js';
  * the end of Phase 8.
  */
 
+// v2.11 (DR-6, Phase 5b): `src/agents/spec.ts` was previously listed here
+// because its `validateAgentSpec` JSDoc referenced `AtomicAppender` while
+// surfacing the `spec.legacy_capabilities_array` deprecation event for the
+// caller to flow through the appender. The legacy-capabilities path was
+// hard-cut, so spec.ts no longer mentions the appender — the consumer set
+// drops back to the four substrate-internal files.
 const EXPECTED_CONSUMERS = [
-  'src/agents/spec.ts',
   'src/event-store/atomic-appender.ts',
   'src/event-store/store.ts',
   'src/event-store/tools.ts',

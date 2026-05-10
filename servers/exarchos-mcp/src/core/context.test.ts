@@ -518,82 +518,42 @@ phases:
   cleanup: {}
 `;
 
-  it('Context_InitializeWithTopologyMissingContracts_EmitsPhaseContractMissingOncePerMissingPhaseAtStartup', async () => {
+  it('Context_InitializeWithTopologyMissingContracts_DoesNotBlockStartup_SwallowsLoaderThrow_v2_11_DR7', async () => {
+    // v2.11 (DR-7) hard-cut — `loadTopology()` THROWS when any phase
+    // lacks a `staleness` block. The pre-v2.11 advisory branch (warn +
+    // emit `phase.contract_missing` once per missing phase + heuristic
+    // fallback in the pruner) is gone.
+    //
+    // `loadTopologyIfPresent` in `core/context.ts` retains its
+    // try/catch around `loadTopology()` so a malformed topology does
+    // NOT take down the substrate-bearing startup path. The error is
+    // surfaced via the loader's structured error log line; the
+    // EventStore stays initialized; downstream callers see
+    // `getTopology()` continue to throw "load before" because no
+    // Topology was successfully cached.
+    //
+    // Observable contract under v2.11:
+    //   - `initializeContext` returns a usable context (does not throw)
+    //   - NO `phase.contract_missing` events are emitted to the
+    //     `_substrate` stream (the advisory branch is gone)
+    //   - `getTopology()` still throws (no successful load → no cache)
     const { initializeContext } = await import('./context.js');
     const { getTopology } = await import('../topology/loader.js');
 
-    // ─── Fixture: project root with a topology.yaml ────────────────────────
     const projectRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'ctx-topo-proj-'));
     await fs.writeFile(path.join(projectRoot, 'topology.yaml'), PARTIAL_TOPOLOGY, 'utf-8');
 
     try {
-      // ─── Act 1: first initializeContext fires the loader ────────────────
-      // We do NOT inject a SqliteBackend here. The wiring under test routes
-      // emissions through `eventStore.append`, which uses the JSONL substrate
-      // by default. JSONL is the simplest read-path for this assertion: a
-      // `_substrate.events.jsonl` file with N lines == N emissions.
       const ctx1 = await initializeContext(tmpDir, { projectRoot });
       expect(ctx1.eventStore).toBeDefined();
 
-      // ─── Assertion 1: exactly 3 phase.contract_missing events emitted ──
-      const eventsAfterFirst = await ctx1.eventStore.query('_substrate');
-      const missingAfterFirst = eventsAfterFirst.filter(
-        (e) => e.type === 'phase.contract_missing',
-      );
-      expect(missingAfterFirst).toHaveLength(3);
+      // No phase.contract_missing events are emitted in v2.11.
+      const events = await ctx1.eventStore.query('_substrate');
+      const missing = events.filter((e) => e.type === 'phase.contract_missing');
+      expect(missing).toHaveLength(0);
 
-      // ─── Assertion 2: phaseName set matches the missing phases ──────────
-      const phaseNames = new Set(
-        missingAfterFirst.map((e) => (e.data as { phaseName: string }).phaseName),
-      );
-      expect(phaseNames).toEqual(new Set(['review', 'merge', 'cleanup']));
-
-      // ─── Assertion 3: getTopology() callable post-init ──────────────────
-      // Throws-if-not-loaded becomes pass-through after the wiring fires.
-      // This is the second observable side effect of the wiring (besides
-      // the events): downstream callers (e.g. pruner — T48) can now call
-      // `getTopology()` synchronously without any cold-start race.
-      expect(() => getTopology()).not.toThrow();
-      const loaded = getTopology();
-      expect(loaded.phases.design.staleness?.expectedMaxDwellMinutes).toBe(60);
-      expect(loaded.phases.review.staleness).toBeUndefined();
-
-      // ─── Pin the on-disk substrate state BEFORE the second startup ─────
-      // The JSONL substrate pinning is what makes the idempotency assertion
-      // robust to any internal substrate refactor: 3 lines now, 3 lines
-      // after a second `initializeContext`. If the loader's cache stops
-      // short-circuiting, this rises to 6 deterministically.
-      const jsonlPath = path.join(tmpDir, '_substrate.events.jsonl');
-      const jsonlAfterFirst = (await fs.readFile(jsonlPath, 'utf-8'))
-        .split('\n')
-        .filter((l) => l.trim()).length;
-      expect(jsonlAfterFirst).toBe(3);
-
-      // ─── Act 2: second initializeContext on the same stateDir+projectRoot
-      // The second EventStore enters sidecar mode (PID lock held by ctx1's
-      // EventStore), but `loadTopology()` short-circuits via its
-      // module-level cache before reaching `eventStore.append`, so neither
-      // a new JSONL line nor a sidecar entry is ever written.
-      const ctx2 = await initializeContext(tmpDir, { projectRoot });
-      expect(ctx2.eventStore).toBeDefined();
-
-      // ─── Assertion 4 (idempotency, on-disk): JSONL line count UNCHANGED
-      // The loader's module-level cache short-circuits the second call →
-      // no fresh `phase.contract_missing` emissions. This is the
-      // "once at startup" semantics the design calls out for DR-7.
-      const jsonlAfterSecond = (await fs.readFile(jsonlPath, 'utf-8'))
-        .split('\n')
-        .filter((l) => l.trim()).length;
-      expect(jsonlAfterSecond).toBe(3);
-
-      // ─── Assertion 5 (idempotency, query): no extra events visible ─────
-      // ctx2's EventStore is in sidecar mode, so `query('_substrate')`
-      // merges main JSONL (3 events) + sidecar (0 events). Total still 3.
-      const eventsAfterSecond = await ctx2.eventStore.query('_substrate');
-      const missingAfterSecond = eventsAfterSecond.filter(
-        (e) => e.type === 'phase.contract_missing',
-      );
-      expect(missingAfterSecond).toHaveLength(3);
+      // The loader threw → no Topology was cached → accessor still rejects.
+      expect(() => getTopology()).toThrow(/load.*before/i);
     } finally {
       await fs.rm(projectRoot, { recursive: true, force: true });
     }

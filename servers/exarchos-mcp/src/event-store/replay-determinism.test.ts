@@ -121,13 +121,11 @@ describe('replay determinism (C9, #1109 verification)', () => {
         expect(r.ok).toBe(true);
       }
 
-      // Read the JSONL the appender just wrote and reconstruct events.
-      const jsonlPath = path.join(tmpDir, `${streamId}.events.jsonl`);
-      const raw = await fs.readFile(jsonlPath, 'utf-8');
-      const events = raw
-        .split('\n')
-        .filter(line => line.length > 0)
-        .map(line => JSON.parse(line) as WorkflowEvent);
+      // Read the events back via the SQLite substrate (post v2.11
+      // substrate-cut: JSONL is gone, the DB is authoritative).
+      const backend = appender.getSqliteBackend();
+      if (!backend) throw new Error('SQLite backend not initialized');
+      const events = (await backend.queryEvents(streamId)) as WorkflowEvent[];
 
       // Project twice from the same log; byte-compare.
       const p1 = project(events);

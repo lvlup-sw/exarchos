@@ -113,13 +113,6 @@ describe('Lifecycle with SqliteBackend', () => {
     const stateFile = join(stateDir, `${featureId}.state.json`);
     writeFileSync(stateFile, JSON.stringify(completedState), 'utf-8');
 
-    // Write a JSONL file for event count
-    const jsonlPath = join(stateDir, `${featureId}.events.jsonl`);
-    const jsonlLines = Array.from({ length: 5 }, (_, i) =>
-      JSON.stringify(makeEvent({ streamId: featureId, sequence: i + 1 })),
-    ).join('\n');
-    writeFileSync(jsonlPath, jsonlLines, 'utf-8');
-
     // Add outbox entries
     backend.addOutboxEntry(featureId, makeEvent({ streamId: featureId, sequence: 1 }));
     backend.addOutboxEntry(featureId, makeEvent({ streamId: featureId, sequence: 2 }));
@@ -140,9 +133,6 @@ describe('Lifecycle with SqliteBackend', () => {
     // Assert: state deleted from SQLite
     const stateAfter = backend.getState(featureId);
     expect(stateAfter).toBeNull();
-
-    // Assert: JSONL file deleted from disk
-    expect(existsSync(jsonlPath)).toBe(false);
 
     // Assert: state file deleted from disk
     expect(existsSync(stateFile)).toBe(false);
@@ -175,18 +165,6 @@ describe('Lifecycle with SqliteBackend', () => {
       }));
     }
 
-    // Write a JSONL file exceeding the threshold
-    const telemetryJsonl = join(stateDir, `${TELEMETRY_STREAM}.events.jsonl`);
-    const lines = Array.from({ length: 10 }, (_, i) =>
-      JSON.stringify(makeEvent({
-        streamId: TELEMETRY_STREAM,
-        sequence: i + 1,
-        type: 'tool.invoked',
-        timestamp: oldTimestamp.toISOString(),
-      })),
-    ).join('\n');
-    writeFileSync(telemetryJsonl, lines, 'utf-8');
-
     // Verify pre-conditions
     const eventsBefore = backend.queryEvents(TELEMETRY_STREAM);
     expect(eventsBefore.length).toBe(10);
@@ -195,13 +173,10 @@ describe('Lifecycle with SqliteBackend', () => {
     const policy = shortRetentionPolicy();
     await rotateTelemetry(backend, stateDir, policy);
 
-    // Assert: old events pruned from SQLite
+    // Assert: old events pruned from SQLite (post-v2.11: rotateTelemetry
+    // is a thin wrapper over backend.pruneEvents; no JSONL rotation).
     const eventsAfter = backend.queryEvents(TELEMETRY_STREAM);
     expect(eventsAfter).toHaveLength(0);
-
-    // Assert: JSONL file rotated (original removed, .1 created)
-    expect(existsSync(telemetryJsonl)).toBe(false);
-    expect(existsSync(`${telemetryJsonl}.1`)).toBe(true);
   });
 
   it('compactWorkflow_SqliteBackend_ArchiveCreatedAtomically', async () => {

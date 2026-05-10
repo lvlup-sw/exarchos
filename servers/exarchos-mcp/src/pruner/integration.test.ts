@@ -1,18 +1,17 @@
 /**
- * T48 — Bundle integration test: phase contract end-to-end through the
- * pruner's pure scoring layer.
+ * Bundle integration test (DR-7, v2.11) — typed phase contract end-to-end
+ * through the pruner's pure scoring layer.
  *
- * Uses a multi-phase topology fixture covering:
- *   - phases declaring staleness with `freshnessRequires: 'all'`
- *   - phases declaring staleness with `freshnessRequires: 'any'`
- *   - phases without a contract (fallback path)
+ * Uses a multi-phase topology fixture covering BOTH `freshnessRequires`
+ * modes:
+ *   - phases declaring `'all'` (every signal must be fresh)
+ *   - phases declaring `'any'` (one fresh signal suffices)
  *
- * For each phase, asserts the pruner's verdict (via `scoreStaleness`)
- * matches the expected outcome under contract-aware scoring vs the
- * single-signal v2.9 fallback. T58 will wire this through the
- * orchestration handler in `lifecycle.ts`; this test exercises the
- * scorer + topology composition without touching the IO-bearing
- * handler.
+ * The v2.10 fallback path (phases without a `staleness` block routed
+ * through the v2.9 single-signal heuristic) was deleted in v2.11
+ * (Phase 5c, DR-7). The topology loader now throws on any phase missing
+ * `staleness`, so an integration fixture must declare a contract on every
+ * phase. See `pruner.dr7-removal.test.ts` for the contractless invariant.
  */
 import { describe, it, expect, beforeEach } from 'vitest';
 import * as fs from 'node:fs';
@@ -62,8 +61,6 @@ phases:
           thresholdMinutes: 120
         - name: branchActivity
           thresholdMinutes: 1440
-  scaffolding: {}
-  orphan: {}
 `;
 
 describe('pruner_integration_with_phase_contract_multi_phase_fixture', () => {
@@ -71,7 +68,7 @@ describe('pruner_integration_with_phase_contract_multi_phase_fixture', () => {
     __resetTopologyCacheForTesting();
   });
 
-  it('routes per-phase scoring through the contract; missing phases fall back to v2.9 single-signal', async () => {
+  it('routes per-phase scoring through the typed contract', async () => {
     const file = writeTopology(MULTI_PHASE_TOPOLOGY);
     const topology = await loadTopology({ topologyPath: file });
 
@@ -80,14 +77,14 @@ describe('pruner_integration_with_phase_contract_multi_phase_fixture', () => {
     expect(
       scoreStaleness(
         { lastActivityMinutes: 30, phaseTransitionMinutes: 30 },
-        topology.phases.design.staleness,
+        topology.phases.design.staleness!,
       ).isStale,
     ).toBe(false);
     // One signal stale → stale.
     expect(
       scoreStaleness(
         { lastActivityMinutes: 30, phaseTransitionMinutes: 9999 },
-        topology.phases.design.staleness,
+        topology.phases.design.staleness!,
       ).isStale,
     ).toBe(true);
 
@@ -96,14 +93,14 @@ describe('pruner_integration_with_phase_contract_multi_phase_fixture', () => {
     expect(
       scoreStaleness(
         { lastActivityMinutes: 9999, branchActivityMinutes: 600 },
-        topology.phases.implement.staleness,
+        topology.phases.implement.staleness!,
       ).isStale,
     ).toBe(false);
     // Both stale → stale.
     expect(
       scoreStaleness(
         { lastActivityMinutes: 9999, branchActivityMinutes: 99_999 },
-        topology.phases.implement.staleness,
+        topology.phases.implement.staleness!,
       ).isStale,
     ).toBe(true);
 
@@ -116,7 +113,7 @@ describe('pruner_integration_with_phase_contract_multi_phase_fixture', () => {
           phaseTransitionMinutes: 60,
           branchActivityMinutes: 60,
         },
-        topology.phases.review.staleness,
+        topology.phases.review.staleness!,
       ).isStale,
     ).toBe(false);
     // branchActivity (1440-min window) ages out → stale.
@@ -127,57 +124,27 @@ describe('pruner_integration_with_phase_contract_multi_phase_fixture', () => {
           phaseTransitionMinutes: 60,
           branchActivityMinutes: 9999,
         },
-        topology.phases.review.staleness,
+        topology.phases.review.staleness!,
       ).isStale,
     ).toBe(true);
-
-    // ─── scaffolding (no contract → fallback) ──────────────────────────────
-    // Default 14-day threshold: 1000min < 20160 → not stale.
-    expect(
-      scoreStaleness(
-        { lastActivityMinutes: 1000 },
-        topology.phases.scaffolding.staleness,
-      ).isStale,
-    ).toBe(false);
-    // 99_999min > 20160 → stale.
-    expect(
-      scoreStaleness(
-        { lastActivityMinutes: 99_999 },
-        topology.phases.scaffolding.staleness,
-      ).isStale,
-    ).toBe(true);
-
-    // ─── orphan (no contract → fallback, with explicit caller threshold) ───
-    expect(
-      scoreStaleness(
-        { lastActivityMinutes: 100, thresholdMinutes: 60 },
-        topology.phases.orphan.staleness,
-      ).isStale,
-    ).toBe(true);
-    expect(
-      scoreStaleness(
-        { lastActivityMinutes: 30, thresholdMinutes: 60 },
-        topology.phases.orphan.staleness,
-      ).isStale,
-    ).toBe(false);
   });
 
   it('selecting which contract to pass at the orchestration boundary is a `topology.phases[name].staleness` lookup', async () => {
     const file = writeTopology(MULTI_PHASE_TOPOLOGY);
     const topology = await loadTopology({ topologyPath: file });
 
-    // The orchestration coordinator (T58 wiring) will route per-phase
-    // calls through this exact lookup. Asserting the lookup shape here
-    // pins the contract surface T58 has to integrate with.
-    const phasesUnderTest: ReadonlyArray<{ phase: string; expectStale: boolean; state: Parameters<typeof scoreStaleness>[0] }> = [
+    const phasesUnderTest: ReadonlyArray<{
+      phase: string;
+      expectStale: boolean;
+      state: Parameters<typeof scoreStaleness>[0];
+    }> = [
       { phase: 'design', expectStale: false, state: { lastActivityMinutes: 5, phaseTransitionMinutes: 5 } },
       { phase: 'implement', expectStale: false, state: { lastActivityMinutes: 5, branchActivityMinutes: 5 } },
-      { phase: 'scaffolding', expectStale: false, state: { lastActivityMinutes: 5 } },
-      { phase: 'orphan', expectStale: false, state: { lastActivityMinutes: 5 } },
+      { phase: 'review', expectStale: false, state: { lastActivityMinutes: 5, phaseTransitionMinutes: 5, branchActivityMinutes: 5 } },
     ];
 
     for (const { phase, expectStale, state } of phasesUnderTest) {
-      const contract = topology.phases[phase].staleness;
+      const contract = topology.phases[phase].staleness!;
       const result = scoreStaleness(state, contract);
       expect({ phase, isStale: result.isStale }).toEqual({ phase, isStale: expectStale });
     }

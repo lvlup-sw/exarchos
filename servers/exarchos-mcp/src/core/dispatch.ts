@@ -63,11 +63,15 @@ export interface DispatchContext {
    *
    * Optional because (a) several CLI cold-start paths and a long tail
    * of in-process tests construct `DispatchContext` literals without a
-   * storage handle (JSONL-only mode), and (b) the substrate work that
-   * relies on `ctx.storage` lives behind composite handlers that opt
-   * in by checking the field. When present, the same handle backs
+   * storage handle, and (b) the substrate work that relies on
+   * `ctx.storage` lives behind composite handlers that opt in by
+   * checking the field. When present, the same handle backs
    * `eventStore` reads/writes (passed through as the `backend` option
-   * to `EventStore`); when absent, `EventStore` falls back to JSONL.
+   * to `EventStore`).
+   *
+   * Post-v2.11 substrate-cut (DR-3) the production path always supplies
+   * a SqliteBackend; absence here is a test-context shape only — there
+   * is no JSONL fallback any more.
    */
   readonly storage?: StorageBackend;
 }

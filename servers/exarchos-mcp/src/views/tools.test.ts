@@ -19,7 +19,6 @@ import {
   handleViewConvergence,
 } from './tools.js';
 import { EventStore } from '../event-store/store.js';
-import { InMemoryBackend } from '../storage/memory-backend.js';
 
 // The "Singleton Cache" describe block that previously tested
 // `getOrCreateEventStore` was deleted alongside that function. The
@@ -1135,14 +1134,16 @@ describe('Skip loadFromSnapshot on warm calls', () => {
 
 describe('Backend Integration (Task 12)', () => {
   let tmpDir: string;
-  let backend: InMemoryBackend;
   let store: EventStore;
 
   beforeEach(async () => {
     resetMaterializerCache();
     tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'exarchos-backend-test-'));
-    backend = new InMemoryBackend();
-    store = new EventStore(tmpDir, { backend });
+    // v2.11 Phase 3 (substrate-cut): the InMemoryBackend dual-write
+    // fixture this suite used pre-collapse no longer receives writes —
+    // EventStore writes only to the appender's owned SqliteBackend.
+    // Spy on that backend (the one `getReadBackend()` returns) instead.
+    store = new EventStore(tmpDir);
   });
 
   afterEach(async () => {
@@ -1151,7 +1152,7 @@ describe('Backend Integration (Task 12)', () => {
   });
 
   it('handleViewWorkflowStatus_WithBackend_QueriesSQLite', async () => {
-    // Arrange: seed events through the store (dual-writes to backend)
+    // Arrange: seed events through the store (single-write to SQLite backend)
     await store.append('wf-backend', {
       type: 'workflow.started',
       data: { featureId: 'backend-feature', workflowType: 'feature' },
@@ -1161,15 +1162,12 @@ describe('Backend Integration (Task 12)', () => {
       data: { from: 'started', to: 'delegating', trigger: 'auto', featureId: 'backend-feature' },
     });
 
-    // Spy on backend.queryEvents to verify delegation
-    const querySpy = vi.spyOn(backend, 'queryEvents');
+    // Spy on the SQLite backend's queryEvents to verify view-handler
+    // delegation flows through the StorageBackend abstraction.
+    const sqliteBackend = store.getAppender().ensureSqliteBackendSync();
+    const querySpy = vi.spyOn(sqliteBackend, 'queryEvents');
 
-    // Inject our backend-aware store into the module
     resetMaterializerCache();
-    // Use registerViewTools-style injection by setting module store
-    // We need handleViewWorkflowStatus to use our backend-aware store
-    // Set up the module-level event store by calling getOrCreateEventStore
-    // after injecting via the exported setter
     const { registerViewTools } = await import('./tools.js');
     const mockServer = { tool: vi.fn() } as unknown as Parameters<typeof registerViewTools>[0];
     registerViewTools(mockServer, tmpDir, store);
@@ -1187,7 +1185,7 @@ describe('Backend Integration (Task 12)', () => {
   });
 
   it('handleViewPipeline_WithBackend_DiscoverStreamsFromBackend', async () => {
-    // Arrange: seed events for two streams via the store (dual-writes to backend)
+    // Arrange: seed events for two streams via the store (single-write to SQLite)
     await store.append('wf-one', {
       type: 'workflow.started',
       data: { featureId: 'feature-one', workflowType: 'feature' },
@@ -1197,10 +1195,10 @@ describe('Backend Integration (Task 12)', () => {
       data: { featureId: 'feature-two', workflowType: 'feature' },
     });
 
-    // Spy on backend.listStreams to verify it's used for discovery
-    const listStreamsSpy = vi.spyOn(backend, 'listStreams');
+    // Spy on listStreams of the (sole) SQLite backend.
+    const sqliteBackend = store.getAppender().ensureSqliteBackendSync();
+    const listStreamsSpy = vi.spyOn(sqliteBackend, 'listStreams');
 
-    // Inject our backend-aware store
     resetMaterializerCache();
     const { registerViewTools } = await import('./tools.js');
     const mockServer = { tool: vi.fn() } as unknown as Parameters<typeof registerViewTools>[0];
@@ -1211,7 +1209,7 @@ describe('Backend Integration (Task 12)', () => {
 
     // Assert
     expect(result.success).toBe(true);
-    // discoverStreams should use backend.listStreams() instead of fs.readdir
+    // discoverStreams should use the backend's listStreams() abstraction.
     expect(listStreamsSpy).toHaveBeenCalled();
 
     // Verify both workflows are discovered
@@ -1222,7 +1220,7 @@ describe('Backend Integration (Task 12)', () => {
   });
 
   it('handleViewTasks_WithBackend_QueriesSQLite', async () => {
-    // Arrange: seed task events through the store (dual-writes to backend)
+    // Arrange: seed task events through the store (single-write to SQLite)
     await store.append('wf-tasks-backend', {
       type: 'task.assigned',
       data: { taskId: 't1', title: 'Build auth', branch: 'feat/auth' },
@@ -1232,10 +1230,10 @@ describe('Backend Integration (Task 12)', () => {
       data: { taskId: 't2', title: 'Build UI', branch: 'feat/ui' },
     });
 
-    // Spy on backend.queryEvents
-    const querySpy = vi.spyOn(backend, 'queryEvents');
+    // Spy on the SQLite backend's queryEvents.
+    const sqliteBackend = store.getAppender().ensureSqliteBackendSync();
+    const querySpy = vi.spyOn(sqliteBackend, 'queryEvents');
 
-    // Inject our backend-aware store
     resetMaterializerCache();
     const { registerViewTools } = await import('./tools.js');
     const mockServer = { tool: vi.fn() } as unknown as Parameters<typeof registerViewTools>[0];
