@@ -546,6 +546,8 @@ describe('dispatch', () => {
           projectionSequence: 1,
           deliveryPath: 'direct',
           tokenEstimate: 100,
+          phaseHasPlaybook: false,
+          phasePlaybookComposed: false,
         },
       });
       return ev.sequence;
@@ -816,6 +818,8 @@ describe('dispatch', () => {
           projectionSequence: 1,
           deliveryPath: 'direct',
           tokenEstimate: 100,
+          phaseHasPlaybook: false,
+          phasePlaybookComposed: false,
         },
       });
       return ev.sequence;

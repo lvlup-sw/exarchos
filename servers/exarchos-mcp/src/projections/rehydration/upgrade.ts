@@ -42,13 +42,15 @@ export class HandoffEntryUpgradeError extends Error {
 }
 
 /**
- * Envelope-routing failure: the input has neither `v: 1` nor `v: 2`. Raised
- * by `loadRehydrationDocument` so callers see typed corruption, not a
+ * Envelope-routing failure: the input has none of `v: 1` / `v: 2` / `v: 3`.
+ * Raised by `loadRehydrationDocument` so callers see typed corruption, not a
  * silently-substituted empty doc.
  */
 export class InvalidEnvelopeError extends Error {
   constructor(zodError: z.ZodError) {
-    super(`Rehydration envelope has neither v:1 nor v:2 shape: ${zodError.message}`);
+    super(
+      `Rehydration envelope has none of v:1 / v:2 / v:3 shape: ${zodError.message}`,
+    );
     this.name = 'InvalidEnvelopeError';
   }
 }
