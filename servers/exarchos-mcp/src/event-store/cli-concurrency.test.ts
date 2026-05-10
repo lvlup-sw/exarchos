@@ -1,11 +1,11 @@
 // ─── DR-5: Concurrent CLI Invocation Safety ──────────────────────────────────
 //
 // Integration test: when N CLI processes race to append events to the same
-// feature stream, the resulting JSONL must contain every event exactly once
-// with monotonic sequence numbers 1..N. Today the EventStore uses a per-PID
-// lock that forces non-primary processes into sidecar mode, so concurrent
-// CLI invocations silently divert to `{streamId}.hook-events.jsonl` until a
-// merge runs. This test pins the end-state that subsequent work must honour.
+// feature stream, the resulting store must contain every event exactly once
+// with monotonic sequence numbers 1..N. The EventStore's per-PID lock used
+// to force non-primary processes into sidecar mode (#1082); v2.11 deleted
+// that fallback, so concurrent CLI invocations now serialize via
+// `waitForLock: true`. This test pins the end-state.
 //
 // The test spawns real Node.js child processes (not in-process workers) via
 // `tsx`, each of which runs a tiny append driver (`spawn-driver.ts`) that
@@ -23,7 +23,6 @@ import { fileURLToPath } from 'node:url';
 
 import { EventStore, PidLockError } from './store.js';
 import type { WorkflowEvent } from './schemas.js';
-import { initializeContext } from '../core/context.js';
 
 // ─── Test Harness ───────────────────────────────────────────────────────────
 
@@ -151,29 +150,31 @@ describe('DR-5: concurrent CLI append safety', () => {
       expect(() => JSON.parse(line)).not.toThrow();
     }
 
-    // Assertion 5: no sidecar leftovers (otherwise events were silently
-    // diverted rather than serialized onto the main JSONL).
+    // Assertion 5: no hook-event sidecar leftovers (would indicate writes
+    // had been diverted out of the main store).
     const sidecarPath = path.join(stateDir, `${STREAM_ID}.hook-events.jsonl`);
     await expect(fs.access(sidecarPath)).rejects.toThrow();
   }, 60_000);
 });
 
-// ─── F-022-1: waitForLock timeout surfaces PidLockError ─────────────────────
+// ─── F-022-1 / v2.11 #1082: PID-lock contention contract ────────────────────
 //
 // When a CLI caller passes `waitForLock: true` and the lock remains held for
-// longer than `waitForLockTimeoutMs`, `initialize()` MUST throw the underlying
-// `PidLockError` instead of silently flipping to sidecar mode. The CLI
-// adapter relies on this to return a non-zero exit code so the operator can
-// retry rather than have writes quietly diverge into a sidecar file.
+// longer than `waitForLockTimeoutMs`, `initialize()` MUST throw `PidLockError`
+// so the CLI adapter can return a non-zero exit code for the operator to
+// retry.
 //
-// Conversely, long-running MCP server callers (no `waitForLock` flag) MUST
-// retain the existing sidecar-fallback behaviour.
+// When `waitForLock` is omitted (default), `initialize()` MUST throw
+// `PidLockError` immediately. v2.11 (#1082) deleted the sidecar fallback
+// that previously absorbed contention — the server path now hard-fails on
+// lock contention so any silent mid-degradation surfaces as an explicit
+// startup error.
 
-describe('F-022-1: waitForLock timeout contract', () => {
+describe('F-022-1 / #1082: PID-lock contention contract', () => {
   let seedDir: string;
 
   beforeEach(async () => {
-    seedDir = await fs.mkdtemp(path.join(os.tmpdir(), 'cli-wait-timeout-'));
+    seedDir = await fs.mkdtemp(path.join(os.tmpdir(), 'cli-pid-lock-'));
   });
 
   afterEach(async () => {
@@ -202,62 +203,18 @@ describe('F-022-1: waitForLock timeout contract', () => {
         waitForLockMaxDelayMs: 10,
       }),
     ).rejects.toBeInstanceOf(PidLockError);
-
-    // Must NOT have silently fallen back to sidecar mode.
-    expect(store.inSidecarMode).toBe(false);
   });
 
-  it('CliCallerWithWaitForLockFalse_LockHeldLongerThanTimeout_EntersSidecarMode', async () => {
+  it('CliCallerWithWaitForLockFalse_LockHeld_ThrowsPidLockErrorImmediately', async () => {
     await seedLiveLock(seedDir);
 
-    // Default (no waitForLock) preserves the MCP-server contract: do not
-    // block, fall back to sidecar so competing hook subprocesses aren't
-    // serialised on each other.
+    // v2.11 (#1082): default-mode init hard-throws on contention. Sidecar
+    // fallback was deleted alongside the JSONL substrate it side-channeled.
     const store = new EventStore(seedDir);
-    await store.initialize();
-
-    expect(store.inSidecarMode).toBe(true);
-  });
-});
-
-// ─── F-022-7: MCP server mode sidecar fallback contract ────────────────────
-//
-// Regression guard for the long-running MCP server path. `exarchos mcp`
-// passes `waitForLock: false` (default), so when a lock is already held the
-// server MUST fall back to sidecar mode promptly (well under the 30s default
-// wait deadline) rather than blocking the server startup.
-
-describe('F-022-7: MCP server mode sidecar fallback', () => {
-  let seedDir: string;
-
-  beforeEach(async () => {
-    seedDir = await fs.mkdtemp(path.join(os.tmpdir(), 'mcp-sidecar-'));
-  });
-
-  afterEach(async () => {
-    await fs.rm(seedDir, { recursive: true, force: true });
-  });
-
-  it('McpServerMode_LockHeldByOtherProcess_FallsBackToSidecarWithoutWaiting', async () => {
-    // Seed a live PID in the lock file — this process is guaranteed to be
-    // alive while the test runs, so the holder check returns true.
-    await fs.mkdir(seedDir, { recursive: true });
-    await fs.writeFile(
-      path.join(seedDir, '.event-store.lock'),
-      String(process.pid),
-      'utf-8',
-    );
-
-    // MCP-server semantics: `waitForLock` omitted (server default).
     const start = Date.now();
-    const ctx = await initializeContext(seedDir, {
-      // waitForLock intentionally undefined → server contract
-    });
+    await expect(store.initialize()).rejects.toBeInstanceOf(PidLockError);
     const elapsed = Date.now() - start;
-
-    // Should have fallen back to sidecar mode...
-    expect(ctx.eventStore.inSidecarMode).toBe(true);
-    // ...and done so without waiting anywhere near the 30s default timeout.
+    // Must throw fast — no fallback wait deadline.
     expect(elapsed).toBeLessThan(500);
   });
 });
