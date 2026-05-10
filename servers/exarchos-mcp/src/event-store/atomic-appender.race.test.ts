@@ -346,4 +346,72 @@ describe('AtomicAppender race fixtures', () => {
       SqliteBackend.prototype.initialize = originalInitialize;
     }
   });
+
+  it('SqliteAtomicAppender_SyncAndAsyncInterleaved_ReturnSameSingletonHandle', async () => {
+    // Pins the architectural commitment in `ensureSqliteBackendSync`'s JSDoc
+    // ("If a future async-init step is added, this method stays sync by
+    // deferring that step into the `ensureSqliteBackend()` Promise"). The
+    // sync read-before-write path and the async write-then-init path can
+    // interleave on a single appender — both MUST converge on one handle.
+    //
+    // CodeRabbit raised a forward-looking concern (PR #1332 r3214275769):
+    // if a future engineer adds an `await` inside `ensureSqliteBackend`'s
+    // IIFE before the `this.sqliteBackend = backend` assignment, a
+    // concurrent `ensureSqliteBackendSync()` call would see the field
+    // unset and construct a duplicate handle. The current code is safe
+    // because the IIFE is sync-up-to-the-assignment; this test would
+    // catch the regression if that invariant ever broke.
+    const originalInitialize = SqliteBackend.prototype.initialize;
+    let constructionCount = 0;
+    SqliteBackend.prototype.initialize = function (this: SqliteBackend) {
+      constructionCount += 1;
+      return originalInitialize.call(this);
+    };
+
+    try {
+      const appender = new AtomicAppender({ stateDir });
+      type WithEnsure = AtomicAppender & {
+        ensureSqliteBackend?: () => Promise<SqliteBackend>;
+        ensureSqliteBackendSync?: () => SqliteBackend;
+      };
+      const internals = appender as WithEnsure;
+      expect(typeof internals.ensureSqliteBackend).toBe('function');
+      expect(typeof internals.ensureSqliteBackendSync).toBe('function');
+
+      // Interleave: kick off the async path first, then immediately
+      // call the sync path BEFORE awaiting. The current architecture
+      // assigns `this.sqliteBackend` synchronously inside the async
+      // IIFE, so the sync call should observe the in-flight handle
+      // and return it directly rather than constructing a second.
+      const asyncPromise = (
+        internals.ensureSqliteBackend as () => Promise<SqliteBackend>
+      ).call(appender);
+      const syncHandle = (
+        internals.ensureSqliteBackendSync as () => SqliteBackend
+      ).call(appender);
+      const asyncHandle = await asyncPromise;
+
+      expect(syncHandle).toBe(asyncHandle);
+      expect(constructionCount).toBe(1);
+
+      // Reverse order: sync first, then async. The sync path
+      // pre-populates `sqliteBackendPromise`, so a subsequent async
+      // call must hit the Promise cache and resolve to the same
+      // handle without re-initializing.
+      const appender2 = new AtomicAppender({ stateDir });
+      const internals2 = appender2 as WithEnsure;
+      const syncFirst = (
+        internals2.ensureSqliteBackendSync as () => SqliteBackend
+      ).call(appender2);
+      const asyncSecond = await (
+        internals2.ensureSqliteBackend as () => Promise<SqliteBackend>
+      ).call(appender2);
+
+      expect(asyncSecond).toBe(syncFirst);
+      // Two appenders → two distinct DBs → two constructions total.
+      expect(constructionCount).toBe(2);
+    } finally {
+      SqliteBackend.prototype.initialize = originalInitialize;
+    }
+  });
 });
