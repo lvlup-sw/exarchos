@@ -78,12 +78,11 @@ describe('initializeBackend', () => {
     // Act
     const backend = await initializeBackend(tmpDir);
 
-    // Assert
-    // May be undefined if better-sqlite3 is not available in test env
-    // but the function should not throw
-    if (backend) {
-      backend.close();
-    }
+    // Assert — Phase 4 (DR-3) collapsed the return type from
+    // `SqliteBackend | undefined` to `SqliteBackend`. There is no
+    // graceful "JSONL-only" fallback; success ⇒ a usable backend.
+    expect(backend).toBeDefined();
+    backend.close();
   });
 
   it('initializeBackend_CorruptDB_PropagatesSqliteCorruptError', async () => {
@@ -108,8 +107,9 @@ describe('initializeBackend', () => {
 
   it('initializeBackend_FreshStateDir_DoesNotThrow', async () => {
     // Verifies that a fresh stateDir (no DB file) reaches the SqliteBackend
-    // happy path without throwing. The graceful-fallback path (better-sqlite3
-    // missing) returns `undefined`; the happy path returns a backend.
+    // happy path without throwing. Post-Phase 4 (DR-3) the return type is
+    // unconditionally `SqliteBackend` — there is no graceful-fallback
+    // path that returns `undefined`; missing drivers throw.
     const { initializeBackend } = await import('./index.js');
     const tmpDir = '/tmp/test-sqlite-fresh-' + Date.now();
     const { mkdirSync } = await import('node:fs');
@@ -117,10 +117,9 @@ describe('initializeBackend', () => {
 
     const result = await initializeBackend(tmpDir);
 
-    expect(result === undefined || typeof result === 'object').toBe(true);
-    if (result) {
-      result.close();
-    }
+    expect(result).toBeDefined();
+    expect(typeof result).toBe('object');
+    result.close();
   });
 });
 

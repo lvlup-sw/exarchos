@@ -41,19 +41,27 @@ describe('initializeBackend (Phase 4 hardening)', () => {
   // ─── T4.1 — hard-fail on missing SQLite drivers ────────────────────────────
 
   it('initializeBackend_DriversUnavailable_ThrowsNamingBothDrivers', async () => {
-    // Mock the SqliteBackend module to fail to load — simulates an
-    // environment where neither better-sqlite3 nor bun:sqlite resolves.
-    vi.doMock('./storage/sqlite-backend.js', () => {
-      throw new Error('Cannot find module better-sqlite3 / bun:sqlite');
-    });
-
+    // Inject a SqliteBackend loader that simulates the production
+    // failure mode: `bun:sqlite` (Bun) and the better-sqlite3 vitest
+    // shim both unresolvable, which causes the dynamic
+    // `import('./storage/sqlite-backend.js')` to throw. Pre-Phase-4
+    // this branch logged a warning and returned undefined so callers
+    // fell through to a "JSONL-only mode" the substrate no longer
+    // supports.
+    //
+    // We use the loader seam rather than `vi.mock('./storage/sqlite-backend.js')`
+    // because `event-store/atomic-appender.ts` static-imports the same
+    // module — mocking it module-wide cascades and breaks the static
+    // graph before `initializeBackend()` is even reachable.
     const { initializeBackend } = await import('./index.js');
 
-    await expect(initializeBackend(tempDir)).rejects.toThrowError();
+    const failingLoader = () => {
+      throw new Error('Cannot find module better-sqlite3 / bun:sqlite');
+    };
 
     let captured: unknown;
     try {
-      await initializeBackend(tempDir);
+      await initializeBackend(tempDir, failingLoader);
     } catch (err) {
       captured = err;
     }
