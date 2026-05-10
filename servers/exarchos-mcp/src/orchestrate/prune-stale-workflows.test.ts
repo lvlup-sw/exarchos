@@ -546,6 +546,70 @@ describe('handlePruneStaleWorkflows', () => {
     mockGetTopology.mockImplementation(() => buildTestTopology());
   });
 
+  // ─── #1334 β-08: graceful skip when topology not loaded ────────────────────
+  //
+  // The CLI fast path (e.g. running `prune` outside a fully-bootstrapped
+  // MCP server) may invoke this handler before the lifecycle has called
+  // `loadTopology()`. Rather than letting the loader's "Topology not
+  // loaded: call loadTopology() before getTopology()" throw escape and
+  // surface as an unhandled rejection, the handler must catch it,
+  // return a structured `{ skipped: true, reason: 'topology_not_loaded' }`
+  // envelope, and emit a warning log so operators see why the prune ran
+  // produced no candidates.
+  it('PruneStaleWorkflows_TopologyNotLoaded_SkipsPruningWithLoggedReason', async () => {
+    const { ctx } = makeEventStoreStub();
+    const deps = makeDeps();
+    // Simulate loadTopology() never having been called: getTopology()
+    // throws the canonical "load before" error from `topology/loader.ts`.
+    mockGetTopology.mockImplementationOnce(() => {
+      throw new Error(
+        'Topology not loaded: call loadTopology() before getTopology()',
+      );
+    });
+
+    const warnSpy = vi
+      .spyOn(orchestrateLogger, 'warn')
+      .mockImplementation((() => {}) as never);
+
+    deps.listSpy.mockResolvedValue(
+      makeListResult([
+        { featureId: 'wf-a', lastActivityTimestamp: staleIso(30_000) },
+      ]),
+    );
+
+    const result = await handlePruneStaleWorkflows(
+      { dryRun: true, now: NOW_ISO },
+      STATE_DIR,
+      ctx,
+      deps,
+    );
+
+    expect(result.success).toBe(true);
+    expect(result.data).toMatchObject({
+      skipped: true,
+      reason: 'topology_not_loaded',
+    });
+
+    // The handler MUST have logged a warning carrying the same reason
+    // string so operators see why the run produced no candidates.
+    expect(warnSpy).toHaveBeenCalled();
+    const warnedWithReason = warnSpy.mock.calls.some((call) => {
+      const meta = call[0];
+      return (
+        typeof meta === 'object' &&
+        meta !== null &&
+        (meta as Record<string, unknown>).reason === 'topology_not_loaded'
+      );
+    });
+    expect(warnedWithReason).toBe(true);
+
+    // Skip path is read-only — no cancel, no list invocation needed
+    // beyond the no-op load — and certainly no event-append.
+    expect(deps.cancelSpy).not.toHaveBeenCalled();
+
+    warnSpy.mockRestore();
+  });
+
   it('dry run returns candidates without calling cancel', async () => {
     const { ctx } = makeEventStoreStub();
     const deps = makeDeps();
