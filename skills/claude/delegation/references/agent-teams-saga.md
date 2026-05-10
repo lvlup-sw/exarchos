@@ -185,13 +185,13 @@ When the saga fails at any step, compensate in reverse order:
 
 Compensation steps themselves must be idempotent: deleting an already-deleted team is a no-op; shutting down an already-terminated teammate is a no-op.
 
-If a compensating action itself fails after 3 retries, mark the workflow with `_compensationFailed: true` and emit `team.compensation.failed`. The SessionStart hook detects this on next session for manual resolution.
+If a compensating action itself fails after 3 retries, mark the workflow with `_compensationFailed: true` and emit `team.compensation.failed`. The next `/exarchos:rehydrate <featureId>` invocation surfaces this in the rehydration document's `blockers` for manual resolution.
 
 ## Claude Code Agent Teams Constraints
 
 | Constraint | Impact |
 |------------|--------|
-| **No session resumption** for teammates | Teammates are ephemeral. On restart, SessionStart detects orphaned teams but cannot restore them. Spawn new teammates if delegation is incomplete. |
+| **No session resumption** for teammates | Teammates are ephemeral. On restart, `/exarchos:rehydrate <featureId>` surfaces orphaned teams in the rehydration document but cannot restore them. Spawn new teammates if delegation is incomplete. |
 | **One team per session** | Naturally enforces single-orchestrator invariant. No additional locking needed. |
 | **No nested teams** | Teammates cannot spawn sub-teams. Team composition is flat. |
 | **Permissions inherit from lead** | Do NOT set `mode` at spawn -- not respected. All teammates inherit the lead's permission mode. |

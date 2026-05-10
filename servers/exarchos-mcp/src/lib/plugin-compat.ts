@@ -1,13 +1,15 @@
 // ─── Plugin-Root Compatibility Library ─────────────────────────────────────
 //
-// Shared across two call sites:
-//   1. `exarchos version --check-plugin-root <path>` — standalone CI diagnostic.
-//   2. `handleSessionStart()` — per-session drift warning (non-blocking).
+// Sole call site:
+//   - `exarchos version --check-plugin-root <path>` — standalone CI
+//     diagnostic that exits 1 on detected drift.
 //
-// Both call sites share this module so the compat policy (what counts as
-// incompatible vs. non-fatal warning vs. error) has exactly one source of
-// truth. Callers decide exit code and stderr/stdout formatting from the
-// returned `CompatResult`; this module does not print.
+// The compat policy (what counts as incompatible vs. non-fatal warning vs.
+// error) lives here so the call site only decides exit code and
+// stderr/stdout formatting from the returned `CompatResult`; this module
+// does not print. (A previous per-session consumer was removed in the
+// rehydration-machinery refactor; the policy stays centralized so any
+// future caller inherits the same behavior.)
 //
 // Non-fatal policy (returns `compatible: true, minRequired: null`):
 //   - plugin root directory does not exist
@@ -20,10 +22,10 @@
 //     binary's version, per semver precedence.
 //
 // The module has ZERO runtime dependencies — reads `plugin.json`
-// synchronously via `fs.readFileSync` so both the CLI subcommand and the
-// session-start handler can call it without blowing the 250ms cold-start
-// budget. Synchronous I/O is safe here: the file is small (< 4KB) and sits
-// in the plugin root, which is always local disk.
+// synchronously via `fs.readFileSync` so the CLI subcommand can call it
+// without blowing the 250ms cold-start budget. Synchronous I/O is safe
+// here: the file is small (< 4KB) and sits in the plugin root, which is
+// always local disk.
 
 import * as fs from 'node:fs';
 import * as path from 'node:path';
@@ -170,9 +172,9 @@ function toInt(s: string | undefined): number {
  * ## Non-fatal-vs-fatal policy
  *
  * This is the single source of truth for what counts as drift vs. an
- * advisory. Both call sites (the `exarchos version --check-plugin-root`
- * subcommand AND `handleSessionStart()`) call this function and respond
- * to the structured `CompatResult` — neither duplicates the policy.
+ * advisory. The sole call site (`exarchos version --check-plugin-root`)
+ * responds to the structured `CompatResult` rather than duplicating the
+ * policy, and any future caller is expected to do the same.
  *
  * | Condition                                      | compatible | minRequired | Treat as      |
  * | ---------------------------------------------- | :--------: | :---------: | ------------- |
@@ -184,12 +186,11 @@ function toInt(s: string | undefined): number {
  * | binary `<` declared `minBinaryVersion`         |   `false`  |   string    | drift (fatal) |
  *
  * "Advisory" = the version subcommand exits 0 but may emit an explanatory
- * stderr line; session-start is completely silent (to avoid spamming every
- * unplugged-from-the-plugin-system session).
+ * stderr line — appropriate when the plugin root simply lacks compat
+ * metadata (nothing to enforce).
  *
- * "Drift" = the version subcommand exits 1 (CI should fail); session-start
- * emits a single-line stderr warning but continues normally (non-blocking
- * per design gap #2).
+ * "Drift" = the version subcommand exits 1 (CI should fail) — the running
+ * binary is older than what the plugin declares it needs.
  *
  * Callers are expected to:
  *   - render `message` to stderr in CLI contexts;

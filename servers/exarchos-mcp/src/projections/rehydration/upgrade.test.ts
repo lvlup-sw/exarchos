@@ -1,12 +1,17 @@
 /**
- * Read-side v:1 → v:2 migration tests — T3 (#1246-readside-migration, DR-18).
+ * Read-side v:1 → v:2 → v:3 migration tests — T3 + T-02.
  *
+ * T3 (#1246-readside-migration, DR-18):
  * Covers per-entry and full-document upgrades from the legacy v:1 rehydration
  * shape (`eventRef.id` primary, `eventRef.sequence` advisory) to the v:2 shape
  * (`eventRef.sequence` primary, `eventRef.id` removed). Per DR-18 the upgrade
  * fails OPEN at the entry granularity: a v:1 entry missing a usable sequence
  * raises `HandoffEntryUpgradeError` so the document-level upgrade can drop it
  * and append a degraded blocker, rather than tearing down the whole envelope.
+ *
+ * T-02 (rehydration-machinery-refactor):
+ * Covers upgradeRehydrationDocumentV2toV3 — pure field drop: behavioralGuidance
+ * removed, phasePlaybook seeded null (composed at handler time, not folded).
  *
  * Fixture provenance (DIM-4): No real on-disk v:1 rehydration document was
  * reachable from this worktree (no `~/.claude/projects/state/*.snapshot.json`,
@@ -15,9 +20,11 @@
  * capture tracked in #1296.
  */
 import { describe, it, expect } from 'vitest';
+import * as fc from 'fast-check';
 import {
   upgradeHandoffEntryV1toV2,
   upgradeRehydrationDocumentV1toV2,
+  upgradeRehydrationDocumentV2toV3,
   HandoffEntryUpgradeError,
 } from './upgrade.js';
 import {
@@ -25,6 +32,7 @@ import {
   HandoffEntrySchemaV2,
   RehydrationDocumentSchema,
   RehydrationDocumentSchemaV1,
+  RehydrationDocumentSchemaV2,
 } from './schema.js';
 
 const minimalStable = {
@@ -130,8 +138,8 @@ describe('upgradeRehydrationDocumentV1toV2 (T3, #1246, DR-18)', () => {
 
     const v2Doc = upgradeRehydrationDocumentV1toV2(v1Doc);
 
-    // The full v:2 schema (with strict boundaries) accepts the upgraded doc.
-    expect(RehydrationDocumentSchema.safeParse(v2Doc).success).toBe(true);
+    // The v:2 read-back schema accepts the upgraded doc.
+    expect(RehydrationDocumentSchemaV2.safeParse(v2Doc).success).toBe(true);
 
     // Envelope discriminator bumped.
     expect(v2Doc.v).toBe(2);
@@ -215,8 +223,8 @@ describe('upgradeRehydrationDocumentV1toV2 (T3, #1246, DR-18)', () => {
       reason: expect.stringMatching(/recentHandoffs/),
     });
 
-    // The full v:2 schema still accepts the upgraded doc.
-    expect(RehydrationDocumentSchema.safeParse(v2Doc).success).toBe(true);
+    // The v:2 read-back schema still accepts the upgraded doc.
+    expect(RehydrationDocumentSchemaV2.safeParse(v2Doc).success).toBe(true);
   });
 
   it('upgradeRehydrationDocumentV1toV2_AllEntriesBad_ReturnsEmptyHandoffs', () => {
@@ -265,7 +273,218 @@ describe('upgradeRehydrationDocumentV1toV2 (T3, #1246, DR-18)', () => {
     // 4 degraded blockers appended (1 for latestHandoff + 3 for recentHandoffs).
     expect(v2Doc.blockers.length).toBe(baseVolatileV1.blockers.length + 4);
 
-    // The full v:2 schema still accepts the upgraded doc.
-    expect(RehydrationDocumentSchema.safeParse(v2Doc).success).toBe(true);
+    // The v:2 read-back schema still accepts the upgraded doc.
+    expect(RehydrationDocumentSchemaV2.safeParse(v2Doc).success).toBe(true);
+  });
+});
+
+// ─── T-02: v:2 → v:3 upgrade ─────────────────────────────────────────────────
+
+/**
+ * Minimal v:2 fixture helper. Returns a parsed v:2 doc with behavioralGuidance
+ * and a basic workflowState, projectionSequence, and empty volatile sections.
+ */
+function makeMinimalV2Doc() {
+  return RehydrationDocumentSchemaV2.parse({
+    v: 2,
+    projectionSequence: 10,
+    behavioralGuidance: {
+      skill: 'rehydrate-foundation',
+      skillRef: 'skills/claude-code/rehydrate-foundation/SKILL.md',
+    },
+    workflowState: {
+      featureId: 'test-feature',
+      phase: 'implementation',
+      workflowType: 'feature',
+    },
+    taskProgress: [],
+    decisions: [],
+    artifacts: {},
+    blockers: [],
+  });
+}
+
+describe('upgradeRehydrationDocumentV2toV3 (T-02, rehydration-machinery-refactor)', () => {
+  it('upgradeRehydrationDocumentV2toV3_MinimalV2Doc_DropsBehavioralGuidanceAddsPhasePlaybookNull', () => {
+    // Given a minimal valid v:2 doc with behavioralGuidance, the upgrade drops
+    // behavioralGuidance and seeds phasePlaybook: null.
+    const v2Doc = makeMinimalV2Doc();
+
+    const v3Doc = upgradeRehydrationDocumentV2toV3(v2Doc);
+
+    // Envelope discriminator bumped to 3.
+    expect(v3Doc.v).toBe(3);
+
+    // behavioralGuidance must be absent (field dropped by upgrade).
+    expect(Object.prototype.hasOwnProperty.call(v3Doc, 'behavioralGuidance')).toBe(false);
+
+    // phasePlaybook seeded null (composed at handler time, not folded from events).
+    expect(v3Doc.phasePlaybook).toBeNull();
+
+    // The v:3 schema validates the result.
+    expect(RehydrationDocumentSchema.safeParse(v3Doc).success).toBe(true);
+  });
+
+  it('upgradeRehydrationDocumentV2toV3_PreservesWorkflowStateProjectionSequenceAndVolatileFields', () => {
+    // workflowState, projectionSequence, and volatile sections are preserved
+    // verbatim across the upgrade.
+    const v2Base = RehydrationDocumentSchemaV2.parse({
+      v: 2,
+      projectionSequence: 42,
+      behavioralGuidance: { skill: '', skillRef: '' },
+      workflowState: {
+        featureId: 'preserve-test',
+        phase: 'review',
+        workflowType: 'feature',
+      },
+      taskProgress: [{ id: 'T-1', status: 'complete' }],
+      decisions: [{ id: 'DR-1', summary: 'decision summary' }],
+      artifacts: { design: 'docs/designs/test.md' },
+      blockers: ['pre-existing blocker'],
+      latestHandoff: {
+        context: 'latest context',
+        eventRef: { sequence: 7, timestamp: '2026-05-09T00:00:00.000Z' },
+      },
+      recentHandoffs: [
+        {
+          context: 'recent-0',
+          eventRef: { sequence: 5, timestamp: '2026-05-09T00:00:00.000Z' },
+        },
+      ],
+    });
+
+    const v3Doc = upgradeRehydrationDocumentV2toV3(v2Base);
+
+    expect(v3Doc.projectionSequence).toBe(42);
+    expect(v3Doc.workflowState).toEqual({
+      featureId: 'preserve-test',
+      phase: 'review',
+      workflowType: 'feature',
+    });
+    expect(v3Doc.taskProgress).toEqual([{ id: 'T-1', status: 'complete' }]);
+    expect(v3Doc.decisions).toEqual([{ id: 'DR-1', summary: 'decision summary' }]);
+    expect(v3Doc.artifacts).toEqual({ design: 'docs/designs/test.md' });
+    expect(v3Doc.blockers).toEqual(['pre-existing blocker']);
+    expect(v3Doc.latestHandoff?.context).toBe('latest context');
+    expect(v3Doc.recentHandoffs).toHaveLength(1);
+    expect(v3Doc.recentHandoffs?.[0]?.context).toBe('recent-0');
+  });
+
+  it('upgradeRehydrationDocumentV2toV3_PropertyTest_AnyValidV2ProducesValidV3', () => {
+    // Property test: for any valid v:2 document, the upgrade produces a
+    // document that passes RehydrationDocumentSchema.parse (v:3).
+    const taskProgressEntry = fc.record({
+      id: fc.string({ minLength: 1, maxLength: 32 }),
+      status: fc.constantFrom('pending', 'in-progress', 'complete', 'blocked'),
+    });
+
+    const decisionEntry = fc.record({
+      id: fc.string({ minLength: 1, maxLength: 32 }),
+      summary: fc.string({ maxLength: 128 }),
+    });
+
+    const handoffEventRef = fc.record({
+      sequence: fc.nat(),
+      timestamp: fc.constant('2026-05-09T00:00:00.000Z'),
+    });
+
+    const handoffEntry = fc.record(
+      {
+        context: fc.string({ maxLength: 256 }),
+        eventRef: handoffEventRef,
+      },
+      { requiredKeys: ['eventRef'] },
+    );
+
+    const v2DocArb = fc
+      .record({
+        projectionSequence: fc.nat(),
+        behavioralGuidance: fc.record({
+          skill: fc.string({ maxLength: 64 }),
+          skillRef: fc.string({ maxLength: 128 }),
+        }),
+        workflowState: fc.record({
+          featureId: fc.string({ minLength: 1, maxLength: 64 }),
+          phase: fc.constantFrom('planning', 'implementation', 'review', 'done'),
+          workflowType: fc.constantFrom('feature', 'bugfix', 'refactor'),
+        }),
+        taskProgress: fc.array(taskProgressEntry, { maxLength: 5 }),
+        decisions: fc.array(decisionEntry, { maxLength: 5 }),
+        artifacts: fc.dictionary(
+          fc.string({ minLength: 1, maxLength: 16 }),
+          fc.string({ maxLength: 64 }),
+        ),
+        blockers: fc.array(fc.string({ maxLength: 64 }), { maxLength: 5 }),
+        recentHandoffs: fc.array(handoffEntry, { maxLength: 3 }),
+      })
+      .map((fields) =>
+        RehydrationDocumentSchemaV2.parse({
+          v: 2,
+          ...fields,
+        }),
+      );
+
+    fc.assert(
+      fc.property(v2DocArb, (v2Doc) => {
+        const result = RehydrationDocumentSchema.safeParse(
+          upgradeRehydrationDocumentV2toV3(v2Doc),
+        );
+        return result.success;
+      }),
+      { numRuns: 100 },
+    );
+  });
+
+  it('upgradeRehydrationDocumentV2toV3_ChainFromV1_ProducesValidV3', () => {
+    // Chain test: v:1 → v:2 → v:3 produces a valid v:3 document.
+    const v1Doc = RehydrationDocumentSchemaV1.parse({
+      v: 1,
+      projectionSequence: 5,
+      behavioralGuidance: {
+        skill: 'rehydrate-foundation',
+        skillRef: 'skills/claude-code/rehydrate-foundation/SKILL.md',
+      },
+      workflowState: {
+        featureId: 'chain-test',
+        phase: 'implementation',
+        workflowType: 'feature',
+      },
+      taskProgress: [{ id: 'T-chain', status: 'in-progress' }],
+      decisions: [],
+      artifacts: {},
+      blockers: [],
+      latestHandoff: {
+        context: 'chain latest',
+        eventRef: {
+          id: 'evt_chain',
+          timestamp: '2026-05-09T00:00:00.000Z',
+          sequence: 3,
+        },
+      },
+    });
+
+    const v2Doc = upgradeRehydrationDocumentV1toV2(v1Doc);
+    const v3Doc = upgradeRehydrationDocumentV2toV3(v2Doc);
+
+    // v:1 → v:2 still works correctly.
+    expect(v2Doc.v).toBe(2);
+    expect(RehydrationDocumentSchemaV2.safeParse(v2Doc).success).toBe(true);
+
+    // v:2 → v:3 chain produces a valid v:3 document.
+    expect(v3Doc.v).toBe(3);
+    expect(RehydrationDocumentSchema.safeParse(v3Doc).success).toBe(true);
+
+    // behavioralGuidance is absent from the v:3 result.
+    expect(Object.prototype.hasOwnProperty.call(v3Doc, 'behavioralGuidance')).toBe(false);
+
+    // phasePlaybook is null.
+    expect(v3Doc.phasePlaybook).toBeNull();
+
+    // workflowState preserved through the chain.
+    expect(v3Doc.workflowState.featureId).toBe('chain-test');
+
+    // latestHandoff preserved through the chain (upgraded from v:1 entry).
+    expect(v3Doc.latestHandoff?.context).toBe('chain latest');
+    expect(v3Doc.latestHandoff?.eventRef.sequence).toBe(3);
   });
 });

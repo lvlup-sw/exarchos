@@ -1,12 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 // Mock all cli-command modules before importing the module under test
-vi.mock('../cli-commands/pre-compact.js', () => ({
-  handlePreCompact: vi.fn(),
-}));
-vi.mock('../cli-commands/session-start.js', () => ({
-  handleSessionStart: vi.fn(),
-}));
 vi.mock('../cli-commands/guard.js', () => ({
   handleGuard: vi.fn(),
 }));
@@ -35,12 +29,14 @@ vi.mock('../utils/paths.js', () => ({
 import { isHookCommand, handleHookCommand } from './hooks.js';
 
 describe('isHookCommand', () => {
-  it('isHookCommand_PreCompact_ReturnsTrue', () => {
-    expect(isHookCommand('pre-compact')).toBe(true);
+  it('isHookCommand_PreCompact_ReturnsFalse', () => {
+    // T-41: pre-compact removed from HOOK_COMMANDS — pre-compact.ts deletion follows in T-42/T-43
+    expect(isHookCommand('pre-compact')).toBe(false);
   });
 
-  it('isHookCommand_SessionStart_ReturnsTrue', () => {
-    expect(isHookCommand('session-start')).toBe(true);
+  it('isHookCommand_SessionStart_ReturnsFalse', () => {
+    // T-41: session-start removed from HOOK_COMMANDS — session-start.ts deletion follows in T-42/T-43
+    expect(isHookCommand('session-start')).toBe(false);
   });
 
   it('isHookCommand_Guard_ReturnsTrue', () => {
@@ -104,12 +100,6 @@ describe('handleHookCommand', () => {
     vi.mocked(paths.resolveTeamsDir).mockReturnValue('/mock/teams-dir');
 
     // Reset mock return values for handlers
-    const preCompact = await import('../cli-commands/pre-compact.js');
-    vi.mocked(preCompact.handlePreCompact).mockResolvedValue({ compacted: true });
-
-    const sessionStart = await import('../cli-commands/session-start.js');
-    vi.mocked(sessionStart.handleSessionStart).mockResolvedValue({ started: true });
-
     const guard = await import('../cli-commands/guard.js');
     vi.mocked(guard.handleGuard).mockResolvedValue({ allowed: true });
 
@@ -132,7 +122,9 @@ describe('handleHookCommand', () => {
     }
   });
 
-  it('handleHookCommand_PreCompact_CallsPreCompactHandler', async () => {
+  it('handleHookCommand_PreCompact_ReturnsHandledFalse', async () => {
+    // T-41: pre-compact dispatch removed; the adapter must report unhandled
+    // so the caller falls through to the standard CLI / no-op path.
     const result = await handleHookCommand(
       'pre-compact',
       ['node', 'exarchos', 'pre-compact'],
@@ -141,16 +133,11 @@ describe('handleHookCommand', () => {
       outputJson,
     );
 
-    expect(result.handled).toBe(true);
-    expect(readStdin).toHaveBeenCalled();
-    expect(parseStdin).toHaveBeenCalled();
-    expect(outputJson).toHaveBeenCalledWith({ compacted: true });
-
-    const { handlePreCompact } = await import('../cli-commands/pre-compact.js');
-    expect(handlePreCompact).toHaveBeenCalledWith({}, '/mock/state-dir');
+    expect(result).toEqual({ handled: false });
   });
 
-  it('handleHookCommand_SessionStart_CallsSessionStartHandler', async () => {
+  it('handleHookCommand_SessionStart_ReturnsHandledFalse', async () => {
+    // T-41: session-start dispatch removed; the adapter must report unhandled.
     const result = await handleHookCommand(
       'session-start',
       ['node', 'exarchos', 'session-start'],
@@ -159,17 +146,13 @@ describe('handleHookCommand', () => {
       outputJson,
     );
 
-    expect(result.handled).toBe(true);
-    expect(outputJson).toHaveBeenCalledWith({ started: true });
-
-    const { handleSessionStart } = await import('../cli-commands/session-start.js');
-    expect(handleSessionStart).toHaveBeenCalledWith({}, '/mock/state-dir', '/mock/teams-dir');
+    expect(result).toEqual({ handled: false });
   });
 
   it('handleHookCommand_PluginRootInArgv_SetsEnvVar', async () => {
     await handleHookCommand(
-      'pre-compact',
-      ['node', 'exarchos', 'pre-compact', '--plugin-root', '/custom/root'],
+      'guard',
+      ['node', 'exarchos', 'guard', '--plugin-root', '/custom/root'],
       readStdin,
       parseStdin,
       outputJson,

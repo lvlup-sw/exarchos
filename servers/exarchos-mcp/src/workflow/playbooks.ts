@@ -13,7 +13,7 @@ export interface ToolInstruction {
 export interface EventInstruction {
   readonly type: string;
   readonly when: string;
-  readonly fields?: readonly string[];
+  readonly fields?: string[];
 }
 
 /**
@@ -1400,8 +1400,12 @@ export interface SerializedPlaybooks {
 export interface SerializedPhasePlaybook {
   readonly skill: string;
   readonly skillRef: string;
-  readonly tools: readonly ToolInstruction[];
-  readonly events: readonly EventInstruction[];
+  // Array-level readonly dropped so this matches the schema-inferred
+  // type at `RehydrationDocumentV3['phasePlaybook']` (PhasePlaybookSchema's
+  // arrays are mutable). Element-level readonly modifiers stay on
+  // ToolInstruction / EventInstruction — only the array container is mutable.
+  readonly tools: ToolInstruction[];
+  readonly events: EventInstruction[];
   /**
    * Auto-emitted event surface for delegate-shaped phases (#1227, T6).
    * Carried through serialization so CLI describe / telemetry / agent
@@ -1409,15 +1413,80 @@ export interface SerializedPhasePlaybook {
    * phase contract. Phases without auto-emit leave this undefined —
    * explicit absence (not `[]`) keeps the contract minimal.
    */
-  readonly autoEmittedEvents?: readonly AutoEmittedEventInstruction[];
+  readonly autoEmittedEvents?: AutoEmittedEventInstruction[];
   readonly transitionCriteria: string;
   readonly guardPrerequisites: string;
-  readonly validationScripts: readonly string[];
+  readonly validationScripts: string[];
   readonly humanCheckpoint: boolean;
   readonly compactGuidance: string;
 }
 
 // ─── Serialization Functions ─────────────────────────────────────────────────
+
+/**
+ * Serialize a single {@link PhasePlaybook} into the
+ * {@link SerializedPhasePlaybook} JSON shape. Pure of side effects.
+ *
+ * Used by handler-time playbook composition (T-20: `handleRehydrate` /
+ * checkpoint envelopes attach a single phase's serialized playbook to the
+ * rehydration document). `serializePlaybooks` below delegates per-phase to
+ * this helper so the entry shape lives in one place.
+ *
+ * Spread-on-condition for `autoEmittedEvents` preserves absence (vs `[]`)
+ * for phases that don't declare auto-emit — matching the PhasePlaybook
+ * shape and the digest-stable contract from #1297 / T6.
+ */
+export function serializePhasePlaybookEntry(
+  playbook: PhasePlaybook,
+): SerializedPhasePlaybook {
+  // Deep-copy each instruction object and any nested `fields` array. F-07
+  // dropped array-level `readonly` from `SerializedPhasePlaybook` so the
+  // schema-derived (mutable) target type accepts these arrays. With mutable
+  // payloads, a downstream consumer that mutates a returned `tools[i]` /
+  // `events[i].fields` would corrupt the registry-backed playbook unless
+  // the per-element clone happens here.
+  const cloneEvent = <E extends EventInstruction>(e: E): E => ({
+    ...e,
+    ...(e.fields !== undefined && { fields: [...e.fields] }),
+  });
+  return {
+    skill: playbook.skill,
+    skillRef: playbook.skillRef,
+    tools: playbook.tools.map((t) => ({ ...t })),
+    events: playbook.events.map(cloneEvent),
+    ...(playbook.autoEmittedEvents !== undefined && {
+      autoEmittedEvents: playbook.autoEmittedEvents.map(cloneEvent),
+    }),
+    transitionCriteria: playbook.transitionCriteria,
+    guardPrerequisites: playbook.guardPrerequisites,
+    validationScripts: [...playbook.validationScripts],
+    humanCheckpoint: playbook.humanCheckpoint,
+    compactGuidance: playbook.compactGuidance,
+  };
+}
+
+/**
+ * Resolve and serialize the playbook for a single (workflowType, phase)
+ * pair. Used by handler-time composition (T-20: `handleRehydrate`; T-23:
+ * `handleCheckpoint`) so callers get a single entry point that returns a
+ * JSON-serializable shape directly attachable to the rehydration envelope.
+ *
+ * Returns `null` when no playbook is registered for the pair (terminal
+ * phases, unknown workflow types, or phases that legitimately have no
+ * authoring playbook). Surfacing the null explicitly is the contract — the
+ * v:3 rehydration envelope's `phasePlaybook` field is nullable, not
+ * optional, so callers can spread the return value directly without
+ * guarding for `undefined`.
+ *
+ * Pure function with no side effects.
+ */
+export function composePhasePlaybook(
+  workflowType: string,
+  phase: string,
+): SerializedPhasePlaybook | null {
+  const playbook = getPlaybook(workflowType, phase);
+  return playbook !== null ? serializePhasePlaybookEntry(playbook) : null;
+}
 
 /**
  * Serialize all playbooks for a given workflow type into a plain
@@ -1431,24 +1500,7 @@ export function serializePlaybooks(workflowType: string): SerializedPlaybooks {
   for (const [, playbook] of registry) {
     if (playbook.workflowType !== workflowType) continue;
 
-    phases[playbook.phase] = {
-      skill: playbook.skill,
-      skillRef: playbook.skillRef,
-      tools: [...playbook.tools],
-      events: [...playbook.events],
-      // CodeRabbit major on PR #1297: thread autoEmittedEvents through
-      // the serialized contract. Spread-on-condition keeps the field
-      // absent for phases that don't declare it (matching the
-      // PhasePlaybook shape) — the digest-stable contract from T6.
-      ...(playbook.autoEmittedEvents !== undefined && {
-        autoEmittedEvents: [...playbook.autoEmittedEvents],
-      }),
-      transitionCriteria: playbook.transitionCriteria,
-      guardPrerequisites: playbook.guardPrerequisites,
-      validationScripts: [...playbook.validationScripts],
-      humanCheckpoint: playbook.humanCheckpoint,
-      compactGuidance: playbook.compactGuidance,
-    };
+    phases[playbook.phase] = serializePhasePlaybookEntry(playbook);
   }
 
   const phaseCount = Object.keys(phases).length;

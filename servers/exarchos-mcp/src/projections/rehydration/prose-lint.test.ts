@@ -1,8 +1,9 @@
 /**
  * T048 — Prose lint on document template (DR-13).
  *
- * Ensures the rehydration document's prose surface (behavioralGuidance
- * template strings and surrounding doc comments) does not drift into
+ * Ensures the rehydration document's prose surface (phasePlaybook
+ * compactGuidance literals and surrounding doc comments — v:3, T-50) does
+ * not drift into
  * AI-writing patterns cataloged by the `humanize` skill. The lint here is
  * deliberately a small subset of that catalog — the highest-signal tells —
  * so it stays deterministic and fast enough for a CI pre-commit gate.

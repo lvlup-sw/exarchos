@@ -1,4 +1,4 @@
-/** Manifest entry written by SessionStart hook */
+/** Manifest entry recording a session's startup metadata */
 export interface SessionManifestEntry {
   readonly sessionId: string;
   readonly workflowId?: string;

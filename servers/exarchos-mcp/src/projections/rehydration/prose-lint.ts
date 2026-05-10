@@ -143,14 +143,15 @@ export function lintProse(text: string): Violation[] {
 // ─── Template discovery ────────────────────────────────────────────────────
 //
 // `lintTemplate()` gathers every human-authored prose string that flows
-// into the rehydration document's `behavioralGuidance` surface and runs
-// `lintProse` over the concatenation. The inputs are:
+// into the rehydration document's `phasePlaybook.compactGuidance` surface
+// (v:3, T-50) and runs `lintProse` over the concatenation. The inputs are:
 //
 //   1. The doc comments and description fields inside `schema.ts` (the
 //      file that defines the template shape).
 //   2. The `compactGuidance` string literals inside
-//      `../../workflow/playbooks.ts` — the actual prose that becomes
-//      `behavioralGuidance` at assembly time.
+//      `../../workflow/playbooks.ts` — the actual prose that the
+//      handler-time playbook composition (T-20) places at
+//      `phasePlaybook.compactGuidance` in the rehydration envelope.
 //
 // Both files are read statically as text so that the lint does not need
 // to load or execute the playbook registry. This keeps the CI hook fast

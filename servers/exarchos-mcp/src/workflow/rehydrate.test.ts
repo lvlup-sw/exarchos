@@ -84,7 +84,7 @@ describe('handleRehydrate — happy path (T031, DR-5)', () => {
     const parsed = RehydrationDocumentSchema.safeParse(doc);
     expect(parsed.success).toBe(true);
 
-    expect(doc.v).toBe(2);
+    expect(doc.v).toBe(3);
     // Every seeded event is handled by the rehydration reducer, so
     // `projectionSequence` must match the count of events.
     expect(doc.projectionSequence).toBe(4);
@@ -189,7 +189,7 @@ describe('handleRehydrate — happy path (T031, DR-5)', () => {
 
     expect(result.success).toBe(true);
     const doc = result.data as RehydrationDocument;
-    expect(doc.v).toBe(2);
+    expect(doc.v).toBe(3);
     expect(doc.projectionSequence).toBe(0);
     expect(doc.taskProgress).toEqual([]);
     expect(doc.blockers).toEqual([]);
@@ -412,9 +412,9 @@ describe('handleRehydrate — reducer throw degradation (T054, DR-18)', () => {
       expect(meta?.fallbackSource).toBe('state-store-only');
 
       // THEN (2): the returned `data` is a minimal fallback document seeded
-      //   from the state-store — v:2, sequence 0, populated workflowState.
+      //   from the state-store — v:3, sequence 0, populated workflowState.
       const doc = result.data as RehydrationDocument;
-      expect(doc.v).toBe(2);
+      expect(doc.v).toBe(3);
       expect(doc.projectionSequence).toBe(0);
       expect(doc.workflowState.featureId).toBe(featureId);
       expect(doc.workflowState.workflowType).toBe('feature');
@@ -597,10 +597,10 @@ describe('handleRehydrate — event-stream-unavailable degradation (T056, DR-18)
     expect(meta?.fallbackSource).toBe('state-store-only');
 
     // THEN (2): the returned `data` is a minimal fallback document seeded
-    //   from the state store — v:2, projectionSequence 0, populated
+    //   from the state store — v:3, projectionSequence 0, populated
     //   workflowState.
     const doc = result.data as RehydrationDocument;
-    expect(doc.v).toBe(2);
+    expect(doc.v).toBe(3);
     expect(doc.projectionSequence).toBe(0);
     expect(doc.workflowState.featureId).toBe(featureId);
     expect(doc.workflowState.workflowType).toBe('feature');
@@ -628,5 +628,295 @@ describe('handleRehydrate — event-stream-unavailable degradation (T056, DR-18)
     //   exclusive with "hydrate succeeded" (same invariant as T054/T055).
     const rehydrated = all.filter((e) => e.type === 'workflow.rehydrated');
     expect(rehydrated).toHaveLength(0);
+  });
+});
+
+/**
+ * T-20 — `handleRehydrate` composes `phasePlaybook`
+ *
+ * Implements rehydration-machinery-refactor §T-20 (P2 handler composition).
+ * After the projection fold completes and BEFORE `workflow.rehydrated` is
+ * emitted, the handler resolves the L4 playbook via
+ * `getPlaybook(workflowState.workflowType, workflowState.phase)` and:
+ *   - attaches the serialized playbook to `document.phasePlaybook` when
+ *     present (e.g. feature/delegate → delegation skill); OR
+ *   - attaches `null` for terminal / unregistered phases.
+ *
+ * This is pure additive composition — degraded paths (T-22) are unchanged.
+ */
+describe('handleRehydrate — phasePlaybook composition (T-20)', () => {
+  it('RehydrateHandler_DelegatePhase_AttachesSerializedPhasePlaybook', async () => {
+    // GIVEN: a feature workflow that has transitioned into the `delegate`
+    //   phase. The L4 registry has a `feature:delegate` playbook keyed to
+    //   the `delegation` skill (see workflow/playbooks.ts).
+    const featureId = 'rehydrate-phaseplaybook-delegate';
+    await store.append(featureId, {
+      type: 'workflow.started',
+      data: { featureId, workflowType: 'feature' },
+    });
+    await store.append(featureId, {
+      type: 'workflow.transition',
+      data: { from: '', to: 'delegate' },
+    });
+
+    // WHEN: we rehydrate.
+    const result = await handleRehydrate(
+      { featureId },
+      { eventStore: store, stateDir },
+    );
+
+    // THEN: the returned document carries a populated phasePlaybook whose
+    //   skill is `delegation` and whose events surface is non-empty.
+    expect(result.success).toBe(true);
+    const doc = result.data as RehydrationDocument;
+    expect(doc.workflowState.phase).toBe('delegate');
+    expect(doc.phasePlaybook).not.toBeNull();
+    // Narrow the nullable for the assertions below.
+    const playbook = doc.phasePlaybook;
+    if (playbook === null) {
+      throw new Error('expected phasePlaybook to be non-null');
+    }
+    expect(playbook.skill).toBe('delegation');
+    expect(playbook.events.length).toBeGreaterThan(0);
+
+    // The composed document still validates under v:3.
+    expect(RehydrationDocumentSchema.safeParse(doc).success).toBe(true);
+  });
+
+  it('RehydrateHandler_TerminalPhase_AttachesNullPhasePlaybook', async () => {
+    // GIVEN: a feature workflow that has transitioned into a phase with no
+    //   registered playbook (e.g. `shipped`). `getPlaybook` returns null
+    //   and the handler must surface that as `phasePlaybook: null` rather
+    //   than omitting the field (the v:3 schema requires its presence).
+    const featureId = 'rehydrate-phaseplaybook-terminal';
+    await store.append(featureId, {
+      type: 'workflow.started',
+      data: { featureId, workflowType: 'feature' },
+    });
+    await store.append(featureId, {
+      type: 'workflow.transition',
+      data: { from: '', to: 'shipped' },
+    });
+
+    // WHEN: we rehydrate.
+    const result = await handleRehydrate(
+      { featureId },
+      { eventStore: store, stateDir },
+    );
+
+    // THEN: phasePlaybook is exactly null (not undefined / not omitted).
+    expect(result.success).toBe(true);
+    const doc = result.data as RehydrationDocument;
+    expect(doc.workflowState.phase).toBe('shipped');
+    expect(doc.phasePlaybook).toBeNull();
+    expect(RehydrationDocumentSchema.safeParse(doc).success).toBe(true);
+  });
+});
+
+/**
+ * T-21 — `workflow.rehydrated` event payload exposes playbook-presence flags
+ *
+ * Implements rehydration-machinery-refactor §T-21 (P2 emission wiring).
+ * After T-20 the handler composes `document.phasePlaybook` (null for terminal
+ * / unregistered phases, a serialized playbook for delegate). T-21 widens the
+ * audit event so downstream observability can distinguish "phase had a
+ * playbook in the registry" (`phaseHasPlaybook`) from "the handler actually
+ * composed it onto this document" (`phasePlaybookComposed`). On the happy
+ * path both flags equal `phasePlaybook !== null`; T-22/T-23 will diverge them
+ * for degraded paths and checkpoint composition.
+ *
+ * The schema fields were added in T-10 (`WorkflowRehydratedData` in
+ * `event-store/schemas.ts`). T-21 wires emission only.
+ */
+describe('handleRehydrate — workflow.rehydrated extended fields (T-21)', () => {
+  it('RehydrateHandler_DelegatePhase_EmitsHasPlaybookAndComposedTrue', async () => {
+    // GIVEN: a feature workflow in `delegate` phase. Per T-20 the handler
+    //   composes a non-null phasePlaybook from the L4 registry.
+    const featureId = 'rehydrate-t21-delegate';
+    await store.append(featureId, {
+      type: 'workflow.started',
+      data: { featureId, workflowType: 'feature' },
+    });
+    await store.append(featureId, {
+      type: 'workflow.transition',
+      data: { from: '', to: 'delegate' },
+    });
+
+    // WHEN: we rehydrate.
+    const result = await handleRehydrate(
+      { featureId },
+      { eventStore: store, stateDir },
+    );
+    expect(result.success).toBe(true);
+
+    // THEN: the emitted `workflow.rehydrated` event carries both flags as
+    //   `true`, mirroring `phasePlaybook !== null` on the returned document.
+    const all = await store.query(featureId);
+    const rehydratedEvents = all.filter(
+      (e) => e.type === 'workflow.rehydrated',
+    );
+    expect(rehydratedEvents).toHaveLength(1);
+    const data = rehydratedEvents[0].data as WorkflowRehydrated;
+    expect(data.phaseHasPlaybook).toBe(true);
+    expect(data.phasePlaybookComposed).toBe(true);
+  });
+
+  it('RehydrateHandler_TerminalPhase_EmitsHasPlaybookAndComposedFalse', async () => {
+    // GIVEN: a feature workflow transitioned to a terminal phase with no
+    //   registered playbook. T-20 surfaces this as `phasePlaybook: null`.
+    const featureId = 'rehydrate-t21-terminal';
+    await store.append(featureId, {
+      type: 'workflow.started',
+      data: { featureId, workflowType: 'feature' },
+    });
+    await store.append(featureId, {
+      type: 'workflow.transition',
+      data: { from: '', to: 'shipped' },
+    });
+
+    // WHEN: we rehydrate.
+    const result = await handleRehydrate(
+      { featureId },
+      { eventStore: store, stateDir },
+    );
+    expect(result.success).toBe(true);
+
+    // THEN: the emitted event carries both flags as `false` — phase had no
+    //   playbook and none was composed onto the document.
+    const all = await store.query(featureId);
+    const rehydratedEvents = all.filter(
+      (e) => e.type === 'workflow.rehydrated',
+    );
+    expect(rehydratedEvents).toHaveLength(1);
+    const data = rehydratedEvents[0].data as WorkflowRehydrated;
+    expect(data.phaseHasPlaybook).toBe(false);
+    expect(data.phasePlaybookComposed).toBe(false);
+  });
+});
+
+/**
+ * T-22 — degraded paths preserve `phasePlaybook: null`
+ *
+ * Implements rehydration-machinery-refactor §T-22 (P2 invariant guard).
+ * Once T-20 added live playbook composition on the happy path, the degraded
+ * envelopes (reducer-throw / snapshot-corrupt / event-stream-unavailable)
+ * MUST continue to surface `phasePlaybook: null` — the schema-default carried
+ * by `rehydrationReducer.initial`. Composition is intentionally skipped on
+ * degradation: the document we return is built from the workflow state store
+ * (or the cold-replay rebuilt projection for snapshot-corrupt), not from a
+ * trustworthy authoritative event fold, so attaching a playbook would risk
+ * mis-attributing skill guidance to a phase we can't fully trust.
+ *
+ * Scope: this is a contract guard. It complements T054/T055/T056 — those
+ * assert the degraded envelope wiring; T-22 asserts that the playbook field
+ * of the degraded document remains null across all three causes. If a future
+ * change accidentally composes a non-null phasePlaybook on a degraded path,
+ * these tests fail loudly.
+ */
+describe('handleRehydrate — degraded paths preserve phasePlaybook null (T-22)', () => {
+  it('Rehydrate_ReducerThrows_DegradedDocumentHasPhasePlaybookNull', async () => {
+    // GIVEN: same setup as T054 — seeded state file, seeded events, reducer
+    //   spy that throws on its second invocation.
+    const featureId = 'rehydrate-t22-reducer-throw';
+    await initStateFile(stateDir, featureId, 'feature');
+    await store.append(featureId, {
+      type: 'workflow.started',
+      data: { featureId, workflowType: 'feature' },
+    });
+    await store.append(featureId, {
+      type: 'task.assigned',
+      data: { taskId: 'T22-A' },
+    });
+
+    const realApply = rehydrationReducer.apply.bind(rehydrationReducer);
+    let callCount = 0;
+    const applySpy = vi
+      .spyOn(rehydrationReducer, 'apply')
+      .mockImplementation((state, event) => {
+        callCount += 1;
+        if (callCount === 2) {
+          throw new Error('reducer exploded on T22-A');
+        }
+        return realApply(state, event);
+      });
+
+    try {
+      const result = await handleRehydrate(
+        { featureId },
+        { eventStore: store, stateDir },
+      );
+
+      // THEN: degraded envelope is returned and its document carries
+      //   `phasePlaybook: null` — composition is skipped on degradation.
+      expect(result.success).toBe(true);
+      const meta = result._meta as Record<string, unknown> | undefined;
+      expect(meta?.degraded).toBe(true);
+      const doc = result.data as RehydrationDocument;
+      expect(doc.phasePlaybook).toBeNull();
+      expect(RehydrationDocumentSchema.safeParse(doc).success).toBe(true);
+    } finally {
+      applySpy.mockRestore();
+    }
+  });
+
+  it('Rehydrate_CorruptSnapshot_DegradedDocumentHasPhasePlaybookNull', async () => {
+    // GIVEN: same setup as T055 — corrupt snapshot sidecar, healthy events.
+    //   The snapshot-corrupt path falls back to a full cold replay, so the
+    //   document is built by `rebuildProjection`, not `minimalFromStateStore`.
+    //   Either way, the handler must not compose a phasePlaybook on the
+    //   degraded path.
+    const featureId = 'rehydrate-t22-corrupt-snapshot';
+    await store.append(featureId, {
+      type: 'workflow.started',
+      data: { featureId, workflowType: 'feature' },
+    });
+    // Drive the reducer into `delegate` so that — in a non-degraded world —
+    //   composition would attach a non-null playbook. The point is that the
+    //   degraded path skips composition regardless.
+    await store.append(featureId, {
+      type: 'workflow.transition',
+      data: { from: '', to: 'delegate' },
+    });
+
+    const sidecar = path.join(stateDir, `${featureId}.projections.jsonl`);
+    await writeFile(sidecar, '{not-valid-json\n', 'utf8');
+
+    const result = await handleRehydrate(
+      { featureId },
+      { eventStore: store, stateDir },
+    );
+
+    expect(result.success).toBe(true);
+    const meta = result._meta as Record<string, unknown> | undefined;
+    expect(meta?.degraded).toBe(true);
+    const doc = result.data as RehydrationDocument;
+    expect(doc.phasePlaybook).toBeNull();
+    expect(RehydrationDocumentSchema.safeParse(doc).success).toBe(true);
+  });
+
+  it('Rehydrate_EventStreamUnavailable_DegradedDocumentHasPhasePlaybookNull', async () => {
+    // GIVEN: same setup as T056 — failing-query event store stub, seeded
+    //   state file. The handler falls back to `minimalFromStateStore` and
+    //   must surface `phasePlaybook: null` on the returned document.
+    const featureId = 'rehydrate-t22-event-stream-unavailable';
+    await initStateFile(stateDir, featureId, 'feature');
+
+    const failingQueryStore = {
+      append: store.append.bind(store),
+      query: (): Promise<never> =>
+        Promise.reject(new Error('event store offline')),
+    } as unknown as typeof store;
+
+    const result = await handleRehydrate(
+      { featureId },
+      { eventStore: failingQueryStore, stateDir },
+    );
+
+    expect(result.success).toBe(true);
+    const meta = result._meta as Record<string, unknown> | undefined;
+    expect(meta?.degraded).toBe(true);
+    const doc = result.data as RehydrationDocument;
+    expect(doc.phasePlaybook).toBeNull();
+    expect(RehydrationDocumentSchema.safeParse(doc).success).toBe(true);
   });
 });

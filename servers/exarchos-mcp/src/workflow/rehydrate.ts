@@ -44,9 +44,12 @@ import {
 import {
   RehydrationDocumentSchema,
   type RehydrationDocument,
+  type RehydrationDocumentV3,
 } from '../projections/rehydration/schema.js';
+import { loadRehydrationDocument } from '../projections/rehydration/serialize.js';
 import { SnapshotRecord } from '../projections/snapshot-schema.js';
 import type { ProjectionReducer } from '../projections/types.js';
+import { composePhasePlaybook } from './playbooks.js';
 import { readStateFile } from './state-store.js';
 
 /** Input shape for the rehydrate handler. */
@@ -511,14 +514,19 @@ export async function handleRehydrate(
     });
   }
 
-  let document: RehydrationDocument =
+  // Route v:1/v:2 snapshots through the upgrade chain so the in-memory
+  // document is always v:3 — handler-time `phasePlaybook` composition (T-20)
+  // assumes the v:3 envelope shape. Cold-start (no snapshot) seeds from the
+  // reducer's v:3 initial directly. Reducer.apply preserves v:3 by contract;
+  // the cast below pins that for the local variable.
+  let document: RehydrationDocumentV3 =
     snapshot !== undefined
-      ? (snapshot.state as RehydrationDocument)
-      : rehydrationReducer.initial;
+      ? loadRehydrationDocument(snapshot.state)
+      : (rehydrationReducer.initial as RehydrationDocumentV3);
 
   try {
     for (const ev of tailEvents) {
-      document = rehydrationReducer.apply(document, ev);
+      document = rehydrationReducer.apply(document, ev) as RehydrationDocumentV3;
     }
   } catch (err) {
     // Log the underlying throwable BEFORE delegating so audit / oncall
@@ -543,6 +551,21 @@ export async function handleRehydrate(
     });
   }
 
+  // T-20 — compose phasePlaybook from the L4 registry. After the fold and
+  // BEFORE the `workflow.rehydrated` emission so the audit event's
+  // `tokenEstimate` reflects the composed envelope. The helper returns
+  // null for terminal / unregistered (workflowType, phase) pairs; we
+  // surface that as `phasePlaybook: null` rather than omitting the field
+  // (the v:3 schema requires its presence). Pure additive composition —
+  // degraded paths (T-22) keep the reducer.initial null and are unchanged.
+  document = {
+    ...document,
+    phasePlaybook: composePhasePlaybook(
+      document.workflowState.workflowType,
+      document.workflowState.phase,
+    ),
+  };
+
   // T032 — on successful hydrate, record an observability event with the
   // canonical payload from `WorkflowRehydratedData` (T008):
   //   { projectionSequence, deliveryPath, tokenEstimate }
@@ -559,10 +582,23 @@ export async function handleRehydrate(
   // satisfy `z.number().int().nonnegative()` on the schema.
   const tokenEstimate = Math.ceil(JSON.stringify(document).length / 4);
 
+  // T-21 — surface playbook-presence flags on the audit event.
+  //   `phaseHasPlaybook`     — was a playbook registered for this
+  //                            (workflowType, phase) pair? (registry signal)
+  //   `phasePlaybookComposed` — did the handler actually attach it to the
+  //                            returned document? (handler signal)
+  // On the happy path both flags collapse to `phasePlaybook !== null`.
+  // T-22 (degraded paths) and T-23 (checkpoint composition) will diverge
+  // them so observability can distinguish "registry had it" from
+  // "this response carried it".
+  const phasePlaybookPresent = document.phasePlaybook !== null;
+
   const rehydratedData: WorkflowRehydrated = {
     projectionSequence: document.projectionSequence,
     deliveryPath,
     tokenEstimate,
+    phaseHasPlaybook: phasePlaybookPresent,
+    phasePlaybookComposed: phasePlaybookPresent,
   };
 
   // The observability emission must NOT turn a successful hydrate into a

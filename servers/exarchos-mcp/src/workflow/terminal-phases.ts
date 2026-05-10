@@ -2,10 +2,9 @@
  * Terminal phases shared across workflow types.
  *
  * A workflow in a terminal phase is complete — no further transitions are
- * expected — and is excluded from pipeline views, pruning candidates, and
- * session-start context assembly. Every built-in workflow type ends in one
- * of these phases via the universal cancel transition or its
- * type-specific completion guard.
+ * expected — and is excluded from pipeline views and pruning candidates.
+ * Every built-in workflow type ends in one of these phases via the
+ * universal cancel transition or its type-specific completion guard.
  *
  * This constant is the single source of truth; consumers MUST import from
  * here rather than redeclare the tuple locally. Adding a new terminal phase

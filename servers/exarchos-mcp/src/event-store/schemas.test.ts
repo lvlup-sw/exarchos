@@ -53,6 +53,7 @@ import {
   MigrationLegacyJsonlImportedData,
   MigrationCompletedData,
   MigrationFailedData,
+  SessionMachineryConsumedDataSchema,
   EVENT_EMISSION_REGISTRY,
   EVENT_DATA_SCHEMAS,
   type EventEmissionSource,
@@ -472,12 +473,13 @@ describe('EventTypes', () => {
   });
 
   it('EventTypes_HasExpectedCount', () => {
-    // Bumped from 84 → 90 with the addition of six durable event-store
-    // substrate event types (#1259 T02 / T03 / T04):
+    // Bumped from 90 → 91 with the addition of session.machinery_consumed
+    // (T-11, rehydration-machinery-refactor). Previous bump (84 → 90) added
+    // six durable event-store substrate event types (#1259 T02 / T03 / T04):
     //   hsm.deprecated_action_invoked, spec.legacy_capabilities_array,
     //   phase.contract_missing, migration.legacy_jsonl_imported,
     //   migration.completed, migration.failed.
-    expect(EventTypes).toHaveLength(90);
+    expect(EventTypes).toHaveLength(91);
   });
 
   it('EventTypes_IncludesSessionTagged', () => {
@@ -2254,6 +2256,68 @@ describe('WorkflowRehydratedData', () => {
     });
     expect(result.success).toBe(false);
   });
+
+  // T-10: optional playbook fields (phaseHasPlaybook, phasePlaybookComposed)
+
+  it('Rehydrated_LegacyPayload_ParsesWithoutPlaybookFields', () => {
+    // Legacy events emitted before T-10 lack both optional fields.
+    // The schema must remain backward-compatible — absence of the fields is valid.
+    const schema = EVENT_DATA_SCHEMAS['workflow.rehydrated' as typeof EventTypes[number]];
+    expect(schema).toBeDefined();
+
+    const result = schema!.safeParse({
+      projectionSequence: 7,
+      deliveryPath: 'snapshot',
+      tokenEstimate: 800,
+    });
+    expect(result.success, JSON.stringify(result)).toBe(true);
+  });
+
+  it('Rehydrated_BothPlaybookFieldsTrue_Parses', () => {
+    // T-10: phaseHasPlaybook and phasePlaybookComposed are both present and true.
+    // This is the "playbook found and composed" path.
+    const schema = EVENT_DATA_SCHEMAS['workflow.rehydrated' as typeof EventTypes[number]];
+    expect(schema).toBeDefined();
+
+    const result = schema!.safeParse({
+      projectionSequence: 42,
+      deliveryPath: 'direct',
+      tokenEstimate: 1500,
+      phaseHasPlaybook: true,
+      phasePlaybookComposed: true,
+    });
+    expect(result.success, JSON.stringify(result)).toBe(true);
+  });
+
+  it('Rehydrated_AsymmetricPlaybookFields_Parses', () => {
+    // T-10: phaseHasPlaybook=true, phasePlaybookComposed=false.
+    // Playbook exists but was not composed into the envelope (e.g. suppressed).
+    const schema = EVENT_DATA_SCHEMAS['workflow.rehydrated' as typeof EventTypes[number]];
+    expect(schema).toBeDefined();
+
+    const result = schema!.safeParse({
+      projectionSequence: 42,
+      deliveryPath: 'ndjson',
+      tokenEstimate: 2000,
+      phaseHasPlaybook: true,
+      phasePlaybookComposed: false,
+    });
+    expect(result.success, JSON.stringify(result)).toBe(true);
+  });
+
+  it('Rehydrated_PlaybookFieldStringValue_Rejects', () => {
+    // T-10: phaseHasPlaybook must be boolean — string "yes" is rejected.
+    const schema = EVENT_DATA_SCHEMAS['workflow.rehydrated' as typeof EventTypes[number]];
+    expect(schema).toBeDefined();
+
+    const result = schema!.safeParse({
+      projectionSequence: 42,
+      deliveryPath: 'direct',
+      tokenEstimate: 1500,
+      phaseHasPlaybook: 'yes',
+    });
+    expect(result.success).toBe(false);
+  });
 });
 
 // ─── workflow.snapshot_taken (T009, DR-4) ───────────────────────────────────
@@ -2856,6 +2920,80 @@ describe('MigrationFailedData', () => {
       reason: '',
       partialFilesImported: 0,
       partialEventsImported: 0,
+    });
+    expect(result.success).toBe(false);
+  });
+});
+
+// ─── T-11: session.machinery_consumed ────────────────────────────────────────
+
+describe('SessionMachineryConsumedDataSchema', () => {
+  it('EventEmissionRegistry_SessionMachineryConsumed_IsAutoSource', () => {
+    // T-11: The event must be registered in the emission registry as 'auto'
+    // so the dispatch-core interceptor (T-12) can emit it without model involvement.
+    expect(EVENT_EMISSION_REGISTRY).toHaveProperty('session.machinery_consumed');
+    expect(EVENT_EMISSION_REGISTRY['session.machinery_consumed' as keyof typeof EVENT_EMISSION_REGISTRY]).toBe('auto');
+  });
+
+  it('EventSchemas_SessionMachineryConsumed_ValidPayload_ParsesSuccessfully', () => {
+    // T-11: Canonical valid payload — all three required fields present.
+    const result = SessionMachineryConsumedDataSchema.safeParse({
+      rehydrateSequence: 0,
+      firstActionVerb: 'task_complete',
+      firstActionAt: '2026-05-09T20:00:00.000Z',
+    });
+    expect(result.success, JSON.stringify(result)).toBe(true);
+  });
+
+  it('EventSchemas_SessionMachineryConsumed_NegativeRehydrateSequence_Rejects', () => {
+    // T-11: rehydrateSequence must be non-negative — a negative counter is
+    // nonsensical and would corrupt lifecycle ordering downstream.
+    const result = SessionMachineryConsumedDataSchema.safeParse({
+      rehydrateSequence: -1,
+      firstActionVerb: 'task_complete',
+      firstActionAt: '2026-05-09T20:00:00.000Z',
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('EventSchemas_SessionMachineryConsumed_NonIsoTimestamp_Rejects', () => {
+    // T-11: firstActionAt must be a valid ISO 8601 datetime — free-form
+    // strings would break timeline reconstruction and the `wait --condition`
+    // comparators that depend on this field.
+    const result = SessionMachineryConsumedDataSchema.safeParse({
+      rehydrateSequence: 0,
+      firstActionVerb: 'task_complete',
+      firstActionAt: 'not-an-iso-timestamp',
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('EventSchemas_SessionMachineryConsumed_MissingRehydrateSequence_Rejects', () => {
+    // T-11: rehydrateSequence is required — absence prevents `wait --condition=machinery_consumed`
+    // from correlating to the right rehydration cycle.
+    const result = SessionMachineryConsumedDataSchema.safeParse({
+      firstActionVerb: 'task_complete',
+      firstActionAt: '2026-05-09T20:00:00.000Z',
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('EventSchemas_SessionMachineryConsumed_MissingFirstActionVerb_Rejects', () => {
+    // T-11: firstActionVerb is required — it records what the agent did first
+    // after consuming machinery, providing actionable observability context.
+    const result = SessionMachineryConsumedDataSchema.safeParse({
+      rehydrateSequence: 0,
+      firstActionAt: '2026-05-09T20:00:00.000Z',
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('EventSchemas_SessionMachineryConsumed_MissingFirstActionAt_Rejects', () => {
+    // T-11: firstActionAt is required — the timestamp anchors the machinery
+    // consumption to wall-clock time for ps/wait lifecycle queries.
+    const result = SessionMachineryConsumedDataSchema.safeParse({
+      rehydrateSequence: 0,
+      firstActionVerb: 'task_complete',
     });
     expect(result.success).toBe(false);
   });

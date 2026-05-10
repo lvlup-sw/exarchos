@@ -2,7 +2,7 @@
 
 All notable changes to Exarchos are documented in this file. Organized by semver release.
 
-## [Unreleased]
+## [2.10.0] - 2026-05-09
 
 ### Features
 - `preferredFacade` field on every runtime (`mcp` | `cli`) declaring the host's preferred invocation surface (cli-vs-mcp-facade-analysis, DR-1).
@@ -30,6 +30,12 @@ All notable changes to Exarchos are documented in this file. Organized by semver
 
 ### Removed
 - **`create-exarchos` interactive installer deleted.** Prior versions vendored serena, context7, and microsoft-learn as extras installed alongside Exarchos by `npx create-exarchos`. Exarchos no longer ships or configures those MCP servers for you; install them yourself if you want them. The primary install paths are now the Claude Code plugin (`/plugin install exarchos@lvlup-sw`) and the standalone single-file binary, fetched via the bootstrap scripts at `scripts/get-exarchos.sh` (Unix) and `scripts/get-exarchos.ps1` (Windows). Marketplace docs have been updated to drop the stale "Integrations" table rows.
+
+### Breaking (behavior) — Rehydration machinery refactor
+- **Auto-resume hooks removed.** `SessionStart` and `PreCompact` no longer run automatically — the corresponding entries are gone from `hooks/hooks.json`, `hooks/session-start.sh` is deleted, and the `pre-compact` / `session-start` dispatch branches are removed from `adapters/hooks.ts`. The implementations (`cli-commands/session-start.ts` ~798 LoC, `cli-commands/pre-compact.ts` ~148 LoC, plus their tests and the `assemble-context.ts` helper) are deleted entirely (~5,500 LoC removed across P5).
+- **Two-verb resume model.** Resume is now an explicit user action via `/exarchos:rehydrate <featureId>` (returns the canonical rehydration document — workflow state, phase playbook, recent handoffs, blockers, next actions). Checkpoints are an explicit user action via `/exarchos:checkpoint` (writes a structured handoff into the event store). Migration: anywhere docs previously said "the SessionStart hook handles X automatically", the recipe is now "run `/exarchos:rehydrate <featureId>` and read X from the returned envelope".
+- **Rehydration envelope schema bumped v:2 → v:3.** `behavioralGuidance` (vestigial, never populated by any event) is dropped from the stable section; `phasePlaybook` is composed at handler time and carried in the volatile section. The v:2 read-back path still upgrades legacy snapshots in memory (see `upgrade.ts`); writers always emit v:3. `BehavioralGuidanceSchema` is no longer exported.
+- **On-disk side-channel files orphaned.** The pre-compact path used to write `<featureId>.checkpoint.json` and assemble context to `<featureId>.context.md`; both behaviors are gone. Pre-existing files on disk are harmless but no longer read or written by any code path. The `commands/reload.md` slash command is also removed (its only flow was the now-deleted hook reload cycle).
 
 ## [2.6.0] - 2026-04-12
 

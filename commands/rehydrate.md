@@ -31,13 +31,16 @@ exarchos_workflow
 ## Workflow Rehydrated: <featureId>
 **Phase:** <phase> | **Type:** <workflowType>
 
-### Behavioral Guidance
-**Skill:** <skillRef>
-**Tools:** <tool list with actions>
-**Events to emit:** <event types with when>
-**Transition:** <criteria> | Guard: <prerequisites>
-**Scripts:** <validation scripts>
-<compactGuidance>
+### House Rules (apply every action this turn forward)
+**Skill:** <phasePlaybook.skillRef or "(no playbook for this phase)">
+**Tools:** <phasePlaybook.tools rendered as bullets>
+**Required model-emitted events:** <phasePlaybook.events rendered as bullets — e.g. `task.progressed`, `phase.advanced`>
+**Auto-emitted events (runtime fires these):** <phasePlaybook.autoEmittedEvents rendered as bullets>
+**Transition:** <phasePlaybook.transitionCriteria> | Guard: <phasePlaybook.guardPrerequisites>
+**Validation scripts:** <phasePlaybook.validationScripts joined>
+
+### Event Emission Hints
+<_eventHints.missing rendered as bullets, or "(none — phase machinery satisfied)">
 
 ### Task Progress
 <task table>
@@ -49,6 +52,8 @@ exarchos_workflow
 
 ### Next Action
 <suggested action>
+
+> **Discipline reminder:** every task transition this turn forward MUST land on the workflow event stream via `exarchos_event.append` or `/exarchos:delegate` subagent emission. Direct `Edit` / `Bash` / `git` actions on task branches without corresponding events will desync the workflow tracker (see RCA `docs/rca/2026-05-08-rehydrate-behavioral-gap.md`).
 ```
 
 ## Context Efficiency

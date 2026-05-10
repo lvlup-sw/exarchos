@@ -1,10 +1,6 @@
 {
-  "v": 2,
+  "v": 3,
   "projectionSequence": 7,
-  "behavioralGuidance": {
-    "skill": "",
-    "skillRef": ""
-  },
   "workflowState": {
     "featureId": "rehydrate-demo",
     "phase": "plan-review",
@@ -26,5 +22,22 @@
     "planDoc": "docs/plan.md"
   },
   "blockers": [],
-  "recentHandoffs": []
+  "recentHandoffs": [],
+  "phasePlaybook": {
+    "skill": "implementation-planning",
+    "skillRef": "@skills/implementation-planning/SKILL.md",
+    "tools": [
+      {
+        "tool": "exarchos_workflow",
+        "action": "set",
+        "purpose": "Record review decision"
+      }
+    ],
+    "events": [],
+    "transitionCriteria": "Plan approved → delegate | Gaps found → plan",
+    "guardPrerequisites": "Plan review complete",
+    "validationScripts": [],
+    "humanCheckpoint": true,
+    "compactGuidance": "You are at a human checkpoint reviewing the implementation plan. Wait for user approval or revision feedback. Record approval with exarchos_workflow set using updates: { planReview: { approved: true } }. Transition to delegate on approval or back to plan if gaps found. Key decision: approve plan as-is vs request revision with specific feedback. Anti-pattern: rubber-stamping without checking that every DR-N requirement has a corresponding task. Escalate: 3+ revision cycles without convergence on a viable plan. Follow the plan-coverage-check runbook for self-consistency verification using 3 independent framings before presenting for approval."
+  }
 }
