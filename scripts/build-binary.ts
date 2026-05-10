@@ -9,7 +9,7 @@
  * already implements unified mode dispatch:
  *
  *   - `isMcpServerInvocation(argv)` → MCP stdio server mode.
- *   - Hook commands (session-start, pre-compact, guard, ...) → short-lived
+ *   - Hook commands (guard, task-gate, teammate-gate, ...) → short-lived
  *     subprocess mode via `adapters/hooks.ts`.
  *   - Everything else → Commander CLI via `adapters/cli.ts`.
  *

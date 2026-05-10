@@ -93,33 +93,43 @@ describe('Core Plugin Structure', () => {
   });
 
   describe('hooks/hooks.json', () => {
-    it('hooksConfig_allHooks_usePluginRootPaths', () => {
+    // T-40 (rehydration-machinery-refactor): Rehydration machinery moved off
+    // hook-driven entry points (`PreCompact`, `SessionStart`) to user-invoked
+    // commands (`/checkpoint`, `/rehydrate`). The hooks.json manifest must
+    // declare exactly the six remaining hooks.
+    it('hooksConfig_declaredHooks_areExactlySixWithoutSessionStartOrPreCompact', () => {
       const hooksPath = join(repoRoot, 'hooks', 'hooks.json');
       expect(existsSync(hooksPath)).toBe(true);
       const raw = readFileSync(hooksPath, 'utf-8');
       const hooks = JSON.parse(raw);
 
-      // All 6 hook types present
       const hookTypes = Object.keys(hooks.hooks);
-      expect(hookTypes).toContain('PreCompact');
-      expect(hookTypes).toContain('SessionStart');
+      // Exactly six hooks remain after T-40 prune.
+      expect(hookTypes).toHaveLength(6);
+
+      // Required hooks
       expect(hookTypes).toContain('PreToolUse');
       expect(hookTypes).toContain('TaskCompleted');
       expect(hookTypes).toContain('TeammateIdle');
       expect(hookTypes).toContain('SubagentStart');
+      expect(hookTypes).toContain('SubagentStop');
+      expect(hookTypes).toContain('SessionEnd');
 
-      // All paths use ${CLAUDE_PLUGIN_ROOT}
+      // Pruned hooks must not be present.
+      expect(hookTypes).not.toContain('PreCompact');
+      expect(hookTypes).not.toContain('SessionStart');
+
+      // Sanity: no orphaned ${CLAUDE_PLUGIN_ROOT} placeholder breakage.
       expect(raw).not.toContain('{{CLI_PATH}}');
-      expect(raw).toContain('${CLAUDE_PLUGIN_ROOT}');
     });
 
     it('hooksConfig_matcherPatterns_preserved', () => {
       const hooksPath = join(repoRoot, 'hooks', 'hooks.json');
       const hooks = JSON.parse(readFileSync(hooksPath, 'utf-8'));
 
-      expect(hooks.hooks.PreCompact[0].matcher).toBe('auto');
-      expect(hooks.hooks.SessionStart[0].matcher).toBe('startup|resume');
       expect(hooks.hooks.PreToolUse[0].matcher).toBe('mcp__(plugin_exarchos_)?exarchos__.*');
+      expect(hooks.hooks.SubagentStop[0].matcher).toBe('exarchos-implementer|exarchos-fixer');
+      expect(hooks.hooks.SessionEnd[0].matcher).toBe('auto');
     });
   });
 

@@ -1,21 +1,96 @@
 /**
- * Canonical rehydration document — v:2 (DR-3 + #1240 + #1246).
+ * Canonical rehydration document — v:3 (rehydration-machinery-refactor, T-01).
  *
+ * T-01: Add PhasePlaybookSchema and v:3 envelope.
+ * - Renames previous RehydrationDocumentSchema → RehydrationDocumentSchemaV2
+ *   (read-back-only; consumed by upgrade.ts in T-02/T-03).
+ * - Declares PhasePlaybookSchema mirroring SerializedPhasePlaybook from
+ *   workflow/playbooks.ts.
+ * - New RehydrationDocumentSchema uses v: literal(3) and carries
+ *   phasePlaybook in VolatileSectionsSchema.
+ * - Drops behavioralGuidance from StableSectionsSchema (was vestigial,
+ *   never populated in production).
+ *
+ * T-50: BehavioralGuidanceSchema export removed; the zod literal is now
+ * inlined into StableSectionsSchemaV2, the only remaining consumer.
+ *
+ * History:
  * T011 lands stable prefix; T012 adds volatile sections; T013 composes the
  * full envelope. T1 of the checkpoint-handoff bundle (#1240 + #1246) bumps
  * the envelope to v:2: it adds `latestHandoff` / `recentHandoffs` to the
  * volatile section, promotes `eventRef.sequence` from advisory to primary
- * key, and removes `eventRef.id` from the v:2 entry shape. The v:1 entry
- * and envelope schemas are exported for the read-back path only (T3
- * consumes them via `loadRehydrationDocument`).
+ * key, and removes `eventRef.id` from the v:2 entry shape.
  */
 import { z } from 'zod';
 
-export const BehavioralGuidanceSchema = z.object({
-  skill: z.string(),
-  skillRef: z.string(),
-  tools: z.unknown().optional(),
-});
+// ─── Phase Playbook Schema (T-01) ────────────────────────────────────────────
+
+/**
+ * Zod schema mirroring {@link SerializedPhasePlaybook} from
+ * `workflow/playbooks.ts`. Used as the `phasePlaybook` field type in
+ * {@link VolatileSectionsSchema}.
+ *
+ * Declared nullable so handlers can set `phasePlaybook: null` for terminal
+ * phases or unknown (workflowType, phase) combinations where no playbook is
+ * registered.
+ *
+ * TODO(T-01-refactor): If a zod schema (e.g. `SerializedPhasePlaybookSchema`)
+ * is exported from `workflow/playbooks.ts`, import and use it here directly
+ * as the single source of truth for the playbook shape. As of T-01 the
+ * playbooks module only exports TypeScript interfaces, not zod validators.
+ */
+export const PhasePlaybookSchema = z
+  .object({
+    skill: z.string(),
+    skillRef: z.string(),
+    tools: z.array(
+      z
+        .object({
+          tool: z.string(),
+          action: z.string(),
+          purpose: z.string(),
+        })
+        .strict(),
+    ),
+    events: z.array(
+      z
+        .object({
+          type: z.string(),
+          when: z.string(),
+          fields: z.array(z.string()).optional(),
+        })
+        .strict(),
+    ),
+    /**
+     * Auto-emitted event surface for delegate-shaped phases (#1227, T6).
+     * Phases without auto-emit leave this undefined — explicit absence (not
+     * `[]`) keeps the contract minimal.
+     */
+    autoEmittedEvents: z
+      .array(
+        z
+          .object({
+            type: z.string(),
+            when: z.string(),
+            fields: z.array(z.string()).optional(),
+            source: z.literal('auto'),
+            emittedBy: z.string(),
+          })
+          .strict(),
+      )
+      .optional(),
+    transitionCriteria: z.string(),
+    guardPrerequisites: z.string(),
+    validationScripts: z.array(z.string()),
+    humanCheckpoint: z.boolean(),
+    compactGuidance: z.string(),
+  })
+  .strict()
+  .nullable();
+
+export type PhasePlaybook = z.infer<typeof PhasePlaybookSchema>;
+
+// ─── Merge Orchestrator ───────────────────────────────────────────────────────
 
 /**
  * Sub-state of the merge orchestrator surfaced on the rehydration envelope so
@@ -49,12 +124,35 @@ export const WorkflowStateSchema = z.object({
   mergeOrchestrator: RehydrationMergeOrchestratorSchema.optional(),
 });
 
+// ─── v:3 Stable Sections ─────────────────────────────────────────────────────
+
+/**
+ * Stable sections for v:3. behavioralGuidance dropped — it was vestigial,
+ * never populated by any event. phasePlaybook is computed live at handler
+ * time (T-20) and placed in VolatileSectionsSchema.
+ */
 export const StableSectionsSchema = z.object({
-  behavioralGuidance: BehavioralGuidanceSchema,
   workflowState: WorkflowStateSchema,
 });
 
 export type StableSections = z.infer<typeof StableSectionsSchema>;
+
+// ─── v:2 Stable Sections (read-back-only) ────────────────────────────────────
+
+/**
+ * Stable sections for v:2 envelope read-back. Used by
+ * RehydrationDocumentSchemaV2 only — not written by v:3 handlers.
+ */
+const StableSectionsSchemaV2 = z.object({
+  behavioralGuidance: z.object({
+    skill: z.string(),
+    skillRef: z.string(),
+    tools: z.unknown().optional(),
+  }),
+  workflowState: WorkflowStateSchema,
+});
+
+// ─── Volatile Section Entries ─────────────────────────────────────────────────
 
 /**
  * Volatile sections — T012 (DR-3).
@@ -132,6 +230,8 @@ export const HandoffEntrySchemaV2 = z
 export type HandoffEntryV1 = z.infer<typeof HandoffEntrySchemaV1>;
 export type HandoffEntryV2 = z.infer<typeof HandoffEntrySchemaV2>;
 
+// ─── v:3 Volatile Sections ────────────────────────────────────────────────────
+
 export const VolatileSectionsSchema = z
   .object({
     taskProgress: z.array(TaskProgressEntrySchema),
@@ -150,8 +250,18 @@ export const VolatileSectionsSchema = z
      * envelope; older entries naturally fall off as new checkpoints land.
      */
     recentHandoffs: z.array(HandoffEntrySchemaV2).max(3).default([]),
+    /**
+     * Live phase playbook derived from the playbook registry at handler time
+     * (T-20). Null for terminal phases or unknown (workflowType, phase) pairs.
+     * Nullable — not undefined — so consumers can distinguish "no playbook
+     * for this phase" from "field was not populated" (the latter would be a
+     * schema violation on v:3 documents).
+     */
+    phasePlaybook: PhasePlaybookSchema,
   })
   .strict();
+
+// ─── v:2 Volatile Sections (read-back-only) ──────────────────────────────────
 
 /**
  * v:1 volatile sections — used by `RehydrationDocumentSchemaV1` for read-back
@@ -173,34 +283,86 @@ export const VolatileSectionsSchemaV1 = z
   })
   .strict();
 
+/**
+ * v:2 volatile sections — used by RehydrationDocumentSchemaV2 for read-back
+ * of v:2 snapshots. Mirrors the pre-T-01 shape: no phasePlaybook field.
+ */
+const VolatileSectionsSchemaV2 = z
+  .object({
+    taskProgress: z.array(TaskProgressEntrySchema),
+    decisions: z.array(DecisionEntrySchema),
+    artifacts: ArtifactsSchema,
+    blockers: z.array(BlockerEntrySchema),
+    nextAction: VolatileNextActionSchema.optional(),
+    latestHandoff: HandoffEntrySchemaV2.optional(),
+    recentHandoffs: z.array(HandoffEntrySchemaV2).max(3).default([]),
+  })
+  .strict();
+
 export type VolatileSections = z.infer<typeof VolatileSectionsSchema>;
 
+// ─── v:3 Top-Level Envelope ───────────────────────────────────────────────────
+
 /**
- * Top-level rehydration document envelope — T013 (DR-3) + T1 (#1246 v:2 bump).
+ * Top-level rehydration document envelope — v:3 (T-01, rehydration-machinery-refactor).
  *
- * Composes the stable prefix (T011) and volatile sections (T012) under a
- * versioned envelope:
- *   - `v: 2` is the current literal version. The bundle's design (DR-Q-REV)
- *     does a single bump for both #1240 (handoff fields) and #1246
- *     (eventRef.sequence promotion) so readers know v:2 implies both.
- *   - `projectionSequence` pins the document to a specific point in the
- *     projection log and must be a non-negative integer.
+ * Breaking changes vs v:2:
+ * - `v: 3` literal (was `v: 2`)
+ * - `behavioralGuidance` removed from stable sections (was vestigial)
+ * - `phasePlaybook` added to volatile sections (nullable; composed live at
+ *   handler time by T-20; null until then)
  *
- * Read-side compatibility: legacy v:1 snapshots are parsed via
- * {@link RehydrationDocumentSchemaV1} (T3 read-back path); new writes always
- * produce v:2. There is intentionally no union here — writers never produce
- * v:1, so a union would invite mixed-version output (DR-Q-V2 strict
- * deprecation).
+ * Read-side compatibility: v:2 snapshots route through
+ * {@link RehydrationDocumentSchemaV2} (T-03 upgrade path); v:1 snapshots
+ * route through {@link RehydrationDocumentSchemaV1}.
  */
 export const RehydrationDocumentSchema = z
   .object({
-    v: z.literal(2),
+    v: z.literal(3),
     projectionSequence: z.number().int().nonnegative(),
   })
   .merge(StableSectionsSchema)
   .merge(VolatileSectionsSchema);
 
-export type RehydrationDocument = z.infer<typeof RehydrationDocumentSchema>;
+/**
+ * Alias for the v:3 envelope inferred type.
+ * Prefer this name in new code for clarity.
+ */
+export type RehydrationDocumentV3 = z.infer<typeof RehydrationDocumentSchema>;
+
+/**
+ * Union of v:2 and v:3 envelope shapes — used as the public `RehydrationDocument`
+ * type so that `upgrade.ts` (T-02) can continue to produce `RehydrationDocumentV2`
+ * objects typed as `RehydrationDocument` until T-02 upgrades the function to
+ * target v:3. Writers of new v:3 documents should use `RehydrationDocumentV3`
+ * or constrain to `{ v: 3 }` explicitly.
+ *
+ * @deprecated Prefer `RehydrationDocumentV3` for new code. This union will be
+ * narrowed to v:3-only once T-02 migrates `upgrade.ts`.
+ */
+export type RehydrationDocument = RehydrationDocumentV3 | RehydrationDocumentV2;
+
+// ─── v:2 Envelope (read-back-only) ───────────────────────────────────────────
+
+/**
+ * Frozen v:2 envelope — read-back / migration path only (T-01 rename from
+ * the previous `RehydrationDocumentSchema`).
+ *
+ * Writers MUST NOT use this schema. Use {@link RehydrationDocumentSchema}
+ * (v:3) for all new writes. This is the read-back path for snapshots written
+ * before the T-01 envelope bump; upgrade.ts (T-02/T-03) consumes it.
+ *
+ * Retirement criterion: retire once on-disk v:2 doc count == 0.
+ */
+export const RehydrationDocumentSchemaV2 = z
+  .object({
+    v: z.literal(2),
+    projectionSequence: z.number().int().nonnegative(),
+  })
+  .merge(StableSectionsSchemaV2)
+  .merge(VolatileSectionsSchemaV2);
+
+export type RehydrationDocumentV2 = z.infer<typeof RehydrationDocumentSchemaV2>;
 
 /**
  * Frozen v:1 envelope — read-back / migration path only (#1246, T3).
@@ -218,5 +380,5 @@ export const RehydrationDocumentSchemaV1 = z
     v: z.literal(1),
     projectionSequence: z.number().int().nonnegative(),
   })
-  .merge(StableSectionsSchema)
+  .merge(StableSectionsSchemaV2)
   .merge(VolatileSectionsSchemaV1);

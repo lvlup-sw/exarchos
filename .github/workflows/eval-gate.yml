@@ -33,6 +33,12 @@ jobs:
           cache: 'npm'
           cache-dependency-path: servers/exarchos-mcp/package-lock.json
 
+      # Bun is required to run `dist/evals/run-evals-cli.js` because the eval
+      # runner's import graph reaches `storage/sqlite-backend.ts`, which uses
+      # `import { Database } from 'bun:sqlite'`. Node 24's ESM loader rejects
+      # the `bun:` URL scheme; bun resolves it natively.
+      - uses: oven-sh/setup-bun@v2
+
       - name: Install Dependencies
         working-directory: servers/exarchos-mcp
         run: npm ci
@@ -44,7 +50,7 @@ jobs:
       - name: Run Regression Evals
         working-directory: servers/exarchos-mcp
         run: |
-          echo '{"ci": true, "layer": "regression"}' | node dist/evals/run-evals-cli.js
+          echo '{"ci": true, "layer": "regression"}' | bun dist/evals/run-evals-cli.js
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           EVALS_DIR: ../../evals
@@ -53,7 +59,7 @@ jobs:
         working-directory: servers/exarchos-mcp
         continue-on-error: true
         run: |
-          echo '{"ci": true, "layer": "capability"}' | node dist/evals/run-evals-cli.js
+          echo '{"ci": true, "layer": "capability"}' | bun dist/evals/run-evals-cli.js
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           EVALS_DIR: ../../evals

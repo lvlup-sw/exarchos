@@ -19,17 +19,18 @@
  */
 import { z } from 'zod';
 import {
-  BehavioralGuidanceSchema,
   RehydrationDocumentSchema,
   RehydrationDocumentSchemaV1,
+  RehydrationDocumentSchemaV2,
   StableSectionsSchema,
   VolatileSectionsSchema,
   WorkflowStateSchema,
   type RehydrationDocument,
+  type RehydrationDocumentV3,
 } from './schema.js';
 import {
   InvalidEnvelopeError,
-  upgradeRehydrationDocumentV1toV2,
+  upgradeRehydrationDocument,
 } from './upgrade.js';
 
 /**
@@ -65,12 +66,17 @@ export const VOLATILE_KEYS = Object.keys(VolatileSectionsSchema.shape) as Readon
 >;
 
 /**
- * Inner key order for each stable sub-section, derived from the sub-schemas'
- * `.shape` so the serializer tracks schema declaration order.
+ * v:2 read-back inner key order for the now-removed `behavioralGuidance`
+ * sub-section. Hardcoded (T-50) since `BehavioralGuidanceSchema` was deleted;
+ * any v:2 snapshot still on disk is normalized through this fixed order so
+ * serialization remains byte-deterministic during the v:2 → v:3 upgrade path.
  */
-const BEHAVIORAL_GUIDANCE_KEYS = Object.keys(BehavioralGuidanceSchema.shape) as ReadonlyArray<
-  keyof typeof BehavioralGuidanceSchema.shape
->;
+const BEHAVIORAL_GUIDANCE_KEYS = ['skill', 'skillRef', 'tools'] as const;
+
+/**
+ * Inner key order for stable sub-sections, derived from sub-schema `.shape` so
+ * the serializer tracks schema declaration order.
+ */
 const WORKFLOW_STATE_KEYS = Object.keys(WorkflowStateSchema.shape) as ReadonlyArray<
   keyof typeof WorkflowStateSchema.shape
 >;
@@ -100,14 +106,25 @@ function reorder<T extends Record<string, unknown>>(
  * the caller's object-literal key-declaration order. The byte range up through
  * the last stable section is guaranteed to be identical for documents whose
  * stable fields match — which is the prompt-cache prefix invariant.
+ *
+ * Handles both v:2 (with `behavioralGuidance` in stable section) and v:3
+ * (without `behavioralGuidance`; `phasePlaybook` in volatile section).
+ * Full v:3 serialization is wired by T-05.
  */
 export function serializeRehydrationDocument(doc: RehydrationDocument): string {
   const ordered: Record<string, unknown> = {
     v: doc.v,
     projectionSequence: doc.projectionSequence,
-    behavioralGuidance: reorder(doc.behavioralGuidance, BEHAVIORAL_GUIDANCE_KEYS),
-    workflowState: reorder(doc.workflowState, WORKFLOW_STATE_KEYS),
   };
+
+  // v:2 has behavioralGuidance in stable sections; v:3 does not.
+  if (doc.v === 2) {
+    ordered['behavioralGuidance'] = reorder(
+      doc.behavioralGuidance,
+      BEHAVIORAL_GUIDANCE_KEYS,
+    );
+  }
+  ordered['workflowState'] = reorder(doc.workflowState, WORKFLOW_STATE_KEYS);
 
   for (const key of VOLATILE_KEYS) {
     const value = (doc as Record<string, unknown>)[key];
@@ -125,31 +142,39 @@ export function serializeRehydrationDocument(doc: RehydrationDocument): string {
  * Defined once at module scope so the compiled probe is shared across calls.
  */
 const EnvelopeVersionProbe = z.object({
-  v: z.union([z.literal(1), z.literal(2)]),
+  v: z.union([z.literal(1), z.literal(2), z.literal(3)]),
 });
 
 /**
- * Read entry point for rehydration documents — T3 (#1246-readside-migration).
+ * Read entry point for rehydration documents — T-03
+ * (rehydration-machinery-refactor) / T3 (#1246-readside-migration).
  *
- * Probes the input envelope's `v` discriminator and routes:
- *   - `v: 2` → full v:2 schema parse, returned as-is.
- *   - `v: 1` → full v:1 schema parse, then `upgradeRehydrationDocumentV1toV2`
- *     to produce a strict-mode-valid v:2 document with per-entry fail-open.
- *   - neither → `InvalidEnvelopeError` (no silent fallback per DR-18). The
- *     caller is responsible for surfacing corruption as a workflow state.
+ * Probes the input envelope's `v` discriminator and routes all versions to
+ * the current v:3 shape via the upgrade chain:
+ *   - `v: 3` → full v:3 schema parse, returned as-is (native pass-through).
+ *   - `v: 2` → full v:2 schema parse, then `upgradeRehydrationDocument`
+ *     to produce a strict-mode-valid v:3 document.
+ *   - `v: 1` → full v:1 schema parse, then `upgradeRehydrationDocument`
+ *     which chains v:1 → v:2 → v:3 with per-entry fail-open on handoff entries.
+ *   - none of the above → `InvalidEnvelopeError` (no silent fallback per DR-18).
+ *     The caller is responsible for surfacing corruption as a workflow state.
  *
- * Writers MUST NOT call this — they construct v:2 documents directly via
- * `RehydrationDocumentSchema`. This is the only legitimate path that touches
- * `RehydrationDocumentSchemaV1`.
+ * Always returns `RehydrationDocumentV3`. Writers MUST NOT call this — they
+ * construct v:3 documents directly via `RehydrationDocumentSchema`. This is
+ * the only legitimate path that touches `RehydrationDocumentSchemaV1` and
+ * `RehydrationDocumentSchemaV2`.
  */
-export function loadRehydrationDocument(raw: unknown): RehydrationDocument {
+export function loadRehydrationDocument(raw: unknown): RehydrationDocumentV3 {
   const probe = EnvelopeVersionProbe.safeParse(raw);
   if (!probe.success) {
     throw new InvalidEnvelopeError(probe.error);
   }
-  if (probe.data.v === 2) {
-    return RehydrationDocumentSchema.parse(raw);
+  switch (probe.data.v) {
+    case 3:
+      return RehydrationDocumentSchema.parse(raw);
+    case 2:
+      return upgradeRehydrationDocument(RehydrationDocumentSchemaV2.parse(raw));
+    case 1:
+      return upgradeRehydrationDocument(RehydrationDocumentSchemaV1.parse(raw));
   }
-  const v1doc = RehydrationDocumentSchemaV1.parse(raw);
-  return upgradeRehydrationDocumentV1toV2(v1doc);
 }

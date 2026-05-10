@@ -1,6 +1,6 @@
 /**
  * Hook routing adapter — dispatches Claude Code hook CLI commands
- * (session-start, pre-compact, guard, etc.) to their lightweight handlers.
+ * (guard, task-gate, session-end, etc.) to their lightweight handlers.
  *
  * Extracted from index.ts to create a clean three-way dispatcher:
  * hooks → CLI → MCP.
@@ -10,7 +10,7 @@
 // These are detected early in main() and routed through a lightweight path
 // that avoids the expensive backend initialization and heavy eval deps.
 export const HOOK_COMMANDS = new Set([
-  'pre-compact', 'session-start', 'guard', 'task-gate', 'teammate-gate',
+  'guard', 'task-gate', 'teammate-gate',
   'subagent-context', 'session-end',
 ]);
 
@@ -28,7 +28,7 @@ export type HookResult =
 /**
  * Handle a hook command by dispatching to the appropriate cli-commands handler.
  *
- * @param command     - The hook command name (e.g. 'pre-compact', 'guard')
+ * @param command     - The hook command name (e.g. 'guard', 'task-gate')
  * @param argv        - Full process.argv array
  * @param readStdin   - Async function that reads raw stdin
  * @param parseStdin  - Function that parses raw stdin string into a JSON object
@@ -41,7 +41,8 @@ export async function handleHookCommand(
   parseStdin: (raw: string) => Record<string, unknown>,
   outputJson: (result: unknown) => void,
 ): Promise<HookResult> {
-  // Parse --plugin-root from argv if present (used by SessionStart hook)
+  // Parse --plugin-root from argv if present (passed by hooks that need
+  // to resolve plugin-relative paths before backend initialization).
   const pluginRootIdx = argv.indexOf('--plugin-root');
   if (pluginRootIdx !== -1 && argv[pluginRootIdx + 1]) {
     process.env.EXARCHOS_PLUGIN_ROOT = argv[pluginRootIdx + 1];
@@ -50,7 +51,6 @@ export async function handleHookCommand(
   // Lightweight hook router — avoids importing cli.ts which transitively
   // pulls in promptfoo/playwright via eval handlers.
   const { resolveStateDir } = await import('../workflow/state-store.js');
-  const { resolveTeamsDir } = await import('../utils/paths.js');
 
   let stdinData: Record<string, unknown>;
   try {
@@ -65,14 +65,6 @@ export async function handleHookCommand(
   type HandlerResult = { error?: { code: string; message: string }; [key: string]: unknown };
 
   const handlers: Record<string, () => Promise<HandlerResult>> = {
-    'pre-compact': async () => {
-      const { handlePreCompact } = await import('../cli-commands/pre-compact.js');
-      return handlePreCompact(stdinData, resolveStateDir());
-    },
-    'session-start': async () => {
-      const { handleSessionStart } = await import('../cli-commands/session-start.js');
-      return handleSessionStart(stdinData, resolveStateDir(), resolveTeamsDir());
-    },
     'guard': async () => {
       const { handleGuard } = await import('../cli-commands/guard.js');
       return handleGuard(stdinData);

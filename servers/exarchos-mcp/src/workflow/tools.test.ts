@@ -404,3 +404,142 @@ describe('HandleCheckpoint_PayloadDigestIdempotencyKey (C3, closes #1241)', () =
     expect(persisted.idempotencyKey?.endsWith(`:${expectedDigest}`)).toBe(true);
   });
 });
+
+// ─── T-23 (rehydration-machinery-refactor §T-23) ────────────────────────────
+//
+// `handleCheckpoint` composes the phase playbook onto the dispatch envelope so
+// CLI/SDK consumers receive the same v:3 `phasePlaybook` shape that
+// `handleRehydrate` attaches (T-20). The helper `composePhasePlaybook` is
+// shared between handlers; this suite pins the contract at the checkpoint
+// boundary:
+//   1. Delegate-phase checkpoint surfaces `phasePlaybook.skill === 'delegation'`.
+//   2. Unregistered (terminal-shape) phase checkpoint surfaces
+//      `phasePlaybook: null` (not undefined / not omitted) — the v:3 schema
+//      treats the field as nullable, not optional, and CLI renderers can
+//      spread the value directly without a guard.
+//
+// Tests live in `tools.test.ts` (not `checkpoint.test.ts`) because that file
+// scopes the `shouldEnforceCheckpoint` policy helper from `./checkpoint.js`,
+// not the `handleCheckpoint` dispatch handler from `./tools.js`. The existing
+// C3 suite above is the established home for `handleCheckpoint` integration
+// tests in this codebase.
+
+describe('HandleCheckpoint_PhasePlaybook (T-23, rehydration-machinery-refactor)', () => {
+  let tempDir: string;
+
+  beforeEach(async () => {
+    // Un-mock `./tools.js` so this suite hits real `handleInit` and
+    // `handleCheckpoint`; the file-level mock above stubs them for
+    // envelope-conformance assertions only.
+    vi.doUnmock('./tools.js');
+    vi.resetModules();
+
+    tempDir = await mkdtemp(path.join(tmpdir(), 'checkpoint-playbook-'));
+  });
+
+  afterEach(async () => {
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  it('handleCheckpoint_delegatePhase_attachesPhasePlaybookSkillDelegation', async () => {
+    // GIVEN: a feature workflow with phase mutated to `delegate` (the L4
+    // registry maps `feature/delegate` → `{ skill: 'delegation' }`).
+    const { handleInit, handleCheckpoint } = await import('./tools.js');
+    const { readStateFile, writeStateFile } = await import('./state-store.js');
+    const store = new EventStore(tempDir);
+    const featureId = 'wf-t23-delegate';
+
+    const init = await handleInit(
+      { featureId, workflowType: 'feature' },
+      tempDir,
+      store,
+    );
+    expect(init.success).toBe(true);
+
+    // Mutate phase to `delegate` directly on disk. Skipping the formal
+    // transition path keeps the test focused on the composition contract,
+    // not HSM gating — the latter has its own dedicated suites.
+    const stateFile = path.join(tempDir, `${featureId}.state.json`);
+    const state = await readStateFile(stateFile);
+    const mutated = { ...state, phase: 'delegate' as const };
+    await writeStateFile(stateFile, mutated);
+
+    // WHEN: handleCheckpoint runs on the delegate-phase state.
+    const result = await handleCheckpoint(
+      { featureId },
+      tempDir,
+      store,
+    );
+
+    // THEN: the envelope's `data.phasePlaybook` is non-null and carries the
+    // delegation skill. We assert on `skill` (not just non-null) so a
+    // future registry rename surfaces here as a clear failure.
+    expect(result.success).toBe(true);
+    const data = result.data as { phasePlaybook?: { skill?: string } | null };
+    expect(data.phasePlaybook).not.toBeNull();
+    expect(data.phasePlaybook).toBeDefined();
+    expect(data.phasePlaybook?.skill).toBe('delegation');
+  });
+
+  it('handleCheckpoint_unregisteredPhase_attachesPhasePlaybookNull', async () => {
+    // GIVEN: a custom workflow type with an HSM but no playbook registered
+    //   for the (workflowType, phase) pair. `composePhasePlaybook` returns
+    //   `null` for any unregistered pair; the handler must surface that as
+    //   an explicit `null` on the envelope (the v:3 schema treats the field
+    //   as nullable, not optional, and CLI/SDK renderers spread the value
+    //   without an `undefined` guard).
+    //
+    //   We use a custom workflow type rather than the rehydrate test's
+    //   `shipped`-on-feature trick because `handleCheckpoint` reads through
+    //   `readStateFile`, which re-validates against `WorkflowStateSchema`.
+    //   Built-in workflow types' phase enums are fully populated by the
+    //   playbook registry (every enum member, including terminals, has a
+    //   `terminalPlaybook` entry — so they all yield non-null), and an
+    //   out-of-enum phase would throw STATE_CORRUPT before composition
+    //   runs. The custom workflow path uses a permissive `phase: z.string()`
+    //   schema and has no playbook entries, giving a clean `null` surface.
+    const { handleInit, handleCheckpoint } = await import('./tools.js');
+    const { registerCustomWorkflows } = await import('../config/register.js');
+    const { unregisterWorkflowType } = await import('./state-machine.js');
+    const { unextendWorkflowTypeEnum } = await import('./schemas.js');
+    const customType = 't23-custom-no-playbook';
+    registerCustomWorkflows({
+      workflows: {
+        [customType]: {
+          phases: ['start', 'done'],
+          initialPhase: 'start',
+          transitions: [{ from: 'start', to: 'done', event: 'finish' }],
+        },
+      },
+    });
+    try {
+      const store = new EventStore(tempDir);
+      const featureId = 'wf-t23-terminal';
+
+      const init = await handleInit(
+        { featureId, workflowType: customType },
+        tempDir,
+        store,
+      );
+      expect(init.success).toBe(true);
+
+      // WHEN: handleCheckpoint runs on the custom-type state. The initial
+      //   phase is `start`; no playbook is registered for this type, so
+      //   composePhasePlaybook resolves to null regardless of phase.
+      const result = await handleCheckpoint(
+        { featureId },
+        tempDir,
+        store,
+      );
+
+      // THEN: phasePlaybook is exactly null (not undefined / not omitted).
+      expect(result.success).toBe(true);
+      const data = result.data as { phasePlaybook?: unknown };
+      expect('phasePlaybook' in data).toBe(true);
+      expect(data.phasePlaybook).toBeNull();
+    } finally {
+      unregisterWorkflowType(customType);
+      unextendWorkflowTypeEnum(customType);
+    }
+  });
+});

@@ -80,7 +80,7 @@ debug --switch-thorough
 debug --escalate "Reason for escalation"
 
 # Resume after context compaction
-rehydrate
+rehydrate <featureId>
 ```
 
 ## Track Comparison
@@ -188,7 +188,7 @@ for phase transitions, guards, and playbook guidance.
 
 Debug workflows resume like feature workflows:
 ```bash
-rehydrate
+rehydrate <featureId>
 ```
 
 ### With Existing Skills
@@ -201,8 +201,8 @@ rehydrate
 
 Extended to support:
 - `workflowType: "debug"` field
-- Debug-specific phases handled by the SessionStart hook (which determines next action on resume)
-- Debug context provided by the SessionStart hook on session start
+- Debug-specific phases surfaced by `rehydrate <featureId>` (the rehydration document's `next_actions` envelope determines the next verb on resume)
+- Debug context surfaced via `rehydrate <featureId>` at session start (no implicit hook)
 
 ## Completion Criteria
 

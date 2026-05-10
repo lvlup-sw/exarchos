@@ -13,6 +13,7 @@ import {
   formatValidationError,
   buildInvalidInput,
 } from '../adapters/schema-to-flags.js';
+import { runSessionMachineryConsumedInterceptor } from './interceptors/session-machinery.js';
 
 // NOTE: `../telemetry/middleware.js` is intentionally NOT imported at module
 // top-level. The middleware instantiates a singleton TraceWriter at import,
@@ -515,6 +516,22 @@ export async function dispatch(
     // custom tools manage their own capability surface.
     const denied = enforceReadonlyGate(tool, actionName, ctx.capabilityResolver);
     if (denied) return denied;
+
+    // T-12 (P4 of rehydration-machinery-refactor): emit
+    // `session.machinery_consumed` on the first non-rehydrate L5 handler
+    // invocation that follows a `workflow.rehydrated` event landing on the
+    // stream. The interceptor is keyed by the dispatched action's
+    // `featureId` (its streamId); calls without a featureId — descriptive
+    // actions like `describe`, `runbook` — short-circuit inside the
+    // interceptor itself. Failures inside the interceptor are
+    // logged-and-swallowed (observability emission must not fail the
+    // dispatch); see `interceptors/session-machinery.ts` for the cache &
+    // idempotency contract.
+    const streamId = (() => {
+      const fid = (args as { featureId?: unknown }).featureId;
+      return typeof fid === 'string' && fid.length > 0 ? fid : undefined;
+    })();
+    await runSessionMachineryConsumedInterceptor(ctx.eventStore, streamId, actionName);
   }
 
   const coreHandler = builtInHandler

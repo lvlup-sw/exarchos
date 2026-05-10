@@ -406,8 +406,9 @@ describe('StackEnqueuedData', () => {
 
 describe('EventTypes', () => {
   it('EventTypes_CountMatchesRegisteredTypes', () => {
-    // Locked to the current registered-type count. Bumped to 90 with the
-    // addition of six durable event-store substrate event types (#1259
+    // Locked to the current registered-type count. Bumped to 91 with the
+    // addition of session.machinery_consumed (T-11, rehydration-machinery-refactor).
+    // Previous bump (90) was six durable event-store substrate event types (#1259
     // T02 / T03 / T04): hsm.deprecated_action_invoked,
     // spec.legacy_capabilities_array, phase.contract_missing,
     // migration.legacy_jsonl_imported, migration.completed, migration.failed.
@@ -416,7 +417,7 @@ describe('EventTypes', () => {
     // merge.preflight / merge.executed / merge.rollback (T03, DR-MO-2).
     // When new event types are added, bump this number alongside their
     // registration in `event-store/schemas.ts`.
-    expect(EventTypes).toHaveLength(90);
+    expect(EventTypes).toHaveLength(91);
   });
 
   it('should include workflow-level types', () => {

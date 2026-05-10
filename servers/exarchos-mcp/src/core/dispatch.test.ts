@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import * as fc from 'fast-check';
 import * as fs from 'node:fs/promises';
 import { readFileSync } from 'node:fs';
 import * as path from 'node:path';
@@ -495,6 +496,630 @@ describe('dispatch', () => {
       const tallyTotal =
         data.summary.passed + data.summary.warnings + data.summary.failed + data.summary.skipped;
       expect(tallyTotal).toBe(data.checks.length);
+    });
+  });
+
+  // ─── T-12: session.machinery_consumed dispatch interceptor ─────────────────
+  //
+  // Plan: docs/plans/2026-05-08-rehydration-machinery-plan.md (T-12)
+  // Design: docs/research/2026-05-08-rehydrate-machinery-reinit.md §11.4 (P4)
+  //
+  // After a `workflow.rehydrated` event lands at sequence S on stream X, the
+  // dispatch core must emit ONE `session.machinery_consumed` event the next
+  // time a non-rehydrate L5 handler is invoked against stream X — keyed by
+  // S, with the action verb captured in `firstActionVerb`. Subsequent
+  // invocations on the same rehydrate-sequence are a no-op until another
+  // `workflow.rehydrated` lands on the stream. Cross-stream isolation: each
+  // stream tracks its own latest-rehydrated-sequence independently.
+  //
+  // The handler-stub strategy: the interceptor lives in `dispatch()` and is
+  // observable purely through the event stream — these tests stub the
+  // composite handler with a no-op spy, append a `workflow.rehydrated`
+  // event to seed the stream, dispatch a non-rehydrate action, then read
+  // the stream and assert on the `session.machinery_consumed` events.
+  describe('T-12 session.machinery_consumed interceptor', () => {
+    // Helper: clear the per-stream cache between tests so process-local
+    // state from one test doesn't leak into the next. The cache is exported
+    // for test access only (interceptor module).
+    async function resetMachineryCache(): Promise<void> {
+      const mod = await import('./interceptors/session-machinery.js');
+      mod.__resetMachineryConsumedCache();
+    }
+
+    beforeEach(async () => {
+      await resetMachineryCache();
+    });
+
+    afterEach(async () => {
+      await resetMachineryCache();
+    });
+
+    // Helper: seed a `workflow.rehydrated` event on the given stream and
+    // return the sequence it landed at. Mirrors the production emission
+    // shape from `workflow/rehydrate.ts` (projectionSequence/deliveryPath/
+    // tokenEstimate). Uses `appendValidated`-equivalent path via the
+    // standard `append()` API.
+    async function seedRehydrated(streamId: string): Promise<number> {
+      const ev = await eventStore.append(streamId, {
+        type: 'workflow.rehydrated',
+        data: {
+          projectionSequence: 1,
+          deliveryPath: 'direct',
+          tokenEstimate: 100,
+          phaseHasPlaybook: false,
+          phasePlaybookComposed: false,
+        },
+      });
+      return ev.sequence;
+    }
+
+    it('T12_FirstNonRehydrateInvocationAfterRehydrated_EmitsSessionMachineryConsumed', async () => {
+      // Arrange — seed a workflow.rehydrated event on the stream, then
+      // stub the composite so dispatch resolves cleanly without touching
+      // real state files.
+      const featureId = 'feat-t12-first';
+      const rehydratedSeq = await seedRehydrated(featureId);
+
+      const { stubCompositeHandler, dispatch } = await import('./dispatch.js');
+      const restore = stubCompositeHandler('exarchos_workflow', async () => ({
+        success: true,
+        data: { stub: true },
+      }));
+
+      try {
+        // Act — invoke a non-rehydrate L5 handler against the stream.
+        const result = await dispatch(
+          'exarchos_workflow',
+          { action: 'get', featureId },
+          { stateDir: tmpDir, eventStore, enableTelemetry: false },
+        );
+        expect(result.success).toBe(true);
+      } finally {
+        restore();
+      }
+
+      // Assert — exactly one session.machinery_consumed event landed on
+      // the stream, with rehydrateSequence pointing back at the rehydrated
+      // event's sequence and firstActionVerb capturing the dispatched action.
+      const events = await eventStore.query(featureId, {
+        type: 'session.machinery_consumed',
+      });
+      expect(events.length).toBe(1);
+      const data = events[0].data as {
+        rehydrateSequence: number;
+        firstActionVerb: string;
+        firstActionAt: string;
+      };
+      expect(data.rehydrateSequence).toBe(rehydratedSeq);
+      expect(typeof data.firstActionAt).toBe('string');
+      // ISO 8601 — Date.parse must succeed.
+      expect(Number.isNaN(Date.parse(data.firstActionAt))).toBe(false);
+    });
+
+    it('T12_SubsequentInvocationsOnSameRehydrateSequence_NoAdditionalEmissions', async () => {
+      // Arrange
+      const featureId = 'feat-t12-subsequent';
+      await seedRehydrated(featureId);
+
+      const { stubCompositeHandler, dispatch } = await import('./dispatch.js');
+      const restore = stubCompositeHandler('exarchos_workflow', async () => ({
+        success: true,
+        data: {},
+      }));
+
+      try {
+        // Act — three non-rehydrate dispatches against the same stream.
+        await dispatch(
+          'exarchos_workflow',
+          { action: 'get', featureId },
+          { stateDir: tmpDir, eventStore, enableTelemetry: false },
+        );
+        await dispatch(
+          'exarchos_workflow',
+          { action: 'get', featureId },
+          { stateDir: tmpDir, eventStore, enableTelemetry: false },
+        );
+        await dispatch(
+          'exarchos_workflow',
+          { action: 'describe' },
+          { stateDir: tmpDir, eventStore, enableTelemetry: false },
+        );
+      } finally {
+        restore();
+      }
+
+      // Assert — only the FIRST invocation produced a machinery_consumed.
+      const events = await eventStore.query(featureId, {
+        type: 'session.machinery_consumed',
+      });
+      expect(events.length).toBe(1);
+    });
+
+    it('T12_CrossStreamIsolation_StreamAEmissionDoesNotBlockStreamB', async () => {
+      // Arrange — both streams get a workflow.rehydrated, independently.
+      const streamA = 'feat-t12-stream-a';
+      const streamB = 'feat-t12-stream-b';
+      const seqA = await seedRehydrated(streamA);
+      const seqB = await seedRehydrated(streamB);
+
+      const { stubCompositeHandler, dispatch } = await import('./dispatch.js');
+      const restore = stubCompositeHandler('exarchos_workflow', async () => ({
+        success: true,
+        data: {},
+      }));
+
+      try {
+        // Act — dispatch against A first, then against B.
+        await dispatch(
+          'exarchos_workflow',
+          { action: 'get', featureId: streamA },
+          { stateDir: tmpDir, eventStore, enableTelemetry: false },
+        );
+        await dispatch(
+          'exarchos_workflow',
+          { action: 'get', featureId: streamB },
+          { stateDir: tmpDir, eventStore, enableTelemetry: false },
+        );
+      } finally {
+        restore();
+      }
+
+      // Assert — each stream has its own machinery_consumed pointing back
+      // at its own rehydrate sequence.
+      const eventsA = await eventStore.query(streamA, {
+        type: 'session.machinery_consumed',
+      });
+      const eventsB = await eventStore.query(streamB, {
+        type: 'session.machinery_consumed',
+      });
+      expect(eventsA.length).toBe(1);
+      expect(eventsB.length).toBe(1);
+      expect((eventsA[0].data as { rehydrateSequence: number }).rehydrateSequence).toBe(seqA);
+      expect((eventsB[0].data as { rehydrateSequence: number }).rehydrateSequence).toBe(seqB);
+    });
+
+    it('T12_RehydrateActionItself_DoesNotTriggerSessionMachineryConsumed', async () => {
+      // Arrange — seed a rehydrated event then dispatch the rehydrate
+      // action itself. The interceptor must short-circuit on the rehydrate
+      // verb to avoid same-tick recursion (rehydrate emits workflow.rehydrated
+      // on success; if the interceptor reacted to that, we'd loop).
+      const featureId = 'feat-t12-rehydrate-shortcircuit';
+      await seedRehydrated(featureId);
+
+      const { stubCompositeHandler, dispatch } = await import('./dispatch.js');
+      const restore = stubCompositeHandler('exarchos_workflow', async () => ({
+        success: true,
+        data: {},
+      }));
+
+      try {
+        // Act — dispatch the rehydrate action itself. (Stubbed handler so
+        // we don't invoke the real rehydrate side effects.)
+        await dispatch(
+          'exarchos_workflow',
+          { action: 'rehydrate', featureId },
+          { stateDir: tmpDir, eventStore, enableTelemetry: false },
+        );
+      } finally {
+        restore();
+      }
+
+      // Assert — no session.machinery_consumed was emitted.
+      const events = await eventStore.query(featureId, {
+        type: 'session.machinery_consumed',
+      });
+      expect(events.length).toBe(0);
+    });
+
+    it('T12_NoWorkflowRehydratedOnStream_NoEmission', async () => {
+      // Arrange — fresh stream with no workflow.rehydrated. The interceptor
+      // must not emit session.machinery_consumed when there's nothing to
+      // correlate against (would carry an undefined rehydrateSequence).
+      const featureId = 'feat-t12-no-rehydrate';
+
+      const { stubCompositeHandler, dispatch } = await import('./dispatch.js');
+      const restore = stubCompositeHandler('exarchos_workflow', async () => ({
+        success: true,
+        data: {},
+      }));
+
+      try {
+        // Act
+        await dispatch(
+          'exarchos_workflow',
+          { action: 'get', featureId },
+          { stateDir: tmpDir, eventStore, enableTelemetry: false },
+        );
+      } finally {
+        restore();
+      }
+
+      // Assert — nothing emitted.
+      const events = await eventStore.query(featureId, {
+        type: 'session.machinery_consumed',
+      });
+      expect(events.length).toBe(0);
+    });
+
+    it('T12_FirstActionVerb_CapturesDispatchedActionName', async () => {
+      // Arrange — seed rehydrated, then dispatch a specific verb.
+      const featureId = 'feat-t12-verb';
+      await seedRehydrated(featureId);
+
+      const { stubCompositeHandler, dispatch } = await import('./dispatch.js');
+      const restore = stubCompositeHandler('exarchos_workflow', async () => ({
+        success: true,
+        data: {},
+      }));
+
+      try {
+        // Act — `get` is a clearly non-rehydrate verb.
+        await dispatch(
+          'exarchos_workflow',
+          { action: 'get', featureId },
+          { stateDir: tmpDir, eventStore, enableTelemetry: false },
+        );
+      } finally {
+        restore();
+      }
+
+      // Assert — the firstActionVerb in the emitted event matches the
+      // dispatched action name.
+      const events = await eventStore.query(featureId, {
+        type: 'session.machinery_consumed',
+      });
+      expect(events.length).toBe(1);
+      const data = events[0].data as { firstActionVerb: string };
+      expect(data.firstActionVerb).toBe('get');
+    });
+  });
+
+  // ─── T-13: session.machinery_consumed idempotency property ─────────────────
+  //
+  // Plan: docs/plans/2026-05-08-rehydration-machinery-plan.md (T-13)
+  // Design: docs/research/2026-05-08-rehydrate-machinery-reinit.md §11.4 (P4)
+  //
+  // Formalises the contract that T-12 implements:
+  //   - Each distinct rehydrate-sequence followed by ≥1 activity produces
+  //     exactly ONE `session.machinery_consumed` emission.
+  //   - Multiple activity invocations between two rehydrates produce one
+  //     emission (process-local cache path).
+  //   - After a process restart (cache cleared), a cache-miss defensive query
+  //     against the event log prevents a second emission for the same sequence
+  //     (cold-start idempotency path).
+  //   - Property test: for any sequence of interleaved rehydrate/activity
+  //     operations, the count of emitted machinery_consumed events equals the
+  //     count of distinct rehydrate-sequences that were followed by ≥1 activity.
+  describe('T-13 session.machinery_consumed idempotency property', () => {
+    // ── Shared helpers ────────────────────────────────────────────────────────
+
+    async function resetMachineryCache(): Promise<void> {
+      const mod = await import('./interceptors/session-machinery.js');
+      mod.__resetMachineryConsumedCache();
+    }
+
+    beforeEach(async () => {
+      await resetMachineryCache();
+    });
+
+    afterEach(async () => {
+      await resetMachineryCache();
+    });
+
+    /**
+     * Append a `workflow.rehydrated` event to `streamId` and return the
+     * sequence it landed at. Mirrors T-12's `seedRehydrated` helper so both
+     * suites share the same fixture shape.
+     */
+    async function seedRehydratedT13(streamId: string): Promise<number> {
+      const ev = await eventStore.append(streamId, {
+        type: 'workflow.rehydrated',
+        data: {
+          projectionSequence: 1,
+          deliveryPath: 'direct',
+          tokenEstimate: 100,
+          phaseHasPlaybook: false,
+          phasePlaybookComposed: false,
+        },
+      });
+      return ev.sequence;
+    }
+
+    // ── TC-1: two rehydrates produce two distinct emissions ───────────────────
+    it('T13_TwoRehydratesSeparatedByActivity_ProduceTwoDistinctEmissions', async () => {
+      const featureId = 'feat-t13-two-rehydrates';
+      const { stubCompositeHandler, dispatch } = await import('./dispatch.js');
+
+      // First rehydrate
+      const seqS1 = await seedRehydratedT13(featureId);
+      const restore = stubCompositeHandler('exarchos_workflow', async () => ({
+        success: true,
+        data: {},
+      }));
+      try {
+        // First activity — should emit machinery_consumed with rehydrateSequence: S1
+        await dispatch(
+          'exarchos_workflow',
+          { action: 'get', featureId },
+          { stateDir: tmpDir, eventStore, enableTelemetry: false },
+        );
+      } finally {
+        restore();
+      }
+
+      // Validate first emission
+      const eventsAfterFirst = await eventStore.query(featureId, {
+        type: 'session.machinery_consumed',
+      });
+      expect(eventsAfterFirst.length).toBe(1);
+      expect((eventsAfterFirst[0].data as { rehydrateSequence: number }).rehydrateSequence).toBe(seqS1);
+
+      // Second rehydrate (S2 > S1)
+      const seqS2 = await seedRehydratedT13(featureId);
+      expect(seqS2).toBeGreaterThan(seqS1);
+
+      const restore2 = stubCompositeHandler('exarchos_workflow', async () => ({
+        success: true,
+        data: {},
+      }));
+      try {
+        // Second activity — should emit machinery_consumed with rehydrateSequence: S2
+        await dispatch(
+          'exarchos_workflow',
+          { action: 'get', featureId },
+          { stateDir: tmpDir, eventStore, enableTelemetry: false },
+        );
+      } finally {
+        restore2();
+      }
+
+      // Final assertion: exactly two machinery_consumed events with distinct sequences
+      const allEvents = await eventStore.query(featureId, {
+        type: 'session.machinery_consumed',
+      });
+      expect(allEvents.length).toBe(2);
+      const seqs = allEvents.map((e) => (e.data as { rehydrateSequence: number }).rehydrateSequence);
+      expect(seqs[0]).toBe(seqS1);
+      expect(seqs[1]).toBe(seqS2);
+      expect(new Set(seqs).size).toBe(2); // distinct
+    });
+
+    // ── TC-2: multiple activities between rehydrates produce one emission ─────
+    it('T13_MultipleActivitiesBetweenRehydrates_ProduceOneEmission', async () => {
+      const featureId = 'feat-t13-multi-activity';
+      const seqS1 = await seedRehydratedT13(featureId);
+
+      const { stubCompositeHandler, dispatch } = await import('./dispatch.js');
+      const restore = stubCompositeHandler('exarchos_workflow', async () => ({
+        success: true,
+        data: {},
+      }));
+
+      try {
+        // Four activity dispatches — all share the same rehydrate-sequence S1.
+        for (let i = 0; i < 4; i++) {
+          await dispatch(
+            'exarchos_workflow',
+            { action: 'get', featureId },
+            { stateDir: tmpDir, eventStore, enableTelemetry: false },
+          );
+        }
+      } finally {
+        restore();
+      }
+
+      // Assert: exactly ONE machinery_consumed with rehydrateSequence: S1.
+      const events = await eventStore.query(featureId, {
+        type: 'session.machinery_consumed',
+      });
+      expect(events.length).toBe(1);
+      expect((events[0].data as { rehydrateSequence: number }).rehydrateSequence).toBe(seqS1);
+    });
+
+    // ── TC-3: property test over interleaved rehydrate/activity sequences ─────
+    it('T13_Property_EmissionCountEqualsDistinctRehydrateSequencesWithFollowingActivity', async () => {
+      // Arbitrary: sequences of up to 5 rehydrates and 20 activity slots.
+      // Model: 'rehydrate' | 'activity' in order, cap at 25 total operations.
+      // The model predicts: count(machinery_consumed) equals count(distinct
+      // rehydrateSequences S for which ≥1 activity follows before the next
+      // rehydrate).
+      const { stubCompositeHandler, dispatch } = await import('./dispatch.js');
+
+      await fc.assert(
+        fc.asyncProperty(
+          fc
+            .array(
+              fc.oneof(
+                fc.constant('rehydrate' as const),
+                fc.constant('activity' as const),
+              ),
+              { minLength: 1, maxLength: 25 },
+            )
+            // Clamp: at most 5 rehydrates in a sequence so the test stays fast.
+            .filter(
+              (ops) => ops.filter((o) => o === 'rehydrate').length <= 5,
+            ),
+          async (ops) => {
+            // Isolate each property run with a unique feature stream and a
+            // fresh cache so process-local state from a prior run can't leak.
+            const featureId = `feat-t13-prop-${Math.random().toString(36).slice(2)}`;
+            const mod = await import('./interceptors/session-machinery.js');
+            mod.__resetMachineryConsumedCache();
+
+            const restore = stubCompositeHandler('exarchos_workflow', async () => ({
+              success: true,
+              data: {},
+            }));
+
+            // Compute the expected emission count from the model BEFORE running:
+            // walk through ops and count how many rehydrate-windows contain ≥1 activity.
+            let expectedEmissions = 0;
+            let inWindow = false;
+            for (const op of ops) {
+              if (op === 'rehydrate') {
+                inWindow = false; // reset window; activity must follow
+              } else {
+                // op === 'activity'
+                if (!inWindow) {
+                  // Only count this window if a rehydrate has previously occurred.
+                  // We'll check that below by tracking whether we've seen any rehydrate.
+                }
+              }
+            }
+            // Recompute cleanly: for each contiguous rehydrate→activity segment
+            // (before next rehydrate), count as 1 if rehydrate was followed by ≥1 activity.
+            {
+              let lastWasRehydrate = false;
+              let rehydrateCount = 0;
+              expectedEmissions = 0;
+              for (const op of ops) {
+                if (op === 'rehydrate') {
+                  lastWasRehydrate = true;
+                  rehydrateCount++;
+                } else {
+                  // activity
+                  if (lastWasRehydrate && rehydrateCount > 0) {
+                    expectedEmissions++;
+                    lastWasRehydrate = false; // this window is now "consumed"
+                  }
+                }
+              }
+            }
+
+            try {
+              for (const op of ops) {
+                if (op === 'rehydrate') {
+                  await eventStore.append(featureId, {
+                    type: 'workflow.rehydrated',
+                    data: {
+                      projectionSequence: 1,
+                      deliveryPath: 'direct',
+                      tokenEstimate: 100,
+                    },
+                  });
+                } else {
+                  await dispatch(
+                    'exarchos_workflow',
+                    { action: 'get', featureId },
+                    { stateDir: tmpDir, eventStore, enableTelemetry: false },
+                  );
+                }
+              }
+            } finally {
+              restore();
+            }
+
+            const emitted = await eventStore.query(featureId, {
+              type: 'session.machinery_consumed',
+            });
+            expect(emitted.length).toBe(expectedEmissions);
+          },
+        ),
+        { numRuns: 50 },
+      );
+    });
+
+    // ── TC-4: cold-start cache-miss exercises defensive event-log query ────────
+    it('T13_ColdStartCacheMiss_DoesNotReemitAfterProcessRestart', async () => {
+      const featureId = 'feat-t13-cold-start';
+      const seqS = await seedRehydratedT13(featureId);
+
+      const { stubCompositeHandler, dispatch } = await import('./dispatch.js');
+      const restore = stubCompositeHandler('exarchos_workflow', async () => ({
+        success: true,
+        data: {},
+      }));
+
+      try {
+        // First activity — emits machinery_consumed with rehydrateSequence: S,
+        // also populates the process-local cache.
+        await dispatch(
+          'exarchos_workflow',
+          { action: 'get', featureId },
+          { stateDir: tmpDir, eventStore, enableTelemetry: false },
+        );
+      } finally {
+        restore();
+      }
+
+      // Verify initial emission.
+      const eventsBeforeRestart = await eventStore.query(featureId, {
+        type: 'session.machinery_consumed',
+      });
+      expect(eventsBeforeRestart.length).toBe(1);
+      expect(
+        (eventsBeforeRestart[0].data as { rehydrateSequence: number }).rehydrateSequence,
+      ).toBe(seqS);
+
+      // Simulate process restart: clear the per-stream cache. The event store
+      // still holds the original emission. The next dispatch must hit the
+      // cache-miss path and perform the defensive event-log query.
+      const mod = await import('./interceptors/session-machinery.js');
+      mod.__resetMachineryConsumedCache();
+
+      // No new workflow.rehydrated has landed — the sequence hasn't advanced.
+      // A second activity dispatch must NOT emit again (defensive query finds
+      // the existing machinery_consumed at seqS and short-circuits).
+      const restore2 = stubCompositeHandler('exarchos_workflow', async () => ({
+        success: true,
+        data: {},
+      }));
+      try {
+        await dispatch(
+          'exarchos_workflow',
+          { action: 'get', featureId },
+          { stateDir: tmpDir, eventStore, enableTelemetry: false },
+        );
+      } finally {
+        restore2();
+      }
+
+      // Final assertion: still exactly ONE machinery_consumed event.
+      const eventsAfterRestart = await eventStore.query(featureId, {
+        type: 'session.machinery_consumed',
+      });
+      expect(eventsAfterRestart.length).toBe(1);
+      expect(
+        (eventsAfterRestart[0].data as { rehydrateSequence: number }).rehydrateSequence,
+      ).toBe(seqS);
+    });
+
+    // ── TC-5: concurrent-emission idempotency-key collapse ────────────────────
+    // TODO(T-13): concurrent collapse not exercised here; relies on event-store
+    // RT-5 unique-index guarantee. Two concurrent dispatches sharing
+    // (streamId, rehydrateSequence) collapse to a single durable event at the
+    // AtomicAppender layer via the idempotencyKey UNIQUE constraint. That
+    // behaviour is exercised by the atomic-appender suite; this test layer
+    // cannot trivially simulate the race without deep concurrency harness work.
+    it('T13_IdempotencyKey_SameStreamAndSequence_DoesNotDoubleEmitViaKeyCollapse', async () => {
+      // Verify the idempotencyKey on the emitted event carries the canonical
+      // format `session.machinery_consumed:<streamId>:<rehydrateSequence>` so
+      // the event-store UNIQUE INDEX can perform the collapse.
+      const featureId = 'feat-t13-key-format';
+      const seqS = await seedRehydratedT13(featureId);
+
+      const { stubCompositeHandler, dispatch } = await import('./dispatch.js');
+      const restore = stubCompositeHandler('exarchos_workflow', async () => ({
+        success: true,
+        data: {},
+      }));
+      try {
+        await dispatch(
+          'exarchos_workflow',
+          { action: 'get', featureId },
+          { stateDir: tmpDir, eventStore, enableTelemetry: false },
+        );
+      } finally {
+        restore();
+      }
+
+      // Read the raw event and confirm the idempotencyKey shape.
+      const allEvents = await eventStore.query(featureId, {});
+      const consumed = allEvents.find((e) => e.type === 'session.machinery_consumed');
+      expect(consumed).toBeDefined();
+      // The idempotency key is persisted on the event itself (store.ts preserves it).
+      const expectedKey = `session.machinery_consumed:${featureId}:${seqS}`;
+      expect((consumed as { idempotencyKey?: string }).idempotencyKey).toBe(expectedKey);
     });
   });
 });
