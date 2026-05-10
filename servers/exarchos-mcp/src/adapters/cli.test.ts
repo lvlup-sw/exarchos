@@ -105,12 +105,15 @@ describe('buildCli', () => {
     const actionNames = workflowCmd?.commands.map((c) => c.name()) ?? [];
 
     // Assert — workflow actions (get is aliased to 'status')
+    // T5a.1/DR-4 (#1259, v2.11): `set` removed; `transition` is the
+    // canonical phase-mutation action and replaces it in CLI coverage.
     expect(actionNames).toContain('init');
     expect(actionNames).toContain('status');
-    expect(actionNames).toContain('set');
+    expect(actionNames).toContain('transition');
     expect(actionNames).toContain('cancel');
     expect(actionNames).toContain('cleanup');
     expect(actionNames).toContain('reconcile');
+    expect(actionNames).not.toContain('set');
   });
 
   it('BuildCli_UsesCliAlias_WhenProvided', () => {

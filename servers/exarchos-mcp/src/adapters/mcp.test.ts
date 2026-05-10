@@ -116,16 +116,19 @@ describe('createMcpServer', () => {
   });
 
   it('MCPDispatch_RejectsMutatingAction_UnderReadonly', async () => {
-    // Arrange
+    // T5a.1/DR-4 (#1259, v2.11): `transition` is the canonical mutating
+    // workflow action (post-`set` hard-cut). It auto-emits
+    // `workflow.transition` and is explicitly outside
+    // READ_ONLY_ACTIONS.exarchos_workflow.
     const readonlyCtx: DispatchContext = {
       ...ctx,
       capabilityResolver: createInMemoryResolver(['mcp:exarchos:readonly']),
     };
 
-    // Act — `set` is a mutating workflow action (auto-emits state.patched).
+    // Act — `transition` is a mutating workflow action.
     const result = await dispatch(
       'exarchos_workflow',
-      { action: 'set', featureId: 'foo', updates: {} },
+      { action: 'transition', featureId: 'foo', target: 'plan' },
       readonlyCtx,
     );
 
@@ -134,7 +137,7 @@ describe('createMcpServer', () => {
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('CAPABILITY_DENIED');
     expect(result.error?.tool).toBe('exarchos_workflow');
-    expect(result.error?.action).toBe('set');
+    expect(result.error?.action).toBe('transition');
   });
 
   it('MCPDispatch_RejectsAppend_UnderReadonly', async () => {
@@ -218,9 +221,11 @@ describe('createMcpServer', () => {
     };
 
     // Act
+    // T5a.1/DR-4 (v2.11): `transition` replaces `set` as the canonical
+    // mutating action exercised in the union-merge gate test.
     const result = await dispatch(
       'exarchos_workflow',
-      { action: 'set', featureId: 'foo', updates: {} },
+      { action: 'transition', featureId: 'foo', target: 'plan' },
       fullCtx,
     );
 

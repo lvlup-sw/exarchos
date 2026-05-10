@@ -150,7 +150,9 @@ describe('MCP Server Entry Point', () => {
       expect(workflow.description).toContain('Actions:');
       expect(workflow.description).toContain('init(');
       expect(workflow.description).toContain('get(');
-      expect(workflow.description).toContain('set(');
+      // T5a.1/DR-4 (#1259, v2.11): `set` removed; `transition` is the
+      // canonical phase-mutation action and the natural successor here.
+      expect(workflow.description).toContain('transition(');
       expect(workflow.description).toContain('cancel(');
     });
 

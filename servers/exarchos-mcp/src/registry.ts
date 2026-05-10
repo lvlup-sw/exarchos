@@ -490,13 +490,14 @@ function makeEventDescribeAction(): ToolAction {
 // without human prompting. The schemas below describe the typed sub-shape
 // registered in each action's `outputSchema`.
 //
-// Both `exarchos_workflow.set` and `exarchos_workflow.transition` register
-// the same typed sub-shape so the contract is symmetric across the
-// migration window — the canonical action does not currently emit
-// `_meta.deprecation`, but the schema slot stays declared so the surfaces
-// are interchangeable from a contract-introspection perspective. v2.11.0
-// removes the `set` action entirely (per DR-14); the `transition` schema
-// then drops the deprecation slot via a follow-up bump.
+// v2.10 registered the same typed sub-shape on both
+// `exarchos_workflow.set` and `exarchos_workflow.transition`. v2.11 (DR-4)
+// removes the `set` action entry from the registry, but keeps the
+// `_meta.deprecation` slot on `transition`'s `outputSchema` for one more
+// release as a historical marker (INV-5b). v2.12 drops the slot.
+// `WorkflowSetOutputSchema` is retained as a private export for one
+// release to preserve symmetry of the schema definitions; nothing in the
+// registry references it any longer.
 //
 // The envelope version is implicitly bumped via this schema registration:
 // `_meta.envelopeVersion` callers can rely on the structured deprecation
@@ -597,28 +598,6 @@ const workflowActions: readonly ToolAction[] = [
       flags: { featureId: { alias: 'f' }, query: { alias: 'q' } },
       examples: ['exarchos wf status -f my-feature', 'exarchos wf status -f my-feature -q phase'],
     },
-  },
-  {
-    name: 'set',
-    description: "Update workflow state fields or transition phase. Auto-emits workflow.transition events when phase is provided and differs from current phase (no-op if already at target phase) — do not duplicate via event append. DEPRECATED for phase transitions (since v2.10.0, removed in v2.11.0). Do NOT use — use action: 'transition' instead.",
-    schema: z.object({
-      featureId: featureIdSchema,
-      updates: coercedRecord().optional(),
-      phase: z.string().optional(),
-    }),
-    phases: ALL_PHASES,
-    roles: ROLE_LEAD,
-    cli: {
-      flags: { featureId: { alias: 'f' } },
-      examples: ['exarchos wf set -f my-feature --phase plan'],
-    },
-    autoEmits: [
-      { event: 'workflow.transition', condition: 'conditional', description: 'When phase is provided and differs from current phase' },
-      { event: 'state.patched', condition: 'always' },
-      { event: 'hsm.deprecated_action_invoked', condition: 'conditional', description: 'When phase is provided (deprecated path)' },
-    ],
-    deprecated: true,
-    outputSchema: WorkflowSetOutputSchema,
   },
   {
     name: 'transition',
