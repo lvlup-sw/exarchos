@@ -39,7 +39,6 @@
         "src/**/*.ts"
       ],
       "ignore": [
-        "src/event-store/__tests__/spawn-driver.ts",
         "src/telemetry/benchmarks/helpers.ts"
       ]
     }
