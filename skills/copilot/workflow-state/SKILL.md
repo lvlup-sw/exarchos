@@ -261,8 +261,8 @@ If workflow state doesn't match git reality:
 
 ### Checkpoint Missing
 If `/checkpoint` is invoked with no active workflow:
-1. Verify a workflow is active: call `mcp__exarchos__exarchos_workflow` with `action: "get"` and the featureId
-2. If no active workflow: the checkpoint command will report "no active workflow" and exit cleanly
+1. Discovery first: call `mcp__exarchos__exarchos_workflow` with `action: "list"` to enumerate active workflows; if the list is empty the checkpoint command's "no active workflow" report is correct — exit cleanly
+2. If `list` returns a candidate, verify it: call `mcp__exarchos__exarchos_workflow` with `action: "get"` and that `featureId`
 3. If a workflow exists but checkpoint fails: check disk space and permissions on the event store
 
 ### Resume Finds Stale State
