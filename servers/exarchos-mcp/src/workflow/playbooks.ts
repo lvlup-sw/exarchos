@@ -1439,13 +1439,23 @@ export interface SerializedPhasePlaybook {
 export function serializePhasePlaybookEntry(
   playbook: PhasePlaybook,
 ): SerializedPhasePlaybook {
+  // Deep-copy each instruction object and any nested `fields` array. F-07
+  // dropped array-level `readonly` from `SerializedPhasePlaybook` so the
+  // schema-derived (mutable) target type accepts these arrays. With mutable
+  // payloads, a downstream consumer that mutates a returned `tools[i]` /
+  // `events[i].fields` would corrupt the registry-backed playbook unless
+  // the per-element clone happens here.
+  const cloneEvent = <E extends EventInstruction>(e: E): E => ({
+    ...e,
+    ...(e.fields !== undefined && { fields: [...e.fields] }),
+  });
   return {
     skill: playbook.skill,
     skillRef: playbook.skillRef,
-    tools: [...playbook.tools],
-    events: [...playbook.events],
+    tools: playbook.tools.map((t) => ({ ...t })),
+    events: playbook.events.map(cloneEvent),
     ...(playbook.autoEmittedEvents !== undefined && {
-      autoEmittedEvents: [...playbook.autoEmittedEvents],
+      autoEmittedEvents: playbook.autoEmittedEvents.map(cloneEvent),
     }),
     transitionCriteria: playbook.transitionCriteria,
     guardPrerequisites: playbook.guardPrerequisites,
