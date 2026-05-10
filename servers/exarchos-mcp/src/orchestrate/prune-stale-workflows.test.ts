@@ -8,6 +8,69 @@ import {
 } from './prune-stale-workflows.js';
 import { orchestrateLogger } from '../logger.js';
 import type { ToolResult } from '../format.js';
+import type { Topology } from '../topology/phase-contract.js';
+
+/**
+ * Build a minimal `Topology` fixture for prune-selector tests. Each phase
+ * gets a `staleness` block matching the typed contract schema in
+ * `topology/phase-contract.ts`. Defaults exercise the same single-signal
+ * (`lastActivity` only) verdict the legacy heuristic produced for entries
+ * without secondary signals, so existing assertions stay green when the
+ * selector is rewired through `scoreEntryThroughTopology`.
+ *
+ * Override `phases` to construct multi-signal contracts inline.
+ */
+function buildTestTopology(
+  phases: Topology['phases'] = {
+    implementing: {
+      staleness: {
+        expectedMaxDwellMinutes: 20_160,
+        signals: [
+          { name: 'lastActivity', thresholdMinutes: 10_080 },
+        ],
+        freshnessRequires: 'all',
+      },
+    },
+    plan: {
+      staleness: {
+        expectedMaxDwellMinutes: 20_160,
+        signals: [
+          { name: 'lastActivity', thresholdMinutes: 10_080 },
+        ],
+        freshnessRequires: 'all',
+      },
+    },
+    delegate: {
+      staleness: {
+        expectedMaxDwellMinutes: 20_160,
+        signals: [
+          { name: 'lastActivity', thresholdMinutes: 10_080 },
+        ],
+        freshnessRequires: 'all',
+      },
+    },
+    review: {
+      staleness: {
+        expectedMaxDwellMinutes: 20_160,
+        signals: [
+          { name: 'lastActivity', thresholdMinutes: 10_080 },
+        ],
+        freshnessRequires: 'all',
+      },
+    },
+    synthesize: {
+      staleness: {
+        expectedMaxDwellMinutes: 20_160,
+        signals: [
+          { name: 'lastActivity', thresholdMinutes: 10_080 },
+        ],
+        freshnessRequires: 'all',
+      },
+    },
+  },
+): Topology {
+  return { phases };
+}
 
 /**
  * Build a minimal WorkflowListEntry fixture.
@@ -293,6 +356,68 @@ describe('selectPruneCandidates', () => {
 
     expect(candidates.map((c) => c.featureId)).toEqual([]);
     expect(excluded.map((e) => e.featureId)).toEqual(['actively-progressing']);
+  });
+
+  // ─── #1334 β-06: typed-contract scoring through Topology ───────────────────
+  //
+  // The orchestrator-side multi-signal heuristic
+  //   stale = phaseTransitionStale && (lastActivityStale || branchInactive)
+  // is not expressible by the typed `PhaseContract`'s `freshnessRequires:
+  // 'all' | 'any'` reducer, and DR-7 (#1332) hard-cut the untyped scorer
+  // path. The selector must accept a `Topology` argument and delegate
+  // staleness decisions to `scoreEntryThroughTopology`. This test asserts
+  // the topology argument exists AND its verdict — not the legacy
+  // heuristic — drives candidate selection.
+  it('SelectPruneCandidates_WithTopologyArgument_ReturnsCandidatesScoredByPhaseContract', () => {
+    // Topology: phase 'implementing' declares two signals with a 60-minute
+    // threshold and `freshnessRequires: 'all'`. With 'all', the entry is
+    // stale iff ANY declared signal is stale (or absent). Per
+    // `scoreStaleness`, an absent signal is treated as stale.
+    const topology = buildTestTopology({
+      implementing: {
+        staleness: {
+          expectedMaxDwellMinutes: 60,
+          signals: [
+            { name: 'lastActivity', thresholdMinutes: 60 },
+            { name: 'branchActivity', thresholdMinutes: 60 },
+          ],
+          freshnessRequires: 'all',
+        },
+      },
+    });
+
+    // Entry: lastActivity 30 min ago (fresh vs 60-min threshold), no
+    // branchActivityTimestamp (absent → contract treats as stale).
+    //
+    // - Legacy heuristic verdict: no secondary signal → fall back to single
+    //   signal vs default 20_160 min → 30 min < 20_160 → FRESH.
+    // - Typed contract verdict: lastActivity fresh + branchActivity absent
+    //   (stale) under `freshnessRequires: 'all'` → STALE.
+    //
+    // The two verdicts diverge, so this test pins which one the selector
+    // produces when called WITH a topology argument.
+    const entries: WorkflowListEntry[] = [
+      {
+        featureId: 'topology-driven',
+        workflowType: 'feature',
+        phase: 'implementing',
+        stateFile: '/tmp/topology-driven.state.json',
+        _checkpoint: { lastActivityTimestamp: minutesAgo(30) },
+      },
+    ];
+
+    // The new signature threads `topology` as the second positional
+    // argument. Once β-07 lands, this call compiles and passes.
+    const { candidates, excluded } = selectPruneCandidates(
+      entries,
+      topology,
+      {},
+      NOW,
+    );
+
+    // Topology-driven verdict, NOT the legacy heuristic's "fresh".
+    expect(candidates.map((c) => c.featureId)).toEqual(['topology-driven']);
+    expect(excluded.filter((e) => e.reason === 'fresh')).toEqual([]);
   });
 });
 
