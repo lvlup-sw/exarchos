@@ -7,8 +7,8 @@
 If tests fail during synthesis (they passed in review):
 
 1. Return to review phase to investigate
-2. Re-run `/exarchos:review` to diagnose
-3. Dispatch fixes via `/exarchos:delegate --fixes`
+2. Re-run `/review` to diagnose
+3. Dispatch fixes via `/delegate --fixes`
 4. Return to synthesis after review passes
 
 ### PR Checks Fail
