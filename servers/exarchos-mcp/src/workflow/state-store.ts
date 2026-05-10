@@ -838,16 +838,17 @@ export async function reconcileFromEvents(
   featureId: string,
   eventStore: EventStore,
 ): Promise<{ reconciled: boolean; eventsApplied: number }> {
-  // Merge sidecar events from hook subprocesses and sidecar-mode agents
-  // before querying, so reconcile sees the complete event stream.
-  if (!eventStore.inSidecarMode) {
-    await mergeSidecarEvents(stateDir, eventStore).catch((err) => {
-      logger.warn(
-        { err: err instanceof Error ? err.message : String(err) },
-        'Sidecar merge before reconcile failed — continuing with existing events',
-      );
-    });
-  }
+  // Merge hook-event sidecar files written by CLI hook subprocesses before
+  // querying, so reconcile sees the complete event stream. The previous
+  // `!eventStore.inSidecarMode` gate is gone — sidecar fallback in the
+  // EventStore was deleted in v2.11 (#1082); this merger now exclusively
+  // reconciles hook-subprocess writes.
+  await mergeSidecarEvents(stateDir, eventStore).catch((err) => {
+    logger.warn(
+      { err: err instanceof Error ? err.message : String(err) },
+      'Hook-event sidecar merge before reconcile failed — continuing with existing events',
+    );
+  });
 
   const stateFile = path.join(stateDir, `${featureId}.state.json`);
 

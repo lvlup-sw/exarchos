@@ -10,8 +10,9 @@
 //   tsx spawn-driver.ts --state-dir <dir> --stream <id> --index <n>
 //
 // Behaviour: constructs an EventStore against the given state dir, initializes
-// it (which may enter sidecar mode if another process holds the PID lock),
-// and appends a single `task.completed` event whose idempotency key is
+// it with `waitForLock: true` so concurrent drivers serialize on the PID
+// lock (post-v2.11 the default mode hard-throws on contention; #1082), and
+// appends a single `task.completed` event whose idempotency key is
 // `concurrent-<index>`. Exits 0 on success, non-zero on error.
 
 import { EventStore } from '../store.js';
@@ -54,8 +55,9 @@ async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
 
   const store = new EventStore(args.stateDir);
-  // Wait for the PID lock (CLI semantics) rather than entering sidecar mode,
-  // so concurrent invocations serialize onto the main JSONL (DR-5).
+  // Wait for the PID lock (CLI semantics) so concurrent invocations
+  // serialize onto the same store. Sidecar fallback (#1082) was deleted
+  // in v2.11; default-mode init now hard-throws on contention.
   await store.initialize({ waitForLock: true });
 
   const event = buildValidatedEvent(args.stream, 1, {

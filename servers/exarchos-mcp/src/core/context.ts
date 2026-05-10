@@ -78,10 +78,11 @@ export interface InitializeContextOptions {
   readonly projectRoot?: string;
   /**
    * When true, the EventStore's `initialize()` blocks until the PID lock can
-   * be acquired rather than entering sidecar mode. Intended for short-lived
-   * CLI invocations that must serialize writes with any concurrent invocation
-   * (DR-5). Leave unset for long-running MCP server paths, which prefer the
-   * existing "first-wins + sidecar" semantics.
+   * be acquired rather than throwing immediately on contention. Intended for
+   * short-lived CLI invocations that must serialize writes with any
+   * concurrent invocation (DR-5). Leave unset for long-running MCP server
+   * paths, which hard-throw on contention (sidecar fallback was deleted in
+   * v2.11 — #1082).
    */
   readonly waitForLock?: boolean;
 }

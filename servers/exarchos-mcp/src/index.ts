@@ -59,9 +59,11 @@ export const SERVER_VERSION = '2.9.0';
  * invocation when it is the first positional argument (argv[2]). A looser
  * `argv.includes('mcp')` check is unsafe because feature IDs like
  * `exarchos event append -f mcp ...` or view names like `--view mcp` would
- * flip detection and push short-lived CLI callers onto server-mode
- * (first-wins + sidecar) semantics, silently diverting their writes to a
- * sidecar file instead of serialising onto the main JSONL (DR-5).
+ * flip detection. Pre-v2.11 this was load-bearing because mis-detecting
+ * MCP mode pushed CLI callers onto sidecar fallback semantics; post-v2.11
+ * (#1082 sidecar removal) the consequence is instead that CLI callers
+ * would skip `waitForLock: true` and hard-throw on contention rather than
+ * serialising — equally important to keep correct.
  *
  * Exported for unit testing; callers should pass `process.argv` directly.
  */
@@ -260,12 +262,11 @@ async function main() {
     registerBackendCleanup(backend);
   }
 
-  // DR-5: short-lived CLI invocations must block on the PID lock rather than
-  // enter sidecar mode, so two concurrent `exarchos event append` calls
-  // serialize onto the main JSONL. The long-running MCP server path still
-  // prefers first-wins + sidecar semantics because competing hook subprocesses
-  // cannot afford to wait. See `isMcpServerInvocation` for the rationale
-  // behind the strict positional check.
+  // DR-5: short-lived CLI invocations must block on the PID lock so two
+  // concurrent `exarchos event append` calls serialize onto the same store.
+  // The long-running MCP server path uses the default (no waitForLock) and
+  // therefore hard-throws on contention — sidecar fallback (#1082) was
+  // deleted in v2.11 alongside the JSONL substrate it side-channeled.
   const isMcpMode = isMcpServerInvocation(process.argv);
   const ctx = await initializeContext(stateDir, {
     backend,
@@ -282,20 +283,27 @@ async function main() {
   const program = buildCli(ctx);
 
   // ─── Execution-Mode Detection (F-021-5) ────────────────────────────────────
-  // Server-mode-only work (sidecar-event merge + lifecycle compaction) runs
-  // via a commander `preAction` hook instead of a positional `argv[2]` check.
-  // The hook fires immediately before the `mcp` subcommand's `action()` and
-  // is a no-op for every other command, which keeps CLI cold-start (`wf
-  // status`, `vw *`, `schema`, etc.) free of the work that only makes sense
-  // when the process stays alive. See DR-5 / task 021 cold-start budget.
+  // Server-mode-only work (hook-event sidecar merge + lifecycle compaction)
+  // runs via a commander `preAction` hook instead of a positional `argv[2]`
+  // check. The hook fires immediately before the `mcp` subcommand's
+  // `action()` and is a no-op for every other command, which keeps CLI
+  // cold-start (`wf status`, `vw *`, `schema`, etc.) free of the work that
+  // only makes sense when the process stays alive. See DR-5 / task 021
+  // cold-start budget.
   //
   // Future global flags like `--verbose` in front of `mcp` would have broken
   // the old `argv[2] === 'mcp'` check; the `actionCommand.name()` lookup is
   // robust to flag positioning. Coordinates with F-022-2.
+  //
+  // Note: the `inSidecarMode` gate that previously guarded this block was
+  // removed in v2.11 (#1082) — the EventStore no longer enters sidecar
+  // mode. The hook-event merger still runs unconditionally on the server
+  // path so writes from CLI hook subprocesses (which deliberately bypass
+  // the EventStore for cold-start reasons) get reconciled in.
   program.hook('preAction', async (_thisCommand, actionCommand) => {
     if (actionCommand.name() !== 'mcp') return;
 
-    if (!ctx.eventStore.inSidecarMode) {
+    {
       const { startPeriodicMerge } = await import('./storage/sidecar-scheduler.js');
       const drainHandle = await startPeriodicMerge(stateDir, ctx.eventStore, undefined, { immediate: true });
       process.on('exit', () => drainHandle.stop());

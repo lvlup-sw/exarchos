@@ -1,11 +1,16 @@
 // ─── Hook Event Sidecar Writer ──────────────────────────────────────────────
 //
-// Writes events to sidecar files (`{streamId}.hook-events.jsonl`) for later
-// merging into the main EventStore. Used by CLI hook subprocesses (e.g.,
-// teammate-gate) that cannot import the full EventStore due to PID lock
-// constraints.
+// Writes events to hook-event sidecar files (`{streamId}.hook-events.jsonl`)
+// for later merging into the main EventStore. Used by CLI hook subprocesses
+// (e.g., teammate-gate) that cannot share the EventStore in-process.
 //
-// Sidecar files are merged on next EventStore startup via the sidecar merger.
+// Hook-event sidecar files are picked up by the periodic merger
+// (`storage/sidecar-merger.ts`) and replayed into the EventStore. This is
+// distinct from — and survives — the v2.11 deletion of EventStore's
+// PID-lock sidecar fallback (#1082): hook subprocess writers operate
+// outside the lock by construction (they live in a separate process), so
+// the side-channel is structural, not a degradation of the primary
+// write-path.
 
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
@@ -21,8 +26,13 @@ export interface HookEvent {
 
 // ─── Sidecar File Naming ────────────────────────────────────────────────────
 
-/** Returns the sidecar file path for a given stream. */
-export function getSidecarPath(stateDir: string, streamId: string): string {
+/**
+ * Returns the hook-event sidecar file path for a given stream. Internal —
+ * the only public surface here is `writeHookEvent`. Was previously exported
+ * for the EventStore PID-lock sidecar merge path; that path was deleted in
+ * v2.11 (#1082).
+ */
+function getSidecarPath(stateDir: string, streamId: string): string {
   return path.join(stateDir, `${streamId}.hook-events.jsonl`);
 }
 

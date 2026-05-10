@@ -10,7 +10,6 @@ import type { StorageBackend } from '../storage/backend.js';
 import { migrateEvent } from './event-migration.js';
 import { storeLogger } from '../logger.js';
 import { isPidAlive } from '../utils/process.js';
-import { getSidecarPath } from './hook-event-writer.js';
 import { validateStreamId } from '../shared/validation.js';
 import { AtomicAppender } from './atomic-appender.js';
 
@@ -92,34 +91,6 @@ export interface QueryFilters {
 /** Pre-compiled regex for extracting the sequence number from a JSONL line before JSON.parse. */
 const SEQUENCE_REGEX = /"sequence":(\d+)/;
 
-/**
- * Merge two time-ordered event lists into a single timestamp-ordered stream.
- *
- * Both inputs are assumed to be individually sorted by timestamp (main events
- * follow sequence order, which mirrors insertion order; sidecar events are
- * explicitly sorted in `readSidecarForQuery`). Ties break deterministically
- * by preferring main-stream events — sidecar entries were written while the
- * primary held the lock, so their timestamps are at least as recent as any
- * main event seen so far.
- */
-function mergeByTimestamp(
-  main: WorkflowEvent[],
-  sidecar: WorkflowEvent[],
-): WorkflowEvent[] {
-  if (sidecar.length === 0) return main;
-  if (main.length === 0) return sidecar;
-  const out: WorkflowEvent[] = new Array(main.length + sidecar.length);
-  let i = 0;
-  let j = 0;
-  let k = 0;
-  while (i < main.length && j < sidecar.length) {
-    out[k++] = main[i].timestamp <= sidecar[j].timestamp ? main[i++] : sidecar[j++];
-  }
-  while (i < main.length) out[k++] = main[i++];
-  while (j < sidecar.length) out[k++] = sidecar[j++];
-  return out;
-}
-
 // ─── Event Store Options ────────────────────────────────────────────────────
 
 export interface EventStoreOptions {
@@ -165,19 +136,22 @@ const DEFAULT_INTEGRITY_TIMEOUT_MS = 2000;
  * Options passed to `EventStore.initialize()`.
  *
  * `waitForLock` controls behaviour when another live process already holds
- * the PID lock. When `false` (default), the instance enters sidecar mode —
- * writes are diverted to `{streamId}.hook-events.jsonl` and merged later by
- * the primary process. When `true`, `initialize()` waits for the lock to be
- * released (bounded by `waitForLockTimeoutMs`), retrying until it can
- * reclaim the lock. This is the right mode for short-lived CLI processes
- * that need their writes to land on the main JSONL immediately so the
- * outcome is equivalent to a sequential invocation (DR-5).
+ * the PID lock.
  *
- * Leave at the default in long-running MCP server / hook-subprocess paths,
- * where sidecar mode is the desired behaviour.
+ * - When `false` (default), `initialize()` throws `PidLockError` immediately
+ *   on contention. This is the v2.11 hard-fail substrate semantic: sidecar
+ *   fallback (#1082) was deleted alongside the JSONL substrate it existed
+ *   to side-channel; SQLite WAL handles concurrent access natively, so any
+ *   PID-lock contention now reflects a genuine ownership conflict the
+ *   caller must resolve, not a write-path that needs degrading.
+ * - When `true`, `initialize()` waits for the lock to be released (bounded
+ *   by `waitForLockTimeoutMs`), retrying until it can reclaim the lock.
+ *   On exhaustion, throws `PidLockError`. Right mode for short-lived CLI
+ *   processes that need their writes to serialise behind a concurrent
+ *   invocation (DR-5).
  */
 export interface InitializeOptions {
-  /** Block until the PID lock can be acquired, rather than entering sidecar mode. */
+  /** Block until the PID lock can be acquired, rather than throwing immediately on contention. */
   readonly waitForLock?: boolean;
   /** Maximum time to wait for the PID lock when `waitForLock` is true. Defaults to 30s. */
   readonly waitForLockTimeoutMs?: number;
@@ -200,10 +174,12 @@ const DEFAULT_WAIT_MAX_DELAY_MS = 100;
  * When an optional `StorageBackend` is provided, reads (query, getSequence)
  * delegate to the backend while writes still go to JSONL first (dual-write).
  *
- * Cross-process safety: call `initialize()` before first use. The first process
- * to initialize acquires a PID lock; subsequent processes enter sidecar mode
- * where writes are routed to `{streamId}.hook-events.jsonl` sidecar files for
- * later merging by the primary process. Reads always work from JSONL/backend.
+ * Cross-process safety: call `initialize()` before first use. The first
+ * process to initialize acquires a PID lock; subsequent processes throw
+ * `PidLockError` (or wait for the lock when `waitForLock: true`). Sidecar
+ * mode (#1082) was deleted in v2.11 — SQLite WAL handles concurrent access
+ * natively, so PID-lock contention is now a hard error rather than a
+ * fallback to a side-channel writer.
  *
  * Uses in-memory promise-chain locks that only protect within a single Node.js process.
  * Multiple EventStore instances sharing the same stateDir without PID lock will corrupt data.
@@ -229,13 +205,6 @@ export class EventStore {
 
   /** Whether initialize() has been called */
   private initialized = false;
-
-  /**
-   * When true, the PID lock is held by another process.
-   * All writes are routed to sidecar files instead of the main JSONL.
-   * Reads still work from JSONL/backend.
-   */
-  private sidecarMode = false;
 
   /** Path to the PID lock file */
   private lockFilePath: string;
@@ -267,11 +236,6 @@ export class EventStore {
   /** Configure an optional outbox for event replication. */
   setOutbox(outbox: Outbox): void {
     this.outbox = outbox;
-  }
-
-  /** Returns true when this instance is in sidecar mode (PID lock held by another process). */
-  get inSidecarMode(): boolean {
-    return this.sidecarMode;
   }
 
   /**
@@ -327,49 +291,32 @@ export class EventStore {
 
   /**
    * Initialize the event store: acquire PID lock and register cleanup handler.
-   * Must be called before first use. When the PID lock is held by another
-   * process, enters sidecar mode where writes are routed to sidecar files
-   * and reads still work from JSONL/backend.
+   * Must be called before first use.
+   *
+   * Sidecar fallback (#1082) was deleted in v2.11 — when another process
+   * holds the lock, this method now throws `PidLockError` immediately. The
+   * fallback only existed to side-channel JSONL writers around the
+   * per-process lock; SQLite WAL (post-v2.10 substrate, #1259/#1323) makes
+   * cross-process writes safe natively, so contention now reflects a real
+   * ownership conflict the caller is responsible for resolving.
    *
    * Pass `{ waitForLock: true }` to block until the lock can be acquired
-   * instead of entering sidecar mode — this is the correct mode for CLI
-   * processes where concurrent invocations must serialize onto the main
-   * JSONL (DR-5 cross-process concurrency safety).
+   * — the right mode for short-lived CLI processes where concurrent
+   * invocations must serialise (DR-5 cross-process concurrency safety).
+   * On wait-deadline exhaustion, `PidLockError` is rethrown.
    */
   async initialize(options?: InitializeOptions): Promise<void> {
     if (this.initialized) return;
 
     const waitForLock = options?.waitForLock === true;
-    try {
-      if (waitForLock) {
-        await this.acquirePidLockWithWait(
-          options?.waitForLockTimeoutMs ?? DEFAULT_WAIT_TIMEOUT_MS,
-          options?.waitForLockInitialDelayMs ?? DEFAULT_WAIT_INITIAL_DELAY_MS,
-          options?.waitForLockMaxDelayMs ?? DEFAULT_WAIT_MAX_DELAY_MS,
-        );
-      } else {
-        await this.acquirePidLock();
-      }
-    } catch (err) {
-      if (err instanceof PidLockError) {
-        // F-022-1: When the caller explicitly opted into waiting for the lock
-        // (CLI mode, DR-5), do NOT silently fall back to sidecar mode after
-        // the deadline elapses. The CLI adapter surfaces a clear exit code
-        // ("lock held by PID N for >Ns — retry later") instead. Sidecar
-        // fallback is only the correct behaviour for the long-running MCP
-        // server / hook subprocess paths, which leave waitForLock unset.
-        if (waitForLock) {
-          throw err;
-        }
-        this.sidecarMode = true;
-        this.initialized = true;
-        storeLogger.warn(
-          { existingPid: err.existingPid },
-          'PID lock held by another process — entering sidecar mode (writes routed to sidecar files)',
-        );
-        return;
-      }
-      throw err;
+    if (waitForLock) {
+      await this.acquirePidLockWithWait(
+        options?.waitForLockTimeoutMs ?? DEFAULT_WAIT_TIMEOUT_MS,
+        options?.waitForLockInitialDelayMs ?? DEFAULT_WAIT_INITIAL_DELAY_MS,
+        options?.waitForLockMaxDelayMs ?? DEFAULT_WAIT_MAX_DELAY_MS,
+      );
+    } else {
+      await this.acquirePidLock();
     }
     this.initialized = true;
   }
@@ -377,8 +324,8 @@ export class EventStore {
   /**
    * Acquire the PID lock, blocking until success or until `timeoutMs` elapses.
    * Uses exponential backoff with jitter, capped at `maxDelayMs`. On timeout,
-   * rethrows the last `PidLockError` so the caller can fall back to sidecar
-   * mode if desired.
+   * rethrows the last `PidLockError` so the caller can surface a clear
+   * "lock held by PID N — retry later" diagnostic.
    */
   private async acquirePidLockWithWait(
     timeoutMs: number,
@@ -433,7 +380,7 @@ export class EventStore {
     // (ENOENT) or re-acquiring (EEXIST) the same file. Rather than fail on
     // these transients, retry the full sequence a bounded number of times;
     // if we exhaust retries while a live holder remains, surface PidLockError
-    // so the caller (sidecar fallback or `waitForLock` retry) can decide.
+    // so the caller (CLI exit path or `waitForLock` retry loop) can decide.
     const MAX_RETRIES = 32;
     let acquired = false;
     // F-022-4: remember the most recent observably-valid holder PID so that
@@ -526,41 +473,6 @@ export class EventStore {
     });
   }
 
-  /**
-   * Write an event to the sidecar file for later merging by the primary process.
-   * Returns a synthetic WorkflowEvent with sequence 0 (pending assignment).
-   */
-  private async writeToSidecar(
-    streamId: string,
-    event: Partial<Omit<WorkflowEvent, 'sequence' | 'streamId'>> & { type: string },
-    idempotencyKey?: string,
-  ): Promise<WorkflowEvent> {
-    validateStreamId(streamId);
-    const timestamp = event.timestamp || new Date().toISOString();
-    const key = idempotencyKey ?? event.idempotencyKey;
-
-    const sidecarEvent: Record<string, unknown> = {
-      type: event.type,
-      data: event.data ?? {},
-      timestamp,
-    };
-    if (key) sidecarEvent.idempotencyKey = key;
-
-    const filePath = getSidecarPath(this.stateDir, streamId);
-    await fs.mkdir(path.dirname(filePath), { recursive: true });
-    await fs.appendFile(filePath, JSON.stringify(sidecarEvent) + '\n', 'utf-8');
-
-    // Return synthetic event with sequence 0 (pending assignment during merge)
-    return {
-      streamId,
-      sequence: 0,
-      type: event.type,
-      data: (event.data ?? {}) as Record<string, unknown>,
-      timestamp,
-      ...(key && { idempotencyKey: key }),
-    } as WorkflowEvent;
-  }
-
   private getEventFilePath(streamId: string): string {
     validateStreamId(streamId);
     return path.join(this.stateDir, `${streamId}.events.jsonl`);
@@ -576,9 +488,6 @@ export class EventStore {
     event: Partial<Omit<WorkflowEvent, 'sequence' | 'streamId'>> & { type: string },
     options?: AppendOptions,
   ): Promise<WorkflowEvent> {
-    if (this.sidecarMode) {
-      return this.writeToSidecar(streamId, event, options?.idempotencyKey);
-    }
     // Validate FIRST, before delegating: the legacy contract throws synchronously
     // on schema violations, so callers don't need to await the AtomicAppender
     // round-trip for that error class.
@@ -607,9 +516,6 @@ export class EventStore {
     event: WorkflowEvent,
     options?: AppendOptions,
   ): Promise<WorkflowEvent> {
-    if (this.sidecarMode) {
-      return this.writeToSidecar(streamId, event, options?.idempotencyKey ?? event.idempotencyKey);
-    }
     const idempotencyKey = options?.idempotencyKey ?? event.idempotencyKey;
     const timestamp = event.timestamp || new Date().toISOString();
     const prepared: WorkflowEvent = {
@@ -624,8 +530,7 @@ export class EventStore {
   /**
    * Shared post-validation path: delegate to AtomicAppender, translate the
    * typed result back into the legacy `WorkflowEvent` return shape, then run
-   * supplementary backend + outbox replication. Sidecar mode short-circuits
-   * before this method is reached.
+   * supplementary backend + outbox replication.
    *
    * The AtomicAppender holds the per-stream lock for the duration of its
    * append; backend and outbox writes happen after the lock is released.
@@ -739,14 +644,6 @@ export class EventStore {
     streamId: string,
     events: Array<Partial<Omit<WorkflowEvent, 'sequence' | 'streamId'>> & { type: string; idempotencyKey?: string }>,
   ): Promise<WorkflowEvent[]> {
-    if (this.sidecarMode) {
-      const results: WorkflowEvent[] = [];
-      for (const event of events) {
-        results.push(await this.writeToSidecar(streamId, event, event.idempotencyKey));
-      }
-      return results;
-    }
-
     if (events.length === 0) return [];
 
     // Validate every event up front so a malformed input fails before any
@@ -848,148 +745,19 @@ export class EventStore {
   }
 
   async query(streamId: string, filters?: QueryFilters): Promise<WorkflowEvent[]> {
-    // Issue #1082: when a sibling process is in sidecar mode, its events land
-    // in `{streamId}.hook-events.jsonl` and are invisible to readers that look
-    // only at the main source (JSONL or backend). Merge main + sidecar so
-    // every materializer sees a consistent stream. Fast path (no sidecar)
-    // keeps the original optimized loop with early termination on limit.
-    const sidecarPath = getSidecarPath(this.stateDir, streamId);
-    let sidecarExists = false;
-    try {
-      await fs.access(sidecarPath);
-      sidecarExists = true;
-    } catch {
-      // No sidecar file — fall through to fast path.
+    // v2.11 Phase 1: sidecar merge path deleted (#1082). SQLite WAL handles
+    // cross-process concurrency natively; JSONL read path remains the
+    // backend-less default for stores that never attached one.
+    const readBackend = this.getReadBackend();
+    if (readBackend) {
+      return readBackend.queryEvents(streamId, filters);
     }
-
-    if (!sidecarExists) {
-      const readBackend = this.getReadBackend();
-      if (readBackend) {
-        return readBackend.queryEvents(streamId, filters);
-      }
-      return this.queryMainJsonl(streamId, filters);
-    }
-
-    // Sidecar present: collect main events without offset/limit (we apply
-    // those after merging), merge with sidecar events by timestamp, then
-    // slice. Reading offset/limit from the backend/JSONL here would drop
-    // main events that should interleave with sidecar entries.
-    const mainFilters: QueryFilters = {
-      type: filters?.type,
-      since: filters?.since,
-      until: filters?.until,
-      sinceSequence: filters?.sinceSequence,
-    };
-    const sidecarReadBackend = this.getReadBackend();
-    const rawMainEvents = sidecarReadBackend
-      ? await sidecarReadBackend.queryEvents(streamId, mainFilters)
-      : await this.queryMainJsonl(streamId, mainFilters);
-    // `mergeByTimestamp` requires both inputs to be time-ordered. JSONL
-    // preserves stream (sequence) order and `StorageBackend.queryEvents()`
-    // offers no ordering guarantee; in both cases a caller-supplied
-    // backfilled timestamp (see `append()` at lines ~330 and ~364) can
-    // violate timestamp monotonicity. Sort defensively with a stable
-    // sequence tie-break so interleaved backfill doesn't shift the slice
-    // window after offset/limit.
-    const mainEvents = rawMainEvents.slice().sort((a, b) => {
-      const byTs = a.timestamp.localeCompare(b.timestamp);
-      return byTs !== 0 ? byTs : a.sequence - b.sequence;
-    });
-
-    // Derive `mainMax` from the JSONL source-of-truth whenever it exists,
-    // even in backend mode. Backend dual-write is best-effort (see
-    // `replicateBackend`/`writeOutbox`), so `backend.getSequence()` can lag the real
-    // JSONL high-water mark and cause synthetic sidecar sequences to
-    // collide with already-durable events. Only fall back to the backend
-    // counter when there is no local JSONL to read (e.g., remote-only
-    // deployment with no primary on this host).
-    const mainMax = await this.readJsonlMaxSequence(streamId);
-    const sidecarEvents = await this.readSidecarForQuery(streamId, mainMax, filters);
-
-    const merged = mergeByTimestamp(mainEvents, sidecarEvents);
-    const offset = filters?.offset ?? 0;
-    const limit = filters?.limit;
-    const sliced = offset > 0 ? merged.slice(offset) : merged;
-    return limit !== undefined ? sliced.slice(0, limit) : sliced;
-  }
-
-  /**
-   * Read the current max sequence for a stream directly from JSONL
-   * (bypassing any storage backend). Used by the sidecar merge path so
-   * synthetic sidecar sequences never collide with real JSONL-durable
-   * events when the backend is lagging.
-   *
-   * Post-#1293, the substrate preserves corrupt histories (gaps, duplicate
-   * sequences, offset starts). The previous cross-validation —
-   * `parsed.sequence === lineCount` — was a JSONL-era hack that flagged
-   * legitimate post-migration histories as stale and rebased the sidecar
-   * baseline below the real high-water mark. The current logic trusts a
-   * valid `.seq` value as the authoritative max-sequence read; the
-   * line-count fallback is reserved for the genuinely-missing-or-corrupt
-   * `.seq` case (no `.seq` file, or contents that don't parse as a
-   * non-negative integer).
-   *
-   * For broken histories where line count diverges from max-sequence
-   * (e.g. JSONL `[5,6,7]`), the JSONL line count would have returned 3,
-   * causing sidecar synthetic sequences to start at 4 — colliding with
-   * already-durable events at 5,6,7. Reading max-sequence from the JSONL
-   * directly (via `SEQUENCE_REGEX`) gives the correct baseline.
-   */
-  private async readJsonlMaxSequence(streamId: string): Promise<number> {
-    const mainPath = this.getEventFilePath(streamId);
-    try {
-      await fs.access(mainPath);
-    } catch {
-      // Resolve through `getReadBackend()` so `appenderBackend: 'sqlite'`
-      // mode (no explicit `backend` ctor arg) routes here too. Reading
-      // through `this.backend` directly would fall to the `0` literal in
-      // sqlite-substrate mode and rebase synthetic sidecar sequences below
-      // the SQLite-durable high-water mark (T62, INV-2 parity).
-      const readBackend = this.getReadBackend();
-      return readBackend ? readBackend.getSequence(streamId) : 0;
-    }
-
-    const seqPath = this.getSeqFilePath(streamId);
-    try {
-      const content = await fs.readFile(seqPath, 'utf-8');
-      const parsed = JSON.parse(content);
-      if (typeof parsed.sequence === 'number' && parsed.sequence >= 0) {
-        // Trust the .seq value. Cross-validating against JSONL line count
-        // mis-flagged broken histories that the migration explicitly
-        // preserves (see CR thread 3205805932 / outside-diff for store.ts:858-879).
-        return parsed.sequence;
-      }
-    } catch {
-      // .seq missing or malformed — fall through to JSONL max-sequence scan.
-    }
-
-    // Fallback: scan JSONL for the highest persisted sequence. Uses
-    // SEQUENCE_REGEX to avoid full JSON.parse per line; this is the same
-    // recovery semantic AtomicAppender.rebuildCachesFromJsonl uses on
-    // first contact, kept consistent so sidecar and appender agree on
-    // the baseline.
-    try {
-      const jsonl = await fs.readFile(mainPath, 'utf-8');
-      let maxSeq = 0;
-      for (const line of jsonl.split('\n')) {
-        if (line.length === 0) continue;
-        const m = SEQUENCE_REGEX.exec(line);
-        if (m) {
-          const s = Number.parseInt(m[1], 10);
-          if (Number.isFinite(s) && s > maxSeq) maxSeq = s;
-        }
-      }
-      return maxSeq;
-    } catch {
-      return 0;
-    }
+    return this.queryMainJsonl(streamId, filters);
   }
 
   /**
    * Read events from the main `{streamId}.events.jsonl` file.
-   * Preserves the optimized fast-skip + early-termination loop used when no
-   * sidecar events exist. Extracted so the merge path (issue #1082) can reuse
-   * the same filter semantics without duplicating the loop.
+   * Preserves the optimized fast-skip + early-termination loop.
    */
   private async queryMainJsonl(
     streamId: string,
@@ -1050,83 +818,6 @@ export class EventStore {
         input.destroy();
         break;
       }
-    }
-
-    return events;
-  }
-
-  /**
-   * Read the sidecar file for a stream, normalize each line into a
-   * `WorkflowEvent` with a synthetic sequence continuing from `baseSequence`,
-   * sort by timestamp, and apply query filters.
-   *
-   * Sidecar lines omit streamId/sequence/schemaVersion to keep hook writes
-   * minimal; this method populates them so downstream materializers do not
-   * need to special-case sidecar-sourced events.
-   */
-  private async readSidecarForQuery(
-    streamId: string,
-    baseSequence: number,
-    filters?: QueryFilters,
-  ): Promise<WorkflowEvent[]> {
-    const sidecarPath = getSidecarPath(this.stateDir, streamId);
-    let content: string;
-    try {
-      content = await fs.readFile(sidecarPath, 'utf-8');
-    } catch {
-      return [];
-    }
-
-    const lines = content.trim().split('\n').filter(Boolean);
-    if (lines.length === 0) return [];
-
-    type SidecarRaw = {
-      type: string;
-      data?: Record<string, unknown>;
-      timestamp?: string;
-      idempotencyKey?: string;
-    };
-    const raw: SidecarRaw[] = [];
-    for (const line of lines) {
-      try {
-        const parsed = JSON.parse(line) as SidecarRaw;
-        if (parsed && typeof parsed.type === 'string') {
-          raw.push(parsed);
-        }
-      } catch {
-        // Skip corrupt lines — the merger counts these as errors at merge time.
-      }
-    }
-
-    // Stable sort by timestamp so synthetic sequences reflect causal order.
-    raw.sort((a, b) => (a.timestamp ?? '').localeCompare(b.timestamp ?? ''));
-
-    const events: WorkflowEvent[] = [];
-    for (let i = 0; i < raw.length; i++) {
-      const line = raw[i];
-      const synthetic: WorkflowEvent = {
-        streamId,
-        sequence: baseSequence + i + 1,
-        // Type assumed valid: sidecar writer validates at the workflow boundary
-        // (`writeToSidecar` only accepts events already parsed by workflow tools).
-        type: line.type as WorkflowEvent['type'],
-        timestamp: line.timestamp ?? new Date(0).toISOString(),
-        data: line.data ?? {},
-        schemaVersion: '1.0',
-        ...(line.idempotencyKey && { idempotencyKey: line.idempotencyKey }),
-      };
-
-      if (filters?.type && synthetic.type !== filters.type) continue;
-      if (filters?.since && synthetic.timestamp < filters.since) continue;
-      if (filters?.until && synthetic.timestamp > filters.until) continue;
-      if (
-        filters?.sinceSequence !== undefined
-        && synthetic.sequence <= filters.sinceSequence
-      ) {
-        continue;
-      }
-
-      events.push(synthetic);
     }
 
     return events;

@@ -569,13 +569,25 @@ phases:
         .filter((l) => l.trim()).length;
       expect(jsonlAfterFirst).toBe(3);
 
-      // ─── Act 2: second initializeContext on the same stateDir+projectRoot
-      // The second EventStore enters sidecar mode (PID lock held by ctx1's
-      // EventStore), but `loadTopology()` short-circuits via its
-      // module-level cache before reaching `eventStore.append`, so neither
-      // a new JSONL line nor a sidecar entry is ever written.
-      const ctx2 = await initializeContext(tmpDir, { projectRoot });
-      expect(ctx2.eventStore).toBeDefined();
+      // ─── Act 2: invoke loadTopology() a second time directly ──────────
+      //
+      // Pre-v2.11 this branch invoked `initializeContext` again, which
+      // forced ctx2's EventStore into sidecar mode (PID lock held by ctx1)
+      // and exercised the loader's module-level cache through the
+      // `eventStore.append` path. Sidecar fallback was deleted in v2.11
+      // (#1082) — a second `initializeContext` against the same stateDir
+      // now hard-throws PidLockError. We call the loader directly with a
+      // recording emit adapter to keep the same observable assertion: if
+      // the cache stops short-circuiting, `extraEmits` rises above zero.
+      const { loadTopology } = await import('../topology/loader.js');
+      let extraEmits = 0;
+      await loadTopology({
+        topologyPath: path.join(projectRoot, 'topology.yaml'),
+        emit: async () => {
+          extraEmits += 1;
+        },
+      });
+      expect(extraEmits).toBe(0);
 
       // ─── Assertion 4 (idempotency, on-disk): JSONL line count UNCHANGED
       // The loader's module-level cache short-circuits the second call →
@@ -587,9 +599,7 @@ phases:
       expect(jsonlAfterSecond).toBe(3);
 
       // ─── Assertion 5 (idempotency, query): no extra events visible ─────
-      // ctx2's EventStore is in sidecar mode, so `query('_substrate')`
-      // merges main JSONL (3 events) + sidecar (0 events). Total still 3.
-      const eventsAfterSecond = await ctx2.eventStore.query('_substrate');
+      const eventsAfterSecond = await ctx1.eventStore.query('_substrate');
       const missingAfterSecond = eventsAfterSecond.filter(
         (e) => e.type === 'phase.contract_missing',
       );

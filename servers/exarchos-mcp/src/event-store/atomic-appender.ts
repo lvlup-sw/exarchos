@@ -862,10 +862,11 @@ export class AtomicAppender {
     // Same WriteFn-after-runDefault hazard as Phase 3: if `writeFn` throws
     // AFTER the rename completed, the .seq is durable on disk but we're
     // about to roll back the JSONL. That leaves .seq pointing past the
-    // rolled-back JSONL — the bug that mis-sized sidecar synthetic
-    // sequences. Track the seq runDefault completion and remove .seq when
-    // it ran but the wrapper threw, so the next caller's rebuild reads
-    // max-sequence from JSONL fresh.
+    // rolled-back JSONL — historically this also mis-sized synthetic
+    // sequences in the v2.10 sidecar merge path (deleted in v2.11, #1082).
+    // Track the seq runDefault completion and remove .seq when it ran but
+    // the wrapper threw, so the next caller's rebuild reads max-sequence
+    // from JSONL fresh.
     const tmpPath = `${seqPath}.tmp`;
     const seqContents = JSON.stringify({ sequence: finalSequence });
     let seqRunDefaultCompleted = false;
