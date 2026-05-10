@@ -5,18 +5,11 @@ import { pickFields, toEventAck, type EventAck, type ToolResult } from '../forma
 import { buildValidatedEvent } from './event-factory.js';
 import { randomUUID } from 'node:crypto';
 
-/**
- * Build an EventAck from a stored event. When the event has a non-positive
- * sequence (sidecar write pending merge), the ack uses sequence -1 and sets
- * `sequencePending: true` so callers do not misinterpret 0 as failure.
- */
-function toSafeEventAck(event: { streamId: string; sequence: number; type: string }): EventAck {
-  const ack = toEventAck(event);
-  if (ack.sequence <= 0) {
-    return { ...ack, sequence: -1, sequencePending: true };
-  }
-  return ack;
-}
+// `toSafeEventAck` previously translated synthetic sequence-0 acks emitted by
+// the EventStore sidecar fallback (#1082) into a `{sequence: -1,
+// sequencePending: true}` envelope. v2.11 Phase 1 deleted that fallback —
+// every successful append now returns a real positive sequence — so the
+// helper is gone. Use `toEventAck` directly.
 
 // ─── Misplaced Field Detection ──────────────────────────────────────────────
 
@@ -108,11 +101,7 @@ export async function handleEventAppend(
   // stream AND every namespaced subagent stream (`<featureId>/<subagent-id>`).
   // No derived state is consulted — the only source of truth is the events
   // table, satisfying INV-1 (stores-as-projections).
-  //
-  // Sidecar mode skips this path because the cross-stream reducer can't see
-  // writes that haven't been merged from the sidecar yet; the legacy path
-  // still preserves order.
-  if (eventType === 'team.disbanded' && !store.inSidecarMode) {
+  if (eventType === 'team.disbanded') {
     const data = (args.event.data ?? {}) as Record<string, unknown>;
     const teamId = data.teamId as string | undefined;
     if (typeof teamId === 'string' && teamId.length > 0) {
@@ -185,7 +174,7 @@ export async function handleEventAppend(
               }
             : undefined,
         );
-        return { success: true, data: toSafeEventAck(event) };
+        return { success: true, data: toEventAck(event) };
       } catch (err) {
         if (err instanceof ZodError) {
           return {
@@ -247,7 +236,7 @@ export async function handleEventAppend(
         : undefined,
     );
 
-    return { success: true, data: toSafeEventAck(event) };
+    return { success: true, data: toEventAck(event) };
   } catch (err) {
     if (err instanceof ZodError) {
       return {
@@ -326,12 +315,8 @@ export async function handleBatchAppend(
 
   const store = eventStore;
 
-  // Sidecar mode: AtomicAppender does not model the JSONL/sidecar split, so we
-  // preserve the legacy EventStore.batchAppend path when another process holds
-  // the PID lock. Normal-mode batches route through AtomicAppender (C2).
-  if (store.inSidecarMode) {
-    return handleBatchAppendLegacy(args, store);
-  }
+  // v2.11 Phase 1: sidecar fallback (#1082) deleted — no JSONL/sidecar split,
+  // so AtomicAppender owns the only batch path.
 
   // Pre-dedup within batch by per-event idempotencyKey (preserves the
   // single-key-dedup contract `batchAppend_IdempotencyKey_DeduplicatesAcrossBatch`
@@ -453,68 +438,24 @@ export async function handleBatchAppend(
   // 3205861163). Use `persistedEvents[i].type` from the appender's
   // cache-hit payload instead — that's the type ACTUALLY persisted, which
   // is what the EventAck should reflect.
+  // v2.11 Phase 1: with sidecar fallback gone, every successful append
+  // returns a real positive sequence — no `sequencePending` envelope.
   const acks: EventAck[] = result.kind === 'cache-hit'
-    ? result.persistedEvents.map((e, i) => {
-        const ack = toEventAck({
+    ? result.persistedEvents.map((e, i) =>
+        toEventAck({
           streamId: args.stream,
           sequence: result.sequences[i],
           type: e.type,
-        });
-        return ack.sequence <= 0 ? { ...ack, sequence: -1, sequencePending: true } : ack;
-      })
-    : result.sequences.map((sequence, i) => {
-        const ack = toEventAck({
+        }),
+      )
+    : result.sequences.map((sequence, i) =>
+        toEventAck({
           streamId: args.stream,
           sequence,
           type: validatedEvents[i].type,
-        });
-        return ack.sequence <= 0 ? { ...ack, sequence: -1, sequencePending: true } : ack;
-      });
+        }),
+      );
   return { success: true, data: acks };
-}
-
-/**
- * Legacy four-phase batch append path. Retained for sidecar mode where the
- * AtomicAppender's filesystem assumptions don't hold (sidecar mode routes
- * writes to a separate file with deferred sequence allocation).
- */
-async function handleBatchAppendLegacy(
-  args: {
-    stream: string;
-    events: Array<Record<string, unknown>>;
-  },
-  store: EventStore,
-): Promise<ToolResult> {
-  try {
-    const storeEvents = args.events.map((event) => ({
-      type: event.type as EventType,
-      ...(event.data !== undefined && { data: event.data as Record<string, unknown> }),
-      ...(event.correlationId !== undefined && { correlationId: event.correlationId as string }),
-      ...(event.causationId !== undefined && { causationId: event.causationId as string }),
-      ...(event.agentId !== undefined && { agentId: event.agentId as string }),
-      ...(event.agentRole !== undefined && { agentRole: event.agentRole as string }),
-      ...(event.tenantId !== undefined && { tenantId: event.tenantId as string }),
-      ...(event.organizationId !== undefined && { organizationId: event.organizationId as string }),
-      ...(event.source !== undefined && { source: event.source as string }),
-      ...(event.timestamp !== undefined && { timestamp: event.timestamp as string }),
-      ...(event.idempotencyKey !== undefined && { idempotencyKey: event.idempotencyKey as string }),
-    }));
-
-    const appended = await store.batchAppend(args.stream, storeEvents);
-
-    return {
-      success: true,
-      data: appended.map(toSafeEventAck),
-    };
-  } catch (err) {
-    return {
-      success: false,
-      error: {
-        code: 'BATCH_APPEND_FAILED',
-        message: err instanceof Error ? err.message : String(err),
-      },
-    };
-  }
 }
 
 // ─── Event Query Handler ────────────────────────────────────────────────────

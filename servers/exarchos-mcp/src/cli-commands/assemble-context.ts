@@ -345,18 +345,16 @@ export async function handleAssembleContext(
   // Hook subprocesses must initialize the event store before first use;
   // without it, writes (the workflow.rehydrated emission inside
   // handleRehydrate) bypass the PID lock and could race the main MCP
-  // server's writer (sentry[bot] PR #1178#discussion_r3141671413). Default
-  // mode is correct for hook paths per the EventStore.initialize() doc —
-  // when the lock is held elsewhere we enter sidecar mode and writes are
-  // routed to a sidecar JSONL the primary merges later. We avoid
-  // waitForLock:true because pre-compact callers are latency-sensitive
+  // server's writer (sentry[bot] PR #1178#discussion_r3141671413). We avoid
+  // `waitForLock: true` because pre-compact callers are latency-sensitive
   // and the contract for handleAssembleContext is to never raise.
   //
-  // If init throws (unexpected lock-acquisition failure, fs error, etc.),
-  // we degrade to a state-file-only context rather than returning an empty
-  // document. The state file is the CQRS write side; even when the event
-  // log is unreadable, hooks/CLI can still surface phase, task list, and
-  // artifacts so operators don't see a blank session-start. (CodeRabbit
+  // v2.11 (#1082) deleted the sidecar fallback, so default-mode init now
+  // throws PidLockError when the lock is held elsewhere. We catch below
+  // and degrade to a state-file-only context rather than returning an
+  // empty document. The state file is the CQRS write side; even when the
+  // event log is unreadable, hooks/CLI can still surface phase, task list,
+  // and artifacts so operators don't see a blank session-start. (CodeRabbit
   // PR #1178 follow-up review — previously returned empty contextDocument.)
   let eventStore: EventStore | null = new EventStore(stateDir);
   try {
