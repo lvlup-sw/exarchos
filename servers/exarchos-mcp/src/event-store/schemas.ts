@@ -1142,10 +1142,17 @@ export const SpecLegacyCapabilitiesArrayData = z.object({
 });
 
 /**
- * phase.contract_missing — emitted once at lifecycle start per phase that
- * lacks a typed contract (T03, DR-7 / DR-10). Drives phase-contract
- * migration telemetry; the pruner falls back to single-signal pruning for
- * phases without contracts.
+ * phase.contract_missing — historical event type (T03, DR-7).
+ *
+ * v2.10 history: emitted once at lifecycle start per phase that lacked a
+ * typed `staleness` contract; the pruner fell back to a single-signal
+ * heuristic for those phases.
+ *
+ * v2.11 (Phase 5c, DR-7 hard-cut): NO LONGER EMITTED. The topology loader
+ * now throws on any phase missing a `staleness` block, so the advisory
+ * pathway is gone. The schema slot is RETAINED so replays of v2.10-era
+ * event logs (and the historical schemas test) remain decodable. New
+ * code MUST NOT emit this event type.
  */
 export const PhaseContractMissingData = z.object({
   phaseName: z.string().min(1).describe('Phase missing a typed contract'),

@@ -82,7 +82,7 @@ phases:
     expect(sink.events.filter((e) => e.type === 'phase.contract_missing')).toHaveLength(0);
 
     // Scorer with `freshnessRequires: 'all'`: stale iff ANY declared signal is stale.
-    const designContract = topology.phases.design.staleness;
+    const designContract = topology.phases.design.staleness!;
     const allFresh = scoreStaleness(
       {
         lastActivityMinutes: 10,
@@ -102,7 +102,7 @@ phases:
     expect(oneStale.isStale).toBe(true);
 
     // Scorer with `freshnessRequires: 'any'`: stale iff ALL declared signals stale.
-    const implementContract = topology.phases.implement.staleness;
+    const implementContract = topology.phases.implement.staleness!;
     const anyFresh = scoreStaleness(
       {
         lastActivityMinutes: 9999,
