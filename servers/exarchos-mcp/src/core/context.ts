@@ -72,7 +72,11 @@ function buildDefaultCapabilityResolver(): CapabilityResolver {
 // ─── Context Options ────────────────────────────────────────────────────────
 
 export interface InitializeContextOptions {
-  /** Optional storage backend for test injection. When omitted, JSONL-only mode. */
+  /**
+   * Optional storage backend for test injection. Production callers
+   * always thread an initialized SqliteBackend in (post-v2.11 DR-3
+   * substrate-cut: SQLite is the sole substrate, no JSONL fallback).
+   */
   readonly backend?: StorageBackend;
   /** Optional project root directory to load exarchos.config.ts/.js from. */
   readonly projectRoot?: string;
