@@ -1,25 +1,21 @@
 /**
- * T46 — `scoreStaleness(state, contract)` pure-function tests.
+ * `scoreStaleness(state, contract)` pure-function tests (DR-7, v2.11).
  *
- * Verifies two branches:
+ * Verifies the typed-contract reduction:
+ *   - 'all' → fresh iff every declared signal is fresh
+ *             (i.e. stale iff ANY signal exceeds its threshold)
+ *   - 'any' → fresh iff at least one declared signal is fresh
+ *             (i.e. stale iff EVERY declared signal exceeds its threshold)
  *
- *   1. With contract: scorer reduces over declared signals according to
- *      the contract's `freshnessRequires` semantics:
- *        - 'all' → fresh iff every declared signal is fresh
- *                  (i.e. stale iff ANY signal exceeds its threshold)
- *        - 'any' → fresh iff at least one declared signal is fresh
- *                  (i.e. stale iff EVERY declared signal exceeds its threshold)
- *
- *   2. Without contract (`undefined`): falls back to the v2.9 single-signal
- *      heuristic — stale iff `lastActivityMinutes > thresholdMinutes`.
- *      Behavior must match `selectPruneCandidates`'s legacy path
- *      (`hasSecondarySignal === false → isStale = lastActivityStale`).
+ * The v2.9 single-signal heuristic fallback (when `contract === undefined`)
+ * was deleted in v2.11 (Phase 5c, DR-7); see `pruner.dr7-removal.test.ts`
+ * for the post-cut surface.
  *
  * State is a numeric snapshot — the caller (handler layer) does the
  * timestamp math; the scorer is pure (no clock, no IO).
  */
 import { describe, it, expect } from 'vitest';
-import { scoreStaleness, type StalenessState } from './score.js';
+import { scoreStaleness } from './score.js';
 import type { PhaseContract } from '../topology/phase-contract.js';
 
 const ALL_CONTRACT: PhaseContract = {
@@ -103,101 +99,8 @@ describe('scoreStaleness_with_contract', () => {
       phaseTransition: true,
     });
   });
-});
 
-describe('scoreStaleness_without_contract_falls_back_to_v2_9_single_signal', () => {
-  // The v2.9 heuristic (from selectPruneCandidates, legacy path):
-  //   hasSecondarySignal === false → isStale = lastActivityStale
-  //   lastActivityStale = minutesSince(lastActivityTimestamp, now) > thresholdMinutes
-  //
-  // The scorer reproduces that EXACTLY when `contract === undefined`. It
-  // ignores any secondary signals on `state` because the legacy path
-  // does (those signals are only consulted when at least one is "wired").
-
-  it('lastActivity at threshold → not stale (strict > comparison, matching v2.9)', () => {
-    const result = scoreStaleness(
-      { lastActivityMinutes: 60, thresholdMinutes: 60 },
-      undefined,
-    );
-    expect(result.isStale).toBe(false);
-  });
-
-  it('lastActivity above threshold → stale', () => {
-    const result = scoreStaleness(
-      { lastActivityMinutes: 61, thresholdMinutes: 60 },
-      undefined,
-    );
-    expect(result.isStale).toBe(true);
-  });
-
-  it('lastActivity below threshold → not stale', () => {
-    const result = scoreStaleness(
-      { lastActivityMinutes: 10, thresholdMinutes: 60 },
-      undefined,
-    );
-    expect(result.isStale).toBe(false);
-  });
-
-  it('default threshold (20160 = 14 days) when caller omits it', () => {
-    const fresh: StalenessState = { lastActivityMinutes: 1000 };
-    expect(scoreStaleness(fresh, undefined).isStale).toBe(false);
-
-    const stale: StalenessState = { lastActivityMinutes: 99_999 };
-    expect(scoreStaleness(stale, undefined).isStale).toBe(true);
-  });
-});
-
-describe('scoreStaleness_fail_closed_when_contract_and_signal_both_absent', () => {
-  // T66 (CR #6, DIM-7) — fail-closed.
-  //
-  // Pre-T66 the fallback path used `lastActivityMinutes ?? 0`, so a
-  // contractless phase whose state had no `lastActivityMinutes` signal
-  // was scored as `isStale: false` for any threshold > 0 — i.e. fresh
-  // FOREVER, regardless of how long the workflow had been quiescent.
-  //
-  // That violates DIM-7 (fail-closed): when the system has neither a
-  // declared contract NOR an evidence signal, the safer default is to
-  // mark the phase as stale (a candidate for pruning consideration), not
-  // fresh. The design's "missing contract → emit
-  // `phase.contract_missing` and degrade explicitly" principle implies
-  // degradation toward staleness, not freshness.
-
-  it('contract undefined AND lastActivityMinutes absent → stale (fail-closed)', () => {
-    const result = scoreStaleness({}, undefined);
-    expect(result.isStale).toBe(true);
-  });
-
-  it('exposes a diagnostic reason when fail-closed branch fires', () => {
-    const result = scoreStaleness({}, undefined);
-    expect(result.reason).toBe('no-contract-no-signal');
-  });
-
-  it('explicit threshold without a signal still fails closed', () => {
-    // Caller supplied a threshold but no evidence — the threshold has
-    // nothing to measure against. Fail-closed: stale.
-    const result = scoreStaleness({ thresholdMinutes: 60 }, undefined);
-    expect(result.isStale).toBe(true);
-    expect(result.reason).toBe('no-contract-no-signal');
-  });
-
-  it('lastActivity present (zero) is real evidence — does NOT fail closed', () => {
-    // Distinguishes "0 minutes since activity" (just happened) from
-    // "no signal at all". With evidence, the strict `>` v2.9 comparison
-    // applies normally.
-    const result = scoreStaleness(
-      { lastActivityMinutes: 0, thresholdMinutes: 60 },
-      undefined,
-    );
-    expect(result.isStale).toBe(false);
-    expect(result.reason).toBeUndefined();
-  });
-
-  it('contract present + all declared signals absent → existing per-signal path (not fail-closed reason)', () => {
-    // This test pins the boundary: the fail-closed reason fires ONLY in
-    // the no-contract path. With a contract declared, absent signals
-    // are already treated as stale by the per-signal reducer (its own
-    // `whenAbsent: true` convention), but they go through the contract
-    // branch and do not get the `no-contract-no-signal` diagnostic.
+  it('contract present + all declared signals absent → stale via per-signal whenAbsent convention', () => {
     const contract: PhaseContract = {
       expectedMaxDwellMinutes: 60,
       freshnessRequires: 'all',
@@ -205,6 +108,5 @@ describe('scoreStaleness_fail_closed_when_contract_and_signal_both_absent', () =
     };
     const result = scoreStaleness({}, contract);
     expect(result.isStale).toBe(true);
-    expect(result.reason).toBeUndefined();
   });
 });

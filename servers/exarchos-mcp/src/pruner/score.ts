@@ -1,40 +1,29 @@
 /**
- * Pure pruner staleness scorer (DR-7).
+ * Pure pruner staleness scorer (DR-7, v2.11 hard-cut).
  *
  * `scoreStaleness(state, contract)` is a pure function that decides
  * whether a workflow is stale based on a numeric snapshot (`state`) and
- * an optional typed `PhaseContract`.
+ * a typed `PhaseContract`.
  *
- * Two branches:
+ * v2.11 behavior — typed-contract-only:
+ *   - Reduce over the contract's declared signals according to
+ *     `freshnessRequires`:
+ *       - 'all' → fresh iff every declared signal is fresh
+ *                 (stale iff ANY signal exceeds its threshold OR is
+ *                  absent on `state` — absence = "no evidence", which
+ *                  matches `selectPruneCandidates`'s `whenAbsent: true`
+ *                  convention).
+ *       - 'any' → fresh iff at least one declared signal is fresh
+ *                 (stale iff EVERY declared signal exceeds its
+ *                  threshold or is absent).
  *
- *   1. `contract` defined — reduce over the contract's declared signals
- *      according to `freshnessRequires`:
- *        - 'all' → fresh iff every declared signal is fresh
- *                  (stale iff ANY signal exceeds its threshold OR is
- *                   absent on `state` — absence = "no evidence", which
- *                   matches `selectPruneCandidates`'s `whenAbsent: true`
- *                   convention).
- *        - 'any' → fresh iff at least one declared signal is fresh
- *                  (stale iff EVERY declared signal exceeds its
- *                   threshold or is absent).
- *
- *   2. `contract === undefined` — two sub-cases:
- *        a. `lastActivityMinutes` absent → **fail-closed** (T66 /
- *           CR #6 / DIM-7): return `{ isStale: true, reason:
- *           'no-contract-no-signal' }`. Without a declared contract
- *           AND without an evidence signal, the safe default is to
- *           treat the workflow as stale (a candidate for pruning
- *           consideration), matching the design's "missing contract
- *           → degrade explicitly" principle.
- *        b. `lastActivityMinutes` present → fall back to the v2.9
- *           single-signal heuristic: stale iff
- *           `lastActivityMinutes > thresholdMinutes`. Mirrors the
- *           legacy path in
- *           `orchestrate/prune-stale-workflows.ts:selectPruneCandidates`
- *           (specifically, `hasSecondarySignal === false → isStale =
- *           lastActivityStale`). The strict `>` comparison is
- *           preserved so callers that switch from the legacy selector
- *           to this scorer observe identical verdicts.
+ * The v2.10 untyped heuristic fallback (when `contract` was undefined)
+ * was deleted in v2.11 (Phase 5c, DR-7). The topology loader now throws
+ * on any phase missing a `staleness` block, so callers that follow the
+ * canonical lifecycle wiring (loader → coordinator → scorer) cannot reach
+ * the scorer without a typed contract. Callers that construct a synthetic
+ * "no contract" call site are surfaced loudly via `scoreEntryThroughTopology`
+ * (see `coordinator.ts`).
  *
  * The scorer accepts numeric minutes rather than ISO timestamps so it
  * stays clock-free; the handler layer (T48) does the timestamp math.
@@ -42,43 +31,24 @@
 import type { PhaseContract, StalenessSignalName } from '../topology/phase-contract.js';
 
 /**
- * Default threshold (minutes) for the v2.9 fallback path. 20_160 = 14
- * days, matching `DEFAULT_THRESHOLD_MINUTES` in
- * `orchestrate/prune-stale-workflows.ts` and
- * `ResolvedProjectConfig.prune.staleAfterDays`'s default.
- */
-const DEFAULT_THRESHOLD_MINUTES = 20_160;
-
-/**
  * Pre-computed per-signal minute deltas. The scorer reads only the
  * signals named on the contract; extra fields are ignored (forward-
  * compatibility with future signals).
  *
- * `thresholdMinutes` is consulted only on the fallback (no-contract)
- * path. Contract-aware scoring uses the per-signal threshold from
- * `contract.signals[].thresholdMinutes`.
+ * Per-signal thresholds come from the typed contract
+ * (`contract.signals[].thresholdMinutes`); there is no caller-supplied
+ * default-threshold semantic in v2.11.
  */
 export interface StalenessState {
   lastActivityMinutes?: number;
   phaseTransitionMinutes?: number;
   branchActivityMinutes?: number;
-  /** Fallback threshold; only consulted when `contract === undefined`. */
-  thresholdMinutes?: number;
 }
 
 export interface StalenessScore {
   isStale: boolean;
-  /** Per-signal verdicts when scoring against a contract. Empty on fallback. */
+  /** Per-signal verdicts when scoring against a contract. */
   signalsEvaluated: Partial<Record<StalenessSignalName, boolean>>;
-  /**
-   * Optional diagnostic. Set to `'no-contract-no-signal'` when the
-   * fail-closed branch fires (T66 / CR #6 / DIM-7): no `PhaseContract`
-   * was supplied AND `state.lastActivityMinutes` was absent, so the
-   * scorer has neither a declared expectation nor evidence to measure
-   * against. In that case it returns `isStale: true` to fail-closed
-   * rather than fail-open. Absent on every other path.
-   */
-  reason?: 'no-contract-no-signal';
 }
 
 /**
@@ -101,37 +71,8 @@ function readSignalMinutes(
 
 export function scoreStaleness(
   state: StalenessState,
-  contract: PhaseContract | undefined,
+  contract: PhaseContract,
 ): StalenessScore {
-  if (contract === undefined) {
-    // T66 (CR #6 / DIM-7) — fail-closed when contract AND signal both
-    // absent. The pre-T66 code used `lastActivityMinutes ?? 0`, which
-    // treated a contractless phase with no activity signal as
-    // `isStale: false` for any threshold > 0 — i.e. fresh forever. That
-    // violates fail-closed: missing contract + missing signal = stale
-    // by default; this is intentional fail-closed behavior per DIM-7,
-    // mirroring the design's "missing contract → emit
-    // `phase.contract_missing` and degrade explicitly" principle.
-    // Degrading means erring toward staleness (a candidate for pruning
-    // consideration), not freshness. A real `lastActivityMinutes: 0`
-    // (just-happened) is evidence and goes through the v2.9 path
-    // unchanged.
-    if (state.lastActivityMinutes === undefined) {
-      return {
-        isStale: true,
-        signalsEvaluated: {},
-        reason: 'no-contract-no-signal',
-      };
-    }
-
-    // v2.9 fallback: single-signal threshold check on lastActivity.
-    const threshold = state.thresholdMinutes ?? DEFAULT_THRESHOLD_MINUTES;
-    return {
-      isStale: state.lastActivityMinutes > threshold,
-      signalsEvaluated: {},
-    };
-  }
-
   // Contract path: reduce per-signal staleness verdicts.
   const verdicts: Partial<Record<StalenessSignalName, boolean>> = {};
   for (const signal of contract.signals) {

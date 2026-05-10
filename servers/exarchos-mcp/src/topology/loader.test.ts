@@ -110,99 +110,23 @@ describe('TopologyLoader_LoadOnce_ReturnsImmutableTopology', () => {
   });
 });
 
-// ─── T47: phase.contract_missing emission on load ─────────────────────────────
-
-const PARTIAL_TOPOLOGY = `
-phases:
-  design:
-    staleness:
-      expectedMaxDwellMinutes: 60
-      freshnessRequires: all
-      signals:
-        - name: lastActivity
-          thresholdMinutes: 60
-  implement: {}
-  review: {}
-`;
-
-describe('Topology_StartupWithMissingContracts_EmitsPhaseContractMissingPerPhaseOnce', () => {
+// ─── T71: concurrent first-load must not duplicate parse work ─────────────────
+//
+// v2.10 history (CodeRabbit finding #11): two concurrent first-time callers
+// could both parse `topology.yaml` and both emit advisory
+// `phase.contract_missing` events. v2.11 (DR-7) deletes the advisory branch
+// entirely — the loader THROWS on missing contracts (see
+// `loader.dr7-removal.test.ts`). The Promise-cached singleton pattern is
+// preserved here for the happy-path: concurrent first-loads on a
+// well-formed topology must converge on a single parse and a single
+// `Topology` instance.
+describe('Topology_ConcurrentFirstLoad_SharesPromiseAndReturnsOneInstance', () => {
   beforeEach(() => {
     __resetTopologyCacheForTesting();
   });
 
-  it('emits phase.contract_missing exactly once per phase missing the staleness block', async () => {
-    const file = writeTopology(PARTIAL_TOPOLOGY);
-    const sink = makeEventSink();
-    await loadTopology({ topologyPath: file, emit: sink.emit });
-
-    const missing = sink.events.filter((e) => e.type === 'phase.contract_missing');
-    expect(missing).toHaveLength(2);
-    const phaseNames = missing.map((e) => (e.data as { phaseName: string }).phaseName).sort();
-    expect(phaseNames).toEqual(['implement', 'review']);
-  });
-
-  it('subsequent calls within the same process do NOT re-emit', async () => {
-    const file = writeTopology(PARTIAL_TOPOLOGY);
-    const sink = makeEventSink();
-    await loadTopology({ topologyPath: file, emit: sink.emit });
-    await loadTopology({ topologyPath: file, emit: sink.emit });
-    await loadTopology({ topologyPath: file, emit: sink.emit });
-
-    const missing = sink.events.filter((e) => e.type === 'phase.contract_missing');
-    expect(missing).toHaveLength(2);
-  });
-
-  it('falls back to a no-op when no emit function is provided (loader testable in isolation)', async () => {
-    const file = writeTopology(PARTIAL_TOPOLOGY);
-    // Should not throw; emission silently skipped.
-    const topology = await loadTopology({ topologyPath: file });
-    expect(topology.phases.implement.staleness).toBeUndefined();
-    expect(topology.phases.review.staleness).toBeUndefined();
-  });
-
-  it('emits no events when every phase has a contract', async () => {
+  it('N concurrent loadTopology() calls converge on the same cached Topology instance', async () => {
     const file = writeTopology(COMPLETE_TOPOLOGY);
-    const sink = makeEventSink();
-    await loadTopology({ topologyPath: file, emit: sink.emit });
-    expect(sink.events.filter((e) => e.type === 'phase.contract_missing')).toHaveLength(0);
-  });
-});
-
-// ─── T71: concurrent first-load must not duplicate parse / emission ───────────
-//
-// CodeRabbit finding #11 (Major) — `loadTopology()` only checks the `cached`
-// field. Two concurrent first-time callers can both pass the `!cached` check,
-// both parse `topology.yaml`, and both emit `phase.contract_missing` per
-// missing phase before either assigns `cached`. INV-1 says the same trigger
-// (one startup) must yield the same number of events; the race violates this.
-//
-// Fix mirrors T63's Promise-cached singleton pattern in `atomic-appender.ts`.
-describe('Topology_ConcurrentFirstLoad_DoesNotDuplicateContractMissingEmission', () => {
-  beforeEach(() => {
-    __resetTopologyCacheForTesting();
-  });
-
-  it('two concurrent loadTopology() calls emit phase.contract_missing exactly once per missing phase', async () => {
-    const file = writeTopology(PARTIAL_TOPOLOGY);
-    const sink = makeEventSink();
-
-    const [a, b] = await Promise.all([
-      loadTopology({ topologyPath: file, emit: sink.emit }),
-      loadTopology({ topologyPath: file, emit: sink.emit }),
-    ]);
-
-    // Both callers see the same Topology instance (cache invariant).
-    expect(b).toBe(a);
-
-    // Two missing phases (`implement`, `review`) — exactly two emissions.
-    const missing = sink.events.filter((e) => e.type === 'phase.contract_missing');
-    expect(missing).toHaveLength(2);
-    const phaseNames = missing.map((e) => (e.data as { phaseName: string }).phaseName).sort();
-    expect(phaseNames).toEqual(['implement', 'review']);
-  });
-
-  it('N concurrent loadTopology() calls emit phase.contract_missing exactly once per missing phase', async () => {
-    const file = writeTopology(PARTIAL_TOPOLOGY);
     const sink = makeEventSink();
 
     const N = 8;
@@ -210,13 +134,11 @@ describe('Topology_ConcurrentFirstLoad_DoesNotDuplicateContractMissingEmission',
       Array.from({ length: N }, () => loadTopology({ topologyPath: file, emit: sink.emit })),
     );
 
-    // All callers converge on the same Topology instance.
     for (const r of results) {
       expect(r).toBe(results[0]);
     }
-
-    // Still exactly two emissions despite N first-callers.
-    const missing = sink.events.filter((e) => e.type === 'phase.contract_missing');
-    expect(missing).toHaveLength(2);
+    // No phase.contract_missing emissions on the v2.11 path (the loader
+    // never emits — it throws or it succeeds).
+    expect(sink.events.filter((e) => e.type === 'phase.contract_missing')).toHaveLength(0);
   });
 });
