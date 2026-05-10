@@ -1,11 +1,11 @@
-// ─── Task 022: End-to-End Acceptance — `exarchos doctor` CLI ────────────────
+// ─── Task 022: End-to-End Acceptance — `exarchos doctor` ────────────────────
 //
-// Spawns the real doctor CLI (`tsx src/index.ts doctor --json`) against an
-// isolated temp project directory with a pinned HOME, and asserts:
+// Drives `handleDoctor` directly against an isolated temp project directory
+// with a pinned HOME and `process.cwd()`, and asserts:
 //
-//   1. The emitted DoctorOutput validates against the Zod schema exported
-//      from `orchestrate/doctor/schema.ts` (contract pin — the CLI cannot
-//      drift from the MCP output shape, DR-3).
+//   1. The returned ToolResult.data validates against the Zod schema
+//      exported from `orchestrate/doctor/schema.ts` (contract pin —
+//      handler output cannot drift from the MCP wire shape, DR-3).
 //   2. In a fresh project with no `.claude/` config, at least one non-Pass
 //      check produces a `fix` string suggesting an init-style remediation
 //      (`exarchos init`, `git init`, `mkdir .exarchos`, etc.).
@@ -13,107 +13,80 @@
 //      the agent-config-valid + agent-mcp-registered checks pass and the
 //      overall run is mostly-Pass (no Fails).
 //
-// Why spawn the real CLI rather than call `handleDoctor` directly: the
-// unit + composer tests already cover handler wiring. This test pins the
-// surface that operators actually invoke — the `#!/usr/bin/env node`
-// entry, Commander routing, exit-code mapping, and `--json` output path.
-// Any regression in the top-level `exarchos doctor` verb would escape the
-// existing suite; this test is the final gate.
+// History: a previous version of this test spawned `tsx src/index.ts doctor
+// --json` to pin the operator-facing CLI entry (Commander routing, exit-code
+// mapping, --json output path). That subprocess approach broke when the
+// substrate flipped to `bun:sqlite` for the SQLite backend — `tsx` runs under
+// Node, which rejects the `bun:` URL scheme with
+// `ERR_UNSUPPORTED_ESM_URL_SCHEME`. Issue #1324 tracked the migration.
+//
+// In-process model: `initializeContext(stateDir)` builds a real
+// DispatchContext (real EventStore, real backend), then `handleDoctor`
+// composes the canonical 10-check list against `buildProbes(ctx)` — i.e.
+// the same probe bundle the production handler uses. HOME and `process.cwd`
+// are overridden for the test duration so the claude-code detector and
+// `vcsGitAvailable` see only the test fixture filesystem.
+//
+// Coverage caveat: this no longer exercises Commander routing, the
+// `#!/usr/bin/env node` shebang, `--json` formatting, or the CLI's
+// exit-code mapping. Those are CLI-adapter contracts; the per-check
+// unit tests + the composer tests
+// (`orchestrate/doctor/index.test.ts`) already cover the handler.
+// Pinning the CLI surface is tracked as a follow-up — see #1324 close
+// notes — and would be reintroduced via an in-process Commander harness
+// rather than a tsx spawn.
 //
 // Isolation discipline:
-//   - `HOME` is overridden to the temp dir so the claude-code detector
-//     looks for `$TMP/.claude.json` rather than the developer's real one.
-//   - `WORKFLOW_STATE_DIR` pins the state directory inside the temp tree
-//     so the spawned process never touches `~/.exarchos/`.
+//   - `HOME`/`USERPROFILE` are stubbed to the temp dir so the claude-code
+//     detector looks for `$TMP/.claude.json` rather than the developer's
+//     real one.
+//   - `process.cwd` is stubbed to the project temp dir for the lifetime
+//     of each test so the detector + `vcsGitAvailable` only see fixture
+//     state.
+//   - The state directory is pinned inside the project tree so the test
+//     never touches `~/.exarchos/`.
 //   - Each test gets a fresh `mkdtemp` and `fs.rm` teardown.
-//
-// Cost note: spawning `tsx src/index.ts` pays the full cold-start (sqlite
-// hydration, migration scan, command registration). Keeping these tests
-// to two scenarios is intentional — richer per-check coverage belongs in
-// the unit tests.
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { spawn } from 'node:child_process';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as os from 'node:os';
-import { fileURLToPath } from 'node:url';
 
 import { DoctorOutputSchema, type DoctorOutput } from '../../orchestrate/doctor/schema.js';
+import { handleDoctor } from '../../orchestrate/doctor/index.js';
+import { initializeContext } from '../../core/context.js';
 import type { ToolResult } from '../../format.js';
 
 // ─── Harness ────────────────────────────────────────────────────────────────
 
-const HERE = path.dirname(fileURLToPath(import.meta.url));
-// MCP server root = .../servers/exarchos-mcp/src/__tests__/integration → up 3.
-const MCP_ROOT = path.resolve(HERE, '..', '..', '..');
-const TSX_BIN = path.join(MCP_ROOT, 'node_modules', '.bin', 'tsx');
-const CLI_ENTRY = path.join(MCP_ROOT, 'src', 'index.ts');
-
-interface SpawnResult {
-  readonly exitCode: number;
-  readonly stdout: string;
-  readonly stderr: string;
+interface DoctorRunResult {
+  readonly result: ToolResult;
 }
 
 /**
- * Spawn `exarchos doctor --json` in the given project dir with HOME
- * pinned to `homeDir` and WORKFLOW_STATE_DIR pinned inside the project
- * tree. Resolves with stdout/stderr/exitCode; never rejects on a
- * non-zero exit (callers assert on the code explicitly).
+ * Run `handleDoctor` in-process against the given fixture, with HOME and
+ * cwd pinned for the duration of the call. The state directory lives
+ * inside the project tree so the test never touches `~/.exarchos/`.
  */
-function spawnDoctor(projectDir: string, homeDir: string): Promise<SpawnResult> {
-  return new Promise((resolve, reject) => {
-    const child = spawn(
-      TSX_BIN,
-      [CLI_ENTRY, 'doctor', '--json'],
-      {
-        cwd: projectDir,
-        stdio: ['ignore', 'pipe', 'pipe'],
-        env: {
-          // Minimal env — avoid leaking unrelated EXARCHOS_* vars from
-          // the parent that would trigger the env-variables check's
-          // unknown-variable Warning path.
-          PATH: process.env.PATH,
-          NODE_OPTIONS: process.env.NODE_OPTIONS,
-          HOME: homeDir,
-          USERPROFILE: homeDir,
-          WORKFLOW_STATE_DIR: path.join(projectDir, '.exarchos'),
-          EXARCHOS_LOG_LEVEL: 'silent',
-          EXARCHOS_TELEMETRY: 'false',
-        },
-      },
-    );
+async function runDoctor(projectDir: string, homeDir: string): Promise<DoctorRunResult> {
+  // Stub HOME/USERPROFILE for the detector and any check that resolves
+  // home-relative paths. `vi.stubEnv` auto-restores in `afterEach` via
+  // the per-test cleanup hook (vitest 1.x+).
+  vi.stubEnv('HOME', homeDir);
+  vi.stubEnv('USERPROFILE', homeDir);
 
-    const stdoutChunks: Buffer[] = [];
-    const stderrChunks: Buffer[] = [];
-    child.stdout.on('data', (c: Buffer) => stdoutChunks.push(c));
-    child.stderr.on('data', (c: Buffer) => stderrChunks.push(c));
+  // Stub `process.cwd` for the detector + vcsGitAvailable check, which
+  // both read it directly. `vi.spyOn` is auto-restored by the standard
+  // test cleanup.
+  const cwdSpy = vi.spyOn(process, 'cwd').mockReturnValue(projectDir);
 
-    child.on('error', reject);
-    child.on('close', (exitCode) => {
-      resolve({
-        exitCode: exitCode ?? -1,
-        stdout: Buffer.concat(stdoutChunks).toString('utf-8'),
-        stderr: Buffer.concat(stderrChunks).toString('utf-8'),
-      });
-    });
-  });
-}
-
-/**
- * Parse the last non-empty line of stdout as a ToolResult. The CLI may
- * emit a trailing newline and some log lines can slip through despite
- * `EXARCHOS_LOG_LEVEL=silent` on older machines; anchoring to the last
- * JSON-looking line keeps the test robust without over-specifying the
- * adapter's output shape.
- */
-function parseToolResult(stdout: string): ToolResult {
-  const lines = stdout.trim().split('\n').filter((l) => l.trim().length > 0);
-  // The CLI writes a single JSON line per invocation; take the last one
-  // so any stray log preamble doesn't confuse the parser.
-  const last = lines[lines.length - 1] ?? '';
-  return JSON.parse(last) as ToolResult;
+  try {
+    const ctx = await initializeContext(path.join(projectDir, '.exarchos'));
+    const result = await handleDoctor({}, ctx);
+    return { result };
+  } finally {
+    cwdSpy.mockRestore();
+  }
 }
 
 // ─── Fixtures ───────────────────────────────────────────────────────────────
@@ -130,6 +103,8 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  vi.unstubAllEnvs();
+  vi.restoreAllMocks();
   await Promise.all([
     fs.rm(projectDir, { recursive: true, force: true }),
     fs.rm(homeDir, { recursive: true, force: true }),
@@ -139,28 +114,19 @@ afterEach(async () => {
 // ─── Tests ──────────────────────────────────────────────────────────────────
 
 describe('doctor end-to-end acceptance (task 022)', () => {
-  // Skipped pending #1324: subprocess test harness fails to load `bun:sqlite`
-  // under Node (ERR_UNSUPPORTED_ESM_URL_SCHEME). Pre-existing infra failure,
-  // not a regression from the v2.10 substrate flip.
-  it.skip('Doctor_FreshProjectWithNoClaudeConfig_ReturnsExpectedShape', async () => {
+  it('Doctor_FreshProjectWithNoClaudeConfig_ReturnsExpectedShape', async () => {
     // Arrange: project dir is empty — no `.claude/`, no `.claude.json`,
     // no git repo. HOME is an empty mkdtemp so the claude-code detector
     // sees no `$HOME/.claude.json` either.
 
     // Act
-    const { exitCode, stdout } = await spawnDoctor(projectDir, homeDir);
+    const { result } = await runDoctor(projectDir, homeDir);
 
-    // Assert: the CLI produced parseable JSON. Exit code may be 0
-    // (warnings only) or 2 (any check failed) — both are valid for a
-    // fresh project; the shape contract is the load-bearing assertion.
-    expect([0, 2]).toContain(exitCode);
-
-    const result = parseToolResult(stdout);
     expect(result.success).toBe(true);
 
-    // Shape pin: the CLI's JSON must validate against the same Zod
+    // Shape pin: the handler output must validate against the same Zod
     // schema the MCP adapter projects through. Any divergence breaks
-    // the CLI/MCP parity contract (DR-3).
+    // the wire contract (DR-3).
     const parsed = DoctorOutputSchema.safeParse(result.data);
     expect(parsed.success).toBe(true);
     if (!parsed.success) return; // narrow for TS below
@@ -208,10 +174,7 @@ describe('doctor end-to-end acceptance (task 022)', () => {
     }
   }, 30_000);
 
-  // Skipped pending #1324: subprocess test harness fails to load `bun:sqlite`
-  // under Node (ERR_UNSUPPORTED_ESM_URL_SCHEME). Pre-existing infra failure,
-  // not a regression from the v2.10 substrate flip.
-  it.skip('Doctor_ProjectWithClaudeJsonAndExarchosMcp_ReturnsMostlyPass', async () => {
+  it('Doctor_ProjectWithClaudeJsonAndExarchosMcp_ReturnsMostlyPass', async () => {
     // Arrange: stage a minimal valid `$HOME/.claude.json` that registers
     // `mcpServers.exarchos`. This is the single wiring the claude-code
     // detector reads (see `runtime/agent-environment-detector.ts`). No
@@ -232,13 +195,11 @@ describe('doctor end-to-end acceptance (task 022)', () => {
     );
 
     // Act
-    const { exitCode, stdout } = await spawnDoctor(projectDir, homeDir);
+    const { result } = await runDoctor(projectDir, homeDir);
 
     // Assert: a zero-failure run. Warnings (e.g. missing git repo) are
     // still acceptable — the guarantee is no Fails, and the two agent
     // checks flip to Pass now that a valid config is present.
-    expect(exitCode).toBe(0);
-    const result = parseToolResult(stdout);
     expect(result.success).toBe(true);
 
     const parsed = DoctorOutputSchema.safeParse(result.data);
