@@ -44,7 +44,9 @@ import {
 import {
   RehydrationDocumentSchema,
   type RehydrationDocument,
+  type RehydrationDocumentV3,
 } from '../projections/rehydration/schema.js';
+import { loadRehydrationDocument } from '../projections/rehydration/serialize.js';
 import { SnapshotRecord } from '../projections/snapshot-schema.js';
 import type { ProjectionReducer } from '../projections/types.js';
 import { composePhasePlaybook } from './playbooks.js';
@@ -512,14 +514,19 @@ export async function handleRehydrate(
     });
   }
 
-  let document: RehydrationDocument =
+  // Route v:1/v:2 snapshots through the upgrade chain so the in-memory
+  // document is always v:3 — handler-time `phasePlaybook` composition (T-20)
+  // assumes the v:3 envelope shape. Cold-start (no snapshot) seeds from the
+  // reducer's v:3 initial directly. Reducer.apply preserves v:3 by contract;
+  // the cast below pins that for the local variable.
+  let document: RehydrationDocumentV3 =
     snapshot !== undefined
-      ? (snapshot.state as RehydrationDocument)
-      : rehydrationReducer.initial;
+      ? loadRehydrationDocument(snapshot.state)
+      : (rehydrationReducer.initial as RehydrationDocumentV3);
 
   try {
     for (const ev of tailEvents) {
-      document = rehydrationReducer.apply(document, ev);
+      document = rehydrationReducer.apply(document, ev) as RehydrationDocumentV3;
     }
   } catch (err) {
     // Log the underlying throwable BEFORE delegating so audit / oncall

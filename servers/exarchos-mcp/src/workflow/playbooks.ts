@@ -13,7 +13,7 @@ export interface ToolInstruction {
 export interface EventInstruction {
   readonly type: string;
   readonly when: string;
-  readonly fields?: readonly string[];
+  readonly fields?: string[];
 }
 
 /**
@@ -1400,8 +1400,12 @@ export interface SerializedPlaybooks {
 export interface SerializedPhasePlaybook {
   readonly skill: string;
   readonly skillRef: string;
-  readonly tools: readonly ToolInstruction[];
-  readonly events: readonly EventInstruction[];
+  // Array-level readonly dropped so this matches the schema-inferred
+  // type at `RehydrationDocumentV3['phasePlaybook']` (PhasePlaybookSchema's
+  // arrays are mutable). Element-level readonly modifiers stay on
+  // ToolInstruction / EventInstruction — only the array container is mutable.
+  readonly tools: ToolInstruction[];
+  readonly events: EventInstruction[];
   /**
    * Auto-emitted event surface for delegate-shaped phases (#1227, T6).
    * Carried through serialization so CLI describe / telemetry / agent
@@ -1409,10 +1413,10 @@ export interface SerializedPhasePlaybook {
    * phase contract. Phases without auto-emit leave this undefined —
    * explicit absence (not `[]`) keeps the contract minimal.
    */
-  readonly autoEmittedEvents?: readonly AutoEmittedEventInstruction[];
+  readonly autoEmittedEvents?: AutoEmittedEventInstruction[];
   readonly transitionCriteria: string;
   readonly guardPrerequisites: string;
-  readonly validationScripts: readonly string[];
+  readonly validationScripts: string[];
   readonly humanCheckpoint: boolean;
   readonly compactGuidance: string;
 }

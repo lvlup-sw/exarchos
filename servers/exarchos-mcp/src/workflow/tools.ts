@@ -1417,7 +1417,7 @@ export async function handleCheckpoint(
   // null explicitly rather than omitting the field — CLI/SDK renderers
   // spread the value without an `undefined` guard.
   const phasePlaybook = composePhasePlaybook(
-    mutableState.workflowType,
+    state.workflowType as string,
     state.phase,
   );
 
