@@ -901,6 +901,29 @@ export class SqliteBackend implements StorageBackend {
     );
   }
 
+  // ─── Stream Registry (Marten R-1, #1313) ────────────────────────────────
+
+  /**
+   * Insert a row into the typed-stream registry. Idempotent via
+   * INSERT OR IGNORE — re-calling for an already-registered stream is a
+   * no-op so the registry row's `workflow_type` cannot be overwritten by
+   * a subsequent init call. (The column is immutable post-insert; task 1.7
+   * adds a CI grep gate forbidding `UPDATE streams SET workflow_type`.)
+   *
+   * Called by `handleInit` (workflow/tools.ts) once per stream creation.
+   * The migration's V3 → V4 backfill leaves a `__legacy` sentinel for
+   * pre-existing streams; this method writes the explicit value passed by
+   * the caller on the new-stream path.
+   */
+  registerStream(streamId: string, workflowType: string): void {
+    this.db
+      .prepare(
+        `INSERT OR IGNORE INTO streams (streamId, workflow_type, createdAt)
+         VALUES (?, ?, ?)`,
+      )
+      .run(streamId, workflowType, new Date().toISOString());
+  }
+
   // ─── State Operations ───────────────────────────────────────────────────
 
   getState(featureId: string): WorkflowState | null {

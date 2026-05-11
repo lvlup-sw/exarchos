@@ -771,6 +771,23 @@ export class EventStore {
   }
 
   /**
+   * Register a stream in the typed-stream registry (Marten R-1, #1313).
+   * Idempotent: re-calling for the same streamId leaves the registry row
+   * untouched. The workflow_type column is immutable post-insert — a CI
+   * grep gate (task 1.7) forbids any UPDATE that would mutate it.
+   *
+   * Backends without a typed-stream registry (in-memory test fixtures,
+   * remote stubs) omit `registerStream`; in that case this method is a
+   * no-op so callers like `handleInit` can run identically against any
+   * backend.
+   */
+  registerStream(streamId: string, workflowType: string): void {
+    const backend = this.getReadBackend();
+    if (typeof backend.registerStream !== 'function') return;
+    backend.registerStream(streamId, workflowType);
+  }
+
+  /**
    * Run a narrow backend integrity probe with bounded wall time.
    *
    * This is the only public entry point for the doctor

@@ -183,6 +183,21 @@ export async function handleInit(
           },
         };
       }
+
+      // Marten R-1 (#1313): register the stream's typed row immediately
+      // after the workflow.started event lands. Ordering matters — if the
+      // event append fails we already returned above; if registerStream
+      // throws we still proceed to state-file creation since the registry
+      // is an observability/filtering aid (v2.12 ps), not load-bearing for
+      // the workflow.started → state.json sequence. INSERT OR IGNORE makes
+      // this idempotent against handleInit retries.
+      try {
+        eventStore.registerStream(input.featureId, input.workflowType);
+      } catch {
+        // Swallow registry write errors. The streams table is a read-side
+        // index for filtered queries; failing to register a stream produces
+        // a missing row in v2.12's ps view, not a broken workflow.
+      }
     }
 
     // Oneshot-only: thread `synthesisPolicy` into the initial state under

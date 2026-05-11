@@ -128,4 +128,18 @@ export interface StorageBackend {
    * only need to observe abort.
    */
   runIntegrityPragma?(signal?: AbortSignal): Promise<string>;
+
+  /**
+   * Register a stream in the typed-stream registry (Marten R-1, #1313).
+   * Inserts one row into the `streams` table carrying the workflow type.
+   * Optional — only backends with a typed-stream registry implement this;
+   * in-memory and other backends omit it and the caller (EventStore.registerStream)
+   * treats absence as a no-op.
+   *
+   * Idempotent: calling twice for the same streamId leaves the original row
+   * untouched (INSERT OR IGNORE). The column is immutable — a CI grep gate
+   * (task 1.7) forbids `UPDATE streams SET workflow_type` outside of the
+   * migration's recovery path.
+   */
+  registerStream?(streamId: string, workflowType: string): void;
 }
