@@ -85,7 +85,19 @@ export interface PruneCandidate {
 
 export interface PruneExclusion {
   featureId: string;
-  reason: 'terminal' | 'fresh' | 'oneshot-excluded' | 'phase-excluded';
+  /**
+   * Why the entry was excluded from prune candidates.
+   * - `terminal`             — phase is a terminal node (completed/cancelled)
+   * - `fresh`                — staleness contract verdict was "fresh"
+   * - `oneshot-excluded`     — `config.includeOneShot === false` and entry is oneshot
+   * - `phase-excluded`       — caller-supplied `config.phaseExclusions` matched
+   * - `phase-not-in-topology` — entry's recorded phase is absent from the loaded
+   *                            topology (e.g. topology.yaml renamed/removed the
+   *                            phase after the workflow started). DIM-7
+   *                            resilience: skip this entry rather than crashing
+   *                            the batch on the scorer's throw.
+   */
+  reason: 'terminal' | 'fresh' | 'oneshot-excluded' | 'phase-excluded' | 'phase-not-in-topology';
 }
 
 export interface PruneSelection {
@@ -180,6 +192,18 @@ export function selectPruneCandidates(
 
     if (!includeOneShot && entry.workflowType === 'oneshot') {
       excluded.push({ featureId: entry.featureId, reason: 'oneshot-excluded' });
+      continue;
+    }
+
+    // Sentry #1338 (HIGH): topology.yaml can rename or drop phases while
+    // active workflows still reference the old name; without this guard,
+    // `scoreEntryThroughTopology` throws on the first orphan-phase entry
+    // and crashes the entire batch. Pre-check the phase so we can return
+    // a structured `phase-not-in-topology` exclusion and continue with
+    // the rest of the workflows. DIM-7 resilience; INV-5b spec-aligned
+    // output contract (agent callers get structured results, not throws).
+    if (topology.phases[entry.phase] === undefined) {
+      excluded.push({ featureId: entry.featureId, reason: 'phase-not-in-topology' });
       continue;
     }
 

@@ -399,6 +399,41 @@ describe('selectPruneCandidates', () => {
   // staleness decisions to `scoreEntryThroughTopology`. This test asserts
   // the topology argument exists AND its verdict — not the legacy
   // heuristic — drives candidate selection.
+  // Sentry #1338 review (HIGH): if topology.yaml renames/removes a phase
+  // while a workflow still references the old name, `scoreEntryThroughTopology`
+  // throws — and without per-entry isolation that throw bubbles out of
+  // `selectPruneCandidates` and crashes the entire `handlePruneStaleWorkflows`
+  // batch (no workflows pruned at all). The selector must instead record
+  // the orphan-phase entry as a structured exclusion and keep going for
+  // the rest of the batch. DIM-7 resilience; INV-5b spec-aligned output.
+  it('SelectPruneCandidates_EntryWithPhaseAbsentFromTopology_ExcludedNotThrown', () => {
+    const topology = buildTestTopology(); // declares implementing/plan/etc., NOT 'legacy_phase'
+    const entries: WorkflowListEntry[] = [
+      // Orphan-phase entry — should be excluded, not crash the batch.
+      makeEntry({
+        featureId: 'orphan',
+        phase: 'legacy_phase',
+        lastActivityTimestamp: minutesAgo(30_000),
+      }),
+      // Stale entry on a valid phase — must still be selected as a candidate.
+      makeEntry({
+        featureId: 'valid-stale',
+        phase: 'implementing',
+        lastActivityTimestamp: minutesAgo(30_000),
+      }),
+    ];
+
+    // The selector must NOT throw — the prior implementation propagated
+    // the scorer's exception. The new implementation pre-checks the
+    // topology and emits an exclusion.
+    const { candidates, excluded } = selectPruneCandidates(entries, topology, {}, NOW);
+
+    expect(candidates.map((c) => c.featureId)).toEqual(['valid-stale']);
+    const orphan = excluded.find((e) => e.featureId === 'orphan');
+    expect(orphan).toBeDefined();
+    expect(orphan?.reason).toBe('phase-not-in-topology');
+  });
+
   it('SelectPruneCandidates_WithTopologyArgument_ReturnsCandidatesScoredByPhaseContract', () => {
     // Topology: phase 'implementing' declares two signals with a 60-minute
     // threshold and `freshnessRequires: 'all'`. With 'all', the entry is
