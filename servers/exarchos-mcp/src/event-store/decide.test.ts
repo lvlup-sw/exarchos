@@ -1,10 +1,12 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 
 import { AtomicAppender } from './atomic-appender.js';
 import { EventStore } from './store.js';
+import { ConcurrencyError } from './concurrency-error.js';
+import { StorageBusyError } from './storage-busy-error.js';
 import { InvalidReducerScopeError } from '../projections/store.js';
 import {
   createRegistry,
@@ -204,5 +206,324 @@ describe('decide<TState> — scope discipline (Task 3.4)', () => {
         { registry },
       ),
     ).rejects.toThrow(/no-such-reducer@v1/);
+  });
+});
+
+describe('decide<TState> — storage_busy translation (Task 3.5a)', () => {
+  let stateDir: string;
+  let eventStore: EventStore;
+  let appender: AtomicAppender;
+  let registry: ProjectionRegistry;
+  const streamId = 'feature/decide-storage-busy';
+
+  beforeEach(async () => {
+    stateDir = await mkdtemp(path.join(tmpdir(), 'decide-busy-test-'));
+    eventStore = new EventStore(stateDir);
+    await eventStore.initialize();
+    appender = eventStore.getAppender() as AtomicAppender;
+    registry = createRegistry();
+    registry.register(
+      makeFixtureReducer('fixture@v1', 'stream') as unknown as Parameters<
+        typeof registry.register
+      >[0],
+    );
+  });
+
+  afterEach(async () => {
+    await rm(stateDir, { recursive: true, force: true });
+  });
+
+  it('Decide_ThrowsStorageBusyError_WhenSubstrateRetryBudgetExhausts', async () => {
+    // Seed one event so the fold has something to work with.
+    await seedStream(eventStore, streamId, 1);
+
+    // Inject a substrate fault by patching appendComputed on the
+    // appender to force a storage_busy AppendResult. This is the
+    // smallest fault-injection surface that exercises the translation
+    // branch in isolation, mirroring the pattern documented in
+    // atomic-appender.ts near the public test-fault-injection seam.
+    const cause = new Error('SQLITE_BUSY');
+    const original = appender.appendComputed.bind(appender);
+    appender.appendComputed = vi.fn(async () => ({
+      ok: false,
+      reason: 'storage_busy' as const,
+      cause,
+    }));
+
+    try {
+      await appender.decide<FixtureState>(
+        streamId,
+        'fixture@v1',
+        () => [{ type: 'task.completed', data: { taskId: 'T-1' } }],
+        { registry },
+      );
+      expect.fail('decide should have thrown StorageBusyError');
+    } catch (err) {
+      expect(err).toBeInstanceOf(StorageBusyError);
+      const sbe = err as StorageBusyError;
+      expect(sbe.streamId).toBe(streamId);
+      // Attempts default to SQLITE_BUSY_RETRY_POLICY.maxAttempts (5).
+      expect(sbe.attempts).toBe(5);
+      expect(sbe.cause).toBe(cause);
+    } finally {
+      appender.appendComputed = original;
+    }
+  });
+});
+
+describe('decide<TState> — empty events + alwaysEnforceConsistency (Task 3.6)', () => {
+  let stateDir: string;
+  let eventStore: EventStore;
+  let appender: AtomicAppender;
+  let registry: ProjectionRegistry;
+  const streamId = 'feature/decide-empty-occ';
+
+  beforeEach(async () => {
+    stateDir = await mkdtemp(path.join(tmpdir(), 'decide-empty-test-'));
+    eventStore = new EventStore(stateDir);
+    await eventStore.initialize();
+    appender = eventStore.getAppender() as AtomicAppender;
+    registry = createRegistry();
+    registry.register(
+      makeFixtureReducer('fixture@v1', 'stream') as unknown as Parameters<
+        typeof registry.register
+      >[0],
+    );
+  });
+
+  afterEach(async () => {
+    await rm(stateDir, { recursive: true, force: true });
+  });
+
+  it('Decide_TriggersOccCheck_WhenDecideReturnsEmptyEventsByDefault', async () => {
+    // Stream at version 3 before decide runs.
+    await seedStream(eventStore, streamId, 3);
+
+    // External-write injection between fold and the empty-events
+    // re-check: run inside the closure, routed via a SEPARATE appender
+    // sharing the backend so we don't deadlock on the per-stream mutex.
+    const backend = appender.ensureSqliteBackendSync();
+    const sideAppender = new AtomicAppender({
+      stateDir,
+      sqliteBackend: backend,
+    });
+
+    let advanced = false;
+    await expect(
+      appender.decide<FixtureState>(
+        streamId,
+        'fixture@v1',
+        async () => {
+          if (!advanced) {
+            advanced = true;
+            const r = await sideAppender.appendUnkeyed(streamId, [
+              { type: 'task.assigned', data: { taskId: 'T-ext' } },
+            ]);
+            expect(r.ok).toBe(true);
+          }
+          // Return empty so the OCC re-check fires.
+          return [];
+        },
+        { registry },
+      ),
+    ).rejects.toBeInstanceOf(ConcurrencyError);
+
+    // Re-issue for field inspection.
+    try {
+      let injected = false;
+      await appender.decide<FixtureState>(
+        streamId,
+        'fixture@v1',
+        async () => {
+          if (!injected) {
+            injected = true;
+            await sideAppender.appendUnkeyed(streamId, [
+              { type: 'task.assigned', data: { taskId: 'T-ext-2' } },
+            ]);
+          }
+          return [];
+        },
+        { registry },
+      );
+      expect.fail('decide should have re-thrown ConcurrencyError');
+    } catch (err) {
+      expect(err).toBeInstanceOf(ConcurrencyError);
+      const ce = err as ConcurrencyError;
+      expect(ce.expectedVersion).toBeLessThan(ce.actualVersion);
+    }
+  });
+
+  it('Decide_SkipsOccCheck_WhenAlwaysEnforceConsistencyFalse', async () => {
+    await seedStream(eventStore, streamId, 1);
+
+    const backend = appender.ensureSqliteBackendSync();
+    const sideAppender = new AtomicAppender({
+      stateDir,
+      sqliteBackend: backend,
+    });
+
+    // Empty events + alwaysEnforceConsistency:false — success even
+    // though the tail moved.
+    const result = await appender.decide<FixtureState>(
+      streamId,
+      'fixture@v1',
+      async () => {
+        await sideAppender.appendUnkeyed(streamId, [
+          { type: 'task.assigned', data: { taskId: 'T-ext' } },
+        ]);
+        return [];
+      },
+      { registry, alwaysEnforceConsistency: false },
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.kind).toBe('no-op');
+  });
+
+  it('Decide_NoOpSuccess_WhenEmptyEventsAndNoExternalAdvance', async () => {
+    await seedStream(eventStore, streamId, 1);
+
+    // Default alwaysEnforceConsistency=true — but no advance during fold.
+    const result = await appender.decide<FixtureState>(
+      streamId,
+      'fixture@v1',
+      () => [],
+      { registry },
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.kind).toBe('no-op');
+    expect(result.sequences).toEqual([]);
+  });
+});
+
+describe('decide<TState> — single-key-per-call idempotency (Task 3.7)', () => {
+  let stateDir: string;
+  let eventStore: EventStore;
+  let appender: AtomicAppender;
+  let registry: ProjectionRegistry;
+  const streamId = 'feature/decide-idem';
+
+  beforeEach(async () => {
+    stateDir = await mkdtemp(path.join(tmpdir(), 'decide-idem-test-'));
+    eventStore = new EventStore(stateDir);
+    await eventStore.initialize();
+    appender = eventStore.getAppender() as AtomicAppender;
+    registry = createRegistry();
+    registry.register(
+      makeFixtureReducer('fixture@v1', 'stream') as unknown as Parameters<
+        typeof registry.register
+      >[0],
+    );
+  });
+
+  afterEach(async () => {
+    await rm(stateDir, { recursive: true, force: true });
+  });
+
+  it('Decide_DeducesEventsAcrossRetries_WhenOperationIdSupplied', async () => {
+    await seedStream(eventStore, streamId, 1);
+    const tailAtFetch = 1;
+
+    const threeEvents = [
+      { type: 'task.assigned', data: { taskId: 'T-a' } },
+      { type: 'task.assigned', data: { taskId: 'T-b' } },
+      { type: 'task.completed', data: { taskId: 'T-b' } },
+    ];
+
+    // Spy on appendComputed to count invocations. Audit §F1.3: exactly
+    // ONE invocation per call (one transaction, N events). The cache
+    // hit for the retry surfaces inside appendComputed itself, but the
+    // call still happens (the cache short-circuit is downstream of
+    // appendComputed's outer invocation in the current architecture).
+    const original = appender.appendComputed.bind(appender);
+    const spy = vi.fn(original);
+    appender.appendComputed = spy;
+
+    try {
+      const first = await appender.decide<FixtureState>(
+        streamId,
+        'fixture@v1',
+        () => threeEvents,
+        { registry, operationId: 'op-1' },
+      );
+      expect(first.ok).toBe(true);
+      if (!first.ok) return;
+      expect(first.sequences).toEqual([
+        tailAtFetch + 1,
+        tailAtFetch + 2,
+        tailAtFetch + 3,
+      ]);
+
+      // Second call with same operationId: short-circuits to a cache
+      // hit; no additional events committed.
+      const second = await appender.decide<FixtureState>(
+        streamId,
+        'fixture@v1',
+        () => threeEvents,
+        { registry, operationId: 'op-1' },
+      );
+      expect(second.ok).toBe(true);
+      if (!second.ok) return;
+      expect(second.sequences).toEqual([
+        tailAtFetch + 1,
+        tailAtFetch + 2,
+        tailAtFetch + 3,
+      ]);
+
+      // The substrate's idempotency_claims row carries the multi-event
+      // payload under the single derived key.
+      const backend = appender.getSqliteBackend();
+      if (!backend) throw new Error('backend missing');
+      const claim = backend.lookupIdempotencyClaim(
+        streamId,
+        `${streamId}:fixture@v1:op-1`,
+      );
+      expect(claim).toBeDefined();
+      if (!claim) return;
+      expect(claim.eventIds.length).toBe(3);
+      expect(claim.sequences.length).toBe(3);
+      expect(claim.timestamps.length).toBe(3);
+
+      // Stream tail advanced by exactly the original 3-event commit.
+      const events = await eventStore.query(streamId);
+      // 1 seed + 3 decide events = 4.
+      expect(events).toHaveLength(4);
+
+      // Audit §F1.3: single-call-single-transaction. The spy records
+      // ONE outer appendComputed invocation per decide call (the cache
+      // short-circuit lives inside appendComputed's body, not at the
+      // decide layer). The KEY invariant is the idempotency_claims row
+      // shape above — N events under one key.
+      expect(spy).toHaveBeenCalledTimes(2);
+    } finally {
+      appender.appendComputed = original;
+    }
+  });
+
+  it('Decide_DerivesUniqueKey_WhenOperationIdOmitted', async () => {
+    await seedStream(eventStore, streamId, 0);
+
+    // Without operationId, decide derives a UUID-suffixed key per call
+    // (decide:${streamId}:${reducerId}:${uuid}). Two consecutive calls
+    // produce two distinct claims and two distinct sequence commits.
+    const r1 = await appender.decide<FixtureState>(
+      streamId,
+      'fixture@v1',
+      () => [{ type: 'task.assigned', data: { taskId: 'T-1' } }],
+      { registry },
+    );
+    const r2 = await appender.decide<FixtureState>(
+      streamId,
+      'fixture@v1',
+      () => [{ type: 'task.assigned', data: { taskId: 'T-2' } }],
+      { registry },
+    );
+    expect(r1.ok && r2.ok).toBe(true);
+    if (!r1.ok || !r2.ok) return;
+    expect(r1.sequences).toEqual([1]);
+    expect(r2.sequences).toEqual([2]);
   });
 });
