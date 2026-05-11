@@ -22,6 +22,12 @@ import { join, relative } from 'node:path';
 // root is two levels up.
 const SRC_ROOT = join(__dirname, '..');
 
+// Repository root — two levels above SRC_ROOT (servers/exarchos-mcp/src
+// → servers/exarchos-mcp → servers → <repo>). The action-set gate
+// (Wave 5 / Task 5.4) scans `commands/` and `skills-src/` at the repo
+// root in addition to the MCP server's workflow surfaces.
+const REPO_ROOT = join(SRC_ROOT, '..', '..', '..');
+
 /**
  * Walk a directory recursively and yield absolute paths of files matching
  * `accept`. Skips entries in `excludeDirs` (basename match) so we don't
@@ -87,6 +93,96 @@ describe('Grep Gates (Wave 1, R-1, #1313)', () => {
     expect(
       matches,
       `Found forbidden UPDATE streams SET workflow_type writes:\n` +
+        matches.map((m) => `  ${m.file}:${m.line}: ${m.text.trim()}`).join('\n'),
+    ).toEqual([]);
+  });
+
+  it('GrepGate_NoActionSetOnExarchosWorkflowSurfaces', () => {
+    // Wave 5 / Task 5.4 (#1341): forbids any agent-facing surface from
+    // declaring or documenting `exarchos_workflow` with `action: 'set'`.
+    //
+    // Background: `action: 'set'` was removed from the workflow tool
+    // registry in v2.11's DR-4 substrate cut (#1332) and reintroduced
+    // under the canonical name `action: 'update'` by Wave 0 of
+    // v2.10.0-preview.2 (#1340). Any remaining reference (in TS, in
+    // skill prose, or in command markdown) causes agents that copy the
+    // payload verbatim to invoke an unregistered action and fail at
+    // the MCP schema boundary.
+    //
+    // Scope: workflow-mutation TS code (`servers/exarchos-mcp/src/workflow/`)
+    // plus the two agent-facing content trees (`commands/`, `skills-src/`).
+    // The generated `skills/` tree is intentionally NOT scanned — it
+    // mirrors `skills-src/` via `npm run build:skills` and is already
+    // protected by `npm run skills:guard`. Scanning it again would
+    // double-count violations and obscure the actionable source.
+    //
+    // Pattern: matches `action: "set"`, `action: 'set'`, and
+    // `"action": "set"` (the JSON shape sometimes shown inside fenced
+    // examples). The `action:` anchor prevents false positives on
+    // unrelated tokens like `Set` (capital) or `set` as a verb in prose.
+    const pattern = /action:\s*['"]set['"]|["']action["']:\s*["']set["']/;
+
+    type Match = { file: string; line: number; text: string };
+    const matches: Match[] = [];
+
+    // ── Scope 1: workflow TS surfaces (production code, not tests) ────
+    //
+    // The gate fences agent-facing payload construction. We exempt:
+    //   - `*.test.ts` files inside `workflow/`: tests intentionally
+    //     probe the renamed-action rejection path
+    //     (composite.test.ts:'set action (DR-4 hard-cut)') and assert
+    //     historical event payload shapes (`hsm.deprecated_action_invoked`
+    //     records `'set({phase})'`). These are load-bearing negative
+    //     tests; rewriting them would erase the regression guard the
+    //     hard cut depends on.
+    //   - The `tools.ts` checkpoint-state-missing event payload
+    //     (`data: { action: 'set' }`): this is an internal event-data
+    //     field naming the substrate handler, not an agent-facing
+    //     `exarchos_workflow` action. Keeping the historical identifier
+    //     preserves event-log replayability for streams written before
+    //     the rename.
+    const tsExempt = new Set<string>([
+      join(SRC_ROOT, 'workflow', 'tools.ts'),
+    ]);
+    {
+      const accept = (f: string) =>
+        (f.endsWith('.ts') || f.endsWith('.tsx')) &&
+        !f.endsWith('.test.ts') &&
+        !f.endsWith('.test.tsx') &&
+        !tsExempt.has(f);
+      const excludeDirs = new Set<string>(['node_modules', 'dist', '__shims__']);
+      const tsRoot = join(SRC_ROOT, 'workflow');
+      for (const file of walk(tsRoot, accept, excludeDirs)) {
+        const contents = readFileSync(file, 'utf-8');
+        contents.split('\n').forEach((text, i) => {
+          if (pattern.test(text)) {
+            matches.push({ file: relative(REPO_ROOT, file), line: i + 1, text });
+          }
+        });
+      }
+    }
+
+    // ── Scope 2: agent-facing markdown (commands + skills-src) ───────
+    {
+      const accept = (f: string) => f.endsWith('.md');
+      const excludeDirs = new Set<string>(['node_modules', 'dist']);
+      for (const root of [join(REPO_ROOT, 'commands'), join(REPO_ROOT, 'skills-src')]) {
+        for (const file of walk(root, accept, excludeDirs)) {
+          const contents = readFileSync(file, 'utf-8');
+          contents.split('\n').forEach((text, i) => {
+            if (pattern.test(text)) {
+              matches.push({ file: relative(REPO_ROOT, file), line: i + 1, text });
+            }
+          });
+        }
+      }
+    }
+
+    expect(
+      matches,
+      `Found forbidden \`action: 'set'\` references on exarchos_workflow surfaces. ` +
+        `Action 'set' was removed in v2.11 (#1332); use canonical 'update' ` +
+        `(#1340 / Wave 0). Offending sites:\n` +
         matches.map((m) => `  ${m.file}:${m.line}: ${m.text.trim()}`).join('\n'),
     ).toEqual([]);
   });
