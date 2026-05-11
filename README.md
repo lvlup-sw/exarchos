@@ -110,8 +110,6 @@ Same binary underneath. Adds Claude Code slash commands, hooks, and rendered ski
 
 > **No SSH key?** Use the HTTPS URL: `https://github.com/lvlup-sw/.github.git`
 
-> **Status:** Marketplace tracks **v2.9.0-rc.1** (release candidate). Release notes: [v2.9.0-rc.1](https://github.com/lvlup-sw/exarchos/releases/tag/v2.9.0-rc.1).
-
 For two-step (download + inspect + run), channel selection, validation, update, and uninstall: see the [full install guide](https://lvlup-sw.github.io/exarchos/guide/installation).
 
 ## What's different
@@ -129,8 +127,6 @@ Other approaches in this space optimize for different things. None are wrong. Th
 
 A harness is opinionated about the shape of work. An engine isn't. Exarchos's shape is the SDLC, and the state survives `/clear` because it lives in an event log instead of the context window.
 
-**Where Exarchos isn't the right fit:** if you want to author a custom DAG, run 21 specialized AI personas, or just keep chat continuity across sessions, there are better tools for those jobs. Exarchos answers one question: "how do I keep an AI coding agent on the rails through a multi-day SDLC."
-
 ## What you get
 
 **`/clear` no longer costs you anything.** State lives in an append-only event log. `/checkpoint` saves mid-task; `/rehydrate` restores the full workflow document (phase, design, task table, gate results) in about 2,500 tokens. If state and reality drift, reconcile from any point in history.
@@ -141,9 +137,9 @@ A harness is opinionated about the shape of work. An engine isn't. Exarchos's sh
 
 **Typed agent teams in worktrees.** Three roles, scoped tools. Implementer writes code via TDD. Fixer resumes failed tasks with the failure event in context, not a fresh start. Reviewer is read-only and can't edit files. Each role runs in its own git worktree.
 
-Audit trail comes free. Every transition, gate result, and agent action lands in the event log. Trace it, replay it, rebuild from scratch.
+Audit trail comes free. Every transition, gate result, and agent action lands in the event log.
 
-Token-efficient by construction. ≤500 tokens to register the MCP surface. Lazy schema loading. Field projection trims state queries by ~90%. Review sends diffs, not full files.
+Token-efficient by construction. ≤500 tokens to register the MCP surface. Lazy schema loading. Field projection trims state queries by ~90%. Review sends diffs only.
 
 ### Agent-first architecture
 
@@ -160,13 +156,7 @@ All four tools support lazy schema loading via `describe`. At startup, only slim
 
 Every tool input is a Zod-validated discriminated union keyed on `action`. The same `dispatch()` function backs both the MCP transport and the CLI, so `exarchos workflow get --featureId my-feature` from a terminal returns the same result the agent gets.
 
-Structured input over natural language. Strict schema validation over loose parsing. One binary, same behavior whether an agent or a human is driving it.
-
-### When a team adopts it
-
-Same primitives, more places. Runbooks (machine-readable orchestration sequences served via MCP) let any agent request "the steps for the implementing phase" and get back ordered tool calls with schemas and gate semantics. Agent specs are typed and committed to the repo, so every team member's agent inherits the same scoped tools and hooks. The single binary runs identically on a developer's laptop and in CI. Everything in the event log is auditable: when a workflow goes sideways, you have a replayable record of what the agent did and which gate said no.
-
-Remote/hosted MCP deployment is planned as a future axis. See the [Facade and Deployment Choices](https://lvlup-sw.github.io/exarchos/facade-and-deployment) docs.
+Structured input over natural language and strict schema validation over loose parsing. One binary with the same behavior whether an agent or a human is driving it.
 
 ### Works well alongside
 
