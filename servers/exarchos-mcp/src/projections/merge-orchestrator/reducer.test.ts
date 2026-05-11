@@ -18,6 +18,7 @@ import {
   initialMergeOrchestratorState,
   type MergeOrchestratorState,
 } from './types.js';
+import { assertReducerImmutable } from '../testing.js';
 import type { WorkflowEvent } from '../../event-store/schemas.js';
 
 /**
@@ -308,6 +309,67 @@ describe('mergeOrchestratorReducer.apply — phase transitions (Wave 2B.2)', () 
     expect(next.phase).toBe('completed');
     expect(next.merge?.mergeSha).toBe('abc1234');
     expect(next.projectionSequence).toBe(2);
+  });
+
+  it('MergeOrchestratorReducer_IsImmutable', () => {
+    // DR-1 purity contract — folds a representative event sequence through
+    // the reducer with each intermediate state deep-frozen. Any in-place
+    // mutation of the `state` argument by `apply` would surface as a
+    // TypeError under strict-mode frozen-object semantics.
+    const events: readonly WorkflowEvent[] = [
+      makeEvent(
+        'merge.preflight',
+        {
+          taskId: 'task-1',
+          sourceBranch: 'feature/x',
+          targetBranch: 'main',
+          passed: true,
+        },
+        1,
+      ),
+      makeEvent(
+        'merge.requested',
+        {
+          taskId: 'task-1',
+          sourceBranch: 'feature/x',
+          targetBranch: 'main',
+          strategy: 'squash',
+          prNumber: 42,
+        },
+        2,
+      ),
+      makeEvent(
+        'merge.executed',
+        {
+          taskId: 'task-1',
+          sourceBranch: 'feature/x',
+          targetBranch: 'main',
+          strategy: 'squash',
+          mergeSha: 'abc1234',
+          rollbackSha: 'def5678',
+        },
+        3,
+      ),
+      makeEvent(
+        'merge.rollback',
+        {
+          taskId: 'task-1',
+          sourceBranch: 'feature/x',
+          targetBranch: 'main',
+          rollbackSha: 'def5678',
+          reason: 'verification-failed',
+          rollbackError: 'reset failed',
+        },
+        4,
+      ),
+      makeEvent('merge.completed', { taskId: 'task-1' }, 5),
+      // An unhandled type — assert the identity-return path also respects
+      // frozen input (no spread, no in-place mutation).
+      makeEvent('task.completed', { taskId: 'task-1' }, 6),
+    ];
+    expect(() =>
+      assertReducerImmutable(mergeOrchestratorReducer, events),
+    ).not.toThrow();
   });
 
   it('Apply_UnknownEvent_ReturnsStateUnchanged', () => {
