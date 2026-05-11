@@ -49,7 +49,7 @@ export interface PublicPersistedEventLike {
 
 // ─── Schema DDL ─────────────────────────────────────────────────────────────
 
-const SCHEMA_VERSION = 4;
+const SCHEMA_VERSION = 5;
 
 const SCHEMA_DDL = `
 CREATE TABLE IF NOT EXISTS events (
@@ -102,6 +102,25 @@ CREATE TABLE IF NOT EXISTS schema_version (
   version INTEGER PRIMARY KEY,
   appliedAt TEXT NOT NULL
 );
+
+-- Projection snapshots (V4 -> V5, #1343 Wave A). Replaces the per-stream
+-- JSONL sidecar at <stateDir>/<streamId>.projections.jsonl with a relational
+-- table. Composite PK (stream_id, projection_id, projection_version, sequence)
+-- so multiple snapshots for the same projection coexist; the latest-by-sequence
+-- index supports the readLatestProjectionSnapshot LIMIT 1 fast path. The
+-- payload column holds the JSON-encoded SnapshotRecord (projectionId,
+-- projectionVersion, sequence, state, timestamp).
+CREATE TABLE IF NOT EXISTS projection_snapshots (
+  stream_id          TEXT NOT NULL,
+  projection_id      TEXT NOT NULL,
+  projection_version TEXT NOT NULL,
+  sequence           INTEGER NOT NULL,
+  payload            TEXT NOT NULL,
+  created_at         TEXT NOT NULL,
+  PRIMARY KEY (stream_id, projection_id, projection_version, sequence)
+);
+CREATE INDEX IF NOT EXISTS idx_projection_snapshots_latest
+  ON projection_snapshots(stream_id, projection_id, projection_version, sequence DESC);
 
 -- Idempotency claims for AtomicAppender SQLite-backed body (#1259, T06/T07).
 -- Each row records the eventIds, sequences, and timestamps committed under a
@@ -397,9 +416,15 @@ export class SqliteBackend implements StorageBackend {
    *           `sequences`. Indexes + state-file backfill + the
    *           `migration.workflow_type_unknown` observability event live in
    *           sibling subtasks (1.2, 1.5, 1.6).
+   * V4 -> V5: #1343 Wave A. Add `projection_snapshots` table and the
+   *           `idx_projection_snapshots_latest` index that replace the
+   *           JSONL sidecar at <stateDir>/<streamId>.projections.jsonl.
+   *           Idempotent via CREATE TABLE IF NOT EXISTS; SCHEMA_DDL above
+   *           creates the table on fresh DBs, and this step covers legacy
+   *           DBs that were stamped at V4 before #1343 landed.
    *
    * Each step short-circuits if its target version is already present in the
-   * `schema_version` table, so running migrateSchema() twice on a V4 DB is a
+   * `schema_version` table, so running migrateSchema() twice on a V5 DB is a
    * no-op (idempotent).
    */
   private migrateSchema(): void {
@@ -436,6 +461,18 @@ export class SqliteBackend implements StorageBackend {
 
     if (!v4Existing) {
       this.migrateV3ToV4();
+    }
+
+    // V4 -> V5: gated by the schema_version ledger. Adds the
+    // `projection_snapshots` table + `idx_projection_snapshots_latest` index
+    // for #1343 Wave A. Fresh DBs already have the table via SCHEMA_DDL; this
+    // path covers DBs created under SCHEMA_VERSION === 4.
+    const v5Existing = this.db
+      .prepare('SELECT version FROM schema_version WHERE version = ?')
+      .get(5) as { version: number } | undefined;
+
+    if (!v5Existing) {
+      this.migrateV4ToV5();
     }
   }
 
@@ -534,6 +571,45 @@ export class SqliteBackend implements StorageBackend {
     this.db
       .prepare('INSERT OR IGNORE INTO schema_version (version, appliedAt) VALUES (?, ?)')
       .run(4, now);
+  }
+
+  /**
+   * V4 -> V5 migration step. #1343 Wave A.
+   *
+   * Creates the `projection_snapshots` table + `idx_projection_snapshots_latest`
+   * index that replace the per-stream JSONL sidecar
+   * (`<stateDir>/<streamId>.projections.jsonl`). The same DDL lives in
+   * SCHEMA_DDL above so fresh DBs get the table during the initial
+   * `db.exec(SCHEMA_DDL)` pass; this helper exists only to cover legacy DBs
+   * that were stamped at V4 before #1343 landed.
+   *
+   * `CREATE TABLE IF NOT EXISTS` makes the step idempotent — if a parallel
+   * caller (or the SCHEMA_DDL pass above) has already created the table,
+   * this is a no-op. The ledger stamp at the bottom is what actually closes
+   * the V4 -> V5 gate so the runner short-circuits on subsequent opens.
+   *
+   * Per plan-review decision (`Stacked-PR plan.JSONL sidecar backfill`):
+   * skip backfill. v2.10.0-preview.2 is pre-release; no production users
+   * have accumulated sidecar data, so migration code would be dead weight.
+   */
+  private migrateV4ToV5(): void {
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS projection_snapshots (
+        stream_id          TEXT NOT NULL,
+        projection_id      TEXT NOT NULL,
+        projection_version TEXT NOT NULL,
+        sequence           INTEGER NOT NULL,
+        payload            TEXT NOT NULL,
+        created_at         TEXT NOT NULL,
+        PRIMARY KEY (stream_id, projection_id, projection_version, sequence)
+      );
+      CREATE INDEX IF NOT EXISTS idx_projection_snapshots_latest
+        ON projection_snapshots(stream_id, projection_id, projection_version, sequence DESC);
+    `);
+
+    this.db
+      .prepare('INSERT OR IGNORE INTO schema_version (version, appliedAt) VALUES (?, ?)')
+      .run(5, new Date().toISOString());
   }
 
   /**
