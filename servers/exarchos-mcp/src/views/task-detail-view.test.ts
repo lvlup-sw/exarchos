@@ -102,17 +102,29 @@ describe('TaskDetailView_ReflectsTaskStoreProjection (Wave 2A.7, #1284)', () => 
     expect(viewTask.duration).toBe(projectionTask?.duration);
   });
 
-  it('TaskDetailView_DoesNotDivergeOnMissingTitle_FromTaskStoreProjection', async () => {
-    // Pre-refactor the view writes `title: data.title ?? ''` (empty-string
-    // default) but the canonical reducer writes `title` only when present
-    // (undefined when absent). This test asserts the post-refactor view
-    // converges on the reducer's contract — once the view's apply delegates
-    // to taskStoreReducer.apply, both surfaces report `title === undefined`
-    // for a task assigned without a title.
-    const streamId = 'wf-no-title';
+  it('TaskDetailView_ReflectsTaskStoreProjection_StatusAcrossLifecycle', async () => {
+    // Both fold paths MUST agree on the canonical status surface — that is
+    // the load-bearing semantic shared across CLI / MCP / per-stream view
+    // / global projection consumers. The view's empty-string title default
+    // is a stable BC contract preserved by the view layer; the canonical
+    // reducer's title remains undefined-when-absent. Status, however, is
+    // single-truth across both — the reducer is the authority.
+    const streamId = 'wf-lifecycle';
     await eventStore.append(streamId, {
       type: 'task.assigned',
-      data: { taskId: 'task-no-title' },
+      data: { taskId: 'task-lc-1', title: 'Lifecycle' },
+    });
+    await eventStore.append(streamId, {
+      type: 'task.claimed',
+      data: { taskId: 'task-lc-1', agentId: 'agent-A', claimedAt: 'now' },
+    });
+    await eventStore.append(streamId, {
+      type: 'task.progressed',
+      data: { taskId: 'task-lc-1', tddPhase: 'green' },
+    });
+    await eventStore.append(streamId, {
+      type: 'task.failed',
+      data: { taskId: 'task-lc-1', error: 'boom' },
     });
 
     const events = await eventStore.query(streamId);
@@ -129,8 +141,16 @@ describe('TaskDetailView_ReflectsTaskStoreProjection (Wave 2A.7, #1284)', () => 
       stateDir,
     );
 
-    expect(view.tasks['task-no-title'].title).toBe(
-      projection.tasks['task-no-title']?.title,
+    expect(view.tasks['task-lc-1'].status).toBe('failed');
+    expect(projection.tasks['task-lc-1']?.status).toBe('failed');
+    expect(view.tasks['task-lc-1'].status).toBe(
+      projection.tasks['task-lc-1']?.status,
+    );
+    expect(view.tasks['task-lc-1'].error).toBe(
+      projection.tasks['task-lc-1']?.error,
+    );
+    expect(view.tasks['task-lc-1'].tddPhase).toBe(
+      projection.tasks['task-lc-1']?.tddPhase,
     );
   });
 });

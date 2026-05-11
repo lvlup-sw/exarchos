@@ -1,5 +1,10 @@
 import type { ViewProjection } from './materializer.js';
 import type { WorkflowEvent } from '../event-store/schemas.js';
+import { taskStoreReducer } from '../projections/taskstore/reducer.js';
+import type {
+  TaskRecord,
+  TaskStoreState,
+} from '../projections/taskstore/types.js';
 
 // ─── View Name Constant ────────────────────────────────────────────────────
 
@@ -9,20 +14,26 @@ export const WORKFLOW_STATUS_VIEW = 'workflow-status';
 
 /**
  * Internal projection state. Public callers receive the strip-down version
- * via `views/tools.ts` (the `_seen*` fields are deleted before the view
- * envelope is returned).
+ * via `views/tools.ts` (the `_seen*` fields and the embedded `_taskStore`
+ * are deleted before the view envelope is returned).
  *
- * Dedup bookkeeping for taskId (#1226) is stored as `Record<string, true>`
- * rather than `string[]`:
+ * Post-Wave-2A.7 (#1284) the task-count surface is derived from an embedded
+ * `TaskStoreState` rather than the prior ad-hoc dedup maps. The task-store
+ * reducer naturally dedupes by upserting on `taskId`, so:
  *
- *   - O(1) membership check (was O(n) `.includes` per event → O(n²) replay).
- *   - O(1) insert (was `[...arr, id]` per event → O(n) per insert).
- *   - JSON-serializable (Sets are not), so snapshot round-trip is preserved.
+ *   - `tasksTotal     = Object.keys(_taskStore.tasks).length`
+ *   - `tasksCompleted = count where status === 'completed'`
+ *   - `tasksFailed    = count where status === 'failed'`
  *
- * The maps grow with the number of distinct taskIds seen; for pathological
- * long-running workflows callers should compact via snapshot truncation.
- * The replay-cost / memory-growth tradeoff favours the map for any workflow
- * with more than ~100 tasks, which all production workflows now exceed.
+ * Embedding the canonical state inside the view keeps the materializer's
+ * per-stream snapshot integrity intact while sharing the fold logic with
+ * the global `readProjection<TaskStoreState>('task-store@v1')` path.
+ *
+ * BC for legacy snapshots: the `_seenAssignedTaskIds` / `_seenCompletedTaskIds`
+ * fields are retained on the state shape (kept empty / unused) so JSON
+ * snapshot round-trip from a prior projection version still validates
+ * structurally. The `asSeen*` coercions are no longer invoked since the
+ * reducer-derived counts are the new source of truth.
  */
 export interface WorkflowStatusViewState {
   featureId: string;
@@ -32,42 +43,57 @@ export interface WorkflowStatusViewState {
   tasksTotal: number;
   tasksCompleted: number;
   tasksFailed: number;
-  /** Internal: taskIds already counted toward tasksTotal. */
+  /** Legacy dedup bookkeeping — preserved for snapshot BC, not consulted. */
   _seenAssignedTaskIds: Record<string, true>;
-  /** Internal: taskIds already counted toward tasksCompleted. */
+  /** Legacy dedup bookkeeping — preserved for snapshot BC, not consulted. */
   _seenCompletedTaskIds: Record<string, true>;
+  /**
+   * Internal: per-stream `task-store@v1` mirror used to derive task counts
+   * from the canonical reducer fold. Stripped before the view envelope is
+   * surfaced to callers.
+   */
+  _taskStore: TaskStoreState;
 }
 
 // ─── Projection ────────────────────────────────────────────────────────────
 
-/** Pull a string `taskId` from `event.data` if present, else undefined. */
-function extractTaskId(event: WorkflowEvent): string | undefined {
-  const data = event.data as { taskId?: unknown } | undefined;
-  if (!data) return undefined;
-  return typeof data.taskId === 'string' ? data.taskId : undefined;
+const TASK_EVENT_TYPES = new Set([
+  'task.assigned',
+  'task.claimed',
+  'task.progressed',
+  'task.completed',
+  'task.failed',
+]);
+
+/**
+ * Count records in `tasks` whose status matches `status`. Used by the
+ * post-2A.7 derivation of tasksCompleted / tasksFailed.
+ */
+function countByStatus(
+  tasks: Readonly<Record<string, TaskRecord>>,
+  status: TaskRecord['status'],
+): number {
+  let n = 0;
+  for (const record of Object.values(tasks)) {
+    if (record.status === status) n += 1;
+  }
+  return n;
 }
 
 /**
- * Coerce legacy snapshot shapes (the original `string[]`) to the current
- * `Record<string, true>` shape. Snapshots written before this projection
- * was migrated still load with arrays; without the coercion, the new
- * `view._seen*[taskId]` lookup returns `undefined` (because non-numeric
- * indexing on arrays does), the dedup guard collapses, and tasksCompleted
- * can exceed tasksTotal — exactly the #1226 invariant violation the dedup
- * is supposed to prevent.
+ * Derive the public task-count surface from the embedded `_taskStore` mirror.
+ * Idempotent and pure — replaces the ad-hoc dedup maps that lived here
+ * pre-2A.7.
  */
-function asSeenSet(seen: unknown): Record<string, true> {
-  if (Array.isArray(seen)) {
-    const result: Record<string, true> = {};
-    for (const id of seen) {
-      if (typeof id === 'string') result[id] = true;
-    }
-    return result;
-  }
-  if (seen && typeof seen === 'object') {
-    return seen as Record<string, true>;
-  }
-  return {};
+function deriveCountsFromTaskStore(
+  view: WorkflowStatusViewState,
+): WorkflowStatusViewState {
+  return {
+    ...view,
+    tasksTotal: Object.keys(view._taskStore.tasks).length,
+    tasksCompleted: countByStatus(view._taskStore.tasks, 'completed'),
+    tasksFailed: countByStatus(view._taskStore.tasks, 'failed'),
+  };
 }
 
 export const workflowStatusProjection: ViewProjection<WorkflowStatusViewState> = {
@@ -81,9 +107,27 @@ export const workflowStatusProjection: ViewProjection<WorkflowStatusViewState> =
     tasksFailed: 0,
     _seenAssignedTaskIds: {},
     _seenCompletedTaskIds: {},
+    _taskStore: { ...taskStoreReducer.initial },
   }),
 
-  apply: (view, event) => {
+  apply: (view, event: WorkflowEvent) => {
+    // task.* events: delegate to the canonical task-store@v1 reducer and
+    // re-derive the count surface. The reducer dedupes by `taskId` via
+    // upsert semantics so `Object.keys(_taskStore.tasks).length` IS the
+    // unique-tasks-assigned count, matching the pre-2A.7 contract.
+    if (TASK_EVENT_TYPES.has(event.type)) {
+      const nextTaskStore = taskStoreReducer.apply(view._taskStore, event);
+      if (nextTaskStore === view._taskStore) {
+        // Reducer returned identity (malformed event, e.g. missing taskId).
+        // Fall through to the pre-2A.7 "count malformed events" behaviour
+        // below so the dedup-on-missing-id contract from #1226 stays
+        // honoured. The legacy branch never gets re-entered for valid
+        // events because the reducer short-circuited above.
+      } else {
+        return deriveCountsFromTaskStore({ ...view, _taskStore: nextTaskStore });
+      }
+    }
+
     switch (event.type) {
       case 'workflow.started': {
         const data = event.data as { featureId?: string; workflowType?: string } | undefined;
@@ -110,41 +154,20 @@ export const workflowStatusProjection: ViewProjection<WorkflowStatusViewState> =
         };
       }
 
+      // Pre-2A.7 BC branches for malformed task events (no taskId): the
+      // canonical reducer returns identity on missing taskId, which would
+      // otherwise drop the legacy "count it anyway" semantic that #1226
+      // documented. Replicate the count-bump here so the legacy contract
+      // survives.
       case 'task.assigned': {
-        const taskId = extractTaskId(event);
-        // Missing taskId: legacy/malformed event — count it (preserves
-        // pre-dedup behavior for events that can't be deduped).
-        if (taskId === undefined) {
-          return { ...view, tasksTotal: view.tasksTotal + 1 };
-        }
-        const seen = asSeenSet(view._seenAssignedTaskIds);
-        if (seen[taskId]) {
-          // Defensive coercion: ensure post-condition is the new shape so
-          // subsequent applies do O(1) lookups instead of falling back to
-          // asSeenSet on every event.
-          return { ...view, _seenAssignedTaskIds: seen };
-        }
-        return {
-          ...view,
-          tasksTotal: view.tasksTotal + 1,
-          _seenAssignedTaskIds: { ...seen, [taskId]: true },
-        };
+        // Reached only when the reducer above returned identity, i.e. the
+        // event is missing a taskId. Count toward total without populating
+        // _taskStore (no taskId means no record to upsert).
+        return { ...view, tasksTotal: view.tasksTotal + 1 };
       }
 
       case 'task.completed': {
-        const taskId = extractTaskId(event);
-        if (taskId === undefined) {
-          return { ...view, tasksCompleted: view.tasksCompleted + 1 };
-        }
-        const seen = asSeenSet(view._seenCompletedTaskIds);
-        if (seen[taskId]) {
-          return { ...view, _seenCompletedTaskIds: seen };
-        }
-        return {
-          ...view,
-          tasksCompleted: view.tasksCompleted + 1,
-          _seenCompletedTaskIds: { ...seen, [taskId]: true },
-        };
+        return { ...view, tasksCompleted: view.tasksCompleted + 1 };
       }
 
       case 'task.failed':
