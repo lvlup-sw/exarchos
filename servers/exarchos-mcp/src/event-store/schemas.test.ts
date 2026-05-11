@@ -473,15 +473,16 @@ describe('EventTypes', () => {
   });
 
   it('EventTypes_HasExpectedCount', () => {
-    // Bumped from 91 → 92 with migration.workflow_type_unknown (Wave 1,
-    // R-1 Marten primitive #1313). Previous: 91 added
-    // session.machinery_consumed (T-11, rehydration-machinery-refactor),
-    // and the bump before that (84 → 90) added six durable event-store
-    // substrate event types (#1259 T02 / T03 / T04):
+    // Bumped from 92 → 93 with merge.requested (Wave 2B.2 / #1304 — audit
+    // §F1.2 two-event split). Previous: 92 added migration.workflow_type_unknown
+    // (Wave 1, R-1 Marten primitive #1313). 91 added session.machinery_consumed
+    // (T-11, rehydration-machinery-refactor), and the bump before that
+    // (84 → 90) added six durable event-store substrate event types
+    // (#1259 T02 / T03 / T04):
     //   hsm.deprecated_action_invoked, spec.legacy_capabilities_array,
     //   phase.contract_missing, migration.legacy_jsonl_imported,
     //   migration.completed, migration.failed.
-    expect(EventTypes).toHaveLength(92);
+    expect(EventTypes).toHaveLength(93);
   });
 
   it('EventTypes_IncludesSessionTagged', () => {
