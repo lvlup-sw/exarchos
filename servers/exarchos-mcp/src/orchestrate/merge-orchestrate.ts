@@ -65,6 +65,18 @@ import {
   withStateRetry,
   MAX_STATE_RETRIES,
 } from '../workflow/state-retry.js';
+import {
+  ConcurrencyError,
+  StorageBusyError,
+} from '../event-store/index.js';
+import type { MergeOrchestratorState } from '../projections/merge-orchestrator/index.js';
+// Side-effect import — registers `merge-orchestrator@v1` with `defaultRegistry`
+// so the Wave 3 primitive (`AtomicAppender.decide`) can resolve the reducer
+// by id when Phase A commits `merge.requested` (audit §F1.2 two-event split).
+// Most production wiring already pulls in this barrel transitively via the
+// rebuild/rehydrate paths, but importing it here makes the dependency
+// explicit at the call site (mirrors the pattern in the migration test).
+import '../projections/merge-orchestrator/index.js';
 
 // ─── Args schema ───────────────────────────────────────────────────────────
 //
@@ -571,7 +583,106 @@ export async function handleMergeOrchestrate(
     };
   }
 
+  // ─── 4b. Phase A — durable INTENT (Wave 4 / audit §F1.2) ────────────────
+  //
+  // The two-event split: commit `merge.requested` purely under
+  // `withStateRetry` BEFORE the executor's side effect fires. The decide
+  // closure short-circuits idempotently when the merge-orchestrator
+  // projection already shows `requested` / `executed` / `recovering` /
+  // `completed`, so concurrent invocations (and OCC retries within a
+  // single invocation) cannot land a duplicate `merge.requested`.
+  //
+  // The side effect (executor delegation in section 5 below) runs OUTSIDE
+  // this retry boundary, so an OCC loss inside `decide` never re-fires the
+  // executor's local git merge. The executor's `merge.executed` append is
+  // the Phase C outcome record — the orchestrator does not emit a
+  // separate terminal event (the `merge.completed` type referenced by the
+  // projection is not yet registered in `event-store/schemas.ts`; out of
+  // scope for Wave 4 per the prompt's "no new event types beyond
+  // `merge.requested`" guard).
+  //
+  // Idempotency: derive `operationId` from `featureId` + `taskId` so two
+  // concurrent invocations targeting the same feature/task converge on
+  // one canonical event via the substrate's idempotency_claims row.
+  // Without `taskId`, fall back to `featureId` alone — still stable
+  // across retries of the same invocation, weaker against concurrent
+  // dispatch but the state-check-in-decide short-circuit provides the
+  // belt-and-suspenders layer.
+  const operationId =
+    args.taskId !== undefined
+      ? `merge-requested:${args.featureId}:${args.taskId}`
+      : `merge-requested:${args.featureId}`;
+  const appender = ctx.eventStore.getAppender();
+  try {
+    await withStateRetry(() =>
+      appender.decide<MergeOrchestratorState>(
+        args.featureId,
+        'merge-orchestrator@v1',
+        (state) => {
+          // Short-circuit on any phase past `preflight` (the projection's
+          // current phase after section 2's `merge.preflight` fold). Any
+          // forward-progress phase indicates a concurrent or replayed
+          // invocation already recorded the intent; emit nothing so the
+          // retry returns a `no-op` rather than a duplicate.
+          if (
+            state.phase === 'requested' ||
+            state.phase === 'executed' ||
+            state.phase === 'recovering' ||
+            state.phase === 'completed'
+          ) {
+            return [];
+          }
+          return [
+            {
+              type: 'merge.requested',
+              data: {
+                sourceBranch: args.sourceBranch,
+                targetBranch: args.targetBranch,
+                strategy: args.strategy,
+                ...(args.taskId !== undefined ? { taskId: args.taskId } : {}),
+                featureId: args.featureId,
+              },
+              correlationId: operationId,
+            },
+          ];
+        },
+        { operationId },
+      ),
+    );
+  } catch (err) {
+    // Translate the Wave 3 typed errors to the orchestrator's existing
+    // ToolResult shape (mirrors how the abort branch handles
+    // VersionConflictError above). After `MAX_STATE_RETRIES` exhaustion
+    // we surface a structured failure rather than letting the typed
+    // error escape past the handler boundary.
+    if (err instanceof ConcurrencyError) {
+      return {
+        success: false,
+        error: {
+          code: 'CONCURRENCY_CONFLICT',
+          message: `merge.requested decide lost OCC race after ${MAX_STATE_RETRIES} retries: ${err.message}`,
+        },
+      };
+    }
+    if (err instanceof StorageBusyError) {
+      return {
+        success: false,
+        error: {
+          code: 'STORAGE_BUSY',
+          message: `merge.requested decide hit storage contention after ${MAX_STATE_RETRIES} retries: ${err.message}`,
+        },
+      };
+    }
+    throw err;
+  }
+
   // ─── 5. Delegate to executor ─────────────────────────────────────────────
+  //
+  // Phase B (audit §F1.2): the executor performs the local git merge — the
+  // non-idempotent side effect. It runs OUTSIDE the Phase A retry
+  // boundary above so OCC retries on `merge.requested` never re-fire the
+  // merge. The executor itself emits `merge.executed` (its own Phase C
+  // outcome record); the orchestrator does not duplicate that here.
   const execResult = await executeMergeFn(
     {
       featureId: args.featureId,

@@ -48,6 +48,22 @@ import { VersionConflictError } from '../workflow/state-store.js';
 // ─── Test helpers ──────────────────────────────────────────────────────────
 
 function makeMockEventStore(): EventStore {
+  // Wave 4 (audit §F1.2): the orchestrator now invokes
+  // `ctx.eventStore.getAppender().decide(...)` to commit `merge.requested`
+  // (Phase A) before delegating to the executor. The mock returns a stub
+  // appender whose `decide` resolves to a `kind: 'committed'` shape so the
+  // pre-existing tests (T11/T12/T13/T14 — which only assert on the
+  // preflight + executor delegation legs) continue to pass without the
+  // need for a real `AtomicAppender` instance. The migration test
+  // (merge-orchestrate.migration.test.ts) is the one that exercises the
+  // real `decide` path against a tmp-dir `EventStore`.
+  const decide = vi.fn().mockResolvedValue({
+    ok: true,
+    kind: 'committed',
+    sequences: [2],
+    eventIds: ['evt-mock-requested'],
+    timestamps: [new Date().toISOString()],
+  });
   return {
     append: vi.fn().mockResolvedValue({
       sequence: 1,
@@ -57,6 +73,7 @@ function makeMockEventStore(): EventStore {
     // #1303 α-04: handler reads stream tail to compute expectedSequence
     // before appending merge.preflight. Empty array → expectedSequence: 0.
     query: vi.fn().mockResolvedValue([]),
+    getAppender: vi.fn().mockReturnValue({ decide }),
   } as unknown as EventStore;
 }
 
