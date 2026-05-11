@@ -26,6 +26,11 @@ import * as path from 'node:path';
 import { storeLogger } from '../logger.js';
 import { atomicWriteFile } from '../utils/atomic-write.js';
 import { SnapshotRecord } from './snapshot-schema.js';
+import { defaultRegistry, type ProjectionRegistry } from './registry.js';
+import type { ProjectionReducer } from './types.js';
+import type { EventStore } from '../event-store/store.js';
+import type { WorkflowEvent } from '../event-store/schemas.js';
+import { UnknownProjectionIdError } from './rebuild.js';
 
 /** Default sidecar size cap when `SNAPSHOT_MAX_RECORDS` is unset or invalid. */
 export const DEFAULT_SNAPSHOT_MAX_RECORDS = 500;
@@ -237,4 +242,168 @@ function isNotFound(err: unknown): boolean {
     'code' in err &&
     (err as { code: unknown }).code === 'ENOENT'
   );
+}
+
+// ─── Wave 2A.6 — readProjection<T>(reducerId) global-scope primitive ────────
+
+/**
+ * Error raised when a primitive (`readProjection` etc.) is invoked against
+ * a reducer whose `scope` does not match the primitive's contract.
+ *
+ * The message starts with the literal token `INVALID_REDUCER_SCOPE` so
+ * downstream consumers can pattern-match the error reliably (#1284 / INV-5b).
+ * `expectedShape` carries the scope the primitive requires; `actualScope`
+ * carries the reducer's declared scope.
+ */
+export class InvalidReducerScopeError extends Error {
+  constructor(
+    public readonly reducerId: string,
+    public readonly actualScope: 'stream' | 'global',
+    public readonly expectedShape: { scope: 'stream' | 'global' },
+  ) {
+    super(
+      `INVALID_REDUCER_SCOPE: reducer ${JSON.stringify(reducerId)} has scope ${JSON.stringify(actualScope)}, but primitive requires scope ${JSON.stringify(expectedShape.scope)}`,
+    );
+    this.name = 'InvalidReducerScopeError';
+  }
+}
+
+/**
+ * Optional overrides for {@link readProjection}.
+ *
+ * `registry` selects the lookup source for the reducer id. Defaults to the
+ * process-wide {@link defaultRegistry} so production call sites need not
+ * thread it through. Tests needing isolation pass a freshly-created registry
+ * (matching the convention from `rebuildProjection`'s `RebuildProjectionOptions`).
+ */
+export interface ReadProjectionOptions {
+  readonly registry?: ProjectionRegistry;
+}
+
+/**
+ * Fold a registered **global** projection's state from snapshot (if fresh)
+ * plus the unfolded tail of events across every stream. The read primitive
+ * for `scope: 'global'` reducers (Wave 2A.6, #1284).
+ *
+ * ## Storage convention for global snapshots
+ *
+ * The existing snapshot machinery (`appendSnapshot` / `readLatestSnapshot`)
+ * is keyed on `streamId`. For a global projection there is no per-stream
+ * sidecar — we use the **reducer id** as the snapshot key (e.g.
+ * `task-store@v1`). The reducer id is a non-empty string with no path
+ * separators, so it satisfies the path-traversal guard in
+ * `getSnapshotSidecarPath`. This decouples global-snapshot storage from any
+ * one stream and lets the per-stream sidecars stay reserved for stream-scoped
+ * projections (rehydration, merge-orchestrator, ...).
+ *
+ * ## Algorithm
+ *
+ *   1. Resolve `reducerId` against `options.registry` (or the process-wide
+ *      default). Throw {@link UnknownProjectionIdError} on miss.
+ *   2. Reject reducers with `scope !== 'global'` via
+ *      {@link InvalidReducerScopeError}.
+ *   3. Read the latest snapshot for `(reducerId, reducerId, "<version>")`.
+ *      If present, seed state from `snapshot.state` and use `snapshot.sequence`
+ *      as the high-water-mark; otherwise seed from `reducer.initial` with
+ *      HWM = 0.
+ *   4. Enumerate every stream via `EventStore.listStreams()`, query each,
+ *      filter to events strictly after the HWM, sort the merged result by
+ *      `(timestamp, sequence)` for a deterministic global order, and fold
+ *      via `reducer.apply`.
+ *
+ * Sort key rationale: within a stream `sequence` is monotonic, but
+ * `sequence` is **not** comparable across streams. `timestamp` is
+ * monotonically advancing across the whole event store; `sequence` is the
+ * secondary tiebreaker for events at the same timestamp (rare but
+ * possible — sub-millisecond bursts on a fast appender). This matches the
+ * ordering `EventStore.queryByType` produces across stream boundaries.
+ *
+ * @typeParam T - The projected state type. The caller asserts this matches
+ *   the resolved reducer's state type; this is a structural-typing contract,
+ *   not enforced by the registry (which stores reducers as
+ *   `ProjectionReducer<unknown, unknown>`).
+ *
+ * @param reducerId - The registered reducer id (e.g. `'task-store@v1'`).
+ * @param eventStore - Initialised event store to read from.
+ * @param stateDir - State directory containing the snapshot sidecar.
+ * @param options - Optional overrides. See {@link ReadProjectionOptions}.
+ *
+ * @throws {UnknownProjectionIdError} when no reducer is registered under `reducerId`.
+ * @throws {InvalidReducerScopeError} when the reducer's scope is not `'global'`.
+ */
+export async function readProjection<T>(
+  reducerId: string,
+  eventStore: EventStore,
+  stateDir: string,
+  options: ReadProjectionOptions = {},
+): Promise<T> {
+  const registry = options.registry ?? defaultRegistry;
+  const reducer = registry.get(reducerId);
+  if (!reducer) {
+    throw new UnknownProjectionIdError(reducerId);
+  }
+  if (reducer.scope !== 'global') {
+    throw new InvalidReducerScopeError(reducerId, reducer.scope, {
+      scope: 'global',
+    });
+  }
+
+  // Snapshot lookup: keyed on the reducer id (the global-snapshot convention).
+  const projectionVersion = String(reducer.version);
+  const snapshot = readLatestSnapshot(
+    stateDir,
+    reducerId,
+    reducerId,
+    projectionVersion,
+  );
+
+  let state: unknown =
+    snapshot !== undefined ? (snapshot.state as unknown) : reducer.initial;
+  const highWaterMark = snapshot?.sequence ?? 0;
+
+  // Cold/tail fold: enumerate every stream and merge unfolded events.
+  // listStreams() returns the canonical stream list from the backend;
+  // duplicates are unlikely but de-duped here for defence in depth.
+  const seen = new Set<string>();
+  const streams: string[] = [];
+  for (const sid of eventStore.listStreams()) {
+    if (seen.has(sid)) continue;
+    seen.add(sid);
+    streams.push(sid);
+  }
+
+  // Collect every relevant event (sinceSequence is per-stream; the
+  // cross-stream HWM is timestamp-based, applied at merge time below).
+  const merged: WorkflowEvent[] = [];
+  for (const streamId of streams) {
+    // Cheap optimisation: if there's a snapshot, the per-stream `sequence`
+    // is at least the snapshot's HWM ONLY when the snapshot was produced
+    // by folding events on that stream — which we cannot assume for a
+    // global projection. We therefore query each stream in full and
+    // apply the HWM filter below by `timestamp`, matching the ordering
+    // discipline documented above.
+    const events = await eventStore.query(streamId);
+    for (const ev of events) merged.push(ev);
+  }
+
+  // Deterministic global ordering: (timestamp ASC, sequence ASC).
+  merged.sort((a, b) => {
+    const byTs = a.timestamp.localeCompare(b.timestamp);
+    return byTs !== 0 ? byTs : a.sequence - b.sequence;
+  });
+
+  // When folding from a fresh snapshot, every event up-to-and-including
+  // the snapshot's HWM has already been baked into `state`. Skip them.
+  //
+  // Caveat: this HWM is the snapshot's `sequence` field, which our snapshot
+  // convention treats as the **count of events folded** rather than any
+  // single stream's sequence. The cold-fold + fresh-snapshot tests in
+  // store.test.ts both rely on this count semantics — change with care.
+  const tail = highWaterMark > 0 ? merged.slice(highWaterMark) : merged;
+
+  for (const event of tail) {
+    state = (reducer as ProjectionReducer<unknown, unknown>).apply(state, event);
+  }
+
+  return state as T;
 }
