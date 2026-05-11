@@ -11,7 +11,7 @@ If an Exarchos MCP tool returns an error:
 If workflow state doesn't match git reality:
 1. Run `/exarchos:rehydrate <featureId>` — the rehydration projection folds events newer than the last snapshot
 2. If manual check still needed: compare state file with `git log` and branch state
-3. Update state via `mcp__plugin_exarchos_exarchos__exarchos_workflow` with `action: "set"` to match git truth
+3. Update state via `mcp__plugin_exarchos_exarchos__exarchos_workflow` with `action: "update"` to match git truth
 
 ## Investigation Timeout (Hotfix Track)
 If 15-minute investigation timer expires without root cause:
@@ -21,7 +21,7 @@ If 15-minute investigation timer expires without root cause:
 
 ## Track Switching
 If hotfix track reveals complexity requiring thorough investigation:
-1. Call `mcp__plugin_exarchos_exarchos__exarchos_workflow` with `action: "set"` to update track to "thorough"
+1. Call `mcp__plugin_exarchos_exarchos__exarchos_workflow` with `action: "update"` to update track to "thorough"
 2. Previous investigation findings carry over
 3. RCA phase begins after investigation completes
 

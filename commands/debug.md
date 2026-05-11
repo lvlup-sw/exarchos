@@ -69,7 +69,7 @@ Initialize workflow state using `mcp__plugin_exarchos_exarchos__exarchos_workflo
 - Set `featureId` to `debug-<issue-slug>`
 - Set `workflowType` to "debug"
 
-Then update the track using `mcp__plugin_exarchos_exarchos__exarchos_workflow` with `action: "set"`:
+Then update the track using `mcp__plugin_exarchos_exarchos__exarchos_workflow` with `action: "update"`:
 - Set `track` to "hotfix" or "thorough" based on triage
 
 ### Step 2: Triage

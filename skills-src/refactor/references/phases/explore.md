@@ -82,7 +82,7 @@ Significant doc updates → overhaul track indicator.
 **Save assessment and advance to brief:**
 
 ```
-action: "set", featureId: "refactor-<slug>", updates: {
+action: "update", featureId: "refactor-<slug>", updates: {
   "explore": {
     "filesAffected": <count>,
     "filesList": ["<path1>", "<path2>"],

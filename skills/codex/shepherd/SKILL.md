@@ -206,7 +206,7 @@ Track shepherd progress via workflow state:
 **Initialize:**
 ```
 mcp__exarchos__exarchos_workflow({
-  action: "set",
+  action: "update",
   featureId: "<id>",
   updates: {
     "shepherd": {
@@ -229,7 +229,7 @@ The shepherd skill operates within the `synthesize` phase and does not drive pha
 
 ### Schema Discovery
 
-Use `exarchos_workflow({ action: "describe", actions: ["set", "init"] })` for
+Use `exarchos_workflow({ action: "describe", actions: ["update", "init"] })` for
 parameter schemas and `exarchos_workflow({ action: "describe", playbook: "feature" })`
 for phase transitions, guards, and playbook guidance. Use
 `exarchos_event({ action: "describe", eventTypes: ["shepherd.iteration", "ci.status", "remediation.attempted"] })`

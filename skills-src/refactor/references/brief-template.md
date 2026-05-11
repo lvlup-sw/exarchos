@@ -55,7 +55,7 @@ List documentation files that need updating after refactor.
 **Save brief and advance:**
 
 ```
-action: "set", featureId: "refactor-<slug>", updates: {
+action: "update", featureId: "refactor-<slug>", updates: {
   "brief": {
     "problem": "<problem statement>",
     "goals": ["<goal 1>", "<goal 2>"],

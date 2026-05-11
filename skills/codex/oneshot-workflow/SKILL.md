@@ -155,7 +155,7 @@ Persist the plan and transition to `implementing` in a single set call.
 
 ```typescript
 mcp__exarchos__exarchos_workflow({
-  action: "set",
+  action: "update",
   featureId: "fix-readme-typo",
   phase: "implementing",
   updates: {
@@ -310,7 +310,7 @@ Agent:
      → workflow created in 'plan' phase, synthesisPolicy defaults to 'on-request'
   2. Produces a 4-line plan: goal=fix typo, approach=sed, files=[README.md],
      tests=[readme has no occurrence of 'recieve']
-  3. exarchos_workflow set {
+  3. exarchos_workflow update {
        featureId: "fix-readme-typo",
        phase: "implementing",                   // top-level
        updates: {
@@ -384,7 +384,7 @@ Track oneshot-specific state under the `oneshot` key on the workflow state:
 
 ```typescript
 mcp__exarchos__exarchos_workflow({
-  action: "set",
+  action: "update",
   featureId: "<id>",
   updates: {
     "oneshot": {
@@ -429,7 +429,7 @@ absent. Exactly one guard returns true at any given time.
 
 ### Schema discovery
 
-Use `exarchos_workflow({ action: "describe", actions: ["init", "set"] })`
+Use `exarchos_workflow({ action: "describe", actions: ["init", "update"] })`
 for parameter schemas (including the `synthesisPolicy` enum) and
 `exarchos_workflow({ action: "describe", playbook: "oneshot" })` for the
 phase transitions, guard names, and playbook prose. Use

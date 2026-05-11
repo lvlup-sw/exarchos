@@ -49,7 +49,7 @@ action: "get", featureId: "refactor-<slug>", query: ".brief.goals"
 **Record verified goals:**
 
 ```
-action: "set", featureId: "refactor-<slug>", updates: {
+action: "update", featureId: "refactor-<slug>", updates: {
   "validation.goalsVerified": ["<goal text>"]
 }
 ```
@@ -116,7 +116,7 @@ Manual review of key changes:
 **Initialize validation state:**
 
 ```
-action: "set", featureId: "refactor-<slug>", updates: {
+action: "update", featureId: "refactor-<slug>", updates: {
   "validation": {
     "startedAt": "<ISO8601>",
     "testsPass": null,
@@ -131,7 +131,7 @@ action: "set", featureId: "refactor-<slug>", updates: {
 **On successful validation:**
 
 ```
-action: "set", featureId: "refactor-<slug>", updates: {
+action: "update", featureId: "refactor-<slug>", updates: {
   "validation.testsPass": true,
   "validation.completedAt": "<ISO8601>"
 }, phase: "polish-update-docs"
@@ -140,7 +140,7 @@ action: "set", featureId: "refactor-<slug>", updates: {
 **On failed validation:**
 
 ```
-action: "set", featureId: "refactor-<slug>", updates: {
+action: "update", featureId: "refactor-<slug>", updates: {
   "validation.testsPass": false,
   "validation.failureReason": "<reason>"
 }, phase: "polish-implement"

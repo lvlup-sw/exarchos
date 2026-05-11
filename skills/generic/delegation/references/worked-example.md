@@ -63,7 +63,7 @@ Task({
 
 Update workflow state:
 ```typescript
-exarchos_workflow({ action: "set", featureId: "add-email-validation",
+exarchos_workflow({ action: "update", featureId: "add-email-validation",
   updates: { "tasks[0].status": "complete" } })
 ```
 
@@ -100,7 +100,7 @@ After fix succeeds, update state and emit gate event as in the happy path.
 
 Both tasks complete. Auto-continue:
 ```typescript
-exarchos_workflow({ action: "set", featureId: "add-email-validation",
+exarchos_workflow({ action: "update", featureId: "add-email-validation",
   updates: { phase: "review" } })
 Skill({ skill: "exarchos:review", args: "docs/plans/add-email-validation.md" })
 ```

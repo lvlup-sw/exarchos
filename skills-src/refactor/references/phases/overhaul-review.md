@@ -242,7 +242,7 @@ Every goal from the brief must be verified as achieved.
 **Record review results:**
 
 ```
-action: "set", featureId: "refactor-<slug>", updates: {
+action: "update", featureId: "refactor-<slug>", updates: {
   "reviews.overhaul": {
     "status": "approved",
     "behaviorPreserved": true,
@@ -258,7 +258,7 @@ action: "set", featureId: "refactor-<slug>", updates: {
 **Advance to synthesize:**
 
 ```
-action: "set", featureId: "refactor-<slug>", phase: "synthesize"
+action: "update", featureId: "refactor-<slug>", phase: "synthesize"
 ```
 
 ### On Needs Fixes
@@ -266,7 +266,7 @@ action: "set", featureId: "refactor-<slug>", phase: "synthesize"
 **Record issues for fix cycle:**
 
 ```
-action: "set", featureId: "refactor-<slug>", updates: {
+action: "update", featureId: "refactor-<slug>", updates: {
   "reviews.overhaul.status": "needs_fixes",
   "reviews.overhaul.issues": ["<issue1>", "<issue2>"]
 }

@@ -83,7 +83,7 @@ When all checks green and comments addressed:
 2. Update state:
 ```typescript
 mcp__plugin_exarchos_exarchos__exarchos_workflow({
-  action: "set",
+  action: "update",
   featureId: "<featureId>",
   updates: { "shepherd": { "approvalRequested": true } }
 })
@@ -94,7 +94,7 @@ mcp__plugin_exarchos_exarchos__exarchos_workflow({
 Initialize shepherd tracking on first run:
 ```typescript
 mcp__plugin_exarchos_exarchos__exarchos_workflow({
-  action: "set",
+  action: "update",
   featureId: "<featureId>",
   updates: {
     "shepherd": {

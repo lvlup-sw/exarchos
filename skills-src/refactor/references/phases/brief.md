@@ -111,7 +111,7 @@ Based on exploration, preparing brief for <polish|overhaul> track.
 **Save brief and advance:**
 
 ```
-action: "set", featureId: "refactor-<slug>", updates: {
+action: "update", featureId: "refactor-<slug>", updates: {
   "brief": {
     "problem": "<problem statement>",
     "goals": ["<goal 1>", "<goal 2>"],
