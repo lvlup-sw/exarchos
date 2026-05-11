@@ -137,8 +137,9 @@ export interface StorageBackend {
    * treats absence as a no-op.
    *
    * Idempotent: calling twice for the same streamId leaves the original row
-   * untouched (INSERT OR IGNORE). The column is immutable — a CI grep gate
-   * (task 1.7) forbids `UPDATE streams SET workflow_type` outside of the
+   * untouched (INSERT OR IGNORE). The workflow_type column is immutable
+   * post-insert — a CI grep gate (task 1.7) forbids workflow-type
+   * UPDATE statements against the streams table outside of the
    * migration's recovery path.
    */
   registerStream?(streamId: string, workflowType: string): void;
