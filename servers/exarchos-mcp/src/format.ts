@@ -8,6 +8,8 @@ import {
   type CapabilityResolver,
 } from './capabilities/resolver.js';
 import { STABLE_PREFIX_KEYS } from './projections/rehydration/serialize.js';
+import { ConcurrencyError } from './event-store/concurrency-error.js';
+import { StorageBusyError } from './event-store/storage-busy-error.js';
 
 export interface PerfMetrics {
   readonly ms: number;
@@ -253,6 +255,138 @@ export function applyCacheHints<T>(
   return {
     ...envelope,
     _cacheHints: hints,
+  };
+}
+
+// ─── Error Envelope Mapping (Wave 3 Task 3.13 / 3.13a) ──────────────────────
+
+/**
+ * Failure envelope shape produced by {@link wrapError}.
+ *
+ * Carries the canonical fields the dispatch-core boundary surfaces upward
+ * when a typed error escapes a handler: `success: false`, a structured
+ * `error` block with `code`, INV-5b's `validTargets` + `suggestedFix`,
+ * and the same `_meta` / `_perf` discipline as successful envelopes.
+ *
+ * The runtime shape is a strict superset of {@link ToolResult}'s failure
+ * variant; we return the tighter type so callers reading via the
+ * `Envelope<T>` discriminator see `success: false`.
+ */
+export interface ErrorEnvelope {
+  readonly success: false;
+  readonly error: {
+    readonly code: string;
+    readonly message: string;
+    readonly validTargets?: readonly string[];
+    readonly suggestedFix?: { tool: string; params: Record<string, unknown> };
+    readonly [k: string]: unknown;
+  };
+  readonly _meta: Record<string, unknown>;
+  readonly _perf: PerfMetrics;
+}
+
+/**
+ * Map a typed error to its canonical {@link ErrorEnvelope} shape.
+ *
+ * Wave 3 (R-2 primitives) ships the first two branches:
+ *
+ *   - {@link ConcurrencyError} → `CONCURRENCY_CONFLICT` envelope. Caller
+ *     MUST re-fetch state and re-decide before retrying — the original
+ *     read is stale.
+ *   - {@link StorageBusyError} → `STORAGE_BUSY` envelope. Caller may
+ *     retry the SAME decision after backing off; the other writer
+ *     commits on its own.
+ *
+ * The two envelopes are deliberately distinct so middleware
+ * (`withStateRetry` in Wave 4) can apply a different retry budget — the
+ * audit (§F2.1) flagged the conflation of these two failure modes as a
+ * blocker for the migration.
+ *
+ * Per design `docs/designs/2026-05-10-v2-10-0-preview-2-marten-primitives.md`
+ * §"ConcurrencyError envelope" and §"StorageBusyError envelope".
+ *
+ * Unknown error types fall through to a generic shape with
+ * `code: 'INTERNAL_ERROR'` so the boundary never leaks raw stack traces.
+ *
+ * @param err - The typed error caught at the wrap boundary.
+ * @param meta - Optional per-call `_meta` overrides; merged with the
+ *   default `{ degraded: false, retryable: <true for ConcurrencyError /
+ *   StorageBusyError, false otherwise> }`.
+ * @param perf - Optional per-call `_perf` overrides; missing fields
+ *   default to 0 per the canonical envelope shape.
+ */
+export function wrapError(
+  err: unknown,
+  meta?: Record<string, unknown>,
+  perf?: { ms?: number; bytes?: number; tokens?: number },
+): ErrorEnvelope {
+  const _perf: PerfMetrics = {
+    ms: perf?.ms ?? 0,
+    bytes: perf?.bytes ?? 0,
+    tokens: perf?.tokens ?? 0,
+  };
+
+  if (err instanceof ConcurrencyError) {
+    return {
+      success: false,
+      error: {
+        code: 'CONCURRENCY_CONFLICT',
+        message: err.message,
+        streamId: err.streamId,
+        reducerId: err.reducerId,
+        expectedVersion: err.expectedVersion,
+        actualVersion: err.actualVersion,
+        ...(err.operationId !== undefined ? { operationId: err.operationId } : {}),
+        validTargets: ['retry'] as const,
+        suggestedFix: {
+          tool: 'retry',
+          params: {
+            reason: 'Re-fetch state and retry the operation — the stream tail advanced during decide.',
+          },
+        },
+      },
+      _meta: { degraded: false, retryable: true, ...(meta ?? {}) },
+      _perf,
+    };
+  }
+
+  if (err instanceof StorageBusyError) {
+    return {
+      success: false,
+      error: {
+        code: 'STORAGE_BUSY',
+        message: err.message,
+        streamId: err.streamId,
+        attempts: err.attempts,
+        validTargets: ['retry'] as const,
+        suggestedFix: {
+          tool: 'retry',
+          params: {
+            reason: 'Retry after brief delay; back off — substrate is under cross-process write contention.',
+          },
+        },
+      },
+      _meta: { degraded: false, retryable: true, ...(meta ?? {}) },
+      _perf,
+    };
+  }
+
+  // Generic fallthrough: do not leak the stack; surface a stable
+  // INTERNAL_ERROR code with the error's message (if Error-shaped).
+  const message =
+    err instanceof Error
+      ? err.message
+      : typeof err === 'string'
+        ? err
+        : 'Unknown error';
+  return {
+    success: false,
+    error: {
+      code: 'INTERNAL_ERROR',
+      message,
+    },
+    _meta: { degraded: false, retryable: false, ...(meta ?? {}) },
+    _perf,
   };
 }
 
