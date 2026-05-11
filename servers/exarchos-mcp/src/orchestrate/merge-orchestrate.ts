@@ -51,6 +51,7 @@ import {
   handleExecuteMerge as defaultHandleExecuteMerge,
   type HandleExecuteMergeInput,
 } from './execute-merge.js';
+import { buildMergeOrchestrateIdempotencyKey } from './merge-keys.js';
 import { SequenceConflictError } from '../event-store/store.js';
 import {
   readStateFile,
@@ -257,23 +258,6 @@ function buildDefaultReadState(
 // State-write retry (T14 / DR-MO-2): optimistic-concurrency on
 // `VersionConflictError`. Extracted to a shared module in T29 — also used
 // by `handleExecuteMerge`. See `workflow/state-retry.ts` for the contract.
-
-// ─── #1303 — idempotency-key construction ─────────────────────────────────
-//
-// Shared shape: `${streamId}:merge_orchestrate:${taskId}:${eventType}`.
-// Mirrors the prefix produced by `next-actions-computer.ts:118` for the
-// `merge_orchestrate` verb — the trailing `:${eventType}` segment makes the
-// three append sites in this orchestrator surface (preflight, executed,
-// rollback) each carry a distinct dedup key. (α-06 may extract this into
-// `orchestrate/merge-keys.ts` if it gets duplicated across handlers — it
-// does, see execute-merge.ts:212 for the parallel definition.)
-function buildMergeOrchestrateIdempotencyKey(
-  streamId: string,
-  taskId: string,
-  eventType: string,
-): string {
-  return `${streamId}:merge_orchestrate:${taskId}:${eventType}`;
-}
 
 /**
  * Derive a short, operator-facing reason string from a failed preflight

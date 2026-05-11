@@ -32,6 +32,7 @@ import type { ToolResult } from '../format.js';
 import type { DispatchContext } from '../core/dispatch.js';
 import { executeMerge, type GitExec, type MergeStrategy } from './pure/execute-merge.js';
 import { buildLocalGitMergeAdapter } from './local-git-merge.js';
+import { buildMergeOrchestrateIdempotencyKey } from './merge-keys.js';
 import { SequenceConflictError } from '../event-store/store.js';
 import {
   readStateFile,
@@ -199,22 +200,6 @@ function buildDefaultPersistState(
     };
     await writeStateFile(stateFile, next as typeof state, { expectedVersion });
   };
-}
-
-// ─── #1303 — idempotency-key construction ─────────────────────────────────
-//
-// Shared shape: `${streamId}:merge_orchestrate:${taskId}:${eventType}`.
-// Mirrors the prefix produced by `next-actions-computer.ts:118` for the
-// `merge_orchestrate` verb — the trailing `:${eventType}` segment makes the
-// three append sites in this orchestrator surface (preflight, executed,
-// rollback) each carry a distinct dedup key. (α-06 may extract this into
-// `orchestrate/merge-keys.ts` if it gets duplicated across handlers.)
-function buildMergeOrchestrateIdempotencyKey(
-  streamId: string,
-  taskId: string,
-  eventType: string,
-): string {
-  return `${streamId}:merge_orchestrate:${taskId}:${eventType}`;
 }
 
 // ─── Handler ───────────────────────────────────────────────────────────────
