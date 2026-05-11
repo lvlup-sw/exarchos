@@ -27,6 +27,7 @@ import { applyPhaseSkips } from './phase-skip.js';
 import { mapInternalToExternalType } from './events.js';
 import { getRegisteredGuard } from '../config/register.js';
 import { executeGuard } from '../config/guards.js';
+import { buildValidatedEvent } from '../event-store/event-factory.js';
 
 // ─── Public types ────────────────────────────────────────────────────────
 
@@ -290,7 +291,11 @@ export class DefaultHSMTransitionGuard implements HSMTransitionGuard {
       // this is the atomicity invariant the primitive enforces.
       if (context.eventStore) {
         for (const evt of result.events) {
-          await context.eventStore.append(featureId, {
+          // Route through buildValidatedEvent for defense-in-depth Zod
+          // validation at the boundary (#1325). The appender re-allocates
+          // the authoritative sequence; the value passed here is a
+          // placeholder satisfying the schema's positive-integer guard.
+          const validatedEvent = buildValidatedEvent(featureId, 1, {
             type: mapInternalToExternalType(evt.type) as import(
               '../event-store/schemas.js'
             ).EventType,
@@ -309,6 +314,7 @@ export class DefaultHSMTransitionGuard implements HSMTransitionGuard {
                 : {}),
             },
           });
+          await context.eventStore.appendValidated(featureId, validatedEvent);
         }
       }
 
@@ -354,22 +360,26 @@ export class DefaultHSMTransitionGuard implements HSMTransitionGuard {
         const idempotencyKey = context.idempotencyKeySuffix
           ? `${featureId}:${evt.type}:${evt.from}:${evt.to}:${context.idempotencyKeySuffix}`
           : undefined;
-        const appended = await context.eventStore.append(
-          featureId,
-          {
-            type: mapInternalToExternalType(evt.type) as import(
-              '../event-store/schemas.js'
-            ).EventType,
-            correlationId: featureId,
-            source: 'workflow',
-            data: {
-              from: evt.from,
-              to: evt.to,
-              trigger: evt.trigger,
-              featureId,
-              ...(evt.metadata ?? {}),
-            },
+        // Route through buildValidatedEvent for defense-in-depth Zod
+        // validation (#1325). Sequence is a placeholder; the appender
+        // assigns the authoritative value.
+        const validatedEvent = buildValidatedEvent(featureId, 1, {
+          type: mapInternalToExternalType(evt.type) as import(
+            '../event-store/schemas.js'
+          ).EventType,
+          correlationId: featureId,
+          source: 'workflow',
+          data: {
+            from: evt.from,
+            to: evt.to,
+            trigger: evt.trigger,
+            featureId,
+            ...(evt.metadata ?? {}),
           },
+        });
+        const appended = await context.eventStore.appendValidated(
+          featureId,
+          validatedEvent,
           idempotencyKey ? { idempotencyKey } : undefined,
         );
         // The state machine emits one primary lifecycle event per attempt:
@@ -426,7 +436,10 @@ async function emitGuardFailed(
 ): Promise<void> {
   if (!context.eventStore) return;
   try {
-    await context.eventStore.append(featureId, {
+    // Route through buildValidatedEvent for defense-in-depth Zod
+    // validation (#1325). Sequence is a placeholder; the appender
+    // assigns the authoritative value.
+    const validatedEvent = buildValidatedEvent(featureId, 1, {
       type: 'workflow.guard-failed',
       correlationId: featureId,
       source: 'workflow',
@@ -437,6 +450,7 @@ async function emitGuardFailed(
         featureId,
       },
     });
+    await context.eventStore.appendValidated(featureId, validatedEvent);
   } catch {
     // Diagnostic emission is best-effort. The structured failure in the
     // returned `TransitionResult` is the source of truth for the caller.
