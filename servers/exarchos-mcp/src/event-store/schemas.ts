@@ -88,6 +88,13 @@ export const EventTypes = [
   'provider.parse-error',
   'dispatch.classified',
   'merge.preflight',
+  // Wave 4 audit §F1.2 two-event split — `merge.requested` is the durable
+  // INTENT recorded BEFORE the non-idempotent GitHub merge call fires. The
+  // `merge-orchestrator@v1` projection (Wave 2B / #1304) folds it as the
+  // transition into the new `requested` phase. Registered in Wave 2B.2 (this
+  // commit) ahead of Wave 4's `decide` migration so the reducer can validly
+  // fold it.
+  'merge.requested',
   'merge.executed',
   'merge.rollback',
   'command.resolved',
@@ -309,6 +316,11 @@ export const EVENT_EMISSION_REGISTRY: Record<EventType, EventEmissionSource> = {
   // Preflight failures DO NOT route through merge.rollback — they surface
   // as `phase: 'aborted'` with `abortReason: 'preflight-failed'`.
   'merge.preflight': 'auto',
+  // model — emitted by Wave 4's `decide` closure as the durable intent before
+  // the non-idempotent GitHub merge call (audit §F1.2 two-event split). Lives
+  // in the model-emitted family because the closure that produces it is part
+  // of the workflow-author's command logic, not server-deterministic plumbing.
+  'merge.requested': 'model',
   'merge.executed': 'auto',
   'merge.rollback': 'auto',
 
@@ -1086,6 +1098,51 @@ export const MergePreflightData = z.object({
 });
 
 /**
+ * merge.requested — Wave 4 / audit §F1.2 two-event split: the durable INTENT
+ * recorded BEFORE the non-idempotent GitHub merge call. The `decide` closure
+ * that produces this event is pure (safe to retry under `withStateRetry`);
+ * the side effect (PR merge API) fires OUTSIDE the retry boundary; a second
+ * `decide` then commits `merge.executed`.
+ *
+ * Folded by the `merge-orchestrator@v1` projection (#1304) as the transition
+ * into the new `requested` phase between `preflight` and `executed`.
+ *
+ * `prNumber` is optional because preview.2 may emit this event for streams
+ * that have not yet acquired a PR (e.g. local-only merge orchestration).
+ * `taskId` / `featureId` are optional for the same reason — the design (lines
+ * 538-543) provides them when the calling context knows them.
+ */
+export const MergeRequestedData = z.object({
+  sourceBranch: z
+    .string()
+    .min(1)
+    .describe('Feature/work branch being merged in'),
+  targetBranch: z
+    .string()
+    .min(1)
+    .describe('Target branch the merge lands on'),
+  strategy: z
+    .enum(['squash', 'rebase', 'merge'])
+    .optional()
+    .describe('Operator-selected merge strategy'),
+  prNumber: z
+    .number()
+    .int()
+    .optional()
+    .describe('Pull-request number; absent when no PR has been opened yet'),
+  taskId: z
+    .string()
+    .optional()
+    .describe(
+      'Originating task id (matches the worktree task.completed.taskId)',
+    ),
+  featureId: z
+    .string()
+    .optional()
+    .describe('Feature stream id; useful for cross-stream observability'),
+});
+
+/**
  * merge.executed — records that a merge has been performed. `mergeSha` is
  * the resulting commit on the target branch; `rollbackSha` is the parent
  * commit captured prior to merge so a downstream rollback handler can
@@ -1409,6 +1466,10 @@ export const EVENT_DATA_SCHEMAS: Partial<Record<EventType, z.ZodSchema>> = {
 
   // Merge orchestrator (T03, DR-MO-2)
   'merge.preflight': MergePreflightData,
+  // Wave 4 audit §F1.2 two-event split — see MergeRequestedData definition.
+  // Registered in Wave 2B.2 so the `merge-orchestrator@v1` projection can
+  // fold it ahead of Wave 4's `decide` migration.
+  'merge.requested': MergeRequestedData,
   'merge.executed': MergeExecutedData,
   'merge.rollback': MergeRollbackData,
 
@@ -1499,6 +1560,7 @@ export type CommentResolved = z.infer<typeof CommentResolvedData>;
 export type DiagnosticExecuted = z.infer<typeof DiagnosticExecutedDataSchema>;
 export type InitExecuted = z.infer<typeof InitExecutedDataSchema>;
 export type MergePreflight = z.infer<typeof MergePreflightData>;
+export type MergeRequested = z.infer<typeof MergeRequestedData>;
 export type MergeExecuted = z.infer<typeof MergeExecutedData>;
 export type MergeRollback = z.infer<typeof MergeRollbackData>;
 export type HsmDeprecatedActionInvoked = z.infer<typeof HsmDeprecatedActionInvokedData>;
@@ -1582,6 +1644,7 @@ export type EventDataMap = {
   'diagnostic.executed': DiagnosticExecuted;
   'init.executed': InitExecuted;
   'merge.preflight': MergePreflight;
+  'merge.requested': MergeRequested;
   'merge.executed': MergeExecuted;
   'merge.rollback': MergeRollback;
   'command.resolved': CommandResolvedEvent;
