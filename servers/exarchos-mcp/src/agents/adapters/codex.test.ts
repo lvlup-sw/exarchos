@@ -12,28 +12,40 @@
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import type { AgentSpec } from '../types.js';
 import type { Capability } from '../capabilities.js';
 import { codexAdapter, tomlBasicString } from './codex.js';
 import { REVIEWER, IMPLEMENTER } from '../definitions.js';
+import * as PostureMapping from '../../capabilities/posture-mapping.js';
 
+/**
+ * Pre-#1333: the test suite carried its own `capabilities: [...]` literal
+ * on `baseSpec`. Post-#1333 the runtime interface has no such field;
+ * capabilities flow from `posture` + `id` through `resolveCapabilities`.
+ * Tests that need a hand-picked capability set spy on the resolver via
+ * `forceCapabilities` below.
+ */
 const baseSpec: AgentSpec = {
   id: 'implementer',
   description: 'TDD implementer that writes failing tests then code.',
   systemPrompt: 'You are a TDD implementer agent. Follow Red-Green-Refactor.',
-  capabilities: [
-    'fs:read',
-    'fs:write',
-    'shell:exec',
-    'mcp:exarchos',
-    'isolation:worktree',
-  ] as readonly Capability[],
+  posture: 'task-isolated',
   model: 'inherit',
   skills: [],
   validationRules: [],
   resumable: false,
 };
+
+function forceCapabilities(caps: readonly Capability[]): void {
+  vi.spyOn(PostureMapping, 'resolveCapabilities').mockReturnValue(
+    Object.freeze(new Set<Capability>(caps)),
+  );
+}
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 describe('CodexAdapter', () => {
   it('CodexAdapter_RuntimeIdentifier_IsCodex', () => {
@@ -71,12 +83,8 @@ describe('CodexAdapter', () => {
   });
 
   it('CodexAdapter_ValidateSupport_RejectsClaudeOnlyCapabilities', () => {
-    const teamsSpec: AgentSpec = {
-      ...baseSpec,
-      capabilities: ['fs:read', 'team:agent-teams'] as readonly Capability[],
-    };
-
-    const result = codexAdapter.validateSupport(teamsSpec);
+    forceCapabilities(['fs:read', 'team:agent-teams']);
+    const result = codexAdapter.validateSupport(baseSpec);
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.reason).toContain('team:agent-teams');
@@ -97,28 +105,22 @@ describe('CodexAdapter', () => {
     // any spec listing the readonly cap (without the broad cap) would silently
     // emit no `mcp_servers` line at all and the agent could not invoke even
     // readonly tools.
+    forceCapabilities(['fs:read', 'mcp:exarchos:readonly', 'isolation:worktree']);
     const readonlySpec: AgentSpec = {
       ...baseSpec,
       mcpServers: undefined,
-      capabilities: [
-        'fs:read',
-        'mcp:exarchos:readonly',
-        'isolation:worktree',
-      ] as readonly Capability[],
     };
     const { contents } = codexAdapter.lowerSpec(readonlySpec);
 
     // Top-level mcp_servers = ["exarchos"] line must be present.
     expect(contents).toMatch(/^mcp_servers\s*=\s*\["exarchos"\]\s*$/m);
-    // And the broad capability must NOT be in the spec — the readonly cap
-    // alone must produce the mcp_servers entry.
-    expect(readonlySpec.capabilities).not.toContain('mcp:exarchos');
   });
 
   it('CodexAdapter_LowerSpec_FullCap_BehaviorUnchanged', () => {
     // Snapshot regression: the broad `mcp:exarchos` capability still emits
     // the same `mcp_servers = ["exarchos"]` line. Adding readonly support
-    // must not perturb the existing path.
+    // must not perturb the existing path. The baseSpec's `task-isolated`
+    // posture already implies `mcp:exarchos` post-#1333.
     const fullSpec: AgentSpec = {
       ...baseSpec,
       mcpServers: undefined,
@@ -130,11 +132,8 @@ describe('CodexAdapter', () => {
   it('CodexAdapter_ValidateSupport_AcceptsReadonlyCapability', () => {
     // The readonly cap must be classified as `native` (not `unsupported`)
     // so specs declaring it pass validation.
-    const readonlySpec: AgentSpec = {
-      ...baseSpec,
-      capabilities: ['fs:read', 'mcp:exarchos:readonly'] as readonly Capability[],
-    };
-    const result = codexAdapter.validateSupport(readonlySpec);
+    forceCapabilities(['fs:read', 'mcp:exarchos:readonly']);
+    const result = codexAdapter.validateSupport(baseSpec);
     expect(result.ok).toBe(true);
   });
 
@@ -214,6 +213,20 @@ describe('CodexAdapter', () => {
     );
     // And the artifacts as a whole must not be byte-identical.
     expect(reviewerToml).not.toBe(implementerToml);
+  });
+});
+
+// ─── #1333 β-04: adapter routes capability rendering through resolver ──────
+
+describe('CodexAdapter capability rendering routes through resolver (#1333 β-04)', () => {
+  it('CodexAdapter_RenderAgentSpec_CallsResolveCapabilitiesNotSpecField', () => {
+    const spy = vi.spyOn(PostureMapping, 'resolveCapabilities');
+    codexAdapter.lowerSpec(IMPLEMENTER);
+    expect(spy).toHaveBeenCalled();
+    const calledWithSpecPair = spy.mock.calls.some(
+      (args) => args[0] === IMPLEMENTER.posture && args[1] === IMPLEMENTER.id,
+    );
+    expect(calledWithSpecPair).toBe(true);
   });
 });
 

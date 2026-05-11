@@ -31,6 +31,10 @@ import { handleList } from '../../workflow/tools.js';
 import { handleCancel } from '../../workflow/cancel.js';
 import { EventStore } from '../../event-store/store.js';
 import type { DispatchContext } from '../../core/dispatch.js';
+import {
+  loadTopology,
+  __resetTopologyCacheForTesting,
+} from '../../topology/loader.js';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -135,10 +139,66 @@ beforeEach(async () => {
   tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'prune-integration-'));
   eventStore = new EventStore(tmpDir);
   ctx = { stateDir: tmpDir, eventStore, enableTelemetry: false };
+
+  // #1334 (β-07): the handler now reads the typed PhaseContract from a
+  // loaded `Topology`. Write a minimal topology.yaml to the temp state
+  // dir and load it before exercising the handler. The contract uses a
+  // 14-day `lastActivity` threshold to match the integration tests'
+  // existing single-signal expectations.
+  __resetTopologyCacheForTesting();
+  const topologyPath = path.join(tmpDir, 'topology.yaml');
+  const topologyYaml = `
+phases:
+  ideate:
+    staleness:
+      expectedMaxDwellMinutes: 20160
+      signals:
+        - name: lastActivity
+          thresholdMinutes: 20160
+      freshnessRequires: all
+  plan:
+    staleness:
+      expectedMaxDwellMinutes: 20160
+      signals:
+        - name: lastActivity
+          thresholdMinutes: 20160
+      freshnessRequires: all
+  delegate:
+    staleness:
+      expectedMaxDwellMinutes: 20160
+      signals:
+        - name: lastActivity
+          thresholdMinutes: 20160
+      freshnessRequires: all
+  review:
+    staleness:
+      expectedMaxDwellMinutes: 20160
+      signals:
+        - name: lastActivity
+          thresholdMinutes: 20160
+      freshnessRequires: all
+  synthesize:
+    staleness:
+      expectedMaxDwellMinutes: 20160
+      signals:
+        - name: lastActivity
+          thresholdMinutes: 20160
+      freshnessRequires: all
+  implementing:
+    staleness:
+      expectedMaxDwellMinutes: 20160
+      signals:
+        - name: lastActivity
+          thresholdMinutes: 20160
+      freshnessRequires: all
+`;
+  await fs.writeFile(topologyPath, topologyYaml, 'utf-8');
+  await loadTopology({ topologyPath });
 });
 
 afterEach(async () => {
   await fs.rm(tmpDir, { recursive: true, force: true });
+  __resetTopologyCacheForTesting();
 });
 
 // ─── Test 1: Dry-run then apply ─────────────────────────────────────────────

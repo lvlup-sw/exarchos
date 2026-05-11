@@ -529,22 +529,21 @@ describe('handleCheckpoint — materializes rehydration projection (T034, DR-6)'
 
     const handoff = { context: 'partial-recovery test' };
 
-    // Inject a single failure on the SECOND eventStore.append call.
-    // Append #1 = `workflow.checkpoint` (succeeds, advances stream).
-    // After that, the handler runs writeStateFile + snapshot fold +
-    // appendSnapshot. The next append is `workflow.checkpoint_written`
-    // — that's the one we fail. Real-world analogue: transient EIO on
-    // the event-store backend after the initial commit landed.
-    const realAppend = store.append.bind(store);
+    // Inject a single failure on the SECOND emission. Both emissions
+    // route through `appendValidated` post-#1325 (workflow.checkpoint
+    // first, then workflow.checkpoint_written second). Real-world
+    // analogue: transient EIO on the event-store backend after the
+    // initial commit landed.
+    const realAppendValidated = store.appendValidated.bind(store);
     let appendCount = 0;
     let injecting = true;
-    store.append = (async (...args) => {
+    store.appendValidated = (async (...args) => {
       appendCount += 1;
       if (injecting && appendCount === 2) {
         throw new Error('simulated workflow.checkpoint_written append failure');
       }
-      return realAppend(...(args as Parameters<typeof realAppend>));
-    }) as typeof store.append;
+      return realAppendValidated(...(args as Parameters<typeof realAppendValidated>));
+    }) as typeof store.appendValidated;
 
     try {
       // Attempt 1: fails on the second append.
@@ -566,7 +565,7 @@ describe('handleCheckpoint — materializes rehydration projection (T034, DR-6)'
       );
       expect(second.success).toBe(true);
     } finally {
-      store.append = realAppend;
+      store.appendValidated = realAppendValidated;
     }
 
     // ASSERT: exactly ONE `workflow.checkpoint` event survived the

@@ -2,7 +2,19 @@
 
 All notable changes to Exarchos are documented in this file. Organized by semver release.
 
-## [2.10.0] - 2026-05-09
+## [2.10.0-preview.1] - 2026-05-10
+
+### Substrate stabilization (Wave α + Wave β)
+
+- **Hardened (constructive — substrate guarantees now reach the merge path):** `merge-orchestrate` and `execute-merge` pass `idempotencyKey` + `expectedSequence` to event appends; crash-replay and concurrent-invocation scenarios no longer duplicate events (#1303). Workflow-handler emission sites migrated to canonical `buildValidatedEvent` + `appendValidated`: 10 / 18 sites covered across `workflow/cancel.ts`, `workflow/hsm-transition-guard.ts`, `workflow/rehydrate.ts`, `workflow/tools.ts`; 8 sites deferred per per-site correlation-ID abort policy (6 → α-08 follow-up, 2 → #1339 latent `state-machine` undefined-compoundStateId bug) (#1325).
+- **Removed:** `AgentSpec.capabilities` runtime interface field (#1333) — derivation moves to `capabilities/resolver.ts` keyed on `posture`. `LoadTopologyOptions.emit` vestigial field (#1336 — already absent at scope time, JSDoc scrub only). Stale "Pre-v2.11" doc-comments in `storage/lifecycle.ts` and `cli-commands/subagent-context.ts` (#1335).
+- **Refactored:** `prune-stale-workflows` migrated from custom multi-signal heuristic to typed-contract scorer (#1334) — pruning policy now lives in `topology.yaml` `staleness` blocks per phase, not in handler code.
+- **Fixed (CI):** Three subprocess-spawning tests refactored to in-process `EventStore`, removing the `bun:sqlite` ESM scheme failure on Node CI runners (#1324). CLI-adapter coverage gap surfaced and tracked as #1337 (non-blocker).
+- **Behavior improvement:** Malformed event payloads emitted via the new canonical envelope path are caught at the emission boundary (`EVENT_APPEND_FAILED`) instead of being silently persisted with `undefined` fields — surfaced by the `workflowType` integration test under `__tests__/mcp-tools.integration.test.ts`.
+- **Tooling:** Shared `buildMergeOrchestrateIdempotencyKey` helper at `orchestrate/merge-keys.ts`; shared `assertCanonicalEnvelope` test helper at `workflow/test-helpers/canonical-envelope.ts`.
+- **No schema migration. No agent-surface changes. No deprecation-shim removal.** This preview is internal-only.
+
+Operator note: upgrading from v2.10.0 main (substrate-cut tip) to v2.10.0-preview.1 is a no-op at the data layer. Stay on this preview through preview.2 — that's where the V3→V4 schema migration lands.
 
 ### v2.11 Substrate Cut (Breaking)
 

@@ -578,6 +578,10 @@ describe('handleRehydrate — event-stream-unavailable degradation (T056, DR-18)
 
     const failingQueryStore = {
       append: store.append.bind(store),
+      // #1325 — the degraded-path emission migrated to `appendValidated`
+      // (via `buildValidatedEvent`). Bind both so the emitted degraded
+      // event is observable on the real store after re-query.
+      appendValidated: store.appendValidated.bind(store),
       query: (): Promise<never> =>
         Promise.reject(new Error('event store offline')),
     } as unknown as typeof store;
@@ -903,6 +907,10 @@ describe('handleRehydrate — degraded paths preserve phasePlaybook null (T-22)'
 
     const failingQueryStore = {
       append: store.append.bind(store),
+      // #1325 — the degraded-path emission migrated to `appendValidated`
+      // (via `buildValidatedEvent`). Bind both so the emitted degraded
+      // event is observable on the real store after re-query.
+      appendValidated: store.appendValidated.bind(store),
       query: (): Promise<never> =>
         Promise.reject(new Error('event store offline')),
     } as unknown as typeof store;

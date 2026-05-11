@@ -1,9 +1,16 @@
 // ─── Agent Spec Definitions ────────────────────────────────────────────────
 //
 // Concrete agent specifications for subagent dispatch. Each spec declares
-// runtime-agnostic capabilities; runtime adapters translate capabilities
-// into runtime-specific tool/permission shapes (e.g. Claude tool arrays).
-// See docs/designs/2026-04-25-delegation-runtime-parity.md §3.
+// a runtime-agnostic `posture`; the resolver in
+// `capabilities/posture-mapping.ts` derives the effective capability set
+// from `(posture, id)`. Runtime adapters then translate capabilities into
+// runtime-specific tool/permission shapes (e.g. Claude tool arrays).
+//
+// v2.10-preview.1 (#1333): the legacy `capabilities: [...]` literal arrays
+// were removed; `posture` is now the only declarative authority.
+//
+// See docs/designs/2026-04-25-delegation-runtime-parity.md §3 and
+// docs/designs/2026-05-09-v2-10-0-preview-1-substrate-stabilization.md.
 // ────────────────────────────────────────────────────────────────────────────
 
 import type { AgentSpec } from './types.js';
@@ -93,6 +100,7 @@ output from the Worktree Verification step above).`;
 
 export const IMPLEMENTER: AgentSpec = {
   id: 'implementer',
+  posture: 'task-isolated',
   description: `Use this agent when dispatching TDD implementation tasks to a subagent in an isolated worktree.
 
 <example>
@@ -138,14 +146,6 @@ When done, output a JSON completion report:
   "files": ["<created/modified files>"]
 }
 \`\`\``,
-  capabilities: [
-    'fs:read',
-    'fs:write',
-    'shell:exec',
-    'mcp:exarchos',
-    'isolation:worktree',
-    'session:resume',
-  ],
   disallowedTools: ['Agent'],
   model: 'inherit',
   isolation: 'worktree',
@@ -166,6 +166,7 @@ When done, output a JSON completion report:
 
 export const FIXER: AgentSpec = {
   id: 'fixer',
+  posture: 'task-isolated',
   description: `Use this agent when a task has failed and needs diagnosis and repair with adversarial verification.
 
 <example>
@@ -214,13 +215,6 @@ When done, output a JSON completion report:
   "files": ["<created/modified files>"]
 }
 \`\`\``,
-  capabilities: [
-    'fs:read',
-    'fs:write',
-    'shell:exec',
-    'mcp:exarchos',
-    'isolation:worktree',
-  ],
   disallowedTools: ['Agent'],
   model: 'inherit',
   isolation: 'worktree',
@@ -238,6 +232,7 @@ When done, output a JSON completion report:
 
 export const REVIEWER: AgentSpec = {
   id: 'reviewer',
+  posture: 'read-only',
   description: `Use this agent when performing read-only code review for quality, design compliance, and test coverage.
 
 <example>
@@ -300,10 +295,6 @@ When done, output a JSON completion report:
   //      gate rejects mutating composite actions (workflow.set,
   //      event.append, orchestrate.task_complete, etc.) structurally,
   //      not via prose. See `core/dispatch.ts` readonly action allowlist.
-  capabilities: [
-    'fs:read',
-    'mcp:exarchos:readonly',
-  ],
   disallowedTools: ['Write', 'Edit', 'Agent', 'Bash'],
   model: 'inherit',
   skills: [],
@@ -316,6 +307,7 @@ When done, output a JSON completion report:
 
 export const SCAFFOLDER: AgentSpec = {
   id: 'scaffolder',
+  posture: 'task-isolated',
   description: `Use this agent for low-complexity scaffolding tasks — file creation, boilerplate generation, and structural setup.
 
 <example>
@@ -357,13 +349,6 @@ When done, output a JSON completion report:
   "files": ["<created/modified files>"]
 }
 \`\`\``,
-  capabilities: [
-    'fs:read',
-    'fs:write',
-    'shell:exec',
-    'mcp:exarchos',
-    'isolation:worktree',
-  ],
   disallowedTools: ['Agent'],
   model: 'sonnet',
   effort: 'low',

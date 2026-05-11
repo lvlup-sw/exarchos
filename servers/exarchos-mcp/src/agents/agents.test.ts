@@ -3,6 +3,7 @@
 import { describe, it, expect } from 'vitest';
 import type { AgentSpec, AgentSkill, AgentValidationRule, AgentSpecId } from './types.js';
 import { IMPLEMENTER, FIXER, REVIEWER, SCAFFOLDER, ALL_AGENT_SPECS } from './definitions.js';
+import { resolveCapabilities } from '../capabilities/posture-mapping.js';
 
 // ─── Task 1: AgentSpec Types ────────────────────────────────────────────────
 
@@ -17,7 +18,7 @@ describe('AgentSpec Types', () => {
       id: 'implementer' as AgentSpecId,
       description: 'TDD implementer',
       systemPrompt: 'You are an implementer',
-      capabilities: ['fs:read', 'fs:write'],
+      posture: 'task-isolated',
       disallowedTools: ['Agent'],
       model: 'inherit',
       isolation: 'worktree',
@@ -32,11 +33,11 @@ describe('AgentSpec Types', () => {
     expect(spec.id).toBe('implementer');
     expect(spec.description).toBe('TDD implementer');
     expect(spec.systemPrompt).toBe('You are an implementer');
-    // Assert capability membership without coupling to ordering — declared
-    // capabilities are a set, not a sequence (DIM-4: test behavior, not
-    // implementation detail).
-    expect(spec.capabilities).toEqual(expect.arrayContaining(['fs:read', 'fs:write']));
-    expect(spec.capabilities).toHaveLength(2);
+    // Capabilities are derived via the resolver (#1333). Assert the
+    // resolved set contains the trust-tier baseline for `task-isolated`.
+    const resolved = resolveCapabilities(spec.posture, spec.id);
+    expect(resolved.has('fs:read')).toBe(true);
+    expect(resolved.has('fs:write')).toBe(true);
     expect(spec.disallowedTools).toEqual(['Agent']);
     expect(spec.model).toBe('inherit');
     expect(spec.isolation).toBe('worktree');
@@ -54,7 +55,7 @@ describe('AgentSpec Types', () => {
       id: 'reviewer' as AgentSpecId,
       description: 'Code reviewer',
       systemPrompt: 'You review code',
-      capabilities: ['fs:read'],
+      posture: 'read-only',
       model: 'sonnet',
       skills: [],
       validationRules: [],
@@ -72,7 +73,7 @@ describe('AgentSpec Types', () => {
       id: 'scaffolder' as AgentSpecId,
       description: 'Scaffolder',
       systemPrompt: 'scaffold',
-      capabilities: ['fs:read'],
+      posture: 'read-only',
       model: 'sonnet',
       effort: 'low',
       skills: [],
@@ -84,7 +85,7 @@ describe('AgentSpec Types', () => {
       id: 'implementer' as AgentSpecId,
       description: 'Implementer',
       systemPrompt: 'implement',
-      capabilities: ['fs:read'],
+      posture: 'read-only',
       model: 'opus',
       effort: 'medium',
       skills: [],
@@ -96,7 +97,7 @@ describe('AgentSpec Types', () => {
       id: 'fixer' as AgentSpecId,
       description: 'Fixer',
       systemPrompt: 'fix',
-      capabilities: ['fs:read'],
+      posture: 'read-only',
       model: 'opus',
       effort: 'high',
       skills: [],
@@ -108,7 +109,7 @@ describe('AgentSpec Types', () => {
       id: 'reviewer' as AgentSpecId,
       description: 'Reviewer',
       systemPrompt: 'review',
-      capabilities: ['fs:read'],
+      posture: 'read-only',
       model: 'opus',
       effort: 'max',
       skills: [],
@@ -120,7 +121,7 @@ describe('AgentSpec Types', () => {
       id: 'implementer' as AgentSpecId,
       description: 'Implementer',
       systemPrompt: 'implement',
-      capabilities: ['fs:read'],
+      posture: 'read-only',
       model: 'inherit',
       skills: [],
       validationRules: [],
@@ -145,11 +146,13 @@ describe('Agent Spec Definitions', () => {
     expect(IMPLEMENTER.isolation).toBe('worktree');
     expect(IMPLEMENTER.resumable).toBe(true);
     expect(IMPLEMENTER.memoryScope).toBe('project');
-    expect(IMPLEMENTER.capabilities).toContain('fs:read');
-    expect(IMPLEMENTER.capabilities).toContain('fs:write');
-    expect(IMPLEMENTER.capabilities).toContain('shell:exec');
-    expect(IMPLEMENTER.capabilities).toContain('mcp:exarchos');
-    expect(IMPLEMENTER.capabilities).toContain('isolation:worktree');
+    const implementerCaps = resolveCapabilities(IMPLEMENTER.posture, IMPLEMENTER.id);
+    expect(implementerCaps.has('fs:read')).toBe(true);
+    expect(implementerCaps.has('fs:write')).toBe(true);
+    expect(implementerCaps.has('shell:exec')).toBe(true);
+    expect(implementerCaps.has('mcp:exarchos')).toBe(true);
+    expect(implementerCaps.has('isolation:worktree')).toBe(true);
+    expect(implementerCaps.has('session:resume')).toBe(true);
     expect(IMPLEMENTER.disallowedTools).toContain('Agent');
     expect(IMPLEMENTER.skills.length).toBeGreaterThanOrEqual(2);
     const skillNames = IMPLEMENTER.skills.map(s => s.name);
@@ -168,10 +171,11 @@ describe('Agent Spec Definitions', () => {
     expect(FIXER.resumable).toBe(false);
     expect(FIXER.model).toBe('inherit');
     expect(FIXER.systemPrompt).toContain('{{failureContext}}');
-    expect(FIXER.capabilities).toContain('fs:read');
-    expect(FIXER.capabilities).toContain('fs:write');
-    expect(FIXER.capabilities).toContain('shell:exec');
-    expect(FIXER.capabilities).toContain('mcp:exarchos');
+    const fixerCaps = resolveCapabilities(FIXER.posture, FIXER.id);
+    expect(fixerCaps.has('fs:read')).toBe(true);
+    expect(fixerCaps.has('fs:write')).toBe(true);
+    expect(fixerCaps.has('shell:exec')).toBe(true);
+    expect(fixerCaps.has('mcp:exarchos')).toBe(true);
     expect(FIXER.mcpServers).toEqual(['exarchos']);
   });
 
@@ -179,7 +183,8 @@ describe('Agent Spec Definitions', () => {
     expect(REVIEWER.id).toBe('reviewer');
     expect(REVIEWER.model).toBe('inherit');
     expect(REVIEWER.resumable).toBe(false);
-    expect(REVIEWER.capabilities).toContain('fs:read');
+    const reviewerCaps = resolveCapabilities(REVIEWER.posture, REVIEWER.id);
+    expect(reviewerCaps.has('fs:read')).toBe(true);
     // Per #1109 Constraint 3 (Basileus-forward), MCP remains first-class
     // for the reviewer so it can consult read-only views (exarchos_view's
     // pure-read actions, workflow.get/describe, event.query/describe,
@@ -188,10 +193,10 @@ describe('Agent Spec Definitions', () => {
     // combined with the dispatch-layer action allowlist (T04) — not by
     // prose-layer prohibitions. The previous "Forbidden MCP Actions"
     // systemPrompt block is therefore removed.
-    expect(REVIEWER.capabilities).toContain('mcp:exarchos:readonly');
-    expect(REVIEWER.capabilities).not.toContain('mcp:exarchos');
-    expect(REVIEWER.capabilities).not.toContain('shell:exec');
-    expect(REVIEWER.capabilities).not.toContain('fs:write');
+    expect(reviewerCaps.has('mcp:exarchos:readonly')).toBe(true);
+    expect(reviewerCaps.has('mcp:exarchos')).toBe(false);
+    expect(reviewerCaps.has('shell:exec')).toBe(false);
+    expect(reviewerCaps.has('fs:write')).toBe(false);
     expect(REVIEWER.disallowedTools).toContain('Write');
     expect(REVIEWER.disallowedTools).toContain('Edit');
     expect(REVIEWER.disallowedTools).toContain('Agent');
@@ -213,10 +218,11 @@ describe('Agent Spec Definitions', () => {
     expect(SCAFFOLDER.resumable).toBe(false);
 
     // Assert: capabilities include filesystem + shell + MCP access
-    expect(SCAFFOLDER.capabilities).toContain('fs:read');
-    expect(SCAFFOLDER.capabilities).toContain('fs:write');
-    expect(SCAFFOLDER.capabilities).toContain('shell:exec');
-    expect(SCAFFOLDER.capabilities).toContain('mcp:exarchos');
+    const scaffolderCaps = resolveCapabilities(SCAFFOLDER.posture, SCAFFOLDER.id);
+    expect(scaffolderCaps.has('fs:read')).toBe(true);
+    expect(scaffolderCaps.has('fs:write')).toBe(true);
+    expect(scaffolderCaps.has('shell:exec')).toBe(true);
+    expect(scaffolderCaps.has('mcp:exarchos')).toBe(true);
 
     // Assert: Agent tool is disallowed
     expect(SCAFFOLDER.disallowedTools).toContain('Agent');
@@ -251,7 +257,9 @@ describe('Agent Spec Definitions', () => {
     ]);
     const KNOWN_DISALLOWED = new Set(['Read', 'Write', 'Edit', 'Bash', 'Grep', 'Glob', 'Agent', 'WebFetch', 'WebSearch']);
     for (const spec of ALL_AGENT_SPECS) {
-      for (const cap of spec.capabilities) {
+      // Capabilities are resolved from posture (#1333); validate the
+      // resolver's output rather than a per-literal array.
+      for (const cap of resolveCapabilities(spec.posture, spec.id)) {
         expect(KNOWN_CAPS.has(cap), `${spec.id}: unknown capability '${cap}'`).toBe(true);
       }
       if (spec.disallowedTools) {

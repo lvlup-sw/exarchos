@@ -54,6 +54,9 @@ function makeMockEventStore(): EventStore {
       type: 'merge.preflight',
       timestamp: new Date().toISOString(),
     }),
+    // #1303 α-04: handler reads stream tail to compute expectedSequence
+    // before appending merge.preflight. Empty array → expectedSequence: 0.
+    query: vi.fn().mockResolvedValue([]),
   } as unknown as EventStore;
 }
 
@@ -196,6 +199,11 @@ describe('handleMergeOrchestrate (T11)', () => {
           worktree: PASSING_PREFLIGHT.worktree,
           drift: PASSING_PREFLIGHT.drift,
         },
+      },
+      // #1303 α-04: idempotencyKey + expectedSequence wired on merge.preflight.
+      {
+        expectedSequence: 0,
+        idempotencyKey: 'feat-x:merge_orchestrate:T11:merge.preflight',
       },
     ]);
   });

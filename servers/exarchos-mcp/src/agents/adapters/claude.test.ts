@@ -8,16 +8,28 @@
 // See docs/designs/2026-04-25-delegation-runtime-parity.md §4.
 // ────────────────────────────────────────────────────────────────────────────
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { parse as parseYaml } from 'yaml';
 import { claudeAdapter, generateClaudeAgentMarkdown } from './claude.js';
 import type { AgentSpec } from '../types.js';
+import type { Capability } from '../capabilities.js';
 import {
   IMPLEMENTER,
   FIXER,
   REVIEWER,
   SCAFFOLDER,
 } from '../definitions.js';
+import * as PostureMapping from '../../capabilities/posture-mapping.js';
+
+function forceCapabilities(caps: readonly Capability[]): void {
+  vi.spyOn(PostureMapping, 'resolveCapabilities').mockReturnValue(
+    Object.freeze(new Set<Capability>(caps)),
+  );
+}
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 // Extracts the `---\n…\n---` YAML frontmatter block (without the
 // surrounding fences) from a generated Claude agent file. Returns the
@@ -221,28 +233,20 @@ describe('ClaudeAdapter_GenerateMarkdown_HandlesYamlSpecialChars', () => {
 // render frontmatter that omits the exarchos server entirely, leaving the
 // agent unable to invoke even the read-only action subset.
 describe('ClaudeAdapter_LowerSpec_McpReadonlyTier', () => {
-  function withOverrides(spec: AgentSpec, overrides: Partial<AgentSpec>): AgentSpec {
-    return { ...spec, ...overrides };
-  }
-
   it('ClaudeAdapter_LowerSpec_ReadonlyMaps_To_ExarchosMcpServerGrant', () => {
     // Spec holds `mcp:exarchos:readonly` (and NOT `mcp:exarchos`).
     // Expect the adapter to still emit the `exarchos` server entry so
     // the agent can reach the dispatch-layer readonly gate at all.
-    const spec = withOverrides(IMPLEMENTER, {
-      capabilities: ['fs:read', 'mcp:exarchos:readonly'],
-    });
-    const md = generateClaudeAgentMarkdown(spec);
+    forceCapabilities(['fs:read', 'mcp:exarchos:readonly']);
+    const md = generateClaudeAgentMarkdown(IMPLEMENTER);
     const fm = parseYaml(extractFrontmatter(md)) as Record<string, unknown>;
     expect(fm.mcpServers).toEqual(['exarchos']);
   });
 
   it('ClaudeAdapter_LowerSpec_FullMcpCap_StillEmitsExarchosServerGrant', () => {
     // Sanity: pre-existing behavior unchanged for `mcp:exarchos`.
-    const spec = withOverrides(IMPLEMENTER, {
-      capabilities: ['fs:read', 'mcp:exarchos'],
-    });
-    const md = generateClaudeAgentMarkdown(spec);
+    forceCapabilities(['fs:read', 'mcp:exarchos']);
+    const md = generateClaudeAgentMarkdown(IMPLEMENTER);
     const fm = parseYaml(extractFrontmatter(md)) as Record<string, unknown>;
     expect(fm.mcpServers).toEqual(['exarchos']);
   });
@@ -251,10 +255,8 @@ describe('ClaudeAdapter_LowerSpec_McpReadonlyTier', () => {
     // Sanity: when neither tier is present, `mcpServers` is not emitted
     // at all (so the readonly wiring is provably gated on capability,
     // not unconditional).
-    const spec = withOverrides(IMPLEMENTER, {
-      capabilities: ['fs:read'],
-    });
-    const md = generateClaudeAgentMarkdown(spec);
+    forceCapabilities(['fs:read']);
+    const md = generateClaudeAgentMarkdown(IMPLEMENTER);
     const fm = parseYaml(extractFrontmatter(md)) as Record<string, unknown>;
     expect(fm.mcpServers).toBeUndefined();
   });
@@ -264,9 +266,28 @@ describe('ClaudeAdapter_LowerSpec_McpReadonlyTier', () => {
     // The readonly tier was added to the Capability enum in T03; if the
     // claude support map weren't refreshed, validateSupport would reject
     // a spec that uses it.
-    const spec = withOverrides(IMPLEMENTER, {
-      capabilities: ['fs:read', 'mcp:exarchos:readonly'],
-    });
-    expect(claudeAdapter.validateSupport(spec)).toEqual({ ok: true });
+    forceCapabilities(['fs:read', 'mcp:exarchos:readonly']);
+    expect(claudeAdapter.validateSupport(IMPLEMENTER)).toEqual({ ok: true });
+  });
+});
+
+// ─── #1333 β-04: adapter routes capability rendering through resolver ──────
+//
+// Pin that the Claude adapter's render path invokes
+// `resolveCapabilities(spec.posture, spec.id)` rather than reading a
+// `spec.capabilities` field directly. The β-03 migration ensures this is
+// already true; the test exists to lock the contract so a future "speed
+// up by inlining" refactor can't reintroduce a divergent rendering path.
+
+describe('ClaudeAdapter capability rendering routes through resolver (#1333 β-04)', () => {
+  it('ClaudeAdapter_RenderAgentSpec_CallsResolveCapabilitiesNotSpecField', () => {
+    const spy = vi.spyOn(PostureMapping, 'resolveCapabilities');
+    claudeAdapter.lowerSpec(IMPLEMENTER);
+    expect(spy).toHaveBeenCalled();
+    // At least one call uses the spec's posture + id pair.
+    const calledWithSpecPair = spy.mock.calls.some(
+      (args) => args[0] === IMPLEMENTER.posture && args[1] === IMPLEMENTER.id,
+    );
+    expect(calledWithSpecPair).toBe(true);
   });
 });

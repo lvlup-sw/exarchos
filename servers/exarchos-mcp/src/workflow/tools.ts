@@ -61,6 +61,7 @@ import type { RehydrationDocument } from '../projections/rehydration/schema.js';
 import { appendSnapshot } from '../projections/store.js';
 import type { SnapshotRecord } from '../projections/snapshot-schema.js';
 import type { WorkflowEvent } from '../event-store/schemas.js';
+import { buildValidatedEvent } from '../event-store/event-factory.js';
 
 // ─── Module-Level EventStore (removed — now threaded via DispatchContext) ─────
 
@@ -156,7 +157,9 @@ export async function handleInit(
     let eventSequence = 0;
     if (eventStore) {
       try {
-        const event = await eventStore.append(input.featureId, {
+        // #1325 — route through buildValidatedEvent for defense-in-depth
+        // Zod validation at the emission boundary.
+        const validatedEvent = buildValidatedEvent(input.featureId, 1, {
           type: 'workflow.started' as import('../event-store/schemas.js').EventType,
           correlationId: input.featureId,
           source: 'workflow',
@@ -165,7 +168,10 @@ export async function handleInit(
             workflowType: input.workflowType,
             ...(isOneshotWithPolicy ? { synthesisPolicy: input.synthesisPolicy } : {}),
           },
-        }, { idempotencyKey: `${input.featureId}:workflow.started` });
+        });
+        const event = await eventStore.appendValidated(input.featureId, validatedEvent, {
+          idempotencyKey: `${input.featureId}:workflow.started`,
+        });
         eventSequence = event.sequence;
       } catch (err) {
         // Event-first: if event append fails, do NOT create state file
@@ -467,12 +473,15 @@ export async function handleSet(
       // handler returns observe the event (read-your-writes consistency).
       if (gateResult.warning === 'checkpoint-state-missing' && eventStore) {
         try {
-          await eventStore.append(input.featureId, {
+          // #1325 — route through buildValidatedEvent for defense-in-depth
+          // Zod validation. Emission is best-effort.
+          const validatedEvent = buildValidatedEvent(input.featureId, 1, {
             type: 'checkpoint.state_missing' as import('../event-store/schemas.js').EventType,
             correlationId: input.featureId,
             source: 'workflow',
             data: { action: 'set' },
           });
+          await eventStore.appendValidated(input.featureId, validatedEvent);
         } catch {
           // Best-effort event emission — don't block the set() response
         }
@@ -482,7 +491,9 @@ export async function handleSet(
         // DR-5: emit checkpoint.enforced event before returning gate response
         if (eventStore) {
           try {
-            await eventStore.append(input.featureId, {
+            // #1325 — route through buildValidatedEvent for defense-in-depth
+            // Zod validation. Emission is best-effort.
+            const validatedEvent = buildValidatedEvent(input.featureId, 1, {
               type: 'checkpoint.enforced' as import('../event-store/schemas.js').EventType,
               correlationId: input.featureId,
               source: 'workflow',
@@ -492,6 +503,7 @@ export async function handleSet(
                 blockedAction: 'phase-transition',
               },
             });
+            await eventStore.appendValidated(input.featureId, validatedEvent);
           } catch {
             // Best-effort event emission — don't block the gate response
           }
@@ -742,7 +754,9 @@ export async function handleSet(
       try {
         const fieldsHash = [...updateKeys].sort().join(',');
         const idempotencyKey = `${input.featureId}:patch:${expectedVersion}:${fieldsHash}`;
-        const event = await eventStore.append(input.featureId, {
+        // #1325 — route through buildValidatedEvent for defense-in-depth
+        // Zod validation at the emission boundary.
+        const validatedEvent = buildValidatedEvent(input.featureId, 1, {
           type: 'state.patched' as import('../event-store/schemas.js').EventType,
           correlationId: input.featureId,
           source: 'workflow',
@@ -751,7 +765,8 @@ export async function handleSet(
             fields: updateKeys,
             patch: input.updates,
           },
-        }, { idempotencyKey });
+        });
+        const event = await eventStore.appendValidated(input.featureId, validatedEvent, { idempotencyKey });
 
         highestEventSequence = Math.max(highestEventSequence ?? 0, event.sequence);
       } catch (err) {
@@ -809,14 +824,21 @@ export async function handleSet(
       // CAS exhaustion: emit diagnostic event before throwing
       if (err instanceof VersionConflictError && eventStore) {
         try {
-          await eventStore.append(input.featureId, {
+          // #1325 — route through buildValidatedEvent for defense-in-depth
+          // Zod validation. Add correlationId / source consistent with
+          // the canonical pattern used by every other emission in this
+          // handler. Emission is best-effort.
+          const validatedEvent = buildValidatedEvent(input.featureId, 1, {
             type: 'workflow.cas-failed' as import('../event-store/schemas.js').EventType,
+            correlationId: input.featureId,
+            source: 'workflow',
             data: {
               featureId: input.featureId,
               phase: input.phase ?? (mutableState.phase as string) ?? 'unknown',
               retries: MAX_CAS_RETRIES,
             },
           });
+          await eventStore.appendValidated(input.featureId, validatedEvent);
         } catch {
           // Best-effort diagnostic emission — don't mask the actual CAS error
         }
@@ -1211,7 +1233,9 @@ export async function handleCheckpoint(
     `${input.featureId}:checkpoint:${state.phase}:${state._version}:${handoffDigest}`;
   if (eventStore) {
     try {
-      await eventStore.append(input.featureId, {
+      // #1325 — route through buildValidatedEvent for defense-in-depth
+      // Zod validation at the emission boundary.
+      const validatedEvent = buildValidatedEvent(input.featureId, 1, {
         type: 'workflow.checkpoint' as import('../event-store/schemas.js').EventType,
         correlationId: input.featureId,
         source: 'workflow',
@@ -1227,7 +1251,8 @@ export async function handleCheckpoint(
           featureId: input.featureId,
           ...(handoff !== undefined && { handoff }),
         },
-      }, { idempotencyKey: checkpointIdempotencyKey });
+      });
+      await eventStore.appendValidated(input.featureId, validatedEvent, { idempotencyKey: checkpointIdempotencyKey });
     } catch (err) {
       return {
         success: false,
@@ -1341,7 +1366,9 @@ export async function handleCheckpoint(
     }
 
     try {
-      await eventStore.append(input.featureId, {
+      // #1325 — route through buildValidatedEvent for defense-in-depth
+      // Zod validation at the emission boundary.
+      const validatedEvent = buildValidatedEvent(input.featureId, 1, {
         type: 'workflow.checkpoint_written' as import('../event-store/schemas.js').EventType,
         correlationId: input.featureId,
         source: 'workflow',
@@ -1356,7 +1383,8 @@ export async function handleCheckpoint(
           projectionSequence: lastEventSequence,
           byteSize,
         },
-      }, {
+      });
+      await eventStore.appendValidated(input.featureId, validatedEvent, {
         // Idempotency: one written event per (feature, projection, absorbed
         // sequence). `document.projectionSequence` only advances on events
         // the reducer handled, so two snapshots that absorbed different sets

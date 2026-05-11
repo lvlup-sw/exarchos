@@ -1974,8 +1974,15 @@ describe('Guaranteed Event Append', () => {
       eventStore,
     );
 
-    // Now mock append to fail for the transition event
+    // Now mock both append paths to fail for the transition event.
+    // #1325 — phase-transition emissions now route through
+    // `appendValidated` via hsmTransitionGuard, while legacy event-first
+    // sites still call `append`. Stub both so the failure injection
+    // remains exhaustive regardless of which path the handler uses.
     const appendSpy = vi.spyOn(eventStore, 'append').mockRejectedValue(
+      new Error('Disk full'),
+    );
+    const appendValidatedSpy = vi.spyOn(eventStore, 'appendValidated').mockRejectedValue(
       new Error('Disk full'),
     );
 
@@ -1997,6 +2004,7 @@ describe('Guaranteed Event Append', () => {
     expect(state.phase).toBe('ideate');
 
     appendSpy.mockRestore();
+    appendValidatedSpy.mockRestore();
   });
 
   it('handleCheckpoint_EventAppendFails_ReturnsError', async () => {
@@ -2005,8 +2013,12 @@ describe('Guaranteed Event Append', () => {
 
     await handleInit({ featureId: 'ckpt-event-fail', workflowType: 'feature' }, tmpDir, eventStore);
 
-    // Now mock append to fail for the checkpoint event
+    // Now mock both append paths to fail for the checkpoint event.
+    // #1325 — handleCheckpoint emissions migrated to `appendValidated`.
     const appendSpy = vi.spyOn(eventStore, 'append').mockRejectedValue(
+      new Error('Permission denied'),
+    );
+    const appendValidatedSpy = vi.spyOn(eventStore, 'appendValidated').mockRejectedValue(
       new Error('Permission denied'),
     );
 
@@ -2024,6 +2036,7 @@ describe('Guaranteed Event Append', () => {
     expect(result.error?.message).toContain('Permission denied');
 
     appendSpy.mockRestore();
+    appendValidatedSpy.mockRestore();
   });
 
   it('handleCheckpoint_EventAppend_HasIdempotencyKey', async () => {
@@ -2032,12 +2045,18 @@ describe('Guaranteed Event Append', () => {
 
     await handleInit({ featureId: 'ckpt-idem-key', workflowType: 'feature' }, tmpDir, eventStore);
 
-    // Spy on append to capture idempotency keys
+    // Spy on both append paths to capture idempotency keys.
+    // #1325 — handleCheckpoint now emits via `appendValidated`.
     const appendCalls: Array<{ type: string; idempotencyKey?: string }> = [];
     const originalAppend = eventStore.append.bind(eventStore);
+    const originalAppendValidated = eventStore.appendValidated.bind(eventStore);
     vi.spyOn(eventStore, 'append').mockImplementation(async (streamId, event, options) => {
       appendCalls.push({ type: event.type, idempotencyKey: options?.idempotencyKey });
       return originalAppend(streamId, event, options);
+    });
+    vi.spyOn(eventStore, 'appendValidated').mockImplementation(async (streamId, event, options) => {
+      appendCalls.push({ type: event.type, idempotencyKey: options?.idempotencyKey });
+      return originalAppendValidated(streamId, event, options);
     });
 
     // Act
@@ -2129,8 +2148,12 @@ describe('CAS Retry Duplicate Event Prevention', () => {
       eventStore,
     );
 
-    // Mock event store append to fail
+    // Mock both event store append paths to fail.
+    // #1325 — phase-transition emissions now route through `appendValidated`.
     const appendSpy = vi.spyOn(eventStore, 'append').mockRejectedValue(
+      new Error('Event store unavailable'),
+    );
+    const appendValidatedSpy = vi.spyOn(eventStore, 'appendValidated').mockRejectedValue(
       new Error('Event store unavailable'),
     );
 
@@ -2151,6 +2174,7 @@ describe('CAS Retry Duplicate Event Prevention', () => {
     expect(state.phase).toBe('ideate');
 
     appendSpy.mockRestore();
+    appendValidatedSpy.mockRestore();
   });
 });
 
@@ -2363,9 +2387,12 @@ describe('handleInit_EventFirst', () => {
   });
 
   it('should fail and NOT create state file if event append fails', async () => {
-    // Arrange — create a mock event store that throws on append
+    // Arrange — create a mock event store that throws on both append paths.
+    // #1325 — handleInit now emits via `appendValidated`; stub both so the
+    // injection covers the canonical and legacy paths.
     const eventStore = new EventStore(tmpDir);
     vi.spyOn(eventStore, 'append').mockRejectedValue(new Error('Event store unavailable'));
+    vi.spyOn(eventStore, 'appendValidated').mockRejectedValue(new Error('Event store unavailable'));
 
     // Act
     const result = await handleInit({ featureId: 'fail-init', workflowType: 'feature' }, tmpDir, eventStore);
@@ -2441,13 +2468,22 @@ describe('handleSet_EventFirst', () => {
       eventStore,
     );
 
-    // Now make event store fail for transition events
+    // Now make event store fail for transition events on both code paths.
+    // #1325 — phase transitions now route through `appendValidated` via
+    // `hsmTransitionGuard`; spy on both to keep the injection robust.
     const originalAppend = eventStore.append.bind(eventStore);
     const appendSpy = vi.spyOn(eventStore, 'append').mockImplementation(async (streamId, event, opts) => {
       if (event.type === 'workflow.transition') {
         throw new Error('Event store unavailable');
       }
       return originalAppend(streamId, event, opts);
+    });
+    const originalAppendValidated = eventStore.appendValidated.bind(eventStore);
+    const appendValidatedSpy = vi.spyOn(eventStore, 'appendValidated').mockImplementation(async (streamId, event, opts) => {
+      if (event.type === 'workflow.transition') {
+        throw new Error('Event store unavailable');
+      }
+      return originalAppendValidated(streamId, event, opts);
     });
 
     const result = await handleSet({ featureId: 'ef-fail-set', phase: 'plan' }, tmpDir, eventStore);
@@ -2460,6 +2496,7 @@ describe('handleSet_EventFirst', () => {
     expect(raw.phase).toBe('ideate');
 
     appendSpy.mockRestore();
+    appendValidatedSpy.mockRestore();
   });
 
   it('should use idempotency key to prevent duplicate events on CAS retry', async () => {

@@ -25,6 +25,7 @@
 import type { AgentSpec } from '../types.js';
 import type { RuntimeAdapter, ValidationResult } from './types.js';
 import { buildSupportMap } from './support-levels.js';
+import { resolveCapabilities } from '../../capabilities/posture-mapping.js';
 
 /**
  * Codex covers fs/shell/subagent-spawn/MCP natively, treats
@@ -92,7 +93,7 @@ function tomlStringArray(values: readonly string[]): string {
  * Issue #1192 Item 6, T27.
  */
 function deriveCodexSandboxMode(spec: AgentSpec): 'read-only' | 'workspace-write' {
-  const caps = new Set<string>(spec.capabilities);
+  const caps = resolveCapabilities(spec.posture, spec.id);
   if (caps.has('fs:write') || caps.has('shell:exec')) {
     return 'workspace-write';
   }
@@ -105,7 +106,11 @@ function deriveCodexSandboxMode(spec: AgentSpec): 'read-only' | 'workspace-write
  * underlying model knows which platform affordances to expect.
  */
 function renderDeveloperInstructions(spec: AgentSpec): string {
-  const capabilityLines = spec.capabilities.map((cap) => `- ${cap}`).join('\n');
+  // Stable ordering: emit capabilities in the canonical Capability enum
+  // order so the rendered TOML doesn't depend on Set iteration order.
+  // Snapshots in __fixtures__ are byte-pinned against this output.
+  const resolved = resolveCapabilities(spec.posture, spec.id);
+  const capabilityLines = [...resolved].map((cap) => `- ${cap}`).join('\n');
   return [
     spec.systemPrompt,
     '',
@@ -130,11 +135,12 @@ function lowerSpec(spec: AgentSpec): { path: string; contents: string } {
   // session default that may grant more access than the spec authorized.
   lines.push(`sandbox_mode = ${tomlBasicString(deriveCodexSandboxMode(spec))}`);
 
+  const resolved = resolveCapabilities(spec.posture, spec.id);
   if (spec.mcpServers && spec.mcpServers.length > 0) {
     lines.push(`mcp_servers = ${tomlStringArray([...spec.mcpServers])}`);
   } else if (
-    spec.capabilities.includes('mcp:exarchos') ||
-    spec.capabilities.includes('mcp:exarchos:readonly')
+    resolved.has('mcp:exarchos') ||
+    resolved.has('mcp:exarchos:readonly')
   ) {
     // Both the broad and readonly capabilities grant the same Codex
     // mcp_servers entry — Codex's TOML format has no per-action sub-grant
@@ -147,7 +153,7 @@ function lowerSpec(spec: AgentSpec): { path: string; contents: string } {
 }
 
 function validateSupport(spec: AgentSpec): ValidationResult {
-  for (const cap of spec.capabilities) {
+  for (const cap of resolveCapabilities(spec.posture, spec.id)) {
     if (CODEX_SUPPORT_LEVELS[cap] === 'unsupported') {
       return {
         ok: false,

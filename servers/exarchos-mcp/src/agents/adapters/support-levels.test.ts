@@ -10,7 +10,7 @@
 // three-state contract).
 // ────────────────────────────────────────────────────────────────────────────
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { parse as parseYaml } from 'yaml';
 import { Capability } from '../capabilities.js';
 import { IMPLEMENTER } from '../definitions.js';
@@ -21,6 +21,7 @@ import { codexAdapter } from './codex.js';
 import { OpenCodeAdapter } from './opencode.js';
 import { CursorAdapter } from './cursor.js';
 import { CopilotAdapter } from './copilot.js';
+import * as PostureMapping from '../../capabilities/posture-mapping.js';
 
 /** Adapter registry. The CopilotAdapter is a class — instantiate it. */
 const ADAPTERS: ReadonlyArray<{ name: string; adapter: RuntimeAdapter }> = [
@@ -64,13 +65,26 @@ const NON_CLAUDE_EXPECTED: Readonly<Record<Capability, SupportLevel>> = {
   'team:agent-teams': 'unsupported',
 };
 
-/** A spec with exactly one capability, used to probe validateSupport. */
+/**
+ * A spec proxy used to probe `validateSupport` with a single, hand-picked
+ * capability. Since #1333, capabilities are derived from posture + agentId
+ * via `resolveCapabilities`; there is no longer an inbound `spec.capabilities`
+ * array for tests to set. Helper spies on the resolver and forces it to
+ * return the requested capability set for the duration of the test.
+ *
+ * Returns the proxy spec plus a `restore` function the caller must invoke
+ * (in `afterEach` or inline) to remove the spy.
+ */
 function syntheticSpecWith(cap: Capability): AgentSpec {
-  return {
-    ...IMPLEMENTER,
-    capabilities: [cap],
-  };
+  vi.spyOn(PostureMapping, 'resolveCapabilities').mockReturnValue(
+    Object.freeze(new Set<Capability>([cap])),
+  );
+  return { ...IMPLEMENTER };
 }
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 /** Parse Markdown YAML frontmatter into `{ data, body }`. */
 function parseFrontmatter(contents: string): { data: Record<string, unknown>; body: string } {

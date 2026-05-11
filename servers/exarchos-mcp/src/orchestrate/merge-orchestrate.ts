@@ -51,6 +51,8 @@ import {
   handleExecuteMerge as defaultHandleExecuteMerge,
   type HandleExecuteMergeInput,
 } from './execute-merge.js';
+import { buildMergeOrchestrateIdempotencyKey } from './merge-keys.js';
+import { SequenceConflictError } from '../event-store/store.js';
 import {
   readStateFile,
   writeStateFile,
@@ -407,22 +409,70 @@ export async function handleMergeOrchestrate(
   // log is self-sufficient for timeline reconstruction. Also surface
   // `failureReasons` when the preflight failed so observability and
   // operators see the same diagnostic returned in the ToolResult.
-  await ctx.eventStore.append(args.featureId, {
-    type: 'merge.preflight',
-    data: {
-      ...(args.taskId !== undefined ? { taskId: args.taskId } : {}),
-      sourceBranch: args.sourceBranch,
-      targetBranch: args.targetBranch,
-      passed: preflight.passed,
-      ancestry: preflight.ancestry,
-      currentBranchProtection: preflight.currentBranchProtection,
-      worktree: preflight.worktree,
-      drift: preflight.drift,
-      ...(preflight.passed
-        ? {}
-        : { failureReasons: [describePreflightFailure(preflight)] }),
-    },
-  });
+  //
+  // #1303 (α-04): pass `idempotencyKey` (when `taskId` is present) and
+  // `expectedSequence` (CAS on the stream high-water mark) so the substrate
+  // guarantees from #1259 / #1323 reach this append site too. Same shape as
+  // the α-02 wiring at `execute-merge.ts:340-387` for `merge.executed`:
+  //   • idempotencyKey-dedup makes crash-replay safe — a retry after a
+  //     mid-handler crash returns the original cached event rather than
+  //     appending a duplicate `merge.preflight`.
+  //   • `expectedSequence` enforces optimistic concurrency at the append
+  //     boundary — two concurrent invocations against the same stream
+  //     cannot land overlapping sequences without a typed conflict.
+  const tailEventsPreflight = await ctx.eventStore.query(args.featureId);
+  const expectedSequencePreflight =
+    tailEventsPreflight.length > 0
+      ? Math.max(...tailEventsPreflight.map((e) => e.sequence))
+      : 0;
+  const appendOptionsPreflight: { idempotencyKey?: string; expectedSequence: number } = {
+    expectedSequence: expectedSequencePreflight,
+  };
+  if (args.taskId !== undefined) {
+    appendOptionsPreflight.idempotencyKey = buildMergeOrchestrateIdempotencyKey(
+      args.featureId,
+      args.taskId,
+      'merge.preflight',
+    );
+  }
+  try {
+    await ctx.eventStore.append(
+      args.featureId,
+      {
+        type: 'merge.preflight',
+        data: {
+          ...(args.taskId !== undefined ? { taskId: args.taskId } : {}),
+          sourceBranch: args.sourceBranch,
+          targetBranch: args.targetBranch,
+          passed: preflight.passed,
+          ancestry: preflight.ancestry,
+          currentBranchProtection: preflight.currentBranchProtection,
+          worktree: preflight.worktree,
+          drift: preflight.drift,
+          ...(preflight.passed
+            ? {}
+            : { failureReasons: [describePreflightFailure(preflight)] }),
+        },
+      },
+      appendOptionsPreflight,
+    );
+  } catch (err) {
+    // SequenceConflict means a concurrent invocation already advanced the
+    // stream past our observed tail. The other side will have appended the
+    // canonical `merge.preflight` (its own idempotency key dedups its own
+    // retry) — surface a structured STATE_CONFLICT rather than letting a
+    // raw substrate error escape past the handler boundary.
+    if (err instanceof SequenceConflictError) {
+      return {
+        success: false,
+        error: {
+          code: 'STATE_CONFLICT',
+          message: `merge.preflight append lost sequence race: expected=${err.expected} actual=${err.actual}`,
+        },
+      };
+    }
+    throw err;
+  }
 
   // ─── 3. Dry-run short-circuit (T13) ──────────────────────────────────────
   // Dry-run is observation-only: preflight has already run and emitted, so
