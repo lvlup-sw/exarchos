@@ -208,16 +208,24 @@ describe('handleExecuteMerge rollback (T16)', () => {
     // Direct stream append to the merge.rollback type — NOT wrapped in
     // gate.executed and NOT a merge.executed event.
     expect(ctx.eventStore.append).toHaveBeenCalledTimes(1);
-    expect(ctx.eventStore.append).toHaveBeenCalledWith('feat-x', {
-      type: 'merge.rollback',
-      data: {
-        taskId: 'T11',
-        sourceBranch: 'feat/x',
-        targetBranch: 'main',
-        rollbackSha: ROLLBACK_SHA,
-        reason: 'merge-failed',
+    expect(ctx.eventStore.append).toHaveBeenCalledWith(
+      'feat-x',
+      {
+        type: 'merge.rollback',
+        data: {
+          taskId: 'T11',
+          sourceBranch: 'feat/x',
+          targetBranch: 'main',
+          rollbackSha: ROLLBACK_SHA,
+          reason: 'merge-failed',
+        },
       },
-    });
+      // #1303 α-05: idempotencyKey + expectedSequence wired on merge.rollback.
+      {
+        expectedSequence: 0,
+        idempotencyKey: 'feat-x:merge_orchestrate:T11:merge.rollback',
+      },
+    );
   });
 
   it('handleExecuteMerge_AfterRollback_HeadMatchesRecordedSha', async () => {
