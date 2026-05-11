@@ -47,7 +47,7 @@ export interface PublicPersistedEventLike {
 
 // ─── Schema DDL ─────────────────────────────────────────────────────────────
 
-const SCHEMA_VERSION = 3;
+const SCHEMA_VERSION = 4;
 
 const SCHEMA_DDL = `
 CREATE TABLE IF NOT EXISTS events (
@@ -354,9 +354,15 @@ export class SqliteBackend implements StorageBackend {
    * V2 -> V3: Scaffolding step (no DDL change). Reserves SCHEMA_VERSION=3 so
    *           later tasks (T02-T04, T12) can register new event types and
    *           tolerant deserialization under a versioned DB shape.
+   * V3 -> V4: R-1 Marten primitive (#1313). Materialize the `streams`
+   *           registry table with a mandatory `workflow_type` column and
+   *           backfill `__legacy` for every pre-existing stream row in
+   *           `sequences`. Indexes + state-file backfill + the
+   *           `migration.workflow_type_unknown` observability event live in
+   *           sibling subtasks (1.2, 1.5, 1.6).
    *
    * Each step short-circuits if its target version is already present in the
-   * `schema_version` table, so running migrateSchema() twice on a V3 DB is a
+   * `schema_version` table, so running migrateSchema() twice on a V4 DB is a
    * no-op (idempotent).
    */
   private migrateSchema(): void {
@@ -383,6 +389,17 @@ export class SqliteBackend implements StorageBackend {
     if (!v3Existing) {
       this.migrateV2ToV3();
     }
+
+    // V3 -> V4: gated by the schema_version ledger. Creates the `streams`
+    // registry (V3 had none — stream existence was implicit in `sequences`)
+    // and backfills the `__legacy` sentinel for each pre-existing stream.
+    const v4Existing = this.db
+      .prepare('SELECT version FROM schema_version WHERE version = ?')
+      .get(4) as { version: number } | undefined;
+
+    if (!v4Existing) {
+      this.migrateV3ToV4();
+    }
   }
 
   /**
@@ -390,10 +407,72 @@ export class SqliteBackend implements StorageBackend {
    * named helper so downstream foundation tasks (T02-T04 register new event
    * types, T12 wires tolerant deserialization) have a single seam to extend
    * without rewriting the runner.
+   *
+   * Records version=3 in the schema_version ledger explicitly. Before V4
+   * existed, the SCHEMA_VERSION=3 sentinel was inserted by initialize()
+   * itself; that insert now records version=4, so each migrate helper is
+   * responsible for stamping its own target version. Without this stamp,
+   * the gating check in migrateSchema (`SELECT WHERE version = 3`) would
+   * re-run migrateV2ToV3 on every open of a V4-current DB.
    */
   private migrateV2ToV3(): void {
-    // No-op. SCHEMA_VERSION=3 itself is recorded by the ledger insert in
-    // initialize() once this method returns.
+    this.db
+      .prepare('INSERT OR IGNORE INTO schema_version (version, appliedAt) VALUES (?, ?)')
+      .run(3, new Date().toISOString());
+  }
+
+  /**
+   * V3 -> V4 migration step. Marten R-1 primitive (#1313).
+   *
+   * Creates the `streams` registry table with a mandatory `workflow_type`
+   * column, then backfills one row per existing stream from the V3
+   * `sequences` table with the `__legacy` sentinel. The sentinel marks
+   * streams whose workflow type cannot be derived structurally; later
+   * subtasks (1.5) walk state files to replace it with a recovered type
+   * where possible.
+   *
+   * The design (`R-1: Mandatory workflow_type Column`) calls for
+   *   ALTER TABLE streams ADD COLUMN workflow_type TEXT NOT NULL DEFAULT '__legacy'
+   * but V3 has no `streams` table to ALTER. We CREATE it instead, which
+   * yields the same observable shape: a NOT NULL column with `__legacy`
+   * default. The DEFAULT serves only as belt-and-suspenders for any code
+   * path that later inserts without a workflow_type — `workflow.init` is
+   * the sole writer (task 1.3) and always passes one explicitly.
+   *
+   * `status TEXT` is reserved here so the composite index `(workflow_type,
+   * status)` (task 1.2) has both columns available; the read-side wiring
+   * is deferred to v2.12 (#1090) and `status` is not yet populated.
+   */
+  private migrateV3ToV4(): void {
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS streams (
+        streamId      TEXT PRIMARY KEY,
+        workflow_type TEXT NOT NULL DEFAULT '__legacy',
+        status        TEXT,
+        createdAt     TEXT NOT NULL
+      );
+    `);
+
+    // Backfill the registry from the V3 implicit stream set (sequences).
+    // INSERT OR IGNORE so re-running the migration does not duplicate rows;
+    // a stream already inserted by a later code path (task 1.3) keeps its
+    // row untouched. Uses OR IGNORE rather than ON CONFLICT DO NOTHING for
+    // compatibility with the older SQLite the test-time better-sqlite3 shim
+    // ships with.
+    const now = new Date().toISOString();
+    this.db
+      .prepare(
+        `INSERT OR IGNORE INTO streams (streamId, workflow_type, createdAt)
+         SELECT streamId, '__legacy', ? FROM sequences`,
+      )
+      .run(now);
+
+    // Stamp version=4 in the ledger so migrateSchema short-circuits on the
+    // next open. initialize() also INSERT OR IGNORE's the current
+    // SCHEMA_VERSION; this insert is the belt to that suspenders.
+    this.db
+      .prepare('INSERT OR IGNORE INTO schema_version (version, appliedAt) VALUES (?, ?)')
+      .run(4, now);
   }
 
   private prepareStatements(): Statements {
