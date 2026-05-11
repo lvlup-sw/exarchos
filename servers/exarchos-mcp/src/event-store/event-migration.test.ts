@@ -1,6 +1,6 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import { Database } from 'bun:sqlite';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { migrateEvent, EVENT_SCHEMA_VERSION } from './event-migration.js';
@@ -353,6 +353,49 @@ describe('Event Migration', () => {
       const names = idx.map((r) => r.name);
       expect(names).toContain('idx_streams_workflow_type');
       expect(names).toContain('idx_streams_workflow_type_status');
+    });
+
+    it('Migration_V3ToV4_BackfillsFromStateFile', () => {
+      const dbPath = createTempDb();
+      // SqliteBackend lives at <stateDir>/exarchos.db by convention — the
+      // migration reads state files from the same parent directory. Use
+      // tempDir as the state dir and pin a stream's workflow type in its
+      // state file before the migration runs.
+      const stateDir = tempDir!;
+      const dbPathInStateDir = join(stateDir, 'exarchos.db');
+
+      // Seed V3 with a stream that has a sibling state file naming oneshot.
+      seedV3Database(dbPathInStateDir);
+
+      // Append a third stream `feat-y` with a state file. The state file
+      // is the only place the migration can recover a non-legacy
+      // workflowType for pre-V4 streams; absent the file, the row keeps
+      // '__legacy' (covered by task 1.6's observability event).
+      const seedDb = new Database(dbPathInStateDir);
+      seedDb
+        .prepare('INSERT INTO sequences (streamId, sequence) VALUES (?, ?)')
+        .run('feat-y', 3);
+      seedDb.close();
+
+      writeFileSync(
+        join(stateDir, 'feat-y.state.json'),
+        JSON.stringify({ featureId: 'feat-y', workflowType: 'oneshot' }),
+        'utf-8',
+      );
+
+      const backend = trackBackend(new SqliteBackend(dbPathInStateDir));
+      backend.initialize();
+
+      const db = (backend as unknown as { db: Database }).db;
+      const row = db
+        .prepare('SELECT workflow_type FROM streams WHERE streamId = ?')
+        .get('feat-y') as { workflow_type: string } | undefined;
+
+      // The recovered workflowType replaces '__legacy'. This is the ONLY
+      // allowed UPDATE of workflow_type — task 1.7's grep gate enforces
+      // immutability everywhere else.
+      expect(row).toBeDefined();
+      expect(row!.workflow_type).toBe('oneshot');
     });
   });
 });
