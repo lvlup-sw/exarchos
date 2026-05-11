@@ -5,6 +5,7 @@ import * as path from 'node:path';
 
 import { AtomicAppender } from './atomic-appender.js';
 import { EventStore } from './store.js';
+import { InvalidReducerScopeError } from '../projections/store.js';
 import {
   createRegistry,
   type ProjectionRegistry,
@@ -139,5 +140,69 @@ describe('decide<TState> — happy-path round-trip (Task 3.3)', () => {
 
     // The now() function returns an ISO-8601 string at fetch time.
     expect(observedNow).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/);
+  });
+});
+
+describe('decide<TState> — scope discipline (Task 3.4)', () => {
+  let stateDir: string;
+  let eventStore: EventStore;
+  let appender: AtomicAppender;
+  let registry: ProjectionRegistry;
+  const streamId = 'feature/decide-scope';
+
+  beforeEach(async () => {
+    stateDir = await mkdtemp(path.join(tmpdir(), 'decide-scope-test-'));
+    eventStore = new EventStore(stateDir);
+    await eventStore.initialize();
+    appender = eventStore.getAppender() as AtomicAppender;
+    registry = createRegistry();
+  });
+
+  afterEach(async () => {
+    await rm(stateDir, { recursive: true, force: true });
+  });
+
+  it('Decide_RejectsGlobalScopedReducer_WithInvalidReducerScope', async () => {
+    // A global-scoped fixture stands in for task-store@v1 (real registered
+    // global reducer) — keeps the test hermetic on a fresh registry.
+    const globalReducer = makeFixtureReducer('fixture-global@v1', 'global');
+    registry.register(
+      globalReducer as unknown as Parameters<typeof registry.register>[0],
+    );
+
+    await expect(
+      appender.decide<FixtureState>(
+        streamId,
+        'fixture-global@v1',
+        () => [{ type: 'task.completed' }],
+        { registry },
+      ),
+    ).rejects.toBeInstanceOf(InvalidReducerScopeError);
+
+    try {
+      await appender.decide<FixtureState>(
+        streamId,
+        'fixture-global@v1',
+        () => [{ type: 'task.completed' }],
+        { registry },
+      );
+    } catch (err) {
+      expect(err).toBeInstanceOf(InvalidReducerScopeError);
+      const e = err as InvalidReducerScopeError;
+      expect(e.expectedShape.scope).toBe('stream');
+      expect(e.actualScope).toBe('global');
+      expect(e.message).toMatch(/INVALID_REDUCER_SCOPE/);
+    }
+  });
+
+  it('Decide_ThrowsUnknownProjection_WhenReducerNotRegistered', async () => {
+    await expect(
+      appender.decide<FixtureState>(
+        streamId,
+        'no-such-reducer@v1',
+        () => [],
+        { registry },
+      ),
+    ).rejects.toThrow(/no-such-reducer@v1/);
   });
 });
