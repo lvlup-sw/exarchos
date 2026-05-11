@@ -46,6 +46,44 @@ afterEach(async () => {
 });
 
 describe('exarchos_workflow.update — canonical state-mutation action (Wave 0)', () => {
+  it('WorkflowUpdate_RejectsUpdatesContainingPhaseField', async () => {
+    // Setup: initialize a feature workflow.
+    const init = await handleInit(
+      { featureId, workflowType: 'feature' },
+      tmpDir,
+      eventStore,
+    );
+    expect(init.success).toBe(true);
+
+    // Call update with `phase` smuggled inside `updates`. The action's
+    // contract is non-phase mutation only — phase changes go through
+    // `transition` and its HSM-guarded code path. Allowing `phase`
+    // through here would silently bypass guard evaluation, valid-target
+    // enumeration, and the workflow.transition event emission.
+    const result = await handleWorkflow(
+      {
+        action: 'update',
+        featureId,
+        updates: { phase: 'plan' },
+      },
+      ctx,
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('INVALID_INPUT');
+
+    // The structured `suggestedFix` is the load-bearing piece of this
+    // contract — agents auto-correct off it without parsing the message
+    // string (INV-5a). Must point at the canonical phase-mutation
+    // surface (`exarchos_workflow.transition`) so the fix is one tool
+    // call away.
+    const suggestedFix = result.error?.suggestedFix as
+      | { tool?: string; params?: { action?: string } }
+      | undefined;
+    expect(suggestedFix?.tool).toBe('exarchos_workflow');
+    expect(suggestedFix?.params?.action).toBe('transition');
+  });
+
   it('WorkflowUpdate_PersistsArtifactsViaCanonicalStatePatchedEvent', async () => {
     // Setup: initialize a feature workflow.
     const init = await handleInit(
