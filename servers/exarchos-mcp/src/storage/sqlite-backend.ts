@@ -451,6 +451,17 @@ export class SqliteBackend implements StorageBackend {
         status        TEXT,
         createdAt     TEXT NOT NULL
       );
+      -- Indexes for v2.12 filtered ps/pipeline/view queries (#1090). The
+      -- read side is deferred to v2.12, but Wave 1 lands the indexes so the
+      -- moment those queries ship, every plan is O(log n) without a separate
+      -- migration window. Single-column index serves bare workflowType
+      -- equality filters; composite serves the more common workflowType +
+      -- status filters once status starts being populated by the merge
+      -- orchestrator (Wave 4).
+      CREATE INDEX IF NOT EXISTS idx_streams_workflow_type
+        ON streams(workflow_type);
+      CREATE INDEX IF NOT EXISTS idx_streams_workflow_type_status
+        ON streams(workflow_type, status);
     `);
 
     // Backfill the registry from the V3 implicit stream set (sequences).
