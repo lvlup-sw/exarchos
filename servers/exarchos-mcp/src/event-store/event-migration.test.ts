@@ -332,5 +332,27 @@ describe('Event Migration', () => {
         { streamId: 'feat-beta', workflow_type: '__legacy' },
       ]);
     });
+
+    it('Migration_V3ToV4_CreatesWorkflowTypeIndexes', () => {
+      const dbPath = createTempDb();
+      seedV3Database(dbPath);
+
+      const backend = trackBackend(new SqliteBackend(dbPath));
+      backend.initialize();
+
+      const db = (backend as unknown as { db: Database }).db;
+
+      // The v2.12 read-side (#1090) wires `ps`/`pipeline`/`view` filtering
+      // through these two indexes. Wave 1 only enforces their existence —
+      // their actual use is deferred. Asserting them today means the
+      // operator-controlled filtered queries land on indexed plans the
+      // moment v2.12 ships, with no separate migration window.
+      const idx = db
+        .prepare('PRAGMA index_list(streams)')
+        .all() as Array<{ name: string }>;
+      const names = idx.map((r) => r.name);
+      expect(names).toContain('idx_streams_workflow_type');
+      expect(names).toContain('idx_streams_workflow_type_status');
+    });
   });
 });
