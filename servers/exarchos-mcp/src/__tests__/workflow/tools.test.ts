@@ -841,7 +841,7 @@ describe('Core Tools', () => {
       expect(error.suggestedFix).toBeDefined();
       const fix = error.suggestedFix as { tool: string; params: Record<string, unknown> };
       expect(fix.tool).toBe('exarchos_workflow');
-      expect(fix.params.action).toBe('set');
+      expect(fix.params.action).toBe('update');
       expect(fix.params.featureId).toBe('guard-diag-test');
     });
 

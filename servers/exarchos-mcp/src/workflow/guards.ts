@@ -60,7 +60,7 @@ function makeArtifactGuard(field: string, description: string, customId?: string
         suggestedFix: {
           tool: 'exarchos_workflow',
           params: {
-            action: 'set',
+            action: 'update',
             featureId,
             updates: { artifacts: { [field]: '<path-or-content>' } },
           },
@@ -216,7 +216,7 @@ export const guards = {
         suggestedFix: {
           tool: 'exarchos_workflow',
           params: {
-            action: 'set',
+            action: 'update',
             featureId,
             updates: {
               tasks: incomplete.map((t) => ({
@@ -359,7 +359,7 @@ export const guards = {
           ? {
               suggestedFix: {
                 tool: 'exarchos_workflow',
-                params: { action: 'set', featureId, updates: suggestedUpdates },
+                params: { action: 'update', featureId, updates: suggestedUpdates },
               },
             }
           : {}),
@@ -413,7 +413,7 @@ export const guards = {
         expectedShape: { synthesis: { prUrl: '<pr-url>' } },
         suggestedFix: {
           tool: 'exarchos_workflow',
-          params: { action: 'set', featureId, updates: { synthesis: { prUrl: '<pr-url>' } } },
+          params: { action: 'update', featureId, updates: { synthesis: { prUrl: '<pr-url>' } } },
         },
       };
     },
@@ -431,7 +431,7 @@ export const guards = {
         expectedShape: { unblocked: true },
         suggestedFix: {
           tool: 'exarchos_workflow',
-          params: { action: 'set', featureId, updates: { unblocked: true } },
+          params: { action: 'update', featureId, updates: { unblocked: true } },
         },
       };
     },
@@ -477,7 +477,7 @@ export const guards = {
         expectedShape: { track: 'hotfix' },
         suggestedFix: {
           tool: 'exarchos_workflow',
-          params: { action: 'set', featureId, updates: { track: 'hotfix' } },
+          params: { action: 'update', featureId, updates: { track: 'hotfix' } },
         },
       };
     },
@@ -495,7 +495,7 @@ export const guards = {
         expectedShape: { track: 'thorough' },
         suggestedFix: {
           tool: 'exarchos_workflow',
-          params: { action: 'set', featureId, updates: { track: 'thorough' } },
+          params: { action: 'update', featureId, updates: { track: 'thorough' } },
         },
       };
     },
@@ -601,7 +601,7 @@ export const guards = {
         expectedShape: { track: 'polish' },
         suggestedFix: {
           tool: 'exarchos_workflow',
-          params: { action: 'set', featureId, updates: { track: 'polish' } },
+          params: { action: 'update', featureId, updates: { track: 'polish' } },
         },
       };
     },
@@ -619,7 +619,7 @@ export const guards = {
         expectedShape: { track: 'overhaul' },
         suggestedFix: {
           tool: 'exarchos_workflow',
-          params: { action: 'set', featureId, updates: { track: 'overhaul' } },
+          params: { action: 'update', featureId, updates: { track: 'overhaul' } },
         },
       };
     },
@@ -666,7 +666,7 @@ export const guards = {
         expectedShape: { planReview: { approved: true } },
         suggestedFix: {
           tool: 'exarchos_workflow',
-          params: { action: 'set', featureId, updates: { planReview: { approved: true } } },
+          params: { action: 'update', featureId, updates: { planReview: { approved: true } } },
         },
       };
     },
@@ -780,7 +780,7 @@ export const guards = {
         suggestedFix: {
           tool: 'exarchos_workflow',
           params: {
-            action: 'set',
+            action: 'update',
             featureId,
             updates: { 'artifacts.plan': '<one-page plan contents or path>' },
           },
@@ -940,7 +940,7 @@ export const guards = {
         expectedShape: { artifacts: { sources: ['<source-path-or-url>'] } },
         suggestedFix: {
           tool: 'exarchos_workflow',
-          params: { action: 'set', featureId, updates: { 'artifacts.sources': ['<source>'] } },
+          params: { action: 'update', featureId, updates: { 'artifacts.sources': ['<source>'] } },
         },
       };
     },
