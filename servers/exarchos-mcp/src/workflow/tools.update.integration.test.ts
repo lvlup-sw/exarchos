@@ -1,0 +1,97 @@
+// ─── Task 0.6 (Wave 0): update + transition close the HSM guard loop ─────
+//
+// End-to-end smoke: an init→update→transition sequence where the
+// transition is gated by an artifact guard that the update populates.
+// Specifically: the feature workflow's `ideate → plan` transition is
+// gated by `designArtifactExists` (state.artifacts.design != null),
+// so a successful round-trip is:
+//
+//   init({featureId, workflowType: 'feature'})
+//   update({featureId, updates: {artifacts: {design: 'p.md'}}})
+//   transition({featureId, target: 'plan'})  // guard now passes
+//   get({featureId})                          // observes phase: 'plan'
+//
+// This proves Wave 0's restoration of `update` actually closes the
+// existing HSM guard loop — the state-file projection used by the
+// guard contract reflects the update before the next transition reads
+// it. If `update`'s state-write didn't land or the guard read a stale
+// snapshot, the transition would surface GUARD_FAILED with
+// designArtifactExists in the failure envelope.
+
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import * as fs from 'node:fs/promises';
+import * as path from 'node:path';
+import * as os from 'node:os';
+
+import { handleWorkflow } from './composite.js';
+import { handleInit } from './tools.js';
+import { EventStore } from '../event-store/store.js';
+import type { DispatchContext } from '../core/dispatch.js';
+
+let tmpDir: string;
+let eventStore: EventStore;
+let ctx: DispatchContext;
+const featureId = 'wf-update-transition-integration';
+
+beforeEach(async () => {
+  tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'tools-update-integration-'));
+  eventStore = new EventStore(tmpDir);
+  await eventStore.initialize();
+  ctx = { stateDir: tmpDir, eventStore, enableTelemetry: false };
+});
+
+afterEach(async () => {
+  await fs.rm(tmpDir, { recursive: true, force: true });
+});
+
+describe('exarchos_workflow.update + transition — HSM guard loop (Wave 0, Task 0.6)', () => {
+  it('WorkflowUpdate_ThenTransition_SatisfiesDesignArtifactExistsGuard', async () => {
+    // Step 1: init feature workflow at phase: 'ideate'.
+    const init = await handleInit(
+      { featureId, workflowType: 'feature' },
+      tmpDir,
+      eventStore,
+    );
+    expect(init.success).toBe(true);
+    const initData = init.data as Record<string, unknown>;
+    expect(initData.phase).toBe('ideate');
+
+    // Step 2: populate the design artifact via the canonical update
+    // surface. Without this, transition('plan') below would return
+    // GUARD_FAILED with designArtifactExists.
+    const updateResult = await handleWorkflow(
+      {
+        action: 'update',
+        featureId,
+        updates: { artifacts: { design: 'p.md' } },
+      },
+      ctx,
+    );
+    expect(updateResult.success).toBe(true);
+
+    // Step 3: transition ideate → plan. The HSM guard reads the
+    // state-file projection (loaded by handleSet/applyTransition for
+    // its CAS attempt); the update from step 2 must already be
+    // visible there.
+    const transitionResult = await handleWorkflow(
+      {
+        action: 'transition',
+        featureId,
+        target: 'plan',
+      },
+      ctx,
+    );
+    expect(transitionResult.success).toBe(true);
+
+    // Step 4: confirm both the phase change and the artifact persist.
+    // A successful transition that loses the artifact would mean the
+    // CAS write overwrote it; an unsuccessful transition would mean
+    // the guard read a stale snapshot.
+    const get = await handleWorkflow({ action: 'get', featureId }, ctx);
+    expect(get.success).toBe(true);
+    const data = get.data as Record<string, unknown>;
+    expect(data.phase).toBe('plan');
+    const artifacts = data.artifacts as Record<string, unknown> | undefined;
+    expect(artifacts?.design).toBe('p.md');
+  });
+});
