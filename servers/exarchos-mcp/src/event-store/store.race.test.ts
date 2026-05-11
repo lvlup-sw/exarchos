@@ -5,6 +5,17 @@ import * as path from 'node:path';
 
 import { EventStore } from './store.js';
 import { AtomicAppender } from './atomic-appender.js';
+import { handleMergeOrchestrate } from '../orchestrate/merge-orchestrate.js';
+import {
+  handleExecuteMerge,
+  type HandleExecuteMergeInput,
+} from '../orchestrate/execute-merge.js';
+import type { DispatchContext } from '../core/dispatch.js';
+import type { ToolResult } from '../format.js';
+import type {
+  MergePreflightResult,
+  GitExecResult,
+} from '../orchestrate/pure/merge-preflight.js';
 
 /**
  * Cross-path race regression suite (#1293, post-#1265).
@@ -401,5 +412,220 @@ describe('EventStore multi-stream linearizability [sqlite]', () => {
     const enumerated = sqliteBackend.listStreams().sort();
     const expected = Array.from({ length: N }, (_, s) => `multistream-${s}`).sort();
     expect(enumerated).toEqual(expected);
+  });
+});
+
+// ─── #1303 α-03 — concurrent merge_orchestrate invocations on same stream ───
+//
+// Two `merge_orchestrate` invocations against the same `featureId` + `taskId`
+// run in parallel against a shared real `EventStore`. The substrate-level
+// invariants under test:
+//
+//   1. No duplicate `(stream_id, sequence)` rows — the SQLite PRIMARY KEY
+//      enforces this at the storage layer, so a duplicate would surface as
+//      a thrown exception during the loser's INSERT. The assertion checks
+//      that both invocations settled (no unhandled rejection escaped) AND
+//      that the final event stream has no duplicate sequence numbers.
+//
+//   2. Exactly one `merge.executed` event — `expectedSequence` + the
+//      `idempotencyKey` UNIQUE INDEX together must collapse the second
+//      attempt into either a cache-hit replay (same key) or a typed
+//      `SequenceConflictError` mapped to a structured `STATE_CONFLICT`
+//      ToolResult. A bare conflict throw escaping past the handler is
+//      what the assertion rejects.
+//
+//   3. The losing invocation must surface a structured result (success
+//      true on cache-hit replay, or failure with `STATE_CONFLICT` on
+//      sequence race) — neither bare throws nor silent duplicate appends.
+//
+// Decoupled from #1324 by design: NO subprocess spawn. The race is driven
+// in-process against a single `EventStore` instance.
+// ───────────────────────────────────────────────────────────────────────────
+
+const RACE_MERGE_SHA = 'c'.repeat(40);
+const RACE_ROLLBACK_SHA = 'd'.repeat(40);
+
+const RACE_PASSING_PREFLIGHT: MergePreflightResult = {
+  passed: true,
+  ancestry: { passed: true, missing: [], target: 'main' },
+  currentBranchProtection: { blocked: false, currentBranch: 'feat/race' },
+  worktree: { isMain: true, actual: '/repo', expected: '/repo' },
+  drift: {
+    clean: true,
+    uncommittedFiles: [],
+    indexStale: false,
+    detachedHead: false,
+  },
+} as MergePreflightResult;
+
+function raceGitExec(
+  _repoRoot: string,
+  args: readonly string[],
+): GitExecResult {
+  if (args[0] === 'rev-parse' && args[1] === 'HEAD') {
+    return { stdout: `${RACE_ROLLBACK_SHA}\n`, exitCode: 0 };
+  }
+  return { stdout: '', exitCode: 0 };
+}
+
+describe('handleMergeOrchestrate race (#1303 α-03)', () => {
+  let stateDir: string;
+
+  beforeEach(async () => {
+    stateDir = await mkdtemp(path.join(tmpdir(), 'merge-orch-race-'));
+  });
+
+  afterEach(async () => {
+    await rm(stateDir, { recursive: true, force: true });
+  });
+
+  it('MergeOrchestrate_TwoConcurrentInvocationsSameStream_NoDuplicateSequences', async () => {
+    const eventStore = new EventStore(stateDir);
+    await eventStore.initialize();
+    const ctx: DispatchContext = {
+      stateDir,
+      eventStore,
+      enableTelemetry: false,
+    };
+
+    const featureId = 'feat-race-1303';
+    const taskId = 'T-race';
+    const sourceBranch = 'feat/race';
+    const targetBranch = 'main';
+
+    // Both invocations share the same stub leaves so the only contended
+    // surface is the EventStore appends. `vcsMerge` returns the same
+    // mergeSha both times — production merge handlers are idempotent on
+    // already-merged branches.
+    const stubVcsMerge = (): Promise<{ mergeSha: string }> =>
+      Promise.resolve({ mergeSha: RACE_MERGE_SHA });
+
+    const invoke = (): Promise<ToolResult> =>
+      handleMergeOrchestrate(
+        {
+          featureId,
+          sourceBranch,
+          targetBranch,
+          taskId,
+          strategy: 'squash',
+          preflight: async () => RACE_PASSING_PREFLIGHT,
+          executeMerge: async (
+            input: HandleExecuteMergeInput,
+            innerCtx: DispatchContext,
+          ): Promise<ToolResult> =>
+            handleExecuteMerge(
+              {
+                ...input,
+                vcsMerge: stubVcsMerge,
+                gitExec: raceGitExec,
+                // No-op state-write so the only race is at the event store.
+                persistState: async () => {
+                  /* no-op */
+                },
+              },
+              innerCtx,
+            ),
+          // No-op orchestrator persistState (the abort branch is unreachable
+          // on this passing preflight; this is a safety net).
+          persistState: async () => {
+            /* no-op */
+          },
+        },
+        ctx,
+      );
+
+    // Drive both invocations concurrently and collect both settlements.
+    // `allSettled` (not `all`) so the test surfaces a bare throw if either
+    // invocation escapes the handler boundary uncaught — that itself is a
+    // failure of the contract under test.
+    const settled = await Promise.allSettled([invoke(), invoke()]);
+
+    // ─── Assertion 1: no unhandled rejection escaped ───────────────────────
+    //
+    // Either both fulfilled, or one fulfilled + one rejected. A rejection
+    // here means a bare `SequenceConflictError` (or any other substrate
+    // error) escaped the handler — that is a contract failure: the handler
+    // must translate substrate conflicts to a structured ToolResult.
+    for (const s of settled) {
+      expect(s.status, 'invocation must not throw past handler boundary').toBe(
+        'fulfilled',
+      );
+    }
+
+    const results = settled
+      .filter(
+        (s): s is PromiseFulfilledResult<ToolResult> => s.status === 'fulfilled',
+      )
+      .map((s) => s.value);
+    expect(results).toHaveLength(2);
+
+    // ─── Assertion 2: at least one invocation succeeded ────────────────────
+    //
+    // One winner produces the canonical `merge.executed`. The loser may
+    // either succeed (cache-hit replay via the idempotency key — same
+    // (featureId, taskId, eventType) tuple) or fail with a structured
+    // STATE_CONFLICT (sequence race). What it MUST NOT do is succeed via a
+    // duplicate append — that is caught by Assertion 3 below.
+    const successes = results.filter((r) => r.success);
+    expect(successes.length, 'at least one invocation must succeed').toBeGreaterThanOrEqual(1);
+
+    // ─── Assertion 3: loser surfaces a typed conflict if it failed ─────────
+    //
+    // If exactly one succeeded, the other MUST fail with `STATE_CONFLICT`
+    // (typed conflict translation). A bare merge-failed / preflight-failed
+    // / generic error here would indicate the conflict slipped past the
+    // typed-error translation layer in execute-merge.ts (see the
+    // `SequenceConflictError → STATE_CONFLICT` mapping there).
+    if (successes.length === 1) {
+      const failure = results.find((r) => !r.success);
+      expect(failure, 'one failure expected when only one invocation succeeds').toBeDefined();
+      const errCode = (failure as { error: { code: string } }).error.code;
+      expect(
+        errCode,
+        `loser must surface STATE_CONFLICT; got ${errCode}`,
+      ).toBe('STATE_CONFLICT');
+    }
+
+    // ─── Assertion 4: exactly one merge.executed event on the stream ───────
+    //
+    // The substrate-level invariant: the idempotencyKey UNIQUE INDEX +
+    // expectedSequence CAS collapse the second attempt. Two
+    // `merge.executed` rows means α-02's wiring (or α-04/α-05's wiring,
+    // if their absence allowed the second invocation to slip through the
+    // gates at a different append site) is incomplete.
+    const events = await eventStore.query(featureId);
+    const mergeExecuted = events.filter((e) => e.type === 'merge.executed');
+    expect(
+      mergeExecuted,
+      'exactly one merge.executed row across both invocations',
+    ).toHaveLength(1);
+
+    // ─── Assertion 5: no duplicate (stream_id, sequence) tuples ────────────
+    //
+    // The SQLite PK on (streamId, sequence) makes duplicates impossible at
+    // the storage layer, so this assertion is a witness-against-drift: if
+    // it ever fires, the PK check was bypassed (e.g. by a write path that
+    // skipped AtomicAppender), and the surrounding test scaffolding will
+    // flag the path that did it.
+    const sequences = events.map((e) => e.sequence);
+    expect(new Set(sequences).size, 'no duplicate sequences').toBe(
+      sequences.length,
+    );
+
+    // ─── Assertion 6: sequences are densely 1..N (no gaps) ─────────────────
+    //
+    // Dense allocation post-conflict — a `SequenceConflictError`-retry
+    // would normally leave a gap (the loser allocated sequence k+1, then
+    // the winner committed k+1 first, then the loser's INSERT aborted),
+    // but α-02/α-04/α-05's wiring uses `expectedSequence` (read-tail then
+    // CAS) rather than allocation-retry, so the loser never allocates a
+    // doomed sequence in the first place — it queries the tail, finds
+    // expectedSequence consumed, and either replays via idempotencyKey or
+    // surfaces STATE_CONFLICT. Either way the persisted stream has dense
+    // sequences.
+    const sortedSeqs = [...sequences].sort((a, b) => a - b);
+    expect(sortedSeqs).toEqual(
+      Array.from({ length: sortedSeqs.length }, (_, i) => i + 1),
+    );
   });
 });
