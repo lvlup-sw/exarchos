@@ -236,10 +236,22 @@ describe('Task 7: Workflow + Event Round-Trip Tests', () => {
       expect(result.error).toBeDefined();
     });
 
-    it('should throw when workflowType is missing from init', async () => {
-      await expect(
-        handleWorkflow({ action: 'init', featureId: 'missing-type' }, ctx()),
-      ).rejects.toThrow(/Unknown workflow type/);
+    it('should return error when workflowType is missing from init', async () => {
+      // #1325 — the handleInit emission migrated to `buildValidatedEvent`,
+      // which runs `EVENT_DATA_SCHEMAS` for `workflow.started`. Missing
+      // `workflowType` now surfaces as a Zod schema violation at the
+      // emission boundary (returned as a ToolResult with
+      // `EVENT_APPEND_FAILED`) rather than as a downstream
+      // `initStateFile` throw with "Unknown workflow type". The earlier
+      // path silently emitted an event with `workflowType: undefined`
+      // before throwing; the new path rejects the malformed payload
+      // before persistence, which is the substrate-stabilization invariant.
+      const result = await handleWorkflow(
+        { action: 'init', featureId: 'missing-type' },
+        ctx(),
+      );
+      expect(result.success).toBe(false);
+      expect(result.error).toBeDefined();
     });
 
     it('should return error for init with invalid featureId format', async () => {

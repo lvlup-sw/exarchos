@@ -291,11 +291,17 @@ export class DefaultHSMTransitionGuard implements HSMTransitionGuard {
       // this is the atomicity invariant the primitive enforces.
       if (context.eventStore) {
         for (const evt of result.events) {
-          // Route through buildValidatedEvent for defense-in-depth Zod
-          // validation at the boundary (#1325). The appender re-allocates
-          // the authoritative sequence; the value passed here is a
-          // placeholder satisfying the schema's positive-integer guard.
-          const validatedEvent = buildValidatedEvent(featureId, 1, {
+          // PER-SITE ABORT (#1325 α-10, follow-up #1339): the HSM walk
+          // can emit `workflow.compound-exit` / `workflow.compound-entry`
+          // / `workflow.fix-cycle` events whose metadata carries
+          // `compoundStateId: parent?.id`, which is `undefined` when no
+          // compound parent exists. `EVENT_DATA_SCHEMAS` (run by
+          // `buildValidatedEvent`) rejects undefined fields; the legacy
+          // `append` path validates only `WorkflowEventBase`. Until
+          // #1339 decides whether the upstream HSM should suppress
+          // these events or supply a sentinel, this site stays on the
+          // raw `append` path so the migration is non-breaking.
+          await context.eventStore.append(featureId, {
             type: mapInternalToExternalType(evt.type) as import(
               '../event-store/schemas.js'
             ).EventType,
@@ -314,7 +320,6 @@ export class DefaultHSMTransitionGuard implements HSMTransitionGuard {
                 : {}),
             },
           });
-          await context.eventStore.appendValidated(featureId, validatedEvent);
         }
       }
 
@@ -360,26 +365,25 @@ export class DefaultHSMTransitionGuard implements HSMTransitionGuard {
         const idempotencyKey = context.idempotencyKeySuffix
           ? `${featureId}:${evt.type}:${evt.from}:${evt.to}:${context.idempotencyKeySuffix}`
           : undefined;
-        // Route through buildValidatedEvent for defense-in-depth Zod
-        // validation (#1325). Sequence is a placeholder; the appender
-        // assigns the authoritative value.
-        const validatedEvent = buildValidatedEvent(featureId, 1, {
-          type: mapInternalToExternalType(evt.type) as import(
-            '../event-store/schemas.js'
-          ).EventType,
-          correlationId: featureId,
-          source: 'workflow',
-          data: {
-            from: evt.from,
-            to: evt.to,
-            trigger: evt.trigger,
-            featureId,
-            ...(evt.metadata ?? {}),
-          },
-        });
-        const appended = await context.eventStore.appendValidated(
+        // PER-SITE ABORT (#1325 α-10, follow-up #1339): same compound-event
+        // data-shape issue as the guard-failure branch above. Until #1339
+        // closes, this site stays on the raw `append` path.
+        const appended = await context.eventStore.append(
           featureId,
-          validatedEvent,
+          {
+            type: mapInternalToExternalType(evt.type) as import(
+              '../event-store/schemas.js'
+            ).EventType,
+            correlationId: featureId,
+            source: 'workflow',
+            data: {
+              from: evt.from,
+              to: evt.to,
+              trigger: evt.trigger,
+              featureId,
+              ...(evt.metadata ?? {}),
+            },
+          },
           idempotencyKey ? { idempotencyKey } : undefined,
         );
         // The state machine emits one primary lifecycle event per attempt:
