@@ -7,11 +7,15 @@
 //      `EVENT_DATA_SCHEMAS`, the event's `data` shape parses cleanly.
 //
 // Used by:
-//   - cancel.envelope.test.ts (α-07)
-//   - hsm-transition-guard.envelope.test.ts (α-09)
-//   - rehydrate.envelope.test.ts (α-11)
-//   - tools.envelope.test.ts (α-13)
-// All four tests share the same shape; α-15 consolidated them here.
+//   - cancel.envelope.test.ts                (α-07)
+//   - hsm-transition-guard.envelope.test.ts  (α-09)
+//   - rehydrate.envelope.test.ts             (α-11)
+//   - tools.envelope.test.ts                 (α-13)
+//
+// History: extracted preemptively in α-07 when the cancel.envelope test
+// was written, then adopted by α-09 / α-11 / α-13 verbatim. α-15
+// verified all four call sites resolve to this helper (no per-test
+// inlined assertion shapes remain) and tidied the header comment.
 
 import { expect } from 'vitest';
 import type { WorkflowEvent } from '../../event-store/schemas.js';
