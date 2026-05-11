@@ -32,6 +32,8 @@ import type { ToolResult } from '../format.js';
 import type { DispatchContext } from '../core/dispatch.js';
 import { executeMerge, type GitExec, type MergeStrategy } from './pure/execute-merge.js';
 import { buildLocalGitMergeAdapter } from './local-git-merge.js';
+import { buildMergeOrchestrateIdempotencyKey } from './merge-keys.js';
+import { SequenceConflictError } from '../event-store/store.js';
 import {
   readStateFile,
   writeStateFile,
@@ -303,32 +305,129 @@ export async function handleExecuteMerge(
     // Direct stream append — NOT wrapped in `gate.executed`. The dedicated
     // `merge.executed` schema (T03) lives at the top level so observability
     // and HSM guards can match on it directly.
-    await ctx.eventStore.append(args.featureId, {
-      type: 'merge.executed',
-      data: {
-        ...(args.taskId !== undefined ? { taskId: args.taskId } : {}),
-        sourceBranch: args.sourceBranch,
-        targetBranch: args.targetBranch,
-        strategy: args.strategy,
-        mergeSha: result.mergeSha,
-        rollbackSha: result.rollbackSha,
-      },
-    });
+    //
+    // #1303 — pass `idempotencyKey` (when taskId is present) and
+    // `expectedSequence` (CAS on the stream high-water mark) so the
+    // substrate guarantees added in #1259 / #1323 reach this surface:
+    //
+    //   • idempotency-key dedup makes crash-replay safe — a retry after a
+    //     mid-handler crash returns the original cached event rather than
+    //     appending a duplicate `merge.executed`.
+    //   • `expectedSequence` enforces optimistic concurrency at the
+    //     append-transaction level — two concurrent invocations against
+    //     the same stream cannot land overlapping sequences.
+    //
+    // The key shape `${streamId}:merge_orchestrate:${taskId}:${eventType}`
+    // matches the prefix produced by `next-actions-computer.ts` for the
+    // `merge_orchestrate` verb (extending it with the event-type segment so
+    // the three append sites in this orchestrator surface — preflight,
+    // executed, rollback — each have a distinct dedup key).
+    const tailEventsExecuted = await ctx.eventStore.query(args.featureId);
+    const expectedSequenceExecuted =
+      tailEventsExecuted.length > 0
+        ? Math.max(...tailEventsExecuted.map((e) => e.sequence))
+        : 0;
+    const appendOptionsExecuted: { idempotencyKey?: string; expectedSequence: number } = {
+      expectedSequence: expectedSequenceExecuted,
+    };
+    if (args.taskId !== undefined) {
+      appendOptionsExecuted.idempotencyKey = buildMergeOrchestrateIdempotencyKey(
+        args.featureId,
+        args.taskId,
+        'merge.executed',
+      );
+    }
+    try {
+      await ctx.eventStore.append(
+        args.featureId,
+        {
+          type: 'merge.executed',
+          data: {
+            ...(args.taskId !== undefined ? { taskId: args.taskId } : {}),
+            sourceBranch: args.sourceBranch,
+            targetBranch: args.targetBranch,
+            strategy: args.strategy,
+            mergeSha: result.mergeSha,
+            rollbackSha: result.rollbackSha,
+          },
+        },
+        appendOptionsExecuted,
+      );
+    } catch (err) {
+      // SequenceConflict here means a concurrent invocation already
+      // advanced this stream past our observed tail. The other side will
+      // have appended the canonical `merge.executed` (its own idempotency
+      // key dedups its own retry) — surface a structured STATE_CONFLICT
+      // rather than letting a raw substrate error escape.
+      if (err instanceof SequenceConflictError) {
+        return {
+          success: false,
+          error: {
+            code: 'STATE_CONFLICT',
+            message: `merge.executed append lost sequence race: expected=${err.expected} actual=${err.actual}`,
+          },
+        };
+      }
+      throw err;
+    }
   } else {
     // T16 — phase: 'rolled-back'. The pure executor already ran
     // `git reset --hard <rollbackSha>`. Surface `rollbackError` (when the
     // reset itself failed) so consumers can detect an indeterminate worktree.
-    await ctx.eventStore.append(args.featureId, {
-      type: 'merge.rollback',
-      data: {
-        ...(args.taskId !== undefined ? { taskId: args.taskId } : {}),
-        sourceBranch: args.sourceBranch,
-        targetBranch: args.targetBranch,
-        rollbackSha: result.rollbackSha,
-        reason: result.reason,
-        ...(result.rollbackError !== undefined ? { rollbackError: result.rollbackError } : {}),
-      },
-    });
+    //
+    // #1303 (α-05): pass `idempotencyKey` (when `taskId` is present) and
+    // `expectedSequence` (CAS on stream high-water mark) so the substrate
+    // guarantees from #1259 / #1323 reach this append site too. Symmetric
+    // with α-02 (merge.executed) and α-04 (merge.preflight). The three
+    // append sites in this orchestrator surface — preflight, executed,
+    // rollback — each carry a distinct dedup key via the trailing
+    // `:${eventType}` segment.
+    const tailEventsRollback = await ctx.eventStore.query(args.featureId);
+    const expectedSequenceRollback =
+      tailEventsRollback.length > 0
+        ? Math.max(...tailEventsRollback.map((e) => e.sequence))
+        : 0;
+    const appendOptionsRollback: { idempotencyKey?: string; expectedSequence: number } = {
+      expectedSequence: expectedSequenceRollback,
+    };
+    if (args.taskId !== undefined) {
+      appendOptionsRollback.idempotencyKey = buildMergeOrchestrateIdempotencyKey(
+        args.featureId,
+        args.taskId,
+        'merge.rollback',
+      );
+    }
+    try {
+      await ctx.eventStore.append(
+        args.featureId,
+        {
+          type: 'merge.rollback',
+          data: {
+            ...(args.taskId !== undefined ? { taskId: args.taskId } : {}),
+            sourceBranch: args.sourceBranch,
+            targetBranch: args.targetBranch,
+            rollbackSha: result.rollbackSha,
+            reason: result.reason,
+            ...(result.rollbackError !== undefined ? { rollbackError: result.rollbackError } : {}),
+          },
+        },
+        appendOptionsRollback,
+      );
+    } catch (err) {
+      // SequenceConflict here means a concurrent invocation already
+      // advanced this stream past our observed tail. Surface a structured
+      // STATE_CONFLICT rather than letting a raw substrate error escape.
+      if (err instanceof SequenceConflictError) {
+        return {
+          success: false,
+          error: {
+            code: 'STATE_CONFLICT',
+            message: `merge.rollback append lost sequence race: expected=${err.expected} actual=${err.actual}`,
+          },
+        };
+      }
+      throw err;
+    }
   }
 
   // Persist terminal phase to workflow state. CAS exhaustion surfaces as
