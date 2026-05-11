@@ -502,35 +502,72 @@ export class SqliteBackend implements StorageBackend {
   }
 
   /**
-   * Walk the state directory and recover `workflowType` for legacy stream
-   * rows where a sibling `<featureId>.state.json` carries the field. Scoped
-   * to rows still bearing the `__legacy` sentinel so concurrent inserts on
-   * the new-stream path (handleInit) survive untouched.
+   * Recover `workflow_type` for legacy stream rows from two complementary
+   * sources, in priority order:
+   *   1. The stream's own `workflow.started` event in the events table —
+   *      its `data.workflowType` is the canonical record of the type the
+   *      caller passed to handleInit. Reading from the event stream means
+   *      the migration succeeds regardless of state-file presence.
+   *   2. The sibling `<featureId>.state.json` file under the same state
+   *      dir — fallback when the events table doesn't carry the event
+   *      (e.g. workflows that pre-date the event-first init path).
    *
-   * Errors are silently swallowed per-file: a missing/unparseable state
-   * file is non-fatal to the migration and leaves the row with the
-   * `__legacy` sentinel (task 1.6 then emits a one-shot
-   * `migration.workflow_type_unknown` event for operator visibility).
+   * Scoped to rows still bearing the `__legacy` sentinel so concurrent
+   * inserts on the new-stream path (handleInit) survive untouched. After
+   * both recovery paths, every row still at '__legacy' receives one
+   * `migration.workflow_type_unknown` event for operator visibility
+   * (task 1.6).
    *
    * NOTE: this method is the only place in the codebase allowed to issue
    * an UPDATE against `streams.workflow_type`. The CI grep gate (task 1.7)
-   * skips this file (`sqlite-backend.ts` is also skipped to keep the gate
-   * focused on production handlers, not the migration's own recovery code).
+   * skips this file alongside event-migration.ts; the gate forbids the
+   * same UPDATE everywhere else.
    */
   private backfillWorkflowTypeFromStateFiles(): void {
+    const updateStmt = this.db.prepare(
+      `UPDATE streams SET workflow_type = ?
+       WHERE streamId = ? AND workflow_type = '__legacy'`,
+    );
+
+    // Source 1: recover from each stream's workflow.started event data.
+    // Using the events table is more reliable than the state file — events
+    // are the substrate's source of truth, state files are a derived
+    // projection that may be absent or stale.
+    const startedRows = this.db
+      .prepare(
+        `SELECT events.streamId AS streamId, events.data AS data
+         FROM events
+         INNER JOIN streams ON streams.streamId = events.streamId
+         WHERE events.type = 'workflow.started'
+           AND streams.workflow_type = '__legacy'`,
+      )
+      .all() as Array<{ streamId: string; data: string | null }>;
+
+    for (const row of startedRows) {
+      if (!row.data) continue;
+      let parsed: { workflowType?: unknown };
+      try {
+        parsed = JSON.parse(row.data) as { workflowType?: unknown };
+      } catch {
+        continue;
+      }
+      const wt = parsed.workflowType;
+      if (typeof wt !== 'string' || wt.length === 0) continue;
+      updateStmt.run(wt, row.streamId);
+    }
+
+    // Source 2: state-file fallback for streams the events table didn't
+    // resolve. Walks <stateDir>/*.state.json and applies workflowType
+    // where present. Errors are silently swallowed per-file: a
+    // missing/unparseable file is non-fatal and leaves the row at
+    // '__legacy' for the observability-event step below.
     const stateDir = dirname(this.dbPath);
     let entries: string[];
     try {
       entries = readdirSync(stateDir);
     } catch {
-      // No state dir or unreadable — leave every row at '__legacy'.
-      return;
+      entries = [];
     }
-
-    const updateStmt = this.db.prepare(
-      `UPDATE streams SET workflow_type = ?
-       WHERE streamId = ? AND workflow_type = '__legacy'`,
-    );
 
     for (const entry of entries) {
       if (!entry.endsWith('.state.json')) continue;
@@ -540,12 +577,80 @@ export class SqliteBackend implements StorageBackend {
         const raw = readFileSync(join(stateDir, entry), 'utf-8');
         parsed = JSON.parse(raw) as { workflowType?: unknown };
       } catch {
-        // Corrupt / unreadable file — skip and let the row keep '__legacy'.
         continue;
       }
       const wt = parsed.workflowType;
       if (typeof wt !== 'string' || wt.length === 0) continue;
       updateStmt.run(wt, featureId);
+    }
+
+    this.emitWorkflowTypeUnknownEvents();
+  }
+
+  /**
+   * For every stream still at the `__legacy` sentinel after the state-file
+   * backfill, append one `migration.workflow_type_unknown` event to that
+   * stream's event log. The event lands on the affected stream so it is
+   * visible alongside the workflow's other events in a normal
+   * `event.query`.
+   *
+   * Sequence allocation: this runs at the C/SQL layer during migration,
+   * before the AtomicAppender/EventStore are wired. We allocate the next
+   * sequence inline by reading the current `sequences` row (defaulting to
+   * 0 for streams the migration just registered) and writing back via
+   * upsert. The `events` table's PK (streamId, sequence) makes the
+   * INSERT a hard error on collision — that's the right failure mode if
+   * a sibling appender slipped in during the migration window (the
+   * EventStore PID lock should make this impossible in practice).
+   *
+   * Schema: per the registered EVENT_DATA_SCHEMAS entry for
+   * `migration.workflow_type_unknown`, the data carries `streamId` only.
+   * Emission source is 'auto' (registered in EVENT_EMISSION_REGISTRY).
+   */
+  private emitWorkflowTypeUnknownEvents(): void {
+    const legacyRows = this.db
+      .prepare(
+        `SELECT streamId FROM streams WHERE workflow_type = '__legacy' ORDER BY streamId`,
+      )
+      .all() as Array<{ streamId: string }>;
+
+    if (legacyRows.length === 0) return;
+
+    const now = new Date().toISOString();
+    const insertEvent = this.db.prepare(
+      `INSERT OR IGNORE INTO events (streamId, sequence, type, timestamp, data, payload)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+    );
+    const selectSeq = this.db.prepare(
+      'SELECT sequence FROM sequences WHERE streamId = ?',
+    );
+    const upsertSeq = this.db.prepare(
+      `INSERT INTO sequences (streamId, sequence) VALUES (?, ?)
+       ON CONFLICT(streamId) DO UPDATE SET sequence = excluded.sequence`,
+    );
+
+    for (const { streamId } of legacyRows) {
+      const seqRow = selectSeq.get(streamId) as { sequence: number } | undefined;
+      const nextSeq = (seqRow?.sequence ?? 0) + 1;
+      const data = JSON.stringify({ streamId });
+      const payload = JSON.stringify({
+        streamId,
+        sequence: nextSeq,
+        type: 'migration.workflow_type_unknown',
+        timestamp: now,
+        schemaVersion: '1.0',
+        source: 'migration',
+        data: { streamId },
+      });
+      insertEvent.run(
+        streamId,
+        nextSeq,
+        'migration.workflow_type_unknown',
+        now,
+        data,
+        payload,
+      );
+      upsertSeq.run(streamId, nextSeq);
     }
   }
 

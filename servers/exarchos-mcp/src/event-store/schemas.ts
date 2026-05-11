@@ -99,6 +99,10 @@ export const EventTypes = [
   'migration.legacy_jsonl_imported',
   'migration.completed',
   'migration.failed',
+  // R-1 Marten primitive (#1313): emitted once per V3 → V4 stream that
+  // could not have its workflow_type recovered from a state file. Lets
+  // operators locate '__legacy' rows that need manual classification.
+  'migration.workflow_type_unknown',
 ] as const;
 
 export type EventType = typeof EventTypes[number];
@@ -337,6 +341,7 @@ export const EVENT_EMISSION_REGISTRY: Record<EventType, EventEmissionSource> = {
   'migration.legacy_jsonl_imported': 'auto',
   'migration.completed': 'auto',
   'migration.failed': 'auto',
+  'migration.workflow_type_unknown': 'auto',
 };
 
 // ─── Base Event Schema ──────────────────────────────────────────────────────
@@ -1252,6 +1257,25 @@ export const MigrationFailedData = z.object({
   partialEventsImported: z.number().int().nonnegative().describe('Events imported before the failure'),
 });
 
+/**
+ * migration.workflow_type_unknown — emitted once during the V3 → V4
+ * Marten R-1 migration (#1313) for each stream whose `workflow_type`
+ * could not be recovered from a co-located state file. The row remains
+ * at the `__legacy` sentinel until an operator hand-edits the state file
+ * and re-runs the migration. Lets operators locate the rows that need
+ * manual classification without scanning every row of the streams
+ * registry.
+ *
+ * Event lives on the per-stream log (streamId is the affected feature)
+ * so it appears alongside the workflow's other events in a single
+ * `event.query`. The `data.streamId` field is redundant with the
+ * envelope's streamId but is retained for cross-stream aggregator
+ * reducers that index off data.* rather than envelope.streamId.
+ */
+export const MigrationWorkflowTypeUnknownData = z.object({
+  streamId: z.string().min(1).describe('Affected stream / featureId'),
+});
+
 // ─── Event Data Schemas Map ─────────────────────────────────────────────────
 
 export const EVENT_DATA_SCHEMAS: Partial<Record<EventType, z.ZodSchema>> = {
@@ -1398,6 +1422,7 @@ export const EVENT_DATA_SCHEMAS: Partial<Record<EventType, z.ZodSchema>> = {
   'migration.legacy_jsonl_imported': MigrationLegacyJsonlImportedData,
   'migration.completed': MigrationCompletedData,
   'migration.failed': MigrationFailedData,
+  'migration.workflow_type_unknown': MigrationWorkflowTypeUnknownData,
 };
 
 // ─── TypeScript Types ───────────────────────────────────────────────────────

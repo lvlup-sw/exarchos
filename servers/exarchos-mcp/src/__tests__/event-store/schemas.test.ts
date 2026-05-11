@@ -406,18 +406,19 @@ describe('StackEnqueuedData', () => {
 
 describe('EventTypes', () => {
   it('EventTypes_CountMatchesRegisteredTypes', () => {
-    // Locked to the current registered-type count. Bumped to 91 with the
-    // addition of session.machinery_consumed (T-11, rehydration-machinery-refactor).
-    // Previous bump (90) was six durable event-store substrate event types (#1259
-    // T02 / T03 / T04): hsm.deprecated_action_invoked,
-    // spec.legacy_capabilities_array, phase.contract_missing,
-    // migration.legacy_jsonl_imported, migration.completed, migration.failed.
-    // Previous bump (84) was command.resolved (#1199 T15) for the
-    // test/typecheck/install runtime resolver. Earlier (83) was
-    // merge.preflight / merge.executed / merge.rollback (T03, DR-MO-2).
-    // When new event types are added, bump this number alongside their
-    // registration in `event-store/schemas.ts`.
-    expect(EventTypes).toHaveLength(91);
+    // Locked to the current registered-type count. Bumped to 92 with the
+    // addition of migration.workflow_type_unknown (Wave 1, R-1 Marten
+    // primitive #1313). Previous (91) added session.machinery_consumed
+    // (T-11, rehydration-machinery-refactor). Previous bump (90) was six
+    // durable event-store substrate event types (#1259 T02 / T03 / T04):
+    // hsm.deprecated_action_invoked, spec.legacy_capabilities_array,
+    // phase.contract_missing, migration.legacy_jsonl_imported,
+    // migration.completed, migration.failed. Previous bump (84) was
+    // command.resolved (#1199 T15) for the test/typecheck/install runtime
+    // resolver. Earlier (83) was merge.preflight / merge.executed /
+    // merge.rollback (T03, DR-MO-2). When new event types are added, bump
+    // this number alongside their registration in `event-store/schemas.ts`.
+    expect(EventTypes).toHaveLength(92);
   });
 
   it('should include workflow-level types', () => {
