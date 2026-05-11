@@ -154,13 +154,22 @@ const MAX_OUTBOX_RETRIES = 5;
 
 /**
  * Bounded retry policy for SQLITE_BUSY surfaced by the substrate
- * `atomicAppend` write path (#1259, T09, DR-12).
+ * `atomicAppend` write path (#1259, T09, DR-12, refined by audit §F2.2).
  *
- * The C-level `busy_timeout` pragma is intentionally NOT set — the
- * design (DR-12) routes BUSY recovery through the JS layer so the
- * appender owns observability of retry counts. With `busy_timeout` left
- * at the SQLite default (0), every BUSY surfaces as a thrown error and
- * this layer alone decides whether to retry or escalate.
+ * Two-tier BUSY recovery — see `applyConnectionPragmas` for the full
+ * model. The C-level `busy_timeout = 5000` pragma is the silent
+ * absorption tier; this constant configures the JS-level observability
+ * tier. The two layers are NOT redundant: the C layer catches
+ * microsecond-scale contention without surfacing errors; the JS layer
+ * counts the cases where the C-layer's 5-second window expires, making
+ * the retry observable to the appender for structured failure
+ * reporting (`storage_busy`).
+ *
+ * Originally DR-12 set busy_timeout=0 and made this layer the sole
+ * BUSY handler. The audit (§F2.2) flagged that approach as exposing
+ * every microsecond-level contention as a JS-layer retry, exhausting
+ * the budget on noise. The C layer is now the absorption tier; this
+ * layer is the escalation tier.
  *
  * Backoff: `min(baseDelayMs * 2^(attempt-1), maxDelayMs)`. With
  * `baseDelayMs=5, maxDelayMs=100`, the budget across 4 inter-attempt
@@ -341,13 +350,39 @@ export class SqliteBackend implements StorageBackend {
 
   /**
    * Apply the fixed set of connection-level pragmas (WAL, synchronous=NORMAL,
-   * mmap_size=256MB). Kept in a single helper so the values and order are
-   * easy to audit — pragma order matters for some SQLite configurations.
+   * mmap_size=256MB, busy_timeout=5000ms). Kept in a single helper so the
+   * values and order are easy to audit — pragma order matters for some
+   * SQLite configurations.
+   *
+   * Two-tier BUSY recovery (audit §F2.2 + DR-12).
+   *
+   * busy_timeout=5000ms is the C-layer silent-absorption tier. SQLite's C
+   * runtime spins on a contended write lock for up to 5 seconds, retrying
+   * internally on the order of microseconds, before surfacing
+   * SQLITE_BUSY. This catches the overwhelming majority of cross-process
+   * lock contention without ever propagating an error into the JS layer.
+   *
+   * SQLITE_BUSY_RETRY_POLICY (declared above, near line 168) is the
+   * JS-layer observability tier. When the C-layer's window expires and
+   * SQLITE_BUSY surfaces, the JS retry budget kicks in: up to 5 attempts
+   * with exponential backoff (~75ms total wall time). The JS layer is
+   * where retry counts become visible — it's the right place for
+   * observability because every retry there is a real escalation past
+   * the silent C-layer absorption.
+   *
+   * DO NOT collapse these two layers into one. Removing busy_timeout
+   * makes every microsecond-scale contention surface as SQLITE_BUSY,
+   * exhausting the JS retry budget on noise. Removing the JS retry
+   * layer eliminates the observability surface — a 5-second silent
+   * stall is indistinguishable from a healthy write.
    */
   private applyConnectionPragmas(): void {
     this.db.exec('PRAGMA journal_mode = WAL');
     this.db.exec('PRAGMA synchronous = NORMAL');
     this.db.exec('PRAGMA mmap_size = 268435456');
+    // C-layer BUSY safety net (audit §F2.2). See JSDoc above for the
+    // two-tier model that this pragma anchors.
+    this.db.exec('PRAGMA busy_timeout = 5000');
   }
 
   /**
