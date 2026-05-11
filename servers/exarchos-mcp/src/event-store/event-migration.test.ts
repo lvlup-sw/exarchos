@@ -397,5 +397,53 @@ describe('Event Migration', () => {
       expect(row).toBeDefined();
       expect(row!.workflow_type).toBe('oneshot');
     });
+
+    it('Migration_V3ToV4_EmitsUnknownEventForLegacyStreams', () => {
+      const stateDir = tempDir = mkdtempSync(join(tmpdir(), 'exarchos-v3v4-unknown-'));
+      const dbPath = join(stateDir, 'exarchos.db');
+
+      seedV3Database(dbPath);
+
+      // Insert a third stream `feat-z` with NO state file. The migration
+      // cannot recover workflowType for it, so it stays at '__legacy' and
+      // must emit one `migration.workflow_type_unknown` event so operators
+      // can locate streams that need manual classification.
+      const seedDb = new Database(dbPath);
+      seedDb
+        .prepare('INSERT INTO sequences (streamId, sequence) VALUES (?, ?)')
+        .run('feat-z', 9);
+      seedDb.close();
+
+      const backend = trackBackend(new SqliteBackend(dbPath));
+      backend.initialize();
+
+      const db = (backend as unknown as { db: Database }).db;
+
+      // 1. Stream row still legacy.
+      const row = db
+        .prepare('SELECT workflow_type FROM streams WHERE streamId = ?')
+        .get('feat-z') as { workflow_type: string } | undefined;
+      expect(row?.workflow_type).toBe('__legacy');
+
+      // 2. Exactly one event of type migration.workflow_type_unknown for
+      // this stream, with data.streamId = 'feat-z'. The "exactly one" part
+      // matters: a re-run of the migration is gated by the V4 ledger row,
+      // so this event must not be re-emitted on subsequent opens.
+      const events = db
+        .prepare(
+          `SELECT streamId, type, data FROM events
+           WHERE type = ? AND streamId = ?`,
+        )
+        .all('migration.workflow_type_unknown', 'feat-z') as Array<{
+        streamId: string;
+        type: string;
+        data: string | null;
+      }>;
+
+      expect(events).toHaveLength(1);
+      expect(events[0].data).toBeTruthy();
+      const data = JSON.parse(events[0].data!) as { streamId?: string };
+      expect(data.streamId).toBe('feat-z');
+    });
   });
 });
