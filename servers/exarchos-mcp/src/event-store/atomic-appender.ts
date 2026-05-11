@@ -286,10 +286,16 @@ export class AtomicAppender {
     streamId: string,
     idempotencyKey: string,
     compute: () => Promise<EventInput[]>,
+    options?: AppendOptions,
   ): Promise<AppendResult> {
     return this.locks.runExclusive(streamId, async () => {
       const events = await compute();
-      return this.appendSqliteLocked(streamId, events, { idempotencyKey });
+      return this.appendSqliteLocked(
+        streamId,
+        events,
+        { idempotencyKey },
+        options,
+      );
     });
   }
 
