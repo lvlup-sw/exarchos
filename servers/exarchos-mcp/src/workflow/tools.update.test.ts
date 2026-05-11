@@ -130,4 +130,57 @@ describe('exarchos_workflow.update — canonical state-mutation action (Wave 0)'
     const patchedArtifacts = patch?.artifacts as Record<string, unknown> | undefined;
     expect(patchedArtifacts?.design).toBe('p.md');
   });
+
+  it('WorkflowUpdate_ReturnsCanonicalEnvelopePerInv5b', async () => {
+    // Setup: initialize a feature workflow.
+    const init = await handleInit(
+      { featureId, workflowType: 'feature' },
+      tmpDir,
+      eventStore,
+    );
+    expect(init.success).toBe(true);
+
+    // Call update with a non-phase field.
+    const result = await handleWorkflow(
+      {
+        action: 'update',
+        featureId,
+        updates: { planReview: { approved: true } },
+      },
+      ctx,
+    );
+
+    expect(result.success).toBe(true);
+
+    // Envelope contract per INV-5b:
+    //   - _meta.checkpointAdvised must be defined (boolean) so callers
+    //     can signal whether a checkpoint is recommended after the
+    //     mutation.
+    //   - next_actions must be an array (HSM-derived for the current
+    //     phase). May be empty for actions whose response data omits
+    //     workflowType + phase, but it must be present.
+    //   - _perf must carry numeric ms/bytes/tokens (envelope wraps it
+    //     into the canonical { ms: number, ... } shape).
+    const env = result as Record<string, unknown>;
+
+    const meta = env._meta as Record<string, unknown> | undefined;
+    expect(meta).toBeTypeOf('object');
+    expect(meta).not.toBeNull();
+    expect(meta).toHaveProperty('checkpointAdvised');
+
+    expect(Array.isArray(env.next_actions)).toBe(true);
+
+    const perf = env._perf as Record<string, unknown> | undefined;
+    expect(perf).toBeTypeOf('object');
+    expect(perf).not.toBeNull();
+    expect(typeof perf?.ms).toBe('number');
+    // bytes + tokens may be added by the envelope wrap; if either is
+    // present it must be numeric. Asserting presence of `ms` covers the
+    // load-bearing perf field (`bytes` and `tokens` are populated by
+    // wrap() when input/output sizes are knowable; for an in-process
+    // test they may be 0 or absent depending on which wrap path was
+    // taken).
+    if (perf?.bytes !== undefined) expect(typeof perf.bytes).toBe('number');
+    if (perf?.tokens !== undefined) expect(typeof perf.tokens).toBe('number');
+  });
 });
