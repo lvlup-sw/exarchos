@@ -27,6 +27,7 @@ import { applyPhaseSkips } from './phase-skip.js';
 import { mapInternalToExternalType } from './events.js';
 import { getRegisteredGuard } from '../config/register.js';
 import { executeGuard } from '../config/guards.js';
+import { buildValidatedEvent } from '../event-store/event-factory.js';
 
 // ─── Public types ────────────────────────────────────────────────────────
 
@@ -290,6 +291,16 @@ export class DefaultHSMTransitionGuard implements HSMTransitionGuard {
       // this is the atomicity invariant the primitive enforces.
       if (context.eventStore) {
         for (const evt of result.events) {
+          // PER-SITE ABORT (#1325 α-10, follow-up #1339): the HSM walk
+          // can emit `workflow.compound-exit` / `workflow.compound-entry`
+          // / `workflow.fix-cycle` events whose metadata carries
+          // `compoundStateId: parent?.id`, which is `undefined` when no
+          // compound parent exists. `EVENT_DATA_SCHEMAS` (run by
+          // `buildValidatedEvent`) rejects undefined fields; the legacy
+          // `append` path validates only `WorkflowEventBase`. Until
+          // #1339 decides whether the upstream HSM should suppress
+          // these events or supply a sentinel, this site stays on the
+          // raw `append` path so the migration is non-breaking.
           await context.eventStore.append(featureId, {
             type: mapInternalToExternalType(evt.type) as import(
               '../event-store/schemas.js'
@@ -354,6 +365,9 @@ export class DefaultHSMTransitionGuard implements HSMTransitionGuard {
         const idempotencyKey = context.idempotencyKeySuffix
           ? `${featureId}:${evt.type}:${evt.from}:${evt.to}:${context.idempotencyKeySuffix}`
           : undefined;
+        // PER-SITE ABORT (#1325 α-10, follow-up #1339): same compound-event
+        // data-shape issue as the guard-failure branch above. Until #1339
+        // closes, this site stays on the raw `append` path.
         const appended = await context.eventStore.append(
           featureId,
           {
@@ -426,7 +440,10 @@ async function emitGuardFailed(
 ): Promise<void> {
   if (!context.eventStore) return;
   try {
-    await context.eventStore.append(featureId, {
+    // Route through buildValidatedEvent for defense-in-depth Zod
+    // validation (#1325). Sequence is a placeholder; the appender
+    // assigns the authoritative value.
+    const validatedEvent = buildValidatedEvent(featureId, 1, {
       type: 'workflow.guard-failed',
       correlationId: featureId,
       source: 'workflow',
@@ -437,6 +454,7 @@ async function emitGuardFailed(
         featureId,
       },
     });
+    await context.eventStore.appendValidated(featureId, validatedEvent);
   } catch {
     // Diagnostic emission is best-effort. The structured failure in the
     // returned `TransitionResult` is the source of truth for the caller.

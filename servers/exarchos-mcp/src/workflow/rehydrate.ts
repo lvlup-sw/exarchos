@@ -51,6 +51,7 @@ import { SnapshotRecord } from '../projections/snapshot-schema.js';
 import type { ProjectionReducer } from '../projections/types.js';
 import { composePhasePlaybook } from './playbooks.js';
 import { readStateFile } from './state-store.js';
+import { buildValidatedEvent } from '../event-store/event-factory.js';
 
 /** Input shape for the rehydrate handler. */
 export interface RehydrateArgs {
@@ -231,10 +232,17 @@ export async function buildDegradedResponse(
   // (event-stream-unavailable / snapshot-corrupt / reducer-throw) is the
   // authoritative diagnostic — whether it was persisted is secondary.
   try {
-    await eventStore.append(featureId, {
+    // #1325 — route through buildValidatedEvent for defense-in-depth
+    // Zod validation. `featureId` is the workflow-stream identifier and
+    // the audit event correlates back to it (consistent with the
+    // pattern in hsm-transition-guard.ts and tools.ts emissions).
+    const validatedEvent = buildValidatedEvent(featureId, 1, {
       type: 'workflow.projection_degraded',
+      correlationId: featureId,
+      source: 'workflow',
       data: degradedData,
     });
+    await eventStore.appendValidated(featureId, validatedEvent);
   } catch (err) {
     workflowLogger.warn(
       {
@@ -610,10 +618,16 @@ export async function handleRehydrate(
   // PR #1178: workflow.rehydrated emission could mask a successful
   // read.)
   try {
-    await eventStore.append(featureId, {
+    // #1325 — route through buildValidatedEvent for defense-in-depth
+    // Zod validation. `featureId` is the workflow-stream identifier;
+    // the audit event correlates back to it.
+    const validatedEvent = buildValidatedEvent(featureId, 1, {
       type: 'workflow.rehydrated',
+      correlationId: featureId,
+      source: 'workflow',
       data: rehydratedData,
     });
+    await eventStore.appendValidated(featureId, validatedEvent);
   } catch (err) {
     workflowLogger.warn(
       {
