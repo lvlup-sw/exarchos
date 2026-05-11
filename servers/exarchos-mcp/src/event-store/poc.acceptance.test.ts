@@ -61,6 +61,7 @@ const EXPECTED_CONSUMERS = [
   'src/event-store/index.ts',
   'src/event-store/store.ts',
   'src/event-store/tools.ts',
+  'src/orchestrate/execute-merge.ts',
   'src/orchestrate/merge-orchestrate.ts',
   'src/storage/sqlite-backend.ts',
 ] as const;

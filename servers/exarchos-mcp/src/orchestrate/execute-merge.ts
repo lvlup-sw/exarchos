@@ -45,6 +45,15 @@ import {
   withStateRetry,
   MAX_STATE_RETRIES,
 } from '../workflow/state-retry.js';
+import {
+  ConcurrencyError,
+  StorageBusyError,
+} from '../event-store/index.js';
+import type { MergeOrchestratorState } from '../projections/merge-orchestrator/index.js';
+// Side-effect import — registers `merge-orchestrator@v1` with `defaultRegistry`
+// so the Wave 3 primitive (`AtomicAppender.decide`) can resolve the reducer
+// by id at Phase A (`merge.requested`) commit time.
+import '../projections/merge-orchestrator/index.js';
 
 // ─── Args schema ───────────────────────────────────────────────────────────
 
@@ -250,6 +259,83 @@ export async function handleExecuteMerge(
       await rawPersistState(state);
     });
   };
+
+  // ─── Phase A — durable INTENT (Wave 4 / audit §F1.2) ─────────────────────
+  //
+  // Commit `merge.requested` PURELY under `withStateRetry` BEFORE the
+  // executor's `vcsMerge` side effect fires. The decide closure
+  // short-circuits idempotently when the merge-orchestrator projection
+  // already shows `requested` / `executed` / `recovering` / `completed`
+  // — covers both (a) replays of this same invocation under OCC retries,
+  // and (b) the orchestrator-already-emitted case (when `handleExecuteMerge`
+  // is invoked via `handleMergeOrchestrate` the orchestrator's own Phase A
+  // has already landed `merge.requested`; the executor sees
+  // `state.phase === 'requested'` and emits nothing).
+  //
+  // When invoked DIRECTLY (e.g., CLI `exarchos execute-merge`), no
+  // upstream orchestrator emitted the intent; this Phase A is the FIRST
+  // `merge.requested` for the stream.
+  //
+  // `vcsMerge` runs OUTSIDE this retry boundary so an OCC loss inside
+  // `decide` never re-fires the local git merge — the canonical
+  // process-manager anti-pattern guard from audit §F1.2.
+  const requestedOperationId =
+    args.taskId !== undefined
+      ? `merge-requested:${args.featureId}:${args.taskId}`
+      : `merge-requested:${args.featureId}`;
+  const appender = ctx.eventStore.getAppender();
+  try {
+    await withStateRetry(() =>
+      appender.decide<MergeOrchestratorState>(
+        args.featureId,
+        'merge-orchestrator@v1',
+        (state) => {
+          if (
+            state.phase === 'requested' ||
+            state.phase === 'executed' ||
+            state.phase === 'recovering' ||
+            state.phase === 'completed'
+          ) {
+            return [];
+          }
+          return [
+            {
+              type: 'merge.requested',
+              data: {
+                sourceBranch: args.sourceBranch,
+                targetBranch: args.targetBranch,
+                strategy: args.strategy,
+                ...(args.taskId !== undefined ? { taskId: args.taskId } : {}),
+                featureId: args.featureId,
+              },
+              correlationId: requestedOperationId,
+            },
+          ];
+        },
+        { operationId: requestedOperationId },
+      ),
+    );
+  } catch (err) {
+    if (err instanceof ConcurrencyError) {
+      return {
+        success: false,
+        error: {
+          code: 'CONCURRENCY_CONFLICT',
+          message: `merge.requested decide lost OCC race after ${MAX_STATE_RETRIES} retries: ${err.message}`,
+        },
+      };
+    }
+    if (err instanceof StorageBusyError) {
+      return {
+        success: false,
+        error: {
+          code: 'STORAGE_BUSY',
+          message: `merge.requested decide hit storage contention after ${MAX_STATE_RETRIES} retries: ${err.message}`,
+        },
+      };
+    }
+    throw err;
+  }
 
   let result;
   try {
