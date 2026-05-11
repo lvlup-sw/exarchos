@@ -87,6 +87,7 @@ export interface NextActionReducer
 export const nextActionReducer: NextActionReducer = {
   id: 'next-action@v1',
   version: 1,
+  scope: 'stream' as const,
   initial: [],
   // `apply` is the identity function — this projection is state-derived, not
   // event-folded. See the module docstring for the rationale. Using a tight
