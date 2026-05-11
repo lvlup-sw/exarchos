@@ -25,20 +25,43 @@ import { handleWorkflow } from './composite.js';
 import { handleInit } from './tools.js';
 import { EventStore } from '../event-store/store.js';
 import type { DispatchContext } from '../core/dispatch.js';
+import { SqliteBackend } from '../storage/sqlite-backend.js';
+import { configureStateStoreBackend } from './state-store.js';
 
 let tmpDir: string;
+let backend: SqliteBackend;
 let eventStore: EventStore;
 let ctx: DispatchContext;
 const featureId = 'wf-update-race';
 
 beforeEach(async () => {
   tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'tools-update-race-'));
-  eventStore = new EventStore(tmpDir);
+
+  // Production-realistic setup: wire a SqliteBackend through both the
+  // EventStore (so event appends serialize per-stream via the appender's
+  // shared backend) and the module-level state-store backend (so the
+  // state-file CAS write is a SQLite transaction with VersionConflict
+  // semantics, NOT the file-only write-through path whose temp filename
+  // is shared per PID and races on concurrent rename). This matches
+  // `core/context.ts:initializeContext`, which is the path every
+  // production callsite — CLI dispatch, MCP server — takes. Skipping
+  // the backend wiring is a test-only degraded mode that exercises a
+  // best-effort backup write whose failure is logged but non-fatal
+  // (state-store.ts:343 onward).
+  backend = new SqliteBackend(path.join(tmpDir, 'exarchos.db'));
+  backend.initialize();
+  configureStateStoreBackend(backend);
+
+  eventStore = new EventStore(tmpDir, { backend });
   await eventStore.initialize();
-  ctx = { stateDir: tmpDir, eventStore, enableTelemetry: false };
+  ctx = { stateDir: tmpDir, eventStore, enableTelemetry: false, storage: backend };
 });
 
 afterEach(async () => {
+  // Detach the module-level backend before tearing down so a co-located
+  // test that re-imports state-store doesn't observe a half-closed
+  // handle. The cast matches the existing pattern in state-store tests.
+  configureStateStoreBackend(undefined as unknown as SqliteBackend);
   await fs.rm(tmpDir, { recursive: true, force: true });
 });
 
@@ -86,19 +109,46 @@ describe('exarchos_workflow.update — concurrency (Wave 0, Task 0.5)', () => {
     expect(resB.success).toBe(true);
 
     // Both state.patched events must be present in the stream at
-    // consecutive sequences. Querying by type filters out unrelated
-    // event types (workflow.started, etc.); ordering preserves append
-    // order.
+    // strictly increasing sequences. The per-stream lock in
+    // appendValidated guarantees the two appends do not interleave at
+    // the storage layer.
+    //
+    // Under contention, handleSet's CAS retry path may emit a third
+    // state.patched event from the loser on its retry attempt: the
+    // idempotency key includes expectedVersion, which differs on the
+    // re-read, so the retry appends a NEW event rather than dedup'ing
+    // against the original. That's a pre-existing internal behavior of
+    // handleSet — Wave 0 restores the *surface*, not internals (see
+    // stuck-protocol). Assert >= 2 (at least one append per disjoint
+    // patch) and that both patch payloads are observable in the stream
+    // so the convergence property is witnessed regardless of retry
+    // count.
     const events = await eventStore.query(featureId);
     const patched = events.filter((e) => e.type === 'state.patched');
-    expect(patched.length).toBe(2);
+    expect(patched.length).toBeGreaterThanOrEqual(2);
 
-    // Sequences are integers and strictly increasing across the
-    // stream — adjacent state.patched events should differ by 1 if
-    // no other event types intervened, but for resilience we only
-    // assert strict ordering here. The per-stream lock guarantees
-    // they cannot interleave at the storage layer.
-    expect(patched[0].sequence).toBeLessThan(patched[1].sequence);
+    // Strictly increasing sequences — per-stream lock invariant.
+    for (let i = 1; i < patched.length; i += 1) {
+      expect(patched[i].sequence).toBeGreaterThan(patched[i - 1].sequence);
+    }
+
+    // Both patch payloads (artifacts and planReview) must be observable
+    // somewhere in the stream — proves the per-stream lock serialized
+    // both writers' event emissions rather than collapsing one.
+    const hasArtifactsPatch = patched.some((e) => {
+      const patch = (e.data as Record<string, unknown>).patch as
+        | Record<string, unknown>
+        | undefined;
+      return (patch?.artifacts as Record<string, unknown> | undefined)?.design === 'A.md';
+    });
+    const hasPlanReviewPatch = patched.some((e) => {
+      const patch = (e.data as Record<string, unknown>).patch as
+        | Record<string, unknown>
+        | undefined;
+      return (patch?.planReview as Record<string, unknown> | undefined)?.approved === true;
+    });
+    expect(hasArtifactsPatch).toBe(true);
+    expect(hasPlanReviewPatch).toBe(true);
 
     // Final state assertion: union of both patches. The CAS retry
     // ensures the loser re-reads the winner's state before applying
