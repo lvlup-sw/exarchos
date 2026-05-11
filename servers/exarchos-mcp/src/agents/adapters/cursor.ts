@@ -146,7 +146,7 @@ function validateSupport(spec: AgentSpec): ValidationResult {
     return {
       ok: false,
       reason: `Cursor runtime does not support capabilities: ${unsupported.join(', ')}`,
-      fixHint: `Remove ${unsupported.map((c) => `'${c}'`).join(', ')} from the spec's capabilities, or dispatch to a runtime that supports them (e.g. claude).`,
+      fixHint: `Adjust the spec's posture (or per-agent overlay in capabilities/posture-mapping.ts) so ${unsupported.map((c) => `'${c}'`).join(', ')} ${unsupported.length === 1 ? 'is' : 'are'} no longer resolved for Cursor, or dispatch to a runtime that supports ${unsupported.length === 1 ? 'it' : 'them'} (e.g. claude).`,
     };
   }
   return { ok: true };

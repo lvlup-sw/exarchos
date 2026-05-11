@@ -99,8 +99,9 @@ export class CopilotAdapter implements RuntimeAdapter {
           ok: false,
           reason: `Copilot runtime does not support capability '${cap}'`,
           fixHint:
-            `Either remove '${cap}' from the spec, exclude Copilot from this spec's targets, ` +
-            `or dispatch this agent to a runtime with the capability (e.g. claude).`,
+            `Adjust the spec's posture (or per-agent overlay in capabilities/posture-mapping.ts) so '${cap}' ` +
+            `is no longer resolved for Copilot, exclude Copilot from this spec's targets, ` +
+            `or dispatch this agent to a runtime that supports it (e.g. claude).`,
         };
       }
     }

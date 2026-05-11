@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   selectPruneCandidates,
   handlePruneStaleWorkflows,
@@ -169,7 +169,7 @@ describe('selectPruneCandidates', () => {
     const { candidates, excluded } = selectPruneCandidates(
       entries,
       buildTestTopologyWithThreshold(60),
-      { thresholdMinutes: 60 },
+      {}, // threshold is sourced from the topology fixture (60 min)
       NOW,
     );
 
@@ -546,6 +546,13 @@ describe('handlePruneStaleWorkflows', () => {
     mockGetTopology.mockImplementation(() => buildTestTopology());
   });
 
+  // Restore all spies between tests (e.g. orchestrateLogger.warn spies in
+  // the β-08 + deprecation-warn cases) so spy call history doesn't leak
+  // across the suite. CodeRabbit #1338 review.
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   // ─── #1334 β-08: graceful skip when topology not loaded ────────────────────
   //
   // The CLI fast path (e.g. running `prune` outside a fully-bootstrapped
@@ -553,9 +560,10 @@ describe('handlePruneStaleWorkflows', () => {
   // `loadTopology()`. Rather than letting the loader's "Topology not
   // loaded: call loadTopology() before getTopology()" throw escape and
   // surface as an unhandled rejection, the handler must catch it,
-  // return a structured `{ skipped: true, reason: 'topology_not_loaded' }`
+  // return a structured `{ aborted: true, reason: 'topology_not_loaded' }`
   // envelope, and emit a warning log so operators see why the prune ran
-  // produced no candidates.
+  // produced no candidates. Field is `aborted` (not `skipped`) so it
+  // doesn't collide with `PruneHandlerResult.skipped: PruneSkipped[]`.
   it('PruneStaleWorkflows_TopologyNotLoaded_SkipsPruningWithLoggedReason', async () => {
     const { ctx } = makeEventStoreStub();
     const deps = makeDeps();
@@ -586,7 +594,7 @@ describe('handlePruneStaleWorkflows', () => {
 
     expect(result.success).toBe(true);
     expect(result.data).toMatchObject({
-      skipped: true,
+      aborted: true,
       reason: 'topology_not_loaded',
     });
 
@@ -608,6 +616,52 @@ describe('handlePruneStaleWorkflows', () => {
     expect(deps.cancelSpy).not.toHaveBeenCalled();
 
     warnSpy.mockRestore();
+  });
+
+  // ─── #1334 (CodeRabbit #1338 review): thresholdMinutes deprecation warn ───
+  //
+  // After #1334 made `topology.yaml` `staleness` blocks the single source of
+  // staleness policy, `thresholdMinutes` (handler arg) and `staleAfterDays`
+  // (project config) are accepted at the wire layer for back-compat but are
+  // no longer threaded into the selector. The handler MUST emit a
+  // `orchestrateLogger.warn` when either is supplied so operators discover
+  // their tuning is silently ignored — DIM-5 hygiene, INV-5b honest contract.
+  it('PruneStaleWorkflows_DeprecatedThresholdMinutesSupplied_EmitsDeprecationWarn', async () => {
+    const { ctx } = makeEventStoreStub();
+    const deps = makeDeps();
+    deps.listSpy.mockResolvedValue(
+      makeListResult([
+        { featureId: 'a', lastActivityTimestamp: staleIso(30_000) },
+      ]),
+    );
+
+    const warnSpy = vi
+      .spyOn(orchestrateLogger, 'warn')
+      .mockImplementation((() => {}) as never);
+
+    const result = await handlePruneStaleWorkflows(
+      // thresholdMinutes is a valid value — handler should NOT reject it,
+      // but MUST warn that it's ignored.
+      { thresholdMinutes: 60, dryRun: true, now: NOW_ISO },
+      STATE_DIR,
+      ctx,
+      deps,
+    );
+
+    expect(result.success).toBe(true);
+
+    const warnedWithDeprecation = warnSpy.mock.calls.some((call) => {
+      const meta = call[0];
+      const msg = call[1];
+      return (
+        typeof meta === 'object' &&
+        meta !== null &&
+        (meta as Record<string, unknown>).action === 'prune_stale_workflows' &&
+        typeof msg === 'string' &&
+        msg.toLowerCase().includes('deprecated')
+      );
+    });
+    expect(warnedWithDeprecation).toBe(true);
   });
 
   it('dry run returns candidates without calling cancel', async () => {

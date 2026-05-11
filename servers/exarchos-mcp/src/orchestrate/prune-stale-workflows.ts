@@ -69,8 +69,6 @@ export interface WorkflowListEntry {
 }
 
 export interface PruneConfig {
-  /** Minutes of inactivity before a workflow is considered stale. Default 20160 (14 days). */
-  thresholdMinutes?: number;
   /** When false, oneshot workflows are excluded from candidates. Default true. */
   includeOneShot?: boolean;
   /** Phases to exclude from prune candidates. Entries in these phases are excluded with reason 'phase-excluded'. */
@@ -148,12 +146,11 @@ function isTerminalPhase(phase: string): boolean {
  *
  * @param entries  Workflow summaries (typically from `handleList`).
  * @param topology Loaded topology with per-phase staleness contracts.
- * @param config   Phase-exclusion + oneshot toggle; all fields optional.
- *                 `thresholdMinutes` is no longer consulted for staleness
- *                 (per-signal thresholds come from the contract); it is
- *                 retained only as a clock-comparison reference for the
- *                 selector's `stalenessMinutes` output and to compute
- *                 minutes-deltas fed into the pure scorer.
+ * @param config   Phase-exclusion + oneshot toggle; all fields optional. Per-phase
+ *                 staleness thresholds live in `topology.yaml` (`staleness` blocks
+ *                 with `freshnessRequires`) — the selector reads them via
+ *                 `scoreEntryThroughTopology` and does not accept a global
+ *                 `thresholdMinutes` override.
  * @param now      Injectable clock for deterministic tests. Defaults to `new Date()`.
  */
 export function selectPruneCandidates(
@@ -244,13 +241,22 @@ const RECENT_COMMITS_WINDOW_HOURS = 24;
 
 /**
  * Input args accepted by the handler. All fields optional with safe defaults:
- *   thresholdMinutes → 10080 (7 days)
+ *   thresholdMinutes → deprecated since #1334 (v2.10.0-preview.1); ignored.
+ *                     Configure per-phase staleness in `topology.yaml`
+ *                     `staleness` blocks. Still validated for shape so
+ *                     legacy `-1` callers fail closed instead of silently
+ *                     accepting an ignored value.
  *   dryRun           → true   (refuses to mutate unless explicitly disabled)
  *   force            → false  (bypass safeguards)
  *   includeOneShot   → true
  *   now              → current time (injectable as ISO string for tests)
  */
 export interface PruneHandlerArgs {
+  /**
+   * @deprecated since #1334 (v2.10.0-preview.1). Per-phase staleness now lives
+   * in `topology.yaml` `staleness` blocks; supplying this field emits a
+   * deprecation warn and has no effect on candidate selection.
+   */
   thresholdMinutes?: number;
   dryRun?: boolean;
   force?: boolean;
@@ -755,16 +761,26 @@ export async function handlePruneStaleWorkflows(
     }
   }
 
-  // Apply validated/defaulted values. `thresholdMinutes` priority:
-  //   1. Explicit args.thresholdMinutes (caller override)
-  //   2. ctx.projectConfig.prune.staleAfterDays (config-driven)
-  //   3. DEFAULT_THRESHOLD_MINUTES (14 days)
-  // Args always override config to preserve backward compatibility.
+  // Per-phase staleness thresholds are now sourced from `topology.yaml`
+  // (`staleness` blocks with `freshnessRequires`) — #1334 made the typed
+  // PhaseContract the single source of staleness policy. The legacy
+  // `args.thresholdMinutes` / `ctx.projectConfig.prune.staleAfterDays`
+  // overrides are still validated above (to reject -1, NaN, etc.) but
+  // are no longer threaded into the selector. Emit a deprecation warn
+  // when an explicit caller-side override is supplied so operators see
+  // why their tuning is ignored and can migrate the threshold into
+  // `topology.yaml`. DIM-1: single source of truth; INV-5b: honest contract.
   const pruneConfig = ctx?.projectConfig?.prune;
-  const configThreshold = pruneConfig?.staleAfterDays !== undefined
-    ? pruneConfig.staleAfterDays * 24 * 60
-    : undefined;
-  const thresholdMinutes = args.thresholdMinutes ?? configThreshold ?? DEFAULT_THRESHOLD_MINUTES;
+  if (args.thresholdMinutes !== undefined || pruneConfig?.staleAfterDays !== undefined) {
+    orchestrateLogger.warn(
+      {
+        action: 'prune_stale_workflows',
+        argsThresholdMinutes: args.thresholdMinutes,
+        configStaleAfterDays: pruneConfig?.staleAfterDays,
+      },
+      'prune-stale-workflows: `thresholdMinutes` / `prune.staleAfterDays` are deprecated and ignored since #1334 (v2.10.0-preview.1); per-phase staleness now lives in topology.yaml `staleness` blocks',
+    );
+  }
   const includeOneShot = args.includeOneShot;
   const dryRun = args.dryRun ?? true;
   const force = args.force ?? false;
@@ -874,9 +890,11 @@ export async function handlePruneStaleWorkflows(
   // may invoke this handler before the lifecycle has called
   // `loadTopology()`. Rather than letting the loader's "Topology not
   // loaded" throw escape and surface as an unhandled rejection, return
-  // a structured `{ skipped: true, reason: 'topology_not_loaded' }`
+  // a structured `{ aborted: true, reason: 'topology_not_loaded' }`
   // envelope and emit a warning log so operators see why the prune ran
-  // produced no candidates.
+  // produced no candidates. Field is `aborted` (not `skipped`) so it
+  // doesn't collide with `PruneHandlerResult.skipped: PruneSkipped[]` —
+  // INV-5b spec-aligned output contract.
   let topologyForSelection: Topology;
   try {
     topologyForSelection = getTopology();
@@ -893,7 +911,7 @@ export async function handlePruneStaleWorkflows(
     return {
       success: true,
       data: {
-        skipped: true,
+        aborted: true,
         reason,
       },
     };
@@ -934,7 +952,6 @@ export async function handlePruneStaleWorkflows(
     enrichedEntries,
     topology,
     {
-      thresholdMinutes,
       ...(includeOneShot !== undefined ? { includeOneShot } : {}),
       ...(pruneConfig?.phaseExclusions ? { phaseExclusions: pruneConfig.phaseExclusions } : {}),
     },

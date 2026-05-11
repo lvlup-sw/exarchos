@@ -152,6 +152,7 @@ describe('Agent Spec Definitions', () => {
     expect(implementerCaps.has('shell:exec')).toBe(true);
     expect(implementerCaps.has('mcp:exarchos')).toBe(true);
     expect(implementerCaps.has('isolation:worktree')).toBe(true);
+    expect(implementerCaps.has('session:resume')).toBe(true);
     expect(IMPLEMENTER.disallowedTools).toContain('Agent');
     expect(IMPLEMENTER.skills.length).toBeGreaterThanOrEqual(2);
     const skillNames = IMPLEMENTER.skills.map(s => s.name);

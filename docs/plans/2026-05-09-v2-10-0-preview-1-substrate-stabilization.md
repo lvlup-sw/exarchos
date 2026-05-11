@@ -269,7 +269,7 @@ This plan lands as **two PRs** (Wave α, Wave β). Wave α is the substrate-stab
 
 1. [RED] Write test: `PruneStaleWorkflows_TopologyNotLoaded_SkipsPruningWithLoggedReason`
    - File: extend `prune-stale-workflows.test.ts`
-   - Mock `getTopology()` to throw "load before"; invoke handler; assert response is structured `{ skipped: true, reason: 'topology_not_loaded' }` AND `workflowLogger.warn` was called with the same reason
+   - Mock `getTopology()` to throw "load before"; invoke handler; assert response is structured `{ aborted: true, reason: 'topology_not_loaded' }` AND `orchestrateLogger.warn` was called with the same reason
 2. [GREEN] In handler: catch the topology-not-loaded throw, return the skip envelope, emit the warn log
 3. Confirm β-06 still passes (the topology-loaded path is unchanged)
 

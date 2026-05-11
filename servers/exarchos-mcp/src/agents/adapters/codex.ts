@@ -93,7 +93,7 @@ function tomlStringArray(values: readonly string[]): string {
  * Issue #1192 Item 6, T27.
  */
 function deriveCodexSandboxMode(spec: AgentSpec): 'read-only' | 'workspace-write' {
-  const caps = resolveCapabilities(spec.posture, spec.id) as ReadonlySet<string>;
+  const caps = resolveCapabilities(spec.posture, spec.id);
   if (caps.has('fs:write') || caps.has('shell:exec')) {
     return 'workspace-write';
   }

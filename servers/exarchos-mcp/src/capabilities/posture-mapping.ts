@@ -17,6 +17,7 @@
 
 import type { Capability } from '../agents/capabilities.js';
 import type { AgentPosture } from '../agents/spec.js';
+import type { AgentSpecId } from '../agents/types.js';
 
 /**
  * The trust-boundary contract. Each posture's capability set is documented
@@ -128,7 +129,7 @@ export function capabilitiesForPosture(posture: AgentPosture): ReadonlySet<Capab
  * genuinely role-specific (not a trust-tier implication). Empty overlays
  * are omitted; the resolver treats a missing key as "no overlay."
  */
-const PER_AGENT_OVERLAY: Readonly<Record<string, ReadonlySet<Capability>>> = Object.freeze({
+const PER_AGENT_OVERLAY: Readonly<Partial<Record<AgentSpecId, ReadonlySet<Capability>>>> = Object.freeze({
   implementer: freezeCapSet(new Set<Capability>(['session:resume'])),
 });
 
@@ -139,7 +140,7 @@ const PER_AGENT_OVERLAY: Readonly<Record<string, ReadonlySet<Capability>>> = Obj
  */
 export function resolveCapabilities(
   posture: AgentPosture,
-  agentId: string,
+  agentId: AgentSpecId,
 ): ReadonlySet<Capability> {
   const out = new Set<Capability>(POSTURE_CAPABILITY_MAP[posture]);
   const overlay = PER_AGENT_OVERLAY[agentId];

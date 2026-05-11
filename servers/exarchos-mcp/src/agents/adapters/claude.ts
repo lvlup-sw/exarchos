@@ -225,7 +225,7 @@ export const claudeAdapter: RuntimeAdapter = {
         return {
           ok: false,
           reason: `Claude runtime does not support capability '${cap}'`,
-          fixHint: `Remove '${cap}' from the spec's capabilities, or dispatch this agent to a different runtime.`,
+          fixHint: `Adjust the spec's posture (or per-agent overlay in capabilities/posture-mapping.ts) so '${cap}' is no longer resolved for Claude, or dispatch this agent to a runtime that supports it.`,
         };
       }
     }
