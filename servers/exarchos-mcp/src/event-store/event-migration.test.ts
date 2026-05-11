@@ -218,4 +218,119 @@ describe('Event Migration', () => {
       expect(events[1]).toEqual(v3Event);
     });
   });
+
+  // ─── R-1: V3 → V4 schema migration (Wave 1, #1313) ────────────────────────
+  //
+  // The V3 → V4 migration introduces a `streams` table carrying a mandatory
+  // `workflow_type` column. This is the write-side foundation for v2.12's
+  // filtered `ps` queries (#1090). V3 had no `streams` table — stream
+  // existence was implicit in the `sequences` table. V4 materializes the
+  // registry and backfills `workflow_type = '__legacy'` for every preexisting
+  // stream row (later subtasks backfill from state files / emit observability
+  // events for un-recoverable rows).
+  describe('Migration_V3ToV4_StreamsTable', () => {
+    let tempDir: string | undefined;
+    const backends: SqliteBackend[] = [];
+
+    afterEach(() => {
+      for (const b of backends) {
+        try {
+          b.close();
+        } catch {
+          // already closed
+        }
+      }
+      backends.length = 0;
+
+      if (tempDir) {
+        rmSync(tempDir, { recursive: true });
+        tempDir = undefined;
+      }
+    });
+
+    function createTempDb(): string {
+      tempDir = mkdtempSync(join(tmpdir(), 'exarchos-v3v4-'));
+      return join(tempDir, 'test.db');
+    }
+
+    function trackBackend(backend: SqliteBackend): SqliteBackend {
+      backends.push(backend);
+      return backend;
+    }
+
+    /**
+     * Seed a V3-shape database — schema_version=3 ledger row, sequences rows
+     * for two streams, NO `streams` table. Simulates a database produced by
+     * the V3 backend (which used `sequences` as the implicit stream registry).
+     */
+    function seedV3Database(dbPath: string): void {
+      // Use a raw bun:sqlite handle so we don't trigger any auto-migration.
+      const db = new Database(dbPath);
+      // Minimal V3 DDL — only the tables this test cares about. The real V3
+      // schema has more tables, but Wave 1's migration only touches streams
+      // and references `sequences` for backfill.
+      db.exec(`
+        CREATE TABLE events (
+          streamId  TEXT NOT NULL,
+          sequence  INTEGER NOT NULL,
+          type      TEXT NOT NULL,
+          timestamp TEXT NOT NULL,
+          data      TEXT,
+          payload   TEXT,
+          PRIMARY KEY (streamId, sequence)
+        );
+        CREATE TABLE sequences (
+          streamId TEXT PRIMARY KEY,
+          sequence INTEGER NOT NULL
+        );
+        CREATE TABLE schema_version (
+          version INTEGER PRIMARY KEY,
+          appliedAt TEXT NOT NULL
+        );
+      `);
+      db.prepare('INSERT INTO schema_version (version, appliedAt) VALUES (?, ?)').run(
+        3,
+        new Date().toISOString(),
+      );
+      // Two stream rows in the implicit V3 registry.
+      db.prepare(
+        'INSERT INTO sequences (streamId, sequence) VALUES (?, ?)',
+      ).run('feat-alpha', 5);
+      db.prepare(
+        'INSERT INTO sequences (streamId, sequence) VALUES (?, ?)',
+      ).run('feat-beta', 7);
+      db.close();
+    }
+
+    it('Migration_V3ToV4_AddsWorkflowTypeColumnWithLegacyDefault', () => {
+      const dbPath = createTempDb();
+      seedV3Database(dbPath);
+
+      // Opening the backend triggers `initialize()` which runs migrateSchema().
+      // V3 → V4 should create the `streams` table with a NOT NULL
+      // `workflow_type` column and backfill `__legacy` for both pre-existing
+      // sequences rows.
+      const backend = trackBackend(new SqliteBackend(dbPath));
+      backend.initialize();
+
+      const db = (backend as unknown as { db: Database }).db;
+
+      // Column exists with the right shape.
+      const cols = db
+        .prepare('PRAGMA table_info(streams)')
+        .all() as Array<{ name: string; type: string; notnull: number; dflt_value: string | null }>;
+      const wt = cols.find((c) => c.name === 'workflow_type');
+      expect(wt).toBeDefined();
+      expect(wt!.notnull).toBe(1);
+
+      // Both pre-existing streams have the legacy sentinel.
+      const rows = db
+        .prepare('SELECT streamId, workflow_type FROM streams ORDER BY streamId')
+        .all() as Array<{ streamId: string; workflow_type: string }>;
+      expect(rows).toEqual([
+        { streamId: 'feat-alpha', workflow_type: '__legacy' },
+        { streamId: 'feat-beta', workflow_type: '__legacy' },
+      ]);
+    });
+  });
 });
