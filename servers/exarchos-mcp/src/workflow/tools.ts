@@ -13,6 +13,7 @@ import {
   CheckpointHandoffSchema,
   CheckpointInputSchema,
   ErrorCode,
+  InitInputSchema,
   isReservedField,
   WorkflowTypeSchema,
 } from './schemas.js';
@@ -126,6 +127,25 @@ export async function handleInit(
   eventStore: EventStore | null,
 ): Promise<ToolResult> {
   try {
+    // Marten R-1 (#1313): handler-boundary input validation. The MCP
+    // registration declares `workflowType` as required, so requests
+    // routed through the server are pre-validated. Direct callers
+    // (internal helpers, future CLI invocations, test fixtures
+    // bypassing the MCP surface) can still land here with a malformed
+    // input — re-validate so they receive an explicit INVALID_INPUT
+    // rather than a downstream STATE_CORRUPT / EVENT_APPEND_FAILED
+    // whose error code suggests a different remediation path.
+    const parsed = InitInputSchema.safeParse(input);
+    if (!parsed.success) {
+      return {
+        success: false,
+        error: {
+          code: ErrorCode.INVALID_INPUT,
+          message: `Invalid init input: ${parsed.error.message}`,
+        },
+      };
+    }
+
     // Guard: check if state file already exists BEFORE appending any event.
     // This prevents orphan events when handleInit is called twice with the
     // same featureId — without this check, the event would be appended and
