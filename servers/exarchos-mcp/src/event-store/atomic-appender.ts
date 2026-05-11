@@ -12,6 +12,10 @@ import {
 import { ConcurrencyError } from './concurrency-error.js';
 import { StorageBusyError } from './storage-busy-error.js';
 import {
+  InvalidSessionOptionsError,
+  SessionClosedError,
+} from './session-errors.js';
+import {
   defaultRegistry,
   type ProjectionRegistry,
 } from '../projections/registry.js';
@@ -212,6 +216,46 @@ export type DecideResult =
  * the substrate.
  */
 const STORAGE_BUSY_MAX_ATTEMPTS = 5;
+
+/**
+ * Caller-supplied options for {@link AtomicAppender.withSession}.
+ *
+ * Extends {@link DecideOptions} with the idempotency-contract gate
+ * (audit §F1.1): callers MUST either supply `operationId` (so retries
+ * dedupe on the substrate's idempotency_claims row) or opt in via
+ * `allowNonIdempotent: true`. The gate prevents retry storms from
+ * re-firing non-idempotent side effects (external API calls, message
+ * sends) inside the closure on every OCC loss — see the design's R-2
+ * §"Idempotency contract" for the full rationale.
+ */
+export interface WithSessionOptions extends DecideOptions {
+  /**
+   * Explicit acknowledgement that the closure's side effects are
+   * either provably idempotent or that the caller has reasoned about
+   * the at-least-once retry boundary and accepts the trade-off.
+   * Setting this to `true` does NOT make the closure safe — it
+   * documents that the caller knows what they're doing.
+   *
+   * Defaults to `false`. When `false` AND `operationId` is omitted,
+   * `withSession` throws {@link InvalidSessionOptionsError}.
+   */
+  readonly allowNonIdempotent?: boolean;
+}
+
+/**
+ * Session object exposed to a `withSession` closure. The closure can
+ * read the folded `aggregate` + tail `version`, and queue events via
+ * `append(evt)` that commit atomically when the closure resolves.
+ *
+ * Mutability discipline: `pendingEvents` is private — closures MUST
+ * route every event through `append(evt)` so the session's
+ * closed-after-resolve gate fires correctly (Task 3.10).
+ */
+export interface Session<TState> {
+  readonly aggregate: TState;
+  readonly version: number;
+  append(event: EventInput): void;
+}
 
 export interface AtomicAppenderOptions {
   /** Directory under which the SQLite database file lives. */
@@ -488,6 +532,138 @@ export class AtomicAppender {
       streamId,
       idemKey,
       async () => produced,
+      { expectedSequence: tailVersion },
+    );
+
+    return this.translateDecideResult({
+      result,
+      streamId,
+      reducerId,
+      expectedVersion: tailVersion,
+      operationId: opts?.operationId,
+    });
+  }
+
+  /**
+   * R-2 primitive: imperative escape-hatch for handlers that need to
+   * call out to services mid-decision (Wave 3 Task 3.8).
+   *
+   * Reuses `decide`'s read+fold+OCC machinery; the difference is the
+   * shape exposed to the closure: instead of `(state, ctx) => events`,
+   * the closure receives a {@link Session} object with `aggregate`,
+   * `version`, and an imperative `append(evt)` that queues events
+   * for commit. After the closure resolves, all queued events commit
+   * atomically with `expectedSequence: tail` so the OCC contract is
+   * identical to `decide`'s.
+   *
+   * Idempotency-contract gate (audit §F1.1): rejects callers that
+   * omit both `operationId` AND `allowNonIdempotent: true`. The gate
+   * prevents retry storms from re-firing non-idempotent side effects
+   * inside the closure on every `ConcurrencyError` retry.
+   *
+   * Failure translations:
+   *   - Closure throws → original error propagates; nothing commits.
+   *   - sequence-conflict → {@link ConcurrencyError}.
+   *   - storage_busy → {@link StorageBusyError}.
+   *   - Session captured + used after resolve → {@link SessionClosedError}.
+   */
+  async withSession<TState>(
+    streamId: string,
+    reducerId: string,
+    fn: (session: Session<TState>, ctx: DecideContext) => Promise<void>,
+    opts?: WithSessionOptions,
+  ): Promise<DecideResult> {
+    // ─── Step 0: idempotency-contract gate (audit §F1.1) ────────────────
+    if (
+      opts?.operationId === undefined &&
+      opts?.allowNonIdempotent !== true
+    ) {
+      throw new InvalidSessionOptionsError();
+    }
+
+    // ─── Step 1: resolve + validate reducer scope ───────────────────────
+    const reducer = this.resolveStreamReducer(reducerId, opts?.registry);
+
+    // ─── Step 2: read events + fold ─────────────────────────────────────
+    const backend = await this.ensureSqliteBackend();
+    const events = backend.queryEvents(streamId);
+    let state: unknown = reducer.initial;
+    for (const ev of events) {
+      state = (reducer as ProjectionReducer<unknown, unknown>).apply(state, ev);
+    }
+    const tailVersion =
+      events.length === 0 ? 0 : (events[events.length - 1].sequence as number);
+
+    // ─── Step 3: build the session ─────────────────────────────────────
+    const pending: EventInput[] = [];
+    let closed = false;
+    const session: Session<TState> = {
+      aggregate: state as TState,
+      version: tailVersion,
+      append(event: EventInput) {
+        if (closed) {
+          throw new SessionClosedError(streamId);
+        }
+        pending.push(event);
+      },
+    };
+
+    const ctx: DecideContext = {
+      streamId,
+      version: tailVersion,
+      now: () => new Date().toISOString(),
+    };
+
+    // ─── Step 4: invoke the closure ────────────────────────────────────
+    try {
+      await fn(session, ctx);
+    } catch (err) {
+      // Flip the session-closed flag so any later captured-session
+      // append() throws SESSION_CLOSED instead of a confusing
+      // post-throw mutation. Re-throw the original error verbatim.
+      closed = true;
+      throw err;
+    }
+
+    // ─── Step 5: close the session BEFORE the commit ──────────────────
+    // (Task 3.10: append() after withSession resolves throws
+    // SESSION_CLOSED. The commit happens after the session is closed
+    // so a captured session is unusable in either ordering.)
+    closed = true;
+
+    // ─── Step 6: handle empty queue ────────────────────────────────────
+    if (pending.length === 0) {
+      const alwaysEnforce = opts?.alwaysEnforceConsistency ?? true;
+      if (alwaysEnforce) {
+        const currentTail = backend.readSequenceHighWaterMark(streamId);
+        if (currentTail !== tailVersion) {
+          throw new ConcurrencyError({
+            streamId,
+            reducerId,
+            expectedVersion: tailVersion,
+            actualVersion: currentTail,
+            operationId: opts?.operationId,
+          });
+        }
+      }
+      return {
+        ok: true,
+        kind: 'no-op',
+        sequences: [],
+        eventIds: [],
+        timestamps: [],
+      };
+    }
+
+    // ─── Step 7: commit pending events via single-key-per-call idem ────
+    const idemKey =
+      opts?.operationId !== undefined
+        ? `${streamId}:${reducerId}:${opts.operationId}`
+        : `with-session:${streamId}:${reducerId}:${randomUUID()}`;
+    const result = await this.appendComputed(
+      streamId,
+      idemKey,
+      async () => pending,
       { expectedSequence: tailVersion },
     );
 
