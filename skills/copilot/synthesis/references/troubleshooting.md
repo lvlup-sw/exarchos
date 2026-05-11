@@ -78,7 +78,7 @@ If an Exarchos MCP tool returns an error:
 If workflow state doesn't match git reality:
 1. Run `/rehydrate <featureId>` — the rehydration projection folds events newer than the last snapshot
 2. If manual check still needed: compare the rehydration document's `workflowState` / `artifacts` with `git log` and branch state
-3. Update state via `mcp__plugin_exarchos_exarchos__exarchos_workflow` with `action: "set"` to match git truth
+3. Update state via `mcp__plugin_exarchos_exarchos__exarchos_workflow` with `action: "update"` to match git truth
 
 ## PR Creation Failed
 If `create_pr` fails:

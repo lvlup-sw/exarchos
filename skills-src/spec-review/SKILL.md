@@ -209,14 +209,14 @@ If an issue spans multiple tasks:
 
 **Pass:**
 ```
-action: "set", featureId: "<id>", updates: {
+action: "update", featureId: "<id>", updates: {
   "reviews": { "spec-review": { "status": "pass", "summary": "...", "issues": [] } }
 }
 ```
 
 **Fail:**
 ```
-action: "set", featureId: "<id>", updates: {
+action: "update", featureId: "<id>", updates: {
   "reviews": { "spec-review": { "status": "fail", "summary": "...", "issues": [{ "severity": "...", "file": "...", "description": "..." }] } }
 }
 ```
@@ -233,7 +233,7 @@ For the full transition table, consult `@skills/workflow-state/references/phase-
 
 ### Schema Discovery
 
-Use `exarchos_workflow({ action: "describe", actions: ["set", "init"] })` for
+Use `exarchos_workflow({ action: "describe", actions: ["update", "init"] })` for
 parameter schemas and `exarchos_workflow({ action: "describe", playbook: "feature" })`
 for phase transitions, guards, and playbook guidance. Use
 `exarchos_orchestrate({ action: "describe", actions: ["check_tdd_compliance", "check_static_analysis"] })`
@@ -254,7 +254,7 @@ Before invoking quality-review:
 ### If PASS:
 1. Record results — the reviews value MUST be an object with a `status` field, not a flat string:
    ```
-   exarchos_workflow({ action: "set", featureId: "<id>", updates: {
+   exarchos_workflow({ action: "update", featureId: "<id>", updates: {
      reviews: { "spec-review": { status: "pass", summary: "...", issues: [] } }
    }})
    ```
@@ -266,7 +266,7 @@ Before invoking quality-review:
 ### If FAIL:
 1. Record results with failing status and issue details:
    ```
-   exarchos_workflow({ action: "set", featureId: "<id>", updates: {
+   exarchos_workflow({ action: "update", featureId: "<id>", updates: {
      reviews: { "spec-review": { status: "fail", summary: "...", issues: [{ severity: "HIGH", file: "...", description: "..." }] } }
    }})
    ```

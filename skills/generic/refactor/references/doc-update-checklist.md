@@ -78,7 +78,7 @@ Additionally:
 **Record updated docs:**
 
 ```
-action: "set", featureId: "refactor-<slug>", updates: {
+action: "update", featureId: "refactor-<slug>", updates: {
   "validation.docsUpdated": true,
   "artifacts.updatedDocs": ["<doc1>", "<doc2>"]
 }
@@ -96,7 +96,7 @@ If `docsToUpdate` is empty, verify this is correct:
 **Confirm no docs needed:**
 
 ```
-action: "set", featureId: "refactor-<slug>", updates: {
+action: "update", featureId: "refactor-<slug>", updates: {
   "validation.docsUpdated": true,
   "artifacts.updatedDocs": []
 }

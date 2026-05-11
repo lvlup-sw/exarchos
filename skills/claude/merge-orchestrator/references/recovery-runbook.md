@@ -81,7 +81,7 @@ For merge conflicts (most common cause of `merge-failed`):
 3. Resolve conflicts manually
 4. `git add` the resolved files
 5. `git commit` to complete the merge
-6. **Do not** re-dispatch `merge_orchestrate` — the merge is now done manually. Follow the repository's event-first commit-point invariant (#1109 §1): emit the `merge.executed` event FIRST, then update `mergeOrchestrator.phase` to `completed` via `mcp__plugin_exarchos_exarchos__exarchos_workflow set`. Reversing the order risks a state-file/event-stream divergence if the event append fails after the state write.
+6. **Do not** re-dispatch `merge_orchestrate` — the merge is now done manually. Follow the repository's event-first commit-point invariant (#1109 §1): emit the `merge.executed` event FIRST, then update `mergeOrchestrator.phase` to `completed` via `mcp__plugin_exarchos_exarchos__exarchos_workflow update`. Reversing the order risks a state-file/event-stream divergence if the event append fails after the state write.
 
 ```typescript
 // Event first — the repository treats event append as the commit point.
@@ -100,7 +100,7 @@ mcp__plugin_exarchos_exarchos__exarchos_event({ action: "append", stream: "<feat
 }});
 
 // Then update workflow state to reflect the terminal phase.
-mcp__plugin_exarchos_exarchos__exarchos_workflow({ action: "set", featureId: "<featureId>",
+mcp__plugin_exarchos_exarchos__exarchos_workflow({ action: "update", featureId: "<featureId>",
   updates: { mergeOrchestrator: {
     phase: "completed",
     sourceBranch: "<source>", targetBranch: "<target>",

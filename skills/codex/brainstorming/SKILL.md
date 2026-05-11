@@ -94,7 +94,7 @@ This creates a state file tracked by the MCP server.
 ### On Design Save (after Phase 3)
 
 ```
-action: "set", featureId: "<id>", updates: { "artifacts": { "design": "<path>" } }, phase: "plan"
+action: "update", featureId: "<id>", updates: { "artifacts": { "design": "<path>" } }, phase: "plan"
 ```
 
 ### Phase Transitions and Guards
@@ -109,7 +109,7 @@ For the full transition table, consult `@skills/workflow-state/references/phase-
 
 ### Schema Discovery
 
-Use `exarchos_workflow({ action: "describe", actions: ["set", "init"] })` for
+Use `exarchos_workflow({ action: "describe", actions: ["update", "init"] })` for
 parameter schemas and `exarchos_workflow({ action: "describe", playbook: "feature" })`
 for phase transitions, guards, and playbook guidance.
 
@@ -161,7 +161,7 @@ Before invoking `plan`:
 
 ### Chain Steps
 
-1. Update state: `action: "set", featureId: "<id>", updates: { "artifacts": { "design": "<path>" } }, phase: "plan"`
+1. Update state: `action: "update", featureId: "<id>", updates: { "artifacts": { "design": "<path>" } }, phase: "plan"`
 
 2. If `result.data.passed === false` and `result.data.advisory === true`: Output `result.data.findings` summary, then: "Advisory findings noted. Auto-continuing to implementation planning..."
    If `result.data.passed === true`: Output: "Design complete. Auto-continuing to implementation planning..."

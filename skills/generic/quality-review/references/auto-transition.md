@@ -5,7 +5,7 @@
 All transitions happen **immediately** without user confirmation:
 
 ### If APPROVED:
-1. Update state: `action: "set", featureId: "<id>", phase: "synthesize"`
+1. Update state: `action: "update", featureId: "<id>", phase: "synthesize"`
 2. Output: "Quality review passed. Auto-continuing to synthesis..."
 3. Auto-invoke synthesize:
    ```typescript
@@ -13,7 +13,7 @@ All transitions happen **immediately** without user confirmation:
    ```
 
 ### If NEEDS_FIXES:
-1. Update state: `action: "set", featureId: "<id>", updates: { "reviews": { "quality-review": { "status": "fail", "issues": [...] } } }`
+1. Update state: `action: "update", featureId: "<id>", updates: { "reviews": { "quality-review": { "status": "fail", "issues": [...] } } }`
 2. Output: "Quality review found [N] HIGH-priority issues. Auto-continuing to fixes..."
 3. Auto-invoke delegate with fix tasks:
    ```typescript
@@ -21,7 +21,7 @@ All transitions happen **immediately** without user confirmation:
    ```
 
 ### If BLOCKED:
-1. Update state: `action: "set", featureId: "<id>", phase: "blocked"`
+1. Update state: `action: "update", featureId: "<id>", phase: "blocked"`
 2. Output: "Quality review blocked: [issue]. Returning to design..."
 3. Auto-invoke ideate for redesign:
    ```typescript

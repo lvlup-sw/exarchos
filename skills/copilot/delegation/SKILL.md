@@ -195,7 +195,7 @@ exarchos_orchestrate({
 })
 ```
 
-6. **Update workflow state** — set each passing `tasks[].status` to `"complete"` via `exarchos_workflow set`
+6. **Update workflow state** — set each passing `tasks[].status` to `"complete"` via `exarchos_workflow update`
 7. **Delegation completion gate (D4, advisory)** — after ALL tasks pass, run an operational resilience check on the full branch diff before transitioning to review:
 
 ```typescript
@@ -288,7 +288,7 @@ For the full transition table, consult `@skills/workflow-state/references/phase-
 
 **Quick reference:** The `delegate` → `review` transition requires guard `all-tasks-complete` — all `tasks[].status` must be `"complete"` in workflow state.
 
-> **Before transitioning to review:** You MUST first update all task statuses to `"complete"` via `exarchos_workflow set` with the tasks array. The phase transition will be rejected by the guard if any task is still pending/in_progress/failed. Update tasks first, then set the phase in a separate call.
+> **Before transitioning to review:** You MUST first update all task statuses to `"complete"` via `exarchos_workflow update` with the tasks array. The phase transition will be rejected by the guard if any task is still pending/in_progress/failed. Update tasks first, then set the phase in a separate call.
 
 ### Worktree-Bearing Tasks: Auto-Detour to `merge-pending`
 
@@ -309,7 +309,7 @@ This detour is invisible to the delegation skill itself — the all-tasks-comple
 
 ### Schema Discovery
 
-Use `exarchos_workflow({ action: "describe", actions: ["set", "init"] })` for
+Use `exarchos_workflow({ action: "describe", actions: ["update", "init"] })` for
 parameter schemas and `exarchos_workflow({ action: "describe", playbook: "feature" })`
 for phase transitions, guards, and playbook guidance. Use
 `exarchos_orchestrate({ action: "describe", actions: ["check_tdd_compliance", "task_complete"] })`
@@ -429,7 +429,7 @@ clever-but-fragile automation.
 After all tasks complete, **auto-continue immediately** (no user confirmation):
 
 1. Verify all `tasks[].status === "complete"` in workflow state
-2. Update state: `exarchos_workflow set` with `phase: "review"`
+2. Update state: `exarchos_workflow update` with `phase: "review"`
 3. Invoke: `[Invoke the exarchos:review skill with args: <plan-path>]`
 
 This is NOT a human checkpoint — the workflow continues autonomously.

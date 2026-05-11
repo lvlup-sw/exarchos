@@ -7,7 +7,7 @@ All valid HSM phase transitions for each workflow type. Every transition listed 
 **CRITICAL:** When a transition has a guard that requires prerequisite state, send `updates` and `phase` in a single `set` call. Updates are applied BEFORE guards evaluate:
 
 ```
-action: "set"
+action: "update"
 featureId: "my-feature"
 phase: "delegate"
 updates: { "planReview.approved": true }

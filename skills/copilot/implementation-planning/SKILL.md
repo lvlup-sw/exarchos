@@ -29,7 +29,7 @@ Activate this skill when:
 
 ## Revision Mode (--revise flag)
 
-When invoked with `--revise`, plan-review found gaps. Read `.planReview.gaps` from state, re-read the design, add tasks to address each gap, update the plan file, then clear gaps via `mcp__exarchos__exarchos_workflow` `action: "set"`.
+When invoked with `--revise`, plan-review found gaps. Read `.planReview.gaps` from state, re-read the design, add tasks to address each gap, update the plan file, then clear gaps via `mcp__exarchos__exarchos_workflow` `action: "update"`.
 
 ### Revision Loop Guard
 
@@ -212,7 +212,7 @@ For reference, consult `references/spec-tracing-guide.md` for the underlying met
 
 On plan save, transition phase based on `workflowType`: feature → `plan-review`, refactor → `overhaul-plan-review`.
 ```
-action: "set", featureId: "<id>", phase: "<plan-review-phase>", updates: {
+action: "update", featureId: "<id>", phase: "<plan-review-phase>", updates: {
   "artifacts": { "plan": "<plan-file-path>" },
   "tasks": [{ "id": "001", "title": "...", "status": "pending", "branch": "...", "blockedBy": [] }, ...]
 }
@@ -226,7 +226,7 @@ For the full transition table, consult `@skills/workflow-state/references/phase-
 
 ### Schema Discovery
 
-Use `exarchos_workflow({ action: "describe", actions: ["set", "init"] })` for
+Use `exarchos_workflow({ action: "describe", actions: ["update", "init"] })` for
 parameter schemas and `exarchos_workflow({ action: "describe", playbook: "feature" })`
 (or `"debug"`, `"refactor"`) for phase transitions, guards, and playbook guidance.
 Use `exarchos_orchestrate({ action: "describe", actions: ["check_plan_coverage", "check_provenance_chain"] })`

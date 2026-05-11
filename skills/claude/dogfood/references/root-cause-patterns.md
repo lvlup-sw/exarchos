@@ -17,7 +17,7 @@ Each pattern includes a **Debug trace check** showing which MCP self-service que
 
 **Diagnosis:** Compare the rejected input against the Zod schema in `servers/exarchos-mcp/src/`. If the input represents a valid real-world state, the schema is too strict.
 
-**Debug trace check:** Use `exarchos_workflow describe(actions: ['set'])` or `exarchos_event describe(eventTypes: ['...'])` to get the authoritative JSON Schema. Compare the rejected field's type/constraints against the schema output. If the schema is stricter than the domain allows, it's a code bug.
+**Debug trace check:** Use `exarchos_workflow describe(actions: ['update'])` or `exarchos_event describe(eventTypes: ['...'])` to get the authoritative JSON Schema. Compare the rejected field's type/constraints against the schema output. If the schema is stricter than the domain allows, it's a code bug.
 
 **Historical:** #876 (null branch), #941 (completed vs complete)
 
@@ -144,7 +144,7 @@ Each pattern includes a **Debug trace check** showing which MCP self-service que
 ### Missing Workflow Instructions
 **Symptom:** Orchestrator skips required tool calls or doesn't follow the expected workflow.
 **Examples:**
-- Delegation phase mutates the runtime's native task list but never calls `exarchos_workflow set`
+- Delegation phase mutates the runtime's native task list but never calls `exarchos_workflow update`
 - No events emitted during an entire workflow phase
 - PR bodies don't follow the template
 

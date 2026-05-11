@@ -25,7 +25,7 @@ main
 
 Record the merge order in workflow state after PR submission:
 ```typescript
-action: "set", featureId: "<id>", updates: {
+action: "update", featureId: "<id>", updates: {
   "synthesis": {
     "mergeOrder": ["task/001-types", "task/002-core", "task/003-integration"],
     "prUrl": ["<url1>", "<url2>", "<url3>"]

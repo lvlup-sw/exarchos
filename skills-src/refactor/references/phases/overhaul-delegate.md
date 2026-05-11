@@ -79,19 +79,19 @@ See `overhaul-review.md` for detailed criteria.
 **After delegation complete:**
 
 ```
-action: "set", featureId: "refactor-<slug>", phase: "review"
+action: "update", featureId: "refactor-<slug>", phase: "review"
 ```
 
 **After review passes:**
 
 ```
-action: "set", featureId: "refactor-<slug>", phase: "update-docs"
+action: "update", featureId: "refactor-<slug>", phase: "update-docs"
 ```
 
 **After review fails (dispatch fix tasks, loop back):**
 
 ```
-action: "set", featureId: "refactor-<slug>", updates: {
+action: "update", featureId: "refactor-<slug>", updates: {
   "reviews.<id>.status": "failed",
   "reviews.<id>.findings": ["<issue1>"]
 }

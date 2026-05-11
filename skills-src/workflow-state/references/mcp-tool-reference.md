@@ -83,7 +83,7 @@ A compound state's fix cycle limit was reached. Escalate to user or cancel the w
 
 | Don't | Do Instead |
 |-------|------------|
-| Manually edit workflow state JSON | Use `mcp__plugin_exarchos_exarchos__exarchos_workflow` with `action: "set"` |
+| Manually edit workflow state JSON | Use `mcp__plugin_exarchos_exarchos__exarchos_workflow` with `action: "update"` |
 | Skip state reconciliation on resume | Run `{{COMMAND_PREFIX}}rehydrate <featureId>` — it folds events newer than the last snapshot via the rehydration projection |
 
 > See companion documentation for additional tool anti-patterns (Serena, GitHub MCP, Context7). Install companions: `npx create-exarchos`.

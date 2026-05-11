@@ -50,7 +50,7 @@
 - **Error:** `INVALID_INPUT: ...`
 - **Root cause:** [diagnosis]
 - **Trace evidence:** [what describe/view/event query revealed]
-- **Authoritative ref:** [e.g., `describe(actions: ['set']) → TaskSchema`]
+- **Authoritative ref:** [e.g., `describe(actions: ['update']) → TaskSchema`]
 - **Impact:** [blocked workflow / degraded experience / minor friction]
 - **Suggested fix:** [specific code change]
 - **Files:** [file:line references]

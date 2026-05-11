@@ -144,7 +144,7 @@ After submission:
 
 ```typescript
 {{MCP_PREFIX}}exarchos_workflow({
-  action: "set", featureId: "<id>", updates: {
+  action: "update", featureId: "<id>", updates: {
     "artifacts": { "pr": ["<url1>", "<url2>"] },
     "synthesis": { "mergeOrder": ["<branch1>", ...], "prUrl": ["<url1>", ...], "prFeedback": [] }
   }
@@ -223,7 +223,7 @@ For the full transition table, consult `@skills/workflow-state/references/phase-
 
 ### Schema Discovery
 
-Use `exarchos_workflow({ action: "describe", actions: ["set", "init"] })` for
+Use `exarchos_workflow({ action: "describe", actions: ["update", "init"] })` for
 parameter schemas and `exarchos_workflow({ action: "describe", playbook: "feature" })`
 for phase transitions, guards, and playbook guidance. Use
 `exarchos_orchestrate({ action: "describe", actions: ["prepare_synthesis"] })`
