@@ -1,4 +1,6 @@
 import { Database, type Statement } from 'bun:sqlite';
+import { readdirSync, readFileSync } from 'node:fs';
+import { dirname, join, basename } from 'node:path';
 import type { WorkflowEvent } from '../event-store/schemas.js';
 import type { WorkflowState } from '../workflow/types.js';
 import type { QueryFilters } from '../event-store/store.js';
@@ -478,12 +480,73 @@ export class SqliteBackend implements StorageBackend {
       )
       .run(now);
 
+    // Recover workflowType from co-located state files where available.
+    // The migration walks <stateDir>/*.state.json (the SQLite db lives at
+    // <stateDir>/exarchos.db by convention; see AtomicAppender.dbPath) and
+    // for each file with a parseable `workflowType` issues
+    //   UPDATE streams SET workflow_type = ? WHERE streamId = ? AND workflow_type = '__legacy'
+    // Constraining to '__legacy' protects rows already carrying a typed
+    // value (e.g. inserted by a concurrent handleInit during the migration
+    // window — unlikely with the PID lock, but the guard makes the update
+    // safe regardless). This is the ONLY UPDATE of workflow_type in the
+    // codebase — task 1.7 enforces immutability everywhere else via a CI
+    // grep gate.
+    this.backfillWorkflowTypeFromStateFiles();
+
     // Stamp version=4 in the ledger so migrateSchema short-circuits on the
     // next open. initialize() also INSERT OR IGNORE's the current
     // SCHEMA_VERSION; this insert is the belt to that suspenders.
     this.db
       .prepare('INSERT OR IGNORE INTO schema_version (version, appliedAt) VALUES (?, ?)')
       .run(4, now);
+  }
+
+  /**
+   * Walk the state directory and recover `workflowType` for legacy stream
+   * rows where a sibling `<featureId>.state.json` carries the field. Scoped
+   * to rows still bearing the `__legacy` sentinel so concurrent inserts on
+   * the new-stream path (handleInit) survive untouched.
+   *
+   * Errors are silently swallowed per-file: a missing/unparseable state
+   * file is non-fatal to the migration and leaves the row with the
+   * `__legacy` sentinel (task 1.6 then emits a one-shot
+   * `migration.workflow_type_unknown` event for operator visibility).
+   *
+   * NOTE: this method is the only place in the codebase allowed to issue
+   * an UPDATE against `streams.workflow_type`. The CI grep gate (task 1.7)
+   * skips this file (`sqlite-backend.ts` is also skipped to keep the gate
+   * focused on production handlers, not the migration's own recovery code).
+   */
+  private backfillWorkflowTypeFromStateFiles(): void {
+    const stateDir = dirname(this.dbPath);
+    let entries: string[];
+    try {
+      entries = readdirSync(stateDir);
+    } catch {
+      // No state dir or unreadable — leave every row at '__legacy'.
+      return;
+    }
+
+    const updateStmt = this.db.prepare(
+      `UPDATE streams SET workflow_type = ?
+       WHERE streamId = ? AND workflow_type = '__legacy'`,
+    );
+
+    for (const entry of entries) {
+      if (!entry.endsWith('.state.json')) continue;
+      const featureId = basename(entry, '.state.json');
+      let parsed: { workflowType?: unknown };
+      try {
+        const raw = readFileSync(join(stateDir, entry), 'utf-8');
+        parsed = JSON.parse(raw) as { workflowType?: unknown };
+      } catch {
+        // Corrupt / unreadable file — skip and let the row keep '__legacy'.
+        continue;
+      }
+      const wt = parsed.workflowType;
+      if (typeof wt !== 'string' || wt.length === 0) continue;
+      updateStmt.run(wt, featureId);
+    }
   }
 
   private prepareStatements(): Statements {
