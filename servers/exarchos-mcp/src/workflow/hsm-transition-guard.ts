@@ -291,6 +291,7 @@ export class DefaultHSMTransitionGuard implements HSMTransitionGuard {
       // this is the atomicity invariant the primitive enforces.
       if (context.eventStore) {
         for (const evt of result.events) {
+          // TODO(#1339): re-attempt canonical-envelope migration once compound-event data shape is decided
           // PER-SITE ABORT (#1325 α-10, follow-up #1339): the HSM walk
           // can emit `workflow.compound-exit` / `workflow.compound-entry`
           // / `workflow.fix-cycle` events whose metadata carries
@@ -365,6 +366,7 @@ export class DefaultHSMTransitionGuard implements HSMTransitionGuard {
         const idempotencyKey = context.idempotencyKeySuffix
           ? `${featureId}:${evt.type}:${evt.from}:${evt.to}:${context.idempotencyKeySuffix}`
           : undefined;
+        // TODO(#1339): re-attempt canonical-envelope migration once compound-event data shape is decided
         // PER-SITE ABORT (#1325 α-10, follow-up #1339): same compound-event
         // data-shape issue as the guard-failure branch above. Until #1339
         // closes, this site stays on the raw `append` path.
