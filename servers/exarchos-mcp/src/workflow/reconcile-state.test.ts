@@ -261,4 +261,63 @@ describe('reconcileFromEvents_HydratesEvents', () => {
     // Assert: no reconciliation
     expect(result).toEqual({ reconciled: false, eventsApplied: 0 });
   });
+
+  // Regression: state.patched events were silently skipped during reconcile,
+  // even though the rehydration projection (workflow-state-projection.ts)
+  // applied them. Symptom: runbooks/definitions.ts:46,88 directs callers to
+  // emit `state.patched` directly post-`set` removal in v2.11; guards reading
+  // state.artifacts (e.g. design-artifact-exists) saw `null` forever because
+  // applyEventToState had no `state.patched` case. _eventSequence advanced
+  // while the patch contents were dropped on the floor.
+  it('Reconcile_WithStatePatchedArtifacts_DeepMergesIntoState', async () => {
+    const eventStore = new EventStore(tmpDir);
+    await initStateFile(tmpDir, 'patch-test', 'feature');
+
+    await eventStore.append('patch-test', {
+      type: 'workflow.started',
+      data: { featureId: 'patch-test', workflowType: 'feature' },
+    });
+    await eventStore.append('patch-test', {
+      type: 'state.patched' as import('../event-store/schemas.js').EventType,
+      data: {
+        patch: {
+          artifacts: {
+            design: 'docs/designs/example.md',
+            plan: 'docs/plans/example.md',
+          },
+        },
+      },
+    });
+
+    const result = await reconcileFromEvents(tmpDir, 'patch-test', eventStore);
+    expect(result.reconciled).toBe(true);
+
+    const stateFile = path.join(tmpDir, 'patch-test.state.json');
+    const raw = JSON.parse(await fs.readFile(stateFile, 'utf-8')) as Record<string, unknown>;
+    const artifacts = raw.artifacts as Record<string, unknown>;
+    expect(artifacts.design).toBe('docs/designs/example.md');
+    expect(artifacts.plan).toBe('docs/plans/example.md');
+    expect(artifacts.pr).toBeNull();
+  });
+
+  it('Reconcile_WithStatePatchedNoPatchKey_IsNoOp', async () => {
+    const eventStore = new EventStore(tmpDir);
+    await initStateFile(tmpDir, 'no-patch-test', 'feature');
+
+    await eventStore.append('no-patch-test', {
+      type: 'workflow.started',
+      data: { featureId: 'no-patch-test', workflowType: 'feature' },
+    });
+    await eventStore.append('no-patch-test', {
+      type: 'state.patched' as import('../event-store/schemas.js').EventType,
+      data: { artifacts: { design: 'wrong-shape.md' } },
+    });
+
+    await reconcileFromEvents(tmpDir, 'no-patch-test', eventStore);
+
+    const stateFile = path.join(tmpDir, 'no-patch-test.state.json');
+    const raw = JSON.parse(await fs.readFile(stateFile, 'utf-8')) as Record<string, unknown>;
+    const artifacts = raw.artifacts as Record<string, unknown>;
+    expect(artifacts.design).toBeNull();
+  });
 });
