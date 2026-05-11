@@ -108,8 +108,8 @@ When done, output a JSON completion report:
 - fs:read
 - fs:write
 - shell:exec
-- mcp:exarchos
 - isolation:worktree
+- mcp:exarchos
 - session:resume
 """
 sandbox_mode = "workspace-write"
