@@ -76,4 +76,25 @@ describe('exarchos_workflow.init — workflow_type column writes (Wave 1)', () =
     expect(target).toBeDefined();
     expect(target!.workflow_type).toBe('feature');
   });
+
+  it('WorkflowInit_RejectsCallWithoutWorkflowType', async () => {
+    // Calls bypassing the MCP boundary (e.g. internal helpers, future
+    // CLI direct invocations) can land in handleInit with workflowType
+    // missing. Today the call surfaces as STATE_CORRUPT from the state
+    // schema, which is the wrong error code: STATE_CORRUPT signals a
+    // corrupt state file at rest, not a malformed input. R-1 (#1313)
+    // demands an explicit INVALID_INPUT at the handler boundary so the
+    // caller's auto-correction loop has a single, unambiguous signal.
+
+    // Cast through unknown to bypass TS — the runtime guard is the
+    // contract under test.
+    const result = await handleInit(
+      { featureId: 'feat-no-type' } as unknown as Parameters<typeof handleInit>[0],
+      tmpDir,
+      eventStore,
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('INVALID_INPUT');
+  });
 });
