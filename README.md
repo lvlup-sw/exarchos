@@ -1,5 +1,6 @@
 <div align="center">
   <img src="exarchos-logo.svg" alt="Exarchos" width="280" />
+  
   **Your agents forget. Exarchos doesn't.**<br>
   Persistent SDLC state for any AI coding agent. Survives `/clear`, auto-compaction, and context overflow.<br>
   First-class with Claude Code, Codex, Cursor, OpenCode, Copilot; works with any agent that can run a CLI.
