@@ -493,16 +493,24 @@ describe('TOOL_REGISTRY', () => {
   });
 
   describe('exarchos_workflow', () => {
-    it('should have 9 actions: init, get, transition, cancel, cleanup, reconcile, rehydrate, checkpoint, describe', () => {
+    it('should have 10 actions: init, get, transition, update, cancel, cleanup, reconcile, rehydrate, checkpoint, describe', () => {
       // T5a.1/DR-4 (#1259, v2.11): `set` action removed (hard-cut from the
       // v2.10 one-release deprecation rerouting surface). Callers receive a
       // structured `UNKNOWN_ACTION` error with `validActions: ['transition',
-      // ...]` instructing them to migrate to the canonical `transition`
-      // action.
+      // 'update', ...]` instructing them to migrate to the canonical
+      // surfaces — `transition` for phase changes, `update` for non-phase
+      // state mutation.
+      //
+      // Wave 0 (#1340, v2.10.0-preview.2): `update` restored as the
+      // canonical state-mutation surface. The v2.11 substrate cut removed
+      // `set` without a replacement; the runbook's "emit state.patched
+      // directly via event.append" guidance bypassed input validation,
+      // output enveloping, idempotency, and `next_actions`. `update`
+      // closes that gap.
       const composite = findComposite('exarchos_workflow');
       expect(composite).toBeDefined();
       const actionNames = composite!.actions.map((a) => a.name);
-      expect(actionNames).toEqual(['init', 'get', 'transition', 'cancel', 'cleanup', 'reconcile', 'rehydrate', 'checkpoint', 'describe']);
+      expect(actionNames).toEqual(['init', 'get', 'transition', 'update', 'cancel', 'cleanup', 'reconcile', 'rehydrate', 'checkpoint', 'describe']);
     });
   });
 

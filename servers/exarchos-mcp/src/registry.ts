@@ -618,6 +618,49 @@ const workflowActions: readonly ToolAction[] = [
     outputSchema: WorkflowTransitionOutputSchema,
   },
   {
+    // Wave 0 (#1340, v2.10.0-preview.2): canonical state-mutation surface.
+    // Replaces the deprecated v2.10 `set({updates})` rerouting path that
+    // was removed alongside `set({phase})` in v2.11. Phase mutation lives
+    // on `transition`; non-phase fields (artifacts, planReview, task
+    // results, etc.) flow through this action so callers see a single
+    // validated, output-enveloped surface instead of being told to emit
+    // `state.patched` directly via `event.append` (which bypasses input
+    // validation, output enveloping, idempotency, and `next_actions`).
+    //
+    // Handler delegates to the existing internal `workflow.update()`
+    // helper (`handleSet` with `updates` only, no `phase`). The phase
+    // field is rejected at the input boundary with a structured
+    // `INVALID_INPUT` + `suggestedFix` pointing callers at `transition`
+    // (Task 0.2). `updates` is `Record<string, unknown>` so dot-paths
+    // (`'artifacts.design'`) and nested objects both resolve through
+    // `applyDotPath` in `handleSet`.
+    name: 'update',
+    description: 'Mutate non-phase workflow state fields (artifacts, planReview, task results, etc.). Canonical state-mutation surface. Emits exactly one state.patched event on success. For phase changes use action: transition.',
+    schema: z.object({
+      featureId: featureIdSchema,
+      updates: z.record(z.string(), z.unknown()),
+    }),
+    // Wave 0 judgment call: the plan literally specified `new Set<string>()`
+    // (no phases) but the registry has an existing invariant — enforced by
+    // `registry.test.ts:should have non-empty phases for every action except
+    // init` — that every non-init action declares at least one phase. Using
+    // `ALL_PHASES` honors both the plan's intent (phase-agnostic mutation
+    // surface, parallel to `transition`) and the existing invariant. The
+    // semantically equivalent alternative would be to widen the test's
+    // exception list, but adding `update` to the empty-phase exception
+    // bucket would couple a foundational action to an `init`-only escape
+    // hatch — fragile against future audits.
+    phases: ALL_PHASES,
+    roles: ROLE_LEAD,
+    cli: {
+      flags: { featureId: { alias: 'f' } },
+      examples: ['exarchos wf update -f my-feature --updates \'{"artifacts":{"design":"docs/designs/foo.md"}}\''],
+    },
+    autoEmits: [
+      { event: 'state.patched', condition: 'always' },
+    ],
+  },
+  {
     name: 'cancel',
     description: 'Cancel a workflow with saga compensation. Auto-emits workflow.cancel and compensation events',
     schema: z.object({

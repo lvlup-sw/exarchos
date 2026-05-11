@@ -1,4 +1,4 @@
-import { handleInit, handleGet, handleTransition, handleReconcileState, handleCheckpoint } from './tools.js';
+import { handleInit, handleGet, handleTransition, handleReconcileState, handleCheckpoint, handleSet } from './tools.js';
 import { handleCancel } from './cancel.js';
 import { handleCleanup } from './cleanup.js';
 import { handleRehydrate } from './rehydrate.js';
@@ -111,6 +111,29 @@ export async function handleWorkflow(
           Object.keys(transitionOptions).length > 0
             ? transitionOptions as Parameters<typeof handleTransition>[3]
             : undefined,
+        ),
+        startedAt,
+      );
+    }
+    case 'update': {
+      // Wave 0 (#1340, v2.10.0-preview.2): canonical state-mutation
+      // surface for non-phase fields. Delegates to the existing internal
+      // `handleSet` helper with `updates` only (`phase` deliberately
+      // omitted) so the same event-first / CAS / per-stream-lock
+      // machinery serves both the legacy `set` callers (now removed)
+      // and the canonical `update` action.
+      //
+      // Phase mutation is rejected at the input boundary by the handler
+      // with a structured INVALID_INPUT + suggestedFix → action:
+      // 'transition' (Task 0.2). Keeping that guard inside the handler
+      // (rather than here in the composite) keeps the contract local to
+      // the function callers reach for in tests and CLI dispatch.
+      const updates = rest as { featureId: string; updates: Record<string, unknown> };
+      return envelopeWrap(
+        await handleSet(
+          { featureId: updates.featureId, updates: updates.updates },
+          stateDir,
+          eventStore,
         ),
         startedAt,
       );
