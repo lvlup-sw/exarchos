@@ -677,6 +677,50 @@ export class AtomicAppender {
   }
 
   /**
+   * R-2 primitive: read-only fold of a stream's events through a
+   * registered reducer (Wave 3 Task 3.11). Marten's
+   * `AggregateStreamAsync` analog.
+   *
+   * Returns the folded `aggregate` + the tail `version` at read time.
+   * No write path, no OCC enforcement on a future commit — pure
+   * observation. Callers that need read-then-decide-then-write must
+   * route through `decide` or `withSession`.
+   *
+   * Scope validation: throws {@link InvalidReducerScopeError} when
+   * `reducer.scope !== 'stream'` (Task 3.12). Global-scoped reducers
+   * belong to `readProjection` (DR-1 / Wave 2A).
+   *
+   * **Snapshot stability discipline (audit §F2.3):**
+   * Today's implementation is a single SELECT through
+   * `backend.queryEvents(streamId)`. SQLite's WAL gives that one read
+   * a consistent point-in-time snapshot via the read-txn's end-mark.
+   *
+   * If aggregateStream EVER grows a SECOND read inside its body
+   * (e.g. a snapshot-row lookup, a sibling-aggregate join), those two
+   * reads MUST be wrapped in `db.transaction(fn)` so they share one
+   * snapshot — otherwise two implicit transactions could observe
+   * different end-marks with a writer's commit between them, and the
+   * fold would mix snapshot-T state with snapshot-T+1 events. This is
+   * a forward-discipline note for v2.11+; Wave 3 ships single-SELECT.
+   */
+  async aggregateStream<TState>(
+    streamId: string,
+    reducerId: string,
+    opts?: Pick<DecideOptions, 'registry'>,
+  ): Promise<{ aggregate: TState; version: number }> {
+    const reducer = this.resolveStreamReducer(reducerId, opts?.registry);
+    const backend = await this.ensureSqliteBackend();
+    const events = backend.queryEvents(streamId);
+    let state: unknown = reducer.initial;
+    for (const ev of events) {
+      state = (reducer as ProjectionReducer<unknown, unknown>).apply(state, ev);
+    }
+    const tailVersion =
+      events.length === 0 ? 0 : (events[events.length - 1].sequence as number);
+    return { aggregate: state as TState, version: tailVersion };
+  }
+
+  /**
    * Translate a substrate {@link AppendResult} into the typed Wave-3
    * primitive shape — failure variants surface as thrown typed errors
    * (`ConcurrencyError`, `StorageBusyError`), success variants are
