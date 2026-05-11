@@ -16,6 +16,8 @@
 // closure that ends in a `writeStateFile` call.
 
 import { VersionConflictError } from './state-store.js';
+import { ConcurrencyError } from '../event-store/concurrency-error.js';
+import { StorageBusyError } from '../event-store/storage-busy-error.js';
 
 /** Maximum number of attempts (initial + retries) before bubbling out. */
 export const MAX_STATE_RETRIES = 3;
@@ -24,19 +26,48 @@ export const MAX_STATE_RETRIES = 3;
 export const STATE_BASE_DELAY_MS = 50;
 
 /**
- * Retry `fn` on `VersionConflictError` up to `MAX_STATE_RETRIES` times with
- * exponential backoff + jitter. Other errors propagate immediately.
+ * Predicate: should `withStateRetry` treat `err` as a retryable transient
+ * signal? Wave 4 / Task 4.1 (audit §F2.1) widens the recognizer beyond the
+ * legacy `VersionConflictError` (state-store CAS) to also accept the R-2
+ * primitive layer's typed errors:
  *
- * After exhaustion the underlying `VersionConflictError` is re-thrown so
- * top-level handlers can map it to a structured `STATE_CONFLICT`
- * `ToolResult` (rather than a raw exception).
+ *   - `ConcurrencyError` — OCC loss on the event-stream tail. Caller must
+ *     re-fetch state and re-decide; the retry loop handles that because the
+ *     wrapped closure routes through `decide`/`withSession` which read+fold
+ *     on every invocation.
+ *   - `StorageBusyError` — substrate `BEGIN IMMEDIATE` retry budget
+ *     exhausted. The other writer commits on its own; the same closure
+ *     succeeds on the next attempt.
+ *
+ * Without this widening, a `decide`-based migration target (merge-orchestrate,
+ * execute-merge) would surface a transient substrate or OCC signal as a
+ * terminal failure to the operator. Three classes, one retry policy — the
+ * recovery posture (back off, re-decide) is identical.
+ */
+function isRetryable(err: unknown): boolean {
+  return (
+    err instanceof VersionConflictError ||
+    err instanceof ConcurrencyError ||
+    err instanceof StorageBusyError
+  );
+}
+
+/**
+ * Retry `fn` on any retryable transient signal up to `MAX_STATE_RETRIES`
+ * times with exponential backoff + jitter. Other errors propagate
+ * immediately.
+ *
+ * After exhaustion the underlying error (whichever retryable class
+ * triggered the loop) is re-thrown so top-level handlers can map it to a
+ * structured `ToolResult` (`STATE_CONFLICT`, `CONCURRENCY_CONFLICT`, or
+ * `STORAGE_BUSY` per `format.ts:wrapError`) rather than a raw exception.
  */
 export async function withStateRetry<T>(fn: () => Promise<T>): Promise<T> {
   for (let attempt = 0; attempt < MAX_STATE_RETRIES; attempt++) {
     try {
       return await fn();
     } catch (err) {
-      if (!(err instanceof VersionConflictError)) throw err;
+      if (!isRetryable(err)) throw err;
       if (attempt === MAX_STATE_RETRIES - 1) throw err;
       const delay =
         STATE_BASE_DELAY_MS * Math.pow(2, attempt) +
