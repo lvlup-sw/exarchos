@@ -559,6 +559,33 @@ export const WorkflowTransitionOutputSchema = z.object({
   _perf: z.unknown().optional(),
 }).passthrough();
 
+/**
+ * `outputSchema` for `exarchos_workflow.update` (Wave 0, #1340 prep for
+ * #1266). Mirrors `WorkflowTransitionOutputSchema` shape EXCEPT the
+ * `_meta.deprecation` slot: `update` is a canonical surface restored in
+ * v2.10.0-preview.2 and is not on a deprecation track, so the envelope
+ * does not advertise the migration sub-shape.
+ *
+ * Keeping `_meta` as a `passthrough` object with no required keys means
+ * the rich `buildCheckpointMeta` payload (`checkpointAdvised`,
+ * `operationsSinceCheckpoint`, etc.) flows through unchanged — the
+ * schema only freezes the envelope contract, not the inner state-derived
+ * meta fields. Same trade-off as the transition schema.
+ *
+ * `data` is `unknown` on the success branch so `handleSet`'s rich
+ * payloads (`phase`, `updatedAt`, future fields) continue to validate
+ * without freezing the wire format.
+ */
+export const WorkflowUpdateOutputSchema = z.object({
+  success: z.boolean(),
+  data: z.unknown().optional(),
+  error: z.unknown().optional(),
+  warnings: z.array(z.string()).optional(),
+  next_actions: z.array(z.unknown()).optional(),
+  _meta: z.object({}).passthrough().optional(),
+  _perf: z.unknown().optional(),
+}).passthrough();
+
 // ─── Composite Tool: exarchos_workflow ───────────────────────────────────────
 
 const workflowActions: readonly ToolAction[] = [
@@ -659,6 +686,15 @@ const workflowActions: readonly ToolAction[] = [
     autoEmits: [
       { event: 'state.patched', condition: 'always' },
     ],
+    // Wave 0 (#1340) — register WorkflowUpdateOutputSchema for envelope-
+    // version discipline (#1266 prep). The schema mirrors the transition
+    // surface's contract minus the `_meta.deprecation` slot (`update` is
+    // not on a deprecation track) so a future contract-introspection
+    // consumer can decode both surfaces with the same envelope shape.
+    // `describe/handler.ts` exposes the schema via `outputSchema` in
+    // action descriptions; callers reach it through
+    // `exarchos_workflow.describe({actions: ['update']})`.
+    outputSchema: WorkflowUpdateOutputSchema,
   },
   {
     name: 'cancel',
