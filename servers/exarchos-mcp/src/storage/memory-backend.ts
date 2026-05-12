@@ -337,13 +337,24 @@ export class InMemoryBackend implements StorageBackend {
   appendProjectionSnapshot(
     streamId: string,
     record: SnapshotRecord,
-    opts?: { maxRecords?: number },
+    opts?: {
+      maxRecords?: number;
+      onPrune?: (prunedCount: number) => void;
+    },
   ): void {
     const key = `${streamId}:${record.projectionId}:${record.projectionVersion}`;
     let records = this.projectionSnapshots.get(key);
     if (!records) {
       records = [];
       this.projectionSnapshots.set(key, records);
+    }
+
+    // Idempotent append: a snapshot at a given sequence is deterministic
+    // from the events fold, so a re-write at the same `(coordinate,
+    // sequence)` is a no-op rather than a duplicate (matches SqliteBackend's
+    // INSERT OR IGNORE semantics).
+    if (records.some((existing) => existing.sequence === record.sequence)) {
+      return;
     }
 
     records.push(record);
@@ -357,7 +368,9 @@ export class InMemoryBackend implements StorageBackend {
     if (records.length > max) {
       // Sort by sequence ascending, remove the excess oldest records.
       records.sort((a, b) => a.sequence - b.sequence);
-      records.splice(0, records.length - max);
+      const prunedCount = records.length - max;
+      records.splice(0, prunedCount);
+      opts?.onPrune?.(prunedCount);
     }
   }
 

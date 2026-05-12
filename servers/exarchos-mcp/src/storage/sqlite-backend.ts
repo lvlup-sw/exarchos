@@ -1247,7 +1247,10 @@ export class SqliteBackend implements StorageBackend {
   appendProjectionSnapshot(
     streamId: string,
     record: SnapshotRecord,
-    opts?: { maxRecords?: number },
+    opts?: {
+      maxRecords?: number;
+      onPrune?: (prunedCount: number) => void;
+    },
   ): void {
     const payload = JSON.stringify(record);
     const createdAt = new Date().toISOString();
@@ -1257,11 +1260,19 @@ export class SqliteBackend implements StorageBackend {
         ? opts.maxRecords
         : resolveMaxRecords();
 
+    let prunedCount = 0;
+
     const txn = this.db.transaction(() => {
-      // INSERT the new snapshot row.
+      // INSERT OR IGNORE — snapshot writes are idempotent by definition:
+      // the SnapshotRecord at sequence N for a given projection version is
+      // a deterministic fold of the same events, so a retry of an
+      // already-committed write at the same coordinate is a no-op rather
+      // than an error. The PRIMARY KEY (stream_id, projection_id,
+      // projection_version, sequence) handles dedup; OR IGNORE preserves
+      // the original row over any post-hoc re-write.
       this.db
         .prepare(
-          `INSERT INTO projection_snapshots
+          `INSERT OR IGNORE INTO projection_snapshots
              (stream_id, projection_id, projection_version, sequence, payload, created_at)
            VALUES (?, ?, ?, ?, ?, ?)`,
         )
@@ -1296,10 +1307,15 @@ export class SqliteBackend implements StorageBackend {
              )`,
           )
           .run(streamId, record.projectionId, record.projectionVersion, excess);
+        prunedCount = excess;
       }
     });
 
     txn();
+
+    if (prunedCount > 0) {
+      opts?.onPrune?.(prunedCount);
+    }
   }
 
   // ─── State Operations ───────────────────────────────────────────────────

@@ -1456,7 +1456,7 @@ export async function handleCheckpoint(
     const byteSize = Buffer.byteLength(`${serialized}\n`, 'utf8');
 
     try {
-      appendSnapshot(stateDir, input.featureId, snapshotRecord);
+      appendSnapshot(eventStore.getReadBackend(), input.featureId, snapshotRecord);
     } catch (err) {
       return {
         success: false,

@@ -214,9 +214,19 @@ describe('handleCheckpoint — materializes rehydration projection (T034, DR-6)'
 
     // THEN (2): a projection snapshot sidecar exists at the expected path and
     //   contains a SnapshotRecord for `rehydration@v1`.
-    const sidecarPath = path.join(stateDir, `${featureId}.projections.jsonl`);
-    const sidecarRaw = await readFile(sidecarPath, 'utf8');
-    const lines = sidecarRaw.split('\n').filter((l) => l.length > 0);
+    // Post-#1343: snapshot lives in the SQLite substrate's
+    // `projection_snapshots` table — no JSONL sidecar to read. The
+    // `lines` adapter below preserves the surrounding assertions'
+    // shape (a single-record view of the latest snapshot) so the
+    // checkpoint contract checks remain unchanged.
+    const latestSnapshot = store.getReadBackend().readLatestProjectionSnapshot(
+      featureId,
+      'rehydration@v1',
+      '1',
+    );
+    const lines = latestSnapshot !== undefined
+      ? [JSON.stringify(latestSnapshot)]
+      : [];
     expect(lines.length).toBeGreaterThanOrEqual(1);
 
     const parsed = SnapshotRecord.parse(JSON.parse(lines[lines.length - 1]!));
@@ -304,9 +314,19 @@ describe('handleCheckpoint — materializes rehydration projection (T034, DR-6)'
 
     // The sidecar must exist with one record — even when no task.* events have
     // been seeded, `workflow.started` alone is a handled event.
-    const sidecarPath = path.join(stateDir, `${featureId}.projections.jsonl`);
-    const sidecarRaw = await readFile(sidecarPath, 'utf8');
-    const lines = sidecarRaw.split('\n').filter((l) => l.length > 0);
+    // Post-#1343: snapshot lives in the SQLite substrate's
+    // `projection_snapshots` table — no JSONL sidecar to read. The
+    // `lines` adapter below preserves the surrounding assertions'
+    // shape (a single-record view of the latest snapshot) so the
+    // checkpoint contract checks remain unchanged.
+    const latestSnapshot = store.getReadBackend().readLatestProjectionSnapshot(
+      featureId,
+      'rehydration@v1',
+      '1',
+    );
+    const lines = latestSnapshot !== undefined
+      ? [JSON.stringify(latestSnapshot)]
+      : [];
     expect(lines.length).toBe(1);
 
     const parsed = SnapshotRecord.parse(JSON.parse(lines[0]!));
@@ -393,9 +413,19 @@ describe('handleCheckpoint — materializes rehydration projection (T034, DR-6)'
 
     // Read the snapshot to confirm `sequence` matches the event-store
     // tip, NOT the projection's handled-event count.
-    const sidecarPath = path.join(stateDir, `${featureId}.projections.jsonl`);
-    const sidecarRaw = await readFile(sidecarPath, 'utf8');
-    const lines = sidecarRaw.split('\n').filter((l) => l.length > 0);
+    // Post-#1343: snapshot lives in the SQLite substrate's
+    // `projection_snapshots` table — no JSONL sidecar to read. The
+    // `lines` adapter below preserves the surrounding assertions'
+    // shape (a single-record view of the latest snapshot) so the
+    // checkpoint contract checks remain unchanged.
+    const latestSnapshot = store.getReadBackend().readLatestProjectionSnapshot(
+      featureId,
+      'rehydration@v1',
+      '1',
+    );
+    const lines = latestSnapshot !== undefined
+      ? [JSON.stringify(latestSnapshot)]
+      : [];
     const parsed = SnapshotRecord.parse(JSON.parse(lines[lines.length - 1]!));
     const doc = RehydrationDocumentSchema.parse(parsed.state) as RehydrationDocument;
 

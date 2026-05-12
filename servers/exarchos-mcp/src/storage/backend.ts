@@ -170,6 +170,15 @@ export interface StorageBackend {
   appendProjectionSnapshot(
     streamId: string,
     record: SnapshotRecord,
-    opts?: { maxRecords?: number },
+    opts?: {
+      maxRecords?: number;
+      /**
+       * Optional observability hook fired when the size cap binds and the
+       * backend evicts oldest rows. `prunedCount` is the exact number of
+       * rows deleted. Synchronous; runs inside the backend's append
+       * transaction (do not throw — log only).
+       */
+      onPrune?: (prunedCount: number) => void;
+    },
   ): void;
 }

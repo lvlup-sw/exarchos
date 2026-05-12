@@ -248,7 +248,7 @@ export class EventStore {
    * assertions without touching the disk. In production no caller sets
    * it.
    */
-  private getReadBackend(): StorageBackend {
+  getReadBackend(): StorageBackend {
     if (this.backend) return this.backend;
     return this.getAppender().ensureSqliteBackendSync();
   }
