@@ -1016,3 +1016,221 @@ describe('SqliteBackend Startup Corruption (T10)', () => {
     expect(surviving.equals(garbage)).toBe(true);
   });
 });
+
+// ─── A2.2: readLatestProjectionSnapshot (Wave A, #1343) ─────────────────────
+//
+// Verifies that SqliteBackend.readLatestProjectionSnapshot selects the row
+// with the highest sequence for a given (streamId, projectionId,
+// projectionVersion) coordinate and returns undefined when no rows match.
+
+describe('SqliteBackend Projection Snapshot — Read (A2.2)', () => {
+  let backend: SqliteBackend;
+
+  beforeEach(() => {
+    backend = new SqliteBackend(':memory:');
+    backend.initialize();
+  });
+
+  afterEach(() => {
+    backend.close();
+  });
+
+  it('SqliteBackend_ReadLatestProjectionSnapshot_ReturnsHighestSequenceMatchingRecord', () => {
+    const streamId = 'feat-snap-read';
+    const projectionId = 'task-store';
+    const projectionVersion = 'v1';
+
+    // Insert three snapshot rows for the same coordinate with sequences 1, 5, 3
+    // (deliberately out of order to confirm ORDER BY DESC LIMIT 1 is used).
+    const makeRecord = (sequence: number) => ({
+      projectionId,
+      projectionVersion,
+      sequence,
+      state: { count: sequence },
+      timestamp: new Date(2025, 0, 1, 0, 0, sequence).toISOString(),
+    });
+
+    backend.appendProjectionSnapshot(streamId, makeRecord(1));
+    backend.appendProjectionSnapshot(streamId, makeRecord(5));
+    backend.appendProjectionSnapshot(streamId, makeRecord(3));
+
+    // readLatestProjectionSnapshot must return the row with the highest sequence.
+    const latest = backend.readLatestProjectionSnapshot(
+      streamId,
+      projectionId,
+      projectionVersion,
+    );
+
+    expect(latest).toBeDefined();
+    expect(latest!.sequence).toBe(5);
+    expect(latest!.state).toEqual({ count: 5 });
+    expect(latest!.projectionId).toBe(projectionId);
+    expect(latest!.projectionVersion).toBe(projectionVersion);
+  });
+
+  it('SqliteBackend_ReadLatestProjectionSnapshot_ReturnsUndefinedWhenNoRowsMatch', () => {
+    // No rows inserted — must return undefined.
+    const result = backend.readLatestProjectionSnapshot(
+      'nonexistent-stream',
+      'nonexistent-projection',
+      'v0',
+    );
+
+    expect(result).toBeUndefined();
+  });
+
+  it('SqliteBackend_ReadLatestProjectionSnapshot_IsolatesCoordinates', () => {
+    const streamId = 'feat-isolate';
+    const projectionId = 'task-store';
+    const projectionVersion = 'v1';
+
+    const record = {
+      projectionId,
+      projectionVersion,
+      sequence: 10,
+      state: { x: true },
+      timestamp: new Date().toISOString(),
+    };
+    backend.appendProjectionSnapshot(streamId, record);
+
+    // Different streamId — must return undefined.
+    expect(
+      backend.readLatestProjectionSnapshot('other-stream', projectionId, projectionVersion),
+    ).toBeUndefined();
+
+    // Different projectionId — must return undefined.
+    expect(
+      backend.readLatestProjectionSnapshot(streamId, 'other-proj', projectionVersion),
+    ).toBeUndefined();
+
+    // Different projectionVersion — must return undefined.
+    expect(
+      backend.readLatestProjectionSnapshot(streamId, projectionId, 'v2'),
+    ).toBeUndefined();
+
+    // Exact coordinate — must return the record.
+    const found = backend.readLatestProjectionSnapshot(streamId, projectionId, projectionVersion);
+    expect(found).toBeDefined();
+    expect(found!.sequence).toBe(10);
+  });
+});
+
+// ─── A2.3: appendProjectionSnapshot with size cap (Wave A, #1343) ────────────
+//
+// Verifies that SqliteBackend.appendProjectionSnapshot persists records and
+// enforces a size cap by deleting the oldest rows (by sequence) when the
+// total count for a coordinate exceeds maxRecords.
+
+describe('SqliteBackend Projection Snapshot — Append + Size Cap (A2.3)', () => {
+  let backend: SqliteBackend;
+
+  beforeEach(() => {
+    backend = new SqliteBackend(':memory:');
+    backend.initialize();
+  });
+
+  afterEach(() => {
+    backend.close();
+  });
+
+  it('SqliteBackend_AppendProjectionSnapshot_PersistsRecord', () => {
+    const record = {
+      projectionId: 'task-store',
+      projectionVersion: 'v1',
+      sequence: 42,
+      state: { persisted: true },
+      timestamp: new Date().toISOString(),
+    };
+
+    backend.appendProjectionSnapshot('feat-persist', record);
+
+    const latest = backend.readLatestProjectionSnapshot('feat-persist', 'task-store', 'v1');
+    expect(latest).toBeDefined();
+    expect(latest!.sequence).toBe(42);
+    expect(latest!.state).toEqual({ persisted: true });
+    expect(latest!.projectionId).toBe('task-store');
+    expect(latest!.projectionVersion).toBe('v1');
+  });
+
+  it('SqliteBackend_AppendProjectionSnapshot_EnforcesSizeCapByDeletingOldest', () => {
+    const streamId = 'feat-cap';
+    const projectionId = 'task-store';
+    const projectionVersion = 'v1';
+    const maxRecords = 3;
+
+    // Insert maxRecords + 1 = 4 snapshots with sequences 1, 2, 3, 4.
+    // After the last append with the size cap, sequences 1 should be deleted,
+    // leaving sequences 2, 3, 4 (the most recent maxRecords=3 by sequence).
+    for (let seq = 1; seq <= maxRecords + 1; seq++) {
+      backend.appendProjectionSnapshot(
+        streamId,
+        {
+          projectionId,
+          projectionVersion,
+          sequence: seq,
+          state: { seq },
+          timestamp: new Date(2025, 0, seq).toISOString(),
+        },
+        { maxRecords },
+      );
+    }
+
+    // Verify row count == maxRecords by reading from the raw DB.
+    const db = (backend as unknown as { db: { prepare: (sql: string) => { all: (...args: unknown[]) => Array<{ sequence: number }> } } }).db;
+    const rows = db
+      .prepare(
+        `SELECT sequence FROM projection_snapshots
+         WHERE stream_id = ? AND projection_id = ? AND projection_version = ?
+         ORDER BY sequence ASC`,
+      )
+      .all(streamId, projectionId, projectionVersion);
+
+    expect(rows).toHaveLength(maxRecords);
+
+    // The oldest row (sequence=1) must have been deleted; remaining are 2, 3, 4.
+    const sequences = rows.map((r) => r.sequence);
+    expect(sequences).toEqual([2, 3, 4]);
+
+    // readLatestProjectionSnapshot still returns the highest (sequence=4).
+    const latest = backend.readLatestProjectionSnapshot(streamId, projectionId, projectionVersion);
+    expect(latest).toBeDefined();
+    expect(latest!.sequence).toBe(4);
+  });
+
+  it('SqliteBackend_AppendProjectionSnapshot_SizeCapDoesNotAffectOtherCoordinates', () => {
+    const streamId = 'feat-coord-isolation';
+    const maxRecords = 2;
+
+    // Insert 3 rows for coordinate A (will hit the cap on the 3rd).
+    for (let seq = 1; seq <= 3; seq++) {
+      backend.appendProjectionSnapshot(
+        streamId,
+        { projectionId: 'proj-a', projectionVersion: 'v1', sequence: seq, state: { seq }, timestamp: new Date().toISOString() },
+        { maxRecords },
+      );
+    }
+
+    // Insert 1 row for coordinate B (no cap triggered).
+    backend.appendProjectionSnapshot(
+      streamId,
+      { projectionId: 'proj-b', projectionVersion: 'v1', sequence: 100, state: { b: true }, timestamp: new Date().toISOString() },
+    );
+
+    // Coordinate A: cap applied — only 2 rows remain (sequences 2, 3).
+    const db = (backend as unknown as { db: { prepare: (sql: string) => { all: (...args: unknown[]) => Array<{ sequence: number }> } } }).db;
+    const rowsA = db
+      .prepare(
+        `SELECT sequence FROM projection_snapshots
+         WHERE stream_id = ? AND projection_id = ? AND projection_version = ?
+         ORDER BY sequence ASC`,
+      )
+      .all(streamId, 'proj-a', 'v1');
+    expect(rowsA).toHaveLength(2);
+    expect(rowsA.map((r) => r.sequence)).toEqual([2, 3]);
+
+    // Coordinate B: untouched.
+    const latestB = backend.readLatestProjectionSnapshot(streamId, 'proj-b', 'v1');
+    expect(latestB).toBeDefined();
+    expect(latestB!.sequence).toBe(100);
+  });
+});
