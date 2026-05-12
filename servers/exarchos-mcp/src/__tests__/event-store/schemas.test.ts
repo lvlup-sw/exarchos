@@ -407,7 +407,14 @@ describe('StackEnqueuedData', () => {
 describe('EventTypes', () => {
   it('EventTypes_CountMatchesRegisteredTypes', () => {
     // Locked to the current registered-type count. Bumped to 93 with the
-    // addition of merge.requested (Wave 2B.2 / #1304 — audit §F1.2 two-event
+    // Bumped from 93 → 103 with Wave B (#1342) 5×{requested,executed} two-event
+    // split schemas for non-idempotent VCS handlers (B1–B5):
+    //   pr.create.requested, pr.create.executed,
+    //   pr.comment.requested, pr.comment.executed,
+    //   issue.create.requested, issue.create.executed,
+    //   branch.delete.requested, branch.delete.executed,
+    //   worktree.remove.requested, worktree.remove.executed.
+    // Previous (93): merge.requested (Wave 2B.2 / #1304 — audit §F1.2 two-event
     // split: durable INTENT recorded before the non-idempotent GitHub merge
     // call). Previous (92) added migration.workflow_type_unknown (Wave 1,
     // R-1 Marten primitive #1313). Previous (91) added
@@ -421,7 +428,7 @@ describe('EventTypes', () => {
     // merge.preflight / merge.executed / merge.rollback (T03, DR-MO-2). When
     // new event types are added, bump this number alongside their registration
     // in `event-store/schemas.ts`.
-    expect(EventTypes).toHaveLength(93);
+    expect(EventTypes).toHaveLength(103);
   });
 
   it('should include workflow-level types', () => {
