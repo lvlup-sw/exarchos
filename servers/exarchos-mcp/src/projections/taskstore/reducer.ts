@@ -34,6 +34,8 @@ import type { ProjectionReducer } from '../types.js';
 import type { WorkflowEvent } from '../../event-store/schemas.js';
 import type { TaskRecord, TaskStoreState, TaskStatus } from './types.js';
 
+type TaskOverlay = { -readonly [K in keyof Omit<TaskRecord, 'taskId'>]?: TaskRecord[K] } & { status: TaskStatus };
+
 // ─── Initial state ──────────────────────────────────────────────────────────
 
 const initialTaskStoreState: TaskStoreState = {
@@ -110,7 +112,7 @@ function extractTddPhase(
 function upsertTask(
   state: TaskStoreState,
   taskId: string,
-  overlay: Omit<Partial<TaskRecord>, 'taskId'> & { status: TaskStatus },
+  overlay: TaskOverlay,
 ): TaskStoreState {
   const prior = state.tasks[taskId];
   const next: TaskRecord = {
@@ -132,7 +134,7 @@ function applyTaskAssigned(
 ): TaskStoreState {
   const taskId = extractTaskId(event.data);
   if (!taskId) return state;
-  const overlay: Omit<Partial<TaskRecord>, 'taskId'> & { status: TaskStatus } = {
+  const overlay: TaskOverlay = {
     status: 'assigned',
   };
   const title = extractString(event.data, 'title');
@@ -152,7 +154,7 @@ function applyTaskClaimed(
 ): TaskStoreState {
   const taskId = extractTaskId(event.data);
   if (!taskId) return state;
-  const overlay: Omit<Partial<TaskRecord>, 'taskId'> & { status: TaskStatus } = {
+  const overlay: TaskOverlay = {
     status: 'claimed',
   };
   const agentId = extractString(event.data, 'agentId');
@@ -168,7 +170,7 @@ function applyTaskProgressed(
 ): TaskStoreState {
   const taskId = extractTaskId(event.data);
   if (!taskId) return state;
-  const overlay: Omit<Partial<TaskRecord>, 'taskId'> & { status: TaskStatus } = {
+  const overlay: TaskOverlay = {
     status: 'in-progress',
   };
   const tddPhase = extractTddPhase(event.data);
@@ -184,7 +186,7 @@ function applyTaskCompleted(
 ): TaskStoreState {
   const taskId = extractTaskId(event.data);
   if (!taskId) return state;
-  const overlay: Omit<Partial<TaskRecord>, 'taskId'> & { status: TaskStatus } = {
+  const overlay: TaskOverlay = {
     status: 'completed',
   };
   const artifacts = extractStringArray(event.data, 'artifacts');
@@ -200,7 +202,7 @@ function applyTaskFailed(
 ): TaskStoreState {
   const taskId = extractTaskId(event.data);
   if (!taskId) return state;
-  const overlay: Omit<Partial<TaskRecord>, 'taskId'> & { status: TaskStatus } = {
+  const overlay: TaskOverlay = {
     status: 'failed',
   };
   const error = extractString(event.data, 'error');

@@ -129,7 +129,7 @@ export async function handleWorkflow(
       // anyone bypassing the composite still hits the guard.
       return envelopeWrap(
         await handleUpdate(
-          rest as Parameters<typeof handleUpdate>[0],
+          rest as unknown as Parameters<typeof handleUpdate>[0],
           stateDir,
           eventStore,
         ),
