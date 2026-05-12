@@ -193,6 +193,152 @@ describe('B4: delete-feature-branches two-event split', () => {
   });
 });
 
+// ─── Wave B / B5: cleanup-worktrees two-event split ─────────────────────────
+
+describe('B5: cleanup-worktrees two-event split', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    // Default: all git commands succeed
+    mockedExecFile.mockImplementation((_cmd: unknown, _args: unknown, _opts: unknown, cb?: unknown) => {
+      if (typeof _opts === 'function') {
+        (_opts as (err: null, stdout: string, stderr: string) => void)(null, '', '');
+      } else if (typeof cb === 'function') {
+        (cb as (err: null, stdout: string, stderr: string) => void)(null, '', '');
+      }
+      return undefined as never;
+    });
+  });
+
+  // B5.2 — Phase-A retry doesn't refire git worktree remove
+  it('CleanupWorktrees_PhaseARetry_DoesNotRefireGitWorktreeRemove', async () => {
+    // Simulate: eventStore.append throws ConcurrencyError on the FIRST
+    // worktree.remove.requested emit, then succeeds on retry. The withStateRetry
+    // wrapper retries, but git worktree remove must NOT be re-fired.
+    let requestedCallCount = 0;
+    const eventStore = makeMockEventStore((streamId, event) => {
+      const ev = event as { type?: string };
+      if (ev.type === 'worktree.remove.requested') {
+        requestedCallCount++;
+        if (requestedCallCount === 1) {
+          return Promise.reject(
+            new ConcurrencyError({
+              streamId: streamId as string,
+              expected: 0,
+              actual: 1,
+              operation: 'append',
+            }),
+          );
+        }
+      }
+      return Promise.resolve({ sequence: requestedCallCount, type: ev.type });
+    });
+
+    // Stub git worktree list to return the worktree (so it's "present" and would be removed)
+    mockedExecFile.mockImplementation((cmd: unknown, args: unknown, opts: unknown, cb?: unknown) => {
+      const callback = typeof opts === 'function' ? opts : cb;
+      const argList = args as string[];
+
+      if (argList?.includes('worktree') && argList?.includes('list')) {
+        // Return the worktree path as if it's registered
+        (callback as (err: null, stdout: string, stderr: string) => void)(
+          null,
+          '/tmp/wt-b5-test  abc1234 [feature/b5-test]\n',
+          '',
+        );
+        return undefined as never;
+      }
+      // Default: succeed
+      (callback as (err: null, stdout: string, stderr: string) => void)(null, '', '');
+      return undefined as never;
+    });
+
+    const state = makeState({
+      phase: 'delegate',
+      synthesis: { integrationBranch: null, mergeOrder: [], mergedBranches: [], prUrl: null, prFeedback: [] },
+      worktrees: {
+        't1': { branch: 'feature/b5-test', taskId: 't1', status: 'active', path: '/tmp/wt-b5-test' },
+      },
+      tasks: [],
+    });
+
+    await executeCompensation(state, 'delegate', makeEvents(1), 1, {
+      dryRun: false,
+      eventStore: eventStore as unknown as Parameters<typeof executeCompensation>[4]['eventStore'],
+      featureId: 'test-feature',
+    });
+
+    // git worktree remove must have been called AT MOST ONCE despite the retry
+    const worktreeRemoveCalls = mockedExecFile.mock.calls.filter((call) => {
+      const args = call[1] as string[] | undefined;
+      return args?.includes('worktree') && args?.includes('remove');
+    });
+    expect(worktreeRemoveCalls.length).toBeLessThanOrEqual(1);
+
+    // The requested emit was retried (called >1 time) but git remove was not re-fired
+    expect(requestedCallCount).toBeGreaterThan(1);
+  });
+
+  // B5.3 — Idempotent check: worktree already absent
+  it('CleanupWorktrees_WorktreeAlreadyAbsent_RecoversWithoutError', async () => {
+    // Seed: worktree.remove.requested already committed (simulating a prior interrupted run).
+    // Stub git worktree list to NOT include the worktree.
+    // Assert: git worktree remove NOT called; executed event emitted with removed = false.
+    const appendedEvents: Array<{ type: string; data: unknown }> = [];
+    const eventStore = makeMockEventStore((_streamId, event) => {
+      const ev = event as { type: string; data: unknown };
+      appendedEvents.push({ type: ev.type, data: ev.data });
+      return Promise.resolve({ sequence: appendedEvents.length, type: ev.type });
+    });
+
+    // Stub: git worktree list returns empty (worktree not registered)
+    mockedExecFile.mockImplementation((cmd: unknown, args: unknown, opts: unknown, cb?: unknown) => {
+      const callback = typeof opts === 'function' ? opts : cb;
+      const argList = args as string[];
+
+      if (argList?.includes('worktree') && argList?.includes('list')) {
+        // Worktree not in list — absent
+        (callback as (err: null, stdout: string, stderr: string) => void)(null, '', '');
+        return undefined as never;
+      }
+      (callback as (err: null, stdout: string, stderr: string) => void)(null, '', '');
+      return undefined as never;
+    });
+
+    const state = makeState({
+      phase: 'delegate',
+      synthesis: { integrationBranch: null, mergeOrder: [], mergedBranches: [], prUrl: null, prFeedback: [] },
+      worktrees: {
+        't1': { branch: 'feature/gone-wt', taskId: 't1', status: 'active', path: '/tmp/wt-already-gone' },
+      },
+      tasks: [],
+    });
+
+    const result = await executeCompensation(state, 'delegate', makeEvents(1), 1, {
+      dryRun: false,
+      eventStore: eventStore as unknown as Parameters<typeof executeCompensation>[4]['eventStore'],
+      featureId: 'test-feature',
+    });
+
+    // git worktree remove must NOT have been called
+    const worktreeRemoveCalls = mockedExecFile.mock.calls.filter((call) => {
+      const args = call[1] as string[] | undefined;
+      return args?.includes('worktree') && args?.includes('remove');
+    });
+    expect(worktreeRemoveCalls.length).toBe(0);
+
+    // worktree.remove.executed must be emitted with removed = false
+    const executedEvent = appendedEvents.find((e) => e.type === 'worktree.remove.executed');
+    expect(executedEvent).toBeDefined();
+    const data = executedEvent!.data as { removed: boolean };
+    expect(data.removed).toBe(false);
+
+    // Overall action should succeed (idempotent recovery is not a failure)
+    const cleanupAction = result.actions.find((a) => a.actionId === 'delegate:cleanup-worktrees');
+    expect(cleanupAction).toBeDefined();
+    expect(cleanupAction!.status).toBe('executed');
+  });
+});
+
 // ─── T-16: Compensation action error handling ───────────────────────────────
 
 describe('Compensation action error handling (close-pr)', () => {
