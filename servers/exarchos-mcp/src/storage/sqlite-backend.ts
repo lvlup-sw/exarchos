@@ -6,6 +6,8 @@ import type { WorkflowState } from '../workflow/types.js';
 import type { QueryFilters } from '../event-store/store.js';
 import type { StorageBackend, EventSender, ViewCacheEntry, DrainResult } from './backend.js';
 import { VersionConflictError } from './memory-backend.js';
+import type { SnapshotRecord } from '../projections/snapshot-schema.js';
+import { resolveMaxRecords } from '../projections/store.js';
 
 // ─── AtomicAppender wire types (#1259, T06/T07) ─────────────────────────────
 //
@@ -1201,6 +1203,103 @@ export class SqliteBackend implements StorageBackend {
          VALUES (?, ?, ?)`,
       )
       .run(streamId, workflowType, new Date().toISOString());
+  }
+
+  // ─── Projection Snapshot Accessors (Wave A, #1343) ──────────────────────
+
+  /**
+   * Return the snapshot record with the highest sequence for the given
+   * (streamId, projectionId, projectionVersion) coordinate, or `undefined`
+   * when no row exists.
+   *
+   * Uses the `idx_projection_snapshots_latest` index
+   * (stream_id, projection_id, projection_version, sequence DESC) so the
+   * LIMIT 1 fast path never triggers a full table scan.
+   */
+  readLatestProjectionSnapshot(
+    streamId: string,
+    projectionId: string,
+    projectionVersion: string,
+  ): SnapshotRecord | undefined {
+    const row = this.db
+      .prepare(
+        `SELECT payload FROM projection_snapshots
+         WHERE stream_id = ? AND projection_id = ? AND projection_version = ?
+         ORDER BY sequence DESC
+         LIMIT 1`,
+      )
+      .get(streamId, projectionId, projectionVersion) as { payload: string } | undefined;
+
+    if (!row) return undefined;
+    return JSON.parse(row.payload) as SnapshotRecord;
+  }
+
+  /**
+   * Append a snapshot record for the given stream. When the total row count
+   * for the (streamId, projectionId, projectionVersion) coordinate exceeds
+   * `opts.maxRecords` (defaulting to `resolveMaxRecords()`), the oldest rows
+   * by sequence are deleted so exactly `maxRecords` rows remain.
+   *
+   * DELETE uses a subquery that selects the N oldest `rowid`s, where N is the
+   * excess count. This is a single SQL round-trip and avoids a separate
+   * SELECT + loop.
+   */
+  appendProjectionSnapshot(
+    streamId: string,
+    record: SnapshotRecord,
+    opts?: { maxRecords?: number },
+  ): void {
+    const payload = JSON.stringify(record);
+    const createdAt = new Date().toISOString();
+
+    const max =
+      opts?.maxRecords !== undefined && Number.isInteger(opts.maxRecords) && opts.maxRecords > 0
+        ? opts.maxRecords
+        : resolveMaxRecords();
+
+    const txn = this.db.transaction(() => {
+      // INSERT the new snapshot row.
+      this.db
+        .prepare(
+          `INSERT INTO projection_snapshots
+             (stream_id, projection_id, projection_version, sequence, payload, created_at)
+           VALUES (?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          streamId,
+          record.projectionId,
+          record.projectionVersion,
+          record.sequence,
+          payload,
+          createdAt,
+        );
+
+      // Count the total rows for this coordinate.
+      const countRow = this.db
+        .prepare(
+          `SELECT COUNT(*) AS cnt FROM projection_snapshots
+           WHERE stream_id = ? AND projection_id = ? AND projection_version = ?`,
+        )
+        .get(streamId, record.projectionId, record.projectionVersion) as { cnt: number };
+
+      const excess = countRow.cnt - max;
+      if (excess > 0) {
+        // Delete the `excess` oldest rows (lowest sequence) for this coordinate.
+        this.db
+          .prepare(
+            `DELETE FROM projection_snapshots
+             WHERE rowid IN (
+               SELECT rowid FROM projection_snapshots
+               WHERE stream_id = ? AND projection_id = ? AND projection_version = ?
+               ORDER BY sequence ASC
+               LIMIT ?
+             )`,
+          )
+          .run(streamId, record.projectionId, record.projectionVersion, excess);
+      }
+    });
+
+    txn();
   }
 
   // ─── State Operations ───────────────────────────────────────────────────
