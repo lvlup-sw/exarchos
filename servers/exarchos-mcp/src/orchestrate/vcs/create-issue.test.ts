@@ -54,11 +54,15 @@ describe('handleCreateIssue', () => {
 
     await handleCreateIssue(args, ctx);
 
+    // The body now includes the operationId marker embedded for idempotency.
     expect(mockProvider.createIssue).toHaveBeenCalledWith({
       title: 'Bug: crash on load',
-      body: 'Steps to reproduce...',
+      body: expect.stringContaining('Steps to reproduce...'),
       labels: undefined,
     });
+    // Verify the marker is embedded in the body.
+    const call = vi.mocked(mockProvider.createIssue).mock.calls[0][0];
+    expect(call.body).toMatch(/<!-- exarchos-op:[0-9a-f-]{36} -->/);
   });
 
   it('handleCreateIssue_Success_ReturnsSuccessWithData', async () => {
@@ -77,24 +81,39 @@ describe('handleCreateIssue', () => {
 
     expect(mockProvider.createIssue).toHaveBeenCalledWith({
       title: 'Bug',
-      body: 'Details',
+      // Body includes the operationId marker appended after original content.
+      body: expect.stringContaining('Details'),
       labels: ['bug', 'priority-high'],
     });
   });
 
-  it('handleCreateIssue_Success_EmitsIssueCreatedEvent', async () => {
+  it('handleCreateIssue_Success_EmitsTwoEventSequence', async () => {
     const args = { title: 'Bug', body: 'Details' };
 
     await handleCreateIssue(args, ctx);
 
-    expect(ctx.eventStore.append).toHaveBeenCalledWith('vcs', {
-      type: 'issue.created',
-      data: {
-        provider: 'github',
-        issueNumber: 123,
-        url: 'https://github.com/repo/issues/123',
-      },
+    // Two-event split: Phase A emits issue.create.requested, Phase C emits
+    // issue.create.executed. Both use the same operationId.
+    const appendCalls = vi.mocked(ctx.eventStore.append).mock.calls;
+    expect(appendCalls.length).toBe(2);
+
+    // Phase A — durable intent.
+    expect(appendCalls[0][0]).toBe('vcs');
+    expect(appendCalls[0][1]).toMatchObject({
+      type: 'issue.create.requested',
+      data: { title: 'Bug' },
     });
+
+    // Phase C — execution record.
+    const executedCall = appendCalls[1][1] as { type: string; data: { operationId: string; issueNumber: number; url: string } };
+    expect(appendCalls[1][0]).toBe('vcs');
+    expect(executedCall.type).toBe('issue.create.executed');
+    expect(executedCall.data.issueNumber).toBe(123);
+    expect(executedCall.data.url).toBe('https://github.com/repo/issues/123');
+
+    // Both events share the same operationId.
+    const requestedData = appendCalls[0][1] as { data: { operationId: string } };
+    expect(executedCall.data.operationId).toBe(requestedData.data.operationId);
   });
 
   it('handleCreateIssue_ProviderError_ReturnsFailure', async () => {
