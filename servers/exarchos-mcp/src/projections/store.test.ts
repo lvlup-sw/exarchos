@@ -10,6 +10,7 @@ import { createRegistry } from './registry.js';
 import type { ProjectionReducer } from './types.js';
 import type { WorkflowEvent } from '../event-store/schemas.js';
 import { EventStore } from '../event-store/store.js';
+import { InMemoryBackend } from '../storage/memory-backend.js';
 
 /**
  * DR-2 (§5.2 Snapshot storage and invalidation) — JSONL sidecar reader.
@@ -383,6 +384,167 @@ describe('projection snapshot store — streamId path-traversal guard', () => {
       );
     });
   }
+});
+
+// ─── A3.1 — readLatestSnapshot delegates to StorageBackend, no fs.readFileSync ──
+
+/**
+ * ProjectionsStore_ReadLatestSnapshot_ReturnsHighestSequenceMatching
+ *
+ * Verifies that readLatestSnapshot reads through the injected StorageBackend
+ * rather than hitting the filesystem directly. The fs.readFileSync spy must
+ * NOT be called for a projections sidecar path during this operation.
+ */
+describe('projection snapshot store — StorageBackend delegation (A3.1)', () => {
+  it('ProjectionsStore_ReadLatestSnapshot_ReturnsHighestSequenceMatching', () => {
+    const backend = new InMemoryBackend();
+    const streamId = 'wf-backend-read';
+    const older: SnapshotRecord = {
+      projectionId: 'rehydration',
+      projectionVersion: 'v1',
+      sequence: 10,
+      state: { phase: 'red' },
+      timestamp: '2026-04-24T10:00:00.000Z',
+    };
+    const newer: SnapshotRecord = {
+      projectionId: 'rehydration',
+      projectionVersion: 'v1',
+      sequence: 42,
+      state: { phase: 'green' },
+      timestamp: '2026-04-24T12:00:00.000Z',
+    };
+
+    // Seed directly into the backend (not the filesystem).
+    backend.appendProjectionSnapshot(streamId, older);
+    backend.appendProjectionSnapshot(streamId, newer);
+
+    // Spy on fs.readFileSync to assert no filesystem read occurs.
+    const readFileSyncSpy = vi.spyOn(fs, 'readFileSync');
+
+    const got = readLatestSnapshot(backend, streamId, 'rehydration', 'v1');
+
+    // readFileSync must NOT have been called for a projections sidecar path.
+    const sidecarCalls = readFileSyncSpy.mock.calls.filter((args) => {
+      const p = args[0];
+      return typeof p === 'string' && p.includes('.projections.jsonl');
+    });
+    expect(sidecarCalls).toHaveLength(0);
+
+    readFileSyncSpy.mockRestore();
+
+    expect(got).toBeDefined();
+    expect(got?.sequence).toBe(42);
+    expect(got?.state).toEqual({ phase: 'green' });
+  });
+
+  it('ProjectionsStore_ReadLatestSnapshot_ReturnsUndefined_WhenNoRecords', () => {
+    const backend = new InMemoryBackend();
+    const got = readLatestSnapshot(backend, 'no-such-stream', 'rehydration', 'v1');
+    expect(got).toBeUndefined();
+  });
+
+  it('ProjectionsStore_ReadLatestSnapshot_SkipsVersionMismatch', () => {
+    const backend = new InMemoryBackend();
+    const streamId = 'wf-version-mismatch';
+    backend.appendProjectionSnapshot(streamId, {
+      projectionId: 'rehydration',
+      projectionVersion: 'v0',
+      sequence: 99,
+      state: { phase: 'ancient' },
+      timestamp: '2026-04-24T09:00:00.000Z',
+    });
+    backend.appendProjectionSnapshot(streamId, {
+      projectionId: 'rehydration',
+      projectionVersion: 'v1',
+      sequence: 7,
+      state: { phase: 'current' },
+      timestamp: '2026-04-24T11:00:00.000Z',
+    });
+    const got = readLatestSnapshot(backend, streamId, 'rehydration', 'v1');
+    expect(got?.projectionVersion).toBe('v1');
+    expect(got?.sequence).toBe(7);
+  });
+
+  it('ProjectionsStore_ReadLatestSnapshot_StillRejectsUnsafeStreamId', () => {
+    const backend = new InMemoryBackend();
+    expect(() =>
+      readLatestSnapshot(backend, '../escape', 'rehydration', 'v1'),
+    ).toThrow(/Invalid streamId/);
+  });
+});
+
+// ─── A3.2 — appendSnapshot delegates to StorageBackend, no .projections.jsonl file ──
+
+/**
+ * ProjectionsStore_AppendSnapshot_AppendsRecordAndEnforcesSizeCap
+ *
+ * Verifies that appendSnapshot writes through the injected StorageBackend
+ * rather than creating .projections.jsonl files on disk.
+ */
+describe('projection snapshot store — appendSnapshot backend delegation (A3.2)', () => {
+  let stateDir: string;
+
+  beforeEach(() => {
+    stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'exarchos-a32-'));
+  });
+
+  afterEach(() => {
+    fs.rmSync(stateDir, { recursive: true, force: true });
+  });
+
+  it('ProjectionsStore_AppendSnapshot_AppendsRecordAndEnforcesSizeCap', () => {
+    const backend = new InMemoryBackend();
+    const streamId = 'wf-backend-write';
+    const warnSpy = vi.spyOn(storeLogger, 'warn').mockImplementation(() => undefined as never);
+
+    try {
+      const cap = 3;
+      for (let i = 1; i <= cap + 2; i++) {
+        appendSnapshot(backend, streamId, {
+          projectionId: 'rehydration',
+          projectionVersion: 'v1',
+          sequence: i,
+          state: { seq: i },
+          timestamp: '2026-04-24T00:00:00.000Z',
+        }, { maxRecords: cap });
+      }
+
+      // The backend should have the record with the highest sequence.
+      const latest = backend.readLatestProjectionSnapshot(streamId, 'rehydration', 'v1');
+      expect(latest).toBeDefined();
+      expect(latest?.sequence).toBe(cap + 2);
+
+      // Assert: no .projections.jsonl file created in stateDir.
+      const files = fs.readdirSync(stateDir);
+      const sidecarFiles = files.filter((f) => f.endsWith('.projections.jsonl'));
+      expect(sidecarFiles).toHaveLength(0);
+
+      // WARN on prune must have been emitted at least once.
+      const pruneCalls = warnSpy.mock.calls.filter((call) => {
+        const first = call[0];
+        return (
+          typeof first === 'object' &&
+          first !== null &&
+          'prunedCount' in (first as Record<string, unknown>)
+        );
+      });
+      expect(pruneCalls.length).toBeGreaterThanOrEqual(1);
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
+  it('ProjectionsStore_AppendSnapshot_StillRejectsUnsafeStreamId', () => {
+    const backend = new InMemoryBackend();
+    const record: SnapshotRecord = {
+      projectionId: 'rehydration',
+      projectionVersion: 'v1',
+      sequence: 1,
+      state: {},
+      timestamp: '2026-04-25T00:00:00.000Z',
+    };
+    expect(() => appendSnapshot(backend, '../escape', record)).toThrow(/Invalid streamId/);
+  });
 });
 
 // ─── Wave 2A.6 — readProjection<T>(reducerId) global-scope primitive (#1284) ──
