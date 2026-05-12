@@ -86,7 +86,8 @@ describe('handleCreatePr', () => {
     vi.clearAllMocks();
     mockProvider = makeMockProvider();
     vi.mocked(createVcsProvider).mockResolvedValue(mockProvider);
-    ctx = makeMockCtx();
+    // Use two-event-split-aware context: includes getAppender().decide() and listPrs stub.
+    ctx = makeTwoEventCtx();
   });
 
   it('handleCreatePr_ValidArgs_CallsProviderCreatePr', async () => {
@@ -145,7 +146,7 @@ describe('handleCreatePr', () => {
     });
   });
 
-  it('handleCreatePr_Success_EmitsPrCreatedEvent', async () => {
+  it('handleCreatePr_Success_EmitsPrCreateExecutedEvent', async () => {
     const args = {
       title: 'feat: add VCS actions',
       body: 'Body',
@@ -155,16 +156,19 @@ describe('handleCreatePr', () => {
 
     await handleCreatePr(args, ctx);
 
-    expect(ctx.eventStore.append).toHaveBeenCalledWith('vcs', {
-      type: 'pr.created',
-      data: {
-        provider: 'github',
-        prNumber: 42,
-        url: 'https://github.com/repo/pull/42',
-        base: 'main',
-        head: 'feature/vcs',
-      },
-    });
+    // Two-event split: handler now emits `pr.create.executed` (Phase B) instead
+    // of the legacy `pr.created`. The event data carries operationId (UUID),
+    // prNumber, and url — no provider name or branch fields (those live in
+    // `pr.create.requested` committed during Phase A).
+    const appendCalls = vi.mocked(ctx.eventStore.append).mock.calls;
+    const executedCall = appendCalls.find(
+      (call) => (call[1] as { type: string }).type === 'pr.create.executed',
+    );
+    expect(executedCall).toBeDefined();
+    const executedData = (executedCall![1] as { data: { prNumber: number; url: string; operationId: string } }).data;
+    expect(executedData.prNumber).toBe(42);
+    expect(executedData.url).toBe('https://github.com/repo/pull/42');
+    expect(typeof executedData.operationId).toBe('string');
   });
 
   it('handleCreatePr_ProviderError_ReturnsFailure', async () => {
