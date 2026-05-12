@@ -1,11 +1,7 @@
-import * as fs from 'node:fs/promises';
-import { openSync, closeSync, writeSync, unlinkSync } from 'node:fs';
-import * as path from 'node:path';
 import { randomUUID as randomUUIDFn } from 'node:crypto';
 import { WorkflowEventBase } from './schemas.js';
 import type { WorkflowEvent } from './schemas.js';
 import type { StorageBackend } from '../storage/backend.js';
-import { isPidAlive } from '../utils/process.js';
 import { validateStreamId } from '../shared/validation.js';
 import { AtomicAppender } from './atomic-appender.js';
 
@@ -113,40 +109,6 @@ const DEFAULT_INTEGRITY_TIMEOUT_MS = 2000;
 
 // ─── Initialize Options ─────────────────────────────────────────────────────
 
-/**
- * Options passed to `EventStore.initialize()`.
- *
- * `waitForLock` controls behaviour when another live process already holds
- * the PID lock.
- *
- * - When `false` (default), `initialize()` throws `PidLockError` immediately
- *   on contention. This is the v2.11 hard-fail substrate semantic: sidecar
- *   fallback (#1082) was deleted alongside the JSONL substrate it existed
- *   to side-channel; SQLite WAL handles concurrent access natively, so any
- *   PID-lock contention now reflects a genuine ownership conflict the
- *   caller must resolve, not a write-path that needs degrading.
- * - When `true`, `initialize()` waits for the lock to be released (bounded
- *   by `waitForLockTimeoutMs`), retrying until it can reclaim the lock.
- *   On exhaustion, throws `PidLockError`. Right mode for short-lived CLI
- *   processes that need their writes to serialise behind a concurrent
- *   invocation (DR-5).
- */
-export interface InitializeOptions {
-  /** Block until the PID lock can be acquired, rather than throwing immediately on contention. */
-  readonly waitForLock?: boolean;
-  /** Maximum time to wait for the PID lock when `waitForLock` is true. Defaults to 30s. */
-  readonly waitForLockTimeoutMs?: number;
-  /** Initial backoff between acquisition attempts when waiting. Defaults to 10ms. */
-  readonly waitForLockInitialDelayMs?: number;
-  /** Maximum backoff between acquisition attempts when waiting. Defaults to 100ms. */
-  readonly waitForLockMaxDelayMs?: number;
-}
-
-/** Default bounds for the `waitForLock` branch of `initialize()`. */
-const DEFAULT_WAIT_TIMEOUT_MS = 30_000;
-const DEFAULT_WAIT_INITIAL_DELAY_MS = 10;
-const DEFAULT_WAIT_MAX_DELAY_MS = 100;
-
 // ─── Event Store ────────────────────────────────────────────────────────────
 
 /**
@@ -191,9 +153,6 @@ export class EventStore {
   /** Whether initialize() has been called */
   private initialized = false;
 
-  /** Path to the PID lock file */
-  private lockFilePath: string;
-
   /** Optional storage backend for delegating reads */
   private readonly backend?: StorageBackend;
 
@@ -202,7 +161,6 @@ export class EventStore {
   private atomicAppender?: AtomicAppender;
 
   constructor(private readonly stateDir: string, options?: EventStoreOptions) {
-    this.lockFilePath = path.join(stateDir, '.event-store.lock');
     this.backend = options?.backend;
   }
 
@@ -271,7 +229,7 @@ export class EventStore {
    * invocations must serialise (DR-5 cross-process concurrency safety).
    * On wait-deadline exhaustion, `PidLockError` is rethrown.
    */
-  async initialize(_options?: InitializeOptions): Promise<void> {
+  async initialize(): Promise<void> {
     if (this.initialized) return;
     this.initialized = true;
   }
