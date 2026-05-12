@@ -1,8 +1,11 @@
 import { execFile as execFileCb } from 'child_process';
 import { promisify } from 'util';
+import { randomUUID } from 'node:crypto';
 import { appendEvent } from './events.js';
 import { ErrorCode } from './schemas.js';
+import { withStateRetry } from './state-retry.js';
 import type { Event } from './types.js';
+import type { EventStore } from '../event-store/store.js';
 
 // ─── Command Execution Helper ─────────────────────────────────────────────────
 
@@ -14,6 +17,82 @@ async function runCommand(cmd: string, args: readonly string[], options: Compens
     cwd: options.stateDir ?? process.cwd(),
     timeout: COMMAND_TIMEOUT_MS,
   });
+}
+
+/**
+ * Run a command and capture its stdout. Returns the stdout string.
+ * Does NOT throw on non-zero exit — callers check the returned value.
+ */
+async function runCommandCaptureStdout(
+  cmd: string,
+  args: readonly string[],
+  options: CompensationOptions,
+): Promise<string> {
+  try {
+    const result = await execFileAsync(cmd, [...args], {
+      cwd: options.stateDir ?? process.cwd(),
+      timeout: COMMAND_TIMEOUT_MS,
+    });
+    // promisify(execFile) resolves to { stdout, stderr } when called with
+    // { encoding: 'utf-8' } — but without that option it resolves to Buffer.
+    // The default encoding for promisified execFile is 'buffer', so we
+    // call toString() to get a string regardless.
+    const raw = result as unknown as { stdout: string | Buffer } | string;
+    if (typeof raw === 'string') return raw;
+    if (typeof raw === 'object' && raw !== null && 'stdout' in raw) {
+      const stdout = (raw as { stdout: string | Buffer }).stdout;
+      return typeof stdout === 'string' ? stdout : stdout.toString('utf-8');
+    }
+    return '';
+  } catch {
+    // Non-zero exit — the resource does not exist or the command failed
+    return '';
+  }
+}
+
+// ─── Git existence helpers ────────────────────────────────────────────────────
+
+/**
+ * Returns true when the branch exists in the local repository.
+ * Uses `git rev-parse --verify` — exits non-zero when absent.
+ */
+async function localBranchExists(branch: string, options: CompensationOptions): Promise<boolean> {
+  try {
+    await runCommand('git', ['rev-parse', '--verify', branch], options);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Returns true when the branch exists on the named remote.
+ * Uses `git ls-remote --heads <remote> <branch>` — empty stdout means absent.
+ */
+async function remoteBranchExists(
+  branch: string,
+  remote: string,
+  options: CompensationOptions,
+): Promise<boolean> {
+  const stdout = await runCommandCaptureStdout(
+    'git',
+    ['ls-remote', '--heads', remote, branch],
+    options,
+  );
+  return stdout.trim().length > 0;
+}
+
+/**
+ * Returns true when the worktree at `worktreePath` is registered in
+ * `git worktree list` output.
+ */
+async function worktreeIsRegistered(
+  worktreePath: string,
+  options: CompensationOptions,
+): Promise<boolean> {
+  const stdout = await runCommandCaptureStdout('git', ['worktree', 'list'], options);
+  // Each line starts with the absolute path of the worktree
+  return stdout.split('\n').some((line) => line.startsWith(worktreePath));
 }
 
 // ─── Compensation Interfaces ─────────────────────────────────────────────────
@@ -36,6 +115,10 @@ export interface CompensationOptions {
   readonly dryRun: boolean;
   readonly stateDir?: string;
   readonly checkpoint?: CompensationCheckpoint;
+  /** External event store for emitting two-event-split audit events (B4/B5). */
+  readonly eventStore?: EventStore;
+  /** Feature ID (stream ID) for event store appends. Required when eventStore is set. */
+  readonly featureId?: string;
 }
 
 export interface CompensationActionResult {
@@ -180,10 +263,51 @@ function createCleanupWorktreesAction(): CompensationAction {
         for (const worktree of Object.values(worktrees)) {
           const worktreePath = worktree.path as string | undefined;
           if (!worktreePath) continue;
-          try {
-            await runCommand('git', ['worktree', 'remove', worktreePath, '--force'], options);
-          } catch {
-            // Worktree may already be removed; continue
+
+          if (options.eventStore && options.featureId) {
+            // ─── B5 two-event split ──────────────────────────────────────────
+            // Phase A: emit worktree.remove.requested BEFORE the git side-effect.
+            // Wrapped in withStateRetry so OCC losses on the append are retried
+            // WITHOUT re-running the git worktree remove command.
+            const operationId = randomUUID();
+            const featureId = options.featureId;
+            const eventStore = options.eventStore;
+            await withStateRetry(() =>
+              eventStore.append(featureId, {
+                type: 'worktree.remove.requested',
+                data: { operationId, worktreePath },
+              }),
+            );
+
+            // ─── B5.3 idempotent existence check ────────────────────────────
+            // Query git worktree list OUTSIDE the retry boundary so we don't
+            // re-fire the remove on a retry. If the worktree is already absent,
+            // emit executed { removed: false } and continue.
+            const isRegistered = await worktreeIsRegistered(worktreePath, options);
+            let removed = false;
+
+            if (isRegistered) {
+              try {
+                await runCommand('git', ['worktree', 'remove', worktreePath, '--force'], options);
+                removed = true;
+              } catch {
+                // Worktree may already be removed; continue
+              }
+            }
+
+            // Phase C: emit worktree.remove.executed with the actual outcome.
+            // removed=false is an idempotent success — NOT a failure.
+            await eventStore.append(featureId, {
+              type: 'worktree.remove.executed',
+              data: { operationId, worktreePath, removed },
+            });
+          } else {
+            // Legacy path (no event store wired) — preserve existing behavior
+            try {
+              await runCommand('git', ['worktree', 'remove', worktreePath, '--force'], options);
+            } catch {
+              // Worktree may already be removed; continue
+            }
           }
         }
         return {
@@ -232,17 +356,68 @@ function createDeleteFeatureBranchesAction(): CompensationAction {
 
       try {
         for (const branch of branches) {
-          // Delete local branch (ignore failure if doesn't exist)
-          try {
-            await runCommand('git', ['branch', '-D', branch], options);
-          } catch {
-            // Ignore local delete failure
-          }
-          // Delete remote branch (ignore failure if doesn't exist)
-          try {
-            await runCommand('git', ['push', 'origin', '--delete', branch], options);
-          } catch {
-            // Ignore remote delete failure
+          if (options.eventStore && options.featureId) {
+            // ─── B4 two-event split ──────────────────────────────────────────
+            // Phase A: emit branch.delete.requested BEFORE the git side-effect.
+            // Wrapped in withStateRetry so OCC losses on the append are retried
+            // WITHOUT re-running git branch -D (the canonical anti-pattern guard).
+            const operationId = randomUUID();
+            const featureId = options.featureId;
+            const eventStore = options.eventStore;
+            await withStateRetry(() =>
+              eventStore.append(featureId, {
+                type: 'branch.delete.requested',
+                data: { operationId, branch },
+              }),
+            );
+
+            // ─── B4.3 idempotent existence check ────────────────────────────
+            // Query branch existence OUTSIDE the retry boundary so we don't
+            // re-fire git branch -D on a retry. If already absent, record
+            // executed { deletedLocally: false, deletedRemote: false } — that
+            // is an idempotent success, NOT a failure.
+            const existsLocally = await localBranchExists(branch, options);
+            const existsRemote = await remoteBranchExists(branch, 'origin', options);
+            let deletedLocally = false;
+            let deletedRemote = false;
+
+            if (existsLocally) {
+              try {
+                await runCommand('git', ['branch', '-D', branch], options);
+                deletedLocally = true;
+              } catch {
+                // Deletion failed — branch may have disappeared between check and delete
+              }
+            }
+
+            if (existsRemote) {
+              try {
+                await runCommand('git', ['push', 'origin', '--delete', branch], options);
+                deletedRemote = true;
+              } catch {
+                // Remote delete failed — ref may have disappeared or been deleted by another process
+              }
+            }
+
+            // Phase C: emit branch.delete.executed with the actual outcome.
+            await eventStore.append(featureId, {
+              type: 'branch.delete.executed',
+              data: { operationId, branch, deletedLocally, deletedRemote },
+            });
+          } else {
+            // Legacy path (no event store wired) — preserve existing behavior
+            // Delete local branch (ignore failure if doesn't exist)
+            try {
+              await runCommand('git', ['branch', '-D', branch], options);
+            } catch {
+              // Ignore local delete failure
+            }
+            // Delete remote branch (ignore failure if doesn't exist)
+            try {
+              await runCommand('git', ['push', 'origin', '--delete', branch], options);
+            } catch {
+              // Ignore remote delete failure
+            }
           }
         }
         return {
