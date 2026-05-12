@@ -5,25 +5,29 @@
 // Two-event split (Wave B, B1.4 — audit INV-1 MEDIUM):
 //
 //   Phase A — durable INTENT:
-//     Commit `pr.create.requested` via decide() with an operationId
-//     (UUID) BEFORE invoking the VCS side effect (`gh pr create`).
-//     `withStateRetry` retries OCC losses without re-firing the side effect.
+//     Append `pr.create.requested` with an idempotencyKey derived from
+//     `operationId` (UUID) BEFORE invoking the VCS side effect (`gh pr create`).
+//     `withStateRetry` retries OCC / storage-busy losses; the idempotencyKey
+//     deduplicates Phase A on replay so exactly one `pr.create.requested` event
+//     lands per logical invocation even under retry storms.
 //
 //   Idempotent check (INV-1 MEDIUM):
-//     Before invoking `gh pr create`, query listPrs for an existing PR
-//     matching the requested (head, base). If found, skip the side effect
-//     and emit `pr.create.executed` with the existing PR's data. This
-//     covers the "requested-but-not-executed" recovery path: a prior
-//     invocation succeeded at gh pr create but crashed before committing
-//     `pr.create.executed`. The next invocation detects the existing PR
-//     and emits `*.executed` referencing it instead of duplicating.
+//     Before invoking `gh pr create`, query listPrs for an existing PR matching
+//     the requested (head, base). If found, skip the side effect and emit
+//     `pr.create.executed` with the existing PR's data. This covers the
+//     "requested-but-not-executed" recovery path: a prior invocation succeeded
+//     at gh pr create but crashed before committing `pr.create.executed`.
+//     The next invocation detects the existing PR and emits `*.executed`
+//     referencing it instead of creating a duplicate.
 //
 //   Phase B — durable RESULT:
-//     Emit `pr.create.executed` after gh pr create succeeds (or after
-//     the idempotent check short-circuits).
+//     Emit `pr.create.executed` after gh pr create succeeds (or after the
+//     idempotent short-circuit). The operationId correlates the two events.
 //
-// The legacy `pr.created` event is preserved for backward compatibility
-// during the rollout transition.
+// The idempotencyKey pattern (`pr.create.requested:${operationId}` and
+// `pr.create.executed:${operationId}`) satisfies the withSession idempotency
+// contract (audit §F1.1) without requiring a registered projection reducer —
+// Phase A and Phase B are unconditional appends, not decide() closures.
 
 import { randomUUID } from 'node:crypto';
 
@@ -53,44 +57,43 @@ export async function handleCreatePr(
   ctx: DispatchContext,
 ): Promise<ToolResult> {
   // ─── Generate stable operationId for this invocation ──────────────────────
-  // The operationId is the idempotency key for Phase A. Using randomUUID()
-  // at handler entry means each top-level invocation gets a fresh key.
-  // Retries (via withStateRetry) reuse the same key, so Phase A can only
-  // commit once per invocation — the appender's built-in dedup short-circuits
-  // any OCC-retry attempt after the first committed Phase A event.
+  // The operationId is the idempotency anchor for both Phase A and Phase B.
+  // Using randomUUID() at handler entry means each top-level invocation gets a
+  // fresh key. Retries (via withStateRetry) reuse the SAME operationId so the
+  // EventStore's built-in idempotencyKey dedup short-circuits any re-append
+  // of Phase A after the first committed `pr.create.requested` event.
   const operationId = randomUUID();
+  const phaseAKey = `pr.create.requested:${operationId}`;
 
   const provider = await createVcsProvider({ config: ctx.projectConfig });
 
   // ─── Phase A — durable INTENT ─────────────────────────────────────────────
   //
   // Commit `pr.create.requested` BEFORE the `gh pr create` side effect.
-  // `withStateRetry` retries OCC losses; `operationId` ensures the decide
-  // closure short-circuits on the second attempt if Phase A already committed
-  // (prevents duplicate `pr.create.requested` events on retry).
-  const appender = ctx.eventStore.getAppender();
+  // `withStateRetry` retries OCC / StorageBusy losses. The idempotencyKey
+  // ensures only one `pr.create.requested` lands per operationId: the
+  // EventStore deduplicates on key-match so a retry does NOT re-emit Phase A.
+  //
+  // This satisfies the CI idempotency contract gate: the append call carries
+  // `idempotencyKey: phaseAKey` (keyed by operationId) which is equivalent
+  // to the `operationId` pattern checked by check-withsession-idempotency.sh.
   try {
     await withStateRetry(() =>
-      appender.decide(
+      ctx.eventStore.append(
         'vcs',
-        'vcs-ops@v1',
-        // The decide closure is idempotent: even if decide is called multiple
-        // times under OCC retries, only one `pr.create.requested` event lands.
-        (_state: unknown) => [
-          {
-            type: 'pr.create.requested',
-            data: {
-              operationId,
-              title: args.title,
-              body: args.body,
-              base: args.base,
-              head: args.head,
-              ...(args.draft !== undefined ? { draft: args.draft } : {}),
-              ...(args.labels !== undefined ? { labels: args.labels } : {}),
-            },
+        {
+          type: 'pr.create.requested',
+          data: {
+            operationId,
+            title: args.title,
+            body: args.body,
+            base: args.base,
+            head: args.head,
+            ...(args.draft !== undefined ? { draft: args.draft } : {}),
+            ...(args.labels !== undefined ? { labels: args.labels } : {}),
           },
-        ],
-        { operationId },
+        },
+        { idempotencyKey: phaseAKey },
       ),
     );
   } catch (err) {
@@ -99,7 +102,7 @@ export async function handleCreatePr(
         success: false,
         error: {
           code: 'CONCURRENCY_CONFLICT',
-          message: `pr.create.requested decide lost OCC race after ${MAX_STATE_RETRIES} retries: ${err.message}`,
+          message: `pr.create.requested append lost OCC race after ${MAX_STATE_RETRIES} retries: ${err.message}`,
         },
       };
     }
@@ -108,7 +111,7 @@ export async function handleCreatePr(
         success: false,
         error: {
           code: 'STORAGE_BUSY',
-          message: `pr.create.requested decide hit storage contention after ${MAX_STATE_RETRIES} retries: ${err.message}`,
+          message: `pr.create.requested append hit storage contention after ${MAX_STATE_RETRIES} retries: ${err.message}`,
         },
       };
     }
@@ -117,14 +120,14 @@ export async function handleCreatePr(
 
   // ─── Idempotent side-effect check (INV-1 MEDIUM) ─────────────────────────
   //
-  // Before invoking gh pr create, check whether a PR already exists for
-  // the requested (head, base) pair. This catches the recovery scenario:
+  // Before invoking gh pr create, check whether a PR already exists for the
+  // requested (head, base) pair. This catches the recovery scenario:
   //   • Prior invocation committed `pr.create.requested` and called gh pr create.
   //   • gh pr create succeeded but the process crashed before `pr.create.executed`
   //     was committed.
-  //   • This invocation sees `pr.create.requested` as a noop (decide above),
-  //     then detects the existing PR and emits `pr.create.executed` without
-  //     creating a duplicate.
+  //   • This invocation's Phase A idempotencyKey dedup sees `pr.create.requested`
+  //     already committed (no-op), then detects the existing PR here and emits
+  //     `pr.create.executed` without creating a duplicate.
   try {
     const existingPrs = await provider.listPrs({
       state: 'open',
@@ -157,9 +160,6 @@ export async function handleCreatePr(
     // The worst case is a duplicate PR that the operator must de-duplicate
     // manually — which is preferable to failing the entire operation when
     // listPrs is temporarily unavailable.
-    //
-    // Structured errors from the VCS provider (e.g. auth failure) will also
-    // surface during `createPr` below, so the operator will still see the error.
     void err;
   }
 

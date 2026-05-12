@@ -42,23 +42,13 @@ function makeMockCtx(overrides: Partial<DispatchContext> = {}): DispatchContext 
 
 /**
  * Build a DispatchContext with a two-event-split-aware mock event store.
- * Includes `getAppender().decide(...)` stub and `query(...)` stub needed
- * by the B1.4 refactored handler.
+ * The B1.4 refactored handler uses ctx.eventStore.append() with idempotencyKey
+ * (no getAppender/decide needed — the handler uses append directly).
  */
 function makeTwoEventCtx(overrides: {
-  decideResult?: Record<string, unknown>;
   appendResult?: Record<string, unknown>;
   queryResult?: unknown[];
 } = {}): DispatchContext {
-  const decide = vi.fn().mockResolvedValue(
-    overrides.decideResult ?? {
-      ok: true,
-      kind: 'committed',
-      sequences: [1],
-      eventIds: ['evt-mock-requested'],
-      timestamps: [new Date().toISOString()],
-    },
-  );
   const append = vi.fn().mockResolvedValue(
     overrides.appendResult ?? {
       sequence: 2,
@@ -72,7 +62,6 @@ function makeTwoEventCtx(overrides: {
     eventStore: {
       append,
       query,
-      getAppender: vi.fn().mockReturnValue({ decide }),
     } as unknown as EventStore,
     enableTelemetry: false,
   };
@@ -208,31 +197,33 @@ describe('CreatePr_PhaseARetry_DoesNotRefireGhPrCreate (B1.2 RED)', () => {
   });
 
   it('CreatePr_PhaseARetry_DoesNotRefireGhPrCreate', async () => {
-    // Arrange: first decide call throws ConcurrencyError; second succeeds.
-    // This simulates OCC loss on Phase A with a successful retry.
+    // Arrange: Phase A append throws ConcurrencyError on first call; second succeeds.
+    // The idempotencyKey on the Phase A append ensures the EventStore deduplicates
+    // on retry — the retry calls append again with the same idempotencyKey, which
+    // the substrate deduplicates. The key invariant is that createPr (the SIDE EFFECT)
+    // only fires AFTER Phase A succeeds, never during or before the retry.
     const concurrencyErr = new ConcurrencyError('sequence mismatch on first attempt');
-    const decide = vi.fn()
+    const append = vi.fn()
+      // First call is Phase A (pr.create.requested) — simulates OCC loss.
       .mockRejectedValueOnce(concurrencyErr)
-      .mockResolvedValue({
-        ok: true,
-        kind: 'committed',
-        sequences: [1],
-        eventIds: ['evt-mock-requested'],
-        timestamps: [new Date().toISOString()],
+      // Second call is Phase A retry — succeeds.
+      .mockResolvedValueOnce({
+        sequence: 1,
+        type: 'pr.create.requested',
+        timestamp: new Date().toISOString(),
+      })
+      // Third call is Phase B (pr.create.executed) — succeeds.
+      .mockResolvedValueOnce({
+        sequence: 2,
+        type: 'pr.create.executed',
+        timestamp: new Date().toISOString(),
       });
-    const append = vi.fn().mockResolvedValue({
-      sequence: 2,
-      type: 'pr.create.executed',
-      timestamp: new Date().toISOString(),
-    });
-    const query = vi.fn().mockResolvedValue([]);
 
     const ctx: DispatchContext = {
       stateDir: '/tmp/test-state',
       eventStore: {
         append,
-        query,
-        getAppender: vi.fn().mockReturnValue({ decide }),
+        query: vi.fn().mockResolvedValue([]),
       } as unknown as EventStore,
       enableTelemetry: false,
     };
@@ -246,12 +237,13 @@ describe('CreatePr_PhaseARetry_DoesNotRefireGhPrCreate (B1.2 RED)', () => {
       ctx,
     );
 
-    // Assert: withStateRetry triggered at least two decide attempts (one failure, one success).
-    expect(decide).toHaveBeenCalledTimes(2);
+    // Assert: append was called at least twice for Phase A (one ConcurrencyError, one success).
+    // The append mock was called: [Phase A fail, Phase A retry, Phase B].
+    expect(append).toHaveBeenCalledTimes(3);
 
     // Assert: createPr was called AT MOST ONCE across the entire retry cycle.
     // With the two-event split, Phase A is committed first (retried on ConcurrencyError),
-    // then createPr fires ONCE after Phase A succeeds — never on the retry of Phase A itself.
+    // then createPr fires ONCE after Phase A succeeds — never during the Phase A retry itself.
     expect(mockProvider.createPr).toHaveBeenCalledTimes(1);
   });
 });
@@ -275,14 +267,10 @@ describe('CreatePr_RequestedEventCommittedButExecutionInterrupted_RecoversWithou
   });
 
   it('CreatePr_RequestedEventCommittedButExecutionInterrupted_RecoversWithoutDuplicate', async () => {
-    // Arrange: decide returns 'noop' (pr.create.requested already in stream).
-    const decide = vi.fn().mockResolvedValue({
-      ok: true,
-      kind: 'noop',
-      sequences: [],
-      eventIds: [],
-      timestamps: [],
-    });
+    // Arrange: Phase A append succeeds (EventStore idempotency key deduplicates the
+    // prior `pr.create.requested` — in the real substrate, the same idempotencyKey
+    // returns the cached event; in the mock, we just let append succeed unconditionally
+    // for Phase A and focus on the listPrs → short-circuit path).
     const append = vi.fn().mockResolvedValue({
       sequence: 3,
       type: 'pr.create.executed',
@@ -310,7 +298,6 @@ describe('CreatePr_RequestedEventCommittedButExecutionInterrupted_RecoversWithou
       eventStore: {
         append,
         query: vi.fn().mockResolvedValue([]),
-        getAppender: vi.fn().mockReturnValue({ decide }),
       } as unknown as EventStore,
       enableTelemetry: false,
     };
