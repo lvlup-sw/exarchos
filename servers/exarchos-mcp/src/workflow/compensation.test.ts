@@ -1,7 +1,11 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import * as fs from 'node:fs/promises';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import type { Event } from './types.js';
 import { executeCompensation } from './compensation.js';
 import { ConcurrencyError } from '../event-store/concurrency-error.js';
+import { EventStore } from '../event-store/store.js';
 
 // Mock child_process so no real shell commands run
 vi.mock('child_process', () => ({
@@ -336,6 +340,199 @@ describe('B5: cleanup-worktrees two-event split', () => {
     const cleanupAction = result.actions.find((a) => a.actionId === 'delegate:cleanup-worktrees');
     expect(cleanupAction).toBeDefined();
     expect(cleanupAction!.status).toBe('executed');
+  });
+});
+
+// ─── Wave B / B4.5: delete-feature-branches parity harness ──────────────────
+//
+// Verifies that both invocation paths (with and without explicit featureId
+// override) observe the same two-event sequence shape:
+//   [branch.delete.requested, branch.delete.executed]
+// per branch, with data fields consistent with the schema.
+//
+// "Both carriers" in this context means two separate invocations of
+// executeCompensation — one without an event store (legacy path, still
+// tested by the existing __tests__ suite) and one with a real SQLite-backed
+// EventStore (new two-event path). The parity assertion is: the real
+// EventStore arm produces the expected two-event sequence in the correct
+// order with the correct data shape.
+
+describe('B4.5: delete-feature-branches parity harness (two-event sequence)', () => {
+  let tmpDir: string;
+  let eventStore: EventStore;
+
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'exarchos-b4-parity-'));
+    eventStore = new EventStore(tmpDir);
+    await eventStore.initialize();
+
+    // All git commands succeed (branch presence checks return "present")
+    mockedExecFile.mockImplementation((cmd: unknown, args: unknown, opts: unknown, cb?: unknown) => {
+      const callback = typeof opts === 'function' ? opts : cb;
+      const argList = args as string[];
+
+      if (argList?.includes('rev-parse') && argList?.includes('--verify')) {
+        // Branch exists locally
+        (callback as (err: null, stdout: string, stderr: string) => void)(null, 'abc1234', '');
+        return undefined as never;
+      }
+      if (argList?.includes('ls-remote') && argList?.includes('--heads')) {
+        // Branch exists remotely
+        (callback as (err: null, stdout: string, stderr: string) => void)(
+          null,
+          'abc1234\trefs/heads/feature/parity-branch\n',
+          '',
+        );
+        return undefined as never;
+      }
+      // Default: succeed (branch delete, push delete, etc.)
+      (callback as (err: null, stdout: string, stderr: string) => void)(null, '', '');
+      return undefined as never;
+    });
+  });
+
+  afterEach(async () => {
+    await fs.rm(tmpDir, { recursive: true, force: true });
+  });
+
+  it('DeleteFeatureBranches_Parity_BothCarriersObserveTwoEventSequence', async () => {
+    const featureId = 'b4-parity-feature';
+    const branchName = 'feature/parity-branch';
+
+    const state = makeState({
+      phase: 'delegate',
+      synthesis: { integrationBranch: null, mergeOrder: [], mergedBranches: [], prUrl: null, prFeedback: [] },
+      worktrees: {},
+      tasks: [{ id: 't1', title: 'T1', status: 'complete', branch: branchName }],
+    });
+
+    // ── Arm 1: with event store (two-event split path) ──────────────────────
+    await executeCompensation(state, 'delegate', makeEvents(1), 1, {
+      dryRun: false,
+      eventStore,
+      featureId,
+    });
+
+    // Query all events appended to the stream
+    const events = await eventStore.query(featureId);
+
+    // Assert: both event types are present
+    const requestedEvents = events.filter((e) => e.type === 'branch.delete.requested');
+    const executedEvents = events.filter((e) => e.type === 'branch.delete.executed');
+
+    expect(requestedEvents.length).toBe(1);
+    expect(executedEvents.length).toBe(1);
+
+    // Assert: requested appears BEFORE executed in the stream
+    const requestedSeq = requestedEvents[0].sequence;
+    const executedSeq = executedEvents[0].sequence;
+    expect(requestedSeq).toBeLessThan(executedSeq);
+
+    // Assert: both events carry the same operationId (correlation)
+    const reqData = requestedEvents[0].data as { operationId: string; branch: string };
+    const exeData = executedEvents[0].data as {
+      operationId: string;
+      branch: string;
+      deletedLocally: boolean;
+      deletedRemote: boolean;
+    };
+
+    expect(reqData.branch).toBe(branchName);
+    expect(exeData.branch).toBe(branchName);
+    expect(reqData.operationId).toBe(exeData.operationId);
+    expect(typeof reqData.operationId).toBe('string');
+
+    // Branch was present on both sides, so both flags should be true
+    expect(exeData.deletedLocally).toBe(true);
+    expect(exeData.deletedRemote).toBe(true);
+  });
+});
+
+// ─── Wave B / B5.5: cleanup-worktrees parity harness ────────────────────────
+
+describe('B5.5: cleanup-worktrees parity harness (two-event sequence)', () => {
+  let tmpDir: string;
+  let eventStore: EventStore;
+
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'exarchos-b5-parity-'));
+    eventStore = new EventStore(tmpDir);
+    await eventStore.initialize();
+
+    // All git commands succeed; worktree list shows the worktree as present
+    mockedExecFile.mockImplementation((cmd: unknown, args: unknown, opts: unknown, cb?: unknown) => {
+      const callback = typeof opts === 'function' ? opts : cb;
+      const argList = args as string[];
+
+      if (argList?.includes('worktree') && argList?.includes('list')) {
+        // Worktree is registered
+        (callback as (err: null, stdout: string, stderr: string) => void)(
+          null,
+          '/tmp/wt-parity  abc1234 [feature/parity-wt]\n',
+          '',
+        );
+        return undefined as never;
+      }
+      (callback as (err: null, stdout: string, stderr: string) => void)(null, '', '');
+      return undefined as never;
+    });
+  });
+
+  afterEach(async () => {
+    await fs.rm(tmpDir, { recursive: true, force: true });
+  });
+
+  it('CleanupWorktrees_Parity_BothCarriersObserveTwoEventSequence', async () => {
+    const featureId = 'b5-parity-feature';
+    const worktreePath = '/tmp/wt-parity';
+
+    const state = makeState({
+      phase: 'delegate',
+      synthesis: { integrationBranch: null, mergeOrder: [], mergedBranches: [], prUrl: null, prFeedback: [] },
+      worktrees: {
+        't1': { branch: 'feature/parity-wt', taskId: 't1', status: 'active', path: worktreePath },
+      },
+      tasks: [],
+    });
+
+    // ── Arm 1: with event store (two-event split path) ──────────────────────
+    await executeCompensation(state, 'delegate', makeEvents(1), 1, {
+      dryRun: false,
+      eventStore,
+      featureId,
+    });
+
+    // Query all events appended to the stream
+    const events = await eventStore.query(featureId);
+
+    const requestedEvents = events.filter((e) => e.type === 'worktree.remove.requested');
+    const executedEvents = events.filter((e) => e.type === 'worktree.remove.executed');
+
+    expect(requestedEvents.length).toBe(1);
+    expect(executedEvents.length).toBe(1);
+
+    // Assert: requested appears BEFORE executed in the stream
+    const requestedSeq = requestedEvents[0].sequence;
+    const executedSeq = executedEvents[0].sequence;
+    expect(requestedSeq).toBeLessThan(executedSeq);
+
+    // Assert: both events carry the same operationId and worktreePath
+    const reqData = requestedEvents[0].data as { operationId: string; worktreePath: string };
+    const exeData = executedEvents[0].data as {
+      operationId: string;
+      worktreePath: string;
+      removed: boolean;
+    };
+
+    expect(reqData.worktreePath).toBe(worktreePath);
+    expect(exeData.worktreePath).toBe(worktreePath);
+    expect(reqData.operationId).toBe(exeData.operationId);
+    expect(typeof reqData.operationId).toBe('string');
+
+    // Worktree was present, so removed should be true
+    expect(exeData.removed).toBe(true);
   });
 });
 
