@@ -5,7 +5,7 @@
 
 // Re-export from original locations
 export { ErrorCode } from './workflow/schemas.js';
-export { SequenceConflictError, PidLockError } from './event-store/store.js';
+export { SequenceConflictError } from './event-store/store.js';
 export { StateStoreError, VersionConflictError } from './workflow/state-store.js';
 
 // ─── Error Categories ───────────────────────────────────────────────────────

@@ -19,36 +19,6 @@ export class SequenceConflictError extends Error {
   }
 }
 
-// ─── PID Lock Error ──────────────────────────────────────────────────────────
-
-/**
- * Distinguishes the two reasons `acquirePidLock` can fail:
- *
- *   - `live-holder`: the lock file is held by an observably-live process;
- *     the holder's PID is reported via `existingPid`. This is the normal
- *     contention case.
- *   - `retry-exhausted`: the acquisition loop exhausted its retry budget
- *     while racing a stream of fast lock churns (TOCTOU contention) without
- *     ever observing a live holder long enough to complete steal + recreate.
- *     `existingPid` reports the last observably-valid PID seen during the
- *     retry window, or `-1` if none was ever read.
- */
-export type PidLockReason = 'live-holder' | 'retry-exhausted';
-
-export class PidLockError extends Error {
-  constructor(
-    public readonly existingPid: number,
-    public readonly reason: PidLockReason = 'live-holder',
-  ) {
-    super(
-      reason === 'retry-exhausted'
-        ? `Event store lock acquisition exhausted retries under TOCTOU contention (last observed holder PID ${existingPid})`
-        : `Event store is locked by live process PID ${existingPid}`,
-    );
-    this.name = 'PidLockError';
-  }
-}
-
 // ─── Append Options ─────────────────────────────────────────────────────────
 
 export interface AppendOptions {
