@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { WorkflowEvent } from '../../event-store/schemas.js';
 import type { WorkflowState } from '../../workflow/types.js';
+import type { SnapshotRecord } from '../../projections/snapshot-schema.js';
 import type { StorageBackend, EventSender } from '../backend.js';
 import { InMemoryBackend, VersionConflictError } from '../memory-backend.js';
 import { SqliteBackend } from '../sqlite-backend.js';
@@ -572,6 +573,123 @@ describe('StorageBackend DR-2 AC3 substitutability witness (T13)', () => {
       memBackend.close();
       sqliteBackend.close();
     }
+  });
+});
+
+// ─── Projection Snapshot Accessors (Wave A, #1343) ──────────────────────────
+//
+// Compile-time + runtime contract test that the StorageBackend interface
+// declares snapshot accessors. The compile-time half lives in the value of
+// `interfaceSurface` below — the object literal must structurally match the
+// interface, so any drop or rename on the interface side breaks the test
+// at typecheck time. The runtime half asserts that both implementations
+// expose the methods as callable functions.
+describe('StorageBackend projection-snapshot accessor contract', () => {
+  it('BackendContract_DeclaresProjectionSnapshotAccessors', () => {
+    // Compile-time check: this object literal must be assignable to a
+    // Pick of the interface's snapshot members. If the interface drops
+    // either method (or renames it), tsc will reject the assignment
+    // and the next typecheck run fails loudly.
+    const interfaceSurface: Pick<
+      StorageBackend,
+      'readLatestProjectionSnapshot' | 'appendProjectionSnapshot'
+    > = {
+      readLatestProjectionSnapshot: (
+        _streamId: string,
+        _projectionId: string,
+        _projectionVersion: string,
+      ): SnapshotRecord | undefined => undefined,
+      appendProjectionSnapshot: (
+        _streamId: string,
+        _record: SnapshotRecord,
+        _opts?: { maxRecords?: number },
+      ): void => {
+        /* contract probe */
+      },
+    };
+
+    // Runtime presence checks on both implementations.
+    const memBackend: StorageBackend = new InMemoryBackend();
+    const sqliteBackend: StorageBackend = new SqliteBackend(':memory:');
+    try {
+      memBackend.initialize();
+      sqliteBackend.initialize();
+
+      expect(typeof memBackend.readLatestProjectionSnapshot).toBe('function');
+      expect(typeof memBackend.appendProjectionSnapshot).toBe('function');
+      expect(typeof sqliteBackend.readLatestProjectionSnapshot).toBe('function');
+      expect(typeof sqliteBackend.appendProjectionSnapshot).toBe('function');
+    } finally {
+      memBackend.close();
+      sqliteBackend.close();
+    }
+
+    // Reference the object so it can't be eliminated as dead code.
+    expect(typeof interfaceSurface.readLatestProjectionSnapshot).toBe('function');
+    expect(typeof interfaceSurface.appendProjectionSnapshot).toBe('function');
+  });
+
+  it('MemoryBackend_ProjectionSnapshot_RoundTrip', () => {
+    const b: StorageBackend = new InMemoryBackend();
+    b.initialize();
+
+    const streamId = 'feat-rt';
+    const projectionId = 'task-store';
+    const projectionVersion = 'v1';
+
+    // Empty: returns undefined.
+    expect(
+      b.readLatestProjectionSnapshot(streamId, projectionId, projectionVersion),
+    ).toBeUndefined();
+
+    // Insert three records for the same (streamId, projectionId, projectionVersion)
+    // with sequences 1, 5, 3. Order of inserts is intentionally not monotonic.
+    const recordAt = (sequence: number): SnapshotRecord => ({
+      projectionId,
+      projectionVersion,
+      sequence,
+      state: { count: sequence },
+      timestamp: new Date(2025, 0, 1, 0, 0, sequence).toISOString(),
+    });
+
+    b.appendProjectionSnapshot(streamId, recordAt(1));
+    b.appendProjectionSnapshot(streamId, recordAt(5));
+    b.appendProjectionSnapshot(streamId, recordAt(3));
+
+    // readLatest returns the highest-sequence record.
+    const latest = b.readLatestProjectionSnapshot(
+      streamId,
+      projectionId,
+      projectionVersion,
+    );
+    expect(latest).toBeDefined();
+    expect(latest!.sequence).toBe(5);
+    expect(latest!.state).toEqual({ count: 5 });
+
+    // A different (projectionId, projectionVersion) coordinate is isolated.
+    expect(
+      b.readLatestProjectionSnapshot(streamId, 'other-projection', projectionVersion),
+    ).toBeUndefined();
+    expect(
+      b.readLatestProjectionSnapshot(streamId, projectionId, 'v2'),
+    ).toBeUndefined();
+    expect(
+      b.readLatestProjectionSnapshot('other-stream', projectionId, projectionVersion),
+    ).toBeUndefined();
+
+    // Size cap: with maxRecords=2 after appending two more records the
+    // oldest two by sequence are evicted, leaving the two highest.
+    b.appendProjectionSnapshot(streamId, recordAt(7));
+    b.appendProjectionSnapshot(streamId, recordAt(9), { maxRecords: 2 });
+
+    const afterCap = b.readLatestProjectionSnapshot(
+      streamId,
+      projectionId,
+      projectionVersion,
+    );
+    expect(afterCap).toBeDefined();
+    expect(afterCap!.sequence).toBe(9);
+    b.close();
   });
 });
 
