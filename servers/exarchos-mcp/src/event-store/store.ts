@@ -77,8 +77,6 @@ export type IntegrityResult =
 /** Default upper bound on `runIntegrityCheck` wall time. */
 const DEFAULT_INTEGRITY_TIMEOUT_MS = 2000;
 
-// ─── Initialize Options ─────────────────────────────────────────────────────
-
 // ─── Event Store ────────────────────────────────────────────────────────────
 
 /**
@@ -91,15 +89,19 @@ const DEFAULT_INTEGRITY_TIMEOUT_MS = 2000;
  * for tests that inject an `InMemoryBackend` to drive read-path
  * assertions.
  *
- * Cross-process safety: call `initialize()` before first use. The first
- * process to initialize acquires a PID lock; subsequent processes throw
- * `PidLockError` (or wait for the lock when `waitForLock: true`). Sidecar
- * mode (#1082) was deleted in v2.11 — SQLite WAL handles concurrent access
- * natively, so PID-lock contention is now a hard error rather than a
- * fallback to a side-channel writer.
+ * Cross-process safety: cross-process serialization is delegated entirely
+ * to the SQLite WAL substrate. `BEGIN IMMEDIATE` is the write-ownership
+ * primitive — a writer that observes the database busy retries through
+ * SQLite's own backoff rather than a process-level mutex — and the
+ * `(stream_id, sequence)` PRIMARY KEY guarantees per-stream append
+ * ordering and rejects duplicate-sequence writes. Multiple `EventStore`
+ * instances may attach to the same `stateDir` from any number of OS
+ * processes; `initialize()` is an idempotent no-op marker.
  *
- * Uses in-memory promise-chain locks that only protect within a single Node.js process.
- * Multiple EventStore instances sharing the same stateDir without PID lock will corrupt data.
+ * In-process: the AtomicAppender owns a per-stream promise-chain lock
+ * (`StreamLockManager`) that serialises concurrent appends to the same
+ * stream from the same Node.js process; cross-process appends serialise
+ * through the substrate.
  */
 export class EventStore {
   /**
@@ -181,23 +183,21 @@ export class EventStore {
     return this.getAppender().ensureSqliteBackendSync();
   }
 
-  // ─── PID Lock ──────────────────────────────────────────────────────────────
+  // ─── Initialize ────────────────────────────────────────────────────────────
 
   /**
-   * Initialize the event store: acquire PID lock and register cleanup handler.
-   * Must be called before first use.
+   * Initialize the event store. Must be called before first use, but is
+   * an idempotent no-op marker — repeat calls return immediately.
    *
-   * Sidecar fallback (#1082) was deleted in v2.11 — when another process
-   * holds the lock, this method now throws `PidLockError` immediately. The
-   * fallback only existed to side-channel JSONL writers around the
-   * per-process lock; SQLite WAL (post-v2.10 substrate, #1259/#1323) makes
-   * cross-process writes safe natively, so contention now reflects a real
-   * ownership conflict the caller is responsible for resolving.
-   *
-   * Pass `{ waitForLock: true }` to block until the lock can be acquired
-   * — the right mode for short-lived CLI processes where concurrent
-   * invocations must serialise (DR-5 cross-process concurrency safety).
-   * On wait-deadline exhaustion, `PidLockError` is rethrown.
+   * Pre-Wave-A this method acquired a per-`stateDir` PID lock so that only
+   * one OS process at a time could attach to a given event store. That
+   * contract was removed in #1343 (Wave A): cross-process serialization is
+   * delegated to the SQLite WAL substrate (`BEGIN IMMEDIATE` for write
+   * ownership; the `(stream_id, sequence)` PRIMARY KEY for per-stream
+   * append ordering). Two or more `EventStore` instances against the same
+   * `stateDir` may now `initialize()` concurrently and proceed to append
+   * without further coordination at this layer; see
+   * `docs/architecture/runtime.md` §4.
    */
   async initialize(): Promise<void> {
     if (this.initialized) return;
