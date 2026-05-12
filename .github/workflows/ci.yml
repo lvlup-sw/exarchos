@@ -230,6 +230,34 @@ jobs:
         run: bash scripts/validate-no-legacy.sh
 
   # ─────────────────────────────────────────────────────────────────────
+  # grep-gates
+  # ─────────────────────────────────────────────────────────────────────
+  # Fast pre-test layering checks that enforce two architectural
+  # invariants from #1342 P1.D / P1.E:
+  #
+  #   1. `withSession({...})` calls in production code must include
+  #      `operationId` or `allowNonIdempotent: true` (#1342 P1.D).
+  #   2. The literal `BEGIN IMMEDIATE` may only appear inside the SQLite
+  #      substrate (`storage/`, `event-store/`); leakage into application
+  #      code is a layering violation (#1342 P1.E).
+  #
+  # Both gates are pure bash + grep — no install step, ~5s expected runtime.
+  # Blocking gate via the `ci-gate` aggregator below.
+  # ─────────────────────────────────────────────────────────────────────
+  grep-gates:
+    name: Grep Gates (idempotency + substrate)
+    if: github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: withSession idempotency contract (#1342 P1.D)
+        run: bash scripts/check-withsession-idempotency.sh servers/exarchos-mcp/src
+
+      - name: BEGIN IMMEDIATE substrate-only (#1342 P1.E)
+        run: bash scripts/check-begin-immediate-substrate.sh servers/exarchos-mcp/src
+
+  # ─────────────────────────────────────────────────────────────────────
   # e2e-process
   # ─────────────────────────────────────────────────────────────────────
   # Runs the `process` vitest project against a real compiled binary.
@@ -288,7 +316,7 @@ jobs:
   ci-gate:
     name: CI Gate
     runs-on: self-hosted
-    needs: [changes, test-root, test-mcp, validate-no-legacy]
+    needs: [changes, test-root, test-mcp, validate-no-legacy, grep-gates]
     if: (github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request') && always()
     steps:
       - name: Evaluate results
@@ -297,6 +325,7 @@ jobs:
           echo "test-root=${{ needs.test-root.result }}"
           echo "test-mcp=${{ needs.test-mcp.result }}"
           echo "validate-no-legacy=${{ needs.validate-no-legacy.result }}"
+          echo "grep-gates=${{ needs.grep-gates.result }}"
 
           if [[ "${{ needs.changes.result }}" =~ ^(failure|cancelled)$ ]]; then
             echo "::error::Change detection: ${{ needs.changes.result }}"
@@ -312,6 +341,10 @@ jobs:
           fi
           if [[ "${{ needs.validate-no-legacy.result }}" =~ ^(failure|cancelled)$ ]]; then
             echo "::error::Validate no legacy: ${{ needs.validate-no-legacy.result }}"
+            exit 1
+          fi
+          if [[ "${{ needs.grep-gates.result }}" =~ ^(failure|cancelled)$ ]]; then
+            echo "::error::Grep gates: ${{ needs.grep-gates.result }}"
             exit 1
           fi
 

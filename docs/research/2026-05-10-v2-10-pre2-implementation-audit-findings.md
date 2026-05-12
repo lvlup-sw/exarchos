@@ -21,6 +21,17 @@ verdict: proceed-with-revisions
 
 The remaining two findings are scoped and bounded: a side-effect-coherence gap in the design's per-event idempotency routing (Question 1 / INV-1), and a `storage_busy` propagation gap in the retry layer (Question 2). Neither blocks the bundle; both must land in Wave 3 to avoid silent regressions.
 
+### CI gate coverage (added 2026-05-12, marten-followups Wave C)
+
+Two `scripts/check-*.sh` grep gates wired into `.github/workflows/ci.yml` (job: `grep-gates`) enforce the substrate-correctness invariants this audit surfaced:
+
+| Gate | Issue | Audit finding | Script |
+|---|---|---|---|
+| `withSession` idempotency contract | #1342 P1.D | F1.1 (mitigated) | `scripts/check-withsession-idempotency.sh` |
+| `BEGIN IMMEDIATE` substrate-only | #1342 P1.E | layering invariant (preventive) | `scripts/check-begin-immediate-substrate.sh` |
+
+Both gates run pre-test (~5s combined), respect `.gitignore`, and feed the blocking `ci-gate` aggregator. They prevent regression on the contracts the audit identified but did not (and could not, statically) close at the type-system layer.
+
 ---
 
 ## Question 1 — `withSession` retry + non-idempotent side effects
@@ -34,12 +45,14 @@ This is *the* canonical event-sourcing process-manager problem (Helland 2016; Re
 ### Findings
 
 **F1.1 — HIGH — `withSession` closure permits non-idempotent side effects without contract.**
+*Status (2026-05-12):* **Mitigated by CI grep gate.** `scripts/check-withsession-idempotency.sh` (#1342 P1.D, Wave C) fails CI when any production `.withSession({...})` call site is missing both `operationId` and `allowNonIdempotent: true`. Wired into `.github/workflows/ci.yml` as the `grep-gates` job; runs ~5s pre-test and feeds the blocking `ci-gate` aggregator.
 *Location:* design §"R-2 / `withSession` — imperative escape hatch" (lines 252–276); plan Task 3.8 (`servers/exarchos-mcp/src/event-store/with-session.test.ts`).
 The session contract carries `aggregate`, `version`, and `append(event)`. Nothing in the design forbids arbitrary I/O between `aggregate` access and `fn` resolve. Composing under `withStateRetry` (state-retry.ts:34) re-enters the closure on `ConcurrencyError`, re-firing every side effect.
 *Source:* Akka Persistence Typed *Effect.thenRun semantics* (Akka docs: "Side effects are not run when the actor is restarted… any side effects are executed on an at-most-once basis"); Wolverine *Aggregate Handler Workflow* (handler returns events/messages; outbox holds outbound until commit); Reynhout, *16 practical guidelines for ES* §11.
 *Recommended fix:* (a) Add a runtime-enforced "no side-effects inside closure" assertion in `withSession` — e.g., a `session.requireIdempotent()` opt-in for callers that genuinely need imperative form, and a documented contract that callers MUST either supply an `operationId` or prove the closure pure. (b) Document a `decide`-first preferred path; `withSession` is the escape hatch, not the default.
 
 **F1.2 — HIGH — Wave 4 migration shape (PR API inside `withSession`) is the textbook anti-pattern.**
+*Status (2026-05-12):* **Mitigated by Wave 4 (merge-orchestrate two-event split, preview.2) + Wave B in flight (5-handler rollout, #1342 P1.B).** `merge-orchestrate.ts` shipped with the `merge.requested → merge.executed` split in v2.10.0-preview.2; the marten-followups Wave B extends the same split to the remaining five non-idempotent handlers (`create_pr`, `add_pr_comment`, `create_issue`, `delete-feature-branches`, `cleanup-worktrees`).
 *Location:* design §"Reference Migration Scope" table row `merge-orchestrate.ts:519`; plan Task 4.2 GREEN step.
 The design literally proposes `withStateRetry(() => withSession(... async session => { ...PR API call...; session.append(...) }))`. On `ConcurrencyError` from the inner OCC, the wrapper retries — calling the PR merge API again against a (now) already-merged PR. GitHub returns 405 the second time and the captured `prMeta` carries the wrong data (or is lost entirely).
 *Source:* Microsoft Azure Architecture Center, *Saga distributed transactions pattern* — "Pivot transactions serve as the point of no return… After a pivot transaction succeeds, compensable transactions are no longer relevant." The GitHub merge IS a pivot transaction; it can't be inside a retry boundary.
