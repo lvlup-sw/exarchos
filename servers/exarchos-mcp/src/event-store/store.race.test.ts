@@ -89,6 +89,28 @@ describe('EventStore cross-path race (#1293)', () => {
     return events.map((e) => e.sequence);
   }
 
+  // ─── #1343 — PID lock demotion (Wave A) ───────────────────────────────────
+  //
+  // Pre-Wave-A: `EventStore.initialize()` acquired a per-stateDir PID lock
+  // (`.event-store.lock`) and threw `PidLockError('live-holder')` when a
+  // second `EventStore` tried to attach to the same `stateDir`. That
+  // contract contradicted `docs/architecture/runtime.md` §4, which states
+  // the SQLite WAL substrate is the single cross-process serialization
+  // primitive. Wave A deletes the PID lock outright; multi-process safety
+  // is delegated to SQLite WAL + `BEGIN IMMEDIATE` + the `(stream_id,
+  // sequence)` primary key, which are sufficient on their own.
+  //
+  // This test pins the post-Wave-A contract: two `EventStore` instances
+  // sharing one `stateDir` must both `initialize()` successfully. Pre-Wave-A
+  // the second `initialize()` throws `PidLockError('live-holder')`.
+  it('EventStore_Initialize_NoLongerThrowsOnConcurrentAttach', async () => {
+    const storeA = new EventStore(stateDir);
+    const storeB = new EventStore(stateDir);
+
+    await expect(storeA.initialize()).resolves.toBeUndefined();
+    await expect(storeB.initialize()).resolves.toBeUndefined();
+  });
+
   it('EventStore_concurrentLegacyAppendAndBatchAppend_strictSequenceMonotonicity', async () => {
     const store = new EventStore(stateDir);
     const streamId = 'race-stream';
