@@ -110,6 +110,24 @@ export const EventTypes = [
   // could not have its workflow_type recovered from a state file. Lets
   // operators locate '__legacy' rows that need manual classification.
   'migration.workflow_type_unknown',
+  // Wave B (#1342) two-event split for 5 non-idempotent VCS handlers.
+  // Each handler emits *.requested BEFORE invoking the side effect (durable
+  // intent, INV-1 LOW audit requirement) then *.executed AFTER it succeeds.
+  // B1: create-pr
+  'pr.create.requested',
+  'pr.create.executed',
+  // B2: comment-on-pr
+  'pr.comment.requested',
+  'pr.comment.executed',
+  // B3: create-issue
+  'issue.create.requested',
+  'issue.create.executed',
+  // B4: delete-branch
+  'branch.delete.requested',
+  'branch.delete.executed',
+  // B5: remove-worktree
+  'worktree.remove.requested',
+  'worktree.remove.executed',
 ] as const;
 
 export type EventType = typeof EventTypes[number];
@@ -354,6 +372,20 @@ export const EVENT_EMISSION_REGISTRY: Record<EventType, EventEmissionSource> = {
   'migration.completed': 'auto',
   'migration.failed': 'auto',
   'migration.workflow_type_unknown': 'auto',
+
+  // Wave B (#1342) two-event split — VCS side-effect handlers.
+  // *.requested is emitted by the handler BEFORE invoking the side effect
+  // (auto, deterministic plumbing). *.executed is emitted AFTER success.
+  'pr.create.requested': 'auto',
+  'pr.create.executed': 'auto',
+  'pr.comment.requested': 'auto',
+  'pr.comment.executed': 'auto',
+  'issue.create.requested': 'auto',
+  'issue.create.executed': 'auto',
+  'branch.delete.requested': 'auto',
+  'branch.delete.executed': 'auto',
+  'worktree.remove.requested': 'auto',
+  'worktree.remove.executed': 'auto',
 };
 
 // ─── Base Event Schema ──────────────────────────────────────────────────────
@@ -1176,6 +1208,126 @@ export const MergeRollbackData = z.object({
   rollbackError: z.string().min(1).optional(),
 });
 
+// ─── Wave B Two-Event Split Schemas (#1342) ──────────────────────────────────
+//
+// Each VCS side-effect handler emits *.requested BEFORE the side effect fires
+// (durable intent, INV-1 LOW) then *.executed AFTER the side effect succeeds.
+// On retry the *.requested event is already persisted; the handler's idempotent
+// check (B*.3, wired by the per-handler agents B1–B5) short-circuits re-invocation
+// using the prior result.
+
+/**
+ * pr.create.requested — B1.1: durable intent recorded BEFORE `gh pr create`
+ * fires. Carries the full PR intent so a recovery handler can reconstruct the
+ * call from the persisted event alone (INV-1 LOW audit requirement).
+ */
+export const PrCreateRequestedData = z.object({
+  operationId: z.string().uuid().describe('Idempotency key — stable across retries'),
+  title: z.string().min(1).describe('PR title'),
+  body: z.string().describe('PR body markdown'),
+  base: z.string().min(1).describe('Target base branch'),
+  head: z.string().min(1).describe('Source head branch'),
+  draft: z.boolean().optional().describe('Open as draft PR when true'),
+  labels: z.array(z.string()).optional().describe('Label names to apply'),
+});
+
+/**
+ * pr.create.executed — B1.1: records that `gh pr create` succeeded. Keyed by
+ * `operationId` so the pair {requested, executed} is correlatable in the stream.
+ */
+export const PrCreateExecutedData = z.object({
+  operationId: z.string().uuid().describe('Correlates to the pr.create.requested event'),
+  prNumber: z.number().int().positive().describe('GitHub PR number'),
+  url: z.string().url().describe('HTML URL of the created PR'),
+});
+
+/**
+ * pr.comment.requested — B2.1: durable intent recorded BEFORE `gh pr comment`
+ * fires. The body field is the raw comment text; the handler embeds the
+ * `<!-- exarchos-op:UUID -->` marker before posting (B2.3 idempotency check
+ * queries existing comments for this marker to detect prior execution).
+ */
+export const PrCommentRequestedData = z.object({
+  operationId: z.string().uuid().describe('Idempotency key — embedded as marker in posted comment'),
+  prNumber: z.number().int().positive().describe('PR number being commented on'),
+  body: z.string().min(1).describe('Comment body (handler embeds operationId marker before posting)'),
+});
+
+/**
+ * pr.comment.executed — B2.1: records that the comment was successfully posted.
+ */
+export const PrCommentExecutedData = z.object({
+  operationId: z.string().uuid().describe('Correlates to the pr.comment.requested event'),
+  commentId: z.number().int().positive().describe('GitHub comment id'),
+  url: z.string().url().describe('HTML URL of the posted comment'),
+});
+
+/**
+ * issue.create.requested — B3.1: durable intent recorded BEFORE `gh issue create`
+ * fires. Carries the full issue intent so recovery can reconstruct the call
+ * (INV-1 LOW). B3.3 idempotency check: query existing issues for same
+ * `operationId` marker in body or labels.
+ */
+export const IssueCreateRequestedData = z.object({
+  operationId: z.string().uuid().describe('Idempotency key — embedded as marker in issue body or label'),
+  title: z.string().min(1).describe('Issue title'),
+  body: z.string().describe('Issue body markdown'),
+  labels: z.array(z.string()).optional().describe('Label names to apply'),
+  assignees: z.array(z.string()).optional().describe('GitHub usernames to assign'),
+});
+
+/**
+ * issue.create.executed — B3.1: records that the issue was successfully created.
+ */
+export const IssueCreateExecutedData = z.object({
+  operationId: z.string().uuid().describe('Correlates to the issue.create.requested event'),
+  issueNumber: z.number().int().positive().describe('GitHub issue number'),
+  url: z.string().url().describe('HTML URL of the created issue'),
+});
+
+/**
+ * branch.delete.requested — B4.1: durable intent recorded BEFORE `git branch -D`
+ * and/or `git push origin --delete` fires. B4.3 idempotency is natural: both
+ * commands fail if the branch is already absent — the existing handler swallows
+ * these; the two-event split formalizes the recovery path.
+ */
+export const BranchDeleteRequestedData = z.object({
+  operationId: z.string().uuid().describe('Idempotency key — stable across retries'),
+  branch: z.string().min(1).describe('Branch name to delete'),
+  remote: z.string().optional().describe("Remote name (defaults to 'origin' when omitted)"),
+  localOnly: z.boolean().optional().describe('When true, skip the push --delete step'),
+});
+
+/**
+ * branch.delete.executed — B4.1: records the outcome of the delete operation.
+ * Both flags may be false when the branch was already absent (natural idempotency).
+ */
+export const BranchDeleteExecutedData = z.object({
+  operationId: z.string().uuid().describe('Correlates to the branch.delete.requested event'),
+  branch: z.string().min(1).describe('Branch that was targeted'),
+  deletedLocally: z.boolean().describe('True if local branch was removed'),
+  deletedRemote: z.boolean().describe('True if remote tracking ref was removed'),
+});
+
+/**
+ * worktree.remove.requested — B5.1: durable intent recorded BEFORE
+ * `git worktree remove` fires. B5.3 idempotency check: `git worktree list` filter.
+ */
+export const WorktreeRemoveRequestedData = z.object({
+  operationId: z.string().uuid().describe('Idempotency key — stable across retries'),
+  worktreePath: z.string().min(1).describe('Absolute path of the worktree to remove'),
+});
+
+/**
+ * worktree.remove.executed — B5.1: records the outcome of the removal.
+ * `removed: false` indicates the worktree was already absent (idempotent success).
+ */
+export const WorktreeRemoveExecutedData = z.object({
+  operationId: z.string().uuid().describe('Correlates to the worktree.remove.requested event'),
+  worktreePath: z.string().min(1).describe('Path that was targeted'),
+  removed: z.boolean().describe('True if removed; false if already absent (idempotent success)'),
+});
+
 // ─── Command Resolver Event Data (#1199 T15) ────────────────────────────────
 
 /**
@@ -1484,6 +1636,18 @@ export const EVENT_DATA_SCHEMAS: Partial<Record<EventType, z.ZodSchema>> = {
   'migration.completed': MigrationCompletedData,
   'migration.failed': MigrationFailedData,
   'migration.workflow_type_unknown': MigrationWorkflowTypeUnknownData,
+
+  // Wave B (#1342) two-event split — VCS side-effect handlers.
+  'pr.create.requested': PrCreateRequestedData,
+  'pr.create.executed': PrCreateExecutedData,
+  'pr.comment.requested': PrCommentRequestedData,
+  'pr.comment.executed': PrCommentExecutedData,
+  'issue.create.requested': IssueCreateRequestedData,
+  'issue.create.executed': IssueCreateExecutedData,
+  'branch.delete.requested': BranchDeleteRequestedData,
+  'branch.delete.executed': BranchDeleteExecutedData,
+  'worktree.remove.requested': WorktreeRemoveRequestedData,
+  'worktree.remove.executed': WorktreeRemoveExecutedData,
 };
 
 // ─── TypeScript Types ───────────────────────────────────────────────────────
@@ -1570,6 +1734,18 @@ export type MigrationLegacyJsonlImported = z.infer<typeof MigrationLegacyJsonlIm
 export type MigrationCompleted = z.infer<typeof MigrationCompletedData>;
 export type MigrationFailed = z.infer<typeof MigrationFailedData>;
 
+// Wave B (#1342) two-event split types
+export type PrCreateRequested = z.infer<typeof PrCreateRequestedData>;
+export type PrCreateExecuted = z.infer<typeof PrCreateExecutedData>;
+export type PrCommentRequested = z.infer<typeof PrCommentRequestedData>;
+export type PrCommentExecuted = z.infer<typeof PrCommentExecutedData>;
+export type IssueCreateRequested = z.infer<typeof IssueCreateRequestedData>;
+export type IssueCreateExecuted = z.infer<typeof IssueCreateExecutedData>;
+export type BranchDeleteRequested = z.infer<typeof BranchDeleteRequestedData>;
+export type BranchDeleteExecuted = z.infer<typeof BranchDeleteExecutedData>;
+export type WorktreeRemoveRequested = z.infer<typeof WorktreeRemoveRequestedData>;
+export type WorktreeRemoveExecuted = z.infer<typeof WorktreeRemoveExecutedData>;
+
 // ─── Event Data Map ─────────────────────────────────────────────────────────
 
 export type EventDataMap = {
@@ -1654,6 +1830,17 @@ export type EventDataMap = {
   'migration.legacy_jsonl_imported': MigrationLegacyJsonlImported;
   'migration.completed': MigrationCompleted;
   'migration.failed': MigrationFailed;
+  // Wave B (#1342) two-event split
+  'pr.create.requested': PrCreateRequested;
+  'pr.create.executed': PrCreateExecuted;
+  'pr.comment.requested': PrCommentRequested;
+  'pr.comment.executed': PrCommentExecuted;
+  'issue.create.requested': IssueCreateRequested;
+  'issue.create.executed': IssueCreateExecuted;
+  'branch.delete.requested': BranchDeleteRequested;
+  'branch.delete.executed': BranchDeleteExecuted;
+  'worktree.remove.requested': WorktreeRemoveRequested;
+  'worktree.remove.executed': WorktreeRemoveExecuted;
 };
 
 // ─── Event Catalog Serialization ────────────────────────────────────────────

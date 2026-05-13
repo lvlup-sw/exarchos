@@ -79,6 +79,8 @@ import { handleListPrs } from './vcs/list-prs.js';
 import { handleGetPrComments } from './vcs/get-pr-comments.js';
 import { handleAddPrComment } from './vcs/add-pr-comment.js';
 import { handleCreateIssue } from './vcs/create-issue.js';
+import type { HandleCreateIssueArgs } from './vcs/create-issue.js';
+import { createVcsProvider } from '../vcs/factory.js';
 import { handleInit } from './init/index.js';
 import { handleMergeOrchestrate } from './merge-orchestrate.js';
 
@@ -285,7 +287,26 @@ const ACTION_HANDLERS: Readonly<Record<string, ActionHandler>> = {
   list_prs: adaptCtx(handleListPrs),
   get_pr_comments: adaptCtx(handleGetPrComments),
   add_pr_comment: adaptCtx(handleAddPrComment),
-  create_issue: adaptCtx(handleCreateIssue),
+  // create_issue requires a provider-backed listIssuesByMarker for the
+  // two-event-split recovery precheck (CodeRabbit #3224631237). Wire the
+  // GitHub provider's searchIssuesByMarker here so the handler never falls
+  // back to a no-op that would silently mask duplicate-issue bugs.
+  create_issue: async (args, _stateDir, ctx) => {
+    if (!ctx) throw new Error('DispatchContext required for this handler');
+    const typedArgs = args as unknown as Omit<HandleCreateIssueArgs, 'listIssuesByMarker'> &
+      Partial<Pick<HandleCreateIssueArgs, 'listIssuesByMarker'>>;
+    // Lazy provider creation: only construct the VCS provider if the
+    // caller hasn't injected a `listIssuesByMarker` (e.g. tests that
+    // stub the recovery probe directly). Avoids surfacing provider
+    // bootstrap errors before the handler's own input guards run.
+    const listIssuesByMarker =
+      typedArgs.listIssuesByMarker ??
+      (async (operationId: string) => {
+        const provider = await createVcsProvider({ config: ctx.projectConfig });
+        return provider.searchIssuesByMarker(operationId);
+      });
+    return handleCreateIssue({ ...typedArgs, listIssuesByMarker }, ctx);
+  },
   // Merge orchestrator (DR-MO-1) — composes preflight + executor under one
   // public entry point. The internal `handleExecuteMerge` (T15) is NOT
   // registered here; only `merge_orchestrate` is the public action verb.

@@ -18,6 +18,7 @@ import type {
   PrComment,
   CreateIssueOpts,
   IssueResult,
+  IssueSearchSummary,
   RepoInfo,
 } from './provider.js';
 import { UnsupportedOperationError } from './provider.js';
@@ -215,6 +216,10 @@ export class GitLabProvider implements VcsProvider {
 
   async createIssue(_opts: CreateIssueOpts): Promise<IssueResult> {
     throw new UnsupportedOperationError('gitlab', 'createIssue');
+  }
+
+  async searchIssuesByMarker(_operationId: string): Promise<IssueSearchSummary[]> {
+    throw new UnsupportedOperationError('gitlab', 'searchIssuesByMarker');
   }
 
   async getRepository(): Promise<RepoInfo> {

@@ -72,11 +72,23 @@ export interface CreateIssueOpts {
   readonly title: string;
   readonly body: string;
   readonly labels?: readonly string[];
+  readonly assignees?: readonly string[];
 }
 
 export interface IssueResult {
   readonly number: number;
   readonly url: string;
+}
+
+/**
+ * Summary of an issue surfaced by a marker-based search. Returned by
+ * `VcsProvider.searchIssuesByMarker` to support the two-event-split recovery
+ * precheck in `handleCreateIssue` (CodeRabbit #3224631237).
+ */
+export interface IssueSearchSummary {
+  readonly number: number;
+  readonly url: string;
+  readonly body: string;
 }
 
 export interface RepoInfo {
@@ -95,6 +107,17 @@ export interface VcsProvider {
   getPrComments(prId: string): Promise<PrComment[]>;
   getPrDiff(prId: string): Promise<string>;
   createIssue(opts: CreateIssueOpts): Promise<IssueResult>;
+  /**
+   * Search issues whose body contains the operationId marker
+   * `<!-- exarchos-op:UUID -->`. Used by the create-issue handler's recovery
+   * precheck to detect crash-recovery cases where the issue was created on
+   * the remote but `issue.create.executed` was never committed.
+   *
+   * Implementations should query the provider's search surface scoped to the
+   * current repository. Empty array means "no match" — distinct from a
+   * provider failure (which must throw and not return []).
+   */
+  searchIssuesByMarker(operationId: string): Promise<IssueSearchSummary[]>;
   getRepository(): Promise<RepoInfo>;
 }
 
