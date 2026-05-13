@@ -6,6 +6,8 @@ import type { WorkflowState } from '../workflow/types.js';
 import type { QueryFilters } from '../event-store/store.js';
 import type { StorageBackend, EventSender, ViewCacheEntry, DrainResult } from './backend.js';
 import { VersionConflictError } from './memory-backend.js';
+import type { SnapshotRecord } from '../projections/snapshot-schema.js';
+import { resolveMaxRecords } from './snapshot-retention.js';
 
 // ─── AtomicAppender wire types (#1259, T06/T07) ─────────────────────────────
 //
@@ -49,7 +51,7 @@ export interface PublicPersistedEventLike {
 
 // ─── Schema DDL ─────────────────────────────────────────────────────────────
 
-const SCHEMA_VERSION = 4;
+const SCHEMA_VERSION = 5;
 
 const SCHEMA_DDL = `
 CREATE TABLE IF NOT EXISTS events (
@@ -102,6 +104,25 @@ CREATE TABLE IF NOT EXISTS schema_version (
   version INTEGER PRIMARY KEY,
   appliedAt TEXT NOT NULL
 );
+
+-- Projection snapshots (V4 -> V5, #1343 Wave A). Replaces the per-stream
+-- JSONL sidecar at <stateDir>/<streamId>.projections.jsonl with a relational
+-- table. Composite PK (stream_id, projection_id, projection_version, sequence)
+-- so multiple snapshots for the same projection coexist; the latest-by-sequence
+-- index supports the readLatestProjectionSnapshot LIMIT 1 fast path. The
+-- payload column holds the JSON-encoded SnapshotRecord (projectionId,
+-- projectionVersion, sequence, state, timestamp).
+CREATE TABLE IF NOT EXISTS projection_snapshots (
+  stream_id          TEXT NOT NULL,
+  projection_id      TEXT NOT NULL,
+  projection_version TEXT NOT NULL,
+  sequence           INTEGER NOT NULL,
+  payload            TEXT NOT NULL,
+  created_at         TEXT NOT NULL,
+  PRIMARY KEY (stream_id, projection_id, projection_version, sequence)
+);
+CREATE INDEX IF NOT EXISTS idx_projection_snapshots_latest
+  ON projection_snapshots(stream_id, projection_id, projection_version, sequence DESC);
 
 -- Idempotency claims for AtomicAppender SQLite-backed body (#1259, T06/T07).
 -- Each row records the eventIds, sequences, and timestamps committed under a
@@ -397,9 +418,15 @@ export class SqliteBackend implements StorageBackend {
    *           `sequences`. Indexes + state-file backfill + the
    *           `migration.workflow_type_unknown` observability event live in
    *           sibling subtasks (1.2, 1.5, 1.6).
+   * V4 -> V5: #1343 Wave A. Add `projection_snapshots` table and the
+   *           `idx_projection_snapshots_latest` index that replace the
+   *           JSONL sidecar at <stateDir>/<streamId>.projections.jsonl.
+   *           Idempotent via CREATE TABLE IF NOT EXISTS; SCHEMA_DDL above
+   *           creates the table on fresh DBs, and this step covers legacy
+   *           DBs that were stamped at V4 before #1343 landed.
    *
    * Each step short-circuits if its target version is already present in the
-   * `schema_version` table, so running migrateSchema() twice on a V4 DB is a
+   * `schema_version` table, so running migrateSchema() twice on a V5 DB is a
    * no-op (idempotent).
    */
   private migrateSchema(): void {
@@ -436,6 +463,18 @@ export class SqliteBackend implements StorageBackend {
 
     if (!v4Existing) {
       this.migrateV3ToV4();
+    }
+
+    // V4 -> V5: gated by the schema_version ledger. Adds the
+    // `projection_snapshots` table + `idx_projection_snapshots_latest` index
+    // for #1343 Wave A. Fresh DBs already have the table via SCHEMA_DDL; this
+    // path covers DBs created under SCHEMA_VERSION === 4.
+    const v5Existing = this.db
+      .prepare('SELECT version FROM schema_version WHERE version = ?')
+      .get(5) as { version: number } | undefined;
+
+    if (!v5Existing) {
+      this.migrateV4ToV5();
     }
   }
 
@@ -534,6 +573,45 @@ export class SqliteBackend implements StorageBackend {
     this.db
       .prepare('INSERT OR IGNORE INTO schema_version (version, appliedAt) VALUES (?, ?)')
       .run(4, now);
+  }
+
+  /**
+   * V4 -> V5 migration step. #1343 Wave A.
+   *
+   * Creates the `projection_snapshots` table + `idx_projection_snapshots_latest`
+   * index that replace the per-stream JSONL sidecar
+   * (`<stateDir>/<streamId>.projections.jsonl`). The same DDL lives in
+   * SCHEMA_DDL above so fresh DBs get the table during the initial
+   * `db.exec(SCHEMA_DDL)` pass; this helper exists only to cover legacy DBs
+   * that were stamped at V4 before #1343 landed.
+   *
+   * `CREATE TABLE IF NOT EXISTS` makes the step idempotent — if a parallel
+   * caller (or the SCHEMA_DDL pass above) has already created the table,
+   * this is a no-op. The ledger stamp at the bottom is what actually closes
+   * the V4 -> V5 gate so the runner short-circuits on subsequent opens.
+   *
+   * Per plan-review decision (`Stacked-PR plan.JSONL sidecar backfill`):
+   * skip backfill. v2.10.0-preview.2 is pre-release; no production users
+   * have accumulated sidecar data, so migration code would be dead weight.
+   */
+  private migrateV4ToV5(): void {
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS projection_snapshots (
+        stream_id          TEXT NOT NULL,
+        projection_id      TEXT NOT NULL,
+        projection_version TEXT NOT NULL,
+        sequence           INTEGER NOT NULL,
+        payload            TEXT NOT NULL,
+        created_at         TEXT NOT NULL,
+        PRIMARY KEY (stream_id, projection_id, projection_version, sequence)
+      );
+      CREATE INDEX IF NOT EXISTS idx_projection_snapshots_latest
+        ON projection_snapshots(stream_id, projection_id, projection_version, sequence DESC);
+    `);
+
+    this.db
+      .prepare('INSERT OR IGNORE INTO schema_version (version, appliedAt) VALUES (?, ?)')
+      .run(5, new Date().toISOString());
   }
 
   /**
@@ -1143,6 +1221,119 @@ export class SqliteBackend implements StorageBackend {
          VALUES (?, ?, ?)`,
       )
       .run(streamId, workflowType, new Date().toISOString());
+  }
+
+  // ─── Projection Snapshot Accessors (Wave A, #1343) ──────────────────────
+
+  /**
+   * Return the snapshot record with the highest sequence for the given
+   * (streamId, projectionId, projectionVersion) coordinate, or `undefined`
+   * when no row exists.
+   *
+   * Uses the `idx_projection_snapshots_latest` index
+   * (stream_id, projection_id, projection_version, sequence DESC) so the
+   * LIMIT 1 fast path never triggers a full table scan.
+   */
+  readLatestProjectionSnapshot(
+    streamId: string,
+    projectionId: string,
+    projectionVersion: string,
+  ): SnapshotRecord | undefined {
+    const row = this.db
+      .prepare(
+        `SELECT payload FROM projection_snapshots
+         WHERE stream_id = ? AND projection_id = ? AND projection_version = ?
+         ORDER BY sequence DESC
+         LIMIT 1`,
+      )
+      .get(streamId, projectionId, projectionVersion) as { payload: string } | undefined;
+
+    if (!row) return undefined;
+    return JSON.parse(row.payload) as SnapshotRecord;
+  }
+
+  /**
+   * Append a snapshot record for the given stream. When the total row count
+   * for the (streamId, projectionId, projectionVersion) coordinate exceeds
+   * `opts.maxRecords` (defaulting to `resolveMaxRecords()`), the oldest rows
+   * by sequence are deleted so exactly `maxRecords` rows remain.
+   *
+   * DELETE uses a subquery that selects the N oldest `rowid`s, where N is the
+   * excess count. This is a single SQL round-trip and avoids a separate
+   * SELECT + loop.
+   */
+  appendProjectionSnapshot(
+    streamId: string,
+    record: SnapshotRecord,
+    opts?: {
+      maxRecords?: number;
+      onPrune?: (prunedCount: number) => void;
+    },
+  ): void {
+    const payload = JSON.stringify(record);
+    const createdAt = new Date().toISOString();
+
+    const max =
+      opts?.maxRecords !== undefined && Number.isInteger(opts.maxRecords) && opts.maxRecords > 0
+        ? opts.maxRecords
+        : resolveMaxRecords();
+
+    let prunedCount = 0;
+
+    const txn = this.db.transaction(() => {
+      // INSERT OR IGNORE — snapshot writes are idempotent by definition:
+      // the SnapshotRecord at sequence N for a given projection version is
+      // a deterministic fold of the same events, so a retry of an
+      // already-committed write at the same coordinate is a no-op rather
+      // than an error. The PRIMARY KEY (stream_id, projection_id,
+      // projection_version, sequence) handles dedup; OR IGNORE preserves
+      // the original row over any post-hoc re-write.
+      this.db
+        .prepare(
+          `INSERT OR IGNORE INTO projection_snapshots
+             (stream_id, projection_id, projection_version, sequence, payload, created_at)
+           VALUES (?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          streamId,
+          record.projectionId,
+          record.projectionVersion,
+          record.sequence,
+          payload,
+          createdAt,
+        );
+
+      // Count the total rows for this coordinate.
+      const countRow = this.db
+        .prepare(
+          `SELECT COUNT(*) AS cnt FROM projection_snapshots
+           WHERE stream_id = ? AND projection_id = ? AND projection_version = ?`,
+        )
+        .get(streamId, record.projectionId, record.projectionVersion) as { cnt: number };
+
+      const excess = countRow.cnt - max;
+      if (excess > 0) {
+        // Delete the `excess` oldest rows (lowest sequence) for this coordinate.
+        this.db
+          .prepare(
+            `DELETE FROM projection_snapshots
+             WHERE rowid IN (
+               SELECT rowid FROM projection_snapshots
+               WHERE stream_id = ? AND projection_id = ? AND projection_version = ?
+               ORDER BY sequence ASC
+               LIMIT ?
+             )`,
+          )
+          .run(streamId, record.projectionId, record.projectionVersion, excess);
+        prunedCount = excess;
+      }
+    });
+
+    txn();
+
+    if (prunedCount > 0) {
+      opts?.onPrune?.(prunedCount);
+    }
   }
 
   // ─── State Operations ───────────────────────────────────────────────────

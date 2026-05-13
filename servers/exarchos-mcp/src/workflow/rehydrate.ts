@@ -23,7 +23,6 @@
  *     (T055) and event-stream-unavailable (T056) reuse that helper with
  *     their own `cause` values.
  */
-import * as fs from 'node:fs';
 import * as path from 'node:path';
 
 import type { EventStore } from '../event-store/store.js';
@@ -47,7 +46,6 @@ import {
   type RehydrationDocumentV3,
 } from '../projections/rehydration/schema.js';
 import { loadRehydrationDocument } from '../projections/rehydration/serialize.js';
-import { SnapshotRecord } from '../projections/snapshot-schema.js';
 import type { ProjectionReducer } from '../projections/types.js';
 import { composePhasePlaybook } from './playbooks.js';
 import { readStateFile } from './state-store.js';
@@ -107,12 +105,12 @@ export async function hydrateFromSnapshotThenTail<State, Event>(
   reducer: ProjectionReducer<State, Event>,
   eventStore: EventStore,
   streamId: string,
-  stateDir: string,
+  _stateDir: string,
   projectionId: string,
   projectionVersion: string,
 ): Promise<{ state: State; lastEventSequence: number }> {
   const snapshot = readLatestSnapshot(
-    stateDir,
+    eventStore.getReadBackend(),
     streamId,
     projectionId,
     projectionVersion,
@@ -313,71 +311,22 @@ async function minimalFromStateStore(
 
 /**
  * Internal marker error for T055. Raised synthetically inside the handler's
- * snapshot-read try-block when the sidecar is present but unreadable
- * (corrupt JSON, schema-invalid record, or schema-invalid state payload).
+ * snapshot-read try-block when a snapshot was returned but its `state`
+ * payload fails the rehydration document schema (post-#1343 the JSONL
+ * "valid record alongside malformed lines" failure mode is gone — the
+ * SQLite substrate's row is either schema-valid or invisible to the
+ * reader, so the only remaining corruption signal is state-shape drift).
  *
  * Not exported — it exists purely to reuse the single catch-handler path
- * for both "IO error from fs.readFileSync" and "we detected post-read that
- * the file was junk". Tests do not assert on the class identity; the
- * `workflow.projection_degraded` event's `cause: "snapshot-corrupt"` is the
- * observable contract.
+ * for backend IO errors and post-read schema failures. Tests do not assert
+ * on the class identity; the `workflow.projection_degraded` event's
+ * `cause: "snapshot-corrupt"` is the observable contract.
  */
 class SnapshotCorruptError extends Error {
   constructor(message: string) {
     super(message);
     this.name = 'SnapshotCorruptError';
   }
-}
-
-/**
- * Detect whether the per-stream snapshot sidecar exists but contains any
- * unparseable JSON line or schema-invalid {@link SnapshotRecord}. Runs the
- * same read `readLatestSnapshot` does but in "strict" mode: instead of
- * skipping bad lines, we report the presence of any bad line as corruption.
- *
- * Scoped to T055's catch-boundary semantics — "corrupt" here means any of:
- *   - a JSON.parse failure on any non-empty line; OR
- *   - a SnapshotRecord schema violation on any parsed line.
- *
- * Returns `false` when the sidecar is absent (ENOENT — genuinely "no
- * snapshot yet"), when it is empty, or when every line is a valid
- * `SnapshotRecord` (in which case the "no matching projection" outcome is
- * legitimate, e.g. only older/newer projection versions exist).
- *
- * Pure except for one synchronous file read. Never throws — any unexpected
- * read failure (non-ENOENT) returns `true` so the caller still degrades.
- */
-function sidecarIsCorrupt(stateDir: string, streamId: string): boolean {
-  const sidecar = path.join(stateDir, `${streamId}.projections.jsonl`);
-  let raw: string;
-  try {
-    raw = fs.readFileSync(sidecar, 'utf8');
-  } catch (err: unknown) {
-    if (
-      typeof err === 'object' &&
-      err !== null &&
-      'code' in err &&
-      (err as { code: unknown }).code === 'ENOENT'
-    ) {
-      return false;
-    }
-    // Any other IO error (EACCES, EIO, etc.) — treat as corrupt so the
-    // caller degrades rather than crashing the rehydrate.
-    return true;
-  }
-  for (const line of raw.split('\n')) {
-    if (line.length === 0) continue;
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(line);
-    } catch {
-      return true;
-    }
-    if (!SnapshotRecord.safeParse(parsed).success) {
-      return true;
-    }
-  }
-  return false;
 }
 
 /**
@@ -397,44 +346,47 @@ export async function handleRehydrate(
   const { featureId } = args;
   const { eventStore, stateDir } = ctx;
 
-  // T055 (DR-18) — corrupt-snapshot degradation. The catch here is scoped
-  // strictly around the snapshot-read + schema-validation step. On any
-  // non-ENOENT IO error from `readLatestSnapshot`, OR detection that the
-  // sidecar file has any unparseable JSON / schema-invalid records, we
-  // cold-fold via `rebuildProjection` and emit `projection_degraded` with
-  // `cause: "snapshot-corrupt"`, `fallbackSource: "full-replay"`.
+  // T055 (DR-18) — corrupt-snapshot degradation. Scoped strictly around the
+  // snapshot-read + schema-validation step. Three failure modes degrade to
+  // `rebuildProjection` with `cause: "snapshot-corrupt"`:
   //
-  // A TRULY missing sidecar (ENOENT) still flows through the normal path —
-  // that's "no snapshot yet", not "corrupt". `readLatestSnapshot` already
-  // translates ENOENT to `undefined`; a non-ENOENT IO error propagates as a
-  // throw and is caught here.
+  //   1. The backend's snapshot read throws (e.g. SQLite IO error mid-read).
+  //   2. The backend returned a row whose payload fails `SnapshotRecord`
+  //      validation (`readLatestSnapshot` translates this to `undefined`,
+  //      so the JSONL-era "valid record alongside malformed lines" mode
+  //      collapses post-#1343 — the row is either valid or invisible).
+  //   3. The snapshot's `state` payload deserialises but fails the
+  //      `RehydrationDocumentSchema` shape check below (schema drift).
+  //
+  // A genuinely missing snapshot returns `undefined` and flows through the
+  // normal path — that's "no snapshot yet", not "corrupt".
+  //
+  // Backend acquisition failures (e.g. test stubs that don't expose
+  // `getReadBackend`, or partially-initialised event stores) are NOT
+  // classified as snapshot corruption — they fall through to the
+  // event-stream-unavailable path below, since "no backend" implies the
+  // event store is not in a state to serve any reads.
   let snapshot: ReturnType<typeof readLatestSnapshot>;
+  let backend: ReturnType<EventStore['getReadBackend']> | undefined;
   try {
-    snapshot = readLatestSnapshot(
-      stateDir,
-      featureId,
-      REHYDRATION_PROJECTION_ID,
-      REHYDRATION_PROJECTION_VERSION,
-    );
-    // Sidecar corruption check runs on every read, regardless of whether
-    // `readLatestSnapshot` returned a usable record (CodeRabbit PR #1178).
-    // The reader walks lines greedily and returns the latest valid record;
-    // if a sidecar contains a mix of valid and malformed lines (truncated
-    // tail, partial write, manual edit), the reader silently trusts the
-    // last good line — but the file as a whole has lost the
-    // append-only guarantee and a later read could surface a different
-    // record depending on where the corruption falls. Detect that here and
-    // degrade so the caller rebuilds from the event log instead of
-    // delivering a record that may be silently superseded.
-    if (sidecarIsCorrupt(stateDir, featureId)) {
-      throw new SnapshotCorruptError(
-        `snapshot sidecar for ${featureId} is unreadable`,
-      );
-    }
-    // And if we DID get a snapshot, validate its state payload against the
-    // rehydration schema — a schema-valid SnapshotRecord may still wrap a
-    // state blob that drifted from the reducer's document shape (schema
-    // mismatch counts as corrupt per DR-18).
+    backend = typeof eventStore.getReadBackend === 'function'
+      ? eventStore.getReadBackend()
+      : undefined;
+  } catch {
+    backend = undefined;
+  }
+  try {
+    snapshot = backend !== undefined
+      ? readLatestSnapshot(
+          backend,
+          featureId,
+          REHYDRATION_PROJECTION_ID,
+          REHYDRATION_PROJECTION_VERSION,
+        )
+      : undefined;
+    // Schema check on the recovered state payload — a SnapshotRecord whose
+    // `state` blob drifted from the reducer's document shape counts as
+    // corrupt per DR-18.
     if (
       snapshot !== undefined &&
       !RehydrationDocumentSchema.safeParse(snapshot.state).success

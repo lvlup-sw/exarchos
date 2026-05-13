@@ -1446,17 +1446,18 @@ export async function handleCheckpoint(
       timestamp: new Date().toISOString(),
     };
 
-    // `byteSize` is the on-disk cost of this record as a JSONL line — the
-    // same serialization `appendSnapshot` writes, including the trailing
-    // newline that delimits records (CodeRabbit PR #1178 — without the `\n`
-    // we underreported by 1 byte per record). We compute it pre-write so the
-    // `workflow.checkpoint_written` event can be emitted with the exact size
-    // observers will see on disk.
+    // `byteSize` is the serialized payload size of this record. Pre-Wave-A
+    // the snapshot store wrote one JSONL line per record and this metric
+    // included the trailing `\n` delimiter (CodeRabbit PR #1178). Post-Wave-A
+    // snapshots persist into the SQLite `projection_snapshots` table with no
+    // newline framing, so we measure the JSON payload only. The
+    // `workflow.checkpoint_written` event can still be emitted pre-write
+    // because the payload bytes are independent of the substrate.
     const serialized = JSON.stringify(snapshotRecord);
-    const byteSize = Buffer.byteLength(`${serialized}\n`, 'utf8');
+    const byteSize = Buffer.byteLength(serialized, 'utf8');
 
     try {
-      appendSnapshot(stateDir, input.featureId, snapshotRecord);
+      appendSnapshot(eventStore.getReadBackend(), input.featureId, snapshotRecord);
     } catch (err) {
       return {
         success: false,

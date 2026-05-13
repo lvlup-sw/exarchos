@@ -1,79 +1,63 @@
 /**
- * Projection snapshot store — JSONL sidecar reader + writer (DR-2, §5.2).
+ * Projection snapshot store — backend-delegated reader + writer (DR-2, §5.2).
  *
- * Sidecar file: `<stateDir>/<streamId>.projections.jsonl`.
- * Each line is a JSON-encoded {@link SnapshotRecord}.
+ * Snapshots are persisted to the active {@link StorageBackend}'s
+ * `projection_snapshots` table (SQLite in production, in-memory for tests).
+ * The legacy `<stateDir>/<streamId>.projections.jsonl` sidecar substrate was
+ * removed in #1343 (Wave A); the backend's `(stream_id, projection_id,
+ * projection_version, sequence)` PRIMARY KEY now provides the same per-stream
+ * ordering and size-cap pruning that the JSONL sidecar provided previously.
  *
- * Read semantics ({@link readLatestSnapshot}): lines that fail JSON parsing,
- * fail schema validation, or whose `projectionId` / `projectionVersion` do not
- * match the request are skipped. The record with the highest `sequence` among
- * matching lines is returned. If the file is missing or no line matches,
- * returns `undefined`.
+ * Read semantics ({@link readLatestSnapshot}): delegates to
+ * `backend.readLatestProjectionSnapshot`, which returns the highest-sequence
+ * row matching `(streamId, projectionId, projectionVersion)`, or `undefined`.
  *
- * Write semantics ({@link appendSnapshot}): read the existing sidecar (if any),
- * append the new JSONL line, stage the complete payload to
- * `<target>.<pid>.<random>.tmp`, `fsync` the tmp file, then `rename` over the
- * target. `rename` is atomic on POSIX, giving atomic append at the file level.
- * On rename failure the tmp file is best-effort unlinked.
+ * Write semantics ({@link appendSnapshot}): delegates to
+ * `backend.appendProjectionSnapshot`. Cap enforcement (oldest-row eviction
+ * to retain exactly `maxRecords`) lives in the backend implementation; the
+ * WARN-on-prune log emission stays at this wrapper boundary so consumers see
+ * a stable structured-log surface regardless of substrate.
  *
- * Concurrency caveat: intended for a single-writer process. Cross-process
- * concurrency is out of scope.
+ * Concurrency: serialization is the substrate's responsibility (SQLite WAL +
+ * `BEGIN IMMEDIATE`); this layer is a thin wrapper.
  */
 
-import * as fs from 'node:fs';
-import * as path from 'node:path';
-
 import { storeLogger } from '../logger.js';
-import { atomicWriteFile } from '../utils/atomic-write.js';
 import { SnapshotRecord } from './snapshot-schema.js';
+import type { StorageBackend } from '../storage/backend.js';
+import {
+  DEFAULT_SNAPSHOT_MAX_RECORDS,
+  resolveMaxRecords,
+} from '../storage/snapshot-retention.js';
 import { defaultRegistry, type ProjectionRegistry } from './registry.js';
 import type { ProjectionReducer } from './types.js';
 import type { EventStore } from '../event-store/store.js';
 import type { WorkflowEvent } from '../event-store/schemas.js';
 import { UnknownProjectionIdError } from './rebuild.js';
 
-/** Default sidecar size cap when `SNAPSHOT_MAX_RECORDS` is unset or invalid. */
-export const DEFAULT_SNAPSHOT_MAX_RECORDS = 500;
+// Re-export retention config so existing consumers of `projections/store`
+// continue to resolve these symbols. The canonical home is now
+// `storage/snapshot-retention.ts` (see #1346 / CodeRabbit layering fix);
+// storage backends import from there directly, and `projections/store`
+// re-exports for backward compatibility.
+export {
+  DEFAULT_SNAPSHOT_MAX_RECORDS,
+  resolveMaxRecords,
+};
 
 /**
- * Resolve the per-stream sidecar size cap from environment configuration.
- *
- * Reads `SNAPSHOT_MAX_RECORDS` and parses it as a positive integer. Any
- * missing, non-numeric, zero, or negative value falls back to
- * {@link DEFAULT_SNAPSHOT_MAX_RECORDS} (500) so misconfiguration never
- * disables the cap or produces a pathological value. Mirrors the defensive
- * pattern of {@link ../projections/cadence.ts.resolveCadence}.
- *
- * @param env - Environment object to read from. Defaults to `process.env`
- *   so callers usually invoke with no args; explicit passthrough enables
- *   pure testing without mutating process state.
- */
-export function resolveMaxRecords(
-  env: NodeJS.ProcessEnv = process.env,
-): number {
-  const raw = env.SNAPSHOT_MAX_RECORDS;
-  if (raw === undefined || raw === '') {
-    return DEFAULT_SNAPSHOT_MAX_RECORDS;
-  }
-  const parsed = Number.parseInt(raw, 10);
-  if (!Number.isFinite(parsed) || parsed <= 0) {
-    return DEFAULT_SNAPSHOT_MAX_RECORDS;
-  }
-  return parsed;
-}
-
-/**
- * Resolve the JSONL sidecar path for a given workflow stream, rejecting
- * stream identifiers that could escape `stateDir`. Both the read and write
- * code paths interpolate `streamId` directly into a filename, so any value
- * containing `..` or path separators would let a caller materialise paths
- * outside the projection root and read or overwrite arbitrary files.
+ * Reject stream identifiers that could traverse out of the substrate's
+ * coordinate space. Pre-Wave-A this guard prevented JSONL filename
+ * traversal; post-substrate-cut it still applies because the streamId
+ * is a primary-key column on `projection_snapshots` and must be a
+ * stable, opaque token (no path separators, no embedded NULs, no
+ * relative-path escape sequences).
  *
  * Workflow streams use feature ids that are already constrained upstream
  * (slugified `feature/<id>` form), but this helper enforces the invariant
  * locally so a future caller can't trip it inadvertently.
  */
-function getSnapshotSidecarPath(stateDir: string, streamId: string): string {
+function assertStreamIdSafe(streamId: string): void {
   if (
     streamId.length === 0 ||
     streamId.includes('..') ||
@@ -82,91 +66,73 @@ function getSnapshotSidecarPath(stateDir: string, streamId: string): string {
     streamId.includes('\0')
   ) {
     throw new Error(
-      `Invalid streamId for projection sidecar: ${JSON.stringify(streamId)}`,
+      `Invalid streamId for projection snapshot: ${JSON.stringify(streamId)}`,
     );
   }
-  return path.join(stateDir, `${streamId}.projections.jsonl`);
 }
 
 /** Optional per-call overrides for {@link appendSnapshot}. */
 export interface AppendSnapshotOptions {
   /**
-   * Maximum retained records after append. When the post-append line count
-   * would exceed this value, the oldest lines are pruned in one shot so the
-   * sidecar retains exactly `maxRecords` lines, and one WARN is emitted via
-   * the structured logger with the count pruned. Defaults to the value from
-   * {@link resolveMaxRecords} (i.e., the `SNAPSHOT_MAX_RECORDS` env var or
-   * {@link DEFAULT_SNAPSHOT_MAX_RECORDS}).
+   * Maximum retained records after append. When the post-append count for
+   * this `(streamId, projectionId, projectionVersion)` coordinate would
+   * exceed this value, the backend evicts the oldest rows in one
+   * transaction so the coordinate retains exactly `maxRecords` rows, and
+   * one WARN is emitted via the structured logger with the count pruned.
+   * Defaults to the value from {@link resolveMaxRecords} (i.e., the
+   * `SNAPSHOT_MAX_RECORDS` env var or {@link DEFAULT_SNAPSHOT_MAX_RECORDS}).
    */
   maxRecords?: number;
 }
 
+/**
+ * Read the highest-sequence snapshot for `(streamId, projectionId,
+ * projectionVersion)` from the backend, or `undefined` when no row matches.
+ *
+ * Defensive parse: if the backend's row payload fails {@link SnapshotRecord}
+ * schema validation, returns `undefined` rather than throwing — the caller
+ * treats schema-invalid snapshots the same as a missing snapshot and
+ * proceeds to a cold rebuild from the event log.
+ */
 export function readLatestSnapshot(
-  stateDir: string,
+  backend: StorageBackend,
   streamId: string,
   projectionId: string,
   projectionVersion: string,
 ): SnapshotRecord | undefined {
-  const sidecar = getSnapshotSidecarPath(stateDir, streamId);
-
-  let raw: string;
-  try {
-    raw = fs.readFileSync(sidecar, 'utf8');
-  } catch (err: unknown) {
-    if (isNotFound(err)) {
-      return undefined;
-    }
-    throw err;
-  }
-
-  let latest: SnapshotRecord | undefined;
-  for (const line of raw.split('\n')) {
-    if (line.length === 0) continue;
-
-    let parsedJson: unknown;
-    try {
-      parsedJson = JSON.parse(line);
-    } catch {
-      continue;
-    }
-
-    const result = SnapshotRecord.safeParse(parsedJson);
-    if (!result.success) continue;
-
-    const record = result.data;
-    if (record.projectionId !== projectionId) continue;
-    if (record.projectionVersion !== projectionVersion) continue;
-
-    if (latest === undefined || record.sequence > latest.sequence) {
-      latest = record;
-    }
-  }
-
-  return latest;
+  assertStreamIdSafe(streamId);
+  const raw = backend.readLatestProjectionSnapshot(
+    streamId,
+    projectionId,
+    projectionVersion,
+  );
+  if (raw === undefined) return undefined;
+  const result = SnapshotRecord.safeParse(raw);
+  return result.success ? result.data : undefined;
 }
 
 /**
- * Append a {@link SnapshotRecord} to the per-stream projections sidecar.
+ * Append a {@link SnapshotRecord} for the given stream via the backend.
  *
- * Enforces a size cap (DR-18 resilience): once the sidecar would exceed
- * `options.maxRecords` lines post-append, the oldest lines are dropped in
- * one shot so the sidecar retains exactly `maxRecords` lines. Emits a
- * single WARN per prune event via {@link storeLogger}, including the count
- * pruned, the stream, and the resolved cap. The cap defaults to the value
- * resolved by {@link resolveMaxRecords} at call time.
+ * Enforces a per-coordinate size cap (DR-18 resilience): once the row count
+ * for `(streamId, record.projectionId, record.projectionVersion)` would
+ * exceed `options.maxRecords`, the backend deletes the oldest rows in one
+ * transaction so the coordinate retains exactly `maxRecords` rows. The
+ * cap defaults to the value resolved by {@link resolveMaxRecords} at call
+ * time.
  *
- * @param stateDir  Directory containing per-stream sidecars; created if absent.
- * @param streamId  Workflow stream identifier — forms the sidecar basename.
- * @param record    Snapshot record to append.
- * @param options   Optional overrides; see {@link AppendSnapshotOptions}.
+ * Emits one WARN per prune event via {@link storeLogger} (forwarded from
+ * the backend's atomic count). The wrapper queries the backend's row
+ * count for the coordinate before and after the append to compute the
+ * prune count exactly.
  */
 export function appendSnapshot(
-  stateDir: string,
+  backend: StorageBackend,
   streamId: string,
   record: SnapshotRecord,
   options: AppendSnapshotOptions = {},
 ): void {
-  fs.mkdirSync(stateDir, { recursive: true });
+  assertStreamIdSafe(streamId);
 
   const maxRecords =
     options.maxRecords !== undefined &&
@@ -175,73 +141,19 @@ export function appendSnapshot(
       ? options.maxRecords
       : resolveMaxRecords();
 
-  const target = getSnapshotSidecarPath(stateDir, streamId);
-  const existing = readIfExists(target);
-  const line = `${JSON.stringify(record)}\n`;
-
-  const combined = existing + line;
-  const pruned = applySizeCap(combined, maxRecords);
-  if (pruned.prunedCount > 0) {
-    storeLogger.warn(
-      {
-        streamId,
-        prunedCount: pruned.prunedCount,
-        maxRecords,
-      },
-      'Snapshot sidecar exceeded size cap — pruned oldest records',
-    );
-  }
-
-  atomicWriteFile(target, pruned.content);
-}
-
-/**
- * Enforce the JSONL sidecar size cap.
- *
- * Splits `content` on `\n`, drops the trailing empty segment produced by
- * the final newline, and if the line count exceeds `maxRecords`, retains
- * only the most-recent `maxRecords` lines (dropping the oldest). Returns
- * the rebuilt JSONL content and the count of pruned lines.
- */
-function applySizeCap(
-  content: string,
-  maxRecords: number,
-): { content: string; prunedCount: number } {
-  if (content.length === 0) {
-    return { content, prunedCount: 0 };
-  }
-  const segments = content.split('\n');
-  // Every well-formed JSONL ends in '\n', so the last segment is ''.
-  const trailer = segments.at(-1) === '' ? '' : segments.pop() ?? '';
-  const dataLines = trailer === '' ? segments.slice(0, -1) : segments;
-
-  if (dataLines.length <= maxRecords) {
-    return { content, prunedCount: 0 };
-  }
-
-  const prunedCount = dataLines.length - maxRecords;
-  const retained = dataLines.slice(prunedCount);
-  return { content: retained.join('\n') + '\n', prunedCount };
-}
-
-function readIfExists(target: string): string {
-  try {
-    return fs.readFileSync(target, 'utf8');
-  } catch (err: unknown) {
-    if (isNotFound(err)) {
-      return '';
-    }
-    throw err;
-  }
-}
-
-function isNotFound(err: unknown): boolean {
-  return (
-    typeof err === 'object' &&
-    err !== null &&
-    'code' in err &&
-    (err as { code: unknown }).code === 'ENOENT'
-  );
+  backend.appendProjectionSnapshot(streamId, record, {
+    maxRecords,
+    onPrune: (prunedCount) => {
+      storeLogger.warn(
+        {
+          streamId,
+          prunedCount,
+          maxRecords,
+        },
+        'Snapshot store exceeded size cap — pruned oldest records',
+      );
+    },
+  });
 }
 
 // ─── Wave 2A.6 — readProjection<T>(reducerId) global-scope primitive ────────
@@ -324,8 +236,9 @@ export interface ReadProjectionOptions {
  *   `ProjectionReducer<unknown, unknown>`).
  *
  * @param reducerId - The registered reducer id (e.g. `'task-store@v1'`).
- * @param eventStore - Initialised event store to read from.
- * @param stateDir - State directory containing the snapshot sidecar.
+ * @param eventStore - Initialised event store to read from. The snapshot
+ *   read flows through `eventStore.getReadBackend()` (the same SQLite
+ *   substrate the appender owns post-#1343 / Wave A).
  * @param options - Optional overrides. See {@link ReadProjectionOptions}.
  *
  * @throws {UnknownProjectionIdError} when no reducer is registered under `reducerId`.
@@ -334,7 +247,6 @@ export interface ReadProjectionOptions {
 export async function readProjection<T>(
   reducerId: string,
   eventStore: EventStore,
-  stateDir: string,
   options: ReadProjectionOptions = {},
 ): Promise<T> {
   const registry = options.registry ?? defaultRegistry;
@@ -351,7 +263,7 @@ export async function readProjection<T>(
   // Snapshot lookup: keyed on the reducer id (the global-snapshot convention).
   const projectionVersion = String(reducer.version);
   const snapshot = readLatestSnapshot(
-    stateDir,
+    eventStore.getReadBackend(),
     reducerId,
     reducerId,
     projectionVersion,

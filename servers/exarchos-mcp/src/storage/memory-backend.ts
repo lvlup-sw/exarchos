@@ -2,6 +2,8 @@ import type { WorkflowEvent } from '../event-store/schemas.js';
 import type { WorkflowState } from '../workflow/types.js';
 import type { QueryFilters } from '../event-store/store.js';
 import type { StorageBackend, EventSender, ViewCacheEntry, DrainResult } from './backend.js';
+import type { SnapshotRecord } from '../projections/snapshot-schema.js';
+import { resolveMaxRecords } from './snapshot-retention.js';
 
 // ─── CAS Version Conflict Error ─────────────────────────────────────────────
 
@@ -50,6 +52,12 @@ export class InMemoryBackend implements StorageBackend {
 
   /** `${streamId}:${viewName}` -> ViewCacheEntry */
   private readonly viewCache = new Map<string, ViewCacheEntry>();
+
+  /**
+   * `${streamId}:${projectionId}:${projectionVersion}` -> SnapshotRecord[]
+   * Stores snapshot records in insertion order; readLatest scans for max sequence.
+   */
+  private readonly projectionSnapshots = new Map<string, SnapshotRecord[]>();
 
   /** Counter for generating unique outbox entry IDs */
   private outboxIdCounter = 0;
@@ -294,6 +302,76 @@ export class InMemoryBackend implements StorageBackend {
     }
 
     return pruned;
+  }
+
+  // ─── Projection Snapshot Accessors (Wave A, #1343) ──────────────────────
+
+  /**
+   * Return the snapshot record with the highest sequence for the given
+   * (streamId, projectionId, projectionVersion) coordinate, or `undefined`
+   * when no record exists.
+   */
+  readLatestProjectionSnapshot(
+    streamId: string,
+    projectionId: string,
+    projectionVersion: string,
+  ): SnapshotRecord | undefined {
+    const key = `${streamId}:${projectionId}:${projectionVersion}`;
+    const records = this.projectionSnapshots.get(key);
+    if (!records || records.length === 0) return undefined;
+
+    // Find the record with the highest sequence.
+    let latest = records[0];
+    for (let i = 1; i < records.length; i++) {
+      if (records[i].sequence > latest.sequence) {
+        latest = records[i];
+      }
+    }
+    return latest;
+  }
+
+  /**
+   * Append a snapshot record. When `opts.maxRecords` is provided, prune the
+   * oldest records (by sequence) so the total does not exceed the cap.
+   */
+  appendProjectionSnapshot(
+    streamId: string,
+    record: SnapshotRecord,
+    opts?: {
+      maxRecords?: number;
+      onPrune?: (prunedCount: number) => void;
+    },
+  ): void {
+    const key = `${streamId}:${record.projectionId}:${record.projectionVersion}`;
+    let records = this.projectionSnapshots.get(key);
+    if (!records) {
+      records = [];
+      this.projectionSnapshots.set(key, records);
+    }
+
+    // Idempotent append: a snapshot at a given sequence is deterministic
+    // from the events fold, so a re-write at the same `(coordinate,
+    // sequence)` is a no-op rather than a duplicate (matches SqliteBackend's
+    // INSERT OR IGNORE semantics).
+    if (records.some((existing) => existing.sequence === record.sequence)) {
+      return;
+    }
+
+    records.push(record);
+
+    // Apply size cap: resolve maxRecords and trim oldest (lowest sequence).
+    const max =
+      opts?.maxRecords !== undefined && Number.isInteger(opts.maxRecords) && opts.maxRecords > 0
+        ? opts.maxRecords
+        : resolveMaxRecords();
+
+    if (records.length > max) {
+      // Sort by sequence ascending, remove the excess oldest records.
+      records.sort((a, b) => a.sequence - b.sequence);
+      const prunedCount = records.length - max;
+      records.splice(0, prunedCount);
+      opts?.onPrune?.(prunedCount);
+    }
   }
 
   // ─── Lifecycle ──────────────────────────────────────────────────────────

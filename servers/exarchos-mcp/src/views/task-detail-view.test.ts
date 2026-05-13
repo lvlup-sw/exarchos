@@ -78,7 +78,6 @@ describe('TaskDetailView_ReflectsTaskStoreProjection (Wave 2A.7, #1284)', () => 
     const projection = await readProjection<TaskStoreState>(
       'task-store@v1',
       eventStore,
-      stateDir,
     );
 
     // THEN: both surface the same task with identical fields. The view's
@@ -138,7 +137,6 @@ describe('TaskDetailView_ReflectsTaskStoreProjection (Wave 2A.7, #1284)', () => 
     const projection = await readProjection<TaskStoreState>(
       'task-store@v1',
       eventStore,
-      stateDir,
     );
 
     expect(view.tasks['task-lc-1'].status).toBe('failed');

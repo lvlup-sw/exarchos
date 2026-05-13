@@ -321,6 +321,68 @@ describe('SqliteBackend Schema Migration V1->V2', () => {
     expect(versions).toContain(3);
   });
 
+  it('Migration_AddsProjectionSnapshotsTable_OnFreshDb', () => {
+    const dbPath = createTempDb();
+
+    // Open a fresh SQLite DB through SqliteBackend.initialize().
+    const backend = trackBackend(new SqliteBackend(dbPath));
+    backend.initialize();
+
+    const db = (backend as unknown as { db: Database }).db;
+
+    // Assert: projection_snapshots table exists in sqlite_master.
+    const tableRow = db
+      .prepare(
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'projection_snapshots'",
+      )
+      .get() as { name: string } | undefined;
+    expect(tableRow).toBeDefined();
+    expect(tableRow?.name).toBe('projection_snapshots');
+
+    // Assert: column shape matches the design spec.
+    const columns = db
+      .prepare('PRAGMA table_info(projection_snapshots)')
+      .all() as Array<{ name: string; type: string; notnull: number; pk: number }>;
+    const byName = new Map(columns.map((c) => [c.name, c]));
+
+    const expectedColumns: Array<{ name: string; type: string; notnull: number }> = [
+      { name: 'stream_id', type: 'TEXT', notnull: 1 },
+      { name: 'projection_id', type: 'TEXT', notnull: 1 },
+      { name: 'projection_version', type: 'TEXT', notnull: 1 },
+      { name: 'sequence', type: 'INTEGER', notnull: 1 },
+      { name: 'payload', type: 'TEXT', notnull: 1 },
+      { name: 'created_at', type: 'TEXT', notnull: 1 },
+    ];
+
+    for (const expected of expectedColumns) {
+      const col = byName.get(expected.name);
+      expect(col, `missing column ${expected.name}`).toBeDefined();
+      expect(col!.type.toUpperCase()).toBe(expected.type);
+      expect(col!.notnull).toBe(expected.notnull);
+    }
+
+    // Assert: PRIMARY KEY is (stream_id, projection_id, projection_version, sequence).
+    const pkColumns = columns
+      .filter((c) => c.pk > 0)
+      .sort((a, b) => a.pk - b.pk)
+      .map((c) => c.name);
+    expect(pkColumns).toEqual([
+      'stream_id',
+      'projection_id',
+      'projection_version',
+      'sequence',
+    ]);
+
+    // Assert: idx_projection_snapshots_latest index exists.
+    const indexRow = db
+      .prepare(
+        "SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'idx_projection_snapshots_latest'",
+      )
+      .get() as { name: string } | undefined;
+    expect(indexRow).toBeDefined();
+    expect(indexRow?.name).toBe('idx_projection_snapshots_latest');
+  });
+
   it('SchemaMigration_V2ToV3_AppliesIdempotently', () => {
     const dbPath = createTempDb();
 
