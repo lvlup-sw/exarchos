@@ -62,7 +62,7 @@ Residue worth fixing alongside: the projection snapshot sidecar (`projections/st
    ```
    Schema migration test added in `storage/__tests__/schema-migration.test.ts`.
 
-2. **A2.** Extend `StorageBackend` interface with `readLatestProjectionSnapshot(...)` and `appendProjectionSnapshot(...)`. Implement in `SqliteBackend` and `MemoryBackend`.
+2. **A2.** Extend `StorageBackend` interface with `readLatestProjectionSnapshot(...)` and `appendProjectionSnapshot(...)`. Implement in `SqliteBackend` and `InMemoryBackend`.
 
 3. **A3.** Rewrite `projections/store.ts` to delegate to `StorageBackend`. Existing `readLatestSnapshot` / `appendSnapshot` exports become thin wrappers. Size-cap policy (`resolveMaxRecords`, `applySizeCap`) preserved — applied as a `DELETE` of oldest rows post-insert. Remove `atomicWriteFile` / `getSnapshotSidecarPath` / `readIfExists` once nothing imports them.
 
