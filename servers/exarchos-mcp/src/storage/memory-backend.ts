@@ -341,7 +341,14 @@ export class InMemoryBackend implements StorageBackend {
         latest = records[i];
       }
     }
-    return latest;
+    // Defensive copy so callers cannot mutate the in-map record. SqliteBackend
+    // returns a freshly deserialized row per read; this branch must match
+    // that semantic for INV-2 (facade equivalence) and to prevent state
+    // corruption from downstream consumers that treat the record as mutable.
+    return {
+      ...latest,
+      state: structuredClone(latest.state),
+    };
   }
 
   /**
@@ -371,7 +378,10 @@ export class InMemoryBackend implements StorageBackend {
       return;
     }
 
-    records.push(record);
+    // Defensive copy so a later caller mutation of `record.state` cannot
+    // corrupt the stored entry. Matches SqliteBackend's serialize-on-write
+    // semantic (INV-2 facade equivalence).
+    records.push({ ...record, state: structuredClone(record.state) });
 
     // Apply size cap: resolve maxRecords and trim oldest (lowest sequence).
     const max =

@@ -82,6 +82,23 @@ export async function handleAddPrComment(
   ctx: DispatchContext,
 ): Promise<ToolResult> {
   try {
+    // Validate caller-supplied operationId — an empty/whitespace/non-UUID value
+    // would corrupt the idempotency marker (`<!-- exarchos-op:${operationId} -->`),
+    // collide with other in-flight requests, and silently break the crash-recovery
+    // contract. Reject up front rather than baking a malformed marker into the
+    // durable Phase-A append. RFC 4122 v1–v5 UUID shape only.
+    if (args.operationId !== undefined) {
+      const v = String(args.operationId);
+      if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v)) {
+        return {
+          success: false,
+          error: {
+            code: 'INVALID_INPUT',
+            message: `add_pr_comment: operationId must be a UUID, got "${v}"`,
+          },
+        };
+      }
+    }
     const operationId = args.operationId ?? randomUUID();
     const marker = buildMarker(operationId);
     // Strict numeric validation: parseInt accepts trailing non-digits

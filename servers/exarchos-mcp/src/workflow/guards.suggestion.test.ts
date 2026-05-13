@@ -25,8 +25,10 @@
 
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
+const __dirname = dirname(fileURLToPath(import.meta.url));
 const GUARDS_FILE = join(__dirname, 'guards.ts');
 
 describe('Guards suggestedFix migration (Wave 5 / Task 5.1, #1341)', () => {

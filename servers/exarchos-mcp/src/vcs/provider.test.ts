@@ -45,12 +45,14 @@ describe('VcsProvider', () => {
     expect(typeof provider.getPrComments).toBe('function');
     expect(typeof provider.getPrDiff).toBe('function');
     expect(typeof provider.createIssue).toBe('function');
+    expect(typeof provider.searchIssuesByMarker).toBe('function');
     expect(typeof provider.getRepository).toBe('function');
     // Methods not yet implemented should throw
     await expect(provider.listPrs()).rejects.toThrow(/not yet supported/i);
     await expect(provider.getPrComments('1')).rejects.toThrow(/not yet supported/i);
     await expect(provider.getPrDiff('1')).rejects.toThrow(/not yet supported/i);
     await expect(provider.createIssue({ title: 't', body: 'b' })).rejects.toThrow(/not yet supported/i);
+    await expect(provider.searchIssuesByMarker('op-1')).rejects.toThrow(/not yet supported/i);
     await expect(provider.getRepository()).rejects.toThrow(/not yet supported/i);
   });
 
@@ -66,12 +68,14 @@ describe('VcsProvider', () => {
     expect(typeof provider.getPrComments).toBe('function');
     expect(typeof provider.getPrDiff).toBe('function');
     expect(typeof provider.createIssue).toBe('function');
+    expect(typeof provider.searchIssuesByMarker).toBe('function');
     expect(typeof provider.getRepository).toBe('function');
     // Methods not yet implemented should throw
     await expect(provider.listPrs()).rejects.toThrow(/not yet supported/i);
     await expect(provider.getPrComments('1')).rejects.toThrow(/not yet supported/i);
     await expect(provider.getPrDiff('1')).rejects.toThrow(/not yet supported/i);
     await expect(provider.createIssue({ title: 't', body: 'b' })).rejects.toThrow(/not yet supported/i);
+    await expect(provider.searchIssuesByMarker('op-1')).rejects.toThrow(/not yet supported/i);
     await expect(provider.getRepository()).rejects.toThrow(/not yet supported/i);
   });
 });

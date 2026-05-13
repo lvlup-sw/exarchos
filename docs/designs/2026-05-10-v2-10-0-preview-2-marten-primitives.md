@@ -195,11 +195,10 @@ export const taskStoreReducer: ProjectionReducer<TaskStoreState, WorkflowEvent> 
   apply(state, event) {
     switch (event.type) {
       case 'task.assigned':
-      case 'task.created':
-      case 'task.started':
+      case 'task.claimed':
+      case 'task.progressed':
       case 'task.completed':
       case 'task.failed':
-      case 'task.cancelled':
         return {
           ...state,
           projectionSequence: state.projectionSequence + 1,

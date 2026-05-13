@@ -449,7 +449,7 @@ Integration branch: `feature/v2-10-pre2-merge-orch-projection`. **Parallel with 
 
 1. [GREEN] Add type.
    - File: `servers/exarchos-mcp/src/projections/merge-orchestrator/types.ts` (new)
-   - Capture phase (`idle | preflight | executing | recovering | completed`), preflight metadata, merge metadata, recovery context.
+   - Capture phase (`idle | preflight | requested | executed | recovering | completed`), preflight metadata, merge metadata, recovery context.
 
 **Dependencies:** 2A.1 (shared `scope` field)
 **Parallelizable:** Yes (independent of Wave 2A)

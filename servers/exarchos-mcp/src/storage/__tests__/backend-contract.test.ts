@@ -602,7 +602,10 @@ describe('StorageBackend projection-snapshot accessor contract', () => {
       appendProjectionSnapshot: (
         _streamId: string,
         _record: SnapshotRecord,
-        _opts?: { maxRecords?: number },
+        _opts?: {
+          maxRecords?: number;
+          onPrune?: (prunedCount: number) => void;
+        },
       ): void => {
         /* contract probe */
       },
