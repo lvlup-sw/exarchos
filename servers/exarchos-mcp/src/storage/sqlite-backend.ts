@@ -520,59 +520,78 @@ export class SqliteBackend implements StorageBackend {
    * is deferred to v2.12 (#1090) and `status` is not yet populated.
    */
   private migrateV3ToV4(): void {
-    this.db.exec(`
-      CREATE TABLE IF NOT EXISTS streams (
-        streamId      TEXT PRIMARY KEY,
-        workflow_type TEXT NOT NULL DEFAULT '__legacy',
-        status        TEXT,
-        createdAt     TEXT NOT NULL
-      );
-      -- Indexes for v2.12 filtered ps/pipeline/view queries (#1090). The
-      -- read side is deferred to v2.12, but Wave 1 lands the indexes so the
-      -- moment those queries ship, every plan is O(log n) without a separate
-      -- migration window. Single-column index serves bare workflowType
-      -- equality filters; composite serves the more common workflowType +
-      -- status filters once status starts being populated by the merge
-      -- orchestrator (Wave 4).
-      CREATE INDEX IF NOT EXISTS idx_streams_workflow_type
-        ON streams(workflow_type);
-      CREATE INDEX IF NOT EXISTS idx_streams_workflow_type_status
-        ON streams(workflow_type, status);
-    `);
-
-    // Backfill the registry from the V3 implicit stream set (sequences).
-    // INSERT OR IGNORE so re-running the migration does not duplicate rows;
-    // a stream already inserted by a later code path (task 1.3) keeps its
-    // row untouched. Uses OR IGNORE rather than ON CONFLICT DO NOTHING for
-    // compatibility with the older SQLite the test-time better-sqlite3 shim
-    // ships with.
+    // Atomicity guard (Sentry #14059742 / #14059864): the entire step —
+    // table+index DDL, registry backfill, state-file recovery, observability
+    // event emission, AND the schema_version stamp — runs inside ONE
+    // transaction. Without it, a crash between the inner `emitAll`
+    // transaction commit and the schema_version insert leaves V4 data on
+    // disk with the ledger still at V3. The next startup re-runs the step,
+    // re-emits `migration.workflow_type_unknown` events at fresh sequence
+    // numbers, and silently duplicates the operator-visibility events
+    // (violating the "one observability event per unresolved stream"
+    // contract). Wrapping in one transaction guarantees either the whole
+    // migration is durable + ledgered, or none of it is.
+    //
+    // Nested-transaction note: `emitWorkflowTypeUnknownEvents` already wraps
+    // its per-stream INSERT/UPSERT in a `db.transaction(...)`. better-sqlite3
+    // flattens nested transaction-function calls (the inner one uses a
+    // SAVEPOINT and rejoins the outer boundary), so this composition is safe.
     const now = new Date().toISOString();
-    this.db
-      .prepare(
-        `INSERT OR IGNORE INTO streams (streamId, workflow_type, createdAt)
-         SELECT streamId, '__legacy', ? FROM sequences`,
-      )
-      .run(now);
+    const runMigration = this.db.transaction((): void => {
+      this.db.exec(`
+        CREATE TABLE IF NOT EXISTS streams (
+          streamId      TEXT PRIMARY KEY,
+          workflow_type TEXT NOT NULL DEFAULT '__legacy',
+          status        TEXT,
+          createdAt     TEXT NOT NULL
+        );
+        -- Indexes for v2.12 filtered ps/pipeline/view queries (#1090). The
+        -- read side is deferred to v2.12, but Wave 1 lands the indexes so the
+        -- moment those queries ship, every plan is O(log n) without a separate
+        -- migration window. Single-column index serves bare workflowType
+        -- equality filters; composite serves the more common workflowType +
+        -- status filters once status starts being populated by the merge
+        -- orchestrator (Wave 4).
+        CREATE INDEX IF NOT EXISTS idx_streams_workflow_type
+          ON streams(workflow_type);
+        CREATE INDEX IF NOT EXISTS idx_streams_workflow_type_status
+          ON streams(workflow_type, status);
+      `);
 
-    // Recover workflowType from co-located state files where available.
-    // The migration walks <stateDir>/*.state.json (the SQLite db lives at
-    // <stateDir>/exarchos.db by convention; see AtomicAppender.dbPath) and
-    // for each file with a parseable `workflowType` issues
-    //   UPDATE streams SET workflow_type = ? WHERE streamId = ? AND workflow_type = '__legacy'
-    // Constraining to '__legacy' protects rows already carrying a typed
-    // value (e.g. inserted by a concurrent handleInit during the migration
-    // window — unlikely with the PID lock, but the guard makes the update
-    // safe regardless). This is the ONLY UPDATE of workflow_type in the
-    // codebase — task 1.7 enforces immutability everywhere else via a CI
-    // grep gate.
-    this.backfillWorkflowTypeFromStateFiles();
+      // Backfill the registry from the V3 implicit stream set (sequences).
+      // INSERT OR IGNORE so re-running the migration does not duplicate rows;
+      // a stream already inserted by a later code path (task 1.3) keeps its
+      // row untouched. Uses OR IGNORE rather than ON CONFLICT DO NOTHING for
+      // compatibility with the older SQLite the test-time better-sqlite3 shim
+      // ships with.
+      this.db
+        .prepare(
+          `INSERT OR IGNORE INTO streams (streamId, workflow_type, createdAt)
+           SELECT streamId, '__legacy', ? FROM sequences`,
+        )
+        .run(now);
 
-    // Stamp version=4 in the ledger so migrateSchema short-circuits on the
-    // next open. initialize() also INSERT OR IGNORE's the current
-    // SCHEMA_VERSION; this insert is the belt to that suspenders.
-    this.db
-      .prepare('INSERT OR IGNORE INTO schema_version (version, appliedAt) VALUES (?, ?)')
-      .run(4, now);
+      // Recover workflowType from co-located state files where available.
+      // The migration walks <stateDir>/*.state.json (the SQLite db lives at
+      // <stateDir>/exarchos.db by convention; see AtomicAppender.dbPath) and
+      // for each file with a parseable `workflowType` issues
+      //   UPDATE streams SET workflow_type = ? WHERE streamId = ? AND workflow_type = '__legacy'
+      // Constraining to '__legacy' protects rows already carrying a typed
+      // value (e.g. inserted by a concurrent handleInit during the migration
+      // window — unlikely with the PID lock, but the guard makes the update
+      // safe regardless). This is the ONLY UPDATE of workflow_type in the
+      // codebase — task 1.7 enforces immutability everywhere else via a CI
+      // grep gate.
+      this.backfillWorkflowTypeFromStateFiles();
+
+      // Stamp version=4 in the ledger so migrateSchema short-circuits on the
+      // next open. initialize() also INSERT OR IGNORE's the current
+      // SCHEMA_VERSION; this insert is the belt to that suspenders.
+      this.db
+        .prepare('INSERT OR IGNORE INTO schema_version (version, appliedAt) VALUES (?, ?)')
+        .run(4, now);
+    });
+    runMigration();
   }
 
   /**

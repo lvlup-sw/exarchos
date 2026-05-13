@@ -176,6 +176,79 @@ async function worktreeIsRegistered(
   });
 }
 
+// ─── Recovery operationId discovery (Sentry #14059864/1) ──────────────────
+//
+// When compensation crashes after emitting `*.requested` but before
+// `*.executed`, the next retry would otherwise mint a fresh UUID and emit a
+// duplicate `*.requested`, orphaning the prior one and violating the 1:1
+// pairing contract of the audit trail. Before generating a new operationId,
+// scan the feature stream for a previously-emitted `*.requested` matching
+// the same target identifier (worktreePath / branch) that has no paired
+// `*.executed`, and reuse its operationId. Mirrors the recovery pattern in
+// `orchestrate/vcs/create-issue.ts:112-133`.
+
+interface WorktreeRemoveRequestedData {
+  readonly operationId: string;
+  readonly worktreePath: string;
+}
+
+interface WorktreeRemoveExecutedData {
+  readonly operationId: string;
+}
+
+interface BranchDeleteRequestedData {
+  readonly operationId: string;
+  readonly branch: string;
+}
+
+interface BranchDeleteExecutedData {
+  readonly operationId: string;
+}
+
+async function recoverWorktreeRemoveOperationId(
+  eventStore: EventStore,
+  featureId: string,
+  worktreePath: string,
+): Promise<string | undefined> {
+  const requested = await eventStore.query(featureId, {
+    type: 'worktree.remove.requested',
+  });
+  const executed = await eventStore.query(featureId, {
+    type: 'worktree.remove.executed',
+  });
+  const executedOps = new Set(
+    executed.map((e) => (e.data as unknown as WorktreeRemoveExecutedData).operationId),
+  );
+  for (let i = requested.length - 1; i >= 0; i -= 1) {
+    const data = requested[i].data as unknown as WorktreeRemoveRequestedData;
+    if (executedOps.has(data.operationId)) continue;
+    if (data.worktreePath === worktreePath) return data.operationId;
+  }
+  return undefined;
+}
+
+async function recoverBranchDeleteOperationId(
+  eventStore: EventStore,
+  featureId: string,
+  branch: string,
+): Promise<string | undefined> {
+  const requested = await eventStore.query(featureId, {
+    type: 'branch.delete.requested',
+  });
+  const executed = await eventStore.query(featureId, {
+    type: 'branch.delete.executed',
+  });
+  const executedOps = new Set(
+    executed.map((e) => (e.data as unknown as BranchDeleteExecutedData).operationId),
+  );
+  for (let i = requested.length - 1; i >= 0; i -= 1) {
+    const data = requested[i].data as unknown as BranchDeleteRequestedData;
+    if (executedOps.has(data.operationId)) continue;
+    if (data.branch === branch) return data.operationId;
+  }
+  return undefined;
+}
+
 // ─── Compensation Interfaces ─────────────────────────────────────────────────
 
 export interface CompensationAction {
@@ -350,9 +423,16 @@ function createCleanupWorktreesAction(): CompensationAction {
             // Phase A: emit worktree.remove.requested BEFORE the git side-effect.
             // Wrapped in withStateRetry so OCC losses on the append are retried
             // WITHOUT re-running the git worktree remove command.
-            const operationId = randomUUID();
             const featureId = options.featureId;
             const eventStore = options.eventStore;
+            // Recover the operationId from a prior orphaned `*.requested`
+            // before minting a fresh UUID. Without this, a crash between
+            // requested and executed produces a second requested event with
+            // a new operationId, orphaning the first and breaking the 1:1
+            // pairing contract. (Sentry #14059864/1.)
+            const operationId =
+              (await recoverWorktreeRemoveOperationId(eventStore, featureId, worktreePath)) ??
+              randomUUID();
             await withStateRetry(() =>
               eventStore.append(
                 featureId,
@@ -471,9 +551,14 @@ function createDeleteFeatureBranchesAction(): CompensationAction {
             // Phase A: emit branch.delete.requested BEFORE the git side-effect.
             // Wrapped in withStateRetry so OCC losses on the append are retried
             // WITHOUT re-running git branch -D (the canonical anti-pattern guard).
-            const operationId = randomUUID();
             const featureId = options.featureId;
             const eventStore = options.eventStore;
+            // Recover the operationId from a prior orphaned `*.requested`
+            // before minting a fresh UUID. Same INV-1 audit-trail rationale
+            // as worktree.remove above. (Sentry #14059864/1.)
+            const operationId =
+              (await recoverBranchDeleteOperationId(eventStore, featureId, branch)) ??
+              randomUUID();
             await withStateRetry(() =>
               eventStore.append(
                 featureId,
