@@ -2,6 +2,104 @@
 
 All notable changes to Exarchos are documented in this file. Organized by semver release.
 
+## [2.10.0-preview.2] - 2026-05-11
+
+### Marten primitives + post-DR-4 cleanup (#1312, #1340, #1313, #1284, #1304, #1314, #1341)
+
+This preview lifts the substrate from atomic-append into an event-sourced aggregate model (Marten R-1 + R-2) with reference consumers, and closes the post-v2.11 DR-4 gap that broke the agent-facing artifact-write surface. Six waves, 55 tasks, ~123 new tests.
+
+#### Wave 0 — Restore `exarchos_workflow.update` action (#1340)
+- **Added:** public `update` action on `exarchos_workflow`, mapping to the existing internal `workflow.update()` function. Restores the artifact-write path removed in v2.11's DR-4 substrate cut.
+- **Rejects `updates.phase`** with `INVALID_INPUT` + `suggestedFix.params.action === 'transition'`. Preserves DR-4's intent (phase changes route through `transition`) while restoring the non-phase mutation surface.
+- **Registered:** `WorkflowUpdateOutputSchema` for #1266 envelope-version discipline.
+- **Envelope:** `update` returns `_meta.checkpointAdvised`, `next_actions` (HSM-derived for current phase), `_perf` per INV-5b.
+
+#### Wave 1 — R-1: mandatory `workflow_type` column on streams (#1313)
+- **Schema migration V3 → V4.** `streams` table gains `workflow_type TEXT NOT NULL` with `'__legacy'` backfill sentinel + `idx_streams_workflow_type` + composite `idx_streams_workflow_type_status`.
+- **Sole writer:** `workflow.init` writes the column at stream creation; immutable thereafter. CI grep gate forbids `UPDATE streams SET workflow_type` outside the migration's allowed backfill.
+- **Backfill discipline:** primary source is each stream's `workflow.started` event payload (`data.workflowType`); secondary fallback is the workflow-state file. Un-recoverable streams retain `'__legacy'` and emit `migration.workflow_type_unknown` for operator visibility.
+- **Validator:** `workflow.init` rejects calls without explicit `workflowType` (Zod validation; previous calls returned vague errors).
+- **`PRAGMA busy_timeout = 5000`** added in `applyConnectionPragmas` as a C-layer safety net. Two-tier model: SQLite gets a 5s window to resolve cross-process contention before throwing `SQLITE_BUSY` to the JS-layer's bounded retry budget (`SQLITE_BUSY_RETRY_POLICY`, ~75ms). Audit §F2.2.
+- **Read side deferred to v2.12 (#1090)** — filtered `exarchos_view({action: 'ps', workflowType: ...})` lands with the lifecycle verbs.
+
+#### Wave 2A — EventSourcedTaskStore as global projection (#1284)
+- **TaskStore is now a reducer** (`task-store@v1`, `scope: 'global'`) folding over all `task.*` events across all streams. No `InMemoryTaskStore` class existed previously — this is greenfield, not a migration. Closes INV-1's stores-as-projections rule for tasks.
+- **New primitive:** `readProjection<T>(reducerId)` in `projections/store.ts`. Validates `scope === 'global'`; reads latest snapshot via `readLatestSnapshot` (key: reducer id), folds events since the snapshot, returns final state. Rejects per-stream-scoped reducers with `INVALID_REDUCER_SCOPE`.
+- **Migrated readers:** `views/task-detail-view.ts` and `views/workflow-status-view.ts` compose over `task-store@v1` projection instead of folding events directly. Eliminates per-view duplicate folds.
+- **BC preserved:** view-layer `TaskDetail.title: string` contract unchanged (projects via `title: record.title ?? ''`).
+
+#### Wave 2B — mergeOrchestrator as per-stream projection (#1304)
+- **MergeOrchestratorState** is now a reducer (`merge-orchestrator@v1`, `scope: 'stream'`) folding `merge.*` events on the feature stream. State machine: `idle → preflight → requested → executed → completed`; any phase → `recovering` on `merge.rollback`.
+- **New event type registered:** `merge.requested` in `event-store/schemas.ts` (model-emitted, `.describe()` on every field). The `requested` phase is the durable intent captured before the side-effect fires (audit §F1.2 — the canonical two-event-split pattern foundation).
+- **Closes the last in-memory side-database** for merge state. INV-1 stores-as-projections satisfied across both task tracking and merge tracking.
+
+#### Wave 2A.1 (shared prerequisite)
+- **Added required `scope: 'stream' | 'global'` field** to `ProjectionReducer<State, Event>`. Existing reducers (`rehydration@v1`, `next-action@v1`) declared `scope: 'stream' as const`. Runtime scope-validation in Wave 3 primitives enforces correspondence.
+
+#### Wave 3 — R-2: `decide` / `withSession` / `aggregateStream` primitives (#1314)
+- **`decide<TState>(streamId, reducerId, fn, opts?)`** — pure state-machine path. Read events → fold → invoke `fn(state, ctx)` → commit via `appendComputed` with `expectedSequence: tailVersion`. Marten's `FetchForWriting<T>(streamId)` analog.
+  - **Single-key-per-call idempotency** (audit §F1.3): when `operationId` supplied, derive ONE key `${streamId}:${reducerId}:${operationId}` and route all returned events through ONE `BEGIN IMMEDIATE` transaction. Crash between transactions is impossible by construction; INV-1 aggregate-as-consistency-boundary preserved.
+  - **`alwaysEnforceConsistency` default `true`** — empty-events path re-reads tail and throws `ConcurrencyError` if advanced (Marten's `AlwaysEnforceConsistency` for empty-write OCC). Opt out with `alwaysEnforceConsistency: false`.
+  - **Rejects global-scoped reducers** with `INVALID_REDUCER_SCOPE`.
+- **`withSession<TState>(streamId, reducerId, fn, opts?)`** — imperative escape hatch. Session object exposes `aggregate`, `version`, `append(evt)`; commits queued events on `fn` resolve. Rolls back on `fn` throw. Session closes after resolve OR throw (`SESSION_CLOSED` on post-resolve `append`).
+  - **Idempotency-contract gate** (audit §F1.1): rejects calls that omit BOTH `operationId` AND `allowNonIdempotent: true` — `INVALID_SESSION_OPTIONS` with `suggestedFix` pointing at `decide` or naming both opt-in flags. The runtime check prevents retry storms re-firing pivot transactions inside the closure.
+  - **No in-tree consumer in this bundle.** Marten-style "available for the right shape; not the default."
+- **`aggregateStream<T>(streamId, reducerId)`** — read-only fold. Returns `{aggregate, version}`. Single SELECT today (WAL gives consistent snapshot via the read transaction's end-mark). Inline note per audit §F2.3: future second-read additions MUST wrap both reads in `db.transaction(fn)`. Rejects global-scoped reducers.
+- **Typed `ConcurrencyError`** with `streamId`, `reducerId`, `expectedVersion`, `actualVersion`, `operationId?`. Maps to `CONCURRENCY_CONFLICT` envelope through `wrapError()` with `validTargets: ['retry']` and `_meta.retryable: true`.
+- **Typed `StorageBusyError`** (audit §F2.1) with `streamId`, `attempts`, `cause`. Maps to `STORAGE_BUSY` envelope — distinct from `CONCURRENCY_CONFLICT` because the suggested-fix shape differs (back off vs. re-fold).
+- **`appendComputed` extended to accept `AppendOptions`** (`expectedSequence`) — sibling primitive change documented in Wave 3.
+- **`wrapError(err, meta?, perf?)` added** as a sibling to `wrap()` — preserves `wrap()`'s strong success-only typing while exposing the typed-error → envelope mapping.
+
+#### Wave 4 — Reference migration to two-event split (audit §F1.2)
+- **`withStateRetry` recognizes `ConcurrencyError` AND `StorageBusyError`** alongside the legacy `VersionConflictError`. Predicate-based `isRetryable(err)` gate. All three trigger the same bounded exponential-backoff retry path.
+- **`orchestrate/merge-orchestrate.ts` migrated** to three-phase shape:
+  1. **Phase A** (retryable): `decide` commits `merge.requested` purely. State-check short-circuit: `if state.phase === 'executed' || 'completed' return []`.
+  2. **Phase B** (outside retry): `aggregateStream` re-reads state; if not already `executed`/`completed`, fire the side-effect EXACTLY ONCE.
+  3. **Phase C** (retryable): `decide` commits `merge.executed` purely. Same short-circuit pattern.
+- **`orchestrate/execute-merge.ts` migrated** to the same shape — `vcsMerge` action sits in Phase B, outside any retry boundary.
+- **PR-API-non-refire fixture** pins the property: forcing `ConcurrencyError` on Phase A retries the closure but the executor mock receives ZERO calls; Phase B fires it EXACTLY ONCE; Phase C retries don't re-invoke.
+- **Concurrency race fixture** pins end-to-end loop: two concurrent invocations on the same feature → one wins, loser retries via `CONCURRENCY_CONFLICT` and state-check short-circuits to `[]`; final stream has exactly ONE `merge.requested` and ONE `merge.executed`; merge mock invoked exactly ONCE.
+- **Storage-busy fixture** (audit §F2.1): inject substrate contention via `SqliteBusyExhaustedError` on first invocation → handler retries via `withStateRetry` → eventual success after contention clears.
+- **Parity harness fixture** confirms CLI ≡ MCP `ToolResult` byte-equivalence post-migration.
+
+#### Wave 5 — Migrate stale `action: 'set'` references to `update` (#1341)
+- **92 sites migrated** to the canonical verb restored in Wave 0:
+  - `servers/exarchos-mcp/src/workflow/guards.ts` — 12 `suggestedFix` payloads (closes INV-5b "suggestedFix must be actionable" violation)
+  - `servers/exarchos-mcp/src/workflow/playbooks.ts` — 35 PhasePlaybook tool hints + 32 `compactGuidance` prose strings (kept consistent — same conceptual rename)
+  - `commands/*.md` + `skills-src/**/*.md` — 109 occurrences across 45 files
+  - 102 regenerated runtime variants under `skills/<runtime>/` (build:skills + skills:guard both pass)
+- **CI grep gate** (`event-store/grep-gates.test.ts`): forbids `action: ['"]set['"]/` under `commands/`, `skills-src/`, `servers/exarchos-mcp/src/workflow/`. Exemptions documented for `*.test.ts` files (load-bearing negative tests for DR-4 hard-cut rejection) and the event-payload `data: { action: 'set' }` site (replayability for pre-rename event logs).
+- **End-to-end smoke** (`__tests__/integration/ideate-update-action.test.ts`): exercises the documented ideate flow `init → update artifacts.design → transition → plan` through the dispatch core.
+
+### Architectural posture
+
+Adopted from Marten (see [`docs/research/2026-05-08-marten-event-store-lessons.md`](docs/research/2026-05-08-marten-event-store-lessons.md)):
+- Mandatory stream-type marker (indexed) ✓
+- `FetchForWriting<T>(streamId)` single-stream OCC ✓ (as `decide`)
+- `AggregateStreamAsync<T>` read-only fold ✓ (as `aggregateStream`)
+- `AlwaysEnforceConsistency` for empty-write OCC ✓ (default-on)
+- Aggregate = stream consistency boundary ✓ (`scope: 'stream'` enforced)
+
+Explicitly rejected per single-machine cooperative-agents framing:
+- `IDocumentSession` multi-stream commit (no use case; substrate stays one-stream-per-tx)
+- `FetchForExclusiveWriting` blocking lock (OCC suffices)
+- Internal retry on concurrency exception (caller-controlled middleware pattern)
+- Async daemon as separate process (out of scope per epic)
+
+### Bug fix included in preview.2
+
+- **Fixed:** `state-store.ts:applyEventToState` was missing a case for `state.patched`, so reconcile silently dropped patches that `runbooks/definitions.ts:46,88` directs callers to emit post-`set` removal. `_eventSequence` advanced but `state.artifacts` stayed null, so HSM guards reading the state file (e.g. `design-artifact-exists`, `plan-artifact-exists`) kept failing forever. Now mirrors the rehydration projection (`workflow-state-projection.ts:277-285`) and deep-merges `data.patch` into state. Surfaced during the preview.2 plan-review session itself.
+
+### Operator notes
+
+- **V3 → V4 schema migration is automatic** on first open of an existing exarchos.db. Pre-V4 streams without recoverable `workflowType` retain `'__legacy'` and emit one `migration.workflow_type_unknown` event each.
+- **Recommend stepping through preview.1 before preview.2** so the backfill has accurate `workflowType` data in state files. (Preview.1 had no schema migration; it stabilized the substrate.)
+- **No agent-facing breaking changes.** `update` is purely additive (the v2.11 removal of `set` is the breaking change covered by v2.11 release notes); the two-event split is internal to the merge handlers.
+
+### Follow-ups parked in #1342
+
+Thirteen items tracking the architectural leverage opportunities the preview deliberately deferred — `withSession` consumer audit, two-event split rollout to other non-idempotent handlers (`gh pr create`, `gh pr comment`, etc.), `decide` adoption beyond merge-orchestrate, in-memory store audit, snapshot cadence tuning, `merge.completed` registration vs. reducer-phase collapse, `writeStateFile` temp-filename race (production-unaffected fixture-only finding), `handleSet` idempotency-key contract (CAS retries emit extra `state.patched`), reducer-scope discipline docs, two-event split as a documented architecture pattern.
+
 ## [2.10.0-preview.1] - 2026-05-10
 
 ### Substrate stabilization (Wave α + Wave β)

@@ -25,6 +25,22 @@ import { handleExecuteMerge } from './execute-merge.js';
 // ─── Test helpers ──────────────────────────────────────────────────────────
 
 function makeMockEventStore(): EventStore {
+  // Wave 4 (audit §F1.2): the executor now invokes
+  // `ctx.eventStore.getAppender().decide(...)` to commit `merge.requested`
+  // (Phase A) BEFORE the vcsMerge side effect fires. The mock returns a
+  // stub appender whose `decide` resolves to a `kind: 'committed'` shape
+  // so the pre-existing tests (T15/T16/T27/etc — which assert on the
+  // vcsMerge invocation + merge.executed/rollback emission legs)
+  // continue passing. The migration test
+  // (execute-merge.migration.test.ts) is the one that exercises the real
+  // `decide` path against a tmp-dir `EventStore`.
+  const decide = vi.fn().mockResolvedValue({
+    ok: true,
+    kind: 'committed',
+    sequences: [1],
+    eventIds: ['evt-mock-requested'],
+    timestamps: [new Date().toISOString()],
+  });
   return {
     append: vi.fn().mockResolvedValue({
       sequence: 1,
@@ -34,6 +50,7 @@ function makeMockEventStore(): EventStore {
     // #1303: handler reads stream tail to compute expectedSequence before
     // appending merge.executed / merge.rollback. Empty array → expectedSequence: 0.
     query: vi.fn().mockResolvedValue([]),
+    getAppender: vi.fn().mockReturnValue({ decide }),
   } as unknown as EventStore;
 }
 

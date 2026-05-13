@@ -13,6 +13,7 @@ import {
   CheckpointHandoffSchema,
   CheckpointInputSchema,
   ErrorCode,
+  InitInputSchema,
   isReservedField,
   WorkflowTypeSchema,
 } from './schemas.js';
@@ -126,6 +127,25 @@ export async function handleInit(
   eventStore: EventStore | null,
 ): Promise<ToolResult> {
   try {
+    // Marten R-1 (#1313): handler-boundary input validation. The MCP
+    // registration declares `workflowType` as required, so requests
+    // routed through the server are pre-validated. Direct callers
+    // (internal helpers, future CLI invocations, test fixtures
+    // bypassing the MCP surface) can still land here with a malformed
+    // input — re-validate so they receive an explicit INVALID_INPUT
+    // rather than a downstream STATE_CORRUPT / EVENT_APPEND_FAILED
+    // whose error code suggests a different remediation path.
+    const parsed = InitInputSchema.safeParse(input);
+    if (!parsed.success) {
+      return {
+        success: false,
+        error: {
+          code: ErrorCode.INVALID_INPUT,
+          message: `Invalid init input: ${parsed.error.message}`,
+        },
+      };
+    }
+
     // Guard: check if state file already exists BEFORE appending any event.
     // This prevents orphan events when handleInit is called twice with the
     // same featureId — without this check, the event would be appended and
@@ -182,6 +202,21 @@ export async function handleInit(
             message: `Event append failed: ${err instanceof Error ? err.message : String(err)}`,
           },
         };
+      }
+
+      // Marten R-1 (#1313): register the stream's typed row immediately
+      // after the workflow.started event lands. Ordering matters — if the
+      // event append fails we already returned above; if registerStream
+      // throws we still proceed to state-file creation since the registry
+      // is an observability/filtering aid (v2.12 ps), not load-bearing for
+      // the workflow.started → state.json sequence. INSERT OR IGNORE makes
+      // this idempotent against handleInit retries.
+      try {
+        eventStore.registerStream(input.featureId, input.workflowType);
+      } catch {
+        // Swallow registry write errors. The streams table is a read-side
+        // index for filtered queries; failing to register a stream produces
+        // a missing row in v2.12's ps view, not a broken workflow.
       }
     }
 
@@ -921,6 +956,73 @@ export async function handleSet(
   );
 }
 
+// ─── handleUpdate ───────────────────────────────────────────────────────────
+//
+// Wave 0 (#1340, v2.10.0-preview.2): canonical state-mutation surface for
+// non-phase fields. Delegates to `handleSet` with `updates` only after
+// rejecting any caller that tries to smuggle a `phase` field through the
+// `updates` payload. Phase mutation lives on the `transition` action and
+// its HSM-guarded code path — accepting `phase` here would silently
+// bypass guard evaluation, valid-target enumeration, and the
+// `workflow.transition` event emission.
+//
+// The guard is a structured `INVALID_INPUT` + `suggestedFix` envelope
+// (INV-5a — agent input ergonomics). Agents auto-correct off the
+// suggestedFix shape without parsing the message string, so the guard
+// stays robust under future error-message rewording.
+
+export interface UpdateInput {
+  readonly featureId: string;
+  readonly updates: Record<string, unknown>;
+}
+
+/**
+ * Canonical non-phase state-mutation handler. Validates that `updates`
+ * does not contain a `phase` field (which would route around the HSM
+ * transition guard), then delegates to `handleSet({featureId, updates})`
+ * so the same event-first / CAS / per-stream-lock machinery serves both
+ * the legacy `set({updates})` entry point (now removed) and the
+ * canonical `update` action.
+ *
+ * On `phase`-in-updates: returns `{success: false, error: {code:
+ * 'INVALID_INPUT', suggestedFix: {tool: 'exarchos_workflow', params:
+ * {action: 'transition', ...}}}}` so callers can self-correct in one
+ * tool call.
+ */
+export async function handleUpdate(
+  input: UpdateInput,
+  stateDir: string,
+  eventStore: EventStore | null,
+): Promise<ToolResult> {
+  if (Object.prototype.hasOwnProperty.call(input.updates, 'phase')) {
+    return {
+      success: false,
+      error: {
+        code: ErrorCode.INVALID_INPUT,
+        message:
+          "Cannot mutate 'phase' through update — phase changes go through the HSM-guarded transition action so guard evaluation, valid-target enumeration, and the workflow.transition event emission cannot be bypassed.",
+        suggestedFix: {
+          tool: 'exarchos_workflow',
+          params: {
+            action: 'transition',
+            featureId: input.featureId,
+            // Surface the offending value so callers can re-issue the
+            // intended phase change with one search-and-replace; the
+            // narrowed payload is a parameter shape, not a recommendation.
+            target: input.updates.phase,
+          },
+        },
+      },
+    };
+  }
+
+  return handleSet(
+    { featureId: input.featureId, updates: input.updates },
+    stateDir,
+    eventStore,
+  );
+}
+
 // ─── handleTransition ───────────────────────────────────────────────────────
 //
 // T36/T37/DR-4: `workflow.transition({target})` is the canonical phase-mutation
@@ -1344,17 +1446,18 @@ export async function handleCheckpoint(
       timestamp: new Date().toISOString(),
     };
 
-    // `byteSize` is the on-disk cost of this record as a JSONL line — the
-    // same serialization `appendSnapshot` writes, including the trailing
-    // newline that delimits records (CodeRabbit PR #1178 — without the `\n`
-    // we underreported by 1 byte per record). We compute it pre-write so the
-    // `workflow.checkpoint_written` event can be emitted with the exact size
-    // observers will see on disk.
+    // `byteSize` is the serialized payload size of this record. Pre-Wave-A
+    // the snapshot store wrote one JSONL line per record and this metric
+    // included the trailing `\n` delimiter (CodeRabbit PR #1178). Post-Wave-A
+    // snapshots persist into the SQLite `projection_snapshots` table with no
+    // newline framing, so we measure the JSON payload only. The
+    // `workflow.checkpoint_written` event can still be emitted pre-write
+    // because the payload bytes are independent of the substrate.
     const serialized = JSON.stringify(snapshotRecord);
-    const byteSize = Buffer.byteLength(`${serialized}\n`, 'utf8');
+    const byteSize = Buffer.byteLength(serialized, 'utf8');
 
     try {
-      appendSnapshot(stateDir, input.featureId, snapshotRecord);
+      appendSnapshot(eventStore.getReadBackend(), input.featureId, snapshotRecord);
     } catch (err) {
       return {
         success: false,

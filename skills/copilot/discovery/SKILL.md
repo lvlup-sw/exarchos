@@ -39,7 +39,7 @@ Collect sources, references, and raw material for the deliverable.
 
 ```typescript
 mcp__exarchos__exarchos_workflow({
-  action: "set", featureId: "<id>",
+  action: "update", featureId: "<id>",
   updates: { "artifacts.sources": ["<source1>", "<source2>", "..."] }
 })
 ```
@@ -58,7 +58,7 @@ Draft the deliverable document from gathered sources.
 
 ```typescript
 mcp__exarchos__exarchos_workflow({
-  action: "set", featureId: "<id>",
+  action: "update", featureId: "<id>",
   updates: { "artifacts.report": "<path-to-document>" }
 })
 ```

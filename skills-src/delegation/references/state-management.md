@@ -9,29 +9,29 @@ Instead of re-parsing plan, read task list with `action: "get"`, `query: "tasks"
 ## Subagent Mode
 
 **On Task Dispatch:**
-```
-action: "set", featureId: "<id>", updates: {
+```text
+action: "update", featureId: "<id>", updates: {
   "tasks[id=<taskId>]": { "status": "in_progress", "startedAt": "<ISO timestamp>" },
   "worktrees.<wt-id>": { "branch": "<branch>", "taskId": "<taskId>", "status": "active" }
 }
 ```
 
 **On Task Complete:**
-```
-action: "set", featureId: "<id>", updates: {
+```text
+action: "update", featureId: "<id>", updates: {
   "tasks[id=<taskId>]": { "status": "complete", "completedAt": "<ISO timestamp>" }
 }
 ```
 
 **On All Tasks Complete:**
-```
-action: "set", featureId: "<id>", phase: "review"
+```text
+action: "transition", featureId: "<id>", target: "review"
 ```
 
 <!-- requires:team:agent-teams -->
 ## Agent Team Mode (Single-Writer)
 
-Only the orchestrator mutates `workflow.tasks[]` via `exarchos_workflow set`. Hooks emit events but never mutate state directly.
+Only the orchestrator mutates `workflow.tasks[]` via `exarchos_workflow update`. Hooks emit events but never mutate state directly.
 
 - **Step 2:** Store `nativeTaskId` from each `TaskCreate` return value
 - **Step 4:** Read `team.task.completed` events during monitoring, update task status
@@ -44,8 +44,8 @@ For the three-layer consistency model, drift recovery, and eventual consistency 
 
 After extracting tasks from the plan, check if ANY task has `testingStrategy.benchmarks: true`. If so, record in state:
 
-```
-action: "set", featureId: "<id>", updates: {
+```text
+action: "update", featureId: "<id>", updates: {
   "verification.hasBenchmarks": true
 }
 ```
@@ -67,7 +67,7 @@ The runtime's stop-event hook (registered via the runtime's hook configuration) 
 
 **State update on agent stop-event hook:**
 ```text
-action: "set", featureId: "<id>", updates: {
+action: "update", featureId: "<id>", updates: {
   "tasks[id=<taskId>]": {
     "agentId": "<from stop-event hook payload: agent_id>",
     "agentResumed": false,
@@ -78,7 +78,7 @@ action: "set", featureId: "<id>", updates: {
 
 **State update on resume:**
 ```text
-action: "set", featureId: "<id>", updates: {
+action: "update", featureId: "<id>", updates: {
   "tasks[id=<taskId>]": {
     "agentResumed": true,
     "status": "in_progress"

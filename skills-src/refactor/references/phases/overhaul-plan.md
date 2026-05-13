@@ -247,7 +247,7 @@ After all tasks complete:
 **Save plan artifact and tasks:**
 
 ```
-action: "set", featureId: "refactor-<slug>", updates: {
+action: "update", featureId: "refactor-<slug>", updates: {
   "artifacts.plan": "docs/plans/YYYY-MM-DD-<refactor>.md",
   "tasks": [
     {"id": "001", "title": "Task description", "status": "pending", "working_state_verified": false},
@@ -259,7 +259,7 @@ action: "set", featureId: "refactor-<slug>", updates: {
 **Advance to delegate:**
 
 ```
-action: "set", featureId: "refactor-<slug>", phase: "delegate"
+action: "update", featureId: "refactor-<slug>", phase: "delegate"
 ```
 
 ### Task State Structure

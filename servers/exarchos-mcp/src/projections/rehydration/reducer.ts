@@ -865,6 +865,7 @@ function applyCoordinationEventNoOp(
 export const rehydrationReducer: ProjectionReducer<RehydrationDocument, WorkflowEvent> = {
   id: 'rehydration@v1',
   version: 1,
+  scope: 'stream' as const,
   initial: initialRehydrationDocument,
   apply(state: RehydrationDocument, event: WorkflowEvent): RehydrationDocument {
     // Dispatch by event.type, grouped below by event-type prefix. Unknown

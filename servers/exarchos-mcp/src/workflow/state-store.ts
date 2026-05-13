@@ -788,6 +788,23 @@ function applyEventToState(
       return true;
     }
 
+    // Mirrors the workflow-state-projection (views/workflow-state-projection.ts)
+    // case for `state.patched`. Without this, runbooks/definitions.ts:46,88
+    // direction to emit `state.patched` post-`set` removal in v2.11 would
+    // silently drop on the floor — _eventSequence advances but the patch
+    // never lands, so guards reading state.artifacts (e.g.
+    // design-artifact-exists) stay false forever.
+    case 'state.patched': {
+      const patch = data?.patch;
+      if (!isPlainObject(patch)) return false;
+      const merged = deepMerge(state, patch);
+      for (const key of Object.keys(merged)) {
+        state[key] = merged[key];
+      }
+      state.updatedAt = event.timestamp;
+      return true;
+    }
+
     default:
       // Unknown event types are skipped
       return false;

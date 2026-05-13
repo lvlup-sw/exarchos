@@ -17,6 +17,7 @@ import type {
   PrComment,
   CreateIssueOpts,
   IssueResult,
+  IssueSearchSummary,
   RepoInfo,
 } from './provider.js';
 import { exec } from './shell.js';
@@ -240,9 +241,17 @@ export class GitHubProvider implements VcsProvider {
   }
 
   async getPrComments(prId: string): Promise<PrComment[]> {
+    // The `/pulls/{prId}/comments` endpoint returns *inline review*
+    // comments — the per-line discussion attached to a diff. General
+    // PR-level conversation (what `gh pr comment` posts) lives on the
+    // shared issues comment endpoint. Reading from the wrong endpoint
+    // means the post-then-verify path never finds the comment it just
+    // wrote, the verification fails, and the recovery branch posts a
+    // duplicate. We fetch the issues endpoint so producer and consumer
+    // see the same comment stream.
     const output = await exec('gh', [
       'api',
-      `repos/{owner}/{repo}/pulls/${prId}/comments`,
+      `repos/{owner}/{repo}/issues/${prId}/comments`,
       '--paginate',
     ]);
 
@@ -275,6 +284,10 @@ export class GitHubProvider implements VcsProvider {
       args.push('--label', opts.labels.join(','));
     }
 
+    if (opts.assignees && opts.assignees.length > 0) {
+      args.push('--assignee', opts.assignees.join(','));
+    }
+
     const output = await exec('gh', args);
     const url = output.trim();
     const match = url.match(/\/issues\/(\d+)/);
@@ -282,6 +295,56 @@ export class GitHubProvider implements VcsProvider {
       throw new Error(`Failed to parse issue number from gh output: ${url}`);
     }
     return { url, number: parseInt(match[1], 10) };
+  }
+
+  async searchIssuesByMarker(operationId: string): Promise<IssueSearchSummary[]> {
+    // Two-event-split recovery precheck for create-issue.
+    //
+    // The marker we embed is an HTML comment (`<!-- exarchos-op:UUID -->`)
+    // chosen so it is invisible to humans reading the issue. GitHub's
+    // server-side search index strips HTML comments before tokenizing, so
+    // `gh issue list --search "<!-- exarchos-op:UUID -->"` returns no
+    // results even when an issue with that marker exists in its body —
+    // Sentry #14058284 and #14058450. Switching the marker to a visible
+    // footer would change rendered-issue UX, so instead we list issues
+    // and scan their bodies client-side, which sees the marker regardless
+    // of indexing rules.
+    //
+    // Scope: open + closed, walked newest-first via gh's default sort.
+    // Earlier revisions used a 200-issue cap; under issue churn the
+    // original marker could fall outside the window and Phase C would
+    // create a duplicate (CodeRabbit review #4278133032). Bumped to
+    // gh's effective per-call ceiling (1000) so the recovery window
+    // matches what gh can return in a single batch. Repositories with
+    // >1000 open+closed issues created since the prior crash should
+    // route through `args.operationId` (orchestrator-supplied) so this
+    // scan never has to be authoritative — see #1352.
+    const RECENT_ISSUE_LIMIT = 1000;
+    const marker = `<!-- exarchos-op:${operationId} -->`;
+    const output = await exec('gh', [
+      'issue',
+      'list',
+      '--state',
+      'all',
+      '--json',
+      'number,url,body',
+      '--limit',
+      String(RECENT_ISSUE_LIMIT),
+    ]);
+    const parsed = JSON.parse(output) as Array<{
+      number: number;
+      url: string;
+      body: string | null;
+    }>;
+    return parsed
+      .filter((entry): entry is { number: number; url: string; body: string } =>
+        typeof entry.body === 'string' && entry.body.includes(marker),
+      )
+      .map((entry) => ({
+        number: entry.number,
+        url: entry.url,
+        body: entry.body,
+      }));
   }
 
   async getRepository(): Promise<RepoInfo> {

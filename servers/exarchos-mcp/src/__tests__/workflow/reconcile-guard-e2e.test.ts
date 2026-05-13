@@ -68,7 +68,7 @@ describe('ReconcileGuardE2E', () => {
     );
     await handleSet({ featureId, phase: 'delegate' }, stateDir, eventStore);
     await handleSet(
-      { featureId, updates: { tasks: [{ id: 't1', status: 'complete' }] } },
+      { featureId, updates: { tasks: [{ id: 't1', title: 't1', status: 'complete' }] } },
       stateDir,
       eventStore,
     );

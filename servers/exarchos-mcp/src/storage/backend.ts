@@ -1,6 +1,7 @@
 import type { WorkflowEvent } from '../event-store/schemas.js';
 import type { WorkflowState } from '../workflow/types.js';
 import type { QueryFilters } from '../event-store/store.js';
+import type { SnapshotRecord } from '../projections/snapshot-schema.js';
 
 // Re-export QueryFilters for consumers of the StorageBackend
 export type { QueryFilters } from '../event-store/store.js';
@@ -128,4 +129,56 @@ export interface StorageBackend {
    * only need to observe abort.
    */
   runIntegrityPragma?(signal?: AbortSignal): Promise<string>;
+
+  /**
+   * Register a stream in the typed-stream registry (Marten R-1, #1313).
+   * Inserts one row into the `streams` table carrying the workflow type.
+   * Optional — only backends with a typed-stream registry implement this;
+   * in-memory and other backends omit it and the caller (EventStore.registerStream)
+   * treats absence as a no-op.
+   *
+   * Idempotent: calling twice for the same streamId leaves the original row
+   * untouched (INSERT OR IGNORE). The workflow_type column is immutable
+   * post-insert — a CI grep gate (task 1.7) forbids workflow-type
+   * UPDATE statements against the streams table outside of the
+   * migration's recovery path.
+   */
+  registerStream?(streamId: string, workflowType: string): void;
+
+  // ─── Projection Snapshot Accessors (Wave A, #1343) ────────────────────────
+
+  /**
+   * Return the snapshot record with the highest sequence for the given
+   * (streamId, projectionId, projectionVersion) coordinate, or `undefined`
+   * when no record exists.
+   *
+   * Required by both SqliteBackend and InMemoryBackend so the projection
+   * store can read the latest cached state without a full event replay.
+   */
+  readLatestProjectionSnapshot(
+    streamId: string,
+    projectionId: string,
+    projectionVersion: string,
+  ): SnapshotRecord | undefined;
+
+  /**
+   * Append a snapshot record for the given stream. When `opts.maxRecords` is
+   * provided (or resolved from the environment via `resolveMaxRecords`), the
+   * oldest records for that (streamId, projectionId, projectionVersion)
+   * coordinate are pruned so the total count does not exceed the cap.
+   */
+  appendProjectionSnapshot(
+    streamId: string,
+    record: SnapshotRecord,
+    opts?: {
+      maxRecords?: number;
+      /**
+       * Optional observability hook fired when the size cap binds and the
+       * backend evicts oldest rows. `prunedCount` is the exact number of
+       * rows deleted. Synchronous; runs inside the backend's append
+       * transaction (do not throw — log only).
+       */
+      onPrune?: (prunedCount: number) => void;
+    },
+  ): void;
 }

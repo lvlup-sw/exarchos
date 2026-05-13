@@ -43,10 +43,26 @@ import { AtomicAppender } from './atomic-appender.js';
 // caller to flow through the appender. The legacy-capabilities path was
 // hard-cut, so spec.ts no longer mentions the appender — the consumer set
 // drops back to the four substrate-internal files.
+//
+// v2.10.0-preview.2 Wave 3 (#1314): the new `event-store/index.ts` barrel
+// re-exports `AtomicAppender` (plus the Wave 3 typed errors) for Wave 4
+// consumers. The barrel is a re-export site, NOT a behavioral change to
+// the consumer set — it's still the substrate-internal cluster plus the
+// public surface module.
+//
+// v2.10.0-preview.2 Wave 4 (#1340, audit §F1.2): the reference-migration
+// commits add `orchestrate/merge-orchestrate.ts` (Phase A — `decide`
+// commits `merge.requested` purely before the executor's git-merge side
+// effect fires) as the first consumer outside the substrate-internal
+// cluster. This is the canonical "consumer outside the storage cluster"
+// the AC3 gate has been waiting for since Wave 3.
 const EXPECTED_CONSUMERS = [
   'src/event-store/atomic-appender.ts',
+  'src/event-store/index.ts',
   'src/event-store/store.ts',
   'src/event-store/tools.ts',
+  'src/orchestrate/execute-merge.ts',
+  'src/orchestrate/merge-orchestrate.ts',
   'src/storage/sqlite-backend.ts',
 ] as const;
 

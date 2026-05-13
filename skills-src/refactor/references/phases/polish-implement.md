@@ -80,7 +80,7 @@ npm run test:run
 **Record baseline:**
 
 ```
-action: "set", featureId: "refactor-<slug>", updates: {
+action: "update", featureId: "refactor-<slug>", updates: {
   "implement": {
     "startedAt": "<ISO8601>",
     "baselineTestsPass": true,
@@ -116,7 +116,7 @@ git push -u origin refactor/<brief-name>
 **Log change:**
 
 ```
-action: "set", featureId: "refactor-<slug>", updates: {
+action: "update", featureId: "refactor-<slug>", updates: {
   "implement.changesLog": [{"file": "<path>", "description": "<what changed>"}]
 }
 ```
@@ -193,7 +193,7 @@ echo "Switching to overhaul track recommended."
 2. **Record switch and change track:**
 
 ```
-action: "set", featureId: "refactor-<slug>", updates: {
+action: "update", featureId: "refactor-<slug>", updates: {
   "implement.switchReason": "<reason for switch>",
   "implement.switchedAt": "<ISO8601>",
   "track": "overhaul"
@@ -225,7 +225,7 @@ Current progress has been committed. Continue? (Y/n)
 **Record baseline:**
 
 ```
-action: "set", featureId: "refactor-<slug>", updates: {
+action: "update", featureId: "refactor-<slug>", updates: {
   "implement": {
     "startedAt": "<ISO8601>",
     "baselineTestsPass": true,
@@ -239,7 +239,7 @@ action: "set", featureId: "refactor-<slug>", updates: {
 **Log change:**
 
 ```
-action: "set", featureId: "refactor-<slug>", updates: {
+action: "update", featureId: "refactor-<slug>", updates: {
   "implement.changesLog": [
     {"file": "<path>", "description": "<what changed>", "commitSha": "<short-sha>"}
   ]
@@ -253,7 +253,7 @@ Note: For array appends, the MCP tool handles merging with existing array entrie
 **Record completion and advance to validate:**
 
 ```
-action: "set", featureId: "refactor-<slug>", updates: {
+action: "update", featureId: "refactor-<slug>", updates: {
   "implement.completedAt": "<ISO8601>",
   "implement.totalFiles": <count>,
   "implement.totalCommits": <count>
@@ -265,7 +265,7 @@ action: "set", featureId: "refactor-<slug>", updates: {
 **Record switch and change track:**
 
 ```
-action: "set", featureId: "refactor-<slug>", updates: {
+action: "update", featureId: "refactor-<slug>", updates: {
   "implement.switchReason": "<reason>",
   "implement.switchedAt": "<ISO8601>",
   "track": "overhaul"
@@ -286,7 +286,7 @@ Implementation phase exits when:
 **Advance to validate:**
 
 ```
-action: "set", featureId: "refactor-<slug>", phase: "polish-validate"
+action: "update", featureId: "refactor-<slug>", phase: "polish-validate"
 ```
 
 Next action: `AUTO:polish-validate`
@@ -300,7 +300,7 @@ Next action: `AUTO:polish-validate`
 **Switch to overhaul track:**
 
 ```
-action: "set", featureId: "refactor-<slug>", updates: {
+action: "update", featureId: "refactor-<slug>", updates: {
   "track": "overhaul"
 }, phase: "overhaul-plan"
 ```

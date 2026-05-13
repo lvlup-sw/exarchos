@@ -178,7 +178,7 @@ Every phase transition has a guard that must be satisfied. Before transitioning,
 
 ### Schema Discovery
 
-Use `exarchos_workflow({ action: "describe", actions: ["set", "init"] })` for
+Use `exarchos_workflow({ action: "describe", actions: ["update", "init"] })` for
 parameter schemas and `exarchos_workflow({ action: "describe", playbook: "debug" })`
 for phase transitions, guards, and playbook guidance.
 
@@ -214,7 +214,7 @@ Extended to support:
 - [ ] Follow-up RCA task created
 - [ ] Changes merged
 
-**Completion guard shapes** — set these via `exarchos_workflow set` before transitioning to `completed`:
+**Completion guard shapes** — set these via `exarchos_workflow update` before transitioning to `completed`:
 
 | Exit path | Guard | Required state |
 |-----------|-------|----------------|

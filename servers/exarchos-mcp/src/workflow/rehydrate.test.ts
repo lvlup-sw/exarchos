@@ -131,7 +131,7 @@ describe('handleRehydrate — happy path (T031, DR-5)', () => {
       snapshotState = rehydrationReducer.apply(snapshotState, ev);
     }
 
-    appendSnapshot(stateDir, featureId, {
+    appendSnapshot(store.getReadBackend(), featureId, {
       projectionId: 'rehydration@v1',
       projectionVersion: '1',
       sequence: 5,
@@ -493,9 +493,17 @@ describe('handleRehydrate — corrupt-snapshot degradation (T055, DR-18)', () =>
       data: { taskId: 'T501' },
     });
 
-    // Corrupt the sidecar — malformed JSON that will fail parse.
-    const sidecar = path.join(stateDir, `${featureId}.projections.jsonl`);
-    await writeFile(sidecar, '{not-valid-json\n', 'utf8');
+    // Seed a snapshot whose `state` payload fails RehydrationDocumentSchema
+    // (post-#1343 the substrate stores valid SnapshotRecord rows or no rows;
+    // the equivalent "corrupt" signal is state-shape drift that the handler
+    // detects via post-read schema validation).
+    appendSnapshot(store.getReadBackend(), featureId, {
+      projectionId: 'rehydration@v1',
+      projectionVersion: '1',
+      sequence: 1,
+      state: { not: 'a-valid-rehydration-document' } as unknown as RehydrationDocument,
+      timestamp: new Date().toISOString(),
+    });
 
     // WHEN: invoke the handler.
     const result = await handleRehydrate(
@@ -882,8 +890,15 @@ describe('handleRehydrate — degraded paths preserve phasePlaybook null (T-22)'
       data: { from: '', to: 'delegate' },
     });
 
-    const sidecar = path.join(stateDir, `${featureId}.projections.jsonl`);
-    await writeFile(sidecar, '{not-valid-json\n', 'utf8');
+    // Seed a snapshot with a state payload that fails RehydrationDocumentSchema
+    // (post-#1343 corruption-equivalent — see T055 test for context).
+    appendSnapshot(store.getReadBackend(), featureId, {
+      projectionId: 'rehydration@v1',
+      projectionVersion: '1',
+      sequence: 1,
+      state: { not: 'a-valid-rehydration-document' } as unknown as RehydrationDocument,
+      timestamp: new Date().toISOString(),
+    });
 
     const result = await handleRehydrate(
       { featureId },

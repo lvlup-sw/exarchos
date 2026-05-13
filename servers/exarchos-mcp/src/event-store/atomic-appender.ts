@@ -9,6 +9,21 @@ import {
   SqliteBusyExhaustedError,
   type AtomicAppendEvent as SqliteAtomicAppendEvent,
 } from '../storage/sqlite-backend.js';
+import { ConcurrencyError } from './concurrency-error.js';
+import { StorageBusyError } from './storage-busy-error.js';
+import {
+  InvalidSessionOptionsError,
+  SessionClosedError,
+} from './session-errors.js';
+import {
+  defaultRegistry,
+  type ProjectionRegistry,
+} from '../projections/registry.js';
+import type { ProjectionReducer } from '../projections/types.js';
+import {
+  InvalidReducerScopeError,
+} from '../projections/store.js';
+import { UnknownProjectionIdError } from '../projections/rebuild.js';
 
 /**
  * AtomicAppender — single-writer-per-stream append primitive (v2.11).
@@ -131,6 +146,115 @@ export interface AppendOptions {
    * internal state.
    */
   expectedSequence?: number;
+}
+
+// ─── Wave 3 (R-2) — decide / withSession / aggregateStream types ────────────
+
+/**
+ * Caller-supplied options for {@link AtomicAppender.decide}.
+ *
+ * `registry` defaults to the process-wide {@link defaultRegistry}; tests
+ * pass an isolated registry to avoid contaminating production state.
+ *
+ * `operationId` enables single-key-per-call idempotency (audit §F1.3) —
+ * the derived key is `${streamId}:${reducerId}:${operationId}`, and the
+ * substrate's `idempotency_claims` row stores the full N-event array so
+ * a retry returns the canonical multi-event shape without re-committing.
+ *
+ * `alwaysEnforceConsistency` defaults to `true`: an empty-events return
+ * from the decide closure triggers a tail re-read and throws
+ * {@link ConcurrencyError} if the tail advanced during the decision.
+ * Setting to `false` skips that check and is appropriate only for
+ * pure-read flows that never write events.
+ */
+export interface DecideOptions {
+  readonly registry?: ProjectionRegistry;
+  readonly operationId?: string;
+  readonly alwaysEnforceConsistency?: boolean;
+}
+
+/**
+ * Context object passed to a decide closure. Mirrors the design's R-2
+ * §"decide — pure state machine path" shape.
+ *
+ * `now()` is injected so closures and pre-commit timestamps share one
+ * source of "now" — important for replay determinism in projections
+ * that fold over the committed events.
+ */
+export interface DecideContext {
+  readonly streamId: string;
+  /** Tail sequence captured at fetch time (before the closure runs). */
+  readonly version: number;
+  /** Injectable clock — returns an ISO-8601 timestamp. */
+  readonly now: () => string;
+}
+
+/**
+ * Per-call result shape from `decide` / `withSession`.
+ *
+ * Mirrors the substrate's {@link AppendResult} ok-branch so callers that
+ * just want sequences/eventIds don't need a second translation layer.
+ * On failure the primitive throws a typed error (`ConcurrencyError`,
+ * `StorageBusyError`, `InvalidReducerScopeError`, etc.) — there is no
+ * `ok: false` discriminator here.
+ */
+export type DecideResult =
+  | {
+      readonly ok: true;
+      readonly kind: 'committed' | 'cache-hit' | 'no-op';
+      readonly sequences: readonly number[];
+      readonly eventIds: readonly string[];
+      readonly timestamps: readonly string[];
+    };
+
+/**
+ * Maximum substrate attempts the SQLite body retries `BEGIN IMMEDIATE`
+ * against SQLITE_BUSY. Mirrors `SQLITE_BUSY_RETRY_POLICY.maxAttempts`
+ * (sqlite-backend.ts:179-183). Bundled into the primitive layer so the
+ * translation `storage_busy → StorageBusyError` can report the budget
+ * the substrate actually used, without depending on a re-export from
+ * the substrate.
+ */
+const STORAGE_BUSY_MAX_ATTEMPTS = 5;
+
+/**
+ * Caller-supplied options for {@link AtomicAppender.withSession}.
+ *
+ * Extends {@link DecideOptions} with the idempotency-contract gate
+ * (audit §F1.1): callers MUST either supply `operationId` (so retries
+ * dedupe on the substrate's idempotency_claims row) or opt in via
+ * `allowNonIdempotent: true`. The gate prevents retry storms from
+ * re-firing non-idempotent side effects (external API calls, message
+ * sends) inside the closure on every OCC loss — see the design's R-2
+ * §"Idempotency contract" for the full rationale.
+ */
+export interface WithSessionOptions extends DecideOptions {
+  /**
+   * Explicit acknowledgement that the closure's side effects are
+   * either provably idempotent or that the caller has reasoned about
+   * the at-least-once retry boundary and accepts the trade-off.
+   * Setting this to `true` does NOT make the closure safe — it
+   * documents that the caller knows what they're doing.
+   *
+   * Defaults to `false`. When `false` AND `operationId` is omitted,
+   * `withSession` throws {@link InvalidSessionOptionsError}.
+   */
+  readonly allowNonIdempotent?: boolean;
+}
+
+/**
+ * Session object exposed to a `withSession` closure. The closure can
+ * read the folded `aggregate` + tail `version`, and queue events via
+ * `append(evt)` that commit atomically when the closure resolves.
+ *
+ * Mutability discipline: `pendingEvents` is private — closures MUST
+ * route every event through `append(evt)` so the session's
+ * closed-after-resolve gate fires correctly (Task 3.10).
+ */
+export interface Session<TState> {
+  readonly aggregate: TState;
+  readonly version: number;
+  append(event: EventInput): void;
 }
 
 export interface AtomicAppenderOptions {
@@ -286,11 +410,388 @@ export class AtomicAppender {
     streamId: string,
     idempotencyKey: string,
     compute: () => Promise<EventInput[]>,
+    options?: AppendOptions,
   ): Promise<AppendResult> {
     return this.locks.runExclusive(streamId, async () => {
       const events = await compute();
-      return this.appendSqliteLocked(streamId, events, { idempotencyKey });
+      return this.appendSqliteLocked(
+        streamId,
+        events,
+        { idempotencyKey },
+        options,
+      );
     });
+  }
+
+  /**
+   * R-2 primitive: load → fold → decide → append in one logical operation
+   * with optimistic-concurrency control (OCC) baked in (Wave 3 / #1314).
+   *
+   * Pseudo-code (matches the design's R-2 §"decide" semantics):
+   *
+   *     state = reducer.initial
+   *     events_read = backend.queryEvents(streamId)
+   *     for each event: state = reducer.apply(state, event)
+   *     tail = events_read.length === 0 ? 0 : events_read[last].sequence
+   *     ctx = { streamId, version: tail, now: () => ISO }
+   *     produced = await fn(state, ctx)
+   *     if produced.length > 0:
+   *         appendComputed(streamId, idemKey, () => produced,
+   *                        { expectedSequence: tail })
+   *     else if alwaysEnforceConsistency (default true):
+   *         re-read tail; throw ConcurrencyError if advanced
+   *     else:
+   *         no-op success
+   *
+   * Failure translations performed at this layer (caller sees typed
+   * exceptions, never the substrate's `AppendResult` failure variant):
+   *
+   *   - `sequence-conflict` → throw {@link ConcurrencyError}
+   *     (OCC lost; caller must re-fetch state and re-decide).
+   *   - `storage_busy` → throw {@link StorageBusyError}
+   *     (substrate write-lock contention; caller may retry the SAME
+   *     decision after backoff — the other writer commits on its own).
+   *
+   * Scope discipline: throws {@link InvalidReducerScopeError} when the
+   * reducer's `scope` is not `'stream'`. The reducer must own the
+   * aggregate's consistency boundary — global-scoped reducers belong to
+   * `readProjection`, not `decide`.
+   *
+   * Idempotency (audit §F1.3): when `operationId` is supplied, derives
+   * ONE key per call (`${streamId}:${reducerId}:${operationId}`) so all
+   * N events from the decision commit in a single BEGIN IMMEDIATE
+   * transaction. The substrate's `idempotency_claims` row already
+   * supports multi-event claims via JSON-array columns
+   * (sqlite-backend.ts:111-120), so a retried call hits the cache and
+   * returns the canonical multi-event shape without re-committing.
+   */
+  async decide<TState>(
+    streamId: string,
+    reducerId: string,
+    fn: (
+      state: TState,
+      ctx: DecideContext,
+    ) => EventInput[] | Promise<EventInput[]>,
+    opts?: DecideOptions,
+  ): Promise<DecideResult> {
+    // ─── Step 1: resolve + validate reducer scope ───────────────────────
+    const reducer = this.resolveStreamReducer(reducerId, opts?.registry);
+
+    // ─── Step 2: read events for fold (single SELECT — WAL snapshot) ───
+    const backend = await this.ensureSqliteBackend();
+    const events = backend.queryEvents(streamId);
+
+    // ─── Step 3: fold via reducer.apply from initial state ─────────────
+    let state: unknown = reducer.initial;
+    for (const ev of events) {
+      state = (reducer as ProjectionReducer<unknown, unknown>).apply(state, ev);
+    }
+    // Tail version: the highest sequence among the read events. An empty
+    // stream has version 0 (substrate convention — sequences start at 1).
+    const tailVersion =
+      events.length === 0 ? 0 : (events[events.length - 1].sequence as number);
+
+    // ─── Step 4: invoke the decide closure ─────────────────────────────
+    const ctx: DecideContext = {
+      streamId,
+      version: tailVersion,
+      now: () => new Date().toISOString(),
+    };
+    const produced = await fn(state as TState, ctx);
+
+    // ─── Step 5: empty events → optional OCC re-check + return no-op ───
+    if (produced.length === 0) {
+      const alwaysEnforce = opts?.alwaysEnforceConsistency ?? true;
+      if (alwaysEnforce) {
+        const currentTail = backend.readSequenceHighWaterMark(streamId);
+        if (currentTail !== tailVersion) {
+          throw new ConcurrencyError({
+            streamId,
+            reducerId,
+            expectedVersion: tailVersion,
+            actualVersion: currentTail,
+            operationId: opts?.operationId,
+          });
+        }
+      }
+      return {
+        ok: true,
+        kind: 'no-op',
+        sequences: [],
+        eventIds: [],
+        timestamps: [],
+      };
+    }
+
+    // ─── Step 6: commit via appendComputed with expectedSequence ───────
+    const idemKey =
+      opts?.operationId !== undefined
+        ? `${streamId}:${reducerId}:${opts.operationId}`
+        : `decide:${streamId}:${reducerId}:${randomUUID()}`;
+    const result = await this.appendComputed(
+      streamId,
+      idemKey,
+      async () => produced,
+      { expectedSequence: tailVersion },
+    );
+
+    return this.translateDecideResult({
+      result,
+      streamId,
+      reducerId,
+      expectedVersion: tailVersion,
+      operationId: opts?.operationId,
+    });
+  }
+
+  /**
+   * R-2 primitive: imperative escape-hatch for handlers that need to
+   * call out to services mid-decision (Wave 3 Task 3.8).
+   *
+   * Reuses `decide`'s read+fold+OCC machinery; the difference is the
+   * shape exposed to the closure: instead of `(state, ctx) => events`,
+   * the closure receives a {@link Session} object with `aggregate`,
+   * `version`, and an imperative `append(evt)` that queues events
+   * for commit. After the closure resolves, all queued events commit
+   * atomically with `expectedSequence: tail` so the OCC contract is
+   * identical to `decide`'s.
+   *
+   * Idempotency-contract gate (audit §F1.1): rejects callers that
+   * omit both `operationId` AND `allowNonIdempotent: true`. The gate
+   * prevents retry storms from re-firing non-idempotent side effects
+   * inside the closure on every `ConcurrencyError` retry.
+   *
+   * Failure translations:
+   *   - Closure throws → original error propagates; nothing commits.
+   *   - sequence-conflict → {@link ConcurrencyError}.
+   *   - storage_busy → {@link StorageBusyError}.
+   *   - Session captured + used after resolve → {@link SessionClosedError}.
+   */
+  async withSession<TState>(
+    streamId: string,
+    reducerId: string,
+    fn: (session: Session<TState>, ctx: DecideContext) => Promise<void>,
+    opts?: WithSessionOptions,
+  ): Promise<DecideResult> {
+    // ─── Step 0: idempotency-contract gate (audit §F1.1) ────────────────
+    if (
+      opts?.operationId === undefined &&
+      opts?.allowNonIdempotent !== true
+    ) {
+      throw new InvalidSessionOptionsError();
+    }
+
+    // ─── Step 1: resolve + validate reducer scope ───────────────────────
+    const reducer = this.resolveStreamReducer(reducerId, opts?.registry);
+
+    // ─── Step 2: read events + fold ─────────────────────────────────────
+    const backend = await this.ensureSqliteBackend();
+    const events = backend.queryEvents(streamId);
+    let state: unknown = reducer.initial;
+    for (const ev of events) {
+      state = (reducer as ProjectionReducer<unknown, unknown>).apply(state, ev);
+    }
+    const tailVersion =
+      events.length === 0 ? 0 : (events[events.length - 1].sequence as number);
+
+    // ─── Step 3: build the session ─────────────────────────────────────
+    const pending: EventInput[] = [];
+    let closed = false;
+    const session: Session<TState> = {
+      aggregate: state as TState,
+      version: tailVersion,
+      append(event: EventInput) {
+        if (closed) {
+          throw new SessionClosedError(streamId);
+        }
+        pending.push(event);
+      },
+    };
+
+    const ctx: DecideContext = {
+      streamId,
+      version: tailVersion,
+      now: () => new Date().toISOString(),
+    };
+
+    // ─── Step 4: invoke the closure ────────────────────────────────────
+    try {
+      await fn(session, ctx);
+    } catch (err) {
+      // Flip the session-closed flag so any later captured-session
+      // append() throws SESSION_CLOSED instead of a confusing
+      // post-throw mutation. Re-throw the original error verbatim.
+      closed = true;
+      throw err;
+    }
+
+    // ─── Step 5: close the session BEFORE the commit ──────────────────
+    // (Task 3.10: append() after withSession resolves throws
+    // SESSION_CLOSED. The commit happens after the session is closed
+    // so a captured session is unusable in either ordering.)
+    closed = true;
+
+    // ─── Step 6: handle empty queue ────────────────────────────────────
+    if (pending.length === 0) {
+      const alwaysEnforce = opts?.alwaysEnforceConsistency ?? true;
+      if (alwaysEnforce) {
+        const currentTail = backend.readSequenceHighWaterMark(streamId);
+        if (currentTail !== tailVersion) {
+          throw new ConcurrencyError({
+            streamId,
+            reducerId,
+            expectedVersion: tailVersion,
+            actualVersion: currentTail,
+            operationId: opts?.operationId,
+          });
+        }
+      }
+      return {
+        ok: true,
+        kind: 'no-op',
+        sequences: [],
+        eventIds: [],
+        timestamps: [],
+      };
+    }
+
+    // ─── Step 7: commit pending events via single-key-per-call idem ────
+    const idemKey =
+      opts?.operationId !== undefined
+        ? `${streamId}:${reducerId}:${opts.operationId}`
+        : `with-session:${streamId}:${reducerId}:${randomUUID()}`;
+    const result = await this.appendComputed(
+      streamId,
+      idemKey,
+      async () => pending,
+      { expectedSequence: tailVersion },
+    );
+
+    return this.translateDecideResult({
+      result,
+      streamId,
+      reducerId,
+      expectedVersion: tailVersion,
+      operationId: opts?.operationId,
+    });
+  }
+
+  /**
+   * R-2 primitive: read-only fold of a stream's events through a
+   * registered reducer (Wave 3 Task 3.11). Marten's
+   * `AggregateStreamAsync` analog.
+   *
+   * Returns the folded `aggregate` + the tail `version` at read time.
+   * No write path, no OCC enforcement on a future commit — pure
+   * observation. Callers that need read-then-decide-then-write must
+   * route through `decide` or `withSession`.
+   *
+   * Scope validation: throws {@link InvalidReducerScopeError} when
+   * `reducer.scope !== 'stream'` (Task 3.12). Global-scoped reducers
+   * belong to `readProjection` (DR-1 / Wave 2A).
+   *
+   * **Snapshot stability discipline (audit §F2.3):**
+   * Today's implementation is a single SELECT through
+   * `backend.queryEvents(streamId)`. SQLite's WAL gives that one read
+   * a consistent point-in-time snapshot via the read-txn's end-mark.
+   *
+   * If aggregateStream EVER grows a SECOND read inside its body
+   * (e.g. a snapshot-row lookup, a sibling-aggregate join), those two
+   * reads MUST be wrapped in `db.transaction(fn)` so they share one
+   * snapshot — otherwise two implicit transactions could observe
+   * different end-marks with a writer's commit between them, and the
+   * fold would mix snapshot-T state with snapshot-T+1 events. This is
+   * a forward-discipline note for v2.11+; Wave 3 ships single-SELECT.
+   */
+  async aggregateStream<TState>(
+    streamId: string,
+    reducerId: string,
+    opts?: Pick<DecideOptions, 'registry'>,
+  ): Promise<{ aggregate: TState; version: number }> {
+    const reducer = this.resolveStreamReducer(reducerId, opts?.registry);
+    const backend = await this.ensureSqliteBackend();
+    const events = backend.queryEvents(streamId);
+    let state: unknown = reducer.initial;
+    for (const ev of events) {
+      state = (reducer as ProjectionReducer<unknown, unknown>).apply(state, ev);
+    }
+    const tailVersion =
+      events.length === 0 ? 0 : (events[events.length - 1].sequence as number);
+    return { aggregate: state as TState, version: tailVersion };
+  }
+
+  /**
+   * Translate a substrate {@link AppendResult} into the typed Wave-3
+   * primitive shape — failure variants surface as thrown typed errors
+   * (`ConcurrencyError`, `StorageBusyError`), success variants are
+   * mirrored verbatim.
+   *
+   * Shared between `decide` and (Wave 3 Task 3.8) `withSession`, so the
+   * `storage_busy → StorageBusyError` translation lives in exactly one
+   * place per audit §F2.1.
+   */
+  private translateDecideResult(args: {
+    result: AppendResult;
+    streamId: string;
+    reducerId: string;
+    expectedVersion: number;
+    operationId?: string;
+  }): DecideResult {
+    const { result, streamId, reducerId, expectedVersion, operationId } = args;
+    if (result.ok) {
+      return {
+        ok: true,
+        kind: result.kind,
+        sequences: result.sequences,
+        eventIds: result.eventIds,
+        timestamps: result.timestamps,
+      };
+    }
+    if (result.reason === 'sequence-conflict') {
+      throw new ConcurrencyError({
+        streamId,
+        reducerId,
+        expectedVersion: result.expected ?? expectedVersion,
+        actualVersion: result.actual ?? expectedVersion,
+        operationId,
+      });
+    }
+    if (result.reason === 'storage_busy') {
+      throw new StorageBusyError({
+        streamId,
+        attempts: STORAGE_BUSY_MAX_ATTEMPTS,
+        cause: result.cause ?? new Error('SQLITE_BUSY'),
+      });
+    }
+    // Any other reason (idempotency-claimed, io-error): re-throw the
+    // underlying cause if present, else a generic typed error. These
+    // should not happen in a well-formed decide() call — they indicate
+    // either a programmer error (bad idem key reuse) or a substrate
+    // failure (disk full, corrupt DB).
+    if (result.cause) throw result.cause;
+    throw new Error(`decide failed: ${result.reason}`);
+  }
+
+  /**
+   * Resolve a reducer id against the supplied (or default) registry and
+   * enforce `scope: 'stream'`. Shared by `decide` (Task 3.4) and
+   * `aggregateStream` (Task 3.12).
+   */
+  private resolveStreamReducer(
+    reducerId: string,
+    registry?: ProjectionRegistry,
+  ): ProjectionReducer<unknown, unknown> {
+    const reg = registry ?? defaultRegistry;
+    const reducer = reg.get(reducerId);
+    if (!reducer) {
+      throw new UnknownProjectionIdError(reducerId);
+    }
+    if (reducer.scope !== 'stream') {
+      throw new InvalidReducerScopeError(reducerId, reducer.scope, {
+        scope: 'stream',
+      });
+    }
+    return reducer;
   }
 
   /**

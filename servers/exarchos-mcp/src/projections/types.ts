@@ -60,6 +60,23 @@ export interface ProjectionReducer<State, Event> {
   readonly version: number;
 
   /**
+   * Aggregate boundary for this reducer.
+   *
+   * - `'stream'` — folds over events on one stream (one feature workflow).
+   *   Consumed by `decide` / `withSession` / `aggregateStream` primitives;
+   *   rejected by `readProjection`.
+   * - `'global'` — folds over events across all streams. Consumed by
+   *   `readProjection`; rejected by the per-stream primitives.
+   *
+   * Runtime scope-validation in the R-2 primitive APIs enforces the
+   * correspondence — a misused reducer fails fast with `INVALID_REDUCER_SCOPE`
+   * rather than silently returning a wrong-shaped fold. See
+   * `docs/designs/2026-05-10-v2-10-0-preview-2-marten-primitives.md`
+   * §"Reducer-scope discipline".
+   */
+  readonly scope: 'stream' | 'global';
+
+  /**
    * The initial `State` value used as the seed for replay.
    *
    * Folding over an empty event stream MUST yield `initial`.

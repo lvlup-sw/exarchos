@@ -3,6 +3,7 @@ import {
   applyCacheHints,
   pickFields,
   wrap,
+  wrapError,
   wrapWithPassthrough,
   type Envelope,
   type ToolResult,
@@ -13,6 +14,8 @@ import {
   createInMemoryResolver,
 } from './capabilities/resolver.js';
 import { STABLE_PREFIX_KEYS } from './projections/rehydration/serialize.js';
+import { ConcurrencyError } from './event-store/concurrency-error.js';
+import { StorageBusyError } from './event-store/storage-busy-error.js';
 
 describe('pickFields', () => {
   it('pickFields_TopLevelField_ReturnsValue', () => {
@@ -283,5 +286,109 @@ describe('applyCacheHints (T051, DR-14)', () => {
     // Shape is otherwise unchanged.
     expect(hinted.success).toBe(true);
     expect(hinted.data).toEqual({ v: 1, projectionSequence: 7 });
+  });
+});
+
+// ─── Wave 3 Task 3.13 / 3.13a — wrapError() typed-error envelope mapping ────
+
+describe('wrapError() — ConcurrencyError → CONCURRENCY_CONFLICT envelope (Task 3.13)', () => {
+  it('Wrap_MapsConcurrencyErrorToConcurrencyConflictEnvelope', () => {
+    const err = new ConcurrencyError({
+      streamId: 'feature/foo',
+      reducerId: 'merge-orchestrator@v1',
+      expectedVersion: 42,
+      actualVersion: 47,
+      operationId: 'op-abc',
+    });
+
+    const envelope = wrapError(err) as ToolResult;
+
+    expect(envelope.success).toBe(false);
+    expect(envelope.error).toBeDefined();
+    const e = envelope.error as Record<string, unknown>;
+    expect(e.code).toBe('CONCURRENCY_CONFLICT');
+    expect(e.streamId).toBe('feature/foo');
+    expect(e.reducerId).toBe('merge-orchestrator@v1');
+    expect(e.expectedVersion).toBe(42);
+    expect(e.actualVersion).toBe(47);
+    expect(e.operationId).toBe('op-abc');
+    expect(e.validTargets).toEqual(['retry']);
+    // suggestedFix mentions re-fetch + retry per design.
+    expect(typeof e.suggestedFix).toBe('object');
+    const fix = e.suggestedFix as Record<string, unknown>;
+    const fixStr = JSON.stringify(fix).toLowerCase();
+    expect(fixStr).toMatch(/re-?fetch|retry/);
+
+    // _meta.retryable: true (INV-5b).
+    const meta = envelope._meta as Record<string, unknown>;
+    expect(meta.retryable).toBe(true);
+
+    // _perf shape present with the canonical zero defaults.
+    expect(envelope._perf).toEqual({ ms: 0, bytes: 0, tokens: 0 });
+  });
+
+  it('Wrap_MapsConcurrencyErrorWithoutOperationId', () => {
+    const err = new ConcurrencyError({
+      streamId: 's',
+      reducerId: 'r@v1',
+      expectedVersion: 1,
+      actualVersion: 2,
+    });
+    const envelope = wrapError(err) as ToolResult;
+    const e = envelope.error as Record<string, unknown>;
+    expect(e.code).toBe('CONCURRENCY_CONFLICT');
+    expect(e.operationId).toBeUndefined();
+  });
+});
+
+describe('wrapError() — StorageBusyError → STORAGE_BUSY envelope (Task 3.13a)', () => {
+  it('Wrap_MapsStorageBusyErrorToStorageBusyEnvelope', () => {
+    const cause = new Error('SQLITE_BUSY');
+    const err = new StorageBusyError({
+      streamId: 's',
+      attempts: 5,
+      cause,
+    });
+
+    const envelope = wrapError(err) as ToolResult;
+
+    expect(envelope.success).toBe(false);
+    expect(envelope.error).toBeDefined();
+    const e = envelope.error as Record<string, unknown>;
+    expect(e.code).toBe('STORAGE_BUSY');
+    expect(e.streamId).toBe('s');
+    expect(e.attempts).toBe(5);
+    expect(e.validTargets).toEqual(['retry']);
+    // suggestedFix mentions back-off / substrate contention.
+    const fix = e.suggestedFix as Record<string, unknown>;
+    const fixStr = JSON.stringify(fix).toLowerCase();
+    expect(fixStr).toMatch(/back off|cross-process write contention/);
+
+    // _meta.retryable: true.
+    const meta = envelope._meta as Record<string, unknown>;
+    expect(meta.retryable).toBe(true);
+
+    // _perf shape present with zero defaults.
+    expect(envelope._perf).toEqual({ ms: 0, bytes: 0, tokens: 0 });
+  });
+
+  it('Wrap_MapsConcurrencyAndStorageBusyToDistinctCodes', () => {
+    // Sibling errors must surface with DIFFERENT codes so middleware can
+    // route them to different retry budgets (audit §F2.1).
+    const cErr = new ConcurrencyError({
+      streamId: 's',
+      reducerId: 'r@v1',
+      expectedVersion: 1,
+      actualVersion: 2,
+    });
+    const sErr = new StorageBusyError({
+      streamId: 's',
+      attempts: 5,
+      cause: new Error('SQLITE_BUSY'),
+    });
+    const c = wrapError(cErr) as ToolResult;
+    const s = wrapError(sErr) as ToolResult;
+    expect((c.error as Record<string, unknown>).code).toBe('CONCURRENCY_CONFLICT');
+    expect((s.error as Record<string, unknown>).code).toBe('STORAGE_BUSY');
   });
 });

@@ -559,6 +559,33 @@ export const WorkflowTransitionOutputSchema = z.object({
   _perf: z.unknown().optional(),
 }).passthrough();
 
+/**
+ * `outputSchema` for `exarchos_workflow.update` (Wave 0, #1340 prep for
+ * #1266). Mirrors `WorkflowTransitionOutputSchema` shape EXCEPT the
+ * `_meta.deprecation` slot: `update` is a canonical surface restored in
+ * v2.10.0-preview.2 and is not on a deprecation track, so the envelope
+ * does not advertise the migration sub-shape.
+ *
+ * Keeping `_meta` as a `passthrough` object with no required keys means
+ * the rich `buildCheckpointMeta` payload (`checkpointAdvised`,
+ * `operationsSinceCheckpoint`, etc.) flows through unchanged — the
+ * schema only freezes the envelope contract, not the inner state-derived
+ * meta fields. Same trade-off as the transition schema.
+ *
+ * `data` is `unknown` on the success branch so `handleSet`'s rich
+ * payloads (`phase`, `updatedAt`, future fields) continue to validate
+ * without freezing the wire format.
+ */
+export const WorkflowUpdateOutputSchema = z.object({
+  success: z.boolean(),
+  data: z.unknown().optional(),
+  error: z.unknown().optional(),
+  warnings: z.array(z.string()).optional(),
+  next_actions: z.array(z.unknown()).optional(),
+  _meta: z.object({}).passthrough().optional(),
+  _perf: z.unknown().optional(),
+}).passthrough();
+
 // ─── Composite Tool: exarchos_workflow ───────────────────────────────────────
 
 const workflowActions: readonly ToolAction[] = [
@@ -616,6 +643,58 @@ const workflowActions: readonly ToolAction[] = [
       { event: 'workflow.transition', condition: 'always' },
     ],
     outputSchema: WorkflowTransitionOutputSchema,
+  },
+  {
+    // Wave 0 (#1340, v2.10.0-preview.2): canonical state-mutation surface.
+    // Replaces the deprecated v2.10 `set({updates})` rerouting path that
+    // was removed alongside `set({phase})` in v2.11. Phase mutation lives
+    // on `transition`; non-phase fields (artifacts, planReview, task
+    // results, etc.) flow through this action so callers see a single
+    // validated, output-enveloped surface instead of being told to emit
+    // `state.patched` directly via `event.append` (which bypasses input
+    // validation, output enveloping, idempotency, and `next_actions`).
+    //
+    // Handler delegates to the existing internal `workflow.update()`
+    // helper (`handleSet` with `updates` only, no `phase`). The phase
+    // field is rejected at the input boundary with a structured
+    // `INVALID_INPUT` + `suggestedFix` pointing callers at `transition`
+    // (Task 0.2). `updates` is `Record<string, unknown>` so dot-paths
+    // (`'artifacts.design'`) and nested objects both resolve through
+    // `applyDotPath` in `handleSet`.
+    name: 'update',
+    description: 'Mutate non-phase workflow state fields (artifacts, planReview, task results, etc.). Canonical state-mutation surface. Emits exactly one state.patched event on success. For phase changes use action: transition.',
+    schema: z.object({
+      featureId: featureIdSchema,
+      updates: z.record(z.string(), z.unknown()),
+    }),
+    // Wave 0 judgment call: the plan literally specified `new Set<string>()`
+    // (no phases) but the registry has an existing invariant — enforced by
+    // `registry.test.ts:should have non-empty phases for every action except
+    // init` — that every non-init action declares at least one phase. Using
+    // `ALL_PHASES` honors both the plan's intent (phase-agnostic mutation
+    // surface, parallel to `transition`) and the existing invariant. The
+    // semantically equivalent alternative would be to widen the test's
+    // exception list, but adding `update` to the empty-phase exception
+    // bucket would couple a foundational action to an `init`-only escape
+    // hatch — fragile against future audits.
+    phases: ALL_PHASES,
+    roles: ROLE_LEAD,
+    cli: {
+      flags: { featureId: { alias: 'f' } },
+      examples: ['exarchos wf update -f my-feature --updates \'{"artifacts":{"design":"docs/designs/foo.md"}}\''],
+    },
+    autoEmits: [
+      { event: 'state.patched', condition: 'always' },
+    ],
+    // Wave 0 (#1340) — register WorkflowUpdateOutputSchema for envelope-
+    // version discipline (#1266 prep). The schema mirrors the transition
+    // surface's contract minus the `_meta.deprecation` slot (`update` is
+    // not on a deprecation track) so a future contract-introspection
+    // consumer can decode both surfaces with the same envelope shape.
+    // `describe/handler.ts` exposes the schema via `outputSchema` in
+    // action descriptions; callers reach it through
+    // `exarchos_workflow.describe({actions: ['update']})`.
+    outputSchema: WorkflowUpdateOutputSchema,
   },
   {
     name: 'cancel',
@@ -1808,7 +1887,7 @@ export const TOOL_REGISTRY: readonly CompositeTool[] = [
     description: 'Workflow lifecycle management — init, read, update, cancel, cleanup, checkpoint, reconcile, and rehydrate workflows',
     actions: workflowActions,
     cli: { alias: 'wf' },
-    slimDescription: 'Workflow lifecycle management. Use describe(actions) for schemas.\n\nActions: init, get, transition, cancel, cleanup, reconcile, checkpoint, rehydrate',
+    slimDescription: 'Workflow lifecycle management. Use describe(actions) for schemas.\n\nActions: init, get, update, transition, cancel, cleanup, reconcile, checkpoint, rehydrate',
   },
   {
     name: 'exarchos_event',

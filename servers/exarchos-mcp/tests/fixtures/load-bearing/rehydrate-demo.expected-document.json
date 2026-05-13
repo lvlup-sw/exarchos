@@ -29,7 +29,7 @@
     "tools": [
       {
         "tool": "exarchos_workflow",
-        "action": "set",
+        "action": "update",
         "purpose": "Record review decision"
       }
     ],
@@ -38,6 +38,6 @@
     "guardPrerequisites": "Plan review complete",
     "validationScripts": [],
     "humanCheckpoint": true,
-    "compactGuidance": "You are at a human checkpoint reviewing the implementation plan. Wait for user approval or revision feedback. Record approval with exarchos_workflow set using updates: { planReview: { approved: true } }. Transition to delegate on approval or back to plan if gaps found. Key decision: approve plan as-is vs request revision with specific feedback. Anti-pattern: rubber-stamping without checking that every DR-N requirement has a corresponding task. Escalate: 3+ revision cycles without convergence on a viable plan. Follow the plan-coverage-check runbook for self-consistency verification using 3 independent framings before presenting for approval."
+    "compactGuidance": "You are at a human checkpoint reviewing the implementation plan. Wait for user approval or revision feedback. Record approval with exarchos_workflow update using updates: { planReview: { approved: true } }. Transition to delegate on approval or back to plan if gaps found. Key decision: approve plan as-is vs request revision with specific feedback. Anti-pattern: rubber-stamping without checking that every DR-N requirement has a corresponding task. Escalate: 3+ revision cycles without convergence on a viable plan. Follow the plan-coverage-check runbook for self-consistency verification using 3 independent framings before presenting for approval."
   }
 }

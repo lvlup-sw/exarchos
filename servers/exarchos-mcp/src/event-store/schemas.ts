@@ -88,6 +88,13 @@ export const EventTypes = [
   'provider.parse-error',
   'dispatch.classified',
   'merge.preflight',
+  // Wave 4 audit §F1.2 two-event split — `merge.requested` is the durable
+  // INTENT recorded BEFORE the non-idempotent GitHub merge call fires. The
+  // `merge-orchestrator@v1` projection (Wave 2B / #1304) folds it as the
+  // transition into the new `requested` phase. Registered in Wave 2B.2 (this
+  // commit) ahead of Wave 4's `decide` migration so the reducer can validly
+  // fold it.
+  'merge.requested',
   'merge.executed',
   'merge.rollback',
   'command.resolved',
@@ -99,6 +106,28 @@ export const EventTypes = [
   'migration.legacy_jsonl_imported',
   'migration.completed',
   'migration.failed',
+  // R-1 Marten primitive (#1313): emitted once per V3 → V4 stream that
+  // could not have its workflow_type recovered from a state file. Lets
+  // operators locate '__legacy' rows that need manual classification.
+  'migration.workflow_type_unknown',
+  // Wave B (#1342) two-event split for 5 non-idempotent VCS handlers.
+  // Each handler emits *.requested BEFORE invoking the side effect (durable
+  // intent, INV-1 LOW audit requirement) then *.executed AFTER it succeeds.
+  // B1: create-pr
+  'pr.create.requested',
+  'pr.create.executed',
+  // B2: comment-on-pr
+  'pr.comment.requested',
+  'pr.comment.executed',
+  // B3: create-issue
+  'issue.create.requested',
+  'issue.create.executed',
+  // B4: delete-branch
+  'branch.delete.requested',
+  'branch.delete.executed',
+  // B5: remove-worktree
+  'worktree.remove.requested',
+  'worktree.remove.executed',
 ] as const;
 
 export type EventType = typeof EventTypes[number];
@@ -305,6 +334,11 @@ export const EVENT_EMISSION_REGISTRY: Record<EventType, EventEmissionSource> = {
   // Preflight failures DO NOT route through merge.rollback — they surface
   // as `phase: 'aborted'` with `abortReason: 'preflight-failed'`.
   'merge.preflight': 'auto',
+  // model — emitted by Wave 4's `decide` closure as the durable intent before
+  // the non-idempotent GitHub merge call (audit §F1.2 two-event split). Lives
+  // in the model-emitted family because the closure that produces it is part
+  // of the workflow-author's command logic, not server-deterministic plumbing.
+  'merge.requested': 'model',
   'merge.executed': 'auto',
   'merge.rollback': 'auto',
 
@@ -337,6 +371,21 @@ export const EVENT_EMISSION_REGISTRY: Record<EventType, EventEmissionSource> = {
   'migration.legacy_jsonl_imported': 'auto',
   'migration.completed': 'auto',
   'migration.failed': 'auto',
+  'migration.workflow_type_unknown': 'auto',
+
+  // Wave B (#1342) two-event split — VCS side-effect handlers.
+  // *.requested is emitted by the handler BEFORE invoking the side effect
+  // (auto, deterministic plumbing). *.executed is emitted AFTER success.
+  'pr.create.requested': 'auto',
+  'pr.create.executed': 'auto',
+  'pr.comment.requested': 'auto',
+  'pr.comment.executed': 'auto',
+  'issue.create.requested': 'auto',
+  'issue.create.executed': 'auto',
+  'branch.delete.requested': 'auto',
+  'branch.delete.executed': 'auto',
+  'worktree.remove.requested': 'auto',
+  'worktree.remove.executed': 'auto',
 };
 
 // ─── Base Event Schema ──────────────────────────────────────────────────────
@@ -1081,6 +1130,51 @@ export const MergePreflightData = z.object({
 });
 
 /**
+ * merge.requested — Wave 4 / audit §F1.2 two-event split: the durable INTENT
+ * recorded BEFORE the non-idempotent GitHub merge call. The `decide` closure
+ * that produces this event is pure (safe to retry under `withStateRetry`);
+ * the side effect (PR merge API) fires OUTSIDE the retry boundary; a second
+ * `decide` then commits `merge.executed`.
+ *
+ * Folded by the `merge-orchestrator@v1` projection (#1304) as the transition
+ * into the new `requested` phase between `preflight` and `executed`.
+ *
+ * `prNumber` is optional because preview.2 may emit this event for streams
+ * that have not yet acquired a PR (e.g. local-only merge orchestration).
+ * `taskId` / `featureId` are optional for the same reason — the design (lines
+ * 538-543) provides them when the calling context knows them.
+ */
+export const MergeRequestedData = z.object({
+  sourceBranch: z
+    .string()
+    .min(1)
+    .describe('Feature/work branch being merged in'),
+  targetBranch: z
+    .string()
+    .min(1)
+    .describe('Target branch the merge lands on'),
+  strategy: z
+    .enum(['squash', 'rebase', 'merge'])
+    .optional()
+    .describe('Operator-selected merge strategy'),
+  prNumber: z
+    .number()
+    .int()
+    .optional()
+    .describe('Pull-request number; absent when no PR has been opened yet'),
+  taskId: z
+    .string()
+    .optional()
+    .describe(
+      'Originating task id (matches the worktree task.completed.taskId)',
+    ),
+  featureId: z
+    .string()
+    .optional()
+    .describe('Feature stream id; useful for cross-stream observability'),
+});
+
+/**
  * merge.executed — records that a merge has been performed. `mergeSha` is
  * the resulting commit on the target branch; `rollbackSha` is the parent
  * commit captured prior to merge so a downstream rollback handler can
@@ -1112,6 +1206,126 @@ export const MergeRollbackData = z.object({
   rollbackSha: z.string().min(1),
   reason: z.enum(['merge-failed', 'verification-failed', 'timeout']),
   rollbackError: z.string().min(1).optional(),
+});
+
+// ─── Wave B Two-Event Split Schemas (#1342) ──────────────────────────────────
+//
+// Each VCS side-effect handler emits *.requested BEFORE the side effect fires
+// (durable intent, INV-1 LOW) then *.executed AFTER the side effect succeeds.
+// On retry the *.requested event is already persisted; the handler's idempotent
+// check (B*.3, wired by the per-handler agents B1–B5) short-circuits re-invocation
+// using the prior result.
+
+/**
+ * pr.create.requested — B1.1: durable intent recorded BEFORE `gh pr create`
+ * fires. Carries the full PR intent so a recovery handler can reconstruct the
+ * call from the persisted event alone (INV-1 LOW audit requirement).
+ */
+export const PrCreateRequestedData = z.object({
+  operationId: z.string().uuid().describe('Idempotency key — stable across retries'),
+  title: z.string().min(1).describe('PR title'),
+  body: z.string().describe('PR body markdown'),
+  base: z.string().min(1).describe('Target base branch'),
+  head: z.string().min(1).describe('Source head branch'),
+  draft: z.boolean().optional().describe('Open as draft PR when true'),
+  labels: z.array(z.string()).optional().describe('Label names to apply'),
+});
+
+/**
+ * pr.create.executed — B1.1: records that `gh pr create` succeeded. Keyed by
+ * `operationId` so the pair {requested, executed} is correlatable in the stream.
+ */
+export const PrCreateExecutedData = z.object({
+  operationId: z.string().uuid().describe('Correlates to the pr.create.requested event'),
+  prNumber: z.number().int().positive().describe('GitHub PR number'),
+  url: z.string().url().describe('HTML URL of the created PR'),
+});
+
+/**
+ * pr.comment.requested — B2.1: durable intent recorded BEFORE `gh pr comment`
+ * fires. The body field is the raw comment text; the handler embeds the
+ * `<!-- exarchos-op:UUID -->` marker before posting (B2.3 idempotency check
+ * queries existing comments for this marker to detect prior execution).
+ */
+export const PrCommentRequestedData = z.object({
+  operationId: z.string().uuid().describe('Idempotency key — embedded as marker in posted comment'),
+  prNumber: z.number().int().positive().describe('PR number being commented on'),
+  body: z.string().min(1).describe('Comment body (handler embeds operationId marker before posting)'),
+});
+
+/**
+ * pr.comment.executed — B2.1: records that the comment was successfully posted.
+ */
+export const PrCommentExecutedData = z.object({
+  operationId: z.string().uuid().describe('Correlates to the pr.comment.requested event'),
+  commentId: z.number().int().positive().describe('GitHub comment id'),
+  url: z.string().url().describe('HTML URL of the posted comment'),
+});
+
+/**
+ * issue.create.requested — B3.1: durable intent recorded BEFORE `gh issue create`
+ * fires. Carries the full issue intent so recovery can reconstruct the call
+ * (INV-1 LOW). B3.3 idempotency check: query existing issues for same
+ * `operationId` marker in body or labels.
+ */
+export const IssueCreateRequestedData = z.object({
+  operationId: z.string().uuid().describe('Idempotency key — embedded as marker in issue body or label'),
+  title: z.string().min(1).describe('Issue title'),
+  body: z.string().describe('Issue body markdown'),
+  labels: z.array(z.string()).optional().describe('Label names to apply'),
+  assignees: z.array(z.string()).optional().describe('GitHub usernames to assign'),
+});
+
+/**
+ * issue.create.executed — B3.1: records that the issue was successfully created.
+ */
+export const IssueCreateExecutedData = z.object({
+  operationId: z.string().uuid().describe('Correlates to the issue.create.requested event'),
+  issueNumber: z.number().int().positive().describe('GitHub issue number'),
+  url: z.string().url().describe('HTML URL of the created issue'),
+});
+
+/**
+ * branch.delete.requested — B4.1: durable intent recorded BEFORE `git branch -D`
+ * and/or `git push origin --delete` fires. B4.3 idempotency is natural: both
+ * commands fail if the branch is already absent — the existing handler swallows
+ * these; the two-event split formalizes the recovery path.
+ */
+export const BranchDeleteRequestedData = z.object({
+  operationId: z.string().uuid().describe('Idempotency key — stable across retries'),
+  branch: z.string().min(1).describe('Branch name to delete'),
+  remote: z.string().optional().describe("Remote name (defaults to 'origin' when omitted)"),
+  localOnly: z.boolean().optional().describe('When true, skip the push --delete step'),
+});
+
+/**
+ * branch.delete.executed — B4.1: records the outcome of the delete operation.
+ * Both flags may be false when the branch was already absent (natural idempotency).
+ */
+export const BranchDeleteExecutedData = z.object({
+  operationId: z.string().uuid().describe('Correlates to the branch.delete.requested event'),
+  branch: z.string().min(1).describe('Branch that was targeted'),
+  deletedLocally: z.boolean().describe('True if local branch was removed'),
+  deletedRemote: z.boolean().describe('True if remote tracking ref was removed'),
+});
+
+/**
+ * worktree.remove.requested — B5.1: durable intent recorded BEFORE
+ * `git worktree remove` fires. B5.3 idempotency check: `git worktree list` filter.
+ */
+export const WorktreeRemoveRequestedData = z.object({
+  operationId: z.string().uuid().describe('Idempotency key — stable across retries'),
+  worktreePath: z.string().min(1).describe('Absolute path of the worktree to remove'),
+});
+
+/**
+ * worktree.remove.executed — B5.1: records the outcome of the removal.
+ * `removed: false` indicates the worktree was already absent (idempotent success).
+ */
+export const WorktreeRemoveExecutedData = z.object({
+  operationId: z.string().uuid().describe('Correlates to the worktree.remove.requested event'),
+  worktreePath: z.string().min(1).describe('Path that was targeted'),
+  removed: z.boolean().describe('True if removed; false if already absent (idempotent success)'),
 });
 
 // ─── Command Resolver Event Data (#1199 T15) ────────────────────────────────
@@ -1252,6 +1466,25 @@ export const MigrationFailedData = z.object({
   partialEventsImported: z.number().int().nonnegative().describe('Events imported before the failure'),
 });
 
+/**
+ * migration.workflow_type_unknown — emitted once during the V3 → V4
+ * Marten R-1 migration (#1313) for each stream whose `workflow_type`
+ * could not be recovered from a co-located state file. The row remains
+ * at the `__legacy` sentinel until an operator hand-edits the state file
+ * and re-runs the migration. Lets operators locate the rows that need
+ * manual classification without scanning every row of the streams
+ * registry.
+ *
+ * Event lives on the per-stream log (streamId is the affected feature)
+ * so it appears alongside the workflow's other events in a single
+ * `event.query`. The `data.streamId` field is redundant with the
+ * envelope's streamId but is retained for cross-stream aggregator
+ * reducers that index off data.* rather than envelope.streamId.
+ */
+export const MigrationWorkflowTypeUnknownData = z.object({
+  streamId: z.string().min(1).describe('Affected stream / featureId'),
+});
+
 // ─── Event Data Schemas Map ─────────────────────────────────────────────────
 
 export const EVENT_DATA_SCHEMAS: Partial<Record<EventType, z.ZodSchema>> = {
@@ -1385,6 +1618,10 @@ export const EVENT_DATA_SCHEMAS: Partial<Record<EventType, z.ZodSchema>> = {
 
   // Merge orchestrator (T03, DR-MO-2)
   'merge.preflight': MergePreflightData,
+  // Wave 4 audit §F1.2 two-event split — see MergeRequestedData definition.
+  // Registered in Wave 2B.2 so the `merge-orchestrator@v1` projection can
+  // fold it ahead of Wave 4's `decide` migration.
+  'merge.requested': MergeRequestedData,
   'merge.executed': MergeExecutedData,
   'merge.rollback': MergeRollbackData,
 
@@ -1398,6 +1635,19 @@ export const EVENT_DATA_SCHEMAS: Partial<Record<EventType, z.ZodSchema>> = {
   'migration.legacy_jsonl_imported': MigrationLegacyJsonlImportedData,
   'migration.completed': MigrationCompletedData,
   'migration.failed': MigrationFailedData,
+  'migration.workflow_type_unknown': MigrationWorkflowTypeUnknownData,
+
+  // Wave B (#1342) two-event split — VCS side-effect handlers.
+  'pr.create.requested': PrCreateRequestedData,
+  'pr.create.executed': PrCreateExecutedData,
+  'pr.comment.requested': PrCommentRequestedData,
+  'pr.comment.executed': PrCommentExecutedData,
+  'issue.create.requested': IssueCreateRequestedData,
+  'issue.create.executed': IssueCreateExecutedData,
+  'branch.delete.requested': BranchDeleteRequestedData,
+  'branch.delete.executed': BranchDeleteExecutedData,
+  'worktree.remove.requested': WorktreeRemoveRequestedData,
+  'worktree.remove.executed': WorktreeRemoveExecutedData,
 };
 
 // ─── TypeScript Types ───────────────────────────────────────────────────────
@@ -1474,6 +1724,7 @@ export type CommentResolved = z.infer<typeof CommentResolvedData>;
 export type DiagnosticExecuted = z.infer<typeof DiagnosticExecutedDataSchema>;
 export type InitExecuted = z.infer<typeof InitExecutedDataSchema>;
 export type MergePreflight = z.infer<typeof MergePreflightData>;
+export type MergeRequested = z.infer<typeof MergeRequestedData>;
 export type MergeExecuted = z.infer<typeof MergeExecutedData>;
 export type MergeRollback = z.infer<typeof MergeRollbackData>;
 export type HsmDeprecatedActionInvoked = z.infer<typeof HsmDeprecatedActionInvokedData>;
@@ -1482,6 +1733,18 @@ export type PhaseContractMissing = z.infer<typeof PhaseContractMissingData>;
 export type MigrationLegacyJsonlImported = z.infer<typeof MigrationLegacyJsonlImportedData>;
 export type MigrationCompleted = z.infer<typeof MigrationCompletedData>;
 export type MigrationFailed = z.infer<typeof MigrationFailedData>;
+
+// Wave B (#1342) two-event split types
+export type PrCreateRequested = z.infer<typeof PrCreateRequestedData>;
+export type PrCreateExecuted = z.infer<typeof PrCreateExecutedData>;
+export type PrCommentRequested = z.infer<typeof PrCommentRequestedData>;
+export type PrCommentExecuted = z.infer<typeof PrCommentExecutedData>;
+export type IssueCreateRequested = z.infer<typeof IssueCreateRequestedData>;
+export type IssueCreateExecuted = z.infer<typeof IssueCreateExecutedData>;
+export type BranchDeleteRequested = z.infer<typeof BranchDeleteRequestedData>;
+export type BranchDeleteExecuted = z.infer<typeof BranchDeleteExecutedData>;
+export type WorktreeRemoveRequested = z.infer<typeof WorktreeRemoveRequestedData>;
+export type WorktreeRemoveExecuted = z.infer<typeof WorktreeRemoveExecutedData>;
 
 // ─── Event Data Map ─────────────────────────────────────────────────────────
 
@@ -1557,6 +1820,7 @@ export type EventDataMap = {
   'diagnostic.executed': DiagnosticExecuted;
   'init.executed': InitExecuted;
   'merge.preflight': MergePreflight;
+  'merge.requested': MergeRequested;
   'merge.executed': MergeExecuted;
   'merge.rollback': MergeRollback;
   'command.resolved': CommandResolvedEvent;
@@ -1566,6 +1830,17 @@ export type EventDataMap = {
   'migration.legacy_jsonl_imported': MigrationLegacyJsonlImported;
   'migration.completed': MigrationCompleted;
   'migration.failed': MigrationFailed;
+  // Wave B (#1342) two-event split
+  'pr.create.requested': PrCreateRequested;
+  'pr.create.executed': PrCreateExecuted;
+  'pr.comment.requested': PrCommentRequested;
+  'pr.comment.executed': PrCommentExecuted;
+  'issue.create.requested': IssueCreateRequested;
+  'issue.create.executed': IssueCreateExecuted;
+  'branch.delete.requested': BranchDeleteRequested;
+  'branch.delete.executed': BranchDeleteExecuted;
+  'worktree.remove.requested': WorktreeRemoveRequested;
+  'worktree.remove.executed': WorktreeRemoveExecuted;
 };
 
 // ─── Event Catalog Serialization ────────────────────────────────────────────

@@ -27,7 +27,7 @@ describe('GuardFailure Type', () => {
         reason: 'test guard failed',
         suggestedFix: {
           tool: 'exarchos_workflow',
-          params: { action: 'set', featureId: 'f1' },
+          params: { action: 'update', featureId: 'f1' },
         },
       };
       const result: GuardResult = failure;
@@ -36,7 +36,7 @@ describe('GuardFailure Type', () => {
         reason: 'test guard failed',
         suggestedFix: {
           tool: 'exarchos_workflow',
-          params: { action: 'set', featureId: 'f1' },
+          params: { action: 'update', featureId: 'f1' },
         },
       });
     });
@@ -68,7 +68,7 @@ describe('AllTasksComplete Structured Failure', () => {
       expect(obj.suggestedFix).toBeDefined();
       expect(obj.suggestedFix!.tool).toBe('exarchos_workflow');
       const params = obj.suggestedFix!.params as Record<string, unknown>;
-      expect(params.action).toBe('set');
+      expect(params.action).toBe('update');
       expect(params.featureId).toBe('feat-123');
       const updates = params.updates as { tasks: Array<{ id: string; status: string }> };
       expect(updates.tasks).toHaveLength(2);
@@ -276,7 +276,7 @@ describe('Artifact Guard Structured Failures', () => {
       expect(obj.suggestedFix).toBeDefined();
       expect(obj.suggestedFix!.tool).toBe('exarchos_workflow');
       const params = obj.suggestedFix!.params as Record<string, unknown>;
-      expect(params.action).toBe('set');
+      expect(params.action).toBe('update');
       expect(params.featureId).toBe('feat-42');
       const updates = params.updates as Record<string, unknown>;
       expect(updates.artifacts).toEqual({ design: '<path-or-content>' });
@@ -666,7 +666,7 @@ describe('Track Selection Guards Structured Failures', () => {
         expect(failure.expectedShape).toEqual({ track: expectedTrack });
         expect(failure.suggestedFix).toEqual({
           tool: 'exarchos_workflow',
-          params: { action: 'set', featureId: 'test-feature', updates: { track: expectedTrack } },
+          params: { action: 'update', featureId: 'test-feature', updates: { track: expectedTrack } },
         });
       });
     });

@@ -36,7 +36,7 @@ Valid transitions, guards, and prerequisites for all workflow types are document
 
 ### Schema Discovery
 
-Use `exarchos_workflow({ action: "describe", actions: ["set", "init", "get"] })` for
+Use `exarchos_workflow({ action: "describe", actions: ["update", "init", "get"] })` for
 parameter schemas and `exarchos_workflow({ action: "describe", playbook: "feature" })`
 for phase transitions, guards, and playbook guidance. For the lightweight
 oneshot variant (with its `implementing → synthesize|completed` choice state
@@ -89,7 +89,7 @@ Field projection via `fields` returns only the requested top-level keys, reducin
 
 ### Update State
 
-Use `mcp__exarchos__exarchos_workflow` with `action: "set"` with `featureId` and either `updates`, `phase`, or both:
+Use `mcp__exarchos__exarchos_workflow` with `action: "update"` with `featureId` and either `updates`, `phase`, or both:
 
 - **Update phase**: `phase: "delegate"`
 - **Set artifact path**: `updates: { "artifacts.design": "docs/designs/2026-01-05-feature.md" }`
@@ -106,7 +106,7 @@ The dot-path parser used by `set updates` recognizes only **numeric** array brac
 1. **Replace the whole array** (use this when the plan is being revised wholesale; matches the issue #1003 contract):
    ```typescript
    exarchos_workflow({
-     action: "set",
+     action: "update",
      featureId: "<id>",
      updates: { tasks: [
        { id: "T-001", title: "...", status: "pending" },
@@ -118,7 +118,7 @@ The dot-path parser used by `set updates` recognizes only **numeric** array brac
 2. **Edit one task by its array index**:
    ```typescript
    exarchos_workflow({
-     action: "set",
+     action: "update",
      featureId: "<id>",
      updates: { "tasks[0].status": "complete", "tasks[0].completedAt": "<ts>" },
    })
@@ -129,7 +129,7 @@ The dot-path parser used by `set updates` recognizes only **numeric** array brac
    ```typescript
    // Suppose tasks already contains T-001 and T-002 (length 2). To append:
    exarchos_workflow({
-     action: "set",
+     action: "update",
      featureId: "<id>",
      updates: { "tasks[2]": { id: "T-003", title: "Follow-up", status: "pending" } },
    })
@@ -257,7 +257,7 @@ If an Exarchos MCP tool returns an error:
 If workflow state doesn't match git reality:
 1. Run `rehydrate <featureId>` — the rehydration projection folds in events newer than the last snapshot
 2. If manual check still needed: compare the rehydration document's `workflowState` / `artifacts` with `git log` and branch state
-3. Update state via `mcp__exarchos__exarchos_workflow` with `action: "set"` to match git truth
+3. Update state via `mcp__exarchos__exarchos_workflow` with `action: "update"` to match git truth
 
 ### Checkpoint Missing
 If `checkpoint` is invoked with no active workflow:
@@ -269,7 +269,7 @@ If `checkpoint` is invoked with no active workflow:
 If state references branches or worktrees that no longer exist:
 1. Run `rehydrate <featureId>` — the rehydration document surfaces stale references
 2. Compare against `git branch -a` / `git worktree list` to identify drift
-3. Update via `exarchos_workflow set` to match git truth
+3. Update via `exarchos_workflow update` to match git truth
 
 ### Multiple Active Workflows
 If multiple workflow state files exist:
@@ -281,7 +281,7 @@ If multiple workflow state files exist:
 
 1. **Start new workflow**: Use `mcp__exarchos__exarchos_workflow` with `action: "init"` with `featureId: "user-authentication"`, `workflowType: "feature"`
 
-2. **After design phase**: Use `mcp__exarchos__exarchos_workflow` with `action: "set"` with:
+2. **After design phase**: Use `mcp__exarchos__exarchos_workflow` with `action: "update"` with:
    - `featureId: "user-authentication"`
    - `phase: "plan"`
    - `updates: { "artifacts.design": "docs/designs/2026-01-05-user-auth.md" }`

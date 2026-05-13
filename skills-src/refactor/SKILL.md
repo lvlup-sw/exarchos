@@ -136,7 +136,7 @@ The pattern for every transition: send the guard prerequisite in `updates` and t
 
 ### Schema Discovery
 
-Use `exarchos_workflow({ action: "describe", actions: ["set", "init"] })` for
+Use `exarchos_workflow({ action: "describe", actions: ["update", "init"] })` for
 parameter schemas and `exarchos_workflow({ action: "describe", playbook: "refactor" })`
 for phase transitions, guards, and playbook guidance.
 
@@ -149,7 +149,7 @@ This runbook provides structured criteria for choosing between polish and overha
 
 ## Track Switching
 
-If scope expands beyond polish limits during explore or brief phase, use `{{MCP_PREFIX}}exarchos_workflow` with `action: "set"` to set `track` to "overhaul" and update `explore.scopeAssessment.recommendedTrack`.
+If scope expands beyond polish limits during explore or brief phase, use `{{MCP_PREFIX}}exarchos_workflow` with `action: "update"` to set `track` to "overhaul" and update `explore.scopeAssessment.recommendedTrack`.
 
 **Scope thresholds:** If >5 files affected OR changes cross module boundaries -> recommend overhaul track.
 

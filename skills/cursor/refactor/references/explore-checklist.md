@@ -62,7 +62,7 @@ exarchos_orchestrate({
 **Save assessment and advance to brief:**
 
 ```
-action: "set", featureId: "refactor-<slug>", updates: {
+action: "update", featureId: "refactor-<slug>", updates: {
   "explore.scopeAssessment": {
     "filesAffected": ["<list>"],
     "modulesAffected": ["<list>"],

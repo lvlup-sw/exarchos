@@ -305,32 +305,57 @@ export async function buildDegradedResponse(
 
 ## 5. Snapshot Store, Cadence, and Cold Rebuild
 
-Three modules implement the caching layer:
+Three modules implement the caching layer.
 
-### `projections/store.ts` — read / write / prune
+### Snapshot storage
+
+**Source:** `servers/exarchos-mcp/src/storage/sqlite-backend.ts` (table + accessors), `servers/exarchos-mcp/src/storage/memory-backend.ts` (in-memory test fixture)
+
+Snapshots are persisted to the active `StorageBackend`'s `projection_snapshots` table:
+
+```sql
+CREATE TABLE IF NOT EXISTS projection_snapshots (
+  stream_id          TEXT    NOT NULL,
+  projection_id      TEXT    NOT NULL,
+  projection_version TEXT    NOT NULL,
+  sequence           INTEGER NOT NULL,
+  payload            TEXT    NOT NULL,            -- JSON-encoded SnapshotRecord
+  created_at         TEXT    NOT NULL,
+  PRIMARY KEY (stream_id, projection_id, projection_version, sequence)
+);
+CREATE INDEX IF NOT EXISTS idx_projection_snapshots_latest
+  ON projection_snapshots (stream_id, projection_id, projection_version, sequence DESC);
+```
+
+The PRIMARY KEY enforces per-coordinate ordering; the descending-sequence index lets `readLatestProjectionSnapshot` resolve the LIMIT 1 query against an index seek rather than a full scan. `payload` holds the JSON-encoded `SnapshotRecord` (`{projectionId, projectionVersion, sequence, state, timestamp}`); the `state` field is opaque to the storage layer and validated by the wrapper at read time.
+
+**Size cap.** Each `(streamId, projectionId, projectionVersion)` coordinate is capped at `SNAPSHOT_MAX_RECORDS` (default 500, configurable via env). When an append would push the coordinate's row count past the cap, the backend deletes the oldest excess rows in the same transaction:
+
+```sql
+DELETE FROM projection_snapshots
+WHERE rowid IN (
+  SELECT rowid FROM projection_snapshots
+  WHERE stream_id = ? AND projection_id = ? AND projection_version = ?
+  ORDER BY sequence ASC
+  LIMIT ?  -- excess = current_count - maxRecords
+);
+```
+
+The single transaction (`INSERT` + `COUNT` + conditional `DELETE`) guarantees the row-count invariant; partial pruning under crash is impossible. The optional `onPrune?: (count) => void` callback fires inside the transaction with the exact prune count for observability.
+
+**Idempotent re-write.** `INSERT OR IGNORE` on the SQLite path (and a same-sequence dedup short-circuit on the in-memory path) makes a snapshot re-write at the same `(coordinate, sequence)` a no-op rather than a duplicate. This unblocks checkpoint retries after a partial failure (the snapshot from attempt N is preserved when attempt N+1 re-runs the same fold).
+
+**JSONL→SQLite migration (#1343, Wave A).** Pre-#1343 the substrate was a per-stream `<stateDir>/<streamId>.projections.jsonl` sidecar with atomic `tmp + fsync + rename` publish. The substrate cut moves to SQLite for three reasons: (a) cross-process safety via the WAL substrate (the JSONL path was single-writer-only), (b) range queries against the `(stream_id, projection_id, projection_version, sequence DESC)` index, and (c) consolidating snapshot persistence under the same backend the event log already uses. The wrapper API (`projections/store.ts` — `readLatestSnapshot` / `appendSnapshot`) is unchanged in spirit but now takes a `StorageBackend` instead of a `stateDir` string; both `SqliteBackend` and `InMemoryBackend` implement the contract.
+
+### `projections/store.ts` — wrapper / WARN-on-prune emission
 
 **Source:** `servers/exarchos-mcp/src/projections/store.ts`
 
-- **`readLatestSnapshot(stateDir, streamId, projectionId, projectionVersion)`** —
-  reads the JSONL sidecar `<stateDir>/<streamId>.projections.jsonl`, filters lines
-  by exact `projectionId` and `projectionVersion` match (DR-2: any version
-  mismatch forces replay-from-zero), returns the record with the highest
-  `sequence`. Lines that fail JSON parse or schema validation are skipped.
-  Returns `undefined` on ENOENT or no matching record. `streamId` is rejected
-  if it contains `..`, path separators, or `\0` (path-traversal guard).
+- **`readLatestSnapshot(backend, streamId, projectionId, projectionVersion)`** —
+  delegates to `backend.readLatestProjectionSnapshot`. Defensive `SnapshotRecord.safeParse` at the wrapper boundary translates substrate schema-invalid rows to `undefined` (so a substrate row that drifted from the schema is treated identically to "no row" — the caller cold-rebuilds). `streamId` is rejected if it contains `..`, path separators, or `\0` (`assertStreamIdSafe` — the streamId is a primary-key column on the substrate and must be a stable opaque token).
 
-- **`appendSnapshot(stateDir, streamId, record)`** — read-modify-write with
-  atomic publish: reads the existing sidecar (if any), appends the new
-  `SnapshotRecord` line, applies the size cap, and writes the full result via
-  tmp-file + `fsync` + `rename`. The rename is atomic on POSIX, so readers
-  always see either the old or the new full file — never a partial. Single-
-  writer process; cross-process concurrency is out of scope.
-
-- **Pruning** — the sidecar is capped at `SNAPSHOT_MAX_RECORDS` (default 500,
-  configurable via env). When an append would push the file past the cap,
-  oldest lines are pruned in one shot during the same atomic write so the
-  sidecar retains exactly `maxRecords` entries. A single WARN is emitted per
-  prune event via the structured logger.
+- **`appendSnapshot(backend, streamId, record, options)`** —
+  delegates to `backend.appendProjectionSnapshot` with the resolved `maxRecords` + an `onPrune` callback. The callback fires once per prune event (with the exact prune count from the backend's atomic count) and emits a WARN via the structured logger. The WARN-on-prune surface is identical pre-and-post-#1343 — the surface stayed at the wrapper boundary so consumers' log alerting doesn't have to change.
 
 - **`SnapshotRecord.sequence`** — the highest **event-store sequence**
   absorbed into `state` at write time. Distinct from the projection's

@@ -66,7 +66,7 @@ Produce a one-page plan with four sections:
 4. **Tests** — which tests will be added (named, not described)
 
 Persist via `mcp__plugin_exarchos_exarchos__exarchos_workflow` with
-`action: "set"`:
+`action: "update"`:
 
 - Set `artifacts.plan` to the plan text
 - Set `oneshot.planSummary` to a one-line summary

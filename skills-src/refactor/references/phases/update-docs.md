@@ -137,7 +137,7 @@ Update when:
 **Record docs and advance (polish track):**
 
 ```
-action: "set", featureId: "refactor-<slug>", updates: {
+action: "update", featureId: "refactor-<slug>", updates: {
   "artifacts.updatedDocs": ["docs/architecture/modules.md"],
   "validation.docsUpdated": true
 }, phase: "completed"
@@ -146,7 +146,7 @@ action: "set", featureId: "refactor-<slug>", updates: {
 **Record docs and advance (overhaul track):**
 
 ```
-action: "set", featureId: "refactor-<slug>", updates: {
+action: "update", featureId: "refactor-<slug>", updates: {
   "artifacts.updatedDocs": ["docs/architecture/modules.md"],
   "validation.docsUpdated": true
 }, phase: "synthesize"
@@ -188,7 +188,7 @@ After completing documentation updates:
 **Advance to synthesize:**
 
 ```
-action: "set", featureId: "refactor-<slug>", phase: "synthesize"
+action: "update", featureId: "refactor-<slug>", phase: "synthesize"
 ```
 
 5. Auto-invoke synthesize immediately:

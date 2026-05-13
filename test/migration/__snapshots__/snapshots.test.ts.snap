@@ -97,7 +97,7 @@ This creates a state file tracked by the MCP server.
 ### On Design Save (after Phase 3)
 
 \`\`\`
-action: "set", featureId: "<id>", updates: { "artifacts": { "design": "<path>" } }, phase: "plan"
+action: "update", featureId: "<id>", updates: { "artifacts": { "design": "<path>" } }, phase: "plan"
 \`\`\`
 
 ### Phase Transitions and Guards
@@ -112,7 +112,7 @@ For the full transition table, consult \`@skills/workflow-state/references/phase
 
 ### Schema Discovery
 
-Use \`exarchos_workflow({ action: "describe", actions: ["set", "init"] })\` for
+Use \`exarchos_workflow({ action: "describe", actions: ["update", "init"] })\` for
 parameter schemas and \`exarchos_workflow({ action: "describe", playbook: "feature" })\`
 for phase transitions, guards, and playbook guidance.
 
@@ -164,7 +164,7 @@ Before invoking \`/exarchos:plan\`:
 
 ### Chain Steps
 
-1. Update state: \`action: "set", featureId: "<id>", updates: { "artifacts": { "design": "<path>" } }, phase: "plan"\`
+1. Update state: \`action: "update", featureId: "<id>", updates: { "artifacts": { "design": "<path>" } }, phase: "plan"\`
 
 2. If \`result.data.passed === false\` and \`result.data.advisory === true\`: Output \`result.data.findings\` summary, then: "Advisory findings noted. Auto-continuing to implementation planning..."
    If \`result.data.passed === true\`: Output: "Design complete. Auto-continuing to implementation planning..."
@@ -546,7 +546,7 @@ Every phase transition has a guard that must be satisfied. Before transitioning,
 
 ### Schema Discovery
 
-Use \`exarchos_workflow({ action: "describe", actions: ["set", "init"] })\` for
+Use \`exarchos_workflow({ action: "describe", actions: ["update", "init"] })\` for
 parameter schemas and \`exarchos_workflow({ action: "describe", playbook: "debug" })\`
 for phase transitions, guards, and playbook guidance.
 
@@ -582,7 +582,7 @@ Extended to support:
 - [ ] Follow-up RCA task created
 - [ ] Changes merged
 
-**Completion guard shapes** — set these via \`exarchos_workflow set\` before transitioning to \`completed\`:
+**Completion guard shapes** — set these via \`exarchos_workflow update\` before transitioning to \`completed\`:
 
 | Exit path | Guard | Required state |
 |-----------|-------|----------------|
@@ -852,7 +852,7 @@ exarchos_orchestrate({
 })
 \`\`\`
 
-6. **Update workflow state** — set each passing \`tasks[].status\` to \`"complete"\` via \`exarchos_workflow set\`
+6. **Update workflow state** — set each passing \`tasks[].status\` to \`"complete"\` via \`exarchos_workflow update\`
 7. **Delegation completion gate (D4, advisory)** — after ALL tasks pass, run an operational resilience check on the full branch diff before transitioning to review:
 
 \`\`\`typescript
@@ -960,7 +960,7 @@ For the full transition table, consult \`@skills/workflow-state/references/phase
 
 **Quick reference:** The \`delegate\` → \`review\` transition requires guard \`all-tasks-complete\` — all \`tasks[].status\` must be \`"complete"\` in workflow state.
 
-> **Before transitioning to review:** You MUST first update all task statuses to \`"complete"\` via \`exarchos_workflow set\` with the tasks array. The phase transition will be rejected by the guard if any task is still pending/in_progress/failed. Update tasks first, then set the phase in a separate call.
+> **Before transitioning to review:** You MUST first update all task statuses to \`"complete"\` via \`exarchos_workflow update\` with the tasks array. The phase transition will be rejected by the guard if any task is still pending/in_progress/failed. Update tasks first, then set the phase in a separate call.
 
 ### Worktree-Bearing Tasks: Auto-Detour to \`merge-pending\`
 
@@ -981,7 +981,7 @@ This detour is invisible to the delegation skill itself — the all-tasks-comple
 
 ### Schema Discovery
 
-Use \`exarchos_workflow({ action: "describe", actions: ["set", "init"] })\` for
+Use \`exarchos_workflow({ action: "describe", actions: ["update", "init"] })\` for
 parameter schemas and \`exarchos_workflow({ action: "describe", playbook: "feature" })\`
 for phase transitions, guards, and playbook guidance. Use
 \`exarchos_orchestrate({ action: "describe", actions: ["check_tdd_compliance", "task_complete"] })\`
@@ -1101,7 +1101,7 @@ clever-but-fragile automation.
 After all tasks complete, **auto-continue immediately** (no user confirmation):
 
 1. Verify all \`tasks[].status === "complete"\` in workflow state
-2. Update state: \`exarchos_workflow set\` with \`phase: "review"\`
+2. Update state: \`exarchos_workflow update\` with \`phase: "review"\`
 3. Invoke: \`Skill({ skill: "exarchos:review", args: "<plan-path>" })\`
 
 This is NOT a human checkpoint — the workflow continues autonomously.
@@ -1172,7 +1172,7 @@ Collect sources, references, and raw material for the deliverable.
 
 \`\`\`typescript
 mcp__plugin_exarchos_exarchos__exarchos_workflow({
-  action: "set", featureId: "<id>",
+  action: "update", featureId: "<id>",
   updates: { "artifacts.sources": ["<source1>", "<source2>", "..."] }
 })
 \`\`\`
@@ -1191,7 +1191,7 @@ Draft the deliverable document from gathered sources.
 
 \`\`\`typescript
 mcp__plugin_exarchos_exarchos__exarchos_workflow({
-  action: "set", featureId: "<id>",
+  action: "update", featureId: "<id>",
   updates: { "artifacts.report": "<path-to-document>" }
 })
 \`\`\`
@@ -1430,11 +1430,11 @@ Only file issues with user confirmation — present the draft first.
       "id": 1,
       "bucket": "code_bug | documentation_issue | user_error",
       "tool": "exarchos_workflow",
-      "action": "set",
+      "action": "update",
       "error": "INVALID_INPUT: ...",
       "root_cause": "Schema rejects null branch on pending tasks",
-      "trace_evidence": "describe(actions: ['set']) shows branch as required string; event log confirms no task.updated event",
-      "authoritative_ref": "exarchos_workflow describe(actions: ['set']) → TaskSchema",
+      "trace_evidence": "describe(actions: ['update']) shows branch as required string; event log confirms no task.updated event",
+      "authoritative_ref": "exarchos_workflow describe(actions: ['update']) → TaskSchema",
       "severity": "HIGH | MEDIUM | LOW",
       "suggested_fix": "Accept nullable branch in TaskSchema",
       "issue_draft": {
@@ -1711,7 +1711,7 @@ Activate this skill when:
 
 ## Revision Mode (--revise flag)
 
-When invoked with \`--revise\`, plan-review found gaps. Read \`.planReview.gaps\` from state, re-read the design, add tasks to address each gap, update the plan file, then clear gaps via \`mcp__plugin_exarchos_exarchos__exarchos_workflow\` \`action: "set"\`.
+When invoked with \`--revise\`, plan-review found gaps. Read \`.planReview.gaps\` from state, re-read the design, add tasks to address each gap, update the plan file, then clear gaps via \`mcp__plugin_exarchos_exarchos__exarchos_workflow\` \`action: "update"\`.
 
 ### Revision Loop Guard
 
@@ -1894,7 +1894,7 @@ For reference, consult \`references/spec-tracing-guide.md\` for the underlying m
 
 On plan save, transition phase based on \`workflowType\`: feature → \`plan-review\`, refactor → \`overhaul-plan-review\`.
 \`\`\`
-action: "set", featureId: "<id>", phase: "<plan-review-phase>", updates: {
+action: "update", featureId: "<id>", phase: "<plan-review-phase>", updates: {
   "artifacts": { "plan": "<plan-file-path>" },
   "tasks": [{ "id": "001", "title": "...", "status": "pending", "branch": "...", "blockedBy": [] }, ...]
 }
@@ -1908,7 +1908,7 @@ For the full transition table, consult \`@skills/workflow-state/references/phase
 
 ### Schema Discovery
 
-Use \`exarchos_workflow({ action: "describe", actions: ["set", "init"] })\` for
+Use \`exarchos_workflow({ action: "describe", actions: ["update", "init"] })\` for
 parameter schemas and \`exarchos_workflow({ action: "describe", playbook: "feature" })\`
 (or \`"debug"\`, \`"refactor"\`) for phase transitions, guards, and playbook guidance.
 Use \`exarchos_orchestrate({ action: "describe", actions: ["check_plan_coverage", "check_provenance_chain"] })\`
@@ -2308,7 +2308,7 @@ Persist the plan and transition to \`implementing\` in a single set call.
 
 \`\`\`typescript
 mcp__plugin_exarchos_exarchos__exarchos_workflow({
-  action: "set",
+  action: "update",
   featureId: "fix-readme-typo",
   phase: "implementing",
   updates: {
@@ -2463,7 +2463,7 @@ Agent:
      → workflow created in 'plan' phase, synthesisPolicy defaults to 'on-request'
   2. Produces a 4-line plan: goal=fix typo, approach=sed, files=[README.md],
      tests=[readme has no occurrence of 'recieve']
-  3. exarchos_workflow set {
+  3. exarchos_workflow update {
        featureId: "fix-readme-typo",
        phase: "implementing",                   // top-level
        updates: {
@@ -2537,7 +2537,7 @@ Track oneshot-specific state under the \`oneshot\` key on the workflow state:
 
 \`\`\`typescript
 mcp__plugin_exarchos_exarchos__exarchos_workflow({
-  action: "set",
+  action: "update",
   featureId: "<id>",
   updates: {
     "oneshot": {
@@ -2582,7 +2582,7 @@ absent. Exactly one guard returns true at any given time.
 
 ### Schema discovery
 
-Use \`exarchos_workflow({ action: "describe", actions: ["init", "set"] })\`
+Use \`exarchos_workflow({ action: "describe", actions: ["init", "update"] })\`
 for parameter schemas (including the \`synthesisPolicy\` enum) and
 \`exarchos_workflow({ action: "describe", playbook: "oneshot" })\` for the
 phase transitions, guard names, and playbook prose. Use
@@ -3199,14 +3199,14 @@ If an issue spans multiple tasks:
 
 **On review complete:**
 \`\`\`text
-action: "set", featureId: "<id>", updates: {
+action: "update", featureId: "<id>", updates: {
   "reviews": { "quality-review": { "status": "pass", "summary": "...", "issues": [...] } }
 }
 \`\`\`
 
 **On all reviews pass — advance to synthesis:**
 \`\`\`text
-action: "set", featureId: "<id>", phase: "synthesize"
+action: "transition", featureId: "<id>", target: "synthesize"
 \`\`\`
 
 ### Phase Transitions and Guards
@@ -3219,7 +3219,7 @@ For the full transition table, consult \`@skills/workflow-state/references/phase
 
 ### Schema Discovery
 
-Use \`exarchos_workflow({ action: "describe", actions: ["set", "init"] })\` for
+Use \`exarchos_workflow({ action: "describe", actions: ["update", "init"] })\` for
 parameter schemas and \`exarchos_workflow({ action: "describe", playbook: "feature" })\`
 for phase transitions, guards, and playbook guidance. Use
 \`exarchos_orchestrate({ action: "describe", actions: ["check_static_analysis", "check_security_scan", "check_review_verdict"] })\`
@@ -3283,15 +3283,16 @@ Before transitioning, record the review verdict. The reviews value MUST be an ob
 
 **APPROVED:**
 \`\`\`
-exarchos_workflow({ action: "set", featureId: "<id>", updates: {
+exarchos_workflow({ action: "update", featureId: "<id>", updates: {
   reviews: { "quality-review": { status: "pass", summary: "...", issues: [] } }
-}, phase: "synthesize" })
+}})
+exarchos_workflow({ action: "transition", featureId: "<id>", target: "synthesize" })
 \`\`\`
 Then invoke \`/exarchos:synthesize\`.
 
 **NEEDS_FIXES:**
-\`\`\`
-exarchos_workflow({ action: "set", featureId: "<id>", updates: {
+\`\`\`text
+exarchos_workflow({ action: "update", featureId: "<id>", updates: {
   reviews: { "quality-review": { status: "fail", summary: "...", issues: [{ severity: "HIGH", file: "...", description: "..." }] } }
 }})
 \`\`\`
@@ -3442,7 +3443,7 @@ The pattern for every transition: send the guard prerequisite in \`updates\` and
 
 ### Schema Discovery
 
-Use \`exarchos_workflow({ action: "describe", actions: ["set", "init"] })\` for
+Use \`exarchos_workflow({ action: "describe", actions: ["update", "init"] })\` for
 parameter schemas and \`exarchos_workflow({ action: "describe", playbook: "refactor" })\`
 for phase transitions, guards, and playbook guidance.
 
@@ -3455,7 +3456,7 @@ This runbook provides structured criteria for choosing between polish and overha
 
 ## Track Switching
 
-If scope expands beyond polish limits during explore or brief phase, use \`mcp__plugin_exarchos_exarchos__exarchos_workflow\` with \`action: "set"\` to set \`track\` to "overhaul" and update \`explore.scopeAssessment.recommendedTrack\`.
+If scope expands beyond polish limits during explore or brief phase, use \`mcp__plugin_exarchos_exarchos__exarchos_workflow\` with \`action: "update"\` to set \`track\` to "overhaul" and update \`explore.scopeAssessment.recommendedTrack\`.
 
 **Scope thresholds:** If >5 files affected OR changes cross module boundaries -> recommend overhaul track.
 
@@ -3712,7 +3713,7 @@ Track shepherd progress via workflow state:
 **Initialize:**
 \`\`\`
 mcp__plugin_exarchos_exarchos__exarchos_workflow({
-  action: "set",
+  action: "update",
   featureId: "<id>",
   updates: {
     "shepherd": {
@@ -3735,7 +3736,7 @@ The shepherd skill operates within the \`synthesize\` phase and does not drive p
 
 ### Schema Discovery
 
-Use \`exarchos_workflow({ action: "describe", actions: ["set", "init"] })\` for
+Use \`exarchos_workflow({ action: "describe", actions: ["update", "init"] })\` for
 parameter schemas and \`exarchos_workflow({ action: "describe", playbook: "feature" })\`
 for phase transitions, guards, and playbook guidance. Use
 \`exarchos_event({ action: "describe", eventTypes: ["shepherd.iteration", "ci.status", "remediation.attempted"] })\`
@@ -4000,14 +4001,14 @@ If an issue spans multiple tasks:
 
 **Pass:**
 \`\`\`
-action: "set", featureId: "<id>", updates: {
+action: "update", featureId: "<id>", updates: {
   "reviews": { "spec-review": { "status": "pass", "summary": "...", "issues": [] } }
 }
 \`\`\`
 
 **Fail:**
 \`\`\`
-action: "set", featureId: "<id>", updates: {
+action: "update", featureId: "<id>", updates: {
   "reviews": { "spec-review": { "status": "fail", "summary": "...", "issues": [{ "severity": "...", "file": "...", "description": "..." }] } }
 }
 \`\`\`
@@ -4024,7 +4025,7 @@ For the full transition table, consult \`@skills/workflow-state/references/phase
 
 ### Schema Discovery
 
-Use \`exarchos_workflow({ action: "describe", actions: ["set", "init"] })\` for
+Use \`exarchos_workflow({ action: "describe", actions: ["update", "init"] })\` for
 parameter schemas and \`exarchos_workflow({ action: "describe", playbook: "feature" })\`
 for phase transitions, guards, and playbook guidance. Use
 \`exarchos_orchestrate({ action: "describe", actions: ["check_tdd_compliance", "check_static_analysis"] })\`
@@ -4045,7 +4046,7 @@ Before invoking quality-review:
 ### If PASS:
 1. Record results — the reviews value MUST be an object with a \`status\` field, not a flat string:
    \`\`\`
-   exarchos_workflow({ action: "set", featureId: "<id>", updates: {
+   exarchos_workflow({ action: "update", featureId: "<id>", updates: {
      reviews: { "spec-review": { status: "pass", summary: "...", issues: [] } }
    }})
    \`\`\`
@@ -4057,7 +4058,7 @@ Before invoking quality-review:
 ### If FAIL:
 1. Record results with failing status and issue details:
    \`\`\`
-   exarchos_workflow({ action: "set", featureId: "<id>", updates: {
+   exarchos_workflow({ action: "update", featureId: "<id>", updates: {
      reviews: { "spec-review": { status: "fail", summary: "...", issues: [{ severity: "HIGH", file: "...", description: "..." }] } }
    }})
    \`\`\`
@@ -4233,7 +4234,7 @@ After submission:
 
 \`\`\`typescript
 mcp__plugin_exarchos_exarchos__exarchos_workflow({
-  action: "set", featureId: "<id>", updates: {
+  action: "update", featureId: "<id>", updates: {
     "artifacts": { "pr": ["<url1>", "<url2>"] },
     "synthesis": { "mergeOrder": ["<branch1>", ...], "prUrl": ["<url1>", ...], "prFeedback": [] }
   }
@@ -4312,7 +4313,7 @@ For the full transition table, consult \`@skills/workflow-state/references/phase
 
 ### Schema Discovery
 
-Use \`exarchos_workflow({ action: "describe", actions: ["set", "init"] })\` for
+Use \`exarchos_workflow({ action: "describe", actions: ["update", "init"] })\` for
 parameter schemas and \`exarchos_workflow({ action: "describe", playbook: "feature" })\`
 for phase transitions, guards, and playbook guidance. Use
 \`exarchos_orchestrate({ action: "describe", actions: ["prepare_synthesis"] })\`
@@ -4367,7 +4368,7 @@ Valid transitions, guards, and prerequisites for all workflow types are document
 
 ### Schema Discovery
 
-Use \`exarchos_workflow({ action: "describe", actions: ["set", "init", "get"] })\` for
+Use \`exarchos_workflow({ action: "describe", actions: ["update", "init", "get"] })\` for
 parameter schemas and \`exarchos_workflow({ action: "describe", playbook: "feature" })\`
 for phase transitions, guards, and playbook guidance. For the lightweight
 oneshot variant (with its \`implementing → synthesize|completed\` choice state
@@ -4420,7 +4421,7 @@ Field projection via \`fields\` returns only the requested top-level keys, reduc
 
 ### Update State
 
-Use \`mcp__plugin_exarchos_exarchos__exarchos_workflow\` with \`action: "set"\` with \`featureId\` and either \`updates\`, \`phase\`, or both:
+Use \`mcp__plugin_exarchos_exarchos__exarchos_workflow\` with \`action: "update"\` with \`featureId\` and either \`updates\`, \`phase\`, or both:
 
 - **Update phase**: \`phase: "delegate"\`
 - **Set artifact path**: \`updates: { "artifacts.design": "docs/designs/2026-01-05-feature.md" }\`
@@ -4437,7 +4438,7 @@ The dot-path parser used by \`set updates\` recognizes only **numeric** array br
 1. **Replace the whole array** (use this when the plan is being revised wholesale; matches the issue #1003 contract):
    \`\`\`typescript
    exarchos_workflow({
-     action: "set",
+     action: "update",
      featureId: "<id>",
      updates: { tasks: [
        { id: "T-001", title: "...", status: "pending" },
@@ -4449,7 +4450,7 @@ The dot-path parser used by \`set updates\` recognizes only **numeric** array br
 2. **Edit one task by its array index**:
    \`\`\`typescript
    exarchos_workflow({
-     action: "set",
+     action: "update",
      featureId: "<id>",
      updates: { "tasks[0].status": "complete", "tasks[0].completedAt": "<ts>" },
    })
@@ -4460,7 +4461,7 @@ The dot-path parser used by \`set updates\` recognizes only **numeric** array br
    \`\`\`typescript
    // Suppose tasks already contains T-001 and T-002 (length 2). To append:
    exarchos_workflow({
-     action: "set",
+     action: "update",
      featureId: "<id>",
      updates: { "tasks[2]": { id: "T-003", title: "Follow-up", status: "pending" } },
    })
@@ -4588,7 +4589,7 @@ If an Exarchos MCP tool returns an error:
 If workflow state doesn't match git reality:
 1. Run \`/exarchos:rehydrate <featureId>\` — the rehydration projection folds in events newer than the last snapshot
 2. If manual check still needed: compare the rehydration document's \`workflowState\` / \`artifacts\` with \`git log\` and branch state
-3. Update state via \`mcp__plugin_exarchos_exarchos__exarchos_workflow\` with \`action: "set"\` to match git truth
+3. Update state via \`mcp__plugin_exarchos_exarchos__exarchos_workflow\` with \`action: "update"\` to match git truth
 
 ### Checkpoint Missing
 If \`/exarchos:checkpoint\` is invoked with no active workflow:
@@ -4600,7 +4601,7 @@ If \`/exarchos:checkpoint\` is invoked with no active workflow:
 If state references branches or worktrees that no longer exist:
 1. Run \`/exarchos:rehydrate <featureId>\` — the rehydration document surfaces stale references
 2. Compare against \`git branch -a\` / \`git worktree list\` to identify drift
-3. Update via \`exarchos_workflow set\` to match git truth
+3. Update via \`exarchos_workflow update\` to match git truth
 
 ### Multiple Active Workflows
 If multiple workflow state files exist:
@@ -4612,7 +4613,7 @@ If multiple workflow state files exist:
 
 1. **Start new workflow**: Use \`mcp__plugin_exarchos_exarchos__exarchos_workflow\` with \`action: "init"\` with \`featureId: "user-authentication"\`, \`workflowType: "feature"\`
 
-2. **After design phase**: Use \`mcp__plugin_exarchos_exarchos__exarchos_workflow\` with \`action: "set"\` with:
+2. **After design phase**: Use \`mcp__plugin_exarchos_exarchos__exarchos_workflow\` with \`action: "update"\` with:
    - \`featureId: "user-authentication"\`
    - \`phase: "plan"\`
    - \`updates: { "artifacts.design": "docs/designs/2026-01-05-user-auth.md" }\`
@@ -4720,7 +4721,7 @@ This creates a state file tracked by the MCP server.
 ### On Design Save (after Phase 3)
 
 \`\`\`
-action: "set", featureId: "<id>", updates: { "artifacts": { "design": "<path>" } }, phase: "plan"
+action: "update", featureId: "<id>", updates: { "artifacts": { "design": "<path>" } }, phase: "plan"
 \`\`\`
 
 ### Phase Transitions and Guards
@@ -4735,7 +4736,7 @@ For the full transition table, consult \`@skills/workflow-state/references/phase
 
 ### Schema Discovery
 
-Use \`exarchos_workflow({ action: "describe", actions: ["set", "init"] })\` for
+Use \`exarchos_workflow({ action: "describe", actions: ["update", "init"] })\` for
 parameter schemas and \`exarchos_workflow({ action: "describe", playbook: "feature" })\`
 for phase transitions, guards, and playbook guidance.
 
@@ -4787,7 +4788,7 @@ Before invoking \`plan\`:
 
 ### Chain Steps
 
-1. Update state: \`action: "set", featureId: "<id>", updates: { "artifacts": { "design": "<path>" } }, phase: "plan"\`
+1. Update state: \`action: "update", featureId: "<id>", updates: { "artifacts": { "design": "<path>" } }, phase: "plan"\`
 
 2. If \`result.data.passed === false\` and \`result.data.advisory === true\`: Output \`result.data.findings\` summary, then: "Advisory findings noted. Auto-continuing to implementation planning..."
    If \`result.data.passed === true\`: Output: "Design complete. Auto-continuing to implementation planning..."
@@ -5169,7 +5170,7 @@ Every phase transition has a guard that must be satisfied. Before transitioning,
 
 ### Schema Discovery
 
-Use \`exarchos_workflow({ action: "describe", actions: ["set", "init"] })\` for
+Use \`exarchos_workflow({ action: "describe", actions: ["update", "init"] })\` for
 parameter schemas and \`exarchos_workflow({ action: "describe", playbook: "debug" })\`
 for phase transitions, guards, and playbook guidance.
 
@@ -5205,7 +5206,7 @@ Extended to support:
 - [ ] Follow-up RCA task created
 - [ ] Changes merged
 
-**Completion guard shapes** — set these via \`exarchos_workflow set\` before transitioning to \`completed\`:
+**Completion guard shapes** — set these via \`exarchos_workflow update\` before transitioning to \`completed\`:
 
 | Exit path | Guard | Required state |
 |-----------|-------|----------------|
@@ -5441,7 +5442,7 @@ exarchos_orchestrate({
 })
 \`\`\`
 
-6. **Update workflow state** — set each passing \`tasks[].status\` to \`"complete"\` via \`exarchos_workflow set\`
+6. **Update workflow state** — set each passing \`tasks[].status\` to \`"complete"\` via \`exarchos_workflow update\`
 7. **Delegation completion gate (D4, advisory)** — after ALL tasks pass, run an operational resilience check on the full branch diff before transitioning to review:
 
 \`\`\`typescript
@@ -5538,7 +5539,7 @@ For the full transition table, consult \`@skills/workflow-state/references/phase
 
 **Quick reference:** The \`delegate\` → \`review\` transition requires guard \`all-tasks-complete\` — all \`tasks[].status\` must be \`"complete"\` in workflow state.
 
-> **Before transitioning to review:** You MUST first update all task statuses to \`"complete"\` via \`exarchos_workflow set\` with the tasks array. The phase transition will be rejected by the guard if any task is still pending/in_progress/failed. Update tasks first, then set the phase in a separate call.
+> **Before transitioning to review:** You MUST first update all task statuses to \`"complete"\` via \`exarchos_workflow update\` with the tasks array. The phase transition will be rejected by the guard if any task is still pending/in_progress/failed. Update tasks first, then set the phase in a separate call.
 
 ### Worktree-Bearing Tasks: Auto-Detour to \`merge-pending\`
 
@@ -5559,7 +5560,7 @@ This detour is invisible to the delegation skill itself — the all-tasks-comple
 
 ### Schema Discovery
 
-Use \`exarchos_workflow({ action: "describe", actions: ["set", "init"] })\` for
+Use \`exarchos_workflow({ action: "describe", actions: ["update", "init"] })\` for
 parameter schemas and \`exarchos_workflow({ action: "describe", playbook: "feature" })\`
 for phase transitions, guards, and playbook guidance. Use
 \`exarchos_orchestrate({ action: "describe", actions: ["check_tdd_compliance", "task_complete"] })\`
@@ -5679,7 +5680,7 @@ clever-but-fragile automation.
 After all tasks complete, **auto-continue immediately** (no user confirmation):
 
 1. Verify all \`tasks[].status === "complete"\` in workflow state
-2. Update state: \`exarchos_workflow set\` with \`phase: "review"\`
+2. Update state: \`exarchos_workflow update\` with \`phase: "review"\`
 3. Invoke: \`[Invoke the exarchos:review skill with args: <plan-path>]\`
 
 This is NOT a human checkpoint — the workflow continues autonomously.
@@ -5748,7 +5749,7 @@ Collect sources, references, and raw material for the deliverable.
 
 \`\`\`typescript
 mcp__exarchos__exarchos_workflow({
-  action: "set", featureId: "<id>",
+  action: "update", featureId: "<id>",
   updates: { "artifacts.sources": ["<source1>", "<source2>", "..."] }
 })
 \`\`\`
@@ -5767,7 +5768,7 @@ Draft the deliverable document from gathered sources.
 
 \`\`\`typescript
 mcp__exarchos__exarchos_workflow({
-  action: "set", featureId: "<id>",
+  action: "update", featureId: "<id>",
   updates: { "artifacts.report": "<path-to-document>" }
 })
 \`\`\`
@@ -6006,11 +6007,11 @@ Only file issues with user confirmation — present the draft first.
       "id": 1,
       "bucket": "code_bug | documentation_issue | user_error",
       "tool": "exarchos_workflow",
-      "action": "set",
+      "action": "update",
       "error": "INVALID_INPUT: ...",
       "root_cause": "Schema rejects null branch on pending tasks",
-      "trace_evidence": "describe(actions: ['set']) shows branch as required string; event log confirms no task.updated event",
-      "authoritative_ref": "exarchos_workflow describe(actions: ['set']) → TaskSchema",
+      "trace_evidence": "describe(actions: ['update']) shows branch as required string; event log confirms no task.updated event",
+      "authoritative_ref": "exarchos_workflow describe(actions: ['update']) → TaskSchema",
       "severity": "HIGH | MEDIUM | LOW",
       "suggested_fix": "Accept nullable branch in TaskSchema",
       "issue_draft": {
@@ -6287,7 +6288,7 @@ Activate this skill when:
 
 ## Revision Mode (--revise flag)
 
-When invoked with \`--revise\`, plan-review found gaps. Read \`.planReview.gaps\` from state, re-read the design, add tasks to address each gap, update the plan file, then clear gaps via \`mcp__exarchos__exarchos_workflow\` \`action: "set"\`.
+When invoked with \`--revise\`, plan-review found gaps. Read \`.planReview.gaps\` from state, re-read the design, add tasks to address each gap, update the plan file, then clear gaps via \`mcp__exarchos__exarchos_workflow\` \`action: "update"\`.
 
 ### Revision Loop Guard
 
@@ -6470,7 +6471,7 @@ For reference, consult \`references/spec-tracing-guide.md\` for the underlying m
 
 On plan save, transition phase based on \`workflowType\`: feature → \`plan-review\`, refactor → \`overhaul-plan-review\`.
 \`\`\`
-action: "set", featureId: "<id>", phase: "<plan-review-phase>", updates: {
+action: "update", featureId: "<id>", phase: "<plan-review-phase>", updates: {
   "artifacts": { "plan": "<plan-file-path>" },
   "tasks": [{ "id": "001", "title": "...", "status": "pending", "branch": "...", "blockedBy": [] }, ...]
 }
@@ -6484,7 +6485,7 @@ For the full transition table, consult \`@skills/workflow-state/references/phase
 
 ### Schema Discovery
 
-Use \`exarchos_workflow({ action: "describe", actions: ["set", "init"] })\` for
+Use \`exarchos_workflow({ action: "describe", actions: ["update", "init"] })\` for
 parameter schemas and \`exarchos_workflow({ action: "describe", playbook: "feature" })\`
 (or \`"debug"\`, \`"refactor"\`) for phase transitions, guards, and playbook guidance.
 Use \`exarchos_orchestrate({ action: "describe", actions: ["check_plan_coverage", "check_provenance_chain"] })\`
@@ -6884,7 +6885,7 @@ Persist the plan and transition to \`implementing\` in a single set call.
 
 \`\`\`typescript
 mcp__exarchos__exarchos_workflow({
-  action: "set",
+  action: "update",
   featureId: "fix-readme-typo",
   phase: "implementing",
   updates: {
@@ -7039,7 +7040,7 @@ Agent:
      → workflow created in 'plan' phase, synthesisPolicy defaults to 'on-request'
   2. Produces a 4-line plan: goal=fix typo, approach=sed, files=[README.md],
      tests=[readme has no occurrence of 'recieve']
-  3. exarchos_workflow set {
+  3. exarchos_workflow update {
        featureId: "fix-readme-typo",
        phase: "implementing",                   // top-level
        updates: {
@@ -7113,7 +7114,7 @@ Track oneshot-specific state under the \`oneshot\` key on the workflow state:
 
 \`\`\`typescript
 mcp__exarchos__exarchos_workflow({
-  action: "set",
+  action: "update",
   featureId: "<id>",
   updates: {
     "oneshot": {
@@ -7158,7 +7159,7 @@ absent. Exactly one guard returns true at any given time.
 
 ### Schema discovery
 
-Use \`exarchos_workflow({ action: "describe", actions: ["init", "set"] })\`
+Use \`exarchos_workflow({ action: "describe", actions: ["init", "update"] })\`
 for parameter schemas (including the \`synthesisPolicy\` enum) and
 \`exarchos_workflow({ action: "describe", playbook: "oneshot" })\` for the
 phase transitions, guard names, and playbook prose. Use
@@ -7775,14 +7776,14 @@ If an issue spans multiple tasks:
 
 **On review complete:**
 \`\`\`text
-action: "set", featureId: "<id>", updates: {
+action: "update", featureId: "<id>", updates: {
   "reviews": { "quality-review": { "status": "pass", "summary": "...", "issues": [...] } }
 }
 \`\`\`
 
 **On all reviews pass — advance to synthesis:**
 \`\`\`text
-action: "set", featureId: "<id>", phase: "synthesize"
+action: "transition", featureId: "<id>", target: "synthesize"
 \`\`\`
 
 ### Phase Transitions and Guards
@@ -7795,7 +7796,7 @@ For the full transition table, consult \`@skills/workflow-state/references/phase
 
 ### Schema Discovery
 
-Use \`exarchos_workflow({ action: "describe", actions: ["set", "init"] })\` for
+Use \`exarchos_workflow({ action: "describe", actions: ["update", "init"] })\` for
 parameter schemas and \`exarchos_workflow({ action: "describe", playbook: "feature" })\`
 for phase transitions, guards, and playbook guidance. Use
 \`exarchos_orchestrate({ action: "describe", actions: ["check_static_analysis", "check_security_scan", "check_review_verdict"] })\`
@@ -7859,15 +7860,16 @@ Before transitioning, record the review verdict. The reviews value MUST be an ob
 
 **APPROVED:**
 \`\`\`
-exarchos_workflow({ action: "set", featureId: "<id>", updates: {
+exarchos_workflow({ action: "update", featureId: "<id>", updates: {
   reviews: { "quality-review": { status: "pass", summary: "...", issues: [] } }
-}, phase: "synthesize" })
+}})
+exarchos_workflow({ action: "transition", featureId: "<id>", target: "synthesize" })
 \`\`\`
 Then invoke \`synthesize\`.
 
 **NEEDS_FIXES:**
-\`\`\`
-exarchos_workflow({ action: "set", featureId: "<id>", updates: {
+\`\`\`text
+exarchos_workflow({ action: "update", featureId: "<id>", updates: {
   reviews: { "quality-review": { status: "fail", summary: "...", issues: [{ severity: "HIGH", file: "...", description: "..." }] } }
 }})
 \`\`\`
@@ -8018,7 +8020,7 @@ The pattern for every transition: send the guard prerequisite in \`updates\` and
 
 ### Schema Discovery
 
-Use \`exarchos_workflow({ action: "describe", actions: ["set", "init"] })\` for
+Use \`exarchos_workflow({ action: "describe", actions: ["update", "init"] })\` for
 parameter schemas and \`exarchos_workflow({ action: "describe", playbook: "refactor" })\`
 for phase transitions, guards, and playbook guidance.
 
@@ -8031,7 +8033,7 @@ This runbook provides structured criteria for choosing between polish and overha
 
 ## Track Switching
 
-If scope expands beyond polish limits during explore or brief phase, use \`mcp__exarchos__exarchos_workflow\` with \`action: "set"\` to set \`track\` to "overhaul" and update \`explore.scopeAssessment.recommendedTrack\`.
+If scope expands beyond polish limits during explore or brief phase, use \`mcp__exarchos__exarchos_workflow\` with \`action: "update"\` to set \`track\` to "overhaul" and update \`explore.scopeAssessment.recommendedTrack\`.
 
 **Scope thresholds:** If >5 files affected OR changes cross module boundaries -> recommend overhaul track.
 
@@ -8288,7 +8290,7 @@ Track shepherd progress via workflow state:
 **Initialize:**
 \`\`\`
 mcp__exarchos__exarchos_workflow({
-  action: "set",
+  action: "update",
   featureId: "<id>",
   updates: {
     "shepherd": {
@@ -8311,7 +8313,7 @@ The shepherd skill operates within the \`synthesize\` phase and does not drive p
 
 ### Schema Discovery
 
-Use \`exarchos_workflow({ action: "describe", actions: ["set", "init"] })\` for
+Use \`exarchos_workflow({ action: "describe", actions: ["update", "init"] })\` for
 parameter schemas and \`exarchos_workflow({ action: "describe", playbook: "feature" })\`
 for phase transitions, guards, and playbook guidance. Use
 \`exarchos_event({ action: "describe", eventTypes: ["shepherd.iteration", "ci.status", "remediation.attempted"] })\`
@@ -8576,14 +8578,14 @@ If an issue spans multiple tasks:
 
 **Pass:**
 \`\`\`
-action: "set", featureId: "<id>", updates: {
+action: "update", featureId: "<id>", updates: {
   "reviews": { "spec-review": { "status": "pass", "summary": "...", "issues": [] } }
 }
 \`\`\`
 
 **Fail:**
 \`\`\`
-action: "set", featureId: "<id>", updates: {
+action: "update", featureId: "<id>", updates: {
   "reviews": { "spec-review": { "status": "fail", "summary": "...", "issues": [{ "severity": "...", "file": "...", "description": "..." }] } }
 }
 \`\`\`
@@ -8600,7 +8602,7 @@ For the full transition table, consult \`@skills/workflow-state/references/phase
 
 ### Schema Discovery
 
-Use \`exarchos_workflow({ action: "describe", actions: ["set", "init"] })\` for
+Use \`exarchos_workflow({ action: "describe", actions: ["update", "init"] })\` for
 parameter schemas and \`exarchos_workflow({ action: "describe", playbook: "feature" })\`
 for phase transitions, guards, and playbook guidance. Use
 \`exarchos_orchestrate({ action: "describe", actions: ["check_tdd_compliance", "check_static_analysis"] })\`
@@ -8621,7 +8623,7 @@ Before invoking quality-review:
 ### If PASS:
 1. Record results — the reviews value MUST be an object with a \`status\` field, not a flat string:
    \`\`\`
-   exarchos_workflow({ action: "set", featureId: "<id>", updates: {
+   exarchos_workflow({ action: "update", featureId: "<id>", updates: {
      reviews: { "spec-review": { status: "pass", summary: "...", issues: [] } }
    }})
    \`\`\`
@@ -8633,7 +8635,7 @@ Before invoking quality-review:
 ### If FAIL:
 1. Record results with failing status and issue details:
    \`\`\`
-   exarchos_workflow({ action: "set", featureId: "<id>", updates: {
+   exarchos_workflow({ action: "update", featureId: "<id>", updates: {
      reviews: { "spec-review": { status: "fail", summary: "...", issues: [{ severity: "HIGH", file: "...", description: "..." }] } }
    }})
    \`\`\`
@@ -8809,7 +8811,7 @@ After submission:
 
 \`\`\`typescript
 mcp__exarchos__exarchos_workflow({
-  action: "set", featureId: "<id>", updates: {
+  action: "update", featureId: "<id>", updates: {
     "artifacts": { "pr": ["<url1>", "<url2>"] },
     "synthesis": { "mergeOrder": ["<branch1>", ...], "prUrl": ["<url1>", ...], "prFeedback": [] }
   }
@@ -8888,7 +8890,7 @@ For the full transition table, consult \`@skills/workflow-state/references/phase
 
 ### Schema Discovery
 
-Use \`exarchos_workflow({ action: "describe", actions: ["set", "init"] })\` for
+Use \`exarchos_workflow({ action: "describe", actions: ["update", "init"] })\` for
 parameter schemas and \`exarchos_workflow({ action: "describe", playbook: "feature" })\`
 for phase transitions, guards, and playbook guidance. Use
 \`exarchos_orchestrate({ action: "describe", actions: ["prepare_synthesis"] })\`
@@ -8943,7 +8945,7 @@ Valid transitions, guards, and prerequisites for all workflow types are document
 
 ### Schema Discovery
 
-Use \`exarchos_workflow({ action: "describe", actions: ["set", "init", "get"] })\` for
+Use \`exarchos_workflow({ action: "describe", actions: ["update", "init", "get"] })\` for
 parameter schemas and \`exarchos_workflow({ action: "describe", playbook: "feature" })\`
 for phase transitions, guards, and playbook guidance. For the lightweight
 oneshot variant (with its \`implementing → synthesize|completed\` choice state
@@ -8996,7 +8998,7 @@ Field projection via \`fields\` returns only the requested top-level keys, reduc
 
 ### Update State
 
-Use \`mcp__exarchos__exarchos_workflow\` with \`action: "set"\` with \`featureId\` and either \`updates\`, \`phase\`, or both:
+Use \`mcp__exarchos__exarchos_workflow\` with \`action: "update"\` with \`featureId\` and either \`updates\`, \`phase\`, or both:
 
 - **Update phase**: \`phase: "delegate"\`
 - **Set artifact path**: \`updates: { "artifacts.design": "docs/designs/2026-01-05-feature.md" }\`
@@ -9013,7 +9015,7 @@ The dot-path parser used by \`set updates\` recognizes only **numeric** array br
 1. **Replace the whole array** (use this when the plan is being revised wholesale; matches the issue #1003 contract):
    \`\`\`typescript
    exarchos_workflow({
-     action: "set",
+     action: "update",
      featureId: "<id>",
      updates: { tasks: [
        { id: "T-001", title: "...", status: "pending" },
@@ -9025,7 +9027,7 @@ The dot-path parser used by \`set updates\` recognizes only **numeric** array br
 2. **Edit one task by its array index**:
    \`\`\`typescript
    exarchos_workflow({
-     action: "set",
+     action: "update",
      featureId: "<id>",
      updates: { "tasks[0].status": "complete", "tasks[0].completedAt": "<ts>" },
    })
@@ -9036,7 +9038,7 @@ The dot-path parser used by \`set updates\` recognizes only **numeric** array br
    \`\`\`typescript
    // Suppose tasks already contains T-001 and T-002 (length 2). To append:
    exarchos_workflow({
-     action: "set",
+     action: "update",
      featureId: "<id>",
      updates: { "tasks[2]": { id: "T-003", title: "Follow-up", status: "pending" } },
    })
@@ -9164,7 +9166,7 @@ If an Exarchos MCP tool returns an error:
 If workflow state doesn't match git reality:
 1. Run \`rehydrate <featureId>\` — the rehydration projection folds in events newer than the last snapshot
 2. If manual check still needed: compare the rehydration document's \`workflowState\` / \`artifacts\` with \`git log\` and branch state
-3. Update state via \`mcp__exarchos__exarchos_workflow\` with \`action: "set"\` to match git truth
+3. Update state via \`mcp__exarchos__exarchos_workflow\` with \`action: "update"\` to match git truth
 
 ### Checkpoint Missing
 If \`checkpoint\` is invoked with no active workflow:
@@ -9176,7 +9178,7 @@ If \`checkpoint\` is invoked with no active workflow:
 If state references branches or worktrees that no longer exist:
 1. Run \`rehydrate <featureId>\` — the rehydration document surfaces stale references
 2. Compare against \`git branch -a\` / \`git worktree list\` to identify drift
-3. Update via \`exarchos_workflow set\` to match git truth
+3. Update via \`exarchos_workflow update\` to match git truth
 
 ### Multiple Active Workflows
 If multiple workflow state files exist:
@@ -9188,7 +9190,7 @@ If multiple workflow state files exist:
 
 1. **Start new workflow**: Use \`mcp__exarchos__exarchos_workflow\` with \`action: "init"\` with \`featureId: "user-authentication"\`, \`workflowType: "feature"\`
 
-2. **After design phase**: Use \`mcp__exarchos__exarchos_workflow\` with \`action: "set"\` with:
+2. **After design phase**: Use \`mcp__exarchos__exarchos_workflow\` with \`action: "update"\` with:
    - \`featureId: "user-authentication"\`
    - \`phase: "plan"\`
    - \`updates: { "artifacts.design": "docs/designs/2026-01-05-user-auth.md" }\`
@@ -9296,7 +9298,7 @@ This creates a state file tracked by the MCP server.
 ### On Design Save (after Phase 3)
 
 \`\`\`
-action: "set", featureId: "<id>", updates: { "artifacts": { "design": "<path>" } }, phase: "plan"
+action: "update", featureId: "<id>", updates: { "artifacts": { "design": "<path>" } }, phase: "plan"
 \`\`\`
 
 ### Phase Transitions and Guards
@@ -9311,7 +9313,7 @@ For the full transition table, consult \`@skills/workflow-state/references/phase
 
 ### Schema Discovery
 
-Use \`exarchos_workflow({ action: "describe", actions: ["set", "init"] })\` for
+Use \`exarchos_workflow({ action: "describe", actions: ["update", "init"] })\` for
 parameter schemas and \`exarchos_workflow({ action: "describe", playbook: "feature" })\`
 for phase transitions, guards, and playbook guidance.
 
@@ -9363,7 +9365,7 @@ Before invoking \`/plan\`:
 
 ### Chain Steps
 
-1. Update state: \`action: "set", featureId: "<id>", updates: { "artifacts": { "design": "<path>" } }, phase: "plan"\`
+1. Update state: \`action: "update", featureId: "<id>", updates: { "artifacts": { "design": "<path>" } }, phase: "plan"\`
 
 2. If \`result.data.passed === false\` and \`result.data.advisory === true\`: Output \`result.data.findings\` summary, then: "Advisory findings noted. Auto-continuing to implementation planning..."
    If \`result.data.passed === true\`: Output: "Design complete. Auto-continuing to implementation planning..."
@@ -9745,7 +9747,7 @@ Every phase transition has a guard that must be satisfied. Before transitioning,
 
 ### Schema Discovery
 
-Use \`exarchos_workflow({ action: "describe", actions: ["set", "init"] })\` for
+Use \`exarchos_workflow({ action: "describe", actions: ["update", "init"] })\` for
 parameter schemas and \`exarchos_workflow({ action: "describe", playbook: "debug" })\`
 for phase transitions, guards, and playbook guidance.
 
@@ -9781,7 +9783,7 @@ Extended to support:
 - [ ] Follow-up RCA task created
 - [ ] Changes merged
 
-**Completion guard shapes** — set these via \`exarchos_workflow set\` before transitioning to \`completed\`:
+**Completion guard shapes** — set these via \`exarchos_workflow update\` before transitioning to \`completed\`:
 
 | Exit path | Guard | Required state |
 |-----------|-------|----------------|
@@ -10013,7 +10015,7 @@ exarchos_orchestrate({
 })
 \`\`\`
 
-6. **Update workflow state** — set each passing \`tasks[].status\` to \`"complete"\` via \`exarchos_workflow set\`
+6. **Update workflow state** — set each passing \`tasks[].status\` to \`"complete"\` via \`exarchos_workflow update\`
 7. **Delegation completion gate (D4, advisory)** — after ALL tasks pass, run an operational resilience check on the full branch diff before transitioning to review:
 
 \`\`\`typescript
@@ -10106,7 +10108,7 @@ For the full transition table, consult \`@skills/workflow-state/references/phase
 
 **Quick reference:** The \`delegate\` → \`review\` transition requires guard \`all-tasks-complete\` — all \`tasks[].status\` must be \`"complete"\` in workflow state.
 
-> **Before transitioning to review:** You MUST first update all task statuses to \`"complete"\` via \`exarchos_workflow set\` with the tasks array. The phase transition will be rejected by the guard if any task is still pending/in_progress/failed. Update tasks first, then set the phase in a separate call.
+> **Before transitioning to review:** You MUST first update all task statuses to \`"complete"\` via \`exarchos_workflow update\` with the tasks array. The phase transition will be rejected by the guard if any task is still pending/in_progress/failed. Update tasks first, then set the phase in a separate call.
 
 ### Worktree-Bearing Tasks: Auto-Detour to \`merge-pending\`
 
@@ -10127,7 +10129,7 @@ This detour is invisible to the delegation skill itself — the all-tasks-comple
 
 ### Schema Discovery
 
-Use \`exarchos_workflow({ action: "describe", actions: ["set", "init"] })\` for
+Use \`exarchos_workflow({ action: "describe", actions: ["update", "init"] })\` for
 parameter schemas and \`exarchos_workflow({ action: "describe", playbook: "feature" })\`
 for phase transitions, guards, and playbook guidance. Use
 \`exarchos_orchestrate({ action: "describe", actions: ["check_tdd_compliance", "task_complete"] })\`
@@ -10247,7 +10249,7 @@ clever-but-fragile automation.
 After all tasks complete, **auto-continue immediately** (no user confirmation):
 
 1. Verify all \`tasks[].status === "complete"\` in workflow state
-2. Update state: \`exarchos_workflow set\` with \`phase: "review"\`
+2. Update state: \`exarchos_workflow update\` with \`phase: "review"\`
 3. Invoke: \`[Invoke the exarchos:review skill with args: <plan-path>]\`
 
 This is NOT a human checkpoint — the workflow continues autonomously.
@@ -10316,7 +10318,7 @@ Collect sources, references, and raw material for the deliverable.
 
 \`\`\`typescript
 mcp__exarchos__exarchos_workflow({
-  action: "set", featureId: "<id>",
+  action: "update", featureId: "<id>",
   updates: { "artifacts.sources": ["<source1>", "<source2>", "..."] }
 })
 \`\`\`
@@ -10335,7 +10337,7 @@ Draft the deliverable document from gathered sources.
 
 \`\`\`typescript
 mcp__exarchos__exarchos_workflow({
-  action: "set", featureId: "<id>",
+  action: "update", featureId: "<id>",
   updates: { "artifacts.report": "<path-to-document>" }
 })
 \`\`\`
@@ -10574,11 +10576,11 @@ Only file issues with user confirmation — present the draft first.
       "id": 1,
       "bucket": "code_bug | documentation_issue | user_error",
       "tool": "exarchos_workflow",
-      "action": "set",
+      "action": "update",
       "error": "INVALID_INPUT: ...",
       "root_cause": "Schema rejects null branch on pending tasks",
-      "trace_evidence": "describe(actions: ['set']) shows branch as required string; event log confirms no task.updated event",
-      "authoritative_ref": "exarchos_workflow describe(actions: ['set']) → TaskSchema",
+      "trace_evidence": "describe(actions: ['update']) shows branch as required string; event log confirms no task.updated event",
+      "authoritative_ref": "exarchos_workflow describe(actions: ['update']) → TaskSchema",
       "severity": "HIGH | MEDIUM | LOW",
       "suggested_fix": "Accept nullable branch in TaskSchema",
       "issue_draft": {
@@ -10855,7 +10857,7 @@ Activate this skill when:
 
 ## Revision Mode (--revise flag)
 
-When invoked with \`--revise\`, plan-review found gaps. Read \`.planReview.gaps\` from state, re-read the design, add tasks to address each gap, update the plan file, then clear gaps via \`mcp__exarchos__exarchos_workflow\` \`action: "set"\`.
+When invoked with \`--revise\`, plan-review found gaps. Read \`.planReview.gaps\` from state, re-read the design, add tasks to address each gap, update the plan file, then clear gaps via \`mcp__exarchos__exarchos_workflow\` \`action: "update"\`.
 
 ### Revision Loop Guard
 
@@ -11038,7 +11040,7 @@ For reference, consult \`references/spec-tracing-guide.md\` for the underlying m
 
 On plan save, transition phase based on \`workflowType\`: feature → \`plan-review\`, refactor → \`overhaul-plan-review\`.
 \`\`\`
-action: "set", featureId: "<id>", phase: "<plan-review-phase>", updates: {
+action: "update", featureId: "<id>", phase: "<plan-review-phase>", updates: {
   "artifacts": { "plan": "<plan-file-path>" },
   "tasks": [{ "id": "001", "title": "...", "status": "pending", "branch": "...", "blockedBy": [] }, ...]
 }
@@ -11052,7 +11054,7 @@ For the full transition table, consult \`@skills/workflow-state/references/phase
 
 ### Schema Discovery
 
-Use \`exarchos_workflow({ action: "describe", actions: ["set", "init"] })\` for
+Use \`exarchos_workflow({ action: "describe", actions: ["update", "init"] })\` for
 parameter schemas and \`exarchos_workflow({ action: "describe", playbook: "feature" })\`
 (or \`"debug"\`, \`"refactor"\`) for phase transitions, guards, and playbook guidance.
 Use \`exarchos_orchestrate({ action: "describe", actions: ["check_plan_coverage", "check_provenance_chain"] })\`
@@ -11452,7 +11454,7 @@ Persist the plan and transition to \`implementing\` in a single set call.
 
 \`\`\`typescript
 mcp__exarchos__exarchos_workflow({
-  action: "set",
+  action: "update",
   featureId: "fix-readme-typo",
   phase: "implementing",
   updates: {
@@ -11607,7 +11609,7 @@ Agent:
      → workflow created in 'plan' phase, synthesisPolicy defaults to 'on-request'
   2. Produces a 4-line plan: goal=fix typo, approach=sed, files=[README.md],
      tests=[readme has no occurrence of 'recieve']
-  3. exarchos_workflow set {
+  3. exarchos_workflow update {
        featureId: "fix-readme-typo",
        phase: "implementing",                   // top-level
        updates: {
@@ -11681,7 +11683,7 @@ Track oneshot-specific state under the \`oneshot\` key on the workflow state:
 
 \`\`\`typescript
 mcp__exarchos__exarchos_workflow({
-  action: "set",
+  action: "update",
   featureId: "<id>",
   updates: {
     "oneshot": {
@@ -11726,7 +11728,7 @@ absent. Exactly one guard returns true at any given time.
 
 ### Schema discovery
 
-Use \`exarchos_workflow({ action: "describe", actions: ["init", "set"] })\`
+Use \`exarchos_workflow({ action: "describe", actions: ["init", "update"] })\`
 for parameter schemas (including the \`synthesisPolicy\` enum) and
 \`exarchos_workflow({ action: "describe", playbook: "oneshot" })\` for the
 phase transitions, guard names, and playbook prose. Use
@@ -12343,14 +12345,14 @@ If an issue spans multiple tasks:
 
 **On review complete:**
 \`\`\`text
-action: "set", featureId: "<id>", updates: {
+action: "update", featureId: "<id>", updates: {
   "reviews": { "quality-review": { "status": "pass", "summary": "...", "issues": [...] } }
 }
 \`\`\`
 
 **On all reviews pass — advance to synthesis:**
 \`\`\`text
-action: "set", featureId: "<id>", phase: "synthesize"
+action: "transition", featureId: "<id>", target: "synthesize"
 \`\`\`
 
 ### Phase Transitions and Guards
@@ -12363,7 +12365,7 @@ For the full transition table, consult \`@skills/workflow-state/references/phase
 
 ### Schema Discovery
 
-Use \`exarchos_workflow({ action: "describe", actions: ["set", "init"] })\` for
+Use \`exarchos_workflow({ action: "describe", actions: ["update", "init"] })\` for
 parameter schemas and \`exarchos_workflow({ action: "describe", playbook: "feature" })\`
 for phase transitions, guards, and playbook guidance. Use
 \`exarchos_orchestrate({ action: "describe", actions: ["check_static_analysis", "check_security_scan", "check_review_verdict"] })\`
@@ -12427,15 +12429,16 @@ Before transitioning, record the review verdict. The reviews value MUST be an ob
 
 **APPROVED:**
 \`\`\`
-exarchos_workflow({ action: "set", featureId: "<id>", updates: {
+exarchos_workflow({ action: "update", featureId: "<id>", updates: {
   reviews: { "quality-review": { status: "pass", summary: "...", issues: [] } }
-}, phase: "synthesize" })
+}})
+exarchos_workflow({ action: "transition", featureId: "<id>", target: "synthesize" })
 \`\`\`
 Then invoke \`/synthesize\`.
 
 **NEEDS_FIXES:**
-\`\`\`
-exarchos_workflow({ action: "set", featureId: "<id>", updates: {
+\`\`\`text
+exarchos_workflow({ action: "update", featureId: "<id>", updates: {
   reviews: { "quality-review": { status: "fail", summary: "...", issues: [{ severity: "HIGH", file: "...", description: "..." }] } }
 }})
 \`\`\`
@@ -12586,7 +12589,7 @@ The pattern for every transition: send the guard prerequisite in \`updates\` and
 
 ### Schema Discovery
 
-Use \`exarchos_workflow({ action: "describe", actions: ["set", "init"] })\` for
+Use \`exarchos_workflow({ action: "describe", actions: ["update", "init"] })\` for
 parameter schemas and \`exarchos_workflow({ action: "describe", playbook: "refactor" })\`
 for phase transitions, guards, and playbook guidance.
 
@@ -12599,7 +12602,7 @@ This runbook provides structured criteria for choosing between polish and overha
 
 ## Track Switching
 
-If scope expands beyond polish limits during explore or brief phase, use \`mcp__exarchos__exarchos_workflow\` with \`action: "set"\` to set \`track\` to "overhaul" and update \`explore.scopeAssessment.recommendedTrack\`.
+If scope expands beyond polish limits during explore or brief phase, use \`mcp__exarchos__exarchos_workflow\` with \`action: "update"\` to set \`track\` to "overhaul" and update \`explore.scopeAssessment.recommendedTrack\`.
 
 **Scope thresholds:** If >5 files affected OR changes cross module boundaries -> recommend overhaul track.
 
@@ -12856,7 +12859,7 @@ Track shepherd progress via workflow state:
 **Initialize:**
 \`\`\`
 mcp__exarchos__exarchos_workflow({
-  action: "set",
+  action: "update",
   featureId: "<id>",
   updates: {
     "shepherd": {
@@ -12879,7 +12882,7 @@ The shepherd skill operates within the \`synthesize\` phase and does not drive p
 
 ### Schema Discovery
 
-Use \`exarchos_workflow({ action: "describe", actions: ["set", "init"] })\` for
+Use \`exarchos_workflow({ action: "describe", actions: ["update", "init"] })\` for
 parameter schemas and \`exarchos_workflow({ action: "describe", playbook: "feature" })\`
 for phase transitions, guards, and playbook guidance. Use
 \`exarchos_event({ action: "describe", eventTypes: ["shepherd.iteration", "ci.status", "remediation.attempted"] })\`
@@ -13144,14 +13147,14 @@ If an issue spans multiple tasks:
 
 **Pass:**
 \`\`\`
-action: "set", featureId: "<id>", updates: {
+action: "update", featureId: "<id>", updates: {
   "reviews": { "spec-review": { "status": "pass", "summary": "...", "issues": [] } }
 }
 \`\`\`
 
 **Fail:**
 \`\`\`
-action: "set", featureId: "<id>", updates: {
+action: "update", featureId: "<id>", updates: {
   "reviews": { "spec-review": { "status": "fail", "summary": "...", "issues": [{ "severity": "...", "file": "...", "description": "..." }] } }
 }
 \`\`\`
@@ -13168,7 +13171,7 @@ For the full transition table, consult \`@skills/workflow-state/references/phase
 
 ### Schema Discovery
 
-Use \`exarchos_workflow({ action: "describe", actions: ["set", "init"] })\` for
+Use \`exarchos_workflow({ action: "describe", actions: ["update", "init"] })\` for
 parameter schemas and \`exarchos_workflow({ action: "describe", playbook: "feature" })\`
 for phase transitions, guards, and playbook guidance. Use
 \`exarchos_orchestrate({ action: "describe", actions: ["check_tdd_compliance", "check_static_analysis"] })\`
@@ -13189,7 +13192,7 @@ Before invoking quality-review:
 ### If PASS:
 1. Record results — the reviews value MUST be an object with a \`status\` field, not a flat string:
    \`\`\`
-   exarchos_workflow({ action: "set", featureId: "<id>", updates: {
+   exarchos_workflow({ action: "update", featureId: "<id>", updates: {
      reviews: { "spec-review": { status: "pass", summary: "...", issues: [] } }
    }})
    \`\`\`
@@ -13201,7 +13204,7 @@ Before invoking quality-review:
 ### If FAIL:
 1. Record results with failing status and issue details:
    \`\`\`
-   exarchos_workflow({ action: "set", featureId: "<id>", updates: {
+   exarchos_workflow({ action: "update", featureId: "<id>", updates: {
      reviews: { "spec-review": { status: "fail", summary: "...", issues: [{ severity: "HIGH", file: "...", description: "..." }] } }
    }})
    \`\`\`
@@ -13377,7 +13380,7 @@ After submission:
 
 \`\`\`typescript
 mcp__exarchos__exarchos_workflow({
-  action: "set", featureId: "<id>", updates: {
+  action: "update", featureId: "<id>", updates: {
     "artifacts": { "pr": ["<url1>", "<url2>"] },
     "synthesis": { "mergeOrder": ["<branch1>", ...], "prUrl": ["<url1>", ...], "prFeedback": [] }
   }
@@ -13456,7 +13459,7 @@ For the full transition table, consult \`@skills/workflow-state/references/phase
 
 ### Schema Discovery
 
-Use \`exarchos_workflow({ action: "describe", actions: ["set", "init"] })\` for
+Use \`exarchos_workflow({ action: "describe", actions: ["update", "init"] })\` for
 parameter schemas and \`exarchos_workflow({ action: "describe", playbook: "feature" })\`
 for phase transitions, guards, and playbook guidance. Use
 \`exarchos_orchestrate({ action: "describe", actions: ["prepare_synthesis"] })\`
@@ -13511,7 +13514,7 @@ Valid transitions, guards, and prerequisites for all workflow types are document
 
 ### Schema Discovery
 
-Use \`exarchos_workflow({ action: "describe", actions: ["set", "init", "get"] })\` for
+Use \`exarchos_workflow({ action: "describe", actions: ["update", "init", "get"] })\` for
 parameter schemas and \`exarchos_workflow({ action: "describe", playbook: "feature" })\`
 for phase transitions, guards, and playbook guidance. For the lightweight
 oneshot variant (with its \`implementing → synthesize|completed\` choice state
@@ -13564,7 +13567,7 @@ Field projection via \`fields\` returns only the requested top-level keys, reduc
 
 ### Update State
 
-Use \`mcp__exarchos__exarchos_workflow\` with \`action: "set"\` with \`featureId\` and either \`updates\`, \`phase\`, or both:
+Use \`mcp__exarchos__exarchos_workflow\` with \`action: "update"\` with \`featureId\` and either \`updates\`, \`phase\`, or both:
 
 - **Update phase**: \`phase: "delegate"\`
 - **Set artifact path**: \`updates: { "artifacts.design": "docs/designs/2026-01-05-feature.md" }\`
@@ -13581,7 +13584,7 @@ The dot-path parser used by \`set updates\` recognizes only **numeric** array br
 1. **Replace the whole array** (use this when the plan is being revised wholesale; matches the issue #1003 contract):
    \`\`\`typescript
    exarchos_workflow({
-     action: "set",
+     action: "update",
      featureId: "<id>",
      updates: { tasks: [
        { id: "T-001", title: "...", status: "pending" },
@@ -13593,7 +13596,7 @@ The dot-path parser used by \`set updates\` recognizes only **numeric** array br
 2. **Edit one task by its array index**:
    \`\`\`typescript
    exarchos_workflow({
-     action: "set",
+     action: "update",
      featureId: "<id>",
      updates: { "tasks[0].status": "complete", "tasks[0].completedAt": "<ts>" },
    })
@@ -13604,7 +13607,7 @@ The dot-path parser used by \`set updates\` recognizes only **numeric** array br
    \`\`\`typescript
    // Suppose tasks already contains T-001 and T-002 (length 2). To append:
    exarchos_workflow({
-     action: "set",
+     action: "update",
      featureId: "<id>",
      updates: { "tasks[2]": { id: "T-003", title: "Follow-up", status: "pending" } },
    })
@@ -13732,7 +13735,7 @@ If an Exarchos MCP tool returns an error:
 If workflow state doesn't match git reality:
 1. Run \`/rehydrate <featureId>\` — the rehydration projection folds in events newer than the last snapshot
 2. If manual check still needed: compare the rehydration document's \`workflowState\` / \`artifacts\` with \`git log\` and branch state
-3. Update state via \`mcp__exarchos__exarchos_workflow\` with \`action: "set"\` to match git truth
+3. Update state via \`mcp__exarchos__exarchos_workflow\` with \`action: "update"\` to match git truth
 
 ### Checkpoint Missing
 If \`/checkpoint\` is invoked with no active workflow:
@@ -13744,7 +13747,7 @@ If \`/checkpoint\` is invoked with no active workflow:
 If state references branches or worktrees that no longer exist:
 1. Run \`/rehydrate <featureId>\` — the rehydration document surfaces stale references
 2. Compare against \`git branch -a\` / \`git worktree list\` to identify drift
-3. Update via \`exarchos_workflow set\` to match git truth
+3. Update via \`exarchos_workflow update\` to match git truth
 
 ### Multiple Active Workflows
 If multiple workflow state files exist:
@@ -13756,7 +13759,7 @@ If multiple workflow state files exist:
 
 1. **Start new workflow**: Use \`mcp__exarchos__exarchos_workflow\` with \`action: "init"\` with \`featureId: "user-authentication"\`, \`workflowType: "feature"\`
 
-2. **After design phase**: Use \`mcp__exarchos__exarchos_workflow\` with \`action: "set"\` with:
+2. **After design phase**: Use \`mcp__exarchos__exarchos_workflow\` with \`action: "update"\` with:
    - \`featureId: "user-authentication"\`
    - \`phase: "plan"\`
    - \`updates: { "artifacts.design": "docs/designs/2026-01-05-user-auth.md" }\`
@@ -13864,7 +13867,7 @@ This creates a state file tracked by the MCP server.
 ### On Design Save (after Phase 3)
 
 \`\`\`
-action: "set", featureId: "<id>", updates: { "artifacts": { "design": "<path>" } }, phase: "plan"
+action: "update", featureId: "<id>", updates: { "artifacts": { "design": "<path>" } }, phase: "plan"
 \`\`\`
 
 ### Phase Transitions and Guards
@@ -13879,7 +13882,7 @@ For the full transition table, consult \`@skills/workflow-state/references/phase
 
 ### Schema Discovery
 
-Use \`exarchos_workflow({ action: "describe", actions: ["set", "init"] })\` for
+Use \`exarchos_workflow({ action: "describe", actions: ["update", "init"] })\` for
 parameter schemas and \`exarchos_workflow({ action: "describe", playbook: "feature" })\`
 for phase transitions, guards, and playbook guidance.
 
@@ -13931,7 +13934,7 @@ Before invoking \`plan\`:
 
 ### Chain Steps
 
-1. Update state: \`action: "set", featureId: "<id>", updates: { "artifacts": { "design": "<path>" } }, phase: "plan"\`
+1. Update state: \`action: "update", featureId: "<id>", updates: { "artifacts": { "design": "<path>" } }, phase: "plan"\`
 
 2. If \`result.data.passed === false\` and \`result.data.advisory === true\`: Output \`result.data.findings\` summary, then: "Advisory findings noted. Auto-continuing to implementation planning..."
    If \`result.data.passed === true\`: Output: "Design complete. Auto-continuing to implementation planning..."
@@ -14313,7 +14316,7 @@ Every phase transition has a guard that must be satisfied. Before transitioning,
 
 ### Schema Discovery
 
-Use \`exarchos_workflow({ action: "describe", actions: ["set", "init"] })\` for
+Use \`exarchos_workflow({ action: "describe", actions: ["update", "init"] })\` for
 parameter schemas and \`exarchos_workflow({ action: "describe", playbook: "debug" })\`
 for phase transitions, guards, and playbook guidance.
 
@@ -14349,7 +14352,7 @@ Extended to support:
 - [ ] Follow-up RCA task created
 - [ ] Changes merged
 
-**Completion guard shapes** — set these via \`exarchos_workflow set\` before transitioning to \`completed\`:
+**Completion guard shapes** — set these via \`exarchos_workflow update\` before transitioning to \`completed\`:
 
 | Exit path | Guard | Required state |
 |-----------|-------|----------------|
@@ -14586,7 +14589,7 @@ exarchos_orchestrate({
 })
 \`\`\`
 
-6. **Update workflow state** — set each passing \`tasks[].status\` to \`"complete"\` via \`exarchos_workflow set\`
+6. **Update workflow state** — set each passing \`tasks[].status\` to \`"complete"\` via \`exarchos_workflow update\`
 7. **Delegation completion gate (D4, advisory)** — after ALL tasks pass, run an operational resilience check on the full branch diff before transitioning to review:
 
 \`\`\`typescript
@@ -14684,7 +14687,7 @@ For the full transition table, consult \`@skills/workflow-state/references/phase
 
 **Quick reference:** The \`delegate\` → \`review\` transition requires guard \`all-tasks-complete\` — all \`tasks[].status\` must be \`"complete"\` in workflow state.
 
-> **Before transitioning to review:** You MUST first update all task statuses to \`"complete"\` via \`exarchos_workflow set\` with the tasks array. The phase transition will be rejected by the guard if any task is still pending/in_progress/failed. Update tasks first, then set the phase in a separate call.
+> **Before transitioning to review:** You MUST first update all task statuses to \`"complete"\` via \`exarchos_workflow update\` with the tasks array. The phase transition will be rejected by the guard if any task is still pending/in_progress/failed. Update tasks first, then set the phase in a separate call.
 
 ### Worktree-Bearing Tasks: Auto-Detour to \`merge-pending\`
 
@@ -14705,7 +14708,7 @@ This detour is invisible to the delegation skill itself — the all-tasks-comple
 
 ### Schema Discovery
 
-Use \`exarchos_workflow({ action: "describe", actions: ["set", "init"] })\` for
+Use \`exarchos_workflow({ action: "describe", actions: ["update", "init"] })\` for
 parameter schemas and \`exarchos_workflow({ action: "describe", playbook: "feature" })\`
 for phase transitions, guards, and playbook guidance. Use
 \`exarchos_orchestrate({ action: "describe", actions: ["check_tdd_compliance", "task_complete"] })\`
@@ -14825,7 +14828,7 @@ clever-but-fragile automation.
 After all tasks complete, **auto-continue immediately** (no user confirmation):
 
 1. Verify all \`tasks[].status === "complete"\` in workflow state
-2. Update state: \`exarchos_workflow set\` with \`phase: "review"\`
+2. Update state: \`exarchos_workflow update\` with \`phase: "review"\`
 3. Invoke: \`[Invoke the exarchos:review skill with args: <plan-path>]\`
 
 This is NOT a human checkpoint — the workflow continues autonomously.
@@ -14894,7 +14897,7 @@ Collect sources, references, and raw material for the deliverable.
 
 \`\`\`typescript
 mcp__exarchos__exarchos_workflow({
-  action: "set", featureId: "<id>",
+  action: "update", featureId: "<id>",
   updates: { "artifacts.sources": ["<source1>", "<source2>", "..."] }
 })
 \`\`\`
@@ -14913,7 +14916,7 @@ Draft the deliverable document from gathered sources.
 
 \`\`\`typescript
 mcp__exarchos__exarchos_workflow({
-  action: "set", featureId: "<id>",
+  action: "update", featureId: "<id>",
   updates: { "artifacts.report": "<path-to-document>" }
 })
 \`\`\`
@@ -15152,11 +15155,11 @@ Only file issues with user confirmation — present the draft first.
       "id": 1,
       "bucket": "code_bug | documentation_issue | user_error",
       "tool": "exarchos_workflow",
-      "action": "set",
+      "action": "update",
       "error": "INVALID_INPUT: ...",
       "root_cause": "Schema rejects null branch on pending tasks",
-      "trace_evidence": "describe(actions: ['set']) shows branch as required string; event log confirms no task.updated event",
-      "authoritative_ref": "exarchos_workflow describe(actions: ['set']) → TaskSchema",
+      "trace_evidence": "describe(actions: ['update']) shows branch as required string; event log confirms no task.updated event",
+      "authoritative_ref": "exarchos_workflow describe(actions: ['update']) → TaskSchema",
       "severity": "HIGH | MEDIUM | LOW",
       "suggested_fix": "Accept nullable branch in TaskSchema",
       "issue_draft": {
@@ -15433,7 +15436,7 @@ Activate this skill when:
 
 ## Revision Mode (--revise flag)
 
-When invoked with \`--revise\`, plan-review found gaps. Read \`.planReview.gaps\` from state, re-read the design, add tasks to address each gap, update the plan file, then clear gaps via \`mcp__exarchos__exarchos_workflow\` \`action: "set"\`.
+When invoked with \`--revise\`, plan-review found gaps. Read \`.planReview.gaps\` from state, re-read the design, add tasks to address each gap, update the plan file, then clear gaps via \`mcp__exarchos__exarchos_workflow\` \`action: "update"\`.
 
 ### Revision Loop Guard
 
@@ -15616,7 +15619,7 @@ For reference, consult \`references/spec-tracing-guide.md\` for the underlying m
 
 On plan save, transition phase based on \`workflowType\`: feature → \`plan-review\`, refactor → \`overhaul-plan-review\`.
 \`\`\`
-action: "set", featureId: "<id>", phase: "<plan-review-phase>", updates: {
+action: "update", featureId: "<id>", phase: "<plan-review-phase>", updates: {
   "artifacts": { "plan": "<plan-file-path>" },
   "tasks": [{ "id": "001", "title": "...", "status": "pending", "branch": "...", "blockedBy": [] }, ...]
 }
@@ -15630,7 +15633,7 @@ For the full transition table, consult \`@skills/workflow-state/references/phase
 
 ### Schema Discovery
 
-Use \`exarchos_workflow({ action: "describe", actions: ["set", "init"] })\` for
+Use \`exarchos_workflow({ action: "describe", actions: ["update", "init"] })\` for
 parameter schemas and \`exarchos_workflow({ action: "describe", playbook: "feature" })\`
 (or \`"debug"\`, \`"refactor"\`) for phase transitions, guards, and playbook guidance.
 Use \`exarchos_orchestrate({ action: "describe", actions: ["check_plan_coverage", "check_provenance_chain"] })\`
@@ -16030,7 +16033,7 @@ Persist the plan and transition to \`implementing\` in a single set call.
 
 \`\`\`typescript
 mcp__exarchos__exarchos_workflow({
-  action: "set",
+  action: "update",
   featureId: "fix-readme-typo",
   phase: "implementing",
   updates: {
@@ -16185,7 +16188,7 @@ Agent:
      → workflow created in 'plan' phase, synthesisPolicy defaults to 'on-request'
   2. Produces a 4-line plan: goal=fix typo, approach=sed, files=[README.md],
      tests=[readme has no occurrence of 'recieve']
-  3. exarchos_workflow set {
+  3. exarchos_workflow update {
        featureId: "fix-readme-typo",
        phase: "implementing",                   // top-level
        updates: {
@@ -16259,7 +16262,7 @@ Track oneshot-specific state under the \`oneshot\` key on the workflow state:
 
 \`\`\`typescript
 mcp__exarchos__exarchos_workflow({
-  action: "set",
+  action: "update",
   featureId: "<id>",
   updates: {
     "oneshot": {
@@ -16304,7 +16307,7 @@ absent. Exactly one guard returns true at any given time.
 
 ### Schema discovery
 
-Use \`exarchos_workflow({ action: "describe", actions: ["init", "set"] })\`
+Use \`exarchos_workflow({ action: "describe", actions: ["init", "update"] })\`
 for parameter schemas (including the \`synthesisPolicy\` enum) and
 \`exarchos_workflow({ action: "describe", playbook: "oneshot" })\` for the
 phase transitions, guard names, and playbook prose. Use
@@ -16921,14 +16924,14 @@ If an issue spans multiple tasks:
 
 **On review complete:**
 \`\`\`text
-action: "set", featureId: "<id>", updates: {
+action: "update", featureId: "<id>", updates: {
   "reviews": { "quality-review": { "status": "pass", "summary": "...", "issues": [...] } }
 }
 \`\`\`
 
 **On all reviews pass — advance to synthesis:**
 \`\`\`text
-action: "set", featureId: "<id>", phase: "synthesize"
+action: "transition", featureId: "<id>", target: "synthesize"
 \`\`\`
 
 ### Phase Transitions and Guards
@@ -16941,7 +16944,7 @@ For the full transition table, consult \`@skills/workflow-state/references/phase
 
 ### Schema Discovery
 
-Use \`exarchos_workflow({ action: "describe", actions: ["set", "init"] })\` for
+Use \`exarchos_workflow({ action: "describe", actions: ["update", "init"] })\` for
 parameter schemas and \`exarchos_workflow({ action: "describe", playbook: "feature" })\`
 for phase transitions, guards, and playbook guidance. Use
 \`exarchos_orchestrate({ action: "describe", actions: ["check_static_analysis", "check_security_scan", "check_review_verdict"] })\`
@@ -17005,15 +17008,16 @@ Before transitioning, record the review verdict. The reviews value MUST be an ob
 
 **APPROVED:**
 \`\`\`
-exarchos_workflow({ action: "set", featureId: "<id>", updates: {
+exarchos_workflow({ action: "update", featureId: "<id>", updates: {
   reviews: { "quality-review": { status: "pass", summary: "...", issues: [] } }
-}, phase: "synthesize" })
+}})
+exarchos_workflow({ action: "transition", featureId: "<id>", target: "synthesize" })
 \`\`\`
 Then invoke \`synthesize\`.
 
 **NEEDS_FIXES:**
-\`\`\`
-exarchos_workflow({ action: "set", featureId: "<id>", updates: {
+\`\`\`text
+exarchos_workflow({ action: "update", featureId: "<id>", updates: {
   reviews: { "quality-review": { status: "fail", summary: "...", issues: [{ severity: "HIGH", file: "...", description: "..." }] } }
 }})
 \`\`\`
@@ -17164,7 +17168,7 @@ The pattern for every transition: send the guard prerequisite in \`updates\` and
 
 ### Schema Discovery
 
-Use \`exarchos_workflow({ action: "describe", actions: ["set", "init"] })\` for
+Use \`exarchos_workflow({ action: "describe", actions: ["update", "init"] })\` for
 parameter schemas and \`exarchos_workflow({ action: "describe", playbook: "refactor" })\`
 for phase transitions, guards, and playbook guidance.
 
@@ -17177,7 +17181,7 @@ This runbook provides structured criteria for choosing between polish and overha
 
 ## Track Switching
 
-If scope expands beyond polish limits during explore or brief phase, use \`mcp__exarchos__exarchos_workflow\` with \`action: "set"\` to set \`track\` to "overhaul" and update \`explore.scopeAssessment.recommendedTrack\`.
+If scope expands beyond polish limits during explore or brief phase, use \`mcp__exarchos__exarchos_workflow\` with \`action: "update"\` to set \`track\` to "overhaul" and update \`explore.scopeAssessment.recommendedTrack\`.
 
 **Scope thresholds:** If >5 files affected OR changes cross module boundaries -> recommend overhaul track.
 
@@ -17434,7 +17438,7 @@ Track shepherd progress via workflow state:
 **Initialize:**
 \`\`\`
 mcp__exarchos__exarchos_workflow({
-  action: "set",
+  action: "update",
   featureId: "<id>",
   updates: {
     "shepherd": {
@@ -17457,7 +17461,7 @@ The shepherd skill operates within the \`synthesize\` phase and does not drive p
 
 ### Schema Discovery
 
-Use \`exarchos_workflow({ action: "describe", actions: ["set", "init"] })\` for
+Use \`exarchos_workflow({ action: "describe", actions: ["update", "init"] })\` for
 parameter schemas and \`exarchos_workflow({ action: "describe", playbook: "feature" })\`
 for phase transitions, guards, and playbook guidance. Use
 \`exarchos_event({ action: "describe", eventTypes: ["shepherd.iteration", "ci.status", "remediation.attempted"] })\`
@@ -17722,14 +17726,14 @@ If an issue spans multiple tasks:
 
 **Pass:**
 \`\`\`
-action: "set", featureId: "<id>", updates: {
+action: "update", featureId: "<id>", updates: {
   "reviews": { "spec-review": { "status": "pass", "summary": "...", "issues": [] } }
 }
 \`\`\`
 
 **Fail:**
 \`\`\`
-action: "set", featureId: "<id>", updates: {
+action: "update", featureId: "<id>", updates: {
   "reviews": { "spec-review": { "status": "fail", "summary": "...", "issues": [{ "severity": "...", "file": "...", "description": "..." }] } }
 }
 \`\`\`
@@ -17746,7 +17750,7 @@ For the full transition table, consult \`@skills/workflow-state/references/phase
 
 ### Schema Discovery
 
-Use \`exarchos_workflow({ action: "describe", actions: ["set", "init"] })\` for
+Use \`exarchos_workflow({ action: "describe", actions: ["update", "init"] })\` for
 parameter schemas and \`exarchos_workflow({ action: "describe", playbook: "feature" })\`
 for phase transitions, guards, and playbook guidance. Use
 \`exarchos_orchestrate({ action: "describe", actions: ["check_tdd_compliance", "check_static_analysis"] })\`
@@ -17767,7 +17771,7 @@ Before invoking quality-review:
 ### If PASS:
 1. Record results — the reviews value MUST be an object with a \`status\` field, not a flat string:
    \`\`\`
-   exarchos_workflow({ action: "set", featureId: "<id>", updates: {
+   exarchos_workflow({ action: "update", featureId: "<id>", updates: {
      reviews: { "spec-review": { status: "pass", summary: "...", issues: [] } }
    }})
    \`\`\`
@@ -17779,7 +17783,7 @@ Before invoking quality-review:
 ### If FAIL:
 1. Record results with failing status and issue details:
    \`\`\`
-   exarchos_workflow({ action: "set", featureId: "<id>", updates: {
+   exarchos_workflow({ action: "update", featureId: "<id>", updates: {
      reviews: { "spec-review": { status: "fail", summary: "...", issues: [{ severity: "HIGH", file: "...", description: "..." }] } }
    }})
    \`\`\`
@@ -17955,7 +17959,7 @@ After submission:
 
 \`\`\`typescript
 mcp__exarchos__exarchos_workflow({
-  action: "set", featureId: "<id>", updates: {
+  action: "update", featureId: "<id>", updates: {
     "artifacts": { "pr": ["<url1>", "<url2>"] },
     "synthesis": { "mergeOrder": ["<branch1>", ...], "prUrl": ["<url1>", ...], "prFeedback": [] }
   }
@@ -18034,7 +18038,7 @@ For the full transition table, consult \`@skills/workflow-state/references/phase
 
 ### Schema Discovery
 
-Use \`exarchos_workflow({ action: "describe", actions: ["set", "init"] })\` for
+Use \`exarchos_workflow({ action: "describe", actions: ["update", "init"] })\` for
 parameter schemas and \`exarchos_workflow({ action: "describe", playbook: "feature" })\`
 for phase transitions, guards, and playbook guidance. Use
 \`exarchos_orchestrate({ action: "describe", actions: ["prepare_synthesis"] })\`
@@ -18089,7 +18093,7 @@ Valid transitions, guards, and prerequisites for all workflow types are document
 
 ### Schema Discovery
 
-Use \`exarchos_workflow({ action: "describe", actions: ["set", "init", "get"] })\` for
+Use \`exarchos_workflow({ action: "describe", actions: ["update", "init", "get"] })\` for
 parameter schemas and \`exarchos_workflow({ action: "describe", playbook: "feature" })\`
 for phase transitions, guards, and playbook guidance. For the lightweight
 oneshot variant (with its \`implementing → synthesize|completed\` choice state
@@ -18142,7 +18146,7 @@ Field projection via \`fields\` returns only the requested top-level keys, reduc
 
 ### Update State
 
-Use \`mcp__exarchos__exarchos_workflow\` with \`action: "set"\` with \`featureId\` and either \`updates\`, \`phase\`, or both:
+Use \`mcp__exarchos__exarchos_workflow\` with \`action: "update"\` with \`featureId\` and either \`updates\`, \`phase\`, or both:
 
 - **Update phase**: \`phase: "delegate"\`
 - **Set artifact path**: \`updates: { "artifacts.design": "docs/designs/2026-01-05-feature.md" }\`
@@ -18159,7 +18163,7 @@ The dot-path parser used by \`set updates\` recognizes only **numeric** array br
 1. **Replace the whole array** (use this when the plan is being revised wholesale; matches the issue #1003 contract):
    \`\`\`typescript
    exarchos_workflow({
-     action: "set",
+     action: "update",
      featureId: "<id>",
      updates: { tasks: [
        { id: "T-001", title: "...", status: "pending" },
@@ -18171,7 +18175,7 @@ The dot-path parser used by \`set updates\` recognizes only **numeric** array br
 2. **Edit one task by its array index**:
    \`\`\`typescript
    exarchos_workflow({
-     action: "set",
+     action: "update",
      featureId: "<id>",
      updates: { "tasks[0].status": "complete", "tasks[0].completedAt": "<ts>" },
    })
@@ -18182,7 +18186,7 @@ The dot-path parser used by \`set updates\` recognizes only **numeric** array br
    \`\`\`typescript
    // Suppose tasks already contains T-001 and T-002 (length 2). To append:
    exarchos_workflow({
-     action: "set",
+     action: "update",
      featureId: "<id>",
      updates: { "tasks[2]": { id: "T-003", title: "Follow-up", status: "pending" } },
    })
@@ -18310,7 +18314,7 @@ If an Exarchos MCP tool returns an error:
 If workflow state doesn't match git reality:
 1. Run \`rehydrate <featureId>\` — the rehydration projection folds in events newer than the last snapshot
 2. If manual check still needed: compare the rehydration document's \`workflowState\` / \`artifacts\` with \`git log\` and branch state
-3. Update state via \`mcp__exarchos__exarchos_workflow\` with \`action: "set"\` to match git truth
+3. Update state via \`mcp__exarchos__exarchos_workflow\` with \`action: "update"\` to match git truth
 
 ### Checkpoint Missing
 If \`checkpoint\` is invoked with no active workflow:
@@ -18322,7 +18326,7 @@ If \`checkpoint\` is invoked with no active workflow:
 If state references branches or worktrees that no longer exist:
 1. Run \`rehydrate <featureId>\` — the rehydration document surfaces stale references
 2. Compare against \`git branch -a\` / \`git worktree list\` to identify drift
-3. Update via \`exarchos_workflow set\` to match git truth
+3. Update via \`exarchos_workflow update\` to match git truth
 
 ### Multiple Active Workflows
 If multiple workflow state files exist:
@@ -18334,7 +18338,7 @@ If multiple workflow state files exist:
 
 1. **Start new workflow**: Use \`mcp__exarchos__exarchos_workflow\` with \`action: "init"\` with \`featureId: "user-authentication"\`, \`workflowType: "feature"\`
 
-2. **After design phase**: Use \`mcp__exarchos__exarchos_workflow\` with \`action: "set"\` with:
+2. **After design phase**: Use \`mcp__exarchos__exarchos_workflow\` with \`action: "update"\` with:
    - \`featureId: "user-authentication"\`
    - \`phase: "plan"\`
    - \`updates: { "artifacts.design": "docs/designs/2026-01-05-user-auth.md" }\`
@@ -18442,7 +18446,7 @@ This creates a state file tracked by the MCP server.
 ### On Design Save (after Phase 3)
 
 \`\`\`
-action: "set", featureId: "<id>", updates: { "artifacts": { "design": "<path>" } }, phase: "plan"
+action: "update", featureId: "<id>", updates: { "artifacts": { "design": "<path>" } }, phase: "plan"
 \`\`\`
 
 ### Phase Transitions and Guards
@@ -18457,7 +18461,7 @@ For the full transition table, consult \`@skills/workflow-state/references/phase
 
 ### Schema Discovery
 
-Use \`exarchos_workflow({ action: "describe", actions: ["set", "init"] })\` for
+Use \`exarchos_workflow({ action: "describe", actions: ["update", "init"] })\` for
 parameter schemas and \`exarchos_workflow({ action: "describe", playbook: "feature" })\`
 for phase transitions, guards, and playbook guidance.
 
@@ -18509,7 +18513,7 @@ Before invoking \`plan\`:
 
 ### Chain Steps
 
-1. Update state: \`action: "set", featureId: "<id>", updates: { "artifacts": { "design": "<path>" } }, phase: "plan"\`
+1. Update state: \`action: "update", featureId: "<id>", updates: { "artifacts": { "design": "<path>" } }, phase: "plan"\`
 
 2. If \`result.data.passed === false\` and \`result.data.advisory === true\`: Output \`result.data.findings\` summary, then: "Advisory findings noted. Auto-continuing to implementation planning..."
    If \`result.data.passed === true\`: Output: "Design complete. Auto-continuing to implementation planning..."
@@ -18891,7 +18895,7 @@ Every phase transition has a guard that must be satisfied. Before transitioning,
 
 ### Schema Discovery
 
-Use \`exarchos_workflow({ action: "describe", actions: ["set", "init"] })\` for
+Use \`exarchos_workflow({ action: "describe", actions: ["update", "init"] })\` for
 parameter schemas and \`exarchos_workflow({ action: "describe", playbook: "debug" })\`
 for phase transitions, guards, and playbook guidance.
 
@@ -18927,7 +18931,7 @@ Extended to support:
 - [ ] Follow-up RCA task created
 - [ ] Changes merged
 
-**Completion guard shapes** — set these via \`exarchos_workflow set\` before transitioning to \`completed\`:
+**Completion guard shapes** — set these via \`exarchos_workflow update\` before transitioning to \`completed\`:
 
 | Exit path | Guard | Required state |
 |-----------|-------|----------------|
@@ -19140,7 +19144,7 @@ exarchos_orchestrate({
 })
 \`\`\`
 
-6. **Update workflow state** — set each passing \`tasks[].status\` to \`"complete"\` via \`exarchos_workflow set\`
+6. **Update workflow state** — set each passing \`tasks[].status\` to \`"complete"\` via \`exarchos_workflow update\`
 7. **Delegation completion gate (D4, advisory)** — after ALL tasks pass, run an operational resilience check on the full branch diff before transitioning to review:
 
 \`\`\`typescript
@@ -19233,7 +19237,7 @@ For the full transition table, consult \`@skills/workflow-state/references/phase
 
 **Quick reference:** The \`delegate\` → \`review\` transition requires guard \`all-tasks-complete\` — all \`tasks[].status\` must be \`"complete"\` in workflow state.
 
-> **Before transitioning to review:** You MUST first update all task statuses to \`"complete"\` via \`exarchos_workflow set\` with the tasks array. The phase transition will be rejected by the guard if any task is still pending/in_progress/failed. Update tasks first, then set the phase in a separate call.
+> **Before transitioning to review:** You MUST first update all task statuses to \`"complete"\` via \`exarchos_workflow update\` with the tasks array. The phase transition will be rejected by the guard if any task is still pending/in_progress/failed. Update tasks first, then set the phase in a separate call.
 
 ### Worktree-Bearing Tasks: Auto-Detour to \`merge-pending\`
 
@@ -19254,7 +19258,7 @@ This detour is invisible to the delegation skill itself — the all-tasks-comple
 
 ### Schema Discovery
 
-Use \`exarchos_workflow({ action: "describe", actions: ["set", "init"] })\` for
+Use \`exarchos_workflow({ action: "describe", actions: ["update", "init"] })\` for
 parameter schemas and \`exarchos_workflow({ action: "describe", playbook: "feature" })\`
 for phase transitions, guards, and playbook guidance. Use
 \`exarchos_orchestrate({ action: "describe", actions: ["check_tdd_compliance", "task_complete"] })\`
@@ -19374,7 +19378,7 @@ clever-but-fragile automation.
 After all tasks complete, **auto-continue immediately** (no user confirmation):
 
 1. Verify all \`tasks[].status === "complete"\` in workflow state
-2. Update state: \`exarchos_workflow set\` with \`phase: "review"\`
+2. Update state: \`exarchos_workflow update\` with \`phase: "review"\`
 3. Invoke: \`[Invoke the exarchos:review skill with args: <plan-path>]\`
 
 This is NOT a human checkpoint — the workflow continues autonomously.
@@ -19443,7 +19447,7 @@ Collect sources, references, and raw material for the deliverable.
 
 \`\`\`typescript
 mcp__exarchos__exarchos_workflow({
-  action: "set", featureId: "<id>",
+  action: "update", featureId: "<id>",
   updates: { "artifacts.sources": ["<source1>", "<source2>", "..."] }
 })
 \`\`\`
@@ -19462,7 +19466,7 @@ Draft the deliverable document from gathered sources.
 
 \`\`\`typescript
 mcp__exarchos__exarchos_workflow({
-  action: "set", featureId: "<id>",
+  action: "update", featureId: "<id>",
   updates: { "artifacts.report": "<path-to-document>" }
 })
 \`\`\`
@@ -19701,11 +19705,11 @@ Only file issues with user confirmation — present the draft first.
       "id": 1,
       "bucket": "code_bug | documentation_issue | user_error",
       "tool": "exarchos_workflow",
-      "action": "set",
+      "action": "update",
       "error": "INVALID_INPUT: ...",
       "root_cause": "Schema rejects null branch on pending tasks",
-      "trace_evidence": "describe(actions: ['set']) shows branch as required string; event log confirms no task.updated event",
-      "authoritative_ref": "exarchos_workflow describe(actions: ['set']) → TaskSchema",
+      "trace_evidence": "describe(actions: ['update']) shows branch as required string; event log confirms no task.updated event",
+      "authoritative_ref": "exarchos_workflow describe(actions: ['update']) → TaskSchema",
       "severity": "HIGH | MEDIUM | LOW",
       "suggested_fix": "Accept nullable branch in TaskSchema",
       "issue_draft": {
@@ -19982,7 +19986,7 @@ Activate this skill when:
 
 ## Revision Mode (--revise flag)
 
-When invoked with \`--revise\`, plan-review found gaps. Read \`.planReview.gaps\` from state, re-read the design, add tasks to address each gap, update the plan file, then clear gaps via \`mcp__exarchos__exarchos_workflow\` \`action: "set"\`.
+When invoked with \`--revise\`, plan-review found gaps. Read \`.planReview.gaps\` from state, re-read the design, add tasks to address each gap, update the plan file, then clear gaps via \`mcp__exarchos__exarchos_workflow\` \`action: "update"\`.
 
 ### Revision Loop Guard
 
@@ -20165,7 +20169,7 @@ For reference, consult \`references/spec-tracing-guide.md\` for the underlying m
 
 On plan save, transition phase based on \`workflowType\`: feature → \`plan-review\`, refactor → \`overhaul-plan-review\`.
 \`\`\`
-action: "set", featureId: "<id>", phase: "<plan-review-phase>", updates: {
+action: "update", featureId: "<id>", phase: "<plan-review-phase>", updates: {
   "artifacts": { "plan": "<plan-file-path>" },
   "tasks": [{ "id": "001", "title": "...", "status": "pending", "branch": "...", "blockedBy": [] }, ...]
 }
@@ -20179,7 +20183,7 @@ For the full transition table, consult \`@skills/workflow-state/references/phase
 
 ### Schema Discovery
 
-Use \`exarchos_workflow({ action: "describe", actions: ["set", "init"] })\` for
+Use \`exarchos_workflow({ action: "describe", actions: ["update", "init"] })\` for
 parameter schemas and \`exarchos_workflow({ action: "describe", playbook: "feature" })\`
 (or \`"debug"\`, \`"refactor"\`) for phase transitions, guards, and playbook guidance.
 Use \`exarchos_orchestrate({ action: "describe", actions: ["check_plan_coverage", "check_provenance_chain"] })\`
@@ -20579,7 +20583,7 @@ Persist the plan and transition to \`implementing\` in a single set call.
 
 \`\`\`typescript
 mcp__exarchos__exarchos_workflow({
-  action: "set",
+  action: "update",
   featureId: "fix-readme-typo",
   phase: "implementing",
   updates: {
@@ -20734,7 +20738,7 @@ Agent:
      → workflow created in 'plan' phase, synthesisPolicy defaults to 'on-request'
   2. Produces a 4-line plan: goal=fix typo, approach=sed, files=[README.md],
      tests=[readme has no occurrence of 'recieve']
-  3. exarchos_workflow set {
+  3. exarchos_workflow update {
        featureId: "fix-readme-typo",
        phase: "implementing",                   // top-level
        updates: {
@@ -20808,7 +20812,7 @@ Track oneshot-specific state under the \`oneshot\` key on the workflow state:
 
 \`\`\`typescript
 mcp__exarchos__exarchos_workflow({
-  action: "set",
+  action: "update",
   featureId: "<id>",
   updates: {
     "oneshot": {
@@ -20853,7 +20857,7 @@ absent. Exactly one guard returns true at any given time.
 
 ### Schema discovery
 
-Use \`exarchos_workflow({ action: "describe", actions: ["init", "set"] })\`
+Use \`exarchos_workflow({ action: "describe", actions: ["init", "update"] })\`
 for parameter schemas (including the \`synthesisPolicy\` enum) and
 \`exarchos_workflow({ action: "describe", playbook: "oneshot" })\` for the
 phase transitions, guard names, and playbook prose. Use
@@ -21470,14 +21474,14 @@ If an issue spans multiple tasks:
 
 **On review complete:**
 \`\`\`text
-action: "set", featureId: "<id>", updates: {
+action: "update", featureId: "<id>", updates: {
   "reviews": { "quality-review": { "status": "pass", "summary": "...", "issues": [...] } }
 }
 \`\`\`
 
 **On all reviews pass — advance to synthesis:**
 \`\`\`text
-action: "set", featureId: "<id>", phase: "synthesize"
+action: "transition", featureId: "<id>", target: "synthesize"
 \`\`\`
 
 ### Phase Transitions and Guards
@@ -21490,7 +21494,7 @@ For the full transition table, consult \`@skills/workflow-state/references/phase
 
 ### Schema Discovery
 
-Use \`exarchos_workflow({ action: "describe", actions: ["set", "init"] })\` for
+Use \`exarchos_workflow({ action: "describe", actions: ["update", "init"] })\` for
 parameter schemas and \`exarchos_workflow({ action: "describe", playbook: "feature" })\`
 for phase transitions, guards, and playbook guidance. Use
 \`exarchos_orchestrate({ action: "describe", actions: ["check_static_analysis", "check_security_scan", "check_review_verdict"] })\`
@@ -21554,15 +21558,16 @@ Before transitioning, record the review verdict. The reviews value MUST be an ob
 
 **APPROVED:**
 \`\`\`
-exarchos_workflow({ action: "set", featureId: "<id>", updates: {
+exarchos_workflow({ action: "update", featureId: "<id>", updates: {
   reviews: { "quality-review": { status: "pass", summary: "...", issues: [] } }
-}, phase: "synthesize" })
+}})
+exarchos_workflow({ action: "transition", featureId: "<id>", target: "synthesize" })
 \`\`\`
 Then invoke \`synthesize\`.
 
 **NEEDS_FIXES:**
-\`\`\`
-exarchos_workflow({ action: "set", featureId: "<id>", updates: {
+\`\`\`text
+exarchos_workflow({ action: "update", featureId: "<id>", updates: {
   reviews: { "quality-review": { status: "fail", summary: "...", issues: [{ severity: "HIGH", file: "...", description: "..." }] } }
 }})
 \`\`\`
@@ -21713,7 +21718,7 @@ The pattern for every transition: send the guard prerequisite in \`updates\` and
 
 ### Schema Discovery
 
-Use \`exarchos_workflow({ action: "describe", actions: ["set", "init"] })\` for
+Use \`exarchos_workflow({ action: "describe", actions: ["update", "init"] })\` for
 parameter schemas and \`exarchos_workflow({ action: "describe", playbook: "refactor" })\`
 for phase transitions, guards, and playbook guidance.
 
@@ -21726,7 +21731,7 @@ This runbook provides structured criteria for choosing between polish and overha
 
 ## Track Switching
 
-If scope expands beyond polish limits during explore or brief phase, use \`mcp__exarchos__exarchos_workflow\` with \`action: "set"\` to set \`track\` to "overhaul" and update \`explore.scopeAssessment.recommendedTrack\`.
+If scope expands beyond polish limits during explore or brief phase, use \`mcp__exarchos__exarchos_workflow\` with \`action: "update"\` to set \`track\` to "overhaul" and update \`explore.scopeAssessment.recommendedTrack\`.
 
 **Scope thresholds:** If >5 files affected OR changes cross module boundaries -> recommend overhaul track.
 
@@ -21983,7 +21988,7 @@ Track shepherd progress via workflow state:
 **Initialize:**
 \`\`\`
 mcp__exarchos__exarchos_workflow({
-  action: "set",
+  action: "update",
   featureId: "<id>",
   updates: {
     "shepherd": {
@@ -22006,7 +22011,7 @@ The shepherd skill operates within the \`synthesize\` phase and does not drive p
 
 ### Schema Discovery
 
-Use \`exarchos_workflow({ action: "describe", actions: ["set", "init"] })\` for
+Use \`exarchos_workflow({ action: "describe", actions: ["update", "init"] })\` for
 parameter schemas and \`exarchos_workflow({ action: "describe", playbook: "feature" })\`
 for phase transitions, guards, and playbook guidance. Use
 \`exarchos_event({ action: "describe", eventTypes: ["shepherd.iteration", "ci.status", "remediation.attempted"] })\`
@@ -22271,14 +22276,14 @@ If an issue spans multiple tasks:
 
 **Pass:**
 \`\`\`
-action: "set", featureId: "<id>", updates: {
+action: "update", featureId: "<id>", updates: {
   "reviews": { "spec-review": { "status": "pass", "summary": "...", "issues": [] } }
 }
 \`\`\`
 
 **Fail:**
 \`\`\`
-action: "set", featureId: "<id>", updates: {
+action: "update", featureId: "<id>", updates: {
   "reviews": { "spec-review": { "status": "fail", "summary": "...", "issues": [{ "severity": "...", "file": "...", "description": "..." }] } }
 }
 \`\`\`
@@ -22295,7 +22300,7 @@ For the full transition table, consult \`@skills/workflow-state/references/phase
 
 ### Schema Discovery
 
-Use \`exarchos_workflow({ action: "describe", actions: ["set", "init"] })\` for
+Use \`exarchos_workflow({ action: "describe", actions: ["update", "init"] })\` for
 parameter schemas and \`exarchos_workflow({ action: "describe", playbook: "feature" })\`
 for phase transitions, guards, and playbook guidance. Use
 \`exarchos_orchestrate({ action: "describe", actions: ["check_tdd_compliance", "check_static_analysis"] })\`
@@ -22316,7 +22321,7 @@ Before invoking quality-review:
 ### If PASS:
 1. Record results — the reviews value MUST be an object with a \`status\` field, not a flat string:
    \`\`\`
-   exarchos_workflow({ action: "set", featureId: "<id>", updates: {
+   exarchos_workflow({ action: "update", featureId: "<id>", updates: {
      reviews: { "spec-review": { status: "pass", summary: "...", issues: [] } }
    }})
    \`\`\`
@@ -22328,7 +22333,7 @@ Before invoking quality-review:
 ### If FAIL:
 1. Record results with failing status and issue details:
    \`\`\`
-   exarchos_workflow({ action: "set", featureId: "<id>", updates: {
+   exarchos_workflow({ action: "update", featureId: "<id>", updates: {
      reviews: { "spec-review": { status: "fail", summary: "...", issues: [{ severity: "HIGH", file: "...", description: "..." }] } }
    }})
    \`\`\`
@@ -22504,7 +22509,7 @@ After submission:
 
 \`\`\`typescript
 mcp__exarchos__exarchos_workflow({
-  action: "set", featureId: "<id>", updates: {
+  action: "update", featureId: "<id>", updates: {
     "artifacts": { "pr": ["<url1>", "<url2>"] },
     "synthesis": { "mergeOrder": ["<branch1>", ...], "prUrl": ["<url1>", ...], "prFeedback": [] }
   }
@@ -22583,7 +22588,7 @@ For the full transition table, consult \`@skills/workflow-state/references/phase
 
 ### Schema Discovery
 
-Use \`exarchos_workflow({ action: "describe", actions: ["set", "init"] })\` for
+Use \`exarchos_workflow({ action: "describe", actions: ["update", "init"] })\` for
 parameter schemas and \`exarchos_workflow({ action: "describe", playbook: "feature" })\`
 for phase transitions, guards, and playbook guidance. Use
 \`exarchos_orchestrate({ action: "describe", actions: ["prepare_synthesis"] })\`
@@ -22638,7 +22643,7 @@ Valid transitions, guards, and prerequisites for all workflow types are document
 
 ### Schema Discovery
 
-Use \`exarchos_workflow({ action: "describe", actions: ["set", "init", "get"] })\` for
+Use \`exarchos_workflow({ action: "describe", actions: ["update", "init", "get"] })\` for
 parameter schemas and \`exarchos_workflow({ action: "describe", playbook: "feature" })\`
 for phase transitions, guards, and playbook guidance. For the lightweight
 oneshot variant (with its \`implementing → synthesize|completed\` choice state
@@ -22691,7 +22696,7 @@ Field projection via \`fields\` returns only the requested top-level keys, reduc
 
 ### Update State
 
-Use \`mcp__exarchos__exarchos_workflow\` with \`action: "set"\` with \`featureId\` and either \`updates\`, \`phase\`, or both:
+Use \`mcp__exarchos__exarchos_workflow\` with \`action: "update"\` with \`featureId\` and either \`updates\`, \`phase\`, or both:
 
 - **Update phase**: \`phase: "delegate"\`
 - **Set artifact path**: \`updates: { "artifacts.design": "docs/designs/2026-01-05-feature.md" }\`
@@ -22708,7 +22713,7 @@ The dot-path parser used by \`set updates\` recognizes only **numeric** array br
 1. **Replace the whole array** (use this when the plan is being revised wholesale; matches the issue #1003 contract):
    \`\`\`typescript
    exarchos_workflow({
-     action: "set",
+     action: "update",
      featureId: "<id>",
      updates: { tasks: [
        { id: "T-001", title: "...", status: "pending" },
@@ -22720,7 +22725,7 @@ The dot-path parser used by \`set updates\` recognizes only **numeric** array br
 2. **Edit one task by its array index**:
    \`\`\`typescript
    exarchos_workflow({
-     action: "set",
+     action: "update",
      featureId: "<id>",
      updates: { "tasks[0].status": "complete", "tasks[0].completedAt": "<ts>" },
    })
@@ -22731,7 +22736,7 @@ The dot-path parser used by \`set updates\` recognizes only **numeric** array br
    \`\`\`typescript
    // Suppose tasks already contains T-001 and T-002 (length 2). To append:
    exarchos_workflow({
-     action: "set",
+     action: "update",
      featureId: "<id>",
      updates: { "tasks[2]": { id: "T-003", title: "Follow-up", status: "pending" } },
    })
@@ -22859,7 +22864,7 @@ If an Exarchos MCP tool returns an error:
 If workflow state doesn't match git reality:
 1. Run \`rehydrate <featureId>\` — the rehydration projection folds in events newer than the last snapshot
 2. If manual check still needed: compare the rehydration document's \`workflowState\` / \`artifacts\` with \`git log\` and branch state
-3. Update state via \`mcp__exarchos__exarchos_workflow\` with \`action: "set"\` to match git truth
+3. Update state via \`mcp__exarchos__exarchos_workflow\` with \`action: "update"\` to match git truth
 
 ### Checkpoint Missing
 If \`checkpoint\` is invoked with no active workflow:
@@ -22871,7 +22876,7 @@ If \`checkpoint\` is invoked with no active workflow:
 If state references branches or worktrees that no longer exist:
 1. Run \`rehydrate <featureId>\` — the rehydration document surfaces stale references
 2. Compare against \`git branch -a\` / \`git worktree list\` to identify drift
-3. Update via \`exarchos_workflow set\` to match git truth
+3. Update via \`exarchos_workflow update\` to match git truth
 
 ### Multiple Active Workflows
 If multiple workflow state files exist:
@@ -22883,7 +22888,7 @@ If multiple workflow state files exist:
 
 1. **Start new workflow**: Use \`mcp__exarchos__exarchos_workflow\` with \`action: "init"\` with \`featureId: "user-authentication"\`, \`workflowType: "feature"\`
 
-2. **After design phase**: Use \`mcp__exarchos__exarchos_workflow\` with \`action: "set"\` with:
+2. **After design phase**: Use \`mcp__exarchos__exarchos_workflow\` with \`action: "update"\` with:
    - \`featureId: "user-authentication"\`
    - \`phase: "plan"\`
    - \`updates: { "artifacts.design": "docs/designs/2026-01-05-user-auth.md" }\`
@@ -22991,7 +22996,7 @@ This creates a state file tracked by the MCP server.
 ### On Design Save (after Phase 3)
 
 \`\`\`
-action: "set", featureId: "<id>", updates: { "artifacts": { "design": "<path>" } }, phase: "plan"
+action: "update", featureId: "<id>", updates: { "artifacts": { "design": "<path>" } }, phase: "plan"
 \`\`\`
 
 ### Phase Transitions and Guards
@@ -23006,7 +23011,7 @@ For the full transition table, consult \`@skills/workflow-state/references/phase
 
 ### Schema Discovery
 
-Use \`exarchos_workflow({ action: "describe", actions: ["set", "init"] })\` for
+Use \`exarchos_workflow({ action: "describe", actions: ["update", "init"] })\` for
 parameter schemas and \`exarchos_workflow({ action: "describe", playbook: "feature" })\`
 for phase transitions, guards, and playbook guidance.
 
@@ -23058,7 +23063,7 @@ Before invoking \`/plan\`:
 
 ### Chain Steps
 
-1. Update state: \`action: "set", featureId: "<id>", updates: { "artifacts": { "design": "<path>" } }, phase: "plan"\`
+1. Update state: \`action: "update", featureId: "<id>", updates: { "artifacts": { "design": "<path>" } }, phase: "plan"\`
 
 2. If \`result.data.passed === false\` and \`result.data.advisory === true\`: Output \`result.data.findings\` summary, then: "Advisory findings noted. Auto-continuing to implementation planning..."
    If \`result.data.passed === true\`: Output: "Design complete. Auto-continuing to implementation planning..."
@@ -23440,7 +23445,7 @@ Every phase transition has a guard that must be satisfied. Before transitioning,
 
 ### Schema Discovery
 
-Use \`exarchos_workflow({ action: "describe", actions: ["set", "init"] })\` for
+Use \`exarchos_workflow({ action: "describe", actions: ["update", "init"] })\` for
 parameter schemas and \`exarchos_workflow({ action: "describe", playbook: "debug" })\`
 for phase transitions, guards, and playbook guidance.
 
@@ -23476,7 +23481,7 @@ Extended to support:
 - [ ] Follow-up RCA task created
 - [ ] Changes merged
 
-**Completion guard shapes** — set these via \`exarchos_workflow set\` before transitioning to \`completed\`:
+**Completion guard shapes** — set these via \`exarchos_workflow update\` before transitioning to \`completed\`:
 
 | Exit path | Guard | Required state |
 |-----------|-------|----------------|
@@ -23712,7 +23717,7 @@ exarchos_orchestrate({
 })
 \`\`\`
 
-6. **Update workflow state** — set each passing \`tasks[].status\` to \`"complete"\` via \`exarchos_workflow set\`
+6. **Update workflow state** — set each passing \`tasks[].status\` to \`"complete"\` via \`exarchos_workflow update\`
 7. **Delegation completion gate (D4, advisory)** — after ALL tasks pass, run an operational resilience check on the full branch diff before transitioning to review:
 
 \`\`\`typescript
@@ -23809,7 +23814,7 @@ For the full transition table, consult \`@skills/workflow-state/references/phase
 
 **Quick reference:** The \`delegate\` → \`review\` transition requires guard \`all-tasks-complete\` — all \`tasks[].status\` must be \`"complete"\` in workflow state.
 
-> **Before transitioning to review:** You MUST first update all task statuses to \`"complete"\` via \`exarchos_workflow set\` with the tasks array. The phase transition will be rejected by the guard if any task is still pending/in_progress/failed. Update tasks first, then set the phase in a separate call.
+> **Before transitioning to review:** You MUST first update all task statuses to \`"complete"\` via \`exarchos_workflow update\` with the tasks array. The phase transition will be rejected by the guard if any task is still pending/in_progress/failed. Update tasks first, then set the phase in a separate call.
 
 ### Worktree-Bearing Tasks: Auto-Detour to \`merge-pending\`
 
@@ -23830,7 +23835,7 @@ This detour is invisible to the delegation skill itself — the all-tasks-comple
 
 ### Schema Discovery
 
-Use \`exarchos_workflow({ action: "describe", actions: ["set", "init"] })\` for
+Use \`exarchos_workflow({ action: "describe", actions: ["update", "init"] })\` for
 parameter schemas and \`exarchos_workflow({ action: "describe", playbook: "feature" })\`
 for phase transitions, guards, and playbook guidance. Use
 \`exarchos_orchestrate({ action: "describe", actions: ["check_tdd_compliance", "task_complete"] })\`
@@ -23950,7 +23955,7 @@ clever-but-fragile automation.
 After all tasks complete, **auto-continue immediately** (no user confirmation):
 
 1. Verify all \`tasks[].status === "complete"\` in workflow state
-2. Update state: \`exarchos_workflow set\` with \`phase: "review"\`
+2. Update state: \`exarchos_workflow update\` with \`phase: "review"\`
 3. Invoke: \`[Invoke the exarchos:review skill with args: <plan-path>]\`
 
 This is NOT a human checkpoint — the workflow continues autonomously.
@@ -24019,7 +24024,7 @@ Collect sources, references, and raw material for the deliverable.
 
 \`\`\`typescript
 mcp__exarchos__exarchos_workflow({
-  action: "set", featureId: "<id>",
+  action: "update", featureId: "<id>",
   updates: { "artifacts.sources": ["<source1>", "<source2>", "..."] }
 })
 \`\`\`
@@ -24038,7 +24043,7 @@ Draft the deliverable document from gathered sources.
 
 \`\`\`typescript
 mcp__exarchos__exarchos_workflow({
-  action: "set", featureId: "<id>",
+  action: "update", featureId: "<id>",
   updates: { "artifacts.report": "<path-to-document>" }
 })
 \`\`\`
@@ -24277,11 +24282,11 @@ Only file issues with user confirmation — present the draft first.
       "id": 1,
       "bucket": "code_bug | documentation_issue | user_error",
       "tool": "exarchos_workflow",
-      "action": "set",
+      "action": "update",
       "error": "INVALID_INPUT: ...",
       "root_cause": "Schema rejects null branch on pending tasks",
-      "trace_evidence": "describe(actions: ['set']) shows branch as required string; event log confirms no task.updated event",
-      "authoritative_ref": "exarchos_workflow describe(actions: ['set']) → TaskSchema",
+      "trace_evidence": "describe(actions: ['update']) shows branch as required string; event log confirms no task.updated event",
+      "authoritative_ref": "exarchos_workflow describe(actions: ['update']) → TaskSchema",
       "severity": "HIGH | MEDIUM | LOW",
       "suggested_fix": "Accept nullable branch in TaskSchema",
       "issue_draft": {
@@ -24558,7 +24563,7 @@ Activate this skill when:
 
 ## Revision Mode (--revise flag)
 
-When invoked with \`--revise\`, plan-review found gaps. Read \`.planReview.gaps\` from state, re-read the design, add tasks to address each gap, update the plan file, then clear gaps via \`mcp__exarchos__exarchos_workflow\` \`action: "set"\`.
+When invoked with \`--revise\`, plan-review found gaps. Read \`.planReview.gaps\` from state, re-read the design, add tasks to address each gap, update the plan file, then clear gaps via \`mcp__exarchos__exarchos_workflow\` \`action: "update"\`.
 
 ### Revision Loop Guard
 
@@ -24741,7 +24746,7 @@ For reference, consult \`references/spec-tracing-guide.md\` for the underlying m
 
 On plan save, transition phase based on \`workflowType\`: feature → \`plan-review\`, refactor → \`overhaul-plan-review\`.
 \`\`\`
-action: "set", featureId: "<id>", phase: "<plan-review-phase>", updates: {
+action: "update", featureId: "<id>", phase: "<plan-review-phase>", updates: {
   "artifacts": { "plan": "<plan-file-path>" },
   "tasks": [{ "id": "001", "title": "...", "status": "pending", "branch": "...", "blockedBy": [] }, ...]
 }
@@ -24755,7 +24760,7 @@ For the full transition table, consult \`@skills/workflow-state/references/phase
 
 ### Schema Discovery
 
-Use \`exarchos_workflow({ action: "describe", actions: ["set", "init"] })\` for
+Use \`exarchos_workflow({ action: "describe", actions: ["update", "init"] })\` for
 parameter schemas and \`exarchos_workflow({ action: "describe", playbook: "feature" })\`
 (or \`"debug"\`, \`"refactor"\`) for phase transitions, guards, and playbook guidance.
 Use \`exarchos_orchestrate({ action: "describe", actions: ["check_plan_coverage", "check_provenance_chain"] })\`
@@ -25155,7 +25160,7 @@ Persist the plan and transition to \`implementing\` in a single set call.
 
 \`\`\`typescript
 mcp__exarchos__exarchos_workflow({
-  action: "set",
+  action: "update",
   featureId: "fix-readme-typo",
   phase: "implementing",
   updates: {
@@ -25310,7 +25315,7 @@ Agent:
      → workflow created in 'plan' phase, synthesisPolicy defaults to 'on-request'
   2. Produces a 4-line plan: goal=fix typo, approach=sed, files=[README.md],
      tests=[readme has no occurrence of 'recieve']
-  3. exarchos_workflow set {
+  3. exarchos_workflow update {
        featureId: "fix-readme-typo",
        phase: "implementing",                   // top-level
        updates: {
@@ -25384,7 +25389,7 @@ Track oneshot-specific state under the \`oneshot\` key on the workflow state:
 
 \`\`\`typescript
 mcp__exarchos__exarchos_workflow({
-  action: "set",
+  action: "update",
   featureId: "<id>",
   updates: {
     "oneshot": {
@@ -25429,7 +25434,7 @@ absent. Exactly one guard returns true at any given time.
 
 ### Schema discovery
 
-Use \`exarchos_workflow({ action: "describe", actions: ["init", "set"] })\`
+Use \`exarchos_workflow({ action: "describe", actions: ["init", "update"] })\`
 for parameter schemas (including the \`synthesisPolicy\` enum) and
 \`exarchos_workflow({ action: "describe", playbook: "oneshot" })\` for the
 phase transitions, guard names, and playbook prose. Use
@@ -26046,14 +26051,14 @@ If an issue spans multiple tasks:
 
 **On review complete:**
 \`\`\`text
-action: "set", featureId: "<id>", updates: {
+action: "update", featureId: "<id>", updates: {
   "reviews": { "quality-review": { "status": "pass", "summary": "...", "issues": [...] } }
 }
 \`\`\`
 
 **On all reviews pass — advance to synthesis:**
 \`\`\`text
-action: "set", featureId: "<id>", phase: "synthesize"
+action: "transition", featureId: "<id>", target: "synthesize"
 \`\`\`
 
 ### Phase Transitions and Guards
@@ -26066,7 +26071,7 @@ For the full transition table, consult \`@skills/workflow-state/references/phase
 
 ### Schema Discovery
 
-Use \`exarchos_workflow({ action: "describe", actions: ["set", "init"] })\` for
+Use \`exarchos_workflow({ action: "describe", actions: ["update", "init"] })\` for
 parameter schemas and \`exarchos_workflow({ action: "describe", playbook: "feature" })\`
 for phase transitions, guards, and playbook guidance. Use
 \`exarchos_orchestrate({ action: "describe", actions: ["check_static_analysis", "check_security_scan", "check_review_verdict"] })\`
@@ -26130,15 +26135,16 @@ Before transitioning, record the review verdict. The reviews value MUST be an ob
 
 **APPROVED:**
 \`\`\`
-exarchos_workflow({ action: "set", featureId: "<id>", updates: {
+exarchos_workflow({ action: "update", featureId: "<id>", updates: {
   reviews: { "quality-review": { status: "pass", summary: "...", issues: [] } }
-}, phase: "synthesize" })
+}})
+exarchos_workflow({ action: "transition", featureId: "<id>", target: "synthesize" })
 \`\`\`
 Then invoke \`/synthesize\`.
 
 **NEEDS_FIXES:**
-\`\`\`
-exarchos_workflow({ action: "set", featureId: "<id>", updates: {
+\`\`\`text
+exarchos_workflow({ action: "update", featureId: "<id>", updates: {
   reviews: { "quality-review": { status: "fail", summary: "...", issues: [{ severity: "HIGH", file: "...", description: "..." }] } }
 }})
 \`\`\`
@@ -26289,7 +26295,7 @@ The pattern for every transition: send the guard prerequisite in \`updates\` and
 
 ### Schema Discovery
 
-Use \`exarchos_workflow({ action: "describe", actions: ["set", "init"] })\` for
+Use \`exarchos_workflow({ action: "describe", actions: ["update", "init"] })\` for
 parameter schemas and \`exarchos_workflow({ action: "describe", playbook: "refactor" })\`
 for phase transitions, guards, and playbook guidance.
 
@@ -26302,7 +26308,7 @@ This runbook provides structured criteria for choosing between polish and overha
 
 ## Track Switching
 
-If scope expands beyond polish limits during explore or brief phase, use \`mcp__exarchos__exarchos_workflow\` with \`action: "set"\` to set \`track\` to "overhaul" and update \`explore.scopeAssessment.recommendedTrack\`.
+If scope expands beyond polish limits during explore or brief phase, use \`mcp__exarchos__exarchos_workflow\` with \`action: "update"\` to set \`track\` to "overhaul" and update \`explore.scopeAssessment.recommendedTrack\`.
 
 **Scope thresholds:** If >5 files affected OR changes cross module boundaries -> recommend overhaul track.
 
@@ -26559,7 +26565,7 @@ Track shepherd progress via workflow state:
 **Initialize:**
 \`\`\`
 mcp__exarchos__exarchos_workflow({
-  action: "set",
+  action: "update",
   featureId: "<id>",
   updates: {
     "shepherd": {
@@ -26582,7 +26588,7 @@ The shepherd skill operates within the \`synthesize\` phase and does not drive p
 
 ### Schema Discovery
 
-Use \`exarchos_workflow({ action: "describe", actions: ["set", "init"] })\` for
+Use \`exarchos_workflow({ action: "describe", actions: ["update", "init"] })\` for
 parameter schemas and \`exarchos_workflow({ action: "describe", playbook: "feature" })\`
 for phase transitions, guards, and playbook guidance. Use
 \`exarchos_event({ action: "describe", eventTypes: ["shepherd.iteration", "ci.status", "remediation.attempted"] })\`
@@ -26847,14 +26853,14 @@ If an issue spans multiple tasks:
 
 **Pass:**
 \`\`\`
-action: "set", featureId: "<id>", updates: {
+action: "update", featureId: "<id>", updates: {
   "reviews": { "spec-review": { "status": "pass", "summary": "...", "issues": [] } }
 }
 \`\`\`
 
 **Fail:**
 \`\`\`
-action: "set", featureId: "<id>", updates: {
+action: "update", featureId: "<id>", updates: {
   "reviews": { "spec-review": { "status": "fail", "summary": "...", "issues": [{ "severity": "...", "file": "...", "description": "..." }] } }
 }
 \`\`\`
@@ -26871,7 +26877,7 @@ For the full transition table, consult \`@skills/workflow-state/references/phase
 
 ### Schema Discovery
 
-Use \`exarchos_workflow({ action: "describe", actions: ["set", "init"] })\` for
+Use \`exarchos_workflow({ action: "describe", actions: ["update", "init"] })\` for
 parameter schemas and \`exarchos_workflow({ action: "describe", playbook: "feature" })\`
 for phase transitions, guards, and playbook guidance. Use
 \`exarchos_orchestrate({ action: "describe", actions: ["check_tdd_compliance", "check_static_analysis"] })\`
@@ -26892,7 +26898,7 @@ Before invoking quality-review:
 ### If PASS:
 1. Record results — the reviews value MUST be an object with a \`status\` field, not a flat string:
    \`\`\`
-   exarchos_workflow({ action: "set", featureId: "<id>", updates: {
+   exarchos_workflow({ action: "update", featureId: "<id>", updates: {
      reviews: { "spec-review": { status: "pass", summary: "...", issues: [] } }
    }})
    \`\`\`
@@ -26904,7 +26910,7 @@ Before invoking quality-review:
 ### If FAIL:
 1. Record results with failing status and issue details:
    \`\`\`
-   exarchos_workflow({ action: "set", featureId: "<id>", updates: {
+   exarchos_workflow({ action: "update", featureId: "<id>", updates: {
      reviews: { "spec-review": { status: "fail", summary: "...", issues: [{ severity: "HIGH", file: "...", description: "..." }] } }
    }})
    \`\`\`
@@ -27080,7 +27086,7 @@ After submission:
 
 \`\`\`typescript
 mcp__exarchos__exarchos_workflow({
-  action: "set", featureId: "<id>", updates: {
+  action: "update", featureId: "<id>", updates: {
     "artifacts": { "pr": ["<url1>", "<url2>"] },
     "synthesis": { "mergeOrder": ["<branch1>", ...], "prUrl": ["<url1>", ...], "prFeedback": [] }
   }
@@ -27159,7 +27165,7 @@ For the full transition table, consult \`@skills/workflow-state/references/phase
 
 ### Schema Discovery
 
-Use \`exarchos_workflow({ action: "describe", actions: ["set", "init"] })\` for
+Use \`exarchos_workflow({ action: "describe", actions: ["update", "init"] })\` for
 parameter schemas and \`exarchos_workflow({ action: "describe", playbook: "feature" })\`
 for phase transitions, guards, and playbook guidance. Use
 \`exarchos_orchestrate({ action: "describe", actions: ["prepare_synthesis"] })\`
@@ -27214,7 +27220,7 @@ Valid transitions, guards, and prerequisites for all workflow types are document
 
 ### Schema Discovery
 
-Use \`exarchos_workflow({ action: "describe", actions: ["set", "init", "get"] })\` for
+Use \`exarchos_workflow({ action: "describe", actions: ["update", "init", "get"] })\` for
 parameter schemas and \`exarchos_workflow({ action: "describe", playbook: "feature" })\`
 for phase transitions, guards, and playbook guidance. For the lightweight
 oneshot variant (with its \`implementing → synthesize|completed\` choice state
@@ -27267,7 +27273,7 @@ Field projection via \`fields\` returns only the requested top-level keys, reduc
 
 ### Update State
 
-Use \`mcp__exarchos__exarchos_workflow\` with \`action: "set"\` with \`featureId\` and either \`updates\`, \`phase\`, or both:
+Use \`mcp__exarchos__exarchos_workflow\` with \`action: "update"\` with \`featureId\` and either \`updates\`, \`phase\`, or both:
 
 - **Update phase**: \`phase: "delegate"\`
 - **Set artifact path**: \`updates: { "artifacts.design": "docs/designs/2026-01-05-feature.md" }\`
@@ -27284,7 +27290,7 @@ The dot-path parser used by \`set updates\` recognizes only **numeric** array br
 1. **Replace the whole array** (use this when the plan is being revised wholesale; matches the issue #1003 contract):
    \`\`\`typescript
    exarchos_workflow({
-     action: "set",
+     action: "update",
      featureId: "<id>",
      updates: { tasks: [
        { id: "T-001", title: "...", status: "pending" },
@@ -27296,7 +27302,7 @@ The dot-path parser used by \`set updates\` recognizes only **numeric** array br
 2. **Edit one task by its array index**:
    \`\`\`typescript
    exarchos_workflow({
-     action: "set",
+     action: "update",
      featureId: "<id>",
      updates: { "tasks[0].status": "complete", "tasks[0].completedAt": "<ts>" },
    })
@@ -27307,7 +27313,7 @@ The dot-path parser used by \`set updates\` recognizes only **numeric** array br
    \`\`\`typescript
    // Suppose tasks already contains T-001 and T-002 (length 2). To append:
    exarchos_workflow({
-     action: "set",
+     action: "update",
      featureId: "<id>",
      updates: { "tasks[2]": { id: "T-003", title: "Follow-up", status: "pending" } },
    })
@@ -27435,7 +27441,7 @@ If an Exarchos MCP tool returns an error:
 If workflow state doesn't match git reality:
 1. Run \`/rehydrate <featureId>\` — the rehydration projection folds in events newer than the last snapshot
 2. If manual check still needed: compare the rehydration document's \`workflowState\` / \`artifacts\` with \`git log\` and branch state
-3. Update state via \`mcp__exarchos__exarchos_workflow\` with \`action: "set"\` to match git truth
+3. Update state via \`mcp__exarchos__exarchos_workflow\` with \`action: "update"\` to match git truth
 
 ### Checkpoint Missing
 If \`/checkpoint\` is invoked with no active workflow:
@@ -27447,7 +27453,7 @@ If \`/checkpoint\` is invoked with no active workflow:
 If state references branches or worktrees that no longer exist:
 1. Run \`/rehydrate <featureId>\` — the rehydration document surfaces stale references
 2. Compare against \`git branch -a\` / \`git worktree list\` to identify drift
-3. Update via \`exarchos_workflow set\` to match git truth
+3. Update via \`exarchos_workflow update\` to match git truth
 
 ### Multiple Active Workflows
 If multiple workflow state files exist:
@@ -27459,7 +27465,7 @@ If multiple workflow state files exist:
 
 1. **Start new workflow**: Use \`mcp__exarchos__exarchos_workflow\` with \`action: "init"\` with \`featureId: "user-authentication"\`, \`workflowType: "feature"\`
 
-2. **After design phase**: Use \`mcp__exarchos__exarchos_workflow\` with \`action: "set"\` with:
+2. **After design phase**: Use \`mcp__exarchos__exarchos_workflow\` with \`action: "update"\` with:
    - \`featureId: "user-authentication"\`
    - \`phase: "plan"\`
    - \`updates: { "artifacts.design": "docs/designs/2026-01-05-user-auth.md" }\`

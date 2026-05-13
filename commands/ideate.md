@@ -54,7 +54,7 @@ After user selects approach:
 
 Initialize workflow state at the start using `mcp__plugin_exarchos_exarchos__exarchos_workflow` with `action: "init"`, `featureId`, and `workflowType: "feature"`.
 
-After saving design, update state using `mcp__plugin_exarchos_exarchos__exarchos_workflow` with `action: "set"`:
+After saving design, update state using `mcp__plugin_exarchos_exarchos__exarchos_workflow` with `action: "update"`:
 - Set `artifacts.design` to the design path
 - Set `phase` to "plan"
 
@@ -66,7 +66,7 @@ Save design to `docs/designs/YYYY-MM-DD-<feature>.md` and capture the path as `$
 
 After saving the design document, **auto-continue to planning** (no user confirmation here):
 
-1. Update state with design path and phase using `mcp__plugin_exarchos_exarchos__exarchos_workflow` with `action: "set"`:
+1. Update state with design path and phase using `mcp__plugin_exarchos_exarchos__exarchos_workflow` with `action: "update"`:
    - Set `artifacts.design` to the design document path
    - Set `phase` to "plan"
 

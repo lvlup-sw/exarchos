@@ -1,4 +1,4 @@
-import { handleInit, handleGet, handleTransition, handleReconcileState, handleCheckpoint } from './tools.js';
+import { handleInit, handleGet, handleTransition, handleReconcileState, handleCheckpoint, handleUpdate } from './tools.js';
 import { handleCancel } from './cancel.js';
 import { handleCleanup } from './cleanup.js';
 import { handleRehydrate } from './rehydrate.js';
@@ -111,6 +111,27 @@ export async function handleWorkflow(
           Object.keys(transitionOptions).length > 0
             ? transitionOptions as Parameters<typeof handleTransition>[3]
             : undefined,
+        ),
+        startedAt,
+      );
+    }
+    case 'update': {
+      // Wave 0 (#1340, v2.10.0-preview.2): canonical state-mutation
+      // surface for non-phase fields. `handleUpdate` performs the
+      // phase-in-updates input guard then delegates to `handleSet` so
+      // the same event-first / CAS / per-stream-lock machinery serves
+      // both the legacy `set` callers (now removed) and the canonical
+      // `update` action.
+      //
+      // Keeping the guard inside `handleUpdate` (in tools.ts) rather
+      // than here in the composite keeps the contract local to the
+      // function CLI dispatch and direct-import callers reach for —
+      // anyone bypassing the composite still hits the guard.
+      return envelopeWrap(
+        await handleUpdate(
+          rest as unknown as Parameters<typeof handleUpdate>[0],
+          stateDir,
+          eventStore,
         ),
         startedAt,
       );

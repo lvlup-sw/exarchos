@@ -1,9 +1,13 @@
 import { Database, type Statement } from 'bun:sqlite';
+import { readdirSync, readFileSync } from 'node:fs';
+import { dirname, join, basename } from 'node:path';
 import type { WorkflowEvent } from '../event-store/schemas.js';
 import type { WorkflowState } from '../workflow/types.js';
 import type { QueryFilters } from '../event-store/store.js';
 import type { StorageBackend, EventSender, ViewCacheEntry, DrainResult } from './backend.js';
 import { VersionConflictError } from './memory-backend.js';
+import type { SnapshotRecord } from '../projections/snapshot-schema.js';
+import { resolveMaxRecords } from './snapshot-retention.js';
 
 // ─── AtomicAppender wire types (#1259, T06/T07) ─────────────────────────────
 //
@@ -47,7 +51,7 @@ export interface PublicPersistedEventLike {
 
 // ─── Schema DDL ─────────────────────────────────────────────────────────────
 
-const SCHEMA_VERSION = 3;
+const SCHEMA_VERSION = 5;
 
 const SCHEMA_DDL = `
 CREATE TABLE IF NOT EXISTS events (
@@ -101,6 +105,25 @@ CREATE TABLE IF NOT EXISTS schema_version (
   appliedAt TEXT NOT NULL
 );
 
+-- Projection snapshots (V4 -> V5, #1343 Wave A). Replaces the per-stream
+-- JSONL sidecar at <stateDir>/<streamId>.projections.jsonl with a relational
+-- table. Composite PK (stream_id, projection_id, projection_version, sequence)
+-- so multiple snapshots for the same projection coexist; the latest-by-sequence
+-- index supports the readLatestProjectionSnapshot LIMIT 1 fast path. The
+-- payload column holds the JSON-encoded SnapshotRecord (projectionId,
+-- projectionVersion, sequence, state, timestamp).
+CREATE TABLE IF NOT EXISTS projection_snapshots (
+  stream_id          TEXT NOT NULL,
+  projection_id      TEXT NOT NULL,
+  projection_version TEXT NOT NULL,
+  sequence           INTEGER NOT NULL,
+  payload            TEXT NOT NULL,
+  created_at         TEXT NOT NULL,
+  PRIMARY KEY (stream_id, projection_id, projection_version, sequence)
+);
+CREATE INDEX IF NOT EXISTS idx_projection_snapshots_latest
+  ON projection_snapshots(stream_id, projection_id, projection_version, sequence DESC);
+
 -- Idempotency claims for AtomicAppender SQLite-backed body (#1259, T06/T07).
 -- Each row records the eventIds, sequences, and timestamps committed under a
 -- given (streamId, idempotencyKey) so a retry returns the canonical
@@ -152,13 +175,22 @@ const MAX_OUTBOX_RETRIES = 5;
 
 /**
  * Bounded retry policy for SQLITE_BUSY surfaced by the substrate
- * `atomicAppend` write path (#1259, T09, DR-12).
+ * `atomicAppend` write path (#1259, T09, DR-12, refined by audit §F2.2).
  *
- * The C-level `busy_timeout` pragma is intentionally NOT set — the
- * design (DR-12) routes BUSY recovery through the JS layer so the
- * appender owns observability of retry counts. With `busy_timeout` left
- * at the SQLite default (0), every BUSY surfaces as a thrown error and
- * this layer alone decides whether to retry or escalate.
+ * Two-tier BUSY recovery — see `applyConnectionPragmas` for the full
+ * model. The C-level `busy_timeout = 5000` pragma is the silent
+ * absorption tier; this constant configures the JS-level observability
+ * tier. The two layers are NOT redundant: the C layer catches
+ * microsecond-scale contention without surfacing errors; the JS layer
+ * counts the cases where the C-layer's 5-second window expires, making
+ * the retry observable to the appender for structured failure
+ * reporting (`storage_busy`).
+ *
+ * Originally DR-12 set busy_timeout=0 and made this layer the sole
+ * BUSY handler. The audit (§F2.2) flagged that approach as exposing
+ * every microsecond-level contention as a JS-layer retry, exhausting
+ * the budget on noise. The C layer is now the absorption tier; this
+ * layer is the escalation tier.
  *
  * Backoff: `min(baseDelayMs * 2^(attempt-1), maxDelayMs)`. With
  * `baseDelayMs=5, maxDelayMs=100`, the budget across 4 inter-attempt
@@ -339,13 +371,39 @@ export class SqliteBackend implements StorageBackend {
 
   /**
    * Apply the fixed set of connection-level pragmas (WAL, synchronous=NORMAL,
-   * mmap_size=256MB). Kept in a single helper so the values and order are
-   * easy to audit — pragma order matters for some SQLite configurations.
+   * mmap_size=256MB, busy_timeout=5000ms). Kept in a single helper so the
+   * values and order are easy to audit — pragma order matters for some
+   * SQLite configurations.
+   *
+   * Two-tier BUSY recovery (audit §F2.2 + DR-12).
+   *
+   * busy_timeout=5000ms is the C-layer silent-absorption tier. SQLite's C
+   * runtime spins on a contended write lock for up to 5 seconds, retrying
+   * internally on the order of microseconds, before surfacing
+   * SQLITE_BUSY. This catches the overwhelming majority of cross-process
+   * lock contention without ever propagating an error into the JS layer.
+   *
+   * SQLITE_BUSY_RETRY_POLICY (declared above, near line 168) is the
+   * JS-layer observability tier. When the C-layer's window expires and
+   * SQLITE_BUSY surfaces, the JS retry budget kicks in: up to 5 attempts
+   * with exponential backoff (~75ms total wall time). The JS layer is
+   * where retry counts become visible — it's the right place for
+   * observability because every retry there is a real escalation past
+   * the silent C-layer absorption.
+   *
+   * DO NOT collapse these two layers into one. Removing busy_timeout
+   * makes every microsecond-scale contention surface as SQLITE_BUSY,
+   * exhausting the JS retry budget on noise. Removing the JS retry
+   * layer eliminates the observability surface — a 5-second silent
+   * stall is indistinguishable from a healthy write.
    */
   private applyConnectionPragmas(): void {
     this.db.exec('PRAGMA journal_mode = WAL');
     this.db.exec('PRAGMA synchronous = NORMAL');
     this.db.exec('PRAGMA mmap_size = 268435456');
+    // C-layer BUSY safety net (audit §F2.2). See JSDoc above for the
+    // two-tier model that this pragma anchors.
+    this.db.exec('PRAGMA busy_timeout = 5000');
   }
 
   /**
@@ -354,9 +412,21 @@ export class SqliteBackend implements StorageBackend {
    * V2 -> V3: Scaffolding step (no DDL change). Reserves SCHEMA_VERSION=3 so
    *           later tasks (T02-T04, T12) can register new event types and
    *           tolerant deserialization under a versioned DB shape.
+   * V3 -> V4: R-1 Marten primitive (#1313). Materialize the `streams`
+   *           registry table with a mandatory `workflow_type` column and
+   *           backfill `__legacy` for every pre-existing stream row in
+   *           `sequences`. Indexes + state-file backfill + the
+   *           `migration.workflow_type_unknown` observability event live in
+   *           sibling subtasks (1.2, 1.5, 1.6).
+   * V4 -> V5: #1343 Wave A. Add `projection_snapshots` table and the
+   *           `idx_projection_snapshots_latest` index that replace the
+   *           JSONL sidecar at <stateDir>/<streamId>.projections.jsonl.
+   *           Idempotent via CREATE TABLE IF NOT EXISTS; SCHEMA_DDL above
+   *           creates the table on fresh DBs, and this step covers legacy
+   *           DBs that were stamped at V4 before #1343 landed.
    *
    * Each step short-circuits if its target version is already present in the
-   * `schema_version` table, so running migrateSchema() twice on a V3 DB is a
+   * `schema_version` table, so running migrateSchema() twice on a V5 DB is a
    * no-op (idempotent).
    */
   private migrateSchema(): void {
@@ -383,6 +453,29 @@ export class SqliteBackend implements StorageBackend {
     if (!v3Existing) {
       this.migrateV2ToV3();
     }
+
+    // V3 -> V4: gated by the schema_version ledger. Creates the `streams`
+    // registry (V3 had none — stream existence was implicit in `sequences`)
+    // and backfills the `__legacy` sentinel for each pre-existing stream.
+    const v4Existing = this.db
+      .prepare('SELECT version FROM schema_version WHERE version = ?')
+      .get(4) as { version: number } | undefined;
+
+    if (!v4Existing) {
+      this.migrateV3ToV4();
+    }
+
+    // V4 -> V5: gated by the schema_version ledger. Adds the
+    // `projection_snapshots` table + `idx_projection_snapshots_latest` index
+    // for #1343 Wave A. Fresh DBs already have the table via SCHEMA_DDL; this
+    // path covers DBs created under SCHEMA_VERSION === 4.
+    const v5Existing = this.db
+      .prepare('SELECT version FROM schema_version WHERE version = ?')
+      .get(5) as { version: number } | undefined;
+
+    if (!v5Existing) {
+      this.migrateV4ToV5();
+    }
   }
 
   /**
@@ -390,10 +483,325 @@ export class SqliteBackend implements StorageBackend {
    * named helper so downstream foundation tasks (T02-T04 register new event
    * types, T12 wires tolerant deserialization) have a single seam to extend
    * without rewriting the runner.
+   *
+   * Records version=3 in the schema_version ledger explicitly. Before V4
+   * existed, the SCHEMA_VERSION=3 sentinel was inserted by initialize()
+   * itself; that insert now records version=4, so each migrate helper is
+   * responsible for stamping its own target version. Without this stamp,
+   * the gating check in migrateSchema (`SELECT WHERE version = 3`) would
+   * re-run migrateV2ToV3 on every open of a V4-current DB.
    */
   private migrateV2ToV3(): void {
-    // No-op. SCHEMA_VERSION=3 itself is recorded by the ledger insert in
-    // initialize() once this method returns.
+    this.db
+      .prepare('INSERT OR IGNORE INTO schema_version (version, appliedAt) VALUES (?, ?)')
+      .run(3, new Date().toISOString());
+  }
+
+  /**
+   * V3 -> V4 migration step. Marten R-1 primitive (#1313).
+   *
+   * Creates the `streams` registry table with a mandatory `workflow_type`
+   * column, then backfills one row per existing stream from the V3
+   * `sequences` table with the `__legacy` sentinel. The sentinel marks
+   * streams whose workflow type cannot be derived structurally; later
+   * subtasks (1.5) walk state files to replace it with a recovered type
+   * where possible.
+   *
+   * The design (`R-1: Mandatory workflow_type Column`) calls for
+   *   ALTER TABLE streams ADD COLUMN workflow_type TEXT NOT NULL DEFAULT '__legacy'
+   * but V3 has no `streams` table to ALTER. We CREATE it instead, which
+   * yields the same observable shape: a NOT NULL column with `__legacy`
+   * default. The DEFAULT serves only as belt-and-suspenders for any code
+   * path that later inserts without a workflow_type — `workflow.init` is
+   * the sole writer (task 1.3) and always passes one explicitly.
+   *
+   * `status TEXT` is reserved here so the composite index `(workflow_type,
+   * status)` (task 1.2) has both columns available; the read-side wiring
+   * is deferred to v2.12 (#1090) and `status` is not yet populated.
+   */
+  private migrateV3ToV4(): void {
+    // Atomicity guard (Sentry #14059742 / #14059864): the entire step —
+    // table+index DDL, registry backfill, state-file recovery, observability
+    // event emission, AND the schema_version stamp — runs inside ONE
+    // transaction. Without it, a crash between the inner `emitAll`
+    // transaction commit and the schema_version insert leaves V4 data on
+    // disk with the ledger still at V3. The next startup re-runs the step,
+    // re-emits `migration.workflow_type_unknown` events at fresh sequence
+    // numbers, and silently duplicates the operator-visibility events
+    // (violating the "one observability event per unresolved stream"
+    // contract). Wrapping in one transaction guarantees either the whole
+    // migration is durable + ledgered, or none of it is.
+    //
+    // Nested-transaction note: `emitWorkflowTypeUnknownEvents` already wraps
+    // its per-stream INSERT/UPSERT in a `db.transaction(...)`. better-sqlite3
+    // flattens nested transaction-function calls (the inner one uses a
+    // SAVEPOINT and rejoins the outer boundary), so this composition is safe.
+    const now = new Date().toISOString();
+    const runMigration = this.db.transaction((): void => {
+      this.db.exec(`
+        CREATE TABLE IF NOT EXISTS streams (
+          streamId      TEXT PRIMARY KEY,
+          workflow_type TEXT NOT NULL DEFAULT '__legacy',
+          status        TEXT,
+          createdAt     TEXT NOT NULL
+        );
+        -- Indexes for v2.12 filtered ps/pipeline/view queries (#1090). The
+        -- read side is deferred to v2.12, but Wave 1 lands the indexes so the
+        -- moment those queries ship, every plan is O(log n) without a separate
+        -- migration window. Single-column index serves bare workflowType
+        -- equality filters; composite serves the more common workflowType +
+        -- status filters once status starts being populated by the merge
+        -- orchestrator (Wave 4).
+        CREATE INDEX IF NOT EXISTS idx_streams_workflow_type
+          ON streams(workflow_type);
+        CREATE INDEX IF NOT EXISTS idx_streams_workflow_type_status
+          ON streams(workflow_type, status);
+      `);
+
+      // Backfill the registry from the V3 implicit stream set (sequences).
+      // INSERT OR IGNORE so re-running the migration does not duplicate rows;
+      // a stream already inserted by a later code path (task 1.3) keeps its
+      // row untouched. Uses OR IGNORE rather than ON CONFLICT DO NOTHING for
+      // compatibility with the older SQLite the test-time better-sqlite3 shim
+      // ships with.
+      this.db
+        .prepare(
+          `INSERT OR IGNORE INTO streams (streamId, workflow_type, createdAt)
+           SELECT streamId, '__legacy', ? FROM sequences`,
+        )
+        .run(now);
+
+      // Recover workflowType from co-located state files where available.
+      // The migration walks <stateDir>/*.state.json (the SQLite db lives at
+      // <stateDir>/exarchos.db by convention; see AtomicAppender.dbPath) and
+      // for each file with a parseable `workflowType` issues
+      //   UPDATE streams SET workflow_type = ? WHERE streamId = ? AND workflow_type = '__legacy'
+      // Constraining to '__legacy' protects rows already carrying a typed
+      // value (e.g. inserted by a concurrent handleInit during the migration
+      // window — unlikely with the PID lock, but the guard makes the update
+      // safe regardless). This is the ONLY UPDATE of workflow_type in the
+      // codebase — task 1.7 enforces immutability everywhere else via a CI
+      // grep gate.
+      this.backfillWorkflowTypeFromStateFiles();
+
+      // Stamp version=4 in the ledger so migrateSchema short-circuits on the
+      // next open. initialize() also INSERT OR IGNORE's the current
+      // SCHEMA_VERSION; this insert is the belt to that suspenders.
+      this.db
+        .prepare('INSERT OR IGNORE INTO schema_version (version, appliedAt) VALUES (?, ?)')
+        .run(4, now);
+    });
+    runMigration();
+  }
+
+  /**
+   * V4 -> V5 migration step. #1343 Wave A.
+   *
+   * Creates the `projection_snapshots` table + `idx_projection_snapshots_latest`
+   * index that replace the per-stream JSONL sidecar
+   * (`<stateDir>/<streamId>.projections.jsonl`). The same DDL lives in
+   * SCHEMA_DDL above so fresh DBs get the table during the initial
+   * `db.exec(SCHEMA_DDL)` pass; this helper exists only to cover legacy DBs
+   * that were stamped at V4 before #1343 landed.
+   *
+   * `CREATE TABLE IF NOT EXISTS` makes the step idempotent — if a parallel
+   * caller (or the SCHEMA_DDL pass above) has already created the table,
+   * this is a no-op. The ledger stamp at the bottom is what actually closes
+   * the V4 -> V5 gate so the runner short-circuits on subsequent opens.
+   *
+   * Per plan-review decision (`Stacked-PR plan.JSONL sidecar backfill`):
+   * skip backfill. v2.10.0-preview.2 is pre-release; no production users
+   * have accumulated sidecar data, so migration code would be dead weight.
+   */
+  private migrateV4ToV5(): void {
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS projection_snapshots (
+        stream_id          TEXT NOT NULL,
+        projection_id      TEXT NOT NULL,
+        projection_version TEXT NOT NULL,
+        sequence           INTEGER NOT NULL,
+        payload            TEXT NOT NULL,
+        created_at         TEXT NOT NULL,
+        PRIMARY KEY (stream_id, projection_id, projection_version, sequence)
+      );
+      CREATE INDEX IF NOT EXISTS idx_projection_snapshots_latest
+        ON projection_snapshots(stream_id, projection_id, projection_version, sequence DESC);
+    `);
+
+    this.db
+      .prepare('INSERT OR IGNORE INTO schema_version (version, appliedAt) VALUES (?, ?)')
+      .run(5, new Date().toISOString());
+  }
+
+  /**
+   * Recover `workflow_type` for legacy stream rows from two complementary
+   * sources, in priority order:
+   *   1. The stream's own `workflow.started` event in the events table —
+   *      its `data.workflowType` is the canonical record of the type the
+   *      caller passed to handleInit. Reading from the event stream means
+   *      the migration succeeds regardless of state-file presence.
+   *   2. The sibling `<featureId>.state.json` file under the same state
+   *      dir — fallback when the events table doesn't carry the event
+   *      (e.g. workflows that pre-date the event-first init path).
+   *
+   * Scoped to rows still bearing the `__legacy` sentinel so concurrent
+   * inserts on the new-stream path (handleInit) survive untouched. After
+   * both recovery paths, every row still at '__legacy' receives one
+   * `migration.workflow_type_unknown` event for operator visibility
+   * (task 1.6).
+   *
+   * NOTE: this method is the only place in the codebase allowed to issue
+   * an UPDATE against `streams.workflow_type`. The CI grep gate (task 1.7)
+   * skips this file alongside event-migration.ts; the gate forbids the
+   * same UPDATE everywhere else.
+   */
+  private backfillWorkflowTypeFromStateFiles(): void {
+    const updateStmt = this.db.prepare(
+      `UPDATE streams SET workflow_type = ?
+       WHERE streamId = ? AND workflow_type = '__legacy'`,
+    );
+
+    // Source 1: recover from each stream's workflow.started event data.
+    // Using the events table is more reliable than the state file — events
+    // are the substrate's source of truth, state files are a derived
+    // projection that may be absent or stale.
+    const startedRows = this.db
+      .prepare(
+        `SELECT events.streamId AS streamId, events.data AS data
+         FROM events
+         INNER JOIN streams ON streams.streamId = events.streamId
+         WHERE events.type = 'workflow.started'
+           AND streams.workflow_type = '__legacy'`,
+      )
+      .all() as Array<{ streamId: string; data: string | null }>;
+
+    for (const row of startedRows) {
+      if (!row.data) continue;
+      let parsed: { workflowType?: unknown };
+      try {
+        parsed = JSON.parse(row.data) as { workflowType?: unknown };
+      } catch {
+        continue;
+      }
+      const wt = parsed.workflowType;
+      if (typeof wt !== 'string' || wt.length === 0) continue;
+      updateStmt.run(wt, row.streamId);
+    }
+
+    // Source 2: state-file fallback for streams the events table didn't
+    // resolve. Walks <stateDir>/*.state.json and applies workflowType
+    // where present. Errors are silently swallowed per-file: a
+    // missing/unparseable file is non-fatal and leaves the row at
+    // '__legacy' for the observability-event step below.
+    const stateDir = dirname(this.dbPath);
+    let entries: string[];
+    try {
+      entries = readdirSync(stateDir);
+    } catch {
+      entries = [];
+    }
+
+    for (const entry of entries) {
+      if (!entry.endsWith('.state.json')) continue;
+      const featureId = basename(entry, '.state.json');
+      let parsed: { workflowType?: unknown };
+      try {
+        const raw = readFileSync(join(stateDir, entry), 'utf-8');
+        parsed = JSON.parse(raw) as { workflowType?: unknown };
+      } catch {
+        continue;
+      }
+      const wt = parsed.workflowType;
+      if (typeof wt !== 'string' || wt.length === 0) continue;
+      updateStmt.run(wt, featureId);
+    }
+
+    this.emitWorkflowTypeUnknownEvents();
+  }
+
+  /**
+   * For every stream still at the `__legacy` sentinel after the state-file
+   * backfill, append one `migration.workflow_type_unknown` event to that
+   * stream's event log. The event lands on the affected stream so it is
+   * visible alongside the workflow's other events in a normal
+   * `event.query`.
+   *
+   * Sequence allocation: this runs at the C/SQL layer during migration,
+   * before the AtomicAppender/EventStore are wired. We allocate the next
+   * sequence inline by reading the current `sequences` row (defaulting to
+   * 0 for streams the migration just registered) and writing back via
+   * upsert. The `events` table's PK (streamId, sequence) makes the
+   * INSERT a hard error on collision — that's the right failure mode if
+   * a sibling appender slipped in during the migration window (the
+   * EventStore PID lock should make this impossible in practice).
+   *
+   * Schema: per the registered EVENT_DATA_SCHEMAS entry for
+   * `migration.workflow_type_unknown`, the data carries `streamId` only.
+   * Emission source is 'auto' (registered in EVENT_EMISSION_REGISTRY).
+   */
+  private emitWorkflowTypeUnknownEvents(): void {
+    const legacyRows = this.db
+      .prepare(
+        `SELECT streamId FROM streams WHERE workflow_type = '__legacy' ORDER BY streamId`,
+      )
+      .all() as Array<{ streamId: string }>;
+
+    if (legacyRows.length === 0) return;
+
+    const now = new Date().toISOString();
+    // Strict INSERT (no OR IGNORE) — a silent drop would advance the
+    // `sequences` counter below without persisting the corresponding
+    // event, breaking the "one observability event per unresolved stream"
+    // contract this migration upholds. Conflicts here are programmer
+    // errors, not concurrency races, so propagate.
+    const insertEvent = this.db.prepare(
+      `INSERT INTO events (streamId, sequence, type, timestamp, data, payload)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+    );
+    const selectSeq = this.db.prepare(
+      'SELECT sequence FROM sequences WHERE streamId = ?',
+    );
+    const upsertSeq = this.db.prepare(
+      `INSERT INTO sequences (streamId, sequence) VALUES (?, ?)
+       ON CONFLICT(streamId) DO UPDATE SET sequence = excluded.sequence`,
+    );
+
+    // Wrap the per-stream INSERT + sequence UPSERT in a single
+    // transaction (Sentry #14058246). Without it, a process crash
+    // between an INSERT and the matching UPSERT would persist the
+    // event without advancing the sequence counter. The next startup
+    // would re-run the migration (the schema version stays at v3) and
+    // re-INSERT the same (streamId, sequence) pair, which the strict
+    // INSERT correctly rejects as a PK violation — but that error
+    // would now abort startup instead of allowing the migration to
+    // resume cleanly. With the transaction, either both rows commit
+    // or neither does, and the per-stream loop is safe to retry.
+    const emitAll = this.db.transaction((rows: ReadonlyArray<{ streamId: string }>): void => {
+      for (const { streamId } of rows) {
+        const seqRow = selectSeq.get(streamId) as { sequence: number } | undefined;
+        const nextSeq = (seqRow?.sequence ?? 0) + 1;
+        const data = JSON.stringify({ streamId });
+        const payload = JSON.stringify({
+          streamId,
+          sequence: nextSeq,
+          type: 'migration.workflow_type_unknown',
+          timestamp: now,
+          schemaVersion: '1.0',
+          source: 'migration',
+          data: { streamId },
+        });
+        insertEvent.run(
+          streamId,
+          nextSeq,
+          'migration.workflow_type_unknown',
+          now,
+          data,
+          payload,
+        );
+        upsertSeq.run(streamId, nextSeq);
+      }
+    });
+    emitAll(legacyRows);
   }
 
   private prepareStatements(): Statements {
@@ -811,6 +1219,142 @@ export class SqliteBackend implements StorageBackend {
     );
   }
 
+  // ─── Stream Registry (Marten R-1, #1313) ────────────────────────────────
+
+  /**
+   * Insert a row into the typed-stream registry. Idempotent via
+   * INSERT OR IGNORE — re-calling for an already-registered stream is a
+   * no-op so the registry row's `workflow_type` cannot be overwritten by
+   * a subsequent init call. (The column is immutable post-insert; task 1.7
+   * adds a CI grep gate forbidding `UPDATE streams SET workflow_type`.)
+   *
+   * Called by `handleInit` (workflow/tools.ts) once per stream creation.
+   * The migration's V3 → V4 backfill leaves a `__legacy` sentinel for
+   * pre-existing streams; this method writes the explicit value passed by
+   * the caller on the new-stream path.
+   */
+  registerStream(streamId: string, workflowType: string): void {
+    this.db
+      .prepare(
+        `INSERT OR IGNORE INTO streams (streamId, workflow_type, createdAt)
+         VALUES (?, ?, ?)`,
+      )
+      .run(streamId, workflowType, new Date().toISOString());
+  }
+
+  // ─── Projection Snapshot Accessors (Wave A, #1343) ──────────────────────
+
+  /**
+   * Return the snapshot record with the highest sequence for the given
+   * (streamId, projectionId, projectionVersion) coordinate, or `undefined`
+   * when no row exists.
+   *
+   * Uses the `idx_projection_snapshots_latest` index
+   * (stream_id, projection_id, projection_version, sequence DESC) so the
+   * LIMIT 1 fast path never triggers a full table scan.
+   */
+  readLatestProjectionSnapshot(
+    streamId: string,
+    projectionId: string,
+    projectionVersion: string,
+  ): SnapshotRecord | undefined {
+    const row = this.db
+      .prepare(
+        `SELECT payload FROM projection_snapshots
+         WHERE stream_id = ? AND projection_id = ? AND projection_version = ?
+         ORDER BY sequence DESC
+         LIMIT 1`,
+      )
+      .get(streamId, projectionId, projectionVersion) as { payload: string } | undefined;
+
+    if (!row) return undefined;
+    return JSON.parse(row.payload) as SnapshotRecord;
+  }
+
+  /**
+   * Append a snapshot record for the given stream. When the total row count
+   * for the (streamId, projectionId, projectionVersion) coordinate exceeds
+   * `opts.maxRecords` (defaulting to `resolveMaxRecords()`), the oldest rows
+   * by sequence are deleted so exactly `maxRecords` rows remain.
+   *
+   * DELETE uses a subquery that selects the N oldest `rowid`s, where N is the
+   * excess count. This is a single SQL round-trip and avoids a separate
+   * SELECT + loop.
+   */
+  appendProjectionSnapshot(
+    streamId: string,
+    record: SnapshotRecord,
+    opts?: {
+      maxRecords?: number;
+      onPrune?: (prunedCount: number) => void;
+    },
+  ): void {
+    const payload = JSON.stringify(record);
+    const createdAt = new Date().toISOString();
+
+    const max =
+      opts?.maxRecords !== undefined && Number.isInteger(opts.maxRecords) && opts.maxRecords > 0
+        ? opts.maxRecords
+        : resolveMaxRecords();
+
+    let prunedCount = 0;
+
+    const txn = this.db.transaction(() => {
+      // INSERT OR IGNORE — snapshot writes are idempotent by definition:
+      // the SnapshotRecord at sequence N for a given projection version is
+      // a deterministic fold of the same events, so a retry of an
+      // already-committed write at the same coordinate is a no-op rather
+      // than an error. The PRIMARY KEY (stream_id, projection_id,
+      // projection_version, sequence) handles dedup; OR IGNORE preserves
+      // the original row over any post-hoc re-write.
+      this.db
+        .prepare(
+          `INSERT OR IGNORE INTO projection_snapshots
+             (stream_id, projection_id, projection_version, sequence, payload, created_at)
+           VALUES (?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          streamId,
+          record.projectionId,
+          record.projectionVersion,
+          record.sequence,
+          payload,
+          createdAt,
+        );
+
+      // Count the total rows for this coordinate.
+      const countRow = this.db
+        .prepare(
+          `SELECT COUNT(*) AS cnt FROM projection_snapshots
+           WHERE stream_id = ? AND projection_id = ? AND projection_version = ?`,
+        )
+        .get(streamId, record.projectionId, record.projectionVersion) as { cnt: number };
+
+      const excess = countRow.cnt - max;
+      if (excess > 0) {
+        // Delete the `excess` oldest rows (lowest sequence) for this coordinate.
+        this.db
+          .prepare(
+            `DELETE FROM projection_snapshots
+             WHERE rowid IN (
+               SELECT rowid FROM projection_snapshots
+               WHERE stream_id = ? AND projection_id = ? AND projection_version = ?
+               ORDER BY sequence ASC
+               LIMIT ?
+             )`,
+          )
+          .run(streamId, record.projectionId, record.projectionVersion, excess);
+        prunedCount = excess;
+      }
+    });
+
+    txn();
+
+    if (prunedCount > 0) {
+      opts?.onPrune?.(prunedCount);
+    }
+  }
+
   // ─── State Operations ───────────────────────────────────────────────────
 
   getState(featureId: string): WorkflowState | null {
@@ -1001,6 +1545,26 @@ export class SqliteBackend implements StorageBackend {
     const deleteFn = this.db.transaction(() => {
       this.db.prepare('DELETE FROM events WHERE streamId = ?').run(streamId);
       this.db.prepare('DELETE FROM sequences WHERE streamId = ?').run(streamId);
+      // Purge the rest of the per-stream tables in the same transaction.
+      // Earlier revisions left these populated; a delete/recreate of the
+      // same streamId would then observe stale idempotency claims (replay
+      // mis-detected as duplicate), stale projection snapshots (hydrate
+      // wrong state), stale outbox rows (re-emit old side-effect intents),
+      // and stale view cache (read-back surfaces deleted history).
+      // (CodeRabbit review #4278133032 on PR #1344.)
+      this.db.prepare('DELETE FROM idempotency_claims WHERE streamId = ?').run(streamId);
+      this.db.prepare('DELETE FROM outbox WHERE streamId = ?').run(streamId);
+      this.db.prepare('DELETE FROM view_cache WHERE streamId = ?').run(streamId);
+      // projection_snapshots uses snake_case column names (matches the
+      // V4→V5 migration spec); the row PK is composite over
+      // (stream_id, projection_id, projection_version, sequence).
+      this.db.prepare('DELETE FROM projection_snapshots WHERE stream_id = ?').run(streamId);
+      // Drop the `streams` registry row too. `registerStream` is
+      // `INSERT OR IGNORE`, so a delete/recreate cycle that left the
+      // registry row alive would permanently pin the old `workflow_type`
+      // — the recreate would observe the immutable row and silently
+      // adopt the prior type instead of the newly-supplied one.
+      this.db.prepare('DELETE FROM streams WHERE streamId = ?').run(streamId);
     });
     deleteFn();
   }

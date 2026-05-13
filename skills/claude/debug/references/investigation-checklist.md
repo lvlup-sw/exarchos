@@ -109,7 +109,7 @@ If any answer is "no" → transition to `rca` (set `track = "thorough"`).
 **Switch track and record findings:**
 
 ```
-action: "set", featureId: "debug-<issue-slug>", updates: {
+action: "update", featureId: "debug-<issue-slug>", updates: {
   "track": "thorough",
   "investigation.findings": ["Investigated for 15 min, narrowed to auth module but root cause unclear"]
 }
@@ -172,7 +172,7 @@ git blame -L 50,60 src/auth/login.ts
 **Add finding:**
 
 ```
-action: "set", featureId: "debug-<issue-slug>", updates: {
+action: "update", featureId: "debug-<issue-slug>", updates: {
   "investigation.findings": ["Error occurs in handleLogin when session is null"]
 }
 ```
@@ -180,7 +180,7 @@ action: "set", featureId: "debug-<issue-slug>", updates: {
 **Record root cause:**
 
 ```
-action: "set", featureId: "debug-<issue-slug>", updates: {
+action: "update", featureId: "debug-<issue-slug>", updates: {
   "investigation.rootCause": "Session cookie not being set due to SameSite attribute mismatch"
 }
 ```
@@ -188,7 +188,7 @@ action: "set", featureId: "debug-<issue-slug>", updates: {
 **Mark investigation complete:**
 
 ```
-action: "set", featureId: "debug-<issue-slug>", updates: {
+action: "update", featureId: "debug-<issue-slug>", updates: {
   "investigation.completedAt": "2026-01-27T10:30:00Z"
 }
 ```

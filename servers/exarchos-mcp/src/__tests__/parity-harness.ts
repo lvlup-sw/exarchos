@@ -389,6 +389,66 @@ export const DELEGATE_PHASE_REHYDRATE_FIXTURE: ParityFixture = {
 };
 
 /**
+ * Wave 4 / Task 4.4 — merge-orchestrate parity fixture (post-migration).
+ *
+ * Drives `exarchos_orchestrate { action: 'merge_orchestrate' }` via both
+ * carriers (CLI's auto-generated `orch merge_orchestrate` and the MCP
+ * dispatch entry point) on a feature stream that has NOT been primed
+ * with prior merge events. The setup is intentionally empty — the
+ * orchestrator opens the stream itself by emitting `merge.preflight`,
+ * Phase A's `merge.requested`, and the executor's `merge.executed` in
+ * order. The fixture's `cliCall` / `mcpCall` shape is the canonical
+ * post-Wave-4 invocation surface.
+ *
+ * Note: this fixture descriptor does NOT install the DI hooks the
+ * happy-path test needs (real `preflightFn` / `executeMergeFn` would
+ * shell out to git). The consumer test
+ * (`merge-orchestrate.parity-harness.test.ts`) wraps the fixture in a
+ * `stubCompositeHandler` that provides the deterministic adapters so
+ * two arms produce byte-equal output. Splitting the descriptor from the
+ * stub keeps the fixture's argv shape declarative (matching the other
+ * fixtures here) while letting tests handle the carrier-specific stub
+ * setup imperatively.
+ *
+ * Verifies the Wave 4 reference migration (audit §F1.2) preserves
+ * carrier equivalence: both `exarchos merge_orchestrate` surfaces must
+ * project byte-identical ToolResults after the two-event split insertion.
+ */
+export const MERGE_ORCHESTRATE_PARITY_FIXTURE: ParityFixture = {
+  name: 'merge_orchestrate_post_wave4',
+  description:
+    'merge_orchestrate(feature/x → main, squash) with passing preflight + completed executor — post Wave 4 two-event split. CLI and MCP carriers MUST project byte-equal ToolResults.',
+  async setup(_ctx: DispatchContext) {
+    // No event-store priming needed — the orchestrator opens the stream
+    // itself. The test's `stubCompositeHandler` injects the deterministic
+    // preflight/executor adapters that make the orchestrator's stream
+    // writes reproducible across arms.
+  },
+  cliCall: {
+    toolAlias: 'orch',
+    action: 'merge_orchestrate',
+    flags: {
+      featureId: 'parity-merge-orchestrate-wave4',
+      sourceBranch: 'feat/x',
+      targetBranch: 'main',
+      taskId: 'T44',
+      strategy: 'squash',
+    },
+  },
+  mcpCall: {
+    tool: 'exarchos_orchestrate',
+    args: {
+      action: 'merge_orchestrate',
+      featureId: 'parity-merge-orchestrate-wave4',
+      sourceBranch: 'feat/x',
+      targetBranch: 'main',
+      taskId: 'T44',
+      strategy: 'squash',
+    },
+  },
+};
+
+/**
  * T42 / DR-5 — transition-guard-failure fixture. Drives an `ideate → plan`
  * transition WITHOUT the required `artifacts.design` field, so the HSM
  * primitive's composite guard fails. The structured error envelope

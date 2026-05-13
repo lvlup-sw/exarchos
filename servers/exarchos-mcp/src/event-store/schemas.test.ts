@@ -62,6 +62,17 @@ import {
   getValidEventTypes,
   isBuiltInEventType,
   serializeEventCatalog,
+  // Wave B (#1342) two-event split schemas
+  PrCreateRequestedData,
+  PrCreateExecutedData,
+  PrCommentRequestedData,
+  PrCommentExecutedData,
+  IssueCreateRequestedData,
+  IssueCreateExecutedData,
+  BranchDeleteRequestedData,
+  BranchDeleteExecutedData,
+  WorktreeRemoveRequestedData,
+  WorktreeRemoveExecutedData,
 } from './schemas.js';
 
 // ─── T1: EventEmissionSource + EVENT_EMISSION_REGISTRY ──────────────────────
@@ -473,13 +484,18 @@ describe('EventTypes', () => {
   });
 
   it('EventTypes_HasExpectedCount', () => {
-    // Bumped from 90 → 91 with the addition of session.machinery_consumed
-    // (T-11, rehydration-machinery-refactor). Previous bump (84 → 90) added
-    // six durable event-store substrate event types (#1259 T02 / T03 / T04):
-    //   hsm.deprecated_action_invoked, spec.legacy_capabilities_array,
-    //   phase.contract_missing, migration.legacy_jsonl_imported,
-    //   migration.completed, migration.failed.
-    expect(EventTypes).toHaveLength(91);
+    // Bumped from 93 → 103 with Wave B (#1342) 5×{requested,executed} two-event
+    // split schemas for non-idempotent VCS handlers (B1–B5):
+    //   pr.create.requested, pr.create.executed,
+    //   pr.comment.requested, pr.comment.executed,
+    //   issue.create.requested, issue.create.executed,
+    //   branch.delete.requested, branch.delete.executed,
+    //   worktree.remove.requested, worktree.remove.executed.
+    // Previous (93): merge.requested (Wave 2B.2 / #1304 — audit §F1.2).
+    // Previous (92): migration.workflow_type_unknown (Wave 1, R-1 Marten #1313).
+    // Previous (91): session.machinery_consumed (T-11, rehydration-machinery-refactor).
+    // Previous (84 → 90): six durable event-store substrate types (#1259 T02/T03/T04).
+    expect(EventTypes).toHaveLength(103);
   });
 
   it('EventTypes_IncludesSessionTagged', () => {
@@ -2994,6 +3010,208 @@ describe('SessionMachineryConsumedDataSchema', () => {
     const result = SessionMachineryConsumedDataSchema.safeParse({
       rehydrateSequence: 0,
       firstActionVerb: 'task_complete',
+    });
+    expect(result.success).toBe(false);
+  });
+});
+
+// ─── B6: Wave B two-event split schema registration regression ───────────────
+//
+// Asserts that all 10 Wave B event types are registered in EVENT_DATA_SCHEMAS
+// and accept / reject canonical payloads. This is a schema-level regression
+// check — it does NOT test handler idempotency (B*.3), which is handled by
+// the per-handler agents B1–B5.
+
+describe('EventSchemaRegistry_RegistersAllNewTwoEventSplitTypes', () => {
+  const TWO_EVENT_TYPES = [
+    'pr.create.requested',
+    'pr.create.executed',
+    'pr.comment.requested',
+    'pr.comment.executed',
+    'issue.create.requested',
+    'issue.create.executed',
+    'branch.delete.requested',
+    'branch.delete.executed',
+    'worktree.remove.requested',
+    'worktree.remove.executed',
+  ] as const;
+
+  // B6.1 — all 10 types are in the EventTypes const tuple (built-in)
+  it('B6_AllTenTypes_RegisteredInEventTypesArray', () => {
+    for (const eventType of TWO_EVENT_TYPES) {
+      expect(EventTypes).toContain(eventType);
+    }
+  });
+
+  // B6.2 — all 10 types have schemas in EVENT_DATA_SCHEMAS (not undefined)
+  it('B6_AllTenTypes_HaveSchemaInEventDataSchemas', () => {
+    for (const eventType of TWO_EVENT_TYPES) {
+      expect(EVENT_DATA_SCHEMAS).toHaveProperty(eventType);
+      expect(
+        (EVENT_DATA_SCHEMAS as Partial<Record<string, unknown>>)[eventType],
+      ).toBeDefined();
+    }
+  });
+
+  // B6.3 — all 10 types are classified as 'auto' in the emission registry
+  it('B6_AllTenTypes_HaveAutoEmissionSource', () => {
+    for (const eventType of TWO_EVENT_TYPES) {
+      expect(
+        (EVENT_EMISSION_REGISTRY as Record<string, EventEmissionSource>)[eventType],
+      ).toBe('auto');
+    }
+  });
+
+  // B6.4 — canonical valid payload accepted for each schema
+
+  it('B6_PrCreateRequested_ValidPayload_Accepts', () => {
+    const result = PrCreateRequestedData.safeParse({
+      operationId: '00000000-0000-0000-0000-000000000001',
+      title: 'feat: add new feature',
+      body: 'This PR adds a new feature.',
+      base: 'main',
+      head: 'feature/my-feature',
+      draft: false,
+      labels: ['enhancement'],
+    });
+    expect(result.success, JSON.stringify(result)).toBe(true);
+  });
+
+  it('B6_PrCreateExecuted_ValidPayload_Accepts', () => {
+    const result = PrCreateExecutedData.safeParse({
+      operationId: '00000000-0000-0000-0000-000000000001',
+      prNumber: 42,
+      url: 'https://github.com/lvlup-sw/exarchos/pull/42',
+    });
+    expect(result.success, JSON.stringify(result)).toBe(true);
+  });
+
+  it('B6_PrCommentRequested_ValidPayload_Accepts', () => {
+    const result = PrCommentRequestedData.safeParse({
+      operationId: '00000000-0000-0000-0000-000000000002',
+      prNumber: 42,
+      body: 'LGTM! Approved.',
+    });
+    expect(result.success, JSON.stringify(result)).toBe(true);
+  });
+
+  it('B6_PrCommentExecuted_ValidPayload_Accepts', () => {
+    const result = PrCommentExecutedData.safeParse({
+      operationId: '00000000-0000-0000-0000-000000000002',
+      commentId: 99001,
+      url: 'https://github.com/lvlup-sw/exarchos/pull/42#issuecomment-99001',
+    });
+    expect(result.success, JSON.stringify(result)).toBe(true);
+  });
+
+  it('B6_IssueCreateRequested_ValidPayload_Accepts', () => {
+    const result = IssueCreateRequestedData.safeParse({
+      operationId: '00000000-0000-0000-0000-000000000003',
+      title: 'Bug: something is broken',
+      body: 'Steps to reproduce...',
+      labels: ['bug'],
+      assignees: ['reed'],
+    });
+    expect(result.success, JSON.stringify(result)).toBe(true);
+  });
+
+  it('B6_IssueCreateExecuted_ValidPayload_Accepts', () => {
+    const result = IssueCreateExecutedData.safeParse({
+      operationId: '00000000-0000-0000-0000-000000000003',
+      issueNumber: 1342,
+      url: 'https://github.com/lvlup-sw/exarchos/issues/1342',
+    });
+    expect(result.success, JSON.stringify(result)).toBe(true);
+  });
+
+  it('B6_BranchDeleteRequested_ValidPayload_Accepts', () => {
+    const result = BranchDeleteRequestedData.safeParse({
+      operationId: '00000000-0000-0000-0000-000000000004',
+      branch: 'feature/old-branch',
+      remote: 'origin',
+      localOnly: false,
+    });
+    expect(result.success, JSON.stringify(result)).toBe(true);
+  });
+
+  it('B6_BranchDeleteExecuted_ValidPayload_Accepts', () => {
+    const result = BranchDeleteExecutedData.safeParse({
+      operationId: '00000000-0000-0000-0000-000000000004',
+      branch: 'feature/old-branch',
+      deletedLocally: true,
+      deletedRemote: true,
+    });
+    expect(result.success, JSON.stringify(result)).toBe(true);
+  });
+
+  it('B6_WorktreeRemoveRequested_ValidPayload_Accepts', () => {
+    const result = WorktreeRemoveRequestedData.safeParse({
+      operationId: '00000000-0000-0000-0000-000000000005',
+      worktreePath: '/home/user/repo/.claude/worktrees/agent-abc123',
+    });
+    expect(result.success, JSON.stringify(result)).toBe(true);
+  });
+
+  it('B6_WorktreeRemoveExecuted_ValidPayload_Accepts', () => {
+    const result = WorktreeRemoveExecutedData.safeParse({
+      operationId: '00000000-0000-0000-0000-000000000005',
+      worktreePath: '/home/user/repo/.claude/worktrees/agent-abc123',
+      removed: true,
+    });
+    expect(result.success, JSON.stringify(result)).toBe(true);
+  });
+
+  // B6.5 — negative tests: each *.requested type rejects when operationId is missing
+  // (operationId is required on all *.requested types — it's the idempotency anchor)
+
+  it('B6_PrCreateRequested_MissingOperationId_Rejects', () => {
+    const result = PrCreateRequestedData.safeParse({
+      title: 'feat: add new feature',
+      body: 'This PR adds a new feature.',
+      base: 'main',
+      head: 'feature/my-feature',
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('B6_PrCommentRequested_MissingOperationId_Rejects', () => {
+    const result = PrCommentRequestedData.safeParse({
+      prNumber: 42,
+      body: 'LGTM! Approved.',
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('B6_IssueCreateRequested_MissingOperationId_Rejects', () => {
+    const result = IssueCreateRequestedData.safeParse({
+      title: 'Bug: something is broken',
+      body: 'Steps to reproduce...',
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('B6_BranchDeleteRequested_MissingOperationId_Rejects', () => {
+    const result = BranchDeleteRequestedData.safeParse({
+      branch: 'feature/old-branch',
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('B6_WorktreeRemoveRequested_MissingOperationId_Rejects', () => {
+    const result = WorktreeRemoveRequestedData.safeParse({
+      worktreePath: '/home/user/repo/.claude/worktrees/agent-abc123',
+    });
+    expect(result.success).toBe(false);
+  });
+
+  // B6.6 — *.requested types reject a malformed (non-uuid) operationId
+  it('B6_PrCreateRequested_InvalidOperationId_Rejects', () => {
+    const result = PrCreateRequestedData.safeParse({
+      operationId: 'not-a-uuid',
+      title: 'feat: add new feature',
+      body: 'This PR adds a new feature.',
+      base: 'main',
+      head: 'feature/my-feature',
     });
     expect(result.success).toBe(false);
   });

@@ -268,14 +268,14 @@ If an issue spans multiple tasks:
 
 **On review complete:**
 ```text
-action: "set", featureId: "<id>", updates: {
+action: "update", featureId: "<id>", updates: {
   "reviews": { "quality-review": { "status": "pass", "summary": "...", "issues": [...] } }
 }
 ```
 
 **On all reviews pass — advance to synthesis:**
 ```text
-action: "set", featureId: "<id>", phase: "synthesize"
+action: "transition", featureId: "<id>", target: "synthesize"
 ```
 
 ### Phase Transitions and Guards
@@ -288,7 +288,7 @@ For the full transition table, consult `@skills/workflow-state/references/phase-
 
 ### Schema Discovery
 
-Use `exarchos_workflow({ action: "describe", actions: ["set", "init"] })` for
+Use `exarchos_workflow({ action: "describe", actions: ["update", "init"] })` for
 parameter schemas and `exarchos_workflow({ action: "describe", playbook: "feature" })`
 for phase transitions, guards, and playbook guidance. Use
 `exarchos_orchestrate({ action: "describe", actions: ["check_static_analysis", "check_security_scan", "check_review_verdict"] })`
@@ -352,15 +352,16 @@ Before transitioning, record the review verdict. The reviews value MUST be an ob
 
 **APPROVED:**
 ```
-exarchos_workflow({ action: "set", featureId: "<id>", updates: {
+exarchos_workflow({ action: "update", featureId: "<id>", updates: {
   reviews: { "quality-review": { status: "pass", summary: "...", issues: [] } }
-}, phase: "synthesize" })
+}})
+exarchos_workflow({ action: "transition", featureId: "<id>", target: "synthesize" })
 ```
 Then invoke `/exarchos:synthesize`.
 
 **NEEDS_FIXES:**
-```
-exarchos_workflow({ action: "set", featureId: "<id>", updates: {
+```text
+exarchos_workflow({ action: "update", featureId: "<id>", updates: {
   reviews: { "quality-review": { status: "fail", summary: "...", issues: [{ severity: "HIGH", file: "...", description: "..." }] } }
 }})
 ```

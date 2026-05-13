@@ -1,7 +1,7 @@
 # Runtime Architecture
 
 > **Status:** Canonical — see #1118 (codify principles), #1109 (cross-cutting invariants)
-> **Related:** [`projections.md`](projections.md), [`docs/designs/2026-05-08-durable-event-store-substrate.md`](../designs/2026-05-08-durable-event-store-substrate.md), [`docs/research/2026-05-08-1119-merge-orchestrator-audit.md`](../research/2026-05-08-1119-merge-orchestrator-audit.md)
+> **Related:** [`projections.md`](projections.md), [`docs/designs/2026-05-08-durable-event-store-substrate.md`](../designs/2026-05-08-durable-event-store-substrate.md), [`docs/research/2026-05-08-1119-merge-orchestrator-audit.md`](../research/2026-05-08-1119-merge-orchestrator-audit.md), [`docs/designs/2026-05-11-marten-followups.md`](../designs/2026-05-11-marten-followups.md)
 > **Audience:** anyone making architectural decisions about Exarchos itself (not consumers of the plugin)
 
 ---
@@ -13,6 +13,8 @@ Exarchos is a runtime for software-development workflows where multiple cooperat
 It is a **concurrent system, not a distributed one**: no network between participants, no untrusted actors, no clock skew, no replication. The right reference frame is therefore database-flavored — write-ahead logging, optimistic concurrency, projections-as-cache — not distributed-systems-flavored (saga, BFT consensus, scheduler-agent-supervisor).
 
 The runtime exposes a small set of typed verbs through two equivalent facades (CLI, MCP). Behind those facades is a single dispatch core that reads from and writes to an append-only event log. Everything observable about the system is reconstructable from that log alone.
+
+Multi-process serialization is provided entirely by the SQLite WAL substrate: `BEGIN IMMEDIATE` acquires write ownership, and the `(streamId, sequence)` PRIMARY KEY enforces per-stream append ordering. There is no process-level mutex, PID lock, or advisory lock file — any number of OS processes may attach to the same event store simultaneously. See §4 for the full concurrency model. (PID locking was removed in #1343 / Wave A.)
 
 ### One-line characterization
 
@@ -29,9 +31,9 @@ Six guarantees the runtime provides to every consumer. Most are enforced at the 
 | ID | Guarantee | Enforcement |
 |---|---|---|
 | RT-1 | Event log is the source of truth | Discipline — handlers append before mutating projections; reconcile is the rebuild path |
-| RT-2 | Total order within a stream | SQLite autoincrement on `(stream_id, sequence)` |
+| RT-2 | Total order within a stream | Per-stream sequence allocation with composite PRIMARY KEY `(streamId, sequence)`; PK enforcement (with OCC retry on conflict) rejects concurrent inserts at the same slot |
 | RT-3 | Atomic append | `BEGIN IMMEDIATE` transaction wrapping idempotency-key check + sequence allocation + event INSERT + outbox INSERT |
-| RT-4 | Single writer per stream | `PRIMARY KEY (stream_id, sequence)` rejects duplicate sequences; OCC retry on conflict |
+| RT-4 | Single writer per stream | `PRIMARY KEY (streamId, sequence)` rejects duplicate sequences; OCC retry on conflict |
 | RT-5 | Idempotent at-least-once delivery | `UNIQUE INDEX (idempotency_key)` collapses duplicate appends |
 | RT-6 | Operations atomic against the log | Event-first commit point; handlers retry-safe; reducers replay-safe |
 
@@ -80,13 +82,15 @@ These guarantees come from database research (Mohan et al., *ARIES* 1992; Bernst
                                      │
    ┌─────────────────────────────────▼────────────────────────────────────┐
    │  L1  Storage — bun:sqlite (WAL)                                      │
-   │      events / workflow_state / outbox / view_cache / migration_lock  │
+   │      events / sequences / idempotency_claims / workflow_state        │
+   │      outbox / view_cache / streams / projection_snapshots /          │
+   │      schema_version                                                  │
    └──────────────────────────────────────────────────────────────────────┘
 ```
 
 ### L1 — Storage
 
-SQLite via `bun:sqlite`. ACID. Schema includes `events`, `workflow_state`, `outbox`, `view_cache`, `migration_lock`, `schema_version`. Storage handle is injected via `DispatchContext`; nothing imports `Database` outside `storage/sqlite-backend.ts` (CI gate enforces). See [`docs/designs/2026-05-08-durable-event-store-substrate.md`](../designs/2026-05-08-durable-event-store-substrate.md) §C1.
+SQLite via `bun:sqlite`. ACID. WAL journal mode (`PRAGMA journal_mode = WAL`) with `busy_timeout = 5000ms` as the C-layer contention-absorption tier. Schema includes `events`, `workflow_state`, `outbox`, `view_cache`, `sequences`, `idempotency_claims`, `streams`, `projection_snapshots`, `schema_version`. Storage handle is injected via `DispatchContext`; nothing imports `Database` outside `storage/sqlite-backend.ts` (CI gate enforces). See [`docs/designs/2026-05-08-durable-event-store-substrate.md`](../designs/2026-05-08-durable-event-store-substrate.md) §C1.
 
 ### L2 — Event store
 
@@ -135,15 +139,55 @@ Concurrency is single-machine, multi-process, multi-agent. Sources of concurrent
 - Multiple sub-agents in parallel git worktrees, each with its own MCP client.
 - The orchestrator agent + sub-agents, all writing to the same feature workflow.
 
-How it serializes:
+**Serialization is two-tiered, with no process-level mutex or lock file:**
 
-- **At storage:** SQLite WAL gives ACID across processes. `BEGIN IMMEDIATE` acquires the database lock; concurrent appenders queue.
-- **At event-stream:** `PRIMARY KEY (stream_id, sequence)` rejects duplicate sequences. Optimistic concurrency: if two appenders both attempted the same sequence, the loser retries against the new tail.
+**Tier 1 — In-process:** `AtomicAppender` owns a `StreamLockManager`: a per-stream Promise-chain mutex. Concurrent appends to the same stream from the same Node.js process run sequentially via the chain; no two in-process writers hold the same stream lock simultaneously. This tier does not protect cross-process writes — that is the substrate's job.
+
+**Tier 2 — Cross-process (substrate):** SQLite WAL journal mode (`PRAGMA journal_mode = WAL`) and two specific mechanisms:
+
+- **`BEGIN IMMEDIATE`:** Opens every write transaction in immediate mode, acquiring the database write lock up-front. A writer that observes the database busy retries through SQLite's own C-layer backoff (`busy_timeout = 5000ms`) before the JS-layer retry budget kicks in (`SqliteBusyExhaustedError` after 5 JS-layer attempts). Concurrent readers are never blocked by writers in WAL mode.
+- **`PRIMARY KEY (streamId, sequence)`:** Rejects duplicate sequences at the constraint layer. If two cross-process writers race and both attempt the same sequence, the loser's transaction raises a constraint violation; `AtomicAppender` translates that to `{ ok: false, reason: 'sequence-conflict' }` and the caller retries against the new tail (optimistic concurrency).
+
+Prior to #1343 (Wave A), `EventStore.initialize()` acquired a per-`stateDir` PID lock so that only one OS process could attach to a given event store at a time. That contract was removed: `initialize()` is now an idempotent no-op marker, and any number of `EventStore` instances may attach to the same `stateDir` from any number of OS processes. The WAL substrate's `BEGIN IMMEDIATE` + PK constraint is the sole cross-process serialization primitive.
+
+**Additional per-layer serialization:**
+
 - **At workflow state:** Version CAS via `withStateRetry` + `VersionConflictError`.
 - **At HSM:** Phase substates serialize feature-level concurrency. Only one orchestrator can be in `merge-pending` at a time per feature; the substate exit transition waits on terminal events from the current attempt.
 - **At namespaced streams:** Sub-agents write to `<feature>/<sub-id>`; the parent stream `<feature>` reduces over them when needed (`team.disbanded`, etc.).
 
 What we do **not** need: distributed consensus, leader election, vector clocks, BFT — single-machine context eliminates the problems those primitives solve.
+
+> **See also:** `docs/designs/2026-05-11-marten-followups.md` §"Task A4 — PID lock demotion" and issue #1343 for the rationale and implementation history.
+
+### Process-manager handlers (two-event split)
+
+Handlers that perform non-idempotent external side effects (GitHub API calls, git mutations on shared branches, worktree removal) split each operation into two events:
+
+```text
+*.requested  → handler validates intent, persists full payload
+              → handler performs external side effect (with idempotent precheck)
+*.executed   → handler persists result (id, url, deletedFlag, ...)
+```
+
+The split is the canonical event-sourcing process-manager pattern (Akka *Effect.thenRun*; Wolverine *Aggregate Handler Workflow*; Greg Young, *Why Event Sourced Systems Fail* §"retry traps"). Three properties hold by construction:
+
+1. **No re-fire on retry.** When `withStateRetry` re-enters the handler after `ConcurrencyError`, the `*.requested` event is already in the stream; its `appendComputed(idempotencyKey: operationId)` collapses the second emit to a no-op. The external side effect runs once.
+2. **Recovery from mid-operation interruption.** If the runtime crashes between `*.requested` and `*.executed`, the next invocation observes `*.requested` without a paired `*.executed` and runs an idempotent precheck (e.g., "does the PR with these `(head, base)` already exist?"). On a hit, it emits `*.executed` referencing the prior side effect's result; on a miss, it performs the side effect cleanly.
+3. **Full intent preserved.** `*.requested` carries the entire input payload (title, body, labels — not just `operationId`), so a recovery reader can reconstitute the operation from the event log alone, without consulting external state. INV-1 LOW from the v2.10.0-preview.2 audit.
+
+Reference consumers (one event-pair each):
+
+| Handler | Events | Idempotent precheck |
+|---|---|---|
+| `merge-orchestrate` (#1313, preview.2) | `merge.requested` / `merge.executed` | branch tip + already-merged commit detection |
+| `create-pr` (#1342 P1.B) | `pr.create.requested` / `pr.create.executed` | `(head, base)` PR existence query |
+| `add-pr-comment` (#1342 P1.B) | `pr.comment.requested` / `pr.comment.executed` | `<!-- exarchos-op:UUID -->` body marker scan |
+| `create-issue` (#1342 P1.B) | `issue.create.requested` / `issue.create.executed` | `<!-- exarchos-op:UUID -->` body marker scan |
+| `delete-feature-branches` (#1342 P1.B) | `branch.delete.requested` / `branch.delete.executed` | `git rev-parse --verify` + `git ls-remote --heads` |
+| `cleanup-worktrees` (#1342 P1.B) | `worktree.remove.requested` / `worktree.remove.executed` | `git worktree list` filter |
+
+The CI grep gate `scripts/check-withsession-idempotency.sh` enforces that any new `.withSession({...})` call site adopts the contract markers (`operationId` or explicit `allowNonIdempotent: true`), so the pattern stays load-bearing as new handlers are added.
 
 ---
 
@@ -239,7 +283,8 @@ If you had to compress the architecture to one paragraph: Exarchos is a single S
 
 - [`projections.md`](projections.md) — projection reducer contract
 - [`docs/designs/2026-05-08-durable-event-store-substrate.md`](../designs/2026-05-08-durable-event-store-substrate.md) — v2.10 substrate (#1259)
+- [`docs/designs/2026-05-11-marten-followups.md`](../designs/2026-05-11-marten-followups.md) — PID lock demotion + Marten leverage follow-ups (#1343, #1342)
 - [`docs/designs/2026-04-18-strategic-framing-exarchos-basileus.md`](../designs/2026-04-18-strategic-framing-exarchos-basileus.md) — local vs remote tiers
 - [`docs/research/2026-05-08-1119-merge-orchestrator-audit.md`](../research/2026-05-08-1119-merge-orchestrator-audit.md) — audit that surfaced the runtime-guarantee framing
 - [`.claude/skills/design-invariants/SKILL.md`](../../.claude/skills/design-invariants/SKILL.md) — INV-1..INV-5d operational skill
-- Issues: #1109 (cross-cutting invariants), #1118 (codify principles), #1119 (merge orchestrator), #1259 (substrate spike), #1284 (EventSourcedTaskStore), #1302 (audit follow-up epic)
+- Issues: #1109 (cross-cutting invariants), #1118 (codify principles), #1119 (merge orchestrator), #1259 (substrate spike), #1284 (EventSourcedTaskStore), #1302 (audit follow-up epic), #1343 (PID lock demotion), #1342 (Marten leverage epic)

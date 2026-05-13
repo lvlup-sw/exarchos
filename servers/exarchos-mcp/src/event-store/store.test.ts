@@ -1,9 +1,9 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { EventStore, SequenceConflictError, PidLockError } from './store.js';
+import { EventStore, SequenceConflictError } from './store.js';
 
 let tempDir: string;
 
@@ -754,70 +754,16 @@ describe('EventStore Query Sequence Pre-filter', () => {
   // analogue.
 });
 
-// ─── T20: PID Lock File Acquisition ──────────────────────────────────────────
-
-describe('EventStore PID Lock', () => {
-  it('AcquirePidLock_CreatesLockFile_WithCurrentPid', async () => {
-    const store = new EventStore(tempDir);
-    await store.initialize();
-
-    const lockPath = path.join(tempDir, '.event-store.lock');
-    const content = await fs.readFile(lockPath, 'utf-8');
-    expect(parseInt(content, 10)).toBe(process.pid);
-  });
-
-  it('AcquirePidLock_ThrowsPidLockError_WhenLivePidHoldsLock', async () => {
-    // v2.11 (#1082): default-mode init hard-throws on contention. Sidecar
-    // fallback was deleted alongside the JSONL substrate it side-channeled.
-    const lockPath = path.join(tempDir, '.event-store.lock');
-    await fs.writeFile(lockPath, String(process.pid), 'utf-8');
-
-    const store = new EventStore(tempDir);
-    await expect(store.initialize()).rejects.toBeInstanceOf(PidLockError);
-  });
-
-  // T21: Stale lock reclaim
-  it('AcquirePidLock_ReclaimsStaleLock_WhenPidDead', async () => {
-    // Create a lock file with a PID that is very unlikely to be alive
-    const lockPath = path.join(tempDir, '.event-store.lock');
-    await fs.writeFile(lockPath, '999999999', 'utf-8');
-
-    const store = new EventStore(tempDir);
-    await store.initialize();
-
-    // Lock should be reclaimed with our PID
-    const content = await fs.readFile(lockPath, 'utf-8');
-    expect(parseInt(content, 10)).toBe(process.pid);
-  });
-
-  // T22: Lock file cleanup on process exit
-  it('AcquirePidLock_RegistersExitCleanup', async () => {
-    const processOnSpy = vi.spyOn(process, 'on');
-
-    const store = new EventStore(tempDir);
-    await store.initialize();
-
-    // Verify that an 'exit' handler was registered
-    expect(processOnSpy).toHaveBeenCalledWith('exit', expect.any(Function));
-
-    processOnSpy.mockRestore();
-  });
-
-  // T23: EventStore initialize acquires PID lock
-  it('EventStore_Initialize_AcquiresPidLock', async () => {
-    const store = new EventStore(tempDir);
-
-    // Before initialize, lock should not exist
-    const lockPath = path.join(tempDir, '.event-store.lock');
-    await expect(fs.access(lockPath)).rejects.toThrow();
-
-    await store.initialize();
-
-    // After initialize, lock should exist with our PID
-    const content = await fs.readFile(lockPath, 'utf-8');
-    expect(parseInt(content, 10)).toBe(process.pid);
-  });
-});
+// ─── PID Lock Demotion (#1343, Wave A) ──────────────────────────────────────
+//
+// The `EventStore PID Lock` describe block previously pinned acquisition,
+// stale-reclaim, and exit-cleanup behaviour for a `.event-store.lock`
+// sidecar file. Wave A deleted that mechanism: `initialize()` is now a
+// no-op marker and cross-process serialization flows through SQLite WAL +
+// `BEGIN IMMEDIATE` + the `(stream_id, sequence)` PK. The replacement
+// contract — two `EventStore` instances against one `stateDir` both
+// initialize cleanly — is pinned in `store.race.test.ts` under
+// `EventStore_Initialize_NoLongerThrowsOnConcurrentAttach`.
 
 // ─── EventStore Query with Event Migration ──────────────────────────────────
 

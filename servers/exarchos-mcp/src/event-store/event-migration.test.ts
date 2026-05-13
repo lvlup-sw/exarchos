@@ -1,6 +1,6 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import { Database } from 'bun:sqlite';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { migrateEvent, EVENT_SCHEMA_VERSION } from './event-migration.js';
@@ -216,6 +216,234 @@ describe('Event Migration', () => {
       // different correlationId — confirms the reader is not coercing or
       // shadowing fields between the two rows.
       expect(events[1]).toEqual(v3Event);
+    });
+  });
+
+  // ─── R-1: V3 → V4 schema migration (Wave 1, #1313) ────────────────────────
+  //
+  // The V3 → V4 migration introduces a `streams` table carrying a mandatory
+  // `workflow_type` column. This is the write-side foundation for v2.12's
+  // filtered `ps` queries (#1090). V3 had no `streams` table — stream
+  // existence was implicit in the `sequences` table. V4 materializes the
+  // registry and backfills `workflow_type = '__legacy'` for every preexisting
+  // stream row (later subtasks backfill from state files / emit observability
+  // events for un-recoverable rows).
+  describe('Migration_V3ToV4_StreamsTable', () => {
+    let tempDir: string | undefined;
+    const backends: SqliteBackend[] = [];
+
+    afterEach(() => {
+      for (const b of backends) {
+        try {
+          b.close();
+        } catch {
+          // already closed
+        }
+      }
+      backends.length = 0;
+
+      if (tempDir) {
+        rmSync(tempDir, { recursive: true });
+        tempDir = undefined;
+      }
+    });
+
+    function createTempDb(): string {
+      tempDir = mkdtempSync(join(tmpdir(), 'exarchos-v3v4-'));
+      return join(tempDir, 'test.db');
+    }
+
+    function trackBackend(backend: SqliteBackend): SqliteBackend {
+      backends.push(backend);
+      return backend;
+    }
+
+    /**
+     * Seed a V3-shape database — schema_version=3 ledger row, sequences rows
+     * for two streams, NO `streams` table. Simulates a database produced by
+     * the V3 backend (which used `sequences` as the implicit stream registry).
+     */
+    function seedV3Database(dbPath: string): void {
+      // Use a raw bun:sqlite handle so we don't trigger any auto-migration.
+      const db = new Database(dbPath);
+      // Minimal V3 DDL — only the tables this test cares about. The real V3
+      // schema has more tables, but Wave 1's migration only touches streams
+      // and references `sequences` for backfill.
+      db.exec(`
+        CREATE TABLE events (
+          streamId  TEXT NOT NULL,
+          sequence  INTEGER NOT NULL,
+          type      TEXT NOT NULL,
+          timestamp TEXT NOT NULL,
+          data      TEXT,
+          payload   TEXT,
+          PRIMARY KEY (streamId, sequence)
+        );
+        CREATE TABLE sequences (
+          streamId TEXT PRIMARY KEY,
+          sequence INTEGER NOT NULL
+        );
+        CREATE TABLE schema_version (
+          version INTEGER PRIMARY KEY,
+          appliedAt TEXT NOT NULL
+        );
+      `);
+      db.prepare('INSERT INTO schema_version (version, appliedAt) VALUES (?, ?)').run(
+        3,
+        new Date().toISOString(),
+      );
+      // Two stream rows in the implicit V3 registry.
+      db.prepare(
+        'INSERT INTO sequences (streamId, sequence) VALUES (?, ?)',
+      ).run('feat-alpha', 5);
+      db.prepare(
+        'INSERT INTO sequences (streamId, sequence) VALUES (?, ?)',
+      ).run('feat-beta', 7);
+      db.close();
+    }
+
+    it('Migration_V3ToV4_AddsWorkflowTypeColumnWithLegacyDefault', () => {
+      const dbPath = createTempDb();
+      seedV3Database(dbPath);
+
+      // Opening the backend triggers `initialize()` which runs migrateSchema().
+      // V3 → V4 should create the `streams` table with a NOT NULL
+      // `workflow_type` column and backfill `__legacy` for both pre-existing
+      // sequences rows.
+      const backend = trackBackend(new SqliteBackend(dbPath));
+      backend.initialize();
+
+      const db = (backend as unknown as { db: Database }).db;
+
+      // Column exists with the right shape.
+      const cols = db
+        .prepare('PRAGMA table_info(streams)')
+        .all() as Array<{ name: string; type: string; notnull: number; dflt_value: string | null }>;
+      const wt = cols.find((c) => c.name === 'workflow_type');
+      expect(wt).toBeDefined();
+      expect(wt!.notnull).toBe(1);
+
+      // Both pre-existing streams have the legacy sentinel.
+      const rows = db
+        .prepare('SELECT streamId, workflow_type FROM streams ORDER BY streamId')
+        .all() as Array<{ streamId: string; workflow_type: string }>;
+      expect(rows).toEqual([
+        { streamId: 'feat-alpha', workflow_type: '__legacy' },
+        { streamId: 'feat-beta', workflow_type: '__legacy' },
+      ]);
+    });
+
+    it('Migration_V3ToV4_CreatesWorkflowTypeIndexes', () => {
+      const dbPath = createTempDb();
+      seedV3Database(dbPath);
+
+      const backend = trackBackend(new SqliteBackend(dbPath));
+      backend.initialize();
+
+      const db = (backend as unknown as { db: Database }).db;
+
+      // The v2.12 read-side (#1090) wires `ps`/`pipeline`/`view` filtering
+      // through these two indexes. Wave 1 only enforces their existence —
+      // their actual use is deferred. Asserting them today means the
+      // operator-controlled filtered queries land on indexed plans the
+      // moment v2.12 ships, with no separate migration window.
+      const idx = db
+        .prepare('PRAGMA index_list(streams)')
+        .all() as Array<{ name: string }>;
+      const names = idx.map((r) => r.name);
+      expect(names).toContain('idx_streams_workflow_type');
+      expect(names).toContain('idx_streams_workflow_type_status');
+    });
+
+    it('Migration_V3ToV4_BackfillsFromStateFile', () => {
+      const dbPath = createTempDb();
+      // SqliteBackend lives at <stateDir>/exarchos.db by convention — the
+      // migration reads state files from the same parent directory. Use
+      // tempDir as the state dir and pin a stream's workflow type in its
+      // state file before the migration runs.
+      const stateDir = tempDir!;
+      const dbPathInStateDir = join(stateDir, 'exarchos.db');
+
+      // Seed V3 with a stream that has a sibling state file naming oneshot.
+      seedV3Database(dbPathInStateDir);
+
+      // Append a third stream `feat-y` with a state file. The state file
+      // is the only place the migration can recover a non-legacy
+      // workflowType for pre-V4 streams; absent the file, the row keeps
+      // '__legacy' (covered by task 1.6's observability event).
+      const seedDb = new Database(dbPathInStateDir);
+      seedDb
+        .prepare('INSERT INTO sequences (streamId, sequence) VALUES (?, ?)')
+        .run('feat-y', 3);
+      seedDb.close();
+
+      writeFileSync(
+        join(stateDir, 'feat-y.state.json'),
+        JSON.stringify({ featureId: 'feat-y', workflowType: 'oneshot' }),
+        'utf-8',
+      );
+
+      const backend = trackBackend(new SqliteBackend(dbPathInStateDir));
+      backend.initialize();
+
+      const db = (backend as unknown as { db: Database }).db;
+      const row = db
+        .prepare('SELECT workflow_type FROM streams WHERE streamId = ?')
+        .get('feat-y') as { workflow_type: string } | undefined;
+
+      // The recovered workflowType replaces '__legacy'. This is the ONLY
+      // allowed UPDATE of workflow_type — task 1.7's grep gate enforces
+      // immutability everywhere else.
+      expect(row).toBeDefined();
+      expect(row!.workflow_type).toBe('oneshot');
+    });
+
+    it('Migration_V3ToV4_EmitsUnknownEventForLegacyStreams', () => {
+      const stateDir = tempDir = mkdtempSync(join(tmpdir(), 'exarchos-v3v4-unknown-'));
+      const dbPath = join(stateDir, 'exarchos.db');
+
+      seedV3Database(dbPath);
+
+      // Insert a third stream `feat-z` with NO state file. The migration
+      // cannot recover workflowType for it, so it stays at '__legacy' and
+      // must emit one `migration.workflow_type_unknown` event so operators
+      // can locate streams that need manual classification.
+      const seedDb = new Database(dbPath);
+      seedDb
+        .prepare('INSERT INTO sequences (streamId, sequence) VALUES (?, ?)')
+        .run('feat-z', 9);
+      seedDb.close();
+
+      const backend = trackBackend(new SqliteBackend(dbPath));
+      backend.initialize();
+
+      const db = (backend as unknown as { db: Database }).db;
+
+      // 1. Stream row still legacy.
+      const row = db
+        .prepare('SELECT workflow_type FROM streams WHERE streamId = ?')
+        .get('feat-z') as { workflow_type: string } | undefined;
+      expect(row?.workflow_type).toBe('__legacy');
+
+      // 2. Exactly one event of type migration.workflow_type_unknown for
+      // this stream, with data.streamId = 'feat-z'. The "exactly one" part
+      // matters: a re-run of the migration is gated by the V4 ledger row,
+      // so this event must not be re-emitted on subsequent opens.
+      const events = db
+        .prepare(
+          `SELECT streamId, type, data FROM events
+           WHERE type = ? AND streamId = ?`,
+        )
+        .all('migration.workflow_type_unknown', 'feat-z') as Array<{
+        streamId: string;
+        type: string;
+        data: string | null;
+      }>;
+
+      expect(events).toHaveLength(1);
+      expect(events[0].data).toBeTruthy();
+      const data = JSON.parse(events[0].data!) as { streamId?: string };
+      expect(data.streamId).toBe('feat-z');
     });
   });
 });

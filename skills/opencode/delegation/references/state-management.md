@@ -9,23 +9,23 @@ Instead of re-parsing plan, read task list with `action: "get"`, `query: "tasks"
 ## Subagent Mode
 
 **On Task Dispatch:**
-```
-action: "set", featureId: "<id>", updates: {
+```text
+action: "update", featureId: "<id>", updates: {
   "tasks[id=<taskId>]": { "status": "in_progress", "startedAt": "<ISO timestamp>" },
   "worktrees.<wt-id>": { "branch": "<branch>", "taskId": "<taskId>", "status": "active" }
 }
 ```
 
 **On Task Complete:**
-```
-action: "set", featureId: "<id>", updates: {
+```text
+action: "update", featureId: "<id>", updates: {
   "tasks[id=<taskId>]": { "status": "complete", "completedAt": "<ISO timestamp>" }
 }
 ```
 
 **On All Tasks Complete:**
-```
-action: "set", featureId: "<id>", phase: "review"
+```text
+action: "transition", featureId: "<id>", target: "review"
 ```
 
 
@@ -33,8 +33,8 @@ action: "set", featureId: "<id>", phase: "review"
 
 After extracting tasks from the plan, check if ANY task has `testingStrategy.benchmarks: true`. If so, record in state:
 
-```
-action: "set", featureId: "<id>", updates: {
+```text
+action: "update", featureId: "<id>", updates: {
   "verification.hasBenchmarks": true
 }
 ```

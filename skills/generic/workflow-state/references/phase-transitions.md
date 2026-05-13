@@ -2,18 +2,23 @@
 
 All valid HSM phase transitions for each workflow type. Every transition listed here is the **only** way to move between phases — the HSM rejects unlisted transitions with `INVALID_TRANSITION`.
 
-## Combined Updates + Phase Pattern
+## Apply-Updates-Then-Transition Pattern
 
-**CRITICAL:** When a transition has a guard that requires prerequisite state, send `updates` and `phase` in a single `set` call. Updates are applied BEFORE guards evaluate:
+**CRITICAL:** When a transition has a guard that requires prerequisite state, apply the state first with `update`, then issue the `transition`. `update` rejects `phase` in its payload with a structured `INVALID_INPUT` pointing at `transition` — the split is enforced so HSM guard evaluation, valid-target enumeration, and `workflow.transition` event emission can't be bypassed.
 
-```
-action: "set"
+```text
+# Step 1 — apply the state the guard reads
+action: "update"
 featureId: "my-feature"
-phase: "delegate"
 updates: { "planReview.approved": true }
+
+# Step 2 — transition once the guard is satisfied
+action: "transition"
+featureId: "my-feature"
+target: "delegate"
 ```
 
-This satisfies the `planReviewComplete` guard in one call. Two separate calls (set data, then transition) also work but waste a tool call.
+This satisfies the `planReviewComplete` guard. Both calls go to `exarchos_workflow`; only the second one carries the HSM guard runtime.
 
 ## Universal Transitions
 
@@ -21,7 +26,7 @@ Available from **any non-final** phase in all workflow types:
 
 | To | Guard | How to Trigger |
 |----|-------|----------------|
-| `cancelled` | None | `exarchos_workflow cancel` (not `set`) — runs saga compensation |
+| `cancelled` | None | `exarchos_workflow cancel` (not `transition`) — runs saga compensation |
 | `completed` | `merge-verified` | `exarchos_workflow cleanup` with `mergeVerified: true` — for post-merge resolution |
 
 ## Feature Workflow
@@ -194,7 +199,7 @@ The HSM rejected the transition because no path exists from the current phase to
 The transition exists but the guard condition is not met.
 
 1. Check `expectedShape` in the error response — it shows exactly what state the guard needs
-2. Set the prerequisite state via `updates` in the same `set` call as the `phase`
+2. Apply the prerequisite state with `update`, then retry the `transition` (phase is not accepted in `update`'s `updates` payload — the split is enforced)
 3. Refer to the "Prerequisite" column in the tables above
 4. **Proactive discovery:** Before transitioning, use `exarchos_workflow describe playbook="<workflowType>"` to see guard requirements for each phase
 

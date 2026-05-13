@@ -1,11 +1,8 @@
-import * as fs from 'node:fs/promises';
-import { openSync, closeSync, writeSync, unlinkSync } from 'node:fs';
-import * as path from 'node:path';
 import { randomUUID as randomUUIDFn } from 'node:crypto';
+import { mkdir } from 'node:fs/promises';
 import { WorkflowEventBase } from './schemas.js';
 import type { WorkflowEvent } from './schemas.js';
 import type { StorageBackend } from '../storage/backend.js';
-import { isPidAlive } from '../utils/process.js';
 import { validateStreamId } from '../shared/validation.js';
 import { AtomicAppender } from './atomic-appender.js';
 
@@ -20,36 +17,6 @@ export class SequenceConflictError extends Error {
       `Sequence conflict: expected ${expected}, actual ${actual}`,
     );
     this.name = 'SequenceConflictError';
-  }
-}
-
-// ─── PID Lock Error ──────────────────────────────────────────────────────────
-
-/**
- * Distinguishes the two reasons `acquirePidLock` can fail:
- *
- *   - `live-holder`: the lock file is held by an observably-live process;
- *     the holder's PID is reported via `existingPid`. This is the normal
- *     contention case.
- *   - `retry-exhausted`: the acquisition loop exhausted its retry budget
- *     while racing a stream of fast lock churns (TOCTOU contention) without
- *     ever observing a live holder long enough to complete steal + recreate.
- *     `existingPid` reports the last observably-valid PID seen during the
- *     retry window, or `-1` if none was ever read.
- */
-export type PidLockReason = 'live-holder' | 'retry-exhausted';
-
-export class PidLockError extends Error {
-  constructor(
-    public readonly existingPid: number,
-    public readonly reason: PidLockReason = 'live-holder',
-  ) {
-    super(
-      reason === 'retry-exhausted'
-        ? `Event store lock acquisition exhausted retries under TOCTOU contention (last observed holder PID ${existingPid})`
-        : `Event store is locked by live process PID ${existingPid}`,
-    );
-    this.name = 'PidLockError';
   }
 }
 
@@ -111,42 +78,6 @@ export type IntegrityResult =
 /** Default upper bound on `runIntegrityCheck` wall time. */
 const DEFAULT_INTEGRITY_TIMEOUT_MS = 2000;
 
-// ─── Initialize Options ─────────────────────────────────────────────────────
-
-/**
- * Options passed to `EventStore.initialize()`.
- *
- * `waitForLock` controls behaviour when another live process already holds
- * the PID lock.
- *
- * - When `false` (default), `initialize()` throws `PidLockError` immediately
- *   on contention. This is the v2.11 hard-fail substrate semantic: sidecar
- *   fallback (#1082) was deleted alongside the JSONL substrate it existed
- *   to side-channel; SQLite WAL handles concurrent access natively, so any
- *   PID-lock contention now reflects a genuine ownership conflict the
- *   caller must resolve, not a write-path that needs degrading.
- * - When `true`, `initialize()` waits for the lock to be released (bounded
- *   by `waitForLockTimeoutMs`), retrying until it can reclaim the lock.
- *   On exhaustion, throws `PidLockError`. Right mode for short-lived CLI
- *   processes that need their writes to serialise behind a concurrent
- *   invocation (DR-5).
- */
-export interface InitializeOptions {
-  /** Block until the PID lock can be acquired, rather than throwing immediately on contention. */
-  readonly waitForLock?: boolean;
-  /** Maximum time to wait for the PID lock when `waitForLock` is true. Defaults to 30s. */
-  readonly waitForLockTimeoutMs?: number;
-  /** Initial backoff between acquisition attempts when waiting. Defaults to 10ms. */
-  readonly waitForLockInitialDelayMs?: number;
-  /** Maximum backoff between acquisition attempts when waiting. Defaults to 100ms. */
-  readonly waitForLockMaxDelayMs?: number;
-}
-
-/** Default bounds for the `waitForLock` branch of `initialize()`. */
-const DEFAULT_WAIT_TIMEOUT_MS = 30_000;
-const DEFAULT_WAIT_INITIAL_DELAY_MS = 10;
-const DEFAULT_WAIT_MAX_DELAY_MS = 100;
-
 // ─── Event Store ────────────────────────────────────────────────────────────
 
 /**
@@ -159,15 +90,19 @@ const DEFAULT_WAIT_MAX_DELAY_MS = 100;
  * for tests that inject an `InMemoryBackend` to drive read-path
  * assertions.
  *
- * Cross-process safety: call `initialize()` before first use. The first
- * process to initialize acquires a PID lock; subsequent processes throw
- * `PidLockError` (or wait for the lock when `waitForLock: true`). Sidecar
- * mode (#1082) was deleted in v2.11 — SQLite WAL handles concurrent access
- * natively, so PID-lock contention is now a hard error rather than a
- * fallback to a side-channel writer.
+ * Cross-process safety: cross-process serialization is delegated entirely
+ * to the SQLite WAL substrate. `BEGIN IMMEDIATE` is the write-ownership
+ * primitive — a writer that observes the database busy retries through
+ * SQLite's own backoff rather than a process-level mutex — and the
+ * `(stream_id, sequence)` PRIMARY KEY guarantees per-stream append
+ * ordering and rejects duplicate-sequence writes. Multiple `EventStore`
+ * instances may attach to the same `stateDir` from any number of OS
+ * processes; `initialize()` is an idempotent no-op marker.
  *
- * Uses in-memory promise-chain locks that only protect within a single Node.js process.
- * Multiple EventStore instances sharing the same stateDir without PID lock will corrupt data.
+ * In-process: the AtomicAppender owns a per-stream promise-chain lock
+ * (`StreamLockManager`) that serialises concurrent appends to the same
+ * stream from the same Node.js process; cross-process appends serialise
+ * through the substrate.
  */
 export class EventStore {
   /**
@@ -191,9 +126,6 @@ export class EventStore {
   /** Whether initialize() has been called */
   private initialized = false;
 
-  /** Path to the PID lock file */
-  private lockFilePath: string;
-
   /** Optional storage backend for delegating reads */
   private readonly backend?: StorageBackend;
 
@@ -202,7 +134,6 @@ export class EventStore {
   private atomicAppender?: AtomicAppender;
 
   constructor(private readonly stateDir: string, options?: EventStoreOptions) {
-    this.lockFilePath = path.join(stateDir, '.event-store.lock');
     this.backend = options?.backend;
   }
 
@@ -248,195 +179,36 @@ export class EventStore {
    * assertions without touching the disk. In production no caller sets
    * it.
    */
-  private getReadBackend(): StorageBackend {
+  getReadBackend(): StorageBackend {
     if (this.backend) return this.backend;
     return this.getAppender().ensureSqliteBackendSync();
   }
 
-  // ─── PID Lock ──────────────────────────────────────────────────────────────
+  // ─── Initialize ────────────────────────────────────────────────────────────
 
   /**
-   * Initialize the event store: acquire PID lock and register cleanup handler.
-   * Must be called before first use.
+   * Initialize the event store. Must be called before first use, but is
+   * an idempotent no-op marker — repeat calls return immediately.
    *
-   * Sidecar fallback (#1082) was deleted in v2.11 — when another process
-   * holds the lock, this method now throws `PidLockError` immediately. The
-   * fallback only existed to side-channel JSONL writers around the
-   * per-process lock; SQLite WAL (post-v2.10 substrate, #1259/#1323) makes
-   * cross-process writes safe natively, so contention now reflects a real
-   * ownership conflict the caller is responsible for resolving.
+   * Pre-Wave-A this method acquired a per-`stateDir` PID lock so that only
+   * one OS process at a time could attach to a given event store. That
+   * contract was removed in #1343 (Wave A): cross-process serialization is
+   * delegated to the SQLite WAL substrate (`BEGIN IMMEDIATE` for write
+   * ownership; the `(stream_id, sequence)` PRIMARY KEY for per-stream
+   * append ordering). Two or more `EventStore` instances against the same
+   * `stateDir` may now `initialize()` concurrently and proceed to append
+   * without further coordination at this layer; see
+   * `docs/architecture/runtime.md` §4.
    *
-   * Pass `{ waitForLock: true }` to block until the lock can be acquired
-   * — the right mode for short-lived CLI processes where concurrent
-   * invocations must serialise (DR-5 cross-process concurrency safety).
-   * On wait-deadline exhaustion, `PidLockError` is rethrown.
+   * The lock acquisition previously had a side-effect of creating
+   * `stateDir`; with that removed we explicitly `mkdir -p` here so
+   * downstream backends and the storage-state-dir doctor probe both see
+   * the directory on first run.
    */
-  async initialize(options?: InitializeOptions): Promise<void> {
+  async initialize(): Promise<void> {
     if (this.initialized) return;
-
-    const waitForLock = options?.waitForLock === true;
-    if (waitForLock) {
-      await this.acquirePidLockWithWait(
-        options?.waitForLockTimeoutMs ?? DEFAULT_WAIT_TIMEOUT_MS,
-        options?.waitForLockInitialDelayMs ?? DEFAULT_WAIT_INITIAL_DELAY_MS,
-        options?.waitForLockMaxDelayMs ?? DEFAULT_WAIT_MAX_DELAY_MS,
-      );
-    } else {
-      await this.acquirePidLock();
-    }
+    await mkdir(this.stateDir, { recursive: true });
     this.initialized = true;
-  }
-
-  /**
-   * Acquire the PID lock, blocking until success or until `timeoutMs` elapses.
-   * Uses exponential backoff with jitter, capped at `maxDelayMs`. On timeout,
-   * rethrows the last `PidLockError` so the caller can surface a clear
-   * "lock held by PID N — retry later" diagnostic.
-   */
-  private async acquirePidLockWithWait(
-    timeoutMs: number,
-    initialDelayMs: number,
-    maxDelayMs: number,
-  ): Promise<void> {
-    const deadline = Date.now() + timeoutMs;
-    let delay = initialDelayMs;
-    let lastErr: PidLockError | undefined;
-
-    // First attempt without backoff — fast path when the lock is free.
-    try {
-      await this.acquirePidLock();
-      return;
-    } catch (err) {
-      if (!(err instanceof PidLockError)) throw err;
-      lastErr = err;
-    }
-
-    while (Date.now() < deadline) {
-      // Jittered sleep, capped by maxDelayMs and remaining budget.
-      const remaining = Math.max(0, deadline - Date.now());
-      const jittered = Math.min(delay, maxDelayMs) * (0.5 + Math.random());
-      const waitMs = Math.max(1, Math.min(jittered, remaining));
-      await new Promise<void>((resolve) => setTimeout(resolve, waitMs));
-
-      try {
-        await this.acquirePidLock();
-        return;
-      } catch (err) {
-        if (!(err instanceof PidLockError)) throw err;
-        lastErr = err;
-        delay = Math.min(delay * 2, maxDelayMs);
-      }
-    }
-
-    // Every attempt threw PidLockError, so `lastErr` is always set here.
-    // Fall back to a synthetic retry-exhausted error only to keep the type
-    // narrow if some future refactor makes `lastErr` unreachable.
-    throw lastErr ?? new PidLockError(-1, 'retry-exhausted');
-  }
-
-  private async acquirePidLock(): Promise<void> {
-    await fs.mkdir(this.stateDir, { recursive: true });
-
-    // Acquisition is a TOCTOU dance between three filesystem operations:
-    //   1. open('wx')        — atomic create-if-not-exists
-    //   2. readFile          — peek at the holder's PID
-    //   3. unlink + open('wx') — reclaim a stale lock
-    //
-    // Any of (2) or (3) can race with a concurrent process that is releasing
-    // (ENOENT) or re-acquiring (EEXIST) the same file. Rather than fail on
-    // these transients, retry the full sequence a bounded number of times;
-    // if we exhaust retries while a live holder remains, surface PidLockError
-    // so the caller (CLI exit path or `waitForLock` retry loop) can decide.
-    const MAX_RETRIES = 32;
-    let acquired = false;
-    // F-022-4: remember the most recent observably-valid holder PID so that
-    // when we exhaust retries we can attribute the exhaustion to the churn
-    // rather than report a synthetic `-1`.
-    let lastObservedPid = -1;
-    for (let attempt = 0; attempt < MAX_RETRIES && !acquired; attempt++) {
-      try {
-        const fd = openSync(this.lockFilePath, 'wx');
-        writeSync(fd, String(process.pid));
-        closeSync(fd);
-        acquired = true;
-        break;
-      } catch (err) {
-        if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err;
-
-        // Lock file exists — peek at the holder's PID.
-        let existingPid: number;
-        try {
-          const content = await fs.readFile(this.lockFilePath, 'utf-8');
-          existingPid = parseInt(content.trim(), 10);
-        } catch (readErr) {
-          if ((readErr as NodeJS.ErrnoException).code === 'ENOENT') {
-            // Holder released between open() and readFile(); try again.
-            continue;
-          }
-          throw readErr;
-        }
-
-        if (!isNaN(existingPid)) {
-          lastObservedPid = existingPid;
-        }
-
-        if (!isNaN(existingPid) && isPidAlive(existingPid)) {
-          throw new PidLockError(existingPid, 'live-holder');
-        }
-
-        // Stale lock — atomic reclaim: unlink then exclusive create.
-        try {
-          await fs.unlink(this.lockFilePath);
-        } catch (unlinkErr) {
-          if ((unlinkErr as NodeJS.ErrnoException).code === 'ENOENT') {
-            // Lock vanished first — retry from the top.
-            continue;
-          }
-          throw unlinkErr;
-        }
-        try {
-          const fd = openSync(this.lockFilePath, 'wx');
-          writeSync(fd, String(process.pid));
-          closeSync(fd);
-          acquired = true;
-          break;
-        } catch (reclaimErr) {
-          if ((reclaimErr as NodeJS.ErrnoException).code !== 'EEXIST') throw reclaimErr;
-          // Another process reclaimed between unlink and open — re-read the
-          // winner PID to report, but tolerate ENOENT (another quick release).
-          let winnerPid = -1;
-          try {
-            const newContent = await fs.readFile(this.lockFilePath, 'utf-8');
-            winnerPid = parseInt(newContent.trim(), 10);
-          } catch (newReadErr) {
-            if ((newReadErr as NodeJS.ErrnoException).code !== 'ENOENT') throw newReadErr;
-            continue; // retry whole acquisition
-          }
-          if (!isNaN(winnerPid) && winnerPid > 0) {
-            lastObservedPid = winnerPid;
-          }
-          throw new PidLockError(winnerPid, 'live-holder');
-        }
-      }
-    }
-
-    if (!acquired) {
-      // F-022-4: reached retry ceiling without ever observing a live holder
-      // long enough to commit — this is TOCTOU churn, not a stuck holder.
-      // Report the last observably-valid PID so operators can identify the
-      // contending process without seeing an opaque `-1`.
-      throw new PidLockError(lastObservedPid, 'retry-exhausted');
-    }
-
-    // Register cleanup handler
-    const lockPath = this.lockFilePath;
-    process.on('exit', () => {
-      try {
-        unlinkSync(lockPath);
-      } catch {
-        // Best-effort cleanup
-      }
-    });
   }
 
   async append(
@@ -768,6 +540,23 @@ export class EventStore {
    */
   listStreams(): string[] {
     return this.getReadBackend().listStreams();
+  }
+
+  /**
+   * Register a stream in the typed-stream registry (Marten R-1, #1313).
+   * Idempotent: re-calling for the same streamId leaves the registry row
+   * untouched. The workflow_type column is immutable post-insert — a CI
+   * grep gate (task 1.7) forbids any UPDATE that would mutate it.
+   *
+   * Backends without a typed-stream registry (in-memory test fixtures,
+   * remote stubs) omit `registerStream`; in that case this method is a
+   * no-op so callers like `handleInit` can run identically against any
+   * backend.
+   */
+  registerStream(streamId: string, workflowType: string): void {
+    const backend = this.getReadBackend();
+    if (typeof backend.registerStream !== 'function') return;
+    backend.registerStream(streamId, workflowType);
   }
 
   /**

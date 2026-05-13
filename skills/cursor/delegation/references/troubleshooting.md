@@ -11,7 +11,7 @@ If an Exarchos MCP tool returns an error:
 If workflow state doesn't match git reality:
 1. Run `rehydrate <featureId>` — the rehydration projection folds events newer than the last snapshot
 2. If manual check still needed: compare the rehydration document's `workflowState` / `artifacts` with `git log` and branch state
-3. Update state via `exarchos_workflow` with `action: "set"` to match git truth
+3. Update state via `exarchos_workflow` with `action: "update"` to match git truth
 
 ## Worktree Creation Failed
 If `git worktree add` fails:
@@ -39,10 +39,10 @@ If `exarchos_orchestrate` with `action: "task_claim"` returns ALREADY_CLAIMED:
 
 
 
-**Solution:** Before transitioning to review, call `exarchos_workflow set` with updated task statuses:
+**Solution:** Before transitioning to review, call `exarchos_workflow update` with updated task statuses:
 ```json
 {
-  "action": "set",
+  "action": "update",
   "featureId": "<id>",
   "updates": {
     "tasks": [
@@ -86,7 +86,7 @@ If `exarchos_orchestrate` with `action: "task_claim"` returns ALREADY_CLAIMED:
 **Solution:** Set the `triage.symptom` field:
 ```json
 {
-  "action": "set",
+  "action": "update",
   "featureId": "<id>",
   "updates": {
     "triage": { "symptom": "<description of the bug or issue>" }
@@ -101,7 +101,7 @@ If `exarchos_orchestrate` with `action: "task_claim"` returns ALREADY_CLAIMED:
 **Solution:** Set `investigation.rootCause`:
 ```json
 {
-  "action": "set",
+  "action": "update",
   "featureId": "<id>",
   "updates": {
     "investigation": { "rootCause": "<root cause description>" }

@@ -35,7 +35,7 @@ exarchos_orchestrate({
 
 ## Worktree State Tracking
 
-Track worktrees in the workflow state file using `mcp__plugin_exarchos_exarchos__exarchos_workflow` with `action: "set"`:
+Track worktrees in the workflow state file using `mcp__plugin_exarchos_exarchos__exarchos_workflow` with `action: "update"`:
 - Set `worktrees.<worktree-id>` to an object containing `branch`, `status`, and either `taskId` (single task) or `tasks` (array of task IDs for multi-task worktrees)
 
 ## Implementer Prompt Requirements
