@@ -268,14 +268,19 @@ describe('handleCreateIssue', () => {
     expect(mockProvider.createIssue).not.toHaveBeenCalled();
 
     // The handler must emit issue.create.executed with the existing issue data.
-    expect(idempotentCtx.eventStore.append).toHaveBeenCalledWith('vcs', {
-      type: 'issue.create.executed',
-      data: {
-        operationId: existingOperationId,
-        issueNumber: existingIssueNumber,
-        url: existingIssueUrl,
+    // The append carries an idempotencyKey so retries dedupe at the EventStore.
+    expect(idempotentCtx.eventStore.append).toHaveBeenCalledWith(
+      'vcs',
+      {
+        type: 'issue.create.executed',
+        data: {
+          operationId: existingOperationId,
+          issueNumber: existingIssueNumber,
+          url: existingIssueUrl,
+        },
       },
-    });
+      { idempotencyKey: `issue.create.executed:${existingOperationId}` },
+    );
 
     expect(result.success).toBe(true);
     expect((result.data as { issueNumber: number }).issueNumber).toBe(existingIssueNumber);

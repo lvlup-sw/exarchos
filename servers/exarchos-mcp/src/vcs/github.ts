@@ -328,10 +328,12 @@ export class GitHubProvider implements VcsProvider {
     const parsed = JSON.parse(output) as Array<{
       number: number;
       url: string;
-      body: string;
+      body: string | null;
     }>;
     return parsed
-      .filter((entry) => entry.body.includes(marker))
+      .filter((entry): entry is { number: number; url: string; body: string } =>
+        typeof entry.body === 'string' && entry.body.includes(marker),
+      )
       .map((entry) => ({
         number: entry.number,
         url: entry.url,

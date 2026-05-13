@@ -159,6 +159,13 @@ export async function handleCreateIssue(
   const operationId = args.operationId ?? (await recoverOperationId(ctx, args)) ?? randomUUID();
   const marker = buildBodyMarker(operationId);
 
+  // Idempotency keys derived from operationId — mirrors create-pr.ts so a
+  // retried Phase A or recovered Phase B append deduplicates at the EventStore
+  // boundary instead of producing duplicate `issue.create.*` events on retry
+  // / crash recovery (Sentry #14058672).
+  const phaseAKey = `issue.create.requested:${operationId}`;
+  const phaseBKey = `issue.create.executed:${operationId}`;
+
   // The recovery precheck is load-bearing for the two-event split (INV-1).
   // A missing dependency would silently disable the precheck and re-fire
   // the non-idempotent `gh issue create` after a crash → duplicate issue.
@@ -187,16 +194,20 @@ export async function handleCreateIssue(
   // OUTSIDE this retry boundary so it never fires more than once.
   try {
     await withStateRetry(() =>
-      ctx.eventStore.append('vcs', {
-        type: 'issue.create.requested',
-        data: {
-          operationId,
-          title: args.title,
-          body: args.body,
-          ...(args.labels !== undefined ? { labels: args.labels } : {}),
-          ...(args.assignees !== undefined ? { assignees: args.assignees } : {}),
+      ctx.eventStore.append(
+        'vcs',
+        {
+          type: 'issue.create.requested',
+          data: {
+            operationId,
+            title: args.title,
+            body: args.body,
+            ...(args.labels !== undefined ? { labels: args.labels } : {}),
+            ...(args.assignees !== undefined ? { assignees: args.assignees } : {}),
+          },
         },
-      }),
+        { idempotencyKey: phaseAKey },
+      ),
     );
   } catch (err) {
     if (err instanceof ConcurrencyError) {
@@ -255,14 +266,18 @@ export async function handleCreateIssue(
     // data. Failure to append here is NOT swallowed: it propagates upstream
     // so the operator can investigate and replay rather than silently leave
     // the stream stuck at issue.create.requested.
-    await ctx.eventStore.append('vcs', {
-      type: 'issue.create.executed',
-      data: {
-        operationId,
-        issueNumber: existingIssue.number,
-        url: existingIssue.url,
+    await ctx.eventStore.append(
+      'vcs',
+      {
+        type: 'issue.create.executed',
+        data: {
+          operationId,
+          issueNumber: existingIssue.number,
+          url: existingIssue.url,
+        },
       },
-    });
+      { idempotencyKey: phaseBKey },
+    );
     return {
       success: true,
       data: {
@@ -300,14 +315,18 @@ export async function handleCreateIssue(
   // Phase C event append — propagate failures upstream. Swallowing them
   // here would leave the stream stuck at issue.create.requested with no
   // operator signal that the executed record is missing.
-  await ctx.eventStore.append('vcs', {
-    type: 'issue.create.executed',
-    data: {
-      operationId,
-      issueNumber: result.number,
-      url: result.url,
+  await ctx.eventStore.append(
+    'vcs',
+    {
+      type: 'issue.create.executed',
+      data: {
+        operationId,
+        issueNumber: result.number,
+        url: result.url,
+      },
     },
-  });
+    { idempotencyKey: phaseBKey },
+  );
 
   return { success: true, data: result };
 }
