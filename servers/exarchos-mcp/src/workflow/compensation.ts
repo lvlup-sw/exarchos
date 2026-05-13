@@ -360,8 +360,18 @@ function createCleanupWorktreesAction(): CompensationAction {
               try {
                 await runCommand('git', ['worktree', 'remove', worktreePath, '--force'], options);
                 removed = true;
-              } catch {
-                // Worktree may already be removed; continue
+              } catch (err) {
+                // Only downgrade to idempotent miss if the worktree is now
+                // actually gone (e.g. another process removed it between
+                // precheck and our command). If it is still registered the
+                // failure is real (locked, missing repo, permission denied)
+                // and must surface — silently emitting `removed: false`
+                // would hide a real failure behind an idempotent-success
+                // event.
+                const stillRegistered = await worktreeIsRegistered(worktreePath, options);
+                if (stillRegistered) {
+                  throw err;
+                }
               }
             }
 
@@ -455,8 +465,15 @@ function createDeleteFeatureBranchesAction(): CompensationAction {
               try {
                 await runCommand('git', ['branch', '-D', branch], options);
                 deletedLocally = true;
-              } catch {
-                // Deletion failed — branch may have disappeared between check and delete
+              } catch (err) {
+                // Idempotent miss only if the branch is now absent
+                // (raced with another deleter). Otherwise surface — a
+                // failed `git branch -D` with the branch still present is
+                // a real error (working tree conflict, refs lock, etc.).
+                const stillExists = await localBranchExists(branch, options);
+                if (stillExists) {
+                  throw err;
+                }
               }
             }
 
@@ -464,8 +481,14 @@ function createDeleteFeatureBranchesAction(): CompensationAction {
               try {
                 await runCommand('git', ['push', 'origin', '--delete', branch], options);
                 deletedRemote = true;
-              } catch {
-                // Remote delete failed — ref may have disappeared or been deleted by another process
+              } catch (err) {
+                // Same logic: only swallow when the remote ref is gone.
+                // Transport/auth failures must propagate so callers do
+                // not record a phantom successful deletion.
+                const stillExists = await remoteBranchExists(branch, 'origin', options);
+                if (stillExists) {
+                  throw err;
+                }
               }
             }
 

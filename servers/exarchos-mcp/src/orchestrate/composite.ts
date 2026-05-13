@@ -293,12 +293,18 @@ const ACTION_HANDLERS: Readonly<Record<string, ActionHandler>> = {
   // back to a no-op that would silently mask duplicate-issue bugs.
   create_issue: async (args, _stateDir, ctx) => {
     if (!ctx) throw new Error('DispatchContext required for this handler');
-    const provider = await createVcsProvider({ config: ctx.projectConfig });
     const typedArgs = args as unknown as Omit<HandleCreateIssueArgs, 'listIssuesByMarker'> &
       Partial<Pick<HandleCreateIssueArgs, 'listIssuesByMarker'>>;
+    // Lazy provider creation: only construct the VCS provider if the
+    // caller hasn't injected a `listIssuesByMarker` (e.g. tests that
+    // stub the recovery probe directly). Avoids surfacing provider
+    // bootstrap errors before the handler's own input guards run.
     const listIssuesByMarker =
       typedArgs.listIssuesByMarker ??
-      ((operationId: string) => provider.searchIssuesByMarker(operationId));
+      (async (operationId: string) => {
+        const provider = await createVcsProvider({ config: ctx.projectConfig });
+        return provider.searchIssuesByMarker(operationId);
+      });
     return handleCreateIssue({ ...typedArgs, listIssuesByMarker }, ctx);
   },
   // Merge orchestrator (DR-MO-1) — composes preflight + executor under one
