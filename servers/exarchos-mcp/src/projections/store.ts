@@ -386,10 +386,19 @@ export async function readProjection<T>(
     for (const ev of events) merged.push(ev);
   }
 
-  // Deterministic global ordering: (timestamp ASC, sequence ASC).
+  // Deterministic global ordering: (timestamp ASC, sequence ASC, streamId ASC).
+  // The streamId tiebreak is load-bearing: two events from different streams
+  // can share both `timestamp` (millisecond resolution; cheap on fast
+  // appends) and `sequence` (per-stream counters that often start at 1).
+  // Without it the fold order depends on incidental `streamId` iteration
+  // order from `eventStore.query`, which makes reduced state
+  // non-reproducible.
   merged.sort((a, b) => {
     const byTs = a.timestamp.localeCompare(b.timestamp);
-    return byTs !== 0 ? byTs : a.sequence - b.sequence;
+    if (byTs !== 0) return byTs;
+    const bySeq = a.sequence - b.sequence;
+    if (bySeq !== 0) return bySeq;
+    return a.streamId.localeCompare(b.streamId);
   });
 
   // When folding from a fresh snapshot, every event up-to-and-including

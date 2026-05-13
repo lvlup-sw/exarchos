@@ -652,8 +652,13 @@ export class SqliteBackend implements StorageBackend {
     if (legacyRows.length === 0) return;
 
     const now = new Date().toISOString();
+    // Strict INSERT (no OR IGNORE) — a silent drop would advance the
+    // `sequences` counter below without persisting the corresponding
+    // event, breaking the "one observability event per unresolved stream"
+    // contract this migration upholds. Conflicts here are programmer
+    // errors, not concurrency races, so propagate.
     const insertEvent = this.db.prepare(
-      `INSERT OR IGNORE INTO events (streamId, sequence, type, timestamp, data, payload)
+      `INSERT INTO events (streamId, sequence, type, timestamp, data, payload)
        VALUES (?, ?, ?, ?, ?, ?)`,
     );
     const selectSeq = this.db.prepare(
@@ -1317,6 +1322,12 @@ export class SqliteBackend implements StorageBackend {
     const deleteFn = this.db.transaction(() => {
       this.db.prepare('DELETE FROM events WHERE streamId = ?').run(streamId);
       this.db.prepare('DELETE FROM sequences WHERE streamId = ?').run(streamId);
+      // Drop the `streams` registry row too. `registerStream` is
+      // `INSERT OR IGNORE`, so a delete/recreate cycle that left the
+      // registry row alive would permanently pin the old `workflow_type`
+      // — the recreate would observe the immutable row and silently
+      // adopt the prior type instead of the newly-supplied one.
+      this.db.prepare('DELETE FROM streams WHERE streamId = ?').run(streamId);
     });
     deleteFn();
   }
