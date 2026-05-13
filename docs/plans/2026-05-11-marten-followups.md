@@ -352,7 +352,7 @@ Base: PR-1 (Wave A) or `release/v2.10.0-preview.2` if Wave A is still in review
 **Phase:** REFACTOR (docs)
 
 1. Update `docs/research/2026-05-10-v2-10-pre2-implementation-audit-findings.md` §F1.1 — mark mitigated by CI gate.
-2. Add a one-line section pointing to `scripts/grep-gates/`.
+2. Add a one-line section pointing to `scripts/check-*.sh`.
 
 **Dependencies:** C3.1
 **Parallelizable:** Yes (with C4)
@@ -680,7 +680,7 @@ Per memory `[TDD task gates miss broad-blast-radius regressions]`: Wave A's PID 
 
 | Risk | Mitigation |
 |---|---|
-| Wave A breaks downstream consumers of `PidLockError` | Audit-decided deprecate-not-delete (A4.3). Track removal in v2.11. |
+| Wave A breaks downstream consumers of `PidLockError` | Delete outright per Task A4.3; track removal in v2.11. |
 | Wave B's idempotent side-effect checks differ per handler | Each handler's B*.3 task is the canonical place for the check; document the pattern in D1's process-manager section. |
 | CI grep gate false positives on existing code | C4 task validates against current codebase before C3.1 wires into CI. |
 | Wave D doc updates lag behind code | D1/D2/D3 are mandatory in the synthesize phase; cannot ship Wave D PR without them. |

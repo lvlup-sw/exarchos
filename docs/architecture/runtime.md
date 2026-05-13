@@ -14,7 +14,7 @@ It is a **concurrent system, not a distributed one**: no network between partici
 
 The runtime exposes a small set of typed verbs through two equivalent facades (CLI, MCP). Behind those facades is a single dispatch core that reads from and writes to an append-only event log. Everything observable about the system is reconstructable from that log alone.
 
-Multi-process serialization is provided entirely by the SQLite WAL substrate: `BEGIN IMMEDIATE` acquires write ownership, and the `(stream_id, sequence)` PRIMARY KEY enforces per-stream append ordering. There is no process-level mutex, PID lock, or advisory lock file — any number of OS processes may attach to the same event store simultaneously. See §4 for the full concurrency model. (PID locking was removed in #1343 / Wave A.)
+Multi-process serialization is provided entirely by the SQLite WAL substrate: `BEGIN IMMEDIATE` acquires write ownership, and the `(streamId, sequence)` PRIMARY KEY enforces per-stream append ordering. There is no process-level mutex, PID lock, or advisory lock file — any number of OS processes may attach to the same event store simultaneously. See §4 for the full concurrency model. (PID locking was removed in #1343 / Wave A.)
 
 ### One-line characterization
 
@@ -31,9 +31,9 @@ Six guarantees the runtime provides to every consumer. Most are enforced at the 
 | ID | Guarantee | Enforcement |
 |---|---|---|
 | RT-1 | Event log is the source of truth | Discipline — handlers append before mutating projections; reconcile is the rebuild path |
-| RT-2 | Total order within a stream | SQLite autoincrement on `(stream_id, sequence)` |
+| RT-2 | Total order within a stream | SQLite autoincrement on `(streamId, sequence)` |
 | RT-3 | Atomic append | `BEGIN IMMEDIATE` transaction wrapping idempotency-key check + sequence allocation + event INSERT + outbox INSERT |
-| RT-4 | Single writer per stream | `PRIMARY KEY (stream_id, sequence)` rejects duplicate sequences; OCC retry on conflict |
+| RT-4 | Single writer per stream | `PRIMARY KEY (streamId, sequence)` rejects duplicate sequences; OCC retry on conflict |
 | RT-5 | Idempotent at-least-once delivery | `UNIQUE INDEX (idempotency_key)` collapses duplicate appends |
 | RT-6 | Operations atomic against the log | Event-first commit point; handlers retry-safe; reducers replay-safe |
 
@@ -83,13 +83,14 @@ These guarantees come from database research (Mohan et al., *ARIES* 1992; Bernst
    ┌─────────────────────────────────▼────────────────────────────────────┐
    │  L1  Storage — bun:sqlite (WAL)                                      │
    │      events / sequences / idempotency_claims / workflow_state        │
-   │      outbox / view_cache / streams / schema_version                  │
+   │      outbox / view_cache / streams / projection_snapshots /          │
+   │      schema_version                                                  │
    └──────────────────────────────────────────────────────────────────────┘
 ```
 
 ### L1 — Storage
 
-SQLite via `bun:sqlite`. ACID. WAL journal mode (`PRAGMA journal_mode = WAL`) with `busy_timeout = 5000ms` as the C-layer contention-absorption tier. Schema includes `events`, `workflow_state`, `outbox`, `view_cache`, `sequences`, `idempotency_claims`, `streams`, `schema_version`. Storage handle is injected via `DispatchContext`; nothing imports `Database` outside `storage/sqlite-backend.ts` (CI gate enforces). See [`docs/designs/2026-05-08-durable-event-store-substrate.md`](../designs/2026-05-08-durable-event-store-substrate.md) §C1.
+SQLite via `bun:sqlite`. ACID. WAL journal mode (`PRAGMA journal_mode = WAL`) with `busy_timeout = 5000ms` as the C-layer contention-absorption tier. Schema includes `events`, `workflow_state`, `outbox`, `view_cache`, `sequences`, `idempotency_claims`, `streams`, `projection_snapshots`, `schema_version`. Storage handle is injected via `DispatchContext`; nothing imports `Database` outside `storage/sqlite-backend.ts` (CI gate enforces). See [`docs/designs/2026-05-08-durable-event-store-substrate.md`](../designs/2026-05-08-durable-event-store-substrate.md) §C1.
 
 ### L2 — Event store
 
@@ -145,7 +146,7 @@ Concurrency is single-machine, multi-process, multi-agent. Sources of concurrent
 **Tier 2 — Cross-process (substrate):** SQLite WAL journal mode (`PRAGMA journal_mode = WAL`) and two specific mechanisms:
 
 - **`BEGIN IMMEDIATE`:** Opens every write transaction in immediate mode, acquiring the database write lock up-front. A writer that observes the database busy retries through SQLite's own C-layer backoff (`busy_timeout = 5000ms`) before the JS-layer retry budget kicks in (`SqliteBusyExhaustedError` after 5 JS-layer attempts). Concurrent readers are never blocked by writers in WAL mode.
-- **`PRIMARY KEY (stream_id, sequence)`:** Rejects duplicate sequences at the constraint layer. If two cross-process writers race and both attempt the same sequence, the loser's transaction raises a constraint violation; `AtomicAppender` translates that to `{ ok: false, reason: 'sequence-conflict' }` and the caller retries against the new tail (optimistic concurrency).
+- **`PRIMARY KEY (streamId, sequence)`:** Rejects duplicate sequences at the constraint layer. If two cross-process writers race and both attempt the same sequence, the loser's transaction raises a constraint violation; `AtomicAppender` translates that to `{ ok: false, reason: 'sequence-conflict' }` and the caller retries against the new tail (optimistic concurrency).
 
 Prior to #1343 (Wave A), `EventStore.initialize()` acquired a per-`stateDir` PID lock so that only one OS process could attach to a given event store at a time. That contract was removed: `initialize()` is now an idempotent no-op marker, and any number of `EventStore` instances may attach to the same `stateDir` from any number of OS processes. The WAL substrate's `BEGIN IMMEDIATE` + PK constraint is the sole cross-process serialization primitive.
 
