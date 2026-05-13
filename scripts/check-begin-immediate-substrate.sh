@@ -78,11 +78,14 @@ for match in "${ALL_MATCHES[@]}"; do
     # Allow: comment lines — JSDoc/inline comments that mention the primitive
     # in documentation are not SQL statements leaking through the abstraction.
     # Strip the "filepath:lineno:" prefix and check if the content line is a
-    # comment (leading whitespace then *, //, or # before any non-whitespace).
+    # comment (leading whitespace then *, //, /*, or # before any non-whitespace).
+    # /* covers block-comment opener lines like `/* ... BEGIN IMMEDIATE` so
+    # documentation snippets and disabled examples don't trip the gate.
+    # (CodeRabbit review #4278133032 on PR #1344.)
     content="${match#*:}"          # strip filepath
     content="${content#*:}"        # strip lineno
     trimmed="${content#"${content%%[![:space:]]*}"}"  # ltrim whitespace
-    if [[ "$trimmed" == \** || "$trimmed" == //* || "$trimmed" == \#* ]]; then
+    if [[ "$trimmed" == \** || "$trimmed" == //* || "$trimmed" == \#* || "$trimmed" == /\** ]]; then
         continue
     fi
 

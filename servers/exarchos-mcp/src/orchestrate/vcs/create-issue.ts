@@ -98,36 +98,36 @@ interface IssueExecutedData {
  * reuse it instead of minting a fresh UUID — preserving the body-marker
  * recovery contract across process restarts.
  *
- * Returns `undefined` when no unmatched matching request exists, or when
- * the query itself fails (we fail open here because the scan is a recovery
- * optimization; the worst case is the caller mints a new UUID and lands at
- * the prior code path).
+ * Returns `undefined` when no unmatched matching request exists.
+ *
+ * Failure mode: query errors PROPAGATE as exceptions. Earlier revisions
+ * swallowed them and fell through to a fresh UUID, but that defeats the
+ * recovery contract — the marker scan in Phase B then searches for the
+ * NEW UUID, finds nothing (the prior issue is tagged with the OLD UUID),
+ * and Phase C creates a duplicate issue. The caller wraps this call in a
+ * try/catch and surfaces PRECHECK_FAILED so the operation can be retried
+ * once the event store is healthy. (CodeRabbit review #4278133032 on
+ * PR #1344.)
  */
 async function recoverOperationId(
   ctx: DispatchContext,
   args: HandleCreateIssueArgs,
 ): Promise<string | undefined> {
-  try {
-    const requested = await ctx.eventStore.query('vcs', {
-      type: 'issue.create.requested',
-    });
-    const executed = await ctx.eventStore.query('vcs', {
-      type: 'issue.create.executed',
-    });
-    const executedOps = new Set(
-      executed.map((e) => (e.data as unknown as IssueExecutedData).operationId),
-    );
-    for (let i = requested.length - 1; i >= 0; i -= 1) {
-      const data = requested[i].data as unknown as IssueRequestedData;
-      if (executedOps.has(data.operationId)) continue;
-      if (data.title === args.title && data.body === args.body) {
-        return data.operationId;
-      }
+  const requested = await ctx.eventStore.query('vcs', {
+    type: 'issue.create.requested',
+  });
+  const executed = await ctx.eventStore.query('vcs', {
+    type: 'issue.create.executed',
+  });
+  const executedOps = new Set(
+    executed.map((e) => (e.data as unknown as IssueExecutedData).operationId),
+  );
+  for (let i = requested.length - 1; i >= 0; i -= 1) {
+    const data = requested[i].data as unknown as IssueRequestedData;
+    if (executedOps.has(data.operationId)) continue;
+    if (data.title === args.title && data.body === args.body) {
+      return data.operationId;
     }
-  } catch {
-    // Swallow query failures — the handler's downstream recovery scan
-    // is still load-bearing; falling through to a fresh UUID is no
-    // worse than the pre-fix behaviour.
   }
   return undefined;
 }
@@ -156,7 +156,28 @@ export async function handleCreateIssue(
   // Caller-supplied operationId always wins — the orchestrator is free
   // to pass an explicit correlation key (and the long-term fix per
   // #1352 is for the orchestrator to discover and pass it).
-  const operationId = args.operationId ?? (await recoverOperationId(ctx, args)) ?? randomUUID();
+  //
+  // recoverOperationId now PROPAGATES query failures (it used to swallow
+  // them, which created a duplicate-issue window after a prior crash —
+  // CodeRabbit review #4278133032). Wrap the call so the failure surfaces
+  // as PRECHECK_FAILED rather than letting the handler proceed with a
+  // fresh UUID that the marker scan would never match.
+  let operationId: string;
+  try {
+    operationId = args.operationId ?? (await recoverOperationId(ctx, args)) ?? randomUUID();
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    return {
+      success: false,
+      error: {
+        code: 'PRECHECK_FAILED',
+        message:
+          `create_issue: recovery operationId scan (eventStore.query) failed — ` +
+          `refusing to proceed because minting a fresh UUID after a prior ` +
+          `crash would create a duplicate issue. Underlying error: ${message}`,
+      },
+    };
+  }
   const marker = buildBodyMarker(operationId);
 
   // Idempotency keys derived from operationId — mirrors create-pr.ts so a

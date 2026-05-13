@@ -282,6 +282,20 @@ export class InMemoryBackend implements StorageBackend {
 
   deleteStream(streamId: string): void {
     this.events.delete(streamId);
+    this.outbox.delete(streamId);
+    // viewCache + projectionSnapshots use composite keys prefixed with
+    // `${streamId}:`. Iterate and drop matching entries so a delete /
+    // recreate cycle of the same streamId does not surface stale view
+    // state or fold against pre-delete projection history. Mirrors the
+    // SqliteBackend.deleteStream cleanup contract; CodeRabbit review
+    // #4278133032 on PR #1344.
+    const streamPrefix = `${streamId}:`;
+    for (const key of this.viewCache.keys()) {
+      if (key.startsWith(streamPrefix)) this.viewCache.delete(key);
+    }
+    for (const key of this.projectionSnapshots.keys()) {
+      if (key.startsWith(streamPrefix)) this.projectionSnapshots.delete(key);
+    }
   }
 
   deleteState(featureId: string): void {

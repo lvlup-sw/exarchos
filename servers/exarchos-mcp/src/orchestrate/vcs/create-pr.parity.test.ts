@@ -64,6 +64,11 @@ function makeStubProvider(): VcsProvider {
     getPrComments: vi.fn(),
     getPrDiff: vi.fn(),
     createIssue: vi.fn(),
+    // Wave-B added searchIssuesByMarker as a required interface member
+    // for handleCreateIssue's recovery precheck. handleCreatePr does not
+    // invoke it, so an empty-array stub is sufficient to satisfy the
+    // strict VcsProvider interface here.
+    searchIssuesByMarker: vi.fn().mockResolvedValue([]),
     getRepository: vi.fn(),
   };
 }

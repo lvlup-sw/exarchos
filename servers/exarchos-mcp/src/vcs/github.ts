@@ -306,14 +306,20 @@ export class GitHubProvider implements VcsProvider {
     // `gh issue list --search "<!-- exarchos-op:UUID -->"` returns no
     // results even when an issue with that marker exists in its body —
     // Sentry #14058284 and #14058450. Switching the marker to a visible
-    // footer would change rendered-issue UX, so instead we list recent
-    // issues and scan their bodies client-side, which sees the marker
-    // regardless of indexing rules.
+    // footer would change rendered-issue UX, so instead we list issues
+    // and scan their bodies client-side, which sees the marker regardless
+    // of indexing rules.
     //
-    // Scope: open + closed, capped at a reasonable recent window. The
-    // marker is unique per operationId (UUID v4), so collisions across
-    // unrelated runs are negligible; we don't need an exhaustive scan.
-    const RECENT_ISSUE_LIMIT = 200;
+    // Scope: open + closed, walked newest-first via gh's default sort.
+    // Earlier revisions used a 200-issue cap; under issue churn the
+    // original marker could fall outside the window and Phase C would
+    // create a duplicate (CodeRabbit review #4278133032). Bumped to
+    // gh's effective per-call ceiling (1000) so the recovery window
+    // matches what gh can return in a single batch. Repositories with
+    // >1000 open+closed issues created since the prior crash should
+    // route through `args.operationId` (orchestrator-supplied) so this
+    // scan never has to be authoritative — see #1352.
+    const RECENT_ISSUE_LIMIT = 1000;
     const marker = `<!-- exarchos-op:${operationId} -->`;
     const output = await exec('gh', [
       'issue',

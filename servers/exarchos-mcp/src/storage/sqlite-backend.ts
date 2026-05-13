@@ -1526,6 +1526,20 @@ export class SqliteBackend implements StorageBackend {
     const deleteFn = this.db.transaction(() => {
       this.db.prepare('DELETE FROM events WHERE streamId = ?').run(streamId);
       this.db.prepare('DELETE FROM sequences WHERE streamId = ?').run(streamId);
+      // Purge the rest of the per-stream tables in the same transaction.
+      // Earlier revisions left these populated; a delete/recreate of the
+      // same streamId would then observe stale idempotency claims (replay
+      // mis-detected as duplicate), stale projection snapshots (hydrate
+      // wrong state), stale outbox rows (re-emit old side-effect intents),
+      // and stale view cache (read-back surfaces deleted history).
+      // (CodeRabbit review #4278133032 on PR #1344.)
+      this.db.prepare('DELETE FROM idempotency_claims WHERE streamId = ?').run(streamId);
+      this.db.prepare('DELETE FROM outbox WHERE streamId = ?').run(streamId);
+      this.db.prepare('DELETE FROM view_cache WHERE streamId = ?').run(streamId);
+      // projection_snapshots uses snake_case column names (matches the
+      // V4→V5 migration spec); the row PK is composite over
+      // (stream_id, projection_id, projection_version, sequence).
+      this.db.prepare('DELETE FROM projection_snapshots WHERE stream_id = ?').run(streamId);
       // Drop the `streams` registry row too. `registerStream` is
       // `INSERT OR IGNORE`, so a delete/recreate cycle that left the
       // registry row alive would permanently pin the old `workflow_type`

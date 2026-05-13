@@ -18,6 +18,7 @@
 import { VersionConflictError } from './state-store.js';
 import { ConcurrencyError } from '../event-store/concurrency-error.js';
 import { StorageBusyError } from '../event-store/storage-busy-error.js';
+import { SequenceConflictError } from '../event-store/store.js';
 
 /** Maximum number of attempts (initial + retries) before bubbling out. */
 export const MAX_STATE_RETRIES = 3;
@@ -38,17 +39,26 @@ export const STATE_BASE_DELAY_MS = 50;
  *   - `StorageBusyError` — substrate `BEGIN IMMEDIATE` retry budget
  *     exhausted. The other writer commits on its own; the same closure
  *     succeeds on the next attempt.
+ *   - `SequenceConflictError` — legacy OCC signal raised by
+ *     `EventStore.append()` (separate from the R-2 primitive layer's
+ *     `ConcurrencyError`). Wave-B `*.requested` Phase-A appends route
+ *     through this surface; without recognizing the legacy class the
+ *     retry loop never fires under real OCC, so the requested-event
+ *     write surfaces immediately as a terminal failure.
+ *     (CodeRabbit review #4278133032 on PR #1344.)
  *
  * Without this widening, a `decide`-based migration target (merge-orchestrate,
- * execute-merge) would surface a transient substrate or OCC signal as a
- * terminal failure to the operator. Three classes, one retry policy — the
- * recovery posture (back off, re-decide) is identical.
+ * execute-merge) or a Wave-B two-event-split handler (create-pr, create-issue,
+ * add-pr-comment, branch.delete, worktree.remove) would surface a transient
+ * substrate or OCC signal as a terminal failure to the operator. Four classes,
+ * one retry policy — the recovery posture (back off, re-decide) is identical.
  */
 function isRetryable(err: unknown): boolean {
   return (
     err instanceof VersionConflictError ||
     err instanceof ConcurrencyError ||
-    err instanceof StorageBusyError
+    err instanceof StorageBusyError ||
+    err instanceof SequenceConflictError
   );
 }
 

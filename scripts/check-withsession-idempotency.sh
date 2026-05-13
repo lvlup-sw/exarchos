@@ -161,7 +161,13 @@ while IFS= read -r file; do
         # `operationId:`, producing a false-positive CI failure.
         if echo "$line" | grep -qE '^[0-9]+[:-].*\.withSession\('; then
             content="${line#*[:-]}"
-            if [[ "$content" =~ ^[[:space:]]*\* ]] || [[ "$content" =~ //.*\.withSession\( ]]; then
+            # Trim leading whitespace so block-comment opener lines like
+            # `    /* example .withSession(...)` are recognised. The
+            # third regex branch (`/\*`) was added to stop docstring
+            # examples from being mis-classified as real call sites.
+            # (CodeRabbit review #4278133032 on PR #1344.)
+            trimmed="${content#"${content%%[![:space:]]*}"}"
+            if [[ "$trimmed" =~ ^(\*|//|/\*) ]] || [[ "$content" =~ //.*\.withSession\( ]]; then
                 continue
             fi
             if [[ -n "$match_lineno" ]]; then

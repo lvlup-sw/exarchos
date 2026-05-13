@@ -84,9 +84,12 @@ export async function handleAddPrComment(
   try {
     const operationId = args.operationId ?? randomUUID();
     const marker = buildMarker(operationId);
-    const prNumber = parseInt(args.prId, 10);
-
-    if (isNaN(prNumber) || prNumber <= 0) {
+    // Strict numeric validation: parseInt accepts trailing non-digits
+    // ("42abc" → 42, "1.9" → 1) and would silently route the comment to
+    // the wrong PR. The /^[1-9]\d*$/ pattern requires the entire string
+    // to be a positive decimal integer with no leading zeros, sign, or
+    // suffix. (CodeRabbit review #4278133032 on PR #1344.)
+    if (!/^[1-9]\d*$/.test(args.prId)) {
       return {
         success: false,
         error: {
@@ -95,6 +98,7 @@ export async function handleAddPrComment(
         },
       };
     }
+    const prNumber = parseInt(args.prId, 10);
 
     const provider = await createVcsProvider({ config: ctx.projectConfig });
     const appender = ctx.eventStore.getAppender();

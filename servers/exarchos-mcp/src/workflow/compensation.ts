@@ -161,8 +161,19 @@ async function worktreeIsRegistered(
   options: CompensationOptions,
 ): Promise<boolean> {
   const stdout = await runCommandCaptureStdout('git', ['worktree', 'list'], options);
-  // Each line starts with the absolute path of the worktree
-  return stdout.split('\n').some((line) => line.startsWith(worktreePath));
+  // Each line starts with the absolute path of the worktree, followed by
+  // whitespace and the SHA/branch info. Match the path as a complete
+  // token: a bare startsWith check would treat "/tmp/wt-old" as a match
+  // for "/tmp/wt", routing an absent worktree down the "registered" path
+  // and producing a false remove attempt. (CodeRabbit review #4278133032.)
+  return stdout.split('\n').some((line) => {
+    if (!line.startsWith(worktreePath)) return false;
+    const next = line.charAt(worktreePath.length);
+    // Empty (line === worktreePath, exact equality) or a delimiter
+    // (whitespace before the SHA/branch fields). Anything else means
+    // the prefix matched a longer, unrelated path.
+    return next === '' || next === ' ' || next === '\t';
+  });
 }
 
 // ─── Compensation Interfaces ─────────────────────────────────────────────────
@@ -598,6 +609,23 @@ export async function executeCompensation(
   eventSequence: number,
   options: CompensationOptions,
 ): Promise<CompensationResult> {
+  // Fail-fast on partially-wired event-store config. Both destructive
+  // actions (delete-feature-branches, cleanup-worktrees) gate the
+  // two-event split on `options.eventStore && options.featureId`. If a
+  // caller wires `eventStore` but forgets `featureId`, compensation
+  // would silently degrade to the legacy path — git side effects still
+  // run, but no `*.requested` / `*.executed` audit trail lands. Surface
+  // the misconfiguration at the boundary instead of producing a
+  // deceptively-successful result. (CodeRabbit review #4278133032 on
+  // PR #1344.)
+  if (options.eventStore !== undefined && options.featureId === undefined) {
+    throw new Error(
+      'executeCompensation: options.eventStore was provided without ' +
+        'options.featureId — two-event-split audit trail cannot land ' +
+        'without a stream ID. Either pass both, or omit both to use the ' +
+        'legacy non-event-sourced path.',
+    );
+  }
   const phasesInOrder = getPhasesInReverseOrder(currentPhase);
   const allActions = getCompensationActions();
 

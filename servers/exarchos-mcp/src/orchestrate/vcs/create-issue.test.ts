@@ -41,6 +41,12 @@ function makeMockCtx(): DispatchContext {
     stateDir: '/tmp/test-state',
     eventStore: {
       append: vi.fn().mockResolvedValue({ sequence: 1 }),
+      // recoverOperationId now propagates query failures (CodeRabbit
+      // review #4278133032 — fail-closed instead of minting a fresh
+      // UUID that the marker scan would never match). Default to an
+      // empty result so the happy-path tests fall through to a fresh
+      // randomUUID() exactly like before.
+      query: vi.fn().mockResolvedValue([]),
     } as unknown as EventStore,
     enableTelemetry: false,
   };
@@ -202,7 +208,10 @@ describe('handleCreateIssue', () => {
 
     const retryCtx: DispatchContext = {
       stateDir: '/tmp/test-state',
-      eventStore: { append: fakeAppend } as unknown as EventStore,
+      eventStore: {
+        append: fakeAppend,
+        query: vi.fn().mockResolvedValue([]),
+      } as unknown as EventStore,
       enableTelemetry: false,
     };
 
@@ -331,6 +340,39 @@ describe('handleCreateIssue', () => {
 
     // The non-idempotent side effect MUST NOT fire when we cannot verify
     // whether a prior invocation already created the issue.
+    expect(mockProvider.createIssue).not.toHaveBeenCalled();
+  });
+
+  // ─── CodeRabbit review #4278133032: operationId-recovery must not fail-open ──
+  //
+  // recoverOperationId previously swallowed eventStore.query failures and let
+  // the handler mint a fresh UUID. After a Phase-A/Phase-C crash this
+  // produced a duplicate issue: the body marker was the OLD UUID, the
+  // marker scan searched for the NEW UUID, and Phase C re-fired
+  // gh issue create. The handler now propagates query failures as
+  // PRECHECK_FAILED so the operation can be retried once the event store
+  // is healthy.
+  it('CreateIssue_RecoverOperationIdQueryFailure_ReturnsPrecheckFailedWithoutCallingProvider', async () => {
+    const failingQueryCtx: DispatchContext = {
+      stateDir: '/tmp/test-state',
+      eventStore: {
+        append: vi.fn().mockResolvedValue({ sequence: 1 }),
+        query: vi.fn().mockRejectedValue(new Error('event store offline')),
+      } as unknown as EventStore,
+      enableTelemetry: false,
+    };
+
+    const args = {
+      title: 'Bug',
+      body: 'Details',
+      listIssuesByMarker: vi.fn().mockResolvedValue([]),
+    };
+
+    const result = await handleCreateIssue(args, failingQueryCtx);
+
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('PRECHECK_FAILED');
+    expect(result.error?.message).toContain('event store offline');
     expect(mockProvider.createIssue).not.toHaveBeenCalled();
   });
 });
