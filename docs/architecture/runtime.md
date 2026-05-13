@@ -160,6 +160,35 @@ What we do **not** need: distributed consensus, leader election, vector clocks, 
 
 > **See also:** `docs/designs/2026-05-11-marten-followups.md` §"Task A4 — PID lock demotion" and issue #1343 for the rationale and implementation history.
 
+### Process-manager handlers (two-event split)
+
+Handlers that perform non-idempotent external side effects (GitHub API calls, git mutations on shared branches, worktree removal) split each operation into two events:
+
+```text
+*.requested  → handler validates intent, persists full payload
+              → handler performs external side effect (with idempotent precheck)
+*.executed   → handler persists result (id, url, deletedFlag, ...)
+```
+
+The split is the canonical event-sourcing process-manager pattern (Akka *Effect.thenRun*; Wolverine *Aggregate Handler Workflow*; Greg Young, *Why Event Sourced Systems Fail* §"retry traps"). Three properties hold by construction:
+
+1. **No re-fire on retry.** When `withStateRetry` re-enters the handler after `ConcurrencyError`, the `*.requested` event is already in the stream; its `appendComputed(idempotencyKey: operationId)` collapses the second emit to a no-op. The external side effect runs once.
+2. **Recovery from mid-operation interruption.** If the runtime crashes between `*.requested` and `*.executed`, the next invocation observes `*.requested` without a paired `*.executed` and runs an idempotent precheck (e.g., "does the PR with these `(head, base)` already exist?"). On a hit, it emits `*.executed` referencing the prior side effect's result; on a miss, it performs the side effect cleanly.
+3. **Full intent preserved.** `*.requested` carries the entire input payload (title, body, labels — not just `operationId`), so a recovery reader can reconstitute the operation from the event log alone, without consulting external state. INV-1 LOW from the v2.10.0-preview.2 audit.
+
+Reference consumers (one event-pair each):
+
+| Handler | Events | Idempotent precheck |
+|---|---|---|
+| `merge-orchestrate` (#1313, preview.2) | `merge.requested` / `merge.executed` | branch tip + already-merged commit detection |
+| `create-pr` (#1342 P1.B) | `pr.create.requested` / `pr.create.executed` | `(head, base)` PR existence query |
+| `add-pr-comment` (#1342 P1.B) | `pr.comment.requested` / `pr.comment.executed` | `<!-- exarchos-op:UUID -->` body marker scan |
+| `create-issue` (#1342 P1.B) | `issue.create.requested` / `issue.create.executed` | `<!-- exarchos-op:UUID -->` body marker scan |
+| `delete-feature-branches` (#1342 P1.B) | `branch.delete.requested` / `branch.delete.executed` | `git rev-parse --verify` + `git ls-remote --heads` |
+| `cleanup-worktrees` (#1342 P1.B) | `worktree.remove.requested` / `worktree.remove.executed` | `git worktree list` filter |
+
+The CI grep gate `scripts/check-withsession-idempotency.sh` enforces that any new `.withSession({...})` call site adopts the contract markers (`operationId` or explicit `allowNonIdempotent: true`), so the pattern stays load-bearing as new handlers are added.
+
 ---
 
 ## 5. Recovery model
