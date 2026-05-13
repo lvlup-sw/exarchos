@@ -17,6 +17,7 @@ import type {
   PrComment,
   CreateIssueOpts,
   IssueResult,
+  IssueSearchSummary,
   RepoInfo,
 } from './provider.js';
 import { exec } from './shell.js';
@@ -275,6 +276,10 @@ export class GitHubProvider implements VcsProvider {
       args.push('--label', opts.labels.join(','));
     }
 
+    if (opts.assignees && opts.assignees.length > 0) {
+      args.push('--assignee', opts.assignees.join(','));
+    }
+
     const output = await exec('gh', args);
     const url = output.trim();
     const match = url.match(/\/issues\/(\d+)/);
@@ -282,6 +287,42 @@ export class GitHubProvider implements VcsProvider {
       throw new Error(`Failed to parse issue number from gh output: ${url}`);
     }
     return { url, number: parseInt(match[1], 10) };
+  }
+
+  async searchIssuesByMarker(operationId: string): Promise<IssueSearchSummary[]> {
+    // The two-event-split recovery precheck — see CodeRabbit #3224631237 on
+    // PR #1348. `gh issue list --search` scans for the marker embedded by
+    // `handleCreateIssue` (`<!-- exarchos-op:UUID -->`). We scope to the
+    // current repo via `--repo {owner}/{repo}` (gh inherits this from the
+    // working repo when not specified).
+    //
+    // Output is JSON; we map to IssueSearchSummary. A throw on non-zero exit
+    // surfaces as a real failure to the handler, which (per the two-event-
+    // split contract) MUST NOT proceed with a duplicate-creating side effect
+    // when the precheck cannot run.
+    const marker = `<!-- exarchos-op:${operationId} -->`;
+    const output = await exec('gh', [
+      'issue',
+      'list',
+      '--state',
+      'all',
+      '--search',
+      marker,
+      '--json',
+      'number,url,body',
+      '--limit',
+      '100',
+    ]);
+    const parsed = JSON.parse(output) as Array<{
+      number: number;
+      url: string;
+      body: string;
+    }>;
+    return parsed.map((entry) => ({
+      number: entry.number,
+      url: entry.url,
+      body: entry.body,
+    }));
   }
 
   async getRepository(): Promise<RepoInfo> {

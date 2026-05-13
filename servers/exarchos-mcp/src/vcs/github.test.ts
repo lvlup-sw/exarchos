@@ -547,4 +547,62 @@ index abc123..def456 100644
     expect(callArgs).not.toContain('--label');
     expect(result.number).toBe(100);
   });
+
+  // CodeRabbit #3224631240: assignees flag must thread through to gh CLI.
+  it('GitHubProvider_CreateIssue_WithAssignees_PassesAssigneeFlag', async () => {
+    mockExec.mockResolvedValue('https://github.com/test/repo/issues/101\n');
+
+    await provider.createIssue({
+      title: 'Bug',
+      body: 'Body',
+      assignees: ['alice', 'bob'],
+    });
+
+    expect(mockExec).toHaveBeenCalledWith(
+      'gh',
+      expect.arrayContaining(['--assignee', 'alice,bob']),
+    );
+  });
+
+  // CodeRabbit #3224631237: searchIssuesByMarker is the provider-backed
+  // recovery precheck used by handleCreateIssue. Verify it forms the
+  // correct gh CLI query and maps the JSON output.
+  it('GitHubProvider_SearchIssuesByMarker_QueriesGhIssueList', async () => {
+    const operationId = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
+    mockExec.mockResolvedValue(JSON.stringify([
+      {
+        number: 42,
+        url: 'https://github.com/test/repo/issues/42',
+        body: `Issue body\n\n<!-- exarchos-op:${operationId} -->`,
+      },
+    ]));
+
+    const result = await provider.searchIssuesByMarker(operationId);
+
+    expect(mockExec).toHaveBeenCalledWith(
+      'gh',
+      expect.arrayContaining([
+        'issue', 'list',
+        '--search', `<!-- exarchos-op:${operationId} -->`,
+        '--json', 'number,url,body',
+      ]),
+    );
+    expect(result).toEqual([
+      {
+        number: 42,
+        url: 'https://github.com/test/repo/issues/42',
+        body: expect.stringContaining(operationId),
+      },
+    ]);
+  });
+
+  it('GitHubProvider_SearchIssuesByMarker_NoMatches_ReturnsEmptyArray', async () => {
+    mockExec.mockResolvedValue('[]');
+
+    const result = await provider.searchIssuesByMarker(
+      'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee',
+    );
+
+    expect(result).toEqual([]);
+  });
 });

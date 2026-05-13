@@ -59,6 +59,9 @@ function makeStubProvider(): VcsProvider {
     getPrComments: vi.fn(),
     getPrDiff: vi.fn(),
     createIssue: vi.fn().mockResolvedValue({ number: ISSUE_NUMBER, url: ISSUE_URL }),
+    // Empty marker scan — parity test does NOT exercise the recovery branch.
+    // Required by handleCreateIssue per CodeRabbit #3224631237.
+    searchIssuesByMarker: vi.fn().mockResolvedValue([]),
     getRepository: vi.fn(),
   };
 }
@@ -81,8 +84,14 @@ function buildCreateIssueCompositeStub(): CompositeHandler {
         },
       };
     }
+    // Inject the empty marker scan that the handler now requires (see
+    // CodeRabbit #3224631237). Parity tests don't exercise recovery, so
+    // an empty scan is correct here.
     return handleCreateIssue(
-      rest as Parameters<typeof handleCreateIssue>[0],
+      {
+        ...(rest as Omit<Parameters<typeof handleCreateIssue>[0], 'listIssuesByMarker'>),
+        listIssuesByMarker: async () => [],
+      },
       ctx,
     );
   };

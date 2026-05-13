@@ -17,6 +17,7 @@ import type {
   PrComment,
   CreateIssueOpts,
   IssueResult,
+  IssueSearchSummary,
   RepoInfo,
 } from './provider.js';
 import { UnsupportedOperationError } from './provider.js';
@@ -276,6 +277,10 @@ export class AzureDevOpsProvider implements VcsProvider {
 
   async createIssue(_opts: CreateIssueOpts): Promise<IssueResult> {
     throw new UnsupportedOperationError('azure-devops', 'createIssue');
+  }
+
+  async searchIssuesByMarker(_operationId: string): Promise<IssueSearchSummary[]> {
+    throw new UnsupportedOperationError('azure-devops', 'searchIssuesByMarker');
   }
 
   async getRepository(): Promise<RepoInfo> {

@@ -17,6 +17,7 @@ describe('VcsProvider', () => {
       getPrComments: async () => [],
       getPrDiff: async () => '',
       createIssue: async () => ({ number: 0, url: '' }),
+      searchIssuesByMarker: async () => [],
       getRepository: async () => ({ nameWithOwner: '', defaultBranch: '' }),
     };
     expect(provider.name).toBe('github');

@@ -42,12 +42,14 @@ export interface IssueSummary {
 /**
  * Caller-injectable function that queries existing issues for a given
  * operationId marker in the body. Returns an empty array when no match is
- * found. Defaults to a no-op (production uses the VCS provider's gh search;
- * tests supply a stub directly).
+ * found, throws on provider failure.
  *
- * The default implementation returns [] (no match found) because the full
- * `gh issue list --search` surface is not part of the VcsProvider interface.
- * When a project adds `listIssues` to their provider, they can supply it here.
+ * This is REQUIRED at the handler boundary — there is no silent default.
+ * CodeRabbit #3224631237 on PR #1348 surfaced that a `() => []` default
+ * effectively disables the recovery precheck and causes duplicate issues
+ * after a Phase-A/Phase-C crash. The composite handler wires the GitHub
+ * provider's `searchIssuesByMarker` as the production implementation;
+ * tests pass an explicit stub.
  */
 export type ListIssuesByMarker = (operationId: string) => Promise<IssueSummary[]>;
 
@@ -68,10 +70,13 @@ export interface HandleCreateIssueArgs {
   readonly operationId?: string;
 
   /**
-   * DI hook: scan existing issues for the operationId marker.
-   * Defaults to a no-op that always returns [] (no pre-existing issue found).
+   * REQUIRED — DI hook that scans existing issues for the operationId marker.
+   * No silent default: the composite handler injects the provider-backed
+   * implementation; tests inject an explicit stub. See CodeRabbit
+   * #3224631237 for the rationale (silent default → duplicate issues on
+   * crash recovery).
    */
-  readonly listIssuesByMarker?: ListIssuesByMarker;
+  readonly listIssuesByMarker: ListIssuesByMarker;
 }
 
 // ─── Handler ─────────────────────────────────────────────────────────────────
@@ -89,8 +94,25 @@ export async function handleCreateIssue(
   const operationId = args.operationId ?? randomUUID();
   const marker = buildBodyMarker(operationId);
 
-  const listIssuesByMarker: ListIssuesByMarker =
-    args.listIssuesByMarker ?? (async () => []);
+  // The recovery precheck is load-bearing for the two-event split (INV-1).
+  // A missing dependency would silently disable the precheck and re-fire
+  // the non-idempotent `gh issue create` after a crash → duplicate issue.
+  // Surface the gap at the boundary instead of defaulting to a no-op.
+  // (CodeRabbit #3224631237 on PR #1348.)
+  if (typeof args.listIssuesByMarker !== 'function') {
+    return {
+      success: false,
+      error: {
+        code: 'PRECONDITION_FAILED',
+        message:
+          'handleCreateIssue: listIssuesByMarker dependency is required — ' +
+          'the recovery precheck cannot run without it. The composite ' +
+          'handler wires VcsProvider.searchIssuesByMarker as the default; ' +
+          'callers invoking handleCreateIssue directly must inject one.',
+      },
+    };
+  }
+  const listIssuesByMarker = args.listIssuesByMarker;
 
   // ─── Phase A — durable INTENT (audit INV-1 MEDIUM) ───────────────────────
   //
@@ -139,30 +161,43 @@ export async function handleCreateIssue(
   // This handles the crash-recovery case: Phase A committed but the handler
   // crashed before Phase C. The issue exists on GitHub but `issue.create.executed`
   // was never committed. Detecting this via body marker avoids a duplicate.
+  //
+  // The scan MUST NOT silently fail-open: if we cannot determine whether a
+  // prior invocation already created the issue, we MUST NOT proceed to
+  // `provider.createIssue` (would create a duplicate on every retry). Surface
+  // the failure to the caller — they can retry once the provider is healthy.
+  // (CodeRabbit #3224631237 on PR #1348.)
   let existingIssue: IssueSummary | undefined;
   try {
     const candidates = await listIssuesByMarker(operationId);
     existingIssue = candidates.find((issue) => issue.body.includes(marker));
-  } catch {
-    // Marker scan is best-effort. If it fails, proceed with creating the issue.
-    // A subsequent invocation's scan will detect the duplicate if needed.
-    existingIssue = undefined;
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    return {
+      success: false,
+      error: {
+        code: 'PRECHECK_FAILED',
+        message:
+          `create_issue: recovery precheck (listIssuesByMarker) failed — refusing ` +
+          `to proceed because re-firing gh issue create could create a duplicate. ` +
+          `Underlying error: ${message}`,
+      },
+    };
   }
 
   if (existingIssue !== undefined) {
-    // Issue already exists — emit `issue.create.executed` with the recovered data.
-    try {
-      await ctx.eventStore.append('vcs', {
-        type: 'issue.create.executed',
-        data: {
-          operationId,
-          issueNumber: existingIssue.number,
-          url: existingIssue.url,
-        },
-      });
-    } catch {
-      // Best-effort emit — the recovered data is still returned to caller.
-    }
+    // Issue already exists — emit `issue.create.executed` with the recovered
+    // data. Failure to append here is NOT swallowed: it propagates upstream
+    // so the operator can investigate and replay rather than silently leave
+    // the stream stuck at issue.create.requested.
+    await ctx.eventStore.append('vcs', {
+      type: 'issue.create.executed',
+      data: {
+        operationId,
+        issueNumber: existingIssue.number,
+        url: existingIssue.url,
+      },
+    });
     return {
       success: true,
       data: {
@@ -176,7 +211,9 @@ export async function handleCreateIssue(
   // ─── Phase C — create the issue and emit `issue.create.executed` ─────────
   //
   // Embed the operationId marker in the body so future crash-recovery scans
-  // can detect this issue without re-creating it.
+  // can detect this issue without re-creating it. Assignees are threaded
+  // through to the provider so the durable intent in issue.create.requested
+  // matches what actually gets applied (CodeRabbit #3224631240).
   const markedBody = `${args.body}\n\n${marker}`;
 
   let result;
@@ -185,6 +222,7 @@ export async function handleCreateIssue(
       title: args.title,
       body: markedBody,
       labels: args.labels,
+      assignees: args.assignees,
     });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
@@ -194,18 +232,17 @@ export async function handleCreateIssue(
     };
   }
 
-  try {
-    await ctx.eventStore.append('vcs', {
-      type: 'issue.create.executed',
-      data: {
-        operationId,
-        issueNumber: result.number,
-        url: result.url,
-      },
-    });
-  } catch {
-    // Event emission is best-effort — issue already created
-  }
+  // Phase C event append — propagate failures upstream. Swallowing them
+  // here would leave the stream stuck at issue.create.requested with no
+  // operator signal that the executed record is missing.
+  await ctx.eventStore.append('vcs', {
+    type: 'issue.create.executed',
+    data: {
+      operationId,
+      issueNumber: result.number,
+      url: result.url,
+    },
+  });
 
   return { success: true, data: result };
 }

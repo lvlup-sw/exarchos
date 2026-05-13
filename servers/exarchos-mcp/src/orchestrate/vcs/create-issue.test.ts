@@ -23,10 +23,18 @@ function makeMockProvider(overrides: Partial<VcsProvider> = {}): VcsProvider {
     getPrComments: vi.fn(),
     getPrDiff: vi.fn(),
     createIssue: vi.fn().mockResolvedValue({ number: 123, url: 'https://github.com/repo/issues/123' }),
+    searchIssuesByMarker: vi.fn().mockResolvedValue([]),
     getRepository: vi.fn(),
     ...overrides,
   };
 }
+
+/**
+ * Default empty marker scan. Tests that do NOT exercise the recovery branch
+ * pass this explicitly — the handler now refuses to run without the
+ * dependency injected (CodeRabbit #3224631237).
+ */
+const emptyMarkerScan = vi.fn().mockResolvedValue([]);
 
 function makeMockCtx(): DispatchContext {
   return {
@@ -50,7 +58,11 @@ describe('handleCreateIssue', () => {
   });
 
   it('handleCreateIssue_ValidArgs_CallsProviderCreateIssue', async () => {
-    const args = { title: 'Bug: crash on load', body: 'Steps to reproduce...' };
+    const args = {
+      title: 'Bug: crash on load',
+      body: 'Steps to reproduce...',
+      listIssuesByMarker: emptyMarkerScan,
+    };
 
     await handleCreateIssue(args, ctx);
 
@@ -59,6 +71,7 @@ describe('handleCreateIssue', () => {
       title: 'Bug: crash on load',
       body: expect.stringContaining('Steps to reproduce...'),
       labels: undefined,
+      assignees: undefined,
     });
     // Verify the marker is embedded in the body.
     const call = vi.mocked(mockProvider.createIssue).mock.calls[0][0];
@@ -66,7 +79,7 @@ describe('handleCreateIssue', () => {
   });
 
   it('handleCreateIssue_Success_ReturnsSuccessWithData', async () => {
-    const args = { title: 'Bug: crash', body: 'Details' };
+    const args = { title: 'Bug: crash', body: 'Details', listIssuesByMarker: emptyMarkerScan };
 
     const result = await handleCreateIssue(args, ctx);
 
@@ -75,7 +88,12 @@ describe('handleCreateIssue', () => {
   });
 
   it('handleCreateIssue_WithLabels_PassedToProvider', async () => {
-    const args = { title: 'Bug', body: 'Details', labels: ['bug', 'priority-high'] };
+    const args = {
+      title: 'Bug',
+      body: 'Details',
+      labels: ['bug', 'priority-high'],
+      listIssuesByMarker: emptyMarkerScan,
+    };
 
     await handleCreateIssue(args, ctx);
 
@@ -84,11 +102,32 @@ describe('handleCreateIssue', () => {
       // Body includes the operationId marker appended after original content.
       body: expect.stringContaining('Details'),
       labels: ['bug', 'priority-high'],
+      assignees: undefined,
+    });
+  });
+
+  it('handleCreateIssue_WithAssignees_PassedToProvider', async () => {
+    // CodeRabbit #3224631240: assignees must be threaded through to the
+    // provider, not just recorded in the durable intent event.
+    const args = {
+      title: 'Bug',
+      body: 'Details',
+      assignees: ['alice', 'bob'],
+      listIssuesByMarker: emptyMarkerScan,
+    };
+
+    await handleCreateIssue(args, ctx);
+
+    expect(mockProvider.createIssue).toHaveBeenCalledWith({
+      title: 'Bug',
+      body: expect.stringContaining('Details'),
+      labels: undefined,
+      assignees: ['alice', 'bob'],
     });
   });
 
   it('handleCreateIssue_Success_EmitsTwoEventSequence', async () => {
-    const args = { title: 'Bug', body: 'Details' };
+    const args = { title: 'Bug', body: 'Details', listIssuesByMarker: emptyMarkerScan };
 
     await handleCreateIssue(args, ctx);
 
@@ -119,7 +158,7 @@ describe('handleCreateIssue', () => {
   it('handleCreateIssue_ProviderError_ReturnsFailure', async () => {
     vi.mocked(mockProvider.createIssue).mockRejectedValue(new Error('Rate limited'));
 
-    const args = { title: 'Bug', body: 'Details' };
+    const args = { title: 'Bug', body: 'Details', listIssuesByMarker: emptyMarkerScan };
 
     const result = await handleCreateIssue(args, ctx);
 
@@ -167,7 +206,7 @@ describe('handleCreateIssue', () => {
       enableTelemetry: false,
     };
 
-    const args = { title: 'Retry test', body: 'Phase A retry' };
+    const args = { title: 'Retry test', body: 'Phase A retry', listIssuesByMarker: emptyMarkerScan };
 
     const result = await handleCreateIssue(args, retryCtx);
 
@@ -240,5 +279,53 @@ describe('handleCreateIssue', () => {
 
     expect(result.success).toBe(true);
     expect((result.data as { issueNumber: number }).issueNumber).toBe(existingIssueNumber);
+  });
+
+  // ─── CodeRabbit #3224631237: missing listIssuesByMarker must refuse to run ──
+  //
+  // The handler MUST NOT fall back to a silent no-op precheck — that disables
+  // recovery and produces duplicate issues. The dependency is required at the
+  // handler boundary; the composite handler injects the provider-backed real
+  // implementation.
+  it('CreateIssue_MissingListIssuesByMarker_RefusesAndDoesNotCallProvider', async () => {
+    // Note: we deliberately omit listIssuesByMarker from args.
+    // TypeScript would normally block this at the call site; the handler's
+    // runtime guard is defense-in-depth for callers that bypass the type.
+    const args = { title: 'Bug', body: 'Details' } as unknown as Parameters<
+      typeof handleCreateIssue
+    >[0];
+
+    const result = await handleCreateIssue(args, ctx);
+
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('PRECONDITION_FAILED');
+
+    // Critical: provider.createIssue was NOT called — would duplicate on retry.
+    expect(mockProvider.createIssue).not.toHaveBeenCalled();
+  });
+
+  // ─── CodeRabbit #3224631237: precheck failure must NOT fall through to create
+  //
+  // When the marker scan fails (provider unhealthy, network error, etc.) the
+  // handler MUST surface the failure rather than proceed with creating a
+  // possibly-duplicate issue.
+  it('CreateIssue_PrecheckFailure_DoesNotCallProvider', async () => {
+    const failingScan = vi.fn().mockRejectedValue(new Error('gh search unavailable'));
+
+    const args = {
+      title: 'Bug',
+      body: 'Details',
+      listIssuesByMarker: failingScan,
+    };
+
+    const result = await handleCreateIssue(args, ctx);
+
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('PRECHECK_FAILED');
+    expect(result.error?.message).toContain('gh search unavailable');
+
+    // The non-idempotent side effect MUST NOT fire when we cannot verify
+    // whether a prior invocation already created the issue.
+    expect(mockProvider.createIssue).not.toHaveBeenCalled();
   });
 });
