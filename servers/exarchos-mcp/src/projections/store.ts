@@ -408,7 +408,32 @@ export async function readProjection<T>(
   // convention treats as the **count of events folded** rather than any
   // single stream's sequence. The cold-fold + fresh-snapshot tests in
   // store.test.ts both rely on this count semantics — change with care.
-  const tail = highWaterMark > 0 ? merged.slice(highWaterMark) : merged;
+  //
+  // Backdated-event guard (Sentry #14058378): the count-as-position
+  // slice is only correct when events never arrive with a timestamp
+  // earlier than events already in the snapshot. A backdated event
+  // sorts to an earlier position in `merged` than `highWaterMark`,
+  // which would silently drop it from the fold. Detect that case by
+  // checking whether the boundary at `highWaterMark` is monotonic
+  // against the events that follow it; if not, we cannot trust the
+  // positional slice and must rebuild from `reducer.initial` over
+  // every event.
+  let tail: WorkflowEvent[];
+  if (highWaterMark > 0 && highWaterMark <= merged.length) {
+    const boundary = merged[highWaterMark - 1];
+    const firstAfter = merged[highWaterMark];
+    const backdated =
+      firstAfter !== undefined &&
+      firstAfter.timestamp.localeCompare(boundary.timestamp) < 0;
+    if (backdated) {
+      state = reducer.initial;
+      tail = merged;
+    } else {
+      tail = merged.slice(highWaterMark);
+    }
+  } else {
+    tail = merged;
+  }
 
   for (const event of tail) {
     state = (reducer as ProjectionReducer<unknown, unknown>).apply(state, event);

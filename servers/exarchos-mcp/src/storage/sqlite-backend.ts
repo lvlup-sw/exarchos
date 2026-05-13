@@ -669,29 +669,42 @@ export class SqliteBackend implements StorageBackend {
        ON CONFLICT(streamId) DO UPDATE SET sequence = excluded.sequence`,
     );
 
-    for (const { streamId } of legacyRows) {
-      const seqRow = selectSeq.get(streamId) as { sequence: number } | undefined;
-      const nextSeq = (seqRow?.sequence ?? 0) + 1;
-      const data = JSON.stringify({ streamId });
-      const payload = JSON.stringify({
-        streamId,
-        sequence: nextSeq,
-        type: 'migration.workflow_type_unknown',
-        timestamp: now,
-        schemaVersion: '1.0',
-        source: 'migration',
-        data: { streamId },
-      });
-      insertEvent.run(
-        streamId,
-        nextSeq,
-        'migration.workflow_type_unknown',
-        now,
-        data,
-        payload,
-      );
-      upsertSeq.run(streamId, nextSeq);
-    }
+    // Wrap the per-stream INSERT + sequence UPSERT in a single
+    // transaction (Sentry #14058246). Without it, a process crash
+    // between an INSERT and the matching UPSERT would persist the
+    // event without advancing the sequence counter. The next startup
+    // would re-run the migration (the schema version stays at v3) and
+    // re-INSERT the same (streamId, sequence) pair, which the strict
+    // INSERT correctly rejects as a PK violation — but that error
+    // would now abort startup instead of allowing the migration to
+    // resume cleanly. With the transaction, either both rows commit
+    // or neither does, and the per-stream loop is safe to retry.
+    const emitAll = this.db.transaction((rows: ReadonlyArray<{ streamId: string }>): void => {
+      for (const { streamId } of rows) {
+        const seqRow = selectSeq.get(streamId) as { sequence: number } | undefined;
+        const nextSeq = (seqRow?.sequence ?? 0) + 1;
+        const data = JSON.stringify({ streamId });
+        const payload = JSON.stringify({
+          streamId,
+          sequence: nextSeq,
+          type: 'migration.workflow_type_unknown',
+          timestamp: now,
+          schemaVersion: '1.0',
+          source: 'migration',
+          data: { streamId },
+        });
+        insertEvent.run(
+          streamId,
+          nextSeq,
+          'migration.workflow_type_unknown',
+          now,
+          data,
+          payload,
+        );
+        upsertSeq.run(streamId, nextSeq);
+      }
+    });
+    emitAll(legacyRows);
   }
 
   private prepareStatements(): Statements {
