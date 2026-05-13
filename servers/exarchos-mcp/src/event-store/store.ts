@@ -1,4 +1,5 @@
 import { randomUUID as randomUUIDFn } from 'node:crypto';
+import { mkdir } from 'node:fs/promises';
 import { WorkflowEventBase } from './schemas.js';
 import type { WorkflowEvent } from './schemas.js';
 import type { StorageBackend } from '../storage/backend.js';
@@ -198,9 +199,15 @@ export class EventStore {
    * `stateDir` may now `initialize()` concurrently and proceed to append
    * without further coordination at this layer; see
    * `docs/architecture/runtime.md` §4.
+   *
+   * The lock acquisition previously had a side-effect of creating
+   * `stateDir`; with that removed we explicitly `mkdir -p` here so
+   * downstream backends and the storage-state-dir doctor probe both see
+   * the directory on first run.
    */
   async initialize(): Promise<void> {
     if (this.initialized) return;
+    await mkdir(this.stateDir, { recursive: true });
     this.initialized = true;
   }
 

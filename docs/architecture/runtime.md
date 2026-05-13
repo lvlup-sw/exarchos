@@ -31,7 +31,7 @@ Six guarantees the runtime provides to every consumer. Most are enforced at the 
 | ID | Guarantee | Enforcement |
 |---|---|---|
 | RT-1 | Event log is the source of truth | Discipline — handlers append before mutating projections; reconcile is the rebuild path |
-| RT-2 | Total order within a stream | SQLite autoincrement on `(streamId, sequence)` |
+| RT-2 | Total order within a stream | Per-stream sequence allocation with composite PRIMARY KEY `(streamId, sequence)`; PK enforcement (with OCC retry on conflict) rejects concurrent inserts at the same slot |
 | RT-3 | Atomic append | `BEGIN IMMEDIATE` transaction wrapping idempotency-key check + sequence allocation + event INSERT + outbox INSERT |
 | RT-4 | Single writer per stream | `PRIMARY KEY (streamId, sequence)` rejects duplicate sequences; OCC retry on conflict |
 | RT-5 | Idempotent at-least-once delivery | `UNIQUE INDEX (idempotency_key)` collapses duplicate appends |

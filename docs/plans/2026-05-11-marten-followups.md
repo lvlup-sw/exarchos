@@ -268,7 +268,7 @@ Base: `release/v2.10.0-preview.2`
 **Phase:** REFACTOR (docs)
 
 1. §1: amend to reflect that multi-process serialization is SQLite-WAL-only.
-2. §4: rewrite to remove PID-lock language; describe `BEGIN IMMEDIATE` + `(stream_id, sequence)` PK as the only serialization mechanisms.
+2. §4: rewrite to remove PID-lock language; describe `BEGIN IMMEDIATE` + `(streamId, sequence)` PK as the only serialization mechanisms.
 3. §8: confirm "no distributed locks / mutex services" still reads truthfully.
 4. Verify RT-1..RT-6 and L1/L2 read correctly against the post-Wave-A implementation.
 
