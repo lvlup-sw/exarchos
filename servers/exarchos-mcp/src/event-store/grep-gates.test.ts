@@ -13,7 +13,13 @@
 
 import { describe, it, expect } from 'vitest';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
-import { join, relative } from 'node:path';
+import { dirname, join, relative } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+// `__dirname` is unavailable under NodeNext ESM — derive it from
+// `import.meta.url` so the gate runs identically under Node and Bun.
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 // Anchor walks at servers/exarchos-mcp/src so the gate's reach matches
 // what we care about (production handlers + tests, not docs / scripts /

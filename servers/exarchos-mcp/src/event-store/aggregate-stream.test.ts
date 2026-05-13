@@ -10,7 +10,7 @@ import {
   createRegistry,
   type ProjectionRegistry,
 } from '../projections/registry.js';
-import { makeFixtureReducer, seedStream, type FixtureState } from './decide.test.js';
+import { makeFixtureReducer, seedStream, type FixtureState } from './decide-fixtures.js';
 
 /**
  * Wave 3 Tasks 3.11 + 3.12 — `aggregateStream<T>(streamId, reducerId)`

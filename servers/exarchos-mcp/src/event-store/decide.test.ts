@@ -12,8 +12,12 @@ import {
   createRegistry,
   type ProjectionRegistry,
 } from '../projections/registry.js';
-import type { ProjectionReducer } from '../projections/types.js';
 import type { WorkflowEvent } from './schemas.js';
+import {
+  makeFixtureReducer,
+  seedStream,
+  type FixtureState,
+} from './decide-fixtures.js';
 
 /**
  * Wave 3 Tasks 3.3 – 3.7 — `decide<TState>` primitive (R-2).
@@ -23,45 +27,6 @@ import type { WorkflowEvent } from './schemas.js';
  * `FetchForWriting<T>(streamId)` semantics on a per-stream consistency
  * boundary.
  */
-
-// ─── Fixture reducer (stream-scoped) ─────────────────────────────────────────
-
-export interface FixtureState {
-  readonly count: number;
-  readonly latest: string | undefined;
-}
-
-export function makeFixtureReducer(
-  id: string,
-  scope: 'stream' | 'global',
-): ProjectionReducer<FixtureState, WorkflowEvent> {
-  return {
-    id,
-    version: 1,
-    scope,
-    initial: { count: 0, latest: undefined },
-    apply(state, event) {
-      if (event.type !== 'task.assigned') return state;
-      const data = event.data as { taskId?: string } | undefined;
-      const tid = typeof data?.taskId === 'string' ? data.taskId : undefined;
-      if (!tid) return state;
-      return { count: state.count + 1, latest: tid };
-    },
-  };
-}
-
-export async function seedStream(
-  eventStore: EventStore,
-  streamId: string,
-  count: number,
-): Promise<void> {
-  for (let i = 1; i <= count; i++) {
-    await eventStore.append(streamId, {
-      type: 'task.assigned',
-      data: { taskId: `T-${i}` },
-    });
-  }
-}
 
 describe('decide<TState> — happy-path round-trip (Task 3.3)', () => {
   let stateDir: string;

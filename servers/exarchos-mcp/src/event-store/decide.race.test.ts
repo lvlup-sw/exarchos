@@ -14,7 +14,7 @@ import {
   makeFixtureReducer,
   seedStream,
   type FixtureState,
-} from './decide.test.js';
+} from './decide-fixtures.js';
 
 /**
  * Wave 3 Task 3.5 — `decide` translates the substrate's `sequence-conflict`

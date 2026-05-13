@@ -25,7 +25,7 @@ action: "update", featureId: "<id>", updates: {
 
 **On All Tasks Complete:**
 ```
-action: "update", featureId: "<id>", phase: "review"
+action: "transition", featureId: "<id>", target: "review"
 ```
 
 <!-- requires:team:agent-teams -->

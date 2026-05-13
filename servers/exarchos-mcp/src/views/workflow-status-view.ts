@@ -96,6 +96,47 @@ function deriveCountsFromTaskStore(
   };
 }
 
+// Synthetic taskId prefix used when backfilling `_taskStore` from a pre-2A.7
+// snapshot's `tasksFailed` surface count. Pre-2A.7 the view only carried the
+// aggregate failed count (no per-task ID bookkeeping), so we materialise N
+// anonymous failed placeholders to preserve `countByStatus(...,'failed')`
+// after the first post-upgrade event triggers `deriveCountsFromTaskStore`.
+// The prefix is namespaced to make the legacy origin obvious in any view
+// dump and to guarantee no collision with real task IDs.
+const LEGACY_FAILED_PLACEHOLDER_PREFIX = '__legacy-failed-';
+
+/**
+ * Reconstruct a `_taskStore` mirror from a pre-2A.7 snapshot's legacy
+ * `_seen*` maps + `tasksFailed` aggregate. Called once at apply-time when
+ * the snapshot pre-dates the field's introduction.
+ *
+ * - `_seenAssignedTaskIds` → `status: 'assigned'`
+ * - `_seenCompletedTaskIds` → overrides assigned → `status: 'completed'`
+ * - `view.tasksFailed` aggregate → N synthetic `__legacy-failed-i` records
+ *
+ * Tasks that were assigned then failed pre-snapshot will appear as
+ * `'assigned'` rather than `'failed'` (legacy bookkeeping had no per-ID
+ * failed map) — the synthetic placeholders preserve the aggregate failed
+ * count, which is the only consumer of that surface. Post-upgrade
+ * `task.failed` events will fold in correctly via the reducer.
+ */
+function reconstructTaskStoreFromLegacy(
+  view: WorkflowStatusViewState,
+): TaskStoreState {
+  const tasks: Record<string, TaskRecord> = {};
+  for (const taskId of Object.keys(view._seenAssignedTaskIds ?? {})) {
+    const status = view._seenCompletedTaskIds?.[taskId] ? 'completed' : 'assigned';
+    tasks[taskId] = { taskId, status };
+  }
+  for (let i = 0; i < view.tasksFailed; i += 1) {
+    const placeholderId = `${LEGACY_FAILED_PLACEHOLDER_PREFIX}${i}`;
+    if (!(placeholderId in tasks)) {
+      tasks[placeholderId] = { taskId: placeholderId, status: 'failed' };
+    }
+  }
+  return { projectionSequence: 0, tasks };
+}
+
 export const workflowStatusProjection: ViewProjection<WorkflowStatusViewState> = {
   init: () => ({
     featureId: '',
@@ -116,8 +157,9 @@ export const workflowStatusProjection: ViewProjection<WorkflowStatusViewState> =
     // upsert semantics so `Object.keys(_taskStore.tasks).length` IS the
     // unique-tasks-assigned count, matching the pre-2A.7 contract.
     if (TASK_EVENT_TYPES.has(event.type)) {
-      const nextTaskStore = taskStoreReducer.apply(view._taskStore, event);
-      if (nextTaskStore === view._taskStore) {
+      const currentTaskStore = view._taskStore ?? reconstructTaskStoreFromLegacy(view);
+      const nextTaskStore = taskStoreReducer.apply(currentTaskStore, event);
+      if (nextTaskStore === currentTaskStore) {
         // Reducer returned identity (malformed event, e.g. missing taskId).
         // Fall through to the pre-2A.7 "count malformed events" behaviour
         // below so the dedup-on-missing-id contract from #1226 stays

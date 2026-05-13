@@ -275,7 +275,7 @@ action: "update", featureId: "<id>", updates: {
 
 **On all reviews pass — advance to synthesis:**
 ```text
-action: "update", featureId: "<id>", phase: "synthesize"
+action: "transition", featureId: "<id>", target: "synthesize"
 ```
 
 ### Phase Transitions and Guards
@@ -354,7 +354,8 @@ Before transitioning, record the review verdict. The reviews value MUST be an ob
 ```
 exarchos_workflow({ action: "update", featureId: "<id>", updates: {
   reviews: { "quality-review": { status: "pass", summary: "...", issues: [] } }
-}, phase: "synthesize" })
+}})
+exarchos_workflow({ action: "transition", featureId: "<id>", target: "synthesize" })
 ```
 Then invoke `{{COMMAND_PREFIX}}synthesize`.
 

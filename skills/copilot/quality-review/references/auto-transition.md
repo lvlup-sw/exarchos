@@ -5,7 +5,7 @@
 All transitions happen **immediately** without user confirmation:
 
 ### If APPROVED:
-1. Update state: `action: "update", featureId: "<id>", phase: "synthesize"`
+1. Transition phase: `action: "transition", featureId: "<id>", target: "synthesize"`
 2. Output: "Quality review passed. Auto-continuing to synthesis..."
 3. Auto-invoke synthesize:
    ```typescript
@@ -21,7 +21,7 @@ All transitions happen **immediately** without user confirmation:
    ```
 
 ### If BLOCKED:
-1. Update state: `action: "update", featureId: "<id>", phase: "blocked"`
+1. Transition phase: `action: "transition", featureId: "<id>", target: "blocked"`
 2. Output: "Quality review blocked: [issue]. Returning to design..."
 3. Auto-invoke ideate for redesign:
    ```typescript
