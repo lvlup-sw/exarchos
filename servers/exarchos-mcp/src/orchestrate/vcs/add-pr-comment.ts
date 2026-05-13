@@ -192,24 +192,46 @@ export async function handleAddPrComment(
     const updatedComments = await provider.getPrComments(args.prId);
     const postedComment = updatedComments.find((c) => c.body.includes(marker));
 
-    // If for some reason the comment can't be found (eventual consistency,
-    // different comment API endpoint, etc.), fall back to id=0 and a
-    // synthetic URL so Phase C still commits rather than leaving the stream
-    // stuck at *.requested.
-    const commentId = postedComment?.id ?? 0;
-    const repo = await provider.getRepository();
-    const commentUrl = commentId > 0
-      ? `https://github.com/${repo.nameWithOwner}/pull/${args.prId}#issuecomment-${commentId}`
-      : `https://github.com/${repo.nameWithOwner}/pull/${args.prId}`;
+    if (!postedComment) {
+      // The comment was posted (addComment succeeded above) but the follow-up
+      // lookup did not return it — typically eventual consistency in the
+      // comments API.
+      //
+      // The schema for `pr.comment.executed` requires `commentId` to be a
+      // POSITIVE integer (PrCommentExecutedData in event-store/schemas.ts).
+      // Writing a sentinel value like `0` would corrupt the audit trail with
+      // a schema-violating event (INV-1 violation). Omitting `commentId` is
+      // not an option either — the field is required.
+      //
+      // Instead surface the failure: the comment exists on GitHub (with the
+      // marker embedded), so a subsequent invocation will hit the recovery
+      // branch above and emit a well-formed pr.comment.executed once the
+      // comments API catches up. The stream is intentionally left at
+      // `pr.comment.requested` until verification succeeds.
+      return {
+        success: false,
+        error: {
+          code: 'VCS_VERIFICATION_FAILED',
+          message:
+            `add_pr_comment: comment was posted for PR ${args.prId} but the verification ` +
+            `lookup did not return it (operationId=${operationId}). A subsequent ` +
+            `invocation will recover via the marker scan once the comments API is ` +
+            `consistent.`,
+        },
+      };
+    }
 
-    // Phase C: emit pr.comment.executed with the real or synthetic comment data.
+    const repo = await provider.getRepository();
+    const commentUrl = `https://github.com/${repo.nameWithOwner}/pull/${args.prId}#issuecomment-${postedComment.id}`;
+
+    // Phase C: emit pr.comment.executed with the verified comment data.
     await ctx.eventStore.append(
       'vcs',
       {
         type: 'pr.comment.executed',
         data: {
           operationId,
-          commentId,
+          commentId: postedComment.id,
           url: commentUrl,
         },
       },

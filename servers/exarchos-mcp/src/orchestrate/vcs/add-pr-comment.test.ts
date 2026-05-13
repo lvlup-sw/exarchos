@@ -55,8 +55,30 @@ describe('handleAddPrComment', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    // Provide a getPrComments that returns the posted comment on the SECOND
+    // call (Phase C verification scan). First call is the idempotency
+    // pre-check and returns []. This mirrors the real eventual-consistency
+    // expectation: by the time we re-query after addComment succeeds, the
+    // comment is visible.
+    let getCallCount = 0;
     mockProvider = makeMockProvider({
-      getPrComments: vi.fn().mockResolvedValue([]),
+      getPrComments: vi.fn().mockImplementation(async () => {
+        getCallCount += 1;
+        if (getCallCount === 1) return [];
+        // Verification scan — return a comment whose body will contain the marker
+        // injected by the handler. We can't know the marker here, so return
+        // a comment whose body contains a wildcard marker pattern; the handler
+        // calls .includes(marker) which matches if the body contains it.
+        // Capture the body actually sent via addComment.
+        const calls = vi.mocked(mockProvider.addComment).mock.calls;
+        const lastBody = calls.length > 0 ? (calls[calls.length - 1][1] as string) : '';
+        return [{
+          id: 555,
+          author: 'tester',
+          body: lastBody,
+          createdAt: new Date().toISOString(),
+        }];
+      }),
     });
     vi.mocked(createVcsProvider).mockResolvedValue(mockProvider);
     ctx = makeMockCtx();
@@ -103,6 +125,39 @@ describe('handleAddPrComment', () => {
       expect.objectContaining({ type: 'pr.comment.executed' }),
       expect.anything(),
     );
+  });
+
+  // ─── CodeRabbit #3224596442/#3224631230: verification miss must NOT write
+  // a schema-violating pr.comment.executed (commentId: 0).
+  // ─────────────────────────────────────────────────────────────────────────
+  it('AddPrComment_PostSucceededButVerificationLookupMissed_ReturnsFailureAndDoesNotEmitExecuted', async () => {
+    // Override getPrComments so BOTH the pre-check and the verification scan
+    // return []. addComment succeeds (the post landed on GitHub) but we can't
+    // verify it — the schema for pr.comment.executed requires commentId > 0,
+    // so we surface the failure rather than writing commentId: 0.
+    const failingProvider = makeMockProvider({
+      getPrComments: vi.fn().mockResolvedValue([]),
+    });
+    vi.mocked(createVcsProvider).mockResolvedValue(failingProvider);
+    const failCtx = makeMockCtx();
+
+    const result = await handleAddPrComment({ prId: '42', body: 'verify-miss' }, failCtx);
+
+    // The handler surfaces the failure rather than corrupting the event stream.
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('VCS_VERIFICATION_FAILED');
+
+    // Critical: pr.comment.executed was NOT emitted (would have been
+    // schema-violating with commentId: 0).
+    const appendCalls = vi.mocked(failCtx.eventStore.append).mock.calls;
+    const executedAppend = appendCalls.find(
+      (call) => (call[1] as { type: string }).type === 'pr.comment.executed',
+    );
+    expect(executedAppend).toBeUndefined();
+
+    // The addComment side effect DID fire — the comment is posted with the
+    // marker, so a subsequent invocation can recover via the idempotent scan.
+    expect(failingProvider.addComment).toHaveBeenCalledTimes(1);
   });
 
   it('handleAddPrComment_ProviderError_ReturnsFailure', async () => {
@@ -192,8 +247,24 @@ describe('handleAddPrComment — B2.2 Phase-A retry non-refire', () => {
       enableTelemetry: false,
     };
 
+    // getPrComments: empty on the pre-check, populated on the verification
+    // scan after addComment runs. The handler's verification lookup MUST
+    // succeed for it to emit pr.comment.executed (else returns
+    // VCS_VERIFICATION_FAILED — see CodeRabbit #3224596442/#3224631230).
+    let getCallCount = 0;
     const mockProvider = makeMockProvider({
-      getPrComments: vi.fn().mockResolvedValue([]),
+      getPrComments: vi.fn().mockImplementation(async () => {
+        getCallCount += 1;
+        if (getCallCount === 1) return [];
+        const calls = vi.mocked(mockProvider.addComment).mock.calls;
+        const lastBody = calls.length > 0 ? (calls[calls.length - 1][1] as string) : '';
+        return [{
+          id: 777,
+          author: 'tester',
+          body: lastBody,
+          createdAt: new Date().toISOString(),
+        }];
+      }),
     });
     vi.mocked(createVcsProvider).mockResolvedValue(mockProvider);
 
