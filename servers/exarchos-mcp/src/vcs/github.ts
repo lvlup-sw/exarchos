@@ -241,9 +241,17 @@ export class GitHubProvider implements VcsProvider {
   }
 
   async getPrComments(prId: string): Promise<PrComment[]> {
+    // The `/pulls/{prId}/comments` endpoint returns *inline review*
+    // comments — the per-line discussion attached to a diff. General
+    // PR-level conversation (what `gh pr comment` posts) lives on the
+    // shared issues comment endpoint. Reading from the wrong endpoint
+    // means the post-then-verify path never finds the comment it just
+    // wrote, the verification fails, and the recovery branch posts a
+    // duplicate. We fetch the issues endpoint so producer and consumer
+    // see the same comment stream.
     const output = await exec('gh', [
       'api',
-      `repos/{owner}/{repo}/pulls/${prId}/comments`,
+      `repos/{owner}/{repo}/issues/${prId}/comments`,
       '--paginate',
     ]);
 
@@ -290,39 +298,45 @@ export class GitHubProvider implements VcsProvider {
   }
 
   async searchIssuesByMarker(operationId: string): Promise<IssueSearchSummary[]> {
-    // The two-event-split recovery precheck — see CodeRabbit #3224631237 on
-    // PR #1348. `gh issue list --search` scans for the marker embedded by
-    // `handleCreateIssue` (`<!-- exarchos-op:UUID -->`). We scope to the
-    // current repo via `--repo {owner}/{repo}` (gh inherits this from the
-    // working repo when not specified).
+    // Two-event-split recovery precheck for create-issue.
     //
-    // Output is JSON; we map to IssueSearchSummary. A throw on non-zero exit
-    // surfaces as a real failure to the handler, which (per the two-event-
-    // split contract) MUST NOT proceed with a duplicate-creating side effect
-    // when the precheck cannot run.
+    // The marker we embed is an HTML comment (`<!-- exarchos-op:UUID -->`)
+    // chosen so it is invisible to humans reading the issue. GitHub's
+    // server-side search index strips HTML comments before tokenizing, so
+    // `gh issue list --search "<!-- exarchos-op:UUID -->"` returns no
+    // results even when an issue with that marker exists in its body —
+    // Sentry #14058284 and #14058450. Switching the marker to a visible
+    // footer would change rendered-issue UX, so instead we list recent
+    // issues and scan their bodies client-side, which sees the marker
+    // regardless of indexing rules.
+    //
+    // Scope: open + closed, capped at a reasonable recent window. The
+    // marker is unique per operationId (UUID v4), so collisions across
+    // unrelated runs are negligible; we don't need an exhaustive scan.
+    const RECENT_ISSUE_LIMIT = 200;
     const marker = `<!-- exarchos-op:${operationId} -->`;
     const output = await exec('gh', [
       'issue',
       'list',
       '--state',
       'all',
-      '--search',
-      marker,
       '--json',
       'number,url,body',
       '--limit',
-      '100',
+      String(RECENT_ISSUE_LIMIT),
     ]);
     const parsed = JSON.parse(output) as Array<{
       number: number;
       url: string;
       body: string;
     }>;
-    return parsed.map((entry) => ({
-      number: entry.number,
-      url: entry.url,
-      body: entry.body,
-    }));
+    return parsed
+      .filter((entry) => entry.body.includes(marker))
+      .map((entry) => ({
+        number: entry.number,
+        url: entry.url,
+        body: entry.body,
+      }));
   }
 
   async getRepository(): Promise<RepoInfo> {

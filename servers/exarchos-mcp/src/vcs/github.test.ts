@@ -442,7 +442,7 @@ describe('GitHubProvider', () => {
       'gh',
       expect.arrayContaining([
         'api',
-        'repos/{owner}/{repo}/pulls/42/comments',
+        'repos/{owner}/{repo}/issues/42/comments',
         '--paginate',
       ])
     );
@@ -564,16 +564,23 @@ index abc123..def456 100644
     );
   });
 
-  // CodeRabbit #3224631237: searchIssuesByMarker is the provider-backed
-  // recovery precheck used by handleCreateIssue. Verify it forms the
-  // correct gh CLI query and maps the JSON output.
-  it('GitHubProvider_SearchIssuesByMarker_QueriesGhIssueList', async () => {
+  // Sentry #14058284/14058450: GitHub's server-side search index strips
+  // HTML comments before tokenizing, so `gh issue list --search "<!-- ... -->"`
+  // never matches an existing issue's marker. searchIssuesByMarker now
+  // lists recent issues without `--search` and filters bodies client-side.
+  it('GitHubProvider_SearchIssuesByMarker_ListsRecentIssuesAndFiltersClientSide', async () => {
     const operationId = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
+    const otherOp = 'ffffffff-bbbb-4ccc-8ddd-eeeeeeeeeeee';
     mockExec.mockResolvedValue(JSON.stringify([
       {
         number: 42,
         url: 'https://github.com/test/repo/issues/42',
         body: `Issue body\n\n<!-- exarchos-op:${operationId} -->`,
+      },
+      {
+        number: 43,
+        url: 'https://github.com/test/repo/issues/43',
+        body: `Unrelated issue\n\n<!-- exarchos-op:${otherOp} -->`,
       },
     ]));
 
@@ -583,10 +590,17 @@ index abc123..def456 100644
       'gh',
       expect.arrayContaining([
         'issue', 'list',
-        '--search', `<!-- exarchos-op:${operationId} -->`,
+        '--state', 'all',
         '--json', 'number,url,body',
       ]),
     );
+    // The --search flag MUST NOT appear: GitHub's search index doesn't
+    // include HTML-comment content, so a search-based query returns
+    // empty and breaks recovery.
+    const callArgs = mockExec.mock.calls[0]?.[1] as string[];
+    expect(callArgs).not.toContain('--search');
+
+    // Client-side filter keeps the matching issue and drops the unrelated one.
     expect(result).toEqual([
       {
         number: 42,

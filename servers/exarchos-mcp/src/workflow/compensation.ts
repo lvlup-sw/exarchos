@@ -343,10 +343,14 @@ function createCleanupWorktreesAction(): CompensationAction {
             const featureId = options.featureId;
             const eventStore = options.eventStore;
             await withStateRetry(() =>
-              eventStore.append(featureId, {
-                type: 'worktree.remove.requested',
-                data: { operationId, worktreePath },
-              }),
+              eventStore.append(
+                featureId,
+                {
+                  type: 'worktree.remove.requested',
+                  data: { operationId, worktreePath },
+                },
+                { idempotencyKey: `worktree.remove.requested:${operationId}` },
+              ),
             );
 
             // ─── B5.3 idempotent existence check ────────────────────────────
@@ -377,10 +381,17 @@ function createCleanupWorktreesAction(): CompensationAction {
 
             // Phase C: emit worktree.remove.executed with the actual outcome.
             // removed=false is an idempotent success — NOT a failure.
-            await eventStore.append(featureId, {
-              type: 'worktree.remove.executed',
-              data: { operationId, worktreePath, removed },
-            });
+            // idempotencyKey scoped to operationId so a transient append
+            // failure followed by retry across a process restart cannot
+            // double-record the executed event.
+            await eventStore.append(
+              featureId,
+              {
+                type: 'worktree.remove.executed',
+                data: { operationId, worktreePath, removed },
+              },
+              { idempotencyKey: `worktree.remove.executed:${operationId}` },
+            );
           } else {
             // Legacy path (no event store wired) — preserve existing behavior
             try {
@@ -445,10 +456,14 @@ function createDeleteFeatureBranchesAction(): CompensationAction {
             const featureId = options.featureId;
             const eventStore = options.eventStore;
             await withStateRetry(() =>
-              eventStore.append(featureId, {
-                type: 'branch.delete.requested',
-                data: { operationId, branch },
-              }),
+              eventStore.append(
+                featureId,
+                {
+                  type: 'branch.delete.requested',
+                  data: { operationId, branch },
+                },
+                { idempotencyKey: `branch.delete.requested:${operationId}` },
+              ),
             );
 
             // ─── B4.3 idempotent existence check ────────────────────────────
@@ -493,10 +508,17 @@ function createDeleteFeatureBranchesAction(): CompensationAction {
             }
 
             // Phase C: emit branch.delete.executed with the actual outcome.
-            await eventStore.append(featureId, {
-              type: 'branch.delete.executed',
-              data: { operationId, branch, deletedLocally, deletedRemote },
-            });
+            // idempotencyKey scoped to operationId so a transient append
+            // failure followed by retry across a process restart cannot
+            // double-record the executed event.
+            await eventStore.append(
+              featureId,
+              {
+                type: 'branch.delete.executed',
+                data: { operationId, branch, deletedLocally, deletedRemote },
+              },
+              { idempotencyKey: `branch.delete.executed:${operationId}` },
+            );
           } else {
             // Legacy path (no event store wired) — preserve existing behavior
             // Delete local branch (ignore failure if doesn't exist)

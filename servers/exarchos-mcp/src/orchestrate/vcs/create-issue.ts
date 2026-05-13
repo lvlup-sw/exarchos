@@ -79,6 +79,59 @@ export interface HandleCreateIssueArgs {
   readonly listIssuesByMarker: ListIssuesByMarker;
 }
 
+// ─── Recovery operationId discovery ─────────────────────────────────────────
+
+interface IssueRequestedData {
+  readonly operationId: string;
+  readonly title: string;
+  readonly body: string;
+}
+
+interface IssueExecutedData {
+  readonly operationId: string;
+}
+
+/**
+ * Scan the `vcs` stream for the most recent `issue.create.requested` whose
+ * (title, body) match the current request AND that has no paired
+ * `issue.create.executed`. Returns its `operationId` so the handler can
+ * reuse it instead of minting a fresh UUID — preserving the body-marker
+ * recovery contract across process restarts.
+ *
+ * Returns `undefined` when no unmatched matching request exists, or when
+ * the query itself fails (we fail open here because the scan is a recovery
+ * optimization; the worst case is the caller mints a new UUID and lands at
+ * the prior code path).
+ */
+async function recoverOperationId(
+  ctx: DispatchContext,
+  args: HandleCreateIssueArgs,
+): Promise<string | undefined> {
+  try {
+    const requested = await ctx.eventStore.query('vcs', {
+      type: 'issue.create.requested',
+    });
+    const executed = await ctx.eventStore.query('vcs', {
+      type: 'issue.create.executed',
+    });
+    const executedOps = new Set(
+      executed.map((e) => (e.data as unknown as IssueExecutedData).operationId),
+    );
+    for (let i = requested.length - 1; i >= 0; i -= 1) {
+      const data = requested[i].data as unknown as IssueRequestedData;
+      if (executedOps.has(data.operationId)) continue;
+      if (data.title === args.title && data.body === args.body) {
+        return data.operationId;
+      }
+    }
+  } catch {
+    // Swallow query failures — the handler's downstream recovery scan
+    // is still load-bearing; falling through to a fresh UUID is no
+    // worse than the pre-fix behaviour.
+  }
+  return undefined;
+}
+
 // ─── Handler ─────────────────────────────────────────────────────────────────
 
 export async function handleCreateIssue(
@@ -89,9 +142,21 @@ export async function handleCreateIssue(
 
   // ─── Resolve operationId ──────────────────────────────────────────────────
   //
-  // Generate at handler entry so every invocation (including retries) uses
-  // the same key. When the caller supplies one (recovery scenario), honour it.
-  const operationId = args.operationId ?? randomUUID();
+  // Recovery rule (Sentry #14058450): if the caller didn't supply an
+  // operationId we still must not blindly mint a new UUID, because that
+  // would defeat the body-marker recovery scan after a Phase-A/Phase-C
+  // crash (the prior issue is tagged with the old UUID; the new scan
+  // searches for the new UUID and finds nothing → duplicate issue on
+  // retry). Before generating a fresh UUID, scan the `vcs` stream for
+  // the most recent `issue.create.requested` whose data matches the
+  // current request (title + body) AND has no paired
+  // `issue.create.executed`. If we find one, reuse its operationId so
+  // the marker scan in Phase B can match the prior issue.
+  //
+  // Caller-supplied operationId always wins — the orchestrator is free
+  // to pass an explicit correlation key (and the long-term fix per
+  // #1352 is for the orchestrator to discover and pass it).
+  const operationId = args.operationId ?? (await recoverOperationId(ctx, args)) ?? randomUUID();
   const marker = buildBodyMarker(operationId);
 
   // The recovery precheck is load-bearing for the two-event split (INV-1).
