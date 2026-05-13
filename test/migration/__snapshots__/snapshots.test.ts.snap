@@ -3291,7 +3291,7 @@ exarchos_workflow({ action: "transition", featureId: "<id>", target: "synthesize
 Then invoke \`/exarchos:synthesize\`.
 
 **NEEDS_FIXES:**
-\`\`\`
+\`\`\`text
 exarchos_workflow({ action: "update", featureId: "<id>", updates: {
   reviews: { "quality-review": { status: "fail", summary: "...", issues: [{ severity: "HIGH", file: "...", description: "..." }] } }
 }})
@@ -7868,7 +7868,7 @@ exarchos_workflow({ action: "transition", featureId: "<id>", target: "synthesize
 Then invoke \`synthesize\`.
 
 **NEEDS_FIXES:**
-\`\`\`
+\`\`\`text
 exarchos_workflow({ action: "update", featureId: "<id>", updates: {
   reviews: { "quality-review": { status: "fail", summary: "...", issues: [{ severity: "HIGH", file: "...", description: "..." }] } }
 }})
@@ -12437,7 +12437,7 @@ exarchos_workflow({ action: "transition", featureId: "<id>", target: "synthesize
 Then invoke \`/synthesize\`.
 
 **NEEDS_FIXES:**
-\`\`\`
+\`\`\`text
 exarchos_workflow({ action: "update", featureId: "<id>", updates: {
   reviews: { "quality-review": { status: "fail", summary: "...", issues: [{ severity: "HIGH", file: "...", description: "..." }] } }
 }})
@@ -17016,7 +17016,7 @@ exarchos_workflow({ action: "transition", featureId: "<id>", target: "synthesize
 Then invoke \`synthesize\`.
 
 **NEEDS_FIXES:**
-\`\`\`
+\`\`\`text
 exarchos_workflow({ action: "update", featureId: "<id>", updates: {
   reviews: { "quality-review": { status: "fail", summary: "...", issues: [{ severity: "HIGH", file: "...", description: "..." }] } }
 }})
@@ -21566,7 +21566,7 @@ exarchos_workflow({ action: "transition", featureId: "<id>", target: "synthesize
 Then invoke \`synthesize\`.
 
 **NEEDS_FIXES:**
-\`\`\`
+\`\`\`text
 exarchos_workflow({ action: "update", featureId: "<id>", updates: {
   reviews: { "quality-review": { status: "fail", summary: "...", issues: [{ severity: "HIGH", file: "...", description: "..." }] } }
 }})
@@ -26143,7 +26143,7 @@ exarchos_workflow({ action: "transition", featureId: "<id>", target: "synthesize
 Then invoke \`/synthesize\`.
 
 **NEEDS_FIXES:**
-\`\`\`
+\`\`\`text
 exarchos_workflow({ action: "update", featureId: "<id>", updates: {
   reviews: { "quality-review": { status: "fail", summary: "...", issues: [{ severity: "HIGH", file: "...", description: "..." }] } }
 }})

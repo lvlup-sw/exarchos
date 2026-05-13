@@ -6,7 +6,7 @@ All valid HSM phase transitions for each workflow type. Every transition listed 
 
 **CRITICAL:** When a transition has a guard that requires prerequisite state, apply the state first with `update`, then issue the `transition`. `update` rejects `phase` in its payload with a structured `INVALID_INPUT` pointing at `transition` — the split is enforced so HSM guard evaluation, valid-target enumeration, and `workflow.transition` event emission can't be bypassed.
 
-```
+```text
 # Step 1 — apply the state the guard reads
 action: "update"
 featureId: "my-feature"

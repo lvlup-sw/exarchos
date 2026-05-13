@@ -360,7 +360,7 @@ exarchos_workflow({ action: "transition", featureId: "<id>", target: "synthesize
 Then invoke `{{COMMAND_PREFIX}}synthesize`.
 
 **NEEDS_FIXES:**
-```
+```text
 exarchos_workflow({ action: "update", featureId: "<id>", updates: {
   reviews: { "quality-review": { status: "fail", summary: "...", issues: [{ severity: "HIGH", file: "...", description: "..." }] } }
 }})
