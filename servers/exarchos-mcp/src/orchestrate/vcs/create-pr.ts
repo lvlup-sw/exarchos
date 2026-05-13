@@ -147,13 +147,25 @@ export async function handleCreatePr(
       (pr) => pr.headRefName === args.head && pr.baseRefName === args.base,
     );
   } catch (err: unknown) {
-    // listPrs failure is non-fatal for the idempotent check: if we cannot
-    // determine whether the PR already exists, fall through to create it.
-    // The worst case is a duplicate PR that the operator must de-duplicate
-    // manually — which is preferable to failing the entire operation when
-    // listPrs is temporarily unavailable.
-    void err;
-    existing = undefined;
+    // The recovery precheck MUST NOT fail-open: if listPrs cannot
+    // determine whether a prior invocation already created the PR for
+    // this (head, base), proceeding to provider.createPr() risks opening
+    // a second PR every retry. Fail-closed and let the caller retry
+    // once the provider is healthy. This mirrors the create-issue
+    // handler's PRECHECK_FAILED contract (CodeRabbit #3224631237) so
+    // both two-event-split handlers behave consistently. Sentry
+    // #14059252/0.
+    const message = err instanceof Error ? err.message : String(err);
+    return {
+      success: false,
+      error: {
+        code: 'PRECHECK_FAILED',
+        message:
+          `create_pr: recovery precheck (listPrs) failed — refusing to ` +
+          `proceed because re-firing gh pr create could create a duplicate ` +
+          `PR. Underlying error: ${message}`,
+      },
+    };
   }
 
   if (existing !== undefined) {

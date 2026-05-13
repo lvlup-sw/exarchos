@@ -195,6 +195,56 @@ describe('B4: delete-feature-branches two-event split', () => {
     expect(deleteAction).toBeDefined();
     expect(deleteAction!.status).toBe('executed');
   });
+
+  // ─── Sentry #14059285/0 (twin): Phase C append must retry on transient OCC ─
+  //
+  // The Phase C `branch.delete.executed` append fires AFTER the git side
+  // effect runs. A bare append leaks ConcurrencyError as an unhandled
+  // exception, leaving the stream stuck at *.requested with no operator
+  // signal. Wrapping in `withStateRetry` lets the bounded retry budget
+  // absorb the transient signal; the operationId-keyed idempotencyKey
+  // guarantees the retry is a no-op once the executed event lands.
+  it('DeleteFeatureBranches_PhaseCExecutedAppend_RetriesOnConcurrencyError', async () => {
+    let executedAppendAttempts = 0;
+    const eventStore = makeMockEventStore((streamId, event) => {
+      const ev = event as { type: string };
+      if (ev.type === 'branch.delete.executed') {
+        executedAppendAttempts++;
+        if (executedAppendAttempts === 1) {
+          return Promise.reject(
+            new ConcurrencyError({
+              streamId: streamId as string,
+              expected: 0,
+              actual: 1,
+              operation: 'append',
+            }),
+          );
+        }
+      }
+      return Promise.resolve({ sequence: executedAppendAttempts, type: ev.type });
+    });
+
+    const state = makeState({
+      phase: 'delegate',
+      synthesis: { integrationBranch: null, mergeOrder: [], mergedBranches: [], prUrl: null, prFeedback: [] },
+      worktrees: {},
+      tasks: [{ id: 't1', title: 'T1', status: 'complete', branch: 'feature/phase-c-retry' }],
+    });
+
+    const result = await executeCompensation(state, 'delegate', makeEvents(1), 1, {
+      dryRun: false,
+      eventStore: eventStore as unknown as Parameters<typeof executeCompensation>[4]['eventStore'],
+      featureId: 'test-feature',
+    });
+
+    // Phase C must have been retried after the first ConcurrencyError;
+    // a bare append would have surfaced the error and the action would
+    // have failed.
+    expect(executedAppendAttempts).toBeGreaterThanOrEqual(2);
+    const deleteAction = result.actions.find((a) => a.actionId === 'delegate:delete-feature-branches');
+    expect(deleteAction).toBeDefined();
+    expect(deleteAction!.status).toBe('executed');
+  });
 });
 
 // ─── Wave B / B5: cleanup-worktrees two-event split ─────────────────────────

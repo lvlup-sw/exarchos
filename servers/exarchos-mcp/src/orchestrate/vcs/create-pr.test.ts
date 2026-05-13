@@ -20,7 +20,12 @@ function makeMockProvider(overrides: Partial<VcsProvider> = {}): VcsProvider {
     mergePr: vi.fn(),
     addComment: vi.fn(),
     getReviewStatus: vi.fn(),
-    listPrs: vi.fn(),
+    // Default to "no existing PR" so the happy-path tests fall through to
+    // provider.createPr(). Sentry #14059252/0 hardened the recovery
+    // precheck to fail-closed (PRECHECK_FAILED) on listPrs failure, so a
+    // bare vi.fn() (returns undefined → throws inside the handler) would
+    // misroute every test through the new error envelope.
+    listPrs: vi.fn().mockResolvedValue([]),
     getPrComments: vi.fn(),
     getPrDiff: vi.fn(),
     createIssue: vi.fn(),
@@ -175,6 +180,37 @@ describe('handleCreatePr', () => {
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('VCS_ERROR');
     expect(result.error?.message).toContain('Network error');
+  });
+
+  // ─── Sentry #14059252/0: listPrs failure must fail-closed ────────────────
+  //
+  // The recovery precheck MUST NOT swallow listPrs failures. If we cannot
+  // determine whether a prior PR exists, proceeding to provider.createPr()
+  // would risk a duplicate PR every retry — exactly the behaviour the
+  // two-event split was meant to prevent. The handler returns
+  // PRECHECK_FAILED so the caller can retry once the provider is healthy.
+  // Mirrors the handleCreateIssue contract (CodeRabbit #3224631237).
+  it('handleCreatePr_ListPrsFailure_ReturnsPrecheckFailedWithoutCallingCreatePr', async () => {
+    const failingProvider = makeMockProvider({
+      listPrs: vi.fn().mockRejectedValue(new Error('GitHub API timeout')),
+    });
+    vi.mocked(createVcsProvider).mockResolvedValue(failingProvider);
+
+    const args = {
+      title: 'feat: precheck-fails',
+      body: 'Body',
+      base: 'main',
+      head: 'feature/precheck-fails',
+    };
+
+    const result = await handleCreatePr(args, ctx);
+
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('PRECHECK_FAILED');
+    expect(result.error?.message).toContain('listPrs');
+    expect(result.error?.message).toContain('GitHub API timeout');
+    // The non-idempotent side effect must NOT have fired.
+    expect(failingProvider.createPr).not.toHaveBeenCalled();
   });
 });
 

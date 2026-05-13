@@ -312,7 +312,16 @@ export async function handleExecuteMerge(
             },
           ];
         },
-        { operationId: requestedOperationId },
+        // alwaysEnforceConsistency=false: the no-op branches above (state
+        // already requested/executed/recovering/completed) intentionally
+        // emit zero events. With the default-on tail re-read, a concurrent
+        // merge.executed landing between the read and our empty return
+        // would throw spurious ConcurrencyError on a path whose only job
+        // was to confirm "already done". Disabling the empty-write check
+        // makes the idempotent-recovery path safe under contention; the
+        // event-emitting branch is unaffected because it actually appends.
+        // Sentry #14058535/0.
+        { operationId: requestedOperationId, alwaysEnforceConsistency: false },
       ),
     );
   } catch (err) {

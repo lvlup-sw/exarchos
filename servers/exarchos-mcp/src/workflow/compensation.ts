@@ -384,13 +384,21 @@ function createCleanupWorktreesAction(): CompensationAction {
             // idempotencyKey scoped to operationId so a transient append
             // failure followed by retry across a process restart cannot
             // double-record the executed event.
-            await eventStore.append(
-              featureId,
-              {
-                type: 'worktree.remove.executed',
-                data: { operationId, worktreePath, removed },
-              },
-              { idempotencyKey: `worktree.remove.executed:${operationId}` },
+            //
+            // Wrapped in withStateRetry so a transient OCC / storage-busy
+            // signal on the append does not leak as an unhandled exception
+            // after the git side effect has already run. The
+            // idempotencyKey above guarantees the retry is a no-op once
+            // the executed event lands. (Sentry #14059285/0.)
+            await withStateRetry(() =>
+              eventStore.append(
+                featureId,
+                {
+                  type: 'worktree.remove.executed',
+                  data: { operationId, worktreePath, removed },
+                },
+                { idempotencyKey: `worktree.remove.executed:${operationId}` },
+              ),
             );
           } else {
             // Legacy path (no event store wired) — preserve existing behavior
@@ -511,13 +519,21 @@ function createDeleteFeatureBranchesAction(): CompensationAction {
             // idempotencyKey scoped to operationId so a transient append
             // failure followed by retry across a process restart cannot
             // double-record the executed event.
-            await eventStore.append(
-              featureId,
-              {
-                type: 'branch.delete.executed',
-                data: { operationId, branch, deletedLocally, deletedRemote },
-              },
-              { idempotencyKey: `branch.delete.executed:${operationId}` },
+            //
+            // Wrapped in withStateRetry so a transient OCC / storage-busy
+            // signal on the append does not leak as an unhandled exception
+            // after the git side effect has already run. The
+            // idempotencyKey above guarantees the retry is a no-op once
+            // the executed event lands. (Twin of Sentry #14059285/0.)
+            await withStateRetry(() =>
+              eventStore.append(
+                featureId,
+                {
+                  type: 'branch.delete.executed',
+                  data: { operationId, branch, deletedLocally, deletedRemote },
+                },
+                { idempotencyKey: `branch.delete.executed:${operationId}` },
+              ),
             );
           } else {
             // Legacy path (no event store wired) — preserve existing behavior
