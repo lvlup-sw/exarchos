@@ -630,3 +630,180 @@ describe('Compensation action error handling (close-pr)', () => {
     expect(closePrAction!.message).toContain('42');
   });
 });
+
+// ─── CodeRabbit #3224631272: operational git failures must surface ──────────
+//
+// Previously, the existence-check helpers (localBranchExists,
+// remoteBranchExists, worktreeIsRegistered) swallowed ALL git errors and
+// reported the resource as "already absent". A timeout, not-a-repo, or auth
+// break would silently produce `deletedLocally: false` + `executed` even
+// though nothing was cleaned up.
+//
+// These tests assert the new narrowed behavior: benign non-zero exits map to
+// "absent" (preserving idempotent recovery); operational failures propagate
+// so the compensation action surfaces as `failed`.
+
+describe('compensation: operational git failures surface (CodeRabbit #3224631272)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('DeleteFeatureBranches_GitRevParseTimesOut_ActionFails', async () => {
+    // rev-parse --verify is killed by the COMMAND_TIMEOUT_MS guard.
+    // execFile errors with `killed: true` indicate timeout / signal — these
+    // must NOT be treated as "branch absent".
+    const eventStore = makeMockEventStore();
+
+    mockedExecFile.mockImplementation((cmd: unknown, args: unknown, opts: unknown, cb?: unknown) => {
+      const callback = typeof opts === 'function' ? opts : cb;
+      const argList = args as string[];
+
+      if (argList?.includes('rev-parse') && argList?.includes('--verify')) {
+        const err = Object.assign(new Error('Command failed: git rev-parse'), {
+          killed: true,
+          code: null,
+          signal: 'SIGTERM' as NodeJS.Signals,
+          stderr: '',
+        });
+        (callback as (err: Error) => void)(err);
+        return undefined as never;
+      }
+      (callback as (err: null, stdout: string, stderr: string) => void)(null, '', '');
+      return undefined as never;
+    });
+
+    const state = makeState({
+      phase: 'delegate',
+      synthesis: { integrationBranch: null, mergeOrder: [], mergedBranches: [], prUrl: null, prFeedback: [] },
+      worktrees: {},
+      tasks: [{ id: 't1', title: 'T1', status: 'complete', branch: 'feature/timeout-test' }],
+    });
+
+    const result = await executeCompensation(state, 'delegate', makeEvents(1), 1, {
+      dryRun: false,
+      eventStore: eventStore as unknown as Parameters<typeof executeCompensation>[4]['eventStore'],
+      featureId: 'test-feature',
+    });
+
+    // The action must surface as failed — NOT silently succeed with the
+    // branch reported as already absent.
+    const action = result.actions.find((a) => a.actionId === 'delegate:delete-feature-branches');
+    expect(action).toBeDefined();
+    expect(action!.status).toBe('failed');
+
+    // git branch -D must NOT have been called — the precheck propagated.
+    const branchDeleteCalls = mockedExecFile.mock.calls.filter((call) => {
+      const args = call[1] as string[] | undefined;
+      return args?.includes('branch') && args?.includes('-D');
+    });
+    expect(branchDeleteCalls.length).toBe(0);
+  });
+
+  it('CleanupWorktrees_GitNotARepository_ActionFails', async () => {
+    // `git worktree list` runs outside a git repository — stderr contains the
+    // "not a git repository" sentinel. This must surface, not be swallowed.
+    const eventStore = makeMockEventStore();
+
+    mockedExecFile.mockImplementation((cmd: unknown, args: unknown, opts: unknown, cb?: unknown) => {
+      const callback = typeof opts === 'function' ? opts : cb;
+      const argList = args as string[];
+
+      if (argList?.includes('worktree') && argList?.includes('list')) {
+        const err = Object.assign(
+          new Error('Command failed: git worktree list'),
+          {
+            killed: false,
+            code: 128,
+            stderr: 'fatal: not a git repository (or any of the parent directories): .git\n',
+          },
+        );
+        (callback as (err: Error) => void)(err);
+        return undefined as never;
+      }
+      (callback as (err: null, stdout: string, stderr: string) => void)(null, '', '');
+      return undefined as never;
+    });
+
+    const state = makeState({
+      phase: 'delegate',
+      synthesis: { integrationBranch: null, mergeOrder: [], mergedBranches: [], prUrl: null, prFeedback: [] },
+      worktrees: {
+        t1: { branch: 'feature/notrepo', taskId: 't1', status: 'active', path: '/tmp/wt-notrepo' },
+      },
+      tasks: [],
+    });
+
+    const result = await executeCompensation(state, 'delegate', makeEvents(1), 1, {
+      dryRun: false,
+      eventStore: eventStore as unknown as Parameters<typeof executeCompensation>[4]['eventStore'],
+      featureId: 'test-feature',
+    });
+
+    const action = result.actions.find((a) => a.actionId === 'delegate:cleanup-worktrees');
+    expect(action).toBeDefined();
+    expect(action!.status).toBe('failed');
+
+    // worktree remove must NOT have run.
+    const removeCalls = mockedExecFile.mock.calls.filter((call) => {
+      const args = call[1] as string[] | undefined;
+      return args?.includes('worktree') && args?.includes('remove');
+    });
+    expect(removeCalls.length).toBe(0);
+  });
+
+  it('DeleteFeatureBranches_BranchAbsentExitCode_StillRecoversCleanly', async () => {
+    // Regression for the narrowed catch: a benign non-zero exit (branch
+    // not present) must still be treated as "absent" — only operational
+    // failures (timeout, not-a-repo, auth) must surface.
+    const appendedEvents: Array<{ type: string }> = [];
+    const eventStore = makeMockEventStore((_streamId, event) => {
+      const ev = event as { type: string };
+      appendedEvents.push({ type: ev.type });
+      return Promise.resolve({ sequence: appendedEvents.length, type: ev.type });
+    });
+
+    mockedExecFile.mockImplementation((cmd: unknown, args: unknown, opts: unknown, cb?: unknown) => {
+      const callback = typeof opts === 'function' ? opts : cb;
+      const argList = args as string[];
+
+      if (argList?.includes('rev-parse') && argList?.includes('--verify')) {
+        // Branch absent — benign exit-128 with the "not a valid object" stderr
+        // typical of rev-parse misses. NOT an operational failure.
+        const err = Object.assign(
+          new Error('Command failed: git rev-parse --verify'),
+          {
+            killed: false,
+            code: 128,
+            stderr: "fatal: Needed a single revision\nfatal: Not a valid object name 'feature/absent-test'",
+          },
+        );
+        (callback as (err: Error) => void)(err);
+        return undefined as never;
+      }
+      // ls-remote: empty stdout (absent on remote, but ran successfully).
+      (callback as (err: null, stdout: string, stderr: string) => void)(null, '', '');
+      return undefined as never;
+    });
+
+    const state = makeState({
+      phase: 'delegate',
+      synthesis: { integrationBranch: null, mergeOrder: [], mergedBranches: [], prUrl: null, prFeedback: [] },
+      worktrees: {},
+      tasks: [{ id: 't1', title: 'T1', status: 'complete', branch: 'feature/absent-test' }],
+    });
+
+    const result = await executeCompensation(state, 'delegate', makeEvents(1), 1, {
+      dryRun: false,
+      eventStore: eventStore as unknown as Parameters<typeof executeCompensation>[4]['eventStore'],
+      featureId: 'test-feature',
+    });
+
+    const action = result.actions.find((a) => a.actionId === 'delegate:delete-feature-branches');
+    expect(action).toBeDefined();
+    expect(action!.status).toBe('executed');
+
+    // branch.delete.executed should be emitted (idempotent recovery succeeded).
+    const executedEvent = appendedEvents.find((e) => e.type === 'branch.delete.executed');
+    expect(executedEvent).toBeDefined();
+  });
+});

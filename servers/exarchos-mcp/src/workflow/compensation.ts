@@ -12,6 +12,51 @@ import type { EventStore } from '../event-store/store.js';
 const execFileAsync = promisify(execFileCb);
 const COMMAND_TIMEOUT_MS = 30_000;
 
+/**
+ * Node's exec/execFile error shape, narrowed for our use. `killed` is true on
+ * timeout-induced termination; `code` is the process exit code. `stderr` /
+ * `stdout` carry whatever the process wrote before exit.
+ *
+ * We narrow this in helpers below to differentiate "the resource is absent"
+ * (a benign signal we can map to false/empty) from "the environment is
+ * broken" (timeout, not-a-git-repo, auth break — must surface as a real
+ * failure rather than be swallowed as "already absent").
+ */
+interface ExecError extends Error {
+  readonly code?: number | string;
+  readonly killed?: boolean;
+  readonly stderr?: string | Buffer;
+  readonly stdout?: string | Buffer;
+  readonly signal?: NodeJS.Signals | null;
+}
+
+function isExecError(err: unknown): err is ExecError {
+  return err instanceof Error && ('code' in err || 'killed' in err || 'stderr' in err);
+}
+
+function execErrorStderr(err: ExecError): string {
+  if (typeof err.stderr === 'string') return err.stderr;
+  if (Buffer.isBuffer(err.stderr)) return err.stderr.toString('utf-8');
+  return '';
+}
+
+/**
+ * True when the exec error indicates the surrounding environment is broken
+ * (timeout, killed by signal, not a git repository). These are operationally
+ * fatal — they must NOT be silently treated as "resource already absent" by
+ * the existence helpers.
+ */
+function isOperationalFailure(err: ExecError): boolean {
+  if (err.killed === true) return true; // timeout / signal
+  if (err.signal != null) return true;
+  const stderr = execErrorStderr(err).toLowerCase();
+  if (stderr.includes('not a git repository')) return true;
+  if (stderr.includes('could not read from remote repository')) return true;
+  if (stderr.includes('authentication failed')) return true;
+  if (stderr.includes('permission denied')) return true;
+  return false;
+}
+
 async function runCommand(cmd: string, args: readonly string[], options: CompensationOptions): Promise<void> {
   await execFileAsync(cmd, [...args], {
     cwd: options.stateDir ?? process.cwd(),
@@ -20,8 +65,13 @@ async function runCommand(cmd: string, args: readonly string[], options: Compens
 }
 
 /**
- * Run a command and capture its stdout. Returns the stdout string.
- * Does NOT throw on non-zero exit — callers check the returned value.
+ * Run a command and capture its stdout. Returns the stdout string. Does NOT
+ * swallow operational failures (timeout, not-a-repo, auth break) — only
+ * benign non-zero exits where the command ran cleanly but produced no output.
+ *
+ * Callers must still verify the returned value (empty string is a valid "no
+ * match" signal for the git helpers below). See CodeRabbit #3224631272 for
+ * the prior behavior (collapsed all failures into empty output) and rationale.
  */
 async function runCommandCaptureStdout(
   cmd: string,
@@ -44,8 +94,14 @@ async function runCommandCaptureStdout(
       return typeof stdout === 'string' ? stdout : stdout.toString('utf-8');
     }
     return '';
-  } catch {
-    // Non-zero exit — the resource does not exist or the command failed
+  } catch (err: unknown) {
+    if (isExecError(err) && isOperationalFailure(err)) {
+      // Re-throw operational failures so the calling helper surfaces them
+      // rather than treating the resource as "already absent".
+      throw err;
+    }
+    // Benign non-zero exit — the command ran but produced no useful output.
+    // Empty stdout is the expected "no match" signal.
     return '';
   }
 }
@@ -55,12 +111,22 @@ async function runCommandCaptureStdout(
 /**
  * Returns true when the branch exists in the local repository.
  * Uses `git rev-parse --verify` — exits non-zero when absent.
+ *
+ * Operational failures (not-a-repo, timeout) propagate. The previous
+ * implementation swallowed ALL errors, causing compensation to report
+ * `deletedLocally: false` and `executed` for branches in broken environments
+ * even though no cleanup ran. (CodeRabbit #3224631272.)
  */
 async function localBranchExists(branch: string, options: CompensationOptions): Promise<boolean> {
   try {
     await runCommand('git', ['rev-parse', '--verify', branch], options);
     return true;
-  } catch {
+  } catch (err: unknown) {
+    if (isExecError(err) && isOperationalFailure(err)) {
+      throw err;
+    }
+    // Benign: rev-parse exits non-zero with "not a valid ref" stderr when
+    // the branch is absent. That is the signal we want.
     return false;
   }
 }
@@ -68,6 +134,9 @@ async function localBranchExists(branch: string, options: CompensationOptions): 
 /**
  * Returns true when the branch exists on the named remote.
  * Uses `git ls-remote --heads <remote> <branch>` — empty stdout means absent.
+ *
+ * runCommandCaptureStdout above propagates operational failures (timeout,
+ * auth break, not-a-repo) so this helper does not need a redundant catch.
  */
 async function remoteBranchExists(
   branch: string,
@@ -84,7 +153,8 @@ async function remoteBranchExists(
 
 /**
  * Returns true when the worktree at `worktreePath` is registered in
- * `git worktree list` output.
+ * `git worktree list` output. Propagates operational failures via
+ * runCommandCaptureStdout.
  */
 async function worktreeIsRegistered(
   worktreePath: string,
