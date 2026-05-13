@@ -25,41 +25,25 @@
 import { storeLogger } from '../logger.js';
 import { SnapshotRecord } from './snapshot-schema.js';
 import type { StorageBackend } from '../storage/backend.js';
+import {
+  DEFAULT_SNAPSHOT_MAX_RECORDS,
+  resolveMaxRecords,
+} from '../storage/snapshot-retention.js';
 import { defaultRegistry, type ProjectionRegistry } from './registry.js';
 import type { ProjectionReducer } from './types.js';
 import type { EventStore } from '../event-store/store.js';
 import type { WorkflowEvent } from '../event-store/schemas.js';
 import { UnknownProjectionIdError } from './rebuild.js';
 
-/** Default sidecar size cap when `SNAPSHOT_MAX_RECORDS` is unset or invalid. */
-export const DEFAULT_SNAPSHOT_MAX_RECORDS = 500;
-
-/**
- * Resolve the per-stream sidecar size cap from environment configuration.
- *
- * Reads `SNAPSHOT_MAX_RECORDS` and parses it as a positive integer. Any
- * missing, non-numeric, zero, or negative value falls back to
- * {@link DEFAULT_SNAPSHOT_MAX_RECORDS} (500) so misconfiguration never
- * disables the cap or produces a pathological value. Mirrors the defensive
- * pattern of {@link ../projections/cadence.ts.resolveCadence}.
- *
- * @param env - Environment object to read from. Defaults to `process.env`
- *   so callers usually invoke with no args; explicit passthrough enables
- *   pure testing without mutating process state.
- */
-export function resolveMaxRecords(
-  env: NodeJS.ProcessEnv = process.env,
-): number {
-  const raw = env.SNAPSHOT_MAX_RECORDS;
-  if (raw === undefined || raw === '') {
-    return DEFAULT_SNAPSHOT_MAX_RECORDS;
-  }
-  const parsed = Number.parseInt(raw, 10);
-  if (!Number.isFinite(parsed) || parsed <= 0) {
-    return DEFAULT_SNAPSHOT_MAX_RECORDS;
-  }
-  return parsed;
-}
+// Re-export retention config so existing consumers of `projections/store`
+// continue to resolve these symbols. The canonical home is now
+// `storage/snapshot-retention.ts` (see #1346 / CodeRabbit layering fix);
+// storage backends import from there directly, and `projections/store`
+// re-exports for backward compatibility.
+export {
+  DEFAULT_SNAPSHOT_MAX_RECORDS,
+  resolveMaxRecords,
+};
 
 /**
  * Reject stream identifiers that could traverse out of the substrate's

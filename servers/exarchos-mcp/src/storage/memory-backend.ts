@@ -3,7 +3,7 @@ import type { WorkflowState } from '../workflow/types.js';
 import type { QueryFilters } from '../event-store/store.js';
 import type { StorageBackend, EventSender, ViewCacheEntry, DrainResult } from './backend.js';
 import type { SnapshotRecord } from '../projections/snapshot-schema.js';
-import { resolveMaxRecords } from '../projections/store.js';
+import { resolveMaxRecords } from './snapshot-retention.js';
 
 // ─── CAS Version Conflict Error ─────────────────────────────────────────────
 
