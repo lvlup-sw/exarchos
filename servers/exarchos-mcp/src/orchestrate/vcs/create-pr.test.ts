@@ -322,3 +322,77 @@ describe('CreatePr_RequestedEventCommittedButExecutionInterrupted_RecoversWithou
     expect(executedData.url).toBe('https://github.com/repo/pull/99');
   });
 });
+
+// ─── CodeRabbit #3224631250: recovery-path append failure must NOT fall through ─
+//
+// When listPrs() returns an existing PR and the subsequent recovery-path append
+// of `pr.create.executed` fails, the handler must propagate the failure rather
+// than silently fall through to provider.createPr() (which would open a
+// duplicate PR). Verifies the narrowed try/catch boundary.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('CreatePr_RecoveryAppendFailure_DoesNotFallThroughToCreatePr', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('CreatePr_RecoveryAppendFailure_DoesNotFallThroughToCreatePr', async () => {
+    // Arrange: append succeeds for Phase A (pr.create.requested) then THROWS
+    // when the handler tries to commit the recovery-path pr.create.executed.
+    let appendCallCount = 0;
+    const append = vi.fn().mockImplementation(
+      async (_streamId: string, event: { type: string }) => {
+        appendCallCount += 1;
+        if (event.type === 'pr.create.requested') {
+          return {
+            sequence: 1,
+            type: 'pr.create.requested',
+            timestamp: new Date().toISOString(),
+          };
+        }
+        // Recovery-path pr.create.executed append — synthesize a substrate failure.
+        throw new Error('event store unavailable');
+      },
+    );
+
+    const existingPr = {
+      number: 77,
+      url: 'https://github.com/repo/pull/77',
+      title: 'feat: prior crash',
+      headRefName: 'feature/prior',
+      baseRefName: 'main',
+      state: 'open',
+    };
+
+    const mockProvider = makeMockProvider({
+      listPrs: vi.fn().mockResolvedValue([existingPr]),
+    });
+    vi.mocked(createVcsProvider).mockResolvedValue(mockProvider);
+
+    const ctx: DispatchContext = {
+      stateDir: '/tmp/test-state',
+      eventStore: {
+        append,
+        query: vi.fn().mockResolvedValue([]),
+      } as unknown as EventStore,
+      enableTelemetry: false,
+    };
+
+    // Act + Assert: the recovery-path append failure propagates up the stack.
+    // It is NOT silently swallowed and converted into a fall-through to
+    // provider.createPr() — which would open a duplicate PR (the very
+    // condition the idempotent check is designed to prevent).
+    await expect(
+      handleCreatePr(
+        { title: 'feat: prior crash', body: 'Body', base: 'main', head: 'feature/prior' },
+        ctx,
+      ),
+    ).rejects.toThrow('event store unavailable');
+
+    // Load-bearing invariant: createPr was NOT called as a fallback.
+    expect(mockProvider.createPr).not.toHaveBeenCalled();
+
+    // Sanity: Phase A append + failed recovery append = 2 calls.
+    expect(appendCallCount).toBe(2);
+  });
+});

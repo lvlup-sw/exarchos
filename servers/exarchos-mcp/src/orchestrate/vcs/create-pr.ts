@@ -64,6 +64,7 @@ export async function handleCreatePr(
   // of Phase A after the first committed `pr.create.requested` event.
   const operationId = randomUUID();
   const phaseAKey = `pr.create.requested:${operationId}`;
+  const phaseBKey = `pr.create.executed:${operationId}`;
 
   const provider = await createVcsProvider({ config: ctx.projectConfig });
 
@@ -128,32 +129,23 @@ export async function handleCreatePr(
   //   • This invocation's Phase A idempotencyKey dedup sees `pr.create.requested`
   //     already committed (no-op), then detects the existing PR here and emits
   //     `pr.create.executed` without creating a duplicate.
+  //
+  // The try/catch is narrowed to the listPrs() call ONLY. If listPrs succeeds
+  // but the recovery-path `pr.create.executed` append fails, we MUST NOT fall
+  // through to provider.createPr() — that would open a duplicate PR. The append
+  // is wrapped in its own try below and propagates failures upstream.
+  let existing:
+    | { number: number; url: string; headRefName: string; baseRefName: string }
+    | undefined;
   try {
     const existingPrs = await provider.listPrs({
       state: 'open',
       head: args.head,
       base: args.base,
     });
-    const existing = existingPrs.find(
+    existing = existingPrs.find(
       (pr) => pr.headRefName === args.head && pr.baseRefName === args.base,
     );
-
-    if (existing !== undefined) {
-      // PR already exists — emit Phase B event and return without re-firing
-      // the gh pr create side effect.
-      await ctx.eventStore.append('vcs', {
-        type: 'pr.create.executed',
-        data: {
-          operationId,
-          prNumber: existing.number,
-          url: existing.url,
-        },
-      });
-      return {
-        success: true,
-        data: { url: existing.url, number: existing.number },
-      };
-    }
   } catch (err: unknown) {
     // listPrs failure is non-fatal for the idempotent check: if we cannot
     // determine whether the PR already exists, fall through to create it.
@@ -161,6 +153,29 @@ export async function handleCreatePr(
     // manually — which is preferable to failing the entire operation when
     // listPrs is temporarily unavailable.
     void err;
+    existing = undefined;
+  }
+
+  if (existing !== undefined) {
+    // PR already exists — emit Phase B event and return without re-firing
+    // the gh pr create side effect. This append is OUTSIDE the listPrs catch
+    // so an append failure surfaces rather than collapsing into "create new PR".
+    await ctx.eventStore.append(
+      'vcs',
+      {
+        type: 'pr.create.executed',
+        data: {
+          operationId,
+          prNumber: existing.number,
+          url: existing.url,
+        },
+      },
+      { idempotencyKey: phaseBKey },
+    );
+    return {
+      success: true,
+      data: { url: existing.url, number: existing.number },
+    };
   }
 
   // ─── Side effect: invoke gh pr create ─────────────────────────────────────
@@ -175,14 +190,21 @@ export async function handleCreatePr(
     });
 
     // ─── Phase B — durable RESULT ────────────────────────────────────────────
-    await ctx.eventStore.append('vcs', {
-      type: 'pr.create.executed',
-      data: {
-        operationId,
-        prNumber: result.number,
-        url: result.url,
+    // idempotencyKey ensures retries after a crash between createPr() and this
+    // append do not produce duplicate `pr.create.executed` events for the same
+    // operationId — the EventStore deduplicates on key-match.
+    await ctx.eventStore.append(
+      'vcs',
+      {
+        type: 'pr.create.executed',
+        data: {
+          operationId,
+          prNumber: result.number,
+          url: result.url,
+        },
       },
-    });
+      { idempotencyKey: phaseBKey },
+    );
 
     return { success: true, data: result };
   } catch (err: unknown) {
