@@ -89,6 +89,15 @@ vi.mock('./vcs/create-issue.js', () => ({
   handleCreateIssue: vi.fn(),
 }));
 
+// The composite handler for `create_issue` instantiates the VCS provider so it
+// can inject `searchIssuesByMarker` as the recovery precheck dependency
+// (CodeRabbit #3224631237). Stub the factory so we don't hit the real gh CLI.
+vi.mock('../vcs/factory.js', () => ({
+  createVcsProvider: vi.fn().mockResolvedValue({
+    searchIssuesByMarker: vi.fn().mockResolvedValue([]),
+  }),
+}));
+
 vi.mock('./init/index.js', () => ({
   handleInit: vi.fn(),
 }));
@@ -720,7 +729,10 @@ describe('handleOrchestrate', () => {
       expectEnvelopedSuccess(result, expected);
       expect(handleCreateIssue).toHaveBeenCalledTimes(1);
       const call = vi.mocked(handleCreateIssue).mock.calls[0];
-      expect(call[0]).toEqual({ title: 'Bug', body: 'Details' });
+      // The composite injects `listIssuesByMarker` (provider-backed) into the
+      // handler args — see CodeRabbit #3224631237.
+      expect(call[0]).toMatchObject({ title: 'Bug', body: 'Details' });
+      expect(typeof (call[0] as { listIssuesByMarker?: unknown }).listIssuesByMarker).toBe('function');
       expect(call[1]).toBe(CTX);
     });
 
