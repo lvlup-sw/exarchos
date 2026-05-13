@@ -59,11 +59,7 @@ export const SERVER_VERSION = '2.10.0-preview.2';
  * invocation when it is the first positional argument (argv[2]). A looser
  * `argv.includes('mcp')` check is unsafe because feature IDs like
  * `exarchos event append -f mcp ...` or view names like `--view mcp` would
- * flip detection. Pre-v2.11 this was load-bearing because mis-detecting
- * MCP mode pushed CLI callers onto sidecar fallback semantics; post-v2.11
- * (#1082 sidecar removal) the consequence is instead that CLI callers
- * would skip `waitForLock: true` and hard-throw on contention rather than
- * serialising — equally important to keep correct.
+ * flip detection.
  *
  * Exported for unit testing; callers should pass `process.argv` directly.
  */
@@ -322,16 +318,9 @@ async function main() {
   const backend = await initializeBackend(stateDir);
   registerBackendCleanup(backend);
 
-  // DR-5: short-lived CLI invocations must block on the PID lock so two
-  // concurrent `exarchos event append` calls serialize onto the same store.
-  // The long-running MCP server path uses the default (no waitForLock) and
-  // therefore hard-throws on contention — sidecar fallback (#1082) was
-  // deleted in v2.11 alongside the JSONL substrate it side-channeled.
-  const isMcpMode = isMcpServerInvocation(process.argv);
   const ctx = await initializeContext(stateDir, {
     backend,
     projectRoot: process.cwd(),
-    waitForLock: !isMcpMode,
   });
 
   // Unified entry point — all routing via Commander CLI.
