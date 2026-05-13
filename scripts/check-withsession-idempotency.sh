@@ -151,7 +151,19 @@ while IFS= read -r file; do
 
         # Detect anchor match line: "digits:<content-with-.withSession(>"
         # The line number separator is ":" for match lines, "-" for context.
+        #
+        # Comment guard: skip anchors where the match is inside a line
+        # comment (`//.*\.withSession(`) or a multi-line-comment
+        # continuation line (leading `* `). Without this guard, every
+        # documentation or commented-out reference to `.withSession(`
+        # ingests as a fresh anchor and the surrounding window is
+        # evaluated against a comment block that almost never contains
+        # `operationId:`, producing a false-positive CI failure.
         if echo "$line" | grep -qE '^[0-9]+[:-].*\.withSession\('; then
+            content="${line#*[:-]}"
+            if [[ "$content" =~ ^[[:space:]]*\* ]] || [[ "$content" =~ //.*\.withSession\( ]]; then
+                continue
+            fi
             if [[ -n "$match_lineno" ]]; then
                 # Previous block had no "--" — evaluate before starting new.
                 check_window "$match_lineno" "$window"

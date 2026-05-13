@@ -270,6 +270,36 @@ else
 fi
 teardown
 
+# --------------------------------------------------
+# Test 11: CommentedWithSession_DoesNotTriggerFalsePositive
+# --------------------------------------------------
+# A non-compliant .withSession( commented out (line comment) or
+# embedded in a multi-line comment must not trigger a violation.
+# Previously the anchor regex matched any `.withSession(` substring,
+# even inside `//` or `*` lines — every doc reference produced a
+# spurious failure (Sentry finding #14039483).
+setup
+cat > "$TMPDIR_ROOT/commented-only.ts" << 'EOF'
+import { AtomicAppender } from '../event-store/atomic-appender.js';
+// Documentation: callers should invoke .withSession( with operationId or allowNonIdempotent.
+/**
+ * Example:
+ *   appender.withSession(streamId, schemaId, fn, { operationId: 'op-1' })
+ *   appender.withSession(streamId, schemaId, fn, { allowNonIdempotent: true })
+ */
+export function noop(): void {
+  // intentionally empty — no real .withSession( calls in this file
+}
+EOF
+OUTPUT="$(bash "$SCRIPT_UNDER_TEST" "$TMPDIR_ROOT" 2>&1)" && EXIT_CODE=$? || EXIT_CODE=$?
+if [[ $EXIT_CODE -eq 0 ]]; then
+    pass "CommentedWithSession_DoesNotTriggerFalsePositive"
+else
+    fail "CommentedWithSession_DoesNotTriggerFalsePositive (exit=$EXIT_CODE, expected 0)"
+    echo "  Output: $OUTPUT"
+fi
+teardown
+
 # ============================================================
 # SUMMARY
 # ============================================================
