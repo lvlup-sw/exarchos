@@ -65,6 +65,35 @@ export function validateAnnotations(a: unknown, actionName: string): asserts a i
   }
 }
 
+/**
+ * Registration-time invariant check (Wave 0 task C.3, design §2.1 + §2.4,
+ * issues #1287 + #1289).
+ *
+ * Every action MUST declare both `outputSchema` (a Zod schema for the
+ * response envelope) and `annotations` (a typed ActionAnnotations record).
+ * Called from the module-load loop at the bottom of this file so any
+ * malformed action fails the import — DIM-3 contracts fail closed at
+ * startup rather than at first call. The thrown error always surfaces
+ * the fully-qualified `${toolName}.${action.name}` identifier so the
+ * operator can navigate from a failed import directly to the offender.
+ */
+export function validateAction(
+  action: { name: string; outputSchema?: z.ZodTypeAny; annotations?: unknown },
+  toolName: string,
+): void {
+  const id = `${toolName}.${action.name}`;
+  if (action.outputSchema === undefined) {
+    throw new Error(`Action '${id}' is missing required outputSchema`);
+  }
+  if (typeof (action.outputSchema as { parse?: unknown }).parse !== 'function') {
+    throw new Error(`Action '${id}' outputSchema is not a Zod schema`);
+  }
+  // ActionAnnotationsSchema is re-validated here (not just a presence
+  // check) so a hand-edited field set that drifts from the schema fails
+  // at the same boundary as a missing declaration.
+  validateAnnotations(action.annotations, id);
+}
+
 export interface ToolAction {
   readonly name: string;
   readonly description: string;
