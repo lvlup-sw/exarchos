@@ -14,8 +14,10 @@ import {
   getFullRegistry,
   clearCustomTools,
   findActionInRegistry,
+  ActionAnnotationsSchema,
+  validateAnnotations,
 } from './registry.js';
-import type { ToolAction, CompositeTool } from './registry.js';
+import type { ToolAction, CompositeTool, ActionAnnotations } from './registry.js';
 
 describe('buildCompositeSchema', () => {
   it('should create a discriminated union from two actions', () => {
@@ -1510,5 +1512,108 @@ describe('Registry_OutputSchema (T40, DR-11)', () => {
     expect(transitionAction!.outputSchema!.safeParse(noDeprecation).success).toBe(
       true,
     );
+  });
+});
+
+// ─── Wave 0 / Task A.5 — ActionAnnotations (#1289, design §2.4) ────────
+//
+// Server-trusted `safety` field + MCP-spec advisory *Hint flags
+// (readOnly/destructive/idempotent/openWorld). Validator must throw with
+// the action name surfaced for operator-friendly errors.
+describe('ActionAnnotationsSchema', () => {
+  const valid: ActionAnnotations = {
+    safety: 'read-only',
+    readOnly: true,
+    destructive: false,
+    idempotent: true,
+    openWorld: false,
+  };
+
+  it('ActionAnnotationsSchema_RejectsMissingSafetyField_Fails', () => {
+    const { safety: _drop, ...withoutSafety } = valid;
+    const result = ActionAnnotationsSchema.safeParse(withoutSafety);
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues.some((i) => i.path.join('.') === 'safety')).toBe(
+        true,
+      );
+    }
+  });
+
+  it('ActionAnnotationsSchema_RejectsMissingReadOnlyField_Fails', () => {
+    const { readOnly: _drop, ...withoutReadOnly } = valid;
+    const result = ActionAnnotationsSchema.safeParse(withoutReadOnly);
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(
+        result.error.issues.some((i) => i.path.join('.') === 'readOnly'),
+      ).toBe(true);
+    }
+  });
+
+  it('ActionAnnotationsSchema_AcceptsCompleteRecord_Succeeds', () => {
+    const result = ActionAnnotationsSchema.safeParse(valid);
+    expect(result.success).toBe(true);
+
+    // All four safety enum values are accepted.
+    for (const safety of [
+      'read-only',
+      'local-mutation',
+      'remote-mutation',
+      'compensable',
+    ] as const) {
+      expect(
+        ActionAnnotationsSchema.safeParse({ ...valid, safety }).success,
+      ).toBe(true);
+    }
+  });
+
+  it('ActionAnnotationsSchema_RejectsInvalidSafetyEnum_Fails', () => {
+    const result = ActionAnnotationsSchema.safeParse({
+      ...valid,
+      safety: 'partial-mutation',
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues.some((i) => i.path.join('.') === 'safety')).toBe(
+        true,
+      );
+    }
+  });
+});
+
+describe('validateAnnotations', () => {
+  const valid: ActionAnnotations = {
+    safety: 'local-mutation',
+    readOnly: false,
+    destructive: false,
+    idempotent: true,
+    openWorld: false,
+  };
+
+  it('validateAnnotations_ThrowsOnPartialObject_IncludesFieldName', () => {
+    const partial = { safety: 'local-mutation', readOnly: false };
+
+    let caught: Error | undefined;
+    try {
+      validateAnnotations(partial, 'composeMessage');
+    } catch (err) {
+      caught = err as Error;
+    }
+
+    expect(caught).toBeInstanceOf(Error);
+    // The action name must be present so operators can locate the offender.
+    expect(caught!.message).toContain('composeMessage');
+    // At least one missing field name must surface in the message so the
+    // operator does not have to re-derive what's wrong from a generic error.
+    const mentionsAMissingField =
+      caught!.message.includes('destructive') ||
+      caught!.message.includes('idempotent') ||
+      caught!.message.includes('openWorld');
+    expect(mentionsAMissingField).toBe(true);
+  });
+
+  it('validateAnnotations_AcceptsCompleteRecord_DoesNotThrow', () => {
+    expect(() => validateAnnotations(valid, 'composeMessage')).not.toThrow();
   });
 });
