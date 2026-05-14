@@ -8,8 +8,11 @@ import { ViewRegistry } from '../views/registry.js';
 import { registerCustomTool, unregisterCustomTool, setCustomToolActionHandler, ALL_PHASES } from '../registry.js';
 import type { CompositeTool, ToolAction } from '../registry.js';
 import { EnvelopeSchema } from '../schemas/envelope.js';
+import { logger } from '../logger.js';
 import type { ViewProjection } from '../views/materializer.js';
 import type { ExarchosConfig, WorkflowDefinition } from './define.js';
+
+const configLogger = logger.child({ subsystem: 'config' });
 
 // Re-export for consumers that imported from here
 export type { ExarchosConfig, WorkflowDefinition };
@@ -277,12 +280,29 @@ function validateToolActionHandler(
  * Loads handler modules via dynamic import, builds CompositeTool objects,
  * and registers them via registerCustomTool().
  * Includes rollback on failure.
+ *
+ * @deprecated since v2.10.0 — the `tools:` block in `exarchos.config.ts`
+ * and the underlying `registerCustomTool` surface are removed in v3.0.0
+ * in favor of the Workflow Builder SDK (epic #1258). Migrate custom
+ * tools to the v3.0 SDK before the v3.0 release.
  */
 export async function registerCustomTools(
   config: ExarchosConfig,
   projectRoot: string,
 ): Promise<void> {
   if (!config.tools) return;
+
+  // Loud one-time deprecation signal so any latent consumer we don't know
+  // about sees the v3.0 migration notice on first config load. Cheap and
+  // high-signal — fires only when `tools:` is actually used.
+  const toolNames = Object.keys(config.tools);
+  if (toolNames.length > 0) {
+    configLogger.warn(
+      { toolNames, count: toolNames.length, removalMilestone: 'v3.0.0', issue: 1258 },
+      `[exarchos] DEPRECATION: exarchos.config.ts custom tools are deprecated in v2.10.0 and will be removed in v3.0.0. ` +
+        `Migrate to the Workflow Builder SDK (epic #1258).`,
+    );
+  }
 
   const registeredNames: string[] = [];
 

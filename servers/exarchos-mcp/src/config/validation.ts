@@ -82,12 +82,22 @@ export const viewDefinitionSchema = z.object({
   handler: z.string().min(1, 'View handler path must not be empty'),
 }).strict();
 
+/**
+ * @deprecated since v2.10.0 — the `tools:` block on `exarchos.config.ts`
+ * is removed in v3.0.0 per epic #1258 (Workflow Builder SDK). Migrate
+ * custom tools to the v3.0 SDK before the v3.0 release. A runtime
+ * `console.warn` fires from `config/register.ts:registerCustomTools`
+ * whenever a config supplies this block.
+ */
 export const toolActionDefinitionSchema = z.object({
   name: z.string().min(1, 'Action name must not be empty'),
   description: z.string().min(1, 'Action description must not be empty'),
   handler: z.string().min(1, 'Action handler path must not be empty'),
 }).strict();
 
+/**
+ * @deprecated since v2.10.0 — see {@link toolActionDefinitionSchema}.
+ */
 export const toolDefinitionSchema = z.object({
   description: z.string().min(1, 'Tool description must not be empty'),
   actions: z.array(toolActionDefinitionSchema).min(1, 'Tool must have at least one action'),

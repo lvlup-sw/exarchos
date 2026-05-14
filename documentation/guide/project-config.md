@@ -214,6 +214,12 @@ Both can coexist in the same project. YAML overrides are applied first, then Typ
 
 Most teams only need `.exarchos.yml`. The TypeScript config is for teams building custom workflow types or integrating domain-specific quality gates.
 
+### Deprecation notice (v2.10 → v3.0)
+
+The `exarchos.config.ts` extension surface — custom `workflows`, `events`, `views`, and `tools` — is **deprecated as of v2.10.0** and will be **removed in v3.0.0**. It is superseded by the **Workflow Builder SDK** (epic [#1258](https://github.com/lvlup-sw/exarchos/issues/1258)), a fluent TypeScript SDK that becomes the single authoring path for custom workflows and tools, with first-class agent-authoring support via a `workflow-authoring` skill.
+
+When v3.0 ships, the `tools:` and `workflows:` blocks in `exarchos.config.ts` are removed alongside the closed-form `hsm-definitions.ts` / `playbooks.ts` registries. Migrate custom extensions to the v3.0 SDK before upgrading. A runtime `[exarchos] DEPRECATION:` warning is emitted whenever a config supplies the `tools:` block in v2.10.
+
 ## Next steps
 
 - [Convergence Gates](/reference/convergence-gates) for details on each quality dimension (D1-D5)

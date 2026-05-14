@@ -2293,7 +2293,26 @@ const BUILTIN_TOOL_NAMES: ReadonlySet<string> = new Set(
   TOOL_REGISTRY.map((t) => t.name),
 );
 
-// ─── Dynamic Tool Registration ──────────────────────────────────────────────
+// ─── Dynamic Tool Registration (DEPRECATED — superseded by v3.0 #1258) ─────
+//
+// The `registerCustomTool` / `setCustomToolActionHandler` /
+// `unregisterCustomTool` surface plus the `exarchos.config.ts` `tools:`
+// block is the pre-SDK extension scaffolding for declaring custom MCP
+// composite tools at runtime. It is superseded by the Workflow Builder
+// SDK (epic #1258) shipping in v3.0, which becomes the single authoring
+// surface for workflows AND custom tools. The closed-form `hsm-
+// definitions.ts` / `playbooks.ts` registries are deleted in that
+// milestone for the same DIM-5 hygiene reason — the SDK is the single
+// source of truth.
+//
+// There are no known active consumers of this surface. CodeRabbit MAJOR
+// on PR #1369 flagged that `registerCustomTool` doesn't run actions
+// through `validateAction`, leaving missing `outputSchema`/`annotations`
+// to surface as runtime crashes far from the registration site. Rather
+// than tighten the contract (which would touch test fixtures and ship a
+// pseudo-breaking-change to an API with no consumers), we mark the
+// entire surface `@deprecated` here and schedule its removal alongside
+// #1258 in v3.0.
 
 const customTools: CompositeTool[] = [];
 
@@ -2305,6 +2324,11 @@ export type CustomToolActionHandler = (args: Record<string, unknown>) => Promise
 /**
  * Register a custom composite tool. Throws if the name collides with a
  * built-in tool or an already-registered custom tool.
+ *
+ * @deprecated since v2.10.0 — this surface is removed in v3.0.0 in favor
+ * of the Workflow Builder SDK (epic #1258), which becomes the single
+ * authoring path for custom workflows and tools. New extension code
+ * should target the v3.0 SDK instead.
  */
 export function registerCustomTool(tool: CompositeTool): void {
   if (BUILTIN_TOOL_NAMES.has(tool.name)) {
@@ -2317,20 +2341,20 @@ export function registerCustomTool(tool: CompositeTool): void {
       `Cannot register custom tool "${tool.name}": already registered as a custom tool`,
     );
   }
-  // NOTE — Custom tools are intentionally NOT run through `validateAction`
-  // here. CodeRabbit PR #1369 flagged this as a contract gap (built-ins
-  // fail-closed at module load; custom tools currently slip through and
-  // surface missing `outputSchema`/`annotations` only at dispatch time).
-  // Tightening this is a user-visible breaking change to the public
-  // `registerCustomTool` API and needs a deprecation cycle — tracked as a
-  // post-merge follow-up rather than landing alongside the Wave 0 carrier
-  // swap.
+  // Custom tools are intentionally NOT run through `validateAction` here.
+  // The whole surface is `@deprecated` for v3.0 removal per #1258, so
+  // hardening the contract here would ship a pseudo-breaking-change for
+  // an API with no consumers (CodeRabbit PR #1369 MAJOR, resolved by
+  // deprecation rather than tightening).
   customTools.push(tool);
 }
 
 /**
  * Store a handler function for a custom tool action.
  * Called during config-driven registration to wire handlers for dispatch.
+ *
+ * @deprecated since v2.10.0 — removed in v3.0.0 per #1258. See
+ * {@link registerCustomTool}.
  */
 export function setCustomToolActionHandler(
   toolName: string,
@@ -2348,6 +2372,9 @@ export function setCustomToolActionHandler(
 /**
  * Retrieve the handler for a custom tool action.
  * Returns undefined if the tool or action is not registered.
+ *
+ * @deprecated since v2.10.0 — removed in v3.0.0 per #1258. See
+ * {@link registerCustomTool}.
  */
 export function getCustomToolActionHandler(
   toolName: string,
@@ -2358,6 +2385,9 @@ export function getCustomToolActionHandler(
 
 /**
  * Check if a custom tool has any registered handlers.
+ *
+ * @deprecated since v2.10.0 — removed in v3.0.0 per #1258. See
+ * {@link registerCustomTool}.
  */
 export function hasCustomToolHandlers(toolName: string): boolean {
   const actionMap = customToolHandlers.get(toolName);
@@ -2367,6 +2397,9 @@ export function hasCustomToolHandlers(toolName: string): boolean {
 /**
  * Unregister a custom composite tool by name. Throws if the name is a
  * built-in tool or not registered as a custom tool.
+ *
+ * @deprecated since v2.10.0 — removed in v3.0.0 per #1258. See
+ * {@link registerCustomTool}.
  */
 export function unregisterCustomTool(name: string): void {
   if (BUILTIN_TOOL_NAMES.has(name)) {
