@@ -1,5 +1,3 @@
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { z } from 'zod';
 import type {
   CancelInput,
   WorkflowState,
@@ -18,7 +16,7 @@ import { mapInternalToExternalType } from './events.js';
 import { getHSMDefinition, executeTransition } from './state-machine.js';
 import { executeCompensation, type CompensationCheckpoint } from './compensation.js';
 import type { EventStore } from '../event-store/store.js';
-import { formatResult, type ToolResult } from '../format.js';
+import { type ToolResult } from '../format.js';
 import * as path from 'node:path';
 
 // ─── Event-Sourcing Version Discriminator ───────────────────────────────────
@@ -291,17 +289,3 @@ export async function handleCancel(
   };
 }
 
-// ─── Registration Function ──────────────────────────────────────────────────
-
-export function registerCancelTool(server: McpServer, stateDir: string, eventStore: EventStore | null): void {
-  server.tool(
-    'exarchos_workflow_cancel',
-    'Cancel a workflow with saga compensation and cleanup',
-    {
-      featureId: z.string().min(1).regex(/^[a-z0-9-]+$/),
-      reason: z.string().optional(),
-      dryRun: z.boolean().optional(),
-    },
-    async (args) => formatResult(await handleCancel(args, stateDir, eventStore)),
-  );
-}
