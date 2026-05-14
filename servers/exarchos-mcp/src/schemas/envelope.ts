@@ -9,6 +9,7 @@
 // schema to produce the outputSchema MCP advertises for that tool action
 // (DIM-1: dispatch core is single-source for action contracts).
 
+import { z } from 'zod';
 import { NextAction as NextActionZ } from '../next-action.js';
 
 /**
@@ -22,3 +23,88 @@ import { NextAction as NextActionZ } from '../next-action.js';
  * copy.
  */
 export const NextActionSchema = NextActionZ;
+
+/**
+ * Zod schema mirroring `PerfMetrics` from `../format.ts` (ms / bytes / tokens,
+ * all required non-negative numbers). Co-located here so the envelope surface
+ * is single-source — `wrap()` and `wrapError()` always emit these three
+ * fields with default-0 fallbacks, so validators must accept them as required.
+ */
+export const PerfMetricsSchema = z.object({
+  ms: z.number(),
+  bytes: z.number(),
+  tokens: z.number(),
+});
+
+/**
+ * Zod schema for the `_eventHints` payload on a SuccessEnvelope.
+ * Mirrors `EventHintsPayload` at `format.ts:20`. Tolerates extra fields on
+ * the `missing[]` entries via `.passthrough()` — handlers can attach
+ * per-event diagnostics without re-cutting the schema.
+ */
+export const EventHintsSchema = z.object({
+  missing: z.array(
+    z.object({
+      eventType: z.string(),
+      description: z.string(),
+      requiredFields: z.array(z.string()).optional(),
+    }).passthrough(),
+  ),
+  phase: z.string(),
+  checked: z.number(),
+});
+
+/**
+ * Zod schema for the runtime-conditional `_cacheHints` field
+ * (`format.ts:111`, T051/DR-14). The literal `'cache_boundary'` /
+ * `'ephemeral'` / `'1h'` fields are pinned so consumers can pattern-match
+ * by shape rather than parsing the position string.
+ */
+export const CacheHintsSchema = z.object({
+  type: z.literal('cache_boundary'),
+  position: z.string(),
+  kind: z.literal('ephemeral'),
+  ttl: z.literal('1h'),
+});
+
+/**
+ * Zod schema for the `_corrections` payload (`format.ts:26`). The
+ * `applied[]` entries are passthrough — the `Correction` shape lives in
+ * `../telemetry/auto-correction.js` and is intentionally not re-lifted
+ * here to keep the envelope module's blast radius bounded; consumers that
+ * need typed corrections can intersect this with the source type.
+ */
+export const CorrectionsSchema = z.object({
+  applied: z.array(z.unknown().refine((v) => v !== null && typeof v === 'object', {
+    message: 'Correction entry must be an object',
+  })),
+});
+
+/**
+ * Zod schema for the failure envelope shape emitted by `wrapError()`
+ * (`format.ts:275–286`).
+ *
+ * The `error` block uses `.passthrough()` because each typed error variant
+ * (`ConcurrencyError`, `StorageBusyError`, the generic `INTERNAL_ERROR`
+ * fallthrough) attaches its own discriminator fields — `streamId`,
+ * `expectedVersion`, `attempts`, etc. — beyond the canonical core
+ * (`code`, `message`, `validTargets`, `suggestedFix`). A strict object
+ * would reject every real-world failure envelope.
+ *
+ * `_meta` is `z.record(z.string(), z.unknown())` to match `wrapError`'s
+ * `{ degraded, retryable, ...caller }` merge.
+ */
+export const ErrorEnvelopeSchema = z.object({
+  success: z.literal(false),
+  error: z.object({
+    code: z.string(),
+    message: z.string(),
+    validTargets: z.array(z.string()).optional(),
+    suggestedFix: z.object({
+      tool: z.string(),
+      params: z.record(z.string(), z.unknown()),
+    }).optional(),
+  }).passthrough(),
+  _meta: z.record(z.string(), z.unknown()),
+  _perf: PerfMetricsSchema,
+});

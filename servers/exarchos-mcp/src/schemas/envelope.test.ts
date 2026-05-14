@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { NextActionSchema } from './envelope.js';
+import { NextActionSchema, ErrorEnvelopeSchema } from './envelope.js';
+import { wrapError } from '../format.js';
+import { ConcurrencyError } from '../event-store/concurrency-error.js';
+import { StorageBusyError } from '../event-store/storage-busy-error.js';
 
 describe('NextActionSchema', () => {
   it('NextActionSchema_AcceptsCanonicalNextAction_Succeeds', () => {
@@ -34,6 +37,50 @@ describe('NextActionSchema', () => {
     // next-action.ts declares verb as z.string().min(1).
     const emptyVerb = { verb: '', reason: 'Empty verb.' };
     const parsed = NextActionSchema.safeParse(emptyVerb);
+    expect(parsed.success).toBe(false);
+  });
+});
+
+describe('ErrorEnvelopeSchema', () => {
+  it('ErrorEnvelopeSchema_AcceptsConcurrencyWrapError_Succeeds', () => {
+    const err = new ConcurrencyError({
+      streamId: 'workflow-42',
+      reducerId: 'reducer-1',
+      expectedVersion: 5,
+      actualVersion: 6,
+      operationId: 'op-123',
+    });
+    const envelope = wrapError(err);
+    const parsed = ErrorEnvelopeSchema.safeParse(envelope);
+    expect(parsed.success).toBe(true);
+  });
+
+  it('ErrorEnvelopeSchema_AcceptsStorageBusyWrapError_Succeeds', () => {
+    const err = new StorageBusyError({
+      streamId: 'workflow-42',
+      attempts: 5,
+      cause: new Error('SQLITE_BUSY'),
+    });
+    const envelope = wrapError(err);
+    const parsed = ErrorEnvelopeSchema.safeParse(envelope);
+    expect(parsed.success).toBe(true);
+  });
+
+  it('ErrorEnvelopeSchema_AcceptsGenericWrapError_Succeeds', () => {
+    const envelope = wrapError(new Error('boom'));
+    const parsed = ErrorEnvelopeSchema.safeParse(envelope);
+    expect(parsed.success).toBe(true);
+  });
+
+  it('ErrorEnvelopeSchema_RejectsSuccessTrue_Fails', () => {
+    // success literal(false) must be enforced.
+    const notAnError = {
+      success: true,
+      error: { code: 'X', message: 'y' },
+      _meta: {},
+      _perf: { ms: 0, bytes: 0, tokens: 0 },
+    };
+    const parsed = ErrorEnvelopeSchema.safeParse(notAnError);
     expect(parsed.success).toBe(false);
   });
 });
