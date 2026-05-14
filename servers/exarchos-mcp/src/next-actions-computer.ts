@@ -2,6 +2,20 @@ import { NextAction } from './next-action.js';
 import type { HSMDefinition } from './workflow/state-machine.js';
 import { EXCLUDED_MERGE_PHASES } from './workflow/hsm-definitions.js';
 
+// Wave 0 / Task D.8 — safety-semantics consumer contract.
+//
+// Design §2.4 commits that `annotations.safety` is consumed here and by
+// HSM guards. At D.8 implementation time the current logic is purely
+// HSM-topology driven (no in-handler prose infers safety semantics), so
+// no read is needed today. The smoke test
+// `D.8 — annotations.safety is queryable from registry` in
+// `next-actions-computer.test.ts` pins the contract for future
+// consumers: any branch on safety semantics MUST read
+// `findActionInRegistry(toolName, actionName)?.annotations.safety`
+// from `./registry.js` — the registry is the single source of truth
+// (DIM-1 Topology). Do NOT hand-code the safety enum or duplicate
+// the §2.4 table in handler prose.
+
 /**
  * Subset of workflow state inspected by {@link computeNextActions}.
  *

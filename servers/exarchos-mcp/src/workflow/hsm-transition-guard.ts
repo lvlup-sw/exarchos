@@ -1,3 +1,22 @@
+// Wave 0 / Task D.8 — safety-semantics consumer contract.
+//
+// Design §2.4 commits that `annotations.safety` is consumed by this
+// primitive and by `computeNextActions`. At D.8 implementation time
+// the gating logic here keys off the per-transition `guard` attached
+// to the HSM edge (composite / registered / custom guard), NOT off
+// action.annotations.safety — these are different abstractions:
+// transition guards gate phase-edges; action safety classifies the
+// per-action side-effect profile. No refactor needed today.
+//
+// If a future requirement (e.g. "destructive actions cannot run in
+// guarded read-only phases") arrives, the consumer here MUST read
+// `findActionInRegistry(toolName, actionName)?.annotations.safety`
+// from `../registry.js` — the registry is the single source of
+// truth (DIM-1 Topology). Do NOT hand-code the safety enum or
+// duplicate the §2.4 table in this primitive's prose. The smoke
+// test `D.8 — annotations.safety is queryable from registry` in
+// `next-actions-computer.test.ts` pins that contract.
+
 // ─── HSMTransitionGuard.fail_closed (Primitive 3 — closes #1225) ─────────
 //
 // Single decision point for guarded HSM phase transitions. `workflow.set`
