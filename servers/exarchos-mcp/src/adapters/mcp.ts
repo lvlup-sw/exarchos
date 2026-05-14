@@ -1,8 +1,33 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { getFullRegistry, buildRegistrationSchema, buildToolDescription } from '../registry.js';
 import { formatResult } from '../format.js';
+import type { Envelope, ErrorEnvelope } from '../format.js';
 import { dispatch } from '../core/dispatch.js';
 import type { DispatchContext } from '../core/dispatch.js';
+
+// ─── D.1: Envelope → MCP CallToolResult carrier mapping ────────────────────
+
+/**
+ * Map an Exarchos envelope onto the MCP `CallToolResult` carrier.
+ *
+ * MCP 2025-11-25 §Tools / Structured Content: SHOULD also return the
+ * serialized JSON in a TextContent block for backwards compatibility.
+ * We honour that — clients reading `content[0].text` keep working; the
+ * new validated payload rides `structuredContent`.
+ *
+ * Envelope construction lives in `format.ts` (`toEnvelope`); this adapter
+ * only handles the carrier mapping. `createMcpServer` is NOT yet wired
+ * to this function — the cutover lands in task D.7.
+ *
+ * Design §2.3. Issue #1287.
+ */
+export function toMcpResult(env: Envelope<unknown> | ErrorEnvelope) {
+  return {
+    content: [{ type: 'text' as const, text: JSON.stringify(env) }],
+    structuredContent: env,
+    isError: env.success === false,
+  };
+}
 // Server identity constants. These must stay in lock-step with the canonical
 // SERVER_NAME / SERVER_VERSION exports in src/index.ts — task 1.6's compiled
 // binary integration test asserts that the version advertised over MCP's
