@@ -5,7 +5,6 @@ import * as os from 'node:os';
 import { EventStore } from '../../event-store/store.js';
 import { handleViewTelemetry } from '../tools.js';
 import { withTelemetry } from '../middleware.js';
-import { formatResult } from '../../format.js';
 import { resetMaterializerCache } from '../../views/tools.js';
 import { TELEMETRY_STREAM } from '../constants.js';
 
@@ -66,7 +65,10 @@ describe('Token Economy Benchmarks', () => {
 
   it('_perf field adds less than 15 tokens overhead per response', async () => {
     // Arrange
-    const mockHandler = async () => formatResult({ success: true, data: { key: 'value' } });
+    const mockHandler = async () => ({
+      content: [{ type: 'text' as const, text: JSON.stringify({ success: true, data: { key: 'value' } }) }],
+      isError: false,
+    });
     const instrumented = withTelemetry(mockHandler, 'overhead_test', store);
 
     // Act
