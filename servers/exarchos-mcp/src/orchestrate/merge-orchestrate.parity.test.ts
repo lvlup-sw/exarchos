@@ -369,11 +369,12 @@ describe('exarchos merge-orchestrate CLI↔MCP parity (T22, DR-MO-1)', () => {
     const stdoutText = capturedStdout.join('').trim();
     const firstBrace = stdoutText.indexOf('{');
     expect(firstBrace).toBeGreaterThanOrEqual(0);
-    const newlineIdx = stdoutText.indexOf('\n', firstBrace);
-    const jsonText = newlineIdx > 0
-      ? stdoutText.slice(firstBrace, newlineIdx)
-      : stdoutText.slice(firstBrace);
-    const cliResult = JSON.parse(jsonText) as ToolResult;
+    // PR-B (#1368): post-W1 `emitResult` writes pretty-printed envelope
+    // JSON spanning multiple lines (`JSON.stringify(env, null, 2)`), so
+    // the prior newline-bound slice truncated the document at `{`. Parse
+    // from the first `{` through end-of-stdout — `JSON.parse` tolerates
+    // trailing whitespace and stops at the matching closing brace.
+    const cliResult = JSON.parse(stdoutText.slice(firstBrace)) as ToolResult;
 
     const mcpResult = await harnessCallMcp(mcpArm.ctx, 'exarchos_orchestrate', {
       action: 'merge_orchestrate',
