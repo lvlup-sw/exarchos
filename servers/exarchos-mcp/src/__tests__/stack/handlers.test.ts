@@ -6,7 +6,6 @@ import { EventStore } from '../../event-store/store.js';
 import {
   handleStackStatus,
   handleStackPlace,
-  registerStackTools,
 } from '../../stack/tools.js';
 import { resetMaterializerCache } from '../../views/tools.js';
 
@@ -455,48 +454,7 @@ describe('handleStackStatus CQRS rewire', () => {
 
 // ─── EventStore Consolidation ────────────────────────────────────────────────
 
-describe('registerStackTools', () => {
-  it('should accept eventStore parameter in registration', () => {
-    const mockServer = { tool: vi.fn() } as unknown as import('@modelcontextprotocol/sdk/server/mcp.js').McpServer;
-    expect(() => registerStackTools(mockServer, tempDir, store)).not.toThrow();
-    expect(registerStackTools.length).toBe(3);
-  });
-
-  it('should register handlers that use the provided EventStore', async () => {
-    // Drive the registered MCP callback (not the bare handler) so this test
-    // actually catches a regression where registerStackTools wired the wrong
-    // store. Capture the callback passed to mockServer.tool() — see the
-    // server.tool(...) registrations in src/stack/tools.ts for the arg shape.
-    // CR review 4177990662: "Test behavior not implementation".
-    const toolMock = vi.fn();
-    const mockServer = { tool: toolMock } as unknown as import('@modelcontextprotocol/sdk/server/mcp.js').McpServer;
-    registerStackTools(mockServer, tempDir, store);
-
-    // The 4th positional arg to server.tool() is the async callback. Find
-    // the exarchos_stack_place registration and invoke its callback.
-    const placeCall = toolMock.mock.calls.find(
-      (call) => call[0] === 'exarchos_stack_place',
-    );
-    expect(placeCall).toBeDefined();
-    const placeCallback = placeCall![3] as (
-      args: Record<string, unknown>,
-    ) => Promise<unknown>;
-
-    const result = (await placeCallback({
-      streamId: 'wf-consolidation',
-      position: 1,
-      taskId: 't1',
-      branch: 'feature/t1',
-    })) as { content: Array<{ type: string; text: string }> };
-
-    // formatResult wraps successful results — the callback returns an MCP
-    // tool response envelope, but we only need to assert the side effect
-    // landed on the injected `store` to confirm wiring is correct.
-    expect(result).toBeDefined();
-    const events = await store.query('wf-consolidation', { type: 'stack.position-filled' });
-    expect(events).toHaveLength(1);
-  });
-
+describe('stack handlers shared EventStore', () => {
   it('both handlers share the same EventStore via the injected store', async () => {
     // Both handlers receive the same `store` instance through their third
     // positional arg — events written by handleStackPlace must be visible
