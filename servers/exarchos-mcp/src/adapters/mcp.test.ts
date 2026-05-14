@@ -345,6 +345,160 @@ describe('createMcpServer', () => {
     expect(parsed.success).toBe(true);
   });
 
+  // ─── D.5 + D.7: Per-call validation + carrier cutover (Wave 0, #1287) ────
+  //
+  // The MCP handler must:
+  //   1. Convert the dispatch core's ToolResult into the canonical Envelope
+  //      via `toEnvelope` (NOT `formatResult`), then ride the carrier via
+  //      `toMcpResult` so `structuredContent` is populated alongside the
+  //      legacy text content. This is the D.7 cutover.
+  //   2. After conversion, validate the envelope against the per-action
+  //      outputSchema declared in the registry. On violation, return an
+  //      INTERNAL_ERROR envelope whose `_meta.outputSchemaViolation`
+  //      carries the Zod issue list (path + message) so callers can
+  //      diagnose contract drift without re-running the call. This is the
+  //      D.5 per-call enforcement.
+
+  it('MCPHandler_DispatchResultMatchesPerActionSchema_PassesThrough', async () => {
+    // Arrange — spy on registerTool to capture the per-tool handler so we
+    // can invoke it directly without standing up an MCP transport.
+    const { McpServer } = await import('@modelcontextprotocol/sdk/server/mcp.js');
+    const spy = vi.spyOn(McpServer.prototype, 'registerTool');
+    const { createMcpServer } = await import('./mcp.js');
+    createMcpServer(ctx);
+
+    // Locate the exarchos_view tool's handler — `pipeline` is a read-only
+    // action with a permissive `EnvelopeSchema(z.unknown())` per-action
+    // schema, so any well-formed envelope passes.
+    const viewCall = spy.mock.calls.find(c => c[0] === 'exarchos_view');
+    expect(viewCall).toBeDefined();
+    const handler = viewCall![2] as (args: Record<string, unknown>) => Promise<unknown>;
+
+    // Act — invoke the handler directly.
+    const result = (await handler({ action: 'pipeline' })) as {
+      content: { type: string; text: string }[];
+      structuredContent: unknown;
+      isError: boolean;
+    };
+
+    // Assert — D.7 cutover: handler emits structuredContent (the envelope),
+    // not just the legacy formatResult shape (content + isError only).
+    expect(result.structuredContent).toBeDefined();
+    expect(result.content[0].type).toBe('text');
+    // Envelope validates against the action's per-action outputSchema.
+    const action = TOOL_REGISTRY.find(t => t.name === 'exarchos_view')!.actions.find(
+      a => a.name === 'pipeline',
+    )!;
+    const parsed = action.outputSchema.safeParse(result.structuredContent);
+    expect(parsed.success).toBe(true);
+
+    spy.mockRestore();
+  });
+
+  it('MCPHandler_DispatchResultViolatesPerActionSchema_ReturnsInternalErrorEnvelopeWithIssuePath', async () => {
+    // Arrange — register a synthetic custom tool whose per-action outputSchema
+    // is strict (`data` must be `{ mustExist: string }`), then plant a
+    // handler that returns a violating ToolResult. The mcpHandler must
+    // detect the mismatch via the per-action schema and surface an
+    // INTERNAL_ERROR envelope with the issue path on `_meta`.
+    const { registerCustomTool, setCustomToolActionHandler, clearCustomTools } =
+      await import('../registry.js');
+
+    const strictDataSchema = z.object({ mustExist: z.string() });
+    const strictAction = {
+      name: 'probe',
+      description: 'probe',
+      schema: z.object({}) as z.ZodObject<z.ZodRawShape>,
+      phases: new Set<string>(),
+      roles: new Set<string>(),
+      outputSchema: EnvelopeSchema(strictDataSchema),
+      annotations: {
+        safety: 'read-only' as const,
+        readOnly: true,
+        destructive: false,
+        idempotent: true,
+        openWorld: false,
+      },
+    };
+    try {
+      registerCustomTool({
+        name: 'custom_probe_tool',
+        description: 'test tool with strict per-action schema',
+        actions: [strictAction],
+      });
+      // The handler returns a SUCCESS ToolResult whose `data` is missing
+      // `mustExist`, violating the per-action outputSchema after envelope
+      // wrapping.
+      setCustomToolActionHandler('custom_probe_tool', 'probe', async () => ({
+        success: true,
+        data: { wrongField: 'oops' },
+      }));
+
+      const { McpServer } = await import('@modelcontextprotocol/sdk/server/mcp.js');
+      const spy = vi.spyOn(McpServer.prototype, 'registerTool');
+      const { createMcpServer } = await import('./mcp.js');
+      createMcpServer(ctx);
+
+      const call = spy.mock.calls.find(c => c[0] === 'custom_probe_tool');
+      expect(call).toBeDefined();
+      const handler = call![2] as (args: Record<string, unknown>) => Promise<unknown>;
+
+      // Act
+      const result = (await handler({ action: 'probe' })) as {
+        structuredContent: {
+          success: boolean;
+          error?: { code: string; message: string };
+          _meta: { outputSchemaViolation?: unknown };
+        };
+        isError: boolean;
+      };
+
+      // Assert
+      expect(result.isError).toBe(true);
+      expect(result.structuredContent.success).toBe(false);
+      expect(result.structuredContent.error?.code).toBe('INTERNAL_ERROR');
+      expect(result.structuredContent._meta.outputSchemaViolation).toBeDefined();
+      const violations = result.structuredContent._meta.outputSchemaViolation as Array<{
+        path: string;
+        message: string;
+      }>;
+      expect(Array.isArray(violations)).toBe(true);
+      expect(violations.length).toBeGreaterThan(0);
+      expect(violations[0]).toHaveProperty('path');
+      expect(violations[0]).toHaveProperty('message');
+
+      spy.mockRestore();
+    } finally {
+      clearCustomTools();
+    }
+  });
+
+  // ─── D.7: cutover regression guard — structuredContent must be populated.
+  // formatResult-only output (no structuredContent) would silently drop the
+  // typed envelope and revert to the legacy text-only carrier.
+  it('MCPHandler_OutputShape_ContainsStructuredContent_NotFormatResultOnly', async () => {
+    // Arrange
+    const { McpServer } = await import('@modelcontextprotocol/sdk/server/mcp.js');
+    const spy = vi.spyOn(McpServer.prototype, 'registerTool');
+    const { createMcpServer } = await import('./mcp.js');
+    createMcpServer(ctx);
+    const call = spy.mock.calls.find(c => c[0] === 'exarchos_view');
+    const handler = call![2] as (args: Record<string, unknown>) => Promise<unknown>;
+
+    // Act
+    const result = (await handler({ action: 'pipeline' })) as {
+      content?: unknown;
+      structuredContent?: unknown;
+    };
+
+    // Assert — both legacy text content AND new structuredContent must be
+    // present. structuredContent presence is the D.7 invariant.
+    expect(result.content).toBeDefined();
+    expect(result.structuredContent).toBeDefined();
+
+    spy.mockRestore();
+  });
+
   // ─── D.4: Pass LCD outputSchema to registerTool (Wave 0, Issue #1287) ────
   //
   // Per design §2.2, every visible composite tool MUST be registered with an
