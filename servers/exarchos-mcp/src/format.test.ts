@@ -10,7 +10,7 @@ import {
   type Envelope,
   type ToolResult,
 } from './format.js';
-import { EnvelopeSchema } from './schemas/envelope.js';
+import { EnvelopeSchema, ErrorEnvelopeSchema } from './schemas/envelope.js';
 import type { NextAction } from './next-action.js';
 import {
   ANTHROPIC_NATIVE_CACHING,
@@ -471,5 +471,78 @@ describe('toEnvelope', () => {
     const env = toEnvelope(result);
     const parsed = EnvelopeSchema(z.unknown()).safeParse(env);
     expect(parsed.success).toBe(true);
+  });
+});
+
+// ─── F.5: wrapError round-trip — every branch validates as ErrorEnvelope ───
+//
+// `wrapError` has four real-world entry shapes (design §2.5 / format.ts):
+//   1. ConcurrencyError      — typed event-store conflict.
+//   2. StorageBusyError      — typed substrate contention.
+//   3. Plain `Error` instance — caught-and-rethrown handler crash.
+//   4. Plain string          — legacy fallthrough (some adapters still throw
+//                              raw strings on misuse paths).
+//
+// Each must produce an envelope that validates as `ErrorEnvelopeSchema`.
+// Without this gate, a future refactor could quietly emit a malformed
+// failure envelope (e.g. missing `_perf` or mis-shaped `error`) and the
+// only signal would be downstream consumer breakage.
+describe('WrapError_AllBranches_ValidatesAgainstErrorEnvelopeSchema (F.5)', () => {
+  it('WrapError_ConcurrencyError_RoundTripsThroughErrorEnvelopeSchema', () => {
+    const err = new ConcurrencyError({
+      streamId: 'stream-rt',
+      reducerId: 'rt@v1',
+      expectedVersion: 1,
+      actualVersion: 2,
+    });
+    const env = wrapError(err);
+    const parsed = ErrorEnvelopeSchema.safeParse(env);
+    expect(
+      parsed.success,
+      parsed.success
+        ? undefined
+        : `ConcurrencyError envelope failed schema: ${JSON.stringify(parsed.error?.issues)}`,
+    ).toBe(true);
+  });
+
+  it('WrapError_StorageBusyError_RoundTripsThroughErrorEnvelopeSchema', () => {
+    const err = new StorageBusyError({
+      streamId: 'stream-rt',
+      attempts: 3,
+      cause: new Error('SQLITE_BUSY'),
+    });
+    const env = wrapError(err);
+    const parsed = ErrorEnvelopeSchema.safeParse(env);
+    expect(
+      parsed.success,
+      parsed.success
+        ? undefined
+        : `StorageBusyError envelope failed schema: ${JSON.stringify(parsed.error?.issues)}`,
+    ).toBe(true);
+  });
+
+  it('WrapError_GenericError_RoundTripsThroughErrorEnvelopeSchema', () => {
+    const env = wrapError(new Error('unexpected handler crash'));
+    const parsed = ErrorEnvelopeSchema.safeParse(env);
+    expect(
+      parsed.success,
+      parsed.success
+        ? undefined
+        : `Generic Error envelope failed schema: ${JSON.stringify(parsed.error?.issues)}`,
+    ).toBe(true);
+  });
+
+  it('WrapError_StringInput_RoundTripsThroughErrorEnvelopeSchema', () => {
+    // Some legacy throw sites still pass plain strings — the wrapper must
+    // normalise them onto a valid ErrorEnvelope even when the input lacks
+    // an `Error.message` field.
+    const env = wrapError('raw string failure');
+    const parsed = ErrorEnvelopeSchema.safeParse(env);
+    expect(
+      parsed.success,
+      parsed.success
+        ? undefined
+        : `String-input envelope failed schema: ${JSON.stringify(parsed.error?.issues)}`,
+    ).toBe(true);
   });
 });
