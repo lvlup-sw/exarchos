@@ -1,101 +1,47 @@
-import type { z } from 'zod';
-import {
-  zodToJsonSchema as upstream,
-  type Options as UpstreamOptions,
-  type Targets as UpstreamTargets,
-} from 'zod-to-json-schema';
+import { z } from 'zod';
 
 /**
- * Canonical JSON Schema draft 2020-12 `$schema` URL.
- *
- * Per the MCP spec (2025-11-25), tool `inputSchema` and `outputSchema`
- * default to draft 2020-12 when no explicit schema is supplied.
- */
-export const JSON_SCHEMA_2020_12_URI =
-  'https://json-schema.org/draft/2020-12/schema';
-
-/**
- * Wrapper around `zodToJsonSchema` that defaults emitted schemas to
- * JSON Schema draft 2020-12.
+ * Wrapper around Zod v4's native `z.toJSONSchema` that defaults emitted
+ * schemas to JSON Schema draft 2020-12.
  *
  * Why this exists
  * ---------------
  * The MCP 2025-11-25 spec defines tool `inputSchema` / `outputSchema` to
- * default to draft 2020-12. The upstream `zod-to-json-schema` package
- * currently defaults to draft-07 and only accepts the targets
- * `'jsonSchema7' | 'jsonSchema2019-09' | 'openApi3' | 'openAi'` — none of
- * which directly emits the 2020-12 `$schema` marker.
- *
- * Routing every call site through this wrapper makes the conformance bar
- * deterministic: contributors cannot accidentally re-introduce draft-07
- * by adding a fresh `import { zodToJsonSchema } from 'zod-to-json-schema'`
- * — lint rules / review can require the adapter import instead.
- *
- * Why a relabel and not a real 2020-12 emission
- * ---------------------------------------------
- * `zod-to-json-schema@3.25.2` is the FINAL release of that package — the
- * v3.25.0 changelog states "v4 now supports JSON schema natively" and the
- * project is effectively archived. No 2020-12 target is coming.
- *
- * `@modelcontextprotocol/sdk@1.26.x` has its own internal Zod → JSON Schema
- * converter (`zod-json-schema-compat.ts`), but the routing splits on Zod
- * major: a Zod-v4 input takes the `z4mini.toJSONSchema(target: 'draft-2020-12')`
- * path and emits true 2020-12; a Zod-v3 input falls through to the same
- * archived `zodToJsonSchema` and emits draft-07 (the SDK silently drops
- * any `target` hint on this branch). Exarchos pins Zod v3, so the SDK
- * itself can only emit draft-07 today.
- *
- * Of our 10 call sites, only the 2 that flow through `registerTool`/
- * `tools/list` are even reachable by the SDK's converter. The other 8
- * (describe handlers, fingerprint, runbooks, schema introspection) are
- * internal emission paths the SDK never touches. So no path to true
- * 2020-12 exists without migrating the MCP server to Zod v4 — a much
- * larger change than this wave can absorb. Tracked at #1366.
+ * default to draft 2020-12. With Zod v4 we get this natively via
+ * `z.toJSONSchema(schema, { target: 'draft-2020-12' })` — no more relabel
+ * workaround. This wrapper IS the conformance chokepoint: contributors
+ * cannot accidentally re-introduce another draft by adding a fresh
+ * `import { toJSONSchema } from 'zod'`, because lint / review require the
+ * adapter import instead. Treat any direct `z.toJSONSchema(...)` call site
+ * outside this file as a violation.
  *
  * Behaviour
  * ---------
- * - Default call: `zodToJsonSchema(schema)` requests the
- *   `'jsonSchema2019-09'` upstream target (the closest available draft) and
- *   then overwrites `$schema` with the canonical 2020-12 URI. 2019-09 and
- *   2020-12 share the same structural surface for the constructs Zod emits
- *   (objects, properties, required, enums, oneOf, const, $ref) — there is
- *   no Zod construct in the codebase that would produce 2019-09-only
- *   syntax (e.g. `unevaluatedProperties`). Re-labelling is therefore safe
- *   for all current emission. When upstream gains a true 2020-12 target,
- *   or when Zod is migrated to v4, this stamp drops.
+ * - Default call: `zodToJsonSchema(schema)` emits native draft-2020-12.
  * - Caller-supplied options pass through and may override `target`. If the
- *   caller passes a different `target`, the wrapper does NOT stamp 2020-12
- *   — the caller's explicit choice wins.
+ *   caller passes a different `target` (e.g. `'draft-7'`), the upstream
+ *   honours that choice; the wrapper does not stamp 2020-12 over the top.
  *
- * Per design `docs/designs/2026-05-13-wave-0-carrier-swap.md` §2.6 and
- * issue #1277.
+ * History
+ * -------
+ * Prior to PR-C (#1366) this wrapper round-tripped through `zod-to-json-schema`
+ * with a manual `$schema` relabel because the legacy package never emitted
+ * 2020-12. That workaround was removed when we bumped to zod v4 + MCP SDK
+ * 1.29 (with a `patch-package` fix so the SDK threads `target: 'draft-2020-12'`
+ * through `tools/list`). See
+ * `docs/research/2026-05-13-zod-v4-decision-record-addendum.md`.
  */
 export function zodToJsonSchema(
-  schema: z.ZodTypeAny,
-  opts?: Partial<UpstreamOptions<UpstreamTargets>>,
-): ReturnType<typeof upstream> {
-  // Only treat `target` as a caller override when it is explicitly set to a
-  // value. `{ target: undefined }` should NOT skip the 2020-12 stamp —
-  // otherwise an undefined hop through a partial-options spread would
-  // silently fall back to the upstream library's draft-07 default
-  // (CodeRabbit PR #1369 minor). Spreading `opts` first then re-asserting
-  // the default if `target` is still undefined enforces the same invariant
-  // for the merged options passed downstream.
-  const callerOverrodeTarget = opts?.target !== undefined;
-
-  const merged: Partial<UpstreamOptions<UpstreamTargets>> = {
-    ...(opts ?? {}),
-    target: opts?.target ?? 'jsonSchema2019-09',
-  };
-
-  const result = upstream(
-    schema,
-    merged as Partial<UpstreamOptions<UpstreamTargets>>,
-  ) as Record<string, unknown>;
-
-  if (!callerOverrodeTarget) {
-    result.$schema = JSON_SCHEMA_2020_12_URI;
-  }
-
-  return result as ReturnType<typeof upstream>;
+  schema: z.ZodType,
+  opts?: Parameters<typeof z.toJSONSchema>[1],
+): ReturnType<typeof z.toJSONSchema> {
+  // Spread `opts` first, then re-assert `target` to the 2020-12 default if
+  // the caller did not set it explicitly. Spreading after the default would
+  // let `{ target: undefined }` overwrite the default with `undefined` and
+  // silently fall back to the upstream library's behavior (CodeRabbit PR
+  // #1369 minor — applies equally to the Zod v4 native rewrite here).
+  return z.toJSONSchema(schema, {
+    ...opts,
+    target: opts?.target ?? 'draft-2020-12',
+  });
 }
