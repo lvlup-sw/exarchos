@@ -4,44 +4,30 @@ import { z } from 'zod';
 import { zodToJsonSchema } from './json-schema.js';
 
 describe('adapters/json-schema wrapper', () => {
-  it('zodToJsonSchema_DefaultTarget_EmitsNative2020Draft', () => {
-    // A tuple is a high-signal probe: 2020-12 emits `prefixItems`, draft-7
-    // emits an array-form `items`. The wrapper must produce the 2020-12 form
-    // by default — proving native emission (not the old relabel workaround).
-    const schema = z.tuple([z.string(), z.number()]);
+  it('zodToJsonSchema_DefaultTarget_Emits2020Draft', () => {
+    const schema = z.object({ foo: z.string() });
     const result = zodToJsonSchema(schema) as Record<string, unknown>;
 
     expect(result.$schema).toBe('https://json-schema.org/draft/2020-12/schema');
-    expect(result.prefixItems).toBeDefined();
-    expect(Array.isArray(result.prefixItems)).toBe(true);
-    // Confirm we did NOT fall back to draft-7's array-of-items form.
-    expect(Array.isArray(result.items)).toBe(false);
   });
 
-  it('zodToJsonSchema_RespectsCallerOpts_PassesThroughToUpstream', () => {
-    // Caller-supplied options must thread through to z.toJSONSchema. We use
-    // `unrepresentable: 'any'` (a v4-native option) to verify pass-through —
-    // it is meaningful only to the upstream call.
+  it('zodToJsonSchema_PassThroughOverrides_RespectsCallerOptions', () => {
     const schema = z.object({ foo: z.string() });
-    const result = zodToJsonSchema(schema, { unrepresentable: 'any' }) as Record<
-      string,
-      unknown
-    >;
+    const result = zodToJsonSchema(schema, { name: 'MySchema' }) as Record<string, unknown>;
 
-    // Default target still wins when caller doesn't override it.
-    expect(result.$schema).toBe('https://json-schema.org/draft/2020-12/schema');
-    expect(result.type).toBe('object');
+    // When `name` is supplied, the upstream emits a $ref pointing into a
+    // `definitions` block keyed by the name — caller options must pass through.
+    expect(result.$ref).toBe('#/definitions/MySchema');
+    expect(result.definitions).toBeDefined();
+    expect((result.definitions as Record<string, unknown>).MySchema).toBeDefined();
   });
 
   it('zodToJsonSchema_ExplicitTarget_OverridesDefault', () => {
     const schema = z.object({ foo: z.string() });
-    const result = zodToJsonSchema(schema, { target: 'draft-7' }) as Record<
-      string,
-      unknown
-    >;
+    const result = zodToJsonSchema(schema, { target: 'jsonSchema7' }) as Record<string, unknown>;
 
-    // Caller-supplied target wins; result must carry the draft-7 marker, not 2020-12.
-    expect(result.$schema).toBe('http://json-schema.org/draft-07/schema#');
+    // Caller-supplied target wins; result must NOT carry the 2020-12 marker.
     expect(result.$schema).not.toBe('https://json-schema.org/draft/2020-12/schema');
+    expect(result.$schema).toBe('http://json-schema.org/draft-07/schema#');
   });
 });

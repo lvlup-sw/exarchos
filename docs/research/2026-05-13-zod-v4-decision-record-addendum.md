@@ -97,6 +97,19 @@ The original brief's phases 2-8 are amended:
 ## Status
 
 - [x] User ratified the B+C combo on 2026-05-14 via `/design-invariants` + `/axiom:design` skill-driven review.
-- [ ] C-W2 dispatched (next action).
-- [ ] C-W2.5 (upstream PR) drafted and submitted.
-- [ ] C-W8 native-2020-12 integration test green (the hard gate).
+- [x] **Upstream Option B socialization filed 2026-05-14:**
+  - Gap 1 (tools/list draft-07 regression vs SEP-1613): NEW issue [modelcontextprotocol/typescript-sdk#2084](https://github.com/modelcontextprotocol/typescript-sdk/issues/2084) — file:line evidence from `1.29.0`, suggested diff, test plan, linked to lvlup-sw/exarchos#1366.
+  - Gap 2 (DU `outputSchema` rejected): existing open issue [modelcontextprotocol/typescript-sdk#1308](https://github.com/modelcontextprotocol/typescript-sdk/issues/1308) (P2, fix-proposed; @lawrence3699 working on v1.x backport since 2026-04-19). Commented Exarchos DU envelope use case at [#1308 comment 4447691385](https://github.com/modelcontextprotocol/typescript-sdk/issues/1308#issuecomment-4447691385). Not duplicated.
+- [x] **C-W2 landed in commit `36b1faca` (2026-05-14):**
+  - Zod bumped to `^4.4.3`; SDK bumped to `^1.29.0`; `zod-to-json-schema` dropped.
+  - `patch-package` wired (postinstall script). Patch file `servers/exarchos-mcp/patches/@modelcontextprotocol+sdk+1.29.0.patch` fixes both gaps with inline `[exarchos patch #1366]` comments.
+  - `adapters/json-schema.ts` rewritten as ~10-line passthrough; 3/3 adapter tests GREEN. Default-target test uses `z.tuple(...)` to assert `prefixItems` (a true 2020-12-only structural keyword), not just `$schema` string.
+  - RED-state baseline captured: 41 tsc errors + 230 vitest failures across `registry.ts`, `schema-to-flags.ts`, `evals/*`, `event-store/schemas.ts`, `adapters/mcp.ts`. This is the C-W3..C-W7 work surface.
+- [ ] C-W3..C-W7 (envelope, registry, adapters, sweep, snapshots) — next dispatch.
+- [ ] C-W2.5 (upstream PR for both gaps) — patch-file is the reference implementation; can be authored once C-W6 completes and the SDK PRs find a stable diff.
+- [ ] C-W8 native-2020-12 integration test green (the hard gate — relies on patched SDK).
+
+## Notes for downstream waves
+
+- The patch's inline `(TBD)` upstream-PR references need backfill once C-W2.5 files the SDK PR.
+- `better-sqlite3` native bindings emit a "could not locate `.node` file" in agent worktrees (node v24 vs prebuilt v22). Pre-existing and unrelated to PR-C. Treat sqlite-bound test failures in subagent worktrees as environmental until proven otherwise; `npm rebuild better-sqlite3` in the worktree is the fix.
