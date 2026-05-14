@@ -108,3 +108,51 @@ export const ErrorEnvelopeSchema = z.object({
   _meta: z.record(z.string(), z.unknown()),
   _perf: PerfMetricsSchema,
 });
+
+/**
+ * Factory: produces a Zod schema for the `Envelope<T>` success branch
+ * with `data` typed by the supplied `dataSchema`.
+ *
+ * Mirrors `Envelope<T>` from `format.ts:75–98` plus the side-channel
+ * decorators that `wrapWithPassthrough` may attach (`warnings`,
+ * `_corrections`). Optional fields are marked `.optional()` so that
+ * minimal envelopes from `wrap()` (no event hints, no cache hints,
+ * no warnings) parse cleanly.
+ *
+ * Generic parameter is loose: any `z.ZodTypeAny`. Concrete handlers
+ * pass their action's specific data schema; the resulting envelope
+ * schema is then advertised as `outputSchema` per design §2.1.
+ */
+export function SuccessEnvelopeSchema<T extends z.ZodTypeAny>(dataSchema: T) {
+  return z.object({
+    success: z.literal(true),
+    data: dataSchema,
+    next_actions: z.array(NextActionSchema),
+    _meta: z.record(z.string(), z.unknown()),
+    _perf: PerfMetricsSchema,
+    _eventHints: EventHintsSchema.optional(),
+    _cacheHints: CacheHintsSchema.optional(),
+    warnings: z.array(z.string()).optional(),
+    _corrections: CorrectionsSchema.optional(),
+  });
+}
+
+/**
+ * Factory: per-action discriminated-union envelope schema.
+ *
+ * `success: true` → `SuccessEnvelopeSchema(dataSchema)` (typed `data`,
+ * canonical envelope decorators).
+ * `success: false` → {@link ErrorEnvelopeSchema} (typed error block).
+ *
+ * The discriminator field is `success` (boolean literal) so consumers
+ * can branch on a single field without re-validating the whole shape.
+ * This is the per-action contract surface for `outputSchema` per design
+ * §2.1 (Approach C) — each composite handler attaches its action's data
+ * schema and exports the resulting envelope schema upward.
+ */
+export function EnvelopeSchema<T extends z.ZodTypeAny>(dataSchema: T) {
+  return z.discriminatedUnion('success', [
+    SuccessEnvelopeSchema(dataSchema),
+    ErrorEnvelopeSchema,
+  ]);
+}
