@@ -1,0 +1,99 @@
+// ─── F.6: Output validation overhead benchmark (Wave 0, design §7) ─────────
+//
+// Wires the same read-only dispatch (`exarchos_view.pipeline`) 100 times via
+// the MCP carrier (in-process SDK), measures the median wall-clock per call,
+// and asserts the median sits beneath a CI-robust threshold. The intent is
+// not microbenchmark accuracy but a load-bearing alarm: if a future change
+// makes the per-call validation path dominate (e.g. accidental recursive
+// Zod parse, an O(actions) re-lookup on every call), this test fails.
+//
+// Threshold rationale
+// -------------------
+// On a hot Node 20 path locally, `view.pipeline` through the full carrier
+// (dispatch → toEnvelope → per-action schema validate → toMcpResult →
+// SDK in-memory transport → client deserialise) measures well under 10ms
+// per call on dev hardware. A 75ms median floor leaves ~7-10x headroom for
+// shared-CI flakiness (loaded test runners, fork-pool contention, cold
+// V8 paths on the first few iterations) and still catches an order-of-
+// magnitude regression. If the threshold ever flakes in CI, raise it
+// (with a comment + a tracking issue) rather than chasing percentiles.
+
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import * as fs from 'node:fs/promises';
+import * as path from 'node:path';
+import * as os from 'node:os';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
+import { createMcpServer } from '../../adapters/mcp.js';
+import { EventStore } from '../../event-store/store.js';
+import type { DispatchContext } from '../../core/dispatch.js';
+
+const ITERATIONS = 100;
+const WARMUP = 5;
+const MEDIAN_BUDGET_MS = 75;
+
+describe('F.6 — output validation overhead', () => {
+  let tmpDir: string;
+  let client: Client;
+
+  beforeAll(async () => {
+    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'perf-validation-test-'));
+    const eventStore = new EventStore(tmpDir);
+    await eventStore.initialize();
+    const ctx: DispatchContext = {
+      stateDir: tmpDir,
+      eventStore,
+      enableTelemetry: false,
+    };
+    const server = createMcpServer(ctx);
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    client = new Client(
+      { name: 'perf-validation-test', version: '1.0.0' },
+      { capabilities: {} },
+    );
+    await Promise.all([
+      server.connect(serverTransport),
+      client.connect(clientTransport),
+    ]);
+  });
+
+  afterAll(async () => {
+    try {
+      await client.close();
+    } catch {
+      /* ignore */
+    }
+    await fs.rm(tmpDir, { recursive: true, force: true });
+  });
+
+  it('PerfValidation_RepeatedDispatch_MedianBelowBudget', async () => {
+    // Warmup: drive a few calls through the path so the JIT, the event-
+    // store handles, and the Zod schema closures are hot before timing.
+    for (let i = 0; i < WARMUP; i++) {
+      await client.callTool({
+        name: 'exarchos_view',
+        arguments: { action: 'pipeline' },
+      });
+    }
+
+    const samples: number[] = [];
+    for (let i = 0; i < ITERATIONS; i++) {
+      const start = performance.now();
+      await client.callTool({
+        name: 'exarchos_view',
+        arguments: { action: 'pipeline' },
+      });
+      samples.push(performance.now() - start);
+    }
+
+    samples.sort((a, b) => a - b);
+    const median = samples[Math.floor(samples.length / 2)];
+
+    expect(
+      median,
+      `median ${median.toFixed(2)}ms > budget ${MEDIAN_BUDGET_MS}ms — full samples sorted: ${samples
+        .map((s) => s.toFixed(2))
+        .join(', ')}`,
+    ).toBeLessThan(MEDIAN_BUDGET_MS);
+  });
+});
