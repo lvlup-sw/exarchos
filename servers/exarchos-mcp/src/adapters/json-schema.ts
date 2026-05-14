@@ -1,6 +1,14 @@
 import { z } from 'zod';
 
 /**
+ * Canonical `$schema` URI for JSON Schema draft-2020-12, the version that
+ * MCP 2025-11-25 tool I/O schemas advertise. Exported so call-site tests can
+ * compare against the same literal string that {@link zodToJsonSchema}
+ * causes Zod v4 to stamp onto emitted schemas.
+ */
+export const JSON_SCHEMA_2020_12_URI = 'https://json-schema.org/draft/2020-12/schema';
+
+/**
  * Wrapper around Zod v4's native `z.toJSONSchema` that defaults emitted
  * schemas to JSON Schema draft 2020-12.
  *
@@ -31,16 +39,16 @@ import { z } from 'zod';
  * through `tools/list`). See
  * `docs/research/2026-05-13-zod-v4-decision-record-addendum.md`.
  */
-export function zodToJsonSchema(
-  schema: z.ZodType,
-  opts?: Parameters<typeof z.toJSONSchema>[1],
-): ReturnType<typeof z.toJSONSchema> {
+export function zodToJsonSchema<T extends z.ZodType>(
+  schema: T,
+  opts?: Parameters<typeof z.toJSONSchema<T>>[1],
+): ReturnType<typeof z.toJSONSchema<T>> {
   // Spread `opts` first, then re-assert `target` to the 2020-12 default if
   // the caller did not set it explicitly. Spreading after the default would
   // let `{ target: undefined }` overwrite the default with `undefined` and
   // silently fall back to the upstream library's behavior (CodeRabbit PR
   // #1369 minor — applies equally to the Zod v4 native rewrite here).
-  return z.toJSONSchema(schema, {
+  return z.toJSONSchema<T>(schema, {
     ...opts,
     target: opts?.target ?? 'draft-2020-12',
   });

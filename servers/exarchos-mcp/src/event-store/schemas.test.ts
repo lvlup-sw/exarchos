@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { describe, it, expect, afterEach } from 'vitest';
-import { zodToJsonSchema } from 'zod-to-json-schema';
+import { zodToJsonSchema } from '../adapters/json-schema.js';
 import {
   validateAgentEvent,
   AGENT_EVENT_TYPES,
@@ -1258,7 +1258,7 @@ describe('EvalCaseCompletedData max-length constraints', () => {
       name: `assertion-${i}`, type: 'equality', passed: true, score: 1, reason: 'ok'
     }));
     const data = {
-      runId: '00000000-0000-0000-0000-000000000001',
+      runId: '11111111-1111-4111-8111-111111111111',
       caseId: 'case-1', suiteId: 'suite-1',
       passed: true, score: 1, assertions, duration: 100
     };
@@ -1270,7 +1270,7 @@ describe('EvalCaseCompletedData max-length constraints', () => {
       name: `assertion-${i}`, type: 'equality', passed: true, score: 1, reason: 'ok'
     }));
     const data = {
-      runId: '00000000-0000-0000-0000-000000000001',
+      runId: '11111111-1111-4111-8111-111111111111',
       caseId: 'case-1', suiteId: 'suite-1',
       passed: true, score: 1, assertions, duration: 100
     };
@@ -3066,7 +3066,7 @@ describe('EventSchemaRegistry_RegistersAllNewTwoEventSplitTypes', () => {
 
   it('B6_PrCreateRequested_ValidPayload_Accepts', () => {
     const result = PrCreateRequestedData.safeParse({
-      operationId: '00000000-0000-0000-0000-000000000001',
+      operationId: '11111111-1111-4111-8111-111111111111',
       title: 'feat: add new feature',
       body: 'This PR adds a new feature.',
       base: 'main',
@@ -3079,7 +3079,7 @@ describe('EventSchemaRegistry_RegistersAllNewTwoEventSplitTypes', () => {
 
   it('B6_PrCreateExecuted_ValidPayload_Accepts', () => {
     const result = PrCreateExecutedData.safeParse({
-      operationId: '00000000-0000-0000-0000-000000000001',
+      operationId: '11111111-1111-4111-8111-111111111111',
       prNumber: 42,
       url: 'https://github.com/lvlup-sw/exarchos/pull/42',
     });
@@ -3088,7 +3088,7 @@ describe('EventSchemaRegistry_RegistersAllNewTwoEventSplitTypes', () => {
 
   it('B6_PrCommentRequested_ValidPayload_Accepts', () => {
     const result = PrCommentRequestedData.safeParse({
-      operationId: '00000000-0000-0000-0000-000000000002',
+      operationId: '22222222-2222-4222-8222-222222222222',
       prNumber: 42,
       body: 'LGTM! Approved.',
     });
@@ -3097,7 +3097,7 @@ describe('EventSchemaRegistry_RegistersAllNewTwoEventSplitTypes', () => {
 
   it('B6_PrCommentExecuted_ValidPayload_Accepts', () => {
     const result = PrCommentExecutedData.safeParse({
-      operationId: '00000000-0000-0000-0000-000000000002',
+      operationId: '22222222-2222-4222-8222-222222222222',
       commentId: 99001,
       url: 'https://github.com/lvlup-sw/exarchos/pull/42#issuecomment-99001',
     });
@@ -3106,7 +3106,7 @@ describe('EventSchemaRegistry_RegistersAllNewTwoEventSplitTypes', () => {
 
   it('B6_IssueCreateRequested_ValidPayload_Accepts', () => {
     const result = IssueCreateRequestedData.safeParse({
-      operationId: '00000000-0000-0000-0000-000000000003',
+      operationId: '33333333-3333-4333-8333-333333333333',
       title: 'Bug: something is broken',
       body: 'Steps to reproduce...',
       labels: ['bug'],
@@ -3117,7 +3117,7 @@ describe('EventSchemaRegistry_RegistersAllNewTwoEventSplitTypes', () => {
 
   it('B6_IssueCreateExecuted_ValidPayload_Accepts', () => {
     const result = IssueCreateExecutedData.safeParse({
-      operationId: '00000000-0000-0000-0000-000000000003',
+      operationId: '33333333-3333-4333-8333-333333333333',
       issueNumber: 1342,
       url: 'https://github.com/lvlup-sw/exarchos/issues/1342',
     });
@@ -3126,7 +3126,7 @@ describe('EventSchemaRegistry_RegistersAllNewTwoEventSplitTypes', () => {
 
   it('B6_BranchDeleteRequested_ValidPayload_Accepts', () => {
     const result = BranchDeleteRequestedData.safeParse({
-      operationId: '00000000-0000-0000-0000-000000000004',
+      operationId: '44444444-4444-4444-8444-444444444444',
       branch: 'feature/old-branch',
       remote: 'origin',
       localOnly: false,
@@ -3136,7 +3136,7 @@ describe('EventSchemaRegistry_RegistersAllNewTwoEventSplitTypes', () => {
 
   it('B6_BranchDeleteExecuted_ValidPayload_Accepts', () => {
     const result = BranchDeleteExecutedData.safeParse({
-      operationId: '00000000-0000-0000-0000-000000000004',
+      operationId: '44444444-4444-4444-8444-444444444444',
       branch: 'feature/old-branch',
       deletedLocally: true,
       deletedRemote: true,
@@ -3146,7 +3146,7 @@ describe('EventSchemaRegistry_RegistersAllNewTwoEventSplitTypes', () => {
 
   it('B6_WorktreeRemoveRequested_ValidPayload_Accepts', () => {
     const result = WorktreeRemoveRequestedData.safeParse({
-      operationId: '00000000-0000-0000-0000-000000000005',
+      operationId: '55555555-5555-4555-8555-555555555555',
       worktreePath: '/home/user/repo/.claude/worktrees/agent-abc123',
     });
     expect(result.success, JSON.stringify(result)).toBe(true);
@@ -3154,7 +3154,7 @@ describe('EventSchemaRegistry_RegistersAllNewTwoEventSplitTypes', () => {
 
   it('B6_WorktreeRemoveExecuted_ValidPayload_Accepts', () => {
     const result = WorktreeRemoveExecutedData.safeParse({
-      operationId: '00000000-0000-0000-0000-000000000005',
+      operationId: '55555555-5555-4555-8555-555555555555',
       worktreePath: '/home/user/repo/.claude/worktrees/agent-abc123',
       removed: true,
     });

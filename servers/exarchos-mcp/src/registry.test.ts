@@ -22,6 +22,7 @@ import {
 } from './registry.js';
 import type { ToolAction, CompositeTool, ActionAnnotations } from './registry.js';
 import { wrap, wrapError } from './format.js';
+import { zodToJsonSchema } from './adapters/json-schema.js';
 import { ConcurrencyError } from './event-store/concurrency-error.js';
 
 describe('buildCompositeSchema', () => {
@@ -430,34 +431,56 @@ describe('coercedStringArray', () => {
 // ─── Registration Schema JSON Output ────────────────────────────────────────
 
 describe('buildRegistrationSchema JSON Schema', () => {
+  // The build emits a discriminated union; each variant lives under
+  // `anyOf` (v4 native draft-2020-12) rather than the v3 library's
+  // top-level `properties`. We pick the variant that actually carries
+  // the field we want to assert on.
+  function findVariantPropertyShape(
+    json: Record<string, unknown>,
+    propName: string,
+  ): Record<string, unknown> | undefined {
+    const anyOf = (json.anyOf ?? json.oneOf) as
+      | Array<Record<string, unknown>>
+      | undefined;
+    if (!anyOf) {
+      const props = json.properties as Record<string, Record<string, unknown>> | undefined;
+      return props?.[propName];
+    }
+    for (const variant of anyOf) {
+      const props = variant.properties as Record<string, Record<string, unknown>> | undefined;
+      if (props && propName in props) return props[propName];
+    }
+    return undefined;
+  }
+
   it('should emit type:object for coercedRecord fields', () => {
     // T5a.1/DR-4 (#1259, v2.11): the prior assertion targeted the workflow
     // tool's `updates` field on the now-removed `set` action. Re-pointed to
     // the event tool's `event` field, which is also a `coercedRecord()`.
-    const { zodToJsonSchema } = require('zod-to-json-schema') as typeof import('zod-to-json-schema');
     const event = TOOL_REGISTRY.find((t) => t.name === 'exarchos_event')!;
     const schema = buildRegistrationSchema(event.actions);
-    const json = zodToJsonSchema(schema) as Record<string, unknown>;
-    const props = json.properties as Record<string, Record<string, unknown>>;
-    expect(props.event).toEqual({ type: 'object', additionalProperties: {} });
+    const json = zodToJsonSchema(schema) as unknown as Record<string, unknown>;
+    const eventProp = findVariantPropertyShape(json, 'event');
+    expect(eventProp).toBeDefined();
+    expect(eventProp).toMatchObject({ type: 'object' });
   });
 
   it('should emit type:integer for coercedPositiveInt fields', () => {
-    const { zodToJsonSchema } = require('zod-to-json-schema') as typeof import('zod-to-json-schema');
     const event = TOOL_REGISTRY.find((t) => t.name === 'exarchos_event')!;
     const schema = buildRegistrationSchema(event.actions);
-    const json = zodToJsonSchema(schema) as Record<string, unknown>;
-    const props = json.properties as Record<string, Record<string, unknown>>;
-    expect(props.limit).toEqual({ type: 'integer', exclusiveMinimum: 0 });
+    const json = zodToJsonSchema(schema) as unknown as Record<string, unknown>;
+    const limitProp = findVariantPropertyShape(json, 'limit');
+    expect(limitProp).toBeDefined();
+    expect(limitProp).toMatchObject({ type: 'integer', exclusiveMinimum: 0 });
   });
 
   it('should emit type:integer for coercedNonnegativeInt fields', () => {
-    const { zodToJsonSchema } = require('zod-to-json-schema') as typeof import('zod-to-json-schema');
     const event = TOOL_REGISTRY.find((t) => t.name === 'exarchos_event')!;
     const schema = buildRegistrationSchema(event.actions);
-    const json = zodToJsonSchema(schema) as Record<string, unknown>;
-    const props = json.properties as Record<string, Record<string, unknown>>;
-    expect(props.offset).toEqual({ type: 'integer', minimum: 0 });
+    const json = zodToJsonSchema(schema) as unknown as Record<string, unknown>;
+    const offsetProp = findVariantPropertyShape(json, 'offset');
+    expect(offsetProp).toBeDefined();
+    expect(offsetProp).toMatchObject({ type: 'integer', minimum: 0 });
   });
 });
 
@@ -1744,7 +1767,7 @@ describe('validateAction', () => {
   const importValidateAction = async () => {
     const mod = await import('./registry.js');
     return (mod as { validateAction: (
-      action: { name: string; outputSchema?: z.ZodTypeAny; annotations?: unknown },
+      action: { name: string; outputSchema?: z.ZodType; annotations?: unknown },
       toolName: string,
     ) => void }).validateAction;
   };

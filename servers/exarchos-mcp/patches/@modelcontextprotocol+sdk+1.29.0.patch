@@ -1,8 +1,8 @@
 diff --git a/node_modules/@modelcontextprotocol/sdk/dist/esm/server/mcp.js b/node_modules/@modelcontextprotocol/sdk/dist/esm/server/mcp.js
-index 2314d88..db021fb 100644
+index 2314d88..e82dcd7 100644
 --- a/node_modules/@modelcontextprotocol/sdk/dist/esm/server/mcp.js
 +++ b/node_modules/@modelcontextprotocol/sdk/dist/esm/server/mcp.js
-@@ -72,12 +72,17 @@ export class McpServer {
+@@ -72,14 +72,29 @@ export class McpServer {
                      name,
                      title: tool.title,
                      description: tool.description,
@@ -12,28 +12,54 @@ index 2314d88..db021fb 100644
 +                    // (TBD) and docs/research/2026-05-13-zod-v4-decision-record-addendum.md.
                      inputSchema: (() => {
                          const obj = normalizeObjectSchema(tool.inputSchema);
-                         return obj
-                             ? toJsonSchemaCompat(obj, {
-                                 strictUnions: true,
+-                        return obj
+-                            ? toJsonSchemaCompat(obj, {
+-                                strictUnions: true,
 -                                pipeStrategy: 'input'
-+                                pipeStrategy: 'input',
-+                                target: 'draft-2020-12'
-                             })
-                             : EMPTY_OBJECT_JSON_SCHEMA;
+-                            })
+-                            : EMPTY_OBJECT_JSON_SCHEMA;
++                        if (!obj) return EMPTY_OBJECT_JSON_SCHEMA;
++                        const emitted = toJsonSchemaCompat(obj, {
++                            strictUnions: true,
++                            pipeStrategy: 'input',
++                            target: 'draft-2020-12'
++                        });
++                        // [exarchos patch #1366] MCP spec requires `type: 'object'` at
++                        // root of inputSchema/outputSchema. Zod v4's z.toJSONSchema()
++                        // emits a discriminated union as a top-level `anyOf` (no `type`).
++                        // For DU-rooted schemas we splice in `type: 'object'` so the
++                        // SDK's response validator accepts the manifest; the anyOf
++                        // branches remain intact so structurally typed clients can
++                        // still narrow.
++                        if (emitted && typeof emitted === 'object' && emitted.type === undefined) {
++                            emitted.type = 'object';
++                        }
++                        return emitted;
                      })(),
-@@ -88,9 +93,11 @@ export class McpServer {
+                     annotations: tool.annotations,
+                     execution: tool.execution,
+@@ -88,10 +103,19 @@ export class McpServer {
                  if (tool.outputSchema) {
                      const obj = normalizeObjectSchema(tool.outputSchema);
                      if (obj) {
+-                        toolDefinition.outputSchema = toJsonSchemaCompat(obj, {
 +                        // [exarchos patch #1366] target: 'draft-2020-12' — see inputSchema note above.
-                         toolDefinition.outputSchema = toJsonSchemaCompat(obj, {
++                        const emitted = toJsonSchemaCompat(obj, {
                              strictUnions: true,
 -                            pipeStrategy: 'output'
 +                            pipeStrategy: 'output',
 +                            target: 'draft-2020-12'
                          });
++                        // [exarchos patch #1366] see inputSchema note above —
++                        // splice `type: 'object'` into DU-rooted schemas so the
++                        // tools/list response validator accepts them.
++                        if (emitted && typeof emitted === 'object' && emitted.type === undefined) {
++                            emitted.type = 'object';
++                        }
++                        toolDefinition.outputSchema = emitted;
                      }
                  }
+                 return toolDefinition;
 diff --git a/node_modules/@modelcontextprotocol/sdk/dist/esm/server/zod-compat.js b/node_modules/@modelcontextprotocol/sdk/dist/esm/server/zod-compat.js
 index be30a22..6b25dac 100644
 --- a/node_modules/@modelcontextprotocol/sdk/dist/esm/server/zod-compat.js
