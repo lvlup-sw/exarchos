@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { z } from 'zod';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as os from 'node:os';
@@ -7,6 +8,8 @@ import { TOOL_REGISTRY, buildToolDescription } from '../registry.js';
 import type { DispatchContext } from '../core/dispatch.js';
 import { dispatch, READ_ONLY_ACTIONS } from '../core/dispatch.js';
 import { createInMemoryResolver } from '../capabilities/resolver.js';
+import { toEnvelope } from '../format.js';
+import { EnvelopeSchema } from '../schemas/envelope.js';
 
 // Mock the state-store module
 vi.mock('../workflow/state-store.js', async (importOriginal) => {
@@ -272,6 +275,74 @@ describe('createMcpServer', () => {
     expect(orch).not.toContain('merge_pr');
     expect(orch).not.toContain('create_pr');
     expect(orch).not.toContain('merge_orchestrate');
+  });
+
+  // ─── D.1: toMcpResult carrier mapping (Wave 0, Issue #1287) ──────────────
+  //
+  // The MCP adapter must emit BOTH a backwards-compat `content[0].text`
+  // (per MCP 2025-11-25 §Tools / Structured Content SHOULD) AND the
+  // typed `structuredContent` carrying the Envelope as a JSON object.
+  // The envelope construction stays in format.ts; toMcpResult only does
+  // carrier mapping. See design §2.3.
+
+  it('toMcpResult_SuccessEnvelope_ReturnsTextAndStructuredContent', async () => {
+    // Arrange
+    const { toMcpResult } = await import('./mcp.js');
+    const env = toEnvelope({
+      success: true,
+      data: { foo: 'bar' },
+      _meta: {},
+      _perf: { ms: 5, bytes: 100, tokens: 25 },
+    });
+
+    // Act
+    const result = toMcpResult(env);
+
+    // Assert — content[0].text is the JSON-serialized envelope (SHOULD).
+    expect(result.content).toHaveLength(1);
+    expect(result.content[0].type).toBe('text');
+    expect(result.content[0].text).toBe(JSON.stringify(env));
+    // structuredContent must carry the envelope as a JSON object.
+    // We document this as same-object-reference: no clone, no normalization.
+    expect(result.structuredContent).toBe(env);
+    // Success envelopes never set isError.
+    expect(result.isError).toBe(false);
+  });
+
+  it('toMcpResult_ErrorEnvelope_ReturnsTextAndStructuredContentWithIsErrorTrue', async () => {
+    // Arrange
+    const { toMcpResult } = await import('./mcp.js');
+    const env = toEnvelope({
+      success: false,
+      error: { code: 'X', message: 'y' },
+    });
+
+    // Act
+    const result = toMcpResult(env);
+
+    // Assert
+    expect(result.content[0].text).toBe(JSON.stringify(env));
+    expect(result.structuredContent).toBe(env);
+    expect(result.isError).toBe(true);
+  });
+
+  it('toMcpResult_StructuredContentRoundTripsThroughEnvelopeSchema', async () => {
+    // Arrange
+    const { toMcpResult } = await import('./mcp.js');
+    const env = toEnvelope({
+      success: true,
+      data: { foo: 'bar' },
+      _meta: {},
+      _perf: { ms: 5, bytes: 100, tokens: 25 },
+    });
+
+    // Act
+    const result = toMcpResult(env);
+    const parsed = EnvelopeSchema(z.unknown()).safeParse(result.structuredContent);
+
+    // Assert — the carrier payload must validate against the canonical
+    // envelope schema so downstream consumers can rely on the shape.
+    expect(parsed.success).toBe(true);
   });
 
   it('CreateMcpServer_SlimRegistration_UsesSlimDescriptions', async () => {
