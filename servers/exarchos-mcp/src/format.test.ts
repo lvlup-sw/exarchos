@@ -1,13 +1,16 @@
 import { describe, it, expect } from 'vitest';
+import { z } from 'zod';
 import {
   applyCacheHints,
   pickFields,
+  toEnvelope,
   wrap,
   wrapError,
   wrapWithPassthrough,
   type Envelope,
   type ToolResult,
 } from './format.js';
+import { EnvelopeSchema } from './schemas/envelope.js';
 import type { NextAction } from './next-action.js';
 import {
   ANTHROPIC_NATIVE_CACHING,
@@ -390,5 +393,83 @@ describe('wrapError() — StorageBusyError → STORAGE_BUSY envelope (Task 3.13a
     const s = wrapError(sErr) as ToolResult;
     expect((c.error as Record<string, unknown>).code).toBe('CONCURRENCY_CONFLICT');
     expect((s.error as Record<string, unknown>).code).toBe('STORAGE_BUSY');
+  });
+});
+
+describe('toEnvelope', () => {
+  it('toEnvelope_MapsSuccessToolResult_ReturnsSuccessEnvelope', () => {
+    const result: ToolResult = {
+      success: true,
+      data: { x: 1 },
+      _meta: { phase: 'design' },
+      _perf: { ms: 5, bytes: 100, tokens: 25 },
+    };
+    const env = toEnvelope(result);
+    expect(env.success).toBe(true);
+    if (env.success) {
+      expect(env.data).toEqual({ x: 1 });
+      expect(env.next_actions).toEqual([]);
+      expect(env._meta).toEqual({ phase: 'design' });
+      expect(env._perf).toEqual({ ms: 5, bytes: 100, tokens: 25 });
+    }
+  });
+
+  it('toEnvelope_MapsFailureToolResult_ReturnsErrorEnvelope', () => {
+    const result: ToolResult = {
+      success: false,
+      error: { code: 'X', message: 'y' },
+    };
+    const env = toEnvelope(result);
+    expect(env.success).toBe(false);
+    if (!env.success) {
+      expect(env.error.code).toBe('X');
+      expect(env.error.message).toBe('y');
+    }
+  });
+
+  it('toEnvelope_PreservesErrorAuxFields_ReturnsErrorEnvelope', () => {
+    // Composite handlers attach validTargets / suggestedFix on the
+    // ToolResult.error block; toEnvelope must thread these through
+    // unchanged so the carrier sees a full diagnostic envelope.
+    const result: ToolResult = {
+      success: false,
+      error: {
+        code: 'INVALID_PHASE',
+        message: 'phase cannot regress',
+        validTargets: ['design', 'plan'],
+        suggestedFix: { tool: 'workflow_status', params: { featureId: 'abc' } },
+      },
+    };
+    const env = toEnvelope(result);
+    expect(env.success).toBe(false);
+    if (!env.success) {
+      expect(env.error.validTargets).toEqual(['design', 'plan']);
+      expect(env.error.suggestedFix).toEqual({
+        tool: 'workflow_status',
+        params: { featureId: 'abc' },
+      });
+    }
+  });
+
+  it('toEnvelope_RoundTripsThroughEnvelopeSchema', () => {
+    const result: ToolResult = {
+      success: true,
+      data: { ok: true },
+      _meta: {},
+      _perf: { ms: 1, bytes: 0, tokens: 0 },
+    };
+    const env = toEnvelope(result);
+    const parsed = EnvelopeSchema(z.unknown()).safeParse(env);
+    expect(parsed.success).toBe(true);
+  });
+
+  it('toEnvelope_FailureRoundTripsThroughEnvelopeSchema', () => {
+    const result: ToolResult = {
+      success: false,
+      error: { code: 'BOOM', message: 'kaboom' },
+    };
+    const env = toEnvelope(result);
+    const parsed = EnvelopeSchema(z.unknown()).safeParse(env);
+    expect(parsed.success).toBe(true);
   });
 });

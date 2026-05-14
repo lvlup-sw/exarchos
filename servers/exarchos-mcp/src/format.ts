@@ -390,6 +390,84 @@ export function wrapError(
   };
 }
 
+// ─── ToolResult → Envelope Adapter (Wave 0 — Carrier Swap) ─────────────────
+
+/**
+ * Bridge a dispatch-core {@link ToolResult} to the carrier-bound
+ * {@link Envelope} | {@link ErrorEnvelope} shape (design
+ * `docs/designs/2026-05-13-wave-0-carrier-swap.md` §2.3).
+ *
+ * Why this lives alongside (rather than replacing) `wrap` / `wrapError`:
+ *
+ *   - `wrap()` takes a typed `data` payload directly — it's the
+ *     handler-side constructor used inside an action handler that knows
+ *     its data shape statically.
+ *   - `wrapError()` takes a typed `Error` instance — it's the catch-side
+ *     constructor for typed primitive errors (`ConcurrencyError`,
+ *     `StorageBusyError`, etc.).
+ *   - `toEnvelope()` takes a `ToolResult` that already has the
+ *     post-dispatch error block populated by the composite — it is the
+ *     boundary adapter the carrier-bound `toMcpResult` / `toCliResult`
+ *     adapters call on the result they receive from the dispatch core.
+ *     We do NOT call `wrapError(result.error)` here because the typed
+ *     primitive context is gone — `result.error` is already structured.
+ *
+ * Behaviour:
+ *
+ *   - `success: true` → delegates to {@link wrap} so the resulting
+ *     `next_actions` / `_meta` / `_perf` discipline matches the canonical
+ *     constructor. Defaults to `[]` next_actions when none supplied.
+ *   - `success: false` → builds the {@link ErrorEnvelope} directly from
+ *     `result.error`, threading `code`, `message`, and any aux fields
+ *     (`validTargets`, `suggestedFix`, `unmetGates`, etc.) unchanged so
+ *     the carrier sees a full diagnostic envelope.
+ *
+ * The return type is a discriminated union `Envelope<unknown> |
+ * ErrorEnvelope`; consumers branch on the `success` literal to narrow.
+ */
+export function toEnvelope(result: ToolResult): Envelope<unknown> | ErrorEnvelope {
+  const _perf: PerfMetrics = {
+    ms: result._perf?.ms ?? 0,
+    bytes: result._perf?.bytes ?? 0,
+    tokens: result._perf?.tokens ?? 0,
+  };
+  const _meta =
+    result._meta !== undefined && result._meta !== null && typeof result._meta === 'object'
+      ? (result._meta as Record<string, unknown>)
+      : {};
+
+  if (result.success) {
+    return wrap(result.data, _meta, _perf);
+  }
+
+  // Failure path — surface the structured error block as-is. The error is
+  // guaranteed to exist on a failure ToolResult by the dispatch contract,
+  // but we guard defensively so a malformed input never throws here.
+  const sourceError = result.error ?? { code: 'INTERNAL_ERROR', message: 'Unknown error' };
+  const error: ErrorEnvelope['error'] = {
+    code: sourceError.code,
+    message: sourceError.message,
+    ...(sourceError.validTargets !== undefined
+      ? { validTargets: sourceError.validTargets as readonly string[] }
+      : {}),
+    ...(sourceError.suggestedFix !== undefined ? { suggestedFix: sourceError.suggestedFix } : {}),
+    ...(sourceError.expectedShape !== undefined ? { expectedShape: sourceError.expectedShape } : {}),
+    ...(sourceError.unmetGates !== undefined ? { unmetGates: sourceError.unmetGates } : {}),
+    ...(sourceError.gate !== undefined ? { gate: sourceError.gate } : {}),
+    ...(sourceError.operationsSince !== undefined ? { operationsSince: sourceError.operationsSince } : {}),
+    ...(sourceError.threshold !== undefined ? { threshold: sourceError.threshold } : {}),
+    ...(sourceError.tool !== undefined ? { tool: sourceError.tool } : {}),
+    ...(sourceError.action !== undefined ? { action: sourceError.action } : {}),
+    ...(sourceError.validActions !== undefined ? { validActions: sourceError.validActions } : {}),
+  };
+  return {
+    success: false,
+    error,
+    _meta,
+    _perf,
+  };
+}
+
 // ─── Event Acknowledgement ──────────────────────────────────────────────────
 
 export interface EventAck {
