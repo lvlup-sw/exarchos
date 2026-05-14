@@ -74,12 +74,18 @@ export function zodToJsonSchema(
   schema: z.ZodTypeAny,
   opts?: Partial<UpstreamOptions<UpstreamTargets>>,
 ): ReturnType<typeof upstream> {
-  const callerOverrodeTarget =
-    opts !== undefined && Object.prototype.hasOwnProperty.call(opts, 'target');
+  // Only treat `target` as a caller override when it is explicitly set to a
+  // value. `{ target: undefined }` should NOT skip the 2020-12 stamp —
+  // otherwise an undefined hop through a partial-options spread would
+  // silently fall back to the upstream library's draft-07 default
+  // (CodeRabbit PR #1369 minor). Spreading `opts` first then re-asserting
+  // the default if `target` is still undefined enforces the same invariant
+  // for the merged options passed downstream.
+  const callerOverrodeTarget = opts?.target !== undefined;
 
   const merged: Partial<UpstreamOptions<UpstreamTargets>> = {
-    target: 'jsonSchema2019-09',
     ...(opts ?? {}),
+    target: opts?.target ?? 'jsonSchema2019-09',
   };
 
   const result = upstream(

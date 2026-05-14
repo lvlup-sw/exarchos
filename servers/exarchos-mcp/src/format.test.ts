@@ -472,6 +472,97 @@ describe('toEnvelope', () => {
     const parsed = EnvelopeSchema(z.unknown()).safeParse(env);
     expect(parsed.success).toBe(true);
   });
+
+  // ─── #1208 saga-merge-detour regression / CodeRabbit PR #1369 HIGH/MED ────
+  //
+  // `envelopeWrap` (workflow/composite.ts) returns an Envelope cast as
+  // ToolResult with `next_actions`, `warnings`, `_corrections`, `_eventHints`,
+  // and `_cacheHints` already populated. The boundary adapter `toEnvelope`
+  // must thread those through — silently dropping them was what made the
+  // rehydrate envelope on a worktree-bearing task.completed return
+  // `next_actions: []` even though the composite computed
+  // `merge_orchestrate`.
+  it('toEnvelope_SuccessWithNextActions_PreservesAffordances', () => {
+    const verb: NextAction = {
+      verb: 'merge_orchestrate',
+      reason: 'worktree-bearing task.completed auto-detour',
+      idempotencyKey: 'p2-detour:merge_orchestrate:001',
+    };
+    const result = {
+      success: true,
+      data: { phase: 'delegate' },
+      next_actions: [verb],
+      _meta: {},
+      _perf: { ms: 1, bytes: 0, tokens: 0 },
+    } as unknown as ToolResult;
+    const env = toEnvelope(result);
+    expect(env.success).toBe(true);
+    if (env.success) {
+      expect(env.next_actions).toEqual([verb]);
+    }
+  });
+
+  it('toEnvelope_SuccessWithSideChannels_PreservesWarningsCorrectionsEventHintsCacheHints', () => {
+    const result = {
+      success: true,
+      data: { ok: true },
+      _meta: {},
+      _perf: { ms: 1, bytes: 0, tokens: 0 },
+      warnings: ['stale projection'],
+      _corrections: { applied: [] },
+      _eventHints: { missing: [], phase: 'delegate', checked: 0 },
+      _cacheHints: {
+        type: 'cache_boundary' as const,
+        position: 'after:v,projectionSequence',
+        kind: 'ephemeral' as const,
+        ttl: '1h' as const,
+      },
+    } as unknown as ToolResult;
+    const env = toEnvelope(result) as Envelope<unknown> & {
+      warnings?: readonly string[];
+      _corrections?: unknown;
+      _eventHints?: unknown;
+      _cacheHints?: unknown;
+    };
+    expect(env.warnings).toEqual(['stale projection']);
+    expect(env._corrections).toEqual({ applied: [] });
+    expect(env._eventHints).toEqual({ missing: [], phase: 'delegate', checked: 0 });
+    expect(env._cacheHints).toEqual({
+      type: 'cache_boundary',
+      position: 'after:v,projectionSequence',
+      kind: 'ephemeral',
+      ttl: '1h',
+    });
+  });
+
+  // ─── CodeRabbit PR #1369 CRITICAL: validTargets type narrowing ────────────
+  //
+  // `ToolResult.error.validTargets` accepts ValidTransitionTarget objects on
+  // guard-failure paths. The carrier-side ErrorEnvelope advertises strings
+  // only. Narrowing must extract the canonical `phase` string so the
+  // envelope contract holds and downstream consumers don't crash on an
+  // unexpected object.
+  it('toEnvelope_FailureWithValidTransitionTargets_NarrowsToPhaseStrings', () => {
+    const result: ToolResult = {
+      success: false,
+      error: {
+        code: 'GUARD_FAILED',
+        message: 'phase guard rejected the proposed transition',
+        validTargets: [
+          { phase: 'plan' },
+          { phase: 'tdd', guard: { id: 'g.tdd', description: 'tdd guard' } },
+          'design', // mixed string entry — composite handlers can pass either
+        ],
+      },
+    };
+    const env = toEnvelope(result);
+    expect(env.success).toBe(false);
+    if (!env.success) {
+      expect(env.error.validTargets).toEqual(['plan', 'tdd', 'design']);
+      const parsed = ErrorEnvelopeSchema.safeParse(env);
+      expect(parsed.success).toBe(true);
+    }
+  });
 });
 
 // ─── F.5: wrapError round-trip — every branch validates as ErrorEnvelope ───

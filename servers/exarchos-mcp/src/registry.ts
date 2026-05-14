@@ -2317,6 +2317,14 @@ export function registerCustomTool(tool: CompositeTool): void {
       `Cannot register custom tool "${tool.name}": already registered as a custom tool`,
     );
   }
+  // NOTE — Custom tools are intentionally NOT run through `validateAction`
+  // here. CodeRabbit PR #1369 flagged this as a contract gap (built-ins
+  // fail-closed at module load; custom tools currently slip through and
+  // surface missing `outputSchema`/`annotations` only at dispatch time).
+  // Tightening this is a user-visible breaking change to the public
+  // `registerCustomTool` API and needs a deprecation cycle — tracked as a
+  // post-merge follow-up rather than landing alongside the Wave 0 carrier
+  // swap.
   customTools.push(tool);
 }
 

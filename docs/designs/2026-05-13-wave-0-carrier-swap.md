@@ -243,7 +243,7 @@ Stderr no longer carries `_perf` / `_eventHints` / `warnings` under `--format js
 - Today: `exarchos wf get -f foo --format json` writes `{ "phase": "ideate", ... }` (the `data` payload) to stdout. Warnings and `_perf` sidebar to stderr.
 - Post-swap: same command writes the full envelope to stdout. Consumers parsing the response must read `.data` rather than the top-level object.
 - This is a wire-contract break. INV-2 (facade equivalence) requires it; without it, MCP and CLI emit different shapes and the dogfood waves' envelope additions diverge.
-- Mitigation: ship the change behind `EXARCHOS_CLI_ENVELOPE=1` for one preview cycle so external consumers (if any) can migrate, then make it default in v2.10.0 GA. The opt-out flag is dropped in v2.11.0.
+- Mitigation: the new envelope shape ships as the default; `EXARCHOS_CLI_ENVELOPE=0` opts back into today's behavior for one preview cycle so external consumers (if any) can migrate before v2.10.0 GA. The opt-out flag is dropped in v2.11.0.
 
 The opt-out flag is the **only** backward-compat hook in this design. It exists because CLI consumers are out of band from MCP capability negotiation — there's no handshake to declare "I read envelopes." The MCP side has no flag; `structuredContent` is purely additive next to `content`.
 

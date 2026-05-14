@@ -53,8 +53,9 @@ const LCD_OUTPUT_SCHEMA = z
  * new validated payload rides `structuredContent`.
  *
  * Envelope construction lives in `format.ts` (`toEnvelope`); this adapter
- * only handles the carrier mapping. `createMcpServer` is NOT yet wired
- * to this function — the cutover lands in task D.7.
+ * only handles the carrier mapping. `createMcpServer` (this file's main
+ * export, below) wires `toMcpResult` into the per-tool MCP handler — the
+ * D.7 cutover; legacy `formatResult` is no longer on the carrier path.
  *
  * Design §2.3. Issue #1287.
  */

@@ -57,6 +57,14 @@ export interface ToolResult {
   readonly _perf?: PerfMetrics;
   readonly _eventHints?: EventHintsPayload;
   readonly _corrections?: CorrectionsPayload;
+  // Wave 0 (#1369, CodeRabbit HIGH on PR #1369): the composite envelopeWrap
+  // returns an Envelope cast as ToolResult, carrying `next_actions` at the
+  // top level. Declaring it formally here lets `toEnvelope` thread it through
+  // instead of silently dropping it when re-wrapping (which manifested as the
+  // #1208 saga-merge-detour regression: rehydrate returned `next_actions: []`
+  // even though the composite computed the merge_orchestrate verb).
+  readonly next_actions?: readonly NextAction[];
+  readonly _cacheHints?: CacheHints;
 }
 
 // ─── HATEOAS Envelope (DR-7) ────────────────────────────────────────────────
@@ -437,19 +445,48 @@ export function toEnvelope(result: ToolResult): Envelope<unknown> | ErrorEnvelop
       : {};
 
   if (result.success) {
-    return wrap(result.data, _meta, _perf);
+    // The composite `envelopeWrap` returns an Envelope cast as ToolResult,
+    // so `result.next_actions` / `result.warnings` / `result._corrections` /
+    // `result._eventHints` / `result._cacheHints` are already populated by
+    // the dispatch core. Thread them through the wrap boundary rather than
+    // letting `wrap()`'s defaults reset them — that was the silent-drop bug
+    // behind the #1208 saga-merge-detour regression.
+    const envelope = wrap(result.data, _meta, _perf, result.next_actions);
+    const decorated: Record<string, unknown> = { ...envelope };
+    if (result.warnings !== undefined && result.warnings.length > 0) {
+      decorated.warnings = result.warnings;
+    }
+    if (result._corrections !== undefined) {
+      decorated._corrections = result._corrections;
+    }
+    if (result._eventHints !== undefined) {
+      decorated._eventHints = result._eventHints;
+    }
+    if (result._cacheHints !== undefined) {
+      decorated._cacheHints = result._cacheHints;
+    }
+    return decorated as unknown as Envelope<unknown>;
   }
 
   // Failure path — surface the structured error block as-is. The error is
   // guaranteed to exist on a failure ToolResult by the dispatch contract,
   // but we guard defensively so a malformed input never throws here.
   const sourceError = result.error ?? { code: 'INTERNAL_ERROR', message: 'Unknown error' };
+  // `error.validTargets` accepts `readonly (string | ValidTransitionTarget)[]`
+  // on the dispatch-core ToolResult (guard failures carry the full target
+  // object including its phase/guard tuple), but the carrier-side
+  // `ErrorEnvelope` advertises `readonly string[]`. Narrow to the
+  // canonical phase string here so the envelope schema validation passes
+  // and downstream consumers see a stable string identifier — richer guard
+  // metadata stays reachable via the `describe` action (CodeRabbit CRITICAL
+  // on PR #1369: an unchecked cast smuggled objects across the boundary).
+  const narrowedValidTargets = sourceError.validTargets?.map(
+    t => (typeof t === 'string' ? t : t.phase),
+  );
   const error: ErrorEnvelope['error'] = {
     code: sourceError.code,
     message: sourceError.message,
-    ...(sourceError.validTargets !== undefined
-      ? { validTargets: sourceError.validTargets as readonly string[] }
-      : {}),
+    ...(narrowedValidTargets !== undefined ? { validTargets: narrowedValidTargets } : {}),
     ...(sourceError.suggestedFix !== undefined ? { suggestedFix: sourceError.suggestedFix } : {}),
     ...(sourceError.expectedShape !== undefined ? { expectedShape: sourceError.expectedShape } : {}),
     ...(sourceError.unmetGates !== undefined ? { unmetGates: sourceError.unmetGates } : {}),

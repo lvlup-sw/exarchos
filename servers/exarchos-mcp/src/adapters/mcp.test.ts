@@ -364,35 +364,40 @@ describe('createMcpServer', () => {
     // can invoke it directly without standing up an MCP transport.
     const { McpServer } = await import('@modelcontextprotocol/sdk/server/mcp.js');
     const spy = vi.spyOn(McpServer.prototype, 'registerTool');
-    const { createMcpServer } = await import('./mcp.js');
-    createMcpServer(ctx);
+    try {
+      const { createMcpServer } = await import('./mcp.js');
+      createMcpServer(ctx);
 
-    // Locate the exarchos_view tool's handler — `pipeline` is a read-only
-    // action with a permissive `EnvelopeSchema(z.unknown())` per-action
-    // schema, so any well-formed envelope passes.
-    const viewCall = spy.mock.calls.find(c => c[0] === 'exarchos_view');
-    expect(viewCall).toBeDefined();
-    const handler = viewCall![2] as (args: Record<string, unknown>) => Promise<unknown>;
+      // Locate the exarchos_view tool's handler — `pipeline` is a read-only
+      // action with a permissive `EnvelopeSchema(z.unknown())` per-action
+      // schema, so any well-formed envelope passes.
+      const viewCall = spy.mock.calls.find(c => c[0] === 'exarchos_view');
+      expect(viewCall).toBeDefined();
+      const handler = viewCall![2] as (args: Record<string, unknown>) => Promise<unknown>;
 
-    // Act — invoke the handler directly.
-    const result = (await handler({ action: 'pipeline' })) as {
-      content: { type: string; text: string }[];
-      structuredContent: unknown;
-      isError: boolean;
-    };
+      // Act — invoke the handler directly.
+      const result = (await handler({ action: 'pipeline' })) as {
+        content: { type: string; text: string }[];
+        structuredContent: unknown;
+        isError: boolean;
+      };
 
-    // Assert — D.7 cutover: handler emits structuredContent (the envelope),
-    // not just the legacy formatResult shape (content + isError only).
-    expect(result.structuredContent).toBeDefined();
-    expect(result.content[0].type).toBe('text');
-    // Envelope validates against the action's per-action outputSchema.
-    const action = TOOL_REGISTRY.find(t => t.name === 'exarchos_view')!.actions.find(
-      a => a.name === 'pipeline',
-    )!;
-    const parsed = action.outputSchema.safeParse(result.structuredContent);
-    expect(parsed.success).toBe(true);
-
-    spy.mockRestore();
+      // Assert — D.7 cutover: handler emits structuredContent (the envelope),
+      // not just the legacy formatResult shape (content + isError only).
+      expect(result.structuredContent).toBeDefined();
+      expect(result.content[0].type).toBe('text');
+      // Envelope validates against the action's per-action outputSchema.
+      const action = TOOL_REGISTRY.find(t => t.name === 'exarchos_view')!.actions.find(
+        a => a.name === 'pipeline',
+      )!;
+      const parsed = action.outputSchema.safeParse(result.structuredContent);
+      expect(parsed.success).toBe(true);
+    } finally {
+      // Guarantee restoration even when an assertion above throws so a
+      // leaked spy doesn't pollute subsequent tests in the file (CodeRabbit
+      // PR #1369 minor).
+      spy.mockRestore();
+    }
   });
 
   it('MCPHandler_DispatchResultViolatesPerActionSchema_ReturnsInternalErrorEnvelopeWithIssuePath', async () => {
