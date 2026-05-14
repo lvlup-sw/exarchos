@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { computeNextActions } from './next-actions-computer.js';
 import { NextAction } from './next-action.js';
 import { getHSMDefinition, executeTransition } from './workflow/state-machine.js';
+import { findActionInRegistry } from './registry.js';
 
 describe('computeNextActions (T040, DR-8)', () => {
   it('NextActions_Given_PlanPhase_Then_IncludesDelegateTransition', () => {
@@ -191,5 +192,133 @@ describe('computeNextActions (T040, DR-8)', () => {
     expect(merge).toBeDefined();
     expect(merge?.validTargets).toEqual(['merge_orchestrate']);
     expect(merge?.reason).toBe('Pending subagent worktree merge');
+  });
+});
+
+// ─── Wave 0 / Task D.8 — safety-semantics consumer contract ──────────────
+//
+// Design §2.4 commits that `annotations.safety` "is consumed by HSM guards
+// and by `computeNextActions` — refactored from in-handler prose to a
+// single read from this metadata table." Without a consumer, the field
+// is declared but unread (DIM-5 hygiene gap).
+//
+// FINDING (B) at D.8 implementation time: an inspection of
+// `next-actions-computer.ts` and `workflow/hsm-transition-guard.ts`
+// surfaced no in-handler prose that infers action-safety semantics:
+//   - `computeNextActions` is purely HSM-topology driven (reads
+//     `hsm.transitions` and `state.phase`); it does not branch on
+//     safety semantics. The lone non-topology surfacing
+//     (`merge_orchestrate` for `merge-pending`) keys off the phase
+//     name and the `mergeOrchestrator` substate, NOT off a safety
+//     classification.
+//   - `hsm-transition-guard.ts` consults the per-transition `guard`
+//     attached to the HSM edge (composite / registered / custom
+//     guard), NOT action.annotations.safety. The two are different
+//     abstractions: transition guards gate phase-edges; action
+//     safety classifies the per-action side-effect profile.
+//
+// Grep for the safety enum strings across the handler tree confirmed
+// no other consumer: every hit outside `registry.ts` lives in the
+// `agents/` posture layer (`'read-only' | 'task-isolated' |
+// 'shared-mutating'` — agent sandbox modes, a different enum).
+//
+// Per the D.8 task spec's "If neither consumer actually has
+// safety-inferring prose" branch: the closure of §2.4 becomes a
+// forward-looking smoke test that locks in the registry-as-SoT
+// contract for future consumers. Any future code path that needs
+// to branch on action safety semantics MUST import
+// `findActionInRegistry` from `./registry.js` and read
+// `action.annotations.safety` — not hand-code the enum or duplicate
+// the table.
+//
+// The tests below assert representative actions across the
+// designed safety enum (read-only / local-mutation / compensable /
+// remote-mutation) resolve through the registry lookup, so a
+// future regression that drops the field or flips a value will
+// surface here.
+describe('D.8 — annotations.safety is queryable from registry (DIM-1 SoT)', () => {
+  it('SafetyConsumerContract_ReadOnlyGet_ResolvesToReadOnly', () => {
+    // `exarchos_workflow.get` is the canonical read-only getter.
+    const action = findActionInRegistry('exarchos_workflow', 'get');
+    expect(action).toBeDefined();
+    expect(action?.annotations.safety).toBe('read-only');
+  });
+
+  it('SafetyConsumerContract_TransitionAction_ResolvesToLocalMutation', () => {
+    // `exarchos_workflow.transition` is the canonical phase-mutation
+    // surface. Per design §2.4 / milestone-16 §4.2 it is local-mutation
+    // (mutates local event store, not a remote system).
+    const action = findActionInRegistry('exarchos_workflow', 'transition');
+    expect(action).toBeDefined();
+    expect(action?.annotations.safety).toBe('local-mutation');
+  });
+
+  it('SafetyConsumerContract_CancelAction_ResolvesToCompensable', () => {
+    // `exarchos_workflow.cancel` is the canonical compensable action
+    // (emits saga compensation events). A future `computeNextActions`
+    // refactor that surfaces a `cancel`/`rollback` verb for
+    // compensable transitions would key off this exact lookup.
+    const action = findActionInRegistry('exarchos_workflow', 'cancel');
+    expect(action).toBeDefined();
+    expect(action?.annotations.safety).toBe('compensable');
+  });
+
+  it('SafetyConsumerContract_UnknownToolOrAction_ReturnsUndefined', () => {
+    // A consumer reading safety MUST handle the undefined case
+    // (action not in registry). This pins the contract so consumers
+    // can write `findActionInRegistry(...)?.annotations.safety ===
+    // 'compensable'` without surprise.
+    expect(findActionInRegistry('exarchos_workflow', 'not-a-real-action')).toBeUndefined();
+    expect(findActionInRegistry('not_a_real_tool', 'get')).toBeUndefined();
+  });
+
+  it('SafetyConsumerContract_CurrentlyClassifiedSafetyValues_AllResolveThroughLookup', () => {
+    // Three safety classes from design §2.4 currently have representatives
+    // in the registered actions: read-only, local-mutation, compensable.
+    // (`remote-mutation` is declared in the type union and has a preset
+    // defined in registry.ts but no action uses it yet — that's a Phase E
+    // classification follow-up, not a D.8 concern. When/if an action
+    // adopts it, callers will discover it through this same lookup.)
+    //
+    // The goal of this test is to lock in the round-trip: for every
+    // currently-classified safety value, at least one canonical action
+    // resolves through `findActionInRegistry` and exposes it. A regression
+    // that dropped `annotations` from a tool's actions OR flipped a value
+    // away from these three classes would surface here.
+    const expectedCoverage: ReadonlyArray<'read-only' | 'local-mutation' | 'compensable'> = [
+      'read-only',
+      'local-mutation',
+      'compensable',
+    ];
+
+    // We don't import getFullRegistry here — findActionInRegistry is
+    // the public lookup surface this contract anchors on. Walk the
+    // canonical four visible composite tools and sample a representative
+    // set of action names per tool. The sample is intentionally broad so
+    // future actions named the same way auto-participate.
+    const toolNames = ['exarchos_workflow', 'exarchos_event', 'exarchos_orchestrate', 'exarchos_view'] as const;
+    const sampleActions = [
+      'get', 'init', 'set', 'update', 'transition', 'cancel', 'cleanup',
+      'reconcile', 'rehydrate', 'checkpoint', 'describe',
+      'append', 'query',
+      'delegate', 'verify-merge', 'rollback', 'cancel-tasks', 'merge-task',
+    ] as const;
+
+    const observed = new Set<string>();
+    for (const toolName of toolNames) {
+      for (const actionName of sampleActions) {
+        const action = findActionInRegistry(toolName, actionName);
+        if (action) {
+          observed.add(action.annotations.safety);
+        }
+      }
+    }
+
+    for (const safety of expectedCoverage) {
+      expect(
+        observed.has(safety),
+        `safety='${safety}' has no representative action reachable through findActionInRegistry — registry-as-SoT contract broken`,
+      ).toBe(true);
+    }
   });
 });
