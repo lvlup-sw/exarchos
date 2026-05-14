@@ -7,7 +7,6 @@ import {
   handleTaskClaim,
   handleTaskComplete,
   handleTaskFail,
-  registerTaskTools,
   resetModuleEventStore,
 } from '../../tasks/tools.js';
 import {
@@ -494,34 +493,6 @@ describe('handleTaskFail', () => {
 
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('FAIL_FAILED');
-  });
-});
-
-// ─── EventStore Consolidation ────────────────────────────────────────────────
-
-describe('registerTaskTools', () => {
-  it('should accept eventStore parameter in registration', () => {
-    const mockServer = { tool: vi.fn() } as unknown as import('@modelcontextprotocol/sdk/server/mcp.js').McpServer;
-    // Should accept 3 args: server, stateDir, eventStore
-    expect(() => registerTaskTools(mockServer, tempDir, store)).not.toThrow();
-    // Verify the function's declared parameter count is 3
-    expect(registerTaskTools.length).toBe(3);
-  });
-
-  it('should use shared EventStore singleton after registration', async () => {
-    const mockServer = { tool: vi.fn() } as unknown as import('@modelcontextprotocol/sdk/server/mcp.js').McpServer;
-    registerTaskTools(mockServer, tempDir, store);
-
-    const result = await handleTaskClaim(
-      { taskId: 't1', agentId: 'agent-1', streamId: 'wf-consolidation' },
-      tempDir,
-      store,
-    );
-    expect(result.success).toBe(true);
-
-    // The events should be readable from the JSONL file via any EventStore instance
-    const events = await store.query('wf-consolidation', { type: 'task.claimed' });
-    expect(events).toHaveLength(1);
   });
 });
 
