@@ -150,13 +150,13 @@ describe('F.3 — CLI ↔ MCP parity (Wave 0 §7)', () => {
     expect(maskNondeterministic(cliData)).toEqual(maskNondeterministic(mcpData));
   });
 
-  // INV-2: CLI `--format json` stdout MUST be byte-equal to MCP
-  // structuredContent (modulo masks). Activated when `toCliResult` is
-  // wired into `adapters/cli.ts`. Until then the CLI still goes through
-  // `emitResult` and ships raw ToolResult, not the envelope. Marked
-  // `.todo` rather than `.skip` so the next contributor sees it as
-  // pending work in the vitest summary.
+  // INV-2: CLI `--format json` stdout MUST carry the same envelope as MCP
+  // structuredContent (modulo masks). The `toCliResult` function exists in
+  // cli-format.ts (Wave 0 D.2/D.3) but the wiring into `adapters/cli.ts`'s
+  // `emitResult` path is deferred — landing it in this PR would require
+  // updating 61 in-tree parity tests that assert the legacy raw-ToolResult
+  // shape under `--json`. Tracked at #1368.
   it.todo(
-    'CliParity_VwLs_ByteEqualEnvelope_AcrossCarriers (blocked on toCliResult wiring in adapters/cli.ts)',
+    'CliParity_VwLs_ByteEqualEnvelope_AcrossCarriers (blocked on #1368 — wire toCliResult into adapters/cli.ts)',
   );
 });
