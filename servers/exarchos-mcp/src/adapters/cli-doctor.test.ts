@@ -19,9 +19,19 @@ vi.mock('../core/dispatch.js', () => ({
   ),
 }));
 
+// PR-B (#1368): `emitResult`'s `--json` route resolves `toCliResult`
+// from this module; vi.mock factories REPLACE the module, so omitting
+// the export crashes the action callback. Provide a real-passthrough
+// impl that mirrors the production `toCliResult(env, 'json')` behavior
+// so stdout assertions still see envelope JSON.
 vi.mock('./cli-format.js', () => ({
   prettyPrint: vi.fn(),
   printError: vi.fn(),
+  toCliResult: vi.fn((env: unknown, format: string) => {
+    if (format === 'json') {
+      process.stdout.write(JSON.stringify(env, null, 2) + '\n');
+    }
+  }),
 }));
 
 // ─── Test Imports ───────────────────────────────────────────────────────────
@@ -152,7 +162,7 @@ describe('exarchos doctor CLI', () => {
   });
 
   it('Cli_DoctorFormatJson_EmitsSingleLineJsonToStdout', async () => {
-    // Arrange: --json should produce a single parseable JSON line.
+    // Arrange: --json should produce parseable JSON on stdout.
     vi.mocked(dispatch).mockResolvedValueOnce(makeDoctorResult({ passed: 10 }));
     const program = buildCli(ctx);
     const stdoutSpy = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
@@ -164,11 +174,16 @@ describe('exarchos doctor CLI', () => {
     const writes = stdoutSpy.mock.calls.map(([s]) => s as string).join('');
     stdoutSpy.mockRestore();
 
-    // Output should be exactly one line of JSON (trailing newline).
+    // PR-B (#1368): post-W1 `emitResult` writes pretty-printed envelope
+    // JSON (`JSON.stringify(env, null, 2)`), so the legacy "exactly one
+    // line" expectation is no longer the wire shape. Parse the entire
+    // stdout slice instead — `JSON.parse` tolerates trailing whitespace
+    // and shows the document is well-formed end-to-end. The test name
+    // is preserved because it still locks down the agent-facing contract
+    // (stdout is one JSON document, not interleaved with sidebars).
     const trimmed = writes.trim();
-    const lines = trimmed.split('\n');
-    expect(lines).toHaveLength(1);
-    const parsed = JSON.parse(lines[0]) as ToolResult;
+    expect(trimmed.length).toBeGreaterThan(0);
+    const parsed = JSON.parse(trimmed) as ToolResult;
     expect(parsed.success).toBe(true);
     expect(process.exitCode ?? 0).toBe(CLI_EXIT_CODES.SUCCESS);
   });
