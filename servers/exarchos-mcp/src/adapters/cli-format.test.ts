@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { prettyPrint, printError } from './cli-format.js';
+import { prettyPrint, printError, toCliResult } from './cli-format.js';
+import { toEnvelope } from '../format.js';
+import type { ToolResult } from '../format.js';
 
 describe('prettyPrint', () => {
   let stdoutSpy: ReturnType<typeof vi.spyOn>;
@@ -256,5 +258,143 @@ describe('printError', () => {
     expect(output).toContain('Suggested fix: exarchos workflow');
     expect(output).toContain('--action set');
     expect(output).toContain('--field phase');
+  });
+});
+
+// ─── toCliResult (Wave 0 D.2/D.3) ───────────────────────────────────────────
+
+describe('toCliResult', () => {
+  let stdoutSpy: ReturnType<typeof vi.spyOn>;
+  let stderrSpy: ReturnType<typeof vi.spyOn>;
+  let originalOptOut: string | undefined;
+
+  beforeEach(() => {
+    stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    // Snapshot env var so each test starts clean and we restore in afterEach.
+    originalOptOut = process.env.EXARCHOS_CLI_ENVELOPE;
+    delete process.env.EXARCHOS_CLI_ENVELOPE;
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+    if (originalOptOut === undefined) {
+      delete process.env.EXARCHOS_CLI_ENVELOPE;
+    } else {
+      process.env.EXARCHOS_CLI_ENVELOPE = originalOptOut;
+    }
+  });
+
+  it('toCliResult_JsonFormat_WritesEnvelopeOnStdout', () => {
+    const source: ToolResult = {
+      success: true,
+      data: { phase: 'ideate' },
+      _meta: {},
+      _perf: { ms: 5, bytes: 100, tokens: 25 },
+    };
+    const env = toEnvelope(source);
+
+    toCliResult(env, 'json');
+
+    const stdoutOutput = stdoutSpy.mock.calls.map(c => c[0]).join('');
+    expect(stdoutOutput).toBe(JSON.stringify(env, null, 2) + '\n');
+    // Sidebars roll into the envelope under json — no stderr writes.
+    expect(stderrSpy).not.toHaveBeenCalled();
+  });
+
+  it('toCliResult_JsonFormat_ErrorEnvelopeOnStdout', () => {
+    const source: ToolResult = {
+      success: false,
+      error: { code: 'INVALID_PHASE', message: 'Phase not found' },
+      _meta: {},
+      _perf: { ms: 2, bytes: 80, tokens: 20 },
+    };
+    const env = toEnvelope(source);
+
+    toCliResult(env, 'json');
+
+    const stdoutOutput = stdoutSpy.mock.calls.map(c => c[0]).join('');
+    expect(stdoutOutput).toBe(JSON.stringify(env, null, 2) + '\n');
+    expect(stderrSpy).not.toHaveBeenCalled();
+  });
+
+  it('toCliResult_TableFormat_DelegatesToPrettyPrint', () => {
+    const source: ToolResult = {
+      success: true,
+      data: [
+        { name: 'Alice', role: 'dev' },
+        { name: 'Bob', role: 'designer' },
+      ],
+      _meta: {},
+      _perf: { ms: 1, bytes: 10, tokens: 3 },
+    };
+    const env = toEnvelope(source);
+
+    toCliResult(env, 'table');
+
+    const stdoutOutput = stdoutSpy.mock.calls.map(c => c[0]).join('');
+    // Matches prettyPrint table rendering (header + rows, aligned)
+    expect(stdoutOutput).toContain('name');
+    expect(stdoutOutput).toContain('role');
+    expect(stdoutOutput).toContain('Alice');
+    expect(stdoutOutput).toContain('Bob');
+    expect(stdoutOutput).toContain('designer');
+    // Should NOT have emitted the full JSON envelope on stdout
+    expect(stdoutOutput).not.toContain('"next_actions"');
+  });
+
+  it('toCliResult_TreeFormat_DelegatesToPrettyPrint', () => {
+    const source: ToolResult = {
+      success: true,
+      data: { workflow: { phase: 'plan', tasks: { count: 3 } } },
+      _meta: {},
+      _perf: { ms: 1, bytes: 10, tokens: 3 },
+    };
+    const env = toEnvelope(source);
+
+    toCliResult(env, 'tree');
+
+    const stdoutOutput = stdoutSpy.mock.calls.map(c => c[0]).join('');
+    expect(stdoutOutput).toContain('workflow');
+    expect(stdoutOutput).toContain('phase');
+    expect(stdoutOutput).toContain('plan');
+    expect(stdoutOutput).not.toContain('"next_actions"');
+  });
+
+  it('toCliResult_EnvelopeOptOut_PreservesLegacyShape', () => {
+    process.env.EXARCHOS_CLI_ENVELOPE = '0';
+    const source: ToolResult = {
+      success: true,
+      data: { phase: 'ideate' },
+      _meta: {},
+      _perf: { ms: 5, bytes: 100, tokens: 25 },
+    };
+    const env = toEnvelope(source);
+
+    toCliResult(env, 'json');
+
+    const stdoutOutput = stdoutSpy.mock.calls.map(c => c[0]).join('');
+    // Legacy shape: data-only on stdout (no envelope wrapping)
+    expect(stdoutOutput).toBe(JSON.stringify(source.data, null, 2) + '\n');
+    // Sidebar _perf footer goes to stderr in legacy mode
+    const stderrOutput = stderrSpy.mock.calls.map(c => c[0]).join('');
+    expect(stderrOutput).toContain('5ms | 100B | ~25 tokens');
+  });
+
+  it('toCliResult_EnvelopeOptOutOtherValue_EmitsEnvelope', () => {
+    process.env.EXARCHOS_CLI_ENVELOPE = '1';
+    const source: ToolResult = {
+      success: true,
+      data: { phase: 'ideate' },
+      _meta: {},
+      _perf: { ms: 5, bytes: 100, tokens: 25 },
+    };
+    const env = toEnvelope(source);
+
+    toCliResult(env, 'json');
+
+    const stdoutOutput = stdoutSpy.mock.calls.map(c => c[0]).join('');
+    // Anything but exactly '0' means envelope behaviour preserved.
+    expect(stdoutOutput).toBe(JSON.stringify(env, null, 2) + '\n');
+    expect(stderrSpy).not.toHaveBeenCalled();
   });
 });
