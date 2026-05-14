@@ -61,6 +61,38 @@ export function toMcpResult(env: Envelope<unknown> | ErrorEnvelope) {
 const SERVER_NAME = 'exarchos-mcp';
 const SERVER_VERSION = '2.10.0-preview.2';
 
+// ─── D.6: Aggregate ActionAnnotations into tools/list ToolAnnotations ─────
+//
+// MCP `tools/list` carries ToolAnnotations as advisory hints (per the spec
+// these are explicitly client-untrusted unless the server itself is
+// trusted). We aggregate the per-action `ActionAnnotations` records into a
+// single tool-level record using the design's logical rules:
+//
+//   readOnlyHint    — true iff EVERY action is read-only. Conservative AND:
+//                     one mutating action poisons the read-only label.
+//   destructiveHint — true iff ANY action is destructive. Surfaces the
+//                     worst-case safety so clients can prompt for confirm.
+//   idempotentHint  — true iff EVERY action is documented/safe to re-run.
+//   openWorldHint   — true iff ANY action touches an external world
+//                     (network, git, etc.).
+//
+// Design §2.4, issue #1289.
+function aggregateToolAnnotations(
+  actions: readonly ToolAction[],
+): {
+  readOnlyHint: boolean;
+  destructiveHint: boolean;
+  idempotentHint: boolean;
+  openWorldHint: boolean;
+} {
+  return {
+    readOnlyHint: actions.every(a => a.annotations.readOnly),
+    destructiveHint: actions.some(a => a.annotations.destructive),
+    idempotentHint: actions.every(a => a.annotations.idempotent),
+    openWorldHint: actions.some(a => a.annotations.openWorld),
+  };
+}
+
 // ─── D.5: Per-call output schema validation ────────────────────────────────
 //
 // Locates the dispatched action by the canonical `args.action` discriminator
@@ -193,9 +225,10 @@ export function createMcpServer(ctx: DispatchContext): McpServer {
 
     // Use registerTool() so the strict ZodObject is passed as inputSchema
     // directly, preserving .strict() validation that rejects unrecognized keys.
+    const annotations = aggregateToolAnnotations(tool.actions);
     server.registerTool(
       tool.name,
-      { description, inputSchema, outputSchema: LCD_OUTPUT_SCHEMA },
+      { description, inputSchema, outputSchema: LCD_OUTPUT_SCHEMA, annotations },
       mcpHandler,
     );
   }

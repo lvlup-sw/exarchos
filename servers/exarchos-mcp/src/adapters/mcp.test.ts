@@ -543,6 +543,68 @@ describe('createMcpServer', () => {
     spy.mockRestore();
   });
 
+  // ─── D.6: tools/list annotations aggregated per tool (Wave 0, #1289) ────
+  //
+  // Per design §2.4, every visible composite tool advertises a
+  // ToolAnnotations record on tools/list aggregated from its actions:
+  //   readOnlyHint    = actions.every(a => a.annotations.readOnly)
+  //   destructiveHint = actions.some (a => a.annotations.destructive)
+  //   idempotentHint  = actions.every(a => a.annotations.idempotent)
+  //   openWorldHint   = actions.some (a => a.annotations.openWorld)
+  //
+  // The hints are advisory per MCP spec; populating them lets clients
+  // surface safety affordances without scraping per-action telemetry.
+  it('MCPServer_ToolsListAnnotations_AggregatesActionAnnotationsPerTool', async () => {
+    // Arrange — capture every registerTool call's options.annotations.
+    const { McpServer } = await import('@modelcontextprotocol/sdk/server/mcp.js');
+    const spy = vi.spyOn(McpServer.prototype, 'registerTool');
+    const { createMcpServer } = await import('./mcp.js');
+    createMcpServer(ctx);
+
+    // Spot check — exarchos_view should at minimum surface a defined
+    // annotations record with all four Hint fields populated. The detailed
+    // per-formula assertion (every visible tool) follows below.
+    const viewCall = spy.mock.calls.find(c => c[0] === 'exarchos_view');
+    expect(viewCall).toBeDefined();
+    const viewOptions = viewCall![1] as {
+      annotations?: {
+        readOnlyHint?: boolean;
+        destructiveHint?: boolean;
+        idempotentHint?: boolean;
+        openWorldHint?: boolean;
+      };
+    };
+    expect(viewOptions.annotations).toBeDefined();
+    expect(typeof viewOptions.annotations!.readOnlyHint).toBe('boolean');
+    expect(typeof viewOptions.annotations!.destructiveHint).toBe('boolean');
+    expect(typeof viewOptions.annotations!.idempotentHint).toBe('boolean');
+    expect(typeof viewOptions.annotations!.openWorldHint).toBe('boolean');
+
+    // Assert the aggregation formula against the registry for every
+    // visible tool — any drift between the helper and the per-action
+    // annotations table is caught here.
+    for (const call of spy.mock.calls) {
+      const [name, options] = call;
+      const tool = TOOL_REGISTRY.find(t => t.name === name);
+      if (tool === undefined) continue; // custom tools registered from earlier tests
+      const ann = (options as {
+        annotations?: {
+          readOnlyHint?: boolean;
+          destructiveHint?: boolean;
+          idempotentHint?: boolean;
+          openWorldHint?: boolean;
+        };
+      }).annotations;
+      expect(ann).toBeDefined();
+      expect(ann!.readOnlyHint).toBe(tool.actions.every(a => a.annotations.readOnly));
+      expect(ann!.destructiveHint).toBe(tool.actions.some(a => a.annotations.destructive));
+      expect(ann!.idempotentHint).toBe(tool.actions.every(a => a.annotations.idempotent));
+      expect(ann!.openWorldHint).toBe(tool.actions.some(a => a.annotations.openWorld));
+    }
+
+    spy.mockRestore();
+  });
+
   it('CreateMcpServer_SlimRegistration_UsesSlimDescriptions', async () => {
     // Arrange: create context with slimRegistration enabled
     const slimCtx: DispatchContext = { ...ctx, slimRegistration: true };
