@@ -1,4 +1,4 @@
-import { zodToJsonSchema } from 'zod-to-json-schema';
+import { zodToJsonSchema } from '../adapters/json-schema.js';
 import type { ToolAction } from '../registry.js';
 import type { ToolResult } from '../format.js';
 import type { ResolvedProjectConfig } from '../config/resolve.js';
