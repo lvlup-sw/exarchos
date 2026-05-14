@@ -86,6 +86,51 @@ exports[`F.7 — CLI table/tree pretty-print regression (Wave 0 §7) > CliRender
         - _perf
       additionalProperties: false
     $schema: https://json-schema.org/draft/2020-12/schema
+  outputSchemaJson:
+    anyOf:
+      type: object
+      properties:
+        success:
+          [...]
+        data:
+          [...]
+        next_actions:
+          [...]
+        _meta:
+          [...]
+        _perf:
+          [...]
+        _eventHints:
+          [...]
+        _cacheHints:
+          [...]
+        warnings:
+          [...]
+        _corrections:
+          [...]
+      required:
+        - success
+        - next_actions
+        - _meta
+        - _perf
+      additionalProperties: false
+      type: object
+      properties:
+        success:
+          [...]
+        error:
+          [...]
+        _meta:
+          [...]
+        _perf:
+          [...]
+      required:
+        - success
+        - error
+        - _meta
+        - _perf
+      additionalProperties: false
+    $schema: https://json-schema.org/draft/2020-12/schema
 ",
 }
 `;
