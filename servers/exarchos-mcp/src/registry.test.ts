@@ -16,8 +16,13 @@ import {
   findActionInRegistry,
   ActionAnnotationsSchema,
   validateAnnotations,
+  WorkflowSetOutputSchema,
+  WorkflowTransitionOutputSchema,
+  WorkflowUpdateOutputSchema,
 } from './registry.js';
 import type { ToolAction, CompositeTool, ActionAnnotations } from './registry.js';
+import { wrap, wrapError } from './format.js';
+import { ConcurrencyError } from './event-store/concurrency-error.js';
 
 describe('buildCompositeSchema', () => {
   it('should create a discriminated union from two actions', () => {
@@ -1466,10 +1471,17 @@ describe('Registry_OutputSchema (T40, DR-11)', () => {
     expect(transitionAction).toBeDefined();
     expect(transitionAction!.outputSchema).toBeDefined();
 
+    // Canonical envelope shape (EnvelopeSchema factory): success branch
+    // requires next_actions[] and _perf{ms,bytes,tokens}. Wave 0 / Task G.2
+    // consolidates the three standalone constants onto EnvelopeSchema so
+    // the asserted shape here reflects the canonical envelope.
+    const perf = { ms: 0, bytes: 0, tokens: 0 };
+
     // The schema accepts a deprecation envelope with all three fields.
     const goodEnvelope = {
       success: true,
       data: { phase: 'plan', updatedAt: '2026-05-08T00:00:00Z' },
+      next_actions: [],
       _meta: {
         deprecation: {
           since: '2.10.0',
@@ -1477,6 +1489,7 @@ describe('Registry_OutputSchema (T40, DR-11)', () => {
           replacement: 'transition',
         },
       },
+      _perf: perf,
     };
     expect(transitionAction!.outputSchema!.safeParse(goodEnvelope).success).toBe(
       true,
@@ -1486,7 +1499,10 @@ describe('Registry_OutputSchema (T40, DR-11)', () => {
     // (each of `since`, `removeIn`, `replacement` must be present + non-empty).
     const missingReplacement = {
       success: true,
+      data: { phase: 'plan' },
+      next_actions: [],
       _meta: { deprecation: { since: '2.10.0', removeIn: '2.11.0' } },
+      _perf: perf,
     };
     expect(
       transitionAction!.outputSchema!.safeParse(missingReplacement).success,
@@ -1494,9 +1510,12 @@ describe('Registry_OutputSchema (T40, DR-11)', () => {
 
     const emptyReplacement = {
       success: true,
+      data: { phase: 'plan' },
+      next_actions: [],
       _meta: {
         deprecation: { since: '2.10.0', removeIn: '2.11.0', replacement: '' },
       },
+      _perf: perf,
     };
     expect(
       transitionAction!.outputSchema!.safeParse(emptyReplacement).success,
@@ -1507,11 +1526,53 @@ describe('Registry_OutputSchema (T40, DR-11)', () => {
     const noDeprecation = {
       success: true,
       data: { phase: 'plan', updatedAt: '2026-05-08T00:00:00Z' },
+      next_actions: [],
       _meta: {},
+      _perf: perf,
     };
     expect(transitionAction!.outputSchema!.safeParse(noDeprecation).success).toBe(
       true,
     );
+  });
+});
+
+// ─── Wave 0 / Task G.2 — Envelope-factory consolidation ──────────────────
+//
+// The three standalone `Workflow{Set,Transition,Update}OutputSchema`
+// constants — declared in v2.10.0-preview.2 as the LCD-envelope prototype
+// — are consolidated as thin wrappers over the `EnvelopeSchema(dataSchema)`
+// factory from `schemas/envelope.ts`. The constants remain as deprecated
+// re-exports for one release window so any downstream typed-import
+// consumer doesn't break; canonical replacement is `EnvelopeSchema` directly.
+describe('Registry_OutputSchema (Wave 0 / G.2)', () => {
+  it('WorkflowTransitionOutputSchema_DerivedFromEnvelopeFactory_ParsesValidSuccessEnvelope', () => {
+    // Build a canonical success envelope via `wrap()`, then attach a
+    // typed deprecation sub-shape on `_meta` — the consolidated factory
+    // wrapper must accept both the envelope core and the deprecation slot.
+    const env = wrap(
+      { phase: 'plan' },
+      { deprecation: { since: '2.10', removeIn: '2.12', replacement: 'transition' } },
+    );
+    expect(WorkflowTransitionOutputSchema.safeParse(env).success).toBe(true);
+
+    // Symmetric coverage for the other two consolidated wrappers.
+    expect(WorkflowSetOutputSchema.safeParse(env).success).toBe(true);
+    const updateEnv = wrap({ phase: 'plan' }, {});
+    expect(WorkflowUpdateOutputSchema.safeParse(updateEnv).success).toBe(true);
+  });
+
+  it('WorkflowTransitionOutputSchema_DerivedFromEnvelopeFactory_ParsesValidErrorEnvelope', () => {
+    const errEnv = wrapError(
+      new ConcurrencyError({
+        streamId: 'stream-x',
+        reducerId: 'reducer-y',
+        expectedVersion: 1,
+        actualVersion: 2,
+      }),
+    );
+    expect(WorkflowTransitionOutputSchema.safeParse(errEnv).success).toBe(true);
+    expect(WorkflowSetOutputSchema.safeParse(errEnv).success).toBe(true);
+    expect(WorkflowUpdateOutputSchema.safeParse(errEnv).success).toBe(true);
   });
 });
 
