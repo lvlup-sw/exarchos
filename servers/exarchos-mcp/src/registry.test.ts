@@ -1617,3 +1617,122 @@ describe('validateAnnotations', () => {
     expect(() => validateAnnotations(valid, 'composeMessage')).not.toThrow();
   });
 });
+
+// ─── Wave 0 / Tasks C.1 + C.2 — Registry Invariant Tests ─────────────
+//
+// Every action in every visible AND hidden tool must declare both
+// `outputSchema` (a Zod schema) and `annotations` (a typed
+// ActionAnnotations record). Failure surface includes the
+// `${tool}.${action}` identifier so an operator can navigate from
+// a failed CI run to the offending entry in <1 minute.
+//
+// Design §2.1 (outputSchema as the per-action contract surface) +
+// §2.4 (annotations for safety + MCP advisory hints). Issues #1287 +
+// #1289.
+describe('Registry invariants — outputSchema + annotations', () => {
+  it('Registry_AllActionsAcrossVisibleAndHiddenTools_DeclareOutputSchema', () => {
+    const offenders: string[] = [];
+    for (const tool of getFullRegistry()) {
+      for (const action of tool.actions) {
+        const id = `${tool.name}.${action.name}`;
+        if (action.outputSchema === undefined) {
+          offenders.push(`${id} (missing outputSchema)`);
+          continue;
+        }
+        if (typeof (action.outputSchema as { parse?: unknown }).parse !== 'function') {
+          offenders.push(`${id} (outputSchema is not a Zod schema)`);
+        }
+      }
+    }
+    expect(offenders, offenders.join('\n')).toEqual([]);
+  });
+
+  it('Registry_AllActionsAcrossVisibleAndHiddenTools_DeclareAnnotations', () => {
+    const offenders: string[] = [];
+    for (const tool of getFullRegistry()) {
+      for (const action of tool.actions) {
+        const id = `${tool.name}.${action.name}`;
+        if (action.annotations === undefined) {
+          offenders.push(`${id} (missing annotations)`);
+          continue;
+        }
+        try {
+          // Re-validate the shape so a hand-edited annotations field that
+          // drifts from the schema is caught here, not at first use.
+          validateAnnotations(action.annotations, id);
+        } catch (err) {
+          offenders.push(
+            `${id} (invalid annotations: ${err instanceof Error ? err.message : String(err)})`,
+          );
+        }
+      }
+    }
+    expect(offenders, offenders.join('\n')).toEqual([]);
+  });
+});
+
+// ─── Wave 0 / Task C.3 — validateAction (registration-time invariant) ──
+//
+// `validateAction` is the per-action gate the registry runs at module
+// load. It surfaces missing `outputSchema` / `annotations` declarations
+// with the fully-qualified `${tool}.${action}` identifier so the
+// failure points the operator straight at the offender.
+describe('validateAction', () => {
+  // Local import: the function must be exported from `./registry.js`
+  // alongside the existing `validateAnnotations` helper.
+  const importValidateAction = async () => {
+    const mod = await import('./registry.js');
+    return (mod as { validateAction: (
+      action: { name: string; outputSchema?: z.ZodTypeAny; annotations?: unknown },
+      toolName: string,
+    ) => void }).validateAction;
+  };
+
+  const validAnnotations: ActionAnnotations = {
+    safety: 'local-mutation',
+    readOnly: false,
+    destructive: false,
+    idempotent: false,
+    openWorld: false,
+  };
+
+  it('ValidateAction_MissingOutputSchema_ThrowsWithActionName', async () => {
+    const validateAction = await importValidateAction();
+    expect(() =>
+      validateAction(
+        { name: 'noOutput', annotations: validAnnotations },
+        'exarchos_workflow',
+      ),
+    ).toThrow(/exarchos_workflow\.noOutput/);
+    expect(() =>
+      validateAction(
+        { name: 'noOutput', annotations: validAnnotations },
+        'exarchos_workflow',
+      ),
+    ).toThrow(/outputSchema/);
+  });
+
+  it('ValidateAction_MissingAnnotations_ThrowsWithActionName', async () => {
+    const validateAction = await importValidateAction();
+    expect(() =>
+      validateAction(
+        { name: 'noAnnotations', outputSchema: z.object({}) },
+        'exarchos_view',
+      ),
+    ).toThrow(/exarchos_view\.noAnnotations/);
+  });
+
+  it('ValidateAction_ValidAction_DoesNotThrow', async () => {
+    const validateAction = await importValidateAction();
+    expect(() =>
+      validateAction(
+        {
+          name: 'ok',
+          outputSchema: z.object({ success: z.boolean() }),
+          annotations: validAnnotations,
+        },
+        'exarchos_event',
+      ),
+    ).not.toThrow();
+  });
+});
