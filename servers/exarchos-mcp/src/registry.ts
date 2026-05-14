@@ -681,73 +681,84 @@ export const MetaDeprecationSchema = z.object({
   replacement: z.string().min(1).describe('Canonical action name that supersedes this one'),
 });
 
+// Wave 0 / Task G.2 (#1340): consolidate the three v2.10.0-preview.2
+// standalone envelope constants onto the canonical `EnvelopeSchema(data)`
+// factory from `schemas/envelope.ts`. Each surface remains as a named
+// export so any downstream consumer that typed-imported the constants
+// directly continues to compile through one release window; canonical
+// replacement is `EnvelopeSchema` itself (callers should migrate to it
+// before the v2.12 removal).
+//
+// Per design §2.1 (single envelope factory) and DIM-1 (dispatch core is
+// single-source for action contracts) — the previous bespoke
+// `z.object({...}).passthrough()` shapes drifted from the canonical
+// envelope contract (no typed `_perf`, `success` not literal-discriminated,
+// no typed `error` block). The factory anchors all three on the same
+// discriminated-union envelope and applies an additional intersection
+// constraint where DR-4/DR-11 requires the typed `_meta.deprecation`
+// sub-shape.
+
 /**
- * `outputSchema` for `exarchos_workflow.set` (DR-11). Both success and
- * failure responses share the standard `ToolResult` shape, but the
- * deprecated phase-write path additionally surfaces `_meta.deprecation`.
+ * Shape constraint for `_meta.deprecation` (DR-4, DR-11). When `_meta`
+ * carries a `deprecation` slot, each sub-field must validate against
+ * {@link MetaDeprecationSchema}. The slot itself is always optional —
+ * the canonical action does not emit it; the rerouted/deprecated
+ * surface does.
  *
- * Schema is permissive on the success branch (`data` is `unknown`) so the
- * existing rich payloads (`phase`, `updatedAt`, `sidecarPending`) continue
- * to validate without freezing the wire format. The deprecation sub-shape
- * is the only field this version of the schema strictly types.
+ * `passthrough()` on `_meta` so the rest of the typed envelope's
+ * `z.record(z.string(), z.unknown())` _meta merge survives the
+ * intersection.
  */
-export const WorkflowSetOutputSchema = z.object({
-  success: z.boolean(),
-  data: z.unknown().optional(),
-  error: z.unknown().optional(),
-  warnings: z.array(z.string()).optional(),
-  next_actions: z.array(z.unknown()).optional(),
+const MetaDeprecationConstraint = z.object({
   _meta: z.object({
     deprecation: MetaDeprecationSchema.optional(),
   }).passthrough().optional(),
-  _perf: z.unknown().optional(),
 }).passthrough();
 
 /**
- * `outputSchema` for `exarchos_workflow.transition` (DR-11). Symmetric to
- * `WorkflowSetOutputSchema` so both arms of the C4 single-path consolidation
- * advertise the same envelope contract — the canonical action does not emit
- * `_meta.deprecation` itself, but registering the typed sub-shape keeps the
- * surfaces interchangeable from a contract-introspection standpoint.
+ * `outputSchema` for the (now-removed) `exarchos_workflow.set` action.
+ *
+ * @deprecated v2.10 LCD; will be removed in v2.12. Use
+ * `EnvelopeSchema(dataSchema)` from `./schemas/envelope.js` directly.
+ *
+ * Retained for one release as a named re-export so downstream typed
+ * imports compile. Nothing in the registry references this constant
+ * any longer (the `set` action entry was removed in v2.11/DR-4).
  */
-export const WorkflowTransitionOutputSchema = z.object({
-  success: z.boolean(),
-  data: z.unknown().optional(),
-  error: z.unknown().optional(),
-  warnings: z.array(z.string()).optional(),
-  next_actions: z.array(z.unknown()).optional(),
-  _meta: z.object({
-    deprecation: MetaDeprecationSchema.optional(),
-  }).passthrough().optional(),
-  _perf: z.unknown().optional(),
-}).passthrough();
+export const WorkflowSetOutputSchema = EnvelopeSchema(z.unknown()).and(
+  MetaDeprecationConstraint,
+);
+
+/**
+ * `outputSchema` for `exarchos_workflow.transition` (DR-11).
+ *
+ * @deprecated v2.10 LCD; will be removed in v2.12. Use
+ * `EnvelopeSchema(dataSchema)` from `./schemas/envelope.js` directly
+ * (parameterized on the action's success-data shape).
+ *
+ * Thin wrapper over the canonical envelope factory plus the DR-4/DR-11
+ * typed `_meta.deprecation` constraint. The canonical action does not
+ * emit `_meta.deprecation` itself, but registering the typed sub-shape
+ * keeps the surfaces interchangeable from a contract-introspection
+ * standpoint (INV-5b).
+ */
+export const WorkflowTransitionOutputSchema = EnvelopeSchema(z.unknown()).and(
+  MetaDeprecationConstraint,
+);
 
 /**
  * `outputSchema` for `exarchos_workflow.update` (Wave 0, #1340 prep for
- * #1266). Mirrors `WorkflowTransitionOutputSchema` shape EXCEPT the
- * `_meta.deprecation` slot: `update` is a canonical surface restored in
- * v2.10.0-preview.2 and is not on a deprecation track, so the envelope
- * does not advertise the migration sub-shape.
+ * #1266).
  *
- * Keeping `_meta` as a `passthrough` object with no required keys means
- * the rich `buildCheckpointMeta` payload (`checkpointAdvised`,
- * `operationsSinceCheckpoint`, etc.) flows through unchanged — the
- * schema only freezes the envelope contract, not the inner state-derived
- * meta fields. Same trade-off as the transition schema.
+ * @deprecated v2.10 LCD; will be removed in v2.12. Use
+ * `EnvelopeSchema(dataSchema)` from `./schemas/envelope.js` directly.
  *
- * `data` is `unknown` on the success branch so `handleSet`'s rich
- * payloads (`phase`, `updatedAt`, future fields) continue to validate
- * without freezing the wire format.
+ * Mirrors {@link WorkflowTransitionOutputSchema} EXCEPT the
+ * `_meta.deprecation` constraint: `update` is a canonical surface
+ * restored in v2.10.0-preview.2 and is not on a deprecation track, so
+ * the envelope does not advertise the migration sub-shape.
  */
-export const WorkflowUpdateOutputSchema = z.object({
-  success: z.boolean(),
-  data: z.unknown().optional(),
-  error: z.unknown().optional(),
-  warnings: z.array(z.string()).optional(),
-  next_actions: z.array(z.unknown()).optional(),
-  _meta: z.object({}).passthrough().optional(),
-  _perf: z.unknown().optional(),
-}).passthrough();
+export const WorkflowUpdateOutputSchema = EnvelopeSchema(z.unknown());
 
 // ─── Composite Tool: exarchos_workflow ───────────────────────────────────────
 
