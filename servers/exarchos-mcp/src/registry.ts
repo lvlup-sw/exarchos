@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { CheckpointHandoffSchema, WorkflowTypeSchema } from './workflow/schemas.js';
 import { agentSpecSchema as agentSpecSchemaForRegistry } from './agents/handler.js';
+import { EnvelopeSchema } from './schemas/envelope.js';
 export { coercedRecord, coercedPositiveInt, coercedNonnegativeInt, coercedStringArray } from './coerce.js';
 import { coercedRecord, coercedPositiveInt, coercedNonnegativeInt, coercedStringArray } from './coerce.js';
 
@@ -94,6 +95,85 @@ export function validateAction(
   validateAnnotations(action.annotations, id);
 }
 
+// ─── Shared Annotation Presets (Wave 0 E.1-E.5, design §2.4) ────────
+//
+// Each preset codifies the (safety, readOnly, destructive, idempotent,
+// openWorld) tuple for one of the recurring action shapes in the
+// registry. Co-locating them removes drift risk across 90+ declaration
+// sites and makes per-action annotations a single keyword in the array
+// literal — the *kind* of action is the only thing the author has to
+// classify; the flag tuple follows from the preset.
+//
+// Mapping rules (DIM-3 safety boundary, applied uniformly):
+// - read-only            → readOnly:true,  destructive:false, idempotent:true,  openWorld:false
+// - read-only + external → readOnly:true,  destructive:false, idempotent:true,  openWorld:true
+// - local-mutation       → readOnly:false, destructive:false, idempotent:false, openWorld:false
+// - local-mutation idem. → readOnly:false, destructive:false, idempotent:true,  openWorld:false
+// - compensable (local)  → readOnly:false, destructive:true,  idempotent:false, openWorld:false
+// - compensable (remote) → readOnly:false, destructive:true,  idempotent:false, openWorld:true
+// - remote-mutation      → readOnly:false, destructive:false, idempotent:false, openWorld:true
+//
+// `idempotent: true` is asserted only for actions whose handler is
+// documented or empirically safe to re-run (reconcile, rehydrate,
+// checkpoint, sync, plus all pure reads). Default for state-writers is
+// false because re-running yields a new event in the stream.
+
+const READ_ONLY_LOCAL: ActionAnnotations = {
+  safety: 'read-only',
+  readOnly: true,
+  destructive: false,
+  idempotent: true,
+  openWorld: false,
+};
+
+const READ_ONLY_REMOTE: ActionAnnotations = {
+  safety: 'read-only',
+  readOnly: true,
+  destructive: false,
+  idempotent: true,
+  openWorld: true,
+};
+
+const LOCAL_MUTATION: ActionAnnotations = {
+  safety: 'local-mutation',
+  readOnly: false,
+  destructive: false,
+  idempotent: false,
+  openWorld: false,
+};
+
+const LOCAL_MUTATION_IDEMPOTENT: ActionAnnotations = {
+  safety: 'local-mutation',
+  readOnly: false,
+  destructive: false,
+  idempotent: true,
+  openWorld: false,
+};
+
+const COMPENSABLE_LOCAL: ActionAnnotations = {
+  safety: 'compensable',
+  readOnly: false,
+  destructive: true,
+  idempotent: false,
+  openWorld: false,
+};
+
+const COMPENSABLE_REMOTE: ActionAnnotations = {
+  safety: 'compensable',
+  readOnly: false,
+  destructive: true,
+  idempotent: false,
+  openWorld: true,
+};
+
+const REMOTE_MUTATION: ActionAnnotations = {
+  safety: 'remote-mutation',
+  readOnly: false,
+  destructive: false,
+  idempotent: false,
+  openWorld: true,
+};
+
 export interface ToolAction {
   readonly name: string;
   readonly description: string;
@@ -119,14 +199,30 @@ export interface ToolAction {
    */
   readonly deprecated?: boolean;
   /**
-   * DR-11 (durable-substrate, #1259) — typed Zod schema describing the
-   * action's response envelope. When present, the schema registers the
-   * `_meta.deprecation` sub-shape and is exposed via `describe` for
-   * structured client-side decoding. Pre-existing actions without an
-   * `outputSchema` continue to function unchanged; only the affected
-   * actions in the C4 (HSM single-path) bundle declare one in v2.10.
+   * Typed Zod schema describing the action's response envelope (Wave 0
+   * task E.1-E.5, DR-11, design §2.1). All actions in the built-in
+   * registry MUST declare an `outputSchema` — most attach
+   * `EnvelopeSchema(z.unknown())` (the LCD envelope shape with
+   * `data: unknown`) while a small set of HSM actions (workflow.set/
+   * transition/update) attach typed sub-shapes that register the
+   * `_meta.deprecation` slot. Per-action data-shape tightening is
+   * incremental follow-up work (design §10, out of scope for Wave 0).
+   *
+   * The field is required at the interface boundary; the registration-
+   * time validator (`validateAction`) also enforces presence at module
+   * load so a malformed declaration fails the import (DIM-3 fail-closed).
    */
-  readonly outputSchema?: z.ZodTypeAny;
+  readonly outputSchema: z.ZodTypeAny;
+  /**
+   * Per-action annotations (Wave 0 task E.1-E.5, design §2.4, #1289).
+   * `safety` is server-trusted and is consumed by HSM guards +
+   * computeNextActions in a later task. The four Hint flags
+   * (readOnly/destructive/idempotent/openWorld) are spec-defined
+   * advisory hints surfaced to MCP clients via `tools/list`; per the
+   * MCP spec they are EXPLICITLY untrusted unless the server itself
+   * is trusted.
+   */
+  readonly annotations: ActionAnnotations;
 }
 
 export interface CompositeTool {
@@ -491,6 +587,8 @@ function makeDescribeAction(): ToolAction {
     schema: describeSchema,
     phases: ALL_PHASES,
     roles: ROLE_ANY,
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: READ_ONLY_LOCAL,
   };
 }
 
@@ -518,6 +616,8 @@ function makeWorkflowDescribeAction(): ToolAction {
     schema: workflowDescribeSchema,
     phases: ALL_PHASES,
     roles: ROLE_ANY,
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: READ_ONLY_LOCAL,
   };
 }
 
@@ -540,6 +640,8 @@ function makeEventDescribeAction(): ToolAction {
     schema: eventDescribeSchema,
     phases: ALL_PHASES,
     roles: ROLE_ANY,
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: READ_ONLY_LOCAL,
   };
 }
 
@@ -670,6 +772,8 @@ const workflowActions: readonly ToolAction[] = [
     autoEmits: [
       { event: 'workflow.started', condition: 'always' },
     ],
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: LOCAL_MUTATION,
   },
   {
     name: 'get',
@@ -686,6 +790,8 @@ const workflowActions: readonly ToolAction[] = [
       flags: { featureId: { alias: 'f' }, query: { alias: 'q' } },
       examples: ['exarchos wf status -f my-feature', 'exarchos wf status -f my-feature -q phase'],
     },
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: READ_ONLY_LOCAL,
   },
   {
     name: 'transition',
@@ -704,6 +810,7 @@ const workflowActions: readonly ToolAction[] = [
       { event: 'workflow.transition', condition: 'always' },
     ],
     outputSchema: WorkflowTransitionOutputSchema,
+    annotations: LOCAL_MUTATION,
   },
   {
     // Wave 0 (#1340, v2.10.0-preview.2): canonical state-mutation surface.
@@ -756,6 +863,7 @@ const workflowActions: readonly ToolAction[] = [
     // action descriptions; callers reach it through
     // `exarchos_workflow.describe({actions: ['update']})`.
     outputSchema: WorkflowUpdateOutputSchema,
+    annotations: LOCAL_MUTATION,
   },
   {
     name: 'cancel',
@@ -770,6 +878,8 @@ const workflowActions: readonly ToolAction[] = [
       { event: 'workflow.cancel', condition: 'always' },
       { event: 'workflow.compensation', condition: 'conditional', description: 'Per compensation action' },
     ],
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: COMPENSABLE_LOCAL,
   },
   {
     name: 'cleanup',
@@ -786,6 +896,8 @@ const workflowActions: readonly ToolAction[] = [
     autoEmits: [
       { event: 'workflow.cleanup', condition: 'always' },
     ],
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: COMPENSABLE_LOCAL,
   },
   {
     name: 'reconcile',
@@ -795,6 +907,8 @@ const workflowActions: readonly ToolAction[] = [
     }),
     phases: ALL_PHASES,
     roles: ROLE_LEAD,
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: LOCAL_MUTATION_IDEMPOTENT,
   },
   {
     name: 'rehydrate',
@@ -819,6 +933,8 @@ const workflowActions: readonly ToolAction[] = [
         description: 'When rehydration succeeds (event-store emission failures are logged but do not fail the call — see rehydrate.ts).',
       },
     ],
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: LOCAL_MUTATION_IDEMPOTENT,
   },
   {
     name: 'checkpoint',
@@ -849,6 +965,8 @@ const workflowActions: readonly ToolAction[] = [
     autoEmits: [
       { event: 'workflow.checkpoint', condition: 'always' },
     ],
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: LOCAL_MUTATION_IDEMPOTENT,
   },
   makeWorkflowDescribeAction(),
 ];
@@ -870,6 +988,8 @@ const eventActions: readonly ToolAction[] = [
     cli: {
       examples: ['exarchos ev append --stream my-feature --event \'{"type":"task.completed","data":{"taskId":"t1"}}\''],
     },
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: LOCAL_MUTATION,
   },
   {
     name: 'query',
@@ -883,6 +1003,8 @@ const eventActions: readonly ToolAction[] = [
     }),
     phases: ALL_PHASES,
     roles: ROLE_ANY,
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: READ_ONLY_LOCAL,
   },
   {
     name: 'batch_append',
@@ -893,6 +1015,8 @@ const eventActions: readonly ToolAction[] = [
     }),
     phases: DELEGATE_PHASES,
     roles: ROLE_LEAD,
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: LOCAL_MUTATION,
   },
   makeEventDescribeAction(),
 ];
@@ -913,6 +1037,8 @@ const orchestrateActions: readonly ToolAction[] = [
     autoEmits: [
       { event: 'task.claimed', condition: 'always' },
     ],
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: LOCAL_MUTATION,
   },
   {
     name: 'task_complete',
@@ -932,6 +1058,8 @@ const orchestrateActions: readonly ToolAction[] = [
     autoEmits: [
       { event: 'task.completed', condition: 'always' },
     ],
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: LOCAL_MUTATION,
   },
   {
     name: 'task_fail',
@@ -947,6 +1075,8 @@ const orchestrateActions: readonly ToolAction[] = [
     autoEmits: [
       { event: 'task.failed', condition: 'always' },
     ],
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: LOCAL_MUTATION,
   },
   {
     name: 'review_triage',
@@ -965,6 +1095,8 @@ const orchestrateActions: readonly ToolAction[] = [
     }),
     phases: REVIEW_PHASES,
     roles: ROLE_LEAD,
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: LOCAL_MUTATION,
   },
   {
     name: 'prepare_delegation',
@@ -979,6 +1111,8 @@ const orchestrateActions: readonly ToolAction[] = [
     autoEmits: [
       { event: 'quality.hint.generated', condition: 'conditional', description: 'When hints exist' },
     ],
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: LOCAL_MUTATION,
   },
   {
     name: 'prepare_synthesis',
@@ -994,6 +1128,8 @@ const orchestrateActions: readonly ToolAction[] = [
     autoEmits: [
       { event: 'gate.executed', condition: 'always' },
     ],
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: LOCAL_MUTATION,
   },
   {
     name: 'assess_stack',
@@ -1013,6 +1149,8 @@ const orchestrateActions: readonly ToolAction[] = [
       { event: 'shepherd.completed', condition: 'conditional', description: 'When PR merged' },
       { event: 'gate.executed', condition: 'always' },
     ],
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: READ_ONLY_REMOTE,
   },
   {
     name: 'check_static_analysis',
@@ -1032,6 +1170,8 @@ const orchestrateActions: readonly ToolAction[] = [
     autoEmits: [
       { event: 'gate.executed', condition: 'always' },
     ],
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: LOCAL_MUTATION,
   },
   {
     name: 'check_security_scan',
@@ -1046,6 +1186,8 @@ const orchestrateActions: readonly ToolAction[] = [
     autoEmits: [
       { event: 'gate.executed', condition: 'always' },
     ],
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: LOCAL_MUTATION,
   },
   {
     name: 'check_context_economy',
@@ -1061,6 +1203,8 @@ const orchestrateActions: readonly ToolAction[] = [
     autoEmits: [
       { event: 'gate.executed', condition: 'always' },
     ],
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: LOCAL_MUTATION,
   },
   {
     name: 'check_operational_resilience',
@@ -1076,6 +1220,8 @@ const orchestrateActions: readonly ToolAction[] = [
     autoEmits: [
       { event: 'gate.executed', condition: 'always' },
     ],
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: LOCAL_MUTATION,
   },
   {
     name: 'check_workflow_determinism',
@@ -1091,6 +1237,8 @@ const orchestrateActions: readonly ToolAction[] = [
     autoEmits: [
       { event: 'gate.executed', condition: 'always' },
     ],
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: LOCAL_MUTATION,
   },
   {
     name: 'check_review_verdict',
@@ -1120,6 +1268,8 @@ const orchestrateActions: readonly ToolAction[] = [
     autoEmits: [
       { event: 'gate.executed', condition: 'always' },
     ],
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: LOCAL_MUTATION,
   },
   {
     name: 'check_convergence',
@@ -1131,6 +1281,8 @@ const orchestrateActions: readonly ToolAction[] = [
     phases: REVIEW_PHASES,
     roles: ROLE_LEAD,
     gate: { blocking: false },
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: READ_ONLY_LOCAL,
   },
   {
     name: 'check_provenance_chain',
@@ -1146,6 +1298,8 @@ const orchestrateActions: readonly ToolAction[] = [
     autoEmits: [
       { event: 'gate.executed', condition: 'always' },
     ],
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: LOCAL_MUTATION,
   },
   {
     name: 'check_design_completeness',
@@ -1161,6 +1315,8 @@ const orchestrateActions: readonly ToolAction[] = [
     autoEmits: [
       { event: 'gate.executed', condition: 'always' },
     ],
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: LOCAL_MUTATION,
   },
   {
     name: 'check_plan_coverage',
@@ -1176,6 +1332,8 @@ const orchestrateActions: readonly ToolAction[] = [
     autoEmits: [
       { event: 'gate.executed', condition: 'always' },
     ],
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: LOCAL_MUTATION,
   },
   {
     name: 'check_tdd_compliance',
@@ -1192,6 +1350,8 @@ const orchestrateActions: readonly ToolAction[] = [
     autoEmits: [
       { event: 'gate.executed', condition: 'always' },
     ],
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: LOCAL_MUTATION,
   },
   {
     name: 'check_post_merge',
@@ -1207,6 +1367,8 @@ const orchestrateActions: readonly ToolAction[] = [
     autoEmits: [
       { event: 'gate.executed', condition: 'always' },
     ],
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: LOCAL_MUTATION,
   },
   // ─── Merge Orchestrator (DR-MO-1) ─────────────────────────────────────────
   {
@@ -1232,6 +1394,8 @@ const orchestrateActions: readonly ToolAction[] = [
       { event: 'merge.executed', condition: 'conditional', description: 'When preflight passes and execute succeeds' },
       { event: 'merge.rollback', condition: 'conditional', description: 'When execute fails after a merge SHA was produced' },
     ],
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: COMPENSABLE_REMOTE,
   },
   {
     name: 'check_task_decomposition',
@@ -1246,6 +1410,8 @@ const orchestrateActions: readonly ToolAction[] = [
     autoEmits: [
       { event: 'gate.executed', condition: 'always' },
     ],
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: LOCAL_MUTATION,
   },
   {
     name: 'check_event_emissions',
@@ -1259,6 +1425,8 @@ const orchestrateActions: readonly ToolAction[] = [
     autoEmits: [
       { event: 'gate.executed', condition: 'always' },
     ],
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: LOCAL_MUTATION,
   },
   {
     name: 'extract_task',
@@ -1269,6 +1437,8 @@ const orchestrateActions: readonly ToolAction[] = [
     }),
     phases: DELEGATE_PHASES,
     roles: ROLE_LEAD,
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: READ_ONLY_LOCAL,
   },
   {
     name: 'review_diff',
@@ -1279,6 +1449,8 @@ const orchestrateActions: readonly ToolAction[] = [
     }),
     phases: REVIEW_PHASES,
     roles: ROLE_LEAD,
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: READ_ONLY_LOCAL,
   },
   {
     name: 'verify_worktree',
@@ -1288,6 +1460,8 @@ const orchestrateActions: readonly ToolAction[] = [
     }),
     phases: DELEGATE_PHASES,
     roles: ROLE_ANY,
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: READ_ONLY_LOCAL,
   },
   {
     name: 'select_debug_track',
@@ -1299,6 +1473,8 @@ const orchestrateActions: readonly ToolAction[] = [
     }),
     phases: new Set<string>(['investigate']),
     roles: ROLE_LEAD,
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: LOCAL_MUTATION,
   },
   {
     name: 'investigation_timer',
@@ -1310,6 +1486,8 @@ const orchestrateActions: readonly ToolAction[] = [
     }),
     phases: new Set<string>(['investigate']),
     roles: ROLE_LEAD,
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: READ_ONLY_LOCAL,
   },
   {
     name: 'check_coverage_thresholds',
@@ -1323,6 +1501,8 @@ const orchestrateActions: readonly ToolAction[] = [
     phases: REVIEW_PHASES,
     roles: ROLE_LEAD,
     gate: { blocking: false, dimension: 'D3' },
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: READ_ONLY_LOCAL,
   },
   {
     name: 'assess_refactor_scope',
@@ -1333,6 +1513,8 @@ const orchestrateActions: readonly ToolAction[] = [
     }),
     phases: new Set<string>(['explore', 'brief']),
     roles: ROLE_LEAD,
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: READ_ONLY_LOCAL,
   },
   {
     name: 'check_pr_comments',
@@ -1343,6 +1525,8 @@ const orchestrateActions: readonly ToolAction[] = [
     }),
     phases: SYNTHESIS_REVIEW_PHASES,
     roles: ROLE_LEAD,
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: READ_ONLY_REMOTE,
   },
   {
     name: 'validate_pr_body',
@@ -1355,6 +1539,8 @@ const orchestrateActions: readonly ToolAction[] = [
     }),
     phases: SYNTHESIS_REVIEW_PHASES,
     roles: ROLE_LEAD,
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: READ_ONLY_LOCAL,
   },
   {
     name: 'validate_pr_stack',
@@ -1365,6 +1551,8 @@ const orchestrateActions: readonly ToolAction[] = [
     phases: new Set<string>(['synthesize']),
     roles: ROLE_LEAD,
     gate: { blocking: true },
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: READ_ONLY_LOCAL,
   },
   {
     name: 'debug_review_gate',
@@ -1377,6 +1565,8 @@ const orchestrateActions: readonly ToolAction[] = [
     phases: new Set<string>(['debug-review']),
     roles: ROLE_LEAD,
     gate: { blocking: true },
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: LOCAL_MUTATION,
   },
   {
     name: 'extract_fix_tasks',
@@ -1388,6 +1578,8 @@ const orchestrateActions: readonly ToolAction[] = [
     }),
     phases: REVIEW_PHASES,
     roles: ROLE_LEAD,
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: LOCAL_MUTATION,
   },
   {
     name: 'classify_review_items',
@@ -1401,6 +1593,8 @@ const orchestrateActions: readonly ToolAction[] = [
     // at runtime (#1161 / Sentry bug prediction).
     phases: SYNTHESIS_REVIEW_PHASES,
     roles: ROLE_LEAD,
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: LOCAL_MUTATION,
   },
   {
     name: 'generate_traceability',
@@ -1412,6 +1606,8 @@ const orchestrateActions: readonly ToolAction[] = [
     }),
     phases: PLAN_PHASES,
     roles: ROLE_LEAD,
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: LOCAL_MUTATION,
   },
   {
     name: 'spec_coverage_check',
@@ -1424,6 +1620,8 @@ const orchestrateActions: readonly ToolAction[] = [
     phases: PLAN_PHASES,
     roles: ROLE_LEAD,
     gate: { blocking: false, dimension: 'D1' },
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: LOCAL_MUTATION,
   },
   {
     name: 'verify_worktree_baseline',
@@ -1433,6 +1631,8 @@ const orchestrateActions: readonly ToolAction[] = [
     }),
     phases: DELEGATE_PHASES,
     roles: ROLE_ANY,
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: LOCAL_MUTATION,
   },
   {
     name: 'setup_worktree',
@@ -1452,6 +1652,8 @@ const orchestrateActions: readonly ToolAction[] = [
     }),
     phases: DELEGATE_PHASES,
     roles: ROLE_LEAD,
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: LOCAL_MUTATION,
   },
   {
     name: 'verify_delegation_saga',
@@ -1462,6 +1664,8 @@ const orchestrateActions: readonly ToolAction[] = [
     }),
     phases: DELEGATE_PHASES,
     roles: ROLE_LEAD,
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: READ_ONLY_LOCAL,
   },
   {
     name: 'post_delegation_check',
@@ -1481,6 +1685,8 @@ const orchestrateActions: readonly ToolAction[] = [
     autoEmits: [
       { event: 'gate.executed', condition: 'always' },
     ],
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: COMPENSABLE_LOCAL,
   },
   {
     name: 'reconcile_state',
@@ -1492,6 +1698,8 @@ const orchestrateActions: readonly ToolAction[] = [
     }),
     phases: ALL_PHASES,
     roles: ROLE_LEAD,
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: LOCAL_MUTATION,
   },
   {
     name: 'pre_synthesis_check',
@@ -1512,6 +1720,8 @@ const orchestrateActions: readonly ToolAction[] = [
     autoEmits: [
       { event: 'gate.executed', condition: 'always' },
     ],
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: LOCAL_MUTATION,
   },
   {
     name: 'new_project',
@@ -1524,6 +1734,8 @@ const orchestrateActions: readonly ToolAction[] = [
     }),
     phases: ALL_PHASES,
     roles: ROLE_LEAD,
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: LOCAL_MUTATION,
   },
   {
     name: 'check_coderabbit',
@@ -1535,6 +1747,8 @@ const orchestrateActions: readonly ToolAction[] = [
     }),
     phases: ALL_PHASES,
     roles: ROLE_ANY,
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: READ_ONLY_REMOTE,
   },
   {
     name: 'check_polish_scope',
@@ -1545,6 +1759,8 @@ const orchestrateActions: readonly ToolAction[] = [
     }),
     phases: ALL_PHASES,
     roles: ROLE_ANY,
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: READ_ONLY_LOCAL,
   },
   {
     name: 'needs_schema_sync',
@@ -1556,6 +1772,8 @@ const orchestrateActions: readonly ToolAction[] = [
     }),
     phases: ALL_PHASES,
     roles: ROLE_ANY,
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: READ_ONLY_LOCAL,
   },
   {
     name: 'verify_doc_links',
@@ -1566,6 +1784,8 @@ const orchestrateActions: readonly ToolAction[] = [
     }),
     phases: ALL_PHASES,
     roles: ROLE_ANY,
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: READ_ONLY_LOCAL,
   },
   {
     name: 'verify_review_triage',
@@ -1576,6 +1796,8 @@ const orchestrateActions: readonly ToolAction[] = [
     }),
     phases: ALL_PHASES,
     roles: ROLE_ANY,
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: READ_ONLY_LOCAL,
   },
   {
     name: 'prepare_review',
@@ -1589,6 +1811,8 @@ const orchestrateActions: readonly ToolAction[] = [
     phases: REVIEW_PHASES,
     roles: ROLE_LEAD,
     gate: { blocking: false },
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: LOCAL_MUTATION,
   },
   {
     name: 'prune_stale_workflows',
@@ -1604,6 +1828,8 @@ const orchestrateActions: readonly ToolAction[] = [
     autoEmits: [
       { event: 'workflow.pruned', condition: 'conditional', description: 'Per pruned workflow when dryRun is false' },
     ],
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: COMPENSABLE_LOCAL,
   },
   {
     name: 'request_synthesize',
@@ -1622,6 +1848,8 @@ const orchestrateActions: readonly ToolAction[] = [
     autoEmits: [
       { event: 'synthesize.requested', condition: 'always' },
     ],
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: LOCAL_MUTATION,
   },
   {
     name: 'finalize_oneshot',
@@ -1631,6 +1859,8 @@ const orchestrateActions: readonly ToolAction[] = [
     }),
     phases: new Set<string>(['implementing']),
     roles: ROLE_LEAD,
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: LOCAL_MUTATION,
   },
   {
     name: 'runbook',
@@ -1641,6 +1871,8 @@ const orchestrateActions: readonly ToolAction[] = [
     }),
     phases: ALL_PHASES,
     roles: ROLE_ANY,
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: READ_ONLY_LOCAL,
   },
   {
     name: 'agent_spec',
@@ -1648,6 +1880,8 @@ const orchestrateActions: readonly ToolAction[] = [
     schema: agentSpecSchemaForRegistry,
     phases: ALL_PHASES,
     roles: ROLE_ANY,
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: READ_ONLY_LOCAL,
   },
   {
     name: 'doctor',
@@ -1661,6 +1895,8 @@ const orchestrateActions: readonly ToolAction[] = [
     autoEmits: [
       { event: 'diagnostic.executed', condition: 'always' },
     ],
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: READ_ONLY_LOCAL,
   },
   // ─── VCS Actions ──────────────────────────────────────────────────────────
   {
@@ -1679,6 +1915,8 @@ const orchestrateActions: readonly ToolAction[] = [
     autoEmits: [
       { event: 'pr.created', condition: 'always' },
     ],
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: COMPENSABLE_REMOTE,
   },
   {
     name: 'merge_pr',
@@ -1692,6 +1930,8 @@ const orchestrateActions: readonly ToolAction[] = [
     autoEmits: [
       { event: 'pr.merged', condition: 'conditional', description: 'When merge succeeds' },
     ],
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: COMPENSABLE_REMOTE,
   },
   {
     name: 'check_ci',
@@ -1701,6 +1941,8 @@ const orchestrateActions: readonly ToolAction[] = [
     }),
     phases: ALL_PHASES,
     roles: ROLE_ANY,
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: READ_ONLY_REMOTE,
   },
   {
     name: 'list_prs',
@@ -1712,6 +1954,8 @@ const orchestrateActions: readonly ToolAction[] = [
     }),
     phases: ALL_PHASES,
     roles: ROLE_ANY,
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: READ_ONLY_REMOTE,
   },
   {
     name: 'get_pr_comments',
@@ -1721,6 +1965,8 @@ const orchestrateActions: readonly ToolAction[] = [
     }),
     phases: ALL_PHASES,
     roles: ROLE_ANY,
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: READ_ONLY_REMOTE,
   },
   {
     name: 'add_pr_comment',
@@ -1734,6 +1980,8 @@ const orchestrateActions: readonly ToolAction[] = [
     autoEmits: [
       { event: 'pr.commented', condition: 'always' },
     ],
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: COMPENSABLE_REMOTE,
   },
   {
     name: 'create_issue',
@@ -1748,6 +1996,8 @@ const orchestrateActions: readonly ToolAction[] = [
     autoEmits: [
       { event: 'issue.created', condition: 'always' },
     ],
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: COMPENSABLE_REMOTE,
   },
   // ─── Init Action ──────────────────────────────────────────────────────────
   {
@@ -1765,6 +2015,8 @@ const orchestrateActions: readonly ToolAction[] = [
     autoEmits: [
       { event: 'init.executed', condition: 'always' },
     ],
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: LOCAL_MUTATION,
   },
   makeDescribeAction(),
 ];
@@ -1786,6 +2038,8 @@ const viewActions: readonly ToolAction[] = [
       alias: 'ls',
       examples: ['exarchos vw ls'],
     },
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: READ_ONLY_LOCAL,
   },
   {
     name: 'tasks',
@@ -1803,6 +2057,8 @@ const viewActions: readonly ToolAction[] = [
       flags: { workflowId: { alias: 'w' }, limit: { alias: 'l' } },
       examples: ['exarchos vw tasks -w my-feature'],
     },
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: READ_ONLY_LOCAL,
   },
   {
     name: 'workflow_status',
@@ -1812,6 +2068,8 @@ const viewActions: readonly ToolAction[] = [
     }),
     phases: ALL_PHASES,
     roles: ROLE_ANY,
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: READ_ONLY_LOCAL,
   },
   {
     name: 'stack_status',
@@ -1823,6 +2081,8 @@ const viewActions: readonly ToolAction[] = [
     }),
     phases: STACK_PHASES,
     roles: ROLE_ANY,
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: READ_ONLY_LOCAL,
   },
   {
     name: 'stack_place',
@@ -1836,6 +2096,8 @@ const viewActions: readonly ToolAction[] = [
     }),
     phases: STACK_PHASES,
     roles: ROLE_ANY,
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: LOCAL_MUTATION,
   },
   {
     name: 'telemetry',
@@ -1848,6 +2110,8 @@ const viewActions: readonly ToolAction[] = [
     }),
     phases: ALL_PHASES,
     roles: ROLE_ANY,
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: READ_ONLY_LOCAL,
   },
   {
     name: 'team_performance',
@@ -1857,6 +2121,8 @@ const viewActions: readonly ToolAction[] = [
     }),
     phases: ALL_PHASES,
     roles: ROLE_ANY,
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: READ_ONLY_LOCAL,
   },
   {
     name: 'delegation_timeline',
@@ -1866,6 +2132,8 @@ const viewActions: readonly ToolAction[] = [
     }),
     phases: ALL_PHASES,
     roles: ROLE_ANY,
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: READ_ONLY_LOCAL,
   },
   {
     name: 'code_quality',
@@ -1878,6 +2146,8 @@ const viewActions: readonly ToolAction[] = [
     }),
     phases: ALL_PHASES,
     roles: ROLE_ANY,
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: READ_ONLY_LOCAL,
   },
   {
     name: 'delegation_readiness',
@@ -1887,6 +2157,8 @@ const viewActions: readonly ToolAction[] = [
     }),
     phases: ALL_PHASES,
     roles: ROLE_ANY,
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: READ_ONLY_LOCAL,
   },
   {
     name: 'synthesis_readiness',
@@ -1896,6 +2168,8 @@ const viewActions: readonly ToolAction[] = [
     }),
     phases: ALL_PHASES,
     roles: ROLE_ANY,
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: READ_ONLY_LOCAL,
   },
   {
     name: 'shepherd_status',
@@ -1905,6 +2179,8 @@ const viewActions: readonly ToolAction[] = [
     }),
     phases: ALL_PHASES,
     roles: ROLE_ANY,
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: READ_ONLY_LOCAL,
   },
   {
     name: 'convergence',
@@ -1914,6 +2190,8 @@ const viewActions: readonly ToolAction[] = [
     }),
     phases: ALL_PHASES,
     roles: ROLE_ANY,
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: READ_ONLY_LOCAL,
   },
   {
     name: 'quality_hints',
@@ -1924,6 +2202,8 @@ const viewActions: readonly ToolAction[] = [
     }),
     phases: ALL_PHASES,
     roles: ROLE_ANY,
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: READ_ONLY_LOCAL,
   },
   makeDescribeAction(),
 ];
@@ -1937,6 +2217,8 @@ const syncActions: readonly ToolAction[] = [
     schema: z.object({}),
     phases: ALL_PHASES,
     roles: ROLE_LEAD,
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: LOCAL_MUTATION_IDEMPOTENT,
   },
 ];
 
@@ -1980,6 +2262,19 @@ export const TOOL_REGISTRY: readonly CompositeTool[] = [
     slimDescription: 'Remote synchronization. Use describe(actions) for schemas.\n\nActions: now',
   },
 ];
+
+// ─── Registration-time Invariant Loop (Wave 0 task C.3) ────────────────
+//
+// Runs at module load so any built-in action that drifts away from the
+// `outputSchema` + `annotations` contract fails the import (DIM-3 fail-
+// closed at startup). Custom tools registered via `registerCustomTool`
+// are not covered here — that path validates per-action at call time
+// through `validateAction` once `register.ts` is wired (Wave 0 follow-up).
+for (const tool of TOOL_REGISTRY) {
+  for (const action of tool.actions) {
+    validateAction(action, tool.name);
+  }
+}
 
 // ─── Built-in Tool Names ────────────────────────────────────────────────────
 

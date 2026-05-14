@@ -7,6 +7,7 @@ import { registerEventType, unregisterEventType } from '../event-store/schemas.j
 import { ViewRegistry } from '../views/registry.js';
 import { registerCustomTool, unregisterCustomTool, setCustomToolActionHandler, ALL_PHASES } from '../registry.js';
 import type { CompositeTool, ToolAction } from '../registry.js';
+import { EnvelopeSchema } from '../schemas/envelope.js';
 import type { ViewProjection } from '../views/materializer.js';
 import type { ExarchosConfig, WorkflowDefinition } from './define.js';
 
@@ -313,12 +314,28 @@ export async function registerCustomTools(
         // declare Zod schemas in config — they accept any args and validate
         // internally via their handler). Use passthrough() so user-provided
         // parameters flow through the strict composite schema.
+        //
+        // Wave 0 (#1287 / #1289, design §2.1 + §2.4): supply the required
+        // `outputSchema` (the permissive envelope shape) and `annotations`
+        // (sensible conservative defaults: local-mutation, opaque
+        // side-effect profile) so custom tools satisfy the registry's
+        // registration-time invariants. Custom-tool authors who want a
+        // narrower contract or different safety classification can declare
+        // them in config in a future enhancement (out of scope for Wave 0).
         actions.push({
           name: actionDef.name,
           description: actionDef.description,
           schema: z.object({}).passthrough(),
           phases: ALL_PHASES,
           roles: new Set<string>(['any']),
+          outputSchema: EnvelopeSchema(z.unknown()),
+          annotations: {
+            safety: 'local-mutation',
+            readOnly: false,
+            destructive: false,
+            idempotent: false,
+            openWorld: false,
+          },
         });
       }
 
