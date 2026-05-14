@@ -33,6 +33,38 @@ export interface AutoEmission {
   readonly description?: string;
 }
 
+// ─── Action Annotations (#1289, design §2.4) ─────────────────────────
+//
+// Per-action metadata co-located with the schema. `safety` is
+// server-trusted (consumed by HSM guards + computeNextActions in a
+// later task). The 4 *Hint flags are spec-defined client-untrusted UI
+// hints populated to tools/list. Per MCP §Tools / Annotations,
+// annotations are EXPLICITLY untrusted by clients unless the server is
+// trusted — they are advisory only on the wire.
+export type ActionAnnotations = {
+  readonly safety: 'read-only' | 'local-mutation' | 'remote-mutation' | 'compensable';
+  readonly readOnly: boolean;
+  readonly destructive: boolean;
+  readonly idempotent: boolean;
+  readonly openWorld: boolean;
+};
+
+export const ActionAnnotationsSchema = z.object({
+  safety: z.enum(['read-only', 'local-mutation', 'remote-mutation', 'compensable']),
+  readOnly: z.boolean(),
+  destructive: z.boolean(),
+  idempotent: z.boolean(),
+  openWorld: z.boolean(),
+}).strict();
+
+export function validateAnnotations(a: unknown, actionName: string): asserts a is ActionAnnotations {
+  const result = ActionAnnotationsSchema.safeParse(a);
+  if (!result.success) {
+    const issues = result.error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; ');
+    throw new Error(`Action '${actionName}' has invalid annotations: ${issues}`);
+  }
+}
+
 export interface ToolAction {
   readonly name: string;
   readonly description: string;
