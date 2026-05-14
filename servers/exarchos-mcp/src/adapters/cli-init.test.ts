@@ -19,9 +19,19 @@ vi.mock('../core/dispatch.js', () => ({
   ),
 }));
 
+// PR-B (#1368): `emitResult`'s `--json` route resolves `toCliResult`
+// from this module; vi.mock factories REPLACE the module, so omitting
+// the export crashes the action callback. Provide a real-passthrough
+// impl that mirrors the production `toCliResult(env, 'json')` behavior
+// so stdout assertions still see envelope JSON.
 vi.mock('./cli-format.js', () => ({
   prettyPrint: vi.fn(),
   printError: vi.fn(),
+  toCliResult: vi.fn((env: unknown, format: string) => {
+    if (format === 'json') {
+      process.stdout.write(JSON.stringify(env, null, 2) + '\n');
+    }
+  }),
 }));
 
 // ─── Test Imports ───────────────────────────────────────────────────────────
