@@ -1161,7 +1161,13 @@ const orchestrateActions: readonly ToolAction[] = [
       { event: 'gate.executed', condition: 'always' },
     ],
     outputSchema: EnvelopeSchema(z.unknown()),
-    annotations: READ_ONLY_REMOTE,
+    // sentry LOW on PR #1369: `assess_stack` reads GitHub PR state but
+    // also emits 3 shepherd lifecycle events + gate.executed on every
+    // call. `readOnly: true` would mislead clients that gate on the
+    // hint. REMOTE_MUTATION matches the actual write surface; the
+    // conditional emission discipline is a handler-level detail and
+    // should not be smuggled into the advisory annotation.
+    annotations: REMOTE_MUTATION,
   },
   {
     name: 'check_static_analysis',
