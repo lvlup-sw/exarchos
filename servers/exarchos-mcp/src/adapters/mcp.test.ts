@@ -345,6 +345,50 @@ describe('createMcpServer', () => {
     expect(parsed.success).toBe(true);
   });
 
+  // ─── D.4: Pass LCD outputSchema to registerTool (Wave 0, Issue #1287) ────
+  //
+  // Per design §2.2, every visible composite tool MUST be registered with an
+  // `outputSchema` option set to the LCD envelope shape — `EnvelopeSchema(z
+  // .unknown())`. This is the single advertised carrier schema in
+  // tools/list; the strict per-action validation lives downstream in the
+  // mcpHandler (D.5).
+  //
+  // The test asserts the `options` object passed to `server.registerTool`
+  // carries an `outputSchema` field whose Zod runtime shape is a
+  // discriminated union on `success` (matching the canonical
+  // `EnvelopeSchema(z.unknown())` factory output).
+
+  it('MCPServer_RegisterTool_PassesOutputSchemaPerTool', async () => {
+    // Arrange — spy on McpServer.prototype.registerTool to capture per-tool
+    // options without intercepting actual registration (so server setup
+    // remains exercised).
+    const { McpServer } = await import('@modelcontextprotocol/sdk/server/mcp.js');
+    const spy = vi.spyOn(McpServer.prototype, 'registerTool');
+
+    // Act
+    const { createMcpServer } = await import('./mcp.js');
+    createMcpServer(ctx);
+
+    // Assert — every visible (non-hidden) tool registration must carry an
+    // outputSchema that is structurally the LCD envelope union.
+    const visibleNames = TOOL_REGISTRY.filter(t => !t.hidden).map(t => t.name);
+    expect(spy.mock.calls.length).toBe(visibleNames.length);
+    for (const call of spy.mock.calls) {
+      const [, options] = call;
+      expect(options).toHaveProperty('outputSchema');
+      const outputSchema = (options as { outputSchema?: unknown }).outputSchema;
+      expect(outputSchema).toBeDefined();
+      // EnvelopeSchema(z.unknown()) is a Zod 3 discriminated union; the SDK
+      // stores it without modification (normalizeObjectSchema returns
+      // undefined for non-object schemas, so it isn't reshaped).
+      expect((outputSchema as { _def?: { typeName?: string } })._def?.typeName).toBe(
+        'ZodDiscriminatedUnion',
+      );
+    }
+
+    spy.mockRestore();
+  });
+
   it('CreateMcpServer_SlimRegistration_UsesSlimDescriptions', async () => {
     // Arrange: create context with slimRegistration enabled
     const slimCtx: DispatchContext = { ...ctx, slimRegistration: true };

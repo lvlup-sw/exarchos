@@ -1,9 +1,20 @@
+import { z } from 'zod';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { getFullRegistry, buildRegistrationSchema, buildToolDescription } from '../registry.js';
 import { formatResult } from '../format.js';
 import type { Envelope, ErrorEnvelope } from '../format.js';
 import { dispatch } from '../core/dispatch.js';
 import type { DispatchContext } from '../core/dispatch.js';
+import { EnvelopeSchema } from '../schemas/envelope.js';
+
+// ─── D.4: LCD outputSchema advertised to MCP clients ────────────────────────
+//
+// Single advertised carrier schema (design §2.2, #1287). Every visible tool
+// registers this LCD as its `outputSchema`; tightly-typed per-action schemas
+// are enforced downstream in the call path (D.5) rather than in the
+// tools/list manifest. This keeps the static surface compact and lets the
+// per-call validator emit issue-pathed diagnostics.
+const LCD_OUTPUT_SCHEMA = EnvelopeSchema(z.unknown());
 
 // ─── D.1: Envelope → MCP CallToolResult carrier mapping ────────────────────
 
@@ -102,7 +113,7 @@ export function createMcpServer(ctx: DispatchContext): McpServer {
     // directly, preserving .strict() validation that rejects unrecognized keys.
     server.registerTool(
       tool.name,
-      { description, inputSchema },
+      { description, inputSchema, outputSchema: LCD_OUTPUT_SCHEMA },
       mcpHandler,
     );
   }
