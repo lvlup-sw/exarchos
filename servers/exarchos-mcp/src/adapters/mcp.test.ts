@@ -524,20 +524,37 @@ describe('createMcpServer', () => {
     createMcpServer(ctx);
 
     // Assert — every visible (non-hidden) tool registration must carry an
-    // outputSchema that is structurally the LCD envelope union.
+    // outputSchema that is the LCD envelope shape. The LCD is rendered as
+    // an SDK-compatible ZodObject (the SDK's `validateToolOutput` only
+    // recognises object schemas — passing the canonical discriminated
+    // union crashes its normalizer). Both the success and error envelope
+    // variants MUST validate against the advertised LCD.
     const visibleNames = TOOL_REGISTRY.filter(t => !t.hidden).map(t => t.name);
     expect(spy.mock.calls.length).toBe(visibleNames.length);
+
+    const successSample = toEnvelope({
+      success: true,
+      data: { foo: 'bar' },
+      _meta: {},
+      _perf: { ms: 1, bytes: 0, tokens: 0 },
+    });
+    const errorSample = toEnvelope({
+      success: false,
+      error: { code: 'X', message: 'y' },
+    });
+
     for (const call of spy.mock.calls) {
       const [, options] = call;
       expect(options).toHaveProperty('outputSchema');
-      const outputSchema = (options as { outputSchema?: unknown }).outputSchema;
+      const outputSchema = (options as { outputSchema?: z.ZodTypeAny }).outputSchema;
       expect(outputSchema).toBeDefined();
-      // EnvelopeSchema(z.unknown()) is a Zod 3 discriminated union; the SDK
-      // stores it without modification (normalizeObjectSchema returns
-      // undefined for non-object schemas, so it isn't reshaped).
+      // The advertised LCD must be a ZodObject (SDK requirement) and must
+      // accept both branches of the canonical envelope shape.
       expect((outputSchema as { _def?: { typeName?: string } })._def?.typeName).toBe(
-        'ZodDiscriminatedUnion',
+        'ZodObject',
       );
+      expect(outputSchema!.safeParse(successSample).success).toBe(true);
+      expect(outputSchema!.safeParse(errorSample).success).toBe(true);
     }
 
     spy.mockRestore();

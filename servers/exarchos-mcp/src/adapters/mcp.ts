@@ -10,7 +10,7 @@ import { toEnvelope } from '../format.js';
 import type { Envelope, ErrorEnvelope } from '../format.js';
 import { dispatch } from '../core/dispatch.js';
 import type { DispatchContext } from '../core/dispatch.js';
-import { EnvelopeSchema } from '../schemas/envelope.js';
+import { PerfMetricsSchema } from '../schemas/envelope.js';
 
 // ─── D.4: LCD outputSchema advertised to MCP clients ────────────────────────
 //
@@ -19,7 +19,28 @@ import { EnvelopeSchema } from '../schemas/envelope.js';
 // are enforced downstream in the call path (D.5) rather than in the
 // tools/list manifest. This keeps the static surface compact and lets the
 // per-call validator emit issue-pathed diagnostics.
-const LCD_OUTPUT_SCHEMA = EnvelopeSchema(z.unknown());
+//
+// SDK constraint (observed via task 1.6's compiled-binary integration test):
+// the @modelcontextprotocol/sdk's `validateToolOutput` runs the registered
+// `outputSchema` through `normalizeObjectSchema` before parsing — that
+// helper only recognises ZodObject inputs (raw shapes or already-built
+// object schemas) and returns `undefined` for `ZodDiscriminatedUnion`,
+// causing a TypeError on every successful call when we hand it the
+// canonical `EnvelopeSchema(z.unknown())` (a discriminated union on
+// `success`). We therefore advertise an SDK-compatible ZodObject that
+// encodes the LCD envelope shape via the shared invariant fields
+// (`success`, `_meta`, `_perf`) and uses `.passthrough()` to admit the
+// per-branch fields (`data`/`next_actions` on success, `error` on
+// failure). Per-action enforcement (D.5) still uses the strict
+// discriminated-union schemas from the registry — the LCD here is purely
+// the tools/list-advertised carrier surface.
+const LCD_OUTPUT_SCHEMA = z
+  .object({
+    success: z.boolean(),
+    _meta: z.record(z.unknown()),
+    _perf: PerfMetricsSchema,
+  })
+  .passthrough();
 
 // ─── D.1: Envelope → MCP CallToolResult carrier mapping ────────────────────
 
