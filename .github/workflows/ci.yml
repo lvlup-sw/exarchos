@@ -321,6 +321,46 @@ jobs:
       - name: Run process-fidelity suite
         run: npm run test:process
 
+  # ─────────────────────────────────────────────────────────────────────
+  # outcome-tests
+  # ─────────────────────────────────────────────────────────────────────
+  # Runs the `outcome` vitest project (Wave 1 data-safety substrate,
+  # Phase B). The tier exercises operator-visible behaviour using real
+  # OS state (tmpdir HOME, real git repos with sibling worktrees) via
+  # helpers under `tests/outcome/_helpers/`.
+  #
+  # Linux-only by design: the helpers in T-010/T-011 use POSIX-style
+  # path semantics and `git worktree` invocations that are not yet
+  # validated on Windows. Cross-platform outcome coverage is deferred
+  # to a later wave alongside the v2.10 Windows process-fidelity work.
+  #
+  # NOTE: marking this job as a required branch-protection check is a
+  # manual repo-settings step (Settings → Branches → main → required
+  # status checks). Capture that as a manual followup in the merge PR.
+  # ─────────────────────────────────────────────────────────────────────
+  outcome-tests:
+    name: Outcome Tests (linux-x64)
+    if: github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: npm
+
+      - name: Install root dependencies
+        run: npm ci
+
+      - name: Configure git identity for outcome helpers
+        run: |
+          git config --global user.email "outcome-tests@example.com"
+          git config --global user.name "outcome-tests"
+
+      - name: Run outcome-tier suite
+        run: npm run test:outcome
+
   ci-gate:
     name: CI Gate
     runs-on: self-hosted

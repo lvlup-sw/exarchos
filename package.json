@@ -35,6 +35,7 @@
     "test:unit": "vitest run --project unit --project integration",
     "test:process": "vitest run --project process --passWithNoTests",
     "test:all": "vitest run",
+    "test:outcome": "vitest run --project outcome",
     "test:run": "npm run test:unit",
     "typecheck": "tsc --noEmit",
     "version:sync": "bash scripts/sync-versions.sh",
