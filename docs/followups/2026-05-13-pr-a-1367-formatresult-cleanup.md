@@ -91,7 +91,7 @@ The cleanup is mechanical but has audit-first phases. **Iron Law: no production 
 |---|---|
 | A4.1 | For each production hit from A1.3 category (c) — migrate the call site to `toMcpResult(toEnvelope(result))` or remove if unreachable. |
 | A4.2 | Update any imports that bring `formatResult` into a test file: either remove the import (if the call site was deleted) or replace with `toEnvelope` (if the test still needs envelope-bound output for assertions). |
-| A4.3 | Verify `grep -rn "formatResult\b" servers/exarchos-mcp/src --include="*.ts" \| grep -v "node_modules"` returns zero hits. |
+| A4.3 | Verify `grep -rn "formatResult\b" servers/exarchos-mcp/src --include="*.ts" --exclude="*.test.ts" --exclude-dir=__tests__ \| grep -v "node_modules"` returns zero hits in production sources (test references are out of scope — PR-A only deletes the production helper). |
 
 ### Phase 5 — Delete formatResult itself
 

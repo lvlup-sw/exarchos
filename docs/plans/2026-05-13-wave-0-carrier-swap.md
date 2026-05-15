@@ -252,7 +252,7 @@ After A, C. The actual `formatResult` split + `registerTool` plumbing + CLI enve
 ### Task D.6: `tools/list` annotations from `ActionAnnotations`
 **Phase:** RED → GREEN
 
-1. [RED] Write test: `ToolsList_AnnotationsField_AggregatesPerActionFlags` in `adapters/mcp.test.ts`. Per the spec, `tools/list` carries one `annotations` per tool. Decision: aggregate per-tool as `all-true & all-true`? **No** — per the design, each *action* has its own annotations; the *tool*-level annotations summarize across actions. Aggregation rule: `readOnly = every action.readOnly`; `destructive = some action.destructive`; `idempotent = every action.idempotent`; `openWorld = every action.openWorld`. Assert against this rule.
+1. [RED] Write test: `ToolsList_AnnotationsField_AggregatesPerActionFlags` in `adapters/mcp.test.ts`. Per the spec, `tools/list` carries one `annotations` per tool. Decision: aggregate per-tool as `all-true & all-true`? **No** — per the design, each *action* has its own annotations; the *tool*-level annotations summarize across actions. Aggregation rule: `readOnly = every action.readOnly`; `destructive = some action.destructive`; `idempotent = every action.idempotent`; `openWorld = some action.openWorld` (as-implemented contract — any externally-effectful action lifts the tool to openWorld; an earlier draft said `every` here, since corrected to match the adapter test). Assert against this rule.
    - Expected failure: no annotations populated today.
 2. [GREEN] Add `aggregateToolAnnotations(actions): ToolAnnotations` helper. Pass result as `annotations` option to `server.registerTool()`.
 3. [REFACTOR] Add a per-action override path: future `describe.tool-action` could expose per-action annotations; not required for this PR.

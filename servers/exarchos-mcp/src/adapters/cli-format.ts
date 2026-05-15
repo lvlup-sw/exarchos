@@ -194,11 +194,17 @@ export function prettyPrint(result: ToolResult, format?: 'table' | 'json' | 'tre
 function envelopeToToolResult(env: Envelope<unknown> | ErrorEnvelope): ToolResult {
   if (env.success === false) {
     const errEnv = env as ErrorEnvelope;
+    // Preserve sidebar fields on the failure path so prettyPrint's
+    // stderr sidebar still renders in table/tree and the
+    // `EXARCHOS_CLI_ENVELOPE=0` legacy path. Mirrors the success-branch
+    // thread below (CodeRabbit minor on PR #1369).
     return {
       success: false,
       error: errEnv.error as ToolResult['error'],
       _meta: errEnv._meta,
       _perf: errEnv._perf,
+      warnings: errEnv.warnings,
+      _corrections: errEnv._corrections,
     };
   }
   const okEnv = env as Envelope<unknown>;

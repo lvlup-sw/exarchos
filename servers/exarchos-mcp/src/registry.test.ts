@@ -1664,16 +1664,40 @@ describe('ActionAnnotationsSchema', () => {
     const result = ActionAnnotationsSchema.safeParse(valid);
     expect(result.success).toBe(true);
 
-    // All four safety enum values are accepted.
-    for (const safety of [
-      'read-only',
-      'local-mutation',
-      'remote-mutation',
-      'compensable',
-    ] as const) {
-      expect(
-        ActionAnnotationsSchema.safeParse({ ...valid, safety }).success,
-      ).toBe(true);
+    // Each safety enum value paired with its canonical mapping (see
+    // registry.ts §"Mapping rules" comment block).
+    const canonicalByEnumValue: Record<ActionAnnotations['safety'], ActionAnnotations> = {
+      'read-only': {
+        safety: 'read-only',
+        readOnly: true,
+        destructive: false,
+        idempotent: true,
+        openWorld: false,
+      },
+      'local-mutation': {
+        safety: 'local-mutation',
+        readOnly: false,
+        destructive: false,
+        idempotent: false,
+        openWorld: false,
+      },
+      'remote-mutation': {
+        safety: 'remote-mutation',
+        readOnly: false,
+        destructive: false,
+        idempotent: false,
+        openWorld: true,
+      },
+      compensable: {
+        safety: 'compensable',
+        readOnly: false,
+        destructive: true,
+        idempotent: false,
+        openWorld: false,
+      },
+    };
+    for (const canonical of Object.values(canonicalByEnumValue)) {
+      expect(ActionAnnotationsSchema.safeParse(canonical).success).toBe(true);
     }
   });
 
@@ -1688,6 +1712,71 @@ describe('ActionAnnotationsSchema', () => {
         true,
       );
     }
+  });
+
+  // ─── Mapping-rule invariants (CodeRabbit PR #1369 major) ──────────────
+  //
+  // The shape-only schema admitted contradictory tuples like
+  // `safety: 'read-only' + readOnly: false`, which would have silently
+  // labeled an event-emitting action as advisory-safe. superRefine
+  // enforces the mapping rules documented in registry.ts so the same
+  // class of error that produced the doctor / check_convergence Sentry
+  // HIGH finding cannot reappear elsewhere — INV-5b (spec-aligned output
+  // contract) fails closed at module load.
+
+  it('ActionAnnotationsSchema_RejectsReadOnlySafetyWithReadOnlyFalse_Fails', () => {
+    const result = ActionAnnotationsSchema.safeParse({
+      safety: 'read-only',
+      readOnly: false,
+      destructive: false,
+      idempotent: true,
+      openWorld: false,
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('ActionAnnotationsSchema_RejectsReadOnlySafetyWithDestructiveTrue_Fails', () => {
+    const result = ActionAnnotationsSchema.safeParse({
+      safety: 'read-only',
+      readOnly: true,
+      destructive: true,
+      idempotent: true,
+      openWorld: false,
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('ActionAnnotationsSchema_RejectsLocalMutationWithReadOnlyTrue_Fails', () => {
+    const result = ActionAnnotationsSchema.safeParse({
+      safety: 'local-mutation',
+      readOnly: true,
+      destructive: false,
+      idempotent: false,
+      openWorld: false,
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('ActionAnnotationsSchema_RejectsCompensableWithDestructiveFalse_Fails', () => {
+    const result = ActionAnnotationsSchema.safeParse({
+      safety: 'compensable',
+      readOnly: false,
+      destructive: false,
+      idempotent: false,
+      openWorld: false,
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('ActionAnnotationsSchema_RejectsRemoteMutationWithOpenWorldFalse_Fails', () => {
+    const result = ActionAnnotationsSchema.safeParse({
+      safety: 'remote-mutation',
+      readOnly: false,
+      destructive: false,
+      idempotent: false,
+      openWorld: false,
+    });
+    expect(result.success).toBe(false);
   });
 });
 

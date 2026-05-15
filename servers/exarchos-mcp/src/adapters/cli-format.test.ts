@@ -317,6 +317,28 @@ describe('toCliResult', () => {
     expect(stderrSpy).not.toHaveBeenCalled();
   });
 
+  it('toCliResult_TableFormat_FailureWithWarnings_PreservesWarningsSidebar', () => {
+    // INV-2 facade equivalence: when a handler fails, any `warnings` /
+    // `_corrections` it attached must survive the round-trip through the
+    // envelope wire shape so prettyPrint's stderr sidebar still renders.
+    // The pre-#1369 envelopeToToolResult dropped them on the failure path,
+    // so table/tree consumers silently lost diagnostics on errors
+    // (CodeRabbit minor on PR #1369).
+    const source: ToolResult = {
+      success: false,
+      error: { code: 'CONSTRAINT_VIOLATION', message: 'invariant tripped' },
+      warnings: ['table-mode-warning-token'],
+      _meta: {},
+      _perf: { ms: 1, bytes: 10, tokens: 3 },
+    };
+    const env = toEnvelope(source);
+
+    toCliResult(env, 'table');
+
+    const stderrOutput = stderrSpy.mock.calls.map((c) => c[0]).join('');
+    expect(stderrOutput).toContain('table-mode-warning-token');
+  });
+
   it('toCliResult_TableFormat_DelegatesToPrettyPrint', () => {
     const source: ToolResult = {
       success: true,

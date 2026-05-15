@@ -14,6 +14,11 @@ import type { ExarchosConfig, WorkflowDefinition } from './define.js';
 
 const configLogger = logger.child({ subsystem: 'config' });
 
+// Module-level flag: the custom-tools v3.0 deprecation notice fires
+// once per process. Reset by `clearRegisteredTools()` in tests so each
+// test starts from a clean slate.
+let warnedCustomToolsDeprecated = false;
+
 // Re-export for consumers that imported from here
 export type { ExarchosConfig, WorkflowDefinition };
 
@@ -242,6 +247,10 @@ export function clearRegisteredTools(): void {
     }
   }
   registeredToolNames.length = 0;
+  // Reset the one-time deprecation warning latch so each test starts
+  // from a clean slate (the production path's idempotency is asserted
+  // by the test fixture, not by leaking module state between cases).
+  warnedCustomToolsDeprecated = false;
 }
 
 /**
@@ -294,14 +303,17 @@ export async function registerCustomTools(
 
   // Loud one-time deprecation signal so any latent consumer we don't know
   // about sees the v3.0 migration notice on first config load. Cheap and
-  // high-signal — fires only when `tools:` is actually used.
+  // high-signal — fires only when `tools:` is actually used, and only on
+  // the first invocation per process (CodeRabbit minor on PR #1369:
+  // repeated config loads were spamming the log on every call).
   const toolNames = Object.keys(config.tools);
-  if (toolNames.length > 0) {
+  if (toolNames.length > 0 && !warnedCustomToolsDeprecated) {
     configLogger.warn(
       { toolNames, count: toolNames.length, removalMilestone: 'v3.0.0', issue: 1258 },
       `[exarchos] DEPRECATION: exarchos.config.ts custom tools are deprecated in v2.10.0 and will be removed in v3.0.0. ` +
         `Migrate to the Workflow Builder SDK (epic #1258).`,
     );
+    warnedCustomToolsDeprecated = true;
   }
 
   const registeredNames: string[] = [];

@@ -50,13 +50,100 @@ export type ActionAnnotations = {
   readonly openWorld: boolean;
 };
 
+// Mapping rules (mirror the §"Shared Annotation Presets" comment block
+// below). `superRefine` rejects contradictory tuples — e.g. an action
+// that claims `safety: 'read-only'` but flips `readOnly: false` would
+// otherwise pass the shape-only check yet smuggle a writer past the
+// capability boundary (CodeRabbit MAJOR on PR #1369; also the same
+// mis-annotation class behind the doctor / check_convergence Sentry
+// HIGH).
+//
+// `idempotent` is not asserted because the comment block explicitly
+// notes that idempotency varies per handler within the local-mutation
+// family. `openWorld` is asserted only where the safety enum implies
+// it (remote-mutation must be openWorld:true; other classes leave it
+// free because compensable splits local/remote).
 export const ActionAnnotationsSchema = z.object({
   safety: z.enum(['read-only', 'local-mutation', 'remote-mutation', 'compensable']),
   readOnly: z.boolean(),
   destructive: z.boolean(),
   idempotent: z.boolean(),
   openWorld: z.boolean(),
-}).strict();
+}).strict().superRefine((a, ctx) => {
+  switch (a.safety) {
+    case 'read-only':
+      if (!a.readOnly) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['readOnly'],
+          message: "safety 'read-only' requires readOnly: true",
+        });
+      }
+      if (a.destructive) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['destructive'],
+          message: "safety 'read-only' requires destructive: false",
+        });
+      }
+      break;
+    case 'local-mutation':
+      if (a.readOnly) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['readOnly'],
+          message: "safety 'local-mutation' requires readOnly: false",
+        });
+      }
+      if (a.destructive) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['destructive'],
+          message: "safety 'local-mutation' requires destructive: false (use 'compensable' for destructive writes)",
+        });
+      }
+      break;
+    case 'remote-mutation':
+      if (a.readOnly) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['readOnly'],
+          message: "safety 'remote-mutation' requires readOnly: false",
+        });
+      }
+      if (a.destructive) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['destructive'],
+          message: "safety 'remote-mutation' requires destructive: false (use 'compensable' for destructive writes)",
+        });
+      }
+      if (!a.openWorld) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['openWorld'],
+          message: "safety 'remote-mutation' requires openWorld: true",
+        });
+      }
+      break;
+    case 'compensable':
+      if (a.readOnly) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['readOnly'],
+          message: "safety 'compensable' requires readOnly: false",
+        });
+      }
+      if (!a.destructive) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['destructive'],
+          message: "safety 'compensable' requires destructive: true",
+        });
+      }
+      break;
+  }
+});
 
 export function validateAnnotations(a: unknown, actionName: string): asserts a is ActionAnnotations {
   const result = ActionAnnotationsSchema.safeParse(a);

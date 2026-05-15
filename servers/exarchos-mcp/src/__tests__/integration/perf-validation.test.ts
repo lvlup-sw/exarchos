@@ -60,8 +60,18 @@ describe('F.6 — output validation overhead', () => {
   afterAll(async () => {
     try {
       await client.close();
-    } catch {
-      /* ignore */
+    } catch (err) {
+      // Only swallow benign close-state errors — the transport
+      // sometimes reports already-closed sockets here when the suite
+      // exits abruptly. Anything else (e.g. an SDK-side handshake or
+      // protocol regression) should surface so we don't silently
+      // tolerate a real shutdown break (CodeRabbit minor on PR #1369).
+      const message = err instanceof Error ? err.message : String(err);
+      const isBenignCloseStateError =
+        /already closed|not connected|transport.*closed|ECONNRESET/i.test(message);
+      if (!isBenignCloseStateError) {
+        throw err;
+      }
     }
     await fs.rm(tmpDir, { recursive: true, force: true });
   });

@@ -81,6 +81,10 @@ exports[`F.7 — CLI table/tree pretty-print regression (Wave 0 §7) > CliRender
           [...]
         _perf:
           [...]
+        warnings:
+          [...]
+        _corrections:
+          [...]
       required:
         - success
         - error
@@ -126,6 +130,10 @@ exports[`F.7 — CLI table/tree pretty-print regression (Wave 0 §7) > CliRender
         _meta:
           [...]
         _perf:
+          [...]
+        warnings:
+          [...]
+        _corrections:
           [...]
       required:
         - success

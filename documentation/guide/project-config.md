@@ -218,7 +218,7 @@ Most teams only need `.exarchos.yml`. The TypeScript config is for teams buildin
 
 The `exarchos.config.ts` extension surface — custom `workflows`, `events`, `views`, and `tools` — is **deprecated as of v2.10.0** and will be **removed in v3.0.0**. It is superseded by the **Workflow Builder SDK** (epic [#1258](https://github.com/lvlup-sw/exarchos/issues/1258)), a fluent TypeScript SDK that becomes the single authoring path for custom workflows and tools, with first-class agent-authoring support via a `workflow-authoring` skill.
 
-When v3.0 ships, the `tools:` and `workflows:` blocks in `exarchos.config.ts` are removed alongside the closed-form `hsm-definitions.ts` / `playbooks.ts` registries. Migrate custom extensions to the v3.0 SDK before upgrading. A runtime `[exarchos] DEPRECATION:` warning is emitted whenever a config supplies the `tools:` block in v2.10.
+When v3.0 ships, all four extension surfaces (`workflows:`, `events:`, `views:`, and `tools:`) in `exarchos.config.ts` are removed alongside the closed-form `hsm-definitions.ts` / `playbooks.ts` registries. The **Workflow Builder SDK** (`workflow-authoring` skill, epic [#1258](https://github.com/lvlup-sw/exarchos/issues/1258)) becomes the single authoring path: workflows + their custom events and views ship as one SDK-authored bundle, and custom tools migrate to the SDK's tool API. Migrate custom extensions before upgrading. A runtime `[exarchos] DEPRECATION:` warning is emitted whenever a config supplies the `tools:` block in v2.10; the `events:` and `views:` surfaces are silent in v2.10 but will start warning before the v3.0 hard cut (a follow-up issue will land that warning).
 
 ## Next steps
 

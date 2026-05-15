@@ -99,7 +99,7 @@ complexity · used in repo (yes/no + count).
 | `ctx.path` in `.superRefine()` | dropped | requires-thought | check `grep -rn "ctx\.path\|superRefine" servers/exarchos-mcp/src` — **1 hit** (`config/validation.ts:28` uses `.superRefine((workflow, ctx) => ...)`). Inspect for `ctx.path` reads. Decision-record item if used. |
 | `z.literal(Symbol)` | removed | trivial | **no** — 0 hits |
 | `z.ZodString.create()` etc. static factories | removed | mechanical | **no** — repo uses factory functions exclusively |
-| `z.record(valueSchema)` single-arg | requires `(keySchema, valueSchema)` | mechanical | **already migrated.** Every `z.record(` site in `src/` already passes two args (`z.string()` first). Verified by `grep -rnE "z\.record\(z\.(unknown\|string\(\)\)\b)"` — no single-arg occurrences. **Exception:** `evals/types.ts:13,24,49,50` and similar use `z.record(z.unknown())` — these ARE the single-arg form and **MUST migrate**. (5 sites, all in `evals/` + `workflow/schemas.ts:59` + `calibration-types.ts:13` + `adapters/mcp.ts:40`.) |
+| `z.record(valueSchema)` single-arg | requires `(keySchema, valueSchema)` | mechanical | **migrated in PR #1366.** Pre-migration audit found 7 single-arg sites — 4 in `evals/types.ts` (lines 13, 24, 49, 50), 1 in `evals/calibration-types.ts:13`, 1 in `workflow/schemas.ts:59`, 1 in `adapters/mcp.ts:40` (LCD_OUTPUT_SCHEMA). All converted to `z.record(z.string(), X)`. The remaining 34 of the 41 total `z.record(...)` sites were already two-arg. Verified post-merge by `grep -rnE "z\.record\(z\.unknown\(\)" servers/exarchos-mcp/src --include="*.ts"` returning zero hits. See §6. |
 | `z.record(enumSchema, ...)` partial-key behaviour | now exhaustive; use `z.partialRecord(...)` for old behaviour | requires-thought | **no** — `grep` shows no `z.record(z.enum(...)` patterns |
 | `z.intersection()` merge-conflict | throws plain `Error` (not `ZodError`) | requires-thought | **no** — 0 hits |
 
@@ -194,7 +194,7 @@ Migration is a literal find-replace. Complexity: **mechanical**.
 
 **Full call-site list (`file:line`):**
 
-```
+```text
 servers/exarchos-mcp/src/registry.test.ts:1747
 servers/exarchos-mcp/src/evals/jsonl-reader.ts:10            (generic constraint)
 servers/exarchos-mcp/src/registry.ts:82
@@ -351,7 +351,7 @@ checking which side hosts the `ZodTransform`. The recipe above checks
 
 **Construction call-sites (6, all preserved — no constructor change):**
 
-```
+```text
 servers/exarchos-mcp/src/coerce.ts:31,41,51,62        (4 sites)
 servers/exarchos-mcp/src/workflow/schemas.ts:183       (TaskStatusSchema)
 servers/exarchos-mcp/src/adapters/schema-to-flags.test.ts:69,115  (test fixtures)
@@ -363,14 +363,22 @@ checks in §4).
 
 ---
 
-## 6. `z.record(...)` audit (41 sites — all already key-explicit)
+## 6. `z.record(...)` audit (41 sites — migration complete)
+
+> **Status (post-PR #1366):** the snapshot below is the **pre-migration**
+> audit. All listed single-arg sites have been converted to the two-arg
+> form — `grep -rnE "z\.record\(z\.unknown\(\)" servers/exarchos-mcp/src
+> --include="*.ts"` now returns zero hits. The §1 summary table (line 32)
+> and this section's heading agree: 41 sites, all key-explicit. Retained
+> for migration history.
 
 The v4 migration guide flags single-arg `z.record(valueSchema)` as a
-breaking change requiring `(keySchema, valueSchema)`. The repository
-has **mostly** already migrated to the two-arg form, but **9 sites still
-use the single-arg form** and must be updated:
+breaking change requiring `(keySchema, valueSchema)`. The pre-migration
+audit found **7 sites** still using the single-arg form, all in `evals/`,
+`workflow/schemas.ts`, `calibration-types.ts`, and the LCD output schema
+in `adapters/mcp.ts`:
 
-```
+```text
 servers/exarchos-mcp/src/evals/types.ts:13     z.record(z.unknown())
 servers/exarchos-mcp/src/evals/types.ts:24     z.record(z.unknown())
 servers/exarchos-mcp/src/evals/types.ts:49     z.record(z.unknown())
@@ -380,13 +388,12 @@ servers/exarchos-mcp/src/workflow/schemas.ts:59          z.record(z.unknown())
 servers/exarchos-mcp/src/adapters/mcp.ts:40              z.record(z.unknown())  ← LCD_OUTPUT_SCHEMA
 ```
 
-(Also `coerce.ts:31` references `z.record(z.string(), z.unknown())` — already
-two-arg, no change needed.)
+(Also `coerce.ts:31` was already two-arg.)
 
-**Migration:** `z.record(X)` → `z.record(z.string(), X)`.
+**Applied migration (PR #1366):** `z.record(X)` → `z.record(z.string(), X)`.
 
-The remaining 32 `z.record(...)` sites already pass an explicit key schema
-and are transparent.
+The remaining 34 `z.record(...)` sites already passed an explicit key
+schema and were transparent through the upgrade.
 
 ---
 
@@ -395,7 +402,7 @@ and are transparent.
 In v4 these still work (deprecated), so the migration is **optional**
 and can be deferred to a follow-up. Sites:
 
-```
+```text
 servers/exarchos-mcp/src/benchmarks/baselines-schema.ts:9    .datetime()
 servers/exarchos-mcp/src/workflow/schemas.ts:54,65,70,84,193,194,327,328   .datetime()  (8 sites)
 servers/exarchos-mcp/src/projections/snapshot-schema.ts:9    .datetime()
@@ -437,7 +444,7 @@ working. The exceptions:
 The full v4 `_zod.def.type` discriminator value-set (per
 `node_modules/zod/v4/core/schemas.d.ts:25`):
 
-```
+```text
 "string" | "number" | "int" | "boolean" | "bigint" | "symbol" | "null"
 | "undefined" | "void" | "never" | "any" | "unknown" | "date" | "object"
 | "record" | "file" | "array" | "tuple" | "union" | "intersection" | "map"

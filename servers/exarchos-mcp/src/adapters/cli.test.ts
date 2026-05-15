@@ -69,7 +69,7 @@ vi.mock('@modelcontextprotocol/sdk/server/stdio.js', () => ({
 
 // ─── Test Imports ────────────────────────────────────────────────────────────
 
-import { buildCli, commanderErrorToResult, CLI_EXIT_CODES } from './cli.js';
+import { buildCli, commanderErrorToResult, runCli, CLI_EXIT_CODES } from './cli.js';
 import { dispatch } from '../core/dispatch.js';
 import { TOOL_REGISTRY } from '../registry.js';
 import type { DispatchContext } from '../core/dispatch.js';
@@ -680,6 +680,42 @@ describe('commanderErrorToResult mapping table (F-024-CMDR)', () => {
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('UNCAUGHT_EXCEPTION');
     expect(exitCode).toBe(CLI_EXIT_CODES.UNCAUGHT_EXCEPTION);
+  });
+
+  it('RunCli_CommanderErrorJsonPath_EmitsEnvelopeShape', async () => {
+    // INV-2 (facade equivalence): every `--json` failure path — handler,
+    // validation, AND Commander parse error — must emit the same envelope
+    // shape. CodeRabbit MAJOR on PR #1369: runCli previously did
+    // `process.stdout.write(JSON.stringify(result))` for CommanderError,
+    // producing a raw `ToolResult` shape that diverged from the envelope
+    // emitted by `emitResult`. Route both through `toCliResult(toEnvelope)`
+    // so consumers see one shape.
+    const program = buildCli(createTestContext());
+    const stdoutSpy = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
+
+    // Trigger an unknown-option Commander error in --json mode.
+    await runCli(program, [
+      'node',
+      'exarchos',
+      'wf',
+      'init',
+      '--feature-id',
+      'test-feature',
+      '--workflow-type',
+      'feature',
+      '--definitely-not-a-flag',
+      '--json',
+    ]);
+
+    // Assert envelope shape on stdout: `success: false` + canonical
+    // envelope fields (`_meta`, `_perf`, `error`). The raw ToolResult
+    // would lack `_meta`/`_perf` so this catches the divergence.
+    const calls = stdoutSpy.mock.calls.map((c) => String(c[0])).join('');
+    expect(calls).toContain('"success": false');
+    expect(calls).toContain('"error"');
+    expect(calls).toContain('"_meta"');
+    expect(calls).toContain('"_perf"');
+    stdoutSpy.mockRestore();
   });
 });
 

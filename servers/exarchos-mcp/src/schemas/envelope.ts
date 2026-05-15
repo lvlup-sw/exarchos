@@ -107,6 +107,20 @@ export const ErrorEnvelopeSchema = z.object({
   }).passthrough(),
   _meta: z.record(z.string(), z.unknown()),
   _perf: PerfMetricsSchema,
+  // INV-2 facade equivalence: handlers can attach `warnings` /
+  // `_corrections` to a failure ToolResult so prettyPrint's stderr
+  // sidebar still renders helpful context in table/tree and
+  // `EXARCHOS_CLI_ENVELOPE=0` modes. The success branch already carries
+  // these as optional decorators; mirroring on the failure branch keeps
+  // the bidirectional cli-format round-trip lossless (CodeRabbit minor
+  // on PR #1369).
+  warnings: z.array(z.string()).optional(),
+  _corrections: z.object({
+    applied: z.array(z.object({
+      param: z.string(),
+      rule: z.string(),
+    }).passthrough()),
+  }).passthrough().optional(),
 });
 
 /**

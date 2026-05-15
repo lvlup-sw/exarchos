@@ -9,7 +9,7 @@
 
 ## Why
 
-Wave 0 (#1369) advertises JSON Schema 2020-12 on emitted schemas — but **structurally**, the schemas are draft-2019-09 with the `$schema` URL relabeled. The cause: `zod-to-json-schema@3.25.2` is the archived final release of that package (changelog: *"v4 now supports JSON schema natively"*). It supports `jsonSchema7 | jsonSchema2019-09 | openApi3 | openAi` targets — never 2020-12. `@modelcontextprotocol/sdk@1.26.x` internally converts Zod schemas, but its routing splits on Zod major: v4 inputs take the `z4mini.toJSONSchema(target: 'draft-2020-12')` path and emit **true** 2020-12; v3 inputs fall through to the same archived `zodToJsonSchema` and emit draft-07.
+Wave 0 (#1369) advertises JSON Schema 2020-12 on emitted schemas — but **structurally**, the schemas are draft-2019-09 with the `$schema` URL relabeled. The cause: `zod-to-json-schema@3.25.2` is the archived final release of that package (changelog: *"v4 now supports JSON schema natively"*). It supports `jsonSchema7 | jsonSchema2019-09 | openApi3 | openAi` targets — never 2020-12. `@modelcontextprotocol/sdk@1.29.0` (the version pinned by this PR; the original draft cited 1.26.x) internally converts Zod schemas, but its routing splits on Zod major: v4 inputs take the `z4mini.toJSONSchema(target: 'draft-2020-12')` path and emit **true** 2020-12; v3 inputs fall through to the same archived `zodToJsonSchema` and emit draft-07.
 
 Migrating `servers/exarchos-mcp` from `zod@^3.23` to `zod@^4` is the lever:
 1. `adapters/json-schema.ts` becomes a thin wrapper over `z.toJSONSchema(schema, { target: 'draft-2020-12' })` — no relabel hack
@@ -203,7 +203,7 @@ Each agent runs `npx tsc --noEmit && npx vitest run <scope>` until GREEN before 
 
 - **Major-version dep bump blast radius** — Zod is foundational. Every schema declaration potentially needs adjustment. Mitigation: Phase 1 audit catalogs every breaking-change site BEFORE any code change; Phase 2-6 traverse those sites in dependency order.
 - **Snapshot churn** — every emitted JSON Schema may change shape (e.g., `items: []` → `prefixItems: []`). Mitigation: Phase 7 inspects each snapshot diff manually; regressions are rejected.
-- **SDK Zod v4 detection** — `@modelcontextprotocol/sdk@1.26.x` may not handle v4 inputs correctly if it does runtime version sniffing. Mitigation: Phase 1 audit verifies the SDK's v4 path; if broken, file an upstream issue and pin a v4-compatible SDK version (1.27+ likely).
+- **SDK Zod v4 detection** — historically `@modelcontextprotocol/sdk@1.26.x` did not handle v4 inputs correctly. The bump to `@modelcontextprotocol/sdk@1.29.0` (pinned by this PR) carries the v4 routing fix; the Phase 1 audit ran against 1.29.0 and confirmed the v4 path.
 - **TypeScript strict mode** — Zod v4's type inference may surface stricter compile errors. Mitigation: do not weaken strict mode; fix the call sites.
 - **Downstream Exarchos consumers (basileus, plugins)** — if they import schemas from `@lvlup-sw/exarchos`, they break. Mitigation: check if any schemas are re-exported via `package.json` exports field; if yes, coordinate with downstream consumers OR keep the schemas internal.
 - **Renovate gate** — must pick a Zod v4 version ≥7 days old. As of 2026-05-13, that's satisfied by Zod v4.x stable releases (the major shipped in 2025).

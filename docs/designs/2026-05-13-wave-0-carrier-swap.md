@@ -292,7 +292,7 @@ The interaction is mechanical: every envelope-shape change goes through a schema
 
 ## 10. Open risks
 
-- **MCP SDK `outputSchema` argument shape.** Verify `registerTool(name, { ..., outputSchema })` accepts a Zod schema directly or requires JSON Schema. If JSON Schema is required, the wrapper converts via the new `zodToJsonSchema` helper at registration — same surface, one extra step. Verify against `@modelcontextprotocol/sdk@1.26.x` (the pinned version per epic #1354's deferred #1292).
+- **MCP SDK `outputSchema` argument shape.** Verify `registerTool(name, { ..., outputSchema })` accepts a Zod schema directly or requires JSON Schema. If JSON Schema is required, the wrapper converts via the new `zodToJsonSchema` helper at registration — same surface, one extra step. Verified against `@modelcontextprotocol/sdk@1.29.0` (the pinned version after the PR-C migration; the original draft cited 1.26.x before the rebase).
 - **Per-call validation overhead.** Sub-millisecond on every action measured locally; not a real risk but worth a benchmark assertion in the integration suite. If validation cost becomes load-bearing, move it to dev-mode-only with a `EXARCHOS_OUTPUT_VALIDATE=strict|warn|off` knob.
 - **CLI breaking change reception.** The opt-out flag covers one preview cycle. If external CLI consumers exist (unlikely — CLI is pre-1.0), they get one preview to migrate. Communicate via release notes.
 - **Action-count migration cost.** The four visible composite tools have on the order of 50–90 actions between them. Each gets a per-action `dataSchema` and `annotations` table. Initial migration declares `dataSchema = z.unknown()` for actions whose data shape isn't yet captured — follow-up issues per workflow domain tighten them.

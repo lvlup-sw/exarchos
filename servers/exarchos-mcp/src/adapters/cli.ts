@@ -961,7 +961,13 @@ export async function runCli(program: Command, argv: readonly string[]): Promise
         return;
       }
       if (isJson) {
-        process.stdout.write(JSON.stringify(result) + '\n');
+        // INV-2 facade equivalence: route the CommanderError result
+        // through the same envelope path as handler-driven failures
+        // (`emitResult`), so programmatic `--json` consumers see one
+        // shape regardless of whether the call failed at Commander
+        // parse time or inside dispatch (CodeRabbit MAJOR on PR #1369).
+        // `toCliResult` also honors `EXARCHOS_CLI_ENVELOPE=0`.
+        toCliResult(toEnvelope(result), 'json');
       } else if (!result.success && result.error) {
         printError(result.error);
       }

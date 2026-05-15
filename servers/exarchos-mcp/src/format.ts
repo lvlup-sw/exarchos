@@ -291,6 +291,11 @@ export interface ErrorEnvelope {
   };
   readonly _meta: Record<string, unknown>;
   readonly _perf: PerfMetrics;
+  // Optional sidebars threaded through from the source ToolResult so the
+  // CLI round-trip preserves diagnostics on the failure path (INV-2 facade
+  // equivalence; CodeRabbit minor on PR #1369).
+  readonly warnings?: readonly string[];
+  readonly _corrections?: CorrectionsPayload;
 }
 
 /**
@@ -497,12 +502,21 @@ export function toEnvelope(result: ToolResult): Envelope<unknown> | ErrorEnvelop
     ...(sourceError.action !== undefined ? { action: sourceError.action } : {}),
     ...(sourceError.validActions !== undefined ? { validActions: sourceError.validActions } : {}),
   };
-  return {
+  const failure: ErrorEnvelope = {
     success: false,
     error,
     _meta,
     _perf,
+    // Thread sidebars through on the failure path so the cli round-trip
+    // (envelopeToToolResult → prettyPrint) and any structured-content
+    // consumer can still surface diagnostics (CodeRabbit minor on PR
+    // #1369). The success path does the equivalent thread above.
+    ...(result.warnings !== undefined && result.warnings.length > 0
+      ? { warnings: result.warnings }
+      : {}),
+    ...(result._corrections !== undefined ? { _corrections: result._corrections } : {}),
   };
+  return failure;
 }
 
 // ─── Event Acknowledgement ──────────────────────────────────────────────────
