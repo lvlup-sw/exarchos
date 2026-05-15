@@ -38,7 +38,7 @@ function gitRun(repo: string, args: string[]): void {
 describe('merge-orchestrate multi-worktree topology outcome (#1356)', () => {
   // RED-by-design — flipped in PR2 (wave1-fixes) when the preflight gains
   // a target-checked-out-elsewhere guard.
-  it.fails(
+  it(
     'MergeOrchestrate_TargetCheckedOutInSibling_AbortsCleanly',
     async () => {
       await withTmpGit(async (repoPath) => {

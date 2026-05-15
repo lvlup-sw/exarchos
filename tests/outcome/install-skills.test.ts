@@ -1,13 +1,10 @@
-// ─── T-015 — install-skills outcome (RED-by-design) ──────────────────────
+// ─── T-015 — install-skills outcome ──────────────────────────────────────
 //
 // Encodes the #1355 regression: copilot/codex/cursor/opencode/generic
-// runtimes' `install-skills` produces only `design-invariants` instead of
-// the full bundle of skills. Claude alone produces the full bundle.
-//
-// Each per-runtime case is wrapped in `it.failing()` so vitest reports it
-// as an expected failure. The fix in PR2 (wave1-fixes) will atomically
-// remove the `.failing` annotation per runtime as each one regains parity
-// with claude's behavior.
+// runtimes' `install-skills` historically produced only `design-invariants`
+// instead of the full bundle of skills. The fix in wave1-fixes brought
+// every runtime to parity with claude; this test now asserts that parity
+// continues to hold (standard pass/fail; no `it.fails` annotation).
 //
 // This test invokes the real CLI binary (the bun-compiled platform binary
 // at `dist/bin/exarchos-<platform>-<arch>`) under a tmp HOME so the
@@ -70,11 +67,11 @@ const CLI_BINARY = path.join(REPO_ROOT, 'dist', 'bin', platformBinaryName());
 
 describe('install-skills outcome (#1355)', () => {
   for (const runtime of RUNTIMES) {
-    // RED-by-design: removed in PR2 (wave1-fixes) as each runtime is fixed.
-    // `it.fails` (vitest >=2) marks a test as an expected failure — the
-    // test PASSES when its assertions throw and FAILS if they unexpectedly
-    // pass. Reviewer grep target: `it.fails`.
-    it.fails(
+    // Standard pass/fail test: assertions must pass for each runtime — the
+    // CLI is expected to install the full skills manifest for every runtime.
+    // Regression of #1355 would surface as `installed` lacking entries that
+    // `manifestExpected` carries.
+    it(
       `InstallSkills_${runtime}_FullManifestInstalled`,
       async () => {
         // Source-of-truth: every skill directory under `skills/<runtime>/`
@@ -89,11 +86,9 @@ describe('install-skills outcome (#1355)', () => {
           );
 
         await withTmpHome(async (home) => {
-          // Run the real CLI. On failure (#1355 manifests as the upstream
-          // `skills add` exiting non-zero or writing an incomplete bundle),
-          // execFileSync throws; we catch so the on-disk assertion below
-          // is the canonical signal — the test is `it.failing`, so the
-          // assertion failing is the expected outcome.
+          // Run the real CLI. If the binary exits non-zero we catch so the
+          // on-disk assertion below is the canonical signal — operator
+          // visibility is what we are validating, not exit-code shape.
           try {
             execFileSync(
               CLI_BINARY,
