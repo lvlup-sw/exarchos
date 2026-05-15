@@ -337,6 +337,65 @@ export async function handleMergeOrchestrate(
   const readState =
     input.readState ?? buildDefaultReadState(args.featureId, ctx.stateDir);
 
+  // ─── 0a. Target-worktree availability preflight (#1356) ──────────────────
+  //
+  // When the merge target branch is checked out in a SIBLING worktree of
+  // the same repository, the executor's local `git merge` against the
+  // target would fail with a confusing "fatal: '<branch>' is already
+  // checked out at '<other-worktree-path>'", and worse — the executor
+  // captures `rollbackSha` from the cwd's HEAD (which is on a different
+  // branch), so a rollback would `git reset --hard` to the wrong commit.
+  //
+  // Detect this topology BEFORE any event emission or executor delegation
+  // so the abort path:
+  //   • does NOT fire a `merge.requested` event (Phase A intent)
+  //   • does NOT fire a `merge.preflight` event
+  //   • does NOT capture a wrong rollback SHA
+  //   • does NOT touch workflow state on disk
+  //
+  // We parse `git worktree list --porcelain`, whose record shape is:
+  //     worktree <absolute-path>
+  //     HEAD <sha>
+  //     branch refs/heads/<branchname>      (omitted for detached HEAD)
+  //     <blank line separator>
+  // If any record's branch equals our target AND its path is NOT the
+  // repoRoot we're about to operate on, the topology is unsafe — abort.
+  const repoRoot = args.repoRoot ?? process.cwd();
+  const worktreeListResult = gitExec(repoRoot, ['worktree', 'list', '--porcelain']);
+  if (worktreeListResult.exitCode === 0) {
+    const targetRef = `refs/heads/${args.targetBranch}`;
+    let currentPath: string | undefined;
+    let siblingHoldingTarget: string | undefined;
+    for (const rawLine of worktreeListResult.stdout.split('\n')) {
+      const line = rawLine.trimEnd();
+      if (line.startsWith('worktree ')) {
+        currentPath = line.slice('worktree '.length);
+      } else if (line.startsWith('branch ')) {
+        const ref = line.slice('branch '.length);
+        if (ref === targetRef && currentPath !== undefined && currentPath !== repoRoot) {
+          siblingHoldingTarget = currentPath;
+          break;
+        }
+      } else if (line === '') {
+        currentPath = undefined;
+      }
+    }
+    if (siblingHoldingTarget !== undefined) {
+      return {
+        success: false,
+        error: {
+          code: 'PREFLIGHT_FAILED',
+          message: `Target branch '${args.targetBranch}' is checked out in sibling worktree: ${siblingHoldingTarget}`,
+        },
+        data: {
+          phase: 'aborted' as const,
+          reason: 'target-checked-out-elsewhere' as const,
+          siblingWorktreePath: siblingHoldingTarget,
+        },
+      };
+    }
+  }
+
   // ─── 0. Resume short-circuit (T14) ───────────────────────────────────────
   // When `resume: true`, consult existing `mergeOrchestrator` state. If the
   // phase is terminal (per EXCLUDED_MERGE_PHASES — `completed`, `rolled-back`,
