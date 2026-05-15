@@ -111,17 +111,18 @@ For the full recovery flow per outcome, see `references/recovery-runbook.md`.
 
 ### Step 4: Confirm event emissions
 
-Three events are emitted directly to the orchestrator's event stream (stream id is the value passed as `streamId`) — **not** wrapped in `gate.executed`:
+Four events are emitted directly to the orchestrator's event stream (stream id is the value passed as `streamId`) — **not** wrapped in `gate.executed`:
 
 | Event type | When | Carries |
 |------------|------|---------|
 | `merge.preflight` | Always (after preflight runs, before any merge attempt) — except for the early-abort `target-checked-out-elsewhere` path, which emits nothing | Full structured guard sub-results + `failureReasons` if `passed: false` |
+| `merge.requested` | After preflight passes, before the executor runs (Phase A intent record from the two-event split) — suppressed on the early-abort `target-checked-out-elsewhere` path | `sourceBranch`, `targetBranch`, `strategy`, `taskId` |
 | `merge.executed`  | On successful local merge | `mergeSha`, `rollbackSha`, `taskId`, source/target branches |
 | `merge.rollback`  | On post-merge failure followed by reset | `rollbackSha`, `reason`, `taskId`, source/target branches |
 
 These events are auto-emitted by the handler — do **not** manually append them via `{{MCP_PREFIX}}exarchos_event` during normal operation. Manual emission is only sanctioned during the documented manual-recovery flow in [`recovery-runbook.md`](references/recovery-runbook.md) when a merge has been completed out-of-band (e.g., conflict resolution) and the event log must be brought back in sync — follow that runbook's event-first sequencing.
 
-> Discover the event payload schemas via `{{MCP_PREFIX}}exarchos_event({ action: "describe", eventTypes: ["merge.preflight", "merge.executed", "merge.rollback"] })`.
+> Discover the event payload schemas via `{{MCP_PREFIX}}exarchos_event({ action: "describe", eventTypes: ["merge.preflight", "merge.requested", "merge.executed", "merge.rollback"] })`.
 
 ## Disambiguation: `merge_orchestrate` vs `merge_pr`
 
