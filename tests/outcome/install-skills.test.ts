@@ -74,7 +74,7 @@ describe('install-skills outcome (#1355)', () => {
     // `it.fails` (vitest >=2) marks a test as an expected failure — the
     // test PASSES when its assertions throw and FAILS if they unexpectedly
     // pass. Reviewer grep target: `it.fails`.
-    it.fails(
+    it(
       `InstallSkills_${runtime}_FullManifestInstalled`,
       async () => {
         // Source-of-truth: every skill directory under `skills/<runtime>/`
