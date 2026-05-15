@@ -57,12 +57,12 @@ Strategy is required at the schema layer (#1127 collision check, #1109 §2 user-
 
 ### Step 2: Invoke
 
-Via MCP:
+Via MCP (illustrative — the canonical arg names come from `describe`):
 
 ```typescript
 {{MCP_PREFIX}}exarchos_orchestrate({
   action: "merge_orchestrate",
-  streamId: "<id>",
+  // workflow-correlation identifier — name per the action's schema
   sourceBranch: "<subagent-branch>",
   targetBranch: "<integration-branch>",
   taskId: "<task-id>",          // present when auto-dispatched from next_actions
@@ -76,11 +76,11 @@ Via CLI:
 
 ```bash
 exarchos merge-orchestrate \
-  --stream-id <id> \
   --source-branch <subagent-branch> \
   --target-branch <integration-branch> \
   --task-id <task-id> \
   --strategy squash
+  # plus the workflow-correlation id flag — see `--help`
   # add --dry-run for preflight-only, --resume for terminal-phase short-circuit
 ```
 
