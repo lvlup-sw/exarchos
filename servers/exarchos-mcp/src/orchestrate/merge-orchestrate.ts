@@ -35,6 +35,7 @@
 // ───────────────────────────────────────────────────────────────────────────
 
 import { execFileSync } from 'node:child_process';
+import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { z } from 'zod';
 
@@ -166,6 +167,23 @@ export interface HandleMergeOrchestrateInput extends HandleMergeOrchestrateArgs 
   readonly gitExec?: GitExec;
   readonly persistState?: OrchestratorPersistState;
   readonly readState?: OrchestratorReadState;
+}
+
+// ─── Path normalization ────────────────────────────────────────────────────
+
+/**
+ * Resolve a filesystem path to its canonical form. Prefers `realpathSync`
+ * so symlink segments are followed (matching git's internal canonicalization
+ * of worktree paths), falling back to `path.resolve` if the path does not
+ * exist on disk (rare: covers a caller passing a stale repoRoot before any
+ * disk operation has had the chance to fail with a clearer error).
+ */
+function normalizePath(p: string): string {
+  try {
+    return fs.realpathSync(p);
+  } catch {
+    return path.resolve(p);
+  }
 }
 
 // ─── Default gitExec ───────────────────────────────────────────────────────
@@ -360,7 +378,14 @@ export async function handleMergeOrchestrate(
   //     <blank line separator>
   // If any record's branch equals our target AND its path is NOT the
   // repoRoot we're about to operate on, the topology is unsafe — abort.
-  const repoRoot = args.repoRoot ?? process.cwd();
+  // Normalize repoRoot so the string comparison against `git worktree list`
+  // output is robust on macOS / Windows. `git worktree list --porcelain`
+  // emits symlink-resolved absolute paths (git canonicalizes internally),
+  // so without realpath here the equality test below would false-negative
+  // when the caller's cwd traverses a symlinked segment (a common case on
+  // macOS where /var → /private/var, or developer-symlinked checkouts).
+  // realpathSync requires the path to exist; fall back to resolve() if not.
+  const repoRoot = normalizePath(args.repoRoot ?? process.cwd());
   const worktreeListResult = gitExec(repoRoot, ['worktree', 'list', '--porcelain']);
   if (worktreeListResult.exitCode === 0) {
     const targetRef = `refs/heads/${args.targetBranch}`;
@@ -369,7 +394,9 @@ export async function handleMergeOrchestrate(
     for (const rawLine of worktreeListResult.stdout.split('\n')) {
       const line = rawLine.trimEnd();
       if (line.startsWith('worktree ')) {
-        currentPath = line.slice('worktree '.length);
+        // Normalize the path emitted by git so the equality test below
+        // compares apples to apples regardless of separator normalization.
+        currentPath = normalizePath(line.slice('worktree '.length));
       } else if (line.startsWith('branch ')) {
         const ref = line.slice('branch '.length);
         if (ref === targetRef && currentPath !== undefined && currentPath !== repoRoot) {
