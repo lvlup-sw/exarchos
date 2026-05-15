@@ -106,7 +106,7 @@ The big file. Areas:
 | Task | Action |
 |---|---|
 | C1.1 | Read Zod v4 migration guide; produce a `docs/research/2026-05-XX-zod-v4-breaking-changes.md` cataloging EVERY breaking change relevant to the repo |
-| C1.2 | `grep -rn "z\." servers/exarchos-mcp/src --include="*.ts" | head -200` — sample representative usage patterns |
+| C1.2 | `grep -rn "z\." servers/exarchos-mcp/src --include="*.ts" \| head -200` — sample representative usage patterns |
 | C1.3 | Specifically catalog: `_def.typeName` access (`buildRegistrationSchema` will need rewriting), `z.preprocess` call sites (coerce.ts), `z.record` without explicit key schema, `ZodTypeAny` import sites |
 | C1.4 | Verify the SDK's Zod v4 path: read `node_modules/@modelcontextprotocol/sdk/dist/esm/server/zod-json-schema-compat.js` to confirm v4 detection and target='draft-2020-12' usage |
 | C1.5 | Pick the target Zod version (latest stable ≥7 days old per renovate gate). Commit findings as `docs(pr-c): Zod v4 migration audit` |
