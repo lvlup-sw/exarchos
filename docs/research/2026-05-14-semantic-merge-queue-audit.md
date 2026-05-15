@@ -543,3 +543,284 @@ After this discovery merges, the natural follow-up is `/exarchos:ideate semantic
 ### Internal references (for cross-project consistency)
 - `docs/research/2026-05-07-design-invariants-skill.md` — Exarchos invariant catalog used as analogical lens.
 - `~/.claude/plugins/cache/lvlup-sw/axiom/0.2.7/skills/backend-quality/references/dimensions.md` — DIM-1..DIM-8 dual-mode taxonomy.
+
+---
+
+## 12. Revision (2026-05-14, post-review) — compose with existing platform substrate
+
+This addendum supersedes parts of §5 and §6. The original revised design (§5) treated each fix as a greenfield CI build. That assumption was wrong. Three primitives in the lvlup-sw stack already address most of what §5 proposed — the audit's *findings* (§3, §4, §1) still stand, but the *implementation path* must compose with these primitives, not run parallel to them.
+
+### 12.1 Three primitives the original audit failed to leverage
+
+| Primitive | Where it lives | What it provides |
+|---|---|---|
+| **Exarchos eval suite** | `servers/exarchos-mcp/src/evals/` (live) + #1365 elevation in v2.10.0 | `harness.ts`, `dataset-loader.ts`, `calibration-metrics.ts`, `calibration-split.ts`, `comparison.ts`, `deduplication.ts`, `auto-triage.ts`, `trace-capture.ts`, `graders/`, `reporters/`. CI-gated via `.github/workflows/eval-gate.yml`. #1365 ships versioned datasets, HTML dashboard, calibration drift gate, cross-runtime smoke coverage. |
+| **Phronesis Code Review agent** in basileus | basileus #147 (open epic); architectural decision in basileus #146 | Think-Act-Observe-Reflect loop; **Thompson Sampling** strategy selection; **budget algebra** enforcement; **tiered reflection** with NLP Sidecar; **ExecutionProfile** (instructions + tool subset + RAG collections + quality gates — the natural home for "pinned judge"); Marten event sourcing for ReviewFinding events; OntologyContextAssembler + IReranker (Cohere) for context assembly; `review_findings` ObjectSet for historical grounding. |
+| **Basileus Ontology MCP Server** | basileus ADR `2026-04-18-exarchos-basileus-coordination.md` §2.2; exarchos #1143 (`exarchos_sync` fabric actions, v3.1.0) | `/mcp/ontology` endpoint with `intent_register` action — the uniform invocation surface from exarchos (CI/dev workflow harness) into basileus (agent host). Findings flow back via `task.completed` / `intent.completed` events through Strategos.Contracts envelope, surfacing via Exarchos's NotificationPipeline (PiggybackSink/AsyncSink/ElicitationSink). |
+
+### 12.2 The architectural rule the original audit missed
+
+Basileus #146 makes this explicit: **review-triage with semantic scoring is agent-shaped work, and agent-shaped work belongs in the agent host (basileus), not the dev workflow harness (exarchos).**
+
+The Semantic Merge Queue's Phase 1 ("semantic gatekeeper") is exactly this category: LLM reasoning over a diff, with structured output, optional reflection, finding emission. Building it as a custom CI handler with its own LLM call, output schema, event store, and calibration loop is the cross-repo split #146 explicitly rejected.
+
+### 12.3 Mapping the §5 design onto the substrate
+
+| §5 component | Original recommendation | Revised recommendation (composed) |
+|---|---|---|
+| **Tier 0 (deterministic)** | Buildkite `if_changed` + `.merge-gate.yml` globs | **Unchanged.** Stays in CI infra. No agent involvement. |
+| **Tier 1 (LLM-graded)** | Custom `gate-decide` binary calling Anthropic API; structured envelope; pinned snapshot ID; fallback policy in YAML | **Phronesis Merge Gate ExecutionProfile** in basileus (either an extension of the Phronesis Code Review agent or a sibling profile). Invoked from CI via `exarchos_sync register_intent` (#1143). Pinned judge = pinned ExecutionProfile version. Fallback policy = Phronesis quality gate + tiered-reflection thresholds. |
+| **Tier 2 (E2E)** | Aspire AppHost + catalog journeys + Claude Code for novel | **Unchanged in mechanics.** `suggested_journeys` come from the Phronesis agent's structured output rather than a custom envelope. |
+| **Output envelope** (§5.3) | Custom `merge-gate.v1` JSON schema, Zod-validated | **Strategos.Contracts** envelope (existing, source-of-truth for cross-repo schemas). Phronesis's `ReviewFinding` event already carries severity + classification + rationale + confidence; extend with merge-gate-specific fields where genuinely missing. |
+| **Event-sourced gate decisions** (§5.2) | New SQLite/Cosmos table; six event types | **Marten event sourcing in basileus** (already in production for Phronesis Code Review). New event types for merge-gate (`merge_gate.evaluated`, `merge_gate.bypassed_deterministic`, `merge_gate.fallback_engaged`, `merge_gate.decision_overruled`) registered alongside existing ReviewFinding events. Causal-attribution service (basileus #180, G6) handles the post-hoc "regression traced to skipped PR" reasoning. |
+| **Calibration loops** (§5.5) | Custom gold set + custom judge-vs-judge cron + custom drift detection | **Plug into the existing eval suite** (`servers/exarchos-mcp/src/evals/`). New dataset: `evals/datasets/<date>-merge-gate.jsonl`. New graders under `servers/exarchos-mcp/src/evals/graders/merge-gate/`. Calibration-drift gate (#1365 step 3) becomes the merge-gate's drift gate. Judge-vs-judge agreement reuses `calibration-split.ts` + `calibration-metrics.ts` semantics. |
+| **Pinned judge snapshot** | `model_pin: claude-haiku-4-5-20251001` in `.merge-gate.yml` | **Pinned ExecutionProfile version** in Phronesis. ExecutionProfile already carries instructions, tool subset, RAG collections, quality gates as a versioned bundle. Snapshot bumps go through Phronesis's existing version-management surface, not a CI-config knob. |
+| **Confidence threshold + escalate_human** | `confidence_threshold: 0.70` in YAML; `escalate_human` decision branch | **Phronesis budget algebra + reflection tiers**. Low-confidence already triggers tiered reflection; budget exhaustion already escalates. The four-decision enum in §5.3 (`skip` / `run_e2e` / `run_e2e_focused` / `escalate_human`) becomes a structured outcome of the Phronesis loop, not a sentence in a prompt. |
+| **Diff-digest pre-summarization** (§3 DIM-7) | Custom diff-summarization step before LLM call | **OntologyContextAssembler + IReranker** in Phronesis. The agent has access to `review_findings` ObjectSet, ontology graph, and Cohere reranker — the digest is the assembler's output, not bespoke prompt-engineering. |
+| **Failure-mode policy** (§5.4) | YAML table mapping error class → fallback decision | **Phronesis quality gates** + `intent.completed` envelope's `_meta.degraded` field (already part of the standard Strategos.Contracts envelope per the v2.10 Output Contract work). Fallback to `run_e2e` when basileus is unreachable — handled by Exarchos's `basileusConnected` capability gate (existing pattern from the original Hybrid Review Strategy, retained as the disconnected fallback). |
+| **`gate ps` / `gate describe` / `gate replay` verbs** (INV-5c finding) | New CLI verbs | **`exarchos_sync get_record` + `query_fabric`** (#1143) cover `describe` and `ps`. `register_intent` with the same input covers `replay`. No new verbs needed; the v3.1.0 Ontology fabric actions are the surface. |
+
+### 12.4 Revised end-to-end flow
+
+```
+GitHub merge_group webhook
+        │
+        ▼
+┌────────────────────────────────────────────────────────────────┐
+│ Buildkite agent (lightweight)                                  │
+│   1. Tier 0: Buildkite if_changed + .merge-gate.yml globs      │
+│      Match → emit decision locally; done.                      │
+│      No match → fall through to Tier 1.                        │
+│                                                                │
+│   2. exarchos sync register-intent --intent merge-gate \       │
+│        --base-sha $BASE --head-sha $HEAD                       │
+└──────────────┬─────────────────────────────────────────────────┘
+               │ /mcp/ontology
+               ▼
+┌────────────────────────────────────────────────────────────────┐
+│ Basileus Ontology MCP Server                                   │
+│   IntentProposedHandler (Wolverine)                            │
+│     - Process layer: PR + target branch + merge_group_id       │
+│     - Domain layer: enrich via OntologyContextAssembler        │
+│       (touched modules, owners, historical findings via        │
+│       review_findings ObjectSet)                               │
+│     - Dispatch → Phronesis Merge Gate ExecutionProfile         │
+└──────────────┬─────────────────────────────────────────────────┘
+               │
+               ▼
+┌────────────────────────────────────────────────────────────────┐
+│ Phronesis loop (Think → Act → Observe → Reflect)               │
+│   - Pinned ExecutionProfile (= pinned judge + prompt + tools)  │
+│   - Budget algebra: hard cap on tokens/turns                   │
+│   - Tiered reflection: low-confidence triggers deeper analysis │
+│   - Quality gates: malformed/timeout → standardized degraded   │
+│     envelope; never silent                                     │
+│   - Emits MergeGateDecision event (Marten)                     │
+│   - Causal attribution (G6) records inputs for post-hoc        │
+└──────────────┬─────────────────────────────────────────────────┘
+               │ task.completed / intent.completed
+               ▼
+┌────────────────────────────────────────────────────────────────┐
+│ Buildkite agent (back in CI)                                   │
+│   - Reads Strategos.Contracts envelope from intent.completed   │
+│   - decision == "skip"            → exit 0; merge proceeds     │
+│   - decision == "run_e2e"         → upload heavy pipeline      │
+│   - decision == "run_e2e_focused" → upload heavy pipeline w/   │
+│                                     suggested_journeys filter  │
+│   - decision == "escalate_human"  → block; comment on PR;      │
+│                                     ElicitationSink notifies   │
+│   - _meta.degraded == true        → fall back to run_e2e       │
+└────────────────────────────────────────────────────────────────┘
+```
+
+The flow has the same three tiers as §5.1, but Tier 1 is no longer a CI-local custom binary — it's a Phronesis ExecutionProfile invoked through the standard cross-repo coordination surface.
+
+### 12.5 What changes in the §6 implementation sequence
+
+The original sequence (12 weeks, all greenfield) is wrong if these primitives are available. The corrected sequence:
+
+| Phase | Original (§6) | Revised (composed) |
+|---|---|---|
+| **A** (1–2w) | Tier 0 only via `if_changed` | **Unchanged.** Tier 0 is pure CI; lands first regardless. |
+| **B** (3–4w) | Build gold set; offline shadow | **Build gold set as `evals/datasets/<date>-merge-gate.jsonl`**; plug into existing eval-gate workflow; baseline measured against existing harness conventions. |
+| **C** (5–6w) | Custom `gate-decide` deployed in shadow mode | **Phronesis Merge Gate ExecutionProfile** authored in basileus (extends or sibling-of #147 Phronesis Code Review agent). Invoked from CI via `exarchos sync register-intent` running shadow-only (always run E2E, log decision). Depends on **#1143 (v3.1.0) `register_intent` action shipping**, which is the v3.1.0 critical path. |
+| **D** (7–8w) | Flip to gating mode for high-confidence skips | **Same flip**, but the confidence/threshold lives in the Phronesis ExecutionProfile, not `.merge-gate.yml`. Eval-gate calibration drift detector (#1365 step 3) is the gating signal. |
+| **E** (9–10w) | Calibration cron + judge-vs-judge + escalation | **Reuses #1365 step 3 calibration drift gate**. Judge-vs-judge is a stratified comparison via the existing `calibration-split.ts`. Escalation = ElicitationSink raising a notification through NotificationPipeline. |
+| **F** (11–12w) | Resilience hardening | **Reduced scope.** Anthropic rate-limit + prompt-cache strategy belongs to basileus (Phronesis is the API consumer, not CI). CI-side resilience is just retry on `register_intent` and timeout on the response. ACA cold-start + image layering still apply to the Aspire-hosted Tier 2 runner, unchanged. |
+
+**Net effect:** roughly the same calendar time, but the artifact list shifts from "build new CI infrastructure" to "author one ExecutionProfile + one eval dataset + one set of graders + one Buildkite glue script." Most of the building was already done in basileus and `servers/exarchos-mcp/src/evals/`.
+
+### 12.6 What the original audit got right that survives the revision
+
+The PRD's six gaps still hold. The fix path changes; the diagnosis doesn't:
+
+| Gap | Original fix (greenfield) | Revised fix (composed) |
+|---|---|---|
+| #1 Failure-mode policy | YAML `fallback_policy` table | Phronesis quality gates + `_meta.degraded` envelope flag + Exarchos `basileusConnected` capability fallback |
+| #2 Output contract impoverished | Custom `merge-gate.v1` Zod schema | Strategos.Contracts envelope + `MergeGateDecision` event extending `ReviewFinding` |
+| #3 No calibration plan | Custom gold set + custom drift cron | New dataset under existing `evals/datasets/`; reuse `calibration-metrics.ts` + #1365 drift gate |
+| #4 Unpinned judge | `model_pin` in YAML | Versioned ExecutionProfile in Phronesis |
+| #5 Resilience gaps | CI-side mitigations for all | Phronesis owns the Anthropic-API resilience; CI owns ACA + Aspire mitigations |
+| #6 Phase 2 monolithic | Two-stage Aspire (catalog + agentic) | **Unchanged.** This is genuinely CI-side. (Refined further in §13.) |
+
+The original sections §5.1 (three-tier ladder), §5.6 (Aspire test orchestration done right), §5.7 (caching layout), and §5.8 (vendor seams) remain valid in their original form. §5.2 (event store), §5.3 (envelope), §5.4 (failure-mode policy), and §5.5 (calibration loops) are superseded by §12.3 above.
+
+### 12.7 Open coordination questions
+
+These weren't visible to the original audit because they hinge on basileus / exarchos roadmap state that wasn't in scope:
+
+1. **Is the Phronesis Code Review agent (basileus #147) shipping with a Merge Gate profile, or does merge-gating need a sibling ExecutionProfile?** The agent's design round (`/exarchos:ideate` per #147) is the right venue.
+2. **#1143 (`exarchos_sync register_intent`) is in v3.1.0 — is the merge-queue work also v3.1.0, or earlier with a temporary direct-HTTP fallback?** The honest answer is "wait for v3.1.0" if the merge-gate isn't urgent; otherwise the fallback is the deprecated direct-HTTP path from the original Hybrid Review Strategy, with an issue to migrate after #1143 lands.
+3. **Causal attribution service (basileus #180, G6) — is it ready when the merge-gate calibration loop needs it?** The "post-hoc regression traced to skipped PR" event (`merge_gate.decision_overruled` in §5.2) depends on this surface for non-trivial trace-back.
+4. **Strategos.Contracts envelope — does it carry the fields a merge-gate decision needs (`decision`, `risk_signals`, `suggested_journeys`)?** If not, the contracts repo gets a PR; this is the right place for the schema to live.
+5. **Eval suite #1365 timing — steps 1–2 ship in v2.10.0 preview.3 (now); steps 3–5 ship later.** A merge-gate eval dataset can land on step-1-2 substrate; the drift gate (step 3) lands later. Decide whether the merge-gate goes live without drift gating or waits.
+
+### 12.8 What the user told me that this addendum captures
+
+> *"Gap 3 really needs a holistic eval suite/integration. ... if we need something this sophisticated, we ought to integrate with Basileus Phronesis."*
+
+The structural critique is correct. The original audit committed two design errors:
+1. **Reinvented the eval suite** — every "calibration / gold set / drift" recommendation in §5.5 should have been "plug into `servers/exarchos-mcp/src/evals/`" with the dataset and grader as the only new artifacts.
+2. **Reinvented agent-shaped work in CI infra** — every "GateDecider / structured envelope / event-sourced decisions / pinned judge / confidence threshold" recommendation in §5 should have been "Phronesis ExecutionProfile invoked via Ontology MCP Server `register_intent`."
+
+Both errors stem from auditing the PRD against the dimensions/invariants without first checking whether the platform substrate already covers the recommended fixes. The findings are still right; the architectural posture in §12 is the corrected fix.
+
+---
+
+## 13. Revision (2026-05-14, post-review #2) — Workflow Builder SDK as the deterministic backbone
+
+§12 named three substrate primitives. There is a fourth, and it changes both Tier 1 and Tier 2: the **Exarchos Workflow Builder SDK** ([#1258](https://github.com/lvlup-sw/exarchos/issues/1258), v3.0.0).
+
+### 13.1 What #1258 is and why it changes the architecture
+
+The SDK is a fluent TypeScript authoring API that compiles to typed JSON IR shared with Strategos via `Strategos.Contracts` (#1125). In v3.0.0 it is the **only** way to define a workflow — closed-form `hsm-definitions.ts` is deleted (DIM-5 hygiene), and the legacy custom-tools surface (`exarchos.config.ts tools:` + `registerCustomTool`) is deprecated ([#1377](https://github.com/lvlup-sw/exarchos/issues/1377)).
+
+Combinators in P3 (#1249) — Branch, Loop, Fork, Approval, Failure — are the building blocks for any "agent walks a sequence of states with guards and validators" use case. A `workflow-authoring` skill (P9 #1255) takes a natural-language brief and emits a `.workflow.ts`; power users hand-author the same file with full LSP feedback. Both produce the identical IR.
+
+**The architectural rule this introduces:** any design that says "Claude Code walks through {checkout / payment / login} via prompt" is the v2.x pattern. The v3.0 pattern is:
+
+1. Encode the journey as a workflow IR (`.workflow.ts`).
+2. Claude Code (or a Phronesis ExecutionProfile) **executes** the workflow — each state's transition logic is deterministic; the agent fills only the inference slots the workflow declares.
+3. Journeys not in the catalog are authored on the fly via the `workflow-authoring` skill, then committed as catalog entries — the catalog grows organically.
+
+This is the structural answer to the PRD's §5 mitigation for E2E non-determinism ("strict contextual constraints in the test prompt"). Constraints in a prompt are documentation; constraints in a typed workflow IR are *enforcement*.
+
+### 13.2 What this means for §12.4's flow
+
+The §12.4 flow stays correct end-to-end. Two of its components get refined:
+
+**Tier 1 (Phronesis Merge Gate ExecutionProfile).** The judge pipeline (ingest_diff → classify → assess_risk → propose_journeys → emit_envelope) is itself a sequence of state transitions with deterministic structure. Encode it as a workflow IR; the Phronesis ExecutionProfile *executes* that workflow rather than running a free-form prompt. The Strategos.Contracts cross-product schema round-trip (#1258 acceptance gate AT-C) is what makes this possible — the same IR the SDK emits is consumed by the basileus runtime.
+
+**Tier 2 (E2E execution).** The PRD's §5 mitigation collapses into the SDK:
+
+| §5.6 (original) | §13 (composed) |
+|---|---|
+| "Catalog journeys via xUnit `IClassFixture`" | Catalog journeys are `.workflow.ts` files committed under `evals/journeys/` (or wherever the team keeps them). |
+| "Claude Code for novel journeys via `--prompt 'Verify journey: X'`" | Novel journey → `workflow-authoring` skill emits `<journey>.workflow.ts` → SDK runtime executes it (with Aspire as the env provisioner). The authored workflow becomes a permanent catalog entry. |
+| "Provide strict contextual constraints in the test prompt" (PRD §5) | Constraints are typed states, transition guards, and per-state validators — enforced by the runtime, not requested by prose. |
+| "Capture stream-json output for live progress" | Workflow events (`workflow.transition`, `workflow.state_entered`) are the event-sourced equivalent — same observability, integrated with the rest of the platform's event log. |
+
+Practical consequence: the `suggested_journeys` field in the merge-gate envelope (§5.3, refined in §12.3) becomes `suggested_journeys: WorkflowRef[]`, where each ref is either a catalog workflow ID or a marker that triggers the authoring skill.
+
+### 13.3 Worked sketch — checkout-flow as a workflow IR
+
+Pseudo-code, not validated against the actual SDK signature (which lands in P2/P3):
+
+```ts
+// evals/journeys/checkout-flow.workflow.ts
+import { workflow } from '@exarchos/sdk';
+import type { E2EState } from './e2e-types';
+
+export const checkoutFlow = workflow<E2EState>('checkout-flow')
+  .meta({
+    description: 'Verify the canonical happy-path purchase flow',
+    invariants: ['payment-path', 'order-creation'],
+    suggestedFor: ['payments/**', 'cart/**', 'orders/**'],
+  })
+  .initial('cart')
+
+  .state('cart')
+    .onEnter(async (ctx) => ctx.app.navigate('/cart'))
+    .guard('hasItems', async (ctx) => (await ctx.dom.find('[data-cart-item]')).length > 0)
+    .transition('checkout', { to: 'shipping', requires: 'hasItems' })
+
+  .state('shipping')
+    .onEnter(async (ctx) => ctx.app.fillForm({ /* deterministic fixture */ }))
+    .guard('shippingValid', /* ... */)
+    .transition('continue', { to: 'payment', requires: 'shippingValid' })
+
+  .state('payment')
+    .onEnter(async (ctx) => ctx.app.fillStripeFixture())
+    .guard('paymentValid', /* ... */)
+    .transition('place-order', { to: 'confirmation', requires: 'paymentValid' })
+
+  .state('confirmation')
+    .onEnter(async (ctx) => ctx.assert.orderCreated(ctx.expectedOrderId))
+    .terminal()
+
+  .build();
+```
+
+The agent's role at runtime is filling *only* the slots that are explicitly inference-shaped — e.g., a `.discoverElement('submit button')` call inside an `onEnter` that the workflow author couldn't pin to a stable selector. State choice, transition validity, terminal assertions: not negotiable. The workflow IR is the tested artifact; the agent is a smart selector inside it.
+
+### 13.4 What this changes in §12.5's implementation sequence
+
+Two phases get reshaped:
+
+| Phase | §12.5 (composed) | §13 (composed + SDK) |
+|---|---|---|
+| **B** (3–4w) — gold set | Build dataset for merge-gate accuracy | Build dataset **and** author 5–10 catalog journey workflows (the canonical ones the team already knows). They're reusable artifacts, not eval-specific. |
+| **C** (5–6w) — Phronesis ExecutionProfile in shadow | Author Phronesis Merge Gate ExecutionProfile | Same, **plus** model the judge pipeline as a workflow IR if it would clarify (optional; the ExecutionProfile is the dispatcher either way). |
+| **F** (11–12w) — resilience hardening | CI-side mitigations + image layering | **Plus** ensure the catalog of journey workflows covers ≥ 80% of the suggested-journey distribution from shadow data. Track the long-tail (workflows authored by the skill mid-run vs catalog hits) as a coverage metric — when it asymptotes, the catalog is mature. |
+
+The SDK doesn't add calendar weeks; it changes what gets built in phases B/C/F (catalog of `.workflow.ts` files instead of ad-hoc xUnit fixtures + prompt strings).
+
+### 13.5 The custom-tools deprecation risk
+
+PRD-style invocations like:
+
+```bash
+aspire start & claude-code --prompt 'Verify checkout flow'
+```
+
+would, in v3.0+, sit on the legacy custom-tools surface that #1377 deprecates and that v3.0 design discipline rejects (per CLAUDE.md "agent-first CLI patterns (Aspire-inspired), not config-file-centric"). A merge-queue implementation that lands after v3.0 ships **must** be authored against the SDK. Landing it before v3.0 against the legacy surface guarantees a rewrite.
+
+Concretely:
+- If merge-queue work targets v2.x → use the SDK in *additive* shadow mode now (workflows are forward-compatible), avoid the deprecated custom-tools surface.
+- If merge-queue work targets v3.0+ → the workflows are first-class; no transition cost.
+
+### 13.6 Cross-substrate composition (all four primitives together)
+
+The four primitives compose, they don't compete:
+
+| Layer | Primitive | Role for the merge-queue |
+|---|---|---|
+| **Authoring** | Workflow Builder SDK (#1258, v3.0.0) | `.workflow.ts` files for journey catalog; optional workflow encoding for the judge pipeline itself |
+| **Execution (deterministic)** | Aspire + SDK runtime (CI-side) | Walks catalog workflows during E2E; Tier 0 deterministic gating via Buildkite `if_changed` |
+| **Execution (agentic)** | Phronesis Code Review agent + Merge Gate ExecutionProfile (basileus #147, ADR §2.2) | Tier 1 LLM-graded decision; novel-journey authoring via `workflow-authoring` skill |
+| **Coordination** | Ontology MCP Server `register_intent` (#1143, v3.1.0) | The cross-repo invocation surface; Strategos.Contracts envelope for both directions |
+| **Measurement** | Eval suite (`servers/exarchos-mcp/src/evals/`, #1365) | Gold set for merge-gate decisions; dataset for journey-coverage drift; calibration drift gate |
+
+The merge-queue is then four small artifacts on top of these substrates:
+
+1. `.merge-gate.yml` (Tier 0 globs + always-run paths + emergency_skip).
+2. `evals/datasets/<date>-merge-gate.jsonl` + `evals/graders/merge-gate/` (gold set + graders).
+3. A Phronesis Merge Gate ExecutionProfile (basileus side; sibling of the Phronesis Code Review agent or an extension of it).
+4. A catalog of `evals/journeys/*.workflow.ts` for the canonical user journeys.
+
+Plus the Buildkite glue that calls `exarchos sync register-intent` from the `merge_group` webhook.
+
+That's it. Everything else — calibration loops, event sourcing, structured envelopes, judge pinning, drift gating, deterministic test execution, agent invocation, cross-repo coordination — is platform substrate that already exists or is in the v2.10 / v3.0 / v3.1 pipeline.
+
+### 13.7 What the user told me that this addendum captures
+
+> *"We can use the Exarchos CLI to encode workflows for Claude Code CLI to use so that it is more deterministic. See issue 1258 for the planned SDK."*
+
+The structural critique extends §12: the PRD's Phase 2 ("agentic E2E via prompt") is the legacy pattern. The v3.0 pattern encodes the journeys as workflows. This:
+
+- Makes the PRD's §5 non-determinism mitigation enforceable (typed states + guards) rather than aspirational (prose in a prompt).
+- Removes the "agentic flexibility" tradeoff the original §5.6 split tried to manage — the agent's flexibility is bounded *by construction* to slots the workflow declares as inference-shaped.
+- Aligns the merge-queue's authoring surface with the rest of v3.0 (workflows-as-source-of-truth) instead of the deprecated custom-tools surface.
+- Composes naturally with the §12 Phronesis pivot: the same IR the SDK emits is what the basileus ExecutionProfile executes (Strategos.Contracts cross-product round-trip).
+
+The four-substrate composition in §13.6 is the corrected end state. The original audit's six findings still hold; sections §5, §12, and §13 together describe the corrected fix path.
