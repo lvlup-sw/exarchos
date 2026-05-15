@@ -100,6 +100,8 @@ The seam: axiom asks *"is this code well-engineered?"*; this skill asks *"does t
 | Long-running op using NDJSON post-v2.11.0 | — | INV-5b (should use Tasks SEP-1686) |
 | New top-level tool that should be an action on `exarchos_workflow` | — | INV-5d |
 | Schema field removed but still read | DIM-3 Contracts | INV-1 if it's an event field |
+| Skill body references `feature/merge-pending` without `workflow-type:` declaration | — | INV-6 |
+| Reusable behavior skill prescribing triggers in terms of workflow stages (`delegate`, `synthesize`) instead of verb names | — | INV-6 |
 
 Concerns axiom owns and this skill defers to:
 
