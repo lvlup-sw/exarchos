@@ -979,3 +979,44 @@ describe('applyDotPath array append syntax (T-17)', () => {
     );
   });
 });
+
+// ─── #1360 — Structured RESERVED_FIELD error data (PR 2 / T3) ──────────────
+//
+// `StateStoreError` carries a typed `data` block on `RESERVED_FIELD`
+// rejections: `{rejectedPath, rule, alternateWritePath}`. Callers can
+// pivot to the alternate write path (e.g. `transition` for `phase`)
+// without parsing the message string.
+describe('StateStoreError reserved-field data (#1360)', () => {
+  it('StateStoreError_ReservedField_CarriesStructuredData', () => {
+    const obj: Record<string, unknown> = { phase: 'plan' };
+
+    try {
+      applyDotPath(obj, 'phase', 'delegate');
+      throw new Error('expected RESERVED_FIELD throw');
+    } catch (err) {
+      expect(err).toBeInstanceOf(StateStoreError);
+      const sse = err as StateStoreError;
+      expect(sse.code).toBe('RESERVED_FIELD');
+      expect(sse.data).toBeDefined();
+      expect(sse.data?.rejectedPath).toBe('phase');
+      expect(sse.data?.rule).toMatch(/immutable/i);
+      expect(sse.data?.alternateWritePath).toMatch(/transition/i);
+    }
+  });
+
+  it('StateStoreError_ReservedField_UnderscorePath_PopulatesGenericGuidance', () => {
+    const obj: Record<string, unknown> = {};
+
+    try {
+      applyDotPath(obj, '_version', 99);
+      throw new Error('expected RESERVED_FIELD throw');
+    } catch (err) {
+      expect(err).toBeInstanceOf(StateStoreError);
+      const sse = err as StateStoreError;
+      expect(sse.code).toBe('RESERVED_FIELD');
+      expect(sse.data?.rejectedPath).toBe('_version');
+      // Underscore guidance points at event.append rather than direct write.
+      expect(sse.data?.alternateWritePath).toMatch(/event/i);
+    }
+  });
+});

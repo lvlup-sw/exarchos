@@ -1622,6 +1622,39 @@ describe('Registry_OutputSchema (Wave 0 / G.2)', () => {
     expect(WorkflowSetOutputSchema.safeParse(errEnv).success).toBe(true);
     expect(WorkflowUpdateOutputSchema.safeParse(errEnv).success).toBe(true);
   });
+
+  // #1360 / PR 2 — RESERVED_FIELD errors emitted by handleSet carry a
+  // typed `data` block (`{rejectedPath, rule, alternateWritePath}`). The
+  // registered outputSchema for `exarchos_workflow.update`'s error branch
+  // must validate that envelope without stripping or rejecting `data`.
+  it('WorkflowUpdate_ErrorBranch_OutputSchemaPermitsTypedData', () => {
+    const reservedFieldEnv = {
+      success: false as const,
+      error: {
+        code: 'RESERVED_FIELD',
+        message: 'Cannot update reserved field: phase',
+        data: {
+          rejectedPath: 'phase',
+          rule: '`phase` is top-level immutable — set once at init, never directly mutated thereafter.',
+          alternateWritePath:
+            'Use `exarchos_workflow.transition({featureId, toPhase})` — phase changes are HSM-validated and emit transition events.',
+        },
+      },
+      _meta: {},
+      _perf: { ms: 0, bytes: 0, tokens: 0 },
+    };
+
+    const parsed = WorkflowUpdateOutputSchema.safeParse(reservedFieldEnv);
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      // The error branch's `passthrough()` must preserve `data` end-to-end.
+      const env = parsed.data as { success: false; error: Record<string, unknown> };
+      expect(env.error.data).toBeDefined();
+      const errData = env.error.data as Record<string, unknown>;
+      expect(errData.rejectedPath).toBe('phase');
+      expect(errData.alternateWritePath).toMatch(/transition/i);
+    }
+  });
 });
 
 // ─── Wave 0 / Task A.5 — ActionAnnotations (#1289, design §2.4) ────────

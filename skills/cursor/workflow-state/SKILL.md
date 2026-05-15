@@ -236,6 +236,38 @@ Key sections:
 - `reviews`: Review results
 - `synthesis`: Merge/PR state
 
+## Reserved fields
+
+`mcp__exarchos__exarchos_workflow` with `action: "update"` rejects two classes of paths with `RESERVED_FIELD`:
+
+1. **Top-level immutable keys** — `phase`, `workflowType`, `featureId`, `createdAt`, `version`. Set once at init; never mutated directly.
+2. **Underscore-prefixed paths** — any dot-path whose top-level key, or any segment, begins with `_` (e.g. `_version`, `_checkpoint.summary`, `_eventHints`). These are projection or event-store metadata.
+
+Alternate write paths:
+
+- `phase` → `mcp__exarchos__exarchos_workflow` with `action: "transition"` and `toPhase: "<target>"`. Transitions are HSM-validated and emit transition events.
+- Underscore-prefixed paths → emit a typed event via `mcp__exarchos__exarchos_event` with `action: "append"` (e.g. `checkpoint`, `state.patched`). The projection folds the event into the field on the next read.
+- `workflowType`, `featureId`, `createdAt`, `version` → not migratable. If you need a different workflow type, init a new workflow.
+
+A `RESERVED_FIELD` error envelope now carries a typed `data` block:
+
+```json
+{
+  "success": false,
+  "error": {
+    "code": "RESERVED_FIELD",
+    "message": "Cannot update reserved field: phase",
+    "data": {
+      "rejectedPath": "phase",
+      "rule": "`phase` is top-level immutable — set once at init, never directly mutated thereafter.",
+      "alternateWritePath": "Use `mcp__exarchos__exarchos_workflow.transition({featureId, toPhase})` — phase changes are HSM-validated and emit transition events."
+    }
+  }
+}
+```
+
+Read the full descriptor — including the regex catch-all for underscore paths — via `mcp__exarchos__exarchos_workflow` with `action: "describe"` and `actions: ["update"]`. The returned `reservedFields` block is the single source of truth.
+
 ## Best Practices
 
 1. **Update often** - State should reflect reality at all times

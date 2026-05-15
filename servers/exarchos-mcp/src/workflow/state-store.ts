@@ -1,4 +1,4 @@
-import { WorkflowStateSchema, ErrorCode, isReservedField } from './schemas.js';
+import { WorkflowStateSchema, ErrorCode, isReservedField, RESERVED_FIELDS_DESCRIPTOR } from './schemas.js';
 import { getInitialPhase } from './state-machine.js';
 import { migrateState, CURRENT_VERSION, backupStateFile } from './migration.js';
 import { mapExternalToInternalType } from './events.js';
@@ -51,14 +51,57 @@ export const MAX_ARRAY_GAP = 1;
 
 // ─── State Store Error ─────────────────────────────────────────────────────
 
+/**
+ * Typed data block carried on `RESERVED_FIELD` errors (#1360). The
+ * `rule` text is the descriptor's `underscorePrefixRule` for
+ * underscore-prefixed paths and a per-key string for top-level immutable
+ * fields. `alternateWritePath` may be `null` if no migration target is
+ * known (currently unreachable — every reserved key has an entry in the
+ * descriptor — but kept nullable so future, unmapped reserved paths fail
+ * forward instead of crashing on `undefined`).
+ */
+export interface ReservedFieldErrorData {
+  rejectedPath: string;
+  rule: string;
+  alternateWritePath: string | null;
+}
+
 export class StateStoreError extends Error {
   constructor(
     public readonly code: string,
     message: string,
+    public readonly data?: ReservedFieldErrorData,
   ) {
     super(`${code}: ${message}`);
     this.name = 'StateStoreError';
   }
+}
+
+/**
+ * Resolve the descriptor `alternateWritePaths` entry that applies to
+ * `dotPath`. Matches the literal top-level immutable key first, then
+ * falls back to regex keys (e.g. `^_.*` for underscore-prefixed paths).
+ * Returns `null` if no entry matches.
+ */
+export function resolveAlternateWritePath(dotPath: string): string | null {
+  const topLevel = dotPath.split('.')[0];
+  const map = RESERVED_FIELDS_DESCRIPTOR.alternateWritePaths as Record<string, string>;
+
+  // 1) Literal top-level key (`phase`, `workflowType`, ...).
+  if (map[topLevel] !== undefined) return map[topLevel];
+
+  // 2) Regex keys — currently the underscore-prefixed catch-all `^_.*`.
+  for (const [key, value] of Object.entries(map)) {
+    if (key.startsWith('^') || key.endsWith('$') || key.includes('.*')) {
+      try {
+        if (new RegExp(key).test(dotPath)) return value;
+      } catch {
+        // Skip malformed regex keys silently; descriptor is internal.
+      }
+    }
+  }
+
+  return null;
 }
 
 export class VersionConflictError extends StateStoreError {
@@ -549,11 +592,21 @@ export function applyDotPath(
   dotPath: string,
   value: unknown,
 ): void {
-  // Check for reserved fields
+  // Check for reserved fields. The thrown error carries structured `data`
+  // so callers can pivot to the alternate write path without parsing the
+  // message string (#1360).
   if (isReservedField(dotPath)) {
+    const alternateWritePath = resolveAlternateWritePath(dotPath);
+    const topLevel = dotPath.split('.')[0];
+    const isTopLevelImmutable = (RESERVED_FIELDS_DESCRIPTOR.topLevelImmutable as readonly string[]).includes(topLevel);
+    const rule = isTopLevelImmutable
+      ? `\`${topLevel}\` is top-level immutable — set once at init, never directly mutated thereafter.`
+      : RESERVED_FIELDS_DESCRIPTOR.underscorePrefixRule;
+
     throw new StateStoreError(
       ErrorCode.RESERVED_FIELD,
       `Cannot update reserved field: ${dotPath}`,
+      { rejectedPath: dotPath, rule, alternateWritePath },
     );
   }
 
