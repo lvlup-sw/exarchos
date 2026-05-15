@@ -27,6 +27,10 @@ export interface ToolMetrics {
   readonly durations: readonly number[];
   readonly sizes: readonly number[];
   readonly tokenEstimates: readonly number[];
+  // PR3/T9 (#1364) — structured action-level failure counters. Split from
+  // `errors` (which counts transport/protocol throws via tool.errored only).
+  readonly actionErrors: number;
+  readonly actionErrorBreakdown: Readonly<Record<string, number>>;
 }
 
 // ─── Telemetry View State ──────────────────────────────────────────────────
@@ -57,6 +61,9 @@ export function initToolMetrics(): ToolMetrics {
     durations: [],
     sizes: [],
     tokenEstimates: [],
+    // PR3/T9 (#1364)
+    actionErrors: 0,
+    actionErrorBreakdown: {},
   };
 }
 
@@ -111,6 +118,11 @@ export const telemetryProjection: ViewProjection<TelemetryViewState> = {
           durations,
           sizes,
           tokenEstimates,
+          // PR3/T9 (#1364) — preserve structured-failure counters across
+          // tool.completed folds. Listed explicitly (rather than ...existing)
+          // to keep the literal exhaustive in the type checker.
+          actionErrors: existing.actionErrors,
+          actionErrorBreakdown: existing.actionErrorBreakdown,
         };
 
         return {
@@ -131,6 +143,44 @@ export const telemetryProjection: ViewProjection<TelemetryViewState> = {
         const updated: ToolMetrics = {
           ...existing,
           errors: existing.errors + 1,
+        };
+
+        return {
+          ...view,
+          tools: { ...view.tools, [toolName]: updated },
+        };
+      }
+
+      // PR3/T9 (#1364) — fold structured action-level failures.
+      // `tool.errored` continues to track transport/protocol failures
+      // (JS throws); `tool.action_errored` carries `errorCode` so the
+      // projection can report `actionErrorBreakdown` per tool. See
+      // [`docs/designs/2026-05-15-wave2-wave3-polish.md`](../../docs/designs/2026-05-15-wave2-wave3-polish.md).
+      case 'tool.action_errored': {
+        const aeData = event.data as {
+          tool?: unknown;
+          errorCode?: unknown;
+        } | undefined;
+        if (
+          !aeData
+          || typeof aeData.tool !== 'string'
+          || typeof aeData.errorCode !== 'string'
+        ) {
+          return view;
+        }
+        const toolName = aeData.tool;
+        const errorCode = aeData.errorCode;
+
+        const existing = view.tools[toolName] ?? initToolMetrics();
+        const breakdown: Record<string, number> = {
+          ...existing.actionErrorBreakdown,
+        };
+        breakdown[errorCode] = (breakdown[errorCode] ?? 0) + 1;
+
+        const updated: ToolMetrics = {
+          ...existing,
+          actionErrors: existing.actionErrors + 1,
+          actionErrorBreakdown: breakdown,
         };
 
         return {

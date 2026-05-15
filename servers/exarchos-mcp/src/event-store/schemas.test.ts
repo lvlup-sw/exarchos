@@ -484,7 +484,10 @@ describe('EventTypes', () => {
   });
 
   it('EventTypes_HasExpectedCount', () => {
-    // Bumped from 93 → 103 with Wave B (#1342) 5×{requested,executed} two-event
+    // Bumped from 103 → 104 with PR3/T7 (#1364): `tool.action_errored`
+    // splits structured action-level failures out from `tool.errored`
+    // (which now counts transport/protocol failures only).
+    // Previous (93 → 103): Wave B (#1342) 5×{requested,executed} two-event
     // split schemas for non-idempotent VCS handlers (B1–B5):
     //   pr.create.requested, pr.create.executed,
     //   pr.comment.requested, pr.comment.executed,
@@ -495,7 +498,7 @@ describe('EventTypes', () => {
     // Previous (92): migration.workflow_type_unknown (Wave 1, R-1 Marten #1313).
     // Previous (91): session.machinery_consumed (T-11, rehydration-machinery-refactor).
     // Previous (84 → 90): six durable event-store substrate types (#1259 T02/T03/T04).
-    expect(EventTypes).toHaveLength(103);
+    expect(EventTypes).toHaveLength(104);
   });
 
   it('EventTypes_IncludesSessionTagged', () => {
@@ -3214,5 +3217,68 @@ describe('EventSchemaRegistry_RegistersAllNewTwoEventSplitTypes', () => {
       head: 'feature/my-feature',
     });
     expect(result.success).toBe(false);
+  });
+});
+
+// ─── PR3 T7: tool.action_errored event type registration (#1364) ────────────
+
+describe('EventStoreSchemas_ToolActionErrored_HasRegisteredType', () => {
+  it('includes tool.action_errored in the EventType union', () => {
+    expect((EventTypes as readonly string[])).toContain('tool.action_errored');
+  });
+
+  it('classifies tool.action_errored as auto-emitted', () => {
+    expect(
+      EVENT_EMISSION_REGISTRY['tool.action_errored' as keyof typeof EVENT_EMISSION_REGISTRY],
+    ).toBe('auto');
+  });
+
+  it('has a data schema accepting the action-errored shape', () => {
+    const schema = EVENT_DATA_SCHEMAS['tool.action_errored' as keyof typeof EVENT_DATA_SCHEMAS];
+    expect(schema).toBeDefined();
+    if (!schema) return;
+    const valid = schema.safeParse({
+      tool: 'exarchos_orchestrate',
+      durationMs: 12,
+      errorCode: 'RESERVED_FIELD',
+      responseBytes: 220,
+      tokenEstimate: 55,
+    });
+    expect(valid.success).toBe(true);
+
+    // Reject when required fields are missing
+    const missingCode = schema.safeParse({
+      tool: 'exarchos_orchestrate',
+      durationMs: 12,
+      responseBytes: 220,
+      tokenEstimate: 55,
+    });
+    expect(missingCode.success).toBe(false);
+
+    const missingTool = schema.safeParse({
+      durationMs: 12,
+      errorCode: 'X',
+      responseBytes: 0,
+      tokenEstimate: 0,
+    });
+    expect(missingTool.success).toBe(false);
+  });
+
+  it('accepts a full WorkflowEventBase append carrying tool.action_errored', () => {
+    const event = WorkflowEventBase.safeParse({
+      streamId: 'telemetry',
+      sequence: 1,
+      timestamp: '2026-05-15T00:00:00.000Z',
+      type: 'tool.action_errored',
+      schemaVersion: '1.0',
+      data: {
+        tool: 'exarchos_orchestrate',
+        durationMs: 12,
+        errorCode: 'MERGE_ROLLED_BACK',
+        responseBytes: 220,
+        tokenEstimate: 55,
+      },
+    });
+    expect(event.success).toBe(true);
   });
 });

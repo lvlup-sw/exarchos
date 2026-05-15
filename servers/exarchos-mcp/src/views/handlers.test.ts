@@ -19,6 +19,7 @@ import {
   handleViewConvergence,
 } from './tools.js';
 import { EventStore } from '../event-store/store.js';
+import { TOOL_REGISTRY } from '../registry.js';
 
 // The "Singleton Cache" describe block that previously tested
 // `getOrCreateEventStore` was deleted alongside that function. The
@@ -1281,5 +1282,79 @@ describe('Backend Integration (Task 12)', () => {
       expect(data.workflows[0]?.featureId).toBe('real-feature');
       expect(data.workflows.every((w) => w.featureId !== '')).toBe(true);
     });
+  });
+});
+
+// ─── PR3/T10 (#1364): view.telemetry outputSchema declares action-error fields ───
+describe('ViewTelemetry_OutputSchema_IncludesActionErrorFields', () => {
+  it('the registered outputSchema validates per-tool entries with actionErrors + actionErrorBreakdown', () => {
+    const viewTool = TOOL_REGISTRY.find((t) => t.name === 'exarchos_view');
+    expect(viewTool).toBeDefined();
+    const telemetryAction = viewTool!.actions.find((a) => a.name === 'telemetry');
+    expect(telemetryAction).toBeDefined();
+    const outputSchema = telemetryAction!.outputSchema;
+    expect(outputSchema).toBeDefined();
+
+    // A canonical success envelope as emitted by handleViewTelemetry, post
+    // PR3/T9 projection extension.
+    const envelope = {
+      success: true,
+      data: {
+        session: {
+          start: '2026-05-15T00:00:00.000Z',
+          totalInvocations: 5,
+          totalTokens: 100,
+        },
+        tools: [
+          {
+            tool: 'exarchos_orchestrate',
+            invocations: 5,
+            errors: 1,
+            totalDurationMs: 50,
+            totalBytes: 500,
+            totalTokens: 100,
+            p50DurationMs: 10,
+            p95DurationMs: 10,
+            p50Bytes: 100,
+            p95Bytes: 100,
+            p50Tokens: 20,
+            p95Tokens: 20,
+            // PR3/T10 (#1364) — the new fields the outputSchema must
+            // recognise on per-tool entries.
+            actionErrors: 3,
+            actionErrorBreakdown: {
+              MERGE_ROLLED_BACK: 2,
+              PREFLIGHT_FAILED: 1,
+            },
+          },
+        ],
+        hints: [],
+      },
+      next_actions: [],
+      _meta: {},
+      _perf: { ms: 1, bytes: 100, tokens: 25 },
+    };
+
+    const result = outputSchema.safeParse(envelope);
+    expect(result.success).toBe(true);
+  });
+
+  it('per-tool data shape advertised by the outputSchema includes actionErrors + actionErrorBreakdown', () => {
+    // Stronger contract assertion: the outputSchema must EXPOSE the new
+    // fields on its per-tool entry shape, not merely accept them inside
+    // a permissive `z.unknown()` payload. We probe via the JSON Schema
+    // round-trip so this remains stable across Zod versions.
+    const viewTool = TOOL_REGISTRY.find((t) => t.name === 'exarchos_view');
+    const telemetryAction = viewTool!.actions.find((a) => a.name === 'telemetry');
+    expect(telemetryAction).toBeDefined();
+
+    // The schema must visibly mention the new field names somewhere in its
+    // declared shape (e.g., on `data.tools[*].actionErrors`).
+    const schemaText = JSON.stringify(telemetryAction!.outputSchema);
+    // If the outputSchema is `EnvelopeSchema(z.unknown())` the JSON form
+    // will not contain these names; once a typed sub-schema is registered
+    // they appear in the parsed schema tree.
+    expect(schemaText).toContain('actionErrors');
+    expect(schemaText).toContain('actionErrorBreakdown');
   });
 });
