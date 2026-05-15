@@ -1,4 +1,5 @@
 import { defineConfig } from 'vitest/config';
+import { fileURLToPath } from 'node:url';
 
 export default defineConfig({
   test: {
@@ -34,6 +35,25 @@ export default defineConfig({
         },
       },
       {
+        // Outcome tier (Phase B/C of the wave1 substrate). Tests exercise
+        // real OS state — CLI binaries, git, MCP handlers — and surface
+        // operator-visible regressions. The `bun:sqlite` alias is needed
+        // because the MCP server's SQLite backend (consumed by `EventStore`
+        // and downstream handlers like `handleMergeOrchestrate`) imports
+        // from `bun:sqlite`; under Node-hosted vitest we redirect to the
+        // better-sqlite3 shim that the MCP workspace already ships. The
+        // alias is scoped to this project so the unit/process tiers
+        // remain untouched.
+        resolve: {
+          alias: {
+            'bun:sqlite': fileURLToPath(
+              new URL(
+                './servers/exarchos-mcp/src/storage/__shims__/bun-sqlite-node.ts',
+                import.meta.url,
+              ),
+            ),
+          },
+        },
         test: {
           name: 'outcome',
           include: ['tests/outcome/**/*.test.ts'],
