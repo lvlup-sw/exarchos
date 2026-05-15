@@ -135,7 +135,7 @@ Two related actions, two distinct concerns:
 | **Identifier required** | `sourceBranch` + `targetBranch` | `prId` |
 | **Underlying operation** | `git merge` (local) | `provider.mergePr()` (remote API) |
 | **Rollback** | `git reset --hard <rollbackSha>` (real, undoes the merge) | None — the VCS provider owns merge state |
-| **Events** | `merge.preflight` / `merge.executed` / `merge.rollback` | `pr.merged` |
+| **Events** | `merge.preflight` / `merge.requested` / `merge.executed` / `merge.rollback` | `pr.merged` |
 
 If you reach for `merge_orchestrate` thinking "I want to merge a PR," you want `merge_pr` instead.
 
@@ -156,7 +156,7 @@ Note: the `target-checked-out-elsewhere` early-abort path runs *before* the resu
 | Don't | Do Instead |
 |-------|------------|
 | Use this skill to merge a remote PR | Use the `merge_pr` skill |
-| Manually emit `merge.preflight` / `merge.executed` / `merge.rollback` in normal flow | Let the handler auto-emit; manual emission causes duplicates (one exception: documented manual-recovery flow in [`recovery-runbook.md`](references/recovery-runbook.md)) |
+| Manually emit `merge.preflight` / `merge.requested` / `merge.executed` / `merge.rollback` in normal flow | Let the handler auto-emit; manual emission causes duplicates (one exception: documented manual-recovery flow in [`recovery-runbook.md`](references/recovery-runbook.md)) |
 | Wrap merge events under `gate.executed` | Direct stream append with the dedicated event type — these are state transitions, not gate executions |
 | Re-dispatch after a `rolled-back` outcome without inspecting the reason | Read `data.reason` and `data.rollbackError`; address the root cause first |
 | Re-dispatch after `reason: 'target-checked-out-elsewhere'` without first freeing the sibling worktree | Remove or re-checkout the sibling worktree referenced by `data.siblingWorktreePath`, then re-dispatch |
@@ -165,7 +165,7 @@ Note: the `target-checked-out-elsewhere` early-abort path runs *before* the resu
 
 ## Schema Discovery
 
-For the argument schema, call `mcp__plugin_exarchos_exarchos__exarchos_orchestrate({ action: "describe", actions: ["merge_orchestrate"] })`. Event payload shapes come from `mcp__plugin_exarchos_exarchos__exarchos_event({ action: "describe", eventTypes: ["merge.preflight", "merge.executed", "merge.rollback"] })`.
+For the argument schema, call `mcp__plugin_exarchos_exarchos__exarchos_orchestrate({ action: "describe", actions: ["merge_orchestrate"] })`. Event payload shapes come from `mcp__plugin_exarchos_exarchos__exarchos_event({ action: "describe", eventTypes: ["merge.preflight", "merge.requested", "merge.executed", "merge.rollback"] })`.
 
 ## Completion Criteria
 
