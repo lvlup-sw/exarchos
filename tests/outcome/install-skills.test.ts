@@ -119,7 +119,7 @@ describe('install-skills outcome (#1355)', () => {
 
           // If the install path doesn't exist at all, the install
           // produced no on-disk side effects — surface as an empty list
-          // so the `arrayContaining` assertion fails with a clear diff.
+          // so the sorted-equality assertion fails with a clear diff.
           const installed = fs.existsSync(installRoot)
             ? fs
                 .readdirSync(installRoot)
@@ -128,9 +128,10 @@ describe('install-skills outcome (#1355)', () => {
                 )
             : [];
 
-          expect(installed).toEqual(
-            expect.arrayContaining(manifestExpected),
-          );
+          // Exact set equality (sorted) — both under-install (#1355) and
+          // over-install regressions surface as assertion failures. The
+          // weaker `arrayContaining` previously allowed supersets through.
+          expect([...installed].sort()).toEqual([...manifestExpected].sort());
         });
       },
     );
