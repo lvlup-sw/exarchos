@@ -228,10 +228,13 @@ function envelopeToToolResult(env: Envelope<unknown> | ErrorEnvelope): ToolResul
  * preserved.
  *
  * Opt-out: `EXARCHOS_CLI_ENVELOPE=0` restores the legacy `prettyPrint` shape
- * (data-only stdout + stderr sidebars) for one preview cycle. Per design §6
- * the flag drops in v2.11.0 (tracked separately). The opt-out is strictly
- * the literal string `'0'`; any other value (including unset, `'1'`,
- * `'true'`, etc.) means "envelope".
+ * (data-only stdout + stderr sidebars). Active since #1368 (Wave 0 follow-up
+ * PR-B wired `toCliResult` into `emitResult`). Scheduled for removal in
+ * v2.11.0 per design §6 of `docs/designs/2026-05-13-wave-0-carrier-swap.md`;
+ * consumers depending on the legacy raw-ToolResult shape MUST migrate to the
+ * envelope shape before v2.11.0 ships. The opt-out is strictly the literal
+ * string `'0'`; any other value (including unset, `'1'`, `'true'`, etc.)
+ * means "envelope".
  */
 export function toCliResult(
   env: Envelope<unknown> | ErrorEnvelope,

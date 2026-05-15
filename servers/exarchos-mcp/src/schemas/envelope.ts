@@ -119,11 +119,16 @@ export const ErrorEnvelopeSchema = z.object({
  * minimal envelopes from `wrap()` (no event hints, no cache hints,
  * no warnings) parse cleanly.
  *
- * Generic parameter is loose: any `z.ZodTypeAny`. Concrete handlers
+ * Generic parameter is loose: any `z.ZodType`. Concrete handlers
  * pass their action's specific data schema; the resulting envelope
  * schema is then advertised as `outputSchema` per design §2.1.
+ *
+ * Note: Zod v4 deprecated `z.ZodTypeAny` in favor of `z.ZodType` (the
+ * base class is now defaulted-parameter and works as a structural
+ * upper bound). The constraint stays loose because each handler binds
+ * its own concrete `dataSchema`.
  */
-export function SuccessEnvelopeSchema<T extends z.ZodTypeAny>(dataSchema: T) {
+export function SuccessEnvelopeSchema<T extends z.ZodType>(dataSchema: T) {
   return z.object({
     success: z.literal(true),
     data: dataSchema,
@@ -150,7 +155,7 @@ export function SuccessEnvelopeSchema<T extends z.ZodTypeAny>(dataSchema: T) {
  * §2.1 (Approach C) — each composite handler attaches its action's data
  * schema and exports the resulting envelope schema upward.
  */
-export function EnvelopeSchema<T extends z.ZodTypeAny>(dataSchema: T) {
+export function EnvelopeSchema<T extends z.ZodType>(dataSchema: T) {
   return z.discriminatedUnion('success', [
     SuccessEnvelopeSchema(dataSchema),
     ErrorEnvelopeSchema,

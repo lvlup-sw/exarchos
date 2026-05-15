@@ -137,14 +137,17 @@ async function runWfCheckpointCli(
   const stdout = stdoutBuf.join('');
   const stderr = stderrBuf.join('');
   // The action callback emits a JSON envelope on stdout under --json.
+  // PR-B (#1368): post-W1 `emitResult` writes pretty-printed envelope
+  // JSON spanning multiple lines (`JSON.stringify(env, null, 2)`), so
+  // slicing at the first newline truncates the document at `{`. Parse
+  // from the first `{` through end-of-stdout instead — `JSON.parse`
+  // tolerates trailing whitespace and stops at the matching brace.
   let parsed: ToolResult = { success: false, error: { code: 'TEST_HARNESS_NO_OUTPUT', message: 'no stdout' } };
   if (stdout.trim().length > 0) {
     const firstBrace = stdout.indexOf('{');
     if (firstBrace >= 0) {
-      const newlineIdx = stdout.indexOf('\n', firstBrace);
-      const jsonText = newlineIdx > 0 ? stdout.slice(firstBrace, newlineIdx) : stdout.slice(firstBrace);
       try {
-        parsed = JSON.parse(jsonText) as ToolResult;
+        parsed = JSON.parse(stdout.slice(firstBrace)) as ToolResult;
       } catch {
         // leave default
       }

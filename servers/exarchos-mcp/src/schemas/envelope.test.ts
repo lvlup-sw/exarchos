@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, expectTypeOf } from 'vitest';
 import { z } from 'zod';
 import {
   NextActionSchema,
@@ -174,5 +174,42 @@ describe('EnvelopeSchema factory', () => {
   it('CacheHintsSchema_RoundTripsThroughZodType_Succeeds', () => {
     const ch = { type: 'cache_boundary', position: 'after:v,projectionSequence', kind: 'ephemeral', ttl: '1h' };
     expect(CacheHintsSchema.safeParse(ch).success).toBe(true);
+  });
+
+  it('EnvelopeSchema_SuccessLiteralNarrows_DiscriminatedUnion', () => {
+    // Compile-time only: with `success: z.literal(true)` on the success branch
+    // and `z.literal(false)` on the error branch, narrowing the inferred
+    // union by `env.success === true` MUST yield the success variant's
+    // `data` property — proving the DU narrows precisely at the TS level.
+    //
+    // This is the long-deferred narrowing tightening (D.2/D.3 era) — the
+    // success literal was previously `z.boolean()`, which collapsed the
+    // discriminant and made `env.data` always optional even on the success
+    // branch.
+    const schema = EnvelopeSchema(z.object({ foo: z.string() }));
+    type Env = z.infer<typeof schema>;
+
+    // Pure type-level assertion — body never executes at runtime; the
+    // `false &&` short-circuits before dereferencing the cast `Env` value.
+    // The compile-time `expectTypeOf` / `@ts-expect-error` checks still run
+    // because TypeScript evaluates them statically.
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const _typeCheck = (env: Env): void => {
+      if (env.success === true) {
+        expectTypeOf(env.data).toEqualTypeOf<{ foo: string }>();
+      } else {
+        // @ts-expect-error — `data` is success-branch only; the error
+        // variant has no `data` field. This line proves precise narrowing.
+        void env.data;
+        expectTypeOf(env.error.code).toEqualTypeOf<string>();
+      }
+    };
+
+    // Runtime sanity: confirm both branches still validate (so the test
+    // also catches regressions where the DU itself stops accepting envelopes).
+    const success = wrap({ foo: 'x' }, {}, { ms: 0 });
+    expect(schema.safeParse(success).success).toBe(true);
+    const failure = wrapError(new Error('boom'));
+    expect(schema.safeParse(failure).success).toBe(true);
   });
 });

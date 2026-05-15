@@ -534,11 +534,12 @@ describe('createMcpServer', () => {
     createMcpServer(ctx);
 
     // Assert — every visible (non-hidden) tool registration must carry an
-    // outputSchema that is the LCD envelope shape. The LCD is rendered as
-    // an SDK-compatible ZodObject (the SDK's `validateToolOutput` only
-    // recognises object schemas — passing the canonical discriminated
-    // union crashes its normalizer). Both the success and error envelope
-    // variants MUST validate against the advertised LCD.
+    // outputSchema that is the LCD envelope shape — the canonical
+    // `EnvelopeSchema(z.unknown())` discriminated union on `success`. The
+    // SDK is patched (PR #1366; upstream typescript-sdk#1308) so its
+    // `normalizeObjectSchema` accepts DUs, replacing the prior
+    // passthrough-ZodObject workaround. Both the success and error
+    // envelope variants MUST validate against the advertised LCD.
     const visibleNames = TOOL_REGISTRY.filter(t => !t.hidden).map(t => t.name);
     expect(spy.mock.calls.length).toBe(visibleNames.length);
 
@@ -556,13 +557,18 @@ describe('createMcpServer', () => {
     for (const call of spy.mock.calls) {
       const [, options] = call;
       expect(options).toHaveProperty('outputSchema');
-      const outputSchema = (options as { outputSchema?: z.ZodTypeAny }).outputSchema;
+      const outputSchema = (options as { outputSchema?: z.ZodType }).outputSchema;
       expect(outputSchema).toBeDefined();
-      // The advertised LCD must be a ZodObject (SDK requirement) and must
-      // accept both branches of the canonical envelope shape.
-      expect((outputSchema as { _def?: { typeName?: string } })._def?.typeName).toBe(
-        'ZodObject',
-      );
+      // The advertised LCD is the canonical `EnvelopeSchema(z.unknown())`
+      // discriminated union, keyed on `success`. In Zod v4 the internal
+      // representation is `_def.type === 'union'` with a string
+      // `discriminator` field (the legacy `_def.typeName` is undefined in
+      // v4). The SDK is patched (PR #1366 / upstream typescript-sdk#1308)
+      // to accept DUs in `normalizeObjectSchema`, so this is the canonical
+      // shape — not a passthrough-ZodObject workaround.
+      const def = (outputSchema as { _def?: { type?: string; discriminator?: string } })._def;
+      expect(def?.type).toBe('union');
+      expect(def?.discriminator).toBe('success');
       expect(outputSchema!.safeParse(successSample).success).toBe(true);
       expect(outputSchema!.safeParse(errorSample).success).toBe(true);
     }

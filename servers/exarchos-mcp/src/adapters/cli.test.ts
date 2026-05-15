@@ -17,10 +17,20 @@ vi.mock('../core/dispatch.js', () => ({
   ),
 }));
 
-// Mock cli-format to avoid real stdout writes
+// Mock cli-format to avoid real stdout writes (table/tree paths). The
+// `toCliResult` mock mirrors the real impl for the `--json` path so
+// stdout assertions still see envelope JSON — without the mock entry,
+// `emitResult`'s `toCliResult(toEnvelope(result), 'json')` call fails
+// with "No 'toCliResult' export is defined on the './cli-format.js' mock"
+// because vi.mock() factories REPLACE the module rather than extending it.
 vi.mock('./cli-format.js', () => ({
   prettyPrint: vi.fn(),
   printError: vi.fn(),
+  toCliResult: vi.fn((env: unknown, format: string) => {
+    if (format === 'json') {
+      process.stdout.write(JSON.stringify(env, null, 2) + '\n');
+    }
+  }),
 }));
 
 // Mock schema-introspection
@@ -182,9 +192,13 @@ describe('buildCli', () => {
       '--json',
     ]);
 
-    // Assert — stdout should get raw JSON
+    // Assert — stdout should carry the envelope JSON. Post-PR-B the CLI
+    // emits `JSON.stringify(env, null, 2)` (pretty), so the colon-space
+    // is part of the wire shape now ("success": true rather than
+    // "success":true). The substring assertion holds either way as long
+    // as we don't require the compact form.
     expect(stdoutSpy).toHaveBeenCalledWith(
-      expect.stringContaining('"success":true'),
+      expect.stringContaining('"success": true'),
     );
 
     stdoutSpy.mockRestore();
@@ -476,14 +490,20 @@ describe('CLI exit-code mapping (DR-3)', () => {
       '--json',
     ]);
 
-    // Assert — exit 0 (success) and raw ToolResult JSON on stdout
+    // Assert — exit 0 (success) and envelope JSON on stdout (post-PR-B
+    // emitResult routes `--json` through `toCliResult(toEnvelope(...))`).
+    // The envelope wraps the ToolResult's `data` and adds `next_actions`,
+    // `_meta`, `_perf` siblings; assert the data + success shape via
+    // `objectContaining` so the extra envelope fields don't need to be
+    // enumerated literally (they're tested directly in cli-format.test.ts).
     expect(process.exitCode ?? 0).toBe(0);
 
     const stdoutText = stdoutSpy.mock.calls.map(([s]) => s).join('');
     const parsed = JSON.parse(stdoutText.trim());
-    expect(parsed).toEqual({
+    expect(parsed).toMatchObject({
       success: true,
       data: { featureId: 'test-feature', phase: 'init' },
+      next_actions: [],
     });
 
     stdoutSpy.mockRestore();

@@ -28,11 +28,19 @@ import { handleRunbook } from '../runbooks/handler.js';
 import { resolveSchemaRef } from './schema-introspection.js';
 import { computePrefixFingerprint } from '../projections/rehydration/fingerprint.js';
 import { StableSectionsSchema } from '../projections/rehydration/schema.js';
-import { zodToJsonSchema as upstreamDirect } from 'zod-to-json-schema';
+import { zodToJsonSchema } from './json-schema.js';
 import { TOOL_REGISTRY } from '../registry.js';
 import { JSON_SCHEMA_2020_12_URI } from './json-schema.js';
 
-const DRAFT_07_URI = 'http://json-schema.org/draft-07/schema#';
+// Zod v4 native emission stamps the spec-canonical `https://json-schema.org/draft-07/schema`
+// (no trailing `#`). The legacy `zod-to-json-schema` library emitted the `#`-suffixed
+// form. Both are accepted by JSON Schema parsers; we accept either to keep the
+// regression-pinning intent (wrapper must NOT relabel) without depending on the
+// trailing-hash convention upstream may revisit.
+const DRAFT_07_URIS = new Set<string>([
+  'http://json-schema.org/draft-07/schema#',
+  'https://json-schema.org/draft-07/schema',
+]);
 
 describe('EmittedSchemas_Use2020_12ForAllCallSites_PerFile', () => {
   it('describe/handler.ts emits 2020-12 $schema (no explicit target)', async () => {
@@ -75,8 +83,8 @@ describe('EmittedSchemas_Use2020_12ForAllCallSites_PerFile', () => {
     expect(schema.$schema).toBe(JSON_SCHEMA_2020_12_URI);
   });
 
-  it('projections/rehydration/fingerprint.ts preserves draft-07 (caller passes explicit `target: jsonSchema7`)', () => {
-    // The fingerprint module deliberately pins `target: 'jsonSchema7'` because
+  it('projections/rehydration/fingerprint.ts preserves draft-07 (caller passes explicit `target: draft-07`)', () => {
+    // The fingerprint module deliberately pins `target: 'draft-07'` because
     // the SHA-256 in `PREFIX_FINGERPRINT` is byte-locked against draft-07
     // emission. The wrapper MUST respect that explicit target (no relabel).
     //
@@ -84,14 +92,12 @@ describe('EmittedSchemas_Use2020_12ForAllCallSites_PerFile', () => {
     //  1. The fingerprint hash is deterministic and unchanged by the import
     //     swap — recomputing it must equal the value computed from a manual
     //     draft-07 emission of `StableSectionsSchema`.
-    //  2. Direct upstream emission with `target: 'jsonSchema7'` still
-    //     advertises the draft-07 URI; the wrapper is a drop-in that does
-    //     NOT touch this path.
-    const draft07Direct = upstreamDirect(StableSectionsSchema, {
-      name: 'StableSections',
-      target: 'jsonSchema7',
+    //  2. The wrapper called with `target: 'draft-07'` advertises a draft-07
+    //     URI; the wrapper is a drop-in that does NOT relabel to 2020-12.
+    const draft07Direct = zodToJsonSchema(StableSectionsSchema, {
+      target: 'draft-07',
     }) as Record<string, unknown>;
-    expect(draft07Direct.$schema).toBe(DRAFT_07_URI);
+    expect(DRAFT_07_URIS.has(String(draft07Direct.$schema))).toBe(true);
 
     // Computing the fingerprint exercises the actual fingerprint.ts call
     // site; if the swap accidentally relabels to 2020-12 the hash inputs

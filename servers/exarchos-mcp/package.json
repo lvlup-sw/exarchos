@@ -12,15 +12,16 @@
     "test:coverage": "vitest run --coverage",
     "bench": "vitest bench",
     "generate:docs": "tsx scripts/generate-docs.ts",
-    "generate:agents": "tsx src/agents/generate-agents.ts"
+    "generate:agents": "tsx src/agents/generate-agents.ts",
+    "postinstall": "patch-package"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.0.0",
+    "@modelcontextprotocol/sdk": "1.29.0",
     "commander": "^14.0.3",
+    "patch-package": "^8.0.1",
     "pino": "^10.3.1",
     "yaml": "^2.8.2",
-    "zod": "^3.23.0",
-    "zod-to-json-schema": "^3.25.1"
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@fast-check/vitest": "^0.2.4",

@@ -12,28 +12,6 @@
 // state directory, so the payload differences are purely carrier-side
 // shaping (envelope-wrapping for MCP, raw ToolResult for CLI under
 // `--json`).
-//
-// On the carrier-equivalence contract
-// -----------------------------------
-// Design §2.3 (INV-2 facade equivalence) says CLI `--format json` and MCP
-// `structuredContent` should be byte-equal envelope payloads. Wave 0
-// D.2/D.3 landed `toCliResult` in `cli-format.ts` to render the envelope
-// on stdout, but the wiring of `toCliResult` into `adapters/cli.ts`'s
-// per-action commander handler has NOT yet shipped — `cli.ts` still calls
-// the legacy `emitResult` path which emits raw ToolResult JSON via the
-// `--json` boolean flag.
-//
-// As a result, this test exists in TWO modes:
-//   1. INV-2 byte-equal — the design's target. `.todo` until `toCliResult`
-//      is wired into `cli.ts` (Wave 0 D-bundle follow-on; the pre-req note
-//      in Wave 0 §F dispatch claimed it was already wired — this test
-//      surfaces that gap).
-//   2. Data-level parity — a weaker invariant the existing CLI path already
-//      satisfies: the CLI's `--json` ToolResult.data must equal the MCP
-//      envelope.structuredContent.data for the same args, modulo masks.
-//      This pins the dispatch core against per-carrier reshapes.
-//
-// When `toCliResult` is wired in, flip the `.todo` to `it(...)` and confirm.
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'node:fs/promises';
@@ -45,6 +23,12 @@ import { createMcpServer } from '../../adapters/mcp.js';
 import { buildCli } from '../../adapters/cli.js';
 import { EventStore } from '../../event-store/store.js';
 import type { DispatchContext } from '../../core/dispatch.js';
+import {
+  callCli as harnessCallCli,
+  callMcp as harnessCallMcp,
+  normalize as harnessNormalize,
+  UUID_ANY_RE,
+} from '../parity-harness.js';
 
 /**
  * Strip fields that vary across invocations (`_perf`, `updatedAt`,
@@ -151,12 +135,35 @@ describe('F.3 — CLI ↔ MCP parity (Wave 0 §7)', () => {
   });
 
   // INV-2: CLI `--format json` stdout MUST carry the same envelope as MCP
-  // structuredContent (modulo masks). The `toCliResult` function exists in
-  // cli-format.ts (Wave 0 D.2/D.3) but the wiring into `adapters/cli.ts`'s
-  // `emitResult` path is deferred — landing it in this PR would require
-  // updating 61 in-tree parity tests that assert the legacy raw-ToolResult
-  // shape under `--json`. Tracked at #1368.
-  it.todo(
-    'CliParity_VwLs_ByteEqualEnvelope_AcrossCarriers (blocked on #1368 — wire toCliResult into adapters/cli.ts)',
-  );
+  // structuredContent (modulo masks for transient fields). With PR-B (#1368)
+  // wiring `toCliResult(toEnvelope(...))` into `emitResult`, both arms now
+  // surface envelope-shaped output. The W2 harness mirrors that on the MCP
+  // side (`callMcp` returns `toEnvelope(dispatch(...))`), so this test is a
+  // deep-equal `Envelope<unknown>` ↔ `Envelope<unknown>` comparison after
+  // normalization.
+  it('CliParity_VwLs_ByteEqualEnvelope_AcrossCarriers', async () => {
+    // Same fixture as the data-level test above: `pipeline` view, CLI
+    // alias `ls` on tool `vw`, MCP `exarchos_view { action: 'pipeline' }`.
+    const cliCall = await harnessCallCli(ctx, 'vw', 'ls', {});
+    const mcpEnvelope = await harnessCallMcp(ctx, 'exarchos_view', {
+      action: 'pipeline',
+    });
+
+    // Sanity: both arms must report success.
+    expect(cliCall.result.success).toBe(true);
+    expect(mcpEnvelope.success).toBe(true);
+
+    // Normalize the full envelope on both sides — strips `_perf`,
+    // `_meta.updatedAt`, ISO timestamps, and UUIDs to stable placeholders
+    // so two independent invocations produce byte-equal trees.
+    const normalizeOpts = {
+      timestampPlaceholder: '<ISO>' as const,
+      uuidPlaceholder: '<UUID>' as const,
+      uuidRegex: UUID_ANY_RE,
+      dropKeys: new Set(['_perf', 'updatedAt']),
+    };
+    expect(harnessNormalize(cliCall.result, normalizeOpts)).toEqual(
+      harnessNormalize(mcpEnvelope, normalizeOpts),
+    );
+  });
 });

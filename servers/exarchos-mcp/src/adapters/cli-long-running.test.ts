@@ -33,9 +33,19 @@ vi.mock('../core/dispatch.js', () => ({
   ),
 }));
 
+// PR-B (#1368): `emitResult`'s `--json` route resolves `toCliResult`
+// from this module; vi.mock factories REPLACE the module, so omitting
+// the export crashes the action callback. Provide a real-passthrough
+// impl that mirrors the production `toCliResult(env, 'json')` behavior
+// so stdout assertions still see envelope JSON.
 vi.mock('./cli-format.js', () => ({
   prettyPrint: vi.fn(),
   printError: vi.fn(),
+  toCliResult: vi.fn((env: unknown, format: string) => {
+    if (format === 'json') {
+      process.stdout.write(JSON.stringify(env, null, 2) + '\n');
+    }
+  }),
 }));
 
 vi.mock('./mcp.js', () => ({
@@ -203,16 +213,22 @@ describe('CLI long-running heartbeat emission (DR-5)', () => {
           expect(line.endsWith('\n')).toBe(true);
         }
 
-        // --json stdout contract: exactly one ToolResult line. Heartbeats
-        // must not have leaked onto stdout.
+        // --json stdout contract: exactly one ToolResult envelope.
+        // Heartbeats must not have leaked onto stdout (they belong on
+        // stderr — see DR-5 §heartbeats stay sidebar).
         const stdoutText = stdoutSpy.mock.calls
           .map(([chunk]) => String(chunk))
           .join('');
         expect(stdoutText).not.toMatch(HEARTBEAT_PATTERN);
-        // When the mocked dispatch resolves, exactly one JSON line is written.
-        const stdoutLines = stdoutText.split('\n').filter((l) => l.length > 0);
-        expect(stdoutLines.length).toBe(1);
-        expect(() => JSON.parse(stdoutLines[0]!)).not.toThrow();
+        // PR-B (#1368): post-W1 `emitResult` pretty-prints the envelope
+        // (`JSON.stringify(env, null, 2)`), so the legacy line-count check
+        // (`stdoutLines.length === 1`) no longer matches the wire shape.
+        // The agent-facing contract still holds — stdout is exactly one
+        // JSON document — but we verify it via `JSON.parse(trimmed)`
+        // succeeding rather than counting newlines.
+        const trimmed = stdoutText.trim();
+        expect(trimmed.length).toBeGreaterThan(0);
+        expect(() => JSON.parse(trimmed)).not.toThrow();
       }, 10_000);
     },
   );

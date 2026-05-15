@@ -7,7 +7,7 @@ import type { z } from 'zod';
  * Each non-blank line is parsed as JSON and validated against the provided schema.
  * Throws with line number on parse or validation errors.
  */
-export async function loadJsonl<S extends z.ZodTypeAny>(
+export async function loadJsonl<S extends z.ZodType>(
   filePath: string,
   schema: S,
 ): Promise<z.output<S>[]> {

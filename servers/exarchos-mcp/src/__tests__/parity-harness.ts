@@ -21,7 +21,8 @@ import { CommanderError } from 'commander';
 
 import type { DispatchContext } from '../core/dispatch.js';
 import { dispatch } from '../core/dispatch.js';
-import type { ToolResult } from '../format.js';
+import type { ToolResult, Envelope, ErrorEnvelope } from '../format.js';
+import { toEnvelope } from '../format.js';
 import {
   buildCli,
   commanderErrorToResult,
@@ -43,9 +44,18 @@ export interface CliCallOptions {
   readonly captureCommanderErrors?: boolean;
 }
 
-/** Return shape from {@link callCli}. */
+/** Return shape from {@link callCli}.
+ *
+ * Post-PR-B (W2 / #1368): `result` is the carrier-bound envelope
+ * (`Envelope<unknown> | ErrorEnvelope`) because `emitResult` now routes
+ * `--json` through `toCliResult(toEnvelope(...))`. The shape exposes the
+ * same `success` / `error.code` / `data` access paths as the pre-envelope
+ * `ToolResult`, so existing assertions on those fields continue to work
+ * without code-changes; what changes is the deep-equal envelope shape
+ * (extra `next_actions`, always-present `_meta` / `_perf`).
+ */
 export interface CliCallResult {
-  readonly result: ToolResult;
+  readonly result: Envelope<unknown> | ErrorEnvelope;
   readonly exitCode: number;
 }
 
@@ -131,24 +141,30 @@ export async function callCli(
 
   const stdoutText = capturedStdout.join('').trim();
   if (stdoutText) {
-    // Adapter writes exactly one JSON line for `--json` mode; extract the
-    // first complete object so any preceding noise (should be none) doesn't
-    // derail the parse.
+    // Post-PR-B (#1368): the adapter emits a pretty-printed JSON envelope
+    // (`toCliResult(toEnvelope(...), 'json')` → `JSON.stringify(env, null, 2)`),
+    // which spans multiple lines. The pre-envelope harness sliced by the
+    // first newline to grab a single-line JSON document; that breaks under
+    // pretty output (first newline lands immediately after the opening `{`).
+    // Parse from the first `{` to end-of-stdout instead — `JSON.parse`
+    // tolerates trailing whitespace and stops at the matching brace.
     const firstBrace = stdoutText.indexOf('{');
     if (firstBrace < 0) {
       throw new Error(
         `CLI produced non-JSON stdout for ${toolAlias} ${actionFlag}: ${stdoutText}`,
       );
     }
-    const newlineIdx = stdoutText.indexOf('\n', firstBrace);
-    const jsonText = newlineIdx > 0 ? stdoutText.slice(firstBrace, newlineIdx) : stdoutText.slice(firstBrace);
-    const parsed = JSON.parse(jsonText) as ToolResult;
+    const jsonText = stdoutText.slice(firstBrace);
+    const parsed = JSON.parse(jsonText) as Envelope<unknown> | ErrorEnvelope;
     return { result: parsed, exitCode };
   }
 
   if (commanderError) {
+    // PR-B (#1368): wrap the legacy ToolResult into an envelope so the
+    // commander-error branch matches the success/stdout branch's return
+    // shape (both arms of the harness now surface envelopes).
     const { result, exitCode: mappedExit } = commanderErrorToResult(commanderError);
-    return { result, exitCode: mappedExit };
+    return { result: toEnvelope(result), exitCode: mappedExit };
   }
 
   throw new Error(
@@ -170,8 +186,15 @@ export async function callMcp(
   ctx: DispatchContext,
   tool: string,
   args: Record<string, unknown>,
-): Promise<ToolResult> {
-  return dispatch(tool, args, ctx);
+): Promise<Envelope<unknown> | ErrorEnvelope> {
+  // PR-B (#1368): The production MCP server path runs the dispatch result
+  // through `toEnvelope` before handing it to `toMcpResult` (see
+  // `src/adapters/mcp.ts`). Mirror that here so the parity arm returns the
+  // same carrier shape as the CLI arm. This is the inverse of the CLI
+  // adapter's `toCliResult(toEnvelope(result), 'json')` route — both arms
+  // surface envelopes so deep-equal comparisons are well-defined.
+  const result = await dispatch(tool, args, ctx);
+  return toEnvelope(result);
 }
 
 // ─── Normalization ──────────────────────────────────────────────────────────

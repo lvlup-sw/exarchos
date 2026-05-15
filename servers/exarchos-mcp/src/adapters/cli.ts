@@ -6,6 +6,7 @@ import { getFullRegistry } from '../registry.js';
 import { dispatch } from '../core/dispatch.js';
 import type { DispatchContext } from '../core/dispatch.js';
 import type { ToolResult } from '../format.js';
+import { toEnvelope } from '../format.js';
 import {
   addFlagsFromSchema,
   coerceFlags,
@@ -16,7 +17,7 @@ import {
   VALIDATION_ERROR_CODE,
 } from './schema-to-flags.js';
 import { HandleMergeOrchestrateArgsSchema } from '../orchestrate/merge-orchestrate.js';
-import { prettyPrint, printError } from './cli-format.js';
+import { prettyPrint, printError, toCliResult } from './cli-format.js';
 // NOTE: `./schema-introspection.js` is intentionally NOT imported at the top
 // level. It pulls `zod-to-json-schema`, the state-machine topology serializer,
 // and the playbook renderer — several MB of transitive graph that CLI
@@ -55,15 +56,18 @@ export type CliExitCode = (typeof CLI_EXIT_CODES)[keyof typeof CLI_EXIT_CODES];
 
 /**
  * Emit a ToolResult using the adapter's output convention:
- * - `--json`: raw single-line JSON to stdout (no pretty-printing, no wrapping).
+ * - `--json` or `--format json`: route through `toCliResult(toEnvelope(...))`
+ *   so stdout carries the envelope shape (byte-equal to MCP `structuredContent`
+ *   modulo timestamps). Honors the `EXARCHOS_CLI_ENVELOPE=0` opt-out (one
+ *   preview cycle, dropped in v2.11.0).
  * - otherwise: prettyPrint (handles errors via printError).
  */
 function emitResult(result: ToolResult, json: boolean, format?: 'table' | 'json' | 'tree'): void {
-  if (json) {
-    process.stdout.write(JSON.stringify(result) + '\n');
-  } else {
-    prettyPrint(result, format);
+  if (json || format === 'json') {
+    toCliResult(toEnvelope(result), 'json');
+    return;
   }
+  prettyPrint(result, format);
 }
 
 // Note: Zod-error formatting lives in schema-to-flags.ts
