@@ -33,6 +33,15 @@ export default defineConfig({
           setupFiles: ['./test/setup/global.ts'],
         },
       },
+      {
+        test: {
+          name: 'outcome',
+          include: ['tests/outcome/**/*.test.ts'],
+          testTimeout: 30000,
+          fileParallelism: false,
+          passWithNoTests: true,
+        },
+      },
     ],
   },
 });
