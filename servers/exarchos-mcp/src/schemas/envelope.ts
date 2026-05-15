@@ -31,9 +31,9 @@ export const NextActionSchema = NextActionZ;
  * fields with default-0 fallbacks, so validators must accept them as required.
  */
 export const PerfMetricsSchema = z.object({
-  ms: z.number(),
-  bytes: z.number(),
-  tokens: z.number(),
+  ms: z.number().nonnegative(),
+  bytes: z.number().nonnegative(),
+  tokens: z.number().nonnegative(),
 });
 
 /**

@@ -149,6 +149,19 @@ describe('EnvelopeSchema factory', () => {
     expect(PerfMetricsSchema.safeParse(pm).success).toBe(true);
   });
 
+  it('PerfMetricsSchema_RejectsNegativeValues_OnEachField', () => {
+    // The JSDoc invariant says "non-negative" — enforce it at validation
+    // time. Negatives on ms/bytes/tokens are nonsensical (time/size/usage
+    // counters never run backwards) and would surface as confusing UI
+    // values, so the schema must fail closed (CodeRabbit PR #1369 minor).
+    expect(PerfMetricsSchema.safeParse({ ms: -1, bytes: 0, tokens: 0 }).success).toBe(false);
+    expect(PerfMetricsSchema.safeParse({ ms: 0, bytes: -1, tokens: 0 }).success).toBe(false);
+    expect(PerfMetricsSchema.safeParse({ ms: 0, bytes: 0, tokens: -1 }).success).toBe(false);
+    // Zero is the documented default-0 fallback used by wrap()/wrapError(),
+    // so it must still pass.
+    expect(PerfMetricsSchema.safeParse({ ms: 0, bytes: 0, tokens: 0 }).success).toBe(true);
+  });
+
   it('EventHintsSchema_RoundTripsThroughZodType_Succeeds', () => {
     const eh = {
       missing: [{ eventType: 'task.completed', description: 'missing ack', requiredFields: ['taskId'] }],
