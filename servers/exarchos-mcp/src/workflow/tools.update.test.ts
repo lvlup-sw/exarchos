@@ -183,4 +183,43 @@ describe('exarchos_workflow.update — canonical state-mutation action (Wave 0)'
     if (perf?.bytes !== undefined) expect(typeof perf.bytes).toBe('number');
     if (perf?.tokens !== undefined) expect(typeof perf.tokens).toBe('number');
   });
+
+  // Sentry follow-up (#1360 / PR 2): the structured `data` block on
+  // `StateStoreError` must reach the caller through the `update` action's
+  // envelope. The earlier handleSet pre-flight short-circuited before
+  // applyDotPath, dropping the data block on the floor. The fix lets
+  // applyDotPath throw and catches the typed error so `data` survives.
+  it('WorkflowUpdate_ReservedField_EnvelopeCarriesTypedData', async () => {
+    const init = await handleInit(
+      { featureId, workflowType: 'feature' },
+      tmpDir,
+      eventStore,
+    );
+    expect(init.success).toBe(true);
+
+    // Underscore-prefixed reserved field — bypasses the composite's
+    // phase-in-updates guard (which only rejects `phase`) and lands in
+    // handleSet's applyDotPath loop, exercising the catch path that
+    // propagates `data`.
+    const result = await handleWorkflow(
+      {
+        action: 'update',
+        featureId,
+        updates: { _version: 99 },
+      },
+      ctx,
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('RESERVED_FIELD');
+
+    const data = (result.error as Record<string, unknown> | undefined)?.data as
+      | { rejectedPath?: string; rule?: string; alternateWritePath?: string }
+      | undefined;
+    expect(data).toBeDefined();
+    expect(data?.rejectedPath).toBe('_version');
+    expect(data?.rule).toBeTruthy();
+    // Underscore guidance points at event.append rather than direct write.
+    expect(data?.alternateWritePath).toMatch(/event/i);
+  });
 });

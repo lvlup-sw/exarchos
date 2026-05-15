@@ -32,7 +32,7 @@ Activate this skill when:
 
 ## Phase Transitions
 
-Valid transitions, guards, and prerequisites for all workflow types are documented in `references/phase-transitions.md`. **CRITICAL:** When a transition has a guard, send the prerequisite `updates` and `phase` in a single `set` call — updates apply before guards evaluate.
+Valid transitions, guards, and prerequisites for all workflow types are documented in `references/phase-transitions.md`. **CRITICAL:** Phase mutation is a separate action from field mutation. When a transition has a guard, `action: "update"` the prerequisite fields first, then `action: "transition"` — guards read the most recent state, so updates land before guards evaluate. Attempting to mutate `phase` via `action: "update"` returns a `RESERVED_FIELD` error pointing at `transition` (see "Reserved fields" below).
 
 ### Schema Discovery
 
@@ -87,17 +87,23 @@ Use `mcp__exarchos__exarchos_workflow` with `action: "get"` and `featureId`:
 
 Field projection via `fields` returns only the requested top-level keys, reducing token cost.
 
-### Update State
+### Update State (fields only)
 
-Use `mcp__exarchos__exarchos_workflow` with `action: "update"` with `featureId` and either `updates`, `phase`, or both:
+Use `mcp__exarchos__exarchos_workflow` with `action: "update"` with `featureId` and `updates`. This action mutates non-phase fields only — `phase`, `workflowType`, `featureId`, `createdAt`, and `version` are reserved (see "Reserved fields" below).
 
-- **Update phase**: `phase: "delegate"`
 - **Set artifact path**: `updates: { "artifacts.design": "docs/designs/2026-01-05-feature.md" }`
 - **Mark task complete (by index)**: `updates: { "tasks[0].status": "complete", "tasks[0].completedAt": "<timestamp>" }`
 - **Add worktree**: `updates: { "worktrees.wt-001": { "branch": "feature/001-types", "taskId": "001", "status": "active" } }`
-- **Phase + updates together**: `phase: "delegate"`, `updates: { "artifacts.plan": "docs/plans/plan.md" }`
 
 Worktree status values: `'active' | 'merged' | 'removed'`
+
+### Transition Phase
+
+Use `mcp__exarchos__exarchos_workflow` with `action: "transition"` with `featureId` and `target`:
+
+- **Advance phase**: `target: "delegate"`
+
+Transitions are HSM-validated and emit a `workflow.transition` event. Guarded transitions read state *after* the most recent `update`, so any `updates: {...}` that the guard depends on must land first.
 
 #### Editing the `tasks` array
 
@@ -162,10 +168,10 @@ exarchos_orchestrate({
 | Event | State Update |
 |-------|--------------|
 | `/ideate` starts | Create state file |
-| Design saved | Set `artifacts.design`, phase = "plan" |
-| Plan saved | Set `artifacts.plan`, populate tasks, phase = "plan-review" |
-| Plan-review gaps found | Set `planReview.gaps`, auto-loop to plan |
-| Plan-review approved | Set `planReview.approved = true`, phase = "delegate" |
+| Design saved | `update: { "artifacts.design": "<path>" }`, then `transition target: "plan"` |
+| Plan saved | `update: { "artifacts.plan": "<path>", "tasks": [...] }`, then `transition target: "plan-review"` |
+| Plan-review gaps found | `update: { "planReview.gaps": [...] }`, auto-loop to plan |
+| Plan-review approved | `update: { "planReview.approved": true }`, then `transition target: "delegate"` |
 | Task dispatched | Set task `status = "in_progress"`, `startedAt` |
 | Task complete | Set task `status = "complete"`, `completedAt` |
 | Worktree created | Add to `worktrees` object |
@@ -197,16 +203,15 @@ Skills should update state at key moments:
 **brainstorming/SKILL.md:**
 ```markdown
 After saving design:
-1. Update state: `.artifacts.design = "<path>"`
-2. Update state: `.phase = "plan"`
+1. `action: "update"` — `updates: { "artifacts.design": "<path>" }`
+2. `action: "transition"` — `target: "plan"`
 ```
 
 **implementation-planning/SKILL.md:**
 ```markdown
 After saving plan:
-1. Update state: `.artifacts.plan = "<path>"`
-2. Populate `.tasks` from plan
-3. Update state: `.phase = "delegate"`
+1. `action: "update"` — `updates: { "artifacts.plan": "<path>", "tasks": [...] }`
+2. `action: "transition"` — `target: "delegate"`
 ```
 
 **delegation/SKILL.md:**
@@ -245,7 +250,7 @@ Key sections:
 
 Alternate write paths:
 
-- `phase` → `mcp__exarchos__exarchos_workflow` with `action: "transition"` and `toPhase: "<target>"`. Transitions are HSM-validated and emit transition events.
+- `phase` → `mcp__exarchos__exarchos_workflow` with `action: "transition"` and `target: "<phase>"`. Transitions are HSM-validated and emit transition events.
 - Underscore-prefixed paths → emit a typed event via `mcp__exarchos__exarchos_event` with `action: "append"` (e.g. `checkpoint`, `state.patched`). The projection folds the event into the field on the next read.
 - `workflowType`, `featureId`, `createdAt`, `version` → not migratable. If you need a different workflow type, init a new workflow.
 
@@ -260,7 +265,7 @@ A `RESERVED_FIELD` error envelope now carries a typed `data` block:
     "data": {
       "rejectedPath": "phase",
       "rule": "`phase` is top-level immutable — set once at init, never directly mutated thereafter.",
-      "alternateWritePath": "Use `mcp__exarchos__exarchos_workflow.transition({featureId, toPhase})` — phase changes are HSM-validated and emit transition events."
+      "alternateWritePath": "Use `mcp__exarchos__exarchos_workflow` with `action: \"transition\"` and `target: \"<phase>\"` — phase changes are HSM-validated and emit transition events."
     }
   }
 }
@@ -313,10 +318,9 @@ If multiple workflow state files exist:
 
 1. **Start new workflow**: Use `mcp__exarchos__exarchos_workflow` with `action: "init"` with `featureId: "user-authentication"`, `workflowType: "feature"`
 
-2. **After design phase**: Use `mcp__exarchos__exarchos_workflow` with `action: "update"` with:
-   - `featureId: "user-authentication"`
-   - `phase: "plan"`
-   - `updates: { "artifacts.design": "docs/designs/2026-01-05-user-auth.md" }`
+2. **After design phase**: First persist the artifact, then advance the phase.
+   - `action: "update"`, `featureId: "user-authentication"`, `updates: { "artifacts.design": "docs/designs/2026-01-05-user-auth.md" }`
+   - `action: "transition"`, `featureId: "user-authentication"`, `target: "plan"`
 
 3. **Check state**: Use `mcp__exarchos__exarchos_workflow` with `action: "get"` with `featureId: "user-authentication"`
 

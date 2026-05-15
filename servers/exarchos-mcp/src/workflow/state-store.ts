@@ -82,9 +82,16 @@ export class StateStoreError extends Error {
  * `dotPath`. Matches the literal top-level immutable key first, then
  * falls back to regex keys (e.g. `^_.*` for underscore-prefixed paths).
  * Returns `null` if no entry matches.
+ *
+ * Regex keys are tested against the whole dot-path AND each segment, to
+ * mirror `isReservedField`'s segment-aware semantics: a path like
+ * `foo._bar` is reserved because an inner segment starts with `_`, so
+ * the `^_.*` guidance must apply even though the whole path does not
+ * match that regex.
  */
 export function resolveAlternateWritePath(dotPath: string): string | null {
-  const topLevel = dotPath.split('.')[0];
+  const segments = dotPath.split('.');
+  const topLevel = segments[0];
   const map = RESERVED_FIELDS_DESCRIPTOR.alternateWritePaths as Record<string, string>;
 
   // 1) Literal top-level key (`phase`, `workflowType`, ...).
@@ -94,7 +101,10 @@ export function resolveAlternateWritePath(dotPath: string): string | null {
   for (const [key, value] of Object.entries(map)) {
     if (key.startsWith('^') || key.endsWith('$') || key.includes('.*')) {
       try {
-        if (new RegExp(key).test(dotPath)) return value;
+        const regex = new RegExp(key);
+        if (regex.test(dotPath) || segments.some((seg) => regex.test(seg))) {
+          return value;
+        }
       } catch {
         // Skip malformed regex keys silently; descriptor is internal.
       }

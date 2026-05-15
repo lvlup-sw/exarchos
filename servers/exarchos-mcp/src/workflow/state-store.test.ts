@@ -1019,4 +1019,27 @@ describe('StateStoreError reserved-field data (#1360)', () => {
       expect(sse.data?.alternateWritePath).toMatch(/event/i);
     }
   });
+
+  // CodeRabbit follow-up: `isReservedField` returns true for any path whose
+  // *segments* start with `_` (e.g. `foo._bar`), but the original
+  // `resolveAlternateWritePath` only matched the `^_.*` regex against the
+  // whole dotPath. That made `alternateWritePath` `null` for nested
+  // underscore paths, weakening the structured-error contract.
+  it('ResolveAlternateWritePath_NestedUnderscoreSegment_ReturnsUnderscoreGuidance', () => {
+    const obj: Record<string, unknown> = { foo: {} };
+
+    try {
+      applyDotPath(obj, 'foo._bar', 'x');
+      throw new Error('expected RESERVED_FIELD throw');
+    } catch (err) {
+      expect(err).toBeInstanceOf(StateStoreError);
+      const sse = err as StateStoreError;
+      expect(sse.code).toBe('RESERVED_FIELD');
+      expect(sse.data?.rejectedPath).toBe('foo._bar');
+      // Must point at the event-store guidance (matched the `^_.*` regex
+      // against the inner segment), not be null.
+      expect(sse.data?.alternateWritePath).toBeTruthy();
+      expect(sse.data?.alternateWritePath).toMatch(/event/i);
+    }
+  });
 });

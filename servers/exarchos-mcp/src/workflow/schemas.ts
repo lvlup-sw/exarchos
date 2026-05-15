@@ -546,7 +546,7 @@ export const RESERVED_FIELDS_DESCRIPTOR = {
     '_compensationCheckpoint',
   ],
   alternateWritePaths: {
-    phase: 'Use `exarchos_workflow.transition({featureId, toPhase})` — phase changes are HSM-validated and emit transition events.',
+    phase: 'Use `exarchos_workflow` with `action: "transition"` and `target: "<phase>"` — phase changes are HSM-validated and emit transition events.',
     workflowType: 'Immutable after init. Create a new workflow with `exarchos_workflow.init` if a different type is needed.',
     featureId: 'Immutable identity field. The featureId is fixed at init.',
     createdAt: 'Immutable timestamp. Set by `exarchos_workflow.init`.',
