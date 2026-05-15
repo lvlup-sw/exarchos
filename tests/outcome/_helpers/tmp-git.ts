@@ -1,10 +1,16 @@
-import { execSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
-function git(repo: string, args: string): string {
-  return execSync(`git -C "${repo}" ${args}`, { encoding: 'utf8' });
+/**
+ * Run `git -C <repo> <args>` with arguments passed as an array so no shell
+ * interpretation occurs. Mirrors the `execSync` ergonomics callers expect
+ * (utf8 stdout, throws on non-zero exit) but is safe against paths or
+ * branch names containing shell metacharacters.
+ */
+function git(repo: string, args: readonly string[]): string {
+  return execFileSync('git', ['-C', repo, ...args], { encoding: 'utf8' });
 }
 
 /**
@@ -23,10 +29,10 @@ export async function withTmpGit<T>(fn: (repoPath: string) => Promise<T>): Promi
   };
 
   try {
-    execSync(`git init -b main "${repo}"`, { encoding: 'utf8' });
-    git(repo, 'config user.email test@example.com');
-    git(repo, 'config user.name test');
-    git(repo, 'commit --allow-empty -m "init"');
+    execFileSync('git', ['init', '-b', 'main', repo], { encoding: 'utf8' });
+    git(repo, ['config', 'user.email', 'test@example.com']);
+    git(repo, ['config', 'user.name', 'test']);
+    git(repo, ['commit', '--allow-empty', '-m', 'init']);
 
     // Stash tracker on a process-wide map keyed by repo path so
     // `addSiblingWorktree` can register cleanups without callers threading
@@ -40,7 +46,7 @@ export async function withTmpGit<T>(fn: (repoPath: string) => Promise<T>): Promi
     // tests are debuggable instead of silently leaking tmpdirs / worktree refs.
     for (const sib of siblings) {
       try {
-        execSync(`git -C "${repo}" worktree remove --force "${sib}"`, {
+        execFileSync('git', ['-C', repo, 'worktree', 'remove', '--force', sib], {
           encoding: 'utf8',
           stdio: 'pipe',
         });
@@ -84,9 +90,11 @@ export async function addSiblingWorktree(
   branchName: string,
 ): Promise<string> {
   const sibling = `${repoPath}-wt-${branchName}`;
-  execSync(`git -C "${repoPath}" worktree add "${sibling}" -b "${branchName}"`, {
-    encoding: 'utf8',
-  });
+  execFileSync(
+    'git',
+    ['-C', repoPath, 'worktree', 'add', sibling, '-b', branchName],
+    { encoding: 'utf8' },
+  );
   const tracker = SIBLING_REGISTRY.get(repoPath);
   if (tracker) tracker.push(sibling);
   return sibling;

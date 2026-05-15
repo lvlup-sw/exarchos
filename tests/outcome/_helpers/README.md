@@ -1,7 +1,7 @@
 # tests/outcome/_helpers
 
 Operator-facing guide to the helpers that back the outcome-test tier. Read this
-before adding a new outcome test or fixing a `it.failing()` test that just
+before adding a new outcome test or fixing a `it.fails()` test that just
 flipped to passing.
 
 ## Purpose
@@ -127,7 +127,7 @@ import { withTmpGit, addSiblingWorktree } from './_helpers/tmp-git.js';
 import { execSync } from 'node:child_process';
 
 describe('merge preflight in multi-worktree topology', () => {
-  it.failing('detects target branch checked out in a sibling', async () => {
+  it.fails('detects target branch checked out in a sibling', async () => {
     await withTmpGit(async (repo) => {
       const releaseWt = await addSiblingWorktree(repo, 'release');
       const integrationWt = await addSiblingWorktree(repo, 'integration');
@@ -147,28 +147,28 @@ describe('merge preflight in multi-worktree topology', () => {
 });
 ```
 
-## `it.failing()` choreography
+## `it.fails()` choreography
 
 This section is operationally critical. Read it before adding or flipping
 any outcome test.
 
-### Why `it.failing()`
+### Why `it.fails()`
 
 The outcome tier encodes known regressions as RED tests *before* the fixes
-land. Wrapping each test in `it.failing()` lets the test sit in `main`
+land. Wrapping each test in `it.fails()` lets the test sit in `main`
 continuously while the bug exists, without breaking CI. The test documents
 the operator-visible spec the eventual fix must satisfy; the annotation
 keeps it from breaking the branch in the meantime.
 
 ### The atomic-flip contract
 
-A fix PR must remove the `.failing` annotation in the same diff that
+A fix PR must remove the `.fails` annotation in the same diff that
 introduces the fix. Reviewers verify operator-visible correctness simply by
 grepping for the annotation removal — there is no need to read the test
 body to understand which spec the fix satisfies. The shape is:
 
 ```diff
--  it.failing('refuses to overwrite an existing bundle', async () => {
+-  it.fails('refuses to overwrite an existing bundle', async () => {
 +  it('refuses to overwrite an existing bundle', async () => {
 ```
 
@@ -178,7 +178,7 @@ test) or claiming a fix without operator evidence (push back in review).
 
 ### What failure mode is acceptable
 
-vitest's `it.failing()` expects the test to throw or fail an assertion.
+vitest's `it.fails()` expects the test to throw or fail an assertion.
 An **expected failure** does *not* count as a CI failure. A test that
 **unexpectedly passes** without the annotation being flipped *does* break
 CI — that is the enforcement mechanism for the choreography. You cannot
@@ -195,10 +195,10 @@ A healthy steady-state summary looks like:
 
 Interpret the columns as follows:
 
-- `expected` — `it.failing()` tests that failed as designed. This is the
+- `expected` — `it.fails()` tests that failed as designed. This is the
   number of bugs the tier currently encodes. Trending toward zero is good.
 - `failed` — unexpected failures: either a plain `it()` test broke, or an
-  `it.failing()` test unexpectedly passed. Treat these as CI red. Investigate.
+  `it.fails()` test unexpectedly passed. Treat these as CI red. Investigate.
 - `passed` — plain `it()` tests that passed. These are the helpers'
   self-tests and any non-regression coverage.
 
@@ -210,9 +210,13 @@ whether you have introduced a new regression (then revert / fix forward).
 
 The outcome tier runs in the dedicated `outcome-tests` job in
 `.github/workflows/ci.yml`. It is Linux-only (`runs-on: ubuntu-latest`) and
-invokes `npm run test:outcome`. The job is wired as a required
-branch-protection check; that wiring lives in repository settings, not in
-the repo, and is captured in the PR body whenever it changes.
+invokes `npm run test:outcome`. The job is intended to be wired as a
+required branch-protection check; that wiring is a manual repository-settings
+step (Settings → Branches → main → required status checks) and may not yet
+be enforced. Once enabled, the PR body for the change should record it.
+Until then, the gate is enforced by `ci-gate`'s `needs: [...outcome-tests]`
+dependency, which makes the aggregate CI Gate check fail when outcome-tests
+fail.
 
 The outcome tier is intentionally excluded from `npm run test:run`. That
 surface stays scoped to unit + process tiers so day-to-day local iteration
@@ -224,10 +228,10 @@ npm run test:run && npm run test:outcome
 
 ### Failure modes
 
-- **Real failures** — a plain `it()` test fails, or an `it.failing()` test
+- **Real failures** — a plain `it()` test fails, or an `it.fails()` test
   unexpectedly passes. CI goes red. Investigate; do not silence with an
   annotation flip unless your diff is the fix.
-- **Expected failures** — `it.failing()` tests fail as designed. CI stays
+- **Expected failures** — `it.fails()` tests fail as designed. CI stays
   green. This is the normal steady state until the next fix PR lands and
   flips one of them.
 
@@ -241,9 +245,9 @@ examples when authoring new ones:
 - `tests/outcome/merge-orchestrate-multiworktree.test.ts` — encodes issue
   #1356 (merge-orchestrator preflight under multi-worktree topology).
 - `tests/outcome/rehydrate-projection-drift.test.ts` — encodes issue #1359
-  (rehydrate projection drift; remains `it.failing()` until Wave 2 lands
+  (rehydrate projection drift; remains `it.fails()` until Wave 2 lands
   the fix).
 
-Each was authored as `it.failing()` against the helpers documented above.
+Each was authored as `it.fails()` against the helpers documented above.
 When you land the fix for one, flip the annotation in the same PR as the
 source change.
