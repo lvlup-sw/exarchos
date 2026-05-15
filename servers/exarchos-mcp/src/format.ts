@@ -57,6 +57,14 @@ export interface ToolResult {
   readonly _perf?: PerfMetrics;
   readonly _eventHints?: EventHintsPayload;
   readonly _corrections?: CorrectionsPayload;
+  // Wave 0 (#1369, CodeRabbit HIGH on PR #1369): the composite envelopeWrap
+  // returns an Envelope cast as ToolResult, carrying `next_actions` at the
+  // top level. Declaring it formally here lets `toEnvelope` thread it through
+  // instead of silently dropping it when re-wrapping (which manifested as the
+  // #1208 saga-merge-detour regression: rehydrate returned `next_actions: []`
+  // even though the composite computed the merge_orchestrate verb).
+  readonly next_actions?: readonly NextAction[];
+  readonly _cacheHints?: CacheHints;
 }
 
 // ─── HATEOAS Envelope (DR-7) ────────────────────────────────────────────────
@@ -283,6 +291,11 @@ export interface ErrorEnvelope {
   };
   readonly _meta: Record<string, unknown>;
   readonly _perf: PerfMetrics;
+  // Optional sidebars threaded through from the source ToolResult so the
+  // CLI round-trip preserves diagnostics on the failure path (INV-2 facade
+  // equivalence; CodeRabbit minor on PR #1369).
+  readonly warnings?: readonly string[];
+  readonly _corrections?: CorrectionsPayload;
 }
 
 /**
@@ -390,6 +403,122 @@ export function wrapError(
   };
 }
 
+// ─── ToolResult → Envelope Adapter (Wave 0 — Carrier Swap) ─────────────────
+
+/**
+ * Bridge a dispatch-core {@link ToolResult} to the carrier-bound
+ * {@link Envelope} | {@link ErrorEnvelope} shape (design
+ * `docs/designs/2026-05-13-wave-0-carrier-swap.md` §2.3).
+ *
+ * Why this lives alongside (rather than replacing) `wrap` / `wrapError`:
+ *
+ *   - `wrap()` takes a typed `data` payload directly — it's the
+ *     handler-side constructor used inside an action handler that knows
+ *     its data shape statically.
+ *   - `wrapError()` takes a typed `Error` instance — it's the catch-side
+ *     constructor for typed primitive errors (`ConcurrencyError`,
+ *     `StorageBusyError`, etc.).
+ *   - `toEnvelope()` takes a `ToolResult` that already has the
+ *     post-dispatch error block populated by the composite — it is the
+ *     boundary adapter the carrier-bound `toMcpResult` / `toCliResult`
+ *     adapters call on the result they receive from the dispatch core.
+ *     We do NOT call `wrapError(result.error)` here because the typed
+ *     primitive context is gone — `result.error` is already structured.
+ *
+ * Behaviour:
+ *
+ *   - `success: true` → delegates to {@link wrap} so the resulting
+ *     `next_actions` / `_meta` / `_perf` discipline matches the canonical
+ *     constructor. Defaults to `[]` next_actions when none supplied.
+ *   - `success: false` → builds the {@link ErrorEnvelope} directly from
+ *     `result.error`, threading `code`, `message`, and any aux fields
+ *     (`validTargets`, `suggestedFix`, `unmetGates`, etc.) unchanged so
+ *     the carrier sees a full diagnostic envelope.
+ *
+ * The return type is a discriminated union `Envelope<unknown> |
+ * ErrorEnvelope`; consumers branch on the `success` literal to narrow.
+ */
+export function toEnvelope(result: ToolResult): Envelope<unknown> | ErrorEnvelope {
+  const _perf: PerfMetrics = {
+    ms: result._perf?.ms ?? 0,
+    bytes: result._perf?.bytes ?? 0,
+    tokens: result._perf?.tokens ?? 0,
+  };
+  const _meta =
+    result._meta !== undefined && result._meta !== null && typeof result._meta === 'object'
+      ? (result._meta as Record<string, unknown>)
+      : {};
+
+  if (result.success) {
+    // The composite `envelopeWrap` returns an Envelope cast as ToolResult,
+    // so `result.next_actions` / `result.warnings` / `result._corrections` /
+    // `result._eventHints` / `result._cacheHints` are already populated by
+    // the dispatch core. Thread them through the wrap boundary rather than
+    // letting `wrap()`'s defaults reset them — that was the silent-drop bug
+    // behind the #1208 saga-merge-detour regression.
+    const envelope = wrap(result.data, _meta, _perf, result.next_actions);
+    const decorated: Record<string, unknown> = { ...envelope };
+    if (result.warnings !== undefined && result.warnings.length > 0) {
+      decorated.warnings = result.warnings;
+    }
+    if (result._corrections !== undefined) {
+      decorated._corrections = result._corrections;
+    }
+    if (result._eventHints !== undefined) {
+      decorated._eventHints = result._eventHints;
+    }
+    if (result._cacheHints !== undefined) {
+      decorated._cacheHints = result._cacheHints;
+    }
+    return decorated as unknown as Envelope<unknown>;
+  }
+
+  // Failure path — surface the structured error block as-is. The error is
+  // guaranteed to exist on a failure ToolResult by the dispatch contract,
+  // but we guard defensively so a malformed input never throws here.
+  const sourceError = result.error ?? { code: 'INTERNAL_ERROR', message: 'Unknown error' };
+  // `error.validTargets` accepts `readonly (string | ValidTransitionTarget)[]`
+  // on the dispatch-core ToolResult (guard failures carry the full target
+  // object including its phase/guard tuple), but the carrier-side
+  // `ErrorEnvelope` advertises `readonly string[]`. Narrow to the
+  // canonical phase string here so the envelope schema validation passes
+  // and downstream consumers see a stable string identifier — richer guard
+  // metadata stays reachable via the `describe` action (CodeRabbit CRITICAL
+  // on PR #1369: an unchecked cast smuggled objects across the boundary).
+  const narrowedValidTargets = sourceError.validTargets?.map(
+    t => (typeof t === 'string' ? t : t.phase),
+  );
+  const error: ErrorEnvelope['error'] = {
+    code: sourceError.code,
+    message: sourceError.message,
+    ...(narrowedValidTargets !== undefined ? { validTargets: narrowedValidTargets } : {}),
+    ...(sourceError.suggestedFix !== undefined ? { suggestedFix: sourceError.suggestedFix } : {}),
+    ...(sourceError.expectedShape !== undefined ? { expectedShape: sourceError.expectedShape } : {}),
+    ...(sourceError.unmetGates !== undefined ? { unmetGates: sourceError.unmetGates } : {}),
+    ...(sourceError.gate !== undefined ? { gate: sourceError.gate } : {}),
+    ...(sourceError.operationsSince !== undefined ? { operationsSince: sourceError.operationsSince } : {}),
+    ...(sourceError.threshold !== undefined ? { threshold: sourceError.threshold } : {}),
+    ...(sourceError.tool !== undefined ? { tool: sourceError.tool } : {}),
+    ...(sourceError.action !== undefined ? { action: sourceError.action } : {}),
+    ...(sourceError.validActions !== undefined ? { validActions: sourceError.validActions } : {}),
+  };
+  const failure: ErrorEnvelope = {
+    success: false,
+    error,
+    _meta,
+    _perf,
+    // Thread sidebars through on the failure path so the cli round-trip
+    // (envelopeToToolResult → prettyPrint) and any structured-content
+    // consumer can still surface diagnostics (CodeRabbit minor on PR
+    // #1369). The success path does the equivalent thread above.
+    ...(result.warnings !== undefined && result.warnings.length > 0
+      ? { warnings: result.warnings }
+      : {}),
+    ...(result._corrections !== undefined ? { _corrections: result._corrections } : {}),
+  };
+  return failure;
+}
+
 // ─── Event Acknowledgement ──────────────────────────────────────────────────
 
 export interface EventAck {
@@ -401,16 +530,6 @@ export interface EventAck {
 /** Extracts a minimal acknowledgement (streamId, sequence, type) from a full event to reduce response payload size. */
 export function toEventAck(event: { streamId: string; sequence: number; type: string }): EventAck {
   return { streamId: event.streamId, sequence: event.sequence, type: event.type };
-}
-
-// ─── Result Formatting ──────────────────────────────────────────────────────
-
-/** Converts a ToolResult into the MCP content format expected by the SDK. */
-export function formatResult(result: ToolResult) {
-  return {
-    content: [{ type: 'text' as const, text: JSON.stringify(result) }],
-    isError: !result.success,
-  };
 }
 
 /**

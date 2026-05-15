@@ -1,12 +1,10 @@
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { z } from 'zod';
 import type {
   SummaryInput,
   ReconcileInput,
   TransitionsInput,
   WorkflowState,
 } from './types.js';
-import { ErrorCode, WorkflowTypeSchema } from './schemas.js';
+import { ErrorCode } from './schemas.js';
 import {
   readStateFile,
   StateStoreError,
@@ -16,7 +14,7 @@ import { getRecentEventsFromStore } from './events.js';
 import { getHSMDefinition } from './state-machine.js';
 import { checkCircuitBreakerFromStore } from './circuit-breaker.js';
 import type { EventStore } from '../event-store/store.js';
-import { formatResult, stripNullish, type ToolResult } from '../format.js';
+import { stripNullish, type ToolResult } from '../format.js';
 import * as path from 'node:path';
 import * as fs from 'node:fs/promises';
 import { resolveTasksDir } from '../utils/paths.js';
@@ -422,32 +420,3 @@ export async function handleTransitions(
   };
 }
 
-// ─── Registration Function ──────────────────────────────────────────────────
-
-const featureIdParam = z.string().min(1).regex(/^[a-z0-9-]+$/);
-
-export function registerQueryTools(server: McpServer, stateDir: string, eventStore: EventStore | null): void {
-  server.tool(
-    'exarchos_workflow_summary',
-    'Get structured summary of workflow progress, events, and circuit breaker status',
-    { featureId: featureIdParam },
-    async (args) => formatResult(await handleSummary(args, stateDir, eventStore)),
-  );
-
-  server.tool(
-    'exarchos_workflow_reconcile',
-    'Verify worktree paths and branches match state file',
-    { featureId: featureIdParam },
-    async (args) => formatResult(await handleReconcile(args, stateDir, eventStore)),
-  );
-
-  server.tool(
-    'exarchos_workflow_transitions',
-    'Get available state machine transitions for a workflow type',
-    {
-      workflowType: WorkflowTypeSchema,
-      fromPhase: z.string().optional(),
-    },
-    async (args) => formatResult(await handleTransitions(args, stateDir, eventStore)),
-  );
-}

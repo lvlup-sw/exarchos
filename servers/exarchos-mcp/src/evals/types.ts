@@ -10,7 +10,7 @@ export const GradeResultSchema = z.object({
   passed: z.boolean(),
   score: ScoreSchema,
   reason: z.string(),
-  details: z.record(z.unknown()).optional(),
+  details: z.record(z.string(), z.unknown()).optional(),
 });
 
 export type GradeResult = z.infer<typeof GradeResultSchema>;
@@ -21,7 +21,7 @@ export const AssertionConfigSchema = z.object({
   type: z.enum(['exact-match', 'schema', 'tool-call', 'trace-pattern', 'llm-rubric', 'llm-similarity']),
   name: z.string(),
   threshold: ScoreSchema.default(1.0),
-  config: z.record(z.unknown()).optional(),
+  config: z.record(z.string(), z.unknown()).optional(),
 });
 
 export type AssertionConfig = z.infer<typeof AssertionConfigSchema>;
@@ -46,8 +46,8 @@ export const EvalCaseSchema = z.object({
   id: z.string().min(1),
   type: z.enum(['single', 'trace']),
   description: z.string(),
-  input: z.record(z.unknown()),
-  expected: z.record(z.unknown()),
+  input: z.record(z.string(), z.unknown()),
+  expected: z.record(z.string(), z.unknown()),
   tags: z.array(z.string()).default([]),
   layer: z.enum(['regression', 'capability', 'reliability']).default('regression'),
 });
@@ -78,6 +78,7 @@ export const EvalSuiteConfigSchema = z.object({
   }),
   assertions: z.array(AssertionConfigSchema),
   datasets: z.record(
+    z.string(),
     z.object({
       path: z.string(),
       description: z.string(),

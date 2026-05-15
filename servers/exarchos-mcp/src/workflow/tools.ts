@@ -1,6 +1,3 @@
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { z } from 'zod';
-import { coercedStringArray } from '../coerce.js';
 import type {
   InitInput,
   ListInput,
@@ -10,12 +7,10 @@ import type {
   WorkflowState,
 } from './types.js';
 import {
-  CheckpointHandoffSchema,
   CheckpointInputSchema,
   ErrorCode,
   InitInputSchema,
   isReservedField,
-  WorkflowTypeSchema,
 } from './schemas.js';
 import {
   initStateFile,
@@ -41,7 +36,7 @@ import { getHSMDefinition, isBuiltInWorkflowType, getValidTransitions } from './
 import { hsmTransitionGuard } from './hsm-transition-guard.js';
 import { getPlaybook, composePhasePlaybook } from './playbooks.js';
 import { getRequiredReviews } from './review-contract.js';
-import { formatResult, type ToolResult } from '../format.js';
+import { type ToolResult } from '../format.js';
 import { createHash } from 'node:crypto';
 import * as fs from 'node:fs/promises';
 import type { EventStore } from '../event-store/store.js';
@@ -1648,65 +1643,3 @@ function resolveDotPath(obj: Record<string, unknown>, dotPath: string): unknown 
   return current;
 }
 
-// ─── Shared Schema Components ───────────────────────────────────────────────
-
-const featureIdParam = z.string().min(1).regex(/^[a-z0-9-]+$/);
-const workflowTypeParam = WorkflowTypeSchema;
-
-// ─── Registration Function ──────────────────────────────────────────────────
-
-export function registerWorkflowTools(server: McpServer, stateDir: string, eventStore: EventStore | null): void {
-  server.tool(
-    'exarchos_workflow_init',
-    'Initialize a new workflow state file for a feature/debug/refactor workflow',
-    { featureId: featureIdParam, workflowType: workflowTypeParam },
-    async (args) => formatResult(await handleInit(args, stateDir, eventStore)),
-  );
-
-  server.tool(
-    'exarchos_workflow_list',
-    'List all active workflow state files with staleness information',
-    {},
-    async (args) => formatResult(await handleList(args, stateDir)),
-  );
-
-  server.tool(
-    'exarchos_workflow_get',
-    'Query a field via dot-path (e.g. query:"phase"), project specific fields (fields:["phase","featureId"]), or get full state if neither',
-    { featureId: featureIdParam, query: z.string().optional(), fields: coercedStringArray().optional() },
-    async (args) => formatResult(await handleGet(args, stateDir, eventStore)),
-  );
-
-  server.tool(
-    'exarchos_workflow_set',
-    'Update fields and/or transition phase. Returns {phase, updatedAt}',
-    {
-      featureId: featureIdParam,
-      updates: z.record(z.string(), z.unknown()).optional(),
-      phase: z.string().optional(),
-    },
-    async (args) => formatResult(await handleSet(args, stateDir, eventStore)),
-  );
-
-  server.tool(
-    'exarchos_workflow_checkpoint',
-    'Create an explicit checkpoint, resetting the operation counter. Optional `handoff` payload (context/nextSteps/suggestions) is persisted on the workflow.checkpoint event for the rehydration projection (#1240).',
-    {
-      featureId: featureIdParam,
-      summary: z.string().optional(),
-      // T4 (#1240): expose the handoff field at the MCP tool boundary.
-      // The handler re-validates against `CheckpointInputSchema` (which
-      // composes `HandoffEntryData`) so an MCP caller bypassing this
-      // shape — older client, manual JSON-RPC — still hits the same
-      // byte-cap rejection path.
-      //
-      // CodeRabbit nitpick on PR #1297: reuse the canonical
-      // `CheckpointHandoffSchema` instead of an inline z.object copy.
-      // Same shape, single source of truth — a future cap change
-      // can't desync this surface from `CheckpointInputSchema` and
-      // strictObject rejection of unknown keys carries through.
-      handoff: CheckpointHandoffSchema.optional(),
-    },
-    async (args) => formatResult(await handleCheckpoint(args, stateDir, eventStore)),
-  );
-}

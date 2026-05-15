@@ -56,7 +56,7 @@ export const EventSchema = z.object({
   from: z.string().optional(),
   to: z.string().optional(),
   trigger: z.string(),
-  metadata: z.record(z.unknown()).optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
 });
 
 // ─── Checkpoint Schemas ─────────────────────────────────────────────────────

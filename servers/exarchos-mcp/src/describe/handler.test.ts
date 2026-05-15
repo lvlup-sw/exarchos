@@ -63,6 +63,35 @@ describe('handleDescribe', () => {
     // gate field should be present (null if no gate metadata, object if present)
     expect('gate' in desc).toBe(true);
   });
+
+  // ─── Wave 0 / Task G.3 — Per-action outputSchema discoverability ──────
+  //
+  // INV-5b + design §2.1 (Approach C): per-action `outputSchema` must be
+  // discoverable through `describe` so clients can introspect the precise
+  // per-action contract instead of relying on the lowest-common-denominator
+  // envelope advertised on `tools/list`. Surfaced as `outputSchemaJson`
+  // (JSON Schema 2020-12, produced by the Zod→JSON-Schema adapter).
+  it('DescribeHandler_PerActionResponse_IncludesOutputSchemaJson', async () => {
+    const result = await handleDescribe({ actions: ['get'] }, workflowActions);
+    expect(result.success).toBe(true);
+    const desc = (result.data as Record<string, unknown>)['get'] as Record<string, unknown>;
+
+    // The new per-action discoverability slot.
+    expect(desc).toHaveProperty('outputSchemaJson');
+    const outputJson = desc.outputSchemaJson as Record<string, unknown>;
+    expect(outputJson).toBeTypeOf('object');
+
+    // JSON Schema 2020-12 dialect (per design §2.1).
+    expect(outputJson.$schema).toBe('https://json-schema.org/draft/2020-12/schema');
+
+    // Typical Zod-translated envelope shape: discriminated-union of success
+    // (with `data`) and error (with `error`). `anyOf` / `oneOf` is how the
+    // adapter expresses the union — assert the union is present.
+    const hasUnion =
+      Array.isArray(outputJson.anyOf) ||
+      Array.isArray(outputJson.oneOf);
+    expect(hasUnion).toBe(true);
+  });
 });
 
 describe('handleEventTypeDescribe', () => {

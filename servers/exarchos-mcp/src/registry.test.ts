@@ -14,8 +14,16 @@ import {
   getFullRegistry,
   clearCustomTools,
   findActionInRegistry,
+  ActionAnnotationsSchema,
+  validateAnnotations,
+  WorkflowSetOutputSchema,
+  WorkflowTransitionOutputSchema,
+  WorkflowUpdateOutputSchema,
 } from './registry.js';
-import type { ToolAction, CompositeTool } from './registry.js';
+import type { ToolAction, CompositeTool, ActionAnnotations } from './registry.js';
+import { wrap, wrapError } from './format.js';
+import { zodToJsonSchema } from './adapters/json-schema.js';
+import { ConcurrencyError } from './event-store/concurrency-error.js';
 
 describe('buildCompositeSchema', () => {
   it('should create a discriminated union from two actions', () => {
@@ -423,34 +431,56 @@ describe('coercedStringArray', () => {
 // ─── Registration Schema JSON Output ────────────────────────────────────────
 
 describe('buildRegistrationSchema JSON Schema', () => {
+  // The build emits a discriminated union; each variant lives under
+  // `anyOf` (v4 native draft-2020-12) rather than the v3 library's
+  // top-level `properties`. We pick the variant that actually carries
+  // the field we want to assert on.
+  function findVariantPropertyShape(
+    json: Record<string, unknown>,
+    propName: string,
+  ): Record<string, unknown> | undefined {
+    const anyOf = (json.anyOf ?? json.oneOf) as
+      | Array<Record<string, unknown>>
+      | undefined;
+    if (!anyOf) {
+      const props = json.properties as Record<string, Record<string, unknown>> | undefined;
+      return props?.[propName];
+    }
+    for (const variant of anyOf) {
+      const props = variant.properties as Record<string, Record<string, unknown>> | undefined;
+      if (props && propName in props) return props[propName];
+    }
+    return undefined;
+  }
+
   it('should emit type:object for coercedRecord fields', () => {
     // T5a.1/DR-4 (#1259, v2.11): the prior assertion targeted the workflow
     // tool's `updates` field on the now-removed `set` action. Re-pointed to
     // the event tool's `event` field, which is also a `coercedRecord()`.
-    const { zodToJsonSchema } = require('zod-to-json-schema') as typeof import('zod-to-json-schema');
     const event = TOOL_REGISTRY.find((t) => t.name === 'exarchos_event')!;
     const schema = buildRegistrationSchema(event.actions);
-    const json = zodToJsonSchema(schema) as Record<string, unknown>;
-    const props = json.properties as Record<string, Record<string, unknown>>;
-    expect(props.event).toEqual({ type: 'object', additionalProperties: {} });
+    const json = zodToJsonSchema(schema) as unknown as Record<string, unknown>;
+    const eventProp = findVariantPropertyShape(json, 'event');
+    expect(eventProp).toBeDefined();
+    expect(eventProp).toMatchObject({ type: 'object' });
   });
 
   it('should emit type:integer for coercedPositiveInt fields', () => {
-    const { zodToJsonSchema } = require('zod-to-json-schema') as typeof import('zod-to-json-schema');
     const event = TOOL_REGISTRY.find((t) => t.name === 'exarchos_event')!;
     const schema = buildRegistrationSchema(event.actions);
-    const json = zodToJsonSchema(schema) as Record<string, unknown>;
-    const props = json.properties as Record<string, Record<string, unknown>>;
-    expect(props.limit).toEqual({ type: 'integer', exclusiveMinimum: 0 });
+    const json = zodToJsonSchema(schema) as unknown as Record<string, unknown>;
+    const limitProp = findVariantPropertyShape(json, 'limit');
+    expect(limitProp).toBeDefined();
+    expect(limitProp).toMatchObject({ type: 'integer', exclusiveMinimum: 0 });
   });
 
   it('should emit type:integer for coercedNonnegativeInt fields', () => {
-    const { zodToJsonSchema } = require('zod-to-json-schema') as typeof import('zod-to-json-schema');
     const event = TOOL_REGISTRY.find((t) => t.name === 'exarchos_event')!;
     const schema = buildRegistrationSchema(event.actions);
-    const json = zodToJsonSchema(schema) as Record<string, unknown>;
-    const props = json.properties as Record<string, Record<string, unknown>>;
-    expect(props.offset).toEqual({ type: 'integer', minimum: 0 });
+    const json = zodToJsonSchema(schema) as unknown as Record<string, unknown>;
+    const offsetProp = findVariantPropertyShape(json, 'offset');
+    expect(offsetProp).toBeDefined();
+    expect(offsetProp).toMatchObject({ type: 'integer', minimum: 0 });
   });
 });
 
@@ -1312,6 +1342,31 @@ describe('AutoEmits Drift Tests', () => {
 
     expect(violations, `Description/autoEmits drift:\n${violations.join('\n')}`).toEqual([]);
   });
+
+  it('RegistryDrift_AutoEmitsImpliesNotReadOnly', () => {
+    // Capability-model invariant: any action that emits events writes to
+    // the event store, so it MUST NOT advertise `readOnly: true`. A
+    // mis-annotation lets read-only-capability clients mutate state and
+    // bypass capability gates (sentry HIGH on PR #1369: `check_convergence`
+    // and `doctor` were both `READ_ONLY_LOCAL` despite emitting
+    // `gate.executed` / `diagnostic.executed`).
+    const violations: string[] = [];
+    for (const tool of TOOL_REGISTRY) {
+      for (const action of tool.actions) {
+        if (!action.autoEmits || action.autoEmits.length === 0) continue;
+        if (action.annotations?.readOnly === true) {
+          const events = action.autoEmits.map((e) => e.event).join(', ');
+          violations.push(
+            `${tool.name}.${action.name}: declares autoEmits [${events}] but annotations.readOnly === true`,
+          );
+        }
+      }
+    }
+    expect(
+      violations,
+      `Actions with autoEmits must not be readOnly:\n${violations.join('\n')}`,
+    ).toEqual([]);
+  });
 });
 
 // ─── Plugin Integration: prepare_review & pluginFindings (DR-1, DR-3) ────────
@@ -1464,10 +1519,17 @@ describe('Registry_OutputSchema (T40, DR-11)', () => {
     expect(transitionAction).toBeDefined();
     expect(transitionAction!.outputSchema).toBeDefined();
 
+    // Canonical envelope shape (EnvelopeSchema factory): success branch
+    // requires next_actions[] and _perf{ms,bytes,tokens}. Wave 0 / Task G.2
+    // consolidates the three standalone constants onto EnvelopeSchema so
+    // the asserted shape here reflects the canonical envelope.
+    const perf = { ms: 0, bytes: 0, tokens: 0 };
+
     // The schema accepts a deprecation envelope with all three fields.
     const goodEnvelope = {
       success: true,
       data: { phase: 'plan', updatedAt: '2026-05-08T00:00:00Z' },
+      next_actions: [],
       _meta: {
         deprecation: {
           since: '2.10.0',
@@ -1475,6 +1537,7 @@ describe('Registry_OutputSchema (T40, DR-11)', () => {
           replacement: 'transition',
         },
       },
+      _perf: perf,
     };
     expect(transitionAction!.outputSchema!.safeParse(goodEnvelope).success).toBe(
       true,
@@ -1484,7 +1547,10 @@ describe('Registry_OutputSchema (T40, DR-11)', () => {
     // (each of `since`, `removeIn`, `replacement` must be present + non-empty).
     const missingReplacement = {
       success: true,
+      data: { phase: 'plan' },
+      next_actions: [],
       _meta: { deprecation: { since: '2.10.0', removeIn: '2.11.0' } },
+      _perf: perf,
     };
     expect(
       transitionAction!.outputSchema!.safeParse(missingReplacement).success,
@@ -1492,9 +1558,12 @@ describe('Registry_OutputSchema (T40, DR-11)', () => {
 
     const emptyReplacement = {
       success: true,
+      data: { phase: 'plan' },
+      next_actions: [],
       _meta: {
         deprecation: { since: '2.10.0', removeIn: '2.11.0', replacement: '' },
       },
+      _perf: perf,
     };
     expect(
       transitionAction!.outputSchema!.safeParse(emptyReplacement).success,
@@ -1505,10 +1574,363 @@ describe('Registry_OutputSchema (T40, DR-11)', () => {
     const noDeprecation = {
       success: true,
       data: { phase: 'plan', updatedAt: '2026-05-08T00:00:00Z' },
+      next_actions: [],
       _meta: {},
+      _perf: perf,
     };
     expect(transitionAction!.outputSchema!.safeParse(noDeprecation).success).toBe(
       true,
     );
+  });
+});
+
+// ─── Wave 0 / Task G.2 — Envelope-factory consolidation ──────────────────
+//
+// The three standalone `Workflow{Set,Transition,Update}OutputSchema`
+// constants — declared in v2.10.0-preview.2 as the LCD-envelope prototype
+// — are consolidated as thin wrappers over the `EnvelopeSchema(dataSchema)`
+// factory from `schemas/envelope.ts`. The constants remain as deprecated
+// re-exports for one release window so any downstream typed-import
+// consumer doesn't break; canonical replacement is `EnvelopeSchema` directly.
+describe('Registry_OutputSchema (Wave 0 / G.2)', () => {
+  it('WorkflowTransitionOutputSchema_DerivedFromEnvelopeFactory_ParsesValidSuccessEnvelope', () => {
+    // Build a canonical success envelope via `wrap()`, then attach a
+    // typed deprecation sub-shape on `_meta` — the consolidated factory
+    // wrapper must accept both the envelope core and the deprecation slot.
+    const env = wrap(
+      { phase: 'plan' },
+      { deprecation: { since: '2.10', removeIn: '2.12', replacement: 'transition' } },
+    );
+    expect(WorkflowTransitionOutputSchema.safeParse(env).success).toBe(true);
+
+    // Symmetric coverage for the other two consolidated wrappers.
+    expect(WorkflowSetOutputSchema.safeParse(env).success).toBe(true);
+    const updateEnv = wrap({ phase: 'plan' }, {});
+    expect(WorkflowUpdateOutputSchema.safeParse(updateEnv).success).toBe(true);
+  });
+
+  it('WorkflowTransitionOutputSchema_DerivedFromEnvelopeFactory_ParsesValidErrorEnvelope', () => {
+    const errEnv = wrapError(
+      new ConcurrencyError({
+        streamId: 'stream-x',
+        reducerId: 'reducer-y',
+        expectedVersion: 1,
+        actualVersion: 2,
+      }),
+    );
+    expect(WorkflowTransitionOutputSchema.safeParse(errEnv).success).toBe(true);
+    expect(WorkflowSetOutputSchema.safeParse(errEnv).success).toBe(true);
+    expect(WorkflowUpdateOutputSchema.safeParse(errEnv).success).toBe(true);
+  });
+});
+
+// ─── Wave 0 / Task A.5 — ActionAnnotations (#1289, design §2.4) ────────
+//
+// Server-trusted `safety` field + MCP-spec advisory *Hint flags
+// (readOnly/destructive/idempotent/openWorld). Validator must throw with
+// the action name surfaced for operator-friendly errors.
+describe('ActionAnnotationsSchema', () => {
+  const valid: ActionAnnotations = {
+    safety: 'read-only',
+    readOnly: true,
+    destructive: false,
+    idempotent: true,
+    openWorld: false,
+  };
+
+  it('ActionAnnotationsSchema_RejectsMissingSafetyField_Fails', () => {
+    const { safety: _drop, ...withoutSafety } = valid;
+    const result = ActionAnnotationsSchema.safeParse(withoutSafety);
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues.some((i) => i.path.join('.') === 'safety')).toBe(
+        true,
+      );
+    }
+  });
+
+  it('ActionAnnotationsSchema_RejectsMissingReadOnlyField_Fails', () => {
+    const { readOnly: _drop, ...withoutReadOnly } = valid;
+    const result = ActionAnnotationsSchema.safeParse(withoutReadOnly);
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(
+        result.error.issues.some((i) => i.path.join('.') === 'readOnly'),
+      ).toBe(true);
+    }
+  });
+
+  it('ActionAnnotationsSchema_AcceptsCompleteRecord_Succeeds', () => {
+    const result = ActionAnnotationsSchema.safeParse(valid);
+    expect(result.success).toBe(true);
+
+    // Each safety enum value paired with its canonical mapping (see
+    // registry.ts §"Mapping rules" comment block).
+    const canonicalByEnumValue: Record<ActionAnnotations['safety'], ActionAnnotations> = {
+      'read-only': {
+        safety: 'read-only',
+        readOnly: true,
+        destructive: false,
+        idempotent: true,
+        openWorld: false,
+      },
+      'local-mutation': {
+        safety: 'local-mutation',
+        readOnly: false,
+        destructive: false,
+        idempotent: false,
+        openWorld: false,
+      },
+      'remote-mutation': {
+        safety: 'remote-mutation',
+        readOnly: false,
+        destructive: false,
+        idempotent: false,
+        openWorld: true,
+      },
+      compensable: {
+        safety: 'compensable',
+        readOnly: false,
+        destructive: true,
+        idempotent: false,
+        openWorld: false,
+      },
+    };
+    for (const canonical of Object.values(canonicalByEnumValue)) {
+      expect(ActionAnnotationsSchema.safeParse(canonical).success).toBe(true);
+    }
+  });
+
+  it('ActionAnnotationsSchema_RejectsInvalidSafetyEnum_Fails', () => {
+    const result = ActionAnnotationsSchema.safeParse({
+      ...valid,
+      safety: 'partial-mutation',
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues.some((i) => i.path.join('.') === 'safety')).toBe(
+        true,
+      );
+    }
+  });
+
+  // ─── Mapping-rule invariants (CodeRabbit PR #1369 major) ──────────────
+  //
+  // The shape-only schema admitted contradictory tuples like
+  // `safety: 'read-only' + readOnly: false`, which would have silently
+  // labeled an event-emitting action as advisory-safe. superRefine
+  // enforces the mapping rules documented in registry.ts so the same
+  // class of error that produced the doctor / check_convergence Sentry
+  // HIGH finding cannot reappear elsewhere — INV-5b (spec-aligned output
+  // contract) fails closed at module load.
+
+  it('ActionAnnotationsSchema_RejectsReadOnlySafetyWithReadOnlyFalse_Fails', () => {
+    const result = ActionAnnotationsSchema.safeParse({
+      safety: 'read-only',
+      readOnly: false,
+      destructive: false,
+      idempotent: true,
+      openWorld: false,
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('ActionAnnotationsSchema_RejectsReadOnlySafetyWithDestructiveTrue_Fails', () => {
+    const result = ActionAnnotationsSchema.safeParse({
+      safety: 'read-only',
+      readOnly: true,
+      destructive: true,
+      idempotent: true,
+      openWorld: false,
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('ActionAnnotationsSchema_RejectsLocalMutationWithReadOnlyTrue_Fails', () => {
+    const result = ActionAnnotationsSchema.safeParse({
+      safety: 'local-mutation',
+      readOnly: true,
+      destructive: false,
+      idempotent: false,
+      openWorld: false,
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('ActionAnnotationsSchema_RejectsCompensableWithDestructiveFalse_Fails', () => {
+    const result = ActionAnnotationsSchema.safeParse({
+      safety: 'compensable',
+      readOnly: false,
+      destructive: false,
+      idempotent: false,
+      openWorld: false,
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('ActionAnnotationsSchema_RejectsRemoteMutationWithOpenWorldFalse_Fails', () => {
+    const result = ActionAnnotationsSchema.safeParse({
+      safety: 'remote-mutation',
+      readOnly: false,
+      destructive: false,
+      idempotent: false,
+      openWorld: false,
+    });
+    expect(result.success).toBe(false);
+  });
+});
+
+describe('validateAnnotations', () => {
+  const valid: ActionAnnotations = {
+    safety: 'local-mutation',
+    readOnly: false,
+    destructive: false,
+    idempotent: true,
+    openWorld: false,
+  };
+
+  it('validateAnnotations_ThrowsOnPartialObject_IncludesFieldName', () => {
+    const partial = { safety: 'local-mutation', readOnly: false };
+
+    let caught: Error | undefined;
+    try {
+      validateAnnotations(partial, 'composeMessage');
+    } catch (err) {
+      caught = err as Error;
+    }
+
+    expect(caught).toBeInstanceOf(Error);
+    // The action name must be present so operators can locate the offender.
+    expect(caught!.message).toContain('composeMessage');
+    // At least one missing field name must surface in the message so the
+    // operator does not have to re-derive what's wrong from a generic error.
+    const mentionsAMissingField =
+      caught!.message.includes('destructive') ||
+      caught!.message.includes('idempotent') ||
+      caught!.message.includes('openWorld');
+    expect(mentionsAMissingField).toBe(true);
+  });
+
+  it('validateAnnotations_AcceptsCompleteRecord_DoesNotThrow', () => {
+    expect(() => validateAnnotations(valid, 'composeMessage')).not.toThrow();
+  });
+});
+
+// ─── Wave 0 / Tasks C.1 + C.2 — Registry Invariant Tests ─────────────
+//
+// Every action in every visible AND hidden tool must declare both
+// `outputSchema` (a Zod schema) and `annotations` (a typed
+// ActionAnnotations record). Failure surface includes the
+// `${tool}.${action}` identifier so an operator can navigate from
+// a failed CI run to the offending entry in <1 minute.
+//
+// Design §2.1 (outputSchema as the per-action contract surface) +
+// §2.4 (annotations for safety + MCP advisory hints). Issues #1287 +
+// #1289.
+describe('Registry invariants — outputSchema + annotations', () => {
+  it('Registry_AllActionsAcrossVisibleAndHiddenTools_DeclareOutputSchema', () => {
+    const offenders: string[] = [];
+    for (const tool of getFullRegistry()) {
+      for (const action of tool.actions) {
+        const id = `${tool.name}.${action.name}`;
+        if (action.outputSchema === undefined) {
+          offenders.push(`${id} (missing outputSchema)`);
+          continue;
+        }
+        if (typeof (action.outputSchema as { parse?: unknown }).parse !== 'function') {
+          offenders.push(`${id} (outputSchema is not a Zod schema)`);
+        }
+      }
+    }
+    expect(offenders, offenders.join('\n')).toEqual([]);
+  });
+
+  it('Registry_AllActionsAcrossVisibleAndHiddenTools_DeclareAnnotations', () => {
+    const offenders: string[] = [];
+    for (const tool of getFullRegistry()) {
+      for (const action of tool.actions) {
+        const id = `${tool.name}.${action.name}`;
+        if (action.annotations === undefined) {
+          offenders.push(`${id} (missing annotations)`);
+          continue;
+        }
+        try {
+          // Re-validate the shape so a hand-edited annotations field that
+          // drifts from the schema is caught here, not at first use.
+          validateAnnotations(action.annotations, id);
+        } catch (err) {
+          offenders.push(
+            `${id} (invalid annotations: ${err instanceof Error ? err.message : String(err)})`,
+          );
+        }
+      }
+    }
+    expect(offenders, offenders.join('\n')).toEqual([]);
+  });
+});
+
+// ─── Wave 0 / Task C.3 — validateAction (registration-time invariant) ──
+//
+// `validateAction` is the per-action gate the registry runs at module
+// load. It surfaces missing `outputSchema` / `annotations` declarations
+// with the fully-qualified `${tool}.${action}` identifier so the
+// failure points the operator straight at the offender.
+describe('validateAction', () => {
+  // Local import: the function must be exported from `./registry.js`
+  // alongside the existing `validateAnnotations` helper.
+  const importValidateAction = async () => {
+    const mod = await import('./registry.js');
+    return (mod as { validateAction: (
+      action: { name: string; outputSchema?: z.ZodType; annotations?: unknown },
+      toolName: string,
+    ) => void }).validateAction;
+  };
+
+  const validAnnotations: ActionAnnotations = {
+    safety: 'local-mutation',
+    readOnly: false,
+    destructive: false,
+    idempotent: false,
+    openWorld: false,
+  };
+
+  it('ValidateAction_MissingOutputSchema_ThrowsWithActionName', async () => {
+    const validateAction = await importValidateAction();
+    expect(() =>
+      validateAction(
+        { name: 'noOutput', annotations: validAnnotations },
+        'exarchos_workflow',
+      ),
+    ).toThrow(/exarchos_workflow\.noOutput/);
+    expect(() =>
+      validateAction(
+        { name: 'noOutput', annotations: validAnnotations },
+        'exarchos_workflow',
+      ),
+    ).toThrow(/outputSchema/);
+  });
+
+  it('ValidateAction_MissingAnnotations_ThrowsWithActionName', async () => {
+    const validateAction = await importValidateAction();
+    expect(() =>
+      validateAction(
+        { name: 'noAnnotations', outputSchema: z.object({}) },
+        'exarchos_view',
+      ),
+    ).toThrow(/exarchos_view\.noAnnotations/);
+  });
+
+  it('ValidateAction_ValidAction_DoesNotThrow', async () => {
+    const validateAction = await importValidateAction();
+    expect(() =>
+      validateAction(
+        {
+          name: 'ok',
+          outputSchema: z.object({ success: z.boolean() }),
+          annotations: validAnnotations,
+        },
+        'exarchos_event',
+      ),
+    ).not.toThrow();
   });
 });

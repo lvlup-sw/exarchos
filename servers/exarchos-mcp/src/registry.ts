@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { CheckpointHandoffSchema, WorkflowTypeSchema } from './workflow/schemas.js';
 import { agentSpecSchema as agentSpecSchemaForRegistry } from './agents/handler.js';
+import { EnvelopeSchema } from './schemas/envelope.js';
 export { coercedRecord, coercedPositiveInt, coercedNonnegativeInt, coercedStringArray } from './coerce.js';
 import { coercedRecord, coercedPositiveInt, coercedNonnegativeInt, coercedStringArray } from './coerce.js';
 
@@ -33,6 +34,233 @@ export interface AutoEmission {
   readonly description?: string;
 }
 
+// ─── Action Annotations (#1289, design §2.4) ─────────────────────────
+//
+// Per-action metadata co-located with the schema. `safety` is
+// server-trusted (consumed by HSM guards + computeNextActions in a
+// later task). The 4 *Hint flags are spec-defined client-untrusted UI
+// hints populated to tools/list. Per MCP §Tools / Annotations,
+// annotations are EXPLICITLY untrusted by clients unless the server is
+// trusted — they are advisory only on the wire.
+export type ActionAnnotations = {
+  readonly safety: 'read-only' | 'local-mutation' | 'remote-mutation' | 'compensable';
+  readonly readOnly: boolean;
+  readonly destructive: boolean;
+  readonly idempotent: boolean;
+  readonly openWorld: boolean;
+};
+
+// Mapping rules (mirror the §"Shared Annotation Presets" comment block
+// below). `superRefine` rejects contradictory tuples — e.g. an action
+// that claims `safety: 'read-only'` but flips `readOnly: false` would
+// otherwise pass the shape-only check yet smuggle a writer past the
+// capability boundary (CodeRabbit MAJOR on PR #1369; also the same
+// mis-annotation class behind the doctor / check_convergence Sentry
+// HIGH).
+//
+// `idempotent` is not asserted because the comment block explicitly
+// notes that idempotency varies per handler within the local-mutation
+// family. `openWorld` is asserted only where the safety enum implies
+// it (remote-mutation must be openWorld:true; other classes leave it
+// free because compensable splits local/remote).
+export const ActionAnnotationsSchema = z.object({
+  safety: z.enum(['read-only', 'local-mutation', 'remote-mutation', 'compensable']),
+  readOnly: z.boolean(),
+  destructive: z.boolean(),
+  idempotent: z.boolean(),
+  openWorld: z.boolean(),
+}).strict().superRefine((a, ctx) => {
+  switch (a.safety) {
+    case 'read-only':
+      if (!a.readOnly) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['readOnly'],
+          message: "safety 'read-only' requires readOnly: true",
+        });
+      }
+      if (a.destructive) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['destructive'],
+          message: "safety 'read-only' requires destructive: false",
+        });
+      }
+      break;
+    case 'local-mutation':
+      if (a.readOnly) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['readOnly'],
+          message: "safety 'local-mutation' requires readOnly: false",
+        });
+      }
+      if (a.destructive) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['destructive'],
+          message: "safety 'local-mutation' requires destructive: false (use 'compensable' for destructive writes)",
+        });
+      }
+      break;
+    case 'remote-mutation':
+      if (a.readOnly) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['readOnly'],
+          message: "safety 'remote-mutation' requires readOnly: false",
+        });
+      }
+      if (a.destructive) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['destructive'],
+          message: "safety 'remote-mutation' requires destructive: false (use 'compensable' for destructive writes)",
+        });
+      }
+      if (!a.openWorld) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['openWorld'],
+          message: "safety 'remote-mutation' requires openWorld: true",
+        });
+      }
+      break;
+    case 'compensable':
+      if (a.readOnly) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['readOnly'],
+          message: "safety 'compensable' requires readOnly: false",
+        });
+      }
+      if (!a.destructive) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['destructive'],
+          message: "safety 'compensable' requires destructive: true",
+        });
+      }
+      break;
+  }
+});
+
+export function validateAnnotations(a: unknown, actionName: string): asserts a is ActionAnnotations {
+  const result = ActionAnnotationsSchema.safeParse(a);
+  if (!result.success) {
+    const issues = result.error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; ');
+    throw new Error(`Action '${actionName}' has invalid annotations: ${issues}`);
+  }
+}
+
+/**
+ * Registration-time invariant check (Wave 0 task C.3, design §2.1 + §2.4,
+ * issues #1287 + #1289).
+ *
+ * Every action MUST declare both `outputSchema` (a Zod schema for the
+ * response envelope) and `annotations` (a typed ActionAnnotations record).
+ * Called from the module-load loop at the bottom of this file so any
+ * malformed action fails the import — DIM-3 contracts fail closed at
+ * startup rather than at first call. The thrown error always surfaces
+ * the fully-qualified `${toolName}.${action.name}` identifier so the
+ * operator can navigate from a failed import directly to the offender.
+ */
+export function validateAction(
+  action: { name: string; outputSchema?: z.ZodType; annotations?: unknown },
+  toolName: string,
+): void {
+  const id = `${toolName}.${action.name}`;
+  if (action.outputSchema === undefined) {
+    throw new Error(`Action '${id}' is missing required outputSchema`);
+  }
+  if (typeof (action.outputSchema as { parse?: unknown }).parse !== 'function') {
+    throw new Error(`Action '${id}' outputSchema is not a Zod schema`);
+  }
+  // ActionAnnotationsSchema is re-validated here (not just a presence
+  // check) so a hand-edited field set that drifts from the schema fails
+  // at the same boundary as a missing declaration.
+  validateAnnotations(action.annotations, id);
+}
+
+// ─── Shared Annotation Presets (Wave 0 E.1-E.5, design §2.4) ────────
+//
+// Each preset codifies the (safety, readOnly, destructive, idempotent,
+// openWorld) tuple for one of the recurring action shapes in the
+// registry. Co-locating them removes drift risk across 90+ declaration
+// sites and makes per-action annotations a single keyword in the array
+// literal — the *kind* of action is the only thing the author has to
+// classify; the flag tuple follows from the preset.
+//
+// Mapping rules (DIM-3 safety boundary, applied uniformly):
+// - read-only            → readOnly:true,  destructive:false, idempotent:true,  openWorld:false
+// - read-only + external → readOnly:true,  destructive:false, idempotent:true,  openWorld:true
+// - local-mutation       → readOnly:false, destructive:false, idempotent:false, openWorld:false
+// - local-mutation idem. → readOnly:false, destructive:false, idempotent:true,  openWorld:false
+// - compensable (local)  → readOnly:false, destructive:true,  idempotent:false, openWorld:false
+// - compensable (remote) → readOnly:false, destructive:true,  idempotent:false, openWorld:true
+// - remote-mutation      → readOnly:false, destructive:false, idempotent:false, openWorld:true
+//
+// `idempotent: true` is asserted only for actions whose handler is
+// documented or empirically safe to re-run (reconcile, rehydrate,
+// checkpoint, sync, plus all pure reads). Default for state-writers is
+// false because re-running yields a new event in the stream.
+
+const READ_ONLY_LOCAL: ActionAnnotations = {
+  safety: 'read-only',
+  readOnly: true,
+  destructive: false,
+  idempotent: true,
+  openWorld: false,
+};
+
+const READ_ONLY_REMOTE: ActionAnnotations = {
+  safety: 'read-only',
+  readOnly: true,
+  destructive: false,
+  idempotent: true,
+  openWorld: true,
+};
+
+const LOCAL_MUTATION: ActionAnnotations = {
+  safety: 'local-mutation',
+  readOnly: false,
+  destructive: false,
+  idempotent: false,
+  openWorld: false,
+};
+
+const LOCAL_MUTATION_IDEMPOTENT: ActionAnnotations = {
+  safety: 'local-mutation',
+  readOnly: false,
+  destructive: false,
+  idempotent: true,
+  openWorld: false,
+};
+
+const COMPENSABLE_LOCAL: ActionAnnotations = {
+  safety: 'compensable',
+  readOnly: false,
+  destructive: true,
+  idempotent: false,
+  openWorld: false,
+};
+
+const COMPENSABLE_REMOTE: ActionAnnotations = {
+  safety: 'compensable',
+  readOnly: false,
+  destructive: true,
+  idempotent: false,
+  openWorld: true,
+};
+
+const REMOTE_MUTATION: ActionAnnotations = {
+  safety: 'remote-mutation',
+  readOnly: false,
+  destructive: false,
+  idempotent: false,
+  openWorld: true,
+};
+
 export interface ToolAction {
   readonly name: string;
   readonly description: string;
@@ -58,14 +286,30 @@ export interface ToolAction {
    */
   readonly deprecated?: boolean;
   /**
-   * DR-11 (durable-substrate, #1259) — typed Zod schema describing the
-   * action's response envelope. When present, the schema registers the
-   * `_meta.deprecation` sub-shape and is exposed via `describe` for
-   * structured client-side decoding. Pre-existing actions without an
-   * `outputSchema` continue to function unchanged; only the affected
-   * actions in the C4 (HSM single-path) bundle declare one in v2.10.
+   * Typed Zod schema describing the action's response envelope (Wave 0
+   * task E.1-E.5, DR-11, design §2.1). All actions in the built-in
+   * registry MUST declare an `outputSchema` — most attach
+   * `EnvelopeSchema(z.unknown())` (the LCD envelope shape with
+   * `data: unknown`) while a small set of HSM actions (workflow.set/
+   * transition/update) attach typed sub-shapes that register the
+   * `_meta.deprecation` slot. Per-action data-shape tightening is
+   * incremental follow-up work (design §10, out of scope for Wave 0).
+   *
+   * The field is required at the interface boundary; the registration-
+   * time validator (`validateAction`) also enforces presence at module
+   * load so a malformed declaration fails the import (DIM-3 fail-closed).
    */
-  readonly outputSchema?: z.ZodTypeAny;
+  readonly outputSchema: z.ZodType;
+  /**
+   * Per-action annotations (Wave 0 task E.1-E.5, design §2.4, #1289).
+   * `safety` is server-trusted and is consumed by HSM guards +
+   * computeNextActions in a later task. The four Hint flags
+   * (readOnly/destructive/idempotent/openWorld) are spec-defined
+   * advisory hints surfaced to MCP clients via `tools/list`; per the
+   * MCP spec they are EXPLICITLY untrusted unless the server itself
+   * is trusted.
+   */
+  readonly annotations: ActionAnnotations;
 }
 
 export interface CompositeTool {
@@ -82,15 +326,19 @@ export interface CompositeTool {
 // ─── Schema Generation ──────────────────────────────────────────────────────
 
 /** A ZodObject whose shape includes an `action` discriminator key. */
-type ActionDiscriminatedSchema = z.ZodObject<{ action: z.ZodTypeAny } & z.ZodRawShape>;
+type ActionDiscriminatedSchema = z.ZodObject<{ action: z.ZodType } & z.ZodRawShape>;
 
 /**
  * Builds a Zod discriminated union from a list of ToolActions.
  * Each action's schema is extended with an `action: z.literal(name)` discriminator.
+ *
+ * Note (Zod v4): `ZodDiscriminatedUnion` swapped its generic order. The
+ * declaration is now `<Options, Disc>` (tuple first, discriminator second);
+ * v3 used `<Disc, Options>`.
  */
 export function buildCompositeSchema(
   actions: readonly ToolAction[],
-): z.ZodDiscriminatedUnion<'action', [ActionDiscriminatedSchema, ...ActionDiscriminatedSchema[]]> {
+): z.ZodDiscriminatedUnion<[ActionDiscriminatedSchema, ...ActionDiscriminatedSchema[]], 'action'> {
   if (actions.length < 2) {
     throw new Error('buildCompositeSchema requires at least 2 actions for a discriminated union');
   }
@@ -116,16 +364,32 @@ export function buildCompositeSchema(
  * The preprocess coercion still runs at validation time via the original
  * action schemas in `buildCompositeSchema` — this only affects the JSON
  * Schema sent to tool callers.
+ *
+ * Zod v4 unified `ZodEffects` into `ZodPipe`. A `z.preprocess(fn, inner)`
+ * is now a `ZodPipe` whose `def.in` is a `ZodTransform` and whose `def.out`
+ * is the original `inner` schema. We detect that exact shape rather than
+ * matching every `ZodPipe` — `.transform()` is also a `ZodPipe` but with
+ * `transform` as `def.out`, which we don't want to unwrap (the wire-level
+ * type is the inner schema's output, not its input).
  */
-function unwrapPreprocess(schema: z.ZodTypeAny): z.ZodTypeAny {
+function isPreprocessPipe(schema: z.ZodType): schema is z.ZodPipe {
+  if (!(schema instanceof z.ZodPipe)) return false;
+  const def = schema._zod.def;
+  return def.in._zod.def.type === 'transform';
+}
+
+function unwrapPreprocess(schema: z.ZodType): z.ZodType {
   if (schema instanceof z.ZodOptional) {
-    const inner = schema._def.innerType;
-    if (inner instanceof z.ZodEffects && inner._def.effect.type === 'preprocess') {
-      return inner._def.schema.optional();
+    // Zod v4 types `innerType` as the core `$ZodType` (the internal base
+    // interface) rather than the classic `ZodType`. Cast at the boundary;
+    // the runtime instance is always a classic schema in practice.
+    const inner = schema._zod.def.innerType as z.ZodType;
+    if (isPreprocessPipe(inner)) {
+      return (inner._zod.def.out as z.ZodType).optional();
     }
   }
-  if (schema instanceof z.ZodEffects && schema._def.effect.type === 'preprocess') {
-    return schema._def.schema;
+  if (isPreprocessPipe(schema)) {
+    return schema._zod.def.out as z.ZodType;
   }
   return schema;
 }
@@ -152,7 +416,11 @@ export function buildRegistrationSchema(
   actions: readonly ToolAction[],
 ): z.ZodObject<z.ZodRawShape> {
   const actionNames = actions.map((a) => a.name) as [string, ...string[]];
-  const shape: z.ZodRawShape = {
+  // Zod v4 typed `ZodRawShape` as `Readonly<{[k:string]:$ZodType}>`, so the
+  // builder uses a plain mutable record and casts at the `z.object(...)`
+  // boundary. Behavior is unchanged: the resulting object still has the
+  // same shape and `.strict()` semantics.
+  const shape: Record<string, z.ZodType> = {
     action: z.enum(actionNames),
   };
   // Track the first action to declare each field. A later action declaring the
@@ -166,7 +434,7 @@ export function buildRegistrationSchema(
   for (const action of actions) {
     const fields = action.schema.shape;
     for (const [key, zodType] of Object.entries(fields)) {
-      const field = unwrapPreprocess(zodType as z.ZodTypeAny);
+      const field = unwrapPreprocess(zodType as z.ZodType);
       const contract = fieldContract(field);
 
       const prior = provenance.get(key);
@@ -186,7 +454,7 @@ export function buildRegistrationSchema(
     }
   }
 
-  return z.object(shape).strict();
+  return z.object(shape as z.ZodRawShape).strict();
 }
 
 /**
@@ -201,7 +469,7 @@ interface FieldContract {
   readonly defaultValue: string | null; // JSON-stringified default, null if none
 }
 
-function fieldContract(zodType: z.ZodTypeAny): FieldContract {
+function fieldContract(zodType: z.ZodType): FieldContract {
   const inner = unwrapOptional(zodType);
   const enumValues = extractEnumValues(inner);
   const defaultValue = extractDefault(inner);
@@ -212,10 +480,12 @@ function fieldContract(zodType: z.ZodTypeAny): FieldContract {
   };
 }
 
-function baseKind(schema: z.ZodTypeAny): FieldContract['kind'] {
-  let current = schema;
-  if (current instanceof z.ZodDefault) current = current._def.innerType;
-  if (current instanceof z.ZodOptional) current = current._def.innerType;
+function baseKind(schema: z.ZodType): FieldContract['kind'] {
+  let current: z.ZodType = schema;
+  // Zod v4: `_def` was renamed to `_zod.def`. Inner-type peeling now uses
+  // `_zod.def.innerType`.
+  if (current instanceof z.ZodDefault) current = current._zod.def.innerType as z.ZodType;
+  if (current instanceof z.ZodOptional) current = current._zod.def.innerType as z.ZodType;
   if (current instanceof z.ZodString) return 'string';
   // Number covers z.number() and z.number().int() — JSON Schema distinguishes
   // them as number vs integer, but the per-handler schema re-validates
@@ -227,45 +497,49 @@ function baseKind(schema: z.ZodTypeAny): FieldContract['kind'] {
   return 'other';
 }
 
-function unwrapOptional(schema: z.ZodTypeAny): z.ZodTypeAny {
-  let current = schema;
+function unwrapOptional(schema: z.ZodType): z.ZodType {
+  let current: z.ZodType = schema;
   // Peel Optional and Nullable wrappers. Keep Default wrappers — the default
   // is a contract-level attribute we explicitly want to inspect.
   while (current instanceof z.ZodOptional || current instanceof z.ZodNullable) {
-    current = current._def.innerType;
+    current = current._zod.def.innerType as z.ZodType;
   }
   return current;
 }
 
-function extractEnumValues(schema: z.ZodTypeAny): readonly string[] | null {
+function extractEnumValues(schema: z.ZodType): readonly string[] | null {
   const current = peelEnumWrappers(schema);
   if (current instanceof z.ZodEnum) {
-    return [...(current._def.values as readonly string[])].sort();
+    // Zod v4 unified `ZodEnum` and `ZodNativeEnum` into a single `ZodEnum`
+    // whose `def.entries` is a `{ name: value }` map. For string enums the
+    // map is `{x:'x', y:'y'}`; for numeric TS enums it round-trips both
+    // member names and values via reverse mapping
+    // (`{'0':'A', '1':'B', A:0, B:1}`). Stringify-dedupe to produce a
+    // stable, comparable value set across both shapes.
+    const raw = Object.values(current._zod.def.entries as Record<string, unknown>);
+    return [...new Set(raw.map((v) => JSON.stringify(v)))].sort();
   }
   if (current instanceof z.ZodLiteral) {
     // Treat a literal as a 1-member enum so two actions declaring the same
     // field with different literal values collide instead of silently
-    // shadowing each other (#1127-class hazard).
-    return [JSON.stringify(current._def.value as unknown)];
-  }
-  if (current instanceof z.ZodNativeEnum) {
-    // TS `enum` objects round-trip both member names and values for numeric
-    // enums (reverse mapping). Stringify-dedupe the values so string and
-    // numeric native enums produce a stable, comparable set.
-    const raw = Object.values(current._def.values as Record<string, unknown>);
-    return [...new Set(raw.map((v) => JSON.stringify(v)))].sort();
+    // shadowing each other (#1127-class hazard). Zod v4 changed
+    // `ZodLiteral.def` from `{ value: T }` to `{ values: T[] }` (an array
+    // — a literal can now carry multiple permitted values in one schema).
+    const values = current._zod.def.values as readonly unknown[];
+    return [...new Set(values.map((v) => JSON.stringify(v)))].sort();
   }
   if (current instanceof z.ZodUnion) {
     // Union-of-literals is the hand-rolled form of z.enum(). Collect the
     // literal values; fall back to null if any branch isn't a literal so
     // heterogeneous unions (e.g. string | string[]) still classify via
     // baseKind instead of being falsely flagged as enum-compatible.
-    const options = current._def.options as readonly z.ZodTypeAny[];
+    const options = current._zod.def.options as readonly z.ZodType[];
     const literalValues: string[] = [];
     for (const opt of options) {
       const peeled = peelEnumWrappers(opt);
       if (!(peeled instanceof z.ZodLiteral)) return null;
-      literalValues.push(JSON.stringify(peeled._def.value as unknown));
+      const lits = peeled._zod.def.values as readonly unknown[];
+      for (const v of lits) literalValues.push(JSON.stringify(v));
     }
     return [...new Set(literalValues)].sort();
   }
@@ -274,23 +548,28 @@ function extractEnumValues(schema: z.ZodTypeAny): readonly string[] | null {
 
 /** Peel ZodDefault / ZodOptional / ZodNullable wrappers so the caller can
  *  match on the underlying enum-ish kind. Kept narrow on purpose: we don't
- *  peel ZodEffects or ZodBranded because those change the wire-level
- *  contract and deserve to be classified distinctly. */
-function peelEnumWrappers(schema: z.ZodTypeAny): z.ZodTypeAny {
-  let current = schema;
+ *  peel ZodPipe (formerly ZodEffects) or ZodBranded because those change
+ *  the wire-level contract and deserve to be classified distinctly. */
+function peelEnumWrappers(schema: z.ZodType): z.ZodType {
+  let current: z.ZodType = schema;
   while (
     current instanceof z.ZodDefault ||
     current instanceof z.ZodOptional ||
     current instanceof z.ZodNullable
   ) {
-    current = current._def.innerType;
+    current = current._zod.def.innerType as z.ZodType;
   }
   return current;
 }
 
-function extractDefault(schema: z.ZodTypeAny): unknown {
+function extractDefault(schema: z.ZodType): unknown {
   if (schema instanceof z.ZodDefault) {
-    return schema._def.defaultValue();
+    // Zod v4: `def.defaultValue` is the value itself (not a getter
+    // function). v3 stored a `() => T` thunk that we had to invoke; v4
+    // resolves the lazy form internally and exposes the materialized
+    // value on the def. See `$ZodDefaultDef.defaultValue` in
+    // zod/v4/core/schemas.d.ts.
+    return schema._zod.def.defaultValue;
   }
   return undefined;
 }
@@ -326,7 +605,7 @@ export function buildToolDescription(tool: CompositeTool, slim = false): string 
   const actionSigs = tool.actions.map((action) => {
     const fields = Object.entries(action.schema.shape);
     const params = fields.map(([key, zodType]) => {
-      const isOptional = (zodType as z.ZodTypeAny).isOptional();
+      const isOptional = (zodType as z.ZodType).isOptional();
       return isOptional ? `${key}?` : key;
     });
     return `- ${action.name}(${params.join(', ')}): ${action.description}`;
@@ -430,6 +709,8 @@ function makeDescribeAction(): ToolAction {
     schema: describeSchema,
     phases: ALL_PHASES,
     roles: ROLE_ANY,
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: READ_ONLY_LOCAL,
   };
 }
 
@@ -457,6 +738,8 @@ function makeWorkflowDescribeAction(): ToolAction {
     schema: workflowDescribeSchema,
     phases: ALL_PHASES,
     roles: ROLE_ANY,
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: READ_ONLY_LOCAL,
   };
 }
 
@@ -479,6 +762,8 @@ function makeEventDescribeAction(): ToolAction {
     schema: eventDescribeSchema,
     phases: ALL_PHASES,
     roles: ROLE_ANY,
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: READ_ONLY_LOCAL,
   };
 }
 
@@ -518,73 +803,84 @@ export const MetaDeprecationSchema = z.object({
   replacement: z.string().min(1).describe('Canonical action name that supersedes this one'),
 });
 
+// Wave 0 / Task G.2 (#1340): consolidate the three v2.10.0-preview.2
+// standalone envelope constants onto the canonical `EnvelopeSchema(data)`
+// factory from `schemas/envelope.ts`. Each surface remains as a named
+// export so any downstream consumer that typed-imported the constants
+// directly continues to compile through one release window; canonical
+// replacement is `EnvelopeSchema` itself (callers should migrate to it
+// before the v2.12 removal).
+//
+// Per design §2.1 (single envelope factory) and DIM-1 (dispatch core is
+// single-source for action contracts) — the previous bespoke
+// `z.object({...}).passthrough()` shapes drifted from the canonical
+// envelope contract (no typed `_perf`, `success` not literal-discriminated,
+// no typed `error` block). The factory anchors all three on the same
+// discriminated-union envelope and applies an additional intersection
+// constraint where DR-4/DR-11 requires the typed `_meta.deprecation`
+// sub-shape.
+
 /**
- * `outputSchema` for `exarchos_workflow.set` (DR-11). Both success and
- * failure responses share the standard `ToolResult` shape, but the
- * deprecated phase-write path additionally surfaces `_meta.deprecation`.
+ * Shape constraint for `_meta.deprecation` (DR-4, DR-11). When `_meta`
+ * carries a `deprecation` slot, each sub-field must validate against
+ * {@link MetaDeprecationSchema}. The slot itself is always optional —
+ * the canonical action does not emit it; the rerouted/deprecated
+ * surface does.
  *
- * Schema is permissive on the success branch (`data` is `unknown`) so the
- * existing rich payloads (`phase`, `updatedAt`, `sidecarPending`) continue
- * to validate without freezing the wire format. The deprecation sub-shape
- * is the only field this version of the schema strictly types.
+ * `passthrough()` on `_meta` so the rest of the typed envelope's
+ * `z.record(z.string(), z.unknown())` _meta merge survives the
+ * intersection.
  */
-export const WorkflowSetOutputSchema = z.object({
-  success: z.boolean(),
-  data: z.unknown().optional(),
-  error: z.unknown().optional(),
-  warnings: z.array(z.string()).optional(),
-  next_actions: z.array(z.unknown()).optional(),
+const MetaDeprecationConstraint = z.object({
   _meta: z.object({
     deprecation: MetaDeprecationSchema.optional(),
   }).passthrough().optional(),
-  _perf: z.unknown().optional(),
 }).passthrough();
 
 /**
- * `outputSchema` for `exarchos_workflow.transition` (DR-11). Symmetric to
- * `WorkflowSetOutputSchema` so both arms of the C4 single-path consolidation
- * advertise the same envelope contract — the canonical action does not emit
- * `_meta.deprecation` itself, but registering the typed sub-shape keeps the
- * surfaces interchangeable from a contract-introspection standpoint.
+ * `outputSchema` for the (now-removed) `exarchos_workflow.set` action.
+ *
+ * @deprecated v2.10 LCD; will be removed in v2.12. Use
+ * `EnvelopeSchema(dataSchema)` from `./schemas/envelope.js` directly.
+ *
+ * Retained for one release as a named re-export so downstream typed
+ * imports compile. Nothing in the registry references this constant
+ * any longer (the `set` action entry was removed in v2.11/DR-4).
  */
-export const WorkflowTransitionOutputSchema = z.object({
-  success: z.boolean(),
-  data: z.unknown().optional(),
-  error: z.unknown().optional(),
-  warnings: z.array(z.string()).optional(),
-  next_actions: z.array(z.unknown()).optional(),
-  _meta: z.object({
-    deprecation: MetaDeprecationSchema.optional(),
-  }).passthrough().optional(),
-  _perf: z.unknown().optional(),
-}).passthrough();
+export const WorkflowSetOutputSchema = EnvelopeSchema(z.unknown()).and(
+  MetaDeprecationConstraint,
+);
+
+/**
+ * `outputSchema` for `exarchos_workflow.transition` (DR-11).
+ *
+ * @deprecated v2.10 LCD; will be removed in v2.12. Use
+ * `EnvelopeSchema(dataSchema)` from `./schemas/envelope.js` directly
+ * (parameterized on the action's success-data shape).
+ *
+ * Thin wrapper over the canonical envelope factory plus the DR-4/DR-11
+ * typed `_meta.deprecation` constraint. The canonical action does not
+ * emit `_meta.deprecation` itself, but registering the typed sub-shape
+ * keeps the surfaces interchangeable from a contract-introspection
+ * standpoint (INV-5b).
+ */
+export const WorkflowTransitionOutputSchema = EnvelopeSchema(z.unknown()).and(
+  MetaDeprecationConstraint,
+);
 
 /**
  * `outputSchema` for `exarchos_workflow.update` (Wave 0, #1340 prep for
- * #1266). Mirrors `WorkflowTransitionOutputSchema` shape EXCEPT the
- * `_meta.deprecation` slot: `update` is a canonical surface restored in
- * v2.10.0-preview.2 and is not on a deprecation track, so the envelope
- * does not advertise the migration sub-shape.
+ * #1266).
  *
- * Keeping `_meta` as a `passthrough` object with no required keys means
- * the rich `buildCheckpointMeta` payload (`checkpointAdvised`,
- * `operationsSinceCheckpoint`, etc.) flows through unchanged — the
- * schema only freezes the envelope contract, not the inner state-derived
- * meta fields. Same trade-off as the transition schema.
+ * @deprecated v2.10 LCD; will be removed in v2.12. Use
+ * `EnvelopeSchema(dataSchema)` from `./schemas/envelope.js` directly.
  *
- * `data` is `unknown` on the success branch so `handleSet`'s rich
- * payloads (`phase`, `updatedAt`, future fields) continue to validate
- * without freezing the wire format.
+ * Mirrors {@link WorkflowTransitionOutputSchema} EXCEPT the
+ * `_meta.deprecation` constraint: `update` is a canonical surface
+ * restored in v2.10.0-preview.2 and is not on a deprecation track, so
+ * the envelope does not advertise the migration sub-shape.
  */
-export const WorkflowUpdateOutputSchema = z.object({
-  success: z.boolean(),
-  data: z.unknown().optional(),
-  error: z.unknown().optional(),
-  warnings: z.array(z.string()).optional(),
-  next_actions: z.array(z.unknown()).optional(),
-  _meta: z.object({}).passthrough().optional(),
-  _perf: z.unknown().optional(),
-}).passthrough();
+export const WorkflowUpdateOutputSchema = EnvelopeSchema(z.unknown());
 
 // ─── Composite Tool: exarchos_workflow ───────────────────────────────────────
 
@@ -609,6 +905,8 @@ const workflowActions: readonly ToolAction[] = [
     autoEmits: [
       { event: 'workflow.started', condition: 'always' },
     ],
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: LOCAL_MUTATION,
   },
   {
     name: 'get',
@@ -625,6 +923,8 @@ const workflowActions: readonly ToolAction[] = [
       flags: { featureId: { alias: 'f' }, query: { alias: 'q' } },
       examples: ['exarchos wf status -f my-feature', 'exarchos wf status -f my-feature -q phase'],
     },
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: READ_ONLY_LOCAL,
   },
   {
     name: 'transition',
@@ -643,6 +943,7 @@ const workflowActions: readonly ToolAction[] = [
       { event: 'workflow.transition', condition: 'always' },
     ],
     outputSchema: WorkflowTransitionOutputSchema,
+    annotations: LOCAL_MUTATION,
   },
   {
     // Wave 0 (#1340, v2.10.0-preview.2): canonical state-mutation surface.
@@ -695,6 +996,7 @@ const workflowActions: readonly ToolAction[] = [
     // action descriptions; callers reach it through
     // `exarchos_workflow.describe({actions: ['update']})`.
     outputSchema: WorkflowUpdateOutputSchema,
+    annotations: LOCAL_MUTATION,
   },
   {
     name: 'cancel',
@@ -709,6 +1011,8 @@ const workflowActions: readonly ToolAction[] = [
       { event: 'workflow.cancel', condition: 'always' },
       { event: 'workflow.compensation', condition: 'conditional', description: 'Per compensation action' },
     ],
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: COMPENSABLE_LOCAL,
   },
   {
     name: 'cleanup',
@@ -725,6 +1029,8 @@ const workflowActions: readonly ToolAction[] = [
     autoEmits: [
       { event: 'workflow.cleanup', condition: 'always' },
     ],
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: COMPENSABLE_LOCAL,
   },
   {
     name: 'reconcile',
@@ -734,6 +1040,8 @@ const workflowActions: readonly ToolAction[] = [
     }),
     phases: ALL_PHASES,
     roles: ROLE_LEAD,
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: LOCAL_MUTATION_IDEMPOTENT,
   },
   {
     name: 'rehydrate',
@@ -758,6 +1066,8 @@ const workflowActions: readonly ToolAction[] = [
         description: 'When rehydration succeeds (event-store emission failures are logged but do not fail the call — see rehydrate.ts).',
       },
     ],
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: LOCAL_MUTATION_IDEMPOTENT,
   },
   {
     name: 'checkpoint',
@@ -788,6 +1098,8 @@ const workflowActions: readonly ToolAction[] = [
     autoEmits: [
       { event: 'workflow.checkpoint', condition: 'always' },
     ],
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: LOCAL_MUTATION_IDEMPOTENT,
   },
   makeWorkflowDescribeAction(),
 ];
@@ -809,6 +1121,8 @@ const eventActions: readonly ToolAction[] = [
     cli: {
       examples: ['exarchos ev append --stream my-feature --event \'{"type":"task.completed","data":{"taskId":"t1"}}\''],
     },
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: LOCAL_MUTATION,
   },
   {
     name: 'query',
@@ -822,6 +1136,8 @@ const eventActions: readonly ToolAction[] = [
     }),
     phases: ALL_PHASES,
     roles: ROLE_ANY,
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: READ_ONLY_LOCAL,
   },
   {
     name: 'batch_append',
@@ -832,6 +1148,8 @@ const eventActions: readonly ToolAction[] = [
     }),
     phases: DELEGATE_PHASES,
     roles: ROLE_LEAD,
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: LOCAL_MUTATION,
   },
   makeEventDescribeAction(),
 ];
@@ -852,6 +1170,8 @@ const orchestrateActions: readonly ToolAction[] = [
     autoEmits: [
       { event: 'task.claimed', condition: 'always' },
     ],
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: LOCAL_MUTATION,
   },
   {
     name: 'task_complete',
@@ -871,6 +1191,8 @@ const orchestrateActions: readonly ToolAction[] = [
     autoEmits: [
       { event: 'task.completed', condition: 'always' },
     ],
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: LOCAL_MUTATION,
   },
   {
     name: 'task_fail',
@@ -886,6 +1208,8 @@ const orchestrateActions: readonly ToolAction[] = [
     autoEmits: [
       { event: 'task.failed', condition: 'always' },
     ],
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: LOCAL_MUTATION,
   },
   {
     name: 'review_triage',
@@ -904,6 +1228,8 @@ const orchestrateActions: readonly ToolAction[] = [
     }),
     phases: REVIEW_PHASES,
     roles: ROLE_LEAD,
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: LOCAL_MUTATION,
   },
   {
     name: 'prepare_delegation',
@@ -918,6 +1244,8 @@ const orchestrateActions: readonly ToolAction[] = [
     autoEmits: [
       { event: 'quality.hint.generated', condition: 'conditional', description: 'When hints exist' },
     ],
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: LOCAL_MUTATION,
   },
   {
     name: 'prepare_synthesis',
@@ -933,6 +1261,8 @@ const orchestrateActions: readonly ToolAction[] = [
     autoEmits: [
       { event: 'gate.executed', condition: 'always' },
     ],
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: LOCAL_MUTATION,
   },
   {
     name: 'assess_stack',
@@ -952,6 +1282,14 @@ const orchestrateActions: readonly ToolAction[] = [
       { event: 'shepherd.completed', condition: 'conditional', description: 'When PR merged' },
       { event: 'gate.executed', condition: 'always' },
     ],
+    outputSchema: EnvelopeSchema(z.unknown()),
+    // sentry LOW on PR #1369: `assess_stack` reads GitHub PR state but
+    // also emits 3 shepherd lifecycle events + gate.executed on every
+    // call. `readOnly: true` would mislead clients that gate on the
+    // hint. REMOTE_MUTATION matches the actual write surface; the
+    // conditional emission discipline is a handler-level detail and
+    // should not be smuggled into the advisory annotation.
+    annotations: REMOTE_MUTATION,
   },
   {
     name: 'check_static_analysis',
@@ -971,6 +1309,8 @@ const orchestrateActions: readonly ToolAction[] = [
     autoEmits: [
       { event: 'gate.executed', condition: 'always' },
     ],
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: LOCAL_MUTATION,
   },
   {
     name: 'check_security_scan',
@@ -985,6 +1325,8 @@ const orchestrateActions: readonly ToolAction[] = [
     autoEmits: [
       { event: 'gate.executed', condition: 'always' },
     ],
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: LOCAL_MUTATION,
   },
   {
     name: 'check_context_economy',
@@ -1000,6 +1342,8 @@ const orchestrateActions: readonly ToolAction[] = [
     autoEmits: [
       { event: 'gate.executed', condition: 'always' },
     ],
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: LOCAL_MUTATION,
   },
   {
     name: 'check_operational_resilience',
@@ -1015,6 +1359,8 @@ const orchestrateActions: readonly ToolAction[] = [
     autoEmits: [
       { event: 'gate.executed', condition: 'always' },
     ],
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: LOCAL_MUTATION,
   },
   {
     name: 'check_workflow_determinism',
@@ -1030,6 +1376,8 @@ const orchestrateActions: readonly ToolAction[] = [
     autoEmits: [
       { event: 'gate.executed', condition: 'always' },
     ],
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: LOCAL_MUTATION,
   },
   {
     name: 'check_review_verdict',
@@ -1059,10 +1407,12 @@ const orchestrateActions: readonly ToolAction[] = [
     autoEmits: [
       { event: 'gate.executed', condition: 'always' },
     ],
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: LOCAL_MUTATION,
   },
   {
     name: 'check_convergence',
-    description: 'Query D1-D5 convergence status from gate.executed events. Returns overall pass/fail and per-dimension summary.',
+    description: 'Query D1-D5 convergence status from gate.executed events. Emits gate.executed event on each invocation. Returns overall pass/fail and per-dimension summary.',
     schema: z.object({
       featureId: z.string().min(1),
       workflowId: z.string().optional(),
@@ -1070,6 +1420,17 @@ const orchestrateActions: readonly ToolAction[] = [
     phases: REVIEW_PHASES,
     roles: ROLE_LEAD,
     gate: { blocking: false },
+    autoEmits: [
+      { event: 'gate.executed', condition: 'always' },
+    ],
+    outputSchema: EnvelopeSchema(z.unknown()),
+    // sentry HIGH on PR #1369: although `check_convergence` reads
+    // existing gate state, the handler `emitGateEvent`s on every call,
+    // so the action is not readOnly — annotating it as such would let
+    // readonly-capability clients mutate the event store. LOCAL_MUTATION
+    // matches the actual write surface (matches the rest of the check_*
+    // family that emits gate.executed).
+    annotations: LOCAL_MUTATION,
   },
   {
     name: 'check_provenance_chain',
@@ -1085,6 +1446,8 @@ const orchestrateActions: readonly ToolAction[] = [
     autoEmits: [
       { event: 'gate.executed', condition: 'always' },
     ],
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: LOCAL_MUTATION,
   },
   {
     name: 'check_design_completeness',
@@ -1100,6 +1463,8 @@ const orchestrateActions: readonly ToolAction[] = [
     autoEmits: [
       { event: 'gate.executed', condition: 'always' },
     ],
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: LOCAL_MUTATION,
   },
   {
     name: 'check_plan_coverage',
@@ -1115,6 +1480,8 @@ const orchestrateActions: readonly ToolAction[] = [
     autoEmits: [
       { event: 'gate.executed', condition: 'always' },
     ],
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: LOCAL_MUTATION,
   },
   {
     name: 'check_tdd_compliance',
@@ -1131,6 +1498,8 @@ const orchestrateActions: readonly ToolAction[] = [
     autoEmits: [
       { event: 'gate.executed', condition: 'always' },
     ],
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: LOCAL_MUTATION,
   },
   {
     name: 'check_post_merge',
@@ -1146,6 +1515,8 @@ const orchestrateActions: readonly ToolAction[] = [
     autoEmits: [
       { event: 'gate.executed', condition: 'always' },
     ],
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: LOCAL_MUTATION,
   },
   // ─── Merge Orchestrator (DR-MO-1) ─────────────────────────────────────────
   {
@@ -1171,6 +1542,8 @@ const orchestrateActions: readonly ToolAction[] = [
       { event: 'merge.executed', condition: 'conditional', description: 'When preflight passes and execute succeeds' },
       { event: 'merge.rollback', condition: 'conditional', description: 'When execute fails after a merge SHA was produced' },
     ],
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: COMPENSABLE_REMOTE,
   },
   {
     name: 'check_task_decomposition',
@@ -1185,6 +1558,8 @@ const orchestrateActions: readonly ToolAction[] = [
     autoEmits: [
       { event: 'gate.executed', condition: 'always' },
     ],
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: LOCAL_MUTATION,
   },
   {
     name: 'check_event_emissions',
@@ -1198,6 +1573,8 @@ const orchestrateActions: readonly ToolAction[] = [
     autoEmits: [
       { event: 'gate.executed', condition: 'always' },
     ],
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: LOCAL_MUTATION,
   },
   {
     name: 'extract_task',
@@ -1208,6 +1585,8 @@ const orchestrateActions: readonly ToolAction[] = [
     }),
     phases: DELEGATE_PHASES,
     roles: ROLE_LEAD,
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: READ_ONLY_LOCAL,
   },
   {
     name: 'review_diff',
@@ -1218,6 +1597,8 @@ const orchestrateActions: readonly ToolAction[] = [
     }),
     phases: REVIEW_PHASES,
     roles: ROLE_LEAD,
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: READ_ONLY_LOCAL,
   },
   {
     name: 'verify_worktree',
@@ -1227,6 +1608,8 @@ const orchestrateActions: readonly ToolAction[] = [
     }),
     phases: DELEGATE_PHASES,
     roles: ROLE_ANY,
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: READ_ONLY_LOCAL,
   },
   {
     name: 'select_debug_track',
@@ -1238,6 +1621,8 @@ const orchestrateActions: readonly ToolAction[] = [
     }),
     phases: new Set<string>(['investigate']),
     roles: ROLE_LEAD,
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: LOCAL_MUTATION,
   },
   {
     name: 'investigation_timer',
@@ -1249,6 +1634,8 @@ const orchestrateActions: readonly ToolAction[] = [
     }),
     phases: new Set<string>(['investigate']),
     roles: ROLE_LEAD,
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: READ_ONLY_LOCAL,
   },
   {
     name: 'check_coverage_thresholds',
@@ -1262,6 +1649,8 @@ const orchestrateActions: readonly ToolAction[] = [
     phases: REVIEW_PHASES,
     roles: ROLE_LEAD,
     gate: { blocking: false, dimension: 'D3' },
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: READ_ONLY_LOCAL,
   },
   {
     name: 'assess_refactor_scope',
@@ -1272,6 +1661,8 @@ const orchestrateActions: readonly ToolAction[] = [
     }),
     phases: new Set<string>(['explore', 'brief']),
     roles: ROLE_LEAD,
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: READ_ONLY_LOCAL,
   },
   {
     name: 'check_pr_comments',
@@ -1282,6 +1673,8 @@ const orchestrateActions: readonly ToolAction[] = [
     }),
     phases: SYNTHESIS_REVIEW_PHASES,
     roles: ROLE_LEAD,
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: READ_ONLY_REMOTE,
   },
   {
     name: 'validate_pr_body',
@@ -1294,6 +1687,8 @@ const orchestrateActions: readonly ToolAction[] = [
     }),
     phases: SYNTHESIS_REVIEW_PHASES,
     roles: ROLE_LEAD,
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: READ_ONLY_LOCAL,
   },
   {
     name: 'validate_pr_stack',
@@ -1304,6 +1699,8 @@ const orchestrateActions: readonly ToolAction[] = [
     phases: new Set<string>(['synthesize']),
     roles: ROLE_LEAD,
     gate: { blocking: true },
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: READ_ONLY_LOCAL,
   },
   {
     name: 'debug_review_gate',
@@ -1316,6 +1713,8 @@ const orchestrateActions: readonly ToolAction[] = [
     phases: new Set<string>(['debug-review']),
     roles: ROLE_LEAD,
     gate: { blocking: true },
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: LOCAL_MUTATION,
   },
   {
     name: 'extract_fix_tasks',
@@ -1327,6 +1726,8 @@ const orchestrateActions: readonly ToolAction[] = [
     }),
     phases: REVIEW_PHASES,
     roles: ROLE_LEAD,
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: LOCAL_MUTATION,
   },
   {
     name: 'classify_review_items',
@@ -1340,6 +1741,8 @@ const orchestrateActions: readonly ToolAction[] = [
     // at runtime (#1161 / Sentry bug prediction).
     phases: SYNTHESIS_REVIEW_PHASES,
     roles: ROLE_LEAD,
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: LOCAL_MUTATION,
   },
   {
     name: 'generate_traceability',
@@ -1351,6 +1754,8 @@ const orchestrateActions: readonly ToolAction[] = [
     }),
     phases: PLAN_PHASES,
     roles: ROLE_LEAD,
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: LOCAL_MUTATION,
   },
   {
     name: 'spec_coverage_check',
@@ -1363,6 +1768,8 @@ const orchestrateActions: readonly ToolAction[] = [
     phases: PLAN_PHASES,
     roles: ROLE_LEAD,
     gate: { blocking: false, dimension: 'D1' },
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: LOCAL_MUTATION,
   },
   {
     name: 'verify_worktree_baseline',
@@ -1372,6 +1779,8 @@ const orchestrateActions: readonly ToolAction[] = [
     }),
     phases: DELEGATE_PHASES,
     roles: ROLE_ANY,
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: LOCAL_MUTATION,
   },
   {
     name: 'setup_worktree',
@@ -1391,6 +1800,8 @@ const orchestrateActions: readonly ToolAction[] = [
     }),
     phases: DELEGATE_PHASES,
     roles: ROLE_LEAD,
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: LOCAL_MUTATION,
   },
   {
     name: 'verify_delegation_saga',
@@ -1401,6 +1812,8 @@ const orchestrateActions: readonly ToolAction[] = [
     }),
     phases: DELEGATE_PHASES,
     roles: ROLE_LEAD,
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: READ_ONLY_LOCAL,
   },
   {
     name: 'post_delegation_check',
@@ -1420,6 +1833,8 @@ const orchestrateActions: readonly ToolAction[] = [
     autoEmits: [
       { event: 'gate.executed', condition: 'always' },
     ],
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: COMPENSABLE_LOCAL,
   },
   {
     name: 'reconcile_state',
@@ -1431,6 +1846,8 @@ const orchestrateActions: readonly ToolAction[] = [
     }),
     phases: ALL_PHASES,
     roles: ROLE_LEAD,
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: LOCAL_MUTATION,
   },
   {
     name: 'pre_synthesis_check',
@@ -1451,6 +1868,8 @@ const orchestrateActions: readonly ToolAction[] = [
     autoEmits: [
       { event: 'gate.executed', condition: 'always' },
     ],
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: LOCAL_MUTATION,
   },
   {
     name: 'new_project',
@@ -1463,6 +1882,8 @@ const orchestrateActions: readonly ToolAction[] = [
     }),
     phases: ALL_PHASES,
     roles: ROLE_LEAD,
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: LOCAL_MUTATION,
   },
   {
     name: 'check_coderabbit',
@@ -1474,6 +1895,8 @@ const orchestrateActions: readonly ToolAction[] = [
     }),
     phases: ALL_PHASES,
     roles: ROLE_ANY,
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: READ_ONLY_REMOTE,
   },
   {
     name: 'check_polish_scope',
@@ -1484,6 +1907,8 @@ const orchestrateActions: readonly ToolAction[] = [
     }),
     phases: ALL_PHASES,
     roles: ROLE_ANY,
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: READ_ONLY_LOCAL,
   },
   {
     name: 'needs_schema_sync',
@@ -1495,6 +1920,8 @@ const orchestrateActions: readonly ToolAction[] = [
     }),
     phases: ALL_PHASES,
     roles: ROLE_ANY,
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: READ_ONLY_LOCAL,
   },
   {
     name: 'verify_doc_links',
@@ -1505,6 +1932,8 @@ const orchestrateActions: readonly ToolAction[] = [
     }),
     phases: ALL_PHASES,
     roles: ROLE_ANY,
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: READ_ONLY_LOCAL,
   },
   {
     name: 'verify_review_triage',
@@ -1515,6 +1944,8 @@ const orchestrateActions: readonly ToolAction[] = [
     }),
     phases: ALL_PHASES,
     roles: ROLE_ANY,
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: READ_ONLY_LOCAL,
   },
   {
     name: 'prepare_review',
@@ -1528,6 +1959,8 @@ const orchestrateActions: readonly ToolAction[] = [
     phases: REVIEW_PHASES,
     roles: ROLE_LEAD,
     gate: { blocking: false },
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: LOCAL_MUTATION,
   },
   {
     name: 'prune_stale_workflows',
@@ -1543,6 +1976,8 @@ const orchestrateActions: readonly ToolAction[] = [
     autoEmits: [
       { event: 'workflow.pruned', condition: 'conditional', description: 'Per pruned workflow when dryRun is false' },
     ],
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: COMPENSABLE_LOCAL,
   },
   {
     name: 'request_synthesize',
@@ -1561,6 +1996,8 @@ const orchestrateActions: readonly ToolAction[] = [
     autoEmits: [
       { event: 'synthesize.requested', condition: 'always' },
     ],
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: LOCAL_MUTATION,
   },
   {
     name: 'finalize_oneshot',
@@ -1570,6 +2007,8 @@ const orchestrateActions: readonly ToolAction[] = [
     }),
     phases: new Set<string>(['implementing']),
     roles: ROLE_LEAD,
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: LOCAL_MUTATION,
   },
   {
     name: 'runbook',
@@ -1580,6 +2019,8 @@ const orchestrateActions: readonly ToolAction[] = [
     }),
     phases: ALL_PHASES,
     roles: ROLE_ANY,
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: READ_ONLY_LOCAL,
   },
   {
     name: 'agent_spec',
@@ -1587,6 +2028,8 @@ const orchestrateActions: readonly ToolAction[] = [
     schema: agentSpecSchemaForRegistry,
     phases: ALL_PHASES,
     roles: ROLE_ANY,
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: READ_ONLY_LOCAL,
   },
   {
     name: 'doctor',
@@ -1600,6 +2043,14 @@ const orchestrateActions: readonly ToolAction[] = [
     autoEmits: [
       { event: 'diagnostic.executed', condition: 'always' },
     ],
+    outputSchema: EnvelopeSchema(z.unknown()),
+    // sentry HIGH on PR #1369: `doctor` emits `diagnostic.executed` on
+    // every invocation (see `autoEmits` above and
+    // `orchestrate/doctor/index.ts:204`). The advisory annotation must
+    // match the actual write surface — `readOnly: true` would let a
+    // readonly-capability client trigger event-store writes and bypass
+    // the audit boundary.
+    annotations: LOCAL_MUTATION,
   },
   // ─── VCS Actions ──────────────────────────────────────────────────────────
   {
@@ -1618,6 +2069,8 @@ const orchestrateActions: readonly ToolAction[] = [
     autoEmits: [
       { event: 'pr.created', condition: 'always' },
     ],
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: COMPENSABLE_REMOTE,
   },
   {
     name: 'merge_pr',
@@ -1631,6 +2084,8 @@ const orchestrateActions: readonly ToolAction[] = [
     autoEmits: [
       { event: 'pr.merged', condition: 'conditional', description: 'When merge succeeds' },
     ],
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: COMPENSABLE_REMOTE,
   },
   {
     name: 'check_ci',
@@ -1640,6 +2095,8 @@ const orchestrateActions: readonly ToolAction[] = [
     }),
     phases: ALL_PHASES,
     roles: ROLE_ANY,
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: READ_ONLY_REMOTE,
   },
   {
     name: 'list_prs',
@@ -1651,6 +2108,8 @@ const orchestrateActions: readonly ToolAction[] = [
     }),
     phases: ALL_PHASES,
     roles: ROLE_ANY,
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: READ_ONLY_REMOTE,
   },
   {
     name: 'get_pr_comments',
@@ -1660,6 +2119,8 @@ const orchestrateActions: readonly ToolAction[] = [
     }),
     phases: ALL_PHASES,
     roles: ROLE_ANY,
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: READ_ONLY_REMOTE,
   },
   {
     name: 'add_pr_comment',
@@ -1673,6 +2134,8 @@ const orchestrateActions: readonly ToolAction[] = [
     autoEmits: [
       { event: 'pr.commented', condition: 'always' },
     ],
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: COMPENSABLE_REMOTE,
   },
   {
     name: 'create_issue',
@@ -1687,6 +2150,8 @@ const orchestrateActions: readonly ToolAction[] = [
     autoEmits: [
       { event: 'issue.created', condition: 'always' },
     ],
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: COMPENSABLE_REMOTE,
   },
   // ─── Init Action ──────────────────────────────────────────────────────────
   {
@@ -1704,6 +2169,8 @@ const orchestrateActions: readonly ToolAction[] = [
     autoEmits: [
       { event: 'init.executed', condition: 'always' },
     ],
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: LOCAL_MUTATION,
   },
   makeDescribeAction(),
 ];
@@ -1725,6 +2192,8 @@ const viewActions: readonly ToolAction[] = [
       alias: 'ls',
       examples: ['exarchos vw ls'],
     },
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: READ_ONLY_LOCAL,
   },
   {
     name: 'tasks',
@@ -1742,6 +2211,8 @@ const viewActions: readonly ToolAction[] = [
       flags: { workflowId: { alias: 'w' }, limit: { alias: 'l' } },
       examples: ['exarchos vw tasks -w my-feature'],
     },
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: READ_ONLY_LOCAL,
   },
   {
     name: 'workflow_status',
@@ -1751,6 +2222,8 @@ const viewActions: readonly ToolAction[] = [
     }),
     phases: ALL_PHASES,
     roles: ROLE_ANY,
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: READ_ONLY_LOCAL,
   },
   {
     name: 'stack_status',
@@ -1762,6 +2235,8 @@ const viewActions: readonly ToolAction[] = [
     }),
     phases: STACK_PHASES,
     roles: ROLE_ANY,
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: READ_ONLY_LOCAL,
   },
   {
     name: 'stack_place',
@@ -1775,6 +2250,8 @@ const viewActions: readonly ToolAction[] = [
     }),
     phases: STACK_PHASES,
     roles: ROLE_ANY,
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: LOCAL_MUTATION,
   },
   {
     name: 'telemetry',
@@ -1787,6 +2264,8 @@ const viewActions: readonly ToolAction[] = [
     }),
     phases: ALL_PHASES,
     roles: ROLE_ANY,
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: READ_ONLY_LOCAL,
   },
   {
     name: 'team_performance',
@@ -1796,6 +2275,8 @@ const viewActions: readonly ToolAction[] = [
     }),
     phases: ALL_PHASES,
     roles: ROLE_ANY,
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: READ_ONLY_LOCAL,
   },
   {
     name: 'delegation_timeline',
@@ -1805,6 +2286,8 @@ const viewActions: readonly ToolAction[] = [
     }),
     phases: ALL_PHASES,
     roles: ROLE_ANY,
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: READ_ONLY_LOCAL,
   },
   {
     name: 'code_quality',
@@ -1817,6 +2300,8 @@ const viewActions: readonly ToolAction[] = [
     }),
     phases: ALL_PHASES,
     roles: ROLE_ANY,
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: READ_ONLY_LOCAL,
   },
   {
     name: 'delegation_readiness',
@@ -1826,6 +2311,8 @@ const viewActions: readonly ToolAction[] = [
     }),
     phases: ALL_PHASES,
     roles: ROLE_ANY,
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: READ_ONLY_LOCAL,
   },
   {
     name: 'synthesis_readiness',
@@ -1835,6 +2322,8 @@ const viewActions: readonly ToolAction[] = [
     }),
     phases: ALL_PHASES,
     roles: ROLE_ANY,
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: READ_ONLY_LOCAL,
   },
   {
     name: 'shepherd_status',
@@ -1844,6 +2333,8 @@ const viewActions: readonly ToolAction[] = [
     }),
     phases: ALL_PHASES,
     roles: ROLE_ANY,
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: READ_ONLY_LOCAL,
   },
   {
     name: 'convergence',
@@ -1853,6 +2344,8 @@ const viewActions: readonly ToolAction[] = [
     }),
     phases: ALL_PHASES,
     roles: ROLE_ANY,
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: READ_ONLY_LOCAL,
   },
   {
     name: 'quality_hints',
@@ -1863,6 +2356,8 @@ const viewActions: readonly ToolAction[] = [
     }),
     phases: ALL_PHASES,
     roles: ROLE_ANY,
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: READ_ONLY_LOCAL,
   },
   makeDescribeAction(),
 ];
@@ -1876,6 +2371,8 @@ const syncActions: readonly ToolAction[] = [
     schema: z.object({}),
     phases: ALL_PHASES,
     roles: ROLE_LEAD,
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: LOCAL_MUTATION_IDEMPOTENT,
   },
 ];
 
@@ -1920,13 +2417,45 @@ export const TOOL_REGISTRY: readonly CompositeTool[] = [
   },
 ];
 
+// ─── Registration-time Invariant Loop (Wave 0 task C.3) ────────────────
+//
+// Runs at module load so any built-in action that drifts away from the
+// `outputSchema` + `annotations` contract fails the import (DIM-3 fail-
+// closed at startup). Custom tools registered via `registerCustomTool`
+// are not covered here — that path validates per-action at call time
+// through `validateAction` once `register.ts` is wired (Wave 0 follow-up).
+for (const tool of TOOL_REGISTRY) {
+  for (const action of tool.actions) {
+    validateAction(action, tool.name);
+  }
+}
+
 // ─── Built-in Tool Names ────────────────────────────────────────────────────
 
 const BUILTIN_TOOL_NAMES: ReadonlySet<string> = new Set(
   TOOL_REGISTRY.map((t) => t.name),
 );
 
-// ─── Dynamic Tool Registration ──────────────────────────────────────────────
+// ─── Dynamic Tool Registration (DEPRECATED — superseded by v3.0 #1258) ─────
+//
+// The `registerCustomTool` / `setCustomToolActionHandler` /
+// `unregisterCustomTool` surface plus the `exarchos.config.ts` `tools:`
+// block is the pre-SDK extension scaffolding for declaring custom MCP
+// composite tools at runtime. It is superseded by the Workflow Builder
+// SDK (epic #1258) shipping in v3.0, which becomes the single authoring
+// surface for workflows AND custom tools. The closed-form `hsm-
+// definitions.ts` / `playbooks.ts` registries are deleted in that
+// milestone for the same DIM-5 hygiene reason — the SDK is the single
+// source of truth.
+//
+// There are no known active consumers of this surface. CodeRabbit MAJOR
+// on PR #1369 flagged that `registerCustomTool` doesn't run actions
+// through `validateAction`, leaving missing `outputSchema`/`annotations`
+// to surface as runtime crashes far from the registration site. Rather
+// than tighten the contract (which would touch test fixtures and ship a
+// pseudo-breaking-change to an API with no consumers), we mark the
+// entire surface `@deprecated` here and schedule its removal alongside
+// #1258 in v3.0.
 
 const customTools: CompositeTool[] = [];
 
@@ -1938,6 +2467,11 @@ export type CustomToolActionHandler = (args: Record<string, unknown>) => Promise
 /**
  * Register a custom composite tool. Throws if the name collides with a
  * built-in tool or an already-registered custom tool.
+ *
+ * @deprecated since v2.10.0 — this surface is removed in v3.0.0 in favor
+ * of the Workflow Builder SDK (epic #1258), which becomes the single
+ * authoring path for custom workflows and tools. New extension code
+ * should target the v3.0 SDK instead.
  */
 export function registerCustomTool(tool: CompositeTool): void {
   if (BUILTIN_TOOL_NAMES.has(tool.name)) {
@@ -1950,12 +2484,20 @@ export function registerCustomTool(tool: CompositeTool): void {
       `Cannot register custom tool "${tool.name}": already registered as a custom tool`,
     );
   }
+  // Custom tools are intentionally NOT run through `validateAction` here.
+  // The whole surface is `@deprecated` for v3.0 removal per #1258, so
+  // hardening the contract here would ship a pseudo-breaking-change for
+  // an API with no consumers (CodeRabbit PR #1369 MAJOR, resolved by
+  // deprecation rather than tightening).
   customTools.push(tool);
 }
 
 /**
  * Store a handler function for a custom tool action.
  * Called during config-driven registration to wire handlers for dispatch.
+ *
+ * @deprecated since v2.10.0 — removed in v3.0.0 per #1258. See
+ * {@link registerCustomTool}.
  */
 export function setCustomToolActionHandler(
   toolName: string,
@@ -1973,6 +2515,9 @@ export function setCustomToolActionHandler(
 /**
  * Retrieve the handler for a custom tool action.
  * Returns undefined if the tool or action is not registered.
+ *
+ * @deprecated since v2.10.0 — removed in v3.0.0 per #1258. See
+ * {@link registerCustomTool}.
  */
 export function getCustomToolActionHandler(
   toolName: string,
@@ -1983,6 +2528,9 @@ export function getCustomToolActionHandler(
 
 /**
  * Check if a custom tool has any registered handlers.
+ *
+ * @deprecated since v2.10.0 — removed in v3.0.0 per #1258. See
+ * {@link registerCustomTool}.
  */
 export function hasCustomToolHandlers(toolName: string): boolean {
   const actionMap = customToolHandlers.get(toolName);
@@ -1992,6 +2540,9 @@ export function hasCustomToolHandlers(toolName: string): boolean {
 /**
  * Unregister a custom composite tool by name. Throws if the name is a
  * built-in tool or not registered as a custom tool.
+ *
+ * @deprecated since v2.10.0 — removed in v3.0.0 per #1258. See
+ * {@link registerCustomTool}.
  */
 export function unregisterCustomTool(name: string): void {
   if (BUILTIN_TOOL_NAMES.has(name)) {

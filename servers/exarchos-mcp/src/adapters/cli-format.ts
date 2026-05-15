@@ -2,7 +2,14 @@
 // Converts ToolResult JSON into human-readable terminal output.
 // Main data → stdout (pipeable), metadata → stderr (human-visible).
 
-import type { ToolResult, PerfMetrics, EventHintsPayload, CorrectionsPayload } from '../format.js';
+import type {
+  ToolResult,
+  PerfMetrics,
+  EventHintsPayload,
+  CorrectionsPayload,
+  Envelope,
+  ErrorEnvelope,
+} from '../format.js';
 
 // ─── Format Inference ───────────────────────────────────────────────────────
 
@@ -170,4 +177,86 @@ export function prettyPrint(result: ToolResult, format?: 'table' | 'json' | 'tre
       process.stderr.write(`    • ${c.param}: ${c.rule}\n`);
     }
   }
+}
+
+// ─── Envelope CLI Renderer (Wave 0 D.2/D.3) ─────────────────────────────────
+
+/**
+ * Reconstitute a {@link ToolResult} from an {@link Envelope} / {@link ErrorEnvelope}
+ * so the legacy {@link prettyPrint} renderer can be reused for table/tree modes
+ * and for the `EXARCHOS_CLI_ENVELOPE=0` opt-out path.
+ *
+ * This is the inverse of `toEnvelope` on the success branch. Side-channel
+ * fields (`warnings`, `_corrections`, `_eventHints`) are threaded back through
+ * so prettyPrint's stderr sidebars render identically to the pre-envelope
+ * dispatch path.
+ */
+function envelopeToToolResult(env: Envelope<unknown> | ErrorEnvelope): ToolResult {
+  if (env.success === false) {
+    const errEnv = env as ErrorEnvelope;
+    // Preserve sidebar fields on the failure path so prettyPrint's
+    // stderr sidebar still renders in table/tree and the
+    // `EXARCHOS_CLI_ENVELOPE=0` legacy path. Mirrors the success-branch
+    // thread below (CodeRabbit minor on PR #1369).
+    return {
+      success: false,
+      error: errEnv.error as ToolResult['error'],
+      _meta: errEnv._meta,
+      _perf: errEnv._perf,
+      warnings: errEnv.warnings,
+      _corrections: errEnv._corrections,
+    };
+  }
+  const okEnv = env as Envelope<unknown>;
+  const withSidebars = okEnv as Envelope<unknown> & {
+    warnings?: readonly string[];
+    _corrections?: CorrectionsPayload;
+  };
+  return {
+    success: true,
+    data: okEnv.data,
+    _meta: okEnv._meta,
+    _perf: okEnv._perf,
+    warnings: withSidebars.warnings,
+    _corrections: withSidebars._corrections,
+    _eventHints: okEnv._eventHints as EventHintsPayload | undefined,
+  };
+}
+
+/**
+ * Carrier-bound CLI renderer for an {@link Envelope} | {@link ErrorEnvelope}
+ * (design `docs/designs/2026-05-13-wave-0-carrier-swap.md` §2.3, INV-2 facade
+ * equivalence).
+ *
+ * Default: `--format json` emits the FULL envelope as a single JSON document
+ * on stdout (byte-equal to MCP `structuredContent` modulo timestamps). Table
+ * and tree modes delegate to {@link prettyPrint} so existing renderings are
+ * preserved.
+ *
+ * Opt-out: `EXARCHOS_CLI_ENVELOPE=0` restores the legacy `prettyPrint` shape
+ * (data-only stdout + stderr sidebars). Active since #1368 (Wave 0 follow-up
+ * PR-B wired `toCliResult` into `emitResult`). Scheduled for removal in
+ * v2.11.0 per design §6 of `docs/designs/2026-05-13-wave-0-carrier-swap.md`;
+ * consumers depending on the legacy raw-ToolResult shape MUST migrate to the
+ * envelope shape before v2.11.0 ships. The opt-out is strictly the literal
+ * string `'0'`; any other value (including unset, `'1'`, `'true'`, etc.)
+ * means "envelope".
+ */
+export function toCliResult(
+  env: Envelope<unknown> | ErrorEnvelope,
+  format: 'table' | 'json' | 'tree',
+): void {
+  if (process.env.EXARCHOS_CLI_ENVELOPE === '0') {
+    // Legacy path — prettyPrint emits data-only stdout + stderr sidebars.
+    prettyPrint(envelopeToToolResult(env), format);
+    return;
+  }
+
+  if (format === 'json') {
+    process.stdout.write(JSON.stringify(env, null, 2) + '\n');
+    return;
+  }
+
+  // Table / tree fall through to prettyPrint with the reconstituted ToolResult.
+  prettyPrint(envelopeToToolResult(env), format);
 }

@@ -424,7 +424,7 @@ describe('formatZodError snapshot pinning (F-024 #7)', () => {
     expect(result.success).toBe(false);
     if (result.success) return; // narrow for TS; unreachable when assertion holds
     const output = formatZodError(result.error);
-    expect(output).toMatchInlineSnapshot(`"featureId: Required"`);
+    expect(output).toMatchInlineSnapshot(`"featureId: Invalid input: expected string, received undefined"`);
   });
 
   it('FormatZodError_WrongType_ProducesStableMessage', () => {
@@ -439,7 +439,7 @@ describe('formatZodError snapshot pinning (F-024 #7)', () => {
     if (result.success) return;
     const output = formatZodError(result.error);
     expect(output).toMatchInlineSnapshot(
-      `"featureId: Expected string, received number; limit: Expected number, received string"`,
+      `"featureId: Invalid input: expected string, received number; limit: Invalid input: expected number, received string"`,
     );
   });
 
@@ -456,7 +456,7 @@ describe('formatZodError snapshot pinning (F-024 #7)', () => {
     const output = formatZodError(result.error);
     // Nested paths must join with `.` — DR-5 contract.
     expect(output).toMatchInlineSnapshot(
-      `"evidence.type: Invalid enum value. Expected 'test' | 'manual', received 'bogus'; evidence.passed: Expected boolean, received string"`,
+      `"evidence.type: Invalid option: expected one of "test"|"manual"; evidence.passed: Invalid input: expected boolean, received string"`,
     );
   });
 
@@ -470,7 +470,7 @@ describe('formatZodError snapshot pinning (F-024 #7)', () => {
     if (result.success) return;
     const output = formatZodError(result.error);
     expect(output).toMatchInlineSnapshot(
-      `"(root): Expected object, received string"`,
+      `"(root): Invalid input: expected object, received string"`,
     );
   });
 });

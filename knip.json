@@ -40,6 +40,9 @@
       ],
       "ignore": [
         "src/telemetry/benchmarks/helpers.ts"
+      ],
+      "ignoreDependencies": [
+        "patch-package"
       ]
     }
   }

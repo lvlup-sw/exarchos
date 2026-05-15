@@ -1,4 +1,4 @@
-import { zodToJsonSchema } from 'zod-to-json-schema';
+import { zodToJsonSchema } from './json-schema.js';
 import { getFullRegistry } from '../registry.js';
 import {
   serializeTopology,

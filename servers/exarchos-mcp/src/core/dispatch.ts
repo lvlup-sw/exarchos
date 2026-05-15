@@ -105,7 +105,7 @@ export const READ_ONLY_ACTIONS = {
   exarchos_workflow: ['get', 'describe'],
   exarchos_event: ['query', 'describe'],
   // Orchestrate read-only set: descriptive actions (`describe`, `runbook`,
-  // `agent_spec`, `doctor`), pure-analysis gate checks (`check_*`),
+  // `agent_spec`), pure-analysis gate checks (`check_*`),
   // information extractors (`extract_task`, `review_diff`,
   // `verify_worktree`, `select_debug_track`, `investigation_timer`,
   // `assess_refactor_scope`), validators (`validate_pr_body`,
@@ -125,19 +125,27 @@ export const READ_ONLY_ACTIONS = {
   // `extract_fix_tasks`, `pre_synthesis_check`, `post_delegation_check`,
   // `debug_review_gate`, `check_pr_comments` (queries gh state but is
   // grouped with synthesis review actions and may emit), and the
-  // `review_triage` orchestrator.
+  // `review_triage` orchestrator. Also excluded from the readonly
+  // tier: `doctor` (`diagnostic.executed`) and `check_convergence`
+  // (`gate.executed`) — sentry HIGH on PR #1369 caught these two as
+  // mis-annotated `readOnly: true` while their handlers do
+  // `eventStore.append()` on every call. The remaining `check_*`
+  // actions stay in this set: they are intentionally annotated
+  // `LOCAL_MUTATION` (advisory) but the readonly tier still admits
+  // them because their lone audit-trail emission is a logged-read by
+  // convention (pure-analysis gate). If we ever tighten "readonly"
+  // to mean "zero appends," that broader change is a separate design
+  // step — not in scope of the Sentry HIGH fix.
   exarchos_orchestrate: [
     'describe',
     'runbook',
     'agent_spec',
-    'doctor',
     'check_static_analysis',
     'check_security_scan',
     'check_context_economy',
     'check_operational_resilience',
     'check_workflow_determinism',
     'check_review_verdict',
-    'check_convergence',
     'check_provenance_chain',
     'check_design_completeness',
     'check_plan_coverage',

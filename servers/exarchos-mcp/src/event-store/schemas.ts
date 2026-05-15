@@ -396,7 +396,10 @@ export const WorkflowEventBase = z.object({
   timestamp: z.string().datetime().default(() => new Date().toISOString()),
   type: z.string().min(1).refine(
     (t) => getValidEventTypes().includes(t),
-    (t) => ({ message: `Unknown event type: "${t}". Valid types: built-in EventTypes + registered custom types` }),
+    {
+      error: (ctx) =>
+        `Unknown event type: "${String(ctx.input)}". Valid types: built-in EventTypes + registered custom types`,
+    },
   ),
   correlationId: z.string().max(200).optional(),
   causationId: z.string().max(200).optional(),
@@ -933,7 +936,7 @@ export const JudgeCalibratedDataSchema = z.object({
 // ─── Diagnostic Event Data ──────────────────────────────────────────────────
 
 export const DiagnosticExecutedDataSchema = z.object({
-  summary: DoctorOutputSchema.innerType().shape.summary,
+  summary: DoctorOutputSchema.shape.summary,
   checkCount: z.number().int().nonnegative(),
   failedCheckNames: z.array(z.string()),
   durationMs: z.number().int().nonnegative(),

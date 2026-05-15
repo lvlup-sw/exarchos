@@ -1,0 +1,121 @@
+// ─── F.7: CLI table / tree pretty-print regression (Wave 0, design §7) ─────
+//
+// Snapshots the human-readable stdout (`prettyPrint` table/tree paths) for
+// representative read-only CLI commands so any reshape of the table or
+// tree renderer fails CI rather than being discovered by an operator
+// staring at a different-shaped terminal.
+//
+// Rationale on flag selection
+// ---------------------------
+// The plan's literal example was `--format table` / `--format tree`. In
+// the current CLI surface (adapters/cli.ts) only a handful of actions
+// declare `format: z.enum(['table','json'])` in their input schema, and
+// none of them admit `tree`. The `prettyPrint` renderer in
+// `cli-format.ts` instead INFERS format from the shape of `result.data`
+// (`isTabular` → table, `isTreeLike` → tree, else JSON). So the realistic
+// way to exercise both rendering paths is to invoke actions whose data
+// shape lands on each branch:
+//   • `vw ls` (no flags)              → ToolResult.data = { workflows: [],
+//                                       total: 0 } → tree path.
+//   • `wf describe`                    → describe handler returns a tabular
+//                                       array of action descriptors →
+//                                       table path.
+// We snapshot both and accept the inferred path. The point of the
+// regression is "the table/tree formatter output for these inputs is
+// stable post-carrier-swap"; the inference rule is part of the contract.
+
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import * as fs from 'node:fs/promises';
+import * as path from 'node:path';
+import * as os from 'node:os';
+import { buildCli } from '../../adapters/cli.js';
+import { EventStore } from '../../event-store/store.js';
+import type { DispatchContext } from '../../core/dispatch.js';
+
+interface CapturedStreams {
+  stdout: string;
+  stderr: string;
+}
+
+async function captureCli(
+  ctx: DispatchContext,
+  argv: readonly string[],
+): Promise<CapturedStreams> {
+  const stdoutChunks: string[] = [];
+  const stderrChunks: string[] = [];
+  const stdoutSpy = vi
+    .spyOn(process.stdout, 'write')
+    .mockImplementation((data: unknown): boolean => {
+      stdoutChunks.push(typeof data === 'string' ? data : String(data));
+      return true;
+    });
+  const stderrSpy = vi
+    .spyOn(process.stderr, 'write')
+    .mockImplementation((data: unknown): boolean => {
+      stderrChunks.push(typeof data === 'string' ? data : String(data));
+      return true;
+    });
+  try {
+    const program = buildCli(ctx);
+    program.exitOverride();
+    await program.parseAsync(['node', 'exarchos', ...argv]);
+  } finally {
+    stdoutSpy.mockRestore();
+    stderrSpy.mockRestore();
+  }
+  return { stdout: stdoutChunks.join(''), stderr: stderrChunks.join('') };
+}
+
+/**
+ * Strip the `_perf` footer that `prettyPrint` writes to stderr
+ * (`{ms}ms | {bytes}B | ~{tokens} tokens`). Wall-clock + byte counts vary
+ * per run and would defeat snapshot stability. We keep the rest of stderr
+ * (warnings, checkpoint advisories, eventHints) intact since those are
+ * deterministic for a fixed input shape.
+ */
+function stripPerfFooter(stderr: string): string {
+  return stderr.replace(/^\s*\d+ms \| \d+B \| ~\d+ tokens\s*$/gm, '<<perf>>');
+}
+
+describe('F.7 — CLI table/tree pretty-print regression (Wave 0 §7)', () => {
+  let tmpDir: string;
+  let ctx: DispatchContext;
+
+  beforeEach(async () => {
+    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'cli-table-tree-test-'));
+    const eventStore = new EventStore(tmpDir);
+    await eventStore.initialize();
+    ctx = { stateDir: tmpDir, eventStore, enableTelemetry: false };
+  });
+
+  afterEach(async () => {
+    await fs.rm(tmpDir, { recursive: true, force: true });
+  });
+
+  it('CliRender_VwLs_TreeOrJsonPath_StableSnapshot', async () => {
+    // `vw ls` with an empty state directory returns
+    // `{ workflows: [], total: 0 }` — `isTreeLike` is false for that
+    // shape (no nested object values), so prettyPrint falls through to
+    // JSON. The point of the snapshot is "this command's pretty output
+    // is stable post-carrier-swap"; the inference outcome is part of the
+    // contract pin, not a separate axiom.
+    const { stdout, stderr } = await captureCli(ctx, ['vw', 'ls']);
+    expect({ stdout, stderr: stripPerfFooter(stderr) }).toMatchSnapshot();
+  });
+
+  it('CliRender_WfDescribeActionInit_TreeOrInferredPath_StableSnapshot', async () => {
+    // `wf describe --actions init` returns a single action descriptor —
+    // an object with nested children (`schema`, `phases`, `roles`,
+    // `cli.examples`...). `isTreeLike` returns true → prettyPrint emits
+    // the indented-tree rendering. Snapshotting both stdout (tree
+    // body) and stderr (perf footer stripped) catches any regression in
+    // either path post-carrier-swap.
+    const { stdout, stderr } = await captureCli(ctx, [
+      'wf',
+      'describe',
+      '--actions',
+      'init',
+    ]);
+    expect({ stdout, stderr: stripPerfFooter(stderr) }).toMatchSnapshot();
+  });
+});

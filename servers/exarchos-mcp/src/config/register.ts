@@ -7,8 +7,17 @@ import { registerEventType, unregisterEventType } from '../event-store/schemas.j
 import { ViewRegistry } from '../views/registry.js';
 import { registerCustomTool, unregisterCustomTool, setCustomToolActionHandler, ALL_PHASES } from '../registry.js';
 import type { CompositeTool, ToolAction } from '../registry.js';
+import { EnvelopeSchema } from '../schemas/envelope.js';
+import { logger } from '../logger.js';
 import type { ViewProjection } from '../views/materializer.js';
 import type { ExarchosConfig, WorkflowDefinition } from './define.js';
+
+const configLogger = logger.child({ subsystem: 'config' });
+
+// Module-level flag: the custom-tools v3.0 deprecation notice fires
+// once per process. Reset by `clearRegisteredTools()` in tests so each
+// test starts from a clean slate.
+let warnedCustomToolsDeprecated = false;
 
 // Re-export for consumers that imported from here
 export type { ExarchosConfig, WorkflowDefinition };
@@ -238,6 +247,10 @@ export function clearRegisteredTools(): void {
     }
   }
   registeredToolNames.length = 0;
+  // Reset the one-time deprecation warning latch so each test starts
+  // from a clean slate (the production path's idempotency is asserted
+  // by the test fixture, not by leaking module state between cases).
+  warnedCustomToolsDeprecated = false;
 }
 
 /**
@@ -276,12 +289,32 @@ function validateToolActionHandler(
  * Loads handler modules via dynamic import, builds CompositeTool objects,
  * and registers them via registerCustomTool().
  * Includes rollback on failure.
+ *
+ * @deprecated since v2.10.0 — the `tools:` block in `exarchos.config.ts`
+ * and the underlying `registerCustomTool` surface are removed in v3.0.0
+ * in favor of the Workflow Builder SDK (epic #1258). Migrate custom
+ * tools to the v3.0 SDK before the v3.0 release.
  */
 export async function registerCustomTools(
   config: ExarchosConfig,
   projectRoot: string,
 ): Promise<void> {
   if (!config.tools) return;
+
+  // Loud one-time deprecation signal so any latent consumer we don't know
+  // about sees the v3.0 migration notice on first config load. Cheap and
+  // high-signal — fires only when `tools:` is actually used, and only on
+  // the first invocation per process (CodeRabbit minor on PR #1369:
+  // repeated config loads were spamming the log on every call).
+  const toolNames = Object.keys(config.tools);
+  if (toolNames.length > 0 && !warnedCustomToolsDeprecated) {
+    configLogger.warn(
+      { toolNames, count: toolNames.length, removalMilestone: 'v3.0.0', issue: 1258 },
+      `[exarchos] DEPRECATION: exarchos.config.ts custom tools are deprecated in v2.10.0 and will be removed in v3.0.0. ` +
+        `Migrate to the Workflow Builder SDK (epic #1258).`,
+    );
+    warnedCustomToolsDeprecated = true;
+  }
 
   const registeredNames: string[] = [];
 
@@ -313,12 +346,28 @@ export async function registerCustomTools(
         // declare Zod schemas in config — they accept any args and validate
         // internally via their handler). Use passthrough() so user-provided
         // parameters flow through the strict composite schema.
+        //
+        // Wave 0 (#1287 / #1289, design §2.1 + §2.4): supply the required
+        // `outputSchema` (the permissive envelope shape) and `annotations`
+        // (sensible conservative defaults: local-mutation, opaque
+        // side-effect profile) so custom tools satisfy the registry's
+        // registration-time invariants. Custom-tool authors who want a
+        // narrower contract or different safety classification can declare
+        // them in config in a future enhancement (out of scope for Wave 0).
         actions.push({
           name: actionDef.name,
           description: actionDef.description,
           schema: z.object({}).passthrough(),
           phases: ALL_PHASES,
           roles: new Set<string>(['any']),
+          outputSchema: EnvelopeSchema(z.unknown()),
+          annotations: {
+            safety: 'local-mutation',
+            readOnly: false,
+            destructive: false,
+            idempotent: false,
+            openWorld: false,
+          },
         });
       }
 

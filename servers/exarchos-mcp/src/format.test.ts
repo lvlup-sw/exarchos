@@ -1,13 +1,16 @@
 import { describe, it, expect } from 'vitest';
+import { z } from 'zod';
 import {
   applyCacheHints,
   pickFields,
+  toEnvelope,
   wrap,
   wrapError,
   wrapWithPassthrough,
   type Envelope,
   type ToolResult,
 } from './format.js';
+import { EnvelopeSchema, ErrorEnvelopeSchema } from './schemas/envelope.js';
 import type { NextAction } from './next-action.js';
 import {
   ANTHROPIC_NATIVE_CACHING,
@@ -390,5 +393,247 @@ describe('wrapError() — StorageBusyError → STORAGE_BUSY envelope (Task 3.13a
     const s = wrapError(sErr) as ToolResult;
     expect((c.error as Record<string, unknown>).code).toBe('CONCURRENCY_CONFLICT');
     expect((s.error as Record<string, unknown>).code).toBe('STORAGE_BUSY');
+  });
+});
+
+describe('toEnvelope', () => {
+  it('toEnvelope_MapsSuccessToolResult_ReturnsSuccessEnvelope', () => {
+    const result: ToolResult = {
+      success: true,
+      data: { x: 1 },
+      _meta: { phase: 'design' },
+      _perf: { ms: 5, bytes: 100, tokens: 25 },
+    };
+    const env = toEnvelope(result);
+    expect(env.success).toBe(true);
+    if (env.success) {
+      expect(env.data).toEqual({ x: 1 });
+      expect(env.next_actions).toEqual([]);
+      expect(env._meta).toEqual({ phase: 'design' });
+      expect(env._perf).toEqual({ ms: 5, bytes: 100, tokens: 25 });
+    }
+  });
+
+  it('toEnvelope_MapsFailureToolResult_ReturnsErrorEnvelope', () => {
+    const result: ToolResult = {
+      success: false,
+      error: { code: 'X', message: 'y' },
+    };
+    const env = toEnvelope(result);
+    expect(env.success).toBe(false);
+    if (!env.success) {
+      expect(env.error.code).toBe('X');
+      expect(env.error.message).toBe('y');
+    }
+  });
+
+  it('toEnvelope_PreservesErrorAuxFields_ReturnsErrorEnvelope', () => {
+    // Composite handlers attach validTargets / suggestedFix on the
+    // ToolResult.error block; toEnvelope must thread these through
+    // unchanged so the carrier sees a full diagnostic envelope.
+    const result: ToolResult = {
+      success: false,
+      error: {
+        code: 'INVALID_PHASE',
+        message: 'phase cannot regress',
+        validTargets: ['design', 'plan'],
+        suggestedFix: { tool: 'workflow_status', params: { featureId: 'abc' } },
+      },
+    };
+    const env = toEnvelope(result);
+    expect(env.success).toBe(false);
+    if (!env.success) {
+      expect(env.error.validTargets).toEqual(['design', 'plan']);
+      expect(env.error.suggestedFix).toEqual({
+        tool: 'workflow_status',
+        params: { featureId: 'abc' },
+      });
+    }
+  });
+
+  it('toEnvelope_RoundTripsThroughEnvelopeSchema', () => {
+    const result: ToolResult = {
+      success: true,
+      data: { ok: true },
+      _meta: {},
+      _perf: { ms: 1, bytes: 0, tokens: 0 },
+    };
+    const env = toEnvelope(result);
+    const parsed = EnvelopeSchema(z.unknown()).safeParse(env);
+    expect(parsed.success).toBe(true);
+  });
+
+  it('toEnvelope_FailureRoundTripsThroughEnvelopeSchema', () => {
+    const result: ToolResult = {
+      success: false,
+      error: { code: 'BOOM', message: 'kaboom' },
+    };
+    const env = toEnvelope(result);
+    const parsed = EnvelopeSchema(z.unknown()).safeParse(env);
+    expect(parsed.success).toBe(true);
+  });
+
+  // ─── #1208 saga-merge-detour regression / CodeRabbit PR #1369 HIGH/MED ────
+  //
+  // `envelopeWrap` (workflow/composite.ts) returns an Envelope cast as
+  // ToolResult with `next_actions`, `warnings`, `_corrections`, `_eventHints`,
+  // and `_cacheHints` already populated. The boundary adapter `toEnvelope`
+  // must thread those through — silently dropping them was what made the
+  // rehydrate envelope on a worktree-bearing task.completed return
+  // `next_actions: []` even though the composite computed
+  // `merge_orchestrate`.
+  it('toEnvelope_SuccessWithNextActions_PreservesAffordances', () => {
+    const verb: NextAction = {
+      verb: 'merge_orchestrate',
+      reason: 'worktree-bearing task.completed auto-detour',
+      idempotencyKey: 'p2-detour:merge_orchestrate:001',
+    };
+    const result = {
+      success: true,
+      data: { phase: 'delegate' },
+      next_actions: [verb],
+      _meta: {},
+      _perf: { ms: 1, bytes: 0, tokens: 0 },
+    } as unknown as ToolResult;
+    const env = toEnvelope(result);
+    expect(env.success).toBe(true);
+    if (env.success) {
+      expect(env.next_actions).toEqual([verb]);
+    }
+  });
+
+  it('toEnvelope_SuccessWithSideChannels_PreservesWarningsCorrectionsEventHintsCacheHints', () => {
+    const result = {
+      success: true,
+      data: { ok: true },
+      _meta: {},
+      _perf: { ms: 1, bytes: 0, tokens: 0 },
+      warnings: ['stale projection'],
+      _corrections: { applied: [] },
+      _eventHints: { missing: [], phase: 'delegate', checked: 0 },
+      _cacheHints: {
+        type: 'cache_boundary' as const,
+        position: 'after:v,projectionSequence',
+        kind: 'ephemeral' as const,
+        ttl: '1h' as const,
+      },
+    } as unknown as ToolResult;
+    const env = toEnvelope(result) as Envelope<unknown> & {
+      warnings?: readonly string[];
+      _corrections?: unknown;
+      _eventHints?: unknown;
+      _cacheHints?: unknown;
+    };
+    expect(env.warnings).toEqual(['stale projection']);
+    expect(env._corrections).toEqual({ applied: [] });
+    expect(env._eventHints).toEqual({ missing: [], phase: 'delegate', checked: 0 });
+    expect(env._cacheHints).toEqual({
+      type: 'cache_boundary',
+      position: 'after:v,projectionSequence',
+      kind: 'ephemeral',
+      ttl: '1h',
+    });
+  });
+
+  // ─── CodeRabbit PR #1369 CRITICAL: validTargets type narrowing ────────────
+  //
+  // `ToolResult.error.validTargets` accepts ValidTransitionTarget objects on
+  // guard-failure paths. The carrier-side ErrorEnvelope advertises strings
+  // only. Narrowing must extract the canonical `phase` string so the
+  // envelope contract holds and downstream consumers don't crash on an
+  // unexpected object.
+  it('toEnvelope_FailureWithValidTransitionTargets_NarrowsToPhaseStrings', () => {
+    const result: ToolResult = {
+      success: false,
+      error: {
+        code: 'GUARD_FAILED',
+        message: 'phase guard rejected the proposed transition',
+        validTargets: [
+          { phase: 'plan' },
+          { phase: 'tdd', guard: { id: 'g.tdd', description: 'tdd guard' } },
+          'design', // mixed string entry — composite handlers can pass either
+        ],
+      },
+    };
+    const env = toEnvelope(result);
+    expect(env.success).toBe(false);
+    if (!env.success) {
+      expect(env.error.validTargets).toEqual(['plan', 'tdd', 'design']);
+      const parsed = ErrorEnvelopeSchema.safeParse(env);
+      expect(parsed.success).toBe(true);
+    }
+  });
+});
+
+// ─── F.5: wrapError round-trip — every branch validates as ErrorEnvelope ───
+//
+// `wrapError` has four real-world entry shapes (design §2.5 / format.ts):
+//   1. ConcurrencyError      — typed event-store conflict.
+//   2. StorageBusyError      — typed substrate contention.
+//   3. Plain `Error` instance — caught-and-rethrown handler crash.
+//   4. Plain string          — legacy fallthrough (some adapters still throw
+//                              raw strings on misuse paths).
+//
+// Each must produce an envelope that validates as `ErrorEnvelopeSchema`.
+// Without this gate, a future refactor could quietly emit a malformed
+// failure envelope (e.g. missing `_perf` or mis-shaped `error`) and the
+// only signal would be downstream consumer breakage.
+describe('WrapError_AllBranches_ValidatesAgainstErrorEnvelopeSchema (F.5)', () => {
+  it('WrapError_ConcurrencyError_RoundTripsThroughErrorEnvelopeSchema', () => {
+    const err = new ConcurrencyError({
+      streamId: 'stream-rt',
+      reducerId: 'rt@v1',
+      expectedVersion: 1,
+      actualVersion: 2,
+    });
+    const env = wrapError(err);
+    const parsed = ErrorEnvelopeSchema.safeParse(env);
+    expect(
+      parsed.success,
+      parsed.success
+        ? undefined
+        : `ConcurrencyError envelope failed schema: ${JSON.stringify(parsed.error?.issues)}`,
+    ).toBe(true);
+  });
+
+  it('WrapError_StorageBusyError_RoundTripsThroughErrorEnvelopeSchema', () => {
+    const err = new StorageBusyError({
+      streamId: 'stream-rt',
+      attempts: 3,
+      cause: new Error('SQLITE_BUSY'),
+    });
+    const env = wrapError(err);
+    const parsed = ErrorEnvelopeSchema.safeParse(env);
+    expect(
+      parsed.success,
+      parsed.success
+        ? undefined
+        : `StorageBusyError envelope failed schema: ${JSON.stringify(parsed.error?.issues)}`,
+    ).toBe(true);
+  });
+
+  it('WrapError_GenericError_RoundTripsThroughErrorEnvelopeSchema', () => {
+    const env = wrapError(new Error('unexpected handler crash'));
+    const parsed = ErrorEnvelopeSchema.safeParse(env);
+    expect(
+      parsed.success,
+      parsed.success
+        ? undefined
+        : `Generic Error envelope failed schema: ${JSON.stringify(parsed.error?.issues)}`,
+    ).toBe(true);
+  });
+
+  it('WrapError_StringInput_RoundTripsThroughErrorEnvelopeSchema', () => {
+    // Some legacy throw sites still pass plain strings — the wrapper must
+    // normalise them onto a valid ErrorEnvelope even when the input lacks
+    // an `Error.message` field.
+    const env = wrapError('raw string failure');
+    const parsed = ErrorEnvelopeSchema.safeParse(env);
+    expect(
+      parsed.success,
+      parsed.success
+        ? undefined
+        : `String-input envelope failed schema: ${JSON.stringify(parsed.error?.issues)}`,
+    ).toBe(true);
   });
 });

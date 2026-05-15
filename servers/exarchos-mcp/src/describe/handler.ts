@@ -1,4 +1,4 @@
-import { zodToJsonSchema } from 'zod-to-json-schema';
+import { zodToJsonSchema } from '../adapters/json-schema.js';
 import type { ToolAction } from '../registry.js';
 import type { ToolResult } from '../format.js';
 import type { ResolvedProjectConfig } from '../config/resolve.js';
@@ -121,8 +121,19 @@ export async function handleDescribe(
         // description string. Surfaced unconditionally (not just when true)
         // so structurally-honest consumers can rely on the slot's presence.
         ...(action.deprecated ? { deprecated: true } : {}),
+        // Wave 0 / Task G.3 (#1287 + INV-5b, design §2.1 Approach C):
+        // per-action `outputSchema` is surfaced as JSON Schema 2020-12
+        // under `outputSchemaJson` so clients can introspect the precise
+        // per-action contract via describe instead of relying on the LCD
+        // envelope advertised on `tools/list`. The legacy `outputSchema`
+        // key is retained alongside for one release to avoid breaking
+        // existing consumers; the canonical slot going forward is
+        // `outputSchemaJson`.
         ...(action.outputSchema
-          ? { outputSchema: zodToJsonSchema(action.outputSchema) }
+          ? {
+              outputSchema: zodToJsonSchema(action.outputSchema),
+              outputSchemaJson: zodToJsonSchema(action.outputSchema),
+            }
           : {}),
       };
 

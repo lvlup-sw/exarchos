@@ -5,7 +5,6 @@ import * as os from 'node:os';
 import { EventStore } from '../../event-store/store.js';
 import { handleViewTelemetry } from '../tools.js';
 import { withTelemetry } from '../middleware.js';
-import { formatResult } from '../../format.js';
 import { resetMaterializerCache } from '../../views/tools.js';
 import { TELEMETRY_STREAM } from '../constants.js';
 
@@ -27,7 +26,10 @@ describe('Latency Benchmarks', () => {
 
   it.skipIf(!RUN_BENCHMARKS)('withTelemetry wrapper adds less than 10ms overhead', async () => {
     // Arrange
-    const mockHandler = async () => formatResult({ success: true, data: {} });
+    const mockHandler = async () => ({
+      content: [{ type: 'text' as const, text: JSON.stringify({ success: true, data: {} }) }],
+      isError: false,
+    });
     const instrumented = withTelemetry(mockHandler, 'latency_test', store);
 
     // Warm up

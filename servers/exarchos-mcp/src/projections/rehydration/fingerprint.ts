@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { zodToJsonSchema } from 'zod-to-json-schema';
+import { zodToJsonSchema } from '../../adapters/json-schema.js';
 
 import { TOOL_REGISTRY, buildToolDescription } from '../../registry.js';
 import { StableSectionsSchema } from './schema.js';
@@ -73,9 +73,13 @@ function stableStringify(value: unknown): string {
  * emit order could flip the hash between point releases.
  */
 function defaultSchemaJson(): string {
+  // PR-C (#1366): migrated from `zod-to-json-schema` to v4 native
+  // `z.toJSONSchema(...)`. The legacy `name` option (a v3 `$ref` wrapper)
+  // and `target: 'jsonSchema7'` are no longer valid. We pin draft-07 here —
+  // the rehydration fingerprint inputs need a stable draft that won't drift
+  // when the rest of the codebase moves to draft-2020-12 by default.
   const schema = zodToJsonSchema(StableSectionsSchema, {
-    name: 'StableSections',
-    target: 'jsonSchema7',
+    target: 'draft-07',
   });
   return stableStringify(schema);
 }

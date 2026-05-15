@@ -17,10 +17,20 @@ vi.mock('../core/dispatch.js', () => ({
   ),
 }));
 
-// Mock cli-format to avoid real stdout writes
+// Mock cli-format to avoid real stdout writes (table/tree paths). The
+// `toCliResult` mock mirrors the real impl for the `--json` path so
+// stdout assertions still see envelope JSON — without the mock entry,
+// `emitResult`'s `toCliResult(toEnvelope(result), 'json')` call fails
+// with "No 'toCliResult' export is defined on the './cli-format.js' mock"
+// because vi.mock() factories REPLACE the module rather than extending it.
 vi.mock('./cli-format.js', () => ({
   prettyPrint: vi.fn(),
   printError: vi.fn(),
+  toCliResult: vi.fn((env: unknown, format: string) => {
+    if (format === 'json') {
+      process.stdout.write(JSON.stringify(env, null, 2) + '\n');
+    }
+  }),
 }));
 
 // Mock schema-introspection
@@ -59,7 +69,7 @@ vi.mock('@modelcontextprotocol/sdk/server/stdio.js', () => ({
 
 // ─── Test Imports ────────────────────────────────────────────────────────────
 
-import { buildCli, commanderErrorToResult, CLI_EXIT_CODES } from './cli.js';
+import { buildCli, commanderErrorToResult, runCli, CLI_EXIT_CODES } from './cli.js';
 import { dispatch } from '../core/dispatch.js';
 import { TOOL_REGISTRY } from '../registry.js';
 import type { DispatchContext } from '../core/dispatch.js';
@@ -182,9 +192,13 @@ describe('buildCli', () => {
       '--json',
     ]);
 
-    // Assert — stdout should get raw JSON
+    // Assert — stdout should carry the envelope JSON. Post-PR-B the CLI
+    // emits `JSON.stringify(env, null, 2)` (pretty), so the colon-space
+    // is part of the wire shape now ("success": true rather than
+    // "success":true). The substring assertion holds either way as long
+    // as we don't require the compact form.
     expect(stdoutSpy).toHaveBeenCalledWith(
-      expect.stringContaining('"success":true'),
+      expect.stringContaining('"success": true'),
     );
 
     stdoutSpy.mockRestore();
@@ -476,14 +490,20 @@ describe('CLI exit-code mapping (DR-3)', () => {
       '--json',
     ]);
 
-    // Assert — exit 0 (success) and raw ToolResult JSON on stdout
+    // Assert — exit 0 (success) and envelope JSON on stdout (post-PR-B
+    // emitResult routes `--json` through `toCliResult(toEnvelope(...))`).
+    // The envelope wraps the ToolResult's `data` and adds `next_actions`,
+    // `_meta`, `_perf` siblings; assert the data + success shape via
+    // `objectContaining` so the extra envelope fields don't need to be
+    // enumerated literally (they're tested directly in cli-format.test.ts).
     expect(process.exitCode ?? 0).toBe(0);
 
     const stdoutText = stdoutSpy.mock.calls.map(([s]) => s).join('');
     const parsed = JSON.parse(stdoutText.trim());
-    expect(parsed).toEqual({
+    expect(parsed).toMatchObject({
       success: true,
       data: { featureId: 'test-feature', phase: 'init' },
+      next_actions: [],
     });
 
     stdoutSpy.mockRestore();
@@ -660,6 +680,42 @@ describe('commanderErrorToResult mapping table (F-024-CMDR)', () => {
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('UNCAUGHT_EXCEPTION');
     expect(exitCode).toBe(CLI_EXIT_CODES.UNCAUGHT_EXCEPTION);
+  });
+
+  it('RunCli_CommanderErrorJsonPath_EmitsEnvelopeShape', async () => {
+    // INV-2 (facade equivalence): every `--json` failure path — handler,
+    // validation, AND Commander parse error — must emit the same envelope
+    // shape. CodeRabbit MAJOR on PR #1369: runCli previously did
+    // `process.stdout.write(JSON.stringify(result))` for CommanderError,
+    // producing a raw `ToolResult` shape that diverged from the envelope
+    // emitted by `emitResult`. Route both through `toCliResult(toEnvelope)`
+    // so consumers see one shape.
+    const program = buildCli(createTestContext());
+    const stdoutSpy = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
+
+    // Trigger an unknown-option Commander error in --json mode.
+    await runCli(program, [
+      'node',
+      'exarchos',
+      'wf',
+      'init',
+      '--feature-id',
+      'test-feature',
+      '--workflow-type',
+      'feature',
+      '--definitely-not-a-flag',
+      '--json',
+    ]);
+
+    // Assert envelope shape on stdout: `success: false` + canonical
+    // envelope fields (`_meta`, `_perf`, `error`). The raw ToolResult
+    // would lack `_meta`/`_perf` so this catches the divergence.
+    const calls = stdoutSpy.mock.calls.map((c) => String(c[0])).join('');
+    expect(calls).toContain('"success": false');
+    expect(calls).toContain('"error"');
+    expect(calls).toContain('"_meta"');
+    expect(calls).toContain('"_perf"');
+    stdoutSpy.mockRestore();
   });
 });
 
