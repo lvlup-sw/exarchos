@@ -1290,7 +1290,7 @@ const orchestrateActions: readonly ToolAction[] = [
   },
   {
     name: 'check_convergence',
-    description: 'Query D1-D5 convergence status from gate.executed events. Returns overall pass/fail and per-dimension summary.',
+    description: 'Query D1-D5 convergence status from gate.executed events. Emits gate.executed event on each invocation. Returns overall pass/fail and per-dimension summary.',
     schema: z.object({
       featureId: z.string().min(1),
       workflowId: z.string().optional(),
@@ -1298,8 +1298,17 @@ const orchestrateActions: readonly ToolAction[] = [
     phases: REVIEW_PHASES,
     roles: ROLE_LEAD,
     gate: { blocking: false },
+    autoEmits: [
+      { event: 'gate.executed', condition: 'always' },
+    ],
     outputSchema: EnvelopeSchema(z.unknown()),
-    annotations: READ_ONLY_LOCAL,
+    // sentry HIGH on PR #1369: although `check_convergence` reads
+    // existing gate state, the handler `emitGateEvent`s on every call,
+    // so the action is not readOnly — annotating it as such would let
+    // readonly-capability clients mutate the event store. LOCAL_MUTATION
+    // matches the actual write surface (matches the rest of the check_*
+    // family that emits gate.executed).
+    annotations: LOCAL_MUTATION,
   },
   {
     name: 'check_provenance_chain',
@@ -1913,7 +1922,13 @@ const orchestrateActions: readonly ToolAction[] = [
       { event: 'diagnostic.executed', condition: 'always' },
     ],
     outputSchema: EnvelopeSchema(z.unknown()),
-    annotations: READ_ONLY_LOCAL,
+    // sentry HIGH on PR #1369: `doctor` emits `diagnostic.executed` on
+    // every invocation (see `autoEmits` above and
+    // `orchestrate/doctor/index.ts:204`). The advisory annotation must
+    // match the actual write surface — `readOnly: true` would let a
+    // readonly-capability client trigger event-store writes and bypass
+    // the audit boundary.
+    annotations: LOCAL_MUTATION,
   },
   // ─── VCS Actions ──────────────────────────────────────────────────────────
   {

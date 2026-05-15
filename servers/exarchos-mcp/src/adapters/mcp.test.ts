@@ -263,7 +263,6 @@ describe('createMcpServer', () => {
         'describe',
         'runbook',
         'agent_spec',
-        'doctor',
         'list_prs',
         'get_pr_comments',
         'check_ci',
@@ -275,6 +274,12 @@ describe('createMcpServer', () => {
     expect(orch).not.toContain('merge_pr');
     expect(orch).not.toContain('create_pr');
     expect(orch).not.toContain('merge_orchestrate');
+    // sentry HIGH on PR #1369: `doctor` (`diagnostic.executed`) and
+    // `check_convergence` (`gate.executed`) emit event-store appends
+    // on every call, so they were removed from the readonly tier
+    // alongside the annotation correction.
+    expect(orch).not.toContain('doctor');
+    expect(orch).not.toContain('check_convergence');
   });
 
   // ─── D.1: toMcpResult carrier mapping (Wave 0, Issue #1287) ──────────────

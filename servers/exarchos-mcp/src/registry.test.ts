@@ -1319,6 +1319,31 @@ describe('AutoEmits Drift Tests', () => {
 
     expect(violations, `Description/autoEmits drift:\n${violations.join('\n')}`).toEqual([]);
   });
+
+  it('RegistryDrift_AutoEmitsImpliesNotReadOnly', () => {
+    // Capability-model invariant: any action that emits events writes to
+    // the event store, so it MUST NOT advertise `readOnly: true`. A
+    // mis-annotation lets read-only-capability clients mutate state and
+    // bypass capability gates (sentry HIGH on PR #1369: `check_convergence`
+    // and `doctor` were both `READ_ONLY_LOCAL` despite emitting
+    // `gate.executed` / `diagnostic.executed`).
+    const violations: string[] = [];
+    for (const tool of TOOL_REGISTRY) {
+      for (const action of tool.actions) {
+        if (!action.autoEmits || action.autoEmits.length === 0) continue;
+        if (action.annotations?.readOnly === true) {
+          const events = action.autoEmits.map((e) => e.event).join(', ');
+          violations.push(
+            `${tool.name}.${action.name}: declares autoEmits [${events}] but annotations.readOnly === true`,
+          );
+        }
+      }
+    }
+    expect(
+      violations,
+      `Actions with autoEmits must not be readOnly:\n${violations.join('\n')}`,
+    ).toEqual([]);
+  });
 });
 
 // ─── Plugin Integration: prepare_review & pluginFindings (DR-1, DR-3) ────────
