@@ -24,6 +24,37 @@ describe('Decision runbooks', () => {
     }
   });
 
+  it('Runbook_MergePending_TemplateVarsExpand', () => {
+    // PR1 / #1363: registry must return the merge-orchestration entry when
+    // queried by phase=merge-pending, and templateVars must declare the
+    // fields the merge-orchestrator skill expects to bind.
+    const mergePendingRunbooks = ALL_RUNBOOKS.filter(r => r.phase === 'merge-pending');
+    expect(mergePendingRunbooks.length).toBeGreaterThanOrEqual(1);
+
+    const mergeOrchestration = mergePendingRunbooks.find(r => r.id === 'merge-orchestration');
+    expect(mergeOrchestration).toBeDefined();
+
+    // templateVars expands the sample binding fields the agent must supply.
+    const expectedVars = ['featureId', 'taskId', 'sourceBranch', 'targetBranch', 'strategy', 'repoRoot'];
+    for (const v of expectedVars) {
+      expect(mergeOrchestration!.templateVars).toContain(v);
+    }
+
+    // Sample binding sanity-check: every templateVar resolves to a non-empty
+    // string when supplied real-looking values (catches typos / empty defaults).
+    const sampleBindings: Record<string, string> = {
+      featureId: 'feat-test',
+      taskId: 'task-001',
+      sourceBranch: 'feature/test-branch',
+      targetBranch: 'main',
+      strategy: 'merge',
+      repoRoot: '/tmp/repo',
+    };
+    for (const v of mergeOrchestration!.templateVars) {
+      expect(sampleBindings[v], `template var "${v}" missing from sample bindings`).toBeTruthy();
+    }
+  });
+
   for (const id of DECISION_RUNBOOK_IDS) {
     describe(id, () => {
       it(`${id}_HasAtLeast2DecideSteps`, () => {
