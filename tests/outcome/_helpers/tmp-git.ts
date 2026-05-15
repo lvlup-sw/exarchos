@@ -84,12 +84,21 @@ const SIBLING_REGISTRY = new Map<string, SiblingTracker>();
  * Create a sibling worktree of `repoPath` checked out on a new branch
  * `branchName`. The sibling lives outside `repoPath/.git` so `git worktree
  * remove` works cleanly. Returns the absolute path of the new worktree.
+ *
+ * Branch names commonly contain slashes (`feature/source`), so the sibling
+ * path acquires a subdirectory segment. Some git versions auto-create
+ * intermediate dirs for `worktree add`, but the behavior isn't documented
+ * as contractual — pre-create the parent so the test's setup is robust
+ * across platforms / git versions. This matters because the seed outcome
+ * tests on the substrate branch run under `it.fails`, where a silent
+ * setup failure would mask the actual trigger condition under test.
  */
 export async function addSiblingWorktree(
   repoPath: string,
   branchName: string,
 ): Promise<string> {
   const sibling = `${repoPath}-wt-${branchName}`;
+  fs.mkdirSync(path.dirname(sibling), { recursive: true });
   execFileSync(
     'git',
     ['-C', repoPath, 'worktree', 'add', sibling, '-b', branchName],
