@@ -130,12 +130,17 @@ export interface InstallSkillsOpts {
    * our `runtimes/*.yaml` `skillsInstallPath` values. Copying locally
    * sidesteps both bugs.
    *
-   * When `undefined`, `installSkills()` calls `findSkillsSourceDir()`
-   * (which checks `<cwd>/skills`, then `<binary-dir>/../../skills`).
-   * If neither auto-detection step finds a viable source dir, the
-   * function falls back to the legacy `npx skills add` shell-out so
-   * existing unit tests (which never set this option) continue to
-   * verify the upstream invocation contract.
+   * When `undefined`, `installSkills()` does NOT auto-detect — the
+   * function falls straight through to the legacy `npx skills add`
+   * shell-out path. Auto-detection is strictly the caller's job:
+   * `install-skills-bridge.js` invokes the exported `findSkillsSourceDir()`
+   * (which checks `<cwd>/skills`, then `<binary-dir>/../../skills`) and
+   * passes the result as `opts.skillsSource`. Library-level callers and
+   * the existing unit tests that assert on the upstream spawn argv
+   * (`src/install-skills.test.ts`) pass no `skillsSource`, so the spawn
+   * path stays the default for them and the upstream invocation contract
+   * remains under test. To opt into the local-copy fast path, call
+   * `findSkillsSourceDir()` yourself and thread the result through here.
    */
   skillsSource?: string;
   /**
