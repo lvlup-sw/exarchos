@@ -26,6 +26,7 @@ const INVARIANT_IDS = [
   'INV-5b',
   'INV-5c',
   'INV-5d',
+  'INV-6',
 ] as const;
 
 // Invariants that MUST carry at least one deterministic grep/structural
@@ -132,6 +133,35 @@ describe('design-invariants skill structure', () => {
       const linkPattern = new RegExp(`references/${id}-[a-z0-9-]+\\.md`);
       expect(linkPattern.test(skillBody), `SKILL.md missing link to ${id}`).toBe(true);
     }
+  });
+
+  it('Skill_DescriptionMentionsINV-6', () => {
+    const fm = readFrontmatter(SKILL_FILE);
+    expect(fm).not.toBeNull();
+    const description = fm?.description ?? '';
+    expect(
+      description.includes('INV-6'),
+      'SKILL.md frontmatter description must enumerate INV-6 alongside INV-1..INV-5d',
+    ).toBe(true);
+    const skillBody = fs.readFileSync(SKILL_FILE, 'utf8');
+    // Body must contain a walk section for INV-6 (header form: `## INV-6 ...`)
+    expect(
+      /^##\s+INV-6\b/m.test(skillBody),
+      'SKILL.md body must contain a `## INV-6` walk section',
+    ).toBe(true);
+  });
+
+  it('ComplementarityMatrix_HasINV-6Row', () => {
+    const text = fs.readFileSync(SKILL_FILE, 'utf8');
+    // The complementarity matrix is a markdown table with three columns
+    // (Finding | Axiom dimension | Design invariant). At least one row
+    // must place INV-6 in the "Design invariant" column. Match a table
+    // row line that contains `INV-6` between pipes.
+    const rowPattern = /^\|[^\n]*\|[^\n]*\|[^\n]*INV-6[^\n]*\|/m;
+    expect(
+      rowPattern.test(text),
+      'complementarity matrix must include at least one row with INV-6 in the Design invariant column',
+    ).toBe(true);
   });
 
   it('DeterministicChecks_CoverRequiredInvariants', () => {
