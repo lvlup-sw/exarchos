@@ -29,6 +29,7 @@ function runLint(arg: string): { stdout: string; status: number } {
     const stdout = execFileSync('node', [LINT_SCRIPT, arg], {
       encoding: 'utf8',
       cwd: REPO_ROOT,
+      maxBuffer: 64 * 1024 * 1024,
     });
     return { stdout, status: 0 };
   } catch (err) {
