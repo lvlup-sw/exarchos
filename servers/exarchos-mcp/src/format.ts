@@ -518,16 +518,6 @@ export function toEventAck(event: { streamId: string; sequence: number; type: st
   return { streamId: event.streamId, sequence: event.sequence, type: event.type };
 }
 
-// ─── Result Formatting ──────────────────────────────────────────────────────
-
-/** Converts a ToolResult into the MCP content format expected by the SDK. */
-export function formatResult(result: ToolResult) {
-  return {
-    content: [{ type: 'text' as const, text: JSON.stringify(result) }],
-    isError: !result.success,
-  };
-}
-
 /**
  * Strip null, undefined, and empty-array values from a flat object.
  * Preserves false, 0, and other falsy-but-meaningful values.

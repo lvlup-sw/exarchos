@@ -1168,9 +1168,6 @@ describe('Backend Integration (Task 12)', () => {
     const querySpy = vi.spyOn(sqliteBackend, 'queryEvents');
 
     resetMaterializerCache();
-    const { registerViewTools } = await import('./tools.js');
-    const mockServer = { tool: vi.fn() } as unknown as Parameters<typeof registerViewTools>[0];
-    registerViewTools(mockServer, tmpDir, store);
 
     // Act
     const result = await handleViewWorkflowStatus({ workflowId: 'wf-backend' }, tmpDir, store);
@@ -1200,9 +1197,6 @@ describe('Backend Integration (Task 12)', () => {
     const listStreamsSpy = vi.spyOn(sqliteBackend, 'listStreams');
 
     resetMaterializerCache();
-    const { registerViewTools } = await import('./tools.js');
-    const mockServer = { tool: vi.fn() } as unknown as Parameters<typeof registerViewTools>[0];
-    registerViewTools(mockServer, tmpDir, store);
 
     // Act
     const result = await handleViewPipeline({}, tmpDir, store);
@@ -1235,9 +1229,6 @@ describe('Backend Integration (Task 12)', () => {
     const querySpy = vi.spyOn(sqliteBackend, 'queryEvents');
 
     resetMaterializerCache();
-    const { registerViewTools } = await import('./tools.js');
-    const mockServer = { tool: vi.fn() } as unknown as Parameters<typeof registerViewTools>[0];
-    registerViewTools(mockServer, tmpDir, store);
 
     // Act
     const result = await handleViewTasks({ workflowId: 'wf-tasks-backend' }, tmpDir, store);

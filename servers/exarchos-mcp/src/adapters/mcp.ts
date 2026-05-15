@@ -54,8 +54,8 @@ const LCD_OUTPUT_SCHEMA = z
  *
  * Envelope construction lives in `format.ts` (`toEnvelope`); this adapter
  * only handles the carrier mapping. `createMcpServer` (this file's main
- * export, below) wires `toMcpResult` into the per-tool MCP handler — the
- * D.7 cutover; legacy `formatResult` is no longer on the carrier path.
+ * export, below) wires `toMcpResult` into the per-tool MCP handler — that
+ * cutover landed in D.7.
  *
  * Design §2.3. Issue #1287.
  */
@@ -215,8 +215,9 @@ export function createMcpServer(ctx: DispatchContext): McpServer {
     const toolName = tool.name;
 
     // MCP handler: dispatch → toEnvelope → per-action schema validation
-    // → toMcpResult. Replaces the legacy `formatResult` carrier (D.7) and
-    // adds per-call enforcement of the per-action outputSchema (D.5).
+    // → toMcpResult. The `toEnvelope` + `toMcpResult` carriers replace the
+    // pre-D.7 single-carrier path and add per-call enforcement of the
+    // per-action outputSchema (D.5).
     const mcpHandler = async (args: Record<string, unknown>) => {
       let env: Envelope<unknown> | ErrorEnvelope;
       try {

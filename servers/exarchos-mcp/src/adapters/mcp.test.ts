@@ -50,7 +50,7 @@ describe('createMcpServer', () => {
 
   it('CreateMcpServer_HandlerReturns_McpToolResult', async () => {
     // Arrange — We can't easily call registered handlers directly via McpServer API,
-    // so we test via dispatch → formatResult by verifying the adapter creates a valid server
+    // so we test via dispatch → toEnvelope → toMcpResult by verifying the adapter creates a valid server
     const { createMcpServer } = await import('./mcp.js');
 
     // Act
@@ -354,9 +354,9 @@ describe('createMcpServer', () => {
   //
   // The MCP handler must:
   //   1. Convert the dispatch core's ToolResult into the canonical Envelope
-  //      via `toEnvelope` (NOT `formatResult`), then ride the carrier via
-  //      `toMcpResult` so `structuredContent` is populated alongside the
-  //      legacy text content. This is the D.7 cutover.
+  //      via `toEnvelope`, then ride the carrier via `toMcpResult` so
+  //      `structuredContent` is populated alongside the legacy text
+  //      content. This is the D.7 cutover.
   //   2. After conversion, validate the envelope against the per-action
   //      outputSchema declared in the registry. On violation, return an
   //      INTERNAL_ERROR envelope whose `_meta.outputSchemaViolation`
@@ -388,7 +388,7 @@ describe('createMcpServer', () => {
       };
 
       // Assert — D.7 cutover: handler emits structuredContent (the envelope),
-      // not just the legacy formatResult shape (content + isError only).
+      // not just the legacy text-only shape (content + isError only).
       expect(result.structuredContent).toBeDefined();
       expect(result.content[0].type).toBe('text');
       // Envelope validates against the action's per-action outputSchema.
@@ -484,9 +484,9 @@ describe('createMcpServer', () => {
   });
 
   // ─── D.7: cutover regression guard — structuredContent must be populated.
-  // formatResult-only output (no structuredContent) would silently drop the
-  // typed envelope and revert to the legacy text-only carrier.
-  it('MCPHandler_OutputShape_ContainsStructuredContent_NotFormatResultOnly', async () => {
+  // A text-content-only output (no structuredContent) would silently drop
+  // the typed envelope and revert to the legacy text-only carrier.
+  it('MCPHandler_OutputShape_ContainsStructuredContent_NotTextOnly', async () => {
     // Arrange
     const { McpServer } = await import('@modelcontextprotocol/sdk/server/mcp.js');
     const spy = vi.spyOn(McpServer.prototype, 'registerTool');

@@ -45,9 +45,11 @@ describe('Telemetry Integration', () => {
     // Arrange
     const store = new EventStore(stateDir);
     const { withTelemetry } = await import('../middleware.js');
-    const { formatResult } = await import('../../format.js');
 
-    const mockHandler = async () => formatResult({ success: true, data: { test: true } });
+    const mockHandler = async () => ({
+      content: [{ type: 'text' as const, text: JSON.stringify({ success: true, data: { test: true } }) }],
+      isError: false,
+    });
     const instrumented = withTelemetry(mockHandler, 'test_handler', store);
 
     // Act

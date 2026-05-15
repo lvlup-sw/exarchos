@@ -1,11 +1,8 @@
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { z } from 'zod';
-import { coercedStringArray } from '../coerce.js';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { EventStore } from '../event-store/store.js';
 import type { WorkflowEvent } from '../event-store/schemas.js';
-import { formatResult, pickFields, type ToolResult } from '../format.js';
+import { pickFields, type ToolResult } from '../format.js';
 import { logger } from '../logger.js';
 import { TERMINAL_PHASES } from '../workflow/terminal-phases.js';
 import { isFeatureStream } from '../core/infra-streams.js';
@@ -1149,39 +1146,3 @@ export async function handleViewIdeateReadiness(
   }
 }
 
-// ─── Registration Function ──────────────────────────────────────────────────
-
-export function registerViewTools(server: McpServer, stateDir: string, eventStore: EventStore): void {
-  // eventStore is now threaded via parameters to each handler
-  server.tool(
-    'exarchos_view_pipeline',
-    'Get CQRS pipeline view aggregating all workflows with stack positions and phase tracking',
-    {
-      limit: z.number().int().positive().optional(),
-      offset: z.number().int().nonnegative().optional(),
-      includeCompleted: z.boolean().optional(),
-    },
-    async (args) => formatResult(await handleViewPipeline(args, stateDir, eventStore)),
-  );
-
-  server.tool(
-    'exarchos_view_tasks',
-    'Get CQRS task detail view with optional filtering by workflowId and task properties, pagination, and field projection',
-    {
-      workflowId: z.string().optional(),
-      filter: z.record(z.string(), z.unknown()).optional(),
-      limit: z.number().int().positive().optional(),
-      offset: z.number().int().nonnegative().optional(),
-      fields: coercedStringArray().optional(),
-    },
-    async (args) => formatResult(await handleViewTasks(args, stateDir, eventStore)),
-  );
-
-  server.tool(
-    'exarchos_view_workflow_status',
-    'Get CQRS workflow status view with phase, task counts, and feature metadata',
-    { workflowId: z.string().optional() },
-    async (args) => formatResult(await handleViewWorkflowStatus(args, stateDir, eventStore)),
-  );
-
-}

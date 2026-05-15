@@ -233,7 +233,7 @@ describe('MCP Server Entry Point', () => {
       );
     });
 
-    it('should wrap results with formatResult', async () => {
+    it('should wrap results with toEnvelope/toMcpResult', async () => {
       await createServer('/tmp/test-state-dir');
       const result = await toolRegistrations.get('exarchos_workflow')!.handler({
         action: 'init', featureId: 'test-feat', workflowType: 'feature',

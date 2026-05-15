@@ -1,9 +1,7 @@
 // ─── Stack MCP Tool Handlers ────────────────────────────────────────────────
 
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { z } from 'zod';
 import type { EventStore } from '../event-store/store.js';
-import { formatResult, toEventAck, type ToolResult } from '../format.js';
+import { toEventAck, type ToolResult } from '../format.js';
 import { getOrCreateMaterializer } from '../views/tools.js';
 import { STACK_VIEW } from '../views/stack-view.js';
 import type { StackViewState } from '../views/stack-view.js';
@@ -122,30 +120,3 @@ export async function handleStackPlace(
   }
 }
 
-// ─── Registration Function ──────────────────────────────────────────────────
-
-export function registerStackTools(server: McpServer, stateDir: string, eventStore: EventStore): void {
-  server.tool(
-    'exarchos_stack_status',
-    'Get current stack positions from stack.position-filled events',
-    {
-      streamId: z.string().optional(),
-      limit: z.number().int().positive().optional(),
-      offset: z.number().int().nonnegative().optional(),
-    },
-    async (args) => formatResult(await handleStackStatus(args, stateDir, eventStore)),
-  );
-
-  server.tool(
-    'exarchos_stack_place',
-    'Place an item on the stack by emitting a stack.position-filled event',
-    {
-      streamId: z.string().min(1),
-      position: z.number().int().nonnegative(),
-      taskId: z.string().min(1),
-      branch: z.string().optional(),
-      prUrl: z.string().optional(),
-    },
-    async (args) => formatResult(await handleStackPlace(args, stateDir, eventStore)),
-  );
-}

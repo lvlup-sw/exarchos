@@ -1,11 +1,9 @@
 // ─── Task MCP Tool Handlers ─────────────────────────────────────────────────
 
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { z } from 'zod';
 import * as path from 'node:path';
 import { EventStore, SequenceConflictError } from '../event-store/store.js';
 import { validateAgentEvent } from '../event-store/schemas.js';
-import { formatResult, toEventAck, type ToolResult } from '../format.js';
+import { toEventAck, type ToolResult } from '../format.js';
 import { getOrCreateMaterializer, resetMaterializerCache } from '../views/tools.js';
 import { TASK_DETAIL_VIEW } from '../views/task-detail-view.js';
 import type { TaskDetailViewState } from '../views/task-detail-view.js';
@@ -417,45 +415,3 @@ export async function handleTaskFail(
   }
 }
 
-// ─── Registration Function ──────────────────────────────────────────────────
-
-export function registerTaskTools(server: McpServer, stateDir: string, eventStore: EventStore): void {
-  server.tool(
-    'exarchos_task_claim',
-    'Claim a task for execution by an agent',
-    {
-      taskId: z.string().min(1),
-      agentId: z.string().min(1),
-      streamId: z.string().min(1),
-    },
-    async (args) => formatResult(await handleTaskClaim(args, stateDir, eventStore)),
-  );
-
-  server.tool(
-    'exarchos_task_complete',
-    'Mark a task as complete with optional artifacts and evidence',
-    {
-      taskId: z.string().min(1),
-      result: z.record(z.string(), z.unknown()).optional(),
-      evidence: z.object({
-        type: z.enum(['test', 'build', 'typecheck', 'manual']),
-        output: z.string(),
-        passed: z.boolean(),
-      }).optional(),
-      streamId: z.string().min(1),
-    },
-    async (args) => formatResult(await handleTaskComplete(args, stateDir, eventStore)),
-  );
-
-  server.tool(
-    'exarchos_task_fail',
-    'Mark a task as failed with error details and optional diagnostics',
-    {
-      taskId: z.string().min(1),
-      error: z.string().min(1),
-      diagnostics: z.record(z.string(), z.unknown()).optional(),
-      streamId: z.string().min(1),
-    },
-    async (args) => formatResult(await handleTaskFail(args, stateDir, eventStore)),
-  );
-}
