@@ -49,10 +49,19 @@ export function rankOf(status: string): number {
  * Normalize a `TaskSchema.status` value (or close approximation thereof)
  * into the canonical TaskStatus surface. Anything not recognized falls
  * back to `pending` — the safe default for plan-state assertion folds.
+ *
+ * The workflow-side `TaskStatusSchema` (`workflow/schemas.ts`) carries a
+ * `z.preprocess` that folds the legacy `'completed'` literal into the
+ * canonical `'complete'`. `state.patched` events emitted by `handleSet`
+ * do NOT route their `input.updates` through that schema, so historical
+ * events with `status: 'completed'` land in projections unchanged.
+ * Without the same mapping here, those tasks would silently downgrade
+ * to `pending`, breaking taskCount/completedCount and risking re-dispatch
+ * of already-finished work. Sentry follow-up on PR #1394.
  */
 export function normalizeTaskStatus(raw: unknown): TaskStatus {
   if (raw === 'failed') return 'failed';
-  if (raw === 'complete') return 'complete';
+  if (raw === 'complete' || raw === 'completed') return 'complete';
   if (raw === 'in_progress') return 'in_progress';
   return 'pending';
 }
