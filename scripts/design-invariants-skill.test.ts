@@ -135,6 +135,22 @@ describe('design-invariants skill structure', () => {
     }
   });
 
+  it('Skill_DescriptionMentionsINV-6', () => {
+    const fm = readFrontmatter(SKILL_FILE);
+    expect(fm).not.toBeNull();
+    const description = fm?.description ?? '';
+    expect(
+      description.includes('INV-6'),
+      'SKILL.md frontmatter description must enumerate INV-6 alongside INV-1..INV-5d',
+    ).toBe(true);
+    const skillBody = fs.readFileSync(SKILL_FILE, 'utf8');
+    // Body must contain a walk section for INV-6 (header form: `## INV-6 ...`)
+    expect(
+      /^##\s+INV-6\b/m.test(skillBody),
+      'SKILL.md body must contain a `## INV-6` walk section',
+    ).toBe(true);
+  });
+
   it('DeterministicChecks_CoverRequiredInvariants', () => {
     const checksFile = path.join(REFERENCES_DIR, 'deterministic-checks.md');
     expect(fs.existsSync(checksFile)).toBe(true);
