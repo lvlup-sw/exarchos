@@ -44,7 +44,7 @@
  *             #1213 review-item #4 reversal, #1214.
  */
 
-import { installSkills } from '../../../../src/install-skills.js';
+import { installSkills, findSkillsSourceDir } from '../../../../src/install-skills.js';
 import { loadAllRuntimes } from '../../../../src/runtimes/load.js';
 import { EMBEDDED_RUNTIMES } from '../../../../src/runtimes/embedded.js';
 import { fileURLToPath } from 'node:url';
@@ -106,5 +106,14 @@ export async function runInstallSkills(opts, deps = {}) {
     ? loadFromDisk(resolveRuntimesDir())
     : embedded;
 
-  await installer({ agent: opts.agent, runtimes });
+  // #1355 fix: opt the binary entry point in to the local-copy fast
+  // path by resolving `skillsSource` here. Auto-detection lives in
+  // `findSkillsSourceDir()` and walks the standard candidate list
+  // (cwd/skills, binary-relative dist/bin/../../skills, src/-relative
+  // dev path). When all three miss, the value is `undefined` and
+  // `installSkills` falls back to the upstream `npx skills add`
+  // shell-out — same behavior as before #1355.
+  const skillsSource = findSkillsSourceDir();
+
+  await installer({ agent: opts.agent, runtimes, skillsSource });
 }

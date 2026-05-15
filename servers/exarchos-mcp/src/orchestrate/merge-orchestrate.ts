@@ -35,6 +35,7 @@
 // ───────────────────────────────────────────────────────────────────────────
 
 import { execFileSync } from 'node:child_process';
+import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { z } from 'zod';
 
@@ -166,6 +167,23 @@ export interface HandleMergeOrchestrateInput extends HandleMergeOrchestrateArgs 
   readonly gitExec?: GitExec;
   readonly persistState?: OrchestratorPersistState;
   readonly readState?: OrchestratorReadState;
+}
+
+// ─── Path normalization ────────────────────────────────────────────────────
+
+/**
+ * Resolve a filesystem path to its canonical form. Prefers `realpathSync`
+ * so symlink segments are followed (matching git's internal canonicalization
+ * of worktree paths), falling back to `path.resolve` if the path does not
+ * exist on disk (rare: covers a caller passing a stale repoRoot before any
+ * disk operation has had the chance to fail with a clearer error).
+ */
+function normalizePath(p: string): string {
+  try {
+    return fs.realpathSync(p);
+  } catch {
+    return path.resolve(p);
+  }
 }
 
 // ─── Default gitExec ───────────────────────────────────────────────────────
@@ -336,6 +354,74 @@ export async function handleMergeOrchestrate(
     input.persistState ?? buildDefaultPersistState(args.featureId, ctx.stateDir);
   const readState =
     input.readState ?? buildDefaultReadState(args.featureId, ctx.stateDir);
+
+  // ─── 0a. Target-worktree availability preflight (#1356) ──────────────────
+  //
+  // When the merge target branch is checked out in a SIBLING worktree of
+  // the same repository, the executor's local `git merge` against the
+  // target would fail with a confusing "fatal: '<branch>' is already
+  // checked out at '<other-worktree-path>'", and worse — the executor
+  // captures `rollbackSha` from the cwd's HEAD (which is on a different
+  // branch), so a rollback would `git reset --hard` to the wrong commit.
+  //
+  // Detect this topology BEFORE any event emission or executor delegation
+  // so the abort path:
+  //   • does NOT fire a `merge.requested` event (Phase A intent)
+  //   • does NOT fire a `merge.preflight` event
+  //   • does NOT capture a wrong rollback SHA
+  //   • does NOT touch workflow state on disk
+  //
+  // We parse `git worktree list --porcelain`, whose record shape is:
+  //     worktree <absolute-path>
+  //     HEAD <sha>
+  //     branch refs/heads/<branchname>      (omitted for detached HEAD)
+  //     <blank line separator>
+  // If any record's branch equals our target AND its path is NOT the
+  // repoRoot we're about to operate on, the topology is unsafe — abort.
+  // Normalize repoRoot so the string comparison against `git worktree list`
+  // output is robust on macOS / Windows. `git worktree list --porcelain`
+  // emits symlink-resolved absolute paths (git canonicalizes internally),
+  // so without realpath here the equality test below would false-negative
+  // when the caller's cwd traverses a symlinked segment (a common case on
+  // macOS where /var → /private/var, or developer-symlinked checkouts).
+  // realpathSync requires the path to exist; fall back to resolve() if not.
+  const repoRoot = normalizePath(args.repoRoot ?? process.cwd());
+  const worktreeListResult = gitExec(repoRoot, ['worktree', 'list', '--porcelain']);
+  if (worktreeListResult.exitCode === 0) {
+    const targetRef = `refs/heads/${args.targetBranch}`;
+    let currentPath: string | undefined;
+    let siblingHoldingTarget: string | undefined;
+    for (const rawLine of worktreeListResult.stdout.split('\n')) {
+      const line = rawLine.trimEnd();
+      if (line.startsWith('worktree ')) {
+        // Normalize the path emitted by git so the equality test below
+        // compares apples to apples regardless of separator normalization.
+        currentPath = normalizePath(line.slice('worktree '.length));
+      } else if (line.startsWith('branch ')) {
+        const ref = line.slice('branch '.length);
+        if (ref === targetRef && currentPath !== undefined && currentPath !== repoRoot) {
+          siblingHoldingTarget = currentPath;
+          break;
+        }
+      } else if (line === '') {
+        currentPath = undefined;
+      }
+    }
+    if (siblingHoldingTarget !== undefined) {
+      return {
+        success: false,
+        error: {
+          code: 'PREFLIGHT_FAILED',
+          message: `Target branch '${args.targetBranch}' is checked out in sibling worktree: ${siblingHoldingTarget}`,
+        },
+        data: {
+          phase: 'aborted' as const,
+          reason: 'target-checked-out-elsewhere' as const,
+          siblingWorktreePath: siblingHoldingTarget,
+        },
+      };
+    }
+  }
 
   // ─── 0. Resume short-circuit (T14) ───────────────────────────────────────
   // When `resume: true`, consult existing `mergeOrchestrator` state. If the

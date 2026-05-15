@@ -37,6 +37,7 @@ import { spawn as nodeSpawn, type SpawnOptions } from 'node:child_process';
 import { homedir } from 'node:os';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type { RuntimeMap } from './runtimes/types.js';
 import { detectRuntime, AmbiguousRuntimeError, type DetectDeps } from './runtimes/detect.js';
 import {
@@ -114,6 +115,41 @@ export interface InstallSkillsOpts {
    * the `claude` runtime.
    */
   registerMcp?: (home: string) => void;
+  /**
+   * Optional explicit path to the per-runtime skills source tree (the
+   * directory that contains `<runtime>/<skill>/SKILL.md` children — i.e.
+   * the repo's `skills/` directory). When provided and the resolved
+   * `<skillsSource>/<runtime.name>/` exists, `installSkills()` performs
+   * a direct local-disk copy of every skill directory in that subtree
+   * to `runtime.skillsInstallPath` and skips the upstream `npx skills
+   * add` shell-out entirely. This is the #1355 fix path: the upstream
+   * CLI mis-installed for every non-claude runtime because it (a)
+   * cloned the repo and walked only the root level (missing the
+   * per-runtime trees) and (b) used its own per-agent home-dir mapping
+   * (`github-copilot` → `~/.agents/skills`) that does not align with
+   * our `runtimes/*.yaml` `skillsInstallPath` values. Copying locally
+   * sidesteps both bugs.
+   *
+   * When `undefined`, `installSkills()` does NOT auto-detect — the
+   * function falls straight through to the legacy `npx skills add`
+   * shell-out path. Auto-detection is strictly the caller's job:
+   * `install-skills-bridge.js` invokes the exported `findSkillsSourceDir()`
+   * (which checks `<cwd>/skills`, then `<binary-dir>/../../skills`) and
+   * passes the result as `opts.skillsSource`. Library-level callers and
+   * the existing unit tests that assert on the upstream spawn argv
+   * (`src/install-skills.test.ts`) pass no `skillsSource`, so the spawn
+   * path stays the default for them and the upstream invocation contract
+   * remains under test. To opt into the local-copy fast path, call
+   * `findSkillsSourceDir()` yourself and thread the result through here.
+   */
+  skillsSource?: string;
+  /**
+   * Injectable recursive directory copy. Default wraps
+   * `fs.cpSync(src, dest, { recursive: true })`. Tests inject a
+   * recorder so they can assert what was copied without touching disk.
+   * Only invoked when the local-copy fast path runs (see `skillsSource`).
+   */
+  copyDir?: (src: string, dest: string) => void;
 }
 
 /**
@@ -126,14 +162,137 @@ export interface InstallSkillsError extends Error {
 }
 
 /**
- * Expand a leading `~` in a path to the user's home directory. We do not use
- * `os.homedir()` directly so tests can pass a deterministic home. Also handles
- * the no-tilde case (returns input unchanged) and a bare `~` (returns home).
+ * Expand a leading `~` or `$HOME` in a path to the user's home directory.
+ * We do not use `os.homedir()` directly so tests can pass a deterministic
+ * home. Handles the no-marker case (returns input unchanged), a bare `~`
+ * or `$HOME` (returns home), and the `~/...` / `$HOME/...` prefixes. The
+ * `$HOME` form is recognized because `runtimes/codex.yaml` and any future
+ * shell-literal-style entry will not otherwise be expanded by the
+ * local-copy fast path (the upstream shell-out used to mask this because
+ * its child shell expanded `$HOME` itself, but the in-process copy never
+ * sees a shell).
  */
 export function expandTilde(p: string, home: string): string {
   if (p === '~') return home;
   if (p.startsWith('~/')) return `${home}${p.slice(1)}`;
+  if (p === '$HOME') return home;
+  if (p.startsWith('$HOME/')) return `${home}${p.slice('$HOME'.length)}`;
   return p;
+}
+
+/**
+ * Auto-detect the local skills source directory — the parent of
+ * `<runtime>/<skill>/SKILL.md` (i.e. the repo's `skills/` directory).
+ *
+ * Resolution order:
+ *   1. `<process.cwd()>/skills` — the outcome-test invocation path
+ *      (vitest runs from REPO_ROOT, so `process.cwd()` equals the
+ *      repo root and `skills/` is one level below).
+ *   2. `<dirname(process.execPath)>/../../skills` — the compiled-binary
+ *      install layout where the executable lives at
+ *      `<repo>/dist/bin/exarchos-<os>-<arch>`. Two `..` hops climb from
+ *      `dist/bin/` back to the repo root.
+ *   3. `<dirname(import.meta.url)>/../skills` — the Node-import dev
+ *      path. `src/install-skills.ts` is one directory below the repo
+ *      root, so a single `..` resolves to the `skills/` sibling.
+ *
+ * Returns the first candidate that exists as a directory, or `undefined`
+ * when none do. The caller (installSkills) falls back to the legacy
+ * upstream shell-out when this returns `undefined`.
+ *
+ * Implements: #1355 fix — auto-detection seam so the binary's local-copy
+ * fast path works in both the test harness and a developer-checkout
+ * production install.
+ */
+export function findSkillsSourceDir(): string | undefined {
+  const candidates: string[] = [];
+
+  // Candidate 1: process.cwd()/skills.
+  candidates.push(path.join(process.cwd(), 'skills'));
+
+  // Candidate 2: <binary-dir>/../../skills (dist/bin/ layout).
+  try {
+    if (typeof process.execPath === 'string' && process.execPath.length > 0) {
+      candidates.push(path.resolve(path.dirname(process.execPath), '..', '..', 'skills'));
+    }
+  } catch {
+    // process.execPath is always defined under Node/Bun, but guard anyway.
+  }
+
+  // Candidate 3: <this-file-dir>/../skills (src/ layout under tsx/ts-node).
+  try {
+    if (typeof import.meta.url === 'string' && import.meta.url.startsWith('file:')) {
+      const here = path.dirname(fileURLToPath(import.meta.url));
+      candidates.push(path.resolve(here, '..', 'skills'));
+    }
+  } catch {
+    // import.meta.url may be a non-file: URL inside bun-compile output.
+  }
+
+  for (const c of candidates) {
+    try {
+      const st = fs.statSync(c);
+      if (st.isDirectory()) return c;
+    } catch {
+      // Candidate doesn't exist — try next.
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Recursively copy `src` to `dest` using `fs.cpSync`. Pulled into a
+ * named helper so `installSkills` can default `opts.copyDir` to a
+ * stable function reference and tests can inject a recorder. Errors
+ * propagate to the caller — the upstream loop decides whether to
+ * partial-fail or abort.
+ */
+function defaultCopyDir(src: string, dest: string): void {
+  fs.cpSync(src, dest, { recursive: true });
+}
+
+/**
+ * Copy every skill directory under `sourceDir` (a directory containing
+ * `<skill>/SKILL.md` children) into `destDir`, creating `destDir` if
+ * needed. Returns the list of skill directory names that were copied
+ * so the caller can log a manifest.
+ *
+ * Idempotent at the directory-replace level: each skill subdir is
+ * removed from `destDir` before re-copy so stale files (left over from
+ * a previous install of an older version) are cleaned up. Files outside
+ * of a skill subdir under `destDir` are left untouched — we never
+ * blow away `destDir` itself in case the user keeps other skills there.
+ */
+export function copyLocalSkills(
+  sourceDir: string,
+  destDir: string,
+  copyDir: (src: string, dest: string) => void = defaultCopyDir,
+): string[] {
+  const entries = fs.readdirSync(sourceDir, { withFileTypes: true });
+  const skillDirs = entries
+    .filter((e) => e.isDirectory())
+    .filter((e) => {
+      try {
+        return fs.statSync(path.join(sourceDir, e.name, 'SKILL.md')).isFile();
+      } catch {
+        return false;
+      }
+    })
+    .map((e) => e.name);
+
+  fs.mkdirSync(destDir, { recursive: true });
+
+  for (const skill of skillDirs) {
+    const src = path.join(sourceDir, skill);
+    const dest = path.join(destDir, skill);
+    // Remove any prior copy so the install is byte-stable across runs.
+    // `force: true` makes ENOENT a no-op; `recursive: true` follows into
+    // subdirectories (reference files etc.).
+    fs.rmSync(dest, { recursive: true, force: true });
+    copyDir(src, dest);
+  }
+
+  return skillDirs;
 }
 
 /**
@@ -266,6 +425,65 @@ export async function installSkills(opts: InstallSkillsOpts): Promise<void> {
       } else {
         throw err;
       }
+    }
+  }
+
+  // #1355 fix — local-copy fast path.
+  //
+  // The upstream `npx skills add github:lvlup-sw/exarchos ...` shell-out
+  // mis-installed for every non-claude runtime: it cloned the repo and
+  // walked only the root level (finding just `design-invariants`,
+  // missing every skill under `skills/<runtime>/`) and used its own
+  // per-agent home-dir mapping that does not match our
+  // `runtimes/*.yaml` `skillsInstallPath` values. We sidestep both
+  // bugs by copying the rendered per-runtime tree directly to the
+  // runtime's canonical install path when a local skills source is
+  // available. The shell-out path below is retained as a fallback so
+  // existing unit tests (which never set `opts.skillsSource`) keep
+  // verifying the upstream invocation contract.
+  //
+  // `skillsSource` is strictly opt-in: callers (the install-skills
+  // bridge) explicitly supply `findSkillsSourceDir()` when they want
+  // the fast path. Library-level callers and the existing unit tests
+  // that assert on the upstream spawn argv (`src/install-skills.test.ts`)
+  // pass no `skillsSource`, so the spawn path stays the default. Doing
+  // implicit auto-detection inside `installSkills()` itself would
+  // regress those unit tests every time they ran from REPO_ROOT.
+  const skillsSource = opts.skillsSource;
+  if (skillsSource) {
+    const runtimeSourceDir = path.join(skillsSource, runtime.name);
+    let sourceIsViable = false;
+    try {
+      sourceIsViable = fs.statSync(runtimeSourceDir).isDirectory();
+    } catch {
+      sourceIsViable = false;
+    }
+    if (sourceIsViable) {
+      const home = homeDirFn();
+      const destDir = expandTilde(runtime.skillsInstallPath, home);
+      const copyDir = opts.copyDir ?? defaultCopyDir;
+      log(
+        `Installing skills locally from ${runtimeSourceDir} → ${destDir}`,
+      );
+      const installed = copyLocalSkills(runtimeSourceDir, destDir, copyDir);
+      log(`Installed ${installed.length} skill${installed.length === 1 ? '' : 's'}: ${installed.join(', ')}`);
+
+      // Mirror the post-success MCP registration that the spawn path
+      // performs for the `claude` runtime — install-skills' contract
+      // is "skills land + claude gets MCP wired up", regardless of
+      // which install transport ran.
+      if (runtime.name === 'claude') {
+        try {
+          registerMcp(home);
+        } catch (err) {
+          errLog(
+            `install-skills: skills installed, but failed to register MCP server in ~/.claude.json: ${
+              err instanceof Error ? err.message : String(err)
+            }`,
+          );
+        }
+      }
+      return;
     }
   }
 

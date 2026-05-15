@@ -321,10 +321,68 @@ jobs:
       - name: Run process-fidelity suite
         run: npm run test:process
 
+  # ─────────────────────────────────────────────────────────────────────
+  # outcome-tests
+  # ─────────────────────────────────────────────────────────────────────
+  # Runs the `outcome` vitest project (Wave 1 data-safety substrate,
+  # Phase B). The tier exercises operator-visible behaviour using real
+  # OS state (tmpdir HOME, real git repos with sibling worktrees) via
+  # helpers under `tests/outcome/_helpers/`.
+  #
+  # Linux-only by design: the helpers in T-010/T-011 use POSIX-style
+  # path semantics and `git worktree` invocations that are not yet
+  # validated on Windows. Cross-platform outcome coverage is deferred
+  # to a later wave alongside the v2.10 Windows process-fidelity work.
+  #
+  # NOTE: marking this job as a required branch-protection check is a
+  # manual repo-settings step (Settings → Branches → main → required
+  # status checks). Capture that as a manual followup in the merge PR.
+  # ─────────────────────────────────────────────────────────────────────
+  outcome-tests:
+    name: Outcome Tests (linux-x64)
+    if: github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: npm
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.13
+
+      # Root deps own vitest + the outcome project's `bun:sqlite` alias
+      # target. MCP-server deps own `better-sqlite3` (the shim's runtime
+      # dependency) plus the handlers exercised by the outcome tests.
+      - name: Install root dependencies
+        run: npm ci
+
+      - name: Install MCP server dependencies
+        working-directory: servers/exarchos-mcp
+        run: npm ci
+
+      # The install-skills outcome test invokes the platform binary at
+      # `dist/bin/exarchos-<os>-<arch>`. Without this build step the test
+      # silently degrades to "no on-disk effects → empty manifest →
+      # assertion failure", which masks real regressions in the installer.
+      - name: Build host binary (linux-x64)
+        run: bun run scripts/build-binary.ts --target linux-x64
+
+      - name: Configure git identity for outcome helpers
+        run: |
+          git config --global user.email "outcome-tests@example.com"
+          git config --global user.name "outcome-tests"
+
+      - name: Run outcome-tier suite
+        run: npm run test:outcome
+
   ci-gate:
     name: CI Gate
     runs-on: self-hosted
-    needs: [changes, test-root, test-mcp, validate-no-legacy, grep-gates]
+    needs: [changes, test-root, test-mcp, validate-no-legacy, grep-gates, outcome-tests]
     if: (github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request') && always()
     steps:
       - name: Evaluate results
@@ -334,6 +392,7 @@ jobs:
           echo "test-mcp=${{ needs.test-mcp.result }}"
           echo "validate-no-legacy=${{ needs.validate-no-legacy.result }}"
           echo "grep-gates=${{ needs.grep-gates.result }}"
+          echo "outcome-tests=${{ needs.outcome-tests.result }}"
 
           if [[ "${{ needs.changes.result }}" =~ ^(failure|cancelled)$ ]]; then
             echo "::error::Change detection: ${{ needs.changes.result }}"
@@ -353,6 +412,10 @@ jobs:
           fi
           if [[ "${{ needs.grep-gates.result }}" =~ ^(failure|cancelled)$ ]]; then
             echo "::error::Grep gates: ${{ needs.grep-gates.result }}"
+            exit 1
+          fi
+          if [[ "${{ needs.outcome-tests.result }}" =~ ^(failure|cancelled)$ ]]; then
+            echo "::error::Outcome tests: ${{ needs.outcome-tests.result }}"
             exit 1
           fi
 
