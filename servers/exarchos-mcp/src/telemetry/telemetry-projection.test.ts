@@ -337,3 +337,118 @@ function makeEvent(type: string, data: Record<string, unknown>): WorkflowEvent {
     data,
   };
 }
+
+// ─── PR3/T9 (#1364): tool.action_errored projection ─────────────────────────
+describe('TelemetryProjection_ActionErrored_AggregatesByTool', () => {
+  it('folds action-errored events into per-tool actionErrors + breakdown', () => {
+    let state = telemetryProjection.init();
+
+    // 5× tool.completed for exarchos_orchestrate
+    for (let i = 0; i < 5; i++) {
+      state = telemetryProjection.apply(state, makeEvent('tool.completed', {
+        tool: 'exarchos_orchestrate',
+        durationMs: 10,
+        responseBytes: 100,
+        tokenEstimate: 25,
+      }));
+    }
+
+    // 2× tool.action_errored MERGE_ROLLED_BACK
+    for (let i = 0; i < 2; i++) {
+      state = telemetryProjection.apply(state, makeEvent('tool.action_errored', {
+        tool: 'exarchos_orchestrate',
+        durationMs: 10,
+        errorCode: 'MERGE_ROLLED_BACK',
+        responseBytes: 100,
+        tokenEstimate: 25,
+      }));
+    }
+
+    // 1× tool.action_errored PREFLIGHT_FAILED
+    state = telemetryProjection.apply(state, makeEvent('tool.action_errored', {
+      tool: 'exarchos_orchestrate',
+      durationMs: 10,
+      errorCode: 'PREFLIGHT_FAILED',
+      responseBytes: 100,
+      tokenEstimate: 25,
+    }));
+
+    // 1× tool.errored (transport)
+    state = telemetryProjection.apply(state, makeEvent('tool.errored', {
+      tool: 'exarchos_orchestrate',
+      durationMs: 5,
+      errorMessage: 'crashed',
+    }));
+
+    const entry = state.tools['exarchos_orchestrate'];
+    expect(entry).toBeDefined();
+    // invocations counts tool.completed only (existing rule retained).
+    expect(entry.invocations).toBe(5);
+    // errors counts transport (tool.errored) only.
+    expect(entry.errors).toBe(1);
+    // actionErrors = sum of action-errored events for this tool.
+    expect(entry.actionErrors).toBe(3);
+    // Breakdown by errorCode.
+    expect(entry.actionErrorBreakdown).toEqual({
+      MERGE_ROLLED_BACK: 2,
+      PREFLIGHT_FAILED: 1,
+    });
+  });
+
+  it('initToolMetrics_HasActionErrorFields_ZeroInitialized', () => {
+    const m = initToolMetrics();
+    expect(m.actionErrors).toBe(0);
+    expect(m.actionErrorBreakdown).toEqual({});
+  });
+
+  it('Apply_ActionErrored_MissingFields_ReturnsViewUnchanged', () => {
+    const state = telemetryProjection.init();
+
+    // No data at all
+    const noData = telemetryProjection.apply(state, {
+      streamId: 'telemetry',
+      sequence: 1,
+      timestamp: new Date().toISOString(),
+      type: 'tool.action_errored',
+      schemaVersion: '1.0',
+    } as WorkflowEvent);
+    expect(noData).toBe(state);
+
+    // Non-string tool
+    const numericTool = telemetryProjection.apply(state, makeEvent('tool.action_errored', {
+      tool: 42,
+      durationMs: 10,
+      errorCode: 'X',
+      responseBytes: 0,
+      tokenEstimate: 0,
+    }));
+    expect(numericTool).toBe(state);
+
+    // Missing errorCode
+    const noCode = telemetryProjection.apply(state, makeEvent('tool.action_errored', {
+      tool: 'exarchos_orchestrate',
+      durationMs: 10,
+      responseBytes: 0,
+      tokenEstimate: 0,
+    }));
+    expect(noCode).toBe(state);
+  });
+
+  it('Apply_ActionErrored_NewTool_CreatesEntry', () => {
+    let state = telemetryProjection.init();
+    state = telemetryProjection.apply(state, makeEvent('tool.action_errored', {
+      tool: 'fresh_tool',
+      durationMs: 10,
+      errorCode: 'INVALID_INPUT',
+      responseBytes: 50,
+      tokenEstimate: 12,
+    }));
+
+    expect(state.tools['fresh_tool']).toBeDefined();
+    expect(state.tools['fresh_tool'].actionErrors).toBe(1);
+    expect(state.tools['fresh_tool'].actionErrorBreakdown).toEqual({ INVALID_INPUT: 1 });
+    // No completed events folded — invocations stays 0.
+    expect(state.tools['fresh_tool'].invocations).toBe(0);
+    expect(state.tools['fresh_tool'].errors).toBe(0);
+  });
+});

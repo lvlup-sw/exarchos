@@ -33,6 +33,13 @@ interface CompactToolEntry {
   readonly p95Bytes: number;
   readonly p50Tokens: number;
   readonly p95Tokens: number;
+  // PR3/T10 (#1364) — structured action-level failure counters. These
+  // mirror the `TelemetryToolEntrySchema` fields registered for the
+  // `view.telemetry` action's output schema; omitting them here would
+  // make `validateAgainstActionSchema` reject the envelope and surface
+  // INTERNAL_ERROR/outputSchemaViolation to the caller.
+  readonly actionErrors: number;
+  readonly actionErrorBreakdown: Readonly<Record<string, number>>;
 }
 
 interface FullToolEntry extends CompactToolEntry {
@@ -154,6 +161,8 @@ function toToolEntry(
     p95Bytes: metrics.p95Bytes,
     p50Tokens: metrics.p50Tokens,
     p95Tokens: metrics.p95Tokens,
+    actionErrors: metrics.actionErrors,
+    actionErrorBreakdown: metrics.actionErrorBreakdown,
   };
 
   if (compact) {

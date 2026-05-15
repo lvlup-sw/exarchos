@@ -30,6 +30,13 @@ export const EventTypes = [
   'tool.invoked',
   'tool.completed',
   'tool.errored',
+  // PR3/T7 (#1364) — emitted alongside `tool.completed` when the handler
+  // returns the structured failure envelope `{success: false, error: {…}}`.
+  // `tool.errored` continues to count transport/protocol failures (JS throws)
+  // only; this event splits out action-level outcomes (MERGE_ROLLED_BACK,
+  // PREFLIGHT_FAILED, RESERVED_FIELD, etc.) so `view telemetry` can report
+  // them instead of silently rolling them up as completions.
+  'tool.action_errored',
   'benchmark.completed',
   'team.spawned',
   'team.task.assigned',
@@ -244,6 +251,8 @@ export const EVENT_EMISSION_REGISTRY: Record<EventType, EventEmissionSource> = {
   'tool.invoked': 'auto',
   'tool.completed': 'auto',
   'tool.errored': 'auto',
+  // PR3/T7 (#1364) — see EventTypes registration above.
+  'tool.action_errored': 'auto',
   'quality.hint.generated': 'auto',
   'quality.refinement.suggested': 'auto',
   'stack.position-filled': 'auto',
@@ -749,6 +758,20 @@ export const ToolErroredData = z.object({
   tool: z.string(),
   durationMs: z.number(),
   errorMessage: z.string(),
+});
+
+// PR3/T7 (#1364) — structured action-level failure paired with `tool.completed`.
+// Mirrors `tool.completed`'s perf fields so the projection can fold both events
+// off the same per-tool entry without re-deriving durationMs/responseBytes.
+// `errorCode` is the discriminator carried up from the handler's error envelope
+// (e.g., MERGE_ROLLED_BACK, PREFLIGHT_FAILED, RESERVED_FIELD); falls back to
+// 'UNKNOWN' when the handler emits an envelope without a code.
+export const ToolActionErroredData = z.object({
+  tool: z.string(),
+  durationMs: z.number(),
+  errorCode: z.string(),
+  responseBytes: z.number(),
+  tokenEstimate: z.number(),
 });
 
 // ─── Benchmark Event Data ───────────────────────────────────────────────────
@@ -1533,6 +1556,8 @@ export const EVENT_DATA_SCHEMAS: Partial<Record<EventType, z.ZodSchema>> = {
   'tool.invoked': ToolInvokedData,
   'tool.completed': ToolCompletedData,
   'tool.errored': ToolErroredData,
+  // PR3/T7 (#1364) — structured action-level failure event.
+  'tool.action_errored': ToolActionErroredData,
 
   // Benchmark
   'benchmark.completed': BenchmarkCompletedData,
@@ -1689,6 +1714,8 @@ export type SynthesizeRequested = z.infer<typeof SynthesizeRequestedData>;
 export type ToolInvoked = z.infer<typeof ToolInvokedData>;
 export type ToolCompleted = z.infer<typeof ToolCompletedData>;
 export type ToolErrored = z.infer<typeof ToolErroredData>;
+// PR3/T7 (#1364)
+export type ToolActionErrored = z.infer<typeof ToolActionErroredData>;
 export type BenchmarkCompleted = z.infer<typeof BenchmarkCompletedData>;
 export type TeamSpawned = z.infer<typeof TeamSpawnedData>;
 export type TeamTaskAssigned = z.infer<typeof TeamTaskAssignedData>;
@@ -1776,6 +1803,8 @@ export type EventDataMap = {
   'tool.invoked': ToolInvoked;
   'tool.completed': ToolCompleted;
   'tool.errored': ToolErrored;
+  // PR3/T7 (#1364)
+  'tool.action_errored': ToolActionErrored;
   'benchmark.completed': BenchmarkCompleted;
   'team.spawned': TeamSpawned;
   'team.task.assigned': TeamTaskAssigned;

@@ -428,7 +428,10 @@ describe('EventTypes', () => {
     // merge.preflight / merge.executed / merge.rollback (T03, DR-MO-2). When
     // new event types are added, bump this number alongside their registration
     // in `event-store/schemas.ts`.
-    expect(EventTypes).toHaveLength(103);
+    // PR3/T7 (#1364): bumped 103 → 104 to include `tool.action_errored`,
+    // which splits structured action-level failures off of `tool.errored`
+    // (transport/protocol failures only).
+    expect(EventTypes).toHaveLength(104);
   });
 
   it('should include workflow-level types', () => {

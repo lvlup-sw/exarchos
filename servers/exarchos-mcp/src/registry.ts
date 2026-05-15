@@ -882,6 +882,55 @@ export const WorkflowTransitionOutputSchema = EnvelopeSchema(z.unknown()).and(
  */
 export const WorkflowUpdateOutputSchema = EnvelopeSchema(z.unknown());
 
+/**
+ * `outputSchema` for `exarchos_view.telemetry` (PR3/T10, #1364 — Wave 3
+ * polish on top of Wave 0 carrier swap).
+ *
+ * Typed envelope so MCP advertises the per-tool `actionErrors` and
+ * `actionErrorBreakdown` fields the `tool.action_errored` projection now
+ * folds. Both fields are required on every tool entry so downstream
+ * consumers (CLI rendering, dashboards, drift detection) can rely on
+ * their presence rather than treating them as optional decorators.
+ *
+ * The per-tool entry is intentionally `.passthrough()` because the
+ * compact-vs-full split adds extra arrays (`durations`, `sizes`,
+ * `tokenEstimates`) on the non-compact path — strict objects would
+ * reject the full shape. `hints[]` items are also passthrough to leave
+ * room for future hint flavours without re-cutting the schema.
+ *
+ * See [`docs/designs/2026-05-15-wave2-wave3-polish.md`](../docs/designs/2026-05-15-wave2-wave3-polish.md)
+ * `#1364 — split transport vs action-level errors` for context.
+ */
+const TelemetryToolEntrySchema = z.object({
+  tool: z.string(),
+  invocations: z.number().nonnegative(),
+  errors: z.number().nonnegative(),
+  totalDurationMs: z.number().nonnegative(),
+  totalBytes: z.number().nonnegative(),
+  totalTokens: z.number().nonnegative(),
+  p50DurationMs: z.number().nonnegative(),
+  p95DurationMs: z.number().nonnegative(),
+  p50Bytes: z.number().nonnegative(),
+  p95Bytes: z.number().nonnegative(),
+  p50Tokens: z.number().nonnegative(),
+  p95Tokens: z.number().nonnegative(),
+  // PR3/T10 (#1364) — structured action-level failure counters.
+  actionErrors: z.number().nonnegative(),
+  actionErrorBreakdown: z.record(z.string(), z.number().nonnegative()),
+}).passthrough();
+
+const TelemetryViewDataSchema = z.object({
+  session: z.object({
+    start: z.string(),
+    totalInvocations: z.number().nonnegative(),
+    totalTokens: z.number().nonnegative(),
+  }),
+  tools: z.array(TelemetryToolEntrySchema),
+  hints: z.array(z.unknown()),
+}).passthrough();
+
+export const TelemetryViewOutputSchema = EnvelopeSchema(TelemetryViewDataSchema);
+
 // ─── Composite Tool: exarchos_workflow ───────────────────────────────────────
 
 const workflowActions: readonly ToolAction[] = [
@@ -2264,7 +2313,10 @@ const viewActions: readonly ToolAction[] = [
     }),
     phases: ALL_PHASES,
     roles: ROLE_ANY,
-    outputSchema: EnvelopeSchema(z.unknown()),
+    // PR3/T10 (#1364) — typed envelope advertises the per-tool
+    // `actionErrors` + `actionErrorBreakdown` fields (post Wave 0 carrier
+    // composition).
+    outputSchema: TelemetryViewOutputSchema,
     annotations: READ_ONLY_LOCAL,
   },
   {

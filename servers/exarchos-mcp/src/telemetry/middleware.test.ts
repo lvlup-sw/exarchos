@@ -127,6 +127,99 @@ describe('withTelemetry', () => {
     });
   });
 
+  // ─── PR3/T8 (#1364): action-errored emission on structured failure ───────
+  describe('structured action-level failure', () => {
+    it('WithTelemetry_StructuredFailure_EmitsActionErrored', async () => {
+      // Arrange — handler returns the standard MCP envelope failure shape.
+      const handler: CoreHandler = async () => ({
+        success: false,
+        error: { code: 'RESERVED_FIELD', message: 'state.tasks is reserved' },
+      });
+
+      // Act
+      const wrapped = withTelemetry(handler, 'exarchos_orchestrate', eventStore);
+      const result = await wrapped({});
+
+      // Result is propagated unchanged on the success-branch contract;
+      // the wrapper does NOT re-throw structured failures.
+      expect(result.success).toBe(false);
+
+      // Assert — both `tool.completed` AND `tool.action_errored` are emitted.
+      const events = await eventStore.query(TELEMETRY_STREAM);
+      const types = events.map((e) => e.type);
+      expect(types).toContain('tool.invoked');
+      expect(types).toContain('tool.completed');
+      expect(types).toContain('tool.action_errored');
+      // Transport-level errored must NOT fire when the handler returned cleanly.
+      expect(types).not.toContain('tool.errored');
+
+      const completed = events.find((e) => e.type === 'tool.completed');
+      const actionErrored = events.find((e) => e.type === 'tool.action_errored');
+      expect(completed).toBeDefined();
+      expect(actionErrored).toBeDefined();
+      if (!completed || !actionErrored) return;
+
+      const completedData = completed.data as Record<string, unknown>;
+      const aeData = actionErrored.data as Record<string, unknown>;
+      expect(aeData.tool).toBe('exarchos_orchestrate');
+      expect(aeData.errorCode).toBe('RESERVED_FIELD');
+      // Perf fields match the paired tool.completed event.
+      expect(aeData.durationMs).toBe(completedData.durationMs);
+      expect(aeData.responseBytes).toBe(completedData.responseBytes);
+      expect(aeData.tokenEstimate).toBe(completedData.tokenEstimate);
+    });
+
+    it('WithTelemetry_StructuredFailure_MissingErrorCode_DefaultsToUnknown', async () => {
+      const handler: CoreHandler = async () => ({
+        success: false,
+        // Intentionally omit error.code to exercise the fallback path.
+        error: { message: 'opaque failure' },
+      } as unknown as ReturnType<CoreHandler> extends Promise<infer R> ? R : never);
+
+      const wrapped = withTelemetry(handler, 'exarchos_orchestrate', eventStore);
+      await wrapped({});
+
+      const events = await eventStore.query(TELEMETRY_STREAM);
+      const actionErrored = events.find((e) => e.type === 'tool.action_errored');
+      expect(actionErrored).toBeDefined();
+      if (!actionErrored) return;
+      expect((actionErrored.data as Record<string, unknown>).errorCode).toBe('UNKNOWN');
+    });
+
+    it('WithTelemetry_JsThrow_StillEmitsToolErroredOnly', async () => {
+      const handler: CoreHandler = async () => {
+        throw new Error('transport explode');
+      };
+
+      const wrapped = withTelemetry(handler, 'fail_tool', eventStore);
+      await expect(wrapped({})).rejects.toThrow('transport explode');
+
+      const events = await eventStore.query(TELEMETRY_STREAM);
+      const types = events.map((e) => e.type);
+      expect(types).toContain('tool.errored');
+      // Regression guard against double-emitting from the catch branch.
+      expect(types).not.toContain('tool.action_errored');
+      // And no spurious tool.completed.
+      expect(types).not.toContain('tool.completed');
+    });
+
+    it('WithTelemetry_Success_DoesNotEmitActionErrored', async () => {
+      const handler: CoreHandler = async () => ({
+        success: true,
+        data: { ok: true },
+      });
+
+      const wrapped = withTelemetry(handler, 'happy_tool', eventStore);
+      await wrapped({});
+
+      const events = await eventStore.query(TELEMETRY_STREAM);
+      const types = events.map((e) => e.type);
+      expect(types).toContain('tool.completed');
+      expect(types).not.toContain('tool.action_errored');
+      expect(types).not.toContain('tool.errored');
+    });
+  });
+
   describe('telemetry failure resilience', () => {
     it('should succeed even when telemetry append fails', async () => {
       // Arrange - Create a store pointing to a non-existent dir

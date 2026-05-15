@@ -53,6 +53,22 @@ function injectEventHints(result: ToolResult, payload: { missing: readonly Event
   return { ...result, _eventHints: payload };
 }
 
+// PR3/T8 (#1364) — typed predicates for structured action-level failure
+// recognition. Kept micro/local; not exported. A handler that returns
+// `{success: false, error: {…}}` is a structured failure; anything else
+// (success: true, no `success` property at all) is not.
+function isStructuredFailure(result: ToolResult): boolean {
+  return (result as { success?: unknown }).success === false;
+}
+
+function extractErrorCode(result: ToolResult): string {
+  const err = (result as { error?: { code?: unknown } }).error;
+  if (err && typeof err === 'object' && typeof err.code === 'string' && err.code.length > 0) {
+    return err.code;
+  }
+  return 'UNKNOWN';
+}
+
 // ─── withTelemetry HOF ──────────────────────────────────────────────────────
 
 /**
@@ -143,6 +159,22 @@ export function withTelemetry(
           data: { tool: toolName, durationMs, responseBytes, tokenEstimate },
         })
         .catch(() => { /* telemetry drop — non-fatal, never block workflow */ });
+
+      // PR3/T8 (#1364) — split transport vs action-level errors. When the
+      // handler returns the standard MCP envelope failure
+      // `{success: false, error: {code, message}}`, emit a companion
+      // `tool.action_errored` so `view telemetry` can attribute the outcome
+      // by error code (MERGE_ROLLED_BACK, PREFLIGHT_FAILED, RESERVED_FIELD,
+      // …). `tool.errored` continues to fire only on JS throws (transport).
+      if (isStructuredFailure(result)) {
+        const errorCode = extractErrorCode(result);
+        await eventStore
+          .append(TELEMETRY_STREAM, {
+            type: 'tool.action_errored',
+            data: { tool: toolName, durationMs, errorCode, responseBytes, tokenEstimate },
+          })
+          .catch(() => { /* telemetry drop — non-fatal, never block workflow */ });
+      }
 
       // Emit quality.hint.generated when auto-correction was applied
       if (appliedCorrections.length > 0) {
