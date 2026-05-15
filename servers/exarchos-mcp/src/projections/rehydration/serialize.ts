@@ -22,11 +22,12 @@ import {
   RehydrationDocumentSchema,
   RehydrationDocumentSchemaV1,
   RehydrationDocumentSchemaV2,
+  RehydrationDocumentSchemaV3,
   StableSectionsSchema,
   VolatileSectionsSchema,
   WorkflowStateSchema,
   type RehydrationDocument,
-  type RehydrationDocumentV3,
+  type RehydrationDocumentV4,
 } from './schema.js';
 import {
   InvalidEnvelopeError,
@@ -117,10 +118,17 @@ export function serializeRehydrationDocument(doc: RehydrationDocument): string {
     projectionSequence: doc.projectionSequence,
   };
 
-  // v:2 has behavioralGuidance in stable sections; v:3 does not.
-  if (doc.v === 2) {
+  // v:2 had behavioralGuidance in stable sections; v:3 and v:4 do not.
+  // The public `RehydrationDocument` union is now v:3 | v:4 so the
+  // behavioralGuidance branch is unreachable through the static type
+  // surface. The runtime check below guards callers that pass a freshly
+  // parsed v:2 envelope through this serializer (e.g. migration tooling
+  // that operates on `unknown` payloads — see CodeRabbit on PR #1178)
+  // without forcing the type union to widen back to v:2.
+  const docAsRecord = doc as Record<string, unknown>;
+  if (docAsRecord['v'] === 2 && docAsRecord['behavioralGuidance']) {
     ordered['behavioralGuidance'] = reorder(
-      doc.behavioralGuidance,
+      docAsRecord['behavioralGuidance'] as Record<string, unknown>,
       BEHAVIORAL_GUIDANCE_KEYS,
     );
   }
@@ -142,7 +150,12 @@ export function serializeRehydrationDocument(doc: RehydrationDocument): string {
  * Defined once at module scope so the compiled probe is shared across calls.
  */
 const EnvelopeVersionProbe = z.object({
-  v: z.union([z.literal(1), z.literal(2), z.literal(3)]),
+  v: z.union([
+    z.literal(1),
+    z.literal(2),
+    z.literal(3),
+    z.literal(4),
+  ]),
 });
 
 /**
@@ -164,14 +177,16 @@ const EnvelopeVersionProbe = z.object({
  * the only legitimate path that touches `RehydrationDocumentSchemaV1` and
  * `RehydrationDocumentSchemaV2`.
  */
-export function loadRehydrationDocument(raw: unknown): RehydrationDocumentV3 {
+export function loadRehydrationDocument(raw: unknown): RehydrationDocumentV4 {
   const probe = EnvelopeVersionProbe.safeParse(raw);
   if (!probe.success) {
     throw new InvalidEnvelopeError(probe.error);
   }
   switch (probe.data.v) {
-    case 3:
+    case 4:
       return RehydrationDocumentSchema.parse(raw);
+    case 3:
+      return upgradeRehydrationDocument(RehydrationDocumentSchemaV3.parse(raw));
     case 2:
       return upgradeRehydrationDocument(RehydrationDocumentSchemaV2.parse(raw));
     case 1:

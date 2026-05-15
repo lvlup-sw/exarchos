@@ -28,6 +28,7 @@ import type {
   RehydrationDocument,
   RehydrationDocumentV2,
   RehydrationDocumentV3,
+  RehydrationDocumentV4,
 } from './schema.js';
 
 /**
@@ -42,14 +43,14 @@ export class HandoffEntryUpgradeError extends Error {
 }
 
 /**
- * Envelope-routing failure: the input has none of `v: 1` / `v: 2` / `v: 3`.
- * Raised by `loadRehydrationDocument` so callers see typed corruption, not a
- * silently-substituted empty doc.
+ * Envelope-routing failure: the input has none of `v: 1` / `v: 2` / `v: 3` /
+ * `v: 4`. Raised by `loadRehydrationDocument` so callers see typed
+ * corruption, not a silently-substituted empty doc.
  */
 export class InvalidEnvelopeError extends Error {
   constructor(zodError: z.ZodError) {
     super(
-      `Rehydration envelope has none of v:1 / v:2 / v:3 shape: ${zodError.message}`,
+      `Rehydration envelope has none of v:1 / v:2 / v:3 / v:4 shape: ${zodError.message}`,
     );
     this.name = 'InvalidEnvelopeError';
   }
@@ -186,25 +187,66 @@ export function upgradeRehydrationDocumentV2toV3(
 }
 
 /**
- * Upgrade any versioned rehydration document to the latest (v:3) shape.
+ * Upgrade a v:3 rehydration document to v:4 (#1359 / PR4 T12,
+ * projection-drift fix).
+ *
+ * Pure vocabulary rename on `taskProgress[].status`:
+ *   - `'completed' → 'complete'`     (canonical TaskSchema vocabulary)
+ *   - `'assigned'  → 'in_progress'`  (canonical TaskSchema vocabulary)
+ *
+ * All other v:3 fields (`workflowState`, `projectionSequence`, every other
+ * volatile section, `phasePlaybook`) are preserved verbatim. The schema
+ * widens `status` to `z.string()` so the structural shape is unchanged —
+ * the version bump exists to signal that a v:3 reader cannot reliably
+ * substring-compare against canonical `tasks[].status` whereas a v:4
+ * reader can.
+ */
+export function upgradeRehydrationDocumentV3toV4(
+  doc: RehydrationDocumentV3,
+): RehydrationDocumentV4 {
+  const renameStatus = (raw: string): string => {
+    if (raw === 'completed') return 'complete';
+    if (raw === 'assigned') return 'in_progress';
+    return raw;
+  };
+  return {
+    ...doc,
+    v: 4,
+    taskProgress: doc.taskProgress.map((entry) => ({
+      ...entry,
+      status: renameStatus(entry.status),
+    })),
+  };
+}
+
+/**
+ * Upgrade any versioned rehydration document to the latest (v:4) shape.
  *
  * Routes through the version chain:
  *   v:1 → v:2  (upgradeRehydrationDocumentV1toV2)
  *   v:2 → v:3  (upgradeRehydrationDocumentV2toV3)
+ *   v:3 → v:4  (upgradeRehydrationDocumentV3toV4, #1359 / PR4)
  *
- * Returns a `RehydrationDocumentV3`. Only the read entry point
- * (`loadRehydrationDocument` in `serialize.ts`, T-03) should call this;
- * writers always emit v:3 directly.
+ * Returns a `RehydrationDocumentV4`. Only the read entry point
+ * (`loadRehydrationDocument` in `serialize.ts`) should call this; writers
+ * always emit v:4 directly.
  */
 export function upgradeRehydrationDocument(
-  doc: RehydrationDocumentV1 | RehydrationDocument,
-): RehydrationDocumentV3 {
+  doc: RehydrationDocumentV1 | RehydrationDocumentV2 | RehydrationDocument,
+): RehydrationDocumentV4 {
   if (doc.v === 1) {
-    return upgradeRehydrationDocumentV2toV3(upgradeRehydrationDocumentV1toV2(doc));
+    return upgradeRehydrationDocumentV3toV4(
+      upgradeRehydrationDocumentV2toV3(upgradeRehydrationDocumentV1toV2(doc)),
+    );
   }
   if (doc.v === 2) {
-    return upgradeRehydrationDocumentV2toV3(doc);
+    return upgradeRehydrationDocumentV3toV4(
+      upgradeRehydrationDocumentV2toV3(doc),
+    );
   }
-  // v:3 — already at latest.
+  if (doc.v === 3) {
+    return upgradeRehydrationDocumentV3toV4(doc);
+  }
+  // v:4 — already at latest.
   return doc;
 }

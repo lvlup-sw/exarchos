@@ -84,7 +84,7 @@ describe('handleRehydrate — happy path (T031, DR-5)', () => {
     const parsed = RehydrationDocumentSchema.safeParse(doc);
     expect(parsed.success).toBe(true);
 
-    expect(doc.v).toBe(3);
+    expect(doc.v).toBe(4);
     // Every seeded event is handled by the rehydration reducer, so
     // `projectionSequence` must match the count of events.
     expect(doc.projectionSequence).toBe(4);
@@ -96,8 +96,8 @@ describe('handleRehydrate — happy path (T031, DR-5)', () => {
     // per-task upsert contract through the handler.
     expect(doc.taskProgress).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ id: 'T001', status: 'completed' }),
-        expect.objectContaining({ id: 'T002', status: 'assigned' }),
+        expect.objectContaining({ id: 'T001', status: 'complete' }),
+        expect.objectContaining({ id: 'T002', status: 'in_progress' }),
       ]),
     );
   });
@@ -168,11 +168,12 @@ describe('handleRehydrate — happy path (T031, DR-5)', () => {
     expect(doc.workflowState.featureId).toBe(featureId);
     expect(doc.workflowState.phase).toBe('tdd');
 
-    // Tail folded state: T100 stays completed; T101 promoted assigned→completed
-    // by tail; T102 added-then-failed by tail.
+    // Tail folded state: T100 stays complete; T101 promoted in_progress →
+    // complete by tail; T102 added-then-failed by tail. Canonical
+    // vocabulary post #1359 / PR4 T11.
     const byId = new Map(doc.taskProgress.map((t) => [t.id, t.status]));
-    expect(byId.get('T100')).toBe('completed');
-    expect(byId.get('T101')).toBe('completed');
+    expect(byId.get('T100')).toBe('complete');
+    expect(byId.get('T101')).toBe('complete');
     expect(byId.get('T102')).toBe('failed');
   });
 
@@ -189,7 +190,7 @@ describe('handleRehydrate — happy path (T031, DR-5)', () => {
 
     expect(result.success).toBe(true);
     const doc = result.data as RehydrationDocument;
-    expect(doc.v).toBe(3);
+    expect(doc.v).toBe(4);
     expect(doc.projectionSequence).toBe(0);
     expect(doc.taskProgress).toEqual([]);
     expect(doc.blockers).toEqual([]);
@@ -414,7 +415,7 @@ describe('handleRehydrate — reducer throw degradation (T054, DR-18)', () => {
       // THEN (2): the returned `data` is a minimal fallback document seeded
       //   from the state-store — v:3, sequence 0, populated workflowState.
       const doc = result.data as RehydrationDocument;
-      expect(doc.v).toBe(3);
+      expect(doc.v).toBe(4);
       expect(doc.projectionSequence).toBe(0);
       expect(doc.workflowState.featureId).toBe(featureId);
       expect(doc.workflowState.workflowType).toBe('feature');
@@ -612,7 +613,7 @@ describe('handleRehydrate — event-stream-unavailable degradation (T056, DR-18)
     //   from the state store — v:3, projectionSequence 0, populated
     //   workflowState.
     const doc = result.data as RehydrationDocument;
-    expect(doc.v).toBe(3);
+    expect(doc.v).toBe(4);
     expect(doc.projectionSequence).toBe(0);
     expect(doc.workflowState.featureId).toBe(featureId);
     expect(doc.workflowState.workflowType).toBe('feature');
@@ -941,5 +942,85 @@ describe('handleRehydrate — degraded paths preserve phasePlaybook null (T-22)'
     const doc = result.data as RehydrationDocument;
     expect(doc.phasePlaybook).toBeNull();
     expect(RehydrationDocumentSchema.safeParse(doc).success).toBe(true);
+  });
+});
+
+// ─── #1359 / PR4 T14 + T15 — projectionAsOf + projectionLag ─────────────────
+
+describe('handleRehydrate — projectionAsOf + projectionLag (#1359 / PR4)', () => {
+  it('Rehydrate_FoldedEvents_ExposesProjectionAsOf', async () => {
+    const featureId = 'pr4-asof';
+    // Seed two events; their timestamps drive `projectionAsOf`.
+    await store.append(featureId, {
+      type: 'workflow.started',
+      data: { featureId, workflowType: 'feature' },
+    });
+    await store.append(featureId, {
+      type: 'task.assigned',
+      data: { taskId: 'T001' },
+    });
+
+    const result = await handleRehydrate(
+      { featureId },
+      { eventStore: store, stateDir },
+    );
+
+    expect(result.success).toBe(true);
+    const meta = result._meta as Record<string, unknown> | undefined;
+    expect(meta).toBeDefined();
+    expect(typeof meta?.projectionAsOf).toBe('string');
+    // Sanity: parses as an ISO timestamp.
+    expect(Number.isFinite(Date.parse(meta!.projectionAsOf as string))).toBe(true);
+  });
+
+  it('Rehydrate_StaleProjection_ExposesMetaProjectionLag', async () => {
+    const featureId = 'pr4-lag';
+    await store.append(featureId, {
+      type: 'workflow.started',
+      data: { featureId, workflowType: 'feature' },
+    });
+
+    // Freeze Date.now() to far in the future so the projection appears
+    // stale beyond the 5s threshold. `vi.useFakeTimers` + setSystemTime
+    // is the documented vitest path for this. We don't fake `setTimeout`
+    // etc. — only the wall clock.
+    const futureMs = Date.now() + 60_000;
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(futureMs));
+    try {
+      const result = await handleRehydrate(
+        { featureId },
+        { eventStore: store, stateDir },
+      );
+      expect(result.success).toBe(true);
+      const meta = result._meta as Record<string, unknown> | undefined;
+      expect(meta).toBeDefined();
+      expect(typeof meta?.projectionLag).toBe('number');
+      expect(meta?.projectionLag as number).toBeGreaterThanOrEqual(5000);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('Rehydrate_FreshProjection_OmitsProjectionLag', async () => {
+    const featureId = 'pr4-fresh';
+    await store.append(featureId, {
+      type: 'workflow.started',
+      data: { featureId, workflowType: 'feature' },
+    });
+
+    const result = await handleRehydrate(
+      { featureId },
+      { eventStore: store, stateDir },
+    );
+
+    expect(result.success).toBe(true);
+    const meta = result._meta as Record<string, unknown> | undefined;
+    // Fresh projection: either no _meta at all OR _meta without
+    // projectionLag. The sparse contract means agents can rely on the
+    // field's presence to indicate "stale" rather than reading a 0/null.
+    if (meta) {
+      expect(meta.projectionLag).toBeUndefined();
+    }
   });
 });

@@ -25,6 +25,8 @@ import {
   upgradeHandoffEntryV1toV2,
   upgradeRehydrationDocumentV1toV2,
   upgradeRehydrationDocumentV2toV3,
+  upgradeRehydrationDocumentV3toV4,
+  upgradeRehydrationDocument,
   HandoffEntryUpgradeError,
 } from './upgrade.js';
 import {
@@ -33,6 +35,7 @@ import {
   RehydrationDocumentSchema,
   RehydrationDocumentSchemaV1,
   RehydrationDocumentSchemaV2,
+  RehydrationDocumentSchemaV3,
 } from './schema.js';
 
 const minimalStable = {
@@ -321,8 +324,10 @@ describe('upgradeRehydrationDocumentV2toV3 (T-02, rehydration-machinery-refactor
     // phasePlaybook seeded null (composed at handler time, not folded from events).
     expect(v3Doc.phasePlaybook).toBeNull();
 
-    // The v:3 schema validates the result.
-    expect(RehydrationDocumentSchema.safeParse(v3Doc).success).toBe(true);
+    // The v:3 schema validates the result. Post #1359 / PR4 T12 the
+    // top-level RehydrationDocumentSchema is v:4, so the intermediate v:3
+    // shape validates against the frozen RehydrationDocumentSchemaV3.
+    expect(RehydrationDocumentSchemaV3.safeParse(v3Doc).success).toBe(true);
   });
 
   it('upgradeRehydrationDocumentV2toV3_PreservesWorkflowStateProjectionSequenceAndVolatileFields', () => {
@@ -426,7 +431,7 @@ describe('upgradeRehydrationDocumentV2toV3 (T-02, rehydration-machinery-refactor
 
     fc.assert(
       fc.property(v2DocArb, (v2Doc) => {
-        const result = RehydrationDocumentSchema.safeParse(
+        const result = RehydrationDocumentSchemaV3.safeParse(
           upgradeRehydrationDocumentV2toV3(v2Doc),
         );
         return result.success;
@@ -470,9 +475,11 @@ describe('upgradeRehydrationDocumentV2toV3 (T-02, rehydration-machinery-refactor
     expect(v2Doc.v).toBe(2);
     expect(RehydrationDocumentSchemaV2.safeParse(v2Doc).success).toBe(true);
 
-    // v:2 → v:3 chain produces a valid v:3 document.
+    // v:2 → v:3 chain produces a valid v:3 document. Post #1359 / PR4 T12
+    // the top-level schema is v:4; the intermediate v:3 shape validates
+    // against the frozen RehydrationDocumentSchemaV3.
     expect(v3Doc.v).toBe(3);
-    expect(RehydrationDocumentSchema.safeParse(v3Doc).success).toBe(true);
+    expect(RehydrationDocumentSchemaV3.safeParse(v3Doc).success).toBe(true);
 
     // behavioralGuidance is absent from the v:3 result.
     expect(Object.prototype.hasOwnProperty.call(v3Doc, 'behavioralGuidance')).toBe(false);
@@ -486,5 +493,72 @@ describe('upgradeRehydrationDocumentV2toV3 (T-02, rehydration-machinery-refactor
     // latestHandoff preserved through the chain (upgraded from v:1 entry).
     expect(v3Doc.latestHandoff?.context).toBe('chain latest');
     expect(v3Doc.latestHandoff?.eventRef.sequence).toBe(3);
+  });
+});
+
+// ─── #1359 / PR4 T12 — v:3 → v:4 taskProgress vocabulary rename ─────────────
+
+describe('upgradeRehydrationDocumentV3toV4 (#1359 / PR4 T12)', () => {
+  it('UpgradeV3ToV4_TaskProgressCompleted_RenamesToComplete', () => {
+    // GIVEN: a valid v:3 document carrying the pre-#1359 task-progress
+    // vocabulary (`'completed'` / `'assigned'`).
+    const v3Doc = RehydrationDocumentSchemaV3.parse({
+      v: 3,
+      projectionSequence: 9,
+      workflowState: {
+        featureId: 'feat-1359',
+        phase: 'delegate',
+        workflowType: 'feature',
+      },
+      taskProgress: [
+        { id: 'T001', status: 'completed' },
+        { id: 'T002', status: 'assigned' },
+        { id: 'T003', status: 'failed' },
+        { id: 'T004', status: 'pending' },
+      ],
+      decisions: [],
+      artifacts: {},
+      blockers: [],
+      recentHandoffs: [],
+      phasePlaybook: null,
+    });
+
+    // WHEN: we upgrade to v:4
+    const v4Doc = upgradeRehydrationDocumentV3toV4(v3Doc);
+
+    // THEN: vocabulary is renamed to canonical TaskSchema.status values.
+    expect(v4Doc.v).toBe(4);
+    const byId = new Map(v4Doc.taskProgress.map((t) => [t.id, t.status]));
+    expect(byId.get('T001')).toBe('complete');     // was 'completed'
+    expect(byId.get('T002')).toBe('in_progress');  // was 'assigned'
+    expect(byId.get('T003')).toBe('failed');       // unchanged
+    expect(byId.get('T004')).toBe('pending');      // unchanged
+
+    // AND: the upgraded doc passes the v:4 schema.
+    expect(RehydrationDocumentSchema.safeParse(v4Doc).success).toBe(true);
+
+    // AND: non-task fields are preserved verbatim.
+    expect(v4Doc.projectionSequence).toBe(9);
+    expect(v4Doc.workflowState).toEqual(v3Doc.workflowState);
+    expect(v4Doc.phasePlaybook).toBeNull();
+  });
+
+  it('UpgradeChain_FromV1OrV2_TerminatesAtV4', () => {
+    // The full upgrade chain (v:1 → v:4) must produce a v:4-shaped document.
+    const v1Doc = RehydrationDocumentSchemaV1.parse({
+      v: 1,
+      projectionSequence: 1,
+      behavioralGuidance: { skill: 's', skillRef: 'sr' },
+      workflowState: { featureId: 'f', phase: 'p', workflowType: 'feature' },
+      taskProgress: [{ id: 'T1', status: 'completed' }],
+      decisions: [],
+      artifacts: {},
+      blockers: [],
+    });
+
+    const latest = upgradeRehydrationDocument(v1Doc);
+    expect(latest.v).toBe(4);
+    expect(latest.taskProgress[0]?.status).toBe('complete');
+    expect(RehydrationDocumentSchema.safeParse(latest).success).toBe(true);
   });
 });

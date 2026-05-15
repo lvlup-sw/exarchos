@@ -8,11 +8,19 @@
 // Ported from scripts/reconcile-state.sh
 // ────────────────────────────────────────────────────────────────────────────
 
+import * as path from 'node:path';
 import { existsSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import type { ToolResult } from '../format.js';
 import type { EventStore } from '../event-store/store.js';
 import { resolveWorkflowState } from './resolve-state.js';
+import { ViewMaterializer } from '../views/materializer.js';
+import { SnapshotStore } from '../views/snapshot-store.js';
+import {
+  pipelineProjection,
+  PIPELINE_VIEW,
+  type PipelineViewState,
+} from '../views/pipeline-view.js';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -162,6 +170,75 @@ function checkWorktreesExist(acc: CheckAccumulator, state: WorkflowState, repoRo
   }
 }
 
+/**
+ * #1359 / PR4 T16 — projection-drift check.
+ *
+ * Compares canonical `tasks[].status` (the planner's stamp of record) with
+ * the pipeline view projection's `completedCount`. A disagreement here
+ * signals the #1359 root cause: rehydrate / view.pipeline diverging from
+ * the on-disk task list, which has historically caused agents to
+ * re-dispatch already-complete work.
+ *
+ * Best-effort: requires both a featureId AND a wired eventStore so the
+ * pipeline projection can be materialized; otherwise the check is skipped
+ * (recorded as PASS — "skipped" mirrors the existing "no tasks to check"
+ * pass-by-default pattern).
+ */
+/** @internal Exported for testing only. */
+export async function checkProjectionDrift(
+  acc: CheckAccumulator,
+  state: WorkflowState,
+  featureId: string | undefined,
+  eventStore: EventStore | undefined,
+  stateDir: string | undefined,
+): Promise<void> {
+  if (!featureId || !eventStore) {
+    checkPass(acc, 'Projection drift (skipped — no featureId+eventStore wired)');
+    return;
+  }
+
+  const canonicalComplete = (state.tasks ?? []).filter(
+    (t) => t.status === 'complete',
+  ).length;
+
+  let view: PipelineViewState;
+  try {
+    const snapshotStore = stateDir ? new SnapshotStore(stateDir) : undefined;
+    const materializer = new ViewMaterializer(
+      snapshotStore ? { snapshotStore } : {},
+    );
+    materializer.register(PIPELINE_VIEW, pipelineProjection);
+    const events = await eventStore.query(featureId);
+    view = materializer.materialize<PipelineViewState>(
+      featureId,
+      PIPELINE_VIEW,
+      events,
+    );
+  } catch (err) {
+    checkFail(
+      acc,
+      'Projection drift',
+      `Could not materialize pipeline view: ${err instanceof Error ? err.message : String(err)}`,
+    );
+    return;
+  }
+
+  const projectedComplete = view.completedCount;
+  if (canonicalComplete === projectedComplete) {
+    checkPass(
+      acc,
+      `Projection drift (canonical complete=${canonicalComplete} matches pipeline.completedCount=${projectedComplete})`,
+    );
+    return;
+  }
+  const delta = canonicalComplete - projectedComplete;
+  checkFail(
+    acc,
+    'Projection drift',
+    `projection-drift: canonical=${canonicalComplete}, projected=${projectedComplete}, delta=${delta}`,
+  );
+}
+
 function checkTaskStatusConsistency(acc: CheckAccumulator, state: WorkflowState): void {
   const tasks = state.tasks ?? [];
 
@@ -213,6 +290,11 @@ export async function handleReconcileState(args: ReconcileStateArgs): Promise<To
 
   // Check 5: Task status consistency
   checkTaskStatusConsistency(acc, state);
+
+  // Check 6 (#1359 / PR4 T16): Projection drift — canonical tasks[].status
+  // vs view.pipeline.completedCount.
+  const stateDir = stateFile ? path.dirname(stateFile) : undefined;
+  await checkProjectionDrift(acc, state, featureId, eventStore, stateDir);
 
   // Build markdown report
   const passed = acc.fail === 0;

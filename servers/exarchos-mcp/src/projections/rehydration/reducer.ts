@@ -28,22 +28,37 @@ import {
   RehydrationDocumentSchema,
   type RehydrationDocument,
 } from './schema.js';
+import {
+  STATUS_RANK,
+  extractPlanTasksFromPatch,
+  rankOf,
+  type ExtractedPlanTask,
+  type TaskStatus,
+} from '../shared/task-status-fold.js';
 
 /**
- * Task statuses surfaced by this reducer.
+ * Task statuses surfaced by this reducer — post #1359 PR4 canonical
+ * vocabulary aligned with `workflow/schemas.ts`' `TaskSchema.status`.
  *
- *  - `assigned` / `completed` / `failed` come from dedicated `task.*` events.
+ *  - `in_progress` / `complete` / `failed` come from dedicated `task.*` events
+ *    (formerly `assigned` / `completed`).
  *  - `pending` is seeded from `state.patched.patch.tasks` (the planner's
  *    declared task list — see Fix 2 / #1179) so plan-state tasks that have
  *    not yet been dispatched still appear in the rehydration document.
  *
  * Event-derived statuses are *authoritative* over plan-derived statuses:
- * once a task has been observed assigned/completed/failed via events, a
- * later state.patched re-asserting the plan must NOT regress it back to
+ * once a task has been observed in_progress / complete / failed via events,
+ * a later state.patched re-asserting the plan must NOT regress it back to
  * `pending` (the planner stamps the plan repeatedly; events carry execution
  * truth).
+ *
+ * Pre-#1359 the reducer normalized `'complete' → 'completed'`. That divergence
+ * from canonical `TaskSchema.status` was Bug B in the #1359 projection-drift
+ * RCA: an agent reading rehydrate.taskProgress saw `'completed'` and then
+ * compared against `tasks[].status === 'complete'`, never matched, and
+ * re-dispatched already-complete work.
  */
-type TaskProgressStatus = 'pending' | 'assigned' | 'completed' | 'failed';
+type TaskProgressStatus = TaskStatus;
 
 /** Structural shape of a single taskProgress entry in the rehydration doc. */
 type TaskProgressEntry = RehydrationDocument['taskProgress'][number];
@@ -59,7 +74,7 @@ type TaskProgressEntry = RehydrationDocument['taskProgress'][number];
  * is caught the moment this module is imported, rather than at first use.
  */
 const initialRehydrationDocument: RehydrationDocument = RehydrationDocumentSchema.parse({
-  v: 3,
+  v: 4,
   projectionSequence: 0,
   workflowState: {
     featureId: '',
@@ -210,59 +225,15 @@ function upsertTaskProgress(
  * empty / unactionable, so callers can short-circuit and avoid bumping
  * `projectionSequence` for no-op patches.
  */
-interface ExtractedPlanTask {
-  readonly id: string;
-  readonly status: TaskProgressStatus;
-}
+// `extractPlanTasksFromPatch` (canonical-vocabulary plan-task extractor) and
+// `STATUS_RANK` (canonical-vocabulary precedence ladder) live in
+// `../shared/task-status-fold.ts` (#1359 / PR4 T13) so the pipeline view
+// projection can share the same monotonic-fold semantics. The reducer uses
+// the canonical extractor directly; callers pre-#1359 passed `data` through
+// a local extractor whose status mapping renamed `'complete' → 'completed'`,
+// which was Bug B of the #1359 projection-drift RCA.
 
-function extractPlanTasks(
-  data: WorkflowEvent['data'],
-): readonly ExtractedPlanTask[] | undefined {
-  if (!data) return undefined;
-  const patch = data['patch'];
-  if (!patch || typeof patch !== 'object' || Array.isArray(patch)) {
-    return undefined;
-  }
-  const tasksRaw = (patch as Record<string, unknown>)['tasks'];
-  if (!Array.isArray(tasksRaw)) {
-    return undefined;
-  }
-
-  const out: ExtractedPlanTask[] = [];
-  for (const entry of tasksRaw) {
-    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) continue;
-    const e = entry as Record<string, unknown>;
-    const id = typeof e['id'] === 'string' ? (e['id'] as string) : undefined;
-    if (!id) continue;
-    // The plan-side TaskSchema status is `pending|in_progress|complete|failed`.
-    // Map onto the reducer's TaskProgressStatus surface; anything else (or
-    // missing) becomes `pending` because the plan-state assertion is "this
-    // task exists" — refining its execution status is the events' job.
-    const rawStatus = e['status'];
-    const status: TaskProgressStatus =
-      rawStatus === 'failed'
-        ? 'failed'
-        : rawStatus === 'complete' || rawStatus === 'completed'
-          ? 'completed'
-          : rawStatus === 'in_progress'
-            ? 'assigned'
-            : 'pending';
-    out.push({ id, status });
-  }
-
-  return out.length > 0 ? out : undefined;
-}
-
-// Status precedence — higher values "outrank" lower ones. Plan-derived
-// statuses can advance an entry up the ladder but never back down it.
-// `completed` and `failed` are siblings at the top: an event that put a
-// task into either terminal state cannot be regressed by plan re-assertions.
-const STATUS_RANK: Readonly<Record<TaskProgressStatus, number>> = {
-  pending: 0,
-  assigned: 1,
-  completed: 2,
-  failed: 2,
-};
+const extractPlanTasks = extractPlanTasksFromPatch;
 
 /**
  * Pure helper — fold a plan-derived task list into the existing taskProgress.
@@ -290,20 +261,21 @@ function foldPlanTasks(
       continue;
     }
     const existing = next[existingIdx];
-    // The schema widens status to z.string() (forward-compat for explicit
-    // schema revs), so look up via a typed accessor that returns 0 for
-    // any unknown value — anything not in the recognised ladder is treated
-    // as the lowest rank, never blocking a known-status promotion.
-    const rankOf = (s: string): number =>
-      Object.prototype.hasOwnProperty.call(STATUS_RANK, s)
-        ? STATUS_RANK[s as TaskProgressStatus]
-        : 0;
+    // Rank lookup is shared with the pipeline view via
+    // `../shared/task-status-fold.ts` so both surfaces agree on the
+    // precedence ladder (#1359 / PR4 T13).
     if (rankOf(planTask.status) > rankOf(existing.status)) {
       next[existingIdx] = { ...existing, status: planTask.status };
     }
   }
   return next;
 }
+
+// Silence the unused-import warning for `STATUS_RANK` — the ladder is
+// re-exported below for snapshot/migration consumers, but the reducer
+// itself uses `rankOf` exclusively. Without this reference TypeScript's
+// `noUnusedLocals` would flag the import.
+void STATUS_RANK;
 
 // ─── Per-prefix handlers ────────────────────────────────────────────────────
 //
@@ -370,7 +342,7 @@ function applyTaskEvent(
     state.workflowState.phase === 'delegate' ||
     state.workflowState.phase === 'merge-pending';
   if (
-    status === 'completed' &&
+    status === 'complete' &&
     state.workflowState.workflowType === 'feature' &&
     detourablePhase &&
     eventDataHasWorktreeAssociation(event.data)
@@ -874,10 +846,17 @@ export const rehydrationReducer: ProjectionReducer<RehydrationDocument, Workflow
     // monotonic only over *handled* events).
     switch (event.type) {
       // ── task.* — taskProgress fold (T023) ─────────────────────────────────
+      // Canonical vocabulary post #1359 / PR4 T11:
+      //   task.assigned  → 'in_progress'  (was 'assigned')
+      //   task.completed → 'complete'     (was 'completed')
+      //   task.failed    → 'failed'
+      // Aligned with `workflow/schemas.ts`' TaskSchema.status enum so a
+      // rehydrate consumer can compare directly against canonical
+      // `tasks[].status` without translation.
       case 'task.assigned':
-        return applyTaskEvent(state, event, 'assigned');
+        return applyTaskEvent(state, event, 'in_progress');
       case 'task.completed':
-        return applyTaskEvent(state, event, 'completed');
+        return applyTaskEvent(state, event, 'complete');
       case 'task.failed':
         return applyTaskEvent(state, event, 'failed');
 

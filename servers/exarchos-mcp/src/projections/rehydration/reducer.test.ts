@@ -51,8 +51,10 @@ describe('rehydration reducer — initial state (T022, DR-3)', () => {
     // (v:3) and round-trips back to itself.
     expect(RehydrationDocumentSchema.parse(initial)).toEqual(initial);
 
-    // AND: the versioned envelope carries v === 3 and projectionSequence === 0
-    expect(initial.v).toBe(3);
+    // AND: the versioned envelope carries v === 4 and projectionSequence === 0.
+    // Bumped to v:4 in #1359 / PR4 T12 for the canonical task-status
+    // vocabulary contract change.
+    expect(initial.v).toBe(4);
     expect(initial.projectionSequence).toBe(0);
 
     // AND: volatile sections are empty containers
@@ -124,11 +126,11 @@ describe('rehydration reducer — task events fold (T023, DR-3)', () => {
     const afterCompleted = rehydrationReducer.apply(afterAssigned, completed);
 
     // THEN: taskProgress contains exactly one entry for task 001 with a
-    // terminal "completed" status.
+    // terminal "complete" status (canonical vocabulary post #1359 / PR4).
     expect(afterCompleted.taskProgress).toHaveLength(1);
     expect(afterCompleted.taskProgress[0]).toMatchObject({
       id: '001',
-      status: 'completed',
+      status: 'complete',
     });
 
     // AND: projectionSequence was incremented once per handled event.
@@ -178,7 +180,7 @@ describe('rehydration reducer — task events fold (T023, DR-3)', () => {
     expect(afterSecond.taskProgress).toHaveLength(1);
     expect(afterSecond.taskProgress[0]).toMatchObject({
       id: '003',
-      status: 'completed',
+      status: 'complete',
     });
   });
 });
@@ -557,6 +559,42 @@ describe.skip('rehydration reducer — decisions fold (T025, DR-3) — SKIPPED: 
 // (each entry has `id`, `title`, `status`). The reducer must seed taskProgress
 // from this list, then let subsequent dedicated `task.*` events override the
 // status. Status-aware upsert: events win over plan-state for the same id.
+// ─── #1359 / PR4 T11 — canonical task-progress vocabulary ───────────────────
+//
+// Pre-#1359 the reducer renamed `'complete' → 'completed'` and
+// `'in_progress' → 'assigned'`. That divergence from canonical
+// `TaskSchema.status` (`pending|in_progress|complete|failed`) meant a
+// rehydrate consumer comparing `byId.get(taskId) === 'complete'` against
+// canonical state would never match — and the outcome test at
+// `tests/outcome/rehydrate-projection-drift.test.ts` stayed RED.
+describe('rehydration reducer — canonical vocabulary (#1359 / PR4)', () => {
+  it('RehydrationReducer_StatePatchedCompleteTask_SurfacesCanonicalCompleteVocabulary', () => {
+    // GIVEN: a `state.patched` event whose `patch.tasks` declares T001 as
+    // `'complete'` (canonical TaskSchema vocabulary).
+    const initial = rehydrationReducer.initial;
+    const patched = makeEvent(
+      'state.patched',
+      {
+        featureId: 'feat-1359',
+        fields: ['tasks'],
+        patch: {
+          tasks: [{ id: 'T001', title: 'first', status: 'complete' }],
+        },
+      },
+      1,
+    );
+
+    // WHEN: we fold the event
+    const next = rehydrationReducer.apply(initial, patched);
+
+    // THEN: taskProgress surfaces canonical `'complete'` — NOT `'completed'`.
+    // Pre-fix this assertion failed because `extractPlanTasks` mapped
+    // `'complete' → 'completed'`.
+    expect(next.taskProgress[0]?.status).toBe('complete');
+    expect(next.taskProgress[0]?.id).toBe('T001');
+  });
+});
+
 describe('rehydration reducer — state.patched.tasks fold (Fix 2 / #1179)', () => {
   it('Rehydration_StatePatchedTasksWithMixedStatuses_FoldsAllAndAppliesEventOverrides', () => {
     // GIVEN: initial state plus a `workflow.started` event
@@ -608,16 +646,17 @@ describe('rehydration reducer — state.patched.tasks fold (Fix 2 / #1179)', () 
     expect(next.taskProgress).toHaveLength(5);
 
     // AND: the per-task status reflects event overrides where present, and
-    // falls back to the planner-declared "pending" otherwise.
+    // falls back to the planner-declared "pending" otherwise. Canonical
+    // vocabulary post #1359 / PR4 T11: `in_progress` / `complete` / `failed`.
     const byId = new Map(next.taskProgress.map((t) => [t.id, t.status]));
-    expect(byId.get('T1')).toBe('assigned');
-    expect(byId.get('T2')).toBe('completed');
-    expect(byId.get('T3')).toBe('completed');
+    expect(byId.get('T1')).toBe('in_progress');
+    expect(byId.get('T2')).toBe('complete');
+    expect(byId.get('T3')).toBe('complete');
     expect(byId.get('T4')).toBe('failed');
     expect(byId.get('T5')).toBe('pending');
 
-    // AND: the count of completed entries matches the events that fired.
-    const completed = next.taskProgress.filter((t) => t.status === 'completed');
+    // AND: the count of complete entries matches the events that fired.
+    const completed = next.taskProgress.filter((t) => t.status === 'complete');
     expect(completed).toHaveLength(2);
 
     // AND: the resulting document still conforms to the schema.
@@ -650,7 +689,7 @@ describe('rehydration reducer — state.patched.tasks fold (Fix 2 / #1179)', () 
     );
     expect(
       afterCompletion.taskProgress.find((t) => t.id === 'A')?.status,
-    ).toBe('completed');
+    ).toBe('complete');
 
     // AND: a later task.failed event for B
     const afterFailure = rehydrationReducer.apply(
@@ -686,9 +725,10 @@ describe('rehydration reducer — state.patched.tasks fold (Fix 2 / #1179)', () 
       ),
     );
 
-    // THEN: A stays completed, B stays failed, C is added pending.
+    // THEN: A stays complete, B stays failed, C is added pending.
+    // Canonical vocabulary post #1359 / PR4 T11.
     const byId = new Map(secondPlan.taskProgress.map((t) => [t.id, t.status]));
-    expect(byId.get('A')).toBe('completed');
+    expect(byId.get('A')).toBe('complete');
     expect(byId.get('B')).toBe('failed');
     expect(byId.get('C')).toBe('pending');
     expect(secondPlan.taskProgress).toHaveLength(3);
@@ -904,7 +944,7 @@ describe('rehydration reducer — worktree auto-detour (#1208)', () => {
     // taskProgress folds B regardless — only the orchestrator stamp is
     // protected from clobber.
     expect(afterB.taskProgress.find((t) => t.id === 'B')?.status).toBe(
-      'completed',
+      'complete',
     );
   });
 

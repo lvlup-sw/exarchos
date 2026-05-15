@@ -96,12 +96,14 @@ describe('rehydration document top-level schema (T013, DR-3)', () => {
     phasePlaybook: null,
   };
 
-  it('RehydrationDoc_VersionedSchema_RequiresV3', () => {
-    // Updated for v:3 envelope bump (T-01). The main schema now requires
-    // v: literal(3); legacy v:2 docs route through RehydrationDocumentSchemaV2
-    // and legacy v:1 docs route through RehydrationDocumentSchemaV1.
+  it('RehydrationDoc_VersionedSchema_RequiresV4', () => {
+    // Updated for v:4 envelope bump (#1359 / PR4 T12). The main schema now
+    // requires v: literal(4); legacy v:3 docs route through
+    // RehydrationDocumentSchemaV3, v:2 docs through
+    // RehydrationDocumentSchemaV2, and v:1 docs through
+    // RehydrationDocumentSchemaV1.
     const validDoc = {
-      v: 3,
+      v: 4,
       projectionSequence: 0,
       ...minimalStable,
       ...minimalVolatile,
@@ -124,7 +126,7 @@ describe('rehydration document top-level schema (T013, DR-3)', () => {
 
   it('RehydrationDoc_ProjectionSequence_RequiresNonNegativeInt', () => {
     const baseDoc = {
-      v: 3 as const,
+      v: 4 as const,
       ...minimalStable,
       ...minimalVolatile,
     };
@@ -170,7 +172,7 @@ describe('rehydration document serializer — stable-before-volatile order (T050
   it('DocumentSerialization_StableSectionsFirst_Always', () => {
     // Forward-declared doc: keys in canonical order.
     const forwardDoc: RehydrationDocument = {
-      v: 3,
+      v: 4,
       projectionSequence: 7,
       workflowState: stable.workflowState,
       taskProgress: volatile.taskProgress,
@@ -195,7 +197,7 @@ describe('rehydration document serializer — stable-before-volatile order (T050
       taskProgress: volatile.taskProgress,
       workflowState: stable.workflowState,
       projectionSequence: 7,
-      v: 3,
+      v: 4,
     } as RehydrationDocument;
 
     const forwardJson = serializeRehydrationDocument(forwardDoc);
@@ -236,7 +238,7 @@ describe('rehydration document serializer — stable-before-volatile order (T050
 
   it('DocumentSerialization_ReorderedInput_ProducesIdenticalBytes', () => {
     const docA: RehydrationDocument = {
-      v: 3,
+      v: 4,
       projectionSequence: 42,
       workflowState: stable.workflowState,
       taskProgress: volatile.taskProgress,
@@ -259,7 +261,7 @@ describe('rehydration document serializer — stable-before-volatile order (T050
       taskProgress: volatile.taskProgress,
       workflowState: stable.workflowState,
       projectionSequence: 42,
-      v: 3,
+      v: 4,
     } as RehydrationDocument;
 
     expect(serializeRehydrationDocument(docA)).toBe(serializeRehydrationDocument(docB));
@@ -526,7 +528,7 @@ describe('RehydrationDocumentSchema v:3 envelope (T-01)', () => {
   it('RehydrationDocumentSchema_V3NullPlaybook_Parses', () => {
     // Minimum valid v:3 doc with phasePlaybook: null
     const v3Doc = {
-      v: 3,
+      v: 4,
       projectionSequence: 0,
       workflowState: minimalWorkflowState,
       ...minimalVolatileV3,
@@ -539,7 +541,7 @@ describe('RehydrationDocumentSchema v:3 envelope (T-01)', () => {
   it('RehydrationDocumentSchema_V3FullPlaybook_Parses', () => {
     // v:3 doc with a fully populated phasePlaybook
     const v3Doc = {
-      v: 3,
+      v: 4,
       projectionSequence: 5,
       workflowState: minimalWorkflowState,
       taskProgress: [],
