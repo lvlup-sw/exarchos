@@ -1,6 +1,6 @@
 ---
 name: design-invariants
-description: "Audit a design proposal or diff against Exarchos's architectural invariants — event-sourcing integrity (INV-1), facade equivalence over shared dispatch core (INV-2), basileus-forward (INV-3), platform-agnosticity (INV-4), and agent-first interface design (INV-5a input ergonomics, INV-5b spec-aligned output contract, INV-5c Aspire-inspired control-plane verbs, INV-5d action discriminator pattern). Pairs with /axiom:backend-quality — this skill is project-specific (axiom is generic). Triggers: 'check invariants', 'design conformance', 'check #1118 / #1109', or /design-invariants."
+description: "Audit a design proposal or diff against Exarchos's architectural invariants — event-sourcing integrity (INV-1), facade equivalence over shared dispatch core (INV-2), basileus-forward (INV-3), platform-agnosticity (INV-4), agent-first interface design (INV-5a input ergonomics, INV-5b spec-aligned output contract, INV-5c Aspire-inspired control-plane verbs, INV-5d action discriminator pattern), and workflow-agnosticism (INV-6 skills describe behaviors, playbooks describe workflows). Pairs with /axiom:backend-quality — this skill is project-specific (axiom is generic). Triggers: 'check invariants', 'design conformance', 'check #1118 / #1109', or /design-invariants."
 metadata:
   author: exarchos
   version: 0.1.0
@@ -30,10 +30,11 @@ The skill is the operational complement to issue [#1118](https://github.com/lvlu
 ## How to invoke
 
 1. State the artifact under review (design path, diff range, or PR URL).
-2. Walk INV-1..INV-5 in order, recording HIGH/MEDIUM/LOW findings per invariant.
+2. Walk INV-1..INV-6 in order, recording HIGH/MEDIUM/LOW findings per invariant.
 3. For INV-5, walk all four sub-disciplines (5a input ergonomics, 5b output contract, 5c Aspire verbs, 5d action discriminator).
-4. Cross-link any axiom finding that overlaps (e.g., a topology issue under INV-1 may also be DIM-1).
-5. Output the same finding format as axiom (severity + dimension + file:line + description + required_fix).
+4. For INV-6, check whether the artifact is a skill prescribing a behavior — if so, verify triggers are workflow-neutral OR the skill declares `metadata.workflow-type:` in frontmatter.
+5. Cross-link any axiom finding that overlaps (e.g., a topology issue under INV-1 may also be DIM-1).
+6. Output the same finding format as axiom (severity + dimension + file:line + description + required_fix).
 
 ## Invariant references
 
@@ -45,7 +46,21 @@ The skill is the operational complement to issue [#1118](https://github.com/lvlu
 - INV-5b → [references/INV-5b-output-contract.md](references/INV-5b-output-contract.md)
 - INV-5c → [references/INV-5c-aspire-verbs.md](references/INV-5c-aspire-verbs.md)
 - INV-5d → [references/INV-5d-action-discriminator.md](references/INV-5d-action-discriminator.md)
+- INV-6 → [references/INV-6-workflow-agnosticism.md](references/INV-6-workflow-agnosticism.md)
 - Deterministic checks → [references/deterministic-checks.md](references/deterministic-checks.md)
+
+## INV-6 walk
+
+INV-6 audits skill bodies for workflow leakage. A skill prescribing a **behavior** (the default) must describe activation triggers in workflow-neutral terms — verb names and idempotency keys, not workflow stages or branch prefixes. A skill that **is** intentionally workflow-specific declares `metadata.workflow-type: <type>` in frontmatter so the audit can distinguish "intentionally scoped" from "leaky abstraction."
+
+Walk steps:
+
+1. Identify the artifact type. If it's a `SKILL.md`, proceed; if it's a workflow definition or playbook, INV-6 does not apply.
+2. Grep the body for workflow-typed literals: `feature/`, `featureId`, `merge-pending`, `delegate`, `synthesize`, `review`, `gathering`.
+3. If matches exist, check frontmatter for `metadata.workflow-type:`. Declared → no finding. Absent and the file lives under `_shared/` → no finding (cross-cutting utility). Otherwise → LOW finding; recommend either adding the declaration or genericizing the body.
+4. The advisory `scripts/lint-inv6.mjs` formalizes steps 2-3 and emits JSON findings.
+
+Full rule, examples, and severity guide → [references/INV-6-workflow-agnosticism.md](references/INV-6-workflow-agnosticism.md).
 
 ## Finding format
 
