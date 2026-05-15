@@ -10,7 +10,7 @@ export const HumanGradedCaseSchema = z.object({
   humanVerdict: z.boolean(),
   humanScore: z.number().min(0).max(1),
   humanRationale: z.string().min(1),
-  graderOutput: z.record(z.unknown()).optional(),
+  graderOutput: z.record(z.string(), z.unknown()).optional(),
 });
 
 export type HumanGradedCase = z.infer<typeof HumanGradedCaseSchema>;

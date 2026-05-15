@@ -15,6 +15,7 @@ exports[`F.7 — CLI table/tree pretty-print regression (Wave 0 §7) > CliRender
   "stdout": "init:
   description: Initialize a new workflow. Auto-emits workflow.started event. For workflowType=oneshot, an optional synthesisPolicy (always | never | on-request) seeds state.oneshot.synthesisPolicy; silently ignored for other workflow types.
   schema:
+    $schema: https://json-schema.org/draft/2020-12/schema
     type: object
     properties:
       featureId:
@@ -33,7 +34,6 @@ exports[`F.7 — CLI table/tree pretty-print regression (Wave 0 §7) > CliRender
       - featureId
       - workflowType
     additionalProperties: false
-    $schema: https://json-schema.org/draft/2020-12/schema
   gate: null
   phases:
   roles:
@@ -42,7 +42,8 @@ exports[`F.7 — CLI table/tree pretty-print regression (Wave 0 §7) > CliRender
     event: workflow.started
     condition: always
   outputSchema:
-    anyOf:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    oneOf:
       type: object
       properties:
         success:
@@ -65,6 +66,7 @@ exports[`F.7 — CLI table/tree pretty-print regression (Wave 0 §7) > CliRender
           [...]
       required:
         - success
+        - data
         - next_actions
         - _meta
         - _perf
@@ -85,9 +87,9 @@ exports[`F.7 — CLI table/tree pretty-print regression (Wave 0 §7) > CliRender
         - _meta
         - _perf
       additionalProperties: false
-    $schema: https://json-schema.org/draft/2020-12/schema
   outputSchemaJson:
-    anyOf:
+    $schema: https://json-schema.org/draft/2020-12/schema
+    oneOf:
       type: object
       properties:
         success:
@@ -110,6 +112,7 @@ exports[`F.7 — CLI table/tree pretty-print regression (Wave 0 §7) > CliRender
           [...]
       required:
         - success
+        - data
         - next_actions
         - _meta
         - _perf
@@ -130,7 +133,6 @@ exports[`F.7 — CLI table/tree pretty-print regression (Wave 0 §7) > CliRender
         - _meta
         - _perf
       additionalProperties: false
-    $schema: https://json-schema.org/draft/2020-12/schema
 ",
 }
 `;

@@ -23,7 +23,7 @@ export interface ValidationError {
  * Root-level failures report as `(root)`.
  */
 export function formatZodError(err: z.ZodError): string {
-  return err.errors
+  return err.issues
     .map((issue) => {
       const p = issue.path.length > 0 ? issue.path.join('.') : '(root)';
       return `${p}: ${issue.message}`;
@@ -82,18 +82,32 @@ export interface FieldMeta {
 // ─── Schema Shape Extraction ────────────────────────────────────────────────
 
 /**
- * Unwraps `z.preprocess()` effects to get the inner schema.
- * Handles both bare and optional-wrapped preprocess effects.
+ * Returns true iff `schema` is a `z.preprocess(...)` pipe (i.e. a ZodPipe
+ * whose input is a ZodTransform — distinguishes preprocess from `.transform()`).
  */
-function unwrapPreprocess(schema: z.ZodTypeAny): z.ZodTypeAny {
+function isPreprocessPipe(schema: z.ZodType): boolean {
+  if (!(schema instanceof z.ZodPipe)) return false;
+  const def = (schema as z.ZodType)._zod.def as { type: string; in?: z.ZodType };
+  if (def.type !== 'pipe') return false;
+  const inDef = def.in?._zod.def as { type?: string } | undefined;
+  return inDef?.type === 'transform';
+}
+
+/**
+ * Unwraps `z.preprocess()` pipes to get the inner schema.
+ * Handles both bare and optional-wrapped preprocess pipes.
+ */
+function unwrapPreprocess(schema: z.ZodType): z.ZodType {
   if (schema instanceof z.ZodOptional) {
-    const inner = schema._def.innerType as z.ZodTypeAny;
-    if (inner instanceof z.ZodEffects && inner._def.effect.type === 'preprocess') {
-      return (inner._def.schema as z.ZodTypeAny).optional();
+    const inner = schema._zod.def.innerType as z.ZodType;
+    if (isPreprocessPipe(inner)) {
+      const def = inner._zod.def as unknown as { out: z.ZodType };
+      return (def.out as z.ZodType).optional();
     }
   }
-  if (schema instanceof z.ZodEffects && schema._def.effect.type === 'preprocess') {
-    return schema._def.schema as z.ZodTypeAny;
+  if (isPreprocessPipe(schema)) {
+    const def = schema._zod.def as unknown as { out: z.ZodType };
+    return def.out;
   }
   return schema;
 }
@@ -101,20 +115,20 @@ function unwrapPreprocess(schema: z.ZodTypeAny): z.ZodTypeAny {
 /**
  * Unwraps optional/default/nullable wrappers to get the core Zod type.
  */
-function unwrapWrappers(schema: z.ZodTypeAny): z.ZodTypeAny {
+function unwrapWrappers(schema: z.ZodType): z.ZodType {
   if (schema instanceof z.ZodOptional) {
-    return unwrapWrappers(schema._def.innerType as z.ZodTypeAny);
+    return unwrapWrappers(schema._zod.def.innerType as z.ZodType);
   }
   if (schema instanceof z.ZodDefault) {
-    return unwrapWrappers(schema._def.innerType as z.ZodTypeAny);
+    return unwrapWrappers(schema._zod.def.innerType as z.ZodType);
   }
   if (schema instanceof z.ZodNullable) {
-    return unwrapWrappers(schema._def.innerType as z.ZodTypeAny);
+    return unwrapWrappers(schema._zod.def.innerType as z.ZodType);
   }
   return schema;
 }
 
-function resolveType(schema: z.ZodTypeAny): FieldMeta['type'] {
+function resolveType(schema: z.ZodType): FieldMeta['type'] {
   const unwrapped = unwrapWrappers(schema);
 
   if (unwrapped instanceof z.ZodString) return 'string';
@@ -128,7 +142,7 @@ function resolveType(schema: z.ZodTypeAny): FieldMeta['type'] {
   return 'unknown';
 }
 
-function extractEnumValues(schema: z.ZodTypeAny): string[] | undefined {
+function extractEnumValues(schema: z.ZodType): string[] | undefined {
   const unwrapped = unwrapWrappers(schema);
   if (unwrapped instanceof z.ZodEnum) {
     return unwrapped.options as string[];
@@ -145,7 +159,7 @@ export function extractSchemaFields(schema: z.ZodObject<z.ZodRawShape>): FieldMe
   const result: FieldMeta[] = [];
 
   for (const [key, zodType] of Object.entries(shape)) {
-    const rawField = zodType as z.ZodTypeAny;
+    const rawField = zodType as z.ZodType;
     const unwrapped = unwrapPreprocess(rawField);
 
     const meta: FieldMeta = {

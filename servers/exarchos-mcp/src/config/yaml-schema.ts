@@ -13,7 +13,10 @@ const DimensionConfig = z.union([DimensionSeverity, DimensionLongform]);
 
 const DimensionKey = z.enum(['D1', 'D2', 'D3', 'D4', 'D5']);
 
-const DimensionsMap = z.record(DimensionKey, DimensionConfig);
+// v4: `z.record(K, V)` makes ALL enum keys required (a breaking change from
+// v3 where they were partial). `z.partialRecord(K, V)` restores the v3
+// partial-record behavior — any subset of `D1..D5` is valid.
+const DimensionsMap = z.partialRecord(DimensionKey, DimensionConfig);
 
 // ─── Gate Configuration ─────────────────────────────────────────────────────
 
@@ -77,7 +80,7 @@ const AgentSpecIdKey = z.enum(['implementer', 'fixer', 'reviewer', 'scaffolder']
 
 const AgentsConfig = z.object({
   'default-model': AgentModelValue.optional(),
-  models: z.record(AgentSpecIdKey, AgentModelValue).optional(),
+  models: z.partialRecord(AgentSpecIdKey, AgentModelValue).optional(),
 }).strict();
 
 // ─── Tools Configuration ───────────────────────────────────────────────────

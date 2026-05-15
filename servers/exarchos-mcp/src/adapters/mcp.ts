@@ -10,7 +10,7 @@ import { toEnvelope } from '../format.js';
 import type { Envelope, ErrorEnvelope } from '../format.js';
 import { dispatch } from '../core/dispatch.js';
 import type { DispatchContext } from '../core/dispatch.js';
-import { PerfMetricsSchema } from '../schemas/envelope.js';
+import { EnvelopeSchema } from '../schemas/envelope.js';
 
 // ─── D.4: LCD outputSchema advertised to MCP clients ────────────────────────
 //
@@ -20,27 +20,20 @@ import { PerfMetricsSchema } from '../schemas/envelope.js';
 // tools/list manifest. This keeps the static surface compact and lets the
 // per-call validator emit issue-pathed diagnostics.
 //
-// SDK constraint (observed via task 1.6's compiled-binary integration test):
-// the @modelcontextprotocol/sdk's `validateToolOutput` runs the registered
-// `outputSchema` through `normalizeObjectSchema` before parsing — that
-// helper only recognises ZodObject inputs (raw shapes or already-built
-// object schemas) and returns `undefined` for `ZodDiscriminatedUnion`,
-// causing a TypeError on every successful call when we hand it the
-// canonical `EnvelopeSchema(z.unknown())` (a discriminated union on
-// `success`). We therefore advertise an SDK-compatible ZodObject that
-// encodes the LCD envelope shape via the shared invariant fields
-// (`success`, `_meta`, `_perf`) and uses `.passthrough()` to admit the
-// per-branch fields (`data`/`next_actions` on success, `error` on
-// failure). Per-action enforcement (D.5) still uses the strict
-// discriminated-union schemas from the registry — the LCD here is purely
-// the tools/list-advertised carrier surface.
-const LCD_OUTPUT_SCHEMA = z
-  .object({
-    success: z.boolean(),
-    _meta: z.record(z.unknown()),
-    _perf: PerfMetricsSchema,
-  })
-  .passthrough();
+// The LCD is the canonical `EnvelopeSchema(z.unknown())` discriminated union
+// (success/error branches keyed on the `success` boolean literal). This
+// was previously a passthrough-ZodObject workaround because the SDK's
+// `normalizeObjectSchema` (`zod-compat.ts:79-121`) only accepted plain
+// `ZodObject` and returned `undefined` for `ZodDiscriminatedUnion`,
+// silently dropping the outputSchema from `tools/list` and crashing
+// `validateToolOutput` on every successful call. PR #1366 fixes both gaps
+// via `patches/@modelcontextprotocol+sdk+1.29.0.patch` and the upstream
+// issues at modelcontextprotocol/typescript-sdk#2084 (tools/list draft-7
+// → 2020-12 to admit `z.discriminatedUnion`'s `anyOf` JSON-Schema form)
+// and #1308 (DU acceptance in `normalizeObjectSchema`). Once those
+// upstream fixes ship in a stable SDK release, the patch drops; the LCD
+// stays as-is.
+const LCD_OUTPUT_SCHEMA = EnvelopeSchema(z.unknown());
 
 // ─── D.1: Envelope → MCP CallToolResult carrier mapping ────────────────────
 
