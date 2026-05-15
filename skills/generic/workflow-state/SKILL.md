@@ -211,7 +211,7 @@ After saving design:
 ```markdown
 After saving plan:
 1. `action: "update"` — `updates: { "artifacts.plan": "<path>", "tasks": [...] }`
-2. `action: "transition"` — `target: "delegate"`
+2. `action: "transition"` — `target: "plan-review"`
 ```
 
 **delegation/SKILL.md:**
