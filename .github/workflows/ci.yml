@@ -350,8 +350,26 @@ jobs:
           node-version: '24'
           cache: npm
 
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.13
+
+      # Root deps own vitest + the outcome project's `bun:sqlite` alias
+      # target. MCP-server deps own `better-sqlite3` (the shim's runtime
+      # dependency) plus the handlers exercised by the outcome tests.
       - name: Install root dependencies
         run: npm ci
+
+      - name: Install MCP server dependencies
+        working-directory: servers/exarchos-mcp
+        run: npm ci
+
+      # The install-skills outcome test invokes the platform binary at
+      # `dist/bin/exarchos-<os>-<arch>`. Without this build step the test
+      # silently degrades to "no on-disk effects → empty manifest →
+      # assertion failure", which masks real regressions in the installer.
+      - name: Build host binary (linux-x64)
+        run: bun run scripts/build-binary.ts --target linux-x64
 
       - name: Configure git identity for outcome helpers
         run: |
@@ -364,7 +382,7 @@ jobs:
   ci-gate:
     name: CI Gate
     runs-on: self-hosted
-    needs: [changes, test-root, test-mcp, validate-no-legacy, grep-gates]
+    needs: [changes, test-root, test-mcp, validate-no-legacy, grep-gates, outcome-tests]
     if: (github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request') && always()
     steps:
       - name: Evaluate results
@@ -374,6 +392,7 @@ jobs:
           echo "test-mcp=${{ needs.test-mcp.result }}"
           echo "validate-no-legacy=${{ needs.validate-no-legacy.result }}"
           echo "grep-gates=${{ needs.grep-gates.result }}"
+          echo "outcome-tests=${{ needs.outcome-tests.result }}"
 
           if [[ "${{ needs.changes.result }}" =~ ^(failure|cancelled)$ ]]; then
             echo "::error::Change detection: ${{ needs.changes.result }}"
@@ -393,6 +412,10 @@ jobs:
           fi
           if [[ "${{ needs.grep-gates.result }}" =~ ^(failure|cancelled)$ ]]; then
             echo "::error::Grep gates: ${{ needs.grep-gates.result }}"
+            exit 1
+          fi
+          if [[ "${{ needs.outcome-tests.result }}" =~ ^(failure|cancelled)$ ]]; then
+            echo "::error::Outcome tests: ${{ needs.outcome-tests.result }}"
             exit 1
           fi
 

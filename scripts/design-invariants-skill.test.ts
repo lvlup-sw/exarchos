@@ -38,6 +38,7 @@ const INVARIANTS_REQUIRING_DETERMINISTIC_CHECKS = [
   'INV-2',
   'INV-4',
   'INV-5d',
+  'INV-6',
 ] as const;
 
 interface Frontmatter {

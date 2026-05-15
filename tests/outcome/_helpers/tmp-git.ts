@@ -36,23 +36,35 @@ export async function withTmpGit<T>(fn: (repoPath: string) => Promise<T>): Promi
     return await fn(repo);
   } finally {
     // Remove any sibling worktrees first so `git worktree` metadata is clean.
+    // Cleanup is best-effort, but surface failures on stderr so flaky outcome
+    // tests are debuggable instead of silently leaking tmpdirs / worktree refs.
     for (const sib of siblings) {
       try {
         execSync(`git -C "${repo}" worktree remove --force "${sib}"`, {
           encoding: 'utf8',
           stdio: 'pipe',
         });
-      } catch {
-        // best-effort
+      } catch (error) {
+        process.stderr.write(
+          `[withTmpGit] worktree remove failed for ${sib}: ${(error as Error).message}\n`,
+        );
       }
       try {
         fs.rmSync(sib, { recursive: true, force: true });
-      } catch {
-        // best-effort
+      } catch (error) {
+        process.stderr.write(
+          `[withTmpGit] rmSync failed for sibling ${sib}: ${(error as Error).message}\n`,
+        );
       }
     }
     SIBLING_REGISTRY.delete(repo);
-    fs.rmSync(repo, { recursive: true, force: true });
+    try {
+      fs.rmSync(repo, { recursive: true, force: true });
+    } catch (error) {
+      process.stderr.write(
+        `[withTmpGit] rmSync failed for repo ${repo}: ${(error as Error).message}\n`,
+      );
+    }
   }
 }
 

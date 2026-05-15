@@ -16,6 +16,12 @@ export async function withTmpHome<T>(fn: (home: string) => Promise<T>): Promise<
   } finally {
     if (priorHome === undefined) delete process.env.HOME;
     else process.env.HOME = priorHome;
-    fs.rmSync(tmp, { recursive: true, force: true });
+    try {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    } catch (error) {
+      process.stderr.write(
+        `[withTmpHome] rmSync failed for ${tmp}: ${(error as Error).message}\n`,
+      );
+    }
   }
 }

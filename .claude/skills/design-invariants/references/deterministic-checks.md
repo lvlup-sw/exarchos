@@ -2,7 +2,7 @@
 
 Mechanical grep / structural patterns that the skill can run against the diff or working tree to surface candidate findings. These are starting points for human or agent reasoning, not verdicts. A pattern match is a *signal*, not a conclusion — confirm by reading context.
 
-Coverage limited to invariants where mechanical detection adds value: INV-1, INV-2, INV-4, INV-5d. The remaining invariants (INV-3, INV-5a, INV-5b, INV-5c) are reasoning-driven; their checks live in the corresponding reference files.
+Coverage limited to invariants where mechanical detection adds value: INV-1, INV-2, INV-4, INV-5d, INV-6. The remaining invariants (INV-3, INV-5a, INV-5b, INV-5c) are reasoning-driven; their checks live in the corresponding reference files.
 
 ## INV-1: Event-Sourcing Integrity
 
@@ -191,6 +191,39 @@ Per-action annotations live on `CompositeAction` post-#1268. A tool-level `destr
 # Tool-level annotations that should be per-action
 rg -n 'destructiveHint|readOnlyHint|idempotentHint|openWorldHint' \
    servers/exarchos-mcp/src/registry.ts
+```
+
+## INV-6: Workflow-Agnosticism
+
+### Check 6.1: Workflow-typed literals in skill bodies
+
+A skill body containing workflow-typed literals (`feature/`, `featureId`, `merge-pending`, `delegate`, `synthesize`, `review`, `gathering`) WITHOUT a `metadata.workflow-type:` frontmatter declaration is a candidate INV-6 violation. Skills under `skills-src/_shared/**` are exempt by convention. Formalized in `scripts/lint-inv6.mjs`.
+
+```bash
+# Raw literals in skill bodies (excluding _shared/)
+rg -n 'feature/|featureId|merge-pending|delegate|synthesize|review|gathering' \
+   skills-src/ \
+   --glob '!skills-src/_shared/**' \
+   --glob '*.md'
+
+# Triage: which matching SKILL.md files lack workflow-type: in frontmatter?
+for f in $(rg -l 'feature/|featureId|merge-pending|delegate|synthesize|review|gathering' \
+              skills-src/ \
+              --glob '!skills-src/_shared/**' \
+              --glob 'SKILL.md'); do
+  if ! head -20 "$f" | grep -q '^  workflow-type:'; then
+    echo "CANDIDATE: $f references workflow literals without workflow-type declaration"
+  fi
+done
+```
+
+### Check 6.2: Advisory lint integration
+
+The advisory lint `scripts/lint-inv6.mjs` runs as part of `npm run skills:guard` (currently advisory — `(npm run lint:inv6 || true)`). Promotion to blocking is tracked separately.
+
+```bash
+# Direct invocation surfaces JSON findings:
+node scripts/lint-inv6.mjs
 ```
 
 ## Running the full sweep

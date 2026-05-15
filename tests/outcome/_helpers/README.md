@@ -189,7 +189,7 @@ you flip the annotation.
 
 A healthy steady-state summary looks like:
 
-```
+```text
  Tests  8 expected | 0 failed | 0 passed (8)
 ```
 
