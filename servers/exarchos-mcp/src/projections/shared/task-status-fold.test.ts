@@ -37,6 +37,15 @@ describe('normalizeTaskStatus', () => {
     expect(normalizeTaskStatus('completed')).toBe('complete');
   });
 
+  it('NormalizeTaskStatus_LegacyAssigned_MapsToInProgress', () => {
+    // Pre-#1359 corpus emits `state.patched { patch: { tasks: [{status: "assigned"}] } }`.
+    // The legacy `'assigned'` literal must promote to `'in_progress'`,
+    // not silently downgrade to `'pending'` (which would re-dispatch
+    // work already in flight). Mirrors `upgradeRehydrationDocumentV3toV4`'s
+    // `'assigned' → 'in_progress'` rename (#1359 / PR4 T12).
+    expect(normalizeTaskStatus('assigned')).toBe('in_progress');
+  });
+
   it('NormalizeTaskStatus_UnknownValue_FallsBackToPending', () => {
     expect(normalizeTaskStatus('mystery-status')).toBe('pending');
     expect(normalizeTaskStatus(undefined)).toBe('pending');

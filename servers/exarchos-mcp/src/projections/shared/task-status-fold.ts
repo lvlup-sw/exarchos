@@ -50,19 +50,25 @@ export function rankOf(status: string): number {
  * into the canonical TaskStatus surface. Anything not recognized falls
  * back to `pending` — the safe default for plan-state assertion folds.
  *
- * The workflow-side `TaskStatusSchema` (`workflow/schemas.ts`) carries a
- * `z.preprocess` that folds the legacy `'completed'` literal into the
- * canonical `'complete'`. `state.patched` events emitted by `handleSet`
- * do NOT route their `input.updates` through that schema, so historical
- * events with `status: 'completed'` land in projections unchanged.
- * Without the same mapping here, those tasks would silently downgrade
- * to `pending`, breaking taskCount/completedCount and risking re-dispatch
- * of already-finished work. Sentry follow-up on PR #1394.
+ * Legacy aliases (Sentry follow-ups on PR #1394) — `state.patched`
+ * events emitted by `handleSet` do NOT route their `input.updates`
+ * through `TaskStatusSchema`'s `z.preprocess`, so historical events with
+ * pre-#1359 vocabulary arrive at projections unchanged. The mappings
+ * below mirror `upgradeRehydrationDocumentV3toV4` (`projections/
+ * rehydration/upgrade.ts`) so the on-disk migration and the live event
+ * fold agree byte-for-byte on legacy → canonical:
+ *
+ *   - `'completed'` → `'complete'`     (matches `TaskStatusSchema` preprocess)
+ *   - `'assigned'`  → `'in_progress'`  (matches v3→v4 task vocabulary rename)
+ *
+ * Without these, tasks silently downgrade to `pending` (the
+ * unrecognized-value fallback), breaking taskCount / completedCount and
+ * risking re-dispatch of work already in flight or finished.
  */
 export function normalizeTaskStatus(raw: unknown): TaskStatus {
   if (raw === 'failed') return 'failed';
   if (raw === 'complete' || raw === 'completed') return 'complete';
-  if (raw === 'in_progress') return 'in_progress';
+  if (raw === 'in_progress' || raw === 'assigned') return 'in_progress';
   return 'pending';
 }
 
