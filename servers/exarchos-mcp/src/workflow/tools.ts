@@ -253,6 +253,7 @@ export async function handleInit(
         error: {
           code: err.code,
           message: err.message,
+          ...(err.data !== undefined ? { data: err.data } : {}),
         },
       };
     }
@@ -559,22 +560,32 @@ export async function handleSet(
     const mutableState = structuredClone(state) as Record<string, unknown>;
 
     // ─── Field updates (applied first so phase guards see new state) ───
+    //
+    // RESERVED_FIELD violations are detected by `applyDotPath`, which
+    // throws a `StateStoreError` populated with structured `data`
+    // (`{rejectedPath, rule, alternateWritePath}`). We catch it here so
+    // the caller receives a structured error envelope rather than a
+    // bare crash, and so the typed `data` block reaches the client.
+    // Atomicity is preserved by `structuredClone`: `mutableState` is a
+    // deep copy, so abandoning the loop mid-throw leaves the on-disk
+    // state untouched (#1360).
     if (input.updates) {
-      // Check for reserved fields before applying any updates
-      for (const dotPath of Object.keys(input.updates)) {
-        if (isReservedField(dotPath)) {
+      try {
+        for (const [dotPath, value] of Object.entries(input.updates)) {
+          applyDotPath(mutableState, dotPath, value);
+        }
+      } catch (err) {
+        if (err instanceof StateStoreError && err.code === ErrorCode.RESERVED_FIELD) {
           return {
             success: false,
             error: {
-              code: ErrorCode.RESERVED_FIELD,
-              message: `Cannot update reserved field: ${dotPath}`,
+              code: err.code,
+              message: err.message,
+              ...(err.data !== undefined ? { data: err.data } : {}),
             },
           };
         }
-      }
-
-      for (const [dotPath, value] of Object.entries(input.updates)) {
-        applyDotPath(mutableState, dotPath, value);
+        throw err;
       }
     }
 
@@ -1609,6 +1620,7 @@ export async function handleReconcileState(
         error: {
           code: err.code,
           message: err.message,
+          ...(err.data !== undefined ? { data: err.data } : {}),
         },
       };
     }

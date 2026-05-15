@@ -12,6 +12,7 @@ import {
 import { serializeTopology, listWorkflowTypes } from '../workflow/state-machine.js';
 import { serializePlaybooks, listPlaybookWorkflowTypes } from '../workflow/playbooks.js';
 import { buildConfigDescription } from '../workflow/describe-config.js';
+import { RESERVED_FIELDS_DESCRIPTOR } from '../workflow/schemas.js';
 // T5a.1/DR-4 (#1259, v2.11): Worktree/Task/Artifacts/Synthesis schemas
 // were previously imported here to populate the `set` action's
 // stateSchema discoverability slot. The slot and its consumer
@@ -134,6 +135,16 @@ export async function handleDescribe(
               outputSchema: zodToJsonSchema(action.outputSchema),
               outputSchemaJson: zodToJsonSchema(action.outputSchema),
             }
+          : {}),
+        // #1360 / PR 2 — surface the reserved-fields descriptor on the
+        // `update` action so callers can discover the immutable boundary
+        // (and the alternate write paths, e.g. `transition` for phase)
+        // through describe instead of trial-and-error against the
+        // `RESERVED_FIELD` error envelope. Sourced from
+        // `RESERVED_FIELDS_DESCRIPTOR` so the doc surface and the runtime
+        // guard (`isReservedField`) share one canonical list.
+        ...(actionName === 'update'
+          ? { reservedFields: RESERVED_FIELDS_DESCRIPTOR }
           : {}),
       };
 

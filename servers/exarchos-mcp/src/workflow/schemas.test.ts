@@ -667,3 +667,36 @@ describe('FeaturePhaseSchema (T26)', () => {
     expect(FeaturePhaseSchema.safeParse('merge_pending').success).toBe(false);
   });
 });
+
+// ─── #1360 — Reserved-fields descriptor (PR 2 / T2) ────────────────────────
+//
+// Single source of truth for the keys that `applyDotPath` / `handleSet`
+// reject with `ErrorCode.RESERVED_FIELD`. Surfaced through
+// `exarchos_workflow.describe({actions:['update']})` (T4) and embedded in
+// `RESERVED_FIELD` error data (T3). Listing the top-level immutable set in
+// one constant keeps the doc surface and the runtime guard from drifting.
+describe('RESERVED_FIELDS_DESCRIPTOR (#1360)', () => {
+  it('ReservedFieldsDescriptor_TopLevelImmutable_ListsAllFiveKeys', async () => {
+    const { RESERVED_FIELDS_DESCRIPTOR } = await import('./schemas.js');
+
+    expect(RESERVED_FIELDS_DESCRIPTOR.topLevelImmutable).toEqual([
+      'phase',
+      'workflowType',
+      'featureId',
+      'createdAt',
+      'version',
+    ]);
+
+    expect(RESERVED_FIELDS_DESCRIPTOR.examples).toEqual(
+      expect.arrayContaining(['_version', '_checkpoint.summary', '_eventHints']),
+    );
+
+    expect(RESERVED_FIELDS_DESCRIPTOR.alternateWritePaths.phase).toMatch(/transition/i);
+  });
+
+  it('ReservedFieldsDescriptorSchema_AcceptsCanonicalShape', async () => {
+    const { ReservedFieldsDescriptorSchema, RESERVED_FIELDS_DESCRIPTOR } = await import('./schemas.js');
+    const result = ReservedFieldsDescriptorSchema.safeParse(RESERVED_FIELDS_DESCRIPTOR);
+    expect(result.success).toBe(true);
+  });
+});

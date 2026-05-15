@@ -167,6 +167,8 @@ Note: the `target-checked-out-elsewhere` early-abort path runs *before* the resu
 
 For the argument schema, call `mcp__exarchos__exarchos_orchestrate({ action: "describe", actions: ["merge_orchestrate"] })`. Event payload shapes come from `mcp__exarchos__exarchos_event({ action: "describe", eventTypes: ["merge.preflight", "merge.requested", "merge.executed", "merge.rollback"] })`.
 
+`mergeOrchestrator.*` fields on workflow state are written by this skill and `mergeOrchestrator.phase` is read by gates; the underlying `phase` workflow field is immutable and must be changed via `transition`, not `update`. See the [Reserved fields](../workflow-state/SKILL.md#reserved-fields) section in the `workflow-state` skill for the full immutable-key list and the typed `RESERVED_FIELD` error envelope.
+
 ## Completion Criteria
 
 - [ ] Preflight result `passed: true` (or operator has decided to proceed despite a documented preflight gap)

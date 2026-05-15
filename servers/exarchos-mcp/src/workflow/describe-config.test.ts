@@ -165,3 +165,41 @@ describe('buildConfigDescription', () => {
     expect(result.plugins.axiom.enabled.source).toBe('.exarchos.yml');
   });
 });
+
+// ─── #1360 — describe('update') reservedFields block (PR 2 / T4) ───────────
+//
+// `exarchos_workflow.describe({actions:['update']})` enumerates the
+// `RESERVED_FIELDS_DESCRIPTOR` under a `reservedFields` key so agents
+// discover the boundary (top-level immutable keys, the underscore rule,
+// alternate write paths) without trial-and-error.
+describe('describe(update).reservedFields (#1360)', () => {
+  it('Describe_ActionUpdate_ReturnsReservedFieldsBlock', async () => {
+    const { handleDescribe } = await import('../describe/handler.js');
+    const { TOOL_REGISTRY } = await import('../registry.js');
+    const { RESERVED_FIELDS_DESCRIPTOR } = await import('./schemas.js');
+
+    const workflowTool = TOOL_REGISTRY.find((t) => t.name === 'exarchos_workflow');
+    expect(workflowTool).toBeDefined();
+
+    const result = await handleDescribe({ actions: ['update'] }, workflowTool!.actions);
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+
+    const data = result.data as Record<string, unknown>;
+    const updateDesc = data.update as Record<string, unknown>;
+    expect(updateDesc).toBeDefined();
+    expect(updateDesc.reservedFields).toBeDefined();
+
+    const reservedFields = updateDesc.reservedFields as Record<string, unknown>;
+    expect(reservedFields.topLevelImmutable).toEqual(
+      RESERVED_FIELDS_DESCRIPTOR.topLevelImmutable,
+    );
+    expect(reservedFields.underscorePrefixRule).toBe(
+      RESERVED_FIELDS_DESCRIPTOR.underscorePrefixRule,
+    );
+    expect(reservedFields.examples).toEqual(RESERVED_FIELDS_DESCRIPTOR.examples);
+    expect(reservedFields.alternateWritePaths).toEqual(
+      RESERVED_FIELDS_DESCRIPTOR.alternateWritePaths,
+    );
+  });
+});

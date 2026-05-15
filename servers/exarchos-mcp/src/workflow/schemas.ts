@@ -510,15 +510,61 @@ export const ErrorCode = {
   PROJECTION_REPLAY_FAILED: 'PROJECTION_REPLAY_FAILED',
 } as const;
 
-// ─── Reserved Field Validation ──────────────────────────────────────────────
+// ─── Reserved Field Validation (#1360) ─────────────────────────────────────
+//
+// `RESERVED_FIELDS_DESCRIPTOR` is the single source of truth for the keys
+// that `applyDotPath` / `handleSet` reject with `ErrorCode.RESERVED_FIELD`.
+// It is surfaced through `exarchos_workflow.describe({actions:['update']})`
+// and embedded in the structured `data` block on `RESERVED_FIELD` error
+// envelopes, so callers can discover the boundary and the alternate write
+// path (e.g. use `transition` for phase) without trial-and-error.
+//
+// The runtime guard `isReservedField` derives its top-level immutable set
+// from `topLevelImmutable` below, so changing the descriptor changes the
+// behavior — doc and guard cannot drift.
+//
+// `alternateWritePaths` keys are matched via `resolveAlternateWritePath` in
+// `state-store.ts`. Underscore-prefixed paths share a single guidance
+// string keyed on the regex `^_.*` (event-store-managed, not directly
+// writable).
+export const RESERVED_FIELDS_DESCRIPTOR = {
+  topLevelImmutable: [
+    'phase',
+    'workflowType',
+    'featureId',
+    'createdAt',
+    'version',
+  ],
+  underscorePrefixRule:
+    'Any dot-path whose top-level key, or any segment, begins with `_` is reserved for projection/event-store metadata and is not directly writable.',
+  examples: [
+    '_version',
+    '_esVersion',
+    '_history',
+    '_checkpoint.summary',
+    '_eventHints',
+    '_compensationCheckpoint',
+  ],
+  alternateWritePaths: {
+    phase: 'Use `exarchos_workflow` with `action: "transition"` and `target: "<phase>"` — phase changes are HSM-validated and emit transition events.',
+    workflowType: 'Immutable after init. Create a new workflow with `exarchos_workflow.init` if a different type is needed.',
+    featureId: 'Immutable identity field. The featureId is fixed at init.',
+    createdAt: 'Immutable timestamp. Set by `exarchos_workflow.init`.',
+    version: 'Schema version. Bumped only by the migration pipeline.',
+    '^_.*': 'Event-store/projection metadata. Emit a typed event via `exarchos_event.append` (e.g. `checkpoint`, `state.patched`) instead of writing the underscore field directly.',
+  },
+} as const;
 
-const IMMUTABLE_FIELDS = new Set([
-  'phase',
-  'workflowType',
-  'featureId',
-  'createdAt',
-  'version',
-]);
+export const ReservedFieldsDescriptorSchema = z.object({
+  topLevelImmutable: z.array(z.string()).min(1),
+  underscorePrefixRule: z.string().min(1),
+  examples: z.array(z.string()).min(1),
+  alternateWritePaths: z.record(z.string(), z.string()),
+});
+
+// Derived from `RESERVED_FIELDS_DESCRIPTOR.topLevelImmutable` so the doc
+// surface and the runtime guard share one canonical list — see #1360.
+const IMMUTABLE_FIELDS = new Set<string>(RESERVED_FIELDS_DESCRIPTOR.topLevelImmutable);
 
 export function isReservedField(path: string): boolean {
   if (path === '') return false;
