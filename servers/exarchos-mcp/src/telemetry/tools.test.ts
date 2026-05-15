@@ -300,6 +300,71 @@ describe('handleViewTelemetry', () => {
   });
 });
 
+// Sentry follow-up on PR #1393: the registered `TelemetryViewOutputSchema`
+// requires `actionErrors` (number) and `actionErrorBreakdown` (record) on
+// every tool entry, but the `toToolEntry` builder forgot to copy these
+// from the projection metrics. The omission would cause
+// `validateAgainstActionSchema` to surface
+// INTERNAL_ERROR/outputSchemaViolation for any `view.telemetry` call that
+// returned at least one tool entry, swallowing the telemetry payload.
+describe('toToolEntry — action-error fields (Sentry follow-up #1364)', () => {
+  let stateDir: string;
+
+  beforeEach(async () => {
+    stateDir = await createTempDir();
+    resetMaterializerCache();
+  });
+
+  afterEach(async () => {
+    await fs.rm(stateDir, { recursive: true, force: true });
+  });
+
+  it('handleViewTelemetry_CompactEntry_IncludesActionErrorFields', async () => {
+    await seedTelemetryEvents(stateDir, [
+      { tool: 'workflow_get', durationMs: 10, responseBytes: 200, tokenEstimate: 50 },
+    ]);
+
+    const result = await handleViewTelemetry({}, stateDir, new EventStore(stateDir));
+
+    expect(result.success).toBe(true);
+    const data = result.data as { tools: Array<Record<string, unknown>> };
+    expect(data.tools).toHaveLength(1);
+    // No action errors seeded → both fields present, but zero-valued.
+    expect(data.tools[0]).toHaveProperty('actionErrors');
+    expect(data.tools[0].actionErrors).toBe(0);
+    expect(data.tools[0]).toHaveProperty('actionErrorBreakdown');
+    expect(data.tools[0].actionErrorBreakdown).toEqual({});
+  });
+
+  it('handleViewTelemetry_CompactEntry_ConformsToTelemetryViewOutputSchema', async () => {
+    await seedTelemetryEvents(stateDir, [
+      { tool: 'workflow_get', durationMs: 10, responseBytes: 200, tokenEstimate: 50 },
+      { tool: 'workflow_get', durationMs: 20, responseBytes: 400, tokenEstimate: 100 },
+    ]);
+
+    const result = await handleViewTelemetry({}, stateDir, new EventStore(stateDir));
+
+    expect(result.success).toBe(true);
+
+    // The registered TelemetryViewOutputSchema is the load-bearing
+    // contract — if any required field is missing, the dispatch
+    // pipeline's validateAgainstActionSchema will return
+    // INTERNAL_ERROR/outputSchemaViolation. Round-trip through a
+    // properly-shaped envelope so the assertion catches missing entry
+    // fields without false positives on optional envelope members.
+    const { TelemetryViewOutputSchema } = await import('../registry.js');
+    const envelope = {
+      success: true as const,
+      data: result.data,
+      next_actions: [],
+      _meta: {},
+      _perf: { ms: 0, bytes: 0, tokens: 0 },
+    };
+    const parsed = TelemetryViewOutputSchema.safeParse(envelope);
+    expect(parsed.success).toBe(true);
+  });
+});
+
 describe('Telemetry projection registered in materializer', () => {
   beforeEach(() => {
     resetMaterializerCache();
