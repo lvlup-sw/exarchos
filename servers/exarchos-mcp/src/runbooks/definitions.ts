@@ -617,6 +617,25 @@ export const PHASE_COMPRESSION: RunbookDefinition = {
   autoEmits: [],
 };
 
+export const MERGE_ORCHESTRATION: RunbookDefinition = {
+  id: 'merge-orchestration',
+  phase: 'merge-pending',
+  description: 'Land a subagent worktree branch onto integration with preflight + recorded rollback.',
+  steps: [
+    { tool: 'exarchos_orchestrate', action: 'merge_orchestrate',
+      params: { dryRun: true }, onFail: 'stop',
+      note: 'Preflight: ancestry, target-worktree-availability (post-#1356), current-branch, drift.' },
+    { tool: 'exarchos_orchestrate', action: 'merge_orchestrate',
+      onFail: 'continue',
+      note: 'Real merge. preflight-fail → aborted (no executor). merge-fail → rolled-back (post-#1356: structured target-worktree-busy categorization).' },
+    { tool: 'exarchos_workflow', action: 'transition',
+      params: { target: 'delegate' }, onFail: 'continue',
+      note: 'HSM exits merge-pending back to delegate regardless of merge outcome.' },
+  ],
+  templateVars: ['featureId', 'taskId', 'sourceBranch', 'targetBranch', 'strategy', 'repoRoot'],
+  autoEmits: ['merge.preflight', 'merge.executed', 'merge.rollback', 'workflow.transition'],
+};
+
 export const ALL_RUNBOOKS: readonly RunbookDefinition[] = [
   TASK_COMPLETION,
   QUALITY_EVALUATION,
@@ -635,4 +654,5 @@ export const ALL_RUNBOOKS: readonly RunbookDefinition[] = [
   DESIGN_REFINEMENT,
   PLAN_COVERAGE_CHECK,
   PHASE_COMPRESSION,
+  MERGE_ORCHESTRATION,
 ];

@@ -11,6 +11,7 @@ import {
   DESIGN_REFINEMENT,
   PLAN_COVERAGE_CHECK,
   PHASE_COMPRESSION,
+  MERGE_ORCHESTRATION,
   ALL_RUNBOOKS,
 } from './definitions.js';
 
@@ -105,7 +106,37 @@ describe('Runbook definitions', () => {
   });
 
   it('AllRunbooks_Count', () => {
-    expect(ALL_RUNBOOKS).toHaveLength(17);
+    expect(ALL_RUNBOOKS).toHaveLength(18);
+  });
+
+  it('Runbook_PhaseMergePending_ReturnsPopulatedSteps', () => {
+    // MERGE_ORCHESTRATION is the runbook counterpart to the merge-orchestrator
+    // skill. Per #1363, exarchos_orchestrate({action: 'runbook', phase:
+    // 'merge-pending'}) previously returned [] because the registry had no
+    // entry for this phase.
+    expect(MERGE_ORCHESTRATION).toBeDefined();
+    expect(MERGE_ORCHESTRATION.id).toBe('merge-orchestration');
+    expect(MERGE_ORCHESTRATION.phase).toBe('merge-pending');
+    expect(MERGE_ORCHESTRATION.steps).toHaveLength(3);
+    expect(MERGE_ORCHESTRATION.autoEmits).toEqual(
+      expect.arrayContaining([
+        'merge.preflight',
+        'merge.executed',
+        'merge.rollback',
+        'workflow.transition',
+      ]),
+    );
+    // Step 1: preflight dryRun
+    expect(MERGE_ORCHESTRATION.steps[0].tool).toBe('exarchos_orchestrate');
+    expect(MERGE_ORCHESTRATION.steps[0].action).toBe('merge_orchestrate');
+    expect(MERGE_ORCHESTRATION.steps[0].params?.dryRun).toBe(true);
+    // Step 2: real merge
+    expect(MERGE_ORCHESTRATION.steps[1].tool).toBe('exarchos_orchestrate');
+    expect(MERGE_ORCHESTRATION.steps[1].action).toBe('merge_orchestrate');
+    // Step 3: HSM transition back to delegate
+    expect(MERGE_ORCHESTRATION.steps[2].tool).toBe('exarchos_workflow');
+    expect(MERGE_ORCHESTRATION.steps[2].action).toBe('transition');
+    expect(MERGE_ORCHESTRATION.steps[2].params?.target).toBe('delegate');
   });
 
   it('TaskClassification_HasCorrectPhase_Delegate', () => {
