@@ -151,6 +151,19 @@ describe('design-invariants skill structure', () => {
     ).toBe(true);
   });
 
+  it('ComplementarityMatrix_HasINV-6Row', () => {
+    const text = fs.readFileSync(SKILL_FILE, 'utf8');
+    // The complementarity matrix is a markdown table with three columns
+    // (Finding | Axiom dimension | Design invariant). At least one row
+    // must place INV-6 in the "Design invariant" column. Match a table
+    // row line that contains `INV-6` between pipes.
+    const rowPattern = /^\|[^\n]*\|[^\n]*\|[^\n]*INV-6[^\n]*\|/m;
+    expect(
+      rowPattern.test(text),
+      'complementarity matrix must include at least one row with INV-6 in the Design invariant column',
+    ).toBe(true);
+  });
+
   it('DeterministicChecks_CoverRequiredInvariants', () => {
     const checksFile = path.join(REFERENCES_DIR, 'deterministic-checks.md');
     expect(fs.existsSync(checksFile)).toBe(true);
