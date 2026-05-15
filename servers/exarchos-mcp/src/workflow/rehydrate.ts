@@ -43,13 +43,14 @@ import {
 import {
   RehydrationDocumentSchema,
   type RehydrationDocument,
-  type RehydrationDocumentV3,
+  type RehydrationDocumentV4,
 } from '../projections/rehydration/schema.js';
 import { loadRehydrationDocument } from '../projections/rehydration/serialize.js';
 import type { ProjectionReducer } from '../projections/types.js';
 import { composePhasePlaybook } from './playbooks.js';
 import { readStateFile } from './state-store.js';
 import { buildValidatedEvent } from '../event-store/event-factory.js';
+import { PROJECTION_LAG_THRESHOLD_MS } from '../projections/index.js';
 
 /** Input shape for the rehydrate handler. */
 export interface RehydrateArgs {
@@ -474,19 +475,31 @@ export async function handleRehydrate(
     });
   }
 
-  // Route v:1/v:2 snapshots through the upgrade chain so the in-memory
-  // document is always v:3 — handler-time `phasePlaybook` composition (T-20)
-  // assumes the v:3 envelope shape. Cold-start (no snapshot) seeds from the
-  // reducer's v:3 initial directly. Reducer.apply preserves v:3 by contract;
-  // the cast below pins that for the local variable.
-  let document: RehydrationDocumentV3 =
+  // Route v:1/v:2/v:3 snapshots through the upgrade chain so the in-memory
+  // document is always v:4 — handler-time `phasePlaybook` composition (T-20)
+  // and the #1359 canonical task-status vocabulary both assume the v:4
+  // envelope shape. Cold-start (no snapshot) seeds from the reducer's v:4
+  // initial directly. Reducer.apply preserves v:4 by contract; the cast
+  // below pins that for the local variable.
+  let document: RehydrationDocumentV4 =
     snapshot !== undefined
       ? loadRehydrationDocument(snapshot.state)
-      : (rehydrationReducer.initial as RehydrationDocumentV3);
+      : (rehydrationReducer.initial as RehydrationDocumentV4);
+
+  // Track the ISO timestamp of the last folded event so the handler can
+  // surface `projectionAsOf` on the response (#1359 / PR4 T14) and
+  // `_meta.projectionLag` when stale (T15). Snapshot.timestamp is the
+  // most-recent-event-baked-into-the-snapshot timestamp; tail events
+  // overwrite it on every successful fold.
+  let projectionAsOf: string | undefined =
+    snapshot !== undefined && typeof snapshot.timestamp === 'string'
+      ? snapshot.timestamp
+      : undefined;
 
   try {
     for (const ev of tailEvents) {
-      document = rehydrationReducer.apply(document, ev) as RehydrationDocumentV3;
+      document = rehydrationReducer.apply(document, ev) as RehydrationDocumentV4;
+      if (typeof ev.timestamp === 'string') projectionAsOf = ev.timestamp;
     }
   } catch (err) {
     // Log the underlying throwable BEFORE delegating so audit / oncall
@@ -592,10 +605,32 @@ export async function handleRehydrate(
     );
   }
 
-  // The composite `envelopeWrap` (workflow/composite.ts) layers `next_actions`,
-  // `_meta`, and `_perf` on top of this ToolResult at the tool boundary.
+  // #1359 / PR4 T14 + T15 — surface `projectionAsOf` and
+  // `_meta.projectionLag` so agents can detect a stale projection. The
+  // composite `envelopeWrap` (workflow/composite.ts) merges per-handler
+  // `_meta` with its own per-call diagnostics; passing `_meta` here lets
+  // the projection-lag signal flow through to the final envelope.
+  //
+  // We piggyback `projectionAsOf` onto `_meta` rather than the document
+  // body because RehydrationDocumentSchema's volatile section is strict
+  // and rejects unknown sibling keys (additional top-level fields would
+  // require a schema bump; envelope metadata is the existing surface for
+  // diagnostic side-channels — see ToolResult._meta in format.ts).
+  let meta: Record<string, unknown> | undefined;
+  if (projectionAsOf !== undefined) {
+    meta = { projectionAsOf };
+    const asOfMs = Date.parse(projectionAsOf);
+    if (Number.isFinite(asOfMs)) {
+      const lag = Date.now() - asOfMs;
+      if (lag > PROJECTION_LAG_THRESHOLD_MS) {
+        meta = { ...meta, projectionLag: lag };
+      }
+    }
+  }
+
   return {
     success: true,
     data: document,
+    ...(meta ? { _meta: meta } : {}),
   };
 }

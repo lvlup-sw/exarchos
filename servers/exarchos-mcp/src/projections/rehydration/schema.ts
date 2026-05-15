@@ -301,22 +301,53 @@ const VolatileSectionsSchemaV2 = z
 
 export type VolatileSections = z.infer<typeof VolatileSectionsSchema>;
 
-// ─── v:3 Top-Level Envelope ───────────────────────────────────────────────────
+// ─── v:4 Top-Level Envelope ───────────────────────────────────────────────────
 
 /**
- * Top-level rehydration document envelope — v:3 (T-01, rehydration-machinery-refactor).
+ * Top-level rehydration document envelope — v:4 (#1359 / PR4 T12,
+ * projection-drift fix).
  *
- * Breaking changes vs v:2:
- * - `v: 3` literal (was `v: 2`)
- * - `behavioralGuidance` removed from stable sections (was vestigial)
- * - `phasePlaybook` added to volatile sections (nullable; composed live at
- *   handler time by T-20; null until then)
+ * Breaking changes vs v:3:
+ * - `v: 4` literal (was `v: 3`)
+ * - `taskProgress[].status` aligned with canonical `TaskSchema.status`
+ *   vocabulary (`pending|in_progress|complete|failed`). Pre-#1359 the
+ *   reducer renamed `'complete' → 'completed'` and
+ *   `'in_progress' → 'assigned'`, which let agents reading the rehydration
+ *   document re-dispatch already-complete work because their comparison
+ *   against canonical `tasks[].status` never matched.
  *
- * Read-side compatibility: v:2 snapshots route through
- * {@link RehydrationDocumentSchemaV2} (T-03 upgrade path); v:1 snapshots
- * route through {@link RehydrationDocumentSchemaV1}.
+ * The on-disk shape is identical between v:3 and v:4 (the schema widens
+ * `status` to `z.string()` so the structural envelope hasn't changed); the
+ * version bump reflects a *vocabulary* contract change and lets
+ * `loadRehydrationDocument` route v:3 documents through the
+ * `upgradeRehydrationDocumentV3toV4` rename pass.
+ *
+ * Read-side compatibility chain: v:1 → v:2 → v:3 → v:4. Each upgrader is
+ * pure (no I/O) and exposed from `upgrade.ts`.
  */
 export const RehydrationDocumentSchema = z
+  .object({
+    v: z.literal(4),
+    projectionSequence: z.number().int().nonnegative(),
+  })
+  .merge(StableSectionsSchema)
+  .merge(VolatileSectionsSchema);
+
+/**
+ * Alias for the v:4 envelope inferred type.
+ * Prefer this name in new code for clarity.
+ */
+export type RehydrationDocumentV4 = z.infer<typeof RehydrationDocumentSchema>;
+
+/**
+ * v:3 envelope — read-back-only post-#1359 / PR4 T12. Used by
+ * `loadRehydrationDocument` to parse legacy snapshots before applying the
+ * v:3 → v:4 vocabulary rename. Mirrors the v:3 envelope frozen by T-01.
+ *
+ * Writers MUST NOT use this schema — emit v:4 directly via
+ * `RehydrationDocumentSchema`. Retirement criterion: on-disk v:3 doc count == 0.
+ */
+export const RehydrationDocumentSchemaV3 = z
   .object({
     v: z.literal(3),
     projectionSequence: z.number().int().nonnegative(),
@@ -324,23 +355,19 @@ export const RehydrationDocumentSchema = z
   .merge(StableSectionsSchema)
   .merge(VolatileSectionsSchema);
 
-/**
- * Alias for the v:3 envelope inferred type.
- * Prefer this name in new code for clarity.
- */
-export type RehydrationDocumentV3 = z.infer<typeof RehydrationDocumentSchema>;
+export type RehydrationDocumentV3 = z.infer<typeof RehydrationDocumentSchemaV3>;
 
 /**
- * Union of v:2 and v:3 envelope shapes — used as the public `RehydrationDocument`
- * type so that `upgrade.ts` (T-02) can continue to produce `RehydrationDocumentV2`
- * objects typed as `RehydrationDocument` until T-02 upgrades the function to
- * target v:3. Writers of new v:3 documents should use `RehydrationDocumentV3`
- * or constrain to `{ v: 3 }` explicitly.
+ * Union of v:3 and v:4 envelope shapes — used as the public
+ * `RehydrationDocument` type so call sites in `upgrade.ts` / `serialize.ts`
+ * can read either shape during the v:3 → v:4 migration window. Writers of
+ * new documents should use `RehydrationDocumentV4` or constrain to
+ * `{ v: 4 }` explicitly.
  *
- * @deprecated Prefer `RehydrationDocumentV3` for new code. This union will be
- * narrowed to v:3-only once T-02 migrates `upgrade.ts`.
+ * @deprecated Prefer `RehydrationDocumentV4` for new code. This union will be
+ * narrowed to v:4-only once on-disk v:3 doc count == 0.
  */
-export type RehydrationDocument = RehydrationDocumentV3 | RehydrationDocumentV2;
+export type RehydrationDocument = RehydrationDocumentV4 | RehydrationDocumentV3;
 
 // ─── v:2 Envelope (read-back-only) ───────────────────────────────────────────
 

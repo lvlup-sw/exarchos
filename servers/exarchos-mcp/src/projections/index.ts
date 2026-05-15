@@ -22,3 +22,17 @@ import './merge-orchestrator/index.js';
 
 export type { ProjectionReducer } from './types.js';
 export { assertReducerImmutable } from './testing.js';
+
+/**
+ * Threshold for surfacing `_meta.projectionLag` on response envelopes
+ * (#1359 / PR4 T15). When the delta between `Date.now()` and the
+ * projection's `projectionAsOf` exceeds this value, the response builder
+ * sets `_meta.projectionLag` to the delta in milliseconds; otherwise the
+ * field is omitted (sparse — fresh projections do not carry the field).
+ *
+ * Five seconds matches the rehydrate audit-event budget used elsewhere in
+ * the workflow surface — long enough that normal cold-cache + tail-event
+ * folds stay below the bar, short enough that a genuinely stale snapshot
+ * (e.g. due to a delayed reducer) surfaces visibly to agents.
+ */
+export const PROJECTION_LAG_THRESHOLD_MS = 5000;

@@ -40,7 +40,7 @@ const minimalV2Stable = {
 };
 
 describe('loadRehydrationDocument (T3, #1246 + T-03, rehydration-machinery-refactor)', () => {
-  it('loadRehydrationDocument_V2Document_ReturnsV3Shape', () => {
+  it('loadRehydrationDocument_V2Document_ReturnsLatestShape', () => {
     // T-03 RED: v:2 doc should be upgraded to v:3 on load.
     const v2Input = {
       v: 2,
@@ -71,7 +71,7 @@ describe('loadRehydrationDocument (T3, #1246 + T-03, rehydration-machinery-refac
     const result = loadRehydrationDocument(v2Input);
 
     // Upgraded to v:3.
-    expect(result.v).toBe(3);
+    expect(result.v).toBe(4);
     expect(result.projectionSequence).toBe(7);
     expect(result.latestHandoff?.eventRef.sequence).toBe(100);
     expect(result.recentHandoffs?.[0]?.eventRef.sequence).toBe(100);
@@ -86,7 +86,7 @@ describe('loadRehydrationDocument (T3, #1246 + T-03, rehydration-machinery-refac
     expect(Object.prototype.hasOwnProperty.call(result, 'behavioralGuidance')).toBe(false);
   });
 
-  it('loadRehydrationDocument_V1Document_ReturnsV3Shape', () => {
+  it('loadRehydrationDocument_V1Document_ReturnsLatestShape', () => {
     // T-03 RED: v:1 doc should chain through v:2 → v:3 on load.
     const v1Input = {
       v: 1,
@@ -119,7 +119,7 @@ describe('loadRehydrationDocument (T3, #1246 + T-03, rehydration-machinery-refac
     const result = loadRehydrationDocument(v1Input);
 
     // Chained all the way to v:3.
-    expect(result.v).toBe(3);
+    expect(result.v).toBe(4);
 
     // No `id` leaks anywhere on eventRef.
     expect(result.latestHandoff?.eventRef).toEqual({
@@ -147,10 +147,10 @@ describe('loadRehydrationDocument (T3, #1246 + T-03, rehydration-machinery-refac
     expect(Object.prototype.hasOwnProperty.call(result, 'behavioralGuidance')).toBe(false);
   });
 
-  it('loadRehydrationDocument_V3Document_NativePassThrough', () => {
-    // T-03 RED: v:3 doc should pass through without any upgrade applied.
-    const v3Input = {
-      v: 3,
+  it('loadRehydrationDocument_V4Document_NativePassThrough', () => {
+    // Native pass-through for the latest envelope (v:4 post #1359 / PR4 T12).
+    const v4Input = {
+      v: 4,
       projectionSequence: 42,
       ...minimalWorkflowState,
       taskProgress: [],
@@ -161,10 +161,10 @@ describe('loadRehydrationDocument (T3, #1246 + T-03, rehydration-machinery-refac
       phasePlaybook: null,
     };
 
-    const result = loadRehydrationDocument(v3Input);
+    const result = loadRehydrationDocument(v4Input);
 
-    // Native pass-through: v:3 shape preserved verbatim.
-    expect(result.v).toBe(3);
+    // Native pass-through: v:4 shape preserved verbatim.
+    expect(result.v).toBe(4);
     expect(result.projectionSequence).toBe(42);
     expect(result.phasePlaybook).toBeNull();
     expect(result.blockers).toEqual([]);
@@ -174,7 +174,7 @@ describe('loadRehydrationDocument (T3, #1246 + T-03, rehydration-machinery-refac
   });
 
   it('loadRehydrationDocument_InvalidEnvelope_ThrowsInvalidEnvelopeError', () => {
-    // Neither v:1 nor v:2 nor v:3 — typed error (no silent fallback).
+    // None of v:1 / v:2 / v:3 / v:4 — typed error (no silent fallback).
     const garbage = { v: 99, projectionSequence: 0, ...minimalV2Stable };
 
     expect(() => loadRehydrationDocument(garbage)).toThrow(InvalidEnvelopeError);
@@ -218,7 +218,7 @@ describe('STABLE_KEYS (T-05, rehydration-machinery-refactor)', () => {
     // produce identical prefix bytes. Verifies that serializeRehydrationDocument
     // is field-order-disciplined for the v:3 stable section.
     const baseDoc = {
-      v: 3 as const,
+      v: 4 as const,
       projectionSequence: 10,
       workflowState: {
         featureId: 'feature-alpha',

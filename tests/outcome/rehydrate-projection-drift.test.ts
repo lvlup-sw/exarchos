@@ -1,18 +1,13 @@
-// ─── T-017 — rehydrate / view.pipeline projection drift outcome (RED) ────
+// ─── T-017 — rehydrate / view.pipeline projection drift outcome (GREEN) ────
 //
 // Encodes the #1359 regression: `rehydrate.taskProgress` and
 // `view.pipeline.completedCount` projections undercount when task
 // statuses are mutated through `workflow.update({tasks: [...]})` WITHOUT
 // the paired `task.assigned` + `task.completed` event emission.
 //
-// Test choreography note (cross-wave):
-//
-//   Remains it.fails() after PR2 ships — flipped by #1359 in Wave 2.
-//
-// PR2 (wave1-fixes) intentionally does NOT remove this `it.fails`
-// annotation — the underlying projection contract change lands in
-// Wave 2 under #1359. The test stays RED across the Wave 1 boundary
-// to surface the next-wave work item for reviewers.
+// Flipped from `it.fails(...)` to `it(...)` in PR4 of the v2.10.0-preview.4
+// stack — atomic RED→GREEN flip alongside the projection fix
+// (rehydrate canonical vocabulary + pipeline view state.patched fold).
 
 import { describe, it, expect } from 'vitest';
 import * as fs from 'node:fs/promises';
@@ -36,8 +31,8 @@ interface TaskProgressEntry {
 }
 
 describe('rehydrate projection drift outcome (#1359)', () => {
-  // Remains it.fails() after PR2 ships — flipped by #1359 in Wave 2.
-  it.fails(
+  // Flipped to it() in #1359 PR4 (atomic RED→GREEN with the projection fix).
+  it(
     'Rehydrate_TaskProgress_TracksCanonicalTaskStatus',
     async () => {
       const stateDir = await fs.mkdtemp(

@@ -90,6 +90,7 @@ import { detectRegressions, emitRegressionEvents } from '../quality/regression-d
 import type { FailureTracker } from '../quality/regression-detector.js';
 import { computeAttribution, isValidDimension } from '../quality/attribution.js';
 import type { AttributionDimension } from '../quality/attribution.js';
+import { PROJECTION_LAG_THRESHOLD_MS } from '../projections/index.js';
 
 // ─── Helper: create a materializer with all projections registered ─────────
 
@@ -433,7 +434,36 @@ export async function handleViewPipeline(
     const end = args.limit !== undefined ? start + args.limit : undefined;
     const workflows = filtered.slice(start, end);
 
-    return { success: true, data: { workflows, total } };
+    // #1359 / PR4 T14 + T15 — derive `projectionAsOf` from the maximum
+    // `_asOf` timestamp across the materialized workflows (the most
+    // recent event observed across the union of streams). Surface
+    // `_meta.projectionLag` when the projection is stale beyond
+    // PROJECTION_LAG_THRESHOLD_MS. The field is sparse: a fresh
+    // projection omits it entirely so agents have a clear "no lag"
+    // signal vs. an explicit numeric delta.
+    let projectionAsOf: string | undefined;
+    for (const w of allWorkflows) {
+      if (w._asOf && (!projectionAsOf || w._asOf > projectionAsOf)) {
+        projectionAsOf = w._asOf;
+      }
+    }
+    let meta: Record<string, unknown> | undefined;
+    if (projectionAsOf !== undefined) {
+      meta = { projectionAsOf };
+      const asOfMs = Date.parse(projectionAsOf);
+      if (Number.isFinite(asOfMs)) {
+        const lag = Date.now() - asOfMs;
+        if (lag > PROJECTION_LAG_THRESHOLD_MS) {
+          meta = { ...meta, projectionLag: lag };
+        }
+      }
+    }
+
+    return {
+      success: true,
+      data: { workflows, total },
+      ...(meta ? { _meta: meta } : {}),
+    };
   } catch (err) {
     return {
       success: false,
