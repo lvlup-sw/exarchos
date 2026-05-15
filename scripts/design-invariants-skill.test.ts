@@ -26,6 +26,7 @@ const INVARIANT_IDS = [
   'INV-5b',
   'INV-5c',
   'INV-5d',
+  'INV-6',
 ] as const;
 
 // Invariants that MUST carry at least one deterministic grep/structural
