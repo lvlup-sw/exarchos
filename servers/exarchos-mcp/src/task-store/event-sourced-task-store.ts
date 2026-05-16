@@ -154,6 +154,23 @@ export class EventSourcedTaskStore implements TaskStore {
       this.tasks.delete(taskId);
       return null;
     }
+    // T29 (#1273): emit `task.polled` on every successful read so the
+    // audit trail captures who polled when. The sequence reflects the
+    // projection version at poll time (read from the stream's current
+    // head; we use the count of existing task events as a proxy since
+    // emitting needs a value before the new event lands). Emission is
+    // best-effort — a storage failure here must not mask the read.
+    try {
+      const stream = taskStream(taskId);
+      const existing = await this.store.query(stream);
+      await this.store.append(stream, {
+        type: 'task.polled',
+        timestamp: new Date().toISOString(),
+        data: { taskId, sequence: existing.length },
+      });
+    } catch {
+      // Best-effort emission; swallow to preserve read semantics.
+    }
     return { ...stored.task };
   }
 

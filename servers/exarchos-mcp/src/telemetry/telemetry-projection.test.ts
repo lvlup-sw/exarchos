@@ -683,12 +683,22 @@ describe('TelemetryProjection_OutputTokenHint', () => {
   });
 
   it('OutputTokenHint_BelowThenAbove_EmitsHintAgain', () => {
-    // above → below → above → above: two upward transitions = two hints.
+    // above → below → above → above: the *second* upward crossing emits a
+    // fresh hint whose idempotencyKey differs from the first crossing.
+    // Under the "at most one per call" rule established in #1422, each call
+    // emits a single hint for the *current* streak; the contract this test
+    // pins is that the key re-arms after a below-threshold turn drops in,
+    // so a downstream consumer that dedupes on idempotencyKey sees a new
+    // hint rather than the stale one from the first streak.
     let state = telemetryProjection.init();
     state = telemetryProjection.apply(
       state,
       makeEvent('turn.completed', { turnId: 't1', outputTokens: 30000 }),
     );
+    const firstStreak = computeOutputTokenHints(state, 25600);
+    expect(firstStreak).toHaveLength(1);
+    const firstKey = firstStreak[0].idempotencyKey;
+
     state = telemetryProjection.apply(
       state,
       makeEvent('turn.completed', { turnId: 't2', outputTokens: 5000 }),
@@ -703,9 +713,12 @@ describe('TelemetryProjection_OutputTokenHint', () => {
     );
 
     const hints = computeOutputTokenHints(state, 25600);
-    expect(hints).toHaveLength(2);
+    expect(hints).toHaveLength(1);
     expect(hints[0].verb).toBe('checkpoint');
-    expect(hints[1].verb).toBe('checkpoint');
+    // Fresh crossing → fresh idempotencyKey (anchored on t3, the new
+    // streak's start).
+    expect(hints[0].idempotencyKey).not.toBe(firstKey);
+    expect(hints[0].idempotencyKey).toContain('t3');
   });
 
   it('OutputTokenHint_OnlyBelow_EmitsNoHint', () => {

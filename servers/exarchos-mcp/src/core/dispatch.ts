@@ -10,7 +10,12 @@ import type { CapabilityResolver } from '../capabilities/resolver.js';
 import type { StorageBackend } from '../storage/backend.js';
 import type { RootsClient } from '../workspace/discovery.js';
 import type { ElicitationClient } from '../dispatch/elicitation-dispatch.js';
+import type { EventSourcedTaskStore } from '../task-store/event-sourced-task-store.js';
 import { hasCustomToolHandlers, getCustomToolActionHandler, getFullRegistry } from '../registry.js';
+import {
+  isTaskAugmented,
+  extractTaskOptions,
+} from '../dispatch/tasks-augmented.js';
 import {
   formatValidationError,
   buildInvalidInput,
@@ -114,6 +119,16 @@ export interface DispatchContext {
    * back to the legacy INVALID_INPUT contract.
    */
   readonly elicitationClient?: ElicitationClient;
+  /**
+   * Event-sourced task store (#1273 / Wave C1). When wired, dispatch
+   * detects the SDK `task: { ttl? }` augmentation on incoming args and
+   * routes through `runTasksAugmented` — synthesising a CreateTaskResult
+   * envelope and running the underlying handler in the background. When
+   * absent (CLI cold-start, legacy in-process tests), the augmentation
+   * key is silently ignored and dispatch preserves the legacy one-shot
+   * contract.
+   */
+  readonly taskStore?: EventSourcedTaskStore;
 }
 
 // ─── #1274 — Missing-required-field extractor ──────────────────────────────
@@ -559,6 +574,15 @@ export async function dispatch(
   return runWithDispatchContext(dispatchCtx, async () => {
   try {
 
+  // ─── #1273 / T28 — Tasks-augmented dispatch detection (outer scope) ──
+  // Declared here so the post-validation synthesis branch below can see
+  // them. The actual extraction + `rest` strip happens inside the
+  // built-in validation block (per-action schemas must not see `task`).
+  let taskAugmented = false;
+  let taskOptions:
+    | import('@modelcontextprotocol/sdk/experimental/tasks/interfaces.js').CreateTaskOptions
+    | undefined;
+
   const isBuiltIn = Object.prototype.hasOwnProperty.call(COMPOSITE_HANDLERS, tool);
   if (isBuiltIn && registeredTool) {
     const actionName = args.action;
@@ -583,6 +607,23 @@ export async function dispatch(
     }
 
     let { action: _action, ...rest } = args;
+
+    // ─── #1273 / T28 — Tasks-augmented dispatch detection ────────────────
+    // Peel off the SDK `task: { ttl? }` augmentation BEFORE schema
+    // validation. Per-action schemas don't declare `task` (it lives at
+    // the dispatch-entry level), so leaving it in would either trip
+    // `.strict()` rejection or be silently dropped — either way the
+    // augmentation signal would be lost. We capture the options now and
+    // re-route through `runTasksAugmented` after validation passes,
+    // provided the context has a `taskStore` wired. Without one
+    // (`DispatchCore_TaskOptionWithoutTaskStore_FallsBackToOneShot`),
+    // the augmentation key is dropped and the legacy one-shot path runs.
+    taskAugmented = isTaskAugmented(rest);
+    if (taskAugmented) {
+      taskOptions = extractTaskOptions(rest.task);
+      const { task: _stripped, ...withoutTask } = rest;
+      rest = withoutTask;
+    }
 
     // ─── #1290 — Roots-based featureId inference ─────────────────────────
     // Resolution priority (load-bearing for missing-required-param paths):
@@ -783,6 +824,32 @@ export async function dispatch(
   // top of dispatch(). `attachMeta` adds the three correlation IDs to the
   // success result; the catch handler below attaches them to errors.
   let result: ToolResult;
+
+  // ─── #1273 / T28 — Tasks-augmented synthesis branch ─────────────────────
+  // When the caller threaded `task: <object>` AND the context has a
+  // taskStore wired, route through the synthesis surface. The underlying
+  // handler is invoked in the background; the synchronous return is the
+  // SDK CreateTaskResult envelope. ALS threading from #1291 keeps the
+  // background events on the parent operationId — the test contract
+  // pinned by `tasks-dispatch-lifecycle.test.ts` (T29).
+  if (taskAugmented && ctx.taskStore && taskOptions) {
+    const { runTasksAugmented } = await import('../dispatch/tasks-augmented.js');
+    const execute = ctx.enableTelemetry
+      ? async (): Promise<ToolResult> => {
+          const { withTelemetry } = await import('../telemetry/middleware.js');
+          return withTelemetry(coreHandler, tool, ctx.eventStore)(args);
+        }
+      : async (): Promise<ToolResult> => coreHandler(args);
+    result = await runTasksAugmented({
+      taskStore: ctx.taskStore,
+      taskOptions,
+      requestId: `dispatch-${dispatchCtx.operationId}`,
+      request: { method: 'tools/call', params: { name: tool, arguments: args } },
+      execute,
+    });
+    return attachMeta(result);
+  }
+
   if (ctx.enableTelemetry) {
     // Lazy-load to keep CLI cold-start under the DR-5 budget.
     const { withTelemetry } = await import('../telemetry/middleware.js');
