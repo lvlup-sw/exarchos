@@ -37,6 +37,11 @@ export const EventTypes = [
   // PREFLIGHT_FAILED, RESERVED_FIELD, etc.) so `view telemetry` can report
   // them instead of silently rolling them up as completions.
   'tool.action_errored',
+  // #1262 — per-turn output-token sample emitted by the telemetry middleware
+  // when an agent turn completes. The `output_tokens_high` quality hint
+  // (catalog: `telemetry/quality-hints.ts`) fires off this stream when a
+  // turn's `outputTokens` crosses the configured threshold.
+  'turn.completed',
   'benchmark.completed',
   'team.spawned',
   'team.task.assigned',
@@ -253,6 +258,8 @@ export const EVENT_EMISSION_REGISTRY: Record<EventType, EventEmissionSource> = {
   'tool.errored': 'auto',
   // PR3/T7 (#1364) — see EventTypes registration above.
   'tool.action_errored': 'auto',
+  // #1262 — auto-emitted by telemetry middleware on agent-turn boundary.
+  'turn.completed': 'auto',
   'quality.hint.generated': 'auto',
   'quality.refinement.suggested': 'auto',
   'stack.position-filled': 'auto',
