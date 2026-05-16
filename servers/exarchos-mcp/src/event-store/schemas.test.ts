@@ -517,7 +517,8 @@ describe('EventTypes', () => {
     //   and `task-store/event-sourced-task-store.test.ts` for the
     //   end-to-end lifecycle + REPLAY (INV-1) acceptance test.
     // Bumped 113 → 115: dispatch.preflight + stash.detected (#1261 —
-    //   dispatch-guard preflight observability).
+    //   dispatch-guard preflight observability emitted by
+    //   `orchestrate/dispatch-guard.ts`).
     expect(EventTypes).toHaveLength(115);
   });
 

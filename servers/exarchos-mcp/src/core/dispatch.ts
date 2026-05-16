@@ -165,9 +165,12 @@ function extractSingleMissingRequiredField(
   // We accept the issue when:
   //   - exactly one issue is reported, AND
   //   - the issue path is a single top-level key (string), AND
-  //   - the issue code is 'invalid_type', AND
-  //   - the issue's `input` is `undefined` (truly missing — not a wrong
-  //     type) so we don't divert wrong-type errors into elicitation.
+  //   - the issue code is 'invalid_type' (Zod's universal "missing" code), AND
+  //   - the issue's `input` is `undefined` AND the non-standard `received`
+  //     property is the string `'undefined'` (distinguishes a genuinely
+  //     missing field from a wrong-type field — elicitation only applies
+  //     to the former; the dual check defends against Zod versions that
+  //     populate one signal but not the other).
   const issues = error.issues;
   if (issues.length !== 1) return undefined;
   const only = issues[0];
@@ -176,6 +179,10 @@ function extractSingleMissingRequiredField(
   if (only.path.length !== 1) return undefined;
   const key = only.path[0];
   if (typeof key !== 'string') return undefined;
+  // Guard against wrong-type fields masquerading as missing. The `received`
+  // property is non-standard across Zod versions — narrow defensively.
+  const received = (only as { received?: unknown }).received;
+  if (received !== 'undefined') return undefined;
   return key;
 }
 
@@ -891,8 +898,8 @@ export async function dispatch(
   // Handler invocation inside the dispatch-context wrapper opened at the
   // top of dispatch(). `attachMeta` adds the three correlation IDs to the
   // success result; the catch handler below attaches them to errors.
-  let result: ToolResult;
-  // ─── #1273 / C1 — Tasks-augmented synthesis ────────────────────────────
+  //
+  // ─── #1273 / C1 — Tasks-augmented synthesis ────────────────────────
   // When the caller threaded `task: { ttl? }` AND a TaskStore is wired
   // on the context, route the underlying handler through
   // `runTasksAugmented` so the response is a SDK CreateTaskResult
@@ -900,7 +907,27 @@ export async function dispatch(
   // (CLI cold-start, in-process tests that omit the wiring), we fall
   // back to the one-shot path so callers that legitimately have no
   // task substrate don't crash.
-  if (taskAugmented && ctx.taskStore) {
+  // ─── #1273 / T32 — capability-negotiation gate ─────────────────────
+  // The augmentation only fires when the client declared the `tasks`
+  // capability in the MCP initialize handshake. The CLI / in-process
+  // callers do NOT have a resolver wired (no handshake to snapshot),
+  // so we treat an absent resolver as "not gated" — direct callers
+  // that thread `task: {ttl}` opt themselves in. Defence-in-depth:
+  // an MCP client that never advertised tasks support cannot opt in
+  // by smuggling a `task` key into args; capability negotiation wins.
+  let result: ToolResult;
+  // ─── #1273 / C1+C2 — Tasks-augmented synthesis ─────────────────────────
+  // When the caller threaded `task: { ttl? }` AND a TaskStore is wired AND
+  // the MCP client declared the `tasks` capability (or no resolver is
+  // present — CLI/in-process direct callers), route the underlying handler
+  // through `runTasksAugmented`. Without the capability declaration, fall
+  // back to one-shot so an MCP client that never advertised tasks support
+  // can't opt in by smuggling a `task` key into args. Without `taskStore`,
+  // also fall back (CLI cold-start, in-process tests that omit wiring).
+  const taskCapabilityGate =
+    ctx.capabilityResolver === undefined ||
+    ctx.capabilityResolver.isTaskSupportDeclared();
+  if (taskAugmented && ctx.taskStore && taskCapabilityGate) {
     const taskOptions = extractTaskOptions(taskOptionsRaw);
     // Build the SDK Request envelope from the dispatch args. The MCP
     // adapter (C2) supplies the real `tools/call` request id; direct

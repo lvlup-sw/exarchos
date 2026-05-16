@@ -37,6 +37,22 @@ export interface ClientHandshake {
      * itself rejects array handshakes (`object` admits arrays in TS).
      */
     readonly elicitation?: Readonly<Record<string, unknown>>;
+    /**
+     * Per the MCP spec (#1273), the `tasks` capability is signaled by the
+     * client as `capabilities.tasks: { ... }` — the presence of the object
+     * (any shape, including the empty object) is the declaration the
+     * resolver treats as authoritative. Fine-grain method support
+     * (`list` / `cancel` / per-request augmentation) rides inside the
+     * object but is not load-bearing for the gate: a client that
+     * declares `tasks: {}` is opting in to the request-augmentation
+     * surface (`task: { ttl }` on `tools/call`) at minimum.
+     *
+     * CodeRabbit MINOR #1424 (applied here too): narrowed from `object` to
+     * `Readonly<Record<string, unknown>>` so the type itself rejects array
+     * handshakes — `typeof [] === 'object'` so the looser type would admit
+     * a malformed array declaration.
+     */
+    readonly tasks?: Readonly<Record<string, unknown>>;
     readonly [k: string]: unknown;
   };
 }
@@ -74,6 +90,18 @@ export interface CapabilityResolver {
    */
   isElicitationDeclared(): boolean;
   /**
+   * True when the snapshot recorded a `capabilities.tasks` object (any
+   * shape — presence is the gate, per MCP spec #1273). Consumed by
+   * the dispatch-core's task-augmented branch to decide whether
+   * `task: { ttl }` on `tools/call` synthesises a `CreateTaskResult`
+   * or is gracefully ignored in favour of the legacy one-shot envelope.
+   *
+   * Defence-in-depth: a client that never advertised tasks support
+   * cannot opt in by smuggling a `task` key into args — capability
+   * negotiation is the authoritative gate.
+   */
+  isTaskSupportDeclared(): boolean;
+  /**
    * Return the cached roots list, or `undefined` when the cache is cold
    * (either never populated or freshly invalidated via
    * {@link invalidateRootsCache}). Synchronous: workspace discovery is
@@ -100,6 +128,7 @@ export function createInMemoryResolver(
   const set = new Set(capabilities);
   let clientRootsDeclared = false;
   let clientElicitationDeclared = false;
+  let clientTaskSupportDeclared = false;
   let cachedRoots: readonly CachedRoot[] | undefined;
   return {
     has(capability) {
@@ -127,12 +156,28 @@ export function createInMemoryResolver(
         && elicitation !== null
         && typeof elicitation === 'object'
         && !Array.isArray(elicitation);
+      // #1273 — `capabilities.tasks` follows the same presence-gated
+      // rule as elicitation. The fine-grain method shape rides inside
+      // the object; declaring it at all opts the client in to the
+      // request-augmentation surface (`task: { ttl }` on `tools/call`).
+      // CodeRabbit MINOR #1424 (carried over): explicitly reject arrays —
+      // `typeof [] === 'object'` so the pre-fix check would have admitted
+      // a malformed array handshake.
+      const tasks = handshake.capabilities?.tasks;
+      clientTaskSupportDeclared =
+        tasks !== undefined
+        && tasks !== null
+        && typeof tasks === 'object'
+        && !Array.isArray(tasks);
     },
     isRootsDeclared() {
       return clientRootsDeclared;
     },
     isElicitationDeclared() {
       return clientElicitationDeclared;
+    },
+    isTaskSupportDeclared() {
+      return clientTaskSupportDeclared;
     },
     getCachedRoots() {
       return cachedRoots;

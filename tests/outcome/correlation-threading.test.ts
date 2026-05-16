@@ -11,7 +11,7 @@
 // transitively during that single dispatch (via composite handlers,
 // guards, interceptors) must all carry the dispatch's operationId.
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterEach } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -19,11 +19,25 @@ import * as path from 'node:path';
 import { EventStore } from '../../servers/exarchos-mcp/src/event-store/store.js';
 import { dispatch } from '../../servers/exarchos-mcp/src/core/dispatch.js';
 
+const tempDirs: string[] = [];
+
 async function mktemp(label: string): Promise<string> {
-  return fs.mkdtemp(path.join(os.tmpdir(), `outcome-1291-${label}-`));
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), `outcome-1291-${label}-`));
+  tempDirs.push(dir);
+  return dir;
 }
 
 describe('Three-field correlation threading at dispatch boundary (#1291)', () => {
+  afterEach(async () => {
+    // Drain every temp dir created by mktemp(). `force: true` swallows
+    // missing-path errors so reaped dirs (e.g., expired TTL) do not fail
+    // the teardown.
+    while (tempDirs.length > 0) {
+      const dir = tempDirs.pop()!;
+      await fs.rm(dir, { recursive: true, force: true });
+    }
+  });
+
   it('EventStore_EventsEmittedDuringDispatch_ShareIdenticalOperationId', async () => {
     const stateDir = await mktemp('share-opid');
     const eventStore = new EventStore(stateDir);
