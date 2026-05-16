@@ -12,6 +12,8 @@ import { readFile } from 'node:fs/promises';
 import type { ToolResult } from '../format.js';
 import type { EventStore } from '../event-store/store.js';
 import { emitGateEvent } from './gate-utils.js';
+import { loadPlanSidecar } from './sidecar-lookup.js';
+import type { PlanSidecarV1 } from './sidecar-schemas.js';
 
 // ─── Types ───────────────────────────────────────────────────────────────
 
@@ -671,6 +673,22 @@ export async function handleTaskDecomposition(
     };
   }
 
+  // Prefer the sidecar (T15) when present + conformant.
+  const planSidecar = loadPlanSidecar(args.planPath);
+  if (planSidecar) {
+    const sidecarResult = evaluateTaskDecompositionFromSidecar(planSidecar);
+    try {
+      await emitGateEvent(eventStore, args.featureId, 'task-decomposition', 'planning', sidecarResult.passed, {
+        dimension: 'D5',
+        phase: 'plan',
+        wellDecomposed: sidecarResult.wellDecomposed,
+        needsRework: sidecarResult.needsRework,
+        totalTasks: sidecarResult.totalTasks,
+      });
+    } catch { /* fire-and-forget */ }
+    return { success: true, data: { ...sidecarResult, source: 'sidecar' as const } };
+  }
+
   // Read plan file
   let planContent: string;
   try {
@@ -818,5 +836,66 @@ export async function handleTaskDecomposition(
     report,
   };
 
-  return { success: true, data: result };
+  return { success: true, data: { ...result, source: 'regex' as const } };
+}
+
+// ─── Sidecar evaluation ─────────────────────────────────────────────────────
+
+/**
+ * Validate task decomposition from the structured plan sidecar. Each task
+ * is checked for: non-empty description (>= 5 words), at least one declared
+ * file, and a phase from the RED/GREEN/REFACTOR enum (already enforced by
+ * the schema).
+ *
+ * Parallel safety + dependency DAG are no-ops in the sidecar path for now
+ * — both inputs are absent from the v1 shape (deps/parallel flags would
+ * widen the contract). Future schema revisions can add them.
+ */
+function evaluateTaskDecompositionFromSidecar(plan: PlanSidecarV1): {
+  passed: boolean;
+  wellDecomposed: number;
+  needsRework: number;
+  totalTasks: number;
+  dagValid: boolean;
+  parallelSafe: boolean;
+  report: string;
+} {
+  let wellDecomposed = 0;
+  let needsRework = 0;
+  const rows: string[] = [];
+
+  for (const task of plan.tasks) {
+    const descWords = task.description.trim().split(/\s+/).filter((w) => w.length > 0).length;
+    const hasDescription = descWords >= 5;
+    const hasFiles = task.files.length > 0;
+    const status = hasDescription && hasFiles ? 'PASS' : 'FAIL';
+    if (status === 'PASS') wellDecomposed++;
+    else needsRework++;
+    rows.push(`| ${task.id} | ${task.phase} | ${descWords} words | ${task.files.length} files | ${status} |`);
+  }
+
+  const totalTasks = plan.tasks.length;
+  const passed = needsRework === 0;
+  const report = [
+    '## Task Decomposition Report (sidecar)',
+    '',
+    '| Task | Phase | Description | Files | Status |',
+    '|------|-------|-------------|-------|--------|',
+    ...rows,
+    '',
+    `- Well-decomposed: ${wellDecomposed}/${totalTasks}`,
+    `- Needs rework: ${needsRework}/${totalTasks}`,
+    '',
+    passed ? '**Result: PASS**' : `**Result: FAIL** — ${needsRework} tasks need rework`,
+  ].join('\n');
+
+  return {
+    passed,
+    wellDecomposed,
+    needsRework,
+    totalTasks,
+    dagValid: true,
+    parallelSafe: true,
+    report,
+  };
 }

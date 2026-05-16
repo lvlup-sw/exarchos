@@ -147,8 +147,14 @@ options:
 function writePlanSidecar(planPath: string): void {
   const yaml = `schema: plan.v1
 tasks:
-  - { id: T-01, phase: RED, description: First test, files: [src/a.test.ts] }
-  - { id: T-02, phase: GREEN, description: First impl, files: [src/a.ts] }
+  - id: T-01
+    phase: RED
+    description: First failing test that anchors the contract before any production code lands
+    files: [src/a.test.ts]
+  - id: T-02
+    phase: GREEN
+    description: Minimal implementation turning the RED test green without overreach
+    files: [src/a.ts]
 coverage:
   DR-1: [T-01, T-02]
 provenance:
