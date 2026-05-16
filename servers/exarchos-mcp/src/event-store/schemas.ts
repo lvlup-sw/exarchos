@@ -146,6 +146,14 @@ export const EventTypes = [
   // queries can distinguish handshake-driven resolutions from cwd inference.
   // Not emitted on multi-match (no single featureId to attribute) or zero-match.
   'workspace.resolved',
+  // #1274 — dispatch elicitation hand-off (form mode). Emitted on a
+  // per-operation pseudo-stream (`elicitation/<operationId>`) so audit
+  // queries can correlate the request/response round-trip without
+  // contaminating the per-feature event log. `requested` lands BEFORE the
+  // `elicitation/create` MCP round-trip fires; `fulfilled` lands AFTER the
+  // client returns a value.
+  'elicitation.requested',
+  'elicitation.fulfilled',
 ] as const;
 
 export type EventType = typeof EventTypes[number];
@@ -412,6 +420,10 @@ export const EVENT_EMISSION_REGISTRY: Record<EventType, EventEmissionSource> = {
   // #1290 — auto-emitted by the workspace discovery resolver on the
   // dispatch boundary. See EventTypes registration above.
   'workspace.resolved': 'auto',
+  // #1274 — dispatch elicitation hand-off. Auto-emitted by the dispatch
+  // boundary on the per-operation pseudo-stream.
+  'elicitation.requested': 'auto',
+  'elicitation.fulfilled': 'auto',
 };
 
 // ─── Base Event Schema ──────────────────────────────────────────────────────
@@ -1573,6 +1585,38 @@ export const WorkspaceResolvedData = z.object({
   featureId: z.string().min(1),
 });
 
+// ─── Dispatch elicitation hand-off (#1274) ──────────────────────────────────
+
+/**
+ * Emitted by `dispatch/elicitation-dispatch.ts` BEFORE the
+ * `elicitation/create` MCP round-trip fires. `operationId` correlates the
+ * request with its matching `elicitation.fulfilled`; `field` is the missing
+ * required parameter the server is asking the client to supply; `schema`
+ * is the JSON Schema fragment derived via `.pick({field: true})`.
+ *
+ * `schema` is intentionally typed as `Record<string, unknown>` (rather
+ * than a tight JSONSchema7 zod shape) because the wire shape depends on
+ * the action schema's surface and we don't want the audit-trail validator
+ * to drift every time a new action's field gets elicited.
+ */
+export const ElicitationRequestedData = z.object({
+  operationId: z.string().min(1),
+  field: z.string().min(1),
+  schema: z.record(z.string(), z.unknown()),
+});
+
+/**
+ * Emitted by `dispatch/elicitation-dispatch.ts` AFTER the client returns a
+ * value through `elicitation/create`. `operationId` matches the request;
+ * `value` is the elicited value (typed `unknown` since the schema is
+ * caller-supplied and JSON-shaped).
+ */
+export const ElicitationFulfilledData = z.object({
+  operationId: z.string().min(1),
+  field: z.string().min(1),
+  value: z.unknown(),
+});
+
 // ─── Event Data Schemas Map ─────────────────────────────────────────────────
 
 export const EVENT_DATA_SCHEMAS: Partial<Record<EventType, z.ZodSchema>> = {
@@ -1741,6 +1785,10 @@ export const EVENT_DATA_SCHEMAS: Partial<Record<EventType, z.ZodSchema>> = {
 
   // #1290 — workspace discovery resolution
   'workspace.resolved': WorkspaceResolvedData,
+
+  // #1274 — dispatch elicitation hand-off
+  'elicitation.requested': ElicitationRequestedData,
+  'elicitation.fulfilled': ElicitationFulfilledData,
 };
 
 // ─── TypeScript Types ───────────────────────────────────────────────────────
@@ -1844,6 +1892,10 @@ export type WorktreeRemoveExecuted = z.infer<typeof WorktreeRemoveExecutedData>;
 // #1290 — workspace discovery
 export type WorkspaceResolved = z.infer<typeof WorkspaceResolvedData>;
 
+// #1274 — dispatch elicitation hand-off
+export type ElicitationRequested = z.infer<typeof ElicitationRequestedData>;
+export type ElicitationFulfilled = z.infer<typeof ElicitationFulfilledData>;
+
 // ─── Event Data Map ─────────────────────────────────────────────────────────
 
 export type EventDataMap = {
@@ -1943,6 +1995,9 @@ export type EventDataMap = {
   'worktree.remove.executed': WorktreeRemoveExecuted;
   // #1290 — workspace discovery
   'workspace.resolved': WorkspaceResolved;
+  // #1274 — dispatch elicitation hand-off
+  'elicitation.requested': ElicitationRequested;
+  'elicitation.fulfilled': ElicitationFulfilled;
 };
 
 // ─── Event Catalog Serialization ────────────────────────────────────────────
