@@ -522,4 +522,75 @@ describe('TelemetryProjection_OutputTokenHint', () => {
     expect(hints).toHaveLength(1);
     expect(hints[0].verb).toBe('checkpoint');
   });
+
+  // CodeRabbit MEDIUM #1262 — `computeOutputTokenHints` previously emitted one
+  // hint per above-threshold turn, flooding `next_actions[]` on long high-
+  // output sessions. The fix is *edge-triggered* emission: one hint per
+  // upward crossing into above-threshold, suppressing duplicates while the
+  // session stays above, and re-arming once a below-threshold turn lands.
+  it('OutputTokenHint_RepeatedCrossings_EmittedOncePerCrossing', () => {
+    let state = telemetryProjection.init();
+    state = telemetryProjection.apply(
+      state,
+      makeEvent('turn.completed', { turnId: 't1', outputTokens: 30000 }),
+    );
+    state = telemetryProjection.apply(
+      state,
+      makeEvent('turn.completed', { turnId: 't2', outputTokens: 31000 }),
+    );
+    state = telemetryProjection.apply(
+      state,
+      makeEvent('turn.completed', { turnId: 't3', outputTokens: 32000 }),
+    );
+
+    // Three consecutive above-threshold turns: exactly one hint, not three.
+    const hints = computeOutputTokenHints(state, 25600);
+    expect(hints).toHaveLength(1);
+    expect(hints[0].verb).toBe('checkpoint');
+  });
+
+  it('OutputTokenHint_BelowThenAbove_EmitsHintAgain', () => {
+    // above → below → above → above: two upward transitions = two hints.
+    let state = telemetryProjection.init();
+    state = telemetryProjection.apply(
+      state,
+      makeEvent('turn.completed', { turnId: 't1', outputTokens: 30000 }),
+    );
+    state = telemetryProjection.apply(
+      state,
+      makeEvent('turn.completed', { turnId: 't2', outputTokens: 5000 }),
+    );
+    state = telemetryProjection.apply(
+      state,
+      makeEvent('turn.completed', { turnId: 't3', outputTokens: 28000 }),
+    );
+    state = telemetryProjection.apply(
+      state,
+      makeEvent('turn.completed', { turnId: 't4', outputTokens: 29000 }),
+    );
+
+    const hints = computeOutputTokenHints(state, 25600);
+    expect(hints).toHaveLength(2);
+    expect(hints[0].verb).toBe('checkpoint');
+    expect(hints[1].verb).toBe('checkpoint');
+  });
+
+  it('OutputTokenHint_OnlyBelow_EmitsNoHint', () => {
+    let state = telemetryProjection.init();
+    state = telemetryProjection.apply(
+      state,
+      makeEvent('turn.completed', { turnId: 't1', outputTokens: 1000 }),
+    );
+    state = telemetryProjection.apply(
+      state,
+      makeEvent('turn.completed', { turnId: 't2', outputTokens: 5000 }),
+    );
+    state = telemetryProjection.apply(
+      state,
+      makeEvent('turn.completed', { turnId: 't3', outputTokens: 9000 }),
+    );
+
+    const hints = computeOutputTokenHints(state, 25600);
+    expect(hints).toHaveLength(0);
+  });
 });

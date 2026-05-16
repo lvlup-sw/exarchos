@@ -266,11 +266,18 @@ export interface OutputTokenHint {
 /**
  * Compute output-token quality hints for the given telemetry view state.
  *
- * Walks `view.turns` and emits one hint per turn whose `outputTokens`
- * strictly exceeds the supplied threshold. The threshold is supplied
- * explicitly (rather than read from a constant) so callers — typically the
- * envelope wrap point — can pull the value from `.exarchos.yml` via the
- * config resolver (T05).
+ * Walks `view.turns` and emits hints using **edge-triggered** semantics:
+ * one hint per upward transition from below-threshold to above-threshold.
+ * A sequence of consecutive above-threshold turns produces a single hint,
+ * not one per turn — a below-threshold turn must intervene to re-arm the
+ * detector. The threshold is supplied explicitly (rather than read from a
+ * constant) so callers — typically the envelope wrap point — can pull the
+ * value from `.exarchos.yml` via the config resolver (T05).
+ *
+ * CodeRabbit MEDIUM (#1262): the previous per-turn implementation emitted
+ * a hint for every above-threshold turn, flooding `next_actions[]` on
+ * long high-output sessions. Edge-triggered emission de-duplicates while
+ * preserving the "session crossed into a danger zone" signal.
  *
  * Returns `[]` when the catalog entry is missing (defensive) or no turn
  * crosses the threshold.
@@ -283,8 +290,11 @@ export function computeOutputTokenHints(
   if (!hintType) return [];
 
   const hints: OutputTokenHint[] = [];
+  let above = false;
   for (const turn of view.turns) {
-    if (turn.outputTokens > thresholdTokens) {
+    const crossesThreshold = turn.outputTokens > thresholdTokens;
+    if (crossesThreshold && !above) {
+      // Upward transition: emit a hint and latch the above-threshold state.
       hints.push({
         verb: hintType.verb,
         reason: renderQualityHintReason(hintType, {
@@ -293,7 +303,12 @@ export function computeOutputTokenHints(
         }),
         hintType: hintType.id,
       });
+      above = true;
+    } else if (!crossesThreshold) {
+      // Below-threshold turn: re-arm so the next upward crossing fires.
+      above = false;
     }
+    // crossesThreshold && above → suppress (already emitted this run).
   }
   return hints;
 }

@@ -838,6 +838,21 @@ export const ToolActionErroredData = z.object({
   tokenEstimate: z.number(),
 });
 
+// #1262 — per-turn output-token sample (CodeRabbit F2).
+//
+// Emitted by the telemetry middleware when an agent turn completes. The
+// telemetry projection (`telemetry/telemetry-projection.ts`) folds
+// `turnId` + `outputTokens` into `view.turns` for the `output_tokens_high`
+// quality hint. Anything else on the payload is ignored by the projection
+// today, so the schema is `.passthrough()` to keep the door open for
+// future per-turn samples (cache-read tokens, latency, etc.) without a
+// breaking schema bump.
+export const TurnCompletedDataSchema = z.object({
+  turnId: z.string().min(1).describe('Stable identifier for the turn (typically a UUID).'),
+  outputTokens: z.number().nonnegative().describe('Total output tokens consumed by the turn.'),
+}).passthrough();
+export type TurnCompletedData = z.infer<typeof TurnCompletedDataSchema>;
+
 // ─── Benchmark Event Data ───────────────────────────────────────────────────
 
 export const BenchmarkCompletedData = z.object({
@@ -1753,6 +1768,8 @@ export const EVENT_DATA_SCHEMAS: Partial<Record<EventType, z.ZodSchema>> = {
   'tool.errored': ToolErroredData,
   // PR3/T7 (#1364) — structured action-level failure event.
   'tool.action_errored': ToolActionErroredData,
+  // #1262 — per-turn output-token sample (CodeRabbit F2 on PR #1409).
+  'turn.completed': TurnCompletedDataSchema,
 
   // Benchmark
   'benchmark.completed': BenchmarkCompletedData,

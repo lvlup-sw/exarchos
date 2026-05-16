@@ -73,6 +73,8 @@ import {
   BranchDeleteExecutedData,
   WorktreeRemoveRequestedData,
   WorktreeRemoveExecutedData,
+  // #1262 — per-turn output-token sample schema (CodeRabbit F2).
+  TurnCompletedDataSchema,
 } from './schemas.js';
 
 // ─── T1: EventEmissionSource + EVENT_EMISSION_REGISTRY ──────────────────────
@@ -181,6 +183,34 @@ describe('EVENT_DATA_SCHEMAS', () => {
         expect(result.success, `Schema for '${eventType}' should parse valid data: ${JSON.stringify(result)}`).toBe(true);
       }
     }
+  });
+});
+
+// ─── #1262 turn.completed data schema (CodeRabbit F2) ───────────────────────
+//
+// The telemetry projection reads `{turnId: string, outputTokens: number}`
+// off `turn.completed.data`. Register a typed Zod schema in EVENT_DATA_SCHEMAS
+// so the event store rejects malformed payloads at ingestion time instead of
+// silently ignoring them downstream.
+describe('EventSchema_TurnCompleted', () => {
+  it('EventSchema_TurnCompleted_ValidatesData', () => {
+    const result = TurnCompletedDataSchema.safeParse({
+      turnId: 'turn-1',
+      outputTokens: 1234,
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('EventSchema_TurnCompleted_NonNumericOutputTokens_Rejected', () => {
+    const result = TurnCompletedDataSchema.safeParse({
+      turnId: 'turn-1',
+      outputTokens: 'not-a-number',
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('EventSchema_TurnCompleted_RegisteredInEventDataSchemas', () => {
+    expect(EVENT_DATA_SCHEMAS['turn.completed']).toBeDefined();
   });
 });
 
