@@ -174,7 +174,7 @@ tasks:
     files: [src/a.test.ts]
   - id: T-02
     phase: GREEN
-    description: Minimal implementation turning the RED test green without overreach
+    description: Minimal implementation turning the RED test green without overreaching the contract boundary established earlier
     files: [src/a.ts]
 coverage:
   DR-1: [T-01, T-02]
