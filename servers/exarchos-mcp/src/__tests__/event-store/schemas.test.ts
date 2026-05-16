@@ -437,9 +437,9 @@ describe('EventTypes', () => {
     // #1290: bumped 105 → 106 to include `workspace.resolved`, emitted
     // by `workspace/discovery.ts` on roots-based or cwd-walk featureId
     // inference at the dispatch boundary.
-    // #1274: bumped 106 → 109 to include `elicitation.requested` +
-    // `elicitation.fulfilled`, emitted by the dispatch elicitation
-    // hand-off on the per-operation pseudo-stream
+    // #1274: bumped 106 → 109 to include `elicitation.requested`,
+    // `elicitation.fulfilled`, and `elicitation.declined`, emitted by the
+    // dispatch elicitation hand-off on the per-operation pseudo-stream
     // `elicitation/<operationId>`.
     expect(EventTypes).toHaveLength(109);
   });
