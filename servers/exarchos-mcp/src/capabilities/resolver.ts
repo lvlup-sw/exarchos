@@ -80,8 +80,16 @@ export function getQualityHintThreshold(
   name: 'output_tokens' | (string & {}),
   config?: QualityHintsConfig,
 ): number {
+  // CodeRabbit MINOR: clamp + sanitize fraction so a malformed config value
+  // (NaN, Infinity, negative, >1) can't push hint behavior into always-fire
+  // or never-fire. Upstream YAML schema validation already rejects most of
+  // these, but the defensive clamp keeps the contract intact if validation
+  // regresses or callers construct config programmatically.
+  const raw = config?.qualityHints?.outputTokenThreshold;
   const fraction =
-    config?.qualityHints?.outputTokenThreshold ?? DEFAULT_OUTPUT_TOKEN_THRESHOLD_FRACTION;
+    typeof raw === 'number' && Number.isFinite(raw)
+      ? Math.min(1, Math.max(0, raw))
+      : DEFAULT_OUTPUT_TOKEN_THRESHOLD_FRACTION;
   if (name === 'output_tokens') {
     return OUTPUT_TOKENS_PER_TURN_CAP * fraction;
   }
