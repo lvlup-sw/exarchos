@@ -9,8 +9,13 @@
  *     propagation from the underlying guard.
  */
 
-import { describe, it, expect } from 'vitest';
-import { detectDrift, mergePreflight, type GitExec } from './merge-preflight.js';
+import { describe, it, expect, vi, afterEach } from 'vitest';
+import {
+  detectDrift,
+  mergePreflight,
+  gatherPreflightDebug,
+  type GitExec,
+} from './merge-preflight.js';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -396,5 +401,226 @@ describe('mergePreflight — failure paths (T07)', () => {
     expect(result.drift.clean).toBe(false);
     expect(result.drift.uncommittedFiles.length).toBeGreaterThan(0);
     expect(result.drift.uncommittedFiles).toEqual(['src/foo.ts', 'src/bar.ts']);
+  });
+});
+
+// ─── gatherPreflightDebug (#1362 phase 1) ───────────────────────────────────
+//
+// Phase-1 Windows preflight instrumentation. The helper is pure: every git
+// invocation goes through the injected `gitExec`. Fail-closed semantics —
+// individual git failures must NOT throw; the helper records a partial
+// payload so the on-failure debug attachment is best-effort. See plan T2.2.
+
+describe('gatherPreflightDebug (#1362)', () => {
+  it('gatherPreflightDebug_AllGitCallsSucceed_PopulatesAllFields', () => {
+    // Build a mock that returns canned outputs for every git invocation the
+    // helper should make. Field order in the type is the canonical reading
+    // order for an operator inspecting the debug block.
+    const gitExec = makeGitExec([
+      { args: ['--version'], stdout: 'git version 2.45.1\n', exitCode: 0 },
+      { args: ['rev-parse', '--show-toplevel'], stdout: '/repo\n', exitCode: 0 },
+      {
+        args: ['worktree', 'list', '--porcelain'],
+        stdout: 'worktree /repo\nHEAD aaaaaaa\nbranch refs/heads/main\n',
+        exitCode: 0,
+      },
+      // refs lookups: source + target. Use `for-each-ref` so we capture both
+      // SHA and whether the ref is packed in one go.
+      {
+        args: [
+          'for-each-ref',
+          '--format=%(objectname) %(if)%(refname)%(then)%(refname)%(end)',
+          'refs/heads/feat/x',
+        ],
+        stdout: 'aaaaaaa refs/heads/feat/x\n',
+        exitCode: 0,
+      },
+      {
+        args: [
+          'for-each-ref',
+          '--format=%(objectname) %(if)%(refname)%(then)%(refname)%(end)',
+          'refs/heads/main',
+        ],
+        stdout: 'bbbbbbb refs/heads/main\n',
+        exitCode: 0,
+      },
+      // packed-refs check via `cat-file -e <packed-ref>` or by `git
+      // packed-refs --print`. We use `packed-refs` lookup via grep-free
+      // mechanism: `git rev-parse --symbolic-full-name --verify
+      // refs/heads/X` doesn't tell us packed state. The implementation uses
+      // `git for-each-ref --format=%(packed)` semantics — but for simplicity
+      // the helper just calls `cat-file -e <sha>` per ref. Mock stubs match
+      // the implementation's actual call order below.
+      {
+        args: ['cat-file', '-e', 'aaaaaaa'],
+        stdout: '',
+        exitCode: 0,
+      },
+      {
+        args: ['cat-file', '-e', 'bbbbbbb'],
+        stdout: '',
+        exitCode: 0,
+      },
+      // merge-base --is-ancestor invocation — the same call that the
+      // ancestry guard ran. We re-run it here to capture stderr / exit code
+      // verbatim for the debug block.
+      {
+        args: ['merge-base', '--is-ancestor', 'main', 'feat/x'],
+        stdout: '',
+        exitCode: 1,
+      },
+    ]);
+
+    const debug = gatherPreflightDebug(gitExec, '/repo', 'feat/x', 'main');
+
+    expect(debug.gitVersion).toBe('git version 2.45.1');
+    expect(debug.repoRoot).toBe('/repo');
+    expect(debug.worktreeList).toContain('worktree /repo');
+    expect(debug.refsHeadsSource.sha).toBe('aaaaaaa');
+    expect(debug.refsHeadsTarget.sha).toBe('bbbbbbb');
+    expect(debug.refsHeadsSource.packed).toBe(false);
+    expect(debug.refsHeadsTarget.packed).toBe(false);
+    expect(debug.mergeBaseCommand).toEqual([
+      'git',
+      'merge-base',
+      '--is-ancestor',
+      'main',
+      'feat/x',
+    ]);
+    expect(debug.mergeBaseExitCode).toBe(1);
+    expect(typeof debug.mergeBaseStdout).toBe('string');
+    expect(typeof debug.mergeBaseStderr).toBe('string');
+  });
+
+  it('gatherPreflightDebug_GitVersionFails_ReturnsPartialBlock', () => {
+    // Drive the very first git call (--version) to fail. The helper must
+    // record an empty/default value for that field and continue — never
+    // throw. This is the fail-closed contract: an instrumentation helper
+    // that throws inside an already-failed preflight would mask the real
+    // failure.
+    const gitExec: GitExec = (_root, args) => {
+      if (args[0] === '--version') {
+        return { stdout: '', exitCode: 127 };
+      }
+      // Stubs for the remaining calls so the test does not throw on
+      // unexpected invocations.
+      if (args[0] === 'rev-parse') return { stdout: '/repo\n', exitCode: 0 };
+      if (args[0] === 'worktree') return { stdout: '', exitCode: 0 };
+      if (args[0] === 'for-each-ref') return { stdout: 'sha refs/heads/x\n', exitCode: 0 };
+      if (args[0] === 'cat-file') return { stdout: '', exitCode: 0 };
+      if (args[0] === 'merge-base') return { stdout: '', exitCode: 0 };
+      return { stdout: '', exitCode: 1 };
+    };
+
+    let debug: ReturnType<typeof gatherPreflightDebug>;
+    expect(() => {
+      debug = gatherPreflightDebug(gitExec, '/repo', 'feat/x', 'main');
+    }).not.toThrow();
+
+    expect(debug!.gitVersion).toBe('');
+    // Subsequent fields must still be populated from their successful calls.
+    expect(debug!.repoRoot).toBe('/repo');
+  });
+});
+
+// ─── mergePreflight env-var integration (#1362 phase 1) ─────────────────────
+
+describe('mergePreflight env-gated debug attachment (#1362)', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  /** Build a gitExec stub that drives ancestry to fail (exit 1 on
+   * `merge-base --is-ancestor`) and stubs every other call mergePreflight
+   * + gatherPreflightDebug make. */
+  function makeAncestryFailingExec(): GitExec {
+    return (_root, args) => {
+      const a = args.join(' ');
+      if (a === 'merge-base --is-ancestor main feat/x') {
+        return { stdout: '', exitCode: 1 };
+      }
+      if (a === 'rev-parse --abbrev-ref HEAD') {
+        return { stdout: 'feat/x\n', exitCode: 0 };
+      }
+      if (a === 'status --porcelain') return { stdout: '', exitCode: 0 };
+      if (a === 'diff --cached --quiet') return { stdout: '', exitCode: 0 };
+      if (a === '--version') return { stdout: 'git version 2.45.1\n', exitCode: 0 };
+      if (a === 'rev-parse --show-toplevel') return { stdout: '/repo\n', exitCode: 0 };
+      if (a === 'worktree list --porcelain') return { stdout: '', exitCode: 0 };
+      if (args[0] === 'for-each-ref') {
+        return { stdout: 'sha refs/heads/x\n', exitCode: 0 };
+      }
+      if (args[0] === 'cat-file') return { stdout: '', exitCode: 0 };
+      throw new Error(`Unexpected gitExec call: git ${a}`);
+    };
+  }
+
+  /** Same as above but ancestry passes. */
+  function makeAncestryPassingExec(): GitExec {
+    return (_root, args) => {
+      const a = args.join(' ');
+      if (a === 'merge-base --is-ancestor main feat/x') {
+        return { stdout: '', exitCode: 0 };
+      }
+      if (a === 'rev-parse --abbrev-ref HEAD') {
+        return { stdout: 'feat/x\n', exitCode: 0 };
+      }
+      if (a === 'status --porcelain') return { stdout: '', exitCode: 0 };
+      if (a === 'diff --cached --quiet') return { stdout: '', exitCode: 0 };
+      if (a === '--version') return { stdout: 'git version 2.45.1\n', exitCode: 0 };
+      if (a === 'rev-parse --show-toplevel') return { stdout: '/repo\n', exitCode: 0 };
+      if (a === 'worktree list --porcelain') return { stdout: '', exitCode: 0 };
+      if (args[0] === 'for-each-ref') {
+        return { stdout: 'sha refs/heads/x\n', exitCode: 0 };
+      }
+      if (args[0] === 'cat-file') return { stdout: '', exitCode: 0 };
+      throw new Error(`Unexpected gitExec call: git ${a}`);
+    };
+  }
+
+  it('MergePreflight_EnvUnsetAndAncestryFail_NoDebugField', async () => {
+    vi.stubEnv('EXARCHOS_PREFLIGHT_DEBUG', '');
+    const result = await mergePreflight({
+      sourceBranch: 'feat/x',
+      targetBranch: 'main',
+      gitExec: makeAncestryFailingExec(),
+      cwd: '/tmp/repo',
+    });
+
+    expect(result.ancestry.passed).toBe(false);
+    expect((result as Record<string, unknown>).debug).toBeUndefined();
+  });
+
+  it('MergePreflight_EnvSetAndAncestryPass_NoDebugField', async () => {
+    // Failure-only gating: even with the debug env set, a passing ancestry
+    // must NOT attach a debug block. DIM-8 sustainability — event-store
+    // growth concern.
+    vi.stubEnv('EXARCHOS_PREFLIGHT_DEBUG', '1');
+    const result = await mergePreflight({
+      sourceBranch: 'feat/x',
+      targetBranch: 'main',
+      gitExec: makeAncestryPassingExec(),
+      cwd: '/tmp/repo',
+    });
+
+    expect(result.ancestry.passed).toBe(true);
+    expect((result as Record<string, unknown>).debug).toBeUndefined();
+  });
+
+  it('MergePreflight_EnvSetAndAncestryFail_AttachesDebugBlock', async () => {
+    vi.stubEnv('EXARCHOS_PREFLIGHT_DEBUG', '1');
+    const result = await mergePreflight({
+      sourceBranch: 'feat/x',
+      targetBranch: 'main',
+      gitExec: makeAncestryFailingExec(),
+      cwd: '/tmp/repo',
+    });
+
+    expect(result.ancestry.passed).toBe(false);
+    const debug = (result as { debug?: Record<string, unknown> }).debug;
+    expect(debug).toBeDefined();
+    expect(debug!.gitVersion).toBe('git version 2.45.1');
+    expect(debug!.repoRoot).toBe('/repo');
+    expect(debug!.mergeBaseExitCode).toBe(1);
   });
 });

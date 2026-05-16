@@ -33,6 +33,16 @@ import {
 
 export interface GitExecResult {
   readonly stdout: string;
+  /**
+   * Captured stderr from the underlying git invocation. Optional: adapters
+   * that cannot separate stderr from stdout (e.g., a subprocess wrapper that
+   * merges descriptors) may omit it, in which case consumers should treat
+   * the absence as "not separately captured" rather than "definitely empty".
+   * The production `defaultGitExec` in merge-orchestrate.ts captures stderr
+   * separately on failure so phase-1 diagnostics can distinguish git's
+   * error output from any partial stdout.
+   */
+  readonly stderr?: string;
   readonly exitCode: number;
 }
 
@@ -132,6 +142,144 @@ export interface MergePreflightResult {
   readonly currentBranchProtection: CurrentBranchProtectionResult;
   readonly worktree: WorktreeAssertionResult;
   readonly drift: DriftResult;
+  /**
+   * Optional debug payload populated only when `EXARCHOS_PREFLIGHT_DEBUG=1`
+   * is set AND ancestry fails. Phase-1 Windows ancestry-mismatch
+   * instrumentation (#1362). Failure-only gating is deliberate (DIM-8 /
+   * event-store growth — verbose sub-modes will land separately via
+   * `EXARCHOS_PREFLIGHT_DEBUG=2` if/when phase 2 needs them).
+   */
+  readonly debug?: PreflightDebug;
+}
+
+/**
+ * Structured diagnostic payload for the Phase-1 Windows ancestry-mismatch
+ * investigation (#1362). All fields are best-effort: individual git call
+ * failures degrade gracefully to empty strings / default values rather than
+ * throwing. Reasoning: a debug helper that throws inside an already-failed
+ * preflight would mask the underlying ancestry failure the operator is
+ * trying to diagnose.
+ *
+ * Field order is the canonical reading order for an operator inspecting an
+ * issue report — git version → repo root → worktree layout → ref state →
+ * the actual ancestry invocation that failed.
+ */
+export interface PreflightDebug {
+  /** Output of `git --version`, stripped of trailing newlines. */
+  readonly gitVersion: string;
+  /** Output of `git rev-parse --show-toplevel`, stripped of trailing newlines. */
+  readonly repoRoot: string;
+  /** Verbatim porcelain output of `git worktree list --porcelain`. */
+  readonly worktreeList: string;
+  /** SHA + packed-status of the source branch ref. */
+  readonly refsHeadsSource: { readonly sha: string; readonly packed: boolean };
+  /** SHA + packed-status of the target branch ref. */
+  readonly refsHeadsTarget: { readonly sha: string; readonly packed: boolean };
+  /** The exact argv used for `merge-base --is-ancestor`, including the
+   * leading `'git'` literal so the operator can copy-paste verbatim. */
+  readonly mergeBaseCommand: readonly string[];
+  /** Exit code returned by the `merge-base --is-ancestor` invocation. */
+  readonly mergeBaseExitCode: number;
+  /** Stdout captured from the `merge-base --is-ancestor` invocation. */
+  readonly mergeBaseStdout: string;
+  /** Stderr captured from the `merge-base --is-ancestor` invocation. The
+   * default `GitExec` shape collapses stderr into `stdout` on failure — this
+   * field is currently a duplicate of `mergeBaseStdout` for Windows-specific
+   * gitExec implementations that may split the streams. */
+  readonly mergeBaseStderr: string;
+}
+
+// ─── gatherPreflightDebug (#1362 phase 1) ───────────────────────────────────
+
+/**
+ * Collect the Phase-1 Windows ancestry-debug payload.
+ *
+ * Every git invocation goes through the injected `gitExec` so the helper
+ * stays pure and unit-testable. Each call is wrapped in fail-closed
+ * semantics — a non-zero exit (or thrown error from a misbehaving gitExec)
+ * collapses to an empty string / default value for that field, never
+ * throws. The on-failure debug attachment is best-effort by design.
+ *
+ * The `for-each-ref` ref inspection is structured as
+ * `{ sha, packed }` because a Windows-host investigation needs to
+ * distinguish "ref does not exist" from "ref exists but is packed and
+ * unreadable by some downstream tool." Phase-1 reports `packed: false`
+ * universally; phase-2 may upgrade the helper to use `git pack-refs
+ * --print` for genuine packed-ref discrimination.
+ */
+export function gatherPreflightDebug(
+  gitExec: GitExec,
+  repoRoot: string,
+  source: string,
+  target: string,
+): PreflightDebug {
+  const safe = (
+    args: readonly string[],
+  ): { stdout: string; stderr?: string; exitCode: number } => {
+    try {
+      return gitExec(repoRoot, args);
+    } catch {
+      return { stdout: '', stderr: '', exitCode: 1 };
+    }
+  };
+
+  const versionRes = safe(['--version']);
+  const gitVersion = versionRes.exitCode === 0 ? versionRes.stdout.trim() : '';
+
+  const toplevelRes = safe(['rev-parse', '--show-toplevel']);
+  const reportedRoot =
+    toplevelRes.exitCode === 0 ? toplevelRes.stdout.trim() : '';
+
+  const worktreeRes = safe(['worktree', 'list', '--porcelain']);
+  const worktreeList = worktreeRes.exitCode === 0 ? worktreeRes.stdout : '';
+
+  const refFor = (
+    branch: string,
+  ): { sha: string; packed: boolean } => {
+    const refRes = safe([
+      'for-each-ref',
+      '--format=%(objectname) %(if)%(refname)%(then)%(refname)%(end)',
+      `refs/heads/${branch}`,
+    ]);
+    const sha =
+      refRes.exitCode === 0 ? refRes.stdout.trim().split(/\s+/)[0] ?? '' : '';
+    // Phase-1: `cat-file -e <sha>` confirms the SHA is reachable; we treat a
+    // success as `packed: false` (the typical loose-ref case). Phase-2 will
+    // distinguish loose vs packed via `pack-refs --print`. If the ref lookup
+    // failed outright, leave `packed: false` and let `sha === ''` signal it.
+    if (sha !== '') {
+      safe(['cat-file', '-e', sha]);
+    }
+    return { sha, packed: false };
+  };
+
+  const refsHeadsSource = refFor(source);
+  const refsHeadsTarget = refFor(target);
+
+  const mergeBaseCommand: readonly string[] = [
+    'git',
+    'merge-base',
+    '--is-ancestor',
+    target,
+    source,
+  ];
+  const mbRes = safe(['merge-base', '--is-ancestor', target, source]);
+  // `mergeBaseStderr` reflects only what the adapter actually captured.
+  // Adapters that merge descriptors (so stderr lands in stdout) leave the
+  // field empty here; the canonical `defaultGitExec` in merge-orchestrate.ts
+  // captures stderr separately on failure so phase-2 diagnostics can
+  // distinguish merge-base's error output from any partial stdout.
+  return {
+    gitVersion,
+    repoRoot: reportedRoot,
+    worktreeList,
+    refsHeadsSource,
+    refsHeadsTarget,
+    mergeBaseCommand,
+    mergeBaseExitCode: mbRes.exitCode,
+    mergeBaseStdout: mbRes.stdout,
+    mergeBaseStderr: mbRes.stderr ?? '',
+  };
 }
 
 /**
@@ -249,11 +397,31 @@ export async function mergePreflight(
     worktree.isMain &&
     drift.clean;
 
+  // Phase-1 Windows ancestry-debug instrumentation (#1362). Failure-only
+  // gating: only attach a debug block when the env var is explicitly set
+  // AND ancestry failed. DIM-8 sustainability — we do NOT pay event-store
+  // growth for passing preflights even when an operator turns the flag on.
+  // Verbose sub-modes (passing-preflight diagnostics) belong on a
+  // separate `EXARCHOS_PREFLIGHT_DEBUG=2` channel and are out of scope.
+  let debug: PreflightDebug | undefined;
+  if (
+    process.env.EXARCHOS_PREFLIGHT_DEBUG === '1' &&
+    !ancestry.passed
+  ) {
+    debug = gatherPreflightDebug(
+      args.gitExec,
+      repoRoot,
+      args.sourceBranch,
+      args.targetBranch,
+    );
+  }
+
   return {
     passed,
     ancestry,
     currentBranchProtection,
     worktree,
     drift,
+    ...(debug !== undefined ? { debug } : {}),
   };
 }
