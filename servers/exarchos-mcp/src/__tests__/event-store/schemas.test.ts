@@ -431,7 +431,10 @@ describe('EventTypes', () => {
     // PR3/T7 (#1364): bumped 103 → 104 to include `tool.action_errored`,
     // which splits structured action-level failures off of `tool.errored`
     // (transport/protocol failures only).
-    expect(EventTypes).toHaveLength(104);
+    // #1262: bumped 104 → 105 to include `turn.completed`, which carries
+    // the per-turn output-token sample the `output_tokens_high` quality
+    // hint fires on (see `telemetry/quality-hints.ts`).
+    expect(EventTypes).toHaveLength(105);
   });
 
   it('should include workflow-level types', () => {

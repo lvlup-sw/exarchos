@@ -4,10 +4,18 @@ import { z } from 'zod';
 import type { ToolResult } from '../format.js';
 import type { EventStore } from '../event-store/store.js';
 import { getOrCreateMaterializer } from '../views/tools.js';
-import { TELEMETRY_VIEW } from './telemetry-projection.js';
+import {
+  TELEMETRY_VIEW,
+  computeOutputTokenHints,
+} from './telemetry-projection.js';
 import type { TelemetryViewState, ToolMetrics } from './telemetry-projection.js';
 import { TELEMETRY_STREAM } from './constants.js';
 import { generateHints } from './hints.js';
+import {
+  getQualityHintThreshold,
+  type QualityHintsConfig,
+} from '../capabilities/resolver.js';
+import type { NextAction } from '../next-action.js';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -62,6 +70,7 @@ export async function handleViewTelemetry(
   args: unknown,
   stateDir: string,
   eventStore: EventStore,
+  config?: QualityHintsConfig,
 ): Promise<ToolResult> {
   const parseResult = ViewTelemetryArgsSchema.safeParse(args);
   if (!parseResult.success) {
@@ -118,6 +127,20 @@ export async function handleViewTelemetry(
     // Generate hints
     const hints = generateHints(view);
 
+    // #1262 — compute output-token quality hints and surface them via
+    // `next_actions[]` so the envelope-wrap boundary lifts them onto the
+    // outgoing payload alongside any HSM-derived verbs. Each hint becomes
+    // one `NextAction` entry with `verb: 'checkpoint'`. The threshold is
+    // resolved from `.exarchos.yml` → `qualityHints.outputTokenThreshold`
+    // (default 80% of the per-turn cap).
+    const threshold = getQualityHintThreshold('output_tokens', config);
+    const tokenHints = computeOutputTokenHints(view, threshold);
+    const nextActions: readonly NextAction[] = tokenHints.map((h) => ({
+      verb: h.verb,
+      reason: h.reason,
+      idempotencyKey: h.idempotencyKey,
+    }));
+
     return {
       success: true,
       data: {
@@ -129,6 +152,7 @@ export async function handleViewTelemetry(
         tools: toolEntries,
         hints,
       },
+      ...(nextActions.length > 0 ? { next_actions: nextActions } : {}),
     };
   } catch (err) {
     return {

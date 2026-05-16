@@ -4,6 +4,9 @@ import {
   resolveEffectiveCapabilities,
   resolvePosture,
   ANTHROPIC_NATIVE_CACHING,
+  getQualityHintThreshold,
+  DEFAULT_OUTPUT_TOKEN_THRESHOLD_FRACTION,
+  OUTPUT_TOKENS_PER_TURN_CAP,
 } from './resolver.js';
 import type { Capability } from '../agents/capabilities.js';
 
@@ -133,5 +136,31 @@ describe('resolvePosture (T33, DR-6)', () => {
     // Handshake-declared cap (here happens to overlap fs:read; assert the
     // overlap doesn't suppress posture caps).
     expect(effective.has('fs:read')).toBe(true);
+  });
+});
+
+// ─── #1262 — quality-hint threshold (config-resolver path) ─────────────────
+
+describe('getQualityHintThreshold (#1262)', () => {
+  it('ConfigResolver_OutputTokenThreshold_ReadsExarchosYml', () => {
+    // `.exarchos.yml` carries `qualityHints.outputTokenThreshold: 0.6` —
+    // the resolver returns the token-count value derived from that
+    // fraction.
+    const config = { qualityHints: { outputTokenThreshold: 0.6 } };
+    const tokens = getQualityHintThreshold('output_tokens', config);
+    expect(tokens).toBe(OUTPUT_TOKENS_PER_TURN_CAP * 0.6);
+  });
+
+  it('ConfigResolver_OutputTokenThreshold_DefaultsTo80Percent', () => {
+    // No `qualityHints` key — falls back to the default fraction.
+    const tokens = getQualityHintThreshold('output_tokens', {});
+    expect(DEFAULT_OUTPUT_TOKEN_THRESHOLD_FRACTION).toBe(0.8);
+    expect(tokens).toBe(OUTPUT_TOKENS_PER_TURN_CAP * 0.8);
+  });
+
+  it('ConfigResolver_OutputTokenThreshold_UndefinedConfig_UsesDefault', () => {
+    // No config at all — same default.
+    const tokens = getQualityHintThreshold('output_tokens', undefined);
+    expect(tokens).toBe(OUTPUT_TOKENS_PER_TURN_CAP * 0.8);
   });
 });
