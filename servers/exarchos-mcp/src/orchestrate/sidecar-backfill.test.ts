@@ -8,14 +8,21 @@
 
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { parse } from 'yaml';
 
 import { DesignSidecarV1, PlanSidecarV1 } from './sidecar-schemas.js';
 
+// CodeRabbit MAJOR #1425 r2: `__dirname` is undefined under NodeNext/ESM
+// (the project's resolution mode — see CLAUDE.md). Use the ESM-safe
+// `import.meta.url` → `fileURLToPath(...)` → `dirname()` chain so the
+// REPO_ROOT constant resolves correctly in both ts-node and the
+// vitest runner.
+//
 // Resolve relative to repo root from this test file's location:
 // servers/exarchos-mcp/src/orchestrate/<this> → ../../../../docs/...
-const REPO_ROOT = resolve(__dirname, '..', '..', '..', '..');
+const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '..');
 
 describe('SidecarBackfill_Preview4', () => {
   it('DesignSidecar_ParsesUnderDesignV1', () => {

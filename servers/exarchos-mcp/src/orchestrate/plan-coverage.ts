@@ -721,6 +721,21 @@ export async function handlePlanCoverage(
         },
       };
     }
+    // CodeRabbit MAJOR #1425 r2: parity short-circuit for an empty plan
+    // tasks list. The legacy regex path detects "no tasks" via the
+    // markdown task-block scan; the sidecar path needs the same gate or
+    // a plan that declares zero tasks would silently pass.
+    if (planSidecar.tasks.length === 0) {
+      return {
+        success: false,
+        error: {
+          code: 'NO_PLAN_TASKS',
+          message:
+            'plan.v1 sidecar contains no tasks (tasks is empty). Expected at ' +
+            'least one task entry to cross-reference against design.drs.',
+        },
+      };
+    }
     const result = evaluatePlanCoverageFromSidecars(designSidecar, planSidecar);
     try {
       await emitGateEvent(eventStore, args.featureId, 'plan-coverage', 'planning', result.passed, {
@@ -820,12 +835,26 @@ function evaluatePlanCoverageFromSidecars(
   gapSections: readonly string[];
 } {
   const gapSections: string[] = [];
+  const unknownTaskRefs: string[] = [];
   let covered = 0;
   let gaps = 0;
 
+  // CodeRabbit MAJOR #1425 r2: cross-reference each coverage[] entry against
+  // the declared plan.tasks. A `coverage[DR-1] = ['T-99']` where T-99 is not
+  // in plan.tasks previously marked DR-1 as covered, since the only check
+  // was list-non-empty. Treat any task ID that doesn't appear in plan.tasks
+  // as if it weren't covering — same outcome the legacy regex path produces
+  // when a plan's traceability table references a non-existent task.
+  const knownTaskIds = new Set(plan.tasks.map((t) => t.id));
+
   for (const dr of design.drs) {
-    const coveringTasks = plan.coverage[dr.id];
-    if (coveringTasks && coveringTasks.length > 0) {
+    const coveringTasks = plan.coverage[dr.id] ?? [];
+    const validCoveringTasks = coveringTasks.filter((id) => {
+      if (knownTaskIds.has(id)) return true;
+      unknownTaskRefs.push(`${dr.id} → ${id}`);
+      return false;
+    });
+    if (validCoveringTasks.length > 0) {
       covered++;
     } else {
       gaps++;
@@ -845,6 +874,10 @@ function evaluatePlanCoverageFromSidecars(
   if (gapSections.length > 0) {
     reportLines.push('', '### Gaps');
     for (const id of gapSections) reportLines.push(`- ${id}`);
+  }
+  if (unknownTaskRefs.length > 0) {
+    reportLines.push('', '### Coverage entries referencing unknown task IDs');
+    for (const ref of unknownTaskRefs) reportLines.push(`- ${ref}`);
   }
   reportLines.push('', passed ? `**Result: PASS** (${covered}/${total} DRs covered)` : `**Result: FAIL** (${gaps}/${total} gaps)`);
 

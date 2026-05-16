@@ -673,20 +673,66 @@ export async function handleTaskDecomposition(
     };
   }
 
-  // Prefer the sidecar (T15) when present + conformant.
+  // Prefer the sidecar (T15) when present + conformant. CodeRabbit MAJOR
+  // #1425 r2: the sidecar v1 schema doesn't carry `deps[]` or parallel
+  // flags, so a sidecar-only evaluation would hardcode `dagValid: true`
+  // and `parallelSafe: true` — letting a plan with a dependency cycle or
+  // two parallel tasks targeting the same file pass the gate silently.
+  // Keep the markdown-derived DAG + parallel-safety checks running in
+  // the sidecar flow until the sidecar schema can carry that data.
   const planSidecar = loadPlanSidecar(args.planPath);
   if (planSidecar) {
     const sidecarResult = evaluateTaskDecompositionFromSidecar(planSidecar);
+    // Read the same markdown to derive deps + parallel flags. If the read
+    // fails or the markdown is unparseable, fall back to the sidecar's
+    // no-op assumption (clearly marked in the report) so the sidecar
+    // flow still produces a result — but flag the degraded mode.
+    let dagResult: DagValidationResult = { valid: true };
+    let safetyResult: ParallelSafetyResult = { safe: true, conflicts: [] };
+    let degraded = false;
     try {
-      await emitGateEvent(eventStore, args.featureId, 'task-decomposition', 'planning', sidecarResult.passed, {
+      const planContent = await readFile(args.planPath, 'utf-8');
+      const blocks = parseTaskBlocks(planContent);
+      if (blocks.length > 0) {
+        const dagTasks: DagTask[] = blocks.map((b) => ({
+          id: b.id,
+          deps: extractDependencies(b.content),
+        }));
+        dagResult = validateDependencyDAG(dagTasks);
+        const parallelTasks: ParallelTask[] = blocks.map((b) => ({
+          id: b.id,
+          isParallel: isParallelizable(b.content),
+          files: extractFiles(b.content),
+        }));
+        safetyResult = checkParallelSafety(parallelTasks);
+      } else {
+        degraded = true;
+      }
+    } catch {
+      degraded = true;
+    }
+    const combinedPassed = sidecarResult.passed && dagResult.valid && safetyResult.safe;
+    const combined = {
+      ...sidecarResult,
+      passed: combinedPassed,
+      dagValid: dagResult.valid,
+      parallelSafe: safetyResult.safe,
+      report:
+        sidecarResult.report +
+        (degraded
+          ? '\n\n*Note: DAG + parallel-safety checks degraded — markdown unreadable. dagValid/parallelSafe defaulted to true.*'
+          : `\n\n### Dependency Analysis\n- DAG valid: ${dagResult.valid}\n- Parallel-safe: ${safetyResult.safe}`),
+    };
+    try {
+      await emitGateEvent(eventStore, args.featureId, 'task-decomposition', 'planning', combined.passed, {
         dimension: 'D5',
         phase: 'plan',
-        wellDecomposed: sidecarResult.wellDecomposed,
-        needsRework: sidecarResult.needsRework,
-        totalTasks: sidecarResult.totalTasks,
+        wellDecomposed: combined.wellDecomposed,
+        needsRework: combined.needsRework,
+        totalTasks: combined.totalTasks,
       });
     } catch { /* fire-and-forget */ }
-    return { success: true, data: { ...sidecarResult, source: 'sidecar' as const } };
+    return { success: true, data: { ...combined, source: 'sidecar' as const } };
   }
 
   // Read plan file
