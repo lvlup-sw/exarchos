@@ -592,9 +592,17 @@ export async function dispatch(
     // synchronous cwd-walk on miss, adding measurable latency to the
     // dispatch hot path. The skip list is conservative: anything that
     // *might* take a featureId stays in the discovery branch.
+    // Sentry MEDIUM #1424: skip workspace resolution entirely when
+    // `rootsClient` is undefined — that's the CLI dispatch path which has
+    // no MCP roots channel and therefore no useful inference target. The
+    // sync `cwdWalk` fallback would still fire and add filesystem latency
+    // to every CLI hot-path dispatch (telemetry view, doctor checks, etc.)
+    // that happens to omit a featureId. Roots+cwd inference is purely an
+    // MCP-client convenience for callers that DID declare roots.
     if (
       rest.featureId === undefined
       && ctx.capabilityResolver !== undefined
+      && ctx.rootsClient !== undefined
       && !NO_WORKSPACE_RESOLUTION_ACTIONS.has(actionName)
     ) {
       try {
