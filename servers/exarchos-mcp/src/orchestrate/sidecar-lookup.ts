@@ -24,10 +24,10 @@ import {
 } from './sidecar-schemas.js';
 
 /**
- * Placeholder for the GitHub issue tracking removal of the regex-fallback
- * branch in v2.11. Set to a real issue number before this PR merges.
+ * GitHub issue tracking removal of the regex-fallback branch in v2.11.
+ * Filed alongside #1298 (v2.10.0-preview.4 PR D2).
  */
-export const REGEX_REMOVAL_TRACKING_ISSUE = '#<TBD>';
+export const REGEX_REMOVAL_TRACKING_ISSUE = '#1407';
 
 /**
  * Compute the conventional sidecar path for a doc: `<doc>.sidecar.yml`.
