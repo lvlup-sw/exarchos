@@ -441,6 +441,19 @@ export const WorkflowEventBase = z.object({
   ),
   correlationId: z.string().max(200).optional(),
   causationId: z.string().max(200).optional(),
+  // #1291 — dispatch-boundary three-field correlation. `operationId` is
+  // minted per `dispatch()` call (see `dispatch/dispatch-context.ts`) and
+  // stamped onto every event emitted transitively inside the dispatch via
+  // AsyncLocalStorage in `EventStore.append*`. Sibling to the existing
+  // `correlationId` / `causationId` fields rather than nested under
+  // `_meta` to preserve the prior shape's projection contracts (rehydrate,
+  // telemetry, audit views) which read these as top-level event keys.
+  //
+  // Optional because a dispatch wrapper is not always active — direct
+  // tests and migration tooling append events outside the dispatch
+  // boundary and must continue to work un-stamped (backward-compatible
+  // widening, INV-5b).
+  operationId: z.string().max(200).optional(),
   agentId: z.string().min(1).max(200).optional(),
   agentRole: z.string().max(50).optional(),
   tenantId: z.string().min(1).max(100).optional(),
