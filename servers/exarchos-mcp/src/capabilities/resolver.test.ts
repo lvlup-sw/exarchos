@@ -202,6 +202,30 @@ describe('CapabilityResolver Elicitation handshake snapshot (#1274)', () => {
   });
 });
 
+// ─── #1273 — Task-support capability snapshot (handshake-driven) ─────────
+
+describe('CapabilityResolver task-support handshake snapshot (#1273)', () => {
+  it('CapabilityResolver_TaskSupportDeclared_Snapshots', () => {
+    const resolver = createInMemoryResolver([]);
+    expect(resolver.isTaskSupportDeclared()).toBe(false);
+    // Per the MCP spec, the `tasks` capability is signaled by the
+    // presence of the `capabilities.tasks` object — the empty object
+    // `{}` is a valid declaration (the per-method fine grain rides on
+    // `tasks.list` / `tasks.cancel` / `tasks.requests.*`).
+    resolver.snapshot({ capabilities: { tasks: {} } });
+    expect(resolver.isTaskSupportDeclared()).toBe(true);
+  });
+
+  it('CapabilityResolver_NoTaskSupport_ReturnsFalse', () => {
+    const resolver = createInMemoryResolver([]);
+    expect(resolver.isTaskSupportDeclared()).toBe(false);
+    resolver.snapshot({ capabilities: { sampling: {} } });
+    expect(resolver.isTaskSupportDeclared()).toBe(false);
+    resolver.snapshot({ capabilities: { roots: { listChanged: true } } });
+    expect(resolver.isTaskSupportDeclared()).toBe(false);
+  });
+});
+
 // ─── #1262 — quality-hint threshold (config-resolver path) ─────────────────
 
 describe('getQualityHintThreshold (#1262)', () => {
