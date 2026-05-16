@@ -447,6 +447,7 @@ describe('EventTypes', () => {
     // over the event store; see
     // `src/task-store/event-sourced-task-store.ts`).
     expect(EventTypes).toHaveLength(112);
+    expect(EventTypes).toHaveLength(112);
   });
 
   it('should include workflow-level types', () => {

@@ -551,6 +551,7 @@ describe('EventTypes', () => {
     // per-operation pseudo-stream so dispatch can correlate by operationId.
     expect(EventTypes).toContain('elicitation.requested');
     expect(EventTypes).toContain('elicitation.fulfilled');
+    expect(EventTypes).toHaveLength(112);
   });
 
   it('EventTypes_IncludesSessionTagged', () => {

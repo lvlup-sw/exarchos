@@ -7,7 +7,10 @@
 
 import { describe, it, expect } from 'vitest';
 import {
+<<<<<<< HEAD
   AcceptanceCriterionSchema,
+=======
+>>>>>>> origin/main
   DesignSidecarV1,
   PlanSidecarV1,
 } from './sidecar-schemas.js';
@@ -95,6 +98,7 @@ describe('SidecarSchema_MismatchedSchemaVersion', () => {
     expect(parsed.success).toBe(false);
   });
 });
+<<<<<<< HEAD
 
 // B4 (#1406): AcceptanceCriterionSchema must require at least one
 // non-empty DR reference. Empty arrays and empty strings used to slip
@@ -124,3 +128,5 @@ describe('SidecarSchema_AcceptanceCriterion', () => {
     expect(parsed.success).toBe(false);
   });
 });
+=======
+>>>>>>> origin/main
