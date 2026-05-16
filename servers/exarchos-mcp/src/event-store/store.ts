@@ -5,6 +5,41 @@ import type { WorkflowEvent } from './schemas.js';
 import type { StorageBackend } from '../storage/backend.js';
 import { validateStreamId } from '../shared/validation.js';
 import { AtomicAppender } from './atomic-appender.js';
+import { getDispatchContext } from '../dispatch/dispatch-context.js';
+
+// ─── #1291 — Dispatch-boundary correlation stamping ─────────────────────────
+//
+// When an `EventStore.append*` call lands during an active dispatch (i.e.
+// `getDispatchContext()` returns a non-undefined context), stamp the three
+// correlation IDs onto the event input UNLESS the caller has already
+// supplied that field explicitly (callers retain final authority — useful
+// for migration/recovery code that reuses a prior dispatch's IDs).
+//
+// The stamp is a non-mutating shallow merge: if the dispatch context
+// supplies `correlationId` but the caller's event already carries
+// `correlationId: 'my-feature-id'` (e.g. the workflow.started path that
+// uses featureId as the correlation anchor), the caller's value wins.
+function stampWithDispatchContext<T extends {
+  correlationId?: string;
+  causationId?: string;
+  operationId?: string;
+}>(event: T): T {
+  const ctx = getDispatchContext();
+  if (ctx === undefined) return event;
+  // Non-mutating: build a new object only if at least one field would
+  // change. Callers append events with a freshly-constructed literal in
+  // most paths so allocation overhead is negligible.
+  const needsOperation = event.operationId === undefined;
+  const needsCorrelation = event.correlationId === undefined;
+  const needsCausation = event.causationId === undefined && ctx.causationId !== undefined;
+  if (!needsOperation && !needsCorrelation && !needsCausation) return event;
+  return {
+    ...event,
+    ...(needsOperation ? { operationId: ctx.operationId } : {}),
+    ...(needsCorrelation ? { correlationId: ctx.correlationId } : {}),
+    ...(needsCausation ? { causationId: ctx.causationId } : {}),
+  };
+}
 
 // ─── Sequence Conflict Error ────────────────────────────────────────────────
 
@@ -221,11 +256,16 @@ export class EventStore {
     // round-trip for that error class.
     const idempotencyKey = options?.idempotencyKey ?? event.idempotencyKey;
     const timestamp = event.timestamp || new Date().toISOString();
+    // #1291 — stamp the three correlation IDs from the active dispatch
+    // context when not already supplied by the caller. The stamp lands
+    // BEFORE Zod parse so the validated shape is byte-identical to a
+    // caller-supplied triple.
+    const stamped = stampWithDispatchContext(event);
     // Sequence is allocated by AtomicAppender; pass a placeholder so Zod's
     // positive-integer guard accepts the schema. The synthesized return value
     // overwrites this with the authoritative sequence.
     const candidate = WorkflowEventBase.parse({
-      ...event,
+      ...stamped,
       streamId,
       sequence: 1,
       timestamp,
@@ -246,8 +286,13 @@ export class EventStore {
   ): Promise<WorkflowEvent> {
     const idempotencyKey = options?.idempotencyKey ?? event.idempotencyKey;
     const timestamp = event.timestamp || new Date().toISOString();
+    // #1291 — pre-validated callers (rehydrate, HSM guard) opt into the
+    // same dispatch-context stamping. `buildValidatedEvent` ran on the
+    // caller side; the post-stamp triple is a strict widening of optional
+    // fields, so it never invalidates the upstream validation.
+    const stamped = stampWithDispatchContext(event) as WorkflowEvent;
     const prepared: WorkflowEvent = {
-      ...event,
+      ...stamped,
       streamId,
       timestamp,
       idempotencyKey,
@@ -310,6 +355,12 @@ export class EventStore {
         ...(cached.data !== undefined ? { data: cached.data } : {}),
         ...(cached.correlationId !== undefined ? { correlationId: cached.correlationId } : {}),
         ...(cached.causationId !== undefined ? { causationId: cached.causationId } : {}),
+        // #1291 — three-field correlation passthrough. Cached events are
+        // returned verbatim so the second call to a retry surfaces the
+        // same operationId/correlation chain the first call persisted.
+        ...((cached as { operationId?: string }).operationId !== undefined
+          ? { operationId: (cached as { operationId?: string }).operationId }
+          : {}),
         ...(cached.agentId !== undefined ? { agentId: cached.agentId } : {}),
         ...(cached.agentRole !== undefined ? { agentRole: cached.agentRole } : {}),
         ...(cached.source !== undefined ? { source: cached.source } : {}),
@@ -338,14 +389,19 @@ export class EventStore {
     // Validate every event up front so a malformed input fails before any
     // sequence is allocated. Sequence is a placeholder; AtomicAppender
     // re-derives the authoritative values inside the lock.
+    //
+    // #1291 — stamp each event from the active dispatch context before
+    // parsing. The whole batch shares one dispatch boundary so each event
+    // pulls the same triple from `getDispatchContext()`.
     const validated: WorkflowEvent[] = events.map((event) => {
       const timestamp = event.timestamp || new Date().toISOString();
+      const stamped = stampWithDispatchContext(event);
       return WorkflowEventBase.parse({
-        ...event,
+        ...stamped,
         streamId,
         sequence: 1,
         timestamp,
-        idempotencyKey: event.idempotencyKey,
+        idempotencyKey: stamped.idempotencyKey,
       });
     });
 

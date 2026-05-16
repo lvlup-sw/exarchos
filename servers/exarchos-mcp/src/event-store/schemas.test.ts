@@ -531,7 +531,27 @@ describe('EventTypes', () => {
     // Previous (92): migration.workflow_type_unknown (Wave 1, R-1 Marten #1313).
     // Previous (91): session.machinery_consumed (T-11, rehydration-machinery-refactor).
     // Previous (84 → 90): six durable event-store substrate types (#1259 T02/T03/T04).
-    expect(EventTypes).toHaveLength(105);
+    // Previous (105 → 106): workspace.resolved (#1290 — roots-based workspace
+    //   discovery; emitted by `src/workspace/discovery.ts`).
+    // Bumped 106 → 108: elicitation.requested + elicitation.fulfilled
+    // (#1274 — elicitation form mode for missing-required-param hand-off
+    //   in the dispatch boundary).
+    // Bumped 108 → 112: task.created + task.polled + task.result +
+    //   task.cancelled (#1272 — EventSourcedTaskStore lifecycle; SDK
+    //   `TaskStore` interface as a projection over the event store).
+    //   Distinct from the orchestrated-task family above; see
+    //   `event-store/task-events.test.ts` for the schema-shape contracts
+    //   and `task-store/event-sourced-task-store.test.ts` for the
+    //   end-to-end lifecycle + REPLAY (INV-1) acceptance test.
+    expect(EventTypes).toHaveLength(114);
+  });
+
+  it('EventTypes_IncludesElicitation', () => {
+    // #1274 — both events carry the elicitation request/response on a
+    // per-operation pseudo-stream so dispatch can correlate by operationId.
+    expect(EventTypes).toContain('elicitation.requested');
+    expect(EventTypes).toContain('elicitation.fulfilled');
+    expect(EventTypes).toHaveLength(114);
   });
 
   it('EventTypes_IncludesSessionTagged', () => {
