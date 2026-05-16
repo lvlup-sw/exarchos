@@ -543,7 +543,9 @@ describe('EventTypes', () => {
     //   `event-store/task-events.test.ts` for the schema-shape contracts
     //   and `task-store/event-sourced-task-store.test.ts` for the
     //   end-to-end lifecycle + REPLAY (INV-1) acceptance test.
-    expect(EventTypes).toHaveLength(112);
+    // Bumped 112 → 114: dispatch.preflight + stash.detected
+    //   (#1261 — dispatch-guard preflight observability merged via main).
+    expect(EventTypes).toHaveLength(114);
   });
 
   it('EventTypes_IncludesElicitation', () => {
@@ -551,7 +553,7 @@ describe('EventTypes', () => {
     // per-operation pseudo-stream so dispatch can correlate by operationId.
     expect(EventTypes).toContain('elicitation.requested');
     expect(EventTypes).toContain('elicitation.fulfilled');
-    expect(EventTypes).toHaveLength(112);
+    expect(EventTypes).toHaveLength(114);
   });
 
   it('EventTypes_IncludesSessionTagged', () => {

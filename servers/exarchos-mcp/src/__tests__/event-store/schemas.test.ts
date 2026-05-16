@@ -446,7 +446,9 @@ describe('EventTypes', () => {
     // EventSourcedTaskStore (SDK `TaskStore` interface as a projection
     // over the event store; see
     // `src/task-store/event-sourced-task-store.ts`).
-    expect(EventTypes).toHaveLength(112);
+    // #1261 (merged via main): bumped 112 → 114 to include
+    // `dispatch.preflight` + `stash.detected`, emitted by dispatch-guard.
+    expect(EventTypes).toHaveLength(114);
   });
 
   it('should include workflow-level types', () => {
