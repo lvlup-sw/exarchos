@@ -2,6 +2,54 @@
 
 All notable changes to Exarchos are documented in this file. Organized by semver release.
 
+## [2.10.0-preview.4] - 2026-05-16
+
+### Feature-freeze bundle — Agent Output Contract surface complete (#1088)
+
+Final feature-work batch before v2.10.0 transitions to release-candidate mode. Eleven issues across four waves (13 PRs total). After this release, RC ships polish + bug fixes only — no new API surface, no new event types, no new MCP capabilities.
+
+Design: [`docs/designs/2026-05-15-v2-10-0-preview-4-feature-freeze.md`](docs/designs/2026-05-15-v2-10-0-preview-4-feature-freeze.md). Plan: [`docs/plans/2026-05-15-v2-10-0-preview-4-feature-freeze.md`](docs/plans/2026-05-15-v2-10-0-preview-4-feature-freeze.md).
+
+#### Wave A — Output Contract Completion (#1238, #1262, #1290, #1274)
+
+- **#1238 next_actions Zod discriminated unions** (PR #1405). Replaces `Record<string, unknown>` casts + inline `typeof` guards in `next-actions-from-result.ts` with a Zod discriminated union (`ShapeOneSchema | ShapeTwoSchema`) consumed via `safeParse()`. Fail-closed on malformed payloads.
+- **#1262 output-token quality hint** (PR #1409). When per-turn output tokens cross a configurable threshold (default 80% of cap), telemetry view emits `output_tokens_high` quality hint via `next_actions`, suggesting `checkpoint`. Edge-triggered emission (one hint per upward transition, not per turn). New `qualityHints.outputTokenThreshold` config option.
+- **#1290 Roots-based workspace discovery** (PR #1410). When `featureId` is omitted AND client declared `roots` capability, calls `roots/list` (cached per-handshake; invalidated on `roots/list_changed`), scans each root for `.exarchos.yml` / `docs/workflow-state/*.state.json`. Emits `workspace.resolved` event. Resolution priority: `explicit > roots > cwd > elicitation > INVALID_INPUT`.
+- **#1274 Elicitation form mode for INVALID_INPUT** (PR #1412). When dispatch finds a single missing required param AND client declared `elicitation` capability, derives the field's sub-schema via Zod `.pick({field: true})`, sends `elicitation/create`, awaits response, retries dispatch. Emits `elicitation.requested` + `elicitation.fulfilled` events.
+
+#### Wave B — Correlation + Event Topology (#1291, #1261, #1272)
+
+- **#1291 three-field correlation primitive** (PR #1413). Mints `DispatchContext = { operationId, correlationId, causationId? }` at dispatch entry. `operationId` stamped on every event via `AsyncLocalStorage` (zero callsite refactor); `correlationId` + `causationId` are dispatch-call-level metadata in envelope `_meta`. Follow-up (#1414) tracks two minor propagation gaps deferred for clean polish.
+- **#1261 dispatch.preflight + stash.detected events** (PR #1416). `dispatch-guard.ts` now emits `dispatch.preflight` (aggregated per-guard outcomes: ancestry, worktree, protectedBranch, mainWorktree) and `stash.detected` (worktree shared-stash observation) via the existing `emitGateEvent` pattern. Operationally fires from `prepare-delegation.ts` on all four termination paths.
+- **#1272 EventSourcedTaskStore** (PR #1415). Implements the SDK's `TaskStore` interface as a projection over `task.created`, `task.polled`, `task.result`, `task.cancelled` events. Per-task TTL with read-time reaper. INV-1 event-sourcing integrity — lifecycle reconstructable from event stream alone (verified by REPLAY test).
+
+#### Wave C — Tasks (SEP-1686) Dispatch-Core (#1273)
+
+Split into three internal PRs per the design's risk-mitigation §:
+
+- **C1 dispatch-core Tasks-augmented branch** (PR #1417). Extracted `dispatch/tasks-augmented.ts`. `core/dispatch.ts` captures `task: {ttl}` from params, strips before per-action `.strict()` parse, routes through synthesis returning SDK `CreateTaskResult` (status `'working'`) when `ctx.taskStore` is wired. One-shot path preserved unchanged.
+- **C2 MCP adapter tasks/* methods** (PR #1419). `tools/call` accepts `task: { ttl }` augmentation. `tasks/get`, `tasks/result`, `tasks/cancel` primitives exposed via `mcp/tasks-methods.ts`. Server advertises `taskSupport: 'optional'` capability. Clients without taskSupport declaration get one-shot envelope fallback (defense-in-depth).
+- **C3 CLI --follow integration** (PR #1418). `runFollowLoop` polls `EventSourcedTaskStore` at configurable cadence (default 250ms); renders transitions to stdout. Wired on `exarchos view workflow_status --follow` and `view shepherd_status --follow`. SIGINT cleanly cancels via `task.cancelled` event (awaits cancel before exit). `cli.followPollIntervalMs` config option.
+
+#### Wave D — Authoring Substrate (#1260, #1298, #1244)
+
+- **#1260 machine-readable invariants** (PR #1406). Extracts INV-1..INV-6 (including INV-5a/b/c/d), DIM-1..DIM-8, basileus-boundary into `docs/architecture/invariants.md` with structured YAML frontmatter. `invariants-loader.ts` parses; `vocabulary-lint.ts` scans markdown for undefined invariant references; new `npm run lint:invariants` script. `/exarchos:ideate` Phase 0 loads the file and emits a Constraint anchoring section before Phase 1 questions. Eliminates the "design proposal goes config-file-centric / human-first → user redirects against named frameworks" cycle from `docs/contexts/2026-05-07-insights-friction-discovery.md` (friction F2).
+- **#1298 designs/plans machine-readable sidecar** (merged via PR #1406 squash). Four design/plan gates (`check_design_completeness`, `check_plan_coverage`, `check_provenance_chain`, `check_task_decomposition`) now consume YAML sidecars via `sidecar-lookup.ts` before falling back to regex-scrape (with deprecation log). Sidecar schemas (`DesignSidecarV1`, `PlanSidecarV1`) defined in `orchestrate/sidecar-schemas.ts`. This release's design + plan backfilled with sidecars; regex-fallback removal tracked under **#1407** (v2.11). Eliminates the seven authoring round-trips documented in the #1259 plan-review session — every failure was a heading-shape mismatch, not a content gap. **Note:** B2 found that `sidecarPathFor` originally returned `.md.sidecar.yml` (mismatch with shipped `.sidecar.yml` files); fixed in same PR to strip `.md` before appending; sidecar branch now genuinely fires.
+- **#1244 markdown-aware handoff lint** (merged via PR #1406 squash). `handleCheckpoint` runs `prose-lint.ts` over the three handoff fields (`context`, `nextSteps`, `suggestions`). Soft-fail by default (warnings on response envelope; checkpoint still appended); hard-fail opt-in via `.exarchos.yml` `handoffLint.hardFail: true` returns `INVALID_INPUT` before any event is appended.
+
+#### Event-type catalog growth
+
+Pre-preview.4: 105 event types. Preview.4 adds 9 event types (108 → 114):
+- `workspace.resolved` (Wave A #1290)
+- `elicitation.requested`, `elicitation.fulfilled` (Wave A #1274)
+- `dispatch.preflight`, `stash.detected` (Wave B #1261)
+- `task.created`, `task.polled`, `task.result`, `task.cancelled` (Wave B #1272)
+
+#### Follow-up tracked
+
+- **#1407** chore(gates): remove regex-scrape fallback from check_* gates (v2.11).
+- **#1414** fix(correlation): preserve inbound `_meta` + propagate operationId on batchAppend cache hits (B1 follow-up).
+
 ## [2.10.0-preview.2] - 2026-05-11
 
 ### Marten primitives + post-DR-4 cleanup (#1312, #1340, #1313, #1284, #1304, #1314, #1341)
