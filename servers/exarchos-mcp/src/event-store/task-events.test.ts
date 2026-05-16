@@ -58,19 +58,76 @@ describe('task.* event schemas (#1272)', () => {
       expect(EventTypes).toContain('task.created');
       expect(EVENT_DATA_SCHEMAS['task.created']).toBeDefined();
     });
+
+    it('EventSchema_TaskCreated_AcceptsPositiveIntegerPollInterval', () => {
+      // CodeRabbit MAJOR #1431 follow-up: pollInterval is persisted so
+      // REPLAY can reconstruct caller cadence.
+      const parsed = TaskCreatedData.parse({
+        taskId: 'task-poll',
+        ttl: null,
+        request: { method: 'tools/call', params: {} },
+        pollInterval: 500,
+      });
+      expect(parsed.pollInterval).toBe(500);
+    });
+
+    it('EventSchema_TaskCreated_RejectsZeroPollInterval', () => {
+      // Schema enforces `.positive()` — `0` is a degenerate cadence that
+      // would degrade to a tight loop; reject at the boundary.
+      const result = TaskCreatedData.safeParse({
+        taskId: 'task-zero',
+        ttl: null,
+        request: { method: 'tools/call', params: {} },
+        pollInterval: 0,
+      });
+      expect(result.success).toBe(false);
+    });
+
+    it('EventSchema_TaskCreated_RejectsNonIntegerPollInterval', () => {
+      // Schema enforces `.int()` — fractional milliseconds are rejected.
+      const result = TaskCreatedData.safeParse({
+        taskId: 'task-frac',
+        ttl: null,
+        request: { method: 'tools/call', params: {} },
+        pollInterval: 0.5,
+      });
+      expect(result.success).toBe(false);
+    });
+
+    it('EventSchema_TaskCreated_AcceptsAbsentPollInterval', () => {
+      // Field is optional — historical events without it still project.
+      const parsed = TaskCreatedData.parse({
+        taskId: 'task-legacy',
+        ttl: null,
+        request: { method: 'tools/call', params: {} },
+      });
+      expect(parsed.pollInterval).toBeUndefined();
+    });
   });
 
   describe('TaskPolledData', () => {
-    it('EventSchema_TaskPolled_ValidatesShape', () => {
+    it('EventSchema_TaskPolled_ValidatesShape_NoSequence', () => {
+      // CodeRabbit MAJOR #1431 follow-up: `data.sequence` is now optional
+      // + deprecated. New emits omit the payload field entirely and rely
+      // on the event envelope's atomically-assigned `.sequence`.
+      const parsed = TaskPolledData.parse({ taskId: 'task-abc-123' });
+      expect(parsed.taskId).toBe('task-abc-123');
+      expect(parsed.sequence).toBeUndefined();
+    });
+
+    it('EventSchema_TaskPolled_BackCompat_AcceptsHistoricalSequenceField', () => {
+      // Historical events written before the deprecation still validate.
       const parsed = TaskPolledData.parse({
         taskId: 'task-abc-123',
         sequence: 5,
       });
-      expect(parsed.taskId).toBe('task-abc-123');
       expect(parsed.sequence).toBe(5);
     });
 
-    it('EventSchema_TaskPolled_RejectsNegativeSequence', () => {
+    it('EventSchema_TaskPolled_RejectsNegativeSequence_WhenPresent', () => {
+      // Field is optional, but when present it must satisfy the
+      // nonnegative-int constraint — guards against any future regression
+      // that resurrects the placeholder pattern with bad values.
       const result = TaskPolledData.safeParse({
         taskId: 'task-x',
         sequence: -1,

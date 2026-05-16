@@ -112,9 +112,30 @@ export class EventSourcedTaskStore implements TaskStore {
   ): Promise<Task> {
     const taskId = generateTaskId();
     const ttl = taskParams.ttl ?? null;
+    // CodeRabbit MAJOR #1431 follow-up: defensive normalization. The
+    // dispatch boundary (`tasks-augmented.ts::extractTaskOptions`) already
+    // filters non-positive/NaN/Infinity/non-integer values, but
+    // `createTask` can be called directly by other SDK consumers (tests,
+    // future in-process callers) without going through the extractor.
+    // Normalise here so the durable `TaskCreatedData.pollInterval` schema
+    // (`.int().positive().optional()`) never sees `0` / negative / NaN /
+    // Infinity / fractional — those would otherwise fail event-append
+    // validation and corrupt the event stream.
+    const rawPollInterval = taskParams.pollInterval;
+    const pollInterval =
+      typeof rawPollInterval === 'number' &&
+      Number.isInteger(rawPollInterval) &&
+      rawPollInterval > 0
+        ? rawPollInterval
+        : 1000;
     const createdAt = new Date().toISOString();
 
     // Event-store first: the durable record IS the truth.
+    // CodeRabbit MAJOR #1431 follow-up: include `pollInterval` in the
+    // durable payload so REPLAY (`projectTask`) reconstructs the original
+    // cadence. Pre-fix the value was only stored in the in-memory
+    // projection; restarting the process silently reverted every task to
+    // the 1000ms default.
     await this.store.append(taskStream(taskId), {
       type: 'task.created',
       timestamp: createdAt,
@@ -122,6 +143,7 @@ export class EventSourcedTaskStore implements TaskStore {
         taskId,
         ttl,
         request,
+        pollInterval,
         // `createdBy` is left to upstream stamping (DispatchContext via
         // AsyncLocalStorage — see B1) when the call is inside a
         // dispatch boundary. The schema permits the field as optional.
@@ -134,7 +156,7 @@ export class EventSourcedTaskStore implements TaskStore {
       ttl,
       createdAt,
       lastUpdatedAt: createdAt,
-      pollInterval: taskParams.pollInterval ?? 1000,
+      pollInterval,
     };
 
     this.tasks.set(taskId, {
@@ -431,6 +453,18 @@ function projectTask(
   const ttl: Task['ttl'] =
     typeof rawTtl === 'number' && Number.isFinite(rawTtl) ? rawTtl : null;
   const request = (createdData['request'] ?? {}) as Request;
+  // CodeRabbit MAJOR #1431 follow-up: replay the persisted pollInterval
+  // so a process restart preserves the caller-supplied cadence. Older
+  // events without the field (and any payload whose value fails the
+  // schema's `.int().positive()` contract — e.g., 0, negative, NaN,
+  // fractional) fall back to the SDK default (1000ms).
+  const rawPollInterval = createdData['pollInterval'];
+  const pollInterval =
+    typeof rawPollInterval === 'number' &&
+    Number.isInteger(rawPollInterval) &&
+    rawPollInterval > 0
+      ? rawPollInterval
+      : 1000;
 
   const createdAt = created.timestamp;
   const expiresAt = ttl !== null ? Date.parse(createdAt) + ttl : undefined;
@@ -441,7 +475,7 @@ function projectTask(
     ttl,
     createdAt,
     lastUpdatedAt: createdAt,
-    pollInterval: 1000,
+    pollInterval,
   };
   let result: Result | undefined;
 

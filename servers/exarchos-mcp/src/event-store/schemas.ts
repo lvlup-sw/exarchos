@@ -1737,17 +1737,32 @@ export const TaskCreatedData = z.object({
   createdBy: z.string().min(1).optional(),
   ttl: z.union([z.number().int().nonnegative(), z.null()]),
   request: z.unknown(),
+  // CodeRabbit MAJOR #1431 follow-up: persist pollInterval so REPLAY
+  // (`projectTask` in `event-sourced-task-store.ts`) reconstructs the
+  // caller-supplied cadence. Pre-fix the value was only kept in the
+  // in-memory projection, so a process restart silently reverted every
+  // task to the 1000ms default. Optional so historical events without
+  // the field continue to project (back-compat with pre-fix
+  // `task.created` payloads).
+  pollInterval: z.number().int().positive().optional(),
 });
 
 /**
- * Emitted on each `getTask` read. Sequence is the projection-sequence at
- * the time of the poll (audit trail for "who polled when, against what
- * projection version"). Optional in scope: callers may suppress emission
- * for hot-path polls if poll frequency becomes a noise issue.
+ * Emitted on each `getTask` read. The canonical poll-ordering signal is
+ * the event envelope's own `.sequence` field (assigned atomically by the
+ * appender — see `event-sourced-task-store.ts` `getTask`). Consumers MUST
+ * use `envelope.sequence` for ordering; `data.sequence` is retained as
+ * optional ONLY for back-compat with historical events emitted before
+ * CodeRabbit MAJOR #1431 follow-up which removed the placeholder. New
+ * emits omit the payload field entirely.
+ *
+ * @deprecated Use `envelope.sequence` instead. Retained as optional for
+ *             historical-event back-compat; will be removed once the
+ *             retention window has rolled past the placeholder-era events.
  */
 export const TaskPolledData = z.object({
   taskId: z.string().min(1),
-  sequence: z.number().int().nonnegative(),
+  sequence: z.number().int().nonnegative().optional(),
 });
 
 /**
