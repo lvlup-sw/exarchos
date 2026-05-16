@@ -35,6 +35,7 @@ import { workflowLogger } from '../logger.js';
 import { getHSMDefinition, isBuiltInWorkflowType, getValidTransitions } from './state-machine.js';
 import { hsmTransitionGuard } from './hsm-transition-guard.js';
 import { getPlaybook, composePhasePlaybook } from './playbooks.js';
+import { lintHandoff, type HandoffLintFinding } from './handoff-lint.js';
 import { getRequiredReviews } from './review-contract.js';
 import { type ToolResult } from '../format.js';
 import { createHash } from 'node:crypto';
@@ -1266,10 +1267,27 @@ function levenshtein(a: string, b: string): number {
 
 // ─── handleCheckpoint ──────────────────────────────────────────────────────
 
+/**
+ * Optional knobs threaded into `handleCheckpoint` that are not part of
+ * the dispatch input itself. Today only `handoffLint` is wired (#1244);
+ * future per-call overrides for things like staleness or counter reset
+ * policy can join the same struct without re-shaping the signature.
+ *
+ * The production wiring source-of-truth is `.exarchos.yml`'s
+ * `handoffLint.hardFail` flag (DR-1244). Tests pass this directly so
+ * the hard-fail path can be exercised without yaml-fixture plumbing.
+ */
+export interface HandleCheckpointOptions {
+  readonly handoffLint?: {
+    readonly hardFail?: boolean;
+  };
+}
+
 export async function handleCheckpoint(
   input: CheckpointInput,
   stateDir: string,
   eventStore: EventStore | null,
+  options?: HandleCheckpointOptions,
 ): Promise<ToolResult> {
   // T4 (#1240) — validate the dispatch payload at the handler boundary
   // before any state-file I/O or event emission. The MCP tool registration
@@ -1294,6 +1312,39 @@ export async function handleCheckpoint(
     };
   }
   const validated = parsed.data;
+
+  // #1244 — markdown-aware handoff lint. Runs over the validated payload
+  // BEFORE any state-file read or event-store write so the hard-fail
+  // path leaves the event stream untouched on rejection. The lint is
+  // a no-op when `handoff` is absent (pre-#1240 callers) — `lintHandoff`
+  // short-circuits on each empty field, so the cost is a few array
+  // existence checks for the legacy shape.
+  //
+  // Soft-fail (default): findings surface on `data.handoffLintFindings`
+  // and a human-readable summary lands on `warnings`. The checkpoint
+  // event is still appended — the lint is advisory, not blocking.
+  //
+  // Hard-fail (`options.handoffLint.hardFail === true`, mirrored from
+  // `.exarchos.yml`'s `handoffLint.hardFail`): the call rejects with
+  // `INVALID_INPUT` and `data.findings` carries the structured
+  // violations. No event is appended, so the operator can fix the
+  // prose and retry without scrubbing a partial write.
+  let handoffLintFindings: HandoffLintFinding[] = [];
+  if (validated.handoff) {
+    handoffLintFindings = lintHandoff(validated.handoff);
+    if (handoffLintFindings.length > 0 && options?.handoffLint?.hardFail === true) {
+      return {
+        success: false,
+        error: {
+          code: ErrorCode.INVALID_INPUT,
+          message: `Handoff prose failed lint (${handoffLintFindings.length} finding${
+            handoffLintFindings.length === 1 ? '' : 's'
+          }); see data.findings for details`,
+        },
+        data: { findings: handoffLintFindings },
+      };
+    }
+  }
 
   const stateFile = path.join(stateDir, `${input.featureId}.state.json`);
 
@@ -1550,6 +1601,25 @@ export async function handleCheckpoint(
     state.phase,
   );
 
+  // #1244 — soft-fail surfacing. Findings are only attached when
+  // non-empty so the field's *presence* on the data envelope is itself
+  // the signal to the caller. Clean handoffs produce no field, no
+  // warnings entry; this keeps the response payload small for the
+  // happy path. The summary on `warnings` carries a count + the
+  // distinct source fields so operators see the shape without
+  // unmarshalling `data.handoffLintFindings`.
+  const handoffWarnings: string[] = [];
+  if (handoffLintFindings.length > 0) {
+    const sources = Array.from(
+      new Set(handoffLintFindings.map((f) => f.source)),
+    ).sort();
+    handoffWarnings.push(
+      `handoff prose lint: ${handoffLintFindings.length} finding${
+        handoffLintFindings.length === 1 ? '' : 's'
+      } across ${sources.join(', ')}`,
+    );
+  }
+
   return {
     success: true,
     data: {
@@ -1563,7 +1633,12 @@ export async function handleCheckpoint(
       // v:3 envelope schema requires the field's presence, not just
       // truthiness. (#1082 sidecar field deleted in v2.11 substrate cut.)
       phasePlaybook,
+      // #1244: only attach the findings array when non-empty so the
+      // happy path stays slim and the field's presence is itself a
+      // self-describing signal.
+      ...(handoffLintFindings.length > 0 && { handoffLintFindings }),
     },
+    ...(handoffWarnings.length > 0 && { warnings: handoffWarnings }),
     _meta: buildCheckpointMeta(mutableState._checkpoint as WorkflowState['_checkpoint']),
   };
 }

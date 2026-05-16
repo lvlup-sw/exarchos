@@ -142,8 +142,40 @@ export async function handleWorkflow(
       return envelopeWrap(await handleCleanup(rest as Parameters<typeof handleCleanup>[0], stateDir, eventStore), startedAt);
     case 'reconcile':
       return envelopeWrap(await handleReconcileState(rest as Parameters<typeof handleReconcileState>[0], stateDir, eventStore), startedAt);
-    case 'checkpoint':
-      return envelopeWrap(await handleCheckpoint(rest as Parameters<typeof handleCheckpoint>[0], stateDir, eventStore), startedAt);
+    case 'checkpoint': {
+      // #1244 Sentry MEDIUM — load handoffLint.hardFail from .exarchos.yml and
+      // thread it to handleCheckpoint. Without this wiring the hard-fail switch
+      // was silently ignored in production (the helper code path existed but
+      // was never reached because composite stripped the options bag).
+      //
+      // worktreePath is derived from stateDir (`<root>/.exarchos/workflow-state`).
+      // loadExarchosConfig walks worktree → repo-root in order, matching the
+      // CLI's own discovery behavior (yaml-loader.ts uses the same algorithm).
+      const { dirname } = await import('node:path');
+      const { loadExarchosConfig } = await import('../config/load-exarchos-config.js');
+      const worktreePath = dirname(dirname(stateDir));
+      let checkpointOptions: { handoffLint?: { hardFail: boolean } } | undefined;
+      try {
+        const result = loadExarchosConfig(worktreePath);
+        const hardFail = result?.config.handoffLint?.hardFail;
+        if (typeof hardFail === 'boolean') {
+          checkpointOptions = { handoffLint: { hardFail } };
+        }
+      } catch {
+        // Soft-fail: any load/validation error falls through to default
+        // (soft-fail) behavior — checkpoint still functions, just without
+        // the hard-fail gate.
+      }
+      return envelopeWrap(
+        await handleCheckpoint(
+          rest as Parameters<typeof handleCheckpoint>[0],
+          stateDir,
+          eventStore,
+          checkpointOptions,
+        ),
+        startedAt,
+      );
+    }
     case 'rehydrate':
       return envelopeWrapWithCacheHints(
         await handleRehydrate(
