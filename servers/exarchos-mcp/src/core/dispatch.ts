@@ -556,6 +556,47 @@ export async function dispatch(
   // tool is not built-in — so here we gate on whether the tool has a
   // built-in composite handler (not a custom one) by checking the map
   // directly against the composite-tool key set.
+  // ─── #1291 Sentry MEDIUM — Mint dispatch context BEFORE workspace +
+  // ─── elicitation so transitively-emitted events (workspace.resolved,
+  // ─── elicitation.requested/fulfilled/declined) carry the same
+  // ─── operationId as the handler events. Pre-fix the context was minted
+  // ─── after these branches, so the early events lacked operationId and
+  // ─── multi-match / validation-failure / gate-deny early returns lacked
+  // ─── the _meta correlation block entirely. The dispatch context is
+  // ─── derived once here and reused everywhere via AsyncLocalStorage.
+  const incoming: IncomingCorrelation = (() => {
+    const meta = (args as { _meta?: unknown })._meta;
+    if (typeof meta !== 'object' || meta === null) return {};
+    const rec = meta as Record<string, unknown>;
+    const result: { correlationId?: string; causationId?: string } = {};
+    if (typeof rec.correlationId === 'string') result.correlationId = rec.correlationId;
+    if (typeof rec.causationId === 'string') result.causationId = rec.causationId;
+    return result;
+  })();
+  const dispatchCtx = mintDispatchContext(incoming);
+  const attachMeta = (result: ToolResult): ToolResult => {
+    const existingMeta =
+      typeof (result as { _meta?: unknown })._meta === 'object' &&
+      (result as { _meta?: unknown })._meta !== null
+        ? ((result as { _meta: Record<string, unknown> })._meta)
+        : undefined;
+    const correlationMeta = {
+      operationId: dispatchCtx.operationId,
+      correlationId: dispatchCtx.correlationId,
+      ...(dispatchCtx.causationId !== undefined
+        ? { causationId: dispatchCtx.causationId }
+        : {}),
+    };
+    // Non-destructive merge: caller-supplied `_meta` wins on conflict.
+    const mergedMeta = existingMeta
+      ? { ...correlationMeta, ...existingMeta }
+      : correlationMeta;
+    return { ...result, _meta: mergedMeta } as ToolResult;
+  };
+
+  return runWithDispatchContext(dispatchCtx, async () => {
+  try {
+
   const isBuiltIn = Object.prototype.hasOwnProperty.call(COMPOSITE_HANDLERS, tool);
   if (isBuiltIn && registeredTool) {
     const actionName = args.action;
@@ -611,8 +652,23 @@ export async function dispatch(
             rest = { ...rest, featureId: resolution.featureId };
           } else {
             // Multi-match. Surface the structured INVALID_INPUT so the
-            // caller can pick the intended target.
-            return {
+            // caller can pick the intended target. CodeRabbit CRITICAL
+            // #1428: map `validTargets` from `{featureId,path}` records
+            // to plain `featureId` strings — that's the disambiguator the
+            // caller actually supplies in the retry. The published error
+            // contract expects `readonly (string | ValidTransitionTarget)[]`.
+            // Multi-root paths surface only as features (cwd-walk also
+            // returns featureId strings), so the union narrows to `string[]`.
+            // _meta is added by the catch-all envelope wrapper below; the
+            // dispatch context (operationId/correlationId/causationId)
+            // attaches to errors via the same `runWithDispatchContext`
+            // outer wrap.
+            // CodeRabbit CRITICAL + Sentry #1428: also attach _meta so
+            // the multi-match envelope carries correlation IDs (parity
+            // with success + thrown-error paths). Pre-fix this was the
+            // ONE early-return path that diverged from the published
+            // error contract.
+            return attachMeta({
               success: false,
               error: {
                 code: resolution.code,
@@ -621,7 +677,7 @@ export async function dispatch(
                   'supply an explicit featureId to disambiguate.',
                 validTargets: resolution.validTargets.map((t) => t.featureId),
               },
-            };
+            });
           }
         }
       } catch {
@@ -689,15 +745,19 @@ export async function dispatch(
           const { performElicitation } = await import(
             '../dispatch/elicitation-dispatch.js'
           );
-          const operationId = `${tool}-${actionName}-${Date.now()}-${Math.random()
-            .toString(36)
-            .slice(2, 10)}`;
+          // Sentry MEDIUM #1428: reuse the dispatch-context operationId
+          // here. Pre-fix elicitation minted its own operationId, so the
+          // elicitation events (`elicitation.requested`, `.fulfilled`,
+          // `.declined`) were uncorrelated with the dispatch events on
+          // the same operation. Threading the dispatchCtx operationId
+          // keeps the entire dispatch (including the elicitation
+          // round-trip) on a single correlation tuple.
           const elicitation = await performElicitation({
             inputSchema: actionSchema,
             missingField,
             client: ctx.elicitationClient,
             eventStore: ctx.eventStore,
-            operationId,
+            operationId: dispatchCtx.operationId,
           });
           if (elicitation.fulfilled) {
             const retried = matchingAction.schema.safeParse({
@@ -718,10 +778,10 @@ export async function dispatch(
 
     if (!parsed.success) {
       const context = `${tool}/${actionName}`;
-      return {
+      return attachMeta({
         success: false,
         error: formatValidationError(parsed.error, context),
-      };
+      });
     }
 
     // Thread the validated args forward so downstream handlers get the
@@ -734,7 +794,7 @@ export async function dispatch(
     // capability shaping, not input validation. Gate is built-in only;
     // custom tools manage their own capability surface.
     const denied = enforceReadonlyGate(tool, actionName, ctx.capabilityResolver);
-    if (denied) return denied;
+    if (denied) return attachMeta(denied);
 
     // T-12 (P4 of rehydration-machinery-refactor): emit
     // `session.machinery_consumed` on the first non-rehydrate L5 handler
@@ -757,104 +817,61 @@ export async function dispatch(
     ? async (a: Record<string, unknown>) => builtInHandler(a, ctx)
     : createCustomToolHandler(tool);
 
-  // ─── #1291 — Dispatch-boundary correlation context ────────────────────
-  // Mint a fresh `DispatchContext` per dispatch entry. Inherit upstream
-  // correlation/causation from `args._meta` when the caller threads them
-  // through (HATEOAS next_actions follow-up, MCP _meta block, CLI flags).
-  // The active context is read by `EventStore.append*` via
-  // AsyncLocalStorage and stamped onto every event emitted transitively
-  // during this dispatch — so a multi-event dispatch produces events
-  // that all share one operationId.
-  const incoming: IncomingCorrelation = (() => {
-    const meta = (args as { _meta?: unknown })._meta;
-    if (typeof meta !== 'object' || meta === null) return {};
-    const rec = meta as Record<string, unknown>;
-    const result: { correlationId?: string; causationId?: string } = {};
-    if (typeof rec.correlationId === 'string') result.correlationId = rec.correlationId;
-    if (typeof rec.causationId === 'string') result.causationId = rec.causationId;
-    return result;
-  })();
-  const dispatchCtx = mintDispatchContext(incoming);
-
-  return runWithDispatchContext(dispatchCtx, async () => {
-    try {
-      let result: ToolResult;
-      // ─── #1273 / C1 — Tasks-augmented synthesis ────────────────────────
-      // When the caller threaded `task: { ttl? }` AND a TaskStore is wired
-      // on the context, route the underlying handler through
-      // `runTasksAugmented` so the response is a SDK CreateTaskResult
-      // envelope rather than the one-shot ToolResult. Without `taskStore`
-      // (CLI cold-start, in-process tests that omit the wiring), we fall
-      // back to the one-shot path so callers that legitimately have no
-      // task substrate don't crash.
-      if (taskAugmented && ctx.taskStore) {
-        const taskOptions = extractTaskOptions(taskOptionsRaw);
-        // Build the SDK Request envelope from the dispatch args. The MCP
-        // adapter (C2) supplies the real `tools/call` request id; direct
-        // dispatch callers (CLI, tests) synthesize a deterministic one
-        // anchored on operationId so audit can still correlate.
-        const request: Parameters<typeof runTasksAugmented>[0]['request'] = {
-          method: 'tools/call',
-          params: { name: tool, arguments: args },
-        };
-        const requestId = `dispatch:${dispatchCtx.operationId}`;
-        const augmentedHandler = ctx.enableTelemetry
-          ? async () => {
-              const { withTelemetry } = await import('../telemetry/middleware.js');
-              const wrapped = withTelemetry(coreHandler, tool, ctx.eventStore);
-              return wrapped(args);
-            }
-          : async () => coreHandler(args);
-        result = await runTasksAugmented({
-          taskStore: ctx.taskStore,
-          taskOptions,
-          requestId,
-          request,
-          execute: augmentedHandler,
-        });
-      } else if (ctx.enableTelemetry) {
-        // Lazy-load to keep CLI cold-start under the DR-5 budget.
-        const { withTelemetry } = await import('../telemetry/middleware.js');
-        const wrappedHandler = withTelemetry(coreHandler, tool, ctx.eventStore);
-        result = await wrappedHandler(args);
-      } else {
-        result = await coreHandler(args);
-      }
-      // Surface the three correlation IDs on the response `_meta` block
-      // so MCP / CLI callers can chain follow-ups with intact correlation.
-      // Non-destructive merge: caller-supplied `_meta` wins on conflict.
-      const existingMeta =
-        typeof (result as { _meta?: unknown })._meta === 'object' &&
-        (result as { _meta?: unknown })._meta !== null
-          ? ((result as { _meta: Record<string, unknown> })._meta)
-          : undefined;
-      const correlationMeta = {
-        operationId: dispatchCtx.operationId,
-        correlationId: dispatchCtx.correlationId,
-        ...(dispatchCtx.causationId !== undefined
-          ? { causationId: dispatchCtx.causationId }
-          : {}),
-      };
-      const mergedMeta = existingMeta
-        ? { ...correlationMeta, ...existingMeta }
-        : correlationMeta;
-      return { ...result, _meta: mergedMeta } as ToolResult;
-    } catch (error) {
-      return {
-        success: false,
-        error: {
-          code: 'INTERNAL_ERROR',
-          message: error instanceof Error ? error.message : 'Unhandled dispatch error',
-        },
-        _meta: {
-          operationId: dispatchCtx.operationId,
-          correlationId: dispatchCtx.correlationId,
-          ...(dispatchCtx.causationId !== undefined
-            ? { causationId: dispatchCtx.causationId }
-            : {}),
-        },
-      };
-    }
+  // Handler invocation inside the dispatch-context wrapper opened at the
+  // top of dispatch(). `attachMeta` adds the three correlation IDs to the
+  // success result; the catch handler below attaches them to errors.
+  let result: ToolResult;
+  // ─── #1273 / C1 — Tasks-augmented synthesis ────────────────────────────
+  // When the caller threaded `task: { ttl? }` AND a TaskStore is wired
+  // on the context, route the underlying handler through
+  // `runTasksAugmented` so the response is a SDK CreateTaskResult
+  // envelope rather than the one-shot ToolResult. Without `taskStore`
+  // (CLI cold-start, in-process tests that omit the wiring), we fall
+  // back to the one-shot path so callers that legitimately have no
+  // task substrate don't crash.
+  if (taskAugmented && ctx.taskStore) {
+    const taskOptions = extractTaskOptions(taskOptionsRaw);
+    // Build the SDK Request envelope from the dispatch args. The MCP
+    // adapter (C2) supplies the real `tools/call` request id; direct
+    // dispatch callers (CLI, tests) synthesize a deterministic one
+    // anchored on operationId so audit can still correlate.
+    const request: Parameters<typeof runTasksAugmented>[0]['request'] = {
+      method: 'tools/call',
+      params: { name: tool, arguments: args },
+    };
+    const requestId = `dispatch:${dispatchCtx.operationId}`;
+    const augmentedHandler = ctx.enableTelemetry
+      ? async () => {
+          const { withTelemetry } = await import('../telemetry/middleware.js');
+          const wrapped = withTelemetry(coreHandler, tool, ctx.eventStore);
+          return wrapped(args);
+        }
+      : async () => coreHandler(args);
+    result = await runTasksAugmented({
+      taskStore: ctx.taskStore,
+      taskOptions,
+      requestId,
+      request,
+      execute: augmentedHandler,
+    });
+  } else if (ctx.enableTelemetry) {
+    // Lazy-load to keep CLI cold-start under the DR-5 budget.
+    const { withTelemetry } = await import('../telemetry/middleware.js');
+    const wrappedHandler = withTelemetry(coreHandler, tool, ctx.eventStore);
+    result = await wrappedHandler(args);
+  } else {
+    result = await coreHandler(args);
+  }
+  return attachMeta(result);
+  } catch (error) {
+    return attachMeta({
+      success: false,
+      error: {
+        code: 'INTERNAL_ERROR',
+        message: error instanceof Error ? error.message : 'Unhandled dispatch error',
+      },
+    });
+  }
   });
 }
 

@@ -22,6 +22,7 @@ import {
   assertMainWorktree,
   getCurrentBranch,
   assertCurrentBranchNotProtected,
+  probeStashAndEmit,
 } from './dispatch-guard.js';
 import type { AncestryResult } from './dispatch-guard.js';
 import {
@@ -403,12 +404,61 @@ export async function handlePrepareDelegation(
     const gitExec = createGitExec();
     const currentBranch = getCurrentBranch(gitExec);
 
+    // #1261: capture per-guard outcomes so a single `dispatch.preflight`
+    // event can be emitted regardless of which guard short-circuits.
+    // Guards that never run (because an earlier guard already blocked)
+    // record `passed: true` in the per-guard payload — they did not
+    // observe a failure, so calling them "failed" would mislead audit
+    // queries. The aggregate `passed` bit is the load-bearing
+    // observable for "did anything block this dispatch".
+    const preflightStart = Date.now();
+    const guardOutcomes: {
+      ancestry: { passed: boolean };
+      worktree: { passed: boolean };
+      protectedBranch: { passed: boolean };
+      mainWorktree: { passed: boolean };
+    } = {
+      ancestry: { passed: true },
+      worktree: { passed: true },
+      protectedBranch: { passed: true },
+      mainWorktree: { passed: true },
+    };
+
+    /**
+     * Emit the single `dispatch.preflight` summary event. Inherits
+     * `operationId` automatically via the dispatch context AsyncLocalStorage
+     * stamp (B1 / #1291). Fire-and-forget at the call site — the helper
+     * itself awaits store.append so callers that query the stream after
+     * the dispatch return observe the event (read-your-writes).
+     */
+    const emitDispatchPreflight = async (): Promise<void> => {
+      const passed =
+        guardOutcomes.ancestry.passed &&
+        guardOutcomes.worktree.passed &&
+        guardOutcomes.protectedBranch.passed &&
+        guardOutcomes.mainWorktree.passed;
+      await emitAuditEvent(store, streamId, {
+        type: 'dispatch.preflight',
+        data: {
+          guards: {
+            ancestry: { passed: guardOutcomes.ancestry.passed },
+            worktree: { passed: guardOutcomes.worktree.passed },
+            protectedBranch: { passed: guardOutcomes.protectedBranch.passed },
+            mainWorktree: { passed: guardOutcomes.mainWorktree.passed },
+          },
+          passed,
+          durationMs: Date.now() - preflightStart,
+        },
+      });
+    };
+
     // #1129 C: refuse dispatch from a protected base branch (main/master).
     // Runs before ancestry because 'integrationBranch descends from main'
     // trivially passes when HEAD is on main — that case must be caught
     // at HEAD inspection, not ancestry.
     const protectionResult = assertCurrentBranchNotProtected(currentBranch);
     if (protectionResult.blocked) {
+      guardOutcomes.protectedBranch.passed = false;
       await emitAuditEvent(store, streamId, {
         type: 'preflight.blocked',
         data: {
@@ -418,6 +468,7 @@ export async function handlePrepareDelegation(
           },
         },
       });
+      await emitDispatchPreflight();
 
       return {
         success: true,
@@ -440,6 +491,7 @@ export async function handlePrepareDelegation(
       ['main'],
       gitExec,
     );
+    guardOutcomes.ancestry.passed = ancestryResult.passed;
 
     if (ancestryResult.blocked) {
       await emitAuditEvent(store, streamId, {
@@ -452,6 +504,7 @@ export async function handlePrepareDelegation(
           },
         },
       });
+      await emitDispatchPreflight();
 
       return {
         success: true,
@@ -468,6 +521,11 @@ export async function handlePrepareDelegation(
     // Skip worktree check when nativeIsolation is true (Claude Code manages isolation)
     if (!args.nativeIsolation) {
       const worktreeResult = assertMainWorktree();
+      // `mainWorktree` is reserved for a future cross-cutting "canonical
+      // main worktree" assertion; today it shadows `worktree.passed` so
+      // the event-schema shape is stable from day one.
+      guardOutcomes.worktree.passed = worktreeResult.isMain;
+      guardOutcomes.mainWorktree.passed = worktreeResult.isMain;
       if (!worktreeResult.isMain) {
         await emitAuditEvent(store, streamId, {
           type: 'preflight.blocked',
@@ -479,6 +537,7 @@ export async function handlePrepareDelegation(
             },
           },
         });
+        await emitDispatchPreflight();
 
         return {
           success: true,
@@ -500,6 +559,24 @@ export async function handlePrepareDelegation(
         passed: true,
         integrationBranch,
       },
+    });
+
+    // #1261: emit the consolidated `dispatch.preflight` summary now that
+    // every guard has run and recorded its outcome. Single emission per
+    // dispatch — the aggregate `passed` will be `true` here.
+    await emitDispatchPreflight();
+
+    // #1261: probe for shared-stash collisions in the current worktree.
+    // Advisory only — fires `stash.detected` when `git stash list`
+    // returns a non-empty listing. Cross-worktree stash storage is shared
+    // (`feedback_subagent_stash_hazard`), so an existing entry surfaces
+    // the moment of collision for later root-cause attribution. Failures
+    // are swallowed inside `probeStashAndEmit`; no dispatch impact.
+    await probeStashAndEmit({
+      store,
+      streamId,
+      worktreePath: process.cwd(),
+      gitExec,
     });
 
     // ─── DR-5: Checkpoint Gate ──────────────────────────────────────────
