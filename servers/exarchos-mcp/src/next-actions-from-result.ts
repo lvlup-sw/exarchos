@@ -15,6 +15,7 @@
 
 import { z } from 'zod';
 import type { ToolResult } from './format.js';
+import { logger } from './logger.js';
 import type { NextAction } from './next-action.js';
 import { computeNextActions } from './next-actions-computer.js';
 import {
@@ -22,6 +23,13 @@ import {
   WorkflowStateSchema,
 } from './projections/rehydration/schema.js';
 import { getHSMDefinition } from './workflow/state-machine.js';
+
+/**
+ * Structured logger child for fail-closed parse warnings (#1238).
+ * Exported so unit tests can `vi.spyOn(nextActionsLogger, 'warn')` to assert
+ * the malformed-payload fail-closed branch.
+ */
+export const nextActionsLogger = logger.child({ subsystem: 'next-actions' });
 
 // ─── #1238 ResultDataSchema discriminated union ─────────────────────────────
 //
@@ -53,16 +61,24 @@ export const ShapeTwoSchema = z
   .passthrough();
 
 /**
- * Discriminated by structure: ShapeOne carries top-level `phase` /
- * `workflowType`; ShapeTwo nests them inside `workflowState`. A payload that
- * matches both (a handler payload that also carries a `workflowState`
- * sibling) parses as ShapeOne by virtue of union order — the top-level
- * extraction is preserved and the workflowState segment is read for
- * `mergeOrchestrator` backfill via a separate ShapeTwo parse downstream.
+ * The two recognised workflow-context payload shapes. A success-envelope
+ * payload that carries a discriminator key but fails this union is treated
+ * as malformed (warn + `[]`) at the fail-closed boundary in
+ * `nextActionsFromResult`. Payloads without any discriminator key are
+ * non-workflow responses (event-store / view composite / describe) and are
+ * not parsed against this schema at all.
  */
 export const ResultDataSchema = z.union([ShapeOneSchema, ShapeTwoSchema]);
 
 export type ResultData = z.infer<typeof ResultDataSchema>;
+
+/**
+ * Discriminator keys that indicate a payload is *attempting* to carry
+ * workflow context (even if the types are wrong). Used to distinguish a
+ * legitimate non-workflow payload (silent `[]`) from a malformed workflow
+ * payload (warn + `[]`).
+ */
+const CONTEXT_DISCRIMINATOR_KEYS = ['phase', 'workflowType', 'workflowState'] as const;
 
 /**
  * Extract workflow state from a successful `ToolResult` and compute the
@@ -95,17 +111,28 @@ export function nextActionsFromResult(result: ToolResult): readonly NextAction[]
   const data = result.data;
   if (data === null || data === undefined || typeof data !== 'object') return [];
 
-  // Fail-closed parse boundary (#1238). A success payload that's a non-null
-  // object but matches NEITHER shape is malformed — warn so the contract
-  // violation is surfaced rather than silently degrading to []. The two
-  // shapes are intentionally permissive (`.passthrough()`), so this only
-  // triggers on genuinely unexpected payloads (e.g. handler returned wrong
-  // types on phase / workflowType, or workflowState missing featureId).
+  // Fail-closed parse boundary (#1238). Three cases:
+  //
+  //   1. Payload carries none of the workflow-context discriminator keys
+  //      (phase / workflowType / workflowState). It's an event-store /
+  //      view-composite / describe response — return [] silently.
+  //   2. Payload carries at least one discriminator key but ResultDataSchema
+  //      rejects it — malformed (wrong types, missing required nested
+  //      fields). Warn and return [].
+  //   3. Payload parses as ShapeOne, ShapeTwo, or both — proceed.
+  //
+  // `Reflect.has` is the structural attempt-detector; it does not introspect
+  // value types (that's the schema's job).
+  const attemptedContext = CONTEXT_DISCRIMINATOR_KEYS.some((k) =>
+    Reflect.has(data, k),
+  );
+  if (!attemptedContext) return [];
+
   const parsed = ResultDataSchema.safeParse(data);
   if (!parsed.success) {
-    console.warn(
-      '[next-actions] malformed result.data — failed ResultDataSchema parse; returning [].',
+    nextActionsLogger.warn(
       { issues: parsed.error.issues },
+      'malformed result.data — failed ResultDataSchema parse; returning [].',
     );
     return [];
   }

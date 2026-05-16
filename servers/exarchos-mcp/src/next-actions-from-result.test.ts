@@ -13,6 +13,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   nextActionsFromResult,
+  nextActionsLogger,
   ResultDataSchema,
 } from './next-actions-from-result.js';
 import type { ToolResult } from './format.js';
@@ -216,7 +217,9 @@ describe('nextActionsFromResult — shape recognition', () => {
       let warnSpy: ReturnType<typeof vi.spyOn>;
 
       beforeEach(() => {
-        warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+        warnSpy = vi
+          .spyOn(nextActionsLogger, 'warn')
+          .mockImplementation(() => undefined as never);
       });
 
       afterEach(() => {
@@ -248,8 +251,8 @@ describe('nextActionsFromResult — shape recognition', () => {
       // Legitimate no-actions path: error envelope. Must NOT log a warning —
       // only malformed-success payloads warn.
       const warnSpy = vi
-        .spyOn(console, 'warn')
-        .mockImplementation(() => undefined);
+        .spyOn(nextActionsLogger, 'warn')
+        .mockImplementation(() => undefined as never);
       try {
         const result: ToolResult = {
           success: false,
@@ -266,8 +269,8 @@ describe('nextActionsFromResult — shape recognition', () => {
       // Legitimate no-actions path: success envelope with null/non-object
       // data (describe / list / status actions). Must NOT warn.
       const warnSpy = vi
-        .spyOn(console, 'warn')
-        .mockImplementation(() => undefined);
+        .spyOn(nextActionsLogger, 'warn')
+        .mockImplementation(() => undefined as never);
       try {
         expect(nextActionsFromResult(ok(null))).toEqual([]);
         expect(nextActionsFromResult(ok(undefined))).toEqual([]);
