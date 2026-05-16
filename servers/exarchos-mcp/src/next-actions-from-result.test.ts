@@ -13,6 +13,8 @@
 import { describe, it, expect } from 'vitest';
 import { nextActionsFromResult } from './next-actions-from-result.js';
 import type { ToolResult } from './format.js';
+import { rehydrationReducer } from './projections/rehydration/reducer.js';
+import type { WorkflowEvent } from './event-store/schemas.js';
 
 function ok(data: unknown): ToolResult {
   return { success: true, data };
@@ -158,5 +160,120 @@ describe('nextActionsFromResult — shape recognition', () => {
       }),
     );
     expect(actions).toEqual([]);
+  });
+});
+
+// ─── #1374 cross-boundary pin: reducer output → nextActionsFromResult ────────
+//
+// Contract source: test/process/saga-merge-detour.test.ts (process tier).
+//
+// The saga test drives a real MCP server through `task_complete` with
+// `result.worktreePath`, then asserts the rehydrate envelope's `next_actions`
+// surfaces `merge_orchestrate`. This unit-tier pin reproduces the SAME
+// contract one tier earlier — no spawn, no IPC — by composing the
+// rehydration reducer (the projection that folds `task.completed{worktreePath}`
+// into `phase: merge-pending`) with `nextActionsFromResult` (the helper that
+// reads the rehydration document's `workflowState` segment to compute the
+// outbound verbs). If the chain breaks at either the reducer's worktree-fold
+// or the result-reader's shape-2 extraction, this test fails before the
+// process-tier saga does — catching a #1208 / #1374-class regression at the
+// unit tier.
+//
+// Why both tests stay: the saga test pins the cross-process JSON contract
+// (MCP envelope shape, stderr/transport plumbing) which this test does not
+// cover; this test pins the in-process projection→reader composition which
+// the saga can only check end-to-end. They sandwich the chain.
+describe('nextActionsFromResult — #1374 cross-boundary pin (reducer ⇒ reader)', () => {
+  function makeEvent<T extends Record<string, unknown>>(
+    type: string,
+    data: T,
+    sequence: number,
+  ): WorkflowEvent {
+    return {
+      streamId: 'pin-1374',
+      sequence,
+      timestamp: '2026-05-15T00:00:00.000Z',
+      type,
+      schemaVersion: '1.0',
+      data,
+    } as WorkflowEvent;
+  }
+
+  it('NextActions_FromReducerProjectedRehydrationDoc_AfterWorktreeBearingTaskCompleted_SurfacesMergeOrchestrate', () => {
+    // GIVEN: a feature workflow folded through `workflow.started` →
+    // `workflow.transition(to=delegate)` → `task.assigned` →
+    // `task.completed{worktreePath}` — the exact event sequence the saga
+    // drives through MCP.
+    let doc = rehydrationReducer.apply(
+      rehydrationReducer.initial,
+      makeEvent(
+        'workflow.started',
+        { featureId: 'pin-1374', workflowType: 'feature' },
+        0,
+      ),
+    );
+    doc = rehydrationReducer.apply(
+      doc,
+      makeEvent('workflow.transition', { from: '', to: 'delegate' }, 1),
+    );
+    doc = rehydrationReducer.apply(
+      doc,
+      makeEvent('task.assigned', { taskId: '001', branch: 'feature/pin-1374-001' }, 2),
+    );
+    doc = rehydrationReducer.apply(
+      doc,
+      makeEvent(
+        'task.completed',
+        { taskId: '001', worktreePath: '/tmp/wt/001', worktree: '.worktrees/001' },
+        3,
+      ),
+    );
+
+    // THEN: the reducer has stamped the merge-pending detour on workflowState
+    expect(doc.workflowState.phase).toBe('merge-pending');
+    expect(doc.workflowState.mergeOrchestrator).toEqual({
+      taskId: '001',
+      phase: 'pending',
+    });
+
+    // WHEN: nextActionsFromResult reads the rehydration document as the
+    // composite tool's `result.data` payload (shape 2)
+    const actions = nextActionsFromResult({ success: true, data: doc });
+
+    // THEN: merge_orchestrate is surfaced with the canonical idempotency key
+    // `<featureId>:merge_orchestrate:<taskId>` — same contract the saga test
+    // (test/process/saga-merge-detour.test.ts) asserts on the live envelope.
+    const mo = actions.find((a) => a.verb === 'merge_orchestrate');
+    expect(mo).toBeDefined();
+    expect(mo?.idempotencyKey).toBe('pin-1374:merge_orchestrate:001');
+  });
+
+  it('NextActions_FromReducerProjectedDoc_TaskCompletedWithoutWorktree_DoesNotSurfaceMergeOrchestrate', () => {
+    // Negative case: no worktree association → reducer leaves phase in
+    // `delegate` → nextActionsFromResult must NOT surface merge_orchestrate.
+    // Pins the gate so a future regression that fires the detour on bare
+    // task.completed events is caught at the unit tier.
+    let doc = rehydrationReducer.apply(
+      rehydrationReducer.initial,
+      makeEvent(
+        'workflow.started',
+        { featureId: 'pin-1374-neg', workflowType: 'feature' },
+        0,
+      ),
+    );
+    doc = rehydrationReducer.apply(
+      doc,
+      makeEvent('workflow.transition', { from: '', to: 'delegate' }, 1),
+    );
+    doc = rehydrationReducer.apply(
+      doc,
+      makeEvent('task.completed', { taskId: '001' }, 2),
+    );
+
+    expect(doc.workflowState.phase).toBe('delegate');
+    expect(doc.workflowState.mergeOrchestrator).toBeUndefined();
+
+    const actions = nextActionsFromResult({ success: true, data: doc });
+    expect(actions.some((a) => a.verb === 'merge_orchestrate')).toBe(false);
   });
 });
