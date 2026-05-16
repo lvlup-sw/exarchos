@@ -290,6 +290,35 @@ describe('nextActionsFromResult — shape recognition', () => {
         expect(actions).toEqual([]);
         expect(warnSpy).toHaveBeenCalled();
       });
+
+      it('NextActionsFromResult_HandleCheckpointShape_PhaseOnly_SilentlyReturnsEmpty', () => {
+        // Sentry #1421 rev2 LOW: `handleCheckpoint` returns
+        // `{ phase, projectionSequence?, phasePlaybook }` — `phase` but no
+        // `workflowType`. With the original `some()` advertise predicate,
+        // this would mark shape-1 as advertised, then strict safeParse would
+        // fail (missing required `workflowType`), and the helper would emit
+        // a misleading "malformed result.data" warning on every legitimate
+        // checkpoint call. With the `every()` predicate, partial-key
+        // payloads fall through to the silent no-actions path.
+        const actions = nextActionsFromResult(
+          ok({
+            phase: 'delegate',
+            projectionSequence: 42,
+            phasePlaybook: null,
+          }),
+        );
+        expect(actions).toEqual([]);
+        expect(warnSpy).not.toHaveBeenCalled();
+      });
+
+      it('NextActionsFromResult_HandleSetIdempotentShape_PhaseOnly_SilentlyReturnsEmpty', () => {
+        // Sentry #1421 rev2 LOW: idempotent branch of `handleSet` returns
+        // `{ phase, ... }` without `workflowType`. Same silence-not-warn
+        // contract as the checkpoint case above.
+        const actions = nextActionsFromResult(ok({ phase: 'review' }));
+        expect(actions).toEqual([]);
+        expect(warnSpy).not.toHaveBeenCalled();
+      });
     });
 
     it('RehydrationMergeOrchestratorSchema_PhaseEnum_MatchesMergeOrchestratorStateSchema', () => {

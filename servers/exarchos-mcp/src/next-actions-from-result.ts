@@ -73,12 +73,25 @@ export const ResultDataSchema = z.union([ShapeOneSchema, ShapeTwoSchema]);
 export type ResultData = z.infer<typeof ResultDataSchema>;
 
 /**
- * Per-shape discriminator keys. A payload carrying any key from one of these
- * sets is *advertising* that shape; if it advertises a shape, that shape must
- * validate strictly. This is the asymmetric-failure pin for the union
- * (#1238 follow-up): without per-shape advertised-validation, a payload that
- * satisfies shape 1 but advertises a malformed shape 2 (or vice versa) would
- * slip through the loose union safeParse and silently degrade.
+ * Per-shape discriminator keys. A payload is considered to *advertise* a
+ * shape when it carries *every* discriminator key for that shape — matching
+ * what the shape's schema actually requires. Once advertised, the shape must
+ * validate strictly or the helper fails closed (warn + `[]`).
+ *
+ * Why `every` and not `some` (Sentry #1421 rev2, LOW): handler returns from
+ * `handleCheckpoint` and the idempotent branch of `handleSet` legitimately
+ * carry `{ phase, ... }` without `workflowType` — they are not workflow-state
+ * envelopes, just phase-confirmation receipts. A `some`-based advertise
+ * predicate would (mis)mark those as shape-1 advertisements, the strict
+ * safeParse would then fail (missing required `workflowType`), and the
+ * helper would emit a misleading "malformed result.data" warning on every
+ * normal checkpoint/set call. `every` aligns the advertise check with the
+ * schema's required-field set, so partial-key payloads silently fall through
+ * to the no-actions path instead of being escalated to malformed.
+ *
+ * The asymmetric-failure pin still holds: a payload that advertises both
+ * keys for shape 1 *and* the discriminator for shape 2 must validate against
+ * both shapes independently.
  */
 const SHAPE_ONE_DISCRIMINATOR_KEYS = ['phase', 'workflowType'] as const;
 const SHAPE_TWO_DISCRIMINATOR_KEYS = ['workflowState'] as const;
@@ -136,10 +149,10 @@ export function nextActionsFromResult(result: ToolResult): readonly NextAction[]
   //
   // `Reflect.has` is the structural attempt-detector; it does not introspect
   // value types (that's each shape's safeParse).
-  const shapeOneAdvertised = SHAPE_ONE_DISCRIMINATOR_KEYS.some((k) =>
+  const shapeOneAdvertised = SHAPE_ONE_DISCRIMINATOR_KEYS.every((k) =>
     Reflect.has(data, k),
   );
-  const shapeTwoAdvertised = SHAPE_TWO_DISCRIMINATOR_KEYS.some((k) =>
+  const shapeTwoAdvertised = SHAPE_TWO_DISCRIMINATOR_KEYS.every((k) =>
     Reflect.has(data, k),
   );
   if (!shapeOneAdvertised && !shapeTwoAdvertised) return [];
