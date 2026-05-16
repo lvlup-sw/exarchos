@@ -544,7 +544,6 @@ describe('EventTypes', () => {
     //   and `task-store/event-sourced-task-store.test.ts` for the
     //   end-to-end lifecycle + REPLAY (INV-1) acceptance test.
     expect(EventTypes).toHaveLength(114);
-    expect(EventTypes).toHaveLength(114);
   });
 
   it('EventTypes_IncludesElicitation', () => {
