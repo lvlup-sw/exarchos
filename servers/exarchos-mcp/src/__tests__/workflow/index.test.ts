@@ -47,6 +47,16 @@ vi.mock('@modelcontextprotocol/sdk/server/mcp.js', () => ({
       },
     ),
     connect: vi.fn().mockResolvedValue(undefined),
+    // #1290 — createMcpServer wires `oninitialized` + `setNotificationHandler`
+    // for the roots/list_changed capability snapshot. The real McpServer
+    // exposes these via `.server` (the underlying SDK Server instance).
+    // The mock mirrors that surface so the production code path doesn't
+    // throw "Cannot set properties of undefined" when running under vitest.
+    server: {
+      oninitialized: undefined,
+      getClientCapabilities: vi.fn().mockReturnValue({}),
+      setNotificationHandler: vi.fn(),
+    },
   })),
 }));
 

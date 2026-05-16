@@ -140,6 +140,27 @@ export const EventTypes = [
   // B5: remove-worktree
   'worktree.remove.requested',
   'worktree.remove.executed',
+  // #1290 — emitted by `resolveWorkspace` (servers/exarchos-mcp/src/workspace/
+  // discovery.ts) when the dispatch boundary resolves a missing `featureId`
+  // from MCP roots or via the cwd-walk fallback. Records the source so audit
+  // queries can distinguish handshake-driven resolutions from cwd inference.
+  // Not emitted on multi-match (no single featureId to attribute) or zero-match.
+  'workspace.resolved',
+  // #1274 — dispatch elicitation hand-off (form mode). Emitted on a
+  // per-operation pseudo-stream (`elicitation/<operationId>`) so audit
+  // queries can correlate the request/response round-trip without
+  // contaminating the per-feature event log. `requested` lands BEFORE the
+  // `elicitation/create` MCP round-trip fires; `fulfilled` lands AFTER the
+  // client returns a value.
+  'elicitation.requested',
+  'elicitation.fulfilled',
+  // Sentry MEDIUM #1424: pre-fix the dispatcher emitted `elicitation.fulfilled`
+  // even when the client returned `value === undefined` (decline / cancel),
+  // producing a misleading audit trail where round-trip failures looked like
+  // successes. The declined branch now emits this distinct event so
+  // downstream consumers can tell apart "the client supplied the value" from
+  // "the client refused / cancelled the round-trip."
+  'elicitation.declined',
 ] as const;
 
 export type EventType = typeof EventTypes[number];
@@ -402,6 +423,15 @@ export const EVENT_EMISSION_REGISTRY: Record<EventType, EventEmissionSource> = {
   'branch.delete.executed': 'auto',
   'worktree.remove.requested': 'auto',
   'worktree.remove.executed': 'auto',
+
+  // #1290 — auto-emitted by the workspace discovery resolver on the
+  // dispatch boundary. See EventTypes registration above.
+  'workspace.resolved': 'auto',
+  // #1274 — dispatch elicitation hand-off. Auto-emitted by the dispatch
+  // boundary on the per-operation pseudo-stream.
+  'elicitation.requested': 'auto',
+  'elicitation.fulfilled': 'auto',
+  'elicitation.declined': 'auto',
 };
 
 // ─── Base Event Schema ──────────────────────────────────────────────────────
@@ -780,21 +810,6 @@ export const ToolActionErroredData = z.object({
   responseBytes: z.number(),
   tokenEstimate: z.number(),
 });
-
-// #1262 — per-turn output-token sample (CodeRabbit F2).
-//
-// Emitted by the telemetry middleware when an agent turn completes. The
-// telemetry projection (`telemetry/telemetry-projection.ts`) folds
-// `turnId` + `outputTokens` into `view.turns` for the `output_tokens_high`
-// quality hint. Anything else on the payload is ignored by the projection
-// today, so the schema is `.passthrough()` to keep the door open for
-// future per-turn samples (cache-read tokens, latency, etc.) without a
-// breaking schema bump.
-export const TurnCompletedDataSchema = z.object({
-  turnId: z.string().min(1).describe('Stable identifier for the turn (typically a UUID).'),
-  outputTokens: z.number().nonnegative().describe('Total output tokens consumed by the turn.'),
-}).passthrough();
-export type TurnCompletedData = z.infer<typeof TurnCompletedDataSchema>;
 
 // ─── Benchmark Event Data ───────────────────────────────────────────────────
 
@@ -1562,6 +1577,79 @@ export const MigrationWorkflowTypeUnknownData = z.object({
   streamId: z.string().min(1).describe('Affected stream / featureId'),
 });
 
+// ─── Workspace discovery (#1290) ────────────────────────────────────────────
+
+/**
+ * Emitted by `resolveWorkspace` when the dispatch boundary resolves a
+ * missing `featureId` from a single matching MCP root or via the cwd-walk
+ * fallback. `source` records which branch produced the resolution so
+ * audit queries can distinguish handshake-driven inference from cwd
+ * inference. `path` is the absolute workspace root (the directory
+ * containing `.exarchos.yml` or `docs/workflow-state/<id>.state.json`).
+ */
+export const WorkspaceResolvedData = z.object({
+  source: z.enum(['roots', 'cwd']),
+  // CodeRabbit MINOR #1423: docstring above declares `path` as the
+  // absolute workspace root; pre-fix the schema only required `min(1)`
+  // so a relative path could slip past validation. Refine to accept
+  // either a POSIX absolute path (`/foo/bar`) or a Windows absolute
+  // path (`C:\foo`) — both shipped surfaces use `path.resolve()` so
+  // either form may legitimately appear depending on host platform.
+  path: z
+    .string()
+    .min(1)
+    .refine(
+      (p) => path.posix.isAbsolute(p) || path.win32.isAbsolute(p),
+      { message: 'path must be absolute (POSIX or Windows)' },
+    ),
+  featureId: z.string().min(1),
+});
+
+// ─── Dispatch elicitation hand-off (#1274) ──────────────────────────────────
+
+/**
+ * Emitted by `dispatch/elicitation-dispatch.ts` BEFORE the
+ * `elicitation/create` MCP round-trip fires. `operationId` correlates the
+ * request with its matching `elicitation.fulfilled`; `field` is the missing
+ * required parameter the server is asking the client to supply; `schema`
+ * is the JSON Schema fragment derived via `.pick({field: true})`.
+ *
+ * `schema` is intentionally typed as `Record<string, unknown>` (rather
+ * than a tight JSONSchema7 zod shape) because the wire shape depends on
+ * the action schema's surface and we don't want the audit-trail validator
+ * to drift every time a new action's field gets elicited.
+ */
+export const ElicitationRequestedData = z.object({
+  operationId: z.string().min(1),
+  field: z.string().min(1),
+  schema: z.record(z.string(), z.unknown()),
+});
+
+/**
+ * Emitted by `dispatch/elicitation-dispatch.ts` AFTER the client returns a
+ * value through `elicitation/create`. `operationId` matches the request;
+ * `value` is the elicited value (typed `unknown` since the schema is
+ * caller-supplied and JSON-shaped).
+ */
+export const ElicitationFulfilledData = z.object({
+  operationId: z.string().min(1),
+  field: z.string().min(1),
+  value: z.unknown(),
+});
+
+/**
+ * Emitted by `dispatch/elicitation-dispatch.ts` AFTER the round-trip when
+ * the client returned `value === undefined` (decline / cancel). Mirrors
+ * the {@link ElicitationFulfilledData} shape minus the `value` so the
+ * audit-trail keeps the operationId/field pairing for post-hoc query.
+ * Sentry MEDIUM #1424 root cause: pre-fix all responses were logged as
+ * fulfilled; this event makes the decline path observable.
+ */
+export const ElicitationDeclinedData = z.object({
+  operationId: z.string().min(1),
+  field: z.string().min(1),
+});
+
 // ─── Event Data Schemas Map ─────────────────────────────────────────────────
 
 export const EVENT_DATA_SCHEMAS: Partial<Record<EventType, z.ZodSchema>> = {
@@ -1609,8 +1697,6 @@ export const EVENT_DATA_SCHEMAS: Partial<Record<EventType, z.ZodSchema>> = {
   'tool.errored': ToolErroredData,
   // PR3/T7 (#1364) — structured action-level failure event.
   'tool.action_errored': ToolActionErroredData,
-  // #1262 — per-turn output-token sample (CodeRabbit F2 on PR #1409).
-  'turn.completed': TurnCompletedDataSchema,
 
   // Benchmark
   'benchmark.completed': BenchmarkCompletedData,
@@ -1729,6 +1815,14 @@ export const EVENT_DATA_SCHEMAS: Partial<Record<EventType, z.ZodSchema>> = {
   'branch.delete.executed': BranchDeleteExecutedData,
   'worktree.remove.requested': WorktreeRemoveRequestedData,
   'worktree.remove.executed': WorktreeRemoveExecutedData,
+
+  // #1290 — workspace discovery resolution
+  'workspace.resolved': WorkspaceResolvedData,
+
+  // #1274 — dispatch elicitation hand-off
+  'elicitation.requested': ElicitationRequestedData,
+  'elicitation.fulfilled': ElicitationFulfilledData,
+  'elicitation.declined': ElicitationDeclinedData,
 };
 
 // ─── TypeScript Types ───────────────────────────────────────────────────────
@@ -1829,6 +1923,14 @@ export type BranchDeleteExecuted = z.infer<typeof BranchDeleteExecutedData>;
 export type WorktreeRemoveRequested = z.infer<typeof WorktreeRemoveRequestedData>;
 export type WorktreeRemoveExecuted = z.infer<typeof WorktreeRemoveExecutedData>;
 
+// #1290 — workspace discovery
+export type WorkspaceResolved = z.infer<typeof WorkspaceResolvedData>;
+
+// #1274 — dispatch elicitation hand-off
+export type ElicitationRequested = z.infer<typeof ElicitationRequestedData>;
+export type ElicitationFulfilled = z.infer<typeof ElicitationFulfilledData>;
+export type ElicitationDeclined = z.infer<typeof ElicitationDeclinedData>;
+
 // ─── Event Data Map ─────────────────────────────────────────────────────────
 
 export type EventDataMap = {
@@ -1926,6 +2028,12 @@ export type EventDataMap = {
   'branch.delete.executed': BranchDeleteExecuted;
   'worktree.remove.requested': WorktreeRemoveRequested;
   'worktree.remove.executed': WorktreeRemoveExecuted;
+  // #1290 — workspace discovery
+  'workspace.resolved': WorkspaceResolved;
+  // #1274 — dispatch elicitation hand-off
+  'elicitation.requested': ElicitationRequested;
+  'elicitation.fulfilled': ElicitationFulfilled;
+  'elicitation.declined': ElicitationDeclined;
 };
 
 // ─── Event Catalog Serialization ────────────────────────────────────────────
