@@ -178,6 +178,30 @@ describe('CapabilityResolver Roots handshake snapshot (#1290)', () => {
   });
 });
 
+// ─── #1274 — Elicitation capability snapshot (handshake-driven) ───────────
+
+describe('CapabilityResolver Elicitation handshake snapshot (#1274)', () => {
+  it('CapabilityResolver_ElicitationDeclared_Snapshots', () => {
+    const resolver = createInMemoryResolver([]);
+    expect(resolver.isElicitationDeclared()).toBe(false);
+    // Per the MCP spec, the `elicitation` capability is signaled by the
+    // client as `capabilities.elicitation: {}` — the presence of the
+    // object (any shape) is the declaration.
+    resolver.snapshot({ capabilities: { elicitation: {} } });
+    expect(resolver.isElicitationDeclared()).toBe(true);
+  });
+
+  it('CapabilityResolver_NoElicitation_ReturnsFalse', () => {
+    const resolver = createInMemoryResolver([]);
+    // No snapshot or snapshot without the elicitation capability → false.
+    expect(resolver.isElicitationDeclared()).toBe(false);
+    resolver.snapshot({ capabilities: { sampling: {} } });
+    expect(resolver.isElicitationDeclared()).toBe(false);
+    resolver.snapshot({ capabilities: { roots: { listChanged: true } } });
+    expect(resolver.isElicitationDeclared()).toBe(false);
+  });
+});
+
 // ─── #1262 — quality-hint threshold (config-resolver path) ─────────────────
 
 describe('getQualityHintThreshold (#1262)', () => {
