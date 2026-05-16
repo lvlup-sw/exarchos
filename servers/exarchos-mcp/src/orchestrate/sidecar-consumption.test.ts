@@ -481,6 +481,42 @@ provenance:
     }
   });
 
+  // C2 (#1406, CodeRabbit third pass): sidecar-mode missing empty-block
+  // guard. When the sidecar exists but the markdown has zero `### Task XX:`
+  // blocks, the regex path fast-fails — but the sidecar path silently lets
+  // DAG/safety run on an empty graph and may pass. Sidecar structure alone
+  // is insufficient; the markdown task graph must exist for DAG checks to
+  // mean anything.
+  it('SidecarPresentEmptyMarkdownTasks_FailsFast', async () => {
+    const planDir = join(workDir, 'plans');
+    mkdirSync(planDir, { recursive: true });
+    const planPath = join(planDir, '2026-05-15-empty-md.md');
+
+    // Markdown has prose but no `### Task` blocks. Sidecar is fully
+    // populated and conformant — without the guard, this used to pass.
+    const emptyMarkdown = `# Plan
+
+## Tasks
+
+Prose without any task headers — DAG / parallel-safety would run on an
+empty graph and trivially pass.
+`;
+    writeFileSync(planPath, emptyMarkdown, 'utf-8');
+    writePlanSidecar(planPath);
+
+    const result = await handleTaskDecomposition(
+      { featureId: 'feat', planPath },
+      workDir,
+      mockStore,
+    );
+
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.code).toBe('NO_PLAN_TASKS');
+      expect(result.error.message).toContain(planPath);
+    }
+  });
+
   it('SidecarPresentWithFileConflict_ReportsParallelUnsafe', async () => {
     const planDir = join(workDir, 'plans');
     mkdirSync(planDir, { recursive: true });
