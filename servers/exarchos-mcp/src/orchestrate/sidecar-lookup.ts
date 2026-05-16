@@ -35,7 +35,8 @@ export const REGEX_REMOVAL_TRACKING_ISSUE = '#1407';
  * sidecars are always `<doc>.md.sidecar.yml` next to the markdown.
  */
 export function sidecarPathFor(docPath: string): string {
-  return `${docPath}.sidecar.yml`;
+  const base = docPath.endsWith(".md") ? docPath.slice(0, -3) : docPath;
+  return `${base}.sidecar.yml`;
 }
 
 /**
