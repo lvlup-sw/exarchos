@@ -441,7 +441,12 @@ describe('EventTypes', () => {
     // `elicitation.fulfilled`, emitted by the dispatch elicitation
     // hand-off on the per-operation pseudo-stream
     // `elicitation/<operationId>`.
-    expect(EventTypes).toHaveLength(108);
+    // #1272: bumped 108 → 112 to include `task.created` + `task.polled` +
+    // `task.result` + `task.cancelled`, emitted by the
+    // EventSourcedTaskStore (SDK `TaskStore` interface as a projection
+    // over the event store; see
+    // `src/task-store/event-sourced-task-store.ts`).
+    expect(EventTypes).toHaveLength(112);
   });
 
   it('should include workflow-level types', () => {
