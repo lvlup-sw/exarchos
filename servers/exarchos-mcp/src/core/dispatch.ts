@@ -619,7 +619,7 @@ export async function dispatch(
                 message:
                   `${tool}/${actionName}: multiple workspaces matched MCP roots; ` +
                   'supply an explicit featureId to disambiguate.',
-                validTargets: resolution.validTargets,
+                validTargets: resolution.validTargets.map((t) => t.featureId),
               },
             };
           }
