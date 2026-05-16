@@ -168,6 +168,15 @@ export const EventTypes = [
   'task.polled',
   'task.result',
   'task.cancelled',
+  // #1261 — dispatch-guard preflight observability. `dispatch.preflight`
+  // records the per-guard pass/fail outcome (ancestry, worktree,
+  // protectedBranch, mainWorktree) plus an aggregate `passed` flag and
+  // total durationMs. `stash.detected` fires when the worktree under
+  // dispatch has a non-empty `git stash list` — the cross-worktree
+  // shared-stash hazard documented in project memory. Both inherit
+  // `operationId` from the active `DispatchContext` (#1291 / B1).
+  'dispatch.preflight',
+  'stash.detected',
 ] as const;
 
 export type EventType = typeof EventTypes[number];
@@ -446,6 +455,12 @@ export const EVENT_EMISSION_REGISTRY: Record<EventType, EventEmissionSource> = {
   'task.polled': 'auto',
   'task.result': 'auto',
   'task.cancelled': 'auto',
+  // #1261 — dispatch-guard preflight observability. Auto-emitted by
+  // `orchestrate/dispatch-guard.ts` once per dispatch (preflight
+  // outcome) and on demand when shared-stash collision is observed
+  // in the worktree under dispatch.
+  'dispatch.preflight': 'auto',
+  'stash.detected': 'auto',
 };
 
 // ─── Base Event Schema ──────────────────────────────────────────────────────
@@ -837,6 +852,21 @@ export const ToolActionErroredData = z.object({
   responseBytes: z.number(),
   tokenEstimate: z.number(),
 });
+
+// #1262 — per-turn output-token sample (CodeRabbit F2).
+//
+// Emitted by the telemetry middleware when an agent turn completes. The
+// telemetry projection (`telemetry/telemetry-projection.ts`) folds
+// `turnId` + `outputTokens` into `view.turns` for the `output_tokens_high`
+// quality hint. Anything else on the payload is ignored by the projection
+// today, so the schema is `.passthrough()` to keep the door open for
+// future per-turn samples (cache-read tokens, latency, etc.) without a
+// breaking schema bump.
+export const TurnCompletedDataSchema = z.object({
+  turnId: z.string().min(1).describe('Stable identifier for the turn (typically a UUID).'),
+  outputTokens: z.number().nonnegative().describe('Total output tokens consumed by the turn.'),
+}).passthrough();
+export type TurnCompletedData = z.infer<typeof TurnCompletedDataSchema>;
 
 // ─── Benchmark Event Data ───────────────────────────────────────────────────
 
@@ -1705,6 +1735,55 @@ export const TaskCancelledData = z.object({
   taskId: z.string().min(1),
   reason: z.string().min(1).max(500),
 });
+// ─── Dispatch guard preflight observability (#1261) ─────────────────────────
+
+/**
+ * Emitted by `orchestrate/dispatch-guard.ts` after the dispatch boundary
+ * runs all preflight guards. Records the per-guard pass/fail outcome plus
+ * an aggregate `passed` flag and total `durationMs` so audit queries can
+ * (a) attribute dispatch blocks to a specific guard and (b) track
+ * preflight latency over time without parsing structured logs.
+ *
+ * The four guards mirror `prepare-delegation.ts` today:
+ *   - `ancestry` — `validateBranchAncestry` (required upstream branches)
+ *   - `worktree` — `assertMainWorktree` (refuse from a subagent worktree)
+ *   - `protectedBranch` — `assertCurrentBranchNotProtected` (HEAD not on
+ *     main/master)
+ *   - `mainWorktree` — alias slot reserved for future cross-cutting
+ *     "we are in the canonical main worktree" assertions; currently
+ *     mirrors `worktree.passed` until further split is needed.
+ *
+ * Inherits `operationId` from the active `DispatchContext` (B1 / #1291)
+ * via the `stampWithDispatchContext` helper in `event-store/store.ts`,
+ * so no manual correlation threading is required at the emit site.
+ */
+export const DispatchPreflightData = z.object({
+  guards: z.object({
+    ancestry: z.object({ passed: z.boolean() }),
+    worktree: z.object({ passed: z.boolean() }),
+    protectedBranch: z.object({ passed: z.boolean() }),
+    mainWorktree: z.object({ passed: z.boolean() }),
+  }),
+  passed: z.boolean(),
+  durationMs: z.number().nonnegative(),
+});
+
+/**
+ * Emitted by `orchestrate/dispatch-guard.ts` when the worktree under
+ * dispatch has a non-empty `git stash list`. Stash storage is shared
+ * across worktrees in the same repository (documented project hazard:
+ * `feedback_subagent_stash_hazard`), so any pre-existing stash entry
+ * raises the risk that a sibling agent's WIP will be popped into the
+ * current worktree. Emission is advisory — the dispatch is not blocked
+ * — but operators can use the audit trail to correlate later
+ * data-corruption incidents back to the moment of collision.
+ *
+ * `stashRef` is the ref of the most recent entry (e.g. `stash@{0}`).
+ */
+export const StashDetectedData = z.object({
+  worktreePath: z.string().min(1),
+  stashRef: z.string().min(1),
+});
 
 // ─── Event Data Schemas Map ─────────────────────────────────────────────────
 
@@ -1753,6 +1832,8 @@ export const EVENT_DATA_SCHEMAS: Partial<Record<EventType, z.ZodSchema>> = {
   'tool.errored': ToolErroredData,
   // PR3/T7 (#1364) — structured action-level failure event.
   'tool.action_errored': ToolActionErroredData,
+  // #1262 — per-turn output-token sample (CodeRabbit F2 on PR #1409).
+  'turn.completed': TurnCompletedDataSchema,
 
   // Benchmark
   'benchmark.completed': BenchmarkCompletedData,
@@ -1884,6 +1965,9 @@ export const EVENT_DATA_SCHEMAS: Partial<Record<EventType, z.ZodSchema>> = {
   'task.polled': TaskPolledData,
   'task.result': TaskResultData,
   'task.cancelled': TaskCancelledData,
+  // #1261 — dispatch-guard preflight observability
+  'dispatch.preflight': DispatchPreflightData,
+  'stash.detected': StashDetectedData,
 };
 
 // ─── TypeScript Types ───────────────────────────────────────────────────────
@@ -1996,6 +2080,9 @@ export type TaskCreated = z.infer<typeof TaskCreatedData>;
 export type TaskPolled = z.infer<typeof TaskPolledData>;
 export type TaskResult = z.infer<typeof TaskResultData>;
 export type TaskCancelled = z.infer<typeof TaskCancelledData>;
+// #1261 — dispatch-guard preflight observability
+export type DispatchPreflight = z.infer<typeof DispatchPreflightData>;
+export type StashDetected = z.infer<typeof StashDetectedData>;
 
 // ─── Event Data Map ─────────────────────────────────────────────────────────
 
@@ -2104,6 +2191,9 @@ export type EventDataMap = {
   'task.polled': TaskPolled;
   'task.result': TaskResult;
   'task.cancelled': TaskCancelled;
+  // #1261 — dispatch-guard preflight observability
+  'dispatch.preflight': DispatchPreflight;
+  'stash.detected': StashDetected;
 };
 
 // ─── Event Catalog Serialization ────────────────────────────────────────────

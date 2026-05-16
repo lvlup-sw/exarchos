@@ -50,9 +50,15 @@ export function getQualityHintTypes(): Readonly<Record<string, QualityHintType>>
 /**
  * Look up a single quality-hint type by id. Returns `undefined` for unknown
  * ids so callers can branch on registration state without throwing.
+ *
+ * Guarded with `Object.hasOwn` so prototype-method names (`'toString'`,
+ * `'hasOwnProperty'`, `'__proto__'`, etc.) cannot reach through into
+ * `Object.prototype` and return a non-hint value. CodeRabbit F3 on
+ * PR #1409 surfaced this — the catalog is a plain object literal, so a
+ * bare `CATALOG[id]` lookup would otherwise hit inherited keys.
  */
 export function getQualityHintType(id: string): QualityHintType | undefined {
-  return CATALOG[id];
+  return Object.hasOwn(CATALOG, id) ? CATALOG[id] : undefined;
 }
 
 /**

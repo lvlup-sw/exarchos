@@ -105,10 +105,18 @@ export const RehydrationMergeOrchestratorSchema = z.object({
   taskId: z.string(),
   /**
    * `pending` — merge has been requested but not yet executed.
+   * `executing` — executor is mid-merge (transient window between preflight
+   * and terminal phase). Must be accepted here so a `handleGet` during this
+   * window does not fail-closed and suppress `merge_orchestrate`.
    * `completed` / `rolled-back` / `aborted` — terminal; do not re-surface
    * `merge_orchestrate`.
+   *
+   * Mirrors the `phase` enum in `MergeOrchestratorStateSchema` (the canonical
+   * write-side schema in `workflow/schemas.ts`). If those two drift again, the
+   * `RehydrationMergeOrchestratorSchema_PhaseEnum_MatchesMergeOrchestratorStateSchema`
+   * pin test in `next-actions-from-result.test.ts` will fail.
    */
-  phase: z.enum(['pending', 'completed', 'rolled-back', 'aborted']),
+  phase: z.enum(['pending', 'executing', 'completed', 'rolled-back', 'aborted']),
 });
 
 export const WorkflowStateSchema = z.object({

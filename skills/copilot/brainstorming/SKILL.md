@@ -25,7 +25,7 @@ Activate this skill when:
 
 For a complete worked example, see `references/worked-example.md`.
 
-## Three-Phase Process
+## Four-Phase Process
 
 ### Phase 0: Constraint anchoring (first turn, before Phase 1)
 
