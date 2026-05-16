@@ -13,15 +13,92 @@ import type { Capability } from '../agents/capabilities.js';
 import type { AgentPosture } from '../agents/spec.js';
 import { capabilitiesForPosture } from './posture-mapping.js';
 
+/**
+ * Minimal slice of the MCP initialize handshake consumed by
+ * {@link CapabilityResolver.snapshot}. The full handshake carries more
+ * fields (protocol version, client info, etc.) — we accept a structural
+ * shape so callers can pass the raw handshake without import gymnastics.
+ *
+ * Per the MCP spec, the `roots` capability is signaled by the client as
+ * `capabilities.roots: { listChanged: true }` when it both supports the
+ * `roots/list` request and will emit `notifications/roots/list_changed`
+ * on root-set mutations. The resolver treats `listChanged === true` as
+ * the authoritative declaration (#1290).
+ */
+export interface ClientHandshake {
+  readonly capabilities?: {
+    readonly roots?: { readonly listChanged?: boolean };
+    /**
+     * Per the MCP spec (#1274), the `elicitation` capability is signaled by
+     * the client as `capabilities.elicitation: {}` — the presence of the
+     * object (any shape, including the empty object) is the declaration
+     * the resolver treats as authoritative.
+     */
+    readonly elicitation?: object;
+    readonly [k: string]: unknown;
+  };
+}
+
+/**
+ * Cached entry from `roots/list`. Kept structurally minimal (`uri`) so
+ * downstream workspace discovery doesn't pull the MCP SDK Roots shape
+ * transitively. Tests can construct fixtures without spinning up a
+ * transport. The MCP spec carries an optional `name` field on each root
+ * which we ignore — only the URI is load-bearing for path matching.
+ */
+export interface CachedRoot {
+  readonly uri: string;
+}
+
 export interface CapabilityResolver {
   has(capability: string): boolean;
   list(): readonly string[];
+
+  // ─── #1290 Roots capability snapshot ──────────────────────────────────
+  /**
+   * Snapshot the client's initialize handshake. After this call,
+   * {@link isRootsDeclared} reflects whether the client supports the
+   * `roots` capability. Calling snapshot a second time replaces the
+   * prior snapshot wholesale — the latest handshake wins.
+   */
+  snapshot(handshake: ClientHandshake): void;
+  /** True when the snapshot recorded `capabilities.roots.listChanged === true`. */
+  isRootsDeclared(): boolean;
+  /**
+   * True when the snapshot recorded a `capabilities.elicitation` object
+   * (any shape — presence is the gate, per MCP spec #1274). Consumed by
+   * dispatch to decide whether missing-required-param paths route through
+   * `elicitation/create` or fall back to INVALID_INPUT.
+   */
+  isElicitationDeclared(): boolean;
+  /**
+   * Return the cached roots list, or `undefined` when the cache is cold
+   * (either never populated or freshly invalidated via
+   * {@link invalidateRootsCache}). Synchronous: workspace discovery is
+   * expected to populate the cache lazily before calling.
+   */
+  getCachedRoots(): readonly CachedRoot[] | undefined;
+  /**
+   * Populate the cache with the result of a `roots/list` call. The
+   * resolver stores its own copy so downstream mutations of the input
+   * array don't desync the cache.
+   */
+  setCachedRoots(roots: readonly CachedRoot[]): void;
+  /**
+   * Drop the cached roots list. Wired to the MCP `roots/list_changed`
+   * notification handler — the next call to {@link getCachedRoots}
+   * returns `undefined` and forces a refetch.
+   */
+  invalidateRootsCache(): void;
 }
 
 export function createInMemoryResolver(
   capabilities: Iterable<string>,
 ): CapabilityResolver {
   const set = new Set(capabilities);
+  let clientRootsDeclared = false;
+  let clientElicitationDeclared = false;
+  let cachedRoots: readonly CachedRoot[] | undefined;
   return {
     has(capability) {
       return set.has(capability);
@@ -29,10 +106,91 @@ export function createInMemoryResolver(
     list() {
       return [...set];
     },
+    snapshot(handshake) {
+      clientRootsDeclared = handshake.capabilities?.roots?.listChanged === true;
+      // #1274 — `capabilities.elicitation` is presence-gated: the spec
+      // says `{}` is a valid declaration, so we record true whenever the
+      // field is a non-null object regardless of shape.
+      const elicitation = handshake.capabilities?.elicitation;
+      clientElicitationDeclared =
+        elicitation !== undefined && elicitation !== null && typeof elicitation === 'object';
+    },
+    isRootsDeclared() {
+      return clientRootsDeclared;
+    },
+    isElicitationDeclared() {
+      return clientElicitationDeclared;
+    },
+    getCachedRoots() {
+      return cachedRoots;
+    },
+    setCachedRoots(roots) {
+      cachedRoots = roots.map((r) => ({ uri: r.uri }));
+    },
+    invalidateRootsCache() {
+      cachedRoots = undefined;
+    },
   };
 }
 
 export const ANTHROPIC_NATIVE_CACHING = 'anthropic_native_caching' as const;
+
+// ─── #1262 Quality-hint threshold resolver ──────────────────────────────────
+
+/**
+ * Per-turn output-token cap (matches the upper bound that Anthropic's
+ * sampling layer permits today). The `output_tokens_high` quality hint
+ * fires when a turn's `outputTokens` exceeds
+ * `cap * outputTokenThreshold`. Surfaced as a constant so tests can pin
+ * the multiplication and the cap can be bumped centrally if the model
+ * surface changes.
+ */
+export const OUTPUT_TOKENS_PER_TURN_CAP = 32000;
+
+/**
+ * Default threshold fraction (`0.8` = 80% of `OUTPUT_TOKENS_PER_TURN_CAP`).
+ * Overridden by `.exarchos.yml` → `qualityHints.outputTokenThreshold`.
+ */
+export const DEFAULT_OUTPUT_TOKEN_THRESHOLD_FRACTION = 0.8;
+
+/**
+ * Slice of `.exarchos.yml` consumed by {@link getQualityHintThreshold}.
+ * We accept a structurally-typed shape (rather than importing the full
+ * `ExarchosConfig` Zod type) to avoid a circular import between the
+ * resolver and the config schema and to keep the resolver consumable from
+ * tests without spinning up a config loader.
+ */
+export interface QualityHintsConfig {
+  readonly qualityHints?: {
+    readonly outputTokenThreshold?: number;
+  };
+}
+
+/**
+ * Return the absolute token threshold (in tokens) for a named quality
+ * hint, derived from the `.exarchos.yml` configuration when supplied or
+ * the resolver default otherwise.
+ *
+ * Currently only `'output_tokens'` is supported — the function returns
+ * `cap * fraction` where `fraction` is either the configured value or
+ * {@link DEFAULT_OUTPUT_TOKEN_THRESHOLD_FRACTION}. Unknown names return
+ * the default product so callers never see `NaN`/`undefined` when a new
+ * hint id is referenced before its threshold lands.
+ */
+export function getQualityHintThreshold(
+  name: 'output_tokens' | (string & {}),
+  config?: QualityHintsConfig,
+): number {
+  const fraction =
+    config?.qualityHints?.outputTokenThreshold ?? DEFAULT_OUTPUT_TOKEN_THRESHOLD_FRACTION;
+  if (name === 'output_tokens') {
+    return OUTPUT_TOKENS_PER_TURN_CAP * fraction;
+  }
+  // Unknown hint name — fall back to the same product so callers get a
+  // numeric value rather than `undefined`. Future hint families can fan
+  // out into a per-name switch here.
+  return OUTPUT_TOKENS_PER_TURN_CAP * fraction;
+}
 
 /**
  * Capabilities in the `mcp:exarchos` family. The resolver treats this family

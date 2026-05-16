@@ -8,6 +8,8 @@ import type { Outbox } from '../sync/outbox.js';
 import type { ChannelEmitter } from '../channel/emitter.js';
 import type { CapabilityResolver } from '../capabilities/resolver.js';
 import type { StorageBackend } from '../storage/backend.js';
+import type { RootsClient } from '../workspace/discovery.js';
+import type { ElicitationClient } from '../dispatch/elicitation-dispatch.js';
 import { hasCustomToolHandlers, getCustomToolActionHandler, getFullRegistry } from '../registry.js';
 import {
   formatValidationError,
@@ -74,6 +76,72 @@ export interface DispatchContext {
    * is no JSONL fallback any more.
    */
   readonly storage?: StorageBackend;
+  /**
+   * MCP roots-list adapter (#1290). When the client declares the
+   * `roots` capability via the initialize handshake (recorded on the
+   * {@link CapabilityResolver}), dispatch calls this adapter to fetch
+   * the workspace roots for boundary-level `featureId` inference. The
+   * resolver caches the result; `notifications/roots/list_changed`
+   * invalidates the cache via `mcp/notifications.ts`.
+   *
+   * Optional — CLI / direct-call contexts omit it and dispatch falls
+   * back to the cwd-walk branch inside `resolveWorkspace`.
+   */
+  readonly rootsClient?: RootsClient;
+  /**
+   * Working directory threaded through dispatch so the cwd-walk fallback
+   * in {@link resolveWorkspace} (#1290) has a deterministic starting
+   * point that the caller controls. Defaults to `process.cwd()` when
+   * absent — exercised in tests that inject a workspace fixture path.
+   */
+  readonly cwd?: string;
+  /**
+   * MCP `elicitation/create` adapter (#1274). When the client declares
+   * the `elicitation` capability via the initialize handshake (recorded
+   * on the {@link CapabilityResolver}), dispatch routes missing-required-
+   * param branches through this adapter to ask the client for the
+   * missing field instead of returning INVALID_INPUT outright. Resolution
+   * priority: explicit > roots > cwd > elicitation > INVALID_INPUT
+   * (elicitation is the last resort before INVALID_INPUT because it
+   * requires a transport round-trip).
+   *
+   * Optional — CLI / direct-call contexts omit it and dispatch falls
+   * back to the legacy INVALID_INPUT contract.
+   */
+  readonly elicitationClient?: ElicitationClient;
+}
+
+// ─── #1274 — Missing-required-field extractor ──────────────────────────────
+//
+// Used by the elicitation hand-off in `dispatch()` to decide whether a Zod
+// validation failure represents a single missing required parameter (the
+// case elicitation is designed to handle) or some other structural error
+// (multiple missing fields, wrong type, .strict() typo rejection, etc.).
+//
+// We elicit ONLY when exactly one top-level required field is missing —
+// multi-field elicitation would compose poorly with the per-action
+// validation contract (the client would have to round-trip once per
+// field, and partial fulfillment leaves the audit trail ambiguous).
+// Future iterations can extend this surface; the conservative single-field
+// gate is the v2.10 contract.
+
+function extractSingleMissingRequiredField(
+  error: import('zod').z.ZodError,
+): string | undefined {
+  // Zod v4's missing-required-key error surfaces with `code: 'invalid_type'`
+  // and `expected: 'string' | 'number' | …` on the leaf-most issue (the
+  // input was `undefined` for the field). We accept the issue when:
+  //   - exactly one issue is reported, AND
+  //   - the issue path is a single top-level key (string), AND
+  //   - the issue code is 'invalid_type' (Zod's universal "missing" code).
+  const issues = error.issues;
+  if (issues.length !== 1) return undefined;
+  const only = issues[0];
+  if (only.code !== 'invalid_type') return undefined;
+  if (only.path.length !== 1) return undefined;
+  const key = only.path[0];
+  if (typeof key !== 'string') return undefined;
+  return key;
 }
 
 // ─── T04: Server-side Read-only Action Allowlist (Issue #1192) ─────────────
@@ -468,7 +536,59 @@ export async function dispatch(
       };
     }
 
-    const { action: _action, ...rest } = args;
+    let { action: _action, ...rest } = args;
+
+    // ─── #1290 — Roots-based featureId inference ─────────────────────────
+    // Resolution priority (load-bearing for missing-required-param paths):
+    //   explicit > roots > cwd > elicitation > INVALID_INPUT.
+    // Elicitation is the LAST resort before INVALID_INPUT because it
+    // requires a transport round-trip; roots + cwd inference are
+    // round-trip-free and so take precedence (#1274). If the caller
+    // already supplied a `featureId`, we leave it alone. Otherwise, if
+    // the client declared the MCP roots capability (snapshotted on the
+    // resolver via the initialize handshake), call `resolveWorkspace`
+    // to attempt inference from the cached roots list or a cwd-walk
+    // fallback.
+    //
+    // Multi-match returns a structured INVALID_INPUT here so the caller
+    // can disambiguate; zero-match falls through to the existing per-
+    // action Zod validation, which surfaces the legacy "featureId is
+    // required" envelope unchanged.
+    if (rest.featureId === undefined && ctx.capabilityResolver !== undefined) {
+      try {
+        const { resolveWorkspace } = await import('../workspace/discovery.js');
+        const resolution = await resolveWorkspace({
+          resolver: ctx.capabilityResolver,
+          rootsClient: ctx.rootsClient,
+          cwd: ctx.cwd ?? process.cwd(),
+          eventStore: ctx.eventStore,
+        });
+        if (resolution !== undefined) {
+          if (resolution.success) {
+            rest = { ...rest, featureId: resolution.featureId };
+          } else {
+            // Multi-match. Surface the structured INVALID_INPUT so the
+            // caller can pick the intended target.
+            return {
+              success: false,
+              error: {
+                code: resolution.code,
+                message:
+                  `${tool}/${actionName}: multiple workspaces matched MCP roots; ` +
+                  'supply an explicit featureId to disambiguate.',
+                validTargets: resolution.validTargets,
+              },
+            };
+          }
+        }
+      } catch {
+        // Discovery is a best-effort inference hook — a failure must not
+        // mask the legacy validation contract. Fall through to the
+        // existing schema check; callers see the standard "featureId
+        // is required" envelope.
+      }
+    }
+
     // Tolerant Dispatch (#1188): the MCP SDK validates against the flattened
     // parent schema (buildRegistrationSchema) and applies sibling-action
     // defaults (e.g. `nativeIsolation` from prepare_delegation, `outputFormat`
@@ -504,7 +624,55 @@ export async function dispatch(
             );
           })()
         : rest;
-    const parsed = matchingAction.schema.safeParse(cleanedRest);
+    let parsed = matchingAction.schema.safeParse(cleanedRest);
+
+    // ─── #1274 — Elicitation hand-off on missing required param ──────────
+    // If validation failed because exactly one required field is missing
+    // AND the client declared the MCP `elicitation` capability AND an
+    // elicitation client adapter is wired into the context, route through
+    // the elicitation hand-off and retry the validation with the elicited
+    // value spliced into the payload. This is the LAST resort before
+    // INVALID_INPUT — round-trip-free inference paths (explicit/roots/cwd)
+    // have already executed by the time we get here.
+    if (
+      !parsed.success &&
+      ctx.capabilityResolver?.isElicitationDeclared() === true &&
+      ctx.elicitationClient !== undefined
+    ) {
+      const missingField = extractSingleMissingRequiredField(parsed.error);
+      if (missingField !== undefined) {
+        const actionSchema = matchingAction.schema as unknown as import('zod').z.ZodObject;
+        try {
+          const { performElicitation } = await import(
+            '../dispatch/elicitation-dispatch.js'
+          );
+          const operationId = `${tool}-${actionName}-${Date.now()}-${Math.random()
+            .toString(36)
+            .slice(2, 10)}`;
+          const elicitation = await performElicitation({
+            inputSchema: actionSchema,
+            missingField,
+            client: ctx.elicitationClient,
+            eventStore: ctx.eventStore,
+            operationId,
+          });
+          if (elicitation.fulfilled) {
+            const retried = matchingAction.schema.safeParse({
+              ...cleanedRest,
+              [missingField]: elicitation.value,
+            });
+            if (retried.success) {
+              parsed = retried;
+            }
+          }
+        } catch {
+          // Elicitation is a best-effort hand-off; transport failures
+          // must not mask the legacy INVALID_INPUT envelope. Fall through
+          // to the validation-failure return below.
+        }
+      }
+    }
+
     if (!parsed.success) {
       const context = `${tool}/${actionName}`;
       return {

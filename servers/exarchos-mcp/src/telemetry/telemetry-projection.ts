@@ -1,6 +1,11 @@
 import type { ViewProjection } from '../views/materializer.js';
 import type { WorkflowEvent } from '../event-store/schemas.js';
 import { percentile } from './percentile.js';
+import {
+  getQualityHintType,
+  renderQualityHintReason,
+  type QualityHintType,
+} from './quality-hints.js';
 
 // ─── View Name Constant ────────────────────────────────────────────────────
 
@@ -33,6 +38,19 @@ export interface ToolMetrics {
   readonly actionErrorBreakdown: Readonly<Record<string, number>>;
 }
 
+// ─── Per-Turn Output-Token Record (#1262) ──────────────────────────────────
+
+/**
+ * A single agent turn's output-token sum. The projection folds
+ * `turn.completed` events into `view.turns` so quality-hint generators can
+ * detect threshold crossings without scanning the raw event stream a second
+ * time.
+ */
+export interface TurnRecord {
+  readonly turnId: string;
+  readonly outputTokens: number;
+}
+
 // ─── Telemetry View State ──────────────────────────────────────────────────
 
 export interface TelemetryViewState {
@@ -41,6 +59,12 @@ export interface TelemetryViewState {
   readonly totalInvocations: number;
   readonly totalTokens: number;
   readonly windowSize: number;
+  /**
+   * Per-turn output-token records (#1262). Capped at `windowSize` like the
+   * rolling per-tool arrays so a long-running session doesn't grow the view
+   * state unbounded.
+   */
+  readonly turns: readonly TurnRecord[];
 }
 
 // ─── Factory for Empty ToolMetrics ─────────────────────────────────────────
@@ -84,6 +108,7 @@ export const telemetryProjection: ViewProjection<TelemetryViewState> = {
     totalInvocations: 0,
     totalTokens: 0,
     windowSize: DEFAULT_WINDOW_SIZE,
+    turns: [],
   }),
 
   apply: (view, event) => {
@@ -189,8 +214,86 @@ export const telemetryProjection: ViewProjection<TelemetryViewState> = {
         };
       }
 
+      // #1262 — per-turn output-token tracking. Folded into a capped
+      // rolling list (`view.turns`) so quality-hint generators can detect
+      // threshold crossings without re-scanning the raw event stream.
+      // `turn.completed` payloads must carry a string `turnId` and a
+      // numeric `outputTokens`; anything else is ignored (matches the
+      // tool.completed/tool.errored guard pattern).
+      case 'turn.completed': {
+        const tcData = event.data as { turnId?: unknown; outputTokens?: unknown } | undefined;
+        if (
+          !tcData
+          || typeof tcData.turnId !== 'string'
+          || typeof tcData.outputTokens !== 'number'
+        ) {
+          return view;
+        }
+        const turnId = tcData.turnId;
+        const outputTokens = tcData.outputTokens;
+
+        const next = [...view.turns, { turnId, outputTokens }];
+        const turns = next.length <= view.windowSize
+          ? next
+          : next.slice(next.length - view.windowSize);
+
+        return {
+          ...view,
+          turns,
+        };
+      }
+
       default:
         return view;
     }
   },
 };
+
+// ─── #1262 Quality-Hint Generation ─────────────────────────────────────────
+
+/**
+ * A NextAction-shaped hint surfaced when a per-turn output-token sum crosses
+ * the configured threshold. The shape is intentionally a subset of
+ * `NextAction` (verb + reason) so the envelope formatter can lift it
+ * directly into `next_actions[]` without translation.
+ */
+export interface OutputTokenHint {
+  readonly verb: string;
+  readonly reason: string;
+  readonly hintType: string;
+}
+
+/**
+ * Compute output-token quality hints for the given telemetry view state.
+ *
+ * Walks `view.turns` and emits one hint per turn whose `outputTokens`
+ * strictly exceeds the supplied threshold. The threshold is supplied
+ * explicitly (rather than read from a constant) so callers — typically the
+ * envelope wrap point — can pull the value from `.exarchos.yml` via the
+ * config resolver (T05).
+ *
+ * Returns `[]` when the catalog entry is missing (defensive) or no turn
+ * crosses the threshold.
+ */
+export function computeOutputTokenHints(
+  view: TelemetryViewState,
+  thresholdTokens: number,
+): readonly OutputTokenHint[] {
+  const hintType: QualityHintType | undefined = getQualityHintType('output_tokens_high');
+  if (!hintType) return [];
+
+  const hints: OutputTokenHint[] = [];
+  for (const turn of view.turns) {
+    if (turn.outputTokens > thresholdTokens) {
+      hints.push({
+        verb: hintType.verb,
+        reason: renderQualityHintReason(hintType, {
+          tokens: turn.outputTokens,
+          threshold: thresholdTokens,
+        }),
+        hintType: hintType.id,
+      });
+    }
+  }
+  return hints;
+}
