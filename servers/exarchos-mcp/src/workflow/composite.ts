@@ -149,12 +149,16 @@ export async function handleWorkflow(
       // was silently ignored in production (the helper code path existed but
       // was never reached because composite stripped the options bag).
       //
-      // worktreePath is derived from stateDir (`<root>/.exarchos/workflow-state`).
-      // loadExarchosConfig walks worktree → repo-root in order, matching the
-      // CLI's own discovery behavior (yaml-loader.ts uses the same algorithm).
-      const { dirname } = await import('node:path');
+      // Sentry HIGH #1244 follow-up: `stateDir` is the global state directory
+      // (e.g. `~/.exarchos/state` or wherever the server was bootstrapped),
+      // NOT a path inside the user's project. Deriving worktreePath from
+      // stateDir would silently miss the project's `.exarchos.yml`.
+      // `process.cwd()` is the canonical project entry point (the user
+      // invoked Exarchos from their repo root) and `loadExarchosConfig`
+      // walks worktree → git-repo-root from there, matching the CLI's own
+      // discovery algorithm in yaml-loader.ts.
       const { loadExarchosConfig } = await import('../config/load-exarchos-config.js');
-      const worktreePath = dirname(dirname(stateDir));
+      const worktreePath = process.cwd();
       let checkpointOptions: { handoffLint?: { hardFail: boolean } } | undefined;
       try {
         const result = loadExarchosConfig(worktreePath);
