@@ -285,6 +285,19 @@ export class EventSourcedTaskStore implements TaskStore {
     cursor?: string,
     _sessionId?: string,
   ): Promise<{ tasks: Task[]; nextCursor?: string }> {
+    // KNOWN LIMITATION (#1272 / CR PR #1432): listTasks paginates the
+    // in-process cache (`this.tasks`) only. A freshly-constructed store
+    // (post-restart, post-replay) returns an empty list until the cache
+    // is populated via `getTask` / `getTaskResult` calls — those paths
+    // DO hydrate from the event store on cache miss via `loadTask()`.
+    //
+    // Full enumeration would require scanning every `task-store/<id>`
+    // stream in the event store, which is O(n_streams) and has no
+    // bounded index today. Until #1272's listTasks-hydration follow-up
+    // (tracked separately), callers needing durable listing should
+    // either rebuild the cache via per-id `getTask` lookups (driven by
+    // an external task id catalog) or use the event store's `query`
+    // surface directly.
     const PAGE_SIZE = 10;
     // Reap expired entries first so listings stay consistent with reads.
     this.reapExpired();

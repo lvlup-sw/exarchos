@@ -464,6 +464,11 @@ export class EventStore {
           ...(e.data !== undefined ? { data: e.data } : {}),
           ...(e.correlationId !== undefined ? { correlationId: e.correlationId } : {}),
           ...(e.causationId !== undefined ? { causationId: e.causationId } : {}),
+          // #1291 — three-field correlation passthrough. Mirror delegateAppend's
+          // cache-hit branch so a retry surfaces the same operationId chain.
+          ...((e as { operationId?: string }).operationId !== undefined
+            ? { operationId: (e as { operationId?: string }).operationId }
+            : {}),
           ...(e.agentId !== undefined ? { agentId: e.agentId } : {}),
           ...(e.agentRole !== undefined ? { agentRole: e.agentRole } : {}),
           ...(e.source !== undefined ? { source: e.source } : {}),

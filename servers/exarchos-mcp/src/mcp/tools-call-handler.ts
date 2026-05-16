@@ -25,7 +25,7 @@
  */
 import { dispatch } from '../core/dispatch.js';
 import type { DispatchContext } from '../core/dispatch.js';
-import { toEnvelope } from '../format.js';
+import { toEnvelope, wrapError } from '../format.js';
 import type { Envelope, ErrorEnvelope } from '../format.js';
 
 /**
@@ -34,12 +34,20 @@ import type { Envelope, ErrorEnvelope } from '../format.js';
  * the adapter's per-tool handler delegates to; the SDK still wraps the
  * envelope into a `CallToolResult` carrier (see `toMcpResult` in
  * `adapters/mcp.ts`).
+ *
+ * Exceptions escaping `dispatch()` are caught and surfaced as a typed
+ * `INTERNAL_ERROR` envelope so the transport never sees a raw throw and
+ * the SDK can still respond with a well-formed `CallToolResult`.
  */
 export async function handleToolsCall(
   toolName: string,
   args: Record<string, unknown>,
   ctx: DispatchContext,
 ): Promise<Envelope<unknown> | ErrorEnvelope> {
-  const result = await dispatch(toolName, args, ctx);
-  return toEnvelope(result);
+  try {
+    const result = await dispatch(toolName, args, ctx);
+    return toEnvelope(result);
+  } catch (err) {
+    return wrapError(err);
+  }
 }

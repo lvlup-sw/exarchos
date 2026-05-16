@@ -75,6 +75,10 @@ export function isTaskAugmented(args: Record<string, unknown>): boolean {
   const value = args.task;
   if (value === null || value === undefined) return false;
   if (typeof value !== 'object') return false;
+  // Arrays are `typeof === 'object'` but are not the SDK
+  // `TaskAugmentedRequestParams.task` shape — reject them defensively so a
+  // stray `{ task: [...] }` is not mistaken for the augmentation signal.
+  if (Array.isArray(value)) return false;
   return true;
 }
 
