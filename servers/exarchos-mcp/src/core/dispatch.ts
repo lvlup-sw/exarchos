@@ -13,10 +13,6 @@ import type { ElicitationClient } from '../dispatch/elicitation-dispatch.js';
 import type { EventSourcedTaskStore } from '../task-store/event-sourced-task-store.js';
 import { hasCustomToolHandlers, getCustomToolActionHandler, getFullRegistry } from '../registry.js';
 import {
-  isTaskAugmented,
-  extractTaskOptions,
-} from '../dispatch/tasks-augmented.js';
-import {
   formatValidationError,
   buildInvalidInput,
 } from '../adapters/schema-to-flags.js';
@@ -26,6 +22,11 @@ import {
   runWithDispatchContext,
   type IncomingCorrelation,
 } from '../dispatch/dispatch-context.js';
+import {
+  isTaskAugmented,
+  extractTaskOptions,
+  runTasksAugmented,
+} from '../dispatch/tasks-augmented.js';
 
 // NOTE: `../telemetry/middleware.js` is intentionally NOT imported at module
 // top-level. The middleware instantiates a singleton TraceWriter at import,
@@ -120,13 +121,13 @@ export interface DispatchContext {
    */
   readonly elicitationClient?: ElicitationClient;
   /**
-   * Event-sourced task store (#1273 / Wave C1). When wired, dispatch
-   * detects the SDK `task: { ttl? }` augmentation on incoming args and
-   * routes through `runTasksAugmented` — synthesising a CreateTaskResult
-   * envelope and running the underlying handler in the background. When
-   * absent (CLI cold-start, legacy in-process tests), the augmentation
-   * key is silently ignored and dispatch preserves the legacy one-shot
-   * contract.
+   * Event-sourced SDK TaskStore (#1272 / B3). When wired, dispatch
+   * inspects the dispatched args for the SDK `task: { ttl? }`
+   * augmentation key (#1273 / C1) and, when present, routes through
+   * `runTasksAugmented` to synthesize an SDK `CreateTaskResult`-shaped
+   * envelope instead of the legacy one-shot `ToolResult`. When absent
+   * (CLI cold-start, legacy in-process tests), the augmentation key is
+   * silently ignored and dispatch preserves the legacy one-shot contract.
    */
   readonly taskStore?: EventSourcedTaskStore;
 }
@@ -490,6 +491,27 @@ export async function dispatch(
   args: Record<string, unknown>,
   ctx: DispatchContext,
 ): Promise<ToolResult> {
+  // ─── #1273 / C1 — Tasks-augmented branch detection ──────────────────────
+  // Detect the SDK `task: { ttl? }` augmentation key BEFORE any per-action
+  // schema validation runs. Per-action schemas are `.strict()` so an
+  // unrecognised `task` key would be rejected as a typo; we strip it from
+  // args early and rebind to a clean payload for the rest of dispatch.
+  //
+  // Recorded here (not after validation) so the augmentation request
+  // survives sibling-action-key cleanup downstream. We only ACT on the
+  // augmentation later, after schema validation passes and once we have
+  // `coreHandler` resolved — see the `taskAugmented` block near the end
+  // of this function.
+  const taskAugmented = isTaskAugmented(args);
+  const taskOptionsRaw = taskAugmented ? (args as { task?: unknown }).task : undefined;
+  if (taskAugmented) {
+    // Strip `task` from the args we hand to validation. Use a fresh object
+    // so we don't mutate the caller's payload.
+    const { task: _stripped, ...rest } = args as { task?: unknown } & Record<string, unknown>;
+    void _stripped;
+    args = rest;
+  }
+
   // Lazy-loaded composite handler. Falls back to `undefined` when the tool
   // is not a built-in (e.g. custom tools registered via config).
   //
@@ -581,15 +603,6 @@ export async function dispatch(
   return runWithDispatchContext(dispatchCtx, async () => {
   try {
 
-  // ─── #1273 / T28 — Tasks-augmented dispatch detection (outer scope) ──
-  // Declared here so the post-validation synthesis branch below can see
-  // them. The actual extraction + `rest` strip happens inside the
-  // built-in validation block (per-action schemas must not see `task`).
-  let taskAugmented = false;
-  let taskOptions:
-    | import('@modelcontextprotocol/sdk/experimental/tasks/interfaces.js').CreateTaskOptions
-    | undefined;
-
   const isBuiltIn = Object.prototype.hasOwnProperty.call(COMPOSITE_HANDLERS, tool);
   if (isBuiltIn && registeredTool) {
     const actionName = args.action;
@@ -614,23 +627,6 @@ export async function dispatch(
     }
 
     let { action: _action, ...rest } = args;
-
-    // ─── #1273 / T28 — Tasks-augmented dispatch detection ────────────────
-    // Peel off the SDK `task: { ttl? }` augmentation BEFORE schema
-    // validation. Per-action schemas don't declare `task` (it lives at
-    // the dispatch-entry level), so leaving it in would either trip
-    // `.strict()` rejection or be silently dropped — either way the
-    // augmentation signal would be lost. We capture the options now and
-    // re-route through `runTasksAugmented` after validation passes,
-    // provided the context has a `taskStore` wired. Without one
-    // (`DispatchCore_TaskOptionWithoutTaskStore_FallsBackToOneShot`),
-    // the augmentation key is dropped and the legacy one-shot path runs.
-    taskAugmented = isTaskAugmented(rest);
-    if (taskAugmented) {
-      taskOptions = extractTaskOptions(rest.task);
-      const { task: _stripped, ...withoutTask } = rest;
-      rest = withoutTask;
-    }
 
     // ─── #1290 — Roots-based featureId inference ─────────────────────────
     // Resolution priority (load-bearing for missing-required-param paths):
@@ -831,33 +827,42 @@ export async function dispatch(
   // top of dispatch(). `attachMeta` adds the three correlation IDs to the
   // success result; the catch handler below attaches them to errors.
   let result: ToolResult;
-
-  // ─── #1273 / T28 — Tasks-augmented synthesis branch ─────────────────────
-  // When the caller threaded `task: <object>` AND the context has a
-  // taskStore wired, route through the synthesis surface. The underlying
-  // handler is invoked in the background; the synchronous return is the
-  // SDK CreateTaskResult envelope. ALS threading from #1291 keeps the
+  // ─── #1273 / C1 — Tasks-augmented synthesis ────────────────────────────
+  // When the caller threaded `task: { ttl? }` AND a TaskStore is wired
+  // on the context, route the underlying handler through
+  // `runTasksAugmented` so the response is a SDK CreateTaskResult
+  // envelope rather than the one-shot ToolResult. Without `taskStore`
+  // (CLI cold-start, in-process tests that omit the wiring), we fall
+  // back to the one-shot path so callers that legitimately have no
+  // task substrate don't crash. ALS threading from #1291 keeps the
   // background events on the parent operationId — the test contract
   // pinned by `tasks-dispatch-lifecycle.test.ts` (T29).
-  if (taskAugmented && ctx.taskStore && taskOptions) {
-    const { runTasksAugmented } = await import('../dispatch/tasks-augmented.js');
-    const execute = ctx.enableTelemetry
-      ? async (): Promise<ToolResult> => {
+  if (taskAugmented && ctx.taskStore) {
+    const taskOptions = extractTaskOptions(taskOptionsRaw);
+    // Build the SDK Request envelope from the dispatch args. The MCP
+    // adapter (C2) supplies the real `tools/call` request id; direct
+    // dispatch callers (CLI, tests) synthesize a deterministic one
+    // anchored on operationId so audit can still correlate.
+    const request: Parameters<typeof runTasksAugmented>[0]['request'] = {
+      method: 'tools/call',
+      params: { name: tool, arguments: args },
+    };
+    const requestId = `dispatch:${dispatchCtx.operationId}`;
+    const augmentedHandler = ctx.enableTelemetry
+      ? async () => {
           const { withTelemetry } = await import('../telemetry/middleware.js');
-          return withTelemetry(coreHandler, tool, ctx.eventStore)(args);
+          const wrapped = withTelemetry(coreHandler, tool, ctx.eventStore);
+          return wrapped(args);
         }
-      : async (): Promise<ToolResult> => coreHandler(args);
+      : async () => coreHandler(args);
     result = await runTasksAugmented({
       taskStore: ctx.taskStore,
       taskOptions,
-      requestId: `dispatch-${dispatchCtx.operationId}`,
-      request: { method: 'tools/call', params: { name: tool, arguments: args } },
-      execute,
+      requestId,
+      request,
+      execute: augmentedHandler,
     });
-    return attachMeta(result);
-  }
-
-  if (ctx.enableTelemetry) {
+  } else if (ctx.enableTelemetry) {
     // Lazy-load to keep CLI cold-start under the DR-5 budget.
     const { withTelemetry } = await import('../telemetry/middleware.js');
     const wrappedHandler = withTelemetry(coreHandler, tool, ctx.eventStore);
