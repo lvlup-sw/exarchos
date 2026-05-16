@@ -16,6 +16,11 @@ import {
   buildInvalidInput,
 } from '../adapters/schema-to-flags.js';
 import { runSessionMachineryConsumedInterceptor } from './interceptors/session-machinery.js';
+import {
+  mintDispatchContext,
+  runWithDispatchContext,
+  type IncomingCorrelation,
+} from '../dispatch/dispatch-context.js';
 
 // NOTE: `../telemetry/middleware.js` is intentionally NOT imported at module
 // top-level. The middleware instantiates a singleton TraceWriter at import,
@@ -714,23 +719,71 @@ export async function dispatch(
     ? async (a: Record<string, unknown>) => builtInHandler(a, ctx)
     : createCustomToolHandler(tool);
 
-  try {
-    if (ctx.enableTelemetry) {
-      // Lazy-load to keep CLI cold-start under the DR-5 budget.
-      const { withTelemetry } = await import('../telemetry/middleware.js');
-      const wrappedHandler = withTelemetry(coreHandler, tool, ctx.eventStore);
-      return await wrappedHandler(args);
-    }
+  // ─── #1291 — Dispatch-boundary correlation context ────────────────────
+  // Mint a fresh `DispatchContext` per dispatch entry. Inherit upstream
+  // correlation/causation from `args._meta` when the caller threads them
+  // through (HATEOAS next_actions follow-up, MCP _meta block, CLI flags).
+  // The active context is read by `EventStore.append*` via
+  // AsyncLocalStorage and stamped onto every event emitted transitively
+  // during this dispatch — so a multi-event dispatch produces events
+  // that all share one operationId.
+  const incoming: IncomingCorrelation = (() => {
+    const meta = (args as { _meta?: unknown })._meta;
+    if (typeof meta !== 'object' || meta === null) return {};
+    const rec = meta as Record<string, unknown>;
+    const result: { correlationId?: string; causationId?: string } = {};
+    if (typeof rec.correlationId === 'string') result.correlationId = rec.correlationId;
+    if (typeof rec.causationId === 'string') result.causationId = rec.causationId;
+    return result;
+  })();
+  const dispatchCtx = mintDispatchContext(incoming);
 
-    return await coreHandler(args);
-  } catch (error) {
-    return {
-      success: false,
-      error: {
-        code: 'INTERNAL_ERROR',
-        message: error instanceof Error ? error.message : 'Unhandled dispatch error',
-      },
-    };
-  }
+  return runWithDispatchContext(dispatchCtx, async () => {
+    try {
+      let result: ToolResult;
+      if (ctx.enableTelemetry) {
+        // Lazy-load to keep CLI cold-start under the DR-5 budget.
+        const { withTelemetry } = await import('../telemetry/middleware.js');
+        const wrappedHandler = withTelemetry(coreHandler, tool, ctx.eventStore);
+        result = await wrappedHandler(args);
+      } else {
+        result = await coreHandler(args);
+      }
+      // Surface the three correlation IDs on the response `_meta` block
+      // so MCP / CLI callers can chain follow-ups with intact correlation.
+      // Non-destructive merge: caller-supplied `_meta` wins on conflict.
+      const existingMeta =
+        typeof (result as { _meta?: unknown })._meta === 'object' &&
+        (result as { _meta?: unknown })._meta !== null
+          ? ((result as { _meta: Record<string, unknown> })._meta)
+          : undefined;
+      const correlationMeta = {
+        operationId: dispatchCtx.operationId,
+        correlationId: dispatchCtx.correlationId,
+        ...(dispatchCtx.causationId !== undefined
+          ? { causationId: dispatchCtx.causationId }
+          : {}),
+      };
+      const mergedMeta = existingMeta
+        ? { ...correlationMeta, ...existingMeta }
+        : correlationMeta;
+      return { ...result, _meta: mergedMeta } as ToolResult;
+    } catch (error) {
+      return {
+        success: false,
+        error: {
+          code: 'INTERNAL_ERROR',
+          message: error instanceof Error ? error.message : 'Unhandled dispatch error',
+        },
+        _meta: {
+          operationId: dispatchCtx.operationId,
+          correlationId: dispatchCtx.correlationId,
+          ...(dispatchCtx.causationId !== undefined
+            ? { causationId: dispatchCtx.causationId }
+            : {}),
+        },
+      };
+    }
+  });
 }
 
