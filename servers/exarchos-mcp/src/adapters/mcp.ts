@@ -208,6 +208,19 @@ export function createMcpServer(ctx: DispatchContext): McpServer {
         experimental: {
           'claude/channel': {},
         },
+        // #1273 / T32 — advertise tasks capability so clients see the
+        // server supports request-augmented `tools/call` (per-tool
+        // `execution.taskSupport: 'optional'`) and the explicit
+        // `tasks/{get,result,cancel,list}` methods (the SDK's
+        // setRequestHandler wiring installs these automatically when
+        // `taskStore` is supplied to the constructor below).
+        tasks: {
+          list: {},
+          cancel: {},
+          requests: {
+            tools: { call: {} },
+          },
+        },
       },
       taskStore,
     },
