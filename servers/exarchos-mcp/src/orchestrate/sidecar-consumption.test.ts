@@ -155,15 +155,19 @@ options:
 }
 
 function writePlanSidecar(planPath: string): void {
+  // Descriptions include [RED]/Method_Scenario_Outcome markers to satisfy the
+  // sidecar task-decomposition gate's test-marker requirement, mirroring the
+  // markdown body convention (`**Tests:** [RED] First_Test_Name`) the legacy
+  // regex path validates.
   const yaml = `schema: plan.v1
 tasks:
   - id: T-01
     phase: RED
-    description: First failing test that anchors the contract before any production code lands
+    description: "[RED] First_Test_Name — failing test that anchors the contract before any production code lands"
     files: [src/a.test.ts]
   - id: T-02
     phase: GREEN
-    description: Minimal implementation turning the RED test green without overreach
+    description: "Minimal implementation turning the [RED] Second_Test_Name green without overreach beyond the contract"
     files: [src/a.ts]
 coverage:
   DR-1: [T-01, T-02]
@@ -321,5 +325,162 @@ describe('CheckTaskDecomposition', () => {
       expect(data.passed).toBe(true);
       expect(data.totalTasks).toBe(2);
     }
+  });
+
+  it('SidecarTaskDecomposition_DescriptionUnderTenWords_FailsLikeLegacy', async () => {
+    // Sentry #1425 HIGH: pre-fix the sidecar gate accepted any description
+    // >= 5 words. Legacy `validateTaskStructure` requires > 10. Drift was a
+    // silent regression in decomposition quality. Pin both branches to the
+    // same threshold.
+    const planDir = join(workDir, 'plans');
+    mkdirSync(planDir, { recursive: true });
+    const planPath = join(planDir, '2026-05-15-fixture.md');
+    writeConformantPlanMarkdown(planPath);
+    const shortDescSidecar = `schema: plan.v1
+tasks:
+  - id: T-01
+    phase: RED
+    description: "[RED] Short_Test_Name only six words here"
+    files: [src/a.test.ts]
+coverage:
+  DR-1: [T-01]
+provenance:
+  - { taskId: T-01, dr: DR-1 }
+`;
+    writeFileSync(`${planPath}.sidecar.yml`, shortDescSidecar, 'utf-8');
+
+    const result = await handleTaskDecomposition(
+      { featureId: 'feat', planPath },
+      workDir,
+      mockStore,
+    );
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      const data = result.data as { passed: boolean; source?: string; needsRework: number };
+      expect(data.source).toBe('sidecar');
+      expect(data.passed).toBe(false);
+      expect(data.needsRework).toBeGreaterThan(0);
+    }
+  });
+
+  it('SidecarTaskDecomposition_DescriptionMissingTestMarker_FailsLikeLegacy', async () => {
+    // Sentry #1425 HIGH: pre-fix the sidecar gate omitted the test-marker
+    // check entirely. A task could claim `phase: RED` with a description
+    // containing no test method name. Legacy `validateTaskStructure`
+    // requires at least one `[RED]` token or `Method_Scenario_Outcome`
+    // triple in the block body.
+    const planDir = join(workDir, 'plans');
+    mkdirSync(planDir, { recursive: true });
+    const planPath = join(planDir, '2026-05-15-fixture.md');
+    writeConformantPlanMarkdown(planPath);
+    const noMarkerSidecar = `schema: plan.v1
+tasks:
+  - id: T-01
+    phase: RED
+    description: "A perfectly long description that comfortably exceeds ten words but has no test markers anywhere"
+    files: [src/a.test.ts]
+coverage:
+  DR-1: [T-01]
+provenance:
+  - { taskId: T-01, dr: DR-1 }
+`;
+    writeFileSync(`${planPath}.sidecar.yml`, noMarkerSidecar, 'utf-8');
+
+    const result = await handleTaskDecomposition(
+      { featureId: 'feat', planPath },
+      workDir,
+      mockStore,
+    );
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      const data = result.data as { passed: boolean; source?: string; needsRework: number };
+      expect(data.source).toBe('sidecar');
+      expect(data.passed).toBe(false);
+      expect(data.needsRework).toBeGreaterThan(0);
+    }
+  });
+});
+
+// ─── #1425 follow-ups: empty-drs + log-once dedup ───────────────────────────
+
+describe('CheckPlanCoverage — sidecar parity follow-ups', () => {
+  it('SidecarPlanCoverage_EmptyDrsArray_FailsClosedWithNoDesignSections', async () => {
+    // Sentry #1425 MEDIUM: pre-fix an empty `drs[]` from a malformed design
+    // sidecar yielded `total=0, gaps=0, passed=true` — silently passing a
+    // design with zero requirements. Legacy regex path returns
+    // `NO_DESIGN_SECTIONS` for the equivalent input. Sidecar path must
+    // match the same error code.
+    const designDir = join(workDir, 'designs');
+    mkdirSync(designDir, { recursive: true });
+    const designPath = join(designDir, '2026-05-15-fixture.md');
+    writeConformantDesignMarkdown(designPath);
+    const emptyDrsSidecar = `schema: design.v1
+sections: {}
+drs: []
+acceptance: []
+`;
+    writeFileSync(`${designPath}.sidecar.yml`, emptyDrsSidecar, 'utf-8');
+
+    const planDir = join(workDir, 'plans');
+    mkdirSync(planDir, { recursive: true });
+    const planPath = join(planDir, '2026-05-15-fixture.md');
+    writeConformantPlanMarkdown(planPath);
+    writePlanSidecar(planPath);
+
+    const result = await handlePlanCoverage(
+      { featureId: 'feat', designPath, planPath },
+      workDir,
+      mockStore,
+    );
+
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.code).toBe('NO_DESIGN_SECTIONS');
+    }
+  });
+});
+
+describe('SidecarLookup — log-once dedup', () => {
+  it('SidecarMissing_AcrossMultipleGates_LogsDeprecationOncePerDocPath', async () => {
+    // Sentry #1425 LOW: pre-fix the deprecation warning fired once per
+    // (gate × missing-file) combination — 4+ duplicate lines per check for
+    // a workflow without sidecars. Per-process dedup collapses repeats.
+    const { __resetDeprecationLog } = await import('./sidecar-lookup.js');
+    __resetDeprecationLog();
+
+    const designDir = join(workDir, 'designs');
+    mkdirSync(designDir, { recursive: true });
+    const designPath = join(designDir, '2026-05-15-dedup.md');
+    writeConformantDesignMarkdown(designPath);
+
+    const planDir = join(workDir, 'plans');
+    mkdirSync(planDir, { recursive: true });
+    const planPath = join(planDir, '2026-05-15-dedup.md');
+    writeConformantPlanMarkdown(planPath);
+
+    // Hit four gates back-to-back with NO sidecars on disk. The legacy regex
+    // path runs each time and the missing-sidecar warning would fire on
+    // every call without dedup. We assert the warn count for each unique
+    // docPath stays at exactly 1.
+    await handleDesignCompleteness({ featureId: 'feat', designPath }, workDir, mockStore);
+    await handlePlanCoverage({ featureId: 'feat', designPath, planPath }, workDir, mockStore);
+    await handleProvenanceChain({ featureId: 'feat', designPath, planPath }, workDir, mockStore);
+    await handleTaskDecomposition({ featureId: 'feat', planPath }, workDir, mockStore);
+
+    const designWarnHits = warnSpy.mock.calls.filter((call) =>
+      call.some(
+        (arg) => typeof arg === 'object' && arg !== null && (arg as { docPath?: string }).docPath === designPath,
+      ),
+    ).length;
+    const planWarnHits = warnSpy.mock.calls.filter((call) =>
+      call.some(
+        (arg) => typeof arg === 'object' && arg !== null && (arg as { docPath?: string }).docPath === planPath,
+      ),
+    ).length;
+
+    expect(designWarnHits).toBe(1);
+    expect(planWarnHits).toBe(1);
   });
 });

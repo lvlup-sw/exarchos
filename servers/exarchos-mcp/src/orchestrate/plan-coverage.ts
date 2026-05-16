@@ -704,6 +704,23 @@ export async function handlePlanCoverage(
   const designSidecar = loadDesignSidecar(args.designPath);
   const planSidecar = loadPlanSidecar(args.planPath);
   if (designSidecar && planSidecar) {
+    // Sentry #1425 — parity with the legacy `NO_DESIGN_SECTIONS` branch
+    // (above). An empty `drs[]` would otherwise produce
+    // `total=0, gaps=0, passed=true`, silently passing a design with no
+    // requirements at all. Reject up front with the same error code so
+    // sidecar and regex paths converge on this contract.
+    if (designSidecar.drs.length === 0) {
+      return {
+        success: false,
+        error: {
+          code: 'NO_DESIGN_SECTIONS',
+          message:
+            'design.v1 sidecar contains no design requirements (drs is empty). ' +
+            "Expected at least one DR entry — equivalent to the legacy regex path's " +
+            'missing-design-sections check.',
+        },
+      };
+    }
     const result = evaluatePlanCoverageFromSidecars(designSidecar, planSidecar);
     try {
       await emitGateEvent(eventStore, args.featureId, 'plan-coverage', 'planning', result.passed, {

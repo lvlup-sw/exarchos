@@ -52,14 +52,44 @@ export function buildDeprecationMessage(docPath: string): string {
 }
 
 /**
+ * Per-process log-once dedup for deprecation warnings (Sentry #1425 LOW).
+ *
+ * Multiple gates (plan-coverage, provenance-chain, task-decomposition,
+ * design-completeness) load the same sidecar pair (`<design>.sidecar.yml` +
+ * `<plan>.sidecar.yml`) sequentially during a single gate-check pass. Pre-fix
+ * the warning fired once per (gate × missing-file) combination — typically
+ * 6+ duplicate lines in CI for a workflow that hasn't generated sidecars yet.
+ * Now each unique docPath warns at most once for the lifetime of the process.
+ *
+ * The Set is module-scoped; tests reset it via `__resetDeprecationLog`.
+ * Keying by `docPath` alone (not by failure-mode) is intentional: the emitted
+ * message and remediation are identical for every miss path (missing /
+ * unreadable / malformed YAML / non-conformant), so any one warn per file is
+ * the right signal — collapsing the rest is pure noise reduction.
+ */
+const loggedDocPaths = new Set<string>();
+
+/**
+ * Test-only: clear the log-once cache so each test starts from a clean slate.
+ * Production code MUST NOT call this — silencing prod dedup defeats the
+ * Sentry #1425 noise-reduction guarantee.
+ */
+export function __resetDeprecationLog(): void {
+  loggedDocPaths.clear();
+}
+
+/**
  * Emit the canonical deprecation warning. Pre-v2.10.0-preview.4 docs are
  * grandfathered; older docs SHOULD log but are not load-bearing.
  *
  * Goes through `orchestrateLogger` (pino subsystem='orchestrate') so we
  * stay inside the project's no-console-in-production policy (#1119);
- * tests spy on the logger instance directly.
+ * tests spy on the logger instance directly. Deduped per-process by
+ * `loggedDocPaths` (see above).
  */
 function logDeprecation(docPath: string): void {
+  if (loggedDocPaths.has(docPath)) return;
+  loggedDocPaths.add(docPath);
   orchestrateLogger.warn({ docPath, gate: 'sidecar-lookup' }, buildDeprecationMessage(docPath));
 }
 

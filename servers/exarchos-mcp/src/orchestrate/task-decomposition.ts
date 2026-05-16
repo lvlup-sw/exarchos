@@ -843,13 +843,21 @@ export async function handleTaskDecomposition(
 
 /**
  * Validate task decomposition from the structured plan sidecar. Each task
- * is checked for: non-empty description (>= 5 words), at least one declared
- * file, and a phase from the RED/GREEN/REFACTOR enum (already enforced by
- * the schema).
+ * is checked against the same rules as the legacy `validateTaskStructure`
+ * regex path so the sidecar route does not silently weaken the gate
+ * (CodeRabbit #1425 — Sentry HIGH):
  *
- * Parallel safety + dependency DAG are no-ops in the sidecar path for now
- * — both inputs are absent from the v1 shape (deps/parallel flags would
- * widen the contract). Future schema revisions can add them.
+ *   - description word count > 10 (matches legacy `descriptionWordCount > 10`)
+ *   - at least one declared file
+ *   - at least one test marker in the description: either a `[RED]` token or
+ *     a `Method_Scenario_Outcome` PascalCase triple — the same patterns the
+ *     legacy `validateTaskStructure` body scans for. The sidecar's `phase`
+ *     enum (RED/GREEN/REFACTOR) is necessary but not sufficient: a `RED`
+ *     phase claim without an actual test name in the description is exactly
+ *     the kind of low-quality decomposition the legacy gate rejected.
+ *
+ * Parallel safety + dependency DAG remain no-ops in the sidecar path — both
+ * inputs are absent from the v1 shape. Future schema revisions can add them.
  */
 function evaluateTaskDecompositionFromSidecar(plan: PlanSidecarV1): {
   passed: boolean;
@@ -864,14 +872,25 @@ function evaluateTaskDecompositionFromSidecar(plan: PlanSidecarV1): {
   let needsRework = 0;
   const rows: string[] = [];
 
+  // Mirror the legacy regex pair from `validateTaskStructure` so the two
+  // paths converge on the same definition of "test marker."
+  const redPattern = /\[RED\]/g;
+  const msoPattern = /[A-Z][a-zA-Z]+_[A-Z][a-zA-Z]+_[A-Z][a-zA-Z]+/g;
+
   for (const task of plan.tasks) {
     const descWords = task.description.trim().split(/\s+/).filter((w) => w.length > 0).length;
-    const hasDescription = descWords >= 5;
+    const hasDescription = descWords > 10;
     const hasFiles = task.files.length > 0;
-    const status = hasDescription && hasFiles ? 'PASS' : 'FAIL';
+    const redMatches = task.description.match(redPattern) ?? [];
+    const msoMatches = task.description.match(msoPattern) ?? [];
+    const testCount = redMatches.length + msoMatches.length;
+    const hasTests = testCount > 0;
+    const status = hasDescription && hasFiles && hasTests ? 'PASS' : 'FAIL';
     if (status === 'PASS') wellDecomposed++;
     else needsRework++;
-    rows.push(`| ${task.id} | ${task.phase} | ${descWords} words | ${task.files.length} files | ${status} |`);
+    rows.push(
+      `| ${task.id} | ${task.phase} | ${descWords} words | ${task.files.length} files | ${testCount} tests | ${status} |`,
+    );
   }
 
   const totalTasks = plan.tasks.length;
@@ -879,8 +898,8 @@ function evaluateTaskDecompositionFromSidecar(plan: PlanSidecarV1): {
   const report = [
     '## Task Decomposition Report (sidecar)',
     '',
-    '| Task | Phase | Description | Files | Status |',
-    '|------|-------|-------------|-------|--------|',
+    '| Task | Phase | Description | Files | Tests | Status |',
+    '|------|-------|-------------|-------|-------|--------|',
     ...rows,
     '',
     `- Well-decomposed: ${wellDecomposed}/${totalTasks}`,
