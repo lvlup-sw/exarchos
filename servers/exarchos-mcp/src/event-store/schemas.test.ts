@@ -484,9 +484,12 @@ describe('EventTypes', () => {
   });
 
   it('EventTypes_HasExpectedCount', () => {
-    // Bumped from 103 → 104 with PR3/T7 (#1364): `tool.action_errored`
-    // splits structured action-level failures out from `tool.errored`
-    // (which now counts transport/protocol failures only).
+    // Bumped from 104 → 105 with #1262: `turn.completed` carries the
+    // per-turn output-token sample the `output_tokens_high` quality hint
+    // fires on (see `telemetry/quality-hints.ts`).
+    // Previous (103 → 104): PR3/T7 (#1364) `tool.action_errored` splits
+    // structured action-level failures out from `tool.errored` (which now
+    // counts transport/protocol failures only).
     // Previous (93 → 103): Wave B (#1342) 5×{requested,executed} two-event
     // split schemas for non-idempotent VCS handlers (B1–B5):
     //   pr.create.requested, pr.create.executed,
@@ -498,7 +501,7 @@ describe('EventTypes', () => {
     // Previous (92): migration.workflow_type_unknown (Wave 1, R-1 Marten #1313).
     // Previous (91): session.machinery_consumed (T-11, rehydration-machinery-refactor).
     // Previous (84 → 90): six durable event-store substrate types (#1259 T02/T03/T04).
-    expect(EventTypes).toHaveLength(104);
+    expect(EventTypes).toHaveLength(105);
   });
 
   it('EventTypes_IncludesSessionTagged', () => {

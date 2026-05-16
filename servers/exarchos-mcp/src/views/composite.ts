@@ -56,7 +56,14 @@ function envelopeWrap(result: ToolResult, startedAt: number): ToolResult {
 
   const meta = (result._meta ?? {}) as Record<string, unknown>;
   const perf = result._perf ?? { ms: Date.now() - startedAt };
-  const nextActions = nextActionsFromResult(result);
+  // #1262 — handlers may pre-populate `result.next_actions` with telemetry-
+  // derived hints (e.g. the `output_tokens_high` checkpoint hint surfaced
+  // by `handleViewTelemetry`). Merge those with the HSM-derived verbs
+  // from `nextActionsFromResult` so the envelope carries both rather than
+  // the wrap silently dropping one source.
+  const hsmActions = nextActionsFromResult(result);
+  const handlerActions = result.next_actions ?? [];
+  const nextActions = [...handlerActions, ...hsmActions];
   return wrapWithPassthrough(result, wrap(result.data, meta, perf, nextActions));
 }
 
@@ -146,6 +153,12 @@ export async function handleView(
           },
           stateDir,
           eventStore,
+          // #1262 — thread the resolved `.exarchos.yml` so
+          // `qualityHints.outputTokenThreshold` flows into the hint
+          // generator. Cast is the same shape both types declare; the
+          // resolver only reads the `qualityHints.outputTokenThreshold`
+          // slice (see `QualityHintsConfig`).
+          ctx.config as unknown as Parameters<typeof handleViewTelemetry>[3],
         ),
         startedAt,
       );
