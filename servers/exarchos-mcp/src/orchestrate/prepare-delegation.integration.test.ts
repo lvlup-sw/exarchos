@@ -31,6 +31,10 @@ vi.mock('./dispatch-guard.js', () => ({
     reason: 'current-branch-protected',
     currentBranch: 'main',
   }),
+  // #1261 — stash probe is fire-and-forget; default to a no-op for this
+  // integration test, which exercises the blocked-protected-branch
+  // short-circuit only.
+  probeStashAndEmit: vi.fn().mockResolvedValue(undefined),
 }));
 
 let tmpDir: string;
