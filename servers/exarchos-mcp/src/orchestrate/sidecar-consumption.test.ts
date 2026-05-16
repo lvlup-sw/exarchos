@@ -333,4 +333,122 @@ describe('CheckTaskDecomposition', () => {
       expect(data.totalTasks).toBe(2);
     }
   });
+
+  // B2 (#1406): sidecar fixture covers structural shape (count + per-task
+  // description/files). DAG cycles and file conflicts are NOT encoded in
+  // the plan.v1 schema today, so the sidecar branch MUST still run those
+  // checks against the markdown task graph. Anchor that contract.
+  it('SidecarPresentWithDagCycle_ReportsDagInvalid', async () => {
+    const planDir = join(workDir, 'plans');
+    mkdirSync(planDir, { recursive: true });
+    const planPath = join(planDir, '2026-05-15-cycle.md');
+
+    // Sidecar shape is conformant (two well-described tasks with files),
+    // but the markdown task graph has T-01 ↔ T-02 mutual dependency.
+    const cyclicMarkdown = `# Plan
+
+## Tasks
+
+### Task T-01: First cyclic task with enough words for the description check
+
+**Goal:** Describe task one with enough descriptive words for the structural validator.
+
+**Files:** \`src/a.ts\`
+
+**Tests:** [RED] First_Test
+
+**Dependencies:** T-02
+
+**Parallelizable:** No
+
+### Task T-02: Second cyclic task with enough descriptive words for the structural check
+
+**Goal:** Describe task two with enough descriptive words to clear the structural validator.
+
+**Files:** \`src/b.ts\`
+
+**Tests:** [RED] Second_Test
+
+**Dependencies:** T-01
+
+**Parallelizable:** No
+`;
+    writeFileSync(planPath, cyclicMarkdown, 'utf-8');
+    writePlanSidecar(planPath);
+
+    const result = await handleTaskDecomposition(
+      { featureId: 'feat', planPath },
+      workDir,
+      mockStore,
+    );
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      const data = result.data as {
+        passed: boolean;
+        dagValid: boolean;
+        source?: string;
+      };
+      expect(data.source).toBe('sidecar');
+      expect(data.dagValid).toBe(false);
+      expect(data.passed).toBe(false);
+    }
+  });
+
+  it('SidecarPresentWithFileConflict_ReportsParallelUnsafe', async () => {
+    const planDir = join(workDir, 'plans');
+    mkdirSync(planDir, { recursive: true });
+    const planPath = join(planDir, '2026-05-15-conflict.md');
+
+    // Two parallelizable tasks declaring the same file → conflict in the
+    // parallel-safety check. Sidecar shape is otherwise conformant.
+    const conflictMarkdown = `# Plan
+
+## Tasks
+
+### Task T-01: First parallel task with sufficient descriptive words for the validator
+
+**Goal:** First task with enough descriptive words for the structural validator to pass.
+
+**Files:** \`src/shared.ts\`
+
+**Tests:** [RED] First_Test
+
+**Dependencies:** none
+
+**Parallelizable:** Yes
+
+### Task T-02: Second parallel task touching the same shared source file as task one
+
+**Goal:** Second task with enough descriptive words for the structural validator to pass.
+
+**Files:** \`src/shared.ts\`
+
+**Tests:** [RED] Second_Test
+
+**Dependencies:** none
+
+**Parallelizable:** Yes
+`;
+    writeFileSync(planPath, conflictMarkdown, 'utf-8');
+    writePlanSidecar(planPath);
+
+    const result = await handleTaskDecomposition(
+      { featureId: 'feat', planPath },
+      workDir,
+      mockStore,
+    );
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      const data = result.data as {
+        passed: boolean;
+        parallelSafe: boolean;
+        source?: string;
+      };
+      expect(data.source).toBe('sidecar');
+      expect(data.parallelSafe).toBe(false);
+      expect(data.passed).toBe(false);
+    }
+  });
 });
