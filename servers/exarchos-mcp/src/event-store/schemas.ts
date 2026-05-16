@@ -140,6 +140,12 @@ export const EventTypes = [
   // B5: remove-worktree
   'worktree.remove.requested',
   'worktree.remove.executed',
+  // #1290 — emitted by `resolveWorkspace` (servers/exarchos-mcp/src/workspace/
+  // discovery.ts) when the dispatch boundary resolves a missing `featureId`
+  // from MCP roots or via the cwd-walk fallback. Records the source so audit
+  // queries can distinguish handshake-driven resolutions from cwd inference.
+  // Not emitted on multi-match (no single featureId to attribute) or zero-match.
+  'workspace.resolved',
 ] as const;
 
 export type EventType = typeof EventTypes[number];
@@ -402,6 +408,10 @@ export const EVENT_EMISSION_REGISTRY: Record<EventType, EventEmissionSource> = {
   'branch.delete.executed': 'auto',
   'worktree.remove.requested': 'auto',
   'worktree.remove.executed': 'auto',
+
+  // #1290 — auto-emitted by the workspace discovery resolver on the
+  // dispatch boundary. See EventTypes registration above.
+  'workspace.resolved': 'auto',
 };
 
 // ─── Base Event Schema ──────────────────────────────────────────────────────
@@ -1547,6 +1557,22 @@ export const MigrationWorkflowTypeUnknownData = z.object({
   streamId: z.string().min(1).describe('Affected stream / featureId'),
 });
 
+// ─── Workspace discovery (#1290) ────────────────────────────────────────────
+
+/**
+ * Emitted by `resolveWorkspace` when the dispatch boundary resolves a
+ * missing `featureId` from a single matching MCP root or via the cwd-walk
+ * fallback. `source` records which branch produced the resolution so
+ * audit queries can distinguish handshake-driven inference from cwd
+ * inference. `path` is the absolute workspace root (the directory
+ * containing `.exarchos.yml` or `docs/workflow-state/<id>.state.json`).
+ */
+export const WorkspaceResolvedData = z.object({
+  source: z.enum(['roots', 'cwd']),
+  path: z.string().min(1),
+  featureId: z.string().min(1),
+});
+
 // ─── Event Data Schemas Map ─────────────────────────────────────────────────
 
 export const EVENT_DATA_SCHEMAS: Partial<Record<EventType, z.ZodSchema>> = {
@@ -1712,6 +1738,9 @@ export const EVENT_DATA_SCHEMAS: Partial<Record<EventType, z.ZodSchema>> = {
   'branch.delete.executed': BranchDeleteExecutedData,
   'worktree.remove.requested': WorktreeRemoveRequestedData,
   'worktree.remove.executed': WorktreeRemoveExecutedData,
+
+  // #1290 — workspace discovery resolution
+  'workspace.resolved': WorkspaceResolvedData,
 };
 
 // ─── TypeScript Types ───────────────────────────────────────────────────────
@@ -1812,6 +1841,9 @@ export type BranchDeleteExecuted = z.infer<typeof BranchDeleteExecutedData>;
 export type WorktreeRemoveRequested = z.infer<typeof WorktreeRemoveRequestedData>;
 export type WorktreeRemoveExecuted = z.infer<typeof WorktreeRemoveExecutedData>;
 
+// #1290 — workspace discovery
+export type WorkspaceResolved = z.infer<typeof WorkspaceResolvedData>;
+
 // ─── Event Data Map ─────────────────────────────────────────────────────────
 
 export type EventDataMap = {
@@ -1909,6 +1941,8 @@ export type EventDataMap = {
   'branch.delete.executed': BranchDeleteExecuted;
   'worktree.remove.requested': WorktreeRemoveRequested;
   'worktree.remove.executed': WorktreeRemoveExecuted;
+  // #1290 — workspace discovery
+  'workspace.resolved': WorkspaceResolved;
 };
 
 // ─── Event Catalog Serialization ────────────────────────────────────────────

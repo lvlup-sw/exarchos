@@ -501,7 +501,9 @@ describe('EventTypes', () => {
     // Previous (92): migration.workflow_type_unknown (Wave 1, R-1 Marten #1313).
     // Previous (91): session.machinery_consumed (T-11, rehydration-machinery-refactor).
     // Previous (84 → 90): six durable event-store substrate types (#1259 T02/T03/T04).
-    expect(EventTypes).toHaveLength(105);
+    // Previous (105 → 106): workspace.resolved (#1290 — roots-based workspace
+    //   discovery; emitted by `src/workspace/discovery.ts`).
+    expect(EventTypes).toHaveLength(106);
   });
 
   it('EventTypes_IncludesSessionTagged', () => {
