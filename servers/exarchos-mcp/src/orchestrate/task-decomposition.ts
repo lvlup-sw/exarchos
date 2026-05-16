@@ -12,6 +12,8 @@ import { readFile } from 'node:fs/promises';
 import type { ToolResult } from '../format.js';
 import type { EventStore } from '../event-store/store.js';
 import { emitGateEvent } from './gate-utils.js';
+import { loadPlanSidecar } from './sidecar-lookup.js';
+import type { PlanSidecarV1 } from './sidecar-schemas.js';
 
 // ─── Types ───────────────────────────────────────────────────────────────
 
@@ -671,6 +673,12 @@ export async function handleTaskDecomposition(
     };
   }
 
+  // Prefer the sidecar (T15) when present + conformant for structural
+  // scoring. DAG and parallel-safety still derive from the markdown task
+  // graph, since the plan.v1 schema does not encode deps/parallel flags
+  // (B2 fix on PR #1406: prevent sidecar from bypassing those checks).
+  const planSidecar = loadPlanSidecar(args.planPath);
+
   // Read plan file
   let planContent: string;
   try {
@@ -685,14 +693,69 @@ export async function handleTaskDecomposition(
     };
   }
 
+  if (planSidecar) {
+    const blocks = parseTaskBlocks(planContent);
+
+    // C2 fix (#1406 third pass): empty-block guard. Even with a populated
+    // sidecar, DAG / parallel-safety only mean anything when the markdown
+    // task graph exists. Without this guard, a sidecar-present plan whose
+    // markdown lost its `### Task` headers used to silently pass via an
+    // empty-graph DAG. Emit the same `NO_PLAN_TASKS` shape as the regex
+    // path so downstream consumers don't have to special-case the source.
+    if (blocks.length === 0) {
+      return {
+        success: false,
+        error: {
+          code: 'NO_PLAN_TASKS',
+          message: `No '### Task' headers found in plan file: ${args.planPath}`,
+        },
+      };
+    }
+
+    // DAG validation against the markdown-declared dependency graph.
+    const dagTasks: DagTask[] = blocks.map((b) => ({
+      id: b.id,
+      deps: extractDependencies(b.content),
+    }));
+    const dagResult = validateDependencyDAG(dagTasks);
+
+    // Parallel safety from `**Parallelizable:** Yes` + declared files.
+    const parallelTasks: ParallelTask[] = blocks.map((b) => ({
+      id: b.id,
+      isParallel: isParallelizable(b.content),
+      files: extractFiles(b.content),
+    }));
+    const safetyResult = checkParallelSafety(parallelTasks);
+
+    const sidecarResult = evaluateTaskDecompositionFromSidecar(
+      planSidecar,
+      dagResult,
+      safetyResult,
+    );
+    try {
+      await emitGateEvent(eventStore, args.featureId, 'task-decomposition', 'planning', sidecarResult.passed, {
+        dimension: 'D5',
+        phase: 'plan',
+        wellDecomposed: sidecarResult.wellDecomposed,
+        needsRework: sidecarResult.needsRework,
+        totalTasks: sidecarResult.totalTasks,
+      });
+    } catch { /* fire-and-forget */ }
+    return { success: true, data: { ...sidecarResult, source: 'sidecar' as const } };
+  }
+
   // Parse task blocks
   const blocks = parseTaskBlocks(planContent);
 
   if (blocks.length === 0) {
+    // C2 fix (#1406 third pass): unify empty-plan error code with the
+    // sidecar branch above (and with `plan-coverage.ts`, which already
+    // uses `NO_PLAN_TASKS`). Previously this path emitted `SCRIPT_ERROR`,
+    // forcing downstream consumers to special-case the source.
     return {
       success: false,
       error: {
-        code: 'SCRIPT_ERROR',
+        code: 'NO_PLAN_TASKS',
         message: `No '### Task' headers found in plan file: ${args.planPath}`,
       },
     };
@@ -818,5 +881,94 @@ export async function handleTaskDecomposition(
     report,
   };
 
-  return { success: true, data: result };
+  return { success: true, data: { ...result, source: 'regex' as const } };
+}
+
+// ─── Sidecar evaluation ─────────────────────────────────────────────────────
+
+/**
+ * Validate task decomposition from the structured plan sidecar. Each task
+ * is checked for: non-empty description (> 10 words, matching the regex
+ * path's threshold for consistency — C1 fix on PR #1406 third pass), at
+ * least one declared file, and a phase from the RED/GREEN/REFACTOR enum
+ * (already enforced by the schema).
+ *
+ * DAG validity and parallel safety are NOT encoded in plan.v1 today, so
+ * they are passed in by the caller after running the existing pure
+ * helpers against the markdown task graph (B2 fix on PR #1406:
+ * `dagValid: true, parallelSafe: true` previously hard-coded here let
+ * cyclic / file-conflicting plans pass any time a sidecar existed).
+ */
+function evaluateTaskDecompositionFromSidecar(
+  plan: PlanSidecarV1,
+  dagResult: DagValidationResult,
+  safetyResult: ParallelSafetyResult,
+): {
+  passed: boolean;
+  wellDecomposed: number;
+  needsRework: number;
+  totalTasks: number;
+  dagValid: boolean;
+  parallelSafe: boolean;
+  report: string;
+} {
+  let wellDecomposed = 0;
+  let needsRework = 0;
+  const rows: string[] = [];
+
+  for (const task of plan.tasks) {
+    const descWords = task.description.trim().split(/\s+/).filter((w) => w.length > 0).length;
+    // C1 fix (#1406 third pass): match the regex-path threshold of > 10
+    // words. Previously this used `>= 5`, letting 5–10-word descriptions
+    // pass the sidecar branch while the regex branch rejected them. The
+    // 11-word threshold is authoritative (older, exercised by every
+    // existing plan).
+    const hasDescription = descWords > 10;
+    const hasFiles = task.files.length > 0;
+    const status = hasDescription && hasFiles ? 'PASS' : 'FAIL';
+    if (status === 'PASS') wellDecomposed++;
+    else needsRework++;
+    rows.push(`| ${task.id} | ${task.phase} | ${descWords} words | ${task.files.length} files | ${status} |`);
+  }
+
+  const totalTasks = plan.tasks.length;
+  const passed =
+    needsRework === 0 && dagResult.valid && safetyResult.safe;
+
+  const reportLines: string[] = [
+    '## Task Decomposition Report (sidecar)',
+    '',
+    '| Task | Phase | Description | Files | Status |',
+    '|------|-------|-------------|-------|--------|',
+    ...rows,
+    '',
+    `- Well-decomposed: ${wellDecomposed}/${totalTasks}`,
+    `- Needs rework: ${needsRework}/${totalTasks}`,
+    `- Dependency: ${dagResult.valid ? 'valid DAG' : `CYCLE DETECTED: ${dagResult.cyclePath ?? 'unknown'}`}`,
+    `- Parallel safety: ${safetyResult.safe ? 'clean' : `${safetyResult.conflicts.length} conflict(s)`}`,
+    '',
+  ];
+
+  if (!safetyResult.safe) {
+    for (const conflict of safetyResult.conflicts) {
+      reportLines.push(`- ${conflict}`);
+    }
+    reportLines.push('');
+  }
+
+  reportLines.push(
+    passed
+      ? '**Result: PASS**'
+      : `**Result: FAIL** — ${needsRework} tasks need rework`,
+  );
+
+  return {
+    passed,
+    wellDecomposed,
+    needsRework,
+    totalTasks,
+    dagValid: dagResult.valid,
+    parallelSafe: safetyResult.safe,
+    report: reportLines.join('\n'),
+  };
 }
