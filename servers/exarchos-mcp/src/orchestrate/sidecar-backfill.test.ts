@@ -8,13 +8,19 @@
 
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { parse } from 'yaml';
 
 import { DesignSidecarV1, PlanSidecarV1 } from './sidecar-schemas.js';
 
 // Resolve relative to repo root from this test file's location:
 // servers/exarchos-mcp/src/orchestrate/<this> → ../../../../docs/...
+// `__dirname` is not defined under strict ESM/NodeNext; derive it from
+// `import.meta.url` so the test works regardless of vitest's CJS-compat
+// shim (CodeRabbit B3 on PR #1406).
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 const REPO_ROOT = resolve(__dirname, '..', '..', '..', '..');
 
 describe('SidecarBackfill_Preview4', () => {
