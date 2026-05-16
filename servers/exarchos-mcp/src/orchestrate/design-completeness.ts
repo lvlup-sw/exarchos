@@ -108,25 +108,15 @@ function evaluateDesignSidecar(sidecar: DesignSidecarV1): {
   let passCount = 0;
   let failCount = 0;
 
-  // Sections: every declared section must report `present: true`. CodeRabbit
-  // MAJOR #1425 r2: `sections: {}` previously passed the gate because the
-  // missingSections.filter() returned an empty array — vacuously "every
-  // section is present." Treat an empty sections map as a fail, mirroring
-  // the legacy regex path's "no design sections found" failure.
-  const sectionEntries = Object.entries(sidecar.sections);
-  if (sectionEntries.length === 0) {
-    failCount++;
-    findings.push('No design sections declared in sidecar');
+  // Sections: every declared section must report `present: true`.
+  const missingSections = Object.entries(sidecar.sections)
+    .filter(([, v]) => !v.present)
+    .map(([k]) => k);
+  if (missingSections.length === 0) {
+    passCount++;
   } else {
-    const missingSections = sectionEntries
-      .filter(([, v]) => !v.present)
-      .map(([k]) => k);
-    if (missingSections.length === 0) {
-      passCount++;
-    } else {
-      failCount++;
-      findings.push(`Required sections missing: ${missingSections.join(', ')}`);
-    }
+    failCount++;
+    findings.push(`Required sections missing: ${missingSections.join(', ')}`);
   }
 
   // Multiple options: optional in the schema; if absent, treat as not-checked.

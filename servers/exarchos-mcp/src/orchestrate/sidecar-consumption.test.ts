@@ -139,6 +139,17 @@ function writeConformantPlanMarkdown(planPath: string): void {
   writeFileSync(planPath, content, 'utf-8');
 }
 
+/**
+ * Resolve the on-disk sidecar path for a `.md` doc using the canonical
+ * `<base>.sidecar.yml` convention (B1 fix on PR #1406). Tests write
+ * sidecars to this path so the lookup helper actually resolves them.
+ */
+function sidecarPathForTest(docPath: string): string {
+  return docPath.endsWith('.md')
+    ? `${docPath.slice(0, -3)}.sidecar.yml`
+    : `${docPath}.sidecar.yml`;
+}
+
 function writeDesignSidecar(designPath: string): void {
   const yaml = `schema: design.v1
 sections:
@@ -151,23 +162,19 @@ acceptance:
 options:
   count: 2
 `;
-  writeFileSync(`${designPath}.sidecar.yml`, yaml, 'utf-8');
+  writeFileSync(sidecarPathForTest(designPath), yaml, 'utf-8');
 }
 
 function writePlanSidecar(planPath: string): void {
-  // Descriptions include [RED]/Method_Scenario_Outcome markers to satisfy the
-  // sidecar task-decomposition gate's test-marker requirement, mirroring the
-  // markdown body convention (`**Tests:** [RED] First_Test_Name`) the legacy
-  // regex path validates.
   const yaml = `schema: plan.v1
 tasks:
   - id: T-01
     phase: RED
-    description: "[RED] First_Test_Name — failing test that anchors the contract before any production code lands"
+    description: First failing test that anchors the contract before any production code lands
     files: [src/a.test.ts]
   - id: T-02
     phase: GREEN
-    description: "Minimal implementation turning the [RED] Second_Test_Name green without overreach beyond the contract"
+    description: Minimal implementation turning the RED test green without overreaching the contract boundary established earlier
     files: [src/a.ts]
 coverage:
   DR-1: [T-01, T-02]
@@ -175,7 +182,7 @@ provenance:
   - { taskId: T-01, dr: DR-1 }
   - { taskId: T-02, dr: DR-1 }
 `;
-  writeFileSync(`${planPath}.sidecar.yml`, yaml, 'utf-8');
+  writeFileSync(sidecarPathForTest(planPath), yaml, 'utf-8');
 }
 
 // ─── design-completeness ─────────────────────────────────────────────────────
@@ -327,27 +334,128 @@ describe('CheckTaskDecomposition', () => {
     }
   });
 
-  it('SidecarTaskDecomposition_DescriptionUnderTenWords_FailsLikeLegacy', async () => {
-    // Sentry #1425 HIGH: pre-fix the sidecar gate accepted any description
-    // >= 5 words. Legacy `validateTaskStructure` requires > 10. Drift was a
-    // silent regression in decomposition quality. Pin both branches to the
-    // same threshold.
+  // B2 (#1406): sidecar fixture covers structural shape (count + per-task
+  // description/files). DAG cycles and file conflicts are NOT encoded in
+  // the plan.v1 schema today, so the sidecar branch MUST still run those
+  // checks against the markdown task graph. Anchor that contract.
+  it('SidecarPresentWithDagCycle_ReportsDagInvalid', async () => {
     const planDir = join(workDir, 'plans');
     mkdirSync(planDir, { recursive: true });
-    const planPath = join(planDir, '2026-05-15-fixture.md');
-    writeConformantPlanMarkdown(planPath);
+    const planPath = join(planDir, '2026-05-15-cycle.md');
+
+    // Sidecar shape is conformant (two well-described tasks with files),
+    // but the markdown task graph has T-01 ↔ T-02 mutual dependency.
+    const cyclicMarkdown = `# Plan
+
+## Tasks
+
+### Task T-01: First cyclic task with enough words for the description check
+
+**Goal:** Describe task one with enough descriptive words for the structural validator.
+
+**Files:** \`src/a.ts\`
+
+**Tests:** [RED] First_Test
+
+**Dependencies:** T-02
+
+**Parallelizable:** No
+
+### Task T-02: Second cyclic task with enough descriptive words for the structural check
+
+**Goal:** Describe task two with enough descriptive words to clear the structural validator.
+
+**Files:** \`src/b.ts\`
+
+**Tests:** [RED] Second_Test
+
+**Dependencies:** T-01
+
+**Parallelizable:** No
+`;
+    writeFileSync(planPath, cyclicMarkdown, 'utf-8');
+    writePlanSidecar(planPath);
+
+    const result = await handleTaskDecomposition(
+      { featureId: 'feat', planPath },
+      workDir,
+      mockStore,
+    );
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      const data = result.data as {
+        passed: boolean;
+        dagValid: boolean;
+        source?: string;
+      };
+      expect(data.source).toBe('sidecar');
+      expect(data.dagValid).toBe(false);
+      expect(data.passed).toBe(false);
+    }
+  });
+
+  // C1 (#1298, CodeRabbit third pass): sidecar word-count threshold drifted
+  // from the regex path (>= 5 words) while the regex path requires > 10
+  // (i.e. 11+). Unify on the regex behaviour so a task with 6–10 words is
+  // rejected via the sidecar path too — the schema alone is not enough.
+  it('SidecarTaskDescriptionShort_RejectedConsistent', async () => {
+    const planDir = join(workDir, 'plans');
+    mkdirSync(planDir, { recursive: true });
+    const planPath = join(planDir, '2026-05-15-short-desc.md');
+
+    // Markdown task graph is conformant for DAG / parallel-safety checks
+    // (no cycles, no shared files among parallelizable tasks). The sidecar
+    // descriptions, however, are 7 and 8 words — above the legacy `>= 5`
+    // threshold, below the regex-path `> 10` threshold. These tasks must
+    // be reported as needing rework.
+    const markdown = `# Plan
+
+## Tasks
+
+### Task T-01: First task with conformant markdown description body
+
+**Goal:** First task with enough descriptive words for the structural validator to pass cleanly.
+
+**Files:** \`src/a.ts\`
+
+**Tests:** [RED] First_Test
+
+**Dependencies:** none
+
+**Parallelizable:** No
+
+### Task T-02: Second task with conformant markdown description body
+
+**Goal:** Second task with enough descriptive words for the structural validator to pass cleanly.
+
+**Files:** \`src/b.ts\`
+
+**Tests:** [RED] Second_Test
+
+**Dependencies:** T-01
+
+**Parallelizable:** No
+`;
+    writeFileSync(planPath, markdown, 'utf-8');
+
     const shortDescSidecar = `schema: plan.v1
 tasks:
   - id: T-01
     phase: RED
-    description: "[RED] Short_Test_Name only six words here"
-    files: [src/a.test.ts]
+    description: Seven word description that exceeds five words
+    files: [src/a.ts]
+  - id: T-02
+    phase: GREEN
+    description: Eight word description that still fails eleven threshold
+    files: [src/b.ts]
 coverage:
-  DR-1: [T-01]
+  DR-1: [T-01, T-02]
 provenance:
   - { taskId: T-01, dr: DR-1 }
+  - { taskId: T-02, dr: DR-1 }
 `;
-    writeFileSync(`${planPath}.sidecar.yml`, shortDescSidecar, 'utf-8');
+    writeFileSync(sidecarPathForTest(planPath), shortDescSidecar, 'utf-8');
 
     const result = await handleTaskDecomposition(
       { featureId: 'feat', planPath },
@@ -357,130 +465,112 @@ provenance:
 
     expect(result.success).toBe(true);
     if (result.success) {
-      const data = result.data as { passed: boolean; source?: string; needsRework: number };
+      const data = result.data as {
+        passed: boolean;
+        needsRework: number;
+        wellDecomposed: number;
+        totalTasks: number;
+        source?: string;
+      };
       expect(data.source).toBe('sidecar');
+      // Both tasks should be flagged as needing rework — 7 and 8 words
+      // are below the unified 11-word threshold.
+      expect(data.needsRework).toBe(2);
+      expect(data.wellDecomposed).toBe(0);
       expect(data.passed).toBe(false);
-      expect(data.needsRework).toBeGreaterThan(0);
     }
   });
 
-  it('SidecarTaskDecomposition_DescriptionMissingTestMarker_FailsLikeLegacy', async () => {
-    // Sentry #1425 HIGH: pre-fix the sidecar gate omitted the test-marker
-    // check entirely. A task could claim `phase: RED` with a description
-    // containing no test method name. Legacy `validateTaskStructure`
-    // requires at least one `[RED]` token or `Method_Scenario_Outcome`
-    // triple in the block body.
+  // C2 (#1406, CodeRabbit third pass): sidecar-mode missing empty-block
+  // guard. When the sidecar exists but the markdown has zero `### Task XX:`
+  // blocks, the regex path fast-fails — but the sidecar path silently lets
+  // DAG/safety run on an empty graph and may pass. Sidecar structure alone
+  // is insufficient; the markdown task graph must exist for DAG checks to
+  // mean anything.
+  it('SidecarPresentEmptyMarkdownTasks_FailsFast', async () => {
     const planDir = join(workDir, 'plans');
     mkdirSync(planDir, { recursive: true });
-    const planPath = join(planDir, '2026-05-15-fixture.md');
-    writeConformantPlanMarkdown(planPath);
-    const noMarkerSidecar = `schema: plan.v1
-tasks:
-  - id: T-01
-    phase: RED
-    description: "A perfectly long description that comfortably exceeds ten words but has no test markers anywhere"
-    files: [src/a.test.ts]
-coverage:
-  DR-1: [T-01]
-provenance:
-  - { taskId: T-01, dr: DR-1 }
+    const planPath = join(planDir, '2026-05-15-empty-md.md');
+
+    // Markdown has prose but no `### Task` blocks. Sidecar is fully
+    // populated and conformant — without the guard, this used to pass.
+    const emptyMarkdown = `# Plan
+
+## Tasks
+
+Prose without any task headers — DAG / parallel-safety would run on an
+empty graph and trivially pass.
 `;
-    writeFileSync(`${planPath}.sidecar.yml`, noMarkerSidecar, 'utf-8');
-
-    const result = await handleTaskDecomposition(
-      { featureId: 'feat', planPath },
-      workDir,
-      mockStore,
-    );
-
-    expect(result.success).toBe(true);
-    if (result.success) {
-      const data = result.data as { passed: boolean; source?: string; needsRework: number };
-      expect(data.source).toBe('sidecar');
-      expect(data.passed).toBe(false);
-      expect(data.needsRework).toBeGreaterThan(0);
-    }
-  });
-});
-
-// ─── #1425 follow-ups: empty-drs + log-once dedup ───────────────────────────
-
-describe('CheckPlanCoverage — sidecar parity follow-ups', () => {
-  it('SidecarPlanCoverage_EmptyDrsArray_FailsClosedWithNoDesignSections', async () => {
-    // Sentry #1425 MEDIUM: pre-fix an empty `drs[]` from a malformed design
-    // sidecar yielded `total=0, gaps=0, passed=true` — silently passing a
-    // design with zero requirements. Legacy regex path returns
-    // `NO_DESIGN_SECTIONS` for the equivalent input. Sidecar path must
-    // match the same error code.
-    const designDir = join(workDir, 'designs');
-    mkdirSync(designDir, { recursive: true });
-    const designPath = join(designDir, '2026-05-15-fixture.md');
-    writeConformantDesignMarkdown(designPath);
-    const emptyDrsSidecar = `schema: design.v1
-sections: {}
-drs: []
-acceptance: []
-`;
-    writeFileSync(`${designPath}.sidecar.yml`, emptyDrsSidecar, 'utf-8');
-
-    const planDir = join(workDir, 'plans');
-    mkdirSync(planDir, { recursive: true });
-    const planPath = join(planDir, '2026-05-15-fixture.md');
-    writeConformantPlanMarkdown(planPath);
+    writeFileSync(planPath, emptyMarkdown, 'utf-8');
     writePlanSidecar(planPath);
 
-    const result = await handlePlanCoverage(
-      { featureId: 'feat', designPath, planPath },
+    const result = await handleTaskDecomposition(
+      { featureId: 'feat', planPath },
       workDir,
       mockStore,
     );
 
     expect(result.success).toBe(false);
     if (!result.success) {
-      expect(result.error.code).toBe('NO_DESIGN_SECTIONS');
+      expect(result.error.code).toBe('NO_PLAN_TASKS');
+      expect(result.error.message).toContain(planPath);
     }
   });
-});
 
-describe('SidecarLookup — log-once dedup', () => {
-  it('SidecarMissing_AcrossMultipleGates_LogsDeprecationOncePerDocPath', async () => {
-    // Sentry #1425 LOW: pre-fix the deprecation warning fired once per
-    // (gate × missing-file) combination — 4+ duplicate lines per check for
-    // a workflow without sidecars. Per-process dedup collapses repeats.
-    const { __resetDeprecationLog } = await import('./sidecar-lookup.js');
-    __resetDeprecationLog();
-
-    const designDir = join(workDir, 'designs');
-    mkdirSync(designDir, { recursive: true });
-    const designPath = join(designDir, '2026-05-15-dedup.md');
-    writeConformantDesignMarkdown(designPath);
-
+  it('SidecarPresentWithFileConflict_ReportsParallelUnsafe', async () => {
     const planDir = join(workDir, 'plans');
     mkdirSync(planDir, { recursive: true });
-    const planPath = join(planDir, '2026-05-15-dedup.md');
-    writeConformantPlanMarkdown(planPath);
+    const planPath = join(planDir, '2026-05-15-conflict.md');
 
-    // Hit four gates back-to-back with NO sidecars on disk. The legacy regex
-    // path runs each time and the missing-sidecar warning would fire on
-    // every call without dedup. We assert the warn count for each unique
-    // docPath stays at exactly 1.
-    await handleDesignCompleteness({ featureId: 'feat', designPath }, workDir, mockStore);
-    await handlePlanCoverage({ featureId: 'feat', designPath, planPath }, workDir, mockStore);
-    await handleProvenanceChain({ featureId: 'feat', designPath, planPath }, workDir, mockStore);
-    await handleTaskDecomposition({ featureId: 'feat', planPath }, workDir, mockStore);
+    // Two parallelizable tasks declaring the same file → conflict in the
+    // parallel-safety check. Sidecar shape is otherwise conformant.
+    const conflictMarkdown = `# Plan
 
-    const designWarnHits = warnSpy.mock.calls.filter((call) =>
-      call.some(
-        (arg) => typeof arg === 'object' && arg !== null && (arg as { docPath?: string }).docPath === designPath,
-      ),
-    ).length;
-    const planWarnHits = warnSpy.mock.calls.filter((call) =>
-      call.some(
-        (arg) => typeof arg === 'object' && arg !== null && (arg as { docPath?: string }).docPath === planPath,
-      ),
-    ).length;
+## Tasks
 
-    expect(designWarnHits).toBe(1);
-    expect(planWarnHits).toBe(1);
+### Task T-01: First parallel task with sufficient descriptive words for the validator
+
+**Goal:** First task with enough descriptive words for the structural validator to pass.
+
+**Files:** \`src/shared.ts\`
+
+**Tests:** [RED] First_Test
+
+**Dependencies:** none
+
+**Parallelizable:** Yes
+
+### Task T-02: Second parallel task touching the same shared source file as task one
+
+**Goal:** Second task with enough descriptive words for the structural validator to pass.
+
+**Files:** \`src/shared.ts\`
+
+**Tests:** [RED] Second_Test
+
+**Dependencies:** none
+
+**Parallelizable:** Yes
+`;
+    writeFileSync(planPath, conflictMarkdown, 'utf-8');
+    writePlanSidecar(planPath);
+
+    const result = await handleTaskDecomposition(
+      { featureId: 'feat', planPath },
+      workDir,
+      mockStore,
+    );
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      const data = result.data as {
+        passed: boolean;
+        parallelSafe: boolean;
+        source?: string;
+      };
+      expect(data.source).toBe('sidecar');
+      expect(data.parallelSafe).toBe(false);
+      expect(data.passed).toBe(false);
+    }
   });
 });

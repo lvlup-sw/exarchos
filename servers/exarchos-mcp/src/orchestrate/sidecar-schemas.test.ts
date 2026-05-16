@@ -7,6 +7,7 @@
 
 import { describe, it, expect } from 'vitest';
 import {
+  AcceptanceCriterionSchema,
   DesignSidecarV1,
   PlanSidecarV1,
 } from './sidecar-schemas.js';
@@ -91,6 +92,35 @@ describe('SidecarSchema_MismatchedSchemaVersion', () => {
       provenance: [],
     };
     const parsed = PlanSidecarV1.safeParse(doc);
+    expect(parsed.success).toBe(false);
+  });
+});
+
+// B4 (#1406): AcceptanceCriterionSchema must require at least one
+// non-empty DR reference. Empty arrays and empty strings used to slip
+// through, masking content gaps in hand-authored sidecars.
+describe('SidecarSchema_AcceptanceCriterion', () => {
+  it('AcceptsConformantEntry', () => {
+    const parsed = AcceptanceCriterionSchema.safeParse({
+      id: 'A-1',
+      references: ['DR-1'],
+    });
+    expect(parsed.success).toBe(true);
+  });
+
+  it('EmptyReferences_Rejected', () => {
+    const parsed = AcceptanceCriterionSchema.safeParse({
+      id: 'A-1',
+      references: [],
+    });
+    expect(parsed.success).toBe(false);
+  });
+
+  it('EmptyReferenceString_Rejected', () => {
+    const parsed = AcceptanceCriterionSchema.safeParse({
+      id: 'A-1',
+      references: [''],
+    });
     expect(parsed.success).toBe(false);
   });
 });

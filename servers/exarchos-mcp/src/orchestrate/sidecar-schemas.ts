@@ -26,11 +26,14 @@ export const DesignRequirementSchema = z.object({
 });
 
 /**
- * An acceptance criterion entry, identified by id, references one or more DRs.
+ * An acceptance criterion entry, identified by id, references one or more
+ * DRs. The "one or more" half of that contract is enforced here (B4 fix
+ * on PR #1406): empty arrays and empty-string references used to slip
+ * through, masking content gaps in hand-authored sidecars.
  */
 export const AcceptanceCriterionSchema = z.object({
   id: z.string().min(1),
-  references: z.array(z.string()),
+  references: z.array(z.string().min(1)).min(1),
 });
 
 /**
