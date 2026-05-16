@@ -15,6 +15,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { parse as parseYaml } from 'yaml';
 import type { z } from 'zod';
 
+import { orchestrateLogger } from '../logger.js';
 import {
   DesignSidecarV1,
   PlanSidecarV1,
@@ -38,16 +39,28 @@ export function sidecarPathFor(docPath: string): string {
 }
 
 /**
+ * Build the canonical deprecation warning string. Surfaced both via pino
+ * (`orchestrateLogger.warn`) for operator-visible logs and returned to
+ * callers/tests so the gate response can include the same text.
+ */
+export function buildDeprecationMessage(docPath: string): string {
+  return (
+    `[DEPRECATION] sidecar missing for ${docPath}; if pre-v2.10.0-preview.4, ` +
+    `grandfathered; otherwise regenerate via npm run sidecar:emit. Regex ` +
+    `fallback scheduled for removal in v2.11. Tracking: ${REGEX_REMOVAL_TRACKING_ISSUE}`
+  );
+}
+
+/**
  * Emit the canonical deprecation warning. Pre-v2.10.0-preview.4 docs are
  * grandfathered; older docs SHOULD log but are not load-bearing.
+ *
+ * Goes through `orchestrateLogger` (pino subsystem='orchestrate') so we
+ * stay inside the project's no-console-in-production policy (#1119);
+ * tests spy on the logger instance directly.
  */
 function logDeprecation(docPath: string): void {
-  // eslint-disable-next-line no-console
-  console.warn(
-    `[DEPRECATION] sidecar missing for ${docPath}; if pre-v2.10.0-preview.4, ` +
-      `grandfathered; otherwise regenerate via npm run sidecar:emit. Regex ` +
-      `fallback scheduled for removal in v2.11. Tracking: ${REGEX_REMOVAL_TRACKING_ISSUE}`,
-  );
+  orchestrateLogger.warn({ docPath, gate: 'sidecar-lookup' }, buildDeprecationMessage(docPath));
 }
 
 /**

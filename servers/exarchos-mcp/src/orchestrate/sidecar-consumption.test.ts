@@ -20,6 +20,7 @@ import { handleDesignCompleteness } from './design-completeness.js';
 import { handlePlanCoverage } from './plan-coverage.js';
 import { handleProvenanceChain } from './provenance-chain.js';
 import { handleTaskDecomposition } from './task-decomposition.js';
+import { orchestrateLogger } from '../logger.js';
 
 // ─── Test scaffolding ───────────────────────────────────────────────────────
 
@@ -42,7 +43,9 @@ beforeEach(() => {
     timestamp: new Date().toISOString(),
   });
   mockQuery.mockResolvedValue([]);
-  warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+  // The deprecation message is emitted via pino (`orchestrateLogger.warn`)
+  // to stay inside the no-console-in-production policy (#1119).
+  warnSpy = vi.spyOn(orchestrateLogger, 'warn').mockImplementation(() => undefined);
 });
 
 afterEach(() => {
@@ -51,6 +54,13 @@ afterEach(() => {
     rmSync(workDir, { recursive: true, force: true });
   }
 });
+
+/** Concatenate all spied logger.warn invocations into one searchable string. */
+function collectWarnMessages(): string {
+  return warnSpy.mock.calls
+    .flatMap((call) => call.map((arg) => (typeof arg === 'string' ? arg : JSON.stringify(arg))))
+    .join('\n');
+}
 
 // ─── Fixture helpers ────────────────────────────────────────────────────────
 
@@ -193,8 +203,7 @@ describe('CheckDesignCompleteness', () => {
       expect(data.source).toBe('sidecar');
     }
     // Deprecation warning must NOT fire when sidecar is present.
-    const allWarns = warnSpy.mock.calls.map((c) => String(c[0])).join('\n');
-    expect(allWarns).not.toContain('[DEPRECATION] sidecar missing');
+    expect(collectWarnMessages()).not.toContain('[DEPRECATION] sidecar missing');
   });
 
   it('NoSidecar_FallsBackToRegexWithDeprecationLog', async () => {
@@ -220,7 +229,7 @@ describe('CheckDesignCompleteness', () => {
       const data = result.data as { source?: string };
       expect(data.source).toBe('regex');
     }
-    const allWarns = warnSpy.mock.calls.map((c) => String(c[0])).join('\n');
+    const allWarns = collectWarnMessages();
     expect(allWarns).toContain('[DEPRECATION]');
     expect(allWarns).toContain(designPath);
   });
@@ -254,8 +263,7 @@ describe('CheckPlanCoverage', () => {
       expect(data.source).toBe('sidecar');
       expect(data.passed).toBe(true);
     }
-    const allWarns = warnSpy.mock.calls.map((c) => String(c[0])).join('\n');
-    expect(allWarns).not.toContain('[DEPRECATION] sidecar missing');
+    expect(collectWarnMessages()).not.toContain('[DEPRECATION] sidecar missing');
   });
 });
 
