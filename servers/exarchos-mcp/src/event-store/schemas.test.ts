@@ -503,7 +503,17 @@ describe('EventTypes', () => {
     // Previous (84 → 90): six durable event-store substrate types (#1259 T02/T03/T04).
     // Previous (105 → 106): workspace.resolved (#1290 — roots-based workspace
     //   discovery; emitted by `src/workspace/discovery.ts`).
-    expect(EventTypes).toHaveLength(106);
+    // Bumped 106 → 108: elicitation.requested + elicitation.fulfilled
+    // (#1274 — elicitation form mode for missing-required-param hand-off
+    //   in the dispatch boundary).
+    expect(EventTypes).toHaveLength(108);
+  });
+
+  it('EventTypes_IncludesElicitation', () => {
+    // #1274 — both events carry the elicitation request/response on a
+    // per-operation pseudo-stream so dispatch can correlate by operationId.
+    expect(EventTypes).toContain('elicitation.requested');
+    expect(EventTypes).toContain('elicitation.fulfilled');
   });
 
   it('EventTypes_IncludesSessionTagged', () => {

@@ -28,6 +28,13 @@ import { capabilitiesForPosture } from './posture-mapping.js';
 export interface ClientHandshake {
   readonly capabilities?: {
     readonly roots?: { readonly listChanged?: boolean };
+    /**
+     * Per the MCP spec (#1274), the `elicitation` capability is signaled by
+     * the client as `capabilities.elicitation: {}` — the presence of the
+     * object (any shape, including the empty object) is the declaration
+     * the resolver treats as authoritative.
+     */
+    readonly elicitation?: object;
     readonly [k: string]: unknown;
   };
 }
@@ -58,6 +65,13 @@ export interface CapabilityResolver {
   /** True when the snapshot recorded `capabilities.roots.listChanged === true`. */
   isRootsDeclared(): boolean;
   /**
+   * True when the snapshot recorded a `capabilities.elicitation` object
+   * (any shape — presence is the gate, per MCP spec #1274). Consumed by
+   * dispatch to decide whether missing-required-param paths route through
+   * `elicitation/create` or fall back to INVALID_INPUT.
+   */
+  isElicitationDeclared(): boolean;
+  /**
    * Return the cached roots list, or `undefined` when the cache is cold
    * (either never populated or freshly invalidated via
    * {@link invalidateRootsCache}). Synchronous: workspace discovery is
@@ -83,6 +97,7 @@ export function createInMemoryResolver(
 ): CapabilityResolver {
   const set = new Set(capabilities);
   let clientRootsDeclared = false;
+  let clientElicitationDeclared = false;
   let cachedRoots: readonly CachedRoot[] | undefined;
   return {
     has(capability) {
@@ -93,9 +108,18 @@ export function createInMemoryResolver(
     },
     snapshot(handshake) {
       clientRootsDeclared = handshake.capabilities?.roots?.listChanged === true;
+      // #1274 — `capabilities.elicitation` is presence-gated: the spec
+      // says `{}` is a valid declaration, so we record true whenever the
+      // field is a non-null object regardless of shape.
+      const elicitation = handshake.capabilities?.elicitation;
+      clientElicitationDeclared =
+        elicitation !== undefined && elicitation !== null && typeof elicitation === 'object';
     },
     isRootsDeclared() {
       return clientRootsDeclared;
+    },
+    isElicitationDeclared() {
+      return clientElicitationDeclared;
     },
     getCachedRoots() {
       return cachedRoots;
