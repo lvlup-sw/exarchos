@@ -441,7 +441,10 @@ describe('EventTypes', () => {
     // `elicitation.fulfilled`, emitted by the dispatch elicitation
     // hand-off on the per-operation pseudo-stream
     // `elicitation/<operationId>`.
-    expect(EventTypes).toHaveLength(108);
+    // #1261: bumped 108 → 110 to include `dispatch.preflight` +
+    // `stash.detected`, emitted by the dispatch boundary's preflight
+    // guard runner (`orchestrate/dispatch-guard.ts`).
+    expect(EventTypes).toHaveLength(110);
   });
 
   it('should include workflow-level types', () => {
