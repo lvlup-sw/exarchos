@@ -79,4 +79,51 @@ describe('ExarchosConfigSchema', () => {
     const result = ExarchosConfigSchema.safeParse({ test: '' });
     expect(result.success).toBe(false);
   });
+
+  // ─── #1244: handoffLint config block ───────────────────────────────────
+  //
+  // `handoffLint.hardFail` toggles whether `handleCheckpoint` blocks the
+  // dispatch when the prose-lint finds AI-padded handoff text. Defaults
+  // (field absent / hardFail absent) keep the soft-warning behaviour
+  // unchanged for pre-#1244 callers.
+
+  it('schema_HandoffLintHardFailTrue_Validates', () => {
+    const result = ExarchosConfigSchema.safeParse({
+      handoffLint: { hardFail: true },
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.handoffLint?.hardFail).toBe(true);
+    }
+  });
+
+  it('schema_HandoffLintHardFailFalse_Validates', () => {
+    const result = ExarchosConfigSchema.safeParse({
+      handoffLint: { hardFail: false },
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.handoffLint?.hardFail).toBe(false);
+    }
+  });
+
+  it('schema_HandoffLintAbsent_Validates', () => {
+    // The handoffLint block is optional — pre-#1244 configs (without
+    // any handoffLint key) must continue to validate.
+    const result = ExarchosConfigSchema.safeParse({ test: 'bun test' });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.handoffLint).toBeUndefined();
+    }
+  });
+
+  it('schema_HandoffLintUnknownField_Rejected', () => {
+    // `.strict()` on the nested schema rejects typos so an operator
+    // that writes `handoffLint: { hardfail: true }` (lowercase) sees a
+    // validation error instead of a silently-ignored field.
+    const result = ExarchosConfigSchema.safeParse({
+      handoffLint: { hardfail: true },
+    });
+    expect(result.success).toBe(false);
+  });
 });
