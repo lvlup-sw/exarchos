@@ -390,7 +390,27 @@ export async function handleMergeOrchestrate(
   // when the caller's cwd traverses a symlinked segment (a common case on
   // macOS where /var → /private/var, or developer-symlinked checkouts).
   // realpathSync requires the path to exist; fall back to resolve() if not.
-  const repoRoot = normalizePath(args.repoRoot ?? process.cwd());
+  //
+  // When `repoRoot` is not supplied, derive it from `git rev-parse
+  // --show-toplevel` rather than `process.cwd()`. The cwd may be a subdir
+  // of the repo (test runners frequently invoke vitest from
+  // `servers/exarchos-mcp/` — a sub-package), in which case the
+  // `git worktree list --porcelain` output (which emits the canonical
+  // top-level path) would never equal cwd and the main worktree itself
+  // would be misidentified as a sibling holding the target branch.
+  // Falling back to cwd preserves the previous behavior when not inside
+  // any git repo (rare; surfaces as a clean preflight skip rather than a
+  // spurious abort).
+  let derivedRoot = args.repoRoot;
+  if (derivedRoot === undefined) {
+    const topLevel = gitExec(process.cwd(), ['rev-parse', '--show-toplevel']);
+    if (topLevel.exitCode === 0) {
+      derivedRoot = topLevel.stdout.trim();
+    } else {
+      derivedRoot = process.cwd();
+    }
+  }
+  const repoRoot = normalizePath(derivedRoot);
   const worktreeListResult = gitExec(repoRoot, ['worktree', 'list', '--porcelain']);
   if (worktreeListResult.exitCode === 0) {
     const targetRef = `refs/heads/${args.targetBranch}`;
