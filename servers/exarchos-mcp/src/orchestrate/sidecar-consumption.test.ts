@@ -15,6 +15,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
 import type { EventStore } from '../event-store/store.js';
+import { sidecarPathFor } from './sidecar-lookup.js';
 
 import { handleDesignCompleteness } from './design-completeness.js';
 import { handlePlanCoverage } from './plan-coverage.js';
@@ -151,7 +152,7 @@ acceptance:
 options:
   count: 2
 `;
-  writeFileSync(`${designPath}.sidecar.yml`, yaml, 'utf-8');
+  writeFileSync(sidecarPathFor(designPath), yaml, 'utf-8');
 }
 
 function writePlanSidecar(planPath: string): void {
@@ -175,7 +176,7 @@ provenance:
   - { taskId: T-01, dr: DR-1 }
   - { taskId: T-02, dr: DR-1 }
 `;
-  writeFileSync(`${planPath}.sidecar.yml`, yaml, 'utf-8');
+  writeFileSync(sidecarPathFor(planPath), yaml, 'utf-8');
 }
 
 // ─── design-completeness ─────────────────────────────────────────────────────
@@ -347,7 +348,7 @@ coverage:
 provenance:
   - { taskId: T-01, dr: DR-1 }
 `;
-    writeFileSync(`${planPath}.sidecar.yml`, shortDescSidecar, 'utf-8');
+    writeFileSync(sidecarPathFor(planPath), shortDescSidecar, 'utf-8');
 
     const result = await handleTaskDecomposition(
       { featureId: 'feat', planPath },
@@ -385,7 +386,7 @@ coverage:
 provenance:
   - { taskId: T-01, dr: DR-1 }
 `;
-    writeFileSync(`${planPath}.sidecar.yml`, noMarkerSidecar, 'utf-8');
+    writeFileSync(sidecarPathFor(planPath), noMarkerSidecar, 'utf-8');
 
     const result = await handleTaskDecomposition(
       { featureId: 'feat', planPath },
@@ -421,7 +422,7 @@ sections: {}
 drs: []
 acceptance: []
 `;
-    writeFileSync(`${designPath}.sidecar.yml`, emptyDrsSidecar, 'utf-8');
+    writeFileSync(sidecarPathFor(designPath), emptyDrsSidecar, 'utf-8');
 
     const planDir = join(workDir, 'plans');
     mkdirSync(planDir, { recursive: true });
