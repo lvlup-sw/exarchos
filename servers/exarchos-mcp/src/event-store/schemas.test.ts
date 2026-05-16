@@ -73,6 +73,9 @@ import {
   BranchDeleteExecutedData,
   WorktreeRemoveRequestedData,
   WorktreeRemoveExecutedData,
+  // #1261 — dispatch-guard preflight outcome events.
+  DispatchPreflightData,
+  StashDetectedData,
   // #1262 — per-turn output-token sample schema (CodeRabbit F2).
   TurnCompletedDataSchema,
 } from './schemas.js';
@@ -536,14 +539,18 @@ describe('EventTypes', () => {
     // Bumped 106 → 108: elicitation.requested + elicitation.fulfilled
     // (#1274 — elicitation form mode for missing-required-param hand-off
     //   in the dispatch boundary).
-    // Bumped 108 → 112: task.created + task.polled + task.result +
+    // Bumped 108 → 110: dispatch.preflight + stash.detected
+    // (#1261 — dispatch-guard observability; per-guard pass/fail outcomes
+    //   and shared-stash collision detection emitted from the dispatch
+    //   boundary's preflight stage).
+    // Bumped 110 → 114: task.created + task.polled + task.result +
     //   task.cancelled (#1272 — EventSourcedTaskStore lifecycle; SDK
     //   `TaskStore` interface as a projection over the event store).
     //   Distinct from the orchestrated-task family above; see
     //   `event-store/task-events.test.ts` for the schema-shape contracts
     //   and `task-store/event-sourced-task-store.test.ts` for the
     //   end-to-end lifecycle + REPLAY (INV-1) acceptance test.
-    expect(EventTypes).toHaveLength(112);
+    expect(EventTypes).toHaveLength(114);
   });
 
   it('EventTypes_IncludesElicitation', () => {
@@ -3398,5 +3405,110 @@ describe('EventStoreSchemas_ToolActionErrored_HasRegisteredType', () => {
       },
     });
     expect(event.success).toBe(true);
+  });
+});
+
+// ─── #1261 — dispatch.preflight + stash.detected ────────────────────────────
+
+describe('DispatchPreflightData', () => {
+  it('EventSchema_DispatchPreflight_ValidatesGuardOutcome', () => {
+    // Well-formed payload — each of the four guards reports pass/fail, plus
+    // an aggregate `passed` flag and total duration. This is the shape the
+    // dispatch boundary will emit after running all preflight guards.
+    const valid = DispatchPreflightData.safeParse({
+      guards: {
+        ancestry: { passed: true },
+        worktree: { passed: true },
+        protectedBranch: { passed: true },
+        mainWorktree: { passed: true },
+      },
+      passed: true,
+      durationMs: 42,
+    });
+    expect(valid.success).toBe(true);
+
+    // Aggregate `passed: false` when any guard fails — schema does not
+    // enforce the boolean consistency (callers compute the aggregate),
+    // but missing per-guard outcomes are rejected.
+    const failingGuard = DispatchPreflightData.safeParse({
+      guards: {
+        ancestry: { passed: false },
+        worktree: { passed: true },
+        protectedBranch: { passed: true },
+        mainWorktree: { passed: true },
+      },
+      passed: false,
+      durationMs: 8,
+    });
+    expect(failingGuard.success).toBe(true);
+
+    // Malformed — missing `protectedBranch` guard entry.
+    const missingGuard = DispatchPreflightData.safeParse({
+      guards: {
+        ancestry: { passed: true },
+        worktree: { passed: true },
+        mainWorktree: { passed: true },
+      },
+      passed: true,
+      durationMs: 5,
+    });
+    expect(missingGuard.success).toBe(false);
+
+    // Malformed — `durationMs` must be a number.
+    const badDuration = DispatchPreflightData.safeParse({
+      guards: {
+        ancestry: { passed: true },
+        worktree: { passed: true },
+        protectedBranch: { passed: true },
+        mainWorktree: { passed: true },
+      },
+      passed: true,
+      durationMs: 'fast',
+    });
+    expect(badDuration.success).toBe(false);
+
+    // Malformed — top-level `passed` must be a boolean.
+    const badPassed = DispatchPreflightData.safeParse({
+      guards: {
+        ancestry: { passed: true },
+        worktree: { passed: true },
+        protectedBranch: { passed: true },
+        mainWorktree: { passed: true },
+      },
+      passed: 'yes',
+      durationMs: 5,
+    });
+    expect(badPassed.success).toBe(false);
+  });
+});
+
+describe('StashDetectedData', () => {
+  it('EventSchema_StashDetected_RequiresWorktreePath', () => {
+    // Well-formed — both worktreePath and stashRef are required.
+    const valid = StashDetectedData.safeParse({
+      worktreePath: '/home/user/repo/.claude/worktrees/agent-abc',
+      stashRef: 'stash@{0}',
+    });
+    expect(valid.success).toBe(true);
+
+    // Reject when worktreePath is missing — stash detection is meaningless
+    // without locating which worktree exhibited shared-stash collision.
+    const missingPath = StashDetectedData.safeParse({
+      stashRef: 'stash@{0}',
+    });
+    expect(missingPath.success).toBe(false);
+
+    // Reject when stashRef is missing.
+    const missingRef = StashDetectedData.safeParse({
+      worktreePath: '/home/user/repo',
+    });
+    expect(missingRef.success).toBe(false);
+
+    // Reject when worktreePath is empty.
+    const emptyPath = StashDetectedData.safeParse({
+      worktreePath: '',
+      stashRef: 'stash@{0}',
+    });
+    expect(emptyPath.success).toBe(false);
   });
 });

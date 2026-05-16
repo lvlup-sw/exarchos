@@ -225,6 +225,24 @@ export function buildCli(ctx: DispatchContext): Command {
         actionCmd.option('--follow', 'Stream events as NDJSON frames until the source closes');
       }
 
+      // T33 (#1273) / Wave C PR 3 — the `exarchos view workflow_status` and
+      // `exarchos view shepherd_status` actions gain a `--follow` flag that
+      // drives the dispatch-core `EventSourcedTaskStore` polling loop (see
+      // `cli/follow-loop.ts`). Like the event-query `--follow`, this flag is
+      // registered outside `addFlagsFromSchema` so the MCP tool schema for
+      // the underlying action stays one-shot — the Tasks-augmented branch
+      // for the MCP arm is gated by the SDK `task: { ttl }` request
+      // parameter, not by a tool-schema field (see C2).
+      const isViewFollow =
+        tool.name === 'exarchos_view' &&
+        (action.name === 'workflow_status' || action.name === 'shepherd_status');
+      if (isViewFollow) {
+        actionCmd.option(
+          '--follow',
+          'Stream task lifecycle transitions to stdout until terminal status or SIGINT',
+        );
+      }
+
       // T5 (#1240): convenience flags on `wf checkpoint` so agents emit a
       // structured handoff payload without having to type nested JSON.
       // The flags map to the `handoff` field on the dispatch surface
@@ -320,6 +338,143 @@ export function buildCli(ctx: DispatchContext): Command {
           delete flagOpts.context;
           delete flagOpts.nextSteps;
           delete flagOpts.suggestions;
+        }
+
+        // ─── T33 (#1273): view `--follow` Tasks polling branch ────────────
+        //
+        // Wave C PR 3 — the CLI equivalent of the MCP `tasks/get` polling
+        // loop. The dispatch creates a task via the dispatch-core
+        // `runTasksAugmented` path (synthetic `task: {}` augmentation
+        // threaded through dispatch args), pulls out the resulting
+        // `taskId`, then drives `runFollowLoop` against the same
+        // `EventSourcedTaskStore` the MCP arm consumes (INV-2 facade
+        // equivalence). SIGINT during the loop emits `task.cancelled`
+        // via the dispatch-core `cancelTask` surface.
+        if (isViewFollow && follow === true) {
+          if (!ctx.taskStore) {
+            const err = buildInvalidInput(
+              `${tool.name}/${action.name}: --follow requires a wired EventSourcedTaskStore; none present on this context`,
+            );
+            emitResult({ success: false, error: err }, isJson, format);
+            process.exitCode = CLI_EXIT_CODES.HANDLER_ERROR;
+            return;
+          }
+
+          // Parse the action args first so a `--workflow-id` typo surfaces
+          // as INVALID_INPUT before we cut a task envelope.
+          const followCoerced = coerceFlags(flagOpts, action.schema);
+          const followParse = action.schema.safeParse(followCoerced);
+          if (!followParse.success) {
+            const errCtx = `${tool.name}/${action.name}`;
+            const err = formatValidationError(followParse.error, errCtx);
+            emitResult({ success: false, error: err }, isJson, format);
+            process.exitCode = CLI_EXIT_CODES.INVALID_INPUT;
+            return;
+          }
+
+          // Resolve poll cadence: CLI override (none yet — reserved for a
+          // future `--poll-interval-ms` flag) > `.exarchos.yml`
+          // `cli.followPollIntervalMs` > module default. The loader runs
+          // synchronously and tolerates a missing file (returns null).
+          let pollIntervalMs: number | undefined;
+          try {
+            const { loadExarchosConfig } = await import(
+              '../config/load-exarchos-config.js'
+            );
+            const loaded = loadExarchosConfig(process.cwd());
+            pollIntervalMs = loaded?.config.cli?.followPollIntervalMs;
+          } catch {
+            // Malformed `.exarchos.yml` is surfaced by the broader CLI
+            // load path; in `--follow` we degrade to the default cadence
+            // rather than abort the polling session.
+            pollIntervalMs = undefined;
+          }
+
+          // Wire SIGINT → AbortController. The handler MUST NOT call
+          // `process.exit` — the polling loop awaits `cancelTask` before
+          // returning, then we let the action callback fall through to
+          // its normal return so the event-loop drains cleanly (project-
+          // memory caution).
+          const controller = new AbortController();
+          const onSigint = (): void => controller.abort();
+          process.once('SIGINT', onSigint);
+
+          try {
+            const { runFollowLoop } = await import('../cli/follow-loop.js');
+            const subcommand =
+              action.name === 'workflow_status' ? 'workflow_status' : 'shepherd_status';
+
+            // Dispatch the underlying action through the Tasks-augmented
+            // path so the lifecycle is recorded in the same
+            // `EventSourcedTaskStore` projection the MCP arm reads. The
+            // `task: {}` field is the augmentation signal per C1's
+            // `isTaskAugmented` predicate (presence of a plain object is
+            // sufficient; no `ttl` here means an unbounded task lifetime,
+            // appropriate for an interactive CLI follow session).
+            const createResult = await dispatch(
+              tool.name,
+              {
+                action: action.name,
+                ...followParse.data,
+                task: {},
+              },
+              ctx,
+            );
+
+            // Extract taskId from the CreateTaskResult envelope. Dispatch
+            // wraps the Tasks-augmented response under
+            // `{ success: true, data: { task: { taskId, ... } } }` (see
+            // `runTasksAugmented`'s return shape in C1).
+            const dataCandidate = (createResult as { data?: unknown }).data;
+            const taskCandidate =
+              dataCandidate && typeof dataCandidate === 'object'
+                ? (dataCandidate as { task?: { taskId?: unknown } }).task
+                : undefined;
+            const taskId =
+              taskCandidate && typeof taskCandidate.taskId === 'string'
+                ? taskCandidate.taskId
+                : undefined;
+            if (!createResult.success || !taskId) {
+              // The underlying dispatch already serialised a meaningful
+              // error envelope; surface it untouched.
+              emitResult(createResult, isJson, format);
+              process.exitCode = createResult.success
+                ? CLI_EXIT_CODES.HANDLER_ERROR
+                : createResult.error?.code === VALIDATION_ERROR_CODE
+                  ? CLI_EXIT_CODES.INVALID_INPUT
+                  : CLI_EXIT_CODES.HANDLER_ERROR;
+              return;
+            }
+
+            const loopResult = await runFollowLoop({
+              taskStore: ctx.taskStore,
+              taskId,
+              pollIntervalMs,
+              stdout: process.stdout,
+              subcommand,
+              signal: controller.signal,
+            });
+
+            // Cancellation is a clean exit — the user asked for it. Map
+            // it to SUCCESS so a wrapping shell script doesn't treat ^C
+            // as an error (matches `exarchos event query --follow`'s
+            // SIGINT-on-close discipline).
+            process.exitCode =
+              loopResult.terminalStatus === 'failed'
+                ? CLI_EXIT_CODES.HANDLER_ERROR
+                : CLI_EXIT_CODES.SUCCESS;
+          } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            emitResult(
+              { success: false, error: { code: 'UNCAUGHT_EXCEPTION', message } },
+              isJson,
+              format,
+            );
+            process.exitCode = CLI_EXIT_CODES.UNCAUGHT_EXCEPTION;
+          } finally {
+            process.off('SIGINT', onSigint);
+          }
+          return;
         }
 
         // ─── T042: `--follow` streaming branch ─────────────────────────────

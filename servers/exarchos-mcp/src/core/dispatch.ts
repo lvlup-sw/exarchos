@@ -792,7 +792,8 @@ export async function dispatch(
       // capability in the MCP initialize handshake. The CLI / in-process
       // callers do NOT have a resolver wired (no handshake to snapshot),
       // so we treat an absent resolver as "not gated" — direct callers
-      // that thread `task: {ttl}` opt themselves in. Defence-in-depth:
+      // that thread `task: {ttl}` opt themselves in (C3's CLI --follow
+      // bypass relies on this absent-resolver fallback). Defence-in-depth:
       // an MCP client that never advertised tasks support cannot opt in
       // by smuggling a `task` key into args; capability negotiation
       // wins.

@@ -34,6 +34,21 @@ const QualityHintsSchema = z
   .strict()
   .optional();
 
+// #1273 — CLI `--follow` polling cadence.
+//
+// `cli.followPollIntervalMs` overrides the default 250ms cadence used by
+// the CLI `view workflow_status --follow` and `view shepherd_status
+// --follow` in-process polling loop (see
+// `src/cli/follow-loop.ts`). Operators tune this for fast tests (e.g.
+// `10`) or quieter shell output (e.g. `1000`). The MCP arm (C2) consumes
+// the same `EventSourcedTaskStore` over `tasks/get`, where polling
+// cadence is driven by the client and not affected by this config.
+const CliConfigSchema = z
+  .object({
+    followPollIntervalMs: z.number().int().positive().optional(),
+  })
+  .strict();
+
 // #1244 — markdown-aware handoff lint switch.
 //
 // `handleCheckpoint` runs a prose-lint over the dispatch handoff payload
@@ -59,6 +74,7 @@ export const ExarchosConfigSchema = z
     install: safeCommand.optional(),
     qualityHints: QualityHintsSchema,
     handoffLint: HandoffLintConfigSchema.optional(),
+    cli: CliConfigSchema.optional(),
   })
   .strict();
 
