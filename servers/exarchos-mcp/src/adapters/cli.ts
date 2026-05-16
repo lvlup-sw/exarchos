@@ -868,7 +868,21 @@ export function commanderErrorToResult(err: CommanderError): {
 } {
   // Success-ish Commander signals (help, version) — surface as success so
   // `exarchos --help` from a script doesn't read as a failure.
-  if (err.code === 'commander.helpDisplayed' || err.code === 'commander.version') {
+  //
+  // Three Commander codes land here:
+  //   - `commander.helpDisplayed` — `--help` / `-h` flag was used
+  //   - `commander.help`          — the `help` subcommand was invoked, OR
+  //                                 the program was invoked with no args
+  //                                 and Commander auto-displayed help
+  //   - `commander.version`       — `--version` / `-V` flag was used
+  // Without `commander.help` in this set, plain `exarchos` (no args) prints
+  // help correctly but then surfaces "Error [UNCAUGHT_EXCEPTION]: (outputHelp)"
+  // after the help text.
+  if (
+    err.code === 'commander.helpDisplayed' ||
+    err.code === 'commander.help' ||
+    err.code === 'commander.version'
+  ) {
     return {
       result: { success: true },
       exitCode: CLI_EXIT_CODES.SUCCESS,

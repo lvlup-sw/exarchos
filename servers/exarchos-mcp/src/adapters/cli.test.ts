@@ -663,7 +663,7 @@ describe('commanderErrorToResult mapping table (F-024-CMDR)', () => {
   }
 
   it('CommanderErrorMapping_HelpAndVersion_MapsToSuccess', () => {
-    for (const code of ['commander.helpDisplayed', 'commander.version']) {
+    for (const code of ['commander.helpDisplayed', 'commander.help', 'commander.version']) {
       const err = new CommanderError(0, code, 'help or version');
       const { result, exitCode } = commanderErrorToResult(err);
       expect(result.success).toBe(true);
