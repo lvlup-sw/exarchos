@@ -98,7 +98,18 @@ export function loadInvariants(filePath: string): InvariantEntry[] {
       `invariants-loader: ${filePath} frontmatter must declare an "invariants:" array`,
     );
   }
-  return (data.invariants as RawInvariantEntry[]).map(parseEntry);
+  const entries = (data.invariants as RawInvariantEntry[]).map(parseEntry);
+  // Reject duplicate IDs at load time — IDs are the catalog's primary key and
+  // must be unique. A silent duplicate would shadow the earlier entry and
+  // corrupt vocabulary-lint / ideate Constraint surfacing.
+  const seen = new Set<string>();
+  for (const entry of entries) {
+    if (seen.has(entry.id)) {
+      throw new Error(`Duplicate invariant ID: ${entry.id}`);
+    }
+    seen.add(entry.id);
+  }
+  return entries;
 }
 
 /**
