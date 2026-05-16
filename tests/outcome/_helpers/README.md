@@ -251,3 +251,39 @@ examples when authoring new ones:
 Each was authored as `it.fails()` against the helpers documented above.
 When you land the fix for one, flip the annotation in the same PR as the
 source change.
+
+## Coverage matrix
+
+The table below maps each dogfood-finding regression that ships an
+outcome-tier test to its carrier file. Entries marked `n/a` indicate a
+regression whose reproduction is outside the Linux outcome tier's scope
+(typically Windows-specific behavior). Process-tier carriers are linked
+where the outcome assertion lives in `test/process/` instead of
+`tests/outcome/` — usually because the regression requires multi-step
+saga choreography rather than a single CLI/handler invocation.
+
+| Dogfood Finding | Outcome Test | Status |
+|---|---|---|
+| #1355 install-skills | [`install-skills.test.ts`](../install-skills.test.ts) | OK |
+| #1356 merge multi-worktree | [`merge-orchestrate-multiworktree.test.ts`](../merge-orchestrate-multiworktree.test.ts) | OK |
+| #1359 projection drift | [`rehydrate-projection-drift.test.ts`](../rehydrate-projection-drift.test.ts) | OK |
+| #1360 reserved-fields | [`reserved-fields-discoverability.test.ts`](../reserved-fields-discoverability.test.ts) | OK |
+| #1363 runbook | [`runbook-merge-orchestration.test.ts`](../runbook-merge-orchestration.test.ts) | OK |
+| #1364 telemetry split | [`telemetry-action-errors.test.ts`](../telemetry-action-errors.test.ts) | OK |
+| #1362 Windows preflight | n/a (Linux tier cannot reproduce) | — |
+| #1374 saga detour wire | [`test/process/saga-merge-detour.test.ts`](../../../test/process/saga-merge-detour.test.ts) (process tier) | OK |
+
+Notes:
+
+- #1362 is the Windows preflight regression. The Linux outcome tier is
+  intentionally out of scope — the bug only manifests under Windows path
+  semantics and process-launch behavior, which the Linux-only
+  `outcome-tests` CI job cannot reproduce. The Windows-side gating
+  belongs in a future Windows-CI surface (cf. the "No Windows CI for MCP
+  server" tracking line in the v2.x roadmap).
+- #1374 is a saga-shape regression. Its assertion lives in the process
+  tier (`test/process/saga-merge-detour.test.ts`) because reproducing it
+  requires orchestrating a multi-step delegation + merge-detour saga
+  rather than a single handler call — the process tier is the right
+  granularity for that shape, and the outcome tier is reserved for
+  single operator-visible CLI / handler invocations.
