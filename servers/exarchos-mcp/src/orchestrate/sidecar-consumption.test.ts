@@ -139,6 +139,17 @@ function writeConformantPlanMarkdown(planPath: string): void {
   writeFileSync(planPath, content, 'utf-8');
 }
 
+/**
+ * Resolve the on-disk sidecar path for a `.md` doc using the canonical
+ * `<base>.sidecar.yml` convention (B1 fix on PR #1406). Tests write
+ * sidecars to this path so the lookup helper actually resolves them.
+ */
+function sidecarPathForTest(docPath: string): string {
+  return docPath.endsWith('.md')
+    ? `${docPath.slice(0, -3)}.sidecar.yml`
+    : `${docPath}.sidecar.yml`;
+}
+
 function writeDesignSidecar(designPath: string): void {
   const yaml = `schema: design.v1
 sections:
@@ -151,7 +162,7 @@ acceptance:
 options:
   count: 2
 `;
-  writeFileSync(`${designPath}.sidecar.yml`, yaml, 'utf-8');
+  writeFileSync(sidecarPathForTest(designPath), yaml, 'utf-8');
 }
 
 function writePlanSidecar(planPath: string): void {
@@ -171,7 +182,7 @@ provenance:
   - { taskId: T-01, dr: DR-1 }
   - { taskId: T-02, dr: DR-1 }
 `;
-  writeFileSync(`${planPath}.sidecar.yml`, yaml, 'utf-8');
+  writeFileSync(sidecarPathForTest(planPath), yaml, 'utf-8');
 }
 
 // ─── design-completeness ─────────────────────────────────────────────────────
