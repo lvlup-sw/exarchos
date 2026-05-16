@@ -19,19 +19,21 @@
 import { describe, it, expect } from 'vitest';
 import { toEnvelope, type ToolResult } from '../format.js';
 import { computeOutputTokenHints, telemetryProjection } from '../telemetry/telemetry-projection.js';
+import type { WorkflowEvent } from '../event-store/schemas.js';
 
 describe('EnvelopeParity_OutputTokensHigh (#1262)', () => {
   it('Envelope_OutputTokensHighHint_CLIAndMCPIdentical', () => {
     // Build a telemetry view that crosses the threshold once.
     let view = telemetryProjection.init();
-    view = telemetryProjection.apply(view, {
+    const turnEvent: WorkflowEvent = {
       streamId: 'telemetry',
       sequence: 1,
       timestamp: '2026-05-15T00:00:00.000Z',
-      type: 'turn.completed' as unknown as ReturnType<typeof telemetryProjection.apply> extends unknown ? never : never,
+      type: 'turn.completed',
       schemaVersion: '1.0',
       data: { turnId: 'parity-1', outputTokens: 30000 },
-    } as Parameters<typeof telemetryProjection.apply>[1]);
+    };
+    view = telemetryProjection.apply(view, turnEvent);
 
     const hints = computeOutputTokenHints(view, 25600);
     expect(hints).toHaveLength(1);
