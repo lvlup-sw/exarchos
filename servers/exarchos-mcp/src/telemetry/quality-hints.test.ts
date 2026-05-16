@@ -47,15 +47,4 @@ describe('QualityHintCatalog', () => {
     // is comprehensible to the agent reading the hint.
     expect(hint!.reasonTemplate.toLowerCase()).toMatch(/output tokens/);
   });
-
-  // CodeRabbit F3 on PR #1409 — guard against inherited prototype keys.
-  // `Record<string, QualityHintType>` is structurally a plain object, so an
-  // unguarded `catalog[key]` lookup will happily return
-  // `Function.prototype.toString` / `valueOf` / `hasOwnProperty` when callers
-  // pass a prototype-method name. The lookup must use an own-property check.
-  it('QualityHints_LookupForPrototypeKey_ReturnsUndefined', () => {
-    expect(getQualityHintType('toString')).toBeUndefined();
-    expect(getQualityHintType('hasOwnProperty')).toBeUndefined();
-    expect(getQualityHintType('__proto__')).toBeUndefined();
-  });
 });

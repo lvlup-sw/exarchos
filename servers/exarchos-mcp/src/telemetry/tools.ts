@@ -138,6 +138,8 @@ export async function handleViewTelemetry(
     const nextActions: readonly NextAction[] = tokenHints.map((h) => ({
       verb: h.verb,
       reason: h.reason,
+      // Sentry MEDIUM #1424: thread idempotencyKey through so downstream
+      // dedup of repeated checkpoint hints on the same streak works.
       idempotencyKey: h.idempotencyKey,
     }));
 

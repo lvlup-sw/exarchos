@@ -154,6 +154,13 @@ export const EventTypes = [
   // client returns a value.
   'elicitation.requested',
   'elicitation.fulfilled',
+  // Sentry MEDIUM #1424: pre-fix the dispatcher emitted `elicitation.fulfilled`
+  // even when the client returned `value === undefined` (decline / cancel),
+  // producing a misleading audit trail where round-trip failures looked like
+  // successes. The declined branch now emits this distinct event so
+  // downstream consumers can tell apart "the client supplied the value" from
+  // "the client refused / cancelled the round-trip."
+  'elicitation.declined',
   // #1272 — EventSourcedTaskStore lifecycle events. Distinct from the
   // workflow-orchestration `task.assigned`/`task.claimed`/`task.progressed`/
   // `task.completed`/`task.failed` family above, these four describe the
@@ -447,6 +454,7 @@ export const EVENT_EMISSION_REGISTRY: Record<EventType, EventEmissionSource> = {
   // boundary on the per-operation pseudo-stream.
   'elicitation.requested': 'auto',
   'elicitation.fulfilled': 'auto',
+  'elicitation.declined': 'auto',
 
   // #1272 — EventSourcedTaskStore lifecycle. Auto-emitted by the store
   // on each protocol-level operation (createTask/getTask/getTaskResult/
@@ -1646,7 +1654,19 @@ export const MigrationWorkflowTypeUnknownData = z.object({
  */
 export const WorkspaceResolvedData = z.object({
   source: z.enum(['roots', 'cwd']),
-  path: z.string().min(1),
+  // CodeRabbit MINOR #1423: docstring above declares `path` as the
+  // absolute workspace root; pre-fix the schema only required `min(1)`
+  // so a relative path could slip past validation. Refine to accept
+  // either a POSIX absolute path (`/foo/bar`) or a Windows absolute
+  // path (`C:\foo`) — both shipped surfaces use `path.resolve()` so
+  // either form may legitimately appear depending on host platform.
+  path: z
+    .string()
+    .min(1)
+    .refine(
+      (p) => path.posix.isAbsolute(p) || path.win32.isAbsolute(p),
+      { message: 'path must be absolute (POSIX or Windows)' },
+    ),
   featureId: z.string().min(1),
 });
 
@@ -1680,6 +1700,19 @@ export const ElicitationFulfilledData = z.object({
   operationId: z.string().min(1),
   field: z.string().min(1),
   value: z.unknown(),
+});
+
+/**
+ * Emitted by `dispatch/elicitation-dispatch.ts` AFTER the round-trip when
+ * the client returned `value === undefined` (decline / cancel). Mirrors
+ * the {@link ElicitationFulfilledData} shape minus the `value` so the
+ * audit-trail keeps the operationId/field pairing for post-hoc query.
+ * Sentry MEDIUM #1424 root cause: pre-fix all responses were logged as
+ * fulfilled; this event makes the decline path observable.
+ */
+export const ElicitationDeclinedData = z.object({
+  operationId: z.string().min(1),
+  field: z.string().min(1),
 });
 
 // ─── EventSourcedTaskStore lifecycle (#1272) ───────────────────────────────
@@ -1965,6 +1998,7 @@ export const EVENT_DATA_SCHEMAS: Partial<Record<EventType, z.ZodSchema>> = {
   // #1274 — dispatch elicitation hand-off
   'elicitation.requested': ElicitationRequestedData,
   'elicitation.fulfilled': ElicitationFulfilledData,
+  'elicitation.declined': ElicitationDeclinedData,
 
   // #1272 — EventSourcedTaskStore lifecycle
   'task.created': TaskCreatedData,
@@ -2080,6 +2114,7 @@ export type WorkspaceResolved = z.infer<typeof WorkspaceResolvedData>;
 // #1274 — dispatch elicitation hand-off
 export type ElicitationRequested = z.infer<typeof ElicitationRequestedData>;
 export type ElicitationFulfilled = z.infer<typeof ElicitationFulfilledData>;
+export type ElicitationDeclined = z.infer<typeof ElicitationDeclinedData>;
 
 // #1272 — EventSourcedTaskStore lifecycle
 export type TaskCreated = z.infer<typeof TaskCreatedData>;
@@ -2192,6 +2227,7 @@ export type EventDataMap = {
   // #1274 — dispatch elicitation hand-off
   'elicitation.requested': ElicitationRequested;
   'elicitation.fulfilled': ElicitationFulfilled;
+  'elicitation.declined': ElicitationDeclined;
   // #1272 — EventSourcedTaskStore lifecycle
   'task.created': TaskCreated;
   'task.polled': TaskPolled;
