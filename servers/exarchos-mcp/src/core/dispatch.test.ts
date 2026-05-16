@@ -1122,4 +1122,141 @@ describe('dispatch', () => {
       expect((consumed as { idempotencyKey?: string }).idempotencyKey).toBe(expectedKey);
     });
   });
+
+  // ─── #1273 / T28 — One-shot vs Tasks-augmented branch at dispatch entry ──
+  //
+  // The Tasks-augmented branch is opt-in via `args.task: { ttl? }`. Without
+  // that key, dispatch MUST preserve the legacy one-shot envelope shape (the
+  // primary regression-guard for this PR). With it, dispatch returns the SDK
+  // `CreateTaskResult`-shaped data, wrapped in a ToolResult envelope so the
+  // outer dispatch surface keeps a single return type for both branches.
+  //
+  // Unit-level synthesis is covered in `dispatch/tasks-augmented.test.ts`;
+  // this block pins the entrypoint behaviour (taskStore wired via
+  // DispatchContext, branch selected on the args.task key) and the one-shot
+  // path's continued correctness when no augmentation is requested.
+  describe('#1273 Tasks-augmented dispatch entrypoint', () => {
+    it('DispatchCore_NoTaskOption_ReturnsEnvelope', async () => {
+      // Arrange — stub composite returns the canonical one-shot ToolResult.
+      const { stubCompositeHandler, dispatch } = await import('./dispatch.js');
+      const oneShot = async () => ({
+        success: true as const,
+        data: { kind: 'one-shot' },
+      });
+      const restore = stubCompositeHandler('exarchos_workflow', oneShot);
+      try {
+        const { EventSourcedTaskStore } = await import(
+          '../task-store/event-sourced-task-store.js'
+        );
+        const taskStore = new EventSourcedTaskStore(eventStore);
+        const ctx: DispatchContext = {
+          stateDir: tmpDir,
+          eventStore,
+          enableTelemetry: false,
+          taskStore,
+        };
+
+        // Act — describe action, no `task` key in args.
+        const result = await dispatch(
+          'exarchos_workflow',
+          { action: 'describe' },
+          ctx,
+        );
+
+        // Assert — legacy one-shot envelope shape preserved.
+        expect(result.success).toBe(true);
+        expect(result.data).toEqual({ kind: 'one-shot' });
+        // The Tasks-augmented shape (`data.task: { taskId, ... }`) MUST be
+        // absent on the one-shot path.
+        expect((result.data as { task?: unknown }).task).toBeUndefined();
+        // No task-store events were created.
+        const allEvents = await eventStore.query('');
+        const taskEvents = allEvents.filter((e) => e.type === 'task.created');
+        expect(taskEvents).toHaveLength(0);
+      } finally {
+        restore();
+      }
+    });
+
+    it('DispatchCore_TaskOptionPresent_ReturnsCreateTaskResult', async () => {
+      // Arrange — stub returns one-shot data; Tasks-augmented branch should
+      // wrap the call in a CreateTaskResult envelope and return immediately.
+      const { stubCompositeHandler, dispatch } = await import('./dispatch.js');
+      const oneShot = async () => ({
+        success: true as const,
+        data: { kind: 'one-shot' },
+      });
+      const restore = stubCompositeHandler('exarchos_workflow', oneShot);
+      try {
+        const { EventSourcedTaskStore } = await import(
+          '../task-store/event-sourced-task-store.js'
+        );
+        const taskStore = new EventSourcedTaskStore(eventStore);
+        const ctx: DispatchContext = {
+          stateDir: tmpDir,
+          eventStore,
+          enableTelemetry: false,
+          taskStore,
+        };
+
+        // Act — describe action with `task: { ttl }` augmentation.
+        const result = await dispatch(
+          'exarchos_workflow',
+          { action: 'describe', task: { ttl: 30_000 } },
+          ctx,
+        );
+
+        // Assert — SDK CreateTaskResult-shaped data.
+        expect(result.success).toBe(true);
+        const data = result.data as {
+          task?: { taskId?: string; status?: string; ttl?: number | null };
+        };
+        expect(data.task).toBeDefined();
+        expect(typeof data.task!.taskId).toBe('string');
+        expect(data.task!.status).toBe('working');
+        expect(data.task!.ttl).toBe(30_000);
+
+        // The composite was triggered; a `task.created` event lives on the
+        // task-store stream for the synthesised taskId.
+        const taskEvents = await eventStore.query(
+          `task-store/${data.task!.taskId}`,
+        );
+        const created = taskEvents.find((e) => e.type === 'task.created');
+        expect(created).toBeDefined();
+      } finally {
+        restore();
+      }
+    });
+
+    it('DispatchCore_TaskOptionWithoutTaskStore_FallsBackToOneShot', async () => {
+      // Defensive: when a caller threads `task: {ttl}` but the DispatchContext
+      // has no `taskStore` wired (CLI cold-start, in-process test), dispatch
+      // MUST fall back to the one-shot path rather than crashing. This guards
+      // the Wave-C-incremental rollout where some contexts still lack the
+      // taskStore handle.
+      const { stubCompositeHandler, dispatch } = await import('./dispatch.js');
+      const oneShot = async () => ({
+        success: true as const,
+        data: { kind: 'one-shot-no-store' },
+      });
+      const restore = stubCompositeHandler('exarchos_workflow', oneShot);
+      try {
+        const ctx: DispatchContext = {
+          stateDir: tmpDir,
+          eventStore,
+          enableTelemetry: false,
+          // intentionally no taskStore
+        };
+        const result = await dispatch(
+          'exarchos_workflow',
+          { action: 'describe', task: { ttl: 30_000 } },
+          ctx,
+        );
+        expect(result.success).toBe(true);
+        expect((result.data as { kind?: string }).kind).toBe('one-shot-no-store');
+      } finally {
+        restore();
+      }
+    });
+  });
 });
