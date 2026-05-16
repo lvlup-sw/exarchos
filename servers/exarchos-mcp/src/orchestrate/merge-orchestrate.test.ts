@@ -37,7 +37,7 @@
 //       returns `{ success: false, error: { code: 'STATE_CONFLICT' } }`.
 // ────────────────────────────────────────────────────────────────────────────
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { EventStore } from '../event-store/store.js';
 import type { DispatchContext } from '../core/dispatch.js';
 
@@ -341,6 +341,134 @@ describe('handleMergeOrchestrate (T12 — preflight-fail abort)', () => {
     });
     expect(Array.isArray(emitted.data.failureReasons)).toBe(true);
     expect((emitted.data.failureReasons as string[])[0]).toMatch(/ancestry/);
+  });
+});
+
+// ─── #1362 phase 1 — preflight.debug event-wire ─────────────────────────────
+//
+// The helper at `pure/merge-preflight.ts` attaches an optional `debug` field
+// to `MergePreflightResult` when `EXARCHOS_PREFLIGHT_DEBUG=1 && !ancestry.passed`.
+// The schema at `event-store/schemas.ts:MergePreflightData.debug` declares an
+// optional `MergePreflightDebugData` branch. The handler is the missing link:
+// these tests assert that `preflight.debug`, when present on the helper's
+// return value, is threaded through to `event.data.debug` on the appended
+// `merge.preflight` event. Without this assertion the regression class
+// (helper produces debug, schema accepts debug, but handler silently drops
+// it) is invisible — `tests/outcome/preflight-debug.test.ts` only exercises
+// the pure helper's return value and never inspects the appended event.
+const FAILING_PREFLIGHT_WITH_DEBUG: MergePreflightResult = {
+  ...FAILING_PREFLIGHT,
+  debug: {
+    gitVersion: 'git version 2.45.0',
+    repoRoot: '/repo',
+    worktreeList: 'worktree /repo\nHEAD abc\nbranch refs/heads/main\n',
+    refsHeadsSource: { sha: 'c'.repeat(40), packed: false },
+    refsHeadsTarget: { sha: 'd'.repeat(40), packed: false },
+    mergeBaseCommand: ['git', 'merge-base', '--is-ancestor', 'main', 'feat/x'],
+    mergeBaseExitCode: 1,
+    mergeBaseStdout: '',
+    mergeBaseStderr: '',
+  },
+};
+
+describe('handleMergeOrchestrate (#1362 — preflight.debug event-wire)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it('MergeOrchestrate_EnvSetAndAncestryFail_AppendsDebugBlockToEvent', async () => {
+    // The handler accepts a DI'd `preflight` adapter, so the helper's env-var
+    // gating is exercised separately (outcome test). Here we drive the handler
+    // with a result that *already* carries `debug` (the exact shape the helper
+    // produces under `EXARCHOS_PREFLIGHT_DEBUG=1 && !ancestry.passed`) and
+    // assert the handler propagates it into the appended event.
+    vi.stubEnv('EXARCHOS_PREFLIGHT_DEBUG', '1');
+    const ctx = makeMockCtx();
+    const preflight = vi.fn().mockResolvedValue(FAILING_PREFLIGHT_WITH_DEBUG);
+    const executeMerge = vi.fn();
+    const persistState = vi.fn().mockResolvedValue(undefined);
+
+    await handleMergeOrchestrate(
+      {
+        featureId: 'feat-x',
+        sourceBranch: 'feat/x',
+        targetBranch: 'main',
+        taskId: 'T1362',
+        strategy: 'squash',
+        preflight,
+        executeMerge,
+        persistState,
+      },
+      ctx,
+    );
+
+    const appendMock = ctx.eventStore.append as ReturnType<typeof vi.fn>;
+    const preflightCalls = appendMock.mock.calls.filter(
+      (call) => (call[1] as { type?: string } | undefined)?.type === 'merge.preflight',
+    );
+    expect(preflightCalls).toHaveLength(1);
+    const [, emitted] = preflightCalls[0] as [string, { data: Record<string, unknown> }];
+
+    // Core assertion: handler threads `preflight.debug` into `event.data.debug`.
+    expect(emitted.data.debug).toBeDefined();
+    expect(emitted.data.debug).toEqual(FAILING_PREFLIGHT_WITH_DEBUG.debug);
+
+    // Shape sanity — every required PreflightDebug field is present so a
+    // schema validator at the read-side will accept the record.
+    const debug = emitted.data.debug as Record<string, unknown>;
+    expect(typeof debug.gitVersion).toBe('string');
+    expect(typeof debug.repoRoot).toBe('string');
+    expect(typeof debug.worktreeList).toBe('string');
+    expect(debug.refsHeadsSource).toMatchObject({
+      sha: expect.any(String),
+      packed: expect.any(Boolean),
+    });
+    expect(debug.refsHeadsTarget).toMatchObject({
+      sha: expect.any(String),
+      packed: expect.any(Boolean),
+    });
+    expect(Array.isArray(debug.mergeBaseCommand)).toBe(true);
+    expect(typeof debug.mergeBaseExitCode).toBe('number');
+    expect(typeof debug.mergeBaseStdout).toBe('string');
+    expect(typeof debug.mergeBaseStderr).toBe('string');
+  });
+
+  it('MergeOrchestrate_EnvUnsetAndAncestryFail_NoDebugBlockOnEvent', async () => {
+    // Symmetric case: when the helper does NOT attach `debug` (env unset or
+    // ancestry passed), the handler must omit `debug` from the event entirely
+    // — not stamp an empty object, not stamp `undefined` explicitly. The
+    // optional-spread pattern (matching `failureReasons`) is the contract.
+    vi.stubEnv('EXARCHOS_PREFLIGHT_DEBUG', '');
+    const ctx = makeMockCtx();
+    const preflight = vi.fn().mockResolvedValue(FAILING_PREFLIGHT);
+    const executeMerge = vi.fn();
+    const persistState = vi.fn().mockResolvedValue(undefined);
+
+    await handleMergeOrchestrate(
+      {
+        featureId: 'feat-x',
+        sourceBranch: 'feat/x',
+        targetBranch: 'main',
+        taskId: 'T1362',
+        strategy: 'squash',
+        preflight,
+        executeMerge,
+        persistState,
+      },
+      ctx,
+    );
+
+    const appendMock = ctx.eventStore.append as ReturnType<typeof vi.fn>;
+    const preflightCalls = appendMock.mock.calls.filter(
+      (call) => (call[1] as { type?: string } | undefined)?.type === 'merge.preflight',
+    );
+    expect(preflightCalls).toHaveLength(1);
+    const [, emitted] = preflightCalls[0] as [string, { data: Record<string, unknown> }];
+    expect('debug' in emitted.data).toBe(false);
   });
 });
 
