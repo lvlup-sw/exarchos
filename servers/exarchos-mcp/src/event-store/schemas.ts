@@ -154,6 +154,15 @@ export const EventTypes = [
   // client returns a value.
   'elicitation.requested',
   'elicitation.fulfilled',
+  // #1261 — dispatch-guard preflight observability. `dispatch.preflight`
+  // records the per-guard pass/fail outcome (ancestry, worktree,
+  // protectedBranch, mainWorktree) plus an aggregate `passed` flag and
+  // total durationMs. `stash.detected` fires when the worktree under
+  // dispatch has a non-empty `git stash list` — the cross-worktree
+  // shared-stash hazard documented in project memory. Both inherit
+  // `operationId` from the active `DispatchContext` (#1291 / B1).
+  'dispatch.preflight',
+  'stash.detected',
 ] as const;
 
 export type EventType = typeof EventTypes[number];
@@ -424,6 +433,12 @@ export const EVENT_EMISSION_REGISTRY: Record<EventType, EventEmissionSource> = {
   // boundary on the per-operation pseudo-stream.
   'elicitation.requested': 'auto',
   'elicitation.fulfilled': 'auto',
+  // #1261 — dispatch-guard preflight observability. Auto-emitted by
+  // `orchestrate/dispatch-guard.ts` once per dispatch (preflight
+  // outcome) and on demand when shared-stash collision is observed
+  // in the worktree under dispatch.
+  'dispatch.preflight': 'auto',
+  'stash.detected': 'auto',
 };
 
 // ─── Base Event Schema ──────────────────────────────────────────────────────
@@ -1630,6 +1645,56 @@ export const ElicitationFulfilledData = z.object({
   value: z.unknown(),
 });
 
+// ─── Dispatch guard preflight observability (#1261) ─────────────────────────
+
+/**
+ * Emitted by `orchestrate/dispatch-guard.ts` after the dispatch boundary
+ * runs all preflight guards. Records the per-guard pass/fail outcome plus
+ * an aggregate `passed` flag and total `durationMs` so audit queries can
+ * (a) attribute dispatch blocks to a specific guard and (b) track
+ * preflight latency over time without parsing structured logs.
+ *
+ * The four guards mirror `prepare-delegation.ts` today:
+ *   - `ancestry` — `validateBranchAncestry` (required upstream branches)
+ *   - `worktree` — `assertMainWorktree` (refuse from a subagent worktree)
+ *   - `protectedBranch` — `assertCurrentBranchNotProtected` (HEAD not on
+ *     main/master)
+ *   - `mainWorktree` — alias slot reserved for future cross-cutting
+ *     "we are in the canonical main worktree" assertions; currently
+ *     mirrors `worktree.passed` until further split is needed.
+ *
+ * Inherits `operationId` from the active `DispatchContext` (B1 / #1291)
+ * via the `stampWithDispatchContext` helper in `event-store/store.ts`,
+ * so no manual correlation threading is required at the emit site.
+ */
+export const DispatchPreflightData = z.object({
+  guards: z.object({
+    ancestry: z.object({ passed: z.boolean() }),
+    worktree: z.object({ passed: z.boolean() }),
+    protectedBranch: z.object({ passed: z.boolean() }),
+    mainWorktree: z.object({ passed: z.boolean() }),
+  }),
+  passed: z.boolean(),
+  durationMs: z.number().nonnegative(),
+});
+
+/**
+ * Emitted by `orchestrate/dispatch-guard.ts` when the worktree under
+ * dispatch has a non-empty `git stash list`. Stash storage is shared
+ * across worktrees in the same repository (documented project hazard:
+ * `feedback_subagent_stash_hazard`), so any pre-existing stash entry
+ * raises the risk that a sibling agent's WIP will be popped into the
+ * current worktree. Emission is advisory — the dispatch is not blocked
+ * — but operators can use the audit trail to correlate later
+ * data-corruption incidents back to the moment of collision.
+ *
+ * `stashRef` is the ref of the most recent entry (e.g. `stash@{0}`).
+ */
+export const StashDetectedData = z.object({
+  worktreePath: z.string().min(1),
+  stashRef: z.string().min(1),
+});
+
 // ─── Event Data Schemas Map ─────────────────────────────────────────────────
 
 export const EVENT_DATA_SCHEMAS: Partial<Record<EventType, z.ZodSchema>> = {
@@ -1802,6 +1867,10 @@ export const EVENT_DATA_SCHEMAS: Partial<Record<EventType, z.ZodSchema>> = {
   // #1274 — dispatch elicitation hand-off
   'elicitation.requested': ElicitationRequestedData,
   'elicitation.fulfilled': ElicitationFulfilledData,
+
+  // #1261 — dispatch-guard preflight observability
+  'dispatch.preflight': DispatchPreflightData,
+  'stash.detected': StashDetectedData,
 };
 
 // ─── TypeScript Types ───────────────────────────────────────────────────────
@@ -1909,6 +1978,10 @@ export type WorkspaceResolved = z.infer<typeof WorkspaceResolvedData>;
 export type ElicitationRequested = z.infer<typeof ElicitationRequestedData>;
 export type ElicitationFulfilled = z.infer<typeof ElicitationFulfilledData>;
 
+// #1261 — dispatch-guard preflight observability
+export type DispatchPreflight = z.infer<typeof DispatchPreflightData>;
+export type StashDetected = z.infer<typeof StashDetectedData>;
+
 // ─── Event Data Map ─────────────────────────────────────────────────────────
 
 export type EventDataMap = {
@@ -2011,6 +2084,9 @@ export type EventDataMap = {
   // #1274 — dispatch elicitation hand-off
   'elicitation.requested': ElicitationRequested;
   'elicitation.fulfilled': ElicitationFulfilled;
+  // #1261 — dispatch-guard preflight observability
+  'dispatch.preflight': DispatchPreflight;
+  'stash.detected': StashDetected;
 };
 
 // ─── Event Catalog Serialization ────────────────────────────────────────────
