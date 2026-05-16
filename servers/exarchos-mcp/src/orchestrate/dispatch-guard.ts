@@ -318,11 +318,18 @@ export async function probeStashAndEmit(
   const stashRef = colonIdx > 0 ? firstLine.slice(0, colonIdx).trim() : firstLine.trim();
   if (!stashRef) return;
 
-  await args.store.append(args.streamId, {
-    type: 'stash.detected',
-    data: {
-      worktreePath: args.worktreePath,
-      stashRef,
-    },
-  });
+  try {
+    await args.store.append(args.streamId, {
+      type: 'stash.detected',
+      data: {
+        worktreePath: args.worktreePath,
+        stashRef,
+      },
+    });
+  } catch {
+    // Advisory-event emission is best-effort: a transient event-store
+    // failure here MUST NOT escalate into a dispatch error. The probe
+    // already swallowed git failures above for the same reason — the
+    // absence of the event is the only signal callers should rely on.
+  }
 }

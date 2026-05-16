@@ -153,7 +153,12 @@ function extractSingleMissingRequiredField(
   // input was `undefined` for the field). We accept the issue when:
   //   - exactly one issue is reported, AND
   //   - the issue path is a single top-level key (string), AND
-  //   - the issue code is 'invalid_type' (Zod's universal "missing" code).
+  //   - the issue code is 'invalid_type' (Zod's universal "missing" code), AND
+  //   - `received === 'undefined'` — without this guard a wrong-type field
+  //     (`featureId: 42` → received: 'number') would incorrectly trigger
+  //     elicitation as if the field were missing. Elicitation only fires
+  //     on actually-absent fields; wrong-type values should surface as
+  //     INVALID_INPUT instead.
   const issues = error.issues;
   if (issues.length !== 1) return undefined;
   const only = issues[0];
@@ -161,6 +166,8 @@ function extractSingleMissingRequiredField(
   if (only.path.length !== 1) return undefined;
   const key = only.path[0];
   if (typeof key !== 'string') return undefined;
+  const received = (only as { received?: unknown }).received;
+  if (received !== 'undefined') return undefined;
   return key;
 }
 

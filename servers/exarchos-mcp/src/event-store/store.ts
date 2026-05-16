@@ -464,6 +464,9 @@ export class EventStore {
           ...(e.data !== undefined ? { data: e.data } : {}),
           ...(e.correlationId !== undefined ? { correlationId: e.correlationId } : {}),
           ...(e.causationId !== undefined ? { causationId: e.causationId } : {}),
+          ...(typeof (e as unknown as { operationId?: unknown }).operationId === 'string'
+            ? { operationId: (e as unknown as { operationId: string }).operationId }
+            : {}),
           ...(e.agentId !== undefined ? { agentId: e.agentId } : {}),
           ...(e.agentRole !== undefined ? { agentRole: e.agentRole } : {}),
           ...(e.source !== undefined ? { source: e.source } : {}),

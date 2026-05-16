@@ -74,21 +74,37 @@ export function isTaskAugmented(args: Record<string, unknown>): boolean {
   if (!('task' in args)) return false;
   const value = args.task;
   if (value === null || value === undefined) return false;
+  if (Array.isArray(value)) return false;
   if (typeof value !== 'object') return false;
   return true;
+}
+
+/**
+ * Type-guard for option fields that must be finite, non-negative numbers.
+ * Rejects `NaN`, `Infinity`, negative values, and non-numeric types. Used
+ * to defend the `CreateTaskOptions` extractor against malformed callers
+ * (dispatch-core sees raw args before any Zod parse — the augmentation
+ * payload is peeled off the `task` field by `isTaskAugmented` first).
+ */
+function isNonNegativeNumber(v: unknown): v is number {
+  return typeof v === 'number' && Number.isFinite(v) && v >= 0;
 }
 
 /**
  * Extract a typed `CreateTaskOptions` from a raw args.task value. Returns
  * an empty options object if the input is malformed — callers should gate
  * on `isTaskAugmented` first, so this is only ever called with an object.
+ * Numeric fields are validated as finite, non-negative numbers; bogus
+ * values (negative, NaN, non-number) are dropped silently rather than
+ * propagated downstream into the SDK TaskStore where they would surface
+ * as opaque setTimeout / TTL-expiry bugs.
  */
 export function extractTaskOptions(value: unknown): CreateTaskOptions {
-  if (value === null || typeof value !== 'object') return {};
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return {};
   const rec = value as Record<string, unknown>;
   const opts: CreateTaskOptions = {};
-  if (typeof rec.ttl === 'number') opts.ttl = rec.ttl;
-  if (typeof rec.pollInterval === 'number') opts.pollInterval = rec.pollInterval;
+  if (isNonNegativeNumber(rec.ttl)) opts.ttl = rec.ttl;
+  if (isNonNegativeNumber(rec.pollInterval)) opts.pollInterval = rec.pollInterval;
   return opts;
 }
 

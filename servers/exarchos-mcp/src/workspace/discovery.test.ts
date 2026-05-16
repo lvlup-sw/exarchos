@@ -9,7 +9,7 @@ import { describe, it, expect } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { EventStore } from '../event-store/store.js';
 import { createInMemoryResolver } from '../capabilities/resolver.js';
@@ -33,10 +33,12 @@ async function seedExarchosWorkspace(root: string, featureId: string): Promise<v
 }
 
 function fileUriFor(p: string): string {
-  // path.posix.normalize keeps the leading separator on Linux; on Windows
-  // `pathToFileURL` from node:url is the cleaner construct but we already
-  // operate on absolute POSIX-style temp paths.
-  return `file://${p}`;
+  // Use Node's `pathToFileURL` so the URI is correct on every platform —
+  // Windows paths need a drive-letter prefix and backslash conversion
+  // that hand-rolled `file://${p}` would mangle. Tests previously assumed
+  // POSIX-style temp paths; the helper now matches what production code
+  // (and the SDK's `Root.uri` parsing) actually expects.
+  return pathToFileURL(p).href;
 }
 
 describe('isExarchosWorkspace detector (#1290)', () => {

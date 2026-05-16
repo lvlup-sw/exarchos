@@ -79,6 +79,11 @@ describe('tasks-augmented dispatch branch (#1273 / T28)', () => {
     expect(isTaskAugmented({ action: 'describe', task: 'oops' })).toBe(false);
     expect(isTaskAugmented({ action: 'describe', task: 42 })).toBe(false);
     expect(isTaskAugmented({ action: 'describe', task: null })).toBe(false);
+    // Arrays are `typeof 'object'` in JS — the guard MUST reject them
+    // explicitly so an accidental `task: []` from a malformed caller does
+    // not slip through as a valid augmentation payload.
+    expect(isTaskAugmented({ action: 'describe', task: [] })).toBe(false);
+    expect(isTaskAugmented({ action: 'describe', task: [{ ttl: 1 }] })).toBe(false);
   });
 
   // ─── Synthesis surface (returns SDK CreateTaskResult shape) ──────────────
