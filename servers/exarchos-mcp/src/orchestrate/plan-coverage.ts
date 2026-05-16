@@ -9,6 +9,8 @@ import { readFile } from 'node:fs/promises';
 import type { ToolResult } from '../format.js';
 import type { EventStore } from '../event-store/store.js';
 import { emitGateEvent } from './gate-utils.js';
+import { loadDesignSidecar, loadPlanSidecar } from './sidecar-lookup.js';
+import type { DesignSidecarV1, PlanSidecarV1 } from './sidecar-schemas.js';
 
 // ─── Result Types ──────────────────────────────────────────────────────────
 
@@ -694,6 +696,28 @@ export async function handlePlanCoverage(
     };
   }
 
+  // Prefer the sidecars (T15) when both are present + conformant. The
+  // sidecar branch reads `coverage` directly without ever scraping
+  // markdown. When either side is missing, fall back to the existing
+  // regex-scrape path with a deprecation warning logged inside the
+  // sidecar-lookup helper.
+  const designSidecar = loadDesignSidecar(args.designPath);
+  const planSidecar = loadPlanSidecar(args.planPath);
+  if (designSidecar && planSidecar) {
+    const result = evaluatePlanCoverageFromSidecars(designSidecar, planSidecar);
+    try {
+      await emitGateEvent(eventStore, args.featureId, 'plan-coverage', 'planning', result.passed, {
+        dimension: 'D1',
+        phase: 'plan',
+        covered: result.coverage.covered,
+        gaps: result.coverage.gaps,
+        deferred: result.coverage.deferred,
+        totalSections: result.coverage.total,
+      });
+    } catch { /* fire-and-forget */ }
+    return { success: true, data: { ...result, source: 'sidecar' as const } };
+  }
+
   // Read files
   let designContent: string;
   let planContent: string;
@@ -754,5 +778,63 @@ export async function handlePlanCoverage(
     });
   } catch { /* fire-and-forget */ }
 
-  return { success: true, data: result };
+  return { success: true, data: { ...result, source: 'regex' as const } };
+}
+
+// ─── Sidecar evaluation ─────────────────────────────────────────────────────
+
+/**
+ * Compute plan-coverage from the structured sidecars. Each DR id from the
+ * design sidecar's `drs[]` is checked against the plan sidecar's `coverage`
+ * map. A DR with no covering tasks is a gap; everything else is covered.
+ *
+ * Deferred is treated as a no-op for sidecar-driven inputs (the structured
+ * shape has no equivalent of the "Deferred" cell in the markdown
+ * traceability table — designs that want to defer should omit the DR from
+ * the sidecar).
+ */
+function evaluatePlanCoverageFromSidecars(
+  design: DesignSidecarV1,
+  plan: PlanSidecarV1,
+): {
+  passed: boolean;
+  coverage: { covered: number; gaps: number; deferred: number; total: number };
+  report: string;
+  gapSections: readonly string[];
+} {
+  const gapSections: string[] = [];
+  let covered = 0;
+  let gaps = 0;
+
+  for (const dr of design.drs) {
+    const coveringTasks = plan.coverage[dr.id];
+    if (coveringTasks && coveringTasks.length > 0) {
+      covered++;
+    } else {
+      gaps++;
+      gapSections.push(dr.id);
+    }
+  }
+
+  const total = design.drs.length;
+  const passed = gaps === 0;
+  const reportLines = [
+    '## Plan Coverage Report (sidecar)',
+    '',
+    `- DRs total: ${total}`,
+    `- Covered: ${covered}`,
+    `- Gaps: ${gaps}`,
+  ];
+  if (gapSections.length > 0) {
+    reportLines.push('', '### Gaps');
+    for (const id of gapSections) reportLines.push(`- ${id}`);
+  }
+  reportLines.push('', passed ? `**Result: PASS** (${covered}/${total} DRs covered)` : `**Result: FAIL** (${gaps}/${total} gaps)`);
+
+  return {
+    passed,
+    coverage: { covered, gaps, deferred: 0, total },
+    report: reportLines.join('\n'),
+    gapSections,
+  };
 }
