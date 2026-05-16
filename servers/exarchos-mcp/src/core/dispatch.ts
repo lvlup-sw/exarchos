@@ -723,13 +723,16 @@ export async function dispatch(
             operationId,
           });
           if (elicitation.fulfilled) {
-            const retried = matchingAction.schema.safeParse({
+            // CodeRabbit MINOR #1424: always overwrite `parsed` with the
+            // retry result, even when the elicited value is invalid.
+            // Keeping the original pre-elicitation parse error would
+            // surface a "missing field" envelope when the real failure is
+            // the wrong-type elicited value — confusing the caller about
+            // which input to correct.
+            parsed = matchingAction.schema.safeParse({
               ...cleanedRest,
               [missingField]: elicitation.value,
             });
-            if (retried.success) {
-              parsed = retried;
-            }
           }
         } catch {
           // Elicitation is a best-effort hand-off; transport failures

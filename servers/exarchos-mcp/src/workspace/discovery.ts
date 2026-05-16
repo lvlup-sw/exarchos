@@ -163,9 +163,20 @@ async function getOrFetchRoots(
 ): Promise<readonly { uri: string }[]> {
   const cached = resolver.getCachedRoots();
   if (cached !== undefined) return cached;
-  const fetched = await rootsClient.list();
-  resolver.setCachedRoots(fetched);
-  return fetched;
+  try {
+    const fetched = await rootsClient.list();
+    resolver.setCachedRoots(fetched);
+    return fetched;
+  } catch {
+    // CodeRabbit MAJOR #1424: a transient `roots/list` failure must not
+    // abort discovery — degrade to "no roots returned" so the caller's
+    // for-loop yields no matches and dispatch falls through to the cwd
+    // branch (which is the intended best-effort behavior, see DR-12 of
+    // the workspace-discovery design). Cache nothing on failure so the
+    // next dispatch retries the fetch instead of locking in an empty
+    // snapshot.
+    return [];
+  }
 }
 
 /**
