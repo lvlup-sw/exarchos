@@ -37,6 +37,11 @@ export const EventTypes = [
   // PREFLIGHT_FAILED, RESERVED_FIELD, etc.) so `view telemetry` can report
   // them instead of silently rolling them up as completions.
   'tool.action_errored',
+  // #1262 — per-turn output-token sample emitted by the telemetry middleware
+  // when an agent turn completes. The `output_tokens_high` quality hint
+  // (catalog: `telemetry/quality-hints.ts`) fires off this stream when a
+  // turn's `outputTokens` crosses the configured threshold.
+  'turn.completed',
   'benchmark.completed',
   'team.spawned',
   'team.task.assigned',
@@ -253,6 +258,8 @@ export const EVENT_EMISSION_REGISTRY: Record<EventType, EventEmissionSource> = {
   'tool.errored': 'auto',
   // PR3/T7 (#1364) — see EventTypes registration above.
   'tool.action_errored': 'auto',
+  // #1262 — auto-emitted by telemetry middleware on agent-turn boundary.
+  'turn.completed': 'auto',
   'quality.hint.generated': 'auto',
   'quality.refinement.suggested': 'auto',
   'stack.position-filled': 'auto',
@@ -773,6 +780,21 @@ export const ToolActionErroredData = z.object({
   responseBytes: z.number(),
   tokenEstimate: z.number(),
 });
+
+// #1262 — per-turn output-token sample (CodeRabbit F2).
+//
+// Emitted by the telemetry middleware when an agent turn completes. The
+// telemetry projection (`telemetry/telemetry-projection.ts`) folds
+// `turnId` + `outputTokens` into `view.turns` for the `output_tokens_high`
+// quality hint. Anything else on the payload is ignored by the projection
+// today, so the schema is `.passthrough()` to keep the door open for
+// future per-turn samples (cache-read tokens, latency, etc.) without a
+// breaking schema bump.
+export const TurnCompletedDataSchema = z.object({
+  turnId: z.string().min(1).describe('Stable identifier for the turn (typically a UUID).'),
+  outputTokens: z.number().nonnegative().describe('Total output tokens consumed by the turn.'),
+}).passthrough();
+export type TurnCompletedData = z.infer<typeof TurnCompletedDataSchema>;
 
 // ─── Benchmark Event Data ───────────────────────────────────────────────────
 
@@ -1587,6 +1609,8 @@ export const EVENT_DATA_SCHEMAS: Partial<Record<EventType, z.ZodSchema>> = {
   'tool.errored': ToolErroredData,
   // PR3/T7 (#1364) — structured action-level failure event.
   'tool.action_errored': ToolActionErroredData,
+  // #1262 — per-turn output-token sample (CodeRabbit F2 on PR #1409).
+  'turn.completed': TurnCompletedDataSchema,
 
   // Benchmark
   'benchmark.completed': BenchmarkCompletedData,
