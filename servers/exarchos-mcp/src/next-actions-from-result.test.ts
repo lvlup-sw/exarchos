@@ -11,6 +11,7 @@
 // `next_actions: []` even when the merge-pending detour was active. These
 // tests pin shape 2 + the merge_orchestrate surfacing branch.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import type { z } from 'zod';
 import {
   nextActionsFromResult,
   nextActionsLogger,
@@ -19,6 +20,8 @@ import {
 import type { ToolResult } from './format.js';
 import { rehydrationReducer } from './projections/rehydration/reducer.js';
 import type { WorkflowEvent } from './event-store/schemas.js';
+import { RehydrationMergeOrchestratorSchema } from './projections/rehydration/schema.js';
+import { MergeOrchestratorStateSchema } from './workflow/schemas.js';
 
 function ok(data: unknown): ToolResult {
   return { success: true, data };
@@ -245,6 +248,85 @@ describe('nextActionsFromResult — shape recognition', () => {
         expect(actions).toEqual([]);
         expect(warnSpy).toHaveBeenCalled();
       });
+
+      it('NextActionsFromResult_AsymmetricPayload_ShapeOneValidShapeTwoAdvertisedInvalid_FailsClosed', () => {
+        // CodeRabbit #1421: union+passthrough let asymmetric malformed
+        // payloads slip through. Here shape 1 is *valid* (phase +
+        // workflowType are strings) but the payload *advertises* shape 2 by
+        // including a `workflowState` key whose value is malformed (phase is
+        // boolean, missing required featureId). The pre-fix code would have
+        // accepted via the loose union, extracted from shape 1, and silently
+        // ignored the bad shape-2 sibling. Per-advertised-shape validation
+        // must fail-closed here.
+        const actions = nextActionsFromResult(
+          ok({
+            phase: 'merge-pending',
+            workflowType: 'feature',
+            workflowState: {
+              phase: false,
+              workflowType: 'feature',
+            },
+          }),
+        );
+        expect(actions).toEqual([]);
+        expect(warnSpy).toHaveBeenCalled();
+      });
+
+      it('NextActionsFromResult_AsymmetricPayload_ShapeTwoValidShapeOneAdvertisedInvalid_FailsClosed', () => {
+        // Symmetric: shape 2 valid (workflowState parses), shape 1
+        // advertised via top-level `phase`/`workflowType` keys but with
+        // wrong types. Per-advertised-shape validation must reject.
+        const actions = nextActionsFromResult(
+          ok({
+            phase: 42,
+            workflowType: 99,
+            workflowState: {
+              featureId: 'x',
+              phase: 'ideate',
+              workflowType: 'feature',
+            },
+          }),
+        );
+        expect(actions).toEqual([]);
+        expect(warnSpy).toHaveBeenCalled();
+      });
+    });
+
+    it('RehydrationMergeOrchestratorSchema_PhaseEnum_MatchesMergeOrchestratorStateSchema', () => {
+      // #1421 Sentry pin: the rehydration projection's mergeOrchestrator
+      // sub-schema must accept every phase the write-side state schema can
+      // persist. Drift here suppresses `merge_orchestrate` during the
+      // `executing` window (or any future phase added on the write side).
+      const rehydrationShape = RehydrationMergeOrchestratorSchema.shape;
+      const writeShape = MergeOrchestratorStateSchema.shape;
+      const rehydrationPhases = new Set(
+        (rehydrationShape.phase as z.ZodEnum<[string, ...string[]]>).options,
+      );
+      const writePhases = (
+        writeShape.phase as z.ZodEnum<[string, ...string[]]>
+      ).options;
+      for (const p of writePhases) {
+        expect(rehydrationPhases.has(p)).toBe(true);
+      }
+    });
+
+    it('NextActionsFromResult_RehydrationDocWithExecutingMergePhase_StillSurfacesMergeOrchestrate', () => {
+      // Pin: during a merge `executing` window, `handleGet` returns a payload
+      // where mergeOrchestrator.phase is 'executing'. The previous schema
+      // omitted this enum value so safeParse failed-closed, dropping the
+      // `merge_orchestrate` verb. The fix re-aligns the enum.
+      const actions = nextActionsFromResult(
+        ok({
+          workflowState: {
+            featureId: 'fid',
+            phase: 'merge-pending',
+            workflowType: 'feature',
+            mergeOrchestrator: { taskId: 'tid', phase: 'executing' },
+          },
+        }),
+      );
+      // executing is non-terminal — merge_orchestrate must still surface.
+      expect(actions.some((a) => a.verb === 'merge_orchestrate')).toBe(true);
     });
 
     it('NextActionsFromResult_NonSuccessResult_ReturnsEmptyArray', () => {
