@@ -32,9 +32,11 @@ export interface ClientHandshake {
      * Per the MCP spec (#1274), the `elicitation` capability is signaled by
      * the client as `capabilities.elicitation: {}` — the presence of the
      * object (any shape, including the empty object) is the declaration
-     * the resolver treats as authoritative.
+     * the resolver treats as authoritative. CodeRabbit MINOR #1424:
+     * narrowed from `object` to `Record<string, unknown>` so the type
+     * itself rejects array handshakes (`object` admits arrays in TS).
      */
-    readonly elicitation?: object;
+    readonly elicitation?: Readonly<Record<string, unknown>>;
     readonly [k: string]: unknown;
   };
 }
@@ -108,12 +110,23 @@ export function createInMemoryResolver(
     },
     snapshot(handshake) {
       clientRootsDeclared = handshake.capabilities?.roots?.listChanged === true;
+      // CodeRabbit MAJOR #1423: roots/list cache is handshake-scoped — any
+      // cached roots from a prior handshake belong to a different client
+      // session and must not carry over. Clearing here forces the first
+      // `getCachedRoots()` after a new handshake to return `undefined`, so
+      // the workspace resolver re-fetches via the new client's roots/list.
+      cachedRoots = undefined;
       // #1274 — `capabilities.elicitation` is presence-gated: the spec
       // says `{}` is a valid declaration, so we record true whenever the
-      // field is a non-null object regardless of shape.
+      // field is a non-null object regardless of shape. CodeRabbit MINOR
+      // #1424: explicitly reject arrays — `typeof [] === 'object'` so the
+      // pre-fix check would have admitted a malformed array handshake.
       const elicitation = handshake.capabilities?.elicitation;
       clientElicitationDeclared =
-        elicitation !== undefined && elicitation !== null && typeof elicitation === 'object';
+        elicitation !== undefined
+        && elicitation !== null
+        && typeof elicitation === 'object'
+        && !Array.isArray(elicitation);
     },
     isRootsDeclared() {
       return clientRootsDeclared;

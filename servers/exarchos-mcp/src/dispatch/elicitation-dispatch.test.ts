@@ -142,4 +142,41 @@ describe('elicitation-dispatch (#1274)', () => {
     expect(requestedData.field).toBe('featureId');
     expect(fulfilledData.field).toBe('featureId');
   });
+
+  it('PerformElicitation_ClientDeclines_EmitsElicitationDeclinedNotFulfilled', async () => {
+    // Sentry MEDIUM #1424: pre-fix `elicitation.fulfilled` was emitted
+    // even when the client returned `value === undefined`, polluting the
+    // audit trail. The decline path now emits a distinct
+    // `elicitation.declined` event so downstream consumers can
+    // distinguish "supplied a value" from "refused / cancelled."
+    const inputSchema = z.object({ featureId: z.string() });
+    const decliningClient: ElicitationClient = {
+      async create() {
+        return { value: undefined };
+      },
+    };
+
+    const result = await performElicitation({
+      inputSchema,
+      missingField: 'featureId',
+      client: decliningClient,
+      eventStore,
+      operationId: 'op-declined',
+    });
+
+    expect(result.fulfilled).toBe(false);
+    expect(result.value).toBeUndefined();
+
+    const events = await eventStore.query('elicitation/op-declined');
+    const requested = events.find((e) => e.type === 'elicitation.requested');
+    const declined = events.find((e) => e.type === 'elicitation.declined');
+    const fulfilled = events.find((e) => e.type === 'elicitation.fulfilled');
+
+    expect(requested).toBeDefined();
+    expect(declined).toBeDefined();
+    expect(fulfilled).toBeUndefined();
+    const declinedData = declined!.data as { operationId: string; field: string };
+    expect(declinedData.operationId).toBe('op-declined');
+    expect(declinedData.field).toBe('featureId');
+  });
 });
