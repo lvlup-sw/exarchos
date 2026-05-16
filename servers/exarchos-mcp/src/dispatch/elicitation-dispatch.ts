@@ -106,13 +106,24 @@ export async function performElicitation(
   // wire-level form-mode params (mode: 'form', message, requestedSchema).
   const response = await client.create({ field: missingField, schema });
 
-  // (3) Audit-trail: pair the request with its response, even when the
-  // returned value is `undefined` (so post-hoc queries can still detect
-  // "the round-trip completed").
-  await eventStore.append(streamId, {
-    type: 'elicitation.fulfilled',
-    data: { operationId, field: missingField, value: response.value },
-  });
+  // (3) Audit-trail: pair the request with its response. Sentry MEDIUM
+  // #1424 root cause: the pre-fix branch emitted `elicitation.fulfilled`
+  // for declines too, so downstream audit consumers couldn't tell apart
+  // "the client supplied a value" from "the client refused / cancelled."
+  // Emit `elicitation.declined` for the decline path so the round-trip
+  // outcome is observable as a typed event rather than a value-shape
+  // discriminator on a single overloaded event type.
+  if (response.value !== undefined) {
+    await eventStore.append(streamId, {
+      type: 'elicitation.fulfilled',
+      data: { operationId, field: missingField, value: response.value },
+    });
+  } else {
+    await eventStore.append(streamId, {
+      type: 'elicitation.declined',
+      data: { operationId, field: missingField },
+    });
+  }
 
   return {
     fulfilled: response.value !== undefined,

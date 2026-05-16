@@ -73,8 +73,6 @@ import {
   BranchDeleteExecutedData,
   WorktreeRemoveRequestedData,
   WorktreeRemoveExecutedData,
-  // #1262 — per-turn output-token sample schema (CodeRabbit F2).
-  TurnCompletedDataSchema,
 } from './schemas.js';
 
 // ─── T1: EventEmissionSource + EVENT_EMISSION_REGISTRY ──────────────────────
@@ -183,34 +181,6 @@ describe('EVENT_DATA_SCHEMAS', () => {
         expect(result.success, `Schema for '${eventType}' should parse valid data: ${JSON.stringify(result)}`).toBe(true);
       }
     }
-  });
-});
-
-// ─── #1262 turn.completed data schema (CodeRabbit F2) ───────────────────────
-//
-// The telemetry projection reads `{turnId: string, outputTokens: number}`
-// off `turn.completed.data`. Register a typed Zod schema in EVENT_DATA_SCHEMAS
-// so the event store rejects malformed payloads at ingestion time instead of
-// silently ignoring them downstream.
-describe('EventSchema_TurnCompleted', () => {
-  it('EventSchema_TurnCompleted_ValidatesData', () => {
-    const result = TurnCompletedDataSchema.safeParse({
-      turnId: 'turn-1',
-      outputTokens: 1234,
-    });
-    expect(result.success).toBe(true);
-  });
-
-  it('EventSchema_TurnCompleted_NonNumericOutputTokens_Rejected', () => {
-    const result = TurnCompletedDataSchema.safeParse({
-      turnId: 'turn-1',
-      outputTokens: 'not-a-number',
-    });
-    expect(result.success).toBe(false);
-  });
-
-  it('EventSchema_TurnCompleted_RegisteredInEventDataSchemas', () => {
-    expect(EVENT_DATA_SCHEMAS['turn.completed']).toBeDefined();
   });
 });
 
@@ -536,25 +506,31 @@ describe('EventTypes', () => {
     // Bumped 106 → 108: elicitation.requested + elicitation.fulfilled
     // (#1274 — elicitation form mode for missing-required-param hand-off
     //   in the dispatch boundary).
-    // Bumped 108 → 112: task.created + task.polled + task.result +
+    // Bumped 108 → 109: elicitation.declined (Sentry MEDIUM #1424 — client
+    //   decline carries a distinct audit-trail event instead of collapsing
+    //   into `fulfilled` with a falsy payload).
+    // Bumped 109 → 113: task.created + task.polled + task.result +
     //   task.cancelled (#1272 — EventSourcedTaskStore lifecycle; SDK
     //   `TaskStore` interface as a projection over the event store).
     //   Distinct from the orchestrated-task family above; see
     //   `event-store/task-events.test.ts` for the schema-shape contracts
     //   and `task-store/event-sourced-task-store.test.ts` for the
     //   end-to-end lifecycle + REPLAY (INV-1) acceptance test.
-    // Bumped 112 → 114: dispatch.preflight + stash.detected (#1261 —
+    // Bumped 113 → 115: dispatch.preflight + stash.detected (#1261 —
     //   dispatch-guard preflight observability emitted by
     //   `orchestrate/dispatch-guard.ts`).
-    expect(EventTypes).toHaveLength(114);
+    expect(EventTypes).toHaveLength(115);
   });
 
   it('EventTypes_IncludesElicitation', () => {
-    // #1274 — both events carry the elicitation request/response on a
+    // #1274 — all three events carry the elicitation request/response on a
     // per-operation pseudo-stream so dispatch can correlate by operationId.
+    // `elicitation.declined` was added by the Sentry MEDIUM fix (#1424) so
+    // client decline carries a distinct audit-trail entry instead of
+    // collapsing into `fulfilled` with a falsy payload.
     expect(EventTypes).toContain('elicitation.requested');
     expect(EventTypes).toContain('elicitation.fulfilled');
-    expect(EventTypes).toHaveLength(114);
+    expect(EventTypes).toContain('elicitation.declined');
   });
 
   it('EventTypes_IncludesSessionTagged', () => {

@@ -1,4 +1,5 @@
 import type { ToolResult } from '../format.js';
+import { logger } from '../logger.js';
 import type { EventStore } from '../event-store/store.js';
 import type { ExarchosConfig } from '../config/define.js';
 import type { ResolvedProjectConfig } from '../config/resolve.js';
@@ -152,16 +153,29 @@ function extractSingleMissingRequiredField(
 ): string | undefined {
   // Zod v4's missing-required-key error surfaces with `code: 'invalid_type'`
   // and `expected: 'string' | 'number' | …` on the leaf-most issue (the
-  // input was `undefined` for the field). We accept the issue when:
+  // input was `undefined` for the field). CodeRabbit CRITICAL #1424:
+  // `invalid_type` is also Zod's WRONG-TYPE code (e.g. caller passed a
+  // number where a string was expected). Without inspecting `issue.input`
+  // we'd treat a wrong-type field as missing and route the caller through
+  // an elicitation hand-off they never asked for. `issue.input` is only
+  // populated when safeParse is called with `{ reportInput: true }` (the
+  // call site sets this); `input === undefined` is the disambiguator for
+  // "field was missing" vs "field was the wrong type."
+  //
+  // We accept the issue when:
   //   - exactly one issue is reported, AND
   //   - the issue path is a single top-level key (string), AND
   //   - the issue code is 'invalid_type' (Zod's universal "missing" code), AND
-  //   - the received value was `undefined` (distinguishes a genuinely missing
-  //     field from a wrong-type field — elicitation only applies to the former).
+  //   - the issue's `input` is `undefined` AND the non-standard `received`
+  //     property is the string `'undefined'` (distinguishes a genuinely
+  //     missing field from a wrong-type field — elicitation only applies
+  //     to the former; the dual check defends against Zod versions that
+  //     populate one signal but not the other).
   const issues = error.issues;
   if (issues.length !== 1) return undefined;
   const only = issues[0];
   if (only.code !== 'invalid_type') return undefined;
+  if (only.input !== undefined) return undefined;
   if (only.path.length !== 1) return undefined;
   const key = only.path[0];
   if (typeof key !== 'string') return undefined;
@@ -277,6 +291,23 @@ export const READ_ONLY_ACTIONS = {
 } as const;
 
 export type ReadOnlyActionsMap = typeof READ_ONLY_ACTIONS;
+
+/**
+ * Actions that never consume a `featureId` (Sentry MEDIUM #1423).
+ *
+ * The roots-based workspace-discovery branch in `dispatch()` skips its
+ * synchronous filesystem walk for actions in this set so high-frequency
+ * introspection calls (catalog reads, runbook fetches, agent-spec
+ * lookups) don't pay the discovery cost. Adding an action here is a
+ * "this surface MUST NOT ever take a featureId" assertion — pair the
+ * addition with a registry-side check that the action's schema does not
+ * declare a `featureId` field.
+ */
+const NO_WORKSPACE_RESOLUTION_ACTIONS: ReadonlySet<string> = new Set([
+  'describe',
+  'runbook',
+  'agent_spec',
+]);
 
 /**
  * Apply the readonly capability gate. Returns a structured CAPABILITY_DENIED
@@ -644,7 +675,27 @@ export async function dispatch(
     // can disambiguate; zero-match falls through to the existing per-
     // action Zod validation, which surfaces the legacy "featureId is
     // required" envelope unchanged.
-    if (rest.featureId === undefined && ctx.capabilityResolver !== undefined) {
+    //
+    // Sentry MEDIUM #1423: actions that never consume workspace context
+    // (`describe`/`runbook`/`agent_spec` — pure introspection on the
+    // registry / catalogs) skip the discovery call entirely. Pre-fix
+    // these high-frequency informational calls each triggered a
+    // synchronous cwd-walk on miss, adding measurable latency to the
+    // dispatch hot path. The skip list is conservative: anything that
+    // *might* take a featureId stays in the discovery branch.
+    // Sentry MEDIUM #1424: skip workspace resolution entirely when
+    // `rootsClient` is undefined — that's the CLI dispatch path which has
+    // no MCP roots channel and therefore no useful inference target. The
+    // sync `cwdWalk` fallback would still fire and add filesystem latency
+    // to every CLI hot-path dispatch (telemetry view, doctor checks, etc.)
+    // that happens to omit a featureId. Roots+cwd inference is purely an
+    // MCP-client convenience for callers that DID declare roots.
+    if (
+      rest.featureId === undefined
+      && ctx.capabilityResolver !== undefined
+      && ctx.rootsClient !== undefined
+      && !NO_WORKSPACE_RESOLUTION_ACTIONS.has(actionName)
+    ) {
       try {
         const { resolveWorkspace } = await import('../workspace/discovery.js');
         const resolution = await resolveWorkspace({
@@ -663,12 +714,6 @@ export async function dispatch(
             // to plain `featureId` strings — that's the disambiguator the
             // caller actually supplies in the retry. The published error
             // contract expects `readonly (string | ValidTransitionTarget)[]`.
-            // Multi-root paths surface only as features (cwd-walk also
-            // returns featureId strings), so the union narrows to `string[]`.
-            // _meta is added by the catch-all envelope wrapper below; the
-            // dispatch context (operationId/correlationId/causationId)
-            // attaches to errors via the same `runWithDispatchContext`
-            // outer wrap.
             // CodeRabbit CRITICAL + Sentry #1428: also attach _meta so
             // the multi-match envelope carries correlation IDs (parity
             // with success + thrown-error paths). Pre-fix this was the
@@ -681,16 +726,33 @@ export async function dispatch(
                 message:
                   `${tool}/${actionName}: multiple workspaces matched MCP roots; ` +
                   'supply an explicit featureId to disambiguate.',
-                validTargets: resolution.validTargets.map((t) => t.featureId),
+                // CodeRabbit CRITICAL #1423: `ToolResult.error.validTargets`
+                // expects `readonly (string | ValidTransitionTarget)[]`, but
+                // workspace resolution returns
+                // `readonly { featureId, path }[]`. Surface the featureIds
+                // (the disambiguator the caller actually supplies) so the
+                // envelope satisfies the contract.
+                validTargets: resolution.validTargets?.map((t) => t.featureId),
               },
             });
           }
         }
-      } catch {
+      } catch (err) {
         // Discovery is a best-effort inference hook — a failure must not
         // mask the legacy validation contract. Fall through to the
         // existing schema check; callers see the standard "featureId
-        // is required" envelope.
+        // is required" envelope. CodeRabbit MINOR #1423: silent catches
+        // violate the project's observability standard. Surface via the
+        // workspace-discovery logger child so the failure is auditable
+        // without changing the user-facing fallback.
+        logger.child({ subsystem: 'workspace-discovery' }).warn(
+          {
+            tool,
+            action: actionName,
+            error: err instanceof Error ? err.message : String(err),
+          },
+          'workspace inference failed; falling back to legacy featureId validation',
+        );
       }
     }
 
@@ -729,7 +791,14 @@ export async function dispatch(
             );
           })()
         : rest;
-    let parsed = matchingAction.schema.safeParse(cleanedRest);
+    // CodeRabbit CRITICAL #1424: pass `reportInput: true` so Zod retains
+    // the original input on each issue. `extractSingleMissingRequiredField`
+    // (above) needs `issue.input === undefined` to distinguish "field
+    // missing" from "field present but wrong type." Without this flag,
+    // wrong-type errors would be misclassified as missing-field and route
+    // through the elicitation hand-off — a confusing UX divergence from
+    // the caller's actual problem.
+    let parsed = matchingAction.schema.safeParse(cleanedRest, { reportInput: true });
 
     // ─── #1274 — Elicitation hand-off on missing required param ──────────
     // If validation failed because exactly one required field is missing
@@ -766,13 +835,16 @@ export async function dispatch(
             operationId: dispatchCtx.operationId,
           });
           if (elicitation.fulfilled) {
-            const retried = matchingAction.schema.safeParse({
+            // CodeRabbit MINOR #1424: always overwrite `parsed` with the
+            // retry result, even when the elicited value is invalid.
+            // Keeping the original pre-elicitation parse error would
+            // surface a "missing field" envelope when the real failure is
+            // the wrong-type elicited value — confusing the caller about
+            // which input to correct.
+            parsed = matchingAction.schema.safeParse({
               ...cleanedRest,
               [missingField]: elicitation.value,
             });
-            if (retried.success) {
-              parsed = retried;
-            }
           }
         } catch {
           // Elicitation is a best-effort hand-off; transport failures
