@@ -626,7 +626,13 @@ export async function dispatch(
       };
     }
 
-    let { action: _action, ...rest } = args;
+    // Strip transport-envelope keys (`action` is the dispatch dispatch key
+    // we already consumed; `_meta` is the MCP correlation envelope — see
+    // lines 571–600 for the read/merge — and is NEVER part of an action
+    // schema, so passing it to `.strict()` validation would surface
+    // spurious `unrecognized_keys` errors).
+    let { action: _action, _meta: _ignoredMeta, ...rest } = args;
+    void _ignoredMeta;
 
     // ─── #1290 — Roots-based featureId inference ─────────────────────────
     // Resolution priority (load-bearing for missing-required-param paths):

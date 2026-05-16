@@ -33,12 +33,22 @@ export function deriveElicitationSchema<T extends z.ZodObject>(
   inputSchema: T,
   field: string,
 ): ReturnType<typeof zodToJsonSchema> {
-  // `pick` keys are `{[k]: true}` literal-truthy. The Zod v4 typing is
-  // strict on the shape; casting via `Record<string, true>` keeps the
-  // helper generic across action schemas without leaking inferred-key
-  // type complexity into callers.
-  const picked = (inputSchema as unknown as {
+  // CodeRabbit MINOR #1431: the prior implementation used a chained
+  // `as unknown as { pick(...) }` double-cast. Zod v4's `pick` signature
+  // wants a literal mask whose keys are statically a subset of the
+  // schema's `Shape`, but the call site in `dispatch/elicitation-dispatch.ts`
+  // only knows it has a generic `ZodObject` (the action's shape is erased
+  // by the time dispatch routes the action). We therefore intentionally
+  // keep `field: string` at the public boundary — propagating
+  // `<K extends keyof Shape>` would force every caller to thread the
+  // action's `ZodRawShape` generic, which dispatch does not have. The
+  // narrower local cast below targets the one method we invoke and drops
+  // the `unknown` indirection of the previous double-cast.
+  type PickAcceptingDynamicKey = {
     pick(mask: Record<string, true>): z.ZodObject;
-  }).pick({ [field]: true });
+  };
+  const picked = (inputSchema as PickAcceptingDynamicKey).pick({
+    [field]: true,
+  });
   return zodToJsonSchema(picked);
 }

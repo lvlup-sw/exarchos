@@ -176,6 +176,21 @@ describe('CapabilityResolver Roots handshake snapshot (#1290)', () => {
     resolver.invalidateRootsCache();
     expect(resolver.getCachedRoots()).toBeUndefined();
   });
+
+  it('CapabilityResolver_NewSnapshot_InvalidatesPriorRootsCache', () => {
+    // CodeRabbit MAJOR #1431: a second `snapshot(handshake)` (e.g.
+    // reconnect / re-initialize) replaces session state, so any roots
+    // cached against the *prior* snapshot are stale and MUST be cleared.
+    // Without this, `getCachedRoots()` would return the previous session's
+    // URIs against a client that may no longer expose them.
+    const resolver = createInMemoryResolver([]);
+    resolver.snapshot({ capabilities: { roots: { listChanged: true } } });
+    resolver.setCachedRoots([{ uri: 'file:///stale-session' }]);
+    expect(resolver.getCachedRoots()?.length).toBe(1);
+
+    resolver.snapshot({ capabilities: { roots: { listChanged: true } } });
+    expect(resolver.getCachedRoots()).toBeUndefined();
+  });
 });
 
 // ─── #1274 — Elicitation capability snapshot (handshake-driven) ───────────

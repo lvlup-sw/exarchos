@@ -7,6 +7,13 @@
 // depends only on transport-agnostic types — the SDK is imported HERE
 // rather than from dispatch.
 //
+// STATUS: implemented but not yet wired into `src/index.ts`. The
+// dispatch helper consumes the structural `ElicitationClient` surface; a
+// follow-up will register this adapter in the server entry-point's
+// initialize handshake. Until then knip flags the file as unused — see
+// the `ignore` entry in `knip.json`. Remove that ignore when the wiring
+// lands.
+//
 // The form-mode `requestedSchema` shape demanded by the spec is narrower
 // than a generic JSON Schema (only a fixed set of primitive types and
 // constructs are allowed; see MCP `ElicitRequestFormParamsSchema`). The

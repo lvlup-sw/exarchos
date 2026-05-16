@@ -1704,6 +1704,12 @@ export const TaskCreatedData = z.object({
   createdBy: z.string().min(1).optional(),
   ttl: z.union([z.number().int().nonnegative(), z.null()]),
   request: z.unknown(),
+  // CodeRabbit MAJOR #1431: persist pollInterval so REPLAY reconstructs
+  // the original cadence. Pre-fix the value was only kept in the in-memory
+  // projection, so a process restart silently reverted every task to the
+  // 1000ms default. Optional so historical events without the field
+  // continue to project (back-compat with pre-fix `task.created` payloads).
+  pollInterval: z.number().int().positive().optional(),
 });
 
 /**

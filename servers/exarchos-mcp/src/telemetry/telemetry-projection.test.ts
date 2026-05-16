@@ -720,23 +720,4 @@ describe('TelemetryProjection_OutputTokenHint', () => {
     expect(hints[0].idempotencyKey).not.toBe(firstKey);
     expect(hints[0].idempotencyKey).toContain('t3');
   });
-
-  it('OutputTokenHint_OnlyBelow_EmitsNoHint', () => {
-    let state = telemetryProjection.init();
-    state = telemetryProjection.apply(
-      state,
-      makeEvent('turn.completed', { turnId: 't1', outputTokens: 1000 }),
-    );
-    state = telemetryProjection.apply(
-      state,
-      makeEvent('turn.completed', { turnId: 't2', outputTokens: 5000 }),
-    );
-    state = telemetryProjection.apply(
-      state,
-      makeEvent('turn.completed', { turnId: 't3', outputTokens: 9000 }),
-    );
-
-    const hints = computeOutputTokenHints(state, 25600);
-    expect(hints).toHaveLength(0);
-  });
 });

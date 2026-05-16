@@ -216,6 +216,48 @@ describe('EventSourcedTaskStore (#1272)', () => {
     }
   });
 
+  it('EventSourcedTaskStore_PollInterval_PersistsToEventAndReplays', async () => {
+    // CodeRabbit MAJOR #1431: pre-fix, `pollInterval` was stored only in
+    // the in-memory projection — never on the `task.created` event — so a
+    // fresh store instantiated against the same event store silently
+    // reverted to the 1000ms default. This test pins both the durable
+    // payload AND the REPLAY contract.
+    const task = await store.createTask(
+      { ttl: 60_000, pollInterval: 250 },
+      'req-poll',
+      sampleRequest,
+    );
+    expect(task.pollInterval).toBe(250);
+
+    // Event-store evidence: the durable `task.created` payload carries
+    // the caller-supplied cadence (not the SDK default).
+    const events = await eventStore.query(`task-store/${task.taskId}`);
+    const createdEvent = events.find((e) => e.type === 'task.created');
+    expect(createdEvent?.data).toMatchObject({ pollInterval: 250 });
+
+    // REPLAY: a fresh store reconstructs the cadence from the stream
+    // alone.
+    const replayStore = new EventSourcedTaskStore(eventStore);
+    const replayed = await replayStore.getTask(task.taskId);
+    expect(replayed?.pollInterval).toBe(250);
+  });
+
+  it('EventSourcedTaskStore_LegacyTaskCreated_NoPollInterval_DefaultsTo1000ms', async () => {
+    // Back-compat: historical `task.created` events written before the
+    // #1431 fix did not include `pollInterval`. The projection must
+    // continue to fall back to the SDK default (1000ms) for those.
+    const taskId = 'legacy-no-poll-interval';
+    const streamId = `task-store/${taskId}`;
+    await eventStore.append(streamId, {
+      type: 'task.created',
+      timestamp: new Date().toISOString(),
+      data: { taskId, ttl: 60_000, request: sampleRequest },
+    });
+    const replayStore = new EventSourcedTaskStore(eventStore);
+    const replayed = await replayStore.getTask(taskId);
+    expect(replayed?.pollInterval).toBe(1000);
+  });
+
   it('EventSourcedTaskStore_ListTasks_ReturnsCreatedTasks', async () => {
     const t1 = await store.createTask({ ttl: 1000 }, 'r1', sampleRequest);
     const t2 = await store.createTask({ ttl: 2000 }, 'r2', sampleRequest);

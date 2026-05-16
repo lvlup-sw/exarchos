@@ -112,9 +112,15 @@ export class EventSourcedTaskStore implements TaskStore {
   ): Promise<Task> {
     const taskId = generateTaskId();
     const ttl = taskParams.ttl ?? null;
+    const pollInterval = taskParams.pollInterval ?? 1000;
     const createdAt = new Date().toISOString();
 
     // Event-store first: the durable record IS the truth.
+    // CodeRabbit MAJOR #1431: include `pollInterval` in the durable
+    // payload so REPLAY (`projectTask`) reconstructs the original cadence.
+    // Pre-fix the value was only stored in the in-memory projection;
+    // restarting the process silently reverted every task to the 1000ms
+    // default.
     await this.store.append(taskStream(taskId), {
       type: 'task.created',
       timestamp: createdAt,
@@ -122,6 +128,7 @@ export class EventSourcedTaskStore implements TaskStore {
         taskId,
         ttl,
         request,
+        pollInterval,
         // `createdBy` is left to upstream stamping (DispatchContext via
         // AsyncLocalStorage — see B1) when the call is inside a
         // dispatch boundary. The schema permits the field as optional.
@@ -134,7 +141,7 @@ export class EventSourcedTaskStore implements TaskStore {
       ttl,
       createdAt,
       lastUpdatedAt: createdAt,
-      pollInterval: taskParams.pollInterval ?? 1000,
+      pollInterval,
     };
 
     this.tasks.set(taskId, {
@@ -390,6 +397,16 @@ function projectTask(
   const ttl: Task['ttl'] =
     typeof rawTtl === 'number' && Number.isFinite(rawTtl) ? rawTtl : null;
   const request = (createdData['request'] ?? {}) as Request;
+  // CodeRabbit MAJOR #1431: replay the persisted pollInterval so a
+  // process restart preserves caller-supplied cadence. Older events
+  // without the field fall back to the SDK default (1000ms).
+  const rawPollInterval = createdData['pollInterval'];
+  const pollInterval =
+    typeof rawPollInterval === 'number' &&
+    Number.isFinite(rawPollInterval) &&
+    rawPollInterval > 0
+      ? rawPollInterval
+      : 1000;
 
   const createdAt = created.timestamp;
   const expiresAt = ttl !== null ? Date.parse(createdAt) + ttl : undefined;
@@ -400,7 +417,7 @@ function projectTask(
     ttl,
     createdAt,
     lastUpdatedAt: createdAt,
-    pollInterval: 1000,
+    pollInterval,
   };
   let result: Result | undefined;
 

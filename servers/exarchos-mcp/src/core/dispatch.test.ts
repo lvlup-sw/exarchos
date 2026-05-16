@@ -443,6 +443,37 @@ describe('dispatch', () => {
       }
     });
 
+    it('Dispatch_TransportMetaEnvelope_StrippedBeforePerActionValidation', async () => {
+      // CodeRabbit MAJOR #1431: the MCP transport `_meta` envelope is
+      // attached to every tool-call args object by the SDK; it carries
+      // correlation/progress hints and is NOT part of any action schema.
+      // Pre-fix, `_meta` leaked into the per-action `.strict()` validation
+      // and produced spurious `Unrecognized key(s)` rejections. Dispatch
+      // must strip it before per-action schema parsing.
+      const { dispatch } = await import('./dispatch.js');
+
+      const result = await dispatch(
+        'exarchos_orchestrate',
+        {
+          action: 'check_tdd_compliance',
+          featureId: 'meta-strip',
+          taskId: 'T1',
+          branch: 'feat/meta-strip',
+          // MCP transport envelope — must be transparently stripped.
+          _meta: { progressToken: 'tok-1', anthropicCacheControl: {} },
+        },
+        { stateDir: tmpDir, eventStore, enableTelemetry: false },
+      );
+
+      // The handler may still fail (no real git/test fixtures), but the
+      // failure must NOT cite `_meta` as an unrecognized key.
+      if (!result.success) {
+        const message = result.error?.message ?? '';
+        expect(message).not.toMatch(/Unrecognized key\(s\)/);
+        expect(message).not.toMatch(/_meta/);
+      }
+    });
+
     it('Dispatch_CallerTypo_StillRejected', async () => {
       // Tolerant Dispatch must NOT swallow caller typos — keys not
       // declared on any action's schema are caller errors and should

@@ -114,6 +114,14 @@ export function createInMemoryResolver(
       const elicitation = handshake.capabilities?.elicitation;
       clientElicitationDeclared =
         elicitation !== undefined && elicitation !== null && typeof elicitation === 'object';
+      // CodeRabbit MAJOR #1431: a second handshake (e.g. reconnect or a
+      // re-initialize on the same resolver instance) implies a fresh
+      // client session. Any roots cached against the prior snapshot are
+      // stale by construction and must be dropped — otherwise the next
+      // `getCachedRoots()` returns the previous session's URIs against a
+      // client that may no longer expose them, and `setCachedRoots` won't
+      // re-fire until `roots/list_changed` arrives.
+      cachedRoots = undefined;
     },
     isRootsDeclared() {
       return clientRootsDeclared;
