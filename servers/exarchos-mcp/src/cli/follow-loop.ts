@@ -166,22 +166,31 @@ export async function runFollowLoop(
         // dispatch-core's storeTaskResult tolerance.
       }
       const final = await taskStore.getTask(taskId);
+      const now = new Date().toISOString();
       const cancelledTask: Task = final ?? {
         taskId,
         status: 'cancelled',
         ttl: null,
-        createdAt: new Date(0).toISOString(),
-        lastUpdatedAt: new Date().toISOString(),
+        // Sentry LOW #1433: when fabricating a fallback for an expired
+        // or missing task on abort, anchor `createdAt` to the abort
+        // moment rather than the Unix epoch — the latter renders as
+        // 1970 in transition output and confuses operators.
+        createdAt: now,
+        lastUpdatedAt: now,
         statusMessage: 'user-interrupt',
       };
-      // Normalize status — the fresh getTask may race the cancel write
-      // on stores that don't read-after-write within the same tick.
-      const renderTask: Task = {
-        ...cancelledTask,
-        status: 'cancelled',
-      };
+      // Sentry MEDIUM #1433: if the abort signal lands after the task
+      // already reached a terminal state, respect that terminal status
+      // rather than forcing 'cancelled'. Re-reading via getTask above
+      // makes this race-safe — `final.status` reflects the durable
+      // post-cancel-attempt view of the world.
+      const finalStatus: 'completed' | 'failed' | 'cancelled' =
+        final !== null && isTerminal(final.status)
+          ? (final.status as 'completed' | 'failed' | 'cancelled')
+          : 'cancelled';
+      const renderTask: Task = { ...cancelledTask, status: finalStatus };
       stdout.write(formatTransition({ subcommand, task: renderTask }));
-      return { terminalStatus: 'cancelled', transitions: transitions + 1 };
+      return { terminalStatus: finalStatus, transitions: transitions + 1 };
     }
 
     const task = await taskStore.getTask(taskId);
