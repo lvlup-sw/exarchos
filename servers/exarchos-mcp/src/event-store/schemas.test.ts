@@ -503,13 +503,22 @@ describe('EventTypes', () => {
     // Previous (84 → 90): six durable event-store substrate types (#1259 T02/T03/T04).
     // Previous (105 → 106): workspace.resolved (#1290 — roots-based workspace
     //   discovery; emitted by `src/workspace/discovery.ts`).
-    // Bumped 106 → 109: elicitation.requested + elicitation.fulfilled +
-    //   elicitation.declined (#1274 — elicitation form mode for missing-
-    //   required-param hand-off in the dispatch boundary). The third
-    //   `declined` event was added by the Sentry MEDIUM fix in #1424 so
-    //   client decline carries a distinct audit-trail event instead of
-    //   collapsing into `fulfilled` with a falsy payload.
-    expect(EventTypes).toHaveLength(109);
+    // Bumped 106 → 108: elicitation.requested + elicitation.fulfilled
+    // (#1274 — elicitation form mode for missing-required-param hand-off
+    //   in the dispatch boundary).
+    // Bumped 108 → 109: elicitation.declined (Sentry MEDIUM #1424 — client
+    //   decline carries a distinct audit-trail event instead of collapsing
+    //   into `fulfilled` with a falsy payload).
+    // Bumped 109 → 113: task.created + task.polled + task.result +
+    //   task.cancelled (#1272 — EventSourcedTaskStore lifecycle; SDK
+    //   `TaskStore` interface as a projection over the event store).
+    //   Distinct from the orchestrated-task family above; see
+    //   `event-store/task-events.test.ts` for the schema-shape contracts
+    //   and `task-store/event-sourced-task-store.test.ts` for the
+    //   end-to-end lifecycle + REPLAY (INV-1) acceptance test.
+    // Bumped 113 → 115: dispatch.preflight + stash.detected (#1261 —
+    //   dispatch-guard preflight observability).
+    expect(EventTypes).toHaveLength(115);
   });
 
   it('EventTypes_IncludesElicitation', () => {

@@ -6,8 +6,34 @@ import {
   assertMainWorktree,
   assertCurrentBranchNotProtected,
   getCurrentBranch,
+  runPreflightGuards,
+  probeStashAndEmit,
 } from './dispatch-guard.js';
 import type { AncestryResult, WorktreeAssertionResult } from './dispatch-guard.js';
+import type { EventStore } from '../event-store/store.js';
+
+// ─── Event-store mock helper ────────────────────────────────────────────────
+
+interface AppendCall {
+  streamId: string;
+  event: { type: string; data?: Record<string, unknown> };
+}
+
+function makeMockEventStore(): { store: EventStore; calls: AppendCall[] } {
+  const calls: AppendCall[] = [];
+  const appendSpy = vi.fn(async (streamId: string, event: AppendCall['event']) => {
+    calls.push({ streamId, event });
+    return {
+      streamId,
+      sequence: calls.length,
+      type: event.type,
+      timestamp: new Date().toISOString(),
+      data: event.data ?? {},
+    };
+  });
+  const store = { append: appendSpy } as unknown as EventStore;
+  return { store, calls };
+}
 
 // ─── validateBranchAncestry ────────────────────────────────────────────────
 
@@ -203,5 +229,155 @@ describe('assertCurrentBranchNotProtected', () => {
     expect(result.blocked).toBe(true);
     expect(result.hint).toBeDefined();
     expect(result.hint).toMatch(/checkout|feature/i);
+  });
+});
+
+// ─── runPreflightGuards (#1261) ─────────────────────────────────────────────
+//
+// Emits `dispatch.preflight` once with the per-guard outcome after running
+// ancestry + worktree + protectedBranch + mainWorktree. operationId is
+// inherited from the active DispatchContext (B1 / #1291) via
+// AsyncLocalStorage; tests here exercise the emission shape only.
+
+describe('runPreflightGuards', () => {
+  it('DispatchGuard_AncestryFail_EmitsPreflightWithPassedFalse', async () => {
+    // Arrange: gitExec returns success for HEAD branch resolution and
+    // throws status=1 for the ancestry probe (upstream is not an ancestor).
+    const gitExec = vi.fn().mockImplementation((args: readonly string[]) => {
+      if (args[0] === 'rev-parse') return 'feature/work\n';
+      if (args[0] === 'merge-base' && args[1] === '--is-ancestor') {
+        const err = new Error('exit 1') as Error & { status: number };
+        err.status = 1;
+        throw err;
+      }
+      return '';
+    });
+    const { store, calls } = makeMockEventStore();
+
+    // Act
+    const result = await runPreflightGuards({
+      store,
+      streamId: 'feat-test',
+      integrationBranch: 'feature/work',
+      requiredUpstream: ['main'],
+      gitExec,
+      cwd: '/home/user/repo',
+    });
+
+    // Assert — emission shape + aggregate fail
+    const preflightCalls = calls.filter((c) => c.event.type === 'dispatch.preflight');
+    expect(preflightCalls).toHaveLength(1);
+    const data = preflightCalls[0].event.data as {
+      guards: {
+        ancestry: { passed: boolean };
+        worktree: { passed: boolean };
+        protectedBranch: { passed: boolean };
+        mainWorktree: { passed: boolean };
+      };
+      passed: boolean;
+      durationMs: number;
+    };
+    expect(data.guards.ancestry.passed).toBe(false);
+    expect(data.passed).toBe(false);
+    expect(typeof data.durationMs).toBe('number');
+    expect(data.durationMs).toBeGreaterThanOrEqual(0);
+    expect(result.passed).toBe(false);
+  });
+
+  it('DispatchGuard_AllGuardsPass_EmitsPreflightWithPassedTrue', async () => {
+    // Arrange: gitExec consistently returns success.
+    const gitExec = vi.fn().mockImplementation((args: readonly string[]) => {
+      if (args[0] === 'rev-parse') return 'feature/work\n';
+      return '';
+    });
+    const { store, calls } = makeMockEventStore();
+
+    // Act
+    const result = await runPreflightGuards({
+      store,
+      streamId: 'feat-test',
+      integrationBranch: 'feature/work',
+      requiredUpstream: ['main'],
+      gitExec,
+      cwd: '/home/user/repo',
+    });
+
+    // Assert
+    const preflightCalls = calls.filter((c) => c.event.type === 'dispatch.preflight');
+    expect(preflightCalls).toHaveLength(1);
+    const data = preflightCalls[0].event.data as {
+      guards: {
+        ancestry: { passed: boolean };
+        worktree: { passed: boolean };
+        protectedBranch: { passed: boolean };
+        mainWorktree: { passed: boolean };
+      };
+      passed: boolean;
+      durationMs: number;
+    };
+    expect(data.guards.ancestry.passed).toBe(true);
+    expect(data.guards.worktree.passed).toBe(true);
+    expect(data.guards.protectedBranch.passed).toBe(true);
+    expect(data.guards.mainWorktree.passed).toBe(true);
+    expect(data.passed).toBe(true);
+    expect(result.passed).toBe(true);
+  });
+});
+
+// ─── probeStashAndEmit (#1261) ──────────────────────────────────────────────
+//
+// Probes `git stash list` from the worktree under dispatch. If any entry
+// exists, emits a single `stash.detected` advisory event. Cross-worktree
+// stash storage is shared (`feedback_subagent_stash_hazard`), so an
+// existing entry indicates risk that a sibling agent's WIP will be popped
+// into the current worktree.
+
+describe('probeStashAndEmit', () => {
+  it('DispatchGuard_StashObservedInWorktree_EmitsStashDetected', async () => {
+    // Arrange: `git stash list --no-color` returns a non-empty listing.
+    const gitExec = vi.fn().mockImplementation((args: readonly string[]) => {
+      if (args[0] === 'stash' && args[1] === 'list') {
+        return 'stash@{0}: WIP on feature/work: 1234567 saved\n';
+      }
+      return '';
+    });
+    const { store, calls } = makeMockEventStore();
+
+    // Act
+    await probeStashAndEmit({
+      store,
+      streamId: 'feat-test',
+      worktreePath: '/home/user/repo/.claude/worktrees/agent-abc',
+      gitExec,
+    });
+
+    // Assert
+    const stashCalls = calls.filter((c) => c.event.type === 'stash.detected');
+    expect(stashCalls).toHaveLength(1);
+    const data = stashCalls[0].event.data as {
+      worktreePath: string;
+      stashRef: string;
+    };
+    expect(data.worktreePath).toBe(
+      '/home/user/repo/.claude/worktrees/agent-abc',
+    );
+    expect(data.stashRef).toBe('stash@{0}');
+  });
+
+  it('DispatchGuard_NoStashInWorktree_DoesNotEmit', async () => {
+    // Arrange: empty stash list — no event should fire.
+    const gitExec = vi.fn().mockReturnValue('');
+    const { store, calls } = makeMockEventStore();
+
+    // Act
+    await probeStashAndEmit({
+      store,
+      streamId: 'feat-test',
+      worktreePath: '/home/user/repo',
+      gitExec,
+    });
+
+    // Assert
+    expect(calls.filter((c) => c.event.type === 'stash.detected')).toHaveLength(0);
   });
 });

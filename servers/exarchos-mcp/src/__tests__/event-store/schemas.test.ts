@@ -437,11 +437,21 @@ describe('EventTypes', () => {
     // #1290: bumped 105 → 106 to include `workspace.resolved`, emitted
     // by `workspace/discovery.ts` on roots-based or cwd-walk featureId
     // inference at the dispatch boundary.
-    // #1274: bumped 106 → 109 to include `elicitation.requested`,
-    // `elicitation.fulfilled`, and `elicitation.declined`, emitted by the
-    // dispatch elicitation hand-off on the per-operation pseudo-stream
+    // #1274: bumped 106 → 108 to include `elicitation.requested` +
+    // `elicitation.fulfilled`, emitted by the dispatch elicitation
+    // hand-off on the per-operation pseudo-stream
     // `elicitation/<operationId>`.
-    expect(EventTypes).toHaveLength(109);
+    // #1424: bumped 108 → 109 to include `elicitation.declined`, emitted
+    // when the client returns `value === undefined` (decline/cancel) so
+    // the audit trail distinguishes refusal from fulfillment.
+    // #1272: bumped 109 → 113 to include `task.created` + `task.polled` +
+    // `task.result` + `task.cancelled`, emitted by the
+    // EventSourcedTaskStore (SDK `TaskStore` interface as a projection
+    // over the event store; see
+    // `src/task-store/event-sourced-task-store.ts`).
+    // #1261: bumped 113 → 115 to include `dispatch.preflight` +
+    // `stash.detected`, emitted by `orchestrate/dispatch-guard.ts`.
+    expect(EventTypes).toHaveLength(115);
   });
 
   it('should include workflow-level types', () => {

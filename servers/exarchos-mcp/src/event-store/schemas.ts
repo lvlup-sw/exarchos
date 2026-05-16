@@ -161,6 +161,29 @@ export const EventTypes = [
   // downstream consumers can tell apart "the client supplied the value" from
   // "the client refused / cancelled the round-trip."
   'elicitation.declined',
+  // #1272 — EventSourcedTaskStore lifecycle events. Distinct from the
+  // workflow-orchestration `task.assigned`/`task.claimed`/`task.progressed`/
+  // `task.completed`/`task.failed` family above, these four describe the
+  // SDK-protocol task lifecycle (see
+  // `@modelcontextprotocol/sdk/experimental/tasks/interfaces.ts:TaskStore`).
+  // The EventSourcedTaskStore in `src/task-store/event-sourced-task-store.ts`
+  // emits these to durably back the in-memory projection it serves to the
+  // SDK; reads project state from the event stream alone (INV-1 event-sourcing
+  // integrity — see the REPLAY acceptance test in
+  // `event-sourced-task-store.test.ts`).
+  'task.created',
+  'task.polled',
+  'task.result',
+  'task.cancelled',
+  // #1261 — dispatch-guard preflight observability. `dispatch.preflight`
+  // records the per-guard pass/fail outcome (ancestry, worktree,
+  // protectedBranch, mainWorktree) plus an aggregate `passed` flag and
+  // total durationMs. `stash.detected` fires when the worktree under
+  // dispatch has a non-empty `git stash list` — the cross-worktree
+  // shared-stash hazard documented in project memory. Both inherit
+  // `operationId` from the active `DispatchContext` (#1291 / B1).
+  'dispatch.preflight',
+  'stash.detected',
 ] as const;
 
 export type EventType = typeof EventTypes[number];
@@ -432,6 +455,20 @@ export const EVENT_EMISSION_REGISTRY: Record<EventType, EventEmissionSource> = {
   'elicitation.requested': 'auto',
   'elicitation.fulfilled': 'auto',
   'elicitation.declined': 'auto',
+
+  // #1272 — EventSourcedTaskStore lifecycle. Auto-emitted by the store
+  // on each protocol-level operation (createTask/getTask/getTaskResult/
+  // cancelTask). See EventTypes registration above.
+  'task.created': 'auto',
+  'task.polled': 'auto',
+  'task.result': 'auto',
+  'task.cancelled': 'auto',
+  // #1261 — dispatch-guard preflight observability. Auto-emitted by
+  // `orchestrate/dispatch-guard.ts` once per dispatch (preflight
+  // outcome) and on demand when shared-stash collision is observed
+  // in the worktree under dispatch.
+  'dispatch.preflight': 'auto',
+  'stash.detected': 'auto',
 };
 
 // ─── Base Event Schema ──────────────────────────────────────────────────────
@@ -449,6 +486,19 @@ export const WorkflowEventBase = z.object({
   ),
   correlationId: z.string().max(200).optional(),
   causationId: z.string().max(200).optional(),
+  // #1291 — dispatch-boundary three-field correlation. `operationId` is
+  // minted per `dispatch()` call (see `dispatch/dispatch-context.ts`) and
+  // stamped onto every event emitted transitively inside the dispatch via
+  // AsyncLocalStorage in `EventStore.append*`. Sibling to the existing
+  // `correlationId` / `causationId` fields rather than nested under
+  // `_meta` to preserve the prior shape's projection contracts (rehydrate,
+  // telemetry, audit views) which read these as top-level event keys.
+  //
+  // Optional because a dispatch wrapper is not always active — direct
+  // tests and migration tooling append events outside the dispatch
+  // boundary and must continue to work un-stamped (backward-compatible
+  // widening, INV-5b).
+  operationId: z.string().max(200).optional(),
   agentId: z.string().min(1).max(200).optional(),
   agentRole: z.string().max(50).optional(),
   tenantId: z.string().min(1).max(100).optional(),
@@ -1665,6 +1715,109 @@ export const ElicitationDeclinedData = z.object({
   field: z.string().min(1),
 });
 
+// ─── EventSourcedTaskStore lifecycle (#1272) ───────────────────────────────
+//
+// Emitted by `src/task-store/event-sourced-task-store.ts` to durably back
+// the SDK `TaskStore` projection. See the file header on
+// `task-store/event-sourced-task-store.ts` for the lifecycle map and the
+// REPLAY acceptance test in `event-sourced-task-store.test.ts` for the
+// INV-1 event-sourcing-integrity contract these schemas enforce.
+//
+// `request` is typed `unknown` because it's the original JSON-RPC request
+// envelope from the SDK (caller-supplied, JSON-shaped); the schema cannot
+// usefully tighten it without taking a dependency on the SDK's request
+// type registry. The store stores it verbatim so a fresh `getTask` can
+// reconstruct what was originally asked. `ttl` matches the SDK contract
+// (`number | null`); null means "unlimited lifetime, no automatic
+// cleanup".
+
+/** Emitted on `createTask`. Captures the durable creation intent. */
+export const TaskCreatedData = z.object({
+  taskId: z.string().min(1),
+  createdBy: z.string().min(1).optional(),
+  ttl: z.union([z.number().int().nonnegative(), z.null()]),
+  request: z.unknown(),
+});
+
+/**
+ * Emitted on each `getTask` read. Sequence is the projection-sequence at
+ * the time of the poll (audit trail for "who polled when, against what
+ * projection version"). Optional in scope: callers may suppress emission
+ * for hot-path polls if poll frequency becomes a noise issue.
+ */
+export const TaskPolledData = z.object({
+  taskId: z.string().min(1),
+  sequence: z.number().int().nonnegative(),
+});
+
+/**
+ * Emitted on terminal task transitions. `status` is the SDK terminal
+ * surface (`completed | failed | cancelled`). `result` is the SDK
+ * `Result` envelope on success; `error` is a human-readable message on
+ * failure. Both are optional — `cancelled` terminals carry neither.
+ */
+export const TaskResultData = z.object({
+  taskId: z.string().min(1),
+  status: z.enum(['completed', 'failed', 'cancelled']),
+  result: z.unknown().optional(),
+  error: z.string().max(2000).optional(),
+});
+
+/** Emitted on `cancelTask`. Reason is required so audit can attribute. */
+export const TaskCancelledData = z.object({
+  taskId: z.string().min(1),
+  reason: z.string().min(1).max(500),
+});
+// ─── Dispatch guard preflight observability (#1261) ─────────────────────────
+
+/**
+ * Emitted by `orchestrate/dispatch-guard.ts` after the dispatch boundary
+ * runs all preflight guards. Records the per-guard pass/fail outcome plus
+ * an aggregate `passed` flag and total `durationMs` so audit queries can
+ * (a) attribute dispatch blocks to a specific guard and (b) track
+ * preflight latency over time without parsing structured logs.
+ *
+ * The four guards mirror `prepare-delegation.ts` today:
+ *   - `ancestry` — `validateBranchAncestry` (required upstream branches)
+ *   - `worktree` — `assertMainWorktree` (refuse from a subagent worktree)
+ *   - `protectedBranch` — `assertCurrentBranchNotProtected` (HEAD not on
+ *     main/master)
+ *   - `mainWorktree` — alias slot reserved for future cross-cutting
+ *     "we are in the canonical main worktree" assertions; currently
+ *     mirrors `worktree.passed` until further split is needed.
+ *
+ * Inherits `operationId` from the active `DispatchContext` (B1 / #1291)
+ * via the `stampWithDispatchContext` helper in `event-store/store.ts`,
+ * so no manual correlation threading is required at the emit site.
+ */
+export const DispatchPreflightData = z.object({
+  guards: z.object({
+    ancestry: z.object({ passed: z.boolean() }),
+    worktree: z.object({ passed: z.boolean() }),
+    protectedBranch: z.object({ passed: z.boolean() }),
+    mainWorktree: z.object({ passed: z.boolean() }),
+  }),
+  passed: z.boolean(),
+  durationMs: z.number().nonnegative(),
+});
+
+/**
+ * Emitted by `orchestrate/dispatch-guard.ts` when the worktree under
+ * dispatch has a non-empty `git stash list`. Stash storage is shared
+ * across worktrees in the same repository (documented project hazard:
+ * `feedback_subagent_stash_hazard`), so any pre-existing stash entry
+ * raises the risk that a sibling agent's WIP will be popped into the
+ * current worktree. Emission is advisory — the dispatch is not blocked
+ * — but operators can use the audit trail to correlate later
+ * data-corruption incidents back to the moment of collision.
+ *
+ * `stashRef` is the ref of the most recent entry (e.g. `stash@{0}`).
+ */
+export const StashDetectedData = z.object({
+  worktreePath: z.string().min(1),
+  stashRef: z.string().min(1),
+});
+
 // ─── Event Data Schemas Map ─────────────────────────────────────────────────
 
 export const EVENT_DATA_SCHEMAS: Partial<Record<EventType, z.ZodSchema>> = {
@@ -1840,6 +1993,15 @@ export const EVENT_DATA_SCHEMAS: Partial<Record<EventType, z.ZodSchema>> = {
   'elicitation.requested': ElicitationRequestedData,
   'elicitation.fulfilled': ElicitationFulfilledData,
   'elicitation.declined': ElicitationDeclinedData,
+
+  // #1272 — EventSourcedTaskStore lifecycle
+  'task.created': TaskCreatedData,
+  'task.polled': TaskPolledData,
+  'task.result': TaskResultData,
+  'task.cancelled': TaskCancelledData,
+  // #1261 — dispatch-guard preflight observability
+  'dispatch.preflight': DispatchPreflightData,
+  'stash.detected': StashDetectedData,
 };
 
 // ─── TypeScript Types ───────────────────────────────────────────────────────
@@ -1948,6 +2110,15 @@ export type ElicitationRequested = z.infer<typeof ElicitationRequestedData>;
 export type ElicitationFulfilled = z.infer<typeof ElicitationFulfilledData>;
 export type ElicitationDeclined = z.infer<typeof ElicitationDeclinedData>;
 
+// #1272 — EventSourcedTaskStore lifecycle
+export type TaskCreated = z.infer<typeof TaskCreatedData>;
+export type TaskPolled = z.infer<typeof TaskPolledData>;
+export type TaskResult = z.infer<typeof TaskResultData>;
+export type TaskCancelled = z.infer<typeof TaskCancelledData>;
+// #1261 — dispatch-guard preflight observability
+export type DispatchPreflight = z.infer<typeof DispatchPreflightData>;
+export type StashDetected = z.infer<typeof StashDetectedData>;
+
 // ─── Event Data Map ─────────────────────────────────────────────────────────
 
 export type EventDataMap = {
@@ -2051,6 +2222,14 @@ export type EventDataMap = {
   'elicitation.requested': ElicitationRequested;
   'elicitation.fulfilled': ElicitationFulfilled;
   'elicitation.declined': ElicitationDeclined;
+  // #1272 — EventSourcedTaskStore lifecycle
+  'task.created': TaskCreated;
+  'task.polled': TaskPolled;
+  'task.result': TaskResult;
+  'task.cancelled': TaskCancelled;
+  // #1261 — dispatch-guard preflight observability
+  'dispatch.preflight': DispatchPreflight;
+  'stash.detected': StashDetected;
 };
 
 // ─── Event Catalog Serialization ────────────────────────────────────────────

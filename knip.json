@@ -1,11 +1,9 @@
 {
   "$schema": "https://unpkg.com/knip@6/schema.json",
-
   "ignoreDependencies": [
     "tsx"
   ],
   "ignoreExportsUsedInFile": true,
-
   "workspaces": {
     ".": {
       "entry": [
@@ -45,5 +43,8 @@
         "patch-package"
       ]
     }
-  }
+  },
+  "ignore": [
+    "servers/exarchos-mcp/src/mcp/elicitation-method.ts"
+  ]
 }

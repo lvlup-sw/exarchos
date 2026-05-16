@@ -120,6 +120,12 @@ export interface EventInput {
   timestamp?: string;
   correlationId?: string;
   causationId?: string;
+  // #1291 — dispatch-boundary operation id. Stamped by
+  // `EventStore.append*` from the active dispatch context's
+  // `AsyncLocalStorage` store when present; passes through to persistence
+  // verbatim. Optional because direct (non-dispatch) callers stay
+  // backward-compatible.
+  operationId?: string;
   agentId?: string;
   agentRole?: string;
   source?: string;
