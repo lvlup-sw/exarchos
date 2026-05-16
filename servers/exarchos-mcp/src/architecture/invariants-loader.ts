@@ -1,0 +1,110 @@
+/**
+ * Loader for the machine-readable invariants catalog at
+ * `docs/architecture/invariants.md` (issue #1260).
+ *
+ * The frontmatter is the source of truth; this module parses it into a typed
+ * `InvariantEntry[]` for consumption by `/ideate` first-turn surfacing, the
+ * vocabulary-lint scanner, and the design-invariants skill.
+ *
+ * Implementation note: we use `gray-matter` (already a devDependency of the
+ * MCP server) which sits on top of `js-yaml`. The loader is intentionally
+ * tolerant — unknown fields are preserved on `raw` but typed accessors map
+ * the documented shape.
+ */
+import fs from 'node:fs';
+import matter from 'gray-matter';
+
+export interface InvariantEntry {
+  /** Stable identifier — e.g. "INV-1", "INV-5a", "DIM-1", "basileus-boundary". */
+  id: string;
+  /** Short human-readable category name. */
+  dimension: string;
+  /** Surface areas (modules, file globs, capability domains) the invariant covers. */
+  appliesTo: string[];
+  /** One-to-two-sentence statement of the invariant. */
+  summary: string;
+  /** Pointers to source files where the invariant is detailed in prose. */
+  references: string[];
+  /** The raw parsed entry for fields not yet promoted to the typed shape. */
+  raw: Record<string, unknown>;
+}
+
+interface RawInvariantEntry {
+  id?: unknown;
+  dimension?: unknown;
+  'applies-to'?: unknown;
+  summary?: unknown;
+  references?: unknown;
+  [key: string]: unknown;
+}
+
+interface RawFrontmatter {
+  invariants?: unknown;
+  [key: string]: unknown;
+}
+
+function asStringArray(value: unknown, field: string, id: string): string[] {
+  if (!Array.isArray(value)) {
+    throw new Error(
+      `invariants-loader: entry "${id}" field "${field}" must be an array, got ${typeof value}`,
+    );
+  }
+  return value.map((v, i) => {
+    if (typeof v !== 'string') {
+      throw new Error(
+        `invariants-loader: entry "${id}" field "${field}"[${i}] must be a string`,
+      );
+    }
+    return v;
+  });
+}
+
+function asString(value: unknown, field: string, id: string): string {
+  if (typeof value !== 'string') {
+    throw new Error(
+      `invariants-loader: entry "${id}" field "${field}" must be a string, got ${typeof value}`,
+    );
+  }
+  // Collapse YAML folded-scalar whitespace so consumers get clean prose.
+  return value.replace(/\s+/g, ' ').trim();
+}
+
+function parseEntry(raw: RawInvariantEntry): InvariantEntry {
+  if (typeof raw.id !== 'string' || raw.id.length === 0) {
+    throw new Error('invariants-loader: entry is missing required field "id"');
+  }
+  const id = raw.id;
+  return {
+    id,
+    dimension: asString(raw.dimension, 'dimension', id),
+    appliesTo: asStringArray(raw['applies-to'], 'applies-to', id),
+    summary: asString(raw.summary, 'summary', id),
+    references: asStringArray(raw.references, 'references', id),
+    raw: { ...raw },
+  };
+}
+
+/**
+ * Load and parse the invariants catalog from the given Markdown file.
+ *
+ * @param filePath Absolute path to `docs/architecture/invariants.md`.
+ */
+export function loadInvariants(filePath: string): InvariantEntry[] {
+  const source = fs.readFileSync(filePath, 'utf8');
+  const parsed = matter(source);
+  const data = parsed.data as RawFrontmatter;
+  if (!Array.isArray(data.invariants)) {
+    throw new Error(
+      `invariants-loader: ${filePath} frontmatter must declare an "invariants:" array`,
+    );
+  }
+  return (data.invariants as RawInvariantEntry[]).map(parseEntry);
+}
+
+/**
+ * Convenience: return the set of valid invariant IDs (for vocabulary-lint
+ * cross-check).
+ */
+export function loadInvariantIds(filePath: string): Set<string> {
+  return new Set(loadInvariants(filePath).map((e) => e.id));
+}

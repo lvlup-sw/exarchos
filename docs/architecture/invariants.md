@@ -1,0 +1,319 @@
+---
+title: Exarchos Architectural Invariants
+description: >
+  Machine-readable catalog of architectural invariants (INV-*) and axiom
+  dimensions (DIM-*) consumed by /ideate, the design-invariants skill,
+  and the vocabulary-lint scanner. Source of truth for the invariant
+  vocabulary in the Exarchos repo.
+schema-version: 1
+invariants:
+  - id: INV-1
+    dimension: event-sourcing-integrity
+    applies-to:
+      - event-store
+      - projections
+      - reducers
+      - workflow-state
+    summary: >
+      The append-only event log is the source of truth. Every read-model is a
+      left-fold; state mutations are events, not in-place updates. Reducers must
+      be pure, deterministic, and structurally share state. Stores that hold
+      derived state across calls must be projections over events, never
+      in-memory side databases.
+    references:
+      - .claude/skills/design-invariants/references/INV-1-event-sourcing.md
+      - .claude/skills/design-invariants/SKILL.md
+      - docs/architecture/projections.md
+
+  - id: INV-2
+    dimension: facade-equivalence
+    applies-to:
+      - cli-adapter
+      - mcp-adapter
+      - dispatch-core
+      - parity-tests
+    summary: >
+      CLI and MCP are both facades over a single functional dispatch core. For
+      any verb, the same DispatchContext + arguments must produce the same
+      ToolResult. Adapters carry zero behavior — only presentation. Post-#1266,
+      every action also registers a Zod outputSchema so parity is schema-checked
+      in addition to byte-checked.
+    references:
+      - .claude/skills/design-invariants/references/INV-2-facade-equivalence.md
+      - .claude/skills/design-invariants/SKILL.md
+      - docs/designs/2026-05-07-milestone-16-mcp-alignment.md
+
+  - id: INV-3
+    dimension: basileus-forward
+    applies-to:
+      - capabilities-resolver
+      - runtime-yaml
+      - mcp-transport
+      - sideband-daemon
+    summary: >
+      No design decision presumes MCP is local-only. Workflow and Ontology
+      channels have independent client lifecycles, handshake-authoritative
+      capability resolution, and .exarchos.yml-only configuration. Workspace
+      discovery prefers the MCP roots capability over cwd heuristics
+      (post-#1269).
+    references:
+      - .claude/skills/design-invariants/references/INV-3-basileus-forward.md
+      - .claude/skills/design-invariants/SKILL.md
+
+  - id: INV-4
+    dimension: platform-agnosticity
+    applies-to:
+      - skills-src
+      - runtimes
+      - skills-renderer
+      - commands
+    summary: >
+      Skills, rules, and workflows must not couple to any single harness. Six
+      runtimes are first-class (Claude Code, Codex, Copilot, Cursor, OpenCode,
+      generic). Runtime-specific text is tokenized via {{TOKEN}} placeholders or
+      guarded via <!-- requires:* --> blocks. Source-of-truth edits go to
+      skills-src/; skills/<runtime>/** is generated.
+    references:
+      - .claude/skills/design-invariants/references/INV-4-platform-agnosticity.md
+      - .claude/skills/design-invariants/SKILL.md
+      - skills-src/SKILL_AUTHORING.md
+
+  - id: INV-5a
+    dimension: input-ergonomics
+    applies-to:
+      - mcp-registry
+      - tool-schemas
+      - cli-flags
+    summary: >
+      Tool inputs are constrained at the schema level (enum, regex, format), not
+      via prose hints. Every tool description states when NOT to use the tool
+      with a pointer to the alternative. Visible tool count stays under 15.
+      Static reference content is exposed as MCP Resources, not tools.
+    references:
+      - .claude/skills/design-invariants/references/INV-5a-input-ergonomics.md
+      - .claude/skills/design-invariants/SKILL.md
+
+  - id: INV-5b
+    dimension: output-contract
+    applies-to:
+      - format.ts
+      - tool-results
+      - registered-output-schemas
+      - error-envelopes
+    summary: >
+      Every successful ToolResult carries machine-actionable affordance hints —
+      next_actions, _meta, _perf. Errors carry validTargets, expectedShape,
+      suggestedFix. Post-#1266, the carrier is structuredContent with a
+      registered outputSchema per action; long-running ops use Tasks (SEP-1686)
+      not NDJSON.
+    references:
+      - .claude/skills/design-invariants/references/INV-5b-output-contract.md
+      - .claude/skills/design-invariants/SKILL.md
+
+  - id: INV-5c
+    dimension: aspire-verbs
+    applies-to:
+      - cli-commands
+      - composite-tools
+      - process-lifecycle
+    summary: >
+      Exarchos CLI design borrows deliberately from Aspire — queryable,
+      dry-run-capable, JSON-explicit control-plane verbs. Agents query state;
+      they don't drive scripts. ps / describe / wait / export are observation
+      verbs; mutating verbs default to --dry-run.
+    references:
+      - .claude/skills/design-invariants/references/INV-5c-aspire-verbs.md
+      - .claude/skills/design-invariants/SKILL.md
+
+  - id: INV-5d
+    dimension: action-discriminator
+    applies-to:
+      - mcp-registry
+      - composite-tools
+      - tool-annotations
+    summary: >
+      Exarchos exposes 4 visible composite tools, each with an action
+      discriminator (exarchos_workflow, exarchos_event, exarchos_orchestrate,
+      exarchos_view). The visible tool count stays under 15; per-action
+      annotations (destructiveHint / readOnlyHint / idempotentHint /
+      openWorldHint) live on CompositeAction post-#1268.
+    references:
+      - .claude/skills/design-invariants/references/INV-5d-action-discriminator.md
+      - .claude/skills/design-invariants/SKILL.md
+
+  - id: INV-6
+    dimension: workflow-agnosticism
+    applies-to:
+      - skills-src
+      - playbooks
+      - skill-frontmatter
+    summary: >
+      Skills describe behaviors; playbooks describe workflows. A behavior-skill
+      describes triggers in workflow-neutral terms (verb names, idempotency
+      keys), not workflow stages or branch prefixes. Workflow-specific skills
+      must declare metadata.workflow-type: <type> in frontmatter.
+    references:
+      - .claude/skills/design-invariants/references/INV-6-workflow-agnosticism.md
+      - .claude/skills/design-invariants/SKILL.md
+
+  - id: DIM-1
+    dimension: topology
+    applies-to:
+      - module-boundaries
+      - dependency-direction
+      - state-ownership
+    summary: >
+      Topology dimension from axiom — module boundaries, layering, dependency
+      direction, ambient/shared-mutable state. Adapter-local mutable caches,
+      lazy fallback singletons, and side databases are topology smells that
+      frequently overlap with INV-1 / INV-2 violations.
+    references:
+      - .claude/skills/design-invariants/SKILL.md
+
+  - id: DIM-2
+    dimension: observability
+    applies-to:
+      - logging
+      - telemetry
+      - error-paths
+    summary: >
+      Observability dimension from axiom — silent catches, missing log context,
+      degradation paths that swallow signals. Frequently overlaps INV-1 when a
+      reducer apply catches and continues instead of triggering the
+      reducer-throw degradation path.
+    references:
+      - .claude/skills/design-invariants/SKILL.md
+
+  - id: DIM-3
+    dimension: contracts
+    applies-to:
+      - schemas
+      - event-types
+      - tool-output
+    summary: >
+      Contracts dimension from axiom — schema-runtime drift, type-assertion
+      safety, breaking field renames without versioning. Overlaps INV-1 when an
+      event field is removed but still read, and INV-5b when output shape
+      changes without an envelope version bump.
+    references:
+      - .claude/skills/design-invariants/SKILL.md
+
+  - id: DIM-4
+    dimension: test-fidelity
+    applies-to:
+      - test-suites
+      - mocks
+      - fixtures
+    summary: >
+      Test-fidelity dimension from axiom — mock overuse, fixture drift, tests
+      that pass against fakes but would fail in production. The TDD-task and
+      static-analysis gates compose with this dimension to catch
+      blast-radius regressions.
+    references:
+      - .claude/skills/design-invariants/SKILL.md
+
+  - id: DIM-5
+    dimension: vestigial-code
+    applies-to:
+      - dead-paths
+      - unused-exports
+      - legacy-flags
+    summary: >
+      Vestigial-code dimension from axiom — dead code, unused exports, legacy
+      feature flags that no longer gate behavior. Cleanup work that intersects
+      INV-2 (legacy adapter paths) or INV-5d (legacy top-level tools that
+      should collapse into composite actions).
+    references:
+      - .claude/skills/design-invariants/SKILL.md
+
+  - id: DIM-6
+    dimension: solid-coupling
+    applies-to:
+      - module-design
+      - inheritance
+      - composition
+    summary: >
+      SOLID / coupling dimension from axiom — generic dependency direction,
+      single-responsibility violations, inheritance vs composition mismatches.
+      Axiom-owned; design-invariants defers here for generic SOLID findings.
+    references:
+      - .claude/skills/design-invariants/SKILL.md
+
+  - id: DIM-7
+    dimension: error-handling
+    applies-to:
+      - error-paths
+      - retry-logic
+      - degradation
+    summary: >
+      Error-handling dimension from axiom — silent fallbacks, retry storms,
+      degradation without telemetry. Often co-occurs with DIM-2 observability;
+      design-invariants intersects when a fallback creates a degraded EventStore
+      (INV-1) or hides parity divergence (INV-2).
+    references:
+      - .claude/skills/design-invariants/SKILL.md
+
+  - id: DIM-8
+    dimension: ai-prose-tells
+    applies-to:
+      - documentation
+      - skill-bodies
+      - command-text
+    summary: >
+      AI-prose-tells dimension from axiom — telltale AI-generated prose
+      patterns (em-dashes that flatten clauses, padding adjectives, hedge
+      phrases). Owned by axiom:humanize; design-invariants does not duplicate
+      the check.
+    references:
+      - .claude/skills/design-invariants/SKILL.md
+
+  - id: basileus-boundary
+    dimension: cross-product-coordination
+    applies-to:
+      - basileus-exarchos-coordination
+      - ontology-mcp-server
+      - cross-tier-mediation
+    summary: >
+      Boundary discipline between Exarchos and Basileus. AgentHost ↔ Sandbox
+      calls must route through ControlPlane (Basileus INV-1). Cross-product
+      coordination uses the Ontology MCP Server (intent_register) rather than
+      bespoke RPC. Strategos.Contracts via TypeSpec governs schema.
+    references:
+      - .claude/skills/design-invariants/SKILL.md
+      - basileus/docs/adrs/2026-04-18-exarchos-basileus-coordination.md
+---
+
+# Exarchos Architectural Invariants
+
+Machine-readable catalog of the architectural invariants that govern Exarchos design and review. The YAML frontmatter above is the **source of truth** for tooling — the `/ideate` command, the `design-invariants` skill, and the `vocabulary-lint` scanner all consume the same shape.
+
+This file pairs with the prose reference content under [`.claude/skills/design-invariants/references/`](../../.claude/skills/design-invariants/references/). The frontmatter `summary` field is the short version; the linked reference files carry the full prose, severity guides, worked examples, and external grounding.
+
+## Schema
+
+Each entry in `invariants:` carries:
+
+| Field | Type | Purpose |
+|---|---|---|
+| `id` | string | Stable identifier — `INV-1`..`INV-6`, sub-disciplines like `INV-5a`, axiom dimensions like `DIM-1`, plus cross-product entries (`basileus-boundary`). |
+| `dimension` | string | Short human-readable category name. |
+| `applies-to` | string[] | Surface areas (modules, file globs, capability domains) where the invariant is load-bearing. |
+| `summary` | string | One-to-two-sentence statement of the invariant. |
+| `references` | string[] | Pointers to source files where the invariant is detailed in prose. |
+
+## Vocabulary
+
+The vocabulary-lint scanner (`servers/exarchos-mcp/src/architecture/vocabulary-lint.ts`, exposed via `npm run lint:invariants`) walks `docs/`, `skills-src/`, and `commands/` for tokens matching `/\b(INV-\d+[a-d]?|DIM-\d+)\b/` and cross-checks against the IDs declared here. Unknown references surface as findings; the lint is advisory in initial rollout.
+
+## Consumers
+
+- `/exarchos:ideate` — surfaces relevant invariants as Constraints during Phase 1, before the clarifying questions.
+- `design-invariants` skill — audits design proposals against INV-1..INV-6.
+- `vocabulary-lint` — flags references to invariant IDs not registered here.
+- Future: `#1275` MCP Resources — expose this catalog as `resources/exarchos-invariants` once Resources land.
+
+## See also
+
+- [`docs/architecture/projections.md`](projections.md) — projection layer specifics.
+- [`docs/architecture/runtime.md`](runtime.md) — runtime / capability resolution.
+- [`.claude/skills/design-invariants/SKILL.md`](../../.claude/skills/design-invariants/SKILL.md) — operational skill that consumes this catalog.
