@@ -29,6 +29,12 @@ Follow the brainstorming skill: `@skills/brainstorming/SKILL.md`
 
 ## Process
 
+### Phase 0: Constraints (first turn)
+
+Before the clarifying questions, load the machine-readable invariants catalog at `docs/architecture/invariants.md` and surface a **Constraints** section naming the invariants and dimensions relevant to the proposal. For a CLI-shaped or agent-surface proposal, this typically includes `INV-5a` (input ergonomics), `INV-5b` (output contract), `INV-5c` (Aspire-style verbs), `INV-5d` (action discriminator), and `DIM-1` (topology). For an event-store or projection proposal, surface `INV-1` plus `DIM-1` / `DIM-3`. The brainstorming skill's "Constraint anchoring" subsection describes the selection rules.
+
+Emit the Constraints section *before* Phase 1 so the clarifying questions can probe the proposal against the load-bearing invariants instead of re-discovering them mid-design.
+
 ### Phase 1: Understanding
 Ask clarifying questions (one at a time):
 1. What problem are we solving?
