@@ -63,8 +63,8 @@ describe('MCP tools/call handler — task augmentation (#1273 / T30)', () => {
     };
 
     const envelope = await handleToolsCall(
-      'exarchos_workflow',
-      { action: 'describe', task: { ttl: 60_000 } },
+      'exarchos_event',
+      { action: 'query', stream: 'nonexistent', task: { ttl: 60_000 } },
       ctx,
     );
 
@@ -92,8 +92,8 @@ describe('MCP tools/call handler — task augmentation (#1273 / T30)', () => {
     };
 
     const envelope = await handleToolsCall(
-      'exarchos_workflow',
-      { action: 'describe' },
+      'exarchos_event',
+      { action: 'query', stream: 'nonexistent' },
       ctx,
     );
 
