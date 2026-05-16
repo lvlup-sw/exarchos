@@ -1128,6 +1128,32 @@ const MergePreflightDriftData = z.object({
   detachedHead: z.boolean(),
 });
 
+// #1362 phase 1 — Windows ancestry-mismatch instrumentation. Optional debug
+// payload attached to `merge.preflight` when `EXARCHOS_PREFLIGHT_DEBUG=1`
+// AND ancestry failed. Failure-only gating is deliberate (DIM-8 / event-store
+// growth); verbose sub-modes belong on a separate `=2` channel.
+//
+// Field shape mirrors the `PreflightDebug` TypeScript type in
+// `orchestrate/pure/merge-preflight.ts`. Phase-1 captures the minimal data
+// needed to disambiguate Windows ref-resolution and merge-base failures
+// from filesystem-layer worktree mis-detection; phase-2 may extend.
+const MergePreflightDebugRefData = z.object({
+  sha: z.string(),
+  packed: z.boolean(),
+});
+
+export const MergePreflightDebugData = z.object({
+  gitVersion: z.string(),
+  repoRoot: z.string(),
+  worktreeList: z.string(),
+  refsHeadsSource: MergePreflightDebugRefData,
+  refsHeadsTarget: MergePreflightDebugRefData,
+  mergeBaseCommand: z.array(z.string()),
+  mergeBaseExitCode: z.number().int(),
+  mergeBaseStdout: z.string(),
+  mergeBaseStderr: z.string(),
+});
+
 /**
  * merge.preflight — captures the outcome of the preflight gate run before a
  * candidate merge. Preflight failures DO NOT route through merge.rollback;
@@ -1153,6 +1179,9 @@ export const MergePreflightData = z.object({
   worktree: MergePreflightWorktreeData.optional(),
   drift: MergePreflightDriftData.optional(),
   failureReasons: z.array(z.string()).optional(),
+  // #1362 phase 1 — see MergePreflightDebugData. Optional so legacy events
+  // (and the common ancestry-passing case) remain parseable unchanged.
+  debug: MergePreflightDebugData.optional(),
 });
 
 /**

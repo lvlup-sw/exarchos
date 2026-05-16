@@ -550,6 +550,13 @@ export async function handleMergeOrchestrate(
           ...(preflight.passed
             ? {}
             : { failureReasons: [describePreflightFailure(preflight)] }),
+          // #1362 phase 1 — thread the optional debug payload from the helper
+          // through to the event so phase-2 analysis can read the persisted
+          // ancestry-mismatch diagnostic. The helper only attaches `debug`
+          // when `EXARCHOS_PREFLIGHT_DEBUG=1 && !ancestry.passed`; same
+          // conditional-spread pattern as `failureReasons` above so passing
+          // events stay byte-identical to the pre-#1362 shape.
+          ...(preflight.debug !== undefined ? { debug: preflight.debug } : {}),
         },
       },
       appendOptionsPreflight,
