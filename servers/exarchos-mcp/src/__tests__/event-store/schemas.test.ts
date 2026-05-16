@@ -441,7 +441,7 @@ describe('EventTypes', () => {
     // `elicitation.fulfilled`, emitted by the dispatch elicitation
     // hand-off on the per-operation pseudo-stream
     // `elicitation/<operationId>`.
-    expect(EventTypes).toHaveLength(108);
+    expect(EventTypes).toHaveLength(109);
   });
 
   it('should include workflow-level types', () => {

@@ -503,7 +503,35 @@ describe('TelemetryProjection_OutputTokenHint', () => {
     expect(result).toBe(state);
   });
 
-  it('TelemetryProjection_MultipleTurns_OnlyOneCrosses_EmitsOneHint', () => {
+  it('TelemetryProjection_MultipleTurns_LatestAboveThreshold_EmitsOneHint', () => {
+    // Sentry MEDIUM #1422 fix changed the emission semantics: hints are
+    // emitted ONLY when the LATEST turn is above threshold, not on every
+    // historical crossing in the buffer (which previously flooded
+    // next_actions). The test asserts the new contract — a streak that
+    // ends before the latest turn yields no hint, but a streak that
+    // includes the latest turn does.
+    let state = telemetryProjection.init();
+    state = telemetryProjection.apply(
+      state,
+      makeEvent('turn.completed', { turnId: 't1', outputTokens: 5000 }),
+    );
+    state = telemetryProjection.apply(
+      state,
+      makeEvent('turn.completed', { turnId: 't2', outputTokens: 30000 }),
+    );
+    state = telemetryProjection.apply(
+      state,
+      makeEvent('turn.completed', { turnId: 't3', outputTokens: 28000 }),
+    );
+
+    const hints = computeOutputTokenHints(state, 25600);
+    expect(hints).toHaveLength(1);
+    expect(hints[0].verb).toBe('checkpoint');
+  });
+
+  it('TelemetryProjection_MultipleTurns_LatestBelowThreshold_EmitsNoHint', () => {
+    // Companion to the test above — a historical crossing that does NOT
+    // persist into the latest turn produces no hint (post-#1422 fix).
     let state = telemetryProjection.init();
     state = telemetryProjection.apply(
       state,
@@ -519,7 +547,6 @@ describe('TelemetryProjection_OutputTokenHint', () => {
     );
 
     const hints = computeOutputTokenHints(state, 25600);
-    expect(hints).toHaveLength(1);
-    expect(hints[0].verb).toBe('checkpoint');
+    expect(hints).toHaveLength(0);
   });
 });
