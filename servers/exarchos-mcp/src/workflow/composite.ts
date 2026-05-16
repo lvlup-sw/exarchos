@@ -8,6 +8,7 @@ import { applyCacheHints, wrap, wrapWithPassthrough, type Envelope, type ToolRes
 import type { DispatchContext } from '../core/dispatch.js';
 import { nextActionsFromResult } from '../next-actions-from-result.js';
 import type { CapabilityResolver } from '../capabilities/resolver.js';
+import { workflowLogger } from '../logger.js';
 
 const workflowActions = TOOL_REGISTRY.find(t => t.name === 'exarchos_workflow')!.actions;
 
@@ -142,8 +143,55 @@ export async function handleWorkflow(
       return envelopeWrap(await handleCleanup(rest as Parameters<typeof handleCleanup>[0], stateDir, eventStore), startedAt);
     case 'reconcile':
       return envelopeWrap(await handleReconcileState(rest as Parameters<typeof handleReconcileState>[0], stateDir, eventStore), startedAt);
-    case 'checkpoint':
-      return envelopeWrap(await handleCheckpoint(rest as Parameters<typeof handleCheckpoint>[0], stateDir, eventStore), startedAt);
+    case 'checkpoint': {
+      // #1244 Sentry MEDIUM — load handoffLint.hardFail from .exarchos.yml and
+      // thread it to handleCheckpoint. Without this wiring the hard-fail switch
+      // was silently ignored in production (the helper code path existed but
+      // was never reached because composite stripped the options bag).
+      //
+      // Sentry HIGH #1244 follow-up: `stateDir` is the global state directory
+      // (e.g. `~/.exarchos/state` or wherever the server was bootstrapped),
+      // NOT a path inside the user's project. Deriving worktreePath from
+      // stateDir would silently miss the project's `.exarchos.yml`.
+      // `process.cwd()` is the canonical project entry point (the user
+      // invoked Exarchos from their repo root) and `loadExarchosConfig`
+      // walks worktree → git-repo-root from there, matching the CLI's own
+      // discovery algorithm in yaml-loader.ts.
+      const { loadExarchosConfig } = await import('../config/load-exarchos-config.js');
+      const worktreePath = process.cwd();
+      let checkpointOptions: { handoffLint?: { hardFail: boolean } } | undefined;
+      try {
+        const result = loadExarchosConfig(worktreePath);
+        const hardFail = result?.config.handoffLint?.hardFail;
+        if (typeof hardFail === 'boolean') {
+          checkpointOptions = { handoffLint: { hardFail } };
+        }
+      } catch (err) {
+        // CodeRabbit MAJOR #1244: do NOT silently fail-open. A config
+        // load/validation failure here is operator-visible signal — without
+        // the warn line an explicitly-configured `hardFail: true` would
+        // silently downgrade to soft-fail with no trail. We still allow
+        // checkpoint to proceed (best-effort) but emit a structured warn
+        // so the regression is grep-able in production logs.
+        workflowLogger.warn(
+          {
+            stateDir,
+            worktreePath,
+            error: err instanceof Error ? err.message : String(err),
+          },
+          'Failed to load .exarchos.yml for checkpoint handoffLint; defaulting to soft-fail',
+        );
+      }
+      return envelopeWrap(
+        await handleCheckpoint(
+          rest as Parameters<typeof handleCheckpoint>[0],
+          stateDir,
+          eventStore,
+          checkpointOptions,
+        ),
+        startedAt,
+      );
+    }
     case 'rehydrate':
       return envelopeWrapWithCacheHints(
         await handleRehydrate(
