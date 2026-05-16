@@ -252,7 +252,7 @@
 **Phase:** GREEN (against post-fix production code)
 
 1. Create `tests/outcome/runbook-merge-orchestration.test.ts` (Linux-only):
-   - `Runbook_MergePendingPhase_ReturnsCanonicalFourEventSequence` — call `handleRunbook({phase: 'merge-pending'})`, assert `success: true`, `data` is a non-empty array, the four-event canonical sequence (`merge.requested → merge.preflight → merge.executed → merge.completed`) appears in order with expected event types.
+   - `Runbook_MergePendingPhase_ReturnsCanonicalFourEventSequence` — call `handleRunbook({phase: 'merge-pending'})`, assert `success: true`, `data` is a non-empty array, the four-event canonical `autoEmits` sequence (`merge.preflight → merge.executed → merge.rollback → workflow.transition`) appears with expected event types. Source-of-truth: `runbooks/definitions.ts:636` lists exactly these four lifecycle events for the merge-pending phase. Assert exact length (4) so the test fails if extra emit events are added without updating this matrix.
    - `Runbook_OtherPhases_StillPopulated` — quick check that `task-completion`, `quality-evaluation`, `synthesis-flow` phases still return non-empty payloads (regression guard against the registry change).
 
 **File:** `tests/outcome/runbook-merge-orchestration.test.ts` (new).

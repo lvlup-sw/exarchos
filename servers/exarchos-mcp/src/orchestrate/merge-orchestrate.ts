@@ -201,21 +201,26 @@ function defaultGitExec(repoRoot: string, args: readonly string[]): GitExecResul
       encoding: 'utf-8',
       stdio: ['pipe', 'pipe', 'pipe'],
     });
-    return { stdout, exitCode: 0 };
+    return { stdout, stderr: '', exitCode: 0 };
   } catch (err) {
-    // Surface git's stderr (merge conflicts, ref errors) in the returned
-    // stdout so the preflight failure surfaces the actual cause rather than
-    // an opaque exit code.
+    // Capture stderr separately so #1362 phase-1 diagnostics can read the
+    // actual git error output (e.g., for `merge-base --is-ancestor` exit
+    // codes != 0/1 indicating a real failure vs the documented "non-ancestor"
+    // signal). Also fold stderr into stdout for backwards-compat with
+    // existing callers that read `stdout` as the failure-message channel.
     const status = (err as { status?: number }).status;
-    const stderr = (err as { stderr?: string | Buffer }).stderr;
-    const stdout = (err as { stdout?: string | Buffer }).stdout;
-    const message = [
-      typeof stdout === 'string' ? stdout : stdout?.toString('utf-8') ?? '',
-      typeof stderr === 'string' ? stderr : stderr?.toString('utf-8') ?? '',
-    ]
-      .filter(Boolean)
-      .join('\n');
-    return { stdout: message, exitCode: typeof status === 'number' ? status : 1 };
+    const rawStderr = (err as { stderr?: string | Buffer }).stderr;
+    const rawStdout = (err as { stdout?: string | Buffer }).stdout;
+    const stderr =
+      typeof rawStderr === 'string' ? rawStderr : rawStderr?.toString('utf-8') ?? '';
+    const stdoutOnly =
+      typeof rawStdout === 'string' ? rawStdout : rawStdout?.toString('utf-8') ?? '';
+    const message = [stdoutOnly, stderr].filter(Boolean).join('\n');
+    return {
+      stdout: message,
+      stderr,
+      exitCode: typeof status === 'number' ? status : 1,
+    };
   }
 }
 
@@ -553,10 +558,15 @@ export async function handleMergeOrchestrate(
           // #1362 phase 1 — thread the optional debug payload from the helper
           // through to the event so phase-2 analysis can read the persisted
           // ancestry-mismatch diagnostic. The helper only attaches `debug`
-          // when `EXARCHOS_PREFLIGHT_DEBUG=1 && !ancestry.passed`; same
-          // conditional-spread pattern as `failureReasons` above so passing
-          // events stay byte-identical to the pre-#1362 shape.
-          ...(preflight.debug !== undefined ? { debug: preflight.debug } : {}),
+          // when `EXARCHOS_PREFLIGHT_DEBUG=1 && !ancestry.passed`; we double-
+          // gate here on `ancestry.passed === false` so a future code path
+          // (or a test fixture) that constructs a `PreflightResult` with
+          // `debug` set on a PASSING preflight cannot leak the diagnostic
+          // into a passing-preflight event. Defense-in-depth at the event-
+          // sourcing boundary (INV-1).
+          ...(preflight.debug !== undefined && preflight.ancestry?.passed === false
+            ? { debug: preflight.debug }
+            : {}),
         },
       },
       appendOptionsPreflight,

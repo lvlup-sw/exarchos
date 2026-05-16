@@ -33,6 +33,16 @@ import {
 
 export interface GitExecResult {
   readonly stdout: string;
+  /**
+   * Captured stderr from the underlying git invocation. Optional: adapters
+   * that cannot separate stderr from stdout (e.g., a subprocess wrapper that
+   * merges descriptors) may omit it, in which case consumers should treat
+   * the absence as "not separately captured" rather than "definitely empty".
+   * The production `defaultGitExec` in merge-orchestrate.ts captures stderr
+   * separately on failure so phase-1 diagnostics can distinguish git's
+   * error output from any partial stdout.
+   */
+  readonly stderr?: string;
   readonly exitCode: number;
 }
 
@@ -203,11 +213,13 @@ export function gatherPreflightDebug(
   source: string,
   target: string,
 ): PreflightDebug {
-  const safe = (args: readonly string[]): { stdout: string; exitCode: number } => {
+  const safe = (
+    args: readonly string[],
+  ): { stdout: string; stderr?: string; exitCode: number } => {
     try {
       return gitExec(repoRoot, args);
     } catch {
-      return { stdout: '', exitCode: 1 };
+      return { stdout: '', stderr: '', exitCode: 1 };
     }
   };
 
@@ -252,10 +264,11 @@ export function gatherPreflightDebug(
     source,
   ];
   const mbRes = safe(['merge-base', '--is-ancestor', target, source]);
-  // The default `GitExec` collapses stderr into stdout on failure (see
-  // `defaultGitExec` in merge-orchestrate.ts), so the two fields are the
-  // same string under that adapter. Windows-specific adapters that capture
-  // stderr separately can populate the two fields independently.
+  // `mergeBaseStderr` reflects only what the adapter actually captured.
+  // Adapters that merge descriptors (so stderr lands in stdout) leave the
+  // field empty here; the canonical `defaultGitExec` in merge-orchestrate.ts
+  // captures stderr separately on failure so phase-2 diagnostics can
+  // distinguish merge-base's error output from any partial stdout.
   return {
     gitVersion,
     repoRoot: reportedRoot,
@@ -265,7 +278,7 @@ export function gatherPreflightDebug(
     mergeBaseCommand,
     mergeBaseExitCode: mbRes.exitCode,
     mergeBaseStdout: mbRes.stdout,
-    mergeBaseStderr: mbRes.stdout,
+    mergeBaseStderr: mbRes.stderr ?? '',
   };
 }
 

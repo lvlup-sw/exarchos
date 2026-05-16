@@ -8,7 +8,7 @@
 
 ## TL;DR
 
-The eval suite needs a fundamental redesign, not just elevation. Our `{{TOKEN}}` placeholder system in `skills-src/` encodes **harness mechanics** (tool names, command verbs, hook surfaces), not behavioral intent. Today's runtime-agnostic JSONL trace-replay tier conflates two distinct concerns — *did the agent pick the right behavior?* and *did the harness substitution produce a runnable form?* — and as a result tests neither cleanly. Six of 18 skills are covered; the missing 11 include every operator-facing surface that ships PRs.
+The eval suite needs a fundamental redesign, not just elevation. Our `{{TOKEN}}` placeholder system in `skills-src/` encodes **harness mechanics** (tool names, command verbs, hook surfaces), not behavioral intent. Today's runtime-agnostic JSONL trace-replay tier conflates two distinct concerns — *did the agent pick the right behavior?* and *did the harness substitution produce a runnable form?* — and as a result tests neither cleanly. Six of 17 skills are covered (the `skills-src/` tree has 19 entries: 17 actual skill directories plus `_shared` (cross-skill helpers) and `SKILL_AUTHORING.md` (an authoring doc), both excluded from the skill count); the missing 11 include every operator-facing surface that ships PRs.
 
 Reshape into **two distinct suites**:
 
@@ -25,7 +25,7 @@ The 2026-05-13 Windows dogfood session surfaced 8 findings; every gate verified 
 
 During preview.3 plan-review three observations converged:
 
-1. **Catalog gap was bigger than expected.** Measuring against `skills-src/`: 6 of 18 skills have eval suites. The missing 11 include `synthesis` (PR creation), `shepherd` (CI review and merge), `merge-orchestrator` (heaviest skill at 12 KB), `cleanup`, `oneshot-workflow`, `workflow-state`. Filing #1397 surfaced this scale.
+1. **Catalog gap was bigger than expected.** Measuring against `skills-src/`: 6 of 17 actual skill directories have eval suites (the `skills-src/` listing contains 19 entries — 17 skill dirs plus `_shared` and `SKILL_AUTHORING.md` which are not skills). The missing 11 include `synthesis` (PR creation), `shepherd` (CI review and merge), `merge-orchestrator` (heaviest skill at 12 KB), `cleanup`, `oneshot-workflow`, `workflow-state`. Filing #1397 surfaced this scale.
 
 2. **`{{TOKEN}}` placeholders are harness mechanics.** Looking at `runtimes/<runtime>.yaml` substitutions, the tokens are tool names (`Edit` vs `apply_patch`), command verbs (`Bash` vs `shell`), hook surfaces, filesystem paths, permission rules. **The behavioral intent of a skill is unchanged across runtimes; only the harness-facing verbs change.** Evaluating each rendered SKILL.md with a live LLM is triple-counting the same behavior under different vocabularies — wasteful, and worse, it muddles "did the skill teach the right behavior?" with "did the harness substitution produce a runnable form?"
 
@@ -251,7 +251,7 @@ servers/exarchos-mcp/src/harness-surface/
 └ sync-command.ts            (fetches upstream catalog → lockfile diff)
 
 tests/harness-surface/
-├ <runtime>/<skill>.test.ts  (one per skill × runtime = ~108 tests for 18 skills × 6 runtimes)
+├ <runtime>/<skill>.test.ts  (one per skill × runtime = ~108 tests for 17 skills × 6 runtimes)
 ```
 
 CI integration: new workflow `.github/workflows/harness-surface.yml` runs on every PR. Fast (no LLM, no network); blocking on red.
@@ -368,7 +368,7 @@ A four-phase migration is plausible:
 **Phase 1 — Tier A foundation (Linux-only, no LLM cost):**
 - Build `harness-surface/` module.
 - Author manifests for all 6 runtimes (snapshot current catalogs).
-- Generate the ~108 tests (18 skills × 6 runtimes).
+- Generate the ~108 tests (17 skills × 6 runtimes).
 - Wire CI workflow.
 - Land on its own — gates rendering drift immediately.
 

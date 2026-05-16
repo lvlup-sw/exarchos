@@ -470,6 +470,56 @@ describe('handleMergeOrchestrate (#1362 — preflight.debug event-wire)', () => 
     const [, emitted] = preflightCalls[0] as [string, { data: Record<string, unknown> }];
     expect('debug' in emitted.data).toBe(false);
   });
+
+  it('MergeOrchestrate_PassingAncestryWithDebugInjected_DoesNotPersistDebug', async () => {
+    // Defense-in-depth at the event-sourcing boundary (INV-1). The helper's
+    // contract is "only attach `debug` when ancestry FAILED" — but the handler
+    // accepts a DI'd `preflight` adapter, so a test fixture (or a future code
+    // path) could synthesize a `PreflightResult` with `debug` set on a PASSING
+    // preflight. The handler MUST NOT persist that debug into the event;
+    // otherwise we'd leak diagnostic payloads onto passing-preflight events
+    // and pollute the event store. The wire condition gates on BOTH the
+    // presence of debug AND `ancestry.passed === false`.
+    vi.stubEnv('EXARCHOS_PREFLIGHT_DEBUG', '1');
+    const passingWithDebug: MergePreflightResult = {
+      ...PASSING_PREFLIGHT,
+      debug: FAILING_PREFLIGHT_WITH_DEBUG.debug,
+    };
+    const ctx = makeMockCtx();
+    const preflight = vi.fn().mockResolvedValue(passingWithDebug);
+    const executeMerge = vi.fn().mockResolvedValue({
+      success: true,
+      data: {
+        phase: 'completed' as const,
+        mergeSha: MERGE_SHA,
+        rollbackSha: ROLLBACK_SHA,
+      },
+    });
+    const persistState = vi.fn().mockResolvedValue(undefined);
+
+    await handleMergeOrchestrate(
+      {
+        featureId: 'feat-x',
+        sourceBranch: 'feat/x',
+        targetBranch: 'main',
+        taskId: 'T1362-passing',
+        strategy: 'squash',
+        preflight,
+        executeMerge,
+        persistState,
+      },
+      ctx,
+    );
+
+    const appendMock = ctx.eventStore.append as ReturnType<typeof vi.fn>;
+    const preflightCalls = appendMock.mock.calls.filter(
+      (call) => (call[1] as { type?: string } | undefined)?.type === 'merge.preflight',
+    );
+    expect(preflightCalls).toHaveLength(1);
+    const [, emitted] = preflightCalls[0] as [string, { data: Record<string, unknown> }];
+    // Passing preflight + debug-injected → handler MUST drop debug.
+    expect('debug' in emitted.data).toBe(false);
+  });
 });
 
 describe('handleMergeOrchestrate (T13 — dry-run path)', () => {

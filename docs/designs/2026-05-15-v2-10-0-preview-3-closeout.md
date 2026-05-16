@@ -56,11 +56,13 @@ Three PRs, stacked bottom-up on `feature/v2-10-0-preview-3-closeout`. Each PR is
 | PR2 | #1362 preflight debug payload (env-gated) | `tests/outcome/preflight-debug.test.ts` (Linux: env-var gating + payload shape) | Extends `merge.preflight` event schema |
 | PR3 | Outcome-tier completeness backfill | Three new tests (#1360 / #1363 / #1364) | n/a (read-only assertions) |
 
-Bottom-up merge sequence partially closes #1354 on PR3 merge (#1365 stays open pending eval-suite redesign). Each PR independently registers its outputSchema delta where applicable (only PR2 needs a new envelope field). Atomic RED→GREEN discipline preserved on PR1 (#1208 contract restoration) and elsewhere where the test pairs with a fix.
+Bottom-up merge sequence partially closes #1354 on PR3 merge (#1365 stays open pending eval-suite redesign). PR2 is the only bundle PR that touches event-schema shape (the `merge.preflight` event's data schema gains an optional `debug` branch); PR1 and PR3 touch no schemas. Atomic RED→GREEN discipline preserved on PR1 (#1208 contract restoration) and elsewhere where the test pairs with a fix.
 
-### Cross-cutting carrier interaction
+### Cross-cutting carrier interaction (clarified at plan-review)
 
-Per the epic's carrier-Wave / dogfood-Wave interaction checklist (Wave 0 #1287 mandated): any new envelope field requires updating the registered `outputSchema`. PR2 is the only PR in this bundle that touches envelope shape. The `merge.preflight` event's `Envelope<T>` schema gains an optional `debug?: PreflightDebugSchema` branch. PR2 must register the schema delta in `servers/exarchos-mcp/src/orchestrate/merge-orchestrate.ts`'s `registeredOutputSchema` call.
+**The `merge.preflight` event schema and the `merge_orchestrate` action's registered `outputSchema` are decoupled.** The Wave 0 carrier swap (#1287) mandates that any envelope-shape change for an action with a typed `outputSchema` (e.g., `WorkflowUpdateOutputSchema` for `exarchos_workflow.update`) must update the registration. `merge_orchestrate` does NOT have a typed outputSchema — it registers `EnvelopeSchema(z.unknown())` at the dispatch layer (verified at `servers/exarchos-mcp/src/registry.ts`). The event payload schema (`MergePreflightData` in `event-store/schemas.ts:1146`) is the source-of-truth for `merge.preflight` event shape; it gains the optional `debug` branch and is enforced at event-store append time, not at the action's envelope boundary.
+
+**Authoritative integration point for PR2:** Extend `MergePreflightData` in `servers/exarchos-mcp/src/event-store/schemas.ts` with `debug: MergePreflightDebugData.optional()`. No `registeredOutputSchema` call in `merge-orchestrate.ts` needs updating. (A future PR that promotes `merge_orchestrate`'s action outputSchema from `EnvelopeSchema(z.unknown())` to a typed envelope WOULD need to thread the debug branch through that contract — but that's out of scope here.)
 
 ## Per-PR design
 

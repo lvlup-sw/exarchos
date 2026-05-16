@@ -270,17 +270,22 @@ saga choreography rather than a single CLI/handler invocation.
 | #1360 reserved-fields | [`reserved-fields-discoverability.test.ts`](../reserved-fields-discoverability.test.ts) | OK |
 | #1363 runbook | [`runbook-merge-orchestration.test.ts`](../runbook-merge-orchestration.test.ts) | OK |
 | #1364 telemetry split | [`telemetry-action-errors.test.ts`](../telemetry-action-errors.test.ts) | OK |
-| #1362 Windows preflight | n/a (Linux tier cannot reproduce) | — |
+| #1362 Windows preflight | [`preflight-debug.test.ts`](../preflight-debug.test.ts) (instrumentation only) | OK |
 | #1374 saga detour wire | [`test/process/saga-merge-detour.test.ts`](../../../test/process/saga-merge-detour.test.ts) (process tier) | OK |
 
 Notes:
 
-- #1362 is the Windows preflight regression. The Linux outcome tier is
-  intentionally out of scope — the bug only manifests under Windows path
-  semantics and process-launch behavior, which the Linux-only
-  `outcome-tests` CI job cannot reproduce. The Windows-side gating
-  belongs in a future Windows-CI surface (cf. the "No Windows CI for MCP
-  server" tracking line in the v2.x roadmap).
+- #1362 has two distinct concerns. The Linux outcome tier covers the
+  **instrumentation contract** for the Phase-1 debug payload —
+  `preflight-debug.test.ts` asserts that `EXARCHOS_PREFLIGHT_DEBUG=1` attaches
+  the structured debug block to `merge.preflight` events when ancestry fails,
+  and that the gate is no-op when the env var is unset or ancestry passes.
+  The Linux outcome tier is **out of scope for reproducing the Windows-
+  specific bug itself** (the ancestry false-positive only manifests under
+  Windows path semantics and process-launch behavior); reproduction belongs
+  in a future Windows-CI surface (cf. the "No Windows CI for MCP server"
+  tracking line in the v2.x roadmap). Phase-2 root-cause analysis awaits one
+  Windows-host event with the new payload.
 - #1374 is a saga-shape regression. Its assertion lives in the process
   tier (`test/process/saga-merge-detour.test.ts`) because reproducing it
   requires orchestrating a multi-step delegation + merge-detour saga

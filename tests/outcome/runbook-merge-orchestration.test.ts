@@ -66,7 +66,12 @@ describe('MERGE_ORCHESTRATION runbook outcome (#1363)', () => {
     expect(detail.id).toBe('merge-orchestration');
     expect(detail.phase).toBe('merge-pending');
 
-    // Auto-emits must cover the four lifecycle events.
+    // Auto-emits must cover EXACTLY the four lifecycle events — no extras.
+    // The runbook registry at `runbooks/definitions.ts` is the canonical
+    // source. arrayContaining alone would permit silent growth of the list
+    // (a real risk if a future change wires in additional emit events without
+    // updating this matrix); pin the count explicitly to catch that drift.
+    expect(detail.autoEmits).toHaveLength(4);
     expect(detail.autoEmits).toEqual(
       expect.arrayContaining([
         'merge.preflight',
