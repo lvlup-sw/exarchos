@@ -126,4 +126,74 @@ describe('ExarchosConfigSchema', () => {
     });
     expect(result.success).toBe(false);
   });
+
+  // ─── #1273 / T33: cli.followPollIntervalMs ─────────────────────────────
+  //
+  // The CLI `--follow` polling loop reads the dispatch-core
+  // `EventSourcedTaskStore` at a fixed cadence to render each transition
+  // to stdout. The default is 250ms (matches the dispatch design); the
+  // config block lets an operator tune it for slow shells (e.g. CI logs
+  // grow noisy at 250ms) or fast tests (override to 10ms).
+
+  it('schema_CliFollowPollIntervalMs_Validates', () => {
+    const result = ExarchosConfigSchema.safeParse({
+      cli: { followPollIntervalMs: 100 },
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.cli?.followPollIntervalMs).toBe(100);
+    }
+  });
+
+  it('schema_CliFollowPollIntervalMs_AcceptsLargeValue', () => {
+    const result = ExarchosConfigSchema.safeParse({
+      cli: { followPollIntervalMs: 5000 },
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('schema_CliFollowPollIntervalMs_RejectsZero', () => {
+    // A 0ms cadence would spin the loop; require a positive integer.
+    const result = ExarchosConfigSchema.safeParse({
+      cli: { followPollIntervalMs: 0 },
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('schema_CliFollowPollIntervalMs_RejectsNegative', () => {
+    const result = ExarchosConfigSchema.safeParse({
+      cli: { followPollIntervalMs: -50 },
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('schema_CliFollowPollIntervalMs_RejectsNonInteger', () => {
+    // Polling cadence is whole milliseconds — reject fractional inputs so
+    // a typo like `0.25` (caller meant 250) surfaces as a validation error
+    // instead of degrading to a sub-millisecond spin loop.
+    const result = ExarchosConfigSchema.safeParse({
+      cli: { followPollIntervalMs: 12.5 },
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('schema_CliBlockAbsent_Validates', () => {
+    // The cli block is optional — pre-#1273 configs (without any cli key)
+    // must continue to validate.
+    const result = ExarchosConfigSchema.safeParse({ test: 'bun test' });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.cli).toBeUndefined();
+    }
+  });
+
+  it('schema_CliUnknownField_Rejected', () => {
+    // `.strict()` on the nested schema rejects typos so an operator that
+    // writes `cli: { followPollIntervalMS: 100 }` (case typo) sees a
+    // validation error instead of a silently-ignored field.
+    const result = ExarchosConfigSchema.safeParse({
+      cli: { followPollIntervalMS: 100 },
+    });
+    expect(result.success).toBe(false);
+  });
 });
