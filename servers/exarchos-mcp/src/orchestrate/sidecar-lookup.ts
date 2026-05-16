@@ -30,12 +30,17 @@ import {
 export const REGEX_REMOVAL_TRACKING_ISSUE = '#1407';
 
 /**
- * Compute the conventional sidecar path for a doc: `<doc>.sidecar.yml`.
- * The doc path itself is preserved verbatim, including its `.md` suffix —
- * sidecars are always `<doc>.md.sidecar.yml` next to the markdown.
+ * Compute the conventional sidecar path for a doc: `<base>.sidecar.yml`.
+ *
+ * A trailing `.md` extension on `docPath` is stripped before appending
+ * `.sidecar.yml` so the on-disk convention matches the sidecars shipped
+ * alongside the docs (`docs/designs/foo.md` →
+ * `docs/designs/foo.sidecar.yml`). Inputs without a `.md` suffix have
+ * `.sidecar.yml` appended verbatim.
  */
 export function sidecarPathFor(docPath: string): string {
-  return `${docPath}.sidecar.yml`;
+  const base = docPath.endsWith('.md') ? docPath.slice(0, -3) : docPath;
+  return `${base}.sidecar.yml`;
 }
 
 /**
