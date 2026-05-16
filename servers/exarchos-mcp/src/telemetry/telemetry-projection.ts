@@ -233,9 +233,14 @@ export const telemetryProjection: ViewProjection<TelemetryViewState> = {
         const outputTokens = tcData.outputTokens;
 
         const next = [...view.turns, { turnId, outputTokens }];
-        const turns = next.length <= view.windowSize
+        // Retain `windowSize + 1` turns so `computeOutputTokenHints` can
+        // walk one turn earlier than the visible window to distinguish a
+        // streak that started inside the window from one that extends
+        // beyond it (CodeRabbit MAJOR #1422 look-back fix).
+        const turnHistoryCap = view.windowSize + 1;
+        const turns = next.length <= turnHistoryCap
           ? next
-          : next.slice(next.length - view.windowSize);
+          : next.slice(next.length - turnHistoryCap);
 
         return {
           ...view,
@@ -252,28 +257,50 @@ export const telemetryProjection: ViewProjection<TelemetryViewState> = {
 // ─── #1262 Quality-Hint Generation ─────────────────────────────────────────
 
 /**
- * A NextAction-shaped hint surfaced when a per-turn output-token sum crosses
- * the configured threshold. The shape is intentionally a subset of
- * `NextAction` (verb + reason) so the envelope formatter can lift it
- * directly into `next_actions[]` without translation.
+ * A NextAction-shaped hint surfaced when the current per-turn output-token
+ * sum is above the configured threshold. The shape is intentionally a
+ * subset of `NextAction` (verb + reason + idempotencyKey) so the envelope
+ * formatter can lift it directly into `next_actions[]` without translation.
+ *
+ * `idempotencyKey` is derived from the upward-crossing turnId so downstream
+ * consumers can dedupe across calls — the same active streak surfaces the
+ * same key on every view request.
  */
 export interface OutputTokenHint {
   readonly verb: string;
   readonly reason: string;
   readonly hintType: string;
+  readonly idempotencyKey: string;
 }
 
 /**
- * Compute output-token quality hints for the given telemetry view state.
+ * Compute output-token quality hints for the current telemetry-view state.
  *
- * Walks `view.turns` and emits one hint per turn whose `outputTokens`
- * strictly exceeds the supplied threshold. The threshold is supplied
- * explicitly (rather than read from a constant) so callers — typically the
- * envelope wrap point — can pull the value from `.exarchos.yml` via the
- * config resolver (T05).
+ * Returns **at most one** hint per call, reflecting whether the session is
+ * *currently* above the configured threshold (the latest turn's
+ * `outputTokens > thresholdTokens`). The hint carries an `idempotencyKey`
+ * derived from the upward-crossing turnId so a single streak surfaces the
+ * same key across every view request — downstream consumers can dedupe
+ * across calls without losing the "still above" signal.
  *
- * Returns `[]` when the catalog entry is missing (defensive) or no turn
- * crosses the threshold.
+ * Sentry MEDIUM #1422 + CodeRabbit MAJOR #1422: the previous implementation
+ * walked the full `view.turns` from a clean `above=false` seed on every
+ * call, so every past upward crossing in the buffer re-emitted on every
+ * request — exactly the next_actions-flood the edge-triggered design was
+ * supposed to prevent. The CodeRabbit look-back finding was a symptom of
+ * the same root cause: dropping the predecessor turn while seeding from
+ * scratch meant a streak extending out of the window registered as a
+ * fresh crossing.
+ *
+ * The fix collapses both: only the *current* state matters. When latest
+ * turn is above threshold we walk backwards within the visible buffer to
+ * find the streak start (used for the idempotency key); when latest is
+ * below or no turns exist, we emit nothing. Look-back trim is handled by
+ * the reducer keeping `windowSize + 1` turns so the streak-start walk can
+ * detect when the streak begins inside the window vs. extends beyond it.
+ *
+ * Returns `[]` when the catalog entry is missing, no turns exist, or the
+ * latest turn is at or below the threshold.
  */
 export function computeOutputTokenHints(
   view: TelemetryViewState,
@@ -282,18 +309,32 @@ export function computeOutputTokenHints(
   const hintType: QualityHintType | undefined = getQualityHintType('output_tokens_high');
   if (!hintType) return [];
 
-  const hints: OutputTokenHint[] = [];
-  for (const turn of view.turns) {
-    if (turn.outputTokens > thresholdTokens) {
-      hints.push({
-        verb: hintType.verb,
-        reason: renderQualityHintReason(hintType, {
-          tokens: turn.outputTokens,
-          threshold: thresholdTokens,
-        }),
-        hintType: hintType.id,
-      });
-    }
+  const turns = view.turns;
+  if (turns.length === 0) return [];
+
+  const latest = turns[turns.length - 1]!;
+  if (latest.outputTokens <= thresholdTokens) return [];
+
+  // Walk backwards within the visible buffer to find the upward crossing
+  // (the earliest in-window turn of the current above-threshold streak).
+  // If the streak extends beyond the buffer (every visible turn is above),
+  // the crossing turnId falls back to the earliest in-window turn — the
+  // idempotency key remains stable for the lifetime of the buffer window.
+  let crossingIdx = turns.length - 1;
+  while (crossingIdx > 0 && turns[crossingIdx - 1]!.outputTokens > thresholdTokens) {
+    crossingIdx--;
   }
-  return hints;
+  const crossingTurn = turns[crossingIdx]!;
+
+  return [
+    {
+      verb: hintType.verb,
+      reason: renderQualityHintReason(hintType, {
+        tokens: crossingTurn.outputTokens,
+        threshold: thresholdTokens,
+      }),
+      hintType: hintType.id,
+      idempotencyKey: `${hintType.id}:${crossingTurn.turnId}`,
+    },
+  ];
 }

@@ -434,16 +434,6 @@ describe('EventTypes', () => {
     // #1262: bumped 104 → 105 to include `turn.completed`, which carries
     // the per-turn output-token sample the `output_tokens_high` quality
     // hint fires on (see `telemetry/quality-hints.ts`).
-    // #1290: bumped 105 → 106 to include `workspace.resolved`, emitted
-    // by `workspace/discovery.ts` on roots-based or cwd-walk featureId
-    // inference at the dispatch boundary.
-    // #1274: bumped 106 → 108 to include `elicitation.requested` +
-    // `elicitation.fulfilled`, emitted by the dispatch elicitation
-    // hand-off on the per-operation pseudo-stream
-    // `elicitation/<operationId>`.
-    // #1261: bumped 108 → 110 to include `dispatch.preflight` +
-    // `stash.detected`, emitted by the dispatch boundary's preflight
-    // guard runner (`orchestrate/dispatch-guard.ts`).
     expect(EventTypes).toHaveLength(110);
   });
 
