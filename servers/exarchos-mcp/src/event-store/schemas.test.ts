@@ -2478,6 +2478,72 @@ describe('MergePreflightData', () => {
     });
     expect(result.success).toBe(true);
   });
+
+  // ─── #1362 phase 1 — optional debug branch ────────────────────────────
+  //
+  // The Windows ancestry-mismatch instrumentation attaches a structured
+  // `debug` block to `merge.preflight` events when
+  // `EXARCHOS_PREFLIGHT_DEBUG=1` AND ancestry failed. The branch is
+  // `.optional()` so:
+  //   1. legacy events emitted without it remain parseable
+  //      (`MergePreflightData_WithoutDebugBlock_ValidatesAgainstSchema`).
+  //   2. new events carrying the full payload also parse
+  //      (`MergePreflightData_WithDebugBlock_ValidatesAgainstSchema`).
+  it('MergePreflightData_WithoutDebugBlock_ValidatesAgainstSchema', () => {
+    const result = MergePreflightData.safeParse({
+      taskId: 'T11',
+      sourceBranch: 'feat/x',
+      targetBranch: 'main',
+      passed: false,
+      ancestry: { passed: false, reason: 'ancestry', missing: ['main'] },
+      currentBranchProtection: { blocked: false },
+      worktree: { isMain: true, actual: '/repo', expected: '/repo' },
+      drift: {
+        clean: true,
+        uncommittedFiles: [],
+        indexStale: false,
+        detachedHead: false,
+      },
+      failureReasons: ['ancestry missing: main'],
+    });
+    expect(result.success, JSON.stringify(result)).toBe(true);
+  });
+
+  it('MergePreflightData_WithDebugBlock_ValidatesAgainstSchema', () => {
+    const result = MergePreflightData.safeParse({
+      taskId: 'T11',
+      sourceBranch: 'feat/x',
+      targetBranch: 'main',
+      passed: false,
+      ancestry: { passed: false, reason: 'ancestry', missing: ['main'] },
+      currentBranchProtection: { blocked: false },
+      worktree: { isMain: true, actual: '/repo', expected: '/repo' },
+      drift: {
+        clean: true,
+        uncommittedFiles: [],
+        indexStale: false,
+        detachedHead: false,
+      },
+      failureReasons: ['ancestry missing: main'],
+      debug: {
+        gitVersion: 'git version 2.45.1',
+        repoRoot: 'C:\\repos\\example',
+        worktreeList: 'worktree C:/repos/example\nHEAD a\nbranch refs/heads/main\n',
+        refsHeadsSource: { sha: 'a'.repeat(40), packed: false },
+        refsHeadsTarget: { sha: 'b'.repeat(40), packed: false },
+        mergeBaseCommand: ['git', 'merge-base', '--is-ancestor', 'main', 'feat/x'],
+        mergeBaseExitCode: 1,
+        mergeBaseStdout: '',
+        mergeBaseStderr: '',
+      },
+    });
+    expect(result.success, JSON.stringify(result)).toBe(true);
+    if (result.success) {
+      expect(result.data.debug?.gitVersion).toBe('git version 2.45.1');
+      expect(result.data.debug?.refsHeadsSource.packed).toBe(false);
+      expect(result.data.debug?.mergeBaseExitCode).toBe(1);
+    }
+  });
 });
 
 describe('MergeExecutedData', () => {
