@@ -536,7 +536,14 @@ describe('EventTypes', () => {
     // Bumped 106 → 108: elicitation.requested + elicitation.fulfilled
     // (#1274 — elicitation form mode for missing-required-param hand-off
     //   in the dispatch boundary).
-    expect(EventTypes).toHaveLength(108);
+    // Bumped 108 → 112: task.created + task.polled + task.result +
+    //   task.cancelled (#1272 — EventSourcedTaskStore lifecycle; SDK
+    //   `TaskStore` interface as a projection over the event store).
+    //   Distinct from the orchestrated-task family above; see
+    //   `event-store/task-events.test.ts` for the schema-shape contracts
+    //   and `task-store/event-sourced-task-store.test.ts` for the
+    //   end-to-end lifecycle + REPLAY (INV-1) acceptance test.
+    expect(EventTypes).toHaveLength(112);
   });
 
   it('EventTypes_IncludesElicitation', () => {
