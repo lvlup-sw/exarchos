@@ -844,6 +844,14 @@ export async function dispatch(
   // an MCP client that never advertised tasks support cannot opt in
   // by smuggling a `task` key into args; capability negotiation wins.
   let result: ToolResult;
+  // ─── #1273 / C1+C2 — Tasks-augmented synthesis ─────────────────────────
+  // When the caller threaded `task: { ttl? }` AND a TaskStore is wired AND
+  // the MCP client declared the `tasks` capability (or no resolver is
+  // present — CLI/in-process direct callers), route the underlying handler
+  // through `runTasksAugmented`. Without the capability declaration, fall
+  // back to one-shot so an MCP client that never advertised tasks support
+  // can't opt in by smuggling a `task` key into args. Without `taskStore`,
+  // also fall back (CLI cold-start, in-process tests that omit wiring).
   const taskCapabilityGate =
     ctx.capabilityResolver === undefined ||
     ctx.capabilityResolver.isTaskSupportDeclared();

@@ -543,8 +543,9 @@ describe('EventTypes', () => {
     //   `event-store/task-events.test.ts` for the schema-shape contracts
     //   and `task-store/event-sourced-task-store.test.ts` for the
     //   end-to-end lifecycle + REPLAY (INV-1) acceptance test.
-    // Bumped 112 → 114: dispatch.preflight + stash.detected
-    //   (#1261 — dispatch-guard preflight observability merged via main).
+    // Bumped 112 → 114: dispatch.preflight + stash.detected (#1261 —
+    //   dispatch-guard preflight observability emitted by
+    //   `orchestrate/dispatch-guard.ts`).
     expect(EventTypes).toHaveLength(114);
   });
 
