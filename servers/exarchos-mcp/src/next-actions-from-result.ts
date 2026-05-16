@@ -73,12 +73,28 @@ export const ResultDataSchema = z.union([ShapeOneSchema, ShapeTwoSchema]);
 export type ResultData = z.infer<typeof ResultDataSchema>;
 
 /**
- * Discriminator keys that indicate a payload is *attempting* to carry
- * workflow context (even if the types are wrong). Used to distinguish a
- * legitimate non-workflow payload (silent `[]`) from a malformed workflow
- * payload (warn + `[]`).
+ * Per-shape discriminator keys. A payload is considered to *advertise* a
+ * shape when it carries *every* discriminator key for that shape — matching
+ * what the shape's schema actually requires. Once advertised, the shape must
+ * validate strictly or the helper fails closed (warn + `[]`).
+ *
+ * Why `every` and not `some` (Sentry #1421 rev2, LOW): handler returns from
+ * `handleCheckpoint` and the idempotent branch of `handleSet` legitimately
+ * carry `{ phase, ... }` without `workflowType` — they are not workflow-state
+ * envelopes, just phase-confirmation receipts. A `some`-based advertise
+ * predicate would (mis)mark those as shape-1 advertisements, the strict
+ * safeParse would then fail (missing required `workflowType`), and the
+ * helper would emit a misleading "malformed result.data" warning on every
+ * normal checkpoint/set call. `every` aligns the advertise check with the
+ * schema's required-field set, so partial-key payloads silently fall through
+ * to the no-actions path instead of being escalated to malformed.
+ *
+ * The asymmetric-failure pin still holds: a payload that advertises both
+ * keys for shape 1 *and* the discriminator for shape 2 must validate against
+ * both shapes independently.
  */
-const CONTEXT_DISCRIMINATOR_KEYS = ['phase', 'workflowType', 'workflowState'] as const;
+const SHAPE_ONE_DISCRIMINATOR_KEYS = ['phase', 'workflowType'] as const;
+const SHAPE_TWO_DISCRIMINATOR_KEYS = ['workflowState'] as const;
 
 /**
  * Extract workflow state from a successful `ToolResult` and compute the
@@ -111,53 +127,67 @@ export function nextActionsFromResult(result: ToolResult): readonly NextAction[]
   const data = result.data;
   if (data === null || data === undefined || typeof data !== 'object') return [];
 
-  // Fail-closed parse boundary (#1238). Three cases:
+  // Fail-closed parse boundary (#1238 + per-shape advertised-validation
+  // follow-up). Four cases:
   //
-  //   1. Payload carries none of the workflow-context discriminator keys
-  //      (phase / workflowType / workflowState). It's an event-store /
-  //      view-composite / describe response — return [] silently.
-  //   2. Payload carries at least one discriminator key but ResultDataSchema
-  //      rejects it — malformed (wrong types, missing required nested
-  //      fields). Warn and return [].
-  //   3. Payload parses as ShapeOne, ShapeTwo, or both — proceed.
+  //   1. Payload advertises neither shape (no discriminator key from either
+  //      set). It's an event-store / view-composite / describe response —
+  //      return [] silently.
+  //   2. Payload advertises a shape but that shape fails its own safeParse —
+  //      malformed (wrong types, missing required nested fields). Warn and
+  //      return [].
+  //   3. Payload advertises exactly one shape and that shape parses — proceed
+  //      using just that shape.
+  //   4. Payload advertises both shapes and both parse — proceed using both
+  //      (shape-1 precedence; shape-2 backfill for mergeOrchestrator).
+  //
+  // The earlier implementation used a single `ResultDataSchema` (union) parse
+  // here, which accepted asymmetric malformed payloads — e.g. a valid shape-1
+  // alongside a malformed `workflowState` — because the union short-circuits
+  // on the first matching member. `.passthrough()` then let the bad keys
+  // through. Validating each advertised shape independently closes that hole.
   //
   // `Reflect.has` is the structural attempt-detector; it does not introspect
-  // value types (that's the schema's job).
-  const attemptedContext = CONTEXT_DISCRIMINATOR_KEYS.some((k) =>
+  // value types (that's each shape's safeParse).
+  const shapeOneAdvertised = SHAPE_ONE_DISCRIMINATOR_KEYS.every((k) =>
     Reflect.has(data, k),
   );
-  if (!attemptedContext) return [];
+  const shapeTwoAdvertised = SHAPE_TWO_DISCRIMINATOR_KEYS.every((k) =>
+    Reflect.has(data, k),
+  );
+  if (!shapeOneAdvertised && !shapeTwoAdvertised) return [];
 
-  const parsed = ResultDataSchema.safeParse(data);
-  if (!parsed.success) {
+  const shapeOne = shapeOneAdvertised ? ShapeOneSchema.safeParse(data) : null;
+  const shapeTwo = shapeTwoAdvertised ? ShapeTwoSchema.safeParse(data) : null;
+
+  if ((shapeOne && !shapeOne.success) || (shapeTwo && !shapeTwo.success)) {
     nextActionsLogger.warn(
-      { issues: parsed.error.issues },
-      'malformed result.data — failed ResultDataSchema parse; returning [].',
+      {
+        issues: [
+          ...(shapeOne && !shapeOne.success ? shapeOne.error.issues : []),
+          ...(shapeTwo && !shapeTwo.success ? shapeTwo.error.issues : []),
+        ],
+        shapeOneAdvertised,
+        shapeTwoAdvertised,
+      },
+      'malformed result.data — advertised shape failed safeParse; returning [].',
     );
     return [];
   }
-
-  // The union parses non-greedily on the first matching shape. To preserve
-  // the existing semantics — shape-1 fields take precedence; mergeOrchestrator
-  // backfilled from workflowState even when shape 1 supplies phase — read
-  // both shapes independently. Both safeParses are cheap (the data already
-  // matched at least one shape).
-  const shapeOne = ShapeOneSchema.safeParse(data);
-  const shapeTwo = ShapeTwoSchema.safeParse(data);
 
   let phase: string | undefined;
   let workflowType: string | undefined;
   let featureId: string | undefined;
   let mergeOrchestrator: { taskId?: string; phase?: string } | undefined;
 
-  if (shapeOne.success) {
+  if (shapeOne?.success) {
     phase = shapeOne.data.phase;
     workflowType = shapeOne.data.workflowType;
     featureId = shapeOne.data.featureId;
     mergeOrchestrator = shapeOne.data.mergeOrchestrator;
   }
 
-  if (shapeTwo.success) {
+  if (shapeTwo?.success) {
     const ws = shapeTwo.data.workflowState;
     if (!phase) phase = ws.phase;
     if (!workflowType) workflowType = ws.workflowType;

@@ -29,6 +29,7 @@ import {
 } from './tools.js';
 import { handleStackStatus, handleStackPlace } from '../stack/tools.js';
 import { handleViewTelemetry } from '../telemetry/tools.js';
+import type { QualityHintsConfig } from '../capabilities/resolver.js';
 
 const viewActions = TOOL_REGISTRY.find(t => t.name === 'exarchos_view')!.actions;
 
@@ -155,10 +156,16 @@ export async function handleView(
           eventStore,
           // #1262 — thread the resolved `.exarchos.yml` so
           // `qualityHints.outputTokenThreshold` flows into the hint
-          // generator. Cast is the same shape both types declare; the
-          // resolver only reads the `qualityHints.outputTokenThreshold`
-          // slice (see `QualityHintsConfig`).
-          ctx.config as unknown as Parameters<typeof handleViewTelemetry>[3],
+          // generator. The Zod-v4-inferred `ExarchosConfig` and the
+          // resolver's `QualityHintsConfig` interface have the same runtime
+          // shape for `qualityHints.outputTokenThreshold`, but their
+          // TypeScript types differ in readonly / optional precision — the
+          // `satisfies` operator (and a plain narrowing) both reject the
+          // shape on that structural-precision mismatch. `as unknown as` is
+          // the minimum-impact escape that does not silently accept an
+          // unrelated value; the typecheck is recovered without weakening
+          // the resolver's interface.
+          ctx.config as unknown as QualityHintsConfig | undefined,
         ),
         startedAt,
       );

@@ -138,6 +138,7 @@ export async function handleViewTelemetry(
     const nextActions: readonly NextAction[] = tokenHints.map((h) => ({
       verb: h.verb,
       reason: h.reason,
+      idempotencyKey: h.idempotencyKey,
     }));
 
     return {
