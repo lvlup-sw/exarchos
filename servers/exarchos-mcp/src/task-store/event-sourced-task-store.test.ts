@@ -223,4 +223,20 @@ describe('EventSourcedTaskStore (#1272)', () => {
     const ids = tasks.map((t) => t.taskId).sort();
     expect(ids).toEqual([t1.taskId, t2.taskId].sort());
   });
+
+  it('EventSourcedTaskStore_ListTasks_HydratesFromEventStoreOnColdStart', async () => {
+    // CR PR #1432: cold-start listTasks must enumerate durable
+    // `task-store/*` streams rather than silently returning an empty
+    // list. Reproducer: create tasks through one store, then construct
+    // a FRESH store backed by the same event store and call listTasks
+    // without any prior `getTask` hydration. The fresh listing MUST
+    // surface every durable task.
+    const t1 = await store.createTask({ ttl: 1000 }, 'r1', sampleRequest);
+    const t2 = await store.createTask({ ttl: 2000 }, 'r2', sampleRequest);
+
+    const coldStore = new EventSourcedTaskStore(eventStore);
+    const { tasks } = await coldStore.listTasks();
+    const ids = tasks.map((t) => t.taskId).sort();
+    expect(ids).toEqual([t1.taskId, t2.taskId].sort());
+  });
 });

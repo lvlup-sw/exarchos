@@ -40,4 +40,18 @@ describe('deriveElicitationSchema (#1274)', () => {
     const b = deriveElicitationSchema(inputSchema, 'featureId');
     expect(a).toEqual(b);
   });
+
+  it('ElicitationSchema_UnknownField_ThrowsExplicitError', () => {
+    // CR PR #1432: Zod v4 `.pick({missing: true})` silently returns an
+    // empty schema rather than throwing. The helper MUST guard against
+    // this so a misnamed field surfaces as an actionable error instead
+    // of an empty elicitation prompt to the client.
+    const inputSchema = z.object({
+      featureId: z.string(),
+      target: z.string(),
+    });
+    expect(() => deriveElicitationSchema(inputSchema, 'missing')).toThrow(
+      /field 'missing' is not declared/,
+    );
+  });
 });

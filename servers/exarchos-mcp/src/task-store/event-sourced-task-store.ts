@@ -285,19 +285,24 @@ export class EventSourcedTaskStore implements TaskStore {
     cursor?: string,
     _sessionId?: string,
   ): Promise<{ tasks: Task[]; nextCursor?: string }> {
-    // KNOWN LIMITATION (#1272 / CR PR #1432): listTasks paginates the
-    // in-process cache (`this.tasks`) only. A freshly-constructed store
-    // (post-restart, post-replay) returns an empty list until the cache
-    // is populated via `getTask` / `getTaskResult` calls — those paths
-    // DO hydrate from the event store on cache miss via `loadTask()`.
+    // ─── Cold-start hydration (#1272 / CR PR #1432) ───────────────────────
+    // The in-memory cache (`this.tasks`) is not authoritative; on a
+    // freshly-constructed instance it is empty even if durable
+    // `task-store/*` streams exist. Without hydration `listTasks` would
+    // silently return `{tasks: [], nextCursor: undefined}` for a brand
+    // new process, which violates the SDK `TaskStore` contract and
+    // INV-1 (event-sourcing integrity — state derives from events).
     //
-    // Full enumeration would require scanning every `task-store/<id>`
-    // stream in the event store, which is O(n_streams) and has no
-    // bounded index today. Until #1272's listTasks-hydration follow-up
-    // (tracked separately), callers needing durable listing should
-    // either rebuild the cache via per-id `getTask` lookups (driven by
-    // an external task id catalog) or use the event store's `query`
-    // surface directly.
+    // The EventStore exposes `listStreams()` (delegated to the read
+    // backend), so we enumerate the `task-store/` prefix and fold each
+    // matching stream via `loadTask()`. After hydration completes once,
+    // subsequent `listTasks` calls re-use the warmed cache plus any
+    // streams created since (we re-enumerate every call — it is cheap
+    // relative to event-folding, and keeps the listing consistent with
+    // concurrent `createTask` writes from other processes sharing the
+    // same SQLite event store).
+    await this.hydrateFromEventStore();
+
     const PAGE_SIZE = 10;
     // Reap expired entries first so listings stay consistent with reads.
     this.reapExpired();
@@ -322,6 +327,45 @@ export class EventSourcedTaskStore implements TaskStore {
   }
 
   // ─── Internals ─────────────────────────────────────────────────────────
+
+  /**
+   * Enumerate `task-store/*` streams from the event store and load
+   * any that aren't already cached. Used by `listTasks` to make
+   * cold-start enumeration replay-safe (INV-1).
+   *
+   * The EventStore's `listStreams()` is in-memory after backend init
+   * (the SQLite read backend caches the stream catalog) so the per-call
+   * overhead is bounded by `O(n_streams_total)`; the actual `loadTask`
+   * fold only runs on cache misses, so steady-state cost is O(new tasks
+   * since last call).
+   *
+   * Failures during a per-stream load are swallowed: one malformed
+   * stream MUST NOT block enumeration of healthy ones. The next
+   * targeted `getTask(taskId)` will surface the underlying error.
+   */
+  private async hydrateFromEventStore(): Promise<void> {
+    const prefix = 'task-store/';
+    let allStreams: string[];
+    try {
+      allStreams = this.store.listStreams();
+    } catch {
+      // If the backend can't enumerate streams, fall back to whatever
+      // is already cached — this preserves the prior behavior for any
+      // exotic backend that doesn't implement `listStreams`.
+      return;
+    }
+    const taskStreams = allStreams.filter((s) => s.startsWith(prefix));
+    for (const streamId of taskStreams) {
+      const taskId = streamId.slice(prefix.length);
+      if (taskId.length === 0) continue;
+      if (this.tasks.has(taskId)) continue;
+      try {
+        await this.loadTask(taskId);
+      } catch {
+        // best-effort — see docstring
+      }
+    }
+  }
 
   /**
    * Resolve a task by id. Cache-first, with a stream-projection
