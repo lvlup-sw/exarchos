@@ -31,6 +31,9 @@ vi.mock('./dispatch-guard.js', () => ({
   assertMainWorktree: vi.fn().mockReturnValue({ isMain: true, actual: '/repo', expected: 'main worktree (no .claude/worktrees/ in path)' }),
   getCurrentBranch: vi.fn().mockReturnValue('feature/test-branch'),
   assertCurrentBranchNotProtected: vi.fn().mockReturnValue({ blocked: false }),
+  // #1261 — stash probe is fire-and-forget; default to a no-op so existing
+  // tests don't need to manage shared-stash semantics.
+  probeStashAndEmit: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock('../workflow/checkpoint.js', () => ({
