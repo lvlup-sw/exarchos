@@ -8,6 +8,7 @@ import { applyCacheHints, wrap, wrapWithPassthrough, type Envelope, type ToolRes
 import type { DispatchContext } from '../core/dispatch.js';
 import { nextActionsFromResult } from '../next-actions-from-result.js';
 import type { CapabilityResolver } from '../capabilities/resolver.js';
+import { workflowLogger } from '../logger.js';
 
 const workflowActions = TOOL_REGISTRY.find(t => t.name === 'exarchos_workflow')!.actions;
 
@@ -161,10 +162,21 @@ export async function handleWorkflow(
         if (typeof hardFail === 'boolean') {
           checkpointOptions = { handoffLint: { hardFail } };
         }
-      } catch {
-        // Soft-fail: any load/validation error falls through to default
-        // (soft-fail) behavior — checkpoint still functions, just without
-        // the hard-fail gate.
+      } catch (err) {
+        // CodeRabbit MAJOR #1244: do NOT silently fail-open. A config
+        // load/validation failure here is operator-visible signal — without
+        // the warn line an explicitly-configured `hardFail: true` would
+        // silently downgrade to soft-fail with no trail. We still allow
+        // checkpoint to proceed (best-effort) but emit a structured warn
+        // so the regression is grep-able in production logs.
+        workflowLogger.warn(
+          {
+            stateDir,
+            worktreePath,
+            error: err instanceof Error ? err.message : String(err),
+          },
+          'Failed to load .exarchos.yml for checkpoint handoffLint; defaulting to soft-fail',
+        );
       }
       return envelopeWrap(
         await handleCheckpoint(
