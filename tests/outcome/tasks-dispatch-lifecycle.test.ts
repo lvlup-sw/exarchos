@@ -120,13 +120,26 @@ describe('Tasks dispatch-core lifecycle (#1273 / T29)', () => {
       expect(typeof dispatchOp).toBe('string');
       expect(dispatchOp!.length).toBeGreaterThan(0);
 
-      const taskEventOps = new Set<string | undefined>();
+      // The dispatch-owned events (`task.created`, `task.result`) MUST
+      // carry the parent dispatch's operationId — that is the ALS threading
+      // contract from B1 / #1291 and is the load-bearing audit guarantee
+      // for the C1 Tasks-augmented branch. `task.polled` is emitted from
+      // wherever the caller invokes `tasksStore.getTask`; in this test we
+      // call it directly outside the dispatch boundary, so its operationId
+      // reflects the ambient scope (none). The MCP adapter (C2) will route
+      // `tasks/get` through its own dispatch boundary, where polled events
+      // inherit the poll's own operationId — that interaction is pinned in
+      // C2's adapter outcome test, not here.
+      const opByType = new Map<string, string | undefined>();
       for (const evt of events) {
-        taskEventOps.add((evt as { operationId?: string }).operationId);
+        opByType.set(evt.type, (evt as { operationId?: string }).operationId);
       }
-      expect(taskEventOps.has(undefined)).toBe(false);
-      expect(taskEventOps.size).toBe(1);
-      expect(taskEventOps.has(dispatchOp)).toBe(true);
+      expect(opByType.get('task.created')).toBe(dispatchOp);
+      expect(opByType.get('task.result')).toBe(dispatchOp);
+      // task.polled MUST carry an operationId when emitted inside a
+      // dispatch scope; this direct-call site has no scope, so we assert
+      // the event is present (above) without constraining its operationId.
+      expect(opByType.has('task.polled')).toBe(true);
     } finally {
       restore();
       await fs.rm(stateDir, { recursive: true, force: true });

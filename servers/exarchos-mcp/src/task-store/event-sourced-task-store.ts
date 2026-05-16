@@ -154,6 +154,29 @@ export class EventSourcedTaskStore implements TaskStore {
       this.tasks.delete(taskId);
       return null;
     }
+    // ─── #1273 / T29 — Emit task.polled on every successful read ──────────
+    // The Tasks-augmented dispatch flow (C1) and the MCP `tasks/get`
+    // method (C2) both route polls through `getTask`. Emitting here keeps
+    // the `task.*` lifecycle complete on the namespaced stream so audit
+    // queries can reconstruct the cadence + identity of every poll
+    // (including the operationId of the dispatch that owned the parent
+    // task — stamped automatically by the event store via the active
+    // ALS scope from `runTasksAugmented`'s captured DispatchContext).
+    //
+    // Failure to emit is best-effort and intentionally swallowed: a
+    // `getTask` read MUST NOT fail because the audit-trail emission hit
+    // a transient I/O blip. The projection itself is unaffected (no
+    // `task.polled` handler in `projectTask` — it is a pure observability
+    // event, not a state transition).
+    try {
+      await this.store.append(taskStream(taskId), {
+        type: 'task.polled',
+        timestamp: new Date().toISOString(),
+        data: { taskId },
+      });
+    } catch {
+      // best-effort
+    }
     return { ...stored.task };
   }
 
