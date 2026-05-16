@@ -163,6 +163,33 @@ Note: the `target-checked-out-elsewhere` early-abort path runs *before* the resu
 | Omit `--strategy` / `strategy:` field expecting a default | Strategy is required; supply `squash` / `merge` / `rebase` explicitly |
 | Invoke from a subagent worktree | Preflight refuses (main-worktree assertion); invoke from the main worktree |
 
+## Diagnostics
+
+Set `EXARCHOS_PREFLIGHT_DEBUG=1` in the environment before invoking `merge_orchestrate` to attach a structured debug payload to `merge.preflight` events. The payload is gated on **two** conditions, both of which must hold:
+
+1. `EXARCHOS_PREFLIGHT_DEBUG=1` is present in the orchestrator process environment.
+2. The preflight's ancestry guard failed (i.e., `ancestry.passed === false`).
+
+Passing preflights do **not** carry the debug payload even when the env var is set — the failure-only gating is deliberate (event-store growth concern). A future `EXARCHOS_PREFLIGHT_DEBUG=2` channel may add verbose / passing-preflight diagnostics; that is out of scope for phase 1.
+
+The debug block carries nine fields:
+
+| Field | Source | Purpose |
+|-------|--------|---------|
+| `gitVersion` | `git --version` | Differentiate behaviors across git releases. |
+| `repoRoot` | `git rev-parse --show-toplevel` | Distinguish symlinked or normalized vs raw repo paths. |
+| `worktreeList` | `git worktree list --porcelain` | Surface sibling worktree topology that could affect ref resolution. |
+| `refsHeadsSource` | `git for-each-ref refs/heads/<source>` | SHA + packed-state of the source branch ref. |
+| `refsHeadsTarget` | `git for-each-ref refs/heads/<target>` | SHA + packed-state of the target branch ref. |
+| `mergeBaseCommand` | constructed | Exact argv re-run by the helper, including `'git'` prefix — copy-pasteable for the operator. |
+| `mergeBaseExitCode` | rerun of `git merge-base --is-ancestor <target> <source>` | The exit code that drove the ancestry failure. |
+| `mergeBaseStdout` | same invocation | Captured stdout. |
+| `mergeBaseStderr` | same invocation | Captured stderr (collapsed into stdout under the default git adapter). |
+
+Fail-closed: any individual git invocation that fails inside the debug helper degrades to an empty string / default value for that field rather than throwing. The debug attachment must never mask the underlying preflight failure the operator is trying to investigate.
+
+**Reporting workflow.** When you capture a debug-bearing event, attach the full `data.debug` block to a new GitHub issue tagged with relevant scope labels (e.g., `windows`, `merge-orchestrator`, `preflight`). Phase-2 root-cause analysis depends on at least one real-host event with this payload.
+
 ## Schema Discovery
 
 For the argument schema, call `mcp__exarchos__exarchos_orchestrate({ action: "describe", actions: ["merge_orchestrate"] })`. Event payload shapes come from `mcp__exarchos__exarchos_event({ action: "describe", eventTypes: ["merge.preflight", "merge.requested", "merge.executed", "merge.rollback"] })`.
