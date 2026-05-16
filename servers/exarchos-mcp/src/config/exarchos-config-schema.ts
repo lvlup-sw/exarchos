@@ -18,22 +18,6 @@ const safeCommand = z
   .min(1, 'must not be empty or whitespace-only')
   .regex(SAFE_COMMAND_REGEX, 'contains disallowed shell metacharacters');
 
-// #1262 — quality-hint thresholds.
-//
-// `qualityHints.outputTokenThreshold` is a fraction in (0, 1] that the
-// telemetry projection multiplies by the per-turn output-token cap (see
-// `capabilities/resolver.ts` `OUTPUT_TOKENS_PER_TURN_CAP`) to derive the
-// absolute token count above which an `output_tokens_high` checkpoint hint
-// is surfaced via `next_actions`. Default fraction is 0.8 when the field
-// is omitted; the config schema is `.strict()` so unknown fields are
-// rejected, hence the explicit nested key.
-const QualityHintsSchema = z
-  .object({
-    outputTokenThreshold: z.number().gt(0).lte(1).optional(),
-  })
-  .strict()
-  .optional();
-
 // #1244 — markdown-aware handoff lint switch.
 //
 // `handleCheckpoint` runs a prose-lint over the dispatch handoff payload
@@ -57,7 +41,6 @@ export const ExarchosConfigSchema = z
     test: safeCommand.optional(),
     typecheck: safeCommand.optional(),
     install: safeCommand.optional(),
-    qualityHints: QualityHintsSchema,
     handoffLint: HandoffLintConfigSchema.optional(),
   })
   .strict();
