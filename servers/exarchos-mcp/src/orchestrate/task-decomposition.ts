@@ -673,21 +673,11 @@ export async function handleTaskDecomposition(
     };
   }
 
-  // Prefer the sidecar (T15) when present + conformant.
+  // Prefer the sidecar (T15) when present + conformant for structural
+  // scoring. DAG and parallel-safety still derive from the markdown task
+  // graph, since the plan.v1 schema does not encode deps/parallel flags
+  // (B2 fix on PR #1406: prevent sidecar from bypassing those checks).
   const planSidecar = loadPlanSidecar(args.planPath);
-  if (planSidecar) {
-    const sidecarResult = evaluateTaskDecompositionFromSidecar(planSidecar);
-    try {
-      await emitGateEvent(eventStore, args.featureId, 'task-decomposition', 'planning', sidecarResult.passed, {
-        dimension: 'D5',
-        phase: 'plan',
-        wellDecomposed: sidecarResult.wellDecomposed,
-        needsRework: sidecarResult.needsRework,
-        totalTasks: sidecarResult.totalTasks,
-      });
-    } catch { /* fire-and-forget */ }
-    return { success: true, data: { ...sidecarResult, source: 'sidecar' as const } };
-  }
 
   // Read plan file
   let planContent: string;
@@ -701,6 +691,41 @@ export async function handleTaskDecomposition(
         message: err instanceof Error ? err.message : String(err),
       },
     };
+  }
+
+  if (planSidecar) {
+    const blocks = parseTaskBlocks(planContent);
+
+    // DAG validation against the markdown-declared dependency graph.
+    const dagTasks: DagTask[] = blocks.map((b) => ({
+      id: b.id,
+      deps: extractDependencies(b.content),
+    }));
+    const dagResult = validateDependencyDAG(dagTasks);
+
+    // Parallel safety from `**Parallelizable:** Yes` + declared files.
+    const parallelTasks: ParallelTask[] = blocks.map((b) => ({
+      id: b.id,
+      isParallel: isParallelizable(b.content),
+      files: extractFiles(b.content),
+    }));
+    const safetyResult = checkParallelSafety(parallelTasks);
+
+    const sidecarResult = evaluateTaskDecompositionFromSidecar(
+      planSidecar,
+      dagResult,
+      safetyResult,
+    );
+    try {
+      await emitGateEvent(eventStore, args.featureId, 'task-decomposition', 'planning', sidecarResult.passed, {
+        dimension: 'D5',
+        phase: 'plan',
+        wellDecomposed: sidecarResult.wellDecomposed,
+        needsRework: sidecarResult.needsRework,
+        totalTasks: sidecarResult.totalTasks,
+      });
+    } catch { /* fire-and-forget */ }
+    return { success: true, data: { ...sidecarResult, source: 'sidecar' as const } };
   }
 
   // Parse task blocks
@@ -847,11 +872,17 @@ export async function handleTaskDecomposition(
  * file, and a phase from the RED/GREEN/REFACTOR enum (already enforced by
  * the schema).
  *
- * Parallel safety + dependency DAG are no-ops in the sidecar path for now
- * — both inputs are absent from the v1 shape (deps/parallel flags would
- * widen the contract). Future schema revisions can add them.
+ * DAG validity and parallel safety are NOT encoded in plan.v1 today, so
+ * they are passed in by the caller after running the existing pure
+ * helpers against the markdown task graph (B2 fix on PR #1406:
+ * `dagValid: true, parallelSafe: true` previously hard-coded here let
+ * cyclic / file-conflicting plans pass any time a sidecar existed).
  */
-function evaluateTaskDecompositionFromSidecar(plan: PlanSidecarV1): {
+function evaluateTaskDecompositionFromSidecar(
+  plan: PlanSidecarV1,
+  dagResult: DagValidationResult,
+  safetyResult: ParallelSafetyResult,
+): {
   passed: boolean;
   wellDecomposed: number;
   needsRework: number;
@@ -875,8 +906,10 @@ function evaluateTaskDecompositionFromSidecar(plan: PlanSidecarV1): {
   }
 
   const totalTasks = plan.tasks.length;
-  const passed = needsRework === 0;
-  const report = [
+  const passed =
+    needsRework === 0 && dagResult.valid && safetyResult.safe;
+
+  const reportLines: string[] = [
     '## Task Decomposition Report (sidecar)',
     '',
     '| Task | Phase | Description | Files | Status |',
@@ -885,17 +918,31 @@ function evaluateTaskDecompositionFromSidecar(plan: PlanSidecarV1): {
     '',
     `- Well-decomposed: ${wellDecomposed}/${totalTasks}`,
     `- Needs rework: ${needsRework}/${totalTasks}`,
+    `- Dependency: ${dagResult.valid ? 'valid DAG' : `CYCLE DETECTED: ${dagResult.cyclePath ?? 'unknown'}`}`,
+    `- Parallel safety: ${safetyResult.safe ? 'clean' : `${safetyResult.conflicts.length} conflict(s)`}`,
     '',
-    passed ? '**Result: PASS**' : `**Result: FAIL** — ${needsRework} tasks need rework`,
-  ].join('\n');
+  ];
+
+  if (!safetyResult.safe) {
+    for (const conflict of safetyResult.conflicts) {
+      reportLines.push(`- ${conflict}`);
+    }
+    reportLines.push('');
+  }
+
+  reportLines.push(
+    passed
+      ? '**Result: PASS**'
+      : `**Result: FAIL** — ${needsRework} tasks need rework`,
+  );
 
   return {
     passed,
     wellDecomposed,
     needsRework,
     totalTasks,
-    dagValid: true,
-    parallelSafe: true,
-    report,
+    dagValid: dagResult.valid,
+    parallelSafe: safetyResult.safe,
+    report: reportLines.join('\n'),
   };
 }
