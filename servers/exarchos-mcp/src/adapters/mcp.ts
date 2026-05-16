@@ -11,6 +11,7 @@ import type { Envelope, ErrorEnvelope } from '../format.js';
 import { dispatch } from '../core/dispatch.js';
 import type { DispatchContext } from '../core/dispatch.js';
 import { EnvelopeSchema } from '../schemas/envelope.js';
+import { EventSourcedTaskStore } from '../task-store/event-sourced-task-store.js';
 
 // ─── D.4: LCD outputSchema advertised to MCP clients ────────────────────────
 //
@@ -174,6 +175,16 @@ function validateAgainstActionSchema(
  *    and `structuredContent` (the typed envelope payload) ride together.
  */
 export function createMcpServer(ctx: DispatchContext): McpServer {
+  // #1272 — canonical TaskStore wiring. The SDK's `InMemoryTaskStore`
+  // is demo-only (state lost on restart); EventSourcedTaskStore is the
+  // event-sourced production replacement that projects task lifecycle
+  // from the same event store the rest of dispatch writes to (INV-1).
+  // The store is created per-server because `EventSourcedTaskStore`
+  // owns a per-task in-memory cache that needs to live as long as the
+  // MCP session; the underlying durable substrate (`ctx.eventStore`)
+  // is shared across sessions.
+  const taskStore = new EventSourcedTaskStore(ctx.eventStore);
+
   const server = new McpServer(
     { name: SERVER_NAME, version: SERVER_VERSION },
     {
@@ -182,6 +193,7 @@ export function createMcpServer(ctx: DispatchContext): McpServer {
           'claude/channel': {},
         },
       },
+      taskStore,
     },
   );
 

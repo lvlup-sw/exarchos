@@ -29,6 +29,7 @@ import {
 } from './tools.js';
 import { handleStackStatus, handleStackPlace } from '../stack/tools.js';
 import { handleViewTelemetry } from '../telemetry/tools.js';
+import type { QualityHintsConfig } from '../capabilities/resolver.js';
 
 const viewActions = TOOL_REGISTRY.find(t => t.name === 'exarchos_view')!.actions;
 
@@ -155,10 +156,11 @@ export async function handleView(
           eventStore,
           // #1262 — thread the resolved `.exarchos.yml` so
           // `qualityHints.outputTokenThreshold` flows into the hint
-          // generator. Cast is the same shape both types declare; the
-          // resolver only reads the `qualityHints.outputTokenThreshold`
-          // slice (see `QualityHintsConfig`).
-          ctx.config as unknown as Parameters<typeof handleViewTelemetry>[3],
+          // generator. `ExarchosConfig` (from `exarchos-config-schema.ts`)
+          // structurally satisfies `QualityHintsConfig` — both expose
+          // `qualityHints?: { outputTokenThreshold?: number }` — so a
+          // narrowing assignment is sufficient. No `unknown` cast.
+          ctx.config satisfies QualityHintsConfig | undefined,
         ),
         startedAt,
       );

@@ -163,6 +163,20 @@ export const EventTypes = [
   // `operationId` from the active `DispatchContext` (#1291 / B1).
   'dispatch.preflight',
   'stash.detected',
+  // #1272 — EventSourcedTaskStore lifecycle events. Distinct from the
+  // workflow-orchestration `task.assigned`/`task.claimed`/`task.progressed`/
+  // `task.completed`/`task.failed` family above, these four describe the
+  // SDK-protocol task lifecycle (see
+  // `@modelcontextprotocol/sdk/experimental/tasks/interfaces.ts:TaskStore`).
+  // The EventSourcedTaskStore in `src/task-store/event-sourced-task-store.ts`
+  // emits these to durably back the in-memory projection it serves to the
+  // SDK; reads project state from the event stream alone (INV-1 event-sourcing
+  // integrity — see the REPLAY acceptance test in
+  // `event-sourced-task-store.test.ts`).
+  'task.created',
+  'task.polled',
+  'task.result',
+  'task.cancelled',
 ] as const;
 
 export type EventType = typeof EventTypes[number];
@@ -439,6 +453,14 @@ export const EVENT_EMISSION_REGISTRY: Record<EventType, EventEmissionSource> = {
   // in the worktree under dispatch.
   'dispatch.preflight': 'auto',
   'stash.detected': 'auto',
+
+  // #1272 — EventSourcedTaskStore lifecycle. Auto-emitted by the store
+  // on each protocol-level operation (createTask/getTask/getTaskResult/
+  // cancelTask). See EventTypes registration above.
+  'task.created': 'auto',
+  'task.polled': 'auto',
+  'task.result': 'auto',
+  'task.cancelled': 'auto',
 };
 
 // ─── Base Event Schema ──────────────────────────────────────────────────────
@@ -830,6 +852,21 @@ export const ToolActionErroredData = z.object({
   responseBytes: z.number(),
   tokenEstimate: z.number(),
 });
+
+// #1262 — per-turn output-token sample (CodeRabbit F2).
+//
+// Emitted by the telemetry middleware when an agent turn completes. The
+// telemetry projection (`telemetry/telemetry-projection.ts`) folds
+// `turnId` + `outputTokens` into `view.turns` for the `output_tokens_high`
+// quality hint. Anything else on the payload is ignored by the projection
+// today, so the schema is `.passthrough()` to keep the door open for
+// future per-turn samples (cache-read tokens, latency, etc.) without a
+// breaking schema bump.
+export const TurnCompletedDataSchema = z.object({
+  turnId: z.string().min(1).describe('Stable identifier for the turn (typically a UUID).'),
+  outputTokens: z.number().nonnegative().describe('Total output tokens consumed by the turn.'),
+}).passthrough();
+export type TurnCompletedData = z.infer<typeof TurnCompletedDataSchema>;
 
 // ─── Benchmark Event Data ───────────────────────────────────────────────────
 
@@ -1695,6 +1732,60 @@ export const StashDetectedData = z.object({
   stashRef: z.string().min(1),
 });
 
+// ─── EventSourcedTaskStore lifecycle (#1272) ───────────────────────────────
+//
+// Emitted by `src/task-store/event-sourced-task-store.ts` to durably back
+// the SDK `TaskStore` projection. See the file header on
+// `task-store/event-sourced-task-store.ts` for the lifecycle map and the
+// REPLAY acceptance test in `event-sourced-task-store.test.ts` for the
+// INV-1 event-sourcing-integrity contract these schemas enforce.
+//
+// `request` is typed `unknown` because it's the original JSON-RPC request
+// envelope from the SDK (caller-supplied, JSON-shaped); the schema cannot
+// usefully tighten it without taking a dependency on the SDK's request
+// type registry. The store stores it verbatim so a fresh `getTask` can
+// reconstruct what was originally asked. `ttl` matches the SDK contract
+// (`number | null`); null means "unlimited lifetime, no automatic
+// cleanup".
+
+/** Emitted on `createTask`. Captures the durable creation intent. */
+export const TaskCreatedData = z.object({
+  taskId: z.string().min(1),
+  createdBy: z.string().min(1).optional(),
+  ttl: z.union([z.number().int().nonnegative(), z.null()]),
+  request: z.unknown(),
+});
+
+/**
+ * Emitted on each `getTask` read. Sequence is the projection-sequence at
+ * the time of the poll (audit trail for "who polled when, against what
+ * projection version"). Optional in scope: callers may suppress emission
+ * for hot-path polls if poll frequency becomes a noise issue.
+ */
+export const TaskPolledData = z.object({
+  taskId: z.string().min(1),
+  sequence: z.number().int().nonnegative(),
+});
+
+/**
+ * Emitted on terminal task transitions. `status` is the SDK terminal
+ * surface (`completed | failed | cancelled`). `result` is the SDK
+ * `Result` envelope on success; `error` is a human-readable message on
+ * failure. Both are optional — `cancelled` terminals carry neither.
+ */
+export const TaskResultData = z.object({
+  taskId: z.string().min(1),
+  status: z.enum(['completed', 'failed', 'cancelled']),
+  result: z.unknown().optional(),
+  error: z.string().max(2000).optional(),
+});
+
+/** Emitted on `cancelTask`. Reason is required so audit can attribute. */
+export const TaskCancelledData = z.object({
+  taskId: z.string().min(1),
+  reason: z.string().min(1).max(500),
+});
+
 // ─── Event Data Schemas Map ─────────────────────────────────────────────────
 
 export const EVENT_DATA_SCHEMAS: Partial<Record<EventType, z.ZodSchema>> = {
@@ -1742,6 +1833,8 @@ export const EVENT_DATA_SCHEMAS: Partial<Record<EventType, z.ZodSchema>> = {
   'tool.errored': ToolErroredData,
   // PR3/T7 (#1364) — structured action-level failure event.
   'tool.action_errored': ToolActionErroredData,
+  // #1262 — per-turn output-token sample (CodeRabbit F2 on PR #1409).
+  'turn.completed': TurnCompletedDataSchema,
 
   // Benchmark
   'benchmark.completed': BenchmarkCompletedData,
@@ -1871,6 +1964,12 @@ export const EVENT_DATA_SCHEMAS: Partial<Record<EventType, z.ZodSchema>> = {
   // #1261 — dispatch-guard preflight observability
   'dispatch.preflight': DispatchPreflightData,
   'stash.detected': StashDetectedData,
+
+  // #1272 — EventSourcedTaskStore lifecycle
+  'task.created': TaskCreatedData,
+  'task.polled': TaskPolledData,
+  'task.result': TaskResultData,
+  'task.cancelled': TaskCancelledData,
 };
 
 // ─── TypeScript Types ───────────────────────────────────────────────────────
@@ -1982,6 +2081,12 @@ export type ElicitationFulfilled = z.infer<typeof ElicitationFulfilledData>;
 export type DispatchPreflight = z.infer<typeof DispatchPreflightData>;
 export type StashDetected = z.infer<typeof StashDetectedData>;
 
+// #1272 — EventSourcedTaskStore lifecycle
+export type TaskCreated = z.infer<typeof TaskCreatedData>;
+export type TaskPolled = z.infer<typeof TaskPolledData>;
+export type TaskResult = z.infer<typeof TaskResultData>;
+export type TaskCancelled = z.infer<typeof TaskCancelledData>;
+
 // ─── Event Data Map ─────────────────────────────────────────────────────────
 
 export type EventDataMap = {
@@ -2087,6 +2192,11 @@ export type EventDataMap = {
   // #1261 — dispatch-guard preflight observability
   'dispatch.preflight': DispatchPreflight;
   'stash.detected': StashDetected;
+  // #1272 — EventSourcedTaskStore lifecycle
+  'task.created': TaskCreated;
+  'task.polled': TaskPolled;
+  'task.result': TaskResult;
+  'task.cancelled': TaskCancelled;
 };
 
 // ─── Event Catalog Serialization ────────────────────────────────────────────
