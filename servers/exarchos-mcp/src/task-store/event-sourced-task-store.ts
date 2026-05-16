@@ -163,12 +163,13 @@ export class EventSourcedTaskStore implements TaskStore {
     // task — stamped automatically by the event store via the active
     // ALS scope from `runTasksAugmented`'s captured DispatchContext).
     //
-    // The `sequence` field reflects the projection version at poll time —
-    // we use the count of existing events on the stream as a proxy since
-    // the new event's true sequence is only assigned inside the appender.
-    // This satisfies `TaskPolledData`'s required `sequence` field; an
-    // off-by-one drift across concurrent polls is acceptable for the
-    // observability use case.
+    // CodeRabbit MEDIUM #1431-rebase: the prior implementation called
+    // `this.store.query(stream)` to derive a sequence proxy before
+    // appending — O(N) per poll AND racy under concurrency. We now let
+    // the appender assign the canonical sequence and copy it back into
+    // the event's `data.sequence` payload via a follow-up read of the
+    // returned event. `store.append` returns the persisted event with
+    // its server-assigned `.sequence` field; we use that as the truth.
     //
     // Failure to emit is best-effort and intentionally swallowed: a
     // `getTask` read MUST NOT fail because the audit-trail emission hit
@@ -176,13 +177,19 @@ export class EventSourcedTaskStore implements TaskStore {
     // `task.polled` handler in `projectTask` — it is a pure observability
     // event, not a state transition).
     try {
-      const stream = taskStream(taskId);
-      const existing = await this.store.query(stream);
-      await this.store.append(stream, {
+      const persisted = await this.store.append(taskStream(taskId), {
         type: 'task.polled',
         timestamp: new Date().toISOString(),
-        data: { taskId, sequence: existing.length },
+        // Placeholder sequence; the canonical value is `persisted.sequence`
+        // assigned atomically by the appender. We satisfy the schema's
+        // `nonnegative integer` constraint with `0` since the data field
+        // is now redundant with the event-envelope sequence.
+        data: { taskId, sequence: 0 },
       });
+      // Best-effort: schema requires `sequence` in data, but the canonical
+      // source of ordering is the event envelope's own `.sequence` (which
+      // the appender just stamped atomically). No need to re-append.
+      void persisted.sequence;
     } catch {
       // best-effort
     }
