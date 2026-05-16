@@ -38,6 +38,7 @@ import { EventSourcedTaskStore } from '../task-store/event-sourced-task-store.js
 import {
   isTaskAugmented,
   runTasksAugmented,
+  extractTaskOptions,
 } from './tasks-augmented.js';
 
 describe('tasks-augmented dispatch branch (#1273 / T28)', () => {
@@ -129,4 +130,98 @@ describe('tasks-augmented dispatch branch (#1273 / T28)', () => {
   // The cross-cutting assertion (one-shot envelope unchanged when `task` is
   // absent) lives in dispatch.test.ts so the unit there can use the real
   // dispatch entrypoint instead of the synthesis primitive.
+
+  // ─── CodeRabbit MAJOR #1431 follow-up: pollInterval validity contract ────
+  //
+  // The durable `TaskCreatedData.pollInterval` schema enforces
+  // `.int().positive().optional()` — `0`, negatives, NaN/Infinity, and
+  // fractional floats are rejected at append. The dispatch boundary
+  // (`extractTaskOptions`) MUST therefore reject those values too so a
+  // malformed caller can't slip past extraction and silently fail
+  // event-append validation downstream.
+
+  describe('extractTaskOptions / pollInterval validity contract', () => {
+    it('ExtractTaskOptions_PositivePollInterval_PreservesValue', () => {
+      expect(extractTaskOptions({ pollInterval: 250 }).pollInterval).toBe(250);
+    });
+
+    it('ExtractTaskOptions_ZeroPollInterval_DroppedForSchemaAlignment', () => {
+      // CodeRabbit MAJOR: `0` is degenerate (tight loop). Drop here so
+      // createTask default (1000) applies.
+      expect(extractTaskOptions({ pollInterval: 0 }).pollInterval).toBeUndefined();
+    });
+
+    it('ExtractTaskOptions_NegativePollInterval_Dropped', () => {
+      expect(extractTaskOptions({ pollInterval: -100 }).pollInterval).toBeUndefined();
+    });
+
+    it('ExtractTaskOptions_NaNAndInfinityPollInterval_Dropped', () => {
+      expect(extractTaskOptions({ pollInterval: Number.NaN }).pollInterval).toBeUndefined();
+      expect(extractTaskOptions({ pollInterval: Number.POSITIVE_INFINITY }).pollInterval).toBeUndefined();
+    });
+
+    it('ExtractTaskOptions_NonIntegerPollInterval_Dropped', () => {
+      // Schema is `.int()` — fractional milliseconds rejected.
+      expect(extractTaskOptions({ pollInterval: 0.5 }).pollInterval).toBeUndefined();
+      expect(extractTaskOptions({ pollInterval: 1.7 }).pollInterval).toBeUndefined();
+    });
+
+    it('ExtractTaskOptions_NonNegativeTtl_PreservedIncludingZero', () => {
+      // ttl=0 is semantically distinct from pollInterval=0: a 0ms TTL
+      // means "expire immediately". Schema allows nonnegative.
+      expect(extractTaskOptions({ ttl: 0 }).ttl).toBe(0);
+    });
+
+    it('ExtractTaskOptions_ArrayTaskValue_ReturnsEmpty', () => {
+      // Arrays are `typeof === 'object'` but are not the SDK shape.
+      expect(extractTaskOptions([])).toEqual({});
+      expect(extractTaskOptions([{ ttl: 5 }])).toEqual({});
+    });
+  });
+
+  // ─── CodeRabbit MAJOR #1431 follow-up: createTask defensive normalization ─
+
+  it('CreateTask_ZeroPollInterval_NormalizesToDefault', async () => {
+    const task = await taskStore.createTask(
+      { pollInterval: 0 },
+      'rq-zero',
+      { method: 'tools/call', params: { name: 'noop', arguments: {} } },
+    );
+    expect(task.pollInterval).toBe(1000);
+    const events = await eventStore.query(`task-store/${task.taskId}`);
+    const created = events.find((e) => e.type === 'task.created');
+    expect(created).toBeDefined();
+    expect((created!.data as { pollInterval?: number }).pollInterval).toBe(1000);
+  });
+
+  it('CreateTask_NegativePollInterval_NormalizesToDefault', async () => {
+    const task = await taskStore.createTask(
+      { pollInterval: -50 },
+      'rq-neg',
+      { method: 'tools/call', params: { name: 'noop', arguments: {} } },
+    );
+    expect(task.pollInterval).toBe(1000);
+  });
+
+  it('CreateTask_FractionalPollInterval_NormalizesToDefault', async () => {
+    const task = await taskStore.createTask(
+      { pollInterval: 0.5 },
+      'rq-frac',
+      { method: 'tools/call', params: { name: 'noop', arguments: {} } },
+    );
+    expect(task.pollInterval).toBe(1000);
+  });
+
+  it('CreateTask_PositivePollInterval_PersistsAndProjects', async () => {
+    const task = await taskStore.createTask(
+      { pollInterval: 250 },
+      'rq-ok',
+      { method: 'tools/call', params: { name: 'noop', arguments: {} } },
+    );
+    expect(task.pollInterval).toBe(250);
+    // REPLAY: fresh store reading the same event store reconstructs cadence.
+    const freshStore = new EventSourcedTaskStore(eventStore);
+    const replayed = await freshStore.getTask(task.taskId);
+    expect(replayed?.pollInterval).toBe(250);
+  });
 });
