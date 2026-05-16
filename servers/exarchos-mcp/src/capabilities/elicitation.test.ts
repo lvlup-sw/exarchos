@@ -3,6 +3,7 @@
 import { describe, it, expect } from 'vitest';
 import { z } from 'zod';
 import { deriveElicitationSchema } from './elicitation.js';
+import { zodToJsonSchema } from '../adapters/json-schema.js';
 
 describe('deriveElicitationSchema (#1274)', () => {
   it('ElicitationSchema_DerivedViaPick_MatchesInputSchema', () => {
@@ -16,13 +17,9 @@ describe('deriveElicitationSchema (#1274)', () => {
     });
 
     const derived = deriveElicitationSchema(inputSchema, 'target') as Record<string, unknown>;
-    const expected = (() => {
-      // Use the same internal adapter so the comparison pins the actual
-      // wire shape that callers will see (draft-2020-12, etc.).
-      // eslint-disable-next-line @typescript-eslint/no-var-requires
-      const { zodToJsonSchema } = require('../adapters/json-schema.js');
-      return zodToJsonSchema(inputSchema.pick({ target: true }));
-    })();
+    // Use the same internal adapter so the comparison pins the actual
+    // wire shape that callers will see (draft-2020-12, etc.).
+    const expected = zodToJsonSchema(inputSchema.pick({ target: true })) as Record<string, unknown>;
 
     // Shape comparison: the derived schema must declare the `target`
     // property and only the `target` property.
