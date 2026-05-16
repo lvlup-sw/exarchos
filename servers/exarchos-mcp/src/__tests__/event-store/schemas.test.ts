@@ -434,7 +434,10 @@ describe('EventTypes', () => {
     // #1262: bumped 104 → 105 to include `turn.completed`, which carries
     // the per-turn output-token sample the `output_tokens_high` quality
     // hint fires on (see `telemetry/quality-hints.ts`).
-    expect(EventTypes).toHaveLength(105);
+    // #1290: bumped 105 → 106 to include `workspace.resolved`, emitted
+    // by `workspace/discovery.ts` on roots-based or cwd-walk featureId
+    // inference at the dispatch boundary.
+    expect(EventTypes).toHaveLength(106);
   });
 
   it('should include workflow-level types', () => {
