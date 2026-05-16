@@ -93,6 +93,12 @@ export function createInMemoryResolver(
     },
     snapshot(handshake) {
       clientRootsDeclared = handshake.capabilities?.roots?.listChanged === true;
+      // CodeRabbit MAJOR #1423: roots/list cache is handshake-scoped — any
+      // cached roots from a prior handshake belong to a different client
+      // session and must not carry over. Clearing here forces the first
+      // `getCachedRoots()` after a new handshake to return `undefined`, so
+      // the workspace resolver re-fetches via the new client's roots/list.
+      cachedRoots = undefined;
     },
     isRootsDeclared() {
       return clientRootsDeclared;

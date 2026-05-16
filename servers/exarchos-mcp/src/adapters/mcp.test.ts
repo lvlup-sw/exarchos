@@ -638,6 +638,61 @@ describe('createMcpServer', () => {
     spy.mockRestore();
   });
 
+  it('CreateMcpServer_OninitializedFires_CallsCapabilityResolverSnapshot', async () => {
+    // Sentry HIGH #1423: pre-fix the MCP wiring never called
+    // `capabilityResolver.snapshot()` on the initialize handshake, so
+    // `isRootsDeclared()` stayed `false` and roots-based discovery was
+    // dead code. Pin the oninitialized → snapshot bridge.
+    const { createMcpServer } = await import('./mcp.js');
+    const resolver = createInMemoryResolver(['mcp:exarchos:readonly']);
+    const snapshotSpy = vi.spyOn(resolver, 'snapshot');
+    const ctxWithResolver: DispatchContext = { ...ctx, capabilityResolver: resolver };
+
+    const server = createMcpServer(ctxWithResolver);
+
+    // The wiring registers an `oninitialized` callback on the underlying
+    // low-level Server. Direct invocation simulates the post-handshake
+    // moment without needing a transport.
+    expect(typeof server.server.oninitialized).toBe('function');
+    server.server.oninitialized?.();
+
+    expect(snapshotSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('CreateMcpServer_RootsListChangedNotificationHandler_IsRegistered', async () => {
+    // Sentry HIGH #1423 + CodeRabbit MAJOR #1423: the `roots/list_changed`
+    // notification handler was defined in mcp/notifications.ts but never
+    // registered. Spy on the underlying Server's setNotificationHandler
+    // call pattern via a Server.prototype intercept so a fresh
+    // createMcpServer call surfaces the registration.
+    const { Server } = await import('@modelcontextprotocol/sdk/server/index.js');
+    const setNotifSpy = vi.spyOn(Server.prototype, 'setNotificationHandler');
+    try {
+      const { createMcpServer } = await import('./mcp.js');
+      const resolver = createInMemoryResolver(['mcp:exarchos:readonly']);
+      createMcpServer({ ...ctx, capabilityResolver: resolver });
+      // At least one setNotificationHandler call must reference the
+      // roots/list_changed schema — the registration anchor.
+      const calledWithRootsListChanged = setNotifSpy.mock.calls.some((call) => {
+        const schema = call[0] as { shape?: { method?: { value?: string } } };
+        return schema?.shape?.method?.value === 'notifications/roots/list_changed';
+      });
+      expect(calledWithRootsListChanged).toBe(true);
+    } finally {
+      setNotifSpy.mockRestore();
+    }
+  });
+
+  it('CreateMcpServer_NoCapabilityResolver_SkipsHandshakeWiring', async () => {
+    // Defensive: if the caller supplies no capabilityResolver (today only
+    // hypothetical, but the field is optional on DispatchContext), the
+    // handshake wiring must skip cleanly rather than throw on
+    // `resolver.snapshot()` against undefined.
+    const { createMcpServer } = await import('./mcp.js');
+    const server = createMcpServer({ ...ctx, capabilityResolver: undefined });
+    expect(server.server.oninitialized).toBeUndefined();
+  });
+
   it('CreateMcpServer_SlimRegistration_UsesSlimDescriptions', async () => {
     // Arrange: create context with slimRegistration enabled
     const slimCtx: DispatchContext = { ...ctx, slimRegistration: true };

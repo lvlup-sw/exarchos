@@ -1569,7 +1569,19 @@ export const MigrationWorkflowTypeUnknownData = z.object({
  */
 export const WorkspaceResolvedData = z.object({
   source: z.enum(['roots', 'cwd']),
-  path: z.string().min(1),
+  // CodeRabbit MINOR #1423: docstring above declares `path` as the
+  // absolute workspace root; pre-fix the schema only required `min(1)`
+  // so a relative path could slip past validation. Refine to accept
+  // either a POSIX absolute path (`/foo/bar`) or a Windows absolute
+  // path (`C:\foo`) — both shipped surfaces use `path.resolve()` so
+  // either form may legitimately appear depending on host platform.
+  path: z
+    .string()
+    .min(1)
+    .refine(
+      (p) => path.posix.isAbsolute(p) || path.win32.isAbsolute(p),
+      { message: 'path must be absolute (POSIX or Windows)' },
+    ),
   featureId: z.string().min(1),
 });
 

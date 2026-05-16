@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { RootsListChangedNotificationSchema } from '@modelcontextprotocol/sdk/types.js';
 import {
   getFullRegistry,
   buildRegistrationSchema,
@@ -10,7 +11,10 @@ import { toEnvelope } from '../format.js';
 import type { Envelope, ErrorEnvelope } from '../format.js';
 import { dispatch } from '../core/dispatch.js';
 import type { DispatchContext } from '../core/dispatch.js';
+import { handleRootsListChanged } from '../mcp/notifications.js';
+import type { RootsClient } from '../workspace/discovery.js';
 import { EnvelopeSchema } from '../schemas/envelope.js';
+import { logger } from '../logger.js';
 
 // ─── D.4: LCD outputSchema advertised to MCP clients ────────────────────────
 //
@@ -185,6 +189,61 @@ export function createMcpServer(ctx: DispatchContext): McpServer {
     },
   );
 
+  // ─── #1290 — Roots-based workspace discovery wiring (Sentry HIGH #1423) ──
+  // The capability resolver is constructed up in index.ts / context.ts but
+  // the MCP handshake observers — initialize callback + roots/list_changed
+  // notification handler + RootsClient adapter — must be wired here, after
+  // the McpServer is constructed, because they all depend on
+  // `server.server` (the underlying low-level Server instance).
+  //
+  // Pre-fix, none of these were wired: `resolver.snapshot()` was never
+  // called, so `isRootsDeclared()` stayed `false` forever and the
+  // dispatch-side check at dispatch.ts:504 always fell back to cwd-walk.
+  // `ctx.rootsClient` was never set, so even if isRootsDeclared() had
+  // flipped, the discovery branch would have skipped roots entirely.
+  // The notification handler defined in mcp/notifications.ts was unused.
+  //
+  // The augmented `dispatchCtx` below threads the rootsClient adapter
+  // through to dispatch; the resolver snapshot fires on the client's
+  // `initialized` notification (fully-handshaken state).
+  const rootsClient: RootsClient = {
+    list: async () => {
+      const result = await server.server.listRoots();
+      return result.roots.map((r) => ({ uri: r.uri }));
+    },
+  };
+  const dispatchCtx: DispatchContext = { ...ctx, rootsClient };
+
+  if (ctx.capabilityResolver !== undefined) {
+    const resolver = ctx.capabilityResolver;
+    server.server.oninitialized = () => {
+      try {
+        const capabilities = server.server.getClientCapabilities();
+        resolver.snapshot({ capabilities });
+      } catch (err) {
+        // Snapshot must never throw out of an MCP lifecycle hook —
+        // failure here only degrades discovery to the cwd-walk fallback.
+        logger.child({ subsystem: 'mcp-handshake' }).warn(
+          { error: err instanceof Error ? err.message : String(err) },
+          'capability resolver snapshot failed during MCP initialize',
+        );
+      }
+    };
+    server.server.setNotificationHandler(
+      RootsListChangedNotificationSchema,
+      async () => {
+        try {
+          handleRootsListChanged(resolver);
+        } catch (err) {
+          logger.child({ subsystem: 'mcp-handshake' }).warn(
+            { error: err instanceof Error ? err.message : String(err) },
+            'roots/list_changed handler failed; cache may be stale',
+          );
+        }
+      },
+    );
+  }
+
   for (const tool of getFullRegistry()) {
     // Tier model — INTENTIONAL asymmetry between MCP and CLI surfaces.
     //
@@ -214,7 +273,7 @@ export function createMcpServer(ctx: DispatchContext): McpServer {
     const mcpHandler = async (args: Record<string, unknown>) => {
       let env: Envelope<unknown> | ErrorEnvelope;
       try {
-        const result = await dispatch(toolName, args, ctx);
+        const result = await dispatch(toolName, args, dispatchCtx);
         env = toEnvelope(result);
       } catch (error) {
         env = toEnvelope({
