@@ -395,6 +395,92 @@ describe('CheckTaskDecomposition', () => {
     }
   });
 
+  // C1 (#1298, CodeRabbit third pass): sidecar word-count threshold drifted
+  // from the regex path (>= 5 words) while the regex path requires > 10
+  // (i.e. 11+). Unify on the regex behaviour so a task with 6–10 words is
+  // rejected via the sidecar path too — the schema alone is not enough.
+  it('SidecarTaskDescriptionShort_RejectedConsistent', async () => {
+    const planDir = join(workDir, 'plans');
+    mkdirSync(planDir, { recursive: true });
+    const planPath = join(planDir, '2026-05-15-short-desc.md');
+
+    // Markdown task graph is conformant for DAG / parallel-safety checks
+    // (no cycles, no shared files among parallelizable tasks). The sidecar
+    // descriptions, however, are 7 and 8 words — above the legacy `>= 5`
+    // threshold, below the regex-path `> 10` threshold. These tasks must
+    // be reported as needing rework.
+    const markdown = `# Plan
+
+## Tasks
+
+### Task T-01: First task with conformant markdown description body
+
+**Goal:** First task with enough descriptive words for the structural validator to pass cleanly.
+
+**Files:** \`src/a.ts\`
+
+**Tests:** [RED] First_Test
+
+**Dependencies:** none
+
+**Parallelizable:** No
+
+### Task T-02: Second task with conformant markdown description body
+
+**Goal:** Second task with enough descriptive words for the structural validator to pass cleanly.
+
+**Files:** \`src/b.ts\`
+
+**Tests:** [RED] Second_Test
+
+**Dependencies:** T-01
+
+**Parallelizable:** No
+`;
+    writeFileSync(planPath, markdown, 'utf-8');
+
+    const shortDescSidecar = `schema: plan.v1
+tasks:
+  - id: T-01
+    phase: RED
+    description: Seven word description that exceeds five words
+    files: [src/a.ts]
+  - id: T-02
+    phase: GREEN
+    description: Eight word description that still fails eleven threshold
+    files: [src/b.ts]
+coverage:
+  DR-1: [T-01, T-02]
+provenance:
+  - { taskId: T-01, dr: DR-1 }
+  - { taskId: T-02, dr: DR-1 }
+`;
+    writeFileSync(sidecarPathForTest(planPath), shortDescSidecar, 'utf-8');
+
+    const result = await handleTaskDecomposition(
+      { featureId: 'feat', planPath },
+      workDir,
+      mockStore,
+    );
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      const data = result.data as {
+        passed: boolean;
+        needsRework: number;
+        wellDecomposed: number;
+        totalTasks: number;
+        source?: string;
+      };
+      expect(data.source).toBe('sidecar');
+      // Both tasks should be flagged as needing rework — 7 and 8 words
+      // are below the unified 11-word threshold.
+      expect(data.needsRework).toBe(2);
+      expect(data.wellDecomposed).toBe(0);
+      expect(data.passed).toBe(false);
+    }
+  });
+
   it('SidecarPresentWithFileConflict_ReportsParallelUnsafe', async () => {
     const planDir = join(workDir, 'plans');
     mkdirSync(planDir, { recursive: true });
