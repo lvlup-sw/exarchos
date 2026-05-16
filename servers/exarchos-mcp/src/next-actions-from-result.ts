@@ -13,10 +13,72 @@
 // are possible and must not poison the envelope. Invoked at most once per
 // composite call.
 
+import { z } from 'zod';
 import type { ToolResult } from './format.js';
+import { logger } from './logger.js';
 import type { NextAction } from './next-action.js';
 import { computeNextActions } from './next-actions-computer.js';
+import {
+  RehydrationMergeOrchestratorSchema,
+  WorkflowStateSchema,
+} from './projections/rehydration/schema.js';
 import { getHSMDefinition } from './workflow/state-machine.js';
+
+/**
+ * Structured logger child for fail-closed parse warnings (#1238).
+ * Exported so unit tests can `vi.spyOn(nextActionsLogger, 'warn')` to assert
+ * the malformed-payload fail-closed branch.
+ */
+export const nextActionsLogger = logger.child({ subsystem: 'next-actions' });
+
+// ─── #1238 ResultDataSchema discriminated union ─────────────────────────────
+//
+// The parser body previously used `Record<string, unknown>` casts and inline
+// `typeof` guards to dig phase / workflowType / featureId / mergeOrchestrator
+// out of `result.data`. #1238 replaces that with a Zod union of two shapes so
+// the contract is declarative and a malformed payload fails closed rather
+// than silently degrading.
+//
+// `.passthrough()` keeps unknown sibling fields (handler payloads carry many
+// extra fields — taskProgress, decisions, etc.) — we only validate the
+// fields this helper reads.
+
+/** Shape 1 — handler payload (`handleInit` / `handleGet` / `handleSet`). */
+export const ShapeOneSchema = z
+  .object({
+    phase: z.string(),
+    workflowType: z.string(),
+    featureId: z.string().optional(),
+    mergeOrchestrator: RehydrationMergeOrchestratorSchema.optional(),
+  })
+  .passthrough();
+
+/** Shape 2 — rehydration document (`handleRehydrate`). */
+export const ShapeTwoSchema = z
+  .object({
+    workflowState: WorkflowStateSchema,
+  })
+  .passthrough();
+
+/**
+ * The two recognised workflow-context payload shapes. A success-envelope
+ * payload that carries a discriminator key but fails this union is treated
+ * as malformed (warn + `[]`) at the fail-closed boundary in
+ * `nextActionsFromResult`. Payloads without any discriminator key are
+ * non-workflow responses (event-store / view composite / describe) and are
+ * not parsed against this schema at all.
+ */
+export const ResultDataSchema = z.union([ShapeOneSchema, ShapeTwoSchema]);
+
+export type ResultData = z.infer<typeof ResultDataSchema>;
+
+/**
+ * Discriminator keys that indicate a payload is *attempting* to carry
+ * workflow context (even if the types are wrong). Used to distinguish a
+ * legitimate non-workflow payload (silent `[]`) from a malformed workflow
+ * payload (warn + `[]`).
+ */
+const CONTEXT_DISCRIMINATOR_KEYS = ['phase', 'workflowType', 'workflowState'] as const;
 
 /**
  * Extract workflow state from a successful `ToolResult` and compute the
@@ -42,53 +104,66 @@ import { getHSMDefinition } from './workflow/state-machine.js';
  * `merge_orchestrate` surfacing branch.
  */
 export function nextActionsFromResult(result: ToolResult): readonly NextAction[] {
+  // Legitimate no-actions paths — describe/list/status actions, error
+  // envelopes, view composites. These MUST NOT warn: they're expected to be
+  // empty.
   if (!result.success) return [];
   const data = result.data;
-  if (data === null || typeof data !== 'object') return [];
+  if (data === null || data === undefined || typeof data !== 'object') return [];
 
-  const dataRecord = data as Record<string, unknown>;
-  // Shape 1 — workflow-handler payload.
-  let phase = typeof dataRecord.phase === 'string' ? dataRecord.phase : undefined;
-  let workflowType =
-    typeof dataRecord.workflowType === 'string' ? dataRecord.workflowType : undefined;
-  let featureId =
-    typeof dataRecord.featureId === 'string' ? dataRecord.featureId : undefined;
-  let mergeOrchestrator: { taskId?: string; phase?: string } | undefined;
-  if (
-    typeof dataRecord.mergeOrchestrator === 'object' &&
-    dataRecord.mergeOrchestrator !== null
-  ) {
-    const mo = dataRecord.mergeOrchestrator as Record<string, unknown>;
-    mergeOrchestrator = {
-      ...(typeof mo.taskId === 'string' ? { taskId: mo.taskId } : {}),
-      ...(typeof mo.phase === 'string' ? { phase: mo.phase } : {}),
-    };
+  // Fail-closed parse boundary (#1238). Three cases:
+  //
+  //   1. Payload carries none of the workflow-context discriminator keys
+  //      (phase / workflowType / workflowState). It's an event-store /
+  //      view-composite / describe response — return [] silently.
+  //   2. Payload carries at least one discriminator key but ResultDataSchema
+  //      rejects it — malformed (wrong types, missing required nested
+  //      fields). Warn and return [].
+  //   3. Payload parses as ShapeOne, ShapeTwo, or both — proceed.
+  //
+  // `Reflect.has` is the structural attempt-detector; it does not introspect
+  // value types (that's the schema's job).
+  const attemptedContext = CONTEXT_DISCRIMINATOR_KEYS.some((k) =>
+    Reflect.has(data, k),
+  );
+  if (!attemptedContext) return [];
+
+  const parsed = ResultDataSchema.safeParse(data);
+  if (!parsed.success) {
+    nextActionsLogger.warn(
+      { issues: parsed.error.issues },
+      'malformed result.data — failed ResultDataSchema parse; returning [].',
+    );
+    return [];
   }
 
-  // Shape 2 — rehydration document. Backfill any field shape 1 did not
-  // populate. Read `mergeOrchestrator` regardless of whether shape 1 had
-  // phase/workflowType: handler payloads (shape 1) carry phase + workflowType
-  // at the top level but typically NOT mergeOrchestrator; that field lives on
-  // the workflowState segment. Without this backfill, a payload with both
-  // top-level phase + nested workflowState.mergeOrchestrator would drop the
-  // merge-orchestration context and miss `merge_orchestrate` in next_actions.
-  if (typeof dataRecord.workflowState === 'object' && dataRecord.workflowState !== null) {
-    const ws = dataRecord.workflowState as Record<string, unknown>;
-    if (!phase && typeof ws.phase === 'string') phase = ws.phase;
-    if (!workflowType && typeof ws.workflowType === 'string') {
-      workflowType = ws.workflowType;
-    }
-    if (!featureId && typeof ws.featureId === 'string') featureId = ws.featureId;
-    if (
-      mergeOrchestrator === undefined &&
-      typeof ws.mergeOrchestrator === 'object' &&
-      ws.mergeOrchestrator !== null
-    ) {
-      const mo = ws.mergeOrchestrator as Record<string, unknown>;
-      mergeOrchestrator = {
-        ...(typeof mo.taskId === 'string' ? { taskId: mo.taskId } : {}),
-        ...(typeof mo.phase === 'string' ? { phase: mo.phase } : {}),
-      };
+  // The union parses non-greedily on the first matching shape. To preserve
+  // the existing semantics — shape-1 fields take precedence; mergeOrchestrator
+  // backfilled from workflowState even when shape 1 supplies phase — read
+  // both shapes independently. Both safeParses are cheap (the data already
+  // matched at least one shape).
+  const shapeOne = ShapeOneSchema.safeParse(data);
+  const shapeTwo = ShapeTwoSchema.safeParse(data);
+
+  let phase: string | undefined;
+  let workflowType: string | undefined;
+  let featureId: string | undefined;
+  let mergeOrchestrator: { taskId?: string; phase?: string } | undefined;
+
+  if (shapeOne.success) {
+    phase = shapeOne.data.phase;
+    workflowType = shapeOne.data.workflowType;
+    featureId = shapeOne.data.featureId;
+    mergeOrchestrator = shapeOne.data.mergeOrchestrator;
+  }
+
+  if (shapeTwo.success) {
+    const ws = shapeTwo.data.workflowState;
+    if (!phase) phase = ws.phase;
+    if (!workflowType) workflowType = ws.workflowType;
+    if (!featureId) featureId = ws.featureId;
+    if (mergeOrchestrator === undefined && ws.mergeOrchestrator !== undefined) {
+      mergeOrchestrator = ws.mergeOrchestrator;
     }
   }
 

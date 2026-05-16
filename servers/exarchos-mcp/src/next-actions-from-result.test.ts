@@ -10,8 +10,12 @@
 // Pre-fix only shape 1 was extracted, so rehydrate envelopes always returned
 // `next_actions: []` even when the merge-pending detour was active. These
 // tests pin shape 2 + the merge_orchestrate surfacing branch.
-import { describe, it, expect } from 'vitest';
-import { nextActionsFromResult } from './next-actions-from-result.js';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import {
+  nextActionsFromResult,
+  nextActionsLogger,
+  ResultDataSchema,
+} from './next-actions-from-result.js';
 import type { ToolResult } from './format.js';
 import { rehydrationReducer } from './projections/rehydration/reducer.js';
 import type { WorkflowEvent } from './event-store/schemas.js';
@@ -147,6 +151,135 @@ describe('nextActionsFromResult — shape recognition', () => {
     expect(actions.some((a) => a.verb === 'merge_orchestrate')).toBe(true);
     const mo = actions.find((a) => a.verb === 'merge_orchestrate');
     expect(mo?.idempotencyKey).toBe('top-level-mo:merge_orchestrate:099');
+  });
+
+  // ─── #1238 ResultDataSchema discriminated union coverage ──────────────────
+  //
+  // The parser body previously used `Record<string, unknown>` casts and inline
+  // `typeof` guards. #1238 replaces that with a Zod union of two shapes plus
+  // a fail-closed `safeParse` boundary. These tests pin both shapes plus the
+  // malformed → warn-and-[] case.
+
+  describe('#1238 ResultDataSchema discriminated union', () => {
+    it('NextActionsFromResult_WorkflowHandlerPayload_ParsesShapeOne', () => {
+      // Shape 1 — top-level phase + workflowType (+ optional featureId /
+      // mergeOrchestrator). Parses via ShapeOneSchema in the union.
+      const parsed = ResultDataSchema.safeParse({
+        phase: 'merge-pending',
+        workflowType: 'feature',
+        featureId: 'shape-one',
+        mergeOrchestrator: { taskId: '007', phase: 'pending' },
+      });
+      expect(parsed.success).toBe(true);
+
+      const actions = nextActionsFromResult(
+        ok({
+          phase: 'merge-pending',
+          workflowType: 'feature',
+          featureId: 'shape-one',
+          mergeOrchestrator: { taskId: '007', phase: 'pending' },
+        }),
+      );
+      const mo = actions.find((a) => a.verb === 'merge_orchestrate');
+      expect(mo).toBeDefined();
+      expect(mo?.idempotencyKey).toBe('shape-one:merge_orchestrate:007');
+    });
+
+    it('NextActionsFromResult_RehydrationDocument_ParsesShapeTwo', () => {
+      // Shape 2 — `{ workflowState: { phase, workflowType, featureId,
+      // mergeOrchestrator } }`. Parses via ShapeTwoSchema in the union.
+      const parsed = ResultDataSchema.safeParse({
+        workflowState: {
+          featureId: 'shape-two',
+          phase: 'merge-pending',
+          workflowType: 'feature',
+          mergeOrchestrator: { taskId: '042', phase: 'pending' },
+        },
+      });
+      expect(parsed.success).toBe(true);
+
+      const actions = nextActionsFromResult(
+        ok({
+          workflowState: {
+            featureId: 'shape-two',
+            phase: 'merge-pending',
+            workflowType: 'feature',
+            mergeOrchestrator: { taskId: '042', phase: 'pending' },
+          },
+        }),
+      );
+      const mo = actions.find((a) => a.verb === 'merge_orchestrate');
+      expect(mo).toBeDefined();
+      expect(mo?.idempotencyKey).toBe('shape-two:merge_orchestrate:042');
+    });
+
+    describe('NextActionsFromResult_MalformedPayload_FailsClosed', () => {
+      let warnSpy: ReturnType<typeof vi.spyOn>;
+
+      beforeEach(() => {
+        warnSpy = vi
+          .spyOn(nextActionsLogger, 'warn')
+          .mockImplementation(() => undefined as never);
+      });
+
+      afterEach(() => {
+        warnSpy.mockRestore();
+      });
+
+      it('returns [] and warns on a payload matching neither shape', () => {
+        // Payload that doesn't satisfy ShapeOneSchema (no string phase /
+        // workflowType at top level) AND doesn't satisfy ShapeTwoSchema
+        // (workflowState missing required featureId string). This must
+        // fail-closed: return [] AND log a warning so the malformed payload
+        // is surfaced rather than silently swallowed.
+        const actions = nextActionsFromResult(
+          ok({
+            phase: 42, // wrong type for ShapeOne
+            workflowState: {
+              // missing required `featureId`, wrong type on `phase`
+              phase: false,
+              workflowType: 'feature',
+            },
+          }),
+        );
+        expect(actions).toEqual([]);
+        expect(warnSpy).toHaveBeenCalled();
+      });
+    });
+
+    it('NextActionsFromResult_NonSuccessResult_ReturnsEmptyArray', () => {
+      // Legitimate no-actions path: error envelope. Must NOT log a warning —
+      // only malformed-success payloads warn.
+      const warnSpy = vi
+        .spyOn(nextActionsLogger, 'warn')
+        .mockImplementation(() => undefined as never);
+      try {
+        const result: ToolResult = {
+          success: false,
+          error: { code: 'X', message: 'no' },
+        };
+        expect(nextActionsFromResult(result)).toEqual([]);
+        expect(warnSpy).not.toHaveBeenCalled();
+      } finally {
+        warnSpy.mockRestore();
+      }
+    });
+
+    it('NextActionsFromResult_NullData_ReturnsEmptyArray', () => {
+      // Legitimate no-actions path: success envelope with null/non-object
+      // data (describe / list / status actions). Must NOT warn.
+      const warnSpy = vi
+        .spyOn(nextActionsLogger, 'warn')
+        .mockImplementation(() => undefined as never);
+      try {
+        expect(nextActionsFromResult(ok(null))).toEqual([]);
+        expect(nextActionsFromResult(ok(undefined))).toEqual([]);
+        expect(nextActionsFromResult(ok('string-payload'))).toEqual([]);
+        expect(warnSpy).not.toHaveBeenCalled();
+      } finally {
+        warnSpy.mockRestore();
+      }
+    });
   });
 
   it('returns [] for unknown workflowType in shape 2', () => {
