@@ -8,6 +8,7 @@ import type { Outbox } from '../sync/outbox.js';
 import type { ChannelEmitter } from '../channel/emitter.js';
 import type { CapabilityResolver } from '../capabilities/resolver.js';
 import type { StorageBackend } from '../storage/backend.js';
+import type { RootsClient } from '../workspace/discovery.js';
 import { hasCustomToolHandlers, getCustomToolActionHandler, getFullRegistry } from '../registry.js';
 import {
   formatValidationError,
@@ -74,6 +75,25 @@ export interface DispatchContext {
    * is no JSONL fallback any more.
    */
   readonly storage?: StorageBackend;
+  /**
+   * MCP roots-list adapter (#1290). When the client declares the
+   * `roots` capability via the initialize handshake (recorded on the
+   * {@link CapabilityResolver}), dispatch calls this adapter to fetch
+   * the workspace roots for boundary-level `featureId` inference. The
+   * resolver caches the result; `notifications/roots/list_changed`
+   * invalidates the cache via `mcp/notifications.ts`.
+   *
+   * Optional — CLI / direct-call contexts omit it and dispatch falls
+   * back to the cwd-walk branch inside `resolveWorkspace`.
+   */
+  readonly rootsClient?: RootsClient;
+  /**
+   * Working directory threaded through dispatch so the cwd-walk fallback
+   * in {@link resolveWorkspace} (#1290) has a deterministic starting
+   * point that the caller controls. Defaults to `process.cwd()` when
+   * absent — exercised in tests that inject a workspace fixture path.
+   */
+  readonly cwd?: string;
 }
 
 // ─── T04: Server-side Read-only Action Allowlist (Issue #1192) ─────────────
@@ -468,7 +488,54 @@ export async function dispatch(
       };
     }
 
-    const { action: _action, ...rest } = args;
+    let { action: _action, ...rest } = args;
+
+    // ─── #1290 — Roots-based featureId inference ─────────────────────────
+    // Resolution priority: explicit > roots > cwd. If the caller already
+    // supplied a `featureId`, we leave it alone. Otherwise, if the client
+    // declared the MCP roots capability (snapshotted on the resolver via
+    // the initialize handshake), call `resolveWorkspace` to attempt
+    // inference from the cached roots list or a cwd-walk fallback.
+    //
+    // Multi-match returns a structured INVALID_INPUT here so the caller
+    // can disambiguate; zero-match falls through to the existing per-
+    // action Zod validation, which surfaces the legacy "featureId is
+    // required" envelope unchanged.
+    if (rest.featureId === undefined && ctx.capabilityResolver !== undefined) {
+      try {
+        const { resolveWorkspace } = await import('../workspace/discovery.js');
+        const resolution = await resolveWorkspace({
+          resolver: ctx.capabilityResolver,
+          rootsClient: ctx.rootsClient,
+          cwd: ctx.cwd ?? process.cwd(),
+          eventStore: ctx.eventStore,
+        });
+        if (resolution !== undefined) {
+          if (resolution.success) {
+            rest = { ...rest, featureId: resolution.featureId };
+          } else {
+            // Multi-match. Surface the structured INVALID_INPUT so the
+            // caller can pick the intended target.
+            return {
+              success: false,
+              error: {
+                code: resolution.code,
+                message:
+                  `${tool}/${actionName}: multiple workspaces matched MCP roots; ` +
+                  'supply an explicit featureId to disambiguate.',
+                validTargets: resolution.validTargets,
+              },
+            };
+          }
+        }
+      } catch {
+        // Discovery is a best-effort inference hook — a failure must not
+        // mask the legacy validation contract. Fall through to the
+        // existing schema check; callers see the standard "featureId
+        // is required" envelope.
+      }
+    }
+
     // Tolerant Dispatch (#1188): the MCP SDK validates against the flattened
     // parent schema (buildRegistrationSchema) and applies sibling-action
     // defaults (e.g. `nativeIsolation` from prepare_delegation, `outputFormat`
