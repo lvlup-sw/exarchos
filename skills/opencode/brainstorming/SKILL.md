@@ -45,7 +45,7 @@ For a complete worked example, see `references/worked-example.md`.
 
 **Emit format (before Phase 1 questions):**
 
-```
+```markdown
 ## Constraints
 
 Anchored to docs/architecture/invariants.md:
