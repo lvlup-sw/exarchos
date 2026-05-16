@@ -787,7 +787,20 @@ export async function dispatch(
       // (CLI cold-start, in-process tests that omit the wiring), we fall
       // back to the one-shot path so callers that legitimately have no
       // task substrate don't crash.
-      if (taskAugmented && ctx.taskStore) {
+      // ─── #1273 / T32 — capability-negotiation gate ─────────────────────
+      // The augmentation only fires when the client declared the `tasks`
+      // capability in the MCP initialize handshake. The CLI / in-process
+      // callers do NOT have a resolver wired (no handshake to snapshot),
+      // so we treat an absent resolver as "not gated" — direct callers
+      // that thread `task: {ttl}` opt themselves in (C3's CLI --follow
+      // bypass relies on this absent-resolver fallback). Defence-in-depth:
+      // an MCP client that never advertised tasks support cannot opt in
+      // by smuggling a `task` key into args; capability negotiation
+      // wins.
+      const taskCapabilityGate =
+        ctx.capabilityResolver === undefined ||
+        ctx.capabilityResolver.isTaskSupportDeclared();
+      if (taskAugmented && ctx.taskStore && taskCapabilityGate) {
         const taskOptions = extractTaskOptions(taskOptionsRaw);
         // Build the SDK Request envelope from the dispatch args. The MCP
         // adapter (C2) supplies the real `tools/call` request id; direct

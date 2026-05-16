@@ -185,12 +185,41 @@ export function createMcpServer(ctx: DispatchContext): McpServer {
   // is shared across sessions.
   const taskStore = new EventSourcedTaskStore(ctx.eventStore);
 
+  // ─── #1273 / C2 (T30) — thread the local TaskStore onto the dispatch ctx
+  // so the C1 task-augmented branch fires when `tools/call` params carry
+  // `task: { ttl? }`. Without this, dispatch sees `ctx.taskStore === undefined`
+  // and silently falls back to the legacy one-shot path even when the
+  // adapter has a TaskStore wired into the SDK's `tasks/*` surface — the
+  // exact split-brain the augmentation contract is meant to forbid.
+  //
+  // We re-bind ctx (rather than mutating the caller's literal) so the
+  // augmentation is scoped to this server instance; callers that
+  // construct their own ctx with a different TaskStore (tests) keep
+  // theirs intact when they call `dispatch()` directly.
+  const ctxWithTaskStore: DispatchContext = {
+    ...ctx,
+    taskStore,
+  };
+
   const server = new McpServer(
     { name: SERVER_NAME, version: SERVER_VERSION },
     {
       capabilities: {
         experimental: {
           'claude/channel': {},
+        },
+        // #1273 / T32 — advertise tasks capability so clients see the
+        // server supports request-augmented `tools/call` (per-tool
+        // `execution.taskSupport: 'optional'`) and the explicit
+        // `tasks/{get,result,cancel,list}` methods (the SDK's
+        // setRequestHandler wiring installs these automatically when
+        // `taskStore` is supplied to the constructor below).
+        tasks: {
+          list: {},
+          cancel: {},
+          requests: {
+            tools: { call: {} },
+          },
         },
       },
       taskStore,
@@ -226,7 +255,7 @@ export function createMcpServer(ctx: DispatchContext): McpServer {
     const mcpHandler = async (args: Record<string, unknown>) => {
       let env: Envelope<unknown> | ErrorEnvelope;
       try {
-        const result = await dispatch(toolName, args, ctx);
+        const result = await dispatch(toolName, args, ctxWithTaskStore);
         env = toEnvelope(result);
       } catch (error) {
         env = toEnvelope({
