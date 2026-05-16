@@ -868,9 +868,10 @@ export async function handleTaskDecomposition(
 
 /**
  * Validate task decomposition from the structured plan sidecar. Each task
- * is checked for: non-empty description (>= 5 words), at least one declared
- * file, and a phase from the RED/GREEN/REFACTOR enum (already enforced by
- * the schema).
+ * is checked for: non-empty description (> 10 words, matching the regex
+ * path's threshold for consistency — C1 fix on PR #1406 third pass), at
+ * least one declared file, and a phase from the RED/GREEN/REFACTOR enum
+ * (already enforced by the schema).
  *
  * DAG validity and parallel safety are NOT encoded in plan.v1 today, so
  * they are passed in by the caller after running the existing pure
@@ -897,7 +898,12 @@ function evaluateTaskDecompositionFromSidecar(
 
   for (const task of plan.tasks) {
     const descWords = task.description.trim().split(/\s+/).filter((w) => w.length > 0).length;
-    const hasDescription = descWords >= 5;
+    // C1 fix (#1406 third pass): match the regex-path threshold of > 10
+    // words. Previously this used `>= 5`, letting 5–10-word descriptions
+    // pass the sidecar branch while the regex branch rejected them. The
+    // 11-word threshold is authoritative (older, exercised by every
+    // existing plan).
+    const hasDescription = descWords > 10;
     const hasFiles = task.files.length > 0;
     const status = hasDescription && hasFiles ? 'PASS' : 'FAIL';
     if (status === 'PASS') wellDecomposed++;
