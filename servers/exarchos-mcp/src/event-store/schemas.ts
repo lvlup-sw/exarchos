@@ -1746,14 +1746,21 @@ export const TaskCreatedData = z.object({
 });
 
 /**
- * Emitted on each `getTask` read. Sequence is the projection-sequence at
- * the time of the poll (audit trail for "who polled when, against what
- * projection version"). Optional in scope: callers may suppress emission
- * for hot-path polls if poll frequency becomes a noise issue.
+ * Emitted on each `getTask` read. The canonical poll-ordering signal is
+ * the event envelope's own `.sequence` field (assigned atomically by the
+ * appender — see `event-sourced-task-store.ts` `getTask`). Consumers MUST
+ * use `envelope.sequence` for ordering; `data.sequence` is retained as
+ * optional ONLY for back-compat with historical events emitted before
+ * CodeRabbit MAJOR #1431-rebase (commits 104338a → followups), which
+ * wrote a constant `0` placeholder. New emits omit the field entirely.
+ *
+ * @deprecated Use `envelope.sequence` instead. Retained as optional for
+ *             historical-event back-compat; will be removed once the
+ *             retention window has rolled past the placeholder-era events.
  */
 export const TaskPolledData = z.object({
   taskId: z.string().min(1),
-  sequence: z.number().int().nonnegative(),
+  sequence: z.number().int().nonnegative().optional(),
 });
 
 /**

@@ -91,20 +91,40 @@ function isNonNegativeNumber(v: unknown): v is number {
 }
 
 /**
+ * Type-guard for option fields that must be strictly positive integers.
+ * Distinguished from {@link isNonNegativeNumber} because the durable
+ * `TaskCreatedData.pollInterval` schema is `.int().positive().optional()`
+ * — it rejects `0`, negatives, NaN, Infinity, AND non-integer floats. A
+ * lax boundary that admits `0.5` or `0` would pass extraction and then
+ * silently fail event-append validation inside the best-effort emit
+ * (which catches every error to keep `getTask` non-fatal). Aligning the
+ * extractor's validity contract with the schema's prevents that class of
+ * silent failure.
+ *
+ * CodeRabbit MAJOR #1431: "Align pollInterval validity contract across
+ * layers" — schema enforces `.int().positive()`, so the boundary must too.
+ */
+function isPositiveInteger(v: unknown): v is number {
+  return typeof v === 'number' && Number.isInteger(v) && v > 0;
+}
+
+/**
  * Extract a typed `CreateTaskOptions` from a raw args.task value. Returns
  * an empty options object if the input is malformed — callers should gate
  * on `isTaskAugmented` first, so this is only ever called with an object.
- * Numeric fields are validated as finite, non-negative numbers; bogus
- * values (negative, NaN, non-number) are dropped silently rather than
- * propagated downstream into the SDK TaskStore where they would surface
- * as opaque setTimeout / TTL-expiry bugs.
+ * Numeric fields are validated against the same constraints the durable
+ * schema (`TaskCreatedData`) enforces: `ttl` is non-negative; `pollInterval`
+ * is strictly positive. Bogus values (negative, NaN, non-number, and `0`
+ * for `pollInterval`) are dropped silently so the createTask defaults
+ * apply instead of propagating downstream where they would surface as
+ * opaque setTimeout / TTL-expiry bugs or silent event-append rejections.
  */
 export function extractTaskOptions(value: unknown): CreateTaskOptions {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) return {};
   const rec = value as Record<string, unknown>;
   const opts: CreateTaskOptions = {};
   if (isNonNegativeNumber(rec.ttl)) opts.ttl = rec.ttl;
-  if (isNonNegativeNumber(rec.pollInterval)) opts.pollInterval = rec.pollInterval;
+  if (isPositiveInteger(rec.pollInterval)) opts.pollInterval = rec.pollInterval;
   return opts;
 }
 

@@ -38,6 +38,7 @@ import { EventSourcedTaskStore } from '../task-store/event-sourced-task-store.js
 import {
   isTaskAugmented,
   runTasksAugmented,
+  extractTaskOptions,
 } from './tasks-augmented.js';
 
 describe('tasks-augmented dispatch branch (#1273 / T28)', () => {
@@ -134,4 +135,87 @@ describe('tasks-augmented dispatch branch (#1273 / T28)', () => {
   // The cross-cutting assertion (one-shot envelope unchanged when `task` is
   // absent) lives in dispatch.test.ts so the unit there can use the real
   // dispatch entrypoint instead of the synthesis primitive.
+
+  // ─── CodeRabbit MAJOR #1431: pollInterval validity contract ───────────────
+  //
+  // The durable `TaskCreatedData.pollInterval` schema enforces
+  // `.positive().optional()` — `0` and negatives are rejected at append.
+  // The dispatch boundary (`extractTaskOptions`) MUST therefore reject those
+  // values too so a malformed caller can't slip past extraction and silently
+  // fail event-append validation downstream.
+
+  describe('extractTaskOptions / pollInterval validity contract', () => {
+    it('ExtractTaskOptions_PositivePollInterval_PreservesValue', () => {
+      const opts = extractTaskOptions({ pollInterval: 250 });
+      expect(opts.pollInterval).toBe(250);
+    });
+
+    it('ExtractTaskOptions_ZeroPollInterval_DroppedForSchemaAlignment', () => {
+      // CodeRabbit MAJOR: `0` would pass the prior non-negative guard but
+      // fail the `TaskCreatedData.pollInterval.positive()` schema constraint
+      // at event-append time. Drop here so createTask default (1000) applies.
+      const opts = extractTaskOptions({ pollInterval: 0 });
+      expect(opts.pollInterval).toBeUndefined();
+    });
+
+    it('ExtractTaskOptions_NegativePollInterval_Dropped', () => {
+      const opts = extractTaskOptions({ pollInterval: -100 });
+      expect(opts.pollInterval).toBeUndefined();
+    });
+
+    it('ExtractTaskOptions_NaNAndInfinityPollInterval_Dropped', () => {
+      expect(extractTaskOptions({ pollInterval: Number.NaN }).pollInterval).toBeUndefined();
+      expect(extractTaskOptions({ pollInterval: Number.POSITIVE_INFINITY }).pollInterval).toBeUndefined();
+    });
+
+    it('ExtractTaskOptions_NonIntegerPollInterval_Dropped', () => {
+      // Schema is `.int().positive()` — fractional millisecond cadences
+      // would pass `.positive()` but fail `.int()` and silently corrupt
+      // the best-effort append. Drop at the boundary so the createTask
+      // default applies instead.
+      expect(extractTaskOptions({ pollInterval: 0.5 }).pollInterval).toBeUndefined();
+      expect(extractTaskOptions({ pollInterval: 1.7 }).pollInterval).toBeUndefined();
+    });
+
+    it('ExtractTaskOptions_NonNegativeTtl_PreservedIncludingZero', () => {
+      // ttl=0 is semantically distinct from pollInterval=0: a 0ms TTL means
+      // "expire immediately", which is occasionally meaningful for cleanup
+      // tests. Schema allows nonnegative, so the boundary does too.
+      const opts = extractTaskOptions({ ttl: 0 });
+      expect(opts.ttl).toBe(0);
+    });
+  });
+
+  // ─── CodeRabbit MAJOR #1431: createTask defensive normalization ───────────
+  //
+  // The dispatch boundary already filters malformed pollInterval values, but
+  // `createTask` is also reachable directly from non-dispatch callers (tests,
+  // future in-process SDK consumers). Normalise to the 1000ms default rather
+  // than let bad values reach event-append validation.
+
+  it('CreateTask_ZeroPollInterval_NormalizesToDefault', async () => {
+    const task = await taskStore.createTask(
+      { pollInterval: 0 },
+      'rq-zero',
+      { method: 'tools/call', params: { name: 'noop', arguments: {} } },
+    );
+    expect(task.pollInterval).toBe(1000);
+
+    // Durable event must reflect the normalized value (or omit pollInterval
+    // when the default applies — both are schema-valid).
+    const events = await eventStore.query(`task-store/${task.taskId}`);
+    const created = events.find((e) => e.type === 'task.created');
+    expect(created).toBeDefined();
+    const data = created!.data as { pollInterval?: number };
+    expect(data.pollInterval).toBe(1000);
+  });
+
+  it('CreateTask_NegativePollInterval_NormalizesToDefault', async () => {
+    const task = await taskStore.createTask(
+      { pollInterval: -50 },
+      'rq-neg',
+      { method: 'tools/call', params: { name: 'noop', arguments: {} } },
+    );
+    expect(task.pollInterval).toBe(1000);
+  });
 });

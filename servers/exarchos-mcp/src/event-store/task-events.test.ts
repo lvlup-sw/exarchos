@@ -61,16 +61,28 @@ describe('task.* event schemas (#1272)', () => {
   });
 
   describe('TaskPolledData', () => {
-    it('EventSchema_TaskPolled_ValidatesShape', () => {
+    it('EventSchema_TaskPolled_ValidatesShape_NoSequence', () => {
+      // CodeRabbit MAJOR #1431 (latest review): `data.sequence` is now
+      // optional + deprecated. New emits omit the payload field entirely
+      // and rely on the event envelope's atomically-assigned `.sequence`.
+      const parsed = TaskPolledData.parse({ taskId: 'task-abc-123' });
+      expect(parsed.taskId).toBe('task-abc-123');
+      expect(parsed.sequence).toBeUndefined();
+    });
+
+    it('EventSchema_TaskPolled_BackCompat_AcceptsHistoricalSequenceField', () => {
+      // Historical events written before the deprecation still validate.
       const parsed = TaskPolledData.parse({
         taskId: 'task-abc-123',
         sequence: 5,
       });
-      expect(parsed.taskId).toBe('task-abc-123');
       expect(parsed.sequence).toBe(5);
     });
 
-    it('EventSchema_TaskPolled_RejectsNegativeSequence', () => {
+    it('EventSchema_TaskPolled_RejectsNegativeSequence_WhenPresent', () => {
+      // Field is optional, but when present it must satisfy the
+      // nonnegative-int constraint — guards against any future regression
+      // that resurrects the placeholder pattern with bad values.
       const result = TaskPolledData.safeParse({
         taskId: 'task-x',
         sequence: -1,

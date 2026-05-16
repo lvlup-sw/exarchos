@@ -112,7 +112,21 @@ export class EventSourcedTaskStore implements TaskStore {
   ): Promise<Task> {
     const taskId = generateTaskId();
     const ttl = taskParams.ttl ?? null;
-    const pollInterval = taskParams.pollInterval ?? 1000;
+    // CodeRabbit MAJOR #1431: defensive normalization. The dispatch
+    // boundary (`tasks-augmented.ts::extractTaskOptions`) already filters
+    // non-positive/NaN/Infinity values, but `createTask` can be called
+    // directly by other SDK consumers (tests, future in-process callers)
+    // without going through the extractor. Normalise here so the durable
+    // `TaskCreatedData.pollInterval` schema (`.positive().optional()`)
+    // never sees `0` / negative / NaN / Infinity — those would otherwise
+    // fail event-append validation and corrupt the event stream.
+    const rawPollInterval = taskParams.pollInterval;
+    const pollInterval =
+      typeof rawPollInterval === 'number' &&
+      Number.isInteger(rawPollInterval) &&
+      rawPollInterval > 0
+        ? rawPollInterval
+        : 1000;
     const createdAt = new Date().toISOString();
 
     // Event-store first: the durable record IS the truth.
@@ -173,10 +187,12 @@ export class EventSourcedTaskStore implements TaskStore {
     // CodeRabbit MEDIUM #1431-rebase: the prior implementation called
     // `this.store.query(stream)` to derive a sequence proxy before
     // appending — O(N) per poll AND racy under concurrency. We now let
-    // the appender assign the canonical sequence and copy it back into
-    // the event's `data.sequence` payload via a follow-up read of the
-    // returned event. `store.append` returns the persisted event with
-    // its server-assigned `.sequence` field; we use that as the truth.
+    // the appender assign the canonical sequence on the event envelope
+    // (`persisted.sequence`) and emit no payload `sequence` at all —
+    // CodeRabbit MAJOR (latest review on #1431) flagged the prior `0`
+    // placeholder as lossy. The schema field is now optional + deprecated;
+    // ordering consumers read `envelope.sequence`. See `TaskPolledData`
+    // in `event-store/schemas.ts` for the deprecation note.
     //
     // Failure to emit is best-effort and intentionally swallowed: a
     // `getTask` read MUST NOT fail because the audit-trail emission hit
@@ -184,19 +200,11 @@ export class EventSourcedTaskStore implements TaskStore {
     // `task.polled` handler in `projectTask` — it is a pure observability
     // event, not a state transition).
     try {
-      const persisted = await this.store.append(taskStream(taskId), {
+      await this.store.append(taskStream(taskId), {
         type: 'task.polled',
         timestamp: new Date().toISOString(),
-        // Placeholder sequence; the canonical value is `persisted.sequence`
-        // assigned atomically by the appender. We satisfy the schema's
-        // `nonnegative integer` constraint with `0` since the data field
-        // is now redundant with the event-envelope sequence.
-        data: { taskId, sequence: 0 },
+        data: { taskId },
       });
-      // Best-effort: schema requires `sequence` in data, but the canonical
-      // source of ordering is the event envelope's own `.sequence` (which
-      // the appender just stamped atomically). No need to re-append.
-      void persisted.sequence;
     } catch {
       // best-effort
     }
