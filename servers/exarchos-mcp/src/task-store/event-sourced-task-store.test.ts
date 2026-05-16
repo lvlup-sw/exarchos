@@ -21,7 +21,7 @@
  * `task-store/<taskId>` so cross-stream queries (audit, view) can pivot
  * cleanly without entangling task lifecycle with workflow lifecycle.
  */
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
@@ -175,6 +175,45 @@ describe('EventSourcedTaskStore (#1272)', () => {
   it('EventSourcedTaskStore_GetTask_ReturnsNullForUnknownTask', async () => {
     const fetched = await store.getTask('nonexistent');
     expect(fetched).toBeNull();
+  });
+
+  it('EventSourcedTaskStore_TtlExpired_RemovesFromProjection', async () => {
+    // T26 — per-task TTL with read-time reaping. After the TTL window
+    // elapses, `getTask` returns null and `getTaskResult` throws
+    // "not found", regardless of whether a result was previously
+    // stored. Unlimited-TTL tasks (ttl: null) are NOT expired.
+    vi.useFakeTimers();
+    try {
+      const task = await store.createTask(
+        { ttl: 5_000 },
+        'req-ttl',
+        sampleRequest,
+      );
+      // Immediately readable.
+      expect(await store.getTask(task.taskId)).not.toBeNull();
+
+      // Advance past the TTL window.
+      vi.setSystemTime(Date.now() + 10_000);
+
+      const fetched = await store.getTask(task.taskId);
+      expect(fetched).toBeNull();
+
+      await expect(store.getTaskResult(task.taskId)).rejects.toThrow(
+        /not found/,
+      );
+
+      // A second task with unlimited TTL stays alive past the same
+      // virtual-clock advance.
+      const persistent = await store.createTask(
+        { ttl: null },
+        'req-persistent',
+        sampleRequest,
+      );
+      vi.setSystemTime(Date.now() + 60 * 60 * 1000);
+      expect(await store.getTask(persistent.taskId)).not.toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('EventSourcedTaskStore_ListTasks_ReturnsCreatedTasks', async () => {

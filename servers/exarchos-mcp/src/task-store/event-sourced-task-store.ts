@@ -150,10 +150,6 @@ export class EventSourcedTaskStore implements TaskStore {
   async getTask(taskId: string, _sessionId?: string): Promise<Task | null> {
     const stored = await this.loadTask(taskId);
     if (!stored) return null;
-    if (this.isExpired(stored)) {
-      this.tasks.delete(taskId);
-      return null;
-    }
     return { ...stored.task };
   }
 
@@ -199,10 +195,6 @@ export class EventSourcedTaskStore implements TaskStore {
   async getTaskResult(taskId: string, _sessionId?: string): Promise<Result> {
     const stored = await this.loadTask(taskId);
     if (!stored) {
-      throw new Error(`Task with ID ${taskId} not found`);
-    }
-    if (this.isExpired(stored)) {
-      this.tasks.delete(taskId);
       throw new Error(`Task with ID ${taskId} not found`);
     }
     if (stored.result === undefined) {
