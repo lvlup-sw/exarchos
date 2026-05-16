@@ -13,10 +13,56 @@
 // are possible and must not poison the envelope. Invoked at most once per
 // composite call.
 
+import { z } from 'zod';
 import type { ToolResult } from './format.js';
 import type { NextAction } from './next-action.js';
 import { computeNextActions } from './next-actions-computer.js';
+import {
+  RehydrationMergeOrchestratorSchema,
+  WorkflowStateSchema,
+} from './projections/rehydration/schema.js';
 import { getHSMDefinition } from './workflow/state-machine.js';
+
+// ─── #1238 ResultDataSchema discriminated union ─────────────────────────────
+//
+// The parser body previously used `Record<string, unknown>` casts and inline
+// `typeof` guards to dig phase / workflowType / featureId / mergeOrchestrator
+// out of `result.data`. #1238 replaces that with a Zod union of two shapes so
+// the contract is declarative and a malformed payload fails closed rather
+// than silently degrading.
+//
+// `.passthrough()` keeps unknown sibling fields (handler payloads carry many
+// extra fields — taskProgress, decisions, etc.) — we only validate the
+// fields this helper reads.
+
+/** Shape 1 — handler payload (`handleInit` / `handleGet` / `handleSet`). */
+export const ShapeOneSchema = z
+  .object({
+    phase: z.string(),
+    workflowType: z.string(),
+    featureId: z.string().optional(),
+    mergeOrchestrator: RehydrationMergeOrchestratorSchema.optional(),
+  })
+  .passthrough();
+
+/** Shape 2 — rehydration document (`handleRehydrate`). */
+export const ShapeTwoSchema = z
+  .object({
+    workflowState: WorkflowStateSchema,
+  })
+  .passthrough();
+
+/**
+ * Discriminated by structure: ShapeOne carries top-level `phase` /
+ * `workflowType`; ShapeTwo nests them inside `workflowState`. A payload that
+ * matches both (a handler payload that also carries a `workflowState`
+ * sibling) parses as ShapeOne by virtue of union order — the top-level
+ * extraction is preserved and the workflowState segment is read for
+ * `mergeOrchestrator` backfill via a separate ShapeTwo parse downstream.
+ */
+export const ResultDataSchema = z.union([ShapeOneSchema, ShapeTwoSchema]);
+
+export type ResultData = z.infer<typeof ResultDataSchema>;
 
 /**
  * Extract workflow state from a successful `ToolResult` and compute the
