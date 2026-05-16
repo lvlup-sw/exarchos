@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { fileURLToPath } from 'node:url';
+import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { loadInvariants, type InvariantEntry } from './invariants-loader.js';
 
@@ -75,5 +77,40 @@ describe('invariants-loader', () => {
     // INV-5a references should point at the design-invariants skill reference file.
     const hasInv5aRef = inv5a!.references.some((r) => r.includes('INV-5a'));
     expect(hasInv5aRef).toBe(true);
+  });
+
+  it('InvariantsLoader_DuplicateIds_ThrowsWithIdInMessage', () => {
+    // Construct a frontmatter fixture with two entries sharing the same id
+    // (`INV-1`). The loader must reject this at load time so a silent
+    // duplicate cannot shadow the legitimate entry.
+    const fixture = `---
+invariants:
+  - id: INV-1
+    dimension: event-sourcing integrity
+    applies-to:
+      - servers/exarchos-mcp/src/event-store
+    summary: First copy of INV-1.
+    references:
+      - docs/architecture/invariants.md
+  - id: INV-1
+    dimension: duplicate
+    applies-to:
+      - servers/exarchos-mcp/src/event-store
+    summary: Second copy of INV-1 — should be rejected.
+    references:
+      - docs/architecture/invariants.md
+---
+
+# Fixture
+`;
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'invariants-dup-'));
+    const tmpFile = path.join(tmpDir, 'invariants.md');
+    fs.writeFileSync(tmpFile, fixture, 'utf8');
+    try {
+      expect(() => loadInvariants(tmpFile)).toThrow(/INV-1/);
+      expect(() => loadInvariants(tmpFile)).toThrow(/Duplicate invariant ID/);
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
   });
 });
