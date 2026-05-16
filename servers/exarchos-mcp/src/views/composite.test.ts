@@ -247,6 +247,11 @@ describe('handleView', () => {
         { compact: true, tool: 'workflow_get' },
         STATE_DIR,
         CTX.eventStore,
+        // #1262 — `ctx.config` is threaded through so the
+        // `qualityHints.outputTokenThreshold` setting reaches the hint
+        // generator. The test CTX above doesn't populate config, so
+        // `undefined` is the expected fourth argument.
+        undefined,
       );
     });
   });

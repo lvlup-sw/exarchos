@@ -1,6 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import type { WorkflowEvent } from '../event-store/schemas.js';
-import { telemetryProjection, TELEMETRY_VIEW, initToolMetrics } from './telemetry-projection.js';
+import {
+  telemetryProjection,
+  TELEMETRY_VIEW,
+  initToolMetrics,
+  computeOutputTokenHints,
+} from './telemetry-projection.js';
 import type { TelemetryViewState, ToolMetrics } from './telemetry-projection.js';
 
 describe('TelemetryProjection', () => {
@@ -450,5 +455,204 @@ describe('TelemetryProjection_ActionErrored_AggregatesByTool', () => {
     // No completed events folded — invocations stays 0.
     expect(state.tools['fresh_tool'].invocations).toBe(0);
     expect(state.tools['fresh_tool'].errors).toBe(0);
+  });
+});
+
+// ─── #1262 — per-turn output-token tracking + hint emission ────────────────
+
+describe('TelemetryProjection_OutputTokenHint', () => {
+  it('TelemetryProjection_ThresholdCrossed_EmitsHint', () => {
+    // Synthetic telemetry: a single `turn.completed` event carrying a
+    // per-turn output-token sum above the threshold.
+    let state = telemetryProjection.init();
+    state = telemetryProjection.apply(
+      state,
+      makeEvent('turn.completed', { turnId: 't1', outputTokens: 30000 }),
+    );
+
+    // The projection records each turn's output tokens.
+    expect(state.turns).toHaveLength(1);
+    expect(state.turns[0]).toEqual({ turnId: 't1', outputTokens: 30000 });
+
+    // computeOutputTokenHints surfaces a NextAction-shaped checkpoint hint
+    // when a turn crosses the threshold (passed in tokens).
+    const hints = computeOutputTokenHints(state, 25600);
+    expect(hints).toHaveLength(1);
+    expect(hints[0].verb).toBe('checkpoint');
+    expect(hints[0].reason).toMatch(/output tokens/i);
+  });
+
+  it('TelemetryProjection_BelowThreshold_NoHint', () => {
+    let state = telemetryProjection.init();
+    state = telemetryProjection.apply(
+      state,
+      makeEvent('turn.completed', { turnId: 't1', outputTokens: 10000 }),
+    );
+
+    expect(state.turns).toHaveLength(1);
+    const hints = computeOutputTokenHints(state, 25600);
+    expect(hints).toHaveLength(0);
+  });
+
+  it('TelemetryProjection_TurnCompleted_NonNumericOutputTokens_IgnoresEvent', () => {
+    const state = telemetryProjection.init();
+    const result = telemetryProjection.apply(
+      state,
+      makeEvent('turn.completed', { turnId: 't1', outputTokens: 'garbage' }),
+    );
+    expect(result).toBe(state);
+  });
+
+  it('TelemetryProjection_MultipleTurns_LatestBelowThreshold_EmitsNoHint', () => {
+    // Sentry #1422 MEDIUM: prior semantic walked the full history and
+    // re-emitted every past crossing on each call. New semantic: only the
+    // *current* state matters — if the latest turn is below threshold, no
+    // active streak, no hint, regardless of past crossings in the buffer.
+    let state = telemetryProjection.init();
+    state = telemetryProjection.apply(
+      state,
+      makeEvent('turn.completed', { turnId: 't1', outputTokens: 5000 }),
+    );
+    state = telemetryProjection.apply(
+      state,
+      makeEvent('turn.completed', { turnId: 't2', outputTokens: 30000 }),
+    );
+    state = telemetryProjection.apply(
+      state,
+      makeEvent('turn.completed', { turnId: 't3', outputTokens: 8000 }),
+    );
+
+    const hints = computeOutputTokenHints(state, 25600);
+    expect(hints).toHaveLength(0);
+  });
+
+  // Sentry MEDIUM #1422 — `computeOutputTokenHints` previously re-emitted
+  // every historical upward crossing on every call, flooding `next_actions[]`.
+  // New semantic: at most one hint per call, reflecting the *current* active
+  // above-threshold streak. The hint's idempotencyKey is keyed off the
+  // upward-crossing turnId so consumers can dedupe across calls.
+  it('OutputTokenHint_CurrentlyAbove_EmitsOneHintWithStreakStartIdempotencyKey', () => {
+    let state = telemetryProjection.init();
+    state = telemetryProjection.apply(
+      state,
+      makeEvent('turn.completed', { turnId: 't1', outputTokens: 5000 }),
+    );
+    state = telemetryProjection.apply(
+      state,
+      makeEvent('turn.completed', { turnId: 't2', outputTokens: 30000 }),
+    );
+    state = telemetryProjection.apply(
+      state,
+      makeEvent('turn.completed', { turnId: 't3', outputTokens: 31000 }),
+    );
+
+    const hints = computeOutputTokenHints(state, 25600);
+    expect(hints).toHaveLength(1);
+    expect(hints[0].verb).toBe('checkpoint');
+    // Key derives from the streak-start turn (t2), not the latest (t3) —
+    // a third above-threshold turn appended later still produces this same
+    // key so downstream consumers dedupe correctly.
+    expect(hints[0].idempotencyKey).toBe('output_tokens_high:t2');
+  });
+
+  it('OutputTokenHint_RepeatedRequestsSameStreak_ReturnStableIdempotencyKey', () => {
+    // Pin: idempotencyKey must stay stable across repeated view requests
+    // while the streak persists. This is what lets the consumer dedupe.
+    let state = telemetryProjection.init();
+    state = telemetryProjection.apply(
+      state,
+      makeEvent('turn.completed', { turnId: 't1', outputTokens: 5000 }),
+    );
+    state = telemetryProjection.apply(
+      state,
+      makeEvent('turn.completed', { turnId: 't2', outputTokens: 30000 }),
+    );
+
+    const hints1 = computeOutputTokenHints(state, 25600);
+
+    state = telemetryProjection.apply(
+      state,
+      makeEvent('turn.completed', { turnId: 't3', outputTokens: 31000 }),
+    );
+
+    const hints2 = computeOutputTokenHints(state, 25600);
+
+    expect(hints1).toHaveLength(1);
+    expect(hints2).toHaveLength(1);
+    expect(hints1[0].idempotencyKey).toBe('output_tokens_high:t2');
+    expect(hints2[0].idempotencyKey).toBe('output_tokens_high:t2');
+  });
+
+  it('OutputTokenHint_NewStreakAfterDip_EmitsHintWithNewKey', () => {
+    // above → below → above: after a below-threshold turn re-arms the
+    // detector, the next streak gets a fresh idempotencyKey so consumers
+    // recognise it as a distinct alert.
+    let state = telemetryProjection.init();
+    state = telemetryProjection.apply(
+      state,
+      makeEvent('turn.completed', { turnId: 't1', outputTokens: 30000 }),
+    );
+    state = telemetryProjection.apply(
+      state,
+      makeEvent('turn.completed', { turnId: 't2', outputTokens: 5000 }),
+    );
+    state = telemetryProjection.apply(
+      state,
+      makeEvent('turn.completed', { turnId: 't3', outputTokens: 28000 }),
+    );
+    state = telemetryProjection.apply(
+      state,
+      makeEvent('turn.completed', { turnId: 't4', outputTokens: 29000 }),
+    );
+
+    const hints = computeOutputTokenHints(state, 25600);
+    expect(hints).toHaveLength(1);
+    expect(hints[0].verb).toBe('checkpoint');
+    // Streak start is t3, not t1 — t2's below-threshold dip re-armed the
+    // detector. The hint key reflects the *current* streak.
+    expect(hints[0].idempotencyKey).toBe('output_tokens_high:t3');
+  });
+
+  it('OutputTokenHint_LookBackExceedsWindow_StillEmitsBestEffortHint', () => {
+    // CodeRabbit MAJOR #1422: when the streak extends beyond the visible
+    // buffer (every retained turn is above-threshold AND the look-back turn
+    // is also above), the streak-start walk falls back to the earliest
+    // in-window turn. The hint still surfaces (we're currently above) with
+    // a deterministic idempotency key derived from the earliest visible
+    // turn — operators see a stable signal even when the exact crossing
+    // turnId has aged out of the buffer.
+    let state = telemetryProjection.init();
+    // Use a small windowSize so we don't need 1000+ turns in this test.
+    state = { ...state, windowSize: 3 };
+    // Fill the buffer (3 + 1 look-back = 4 retained) with above-threshold turns.
+    for (let i = 0; i < 6; i++) {
+      state = telemetryProjection.apply(
+        state,
+        makeEvent('turn.completed', { turnId: `t${i + 1}`, outputTokens: 30000 + i }),
+      );
+    }
+    const hints = computeOutputTokenHints(state, 25600);
+    expect(hints).toHaveLength(1);
+    // Earliest retained turn becomes the streak-start anchor for the key.
+    expect(hints[0].idempotencyKey).toMatch(/^output_tokens_high:t\d+$/);
+  });
+
+  it('OutputTokenHint_OnlyBelow_EmitsNoHint', () => {
+    let state = telemetryProjection.init();
+    state = telemetryProjection.apply(
+      state,
+      makeEvent('turn.completed', { turnId: 't1', outputTokens: 1000 }),
+    );
+    state = telemetryProjection.apply(
+      state,
+      makeEvent('turn.completed', { turnId: 't2', outputTokens: 5000 }),
+    );
+    state = telemetryProjection.apply(
+      state,
+      makeEvent('turn.completed', { turnId: 't3', outputTokens: 9000 }),
+    );
+
+    const hints = computeOutputTokenHints(state, 25600);
+    expect(hints).toHaveLength(0);
   });
 });

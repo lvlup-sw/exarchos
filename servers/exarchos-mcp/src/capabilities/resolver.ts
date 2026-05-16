@@ -34,6 +34,63 @@ export function createInMemoryResolver(
 
 export const ANTHROPIC_NATIVE_CACHING = 'anthropic_native_caching' as const;
 
+// ─── #1262 Quality-hint threshold resolver ──────────────────────────────────
+
+/**
+ * Per-turn output-token cap (matches the upper bound that Anthropic's
+ * sampling layer permits today). The `output_tokens_high` quality hint
+ * fires when a turn's `outputTokens` exceeds
+ * `cap * outputTokenThreshold`. Surfaced as a constant so tests can pin
+ * the multiplication and the cap can be bumped centrally if the model
+ * surface changes.
+ */
+export const OUTPUT_TOKENS_PER_TURN_CAP = 32000;
+
+/**
+ * Default threshold fraction (`0.8` = 80% of `OUTPUT_TOKENS_PER_TURN_CAP`).
+ * Overridden by `.exarchos.yml` → `qualityHints.outputTokenThreshold`.
+ */
+export const DEFAULT_OUTPUT_TOKEN_THRESHOLD_FRACTION = 0.8;
+
+/**
+ * Slice of `.exarchos.yml` consumed by {@link getQualityHintThreshold}.
+ * We accept a structurally-typed shape (rather than importing the full
+ * `ExarchosConfig` Zod type) to avoid a circular import between the
+ * resolver and the config schema and to keep the resolver consumable from
+ * tests without spinning up a config loader.
+ */
+export interface QualityHintsConfig {
+  readonly qualityHints?: {
+    readonly outputTokenThreshold?: number;
+  };
+}
+
+/**
+ * Return the absolute token threshold (in tokens) for a named quality
+ * hint, derived from the `.exarchos.yml` configuration when supplied or
+ * the resolver default otherwise.
+ *
+ * Currently only `'output_tokens'` is supported — the function returns
+ * `cap * fraction` where `fraction` is either the configured value or
+ * {@link DEFAULT_OUTPUT_TOKEN_THRESHOLD_FRACTION}. Unknown names return
+ * the default product so callers never see `NaN`/`undefined` when a new
+ * hint id is referenced before its threshold lands.
+ */
+export function getQualityHintThreshold(
+  name: 'output_tokens' | (string & {}),
+  config?: QualityHintsConfig,
+): number {
+  const fraction =
+    config?.qualityHints?.outputTokenThreshold ?? DEFAULT_OUTPUT_TOKEN_THRESHOLD_FRACTION;
+  if (name === 'output_tokens') {
+    return OUTPUT_TOKENS_PER_TURN_CAP * fraction;
+  }
+  // Unknown hint name — fall back to the same product so callers get a
+  // numeric value rather than `undefined`. Future hint families can fan
+  // out into a per-name switch here.
+  return OUTPUT_TOKENS_PER_TURN_CAP * fraction;
+}
+
 /**
  * Capabilities in the `mcp:exarchos` family. The resolver treats this family
  * as a tiered set: a single tier wins (handshake authoritative) rather than
