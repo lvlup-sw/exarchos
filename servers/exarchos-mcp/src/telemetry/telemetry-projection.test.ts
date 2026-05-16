@@ -1,6 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import type { WorkflowEvent } from '../event-store/schemas.js';
-import { telemetryProjection, TELEMETRY_VIEW, initToolMetrics } from './telemetry-projection.js';
+import {
+  telemetryProjection,
+  TELEMETRY_VIEW,
+  initToolMetrics,
+  computeOutputTokenHints,
+} from './telemetry-projection.js';
 import type { TelemetryViewState, ToolMetrics } from './telemetry-projection.js';
 
 describe('TelemetryProjection', () => {
@@ -450,5 +455,71 @@ describe('TelemetryProjection_ActionErrored_AggregatesByTool', () => {
     // No completed events folded — invocations stays 0.
     expect(state.tools['fresh_tool'].invocations).toBe(0);
     expect(state.tools['fresh_tool'].errors).toBe(0);
+  });
+});
+
+// ─── #1262 — per-turn output-token tracking + hint emission ────────────────
+
+describe('TelemetryProjection_OutputTokenHint', () => {
+  it('TelemetryProjection_ThresholdCrossed_EmitsHint', () => {
+    // Synthetic telemetry: a single `turn.completed` event carrying a
+    // per-turn output-token sum above the threshold.
+    let state = telemetryProjection.init();
+    state = telemetryProjection.apply(
+      state,
+      makeEvent('turn.completed', { turnId: 't1', outputTokens: 30000 }),
+    );
+
+    // The projection records each turn's output tokens.
+    expect(state.turns).toHaveLength(1);
+    expect(state.turns[0]).toEqual({ turnId: 't1', outputTokens: 30000 });
+
+    // computeOutputTokenHints surfaces a NextAction-shaped checkpoint hint
+    // when a turn crosses the threshold (passed in tokens).
+    const hints = computeOutputTokenHints(state, 25600);
+    expect(hints).toHaveLength(1);
+    expect(hints[0].verb).toBe('checkpoint');
+    expect(hints[0].reason).toMatch(/output tokens/i);
+  });
+
+  it('TelemetryProjection_BelowThreshold_NoHint', () => {
+    let state = telemetryProjection.init();
+    state = telemetryProjection.apply(
+      state,
+      makeEvent('turn.completed', { turnId: 't1', outputTokens: 10000 }),
+    );
+
+    expect(state.turns).toHaveLength(1);
+    const hints = computeOutputTokenHints(state, 25600);
+    expect(hints).toHaveLength(0);
+  });
+
+  it('TelemetryProjection_TurnCompleted_NonNumericOutputTokens_IgnoresEvent', () => {
+    const state = telemetryProjection.init();
+    const result = telemetryProjection.apply(
+      state,
+      makeEvent('turn.completed', { turnId: 't1', outputTokens: 'garbage' }),
+    );
+    expect(result).toBe(state);
+  });
+
+  it('TelemetryProjection_MultipleTurns_OnlyOneCrosses_EmitsOneHint', () => {
+    let state = telemetryProjection.init();
+    state = telemetryProjection.apply(
+      state,
+      makeEvent('turn.completed', { turnId: 't1', outputTokens: 5000 }),
+    );
+    state = telemetryProjection.apply(
+      state,
+      makeEvent('turn.completed', { turnId: 't2', outputTokens: 30000 }),
+    );
+    state = telemetryProjection.apply(
+      state,
+      makeEvent('turn.completed', { turnId: 't3', outputTokens: 8000 }),
+    );
+
+    const hints = computeOutputTokenHints(state, 25600);
+    expect(hints).toHaveLength(1);
+    expect(hints[0].verb).toBe('checkpoint');
   });
 });
