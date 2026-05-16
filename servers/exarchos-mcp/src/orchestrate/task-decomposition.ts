@@ -696,6 +696,22 @@ export async function handleTaskDecomposition(
   if (planSidecar) {
     const blocks = parseTaskBlocks(planContent);
 
+    // C2 fix (#1406 third pass): empty-block guard. Even with a populated
+    // sidecar, DAG / parallel-safety only mean anything when the markdown
+    // task graph exists. Without this guard, a sidecar-present plan whose
+    // markdown lost its `### Task` headers used to silently pass via an
+    // empty-graph DAG. Emit the same `NO_PLAN_TASKS` shape as the regex
+    // path so downstream consumers don't have to special-case the source.
+    if (blocks.length === 0) {
+      return {
+        success: false,
+        error: {
+          code: 'NO_PLAN_TASKS',
+          message: `No '### Task' headers found in plan file: ${args.planPath}`,
+        },
+      };
+    }
+
     // DAG validation against the markdown-declared dependency graph.
     const dagTasks: DagTask[] = blocks.map((b) => ({
       id: b.id,
@@ -732,10 +748,14 @@ export async function handleTaskDecomposition(
   const blocks = parseTaskBlocks(planContent);
 
   if (blocks.length === 0) {
+    // C2 fix (#1406 third pass): unify empty-plan error code with the
+    // sidecar branch above (and with `plan-coverage.ts`, which already
+    // uses `NO_PLAN_TASKS`). Previously this path emitted `SCRIPT_ERROR`,
+    // forcing downstream consumers to special-case the source.
     return {
       success: false,
       error: {
-        code: 'SCRIPT_ERROR',
+        code: 'NO_PLAN_TASKS',
         message: `No '### Task' headers found in plan file: ${args.planPath}`,
       },
     };
