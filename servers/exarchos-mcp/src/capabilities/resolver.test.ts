@@ -139,6 +139,45 @@ describe('resolvePosture (T33, DR-6)', () => {
   });
 });
 
+// ─── #1290 — Roots capability snapshot (handshake-driven) ─────────────────
+
+describe('CapabilityResolver Roots handshake snapshot (#1290)', () => {
+  it('CapabilityResolver_HandshakeRootsTrue_Snapshots', () => {
+    const resolver = createInMemoryResolver([]);
+    expect(resolver.isRootsDeclared()).toBe(false);
+    resolver.snapshot({ capabilities: { roots: { listChanged: true } } });
+    expect(resolver.isRootsDeclared()).toBe(true);
+  });
+
+  it('CapabilityResolver_NoRoots_ReturnsFalse', () => {
+    const resolver = createInMemoryResolver([]);
+    // No snapshot or snapshot without roots capability → false.
+    expect(resolver.isRootsDeclared()).toBe(false);
+    resolver.snapshot({ capabilities: { sampling: {} } });
+    expect(resolver.isRootsDeclared()).toBe(false);
+    resolver.snapshot({ capabilities: { roots: {} } });
+    // `roots` present but no `listChanged: true` → also false, per the
+    // MCP capability shape contract. Snapshot is the load-bearing source.
+    expect(resolver.isRootsDeclared()).toBe(false);
+  });
+
+  it('CapabilityResolver_RootsCache_LifecycleIsTriState', () => {
+    const resolver = createInMemoryResolver([]);
+    // Initially: cache miss.
+    expect(resolver.getCachedRoots()).toBeUndefined();
+
+    // Populate cache.
+    resolver.setCachedRoots([{ uri: 'file:///a' }, { uri: 'file:///b' }]);
+    const cached = resolver.getCachedRoots();
+    expect(cached).toBeDefined();
+    expect(cached!.length).toBe(2);
+
+    // Invalidate → cache miss again.
+    resolver.invalidateRootsCache();
+    expect(resolver.getCachedRoots()).toBeUndefined();
+  });
+});
+
 // ─── #1262 — quality-hint threshold (config-resolver path) ─────────────────
 
 describe('getQualityHintThreshold (#1262)', () => {
