@@ -42,7 +42,10 @@
  * `task.created` event. Expired tasks are reaped on read (`getTask` /
  * `getTaskResult` / `listTasks`) — no background timers, no extra
  * substrate state. `ttl === null` means unlimited lifetime (per the
- * SDK contract).
+ * SDK contract). The per-task `task.polled` emit (FINDING-3, #1438) is
+ * throttled to one event per `TASK_POLLED_THROTTLE_MS` window via an
+ * in-memory `lastPolledAt` map that is cleaned up alongside the cache
+ * on reap.
  */
 import { randomBytes } from 'node:crypto';
 import type {
@@ -89,6 +92,31 @@ function taskStream(taskId: string): string {
   return `task-store/${taskId}`;
 }
 
+/**
+ * FINDING-3 (#1438): throttle window for `task.polled` emit. The CLI
+ * `--follow` loop and the SDK `tasks/poll` flow drive `getTask` at the
+ * task's `pollInterval` cadence (often 250ms), which without throttling
+ * appends one `task.polled` event per call and severely amplifies the
+ * durable stream. A 5-second window collapses tight bursts to a single
+ * emit while still preserving observability of long-running polls.
+ */
+const TASK_POLLED_THROTTLE_MS = 5_000;
+
+/**
+ * Optional constructor options for `EventSourcedTaskStore`.
+ *
+ * `clock` is the rate-limit clock for the FINDING-3 throttle gate.
+ * Production callers omit it (defaults to `Date.now()`); tests inject a
+ * counter-style function to make the throttle behavior deterministic.
+ * NOTE: TTL/`expiresAt` math elsewhere in the class intentionally keeps
+ * reading `Date.now()` directly — TTL is wall-clock semantics, throttle
+ * is rate-limit semantics, and conflating them in one knob would muddy
+ * blast radius.
+ */
+export interface EventSourcedTaskStoreOptions {
+  clock?: () => number;
+}
+
 export class EventSourcedTaskStore implements TaskStore {
   private readonly store: EventStore;
 
@@ -98,8 +126,24 @@ export class EventSourcedTaskStore implements TaskStore {
    */
   private readonly tasks = new Map<string, ProjectedTask>();
 
-  constructor(eventStore: EventStore) {
+  /**
+   * FINDING-3 (#1438): per-task wall-clock timestamp of the last
+   * `task.polled` emit. Used by the throttle gate in `getTask`. Cleared
+   * when the task expires (read-time reap) or is otherwise reaped to
+   * avoid unbounded growth.
+   */
+  private readonly lastPolledAt = new Map<string, number>();
+
+  /**
+   * FINDING-3 (#1438): injectable clock used ONLY by the `task.polled`
+   * throttle gate. Defaults to `Date.now()`. See
+   * `EventSourcedTaskStoreOptions.clock` for why this is scoped narrowly.
+   */
+  private readonly nowMs: () => number;
+
+  constructor(eventStore: EventStore, options?: EventSourcedTaskStoreOptions) {
     this.store = eventStore;
+    this.nowMs = options?.clock ?? Date.now.bind(Date);
   }
 
   // ─── SDK TaskStore interface ────────────────────────────────────────────
@@ -174,6 +218,9 @@ export class EventSourcedTaskStore implements TaskStore {
     if (!stored) return null;
     if (this.isExpired(stored)) {
       this.tasks.delete(taskId);
+      // FINDING-3 (#1438): keep the throttle map in lockstep with the
+      // cache so reaped tasks don't leave dangling rate-limit entries.
+      this.lastPolledAt.delete(taskId);
       return null;
     }
     // ─── #1273 / T29 — Emit task.polled on every successful read ──────────
@@ -190,14 +237,27 @@ export class EventSourcedTaskStore implements TaskStore {
     // a transient I/O blip. The projection itself is unaffected (no
     // `task.polled` handler in `projectTask` — it is a pure observability
     // event, not a state transition).
-    try {
-      await this.store.append(taskStream(taskId), {
-        type: 'task.polled',
-        timestamp: new Date().toISOString(),
-        data: { taskId },
-      });
-    } catch {
-      // best-effort
+    //
+    // FINDING-3 throttle gate (#1438): collapse bursts of `getTask`
+    // calls within `TASK_POLLED_THROTTLE_MS` down to a single emit.
+    // Uses an injectable clock (`this.nowMs`) for the rate-limit
+    // decision so tests can advance time deterministically; TTL and
+    // event-timestamp wall-clock reads elsewhere intentionally remain
+    // on `Date.now()` (TTL is wall-clock semantics, throttle is
+    // rate-limit semantics — keep them disjoint).
+    const now = this.nowMs();
+    const last = this.lastPolledAt.get(taskId) ?? 0;
+    if (now - last >= TASK_POLLED_THROTTLE_MS) {
+      try {
+        await this.store.append(taskStream(taskId), {
+          type: 'task.polled',
+          timestamp: new Date().toISOString(),
+          data: { taskId },
+        });
+        this.lastPolledAt.set(taskId, now);
+      } catch {
+        // best-effort
+      }
     }
     return { ...stored.task };
   }
@@ -248,6 +308,8 @@ export class EventSourcedTaskStore implements TaskStore {
     }
     if (this.isExpired(stored)) {
       this.tasks.delete(taskId);
+      // FINDING-3 (#1438): symmetric with getTask's reap branch.
+      this.lastPolledAt.delete(taskId);
       throw new Error(`Task with ID ${taskId} not found`);
     }
     if (stored.result === undefined) {
@@ -426,6 +488,9 @@ export class EventSourcedTaskStore implements TaskStore {
     for (const [taskId, stored] of this.tasks) {
       if (this.isExpired(stored)) {
         this.tasks.delete(taskId);
+        // FINDING-3 (#1438): drop the matching throttle entry so the
+        // `lastPolledAt` map stays bounded by live tasks.
+        this.lastPolledAt.delete(taskId);
       }
     }
   }
