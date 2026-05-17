@@ -874,4 +874,93 @@ describe('handleView', () => {
       expect(result.error?.code).toBe('UNKNOWN_ACTION');
     });
   });
+
+  // ─── Wave 5 / Task 15 (#1437) — describe surfaces correlation filters ─
+  //
+  // `exarchos_view describe` reads action schemas directly from the
+  // registry (TOOL_REGISTRY -> viewActions -> action.schema -> zodToJsonSchema).
+  // After Tasks 13 + 14 add the three optional correlation-filter slots to
+  // the six telemetry action schemas, this test pins that the JSON schema
+  // surface emitted by describe also carries those slots. This is a
+  // regression guard: if a future refactor moves an action's schema out of
+  // the registry (e.g. inlines it in composite.ts), the slot would silently
+  // disappear from describe and break the discoverability contract.
+  describe('Wave 5 — ExarchosViewDescribe_TelemetryActions_ExposeCorrelationFilters', () => {
+    const TELEMETRY_ACTIONS = [
+      'telemetry',
+      'delegation_timeline',
+      'code_quality',
+      'eval_results',
+      'quality_correlation',
+      'quality_attribution',
+    ] as const;
+
+    it('describe action returns schemas including operationId/correlationId/causationId for all six telemetry actions', async () => {
+      // Act: ask describe to surface schemas for all six telemetry actions
+      const args = { action: 'describe', actions: [...TELEMETRY_ACTIONS] };
+      const result = await handleView(args, CTX);
+
+      // Assert: envelope success
+      expect(result.success).toBe(true);
+      const data = result.data as Record<string, unknown>;
+
+      // For each action, the surfaced schema MUST include all three
+      // optional correlation-filter slots in its `properties`. The schema
+      // shape is JSON-Schema 2020-12 (zodToJsonSchema output) — `properties`
+      // is an object whose keys are the field names.
+      for (const actionName of TELEMETRY_ACTIONS) {
+        const actionInfo = data[actionName] as Record<string, unknown> | undefined;
+        expect(actionInfo, `describe must include action: ${actionName}`).toBeDefined();
+        const schema = actionInfo!.schema as { properties?: Record<string, unknown> };
+        expect(
+          schema,
+          `${actionName}.schema must be present`,
+        ).toBeDefined();
+        const props = schema.properties ?? {};
+        expect(
+          props,
+          `${actionName}.schema.properties must expose operationId`,
+        ).toHaveProperty('operationId');
+        expect(
+          props,
+          `${actionName}.schema.properties must expose correlationId`,
+        ).toHaveProperty('correlationId');
+        expect(
+          props,
+          `${actionName}.schema.properties must expose causationId`,
+        ).toHaveProperty('causationId');
+      }
+    });
+
+    it('describe action surfaces correlation filters as optional (not in required[])', async () => {
+      // Defense-in-depth: the correlation filters are optional. If they
+      // accidentally became required (e.g. via .nonempty() instead of
+      // .optional()), describe would list them in `required[]` and any
+      // caller that omitted them would get rejected on dispatch.
+      const args = { action: 'describe', actions: [...TELEMETRY_ACTIONS] };
+      const result = await handleView(args, CTX);
+
+      expect(result.success).toBe(true);
+      const data = result.data as Record<string, unknown>;
+
+      for (const actionName of TELEMETRY_ACTIONS) {
+        const actionInfo = data[actionName] as Record<string, unknown> | undefined;
+        expect(actionInfo).toBeDefined();
+        const schema = actionInfo!.schema as { required?: string[] };
+        const required = schema.required ?? [];
+        expect(
+          required,
+          `${actionName}.schema.required must NOT include operationId`,
+        ).not.toContain('operationId');
+        expect(
+          required,
+          `${actionName}.schema.required must NOT include correlationId`,
+        ).not.toContain('correlationId');
+        expect(
+          required,
+          `${actionName}.schema.required must NOT include causationId`,
+        ).not.toContain('causationId');
+      }
+    });
+  });
 });

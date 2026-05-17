@@ -365,6 +365,157 @@ describe('toToolEntry — action-error fields (Sentry follow-up #1364)', () => {
   });
 });
 
+// ─── Wave 5 / Task 13 (#1437) — telemetry view honors correlation filters ─
+//
+// The telemetry handler differs from the other Group A actions in that it
+// does NOT go through `queryDeltaEvents` — it reads the telemetry stream
+// directly via `store.query(TELEMETRY_STREAM)`. The Wave 4 filter API extends
+// `EventStore.query`'s second arg; this suite pins that `handleViewTelemetry`
+// threads the new `operationId / correlationId / causationId` args into that
+// call so callers can slice telemetry rollups by dispatch boundary.
+describe('Wave 5 — handleViewTelemetry honors correlation filters (#1437)', () => {
+  let stateDir: string;
+  const TELEMETRY_STREAM_NAME = 'telemetry'; // mirror constants.ts
+
+  beforeEach(async () => {
+    stateDir = await createTempDir();
+    resetMaterializerCache();
+  });
+
+  afterEach(async () => {
+    await fs.rm(stateDir, { recursive: true, force: true });
+  });
+
+  it('handleViewTelemetry_WithCorrelationIdFilter_RolsUpOnlyMatchingEvents', async () => {
+    // GIVEN: telemetry events for two correlation boundaries. Pre-filter, the
+    // view would aggregate both tools; post-filter it should aggregate only
+    // the cor-X tool.
+    const store = new EventStore(stateDir);
+    // cor-X: two invocations of `tool_X`
+    for (let i = 1; i <= 2; i++) {
+      await store.append(TELEMETRY_STREAM_NAME, {
+        streamId: TELEMETRY_STREAM_NAME,
+        sequence: i,
+        timestamp: new Date().toISOString(),
+        type: 'tool.completed',
+        operationId: 'op-X',
+        correlationId: 'cor-X',
+        data: {
+          tool: 'tool_X',
+          durationMs: 10,
+          responseBytes: 100,
+          tokenEstimate: 25,
+        },
+        schemaVersion: '1.0',
+      });
+    }
+    // cor-Y: one invocation of `tool_Y`
+    await store.append(TELEMETRY_STREAM_NAME, {
+      streamId: TELEMETRY_STREAM_NAME,
+      sequence: 3,
+      timestamp: new Date().toISOString(),
+      type: 'tool.completed',
+      operationId: 'op-Y',
+      correlationId: 'cor-Y',
+      data: {
+        tool: 'tool_Y',
+        durationMs: 50,
+        responseBytes: 500,
+        tokenEstimate: 200,
+      },
+      schemaVersion: '1.0',
+    });
+
+    // WHEN: handler invoked with a correlationId filter
+    const result = await handleViewTelemetry(
+      { correlationId: 'cor-X' },
+      stateDir,
+      store,
+    );
+
+    // THEN: only tool_X is rolled up; tool_Y is absent.
+    expect(result.success).toBe(true);
+    const data = result.data as {
+      session: { totalInvocations: number; totalTokens: number };
+      tools: Array<{ tool: string; invocations: number }>;
+    };
+    expect(data.tools).toHaveLength(1);
+    expect(data.tools[0].tool).toBe('tool_X');
+    expect(data.tools[0].invocations).toBe(2);
+    expect(data.session.totalInvocations).toBe(2);
+  });
+
+  it('handleViewTelemetry_WithOperationIdFilter_RolsUpOnlyMatchingEvents', async () => {
+    const store = new EventStore(stateDir);
+    await store.append(TELEMETRY_STREAM_NAME, {
+      streamId: TELEMETRY_STREAM_NAME,
+      sequence: 1,
+      timestamp: new Date().toISOString(),
+      type: 'tool.completed',
+      operationId: 'op-A',
+      correlationId: 'cor-shared',
+      data: { tool: 'tool_A', durationMs: 10, responseBytes: 100, tokenEstimate: 25 },
+      schemaVersion: '1.0',
+    });
+    await store.append(TELEMETRY_STREAM_NAME, {
+      streamId: TELEMETRY_STREAM_NAME,
+      sequence: 2,
+      timestamp: new Date().toISOString(),
+      type: 'tool.completed',
+      operationId: 'op-B',
+      correlationId: 'cor-shared',
+      data: { tool: 'tool_B', durationMs: 20, responseBytes: 200, tokenEstimate: 50 },
+      schemaVersion: '1.0',
+    });
+
+    const result = await handleViewTelemetry(
+      { operationId: 'op-A' },
+      stateDir,
+      store,
+    );
+
+    expect(result.success).toBe(true);
+    const data = result.data as { tools: Array<{ tool: string }> };
+    expect(data.tools).toHaveLength(1);
+    expect(data.tools[0].tool).toBe('tool_A');
+  });
+
+  it('handleViewTelemetry_WithCausationIdFilter_RolsUpOnlyMatchingEvents', async () => {
+    const store = new EventStore(stateDir);
+    await store.append(TELEMETRY_STREAM_NAME, {
+      streamId: TELEMETRY_STREAM_NAME,
+      sequence: 1,
+      timestamp: new Date().toISOString(),
+      type: 'tool.completed',
+      causationId: 'cause-A',
+      correlationId: 'cor-shared',
+      data: { tool: 'tool_A', durationMs: 10, responseBytes: 100, tokenEstimate: 25 },
+      schemaVersion: '1.0',
+    });
+    await store.append(TELEMETRY_STREAM_NAME, {
+      streamId: TELEMETRY_STREAM_NAME,
+      sequence: 2,
+      timestamp: new Date().toISOString(),
+      type: 'tool.completed',
+      causationId: 'cause-B',
+      correlationId: 'cor-shared',
+      data: { tool: 'tool_B', durationMs: 20, responseBytes: 200, tokenEstimate: 50 },
+      schemaVersion: '1.0',
+    });
+
+    const result = await handleViewTelemetry(
+      { causationId: 'cause-A' },
+      stateDir,
+      store,
+    );
+
+    expect(result.success).toBe(true);
+    const data = result.data as { tools: Array<{ tool: string }> };
+    expect(data.tools).toHaveLength(1);
+    expect(data.tools[0].tool).toBe('tool_A');
+  });
+});
+
 describe('Telemetry projection registered in materializer', () => {
   beforeEach(() => {
     resetMaterializerCache();
