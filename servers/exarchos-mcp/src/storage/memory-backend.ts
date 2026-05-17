@@ -95,6 +95,24 @@ export class InMemoryBackend implements StorageBackend {
       result = result.filter((e) => e.timestamp <= filters.until!);
     }
 
+    // #1437 (Wave 4) — post-fetch correlation-tuple filter. The
+    // capability-equivalent counterpart to SqliteBackend's indexed-WHERE
+    // fast path (capability-equivalent, performance-different — InMemory
+    // has no index to consult). In-memory events carry the correlation
+    // fields directly on the WorkflowEvent object, so we filter the field
+    // off the object rather than re-parsing a payload column. Same
+    // INV-1 contract: the column/field is the filter handle, the value
+    // is whatever the event already carries.
+    if (filters?.operationId !== undefined) {
+      result = result.filter((e) => e.operationId === filters.operationId);
+    }
+    if (filters?.correlationId !== undefined) {
+      result = result.filter((e) => e.correlationId === filters.correlationId);
+    }
+    if (filters?.causationId !== undefined) {
+      result = result.filter((e) => e.causationId === filters.causationId);
+    }
+
     if (filters?.offset) {
       result = result.slice(filters.offset);
     }
