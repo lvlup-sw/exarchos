@@ -14,6 +14,14 @@ All notable changes to Exarchos are documented in this file. Organized by semver
   - `materializeFiltered` cache-bypass helper prevents cache contamination across filtered/unfiltered calls on the same view.
   - Closes the [#1291](https://github.com/lvlup-sw/exarchos/issues/1291) acceptance criteria (storage layer + telemetry filters + three end-to-end integration tests) that PR [#1428](https://github.com/lvlup-sw/exarchos/pull/1428) deferred. Closes [#1414](https://github.com/lvlup-sw/exarchos/issues/1414) (regression coverage proves the inline fix from #1428's post-merge hardening).
 
+- Correlation consumer wiring ([#1448](https://github.com/lvlup-sw/exarchos/issues/1448))
+  - `deriveCorrelationFilters` helper in `views/tools.ts` — inside an active `runWithDispatchContext` scope, defaults `correlationId` to the active dispatch's correlationId when no filter args are supplied; explicit args always win. Emits `source: 'ctx-default'` debug log on the inferred path. Replaces six inline filter-spread blocks across the six telemetry view handlers.
+  - CLI flags `--operation-id` / `--correlation-id` / `--causation-id` on all six telemetry view subcommands. Auto-generated from each action's Zod schema in `registry.ts` via `addFlagsFromSchema`; 20 regression-pin tests (full subcommand × flag matrix + introspection sweep + end-to-end smoke through real dispatch).
+  - `cacheBypasses` counter on `ViewMaterializer.getCacheStats()` plus `correlationFilteredQueries` counter on `SqliteBackend.getStats()` — close the two DIM-2 LOW findings from PR [#1447](https://github.com/lvlup-sw/exarchos/pull/1447)'s axiom audit (silent index regression + invisible cache-bypass).
+  - `docs/runbooks/correlation-filters.md` — operator + agent reference covering the three IDs, filter selection rule, MCP + CLI examples, and the AsyncLocalStorage default. Linked from `README.md` in the agent-first architecture section.
+  - T17 acceptance test: inline TODO replaced with permanent design rationale. No production auto-dispatch handler exists (both CLI and MCP adapters are one-shot); T17's manual `mintDispatchContext` synthesis models the correct caller-driven path at the substrate boundary, not a workaround. Companion CLI roundtrip test pins `next_actions` field integrity through the one-shot pipeline.
+  - Closes [#1448](https://github.com/lvlup-sw/exarchos/issues/1448) items 2-5 (item 1 = [#1446](https://github.com/lvlup-sw/exarchos/issues/1446) separately tracked).
+
 ## [2.10.0-preview.2] - 2026-05-11
 
 ### Marten primitives + post-DR-4 cleanup (#1312, #1340, #1313, #1284, #1304, #1314, #1341)
