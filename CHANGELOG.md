@@ -7,7 +7,7 @@ All notable changes to Exarchos are documented in this file. Organized by semver
 ### Added
 
 - Correlation tuple indexed columns + telemetry filters ([#1437](https://github.com/lvlup-sw/exarchos/issues/1437), [#1414](https://github.com/lvlup-sw/exarchos/issues/1414))
-  - Schema V5→V6: `operation_id`, `correlation_id`, `causation_id` columns on the `events` table with two indexes (`idx_events_correlation`, `idx_events_causation`).
+  - Schema V5→V6: `operation_id`, `correlation_id`, `causation_id` columns on the `events` table with three indexes (`idx_events_correlation`, `idx_events_causation`, `idx_events_operation`).
   - Chunked transactional backfill from the `payload` JSON via the `migrateV5ToV6` helper; emits `migration.correlation_backfill_progress` events per chunk.
   - `EventStore.QueryFilters` accepts the three correlation fields; `SqliteBackend` honors them as indexed `WHERE` clauses; `InMemoryBackend` uses a post-fetch JS filter for parity.
   - Six telemetry view actions (`telemetry`, `delegation_timeline`, `code_quality`, `quality_correlation`, `quality_attribution`, `eval_results`) accept the new filter args; `exarchos_view describe` surfaces them.

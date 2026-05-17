@@ -822,6 +822,13 @@ describe('SqliteBackend Schema Migration V1->V2', () => {
       .get() as { name: string } | undefined;
     expect(causationIdx?.name).toBe('idx_events_causation');
 
+    const operationIdx = db
+      .prepare(
+        "SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'idx_events_operation'",
+      )
+      .get() as { name: string } | undefined;
+    expect(operationIdx?.name).toBe('idx_events_operation');
+
     // Assert: schema_version max stamped version is 6.
     const versionRows = db
       .prepare('SELECT version FROM schema_version ORDER BY version DESC')

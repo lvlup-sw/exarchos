@@ -241,6 +241,17 @@ describe('AtomicAppender', () => {
 // after `eventStore.append(...)` resolves the write transaction is fully
 // committed; the second backend handle just opens a SELECT-only connection
 // to the same file (WAL mode allows concurrent readers).
+// Structural typing for the private SqliteBackend.db handle. Tests reach
+// into the side-channel SQLite connection to verify the V6 column values
+// directly; using a structural shape keeps the test engine-agnostic and
+// removes the `bun:sqlite` runtime coupling.
+type SqliteDbHandle = {
+  prepare(sql: string): {
+    get(...args: unknown[]): unknown;
+    all(...args: unknown[]): unknown[];
+  };
+};
+
 describe('AtomicAppender correlation column persistence (#1437 Wave 3)', () => {
   let stateDir: string;
 
@@ -270,15 +281,6 @@ describe('AtomicAppender correlation column persistence (#1437 Wave 3)', () => {
     const sideBackend = new SqliteBackend(dbPath);
     sideBackend.initialize();
     try {
-      // Structural typing for the private `db` handle keeps this test
-      // engine-agnostic — we only need `prepare(...).get(...)` shape, not
-      // a runtime dependency on `bun:sqlite`.
-      type SqliteDbHandle = {
-        prepare(sql: string): {
-          get(...args: unknown[]): unknown;
-          all(...args: unknown[]): unknown[];
-        };
-      };
       const db = (sideBackend as unknown as { db: SqliteDbHandle }).db;
       const row = db
         .prepare(
@@ -324,9 +326,7 @@ describe('AtomicAppender correlation column persistence (#1437 Wave 3)', () => {
     const sideBackend = new SqliteBackend(dbPath);
     sideBackend.initialize();
     try {
-      const db = (sideBackend as unknown as {
-        db: import('bun:sqlite').Database;
-      }).db;
+      const db = (sideBackend as unknown as { db: SqliteDbHandle }).db;
       const rows = db
         .prepare(
           'SELECT sequence, operation_id, correlation_id, causation_id FROM events WHERE streamId = ? ORDER BY sequence',

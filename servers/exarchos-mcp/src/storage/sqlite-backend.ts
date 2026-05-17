@@ -886,21 +886,31 @@ export class SqliteBackend implements StorageBackend {
     const MAX_ITERATIONS = 10_000;
 
     let cursor = 0;
+    let completed = false;
     for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
       const rowids = (
         selectNextChunkRowids.all(cursor) as Array<{ rowid: number }>
       ).map((r) => r.rowid);
-      if (rowids.length === 0) break;
+      if (rowids.length === 0) {
+        completed = true;
+        break;
+      }
 
       // Build the IN list inline — `rowid IN (?,?,?…)` lets sqlite use
       // the rowid PK lookup directly. Per-chunk recompilation is cheap
       // for a once-per-migration call site.
       const placeholders = rowids.map(() => '?').join(',');
+      // Guard each json_extract with json_valid: a single legacy or
+      // hand-edited row with malformed JSON would otherwise raise
+      // SQLITE_ERROR "malformed JSON" and abort the entire migration
+      // transaction. With the guard, a malformed payload row simply stays
+      // with NULL correlation columns (same shape as a payload that lacks
+      // the fields), and the migration completes.
       const updateSql = `
         UPDATE events
-           SET operation_id   = json_extract(payload, '$.operationId'),
-               correlation_id = json_extract(payload, '$.correlationId'),
-               causation_id   = json_extract(payload, '$.causationId')
+           SET operation_id   = CASE WHEN json_valid(payload) THEN json_extract(payload, '$.operationId')   ELSE NULL END,
+               correlation_id = CASE WHEN json_valid(payload) THEN json_extract(payload, '$.correlationId') ELSE NULL END,
+               causation_id   = CASE WHEN json_valid(payload) THEN json_extract(payload, '$.causationId')   ELSE NULL END
          WHERE rowid IN (${placeholders})
       `;
       const result = this.db.prepare(updateSql).run(...rowids) as {
@@ -955,7 +965,24 @@ export class SqliteBackend implements StorageBackend {
       );
       upsertSeq.run(MIGRATION_STREAM, nextSeq);
 
-      if (totalRowsRemaining === 0) break;
+      if (totalRowsRemaining === 0) {
+        completed = true;
+        break;
+      }
+    }
+
+    if (!completed) {
+      // Reaching the iteration ceiling means cursor advancement is broken
+      // (or there's genuinely more than 10M un-backfilled rows). Throwing
+      // from inside the outer `db.transaction(...)` wrapper rolls back the
+      // DDL + every partial UPDATE and prevents migrateV5ToV6 from
+      // stamping schema_version = 6, forcing operator intervention. A
+      // silent break here would record an incomplete schema as complete.
+      throw new Error(
+        `migrateV5ToV6: correlation backfill exceeded MAX_ITERATIONS=${MAX_ITERATIONS} ` +
+          `(cursor=${cursor}); aborting so migrateV5ToV6 does not record schema_version=6 ` +
+          'with incomplete backfill. Inspect the events table and the chunked cursor logic.',
+      );
     }
   }
 

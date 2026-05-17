@@ -65,9 +65,14 @@ CREATE INDEX IF NOT EXISTS idx_events_correlation
   ON events(correlation_id, sequence);
 CREATE INDEX IF NOT EXISTS idx_events_causation
   ON events(causation_id);
--- Skip idx_events_operation: operation_id queries are typically
--- stream-scoped and the existing (streamId, sequence) PK suffices.
--- Add later if benchmarks show a stream-agnostic need.
+-- Superseded by shipped implementation (PR #1447, post-#1448 review):
+-- idx_events_operation IS created. The original "stream-scoped queries
+-- only" assumption didn't hold once cross-stream `operation_id`-only
+-- filtering landed via `EventStore.queryByType` (#1437 + #1448 consumer
+-- wiring), which would otherwise full-scan without an index. The final
+-- shipped index set is three indexes:
+CREATE INDEX IF NOT EXISTS idx_events_operation
+  ON events(operation_id);
 ```
 
 Column names use `snake_case` to match the existing schema convention (`projection_snapshots.stream_id`, `idempotency_claims.idempotencyKey` is the lone outlier preserved for back-compat). The values stored in the columns are read from the canonical JSON-payload fields `correlationId`, `operationId`, `causationId` — both writer and backfill use the same JSON keys.
