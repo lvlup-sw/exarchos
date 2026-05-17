@@ -29,12 +29,25 @@
  *
  * ## Cache semantics
  *
- * The in-memory map (`this.tasks`) is a **cache**, not authoritative
- * state. On every read we MAY rebuild it from the event store; the
- * acceptance test exercises exactly this by appending events directly
- * and instantiating a fresh store. Cache misses fall through to a
- * stream read; cache hits are validated against the projection
- * sequence so a missed event invalidates the cache transparently.
+ * The in-memory map (`this.tasks`) is a **lazy projection cache**, not
+ * authoritative state. The durable stream is the source of truth — the
+ * cache is rebuilt lazily on miss and validated against the stream on
+ * every hit.
+ *
+ *   - **Cache miss** → `fullRefold` queries the entire `task-store/<id>`
+ *     stream, folds it via `projectTask`, stamps `lastReadSequence` to
+ *     the tail event's sequence, and caches the result.
+ *   - **Cache hit** → `loadTask` calls `EventStore.tailSequence(stream)`
+ *     and compares against the cached `lastReadSequence`. If they match,
+ *     the cached projection is returned verbatim. If the tail has
+ *     advanced (a sibling process / instance appended `task.result` or
+ *     `task.cancelled` since we cached), `refoldDelta` queries only the
+ *     events newer than `lastReadSequence` (`sinceSequence` is exclusive
+ *     in the backend) and applies them via `projectTaskIncremental`.
+ *
+ * This closes FINDING-2 (#1438) — multi-process scenarios (CLI + MCP
+ * server on the same `stateDir`, hot-swap, two MCP instances) no longer
+ * drift silently: the prose here now matches the code (closes DIM-8).
  *
  * ## TTL
  *
@@ -77,6 +90,17 @@ interface ProjectedTask {
   result?: Result;
   /** Wall-clock expiration; undefined when ttl is null (unlimited). */
   expiresAt?: number;
+  /**
+   * FINDING-2 (#1438, PR 2): tail sequence at the last successful fold.
+   * `loadTask` compares this against `EventStore.tailSequence(stream)` on
+   * every cache hit; when the tail has advanced (a sibling process /
+   * instance appended `task.result` / `task.cancelled` since we cached),
+   * we incrementally re-fold the delta via `projectTaskIncremental`.
+   * `projectTask` itself remains sequence-unaware (pure fold over event
+   * content); the caller is responsible for stamping this field after a
+   * successful projection.
+   */
+  lastReadSequence: number;
 }
 
 /**
@@ -208,6 +232,12 @@ export class EventSourcedTaskStore implements TaskStore {
       request,
       requestId,
       expiresAt: ttl !== null ? Date.now() + ttl : undefined,
+      // FINDING-2 (#1438): the `task.created` event we just appended is
+      // the only event on a fresh stream, so the cached projection's
+      // last-read tail is sequence 1. Subsequent appends (`task.polled`,
+      // `task.result`, `task.cancelled`) bump this via the cache-hit
+      // path in `loadTask` after each successful fold.
+      lastReadSequence: 1,
     });
 
     return task;
@@ -458,17 +488,69 @@ export class EventSourcedTaskStore implements TaskStore {
    * Returns `undefined` (not throw) when the task has never existed.
    */
   private async loadTask(taskId: string): Promise<ProjectedTask | undefined> {
+    // FINDING-2 (#1438, PR 2): cache hits MUST be validated against the
+    // live stream tail before being returned. The pre-PR-2 implementation
+    // returned the cached projection unconditionally, which let a sibling
+    // process's `task.result` / `task.cancelled` shadow the cached
+    // `working` status indefinitely (silent drift). The design here is:
+    //   1. Cache hit + tail matches  → return cached.
+    //   2. Cache hit + tail moved    → incremental fold of the delta
+    //      (`sinceSequence: cached.lastReadSequence` is exclusive in the
+    //      backend query, so we get exactly the events newer than what
+    //      we already folded).
+    //   3. Cache miss                → full refold from the stream.
     const cached = this.tasks.get(taskId);
-    if (cached) return cached;
+    if (cached) {
+      const tail = await this.store.tailSequence(taskStream(taskId));
+      if (tail === cached.lastReadSequence) return cached;
+      return this.refoldDelta(taskId, cached, tail);
+    }
+    return this.fullRefold(taskId);
+  }
 
+  /**
+   * FINDING-2 (#1438): cold-path refold — query the entire stream and
+   * project from scratch. Used on cache miss and as a defensive fallback
+   * when the tail advanced but the delta query came back empty (e.g.,
+   * transient ordering between `tailSequence` and the next `query` call
+   * against the same backend).
+   */
+  private async fullRefold(taskId: string): Promise<ProjectedTask | undefined> {
     const events = await this.store.query(taskStream(taskId));
     if (events.length === 0) return undefined;
-
     const projected = projectTask(taskId, events);
     if (!projected) return undefined;
+    const full: ProjectedTask = {
+      ...projected,
+      lastReadSequence: events[events.length - 1].sequence,
+    };
+    this.tasks.set(taskId, full);
+    return full;
+  }
 
-    this.tasks.set(taskId, projected);
-    return projected;
+  /**
+   * FINDING-2 (#1438): incremental refold from a cached projection. The
+   * substrate's `EventStore.query` exposes a `sinceSequence` (exclusive)
+   * filter — passing `cached.lastReadSequence` returns exactly the
+   * delta. No `fromSequence` API exists; `sinceSequence`'s exclusive
+   * semantics give us the right shape directly (no off-by-one).
+   */
+  private async refoldDelta(
+    taskId: string,
+    cached: ProjectedTask,
+    tail: number,
+  ): Promise<ProjectedTask | undefined> {
+    const delta = await this.store.query(taskStream(taskId), {
+      sinceSequence: cached.lastReadSequence,
+    });
+    // Defensive: if tail moved but the delta query came back empty
+    // (rare — would require a backend-internal ordering anomaly), fall
+    // back to a full refold so we never return a known-stale projection.
+    if (delta.length === 0) return this.fullRefold(taskId);
+    const next = projectTaskIncremental(cached, delta);
+    next.lastReadSequence = tail;
+    this.tasks.set(taskId, next);
+    return next;
   }
 
   /**
@@ -504,11 +586,21 @@ export class EventSourcedTaskStore implements TaskStore {
  * Returns `undefined` when the stream is empty or malformed (no
  * `task.created`). This is the function the REPLAY acceptance test in
  * `event-sourced-task-store.test.ts` validates end-to-end.
+ *
+ * FINDING-2 (#1438, PR 2) note: this function is intentionally
+ * sequence-unaware — it folds over event *content* and returns a
+ * `ProjectedTask`-minus-`lastReadSequence`. The caller stamps the
+ * `lastReadSequence` field from `events.at(-1).sequence` (or the
+ * `EventStore.tailSequence` value, depending on whether the caller is
+ * doing a full refold or an incremental fold). Keeping the fold pure
+ * lets `projectTaskIncremental` reuse the same per-event switch logic
+ * without conflating projection semantics with cache-validation
+ * bookkeeping.
  */
 function projectTask(
   taskId: string,
   events: readonly WorkflowEvent[],
-): ProjectedTask | undefined {
+): Omit<ProjectedTask, 'lastReadSequence'> | undefined {
   // The first event must be `task.created`; everything else folds on top.
   const created = events.find((e) => e.type === 'task.created');
   if (!created) return undefined;
@@ -596,5 +688,79 @@ function projectTask(
     requestId,
     result,
     expiresAt,
+  };
+}
+
+/**
+ * FINDING-2 (#1438, PR 2): incremental fold from a cached projection.
+ *
+ * Given a previously-cached `ProjectedTask` and a `delta` of events
+ * that arrived AFTER the cached `lastReadSequence`, returns a fresh
+ * `ProjectedTask` reflecting the combined state. The `task.created`
+ * event by construction lives at sequence 1 and is therefore never in
+ * the delta (the cache always carries at least the created-state); the
+ * switch body below mirrors `projectTask`'s post-created loop exactly
+ * — same handlers for `task.result`, `task.cancelled`, and the no-op
+ * default for `task.polled` / unknown.
+ *
+ * Pure function — no I/O, no clock reads. Does NOT mutate `cached`.
+ * The caller is responsible for stamping the new `lastReadSequence`
+ * (typically `EventStore.tailSequence(stream)` at the moment of read).
+ */
+function projectTaskIncremental(
+  cached: ProjectedTask,
+  delta: readonly WorkflowEvent[],
+): ProjectedTask {
+  let task: Task = { ...cached.task };
+  let result: Result | undefined = cached.result;
+  let expiresAt: number | undefined = cached.expiresAt;
+
+  for (const event of delta) {
+    switch (event.type) {
+      case 'task.result': {
+        const data = (event.data ?? {}) as Record<string, unknown>;
+        const status = data['status'];
+        if (
+          status === 'completed' ||
+          status === 'failed' ||
+          status === 'cancelled'
+        ) {
+          task = {
+            ...task,
+            status,
+            lastUpdatedAt: event.timestamp,
+          };
+          if (data['result'] !== undefined) {
+            result = data['result'] as Result;
+          }
+        }
+        break;
+      }
+      case 'task.cancelled': {
+        const data = (event.data ?? {}) as Record<string, unknown>;
+        task = {
+          ...task,
+          status: 'cancelled',
+          lastUpdatedAt: event.timestamp,
+          ...(typeof data['reason'] === 'string'
+            ? { statusMessage: data['reason'] }
+            : {}),
+        };
+        break;
+      }
+      default:
+        // `task.polled` and unknown types are no-op for state projection
+        // — same as `projectTask`. Keep both branches in lockstep.
+        break;
+    }
+  }
+
+  return {
+    task,
+    request: cached.request,
+    requestId: cached.requestId,
+    result,
+    expiresAt,
+    lastReadSequence: cached.lastReadSequence,
   };
 }

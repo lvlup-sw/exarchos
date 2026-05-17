@@ -954,3 +954,42 @@ describe('EventStore appendValidated', () => {
   // dual-write (`writeOutbox` / `setOutbox`) were removed in Phase 2
   // along with the JSONL primary substrate.
 });
+
+// ─── FINDING-2 (#1438, PR 2) — tailSequence accessor ────────────────────────
+
+describe('EventStore.tailSequence', () => {
+  it('tailSequence_EmptyStream_ReturnsZero', async () => {
+    // FINDING-2 (#1438): `tailSequence` is the one-line wrapper over the
+    // backend high-water-mark accessor that `EventSourcedTaskStore` will
+    // use to validate cache hits against the durable stream tail. For a
+    // stream that has never been written, the contract returns 0 (NOT
+    // undefined) so callers can use `tail === cached.lastReadSequence`
+    // as a clean equality check without separate undefined-handling.
+    const store = new EventStore(tempDir);
+    await store.initialize();
+
+    const tail = await store.tailSequence('never-written');
+    expect(tail).toBe(0);
+  });
+
+  it('tailSequence_PopulatedStream_ReturnsHighestSequence', async () => {
+    // FINDING-2 (#1438): for a populated stream, `tailSequence` returns
+    // the sequence of the most-recently-appended event — equivalent to
+    // `(await query(stream)).at(-1).sequence`. AtomicAppender uses the
+    // same accessor internally to compute the next sequence; this is the
+    // public surface that exposes the value without forcing callers to
+    // re-query the whole stream.
+    const store = new EventStore(tempDir);
+    await store.initialize();
+    const streamId = 'populated-stream';
+
+    await store.append(streamId, { type: 'workflow.started' });
+    await store.append(streamId, { type: 'task.assigned' });
+    await store.append(streamId, { type: 'workflow.transition' });
+
+    const events = await store.query(streamId);
+    const tail = await store.tailSequence(streamId);
+    expect(tail).toBe(events.at(-1)!.sequence);
+    expect(tail).toBe(3);
+  });
+});

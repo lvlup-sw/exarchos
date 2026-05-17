@@ -604,6 +604,20 @@ export class EventStore {
   }
 
   /**
+   * Return the highest sequence persisted on `streamId`, or 0 when the
+   * stream is empty / has never been written. Mirrors the semantics of
+   * `StorageBackend.getSequence` (and the SqliteBackend
+   * `readSequenceHighWaterMark` accessor `AtomicAppender` uses
+   * internally) — the public surface lets cache-validating consumers
+   * (notably `EventSourcedTaskStore.loadTask`, FINDING-2 #1438) compare
+   * a stale `lastReadSequence` against the live stream tail without
+   * having to re-query the entire event list.
+   */
+  async tailSequence(streamId: string): Promise<number> {
+    return this.getReadBackend().getSequence(streamId);
+  }
+
+  /**
    * Register a stream in the typed-stream registry (Marten R-1, #1313).
    * Idempotent: re-calling for the same streamId leaves the registry row
    * untouched. The workflow_type column is immutable post-insert — a CI

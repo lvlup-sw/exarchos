@@ -382,6 +382,170 @@ describe('EventSourcedTaskStore (#1272)', () => {
     }
   });
 
+  it('loadTask_AfterInitialFold_RecordsTailSequence', async () => {
+    // FINDING-2 (#1438, PR 2): `ProjectedTask` now carries
+    // `lastReadSequence` so cache-hit branches in `loadTask` can compare
+    // against the live stream tail. After a successful `createTask` the
+    // only persisted event is `task.created` at sequence 1, so the
+    // cached projection's `lastReadSequence` MUST equal 1.
+    //
+    // Test peeks at the private `tasks` map via a `unknown` cast — same
+    // pattern PR 1's throttle tests use for `lastPolledAt` inspection.
+    const task = await store.createTask(
+      { ttl: 60_000 },
+      'req-tail-seq',
+      sampleRequest,
+    );
+
+    const cached = (
+      store as unknown as { tasks: Map<string, { lastReadSequence: number }> }
+    ).tasks.get(task.taskId);
+    expect(cached).toBeDefined();
+    expect(cached!.lastReadSequence).toBe(1);
+  });
+
+  it('loadTask_CacheHitWithAdvancedStream_TriggersRefoldAndReturnsLatest', async () => {
+    // FINDING-2 (#1438, PR 2): the in-memory `tasks` map is a CACHE, not
+    // authoritative state. Two TaskStore instances backed by the SAME
+    // `EventStore` represent the multi-process scenario (CLI + MCP
+    // server sharing a SQLite store, or two MCP server instances during
+    // a hot-swap). When B writes a terminal event after A has warmed its
+    // cache, A's next `getTask` MUST observe the new state — which
+    // requires re-validating the cache against the live stream tail
+    // (`EventStore.tailSequence`) on every read and incrementally
+    // re-folding the delta.
+    const storeA = new EventSourcedTaskStore(eventStore);
+
+    const task = await storeA.createTask(
+      { ttl: 60_000 },
+      'req-multi-A',
+      sampleRequest,
+    );
+
+    // A warms its cache.
+    const beforeBWrite = await storeA.getTask(task.taskId);
+    expect(beforeBWrite?.status).toBe('working');
+
+    // B (simulated by a direct event-store append — the durable substrate
+    // is the same one A is reading from) writes a terminal `task.result`.
+    await eventStore.append(`task-store/${task.taskId}`, {
+      type: 'task.result',
+      timestamp: new Date().toISOString(),
+      data: {
+        taskId: task.taskId,
+        status: 'completed',
+        result: { content: [{ type: 'text', text: 'from-B' }] },
+      },
+    });
+
+    // A's next read MUST observe the terminal status — the cache hit is
+    // invalidated by `tailSequence` advancing past `lastReadSequence`.
+    const afterBWrite = await storeA.getTask(task.taskId);
+    expect(afterBWrite?.status).toBe('completed');
+  });
+
+  it('projectTaskIncremental_FromCachedToTail_MatchesFullRefold', async () => {
+    // FINDING-2 (#1438, PR 2): incremental fold from a cached projection
+    // MUST be observationally equivalent to a full refold of the same
+    // final stream. This is the load-bearing invariant — if it ever
+    // diverged, the cache-validation path would silently corrupt
+    // projections.
+    //
+    // The test exercises a mixed stream (created + polled + cancelled)
+    // by driving it through two TaskStore instances on the same
+    // EventStore: storeA warms its cache mid-stream, storeB (a fresh
+    // instance) does a full cold refold of the final state. Their
+    // resulting `task` objects MUST be deep-equal.
+    const storeA = new EventSourcedTaskStore(eventStore);
+
+    // Build the stream. After createTask, the cache holds the
+    // `task.created` event at sequence 1.
+    const task = await storeA.createTask(
+      { ttl: 60_000 },
+      'req-incremental',
+      sampleRequest,
+    );
+
+    // First read warms storeA's cache (also emits one throttled
+    // `task.polled` at sequence 2).
+    await storeA.getTask(task.taskId);
+
+    // Append the terminal event directly via the event store — same
+    // mechanism the multi-process scenario uses. storeA's cache is now
+    // stale (`tail > lastReadSequence`).
+    await eventStore.append(`task-store/${task.taskId}`, {
+      type: 'task.cancelled',
+      timestamp: new Date().toISOString(),
+      data: {
+        taskId: task.taskId,
+        reason: 'incremental-fold-test',
+      },
+    });
+
+    // storeA's next read goes through the incremental fold path
+    // (cache hit + tail moved → `refoldDelta` → `projectTaskIncremental`).
+    const aTask = await storeA.getTask(task.taskId);
+
+    // A fresh storeB does a full cold refold via `fullRefold`.
+    const storeB = new EventSourcedTaskStore(eventStore);
+    const bTask = await storeB.getTask(task.taskId);
+
+    // Both paths converge on the same projected `task`. The throttled
+    // `task.polled` emit on B's read may bump sequences differently but
+    // does not affect `status` / `statusMessage` projection state.
+    expect(aTask?.status).toBe('cancelled');
+    expect(bTask?.status).toBe('cancelled');
+    expect(aTask?.statusMessage).toBe('incremental-fold-test');
+    expect(bTask?.statusMessage).toBe('incremental-fold-test');
+    expect(aTask?.taskId).toBe(bTask?.taskId);
+    expect(aTask?.ttl).toBe(bTask?.ttl);
+    expect(aTask?.pollInterval).toBe(bTask?.pollInterval);
+    // The `lastUpdatedAt` timestamp comes from the terminal event's
+    // timestamp in both paths, so it should match exactly.
+    expect(aTask?.lastUpdatedAt).toBe(bTask?.lastUpdatedAt);
+  });
+
+  it('EventSourcedTaskStore_MultiProcessRace_CacheValidatesOnRead', async () => {
+    // FINDING-2 (#1438, PR 2): integration-style assertion of the
+    // multi-process race. Two `EventSourcedTaskStore` instances share a
+    // single SQLite-backed `EventStore` — exactly the topology of:
+    //   - CLI + MCP server on the same `stateDir`
+    //   - Two MCP server instances during a hot-swap
+    //   - Test runners that spawn the store from multiple harnesses
+    //
+    // The fix invariant: A's read MUST observe B's terminal write, no
+    // matter how warm A's cache is. T10 covered the same scenario at
+    // unit level via a direct `eventStore.append`; this test re-asserts
+    // through the second store's public API to prove the path works
+    // end-to-end against the same durable substrate.
+    const storeA = new EventSourcedTaskStore(eventStore);
+    const storeB = new EventSourcedTaskStore(eventStore);
+
+    const task = await storeA.createTask(
+      { ttl: 60_000 },
+      'req-mp-race',
+      sampleRequest,
+    );
+
+    // A warms its cache.
+    expect((await storeA.getTask(task.taskId))?.status).toBe('working');
+
+    // B writes the terminal result through its own public API. Note: B
+    // first does its own `loadTask` (cache miss → full refold), which
+    // is the realistic shape for a second process picking up the task.
+    await storeB.storeTaskResult(task.taskId, 'completed', {
+      content: [{ type: 'text', text: 'from-storeB' }],
+    });
+
+    // A's next read MUST surface the terminal status.
+    const observed = await storeA.getTask(task.taskId);
+    expect(observed?.status).toBe('completed');
+    const observedResult = await storeA.getTaskResult(task.taskId);
+    expect(observedResult).toEqual({
+      content: [{ type: 'text', text: 'from-storeB' }],
+    });
+  });
+
   it('EventSourcedTaskStore_ListTasks_HydratesFromEventStoreOnColdStart', async () => {
     // CR PR #1432: cold-start listTasks must enumerate durable
     // `task-store/*` streams rather than silently returning an empty
