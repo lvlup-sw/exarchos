@@ -909,6 +909,50 @@ describe('View Handlers', () => {
         schemaVersion: '1.0',
       });
 
+      // Seed eval slices for both correlations so the test exercises the
+      // eval-side projection too. handleViewQualityAttribution folds both
+      // CodeQuality + EvalResults projections under the same correlation
+      // filter — without these appends a regression that breaks eval-side
+      // filtering would still pass via the gate-only path.
+      await store.append(streamId, {
+        streamId,
+        sequence: 3,
+        timestamp: new Date().toISOString(),
+        type: 'eval.run.completed',
+        operationId: 'op-X',
+        correlationId: 'cor-X',
+        data: {
+          runId: 'run-X',
+          suiteId: 'delegation',
+          total: 10,
+          passed: 9,
+          failed: 1,
+          avgScore: 0.9,
+          duration: 5000,
+          regressions: [],
+        },
+        schemaVersion: '1.0',
+      });
+      await store.append(streamId, {
+        streamId,
+        sequence: 4,
+        timestamp: new Date().toISOString(),
+        type: 'eval.run.completed',
+        operationId: 'op-Y',
+        correlationId: 'cor-Y',
+        data: {
+          runId: 'run-Y',
+          suiteId: 'synthesis',
+          total: 5,
+          passed: 3,
+          failed: 2,
+          avgScore: 0.6,
+          duration: 3000,
+          regressions: [],
+        },
+        schemaVersion: '1.0',
+      });
+
       const result = await handleViewQualityAttribution(
         { workflowId: streamId, dimension: 'skill', correlationId: 'cor-X' },
         tmpDir,
