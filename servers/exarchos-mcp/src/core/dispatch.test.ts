@@ -1259,4 +1259,58 @@ describe('dispatch', () => {
       }
     });
   });
+
+  // ─── F1 regression: dispatch preserves inbound _meta correlation block ─
+  //
+  // Issue #1414 / plan task-1 (2026-05-16-correlation-indexed-columns):
+  //   The dispatch entry point must propagate caller-supplied
+  //   `_meta.correlationId` and `_meta.causationId` onto the returned
+  //   `ToolResult._meta` (both success AND error envelopes), while
+  //   freshly minting `operationId` on every call. The fix landed inline
+  //   at `dispatch.ts:604` via #1428's post-merge hardening (incoming
+  //   correlation parse → `mintDispatchContext({correlationId, causationId})`
+  //   → `attachMeta` non-destructive merge with caller wins at lines
+  //   614-632). This test locks that contract so a future refactor of
+  //   the per-action validation / workspace-resolution branches cannot
+  //   silently drop the caller's correlation chain.
+  //
+  // Test strategy: use `exarchos_workflow/get` with a non-existent
+  // featureId — the handler returns a NOT_FOUND error envelope, which
+  // exercises the error branch of `attachMeta` and proves _meta is
+  // attached even when `success === false`.
+  it('Dispatch_BuiltInTool_PreservesInbound_meta', async () => {
+    // Arrange
+    const { dispatch } = await import('./dispatch.js');
+    const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    const inboundCorrelationId = 'corr-from-caller-7';
+    const inboundCausationId = 'event-upstream-3';
+
+    // Act — minimal DispatchContext: memory-backed event store + tmpDir,
+    // no MCP roots, no elicitation client, no rootsClient. The featureId
+    // 'test-feature' is intentionally absent from the store; we only
+    // care about _meta propagation, which happens on both success and
+    // error envelopes (dispatch.ts:614-632).
+    const result = await dispatch(
+      'exarchos_workflow',
+      {
+        action: 'get',
+        featureId: 'test-feature',
+        _meta: {
+          correlationId: inboundCorrelationId,
+          causationId: inboundCausationId,
+        },
+      },
+      { stateDir: tmpDir, eventStore, enableTelemetry: false },
+    );
+
+    // Assert — _meta block present regardless of success/error branch.
+    const meta = (result as { _meta?: Record<string, unknown> })._meta;
+    expect(meta, `Expected result._meta to be present. Got: ${JSON.stringify(result)}`).toBeDefined();
+    expect(meta!.correlationId).toBe(inboundCorrelationId);
+    expect(meta!.causationId).toBe(inboundCausationId);
+    // operationId is always freshly minted per dispatch — never inherited
+    // from caller — and must be a UUID v4 string.
+    expect(typeof meta!.operationId).toBe('string');
+    expect(meta!.operationId as string).toMatch(UUID_RE);
+  });
 });
