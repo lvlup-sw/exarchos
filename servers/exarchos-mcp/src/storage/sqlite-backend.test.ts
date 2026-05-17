@@ -1329,3 +1329,70 @@ describe('SqliteBackend queryEvents correlation filters (Wave 4 / #1437)', () =>
     expect(results.every((e) => e.correlationId === 'cor-X')).toBe(true);
   });
 });
+
+// ─── #1448 (Wave 1 / Task 2) — correlationFilteredQueries counter ───────────
+//
+// PR #1447 added the indexed-WHERE fast path on (operation_id, correlation_id,
+// causation_id), but nothing currently distinguishes "indexed-path hit" from
+// "fell back to post-fetch filter" at runtime. The counter below is the
+// observability surface that closes the DIM-2 LOW finding from #1447's audit:
+// a silent index regression (schema change drops the column, future
+// WHERE-builder edit forgets the clause) would otherwise produce correct
+// answers via full-scan, invisible until users notice latency.
+//
+// Counting rule: ONE increment per query, regardless of how many of the three
+// correlation filter fields are supplied. A query with all three filters counts
+// as 1.
+
+describe('SqliteBackend correlationFilteredQueries counter (#1448 Task 2)', () => {
+  let backend: SqliteBackend;
+
+  beforeEach(() => {
+    backend = new SqliteBackend(':memory:');
+    backend.initialize();
+
+    // Seed a couple of stamped events so the queries below have something to
+    // scan past. The counter is independent of result-set size — it advances
+    // whenever the filter-clause block runs, not when rows match.
+    for (let i = 1; i <= 3; i++) {
+      backend.appendEvent('test-stream', makeEvent({
+        streamId: 'test-stream',
+        sequence: i,
+        type: 'workflow.started',
+        operationId: 'op-x',
+        correlationId: 'cor-x',
+        causationId: 'cau-x',
+      }));
+    }
+  });
+
+  afterEach(() => {
+    backend.close();
+  });
+
+  it('Sqlite_queryEvents_WithCorrelationFilter_IncrementsIndexedPathCounter', () => {
+    backend.queryEvents('test-stream', { correlationId: 'cor-x' });
+    backend.queryEvents('test-stream', { operationId: 'op-x' });
+    backend.queryEvents('test-stream', { causationId: 'cau-x' });
+    backend.queryEvents('test-stream', {}); // no correlation filter — must NOT increment
+
+    expect(backend.getStats().correlationFilteredQueries).toBe(3);
+  });
+
+  it('Sqlite_queryEventsByType_WithCorrelationFilter_IncrementsIndexedPathCounter', () => {
+    backend.queryEventsByType('workflow.started', 'test-stream', { correlationId: 'cor-x' });
+    backend.queryEventsByType('workflow.started', 'test-stream', {}); // no filter
+
+    expect(backend.getStats().correlationFilteredQueries).toBe(1);
+  });
+
+  it('Sqlite_queryEvents_WithMultipleFilters_CountsOncePerQuery', () => {
+    backend.queryEvents('test-stream', {
+      operationId: 'op-x',
+      correlationId: 'cor-x',
+      causationId: 'cau-x',
+    });
+
+    expect(backend.getStats().correlationFilteredQueries).toBe(1);
+  });
+});

@@ -321,6 +321,21 @@ export class SqliteBackend implements StorageBackend {
   private queryStmtCache: Map<string, Statement> = new Map();
 
   /**
+   * Counter for queries that exercised the indexed-WHERE fast path on the
+   * V6 correlation columns (operation_id, correlation_id, causation_id).
+   *
+   * Incremented ONCE per query when any of the three correlation filter
+   * fields is supplied — NOT once per clause appended, so a caller passing
+   * all three filters still counts as 1.
+   *
+   * Exposed via {@link getStats}. Closes the DIM-2 LOW finding from PR
+   * #1447's axiom audit (#1448 item 5): without this counter a silent
+   * index regression would produce correct answers via full-scan and stay
+   * invisible until users notice the latency.
+   */
+  private correlationFilteredQueries = 0;
+
+  /**
    * Clock used for outbox retry-eligibility checks. Injectable so tests can
    * advance time without sleeping for real-world backoff windows
    * (`Math.pow(2, attempts) * 1000` ms — up to 32 s before dead-lettering).
@@ -1255,6 +1270,17 @@ export class SqliteBackend implements StorageBackend {
     // SQL string as the cache key, so adding/omitting these clauses
     // produces distinct cache entries automatically — no manual cache
     // bookkeeping required.
+    //
+    // #1448 item 5 — bump the correlationFilteredQueries counter once per
+    // query (not once per clause) so silent index regressions surface via
+    // `getStats()` rather than via user-visible latency.
+    if (
+      filters?.operationId !== undefined ||
+      filters?.correlationId !== undefined ||
+      filters?.causationId !== undefined
+    ) {
+      this.correlationFilteredQueries++;
+    }
     if (filters?.operationId !== undefined) {
       conditions.push('operation_id = ?');
       params.push(filters.operationId);
@@ -1313,6 +1339,22 @@ export class SqliteBackend implements StorageBackend {
   }
 
   /**
+   * Backend observability counters. Currently exposes
+   * `correlationFilteredQueries` — the number of {@link queryEvents} /
+   * {@link queryEventsByType} invocations that supplied at least one of the
+   * three correlation filter fields and therefore exercised the V6 indexed
+   * fast path. Counted once per query, regardless of how many of the three
+   * filter fields were supplied.
+   *
+   * Shape mirrors `ViewMaterializer.getStats()` (a plain numeric counter
+   * object) so callers can compose per-subsystem stat snapshots without a
+   * shared metrics interface.
+   */
+  getStats(): { correlationFilteredQueries: number } {
+    return { correlationFilteredQueries: this.correlationFilteredQueries };
+  }
+
+  /**
    * Cross-stream query reducer (DR-3). Reduces over the events table for a
    * single event type whose streamId is `streamPrefix` (parent stream) OR a
    * namespaced descendant `<streamPrefix>/<segment>`. SQL clause matches the
@@ -1350,6 +1392,15 @@ export class SqliteBackend implements StorageBackend {
     // WHERE clauses against the V6 columns; the (correlation_id, sequence)
     // index makes the common cross-stream telemetry lookup ("all events in
     // workflow X of type Y") O(log n + matches).
+    //
+    // #1448 item 5 — same once-per-query counter as queryEvents.
+    if (
+      filters?.operationId !== undefined ||
+      filters?.correlationId !== undefined ||
+      filters?.causationId !== undefined
+    ) {
+      this.correlationFilteredQueries++;
+    }
     if (filters?.operationId !== undefined) {
       conditions.push('operation_id = ?');
       params.push(filters.operationId);
