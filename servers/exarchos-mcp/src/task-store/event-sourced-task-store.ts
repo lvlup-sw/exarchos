@@ -29,12 +29,25 @@
  *
  * ## Cache semantics
  *
- * The in-memory map (`this.tasks`) is a **cache**, not authoritative
- * state. On every read we MAY rebuild it from the event store; the
- * acceptance test exercises exactly this by appending events directly
- * and instantiating a fresh store. Cache misses fall through to a
- * stream read; cache hits are validated against the projection
- * sequence so a missed event invalidates the cache transparently.
+ * The in-memory map (`this.tasks`) is a **lazy projection cache**, not
+ * authoritative state. The durable stream is the source of truth — the
+ * cache is rebuilt lazily on miss and validated against the stream on
+ * every hit.
+ *
+ *   - **Cache miss** → `fullRefold` queries the entire `task-store/<id>`
+ *     stream, folds it via `projectTask`, stamps `lastReadSequence` to
+ *     the tail event's sequence, and caches the result.
+ *   - **Cache hit** → `loadTask` calls `EventStore.tailSequence(stream)`
+ *     and compares against the cached `lastReadSequence`. If they match,
+ *     the cached projection is returned verbatim. If the tail has
+ *     advanced (a sibling process / instance appended `task.result` or
+ *     `task.cancelled` since we cached), `refoldDelta` queries only the
+ *     events newer than `lastReadSequence` (`sinceSequence` is exclusive
+ *     in the backend) and applies them via `projectTaskIncremental`.
+ *
+ * This closes FINDING-2 (#1438) — multi-process scenarios (CLI + MCP
+ * server on the same `stateDir`, hot-swap, two MCP instances) no longer
+ * drift silently: the prose here now matches the code (closes DIM-8).
  *
  * ## TTL
  *
@@ -60,8 +73,10 @@ import type {
 } from '@modelcontextprotocol/sdk/experimental/tasks/interfaces.js';
 import { isTerminal } from '@modelcontextprotocol/sdk/experimental/tasks/interfaces.js';
 
-import { EventStore } from '../event-store/store.js';
+import { EventStore, SequenceConflictError } from '../event-store/store.js';
 import type { WorkflowEvent } from '../event-store/schemas.js';
+import { ConcurrencyError } from '../event-store/concurrency-error.js';
+import { taskStoreLogger } from '../logger.js';
 
 /**
  * Per-task projected lifecycle state. The shape carries everything
@@ -77,6 +92,17 @@ interface ProjectedTask {
   result?: Result;
   /** Wall-clock expiration; undefined when ttl is null (unlimited). */
   expiresAt?: number;
+  /**
+   * FINDING-2 (#1438, PR 2): tail sequence at the last successful fold.
+   * `loadTask` compares this against `EventStore.tailSequence(stream)` on
+   * every cache hit; when the tail has advanced (a sibling process /
+   * instance appended `task.result` / `task.cancelled` since we cached),
+   * we incrementally re-fold the delta via `projectTaskIncremental`.
+   * `projectTask` itself remains sequence-unaware (pure fold over event
+   * content); the caller is responsible for stamping this field after a
+   * successful projection.
+   */
+  lastReadSequence: number;
 }
 
 /**
@@ -207,7 +233,17 @@ export class EventSourcedTaskStore implements TaskStore {
       task,
       request,
       requestId,
-      expiresAt: ttl !== null ? Date.now() + ttl : undefined,
+      // Bind `expiresAt` to the event timestamp (not `Date.now()`) so the
+      // writer's in-memory cache matches what a replaying reader process
+      // computes via `projectTask` / `projectTaskIncremental`. Otherwise
+      // two processes folding the same stream could disagree on expiry.
+      expiresAt: ttl !== null ? Date.parse(createdAt) + ttl : undefined,
+      // FINDING-2 (#1438): the `task.created` event we just appended is
+      // the only event on a fresh stream, so the cached projection's
+      // last-read tail is sequence 1. Subsequent appends (`task.polled`,
+      // `task.result`, `task.cancelled`) bump this via the cache-hit
+      // path in `loadTask` after each successful fold.
+      lastReadSequence: 1,
     });
 
     return task;
@@ -268,37 +304,61 @@ export class EventSourcedTaskStore implements TaskStore {
     result: Result,
     _sessionId?: string,
   ): Promise<void> {
-    const stored = await this.loadTask(taskId);
-    if (!stored) {
-      throw new Error(`Task with ID ${taskId} not found`);
-    }
-    if (isTerminal(stored.task.status)) {
-      throw new Error(
-        `Cannot store result for task ${taskId} in terminal status '${stored.task.status}'. Task results can only be stored once.`,
-      );
-    }
-
-    const now = new Date().toISOString();
-    await this.store.append(taskStream(taskId), {
-      type: 'task.result',
-      timestamp: now,
-      data: {
-        taskId,
-        status,
-        result,
-      },
+    // FINDING-1 (#1438, PR 3): route the read→decide→append through
+    // `commitWithOcc` so the durable layer enforces single-writer
+    // semantics via `expectedSequence`. The terminal-check fires INSIDE
+    // the decide closure so each retry re-evaluates against a freshly
+    // refolded projection (a concurrent winner's `task.result` /
+    // `task.cancelled` becomes visible on the next attempt).
+    return this.commitWithOcc(taskId, 'storeTaskResult', async (stored) => {
+      if (isTerminal(stored.task.status)) {
+        throw new Error(
+          `Cannot store result for task ${taskId} in terminal status '${stored.task.status}'. Task results can only be stored once.`,
+        );
+      }
+      const now = new Date().toISOString();
+      return {
+        event: {
+          type: 'task.result',
+          timestamp: now,
+          data: {
+            taskId,
+            status,
+            result,
+          },
+        },
+        mutate: (s: ProjectedTask) => {
+          s.result = result;
+          // CodeRabbit r3253903305 (#1444): drop any prior
+          // `statusMessage` (typically a stale `input_required` prompt)
+          // — `storeTaskResult` is a terminal transition with an
+          // explicit result, so the prior diagnostic no longer applies.
+          // Equally important: the projection a sibling process
+          // computes from the durable stream NEVER sets `statusMessage`
+          // for `task.result` (no field carries it), so without this
+          // explicit clear the writer's cache would diverge from
+          // replayers — the same INV-1 cross-process inconsistency the
+          // `expiresAt` bump above also guards against.
+          const {
+            statusMessage: _staleStatusMessage,
+            ...taskWithoutStatusMessage
+          } = s.task;
+          void _staleStatusMessage;
+          s.task = {
+            ...taskWithoutStatusMessage,
+            status,
+            lastUpdatedAt: now,
+          };
+          // TTL resets from terminal transition (matches SDK semantics).
+          // Use the event's ISO timestamp — not `Date.now()` — so the
+          // writer's cache stays in lockstep with the projection a
+          // sibling process computes when it replays the same event.
+          if (s.task.ttl !== null) {
+            s.expiresAt = Date.parse(now) + s.task.ttl;
+          }
+        },
+      };
     });
-
-    stored.result = result;
-    stored.task = {
-      ...stored.task,
-      status,
-      lastUpdatedAt: now,
-    };
-    // TTL resets from terminal transition (matches SDK semantics).
-    if (stored.task.ttl !== null) {
-      stored.expiresAt = Date.now() + stored.task.ttl;
-    }
   }
 
   async getTaskResult(taskId: string, _sessionId?: string): Promise<Result> {
@@ -324,45 +384,81 @@ export class EventSourcedTaskStore implements TaskStore {
     statusMessage?: string,
     _sessionId?: string,
   ): Promise<void> {
-    const stored = await this.loadTask(taskId);
-    if (!stored) {
-      throw new Error(`Task with ID ${taskId} not found`);
-    }
-    if (isTerminal(stored.task.status)) {
+    // CodeRabbit r3253903306 (#1444): `completed` / `failed` carry a
+    // result payload and only have a faithful representation as a
+    // durable `task.result` event via `storeTaskResult`. Allowing them
+    // here would route through the `event: null` projection-only
+    // fallback below — the transition would live in this process's
+    // cache and disappear on replay or in any sibling process,
+    // violating INV-1 (event-sourcing integrity). We reject loudly
+    // BEFORE entering `commitWithOcc` so callers see the contract
+    // violation directly rather than as a post-hoc divergence.
+    if (status === 'completed' || status === 'failed') {
       throw new Error(
-        `Cannot update task ${taskId} from terminal status '${stored.task.status}' to '${status}'. Terminal states (completed, failed, cancelled) cannot transition to other states.`,
+        `Cannot transition task ${taskId} to '${status}' via updateTaskStatus — terminal '${status}' carries a result payload and requires a durable task.result event. Use storeTaskResult() instead.`,
       );
     }
-
-    const now = new Date().toISOString();
-
-    // The `cancelled` transition gets its own durable event so audit
-    // can attribute the cancellation reason cleanly. Other status
-    // transitions (working ↔ input_required) don't have a dedicated
-    // event yet; they live only in the projection's
-    // `lastUpdatedAt`/`statusMessage` until a downstream consumer
-    // requires durable visibility.
-    if (status === 'cancelled') {
-      await this.store.append(taskStream(taskId), {
-        type: 'task.cancelled',
-        timestamp: now,
-        data: {
-          taskId,
-          reason: statusMessage ?? 'unspecified',
-        },
-      });
-    }
-
-    stored.task = {
-      ...stored.task,
-      status,
-      lastUpdatedAt: now,
-      ...(statusMessage !== undefined ? { statusMessage } : {}),
-    };
-
-    if (isTerminal(status) && stored.task.ttl !== null) {
-      stored.expiresAt = Date.now() + stored.task.ttl;
-    }
+    // FINDING-1 (#1438, PR 3): route through `commitWithOcc`. The
+    // cancellation branch returns a durable `task.cancelled` event and
+    // gets full OCC enforcement; non-cancel transitions return
+    // `event: null` (projection-only) and retain pre-PR-3 semantics —
+    // see the inline note on `commitWithOcc` for why this asymmetry is
+    // intentional (no durable event ⇒ no `expectedSequence` to enforce).
+    return this.commitWithOcc(taskId, 'updateTaskStatus', async (stored) => {
+      if (isTerminal(stored.task.status)) {
+        throw new Error(
+          `Cannot update task ${taskId} from terminal status '${stored.task.status}' to '${status}'. Terminal states (completed, failed, cancelled) cannot transition to other states.`,
+        );
+      }
+      const now = new Date().toISOString();
+      const mutate = (s: ProjectedTask) => {
+        // CodeRabbit r3253903305 (#1444): explicitly drop the prior
+        // `statusMessage` before re-assigning. The SDK Task contract
+        // treats `statusMessage` as "the latest status update", so a
+        // transition that doesn't carry a message MUST clear stale
+        // text — otherwise an `input_required` prompt persists across
+        // a return to `working`, and (for cancellation) the projection
+        // a replayer computes from the durable `task.cancelled` event
+        // would diverge from the writer's cache (the event only carries
+        // `reason`, never the pre-cancel diagnostic).
+        const {
+          statusMessage: _staleStatusMessage,
+          ...taskWithoutStatusMessage
+        } = s.task;
+        void _staleStatusMessage;
+        s.task = {
+          ...taskWithoutStatusMessage,
+          status,
+          lastUpdatedAt: now,
+          ...(statusMessage !== undefined ? { statusMessage } : {}),
+        };
+        // See `storeTaskResult` for why this binds to the event ISO
+        // timestamp rather than `Date.now()`.
+        if (isTerminal(status) && s.task.ttl !== null) {
+          s.expiresAt = Date.parse(now) + s.task.ttl;
+        }
+      };
+      // The `cancelled` transition gets its own durable event so audit
+      // can attribute the cancellation reason cleanly. Other status
+      // transitions (working ↔ input_required) don't have a dedicated
+      // event yet; they live only in the projection's
+      // `lastUpdatedAt`/`statusMessage` until a downstream consumer
+      // requires durable visibility.
+      if (status === 'cancelled') {
+        return {
+          event: {
+            type: 'task.cancelled',
+            timestamp: now,
+            data: {
+              taskId,
+              reason: statusMessage ?? 'unspecified',
+            },
+          },
+          mutate,
+        };
+      }
+      return { event: null, mutate };
+    });
   }
 
   async listTasks(
@@ -413,6 +509,116 @@ export class EventSourcedTaskStore implements TaskStore {
   // ─── Internals ─────────────────────────────────────────────────────────
 
   /**
+   * FINDING-1 (#1438, PR 3): optimistic-concurrency write helper.
+   *
+   * The single entry point for every state-mutating durable write. Wraps
+   * the canonical read→decide→append pattern with `expectedSequence`
+   * enforcement so a sibling writer's commit between our read and our
+   * append surfaces as `SequenceConflictError` rather than silent
+   * last-write-wins on the stream.
+   *
+   * Flow per attempt:
+   *   1. `loadTask` — picks up the latest projection via PR 2's
+   *      cache-validation path (full refold on miss, incremental fold on
+   *      stale cache).
+   *   2. `decide(stored)` — the caller's pure decision function. Returns
+   *      either:
+   *        - `{ event, mutate }` — durable event to append + mutation to
+   *          apply to the cached projection on success.
+   *        - `{ event: null, mutate }` — projection-only update (no
+   *          durable event; no OCC enforcement). Used for `updateTaskStatus`
+   *          transitions that don't carry their own event today.
+   *   3. `store.append(..., { expectedSequence: stored.lastReadSequence })`
+   *      — on conflict the backend throws `SequenceConflictError`; we
+   *      invalidate the cache and loop. The decide closure MUST be
+   *      idempotent w.r.t. its own throws (e.g. terminal-status check)
+   *      because retries re-invoke it against the latest projection.
+   *
+   * Retry budget is 3 (mirrors the R-2 design's `withStateRetry`
+   * convention for non-idempotent decisions). Past the budget we surface
+   * a `ConcurrencyError` — the `mcp/format.ts::wrapError` boundary maps
+   * this to `CONCURRENCY_CONFLICT` (validTargets: ['retry']) for MCP
+   * callers, and the workflow `withStateRetry` middleware already
+   * recognises the type at the inner layer (`workflow/state-retry.ts:59`).
+   */
+  private async commitWithOcc(
+    taskId: string,
+    opName: string,
+    decide: (
+      stored: ProjectedTask,
+    ) => Promise<{
+      event:
+        | (Partial<Omit<WorkflowEvent, 'sequence' | 'streamId'>> & {
+            type: string;
+          })
+        | null;
+      mutate: (s: ProjectedTask) => void;
+    }>,
+    maxRetries = 3,
+  ): Promise<void> {
+    let lastConflict: SequenceConflictError | undefined;
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      const stored = await this.loadTask(taskId);
+      if (!stored) {
+        throw new Error(`Task with ID ${taskId} not found`);
+      }
+      const { event, mutate } = await decide(stored);
+      if (event === null) {
+        // Projection-only update: no durable event to append, no
+        // expectedSequence to enforce. The caller has opted into the
+        // pre-PR-3 semantics for this code path (e.g. non-cancel
+        // `updateTaskStatus` transitions). PR 2's cache-validation in
+        // `loadTask` already gives this branch read-time freshness; the
+        // remaining "stale decision" risk is unchanged from the prior
+        // implementation.
+        mutate(stored);
+        return;
+      }
+      try {
+        await this.store.append(taskStream(taskId), event, {
+          expectedSequence: stored.lastReadSequence,
+        });
+        mutate(stored);
+        stored.lastReadSequence += 1;
+        return;
+      } catch (err) {
+        if (err instanceof SequenceConflictError) {
+          // Force a full refold next iteration: the cached
+          // `lastReadSequence` is provably stale, and we want the next
+          // `loadTask` to re-query from scratch (rather than walk through
+          // the cache-hit-plus-tail-validation path with the now-known-
+          // wrong sequence number).
+          lastConflict = err;
+          this.tasks.delete(taskId);
+          if (attempt < maxRetries) continue;
+          // Fall through to the post-loop ConcurrencyError on the final
+          // attempt so the boundary sees the typed envelope, not the raw
+          // `SequenceConflictError`.
+          break;
+        }
+        throw err;
+      }
+    }
+    // Retry budget exhausted — surface as a structured `ConcurrencyError`
+    // so the MCP boundary (`format.ts::wrapError`) emits the canonical
+    // `CONCURRENCY_CONFLICT` envelope. We log a warning for operational
+    // visibility (DIM-2) before throwing because budget exhaustion is a
+    // notable event — it implies sustained write contention on this
+    // specific task stream.
+    taskStoreLogger.warn(
+      { taskId, op: opName, attempts: maxRetries + 1 },
+      'OCC retry budget exhausted',
+    );
+    throw new ConcurrencyError({
+      streamId: taskStream(taskId),
+      reducerId: 'task-store',
+      expectedVersion: lastConflict?.expected ?? -1,
+      actualVersion: lastConflict?.actual ?? -1,
+      operationId: opName,
+    });
+  }
+
+  /**
    * Enumerate `task-store/*` streams from the event store and load
    * any that aren't already cached. Used by `listTasks` to make
    * cold-start enumeration replay-safe (INV-1).
@@ -458,17 +664,74 @@ export class EventSourcedTaskStore implements TaskStore {
    * Returns `undefined` (not throw) when the task has never existed.
    */
   private async loadTask(taskId: string): Promise<ProjectedTask | undefined> {
+    // FINDING-2 (#1438, PR 2): cache hits MUST be validated against the
+    // live stream tail before being returned. The pre-PR-2 implementation
+    // returned the cached projection unconditionally, which let a sibling
+    // process's `task.result` / `task.cancelled` shadow the cached
+    // `working` status indefinitely (silent drift). The design here is:
+    //   1. Cache hit + tail matches  → return cached.
+    //   2. Cache hit + tail moved    → incremental fold of the delta
+    //      (`sinceSequence: cached.lastReadSequence` is exclusive in the
+    //      backend query, so we get exactly the events newer than what
+    //      we already folded).
+    //   3. Cache miss                → full refold from the stream.
     const cached = this.tasks.get(taskId);
-    if (cached) return cached;
+    if (cached) {
+      const tail = await this.store.tailSequence(taskStream(taskId));
+      if (tail === cached.lastReadSequence) return cached;
+      return this.refoldDelta(taskId, cached, tail);
+    }
+    return this.fullRefold(taskId);
+  }
 
+  /**
+   * FINDING-2 (#1438): cold-path refold — query the entire stream and
+   * project from scratch. Used on cache miss and as a defensive fallback
+   * when the tail advanced but the delta query came back empty (e.g.,
+   * transient ordering between `tailSequence` and the next `query` call
+   * against the same backend).
+   */
+  private async fullRefold(taskId: string): Promise<ProjectedTask | undefined> {
     const events = await this.store.query(taskStream(taskId));
     if (events.length === 0) return undefined;
-
     const projected = projectTask(taskId, events);
     if (!projected) return undefined;
+    const full: ProjectedTask = {
+      ...projected,
+      lastReadSequence: events[events.length - 1].sequence,
+    };
+    this.tasks.set(taskId, full);
+    return full;
+  }
 
-    this.tasks.set(taskId, projected);
-    return projected;
+  /**
+   * FINDING-2 (#1438): incremental refold from a cached projection. The
+   * substrate's `EventStore.query` exposes a `sinceSequence` (exclusive)
+   * filter — passing `cached.lastReadSequence` returns exactly the
+   * delta. No `fromSequence` API exists; `sinceSequence`'s exclusive
+   * semantics give us the right shape directly (no off-by-one).
+   */
+  private async refoldDelta(
+    taskId: string,
+    cached: ProjectedTask,
+    _tail: number,
+  ): Promise<ProjectedTask | undefined> {
+    const delta = await this.store.query(taskStream(taskId), {
+      sinceSequence: cached.lastReadSequence,
+    });
+    // Defensive: if tail moved but the delta query came back empty
+    // (rare — would require a backend-internal ordering anomaly), fall
+    // back to a full refold so we never return a known-stale projection.
+    if (delta.length === 0) return this.fullRefold(taskId);
+    const next = projectTaskIncremental(cached, delta);
+    // Stamp from the LAST sequence actually applied — not the pre-read
+    // tail captured before query(). Events can land between tailSequence()
+    // and query(sinceSequence), so delta may include sequences > tail;
+    // recording `tail` would under-stamp and cause duplicate refolds on
+    // the next read. (CodeRabbit #1444.)
+    next.lastReadSequence = delta[delta.length - 1]!.sequence;
+    this.tasks.set(taskId, next);
+    return next;
   }
 
   /**
@@ -504,11 +767,21 @@ export class EventSourcedTaskStore implements TaskStore {
  * Returns `undefined` when the stream is empty or malformed (no
  * `task.created`). This is the function the REPLAY acceptance test in
  * `event-sourced-task-store.test.ts` validates end-to-end.
+ *
+ * FINDING-2 (#1438, PR 2) note: this function is intentionally
+ * sequence-unaware — it folds over event *content* and returns a
+ * `ProjectedTask`-minus-`lastReadSequence`. The caller stamps the
+ * `lastReadSequence` field from `events.at(-1).sequence` (or the
+ * `EventStore.tailSequence` value, depending on whether the caller is
+ * doing a full refold or an incremental fold). Keeping the fold pure
+ * lets `projectTaskIncremental` reuse the same per-event switch logic
+ * without conflating projection semantics with cache-validation
+ * bookkeeping.
  */
 function projectTask(
   taskId: string,
   events: readonly WorkflowEvent[],
-): ProjectedTask | undefined {
+): Omit<ProjectedTask, 'lastReadSequence'> | undefined {
   // The first event must be `task.created`; everything else folds on top.
   const created = events.find((e) => e.type === 'task.created');
   if (!created) return undefined;
@@ -532,7 +805,7 @@ function projectTask(
       : 1000;
 
   const createdAt = created.timestamp;
-  const expiresAt = ttl !== null ? Date.parse(createdAt) + ttl : undefined;
+  let expiresAt = ttl !== null ? Date.parse(createdAt) + ttl : undefined;
 
   let task: Task = {
     taskId,
@@ -555,27 +828,59 @@ function projectTask(
           status === 'failed' ||
           status === 'cancelled'
         ) {
+          // Defensive statusMessage clear — kept in lockstep with
+          // `projectTaskIncremental`. In a well-formed stream a
+          // `task.cancelled` would never precede a `task.result`
+          // (writer-side OCC enforces single-terminal-event), so the
+          // local `task` shouldn't carry statusMessage here; the
+          // explicit clear keeps the fold robust against
+          // hand-appended or out-of-order streams and prevents the
+          // two folds from drifting structurally.
+          const {
+            statusMessage: _staleStatusMessage,
+            ...taskWithoutStatusMessage
+          } = task;
+          void _staleStatusMessage;
           task = {
-            ...task,
+            ...taskWithoutStatusMessage,
             status,
             lastUpdatedAt: event.timestamp,
           };
           if (data['result'] !== undefined) {
             result = data['result'] as Result;
           }
+          // Mirror the writer's mutate closure (`storeTaskResult` /
+          // `updateTaskStatus`): a terminal transition resets TTL from
+          // the event's wall-clock timestamp. Without this bump, a
+          // sibling process replaying the stream would see the original
+          // created-time expiry while the writer's local cache has the
+          // post-terminal value — they would then disagree on `isExpired`.
+          if (ttl !== null) {
+            expiresAt = Date.parse(event.timestamp) + ttl;
+          }
         }
         break;
       }
       case 'task.cancelled': {
         const data = (event.data ?? {}) as Record<string, unknown>;
+        // Same hygiene as the incremental fold: clear before
+        // optionally re-setting from `reason`.
+        const {
+          statusMessage: _staleStatusMessage,
+          ...taskWithoutStatusMessage
+        } = task;
+        void _staleStatusMessage;
         task = {
-          ...task,
+          ...taskWithoutStatusMessage,
           status: 'cancelled',
           lastUpdatedAt: event.timestamp,
           ...(typeof data['reason'] === 'string'
             ? { statusMessage: data['reason'] }
             : {}),
         };
+        if (ttl !== null) {
+          expiresAt = Date.parse(event.timestamp) + ttl;
+        }
         break;
       }
       default:
@@ -596,5 +901,111 @@ function projectTask(
     requestId,
     result,
     expiresAt,
+  };
+}
+
+/**
+ * FINDING-2 (#1438, PR 2): incremental fold from a cached projection.
+ *
+ * Given a previously-cached `ProjectedTask` and a `delta` of events
+ * that arrived AFTER the cached `lastReadSequence`, returns a fresh
+ * `ProjectedTask` reflecting the combined state. The `task.created`
+ * event by construction lives at sequence 1 and is therefore never in
+ * the delta (the cache always carries at least the created-state); the
+ * switch body below mirrors `projectTask`'s post-created loop exactly
+ * — same handlers for `task.result`, `task.cancelled`, and the no-op
+ * default for `task.polled` / unknown.
+ *
+ * Pure function — no I/O, no clock reads. Does NOT mutate `cached`.
+ * The caller is responsible for stamping the new `lastReadSequence`
+ * (typically `EventStore.tailSequence(stream)` at the moment of read).
+ */
+function projectTaskIncremental(
+  cached: ProjectedTask,
+  delta: readonly WorkflowEvent[],
+): ProjectedTask {
+  let task: Task = { ...cached.task };
+  let result: Result | undefined = cached.result;
+  let expiresAt: number | undefined = cached.expiresAt;
+
+  for (const event of delta) {
+    switch (event.type) {
+      case 'task.result': {
+        const data = (event.data ?? {}) as Record<string, unknown>;
+        const status = data['status'];
+        if (
+          status === 'completed' ||
+          status === 'failed' ||
+          status === 'cancelled'
+        ) {
+          // CodeRabbit r3253923003 (#1444): drop any stale
+          // projection-only `statusMessage` carried on `cached.task`
+          // (e.g. an `input_required` prompt set on this process via
+          // `updateTaskStatus`, which never emits a durable event).
+          // The `task.result` event has no statusMessage field, so a
+          // fresh-process replayer (`projectTask` on the same stream)
+          // produces a terminal task with NO `statusMessage` — without
+          // this explicit clear, the incremental fold path would
+          // diverge from the full-refold path on exactly this case,
+          // violating INV-1 cross-process consistency.
+          const {
+            statusMessage: _staleStatusMessage,
+            ...taskWithoutStatusMessage
+          } = task;
+          void _staleStatusMessage;
+          task = {
+            ...taskWithoutStatusMessage,
+            status,
+            lastUpdatedAt: event.timestamp,
+          };
+          if (data['result'] !== undefined) {
+            result = data['result'] as Result;
+          }
+          // Terminal-transition TTL bump — see `projectTask` for the
+          // why. The two folds must stay observationally equivalent.
+          if (task.ttl !== null) {
+            expiresAt = Date.parse(event.timestamp) + task.ttl;
+          }
+        }
+        break;
+      }
+      case 'task.cancelled': {
+        const data = (event.data ?? {}) as Record<string, unknown>;
+        // Same statusMessage-hygiene as `task.result`: clear any stale
+        // value before optionally setting from the event's `reason`.
+        // Cancellation may carry a fresh diagnostic; absent that, the
+        // prior projection-only prompt MUST not leak through.
+        const {
+          statusMessage: _staleStatusMessage,
+          ...taskWithoutStatusMessage
+        } = task;
+        void _staleStatusMessage;
+        task = {
+          ...taskWithoutStatusMessage,
+          status: 'cancelled',
+          lastUpdatedAt: event.timestamp,
+          ...(typeof data['reason'] === 'string'
+            ? { statusMessage: data['reason'] }
+            : {}),
+        };
+        if (task.ttl !== null) {
+          expiresAt = Date.parse(event.timestamp) + task.ttl;
+        }
+        break;
+      }
+      default:
+        // `task.polled` and unknown types are no-op for state projection
+        // — same as `projectTask`. Keep both branches in lockstep.
+        break;
+    }
+  }
+
+  return {
+    task,
+    request: cached.request,
+    requestId: cached.requestId,
+    result,
+    expiresAt,
+    lastReadSequence: cached.lastReadSequence,
   };
 }
