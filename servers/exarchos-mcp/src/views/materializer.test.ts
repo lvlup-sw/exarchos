@@ -594,7 +594,7 @@ describe('ViewMaterializer Cache Stats', () => {
 
     const stats = materializer.getCacheStats();
 
-    expect(stats).toEqual({ hits: 0, misses: 0, size: 0, missRate: 0 });
+    expect(stats).toEqual({ hits: 0, misses: 0, size: 0, missRate: 0, bypasses: 0 });
   });
 
   it('getCacheStats_AfterHitsAndMisses_TracksCorrectly', () => {
