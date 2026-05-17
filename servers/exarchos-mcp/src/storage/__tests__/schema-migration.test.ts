@@ -383,6 +383,235 @@ describe('SqliteBackend Schema Migration V1->V2', () => {
     expect(indexRow?.name).toBe('idx_projection_snapshots_latest');
   });
 
+  /**
+   * Build a V5 DB on disk: SCHEMA_DDL-shape events table without the three
+   * V6 correlation columns, plus a `schema_version` ledger row stamping
+   * version=5. This mirrors a real V5 database that was created before
+   * #1437 landed; reopening it via `new SqliteBackend(...).initialize()`
+   * should trigger the V5 -> V6 migration.
+   */
+  function createV5Database(dbPath: string): Database {
+    const db = new Database(dbPath);
+    db.exec('PRAGMA journal_mode = WAL');
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS events (
+        streamId  TEXT NOT NULL,
+        sequence  INTEGER NOT NULL,
+        type      TEXT NOT NULL,
+        timestamp TEXT NOT NULL,
+        data      TEXT,
+        payload   TEXT,
+        PRIMARY KEY (streamId, sequence)
+      );
+      CREATE INDEX IF NOT EXISTS idx_events_type ON events(streamId, type);
+      CREATE INDEX IF NOT EXISTS idx_events_time ON events(streamId, timestamp);
+
+      CREATE TABLE IF NOT EXISTS workflow_state (
+        featureId TEXT PRIMARY KEY,
+        state     TEXT NOT NULL,
+        version   INTEGER NOT NULL DEFAULT 1,
+        updatedAt TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS outbox (
+        id          TEXT PRIMARY KEY,
+        streamId    TEXT NOT NULL,
+        event       TEXT NOT NULL,
+        status      TEXT NOT NULL DEFAULT 'pending',
+        attempts    INTEGER NOT NULL DEFAULT 0,
+        createdAt   TEXT NOT NULL,
+        lastAttemptAt TEXT,
+        nextRetryAt   TEXT,
+        error       TEXT
+      );
+      CREATE INDEX IF NOT EXISTS idx_outbox_pending ON outbox(streamId, status);
+
+      CREATE TABLE IF NOT EXISTS view_cache (
+        streamId      TEXT NOT NULL,
+        viewName      TEXT NOT NULL,
+        state         TEXT NOT NULL,
+        highWaterMark INTEGER NOT NULL,
+        savedAt       TEXT NOT NULL,
+        PRIMARY KEY (streamId, viewName)
+      );
+
+      CREATE TABLE IF NOT EXISTS sequences (
+        streamId TEXT PRIMARY KEY,
+        sequence INTEGER NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS schema_version (
+        version   INTEGER PRIMARY KEY,
+        appliedAt TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS projection_snapshots (
+        stream_id          TEXT NOT NULL,
+        projection_id      TEXT NOT NULL,
+        projection_version TEXT NOT NULL,
+        sequence           INTEGER NOT NULL,
+        payload            TEXT NOT NULL,
+        created_at         TEXT NOT NULL,
+        PRIMARY KEY (stream_id, projection_id, projection_version, sequence)
+      );
+      CREATE INDEX IF NOT EXISTS idx_projection_snapshots_latest
+        ON projection_snapshots(stream_id, projection_id, projection_version, sequence DESC);
+
+      CREATE TABLE IF NOT EXISTS streams (
+        streamId      TEXT PRIMARY KEY,
+        workflow_type TEXT NOT NULL DEFAULT '__legacy',
+        status        TEXT,
+        createdAt     TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_streams_workflow_type
+        ON streams(workflow_type);
+      CREATE INDEX IF NOT EXISTS idx_streams_workflow_type_status
+        ON streams(workflow_type, status);
+
+      CREATE TABLE IF NOT EXISTS idempotency_claims (
+        streamId       TEXT NOT NULL,
+        idempotencyKey TEXT NOT NULL,
+        eventIds       TEXT NOT NULL,
+        sequences      TEXT NOT NULL,
+        timestamps     TEXT NOT NULL,
+        events_json    TEXT NOT NULL,
+        claimedAt      TEXT NOT NULL,
+        PRIMARY KEY (streamId, idempotencyKey)
+      );
+    `);
+
+    // Stamp the ledger at V5 with V2/V3/V4/V5 entries so migrateSchema's
+    // upstream gates short-circuit and only the V5 -> V6 step runs.
+    const stamp = db.prepare(
+      'INSERT INTO schema_version (version, appliedAt) VALUES (?, ?)',
+    );
+    const now = '2024-01-01T00:00:00.000Z';
+    for (const v of [2, 3, 4, 5]) {
+      stamp.run(v, now);
+    }
+
+    return db;
+  }
+
+  /** Insert a V5-style event (no correlation columns) directly into the events table. */
+  function insertV5Event(
+    db: Database,
+    streamId: string,
+    sequence: number,
+    type: string,
+    timestamp: string,
+    payload: Record<string, unknown>,
+  ): void {
+    const data = payload.data ? JSON.stringify(payload.data) : null;
+    db.prepare(
+      'INSERT INTO events (streamId, sequence, type, timestamp, data, payload) VALUES (?, ?, ?, ?, ?, ?)',
+    ).run(streamId, sequence, type, timestamp, data, JSON.stringify(payload));
+    db.prepare(
+      'INSERT INTO sequences (streamId, sequence) VALUES (?, ?) ON CONFLICT(streamId) DO UPDATE SET sequence = excluded.sequence',
+    ).run(streamId, sequence);
+  }
+
+  it('MigrateV5ToV6_LegacyV5Db_AddsCorrelationColumnsAndStampsLedger', () => {
+    const dbPath = createTempDb();
+
+    // Build a legacy V5 DB with a few events and explicit schema_version=5
+    // stamp. The events table has no correlation columns.
+    const rawDb = createV5Database(dbPath);
+    insertV5Event(rawDb, 'stream-legacy', 1, 'workflow.started', '2024-01-01T00:00:00.000Z', {
+      streamId: 'stream-legacy',
+      sequence: 1,
+      type: 'workflow.started',
+      timestamp: '2024-01-01T00:00:00.000Z',
+      schemaVersion: '1.0',
+      data: { featureId: 'legacy-feature', workflowType: 'feature' },
+    });
+    insertV5Event(rawDb, 'stream-legacy', 2, 'task.assigned', '2024-01-01T00:01:00.000Z', {
+      streamId: 'stream-legacy',
+      sequence: 2,
+      type: 'task.assigned',
+      timestamp: '2024-01-01T00:01:00.000Z',
+      schemaVersion: '1.0',
+      data: { taskId: 'task-1', title: 'Legacy task' },
+    });
+
+    // Sanity: no correlation columns yet on the V5 schema.
+    const v5Cols = rawDb
+      .prepare('PRAGMA table_info(events)')
+      .all() as Array<{ name: string }>;
+    expect(v5Cols.some((c) => c.name === 'correlation_id')).toBe(false);
+
+    rawDb.close();
+
+    // Reopen via SqliteBackend — migrateV5ToV6 should run and add the columns.
+    const backend = trackBackend(new SqliteBackend(dbPath));
+    expect(() => backend.initialize()).not.toThrow();
+
+    const db = (backend as unknown as { db: Database }).db;
+
+    // Correlation columns now present.
+    const columnsAfter = db
+      .prepare('PRAGMA table_info(events)')
+      .all() as Array<{ name: string; type: string; notnull: number }>;
+    const byName = new Map(columnsAfter.map((c) => [c.name, c]));
+    for (const col of ['operation_id', 'correlation_id', 'causation_id']) {
+      const info = byName.get(col);
+      expect(info, `missing column ${col}`).toBeDefined();
+      expect(info!.type.toUpperCase()).toBe('TEXT');
+      expect(info!.notnull).toBe(0);
+    }
+
+    // schema_version ledger now contains version 6.
+    const versions = (
+      db
+        .prepare('SELECT version FROM schema_version ORDER BY version')
+        .all() as Array<{ version: number }>
+    ).map((r) => r.version);
+    expect(versions).toContain(6);
+
+    // Original events still present and intact.
+    const events = db
+      .prepare('SELECT streamId, sequence, type FROM events WHERE streamId = ? ORDER BY sequence')
+      .all('stream-legacy') as Array<{ streamId: string; sequence: number; type: string }>;
+    expect(events).toHaveLength(2);
+    expect(events[0]).toMatchObject({ sequence: 1, type: 'workflow.started' });
+    expect(events[1]).toMatchObject({ sequence: 2, type: 'task.assigned' });
+  });
+
+  it('MigrateV5ToV6_FreshDbWithNoPriorEvents_NoOpsCleanly', () => {
+    const dbPath = createTempDb();
+
+    // Open a brand-new tmp DB — SCHEMA_DDL creates the V6 events table and
+    // migrateSchema runs the V5 -> V6 helper too (no schema_version row).
+    const backend = trackBackend(new SqliteBackend(dbPath));
+    expect(() => backend.initialize()).not.toThrow();
+
+    const db = (backend as unknown as { db: Database }).db;
+
+    // schema_version ledger contains version 6.
+    const versions = (
+      db
+        .prepare('SELECT version FROM schema_version ORDER BY version')
+        .all() as Array<{ version: number }>
+    ).map((r) => r.version);
+    expect(versions).toContain(6);
+
+    // events table is empty.
+    const eventCount = (
+      db.prepare('SELECT COUNT(*) AS n FROM events').get() as { n: number }
+    ).n;
+    expect(eventCount).toBe(0);
+
+    // No progress events on the internal `__migration__` stream — there was
+    // nothing to backfill on a fresh DB, so the chunked-progress path must
+    // not have fired.
+    const migrationRowCount = (
+      db
+        .prepare("SELECT COUNT(*) AS n FROM events WHERE streamId = '__migration__'")
+        .get() as { n: number }
+    ).n;
+    expect(migrationRowCount).toBe(0);
+  });
+
   it('SqliteBackend_FreshDb_SchemaV6_HasCorrelationColumnsAndIndexes', () => {
     const dbPath = createTempDb();
 
