@@ -479,12 +479,15 @@ export class SqliteBackend implements StorageBackend {
    *           DBs that were stamped at V4 before #1343 landed.
    * V5 -> V6: #1437 correlation-indexed columns. Add three top-level
    *           materialized columns on `events` (`operation_id`,
-   *           `correlation_id`, `causation_id`) plus two indexes
-   *           (`idx_events_correlation`, `idx_events_causation`) so the
-   *           dispatch-correlation tuple (#1291) is filterable in O(log n)
-   *           on `EventStore.queryEvents`. Backfills legacy rows from
-   *           their `payload` JSON inside the same transaction; chunked
-   *           progress events land on the internal `__migration__` stream.
+   *           `correlation_id`, `causation_id`) plus three indexes
+   *           (`idx_events_correlation`, `idx_events_causation`,
+   *           `idx_events_operation`) so the dispatch-correlation tuple
+   *           (#1291) is filterable in O(log n) on `EventStore.queryEvents`
+   *           — including operation_id-only filters used by cross-stream
+   *           queries via `EventStore.queryByType`. Backfills legacy rows
+   *           from their `payload` JSON inside the same transaction;
+   *           chunked progress events land on the internal `__migration__`
+   *           stream.
    *
    * Each step short-circuits if its target version is already present in the
    * `schema_version` table, so running migrateSchema() twice on a V6 DB is a
@@ -726,7 +729,8 @@ export class SqliteBackend implements StorageBackend {
    *      present from SCHEMA_DDL and the ALTER is skipped; on a legacy V5
    *      DB this step adds them.
    *   2. CREATE INDEX IF NOT EXISTS idx_events_correlation
-   *      (correlation_id, sequence) and idx_events_causation (causation_id).
+   *      (correlation_id, sequence), idx_events_causation (causation_id),
+   *      and idx_events_operation (operation_id).
    *   3. Backfill correlation columns from each row's `payload` JSON via
    *      `json_extract($.operationId / $.correlationId / $.causationId)`.
    *      Scoped to `WHERE correlation_id IS NULL` so re-runs are no-ops

@@ -78,14 +78,14 @@ Strict sequential chain: each task changes a piece of `sqlite-backend.ts` that t
 
 1. **[RED]** Write test: `SqliteBackend_FreshDb_SchemaV6_HasCorrelationColumnsAndIndexes`
    - **File:** `servers/exarchos-mcp/src/storage/__tests__/schema-migration.test.ts`
-   - **Test body:** Open a fresh tmp DB via `new SqliteBackend(...)` + `initialize()`. Query `PRAGMA table_info(events)` and assert columns include `operation_id`, `correlation_id`, `causation_id` (all `TEXT NULL`). Query `sqlite_master WHERE type='index'` and assert `idx_events_correlation` and `idx_events_causation` exist. Query `schema_version` and assert the max stamped version is `6`.
+   - **Test body:** Open a fresh tmp DB via `new SqliteBackend(...)` + `initialize()`. Query `PRAGMA table_info(events)` and assert columns include `operation_id`, `correlation_id`, `causation_id` (all `TEXT NULL`). Query `sqlite_master WHERE type='index'` and assert `idx_events_correlation`, `idx_events_causation`, and `idx_events_operation` all exist. Query `schema_version` and assert the max stamped version is `6`.
    - **Expected failure:** Columns absent; max schema_version is 5.
 
 2. **[GREEN]** Implement:
    - **File:** `servers/exarchos-mcp/src/storage/sqlite-backend.ts`
    - Bump `SCHEMA_VERSION` from 5 to 6 at line 54.
    - Extend `SCHEMA_DDL` events table (lines 57-65) with three `TEXT` columns (`operation_id`, `correlation_id`, `causation_id`) before the `PRIMARY KEY` line.
-   - Extend `SCHEMA_DDL` index block (lines 66-67) with `CREATE INDEX IF NOT EXISTS idx_events_correlation ON events(correlation_id, sequence)` and `CREATE INDEX IF NOT EXISTS idx_events_causation ON events(causation_id)`.
+   - Extend `SCHEMA_DDL` index block (lines 66-67) with `CREATE INDEX IF NOT EXISTS idx_events_correlation ON events(correlation_id, sequence)`, `CREATE INDEX IF NOT EXISTS idx_events_causation ON events(causation_id)`, and `CREATE INDEX IF NOT EXISTS idx_events_operation ON events(operation_id)`.
    - Update the `migrateSchema` JSDoc (lines 409-431) with the new `V5 -> V6` summary line.
 
 3. **[REFACTOR]** None needed.
@@ -112,6 +112,7 @@ Strict sequential chain: each task changes a piece of `sqlite-backend.ts` that t
      - `ALTER TABLE events ADD COLUMN causation_id TEXT`
      - `CREATE INDEX IF NOT EXISTS idx_events_correlation ON events(correlation_id, sequence)`
      - `CREATE INDEX IF NOT EXISTS idx_events_causation ON events(causation_id)`
+     - `CREATE INDEX IF NOT EXISTS idx_events_operation ON events(operation_id)`
      - `INSERT OR IGNORE INTO schema_version (version, appliedAt) VALUES (6, ?)`
    - Wire `migrateSchema` (line 472-478 area) to gate-and-call `migrateV5ToV6` if `version=6` row absent.
 

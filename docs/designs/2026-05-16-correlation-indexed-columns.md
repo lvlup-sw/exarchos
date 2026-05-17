@@ -34,7 +34,7 @@ What's missing for #1414 is **regression test coverage** locking in those behavi
 
 | In scope | Out of scope |
 |---|---|
-| Schema bump V5 → V6 (three TEXT NULL columns + 2 indexes) | TaskStore FINDING-4..8 (covered by remaining #1438 follow-ups) |
+| Schema bump V5 → V6 (three TEXT NULL columns + 3 indexes: `idx_events_correlation`, `idx_events_causation`, `idx_events_operation`) | TaskStore FINDING-4..8 (covered by remaining #1438 follow-ups) |
 | Transactional, idempotent backfill from `payload` JSON | Removing `correlation_id`/`operation_id` from the `payload` blob — the payload stays the source of truth (INV-1) |
 | Writer-path update in `atomic-appender.ts` + `sqlite-backend.ts` | Memory-backend indexing — InMemoryBackend keeps post-fetch filter parity (capability-equivalent, performance-different) |
 | EventStore filter API (`operationId` / `correlationId` / `causationId` query filters) with backend-aware fast path | New event types — correlation columns are an indexing layer, not a new emission surface |
@@ -146,7 +146,7 @@ Six view actions on `exarchos_view` receive the three optional filter args on th
 - `quality_attribution`
 - `eval_results`
 
-The action schemas in `registry.ts:2322-2415` extend with three optional `z.string().uuid().optional()` fields. The handlers in `views/composite.ts:170-260` pass the filter args through to `getOrCreateMaterializer` / `queryDeltaEvents` so the materializer's underlying `EventStore.queryEvents` call receives the filters. The materializer's projection fold is untouched — filters apply at fetch time, not in the fold.
+The action schemas in `registry.ts` extend with three optional `z.string().optional()` fields (centralised as `CORRELATION_TUPLE_FILTER_SHAPE` post-review). Arbitrary string IDs are accepted — the substrate does not require UUID format for correlation tuple values; callers that mint UUIDs and callers that supply structured strings (e.g. `cor-workflow-7a3f`) are both first-class. The handlers in `views/composite.ts:170-260` pass the filter args through to `getOrCreateMaterializer` / `queryDeltaEvents` so the materializer's underlying `EventStore.queryEvents` call receives the filters. The materializer's projection fold is untouched — filters apply at fetch time, not in the fold.
 
 `exarchos_view.describe` projects the new args automatically via the existing schema-introspection path; no manual registry edit needed.
 
@@ -163,6 +163,7 @@ The action schemas in `registry.ts:2322-2415` extend with three optional `z.stri
    - `ALTER TABLE events ADD COLUMN causation_id TEXT`
    - `CREATE INDEX IF NOT EXISTS idx_events_correlation ON events(correlation_id, sequence)`
    - `CREATE INDEX IF NOT EXISTS idx_events_causation ON events(causation_id)`
+   - `CREATE INDEX IF NOT EXISTS idx_events_operation ON events(operation_id)`
    - Backfill (see below)
    - `INSERT OR IGNORE INTO schema_version (version, appliedAt) VALUES (6, ?)`
 
@@ -185,14 +186,14 @@ WHERE correlation_id IS NULL;
 
 Backfill is bounded by total event count. For the v2.10 EventStore DBs in the wild (thousand-event scale), the backfill window is sub-second. Larger DBs (the EventSourcedTaskStore can generate thousands of `task.polled` events per workflow) need a paginated approach — chunk by 1,000 rows, stamping a `migration.correlation_backfill_progress` observability event per chunk.
 
-If a row's `payload` is unparseable or lacks the fields, the columns stay `NULL`. This is the correct fallback: NULL means "this row predates correlation threading" and matches the natural state of pre-#1428 events. No need for a "tolerate-and-warn" surface here — the data is genuinely absent, not malformed.
+The backfill is **guarded**: each `json_extract(payload, '$.…')` is wrapped in `CASE WHEN json_valid(payload) THEN … ELSE NULL END`, so a row with malformed JSON in `payload` (or a row that simply lacks the three fields) leaves the correlation columns as `NULL` instead of raising `SQLITE_ERROR: malformed JSON` and aborting the whole migration transaction. `NULL` then carries the same meaning as for any pre-#1428 event — "this row predates correlation threading" — and downstream filter queries (`WHERE correlation_id = ?`) simply do not match.
 
 ### Failure modes & rollback
 
 | Failure | Detection | Recovery |
 |---|---|---|
 | Backfill UPDATE hits SQLITE_BUSY past retry budget | `SqliteBusyExhaustedError` propagates from the migration transaction | Operator retries the open; the V5→V6 step is idempotent (gated by ledger version 6 absent) |
-| Backfill chunk crashes mid-loop | Transaction-per-chunk ensures partial chunks roll back; ledger insert deferred until last chunk commits | Operator retries the open; backfill resumes from the first NULL row |
+| Backfill chunk crashes mid-loop | The single outer transaction (line 159) rolls back DDL + every partial chunk UPDATE + the ledger insert together; nothing partial lands | Operator retries the open; the V5→V6 step is idempotent (gated by ledger version 6 absent), so the backfill restarts from the same NULL-rows starting point |
 | ALTER TABLE fails (concurrent reader holds lock) | Migration transaction surfaces SQLite error | The two-tier BUSY retry policy already handles this; operator-fatal only if WAL mode degrades |
 | Schema bump deployed to a DB that hasn't received #1428's stamped events yet | All rows backfill to NULL; queries with filters return empty | Correct behavior — there were no correlation-tagged events to query. Filters become populated as new appends land. |
 
@@ -340,7 +341,7 @@ Detailed task breakdown belongs to `/exarchos:plan`. Outline for sequencing:
    1.3 Run both. If green, close #1414 with link to the test commits. If red, write the inline fix.
 
 2. **Schema V5 → V6**
-   2.1 Bump `SCHEMA_VERSION` to 6 and extend `SCHEMA_DDL` with the three columns + two indexes.
+   2.1 Bump `SCHEMA_VERSION` to 6 and extend `SCHEMA_DDL` with the three columns + three indexes (`idx_events_correlation`, `idx_events_causation`, `idx_events_operation`).
    2.2 Add `migrateV5ToV6` helper following the V3→V4 transactional + idempotent pattern.
    2.3 Wire `migrateSchema` to call it.
    2.4 Schema-migration test (new entry in `__tests__/schema-migration.test.ts`): legacy V5 DB upgrades to V6 with columns populated from payload.
