@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { prettyPrint, printError, toCliResult } from './cli-format.js';
 import { toEnvelope } from '../format.js';
-import type { ToolResult } from '../format.js';
+import type { Envelope, ToolResult } from '../format.js';
+import type { NextAction } from '../next-action.js';
 
 describe('prettyPrint', () => {
   let stdoutSpy: ReturnType<typeof vi.spyOn>;
@@ -314,6 +315,70 @@ describe('toCliResult', () => {
 
     const stdoutOutput = stdoutSpy.mock.calls.map(c => c[0]).join('');
     expect(stdoutOutput).toBe(JSON.stringify(env, null, 2) + '\n');
+    expect(stderrSpy).not.toHaveBeenCalled();
+  });
+
+  // ─── #1448 item 3 — next_actions field integrity through one-shot dispatch ─
+  //
+  // Regression guard pinning that `next_actions` survives the one-shot
+  // dispatch pipeline (`toEnvelope` → `toCliResult` → JSON on stdout). The
+  // T3 investigation (Branch B, see
+  // `docs/plans/2026-05-16-correlation-consumer-wiring.md` Wave 1 Task 3)
+  // established that NO production auto-dispatch handler exists; the
+  // CLI / MCP adapter is the one-shot exit point and the caller
+  // (orchestrator / agent harness) is the next_actions consumer. This
+  // test pins the field-integrity contract at the caller boundary so
+  // future refactors of `emitResult` / `toCliResult` / `toEnvelope`
+  // cannot silently drop the hints. It is NOT an integration test of
+  // auto-dispatch (which doesn't exist) — assertions are limited to
+  // field presence and shape, not behavior.
+  it('Cli_OneShotDispatch_PreservesNextActionsField', () => {
+    const actions: NextAction[] = [
+      {
+        verb: 'merge_orchestrate',
+        reason: 'worktree-bearing task.completed auto-detour',
+        idempotencyKey: 'p2-detour:merge_orchestrate:001',
+      },
+      {
+        verb: 'advance_phase',
+        reason: 'gate passed',
+        validTargets: ['delegate'],
+        hint: 'orchestrator may auto-advance',
+      },
+    ];
+    const source = {
+      success: true,
+      data: { phase: 'plan' },
+      next_actions: actions,
+      _meta: { featureId: 'feat-1' },
+      _perf: { ms: 7, bytes: 32, tokens: 8 },
+    } as unknown as ToolResult;
+
+    const env = toEnvelope(source);
+    // Stage 1 — envelope boundary preserves the hints intact (the same
+    // contract `toEnvelope_SuccessWithNextActions_PreservesAffordances`
+    // pins, repeated here so a failure isolates which seam regressed).
+    expect(env.success).toBe(true);
+    if (env.success) {
+      expect((env as Envelope<unknown>).next_actions).toEqual(actions);
+    }
+
+    toCliResult(env, 'json');
+
+    // Stage 2 — the one-shot CLI emit path writes the JSON envelope to
+    // stdout with `next_actions` carried verbatim. Parse the actual
+    // byte-output rather than re-inspecting `env` so the assertion pins
+    // the on-the-wire contract a caller sees.
+    const stdoutOutput = stdoutSpy.mock.calls.map((c) => c[0]).join('');
+    expect(stdoutOutput).toBe(JSON.stringify(env, null, 2) + '\n');
+    const parsed = JSON.parse(stdoutOutput.trim()) as {
+      success: boolean;
+      next_actions: NextAction[];
+    };
+    expect(parsed.success).toBe(true);
+    expect(parsed.next_actions).toEqual(actions);
+    // No stderr writes on the one-shot success path — diagnostics roll
+    // into the envelope under json mode.
     expect(stderrSpy).not.toHaveBeenCalled();
   });
 

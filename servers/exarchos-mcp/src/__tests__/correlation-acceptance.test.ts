@@ -163,16 +163,34 @@ describe('#1291 acceptance — correlation propagation across a wave', () => {
 // ─── Task 17 ───────────────────────────────────────────────────────────────
 
 describe('#1291 acceptance — causation chain across auto-dispatch', () => {
-  // Coverage scope: this test is SUBSTRATE-ONLY. It pins that the storage
-  // + filter substrate correctly carries causationId across two dispatch
-  // boundaries. It does NOT exercise the orchestrator's next_actions
-  // auto-dispatch handler — the second dispatch is synthesized manually
-  // here rather than triggered by the orchestrator following a hint.
+  // T17 — substrate-only by design.
   //
-  // A future integration test should wire the actual auto-dispatch path
-  // (orchestrator.process_next_actions → mintDispatchContext + run) so
-  // the causationId thread is verified end-to-end through the handler
-  // layer. Tracked as a follow-up under #1437/#1441 review backlog.
+  // T17 verifies the storage substrate's ability to carry `causationId`
+  // across two dispatch boundaries. The second dispatch is synthesized
+  // manually via `mintDispatchContext` + `runWithDispatchContext` because
+  // NO PRODUCTION AUTO-DISPATCH HANDLER EXISTS to drive a follow-up from a
+  // `ToolResult.next_actions[]` hint. Both `adapters/cli.ts`
+  // (lines 557-596) and `adapters/mcp.ts` (lines 354-389) are strictly
+  // one-shot: they dispatch once, return the envelope, and exit. No code in
+  // `servers/exarchos-mcp/src/` reads `result.next_actions` and invokes a
+  // follow-up dispatcher.
+  //
+  // The HATEOAS follow-up pattern is documented as aspirational at
+  // `dispatch/dispatch-context.ts:12-19` but unimplemented. The
+  // orchestrator / agent harness (Claude Code itself, for the agent-loop
+  // use case) is the consumer of `next_actions`; T17's manual synthesis
+  // models that caller-driven path AT THE SUBSTRATE BOUNDARY.
+  //
+  // If a production auto-dispatch handler is ever added (e.g., a tight
+  // orchestration loop inside the MCP server), extend this file with a
+  // parallel `T17_Integration_*` variant — the substrate test below
+  // remains load-bearing and distinct.
+  //
+  // See `docs/plans/2026-05-16-correlation-consumer-wiring.md` Wave 1
+  // Task 3 investigation (Branch B) for the search evidence; the
+  // companion field-integrity regression guard for the one-shot pipeline
+  // lives in `src/adapters/cli-format.test.ts` under
+  // `Cli_OneShotDispatch_PreservesNextActionsField`.
   it('AutoDispatch_FromNextActionsHint_CarriesCausationIdReferencingUpstreamEvent', async () => {
     // Phase 1 — upstream dispatch. Emit an event; capture its
     // eventId. This event is the "upstream" that a `next_actions` hint
