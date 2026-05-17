@@ -6,6 +6,7 @@ import { pickFields, type ToolResult } from '../format.js';
 import { logger } from '../logger.js';
 import { TERMINAL_PHASES } from '../workflow/terminal-phases.js';
 import { isFeatureStream } from '../core/infra-streams.js';
+import { getDispatchContext } from '../dispatch/dispatch-context.js';
 import { ViewMaterializer } from './materializer.js';
 import { SnapshotStore } from './snapshot-store.js';
 import {
@@ -181,6 +182,42 @@ export function hasCorrelationFilters(filters?: ViewQueryFilters): boolean {
     filters.correlationId !== undefined ||
     filters.causationId !== undefined
   );
+}
+
+/**
+ * Wave 2 (#1448) — AsyncLocalStorage-aware default for correlation filters.
+ *
+ * Returns the explicit args verbatim if any are supplied (explicit-wins).
+ * Otherwise, if a dispatch context is active, defaults `correlationId` to
+ * the active dispatch's correlationId — the chain-stable anchor for the
+ * current workflow scope. If no args AND no active context, returns empty.
+ *
+ * The default makes "show me telemetry for the workflow I'm in" Just Work
+ * inside an agent dispatch without requiring the agent to thread the
+ * correlation tuple back into every telemetry call.
+ */
+export function deriveCorrelationFilters(args: {
+  operationId?: string;
+  correlationId?: string;
+  causationId?: string;
+}): ViewQueryFilters {
+  const explicit: ViewQueryFilters = {
+    ...(args.operationId !== undefined ? { operationId: args.operationId } : {}),
+    ...(args.correlationId !== undefined ? { correlationId: args.correlationId } : {}),
+    ...(args.causationId !== undefined ? { causationId: args.causationId } : {}),
+  };
+  if (Object.keys(explicit).length > 0) {
+    return explicit;
+  }
+  const ctx = getDispatchContext();
+  if (ctx) {
+    logger.debug(
+      { source: 'ctx-default', correlationId: ctx.correlationId },
+      'deriveCorrelationFilters: defaulted correlationId from active dispatch context',
+    );
+    return { correlationId: ctx.correlationId };
+  }
+  return {};
 }
 
 /** @internal Exported for CLI commands and testing */
