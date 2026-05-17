@@ -261,6 +261,16 @@ const REMOTE_MUTATION: ActionAnnotations = {
   openWorld: true,
 };
 
+// Wave 5 (#1437) — shared correlation-tuple filter shape spliced into every
+// view action that supports dispatch-boundary scoping. Keeping it in one
+// place prevents the six call sites from drifting if a field is added,
+// renamed, or constrained.
+const CORRELATION_TUPLE_FILTER_SHAPE = {
+  operationId: z.string().optional(),
+  correlationId: z.string().optional(),
+  causationId: z.string().optional(),
+} as const;
+
 export interface ToolAction {
   readonly name: string;
   readonly description: string;
@@ -2314,9 +2324,7 @@ const viewActions: readonly ToolAction[] = [
       // rollup to a single dispatch boundary. Honored at the backend layer
       // (indexed columns / post-fetch JS filter); INV-1 keeps payload as
       // truth, mirrored to the indexed columns.
-      operationId: z.string().optional(),
-      correlationId: z.string().optional(),
-      causationId: z.string().optional(),
+      ...CORRELATION_TUPLE_FILTER_SHAPE,
     }),
     phases: ALL_PHASES,
     roles: ROLE_ANY,
@@ -2344,9 +2352,7 @@ const viewActions: readonly ToolAction[] = [
       workflowId: z.string().optional(),
       // Wave 5 (#1437) — correlation tuple filters scope the projection
       // fold to a single dispatch boundary.
-      operationId: z.string().optional(),
-      correlationId: z.string().optional(),
-      causationId: z.string().optional(),
+      ...CORRELATION_TUPLE_FILTER_SHAPE,
     }),
     phases: ALL_PHASES,
     roles: ROLE_ANY,
@@ -2363,9 +2369,7 @@ const viewActions: readonly ToolAction[] = [
       limit: coercedPositiveInt().optional(),
       // Wave 5 (#1437) — correlation tuple filters scope the projection
       // fold to a single dispatch boundary.
-      operationId: z.string().optional(),
-      correlationId: z.string().optional(),
-      causationId: z.string().optional(),
+      ...CORRELATION_TUPLE_FILTER_SHAPE,
     }),
     phases: ALL_PHASES,
     roles: ROLE_ANY,
@@ -2387,9 +2391,7 @@ const viewActions: readonly ToolAction[] = [
       limit: coercedPositiveInt().optional(),
       // Wave 5 (#1437) — correlation tuple filters scope the projection
       // fold to a single dispatch boundary.
-      operationId: z.string().optional(),
-      correlationId: z.string().optional(),
-      causationId: z.string().optional(),
+      ...CORRELATION_TUPLE_FILTER_SHAPE,
     }),
     phases: ALL_PHASES,
     roles: ROLE_ANY,
@@ -2404,9 +2406,7 @@ const viewActions: readonly ToolAction[] = [
       // Wave 5 (#1437) — correlation tuple filters scope BOTH underlying
       // projection folds (CQ + ER) to a single dispatch boundary so the
       // joined output stays internally consistent.
-      operationId: z.string().optional(),
-      correlationId: z.string().optional(),
-      causationId: z.string().optional(),
+      ...CORRELATION_TUPLE_FILTER_SHAPE,
     }),
     phases: ALL_PHASES,
     roles: ROLE_ANY,
@@ -2428,9 +2428,7 @@ const viewActions: readonly ToolAction[] = [
         .optional(),
       // Wave 5 (#1437) — correlation tuple filters scope BOTH underlying
       // projection folds (CQ + ER) to a single dispatch boundary.
-      operationId: z.string().optional(),
-      correlationId: z.string().optional(),
-      causationId: z.string().optional(),
+      ...CORRELATION_TUPLE_FILTER_SHAPE,
     }),
     phases: ALL_PHASES,
     roles: ROLE_ANY,

@@ -58,15 +58,20 @@ describe('deriveCorrelationFilters', () => {
 
   it('DeriveCorrelationFilters_NoArgsWithContext_LogsCtxDefault', () => {
     const debugSpy = vi.spyOn(logger, 'debug').mockImplementation(() => {});
-    const ctx = mintDispatchContext({ correlationId: 'ctx-cor-x' });
-    runWithDispatchContext(ctx, () => deriveCorrelationFilters({}));
-    expect(debugSpy).toHaveBeenCalledWith(
-      expect.objectContaining({
-        source: 'ctx-default',
-        correlationId: 'ctx-cor-x',
-      }),
-      expect.stringContaining('deriveCorrelationFilters'),
-    );
-    debugSpy.mockRestore();
+    try {
+      const ctx = mintDispatchContext({ correlationId: 'ctx-cor-x' });
+      runWithDispatchContext(ctx, () => deriveCorrelationFilters({}));
+      expect(debugSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          source: 'ctx-default',
+          correlationId: 'ctx-cor-x',
+        }),
+        expect.stringContaining('deriveCorrelationFilters'),
+      );
+    } finally {
+      // Always restore — a failing assertion above must not leak the
+      // logger.debug spy into sibling tests.
+      debugSpy.mockRestore();
+    }
   });
 });

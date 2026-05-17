@@ -893,6 +893,11 @@ export async function handleViewQualityCorrelation(
     const correlationFilters = deriveCorrelationFilters(args);
     const correlationFiltered = hasCorrelationFilters(correlationFilters);
 
+    // Under a correlation filter, `queryDeltaEvents` short-circuits the
+    // cache and returns `store.query(streamId, filters)` regardless of
+    // `viewName` — so both calls would fetch an identical event list.
+    // Fetch once and fold the same list into both projections (each
+    // projection's `apply` ignores event types it doesn't care about).
     const cqEvents = await queryDeltaEvents(store, materializer, streamId, CODE_QUALITY_VIEW, correlationFilters);
     const cqView = correlationFiltered
       ? materializeFiltered<CodeQualityViewState>(materializer, CODE_QUALITY_VIEW, cqEvents)
@@ -902,7 +907,9 @@ export async function handleViewQualityCorrelation(
           cqEvents,
         );
 
-    const erEvents = await queryDeltaEvents(store, materializer, streamId, EVAL_RESULTS_VIEW, correlationFilters);
+    const erEvents = correlationFiltered
+      ? cqEvents
+      : await queryDeltaEvents(store, materializer, streamId, EVAL_RESULTS_VIEW);
     const erView = correlationFiltered
       ? materializeFiltered<EvalResultsViewState>(materializer, EVAL_RESULTS_VIEW, erEvents)
       : materializer.materialize<EvalResultsViewState>(
@@ -961,6 +968,8 @@ export async function handleViewQualityAttribution(
     const correlationFilters = deriveCorrelationFilters(args);
     const correlationFiltered = hasCorrelationFilters(correlationFilters);
 
+    // See handleViewQualityCorrelation above — under a correlation filter
+    // both projections fold from the same backend payload, so fetch once.
     const cqEvents = await queryDeltaEvents(store, materializer, streamId, CODE_QUALITY_VIEW, correlationFilters);
     const cqView = correlationFiltered
       ? materializeFiltered<CodeQualityViewState>(materializer, CODE_QUALITY_VIEW, cqEvents)
@@ -970,7 +979,9 @@ export async function handleViewQualityAttribution(
           cqEvents,
         );
 
-    const erEvents = await queryDeltaEvents(store, materializer, streamId, EVAL_RESULTS_VIEW, correlationFilters);
+    const erEvents = correlationFiltered
+      ? cqEvents
+      : await queryDeltaEvents(store, materializer, streamId, EVAL_RESULTS_VIEW);
     const erView = correlationFiltered
       ? materializeFiltered<EvalResultsViewState>(materializer, EVAL_RESULTS_VIEW, erEvents)
       : materializer.materialize<EvalResultsViewState>(

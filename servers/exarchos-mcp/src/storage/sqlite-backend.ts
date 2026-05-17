@@ -376,6 +376,7 @@ export class SqliteBackend implements StorageBackend {
       this.db.exec(`
         CREATE INDEX IF NOT EXISTS idx_events_correlation ON events(correlation_id, sequence);
         CREATE INDEX IF NOT EXISTS idx_events_causation ON events(causation_id);
+        CREATE INDEX IF NOT EXISTS idx_events_operation ON events(operation_id);
       `);
 
       // Track schema version
@@ -776,6 +777,9 @@ export class SqliteBackend implements StorageBackend {
       );
       this.db.exec(
         'CREATE INDEX IF NOT EXISTS idx_events_causation ON events(causation_id)',
+      );
+      this.db.exec(
+        'CREATE INDEX IF NOT EXISTS idx_events_operation ON events(operation_id)',
       );
 
       // Chunked backfill from payload JSON. WHERE correlation_id IS NULL

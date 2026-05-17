@@ -2144,6 +2144,7 @@ export type PhaseContractMissing = z.infer<typeof PhaseContractMissingData>;
 export type MigrationLegacyJsonlImported = z.infer<typeof MigrationLegacyJsonlImportedData>;
 export type MigrationCompleted = z.infer<typeof MigrationCompletedData>;
 export type MigrationFailed = z.infer<typeof MigrationFailedData>;
+export type MigrationCorrelationBackfillProgress = z.infer<typeof MigrationCorrelationBackfillProgressData>;
 
 // Wave B (#1342) two-event split types
 export type PrCreateRequested = z.infer<typeof PrCreateRequestedData>;
@@ -2260,6 +2261,7 @@ export type EventDataMap = {
   'migration.legacy_jsonl_imported': MigrationLegacyJsonlImported;
   'migration.completed': MigrationCompleted;
   'migration.failed': MigrationFailed;
+  'migration.correlation_backfill_progress': MigrationCorrelationBackfillProgress;
   // Wave B (#1342) two-event split
   'pr.create.requested': PrCreateRequested;
   'pr.create.executed': PrCreateExecuted;
