@@ -732,6 +732,11 @@ export async function handleViewEvalResults(
     workflowId?: string;
     skill?: string;
     limit?: number;
+    // Wave 5 (#1437) — correlation filters scope the projection fold to
+    // a single dispatch boundary.
+    operationId?: string;
+    correlationId?: string;
+    causationId?: string;
   },
   stateDir: string,
   eventStore: EventStore,
@@ -741,12 +746,22 @@ export async function handleViewEvalResults(
     const materializer = getOrCreateMaterializer(stateDir);
     const streamId = args.workflowId ?? 'default';
 
-    const events = await queryDeltaEvents(store, materializer, streamId, EVAL_RESULTS_VIEW);
-    const view = materializer.materialize<EvalResultsViewState>(
-      streamId,
-      EVAL_RESULTS_VIEW,
-      events,
-    );
+    const correlationFilters: ViewQueryFilters = {
+      ...(args.operationId !== undefined ? { operationId: args.operationId } : {}),
+      ...(args.correlationId !== undefined ? { correlationId: args.correlationId } : {}),
+      ...(args.causationId !== undefined ? { causationId: args.causationId } : {}),
+    };
+    const correlationFiltered = hasCorrelationFilters(correlationFilters);
+    const events = await queryDeltaEvents(store, materializer, streamId, EVAL_RESULTS_VIEW, correlationFilters);
+    // Wave 5 (#1437) — under a correlation filter, fold a fresh projection
+    // off `init()` so the materializer cache stays the unfiltered truth.
+    const view = correlationFiltered
+      ? materializeFiltered<EvalResultsViewState>(materializer, EVAL_RESULTS_VIEW, events)
+      : materializer.materialize<EvalResultsViewState>(
+          streamId,
+          EVAL_RESULTS_VIEW,
+          events,
+        );
 
     // Apply optional filters
     let filtered: EvalResultsViewState = { ...view };
@@ -819,7 +834,15 @@ export async function handleViewQualityHints(
 // ─── View Quality Correlation Handler ────────────────────────────────────────
 
 export async function handleViewQualityCorrelation(
-  args: { workflowId?: string },
+  args: {
+    workflowId?: string;
+    // Wave 5 (#1437) — correlation filters scope both underlying projections
+    // (CQ + ER) to the same dispatch boundary so the joined view stays
+    // internally consistent.
+    operationId?: string;
+    correlationId?: string;
+    causationId?: string;
+  },
   stateDir: string,
   eventStore: EventStore,
 ): Promise<ToolResult> {
@@ -828,19 +851,30 @@ export async function handleViewQualityCorrelation(
     const materializer = getOrCreateMaterializer(stateDir);
     const streamId = args.workflowId ?? 'default';
 
-    const cqEvents = await queryDeltaEvents(store, materializer, streamId, CODE_QUALITY_VIEW);
-    const cqView = materializer.materialize<CodeQualityViewState>(
-      streamId,
-      CODE_QUALITY_VIEW,
-      cqEvents,
-    );
+    const correlationFilters: ViewQueryFilters = {
+      ...(args.operationId !== undefined ? { operationId: args.operationId } : {}),
+      ...(args.correlationId !== undefined ? { correlationId: args.correlationId } : {}),
+      ...(args.causationId !== undefined ? { causationId: args.causationId } : {}),
+    };
+    const correlationFiltered = hasCorrelationFilters(correlationFilters);
 
-    const erEvents = await queryDeltaEvents(store, materializer, streamId, EVAL_RESULTS_VIEW);
-    const erView = materializer.materialize<EvalResultsViewState>(
-      streamId,
-      EVAL_RESULTS_VIEW,
-      erEvents,
-    );
+    const cqEvents = await queryDeltaEvents(store, materializer, streamId, CODE_QUALITY_VIEW, correlationFilters);
+    const cqView = correlationFiltered
+      ? materializeFiltered<CodeQualityViewState>(materializer, CODE_QUALITY_VIEW, cqEvents)
+      : materializer.materialize<CodeQualityViewState>(
+          streamId,
+          CODE_QUALITY_VIEW,
+          cqEvents,
+        );
+
+    const erEvents = await queryDeltaEvents(store, materializer, streamId, EVAL_RESULTS_VIEW, correlationFilters);
+    const erView = correlationFiltered
+      ? materializeFiltered<EvalResultsViewState>(materializer, EVAL_RESULTS_VIEW, erEvents)
+      : materializer.materialize<EvalResultsViewState>(
+          streamId,
+          EVAL_RESULTS_VIEW,
+          erEvents,
+        );
 
     const correlation = correlateQualityAndEvals(cqView, erView);
     return { success: true, data: correlation };
@@ -863,6 +897,12 @@ export async function handleViewQualityAttribution(
     dimension?: string;
     skill?: string;
     timeRange?: { start: string; end: string };
+    // Wave 5 (#1437) — correlation filters scope both underlying projections
+    // (CQ + ER) to the same dispatch boundary so the attribution roll-up
+    // stays internally consistent.
+    operationId?: string;
+    correlationId?: string;
+    causationId?: string;
   },
   stateDir: string,
   eventStore: EventStore,
@@ -883,19 +923,30 @@ export async function handleViewQualityAttribution(
     const materializer = getOrCreateMaterializer(stateDir);
     const streamId = args.workflowId ?? 'default';
 
-    const cqEvents = await queryDeltaEvents(store, materializer, streamId, CODE_QUALITY_VIEW);
-    const cqView = materializer.materialize<CodeQualityViewState>(
-      streamId,
-      CODE_QUALITY_VIEW,
-      cqEvents,
-    );
+    const correlationFilters: ViewQueryFilters = {
+      ...(args.operationId !== undefined ? { operationId: args.operationId } : {}),
+      ...(args.correlationId !== undefined ? { correlationId: args.correlationId } : {}),
+      ...(args.causationId !== undefined ? { causationId: args.causationId } : {}),
+    };
+    const correlationFiltered = hasCorrelationFilters(correlationFilters);
 
-    const erEvents = await queryDeltaEvents(store, materializer, streamId, EVAL_RESULTS_VIEW);
-    const erView = materializer.materialize<EvalResultsViewState>(
-      streamId,
-      EVAL_RESULTS_VIEW,
-      erEvents,
-    );
+    const cqEvents = await queryDeltaEvents(store, materializer, streamId, CODE_QUALITY_VIEW, correlationFilters);
+    const cqView = correlationFiltered
+      ? materializeFiltered<CodeQualityViewState>(materializer, CODE_QUALITY_VIEW, cqEvents)
+      : materializer.materialize<CodeQualityViewState>(
+          streamId,
+          CODE_QUALITY_VIEW,
+          cqEvents,
+        );
+
+    const erEvents = await queryDeltaEvents(store, materializer, streamId, EVAL_RESULTS_VIEW, correlationFilters);
+    const erView = correlationFiltered
+      ? materializeFiltered<EvalResultsViewState>(materializer, EVAL_RESULTS_VIEW, erEvents)
+      : materializer.materialize<EvalResultsViewState>(
+          streamId,
+          EVAL_RESULTS_VIEW,
+          erEvents,
+        );
 
     // AttributionQuery.timeRange expects ISO 8601 duration string (e.g., 'P7D'),
     // but the MCP handler receives { start, end } — compute duration from the range

@@ -13,6 +13,7 @@ import {
   handleViewCodeQuality,
   handleViewEvalResults,
   handleViewQualityCorrelation,
+  handleViewQualityAttribution,
   handleViewProvenance,
   handleViewIdeateReadiness,
   handleViewSynthesisReadiness,
@@ -638,6 +639,287 @@ describe('View Handlers', () => {
       // filtered out by the indexed-correlation WHERE clause.
       expect(tasks).toHaveLength(1);
       expect(tasks[0].taskId).toBe('task-X');
+    });
+  });
+
+  // ─── Wave 5 / Task 14 (#1437) — Group B view actions honor correlation filters ─
+  //
+  // `eval_results`, `quality_correlation`, `quality_attribution` thread the
+  // same operationId/correlationId/causationId tuple into their underlying
+  // EventStore queries so callers can slice the rollup by dispatch boundary.
+  // quality_correlation and quality_attribution each pull from BOTH the
+  // CODE_QUALITY_VIEW and EVAL_RESULTS_VIEW projections; both fetches must
+  // honor the filter so the joined result is internally consistent.
+
+  describe('Wave 5 — ViewActions_GroupB_AcceptCorrelationFilters_ScopeResultsCorrectly', () => {
+    it('handleViewEvalResults_WithCorrelationIdFilter_ReturnsOnlyMatchingEvents', async () => {
+      // GIVEN: two eval.run.completed events in the same stream, tagged with
+      // different correlationIds. Pre-filter the view sees both skills;
+      // post-filter only the cor-X subset is folded.
+      const store = new EventStore(tmpDir);
+      const streamId = 'eval-corr-wf';
+
+      await store.append(streamId, {
+        streamId,
+        sequence: 1,
+        timestamp: new Date().toISOString(),
+        type: 'eval.run.completed',
+        operationId: 'op-X',
+        correlationId: 'cor-X',
+        data: {
+          runId: 'run-X',
+          suiteId: 'delegation',
+          total: 10,
+          passed: 8,
+          failed: 2,
+          avgScore: 0.8,
+          duration: 5000,
+          regressions: [],
+        },
+        schemaVersion: '1.0',
+      });
+      await store.append(streamId, {
+        streamId,
+        sequence: 2,
+        timestamp: new Date().toISOString(),
+        type: 'eval.run.completed',
+        operationId: 'op-Y',
+        correlationId: 'cor-Y',
+        data: {
+          runId: 'run-Y',
+          suiteId: 'synthesis',
+          total: 5,
+          passed: 5,
+          failed: 0,
+          avgScore: 1.0,
+          duration: 3000,
+          regressions: [],
+        },
+        schemaVersion: '1.0',
+      });
+
+      const result = await handleViewEvalResults(
+        { workflowId: streamId, correlationId: 'cor-X' },
+        tmpDir,
+        store,
+      );
+
+      expect(result.success).toBe(true);
+      const data = result.data as Record<string, unknown>;
+      const skills = data.skills as Record<string, unknown>;
+      // Only "delegation" was tagged cor-X; "synthesis" is filtered out.
+      expect(skills).toHaveProperty('delegation');
+      expect(skills).not.toHaveProperty('synthesis');
+      const runs = data.runs as Array<{ runId: string }>;
+      expect(runs).toHaveLength(1);
+      expect(runs[0].runId).toBe('run-X');
+    });
+
+    it('handleViewEvalResults_WithOperationIdFilter_ReturnsOnlyMatchingEvents', async () => {
+      const store = new EventStore(tmpDir);
+      const streamId = 'eval-op-wf';
+
+      await store.append(streamId, {
+        streamId,
+        sequence: 1,
+        timestamp: new Date().toISOString(),
+        type: 'eval.run.completed',
+        operationId: 'op-A',
+        correlationId: 'cor-shared',
+        data: {
+          runId: 'run-A',
+          suiteId: 'delegation',
+          total: 10,
+          passed: 9,
+          failed: 1,
+          avgScore: 0.9,
+          duration: 4000,
+          regressions: [],
+        },
+        schemaVersion: '1.0',
+      });
+      await store.append(streamId, {
+        streamId,
+        sequence: 2,
+        timestamp: new Date().toISOString(),
+        type: 'eval.run.completed',
+        operationId: 'op-B',
+        correlationId: 'cor-shared',
+        data: {
+          runId: 'run-B',
+          suiteId: 'synthesis',
+          total: 5,
+          passed: 5,
+          failed: 0,
+          avgScore: 1.0,
+          duration: 3000,
+          regressions: [],
+        },
+        schemaVersion: '1.0',
+      });
+
+      const result = await handleViewEvalResults(
+        { workflowId: streamId, operationId: 'op-A' },
+        tmpDir,
+        store,
+      );
+
+      expect(result.success).toBe(true);
+      const data = result.data as Record<string, unknown>;
+      const runs = data.runs as Array<{ runId: string }>;
+      expect(runs).toHaveLength(1);
+      expect(runs[0].runId).toBe('run-A');
+    });
+
+    it('handleViewQualityCorrelation_WithCorrelationIdFilter_ReturnsOnlyMatchingSlice', async () => {
+      // GIVEN: a stream with code-quality + eval events tagged across two
+      // correlation IDs. quality_correlation joins both projections; the
+      // filtered call must return only the cor-X intersection.
+      const store = new EventStore(tmpDir);
+      const streamId = 'qc-wf';
+
+      // cor-X: code quality gate + eval run for "delegation"
+      await store.append(streamId, {
+        streamId,
+        sequence: 1,
+        timestamp: new Date().toISOString(),
+        type: 'gate.executed',
+        operationId: 'op-X',
+        correlationId: 'cor-X',
+        data: {
+          gateName: 'typecheck',
+          layer: 'build',
+          passed: true,
+          duration: 1200,
+          details: { skill: 'delegation' },
+        },
+        schemaVersion: '1.0',
+      });
+      await store.append(streamId, {
+        streamId,
+        sequence: 2,
+        timestamp: new Date().toISOString(),
+        type: 'eval.run.completed',
+        operationId: 'op-X',
+        correlationId: 'cor-X',
+        data: {
+          runId: 'run-X',
+          suiteId: 'delegation',
+          total: 10,
+          passed: 9,
+          failed: 1,
+          avgScore: 0.9,
+          duration: 5000,
+          regressions: [],
+        },
+        schemaVersion: '1.0',
+      });
+
+      // cor-Y: code quality gate + eval run for "synthesis"
+      await store.append(streamId, {
+        streamId,
+        sequence: 3,
+        timestamp: new Date().toISOString(),
+        type: 'gate.executed',
+        operationId: 'op-Y',
+        correlationId: 'cor-Y',
+        data: {
+          gateName: 'lint',
+          layer: 'build',
+          passed: false,
+          duration: 800,
+          details: { skill: 'synthesis' },
+        },
+        schemaVersion: '1.0',
+      });
+      await store.append(streamId, {
+        streamId,
+        sequence: 4,
+        timestamp: new Date().toISOString(),
+        type: 'eval.run.completed',
+        operationId: 'op-Y',
+        correlationId: 'cor-Y',
+        data: {
+          runId: 'run-Y',
+          suiteId: 'synthesis',
+          total: 5,
+          passed: 3,
+          failed: 2,
+          avgScore: 0.6,
+          duration: 3000,
+          regressions: [],
+        },
+        schemaVersion: '1.0',
+      });
+
+      const result = await handleViewQualityCorrelation(
+        { workflowId: streamId, correlationId: 'cor-X' },
+        tmpDir,
+        store,
+      );
+
+      expect(result.success).toBe(true);
+      const data = result.data as Record<string, unknown>;
+      const skills = data.skills as Record<string, Record<string, unknown>>;
+      expect(skills).toHaveProperty('delegation');
+      expect(skills).not.toHaveProperty('synthesis');
+      expect(skills['delegation'].evalScore).toBe(0.9);
+      expect(skills['delegation'].gatePassRate).toBe(1);
+    });
+
+    it('handleViewQualityAttribution_WithCorrelationIdFilter_AttributesOnlyMatchingSlice', async () => {
+      // GIVEN: two skills exercised with different correlationIds. The
+      // attribution for `skill` dimension must roll up only the filtered
+      // subset — both projections (CQ + ER) honor the filter.
+      const store = new EventStore(tmpDir);
+      const streamId = 'qa-wf';
+
+      // cor-X: delegation
+      await store.append(streamId, {
+        streamId,
+        sequence: 1,
+        timestamp: new Date().toISOString(),
+        type: 'gate.executed',
+        operationId: 'op-X',
+        correlationId: 'cor-X',
+        data: {
+          gateName: 'typecheck',
+          layer: 'build',
+          passed: true,
+          duration: 1200,
+          details: { skill: 'delegation' },
+        },
+        schemaVersion: '1.0',
+      });
+      // cor-Y: synthesis
+      await store.append(streamId, {
+        streamId,
+        sequence: 2,
+        timestamp: new Date().toISOString(),
+        type: 'gate.executed',
+        operationId: 'op-Y',
+        correlationId: 'cor-Y',
+        data: {
+          gateName: 'lint',
+          layer: 'build',
+          passed: true,
+          duration: 800,
+          details: { skill: 'synthesis' },
+        },
+        schemaVersion: '1.0',
+      });
+
+      const result = await handleViewQualityAttribution(
+        { workflowId: streamId, dimension: 'skill', correlationId: 'cor-X' },
+        tmpDir,
+        store,
+      );
+
+      expect(result.success).toBe(true);
+      const data = result.data as { entries: Array<{ key: string }> };
+      const skillNames = data.entries.map((e) => e.key);
+      expect(skillNames).toContain('delegation');
+      expect(skillNames).not.toContain('synthesis');
     });
   });
 

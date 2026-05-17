@@ -244,6 +244,11 @@ export async function handleView(
             workflowId?: string;
             skill?: string;
             limit?: number;
+            // Wave 5 (#1437) — correlation tuple filters scope the
+            // projection fold to a single dispatch boundary.
+            operationId?: string;
+            correlationId?: string;
+            causationId?: string;
           },
           stateDir,
           eventStore,
@@ -254,7 +259,15 @@ export async function handleView(
     case 'quality_correlation':
       return envelopeWrap(
         await handleViewQualityCorrelation(
-          rest as { workflowId?: string },
+          rest as {
+            workflowId?: string;
+            // Wave 5 (#1437) — correlation tuple filters scope both
+            // underlying projection folds (CQ + ER) to a single dispatch
+            // boundary.
+            operationId?: string;
+            correlationId?: string;
+            causationId?: string;
+          },
           stateDir,
           eventStore,
         ),
@@ -269,6 +282,12 @@ export async function handleView(
             dimension?: string;
             skill?: string;
             timeRange?: { start: string; end: string };
+            // Wave 5 (#1437) — correlation tuple filters scope both
+            // underlying projection folds (CQ + ER) to a single dispatch
+            // boundary.
+            operationId?: string;
+            correlationId?: string;
+            causationId?: string;
           },
           stateDir,
           eventStore,
