@@ -163,6 +163,16 @@ describe('#1291 acceptance — correlation propagation across a wave', () => {
 // ─── Task 17 ───────────────────────────────────────────────────────────────
 
 describe('#1291 acceptance — causation chain across auto-dispatch', () => {
+  // Coverage scope: this test is SUBSTRATE-ONLY. It pins that the storage
+  // + filter substrate correctly carries causationId across two dispatch
+  // boundaries. It does NOT exercise the orchestrator's next_actions
+  // auto-dispatch handler — the second dispatch is synthesized manually
+  // here rather than triggered by the orchestrator following a hint.
+  //
+  // A future integration test should wire the actual auto-dispatch path
+  // (orchestrator.process_next_actions → mintDispatchContext + run) so
+  // the causationId thread is verified end-to-end through the handler
+  // layer. Tracked as a follow-up under #1437/#1441 review backlog.
   it('AutoDispatch_FromNextActionsHint_CarriesCausationIdReferencingUpstreamEvent', async () => {
     // Phase 1 — upstream dispatch. Emit an event; capture its
     // eventId. This event is the "upstream" that a `next_actions` hint
