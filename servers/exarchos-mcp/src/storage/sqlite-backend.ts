@@ -748,26 +748,162 @@ export class SqliteBackend implements StorageBackend {
         'CREATE INDEX IF NOT EXISTS idx_events_causation ON events(causation_id)',
       );
 
-      // Backfill from payload JSON. WHERE correlation_id IS NULL keeps
-      // this idempotent — a re-run only touches still-NULL rows, so the
-      // post-#1428 writer path (Wave 3) and previous migration passes
+      // Chunked backfill from payload JSON. WHERE correlation_id IS NULL
+      // keeps this idempotent — a re-run only touches still-NULL rows, so
+      // the post-#1428 writer path (Wave 3) and previous migration passes
       // are preserved. Payloads that lack the fields produce JSON-NULL
       // from json_extract, which is converted to SQL NULL — same shape
       // the writer path produces for unstamped events, so the column
       // stays the right kind of empty.
-      this.db.exec(`
-        UPDATE events
-           SET operation_id   = json_extract(payload, '$.operationId'),
-               correlation_id = json_extract(payload, '$.correlationId'),
-               causation_id   = json_extract(payload, '$.causationId')
-         WHERE correlation_id IS NULL
-      `);
+      //
+      // Chunked rather than single-shot so multi-thousand-row DBs (the
+      // EventSourcedTaskStore generates dense `task.polled` traffic) get
+      // observable progress events instead of a multi-second silent
+      // stall. SQLite doesn't ship the SQLITE_ENABLE_UPDATE_DELETE_LIMIT
+      // compile flag in bun:sqlite, so the LIMIT-via-subquery pattern is
+      // the portable equivalent of `UPDATE … LIMIT 1000`.
+      this.backfillCorrelationColumnsChunked(now);
 
       this.db
         .prepare('INSERT OR IGNORE INTO schema_version (version, appliedAt) VALUES (?, ?)')
         .run(6, now);
     });
     runMigration();
+  }
+
+  /**
+   * Chunked backfill body for `migrateV5ToV6`. Walks the `events` table
+   * by rowid in 1,000-row chunks; for each chunk, runs an UPDATE that
+   * lifts correlation IDs out of the row's `payload` JSON via
+   * json_extract. Each non-empty chunk emits one
+   * `migration.correlation_backfill_progress` event on the internal
+   * `__migration__` stream so operators can observe progress on long
+   * migrations.
+   *
+   * Why a rowid cursor rather than `WHERE correlation_id IS NULL …
+   * LIMIT N` on its own: rows whose payload lacks the correlation
+   * fields stay correlation_id IS NULL after the UPDATE (writing NULL
+   * to a column already NULL is a "change" semantically per SQLite, but
+   * the row STILL matches `correlation_id IS NULL`). A WHERE-only loop
+   * would revisit the same rows forever. The cursor advances
+   * monotonically over rowid, so each row is processed at most once
+   * regardless of whether its final column value is NULL or a string.
+   *
+   * Why a rowid subquery rather than `UPDATE … LIMIT N`: SQLite needs
+   * the `SQLITE_ENABLE_UPDATE_DELETE_LIMIT` compile flag for the LIMIT
+   * form and bun:sqlite doesn't ship it. The subquery is the portable
+   * equivalent.
+   *
+   * Termination: the loop exits when SELECT-of-next-chunk returns zero
+   * rowids — that means the cursor has moved past every event row. No
+   * terminal "completed" event is emitted (absence of further progress
+   * events is the completion signal); the durable marker is the ledger
+   * stamp at `schema_version.version = 6`.
+   *
+   * Caller (migrateV5ToV6) already wraps this in `db.transaction(...)`;
+   * the per-chunk UPDATE + per-chunk progress emission both ride the
+   * outer transaction so a crash mid-migration leaves the ledger at V5
+   * and re-running picks up cleanly (the cursor restarts at rowid=0,
+   * but `WHERE correlation_id IS NULL` in the per-chunk filter skips
+   * rows that were successfully populated in the previous attempt).
+   */
+  private backfillCorrelationColumnsChunked(timestamp: string): void {
+    const CHUNK_SIZE = 1000;
+    const MIGRATION_STREAM = '__migration__';
+
+    const selectNextChunkRowids = this.db.prepare(
+      `SELECT rowid FROM events
+        WHERE rowid > ?
+          AND correlation_id IS NULL
+        ORDER BY rowid
+        LIMIT ${CHUNK_SIZE}`,
+    );
+    const selectSeq = this.db.prepare(
+      'SELECT sequence FROM sequences WHERE streamId = ?',
+    );
+    const upsertSeq = this.db.prepare(
+      `INSERT INTO sequences (streamId, sequence) VALUES (?, ?)
+       ON CONFLICT(streamId) DO UPDATE SET sequence = excluded.sequence`,
+    );
+    // Strict INSERT (no OR IGNORE) — a silent drop would advance the
+    // `sequences` counter below without persisting the corresponding
+    // event, breaking the "one progress event per chunk" contract.
+    // Mirrors the rationale in `emitWorkflowTypeUnknownEvents`.
+    const insertEvent = this.db.prepare(
+      `INSERT INTO events (streamId, sequence, type, timestamp, data, payload)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+    );
+
+    // Bounded loop: at CHUNK_SIZE=1000 the worst case is total_rows/1000
+    // iterations. The hard ceiling defends against a programmer-error
+    // regression that breaks cursor advancement.
+    const MAX_ITERATIONS = 10_000;
+
+    let cursor = 0;
+    for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
+      const rowids = (
+        selectNextChunkRowids.all(cursor) as Array<{ rowid: number }>
+      ).map((r) => r.rowid);
+      if (rowids.length === 0) break;
+
+      // Build the IN list inline — `rowid IN (?,?,?…)` lets sqlite use
+      // the rowid PK lookup directly. Per-chunk recompilation is cheap
+      // for a once-per-migration call site.
+      const placeholders = rowids.map(() => '?').join(',');
+      const updateSql = `
+        UPDATE events
+           SET operation_id   = json_extract(payload, '$.operationId'),
+               correlation_id = json_extract(payload, '$.correlationId'),
+               causation_id   = json_extract(payload, '$.causationId')
+         WHERE rowid IN (${placeholders})
+      `;
+      const result = this.db.prepare(updateSql).run(...rowids) as {
+        changes: number;
+      };
+      const rowsBackfilled = result.changes;
+
+      // Advance the cursor past this chunk regardless of whether every
+      // row picked up correlation data — rows whose payload lacked the
+      // fields stay correlation_id IS NULL but won't be revisited.
+      cursor = rowids[rowids.length - 1];
+
+      // Remaining work = rows still matching the cursor's forward
+      // window. Use the same WHERE shape so the count is consistent
+      // with what the next iteration would process.
+      const totalRowsRemaining = (
+        this.db
+          .prepare(
+            'SELECT COUNT(*) AS n FROM events WHERE rowid > ? AND correlation_id IS NULL',
+          )
+          .get(cursor) as { n: number }
+      ).n;
+
+      const seqRow = selectSeq.get(MIGRATION_STREAM) as
+        | { sequence: number }
+        | undefined;
+      const nextSeq = (seqRow?.sequence ?? 0) + 1;
+      const data = { rowsBackfilled, totalRowsRemaining };
+      const payload = JSON.stringify({
+        streamId: MIGRATION_STREAM,
+        sequence: nextSeq,
+        type: 'migration.correlation_backfill_progress',
+        timestamp,
+        schemaVersion: '1.0',
+        source: 'migration',
+        data,
+      });
+      insertEvent.run(
+        MIGRATION_STREAM,
+        nextSeq,
+        'migration.correlation_backfill_progress',
+        timestamp,
+        JSON.stringify(data),
+        payload,
+      );
+      upsertSeq.run(MIGRATION_STREAM, nextSeq);
+
+      if (totalRowsRemaining === 0) break;
+    }
   }
 
   /**

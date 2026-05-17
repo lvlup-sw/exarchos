@@ -691,6 +691,99 @@ describe('SqliteBackend Schema Migration V1->V2', () => {
     expect(untaggedRow.causation_id).toBeNull();
   });
 
+  it('MigrateV5ToV6_LargeDb_ChunksBackfillAndEmitsProgressEvents', () => {
+    const dbPath = createTempDb();
+
+    // Build a legacy V5 DB with 2,500 events across a handful of streams,
+    // every event carrying tagged payload. 2,500 rows -> 3 chunks at the
+    // 1,000-row chunk size, so we expect at least 3 progress events on
+    // the internal `__migration__` stream.
+    const rawDb = createV5Database(dbPath);
+
+    const TOTAL_EVENTS = 2500;
+    const STREAMS = ['stream-A', 'stream-B', 'stream-C'];
+
+    // Track sequence per stream so the (streamId, sequence) PK doesn't
+    // collide as we round-robin across streams.
+    const seqByStream = new Map<string, number>(STREAMS.map((s) => [s, 0]));
+    for (let i = 0; i < TOTAL_EVENTS; i++) {
+      const streamId = STREAMS[i % STREAMS.length];
+      const seq = (seqByStream.get(streamId) ?? 0) + 1;
+      seqByStream.set(streamId, seq);
+      insertV5Event(rawDb, streamId, seq, 'task.assigned', '2024-01-01T00:00:00.000Z', {
+        streamId,
+        sequence: seq,
+        type: 'task.assigned',
+        timestamp: '2024-01-01T00:00:00.000Z',
+        schemaVersion: '1.0',
+        operationId: `op-${i}`,
+        correlationId: `corr-${i}`,
+        causationId: `cause-${i}`,
+        data: { i },
+      });
+    }
+    rawDb.close();
+
+    // Reopen via SqliteBackend — chunked backfill should populate every
+    // row's columns and emit progress events to `__migration__`.
+    const backend = trackBackend(new SqliteBackend(dbPath));
+    backend.initialize();
+
+    const db = (backend as unknown as { db: Database }).db;
+
+    // Every event row now has populated correlation columns.
+    const stillNullCount = (
+      db
+        .prepare(
+          `SELECT COUNT(*) AS n FROM events
+            WHERE streamId IN ('stream-A', 'stream-B', 'stream-C')
+              AND correlation_id IS NULL`,
+        )
+        .get() as { n: number }
+    ).n;
+    expect(stillNullCount).toBe(0);
+
+    // Sanity: a sampled row carries the values its payload claimed.
+    const sample = db
+      .prepare(
+        'SELECT operation_id, correlation_id, causation_id FROM events WHERE streamId = ? AND sequence = ?',
+      )
+      .get('stream-A', 1) as {
+      operation_id: string;
+      correlation_id: string;
+      causation_id: string;
+    };
+    expect(sample.operation_id).toBe('op-0');
+    expect(sample.correlation_id).toBe('corr-0');
+    expect(sample.causation_id).toBe('cause-0');
+
+    // Progress events landed on the `__migration__` stream. With chunk
+    // size 1,000 and 2,500 source rows the chunked loop fires at least
+    // three UPDATEs (1000 + 1000 + 500) and emits one progress event per
+    // chunk. >= 3 is the contract; the exact upper bound is fuzzy
+    // (the loop terminates when the UPDATE returns 0 changes, which
+    // costs a no-op final pass on some configurations).
+    const progressRows = db
+      .prepare(
+        `SELECT payload FROM events
+          WHERE streamId = '__migration__'
+            AND type = 'migration.correlation_backfill_progress'
+          ORDER BY sequence`,
+      )
+      .all() as Array<{ payload: string }>;
+    expect(progressRows.length).toBeGreaterThanOrEqual(3);
+
+    // Each progress event payload carries the per-chunk counters required
+    // by the registered schema.
+    for (const { payload } of progressRows) {
+      const parsed = JSON.parse(payload) as {
+        data?: { rowsBackfilled?: unknown; totalRowsRemaining?: unknown };
+      };
+      expect(typeof parsed.data?.rowsBackfilled).toBe('number');
+      expect(typeof parsed.data?.totalRowsRemaining).toBe('number');
+    }
+  });
+
   it('SqliteBackend_FreshDb_SchemaV6_HasCorrelationColumnsAndIndexes', () => {
     const dbPath = createTempDb();
 
