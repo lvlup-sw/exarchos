@@ -444,6 +444,48 @@ describe('EventSourcedTaskStore (#1272)', () => {
     expect(afterBWrite?.status).toBe('completed');
   });
 
+  it('refoldDelta_StampsLastReadSequenceFromAppliedDelta_NotPreReadTail', async () => {
+    // CodeRabbit #1444: `lastReadSequence` MUST reflect the highest
+    // sequence actually applied from the delta — NOT the tail captured
+    // before `query(sinceSequence)`. Events can land between
+    // `tailSequence()` and `query()`, so `delta` may include sequences
+    // greater than the pre-read tail. Stamping the pre-read tail under-
+    // records progress and causes the next read to re-query and re-fold
+    // the same events (duplicate work; defensive fullRefold may fire on
+    // an empty delta).
+    //
+    // The test drives the symptom directly: after a refold, the cache's
+    // `lastReadSequence` MUST equal the current `EventStore.tailSequence`
+    // for that stream, so a subsequent cache check is a true hit (no
+    // unnecessary query).
+    const storeA = new EventSourcedTaskStore(eventStore);
+    const task = await storeA.createTask(
+      { ttl: 60_000 },
+      'req-stamp-from-delta',
+      sampleRequest,
+    );
+    await storeA.getTask(task.taskId); // warm cache
+
+    // External append (simulated sibling writer).
+    await eventStore.append(`task-store/${task.taskId}`, {
+      type: 'task.cancelled',
+      timestamp: new Date().toISOString(),
+      data: { taskId: task.taskId, reason: 'stamp-from-delta' },
+    });
+
+    // First read after external append triggers refoldDelta.
+    await storeA.getTask(task.taskId);
+
+    const tail = await eventStore.tailSequence(`task-store/${task.taskId}`);
+    const cached = (
+      storeA as unknown as {
+        tasks: Map<string, { lastReadSequence: number }>;
+      }
+    ).tasks.get(task.taskId);
+    expect(cached).toBeDefined();
+    expect(cached!.lastReadSequence).toBe(tail);
+  });
+
   it('projectTaskIncremental_FromCachedToTail_MatchesFullRefold', async () => {
     // FINDING-2 (#1438, PR 2): incremental fold from a cached projection
     // MUST be observationally equivalent to a full refold of the same

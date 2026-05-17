@@ -660,7 +660,7 @@ export class EventSourcedTaskStore implements TaskStore {
   private async refoldDelta(
     taskId: string,
     cached: ProjectedTask,
-    tail: number,
+    _tail: number,
   ): Promise<ProjectedTask | undefined> {
     const delta = await this.store.query(taskStream(taskId), {
       sinceSequence: cached.lastReadSequence,
@@ -670,7 +670,12 @@ export class EventSourcedTaskStore implements TaskStore {
     // back to a full refold so we never return a known-stale projection.
     if (delta.length === 0) return this.fullRefold(taskId);
     const next = projectTaskIncremental(cached, delta);
-    next.lastReadSequence = tail;
+    // Stamp from the LAST sequence actually applied — not the pre-read
+    // tail captured before query(). Events can land between tailSequence()
+    // and query(sinceSequence), so delta may include sequences > tail;
+    // recording `tail` would under-stamp and cause duplicate refolds on
+    // the next read. (CodeRabbit #1444.)
+    next.lastReadSequence = delta[delta.length - 1]!.sequence;
     this.tasks.set(taskId, next);
     return next;
   }
