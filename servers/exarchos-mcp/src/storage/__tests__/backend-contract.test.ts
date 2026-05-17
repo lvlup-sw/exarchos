@@ -290,10 +290,16 @@ describe.each([
       causationId: 'cause-X',
     }));
 
-    // Backends without the optional method (legacy mocks) opt out via
-    // the runtime feature-detect at EventStore.queryByType:541-561 — both
-    // production backends implement it, so this assertion fires on both.
-    if (typeof b.queryEventsByType !== 'function') return;
+    // Both production backends MUST implement `queryEventsByType` — the
+    // EventStore.queryByType runtime feature-detect exists only for legacy
+    // in-memory test mocks. The contract-parity suite is parameterised
+    // over the two production backends, so any missing implementation is
+    // a real regression.
+    expect(typeof b.queryEventsByType).toBe('function');
+    // Narrow for TypeScript — the assertion above guarantees presence.
+    if (typeof b.queryEventsByType !== 'function') {
+      throw new Error('queryEventsByType missing on backend under test');
+    }
 
     const byCorr = b.queryEventsByType('workflow.started', 'parent', { correlationId: 'cor-X' });
     expect(byCorr.map((e) => e.streamId)).toEqual(['parent/a', 'parent/a']);

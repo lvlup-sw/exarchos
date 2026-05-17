@@ -696,25 +696,34 @@ export async function handleViewCodeQuality(
           events,
         );
 
-    // Detect and emit quality regressions with deduplication
-    // _failureTrackers is a non-enumerable property set by code-quality-view.ts
-    const regressions = detectRegressions(view as CodeQualityViewState & { _failureTrackers?: Record<string, FailureTracker> });
-    if (regressions.length > 0) {
-      const existingEvents = await store.query(streamId);
-      const existingRegressions = existingEvents
-        .filter(e => e.type === 'quality.regression')
-        .map(e => e.data as { gate: string; skill: string; firstFailureCommit: string });
+    // Detect and emit quality regressions with deduplication.
+    // _failureTrackers is a non-enumerable property set by code-quality-view.ts.
+    //
+    // Wave 5 (#1437) — skip regression detection/emission when a
+    // correlation filter is active. Regressions are a global SDLC signal
+    // derived from the unfiltered fold; detecting them on a filtered slice
+    // would (a) produce false negatives (gates that failed outside the
+    // slice look healthy) and (b) emit phantom `quality.regression` events
+    // that bake a filtered view into the unfiltered truth.
+    if (!correlationFiltered) {
+      const regressions = detectRegressions(view as CodeQualityViewState & { _failureTrackers?: Record<string, FailureTracker> });
+      if (regressions.length > 0) {
+        const existingEvents = await store.query(streamId);
+        const existingRegressions = existingEvents
+          .filter(e => e.type === 'quality.regression')
+          .map(e => e.data as { gate: string; skill: string; firstFailureCommit: string });
 
-      const newRegressions = regressions.filter(r =>
-        !existingRegressions.some(er =>
-          er.gate === r.gate && er.skill === r.skill && er.firstFailureCommit === r.firstFailureCommit
-        )
-      );
+        const newRegressions = regressions.filter(r =>
+          !existingRegressions.some(er =>
+            er.gate === r.gate && er.skill === r.skill && er.firstFailureCommit === r.firstFailureCommit
+          )
+        );
 
-      if (newRegressions.length > 0) {
-        try {
-          await emitRegressionEvents(newRegressions, streamId, store);
-        } catch { /* fire-and-forget: emission failure must not break the view query */ }
+        if (newRegressions.length > 0) {
+          try {
+            await emitRegressionEvents(newRegressions, streamId, store);
+          } catch { /* fire-and-forget: emission failure must not break the view query */ }
+        }
       }
     }
 

@@ -542,6 +542,9 @@ export class EventStore {
     if (filters?.sinceSequence !== undefined) perStream.sinceSequence = filters.sinceSequence;
     if (filters?.since !== undefined) perStream.since = filters.since;
     if (filters?.until !== undefined) perStream.until = filters.until;
+    if (filters?.operationId !== undefined) perStream.operationId = filters.operationId;
+    if (filters?.correlationId !== undefined) perStream.correlationId = filters.correlationId;
+    if (filters?.causationId !== undefined) perStream.causationId = filters.causationId;
 
     // SQLite cross-stream fast-path: the SqliteBackend implements
     // `queryEventsByType` with the SQL clause

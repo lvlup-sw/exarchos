@@ -270,9 +270,16 @@ describe('AtomicAppender correlation column persistence (#1437 Wave 3)', () => {
     const sideBackend = new SqliteBackend(dbPath);
     sideBackend.initialize();
     try {
-      const db = (sideBackend as unknown as {
-        db: import('bun:sqlite').Database;
-      }).db;
+      // Structural typing for the private `db` handle keeps this test
+      // engine-agnostic — we only need `prepare(...).get(...)` shape, not
+      // a runtime dependency on `bun:sqlite`.
+      type SqliteDbHandle = {
+        prepare(sql: string): {
+          get(...args: unknown[]): unknown;
+          all(...args: unknown[]): unknown[];
+        };
+      };
+      const db = (sideBackend as unknown as { db: SqliteDbHandle }).db;
       const row = db
         .prepare(
           'SELECT operation_id, correlation_id, causation_id FROM events WHERE streamId = ? AND sequence = ?',

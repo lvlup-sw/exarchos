@@ -29,7 +29,7 @@ Source of truth: `servers/exarchos-mcp/src/dispatch/dispatch-context.ts`.
 
 ## How — MCP
 
-```
+```ts
 exarchos_view({
   view: "telemetry",
   correlationId: "cor-workflow-7a3f"

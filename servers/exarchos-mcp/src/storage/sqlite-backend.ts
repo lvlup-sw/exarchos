@@ -841,10 +841,17 @@ export class SqliteBackend implements StorageBackend {
     const CHUNK_SIZE = 1000;
     const MIGRATION_STREAM = '__migration__';
 
+    // Exclude the `__migration__` stream from the backfill scan: progress
+    // events are emitted INTO the events table on every iteration with
+    // `correlation_id IS NULL` (they have no dispatch context). Without
+    // this exclusion they re-enter the cursor in subsequent iterations,
+    // each producing yet another empty-data progress event and burning
+    // MAX_ITERATIONS for a phantom workload.
     const selectNextChunkRowids = this.db.prepare(
       `SELECT rowid FROM events
         WHERE rowid > ?
           AND correlation_id IS NULL
+          AND streamId != '${MIGRATION_STREAM}'
         ORDER BY rowid
         LIMIT ${CHUNK_SIZE}`,
     );
@@ -905,10 +912,14 @@ export class SqliteBackend implements StorageBackend {
       // Remaining work = rows still matching the cursor's forward
       // window. Use the same WHERE shape so the count is consistent
       // with what the next iteration would process.
+      // Mirror the chunk-select WHERE shape so the count reflects what the
+      // next iteration would actually process — excluding the migration
+      // stream avoids inflating `totalRowsRemaining` with the very rows
+      // that this loop is about to insert.
       const totalRowsRemaining = (
         this.db
           .prepare(
-            'SELECT COUNT(*) AS n FROM events WHERE rowid > ? AND correlation_id IS NULL',
+            `SELECT COUNT(*) AS n FROM events WHERE rowid > ? AND correlation_id IS NULL AND streamId != '${MIGRATION_STREAM}'`,
           )
           .get(cursor) as { n: number }
       ).n;
