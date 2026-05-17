@@ -4,6 +4,9 @@ import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 
 import { AtomicAppender } from './atomic-appender.js';
+import { EventStore } from './store.js';
+import { runWithDispatchContext } from '../dispatch/dispatch-context.js';
+import { SqliteBackend } from '../storage/sqlite-backend.js';
 
 /**
  * AtomicAppender — substrate primitive for v2.9 bug cluster (#1230, #1228, #1241).
@@ -218,4 +221,72 @@ describe('AtomicAppender', () => {
     expect([...seqs].sort((a, b) => a - b)).toEqual([1, 2, 3]);
     expect(new Set(seqs).size).toBe(3);
   });
+});
+
+// ─── Wave 3 (#1437) — correlation columns populated on every write ──────────
+//
+// Tasks 7 + 8 wire the three V6 correlation columns into the writer path so
+// that new appends under an active dispatch context land with non-NULL
+// values in `operation_id` / `correlation_id` / `causation_id`. The payload
+// JSON remains source of truth (INV-1); these columns are the indexed
+// filter handle for the Wave-4 query path.
+//
+// Both tests open a SECOND `SqliteBackend` handle against the same on-disk
+// db file the EventStore is writing to so we can issue raw SQL against the
+// `events` table. `rowToEvent` is intentionally NOT used: the test asserts
+// the *column* values directly, since that's the new substrate behavior
+// under test (the payload-rehydration path was already wired pre-Wave-3).
+//
+// Bypassing the EventStore-owned appender for reads is safe here because
+// after `eventStore.append(...)` resolves the write transaction is fully
+// committed; the second backend handle just opens a SELECT-only connection
+// to the same file (WAL mode allows concurrent readers).
+describe('AtomicAppender correlation column persistence (#1437 Wave 3)', () => {
+  let stateDir: string;
+
+  beforeEach(async () => {
+    stateDir = await mkdtemp(path.join(tmpdir(), 'atomic-appender-corr-'));
+  });
+
+  afterEach(async () => {
+    await rm(stateDir, { recursive: true, force: true });
+  });
+
+  it('AtomicAppender_AppendEvent_PopulatesCorrelationColumnsFromPayload', async () => {
+    const store = new EventStore(stateDir);
+    await store.initialize();
+
+    const streamId = 's1';
+    const appended = await runWithDispatchContext(
+      { operationId: 'op-A', correlationId: 'cor-A', causationId: 'cause-A' },
+      () => store.append(streamId, { type: 'task.assigned', data: {} }),
+    );
+    expect(appended.sequence).toBe(1);
+
+    // Open a side SqliteBackend handle against the same on-disk db the
+    // EventStore-owned appender writes to. The appender's default
+    // `sqliteDbFilename` is `exarchos.db` (atomic-appender.ts:358).
+    const dbPath = path.join(stateDir, 'exarchos.db');
+    const sideBackend = new SqliteBackend(dbPath);
+    sideBackend.initialize();
+    try {
+      const db = (sideBackend as unknown as {
+        db: import('bun:sqlite').Database;
+      }).db;
+      const row = db
+        .prepare(
+          'SELECT operation_id, correlation_id, causation_id FROM events WHERE streamId = ? AND sequence = ?',
+        )
+        .get(streamId, appended.sequence) as
+        | { operation_id: string | null; correlation_id: string | null; causation_id: string | null }
+        | undefined;
+      expect(row).toBeDefined();
+      expect(row?.operation_id).toBe('op-A');
+      expect(row?.correlation_id).toBe('cor-A');
+      expect(row?.causation_id).toBe('cause-A');
+    } finally {
+      sideBackend.close();
+    }
+  });
+
 });
