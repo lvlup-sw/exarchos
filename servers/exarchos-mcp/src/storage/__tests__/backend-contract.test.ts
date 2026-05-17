@@ -186,6 +186,137 @@ describe.each([
     expect(results[1].sequence).toBe(3);
   });
 
+  // ─── Wave 4 (#1437) — Correlation-tuple filter contract parity ───────────
+
+  it('BackendContract_QueryEventsCorrelationFilter_IdenticalAcrossBackends', () => {
+    // Parity gate for Tasks 10 + 11. The parameterized describe.each above
+    // runs this body once per backend; seeding the same events with the
+    // same correlation tags and running the same queryEvents calls must
+    // produce the same WorkflowEvent sequences on either backend.
+    //
+    // Drift between the two backends is the failure mode we're guarding
+    // against — if SqliteBackend's indexed-WHERE and InMemoryBackend's
+    // post-fetch filter ever diverge on shape, sequence ordering, or
+    // payload content, this test fails before any view-layer test does.
+    const b = setup();
+
+    const seedEvents = [
+      { sequence: 1, correlationId: 'cor-X', operationId: 'op-X', causationId: 'cause-X' },
+      { sequence: 2, correlationId: 'cor-X', operationId: 'op-X', causationId: 'cause-X' },
+      { sequence: 3, correlationId: 'cor-Y', operationId: 'op-Y', causationId: 'cause-Y' },
+      { sequence: 4, correlationId: 'cor-X', operationId: 'op-X', causationId: 'cause-X' },
+      { sequence: 5, correlationId: 'cor-Y', operationId: 'op-Y', causationId: 'cause-Y' },
+      { sequence: 6, correlationId: 'cor-Y', operationId: 'op-Y', causationId: 'cause-Y' },
+    ];
+
+    for (const seed of seedEvents) {
+      b.appendEvent('stream-a', makeEvent({
+        streamId: 'stream-a',
+        sequence: seed.sequence,
+        type: 'workflow.started',
+        correlationId: seed.correlationId,
+        operationId: seed.operationId,
+        causationId: seed.causationId,
+      }));
+    }
+
+    // correlationId filter: three cor-X events at sequences 1, 2, 4.
+    const byCorr = b.queryEvents('stream-a', { correlationId: 'cor-X' });
+    expect(byCorr.map((e) => e.sequence)).toEqual([1, 2, 4]);
+    expect(byCorr.map((e) => e.type)).toEqual([
+      'workflow.started',
+      'workflow.started',
+      'workflow.started',
+    ]);
+    expect(byCorr.every((e) => e.correlationId === 'cor-X')).toBe(true);
+
+    // operationId filter: same shape as correlationId in this fixture.
+    const byOp = b.queryEvents('stream-a', { operationId: 'op-Y' });
+    expect(byOp.map((e) => e.sequence)).toEqual([3, 5, 6]);
+    expect(byOp.every((e) => e.operationId === 'op-Y')).toBe(true);
+
+    // causationId filter.
+    const byCause = b.queryEvents('stream-a', { causationId: 'cause-X' });
+    expect(byCause.map((e) => e.sequence)).toEqual([1, 2, 4]);
+    expect(byCause.every((e) => e.causationId === 'cause-X')).toBe(true);
+
+    // Composition with existing sinceSequence filter — exercises the
+    // multi-clause WHERE / multi-filter chain path on both backends.
+    const byCorrSince = b.queryEvents('stream-a', {
+      correlationId: 'cor-X',
+      sinceSequence: 1,
+    });
+    expect(byCorrSince.map((e) => e.sequence)).toEqual([2, 4]);
+
+    // Negative case: a filter that matches nothing returns an empty
+    // array on both backends (no surprise undefineds, no nulls).
+    const byNone = b.queryEvents('stream-a', { correlationId: 'does-not-exist' });
+    expect(byNone).toEqual([]);
+  });
+
+  it('BackendContract_QueryEventsByType_HonorsCorrelationFilter', () => {
+    // Wave 4 follow-up: the cross-stream typed query surface must honor
+    // the same correlation filters as queryEvents — otherwise a caller
+    // who passes correlation filters down the type-scoped path gets
+    // silently un-filtered results, which would surface as a real bug
+    // the moment a telemetry view delegates to queryEventsByType for
+    // a cross-stream rollup.
+    const b = setup();
+
+    // Spread two stream prefixes that both fall under the same parent
+    // prefix so queryEventsByType matches both via the descendant rule.
+    b.appendEvent('parent/a', makeEvent({
+      streamId: 'parent/a',
+      sequence: 1,
+      type: 'workflow.started',
+      correlationId: 'cor-X',
+      operationId: 'op-X',
+      causationId: 'cause-X',
+    }));
+    b.appendEvent('parent/b', makeEvent({
+      streamId: 'parent/b',
+      sequence: 1,
+      type: 'workflow.started',
+      correlationId: 'cor-Y',
+      operationId: 'op-Y',
+      causationId: 'cause-Y',
+    }));
+    b.appendEvent('parent/a', makeEvent({
+      streamId: 'parent/a',
+      sequence: 2,
+      type: 'workflow.started',
+      correlationId: 'cor-X',
+      operationId: 'op-X',
+      causationId: 'cause-X',
+    }));
+
+    // Both production backends MUST implement `queryEventsByType` — the
+    // EventStore.queryByType runtime feature-detect exists only for legacy
+    // in-memory test mocks. The contract-parity suite is parameterised
+    // over the two production backends, so any missing implementation is
+    // a real regression.
+    expect(typeof b.queryEventsByType).toBe('function');
+    // Narrow for TypeScript — the assertion above guarantees presence.
+    if (typeof b.queryEventsByType !== 'function') {
+      throw new Error('queryEventsByType missing on backend under test');
+    }
+
+    const byCorr = b.queryEventsByType('workflow.started', 'parent', { correlationId: 'cor-X' });
+    expect(byCorr.map((e) => e.streamId)).toEqual(['parent/a', 'parent/a']);
+    expect(byCorr.every((e) => e.correlationId === 'cor-X')).toBe(true);
+
+    const byOp = b.queryEventsByType('workflow.started', 'parent', { operationId: 'op-Y' });
+    expect(byOp.map((e) => e.streamId)).toEqual(['parent/b']);
+    expect(byOp.every((e) => e.operationId === 'op-Y')).toBe(true);
+
+    const byCause = b.queryEventsByType('workflow.started', 'parent', { causationId: 'cause-Y' });
+    expect(byCause).toHaveLength(1);
+    expect(byCause[0].causationId).toBe('cause-Y');
+
+    const byNone = b.queryEventsByType('workflow.started', 'parent', { correlationId: 'nope' });
+    expect(byNone).toEqual([]);
+  });
+
   it('getSequence_EmptyStream_ReturnsZero', () => {
     const b = setup();
 

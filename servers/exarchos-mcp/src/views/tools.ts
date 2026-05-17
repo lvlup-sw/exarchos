@@ -6,6 +6,7 @@ import { pickFields, type ToolResult } from '../format.js';
 import { logger } from '../logger.js';
 import { TERMINAL_PHASES } from '../workflow/terminal-phases.js';
 import { isFeatureStream } from '../core/infra-streams.js';
+import { getDispatchContext } from '../dispatch/dispatch-context.js';
 import { ViewMaterializer } from './materializer.js';
 import { SnapshotStore } from './snapshot-store.js';
 import {
@@ -145,13 +146,94 @@ export function resetMaterializerCache(): void {
 
 // ─── Helper: query delta events using materializer high-water mark ──────────
 
+/**
+ * Wave 5 (#1437) — view-action correlation filter passthrough.
+ *
+ * Telemetry view callers can pass `operationId / correlationId / causationId`
+ * down to the underlying `EventStore.query` so the projection folds only the
+ * slice that matches a dispatch-boundary tuple. The filter handle is the
+ * indexed correlation columns on the SQLite substrate (a post-fetch JS
+ * filter on the in-memory backend); INV-1 keeps the value of truth on the
+ * payload, mirrored to the indexed columns.
+ *
+ * Cache semantics: a filtered query MUST bypass the materializer LRU cache.
+ * The cached `view` baked in the unfiltered roll-up of every event past the
+ * high-water mark; folding only a filtered subset on top of that base would
+ * silently contaminate the cache (e.g. a `correlationId: cor-X` query would
+ * leave the cache reading "everything except cor-Y"). Callers route through
+ * `materializeFiltered` below when filters are present so the fold runs
+ * from `projection.init()` against the filtered event list and the cache
+ * is never written.
+ */
+export interface ViewQueryFilters {
+  readonly operationId?: string;
+  readonly correlationId?: string;
+  readonly causationId?: string;
+}
+
+/**
+ * @internal Returns true when any correlation filter field is present, so the
+ * handler must take the cache-bypass branch.
+ */
+export function hasCorrelationFilters(filters?: ViewQueryFilters): boolean {
+  if (!filters) return false;
+  return (
+    filters.operationId !== undefined ||
+    filters.correlationId !== undefined ||
+    filters.causationId !== undefined
+  );
+}
+
+/**
+ * Wave 2 (#1448) — AsyncLocalStorage-aware default for correlation filters.
+ *
+ * Returns the explicit args verbatim if any are supplied (explicit-wins).
+ * Otherwise, if a dispatch context is active, defaults `correlationId` to
+ * the active dispatch's correlationId — the chain-stable anchor for the
+ * current workflow scope. If no args AND no active context, returns empty.
+ *
+ * The default makes "show me telemetry for the workflow I'm in" Just Work
+ * inside an agent dispatch without requiring the agent to thread the
+ * correlation tuple back into every telemetry call.
+ */
+export function deriveCorrelationFilters(args: {
+  operationId?: string;
+  correlationId?: string;
+  causationId?: string;
+}): ViewQueryFilters {
+  const explicit: ViewQueryFilters = {
+    ...(args.operationId !== undefined ? { operationId: args.operationId } : {}),
+    ...(args.correlationId !== undefined ? { correlationId: args.correlationId } : {}),
+    ...(args.causationId !== undefined ? { causationId: args.causationId } : {}),
+  };
+  if (Object.keys(explicit).length > 0) {
+    return explicit;
+  }
+  const ctx = getDispatchContext();
+  if (ctx) {
+    logger.debug(
+      { source: 'ctx-default', correlationId: ctx.correlationId },
+      'deriveCorrelationFilters: defaulted correlationId from active dispatch context',
+    );
+    return { correlationId: ctx.correlationId };
+  }
+  return {};
+}
+
 /** @internal Exported for CLI commands and testing */
 export async function queryDeltaEvents(
   store: EventStore,
   materializer: ViewMaterializer,
   streamId: string,
   viewName: string,
+  filters?: ViewQueryFilters,
 ): Promise<WorkflowEvent[]> {
+  // Wave 5 (#1437) — filtered queries bypass the cache entirely so the
+  // hwm-relative incremental path can't bleed an unfiltered base into a
+  // filtered fold. See ViewQueryFilters doc for the contamination scenario.
+  if (hasCorrelationFilters(filters)) {
+    return store.query(streamId, filters);
+  }
   const cachedState = materializer.getState(streamId, viewName);
   if (cachedState) {
     // Warm call: only fetch events past the high-water mark
@@ -163,6 +245,35 @@ export async function queryDeltaEvents(
   // Cold call: load snapshot then query all events
   await materializer.loadFromSnapshot(streamId, viewName);
   return store.query(streamId);
+}
+
+/**
+ * Cache-bypassing fold for correlation-filtered queries (Wave 5 / #1437).
+ *
+ * Reads the registered projection for `viewName`, builds a fresh
+ * `projection.init()` base, and applies every event in the input list in
+ * order. Never reads or writes the materializer LRU cache, so an unfiltered
+ * call before or after retains the full roll-up untouched.
+ */
+export function materializeFiltered<T>(
+  materializer: ViewMaterializer,
+  viewName: string,
+  events: WorkflowEvent[],
+): T {
+  const projection = materializer.getProjection<T>(viewName);
+  if (!projection) {
+    throw new Error(`No projection registered for view: ${viewName}`);
+  }
+  // #1448 item 5: record the bypass on every successful call so the
+  // correlation-filtered traffic is visible alongside the LRU hit/miss stats.
+  // Without this, a healthy hitRate can mask thousands of cache-skipping calls
+  // (PR #1447 DIM-2 audit).
+  materializer.recordBypass();
+  let view = projection.init();
+  for (const event of events) {
+    view = projection.apply(view, event);
+  }
+  return view;
 }
 
 // ─── Helper: discover all event stream files ───────────────────────────────
@@ -509,7 +620,13 @@ export async function handleViewTeamPerformance(
 // ─── View Delegation Timeline Handler ───────────────────────────────────────
 
 export async function handleViewDelegationTimeline(
-  args: { workflowId?: string },
+  args: {
+    workflowId?: string;
+    // Wave 5 (#1437) — correlation filters scope the projection fold.
+    operationId?: string;
+    correlationId?: string;
+    causationId?: string;
+  },
   stateDir: string,
   eventStore: EventStore,
 ): Promise<ToolResult> {
@@ -518,12 +635,18 @@ export async function handleViewDelegationTimeline(
     const materializer = getOrCreateMaterializer(stateDir);
     const streamId = args.workflowId ?? 'default';
 
-    const events = await queryDeltaEvents(store, materializer, streamId, DELEGATION_TIMELINE_VIEW);
-    const view = materializer.materialize<DelegationTimelineViewState>(
-      streamId,
-      DELEGATION_TIMELINE_VIEW,
-      events,
-    );
+    const correlationFilters = deriveCorrelationFilters(args);
+    const filtered = hasCorrelationFilters(correlationFilters);
+    const events = await queryDeltaEvents(store, materializer, streamId, DELEGATION_TIMELINE_VIEW, correlationFilters);
+    // Wave 5 (#1437) — under a correlation filter, fold a fresh projection
+    // off `init()` so the materializer cache stays the unfiltered truth.
+    const view = filtered
+      ? materializeFiltered<DelegationTimelineViewState>(materializer, DELEGATION_TIMELINE_VIEW, events)
+      : materializer.materialize<DelegationTimelineViewState>(
+          streamId,
+          DELEGATION_TIMELINE_VIEW,
+          events,
+        );
 
     return { success: true, data: view };
   } catch (err) {
@@ -545,6 +668,12 @@ export async function handleViewCodeQuality(
     skill?: string;
     gate?: string;
     limit?: number;
+    // Wave 5 (#1437) — correlation tuple filters scope the underlying
+    // EventStore.query, so the projection folds only the slice that matches
+    // the dispatch boundary. Threaded into queryDeltaEvents below.
+    operationId?: string;
+    correlationId?: string;
+    causationId?: string;
   },
   stateDir: string,
   eventStore: EventStore,
@@ -554,32 +683,59 @@ export async function handleViewCodeQuality(
     const materializer = getOrCreateMaterializer(stateDir);
     const streamId = args.workflowId ?? 'default';
 
-    const events = await queryDeltaEvents(store, materializer, streamId, CODE_QUALITY_VIEW);
-    const view = materializer.materialize<CodeQualityViewState>(
-      streamId,
-      CODE_QUALITY_VIEW,
-      events,
-    );
+    const correlationFilters = deriveCorrelationFilters(args);
+    const correlationFiltered = hasCorrelationFilters(correlationFilters);
+    const events = await queryDeltaEvents(store, materializer, streamId, CODE_QUALITY_VIEW, correlationFilters);
+    // Wave 5 (#1437) — under a correlation filter, fold a fresh projection
+    // off `init()` so the materializer cache stays the unfiltered truth.
+    const view = correlationFiltered
+      ? materializeFiltered<CodeQualityViewState>(materializer, CODE_QUALITY_VIEW, events)
+      : materializer.materialize<CodeQualityViewState>(
+          streamId,
+          CODE_QUALITY_VIEW,
+          events,
+        );
 
-    // Detect and emit quality regressions with deduplication
-    // _failureTrackers is a non-enumerable property set by code-quality-view.ts
-    const regressions = detectRegressions(view as CodeQualityViewState & { _failureTrackers?: Record<string, FailureTracker> });
-    if (regressions.length > 0) {
-      const existingEvents = await store.query(streamId);
-      const existingRegressions = existingEvents
-        .filter(e => e.type === 'quality.regression')
-        .map(e => e.data as { gate: string; skill: string; firstFailureCommit: string });
+    // Detect and emit quality regressions with deduplication.
+    // _failureTrackers is a non-enumerable property set by code-quality-view.ts.
+    //
+    // Wave 5 (#1437) — skip regression detection/emission when a
+    // correlation filter is active. Regressions are a global SDLC signal
+    // derived from the unfiltered fold; detecting them on a filtered slice
+    // would (a) produce false negatives (gates that failed outside the
+    // slice look healthy) and (b) emit phantom `quality.regression` events
+    // that bake a filtered view into the unfiltered truth.
+    if (!correlationFiltered) {
+      const regressions = detectRegressions(view as CodeQualityViewState & { _failureTrackers?: Record<string, FailureTracker> });
+      if (regressions.length > 0) {
+        const existingEvents = await store.query(streamId);
+        const existingRegressions = existingEvents
+          .filter(e => e.type === 'quality.regression')
+          .map(e => e.data as { gate: string; skill: string; firstFailureCommit: string });
 
-      const newRegressions = regressions.filter(r =>
-        !existingRegressions.some(er =>
-          er.gate === r.gate && er.skill === r.skill && er.firstFailureCommit === r.firstFailureCommit
-        )
-      );
+        const newRegressions = regressions.filter(r =>
+          !existingRegressions.some(er =>
+            er.gate === r.gate && er.skill === r.skill && er.firstFailureCommit === r.firstFailureCommit
+          )
+        );
 
-      if (newRegressions.length > 0) {
-        try {
-          await emitRegressionEvents(newRegressions, streamId, store);
-        } catch { /* fire-and-forget: emission failure must not break the view query */ }
+        if (newRegressions.length > 0) {
+          try {
+            await emitRegressionEvents(newRegressions, streamId, store);
+          } catch (err) {
+            // Fire-and-forget: emission failure must not break the view
+            // query, but swallowing silently hides write-path failures.
+            // Log so the failure is observable in operator logs.
+            logger.warn(
+              {
+                streamId,
+                regressions: newRegressions.length,
+                err: err instanceof Error ? err.message : String(err),
+              },
+              'handleViewCodeQuality: failed to emit quality.regression events',
+            );
+          }
+        }
       }
     }
 
@@ -631,6 +787,11 @@ export async function handleViewEvalResults(
     workflowId?: string;
     skill?: string;
     limit?: number;
+    // Wave 5 (#1437) — correlation filters scope the projection fold to
+    // a single dispatch boundary.
+    operationId?: string;
+    correlationId?: string;
+    causationId?: string;
   },
   stateDir: string,
   eventStore: EventStore,
@@ -640,12 +801,18 @@ export async function handleViewEvalResults(
     const materializer = getOrCreateMaterializer(stateDir);
     const streamId = args.workflowId ?? 'default';
 
-    const events = await queryDeltaEvents(store, materializer, streamId, EVAL_RESULTS_VIEW);
-    const view = materializer.materialize<EvalResultsViewState>(
-      streamId,
-      EVAL_RESULTS_VIEW,
-      events,
-    );
+    const correlationFilters = deriveCorrelationFilters(args);
+    const correlationFiltered = hasCorrelationFilters(correlationFilters);
+    const events = await queryDeltaEvents(store, materializer, streamId, EVAL_RESULTS_VIEW, correlationFilters);
+    // Wave 5 (#1437) — under a correlation filter, fold a fresh projection
+    // off `init()` so the materializer cache stays the unfiltered truth.
+    const view = correlationFiltered
+      ? materializeFiltered<EvalResultsViewState>(materializer, EVAL_RESULTS_VIEW, events)
+      : materializer.materialize<EvalResultsViewState>(
+          streamId,
+          EVAL_RESULTS_VIEW,
+          events,
+        );
 
     // Apply optional filters
     let filtered: EvalResultsViewState = { ...view };
@@ -718,7 +885,15 @@ export async function handleViewQualityHints(
 // ─── View Quality Correlation Handler ────────────────────────────────────────
 
 export async function handleViewQualityCorrelation(
-  args: { workflowId?: string },
+  args: {
+    workflowId?: string;
+    // Wave 5 (#1437) — correlation filters scope both underlying projections
+    // (CQ + ER) to the same dispatch boundary so the joined view stays
+    // internally consistent.
+    operationId?: string;
+    correlationId?: string;
+    causationId?: string;
+  },
   stateDir: string,
   eventStore: EventStore,
 ): Promise<ToolResult> {
@@ -727,19 +902,33 @@ export async function handleViewQualityCorrelation(
     const materializer = getOrCreateMaterializer(stateDir);
     const streamId = args.workflowId ?? 'default';
 
-    const cqEvents = await queryDeltaEvents(store, materializer, streamId, CODE_QUALITY_VIEW);
-    const cqView = materializer.materialize<CodeQualityViewState>(
-      streamId,
-      CODE_QUALITY_VIEW,
-      cqEvents,
-    );
+    const correlationFilters = deriveCorrelationFilters(args);
+    const correlationFiltered = hasCorrelationFilters(correlationFilters);
 
-    const erEvents = await queryDeltaEvents(store, materializer, streamId, EVAL_RESULTS_VIEW);
-    const erView = materializer.materialize<EvalResultsViewState>(
-      streamId,
-      EVAL_RESULTS_VIEW,
-      erEvents,
-    );
+    // Under a correlation filter, `queryDeltaEvents` short-circuits the
+    // cache and returns `store.query(streamId, filters)` regardless of
+    // `viewName` — so both calls would fetch an identical event list.
+    // Fetch once and fold the same list into both projections (each
+    // projection's `apply` ignores event types it doesn't care about).
+    const cqEvents = await queryDeltaEvents(store, materializer, streamId, CODE_QUALITY_VIEW, correlationFilters);
+    const cqView = correlationFiltered
+      ? materializeFiltered<CodeQualityViewState>(materializer, CODE_QUALITY_VIEW, cqEvents)
+      : materializer.materialize<CodeQualityViewState>(
+          streamId,
+          CODE_QUALITY_VIEW,
+          cqEvents,
+        );
+
+    const erEvents = correlationFiltered
+      ? cqEvents
+      : await queryDeltaEvents(store, materializer, streamId, EVAL_RESULTS_VIEW);
+    const erView = correlationFiltered
+      ? materializeFiltered<EvalResultsViewState>(materializer, EVAL_RESULTS_VIEW, erEvents)
+      : materializer.materialize<EvalResultsViewState>(
+          streamId,
+          EVAL_RESULTS_VIEW,
+          erEvents,
+        );
 
     const correlation = correlateQualityAndEvals(cqView, erView);
     return { success: true, data: correlation };
@@ -762,6 +951,12 @@ export async function handleViewQualityAttribution(
     dimension?: string;
     skill?: string;
     timeRange?: { start: string; end: string };
+    // Wave 5 (#1437) — correlation filters scope both underlying projections
+    // (CQ + ER) to the same dispatch boundary so the attribution roll-up
+    // stays internally consistent.
+    operationId?: string;
+    correlationId?: string;
+    causationId?: string;
   },
   stateDir: string,
   eventStore: EventStore,
@@ -782,19 +977,30 @@ export async function handleViewQualityAttribution(
     const materializer = getOrCreateMaterializer(stateDir);
     const streamId = args.workflowId ?? 'default';
 
-    const cqEvents = await queryDeltaEvents(store, materializer, streamId, CODE_QUALITY_VIEW);
-    const cqView = materializer.materialize<CodeQualityViewState>(
-      streamId,
-      CODE_QUALITY_VIEW,
-      cqEvents,
-    );
+    const correlationFilters = deriveCorrelationFilters(args);
+    const correlationFiltered = hasCorrelationFilters(correlationFilters);
 
-    const erEvents = await queryDeltaEvents(store, materializer, streamId, EVAL_RESULTS_VIEW);
-    const erView = materializer.materialize<EvalResultsViewState>(
-      streamId,
-      EVAL_RESULTS_VIEW,
-      erEvents,
-    );
+    // See handleViewQualityCorrelation above — under a correlation filter
+    // both projections fold from the same backend payload, so fetch once.
+    const cqEvents = await queryDeltaEvents(store, materializer, streamId, CODE_QUALITY_VIEW, correlationFilters);
+    const cqView = correlationFiltered
+      ? materializeFiltered<CodeQualityViewState>(materializer, CODE_QUALITY_VIEW, cqEvents)
+      : materializer.materialize<CodeQualityViewState>(
+          streamId,
+          CODE_QUALITY_VIEW,
+          cqEvents,
+        );
+
+    const erEvents = correlationFiltered
+      ? cqEvents
+      : await queryDeltaEvents(store, materializer, streamId, EVAL_RESULTS_VIEW);
+    const erView = correlationFiltered
+      ? materializeFiltered<EvalResultsViewState>(materializer, EVAL_RESULTS_VIEW, erEvents)
+      : materializer.materialize<EvalResultsViewState>(
+          streamId,
+          EVAL_RESULTS_VIEW,
+          erEvents,
+        );
 
     // AttributionQuery.timeRange expects ISO 8601 duration string (e.g., 'P7D'),
     // but the MCP handler receives { start, end } — compute duration from the range

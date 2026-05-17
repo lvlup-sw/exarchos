@@ -1,9 +1,9 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, assertType } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { EventStore, SequenceConflictError } from './store.js';
+import { EventStore, SequenceConflictError, type QueryFilters } from './store.js';
 
 let tempDir: string;
 
@@ -991,5 +991,30 @@ describe('EventStore.tailSequence', () => {
     const tail = await store.tailSequence(streamId);
     expect(tail).toBe(events.at(-1)!.sequence);
     expect(tail).toBe(3);
+  });
+});
+
+// ─── Wave 4 (#1437) — QueryFilters correlation tuple ────────────────────────
+
+describe('QueryFilters correlation tuple (Wave 4 / #1437)', () => {
+  it('QueryFilters_AcceptsCorrelationTuple_TypeAndShape', () => {
+    // The Wave-4 contract: callers can pass operationId / correlationId /
+    // causationId into the filter literal alongside the existing fields.
+    // `assertType` pins the type contract at compile time (reified under
+    // `--typecheck`); the JSON round-trip guards against the field set
+    // being structurally erased by `Record<string, unknown>` looseness in
+    // intermediate transforms (defensive — INV-1: payload is truth, the
+    // indexed columns are the filter handle).
+    const filters: QueryFilters = {
+      operationId: 'op-1',
+      correlationId: 'c-1',
+      causationId: 'ca-1',
+    };
+    assertType<QueryFilters>(filters);
+
+    const roundTripped = JSON.parse(JSON.stringify(filters)) as QueryFilters;
+    expect(roundTripped.operationId).toBe('op-1');
+    expect(roundTripped.correlationId).toBe('c-1');
+    expect(roundTripped.causationId).toBe('ca-1');
   });
 });

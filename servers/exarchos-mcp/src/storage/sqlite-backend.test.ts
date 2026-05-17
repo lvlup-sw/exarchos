@@ -1234,3 +1234,165 @@ describe('SqliteBackend Projection Snapshot — Append + Size Cap (A2.3)', () =>
     expect(latestB!.sequence).toBe(100);
   });
 });
+
+// ─── Wave 4 (#1437) — Correlation-tuple filters on queryEvents ──────────────
+
+describe('SqliteBackend queryEvents correlation filters (Wave 4 / #1437)', () => {
+  let backend: SqliteBackend;
+
+  beforeEach(() => {
+    backend = new SqliteBackend(':memory:');
+    backend.initialize();
+  });
+
+  afterEach(() => {
+    backend.close();
+  });
+
+  function seedSplitByCorrelation(): void {
+    // Three events tagged 'cor-X', three tagged 'cor-Y'. operationId and
+    // causationId mirror the same split so the same fixture exercises all
+    // three filter fields without re-seeding.
+    for (let i = 1; i <= 3; i++) {
+      backend.appendEvent('test-stream', makeEvent({
+        streamId: 'test-stream',
+        sequence: i,
+        type: 'workflow.started',
+        operationId: 'op-X',
+        correlationId: 'cor-X',
+        causationId: 'cause-X',
+      }));
+    }
+    for (let i = 4; i <= 6; i++) {
+      backend.appendEvent('test-stream', makeEvent({
+        streamId: 'test-stream',
+        sequence: i,
+        type: 'workflow.started',
+        operationId: 'op-Y',
+        correlationId: 'cor-Y',
+        causationId: 'cause-Y',
+      }));
+    }
+  }
+
+  it('SqliteBackend_QueryEvents_FiltersByCorrelationId', () => {
+    seedSplitByCorrelation();
+
+    const results = backend.queryEvents('test-stream', { correlationId: 'cor-X' });
+
+    expect(results).toHaveLength(3);
+    // INV-1: assert the value via the rehydrated event payload, not by
+    // reading the indexed column. The column is the filter handle; the
+    // payload is the truth.
+    for (const event of results) {
+      expect(event.correlationId).toBe('cor-X');
+    }
+  });
+
+  it('SqliteBackend_QueryEvents_FiltersByOperationId', () => {
+    seedSplitByCorrelation();
+
+    const results = backend.queryEvents('test-stream', { operationId: 'op-X' });
+
+    expect(results).toHaveLength(3);
+    for (const event of results) {
+      expect(event.operationId).toBe('op-X');
+    }
+  });
+
+  it('SqliteBackend_QueryEvents_FiltersByCausationId', () => {
+    seedSplitByCorrelation();
+
+    const results = backend.queryEvents('test-stream', { causationId: 'cause-X' });
+
+    expect(results).toHaveLength(3);
+    for (const event of results) {
+      expect(event.causationId).toBe('cause-X');
+    }
+  });
+
+  it('SqliteBackend_QueryEvents_CombinesCorrelationWithExistingFilters', () => {
+    // Combination test pins that the new WHERE-clause appends compose with
+    // existing predicates (sinceSequence). Without this guarantee the
+    // single-field tests above would still pass even if the new clause
+    // accidentally short-circuited the existing ones.
+    seedSplitByCorrelation();
+
+    const results = backend.queryEvents('test-stream', {
+      correlationId: 'cor-X',
+      sinceSequence: 1,
+    });
+
+    expect(results).toHaveLength(2);
+    expect(results[0].sequence).toBe(2);
+    expect(results[1].sequence).toBe(3);
+    expect(results.every((e) => e.correlationId === 'cor-X')).toBe(true);
+  });
+});
+
+// ─── #1448 (Wave 1 / Task 2) — correlationFilteredQueries counter ───────────
+//
+// PR #1447 added the indexed-WHERE fast path on (operation_id, correlation_id,
+// causation_id), but nothing currently distinguishes "indexed-path hit" from
+// "fell back to post-fetch filter" at runtime. The counter below is the
+// observability surface that closes the DIM-2 LOW finding from #1447's audit:
+// a silent index regression (schema change drops the column, future
+// WHERE-builder edit forgets the clause) would otherwise produce correct
+// answers via full-scan, invisible until users notice latency.
+//
+// Counting rule: ONE increment per query, regardless of how many of the three
+// correlation filter fields are supplied. A query with all three filters counts
+// as 1.
+
+describe('SqliteBackend correlationFilteredQueries counter (#1448 Task 2)', () => {
+  let backend: SqliteBackend;
+
+  beforeEach(() => {
+    backend = new SqliteBackend(':memory:');
+    backend.initialize();
+
+    // Seed a couple of stamped events so the queries below have something to
+    // scan past. The counter is independent of result-set size — it advances
+    // whenever the filter-clause block runs, not when rows match.
+    for (let i = 1; i <= 3; i++) {
+      backend.appendEvent('test-stream', makeEvent({
+        streamId: 'test-stream',
+        sequence: i,
+        type: 'workflow.started',
+        operationId: 'op-x',
+        correlationId: 'cor-x',
+        causationId: 'cau-x',
+      }));
+    }
+  });
+
+  afterEach(() => {
+    backend.close();
+  });
+
+  it('Sqlite_queryEvents_WithCorrelationFilter_IncrementsIndexedPathCounter', () => {
+    backend.queryEvents('test-stream', { correlationId: 'cor-x' });
+    backend.queryEvents('test-stream', { operationId: 'op-x' });
+    backend.queryEvents('test-stream', { causationId: 'cau-x' });
+    backend.queryEvents('test-stream', {}); // no correlation filter — must NOT increment
+
+    expect(backend.getStats().correlationFilteredQueries).toBe(3);
+  });
+
+  it('Sqlite_queryEventsByType_WithCorrelationFilter_IncrementsIndexedPathCounter', () => {
+    backend.queryEventsByType('workflow.started', 'test-stream', { correlationId: 'cor-x' });
+    backend.queryEventsByType('workflow.started', 'test-stream', {}); // no filter
+
+    expect(backend.getStats().correlationFilteredQueries).toBe(1);
+  });
+
+  it('Sqlite_queryEvents_WithMultipleFilters_CountsOncePerQuery', () => {
+    backend.queryEvents('test-stream', {
+      operationId: 'op-x',
+      correlationId: 'cor-x',
+      causationId: 'cau-x',
+    });
+
+    expect(backend.getStats().correlationFilteredQueries).toBe(1);
+  });
+});

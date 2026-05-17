@@ -154,6 +154,8 @@ Exarchos ships as a single binary (`exarchos`) with an `mcp` subcommand. Claude 
 
 All four tools support lazy schema loading via `describe`. At startup, only slim descriptions and action enums are registered. Full schemas load on demand.
 
+`exarchos_view`'s telemetry actions accept correlation filter args — `operationId`, `correlationId`, `causationId` — so an agent can scope telemetry to the active workflow. Inside an active dispatch context, the filter auto-defaults to the chain anchor; explicit args always win. See [`docs/runbooks/correlation-filters.md`](docs/runbooks/correlation-filters.md) for the surface.
+
 Every tool input is a Zod-validated discriminated union keyed on `action`. The same `dispatch()` function backs both the MCP transport and the CLI, so `exarchos workflow get --featureId my-feature` from a terminal returns the same result the agent gets.
 
 Structured input over natural language and strict schema validation over loose parsing. One binary with the same behavior whether an agent or a human is driving it.

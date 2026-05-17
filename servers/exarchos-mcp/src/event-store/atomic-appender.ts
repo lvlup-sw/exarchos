@@ -947,12 +947,24 @@ export class AtomicAppender {
       return event;
     });
 
+    // #1437 — surface the three dispatch-context correlation IDs onto
+    // the wire shape so the SQLite `insertEventStrict` bind populates
+    // the V6 indexed `operation_id`/`correlation_id`/`causation_id`
+    // columns. The values are already on each `PersistedEvent` because
+    // `EventStore.append*` invoked `stampWithDispatchContext` before
+    // delegating in (store.ts:263 / 293 / 398). Forwarding them here
+    // means the column source-of-data is the same stamped payload —
+    // INV-1 holds (payload JSON remains authoritative; columns are the
+    // indexed filter handle).
     const wireEvents: SqliteAtomicAppendEvent[] = persisted.map(e => ({
       sequence: e.sequence,
       type: e.type,
       timestamp: e.timestamp,
       data: e.data,
       payload: JSON.stringify(e),
+      ...(typeof e.operationId === 'string' ? { operationId: e.operationId } : {}),
+      ...(typeof e.correlationId === 'string' ? { correlationId: e.correlationId } : {}),
+      ...(typeof e.causationId === 'string' ? { causationId: e.causationId } : {}),
     }));
 
     // ─── Phase 6: BEGIN IMMEDIATE (idempotency claim + events + sequence) ─

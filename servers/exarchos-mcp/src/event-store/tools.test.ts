@@ -6,6 +6,7 @@ import { EventStore } from './store.js';
 import { AtomicAppender } from './atomic-appender.js';
 import { handleEventAppend, handleEventQuery, handleBatchAppend } from './tools.js';
 import type { EventAck } from '../format.js';
+import { runWithDispatchContext } from '../dispatch/dispatch-context.js';
 
 let tempDir: string;
 let eventStore: EventStore;
@@ -597,6 +598,39 @@ describe('handleBatchAppend', () => {
     );
     expect(queryResult.success).toBe(true);
     expect(queryResult.data).toHaveLength(4);
+  });
+
+  // ─── F2 regression (#1414): batchAppend cache-hit returns operationId ─────
+  //
+  // Inline fix lives at store.ts:467-471 (the `#1291 — three-field
+  // correlation passthrough` block). When a retried batch hits the
+  // idempotency cache, the returned events MUST surface the
+  // originally-stamped operationId — NOT the current caller's dispatch
+  // context (or undefined, if the retry happened outside any dispatch).
+  //
+  // This locks in the inline fix that #1428's post-merge hardening landed.
+  it('BatchAppend_CacheHit_ReturnsOperationId', async () => {
+    const store = new EventStore(tempDir);
+
+    // First write inside dispatch scope `op-xyz` — writer-path stamping
+    // (covered by Wave B1 #1428) attaches operationId to the persisted event.
+    const first = await runWithDispatchContext(
+      { operationId: 'op-xyz', correlationId: 'cor-xyz' },
+      () =>
+        store.batchAppend('s1', [
+          { type: 'task.assigned', idempotencyKey: 'k1', data: { taskId: 't1' } },
+        ]),
+    );
+    expect(first[0].operationId).toBe('op-xyz');
+
+    // Retry the SAME batch key WITHOUT any active dispatch context. The
+    // appender hits the idempotency cache; the cache-hit branch must
+    // return the ORIGINAL operationId (`op-xyz`), not undefined or any
+    // value derived from the second caller's (absent) context.
+    const replay = await store.batchAppend('s1', [
+      { type: 'task.assigned', idempotencyKey: 'k1', data: { taskId: 't1' } },
+    ]);
+    expect(replay[0].operationId).toBe('op-xyz');
   });
 });
 

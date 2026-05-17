@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { ViewMaterializer, type ViewProjection } from './materializer.js';
+import { materializeFiltered } from './tools.js';
 import type { WorkflowEvent } from '../event-store/schemas.js';
 import {
   workflowStateProjection,
@@ -593,7 +594,7 @@ describe('ViewMaterializer Cache Stats', () => {
 
     const stats = materializer.getCacheStats();
 
-    expect(stats).toEqual({ hits: 0, misses: 0, size: 0, missRate: 0 });
+    expect(stats).toEqual({ hits: 0, misses: 0, size: 0, missRate: 0, bypasses: 0 });
   });
 
   it('getCacheStats_AfterHitsAndMisses_TracksCorrectly', () => {
@@ -689,5 +690,44 @@ describe('ViewMaterializer Cache Stats', () => {
     expect(warnSpy).toHaveBeenCalledTimes(2);
 
     warnSpy.mockRestore();
+  });
+});
+
+// ─── Cache Bypass Counter (#1448 item 5) ──────────────────────────────────
+
+describe('ViewMaterializer Cache Bypass Counter', () => {
+  const VIEW_NAME = 'counter';
+
+  it('Materializer_recordBypass_IncrementsCacheBypassesCounter', () => {
+    const materializer = new ViewMaterializer();
+
+    materializer.recordBypass();
+    materializer.recordBypass();
+    materializer.recordBypass();
+
+    const stats = materializer.getCacheStats();
+    expect(stats.bypasses).toBe(3);
+    // No leak into hit/miss counters.
+    expect(stats.hits).toBe(0);
+    expect(stats.misses).toBe(0);
+  });
+
+  it('materializeFiltered_OnEachCall_IncrementsBypassesCounter', () => {
+    const materializer = new ViewMaterializer();
+    materializer.register(VIEW_NAME, counterProjection);
+
+    // Single call with no events — bypasses counter should still tick.
+    materializeFiltered<number>(materializer, VIEW_NAME, []);
+
+    expect(materializer.getCacheStats().bypasses).toBe(1);
+
+    // A second call increments by one again; hits/misses untouched.
+    materializeFiltered<number>(materializer, VIEW_NAME, [
+      makeEvent(1, 'stream-a'),
+    ]);
+    const stats = materializer.getCacheStats();
+    expect(stats.bypasses).toBe(2);
+    expect(stats.hits).toBe(0);
+    expect(stats.misses).toBe(0);
   });
 });

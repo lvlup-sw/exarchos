@@ -261,6 +261,16 @@ const REMOTE_MUTATION: ActionAnnotations = {
   openWorld: true,
 };
 
+// Wave 5 (#1437) — shared correlation-tuple filter shape spliced into every
+// view action that supports dispatch-boundary scoping. Keeping it in one
+// place prevents the six call sites from drifting if a field is added,
+// renamed, or constrained.
+const CORRELATION_TUPLE_FILTER_SHAPE = {
+  operationId: z.string().optional(),
+  correlationId: z.string().optional(),
+  causationId: z.string().optional(),
+} as const;
+
 export interface ToolAction {
   readonly name: string;
   readonly description: string;
@@ -2310,6 +2320,11 @@ const viewActions: readonly ToolAction[] = [
       tool: z.string().optional(),
       sort: z.enum(['tokens', 'invocations', 'duration']).optional(),
       limit: coercedPositiveInt().optional(),
+      // Wave 5 (#1437) — correlation tuple filters scope the telemetry
+      // rollup to a single dispatch boundary. Honored at the backend layer
+      // (indexed columns / post-fetch JS filter); INV-1 keeps payload as
+      // truth, mirrored to the indexed columns.
+      ...CORRELATION_TUPLE_FILTER_SHAPE,
     }),
     phases: ALL_PHASES,
     roles: ROLE_ANY,
@@ -2335,6 +2350,9 @@ const viewActions: readonly ToolAction[] = [
     description: 'Delegation timeline with bottleneck detection',
     schema: z.object({
       workflowId: z.string().optional(),
+      // Wave 5 (#1437) — correlation tuple filters scope the projection
+      // fold to a single dispatch boundary.
+      ...CORRELATION_TUPLE_FILTER_SHAPE,
     }),
     phases: ALL_PHASES,
     roles: ROLE_ANY,
@@ -2349,6 +2367,68 @@ const viewActions: readonly ToolAction[] = [
       skill: z.string().optional(),
       gate: z.string().optional(),
       limit: coercedPositiveInt().optional(),
+      // Wave 5 (#1437) — correlation tuple filters scope the projection
+      // fold to a single dispatch boundary.
+      ...CORRELATION_TUPLE_FILTER_SHAPE,
+    }),
+    phases: ALL_PHASES,
+    roles: ROLE_ANY,
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: READ_ONLY_LOCAL,
+  },
+  // Wave 5 (#1437) — Group B telemetry view actions. These actions were
+  // previously dispatched via `exarchos_view` through composite.ts but had
+  // no entry in TOOL_REGISTRY's `viewActions`, so per-action schema
+  // validation (DR-5) and describe-handler introspection both skipped them.
+  // Registering them here brings them under the dispatch-validation contract
+  // AND surfaces their correlation-filter slots through `describe(actions)`.
+  {
+    name: 'eval_results',
+    description: 'Evaluation suite results with per-skill pass/fail rates and regression flags',
+    schema: z.object({
+      workflowId: z.string().optional(),
+      skill: z.string().optional(),
+      limit: coercedPositiveInt().optional(),
+      // Wave 5 (#1437) — correlation tuple filters scope the projection
+      // fold to a single dispatch boundary.
+      ...CORRELATION_TUPLE_FILTER_SHAPE,
+    }),
+    phases: ALL_PHASES,
+    roles: ROLE_ANY,
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: READ_ONLY_LOCAL,
+  },
+  {
+    name: 'quality_correlation',
+    description: 'Per-skill correlation of code-quality gate pass rates with eval scores',
+    schema: z.object({
+      workflowId: z.string().optional(),
+      // Wave 5 (#1437) — correlation tuple filters scope BOTH underlying
+      // projection folds (CQ + ER) to a single dispatch boundary so the
+      // joined output stays internally consistent.
+      ...CORRELATION_TUPLE_FILTER_SHAPE,
+    }),
+    phases: ALL_PHASES,
+    roles: ROLE_ANY,
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: READ_ONLY_LOCAL,
+  },
+  {
+    name: 'quality_attribution',
+    description: 'Attribute quality outcomes across a dimension (skill / model / gate / prompt-version)',
+    schema: z.object({
+      workflowId: z.string().optional(),
+      dimension: z.enum(['skill', 'model', 'gate', 'prompt-version']).optional(),
+      skill: z.string().optional(),
+      timeRange: z
+        .object({
+          start: z.string(),
+          end: z.string(),
+        })
+        .optional(),
+      // Wave 5 (#1437) — correlation tuple filters scope BOTH underlying
+      // projection folds (CQ + ER) to a single dispatch boundary.
+      ...CORRELATION_TUPLE_FILTER_SHAPE,
     }),
     phases: ALL_PHASES,
     roles: ROLE_ANY,
@@ -2457,7 +2537,7 @@ export const TOOL_REGISTRY: readonly CompositeTool[] = [
     description: 'CQRS materialized views — pipeline, tasks, workflow status, stack, and telemetry',
     actions: viewActions,
     cli: { alias: 'vw' },
-    slimDescription: 'CQRS materialized views for pipeline, tasks, and telemetry. Use describe(actions) for schemas.\n\nActions: pipeline, tasks, workflow_status, stack_status, stack_place, telemetry, team_performance, delegation_timeline, code_quality, quality_hints, delegation_readiness, synthesis_readiness, shepherd_status, convergence',
+    slimDescription: 'CQRS materialized views for pipeline, tasks, and telemetry. Use describe(actions) for schemas.\n\nActions: pipeline, tasks, workflow_status, stack_status, stack_place, telemetry, team_performance, delegation_timeline, code_quality, eval_results, quality_correlation, quality_attribution, quality_hints, delegation_readiness, synthesis_readiness, shepherd_status, convergence',
   },
   {
     name: 'exarchos_sync',

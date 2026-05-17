@@ -30,6 +30,21 @@ export interface AtomicAppendEvent {
    * read — preserving idempotencyKey, eventId, correlationId, etc.
    */
   payload: string;
+  /**
+   * #1437 — three V6 indexed correlation columns. Stamped onto the
+   * PublicPersistedEvent by `stampWithDispatchContext` (store.ts) when an
+   * active `DispatchContext` is present. Surfaced on the wire shape so
+   * the SQLite `insertEventStrict` bind can populate the indexed
+   * `operation_id` / `correlation_id` / `causation_id` columns alongside
+   * the JSON payload. Optional because pre-context callers (raw test
+   * fixtures, migration paths) emit unstamped events.
+   *
+   * Source of truth for the data remains `payload`; these fields exist
+   * purely as the indexed filter handle for telemetry views (INV-1).
+   */
+  operationId?: string;
+  correlationId?: string;
+  causationId?: string;
 }
 
 /**
@@ -51,20 +66,29 @@ export interface PublicPersistedEventLike {
 
 // ─── Schema DDL ─────────────────────────────────────────────────────────────
 
-const SCHEMA_VERSION = 5;
+const SCHEMA_VERSION = 6;
 
 const SCHEMA_DDL = `
 CREATE TABLE IF NOT EXISTS events (
-  streamId  TEXT NOT NULL,
-  sequence  INTEGER NOT NULL,
-  type      TEXT NOT NULL,
-  timestamp TEXT NOT NULL,
-  data      TEXT,
-  payload   TEXT,
+  streamId       TEXT NOT NULL,
+  sequence       INTEGER NOT NULL,
+  type           TEXT NOT NULL,
+  timestamp      TEXT NOT NULL,
+  data           TEXT,
+  payload        TEXT,
+  operation_id   TEXT,
+  correlation_id TEXT,
+  causation_id   TEXT,
   PRIMARY KEY (streamId, sequence)
 );
 CREATE INDEX IF NOT EXISTS idx_events_type ON events(streamId, type);
 CREATE INDEX IF NOT EXISTS idx_events_time ON events(streamId, timestamp);
+-- V6 indexes on the correlation columns (#1437) live in migrateV5ToV6 rather
+-- than here: when SCHEMA_DDL runs against a legacy V<6 events table the
+-- CREATE TABLE IF NOT EXISTS is a no-op, so the correlation columns are
+-- still absent, and a CREATE INDEX on those columns would error. The
+-- migration creates them after the ALTERs (or no-ops on a fresh DB where
+-- the columns are already in place via the CREATE TABLE above).
 
 CREATE TABLE IF NOT EXISTS workflow_state (
   featureId TEXT PRIMARY KEY,
@@ -297,6 +321,21 @@ export class SqliteBackend implements StorageBackend {
   private queryStmtCache: Map<string, Statement> = new Map();
 
   /**
+   * Counter for queries that exercised the indexed-WHERE fast path on the
+   * V6 correlation columns (operation_id, correlation_id, causation_id).
+   *
+   * Incremented ONCE per query when any of the three correlation filter
+   * fields is supplied — NOT once per clause appended, so a caller passing
+   * all three filters still counts as 1.
+   *
+   * Exposed via {@link getStats}. Closes the DIM-2 LOW finding from PR
+   * #1447's axiom audit (#1448 item 5): without this counter a silent
+   * index regression would produce correct answers via full-scan and stay
+   * invisible until users notice the latency.
+   */
+  private correlationFilteredQueries = 0;
+
+  /**
    * Clock used for outbox retry-eligibility checks. Injectable so tests can
    * advance time without sleeping for real-world backoff windows
    * (`Math.pow(2, attempts) * 1000` ms — up to 32 s before dead-lettering).
@@ -325,6 +364,20 @@ export class SqliteBackend implements StorageBackend {
 
       // Run migrations for existing databases
       this.migrateSchema();
+
+      // V6 indexes on correlation columns (#1437). Deferred to here rather
+      // than living inside SCHEMA_DDL because on a legacy V<6 events table
+      // the SCHEMA_DDL `CREATE TABLE IF NOT EXISTS` is a no-op (table
+      // already exists) so the correlation columns are still absent and a
+      // CREATE INDEX against them would error. migrateSchema() above is
+      // what guarantees the columns are in place; once it returns, the
+      // indexes can be (re-)applied idempotently against either a fresh
+      // V6 table or a just-migrated legacy table.
+      this.db.exec(`
+        CREATE INDEX IF NOT EXISTS idx_events_correlation ON events(correlation_id, sequence);
+        CREATE INDEX IF NOT EXISTS idx_events_causation ON events(causation_id);
+        CREATE INDEX IF NOT EXISTS idx_events_operation ON events(operation_id);
+      `);
 
       // Track schema version
       const existing = this.db
@@ -424,9 +477,20 @@ export class SqliteBackend implements StorageBackend {
    *           Idempotent via CREATE TABLE IF NOT EXISTS; SCHEMA_DDL above
    *           creates the table on fresh DBs, and this step covers legacy
    *           DBs that were stamped at V4 before #1343 landed.
+   * V5 -> V6: #1437 correlation-indexed columns. Add three top-level
+   *           materialized columns on `events` (`operation_id`,
+   *           `correlation_id`, `causation_id`) plus three indexes
+   *           (`idx_events_correlation`, `idx_events_causation`,
+   *           `idx_events_operation`) so the dispatch-correlation tuple
+   *           (#1291) is filterable in O(log n) on `EventStore.queryEvents`
+   *           — including operation_id-only filters used by cross-stream
+   *           queries via `EventStore.queryByType`. Backfills legacy rows
+   *           from their `payload` JSON inside the same transaction;
+   *           chunked progress events land on the internal `__migration__`
+   *           stream.
    *
    * Each step short-circuits if its target version is already present in the
-   * `schema_version` table, so running migrateSchema() twice on a V5 DB is a
+   * `schema_version` table, so running migrateSchema() twice on a V6 DB is a
    * no-op (idempotent).
    */
   private migrateSchema(): void {
@@ -475,6 +539,22 @@ export class SqliteBackend implements StorageBackend {
 
     if (!v5Existing) {
       this.migrateV4ToV5();
+    }
+
+    // V5 -> V6: gated by the schema_version ledger. Adds the three
+    // correlation columns (operation_id, correlation_id, causation_id) on
+    // `events` for #1437 indexed-filter substrate. Backfills legacy rows
+    // from their `payload` JSON inside the same transaction; chunked
+    // progress events land on the internal `__migration__` stream. On a
+    // fresh DB the ALTER TABLE statements are skipped via PRAGMA gating
+    // because SCHEMA_DDL already created the columns; on a legacy V5 DB
+    // the ALTERs add the columns and the backfill populates them.
+    const v6Existing = this.db
+      .prepare('SELECT version FROM schema_version WHERE version = ?')
+      .get(6) as { version: number } | undefined;
+
+    if (!v6Existing) {
+      this.migrateV5ToV6();
     }
   }
 
@@ -634,6 +714,287 @@ export class SqliteBackend implements StorageBackend {
   }
 
   /**
+   * V5 -> V6 migration step. #1437 correlation-indexed columns.
+   *
+   * Materializes the dispatch-correlation tuple from #1291
+   * (`operationId`, `correlationId`, `causationId`) as three top-level
+   * columns on `events` so `EventStore.queryEvents` can filter on them
+   * in O(log n) instead of scanning every row's `payload` JSON.
+   *
+   * Inside ONE `db.transaction(...)` (Sentry-pattern atomicity guard, see
+   * the V3->V4 helper for the rationale around mixed DDL + observability
+   * emission):
+   *   1. ALTER TABLE events ADD COLUMN operation_id/correlation_id/causation_id
+   *      — PRAGMA-gated per column. On a fresh DB the columns are already
+   *      present from SCHEMA_DDL and the ALTER is skipped; on a legacy V5
+   *      DB this step adds them.
+   *   2. CREATE INDEX IF NOT EXISTS idx_events_correlation
+   *      (correlation_id, sequence), idx_events_causation (causation_id),
+   *      and idx_events_operation (operation_id).
+   *   3. Backfill correlation columns from each row's `payload` JSON via
+   *      `json_extract($.operationId / $.correlationId / $.causationId)`.
+   *      Scoped to `WHERE correlation_id IS NULL` so re-runs are no-ops
+   *      and rows already populated by the writer path (Wave 3) are
+   *      preserved. Task 6 chunks the UPDATE and adds per-chunk progress
+   *      events on the internal `__migration__` stream.
+   *   4. INSERT OR IGNORE schema_version (6, now).
+   *
+   * Backfill semantics — NULL fallback (design §"Backfill semantics"):
+   *   Rows whose payload is unparseable as JSON, lacks the three fields,
+   *   or has them set to JSON null keep NULL columns. NULL is the correct
+   *   marker for "this row predates correlation threading" (every
+   *   pre-#1428 event is unstamped) and matches the natural column state.
+   *   No tolerate-and-warn surface is needed because the data is
+   *   genuinely absent, not malformed.
+   *
+   * Idempotent: re-running on a V6 DB short-circuits at the ledger gate
+   * in migrateSchema(); even if invoked directly, every step is a no-op
+   * (column-presence PRAGMA, index IF NOT EXISTS, scoped UPDATE WHERE
+   * correlation_id IS NULL, ledger INSERT OR IGNORE).
+   */
+  private migrateV5ToV6(): void {
+    const now = new Date().toISOString();
+    const runMigration = this.db.transaction((): void => {
+      // PRAGMA-gated ALTERs: on a fresh DB SCHEMA_DDL already added the
+      // columns; on a legacy V5 DB they're absent. The check makes the
+      // helper safe to call against either shape.
+      const columns = this.db
+        .prepare('PRAGMA table_info(events)')
+        .all() as Array<{ name: string }>;
+      const have = new Set(columns.map((c) => c.name));
+
+      if (!have.has('operation_id')) {
+        this.db.exec('ALTER TABLE events ADD COLUMN operation_id TEXT');
+      }
+      if (!have.has('correlation_id')) {
+        this.db.exec('ALTER TABLE events ADD COLUMN correlation_id TEXT');
+      }
+      if (!have.has('causation_id')) {
+        this.db.exec('ALTER TABLE events ADD COLUMN causation_id TEXT');
+      }
+
+      // Indexes — IF NOT EXISTS makes this safe against the post-migrate
+      // index DDL block in initialize() that also creates them for the
+      // fresh-DB path.
+      this.db.exec(
+        'CREATE INDEX IF NOT EXISTS idx_events_correlation ON events(correlation_id, sequence)',
+      );
+      this.db.exec(
+        'CREATE INDEX IF NOT EXISTS idx_events_causation ON events(causation_id)',
+      );
+      this.db.exec(
+        'CREATE INDEX IF NOT EXISTS idx_events_operation ON events(operation_id)',
+      );
+
+      // Chunked backfill from payload JSON. WHERE correlation_id IS NULL
+      // keeps this idempotent — a re-run only touches still-NULL rows, so
+      // the post-#1428 writer path (Wave 3) and previous migration passes
+      // are preserved. Payloads that lack the fields produce JSON-NULL
+      // from json_extract, which is converted to SQL NULL — same shape
+      // the writer path produces for unstamped events, so the column
+      // stays the right kind of empty.
+      //
+      // Chunked rather than single-shot so multi-thousand-row DBs (the
+      // EventSourcedTaskStore generates dense `task.polled` traffic) get
+      // observable progress events instead of a multi-second silent
+      // stall. SQLite doesn't ship the SQLITE_ENABLE_UPDATE_DELETE_LIMIT
+      // compile flag in bun:sqlite, so the LIMIT-via-subquery pattern is
+      // the portable equivalent of `UPDATE … LIMIT 1000`.
+      this.backfillCorrelationColumnsChunked(now);
+
+      this.db
+        .prepare('INSERT OR IGNORE INTO schema_version (version, appliedAt) VALUES (?, ?)')
+        .run(6, now);
+    });
+    runMigration();
+  }
+
+  /**
+   * Chunked backfill body for `migrateV5ToV6`. Walks the `events` table
+   * by rowid in 1,000-row chunks; for each chunk, runs an UPDATE that
+   * lifts correlation IDs out of the row's `payload` JSON via
+   * json_extract. Each non-empty chunk emits one
+   * `migration.correlation_backfill_progress` event on the internal
+   * `__migration__` stream so operators can observe progress on long
+   * migrations.
+   *
+   * Why a rowid cursor rather than `WHERE correlation_id IS NULL …
+   * LIMIT N` on its own: rows whose payload lacks the correlation
+   * fields stay correlation_id IS NULL after the UPDATE (writing NULL
+   * to a column already NULL is a "change" semantically per SQLite, but
+   * the row STILL matches `correlation_id IS NULL`). A WHERE-only loop
+   * would revisit the same rows forever. The cursor advances
+   * monotonically over rowid, so each row is processed at most once
+   * regardless of whether its final column value is NULL or a string.
+   *
+   * Why a rowid subquery rather than `UPDATE … LIMIT N`: SQLite needs
+   * the `SQLITE_ENABLE_UPDATE_DELETE_LIMIT` compile flag for the LIMIT
+   * form and bun:sqlite doesn't ship it. The subquery is the portable
+   * equivalent.
+   *
+   * Termination: the loop exits when SELECT-of-next-chunk returns zero
+   * rowids — that means the cursor has moved past every event row. No
+   * terminal "completed" event is emitted (absence of further progress
+   * events is the completion signal); the durable marker is the ledger
+   * stamp at `schema_version.version = 6`.
+   *
+   * Caller (migrateV5ToV6) already wraps this in `db.transaction(...)`;
+   * the per-chunk UPDATE + per-chunk progress emission both ride the
+   * outer transaction so a crash mid-migration leaves the ledger at V5
+   * and re-running picks up cleanly (the cursor restarts at rowid=0,
+   * but `WHERE correlation_id IS NULL` in the per-chunk filter skips
+   * rows that were successfully populated in the previous attempt).
+   */
+  private backfillCorrelationColumnsChunked(timestamp: string): void {
+    const CHUNK_SIZE = 1000;
+    const MIGRATION_STREAM = '__migration__';
+
+    // Exclude the `__migration__` stream from the backfill scan: progress
+    // events are emitted INTO the events table on every iteration with
+    // `correlation_id IS NULL` (they have no dispatch context). Without
+    // this exclusion they re-enter the cursor in subsequent iterations,
+    // each producing yet another empty-data progress event and burning
+    // MAX_ITERATIONS for a phantom workload.
+    const selectNextChunkRowids = this.db.prepare(
+      `SELECT rowid FROM events
+        WHERE rowid > ?
+          AND correlation_id IS NULL
+          AND streamId != '${MIGRATION_STREAM}'
+        ORDER BY rowid
+        LIMIT ${CHUNK_SIZE}`,
+    );
+    const selectSeq = this.db.prepare(
+      'SELECT sequence FROM sequences WHERE streamId = ?',
+    );
+    const upsertSeq = this.db.prepare(
+      `INSERT INTO sequences (streamId, sequence) VALUES (?, ?)
+       ON CONFLICT(streamId) DO UPDATE SET sequence = excluded.sequence`,
+    );
+    // Strict INSERT (no OR IGNORE) — a silent drop would advance the
+    // `sequences` counter below without persisting the corresponding
+    // event, breaking the "one progress event per chunk" contract.
+    // Mirrors the rationale in `emitWorkflowTypeUnknownEvents`.
+    //
+    // #1437 — bind shape matches the V6 9-column INSERT used by
+    // `insertEvent`/`insertEventStrict`; migration progress events are
+    // emitted outside any dispatch context, so the three correlation
+    // columns are explicitly NULL.
+    const insertEvent = this.db.prepare(
+      `INSERT INTO events (streamId, sequence, type, timestamp, data, payload, operation_id, correlation_id, causation_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    );
+
+    // Bounded loop: at CHUNK_SIZE=1000 the worst case is total_rows/1000
+    // iterations. The hard ceiling defends against a programmer-error
+    // regression that breaks cursor advancement.
+    const MAX_ITERATIONS = 10_000;
+
+    let cursor = 0;
+    let completed = false;
+    for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
+      const rowids = (
+        selectNextChunkRowids.all(cursor) as Array<{ rowid: number }>
+      ).map((r) => r.rowid);
+      if (rowids.length === 0) {
+        completed = true;
+        break;
+      }
+
+      // Build the IN list inline — `rowid IN (?,?,?…)` lets sqlite use
+      // the rowid PK lookup directly. Per-chunk recompilation is cheap
+      // for a once-per-migration call site.
+      const placeholders = rowids.map(() => '?').join(',');
+      // Guard each json_extract with json_valid: a single legacy or
+      // hand-edited row with malformed JSON would otherwise raise
+      // SQLITE_ERROR "malformed JSON" and abort the entire migration
+      // transaction. With the guard, a malformed payload row simply stays
+      // with NULL correlation columns (same shape as a payload that lacks
+      // the fields), and the migration completes.
+      const updateSql = `
+        UPDATE events
+           SET operation_id   = CASE WHEN json_valid(payload) THEN json_extract(payload, '$.operationId')   ELSE NULL END,
+               correlation_id = CASE WHEN json_valid(payload) THEN json_extract(payload, '$.correlationId') ELSE NULL END,
+               causation_id   = CASE WHEN json_valid(payload) THEN json_extract(payload, '$.causationId')   ELSE NULL END
+         WHERE rowid IN (${placeholders})
+      `;
+      this.db.prepare(updateSql).run(...rowids);
+      // Use the chunk size (number of rowids targeted) rather than
+      // `result.changes`. SQLite's `changes()` does not count rows where
+      // a column update is NULL→NULL, so legacy events without correlation
+      // fields would be excluded from the metric. Reporting the targeted
+      // chunk size matches the operator's mental model: "rows processed in
+      // this iteration", not "rows whose values actually mutated".
+      const rowsBackfilled = rowids.length;
+
+      // Advance the cursor past this chunk regardless of whether every
+      // row picked up correlation data — rows whose payload lacked the
+      // fields stay correlation_id IS NULL but won't be revisited.
+      cursor = rowids[rowids.length - 1];
+
+      // Remaining work = rows still matching the cursor's forward
+      // window. Use the same WHERE shape so the count is consistent
+      // with what the next iteration would process.
+      // Mirror the chunk-select WHERE shape so the count reflects what the
+      // next iteration would actually process — excluding the migration
+      // stream avoids inflating `totalRowsRemaining` with the very rows
+      // that this loop is about to insert.
+      const totalRowsRemaining = (
+        this.db
+          .prepare(
+            `SELECT COUNT(*) AS n FROM events WHERE rowid > ? AND correlation_id IS NULL AND streamId != '${MIGRATION_STREAM}'`,
+          )
+          .get(cursor) as { n: number }
+      ).n;
+
+      const seqRow = selectSeq.get(MIGRATION_STREAM) as
+        | { sequence: number }
+        | undefined;
+      const nextSeq = (seqRow?.sequence ?? 0) + 1;
+      const data = { rowsBackfilled, totalRowsRemaining };
+      const payload = JSON.stringify({
+        streamId: MIGRATION_STREAM,
+        sequence: nextSeq,
+        type: 'migration.correlation_backfill_progress',
+        timestamp,
+        schemaVersion: '1.0',
+        source: 'migration',
+        data,
+      });
+      insertEvent.run(
+        MIGRATION_STREAM,
+        nextSeq,
+        'migration.correlation_backfill_progress',
+        timestamp,
+        JSON.stringify(data),
+        payload,
+        null,
+        null,
+        null,
+      );
+      upsertSeq.run(MIGRATION_STREAM, nextSeq);
+
+      if (totalRowsRemaining === 0) {
+        completed = true;
+        break;
+      }
+    }
+
+    if (!completed) {
+      // Reaching the iteration ceiling means cursor advancement is broken
+      // (or there's genuinely more than 10M un-backfilled rows). Throwing
+      // from inside the outer `db.transaction(...)` wrapper rolls back the
+      // DDL + every partial UPDATE and prevents migrateV5ToV6 from
+      // stamping schema_version = 6, forcing operator intervention. A
+      // silent break here would record an incomplete schema as complete.
+      throw new Error(
+        `migrateV5ToV6: correlation backfill exceeded MAX_ITERATIONS=${MAX_ITERATIONS} ` +
+          `(cursor=${cursor}); aborting so migrateV5ToV6 does not record schema_version=6 ` +
+          'with incomplete backfill. Inspect the events table and the chunked cursor logic.',
+      );
+    }
+  }
+
+  /**
    * Recover `workflow_type` for legacy stream rows from two complementary
    * sources, in priority order:
    *   1. The stream's own `workflow.started` event in the events table —
@@ -754,6 +1115,17 @@ export class SqliteBackend implements StorageBackend {
     // event, breaking the "one observability event per unresolved stream"
     // contract this migration upholds. Conflicts here are programmer
     // errors, not concurrency races, so propagate.
+    //
+    // #1437 deliberately preserves the 6-column INSERT shape here.
+    // `emitWorkflowTypeUnknownEvents` is called from the V3 -> V4
+    // migration (sqlite-backend.ts:510) which runs BEFORE
+    // `migrateV5ToV6` adds the three correlation columns. A 9-column
+    // bind would fail with "table events has no column named
+    // operation_id" against any V<5 database being upgraded. The
+    // event-store substrate's payload-vs-column source-of-truth
+    // contract (INV-1) is preserved: the JSON payload remains the
+    // canonical record; the three indexed columns are populated only
+    // on appends that happen AFTER V6 is in place.
     const insertEvent = this.db.prepare(
       `INSERT INTO events (streamId, sequence, type, timestamp, data, payload)
        VALUES (?, ?, ?, ?, ?, ?)`,
@@ -807,7 +1179,7 @@ export class SqliteBackend implements StorageBackend {
   private prepareStatements(): Statements {
     return {
       insertEvent: this.db.prepare(
-        'INSERT OR IGNORE INTO events (streamId, sequence, type, timestamp, data, payload) VALUES (?, ?, ?, ?, ?, ?)',
+        'INSERT OR IGNORE INTO events (streamId, sequence, type, timestamp, data, payload, operation_id, correlation_id, causation_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
       ),
       upsertSequence: this.db.prepare(
         'INSERT INTO sequences (streamId, sequence) VALUES (?, ?) ON CONFLICT(streamId) DO UPDATE SET sequence = excluded.sequence',
@@ -881,7 +1253,7 @@ export class SqliteBackend implements StorageBackend {
       // `insertEvent` statement uses OR IGNORE for the dual-write replica
       // path; AtomicAppender requires hard failure on collision).
       insertEventStrict: this.db.prepare(
-        'INSERT INTO events (streamId, sequence, type, timestamp, data, payload) VALUES (?, ?, ?, ?, ?, ?)',
+        'INSERT INTO events (streamId, sequence, type, timestamp, data, payload, operation_id, correlation_id, causation_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
       ),
     };
   }
@@ -893,6 +1265,12 @@ export class SqliteBackend implements StorageBackend {
     const payload = JSON.stringify(event);
 
     const insertFn = this.db.transaction(() => {
+      // #1437 — bind the V6 indexed correlation columns alongside the
+      // existing six. The values come straight off the event's stamped
+      // fields; payload remains source of truth per INV-1 while these
+      // columns serve as the indexed filter handle for telemetry views.
+      // `?? null` covers pre-dispatch-context callers (tests, migration
+      // events) so the bind shape stays uniform.
       this.stmts.insertEvent.run(
         streamId,
         event.sequence,
@@ -900,6 +1278,9 @@ export class SqliteBackend implements StorageBackend {
         event.timestamp,
         data,
         payload,
+        event.operationId ?? null,
+        event.correlationId ?? null,
+        event.causationId ?? null,
       );
       this.stmts.upsertSequence.run(streamId, event.sequence);
     });
@@ -930,6 +1311,37 @@ export class SqliteBackend implements StorageBackend {
     if (filters?.until) {
       conditions.push('timestamp <= ?');
       params.push(filters.until);
+    }
+
+    // #1437 (Wave 4) — indexed-WHERE fast path for the V6 correlation
+    // columns. The column is the filter handle (INV-1); the canonical
+    // value still travels with `payload` JSON and is rehydrated by
+    // `rowToEvent` on read. The dynamic SQL+cache pattern below uses the
+    // SQL string as the cache key, so adding/omitting these clauses
+    // produces distinct cache entries automatically — no manual cache
+    // bookkeeping required.
+    //
+    // #1448 item 5 — bump the correlationFilteredQueries counter once per
+    // query (not once per clause) so silent index regressions surface via
+    // `getStats()` rather than via user-visible latency.
+    if (
+      filters?.operationId !== undefined ||
+      filters?.correlationId !== undefined ||
+      filters?.causationId !== undefined
+    ) {
+      this.correlationFilteredQueries++;
+    }
+    if (filters?.operationId !== undefined) {
+      conditions.push('operation_id = ?');
+      params.push(filters.operationId);
+    }
+    if (filters?.correlationId !== undefined) {
+      conditions.push('correlation_id = ?');
+      params.push(filters.correlationId);
+    }
+    if (filters?.causationId !== undefined) {
+      conditions.push('causation_id = ?');
+      params.push(filters.causationId);
     }
 
     let sql = `SELECT streamId, sequence, type, timestamp, data, payload FROM events WHERE ${conditions.join(' AND ')} ORDER BY sequence`;
@@ -977,6 +1389,22 @@ export class SqliteBackend implements StorageBackend {
   }
 
   /**
+   * Backend observability counters. Currently exposes
+   * `correlationFilteredQueries` — the number of {@link queryEvents} /
+   * {@link queryEventsByType} invocations that supplied at least one of the
+   * three correlation filter fields and therefore exercised the V6 indexed
+   * fast path. Counted once per query, regardless of how many of the three
+   * filter fields were supplied.
+   *
+   * Shape mirrors `ViewMaterializer.getStats()` (a plain numeric counter
+   * object) so callers can compose per-subsystem stat snapshots without a
+   * shared metrics interface.
+   */
+  getStats(): { correlationFilteredQueries: number } {
+    return { correlationFilteredQueries: this.correlationFilteredQueries };
+  }
+
+  /**
    * Cross-stream query reducer (DR-3). Reduces over the events table for a
    * single event type whose streamId is `streamPrefix` (parent stream) OR a
    * namespaced descendant `<streamPrefix>/<segment>`. SQL clause matches the
@@ -1009,6 +1437,31 @@ export class SqliteBackend implements StorageBackend {
     if (filters?.until) {
       conditions.push('timestamp <= ?');
       params.push(filters.until);
+    }
+    // Correlation tuple filters (parity with queryEvents). Honoured as indexed
+    // WHERE clauses against the V6 columns; the (correlation_id, sequence)
+    // index makes the common cross-stream telemetry lookup ("all events in
+    // workflow X of type Y") O(log n + matches).
+    //
+    // #1448 item 5 — same once-per-query counter as queryEvents.
+    if (
+      filters?.operationId !== undefined ||
+      filters?.correlationId !== undefined ||
+      filters?.causationId !== undefined
+    ) {
+      this.correlationFilteredQueries++;
+    }
+    if (filters?.operationId !== undefined) {
+      conditions.push('operation_id = ?');
+      params.push(filters.operationId);
+    }
+    if (filters?.correlationId !== undefined) {
+      conditions.push('correlation_id = ?');
+      params.push(filters.correlationId);
+    }
+    if (filters?.causationId !== undefined) {
+      conditions.push('causation_id = ?');
+      params.push(filters.causationId);
     }
 
     let sql = `SELECT streamId, sequence, type, timestamp, data, payload FROM events WHERE ${conditions.join(' AND ')} ORDER BY timestamp, streamId, sequence`;
@@ -1147,6 +1600,13 @@ export class SqliteBackend implements StorageBackend {
       }
 
       // Event INSERTs — strict so (streamId, sequence) collisions raise.
+      // #1437 — bind the V6 indexed correlation columns alongside the
+      // existing six. Values come off the wire-shape event populated by
+      // `AtomicAppender.appendEvents` from the stamped
+      // `PublicPersistedEvent` (which `stampWithDispatchContext` in
+      // store.ts already filled from the active `DispatchContext`). The
+      // `?? null` fallback covers events that pre-date dispatch context
+      // (raw `appendEvent` test fixtures and migration paths).
       for (const evt of args.events) {
         const data = evt.data !== undefined ? JSON.stringify(evt.data) : null;
         this.stmts.insertEventStrict.run(
@@ -1156,6 +1616,9 @@ export class SqliteBackend implements StorageBackend {
           evt.timestamp,
           data,
           evt.payload,
+          evt.operationId ?? null,
+          evt.correlationId ?? null,
+          evt.causationId ?? null,
         );
       }
 

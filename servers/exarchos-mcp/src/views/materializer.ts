@@ -74,6 +74,12 @@ export class ViewMaterializer {
   // Cache hit/miss counters
   private cacheHits = 0;
   private cacheMisses = 0;
+  // Cache-bypass counter (#1448 item 5 / PR #1447 DIM-2 audit). Incremented by
+  // `materializeFiltered` in `views/tools.ts`, which skips the LRU cache entirely
+  // for correlation-filtered queries. Tracked on a separate axis from hits/misses
+  // so the existing hit-rate calculation stays well-defined; otherwise a healthy
+  // hitRate could mask thousands of invisible bypass calls.
+  private cacheBypasses = 0;
 
   // Thrashing detection sliding window
   private readonly thrashingWindowSize: number;
@@ -264,15 +270,34 @@ export class ViewMaterializer {
 
   /**
    * Return cumulative cache statistics for monitoring and diagnostics.
+   *
+   * `bypasses` counts calls to `materializeFiltered` (correlation-filtered
+   * queries that skip the LRU cache entirely). It is reported alongside hits
+   * and misses but is NOT folded into the missRate denominator — bypasses are
+   * an orthogonal axis, not a cache outcome.
    */
-  getCacheStats(): { hits: number; misses: number; size: number; missRate: number } {
+  getCacheStats(): { hits: number; misses: number; size: number; missRate: number; bypasses: number } {
     const total = this.cacheHits + this.cacheMisses;
     return {
       hits: this.cacheHits,
       misses: this.cacheMisses,
       size: this.states.size,
       missRate: total > 0 ? this.cacheMisses / total : 0,
+      bypasses: this.cacheBypasses,
     };
+  }
+
+  /**
+   * Record a cache bypass (called by `materializeFiltered` in `views/tools.ts`).
+   * Increments the `bypasses` counter exposed via `getCacheStats()`.
+   *
+   * Cache-bypass paths skip the LRU entirely, so without this counter their
+   * traffic is invisible to hit/miss telemetry — `cacheHits=950, cacheMisses=50`
+   * could look healthy while 5,000 filtered calls bypassed silently (PR #1447
+   * DIM-2 audit finding).
+   */
+  recordBypass(): void {
+    this.cacheBypasses++;
   }
 
   /**

@@ -3,7 +3,12 @@
 import { z } from 'zod';
 import type { ToolResult } from '../format.js';
 import type { EventStore } from '../event-store/store.js';
-import { getOrCreateMaterializer } from '../views/tools.js';
+import {
+  getOrCreateMaterializer,
+  materializeFiltered,
+  hasCorrelationFilters,
+  deriveCorrelationFilters,
+} from '../views/tools.js';
 import {
   TELEMETRY_VIEW,
   computeOutputTokenHints,
@@ -24,6 +29,12 @@ const ViewTelemetryArgsSchema = z.object({
   tool: z.string().optional(),
   sort: z.enum(['tokens', 'invocations', 'duration']).optional(),
   limit: z.number().int().positive().optional(),
+  // Wave 5 (#1437) — correlation tuple filters scope `EventStore.query`
+  // to events stamped by the same dispatch boundary. Honored at the
+  // backend layer (SQL indexed-WHERE / in-memory post-fetch filter).
+  operationId: z.string().optional(),
+  correlationId: z.string().optional(),
+  causationId: z.string().optional(),
 });
 
 type ViewTelemetryArgs = z.infer<typeof ViewTelemetryArgsSchema>;
@@ -88,14 +99,30 @@ export async function handleViewTelemetry(
     const store = eventStore;
     const materializer = getOrCreateMaterializer(stateDir);
 
-    // Materialize the telemetry view from the telemetry stream
-    await materializer.loadFromSnapshot(TELEMETRY_STREAM, TELEMETRY_VIEW);
-    const events = await store.query(TELEMETRY_STREAM);
-    const view = materializer.materialize<TelemetryViewState>(
-      TELEMETRY_STREAM,
-      TELEMETRY_VIEW,
-      events,
-    );
+    // Materialize the telemetry view from the telemetry stream.
+    // Wave 5 (#1437) — when a correlation filter arg is present, scope the
+    // query to that dispatch boundary so the rollup reflects only matching
+    // events. The filter handle is the indexed columns on the SQLite
+    // substrate / a post-fetch JS filter on the in-memory backend; INV-1
+    // keeps the value of truth on the payload, mirrored to the columns.
+    // Filtered queries bypass the materializer cache (see ViewQueryFilters
+    // doc in views/tools.ts) so an unfiltered call before or after is not
+    // contaminated by the filtered fold.
+    const correlationFilters = deriveCorrelationFilters(validated);
+    const filtered = hasCorrelationFilters(correlationFilters);
+    let view: TelemetryViewState;
+    if (filtered) {
+      const events = await store.query(TELEMETRY_STREAM, correlationFilters);
+      view = materializeFiltered<TelemetryViewState>(materializer, TELEMETRY_VIEW, events);
+    } else {
+      await materializer.loadFromSnapshot(TELEMETRY_STREAM, TELEMETRY_VIEW);
+      const events = await store.query(TELEMETRY_STREAM);
+      view = materializer.materialize<TelemetryViewState>(
+        TELEMETRY_STREAM,
+        TELEMETRY_VIEW,
+        events,
+      );
+    }
 
     // Convert tools map to array of { tool, ...metrics } entries
     let toolEntries = Object.entries(view.tools).map(([name, metrics]) =>

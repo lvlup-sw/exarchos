@@ -338,3 +338,92 @@ describe('InMemoryBackend Property Tests', () => {
     );
   });
 });
+
+// ─── Wave 4 (#1437) — Correlation-tuple filters on queryEvents ──────────────
+
+describe('InMemoryBackend queryEvents correlation filters (Wave 4 / #1437)', () => {
+  function seedSplitByCorrelation(backend: InMemoryBackend): void {
+    // Mirror the SqliteBackend Wave-4 fixture: three events tagged 'cor-X',
+    // three tagged 'cor-Y', with operationId / causationId mirroring the
+    // split so the same fixture exercises all three filter fields.
+    for (let i = 1; i <= 3; i++) {
+      backend.appendEvent('test-stream', makeEvent({
+        streamId: 'test-stream',
+        sequence: i,
+        type: 'workflow.started',
+        operationId: 'op-X',
+        correlationId: 'cor-X',
+        causationId: 'cause-X',
+      }));
+    }
+    for (let i = 4; i <= 6; i++) {
+      backend.appendEvent('test-stream', makeEvent({
+        streamId: 'test-stream',
+        sequence: i,
+        type: 'workflow.started',
+        operationId: 'op-Y',
+        correlationId: 'cor-Y',
+        causationId: 'cause-Y',
+      }));
+    }
+  }
+
+  it('MemoryBackend_QueryEvents_FiltersByCorrelationId', () => {
+    const backend = new InMemoryBackend();
+    backend.initialize();
+    seedSplitByCorrelation(backend);
+
+    const results = backend.queryEvents('test-stream', { correlationId: 'cor-X' });
+
+    expect(results).toHaveLength(3);
+    // InMemoryBackend stores WorkflowEvent objects directly, so the
+    // top-level field on the returned object is the source of truth here
+    // (no rehydration step). The assertion shape stays identical to the
+    // SqliteBackend test for backend-contract parity.
+    for (const event of results) {
+      expect(event.correlationId).toBe('cor-X');
+    }
+  });
+
+  it('MemoryBackend_QueryEvents_FiltersByOperationId', () => {
+    const backend = new InMemoryBackend();
+    backend.initialize();
+    seedSplitByCorrelation(backend);
+
+    const results = backend.queryEvents('test-stream', { operationId: 'op-X' });
+
+    expect(results).toHaveLength(3);
+    for (const event of results) {
+      expect(event.operationId).toBe('op-X');
+    }
+  });
+
+  it('MemoryBackend_QueryEvents_FiltersByCausationId', () => {
+    const backend = new InMemoryBackend();
+    backend.initialize();
+    seedSplitByCorrelation(backend);
+
+    const results = backend.queryEvents('test-stream', { causationId: 'cause-X' });
+
+    expect(results).toHaveLength(3);
+    for (const event of results) {
+      expect(event.causationId).toBe('cause-X');
+    }
+  });
+
+  it('MemoryBackend_QueryEvents_CombinesCorrelationWithExistingFilters', () => {
+    const backend = new InMemoryBackend();
+    backend.initialize();
+    seedSplitByCorrelation(backend);
+
+    const results = backend.queryEvents('test-stream', {
+      correlationId: 'cor-X',
+      sinceSequence: 1,
+    });
+
+    expect(results).toHaveLength(2);
+    expect(results[0].sequence).toBe(2);
+    expect(results[1].sequence).toBe(3);
+    expect(results.every((e) => e.correlationId === 'cor-X')).toBe(true);
+  });
+});
