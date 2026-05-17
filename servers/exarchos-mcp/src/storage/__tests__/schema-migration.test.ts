@@ -383,6 +383,52 @@ describe('SqliteBackend Schema Migration V1->V2', () => {
     expect(indexRow?.name).toBe('idx_projection_snapshots_latest');
   });
 
+  it('SqliteBackend_FreshDb_SchemaV6_HasCorrelationColumnsAndIndexes', () => {
+    const dbPath = createTempDb();
+
+    // Open a fresh tmp DB through SqliteBackend.initialize().
+    const backend = trackBackend(new SqliteBackend(dbPath));
+    backend.initialize();
+
+    const db = (backend as unknown as { db: Database }).db;
+
+    // Assert: events table contains the three new V6 correlation columns.
+    const columns = db
+      .prepare('PRAGMA table_info(events)')
+      .all() as Array<{ name: string; type: string; notnull: number }>;
+    const byName = new Map(columns.map((c) => [c.name, c]));
+
+    for (const col of ['operation_id', 'correlation_id', 'causation_id']) {
+      const info = byName.get(col);
+      expect(info, `missing column ${col}`).toBeDefined();
+      expect(info!.type.toUpperCase()).toBe('TEXT');
+      // NULL allowed (notnull === 0)
+      expect(info!.notnull).toBe(0);
+    }
+
+    // Assert: idx_events_correlation and idx_events_causation exist in sqlite_master.
+    const corrIdx = db
+      .prepare(
+        "SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'idx_events_correlation'",
+      )
+      .get() as { name: string } | undefined;
+    expect(corrIdx?.name).toBe('idx_events_correlation');
+
+    const causationIdx = db
+      .prepare(
+        "SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'idx_events_causation'",
+      )
+      .get() as { name: string } | undefined;
+    expect(causationIdx?.name).toBe('idx_events_causation');
+
+    // Assert: schema_version max stamped version is 6.
+    const versionRows = db
+      .prepare('SELECT version FROM schema_version ORDER BY version DESC')
+      .all() as Array<{ version: number }>;
+    expect(versionRows.length).toBeGreaterThanOrEqual(1);
+    expect(versionRows[0].version).toBe(6);
+  });
+
   it('SchemaMigration_V2ToV3_AppliesIdempotently', () => {
     const dbPath = createTempDb();
 

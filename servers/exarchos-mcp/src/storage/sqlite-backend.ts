@@ -51,20 +51,29 @@ export interface PublicPersistedEventLike {
 
 // ─── Schema DDL ─────────────────────────────────────────────────────────────
 
-const SCHEMA_VERSION = 5;
+const SCHEMA_VERSION = 6;
 
 const SCHEMA_DDL = `
 CREATE TABLE IF NOT EXISTS events (
-  streamId  TEXT NOT NULL,
-  sequence  INTEGER NOT NULL,
-  type      TEXT NOT NULL,
-  timestamp TEXT NOT NULL,
-  data      TEXT,
-  payload   TEXT,
+  streamId       TEXT NOT NULL,
+  sequence       INTEGER NOT NULL,
+  type           TEXT NOT NULL,
+  timestamp      TEXT NOT NULL,
+  data           TEXT,
+  payload        TEXT,
+  operation_id   TEXT,
+  correlation_id TEXT,
+  causation_id   TEXT,
   PRIMARY KEY (streamId, sequence)
 );
 CREATE INDEX IF NOT EXISTS idx_events_type ON events(streamId, type);
 CREATE INDEX IF NOT EXISTS idx_events_time ON events(streamId, timestamp);
+-- V6 indexes on the correlation columns (#1437) live in migrateV5ToV6 rather
+-- than here: when SCHEMA_DDL runs against a legacy V<6 events table the
+-- CREATE TABLE IF NOT EXISTS is a no-op, so the correlation columns are
+-- still absent, and a CREATE INDEX on those columns would error. The
+-- migration creates them after the ALTERs (or no-ops on a fresh DB where
+-- the columns are already in place via the CREATE TABLE above).
 
 CREATE TABLE IF NOT EXISTS workflow_state (
   featureId TEXT PRIMARY KEY,
@@ -326,6 +335,19 @@ export class SqliteBackend implements StorageBackend {
       // Run migrations for existing databases
       this.migrateSchema();
 
+      // V6 indexes on correlation columns (#1437). Deferred to here rather
+      // than living inside SCHEMA_DDL because on a legacy V<6 events table
+      // the SCHEMA_DDL `CREATE TABLE IF NOT EXISTS` is a no-op (table
+      // already exists) so the correlation columns are still absent and a
+      // CREATE INDEX against them would error. migrateSchema() above is
+      // what guarantees the columns are in place; once it returns, the
+      // indexes can be (re-)applied idempotently against either a fresh
+      // V6 table or a just-migrated legacy table.
+      this.db.exec(`
+        CREATE INDEX IF NOT EXISTS idx_events_correlation ON events(correlation_id, sequence);
+        CREATE INDEX IF NOT EXISTS idx_events_causation ON events(causation_id);
+      `);
+
       // Track schema version
       const existing = this.db
         .prepare('SELECT version FROM schema_version WHERE version = ?')
@@ -424,9 +446,17 @@ export class SqliteBackend implements StorageBackend {
    *           Idempotent via CREATE TABLE IF NOT EXISTS; SCHEMA_DDL above
    *           creates the table on fresh DBs, and this step covers legacy
    *           DBs that were stamped at V4 before #1343 landed.
+   * V5 -> V6: #1437 correlation-indexed columns. Add three top-level
+   *           materialized columns on `events` (`operation_id`,
+   *           `correlation_id`, `causation_id`) plus two indexes
+   *           (`idx_events_correlation`, `idx_events_causation`) so the
+   *           dispatch-correlation tuple (#1291) is filterable in O(log n)
+   *           on `EventStore.queryEvents`. Backfills legacy rows from
+   *           their `payload` JSON inside the same transaction; chunked
+   *           progress events land on the internal `__migration__` stream.
    *
    * Each step short-circuits if its target version is already present in the
-   * `schema_version` table, so running migrateSchema() twice on a V5 DB is a
+   * `schema_version` table, so running migrateSchema() twice on a V6 DB is a
    * no-op (idempotent).
    */
   private migrateSchema(): void {
@@ -475,6 +505,22 @@ export class SqliteBackend implements StorageBackend {
 
     if (!v5Existing) {
       this.migrateV4ToV5();
+    }
+
+    // V5 -> V6: gated by the schema_version ledger. Adds the three
+    // correlation columns (operation_id, correlation_id, causation_id) on
+    // `events` for #1437 indexed-filter substrate. Backfills legacy rows
+    // from their `payload` JSON inside the same transaction; chunked
+    // progress events land on the internal `__migration__` stream. On a
+    // fresh DB the ALTER TABLE statements are skipped via PRAGMA gating
+    // because SCHEMA_DDL already created the columns; on a legacy V5 DB
+    // the ALTERs add the columns and the backfill populates them.
+    const v6Existing = this.db
+      .prepare('SELECT version FROM schema_version WHERE version = ?')
+      .get(6) as { version: number } | undefined;
+
+    if (!v6Existing) {
+      this.migrateV5ToV6();
     }
   }
 
@@ -631,6 +677,72 @@ export class SqliteBackend implements StorageBackend {
     this.db
       .prepare('INSERT OR IGNORE INTO schema_version (version, appliedAt) VALUES (?, ?)')
       .run(5, new Date().toISOString());
+  }
+
+  /**
+   * V5 -> V6 migration step. #1437 correlation-indexed columns.
+   *
+   * Materializes the dispatch-correlation tuple from #1291
+   * (`operationId`, `correlationId`, `causationId`) as three top-level
+   * columns on `events` so `EventStore.queryEvents` can filter on them
+   * in O(log n) instead of scanning every row's `payload` JSON.
+   *
+   * Inside ONE `db.transaction(...)` (Sentry-pattern atomicity guard, see
+   * the V3->V4 helper for the rationale around mixed DDL + observability
+   * emission):
+   *   1. ALTER TABLE events ADD COLUMN operation_id/correlation_id/causation_id
+   *      — PRAGMA-gated per column. On a fresh DB the columns are already
+   *      present from SCHEMA_DDL and the ALTER is skipped; on a legacy V5
+   *      DB this step adds them.
+   *   2. CREATE INDEX IF NOT EXISTS idx_events_correlation
+   *      (correlation_id, sequence) and idx_events_causation (causation_id).
+   *   3. Backfill correlation columns from each row's `payload` JSON.
+   *      (Body for the backfill lands in Task 5; Task 6 chunks it and
+   *      emits progress events. This Task-3 stub does the DDL + ledger
+   *      stamp only.)
+   *   4. INSERT OR IGNORE schema_version (6, now).
+   *
+   * Idempotent: re-running on a V6 DB short-circuits at the ledger gate
+   * in migrateSchema(); even if invoked directly, every step is a no-op
+   * (column-presence PRAGMA, index IF NOT EXISTS, ledger INSERT OR
+   * IGNORE).
+   */
+  private migrateV5ToV6(): void {
+    const now = new Date().toISOString();
+    const runMigration = this.db.transaction((): void => {
+      // PRAGMA-gated ALTERs: on a fresh DB SCHEMA_DDL already added the
+      // columns; on a legacy V5 DB they're absent. The check makes the
+      // helper safe to call against either shape.
+      const columns = this.db
+        .prepare('PRAGMA table_info(events)')
+        .all() as Array<{ name: string }>;
+      const have = new Set(columns.map((c) => c.name));
+
+      if (!have.has('operation_id')) {
+        this.db.exec('ALTER TABLE events ADD COLUMN operation_id TEXT');
+      }
+      if (!have.has('correlation_id')) {
+        this.db.exec('ALTER TABLE events ADD COLUMN correlation_id TEXT');
+      }
+      if (!have.has('causation_id')) {
+        this.db.exec('ALTER TABLE events ADD COLUMN causation_id TEXT');
+      }
+
+      // Indexes — IF NOT EXISTS makes this safe against the post-migrate
+      // index DDL block in initialize() that also creates them for the
+      // fresh-DB path.
+      this.db.exec(
+        'CREATE INDEX IF NOT EXISTS idx_events_correlation ON events(correlation_id, sequence)',
+      );
+      this.db.exec(
+        'CREATE INDEX IF NOT EXISTS idx_events_causation ON events(causation_id)',
+      );
+
+      this.db
+        .prepare('INSERT OR IGNORE INTO schema_version (version, appliedAt) VALUES (?, ?)')
+        .run(6, now);
+    });
+    runMigration();
   }
 
   /**
