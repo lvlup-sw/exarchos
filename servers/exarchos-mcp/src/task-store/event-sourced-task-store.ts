@@ -73,8 +73,9 @@ import type {
 } from '@modelcontextprotocol/sdk/experimental/tasks/interfaces.js';
 import { isTerminal } from '@modelcontextprotocol/sdk/experimental/tasks/interfaces.js';
 
-import { EventStore } from '../event-store/store.js';
+import { EventStore, SequenceConflictError } from '../event-store/store.js';
 import type { WorkflowEvent } from '../event-store/schemas.js';
+import { ConcurrencyError } from '../event-store/concurrency-error.js';
 
 /**
  * Per-task projected lifecycle state. The shape carries everything
@@ -298,37 +299,43 @@ export class EventSourcedTaskStore implements TaskStore {
     result: Result,
     _sessionId?: string,
   ): Promise<void> {
-    const stored = await this.loadTask(taskId);
-    if (!stored) {
-      throw new Error(`Task with ID ${taskId} not found`);
-    }
-    if (isTerminal(stored.task.status)) {
-      throw new Error(
-        `Cannot store result for task ${taskId} in terminal status '${stored.task.status}'. Task results can only be stored once.`,
-      );
-    }
-
-    const now = new Date().toISOString();
-    await this.store.append(taskStream(taskId), {
-      type: 'task.result',
-      timestamp: now,
-      data: {
-        taskId,
-        status,
-        result,
-      },
+    // FINDING-1 (#1438, PR 3): route the read→decide→append through
+    // `commitWithOcc` so the durable layer enforces single-writer
+    // semantics via `expectedSequence`. The terminal-check fires INSIDE
+    // the decide closure so each retry re-evaluates against a freshly
+    // refolded projection (a concurrent winner's `task.result` /
+    // `task.cancelled` becomes visible on the next attempt).
+    return this.commitWithOcc(taskId, 'storeTaskResult', async (stored) => {
+      if (isTerminal(stored.task.status)) {
+        throw new Error(
+          `Cannot store result for task ${taskId} in terminal status '${stored.task.status}'. Task results can only be stored once.`,
+        );
+      }
+      const now = new Date().toISOString();
+      return {
+        event: {
+          type: 'task.result',
+          timestamp: now,
+          data: {
+            taskId,
+            status,
+            result,
+          },
+        },
+        mutate: (s: ProjectedTask) => {
+          s.result = result;
+          s.task = {
+            ...s.task,
+            status,
+            lastUpdatedAt: now,
+          };
+          // TTL resets from terminal transition (matches SDK semantics).
+          if (s.task.ttl !== null) {
+            s.expiresAt = Date.now() + s.task.ttl;
+          }
+        },
+      };
     });
-
-    stored.result = result;
-    stored.task = {
-      ...stored.task,
-      status,
-      lastUpdatedAt: now,
-    };
-    // TTL resets from terminal transition (matches SDK semantics).
-    if (stored.task.ttl !== null) {
-      stored.expiresAt = Date.now() + stored.task.ttl;
-    }
   }
 
   async getTaskResult(taskId: string, _sessionId?: string): Promise<Result> {
@@ -354,45 +361,51 @@ export class EventSourcedTaskStore implements TaskStore {
     statusMessage?: string,
     _sessionId?: string,
   ): Promise<void> {
-    const stored = await this.loadTask(taskId);
-    if (!stored) {
-      throw new Error(`Task with ID ${taskId} not found`);
-    }
-    if (isTerminal(stored.task.status)) {
-      throw new Error(
-        `Cannot update task ${taskId} from terminal status '${stored.task.status}' to '${status}'. Terminal states (completed, failed, cancelled) cannot transition to other states.`,
-      );
-    }
-
-    const now = new Date().toISOString();
-
-    // The `cancelled` transition gets its own durable event so audit
-    // can attribute the cancellation reason cleanly. Other status
-    // transitions (working ↔ input_required) don't have a dedicated
-    // event yet; they live only in the projection's
-    // `lastUpdatedAt`/`statusMessage` until a downstream consumer
-    // requires durable visibility.
-    if (status === 'cancelled') {
-      await this.store.append(taskStream(taskId), {
-        type: 'task.cancelled',
-        timestamp: now,
-        data: {
-          taskId,
-          reason: statusMessage ?? 'unspecified',
-        },
-      });
-    }
-
-    stored.task = {
-      ...stored.task,
-      status,
-      lastUpdatedAt: now,
-      ...(statusMessage !== undefined ? { statusMessage } : {}),
-    };
-
-    if (isTerminal(status) && stored.task.ttl !== null) {
-      stored.expiresAt = Date.now() + stored.task.ttl;
-    }
+    // FINDING-1 (#1438, PR 3): route through `commitWithOcc`. The
+    // cancellation branch returns a durable `task.cancelled` event and
+    // gets full OCC enforcement; non-cancel transitions return
+    // `event: null` (projection-only) and retain pre-PR-3 semantics —
+    // see the inline note on `commitWithOcc` for why this asymmetry is
+    // intentional (no durable event ⇒ no `expectedSequence` to enforce).
+    return this.commitWithOcc(taskId, 'updateTaskStatus', async (stored) => {
+      if (isTerminal(stored.task.status)) {
+        throw new Error(
+          `Cannot update task ${taskId} from terminal status '${stored.task.status}' to '${status}'. Terminal states (completed, failed, cancelled) cannot transition to other states.`,
+        );
+      }
+      const now = new Date().toISOString();
+      const mutate = (s: ProjectedTask) => {
+        s.task = {
+          ...s.task,
+          status,
+          lastUpdatedAt: now,
+          ...(statusMessage !== undefined ? { statusMessage } : {}),
+        };
+        if (isTerminal(status) && s.task.ttl !== null) {
+          s.expiresAt = Date.now() + s.task.ttl;
+        }
+      };
+      // The `cancelled` transition gets its own durable event so audit
+      // can attribute the cancellation reason cleanly. Other status
+      // transitions (working ↔ input_required) don't have a dedicated
+      // event yet; they live only in the projection's
+      // `lastUpdatedAt`/`statusMessage` until a downstream consumer
+      // requires durable visibility.
+      if (status === 'cancelled') {
+        return {
+          event: {
+            type: 'task.cancelled',
+            timestamp: now,
+            data: {
+              taskId,
+              reason: statusMessage ?? 'unspecified',
+            },
+          },
+          mutate,
+        };
+      }
+      return { event: null, mutate };
+    });
   }
 
   async listTasks(
@@ -441,6 +454,115 @@ export class EventSourcedTaskStore implements TaskStore {
   }
 
   // ─── Internals ─────────────────────────────────────────────────────────
+
+  /**
+   * FINDING-1 (#1438, PR 3): optimistic-concurrency write helper.
+   *
+   * The single entry point for every state-mutating durable write. Wraps
+   * the canonical read→decide→append pattern with `expectedSequence`
+   * enforcement so a sibling writer's commit between our read and our
+   * append surfaces as `SequenceConflictError` rather than silent
+   * last-write-wins on the stream.
+   *
+   * Flow per attempt:
+   *   1. `loadTask` — picks up the latest projection via PR 2's
+   *      cache-validation path (full refold on miss, incremental fold on
+   *      stale cache).
+   *   2. `decide(stored)` — the caller's pure decision function. Returns
+   *      either:
+   *        - `{ event, mutate }` — durable event to append + mutation to
+   *          apply to the cached projection on success.
+   *        - `{ event: null, mutate }` — projection-only update (no
+   *          durable event; no OCC enforcement). Used for `updateTaskStatus`
+   *          transitions that don't carry their own event today.
+   *   3. `store.append(..., { expectedSequence: stored.lastReadSequence })`
+   *      — on conflict the backend throws `SequenceConflictError`; we
+   *      invalidate the cache and loop. The decide closure MUST be
+   *      idempotent w.r.t. its own throws (e.g. terminal-status check)
+   *      because retries re-invoke it against the latest projection.
+   *
+   * Retry budget is 3 (mirrors the R-2 design's `withStateRetry`
+   * convention for non-idempotent decisions). Past the budget we surface
+   * a `ConcurrencyError` — the `mcp/format.ts::wrapError` boundary maps
+   * this to `CONCURRENCY_CONFLICT` (validTargets: ['retry']) for MCP
+   * callers, and the workflow `withStateRetry` middleware already
+   * recognises the type at the inner layer (`workflow/state-retry.ts:59`).
+   */
+  private async commitWithOcc(
+    taskId: string,
+    opName: string,
+    decide: (
+      stored: ProjectedTask,
+    ) => Promise<{
+      event:
+        | (Partial<Omit<WorkflowEvent, 'sequence' | 'streamId'>> & {
+            type: string;
+          })
+        | null;
+      mutate: (s: ProjectedTask) => void;
+    }>,
+    maxRetries = 3,
+  ): Promise<void> {
+    let lastConflict: SequenceConflictError | undefined;
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      const stored = await this.loadTask(taskId);
+      if (!stored) {
+        throw new Error(`Task with ID ${taskId} not found`);
+      }
+      const { event, mutate } = await decide(stored);
+      if (event === null) {
+        // Projection-only update: no durable event to append, no
+        // expectedSequence to enforce. The caller has opted into the
+        // pre-PR-3 semantics for this code path (e.g. non-cancel
+        // `updateTaskStatus` transitions). PR 2's cache-validation in
+        // `loadTask` already gives this branch read-time freshness; the
+        // remaining "stale decision" risk is unchanged from the prior
+        // implementation.
+        mutate(stored);
+        return;
+      }
+      try {
+        await this.store.append(taskStream(taskId), event, {
+          expectedSequence: stored.lastReadSequence,
+        });
+        mutate(stored);
+        stored.lastReadSequence += 1;
+        return;
+      } catch (err) {
+        if (err instanceof SequenceConflictError) {
+          // Force a full refold next iteration: the cached
+          // `lastReadSequence` is provably stale, and we want the next
+          // `loadTask` to re-query from scratch (rather than walk through
+          // the cache-hit-plus-tail-validation path with the now-known-
+          // wrong sequence number).
+          lastConflict = err;
+          this.tasks.delete(taskId);
+          if (attempt < maxRetries) continue;
+          // Fall through to the post-loop ConcurrencyError on the final
+          // attempt so the boundary sees the typed envelope, not the raw
+          // `SequenceConflictError`.
+          break;
+        }
+        throw err;
+      }
+    }
+    // Retry budget exhausted — surface as a structured `ConcurrencyError`
+    // so the MCP boundary (`format.ts::wrapError`) emits the canonical
+    // `CONCURRENCY_CONFLICT` envelope. We log a warning for operational
+    // visibility (DIM-2) before throwing because budget exhaustion is a
+    // notable event — it implies sustained write contention on this
+    // specific task stream.
+    console.warn(
+      `[task-store] OCC retry budget exhausted: taskId=${taskId} op=${opName} attempts=${maxRetries + 1}`,
+    );
+    throw new ConcurrencyError({
+      streamId: taskStream(taskId),
+      reducerId: 'task-store',
+      expectedVersion: lastConflict?.expected ?? -1,
+      actualVersion: lastConflict?.actual ?? -1,
+      operationId: opName,
+    });
+  }
 
   /**
    * Enumerate `task-store/*` streams from the event store and load

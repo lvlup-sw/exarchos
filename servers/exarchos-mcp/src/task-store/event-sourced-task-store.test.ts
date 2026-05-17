@@ -546,6 +546,274 @@ describe('EventSourcedTaskStore (#1272)', () => {
     });
   });
 
+  // ─── FINDING-1 (#1438, PR 3) — OCC threading via expectedSequence ─────────
+  //
+  // The fix invariant: two concurrent writers on the same task stream MUST
+  // resolve deterministically. One commits, the other gets either a
+  // terminal-status error (after retry refold sees the winner's terminal
+  // event) or a `ConcurrencyError` (after exhausting the retry budget).
+  // Last-write-wins at the durable layer is no longer possible — exactly
+  // one `task.result` / `task.cancelled` event lands on the stream per
+  // intended outcome.
+  //
+  // Race scenarios covered:
+  //   T16 — `storeTaskResult` × `storeTaskResult` (this block)
+  //   T17 — `updateTaskStatus` × `updateTaskStatus` (cancellation race)
+  //   T18 — cancel-arrives-first vs late result (terminal-status throw)
+  //   T19 — retry budget exhaustion surfaces `ConcurrencyError`
+
+  it('storeTaskResult_ConcurrentCallers_ExactlyOneSucceeds', async () => {
+    // Two TaskStore instances on the SAME EventStore — simulates two
+    // processes (CLI + MCP server, two MCP instances) or two interleaved
+    // requests that both passed their in-memory `isTerminal` check before
+    // either committed. Pre-fix: both `append` calls would succeed; the
+    // stream would contain two `task.result` events; the projection would
+    // last-write-win silently. Post-fix: `commitWithOcc` threads
+    // `expectedSequence: stored.lastReadSequence` so the second writer
+    // hits `SequenceConflictError`; on retry refold the loser sees the
+    // winner's terminal status and the in-decide-closure terminal-check
+    // throws "Cannot store result ... in terminal status".
+    const storeA = new EventSourcedTaskStore(eventStore);
+    const storeB = new EventSourcedTaskStore(eventStore);
+
+    const task = await storeA.createTask(
+      { ttl: 60_000 },
+      'req-occ-1',
+      sampleRequest,
+    );
+
+    // Force both stores' caches to be warmed at the SAME lastReadSequence
+    // before the race so they each see the pre-race tail.
+    await storeA.getTask(task.taskId);
+    await storeB.getTask(task.taskId);
+
+    const r1 = { content: [{ type: 'text', text: 'from-A' }] };
+    const r2 = { content: [{ type: 'text', text: 'from-B' }] };
+
+    const results = await Promise.allSettled([
+      storeA.storeTaskResult(task.taskId, 'completed', r1),
+      storeB.storeTaskResult(task.taskId, 'failed', r2),
+    ]);
+
+    const fulfilled = results.filter((r) => r.status === 'fulfilled');
+    const rejected = results.filter((r) => r.status === 'rejected');
+
+    expect(fulfilled).toHaveLength(1);
+    expect(rejected).toHaveLength(1);
+
+    // The rejection must be either a terminal-status error (loser retried,
+    // re-folded, saw the winner's terminal event) or a ConcurrencyError
+    // (budget exhausted in the OCC retry loop).
+    const rejectedReason = (rejected[0] as PromiseRejectedResult).reason;
+    const message: string =
+      rejectedReason instanceof Error
+        ? rejectedReason.message
+        : String(rejectedReason);
+    expect(message).toMatch(/terminal status|ConcurrencyError|tail advanced/);
+
+    // The stream MUST contain exactly one `task.result` event — the
+    // winner's append. Last-write-wins at the durable layer is now
+    // impossible.
+    const events = await eventStore.query(`task-store/${task.taskId}`);
+    const resultEvents = events.filter((e) => e.type === 'task.result');
+    expect(resultEvents).toHaveLength(1);
+  });
+
+  it('updateTaskStatus_ConcurrentCallersToConflictingStates_ExactlyOneSucceeds', async () => {
+    // Cancellation race: two writers both call `updateTaskStatus(..., 'cancelled')`.
+    // Cancellation is the only `updateTaskStatus` transition that writes
+    // a durable event (line 375 of event-sourced-task-store.ts), so it's
+    // the case where OCC enforcement is observable on the stream.
+    // Non-cancel transitions (working ↔ input_required) are projection-
+    // only and intentionally retain pre-PR-3 semantics — that asymmetry
+    // is documented inline on `commitWithOcc`.
+    const storeA = new EventSourcedTaskStore(eventStore);
+    const storeB = new EventSourcedTaskStore(eventStore);
+
+    const task = await storeA.createTask(
+      { ttl: 60_000 },
+      'req-occ-cancel',
+      sampleRequest,
+    );
+
+    // Both stores warm their cache at the same lastReadSequence.
+    await storeA.getTask(task.taskId);
+    await storeB.getTask(task.taskId);
+
+    const results = await Promise.allSettled([
+      storeA.updateTaskStatus(task.taskId, 'cancelled', 'reason-A'),
+      storeB.updateTaskStatus(task.taskId, 'cancelled', 'reason-B'),
+    ]);
+
+    const fulfilled = results.filter((r) => r.status === 'fulfilled');
+    const rejected = results.filter((r) => r.status === 'rejected');
+
+    expect(fulfilled).toHaveLength(1);
+    expect(rejected).toHaveLength(1);
+
+    const reason = (rejected[0] as PromiseRejectedResult).reason;
+    const message: string =
+      reason instanceof Error ? reason.message : String(reason);
+    // After the loser refolds, it sees `cancelled` (terminal) and the
+    // `updateTaskStatus` terminal-check throws ("Cannot update task ...
+    // from terminal status 'cancelled'"). If the retry budget were
+    // exhausted instead we would see "tail advanced" from ConcurrencyError.
+    expect(message).toMatch(/terminal status|tail advanced/);
+
+    // Stream MUST contain exactly one `task.cancelled` event — duplicate
+    // cancellations are not appended.
+    const events = await eventStore.query(`task-store/${task.taskId}`);
+    const cancelEvents = events.filter((e) => e.type === 'task.cancelled');
+    expect(cancelEvents).toHaveLength(1);
+  });
+
+  it('cancelRacesResult_CancelArrivesFirst_LateResultRejectsWithTerminalError', async () => {
+    // Sequenced race: cancel commits first, late `storeTaskResult` arrives
+    // afterwards with a cached projection that still says `working`. The
+    // OCC retry path MUST refold, see the `cancelled` status, and have
+    // the terminal-check in `storeTaskResult`'s decide closure throw.
+    // This is the load-bearing scenario from the design's
+    // §"Cancellation race scenario" — MCP `tasks/cancel` racing a
+    // wrapped handler's `task.result`.
+    const storeA = new EventSourcedTaskStore(eventStore);
+    const storeB = new EventSourcedTaskStore(eventStore);
+
+    const task = await storeA.createTask(
+      { ttl: 60_000 },
+      'req-cancel-wins',
+      sampleRequest,
+    );
+
+    // B warms its cache BEFORE A cancels, so B's `lastReadSequence` is
+    // stale when it tries to write the result. This matches the
+    // production scenario where the wrapped handler read state at the
+    // start of its work and only commits its result later.
+    await storeB.getTask(task.taskId);
+
+    // A cancels and the commit lands first (await sequences this).
+    await storeA.updateTaskStatus(task.taskId, 'cancelled', 'race-test');
+
+    // B tries to record a late completion. The decide closure's
+    // terminal-check throws on the first retry (after the cache refold
+    // surfaces the cancelled status).
+    await expect(
+      storeB.storeTaskResult(task.taskId, 'completed', {
+        content: [{ type: 'text', text: 'late' }],
+      }),
+    ).rejects.toThrow(/terminal status/);
+
+    // Exactly one terminal-class event on the stream — the cancel.
+    const events = await eventStore.query(`task-store/${task.taskId}`);
+    const resultEvents = events.filter((e) => e.type === 'task.result');
+    const cancelEvents = events.filter((e) => e.type === 'task.cancelled');
+    expect(resultEvents).toHaveLength(0);
+    expect(cancelEvents).toHaveLength(1);
+  });
+
+  it('commitWithOcc_RetryBudgetExhausted_ThrowsConcurrencyError', async () => {
+    // Force `EventStore.append` to throw `SequenceConflictError` on every
+    // attempt. After `maxRetries + 1` attempts (default budget = 3 ⇒ 4
+    // total), `commitWithOcc` must surface a `ConcurrencyError` with
+    // structured fields (streamId, reducerId='task-store', operationId,
+    // expectedVersion, actualVersion).
+    const task = await store.createTask(
+      { ttl: 60_000 },
+      'req-budget-exhausted',
+      sampleRequest,
+    );
+    await store.getTask(task.taskId); // warm cache
+
+    const { SequenceConflictError } = await import('../event-store/store.js');
+    const { ConcurrencyError } = await import(
+      '../event-store/concurrency-error.js'
+    );
+
+    // Silence the warning emitted on budget exhaustion to keep test
+    // output clean — the warning IS the observability surface we want,
+    // but for this test we only care that the throw shape is correct.
+    const warnSpy = vi
+      .spyOn(console, 'warn')
+      .mockImplementation(() => undefined);
+    // Track attempt count to confirm the budget walk.
+    let attempts = 0;
+    const appendSpy = vi
+      .spyOn(eventStore, 'append')
+      .mockImplementation(async () => {
+        attempts += 1;
+        // The actual numbers don't matter — only the type does.
+        throw new SequenceConflictError(1, 99);
+      });
+
+    try {
+      await expect(
+        store.storeTaskResult(task.taskId, 'completed', {
+          content: [{ type: 'text', text: 'will-never-commit' }],
+        }),
+      ).rejects.toBeInstanceOf(ConcurrencyError);
+
+      // 3 retries + the initial attempt = 4 total append calls.
+      expect(attempts).toBe(4);
+      // Warning emitted exactly once on budget exhaustion.
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+    } finally {
+      appendSpy.mockRestore();
+      warnSpy.mockRestore();
+    }
+  });
+
+  it('commitWithOcc_ConcurrencyErrorFlowsToMcpEnvelope_CONCURRENCY_CONFLICT', async () => {
+    // T20 — integration smoke that the typed `ConcurrencyError` raised
+    // by `commitWithOcc` after budget exhaustion deserializes into the
+    // canonical MCP `CONCURRENCY_CONFLICT` envelope via `wrapError`. The
+    // mapping itself is unit-tested in `format.test.ts`; this test proves
+    // the wiring is intact end-to-end from the task-store layer.
+    const task = await store.createTask(
+      { ttl: 60_000 },
+      'req-mcp-envelope',
+      sampleRequest,
+    );
+    await store.getTask(task.taskId);
+
+    const { SequenceConflictError } = await import('../event-store/store.js');
+    const { wrapError } = await import('../format.js');
+
+    const warnSpy = vi
+      .spyOn(console, 'warn')
+      .mockImplementation(() => undefined);
+    const appendSpy = vi
+      .spyOn(eventStore, 'append')
+      .mockImplementation(async () => {
+        throw new SequenceConflictError(1, 99);
+      });
+
+    try {
+      let caught: unknown;
+      try {
+        await store.storeTaskResult(task.taskId, 'completed', {
+          content: [{ type: 'text', text: 'will-fail' }],
+        });
+      } catch (err) {
+        caught = err;
+      }
+      expect(caught).toBeDefined();
+
+      const envelope = wrapError(caught);
+      expect(envelope.success).toBe(false);
+      // ErrorEnvelope is a union; narrow by `success: false` branch.
+      if (envelope.success === false) {
+        expect(envelope.error.code).toBe('CONCURRENCY_CONFLICT');
+        const errBody = envelope.error as { streamId?: string; reducerId?: string; operationId?: string };
+        expect(errBody.streamId).toBe(`task-store/${task.taskId}`);
+        expect(errBody.reducerId).toBe('task-store');
+        expect(errBody.operationId).toBe('storeTaskResult');
+        expect(envelope._meta.retryable).toBe(true);
+      }
+    } finally {
+      appendSpy.mockRestore();
+      warnSpy.mockRestore();
+    }
+  });
+
   it('EventSourcedTaskStore_ListTasks_HydratesFromEventStoreOnColdStart', async () => {
     // CR PR #1432: cold-start listTasks must enumerate durable
     // `task-store/*` streams rather than silently returning an empty
