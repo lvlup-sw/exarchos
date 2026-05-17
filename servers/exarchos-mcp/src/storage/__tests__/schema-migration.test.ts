@@ -612,6 +612,85 @@ describe('SqliteBackend Schema Migration V1->V2', () => {
     expect(migrationRowCount).toBe(0);
   });
 
+  it('MigrateV5ToV6_LegacyV5DbWithPayloadEvents_BackfillsCorrelationColumns', () => {
+    const dbPath = createTempDb();
+
+    // Build a legacy V5 DB. Two kinds of events:
+    //   (a) "tagged" payload — carries correlationId / operationId / causationId
+    //       as top-level fields (the shape #1428 added to dispatch-stamped events).
+    //   (b) "untagged" payload — lacks all three (pre-#1428 events).
+    const rawDb = createV5Database(dbPath);
+
+    insertV5Event(rawDb, 'stream-tagged', 1, 'workflow.started', '2024-01-01T00:00:00.000Z', {
+      streamId: 'stream-tagged',
+      sequence: 1,
+      type: 'workflow.started',
+      timestamp: '2024-01-01T00:00:00.000Z',
+      schemaVersion: '1.0',
+      operationId: 'op-A',
+      correlationId: 'corr-A',
+      causationId: 'cause-A',
+      data: { featureId: 'tagged-feature' },
+    });
+
+    insertV5Event(rawDb, 'stream-untagged', 1, 'workflow.started', '2024-01-01T00:00:00.000Z', {
+      streamId: 'stream-untagged',
+      sequence: 1,
+      type: 'workflow.started',
+      timestamp: '2024-01-01T00:00:00.000Z',
+      schemaVersion: '1.0',
+      data: { featureId: 'untagged-feature' },
+    });
+
+    rawDb.close();
+
+    // Reopen via SqliteBackend — backfill should populate the tagged row's
+    // columns from its payload JSON and leave the untagged row's columns NULL.
+    const backend = trackBackend(new SqliteBackend(dbPath));
+    backend.initialize();
+
+    const db = (backend as unknown as { db: Database }).db;
+
+    // Total row count unchanged — backfill is UPDATE, not INSERT/DELETE.
+    const rowCount = (
+      db
+        .prepare(
+          "SELECT COUNT(*) AS n FROM events WHERE streamId IN ('stream-tagged', 'stream-untagged')",
+        )
+        .get() as { n: number }
+    ).n;
+    expect(rowCount).toBe(2);
+
+    // Tagged row's columns hold the values extracted from its payload.
+    const taggedRow = db
+      .prepare(
+        'SELECT operation_id, correlation_id, causation_id FROM events WHERE streamId = ? AND sequence = ?',
+      )
+      .get('stream-tagged', 1) as {
+      operation_id: string | null;
+      correlation_id: string | null;
+      causation_id: string | null;
+    };
+    expect(taggedRow.operation_id).toBe('op-A');
+    expect(taggedRow.correlation_id).toBe('corr-A');
+    expect(taggedRow.causation_id).toBe('cause-A');
+
+    // Untagged row's columns stay NULL — the payload lacks the fields, so
+    // json_extract returns NULL and the row is left as-is.
+    const untaggedRow = db
+      .prepare(
+        'SELECT operation_id, correlation_id, causation_id FROM events WHERE streamId = ? AND sequence = ?',
+      )
+      .get('stream-untagged', 1) as {
+      operation_id: string | null;
+      correlation_id: string | null;
+      causation_id: string | null;
+    };
+    expect(untaggedRow.operation_id).toBeNull();
+    expect(untaggedRow.correlation_id).toBeNull();
+    expect(untaggedRow.causation_id).toBeNull();
+  });
+
   it('SqliteBackend_FreshDb_SchemaV6_HasCorrelationColumnsAndIndexes', () => {
     const dbPath = createTempDb();
 

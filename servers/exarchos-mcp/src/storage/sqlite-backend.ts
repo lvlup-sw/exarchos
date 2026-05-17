@@ -696,16 +696,26 @@ export class SqliteBackend implements StorageBackend {
    *      DB this step adds them.
    *   2. CREATE INDEX IF NOT EXISTS idx_events_correlation
    *      (correlation_id, sequence) and idx_events_causation (causation_id).
-   *   3. Backfill correlation columns from each row's `payload` JSON.
-   *      (Body for the backfill lands in Task 5; Task 6 chunks it and
-   *      emits progress events. This Task-3 stub does the DDL + ledger
-   *      stamp only.)
+   *   3. Backfill correlation columns from each row's `payload` JSON via
+   *      `json_extract($.operationId / $.correlationId / $.causationId)`.
+   *      Scoped to `WHERE correlation_id IS NULL` so re-runs are no-ops
+   *      and rows already populated by the writer path (Wave 3) are
+   *      preserved. Task 6 chunks the UPDATE and adds per-chunk progress
+   *      events on the internal `__migration__` stream.
    *   4. INSERT OR IGNORE schema_version (6, now).
+   *
+   * Backfill semantics — NULL fallback (design §"Backfill semantics"):
+   *   Rows whose payload is unparseable as JSON, lacks the three fields,
+   *   or has them set to JSON null keep NULL columns. NULL is the correct
+   *   marker for "this row predates correlation threading" (every
+   *   pre-#1428 event is unstamped) and matches the natural column state.
+   *   No tolerate-and-warn surface is needed because the data is
+   *   genuinely absent, not malformed.
    *
    * Idempotent: re-running on a V6 DB short-circuits at the ledger gate
    * in migrateSchema(); even if invoked directly, every step is a no-op
-   * (column-presence PRAGMA, index IF NOT EXISTS, ledger INSERT OR
-   * IGNORE).
+   * (column-presence PRAGMA, index IF NOT EXISTS, scoped UPDATE WHERE
+   * correlation_id IS NULL, ledger INSERT OR IGNORE).
    */
   private migrateV5ToV6(): void {
     const now = new Date().toISOString();
@@ -737,6 +747,21 @@ export class SqliteBackend implements StorageBackend {
       this.db.exec(
         'CREATE INDEX IF NOT EXISTS idx_events_causation ON events(causation_id)',
       );
+
+      // Backfill from payload JSON. WHERE correlation_id IS NULL keeps
+      // this idempotent — a re-run only touches still-NULL rows, so the
+      // post-#1428 writer path (Wave 3) and previous migration passes
+      // are preserved. Payloads that lack the fields produce JSON-NULL
+      // from json_extract, which is converted to SQL NULL — same shape
+      // the writer path produces for unstamped events, so the column
+      // stays the right kind of empty.
+      this.db.exec(`
+        UPDATE events
+           SET operation_id   = json_extract(payload, '$.operationId'),
+               correlation_id = json_extract(payload, '$.correlationId'),
+               causation_id   = json_extract(payload, '$.causationId')
+         WHERE correlation_id IS NULL
+      `);
 
       this.db
         .prepare('INSERT OR IGNORE INTO schema_version (version, appliedAt) VALUES (?, ?)')
