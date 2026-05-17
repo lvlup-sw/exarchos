@@ -794,6 +794,72 @@ describe('EventSourcedTaskStore (#1272)', () => {
     expect(after?.statusMessage).toBeUndefined();
   });
 
+  it('projectTaskIncremental_DropsStaleStatusMessage_OnExternalTerminalEvent', async () => {
+    // CodeRabbit r3253923003: the bug specific to the incremental
+    // fold path. Setup the exact divergence the comment names:
+    //
+    //   1. Process A stamps a projection-only `statusMessage` via
+    //      `updateTaskStatus(id, 'input_required', 'Need confirm')`.
+    //      No durable event is emitted — A's cache holds the prompt;
+    //      the durable stream does not.
+    //   2. Process B writes the terminal `task.result` event (no
+    //      `statusMessage` field on the event).
+    //   3. Process A's next read enters `loadTask` → `refoldDelta` →
+    //      `projectTaskIncremental(cached, [task.result])`.
+    //
+    // Pre-fix, the incremental fold spread `...cached.task` into the
+    // terminal-state shape, preserving A's stale projection-only
+    // `statusMessage`. A fresh-process replayer (`projectTask` on the
+    // same stream) projects the terminal task with NO `statusMessage`
+    // — the two folds diverge on exactly the value of `statusMessage`.
+    // INV-1 cross-process consistency violated.
+    //
+    // Post-fix: both folds project `statusMessage: undefined`.
+    const storeA = new EventSourcedTaskStore(eventStore);
+    const storeB = new EventSourcedTaskStore(eventStore);
+    const task = await storeA.createTask(
+      { ttl: 60_000 },
+      'req-incremental-clear',
+      sampleRequest,
+    );
+
+    // (1) A stamps a projection-only `statusMessage`. After this,
+    // A's cache reflects status=input_required + statusMessage; the
+    // durable stream still contains only `task.created`.
+    await storeA.updateTaskStatus(
+      task.taskId,
+      'input_required',
+      'Need confirmation',
+    );
+    expect((await storeA.getTask(task.taskId))?.statusMessage).toBe(
+      'Need confirmation',
+    );
+
+    // (2) B drives the terminal transition through its own public API
+    // (cache miss → fullRefold → OCC append) so a real `task.result`
+    // event lands on the durable stream. Note that B's projection
+    // never sees A's projection-only `input_required` mutation —
+    // realistic multi-process shape.
+    await storeB.storeTaskResult(task.taskId, 'completed', {
+      content: [{ type: 'text', text: 'done' }],
+    });
+
+    // (3) A's next read MUST take the incremental-fold path: the
+    // cache is warm at the pre-terminal sequence, and the new
+    // terminal event is the only delta. The `getTask` reaper-and-poll
+    // dance plus the throttled `task.polled` emit do NOT mutate
+    // `statusMessage`, so any leak is attributable to the fold itself.
+    const aView = await storeA.getTask(task.taskId);
+    expect(aView?.status).toBe('completed');
+    expect(aView?.statusMessage).toBeUndefined();
+
+    // A fresh replayer projecting from events alone agrees.
+    const replayer = new EventSourcedTaskStore(eventStore);
+    const replayerView = await replayer.getTask(task.taskId);
+    expect(replayerView?.status).toBe('completed');
+    expect(replayerView?.statusMessage).toBeUndefined();
+  });
+
   // ─── FINDING-1 (#1438, PR 3) — OCC threading via expectedSequence ─────────
   //
   // The fix invariant: two concurrent writers on the same task stream MUST

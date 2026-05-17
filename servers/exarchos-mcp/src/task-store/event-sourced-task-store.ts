@@ -828,8 +828,21 @@ function projectTask(
           status === 'failed' ||
           status === 'cancelled'
         ) {
+          // Defensive statusMessage clear — kept in lockstep with
+          // `projectTaskIncremental`. In a well-formed stream a
+          // `task.cancelled` would never precede a `task.result`
+          // (writer-side OCC enforces single-terminal-event), so the
+          // local `task` shouldn't carry statusMessage here; the
+          // explicit clear keeps the fold robust against
+          // hand-appended or out-of-order streams and prevents the
+          // two folds from drifting structurally.
+          const {
+            statusMessage: _staleStatusMessage,
+            ...taskWithoutStatusMessage
+          } = task;
+          void _staleStatusMessage;
           task = {
-            ...task,
+            ...taskWithoutStatusMessage,
             status,
             lastUpdatedAt: event.timestamp,
           };
@@ -850,8 +863,15 @@ function projectTask(
       }
       case 'task.cancelled': {
         const data = (event.data ?? {}) as Record<string, unknown>;
+        // Same hygiene as the incremental fold: clear before
+        // optionally re-setting from `reason`.
+        const {
+          statusMessage: _staleStatusMessage,
+          ...taskWithoutStatusMessage
+        } = task;
+        void _staleStatusMessage;
         task = {
-          ...task,
+          ...taskWithoutStatusMessage,
           status: 'cancelled',
           lastUpdatedAt: event.timestamp,
           ...(typeof data['reason'] === 'string'
@@ -918,8 +938,23 @@ function projectTaskIncremental(
           status === 'failed' ||
           status === 'cancelled'
         ) {
+          // CodeRabbit r3253923003 (#1444): drop any stale
+          // projection-only `statusMessage` carried on `cached.task`
+          // (e.g. an `input_required` prompt set on this process via
+          // `updateTaskStatus`, which never emits a durable event).
+          // The `task.result` event has no statusMessage field, so a
+          // fresh-process replayer (`projectTask` on the same stream)
+          // produces a terminal task with NO `statusMessage` — without
+          // this explicit clear, the incremental fold path would
+          // diverge from the full-refold path on exactly this case,
+          // violating INV-1 cross-process consistency.
+          const {
+            statusMessage: _staleStatusMessage,
+            ...taskWithoutStatusMessage
+          } = task;
+          void _staleStatusMessage;
           task = {
-            ...task,
+            ...taskWithoutStatusMessage,
             status,
             lastUpdatedAt: event.timestamp,
           };
@@ -936,8 +971,17 @@ function projectTaskIncremental(
       }
       case 'task.cancelled': {
         const data = (event.data ?? {}) as Record<string, unknown>;
+        // Same statusMessage-hygiene as `task.result`: clear any stale
+        // value before optionally setting from the event's `reason`.
+        // Cancellation may carry a fresh diagnostic; absent that, the
+        // prior projection-only prompt MUST not leak through.
+        const {
+          statusMessage: _staleStatusMessage,
+          ...taskWithoutStatusMessage
+        } = task;
+        void _staleStatusMessage;
         task = {
-          ...task,
+          ...taskWithoutStatusMessage,
           status: 'cancelled',
           lastUpdatedAt: event.timestamp,
           ...(typeof data['reason'] === 'string'
