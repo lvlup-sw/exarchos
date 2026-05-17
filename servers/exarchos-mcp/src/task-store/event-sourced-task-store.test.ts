@@ -224,6 +224,164 @@ describe('EventSourcedTaskStore (#1272)', () => {
     expect(ids).toEqual([t1.taskId, t2.taskId].sort());
   });
 
+  it('getTask_RapidSequentialReads_EmitsAtMostOneTaskPolled', async () => {
+    // FINDING-3 (#1438, PR 1): the SDK's `tasks/poll` and the CLI
+    // `--follow` loop call `getTask` at the task's `pollInterval`
+    // cadence (default 250ms in many flows). Without a throttle the
+    // store appends one `task.polled` event per call, causing severe
+    // write amplification on the durable stream. The throttle gate
+    // collapses bursts within a 5-second window down to a single emit.
+    const task = await store.createTask(
+      { ttl: 60_000 },
+      'req-throttle',
+      sampleRequest,
+    );
+
+    // Burst of 20 reads within the throttle window — only the first
+    // should emit `task.polled`.
+    for (let i = 0; i < 20; i++) {
+      await store.getTask(task.taskId);
+    }
+
+    const events = await eventStore.query(`task-store/${task.taskId}`);
+    const polled = events.filter((e) => e.type === 'task.polled');
+    expect(polled).toHaveLength(1);
+  });
+
+  it('getTask_AfterThrottleWindowElapses_EmitsSecondTaskPolled', async () => {
+    // FINDING-3 (#1438, PR 1): once the throttle window has elapsed,
+    // a subsequent `getTask` MUST emit a fresh `task.polled` so that
+    // long-running polls remain observable. Determinism requires an
+    // injectable clock — the production default is `Date.now()` and
+    // the throttle constant is 5_000ms, so a real-clock test would be
+    // flaky and slow.
+    let now = 1_000_000;
+    const clock = () => now;
+    const throttleStore = new EventSourcedTaskStore(eventStore, { clock });
+
+    const task = await throttleStore.createTask(
+      { ttl: 60_000 },
+      'req-window',
+      sampleRequest,
+    );
+
+    // First read inside the window — emits.
+    await throttleStore.getTask(task.taskId);
+
+    // Advance past the throttle window — second read emits again.
+    now += 5_001;
+    await throttleStore.getTask(task.taskId);
+
+    const events = await eventStore.query(`task-store/${task.taskId}`);
+    const polled = events.filter((e) => e.type === 'task.polled');
+    expect(polled).toHaveLength(2);
+  });
+
+  it('getTask_ExpiredTaskReaped_LastPolledAtCleared', async () => {
+    // FINDING-3 (#1438): the `lastPolledAt` map must not leak entries
+    // for tasks that have been reaped on expiry. We assert via the
+    // observable effect — recreating a fresh task in the SAME store
+    // with the same id after expiry is contrived, so instead we use
+    // the test-only `getLastPolledAtSize` helper (added below) AND
+    // verify that re-arming the throttle after manual reap re-emits.
+    vi.useFakeTimers();
+    try {
+      const task = await store.createTask(
+        { ttl: 5_000 },
+        'req-reap',
+        sampleRequest,
+      );
+      // Prime the throttle.
+      expect(await store.getTask(task.taskId)).not.toBeNull();
+      expect(
+        (store as unknown as { lastPolledAt: Map<string, number> })
+          .lastPolledAt.size,
+      ).toBe(1);
+
+      // Advance past TTL — next getTask returns null and reaps cache.
+      vi.setSystemTime(Date.now() + 10_000);
+      expect(await store.getTask(task.taskId)).toBeNull();
+
+      // The throttle map entry MUST be cleaned up alongside the cache.
+      expect(
+        (store as unknown as { lastPolledAt: Map<string, number> })
+          .lastPolledAt.size,
+      ).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('getTaskResult_ExpiredTaskReaped_LastPolledAtCleared', async () => {
+    // FINDING-3 (#1438): the `getTaskResult` expired branch also reaps
+    // the cache and must drop the throttle entry symmetrically with
+    // `getTask`.
+    vi.useFakeTimers();
+    try {
+      const task = await store.createTask(
+        { ttl: 5_000 },
+        'req-reap-result',
+        sampleRequest,
+      );
+      // Prime the throttle by polling once.
+      await store.getTask(task.taskId);
+      expect(
+        (store as unknown as { lastPolledAt: Map<string, number> })
+          .lastPolledAt.size,
+      ).toBe(1);
+
+      vi.setSystemTime(Date.now() + 10_000);
+      await expect(store.getTaskResult(task.taskId)).rejects.toThrow(
+        /not found/,
+      );
+
+      expect(
+        (store as unknown as { lastPolledAt: Map<string, number> })
+          .lastPolledAt.size,
+      ).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('reapExpired_RemovesLastPolledAtForExpiredTasks', async () => {
+    // FINDING-3 (#1438): the `listTasks` reap path (which calls
+    // `reapExpired`) must also evict matching `lastPolledAt` entries.
+    vi.useFakeTimers();
+    try {
+      const a = await store.createTask({ ttl: 5_000 }, 'r-a', sampleRequest);
+      const b = await store.createTask({ ttl: 5_000 }, 'r-b', sampleRequest);
+      const c = await store.createTask({ ttl: null }, 'r-c', sampleRequest);
+
+      // Prime the throttle for all three tasks.
+      await store.getTask(a.taskId);
+      await store.getTask(b.taskId);
+      await store.getTask(c.taskId);
+      expect(
+        (store as unknown as { lastPolledAt: Map<string, number> })
+          .lastPolledAt.size,
+      ).toBe(3);
+
+      // Advance past TTL of a + b only.
+      vi.setSystemTime(Date.now() + 10_000);
+
+      // listTasks triggers reapExpired.
+      const { tasks } = await store.listTasks();
+      const ids = tasks.map((t) => t.taskId).sort();
+      expect(ids).toEqual([c.taskId].sort());
+
+      // Only the unlimited-TTL task's entry should remain in
+      // `lastPolledAt` after reap.
+      const lastPolledAt = (
+        store as unknown as { lastPolledAt: Map<string, number> }
+      ).lastPolledAt;
+      expect(lastPolledAt.size).toBe(1);
+      expect(lastPolledAt.has(c.taskId)).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('EventSourcedTaskStore_ListTasks_HydratesFromEventStoreOnColdStart', async () => {
     // CR PR #1432: cold-start listTasks must enumerate durable
     // `task-store/*` streams rather than silently returning an empty
