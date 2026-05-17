@@ -2,6 +2,18 @@
 
 All notable changes to Exarchos are documented in this file. Organized by semver release.
 
+## [2.10.0-preview.3] - 2026-05-16
+
+### Added
+
+- Correlation tuple indexed columns + telemetry filters ([#1437](https://github.com/lvlup-sw/exarchos/issues/1437), [#1414](https://github.com/lvlup-sw/exarchos/issues/1414))
+  - Schema V5→V6: `operation_id`, `correlation_id`, `causation_id` columns on the `events` table with two indexes (`idx_events_correlation`, `idx_events_causation`).
+  - Chunked transactional backfill from the `payload` JSON via the `migrateV5ToV6` helper; emits `migration.correlation_backfill_progress` events per chunk.
+  - `EventStore.QueryFilters` accepts the three correlation fields; `SqliteBackend` honors them as indexed `WHERE` clauses; `InMemoryBackend` uses a post-fetch JS filter for parity.
+  - Six telemetry view actions (`telemetry`, `delegation_timeline`, `code_quality`, `quality_correlation`, `quality_attribution`, `eval_results`) accept the new filter args; `exarchos_view describe` surfaces them.
+  - `materializeFiltered` cache-bypass helper prevents cache contamination across filtered/unfiltered calls on the same view.
+  - Closes the [#1291](https://github.com/lvlup-sw/exarchos/issues/1291) acceptance criteria (storage layer + telemetry filters + three end-to-end integration tests) that PR [#1428](https://github.com/lvlup-sw/exarchos/pull/1428) deferred. Closes [#1414](https://github.com/lvlup-sw/exarchos/issues/1414) (regression coverage proves the inline fix from #1428's post-merge hardening).
+
 ## [2.10.0-preview.2] - 2026-05-11
 
 ### Marten primitives + post-DR-4 cleanup (#1312, #1340, #1313, #1284, #1304, #1314, #1341)
