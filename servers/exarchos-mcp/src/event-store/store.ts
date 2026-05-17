@@ -83,6 +83,12 @@ export interface QueryFilters {
    * Honoured at the SQL/backend layer (`SqliteBackend.queryEventsByType`).
    */
   streamPrefix?: string;
+  /** Filter to events stamped with this operationId (single dispatch boundary). */
+  operationId?: string;
+  /** Filter to events stamped with this correlationId (workflow/wave). */
+  correlationId?: string;
+  /** Filter to events stamped with this causationId (causal predecessor). */
+  causationId?: string;
 }
 
 // ─── Event Store Options ────────────────────────────────────────────────────
