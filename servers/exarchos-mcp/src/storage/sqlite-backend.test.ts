@@ -1234,3 +1234,98 @@ describe('SqliteBackend Projection Snapshot — Append + Size Cap (A2.3)', () =>
     expect(latestB!.sequence).toBe(100);
   });
 });
+
+// ─── Wave 4 (#1437) — Correlation-tuple filters on queryEvents ──────────────
+
+describe('SqliteBackend queryEvents correlation filters (Wave 4 / #1437)', () => {
+  let backend: SqliteBackend;
+
+  beforeEach(() => {
+    backend = new SqliteBackend(':memory:');
+    backend.initialize();
+  });
+
+  afterEach(() => {
+    backend.close();
+  });
+
+  function seedSplitByCorrelation(): void {
+    // Three events tagged 'cor-X', three tagged 'cor-Y'. operationId and
+    // causationId mirror the same split so the same fixture exercises all
+    // three filter fields without re-seeding.
+    for (let i = 1; i <= 3; i++) {
+      backend.appendEvent('test-stream', makeEvent({
+        streamId: 'test-stream',
+        sequence: i,
+        type: 'workflow.started',
+        operationId: 'op-X',
+        correlationId: 'cor-X',
+        causationId: 'cause-X',
+      }));
+    }
+    for (let i = 4; i <= 6; i++) {
+      backend.appendEvent('test-stream', makeEvent({
+        streamId: 'test-stream',
+        sequence: i,
+        type: 'workflow.started',
+        operationId: 'op-Y',
+        correlationId: 'cor-Y',
+        causationId: 'cause-Y',
+      }));
+    }
+  }
+
+  it('SqliteBackend_QueryEvents_FiltersByCorrelationId', () => {
+    seedSplitByCorrelation();
+
+    const results = backend.queryEvents('test-stream', { correlationId: 'cor-X' });
+
+    expect(results).toHaveLength(3);
+    // INV-1: assert the value via the rehydrated event payload, not by
+    // reading the indexed column. The column is the filter handle; the
+    // payload is the truth.
+    for (const event of results) {
+      expect(event.correlationId).toBe('cor-X');
+    }
+  });
+
+  it('SqliteBackend_QueryEvents_FiltersByOperationId', () => {
+    seedSplitByCorrelation();
+
+    const results = backend.queryEvents('test-stream', { operationId: 'op-X' });
+
+    expect(results).toHaveLength(3);
+    for (const event of results) {
+      expect(event.operationId).toBe('op-X');
+    }
+  });
+
+  it('SqliteBackend_QueryEvents_FiltersByCausationId', () => {
+    seedSplitByCorrelation();
+
+    const results = backend.queryEvents('test-stream', { causationId: 'cause-X' });
+
+    expect(results).toHaveLength(3);
+    for (const event of results) {
+      expect(event.causationId).toBe('cause-X');
+    }
+  });
+
+  it('SqliteBackend_QueryEvents_CombinesCorrelationWithExistingFilters', () => {
+    // Combination test pins that the new WHERE-clause appends compose with
+    // existing predicates (sinceSequence). Without this guarantee the
+    // single-field tests above would still pass even if the new clause
+    // accidentally short-circuited the existing ones.
+    seedSplitByCorrelation();
+
+    const results = backend.queryEvents('test-stream', {
+      correlationId: 'cor-X',
+      sinceSequence: 1,
+    });
+
+    expect(results).toHaveLength(2);
+    expect(results[0].sequence).toBe(2);
+    expect(results[1].sequence).toBe(3);
+    expect(results.every((e) => e.correlationId === 'cor-X')).toBe(true);
+  });
+});

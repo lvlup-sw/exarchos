@@ -1248,6 +1248,26 @@ export class SqliteBackend implements StorageBackend {
       params.push(filters.until);
     }
 
+    // #1437 (Wave 4) — indexed-WHERE fast path for the V6 correlation
+    // columns. The column is the filter handle (INV-1); the canonical
+    // value still travels with `payload` JSON and is rehydrated by
+    // `rowToEvent` on read. The dynamic SQL+cache pattern below uses the
+    // SQL string as the cache key, so adding/omitting these clauses
+    // produces distinct cache entries automatically — no manual cache
+    // bookkeeping required.
+    if (filters?.operationId !== undefined) {
+      conditions.push('operation_id = ?');
+      params.push(filters.operationId);
+    }
+    if (filters?.correlationId !== undefined) {
+      conditions.push('correlation_id = ?');
+      params.push(filters.correlationId);
+    }
+    if (filters?.causationId !== undefined) {
+      conditions.push('causation_id = ?');
+      params.push(filters.causationId);
+    }
+
     let sql = `SELECT streamId, sequence, type, timestamp, data, payload FROM events WHERE ${conditions.join(' AND ')} ORDER BY sequence`;
 
     if (filters?.limit !== undefined && filters?.offset !== undefined) {
