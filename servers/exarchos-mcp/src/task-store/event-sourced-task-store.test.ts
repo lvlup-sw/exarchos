@@ -455,10 +455,15 @@ describe('EventSourcedTaskStore (#1272)', () => {
     // the same events (duplicate work; defensive fullRefold may fire on
     // an empty delta).
     //
-    // The test drives the symptom directly: after a refold, the cache's
-    // `lastReadSequence` MUST equal the current `EventStore.tailSequence`
-    // for that stream, so a subsequent cache check is a true hit (no
-    // unnecessary query).
+    // CodeRabbit r3253913164 follow-up: the original shape of this test
+    // appended once BEFORE the read, so pre-read tail and applied-delta
+    // tail collapsed onto the same value — a buggy impl that stamped
+    // the pre-read tail would still pass. To genuinely exercise the
+    // race we spy on `eventStore.query` and inject an append the FIRST
+    // time the store under test queries this stream. That append lands
+    // AFTER `tailSequence()` was sampled inside `loadTask` but BEFORE
+    // the original `query()` returns — exactly the interleaving the
+    // CodeRabbit fix guards against.
     const storeA = new EventSourcedTaskStore(eventStore);
     const task = await storeA.createTask(
       { ttl: 60_000 },
@@ -467,24 +472,67 @@ describe('EventSourcedTaskStore (#1272)', () => {
     );
     await storeA.getTask(task.taskId); // warm cache
 
-    // External append (simulated sibling writer).
-    await eventStore.append(`task-store/${task.taskId}`, {
+    const stream = `task-store/${task.taskId}`;
+
+    // Pre-read external append — moves the tail past the cache so
+    // `loadTask` enters the `refoldDelta` branch (tail > cached
+    // lastReadSequence at the `tailSequence()` check).
+    await eventStore.append(stream, {
       type: 'task.cancelled',
       timestamp: new Date().toISOString(),
-      data: { taskId: task.taskId, reason: 'stamp-from-delta' },
+      data: { taskId: task.taskId, reason: 'pre-read-append' },
     });
 
-    // First read after external append triggers refoldDelta.
-    await storeA.getTask(task.taskId);
+    // Spy on `query`: the first time the store reads THIS stream,
+    // perform a concurrent append BEFORE delegating to the original
+    // query. The injected event lands between `tailSequence()` (already
+    // returned earlier in `loadTask`) and the body of `query()`, so the
+    // returned `delta` contains a sequence strictly greater than the
+    // pre-read tail. A buggy impl stamping `pre-read tail` would
+    // record an under-value; the correct impl (stamp from
+    // `delta[-1].sequence`) records the higher value.
+    const origQuery = eventStore.query.bind(eventStore);
+    let injected = false;
+    const querySpy = vi
+      .spyOn(eventStore, 'query')
+      .mockImplementation(async (streamId, filters) => {
+        if (!injected && streamId === stream) {
+          injected = true;
+          await eventStore.append(streamId, {
+            // `task.polled` is projection-no-op (no state transition);
+            // it advances the sequence without further perturbing the
+            // projected `task` and keeps the test focused on the
+            // sequence-stamping invariant.
+            type: 'task.polled',
+            timestamp: new Date().toISOString(),
+            data: { taskId: task.taskId },
+          });
+        }
+        return origQuery(streamId, filters);
+      });
 
-    const tail = await eventStore.tailSequence(`task-store/${task.taskId}`);
-    const cached = (
-      storeA as unknown as {
-        tasks: Map<string, { lastReadSequence: number }>;
-      }
-    ).tasks.get(task.taskId);
-    expect(cached).toBeDefined();
-    expect(cached!.lastReadSequence).toBe(tail);
+    try {
+      await storeA.getTask(task.taskId);
+
+      // The spy must have fired exactly once on the stream under test.
+      expect(injected).toBe(true);
+
+      const tail = await eventStore.tailSequence(stream);
+      const cached = (
+        storeA as unknown as {
+          tasks: Map<string, { lastReadSequence: number }>;
+        }
+      ).tasks.get(task.taskId);
+      expect(cached).toBeDefined();
+      // The cache MUST reflect the highest sequence actually folded —
+      // i.e., the injected event's sequence, which is past the pre-read
+      // tail. Equality with the post-read `tailSequence()` proves the
+      // invariant: a subsequent `loadTask` for the same task will be a
+      // true cache hit, not a redundant re-query.
+      expect(cached!.lastReadSequence).toBe(tail);
+    } finally {
+      querySpy.mockRestore();
+    }
   });
 
   it('projectTaskIncremental_FromCachedToTail_MatchesFullRefold', async () => {
