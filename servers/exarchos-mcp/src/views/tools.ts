@@ -635,11 +635,7 @@ export async function handleViewDelegationTimeline(
     const materializer = getOrCreateMaterializer(stateDir);
     const streamId = args.workflowId ?? 'default';
 
-    const correlationFilters: ViewQueryFilters = {
-      ...(args.operationId !== undefined ? { operationId: args.operationId } : {}),
-      ...(args.correlationId !== undefined ? { correlationId: args.correlationId } : {}),
-      ...(args.causationId !== undefined ? { causationId: args.causationId } : {}),
-    };
+    const correlationFilters = deriveCorrelationFilters(args);
     const filtered = hasCorrelationFilters(correlationFilters);
     const events = await queryDeltaEvents(store, materializer, streamId, DELEGATION_TIMELINE_VIEW, correlationFilters);
     // Wave 5 (#1437) — under a correlation filter, fold a fresh projection
@@ -687,11 +683,7 @@ export async function handleViewCodeQuality(
     const materializer = getOrCreateMaterializer(stateDir);
     const streamId = args.workflowId ?? 'default';
 
-    const correlationFilters: ViewQueryFilters = {
-      ...(args.operationId !== undefined ? { operationId: args.operationId } : {}),
-      ...(args.correlationId !== undefined ? { correlationId: args.correlationId } : {}),
-      ...(args.causationId !== undefined ? { causationId: args.causationId } : {}),
-    };
+    const correlationFilters = deriveCorrelationFilters(args);
     const correlationFiltered = hasCorrelationFilters(correlationFilters);
     const events = await queryDeltaEvents(store, materializer, streamId, CODE_QUALITY_VIEW, correlationFilters);
     // Wave 5 (#1437) — under a correlation filter, fold a fresh projection
@@ -788,11 +780,7 @@ export async function handleViewEvalResults(
     const materializer = getOrCreateMaterializer(stateDir);
     const streamId = args.workflowId ?? 'default';
 
-    const correlationFilters: ViewQueryFilters = {
-      ...(args.operationId !== undefined ? { operationId: args.operationId } : {}),
-      ...(args.correlationId !== undefined ? { correlationId: args.correlationId } : {}),
-      ...(args.causationId !== undefined ? { causationId: args.causationId } : {}),
-    };
+    const correlationFilters = deriveCorrelationFilters(args);
     const correlationFiltered = hasCorrelationFilters(correlationFilters);
     const events = await queryDeltaEvents(store, materializer, streamId, EVAL_RESULTS_VIEW, correlationFilters);
     // Wave 5 (#1437) — under a correlation filter, fold a fresh projection
@@ -893,11 +881,7 @@ export async function handleViewQualityCorrelation(
     const materializer = getOrCreateMaterializer(stateDir);
     const streamId = args.workflowId ?? 'default';
 
-    const correlationFilters: ViewQueryFilters = {
-      ...(args.operationId !== undefined ? { operationId: args.operationId } : {}),
-      ...(args.correlationId !== undefined ? { correlationId: args.correlationId } : {}),
-      ...(args.causationId !== undefined ? { causationId: args.causationId } : {}),
-    };
+    const correlationFilters = deriveCorrelationFilters(args);
     const correlationFiltered = hasCorrelationFilters(correlationFilters);
 
     const cqEvents = await queryDeltaEvents(store, materializer, streamId, CODE_QUALITY_VIEW, correlationFilters);
@@ -965,11 +949,7 @@ export async function handleViewQualityAttribution(
     const materializer = getOrCreateMaterializer(stateDir);
     const streamId = args.workflowId ?? 'default';
 
-    const correlationFilters: ViewQueryFilters = {
-      ...(args.operationId !== undefined ? { operationId: args.operationId } : {}),
-      ...(args.correlationId !== undefined ? { correlationId: args.correlationId } : {}),
-      ...(args.causationId !== undefined ? { causationId: args.causationId } : {}),
-    };
+    const correlationFilters = deriveCorrelationFilters(args);
     const correlationFiltered = hasCorrelationFilters(correlationFilters);
 
     const cqEvents = await queryDeltaEvents(store, materializer, streamId, CODE_QUALITY_VIEW, correlationFilters);
