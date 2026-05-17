@@ -451,7 +451,10 @@ describe('EventTypes', () => {
     // `src/task-store/event-sourced-task-store.ts`).
     // #1261: bumped 113 → 115 to include `dispatch.preflight` +
     // `stash.detected`, emitted by `orchestrate/dispatch-guard.ts`.
-    expect(EventTypes).toHaveLength(115);
+    // #1437: bumped 115 → 116 to include `migration.correlation_backfill_progress`,
+    // emitted per-chunk by `sqlite-backend.ts:migrateV5ToV6` during the
+    // V5→V6 correlation-column backfill (Wave 2 of correlation-indexed-columns).
+    expect(EventTypes).toHaveLength(116);
   });
 
   it('should include workflow-level types', () => {
