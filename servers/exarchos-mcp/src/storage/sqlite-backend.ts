@@ -917,10 +917,14 @@ export class SqliteBackend implements StorageBackend {
                causation_id   = CASE WHEN json_valid(payload) THEN json_extract(payload, '$.causationId')   ELSE NULL END
          WHERE rowid IN (${placeholders})
       `;
-      const result = this.db.prepare(updateSql).run(...rowids) as {
-        changes: number;
-      };
-      const rowsBackfilled = result.changes;
+      this.db.prepare(updateSql).run(...rowids);
+      // Use the chunk size (number of rowids targeted) rather than
+      // `result.changes`. SQLite's `changes()` does not count rows where
+      // a column update is NULL→NULL, so legacy events without correlation
+      // fields would be excluded from the metric. Reporting the targeted
+      // chunk size matches the operator's mental model: "rows processed in
+      // this iteration", not "rows whose values actually mutated".
+      const rowsBackfilled = rowids.length;
 
       // Advance the cursor past this chunk regardless of whether every
       // row picked up correlation data — rows whose payload lacked the

@@ -722,7 +722,19 @@ export async function handleViewCodeQuality(
         if (newRegressions.length > 0) {
           try {
             await emitRegressionEvents(newRegressions, streamId, store);
-          } catch { /* fire-and-forget: emission failure must not break the view query */ }
+          } catch (err) {
+            // Fire-and-forget: emission failure must not break the view
+            // query, but swallowing silently hides write-path failures.
+            // Log so the failure is observable in operator logs.
+            logger.warn(
+              {
+                streamId,
+                regressions: newRegressions.length,
+                err: err instanceof Error ? err.message : String(err),
+              },
+              'handleViewCodeQuality: failed to emit quality.regression events',
+            );
+          }
         }
       }
     }

@@ -1665,15 +1665,20 @@ export const MigrationWorkflowTypeUnknownData = z.object({
  * (chunkDuration = elapsed since previous event; remainingChunks =
  * ceil(totalRowsRemaining / chunkSize)).
  *
- * Emission stops naturally when an UPDATE chunk affects zero rows —
- * the loop terminates and no final "completed" event is emitted (the
- * absence of further progress events is the completion signal). This
- * keeps the contract minimal; downstream aggregators that need a
+ * `rowsBackfilled` reflects the number of rows targeted by the chunk's
+ * UPDATE, not SQLite's `changes()` count — the latter would exclude
+ * legacy rows whose correlation columns are written from NULL to NULL
+ * and understate per-chunk progress for those payloads.
+ *
+ * Emission stops naturally when the chunk-selection query returns zero
+ * rows — the loop terminates and no final "completed" event is emitted
+ * (the absence of further progress events is the completion signal).
+ * This keeps the contract minimal; downstream aggregators that need a
  * terminal "done" marker can derive it from the ledger stamp at
  * `schema_version.version = 6` instead.
  */
 export const MigrationCorrelationBackfillProgressData = z.object({
-  rowsBackfilled: z.number().int().nonnegative().describe('Rows updated by this chunk'),
+  rowsBackfilled: z.number().int().nonnegative().describe('Rows targeted by this chunk (chunk size, not SQLite changes())'),
   totalRowsRemaining: z
     .number()
     .int()
