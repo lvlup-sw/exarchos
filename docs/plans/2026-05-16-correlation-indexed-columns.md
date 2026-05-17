@@ -193,8 +193,9 @@ Sequential: prepared statements first, then atomic-appender bindings.
 2. **[GREEN]** Implement:
    - **File:** `servers/exarchos-mcp/src/storage/sqlite-backend.ts`
    - Update `insertEvent` prepared statement (line 809-811): add `, operation_id, correlation_id, causation_id` to the column list and `, ?, ?, ?` to the VALUES list (9 binds total). Same for `insertEventStrict` (line 883-885).
-   - Update the `INSERT INTO events (...)` literal inside `emitWorkflowTypeUnknownEvents` (lines 758-760) and inside the `migrateV5ToV6` migration-progress emit path (Task 6) to bind 9 columns; migration events get explicit `NULL, NULL, NULL` for the three correlation columns (migration emissions aren't dispatch-context-stamped).
-   - Update `appendEvent` body (line 891+ area) to pass the three IDs from `event` into the bind.
+   - **Deliberately keep** the `INSERT INTO events (...)` literal inside `emitWorkflowTypeUnknownEvents` at the legacy 6-column shape: that helper is invoked from the V3 → V4 migration step (`emitWorkflowTypeUnknownEvents` runs **before** `migrateV5ToV6` adds the three correlation columns), so a 9-column INSERT against a still-V5 table would fail with `no such column: operation_id`. The shipped contract is "9-column for the V6+ writer path and the V6 backfill progress emit; 6-column for pre-V6 legacy emit paths." Inline-document the rationale at the emit-site (see `sqlite-backend.ts:1115`).
+   - Inside `migrateV5ToV6`'s per-chunk progress emit (Task 6), bind 9 columns with the three correlation columns as explicit `NULL` (migration emissions aren't dispatch-context-stamped). The schema has the columns by the time this code runs because the same outer transaction's earlier `ALTER TABLE` step added them.
+   - Update `appendEvent` body (line 891+ area) to pass the three IDs from `event` into the bind — the V6+ writer path always sees a V6 schema (writer paths only execute after `migrateSchema` returns).
 
 3. **[REFACTOR]** None needed.
 
@@ -470,7 +471,7 @@ Total serial-equivalent task count: 13 (with parallelization), 19 (without).
 
 | Risk | Mitigation |
 |---|---|
-| Backfill UPDATE on a large existing DB exceeds the transaction lock window | Wave 2's chunked backfill (Task 6) caps each transaction at 1,000 rows |
+| Backfill on a large existing DB exceeds the transaction lock window | `migrateV5ToV6` uses one outer `db.transaction(...)` wrapping all DDL + every chunk UPDATE + the ledger insert (single-transaction model), so chunking caps each *iteration's* working set at 1,000 rows but does **not** shorten the lock window — locks are held for the full migration duration. Acceptable here because migration runs inside lifecycle startup before any writer is admitted (next risk row); the chunking value is observability (progress events) and bounded per-iteration memory, not lock-window reduction |
 | Index creation on a busy events table contends with concurrent writers | Migration runs inside the lifecycle startup before any writer is admitted; the existing two-tier BUSY retry policy covers transient SQLITE_BUSY |
 | InMemoryBackend post-fetch filter diverges from SqliteBackend indexed result | Task 12's contract parity test catches drift |
 | #1414 regression test reveals an inline-fix gap | Plan explicitly carves out a `Task 1.5` slot; the verification-first framing means scope adjusts before Wave 2 starts |
