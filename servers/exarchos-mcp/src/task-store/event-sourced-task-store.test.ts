@@ -27,6 +27,7 @@ import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 
 import { EventStore } from '../event-store/store.js';
+import { taskStoreLogger } from '../logger.js';
 import { EventSourcedTaskStore } from './event-sourced-task-store.js';
 
 describe('EventSourcedTaskStore (#1272)', () => {
@@ -588,6 +589,56 @@ describe('EventSourcedTaskStore (#1272)', () => {
     });
   });
 
+  it('terminalTransition_ExpiresAtConsistent_AcrossWriterAndReplayer', async () => {
+    // CodeRabbit follow-up on #1444: pre-fix, the writer's `mutate`
+    // closure bumped `expiresAt` to `Date.now() + ttl` on a terminal
+    // transition, but `projectTask` / `projectTaskIncremental` left
+    // `expiresAt` at the original `createdAt + ttl`. A replaying
+    // sibling process would therefore consider a task expired while
+    // the writer's local cache still considered it live (or vice
+    // versa) — the exact divergence INV-1 forbids.
+    //
+    // Setup: TTL = 1000ms. Create task at T0, advance the clock 500ms
+    // BEFORE writing the terminal event so `event.timestamp + ttl`
+    // strictly exceeds `createdAt + ttl`. Then advance the clock to a
+    // wall-clock moment that is past the pre-fix expiry but inside the
+    // post-fix expiry — both writer (storeA) and a fresh replayer
+    // (storeB) MUST observe the task as live.
+    vi.useFakeTimers();
+    try {
+      const T0 = 1_700_000_000_000;
+      vi.setSystemTime(T0);
+
+      const storeA = new EventSourcedTaskStore(eventStore);
+      const task = await storeA.createTask(
+        { ttl: 1_000 },
+        'req-expires-at',
+        sampleRequest,
+      );
+
+      vi.setSystemTime(T0 + 500);
+      await storeA.storeTaskResult(task.taskId, 'completed', {
+        content: [{ type: 'text', text: 'done' }],
+      });
+
+      // At T0 + 1_200: past pre-fix expiry (T0 + 1_000), inside
+      // post-fix expiry (T0 + 500 + 1_000 = T0 + 1_500).
+      vi.setSystemTime(T0 + 1_200);
+
+      const storeB = new EventSourcedTaskStore(eventStore);
+      expect(await storeA.getTask(task.taskId)).not.toBeNull();
+      expect(await storeB.getTask(task.taskId)).not.toBeNull();
+
+      // Both observers MUST agree the task is expired past the
+      // post-fix expiry (T0 + 1_500).
+      vi.setSystemTime(T0 + 1_600);
+      expect(await storeA.getTask(task.taskId)).toBeNull();
+      expect(await storeB.getTask(task.taskId)).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   // ─── FINDING-1 (#1438, PR 3) — OCC threading via expectedSequence ─────────
   //
   // The fix invariant: two concurrent writers on the same task stream MUST
@@ -774,7 +825,7 @@ describe('EventSourcedTaskStore (#1272)', () => {
     // output clean — the warning IS the observability surface we want,
     // but for this test we only care that the throw shape is correct.
     const warnSpy = vi
-      .spyOn(console, 'warn')
+      .spyOn(taskStoreLogger, 'warn')
       .mockImplementation(() => undefined);
     // Track attempt count to confirm the budget walk.
     let attempts = 0;
@@ -820,7 +871,7 @@ describe('EventSourcedTaskStore (#1272)', () => {
     const { wrapError } = await import('../format.js');
 
     const warnSpy = vi
-      .spyOn(console, 'warn')
+      .spyOn(taskStoreLogger, 'warn')
       .mockImplementation(() => undefined);
     const appendSpy = vi
       .spyOn(eventStore, 'append')

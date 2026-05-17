@@ -76,6 +76,7 @@ import { isTerminal } from '@modelcontextprotocol/sdk/experimental/tasks/interfa
 import { EventStore, SequenceConflictError } from '../event-store/store.js';
 import type { WorkflowEvent } from '../event-store/schemas.js';
 import { ConcurrencyError } from '../event-store/concurrency-error.js';
+import { taskStoreLogger } from '../logger.js';
 
 /**
  * Per-task projected lifecycle state. The shape carries everything
@@ -232,7 +233,11 @@ export class EventSourcedTaskStore implements TaskStore {
       task,
       request,
       requestId,
-      expiresAt: ttl !== null ? Date.now() + ttl : undefined,
+      // Bind `expiresAt` to the event timestamp (not `Date.now()`) so the
+      // writer's in-memory cache matches what a replaying reader process
+      // computes via `projectTask` / `projectTaskIncremental`. Otherwise
+      // two processes folding the same stream could disagree on expiry.
+      expiresAt: ttl !== null ? Date.parse(createdAt) + ttl : undefined,
       // FINDING-2 (#1438): the `task.created` event we just appended is
       // the only event on a fresh stream, so the cached projection's
       // last-read tail is sequence 1. Subsequent appends (`task.polled`,
@@ -330,8 +335,11 @@ export class EventSourcedTaskStore implements TaskStore {
             lastUpdatedAt: now,
           };
           // TTL resets from terminal transition (matches SDK semantics).
+          // Use the event's ISO timestamp — not `Date.now()` — so the
+          // writer's cache stays in lockstep with the projection a
+          // sibling process computes when it replays the same event.
           if (s.task.ttl !== null) {
-            s.expiresAt = Date.now() + s.task.ttl;
+            s.expiresAt = Date.parse(now) + s.task.ttl;
           }
         },
       };
@@ -381,8 +389,10 @@ export class EventSourcedTaskStore implements TaskStore {
           lastUpdatedAt: now,
           ...(statusMessage !== undefined ? { statusMessage } : {}),
         };
+        // See `storeTaskResult` for why this binds to the event ISO
+        // timestamp rather than `Date.now()`.
         if (isTerminal(status) && s.task.ttl !== null) {
-          s.expiresAt = Date.now() + s.task.ttl;
+          s.expiresAt = Date.parse(now) + s.task.ttl;
         }
       };
       // The `cancelled` transition gets its own durable event so audit
@@ -552,8 +562,9 @@ export class EventSourcedTaskStore implements TaskStore {
     // visibility (DIM-2) before throwing because budget exhaustion is a
     // notable event — it implies sustained write contention on this
     // specific task stream.
-    console.warn(
-      `[task-store] OCC retry budget exhausted: taskId=${taskId} op=${opName} attempts=${maxRetries + 1}`,
+    taskStoreLogger.warn(
+      { taskId, op: opName, attempts: maxRetries + 1 },
+      'OCC retry budget exhausted',
     );
     throw new ConcurrencyError({
       streamId: taskStream(taskId),
@@ -751,7 +762,7 @@ function projectTask(
       : 1000;
 
   const createdAt = created.timestamp;
-  const expiresAt = ttl !== null ? Date.parse(createdAt) + ttl : undefined;
+  let expiresAt = ttl !== null ? Date.parse(createdAt) + ttl : undefined;
 
   let task: Task = {
     taskId,
@@ -782,6 +793,15 @@ function projectTask(
           if (data['result'] !== undefined) {
             result = data['result'] as Result;
           }
+          // Mirror the writer's mutate closure (`storeTaskResult` /
+          // `updateTaskStatus`): a terminal transition resets TTL from
+          // the event's wall-clock timestamp. Without this bump, a
+          // sibling process replaying the stream would see the original
+          // created-time expiry while the writer's local cache has the
+          // post-terminal value — they would then disagree on `isExpired`.
+          if (ttl !== null) {
+            expiresAt = Date.parse(event.timestamp) + ttl;
+          }
         }
         break;
       }
@@ -795,6 +815,9 @@ function projectTask(
             ? { statusMessage: data['reason'] }
             : {}),
         };
+        if (ttl !== null) {
+          expiresAt = Date.parse(event.timestamp) + ttl;
+        }
         break;
       }
       default:
@@ -860,6 +883,11 @@ function projectTaskIncremental(
           if (data['result'] !== undefined) {
             result = data['result'] as Result;
           }
+          // Terminal-transition TTL bump — see `projectTask` for the
+          // why. The two folds must stay observationally equivalent.
+          if (task.ttl !== null) {
+            expiresAt = Date.parse(event.timestamp) + task.ttl;
+          }
         }
         break;
       }
@@ -873,6 +901,9 @@ function projectTaskIncremental(
             ? { statusMessage: data['reason'] }
             : {}),
         };
+        if (task.ttl !== null) {
+          expiresAt = Date.parse(event.timestamp) + task.ttl;
+        }
         break;
       }
       default:
