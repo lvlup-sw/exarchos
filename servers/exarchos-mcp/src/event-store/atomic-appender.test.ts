@@ -289,4 +289,55 @@ describe('AtomicAppender correlation column persistence (#1437 Wave 3)', () => {
     }
   });
 
+  // Task 8 parity test (#1437). Both single and batch appends flow
+  // through `AtomicAppender.appendEvents` -> `SqliteBackend.atomicAppend`
+  // -> `insertEventStrict`, so the Task 7 wire-shape change
+  // (`AtomicAppendEvent` carries the three correlation fields) covered
+  // batch-append by construction. This test pins the shared contract so
+  // a future refactor that splits the batch and single paths can't
+  // regress one without the other.
+  it('AtomicAppender_BatchAppendUnderDispatchContext_PopulatesAllCorrelationColumns', async () => {
+    const store = new EventStore(stateDir);
+    await store.initialize();
+
+    const streamId = 's-batch';
+    const persisted = await runWithDispatchContext(
+      { operationId: 'op-B', correlationId: 'cor-B', causationId: 'cause-B' },
+      () =>
+        store.batchAppend(streamId, [
+          { type: 'task.assigned', data: {} },
+          { type: 'task.claimed', data: {} },
+          { type: 'task.progressed', data: {} },
+        ]),
+    );
+    expect(persisted).toHaveLength(3);
+    expect(persisted.map((e) => e.sequence)).toEqual([1, 2, 3]);
+
+    const dbPath = path.join(stateDir, 'exarchos.db');
+    const sideBackend = new SqliteBackend(dbPath);
+    sideBackend.initialize();
+    try {
+      const db = (sideBackend as unknown as {
+        db: import('bun:sqlite').Database;
+      }).db;
+      const rows = db
+        .prepare(
+          'SELECT sequence, operation_id, correlation_id, causation_id FROM events WHERE streamId = ? ORDER BY sequence',
+        )
+        .all(streamId) as Array<{
+          sequence: number;
+          operation_id: string | null;
+          correlation_id: string | null;
+          causation_id: string | null;
+        }>;
+      expect(rows).toHaveLength(3);
+      for (const row of rows) {
+        expect(row.operation_id).toBe('op-B');
+        expect(row.correlation_id).toBe('cor-B');
+        expect(row.causation_id).toBe('cause-B');
+      }
+    } finally {
+      sideBackend.close();
+    }
+  });
 });
