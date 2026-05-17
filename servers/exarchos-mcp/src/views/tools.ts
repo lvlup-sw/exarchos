@@ -227,6 +227,11 @@ export function materializeFiltered<T>(
   if (!projection) {
     throw new Error(`No projection registered for view: ${viewName}`);
   }
+  // #1448 item 5: record the bypass on every successful call so the
+  // correlation-filtered traffic is visible alongside the LRU hit/miss stats.
+  // Without this, a healthy hitRate can mask thousands of cache-skipping calls
+  // (PR #1447 DIM-2 audit).
+  materializer.recordBypass();
   let view = projection.init();
   for (const event of events) {
     view = projection.apply(view, event);
