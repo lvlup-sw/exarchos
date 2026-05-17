@@ -7,6 +7,7 @@ import {
   getOrCreateMaterializer,
   materializeFiltered,
   hasCorrelationFilters,
+  deriveCorrelationFilters,
 } from '../views/tools.js';
 import {
   TELEMETRY_VIEW,
@@ -107,11 +108,7 @@ export async function handleViewTelemetry(
     // Filtered queries bypass the materializer cache (see ViewQueryFilters
     // doc in views/tools.ts) so an unfiltered call before or after is not
     // contaminated by the filtered fold.
-    const correlationFilters = {
-      ...(validated.operationId !== undefined ? { operationId: validated.operationId } : {}),
-      ...(validated.correlationId !== undefined ? { correlationId: validated.correlationId } : {}),
-      ...(validated.causationId !== undefined ? { causationId: validated.causationId } : {}),
-    };
+    const correlationFilters = deriveCorrelationFilters(validated);
     const filtered = hasCorrelationFilters(correlationFilters);
     let view: TelemetryViewState;
     if (filtered) {
