@@ -158,6 +158,12 @@ export class InMemoryBackend implements StorageBackend {
         if (filters?.sinceSequence !== undefined && event.sequence <= filters.sinceSequence) continue;
         if (filters?.since && event.timestamp < filters.since) continue;
         if (filters?.until && event.timestamp > filters.until) continue;
+        // Correlation tuple filters (parity with queryEvents). Post-fetch
+        // JS filter — InMemoryBackend has no indexes, so capability-equivalent
+        // not performance-equivalent. SqliteBackend takes the indexed path.
+        if (filters?.operationId !== undefined && event.operationId !== filters.operationId) continue;
+        if (filters?.correlationId !== undefined && event.correlationId !== filters.correlationId) continue;
+        if (filters?.causationId !== undefined && event.causationId !== filters.causationId) continue;
         collected.push(event);
       }
     }

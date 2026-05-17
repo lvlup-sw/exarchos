@@ -1346,6 +1346,22 @@ export class SqliteBackend implements StorageBackend {
       conditions.push('timestamp <= ?');
       params.push(filters.until);
     }
+    // Correlation tuple filters (parity with queryEvents). Honoured as indexed
+    // WHERE clauses against the V6 columns; the (correlation_id, sequence)
+    // index makes the common cross-stream telemetry lookup ("all events in
+    // workflow X of type Y") O(log n + matches).
+    if (filters?.operationId !== undefined) {
+      conditions.push('operation_id = ?');
+      params.push(filters.operationId);
+    }
+    if (filters?.correlationId !== undefined) {
+      conditions.push('correlation_id = ?');
+      params.push(filters.correlationId);
+    }
+    if (filters?.causationId !== undefined) {
+      conditions.push('causation_id = ?');
+      params.push(filters.causationId);
+    }
 
     let sql = `SELECT streamId, sequence, type, timestamp, data, payload FROM events WHERE ${conditions.join(' AND ')} ORDER BY timestamp, streamId, sequence`;
 

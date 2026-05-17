@@ -254,6 +254,63 @@ describe.each([
     expect(byNone).toEqual([]);
   });
 
+  it('BackendContract_QueryEventsByType_HonorsCorrelationFilter', () => {
+    // Wave 4 follow-up: the cross-stream typed query surface must honor
+    // the same correlation filters as queryEvents — otherwise a caller
+    // who passes correlation filters down the type-scoped path gets
+    // silently un-filtered results, which would surface as a real bug
+    // the moment a telemetry view delegates to queryEventsByType for
+    // a cross-stream rollup.
+    const b = setup();
+
+    // Spread two stream prefixes that both fall under the same parent
+    // prefix so queryEventsByType matches both via the descendant rule.
+    b.appendEvent('parent/a', makeEvent({
+      streamId: 'parent/a',
+      sequence: 1,
+      type: 'workflow.started',
+      correlationId: 'cor-X',
+      operationId: 'op-X',
+      causationId: 'cause-X',
+    }));
+    b.appendEvent('parent/b', makeEvent({
+      streamId: 'parent/b',
+      sequence: 1,
+      type: 'workflow.started',
+      correlationId: 'cor-Y',
+      operationId: 'op-Y',
+      causationId: 'cause-Y',
+    }));
+    b.appendEvent('parent/a', makeEvent({
+      streamId: 'parent/a',
+      sequence: 2,
+      type: 'workflow.started',
+      correlationId: 'cor-X',
+      operationId: 'op-X',
+      causationId: 'cause-X',
+    }));
+
+    // Backends without the optional method (legacy mocks) opt out via
+    // the runtime feature-detect at EventStore.queryByType:541-561 — both
+    // production backends implement it, so this assertion fires on both.
+    if (typeof b.queryEventsByType !== 'function') return;
+
+    const byCorr = b.queryEventsByType('workflow.started', 'parent', { correlationId: 'cor-X' });
+    expect(byCorr.map((e) => e.streamId)).toEqual(['parent/a', 'parent/a']);
+    expect(byCorr.every((e) => e.correlationId === 'cor-X')).toBe(true);
+
+    const byOp = b.queryEventsByType('workflow.started', 'parent', { operationId: 'op-Y' });
+    expect(byOp.map((e) => e.streamId)).toEqual(['parent/b']);
+    expect(byOp.every((e) => e.operationId === 'op-Y')).toBe(true);
+
+    const byCause = b.queryEventsByType('workflow.started', 'parent', { causationId: 'cause-Y' });
+    expect(byCause).toHaveLength(1);
+    expect(byCause[0].causationId).toBe('cause-Y');
+
+    const byNone = b.queryEventsByType('workflow.started', 'parent', { correlationId: 'nope' });
+    expect(byNone).toEqual([]);
+  });
+
   it('getSequence_EmptyStream_ReturnsZero', () => {
     const b = setup();
 
