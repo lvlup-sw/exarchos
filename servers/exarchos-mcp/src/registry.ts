@@ -2310,6 +2310,13 @@ const viewActions: readonly ToolAction[] = [
       tool: z.string().optional(),
       sort: z.enum(['tokens', 'invocations', 'duration']).optional(),
       limit: coercedPositiveInt().optional(),
+      // Wave 5 (#1437) — correlation tuple filters scope the telemetry
+      // rollup to a single dispatch boundary. Honored at the backend layer
+      // (indexed columns / post-fetch JS filter); INV-1 keeps payload as
+      // truth, mirrored to the indexed columns.
+      operationId: z.string().optional(),
+      correlationId: z.string().optional(),
+      causationId: z.string().optional(),
     }),
     phases: ALL_PHASES,
     roles: ROLE_ANY,
@@ -2335,6 +2342,11 @@ const viewActions: readonly ToolAction[] = [
     description: 'Delegation timeline with bottleneck detection',
     schema: z.object({
       workflowId: z.string().optional(),
+      // Wave 5 (#1437) — correlation tuple filters scope the projection
+      // fold to a single dispatch boundary.
+      operationId: z.string().optional(),
+      correlationId: z.string().optional(),
+      causationId: z.string().optional(),
     }),
     phases: ALL_PHASES,
     roles: ROLE_ANY,
@@ -2349,6 +2361,11 @@ const viewActions: readonly ToolAction[] = [
       skill: z.string().optional(),
       gate: z.string().optional(),
       limit: coercedPositiveInt().optional(),
+      // Wave 5 (#1437) — correlation tuple filters scope the projection
+      // fold to a single dispatch boundary.
+      operationId: z.string().optional(),
+      correlationId: z.string().optional(),
+      causationId: z.string().optional(),
     }),
     phases: ALL_PHASES,
     roles: ROLE_ANY,

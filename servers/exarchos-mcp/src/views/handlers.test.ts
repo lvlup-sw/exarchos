@@ -404,6 +404,243 @@ describe('View Handlers', () => {
     });
   });
 
+  // ─── Wave 5 / Task 13 (#1437) — Group A view actions honor correlation filters ─
+  //
+  // Each handler in Group A (`telemetry`, `delegation_timeline`, `code_quality`)
+  // must thread the new `operationId / correlationId / causationId` optional
+  // filter args into `EventStore.queryEvents` so callers can slice the view by
+  // dispatch boundary. Telemetry is exercised in `telemetry/tools.test.ts`
+  // because its handler lives in a different file (no materializer hop). The
+  // other two actions plumb through `queryDeltaEvents` and are exercised here
+  // against real EventStore + tmpDir fixtures so the filter behavior is
+  // genuinely observable (composite.test.ts mocks the handlers and would
+  // false-pass on the spread-passthrough cast).
+
+  describe('Wave 5 — ViewActions_GroupA_AcceptCorrelationFilters_ScopeResultsCorrectly', () => {
+    it('handleViewCodeQuality_WithCorrelationIdFilter_ReturnsOnlyMatchingEvents', async () => {
+      // GIVEN: a single workflow stream that carries gate.executed events
+      // stamped with two distinct correlationIds. The view by default folds
+      // the whole stream — under the new filter contract it must fold only
+      // the cor-X subset.
+      const store = new EventStore(tmpDir);
+      const streamId = 'corr-wf';
+
+      // Three events tagged cor-X with skill "delegation"
+      for (let i = 1; i <= 3; i++) {
+        await store.append(streamId, {
+          streamId,
+          sequence: i,
+          timestamp: new Date().toISOString(),
+          type: 'gate.executed',
+          operationId: 'op-X',
+          correlationId: 'cor-X',
+          causationId: 'cause-X',
+          data: {
+            gateName: 'typecheck',
+            layer: 'build',
+            passed: true,
+            duration: 100,
+            details: { skill: 'delegation' },
+          },
+          schemaVersion: '1.0',
+        });
+      }
+      // Three events tagged cor-Y with skill "synthesis"
+      for (let i = 4; i <= 6; i++) {
+        await store.append(streamId, {
+          streamId,
+          sequence: i,
+          timestamp: new Date().toISOString(),
+          type: 'gate.executed',
+          operationId: 'op-Y',
+          correlationId: 'cor-Y',
+          causationId: 'cause-Y',
+          data: {
+            gateName: 'lint',
+            layer: 'build',
+            passed: true,
+            duration: 200,
+            details: { skill: 'synthesis' },
+          },
+          schemaVersion: '1.0',
+        });
+      }
+
+      // WHEN: handler invoked with a correlationId filter scoping to cor-X
+      const result = await handleViewCodeQuality(
+        { workflowId: streamId, correlationId: 'cor-X' },
+        tmpDir,
+        store,
+      );
+
+      // THEN: only the cor-X gate ("typecheck"/"delegation") is folded into
+      // the view; the cor-Y gate ("lint"/"synthesis") is absent.
+      expect(result.success).toBe(true);
+      const data = result.data as Record<string, unknown>;
+      const gates = data.gates as Record<string, unknown>;
+      expect(gates).toHaveProperty('typecheck');
+      expect(gates).not.toHaveProperty('lint');
+      const skills = data.skills as Record<string, unknown>;
+      expect(skills).toHaveProperty('delegation');
+      expect(skills).not.toHaveProperty('synthesis');
+    });
+
+    it('handleViewCodeQuality_WithOperationIdFilter_ReturnsOnlyMatchingEvents', async () => {
+      const store = new EventStore(tmpDir);
+      const streamId = 'op-wf';
+
+      await store.append(streamId, {
+        streamId,
+        sequence: 1,
+        timestamp: new Date().toISOString(),
+        type: 'gate.executed',
+        operationId: 'op-A',
+        correlationId: 'cor-shared',
+        data: {
+          gateName: 'typecheck',
+          layer: 'build',
+          passed: true,
+          duration: 100,
+          details: { skill: 'delegation' },
+        },
+        schemaVersion: '1.0',
+      });
+      await store.append(streamId, {
+        streamId,
+        sequence: 2,
+        timestamp: new Date().toISOString(),
+        type: 'gate.executed',
+        operationId: 'op-B',
+        correlationId: 'cor-shared',
+        data: {
+          gateName: 'lint',
+          layer: 'build',
+          passed: true,
+          duration: 200,
+          details: { skill: 'synthesis' },
+        },
+        schemaVersion: '1.0',
+      });
+
+      const result = await handleViewCodeQuality(
+        { workflowId: streamId, operationId: 'op-A' },
+        tmpDir,
+        store,
+      );
+
+      expect(result.success).toBe(true);
+      const data = result.data as Record<string, unknown>;
+      const gates = data.gates as Record<string, unknown>;
+      expect(gates).toHaveProperty('typecheck');
+      expect(gates).not.toHaveProperty('lint');
+    });
+
+    it('handleViewCodeQuality_WithCausationIdFilter_ReturnsOnlyMatchingEvents', async () => {
+      const store = new EventStore(tmpDir);
+      const streamId = 'cause-wf';
+
+      await store.append(streamId, {
+        streamId,
+        sequence: 1,
+        timestamp: new Date().toISOString(),
+        type: 'gate.executed',
+        causationId: 'cause-A',
+        correlationId: 'cor-shared',
+        data: {
+          gateName: 'typecheck',
+          layer: 'build',
+          passed: true,
+          duration: 100,
+          details: { skill: 'delegation' },
+        },
+        schemaVersion: '1.0',
+      });
+      await store.append(streamId, {
+        streamId,
+        sequence: 2,
+        timestamp: new Date().toISOString(),
+        type: 'gate.executed',
+        causationId: 'cause-B',
+        correlationId: 'cor-shared',
+        data: {
+          gateName: 'lint',
+          layer: 'build',
+          passed: true,
+          duration: 200,
+          details: { skill: 'synthesis' },
+        },
+        schemaVersion: '1.0',
+      });
+
+      const result = await handleViewCodeQuality(
+        { workflowId: streamId, causationId: 'cause-A' },
+        tmpDir,
+        store,
+      );
+
+      expect(result.success).toBe(true);
+      const data = result.data as Record<string, unknown>;
+      const gates = data.gates as Record<string, unknown>;
+      expect(gates).toHaveProperty('typecheck');
+      expect(gates).not.toHaveProperty('lint');
+    });
+
+    it('handleViewDelegationTimeline_WithCorrelationIdFilter_ReturnsOnlyMatchingEvents', async () => {
+      // delegation_timeline projects from team.* events. Seed a split stream
+      // and assert the filtered call returns only the cor-X side.
+      const store = new EventStore(tmpDir);
+      const streamId = 'timeline-wf';
+
+      // cor-X side: a single task end-to-end
+      await store.append(streamId, {
+        streamId,
+        sequence: 1,
+        timestamp: new Date().toISOString(),
+        type: 'team.task.assigned',
+        operationId: 'op-X',
+        correlationId: 'cor-X',
+        data: {
+          taskId: 'task-X',
+          teammateName: 'worker-X',
+          worktreePath: '/tmp/wt-X',
+          modules: ['auth'],
+        },
+        schemaVersion: '1.0',
+      });
+
+      // cor-Y side: a different task
+      await store.append(streamId, {
+        streamId,
+        sequence: 2,
+        timestamp: new Date().toISOString(),
+        type: 'team.task.assigned',
+        operationId: 'op-Y',
+        correlationId: 'cor-Y',
+        data: {
+          taskId: 'task-Y',
+          teammateName: 'worker-Y',
+          worktreePath: '/tmp/wt-Y',
+          modules: ['billing'],
+        },
+        schemaVersion: '1.0',
+      });
+
+      const result = await handleViewDelegationTimeline(
+        { workflowId: streamId, correlationId: 'cor-X' },
+        tmpDir,
+        store,
+      );
+
+      expect(result.success).toBe(true);
+      const data = result.data as Record<string, unknown>;
+      const tasks = data.tasks as Array<Record<string, unknown>>;
+      // Only task-X should be visible; task-Y was tagged cor-Y and must be
+      // filtered out by the indexed-correlation WHERE clause.
+      expect(tasks).toHaveLength(1);
+      expect(tasks[0].taskId).toBe('task-X');
+    });
+  });
+
   // ─── T10: handleViewEvalResults ────────────────────────────────────────────
 
   describe('handleViewEvalResults', () => {

@@ -151,6 +151,11 @@ export async function handleView(
             tool?: string;
             sort?: 'tokens' | 'invocations' | 'duration';
             limit?: number;
+            // Wave 5 (#1437) — correlation tuple filters scope the
+            // telemetry rollup to a single dispatch boundary.
+            operationId?: string;
+            correlationId?: string;
+            causationId?: string;
           },
           stateDir,
           eventStore,
@@ -178,7 +183,14 @@ export async function handleView(
     case 'delegation_timeline':
       return envelopeWrap(
         await handleViewDelegationTimeline(
-          rest as { workflowId?: string },
+          rest as {
+            workflowId?: string;
+            // Wave 5 (#1437) — correlation tuple filters scope the
+            // projection fold to a single dispatch boundary.
+            operationId?: string;
+            correlationId?: string;
+            causationId?: string;
+          },
           stateDir,
           eventStore,
         ),
@@ -203,6 +215,11 @@ export async function handleView(
             skill?: string;
             gate?: string;
             limit?: number;
+            // Wave 5 (#1437) — correlation tuple filters scope the
+            // projection fold to a single dispatch boundary.
+            operationId?: string;
+            correlationId?: string;
+            causationId?: string;
           },
           stateDir,
           eventStore,
