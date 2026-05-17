@@ -122,6 +122,14 @@ export const EventTypes = [
   // could not have its workflow_type recovered from a state file. Lets
   // operators locate '__legacy' rows that need manual classification.
   'migration.workflow_type_unknown',
+  // #1437 — emitted once per chunk during the V5 -> V6 correlation-column
+  // backfill in `migrateV5ToV6`. Lands on the internal `__migration__`
+  // stream with `{rowsBackfilled, totalRowsRemaining}` so operators can
+  // observe progress of a long-running migration on multi-thousand-row
+  // production DBs (the EventSourcedTaskStore generates dense
+  // `task.polled` traffic that pushes single-shot backfills past the
+  // sub-second window).
+  'migration.correlation_backfill_progress',
   // Wave B (#1342) two-event split for 5 non-idempotent VCS handlers.
   // Each handler emits *.requested BEFORE invoking the side effect (durable
   // intent, INV-1 LOW audit requirement) then *.executed AFTER it succeeds.
@@ -432,6 +440,7 @@ export const EVENT_EMISSION_REGISTRY: Record<EventType, EventEmissionSource> = {
   'migration.completed': 'auto',
   'migration.failed': 'auto',
   'migration.workflow_type_unknown': 'auto',
+  'migration.correlation_backfill_progress': 'auto',
 
   // Wave B (#1342) two-event split — VCS side-effect handlers.
   // *.requested is emitted by the handler BEFORE invoking the side effect
@@ -1642,6 +1651,36 @@ export const MigrationWorkflowTypeUnknownData = z.object({
   streamId: z.string().min(1).describe('Affected stream / featureId'),
 });
 
+/**
+ * migration.correlation_backfill_progress — emitted once per chunk during
+ * the V5 -> V6 backfill (`migrateV5ToV6`) of the three correlation-tuple
+ * columns (#1437). Lands on the internal `__migration__` stream so the
+ * progress trail is queryable via `event.query streamId=__migration__`
+ * without contaminating per-feature event logs.
+ *
+ * Chunk size is fixed at 1,000 rows; each event records how many rows
+ * the chunk just touched (`rowsBackfilled`) and how many still need
+ * backfilling AFTER that chunk (`totalRowsRemaining`). The pair lets an
+ * operator estimate remaining wall-clock from a single progress event
+ * (chunkDuration = elapsed since previous event; remainingChunks =
+ * ceil(totalRowsRemaining / chunkSize)).
+ *
+ * Emission stops naturally when an UPDATE chunk affects zero rows —
+ * the loop terminates and no final "completed" event is emitted (the
+ * absence of further progress events is the completion signal). This
+ * keeps the contract minimal; downstream aggregators that need a
+ * terminal "done" marker can derive it from the ledger stamp at
+ * `schema_version.version = 6` instead.
+ */
+export const MigrationCorrelationBackfillProgressData = z.object({
+  rowsBackfilled: z.number().int().nonnegative().describe('Rows updated by this chunk'),
+  totalRowsRemaining: z
+    .number()
+    .int()
+    .nonnegative()
+    .describe('Rows whose correlation_id is still NULL after this chunk'),
+});
+
 // ─── Workspace discovery (#1290) ────────────────────────────────────────────
 
 /**
@@ -1988,6 +2027,7 @@ export const EVENT_DATA_SCHEMAS: Partial<Record<EventType, z.ZodSchema>> = {
   'migration.completed': MigrationCompletedData,
   'migration.failed': MigrationFailedData,
   'migration.workflow_type_unknown': MigrationWorkflowTypeUnknownData,
+  'migration.correlation_backfill_progress': MigrationCorrelationBackfillProgressData,
 
   // Wave B (#1342) two-event split — VCS side-effect handlers.
   'pr.create.requested': PrCreateRequestedData,

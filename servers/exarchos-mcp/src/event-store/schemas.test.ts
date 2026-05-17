@@ -519,7 +519,10 @@ describe('EventTypes', () => {
     // Bumped 113 → 115: dispatch.preflight + stash.detected (#1261 —
     //   dispatch-guard preflight observability emitted by
     //   `orchestrate/dispatch-guard.ts`).
-    expect(EventTypes).toHaveLength(115);
+    // Bumped 115 → 116: migration.correlation_backfill_progress (#1437 —
+    //   chunked V5→V6 backfill progress emitted on the `__migration__`
+    //   stream from `SqliteBackend.backfillCorrelationColumnsChunked`).
+    expect(EventTypes).toHaveLength(116);
   });
 
   it('EventTypes_IncludesElicitation', () => {
