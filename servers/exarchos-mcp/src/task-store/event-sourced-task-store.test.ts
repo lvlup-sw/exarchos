@@ -639,6 +639,113 @@ describe('EventSourcedTaskStore (#1272)', () => {
     }
   });
 
+  // ─── CodeRabbit follow-ups on #1444 — statusMessage hygiene + INV-1 ──────
+
+  it('updateTaskStatus_CompletedFailed_RejectedWithStoreTaskResultGuidance', async () => {
+    // CodeRabbit r3253903306: `updateTaskStatus(id, 'completed' | 'failed')`
+    // pre-fix slipped through the projection-only fallback — the
+    // status flip lived in this process's cache and disappeared on
+    // replay or in any sibling process (no `task.result` event was
+    // emitted), violating INV-1.
+    //
+    // The guard fires BEFORE `commitWithOcc` so the rejection is
+    // observable directly on the call, without forging a doomed
+    // round-trip through the OCC loop. The error message explicitly
+    // names `storeTaskResult` so callers can resolve the contract
+    // violation without spelunking through internals.
+    const task = await store.createTask(
+      { ttl: 60_000 },
+      'req-guard',
+      sampleRequest,
+    );
+
+    for (const terminal of ['completed', 'failed'] as const) {
+      await expect(
+        store.updateTaskStatus(task.taskId, terminal),
+      ).rejects.toThrow(/storeTaskResult/);
+    }
+
+    // The task's durable stream contains ONLY `task.created` (+
+    // optional `task.polled` from the warm read inside createTask's
+    // immediate use). No `task.result` was forged behind the caller's
+    // back: the rejection prevents any cache mutation too.
+    const events = await eventStore.query(`task-store/${task.taskId}`);
+    expect(events.filter((e) => e.type === 'task.result')).toHaveLength(0);
+
+    // The projected state is unchanged — still `working`.
+    expect((await store.getTask(task.taskId))?.status).toBe('working');
+  });
+
+  it('storeTaskResult_DropsStaleStatusMessage_AlignedWithReplayProjection', async () => {
+    // CodeRabbit r3253903305: pre-fix, a task that passed through
+    // `updateTaskStatus(id, 'input_required', 'Please confirm X')` and
+    // then `storeTaskResult(id, 'completed', result)` would carry the
+    // stale `'Please confirm X'` `statusMessage` into the terminal
+    // state. The durable `task.result` event has no statusMessage
+    // field, so a replaying reader would project the task with NO
+    // `statusMessage` — writer cache and replayer diverge.
+    //
+    // Post-fix both sides agree (writer drops the prior message; the
+    // projection never had it to begin with).
+    const task = await store.createTask(
+      { ttl: 60_000 },
+      'req-stale-msg',
+      sampleRequest,
+    );
+    await store.updateTaskStatus(
+      task.taskId,
+      'input_required',
+      'Please confirm X',
+    );
+
+    // Sanity: the prompt is visible on the projected task.
+    expect((await store.getTask(task.taskId))?.statusMessage).toBe(
+      'Please confirm X',
+    );
+
+    await store.storeTaskResult(task.taskId, 'completed', {
+      content: [{ type: 'text', text: 'done' }],
+    });
+
+    // Writer cache observation — no stale prompt.
+    const writerView = await store.getTask(task.taskId);
+    expect(writerView?.status).toBe('completed');
+    expect(writerView?.statusMessage).toBeUndefined();
+
+    // Replayer observation — a fresh store on the same durable stream
+    // MUST project the same shape.
+    const replayer = new EventSourcedTaskStore(eventStore);
+    const replayerView = await replayer.getTask(task.taskId);
+    expect(replayerView?.status).toBe('completed');
+    expect(replayerView?.statusMessage).toBeUndefined();
+  });
+
+  it('updateTaskStatus_WithoutMessage_ClearsPriorMessage', async () => {
+    // CodeRabbit r3253903305: the SDK's `Task.statusMessage` reflects
+    // the *latest* status update. A return-to-`working` after an
+    // `input_required` prompt should drop the prompt — otherwise
+    // callers see a stale prompt-string attached to a working task.
+    //
+    // Note: non-cancel `updateTaskStatus` transitions are
+    // projection-only (no durable event) by design; this test
+    // therefore verifies the WRITER-side cache only. There is no
+    // cross-process consistency to assert here — replayers never see
+    // the `input_required` transition in the first place — but the
+    // in-process hygiene is still a correctness bug worth pinning.
+    const task = await store.createTask(
+      { ttl: 60_000 },
+      'req-clear-msg',
+      sampleRequest,
+    );
+    await store.updateTaskStatus(task.taskId, 'input_required', 'Need input');
+    expect((await store.getTask(task.taskId))?.statusMessage).toBe('Need input');
+
+    await store.updateTaskStatus(task.taskId, 'working');
+    const after = await store.getTask(task.taskId);
+    expect(after?.status).toBe('working');
+    expect(after?.statusMessage).toBeUndefined();
+  });
+
   // ─── FINDING-1 (#1438, PR 3) — OCC threading via expectedSequence ─────────
   //
   // The fix invariant: two concurrent writers on the same task stream MUST

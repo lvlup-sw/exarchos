@@ -329,8 +329,23 @@ export class EventSourcedTaskStore implements TaskStore {
         },
         mutate: (s: ProjectedTask) => {
           s.result = result;
+          // CodeRabbit r3253903305 (#1444): drop any prior
+          // `statusMessage` (typically a stale `input_required` prompt)
+          // — `storeTaskResult` is a terminal transition with an
+          // explicit result, so the prior diagnostic no longer applies.
+          // Equally important: the projection a sibling process
+          // computes from the durable stream NEVER sets `statusMessage`
+          // for `task.result` (no field carries it), so without this
+          // explicit clear the writer's cache would diverge from
+          // replayers — the same INV-1 cross-process inconsistency the
+          // `expiresAt` bump above also guards against.
+          const {
+            statusMessage: _staleStatusMessage,
+            ...taskWithoutStatusMessage
+          } = s.task;
+          void _staleStatusMessage;
           s.task = {
-            ...s.task,
+            ...taskWithoutStatusMessage,
             status,
             lastUpdatedAt: now,
           };
@@ -369,6 +384,20 @@ export class EventSourcedTaskStore implements TaskStore {
     statusMessage?: string,
     _sessionId?: string,
   ): Promise<void> {
+    // CodeRabbit r3253903306 (#1444): `completed` / `failed` carry a
+    // result payload and only have a faithful representation as a
+    // durable `task.result` event via `storeTaskResult`. Allowing them
+    // here would route through the `event: null` projection-only
+    // fallback below — the transition would live in this process's
+    // cache and disappear on replay or in any sibling process,
+    // violating INV-1 (event-sourcing integrity). We reject loudly
+    // BEFORE entering `commitWithOcc` so callers see the contract
+    // violation directly rather than as a post-hoc divergence.
+    if (status === 'completed' || status === 'failed') {
+      throw new Error(
+        `Cannot transition task ${taskId} to '${status}' via updateTaskStatus — terminal '${status}' carries a result payload and requires a durable task.result event. Use storeTaskResult() instead.`,
+      );
+    }
     // FINDING-1 (#1438, PR 3): route through `commitWithOcc`. The
     // cancellation branch returns a durable `task.cancelled` event and
     // gets full OCC enforcement; non-cancel transitions return
@@ -383,8 +412,22 @@ export class EventSourcedTaskStore implements TaskStore {
       }
       const now = new Date().toISOString();
       const mutate = (s: ProjectedTask) => {
+        // CodeRabbit r3253903305 (#1444): explicitly drop the prior
+        // `statusMessage` before re-assigning. The SDK Task contract
+        // treats `statusMessage` as "the latest status update", so a
+        // transition that doesn't carry a message MUST clear stale
+        // text — otherwise an `input_required` prompt persists across
+        // a return to `working`, and (for cancellation) the projection
+        // a replayer computes from the durable `task.cancelled` event
+        // would diverge from the writer's cache (the event only carries
+        // `reason`, never the pre-cancel diagnostic).
+        const {
+          statusMessage: _staleStatusMessage,
+          ...taskWithoutStatusMessage
+        } = s.task;
+        void _staleStatusMessage;
         s.task = {
-          ...s.task,
+          ...taskWithoutStatusMessage,
           status,
           lastUpdatedAt: now,
           ...(statusMessage !== undefined ? { statusMessage } : {}),
