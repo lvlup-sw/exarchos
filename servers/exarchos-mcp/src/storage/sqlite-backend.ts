@@ -30,6 +30,21 @@ export interface AtomicAppendEvent {
    * read — preserving idempotencyKey, eventId, correlationId, etc.
    */
   payload: string;
+  /**
+   * #1437 — three V6 indexed correlation columns. Stamped onto the
+   * PublicPersistedEvent by `stampWithDispatchContext` (store.ts) when an
+   * active `DispatchContext` is present. Surfaced on the wire shape so
+   * the SQLite `insertEventStrict` bind can populate the indexed
+   * `operation_id` / `correlation_id` / `causation_id` columns alongside
+   * the JSON payload. Optional because pre-context callers (raw test
+   * fixtures, migration paths) emit unstamped events.
+   *
+   * Source of truth for the data remains `payload`; these fields exist
+   * purely as the indexed filter handle for telemetry views (INV-1).
+   */
+  operationId?: string;
+  correlationId?: string;
+  causationId?: string;
 }
 
 /**
@@ -829,9 +844,14 @@ export class SqliteBackend implements StorageBackend {
     // `sequences` counter below without persisting the corresponding
     // event, breaking the "one progress event per chunk" contract.
     // Mirrors the rationale in `emitWorkflowTypeUnknownEvents`.
+    //
+    // #1437 — bind shape matches the V6 9-column INSERT used by
+    // `insertEvent`/`insertEventStrict`; migration progress events are
+    // emitted outside any dispatch context, so the three correlation
+    // columns are explicitly NULL.
     const insertEvent = this.db.prepare(
-      `INSERT INTO events (streamId, sequence, type, timestamp, data, payload)
-       VALUES (?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO events (streamId, sequence, type, timestamp, data, payload, operation_id, correlation_id, causation_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     );
 
     // Bounded loop: at CHUNK_SIZE=1000 the worst case is total_rows/1000
@@ -899,6 +919,9 @@ export class SqliteBackend implements StorageBackend {
         timestamp,
         JSON.stringify(data),
         payload,
+        null,
+        null,
+        null,
       );
       upsertSeq.run(MIGRATION_STREAM, nextSeq);
 
@@ -1027,6 +1050,17 @@ export class SqliteBackend implements StorageBackend {
     // event, breaking the "one observability event per unresolved stream"
     // contract this migration upholds. Conflicts here are programmer
     // errors, not concurrency races, so propagate.
+    //
+    // #1437 deliberately preserves the 6-column INSERT shape here.
+    // `emitWorkflowTypeUnknownEvents` is called from the V3 -> V4
+    // migration (sqlite-backend.ts:510) which runs BEFORE
+    // `migrateV5ToV6` adds the three correlation columns. A 9-column
+    // bind would fail with "table events has no column named
+    // operation_id" against any V<5 database being upgraded. The
+    // event-store substrate's payload-vs-column source-of-truth
+    // contract (INV-1) is preserved: the JSON payload remains the
+    // canonical record; the three indexed columns are populated only
+    // on appends that happen AFTER V6 is in place.
     const insertEvent = this.db.prepare(
       `INSERT INTO events (streamId, sequence, type, timestamp, data, payload)
        VALUES (?, ?, ?, ?, ?, ?)`,
@@ -1080,7 +1114,7 @@ export class SqliteBackend implements StorageBackend {
   private prepareStatements(): Statements {
     return {
       insertEvent: this.db.prepare(
-        'INSERT OR IGNORE INTO events (streamId, sequence, type, timestamp, data, payload) VALUES (?, ?, ?, ?, ?, ?)',
+        'INSERT OR IGNORE INTO events (streamId, sequence, type, timestamp, data, payload, operation_id, correlation_id, causation_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
       ),
       upsertSequence: this.db.prepare(
         'INSERT INTO sequences (streamId, sequence) VALUES (?, ?) ON CONFLICT(streamId) DO UPDATE SET sequence = excluded.sequence',
@@ -1154,7 +1188,7 @@ export class SqliteBackend implements StorageBackend {
       // `insertEvent` statement uses OR IGNORE for the dual-write replica
       // path; AtomicAppender requires hard failure on collision).
       insertEventStrict: this.db.prepare(
-        'INSERT INTO events (streamId, sequence, type, timestamp, data, payload) VALUES (?, ?, ?, ?, ?, ?)',
+        'INSERT INTO events (streamId, sequence, type, timestamp, data, payload, operation_id, correlation_id, causation_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
       ),
     };
   }
@@ -1166,6 +1200,12 @@ export class SqliteBackend implements StorageBackend {
     const payload = JSON.stringify(event);
 
     const insertFn = this.db.transaction(() => {
+      // #1437 — bind the V6 indexed correlation columns alongside the
+      // existing six. The values come straight off the event's stamped
+      // fields; payload remains source of truth per INV-1 while these
+      // columns serve as the indexed filter handle for telemetry views.
+      // `?? null` covers pre-dispatch-context callers (tests, migration
+      // events) so the bind shape stays uniform.
       this.stmts.insertEvent.run(
         streamId,
         event.sequence,
@@ -1173,6 +1213,9 @@ export class SqliteBackend implements StorageBackend {
         event.timestamp,
         data,
         payload,
+        event.operationId ?? null,
+        event.correlationId ?? null,
+        event.causationId ?? null,
       );
       this.stmts.upsertSequence.run(streamId, event.sequence);
     });
@@ -1420,6 +1463,13 @@ export class SqliteBackend implements StorageBackend {
       }
 
       // Event INSERTs — strict so (streamId, sequence) collisions raise.
+      // #1437 — bind the V6 indexed correlation columns alongside the
+      // existing six. Values come off the wire-shape event populated by
+      // `AtomicAppender.appendEvents` from the stamped
+      // `PublicPersistedEvent` (which `stampWithDispatchContext` in
+      // store.ts already filled from the active `DispatchContext`). The
+      // `?? null` fallback covers events that pre-date dispatch context
+      // (raw `appendEvent` test fixtures and migration paths).
       for (const evt of args.events) {
         const data = evt.data !== undefined ? JSON.stringify(evt.data) : null;
         this.stmts.insertEventStrict.run(
@@ -1429,6 +1479,9 @@ export class SqliteBackend implements StorageBackend {
           evt.timestamp,
           data,
           evt.payload,
+          evt.operationId ?? null,
+          evt.correlationId ?? null,
+          evt.causationId ?? null,
         );
       }
 
