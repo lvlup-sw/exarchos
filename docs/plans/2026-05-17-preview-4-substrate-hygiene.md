@@ -186,8 +186,8 @@ Branch convention: each task lands on `task/<feature>-<id>` and merges into `fea
 **Closes:** #1438 F-6 (hydration half of the cursor + hydration co-design)
 **Phase:** PRECHECK → RED → GREEN → REFACTOR
 
-1. **[PRECHECK]** Verify `EventStore.queryByType` supports `(streamPrefix, eventType, createdAtFrom, limit)` filter triple.
-   - File: read `servers/exarchos-mcp/src/event-store/store.ts` + `storage/sqlite-backend.ts` `queryByType` signature.
+1. **[PRECHECK]** Verify the call shape `EventStore.queryByType('task.created', { streamPrefix: 'task-store/', since, limit })` resolves through to `SqliteBackend.queryEventsByType`. Signature contract: `queryByType(eventType: string, filters?: QueryFilters & { streamPrefix?: string })`.
+   - File: read `servers/exarchos-mcp/src/event-store/store.ts:526` + `storage/sqlite-backend.ts` to confirm the `since` + `streamPrefix` pair is honored.
    - On match: proceed.
    - On miss: file a 1-line issue for the minimal extension; T8 falls back to "query all + post-filter" for cold-start only (degrades to today's behavior on the slow path). Document chosen path in the PR.
 
@@ -234,7 +234,7 @@ Before opening the integration PR:
 - F-7 coerce-warn noise — mitigation: streamId in log payload
 - F-6 lookahead under-shoot — mitigation: lookahead configurable; test asserts 8 sufficient
 - T2 sentinel hides legit `__`-prefixed stream — mitigation: debug log on skip
-- T8 queryByType surface — mitigation: PRECHECK + fallback path
+- T8 `queryByType(eventType, { streamPrefix, since, limit })` surface — mitigation: PRECHECK + fallback path
 
 ## Event vocabulary
 
