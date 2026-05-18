@@ -16,9 +16,10 @@
 // adding a new view action to composite.ts without registering it surfaces
 // here immediately.
 
-import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { DispatchContext } from '../core/dispatch.js';
 import { EventStore } from '../event-store/store.js';
@@ -28,22 +29,54 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 
 /**
  * Parse `views/composite.ts` and return every action name handled by a
- * `case 'xxx':` arm in the `handleView` switch. Excludes `describe` (the
- * introspection action itself — there's no requirement to introspect the
- * introspector) and the `default` arm (not a dispatched action).
+ * `case 'xxx':` arm inside the `handleView` switch (NOT case arms anywhere
+ * else in the file — `composite.ts` includes other helper switches whose
+ * cases must not pollute the action surface). Excludes `describe` (the
+ * introspection action itself).
+ *
+ * The regex first isolates the `handleView` body up to its closing brace,
+ * then locates the `switch (action) {...}` block within it, then collects
+ * `case '...':` literals from that block only. Tightened in response to a
+ * CodeRabbit nit on #1450 — the previous loose `[a-z_]+` regex against the
+ * full file could have picked up unrelated case arms.
  */
 function collectDispatchedActionNames(): string[] {
   const source = readFileSync(resolve(__dirname, 'composite.ts'), 'utf-8');
-  const matches = source.matchAll(/case '([a-z_]+)':/g);
+  // Anchor on `switch (action) {` opening through the switch's `default:`
+  // arm — `default:` inside a switch is a deterministic terminator that
+  // doesn't collide with inner block close braces. Falling back to a body-
+  // wide regex would risk picking up case arms from helper switches
+  // declared elsewhere in the same file.
+  const switchMatch = source.match(
+    /export\s+async\s+function\s+handleView[\s\S]*?switch\s*\(\s*action\s*\)\s*\{([\s\S]*?)default\s*:/,
+  );
+  if (!switchMatch || switchMatch[1] === undefined) {
+    throw new Error(
+      'collectDispatchedActionNames: could not locate handleView action switch (or its default arm) in views/composite.ts',
+    );
+  }
+  const switchBody = switchMatch[1];
+  const matches = switchBody.matchAll(/case\s+'([^']+)'\s*:/g);
   const names = new Set<string>();
   for (const m of matches) {
-    if (m[1] === 'describe') continue;
-    names.add(m[1]);
+    const name = m[1];
+    if (name === undefined || name === 'describe') continue;
+    names.add(name);
   }
   return [...names].sort();
 }
 
 describe('ExarchosViewDescribe — registry-vs-dispatch parity (T1, #1446 residue)', () => {
+  let tempStateDir: string;
+
+  beforeEach(() => {
+    tempStateDir = mkdtempSync(join(tmpdir(), 'exarchos-describe-coverage-'));
+  });
+
+  afterEach(() => {
+    rmSync(tempStateDir, { recursive: true, force: true });
+  });
+
   it('ExarchosViewDescribe_ListsAllSeventeenDispatchedActions', async () => {
     const dispatched = collectDispatchedActionNames();
 
@@ -56,8 +89,8 @@ describe('ExarchosViewDescribe — registry-vs-dispatch parity (T1, #1446 residu
     expect(dispatched).toContain('ideate_readiness');
 
     const ctx: DispatchContext = {
-      stateDir: '/tmp/test-describe-coverage',
-      eventStore: new EventStore('/tmp/test-describe-coverage'),
+      stateDir: tempStateDir,
+      eventStore: new EventStore(tempStateDir),
       enableTelemetry: false,
     };
 

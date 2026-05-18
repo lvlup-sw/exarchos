@@ -175,6 +175,16 @@ const TASK_POLLED_THROTTLE_MS = 5_000;
 const SIZE_CAP_REAP_THRESHOLD = 1024;
 
 /**
+ * FINDING-4 amortization: above `SIZE_CAP_REAP_THRESHOLD`, only re-run
+ * the reap when `tasks.size` has grown by this many entries since the
+ * previous reap. Bounds the post-threshold worst case to 1 sweep per
+ * `REAP_GROWTH_DELTA` creates instead of 1 sweep per create — the
+ * latter is the path CodeRabbit flagged on #1450 when every create
+ * above the threshold finds no expired entries to reap.
+ */
+const REAP_GROWTH_DELTA = 64;
+
+/**
  * FINDING-5 (#1438, T7): `listTasks` cursor — opaque, base64url-encoded
  * JSON of the `(createdAt, taskId)` tuple of the LAST entry on the
  * prior page. Anchoring on `(createdAt, taskId)` instead of Map
@@ -302,6 +312,15 @@ export class EventSourcedTaskStore implements TaskStore {
    */
   private readonly nowMs: () => number;
 
+  /**
+   * FINDING-4 amortization: tracks `tasks.size` immediately after the
+   * most recent `reapExpired()` call from `createTask`. Used by the
+   * `REAP_GROWTH_DELTA` gate to avoid re-running the sweep on every
+   * create above `SIZE_CAP_REAP_THRESHOLD` when no entries are
+   * actually expired. See the comment block at that const for context.
+   */
+  private lastReapSize = 0;
+
   constructor(eventStore: EventStore, options?: EventSourcedTaskStoreOptions) {
     this.store = eventStore;
     this.nowMs = options?.clock ?? Date.now.bind(Date);
@@ -397,8 +416,19 @@ export class EventSourcedTaskStore implements TaskStore {
     // accumulate silently. The strict `>` keeps the gate idempotent
     // at the boundary: at exactly `threshold` entries we have NOT yet
     // paid the sweep cost; the 1025th create is what triggers it.
-    if (this.tasks.size > SIZE_CAP_REAP_THRESHOLD) {
+    //
+    // Amortized: once size > threshold, only sweep when growth since
+    // last reap >= REAP_GROWTH_DELTA. Otherwise a steady stream of
+    // creates above the threshold with NO expired entries would run
+    // reapExpired() on every call for zero benefit. This bounds the
+    // reap cost to 1 / REAP_GROWTH_DELTA per create.
+    const sizeAfterInsert = this.tasks.size;
+    if (
+      sizeAfterInsert > SIZE_CAP_REAP_THRESHOLD &&
+      sizeAfterInsert - this.lastReapSize >= REAP_GROWTH_DELTA
+    ) {
       this.reapExpired();
+      this.lastReapSize = this.tasks.size;
     }
 
     return task;

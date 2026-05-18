@@ -71,7 +71,7 @@ Trade-offs vs alternatives:
 - *(Separate (createdAt, taskId, streamId) index table)* — rejected for now: adds a second source of truth that must stay consistent with the event log. Re-evaluable in v2.11 if the lookahead approach degrades under load.
 - *(Sort by sequence # of task.created in the dispatched stream)* — rejected: harder to compute, and the audit doc already prefers `createdAt`.
 
-**Event-store query surface** — this design assumes `EventStore.queryEvents` supports a `(streamPrefix='task-store/', eventType='task.created', createdAtFrom, limit)` filter. Wave T implementation must verify this against the V6 schema and, if missing, file a sub-issue for the minimal extension (NOT widen scope inside this bundle).
+**Event-store query surface** — this design assumes `EventStore.queryByType` supports a `(streamPrefix='task-store/', eventType='task.created', createdAtFrom, limit)` filter. Wave T implementation must verify this against the V6 schema and, if missing, file a sub-issue for the minimal extension (NOT widen scope inside this bundle).
 
 ## F-8 disposition (requestId)
 
@@ -92,7 +92,7 @@ The hardening philosophy invited reconsidering the audit-aligned "keep the fallb
 | `servers/exarchos-mcp/src/registry.ts` | T1 — add 3 viewActions entries | V |
 | `servers/exarchos-mcp/src/views/materializer.ts` | T2 — sentinel-skip in stream iterator | V |
 | `servers/exarchos-mcp/src/task-store/event-sourced-task-store.ts` | T4/T5/T6/T7/T8 | T |
-| `servers/exarchos-mcp/src/event-store/store.ts` (or sqlite-backend) | T7 — verify `queryEvents` accepts `(streamPrefix, eventType, createdAtFrom)` | T |
+| `servers/exarchos-mcp/src/event-store/store.ts` (or sqlite-backend) | T7 — verify `queryByType` accepts `(streamPrefix, eventType, createdAtFrom)` | T |
 | `servers/exarchos-mcp/src/__tests__/...` co-located | regression tests per task | both |
 
 No schema migration. No event payload changes for existing events. No CLI surface changes (T1 schemas auto-emit flags via `addFlagsFromSchema` per memory note `project_cli_schema_driven_flags`).
@@ -140,7 +140,7 @@ No dimension regresses.
 - **F-7 coerce-and-warn log noise**: if many existing streams contain malformed `request` payloads, the warn may fire repeatedly. *Mitigation*: include streamId in the log so it's deduplicable; if noise becomes operational, downgrade to debug or sample 1/N. Land as `warn` and observe.
 - **F-6 cursor lookahead under-shoots tie-break churn**: if many `task.created` events share a millisecond timestamp, lookahead=8 may leave gaps. *Mitigation*: lookahead is configurable; integration tests assert lookahead=8 is sufficient at expected creation rates. If observed in the wild, raise.
 - **T2 sentinel-skip hides a legitimate `__`-prefixed stream**: the only known sentinel is `__migration__`. *Mitigation*: log at debug level when a `__`-prefixed stream is skipped; explicit allowlist (`__migration__`) reviewable in v2.11 if other sentinels emerge.
-- **Event-store query surface assumption**: T7's cursor mechanism assumes `queryEvents` supports `(streamPrefix, eventType, createdAtFrom)` filter triple. *Mitigation*: T7 implementation verifies this first; on miss, files a 1-line `EventStore.queryEvents` extension issue and falls back to existing query + post-filter (degrades to today's behavior for the cold-start path only).
+- **Event-store query surface assumption**: T7's cursor mechanism assumes `queryByType` supports `(streamPrefix, eventType, createdAtFrom)` filter triple. *Mitigation*: T7 implementation verifies this first; on miss, files a 1-line `EventStore.queryByType` extension issue and falls back to existing query + post-filter (degrades to today's behavior for the cold-start path only).
 
 ## Acceptance
 

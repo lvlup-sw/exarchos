@@ -1399,6 +1399,53 @@ describe('EventSourcedTaskStore (#1272)', () => {
     }
   });
 
+  it('CreateTask_AboveThresholdWithNoExpiredEntries_AmortizesReapByGrowthDelta', async () => {
+    // FINDING-4 amortization (CodeRabbit on PR #1450): the original T4
+    // gate fired `reapExpired()` on EVERY create above the threshold,
+    // even when no entries were expired (steady-state pathological
+    // case). The amortization gate runs the sweep only when
+    // `tasks.size - lastReapSize >= REAP_GROWTH_DELTA (64)`.
+    //
+    // Setup: fill to 1025 entries (one above threshold) — first sweep
+    // fires immediately. Then create 200 MORE entries with long TTL
+    // (none expire). The sweep should run only on the boundary creates
+    // where growth-since-last-reap reaches 64 — i.e., roughly 200 / 64
+    // = ~3 additional invocations, NOT 200 (one per create as the
+    // pre-amortization gate would do).
+    const reapSpy = vi.spyOn(
+      store as unknown as { reapExpired: () => void },
+      'reapExpired',
+    );
+    try {
+      // Phase 1: cross the threshold. Single reap on the 1025th create.
+      for (let i = 0; i < 1025; i++) {
+        await store.createTask(
+          { ttl: 60_000 },
+          `req-cross-${i}`,
+          sampleRequest,
+        );
+      }
+      // After Phase 1 there should be exactly one sweep recorded.
+      expect(reapSpy).toHaveBeenCalledTimes(1);
+
+      // Phase 2: 200 more creates with NO expired entries. Without
+      // amortization this would be 200 additional sweeps. With
+      // amortization (delta=64) it should be ≤ ceil(200 / 64) = 4.
+      reapSpy.mockClear();
+      for (let i = 0; i < 200; i++) {
+        await store.createTask(
+          { ttl: 60_000 },
+          `req-amort-${i}`,
+          sampleRequest,
+        );
+      }
+      expect(reapSpy.mock.calls.length).toBeGreaterThan(0);
+      expect(reapSpy.mock.calls.length).toBeLessThanOrEqual(4);
+    } finally {
+      reapSpy.mockRestore();
+    }
+  });
+
   it('ListTasks_AcrossSimulatedRestart_PaginatesStablyWithCursor', async () => {
     // FINDING-5 (#1438, T7): cursor pagination MUST be stable across
     // process restarts. The pre-fix implementation paginated by Map

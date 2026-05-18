@@ -186,14 +186,14 @@ Branch convention: each task lands on `task/<feature>-<id>` and merges into `fea
 **Closes:** #1438 F-6 (hydration half of the cursor + hydration co-design)
 **Phase:** PRECHECK → RED → GREEN → REFACTOR
 
-1. **[PRECHECK]** Verify `EventStore.queryEvents` supports `(streamPrefix, eventType, createdAtFrom, limit)` filter triple.
-   - File: read `servers/exarchos-mcp/src/event-store/store.ts` + `storage/sqlite-backend.ts` `queryEvents` signature.
+1. **[PRECHECK]** Verify `EventStore.queryByType` supports `(streamPrefix, eventType, createdAtFrom, limit)` filter triple.
+   - File: read `servers/exarchos-mcp/src/event-store/store.ts` + `storage/sqlite-backend.ts` `queryByType` signature.
    - On match: proceed.
    - On miss: file a 1-line issue for the minimal extension; T8 falls back to "query all + post-filter" for cold-start only (degrades to today's behavior on the slow path). Document chosen path in the PR.
 
 2. **[RED]** Write test: `ListTasks_OnColdStartWithLimit10_QueriesOnePageOfStreams`
    - File: `servers/exarchos-mcp/src/task-store/event-sourced-task-store.test.ts`
-   - Setup: seed 100 `task.created` events. Wrap `EventStore.queryEvents` with a counter. Cold-start instance and call `listTasks({ limit: 10 })`.
+   - Setup: seed 100 `task.created` events. Wrap `EventStore.queryByType` with a counter. Cold-start instance and call `listTasks({ limit: 10 })`.
    - Asserts: counter ≤ `limit + lookahead` (i.e., ≤ 18 with lookahead=8); not 100.
    - Companion test: `ListTasks_OnWarmCallAfterColdHydration_DoesNotReQueryAlreadyHydratedTasks` — call `listTasks` twice; second call queries only for newly-created tasks since the first.
    - Expected failure: today `hydrateFromEventStore` enumerates all streams.
@@ -234,7 +234,7 @@ Before opening the integration PR:
 - F-7 coerce-warn noise — mitigation: streamId in log payload
 - F-6 lookahead under-shoot — mitigation: lookahead configurable; test asserts 8 sufficient
 - T2 sentinel hides legit `__`-prefixed stream — mitigation: debug log on skip
-- T8 queryEvents surface — mitigation: PRECHECK + fallback path
+- T8 queryByType surface — mitigation: PRECHECK + fallback path
 
 ## References
 
