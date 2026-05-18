@@ -3,7 +3,11 @@ import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { loadInvariants, type InvariantEntry } from './invariants-loader.js';
+import {
+  loadCoreInvariants,
+  loadInvariants,
+  type InvariantEntry,
+} from './invariants-loader.js';
 
 /**
  * Repo root resolution: invariants-loader.test.ts lives at
@@ -189,6 +193,19 @@ describe('invariants-loader', () => {
     expect(() =>
       loadInvariants(INVARIANTS_DOC, { scope: 'invalid-scope' as unknown as 'core' }),
     ).toThrow(/all/);
+  });
+
+  it('LoadCoreInvariants_ReturnsOnlyAlwaysLoadEntries', () => {
+    // Documented convenience export: `loadCoreInvariants(path)` is equivalent
+    // to `loadInvariants(path, { scope: 'core' })`. Exists so /ideate Phase 0
+    // call sites can express intent at the import boundary rather than the
+    // call boundary.
+    const coreEntries = loadCoreInvariants(INVARIANTS_DOC);
+    const coreIds = new Set(coreEntries.map((e) => e.id));
+    expect(coreIds).toEqual(new Set(['INV-1', 'INV-2', 'INV-5a', 'INV-5b']));
+    // Equivalence with explicit scope arg.
+    const explicit = loadInvariants(INVARIANTS_DOC, { scope: 'core' });
+    expect(coreEntries.map((e) => e.id)).toEqual(explicit.map((e) => e.id));
   });
 
   it('InvariantsLoader_DuplicateIds_ThrowsWithIdInMessage', () => {

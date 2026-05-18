@@ -170,6 +170,16 @@ export function loadInvariants(
 }
 
 /**
+ * Convenience: return only the `cost-of-load: always-load` entries — the
+ * `/ideate` Phase 0 working set. Equivalent to `loadInvariants(filePath,
+ * { scope: 'core' })`; named so import sites express intent without the
+ * option-object indirection.
+ */
+export function loadCoreInvariants(filePath: string): InvariantEntry[] {
+  return loadInvariants(filePath, { scope: 'core' });
+}
+
+/**
  * Convenience: return the set of valid invariant IDs (for vocabulary-lint
  * cross-check).
  */
