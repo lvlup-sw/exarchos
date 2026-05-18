@@ -225,8 +225,22 @@ export async function createElicitationTestPair(
   const cleanup = async (): Promise<void> => {
     try {
       await client.close();
-    } catch {
-      /* ignore — close-after-close is a no-op semantically */
+    } catch (err) {
+      // The SDK / InMemoryTransport surface a few benign signals during
+      // teardown (e.g., double-close after a test path that already closed
+      // the client; pending request rejection when the transport tears down
+      // mid-flight). Those are idempotent / expected. Anything else is a
+      // real teardown failure and must surface — silently swallowing it
+      // masks resource leaks and substrate regressions.
+      const message = err instanceof Error ? err.message : String(err);
+      const isBenign =
+        /already closed/i.test(message) ||
+        /not connected/i.test(message) ||
+        /transport.*closed/i.test(message) ||
+        /connection closed/i.test(message);
+      if (!isBenign) {
+        throw err;
+      }
     }
     await fs.rm(tmpDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
   };
