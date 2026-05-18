@@ -1128,6 +1128,98 @@ describe('EventSourcedTaskStore (#1272)', () => {
     }
   });
 
+  it('ProjectTask_WhenRequestPayloadMalformed_LogsWarnWithStreamIdAndSequence', async () => {
+    // FINDING-7 (#1438, T5): `projectTask` previously coerced a missing /
+    // null / non-object `request` to `{}` silently via `?? {}`. This hid
+    // corrupt event payloads from operators. The fix is tolerate-and-flag:
+    // still produce a coerced empty-object Request, but emit a structured
+    // `logger.warn` carrying the `streamId` and event `sequence` so the
+    // corrupt record is locatable. Behavior on the happy path (a
+    // well-formed `request` object) is unchanged — no warning.
+    const taskId = 'malformed-request-task';
+    const streamId = `task-store/${taskId}`;
+    const now = new Date().toISOString();
+
+    // Seed a malformed `task.created` event directly via the event store
+    // (bypassing the public createTask API, which always supplies a
+    // well-formed `request`). `request: null` is the canonical malformed
+    // case — schema-permissive enough to land in the durable stream, but
+    // not a real `Request` object.
+    await eventStore.append(streamId, {
+      type: 'task.created',
+      timestamp: now,
+      data: {
+        taskId,
+        ttl: 60_000,
+        request: null,
+      },
+    });
+
+    const warnSpy = vi
+      .spyOn(taskStoreLogger, 'warn')
+      .mockImplementation(() => undefined);
+
+    try {
+      // Replay via a fresh store — forces `projectTask` to fold the
+      // seeded events from scratch.
+      const replayStore = new EventSourcedTaskStore(eventStore);
+      const replayed = await replayStore.getTask(taskId);
+
+      // Tolerate-and-flag: projection still returns a coerced Task with
+      // an empty-object request — DO NOT throw.
+      expect(replayed).not.toBeNull();
+      expect(replayed?.taskId).toBe(taskId);
+
+      // Exactly one warn for the malformed coerce branch (we filter out
+      // any unrelated warnings, e.g. throttle-gate or OCC noise, by
+      // matching on the coerce message shape).
+      const coerceCalls = warnSpy.mock.calls.filter((call) => {
+        const msg = call[1];
+        return typeof msg === 'string' && /malformed request/i.test(msg);
+      });
+      expect(coerceCalls).toHaveLength(1);
+
+      // First-arg object payload MUST carry the locator fields so the
+      // operator can find the corrupt event.
+      const payload = coerceCalls[0]![0] as Record<string, unknown>;
+      expect(payload.streamId).toBe(streamId);
+      expect(typeof payload.sequence).toBe('number');
+      expect(payload.sequence).toBeGreaterThanOrEqual(1);
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
+  it('ProjectTask_WhenRequestPayloadWellFormed_DoesNotWarn', async () => {
+    // Happy-path companion to the FINDING-7 (#1438, T5) test above. A
+    // well-formed `request` object MUST NOT trigger the coerce-and-warn
+    // branch — only missing / null / non-object payloads do.
+    const warnSpy = vi
+      .spyOn(taskStoreLogger, 'warn')
+      .mockImplementation(() => undefined);
+
+    try {
+      const task = await store.createTask(
+        { ttl: 60_000 },
+        'req-happy',
+        sampleRequest,
+      );
+
+      // Force a refold via a fresh store so `projectTask` runs.
+      const replayStore = new EventSourcedTaskStore(eventStore);
+      const replayed = await replayStore.getTask(task.taskId);
+      expect(replayed).not.toBeNull();
+
+      const coerceCalls = warnSpy.mock.calls.filter((call) => {
+        const msg = call[1];
+        return typeof msg === 'string' && /malformed request/i.test(msg);
+      });
+      expect(coerceCalls).toHaveLength(0);
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
   it('EventSourcedTaskStore_ListTasks_HydratesFromEventStoreOnColdStart', async () => {
     // CR PR #1432: cold-start listTasks must enumerate durable
     // `task-store/*` streams rather than silently returning an empty
