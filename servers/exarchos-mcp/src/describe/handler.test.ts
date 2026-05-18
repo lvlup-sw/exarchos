@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
+import { z } from 'zod';
 import { handleDescribe, handleEventTypeDescribe, handleEventDescribe } from './handler.js';
 import { TOOL_REGISTRY } from '../registry.js';
+import type { ToolAction } from '../registry.js';
 
 const workflowTool = TOOL_REGISTRY.find(t => t.name === 'exarchos_workflow')!;
 const eventTool = TOOL_REGISTRY.find(t => t.name === 'exarchos_event')!;
@@ -51,6 +53,69 @@ describe('handleDescribe', () => {
     // autoEmits should be omitted entirely (not null, not empty array)
     expect(data.get.autoEmits).toBeUndefined();
     expect('autoEmits' in data.get).toBe(false);
+  });
+
+  // ─── T8 (#1440 Op 2, preview-4) — DispatchHints projection ───────────
+  //
+  // The `dispatch` slot is action-behavior metadata (sibling of autoEmits,
+  // deprecated, outputSchema) added by T2's `DispatchHints` interface
+  // (design §4.3). Describe MUST project the field through unchanged when
+  // present, and MUST omit the field entirely (not null, not empty
+  // object) when the action does not declare it — mirroring the existing
+  // optional-slot pattern in handler.ts:113-149.
+  it('DescribeHandler_ActionWithDispatchHints_ProjectsDispatchField', async () => {
+    const fixture: ToolAction = {
+      name: 'fixture_with_dispatch',
+      description: 'Test fixture with dispatch hints.',
+      schema: z.object({ featureId: z.string() }),
+      phases: new Set(['plan']),
+      roles: new Set(['lead']),
+      outputSchema: z.object({ success: z.boolean() }),
+      annotations: {
+        safety: 'local-mutation',
+        readOnly: false,
+        destructive: false,
+        idempotent: false,
+        openWorld: false,
+      },
+      dispatch: {
+        taskSuitable: true,
+        taskTtlSuggestionMs: 60_000,
+      },
+    };
+
+    const result = await handleDescribe({ actions: ['fixture_with_dispatch'] }, [fixture]);
+    expect(result.success).toBe(true);
+    const data = result.data as Record<string, Record<string, unknown>>;
+    expect(data.fixture_with_dispatch.dispatch).toEqual({
+      taskSuitable: true,
+      taskTtlSuggestionMs: 60_000,
+    });
+  });
+
+  it('DescribeHandler_ActionWithoutDispatchHints_OmitsDispatchField', async () => {
+    const fixture: ToolAction = {
+      name: 'fixture_no_dispatch',
+      description: 'Test fixture without dispatch hints.',
+      schema: z.object({}),
+      phases: new Set(['ideate']),
+      roles: new Set(['any']),
+      outputSchema: z.object({ success: z.boolean() }),
+      annotations: {
+        safety: 'read-only',
+        readOnly: true,
+        destructive: false,
+        idempotent: true,
+        openWorld: false,
+      },
+    };
+
+    const result = await handleDescribe({ actions: ['fixture_no_dispatch'] }, [fixture]);
+    expect(result.success).toBe(true);
+    const data = result.data as Record<string, Record<string, unknown>>;
+    // dispatch should be omitted entirely (not null, not empty object)
+    expect(data.fixture_no_dispatch.dispatch).toBeUndefined();
+    expect('dispatch' in data.fixture_no_dispatch).toBe(false);
   });
 
   it('HandleDescribe_GateMetadata_IncludedWhenPresent', async () => {
