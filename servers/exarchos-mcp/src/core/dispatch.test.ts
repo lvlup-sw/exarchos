@@ -1424,4 +1424,87 @@ describe('dispatch', () => {
       expect(result).toBeUndefined();
     });
   });
+
+  // ─── T11 (#1440 Op 4) — retry_with_task hint emission ─────────────────
+  //
+  // When a `dispatch.taskSuitable === true` action is invoked WITHOUT a
+  // `task: { ttl }` augmentation and the dispatch elapsed time exceeds
+  // the threshold (default 10_000 ms), the dispatch boundary prepends a
+  // `{ verb: 'retry_with_task', reason, ttl_suggestion_ms }` next-action
+  // to `result.next_actions`. This teaches callers the augmentation
+  // surface through use (design 2026-05-17-preview-4 §4.4).
+  //
+  // The annotation is sourced from the action's `dispatch.taskSuitable`
+  // and `dispatch.taskTtlSuggestionMs` fields in the registry. The
+  // canonical fixture is `exarchos_workflow.cleanup` which carries
+  // `dispatch: { taskSuitable: true, taskTtlSuggestionMs: 60_000 }`.
+  describe('retry_with_task hint (Preview-4 §4.4)', () => {
+    let dateNowSpy: ReturnType<typeof vi.spyOn> | undefined;
+
+    afterEach(() => {
+      if (dateNowSpy) {
+        dateNowSpy.mockRestore();
+        dateNowSpy = undefined;
+      }
+    });
+
+    /**
+     * Install a `Date.now` spy that returns a deterministic sequence of
+     * timestamps. Used to drive the hint's elapsed-time check without
+     * actually waiting >10s. The dispatch core does not call `Date.now`
+     * anywhere else in its own body, so this spy only interacts with the
+     * hint emission path (plus any composite-level perf accounting,
+     * which is bypassed when we stub the composite handler directly).
+     */
+    function installClockSequence(values: readonly number[]): void {
+      let i = 0;
+      dateNowSpy = vi.spyOn(Date, 'now').mockImplementation(() => {
+        const v = values[Math.min(i, values.length - 1)];
+        i++;
+        return v;
+      });
+    }
+
+    it('RetryWithTaskHint_TaskSuitableActionWithoutTaskTtlExceededThreshold_PrependsHint', async () => {
+      // Arrange — stub the workflow composite to short-circuit the real
+      // cleanup pipeline. The stub returns a minimal success envelope
+      // with no pre-existing next_actions so the assertion can focus on
+      // the boundary-injected hint.
+      const { stubCompositeHandler, dispatch } = await import('./dispatch.js');
+      const stub = async (_args: Record<string, unknown>, _ctx: DispatchContext): Promise<ToolResult> => ({
+        success: true,
+        data: { ok: true },
+      });
+      const restore = stubCompositeHandler('exarchos_workflow', stub);
+
+      // Drive Date.now: 0 at dispatch entry, 11_000 after handler
+      // returns. 11_000 > 10_000 threshold so the hint fires.
+      installClockSequence([0, 11_000]);
+
+      try {
+        const result = await dispatch(
+          'exarchos_workflow',
+          {
+            action: 'cleanup',
+            featureId: 'hint-test',
+            mergeVerified: true,
+          },
+          { stateDir: tmpDir, eventStore, enableTelemetry: false },
+        );
+
+        // Assert — the hint is the FIRST entry in next_actions.
+        expect(result.success).toBe(true);
+        const nextActions = (result as ToolResult & { next_actions?: readonly { verb: string; reason: string; ttl_suggestion_ms?: number }[] }).next_actions;
+        expect(nextActions).toBeDefined();
+        expect(nextActions!.length).toBeGreaterThanOrEqual(1);
+        const hint = nextActions![0];
+        expect(hint.verb).toBe('retry_with_task');
+        expect(hint.ttl_suggestion_ms).toBe(60_000);
+        expect(typeof hint.reason).toBe('string');
+        expect(hint.reason).toMatch(/11000ms|Tasks-augmented/);
+      } finally {
+        restore();
+      }
+    });
+  });
 });

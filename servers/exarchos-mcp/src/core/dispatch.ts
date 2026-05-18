@@ -11,7 +11,8 @@ import type { CapabilityResolver } from '../capabilities/resolver.js';
 import type { StorageBackend } from '../storage/backend.js';
 import type { RootsClient } from '../workspace/discovery.js';
 import type { ElicitationClient } from '../dispatch/elicitation-dispatch.js';
-import { hasCustomToolHandlers, getCustomToolActionHandler, getFullRegistry } from '../registry.js';
+import { hasCustomToolHandlers, getCustomToolActionHandler, getFullRegistry, findActionInRegistry } from '../registry.js';
+import type { NextAction } from '../next-action.js';
 import {
   formatValidationError,
   buildInvalidInput,
@@ -554,6 +555,14 @@ export async function dispatch(
     args = rest;
   }
 
+  // ─── T11 (#1440 Op 4, Preview-4 §4.4) — retry_with_task hint clock ──────
+  // Capture the dispatch-entry timestamp here so the emission rule at the
+  // post-handler boundary can compute elapsed wall-clock time. Anchored as
+  // early as possible (after `task: { ttl }` strip; before workspace
+  // resolution / schema validation / handler invocation) so the elapsed
+  // measurement covers the full dispatch round-trip the caller observes.
+  const dispatchStartTs = Date.now();
+
   // Lazy-loaded composite handler. Falls back to `undefined` when the tool
   // is not a built-in (e.g. custom tools registered via config).
   //
@@ -971,6 +980,48 @@ export async function dispatch(
   } else {
     result = await coreHandler(args);
   }
+
+  // ─── T11 (#1440 Op 4, Preview-4 §4.4) — retry_with_task hint emission ───
+  // After the handler returns its ToolResult, decide whether the caller
+  // should be advised to re-invoke this action under the Tasks-augmented
+  // dispatch path. Conditions (all must hold):
+  //
+  //   1. The action's registry annotation declares `dispatch.taskSuitable === true`.
+  //   2. The caller did NOT thread `task: { ttl }` (i.e., `taskAugmented === false`).
+  //   3. Elapsed wall-clock dispatch time exceeded the threshold (default 10_000 ms).
+  //
+  // When all three hold, prepend a `{ verb: 'retry_with_task', reason,
+  // ttl_suggestion_ms }` next-action to `result.next_actions`. The hint
+  // schema lives at `next-action.ts:92` (RetryWithTaskNextActionSchema).
+  //
+  // Prepended (not appended) because it is a meta-hint about dispatch
+  // *shape*, not about the result's domain content — callers reading the
+  // first hint to decide their next step see the augmentation suggestion
+  // before any result-derived workflow verbs.
+  //
+  // TODO(#1440 Op 4 follow-up): wire `config.dispatch.retryWithTaskHintThresholdMs`
+  // through `ExarchosConfig` so projects can tune the threshold without
+  // touching dispatch core. Hardcoded for now per design §4.4.
+  if (result.success && !taskAugmented) {
+    const actionName = typeof args.action === 'string' ? args.action : undefined;
+    if (actionName !== undefined) {
+      const action = findActionInRegistry(tool, actionName);
+      if (action?.dispatch?.taskSuitable === true) {
+        const elapsedMs = Date.now() - dispatchStartTs;
+        const RETRY_WITH_TASK_THRESHOLD_MS = 10_000;
+        if (elapsedMs > RETRY_WITH_TASK_THRESHOLD_MS) {
+          const hint: NextAction = {
+            verb: 'retry_with_task',
+            reason: `this action took ${elapsedMs}ms; consider Tasks-augmented dispatch for live progress`,
+            ttl_suggestion_ms: action.dispatch.taskTtlSuggestionMs ?? 60_000,
+          };
+          const existing: readonly NextAction[] = result.next_actions ?? [];
+          result = { ...result, next_actions: [hint, ...existing] };
+        }
+      }
+    }
+  }
+
   return attachMeta(result);
   } catch (error) {
     return attachMeta({
