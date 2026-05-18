@@ -236,6 +236,10 @@ Before opening the integration PR:
 - T2 sentinel hides legit `__`-prefixed stream — mitigation: debug log on skip
 - T8 queryByType surface — mitigation: PRECHECK + fallback path
 
+## Event vocabulary
+
+`task.created` / `task.polled` / `task.result` / `task.cancelled` are the **SDK task-store lifecycle events** (declared at `servers/exarchos-mcp/src/event-store/schemas.ts:172-185`) — distinct from the workflow-orchestration `task.assigned` / `task.claimed` / `task.progressed` / `task.completed` / `task.failed` family (lines 10-14 of the same file). See the design doc's "Event vocabulary note" section for the full rationale on why this plan uses the same vocabulary as the code.
+
 ## References
 
 - Design: `docs/designs/2026-05-17-preview-4-substrate-hygiene.md`

@@ -161,6 +161,17 @@ No dimension regresses.
 - **2026-05-17** — F-8 evaluated for compensating-event hardening (Option B); rejected on operational footprint vs benefit. Audit-aligned answer retained.
 - **2026-05-17** — F-5 + F-6 co-designed as one cursor + hydration subsystem per hardening philosophy; separate `(createdAt, taskId, streamId)` index table rejected as second source of truth (re-evaluable in v2.11).
 
+## Event vocabulary note
+
+This design references `task.created`, `task.polled`, `task.result`, and `task.cancelled`. These are the **SDK task-store lifecycle events** (see `@modelcontextprotocol/sdk/experimental/tasks/interfaces.ts:TaskStore`), declared at `servers/exarchos-mcp/src/event-store/schemas.ts:172-185` with an explicit comment block distinguishing them from the workflow-orchestration `task.assigned`/`task.claimed`/`task.progressed`/`task.completed`/`task.failed` family (declared earlier in the same file at lines 10-14).
+
+These are **two distinct event domains** in this codebase:
+
+- Task-store events back the `EventSourcedTaskStore` in `servers/exarchos-mcp/src/task-store/event-sourced-task-store.ts` — they durably record the SDK protocol's task lifecycle (create → poll → result/cancel).
+- Workflow events back the orchestrator's workflow lifecycle (`task.assigned` when a subagent claims a workflow task, `task.completed` when its result lands, etc.).
+
+Renaming `task.created` to `task.assigned` in this design would create doc–code divergence: the code emits `task.created` to the `task-store/{taskId}` stream, the V5→V6 schema migration backfills `task.created` rows, and `EventStore.queryByType('task.created', ...)` is the literal API call in `hydrateFromEventStore`. The design intentionally uses the same vocabulary as the code.
+
 ## References
 
 - Epic: #1441
