@@ -23,6 +23,39 @@ export interface CliToolHints {
   readonly group?: string;
 }
 
+/**
+ * Action-descriptor-level dispatch metadata (#1440 Op 2, preview-4 T2,
+ * design §4.3).
+ *
+ * Lives at the action-descriptor level (sibling to `cli`, `gate`,
+ * `autoEmits`) — NOT under `cli.` — because the Tasks dispatch-core is
+ * shared between the CLI and MCP facades (INV-2). Annotating under
+ * `cli.` would imply this is CLI-presentation metadata; it isn't. It's
+ * action-behavior metadata: "this action is long-running and benefits
+ * from Tasks-augmented dispatch."
+ *
+ * The block is intentionally extensible — a future `streaming: true`
+ * marker, for example, belongs here too. Hence the name `dispatch`
+ * (not `tasks`, which would be too narrow).
+ */
+export interface DispatchHints {
+  /**
+   * Advisory marker: this action is long-running and benefits from
+   * Tasks-augmented dispatch. Surfaced via `exarchos_view describe` so
+   * clients can enumerate. The actual opt-in gate remains
+   * `taskAugmented && ctx.taskStore && taskCapabilityGate` at
+   * core/dispatch.ts:927-954. Clients are not required to honor this
+   * marker; the gate is binding.
+   */
+  readonly taskSuitable?: boolean;
+  /**
+   * Suggested TTL for Tasks-augmented dispatch, in ms. Surfaced
+   * alongside `taskSuitable` so clients have a sensible default to
+   * thread when they opt in.
+   */
+  readonly taskTtlSuggestionMs?: number;
+}
+
 export interface GateMetadata {
   readonly blocking: boolean;
   readonly dimension?: string;
@@ -280,6 +313,15 @@ export interface ToolAction {
   readonly cli?: CliActionHints;
   readonly gate?: GateMetadata;
   readonly autoEmits?: readonly AutoEmission[];
+  /**
+   * Dispatch-layer metadata (#1440 Op 2, preview-4 T2, design §4.3).
+   * Sibling-level (not under `cli`) because the Tasks dispatch-core is
+   * shared between CLI and MCP facades (INV-2). Advisory only — the
+   * binding opt-in gate stays at `core/dispatch.ts:927-954`. Surfaced
+   * via `exarchos_view describe` so clients can enumerate
+   * task-suitable actions.
+   */
+  readonly dispatch?: DispatchHints;
   /**
    * DR-5: When true, the action can take multiple seconds to complete and
    * the CLI adapter should emit stderr heartbeats under `--json` so a long

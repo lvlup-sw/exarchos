@@ -2051,3 +2051,71 @@ describe('validateAction', () => {
     ).not.toThrow();
   });
 });
+
+// ─── Preview-4 / T2 — DispatchHints on ToolAction (#1440 Op 2) ─────────
+//
+// Adds an optional, action-descriptor-level `dispatch: DispatchHints`
+// block so future tasks (T8 describe projection, T9 annotations, T11
+// retry_with_task verb) can annotate which actions are long-running and
+// benefit from Tasks-augmented dispatch. Lives at the descriptor level
+// (sibling to `cli`, `gate`, `autoEmits`), not under `cli.`, because the
+// Tasks dispatch-core is shared between CLI and MCP facades (INV-2). See
+// design §4.3.
+//
+// This test asserts the shape only — no annotations on existing actions
+// land in T2; those are T9's job. The actual opt-in gate stays at
+// `core/dispatch.ts:927-954`; this marker is advisory.
+describe('ToolAction.dispatch - DispatchHints shape', () => {
+  it('ToolAction_DispatchHintsShape_OptionalTaskSuitableField', () => {
+    const action: ToolAction = {
+      name: 'longRunningExample',
+      description: 'Example long-running action for shape assertion.',
+      schema: z.object({ featureId: z.string() }),
+      phases: new Set(['plan']),
+      roles: new Set(['lead']),
+      outputSchema: z.object({ success: z.boolean() }),
+      annotations: {
+        safety: 'local-mutation',
+        readOnly: false,
+        destructive: false,
+        idempotent: false,
+        openWorld: false,
+      },
+      dispatch: {
+        taskSuitable: true,
+        taskTtlSuggestionMs: 60_000,
+      },
+    };
+
+    // Anchor the type-level assertion with a runtime check so the test
+    // also fails loudly under vitest if the field is dropped or renamed
+    // (TS-only tests get excluded from CI typecheck — see
+    // servers/exarchos-mcp/tsconfig.json's `**/*.test.ts` exclude).
+    expect(action.dispatch).toBeDefined();
+    expect(action.dispatch?.taskSuitable).toBe(true);
+    expect(action.dispatch?.taskTtlSuggestionMs).toBe(60_000);
+  });
+
+  it('ToolAction_DispatchHintsShape_FieldIsOptional', () => {
+    // Omitting `dispatch` must still satisfy `ToolAction`. This guards
+    // against the field being inadvertently promoted to required, which
+    // would force every existing action to annotate before T9 lands.
+    const actionNoDispatch: ToolAction = {
+      name: 'readOnlyExample',
+      description: 'Example read-only action without DispatchHints.',
+      schema: z.object({}),
+      phases: new Set(['ideate']),
+      roles: new Set(['any']),
+      outputSchema: z.object({ success: z.boolean() }),
+      annotations: {
+        safety: 'read-only',
+        readOnly: true,
+        destructive: false,
+        idempotent: true,
+        openWorld: false,
+      },
+    };
+
+    expect(actionNoDispatch.dispatch).toBeUndefined();
+  });
+});
