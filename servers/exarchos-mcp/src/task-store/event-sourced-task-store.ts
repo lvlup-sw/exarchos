@@ -142,6 +142,49 @@ const TASK_POLLED_THROTTLE_MS = 5_000;
 const SIZE_CAP_REAP_THRESHOLD = 1024;
 
 /**
+ * FINDING-5 (#1438, T7): `listTasks` cursor — opaque, base64url-encoded
+ * JSON of the `(createdAt, taskId)` tuple of the LAST entry on the
+ * prior page. Anchoring on `(createdAt, taskId)` instead of Map
+ * insertion order is what makes pagination stable across process
+ * restarts and across multiple instances pointed at the same event
+ * store. See the `listTasks` body for the sort + offset implementation
+ * that consumes this shape.
+ */
+interface ListTasksCursor {
+  readonly createdAt: string;
+  readonly taskId: string;
+}
+
+function encodeListTasksCursor(c: ListTasksCursor): string {
+  return Buffer.from(JSON.stringify(c), 'utf8').toString('base64url');
+}
+
+function decodeListTasksCursor(s: string): ListTasksCursor {
+  try {
+    const parsed = JSON.parse(
+      Buffer.from(s, 'base64url').toString('utf8'),
+    ) as unknown;
+    if (
+      parsed !== null &&
+      typeof parsed === 'object' &&
+      'createdAt' in parsed &&
+      'taskId' in parsed &&
+      typeof (parsed as Record<string, unknown>)['createdAt'] === 'string' &&
+      typeof (parsed as Record<string, unknown>)['taskId'] === 'string'
+    ) {
+      return parsed as ListTasksCursor;
+    }
+    throw new Error('Invalid cursor: missing or malformed fields');
+  } catch (err) {
+    // Preserve the legacy `Invalid cursor: ...` prefix that the prior
+    // taskId-indexOf path produced. Callers (and downstream MCP error
+    // wrappers) match on this string shape.
+    const detail = err instanceof Error ? err.message : String(err);
+    throw new Error(`Invalid cursor: ${detail}`);
+  }
+}
+
+/**
  * Optional constructor options for `EventSourcedTaskStore`.
  *
  * `clock` is the rate-limit clock for the FINDING-3 throttle gate.
@@ -511,21 +554,48 @@ export class EventSourcedTaskStore implements TaskStore {
     // Reap expired entries first so listings stay consistent with reads.
     this.reapExpired();
 
-    const allTaskIds = Array.from(this.tasks.keys());
-    let startIndex = 0;
-    if (cursor) {
-      const cursorIndex = allTaskIds.indexOf(cursor);
-      if (cursorIndex >= 0) {
-        startIndex = cursorIndex + 1;
-      } else {
-        throw new Error(`Invalid cursor: ${cursor}`);
-      }
-    }
-    const pageIds = allTaskIds.slice(startIndex, startIndex + PAGE_SIZE);
-    const tasks = pageIds.map((id) => ({ ...this.tasks.get(id)!.task }));
+    // FINDING-5 (#1438, T7): sort by `(createdAt ASC, taskId ASC)`
+    // BEFORE pagination. Map insertion order is set by
+    // `hydrateFromEventStore` (backend-listing order) on cold start and
+    // by `createTask` afterward — neither is content-derived nor stable
+    // across processes. Sorting by the event's durable `createdAt`
+    // (with `taskId` as the tie-break for sub-millisecond ties) gives
+    // every instance an identical, deterministic enumeration.
+    const sorted = Array.from(this.tasks.values()).sort((a, b) => {
+      if (a.task.createdAt < b.task.createdAt) return -1;
+      if (a.task.createdAt > b.task.createdAt) return 1;
+      if (a.task.taskId < b.task.taskId) return -1;
+      if (a.task.taskId > b.task.taskId) return 1;
+      return 0;
+    });
+
+    // FINDING-5 (#1438, T7): cursor-anchored offset. The decoded cursor
+    // is the `(createdAt, taskId)` tuple of the LAST entry on the prior
+    // page; we keep entries strictly greater than that tuple under the
+    // same lex ordering as the sort.
+    const cursorObj = cursor ? decodeListTasksCursor(cursor) : undefined;
+    const afterCursor = cursorObj
+      ? sorted.filter(
+          (p) =>
+            p.task.createdAt > cursorObj.createdAt ||
+            (p.task.createdAt === cursorObj.createdAt &&
+              p.task.taskId > cursorObj.taskId),
+        )
+      : sorted;
+
+    const page = afterCursor.slice(0, PAGE_SIZE);
+    const tasks = page.map((p) => ({ ...p.task }));
+    // `nextCursor` is emitted only when there is at least one more
+    // entry past this page — i.e., the page is full AND something
+    // followed it in `afterCursor`. Encoding the LAST entry's
+    // `(createdAt, taskId)` lets the next call resume exactly past
+    // it.
     const nextCursor =
-      startIndex + PAGE_SIZE < allTaskIds.length
-        ? pageIds[pageIds.length - 1]
+      page.length === PAGE_SIZE && afterCursor.length > PAGE_SIZE
+        ? encodeListTasksCursor({
+            createdAt: page[page.length - 1].task.createdAt,
+            taskId: page[page.length - 1].task.taskId,
+          })
         : undefined;
     return { tasks, nextCursor };
   }
