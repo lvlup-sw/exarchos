@@ -17,6 +17,7 @@ import {
   VALIDATION_ERROR_CODE,
 } from './schema-to-flags.js';
 import { HandleMergeOrchestrateArgsSchema } from '../orchestrate/merge-orchestrate.js';
+import type { FollowSubcommand } from '../cli/follow-formatter.js';
 import { prettyPrint, printError, toCliResult } from './cli-format.js';
 // NOTE: `./schema-introspection.js` is intentionally NOT imported at the top
 // level. It pulls `zod-to-json-schema`, the state-machine topology serializer,
@@ -176,6 +177,40 @@ function resolvePackageVersion(): string {
 // ─── CLI Command Tree Generator ─────────────────────────────────────────────
 
 /**
+ * The set of `exarchos_view` action.names that the CLI exposes a `--follow`
+ * streaming mode for. Membership drives BOTH the predicate that registers
+ * the `--follow` Commander option (`buildCli` registration loop) and the
+ * dispatch ternary that maps `action.name` → `FollowSubcommand` label
+ * (the `subcommand` value threaded into `runFollowLoop`).
+ *
+ * Invariant (INV-2 — CLI `--follow` and MCP `tasks/get` polling produce
+ * byte-equivalent transitions): every member MUST be backed by a pure
+ * `ViewProjection` fold — no `eventStore.append`, no `emit`, no
+ * `*.polled` events. Repeated polls must be a no-op against the
+ * EventStore so the polling cadence under `--follow` (and the
+ * MCP-side `tasks/get` retry path) doesn't mutate the timeline they
+ * are observing.
+ *
+ * Audit (#1440 Op 1 / T1, orchestrator-inline 2026-05-17): all five
+ * underlying handlers verified pure folds — see `workflow-status-view.ts`,
+ * `shepherd-status-view.ts`, `pipeline-view.ts`, `convergence-view.ts`,
+ * `delegation-timeline-view.ts`. The source-file idempotency cross-check
+ * for the three NEW members lives in `cli/cli-follow-expansion.test.ts`
+ * so any future write-surface regression fails CI before landing.
+ *
+ * Keep this set in lockstep with the `FollowSubcommand` union in
+ * `cli/follow-formatter.ts` — the union's literal members must mirror
+ * this set exactly.
+ */
+export const VIEW_FOLLOW_ACTIONS: ReadonlySet<string> = new Set([
+  'workflow_status',
+  'shepherd_status',
+  'pipeline',
+  'convergence',
+  'delegation_timeline',
+]);
+
+/**
  * Builds a Commander program from the TOOL_REGISTRY.
  *
  * Each composite tool becomes a top-level command (with `exarchos_` prefix stripped),
@@ -225,17 +260,19 @@ export function buildCli(ctx: DispatchContext): Command {
         actionCmd.option('--follow', 'Stream events as NDJSON frames until the source closes');
       }
 
-      // T33 (#1273) / Wave C PR 3 — the `exarchos view workflow_status` and
-      // `exarchos view shepherd_status` actions gain a `--follow` flag that
-      // drives the dispatch-core `EventSourcedTaskStore` polling loop (see
-      // `cli/follow-loop.ts`). Like the event-query `--follow`, this flag is
-      // registered outside `addFlagsFromSchema` so the MCP tool schema for
-      // the underlying action stays one-shot — the Tasks-augmented branch
-      // for the MCP arm is gated by the SDK `task: { ttl }` request
-      // parameter, not by a tool-schema field (see C2).
+      // T33 (#1273) / Wave C PR 3 — the `exarchos view` actions listed in
+      // `VIEW_FOLLOW_ACTIONS` gain a `--follow` flag that drives the
+      // dispatch-core `EventSourcedTaskStore` polling loop (see
+      // `cli/follow-loop.ts`). #1440 Op 1 (T7) expanded the set from the
+      // original two-arm disjunction (workflow_status, shepherd_status) to
+      // include three more pure-projection view actions (pipeline,
+      // convergence, delegation_timeline). Like the event-query `--follow`,
+      // this flag is registered outside `addFlagsFromSchema` so the MCP
+      // tool schema for the underlying action stays one-shot — the
+      // Tasks-augmented branch for the MCP arm is gated by the SDK
+      // `task: { ttl }` request parameter, not by a tool-schema field (C2).
       const isViewFollow =
-        tool.name === 'exarchos_view' &&
-        (action.name === 'workflow_status' || action.name === 'shepherd_status');
+        tool.name === 'exarchos_view' && VIEW_FOLLOW_ACTIONS.has(action.name);
       if (isViewFollow) {
         actionCmd.option(
           '--follow',
@@ -401,8 +438,14 @@ export function buildCli(ctx: DispatchContext): Command {
 
           try {
             const { runFollowLoop } = await import('../cli/follow-loop.js');
-            const subcommand =
-              action.name === 'workflow_status' ? 'workflow_status' : 'shepherd_status';
+            // #1440 Op 1 (T7): the routing now flows directly from
+            // `action.name` since `VIEW_FOLLOW_ACTIONS` and the
+            // `FollowSubcommand` union are kept in lockstep — both
+            // describe the same five-element set. The cast is the
+            // bridge from the registry's `string` field to the
+            // narrower literal union; the `isViewFollow` guard above
+            // proves membership before we reach this point.
+            const subcommand = action.name as FollowSubcommand;
 
             // Dispatch the underlying action through the Tasks-augmented
             // path so the lifecycle is recorded in the same
