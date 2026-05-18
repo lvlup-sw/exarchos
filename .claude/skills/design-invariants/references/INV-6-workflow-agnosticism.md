@@ -1,6 +1,6 @@
 # INV-6: Workflow-Agnosticism (Skills Describe Behaviors, Playbooks Describe Workflows)
 
-A skill prescribing a **behavior** must describe its triggers in workflow-neutral terms — e.g., "activated when `next_actions` surfaces verb `merge_branch` with idempotency key `<feature-id>:merge`" — not in terms of a specific workflow stage like `feature/merge-pending` or `delegate`. Workflow-typed triggers belong in **playbooks**, not in skill prose. A skill that **is** intentionally workflow-specific declares `workflow-type:` in its frontmatter so audits can distinguish "intentionally scoped" from "leaky abstraction."
+A skill prescribing a **behavior** must describe its triggers in workflow-neutral terms — e.g., "activated when `next_actions` surfaces verb `merge_branch` with idempotency key `<feature-id>:merge`" — not in terms of a specific workflow stage like `feature/merge-pending` or `delegate`. Workflow-typed triggers belong in **playbooks/commands**, not in skill prose. A skill that **is** intentionally workflow-specific declares `workflow-type:` in its frontmatter so audits can distinguish "intentionally scoped" from "leaky abstraction." The advisory lint `scripts/lint-inv6.mjs` formalizes the candidate-violation grep.
 
 The invariant is the design discipline. The frontmatter declaration is the escape hatch — without it, every workflow-typed literal in a skill body is treated as a candidate violation.
 

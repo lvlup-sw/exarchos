@@ -1,6 +1,6 @@
 # INV-3: Basileus-Forward (No MCP-Second-Class Assumptions)
 
-No design decision presumes MCP is local-only. The Exarchos ↔ Basileus coordination ADR (`basileus/docs/adrs/ontological-data-fabric.md`) cements two-channel transport (Workflow client A on `/mcp/workflow`, Ontology client B on `/mcp/ontology`) with independent client lifecycles, handshake-authoritative capability resolution, and `.exarchos.yml`-only configuration.
+No design decision presumes MCP is local-only. The Exarchos ↔ Basileus coordination ADR (`basileus/docs/adrs/ontological-data-fabric.md`) cements two-channel transport (Workflow client A on `/mcp/workflow`, Ontology client B on `/mcp/ontology`) with independent client lifecycles, handshake-authoritative capability resolution, and `.exarchos.yml`-only configuration. Workspace discovery prefers the MCP roots capability over cwd heuristics (post-#1269). The remote-MCP surface throws-not-degrades when called (#1081) — explicit "not yet, but designed-for" rather than silent fallback.
 
 ## Acceptance questions (from #1109 §3 + ADR §§2.1, 2.4, 2.7, 2.8)
 
