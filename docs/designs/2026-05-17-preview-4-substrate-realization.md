@@ -35,7 +35,7 @@ Five unrealized opportunities are catalogued in #1440. This design scopes three 
 
 ### 4.1 — #1436 Elicitation form-mode E2E smoketest
 
-**Surface:** new test file `servers/exarchos-mcp/src/__tests__/outcome/elicitation-roundtrip.test.ts`.
+**Surface:** new test file `servers/exarchos-mcp/src/__tests__/integration/elicitation-roundtrip.test.ts`.
 
 The test wires an in-process MCP client + server pair using the SDK's `InMemoryTransport` (already used by `tools-call-handler.test.ts` and `tasks-methods.test.ts`). Three paths:
 
@@ -210,7 +210,7 @@ Applied recursively to this bundle:
 
 ## 8. Acceptance criteria
 
-- [ ] **#1436 closed:** `servers/exarchos-mcp/src/__tests__/outcome/elicitation-roundtrip.test.ts` passes with three paths (accept / decline / capability-absent). Each path asserts envelope outcome AND event-store emissions.
+- [ ] **#1436 closed:** `servers/exarchos-mcp/src/__tests__/integration/elicitation-roundtrip.test.ts` passes with three paths (accept / decline / capability-absent). Each path asserts envelope outcome AND event-store emissions.
 - [ ] **#1440 Op 1 closed:** `view pipeline` / `view convergence` / `view delegation_timeline` accept `--follow`; CLI-follow test covers each; idempotency audit recorded in PR description.
 - [ ] **#1440 Op 2 closed:** `DispatchHints` interface added to `registry.ts`; four actions annotated (`merge`, `synthesize`, `cleanup`, `rehydrate`); `describe` projects `dispatch` field; describe-coverage test asserts.
 - [ ] **#1440 Op 4 closed:** `retry_with_task` verb added to next-actions discriminator schema; hint emitted from dispatch boundary when (elapsed > threshold) AND (`taskSuitable: true`) AND (`task: { ttl }` not threaded); unit + integration tests cover positive + 3 negative paths.
