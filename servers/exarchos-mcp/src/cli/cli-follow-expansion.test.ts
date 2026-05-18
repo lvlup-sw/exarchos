@@ -184,6 +184,14 @@ describe('view handlers — #1440 Op 1 idempotency cross-check (T1 audit)', () =
   const FORBIDDEN_PATTERNS: ReadonlyArray<string> = [
     'eventStore.append',
     '.polled',
+    // `.emit(` (method-call form, NOT the bare word) catches EventEmitter-
+    // style write surfaces while avoiding false-positives on the word
+    // 'emit' that legitimately appears in JSDoc/comments referencing the
+    // T1 audit. Per CodeRabbit C5: the per-handler docstring at the top of
+    // this file explicitly forbids `emit`, but the runtime guard above
+    // missed it — closing the gap so a future regression that introduces
+    // an event-emitter write on a poll path fails CI before review.
+    '.emit(',
   ];
 
   for (const filename of FOLLOW_TARGETS) {
