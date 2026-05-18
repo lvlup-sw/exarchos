@@ -151,7 +151,7 @@ The shape mirrors existing optional fields (`autoEmits`, `deprecated`, `outputSc
 }
 ```
 
-**Threshold.** Default 10_000 ms (10s), matching the issue's example. Configurable via `.exarchos.yml` under `dispatch.retryWithTaskHintThresholdMs` for project-level tuning.
+**Threshold.** Hardcoded to 10_000 ms (10s) for this bundle. Config wiring at `.exarchos.yml` (`dispatch.retryWithTaskHintThresholdMs`) is deferred to a follow-up — see `dispatch.ts:1011` TODO.
 
 **Where it fires.** The hint computation runs at the dispatch boundary — `core/dispatch.ts`, after the action handler returns its `ToolResult` and BEFORE `nextActionsFromResult` runs. The hint is **prepended** to whatever the result-derived hints are, because it's a meta-hint about dispatch shape, not about the result's domain content.
 
