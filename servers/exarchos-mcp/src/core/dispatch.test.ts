@@ -1506,5 +1506,180 @@ describe('dispatch', () => {
         restore();
       }
     });
+
+    // ─── T12 — Negative paths ────────────────────────────────────────────
+    //
+    // The emission rule is conditional on three predicates ANDed together
+    // (taskSuitable && !taskAugmented && elapsedMs > threshold). Each
+    // negative test breaks exactly one predicate to pin the boundary.
+
+    it('RetryWithTaskHint_ElapsedBelowThreshold_HintNotEmitted', async () => {
+      // Arrange — same task-suitable action (`cleanup`), no `task: { ttl }`,
+      // but elapsed = 9_999 ms which is below the 10_000 ms threshold.
+      const { stubCompositeHandler, dispatch } = await import('./dispatch.js');
+      const stub = async (_args: Record<string, unknown>, _ctx: DispatchContext): Promise<ToolResult> => ({
+        success: true,
+        data: { ok: true },
+      });
+      const restore = stubCompositeHandler('exarchos_workflow', stub);
+
+      // 0 → 9_999: strictly below 10_000 (the rule uses `>` not `>=`, so
+      // even exactly 10_000 would still suppress the hint).
+      installClockSequence([0, 9_999]);
+
+      try {
+        const result = await dispatch(
+          'exarchos_workflow',
+          {
+            action: 'cleanup',
+            featureId: 'hint-below-threshold',
+            mergeVerified: true,
+          },
+          { stateDir: tmpDir, eventStore, enableTelemetry: false },
+        );
+
+        // Assert — no retry_with_task entry in next_actions (it may be
+        // absent or empty, but if present must not start with the hint).
+        expect(result.success).toBe(true);
+        const nextActions = (result as ToolResult & { next_actions?: readonly { verb: string }[] }).next_actions;
+        if (nextActions !== undefined && nextActions.length > 0) {
+          expect(nextActions[0].verb).not.toBe('retry_with_task');
+        }
+        // Stronger: no entry anywhere in the array is the hint verb.
+        const hasHint = (nextActions ?? []).some((n) => n.verb === 'retry_with_task');
+        expect(hasHint).toBe(false);
+      } finally {
+        restore();
+      }
+    });
+
+    it('RetryWithTaskHint_ActionNotTaskSuitable_HintNotEmitted', async () => {
+      // Arrange — `exarchos_view describe` is NOT annotated with
+      // `dispatch.taskSuitable` (read-only pure introspection over the
+      // registry). Even with a long elapsed time, the hint must not fire.
+      const { stubCompositeHandler, dispatch } = await import('./dispatch.js');
+      const stub = async (_args: Record<string, unknown>, _ctx: DispatchContext): Promise<ToolResult> => ({
+        success: true,
+        data: { ok: true, actions: [] },
+      });
+      const restore = stubCompositeHandler('exarchos_view', stub);
+
+      installClockSequence([0, 30_000]); // way above threshold
+
+      try {
+        const result = await dispatch(
+          'exarchos_view',
+          { action: 'describe', actions: ['cleanup'] },
+          { stateDir: tmpDir, eventStore, enableTelemetry: false },
+        );
+
+        expect(result.success).toBe(true);
+        const nextActions = (result as ToolResult & { next_actions?: readonly { verb: string }[] }).next_actions;
+        const hasHint = (nextActions ?? []).some((n) => n.verb === 'retry_with_task');
+        expect(hasHint).toBe(false);
+      } finally {
+        restore();
+      }
+    });
+
+    it('RetryWithTaskHint_TaskTtlAlreadyThreaded_HintNotEmitted', async () => {
+      // Arrange — caller threaded `task: { ttl: 60_000 }`, so the hint
+      // would be tautological. Even with elapsed > threshold and a
+      // task-suitable action, the emission must be suppressed.
+      //
+      // Note: the underlying `runTasksAugmented` path requires
+      // `ctx.taskStore` and capability gating to actually fire; without
+      // them (as here), `taskAugmented` is true but the call falls back
+      // to one-shot. The hint suppression must depend on `taskAugmented`
+      // (the caller's stated intent), NOT on whether the task path
+      // actually engaged — otherwise a fallback caller would receive a
+      // confusing hint to retry with the same TTL they already supplied.
+      const { stubCompositeHandler, dispatch } = await import('./dispatch.js');
+      const stub = async (_args: Record<string, unknown>, _ctx: DispatchContext): Promise<ToolResult> => ({
+        success: true,
+        data: { ok: true },
+      });
+      const restore = stubCompositeHandler('exarchos_workflow', stub);
+
+      installClockSequence([0, 30_000]); // above threshold
+
+      try {
+        const result = await dispatch(
+          'exarchos_workflow',
+          {
+            action: 'cleanup',
+            featureId: 'hint-task-threaded',
+            mergeVerified: true,
+            task: { ttl: 60_000 },
+          },
+          { stateDir: tmpDir, eventStore, enableTelemetry: false },
+        );
+
+        expect(result.success).toBe(true);
+        const nextActions = (result as ToolResult & { next_actions?: readonly { verb: string }[] }).next_actions;
+        const hasHint = (nextActions ?? []).some((n) => n.verb === 'retry_with_task');
+        expect(hasHint).toBe(false);
+      } finally {
+        restore();
+      }
+    });
+
+    // ─── T12 — Integration test ──────────────────────────────────────────
+    //
+    // End-to-end through the full dispatch flow (correlation context,
+    // built-in action validation, composite invocation, attachMeta) for
+    // a task-suitable annotated action. The composite handler is stubbed
+    // to short-circuit the real merge orchestration logic but the rest
+    // of the dispatch pipeline runs unchanged.
+
+    it('Dispatch_SlowTaskSuitableAction_EmitsRetryWithTaskHintInMeta', async () => {
+      // Arrange — stub `exarchos_orchestrate` so `merge_orchestrate`
+      // returns a minimal envelope without performing real VCS work.
+      // The boundary hint emission runs AFTER this stub returns.
+      const { stubCompositeHandler, dispatch } = await import('./dispatch.js');
+      const stub = async (_args: Record<string, unknown>, _ctx: DispatchContext): Promise<ToolResult> => ({
+        success: true,
+        data: { mergeSha: 'abc1234', strategy: 'squash' },
+        // Simulate a result that already has SOME workflow-derived hint;
+        // the boundary hint must be PREPENDED, not replace these.
+        next_actions: [
+          { verb: 'completed', reason: 'merge finished' },
+        ],
+      });
+      const restore = stubCompositeHandler('exarchos_orchestrate', stub);
+
+      // 0 → 12_500: well above 10s threshold.
+      installClockSequence([0, 12_500]);
+
+      try {
+        const result = await dispatch(
+          'exarchos_orchestrate',
+          {
+            action: 'merge_orchestrate',
+            featureId: 'integration-hint',
+            sourceBranch: 'feat/x',
+            targetBranch: 'main',
+            strategy: 'squash',
+          },
+          { stateDir: tmpDir, eventStore, enableTelemetry: false },
+        );
+
+        // Assert — envelope is successful, hint is FIRST in next_actions,
+        // existing handler-supplied hint is preserved after.
+        expect(result.success).toBe(true);
+        const nextActions = (result as ToolResult & { next_actions?: readonly { verb: string; ttl_suggestion_ms?: number }[] }).next_actions;
+        expect(nextActions).toBeDefined();
+        expect(nextActions!.length).toBe(2);
+        expect(nextActions![0].verb).toBe('retry_with_task');
+        expect(nextActions![0].ttl_suggestion_ms).toBe(60_000);
+        expect(nextActions![1].verb).toBe('completed');
+        // _meta correlation block must still be attached by attachMeta.
+        const meta = (result as ToolResult & { _meta?: Record<string, unknown> })._meta;
+        expect(meta).toBeDefined();
+        expect(typeof meta!.operationId).toBe('string');
+      } finally {
+        restore();
+      }
+    });
   });
 });
