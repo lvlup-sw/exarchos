@@ -2119,3 +2119,56 @@ describe('ToolAction.dispatch - DispatchHints shape', () => {
     expect(actionNoDispatch.dispatch).toBeUndefined();
   });
 });
+
+// ─── T9 (#1440 Op 2, preview-4 design §4.3) — Task-suitable annotations ──
+//
+// The four initial task-suitable targets from design §4.3:
+//   - `exarchos_orchestrate merge_orchestrate` (multi-step git merge)
+//   - `exarchos_orchestrate request_synthesize` — the registry-canonical
+//     name for the design's "synthesize" verb (PR creation flow flipped
+//     by emitting `synthesize.requested` to the choice-state guard).
+//     The design §4.3 callout lists "synthesize" as the logical verb;
+//     `request_synthesize` is its registry-name realization and lives
+//     under `exarchos_orchestrate` alongside the other gate verbs, NOT
+//     under `exarchos_workflow` (which only carries the HSM-level
+//     primitives `init`/`get`/`transition`/`update`/`cancel`/...).
+//   - `exarchos_workflow cleanup` (post-merge cleanup)
+//   - `exarchos_workflow rehydrate` (full state rebuild)
+//
+// Each must carry `dispatch: { taskSuitable: true,
+// taskTtlSuggestionMs: 60_000 }`. Annotations are advisory — the binding
+// opt-in gate stays at `core/dispatch.ts:927-954` — so this test only
+// pins the registry-side declaration, not behavior.
+describe('Registry — taskSuitable annotations (T9, #1440 Op 2)', () => {
+  it('Registry_TaskSuitableAnnotations_FourActionsMarked', () => {
+    const orchestrateTool = TOOL_REGISTRY.find(t => t.name === 'exarchos_orchestrate');
+    const workflowTool = TOOL_REGISTRY.find(t => t.name === 'exarchos_workflow');
+    expect(orchestrateTool, 'exarchos_orchestrate tool must exist').toBeDefined();
+    expect(workflowTool, 'exarchos_workflow tool must exist').toBeDefined();
+
+    const targets: Array<{ tool: 'exarchos_orchestrate' | 'exarchos_workflow'; action: string }> = [
+      { tool: 'exarchos_orchestrate', action: 'merge_orchestrate' },
+      { tool: 'exarchos_orchestrate', action: 'request_synthesize' },
+      { tool: 'exarchos_workflow', action: 'cleanup' },
+      { tool: 'exarchos_workflow', action: 'rehydrate' },
+    ];
+
+    for (const { tool, action } of targets) {
+      const composite = tool === 'exarchos_orchestrate' ? orchestrateTool! : workflowTool!;
+      const found = composite.actions.find(a => a.name === action);
+      expect(found, `${tool}.${action} must be registered`).toBeDefined();
+      expect(
+        found!.dispatch,
+        `${tool}.${action} must carry a DispatchHints block`,
+      ).toBeDefined();
+      expect(
+        found!.dispatch?.taskSuitable,
+        `${tool}.${action} must declare taskSuitable: true`,
+      ).toBe(true);
+      expect(
+        found!.dispatch?.taskTtlSuggestionMs,
+        `${tool}.${action} must declare taskTtlSuggestionMs: 60_000`,
+      ).toBe(60_000);
+    }
+  });
+});

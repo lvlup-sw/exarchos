@@ -1130,6 +1130,12 @@ const workflowActions: readonly ToolAction[] = [
     autoEmits: [
       { event: 'workflow.cleanup', condition: 'always' },
     ],
+    // T9 (#1440 Op 2, preview-4 design §4.3): post-merge cleanup is a
+    // long-running multi-step verb (merge verification, synthesis
+    // metadata backfill, review force-resolve, transition) that benefits
+    // from Tasks-augmented dispatch. The annotation is advisory — the
+    // binding opt-in gate stays at `core/dispatch.ts:927-954`.
+    dispatch: { taskSuitable: true, taskTtlSuggestionMs: 60_000 },
     outputSchema: EnvelopeSchema(z.unknown()),
     annotations: COMPENSABLE_LOCAL,
   },
@@ -1167,6 +1173,11 @@ const workflowActions: readonly ToolAction[] = [
         description: 'When rehydration succeeds (event-store emission failures are logged but do not fail the call — see rehydrate.ts).',
       },
     ],
+    // T9 (#1440 Op 2, preview-4 design §4.3): full state rebuild is a
+    // long-running projection fold (latest snapshot + every event since)
+    // that benefits from Tasks-augmented dispatch. Advisory — the
+    // binding opt-in gate stays at `core/dispatch.ts:927-954`.
+    dispatch: { taskSuitable: true, taskTtlSuggestionMs: 60_000 },
     outputSchema: EnvelopeSchema(z.unknown()),
     annotations: LOCAL_MUTATION_IDEMPOTENT,
   },
@@ -1643,6 +1654,12 @@ const orchestrateActions: readonly ToolAction[] = [
       { event: 'merge.executed', condition: 'conditional', description: 'When preflight passes and execute succeeds' },
       { event: 'merge.rollback', condition: 'conditional', description: 'When execute fails after a merge SHA was produced' },
     ],
+    // T9 (#1440 Op 2, preview-4 design §4.3): multi-step git merge
+    // orchestration (preflight → execute → optional rollback) is the
+    // canonical long-running verb and benefits from Tasks-augmented
+    // dispatch. Advisory — the binding opt-in gate stays at
+    // `core/dispatch.ts:927-954`.
+    dispatch: { taskSuitable: true, taskTtlSuggestionMs: 60_000 },
     outputSchema: EnvelopeSchema(z.unknown()),
     annotations: COMPENSABLE_REMOTE,
   },
@@ -2097,6 +2114,14 @@ const orchestrateActions: readonly ToolAction[] = [
     autoEmits: [
       { event: 'synthesize.requested', condition: 'always' },
     ],
+    // T9 (#1440 Op 2, preview-4 design §4.3): the registry-canonical
+    // name for the design's "synthesize" verb — PR creation flow flipped
+    // by emitting `synthesize.requested` to the choice-state guard.
+    // The synthesize phase itself is multi-step (branch staging, PR open,
+    // CI wait) so the verb that gates it benefits from Tasks-augmented
+    // dispatch. Advisory — the binding opt-in gate stays at
+    // `core/dispatch.ts:927-954`.
+    dispatch: { taskSuitable: true, taskTtlSuggestionMs: 60_000 },
     outputSchema: EnvelopeSchema(z.unknown()),
     annotations: LOCAL_MUTATION,
   },
