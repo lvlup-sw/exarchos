@@ -742,6 +742,90 @@ describe('TOOL_REGISTRY', () => {
       });
       expect(result.success).toBe(true);
     });
+
+    // T1 (#1446 residue) — register the three view actions that are
+    // dispatched through `views/composite.ts` today but were never added to
+    // `TOOL_REGISTRY.viewActions`. Without the registry entry, per-action
+    // Zod validation at `core/dispatch.ts:801` is silently skipped and
+    // `exarchos_view describe` under-lists the dispatched surface.
+    it('TOOL_REGISTRY_viewActions_IncludesSessionProvenanceProvenanceAndIdeateReadiness', () => {
+      const viewComposite = findComposite('exarchos_view');
+      expect(viewComposite).toBeDefined();
+
+      // ── session_provenance ────────────────────────────────────────────
+      // Handler: `handleViewSessionProvenance(args, stateDir)` —
+      // accepts `{ sessionId?, workflowId?, metric? }`. Does NOT receive
+      // the event store, so the correlation-tuple filter shape is
+      // intentionally absent here.
+      const sessionProvenance = viewComposite!.actions.find(
+        (a) => a.name === 'session_provenance',
+      );
+      expect(sessionProvenance, 'session_provenance must be registered').toBeDefined();
+      expect(
+        sessionProvenance!.schema instanceof z.ZodObject,
+        'session_provenance.schema must be a ZodObject',
+      ).toBe(true);
+      const sessionProvenanceShape = (
+        sessionProvenance!.schema as z.ZodObject
+      ).shape;
+      // Accepts the args the composite handler routes today.
+      const sessionProvenanceParse = sessionProvenance!.schema.safeParse({
+        sessionId: 'sess-abc',
+        workflowId: 'wf-1',
+        metric: 'cost',
+      });
+      expect(sessionProvenanceParse.success).toBe(true);
+      // No event-store query => no correlation-tuple slots.
+      expect(sessionProvenanceShape).not.toHaveProperty('operationId');
+      expect(sessionProvenanceShape).not.toHaveProperty('correlationId');
+      expect(sessionProvenanceShape).not.toHaveProperty('causationId');
+
+      // ── provenance ────────────────────────────────────────────────────
+      // Handler: `handleViewProvenance(args, stateDir, eventStore)` — queries
+      // the event store via `queryDeltaEvents`, so the correlation-tuple
+      // filter shape MUST be present so DR-5 dispatch validation surfaces
+      // those slots through `describe` (parity with the Wave 5 actions
+      // registered post-#1437).
+      const provenance = viewComposite!.actions.find(
+        (a) => a.name === 'provenance',
+      );
+      expect(provenance, 'provenance must be registered').toBeDefined();
+      expect(
+        provenance!.schema instanceof z.ZodObject,
+        'provenance.schema must be a ZodObject',
+      ).toBe(true);
+      const provenanceShape = (provenance!.schema as z.ZodObject).shape;
+      expect(provenanceShape).toHaveProperty('operationId');
+      expect(provenanceShape).toHaveProperty('correlationId');
+      expect(provenanceShape).toHaveProperty('causationId');
+      expect(
+        provenance!.schema.safeParse({ workflowId: 'wf-1' }).success,
+      ).toBe(true);
+
+      // ── ideate_readiness ──────────────────────────────────────────────
+      // Handler: `handleViewIdeateReadiness(args, stateDir, eventStore)` —
+      // queries the event store; same DR-5 correlation-tuple contract.
+      const ideateReadiness = viewComposite!.actions.find(
+        (a) => a.name === 'ideate_readiness',
+      );
+      expect(
+        ideateReadiness,
+        'ideate_readiness must be registered',
+      ).toBeDefined();
+      expect(
+        ideateReadiness!.schema instanceof z.ZodObject,
+        'ideate_readiness.schema must be a ZodObject',
+      ).toBe(true);
+      const ideateReadinessShape = (
+        ideateReadiness!.schema as z.ZodObject
+      ).shape;
+      expect(ideateReadinessShape).toHaveProperty('operationId');
+      expect(ideateReadinessShape).toHaveProperty('correlationId');
+      expect(ideateReadinessShape).toHaveProperty('causationId');
+      expect(
+        ideateReadiness!.schema.safeParse({ workflowId: 'wf-1' }).success,
+      ).toBe(true);
+    });
   });
 
   describe('schema validation', () => {
