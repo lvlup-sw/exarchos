@@ -1332,4 +1332,144 @@ describe('EventSourcedTaskStore (#1272)', () => {
       reapSpy.mockRestore();
     }
   });
+
+  it('ListTasks_AcrossSimulatedRestart_PaginatesStablyWithCursor', async () => {
+    // FINDING-5 (#1438, T7): cursor pagination MUST be stable across
+    // process restarts. The pre-fix implementation paginated by Map
+    // insertion order — set by `hydrateFromEventStore` on cold start
+    // and by `createTask` afterward. Neither establishes a content-
+    // derived sort key. For backends whose `listStreams` happens to be
+    // lex-sorted (SQLite) the pre-fix code accidentally appears stable
+    // ONLY when taskId lex order coincides with creation order; for
+    // every other relationship (and for the memory backend, which
+    // preserves insertion order) two instances disagree on pagination.
+    //
+    // The fix sorts by (createdAt ASC, taskId ASC) — `createdAt` is
+    // deterministic from the durable `task.created` event timestamp,
+    // and `taskId` is the tie-break for events with identical
+    // timestamps. The cursor wire format is opaque
+    // (base64url(JSON.stringify({createdAt, taskId}))) so consumers
+    // cannot accidentally couple to internal representation.
+    //
+    // Repro setup: seed 25 task.created events such that taskId lex
+    // order is the REVERSE of createdAt order. This forces the
+    // assertion to fail under the pre-fix Map-insertion-order
+    // implementation (which produces lex(taskId) order on SQLite cold
+    // start) and pass under the (createdAt ASC, taskId ASC) sort.
+    const N = 25;
+    const baseTimeMs = Date.parse('2026-01-01T00:00:00.000Z');
+
+    // taskIds: pad with 4-digit slot index, but invert (N-1-slot) into
+    // the taskId so taskId lex order is REVERSE of slot order. Slot
+    // also determines createdAt — slot 0 has the EARLIEST createdAt.
+    // Expected sort: ascending slot (== ascending createdAt) →
+    // taskIds in DESCENDING lex order. Insert in slot order so the
+    // memory-backend / Map-insertion path also disagrees with sort.
+    for (let slot = 0; slot < N; slot++) {
+      const inverted = N - 1 - slot; // taskId tag descends as slot ascends
+      const taskId = `task-${String(inverted).padStart(4, '0')}`;
+      const createdAt = new Date(baseTimeMs + slot * 1000).toISOString();
+      await eventStore.append(`task-store/${taskId}`, {
+        type: 'task.created',
+        timestamp: createdAt,
+        data: {
+          taskId,
+          ttl: null,
+          request: sampleRequest,
+        },
+      });
+    }
+
+    // Expected sort: by createdAt ASC. Slot index drives createdAt, so
+    // slot 0 (with taskId `task-00${N-1}`) comes first. That means
+    // taskIds appear in DESCENDING lex order — the OPPOSITE of what
+    // a pre-fix listStreams-driven implementation produces on SQLite.
+    const expectedOrder = Array.from({ length: N }, (_, slot) =>
+      `task-${String(N - 1 - slot).padStart(4, '0')}`,
+    );
+
+    // Instance A: page through the durable event store.
+    const instanceA = new EventSourcedTaskStore(eventStore);
+    const aPages: string[][] = [];
+    const aCursors: Array<string | undefined> = [];
+    let cursor: string | undefined;
+    do {
+      const page = await instanceA.listTasks(cursor);
+      aPages.push(page.tasks.map((t) => t.taskId));
+      aCursors.push(page.nextCursor);
+      cursor = page.nextCursor;
+    } while (cursor !== undefined);
+
+    // Sanity: A enumerates exactly N unique tasks in sorted order.
+    const aAll = aPages.flat();
+    expect(aAll).toHaveLength(N);
+    expect(new Set(aAll).size).toBe(N);
+    expect(aAll).toEqual(expectedOrder);
+
+    // Instance B: a fresh store against the same event store, replaying
+    // each of A's cursors as the input to the next listTasks. B's
+    // sequence MUST equal A's sequence — that is the cross-process
+    // pagination-stability contract.
+    const instanceB = new EventSourcedTaskStore(eventStore);
+    // Page 1 (no cursor).
+    const bPage1 = await instanceB.listTasks();
+    expect(bPage1.tasks.map((t) => t.taskId)).toEqual(aPages[0]);
+    // The cursor B emits at the end of page 1 MUST equal A's page-1
+    // cursor — that's the byte-level invariant of an opaque cursor.
+    expect(bPage1.nextCursor).toEqual(aCursors[0]);
+    // Feed A's cursor (not B's) into B for subsequent pages so we are
+    // testing the exact contract: A's cursor used by B yields A's
+    // next page.
+    for (let i = 1; i < aPages.length; i++) {
+      const bPage = await instanceB.listTasks(aCursors[i - 1]);
+      expect(bPage.tasks.map((t) => t.taskId)).toEqual(aPages[i]);
+      expect(bPage.nextCursor).toEqual(aCursors[i]);
+    }
+  });
+
+  it('ListTasks_TieBreakOnIdenticalCreatedAt_OrdersByTaskIdAsc', async () => {
+    // FINDING-5 (#1438, T7): when two `task.created` events share an
+    // identical ISO timestamp (two tasks created within the same
+    // millisecond), the sort tie-break MUST be taskId ASC. Without a
+    // stable secondary key the relative order falls through to Map
+    // insertion order, which is exactly the cross-process
+    // inconsistency T7 closes.
+    //
+    // Force-the-bug setup: drive enough back-to-back `createTask`
+    // calls under a frozen clock so every `task.created.timestamp`
+    // is byte-identical. `createTask` generates RANDOM 32-char hex
+    // taskIds and appends to `this.tasks` in call order, so the
+    // probability that Map insertion order coincidentally equals
+    // taskId-lex order across N=10 entries is essentially zero
+    // (10! permutations, only 1 matches). Pre-fix `listTasks`
+    // returns Map iteration order (an arbitrary permutation);
+    // post-fix returns the unique permutation sorted by taskId ASC.
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(Date.parse('2026-02-15T12:00:00.000Z'));
+
+      const N = 10;
+      const createdTaskIds: string[] = [];
+      for (let i = 0; i < N; i++) {
+        const t = await store.createTask(
+          { ttl: null },
+          `req-tie-${i}`,
+          sampleRequest,
+        );
+        createdTaskIds.push(t.taskId);
+      }
+      // Sanity: all N timestamps tied at the frozen wall-clock.
+
+      const { tasks } = await store.listTasks();
+      const observed = tasks.map((t) => t.taskId);
+
+      // Contract: with identical createdAt across all entries, the
+      // result MUST be sorted by taskId ASC — a pure function of the
+      // taskIds, no insertion-order influence.
+      const expected = [...createdTaskIds].sort();
+      expect(observed).toEqual(expected);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
