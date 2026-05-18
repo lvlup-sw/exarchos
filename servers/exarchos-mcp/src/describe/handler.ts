@@ -122,6 +122,12 @@ export async function handleDescribe(
         // description string. Surfaced unconditionally (not just when true)
         // so structurally-honest consumers can rely on the slot's presence.
         ...(action.deprecated ? { deprecated: true } : {}),
+        // T8 (#1440 Op 2, preview-4 design §4.3): project the `dispatch`
+        // DispatchHints slot so clients can enumerate task-suitable
+        // actions via `exarchos_view describe`. The slot is omitted
+        // entirely when the action does not declare it, mirroring the
+        // `autoEmits` / `deprecated` optional-field pattern above.
+        ...(action.dispatch ? { dispatch: action.dispatch } : {}),
         // Wave 0 / Task G.3 (#1287 + INV-5b, design §2.1 Approach C):
         // per-action `outputSchema` is surfaced as JSON Schema 2020-12
         // under `outputSchemaJson` so clients can introspect the precise
