@@ -1143,4 +1143,101 @@ describe('EventSourcedTaskStore (#1272)', () => {
     const ids = tasks.map((t) => t.taskId).sort();
     expect(ids).toEqual([t1.taskId, t2.taskId].sort());
   });
+
+  it('CreateTask_WhenMapExceeds1024Entries_TriggersExpiredReap', async () => {
+    // FINDING-4 (#1438, T4): the TTL reaper (`reapExpired`) used to fire
+    // only on `listTasks`. Tasks created via `createTask` and never read
+    // accumulated in `this.tasks` indefinitely. The size-cap fix invokes
+    // `reapExpired` from `createTask` once the cache crosses
+    // `SIZE_CAP_REAP_THRESHOLD = 1024` so an unbounded creator workload
+    // cannot starve the reap path.
+    //
+    // Setup: create 1024 tasks with short TTLs, advance the wall clock
+    // past their expiry, then create one more — the 1025th create must
+    // trigger reap and drop every expired entry. The post-call cache
+    // size is `1` (only the survivor task).
+    vi.useFakeTimers();
+    try {
+      const SHORT_TTL = 5_000;
+      // Create exactly 1024 short-TTL tasks. After this loop the cache
+      // size is 1024 (== threshold, not yet over), so reap must NOT
+      // have fired yet — assert via the spy below.
+      const reapSpy = vi.spyOn(
+        store as unknown as { reapExpired: () => void },
+        'reapExpired',
+      );
+      try {
+        for (let i = 0; i < 1024; i++) {
+          await store.createTask(
+            { ttl: SHORT_TTL },
+            `req-${i}`,
+            sampleRequest,
+          );
+        }
+        // Pre-1025th create: no reap triggered (size is exactly 1024,
+        // not strictly greater than threshold).
+        expect(reapSpy).not.toHaveBeenCalled();
+        expect(
+          (store as unknown as { tasks: Map<string, unknown> }).tasks.size,
+        ).toBe(1024);
+
+        // Advance wall clock past every TTL so the first 1024 are all
+        // expired by the time the 1025th create's reap runs.
+        vi.setSystemTime(Date.now() + SHORT_TTL * 2);
+
+        // The 1025th create pushes size to 1025 > 1024 and must invoke
+        // `reapExpired`, sweeping all 1024 expired entries.
+        const survivor = await store.createTask(
+          { ttl: null },
+          'req-survivor',
+          sampleRequest,
+        );
+
+        expect(reapSpy).toHaveBeenCalledTimes(1);
+        const finalSize = (
+          store as unknown as { tasks: Map<string, unknown> }
+        ).tasks.size;
+        // Post-reap: only the survivor (unlimited TTL, just created)
+        // remains. Expired entries are gone; bound is well under 1024.
+        expect(finalSize).toBe(1);
+        expect(
+          (store as unknown as { tasks: Map<string, unknown> }).tasks.has(
+            survivor.taskId,
+          ),
+        ).toBe(true);
+      } finally {
+        reapSpy.mockRestore();
+      }
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('CreateTask_WhenMapUnder1024_DoesNotReap', async () => {
+    // FINDING-4 (#1438, T4): the size-cap reap is gated strictly on
+    // `this.tasks.size > SIZE_CAP_REAP_THRESHOLD`. Below the threshold,
+    // `createTask` MUST NOT invoke `reapExpired` — paying the O(n)
+    // sweep cost on every create at small cache sizes would regress
+    // hot-path performance for the common workload.
+    const reapSpy = vi.spyOn(
+      store as unknown as { reapExpired: () => void },
+      'reapExpired',
+    );
+    try {
+      // 100 creates, none expired, all under threshold.
+      for (let i = 0; i < 100; i++) {
+        await store.createTask(
+          { ttl: 60_000 },
+          `req-under-${i}`,
+          sampleRequest,
+        );
+      }
+      expect(reapSpy).not.toHaveBeenCalled();
+      expect(
+        (store as unknown as { tasks: Map<string, unknown> }).tasks.size,
+      ).toBe(100);
+    } finally {
+      reapSpy.mockRestore();
+    }
+  });
 });
