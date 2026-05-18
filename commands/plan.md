@@ -71,10 +71,13 @@ Write to `docs/plans/YYYY-MM-DD-<feature>.md`
 
 ## State Management
 
-After saving plan, update state with tasks using `mcp__plugin_exarchos_exarchos__exarchos_workflow` with `action: "update"`:
-- Set `artifacts.plan` to the plan path
-- Set `tasks` to an array of task objects (id, title, status, branch)
-- Set `phase` to "plan-review"
+After saving plan, persist the artifact + tasks and transition the phase via two separate calls — the runtime rejects `updates.phase` (`update` is non-phase mutation only; phase changes go through the HSM-guarded `transition` action):
+
+1. Update artifacts + tasks using `mcp__plugin_exarchos_exarchos__exarchos_workflow` with `action: "update"`:
+   - Set `updates.artifacts.plan` to the plan path
+   - Set `updates.tasks` to an array of task objects (id, title, status, branch)
+2. Transition phase using `mcp__plugin_exarchos_exarchos__exarchos_workflow` with `action: "transition"`:
+   - Set `target: "plan-review"`
 
 ## Output
 
@@ -91,7 +94,7 @@ Before planning, check if plan already exists:
 
 After saving the implementation plan, **auto-continue to plan-review**:
 
-1. Update state: `.phase = "plan-review"`
+1. Transition phase via `mcp__plugin_exarchos_exarchos__exarchos_workflow` with `action: "transition"`, `target: "plan-review"`
 2. Output: "Plan saved to `$PLAN_PATH` with [N] tasks. Running plan-design coverage analysis..."
 3. Run plan-review (delta analysis):
    - Re-read design document
@@ -138,9 +141,11 @@ If plan-review finds complete coverage:
 
 2. **PAUSE for user input**: "Plan covers all design requirements. Approve and continue to delegation? (yes/no)"
 
-3. **On approval**, use `mcp__plugin_exarchos_exarchos__exarchos_workflow` with `action: "update"`:
-   - Set `planReview.approved` to true
-   - Set `phase` to "delegate"
+3. **On approval**, persist the approval flag and transition phase via two separate calls (the runtime rejects `updates.phase`):
+   - First, `mcp__plugin_exarchos_exarchos__exarchos_workflow` with `action: "update"`:
+     - Set `updates.planReview.approved` to true
+   - Then, `mcp__plugin_exarchos_exarchos__exarchos_workflow` with `action: "transition"`:
+     - Set `target: "delegate"`
 
    Then invoke:
    ```typescript

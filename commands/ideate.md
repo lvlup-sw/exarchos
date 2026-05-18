@@ -60,9 +60,12 @@ After user selects approach:
 
 Initialize workflow state at the start using `mcp__plugin_exarchos_exarchos__exarchos_workflow` with `action: "init"`, `featureId`, and `workflowType: "feature"`.
 
-After saving design, update state using `mcp__plugin_exarchos_exarchos__exarchos_workflow` with `action: "update"`:
-- Set `artifacts.design` to the design path
-- Set `phase` to "plan"
+After saving design, persist the artifact and transition the phase via two separate calls — the runtime rejects `updates.phase` (`update` is non-phase mutation only; phase changes go through the HSM-guarded `transition` action):
+
+1. Update artifacts using `mcp__plugin_exarchos_exarchos__exarchos_workflow` with `action: "update"`:
+   - Set `updates.artifacts.design` to the design path
+2. Transition phase using `mcp__plugin_exarchos_exarchos__exarchos_workflow` with `action: "transition"`:
+   - Set `target: "plan"`
 
 ## Output
 
@@ -72,13 +75,15 @@ Save design to `docs/designs/YYYY-MM-DD-<feature>.md` and capture the path as `$
 
 After saving the design document, **auto-continue to planning** (no user confirmation here):
 
-1. Update state with design path and phase using `mcp__plugin_exarchos_exarchos__exarchos_workflow` with `action: "update"`:
-   - Set `artifacts.design` to the design document path
-   - Set `phase` to "plan"
+1. Update artifacts via `mcp__plugin_exarchos_exarchos__exarchos_workflow` with `action: "update"`:
+   - Set `updates.artifacts.design` to the design document path
 
-2. Output: "Design saved. Auto-continuing to implementation planning..."
+2. Transition phase via `mcp__plugin_exarchos_exarchos__exarchos_workflow` with `action: "transition"`:
+   - Set `target: "plan"`
 
-3. Invoke immediately:
+3. Output: "Design saved. Auto-continuing to implementation planning..."
+
+4. Invoke immediately:
    ```typescript
    Skill({ skill: "exarchos:plan", args: "$DESIGN_PATH" })
    ```
