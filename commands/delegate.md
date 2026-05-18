@@ -51,10 +51,10 @@ Before delegating, check task status:
 For **every** task subagent dispatch (including parallel waves), emit a
 `task.assigned` event **before** invoking the subagent. Without this event,
 the rehydration projection's `taskProgress` is silently empty (tracked by
-#1179 / #1180; see [memory: feedback_orchestrator_task_assigned_emission]).
+`#1179` / `#1180`; see [memory: feedback_orchestrator_task_assigned_emission]).
 
 1. Call `mcp__plugin_exarchos_exarchos__exarchos_event` with:
-   ```
+   ```yaml
    action: "append"
    stream: "<featureId>"
    event: {

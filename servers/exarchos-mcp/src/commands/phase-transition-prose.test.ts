@@ -33,6 +33,11 @@ const COMMANDS_WITH_PHASE_TRANSITIONS = [
   { name: 'synthesize', file: 'commands/synthesize.md', expectedTargets: ['completed'] },
 ];
 
+/** Escape regex metacharacters so dynamic target strings are matched literally. */
+function escapeRegex(literal: string): string {
+  return literal.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 describe('command phase-transition canonical pattern (#1370 PR-2 F2)', () => {
   for (const cmd of COMMANDS_WITH_PHASE_TRANSITIONS) {
     it(`${cmd.name}_PhaseChange_UsesTransitionActionNotUpdatesPhase`, () => {
@@ -63,7 +68,7 @@ describe('command phase-transition canonical pattern (#1370 PR-2 F2)', () => {
         expect(
           body,
           `${cmd.name}: must document \`target: "${target}"\` transition`,
-        ).toMatch(new RegExp(`target:\\s*["']${target}["']`));
+        ).toMatch(new RegExp(`target:\\s*["']${escapeRegex(target)}["']`));
       });
     }
   }
