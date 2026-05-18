@@ -2051,3 +2051,124 @@ describe('validateAction', () => {
     ).not.toThrow();
   });
 });
+
+// ─── Preview-4 / T2 — DispatchHints on ToolAction (#1440 Op 2) ─────────
+//
+// Adds an optional, action-descriptor-level `dispatch: DispatchHints`
+// block so future tasks (T8 describe projection, T9 annotations, T11
+// retry_with_task verb) can annotate which actions are long-running and
+// benefit from Tasks-augmented dispatch. Lives at the descriptor level
+// (sibling to `cli`, `gate`, `autoEmits`), not under `cli.`, because the
+// Tasks dispatch-core is shared between CLI and MCP facades (INV-2). See
+// design §4.3.
+//
+// This test asserts the shape only — no annotations on existing actions
+// land in T2; those are T9's job. The actual opt-in gate stays at
+// `core/dispatch.ts:927-954`; this marker is advisory.
+describe('ToolAction.dispatch - DispatchHints shape', () => {
+  it('ToolAction_DispatchHintsShape_OptionalTaskSuitableField', () => {
+    const action: ToolAction = {
+      name: 'longRunningExample',
+      description: 'Example long-running action for shape assertion.',
+      schema: z.object({ featureId: z.string() }),
+      phases: new Set(['plan']),
+      roles: new Set(['lead']),
+      outputSchema: z.object({ success: z.boolean() }),
+      annotations: {
+        safety: 'local-mutation',
+        readOnly: false,
+        destructive: false,
+        idempotent: false,
+        openWorld: false,
+      },
+      dispatch: {
+        taskSuitable: true,
+        taskTtlSuggestionMs: 60_000,
+      },
+    };
+
+    // Anchor the type-level assertion with a runtime check so the test
+    // also fails loudly under vitest if the field is dropped or renamed
+    // (TS-only tests get excluded from CI typecheck — see
+    // servers/exarchos-mcp/tsconfig.json's `**/*.test.ts` exclude).
+    expect(action.dispatch).toBeDefined();
+    expect(action.dispatch?.taskSuitable).toBe(true);
+    expect(action.dispatch?.taskTtlSuggestionMs).toBe(60_000);
+  });
+
+  it('ToolAction_DispatchHintsShape_FieldIsOptional', () => {
+    // Omitting `dispatch` must still satisfy `ToolAction`. This guards
+    // against the field being inadvertently promoted to required, which
+    // would force every existing action to annotate before T9 lands.
+    const actionNoDispatch: ToolAction = {
+      name: 'readOnlyExample',
+      description: 'Example read-only action without DispatchHints.',
+      schema: z.object({}),
+      phases: new Set(['ideate']),
+      roles: new Set(['any']),
+      outputSchema: z.object({ success: z.boolean() }),
+      annotations: {
+        safety: 'read-only',
+        readOnly: true,
+        destructive: false,
+        idempotent: true,
+        openWorld: false,
+      },
+    };
+
+    expect(actionNoDispatch.dispatch).toBeUndefined();
+  });
+});
+
+// ─── T9 (#1440 Op 2, preview-4 design §4.3) — Task-suitable annotations ──
+//
+// The four initial task-suitable targets from design §4.3:
+//   - `exarchos_orchestrate merge_orchestrate` (multi-step git merge)
+//   - `exarchos_orchestrate request_synthesize` — the registry-canonical
+//     name for the design's "synthesize" verb (PR creation flow flipped
+//     by emitting `synthesize.requested` to the choice-state guard).
+//     The design §4.3 callout lists "synthesize" as the logical verb;
+//     `request_synthesize` is its registry-name realization and lives
+//     under `exarchos_orchestrate` alongside the other gate verbs, NOT
+//     under `exarchos_workflow` (which only carries the HSM-level
+//     primitives `init`/`get`/`transition`/`update`/`cancel`/...).
+//   - `exarchos_workflow cleanup` (post-merge cleanup)
+//   - `exarchos_workflow rehydrate` (full state rebuild)
+//
+// Each must carry `dispatch: { taskSuitable: true,
+// taskTtlSuggestionMs: 60_000 }`. Annotations are advisory — the binding
+// opt-in gate stays at `core/dispatch.ts:927-954` — so this test only
+// pins the registry-side declaration, not behavior.
+describe('Registry — taskSuitable annotations (T9, #1440 Op 2)', () => {
+  it('Registry_TaskSuitableAnnotations_FourActionsMarked', () => {
+    const orchestrateTool = TOOL_REGISTRY.find(t => t.name === 'exarchos_orchestrate');
+    const workflowTool = TOOL_REGISTRY.find(t => t.name === 'exarchos_workflow');
+    expect(orchestrateTool, 'exarchos_orchestrate tool must exist').toBeDefined();
+    expect(workflowTool, 'exarchos_workflow tool must exist').toBeDefined();
+
+    const targets: Array<{ tool: 'exarchos_orchestrate' | 'exarchos_workflow'; action: string }> = [
+      { tool: 'exarchos_orchestrate', action: 'merge_orchestrate' },
+      { tool: 'exarchos_orchestrate', action: 'request_synthesize' },
+      { tool: 'exarchos_workflow', action: 'cleanup' },
+      { tool: 'exarchos_workflow', action: 'rehydrate' },
+    ];
+
+    for (const { tool, action } of targets) {
+      const composite = tool === 'exarchos_orchestrate' ? orchestrateTool! : workflowTool!;
+      const found = composite.actions.find(a => a.name === action);
+      expect(found, `${tool}.${action} must be registered`).toBeDefined();
+      expect(
+        found!.dispatch,
+        `${tool}.${action} must carry a DispatchHints block`,
+      ).toBeDefined();
+      expect(
+        found!.dispatch?.taskSuitable,
+        `${tool}.${action} must declare taskSuitable: true`,
+      ).toBe(true);
+      expect(
+        found!.dispatch?.taskTtlSuggestionMs,
+        `${tool}.${action} must declare taskTtlSuggestionMs: 60_000`,
+      ).toBe(60_000);
+    }
+  });
+});

@@ -203,6 +203,63 @@ describe('buildCli', () => {
 
     stdoutSpy.mockRestore();
   });
+
+  // ─── #1440 Op 1 (T7): --follow expansion to additional view actions ──────
+  //
+  // The `isViewFollow` predicate currently inlines a two-arm disjunction
+  // over `workflow_status | shepherd_status`. Expansion adds three more
+  // pure ViewProjection-backed actions (`pipeline`, `convergence`,
+  // `delegation_timeline`) per the T1 orchestrator-inline idempotency
+  // audit. These tests pin that the `--follow` option is REGISTERED for
+  // each of the five actions through the Commander tree — they fail
+  // BEFORE expansion because the predicate rejects the new three, so the
+  // `actionCmd.option('--follow', ...)` registration call is skipped and
+  // the option simply doesn't exist on the command.
+
+  // Map (action.name in registry) → (CLI subcommand name, after action.cli.alias resolution).
+  // Only `pipeline` carries an alias (`ls`); the others register under their full name.
+  const FOLLOW_ACTION_CLI_NAMES: ReadonlyArray<{ readonly action: string; readonly cliName: string }> = [
+    { action: 'workflow_status', cliName: 'workflow_status' },
+    { action: 'shepherd_status', cliName: 'shepherd_status' },
+    { action: 'pipeline', cliName: 'ls' },
+    { action: 'convergence', cliName: 'convergence' },
+    { action: 'delegation_timeline', cliName: 'delegation_timeline' },
+  ];
+
+  for (const { action, cliName } of FOLLOW_ACTION_CLI_NAMES) {
+    it(`BuildCli_ViewFollow_${action}_RegistersFollowFlag`, () => {
+      // Arrange — locate the `vw <cliName>` subcommand via the Commander tree.
+      const program = buildCli(ctx);
+      const viewCmd = program.commands.find((c) => c.name() === 'vw');
+      expect(viewCmd, 'exarchos vw tool group not registered').toBeDefined();
+      const actionCmd = viewCmd?.commands.find((c) => c.name() === cliName);
+      expect(
+        actionCmd,
+        `exarchos vw ${cliName} subcommand not registered (action.name: ${action})`,
+      ).toBeDefined();
+
+      // Assert — the `--follow` option is present on the subcommand.
+      const optionFlags = actionCmd?.options.map((o) => o.flags) ?? [];
+      expect(
+        optionFlags.some((f) => f.includes('--follow')),
+        `exarchos vw ${cliName} must register --follow (action.name '${action}' belongs in VIEW_FOLLOW_ACTIONS)`,
+      ).toBe(true);
+    });
+  }
+
+  it('BuildCli_ViewFollow_NonFollowAction_DoesNotRegisterFollowFlag', () => {
+    // Negative control: `view tasks` is a one-shot detail view that the
+    // T7 expansion deliberately leaves out of `VIEW_FOLLOW_ACTIONS`. The
+    // predicate must continue to gate `--follow` registration to the
+    // members of the set — a stray addition (or a typo) should NOT
+    // silently register the flag on every view action.
+    const program = buildCli(ctx);
+    const viewCmd = program.commands.find((c) => c.name() === 'vw');
+    const tasksCmd = viewCmd?.commands.find((c) => c.name() === 'tasks');
+    expect(tasksCmd, 'exarchos vw tasks subcommand not registered').toBeDefined();
+    const optionFlags = tasksCmd?.options.map((o) => o.flags) ?? [];
+    expect(optionFlags.some((f) => f.includes('--follow'))).toBe(false);
+  });
 });
 
 // ─── Task 12: Schema Command ─────────────────────────────────────────────────

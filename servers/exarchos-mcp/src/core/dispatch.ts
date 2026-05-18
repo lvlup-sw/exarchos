@@ -11,7 +11,8 @@ import type { CapabilityResolver } from '../capabilities/resolver.js';
 import type { StorageBackend } from '../storage/backend.js';
 import type { RootsClient } from '../workspace/discovery.js';
 import type { ElicitationClient } from '../dispatch/elicitation-dispatch.js';
-import { hasCustomToolHandlers, getCustomToolActionHandler, getFullRegistry } from '../registry.js';
+import { hasCustomToolHandlers, getCustomToolActionHandler, getFullRegistry, findActionInRegistry } from '../registry.js';
+import type { NextAction } from '../next-action.js';
 import {
   formatValidationError,
   buildInvalidInput,
@@ -148,7 +149,7 @@ export interface DispatchContext {
 // Future iterations can extend this surface; the conservative single-field
 // gate is the v2.10 contract.
 
-function extractSingleMissingRequiredField(
+export function extractSingleMissingRequiredField(
   error: import('zod').z.ZodError,
 ): string | undefined {
   // Zod v4's missing-required-key error surfaces with `code: 'invalid_type'`
@@ -166,11 +167,21 @@ function extractSingleMissingRequiredField(
   //   - exactly one issue is reported, AND
   //   - the issue path is a single top-level key (string), AND
   //   - the issue code is 'invalid_type' (Zod's universal "missing" code), AND
-  //   - the issue's `input` is `undefined` AND the non-standard `received`
-  //     property is the string `'undefined'` (distinguishes a genuinely
-  //     missing field from a wrong-type field — elicitation only applies
-  //     to the former; the dual check defends against Zod versions that
-  //     populate one signal but not the other).
+  //   - the issue's `input` is `undefined` (the primary "field missing"
+  //     disambiguator across Zod v3 and v4 — populated by reportInput at
+  //     the call site; see comment at the safeParse site below). The
+  //     non-standard `received` property is *also* inspected as a
+  //     belt-and-suspenders signal, but its presence varies:
+  //       - Zod v3 populates `received: 'undefined'` (the string) for
+  //         missing fields.
+  //       - Zod v4 omits the `received` property entirely (Issue #1451 /
+  //         discovered via #1436 E2E smoketest). The runtime value of
+  //         `(issue as any).received` is therefore JS `undefined`.
+  //     Both signals are valid "missing field" indicators; we reject only
+  //     when `received` carries some OTHER value (a wrong-type indicator
+  //     like 'string' or 'number'). The `input !== undefined` guard above
+  //     is what actually keeps wrong-type errors from leaking into the
+  //     elicitation hand-off — CodeRabbit CRITICAL #1424 remains satisfied.
   const issues = error.issues;
   if (issues.length !== 1) return undefined;
   const only = issues[0];
@@ -179,10 +190,11 @@ function extractSingleMissingRequiredField(
   if (only.path.length !== 1) return undefined;
   const key = only.path[0];
   if (typeof key !== 'string') return undefined;
-  // Guard against wrong-type fields masquerading as missing. The `received`
-  // property is non-standard across Zod versions — narrow defensively.
+  // Dual-signal received-property gate (#1451). Accept absence (Zod v4)
+  // or the literal string 'undefined' (Zod v3); reject any other value
+  // (a wrong-type indicator).
   const received = (only as { received?: unknown }).received;
-  if (received !== 'undefined') return undefined;
+  if (received !== 'undefined' && received !== undefined) return undefined;
   return key;
 }
 
@@ -542,6 +554,14 @@ export async function dispatch(
     void _stripped;
     args = rest;
   }
+
+  // ─── T11 (#1440 Op 4, Preview-4 §4.4) — retry_with_task hint clock ──────
+  // Capture the dispatch-entry timestamp here so the emission rule at the
+  // post-handler boundary can compute elapsed wall-clock time. Anchored as
+  // early as possible (after `task: { ttl }` strip; before workspace
+  // resolution / schema validation / handler invocation) so the elapsed
+  // measurement covers the full dispatch round-trip the caller observes.
+  const dispatchStartTs = Date.now();
 
   // Lazy-loaded composite handler. Falls back to `undefined` when the tool
   // is not a built-in (e.g. custom tools registered via config).
@@ -960,6 +980,48 @@ export async function dispatch(
   } else {
     result = await coreHandler(args);
   }
+
+  // ─── T11 (#1440 Op 4, Preview-4 §4.4) — retry_with_task hint emission ───
+  // After the handler returns its ToolResult, decide whether the caller
+  // should be advised to re-invoke this action under the Tasks-augmented
+  // dispatch path. Conditions (all must hold):
+  //
+  //   1. The action's registry annotation declares `dispatch.taskSuitable === true`.
+  //   2. The caller did NOT thread `task: { ttl }` (i.e., `taskAugmented === false`).
+  //   3. Elapsed wall-clock dispatch time exceeded the threshold (default 10_000 ms).
+  //
+  // When all three hold, prepend a `{ verb: 'retry_with_task', reason,
+  // ttl_suggestion_ms }` next-action to `result.next_actions`. The hint
+  // schema lives at `next-action.ts:92` (RetryWithTaskNextActionSchema).
+  //
+  // Prepended (not appended) because it is a meta-hint about dispatch
+  // *shape*, not about the result's domain content — callers reading the
+  // first hint to decide their next step see the augmentation suggestion
+  // before any result-derived workflow verbs.
+  //
+  // TODO(#1440 Op 4 follow-up): wire `config.dispatch.retryWithTaskHintThresholdMs`
+  // through `ExarchosConfig` so projects can tune the threshold without
+  // touching dispatch core. Hardcoded for now per design §4.4.
+  if (result.success && !taskAugmented) {
+    const actionName = typeof args.action === 'string' ? args.action : undefined;
+    if (actionName !== undefined) {
+      const action = findActionInRegistry(tool, actionName);
+      if (action?.dispatch?.taskSuitable === true) {
+        const elapsedMs = Date.now() - dispatchStartTs;
+        const RETRY_WITH_TASK_THRESHOLD_MS = 10_000;
+        if (elapsedMs > RETRY_WITH_TASK_THRESHOLD_MS) {
+          const hint: NextAction = {
+            verb: 'retry_with_task',
+            reason: `this action took ${elapsedMs}ms; consider Tasks-augmented dispatch for live progress`,
+            ttl_suggestion_ms: action.dispatch.taskTtlSuggestionMs ?? 60_000,
+          };
+          const existing: readonly NextAction[] = result.next_actions ?? [];
+          result = { ...result, next_actions: [hint, ...existing] };
+        }
+      }
+    }
+  }
+
   return attachMeta(result);
   } catch (error) {
     return attachMeta({
