@@ -13,7 +13,7 @@ invariants:
       - event-store
       - projections
       - reducers
-      - workflow-state
+      - workflow-state-projection
     summary: >
       The append-only event log is the source of truth. Every read-model is a
       left-fold; state mutations are events, not in-place updates. Reducers must
@@ -49,16 +49,19 @@ invariants:
       - capabilities-resolver
       - runtime-yaml
       - mcp-transport
-      - sideband-daemon
+      - remote-mcp-adapter
     summary: >
       No design decision presumes MCP is local-only. Workflow and Ontology
       channels have independent client lifecycles, handshake-authoritative
       capability resolution, and .exarchos.yml-only configuration. Workspace
       discovery prefers the MCP roots capability over cwd heuristics
-      (post-#1269).
+      (post-#1269). The remote-MCP surface throws-not-degrades when called
+      (#1081).
     references:
       - .claude/skills/design-invariants/references/INV-3-basileus-forward.md
       - .claude/skills/design-invariants/SKILL.md
+      - servers/exarchos-mcp/src/capabilities/resolver.ts
+      - servers/exarchos-mcp/src/adapters/remote-mcp.ts
 
   - id: INV-4
     dimension: platform-agnosticity
@@ -92,6 +95,8 @@ invariants:
     references:
       - .claude/skills/design-invariants/references/INV-5a-input-ergonomics.md
       - .claude/skills/design-invariants/SKILL.md
+      - servers/exarchos-mcp/src/registry.ts
+      - servers/exarchos-mcp/src/adapters/schema-to-flags.ts
 
   - id: INV-5b
     dimension: output-contract
@@ -109,6 +114,9 @@ invariants:
     references:
       - .claude/skills/design-invariants/references/INV-5b-output-contract.md
       - .claude/skills/design-invariants/SKILL.md
+      - servers/exarchos-mcp/src/format.ts
+      - servers/exarchos-mcp/src/next-actions-computer.ts
+      - servers/exarchos-mcp/src/mcp/tasks-methods.ts
 
   - id: INV-5c
     dimension: aspire-verbs
@@ -124,6 +132,8 @@ invariants:
     references:
       - .claude/skills/design-invariants/references/INV-5c-aspire-verbs.md
       - .claude/skills/design-invariants/SKILL.md
+      - servers/exarchos-mcp/src/describe/handler.ts
+      - servers/exarchos-mcp/src/adapters/cli.ts
 
   - id: INV-5d
     dimension: action-discriminator
@@ -140,6 +150,8 @@ invariants:
     references:
       - .claude/skills/design-invariants/references/INV-5d-action-discriminator.md
       - .claude/skills/design-invariants/SKILL.md
+      - servers/exarchos-mcp/src/registry.ts
+      - servers/exarchos-mcp/src/adapters/mcp.ts
 
   - id: INV-6
     dimension: workflow-agnosticism
@@ -148,13 +160,15 @@ invariants:
       - playbooks
       - skill-frontmatter
     summary: >
-      Skills describe behaviors; playbooks describe workflows. A behavior-skill
-      describes triggers in workflow-neutral terms (verb names, idempotency
-      keys), not workflow stages or branch prefixes. Workflow-specific skills
-      must declare metadata.workflow-type: <type> in frontmatter.
+      Skills describe behaviors; playbooks/commands describe workflows. A
+      behavior-skill describes activation triggers in workflow-neutral terms
+      (verb names, idempotency keys), not workflow stages or branch prefixes.
+      Workflow-specific skills must declare metadata.workflow-type: <type>
+      in frontmatter. Lint: scripts/lint-inv6.mjs (advisory).
     references:
       - .claude/skills/design-invariants/references/INV-6-workflow-agnosticism.md
       - .claude/skills/design-invariants/SKILL.md
+      - scripts/lint-inv6.mjs
 
   - id: DIM-1
     dimension: topology
@@ -163,12 +177,14 @@ invariants:
       - dependency-direction
       - state-ownership
     summary: >
-      Topology dimension from axiom — module boundaries, layering, dependency
-      direction, ambient/shared-mutable state. Adapter-local mutable caches,
-      lazy fallback singletons, and side databases are topology smells that
-      frequently overlap with INV-1 / INV-2 violations.
+      Topology dimension (axiom-owned, see /axiom:critique). Adapter-local
+      mutable caches, lazy fallback singletons, and side databases are
+      topology smells that overlap with INV-1 / INV-2; design-invariants
+      cross-links rather than duplicating the axiom:backend-quality check.
     references:
       - .claude/skills/design-invariants/SKILL.md
+      - servers/exarchos-mcp/src/review/registry.ts
+      - docs/rca/2026-04-27-v29-rc1-orchestrate-cluster.md
 
   - id: DIM-2
     dimension: observability
@@ -177,12 +193,14 @@ invariants:
       - telemetry
       - error-paths
     summary: >
-      Observability dimension from axiom — silent catches, missing log context,
-      degradation paths that swallow signals. Frequently overlaps INV-1 when a
-      reducer apply catches and continues instead of triggering the
-      reducer-throw degradation path.
+      Observability dimension (axiom-owned, see /axiom:harden). Silent catches,
+      missing log context, and degradation paths that swallow signals. Overlaps
+      INV-1 when a reducer apply catches and continues instead of triggering
+      the reducer-throw degradation path.
     references:
       - .claude/skills/design-invariants/SKILL.md
+      - servers/exarchos-mcp/src/agents/generate-agents.ts
+      - servers/exarchos-mcp/src/agents/generate-agents.test.ts
 
   - id: DIM-3
     dimension: contracts
@@ -197,6 +215,8 @@ invariants:
       changes without an envelope version bump.
     references:
       - .claude/skills/design-invariants/SKILL.md
+      - servers/exarchos-mcp/src/topology/phase-contract.ts
+      - servers/exarchos-mcp/src/registry.ts
 
   - id: DIM-4
     dimension: test-fidelity
@@ -205,26 +225,27 @@ invariants:
       - mocks
       - fixtures
     summary: >
-      Test-fidelity dimension from axiom — mock overuse, fixture drift, tests
-      that pass against fakes but would fail in production. The TDD-task and
-      static-analysis gates compose with this dimension to catch
-      blast-radius regressions.
+      Test fidelity principle — see /axiom:verify for the canonical check.
+      Cross-references INV-2 (facade equivalence) when mock-vs-real
+      divergence hides parity bugs.
     references:
       - .claude/skills/design-invariants/SKILL.md
+      - servers/exarchos-mcp/src/__tests__/parity-harness.ts
 
   - id: DIM-5
-    dimension: vestigial-code
+    dimension: hygiene
     applies-to:
       - dead-paths
       - unused-exports
       - legacy-flags
     summary: >
-      Vestigial-code dimension from axiom — dead code, unused exports, legacy
-      feature flags that no longer gate behavior. Cleanup work that intersects
-      INV-2 (legacy adapter paths) or INV-5d (legacy top-level tools that
-      should collapse into composite actions).
+      Hygiene (axiom-canonical name; axiom-owned) — dead code, unused exports,
+      legacy feature flags that no longer gate behavior. Cleanup work that
+      intersects INV-2 (legacy adapter paths) or INV-5d (legacy top-level
+      tools that should collapse into composite actions).
     references:
       - .claude/skills/design-invariants/SKILL.md
+      - docs/contexts/2026-05-07-insights-friction-discovery.md
 
   - id: DIM-6
     dimension: solid-coupling
@@ -238,34 +259,35 @@ invariants:
       Axiom-owned; design-invariants defers here for generic SOLID findings.
     references:
       - .claude/skills/design-invariants/SKILL.md
+      - docs/designs/2026-05-18-preview-4-invariant-audit-pair.md
 
   - id: DIM-7
-    dimension: error-handling
+    dimension: resilience
     applies-to:
       - error-paths
       - retry-logic
       - degradation
     summary: >
-      Error-handling dimension from axiom — silent fallbacks, retry storms,
-      degradation without telemetry. Often co-occurs with DIM-2 observability;
-      design-invariants intersects when a fallback creates a degraded EventStore
-      (INV-1) or hides parity divergence (INV-2).
+      Resilience principle — see /axiom:harden for the canonical check.
+      Cross-references INV-1 when a fallback creates a degraded EventStore,
+      and INV-2 when it hides parity divergence.
     references:
       - .claude/skills/design-invariants/SKILL.md
+      - servers/exarchos-mcp/src/agents/generate-agents.ts
 
   - id: DIM-8
-    dimension: ai-prose-tells
+    dimension: prose-quality
     applies-to:
       - documentation
       - skill-bodies
       - command-text
     summary: >
-      AI-prose-tells dimension from axiom — telltale AI-generated prose
-      patterns (em-dashes that flatten clauses, padding adjectives, hedge
-      phrases). Owned by axiom:humanize; design-invariants does not duplicate
-      the check.
+      Prose Quality (axiom-owned, see /axiom:humanize) — telltale AI-generated
+      prose patterns. Catalog entry preserved for vocabulary-lint
+      cross-references only; not loaded at Phase 0.
     references:
       - .claude/skills/design-invariants/SKILL.md
+      - docs/contexts/2026-05-07-insights-friction-discovery.md
 
   - id: basileus-boundary
     dimension: cross-product-coordination
@@ -280,7 +302,8 @@ invariants:
       bespoke RPC. Strategos.Contracts via TypeSpec governs schema.
     references:
       - .claude/skills/design-invariants/SKILL.md
-      - basileus/docs/adrs/2026-04-18-exarchos-basileus-coordination.md
+      - docs/research/2026-05-14-semantic-merge-queue-audit.md
+      - servers/exarchos-mcp/src/sync
 ---
 
 # Exarchos Architectural Invariants
