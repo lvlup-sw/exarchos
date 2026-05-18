@@ -1538,4 +1538,138 @@ describe('EventSourcedTaskStore (#1272)', () => {
       vi.useRealTimers();
     }
   });
+
+  it('ListTasks_OnColdStartWithLimit10_QueriesOnePageOfStreams', async () => {
+    // FINDING-6 (#1438, T8): cursor-anchored incremental hydration.
+    //
+    // Pre-fix: `hydrateFromEventStore` enumerates EVERY `task-store/*`
+    // stream on every `listTasks` call and folds each via `loadTask`.
+    // With N historical tasks that is N per-stream `eventStore.query`
+    // calls before pagination even begins — a cold-start `listTasks`
+    // over 100 historical tasks paid 100 stream queries to return 10.
+    //
+    // Post-fix: hydration queries the event store ONCE via
+    // `queryByType('task.created', { streamPrefix, since, limit })`
+    // with `limit = PAGE_SIZE + LOOKAHEAD = 18`. Per-task projection
+    // folds only run for the (at most 18) events that came back. The
+    // upper bound on per-stream `query` calls is therefore
+    // `PAGE_SIZE + LOOKAHEAD`, not the total stream count.
+    //
+    // Repro: seed 100 task.created events through the durable substrate
+    // (bypassing the in-memory cache so the new store truly cold-starts),
+    // then spy `eventStore.query` and call `listTasks()`. Pre-fix the
+    // spy fires 100 times; post-fix it fires ≤ 18.
+    const N = 100;
+    const baseTimeMs = Date.parse('2026-03-01T00:00:00.000Z');
+    for (let i = 0; i < N; i++) {
+      const taskId = `task-cold-${String(i).padStart(4, '0')}`;
+      const createdAt = new Date(baseTimeMs + i * 1000).toISOString();
+      await eventStore.append(`task-store/${taskId}`, {
+        type: 'task.created',
+        timestamp: createdAt,
+        data: {
+          taskId,
+          ttl: null,
+          request: sampleRequest,
+        },
+      });
+    }
+
+    // Cold-start instance: fresh store backed by the same event store,
+    // so `this.tasks` is empty and every `listTasks` entry requires
+    // hydration from durable events.
+    const coldStore = new EventSourcedTaskStore(eventStore);
+    const querySpy = vi.spyOn(eventStore, 'query');
+
+    try {
+      const { tasks, nextCursor } = await coldStore.listTasks();
+
+      // Sanity: page 1 returns exactly PAGE_SIZE=10 entries and exposes
+      // a cursor (more pages follow). Sorted by createdAt ASC, the page
+      // is the first 10 inserts.
+      expect(tasks).toHaveLength(10);
+      expect(nextCursor).toBeDefined();
+
+      // The load-bearing assertion: cold-start hydration MUST NOT walk
+      // every durable stream. With PAGE_SIZE=10 and LOOKAHEAD=8 the
+      // upper bound on per-stream `eventStore.query` invocations is 18.
+      // Pre-fix this spy fires 100 times.
+      const LOOKAHEAD = 8;
+      const PAGE_SIZE = 10;
+      expect(querySpy.mock.calls.length).toBeLessThanOrEqual(
+        PAGE_SIZE + LOOKAHEAD,
+      );
+      // Lower bound: hydration MUST have hit at least the page-sized
+      // number of streams (10) to fold each task's projection. Anything
+      // below that would mean the implementation skipped real work and
+      // the listing would be incomplete.
+      expect(querySpy.mock.calls.length).toBeGreaterThanOrEqual(PAGE_SIZE);
+    } finally {
+      querySpy.mockRestore();
+    }
+  });
+
+  it('ListTasks_OnWarmCallAfterColdHydration_DoesNotReQueryAlreadyHydratedTasks', async () => {
+    // FINDING-6 (#1438, T8): incremental hydration anchored on the
+    // cursor's `createdAt`. After a cold-start `listTasks()` has
+    // hydrated page 1, calling `listTasks(cursor)` must NOT re-fold
+    // every durable stream — only the unhydrated tasks past the cursor
+    // (bounded by `PAGE_SIZE + LOOKAHEAD = 18` events).
+    //
+    // Pre-fix: every call re-enumerates all 100 streams and the cache-
+    // hit branch in `loadTask` (after cold-start) still incurs a
+    // `tailSequence` round-trip per stream, plus a `query` on any that
+    // were appended to since cache-stamp. The per-call overhead scales
+    // linearly with TOTAL durable tasks.
+    //
+    // Post-fix: the warm call's `query` count is bounded by the page
+    // worth of new folds, not the total durable count.
+    const N = 100;
+    const baseTimeMs = Date.parse('2026-04-01T00:00:00.000Z');
+    for (let i = 0; i < N; i++) {
+      const taskId = `task-warm-${String(i).padStart(4, '0')}`;
+      const createdAt = new Date(baseTimeMs + i * 1000).toISOString();
+      await eventStore.append(`task-store/${taskId}`, {
+        type: 'task.created',
+        timestamp: createdAt,
+        data: {
+          taskId,
+          ttl: null,
+          request: sampleRequest,
+        },
+      });
+    }
+
+    const coldStore = new EventSourcedTaskStore(eventStore);
+
+    // Cold call (hydrates page 1). We don't constrain its query count
+    // here — Test A covers that. We DO need the returned cursor so the
+    // warm call has an anchor.
+    const cold = await coldStore.listTasks();
+    expect(cold.tasks).toHaveLength(10);
+    expect(cold.nextCursor).toBeDefined();
+
+    // Now spy on `query` for the warm call only.
+    const querySpy = vi.spyOn(eventStore, 'query');
+    try {
+      const { tasks } = await coldStore.listTasks(cold.nextCursor);
+
+      // Sanity: the warm page returns the next 10 entries (and they
+      // differ from page 1).
+      expect(tasks).toHaveLength(10);
+
+      // Load-bearing assertion: the warm call's per-stream query count
+      // is much less than N. Concretely, an incremental-hydration impl
+      // does NOT re-fold any of the page-1 tasks (they are already
+      // cached); it folds only the new page's worth (≤ PAGE_SIZE +
+      // LOOKAHEAD = 18). Pre-fix this spy fires ~100 times.
+      const LOOKAHEAD = 8;
+      const PAGE_SIZE = 10;
+      expect(querySpy.mock.calls.length).toBeLessThanOrEqual(
+        PAGE_SIZE + LOOKAHEAD,
+      );
+    } finally {
+      querySpy.mockRestore();
+    }
+  });
 });
