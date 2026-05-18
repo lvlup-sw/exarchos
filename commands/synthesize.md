@@ -77,7 +77,7 @@ You can make direct edits to stack branches at any time:
 Before synthesizing, check synthesis status:
 1. Check if `synthesis.prUrl` exists in state
 2. If PR exists and is open, skip to merge confirmation
-3. If PR merged, update phase to "completed"
+3. If PR merged, transition phase to "completed" via `mcp__plugin_exarchos_exarchos__exarchos_workflow` with `action: "transition"`, `target: "completed"` (the runtime rejects `updates.phase`; the canonical `transition` action runs the HSM guard and emits `workflow.transition`). Note: the post-merge `completed` transition is normally owned by `/exarchos:cleanup` via `action: "cleanup"`; this idempotency branch is a manual-cleanup escape hatch.
 
 ## Human Checkpoint
 
@@ -105,7 +105,7 @@ This is one of only TWO human checkpoints in the workflow.
    ```
    > Or use GitHub MCP `merge_pull_request` if available.
 
-   Update state: `.phase = "completed"`
+   Transition phase to "completed" via `mcp__plugin_exarchos_exarchos__exarchos_workflow` with `action: "transition"`, `target: "completed"`. (The runtime rejects `updates.phase`; the canonical `transition` action runs the HSM guard and emits `workflow.transition`. The post-merge `completed` transition is also owned by `/exarchos:cleanup` via `action: "cleanup"` — call `cleanup` if you also need worktree/branch pruning; this step is the bare phase-only transition for the explicit-merge path.)
 
 5. **On 'feedback'** (feedback, comments, fixes, changes, address):
    Auto-continue to fixes:
