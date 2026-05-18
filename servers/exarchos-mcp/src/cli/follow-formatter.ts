@@ -20,7 +20,18 @@
  */
 import type { Task } from '@modelcontextprotocol/sdk/types.js';
 
-export type FollowSubcommand = 'workflow_status' | 'shepherd_status';
+/**
+ * Widened in #1440 Op 1 (T7): the CLI `--follow` predicate now admits
+ * three additional view actions backed by pure `ViewProjection` folds.
+ * The formatter is unchanged — only the prefix bracket varies — and the
+ * union is kept in lockstep with `VIEW_FOLLOW_ACTIONS` in `adapters/cli.ts`.
+ */
+export type FollowSubcommand =
+  | 'workflow_status'
+  | 'shepherd_status'
+  | 'pipeline'
+  | 'convergence'
+  | 'delegation_timeline';
 
 export interface FollowTransition {
   readonly subcommand: FollowSubcommand;
