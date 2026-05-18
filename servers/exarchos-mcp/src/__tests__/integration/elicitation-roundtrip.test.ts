@@ -112,15 +112,25 @@ describe('#1436 — elicitation-roundtrip accept path', () => {
 // and falls back to the legacy INVALID_INPUT envelope rather than retrying.
 //
 // The decline path also verifies that the underlying `init` handler is NOT
-// invoked twice: the elicitation gate runs to its un-fulfilled terminal
-// state without splicing a value and re-validating, so no `workflow.started`
-// event lands for the test's would-be featureId. We don't have a clean spy
-// surface on the registry-resolved handler from the test, so we use the
-// event-store as the indirect witness — no `workflow.*` events should
-// appear for `test-decline-*` ids.
+// invoked: the elicitation gate runs to its un-fulfilled terminal state
+// without splicing a value and re-validating, so `workflow.started` is
+// never emitted. Because the fixture's EventStore is fresh per test, the
+// hermetic post-decline state contains ONLY the per-operation
+// `elicitation/<operationId>` stream — any other stream signals a bug
+// (e.g., a substrate that retried after decline, with any featureId).
 describe('#1436 — elicitation-roundtrip decline path', () => {
   it('ElicitationRoundtrip_DeclinePath_InvalidInputEnvelopeAndDeclinedEventLanded', async () => {
-    const featureId = `test-decline-${Math.random().toString(36).slice(2, 10)}`;
+    // NOTE: no featureId is supplied to the dispatch call (the entire point
+    // of the decline path is that the elicitation gate fires precisely
+    // because `featureId` is the missing required field). Per CodeRabbit C4,
+    // an earlier revision queried the event store for a randomly-generated
+    // `test-decline-*` featureId that was NEVER actually passed to dispatch
+    // — which made the "no retry" assertion trivially true (it would have
+    // passed even if a buggy substrate WAS retrying with some other
+    // featureId). The replacement assertion below targets the substrate's
+    // actual observable signal: workflow.started is the init handler's
+    // first emission, and the substrate is keyed on per-test EventStore,
+    // so a hermetic post-decline state has ZERO workflow streams.
 
     const elicitInputHandler = vi.fn(async () => ({
       action: 'decline' as const,
@@ -173,12 +183,23 @@ describe('#1436 — elicitation-roundtrip decline path', () => {
       expect(eventTypes).not.toContain('elicitation.fulfilled');
 
       // No-retry assertion via the event store: the init handler is the
-      // emitter of `workflow.started`, so if it ran on a decline we'd see
-      // an event for the test's featureId. Query the workflow stream and
-      // confirm absence. (The featureId never made it past validation in
-      // the decline path, but a buggy retry-on-decline would surface here.)
-      const wfEvents = await pair.eventStore.query(featureId);
-      expect(wfEvents.length).toBe(0);
+      // first (and only) emitter of `workflow.started` in this dispatch
+      // path. If the substrate buggily retried after the decline (with any
+      // featureId — synthesized, stale, or otherwise), a workflow stream
+      // would land on the per-test EventStore. The fixture's EventStore
+      // is fresh per call, so the post-decline hermetic state has ZERO
+      // workflow streams. Any non-elicitation stream is a bug.
+      //
+      // (Prior revision queried a random `test-decline-*` featureId that
+      // was never passed to dispatch — see CodeRabbit C4. That assertion
+      // was trivially satisfied because the queried id never appeared in
+      // any code path; the assertion below is provable: it fails if the
+      // substrate creates a workflow stream by any means.)
+      const allStreams = pair.eventStore.listStreams();
+      const workflowStreams = allStreams.filter(
+        (s) => !s.startsWith('elicitation/'),
+      );
+      expect(workflowStreams).toEqual([]);
     } finally {
       await pair.cleanup();
     }
