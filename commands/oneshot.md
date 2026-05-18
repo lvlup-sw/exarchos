@@ -65,12 +65,20 @@ Produce a one-page plan with four sections:
 3. **Files** — which files will change (1-5)
 4. **Tests** — which tests will be added (named, not described)
 
-Persist via `mcp__plugin_exarchos_exarchos__exarchos_workflow` with
-`action: "update"`:
+Persist the plan and transition the phase via two separate calls — the
+runtime rejects `updates.phase` (`update` is non-phase mutation only;
+phase changes go through the HSM-guarded `transition` action):
 
-- Set `artifacts.plan` to the plan text
-- Set `oneshot.planSummary` to a one-line summary
-- Set `phase` to `"implementing"`
+1. `mcp__plugin_exarchos_exarchos__exarchos_workflow` with
+   `action: "update"`:
+
+   - Set `updates.artifacts.plan` to the plan text
+   - Set `updates.oneshot.planSummary` to a one-line summary
+
+2. `mcp__plugin_exarchos_exarchos__exarchos_workflow` with
+   `action: "transition"`:
+
+   - Set `target: "implementing"`
 
 ### Step 3: Implementing — in-session TDD loop
 

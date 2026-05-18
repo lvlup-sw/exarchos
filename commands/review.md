@@ -99,10 +99,22 @@ Track the feature name and plan path as `$FEATURE_NAME` and `$PLAN_PATH`.
 
 ## Auto-Chain
 
-All transitions happen **immediately** without user confirmation:
+All transitions happen **immediately** without user confirmation. Phase
+changes go through `action: "transition"` (the canonical HSM-guarded
+surface that emits `workflow.transition`) — the runtime rejects
+`updates.phase` on the `update` action. For each branch, call
+`mcp__plugin_exarchos_exarchos__exarchos_workflow` with the listed
+`action`/`target` first, then invoke the chained skill:
 
-- **ON PASS:** Update state `.phase = "synthesize"`, invoke `Skill({ skill: "exarchos:synthesize", args: "$FEATURE_NAME" })`
-- **ON FAIL:** Update state with failed review details, invoke `Skill({ skill: "exarchos:delegate", args: "--fixes $PLAN_PATH" })`
-- **ON BLOCKED:** Update state `.phase = "blocked"`, invoke `Skill({ skill: "exarchos:ideate", args: "--redesign $FEATURE_NAME" })`
+- **ON PASS:**
+  - `action: "transition"`, `target: "synthesize"`
+  - Then invoke `Skill({ skill: "exarchos:synthesize", args: "$FEATURE_NAME" })`
+- **ON FAIL:**
+  - `action: "update"`, `updates.review.failedDetails` set to the failed review details (non-phase mutation)
+  - `action: "transition"`, `target: "delegate"`
+  - Then invoke `Skill({ skill: "exarchos:delegate", args: "--fixes $PLAN_PATH" })`
+- **ON BLOCKED:**
+  - `action: "transition"`, `target: "blocked"`
+  - Then invoke `Skill({ skill: "exarchos:ideate", args: "--redesign $FEATURE_NAME" })`
 
 **No pause for user input** -- this is not a human checkpoint.
