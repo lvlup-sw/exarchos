@@ -11,7 +11,7 @@
 - Recommended actions: keep: 11 | sharpen: 5 | delete: 0 | move-archive: 0 | downgrade-to-principle: 2
 - INV-4 cross-runtime findings: 1 (INV-6 grep targets contain workflow-Claude-Code-typed literals as examples — wording is fine but adjacent surfaces leak)
 - INV-5 selection-rule decision: migrate-references (Option B)
-- Cost-of-load classification: always-load: 5 | reference-only: 11 | archivable: 2
+- Cost-of-load classification: always-load: 4 | reference-only: 12 | archivable: 2 (per the per-row table below — the audit summary line previously stated 5/11/2 in error; corrected post-spec-review)
 
 | ID | Coverage refs ≥3? | Currency | Contradiction | INV-4 finding | Cost-of-load | recommended_action |
 |---|---|---|---|---|---|---|
