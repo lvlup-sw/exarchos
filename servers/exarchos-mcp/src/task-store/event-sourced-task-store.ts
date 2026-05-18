@@ -814,7 +814,34 @@ function projectTask(
   const rawTtl = createdData['ttl'];
   const ttl: Task['ttl'] =
     typeof rawTtl === 'number' && Number.isFinite(rawTtl) ? rawTtl : null;
-  const request = (createdData['request'] ?? {}) as Request;
+  // FINDING-7 (#1438, T5): tolerate-and-flag malformed `request` payloads.
+  // The pre-fix `?? {}` coerce silently masked corrupt event payloads
+  // (missing field, `null`, non-object, array). We still coerce to an
+  // empty-object `Request` so REPLAY stays robust against historical
+  // bad data, but we emit a structured `logger.warn` carrying the
+  // `streamId` and the offending event's `sequence` so operators can
+  // locate and audit the corrupt record. Behavior is unchanged on the
+  // happy path (a real object payload bypasses the warn branch).
+  let request: Request;
+  const rawRequest = createdData['request'];
+  if (
+    rawRequest === undefined ||
+    rawRequest === null ||
+    typeof rawRequest !== 'object' ||
+    Array.isArray(rawRequest)
+  ) {
+    taskStoreLogger.warn(
+      {
+        streamId: taskStream(taskId),
+        sequence: created.sequence,
+        requestType: rawRequest === null ? 'null' : typeof rawRequest,
+      },
+      'projectTask: coerced malformed request payload',
+    );
+    request = {} as Request;
+  } else {
+    request = rawRequest as Request;
+  }
   // CodeRabbit MAJOR #1431 follow-up: replay the persisted pollInterval
   // so a process restart preserves the caller-supplied cadence. Older
   // events without the field (and any payload whose value fails the
