@@ -59,6 +59,39 @@
  * throttled to one event per `TASK_POLLED_THROTTLE_MS` window via an
  * in-memory `lastPolledAt` map that is cleaned up alongside the cache
  * on reap.
+ *
+ * ## listTasks ordering + cursor wire format (FINDING-5, #1438 T7)
+ *
+ * Pagination sorts by `(createdAt ASC, taskId ASC)`. `createdAt` is
+ * the `task.created` event's ISO timestamp — deterministic and
+ * present on every entry in the cache. `taskId` is the tie-break for
+ * two events sharing a millisecond (a real race when two consumers
+ * race against the same store at high QPS). Neither key depends on
+ * Map insertion order, so the enumeration is identical across
+ * processes, restarts, and replicas pointed at the same event store
+ * — the prerequisite for the cursor contract below.
+ *
+ * The cursor is an OPAQUE string: callers MUST treat it as a
+ * round-trip blob and MUST NOT parse it. Internally:
+ *
+ *   cursor = base64url(JSON.stringify({ createdAt, taskId }))
+ *
+ * where `createdAt` and `taskId` are the values of the LAST entry on
+ * the page just returned. Decoding skips past every entry whose
+ * `(createdAt, taskId)` tuple is `<=` the cursor under the same lex
+ * ordering as the sort. `nextCursor` is only emitted when there is at
+ * least one entry past the current page.
+ *
+ * Hydration (`hydrateFromEventStore`) is cursor-anchored and
+ * incremental (FINDING-6, #1438 T8). Each `listTasks` call issues one
+ * `EventStore.queryByType('task.created', ...)` round-trip filtered to
+ * the `task-store/` prefix, anchored at `cursor.createdAt`
+ * (`undefined` on cold-start), and capped at `PAGE_SIZE + LOOKAHEAD`.
+ * Per-task projection folds only run for events that aren't already
+ * cached, so steady-state cost is `O(new tasks since prior page)`
+ * rather than `O(total durable tasks)`. The cursor's `createdAt`
+ * field is therefore load-bearing for the hydration filter AND for
+ * sort + offset.
  */
 import { randomBytes } from 'node:crypto';
 import type {
@@ -115,7 +148,7 @@ function generateTaskId(): string {
 }
 
 function taskStream(taskId: string): string {
-  return `task-store/${taskId}`;
+  return `${TASK_STREAM_PREFIX}${taskId}`;
 }
 
 /**
@@ -127,6 +160,118 @@ function taskStream(taskId: string): string {
  * emit while still preserving observability of long-running polls.
  */
 const TASK_POLLED_THROTTLE_MS = 5_000;
+
+/**
+ * FINDING-4 (#1438): size-cap threshold for the TTL reap path. The
+ * read-time reaper (`reapExpired`) used to fire ONLY from `listTasks`
+ * — tasks created via `createTask` and never read accumulated in the
+ * in-memory cache indefinitely. To bound the cache without adding a
+ * background timer, `createTask` invokes `reapExpired` once the cache
+ * strictly exceeds this threshold. The bound is intentionally generous
+ * (steady-state worst case is `2 * threshold` immediately before the
+ * sweep) so the hot path stays O(1) at small sizes; the O(n) sweep
+ * cost is amortized across `threshold` creates between sweeps.
+ */
+const SIZE_CAP_REAP_THRESHOLD = 1024;
+
+/**
+ * FINDING-4 amortization: above `SIZE_CAP_REAP_THRESHOLD`, only re-run
+ * the reap when `tasks.size` has grown by this many entries since the
+ * previous reap. Bounds the post-threshold worst case to 1 sweep per
+ * `REAP_GROWTH_DELTA` creates instead of 1 sweep per create — the
+ * latter is the path CodeRabbit flagged on #1450 when every create
+ * above the threshold finds no expired entries to reap.
+ */
+const REAP_GROWTH_DELTA = 64;
+
+/**
+ * FINDING-5 (#1438, T7): `listTasks` cursor — opaque, base64url-encoded
+ * JSON of the `(createdAt, taskId)` tuple of the LAST entry on the
+ * prior page. Anchoring on `(createdAt, taskId)` instead of Map
+ * insertion order is what makes pagination stable across process
+ * restarts and across multiple instances pointed at the same event
+ * store. See the `listTasks` body for the sort + offset implementation
+ * that consumes this shape.
+ */
+interface ListTasksCursor {
+  readonly createdAt: string;
+  readonly taskId: string;
+}
+
+/**
+ * FINDING-5 (#1438, T7): page size for `listTasks` pagination. Module-
+ * level so T8's hydration query can stay aligned with the cursor wire
+ * format — the hydration window is bounded by `PAGE_SIZE + LOOKAHEAD`,
+ * not by the total durable task count.
+ */
+const PAGE_SIZE = 10;
+
+/**
+ * FINDING-6 (#1438, T8): lookahead window on the cursor-anchored
+ * hydration query. Each `listTasks` call queries the event store for at
+ * most `PAGE_SIZE + LOOKAHEAD` `task.created` events anchored on the
+ * cursor's `createdAt` (or from the beginning when no cursor is
+ * supplied). The lookahead absorbs tie-break churn for events that
+ * share a millisecond timestamp — the substrate orders by
+ * `(timestamp, streamId, sequence)` so events with identical
+ * timestamps fall through to `streamId` lex order; without the
+ * lookahead the page slice could miss a same-millisecond sibling that
+ * sorts after the page boundary by `taskId` but before by `streamId`.
+ *
+ * Concrete bound on pre-fix vs. post-fix work: with N durable tasks
+ * pre-fix hydration paid N `eventStore.query` calls per `listTasks`
+ * call (one full-refold per stream). Post-fix it pays at most
+ * `PAGE_SIZE + LOOKAHEAD = 18` per-task `query` calls plus one
+ * `queryByType` round-trip, regardless of N. The 8-entry lookahead
+ * also pre-warms the cache for the next page (overlap of 1 between
+ * consecutive query windows means page-2's hydration usually folds
+ * only the genuinely new entries past page-1's tail).
+ *
+ * Configurability: the constant is module-private today. If
+ * production telemetry shows tie-break churn exceeds 8 at observed
+ * creation rates, raise the bound and re-run the cross-process
+ * pagination acceptance tests (`ListTasks_AcrossSimulatedRestart_*`,
+ * `ListTasks_TieBreakOnIdenticalCreatedAt_*`).
+ */
+const LOOKAHEAD = 8;
+
+/**
+ * FINDING-6 (#1438, T8): the namespaced stream prefix for per-task
+ * lifecycle streams. Kept as a module-level const so `taskStream()`
+ * (the writer side) and `hydrateFromEventStore` (the reader side) use
+ * the exact same string — a divergence would silently break the
+ * cross-stream `queryByType` prefix filter.
+ */
+const TASK_STREAM_PREFIX = 'task-store/';
+
+function encodeListTasksCursor(c: ListTasksCursor): string {
+  return Buffer.from(JSON.stringify(c), 'utf8').toString('base64url');
+}
+
+function decodeListTasksCursor(s: string): ListTasksCursor {
+  try {
+    const parsed = JSON.parse(
+      Buffer.from(s, 'base64url').toString('utf8'),
+    ) as unknown;
+    if (
+      parsed !== null &&
+      typeof parsed === 'object' &&
+      'createdAt' in parsed &&
+      'taskId' in parsed &&
+      typeof (parsed as Record<string, unknown>)['createdAt'] === 'string' &&
+      typeof (parsed as Record<string, unknown>)['taskId'] === 'string'
+    ) {
+      return parsed as ListTasksCursor;
+    }
+    throw new Error('Invalid cursor: missing or malformed fields');
+  } catch (err) {
+    // Preserve the legacy `Invalid cursor: ...` prefix that the prior
+    // taskId-indexOf path produced. Callers (and downstream MCP error
+    // wrappers) match on this string shape.
+    const detail = err instanceof Error ? err.message : String(err);
+    throw new Error(`Invalid cursor: ${detail}`);
+  }
+}
 
 /**
  * Optional constructor options for `EventSourcedTaskStore`.
@@ -166,6 +311,15 @@ export class EventSourcedTaskStore implements TaskStore {
    * `EventSourcedTaskStoreOptions.clock` for why this is scoped narrowly.
    */
   private readonly nowMs: () => number;
+
+  /**
+   * FINDING-4 amortization: tracks `tasks.size` immediately after the
+   * most recent `reapExpired()` call from `createTask`. Used by the
+   * `REAP_GROWTH_DELTA` gate to avoid re-running the sweep on every
+   * create above `SIZE_CAP_REAP_THRESHOLD` when no entries are
+   * actually expired. See the comment block at that const for context.
+   */
+  private lastReapSize = 0;
 
   constructor(eventStore: EventStore, options?: EventSourcedTaskStoreOptions) {
     this.store = eventStore;
@@ -214,6 +368,15 @@ export class EventSourcedTaskStore implements TaskStore {
         ttl,
         request,
         pollInterval,
+        // FINDING-8 (#1438, T6): persist the JSON-RPC `requestId` so a
+        // replaying process recovers the original outbound correlation
+        // id verbatim. Pre-fix, the value lived only in this in-memory
+        // entry and was lost across process restarts — `projectTask`
+        // had to synthesize `replayed:${taskId}` for every fold. With
+        // this field on new events the synthesizer becomes a strict
+        // backward-compat fallback for historical (pre-T6) events
+        // rather than a routine code path.
+        requestId,
         // `createdBy` is left to upstream stamping (DispatchContext via
         // AsyncLocalStorage — see B1) when the call is inside a
         // dispatch boundary. The schema permits the field as optional.
@@ -245,6 +408,28 @@ export class EventSourcedTaskStore implements TaskStore {
       // path in `loadTask` after each successful fold.
       lastReadSequence: 1,
     });
+
+    // FINDING-4 (#1438): size-cap reap. Without this, a creator-only
+    // workload (no `listTasks` reads) lets `this.tasks` grow unbounded
+    // — the read-time reaper only fires from `listTasks`. Sweep here
+    // when the cache crosses the threshold so expired entries cannot
+    // accumulate silently. The strict `>` keeps the gate idempotent
+    // at the boundary: at exactly `threshold` entries we have NOT yet
+    // paid the sweep cost; the 1025th create is what triggers it.
+    //
+    // Amortized: once size > threshold, only sweep when growth since
+    // last reap >= REAP_GROWTH_DELTA. Otherwise a steady stream of
+    // creates above the threshold with NO expired entries would run
+    // reapExpired() on every call for zero benefit. This bounds the
+    // reap cost to 1 / REAP_GROWTH_DELTA per create.
+    const sizeAfterInsert = this.tasks.size;
+    if (
+      sizeAfterInsert > SIZE_CAP_REAP_THRESHOLD &&
+      sizeAfterInsert - this.lastReapSize >= REAP_GROWTH_DELTA
+    ) {
+      this.reapExpired();
+      this.lastReapSize = this.tasks.size;
+    }
 
     return task;
   }
@@ -465,6 +650,13 @@ export class EventSourcedTaskStore implements TaskStore {
     cursor?: string,
     _sessionId?: string,
   ): Promise<{ tasks: Task[]; nextCursor?: string }> {
+    // FINDING-6 (#1438, T8): decode the cursor BEFORE hydration so the
+    // hydration query can be anchored on `cursor.createdAt`. This
+    // collapses the per-call hydration cost from `O(total durable
+    // tasks)` to `O(PAGE_SIZE + LOOKAHEAD)` — see
+    // `hydrateFromEventStore`'s doc for the full rationale.
+    const cursorObj = cursor ? decodeListTasksCursor(cursor) : undefined;
+
     // ─── Cold-start hydration (#1272 / CR PR #1432) ───────────────────────
     // The in-memory cache (`this.tasks`) is not authoritative; on a
     // freshly-constructed instance it is empty even if durable
@@ -473,35 +665,60 @@ export class EventSourcedTaskStore implements TaskStore {
     // new process, which violates the SDK `TaskStore` contract and
     // INV-1 (event-sourcing integrity — state derives from events).
     //
-    // The EventStore exposes `listStreams()` (delegated to the read
-    // backend), so we enumerate the `task-store/` prefix and fold each
-    // matching stream via `loadTask()`. After hydration completes once,
-    // subsequent `listTasks` calls re-use the warmed cache plus any
-    // streams created since (we re-enumerate every call — it is cheap
-    // relative to event-folding, and keeps the listing consistent with
-    // concurrent `createTask` writes from other processes sharing the
-    // same SQLite event store).
-    await this.hydrateFromEventStore();
+    // FINDING-6 (#1438, T8): hydration is now cursor-anchored. On
+    // cold-start (`cursorObj === undefined`) the query window is the
+    // first `PAGE_SIZE + LOOKAHEAD` `task.created` events under the
+    // `task-store/` prefix. On subsequent paginated calls it is the
+    // same window anchored at `cursor.createdAt` — same `inclusive`
+    // semantic the `since` filter exposes — so same-millisecond
+    // siblings of the prior-page tail are not silently dropped. The
+    // cursor-offset filter below discards the already-paged entry.
+    await this.hydrateFromEventStore(cursorObj?.createdAt);
 
-    const PAGE_SIZE = 10;
     // Reap expired entries first so listings stay consistent with reads.
     this.reapExpired();
 
-    const allTaskIds = Array.from(this.tasks.keys());
-    let startIndex = 0;
-    if (cursor) {
-      const cursorIndex = allTaskIds.indexOf(cursor);
-      if (cursorIndex >= 0) {
-        startIndex = cursorIndex + 1;
-      } else {
-        throw new Error(`Invalid cursor: ${cursor}`);
-      }
-    }
-    const pageIds = allTaskIds.slice(startIndex, startIndex + PAGE_SIZE);
-    const tasks = pageIds.map((id) => ({ ...this.tasks.get(id)!.task }));
+    // FINDING-5 (#1438, T7): sort by `(createdAt ASC, taskId ASC)`
+    // BEFORE pagination. Map insertion order is set by
+    // `hydrateFromEventStore` (backend-listing order) on cold start and
+    // by `createTask` afterward — neither is content-derived nor stable
+    // across processes. Sorting by the event's durable `createdAt`
+    // (with `taskId` as the tie-break for sub-millisecond ties) gives
+    // every instance an identical, deterministic enumeration.
+    const sorted = Array.from(this.tasks.values()).sort((a, b) => {
+      if (a.task.createdAt < b.task.createdAt) return -1;
+      if (a.task.createdAt > b.task.createdAt) return 1;
+      if (a.task.taskId < b.task.taskId) return -1;
+      if (a.task.taskId > b.task.taskId) return 1;
+      return 0;
+    });
+
+    // FINDING-5 (#1438, T7): cursor-anchored offset. The decoded cursor
+    // is the `(createdAt, taskId)` tuple of the LAST entry on the prior
+    // page; we keep entries strictly greater than that tuple under the
+    // same lex ordering as the sort.
+    const afterCursor = cursorObj
+      ? sorted.filter(
+          (p) =>
+            p.task.createdAt > cursorObj.createdAt ||
+            (p.task.createdAt === cursorObj.createdAt &&
+              p.task.taskId > cursorObj.taskId),
+        )
+      : sorted;
+
+    const page = afterCursor.slice(0, PAGE_SIZE);
+    const tasks = page.map((p) => ({ ...p.task }));
+    // `nextCursor` is emitted only when there is at least one more
+    // entry past this page — i.e., the page is full AND something
+    // followed it in `afterCursor`. Encoding the LAST entry's
+    // `(createdAt, taskId)` lets the next call resume exactly past
+    // it.
     const nextCursor =
-      startIndex + PAGE_SIZE < allTaskIds.length
-        ? pageIds[pageIds.length - 1]
+      page.length === PAGE_SIZE && afterCursor.length > PAGE_SIZE
+        ? encodeListTasksCursor({
+            createdAt: page[page.length - 1].task.createdAt,
+            taskId: page[page.length - 1].task.taskId,
+          })
         : undefined;
     return { tasks, nextCursor };
   }
@@ -619,40 +836,88 @@ export class EventSourcedTaskStore implements TaskStore {
   }
 
   /**
-   * Enumerate `task-store/*` streams from the event store and load
-   * any that aren't already cached. Used by `listTasks` to make
-   * cold-start enumeration replay-safe (INV-1).
+   * FINDING-6 (#1438, T8): cursor-anchored incremental hydration.
    *
-   * The EventStore's `listStreams()` is in-memory after backend init
-   * (the SQLite read backend caches the stream catalog) so the per-call
-   * overhead is bounded by `O(n_streams_total)`; the actual `loadTask`
-   * fold only runs on cache misses, so steady-state cost is O(new tasks
-   * since last call).
+   * Pre-T8 this method enumerated EVERY `task-store/*` stream via
+   * `EventStore.listStreams()` and folded each via `loadTask()` — N
+   * per-stream queries per `listTasks` call, where N is the total
+   * number of durable tasks the substrate has ever seen. With 1,000
+   * historical tasks post-restart, every `listTasks` paid 1,000
+   * `EventStore.query` round-trips before pagination even began.
+   *
+   * Post-T8 this is bounded by `PAGE_SIZE + LOOKAHEAD = 18` regardless
+   * of N. The implementation:
+   *
+   *   1. Query the event store ONCE for `task.created` events under the
+   *      `task-store/` prefix, anchored at `sinceCreatedAt` (the cursor's
+   *      timestamp; `undefined` on cold-start = no time filter).
+   *   2. Cap the result at `PAGE_SIZE + LOOKAHEAD` events. The lookahead
+   *      absorbs tie-break churn at the page boundary AND pre-warms the
+   *      cache by one window-overlap for the next page.
+   *   3. For each event, extract the taskId from the envelope `streamId`
+   *      and skip if already cached. Otherwise call `loadTask` to fold
+   *      that single stream — same exact code path the pre-T8 hot path
+   *      used, so REPLAY semantics (INV-1) are unchanged.
+   *
+   * `since` filter semantics: the backend SQL is `timestamp >= ?` (see
+   * `SqliteBackend.queryEventsByType`). Inclusive `since` is REQUIRED:
+   * when the cursor anchors mid-tie (multiple events at the same
+   * millisecond), an exclusive filter would silently skip same-
+   * millisecond siblings that follow the cursor entry under the
+   * `(createdAt ASC, taskId ASC)` sort. The cursor-offset filter in
+   * `listTasks` discards the already-paged entry without losing its
+   * timestamp-tied siblings.
+   *
+   * Correctness fence: any `task.created` event whose `createdAt` is
+   * `>= sinceCreatedAt` and falls within the substrate's natural
+   * `(timestamp, streamId, sequence)` ordering's first
+   * `PAGE_SIZE + LOOKAHEAD` matches is hydrated. Events past that
+   * window are picked up by the next page's query (anchored on the new
+   * cursor) — they are NOT silently dropped. The known under-shoot
+   * case is documented in the design (`#1438 F-6`): when more than
+   * `LOOKAHEAD` events share a single millisecond AND the cursor lands
+   * inside that tie cluster, the page can be short. Per the design
+   * risk register the mitigation is to raise `LOOKAHEAD`.
    *
    * Failures during a per-stream load are swallowed: one malformed
-   * stream MUST NOT block enumeration of healthy ones. The next
-   * targeted `getTask(taskId)` will surface the underlying error.
+   * stream MUST NOT block enumeration of healthy ones (same contract
+   * as the pre-T8 enumeration). The next targeted `getTask(taskId)`
+   * will surface the underlying error.
    */
-  private async hydrateFromEventStore(): Promise<void> {
-    const prefix = 'task-store/';
-    let allStreams: string[];
+  private async hydrateFromEventStore(sinceCreatedAt?: string): Promise<void> {
+    // Build the filter shape that `EventStore.queryByType` consumes.
+    // `since` is the inclusive ISO-timestamp lower bound (see method
+    // doc above for the inclusive-vs-exclusive rationale). `limit`
+    // caps the per-call query window at `PAGE_SIZE + LOOKAHEAD`.
+    let events: readonly WorkflowEvent[];
     try {
-      allStreams = this.store.listStreams();
+      events = await this.store.queryByType('task.created', {
+        streamPrefix: TASK_STREAM_PREFIX.replace(/\/$/, ''),
+        ...(sinceCreatedAt !== undefined ? { since: sinceCreatedAt } : {}),
+        limit: PAGE_SIZE + LOOKAHEAD,
+      });
     } catch {
-      // If the backend can't enumerate streams, fall back to whatever
-      // is already cached — this preserves the prior behavior for any
-      // exotic backend that doesn't implement `listStreams`.
+      // If the backend cannot service the cross-stream query (exotic
+      // test fixture without `queryByType` support, or a transient
+      // backend error), fall back to whatever is already cached — same
+      // best-effort contract as the pre-T8 `listStreams` catch branch.
       return;
     }
-    const taskStreams = allStreams.filter((s) => s.startsWith(prefix));
-    for (const streamId of taskStreams) {
-      const taskId = streamId.slice(prefix.length);
+
+    for (const event of events) {
+      // The envelope `streamId` is canonical (`task-store/<taskId>`).
+      // Extracting the taskId from it — rather than reaching into
+      // `event.data` — keeps this loop independent of any schema
+      // drift on the `task.created` data shape.
+      const streamId = event.streamId;
+      if (!streamId.startsWith(TASK_STREAM_PREFIX)) continue;
+      const taskId = streamId.slice(TASK_STREAM_PREFIX.length);
       if (taskId.length === 0) continue;
       if (this.tasks.has(taskId)) continue;
       try {
         await this.loadTask(taskId);
       } catch {
-        // best-effort — see docstring
+        // best-effort — see method doc
       }
     }
   }
@@ -790,7 +1055,34 @@ function projectTask(
   const rawTtl = createdData['ttl'];
   const ttl: Task['ttl'] =
     typeof rawTtl === 'number' && Number.isFinite(rawTtl) ? rawTtl : null;
-  const request = (createdData['request'] ?? {}) as Request;
+  // FINDING-7 (#1438, T5): tolerate-and-flag malformed `request` payloads.
+  // The pre-fix `?? {}` coerce silently masked corrupt event payloads
+  // (missing field, `null`, non-object, array). We still coerce to an
+  // empty-object `Request` so REPLAY stays robust against historical
+  // bad data, but we emit a structured `logger.warn` carrying the
+  // `streamId` and the offending event's `sequence` so operators can
+  // locate and audit the corrupt record. Behavior is unchanged on the
+  // happy path (a real object payload bypasses the warn branch).
+  let request: Request;
+  const rawRequest = createdData['request'];
+  if (
+    rawRequest === undefined ||
+    rawRequest === null ||
+    typeof rawRequest !== 'object' ||
+    Array.isArray(rawRequest)
+  ) {
+    taskStoreLogger.warn(
+      {
+        streamId: taskStream(taskId),
+        sequence: created.sequence,
+        requestType: rawRequest === null ? 'null' : typeof rawRequest,
+      },
+      'projectTask: coerced malformed request payload',
+    );
+    request = {} as Request;
+  } else {
+    request = rawRequest as Request;
+  }
   // CodeRabbit MAJOR #1431 follow-up: replay the persisted pollInterval
   // so a process restart preserves the caller-supplied cadence. Older
   // events without the field (and any payload whose value fails the
@@ -889,11 +1181,22 @@ function projectTask(
     }
   }
 
-  // requestId is not durably persisted (the SDK uses it only for
-  // outbound JSON-RPC correlation, which a replayed task doesn't have).
-  // We synthesize a sentinel so the projected shape is still a valid
-  // `ProjectedTask` for in-memory consumers.
-  const requestId: RequestId = `replayed:${taskId}`;
+  // FINDING-8 (#1438, T6): prefer the persisted `requestId` from the
+  // `task.created` event payload — new events carry it verbatim so a
+  // replaying process recovers the original JSON-RPC correlation id.
+  // Historical events emitted before the persistence fix do NOT have
+  // the field; they fall back to the `replayed:${taskId}` synthesizer
+  // below. KEEP THE FALLBACK: per the F-8 design disposition, the
+  // synthesizer is read-side-only and load-bearing for old events —
+  // removing it would require INV-1-violating event mutation (events
+  // are immutable). The SDK `RequestId` is `string | number`, so we
+  // accept either shape from the payload.
+  const persistedRequestId = createdData['requestId'];
+  const requestId: RequestId =
+    typeof persistedRequestId === 'string' ||
+    typeof persistedRequestId === 'number'
+      ? persistedRequestId
+      : `replayed:${taskId}`;
 
   return {
     task,

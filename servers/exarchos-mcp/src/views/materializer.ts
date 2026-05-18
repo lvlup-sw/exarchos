@@ -36,6 +36,23 @@ const DEFAULT_SNAPSHOT_INTERVAL = 50;
 const DEFAULT_MAX_CACHE_ENTRIES = 100;
 const DEFAULT_THRASHING_WINDOW_SIZE = 100;
 
+// ─── Internal Sentinel Streams (#1434) ─────────────────────────────────────
+//
+// The event store writes progress events to `__`-prefixed sentinel streams
+// (e.g. `__migration__` from `migrateV5ToV6`). These are intentionally
+// outside the user-facing kebab-only featureId vocabulary, but the pipeline
+// view's stream-iteration path forwards every discovered streamId into
+// `materialize`, which transitively reaches `SnapshotStore.getSnapshotPath`
+// — and that enforces `SAFE_ID_PATTERN = /^[a-z0-9-]+$/`, crashing the view
+// with `VIEW_ERROR: Invalid streamId: "__migration__"` on any clean install
+// that has run a schema migration.
+//
+// Skipping at this layer is narrower than relaxing `SAFE_ID_PATTERN` (option
+// (b) in #1434, explicitly rejected); the kebab-only constraint is the
+// right shape for user-facing featureIds and we don't want a future caller
+// to accidentally name a snapshot file `..` or `subdir/foo`.
+const isInternalSentinelStream = (id: string): boolean => id.startsWith('__');
+
 /** Read EXARCHOS_MAX_CACHE_ENTRIES from env, falling back to default on invalid/missing. */
 function parseEnvMaxCacheEntries(): number {
   const raw = process.env.EXARCHOS_MAX_CACHE_ENTRIES;
@@ -124,6 +141,19 @@ export class ViewMaterializer {
     const projection = this.projections.get(viewName);
     if (!projection) {
       throw new Error(`No projection registered for view: ${viewName}`);
+    }
+
+    // #1434 — skip `__`-prefixed sentinel streams (e.g. `__migration__`) so
+    // they never reach `SnapshotStore.getSnapshotPath`, whose `SAFE_ID_PATTERN`
+    // rejects underscores and crashes the pipeline view. Returning
+    // `projection.init()` keeps the caller's iteration loop happy without
+    // polluting the LRU cache or persisting a snapshot for the sentinel.
+    if (isInternalSentinelStream(streamId)) {
+      viewLogger.debug(
+        { streamId, viewName },
+        'ViewMaterializer: skipping sentinel stream',
+      );
+      return projection.init() as T;
     }
 
     const stateKey = `${viewName}:${streamId}`;
@@ -223,6 +253,16 @@ export class ViewMaterializer {
    * Falls back to default init state if snapshot is missing or corrupt.
    */
   async loadFromSnapshot(streamId: string, viewName: string): Promise<boolean> {
+    // #1434 — sentinel streams never have a meaningful snapshot to load and
+    // would otherwise trip `SnapshotStore.getSnapshotPath`'s kebab-only
+    // validator. Short-circuit before touching the backend/snapshotStore.
+    if (isInternalSentinelStream(streamId)) {
+      viewLogger.debug(
+        { streamId, viewName },
+        'ViewMaterializer: skipping snapshot load for sentinel stream',
+      );
+      return false;
+    }
     // Prefer backend view cache when available
     if (this.backend) {
       const cached = this.backend.getViewCache(streamId, viewName);

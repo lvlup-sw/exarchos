@@ -1128,6 +1128,98 @@ describe('EventSourcedTaskStore (#1272)', () => {
     }
   });
 
+  it('ProjectTask_WhenRequestPayloadMalformed_LogsWarnWithStreamIdAndSequence', async () => {
+    // FINDING-7 (#1438, T5): `projectTask` previously coerced a missing /
+    // null / non-object `request` to `{}` silently via `?? {}`. This hid
+    // corrupt event payloads from operators. The fix is tolerate-and-flag:
+    // still produce a coerced empty-object Request, but emit a structured
+    // `logger.warn` carrying the `streamId` and event `sequence` so the
+    // corrupt record is locatable. Behavior on the happy path (a
+    // well-formed `request` object) is unchanged — no warning.
+    const taskId = 'malformed-request-task';
+    const streamId = `task-store/${taskId}`;
+    const now = new Date().toISOString();
+
+    // Seed a malformed `task.created` event directly via the event store
+    // (bypassing the public createTask API, which always supplies a
+    // well-formed `request`). `request: null` is the canonical malformed
+    // case — schema-permissive enough to land in the durable stream, but
+    // not a real `Request` object.
+    await eventStore.append(streamId, {
+      type: 'task.created',
+      timestamp: now,
+      data: {
+        taskId,
+        ttl: 60_000,
+        request: null,
+      },
+    });
+
+    const warnSpy = vi
+      .spyOn(taskStoreLogger, 'warn')
+      .mockImplementation(() => undefined);
+
+    try {
+      // Replay via a fresh store — forces `projectTask` to fold the
+      // seeded events from scratch.
+      const replayStore = new EventSourcedTaskStore(eventStore);
+      const replayed = await replayStore.getTask(taskId);
+
+      // Tolerate-and-flag: projection still returns a coerced Task with
+      // an empty-object request — DO NOT throw.
+      expect(replayed).not.toBeNull();
+      expect(replayed?.taskId).toBe(taskId);
+
+      // Exactly one warn for the malformed coerce branch (we filter out
+      // any unrelated warnings, e.g. throttle-gate or OCC noise, by
+      // matching on the coerce message shape).
+      const coerceCalls = warnSpy.mock.calls.filter((call) => {
+        const msg = call[1];
+        return typeof msg === 'string' && /malformed request/i.test(msg);
+      });
+      expect(coerceCalls).toHaveLength(1);
+
+      // First-arg object payload MUST carry the locator fields so the
+      // operator can find the corrupt event.
+      const payload = coerceCalls[0]![0] as Record<string, unknown>;
+      expect(payload.streamId).toBe(streamId);
+      expect(typeof payload.sequence).toBe('number');
+      expect(payload.sequence).toBeGreaterThanOrEqual(1);
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
+  it('ProjectTask_WhenRequestPayloadWellFormed_DoesNotWarn', async () => {
+    // Happy-path companion to the FINDING-7 (#1438, T5) test above. A
+    // well-formed `request` object MUST NOT trigger the coerce-and-warn
+    // branch — only missing / null / non-object payloads do.
+    const warnSpy = vi
+      .spyOn(taskStoreLogger, 'warn')
+      .mockImplementation(() => undefined);
+
+    try {
+      const task = await store.createTask(
+        { ttl: 60_000 },
+        'req-happy',
+        sampleRequest,
+      );
+
+      // Force a refold via a fresh store so `projectTask` runs.
+      const replayStore = new EventSourcedTaskStore(eventStore);
+      const replayed = await replayStore.getTask(task.taskId);
+      expect(replayed).not.toBeNull();
+
+      const coerceCalls = warnSpy.mock.calls.filter((call) => {
+        const msg = call[1];
+        return typeof msg === 'string' && /malformed request/i.test(msg);
+      });
+      expect(coerceCalls).toHaveLength(0);
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
   it('EventSourcedTaskStore_ListTasks_HydratesFromEventStoreOnColdStart', async () => {
     // CR PR #1432: cold-start listTasks must enumerate durable
     // `task-store/*` streams rather than silently returning an empty
@@ -1142,5 +1234,489 @@ describe('EventSourcedTaskStore (#1272)', () => {
     const { tasks } = await coldStore.listTasks();
     const ids = tasks.map((t) => t.taskId).sort();
     expect(ids).toEqual([t1.taskId, t2.taskId].sort());
+  });
+
+  it('CreateTask_WhenMapExceeds1024Entries_TriggersExpiredReap', async () => {
+    // FINDING-4 (#1438, T4): the TTL reaper (`reapExpired`) used to fire
+    // only on `listTasks`. Tasks created via `createTask` and never read
+    // accumulated in `this.tasks` indefinitely. The size-cap fix invokes
+    // `reapExpired` from `createTask` once the cache crosses
+    // `SIZE_CAP_REAP_THRESHOLD = 1024` so an unbounded creator workload
+    // cannot starve the reap path.
+    //
+    // Setup: create 1024 tasks with short TTLs, advance the wall clock
+    // past their expiry, then create one more — the 1025th create must
+    // trigger reap and drop every expired entry. The post-call cache
+    // size is `1` (only the survivor task).
+    vi.useFakeTimers();
+    try {
+      const SHORT_TTL = 5_000;
+      // Create exactly 1024 short-TTL tasks. After this loop the cache
+      // size is 1024 (== threshold, not yet over), so reap must NOT
+      // have fired yet — assert via the spy below.
+      const reapSpy = vi.spyOn(
+        store as unknown as { reapExpired: () => void },
+        'reapExpired',
+      );
+      try {
+        for (let i = 0; i < 1024; i++) {
+          await store.createTask(
+            { ttl: SHORT_TTL },
+            `req-${i}`,
+            sampleRequest,
+          );
+        }
+        // Pre-1025th create: no reap triggered (size is exactly 1024,
+        // not strictly greater than threshold).
+        expect(reapSpy).not.toHaveBeenCalled();
+        expect(
+          (store as unknown as { tasks: Map<string, unknown> }).tasks.size,
+        ).toBe(1024);
+
+        // Advance wall clock past every TTL so the first 1024 are all
+        // expired by the time the 1025th create's reap runs.
+        vi.setSystemTime(Date.now() + SHORT_TTL * 2);
+
+        // The 1025th create pushes size to 1025 > 1024 and must invoke
+        // `reapExpired`, sweeping all 1024 expired entries.
+        const survivor = await store.createTask(
+          { ttl: null },
+          'req-survivor',
+          sampleRequest,
+        );
+
+        expect(reapSpy).toHaveBeenCalledTimes(1);
+        const finalSize = (
+          store as unknown as { tasks: Map<string, unknown> }
+        ).tasks.size;
+        // Post-reap: only the survivor (unlimited TTL, just created)
+        // remains. Expired entries are gone; bound is well under 1024.
+        expect(finalSize).toBe(1);
+        expect(
+          (store as unknown as { tasks: Map<string, unknown> }).tasks.has(
+            survivor.taskId,
+          ),
+        ).toBe(true);
+      } finally {
+        reapSpy.mockRestore();
+      }
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('CreateTask_AppendsTaskCreatedEvent_IncludesRequestIdInPayload', async () => {
+    // FINDING-8 (#1438, T6): the audit-aligned fix for the
+    // `replayed:${taskId}` synthesizer is to persist `requestId` on new
+    // `task.created` events so a fresh-process replayer recovers the
+    // original JSON-RPC correlation id verbatim — the synthesizer stays
+    // as a strict backward-compat fallback for historical events that
+    // pre-date this fix (INV-1: events are immutable, so we cannot
+    // retroactively stamp old events; the synthesizer remains the
+    // only sound answer for them).
+    const task = await store.createTask(
+      { ttl: 60_000 },
+      'req-abc',
+      sampleRequest,
+    );
+
+    const events = await eventStore.query(`task-store/${task.taskId}`);
+    const created = events.find((e) => e.type === 'task.created');
+    expect(created).toBeDefined();
+    const data = (created!.data ?? {}) as Record<string, unknown>;
+    expect(data['requestId']).toBe('req-abc');
+  });
+
+  it('ProjectTask_ReplaysTaskCreated_WithoutRequestIdField_FallsBackToSyntheticReplayedPrefix', async () => {
+    // FINDING-8 (#1438, T6): historical `task.created` events emitted
+    // before the requestId-persistence fix do NOT carry a `requestId`
+    // field in `data`. The synthesizer (`replayed:${taskId}`) is the
+    // load-bearing backward-compat fallback for those events — we
+    // intentionally KEEP it (per the design's F-8 disposition: removing
+    // it would require INV-1-violating event mutation OR an
+    // operationally-meaningful sweep that the design rejected).
+    const taskId = 'old-event-no-requestid';
+    const streamId = `task-store/${taskId}`;
+    const now = new Date().toISOString();
+
+    // Seed an old-shape `task.created` event directly: no `requestId`
+    // field. The schema permits this (the new field is optional for
+    // exactly this back-compat reason).
+    await eventStore.append(streamId, {
+      type: 'task.created',
+      timestamp: now,
+      data: {
+        taskId,
+        ttl: 60_000,
+        request: sampleRequest,
+      },
+    });
+
+    // Force a fresh-process replay via a new store so projectTask folds
+    // the seeded event from scratch.
+    const replayStore = new EventSourcedTaskStore(eventStore);
+    const replayed = await replayStore.getTask(taskId);
+    expect(replayed).not.toBeNull();
+
+    // Inspect the projected entry's `requestId` — the public Task
+    // surface does not carry it, but the internal `tasks` cache holds
+    // the ProjectedTask which does. The synthesizer fallback MUST be
+    // exactly `replayed:${taskId}` for these old events.
+    const cached = (
+      replayStore as unknown as {
+        tasks: Map<string, { requestId: string }>;
+      }
+    ).tasks.get(taskId);
+    expect(cached).toBeDefined();
+    expect(cached!.requestId).toBe(`replayed:${taskId}`);
+  });
+
+  it('CreateTask_WhenMapUnder1024_DoesNotReap', async () => {
+    // FINDING-4 (#1438, T4): the size-cap reap is gated strictly on
+    // `this.tasks.size > SIZE_CAP_REAP_THRESHOLD`. Below the threshold,
+    // `createTask` MUST NOT invoke `reapExpired` — paying the O(n)
+    // sweep cost on every create at small cache sizes would regress
+    // hot-path performance for the common workload.
+    const reapSpy = vi.spyOn(
+      store as unknown as { reapExpired: () => void },
+      'reapExpired',
+    );
+    try {
+      // 100 creates, none expired, all under threshold.
+      for (let i = 0; i < 100; i++) {
+        await store.createTask(
+          { ttl: 60_000 },
+          `req-under-${i}`,
+          sampleRequest,
+        );
+      }
+      expect(reapSpy).not.toHaveBeenCalled();
+      expect(
+        (store as unknown as { tasks: Map<string, unknown> }).tasks.size,
+      ).toBe(100);
+    } finally {
+      reapSpy.mockRestore();
+    }
+  });
+
+  it('CreateTask_AboveThresholdWithNoExpiredEntries_AmortizesReapByGrowthDelta', async () => {
+    // FINDING-4 amortization (CodeRabbit on PR #1450): the original T4
+    // gate fired `reapExpired()` on EVERY create above the threshold,
+    // even when no entries were expired (steady-state pathological
+    // case). The amortization gate runs the sweep only when
+    // `tasks.size - lastReapSize >= REAP_GROWTH_DELTA (64)`.
+    //
+    // Setup: fill to 1025 entries (one above threshold) — first sweep
+    // fires immediately. Then create 200 MORE entries with long TTL
+    // (none expire). The sweep should run only on the boundary creates
+    // where growth-since-last-reap reaches 64 — i.e., roughly 200 / 64
+    // = ~3 additional invocations, NOT 200 (one per create as the
+    // pre-amortization gate would do).
+    const reapSpy = vi.spyOn(
+      store as unknown as { reapExpired: () => void },
+      'reapExpired',
+    );
+    try {
+      // Phase 1: cross the threshold. Single reap on the 1025th create.
+      for (let i = 0; i < 1025; i++) {
+        await store.createTask(
+          { ttl: 60_000 },
+          `req-cross-${i}`,
+          sampleRequest,
+        );
+      }
+      // After Phase 1 there should be exactly one sweep recorded.
+      expect(reapSpy).toHaveBeenCalledTimes(1);
+
+      // Phase 2: 200 more creates with NO expired entries. Without
+      // amortization this would be 200 additional sweeps. With
+      // amortization (delta=64) it should be ≤ ceil(200 / 64) = 4.
+      reapSpy.mockClear();
+      for (let i = 0; i < 200; i++) {
+        await store.createTask(
+          { ttl: 60_000 },
+          `req-amort-${i}`,
+          sampleRequest,
+        );
+      }
+      expect(reapSpy.mock.calls.length).toBeGreaterThan(0);
+      expect(reapSpy.mock.calls.length).toBeLessThanOrEqual(4);
+    } finally {
+      reapSpy.mockRestore();
+    }
+  });
+
+  it('ListTasks_AcrossSimulatedRestart_PaginatesStablyWithCursor', async () => {
+    // FINDING-5 (#1438, T7): cursor pagination MUST be stable across
+    // process restarts. The pre-fix implementation paginated by Map
+    // insertion order — set by `hydrateFromEventStore` on cold start
+    // and by `createTask` afterward. Neither establishes a content-
+    // derived sort key. For backends whose `listStreams` happens to be
+    // lex-sorted (SQLite) the pre-fix code accidentally appears stable
+    // ONLY when taskId lex order coincides with creation order; for
+    // every other relationship (and for the memory backend, which
+    // preserves insertion order) two instances disagree on pagination.
+    //
+    // The fix sorts by (createdAt ASC, taskId ASC) — `createdAt` is
+    // deterministic from the durable `task.created` event timestamp,
+    // and `taskId` is the tie-break for events with identical
+    // timestamps. The cursor wire format is opaque
+    // (base64url(JSON.stringify({createdAt, taskId}))) so consumers
+    // cannot accidentally couple to internal representation.
+    //
+    // Repro setup: seed 25 task.created events such that taskId lex
+    // order is the REVERSE of createdAt order. This forces the
+    // assertion to fail under the pre-fix Map-insertion-order
+    // implementation (which produces lex(taskId) order on SQLite cold
+    // start) and pass under the (createdAt ASC, taskId ASC) sort.
+    const N = 25;
+    const baseTimeMs = Date.parse('2026-01-01T00:00:00.000Z');
+
+    // taskIds: pad with 4-digit slot index, but invert (N-1-slot) into
+    // the taskId so taskId lex order is REVERSE of slot order. Slot
+    // also determines createdAt — slot 0 has the EARLIEST createdAt.
+    // Expected sort: ascending slot (== ascending createdAt) →
+    // taskIds in DESCENDING lex order. Insert in slot order so the
+    // memory-backend / Map-insertion path also disagrees with sort.
+    for (let slot = 0; slot < N; slot++) {
+      const inverted = N - 1 - slot; // taskId tag descends as slot ascends
+      const taskId = `task-${String(inverted).padStart(4, '0')}`;
+      const createdAt = new Date(baseTimeMs + slot * 1000).toISOString();
+      await eventStore.append(`task-store/${taskId}`, {
+        type: 'task.created',
+        timestamp: createdAt,
+        data: {
+          taskId,
+          ttl: null,
+          request: sampleRequest,
+        },
+      });
+    }
+
+    // Expected sort: by createdAt ASC. Slot index drives createdAt, so
+    // slot 0 (with taskId `task-00${N-1}`) comes first. That means
+    // taskIds appear in DESCENDING lex order — the OPPOSITE of what
+    // a pre-fix listStreams-driven implementation produces on SQLite.
+    const expectedOrder = Array.from({ length: N }, (_, slot) =>
+      `task-${String(N - 1 - slot).padStart(4, '0')}`,
+    );
+
+    // Instance A: page through the durable event store.
+    const instanceA = new EventSourcedTaskStore(eventStore);
+    const aPages: string[][] = [];
+    const aCursors: Array<string | undefined> = [];
+    let cursor: string | undefined;
+    do {
+      const page = await instanceA.listTasks(cursor);
+      aPages.push(page.tasks.map((t) => t.taskId));
+      aCursors.push(page.nextCursor);
+      cursor = page.nextCursor;
+    } while (cursor !== undefined);
+
+    // Sanity: A enumerates exactly N unique tasks in sorted order.
+    const aAll = aPages.flat();
+    expect(aAll).toHaveLength(N);
+    expect(new Set(aAll).size).toBe(N);
+    expect(aAll).toEqual(expectedOrder);
+
+    // Instance B: a fresh store against the same event store, replaying
+    // each of A's cursors as the input to the next listTasks. B's
+    // sequence MUST equal A's sequence — that is the cross-process
+    // pagination-stability contract.
+    const instanceB = new EventSourcedTaskStore(eventStore);
+    // Page 1 (no cursor).
+    const bPage1 = await instanceB.listTasks();
+    expect(bPage1.tasks.map((t) => t.taskId)).toEqual(aPages[0]);
+    // The cursor B emits at the end of page 1 MUST equal A's page-1
+    // cursor — that's the byte-level invariant of an opaque cursor.
+    expect(bPage1.nextCursor).toEqual(aCursors[0]);
+    // Feed A's cursor (not B's) into B for subsequent pages so we are
+    // testing the exact contract: A's cursor used by B yields A's
+    // next page.
+    for (let i = 1; i < aPages.length; i++) {
+      const bPage = await instanceB.listTasks(aCursors[i - 1]);
+      expect(bPage.tasks.map((t) => t.taskId)).toEqual(aPages[i]);
+      expect(bPage.nextCursor).toEqual(aCursors[i]);
+    }
+  });
+
+  it('ListTasks_TieBreakOnIdenticalCreatedAt_OrdersByTaskIdAsc', async () => {
+    // FINDING-5 (#1438, T7): when two `task.created` events share an
+    // identical ISO timestamp (two tasks created within the same
+    // millisecond), the sort tie-break MUST be taskId ASC. Without a
+    // stable secondary key the relative order falls through to Map
+    // insertion order, which is exactly the cross-process
+    // inconsistency T7 closes.
+    //
+    // Force-the-bug setup: drive enough back-to-back `createTask`
+    // calls under a frozen clock so every `task.created.timestamp`
+    // is byte-identical. `createTask` generates RANDOM 32-char hex
+    // taskIds and appends to `this.tasks` in call order, so the
+    // probability that Map insertion order coincidentally equals
+    // taskId-lex order across N=10 entries is essentially zero
+    // (10! permutations, only 1 matches). Pre-fix `listTasks`
+    // returns Map iteration order (an arbitrary permutation);
+    // post-fix returns the unique permutation sorted by taskId ASC.
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(Date.parse('2026-02-15T12:00:00.000Z'));
+
+      const N = 10;
+      const createdTaskIds: string[] = [];
+      for (let i = 0; i < N; i++) {
+        const t = await store.createTask(
+          { ttl: null },
+          `req-tie-${i}`,
+          sampleRequest,
+        );
+        createdTaskIds.push(t.taskId);
+      }
+      // Sanity: all N timestamps tied at the frozen wall-clock.
+
+      const { tasks } = await store.listTasks();
+      const observed = tasks.map((t) => t.taskId);
+
+      // Contract: with identical createdAt across all entries, the
+      // result MUST be sorted by taskId ASC — a pure function of the
+      // taskIds, no insertion-order influence.
+      const expected = [...createdTaskIds].sort();
+      expect(observed).toEqual(expected);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('ListTasks_OnColdStartWithLimit10_QueriesOnePageOfStreams', async () => {
+    // FINDING-6 (#1438, T8): cursor-anchored incremental hydration.
+    //
+    // Pre-fix: `hydrateFromEventStore` enumerates EVERY `task-store/*`
+    // stream on every `listTasks` call and folds each via `loadTask`.
+    // With N historical tasks that is N per-stream `eventStore.query`
+    // calls before pagination even begins — a cold-start `listTasks`
+    // over 100 historical tasks paid 100 stream queries to return 10.
+    //
+    // Post-fix: hydration queries the event store ONCE via
+    // `queryByType('task.created', { streamPrefix, since, limit })`
+    // with `limit = PAGE_SIZE + LOOKAHEAD = 18`. Per-task projection
+    // folds only run for the (at most 18) events that came back. The
+    // upper bound on per-stream `query` calls is therefore
+    // `PAGE_SIZE + LOOKAHEAD`, not the total stream count.
+    //
+    // Repro: seed 100 task.created events through the durable substrate
+    // (bypassing the in-memory cache so the new store truly cold-starts),
+    // then spy `eventStore.query` and call `listTasks()`. Pre-fix the
+    // spy fires 100 times; post-fix it fires ≤ 18.
+    const N = 100;
+    const baseTimeMs = Date.parse('2026-03-01T00:00:00.000Z');
+    for (let i = 0; i < N; i++) {
+      const taskId = `task-cold-${String(i).padStart(4, '0')}`;
+      const createdAt = new Date(baseTimeMs + i * 1000).toISOString();
+      await eventStore.append(`task-store/${taskId}`, {
+        type: 'task.created',
+        timestamp: createdAt,
+        data: {
+          taskId,
+          ttl: null,
+          request: sampleRequest,
+        },
+      });
+    }
+
+    // Cold-start instance: fresh store backed by the same event store,
+    // so `this.tasks` is empty and every `listTasks` entry requires
+    // hydration from durable events.
+    const coldStore = new EventSourcedTaskStore(eventStore);
+    const querySpy = vi.spyOn(eventStore, 'query');
+
+    try {
+      const { tasks, nextCursor } = await coldStore.listTasks();
+
+      // Sanity: page 1 returns exactly PAGE_SIZE=10 entries and exposes
+      // a cursor (more pages follow). Sorted by createdAt ASC, the page
+      // is the first 10 inserts.
+      expect(tasks).toHaveLength(10);
+      expect(nextCursor).toBeDefined();
+
+      // The load-bearing assertion: cold-start hydration MUST NOT walk
+      // every durable stream. With PAGE_SIZE=10 and LOOKAHEAD=8 the
+      // upper bound on per-stream `eventStore.query` invocations is 18.
+      // Pre-fix this spy fires 100 times.
+      const LOOKAHEAD = 8;
+      const PAGE_SIZE = 10;
+      expect(querySpy.mock.calls.length).toBeLessThanOrEqual(
+        PAGE_SIZE + LOOKAHEAD,
+      );
+      // Lower bound: hydration MUST have hit at least the page-sized
+      // number of streams (10) to fold each task's projection. Anything
+      // below that would mean the implementation skipped real work and
+      // the listing would be incomplete.
+      expect(querySpy.mock.calls.length).toBeGreaterThanOrEqual(PAGE_SIZE);
+    } finally {
+      querySpy.mockRestore();
+    }
+  });
+
+  it('ListTasks_OnWarmCallAfterColdHydration_DoesNotReQueryAlreadyHydratedTasks', async () => {
+    // FINDING-6 (#1438, T8): incremental hydration anchored on the
+    // cursor's `createdAt`. After a cold-start `listTasks()` has
+    // hydrated page 1, calling `listTasks(cursor)` must NOT re-fold
+    // every durable stream — only the unhydrated tasks past the cursor
+    // (bounded by `PAGE_SIZE + LOOKAHEAD = 18` events).
+    //
+    // Pre-fix: every call re-enumerates all 100 streams and the cache-
+    // hit branch in `loadTask` (after cold-start) still incurs a
+    // `tailSequence` round-trip per stream, plus a `query` on any that
+    // were appended to since cache-stamp. The per-call overhead scales
+    // linearly with TOTAL durable tasks.
+    //
+    // Post-fix: the warm call's `query` count is bounded by the page
+    // worth of new folds, not the total durable count.
+    const N = 100;
+    const baseTimeMs = Date.parse('2026-04-01T00:00:00.000Z');
+    for (let i = 0; i < N; i++) {
+      const taskId = `task-warm-${String(i).padStart(4, '0')}`;
+      const createdAt = new Date(baseTimeMs + i * 1000).toISOString();
+      await eventStore.append(`task-store/${taskId}`, {
+        type: 'task.created',
+        timestamp: createdAt,
+        data: {
+          taskId,
+          ttl: null,
+          request: sampleRequest,
+        },
+      });
+    }
+
+    const coldStore = new EventSourcedTaskStore(eventStore);
+
+    // Cold call (hydrates page 1). We don't constrain its query count
+    // here — Test A covers that. We DO need the returned cursor so the
+    // warm call has an anchor.
+    const cold = await coldStore.listTasks();
+    expect(cold.tasks).toHaveLength(10);
+    expect(cold.nextCursor).toBeDefined();
+
+    // Now spy on `query` for the warm call only.
+    const querySpy = vi.spyOn(eventStore, 'query');
+    try {
+      const { tasks } = await coldStore.listTasks(cold.nextCursor);
+
+      // Sanity: the warm page returns the next 10 entries (and they
+      // differ from page 1).
+      expect(tasks).toHaveLength(10);
+
+      // Load-bearing assertion: the warm call's per-stream query count
+      // is much less than N. Concretely, an incremental-hydration impl
+      // does NOT re-fold any of the page-1 tasks (they are already
+      // cached); it folds only the new page's worth (≤ PAGE_SIZE +
+      // LOOKAHEAD = 18). Pre-fix this spy fires ~100 times.
+      const LOOKAHEAD = 8;
+      const PAGE_SIZE = 10;
+      expect(querySpy.mock.calls.length).toBeLessThanOrEqual(
+        PAGE_SIZE + LOOKAHEAD,
+      );
+    } finally {
+      querySpy.mockRestore();
+    }
   });
 });

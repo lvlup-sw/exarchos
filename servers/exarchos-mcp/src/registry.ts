@@ -2446,6 +2446,62 @@ const viewActions: readonly ToolAction[] = [
     outputSchema: EnvelopeSchema(z.unknown()),
     annotations: READ_ONLY_LOCAL,
   },
+  // T1 (#1446 residue) — three view actions dispatched through
+  // `views/composite.ts` but previously absent from TOOL_REGISTRY.viewActions.
+  // Without the registry entry, per-action Zod validation at
+  // `core/dispatch.ts:801` is silently skipped (DR-5 hole) and
+  // `exarchos_view describe` cannot surface their schemas. Registering them
+  // here closes both gaps. Schemas mirror the args the composite.ts handlers
+  // route today (see `views/composite.ts` cases for each action).
+  {
+    name: 'session_provenance',
+    description: 'Per-session provenance roll-up (tokens, tools, cost attribution) — query by sessionId or workflowId, optionally narrowed by metric',
+    schema: z.object({
+      sessionId: z.string().optional(),
+      workflowId: z.string().optional(),
+      metric: z.string().optional(),
+      // No correlation-tuple filter slots: the underlying handler
+      // (`handleViewSessionProvenance`) does not receive the event store.
+      // The session-provenance projection reads `stateDir` only, so there
+      // is no event-store query for the tuple filters to scope.
+    }),
+    phases: ALL_PHASES,
+    roles: ROLE_ANY,
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: READ_ONLY_LOCAL,
+  },
+  {
+    name: 'provenance',
+    description: 'Design-to-task provenance: per-requirement coverage and orphan-task detection from the design.linked / task.assigned event chain',
+    schema: z.object({
+      workflowId: z.string().optional(),
+      // Underlying handler (`handleViewProvenance`) queries the event store
+      // via `queryDeltaEvents`, so the correlation-tuple filter surface
+      // mirrors the Wave 5 (#1437) telemetry-view contract — slots are
+      // optional and pass through the cache-bypassing filtered fold path
+      // when present.
+      ...CORRELATION_TUPLE_FILTER_SHAPE,
+    }),
+    phases: ALL_PHASES,
+    roles: ROLE_ANY,
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: READ_ONLY_LOCAL,
+  },
+  {
+    name: 'ideate_readiness',
+    description: 'Check ideate-phase readiness: design artifact presence and the gates that gate transition to plan',
+    schema: z.object({
+      workflowId: z.string().optional(),
+      // Underlying handler (`handleViewIdeateReadiness`) queries the event
+      // store via `queryDeltaEvents`; correlation-tuple filter surface
+      // mirrors the Wave 5 (#1437) contract.
+      ...CORRELATION_TUPLE_FILTER_SHAPE,
+    }),
+    phases: ALL_PHASES,
+    roles: ROLE_ANY,
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: READ_ONLY_LOCAL,
+  },
   {
     name: 'synthesis_readiness',
     description: 'Check synthesis readiness: task completion, reviews, tests, and typecheck status',
@@ -2537,7 +2593,7 @@ export const TOOL_REGISTRY: readonly CompositeTool[] = [
     description: 'CQRS materialized views — pipeline, tasks, workflow status, stack, and telemetry',
     actions: viewActions,
     cli: { alias: 'vw' },
-    slimDescription: 'CQRS materialized views for pipeline, tasks, and telemetry. Use describe(actions) for schemas.\n\nActions: pipeline, tasks, workflow_status, stack_status, stack_place, telemetry, team_performance, delegation_timeline, code_quality, eval_results, quality_correlation, quality_attribution, quality_hints, delegation_readiness, synthesis_readiness, shepherd_status, convergence',
+    slimDescription: 'CQRS materialized views for pipeline, tasks, and telemetry. Use describe(actions) for schemas.\n\nActions: pipeline, tasks, workflow_status, stack_status, stack_place, telemetry, team_performance, delegation_timeline, code_quality, eval_results, quality_correlation, quality_attribution, quality_hints, delegation_readiness, synthesis_readiness, shepherd_status, convergence, session_provenance, provenance, ideate_readiness',
   },
   {
     name: 'exarchos_sync',
