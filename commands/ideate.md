@@ -31,7 +31,7 @@ Follow the brainstorming skill: `@skills/brainstorming/SKILL.md`
 
 ### Phase 0: Constraints (first turn)
 
-Before the clarifying questions, load the machine-readable invariants catalog at `docs/architecture/invariants.md` and surface a **Constraints** section naming the invariants and dimensions relevant to the proposal. For a CLI-shaped or agent-surface proposal, this typically includes `INV-5a` (input ergonomics), `INV-5b` (output contract), `INV-5c` (Aspire-style verbs), `INV-5d` (action discriminator), and `DIM-1` (topology). For an event-store or projection proposal, surface `INV-1` plus `DIM-1` / `DIM-3`. The brainstorming skill's "Constraint anchoring" subsection describes the selection rules.
+Before the clarifying questions, load the **core** invariants catalog at `docs/architecture/invariants.md` (entries marked `cost-of-load: always-load`) and surface a **Constraints** section naming the invariants and dimensions relevant to the proposal. The always-load set is the Phase 0 working baseline; load `reference-only` entries on-demand by re-reading the same file with a topic-filtered scan if the proposal's domain warrants them (e.g., capability-resolution or remote-MCP topics pull in `INV-3`; CLI-verb design pulls in `INV-5c`; composite-tool changes pull in `INV-5d`; axiom-dimension overlap pulls in the relevant `DIM-*`). Entries marked `archivable` (e.g., axiom-owned prose checks) are not loaded at Phase 0 — they exist for vocabulary-lint cross-reference only. The brainstorming skill's "Constraint anchoring" subsection describes the selection rules.
 
 Emit the Constraints section *before* Phase 1 so the clarifying questions can probe the proposal against the load-bearing invariants instead of re-discovering them mid-design.
 

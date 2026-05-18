@@ -3,7 +3,11 @@ import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { loadInvariants, type InvariantEntry } from './invariants-loader.js';
+import {
+  loadCoreInvariants,
+  loadInvariants,
+  type InvariantEntry,
+} from './invariants-loader.js';
 
 /**
  * Repo root resolution: invariants-loader.test.ts lives at
@@ -79,6 +83,131 @@ describe('invariants-loader', () => {
     expect(hasInv5aRef).toBe(true);
   });
 
+  it('Invariants_AfterAudit_AllRequiredIdsStillPresentOrExplicitlyMigrated', () => {
+    // Pins the contract that the audit (B1) preserves every required ID.
+    // Future audit cycles that delete an entry must update REQUIRED_*_IDS
+    // explicitly (with a comment) rather than silently letting this drift.
+    const entries = loadInvariants(INVARIANTS_DOC);
+    const ids = new Set(entries.map((e) => e.id));
+    for (const id of REQUIRED_INVARIANT_IDS) {
+      expect(ids.has(id), `required invariant missing: ${id}`).toBe(true);
+    }
+    for (const id of REQUIRED_DIMENSION_IDS) {
+      expect(ids.has(id), `required dimension missing: ${id}`).toBe(true);
+    }
+  });
+
+  it('Invariants_AfterAudit_EveryKeptEntryHasAtLeastTwoReferencesInFrontmatter', () => {
+    // Threshold is pragmatically >= 2: four thin-coverage entries
+    // (DIM-4 / DIM-5 / DIM-7 / DIM-8) are explicit downgrade/stub framing
+    // per the 2026-05-18 audit. A stricter >= 3 check belongs in a
+    // follow-up once a `tier:` schema field is introduced.
+    const entries = loadInvariants(INVARIANTS_DOC);
+    for (const entry of entries) {
+      expect(
+        entry.references.length,
+        `entry ${entry.id} has only ${entry.references.length} references; need >= 2`,
+      ).toBeGreaterThanOrEqual(2);
+    }
+  });
+
+  it('Invariants_DimensionFieldRenames_AlignToAxiomCanonical', () => {
+    // Axiom's canonical dimension names (axiom/skills/backend-quality/SKILL.md)
+    // are Hygiene / Resilience / Prose Quality. The catalog must align so the
+    // vocabulary-lint cross-walk between axiom and exarchos shares a single
+    // taxonomy. Validates the audit's "name drift" findings for DIM-5/7/8.
+    const entries = loadInvariants(INVARIANTS_DOC);
+    const byId = new Map(entries.map((e) => [e.id, e] as const));
+
+    const dim5 = byId.get('DIM-5');
+    expect(dim5).toBeDefined();
+    expect(dim5!.dimension).toBe('hygiene');
+
+    const dim7 = byId.get('DIM-7');
+    expect(dim7).toBeDefined();
+    expect(dim7!.dimension).toBe('resilience');
+
+    const dim8 = byId.get('DIM-8');
+    expect(dim8).toBeDefined();
+    expect(dim8!.dimension).toBe('prose-quality');
+  });
+
+  it('Invariants_BasileusBoundaryReferences_DoNotPointToSiblingRepoPaths', () => {
+    // The audit found a broken pointer to `basileus/docs/adrs/...md` — a
+    // sibling-repo path not present in this repository. References must
+    // resolve in-repo so vocabulary-lint and link-checking tooling don't
+    // false-fail. Basileus material stays addressable via memory pointers
+    // and the cross-product memo, not in-frontmatter file refs.
+    const entries = loadInvariants(INVARIANTS_DOC);
+    const bb = entries.find((e) => e.id === 'basileus-boundary');
+    expect(bb).toBeDefined();
+    for (const ref of bb!.references) {
+      expect(
+        ref.startsWith('basileus/'),
+        `basileus-boundary references must not point at sibling-repo path: ${ref}`,
+      ).toBe(false);
+    }
+  });
+
+  it('LoadInvariants_WithScopeCore_ReturnsOnlyAlwaysLoadEntries', () => {
+    // Per the 2026-05-18 audit per-row table, exactly four entries are
+    // classified `cost-of-load: always-load`: INV-1, INV-2, INV-5a, INV-5b.
+    // `scope: 'core'` must filter to that set; default and `scope: 'all'`
+    // must return the full catalog (18 entries) for backward-compat.
+    const coreEntries = loadInvariants(INVARIANTS_DOC, { scope: 'core' });
+    const coreIds = new Set(coreEntries.map((e) => e.id));
+    expect(coreIds).toEqual(new Set(['INV-1', 'INV-2', 'INV-5a', 'INV-5b']));
+
+    const allEntries = loadInvariants(INVARIANTS_DOC, { scope: 'all' });
+    const defaultEntries = loadInvariants(INVARIANTS_DOC);
+    expect(allEntries.length).toBe(18);
+    expect(defaultEntries.length).toBe(18);
+    expect(defaultEntries.map((e) => e.id)).toEqual(allEntries.map((e) => e.id));
+  });
+
+  it('Invariants_EveryEntry_HasCostOfLoadField', () => {
+    // Every catalog entry must declare a `cost-of-load` field per the
+    // audit's contract. Missing field is a parse error (no silent default);
+    // here we assert the populated catalog meets the typed contract.
+    const validValues = new Set(['always-load', 'reference-only', 'archivable']);
+    const entries = loadInvariants(INVARIANTS_DOC);
+    for (const entry of entries) {
+      expect(
+        validValues.has(entry.costOfLoad),
+        `entry ${entry.id} has invalid costOfLoad: ${String(entry.costOfLoad)}`,
+      ).toBe(true);
+    }
+  });
+
+  it('LoadInvariants_WithUnknownScope_ThrowsLoudly', () => {
+    // Per design §5 DIM-2 (plan-review enrichment): unknown scopes are
+    // a contract violation — the loader must throw, not silently fall back
+    // to 'all'. The error message must name the offending scope and list
+    // the valid options so the caller can self-correct.
+    expect(() =>
+      loadInvariants(INVARIANTS_DOC, { scope: 'invalid-scope' as unknown as 'core' }),
+    ).toThrow(/invalid-scope/);
+    expect(() =>
+      loadInvariants(INVARIANTS_DOC, { scope: 'invalid-scope' as unknown as 'core' }),
+    ).toThrow(/core/);
+    expect(() =>
+      loadInvariants(INVARIANTS_DOC, { scope: 'invalid-scope' as unknown as 'core' }),
+    ).toThrow(/all/);
+  });
+
+  it('LoadCoreInvariants_ReturnsOnlyAlwaysLoadEntries', () => {
+    // Documented convenience export: `loadCoreInvariants(path)` is equivalent
+    // to `loadInvariants(path, { scope: 'core' })`. Exists so /ideate Phase 0
+    // call sites can express intent at the import boundary rather than the
+    // call boundary.
+    const coreEntries = loadCoreInvariants(INVARIANTS_DOC);
+    const coreIds = new Set(coreEntries.map((e) => e.id));
+    expect(coreIds).toEqual(new Set(['INV-1', 'INV-2', 'INV-5a', 'INV-5b']));
+    // Equivalence with explicit scope arg.
+    const explicit = loadInvariants(INVARIANTS_DOC, { scope: 'core' });
+    expect(coreEntries.map((e) => e.id)).toEqual(explicit.map((e) => e.id));
+  });
+
   it('InvariantsLoader_DuplicateIds_ThrowsWithIdInMessage', () => {
     // Construct a frontmatter fixture with two entries sharing the same id
     // (`INV-1`). The loader must reject this at load time so a silent
@@ -87,6 +216,7 @@ describe('invariants-loader', () => {
 invariants:
   - id: INV-1
     dimension: event-sourcing integrity
+    cost-of-load: always-load
     applies-to:
       - servers/exarchos-mcp/src/event-store
     summary: First copy of INV-1.
@@ -94,6 +224,7 @@ invariants:
       - docs/architecture/invariants.md
   - id: INV-1
     dimension: duplicate
+    cost-of-load: always-load
     applies-to:
       - servers/exarchos-mcp/src/event-store
     summary: Second copy of INV-1 — should be rejected.

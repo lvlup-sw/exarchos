@@ -1,20 +1,20 @@
 # INV-3: Basileus-Forward (No MCP-Second-Class Assumptions)
 
-No design decision presumes MCP is local-only. The Exarchos ↔ Basileus coordination ADR (`basileus/docs/adrs/ontological-data-fabric.md`) cements two-channel transport (Workflow client A on `/mcp/workflow`, Ontology client B on `/mcp/ontology`) with independent client lifecycles, handshake-authoritative capability resolution, and `.exarchos.yml`-only configuration.
+No design decision presumes MCP is local-only. The Exarchos ↔ Basileus coordination ADR (`basileus/docs/adrs/ontological-data-fabric.md`) cements two-channel transport (Workflow client A on `/mcp/workflow`, Ontology client B on `/mcp/ontology`) with independent client lifecycles, handshake-authoritative capability resolution, and `.exarchos.yml`-only configuration. Workspace discovery prefers the MCP roots capability over cwd heuristics (post-#1269). The remote-MCP surface throws-not-degrades when called (#1081) — explicit "not yet, but designed-for" rather than silent fallback.
 
 ## Acceptance questions (from #1109 §3 + ADR §§2.1, 2.4, 2.7, 2.8)
 
 1. No reads of `runtimes/*.yaml` capability fields at runtime — the resolver merging `yaml ⊕ handshake` is the only authority.
 2. `agent` namespace remains reserved for future remote agent coordination (not AI-assistant setup).
 3. New config lands in `.exarchos.yml` only — no `bridge-config.json`-style sibling files.
-4. Sideband daemon assumptions hold across all runtimes (not Claude-Code-specific).
+4. Remote-MCP adapter throws-not-degrades when called (#1081) — explicit "not yet, but designed-for" rather than silent fallback. Cross-runtime applicability is preserved through this throw, not through a sideband daemon.
 5. **Roots awareness** ([#1269](https://github.com/lvlup-sw/exarchos/issues/1269)) — workspace discovery via the spec's `roots` capability rather than `cwd` heuristics, capability-gated so non-roots clients still work.
 
 ## Repo-grounded checks
 
 - New code that needs a capability decision goes through the resolver (`servers/exarchos-mcp/src/capabilities/resolver.ts`), never directly through `runtimes/<name>.yaml` reads.
 - Two-channel architecture: workflow operations and ontology operations have **distinct** MCP client lifecycles. Workflow client A binds to `/delegate` phases; Ontology client B is always-on (per ADR §2.4). Don't fuse them or assume one's lifecycle covers the other's.
-- Sideband daemon (`exarchos watch`) is the universal floor (ADR §2.4) — the same idle-session awareness available on Claude Code via Channel must work on OpenCode and generic MCP clients.
+- Remote-MCP surface (`servers/exarchos-mcp/src/adapters/remote-mcp.ts`) throws explicitly when called (#1081) — capability is designed-for-future, not silently degraded. Cross-runtime idle-session awareness routes through the standard MCP transport, not a sideband daemon.
 - Configuration consolidates in `.exarchos.yml` (ADR §2.7) — no separate `bridge-config.json` or sibling files. New config keys go here; document the schema in the resolver.
 
 ## Pre-#1269 vs post-#1269 (Roots adoption)
