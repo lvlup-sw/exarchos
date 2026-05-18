@@ -227,6 +227,15 @@ export class EventSourcedTaskStore implements TaskStore {
         ttl,
         request,
         pollInterval,
+        // FINDING-8 (#1438, T6): persist the JSON-RPC `requestId` so a
+        // replaying process recovers the original outbound correlation
+        // id verbatim. Pre-fix, the value lived only in this in-memory
+        // entry and was lost across process restarts — `projectTask`
+        // had to synthesize `replayed:${taskId}` for every fold. With
+        // this field on new events the synthesizer becomes a strict
+        // backward-compat fallback for historical (pre-T6) events
+        // rather than a routine code path.
+        requestId,
         // `createdBy` is left to upstream stamping (DispatchContext via
         // AsyncLocalStorage — see B1) when the call is inside a
         // dispatch boundary. The schema permits the field as optional.
@@ -940,11 +949,22 @@ function projectTask(
     }
   }
 
-  // requestId is not durably persisted (the SDK uses it only for
-  // outbound JSON-RPC correlation, which a replayed task doesn't have).
-  // We synthesize a sentinel so the projected shape is still a valid
-  // `ProjectedTask` for in-memory consumers.
-  const requestId: RequestId = `replayed:${taskId}`;
+  // FINDING-8 (#1438, T6): prefer the persisted `requestId` from the
+  // `task.created` event payload — new events carry it verbatim so a
+  // replaying process recovers the original JSON-RPC correlation id.
+  // Historical events emitted before the persistence fix do NOT have
+  // the field; they fall back to the `replayed:${taskId}` synthesizer
+  // below. KEEP THE FALLBACK: per the F-8 design disposition, the
+  // synthesizer is read-side-only and load-bearing for old events —
+  // removing it would require INV-1-violating event mutation (events
+  // are immutable). The SDK `RequestId` is `string | number`, so we
+  // accept either shape from the payload.
+  const persistedRequestId = createdData['requestId'];
+  const requestId: RequestId =
+    typeof persistedRequestId === 'string' ||
+    typeof persistedRequestId === 'number'
+      ? persistedRequestId
+      : `replayed:${taskId}`;
 
   return {
     task,

@@ -1305,6 +1305,72 @@ describe('EventSourcedTaskStore (#1272)', () => {
     }
   });
 
+  it('CreateTask_AppendsTaskCreatedEvent_IncludesRequestIdInPayload', async () => {
+    // FINDING-8 (#1438, T6): the audit-aligned fix for the
+    // `replayed:${taskId}` synthesizer is to persist `requestId` on new
+    // `task.created` events so a fresh-process replayer recovers the
+    // original JSON-RPC correlation id verbatim — the synthesizer stays
+    // as a strict backward-compat fallback for historical events that
+    // pre-date this fix (INV-1: events are immutable, so we cannot
+    // retroactively stamp old events; the synthesizer remains the
+    // only sound answer for them).
+    const task = await store.createTask(
+      { ttl: 60_000 },
+      'req-abc',
+      sampleRequest,
+    );
+
+    const events = await eventStore.query(`task-store/${task.taskId}`);
+    const created = events.find((e) => e.type === 'task.created');
+    expect(created).toBeDefined();
+    const data = (created!.data ?? {}) as Record<string, unknown>;
+    expect(data['requestId']).toBe('req-abc');
+  });
+
+  it('ProjectTask_ReplaysTaskCreated_WithoutRequestIdField_FallsBackToSyntheticReplayedPrefix', async () => {
+    // FINDING-8 (#1438, T6): historical `task.created` events emitted
+    // before the requestId-persistence fix do NOT carry a `requestId`
+    // field in `data`. The synthesizer (`replayed:${taskId}`) is the
+    // load-bearing backward-compat fallback for those events — we
+    // intentionally KEEP it (per the design's F-8 disposition: removing
+    // it would require INV-1-violating event mutation OR an
+    // operationally-meaningful sweep that the design rejected).
+    const taskId = 'old-event-no-requestid';
+    const streamId = `task-store/${taskId}`;
+    const now = new Date().toISOString();
+
+    // Seed an old-shape `task.created` event directly: no `requestId`
+    // field. The schema permits this (the new field is optional for
+    // exactly this back-compat reason).
+    await eventStore.append(streamId, {
+      type: 'task.created',
+      timestamp: now,
+      data: {
+        taskId,
+        ttl: 60_000,
+        request: sampleRequest,
+      },
+    });
+
+    // Force a fresh-process replay via a new store so projectTask folds
+    // the seeded event from scratch.
+    const replayStore = new EventSourcedTaskStore(eventStore);
+    const replayed = await replayStore.getTask(taskId);
+    expect(replayed).not.toBeNull();
+
+    // Inspect the projected entry's `requestId` — the public Task
+    // surface does not carry it, but the internal `tasks` cache holds
+    // the ProjectedTask which does. The synthesizer fallback MUST be
+    // exactly `replayed:${taskId}` for these old events.
+    const cached = (
+      replayStore as unknown as {
+        tasks: Map<string, { requestId: string }>;
+      }
+    ).tasks.get(taskId);
+    expect(cached).toBeDefined();
+    expect(cached!.requestId).toBe(`replayed:${taskId}`);
+  });
+
   it('CreateTask_WhenMapUnder1024_DoesNotReap', async () => {
     // FINDING-4 (#1438, T4): the size-cap reap is gated strictly on
     // `this.tasks.size > SIZE_CAP_REAP_THRESHOLD`. Below the threshold,
