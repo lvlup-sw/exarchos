@@ -59,6 +59,35 @@
  * throttled to one event per `TASK_POLLED_THROTTLE_MS` window via an
  * in-memory `lastPolledAt` map that is cleaned up alongside the cache
  * on reap.
+ *
+ * ## listTasks ordering + cursor wire format (FINDING-5, #1438 T7)
+ *
+ * Pagination sorts by `(createdAt ASC, taskId ASC)`. `createdAt` is
+ * the `task.created` event's ISO timestamp — deterministic and
+ * present on every entry in the cache. `taskId` is the tie-break for
+ * two events sharing a millisecond (a real race when two consumers
+ * race against the same store at high QPS). Neither key depends on
+ * Map insertion order, so the enumeration is identical across
+ * processes, restarts, and replicas pointed at the same event store
+ * — the prerequisite for the cursor contract below.
+ *
+ * The cursor is an OPAQUE string: callers MUST treat it as a
+ * round-trip blob and MUST NOT parse it. Internally:
+ *
+ *   cursor = base64url(JSON.stringify({ createdAt, taskId }))
+ *
+ * where `createdAt` and `taskId` are the values of the LAST entry on
+ * the page just returned. Decoding skips past every entry whose
+ * `(createdAt, taskId)` tuple is `<=` the cursor under the same lex
+ * ordering as the sort. `nextCursor` is only emitted when there is at
+ * least one entry past the current page.
+ *
+ * Hydration (`hydrateFromEventStore`) currently enumerates ALL
+ * `task-store/*` streams on every `listTasks` call. T8 (#1438 F-6)
+ * will replace this with cursor-anchored incremental hydration that
+ * folds only the streams created since the cursor — at which point
+ * the cursor's `createdAt` field becomes load-bearing for the
+ * hydration filter as well, not just for sort + offset.
  */
 import { randomBytes } from 'node:crypto';
 import type {
