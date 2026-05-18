@@ -79,6 +79,72 @@ describe('invariants-loader', () => {
     expect(hasInv5aRef).toBe(true);
   });
 
+  it('Invariants_AfterAudit_AllRequiredIdsStillPresentOrExplicitlyMigrated', () => {
+    // Pins the contract that the audit (B1) preserves every required ID.
+    // Future audit cycles that delete an entry must update REQUIRED_*_IDS
+    // explicitly (with a comment) rather than silently letting this drift.
+    const entries = loadInvariants(INVARIANTS_DOC);
+    const ids = new Set(entries.map((e) => e.id));
+    for (const id of REQUIRED_INVARIANT_IDS) {
+      expect(ids.has(id), `required invariant missing: ${id}`).toBe(true);
+    }
+    for (const id of REQUIRED_DIMENSION_IDS) {
+      expect(ids.has(id), `required dimension missing: ${id}`).toBe(true);
+    }
+  });
+
+  it('Invariants_AfterAudit_EveryKeptEntryHasAtLeastTwoReferencesInFrontmatter', () => {
+    // Threshold is pragmatically >= 2: four thin-coverage entries
+    // (DIM-4 / DIM-5 / DIM-7 / DIM-8) are explicit downgrade/stub framing
+    // per the 2026-05-18 audit. A stricter >= 3 check belongs in a
+    // follow-up once a `tier:` schema field is introduced.
+    const entries = loadInvariants(INVARIANTS_DOC);
+    for (const entry of entries) {
+      expect(
+        entry.references.length,
+        `entry ${entry.id} has only ${entry.references.length} references; need >= 2`,
+      ).toBeGreaterThanOrEqual(2);
+    }
+  });
+
+  it('Invariants_DimensionFieldRenames_AlignToAxiomCanonical', () => {
+    // Axiom's canonical dimension names (axiom/skills/backend-quality/SKILL.md)
+    // are Hygiene / Resilience / Prose Quality. The catalog must align so the
+    // vocabulary-lint cross-walk between axiom and exarchos shares a single
+    // taxonomy. Validates the audit's "name drift" findings for DIM-5/7/8.
+    const entries = loadInvariants(INVARIANTS_DOC);
+    const byId = new Map(entries.map((e) => [e.id, e] as const));
+
+    const dim5 = byId.get('DIM-5');
+    expect(dim5).toBeDefined();
+    expect(dim5!.dimension).toBe('hygiene');
+
+    const dim7 = byId.get('DIM-7');
+    expect(dim7).toBeDefined();
+    expect(dim7!.dimension).toBe('resilience');
+
+    const dim8 = byId.get('DIM-8');
+    expect(dim8).toBeDefined();
+    expect(dim8!.dimension).toBe('prose-quality');
+  });
+
+  it('Invariants_BasileusBoundaryReferences_DoNotPointToSiblingRepoPaths', () => {
+    // The audit found a broken pointer to `basileus/docs/adrs/...md` — a
+    // sibling-repo path not present in this repository. References must
+    // resolve in-repo so vocabulary-lint and link-checking tooling don't
+    // false-fail. Basileus material stays addressable via memory pointers
+    // and the cross-product memo, not in-frontmatter file refs.
+    const entries = loadInvariants(INVARIANTS_DOC);
+    const bb = entries.find((e) => e.id === 'basileus-boundary');
+    expect(bb).toBeDefined();
+    for (const ref of bb!.references) {
+      expect(
+        ref.startsWith('basileus/'),
+        `basileus-boundary references must not point at sibling-repo path: ${ref}`,
+      ).toBe(false);
+    }
+  });
+
   it('InvariantsLoader_DuplicateIds_ThrowsWithIdInMessage', () => {
     // Construct a frontmatter fixture with two entries sharing the same id
     // (`INV-1`). The loader must reject this at load time so a silent
