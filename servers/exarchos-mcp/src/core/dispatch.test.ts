@@ -1313,4 +1313,59 @@ describe('dispatch', () => {
     expect(typeof meta!.operationId).toBe('string');
     expect(meta!.operationId as string).toMatch(UUID_RE);
   });
+
+  // T1 (#1446 residue) — DR-5 dispatch validation for the three view
+  // actions that were dispatched through `views/composite.ts` but missing
+  // from `TOOL_REGISTRY.viewActions`. Before T1, dispatching with bad args
+  // returned the generic "unknown action" error from dispatch.ts:650-657
+  // (action not in registry), so callers could not distinguish "the action
+  // doesn't exist" from "the action exists but the args are malformed".
+  // After T1, the same path that fires for Wave 5 actions post-#1437 must
+  // also fire here: the action is found, the per-action schema rejects the
+  // malformed input, and the envelope carries the Zod issue path (the field
+  // name the caller got wrong).
+  describe('T1 — DR-5 dispatch validation for newly registered view actions', () => {
+    const NEWLY_REGISTERED_VIEW_ACTIONS = [
+      'session_provenance',
+      'provenance',
+      'ideate_readiness',
+    ] as const;
+
+    for (const action of NEWLY_REGISTERED_VIEW_ACTIONS) {
+      it(`ExarchosViewDispatch_OnInvalidArgsForNewlyRegisteredAction_ReturnsZodValidationError_${action}`, async () => {
+        const { dispatch } = await import('./dispatch.js');
+
+        // workflowId is declared as `z.string().optional()` on every one of
+        // the three new schemas, so passing a number triggers a `z.string`
+        // type-mismatch — the canonical post-T1 Zod surface, distinct from
+        // the pre-T1 "unknown action" surface.
+        const result = await dispatch(
+          'exarchos_view',
+          { action, workflowId: 123 },
+          { stateDir: tmpDir, eventStore, enableTelemetry: false },
+        );
+
+        expect(result.success).toBe(false);
+        expect(result.error?.code).toBe('INVALID_INPUT');
+
+        const message = result.error?.message ?? '';
+        // Post-T1: Zod validation fires. The message MUST reference the
+        // offending field path (`workflowId`) — that's the discriminator
+        // between the per-action validation envelope and the registry's
+        // "unknown action" envelope. Pre-T1 the message reads:
+        //   `exarchos_view: unknown action "<action>". Valid actions: ...`
+        // which contains the action name but never the field name.
+        expect(
+          message,
+          `Expected Zod validation to reject 'workflowId: 123' for action ` +
+            `'${action}'. Got: ${message}`,
+        ).toMatch(/workflowId/);
+        expect(
+          message,
+          `Expected '${action}' to be a registered action (post-T1). ` +
+            `Got "unknown action" envelope: ${message}`,
+        ).not.toMatch(/unknown action/i);
+      });
+    }
+  });
 });
