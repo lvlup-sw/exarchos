@@ -1789,6 +1789,16 @@ export const TaskCreatedData = z.object({
   // the field continue to project (back-compat with pre-fix
   // `task.created` payloads).
   pollInterval: z.number().int().positive().optional(),
+  // FINDING-8 (#1438, T6): persist the JSON-RPC `requestId` so REPLAY
+  // recovers the original outbound correlation id verbatim instead of
+  // having to synthesize `replayed:${taskId}`. Optional because
+  // historical `task.created` events emitted before this fix do NOT
+  // carry the field — the synthesizer in `projectTask` remains the
+  // load-bearing back-compat fallback for those events (INV-1: events
+  // are immutable, so old events stay shaped as they were when written).
+  // SDK `RequestId` is `string | number` (JSON-RPC envelope), so we
+  // mirror that union here rather than narrowing to string.
+  requestId: z.union([z.string(), z.number()]).optional(),
 });
 
 /**
