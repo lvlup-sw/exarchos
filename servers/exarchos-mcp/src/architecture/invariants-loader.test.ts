@@ -145,6 +145,52 @@ describe('invariants-loader', () => {
     }
   });
 
+  it('LoadInvariants_WithScopeCore_ReturnsOnlyAlwaysLoadEntries', () => {
+    // Per the 2026-05-18 audit per-row table, exactly four entries are
+    // classified `cost-of-load: always-load`: INV-1, INV-2, INV-5a, INV-5b.
+    // `scope: 'core'` must filter to that set; default and `scope: 'all'`
+    // must return the full catalog (18 entries) for backward-compat.
+    const coreEntries = loadInvariants(INVARIANTS_DOC, { scope: 'core' });
+    const coreIds = new Set(coreEntries.map((e) => e.id));
+    expect(coreIds).toEqual(new Set(['INV-1', 'INV-2', 'INV-5a', 'INV-5b']));
+
+    const allEntries = loadInvariants(INVARIANTS_DOC, { scope: 'all' });
+    const defaultEntries = loadInvariants(INVARIANTS_DOC);
+    expect(allEntries.length).toBe(18);
+    expect(defaultEntries.length).toBe(18);
+    expect(defaultEntries.map((e) => e.id)).toEqual(allEntries.map((e) => e.id));
+  });
+
+  it('Invariants_EveryEntry_HasCostOfLoadField', () => {
+    // Every catalog entry must declare a `cost-of-load` field per the
+    // audit's contract. Missing field is a parse error (no silent default);
+    // here we assert the populated catalog meets the typed contract.
+    const validValues = new Set(['always-load', 'reference-only', 'archivable']);
+    const entries = loadInvariants(INVARIANTS_DOC);
+    for (const entry of entries) {
+      expect(
+        validValues.has(entry.costOfLoad),
+        `entry ${entry.id} has invalid costOfLoad: ${String(entry.costOfLoad)}`,
+      ).toBe(true);
+    }
+  });
+
+  it('LoadInvariants_WithUnknownScope_ThrowsLoudly', () => {
+    // Per design §5 DIM-2 (plan-review enrichment): unknown scopes are
+    // a contract violation — the loader must throw, not silently fall back
+    // to 'all'. The error message must name the offending scope and list
+    // the valid options so the caller can self-correct.
+    expect(() =>
+      loadInvariants(INVARIANTS_DOC, { scope: 'invalid-scope' as unknown as 'core' }),
+    ).toThrow(/invalid-scope/);
+    expect(() =>
+      loadInvariants(INVARIANTS_DOC, { scope: 'invalid-scope' as unknown as 'core' }),
+    ).toThrow(/core/);
+    expect(() =>
+      loadInvariants(INVARIANTS_DOC, { scope: 'invalid-scope' as unknown as 'core' }),
+    ).toThrow(/all/);
+  });
+
   it('InvariantsLoader_DuplicateIds_ThrowsWithIdInMessage', () => {
     // Construct a frontmatter fixture with two entries sharing the same id
     // (`INV-1`). The loader must reject this at load time so a silent
