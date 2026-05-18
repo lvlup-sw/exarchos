@@ -148,7 +148,7 @@ export interface DispatchContext {
 // Future iterations can extend this surface; the conservative single-field
 // gate is the v2.10 contract.
 
-function extractSingleMissingRequiredField(
+export function extractSingleMissingRequiredField(
   error: import('zod').z.ZodError,
 ): string | undefined {
   // Zod v4's missing-required-key error surfaces with `code: 'invalid_type'`
@@ -166,11 +166,21 @@ function extractSingleMissingRequiredField(
   //   - exactly one issue is reported, AND
   //   - the issue path is a single top-level key (string), AND
   //   - the issue code is 'invalid_type' (Zod's universal "missing" code), AND
-  //   - the issue's `input` is `undefined` AND the non-standard `received`
-  //     property is the string `'undefined'` (distinguishes a genuinely
-  //     missing field from a wrong-type field — elicitation only applies
-  //     to the former; the dual check defends against Zod versions that
-  //     populate one signal but not the other).
+  //   - the issue's `input` is `undefined` (the primary "field missing"
+  //     disambiguator across Zod v3 and v4 — populated by reportInput at
+  //     the call site; see comment at the safeParse site below). The
+  //     non-standard `received` property is *also* inspected as a
+  //     belt-and-suspenders signal, but its presence varies:
+  //       - Zod v3 populates `received: 'undefined'` (the string) for
+  //         missing fields.
+  //       - Zod v4 omits the `received` property entirely (Issue #1451 /
+  //         discovered via #1436 E2E smoketest). The runtime value of
+  //         `(issue as any).received` is therefore JS `undefined`.
+  //     Both signals are valid "missing field" indicators; we reject only
+  //     when `received` carries some OTHER value (a wrong-type indicator
+  //     like 'string' or 'number'). The `input !== undefined` guard above
+  //     is what actually keeps wrong-type errors from leaking into the
+  //     elicitation hand-off — CodeRabbit CRITICAL #1424 remains satisfied.
   const issues = error.issues;
   if (issues.length !== 1) return undefined;
   const only = issues[0];
@@ -179,10 +189,11 @@ function extractSingleMissingRequiredField(
   if (only.path.length !== 1) return undefined;
   const key = only.path[0];
   if (typeof key !== 'string') return undefined;
-  // Guard against wrong-type fields masquerading as missing. The `received`
-  // property is non-standard across Zod versions — narrow defensively.
+  // Dual-signal received-property gate (#1451). Accept absence (Zod v4)
+  // or the literal string 'undefined' (Zod v3); reject any other value
+  // (a wrong-type indicator).
   const received = (only as { received?: unknown }).received;
-  if (received !== 'undefined') return undefined;
+  if (received !== 'undefined' && received !== undefined) return undefined;
   return key;
 }
 

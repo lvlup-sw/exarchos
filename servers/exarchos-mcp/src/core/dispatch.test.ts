@@ -16,6 +16,7 @@ import {
 } from '../registry.js';
 import type { CompositeTool } from '../registry.js';
 import type { DispatchContext } from './dispatch.js';
+import { extractSingleMissingRequiredField } from './dispatch.js';
 import { InMemoryBackend } from '../storage/memory-backend.js';
 import type { StorageBackend } from '../storage/backend.js';
 
@@ -1367,5 +1368,60 @@ describe('dispatch', () => {
         ).not.toMatch(/unknown action/i);
       });
     }
+  });
+
+  // ─── #1451 — extractSingleMissingRequiredField under Zod v4 ─────────────
+  //
+  // Zod v4 dropped the non-standard `received` property from
+  // `invalid_type` issues. The pre-fix narrowing required
+  // `issue.received === 'undefined'` (a Zod v3-only string signal), so under
+  // Zod v4 the helper rejected every missing-field issue and elicitation
+  // never fired. The dual-signal fix accepts either:
+  //   - `received === 'undefined'` (Zod v3 string signal), OR
+  //   - `received === undefined`   (property absent — Zod v4 shape).
+  // The `input !== undefined` check at the top of the helper still
+  // disambiguates wrong-type from missing-field, so the relaxed `received`
+  // gate cannot regress CodeRabbit CRITICAL #1424.
+  describe('extractSingleMissingRequiredField — Zod v4 issue shape (#1451)', () => {
+    it('ExtractSingleMissingRequiredField_ZodV4MissingFieldNoReceivedProperty_ReturnsKey', () => {
+      // Arrange — real Zod v4 parse of an empty payload against a single
+      // required string field. This grounds the test in the actual issue
+      // shape Zod v4 emits in production rather than a hand-rolled stub.
+      const schema = z.object({ featureId: z.string() });
+      const parsed = schema.safeParse({}, { reportInput: true });
+
+      expect(parsed.success).toBe(false);
+      if (parsed.success) return; // type-narrow for TS
+      // Sanity: Zod v4 omits `received` entirely on missing-field issues.
+      const issue = parsed.error.issues[0] as { received?: unknown };
+      expect('received' in issue).toBe(false);
+
+      // Act
+      const result = extractSingleMissingRequiredField(parsed.error);
+
+      // Assert — helper must return the missing key, not undefined.
+      expect(result).toBe('featureId');
+    });
+
+    it('ExtractSingleMissingRequiredField_ZodV4WrongTypeNumber_ReturnsUndefined', () => {
+      // Arrange — caller passed a number where a string was expected. In
+      // Zod v4 the issue shape includes `input: 42` (populated because of
+      // reportInput: true), and the `input !== undefined` guard at the top
+      // of the helper screens this out — never reaching the `received`
+      // gate. The helper must continue to refuse to elicit on wrong type.
+      const schema = z.object({ featureId: z.string() });
+      const parsed = schema.safeParse({ featureId: 42 }, { reportInput: true });
+
+      expect(parsed.success).toBe(false);
+      if (parsed.success) return;
+      const issue = parsed.error.issues[0] as { input?: unknown };
+      expect(issue.input).toBe(42);
+
+      // Act
+      const result = extractSingleMissingRequiredField(parsed.error);
+
+      // Assert — wrong-type must NOT be treated as missing.
+      expect(result).toBeUndefined();
+    });
   });
 });
