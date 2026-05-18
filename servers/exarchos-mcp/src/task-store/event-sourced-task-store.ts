@@ -129,6 +129,19 @@ function taskStream(taskId: string): string {
 const TASK_POLLED_THROTTLE_MS = 5_000;
 
 /**
+ * FINDING-4 (#1438): size-cap threshold for the TTL reap path. The
+ * read-time reaper (`reapExpired`) used to fire ONLY from `listTasks`
+ * — tasks created via `createTask` and never read accumulated in the
+ * in-memory cache indefinitely. To bound the cache without adding a
+ * background timer, `createTask` invokes `reapExpired` once the cache
+ * strictly exceeds this threshold. The bound is intentionally generous
+ * (steady-state worst case is `2 * threshold` immediately before the
+ * sweep) so the hot path stays O(1) at small sizes; the O(n) sweep
+ * cost is amortized across `threshold` creates between sweeps.
+ */
+const SIZE_CAP_REAP_THRESHOLD = 1024;
+
+/**
  * Optional constructor options for `EventSourcedTaskStore`.
  *
  * `clock` is the rate-limit clock for the FINDING-3 throttle gate.
@@ -245,6 +258,17 @@ export class EventSourcedTaskStore implements TaskStore {
       // path in `loadTask` after each successful fold.
       lastReadSequence: 1,
     });
+
+    // FINDING-4 (#1438): size-cap reap. Without this, a creator-only
+    // workload (no `listTasks` reads) lets `this.tasks` grow unbounded
+    // — the read-time reaper only fires from `listTasks`. Sweep here
+    // when the cache crosses the threshold so expired entries cannot
+    // accumulate silently. The strict `>` keeps the gate idempotent
+    // at the boundary: at exactly `threshold` entries we have NOT yet
+    // paid the sweep cost; the 1025th create is what triggers it.
+    if (this.tasks.size > SIZE_CAP_REAP_THRESHOLD) {
+      this.reapExpired();
+    }
 
     return task;
   }
