@@ -49,6 +49,7 @@ export interface InvariantEntry {
   raw: Record<string, unknown>;
 }
 
+/** Untyped shape returned by `gray-matter` for a single catalog entry — validated by `parseEntry`. */
 interface RawInvariantEntry {
   id?: unknown;
   dimension?: unknown;
@@ -59,11 +60,13 @@ interface RawInvariantEntry {
   [key: string]: unknown;
 }
 
+/** Untyped shape returned by `gray-matter` for the file frontmatter — validated by `loadInvariants`. */
 interface RawFrontmatter {
   invariants?: unknown;
   [key: string]: unknown;
 }
 
+/** Parse a YAML field as `string[]`; throws with `entry-id + field-name` context on shape mismatch. */
 function asStringArray(value: unknown, field: string, id: string): string[] {
   if (!Array.isArray(value)) {
     throw new Error(
@@ -80,6 +83,7 @@ function asStringArray(value: unknown, field: string, id: string): string[] {
   });
 }
 
+/** Parse a YAML field as `string`; collapses folded-scalar whitespace; throws on shape mismatch. */
 function asString(value: unknown, field: string, id: string): string {
   if (typeof value !== 'string') {
     throw new Error(
@@ -90,6 +94,7 @@ function asString(value: unknown, field: string, id: string): string {
   return value.replace(/\s+/g, ' ').trim();
 }
 
+/** Parse + validate `cost-of-load`; throws loudly on missing or invalid value (no silent default — DIM-2 contract). */
 function parseCostOfLoad(value: unknown, id: string): CostOfLoad {
   if (typeof value !== 'string' || value.length === 0) {
     throw new Error(
@@ -106,6 +111,7 @@ function parseCostOfLoad(value: unknown, id: string): CostOfLoad {
   return value as CostOfLoad;
 }
 
+/** Validate one raw entry and project to the typed `InvariantEntry`; preserves the raw shape for unknown-field forward-compat. */
 function parseEntry(raw: RawInvariantEntry): InvariantEntry {
   if (typeof raw.id !== 'string' || raw.id.length === 0) {
     throw new Error('invariants-loader: entry is missing required field "id"');
