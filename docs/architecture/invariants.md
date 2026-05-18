@@ -9,6 +9,7 @@ schema-version: 1
 invariants:
   - id: INV-1
     dimension: event-sourcing-integrity
+    cost-of-load: always-load
     applies-to:
       - event-store
       - projections
@@ -27,6 +28,7 @@ invariants:
 
   - id: INV-2
     dimension: facade-equivalence
+    cost-of-load: always-load
     applies-to:
       - cli-adapter
       - mcp-adapter
@@ -45,6 +47,7 @@ invariants:
 
   - id: INV-3
     dimension: basileus-forward
+    cost-of-load: reference-only
     applies-to:
       - capabilities-resolver
       - runtime-yaml
@@ -65,6 +68,7 @@ invariants:
 
   - id: INV-4
     dimension: platform-agnosticity
+    cost-of-load: reference-only
     applies-to:
       - skills-src
       - runtimes
@@ -83,6 +87,7 @@ invariants:
 
   - id: INV-5a
     dimension: input-ergonomics
+    cost-of-load: always-load
     applies-to:
       - mcp-registry
       - tool-schemas
@@ -100,6 +105,7 @@ invariants:
 
   - id: INV-5b
     dimension: output-contract
+    cost-of-load: always-load
     applies-to:
       - format.ts
       - tool-results
@@ -120,6 +126,7 @@ invariants:
 
   - id: INV-5c
     dimension: aspire-verbs
+    cost-of-load: reference-only
     applies-to:
       - cli-commands
       - composite-tools
@@ -137,6 +144,7 @@ invariants:
 
   - id: INV-5d
     dimension: action-discriminator
+    cost-of-load: reference-only
     applies-to:
       - mcp-registry
       - composite-tools
@@ -155,6 +163,7 @@ invariants:
 
   - id: INV-6
     dimension: workflow-agnosticism
+    cost-of-load: reference-only
     applies-to:
       - skills-src
       - playbooks
@@ -172,6 +181,7 @@ invariants:
 
   - id: DIM-1
     dimension: topology
+    cost-of-load: reference-only
     applies-to:
       - module-boundaries
       - dependency-direction
@@ -188,6 +198,7 @@ invariants:
 
   - id: DIM-2
     dimension: observability
+    cost-of-load: reference-only
     applies-to:
       - logging
       - telemetry
@@ -204,6 +215,7 @@ invariants:
 
   - id: DIM-3
     dimension: contracts
+    cost-of-load: reference-only
     applies-to:
       - schemas
       - event-types
@@ -220,6 +232,7 @@ invariants:
 
   - id: DIM-4
     dimension: test-fidelity
+    cost-of-load: reference-only
     applies-to:
       - test-suites
       - mocks
@@ -234,6 +247,7 @@ invariants:
 
   - id: DIM-5
     dimension: hygiene
+    cost-of-load: reference-only
     applies-to:
       - dead-paths
       - unused-exports
@@ -249,6 +263,7 @@ invariants:
 
   - id: DIM-6
     dimension: solid-coupling
+    cost-of-load: reference-only
     applies-to:
       - module-design
       - inheritance
@@ -263,6 +278,7 @@ invariants:
 
   - id: DIM-7
     dimension: resilience
+    cost-of-load: reference-only
     applies-to:
       - error-paths
       - retry-logic
@@ -277,6 +293,7 @@ invariants:
 
   - id: DIM-8
     dimension: prose-quality
+    cost-of-load: archivable
     applies-to:
       - documentation
       - skill-bodies
@@ -291,6 +308,7 @@ invariants:
 
   - id: basileus-boundary
     dimension: cross-product-coordination
+    cost-of-load: archivable
     applies-to:
       - basileus-exarchos-coordination
       - ontology-mcp-server
@@ -320,6 +338,7 @@ Each entry in `invariants:` carries:
 |---|---|---|
 | `id` | string | Stable identifier — `INV-1`..`INV-6`, sub-disciplines like `INV-5a`, axiom dimensions like `DIM-1`, plus cross-product entries (`basileus-boundary`). |
 | `dimension` | string | Short human-readable category name. |
+| `cost-of-load` | enum | One of `always-load` \| `reference-only` \| `archivable`. Drives the `/ideate` Phase 0 split: only `always-load` entries are surfaced by default; `reference-only` entries are loaded on-demand; `archivable` entries are kept for vocabulary-lint cross-references but never surfaced. |
 | `applies-to` | string[] | Surface areas (modules, file globs, capability domains) where the invariant is load-bearing. |
 | `summary` | string | One-to-two-sentence statement of the invariant. |
 | `references` | string[] | Pointers to source files where the invariant is detailed in prose. |

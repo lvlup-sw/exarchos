@@ -199,6 +199,7 @@ describe('invariants-loader', () => {
 invariants:
   - id: INV-1
     dimension: event-sourcing integrity
+    cost-of-load: always-load
     applies-to:
       - servers/exarchos-mcp/src/event-store
     summary: First copy of INV-1.
@@ -206,6 +207,7 @@ invariants:
       - docs/architecture/invariants.md
   - id: INV-1
     dimension: duplicate
+    cost-of-load: always-load
     applies-to:
       - servers/exarchos-mcp/src/event-store
     summary: Second copy of INV-1 — should be rejected.
