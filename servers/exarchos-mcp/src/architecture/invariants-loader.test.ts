@@ -43,6 +43,8 @@ const REQUIRED_INVARIANT_IDS = [
   'INV-13',
   // Wave C10 new entry:
   'INV-14',
+  // Wave C11 new entry:
+  'INV-15',
 ] as const;
 
 const REQUIRED_DIMENSION_IDS = [
@@ -727,6 +729,28 @@ invariants:
     expect(inv14!.axiomOverlap).toBe('DIM-7');
     expect(inv14!.citations).toBeDefined();
     expect(inv14!.citations!.length).toBeGreaterThanOrEqual(3);
+  });
+
+  // ─── Wave C11: add INV-15 single-machine-frame ────────────────────────
+  //
+  // Spec §5.1 + §6 INV-15: Exarchos is single-machine event-sourced with
+  // cooperative agents — concurrent, not distributed. No saga, no SAS,
+  // no 2PC, no leader election. Compensation is local rewind.
+
+  it('Invariants_INV15_ExistsWithSingleMachineFrameScope', () => {
+    const entries = loadInvariants(INVARIANTS_DOC, undefined, ENABLED_CONFIG);
+    const inv15 = entries.find((e) => e.id === 'INV-15');
+    expect(inv15, 'INV-15 must exist in v2 catalog').toBeDefined();
+    expect(inv15!.dimension).toBe('single-machine-frame');
+    expect(inv15!.axis).toBe('substrate');
+    expect(inv15!.costOfLoad).toBe('always-load');
+    expect(inv15!.axiomOverlap).toBe('DIM-1');
+    expect(inv15!.citations).toBeDefined();
+    expect(inv15!.citations!.length).toBeGreaterThanOrEqual(3);
+    // Per spec §6: Microsoft SAS + Saga + Clemens Vasters (negative refs).
+    expect(inv15!.citations!.join(' ')).toMatch(/Scheduler[- ]Agent[- ]Supervisor/i);
+    expect(inv15!.citations!.join(' ')).toMatch(/Saga/i);
+    expect(inv15!.citations!.join(' ')).toMatch(/Clemens Vasters/i);
   });
 
   it('InvariantsLoader_DuplicateIds_ThrowsWithIdInMessage', () => {
