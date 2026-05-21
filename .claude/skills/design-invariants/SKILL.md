@@ -1,11 +1,11 @@
 ---
 name: design-invariants
-description: "Audit a design proposal or diff against Exarchos's architectural invariants — event-sourcing integrity (INV-1), facade equivalence over shared dispatch core (INV-2), basileus-forward (INV-3), platform-agnosticity (INV-4), agent-first interface design (INV-5a input ergonomics, INV-5b spec-aligned output contract, INV-5c Aspire-inspired control-plane verbs, INV-5d action discriminator pattern), and workflow-agnosticism (INV-6 skills describe behaviors, playbooks describe workflows). Pairs with /axiom:backend-quality — this skill is project-specific (axiom is generic). Do NOT use for: generic backend quality (use /axiom:*), TDD or spec compliance (use /exarchos:review), prose/AI-writing tells (use /axiom:humanize). Triggers: 'check invariants', 'design conformance', 'check #1118 / #1109', or /design-invariants."
+description: "Audit a design proposal or diff against Exarchos's architectural invariants — event-sourcing integrity (INV-1), facade equivalence over shared dispatch core (INV-2), basileus-forward (INV-3), platform-agnosticity (INV-4), agent-first interface design (INV-5a input ergonomics, INV-5b spec-aligned output contract, INV-5c Aspire-inspired control-plane verbs, INV-5d action discriminator pattern), and workflow-agnosticism (INV-6 skills describe behaviors, playbooks describe workflows). Pairs with /axiom:design — this skill is project-specific (axiom is generic). Do NOT use for: generic backend quality (use /axiom:*), TDD or spec compliance (use /exarchos:review), prose/AI-writing tells (use /axiom:humanize). Triggers: 'check invariants', 'design conformance', 'check #1118 / #1109', or /design-invariants."
 metadata:
   author: exarchos
   version: 0.1.0
   category: review
-  pairs-with: axiom:backend-quality
+  pairs-with: axiom:design
   source: docs/research/2026-05-07-design-invariants-skill.md
 ---
 
