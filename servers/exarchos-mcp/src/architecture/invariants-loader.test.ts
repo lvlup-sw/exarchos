@@ -35,6 +35,8 @@ const REQUIRED_INVARIANT_IDS = [
   'INV-12',
   // Wave C6 new entry:
   'INV-9',
+  // Wave C7 new entry:
+  'INV-10',
 ] as const;
 
 const REQUIRED_DIMENSION_IDS = [
@@ -636,6 +638,24 @@ invariants:
     expect(inv9!.citations!.length).toBeGreaterThanOrEqual(3);
     // Post-A1 Harel citation must be present.
     expect(inv9!.citations!.join(' ')).toMatch(/Harel/i);
+  });
+
+  // ─── Wave C7: add INV-10 liveness-event-protocol ──────────────────────
+  //
+  // Spec §5.2 + §6 INV-10: every long-running operation emits paired
+  // executing_started + terminal events. v2.12 lifecycle verbs query
+  // these generically — no per-feature lifecycle code.
+
+  it('Invariants_INV10_ExistsWithLivenessProtocolScope', () => {
+    const entries = loadInvariants(INVARIANTS_DOC, undefined, ENABLED_CONFIG);
+    const inv10 = entries.find((e) => e.id === 'INV-10');
+    expect(inv10, 'INV-10 must exist in v2 catalog').toBeDefined();
+    expect(inv10!.dimension).toBe('liveness-event-protocol');
+    expect(inv10!.axis).toBe('substrate');
+    expect(inv10!.costOfLoad).toBe('reference-only');
+    expect(inv10!.axiomOverlap).toBe('DIM-2');
+    expect(inv10!.citations).toBeDefined();
+    expect(inv10!.citations!.length).toBeGreaterThanOrEqual(3);
   });
 
   it('InvariantsLoader_DuplicateIds_ThrowsWithIdInMessage', () => {
