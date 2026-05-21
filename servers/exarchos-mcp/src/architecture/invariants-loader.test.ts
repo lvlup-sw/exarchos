@@ -303,6 +303,68 @@ describe('invariants-loader', () => {
     );
   });
 
+  // ─── Wave C1: schema-version v2 + axis field ──────────────────────────
+  //
+  // v2 of the catalog bumps the frontmatter `schema-version` to 2 and
+  // requires every entry to declare an `axis: substrate | authoring`
+  // field. The axis is the primary discriminator the new scope filter
+  // (Wave D1) intersects with `cost-of-load`.
+  //
+  // Spec: docs/proposals/2026-05-20-invariants-catalog-v2-spec.md §3, §7.1
+
+  it('Invariants_AfterSchemaV2Bump_EveryEntryHasAxisField', () => {
+    // Read raw frontmatter to assert the schema-version bump.
+    const source = fs.readFileSync(INVARIANTS_DOC, 'utf8');
+    const frontmatterMatch = source.match(/^---\n([\s\S]*?)\n---/);
+    expect(frontmatterMatch, 'invariants.md must have YAML frontmatter').not.toBeNull();
+    const frontmatter = frontmatterMatch![1];
+    expect(frontmatter).toMatch(/^schema-version:\s*2\b/m);
+
+    // Every loaded entry must expose the typed `axis` field with one of
+    // the two allowed values. Asserts the loader has promoted the new
+    // field from `raw` to the typed shape.
+    const entries = loadInvariants(INVARIANTS_DOC, undefined, ENABLED_CONFIG);
+    expect(entries.length).toBeGreaterThan(0);
+    for (const entry of entries) {
+      expect(
+        entry.axis === 'substrate' || entry.axis === 'authoring',
+        `entry ${entry.id} has invalid axis: ${String(entry.axis)}`,
+      ).toBe(true);
+    }
+  });
+
+  it('Invariants_AxisFieldMissing_ThrowsLoudlyWithEntryId', () => {
+    // Schema-v2 contract: missing `axis` is a parse error (no silent
+    // default). The error message must name the offending entry's id so
+    // catalog editors can locate the omission.
+    const fixture = `---
+schema-version: 2
+invariants:
+  - id: INV-MISSING-AXIS
+    dimension: test-missing-axis
+    cost-of-load: always-load
+    applies-to:
+      - test
+    summary: This entry intentionally omits the axis field.
+    references:
+      - docs/architecture/invariants.md
+---
+
+# Fixture
+`;
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'invariants-axis-'));
+    const tmpFile = path.join(tmpDir, 'invariants.md');
+    fs.writeFileSync(tmpFile, fixture, 'utf8');
+    try {
+      expect(() => loadInvariants(tmpFile, undefined, ENABLED_CONFIG)).toThrow(
+        /INV-MISSING-AXIS/,
+      );
+      expect(() => loadInvariants(tmpFile, undefined, ENABLED_CONFIG)).toThrow(/axis/);
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
   it('InvariantsLoader_DuplicateIds_ThrowsWithIdInMessage', () => {
     // Construct a frontmatter fixture with two entries sharing the same id
     // (`INV-1`). The loader must reject this at load time so a silent
