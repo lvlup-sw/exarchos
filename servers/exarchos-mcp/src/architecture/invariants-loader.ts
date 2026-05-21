@@ -30,10 +30,25 @@ const COST_OF_LOAD_VALUES: readonly CostOfLoad[] = [
   'archivable',
 ] as const;
 
-/** Allowed values for the `scope` argument to `loadInvariants`. */
-export type InvariantsScope = 'core' | 'all';
+/**
+ * Allowed values for the `scope` argument to `loadInvariants` (schema-v2).
+ * Drives the v2 filter (spec §4.1, §4.2) that intersects axis with
+ * `cost-of-load`:
+ *
+ *   - `'core'`      — axis=substrate AND cost-of-load=always-load
+ *                     (the `/ideate` Phase 0 working set)
+ *   - `'substrate'` — every entry on the substrate axis (any cost-of-load)
+ *   - `'authoring'` — every entry on the authoring axis (DIM-8 only in v2)
+ *   - `'all'`       — every entry (default, backwards-compat with v1)
+ */
+export type InvariantsScope = 'core' | 'substrate' | 'authoring' | 'all';
 
-const SCOPE_VALUES: readonly InvariantsScope[] = ['core', 'all'] as const;
+const SCOPE_VALUES: readonly InvariantsScope[] = [
+  'core',
+  'substrate',
+  'authoring',
+  'all',
+] as const;
 
 /**
  * Allowed values for the `axis` frontmatter field introduced in schema-v2.
@@ -296,10 +311,15 @@ function parseInvariantsBlock(configPath: string): ExarchosConfig {
  * an explicit `config` to bypass disk-IO. See `readInvariantsConfig`.
  *
  * @param filePath Absolute path to `docs/architecture/invariants.md`.
- * @param opts Optional filter. `scope: 'core'` returns only entries with
- *   `cost-of-load: always-load` (the Phase 0 working set); `scope: 'all'`
- *   (the default) returns every entry. Unknown scope values throw —
- *   silent fallback to `'all'` is forbidden per design §5 DIM-2.
+ * @param opts Optional filter (schema-v2; spec §4.1, §4.2):
+ *   - `scope: 'core'`      — axis=substrate AND cost-of-load=always-load
+ *                            (the /ideate Phase 0 working set; 10 entries
+ *                            in v2). Tighter than v1's "always-load alone".
+ *   - `scope: 'substrate'` — every entry on the substrate axis (26 in v2).
+ *   - `scope: 'authoring'` — every entry on the authoring axis (DIM-8 in v2).
+ *   - `scope: 'all'`       — every entry (default; v1 backwards-compat).
+ *   Unknown scope values throw — silent fallback is forbidden per
+ *   design §5 DIM-2.
  * @param config Optional explicit config (dependency injection for tests).
  *   Defaults to reading `.exarchos.yml` via `readInvariantsConfig`.
  */
@@ -343,11 +363,26 @@ export function loadInvariants(
     seen.add(entry.id);
   }
   // Co-located scope filter — keep the policy next to the load to avoid
-  // drift between the load contract and the surface API.
-  if (scope === 'core') {
-    return entries.filter((e) => e.costOfLoad === 'always-load');
+  // drift between the load contract and the surface API. See `InvariantsScope`
+  // type docs for per-variant semantics; the switch arms mirror that order.
+  switch (scope) {
+    case 'core':
+      // /ideate Phase 0 default: substrate-axis primitives that every
+      // non-trivial design must consider — spec §4.1.
+      return entries.filter(
+        (e) => e.axis === 'substrate' && e.costOfLoad === 'always-load',
+      );
+    case 'substrate':
+      // Runtime-substrate axis — every cost-of-load. design-invariants
+      // skill body uses this when walking substrate entries by axis.
+      return entries.filter((e) => e.axis === 'substrate');
+    case 'authoring':
+      // Authoring (prose / documentation) axis — DIM-8 only in v2.
+      return entries.filter((e) => e.axis === 'authoring');
+    case 'all':
+      // Full catalog — vocabulary-lint ID set + v1 backwards-compat default.
+      return entries;
   }
-  return entries;
 }
 
 /**
