@@ -124,6 +124,34 @@ invariants:
       - servers/exarchos-mcp/src/orchestrate/merge-orchestrate.ts
       - docs/architecture/runtime.md#§6
 
+  - id: INV-11
+    dimension: posture-declared-capabilities
+    axis: substrate
+    cost-of-load: always-load
+    applies-to:
+      - agent-spec
+      - capability-resolver
+      - handshake
+      - sub-agent-dispatch
+    summary: >
+      Every agent declares one of three postures in agent spec YAML:
+      read-only | task-isolated | shared-mutating. The MCP initialize
+      handshake declares the runtime half. The capability resolver merges
+      posture with handshake; mismatches resolve to the handshake (handshake-authoritative).
+      Postures are unrepresentable-by-construction — a read-only agent
+      cannot mutate the working tree; a task-isolated agent cannot write
+      outside its assigned worktree.
+    axiom_overlap: DIM-1
+    citations:
+      - "Mark S. Miller, *Robust Composition* (PhD dissertation, JHU 2006): https://papers.agoric.com/papers/robust-composition/full-text"
+      - "Miller et al., *Paradigm Lost: Abstraction Mechanisms for Access Control* (JHU SRL 2003): https://srl.cs.jhu.edu/pubs/SRL2003-03.pdf"
+      - "POLA — Principle of Least Authority (erights.org): http://wiki.erights.org/wiki/POLA"
+      - "anip-protocol SPEC — posture and handshake (convergent design): https://github.com/anip-protocol/anip/blob/main/SPEC.md"
+    references:
+      - servers/exarchos-mcp/src/capabilities/resolver.ts
+      - servers/exarchos-mcp/src/agents/generate-agents.ts
+      - docs/architecture/runtime.md#§7
+
   - id: INV-12
     dimension: next-actions-as-affordance
     axis: substrate
