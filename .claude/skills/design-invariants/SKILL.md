@@ -96,12 +96,21 @@ The seam: axiom asks *"is this code well-engineered?"*; this skill asks *"does t
 | Adapter-local mutable cache for projection state | DIM-1 Topology | INV-1 + INV-2 (TaskStore-as-side-database anti-pattern) |
 | `runtimes/claude.yaml` field read at runtime | — | INV-3 |
 | Tool description without "do NOT use for" guidance | — | INV-5a |
-| Successful `ToolResult` without `next_actions` | — | INV-5b |
+| Successful `ToolResult` without `next_actions` carrier shape (`_meta`, `_perf`, error envelope) | DIM-3 Contracts | INV-5b |
 | Long-running op using NDJSON post-v2.11.0 | — | INV-5b (should use Tasks SEP-1686) |
 | New top-level tool that should be an action on `exarchos_workflow` | — | INV-5d |
 | Schema field removed but still read | DIM-3 Contracts | INV-1 if it's an event field |
 | Skill body references `feature/merge-pending` without `workflow-type:` declaration | — | INV-6 |
 | Reusable behavior skill prescribing triggers in terms of workflow stages (`delegate`, `synthesize`) instead of verb names | — | INV-6 |
+| Event payload serialized with a non-deterministic encoder (key order drift, datetime localization) | DIM-1 Topology | INV-7 (substrate-serialization integrity) |
+| Mutation handler missing idempotency key / dedupe at the boundary | DIM-3 Contracts | INV-8 (idempotency-at-the-boundary) |
+| Workflow phase transition hardcoded in handler instead of declared in `topology.yaml` HSM | DIM-1 Topology | INV-9 (HSM-as-state-machine) |
+| Long-running operation without paired `*.started` + terminal event | DIM-2 Observability | INV-10 (liveness-event-protocol) |
+| Agent acquired capability without declaring posture (`read-only` / `task-isolated` / `shared-mutating`) or bypassing the handshake | DIM-1 Topology | INV-11 (posture-declared-capabilities) |
+| `next_actions` listed actions the caller cannot actually invoke (broken affordance) | DIM-3 Contracts | INV-12 (next-actions-as-affordance) |
+| Handler performs non-idempotent external side effect inside a single event (no `*.requested` + `*.executed` split) | DIM-7 Resilience | INV-13 (process-manager-two-event-split) |
+| Recovery path uses `git reset --hard` (destructive overwrite) instead of operation-native primitive (`--abort`) or refuse-to-discard (`--keep`) | DIM-7 Resilience | INV-14 (native-primitive-first-recovery) |
+| Design reaches for Saga / Scheduler-Agent-Supervisor / 2PC / leader election against the single-machine substrate | DIM-1 Topology | INV-15 (single-machine-frame) |
 
 Concerns axiom owns and this skill defers to:
 
