@@ -17,6 +17,10 @@ import {
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, '../../../..');
 const INVARIANTS_DOC = path.join(REPO_ROOT, 'docs/architecture/invariants.md');
+const DESIGN_INVARIANTS_SKILL = path.join(
+  REPO_ROOT,
+  '.claude/skills/design-invariants/SKILL.md',
+);
 
 const REQUIRED_INVARIANT_IDS = [
   'INV-1',
@@ -778,6 +782,52 @@ invariants:
     // Per spec §6, ≥3 citations recommended.
     expect(inv6!.citations).toBeDefined();
     expect(inv6!.citations!.length).toBeGreaterThanOrEqual(3);
+  });
+
+  // ─── Wave E2: axiom_overlap declarations consistent with skill matrix ──
+  //
+  // Spec §4.3 + plan task E2: every catalog entry that declares
+  // `axiom_overlap: DIM-N` MUST appear in the complementarity matrix in
+  // `.claude/skills/design-invariants/SKILL.md` with the matching DIM-N.
+  // axiom:design's pairing-discovery surfaces project invariants under
+  // each dimension; the matrix is the human-facing documentation of the
+  // same relationship. The catalog is authoritative — if they drift, the
+  // matrix is updated, not the catalog.
+
+  it('Invariants_AxiomOverlapDeclarations_AreConsistentWithSkillComplementarityMatrix', () => {
+    const entries = loadInvariants(INVARIANTS_DOC, undefined, ENABLED_CONFIG);
+    const skillBody = fs.readFileSync(DESIGN_INVARIANTS_SKILL, 'utf8');
+
+    // Locate the complementarity matrix section to scope the search. The
+    // matrix sits under the heading "Pairing with axiom — complementarity
+    // matrix" and ends at the next H2. Restricting the regex to this
+    // span avoids false positives from finding-format examples or other
+    // mentions of DIM-N elsewhere in the body.
+    const matrixStart = skillBody.indexOf('## Pairing with axiom');
+    expect(matrixStart, 'design-invariants SKILL.md must contain a Pairing with axiom section').toBeGreaterThan(0);
+    const matrixEndCandidate = skillBody.indexOf('\n## ', matrixStart + 1);
+    const matrixEnd = matrixEndCandidate === -1 ? skillBody.length : matrixEndCandidate;
+    const matrixSection = skillBody.slice(matrixStart, matrixEnd);
+
+    const failures: string[] = [];
+    for (const entry of entries) {
+      if (entry.axiomOverlap === undefined) continue;
+      // Pattern: a table row mentioning both the entry id and its
+      // declared DIM-N. Word-boundary the id so `INV-1` doesn't match
+      // `INV-15` and vice versa. The matrix is a markdown table so the
+      // id + DIM-N can appear in any cell of the row; we collapse the
+      // search to a per-row regex.
+      const idPattern = new RegExp(`\\b${entry.id}\\b`);
+      const dimPattern = new RegExp(`\\b${entry.axiomOverlap}\\b`);
+      const rowMatches = matrixSection
+        .split('\n')
+        .filter((line) => line.startsWith('|'))
+        .some((row) => idPattern.test(row) && dimPattern.test(row));
+      if (!rowMatches) {
+        failures.push(`${entry.id} declares axiom_overlap: ${entry.axiomOverlap} but no matrix row pairs them`);
+      }
+    }
+    expect(failures, failures.join('; ')).toEqual([]);
   });
 
   it('InvariantsLoader_DuplicateIds_ThrowsWithIdInMessage', () => {
