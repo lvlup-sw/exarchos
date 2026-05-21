@@ -188,10 +188,10 @@ Rationale for `always-load` on every new entry: each is load-bearing for any non
 | INV-4 | platform-agnosticity | reference-only | (none — platform is a v2 axis sibling to workload) | keep (sharpen — clarify "platform" axis ownership relative to INV-6 "workload" axis) |
 | INV-5c | aspire-verbs | reference-only | (none) | keep |
 | INV-5d | action-discriminator | reference-only | (none) | keep |
-| INV-9 | hsm-as-state-machine | reference-only | DIM-1 | **NEW** (pending Harel statecharts citation — see §7) |
+| INV-9 | hsm-as-state-machine | reference-only | DIM-1 | **NEW** (cited: Harel 1987 + Greg Young + Wolverine) |
 | INV-10 | liveness-event-protocol | reference-only | DIM-2 | **NEW** |
 | INV-13 | process-manager-two-event-split | reference-only | DIM-7 | **NEW** |
-| INV-14 | native-primitive-first-recovery | reference-only | DIM-7 | **NEW** (or operational pattern — see §7) |
+| INV-14 | native-primitive-first-recovery | reference-only | DIM-7 | **NEW** (ships as catalog entry; demote if rarely cited after one release) |
 | basileus-boundary | cross-product-coordination | archivable | DIM-1 | keep |
 
 ### 5.3 Substrate axis — axiom pointers (7)
@@ -307,7 +307,7 @@ Wording proposed for each new entry. Existing entries (INV-1..INV-6, INV-5a..d, 
     - servers/exarchos-mcp/src/dispatch/with-session.ts
 ```
 
-### INV-9 — hsm-as-state-machine (NEW; pending citation backfill)
+### INV-9 — hsm-as-state-machine (NEW)
 
 ```yaml
 - id: INV-9
@@ -487,12 +487,9 @@ Wording proposed for each new entry. Existing entries (INV-1..INV-6, INV-5a..d, 
     - docs/architecture/runtime.md#§5
 ```
 
-**Open question:** INV-14 may not deserve full catalog status; the citations remain Exarchos-specific rather than pulling from a deep external literature. Two alternatives for the implementation phase:
+**Disposition (recorded 2026-05-20 per task A2):** Ships as catalog entry per option (A) above. Demotion criterion: if the entry is rarely cited after one release cycle (operationalized as `< 1 cross-reference per release in `docs/research/*.md`, `docs/designs/*.md`, or `docs/rca/*.md`), demote to operational pattern in a dedicated skill body (e.g., `.claude/skills/recovery-discipline/SKILL.md`) and reduce the catalog entry to a one-line pointer under INV-1's references. Reassessment occurs at the v2.12.0 release-engineering checkpoint.
 
-- **(A)** ship as v2 catalog entry as proposed above.
-- **(B)** demote to "operational pattern" documented in a skill body (e.g., `.claude/skills/recovery-discipline/SKILL.md`), with a one-line pointer in the catalog under INV-1's references.
-
-Recommendation: **(A)** initially. The principle generalizes beyond git, and substrate-level handlers across the codebase need a single load-bearing rule to point to. If after one release cycle the entry is rarely cited, demote to (B).
+Rationale for shipping in v2 rather than deferring: the principle generalizes beyond `git` (any tool with a native recovery primitive — `kubectl rollout undo`, `terraform state rm`, etc. — follows the same posture), and substrate-level handlers across the codebase need a single load-bearing rule to point to. A catalog entry provides that single reference point; the alternative (skill body only) fragments the principle across multiple handler docstrings.
 
 ### INV-15 — single-machine-frame (NEW)
 
@@ -619,7 +616,7 @@ The v2 schema is additive — `axis`, `axiom_overlap`, `citations` are new field
 
 ## 8. Acceptance check (against charter §6)
 
-- [x] ≥3 external citations per substrate-axis candidate — PASS for INV-7, INV-8, INV-11, INV-12, INV-13, INV-15. INV-9 backfills Harel. INV-14 borderline (see §6 open question). INV-10 thin (3 sources). DIM-* entries exempt.
+- [x] ≥3 external citations per substrate-axis candidate — PASS for INV-7, INV-8, INV-9 (Harel + Greg Young + Wolverine), INV-11, INV-12, INV-13, INV-15. INV-10 thin (3 sources, acceptable). INV-14 ships as catalog entry per A2 disposition (citations: ARIES CLR analog, Greg Young Bad Parts, git docs). DIM-* entries exempt.
 - [x] runtime.md §2–§8 cross-walked — D2 covers this fully.
 - [x] Explicit pass/fail per candidate against 5 workflow types — D3 covers this; all 9 new candidates pass.
 - [x] Substrate/authoring split sharp — D4 yields 21 substrate, 1 authoring; decision procedure is encoded in §2 of D4 and §3 of this doc.
