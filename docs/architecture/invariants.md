@@ -23,6 +23,10 @@ invariants:
       Stores that hold derived state across calls must be projections over
       events, never in-memory side databases.
     axiom_overlap: DIM-1
+    citations:
+      - "Fowler, *Event Sourcing* (2005): https://martinfowler.com/eaaDev/EventSourcing.html"
+      - "Greg Young, *CQRS Documents* (2010): https://cqrs.files.wordpress.com/2010/11/cqrs_documents.pdf"
+      - "Vaughn Vernon, *Implementing Domain-Driven Design* (Addison-Wesley 2013) — chapter on Event Sourcing"
     references:
       - .claude/skills/design-invariants/references/INV-1-event-sourcing.md
       - .claude/skills/design-invariants/SKILL.md

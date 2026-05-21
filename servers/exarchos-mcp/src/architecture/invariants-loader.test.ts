@@ -447,13 +447,14 @@ invariants:
   it('Invariants_OmittingCitationsField_ParsesWithUndefinedCitations', () => {
     // `citations` is optional — entries without it must still parse and
     // expose `undefined` (NOT `[]` — distinguish "not declared" from
-    // "declared empty") on the typed accessor.
+    // "declared empty") on the typed accessor. DIM-* axiom-pointer
+    // entries are exempt from the citations recommendation per spec §3
+    // and stay unaccompanied; we anchor this contract on DIM-5 (a
+    // stable axiom pointer that has no citations and isn't expected to).
     const entries = loadInvariants(INVARIANTS_DOC, undefined, ENABLED_CONFIG);
-    // v1 entries (pre-C4..C11) have no citations field; loader projects
-    // to `undefined` rather than fabricating an empty array.
-    const v1Entry = entries.find((e) => e.id === 'INV-1');
-    expect(v1Entry).toBeDefined();
-    expect(v1Entry!.citations).toBeUndefined();
+    const dimEntry = entries.find((e) => e.id === 'DIM-5');
+    expect(dimEntry).toBeDefined();
+    expect(dimEntry!.citations).toBeUndefined();
   });
 
   // ─── Wave C3: axiom_overlap field (schema-v2) ─────────────────────────
