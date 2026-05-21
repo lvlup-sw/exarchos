@@ -1,11 +1,11 @@
 ---
 name: design-invariants
-description: "Audit a design proposal or diff against Exarchos's architectural invariants — event-sourcing integrity (INV-1), facade equivalence over shared dispatch core (INV-2), basileus-forward (INV-3), platform-agnosticity (INV-4), agent-first interface design (INV-5a input ergonomics, INV-5b spec-aligned output contract, INV-5c Aspire-inspired control-plane verbs, INV-5d action discriminator pattern), and workflow-agnosticism (INV-6 skills describe behaviors, playbooks describe workflows). Pairs with /axiom:backend-quality — this skill is project-specific (axiom is generic). Do NOT use for: generic backend quality (use /axiom:*), TDD or spec compliance (use /exarchos:review), prose/AI-writing tells (use /axiom:humanize). Triggers: 'check invariants', 'design conformance', 'check #1118 / #1109', or /design-invariants."
+description: "Audit a design proposal or diff against Exarchos's architectural invariants — event-sourcing integrity (INV-1), facade equivalence over shared dispatch core (INV-2), basileus-forward (INV-3), platform-agnosticity (INV-4), agent-first interface design (INV-5a input ergonomics, INV-5b spec-aligned output contract, INV-5c Aspire-inspired control-plane verbs, INV-5d action discriminator pattern), and workflow-agnosticism (INV-6 skills describe behaviors, playbooks describe workflows). Pairs with /axiom:design — this skill is project-specific (axiom is generic). Do NOT use for: generic backend quality (use /axiom:*), TDD or spec compliance (use /exarchos:review), prose/AI-writing tells (use /axiom:humanize). Triggers: 'check invariants', 'design conformance', 'check #1118 / #1109', or /design-invariants."
 metadata:
   author: exarchos
   version: 0.1.0
   category: review
-  pairs-with: axiom:backend-quality
+  pairs-with: axiom:design
   source: docs/research/2026-05-07-design-invariants-skill.md
 ---
 
@@ -96,12 +96,21 @@ The seam: axiom asks *"is this code well-engineered?"*; this skill asks *"does t
 | Adapter-local mutable cache for projection state | DIM-1 Topology | INV-1 + INV-2 (TaskStore-as-side-database anti-pattern) |
 | `runtimes/claude.yaml` field read at runtime | — | INV-3 |
 | Tool description without "do NOT use for" guidance | — | INV-5a |
-| Successful `ToolResult` without `next_actions` | — | INV-5b |
+| Successful `ToolResult` without `next_actions` carrier shape (`_meta`, `_perf`, error envelope) | DIM-3 Contracts | INV-5b |
 | Long-running op using NDJSON post-v2.11.0 | — | INV-5b (should use Tasks SEP-1686) |
 | New top-level tool that should be an action on `exarchos_workflow` | — | INV-5d |
 | Schema field removed but still read | DIM-3 Contracts | INV-1 if it's an event field |
 | Skill body references `feature/merge-pending` without `workflow-type:` declaration | — | INV-6 |
 | Reusable behavior skill prescribing triggers in terms of workflow stages (`delegate`, `synthesize`) instead of verb names | — | INV-6 |
+| Event payload serialized with a non-deterministic encoder (key order drift, datetime localization) | DIM-1 Topology | INV-7 (substrate-serialization integrity) |
+| Mutation handler missing idempotency key / dedupe at the boundary | DIM-3 Contracts | INV-8 (idempotency-at-the-boundary) |
+| Workflow phase transition hardcoded in handler instead of declared in `topology.yaml` HSM | DIM-1 Topology | INV-9 (HSM-as-state-machine) |
+| Long-running operation without paired `*.started` + terminal event | DIM-2 Observability | INV-10 (liveness-event-protocol) |
+| Agent acquired capability without declaring posture (`read-only` / `task-isolated` / `shared-mutating`) or bypassing the handshake | DIM-1 Topology | INV-11 (posture-declared-capabilities) |
+| `next_actions` listed actions the caller cannot actually invoke (broken affordance) | DIM-3 Contracts | INV-12 (next-actions-as-affordance) |
+| Handler performs non-idempotent external side effect inside a single event (no `*.requested` + `*.executed` split) | DIM-7 Resilience | INV-13 (process-manager-two-event-split) |
+| Recovery path uses `git reset --hard` (destructive overwrite) instead of operation-native primitive (`--abort`) or refuse-to-discard (`--keep`) | DIM-7 Resilience | INV-14 (native-primitive-first-recovery) |
+| Design reaches for Saga / Scheduler-Agent-Supervisor / 2PC / leader election against the single-machine substrate | DIM-1 Topology | INV-15 (single-machine-frame) |
 
 Concerns axiom owns and this skill defers to:
 
