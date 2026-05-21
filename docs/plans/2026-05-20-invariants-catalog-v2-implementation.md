@@ -27,7 +27,7 @@
 - Wave E extends `axiom_overlap` field added in Wave C — must follow Wave C.
 - Wave F's directive update needs Wave D's `scope: 'core'` filter — must follow Wave D.
 
-**Total tasks: 23.**
+**Total tasks: 25** (A=2, B=3, C=14, D=2, E=2, F=2).
 
 ---
 
@@ -579,7 +579,7 @@ Estimated wall-clock with full parallelism: ~6 hours of agent time (vs ~20+ hour
 
 ## Total task count
 
-- **Concrete tasks**: 23 (2 + 3 + 14 + 2 + 2 + 2 = 25; wait — recounting: A=2, B=3, C=14, D=2, E=2, F=2 = 25)
+- **Concrete tasks**: 25 (A=2, B=3, C=14, D=2, E=2, F=2)
 - Wave A (research): 2 (A1, A2)
 - Wave B (gating): 3 (B1, B2, B3)
 - Wave C (catalog): 14 (C1..C14)
