@@ -65,6 +65,13 @@ export interface InvariantEntry {
   summary: string;
   /** Pointers to source files where the invariant is detailed in prose. */
   references: string[];
+  /**
+   * External research citations (schema-v2). Optional — recommended ≥3
+   * entries for substrate-axis invariants; DIM-* axiom-pointer entries
+   * and v1-era entries (pre-C4..C11) typically omit it. Undefined when
+   * not declared (distinct from declared-empty `[]`).
+   */
+  citations?: string[];
   /** The raw parsed entry for fields not yet promoted to the typed shape. */
   raw: Record<string, unknown>;
 }
@@ -78,6 +85,7 @@ interface RawInvariantEntry {
   'applies-to'?: unknown;
   summary?: unknown;
   references?: unknown;
+  citations?: unknown;
   [key: string]: unknown;
 }
 
@@ -160,7 +168,7 @@ function parseEntry(raw: RawInvariantEntry): InvariantEntry {
     throw new Error('invariants-loader: entry is missing required field "id"');
   }
   const id = raw.id;
-  return {
+  const entry: InvariantEntry = {
     id,
     dimension: asString(raw.dimension, 'dimension', id),
     axis: parseAxis(raw.axis, id),
@@ -170,6 +178,12 @@ function parseEntry(raw: RawInvariantEntry): InvariantEntry {
     references: asStringArray(raw.references, 'references', id),
     raw: { ...raw },
   };
+  // Optional schema-v2 field — only project when declared so the typed
+  // accessor preserves the "not declared" distinction (undefined vs []).
+  if (raw.citations !== undefined) {
+    entry.citations = asStringArray(raw.citations, 'citations', id);
+  }
+  return entry;
 }
 
 /**
