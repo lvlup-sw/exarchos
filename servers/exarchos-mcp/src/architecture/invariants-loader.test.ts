@@ -470,9 +470,22 @@ invariants:
   // Spec: docs/proposals/2026-05-20-invariants-catalog-v2-spec.md §3, §4.3
 
   it('Invariants_SubstrateAxisEntries_AcceptAxiomOverlapField', () => {
+    // Fixture includes the referenced DIM-1 entry so the loader's
+    // referential-integrity check (PR #1459 finding 1) does not flag this
+    // entry as dangling. The check that exercises dangling refs is
+    // `Invariants_DanglingAxiomOverlap_ThrowsLoudly` below.
     const fixture = `---
 schema-version: 2
 invariants:
+  - id: DIM-1
+    dimension: test-dimension
+    axis: substrate
+    cost-of-load: always-load
+    applies-to:
+      - test
+    summary: Real DIM-1 referenced by INV-TEST-OVERLAP.
+    references:
+      - docs/architecture/invariants.md
   - id: INV-TEST-OVERLAP
     dimension: test-axiom-overlap
     axis: substrate
@@ -492,9 +505,10 @@ invariants:
     fs.writeFileSync(tmpFile, fixture, 'utf8');
     try {
       const entries = loadInvariants(tmpFile, undefined, ENABLED_CONFIG);
-      expect(entries.length).toBe(1);
-      const entry = entries[0]!;
-      expect(entry.axiomOverlap).toBe('DIM-1');
+      expect(entries.length).toBe(2);
+      const entry = entries.find((e) => e.id === 'INV-TEST-OVERLAP');
+      expect(entry).toBeDefined();
+      expect(entry!.axiomOverlap).toBe('DIM-1');
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }
