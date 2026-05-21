@@ -160,15 +160,19 @@ function asString(value: unknown, field: string, id: string): string {
  */
 function parseAxis(value: unknown, id: string): InvariantAxis {
   if (typeof value !== 'string' || value.length === 0) {
+    // Phrasing per plan D2 GREEN: name the entry id, the field, and cite
+    // the schema-version + allowed values so catalog editors can fix the
+    // omission without consulting the spec. Closes the v1-fixture regression
+    // hole (no silent default — DIM-2 contract).
     throw new Error(
-      `invariants-loader: entry "${id}" is missing required field "axis" ` +
+      `Invariant entry '${id}' is missing required 'axis' field ` +
         `(schema-version: 2 requires explicit ` +
-        `${AXIS_VALUES.map((v) => `'${v}'`).join(' | ')})`,
+        `${AXIS_VALUES.join('|')})`,
     );
   }
   if (!(AXIS_VALUES as readonly string[]).includes(value)) {
     throw new Error(
-      `invariants-loader: entry "${id}" has invalid "axis" value '${value}'; ` +
+      `Invariant entry '${id}' has invalid 'axis' value '${value}'; ` +
         `must be one of ${AXIS_VALUES.map((v) => `'${v}'`).join(', ')}`,
     );
   }
