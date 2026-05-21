@@ -207,6 +207,32 @@ invariants:
       - servers/exarchos-mcp/src/dispatch/with-session.ts
       - docs/architecture/runtime.md#§4-process-manager-handlers
 
+  - id: INV-14
+    dimension: native-primitive-first-recovery
+    axis: substrate
+    cost-of-load: reference-only
+    applies-to:
+      - external-mutator-handlers
+      - recovery-paths
+      - error-discriminators
+    summary: >
+      When an external operation needs reversal, handlers prefer the
+      operation's own recovery primitive first (e.g., `git merge --abort`),
+      fall back to substrate-level undo with refuse-to-discard semantics
+      second (e.g., `git reset --keep <sha>`), and never use destructive
+      overwrite (e.g., `git reset --hard`). The recoveryError field on
+      terminal results discriminates 'reset-keep-blocked' | 'reset-failed'
+      | 'unexpected-mid-merge-drift' so callers see indeterminate states
+      explicitly rather than as silent successes.
+    axiom_overlap: DIM-7
+    citations:
+      - "Mohan et al., *ARIES* (ACM TODS 1992) — Compensation Log Records semantics as the abstract analog: https://dl.acm.org/doi/10.1145/128765.128770"
+      - "Greg Young, *Event Sourcing: The Bad Parts* (CodeCrafts 2022) — local-rewind recovery posture: https://www.youtube.com/watch?v=K4bj31fJGFk"
+      - "git documentation — `git merge --abort`, `git reset --keep`: https://git-scm.com/docs/git-reset"
+    references:
+      - servers/exarchos-mcp/src/orchestrate/merge-orchestrate.ts
+      - docs/architecture/runtime.md#§5
+
   - id: INV-2
     dimension: facade-equivalence
     axis: substrate
