@@ -37,6 +37,8 @@ const REQUIRED_INVARIANT_IDS = [
   'INV-9',
   // Wave C7 new entry:
   'INV-10',
+  // Wave C8 new entry:
+  'INV-11',
 ] as const;
 
 const REQUIRED_DIMENSION_IDS = [
@@ -656,6 +658,28 @@ invariants:
     expect(inv10!.axiomOverlap).toBe('DIM-2');
     expect(inv10!.citations).toBeDefined();
     expect(inv10!.citations!.length).toBeGreaterThanOrEqual(3);
+  });
+
+  // ─── Wave C8: add INV-11 posture-declared-capabilities ────────────────
+  //
+  // Spec §5.1 + §6 INV-11: agents declare one of three postures
+  // (read-only | task-isolated | shared-mutating); capability resolver
+  // merges with the MCP initialize handshake (handshake-authoritative).
+  // ≥4 citations including Miller *Robust Composition* + POLA + anip-protocol.
+
+  it('Invariants_INV11_ExistsWithPostureScope', () => {
+    const entries = loadInvariants(INVARIANTS_DOC, undefined, ENABLED_CONFIG);
+    const inv11 = entries.find((e) => e.id === 'INV-11');
+    expect(inv11, 'INV-11 must exist in v2 catalog').toBeDefined();
+    expect(inv11!.dimension).toBe('posture-declared-capabilities');
+    expect(inv11!.axis).toBe('substrate');
+    expect(inv11!.costOfLoad).toBe('always-load');
+    expect(inv11!.axiomOverlap).toBe('DIM-1');
+    expect(inv11!.citations).toBeDefined();
+    expect(inv11!.citations!.length).toBeGreaterThanOrEqual(4);
+    expect(inv11!.citations!.join(' ')).toMatch(/Miller/i);
+    expect(inv11!.citations!.join(' ')).toMatch(/POLA/i);
+    expect(inv11!.citations!.join(' ')).toMatch(/anip-protocol/i);
   });
 
   it('InvariantsLoader_DuplicateIds_ThrowsWithIdInMessage', () => {
