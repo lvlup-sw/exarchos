@@ -33,6 +33,8 @@ const REQUIRED_INVARIANT_IDS = [
   'INV-8',
   // Wave C5 split-off entry:
   'INV-12',
+  // Wave C6 new entry:
+  'INV-9',
 ] as const;
 
 const REQUIRED_DIMENSION_IDS = [
@@ -613,6 +615,27 @@ invariants:
     // Per spec §6 INV-12: Norman 1999 + McGrenere/Ho 2000 are required.
     expect(inv12!.citations!.join(' ')).toMatch(/Norman/i);
     expect(inv12!.citations!.join(' ')).toMatch(/McGrenere/i);
+  });
+
+  // ─── Wave C6: add INV-9 hsm-as-state-machine ──────────────────────────
+  //
+  // Spec §5.2 + §6 INV-9 (post-A1 Harel backfill): every workflow type
+  // ships a hierarchical state machine in topology.yaml; transitions
+  // are guarded; the HSM is the sole authority for valid phase
+  // sequencing.
+
+  it('Invariants_INV9_ExistsWithHSMScope', () => {
+    const entries = loadInvariants(INVARIANTS_DOC, undefined, ENABLED_CONFIG);
+    const inv9 = entries.find((e) => e.id === 'INV-9');
+    expect(inv9, 'INV-9 must exist in v2 catalog').toBeDefined();
+    expect(inv9!.dimension).toBe('hsm-as-state-machine');
+    expect(inv9!.axis).toBe('substrate');
+    expect(inv9!.costOfLoad).toBe('reference-only');
+    expect(inv9!.axiomOverlap).toBe('DIM-1');
+    expect(inv9!.citations).toBeDefined();
+    expect(inv9!.citations!.length).toBeGreaterThanOrEqual(3);
+    // Post-A1 Harel citation must be present.
+    expect(inv9!.citations!.join(' ')).toMatch(/Harel/i);
   });
 
   it('InvariantsLoader_DuplicateIds_ThrowsWithIdInMessage', () => {
