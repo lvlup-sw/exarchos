@@ -179,6 +179,34 @@ invariants:
       - servers/exarchos-mcp/src/format.ts
       - docs/architecture/runtime.md#§7
 
+  - id: INV-13
+    dimension: process-manager-two-event-split
+    axis: substrate
+    cost-of-load: reference-only
+    applies-to:
+      - external-mutator-handlers
+      - merge-orchestrate
+      - create-pr
+      - withSession
+    summary: >
+      Handlers performing non-idempotent external side effects emit two
+      events: *.requested (intent + full payload) before the side effect;
+      *.executed (result) after. On retry, the requested event idempotency-collapses
+      (INV-8); the side effect runs once. On crash recovery, the next invocation
+      observes *.requested without *.executed and runs an idempotent precheck
+      against external state (e.g., does the PR already exist?) to determine
+      whether to re-emit or skip. Pattern source — Akka Effect.thenRun,
+      Wolverine [AggregateHandler], Greg Young.
+    axiom_overlap: DIM-7
+    citations:
+      - "Akka Effect.thenRun (Persistence docs): https://doc.akka.io/api/akka-core/current/akka/persistence/typed/scaladsl/Effect$.html"
+      - "Wolverine [AggregateHandler] (Miller 2023): https://jeremydmiller.com/2023/12/06/building-a-critter-stack-application-wolverines-aggregate-handler-workflow-ftw/"
+      - "Greg Young, *Why Event Sourced Systems Fail*: https://www.youtube.com/watch?v=FKFu78ZEIi8"
+    references:
+      - servers/exarchos-mcp/src/orchestrate/merge-orchestrate.ts
+      - servers/exarchos-mcp/src/dispatch/with-session.ts
+      - docs/architecture/runtime.md#§4-process-manager-handlers
+
   - id: INV-2
     dimension: facade-equivalence
     axis: substrate
