@@ -72,6 +72,14 @@ export interface InvariantEntry {
    * not declared (distinct from declared-empty `[]`).
    */
   citations?: string[];
+  /**
+   * Axiom-dimension overlap pointer (schema-v2). Optional `DIM-N` value
+   * consumed by `/axiom:design`'s pairing-discovery to interleave project
+   * invariants under each axiom dimension. When declared, must match
+   * `/^DIM-\d+$/` and reference an existing DIM-N entry in the catalog.
+   * See spec §4.3.
+   */
+  axiomOverlap?: string;
   /** The raw parsed entry for fields not yet promoted to the typed shape. */
   raw: Record<string, unknown>;
 }
@@ -86,8 +94,15 @@ interface RawInvariantEntry {
   summary?: unknown;
   references?: unknown;
   citations?: unknown;
+  axiom_overlap?: unknown;
   [key: string]: unknown;
 }
+
+/**
+ * Pattern for the schema-v2 `axiom_overlap` field. Must match
+ * `DIM-` followed by one or more digits to reference a DIM-N entry.
+ */
+const AXIOM_OVERLAP_PATTERN = /^DIM-\d+$/;
 
 /** Untyped shape returned by `gray-matter` for the file frontmatter — validated by `loadInvariants`. */
 interface RawFrontmatter {
@@ -182,6 +197,23 @@ function parseEntry(raw: RawInvariantEntry): InvariantEntry {
   // accessor preserves the "not declared" distinction (undefined vs []).
   if (raw.citations !== undefined) {
     entry.citations = asStringArray(raw.citations, 'citations', id);
+  }
+  // Optional schema-v2 field — format-checked against /^DIM-\d+$/. The
+  // cross-reference check (declared overlap points at an existing DIM-N
+  // entry) lives in `loadInvariants` so it can see the full entry set.
+  if (raw.axiom_overlap !== undefined && raw.axiom_overlap !== null) {
+    if (typeof raw.axiom_overlap !== 'string') {
+      throw new Error(
+        `invariants-loader: entry "${id}" field "axiom_overlap" must be a string, got ${typeof raw.axiom_overlap}`,
+      );
+    }
+    if (!AXIOM_OVERLAP_PATTERN.test(raw.axiom_overlap)) {
+      throw new Error(
+        `invariants-loader: entry "${id}" has invalid "axiom_overlap" value '${raw.axiom_overlap}'; ` +
+          `must match /^DIM-\\d+$/ (e.g. 'DIM-1', 'DIM-7')`,
+      );
+    }
+    entry.axiomOverlap = raw.axiom_overlap;
   }
   return entry;
 }
