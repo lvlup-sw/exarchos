@@ -424,6 +424,97 @@ invariants:
     expect(v1Entry!.citations).toBeUndefined();
   });
 
+  // ─── Wave C3: axiom_overlap field (schema-v2) ─────────────────────────
+  //
+  // Schema-v2 adds an optional `axiom_overlap: DIM-N` field for /axiom:design
+  // pairing-discovery (spec §4.3). The field, when declared, MUST reference
+  // an existing DIM-N entry's id. The format is `DIM-` + digits.
+  //
+  // Spec: docs/proposals/2026-05-20-invariants-catalog-v2-spec.md §3, §4.3
+
+  it('Invariants_SubstrateAxisEntries_AcceptAxiomOverlapField', () => {
+    const fixture = `---
+schema-version: 2
+invariants:
+  - id: INV-TEST-OVERLAP
+    dimension: test-axiom-overlap
+    axis: substrate
+    cost-of-load: always-load
+    applies-to:
+      - test
+    summary: Entry with axiom_overlap declared.
+    axiom_overlap: DIM-1
+    references:
+      - docs/architecture/invariants.md
+---
+
+# Fixture
+`;
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'invariants-overlap-'));
+    const tmpFile = path.join(tmpDir, 'invariants.md');
+    fs.writeFileSync(tmpFile, fixture, 'utf8');
+    try {
+      const entries = loadInvariants(tmpFile, undefined, ENABLED_CONFIG);
+      expect(entries.length).toBe(1);
+      const entry = entries[0]!;
+      expect(entry.axiomOverlap).toBe('DIM-1');
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it('Invariants_AxiomOverlapWithInvalidFormat_ThrowsLoudly', () => {
+    // Format contract: axiom_overlap MUST match /^DIM-\d+$/. Anything
+    // else is a configuration error and must throw with the entry id +
+    // the offending value to aid debugging.
+    const fixture = `---
+schema-version: 2
+invariants:
+  - id: INV-BAD-OVERLAP
+    dimension: test-bad-overlap
+    axis: substrate
+    cost-of-load: always-load
+    applies-to:
+      - test
+    summary: Entry with malformed axiom_overlap.
+    axiom_overlap: NOT-A-DIM
+    references:
+      - docs/architecture/invariants.md
+---
+
+# Fixture
+`;
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'invariants-bad-overlap-'));
+    const tmpFile = path.join(tmpDir, 'invariants.md');
+    fs.writeFileSync(tmpFile, fixture, 'utf8');
+    try {
+      expect(() => loadInvariants(tmpFile, undefined, ENABLED_CONFIG)).toThrow(
+        /INV-BAD-OVERLAP/,
+      );
+      expect(() => loadInvariants(tmpFile, undefined, ENABLED_CONFIG)).toThrow(
+        /axiom_overlap/,
+      );
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it('Invariants_DeclaredAxiomOverlaps_ReferenceExistingDimensionEntries', () => {
+    // Cross-reference invariant: every declared `axiom_overlap: DIM-N`
+    // MUST match an existing entry id in the loaded catalog. Otherwise
+    // /axiom:design's pairing-discovery surfaces a dangling pointer.
+    const entries = loadInvariants(INVARIANTS_DOC, undefined, ENABLED_CONFIG);
+    const dimIds = new Set(entries.filter((e) => e.id.startsWith('DIM-')).map((e) => e.id));
+    for (const entry of entries) {
+      if (entry.axiomOverlap !== undefined) {
+        expect(
+          dimIds.has(entry.axiomOverlap),
+          `entry ${entry.id} declares axiom_overlap: ${entry.axiomOverlap} but no such DIM entry exists`,
+        ).toBe(true);
+      }
+    }
+  });
+
   it('InvariantsLoader_DuplicateIds_ThrowsWithIdInMessage', () => {
     // Construct a frontmatter fixture with two entries sharing the same id
     // (`INV-1`). The loader must reject this at load time so a silent
