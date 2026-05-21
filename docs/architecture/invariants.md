@@ -405,23 +405,29 @@ invariants:
       - servers/exarchos-mcp/src/adapters/mcp.ts
 
   - id: INV-6
-    dimension: workflow-agnosticism
+    dimension: workload-agnosticism
     axis: substrate
-    cost-of-load: reference-only
+    cost-of-load: always-load
     applies-to:
+      - runtime-substrate
+      - topology
       - skills-src
       - playbooks
-      - skill-frontmatter
     summary: >
-      Skills describe behaviors; playbooks/commands describe workflows. A
-      behavior-skill describes activation triggers in workflow-neutral terms
-      (verb names, idempotency keys), not workflow stages or branch prefixes.
-      Workflow-specific skills must declare metadata.workflow-type: <type>
-      in frontmatter. Lint: scripts/lint-inv6.mjs (advisory).
+      The runtime makes no assumption about which workload is executing.
+      Substrate guarantees (RT-1..RT-6) hold identically for every workflow
+      type. Workflow-type-specific concerns belong in topology.yaml, not
+      the catalog. Skills describe behaviors; playbooks/commands describe
+      workflows. Operational projection: scripts/lint-inv6.mjs grep for
+      workflow-typed literals in skills-src/.
+    citations:
+      - "AWP runtime-agnostic protocol: https://github.com/veegee82/agent-workflow-protocol/blob/main/docs/runtime.md"
+      - "Harn typed orchestration boundary: https://harnlang.com/workflow-runtime.html"
+      - "Novita framework-agnostic runtime: https://blogs.novita.ai/novita-agent-runtime-agentcore-compatible/"
     references:
       - .claude/skills/design-invariants/references/INV-6-workflow-agnosticism.md
-      - .claude/skills/design-invariants/SKILL.md
       - scripts/lint-inv6.mjs
+      - docs/architecture/runtime.md#§1
 
   - id: DIM-1
     dimension: topology
