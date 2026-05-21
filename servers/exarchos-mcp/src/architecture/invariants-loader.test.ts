@@ -365,6 +365,65 @@ invariants:
     }
   });
 
+  // ─── Wave C2: citations field (schema-v2) ─────────────────────────────
+  //
+  // Schema-v2 adds an optional `citations: string[]` field for external
+  // research grounding. Recommended (not enforced) ≥3 citations per
+  // substrate-axis entry; DIM-* axiom-pointer entries are exempt.
+  //
+  // Spec: docs/proposals/2026-05-20-invariants-catalog-v2-spec.md §3
+
+  it('Invariants_SubstrateAxisEntries_AcceptCitationsField', () => {
+    // Synthetic fixture with the new field. Loader must parse it into
+    // the typed `citations: string[]` accessor without rejecting.
+    const fixture = `---
+schema-version: 2
+invariants:
+  - id: INV-TEST-CITATIONS
+    dimension: test-citations
+    axis: substrate
+    cost-of-load: always-load
+    applies-to:
+      - test
+    summary: Entry with citations field.
+    citations:
+      - "Author, *Title* (Year): https://example.com/a"
+      - "Author B, *Title B* (Year): https://example.com/b"
+      - "Author C, *Title C* (Year): https://example.com/c"
+    references:
+      - docs/architecture/invariants.md
+---
+
+# Fixture
+`;
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'invariants-citations-'));
+    const tmpFile = path.join(tmpDir, 'invariants.md');
+    fs.writeFileSync(tmpFile, fixture, 'utf8');
+    try {
+      const entries = loadInvariants(tmpFile, undefined, ENABLED_CONFIG);
+      expect(entries.length).toBe(1);
+      const entry = entries[0]!;
+      expect(entry.citations).toBeDefined();
+      expect(Array.isArray(entry.citations)).toBe(true);
+      expect(entry.citations).toHaveLength(3);
+      expect(entry.citations![0]).toMatch(/Author/);
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it('Invariants_OmittingCitationsField_ParsesWithUndefinedCitations', () => {
+    // `citations` is optional — entries without it must still parse and
+    // expose `undefined` (NOT `[]` — distinguish "not declared" from
+    // "declared empty") on the typed accessor.
+    const entries = loadInvariants(INVARIANTS_DOC, undefined, ENABLED_CONFIG);
+    // v1 entries (pre-C4..C11) have no citations field; loader projects
+    // to `undefined` rather than fabricating an empty array.
+    const v1Entry = entries.find((e) => e.id === 'INV-1');
+    expect(v1Entry).toBeDefined();
+    expect(v1Entry!.citations).toBeUndefined();
+  });
+
   it('InvariantsLoader_DuplicateIds_ThrowsWithIdInMessage', () => {
     // Construct a frontmatter fixture with two entries sharing the same id
     // (`INV-1`). The loader must reject this at load time so a silent
