@@ -31,6 +31,8 @@ const REQUIRED_INVARIANT_IDS = [
   // Wave C4 split-off entries (post-v2 catalog):
   'INV-7',
   'INV-8',
+  // Wave C5 split-off entry:
+  'INV-12',
 ] as const;
 
 const REQUIRED_DIMENSION_IDS = [
@@ -577,6 +579,40 @@ invariants:
     expect(inv8!.citations!.join(' ')).toMatch(/Akka/i);
     expect(inv8!.citations!.join(' ')).toMatch(/Wolverine/i);
     expect(inv8!.citations!.join(' ')).toMatch(/Greg Young/i);
+  });
+
+  // ─── Wave C5: INV-5b split → INV-5b (narrowed) + INV-12 ───────────────
+  //
+  // Spec §5.1: v1 INV-5b conflated carrier-shape (next_actions field
+  // presence, _meta, _perf, error envelope) with the affordance-as-perceived
+  // concept. v2 narrows INV-5b to carrier-shape only and promotes the
+  // affordance reading to INV-12 (next-actions-as-affordance).
+  //
+  // Spec: docs/proposals/2026-05-20-invariants-catalog-v2-spec.md §5.1, §6
+
+  it('Invariants_INV5bSplit_ProducesINV5bNarrowedPlusINV12', () => {
+    const entries = loadInvariants(INVARIANTS_DOC, undefined, ENABLED_CONFIG);
+    const byId = new Map(entries.map((e) => [e.id, e] as const));
+
+    // INV-5b narrowed: summary keeps carrier-shape rules — next_actions
+    // field, _meta, _perf, error envelopes. It MUST still mention
+    // structuredContent / next_actions since those are the carrier shape.
+    const inv5b = byId.get('INV-5b');
+    expect(inv5b).toBeDefined();
+    expect(inv5b!.dimension).toBe('output-contract');
+
+    // INV-12 next-actions-as-affordance
+    const inv12 = byId.get('INV-12');
+    expect(inv12, 'INV-12 must exist post-split').toBeDefined();
+    expect(inv12!.dimension).toBe('next-actions-as-affordance');
+    expect(inv12!.axis).toBe('substrate');
+    expect(inv12!.costOfLoad).toBe('always-load');
+    expect(inv12!.axiomOverlap).toBe('DIM-3');
+    expect(inv12!.citations).toBeDefined();
+    expect(inv12!.citations!.length).toBeGreaterThanOrEqual(3);
+    // Per spec §6 INV-12: Norman 1999 + McGrenere/Ho 2000 are required.
+    expect(inv12!.citations!.join(' ')).toMatch(/Norman/i);
+    expect(inv12!.citations!.join(' ')).toMatch(/McGrenere/i);
   });
 
   it('InvariantsLoader_DuplicateIds_ThrowsWithIdInMessage', () => {
