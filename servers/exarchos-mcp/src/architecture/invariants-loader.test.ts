@@ -780,6 +780,159 @@ invariants:
     expect(inv6!.citations!.length).toBeGreaterThanOrEqual(3);
   });
 
+  // ─── Wave D1: scope filter expansion ──────────────────────────────────
+  //
+  // Spec §4.1 + §4.2: the `scope` argument expands from `'core' | 'all'` to
+  // `'core' | 'substrate' | 'authoring' | 'all'`. The semantics:
+  //
+  //   - `'core'`       → axis === 'substrate' AND cost-of-load === 'always-load'
+  //                      (the /ideate Phase 0 working set — 10 entries in v2)
+  //   - `'substrate'`  → axis === 'substrate' (all 26 entries: 10 always-load +
+  //                      15 reference-only + 1 archivable)
+  //   - `'authoring'`  → axis === 'authoring' (DIM-8 only — 1 entry in v2)
+  //   - `'all'`        → every entry (27 entries in v2)
+  //
+  // Spec: docs/proposals/2026-05-20-invariants-catalog-v2-spec.md §4.1, §4.2
+
+  it('LoadInvariants_WithScopeCore_ReturnsSubstrateAndAlwaysLoad', () => {
+    // 'core' is the tightest scope: axis=substrate AND cost-of-load=always-load.
+    // Per spec §5.1 the v2 catalog has exactly 10 such entries:
+    //   INV-1, INV-2, INV-5a, INV-5b, INV-6, INV-7, INV-8, INV-11, INV-12, INV-15.
+    const core = loadInvariants(INVARIANTS_DOC, { scope: 'core' }, ENABLED_CONFIG);
+    const ids = new Set(core.map((e) => e.id));
+    const expected = new Set([
+      'INV-1',
+      'INV-2',
+      'INV-5a',
+      'INV-5b',
+      'INV-6',
+      'INV-7',
+      'INV-8',
+      'INV-11',
+      'INV-12',
+      'INV-15',
+    ]);
+    expect(core.length).toBe(expected.size);
+    for (const id of expected) {
+      expect(ids.has(id), `core scope missing ${id}`).toBe(true);
+    }
+    // Every entry must satisfy both predicates.
+    for (const entry of core) {
+      expect(entry.axis).toBe('substrate');
+      expect(entry.costOfLoad).toBe('always-load');
+    }
+  });
+
+  it('LoadInvariants_WithScopeSubstrate_ReturnsAllSubstrateAxisEntries', () => {
+    // 'substrate' returns every entry on the substrate axis regardless of
+    // cost-of-load. Per spec §5.1 + §5.2 + §5.3 + basileus-boundary that's
+    // 10 always-load + 15 reference-only + 1 archivable (basileus-boundary)
+    // = 26 entries. DIM-8 (the sole authoring entry) is excluded.
+    const substrate = loadInvariants(
+      INVARIANTS_DOC,
+      { scope: 'substrate' as 'core' },
+      ENABLED_CONFIG,
+    );
+    expect(substrate.length).toBe(26);
+    for (const entry of substrate) {
+      expect(entry.axis).toBe('substrate');
+    }
+    // DIM-8 (the only authoring entry) must NOT be in the substrate set.
+    const ids = new Set(substrate.map((e) => e.id));
+    expect(ids.has('DIM-8')).toBe(false);
+  });
+
+  it('LoadInvariants_WithScopeAuthoring_ReturnsAuthoringAxisOnly', () => {
+    // 'authoring' returns every entry on the authoring axis. In v2 that's
+    // DIM-8 only (per spec §5.4). The set must NOT include any substrate
+    // entries.
+    const authoring = loadInvariants(
+      INVARIANTS_DOC,
+      { scope: 'authoring' as 'core' },
+      ENABLED_CONFIG,
+    );
+    expect(authoring.length).toBe(1);
+    expect(authoring[0]!.id).toBe('DIM-8');
+    expect(authoring[0]!.axis).toBe('authoring');
+  });
+
+  it('LoadInvariants_WithScopeAll_ReturnsFullCatalog', () => {
+    // 'all' returns the full 27-entry v2 catalog. Default (no opts) must
+    // be equivalent for backwards compatibility with v1 call sites.
+    const all = loadInvariants(INVARIANTS_DOC, { scope: 'all' }, ENABLED_CONFIG);
+    expect(all.length).toBe(27);
+    const def = loadInvariants(INVARIANTS_DOC, undefined, ENABLED_CONFIG);
+    expect(def.map((e) => e.id)).toEqual(all.map((e) => e.id));
+  });
+
+  it('LoadInvariants_ScopeSubstratePlusAuthoring_EqualsAll', () => {
+    // Partition invariant: substrate ∪ authoring = all (axis is a total
+    // partition over the catalog — every entry declares exactly one axis).
+    const all = loadInvariants(INVARIANTS_DOC, { scope: 'all' }, ENABLED_CONFIG);
+    const substrate = loadInvariants(
+      INVARIANTS_DOC,
+      { scope: 'substrate' as 'core' },
+      ENABLED_CONFIG,
+    );
+    const authoring = loadInvariants(
+      INVARIANTS_DOC,
+      { scope: 'authoring' as 'core' },
+      ENABLED_CONFIG,
+    );
+    expect(substrate.length + authoring.length).toBe(all.length);
+  });
+
+  // ─── Wave D2: fail-loud on missing axis (regression vs v1 fixtures) ───
+  //
+  // Schema-v2 requires `axis` on every entry. A v1-shape fixture (no axis
+  // field anywhere) must fail to parse with a descriptive message naming
+  // the offending entry id and the schema-version requirement. Closes the
+  // regression hole where a downgrade to v1 input would silently default.
+  //
+  // Spec: docs/proposals/2026-05-20-invariants-catalog-v2-spec.md §3, §7.8
+
+  it('LoadInvariants_V1FixtureWithMissingAxisField_ThrowsLoudly', () => {
+    // A fixture matching v1's catalog structure: no `axis` field on any
+    // entry. The loader must throw on the first entry encountered, naming
+    // its id and citing the schema-version: 2 requirement.
+    const fixture = `---
+schema-version: 2
+invariants:
+  - id: INV-V1-SHAPE
+    dimension: legacy-v1-entry
+    cost-of-load: always-load
+    applies-to:
+      - test
+    summary: A v1-shape entry with no axis field.
+    references:
+      - docs/architecture/invariants.md
+---
+
+# Fixture
+`;
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'invariants-v1-axis-'));
+    const tmpFile = path.join(tmpDir, 'invariants.md');
+    fs.writeFileSync(tmpFile, fixture, 'utf8');
+    try {
+      // Error message must name the offending entry id.
+      expect(() => loadInvariants(tmpFile, undefined, ENABLED_CONFIG)).toThrow(
+        /INV-V1-SHAPE/,
+      );
+      // Error message must reference the `axis` field by name.
+      expect(() => loadInvariants(tmpFile, undefined, ENABLED_CONFIG)).toThrow(/axis/);
+      // Error message must cite schema-version: 2 + the allowed values to
+      // tell catalog editors how to fix the omission.
+      expect(() => loadInvariants(tmpFile, undefined, ENABLED_CONFIG)).toThrow(
+        /schema-version: 2/,
+      );
+      expect(() => loadInvariants(tmpFile, undefined, ENABLED_CONFIG)).toThrow(
+        /substrate.*authoring|authoring.*substrate/,
+      );
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
   it('InvariantsLoader_DuplicateIds_ThrowsWithIdInMessage', () => {
     // Construct a frontmatter fixture with two entries sharing the same id
     // (`INV-1`). The loader must reject this at load time so a silent
