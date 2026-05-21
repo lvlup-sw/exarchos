@@ -49,6 +49,27 @@ const CliConfigSchema = z
   })
   .strict();
 
+// invariants-catalog-v2 (#1441 / spec 2026-05-20) — dev-invariants gating.
+//
+// `invariants.devCatalog` toggles whether the architecture-invariants
+// loader (`servers/exarchos-mcp/src/architecture/invariants-loader.ts`)
+// surfaces dev-internal entries. Default-disabled: when the block is
+// omitted, `loadInvariants` returns `[]` regardless of scope.
+//
+// Two-state enum (`enabled | disabled`) rather than a `boolean` so the
+// committed `.exarchos.yml` reads as a declarative statement of intent
+// — "surface dev-internal invariants to me" — rather than a magic flag.
+// Default-disabled even inside the Exarchos repo: contributors get the
+// catalog because the repo's own committed `.exarchos.yml` sets the
+// flag to `enabled`, not because the loader detected anything.
+//
+// Spec: docs/proposals/2026-05-20-invariants-catalog-v2-spec.md §1.1 + §4.0
+const InvariantsConfigSchema = z
+  .object({
+    devCatalog: z.enum(['enabled', 'disabled']).optional(),
+  })
+  .strict();
+
 // #1244 — markdown-aware handoff lint switch.
 //
 // `handleCheckpoint` runs a prose-lint over the dispatch handoff payload
@@ -75,6 +96,7 @@ export const ExarchosConfigSchema = z
     qualityHints: QualityHintsSchema,
     handoffLint: HandoffLintConfigSchema.optional(),
     cli: CliConfigSchema.optional(),
+    invariants: InvariantsConfigSchema.optional(),
   })
   .strict();
 
