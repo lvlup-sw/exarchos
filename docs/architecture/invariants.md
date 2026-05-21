@@ -101,6 +101,29 @@ invariants:
       - servers/exarchos-mcp/src/hsm/
       - docs/architecture/runtime.md#§3-L4
 
+  - id: INV-10
+    dimension: liveness-event-protocol
+    axis: substrate
+    cost-of-load: reference-only
+    applies-to:
+      - long-running-handlers
+      - lifecycle-verbs
+      - observability
+    summary: >
+      Every long-running operation emits <surface>.executing_started at
+      entry and a paired terminal event (success/failure) at exit. v2.12
+      lifecycle verbs (ps, describe, wait) query these events generically;
+      no per-feature lifecycle code is needed. The protocol replaces
+      active polling and heartbeat infrastructure.
+    axiom_overlap: DIM-2
+    citations:
+      - "Conductor durable execution: https://conductor-oss.github.io/conductor/devguide/concepts/conductor.html"
+      - "AWP runtime liveness: https://github.com/veegee82/agent-workflow-protocol/blob/main/docs/runtime.md"
+      - "Microsoft Scheduler-Agent-Supervisor (negative reference — what this protocol replaces): https://learn.microsoft.com/en-us/azure/architecture/patterns/scheduler-agent-supervisor"
+    references:
+      - servers/exarchos-mcp/src/orchestrate/merge-orchestrate.ts
+      - docs/architecture/runtime.md#§6
+
   - id: INV-12
     dimension: next-actions-as-affordance
     axis: substrate
