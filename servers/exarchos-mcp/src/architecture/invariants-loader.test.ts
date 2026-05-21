@@ -552,6 +552,66 @@ invariants:
     }
   });
 
+  it('Invariants_DanglingAxiomOverlap_ThrowsLoudly', () => {
+    // PR #1459 CodeRabbit finding 1 — referential integrity for axiom_overlap.
+    //
+    // The format check at `parseEntry` only verifies the regex shape
+    // (/^DIM-\d+$/). A reference that matches the shape but points at a
+    // DIM-N that does NOT exist in the loaded catalog (e.g. a typo
+    // `axiom_overlap: DIM-99` when the catalog only has DIM-1..DIM-8)
+    // would parse successfully and create a dangling pointer consumed by
+    // `/axiom:design`'s pairing-discovery. The loader MUST reject such
+    // entries at load time so the failure mode is loud and immediate.
+    const fixture = `---
+schema-version: 2
+invariants:
+  - id: DIM-1
+    dimension: real-dimension
+    axis: substrate
+    cost-of-load: always-load
+    applies-to:
+      - test
+    summary: An existing DIM entry.
+    references:
+      - docs/architecture/invariants.md
+  - id: INV-DANGLING
+    dimension: test-dangling
+    axis: substrate
+    cost-of-load: always-load
+    applies-to:
+      - test
+    summary: Entry pointing at a non-existent DIM-99.
+    axiom_overlap: DIM-99
+    references:
+      - docs/architecture/invariants.md
+---
+
+# Fixture
+`;
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'invariants-dangling-'));
+    const tmpFile = path.join(tmpDir, 'invariants.md');
+    fs.writeFileSync(tmpFile, fixture, 'utf8');
+    try {
+      // Error must name the offending entry id so catalog editors can
+      // locate the typo quickly.
+      expect(() => loadInvariants(tmpFile, undefined, ENABLED_CONFIG)).toThrow(
+        /INV-DANGLING/,
+      );
+      // Error must name the missing DIM-N reference so editors can see
+      // what was actually looked up.
+      expect(() => loadInvariants(tmpFile, undefined, ENABLED_CONFIG)).toThrow(
+        /DIM-99/,
+      );
+      // Error must surface the set of valid DIM-* IDs so editors can pick
+      // a real target without consulting the catalog separately.
+      expect(() => loadInvariants(tmpFile, undefined, ENABLED_CONFIG)).toThrow(
+        /DIM-1/,
+      );
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
   // ─── Wave C4: INV-1 split → INV-1 (narrowed) + INV-7 + INV-8 ──────────
   //
   // Spec §5.1: v1 INV-1 conflated three concerns (event-sourcing integrity,
