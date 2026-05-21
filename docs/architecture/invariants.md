@@ -321,6 +321,9 @@ invariants:
       generic). Runtime-specific text is tokenized via {{TOKEN}} placeholders or
       guarded via <!-- requires:* --> blocks. Source-of-truth edits go to
       skills-src/; skills/<runtime>/** is generated.
+      INV-4 owns the *platform* axis (6 runtimes); INV-6 owns the orthogonal
+      *workload* axis (workflow types). The two are complementary substrate
+      properties — substrate guarantees hold across both axes.
     references:
       - .claude/skills/design-invariants/references/INV-4-platform-agnosticity.md
       - .claude/skills/design-invariants/SKILL.md
