@@ -208,6 +208,77 @@ describe('invariants-loader', () => {
     expect(coreEntries.map((e) => e.id)).toEqual(explicit.map((e) => e.id));
   });
 
+  // ─── Wave B2: .exarchos.yml gating ─────────────────────────────────────
+  //
+  // The loader honours `invariants.devCatalog` from the supplied config.
+  // When the flag is anything other than `'enabled'` (including absent /
+  // empty / `'disabled'`), the loader returns `[]` regardless of the
+  // `scope` filter — gating applies BEFORE scope. See:
+  //
+  //   docs/proposals/2026-05-20-invariants-catalog-v2-spec.md §4.0
+  //
+  // The third positional argument is dependency-injectable for tests so
+  // they don't need to author a temp `.exarchos.yml` fixture; production
+  // call sites get the default `readInvariantsConfig()` reader.
+
+  it('LoadInvariants_WhenDevCatalogDisabled_ReturnsEmpty', () => {
+    // Explicit `'disabled'` — the canonical opt-out case.
+    const entries = loadInvariants(
+      INVARIANTS_DOC,
+      { scope: 'all' },
+      { invariants: { devCatalog: 'disabled' } },
+    );
+    expect(entries).toEqual([]);
+
+    // Scope must not bypass the gate: even `'core'` returns `[]` when
+    // the flag is disabled.
+    const coreEntries = loadInvariants(
+      INVARIANTS_DOC,
+      { scope: 'core' },
+      { invariants: { devCatalog: 'disabled' } },
+    );
+    expect(coreEntries).toEqual([]);
+  });
+
+  it('LoadInvariants_WhenConfigOmitsInvariants_ReturnsEmptyDefaultDisabled', () => {
+    // Empty config — represents a consumer using Exarchos as a plugin in
+    // a non-Exarchos project who never declared the block at all.
+    const entries = loadInvariants(INVARIANTS_DOC, { scope: 'all' }, {});
+    expect(entries).toEqual([]);
+  });
+
+  it('LoadInvariants_WhenInvariantsBlockEmpty_ReturnsEmptyDefaultDisabled', () => {
+    // The `invariants:` key is declared but `devCatalog` is unset.
+    // Equivalent to the empty-config case — default-disabled wins.
+    const entries = loadInvariants(
+      INVARIANTS_DOC,
+      { scope: 'all' },
+      { invariants: {} },
+    );
+    expect(entries).toEqual([]);
+  });
+
+  it('LoadInvariants_WhenDevCatalogEnabled_ReturnsEntriesPerScope', () => {
+    // `'enabled'` re-engages the existing scope filter. The full catalog
+    // currently has 18 entries (v1 schema); `'core'` returns the four
+    // `always-load` entries (INV-1, INV-2, INV-5a, INV-5b).
+    const allEntries = loadInvariants(
+      INVARIANTS_DOC,
+      { scope: 'all' },
+      { invariants: { devCatalog: 'enabled' } },
+    );
+    expect(allEntries.length).toBe(18);
+
+    const coreEntries = loadInvariants(
+      INVARIANTS_DOC,
+      { scope: 'core' },
+      { invariants: { devCatalog: 'enabled' } },
+    );
+    expect(new Set(coreEntries.map((e) => e.id))).toEqual(
+      new Set(['INV-1', 'INV-2', 'INV-5a', 'INV-5b']),
+    );
+  });
+
   it('InvariantsLoader_DuplicateIds_ThrowsWithIdInMessage', () => {
     // Construct a frontmatter fixture with two entries sharing the same id
     // (`INV-1`). The loader must reject this at load time so a silent
