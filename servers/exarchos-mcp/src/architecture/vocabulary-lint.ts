@@ -13,6 +13,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadInvariantIds } from './invariants-loader.js';
+import type { ExarchosConfig } from '../config/exarchos-config-schema.js';
 
 export interface VocabularyFinding {
   file: string;
@@ -29,6 +30,17 @@ export interface ScanOptions {
   invariantsDoc?: string;
   /** Skip these directory names while walking. */
   skipDirs?: string[];
+  /**
+   * Optional Exarchos config — dependency injection for tests so they don't
+   * depend on the state of the repo's `.exarchos.yml`. When omitted, the
+   * underlying `loadInvariantIds` walks up from the catalog file to find
+   * the closest `.exarchos.yml` and honours `invariants.devCatalog`. When
+   * the gate is not `enabled`, the known-ID set is empty and every token
+   * surfaces as a finding — consumers using Exarchos as a plugin therefore
+   * opt into vocabulary-lint by declaring `invariants.devCatalog: enabled`
+   * in their own `.exarchos.yml`.
+   */
+  config?: ExarchosConfig;
 }
 
 const TOKEN_RE = /\b(INV-\d+[a-d]?|DIM-\d+)\b/g;
@@ -63,7 +75,7 @@ export function scanFile(
   options: ScanOptions = {},
 ): VocabularyFinding[] {
   const docPath = options.invariantsDoc ?? defaultInvariantsDoc();
-  const knownIds = loadInvariantIds(docPath);
+  const knownIds = loadInvariantIds(docPath, options.config);
   return scanFileWithKnown(file, knownIds);
 }
 
@@ -107,7 +119,7 @@ export function scanPaths(
   options: ScanOptions = {},
 ): VocabularyFinding[] {
   const docPath = options.invariantsDoc ?? defaultInvariantsDoc();
-  const knownIds = loadInvariantIds(docPath);
+  const knownIds = loadInvariantIds(docPath, options.config);
   const skipDirs = new Set([
     ...DEFAULT_SKIP_DIRS,
     ...(options.skipDirs ?? []),
