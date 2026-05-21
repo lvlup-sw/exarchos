@@ -77,6 +77,30 @@ invariants:
       - servers/exarchos-mcp/src/event-store/atomic-appender.ts
       - servers/exarchos-mcp/src/dispatch/with-session.ts
 
+  - id: INV-9
+    dimension: hsm-as-state-machine
+    axis: substrate
+    cost-of-load: reference-only
+    applies-to:
+      - topology
+      - hsm-definitions
+      - phase-transitions
+    summary: >
+      Every workflow type ships a hierarchical state machine declared in
+      topology.yaml. Transitions are guarded; only workflow.transition is
+      a phase mutator (workflow.set-phase is deprecated). The HSM is the
+      sole authority for valid phase sequencing; next_actions is derived
+      from it.
+    axiom_overlap: DIM-1
+    citations:
+      - "Harel, *Statecharts: A Visual Formalism for Complex Systems* (Science of Computer Programming 1987): https://www.sciencedirect.com/science/article/pii/0167642387900359"
+      - "Greg Young, *Versioning in an Event Sourced System* — Process Manager Versioning chapter (Leanpub)"
+      - "Wolverine [AggregateHandler] workflow (Miller 2023): https://jeremydmiller.com/2023/12/06/building-a-critter-stack-application-wolverines-aggregate-handler-workflow-ftw/"
+    references:
+      - servers/exarchos-mcp/src/topology/phase-contract.ts
+      - servers/exarchos-mcp/src/hsm/
+      - docs/architecture/runtime.md#§3-L4
+
   - id: INV-12
     dimension: next-actions-as-affordance
     axis: substrate
