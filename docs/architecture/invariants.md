@@ -5,10 +5,11 @@ description: >
   dimensions (DIM-*) consumed by /ideate, the design-invariants skill,
   and the vocabulary-lint scanner. Source of truth for the invariant
   vocabulary in the Exarchos repo.
-schema-version: 1
+schema-version: 2
 invariants:
   - id: INV-1
     dimension: event-sourcing-integrity
+    axis: substrate
     cost-of-load: always-load
     applies-to:
       - event-store
@@ -28,6 +29,7 @@ invariants:
 
   - id: INV-2
     dimension: facade-equivalence
+    axis: substrate
     cost-of-load: always-load
     applies-to:
       - cli-adapter
@@ -47,6 +49,7 @@ invariants:
 
   - id: INV-3
     dimension: basileus-forward
+    axis: substrate
     cost-of-load: reference-only
     applies-to:
       - capabilities-resolver
@@ -68,6 +71,7 @@ invariants:
 
   - id: INV-4
     dimension: platform-agnosticity
+    axis: substrate
     cost-of-load: reference-only
     applies-to:
       - skills-src
@@ -87,6 +91,7 @@ invariants:
 
   - id: INV-5a
     dimension: input-ergonomics
+    axis: substrate
     cost-of-load: always-load
     applies-to:
       - mcp-registry
@@ -105,6 +110,7 @@ invariants:
 
   - id: INV-5b
     dimension: output-contract
+    axis: substrate
     cost-of-load: always-load
     applies-to:
       - format.ts
@@ -126,6 +132,7 @@ invariants:
 
   - id: INV-5c
     dimension: aspire-verbs
+    axis: substrate
     cost-of-load: reference-only
     applies-to:
       - cli-commands
@@ -144,6 +151,7 @@ invariants:
 
   - id: INV-5d
     dimension: action-discriminator
+    axis: substrate
     cost-of-load: reference-only
     applies-to:
       - mcp-registry
@@ -163,6 +171,7 @@ invariants:
 
   - id: INV-6
     dimension: workflow-agnosticism
+    axis: substrate
     cost-of-load: reference-only
     applies-to:
       - skills-src
@@ -181,6 +190,7 @@ invariants:
 
   - id: DIM-1
     dimension: topology
+    axis: substrate
     cost-of-load: reference-only
     applies-to:
       - module-boundaries
@@ -198,6 +208,7 @@ invariants:
 
   - id: DIM-2
     dimension: observability
+    axis: substrate
     cost-of-load: reference-only
     applies-to:
       - logging
@@ -215,6 +226,7 @@ invariants:
 
   - id: DIM-3
     dimension: contracts
+    axis: substrate
     cost-of-load: reference-only
     applies-to:
       - schemas
@@ -232,6 +244,7 @@ invariants:
 
   - id: DIM-4
     dimension: test-fidelity
+    axis: substrate
     cost-of-load: reference-only
     applies-to:
       - test-suites
@@ -247,6 +260,7 @@ invariants:
 
   - id: DIM-5
     dimension: hygiene
+    axis: substrate
     cost-of-load: reference-only
     applies-to:
       - dead-paths
@@ -263,6 +277,7 @@ invariants:
 
   - id: DIM-6
     dimension: solid-coupling
+    axis: substrate
     cost-of-load: reference-only
     applies-to:
       - module-design
@@ -278,6 +293,7 @@ invariants:
 
   - id: DIM-7
     dimension: resilience
+    axis: substrate
     cost-of-load: reference-only
     applies-to:
       - error-paths
@@ -293,6 +309,7 @@ invariants:
 
   - id: DIM-8
     dimension: prose-quality
+    axis: authoring
     cost-of-load: archivable
     applies-to:
       - documentation
@@ -308,6 +325,7 @@ invariants:
 
   - id: basileus-boundary
     dimension: cross-product-coordination
+    axis: substrate
     cost-of-load: archivable
     applies-to:
       - basileus-exarchos-coordination

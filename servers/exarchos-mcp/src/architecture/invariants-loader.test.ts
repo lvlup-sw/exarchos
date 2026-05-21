@@ -373,6 +373,7 @@ invariants:
 invariants:
   - id: INV-1
     dimension: event-sourcing integrity
+    axis: substrate
     cost-of-load: always-load
     applies-to:
       - servers/exarchos-mcp/src/event-store
@@ -381,6 +382,7 @@ invariants:
       - docs/architecture/invariants.md
   - id: INV-1
     dimension: duplicate
+    axis: substrate
     cost-of-load: always-load
     applies-to:
       - servers/exarchos-mcp/src/event-store

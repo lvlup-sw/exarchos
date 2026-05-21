@@ -35,11 +35,28 @@ export type InvariantsScope = 'core' | 'all';
 
 const SCOPE_VALUES: readonly InvariantsScope[] = ['core', 'all'] as const;
 
+/**
+ * Allowed values for the `axis` frontmatter field introduced in schema-v2.
+ * `substrate` entries describe runtime-substrate properties; `authoring`
+ * entries describe prose / documentation concerns (only DIM-8 today).
+ * Drives the v2 scope filter (Wave D1) which intersects axis with
+ * `cost-of-load` for `scope: 'core'`.
+ */
+export type InvariantAxis = 'substrate' | 'authoring';
+
+const AXIS_VALUES: readonly InvariantAxis[] = ['substrate', 'authoring'] as const;
+
 export interface InvariantEntry {
   /** Stable identifier — e.g. "INV-1", "INV-5a", "DIM-1", "basileus-boundary". */
   id: string;
   /** Short human-readable category name. */
   dimension: string;
+  /**
+   * Axis classification (schema-v2). Either `'substrate'` (runtime
+   * substrate property) or `'authoring'` (prose / documentation concern).
+   * Required for every entry under schema-v2; the loader throws on missing.
+   */
+  axis: InvariantAxis;
   /** Load-cost classification (drives Phase 0 surfacing — see `CostOfLoad`). */
   costOfLoad: CostOfLoad;
   /** Surface areas (modules, file globs, capability domains) the invariant covers. */
@@ -56,6 +73,7 @@ export interface InvariantEntry {
 interface RawInvariantEntry {
   id?: unknown;
   dimension?: unknown;
+  axis?: unknown;
   'cost-of-load'?: unknown;
   'applies-to'?: unknown;
   summary?: unknown;
@@ -97,6 +115,28 @@ function asString(value: unknown, field: string, id: string): string {
   return value.replace(/\s+/g, ' ').trim();
 }
 
+/**
+ * Parse + validate `axis` (schema-v2); throws loudly on missing or invalid
+ * value (no silent default — DIM-2 contract). Required for every entry
+ * under schema-version: 2.
+ */
+function parseAxis(value: unknown, id: string): InvariantAxis {
+  if (typeof value !== 'string' || value.length === 0) {
+    throw new Error(
+      `invariants-loader: entry "${id}" is missing required field "axis" ` +
+        `(schema-version: 2 requires explicit ` +
+        `${AXIS_VALUES.map((v) => `'${v}'`).join(' | ')})`,
+    );
+  }
+  if (!(AXIS_VALUES as readonly string[]).includes(value)) {
+    throw new Error(
+      `invariants-loader: entry "${id}" has invalid "axis" value '${value}'; ` +
+        `must be one of ${AXIS_VALUES.map((v) => `'${v}'`).join(', ')}`,
+    );
+  }
+  return value as InvariantAxis;
+}
+
 /** Parse + validate `cost-of-load`; throws loudly on missing or invalid value (no silent default — DIM-2 contract). */
 function parseCostOfLoad(value: unknown, id: string): CostOfLoad {
   if (typeof value !== 'string' || value.length === 0) {
@@ -123,6 +163,7 @@ function parseEntry(raw: RawInvariantEntry): InvariantEntry {
   return {
     id,
     dimension: asString(raw.dimension, 'dimension', id),
+    axis: parseAxis(raw.axis, id),
     costOfLoad: parseCostOfLoad(raw['cost-of-load'], id),
     appliesTo: asStringArray(raw['applies-to'], 'applies-to', id),
     summary: asString(raw.summary, 'summary', id),
