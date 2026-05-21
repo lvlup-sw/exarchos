@@ -35,11 +35,28 @@ export type InvariantsScope = 'core' | 'all';
 
 const SCOPE_VALUES: readonly InvariantsScope[] = ['core', 'all'] as const;
 
+/**
+ * Allowed values for the `axis` frontmatter field introduced in schema-v2.
+ * `substrate` entries describe runtime-substrate properties; `authoring`
+ * entries describe prose / documentation concerns (only DIM-8 today).
+ * Drives the v2 scope filter (Wave D1) which intersects axis with
+ * `cost-of-load` for `scope: 'core'`.
+ */
+export type InvariantAxis = 'substrate' | 'authoring';
+
+const AXIS_VALUES: readonly InvariantAxis[] = ['substrate', 'authoring'] as const;
+
 export interface InvariantEntry {
   /** Stable identifier — e.g. "INV-1", "INV-5a", "DIM-1", "basileus-boundary". */
   id: string;
   /** Short human-readable category name. */
   dimension: string;
+  /**
+   * Axis classification (schema-v2). Either `'substrate'` (runtime
+   * substrate property) or `'authoring'` (prose / documentation concern).
+   * Required for every entry under schema-v2; the loader throws on missing.
+   */
+  axis: InvariantAxis;
   /** Load-cost classification (drives Phase 0 surfacing — see `CostOfLoad`). */
   costOfLoad: CostOfLoad;
   /** Surface areas (modules, file globs, capability domains) the invariant covers. */
@@ -48,6 +65,21 @@ export interface InvariantEntry {
   summary: string;
   /** Pointers to source files where the invariant is detailed in prose. */
   references: string[];
+  /**
+   * External research citations (schema-v2). Optional — recommended ≥3
+   * entries for substrate-axis invariants; DIM-* axiom-pointer entries
+   * and v1-era entries (pre-C4..C11) typically omit it. Undefined when
+   * not declared (distinct from declared-empty `[]`).
+   */
+  citations?: string[];
+  /**
+   * Axiom-dimension overlap pointer (schema-v2). Optional `DIM-N` value
+   * consumed by `/axiom:design`'s pairing-discovery to interleave project
+   * invariants under each axiom dimension. When declared, must match
+   * `/^DIM-\d+$/` and reference an existing DIM-N entry in the catalog.
+   * See spec §4.3.
+   */
+  axiomOverlap?: string;
   /** The raw parsed entry for fields not yet promoted to the typed shape. */
   raw: Record<string, unknown>;
 }
@@ -56,12 +88,21 @@ export interface InvariantEntry {
 interface RawInvariantEntry {
   id?: unknown;
   dimension?: unknown;
+  axis?: unknown;
   'cost-of-load'?: unknown;
   'applies-to'?: unknown;
   summary?: unknown;
   references?: unknown;
+  citations?: unknown;
+  axiom_overlap?: unknown;
   [key: string]: unknown;
 }
+
+/**
+ * Pattern for the schema-v2 `axiom_overlap` field. Must match
+ * `DIM-` followed by one or more digits to reference a DIM-N entry.
+ */
+const AXIOM_OVERLAP_PATTERN = /^DIM-\d+$/;
 
 /** Untyped shape returned by `gray-matter` for the file frontmatter — validated by `loadInvariants`. */
 interface RawFrontmatter {
@@ -97,6 +138,28 @@ function asString(value: unknown, field: string, id: string): string {
   return value.replace(/\s+/g, ' ').trim();
 }
 
+/**
+ * Parse + validate `axis` (schema-v2); throws loudly on missing or invalid
+ * value (no silent default — DIM-2 contract). Required for every entry
+ * under schema-version: 2.
+ */
+function parseAxis(value: unknown, id: string): InvariantAxis {
+  if (typeof value !== 'string' || value.length === 0) {
+    throw new Error(
+      `invariants-loader: entry "${id}" is missing required field "axis" ` +
+        `(schema-version: 2 requires explicit ` +
+        `${AXIS_VALUES.map((v) => `'${v}'`).join(' | ')})`,
+    );
+  }
+  if (!(AXIS_VALUES as readonly string[]).includes(value)) {
+    throw new Error(
+      `invariants-loader: entry "${id}" has invalid "axis" value '${value}'; ` +
+        `must be one of ${AXIS_VALUES.map((v) => `'${v}'`).join(', ')}`,
+    );
+  }
+  return value as InvariantAxis;
+}
+
 /** Parse + validate `cost-of-load`; throws loudly on missing or invalid value (no silent default — DIM-2 contract). */
 function parseCostOfLoad(value: unknown, id: string): CostOfLoad {
   if (typeof value !== 'string' || value.length === 0) {
@@ -120,15 +183,39 @@ function parseEntry(raw: RawInvariantEntry): InvariantEntry {
     throw new Error('invariants-loader: entry is missing required field "id"');
   }
   const id = raw.id;
-  return {
+  const entry: InvariantEntry = {
     id,
     dimension: asString(raw.dimension, 'dimension', id),
+    axis: parseAxis(raw.axis, id),
     costOfLoad: parseCostOfLoad(raw['cost-of-load'], id),
     appliesTo: asStringArray(raw['applies-to'], 'applies-to', id),
     summary: asString(raw.summary, 'summary', id),
     references: asStringArray(raw.references, 'references', id),
     raw: { ...raw },
   };
+  // Optional schema-v2 field — only project when declared so the typed
+  // accessor preserves the "not declared" distinction (undefined vs []).
+  if (raw.citations !== undefined) {
+    entry.citations = asStringArray(raw.citations, 'citations', id);
+  }
+  // Optional schema-v2 field — format-checked against /^DIM-\d+$/. The
+  // cross-reference check (declared overlap points at an existing DIM-N
+  // entry) lives in `loadInvariants` so it can see the full entry set.
+  if (raw.axiom_overlap !== undefined && raw.axiom_overlap !== null) {
+    if (typeof raw.axiom_overlap !== 'string') {
+      throw new Error(
+        `invariants-loader: entry "${id}" field "axiom_overlap" must be a string, got ${typeof raw.axiom_overlap}`,
+      );
+    }
+    if (!AXIOM_OVERLAP_PATTERN.test(raw.axiom_overlap)) {
+      throw new Error(
+        `invariants-loader: entry "${id}" has invalid "axiom_overlap" value '${raw.axiom_overlap}'; ` +
+          `must match /^DIM-\\d+$/ (e.g. 'DIM-1', 'DIM-7')`,
+      );
+    }
+    entry.axiomOverlap = raw.axiom_overlap;
+  }
+  return entry;
 }
 
 /**
