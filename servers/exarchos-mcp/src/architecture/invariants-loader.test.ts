@@ -753,6 +753,32 @@ invariants:
     expect(inv15!.citations!.join(' ')).toMatch(/Clemens Vasters/i);
   });
 
+  // ─── Wave C12: sharpen INV-6 to primary workload-agnosticism ──────────
+  //
+  // Spec §5.1 + §6 INV-6 (sharpened): elevate INV-6 from a skill-grep
+  // operational shell to the primary workload-agnosticism statement —
+  // cost-of-load: always-load (was reference-only); summary asserts
+  // "no assumption about which workload"; references the scripts/lint-inv6.mjs
+  // projection; applies-to broader than skills-src + playbooks.
+
+  it('Invariants_INV6Sharpened_PrimaryStatementNotGrepOnly', () => {
+    const entries = loadInvariants(INVARIANTS_DOC, undefined, ENABLED_CONFIG);
+    const inv6 = entries.find((e) => e.id === 'INV-6');
+    expect(inv6, 'INV-6 must exist').toBeDefined();
+    // Elevated to always-load (was reference-only in v1).
+    expect(inv6!.costOfLoad).toBe('always-load');
+    // Primary workload-agnosticism statement language.
+    expect(inv6!.summary.toLowerCase()).toMatch(/no assumption about which workload/);
+    // Operational projection pointer preserved.
+    expect(inv6!.summary).toMatch(/scripts\/lint-inv6\.mjs/);
+    // applies-to is broader than v1's skills-src + playbooks.
+    expect(inv6!.appliesTo).toContain('runtime-substrate');
+    expect(inv6!.appliesTo).toContain('topology');
+    // Per spec §6, ≥3 citations recommended.
+    expect(inv6!.citations).toBeDefined();
+    expect(inv6!.citations!.length).toBeGreaterThanOrEqual(3);
+  });
+
   it('InvariantsLoader_DuplicateIds_ThrowsWithIdInMessage', () => {
     // Construct a frontmatter fixture with two entries sharing the same id
     // (`INV-1`). The loader must reject this at load time so a silent
