@@ -28,6 +28,9 @@ const REQUIRED_INVARIANT_IDS = [
   'INV-5c',
   'INV-5d',
   'INV-6',
+  // Wave C4 split-off entries (post-v2 catalog):
+  'INV-7',
+  'INV-8',
 ] as const;
 
 const REQUIRED_DIMENSION_IDS = [
@@ -513,6 +516,52 @@ invariants:
         ).toBe(true);
       }
     }
+  });
+
+  // ─── Wave C4: INV-1 split → INV-1 (narrowed) + INV-7 + INV-8 ──────────
+  //
+  // Spec §5.1: v1 INV-1 conflated three concerns (event-sourcing integrity,
+  // substrate-serialization, idempotency-at-the-boundary). v2 narrows INV-1
+  // to event-sourcing integrity only and promotes the other two to first-
+  // class entries (INV-7 substrate-serialization, INV-8 idempotency).
+  //
+  // Spec: docs/proposals/2026-05-20-invariants-catalog-v2-spec.md §5.1, §6
+
+  it('Invariants_INV1Split_ProducesINV1NarrowedPlusINV7PlusINV8', () => {
+    const entries = loadInvariants(INVARIANTS_DOC, undefined, ENABLED_CONFIG);
+    const byId = new Map(entries.map((e) => [e.id, e] as const));
+
+    // INV-1 narrowed: summary must drop substrate-serialization + idempotency
+    // claims; keeps event-as-design-authority + reducer-purity language.
+    const inv1 = byId.get('INV-1');
+    expect(inv1).toBeDefined();
+    expect(inv1!.summary.toLowerCase()).not.toMatch(/idempotency/);
+    expect(inv1!.summary.toLowerCase()).not.toMatch(/streamlockmanager/);
+    expect(inv1!.summary.toLowerCase()).not.toMatch(/occ\b/);
+    expect(inv1!.summary.toLowerCase()).not.toMatch(/sqlite/);
+
+    // INV-7 substrate-serialization
+    const inv7 = byId.get('INV-7');
+    expect(inv7, 'INV-7 must exist post-split').toBeDefined();
+    expect(inv7!.dimension).toBe('substrate-serialization');
+    expect(inv7!.axis).toBe('substrate');
+    expect(inv7!.costOfLoad).toBe('always-load');
+    expect(inv7!.citations).toBeDefined();
+    expect(inv7!.citations!.length).toBeGreaterThanOrEqual(3);
+    expect(inv7!.citations!.join(' ')).toMatch(/ARIES/i);
+    expect(inv7!.citations!.join(' ')).toMatch(/Bernstein/i);
+
+    // INV-8 idempotency-at-the-boundary
+    const inv8 = byId.get('INV-8');
+    expect(inv8, 'INV-8 must exist post-split').toBeDefined();
+    expect(inv8!.dimension).toBe('idempotency-at-the-boundary');
+    expect(inv8!.axis).toBe('substrate');
+    expect(inv8!.costOfLoad).toBe('always-load');
+    expect(inv8!.citations).toBeDefined();
+    expect(inv8!.citations!.length).toBeGreaterThanOrEqual(3);
+    expect(inv8!.citations!.join(' ')).toMatch(/Akka/i);
+    expect(inv8!.citations!.join(' ')).toMatch(/Wolverine/i);
+    expect(inv8!.citations!.join(' ')).toMatch(/Greg Young/i);
   });
 
   it('InvariantsLoader_DuplicateIds_ThrowsWithIdInMessage', () => {
