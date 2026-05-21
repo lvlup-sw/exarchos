@@ -600,14 +600,19 @@ This file pairs with the prose reference content under [`.claude/skills/design-i
 
 Each entry in `invariants:` carries:
 
-| Field | Type | Purpose |
-|---|---|---|
-| `id` | string | Stable identifier — `INV-1`..`INV-6`, sub-disciplines like `INV-5a`, axiom dimensions like `DIM-1`, plus cross-product entries (`basileus-boundary`). |
-| `dimension` | string | Short human-readable category name. |
-| `cost-of-load` | enum | One of `always-load` \| `reference-only` \| `archivable`. Drives the `/ideate` Phase 0 split: only `always-load` entries are surfaced by default; `reference-only` entries are loaded on-demand; `archivable` entries are kept for vocabulary-lint cross-references but never surfaced. |
-| `applies-to` | string[] | Surface areas (modules, file globs, capability domains) where the invariant is load-bearing. |
-| `summary` | string | One-to-two-sentence statement of the invariant. |
-| `references` | string[] | Pointers to source files where the invariant is detailed in prose. |
+| Field | Type | Required? | Purpose |
+|---|---|---|---|
+| `id` | string | yes | Stable identifier — `INV-1`..`INV-15`, sub-disciplines like `INV-5a`/`INV-5b`/`INV-5c`/`INV-5d`, axiom dimensions `DIM-1`..`DIM-8`, plus cross-product entries (`basileus-boundary`). |
+| `dimension` | string | yes | Short human-readable category name. |
+| `axis` | enum | yes (v2) | One of `substrate` \| `authoring`. Substrate invariants govern runtime behavior; authoring invariants govern artifact content. Loader scope filter (`/ideate` Phase 0) honors this split. |
+| `cost-of-load` | enum | yes | One of `always-load` \| `reference-only` \| `archivable`. Drives the `/ideate` Phase 0 split: only `axis: substrate ∧ cost-of-load: always-load` entries are surfaced by default (the `scope: 'core'` set); `reference-only` entries are loaded on-demand; `archivable` entries are kept for vocabulary-lint cross-references but never surfaced. |
+| `applies-to` | string[] | yes | Surface areas (modules, file globs, capability domains) where the invariant is load-bearing. |
+| `summary` | string | yes | One-to-two-sentence statement of the invariant. |
+| `axiom_overlap` | string | no (v2) | DIM-N identifier (matches `/^DIM-\d+$/`) where the substrate-invariant has a clean axiom-dimension analogue. Consumed by `/axiom:design` pairing-discovery to interleave project invariants under each axiom dimension. |
+| `citations` | string[] | no (v2) | External research grounding — recommended ≥3 entries for substrate-axis invariants. Each entry is a free-form citation string (typically `Author, *Title* (Year): URL`). DIM-* axiom-pointer entries are exempt. |
+| `references` | string[] | yes | Pointers to internal source files where the invariant is detailed in prose. |
+
+The catalog gates behind the `.exarchos.yml: invariants.devCatalog: enabled` flag (default disabled, no auto-detection). When disabled, the loader returns `[]` regardless of scope. See [`docs/guides/exarchos-yml-invariants.md`](../guides/exarchos-yml-invariants.md) for the consumer-facing reference.
 
 ## Vocabulary
 
@@ -616,7 +621,7 @@ The vocabulary-lint scanner (`servers/exarchos-mcp/src/architecture/vocabulary-l
 ## Consumers
 
 - `/exarchos:ideate` — surfaces relevant invariants as Constraints during Phase 0 (before Phase 1), before the clarifying questions.
-- `design-invariants` skill — audits design proposals against INV-1..INV-6.
+- `design-invariants` skill — audits design proposals against INV-1..INV-15 (substrate runtime invariants) + the DIM-1..DIM-8 axiom-dimension cross-links.
 - `vocabulary-lint` — flags references to invariant IDs not registered here.
 - Future: `#1275` MCP Resources — expose this catalog as `resources/exarchos-invariants` once Resources land.
 
