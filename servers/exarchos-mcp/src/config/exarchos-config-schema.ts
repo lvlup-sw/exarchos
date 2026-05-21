@@ -64,7 +64,11 @@ const CliConfigSchema = z
 // flag to `enabled`, not because the loader detected anything.
 //
 // Spec: docs/proposals/2026-05-20-invariants-catalog-v2-spec.md §1.1 + §4.0
-const InvariantsConfigSchema = z
+//
+// Exported so `ProjectConfigSchema` (yaml-schema.ts) can compose the
+// identical block under its own `invariants:` key without duplicating
+// the shape (PR #1459 CodeRabbit finding 2 — single source of truth).
+export const InvariantsConfigSchema = z
   .object({
     devCatalog: z.enum(['enabled', 'disabled']).optional(),
   })

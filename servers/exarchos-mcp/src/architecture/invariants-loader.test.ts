@@ -470,9 +470,22 @@ invariants:
   // Spec: docs/proposals/2026-05-20-invariants-catalog-v2-spec.md §3, §4.3
 
   it('Invariants_SubstrateAxisEntries_AcceptAxiomOverlapField', () => {
+    // Fixture includes the referenced DIM-1 entry so the loader's
+    // referential-integrity check (PR #1459 finding 1) does not flag this
+    // entry as dangling. The check that exercises dangling refs is
+    // `Invariants_DanglingAxiomOverlap_ThrowsLoudly` below.
     const fixture = `---
 schema-version: 2
 invariants:
+  - id: DIM-1
+    dimension: test-dimension
+    axis: substrate
+    cost-of-load: always-load
+    applies-to:
+      - test
+    summary: Real DIM-1 referenced by INV-TEST-OVERLAP.
+    references:
+      - docs/architecture/invariants.md
   - id: INV-TEST-OVERLAP
     dimension: test-axiom-overlap
     axis: substrate
@@ -492,9 +505,10 @@ invariants:
     fs.writeFileSync(tmpFile, fixture, 'utf8');
     try {
       const entries = loadInvariants(tmpFile, undefined, ENABLED_CONFIG);
-      expect(entries.length).toBe(1);
-      const entry = entries[0]!;
-      expect(entry.axiomOverlap).toBe('DIM-1');
+      expect(entries.length).toBe(2);
+      const entry = entries.find((e) => e.id === 'INV-TEST-OVERLAP');
+      expect(entry).toBeDefined();
+      expect(entry!.axiomOverlap).toBe('DIM-1');
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }
@@ -549,6 +563,66 @@ invariants:
           `entry ${entry.id} declares axiom_overlap: ${entry.axiomOverlap} but no such DIM entry exists`,
         ).toBe(true);
       }
+    }
+  });
+
+  it('Invariants_DanglingAxiomOverlap_ThrowsLoudly', () => {
+    // PR #1459 CodeRabbit finding 1 — referential integrity for axiom_overlap.
+    //
+    // The format check at `parseEntry` only verifies the regex shape
+    // (/^DIM-\d+$/). A reference that matches the shape but points at a
+    // DIM-N that does NOT exist in the loaded catalog (e.g. a typo
+    // `axiom_overlap: DIM-99` when the catalog only has DIM-1..DIM-8)
+    // would parse successfully and create a dangling pointer consumed by
+    // `/axiom:design`'s pairing-discovery. The loader MUST reject such
+    // entries at load time so the failure mode is loud and immediate.
+    const fixture = `---
+schema-version: 2
+invariants:
+  - id: DIM-1
+    dimension: real-dimension
+    axis: substrate
+    cost-of-load: always-load
+    applies-to:
+      - test
+    summary: An existing DIM entry.
+    references:
+      - docs/architecture/invariants.md
+  - id: INV-DANGLING
+    dimension: test-dangling
+    axis: substrate
+    cost-of-load: always-load
+    applies-to:
+      - test
+    summary: Entry pointing at a non-existent DIM-99.
+    axiom_overlap: DIM-99
+    references:
+      - docs/architecture/invariants.md
+---
+
+# Fixture
+`;
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'invariants-dangling-'));
+    const tmpFile = path.join(tmpDir, 'invariants.md');
+    fs.writeFileSync(tmpFile, fixture, 'utf8');
+    try {
+      // Error must name the offending entry id so catalog editors can
+      // locate the typo quickly.
+      expect(() => loadInvariants(tmpFile, undefined, ENABLED_CONFIG)).toThrow(
+        /INV-DANGLING/,
+      );
+      // Error must name the missing DIM-N reference so editors can see
+      // what was actually looked up.
+      expect(() => loadInvariants(tmpFile, undefined, ENABLED_CONFIG)).toThrow(
+        /DIM-99/,
+      );
+      // Error must surface the set of valid DIM-* IDs so editors can pick
+      // a real target without consulting the catalog separately.
+      expect(() => loadInvariants(tmpFile, undefined, ENABLED_CONFIG)).toThrow(
+        /DIM-1/,
+      );
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
     }
   });
 

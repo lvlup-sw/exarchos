@@ -366,6 +366,25 @@ export function loadInvariants(
     }
     seen.add(entry.id);
   }
+  // Referential integrity for `axiom_overlap` (PR #1459 CodeRabbit finding 1).
+  // The format check in `parseEntry` only verifies the regex shape — a
+  // reference that matches the shape (e.g. `DIM-99`) but does NOT point at
+  // an existing DIM-N entry would otherwise parse successfully and become a
+  // dangling pointer consumed by `/axiom:design`'s pairing-discovery. Catch
+  // it here, after the full entry set is available, so the error names both
+  // the offending entry and the set of valid DIM-* IDs.
+  const dimIds = entries.filter((e) => e.id.startsWith('DIM-')).map((e) => e.id);
+  const dimIdSet = new Set(dimIds);
+  for (const entry of entries) {
+    if (entry.axiomOverlap !== undefined && !dimIdSet.has(entry.axiomOverlap)) {
+      const validList = dimIds.length > 0 ? dimIds.join(', ') : '(none in catalog)';
+      throw new Error(
+        `invariants-loader: entry "${entry.id}" declares axiom_overlap: ` +
+          `'${entry.axiomOverlap}' but no such DIM-* entry exists in the ` +
+          `catalog. Valid DIM-* IDs: ${validList}`,
+      );
+    }
+  }
   // Co-located scope filter — keep the policy next to the load to avoid
   // drift between the load contract and the surface API. See `InvariantsScope`
   // type docs for per-variant semantics; the switch arms mirror that order.
