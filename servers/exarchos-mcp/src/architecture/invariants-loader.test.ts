@@ -39,6 +39,8 @@ const REQUIRED_INVARIANT_IDS = [
   'INV-10',
   // Wave C8 new entry:
   'INV-11',
+  // Wave C9 new entry:
+  'INV-13',
 ] as const;
 
 const REQUIRED_DIMENSION_IDS = [
@@ -680,6 +682,29 @@ invariants:
     expect(inv11!.citations!.join(' ')).toMatch(/Miller/i);
     expect(inv11!.citations!.join(' ')).toMatch(/POLA/i);
     expect(inv11!.citations!.join(' ')).toMatch(/anip-protocol/i);
+  });
+
+  // ─── Wave C9: add INV-13 process-manager-two-event-split ──────────────
+  //
+  // Spec §5.2 + §6 INV-13: handlers performing non-idempotent external
+  // side effects emit *.requested + *.executed events; on retry the
+  // requested event idempotency-collapses (INV-8); on crash recovery
+  // the next invocation observes *.requested without *.executed and
+  // runs an idempotent precheck.
+
+  it('Invariants_INV13_ExistsWithProcessManagerScope', () => {
+    const entries = loadInvariants(INVARIANTS_DOC, undefined, ENABLED_CONFIG);
+    const inv13 = entries.find((e) => e.id === 'INV-13');
+    expect(inv13, 'INV-13 must exist in v2 catalog').toBeDefined();
+    expect(inv13!.dimension).toBe('process-manager-two-event-split');
+    expect(inv13!.axis).toBe('substrate');
+    expect(inv13!.costOfLoad).toBe('reference-only');
+    expect(inv13!.axiomOverlap).toBe('DIM-7');
+    expect(inv13!.citations).toBeDefined();
+    expect(inv13!.citations!.length).toBeGreaterThanOrEqual(3);
+    expect(inv13!.citations!.join(' ')).toMatch(/Akka/i);
+    expect(inv13!.citations!.join(' ')).toMatch(/Wolverine/i);
+    expect(inv13!.citations!.join(' ')).toMatch(/Greg Young/i);
   });
 
   it('InvariantsLoader_DuplicateIds_ThrowsWithIdInMessage', () => {
