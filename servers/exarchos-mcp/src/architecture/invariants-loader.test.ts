@@ -41,9 +41,21 @@ const REQUIRED_DIMENSION_IDS = [
   'DIM-8',
 ] as const;
 
+/**
+ * Most tests in this file exercise catalog *contents*, not the Wave B2
+ * gating mechanism. They pass this explicit `enabled` config as the
+ * third argument so the test fixture is decoupled from the state of the
+ * repo's actual `.exarchos.yml` (which Wave B3 declares the flag in).
+ *
+ * Tests that exercise the gating itself (`LoadInvariants_WhenDevCatalog*`
+ * suite) pass their own config inline. The dependency-injection pattern
+ * keeps the gating contract explicit at every call site.
+ */
+const ENABLED_CONFIG = { invariants: { devCatalog: 'enabled' as const } };
+
 describe('invariants-loader', () => {
   it('Invariants_StructuredFrontmatter_ParsesAllRequiredFields', () => {
-    const entries = loadInvariants(INVARIANTS_DOC);
+    const entries = loadInvariants(INVARIANTS_DOC, undefined, ENABLED_CONFIG);
     expect(entries.length).toBeGreaterThan(0);
 
     const ids = entries.map((e) => e.id);
@@ -74,7 +86,7 @@ describe('invariants-loader', () => {
   });
 
   it('Invariants_TypedEntries_HaveStableShape', () => {
-    const entries = loadInvariants(INVARIANTS_DOC);
+    const entries = loadInvariants(INVARIANTS_DOC, undefined, ENABLED_CONFIG);
     const inv5a = entries.find((e: InvariantEntry) => e.id === 'INV-5a');
     expect(inv5a).toBeDefined();
     expect(inv5a!.dimension.toLowerCase()).toContain('input');
@@ -87,7 +99,7 @@ describe('invariants-loader', () => {
     // Pins the contract that the audit (B1) preserves every required ID.
     // Future audit cycles that delete an entry must update REQUIRED_*_IDS
     // explicitly (with a comment) rather than silently letting this drift.
-    const entries = loadInvariants(INVARIANTS_DOC);
+    const entries = loadInvariants(INVARIANTS_DOC, undefined, ENABLED_CONFIG);
     const ids = new Set(entries.map((e) => e.id));
     for (const id of REQUIRED_INVARIANT_IDS) {
       expect(ids.has(id), `required invariant missing: ${id}`).toBe(true);
@@ -102,7 +114,7 @@ describe('invariants-loader', () => {
     // (DIM-4 / DIM-5 / DIM-7 / DIM-8) are explicit downgrade/stub framing
     // per the 2026-05-18 audit. A stricter >= 3 check belongs in a
     // follow-up once a `tier:` schema field is introduced.
-    const entries = loadInvariants(INVARIANTS_DOC);
+    const entries = loadInvariants(INVARIANTS_DOC, undefined, ENABLED_CONFIG);
     for (const entry of entries) {
       expect(
         entry.references.length,
@@ -116,7 +128,7 @@ describe('invariants-loader', () => {
     // are Hygiene / Resilience / Prose Quality. The catalog must align so the
     // vocabulary-lint cross-walk between axiom and exarchos shares a single
     // taxonomy. Validates the audit's "name drift" findings for DIM-5/7/8.
-    const entries = loadInvariants(INVARIANTS_DOC);
+    const entries = loadInvariants(INVARIANTS_DOC, undefined, ENABLED_CONFIG);
     const byId = new Map(entries.map((e) => [e.id, e] as const));
 
     const dim5 = byId.get('DIM-5');
@@ -138,7 +150,7 @@ describe('invariants-loader', () => {
     // resolve in-repo so vocabulary-lint and link-checking tooling don't
     // false-fail. Basileus material stays addressable via memory pointers
     // and the cross-product memo, not in-frontmatter file refs.
-    const entries = loadInvariants(INVARIANTS_DOC);
+    const entries = loadInvariants(INVARIANTS_DOC, undefined, ENABLED_CONFIG);
     const bb = entries.find((e) => e.id === 'basileus-boundary');
     expect(bb).toBeDefined();
     for (const ref of bb!.references) {
@@ -154,12 +166,12 @@ describe('invariants-loader', () => {
     // classified `cost-of-load: always-load`: INV-1, INV-2, INV-5a, INV-5b.
     // `scope: 'core'` must filter to that set; default and `scope: 'all'`
     // must return the full catalog (18 entries) for backward-compat.
-    const coreEntries = loadInvariants(INVARIANTS_DOC, { scope: 'core' });
+    const coreEntries = loadInvariants(INVARIANTS_DOC, { scope: 'core' }, ENABLED_CONFIG);
     const coreIds = new Set(coreEntries.map((e) => e.id));
     expect(coreIds).toEqual(new Set(['INV-1', 'INV-2', 'INV-5a', 'INV-5b']));
 
-    const allEntries = loadInvariants(INVARIANTS_DOC, { scope: 'all' });
-    const defaultEntries = loadInvariants(INVARIANTS_DOC);
+    const allEntries = loadInvariants(INVARIANTS_DOC, { scope: 'all' }, ENABLED_CONFIG);
+    const defaultEntries = loadInvariants(INVARIANTS_DOC, undefined, ENABLED_CONFIG);
     expect(allEntries.length).toBe(18);
     expect(defaultEntries.length).toBe(18);
     expect(defaultEntries.map((e) => e.id)).toEqual(allEntries.map((e) => e.id));
@@ -170,7 +182,7 @@ describe('invariants-loader', () => {
     // audit's contract. Missing field is a parse error (no silent default);
     // here we assert the populated catalog meets the typed contract.
     const validValues = new Set(['always-load', 'reference-only', 'archivable']);
-    const entries = loadInvariants(INVARIANTS_DOC);
+    const entries = loadInvariants(INVARIANTS_DOC, undefined, ENABLED_CONFIG);
     for (const entry of entries) {
       expect(
         validValues.has(entry.costOfLoad),
@@ -185,13 +197,25 @@ describe('invariants-loader', () => {
     // to 'all'. The error message must name the offending scope and list
     // the valid options so the caller can self-correct.
     expect(() =>
-      loadInvariants(INVARIANTS_DOC, { scope: 'invalid-scope' as unknown as 'core' }),
+      loadInvariants(
+        INVARIANTS_DOC,
+        { scope: 'invalid-scope' as unknown as 'core' },
+        ENABLED_CONFIG,
+      ),
     ).toThrow(/invalid-scope/);
     expect(() =>
-      loadInvariants(INVARIANTS_DOC, { scope: 'invalid-scope' as unknown as 'core' }),
+      loadInvariants(
+        INVARIANTS_DOC,
+        { scope: 'invalid-scope' as unknown as 'core' },
+        ENABLED_CONFIG,
+      ),
     ).toThrow(/core/);
     expect(() =>
-      loadInvariants(INVARIANTS_DOC, { scope: 'invalid-scope' as unknown as 'core' }),
+      loadInvariants(
+        INVARIANTS_DOC,
+        { scope: 'invalid-scope' as unknown as 'core' },
+        ENABLED_CONFIG,
+      ),
     ).toThrow(/all/);
   });
 
@@ -200,12 +224,83 @@ describe('invariants-loader', () => {
     // to `loadInvariants(path, { scope: 'core' })`. Exists so /ideate Phase 0
     // call sites can express intent at the import boundary rather than the
     // call boundary.
-    const coreEntries = loadCoreInvariants(INVARIANTS_DOC);
+    const coreEntries = loadCoreInvariants(INVARIANTS_DOC, ENABLED_CONFIG);
     const coreIds = new Set(coreEntries.map((e) => e.id));
     expect(coreIds).toEqual(new Set(['INV-1', 'INV-2', 'INV-5a', 'INV-5b']));
     // Equivalence with explicit scope arg.
-    const explicit = loadInvariants(INVARIANTS_DOC, { scope: 'core' });
+    const explicit = loadInvariants(INVARIANTS_DOC, { scope: 'core' }, ENABLED_CONFIG);
     expect(coreEntries.map((e) => e.id)).toEqual(explicit.map((e) => e.id));
+  });
+
+  // ─── Wave B2: .exarchos.yml gating ─────────────────────────────────────
+  //
+  // The loader honours `invariants.devCatalog` from the supplied config.
+  // When the flag is anything other than `'enabled'` (including absent /
+  // empty / `'disabled'`), the loader returns `[]` regardless of the
+  // `scope` filter — gating applies BEFORE scope. See:
+  //
+  //   docs/proposals/2026-05-20-invariants-catalog-v2-spec.md §4.0
+  //
+  // The third positional argument is dependency-injectable for tests so
+  // they don't need to author a temp `.exarchos.yml` fixture; production
+  // call sites get the default `readInvariantsConfig()` reader.
+
+  it('LoadInvariants_WhenDevCatalogDisabled_ReturnsEmpty', () => {
+    // Explicit `'disabled'` — the canonical opt-out case.
+    const entries = loadInvariants(
+      INVARIANTS_DOC,
+      { scope: 'all' },
+      { invariants: { devCatalog: 'disabled' } },
+    );
+    expect(entries).toEqual([]);
+
+    // Scope must not bypass the gate: even `'core'` returns `[]` when
+    // the flag is disabled.
+    const coreEntries = loadInvariants(
+      INVARIANTS_DOC,
+      { scope: 'core' },
+      { invariants: { devCatalog: 'disabled' } },
+    );
+    expect(coreEntries).toEqual([]);
+  });
+
+  it('LoadInvariants_WhenConfigOmitsInvariants_ReturnsEmptyDefaultDisabled', () => {
+    // Empty config — represents a consumer using Exarchos as a plugin in
+    // a non-Exarchos project who never declared the block at all.
+    const entries = loadInvariants(INVARIANTS_DOC, { scope: 'all' }, {});
+    expect(entries).toEqual([]);
+  });
+
+  it('LoadInvariants_WhenInvariantsBlockEmpty_ReturnsEmptyDefaultDisabled', () => {
+    // The `invariants:` key is declared but `devCatalog` is unset.
+    // Equivalent to the empty-config case — default-disabled wins.
+    const entries = loadInvariants(
+      INVARIANTS_DOC,
+      { scope: 'all' },
+      { invariants: {} },
+    );
+    expect(entries).toEqual([]);
+  });
+
+  it('LoadInvariants_WhenDevCatalogEnabled_ReturnsEntriesPerScope', () => {
+    // `'enabled'` re-engages the existing scope filter. The full catalog
+    // currently has 18 entries (v1 schema); `'core'` returns the four
+    // `always-load` entries (INV-1, INV-2, INV-5a, INV-5b).
+    const allEntries = loadInvariants(
+      INVARIANTS_DOC,
+      { scope: 'all' },
+      { invariants: { devCatalog: 'enabled' } },
+    );
+    expect(allEntries.length).toBe(18);
+
+    const coreEntries = loadInvariants(
+      INVARIANTS_DOC,
+      { scope: 'core' },
+      { invariants: { devCatalog: 'enabled' } },
+    );
+    expect(new Set(coreEntries.map((e) => e.id))).toEqual(
+      new Set(['INV-1', 'INV-2', 'INV-5a', 'INV-5b']),
+    );
   });
 
   it('InvariantsLoader_DuplicateIds_ThrowsWithIdInMessage', () => {
@@ -237,9 +332,17 @@ invariants:
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'invariants-dup-'));
     const tmpFile = path.join(tmpDir, 'invariants.md');
     fs.writeFileSync(tmpFile, fixture, 'utf8');
+    // Pass `ENABLED_CONFIG` (defined at the top of this file) so the
+    // gating check (B2) doesn't short-circuit before we reach the
+    // duplicate-ID parse logic. The tmpfile is under `/tmp/`, outside
+    // any `.exarchos.yml` walk-up boundary, so the default reader would
+    // otherwise return `{}` and gating would mask the duplicate-ID
+    // rejection we're asserting here.
     try {
-      expect(() => loadInvariants(tmpFile)).toThrow(/INV-1/);
-      expect(() => loadInvariants(tmpFile)).toThrow(/Duplicate invariant ID/);
+      expect(() => loadInvariants(tmpFile, undefined, ENABLED_CONFIG)).toThrow(/INV-1/);
+      expect(() => loadInvariants(tmpFile, undefined, ENABLED_CONFIG)).toThrow(
+        /Duplicate invariant ID/,
+      );
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }
