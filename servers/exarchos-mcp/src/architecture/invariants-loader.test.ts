@@ -41,6 +41,8 @@ const REQUIRED_INVARIANT_IDS = [
   'INV-11',
   // Wave C9 new entry:
   'INV-13',
+  // Wave C10 new entry:
+  'INV-14',
 ] as const;
 
 const REQUIRED_DIMENSION_IDS = [
@@ -705,6 +707,26 @@ invariants:
     expect(inv13!.citations!.join(' ')).toMatch(/Akka/i);
     expect(inv13!.citations!.join(' ')).toMatch(/Wolverine/i);
     expect(inv13!.citations!.join(' ')).toMatch(/Greg Young/i);
+  });
+
+  // ─── Wave C10: add INV-14 native-primitive-first-recovery ─────────────
+  //
+  // Spec §5.2 + §6 INV-14: prefer the operation's own recovery primitive
+  // (git merge --abort), fall back to refuse-to-discard semantics
+  // (git reset --keep), never destructive overwrite (git reset --hard).
+  // Ships as catalog entry per A2 disposition (demote if rarely cited
+  // after one release cycle).
+
+  it('Invariants_INV14_ExistsWithRecoveryPostureScope', () => {
+    const entries = loadInvariants(INVARIANTS_DOC, undefined, ENABLED_CONFIG);
+    const inv14 = entries.find((e) => e.id === 'INV-14');
+    expect(inv14, 'INV-14 must exist in v2 catalog').toBeDefined();
+    expect(inv14!.dimension).toBe('native-primitive-first-recovery');
+    expect(inv14!.axis).toBe('substrate');
+    expect(inv14!.costOfLoad).toBe('reference-only');
+    expect(inv14!.axiomOverlap).toBe('DIM-7');
+    expect(inv14!.citations).toBeDefined();
+    expect(inv14!.citations!.length).toBeGreaterThanOrEqual(3);
   });
 
   it('InvariantsLoader_DuplicateIds_ThrowsWithIdInMessage', () => {
