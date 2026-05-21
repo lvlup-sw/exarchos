@@ -18,14 +18,64 @@ invariants:
       - workflow-state-projection
     summary: >
       The append-only event log is the source of truth. Every read-model is a
-      left-fold; state mutations are events, not in-place updates. Reducers must
-      be pure, deterministic, and structurally share state. Stores that hold
-      derived state across calls must be projections over events, never
-      in-memory side databases.
+      left-fold over events; state mutations are events, not in-place updates.
+      Reducers must be pure, deterministic, and structurally share state.
+      Stores that hold derived state across calls must be projections over
+      events, never in-memory side databases.
+    axiom_overlap: DIM-1
     references:
       - .claude/skills/design-invariants/references/INV-1-event-sourcing.md
       - .claude/skills/design-invariants/SKILL.md
       - docs/architecture/projections.md
+
+  - id: INV-7
+    dimension: substrate-serialization
+    axis: substrate
+    cost-of-load: always-load
+    applies-to:
+      - event-store
+      - atomic-appender
+      - stream-lock-manager
+    summary: >
+      Concurrency is serialized in two tiers. Tier 1 (in-process): the
+      StreamLockManager runs concurrent same-stream appends sequentially
+      via a per-stream Promise-chain mutex. Tier 2 (cross-process): SQLite
+      WAL with BEGIN IMMEDIATE acquires the write lock; the PRIMARY KEY
+      (streamId, sequence) rejects duplicate sequences; OCC retry handles
+      the conflict. No process-level mutex, no PID lock, no advisory file.
+    axiom_overlap: DIM-1
+    citations:
+      - "Mohan et al., *ARIES* (ACM TODS 1992): https://dl.acm.org/doi/10.1145/128765.128770"
+      - "Bernstein & Goodman, *Concurrency Control in Distributed Database Systems* (ACM Computing Surveys 1981): https://dl.acm.org/doi/10.1145/356842.356846"
+      - "SQLite WAL documentation: https://sqlite.org/wal.html"
+    references:
+      - servers/exarchos-mcp/src/event-store/atomic-appender.ts
+      - servers/exarchos-mcp/src/event-store/stream-lock-manager.ts
+      - docs/architecture/runtime.md#§4
+
+  - id: INV-8
+    dimension: idempotency-at-the-boundary
+    axis: substrate
+    cost-of-load: always-load
+    applies-to:
+      - event-store
+      - withSession
+      - dispatch-boundary
+    summary: >
+      Every append carries an idempotency key. The UNIQUE INDEX on
+      idempotency_key collapses duplicates at the storage layer. Handler
+      retries via withSession({operationId}) re-emit the requested event
+      as a no-op when the key matches; the external side effect runs at
+      most once across retries. INV-8 is the load-bearing prerequisite
+      for INV-13's process-manager two-event split.
+    axiom_overlap: DIM-3
+    citations:
+      - "Wolverine idempotency PR #1858: https://github.com/JasperFx/wolverine/pull/1858"
+      - "Akka persistence at-least-once delivery: https://doc.akka.io/docs/akka/snapshot/typed/persistence.html"
+      - "Greg Young, *Versioning in an Event Sourced System* (Leanpub): https://leanpub.com/esversioning"
+    references:
+      - servers/exarchos-mcp/src/event-store/atomic-appender.ts
+      - servers/exarchos-mcp/src/dispatch/with-session.ts
 
   - id: INV-2
     dimension: facade-equivalence
