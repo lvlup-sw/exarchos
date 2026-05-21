@@ -77,6 +77,33 @@ invariants:
       - servers/exarchos-mcp/src/event-store/atomic-appender.ts
       - servers/exarchos-mcp/src/dispatch/with-session.ts
 
+  - id: INV-12
+    dimension: next-actions-as-affordance
+    axis: substrate
+    cost-of-load: always-load
+    applies-to:
+      - tool-result
+      - next-actions-computer
+      - agent-cooperation
+    summary: >
+      The next_actions field on ToolResult publishes runtime affordances —
+      valid transitions perceivable to consuming agents. Agents read
+      next_actions and dispatch the listed verbs; they do not poll.
+      Autonomy is a property of state + topology (which determines
+      next_actions), not of any handler's internal logic. Removing a
+      verb from next_actions removes the agent's path to invoking it,
+      but does not remove the underlying affordance — the topology still
+      permits it.
+    axiom_overlap: DIM-3
+    citations:
+      - "Donald Norman, *Affordance, Conventions, and Design* (ACM Interactions 1999): https://interactions.acm.org/archive/view/may-june-1999/affordance-conventions-and-design1"
+      - "McGrenere & Ho, *Affordances: Clarifying and Evolving a Concept* (Graphics Interface 2000): https://graphicsinterface.org/wp-content/uploads/gi2000-24.pdf"
+      - "James J. Gibson, *The Ecological Approach to Visual Perception* (1979) — cited via the HCI glossary: https://interaction-design.org/literature/book/the-glossary-of-human-computer-interaction/affordances"
+    references:
+      - servers/exarchos-mcp/src/next-actions-computer.ts
+      - servers/exarchos-mcp/src/format.ts
+      - docs/architecture/runtime.md#§7
+
   - id: INV-2
     dimension: facade-equivalence
     axis: substrate
@@ -168,11 +195,13 @@ invariants:
       - registered-output-schemas
       - error-envelopes
     summary: >
-      Every successful ToolResult carries machine-actionable affordance hints —
-      next_actions, _meta, _perf. Errors carry validTargets, expectedShape,
+      Every successful ToolResult carries a fixed carrier shape — next_actions,
+      _meta, _perf fields. Errors carry validTargets, expectedShape,
       suggestedFix. Post-#1266, the carrier is structuredContent with a
       registered outputSchema per action; long-running ops use Tasks (SEP-1686)
-      not NDJSON.
+      not NDJSON. The affordance-as-perceived semantics of next_actions live
+      in INV-12.
+    axiom_overlap: DIM-3
     references:
       - .claude/skills/design-invariants/references/INV-5b-output-contract.md
       - .claude/skills/design-invariants/SKILL.md
