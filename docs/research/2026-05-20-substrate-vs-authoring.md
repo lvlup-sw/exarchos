@@ -50,7 +50,7 @@ Apply the decision procedure to every entry (existing + new candidates from D2).
 | INV-3 | No design presumes MCP is local-only | YES (a handler could read `runtimes/<name>.yaml` at request time) | NO | NO | **substrate** |
 | INV-4 | Platform-agnosticity — 6 runtimes; tokenization + guards | YES (a skills-src file could hardcode `Skill({...})`) | PARTIAL (constrains skill body content) | PARTIAL (vocabulary lint reads text) | **substrate** (the *enforcement* reads text, but the invariant is about runtime portability, not content quality) |
 | INV-5a | Tool inputs schema-constrained; "do NOT use for" guidance | YES (a registry could ship a tool without input schema) | PARTIAL (constrains tool *description* content) | PARTIAL | **substrate** (same as INV-4 — content rule serves runtime portability) |
-| INV-5b | ToolResult carries next_actions, _meta, _perf | YES (a handler could return without these fields) | NO | NO | **substrate** |
+| INV-5b | ToolResult carries `next_actions`, `_meta`, `_perf` | YES (a handler could return without these fields) | NO | NO | **substrate** |
 | INV-5c | Aspire verbs — observation + dry-run mutating | YES (a verb could be defined that violates this) | NO | NO | **substrate** |
 | INV-5d | 4 visible composite tools with action discriminator | YES (a new top-level tool could be added) | NO | NO | **substrate** |
 | INV-6 (sharpened) | Runtime makes no assumption about which workload is executing | YES (a runtime change could bake in a workflow concept) | NO | NO | **substrate** |

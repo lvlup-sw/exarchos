@@ -28,7 +28,7 @@
 | INV-3 | No design presumes MCP is local-only; handshake-authoritative; remote-MCP throws-not-degrades | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | **PASS** |
 | INV-4 | Platform-agnosticity — 6 runtimes first-class; tokenization + guards; skills-src/ source-of-truth | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | **PASS** |
 | INV-5a | Tool inputs constrained at schema level; "do NOT use for" guidance; <15 visible tools | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | **PASS** |
-| INV-5b | ToolResult carries next_actions, _meta, _perf; errors carry validTargets/expectedShape/suggestedFix | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | **PASS** |
+| INV-5b | ToolResult carries `next_actions`, `_meta`, `_perf`; errors carry `validTargets`/`expectedShape`/`suggestedFix` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | **PASS** |
 | INV-5c | Queryable, dry-run-capable, JSON-explicit Aspire verbs; observation verbs + mutating verbs default to --dry-run | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | **PASS** |
 | INV-5d | 4 visible composite tools with action discriminator; per-action annotations | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | **PASS** |
 | INV-6 (v1) | Skill body grep for workflow-typed literals (`feature/`, `delegate`, `synthesize`) | ⚠ | ⚠ | ⚠ | ⚠ | ⚠ | ✗ | **FAIL (as currently scoped)** — grep targets are SDLC-specific |
