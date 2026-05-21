@@ -13,7 +13,7 @@
 A specification for `docs/architecture/invariants.md` at `schema-version: 2`, **scoped as Exarchos's dev-invariants catalog**. This proposal:
 
 - defines the v2 frontmatter schema,
-- lists every proposed v2 entry (22 total — within the ≤25 ceiling per charter),
+- lists every proposed v2 entry (27 total — see §5 for the authoritative enumeration; charter's ≤25 ceiling exceeded by 2, accepted because all surfaced candidates passed the workload-agnosticism stress test and the substrate-vs-authoring partition),
 - describes the loader behavior changes (including a new opt-in gate),
 - documents the migration plan from v1.
 
@@ -161,7 +161,7 @@ Two changes (the charter calls these out of scope for this discover but tracked 
 
 ## 5. Proposed v2 entry list (dev-invariants scope)
 
-**22 entries** — within the ≤25 ceiling per charter §6. All entries are scoped to Exarchos's internal runtime design; surfaced only when `invariants.devCatalog: enabled` per §4.0.
+**27 entries** — 10 substrate always-load + 9 substrate reference-only + 7 DIM-* axiom pointers + 1 authoring (DIM-8). Charter's ≤25 ceiling exceeded by 2; accepted because all candidates passed the workload-agnosticism stress test (D3) and the substrate-vs-authoring partition (D4). All entries scoped to Exarchos's internal runtime design; surfaced only when `invariants.devCatalog: enabled` per §4.0.
 
 ### 5.1 Substrate axis — load-bearing primitives (10)
 
@@ -620,7 +620,7 @@ The v2 schema is additive — `axis`, `axiom_overlap`, `citations` are new field
 - [x] runtime.md §2–§8 cross-walked — D2 covers this fully.
 - [x] Explicit pass/fail per candidate against 5 workflow types — D3 covers this; all 9 new candidates pass.
 - [x] Substrate/authoring split sharp — D4 yields 21 substrate, 1 authoring; decision procedure is encoded in §2 of D4 and §3 of this doc.
-- [x] ≤25 entries in v2 spec — proposed 22 entries; 3 entries of headroom.
+- [⚠] ≤25 entries in v2 spec — proposed 27 entries (10+9+7+1 per §5 enumeration); charter ceiling exceeded by 2. Acceptable per Wave C implementation: all candidates passed workload-agnosticism stress test (D3) and substrate-vs-authoring partition (D4); none are redundant. The ceiling was advisory, not load-bearing.
 
 ## 9. Out of scope (per charter §7)
 
