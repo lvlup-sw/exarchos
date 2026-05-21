@@ -233,6 +233,33 @@ invariants:
       - servers/exarchos-mcp/src/orchestrate/merge-orchestrate.ts
       - docs/architecture/runtime.md#§5
 
+  - id: INV-15
+    dimension: single-machine-frame
+    axis: substrate
+    cost-of-load: always-load
+    applies-to:
+      - runtime-framing
+      - rejected-patterns
+      - architecture-baseline
+    summary: >
+      Exarchos is a single-machine event-sourced process manager with
+      cooperative agents — concurrent, not distributed. No saga, no
+      Scheduler-Agent-Supervisor, no 2PC, no leader election, no vector
+      clocks, no BFT consensus, no distributed locks. Compensation is
+      local rewind over the event log, not remote command dispatch.
+      Liveness is event-emitted (INV-10), queryable via lifecycle verbs.
+      Cooperation is by construction (INV-11 posture + INV-12 affordance).
+      When a candidate design imports primitives from outside this frame,
+      the frame rejects it.
+    axiom_overlap: DIM-1
+    citations:
+      - "Microsoft Azure Architecture Center — Scheduler Agent Supervisor pattern (negative reference): https://learn.microsoft.com/en-us/azure/architecture/patterns/scheduler-agent-supervisor"
+      - "Microsoft Azure Architecture Center — Saga design pattern (negative reference): https://learn.microsoft.com/en-us/azure/architecture/patterns/saga"
+      - "Clemens Vasters, *Cloud Architecture: The Scheduler-Agent-Supervisor Pattern* (2010): https://learn.microsoft.com/en-us/archive/blogs/clemensv/cloud-architecture-the-scheduler-agent-supervisor-pattern"
+    references:
+      - docs/architecture/runtime.md#§1
+      - docs/architecture/runtime.md#§8
+
   - id: INV-2
     dimension: facade-equivalence
     axis: substrate
