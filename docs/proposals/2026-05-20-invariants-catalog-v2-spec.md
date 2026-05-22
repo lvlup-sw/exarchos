@@ -196,7 +196,7 @@ Rationale for `always-load` on every new entry: each is load-bearing for any non
 
 ### 5.3 Substrate axis — axiom pointers (7)
 
-These are the DIM-1..DIM-7 entries. Each is a short cross-link to the canonical `axiom:*` skill; the entry exists in the catalog only for vocabulary-lint cross-reference and for documenting overlap with `INV-*` entries.
+These are the `DIM-1..DIM-7` entries. Each is a short cross-link to the canonical `axiom:*` skill; the entry exists in the catalog only for vocabulary-lint cross-reference and for documenting overlap with `INV-*` entries.
 
 | ID | Dimension | cost-of-load | axiom_overlap | Status v1 → v2 |
 |---|---|---|---|---|
@@ -569,9 +569,10 @@ function loadInvariants(
   opts: { scope?: Scope } = {}
 ): InvariantEntry[] {
   const scope = opts.scope ?? 'all';
-  // Note: YAML uses kebab-case (`cost-of-load`); the loader normalizes to
-  // camelCase (`costOfLoad`) on the `InvariantEntry` type during parse.
-  // See `parseInvariantEntry` in invariants-loader.ts for the mapping.
+  // YAML schema uses kebab-case (`cost-of-load`); the parser
+  // normalizes to camelCase on `InvariantEntry` during load so
+  // filters can use the typed property. If you skip that
+  // normalization, use `e['cost-of-load']` here instead.
   switch (scope) {
     case 'core':
       // substrate AND always-load
