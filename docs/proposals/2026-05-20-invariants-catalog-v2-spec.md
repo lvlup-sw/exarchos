@@ -13,7 +13,7 @@
 A specification for `docs/architecture/invariants.md` at `schema-version: 2`, **scoped as Exarchos's dev-invariants catalog**. This proposal:
 
 - defines the v2 frontmatter schema,
-- lists every proposed v2 entry (22 total — within the ≤25 ceiling per charter),
+- lists every proposed v2 entry (27 total — exceeds the ≤25 ceiling per charter §6 by 2; revisit ceiling in next charter revision),
 - describes the loader behavior changes (including a new opt-in gate),
 - documents the migration plan from v1.
 
@@ -161,7 +161,7 @@ Two changes (the charter calls these out of scope for this discover but tracked 
 
 ## 5. Proposed v2 entry list (dev-invariants scope)
 
-**22 entries** — within the ≤25 ceiling per charter §6. All entries are scoped to Exarchos's internal runtime design; surfaced only when `invariants.devCatalog: enabled` per §4.0.
+**27 entries** (§§5.1–5.4 enumerate 10 + 9 + 7 + 1) — **exceeds the ≤25 ceiling per charter §6 by 2**; revisit ceiling in next charter revision. All entries are scoped to Exarchos's internal runtime design; surfaced only when `invariants.devCatalog: enabled` per §4.0.
 
 ### 5.1 Substrate axis — load-bearing primitives (10)
 
@@ -595,7 +595,7 @@ The `loadInvariants(doc, { scope: 'invalid' })` case throws per D4 §5 (loud fai
 
 ### 7.5 `/ideate` Phase 0 directive
 
-Update `commands/ideate.md` Phase 0 to load `scope: 'core'` instead of the v1.5 `scope: 'core'` (which was always-load only). Behavior change is invisible to designers — fewer entries surface, all of them genuinely runtime-substrate-relevant.
+`commands/ideate.md` Phase 0 continues to call `loadInvariants(doc, { scope: 'core' })`. The call site is unchanged, but the filter semantics change in v2: `core` now means "axis: substrate AND cost-of-load: always-load" (axis + cost-of-load filter), whereas v1.5 `core` was effectively "always-load only" (cost-of-load filter alone). Behavior change is invisible to designers — fewer entries surface, all of them genuinely runtime-substrate-relevant.
 
 ### 7.6 `/axiom:design` pairing-discovery fix
 
@@ -627,7 +627,7 @@ The v2 schema is additive — `axis`, `axiom_overlap`, `citations` are new field
 - [x] runtime.md §2–§8 cross-walked — D2 covers this fully.
 - [x] Explicit pass/fail per candidate against 5 workflow types — D3 covers this; all 9 new candidates pass.
 - [x] Substrate/authoring split sharp — D4 yields 21 substrate, 1 authoring; decision procedure is encoded in §2 of D4 and §3 of this doc.
-- [x] ≤25 entries in v2 spec — proposed 22 entries; 3 entries of headroom.
+- [ ] ≤25 entries in v2 spec — proposed **27 entries**; exceeded ceiling by 2 (revisit in next charter revision).
 
 ## 9. Out of scope (per charter §7)
 
