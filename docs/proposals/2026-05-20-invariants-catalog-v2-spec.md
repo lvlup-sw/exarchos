@@ -107,19 +107,20 @@ invariants:
   devCatalog: enabled    # default: disabled
 ```
 
-Loader logic:
+Loader logic (signature preserves v1 — `filePath: string` first arg — to avoid breaking existing call sites; only the new `config` arg is additive):
 
 ```ts
 function loadInvariants(
-  doc: InvariantsDoc,
-  opts: { scope?: Scope } = {},
+  filePath: string,
+  opts?: { scope?: Scope },
   config: ExarchosConfig = readConfig()
 ): InvariantEntry[] {
-  // Catalog gating — applied before any scope filter
+  // §4.0 catalog gating — applied before any file read or scope filter.
   if (config.invariants?.devCatalog !== 'enabled') {
     return [];
   }
-  // ... existing scope filter logic per §4.1 below
+  // ... existing parse-and-filter logic per §4.1 below (unchanged from v1
+  // apart from the additional `axis`-aware filters for `scope: 'core'`).
 }
 ```
 
@@ -531,12 +532,27 @@ Recommendation: **(A)** initially. The principle generalizes beyond git, and sub
 
 Before any catalog-shape change lands, the loader's gating mechanism (§4.0) must be in place to ensure default-disabled behavior. Sequence:
 
-1. Extend `ExarchosConfig` type with `invariants?: { devCatalog?: 'enabled' | 'disabled' }`.
-2. Extend `loadInvariants` to consult the config; return `[]` when `devCatalog !== 'enabled'`.
-3. Default `disabled` in the loader itself — including inside the Exarchos repo. The repo's own committed `.exarchos.yml` sets the flag to `enabled` so contributors and internal consumers (eval #1442, vocabulary-lint cross-references, etc.) retain access when working inside the repo. External consumers using Exarchos as a plugin in their own repo see no entries unless they explicitly opt in.
-4. **Add `invariants.devCatalog: enabled` to the repository's root `.exarchos.yml`** as part of this migration commit. This is the load-bearing step that keeps eval #1442, the `design-invariants` skill, and vocabulary-lint working for contributors. Without this commit-time change, the catalog appears empty even inside the Exarchos repo and internal tooling breaks on the next pull.
-5. Add `.exarchos.yml` documentation noting the flag (semantics, default, and the audience-scope reasoning from §1.1).
-6. Add a regression test asserting `loadInvariants` returns `[]` with the flag disabled, regardless of `scope`.
+1. **Extend `ProjectConfigSchema` in `servers/exarchos-mcp/src/config/yaml-schema.ts`** to define an `invariants` section. The schema is `.strict()` (rejects unknown keys), so without this step the new key is rejected at full-config validation. Concretely add:
+
+   ```ts
+   const InvariantsConfig = z.object({
+     devCatalog: z.enum(['enabled', 'disabled']).default('disabled'),
+   }).strict();
+
+   // ...inside ProjectConfigSchema:
+   invariants: InvariantsConfig.optional(),
+   ```
+
+2. **Add `'invariants'` to the `SECTION_KEYS` tuple in `servers/exarchos-mcp/src/config/yaml-loader.ts`.** The section-by-section fallback parser (`parseSections`) only walks keys listed in `SECTION_KEYS`; an `invariants` block in `.exarchos.yml` would be silently dropped during fallback parsing without this entry. (Both this step and step 1 must land together — without either, the feature flag never reaches the loader.)
+3. Extend the `ExarchosConfig` / `ProjectConfig` consumer type with the new `invariants?: { devCatalog: 'enabled' | 'disabled' }` field (auto-derived from the Zod schema via `z.infer`).
+4. Extend `loadInvariants` to consult the config; return `[]` when `devCatalog !== 'enabled'`. Signature stays v1-compatible: `(filePath: string, opts?, config = readConfig())` — see §7.4.
+5. Default `disabled` in the loader itself — including inside the Exarchos repo. The repo's own committed `.exarchos.yml` sets the flag to `enabled` so contributors and internal consumers (eval #1442, vocabulary-lint cross-references, etc.) retain access when working inside the repo. External consumers using Exarchos as a plugin in their own repo see no entries unless they explicitly opt in.
+6. **Add `invariants: { devCatalog: enabled }` to the repository's root `.exarchos.yml`** as part of this migration commit. This is the load-bearing step that keeps eval #1442, the `design-invariants` skill, and vocabulary-lint working for contributors. Without this commit-time change, the catalog appears empty even inside the Exarchos repo and internal tooling breaks on the next pull.
+7. Add `.exarchos.yml` documentation noting the flag (semantics, default, and the audience-scope reasoning from §1.1).
+8. Add regression tests:
+   - `yaml-schema.test.ts`: full-schema validation accepts `{ invariants: { devCatalog: 'enabled' } }` and rejects unknown sub-keys.
+   - `yaml-loader.test.ts`: section-fallback parser preserves the `invariants` section when a sibling section is invalid.
+   - `invariants-loader.test.ts`: `loadInvariants(filePath)` returns `[]` with `devCatalog: 'disabled'` regardless of `scope`; same with the key absent (default-disabled).
 
 **Migration risk:** v1 consumers that depended on entries being loaded (notably eval #1442) must explicitly enable. Inside the Exarchos repo this is automatic via the committed `.exarchos.yml`; for external consumers this is intentional friction — the dev catalog should never have been loaded for them in the first place.
 
@@ -560,47 +576,48 @@ INV-9, INV-10, INV-11, INV-13, INV-14, INV-15 per §6. INV-7, INV-8, INV-12 are 
 
 ### 7.4 Loader updates
 
-`servers/exarchos-mcp/src/architecture/invariants-loader.ts`. This is the **complete** loader signature — it merges the §4.0 gating check (must come first) with the §4.1–§4.2 scope filter switch. Do not implement the scope filter without the gating block; the two are a single function:
+`servers/exarchos-mcp/src/architecture/invariants-loader.ts`. This is the **complete** loader signature — it merges the §4.0 gating check (must come first) with the §4.1–§4.2 scope filter switch. Do not implement the scope filter without the gating block; the two are a single function. **Signature preserves v1's `filePath: string` first arg** — the only additions are the widened `Scope` union and the new optional `config` arg, both of which are backwards-compatible (v1 call sites continue to type-check and run):
 
 ```ts
 type Scope = 'core' | 'substrate' | 'authoring' | 'all';
 
 function loadInvariants(
-  doc: InvariantsDoc,
-  opts: { scope?: Scope } = {},
+  filePath: string,
+  opts?: { scope?: Scope },
   config: ExarchosConfig = readConfig()
 ): InvariantEntry[] {
-  // §4.0 catalog gating — applied before any scope filter.
+  // §4.0 catalog gating — applied before any file read or scope filter.
   // Default-disabled even inside the Exarchos repo (see §7.0 step 4
   // for the committed `.exarchos.yml: invariants.devCatalog: enabled`
   // that opts the repo in).
   if (config.invariants?.devCatalog !== 'enabled') {
     return [];
   }
-  const scope = opts.scope ?? 'all';
-  // YAML schema uses kebab-case (`cost-of-load`); the parser
-  // normalizes to camelCase on `InvariantEntry` during load so
-  // filters can use the typed property. If you skip that
-  // normalization, use `e['cost-of-load']` here instead.
+  const scope: Scope = opts?.scope ?? 'all';
+  // ... parse `filePath` with gray-matter into typed `InvariantEntry[]`
+  // (unchanged from v1; the parser normalizes kebab-case YAML keys —
+  // `cost-of-load`, `axis`, `axiom-overlap` — onto the camelCase typed
+  // shape so filters below can use `.costOfLoad`, `.axis`, etc.).
+  const entries: InvariantEntry[] = parseInvariantsFile(filePath);
   switch (scope) {
     case 'core':
       // substrate AND always-load
-      return doc.invariants.filter(
+      return entries.filter(
         (e) => e.axis === 'substrate' && e.costOfLoad === 'always-load'
       );
     case 'substrate':
-      return doc.invariants.filter((e) => e.axis === 'substrate');
+      return entries.filter((e) => e.axis === 'substrate');
     case 'authoring':
-      return doc.invariants.filter((e) => e.axis === 'authoring');
+      return entries.filter((e) => e.axis === 'authoring');
     case 'all':
-      return doc.invariants;
+      return entries;
   }
 }
 ```
 
-Backwards compatibility: `loadInvariants(doc)` (no opts) defaults to `'all'` — same as v1's behavior, so existing call sites continue to work. New call sites pass `{ scope: 'core' }` for `/ideate` Phase 0.
+Backwards compatibility: `loadInvariants(filePath)` (no opts) defaults to `'all'` once the gate is open — same as v1's behavior, so existing call sites continue to work *after* the gate flips on. The signature itself is non-breaking (same first arg, second is still an optional opts object). New call sites pass `{ scope: 'core' }` for `/ideate` Phase 0.
 
-The `loadInvariants(doc, { scope: 'invalid' })` case throws per D4 §5 (loud failure, no silent degradation) — already enforced in v1.5.
+The `loadInvariants(filePath, { scope: 'invalid' })` case throws per D4 §5 (loud failure, no silent degradation) — already enforced in v1.5.
 
 ### 7.5 `/ideate` Phase 0 directive
 
