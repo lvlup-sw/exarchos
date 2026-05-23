@@ -73,7 +73,7 @@ Apply the decision procedure to every entry (existing + new candidates from D2).
 | INV-14 native-primitive-first-recovery | Tool's native recovery first; substrate-level undo second; never destructive | YES | NO | NO | **substrate** |
 | INV-15 single-machine-frame | No distributed consensus / leader election / vector clocks | YES | NO | NO | **substrate** |
 
-**Outcome:** 21 substrate, 1 authoring. **DIM-8 is the sole authoring entry**, exactly as the charter predicted.
+**Outcome:** 26 substrate, 1 authoring. **DIM-8 is the sole authoring entry**, exactly as the charter predicted.
 
 ## 4. Edge cases
 
@@ -130,7 +130,7 @@ Loader behavior:
 
 ## 6. Tiebreaker rule (for future authors)
 
-When adding a new candidate to the catalog, apply the decision procedure (§2). If the verdict is ambiguous after Q1–Q3, default to **substrate** unless the entry is *exclusively* about artifact content. The reasoning: substrate is the catalog's primary purpose; authoring is the exception (1 of 22 entries in v2). New authoring entries should be rare and justified.
+When adding a new candidate to the catalog, apply the decision procedure (§2). If the verdict is ambiguous after Q1–Q3, default to **substrate** unless the entry is *exclusively* about artifact content. The reasoning: substrate is the catalog's primary purpose; authoring is the exception (1 of 27 entries in v2). New authoring entries should be rare and justified.
 
 If the candidate seems to span both axes, split it into two entries (one per axis). This is the same pattern v2 applies when splitting INV-1 into INV-1 + INV-7 + INV-8.
 

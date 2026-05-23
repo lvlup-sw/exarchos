@@ -534,8 +534,9 @@ Before any catalog-shape change lands, the loader's gating mechanism (§4.0) mus
 1. Extend `ExarchosConfig` type with `invariants?: { devCatalog?: 'enabled' | 'disabled' }`.
 2. Extend `loadInvariants` to consult the config; return `[]` when `devCatalog !== 'enabled'`.
 3. Default `disabled` in the loader itself — including inside the Exarchos repo. The repo's own committed `.exarchos.yml` sets the flag to `enabled` so contributors and internal consumers (eval #1442, vocabulary-lint cross-references, etc.) retain access when working inside the repo. External consumers using Exarchos as a plugin in their own repo see no entries unless they explicitly opt in.
-4. Add `.exarchos.yml` documentation noting the flag.
-5. Add a regression test asserting `loadInvariants` returns `[]` with the flag disabled, regardless of `scope`.
+4. **Add `invariants.devCatalog: enabled` to the repository's root `.exarchos.yml`** as part of this migration commit. This is the load-bearing step that keeps eval #1442, the `design-invariants` skill, and vocabulary-lint working for contributors. Without this commit-time change, the catalog appears empty even inside the Exarchos repo and internal tooling breaks on the next pull.
+5. Add `.exarchos.yml` documentation noting the flag (semantics, default, and the audience-scope reasoning from §1.1).
+6. Add a regression test asserting `loadInvariants` returns `[]` with the flag disabled, regardless of `scope`.
 
 **Migration risk:** v1 consumers that depended on entries being loaded (notably eval #1442) must explicitly enable. Inside the Exarchos repo this is automatic via the committed `.exarchos.yml`; for external consumers this is intentional friction — the dev catalog should never have been loaded for them in the first place.
 
@@ -559,15 +560,23 @@ INV-9, INV-10, INV-11, INV-13, INV-14, INV-15 per §6. INV-7, INV-8, INV-12 are 
 
 ### 7.4 Loader updates
 
-`servers/exarchos-mcp/src/architecture/invariants-loader.ts`:
+`servers/exarchos-mcp/src/architecture/invariants-loader.ts`. This is the **complete** loader signature — it merges the §4.0 gating check (must come first) with the §4.1–§4.2 scope filter switch. Do not implement the scope filter without the gating block; the two are a single function:
 
 ```ts
 type Scope = 'core' | 'substrate' | 'authoring' | 'all';
 
 function loadInvariants(
   doc: InvariantsDoc,
-  opts: { scope?: Scope } = {}
+  opts: { scope?: Scope } = {},
+  config: ExarchosConfig = readConfig()
 ): InvariantEntry[] {
+  // §4.0 catalog gating — applied before any scope filter.
+  // Default-disabled even inside the Exarchos repo (see §7.0 step 4
+  // for the committed `.exarchos.yml: invariants.devCatalog: enabled`
+  // that opts the repo in).
+  if (config.invariants?.devCatalog !== 'enabled') {
+    return [];
+  }
   const scope = opts.scope ?? 'all';
   // YAML schema uses kebab-case (`cost-of-load`); the parser
   // normalizes to camelCase on `InvariantEntry` during load so
@@ -626,7 +635,7 @@ The v2 schema is additive — `axis`, `axiom_overlap`, `citations` are new field
 - [x] ≥3 external citations per substrate-axis candidate — PASS for INV-7, INV-8, INV-11, INV-12, INV-13, INV-15. INV-9 backfills Harel. INV-14 borderline (see §6 open question). INV-10 thin (3 sources). DIM-* entries exempt.
 - [x] runtime.md §2–§8 cross-walked — D2 covers this fully.
 - [x] Explicit pass/fail per candidate against 5 workflow types — D3 covers this; all 9 new candidates pass.
-- [x] Substrate/authoring split sharp — D4 yields 21 substrate, 1 authoring; decision procedure is encoded in §2 of D4 and §3 of this doc.
+- [x] Substrate/authoring split sharp — D4 yields 26 substrate, 1 authoring (27 total); decision procedure is encoded in §2 of D4 and §3 of this doc.
 - [ ] ≤25 entries in v2 spec — proposed **27 entries**; exceeded ceiling by 2 (revisit in next charter revision).
 
 ## 9. Out of scope (per charter §7)

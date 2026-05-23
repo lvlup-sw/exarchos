@@ -110,7 +110,7 @@ Compared against these fail modes, every D2 candidate uses *primitive* vocabular
 
 **v2 catalog admits (after stress test):**
 
-All 9 new candidates (INV-7..INV-15) plus all 14 existing entries (INV-1..INV-6 + DIM-1..DIM-8 + basileus-boundary, with DIM-8 retained but marked `archivable` per D4 §5.4).
+All 9 new candidates (INV-7..INV-15) plus all 18 existing entries (INV-1..INV-6 including splits INV-5a/b/c/d + DIM-1..DIM-8 + basileus-boundary, with DIM-8 retained but marked `archivable` per D4 §5.4) — total 27.
 
 **v1 → v2 sharpenings required (no demotion, just wording):**
 
