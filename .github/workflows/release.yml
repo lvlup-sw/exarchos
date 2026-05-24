@@ -23,6 +23,12 @@ on:
 
 permissions:
   contents: write
+  # id-token: write is required by npm's trusted-publishing flow (OIDC).
+  # npm CLI 11.5.1+ exchanges the GitHub Actions OIDC token for a short-lived
+  # publish credential; no NPM_TOKEN secret needs to be configured. Trusted
+  # Publisher must be enrolled on npmjs.com for @lvlup-sw/exarchos pointing
+  # at this repo + workflow (lvlup-sw/exarchos / .github/workflows/release.yml).
+  id-token: write
 
 jobs:
   release:
@@ -60,7 +66,15 @@ jobs:
         # than relying on the safety net: a SemVer with a `-…` suffix in the
         # tag name routes to the `rc` dist-tag; everything else lands on
         # `latest` as before.
+        #
+        # Auth flow: npm CLI 11.5.1+ in a workflow with id-token:write detects
+        # the GitHub Actions OIDC env and exchanges it for a short-lived publish
+        # credential via npm's trusted-publishing endpoint. NODE_AUTH_TOKEN is
+        # only consulted if OIDC fails. We keep the env binding as a fallback
+        # so legacy tokens still work during the trusted-publisher rollout;
+        # remove it once OIDC has shipped one stable release without incident.
         run: |
+          npm --version
           if [[ "${{ github.ref_name }}" == *-* ]]; then
             npm publish --access public --tag rc
           else
