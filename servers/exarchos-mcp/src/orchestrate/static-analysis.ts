@@ -8,7 +8,7 @@
 import { execFileSync } from 'node:child_process';
 import type { ToolResult } from '../format.js';
 import type { EventStore } from '../event-store/store.js';
-import { emitGateEvent } from './gate-utils.js';
+import { emitGateEvent, resolveRepoRoot } from './gate-utils.js';
 import { runStaticAnalysis } from './pure/static-analysis.js';
 import type { RunCommandFn, CommandResult } from './pure/static-analysis.js';
 
@@ -16,7 +16,18 @@ import type { RunCommandFn, CommandResult } from './pure/static-analysis.js';
 
 interface StaticAnalysisArgs {
   readonly featureId: string;
+  /**
+   * Repository root to analyze. A literal path is used verbatim; the special
+   * value `'auto'` resolves to the calling delegation's agent worktree (#1330);
+   * omitting it falls back to `process.cwd()` for non-delegation callers.
+   */
   readonly repoRoot?: string;
+  /**
+   * Explicit agent worktree path. Preferred resolver seam for `repoRoot:'auto'`
+   * (threaded by the task-completion runbook in T-05). When absent, `'auto'`
+   * falls back to the latest `worktree.created` event for `taskId`.
+   */
+  readonly worktreePath?: string;
   readonly taskId?: string;
   readonly skipLint?: boolean;
   readonly skipTypecheck?: boolean;
@@ -95,7 +106,24 @@ export async function handleStaticAnalysis(
     };
   }
 
-  const repoRoot = args.repoRoot || process.cwd();
+  // Resolve repoRoot — supports worktree-aware 'auto' mode (#1330). A literal
+  // path or the process.cwd() default is preserved for existing callers.
+  const resolved = await resolveRepoRoot(
+    {
+      repoRoot: args.repoRoot,
+      worktreePath: args.worktreePath,
+      featureId: args.featureId,
+      taskId: args.taskId,
+    },
+    eventStore,
+  );
+  if (!resolved.ok) {
+    return {
+      success: false,
+      error: { code: 'INVALID_INPUT', message: resolved.error },
+    };
+  }
+  const repoRoot = resolved.repoRoot;
 
   // Run the pure TypeScript static analysis function
   const analysisResult = runStaticAnalysis({
