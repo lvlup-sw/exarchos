@@ -47,6 +47,132 @@ import { mapInternalToExternalType } from './events.js';
 import { getRegisteredGuard } from '../config/register.js';
 import { executeGuard } from '../config/guards.js';
 import { buildValidatedEvent } from '../event-store/event-factory.js';
+import type { EventType } from '../event-store/schemas.js';
+
+// ─── HSM emission boundary — schema-checked data shaping (#1339) ───────────
+//
+// The HSM walk emits internal events (`transition`, `compound-entry`,
+// `compound-exit`, `fix-cycle`, `guard-failed`, `circuit-open`, `cancel`,
+// `cleanup`) with a uniform `{ from, to, trigger, metadata }` shape. The
+// persisted-event boundary requires per-type `data` that conforms to
+// `EVENT_DATA_SCHEMAS` (e.g. `fix-cycle` needs `count`, not `from/to/trigger`;
+// `compound-entry` needs `compoundStateId`). Pre-#1339 these events were
+// appended via the legacy `EventStore.append` path, which validates only the
+// envelope and skips `EVENT_DATA_SCHEMAS`, laundering schema-invalid data onto
+// the log. `buildHsmEventData` maps each internal event to its canonical
+// external `data` shape so emission can route through `buildValidatedEvent`
+// (which DOES run `EVENT_DATA_SCHEMAS`), closing the laundering hole.
+
+interface HsmInternalEvent {
+  readonly type: string;
+  readonly from: string;
+  readonly to: string;
+  readonly trigger: string;
+  readonly metadata?: Record<string, unknown>;
+}
+
+/**
+ * Build the canonical external `data` payload for an HSM-emitted event so it
+ * validates against `EVENT_DATA_SCHEMAS`. `fixCycleOrdinal` supplies the
+ * required `count` for `fix-cycle` events (the 1-based occurrence index).
+ * `guardId` is folded in for `guard-failed` events to match the existing
+ * event-store contract.
+ */
+function buildHsmEventData(
+  evt: HsmInternalEvent,
+  featureId: string,
+  opts: { guardId?: string; fixCycleOrdinal?: number },
+): Record<string, unknown> {
+  const metadata = evt.metadata ?? {};
+  const compoundStateId = metadata.compoundStateId;
+
+  switch (evt.type) {
+    case 'fix-cycle':
+      // WorkflowFixCycleData: { compoundStateId?, count, featureId }.
+      // `compoundStateId` is optional (post-T-02) — omit when absent rather
+      // than emitting it as `undefined`.
+      return {
+        ...(typeof compoundStateId === 'string'
+          ? { compoundStateId }
+          : {}),
+        count: opts.fixCycleOrdinal ?? 1,
+        featureId,
+      };
+    case 'compound-entry':
+      // WorkflowCompoundEntryData: { compoundStateId, featureId }.
+      return {
+        compoundStateId,
+        featureId,
+      };
+    case 'compound-exit':
+      // WorkflowCompoundExitData: { compoundStateId, featureId, from?, to?, trigger? }.
+      return {
+        compoundStateId: compoundStateId ?? evt.from,
+        featureId,
+        from: evt.from,
+        to: evt.to,
+        trigger: evt.trigger,
+      };
+    case 'circuit-open':
+      // WorkflowCircuitOpenData: { featureId, compoundId, fixCycleCount?, maxFixCycles? }.
+      return {
+        featureId,
+        compoundId:
+          (typeof metadata.compoundId === 'string'
+            ? metadata.compoundId
+            : undefined) ??
+          (typeof compoundStateId === 'string' ? compoundStateId : evt.from),
+        ...(typeof metadata.fixCycleCount === 'number'
+          ? { fixCycleCount: metadata.fixCycleCount }
+          : {}),
+        ...(typeof metadata.maxFixCycles === 'number'
+          ? { maxFixCycles: metadata.maxFixCycles }
+          : {}),
+      };
+    case 'guard-failed':
+      // WorkflowGuardFailedData: { guard, from, to, featureId }.
+      return {
+        guard: opts.guardId ?? 'unknown',
+        from: evt.from,
+        to: evt.to,
+        featureId,
+      };
+    // transition / cancel / cleanup all share { from, to, trigger, featureId }
+    // (cancel additionally allows an optional `reason`, preserved from metadata).
+    default:
+      return {
+        from: evt.from,
+        to: evt.to,
+        trigger: evt.trigger,
+        featureId,
+        ...metadata,
+      };
+  }
+}
+
+/**
+ * Count prior `workflow.fix-cycle` events on the stream (matching
+ * `compoundStateId` when present) so the next fix-cycle event can carry a
+ * 1-based `count` that satisfies `WorkflowFixCycleData`.
+ */
+async function nextFixCycleOrdinal(
+  eventStore: EventStore,
+  featureId: string,
+  compoundStateId: unknown,
+): Promise<number> {
+  const prior = await eventStore.query(featureId, {
+    type: 'workflow.fix-cycle' as EventType,
+  });
+  if (typeof compoundStateId === 'string') {
+    const matching = prior.filter(
+      (e) =>
+        (e.data as Record<string, unknown> | undefined)?.compoundStateId ===
+        compoundStateId,
+    );
+    return matching.length + 1;
+  }
+  return prior.length + 1;
+}
 
 // ─── Public types ────────────────────────────────────────────────────────
 
@@ -310,36 +436,22 @@ export class DefaultHSMTransitionGuard implements HSMTransitionGuard {
       // this is the atomicity invariant the primitive enforces.
       if (context.eventStore) {
         for (const evt of result.events) {
-          // TODO(#1339): re-attempt canonical-envelope migration once compound-event data shape is decided
-          // PER-SITE ABORT (#1325 α-10, follow-up #1339): the HSM walk
-          // can emit `workflow.compound-exit` / `workflow.compound-entry`
-          // / `workflow.fix-cycle` events whose metadata carries
-          // `compoundStateId: parent?.id`, which is `undefined` when no
-          // compound parent exists. `EVENT_DATA_SCHEMAS` (run by
-          // `buildValidatedEvent`) rejects undefined fields; the legacy
-          // `append` path validates only `WorkflowEventBase`. Until
-          // #1339 decides whether the upstream HSM should suppress
-          // these events or supply a sentinel, this site stays on the
-          // raw `append` path so the migration is non-breaking.
-          await context.eventStore.append(featureId, {
-            type: mapInternalToExternalType(evt.type) as import(
-              '../event-store/schemas.js'
-            ).EventType,
+          // #1339 (defense-in-depth, follows #1325 α-10): route HSM-emitted
+          // events through `buildValidatedEvent` so `EVENT_DATA_SCHEMAS` runs
+          // at the emission boundary. `buildHsmEventData` shapes the per-type
+          // `data` (e.g. `compound-exit` carries `compoundStateId`,
+          // `guard-failed` carries the offending guard id) so a schema-invalid
+          // payload can never be laundered onto the log via the legacy path.
+          const data = buildHsmEventData(evt, featureId, {
+            ...(transition.guard ? { guardId: transition.guard.id } : {}),
+          });
+          const validatedEvent = buildValidatedEvent(featureId, 1, {
+            type: mapInternalToExternalType(evt.type) as EventType,
             correlationId: featureId,
             source: 'workflow',
-            data: {
-              from: evt.from,
-              to: evt.to,
-              trigger: evt.trigger,
-              featureId,
-              ...(evt.metadata ?? {}),
-              // Mirror the existing event-store contract: guard-failed
-              // events carry the offending guard id under `guard`.
-              ...(evt.type === 'guard-failed' && transition.guard
-                ? { guard: transition.guard.id }
-                : {}),
-            },
+            data,
           });
+          await context.eventStore.appendValidated(featureId, validatedEvent);
         }
       }
 
@@ -385,26 +497,33 @@ export class DefaultHSMTransitionGuard implements HSMTransitionGuard {
         const idempotencyKey = context.idempotencyKeySuffix
           ? `${featureId}:${evt.type}:${evt.from}:${evt.to}:${context.idempotencyKeySuffix}`
           : undefined;
-        // TODO(#1339): re-attempt canonical-envelope migration once compound-event data shape is decided
-        // PER-SITE ABORT (#1325 α-10, follow-up #1339): same compound-event
-        // data-shape issue as the guard-failure branch above. Until #1339
-        // closes, this site stays on the raw `append` path.
-        const appended = await context.eventStore.append(
+        // #1339 (defense-in-depth, follows #1325 α-10): route the success-path
+        // emission (transition + compound-entry/-exit + fix-cycle siblings)
+        // through `buildValidatedEvent` so `EVENT_DATA_SCHEMAS` runs at the
+        // boundary. `fix-cycle` events need a `count` the HSM walk doesn't
+        // carry; `nextFixCycleOrdinal` derives the 1-based occurrence index
+        // from the store so the persisted `data` satisfies the schema.
+        const fixCycleOrdinal =
+          evt.type === 'fix-cycle'
+            ? await nextFixCycleOrdinal(
+                context.eventStore,
+                featureId,
+                evt.metadata?.compoundStateId,
+              )
+            : undefined;
+        const data = buildHsmEventData(evt, featureId, {
+          ...(transition.guard ? { guardId: transition.guard.id } : {}),
+          ...(fixCycleOrdinal !== undefined ? { fixCycleOrdinal } : {}),
+        });
+        const validatedEvent = buildValidatedEvent(featureId, 1, {
+          type: mapInternalToExternalType(evt.type) as EventType,
+          correlationId: featureId,
+          source: 'workflow',
+          data,
+        });
+        const appended = await context.eventStore.appendValidated(
           featureId,
-          {
-            type: mapInternalToExternalType(evt.type) as import(
-              '../event-store/schemas.js'
-            ).EventType,
-            correlationId: featureId,
-            source: 'workflow',
-            data: {
-              from: evt.from,
-              to: evt.to,
-              trigger: evt.trigger,
-              featureId,
-              ...(evt.metadata ?? {}),
-            },
-          },
+          validatedEvent,
           idempotencyKey ? { idempotencyKey } : undefined,
         );
         // The state machine emits one primary lifecycle event per attempt:
