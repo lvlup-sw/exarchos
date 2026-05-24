@@ -344,7 +344,18 @@ export function parseInvariantEntries(rawEntries: unknown): InvariantEntry[] {
       'invariants-loader: parseInvariantEntries expects an array of entries',
     );
   }
-  const entries = (rawEntries as RawInvariantEntry[]).map(parseEntry);
+  // Guard each element before parseEntry so a null/primitive entry yields a
+  // clear, index-named loader error instead of a generic TypeError deep in the
+  // parser. For the disk/consumer layers this surfaces as a DR-9 degradation
+  // warning naming the catalog rather than an opaque crash.
+  const entries = rawEntries.map((raw, index) => {
+    if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
+      throw new Error(
+        `invariants-loader: entry at index ${index} must be an object`,
+      );
+    }
+    return parseEntry(raw as RawInvariantEntry);
+  });
   // Reject duplicate IDs — IDs are the catalog's primary key and must be
   // unique. A silent duplicate would shadow the earlier entry and corrupt
   // vocabulary-lint / ideate Constraint surfacing.

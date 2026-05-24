@@ -118,10 +118,13 @@ export function resolveEffectiveCatalog(
   const repoRoot = ctx.repoRoot ?? defaultRepoRoot();
   const config = ctx.config;
 
-  // Degradation log shared by every layer. A load/parse failure in ANY layer
-  // is folded here (never thrown) so the gate, the view facade, and any future
-  // Resource degrade uniformly and surface the failure loudly as an advisory
-  // rather than aborting the whole resolution (INV-1 / DR-9).
+  // Degradation log for the EXTERNAL layers (dev catalog on disk, consumer
+  // `catalogs`). A load/parse failure in those is folded here (never thrown)
+  // so the gate, the view facade, and any future Resource degrade uniformly
+  // and surface the failure loudly as an advisory rather than aborting the
+  // whole resolution (INV-1 / DR-9). The built-in sdlc layer is compiled-in and
+  // validated at build time, so it deliberately fails fast at module load
+  // instead (see Layer 2).
   const loadWarnings: string[] = [];
 
   // ── Layer 1: dev catalog (gated by invariants.devCatalog) ──
@@ -154,20 +157,15 @@ export function resolveEffectiveCatalog(
   // (per-invariant floor = advisory for `integrity-class: sdlc`) is the
   // consumer's escape hatch, not a master switch.
   //
-  // Compiled-in and validated at build time, so a throw here would mean a
-  // corrupted binary — but the gate's never-abort contract applies to EVERY
-  // layer (INV-1 / DR-9), so we degrade to "no sdlc layer" with a visible
-  // warning rather than letting it crash the gate.
-  let sdlc: InvariantEntry[] = [];
-  try {
-    sdlc = loadSdlcCatalog();
-  } catch (err) {
-    const reason = err instanceof Error ? err.message : String(err);
-    loadWarnings.push(
-      `Built-in SDLC invariant catalog failed to load and was skipped; ` +
-        `evaluated remaining layers only. Reason: ${reason}`,
-    );
-  }
+  // Unlike the disk/consumer layers, the sdlc catalog is compiled into the
+  // binary and validated at build time (`sdlc-catalog.test.ts`). It is parsed
+  // once at MODULE load (`sdlc-catalog.ts`), so it fails fast at server start
+  // by design: a parse failure can only mean a corrupted binary, which must
+  // surface loudly at boot — not silently drop the consumer's primary
+  // governance mid-review (that would be a worse INV-1 violation than a clean
+  // boot failure). A runtime try/catch here would be dead code anyway: the
+  // throw happens at import time, before this line can run.
+  const sdlc: InvariantEntry[] = loadSdlcCatalog();
 
   // ── Layer 3: user catalogs (paths from config.invariants.catalogs) ──
   //

@@ -379,6 +379,18 @@ describe('invariants-loader', () => {
     expect(() => parseInvariantEntries(dup)).toThrow(/Duplicate invariant ID: SDLC-1/);
   });
 
+  it('parseInvariantEntries_nonObjectEntry_throwsIndexNamedError', () => {
+    // A null/primitive element must fail with a clear, index-named loader error
+    // rather than a generic TypeError deep in parseEntry. The dev/user layers
+    // surface this as a DR-9 degradation warning naming the catalog.
+    const bad = [
+      { id: 'SDLC-1', dimension: 'a', axis: 'substrate', 'cost-of-load': 'always-load', 'applies-to': ['x'], summary: 's', references: ['r'] },
+      null,
+    ];
+    expect(() => parseInvariantEntries(bad)).toThrow(/entry at index 1 must be an object/);
+    expect(() => parseInvariantEntries(['just-a-string'])).toThrow(/entry at index 0 must be an object/);
+  });
+
   it('Invariants_AfterSchemaV3Bump_EveryEntryHasAxisField', () => {
     // Read raw frontmatter to assert the schema-version bump (v3, issue #1466).
     const source = fs.readFileSync(INVARIANTS_DOC, 'utf8');

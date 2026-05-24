@@ -13,7 +13,7 @@ by authoring a catalog file and listing it in `.exarchos.yml`.
 > [§0](#0-the-shipped-sdlc-baseline-default-on). Authoring your own `user`-tier
 > catalog is supported today; your entries merge on top of the SDLC baseline.
 
-## 0. The shipped SDLC-* baseline (default-on)
+## 0. The shipped SDLC baseline (default-on)
 
 Exarchos ships a small **consumer-facing** catalog that is **on by default** —
 you do not register or enable it. These `SDLC-*` invariants govern *how you run
