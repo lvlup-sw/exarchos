@@ -2102,6 +2102,33 @@ const orchestrateActions: readonly ToolAction[] = [
     annotations: READ_ONLY_LOCAL,
   },
   {
+    name: 'check_invariant_conformance',
+    description: 'Evaluate invariant conformance as a review dimension (DR-3/DR-4). Projects the effective invariant catalog for (workflow-type, review, touched-files), evaluates check-mode combinator trees against the diff, renders audit-mode prompts for the review subagent, and folds findings into the review verdict by context-resolved severity. Emits gate.executed; read-only otherwise.',
+    schema: z.object({
+      featureId: z.string().min(1),
+      workflowType: z.string().optional(),
+      phase: z.string().optional(),
+      touchedFiles: z.array(z.string()).optional(),
+      diff: z.string().optional(),
+      diffContent: z.string().optional(),
+      repoRoot: z.string().optional(),
+    }),
+    phases: REVIEW_PHASES,
+    roles: ROLE_LEAD,
+    gate: { blocking: false },
+    autoEmits: [
+      { event: 'gate.executed', condition: 'always' },
+    ],
+    outputSchema: EnvelopeSchema(z.unknown()),
+    // The gate reads the catalog and computes a verdict, but `emitGateEvent`s
+    // on every call — so it is NOT readOnly. Annotating it read-only would let
+    // readonly-capability clients mutate the event store. LOCAL_MUTATION
+    // matches the actual write surface and the rest of the check_* family that
+    // auto-emits gate.executed (see check_convergence / check_review_verdict);
+    // the `RegistryDrift_AutoEmitsImpliesNotReadOnly` invariant enforces this.
+    annotations: LOCAL_MUTATION,
+  },
+  {
     name: 'prepare_review',
     description: 'Prepare quality review by serving the check catalog as structured data. Returns deterministic check patterns, structural analysis instructions, and plugin status for any MCP client to execute.',
     schema: z.object({

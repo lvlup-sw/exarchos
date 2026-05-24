@@ -545,10 +545,10 @@ describe('TOOL_REGISTRY', () => {
   });
 
   describe('exarchos_orchestrate', () => {
-    it('should have 66 actions for task management, review triage, gate checks, validation handlers, runbooks, agent spec, oneshot/pruning, doctor, init, VCS, classify_review_items (#1159), merge_orchestrate (DR-MO-1), check_integration_suite (#1329), and composite actions', () => {
+    it('should have 67 actions for task management, review triage, gate checks, validation handlers, runbooks, agent spec, oneshot/pruning, doctor, init, VCS, classify_review_items (#1159), merge_orchestrate (DR-MO-1), check_integration_suite (#1329), check_invariant_conformance (DR-3), and composite actions', () => {
       const composite = findComposite('exarchos_orchestrate');
       expect(composite).toBeDefined();
-      expect(composite!.actions).toHaveLength(66);
+      expect(composite!.actions).toHaveLength(67);
 
       const actionNames = composite!.actions.map((a) => a.name);
       expect(actionNames).toEqual(
@@ -618,6 +618,8 @@ describe('TOOL_REGISTRY', () => {
           // #1329: explicit name assertion — the length check alone can pass
           // even if a different action replaces check_integration_suite.
           'check_integration_suite',
+          // DR-3: invariant-conformance review-dimension gate.
+          'check_invariant_conformance',
         ]),
       );
     });
@@ -646,6 +648,37 @@ describe('TOOL_REGISTRY', () => {
         `Registry action '${registryName}' has no handler in composite.ts`,
       ).toBe(true);
     }
+  });
+
+  it('Registry_CheckInvariantConformance_RegisteredReadOnlyUnder15Tools', () => {
+    // DR-3 (T-13): the invariant-conformance gate is a new ACTION on
+    // exarchos_orchestrate (INV-5d) — not a new tool. It must be registered
+    // with a non-destructive, local-only safety class (it reads the catalog
+    // and computes a verdict — it does NOT touch source or remote state), and
+    // must NOT grow the visible composite-tool surface past the 15-tool ceiling.
+    const action = findAction('exarchos_orchestrate', 'check_invariant_conformance');
+    expect(action, 'check_invariant_conformance must be registered on exarchos_orchestrate').toBeDefined();
+
+    // Safety annotation (INV-5b: registered outputSchema + a non-destructive,
+    // local safety class). NOTE: the gate emits `gate.executed` on every call,
+    // so it cannot be `readOnly` — the `RegistryDrift_AutoEmitsImpliesNotReadOnly`
+    // invariant forbids that. It mirrors the rest of the check_* family
+    // (check_convergence / check_review_verdict): local-mutation, non-destructive.
+    expect(action!.annotations).toBeDefined();
+    expect(action!.annotations!.safety).toBe('local-mutation');
+    expect(action!.annotations!.readOnly).toBe(false);
+    expect(action!.annotations!.destructive).toBe(false);
+    expect(action!.annotations!.openWorld).toBe(false);
+    expect(action!.outputSchema).toBeDefined();
+
+    // Still a review-phase, lead-role gate that auto-emits gate.executed.
+    expect(action!.phases.has('review')).toBe(true);
+    expect(action!.roles.has('lead')).toBe(true);
+    expect(action!.autoEmits?.some((e) => e.event === 'gate.executed')).toBe(true);
+
+    // Visible (non-hidden) composite tools stay within the 15-tool budget.
+    const visibleTools = TOOL_REGISTRY.filter((t) => !t.hidden);
+    expect(visibleTools.length).toBeLessThanOrEqual(15);
   });
 
   it('should have non-empty phases for every action except init', () => {
