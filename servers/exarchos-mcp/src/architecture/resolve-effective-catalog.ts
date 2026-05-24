@@ -153,7 +153,21 @@ export function resolveEffectiveCatalog(
   // and NO `devCatalog`-style gate — sdlc ships enabled. The override mechanism
   // (per-invariant floor = advisory for `integrity-class: sdlc`) is the
   // consumer's escape hatch, not a master switch.
-  const sdlc: InvariantEntry[] = loadSdlcCatalog();
+  //
+  // Compiled-in and validated at build time, so a throw here would mean a
+  // corrupted binary — but the gate's never-abort contract applies to EVERY
+  // layer (INV-1 / DR-9), so we degrade to "no sdlc layer" with a visible
+  // warning rather than letting it crash the gate.
+  let sdlc: InvariantEntry[] = [];
+  try {
+    sdlc = loadSdlcCatalog();
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err);
+    loadWarnings.push(
+      `Built-in SDLC invariant catalog failed to load and was skipped; ` +
+        `evaluated remaining layers only. Reason: ${reason}`,
+    );
+  }
 
   // ── Layer 3: user catalogs (paths from config.invariants.catalogs) ──
   //
