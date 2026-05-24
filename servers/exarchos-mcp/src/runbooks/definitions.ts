@@ -6,10 +6,17 @@ export const TASK_COMPLETION: RunbookDefinition = {
   description: 'Complete a task after execution: run blocking gates, then mark complete.',
   steps: [
     { tool: 'exarchos_orchestrate', action: 'check_tdd_compliance', onFail: 'stop' },
-    { tool: 'exarchos_orchestrate', action: 'check_static_analysis', onFail: 'stop' },
+    // #1330 / T-05: the static-analysis gate must run against the agent's
+    // worktree, not the orchestrator's cwd. `repoRoot: 'auto'` triggers the
+    // worktree-aware resolver (T-04, gate-utils.resolveRepoRoot); the
+    // `<worktreePath>` placeholder threads the `worktreePath` template var so
+    // the agent supplies its own worktree path at fill-in time.
+    { tool: 'exarchos_orchestrate', action: 'check_static_analysis', onFail: 'stop',
+      params: { repoRoot: 'auto', worktreePath: '<worktreePath>' },
+      note: '#1330: run against the agent worktree via repoRoot:auto + worktreePath template var' },
     { tool: 'exarchos_orchestrate', action: 'task_complete', onFail: 'stop' },
   ],
-  templateVars: ['taskId', 'featureId', 'streamId', 'branch'],
+  templateVars: ['taskId', 'featureId', 'streamId', 'branch', 'worktreePath'],
   autoEmits: ['gate.executed', 'task.completed'],
 };
 

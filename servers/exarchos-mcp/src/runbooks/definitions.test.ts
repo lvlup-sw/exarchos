@@ -198,4 +198,32 @@ describe('Runbook definitions', () => {
     expect(PHASE_COMPRESSION.steps[0].decide?.question).toMatch(/source artifact|compress/i);
     expect(PHASE_COMPRESSION.steps[1].decide?.question).toMatch(/load-bearing|preserve/i);
   });
+
+  // ─── #1330 / T-05: worktree-aware task-completion gate ─────────────────────
+  it('TaskCompletionRunbook_StaticAnalysisStep_ReceivesWorktreePath', () => {
+    // The task-completion runbook runs `check_static_analysis` against the
+    // agent's worktree, not the orchestrator's cwd (#1330). The gate's
+    // worktree-aware resolver (T-04) keys off `repoRoot: 'auto'` plus a
+    // threaded `worktreePath`. For the runbook to thread that path, the
+    // `worktreePath` template var must exist AND the static-analysis step
+    // must pre-fill `params.repoRoot: 'auto'` with `params.worktreePath`
+    // pointing at the template var (angle-bracket placeholder convention),
+    // rather than running against a literal '.'/absent root.
+    expect(TASK_COMPLETION.templateVars).toContain('worktreePath');
+
+    const staticStep = TASK_COMPLETION.steps.find(
+      (s) => s.action === 'check_static_analysis',
+    );
+    expect(staticStep, 'task-completion must have a check_static_analysis step').toBeDefined();
+
+    const params = staticStep?.params as
+      | { repoRoot?: unknown; worktreePath?: unknown }
+      | undefined;
+    expect(params, 'check_static_analysis step must pre-fill params').toBeDefined();
+    // repoRoot must request worktree-aware resolution, not a literal '.'.
+    expect(params?.repoRoot).toBe('auto');
+    expect(params?.repoRoot).not.toBe('.');
+    // worktreePath must thread the `worktreePath` template var.
+    expect(params?.worktreePath).toBe('<worktreePath>');
+  });
 });
