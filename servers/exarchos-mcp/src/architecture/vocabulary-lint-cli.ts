@@ -12,17 +12,28 @@
  * https://nodejs.org/api/process.html#processexitcode_1. With `process.exit`,
  * piped output can be truncated when the consumer drains slowly.
  */
-import { scanRepoDefaults } from './vocabulary-lint.js';
+import { scanRepoDefaults, scanCoverageClosure } from './vocabulary-lint.js';
 
 const findings = scanRepoDefaults();
+// Coverage-closure check (DR-8): every DIM-* must be specialized by an INV-*
+// or carry an explicit `coverage: n/a` marker. Additive to the token scan;
+// both feed the same non-zero exit so CI fails on either class of finding.
+const coverageFindings = scanCoverageClosure();
 
-if (findings.length === 0) {
+const total = findings.length + coverageFindings.length;
+
+if (total === 0) {
   process.stdout.write('vocabulary-lint: 0 findings (clean)\n');
   process.exitCode = 0;
 } else {
   for (const f of findings) {
     process.stdout.write(`${f.file}:${f.line} ${f.kind} ${f.token}\n`);
   }
-  process.stdout.write(`vocabulary-lint: ${findings.length} finding(s)\n`);
+  for (const f of coverageFindings) {
+    process.stdout.write(
+      `${f.file}:${f.line} ${f.kind} ${f.token} (no specializing INV-* and no \`coverage: n/a\` marker)\n`,
+    );
+  }
+  process.stdout.write(`vocabulary-lint: ${total} finding(s)\n`);
   process.exitCode = 1;
 }

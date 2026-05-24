@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { scanFile, scanPaths } from './vocabulary-lint.js';
+import { scanFile, scanPaths, scanCoverageClosure } from './vocabulary-lint.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, '../../../..');
@@ -76,5 +76,82 @@ describe('vocabulary-lint', () => {
       expect(typeof f.line).toBe('number');
       expect(f.line).toBeGreaterThan(0);
     }
+  });
+
+  /**
+   * Coverage-closure check (DR-8). Every `DIM-*` entry in the catalog must
+   * either be specialized by at least one `INV-*` whose `axiom_overlap`
+   * points at it, OR carry an explicit N/A marker. The N/A convention is the
+   * least-invasive option: a frontmatter field `coverage: n/a` on the DIM
+   * entry. A `DIM-*` with neither is a coverage-gap finding.
+   *
+   * Uses a synthetic fixture catalog written to disk so the assertion is
+   * decoupled from the live catalog's closure state (which may legitimately
+   * change as INV/DIM entries are added).
+   */
+  it('VocabularyLint_DimWithoutSpecializingInv_EmitsCoverageGap', () => {
+    const fixture = path.join(tmpDir, 'coverage-fixture.md');
+    fs.writeFileSync(
+      fixture,
+      [
+        '---',
+        'schema-version: 2',
+        'invariants:',
+        // DIM-901: NOT referenced by any INV, no N/A marker → coverage gap.
+        '  - id: DIM-901',
+        '    dimension: gap-dimension',
+        '    axis: substrate',
+        '    cost-of-load: reference-only',
+        '    applies-to: [some-module]',
+        '    summary: A dimension with no specializing invariant and no N/A marker.',
+        '    references: [docs/architecture/invariants.md]',
+        // DIM-902: referenced by INV-100 via axiom_overlap → no gap.
+        '  - id: DIM-902',
+        '    dimension: covered-dimension',
+        '    axis: substrate',
+        '    cost-of-load: reference-only',
+        '    applies-to: [other-module]',
+        '    summary: A dimension specialized by an invariant.',
+        '    references: [docs/architecture/invariants.md]',
+        // DIM-903: no specializing INV, but carries the explicit N/A marker.
+        '  - id: DIM-903',
+        '    dimension: exempt-dimension',
+        '    axis: substrate',
+        '    cost-of-load: reference-only',
+        '    coverage: n/a',
+        '    applies-to: [third-module]',
+        '    summary: A dimension explicitly marked not-applicable for closure.',
+        '    references: [docs/architecture/invariants.md]',
+        // INV-100 specializes DIM-902.
+        '  - id: INV-100',
+        '    dimension: an-invariant',
+        '    axis: substrate',
+        '    cost-of-load: always-load',
+        '    axiom_overlap: DIM-902',
+        '    applies-to: [other-module]',
+        '    summary: An invariant that specializes DIM-902.',
+        '    references: [docs/architecture/invariants.md]',
+        '---',
+        '',
+        '# Synthetic coverage fixture',
+        '',
+      ].join('\n'),
+    );
+
+    const findings = scanCoverageClosure({
+      invariantsDoc: fixture,
+      config: ENABLED_CONFIG,
+    });
+
+    // DIM-901 is the only gap: neither a specializing INV nor the marker.
+    const gapTokens = findings.map((f) => f.token).sort();
+    expect(gapTokens).toEqual(['DIM-901']);
+    const gap = findings.find((f) => f.token === 'DIM-901');
+    expect(gap).toBeDefined();
+    expect(gap!.kind).toBe('coverage-gap');
+
+    // DIM-902 (covered by INV) and DIM-903 (N/A marker) must NOT surface.
+    expect(findings.some((f) => f.token === 'DIM-902')).toBe(false);
+    expect(findings.some((f) => f.token === 'DIM-903')).toBe(false);
   });
 });
