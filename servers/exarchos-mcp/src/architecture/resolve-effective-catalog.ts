@@ -21,9 +21,9 @@
  * ## Pipeline
  *
  *   load dev catalog (gated by `invariants.devCatalog`)
+ *     + sdlc layer (default-on, plugin-shipped SDLC-* baseline — #1467;
+ *       compiled into the binary, no gate, no file-IO)
  *     + load user `catalogs` from config
- *     + sdlc layer (placeholder — empty today; the sdlc catalog CONTENT is
- *       out of scope for this task, only the seam is wired)
  *   → mergeCatalogs (tags each layer's integrity-class)
  *   → applyOverrides (clamp each override to its invariant's floor)
  *   → drop honored-disabled entries (the final filter — see note below)
@@ -44,6 +44,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { ExarchosConfig } from '../config/exarchos-config-schema.js';
 import { loadInvariants, type InvariantEntry } from './invariants-loader.js';
+import { loadSdlcCatalog } from './sdlc-catalog.js';
 import {
   mergeCatalogs,
   applyOverrides,
@@ -117,10 +118,13 @@ export function resolveEffectiveCatalog(
   const repoRoot = ctx.repoRoot ?? defaultRepoRoot();
   const config = ctx.config;
 
-  // Degradation log shared by every layer. A load/parse failure in ANY layer
-  // is folded here (never thrown) so the gate, the view facade, and any future
-  // Resource degrade uniformly and surface the failure loudly as an advisory
-  // rather than aborting the whole resolution (INV-1 / DR-9).
+  // Degradation log for the EXTERNAL layers (dev catalog on disk, consumer
+  // `catalogs`). A load/parse failure in those is folded here (never thrown)
+  // so the gate, the view facade, and any future Resource degrade uniformly
+  // and surface the failure loudly as an advisory rather than aborting the
+  // whole resolution (INV-1 / DR-9). The built-in sdlc layer is compiled-in and
+  // validated at build time, so it deliberately fails fast at module load
+  // instead (see Layer 2).
   const loadWarnings: string[] = [];
 
   // ── Layer 1: dev catalog (gated by invariants.devCatalog) ──
@@ -145,11 +149,23 @@ export function resolveEffectiveCatalog(
     }
   }
 
-  // ── Layer 2: sdlc catalog (placeholder) ──
-  // The sdlc catalog CONTENT is out of scope for this task; the layer seam is
-  // wired with an empty array so `mergeCatalogs` still receives all three
-  // layers and the sdlc tagging path stays exercised once content lands.
-  const sdlc: InvariantEntry[] = [];
+  // ── Layer 2: sdlc catalog (default-on, plugin-shipped) ──
+  // The consumer-facing SDLC-* baseline (#1467). Inline-authored and compiled
+  // into the binary (the server ships as a single-file binary; docs/ is not in
+  // the plugin package), so it is present for every consumer with ZERO file-IO
+  // and NO `devCatalog`-style gate — sdlc ships enabled. The override mechanism
+  // (per-invariant floor = advisory for `integrity-class: sdlc`) is the
+  // consumer's escape hatch, not a master switch.
+  //
+  // Unlike the disk/consumer layers, the sdlc catalog is compiled into the
+  // binary and validated at build time (`sdlc-catalog.test.ts`). It is parsed
+  // once at MODULE load (`sdlc-catalog.ts`), so it fails fast at server start
+  // by design: a parse failure can only mean a corrupted binary, which must
+  // surface loudly at boot — not silently drop the consumer's primary
+  // governance mid-review (that would be a worse INV-1 violation than a clean
+  // boot failure). A runtime try/catch here would be dead code anyway: the
+  // throw happens at import time, before this line can run.
+  const sdlc: InvariantEntry[] = loadSdlcCatalog();
 
   // ── Layer 3: user catalogs (paths from config.invariants.catalogs) ──
   //

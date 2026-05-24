@@ -8,11 +8,35 @@ gate**. This is the same machinery Exarchos applies to itself; you plug into it
 by authoring a catalog file and listing it in `.exarchos.yml`.
 
 > **Status:** the v3 schema, loader, projection, and gate ship as of
-> [PR #1465](https://github.com/lvlup-sw/exarchos/pull/1465). Authoring your own
-> `user`-tier catalog is supported today. The Exarchos-shipped `SDLC-*` consumer
-> catalog (default-on baseline invariants) is a separate forthcoming deliverable
-> — until it lands, the sdlc layer is empty and only your `user` catalog and any
-> enabled dev catalog contribute.
+> [PR #1465](https://github.com/lvlup-sw/exarchos/pull/1465). The Exarchos-shipped
+> `SDLC-*` consumer catalog (the default-on baseline) ships as of #1467 — see
+> [§0](#0-the-shipped-sdlc-baseline-default-on). Authoring your own `user`-tier
+> catalog is supported today; your entries merge on top of the SDLC baseline.
+
+## 0. The shipped SDLC baseline (default-on)
+
+Exarchos ships a small **consumer-facing** catalog that is **on by default** —
+you do not register or enable it. These `SDLC-*` invariants govern *how you run
+your SDLC through Exarchos* (workflow conduct), not your application's
+architecture. They are workload-neutral: the same set applies to a React app, a
+Go CLI, or a Python service. All ship as `mode: audit` (the review subagent
+judges them; none is a mechanical diff check) with `integrity-class: sdlc`, so
+you can **tune any of them down to advisory but never silently disable** one
+(§4).
+
+| id | governs | default severity |
+|---|---|---|
+| `SDLC-1` phase-observability | long-running ops are queryable; state reconstructible from disk | advisory |
+| `SDLC-2` tdd-discipline | test-before-impl where the workflow declares it (feature, oneshot); defers to the `check_tdd_compliance` gate | blocking (oneshot ⇒ advisory) |
+| `SDLC-3` review-gate-honesty | the verdict reflects the findings; no advisory-laundering of a HIGH | blocking |
+| `SDLC-4` branch-pr-discipline | PR body has Summary/Changes/Test Plan; bottom-up stacked merge; no admin-merge bypass | blocking |
+| `SDLC-5` recovery-posture | pause/resume from on-disk state; native-primitive-first recovery, no destructive overwrite | advisory |
+
+They bite at **review** on code-bearing workflows (`feature`, `debug`,
+`refactor`, `oneshot`); a `discovery` (docs-only) workflow is exempt. The three
+audiences are distinct: **dev** (`INV-*`, Exarchos's own runtime substrate,
+`devCatalog`-gated, you never see it) → **sdlc** (`SDLC-*`, this baseline) →
+**user** (your own `U-*` entries, §2).
 
 ## 1. Register a catalog
 
@@ -126,8 +150,8 @@ Use `overrides` to adjust an invariant Exarchos ships, within its
 ```yaml
 invariants:
   overrides:
-    SDLC-3: { severity: advisory }   # downgrade
-    SDLC-7: { enabled: false }       # clamps to advisory if the floor forbids disable (you'll get a warning)
+    SDLC-3: { severity: advisory }   # downgrade review-gate-honesty to advisory
+    SDLC-4: { enabled: false }       # REFUSED — sdlc floor is advisory, so this clamps to advisory + emits a warning, not a silent disable
 ```
 
 You can add new ids (in your own namespace) freely; you can tune `sdlc`/`authoring`

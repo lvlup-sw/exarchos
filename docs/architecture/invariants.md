@@ -5,10 +5,22 @@ description: >
   dimensions (DIM-*) consumed by /ideate, the check_invariant_conformance
   gate, and the vocabulary-lint scanner. Source of truth for the invariant
   vocabulary in the Exarchos repo.
-schema-version: 2
+schema-version: 3
 invariants:
   - id: INV-1
     dimension: event-sourcing-integrity
+    integrity-class: substrate
+    phase-affinity: [review]
+    severity:
+      default: blocking
+      by-workflow:
+        oneshot: advisory
+    enforcement:
+      mode: audit
+      audit-prompt: >
+        Does any read-model hold state across calls that is not a left-fold
+        over the event log? Flag in-place mutations, adapter-local mutable
+        caches, and side databases that bypass the append-only store.
     axis: substrate
     cost-of-load: always-load
     applies-to:
@@ -130,6 +142,16 @@ invariants:
 
   - id: INV-11
     dimension: posture-declared-capabilities
+    integrity-class: substrate
+    phase-affinity: [review]
+    enforcement:
+      mode: audit
+      audit-prompt: >
+        Is each agent's authority bounded by construction rather than by
+        convention? A read-only agent must be unable to mutate the working
+        tree; a task-isolated agent must be unable to write outside its
+        worktree. Flag a posture asserted in prose but not enforced at the
+        capability boundary.
     axis: substrate
     cost-of-load: always-load
     applies-to:
@@ -185,6 +207,15 @@ invariants:
 
   - id: INV-13
     dimension: process-manager-two-event-split
+    integrity-class: substrate
+    phase-affinity: [review]
+    enforcement:
+      mode: audit
+      audit-prompt: >
+        Does every non-idempotent external side effect emit a *.requested
+        intent before and a *.executed result after, so a crash between them
+        is recoverable by an idempotent precheck? Flag single-event external
+        mutators.
     axis: substrate
     cost-of-load: reference-only
     applies-to:
@@ -213,6 +244,15 @@ invariants:
 
   - id: INV-14
     dimension: native-primitive-first-recovery
+    integrity-class: substrate
+    phase-affinity: [review]
+    enforcement:
+      mode: audit
+      audit-prompt: >
+        On reversal, does the handler prefer the operation's own recovery
+        primitive, then a refuse-to-discard substrate undo, and never a
+        destructive overwrite? Flag any reset-hard-style path or a recovery
+        that can silently lose work.
     axis: substrate
     cost-of-load: reference-only
     applies-to:
@@ -266,6 +306,21 @@ invariants:
 
   - id: INV-2
     dimension: facade-equivalence
+    integrity-class: substrate
+    phase-affinity: [review]
+    severity:
+      default: advisory
+    enforcement:
+      # mode:audit, not check: a grep for "behavior in an adapter file" is a
+      # low-precision proxy that cannot prove parity and would false-positive
+      # on legitimate adapter code. Parity is proven by the parity-harness
+      # tests; the reviewer judges adapter discipline.
+      mode: audit
+      audit-prompt: >
+        Do the CLI and MCP adapters carry only presentation, with all behavior
+        in the shared dispatch core? Flag logic added to adapters/cli.ts or
+        adapters/mcp.ts beyond formatting, and any verb lacking a parity or
+        registered outputSchema guarantee.
     axis: substrate
     cost-of-load: always-load
     applies-to:
@@ -286,6 +341,15 @@ invariants:
 
   - id: INV-3
     dimension: basileus-forward
+    integrity-class: substrate
+    phase-affinity: [review]
+    enforcement:
+      mode: audit
+      audit-prompt: >
+        Does any decision presume the MCP transport is co-located with the
+        workflow process? Capability resolution must stay
+        handshake-authoritative and configuration .exarchos.yml-only, so the
+        same code path serves a remote channel without change.
     axis: substrate
     cost-of-load: reference-only
     applies-to:
@@ -308,6 +372,27 @@ invariants:
 
   - id: INV-4
     dimension: platform-agnosticity
+    integrity-class: substrate
+    phase-affinity: [review]
+    workflow-affinity: [feature, debug, refactor, oneshot]
+    severity:
+      default: blocking
+      by-workflow:
+        oneshot: advisory
+    enforcement:
+      # Diff-precise mode:check (issue #1466). Generated runtime variants under
+      # skills/<runtime>/** are build output of `npm run build:skills`; a diff
+      # touching any of them is a direct edit to generated output (source of
+      # truth is skills-src/). The `scope` combinator narrows the fileGlob to
+      # the generated tree; the grep fires on the hunk header so any touched
+      # generated file is flagged. skills-src/** is excluded by the glob.
+      mode: check
+      check:
+        scope:
+          fileGlob: "skills/**"
+        node:
+          kind: grep
+          pattern: "@@"
     axis: substrate
     cost-of-load: reference-only
     applies-to:
@@ -331,6 +416,17 @@ invariants:
 
   - id: INV-5a
     dimension: input-ergonomics
+    integrity-class: substrate
+    phase-affinity: [review]
+    enforcement:
+      # mode:audit, not check: the visible-tool-count is a whole-repo
+      # structural fact (a count over registry.ts), not a diff property the
+      # combinator evaluator can see. Judgment stays with the reviewer.
+      mode: audit
+      audit-prompt: >
+        Are tool inputs constrained at the schema level (enum, regex, format)
+        rather than by prose hints, does every tool state when NOT to use it,
+        and does the visible tool count stay under 15?
     axis: substrate
     cost-of-load: always-load
     applies-to:
@@ -393,6 +489,17 @@ invariants:
 
   - id: INV-5d
     dimension: action-discriminator
+    integrity-class: substrate
+    phase-affinity: [review]
+    enforcement:
+      # mode:audit, not check: the composite-tool count is a whole-repo
+      # structural fact, not a diff property. Judgment stays with the reviewer.
+      mode: audit
+      audit-prompt: >
+        Do the visible composite tools stay at four with action
+        discriminators, and do per-action annotations (destructive / readOnly
+        / idempotent / openWorld) ride on each action? Flag any new top-level
+        tool that should be an action.
     axis: substrate
     cost-of-load: reference-only
     applies-to:
@@ -413,6 +520,20 @@ invariants:
 
   - id: INV-6
     dimension: workload-agnosticism
+    integrity-class: substrate
+    phase-affinity: [review]
+    enforcement:
+      # mode:audit, not check: scripts/lint-inv6.mjs is a deliberately-advisory
+      # literal scan with a frontmatter-declaration escape hatch a diff-grep
+      # cannot replicate (legitimate prose in skills-src references workflow
+      # types). The judgment stays with the reviewer; the script remains the
+      # out-of-band advisory lint.
+      mode: audit
+      audit-prompt: >
+        Does any skill body encode workflow-typed branching or assume one
+        workflow type without declaring metadata.workflow-type? Substrate
+        guarantees must hold for every workflow type; workflow-specifics
+        belong in topology and playbooks.
     axis: substrate
     cost-of-load: always-load
     applies-to:
@@ -492,6 +613,9 @@ invariants:
 
   - id: DIM-4
     dimension: test-fidelity
+    # coverage-closure (DR-8): axiom-owned dimension, no Exarchos-specific
+    # specializing INV-*. Canonical check is /axiom:verify.
+    coverage: n/a
     axis: substrate
     cost-of-load: reference-only
     applies-to:
@@ -508,6 +632,9 @@ invariants:
 
   - id: DIM-5
     dimension: hygiene
+    # coverage-closure (DR-8): axiom-owned dimension. Canonical check is
+    # /axiom:distill.
+    coverage: n/a
     axis: substrate
     cost-of-load: reference-only
     applies-to:
@@ -525,6 +652,9 @@ invariants:
 
   - id: DIM-6
     dimension: solid-coupling
+    # coverage-closure (DR-8): axiom-owned dimension. Canonical check is
+    # /axiom:critique.
+    coverage: n/a
     axis: substrate
     cost-of-load: reference-only
     applies-to:
@@ -557,6 +687,10 @@ invariants:
 
   - id: DIM-8
     dimension: prose-quality
+    integrity-class: authoring
+    # coverage-closure (DR-8): axiom-owned authoring dimension. Canonical check
+    # is /axiom:humanize.
+    coverage: n/a
     axis: authoring
     cost-of-load: archivable
     applies-to:

@@ -326,6 +326,50 @@ function projectV3Fields(raw: RawInvariantEntry, entry: InvariantEntry): void {
 }
 
 /**
+ * Pure raw→typed projection for a list of catalog entries (no file-IO, no
+ * `schema-version` guard, no `devCatalog` gate, no scope filter). Validates and
+ * projects each raw entry via `parseEntry` (which enforces the v2 required
+ * fields and the v3 `.strict()` enforcement DSL, INV-4) and rejects duplicate
+ * ids — the same primary-key guarantee `loadInvariants` relies on.
+ *
+ * This is the single parse path shared by the file loader (`loadInvariants`)
+ * and the inline plugin-shipped sdlc catalog (`sdlc-catalog.ts`, #1467), so the
+ * two cannot drift (INV-2 spirit). Cross-entry `axiom_overlap` referential
+ * integrity stays in `loadInvariants` — it is meaningful only for the full
+ * INV-/DIM- catalog, not an arbitrary entry list.
+ */
+export function parseInvariantEntries(rawEntries: unknown): InvariantEntry[] {
+  if (!Array.isArray(rawEntries)) {
+    throw new Error(
+      'invariants-loader: parseInvariantEntries expects an array of entries',
+    );
+  }
+  // Guard each element before parseEntry so a null/primitive entry yields a
+  // clear, index-named loader error instead of a generic TypeError deep in the
+  // parser. For the disk/consumer layers this surfaces as a DR-9 degradation
+  // warning naming the catalog rather than an opaque crash.
+  const entries = rawEntries.map((raw, index) => {
+    if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
+      throw new Error(
+        `invariants-loader: entry at index ${index} must be an object`,
+      );
+    }
+    return parseEntry(raw as RawInvariantEntry);
+  });
+  // Reject duplicate IDs — IDs are the catalog's primary key and must be
+  // unique. A silent duplicate would shadow the earlier entry and corrupt
+  // vocabulary-lint / ideate Constraint surfacing.
+  const seen = new Set<string>();
+  for (const entry of entries) {
+    if (seen.has(entry.id)) {
+      throw new Error(`Duplicate invariant ID: ${entry.id}`);
+    }
+    seen.add(entry.id);
+  }
+  return entries;
+}
+
+/**
  * Read the `invariants:` block from the closest `.exarchos.yml` walking up
  * from the catalog file. Returns `{}` when no file is found or when the
  * YAML lacks the `invariants` key — both cases collapse to default-disabled
@@ -460,17 +504,7 @@ export function loadInvariants(
       `invariants-loader: ${filePath} frontmatter must declare an "invariants:" array`,
     );
   }
-  const entries = (data.invariants as RawInvariantEntry[]).map(parseEntry);
-  // Reject duplicate IDs at load time — IDs are the catalog's primary key and
-  // must be unique. A silent duplicate would shadow the earlier entry and
-  // corrupt vocabulary-lint / ideate Constraint surfacing.
-  const seen = new Set<string>();
-  for (const entry of entries) {
-    if (seen.has(entry.id)) {
-      throw new Error(`Duplicate invariant ID: ${entry.id}`);
-    }
-    seen.add(entry.id);
-  }
+  const entries = parseInvariantEntries(data.invariants);
   // Referential integrity for `axiom_overlap` (PR #1459 CodeRabbit finding 1).
   // The format check in `parseEntry` only verifies the regex shape — a
   // reference that matches the shape (e.g. `DIM-99`) but does NOT point at

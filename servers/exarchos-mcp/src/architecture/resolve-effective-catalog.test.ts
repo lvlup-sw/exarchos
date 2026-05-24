@@ -313,4 +313,87 @@ describe('resolveEffectiveCatalog', () => {
     );
     expect(warning).toBeDefined();
   });
+
+  // ─── #1467: sdlc layer is default-on, independent of the dev gate ──────────
+
+  it('ResolveEffectiveCatalog_DevCatalogDisabled_StillReturnsSdlcEntries', () => {
+    // Consumer scenario: devCatalog NOT enabled ⇒ dev layer empty, but the
+    // shipped SDLC-* baseline still resolves (default-on, no gate).
+    const config: ExarchosConfig = {
+      invariants: { devCatalog: 'disabled' },
+    };
+    const { entries } = resolveEffectiveCatalog({
+      repoRoot: fixture.repoRoot,
+      config,
+      phase: 'review',
+      workflowType: 'feature',
+    });
+    const ids = entries.map((e) => e.id);
+    expect(ids).not.toContain('INV-1'); // dev layer gated off
+    expect(ids).toContain('SDLC-1'); // sdlc layer default-on
+    expect(ids).toContain('SDLC-3');
+    // Every sdlc entry is tagged integrity-class sdlc by the merge.
+    for (const e of entries.filter((x) => x.id.startsWith('SDLC-'))) {
+      expect(e.integrityClass).toBe('sdlc');
+    }
+  });
+
+  it('ResolveEffectiveCatalog_WorkflowDiscovery_ExcludesAllSdlcEntries', () => {
+    // The SDLC entries are excluded from a docs-only research workflow via
+    // their `workflow-affinity` (the lists omit discovery), NOT via the
+    // `projectCatalog` axis-substrate branch — that branch checks 'discover'
+    // while the runtime workflow type is 'discovery' (a latent #1465 token
+    // mismatch). Assert both spellings yield zero so the exclusion is robust
+    // regardless of which token a caller passes.
+    for (const workflowType of ['discovery', 'discover']) {
+      const { entries } = resolveEffectiveCatalog({
+        repoRoot: fixture.repoRoot,
+        config: { invariants: { devCatalog: 'disabled' } },
+        phase: 'review',
+        workflowType,
+      });
+      expect(
+        entries.filter((e) => e.id.startsWith('SDLC-')),
+        `SDLC entries must be excluded for workflowType='${workflowType}'`,
+      ).toHaveLength(0);
+    }
+  });
+
+  // ─── #1467 DR-3: override-floor (INV-11) end-to-end on a real SDLC entry ───
+
+  it('ResolveEffectiveCatalog_Sdlc3SeverityOverrideAdvisory_ClampHonored', () => {
+    const { entries } = resolveEffectiveCatalog({
+      repoRoot: fixture.repoRoot,
+      config: {
+        invariants: {
+          devCatalog: 'disabled',
+          overrides: { 'SDLC-3': { severity: 'advisory' } },
+        },
+      },
+      phase: 'review',
+      workflowType: 'feature',
+    });
+    const sdlc3 = entries.find((e) => e.id === 'SDLC-3');
+    expect(sdlc3).toBeDefined();
+    expect(sdlc3?.severity?.default).toBe('advisory');
+  });
+
+  it('ResolveEffectiveCatalog_Sdlc3EnabledFalse_RefusedByFloorAndWarns', () => {
+    // sdlc floor = advisory ⇒ a full disable is REFUSED: the entry survives and
+    // a warning is emitted, never a silent drop (INV-11 authority gradient).
+    const { entries, warnings } = resolveEffectiveCatalog({
+      repoRoot: fixture.repoRoot,
+      config: {
+        invariants: {
+          devCatalog: 'disabled',
+          overrides: { 'SDLC-3': { enabled: false } },
+        },
+      },
+      phase: 'review',
+      workflowType: 'feature',
+    });
+    expect(entries.map((e) => e.id)).toContain('SDLC-3');
+    const warning = warnings.find((w) => w.includes('SDLC-3'));
+    expect(warning).toBeDefined();
+  });
 });
