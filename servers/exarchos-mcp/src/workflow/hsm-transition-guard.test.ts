@@ -19,6 +19,7 @@ import * as os from 'node:os';
 import { handleInit, handleSet } from './tools.js';
 import { EventStore } from '../event-store/store.js';
 import type { WorkflowEvent } from '../event-store/schemas.js';
+import { EVENT_DATA_SCHEMAS } from '../event-store/schemas.js';
 
 let tmpDir: string;
 const featureId = 'hsm-guard-test';
@@ -180,5 +181,60 @@ describe('HSMTransitionGuard.fail_closed (C7, closes #1225)', () => {
       (e) => (e.data as Record<string, unknown>).to === 'review',
     );
     expect(guardFailures).toBe(0);
+  });
+});
+
+// ─── HSM emission boundary routes through EVENT_DATA_SCHEMAS (T-03, #1339) ──
+//
+// Defense-in-depth follow-up to T-02. Even with the fix-cycle shape fixed,
+// the legacy `EventStore.append` path validates only the envelope
+// (`WorkflowEventBase`) and skips `EVENT_DATA_SCHEMAS`. The fix-cycle event
+// emitted by the HSM walk carries `data: { from, to, trigger, featureId }`,
+// which is MISSING the required `count: z.number().int()` that
+// `WorkflowFixCycleData` mandates. Via the legacy path this schema-invalid
+// data is laundered straight onto the log. T-03 makes the emission boundary
+// route through `buildValidatedEvent` so a schema-invalid `data` can NEVER
+// reach the log.
+describe('HSM emission boundary schema-validates event data (T-03, #1339)', () => {
+  it('LegacyAppendPath_SchemaInvalidWorkflowEvent_IsRejected', async () => {
+    const eventStore = new EventStore(tmpDir);
+    await eventStore.initialize();
+
+    await handleInit({ featureId, workflowType: 'feature' }, tmpDir, eventStore);
+
+    // Drive a real fix-cycle: review → delegate (isFixCycle in the feature
+    // HSM). `anyReviewFailed` passes when state.reviews has a failed entry.
+    // review and delegate are both top-level phases, so getParentCompound
+    // returns undefined and the fix-cycle event carries no compoundStateId.
+    const stateFile = path.join(tmpDir, `${featureId}.state.json`);
+    const raw = JSON.parse(await fs.readFile(stateFile, 'utf-8'));
+    raw.phase = 'review';
+    raw.reviews = { 'reviewer-a': { status: 'failed' } };
+    await fs.writeFile(stateFile, JSON.stringify(raw, null, 2), 'utf-8');
+
+    const result = await handleSet(
+      { featureId, phase: 'delegate' },
+      tmpDir,
+      eventStore,
+    );
+    expect(result.success).toBe(true);
+
+    // A fix-cycle event must have been appended for this transition.
+    const fixCycleEvents = await eventStore.query(featureId, {
+      type: 'workflow.fix-cycle' as never,
+    });
+    expect(fixCycleEvents.length).toBeGreaterThanOrEqual(1);
+
+    // The emission boundary must guarantee that any persisted fix-cycle
+    // event's `data` satisfies EVENT_DATA_SCHEMAS — i.e. the same validation
+    // `buildValidatedEvent` runs. Pre-T-03 this fails: the legacy append path
+    // wrote `data` missing the required `count` field, laundering invalid
+    // data onto the log.
+    const fixCycleSchema = EVENT_DATA_SCHEMAS['workflow.fix-cycle'];
+    expect(fixCycleSchema).toBeDefined();
+    for (const evt of fixCycleEvents) {
+      const parsed = fixCycleSchema!.safeParse(evt.data);
+      expect(parsed.success).toBe(true);
+    }
   });
 });
