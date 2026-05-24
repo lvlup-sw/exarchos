@@ -36,7 +36,11 @@ Describe 'get-exarchos.ps1' {
             $tmpDir = Join-Path ([System.IO.Path]::GetTempPath()) ("exarchos-dryrun-" + [Guid]::NewGuid())
             try {
                 $env:EXARCHOS_INSTALL_DIR = $tmpDir
-                $stdout = & $script:ScriptPath -DryRun 2>&1 | Out-String
+                # *>&1 merges all six streams (output, error, warning, verbose,
+                # debug, information) into the output stream. The dry-run plan
+                # uses Write-Host, which writes to the information stream (6),
+                # so a bare `2>&1` (which only merges error→output) misses it.
+                $stdout = & $script:ScriptPath -DryRun *>&1 | Out-String
                 $LASTEXITCODE | Should -Be 0
                 $stdout | Should -Match '(?i)(dry.?run|plan|would install)'
                 $stdout | Should -Match 'exarchos-windows-(x64|arm64)'
@@ -61,11 +65,13 @@ Describe 'get-exarchos.ps1' {
     }
 
     Context 'GetExarchos_PlatformDetection_Windows_arm64' {
-        It 'selects exarchos-windows-arm64.exe for ARM64' {
-            $target = Get-PlatformTarget -ProcessorArchitecture 'ARM64'
-            $target.Os | Should -Be 'windows'
-            $target.Arch | Should -Be 'arm64'
-            $target.AssetName | Should -Be 'exarchos-windows-arm64.exe'
+        # Bun ships no `bun-windows-arm64` cross-compile target as of v1.3.x,
+        # so `scripts/build-binary.ts` does not produce `exarchos-windows-arm64.exe`.
+        # The installer correctly refuses to point users at a 404 URL. When Bun
+        # adds the target and build-binary.ts emits the asset, flip this test
+        # to assert the success path.
+        It 'throws "not yet supported" for ARM64 until Bun adds the cross-compile target' {
+            { Get-PlatformTarget -ProcessorArchitecture 'ARM64' } | Should -Throw '*ARM64 is not yet supported*'
         }
 
         It 'throws on unsupported architectures' {
