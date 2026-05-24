@@ -29,6 +29,7 @@ export const BUILTIN_VIEW_NAMES: ReadonlySet<string> = new Set([
   'provenance',
   'ideate_readiness',
   'convergence',
+  'invariants_effective',
   // Internal projection names registered in tools.ts createMaterializer()
   'workflow-status',
   'task-detail',
