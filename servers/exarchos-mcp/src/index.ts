@@ -27,7 +27,7 @@ import { initializeContext } from './core/context.js';
 // NOTE: `createMcpServer` is intentionally NOT imported at the top level —
 // task 021 made MCP SDK loading dynamic to keep CLI cold-start under the
 // 250ms p95 budget. See dynamic import at `createServer()` below.
-import { buildCli, runCli } from './adapters/cli.js';
+import { buildCli, runCli, resolvePackageVersion } from './adapters/cli.js';
 import { isHookCommand, handleHookCommand } from './adapters/hooks.js';
 import type { DispatchContext } from './core/dispatch.js';
 
@@ -303,6 +303,21 @@ async function main() {
     if (result.handled && result.exitCode) {
       process.exitCode = result.exitCode;
     }
+    return;
+  }
+
+  // ─── Version Fast Path ─────────────────────────────────────────────────────
+  // Printing the version is a stateless operation — it must not open the
+  // SQLite event store. Initializing the backend here both wastes cold-start
+  // budget and, under concurrent invocations against a shared/contended state
+  // dir, can race on WAL recovery and surface SQLITE_BUSY_RECOVERY (the
+  // `exarchos --version` E2E flake). Resolve the version via the same source
+  // `buildCli().version()` uses and exit before any backend work. The global
+  // `--version` / `-V` flag is only meaningful as the leading token; once a
+  // subcommand is present Commander owns the parse.
+  const versionArg = process.argv[2];
+  if (versionArg === '--version' || versionArg === '-V') {
+    process.stdout.write(`${resolvePackageVersion()}\n`);
     return;
   }
 

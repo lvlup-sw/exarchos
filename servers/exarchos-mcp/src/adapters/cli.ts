@@ -145,7 +145,7 @@ declare const EXARCHOS_BUILD_VERSION: string | undefined;
  * `'2.8.3'`, drifting from `program.version()` as the package bumped. The
  * resolver keeps both surfaces in lockstep with `npm version`. See #1216.
  */
-function resolvePackageVersion(): string {
+export function resolvePackageVersion(): string {
   if (
     typeof EXARCHOS_BUILD_VERSION === 'string' &&
     EXARCHOS_BUILD_VERSION.length > 0
