@@ -21,9 +21,9 @@
  * ## Pipeline
  *
  *   load dev catalog (gated by `invariants.devCatalog`)
+ *     + sdlc layer (default-on, plugin-shipped SDLC-* baseline — #1467;
+ *       compiled into the binary, no gate, no file-IO)
  *     + load user `catalogs` from config
- *     + sdlc layer (placeholder — empty today; the sdlc catalog CONTENT is
- *       out of scope for this task, only the seam is wired)
  *   → mergeCatalogs (tags each layer's integrity-class)
  *   → applyOverrides (clamp each override to its invariant's floor)
  *   → drop honored-disabled entries (the final filter — see note below)
