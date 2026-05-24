@@ -113,8 +113,9 @@ describe('subagent-context', () => {
       // (#1159) + 1 merge_orchestrate (DR-MO-1) = 42.
       // Doctor now has ALL_PHASES so it's allowed, not denied.
       // Bumped to 43 with check_integration_suite (#1329) — lead-only.
+      // Bumped to 44 with check_invariant_conformance (DR-3) — lead-only.
       // Bump this number when new lead-only actions are registered.
-      expect(deniedOrchestrate!.actions).toHaveLength(43);
+      expect(deniedOrchestrate!.actions).toHaveLength(44);
     });
 
     it('should include event actions for delegate phase with teammate role', () => {
@@ -174,7 +175,9 @@ describe('subagent-context', () => {
       // Bumped to 47 with the addition of merge_orchestrate (DR-MO-1).
       // Bumped to 48 with check_integration_suite (#1329) — lead-only and not
       // in REVIEW_PHASES, so denied for a review-phase teammate.
-      expect(deniedOrchestrate!.actions.length).toBe(48);
+      // Bumped to 49 with check_invariant_conformance (DR-3) — lead-only and
+      // in REVIEW_PHASES, so denied for a review-phase teammate (role mismatch).
+      expect(deniedOrchestrate!.actions.length).toBe(49);
     });
 
     it('should deny workflow init and cancel for teammate role', () => {

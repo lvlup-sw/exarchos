@@ -4,7 +4,8 @@
  *
  * The frontmatter is the source of truth; this module parses it into a typed
  * `InvariantEntry[]` for consumption by `/ideate` first-turn surfacing, the
- * vocabulary-lint scanner, and the design-invariants skill.
+ * vocabulary-lint scanner, and the `check_invariant_conformance` gate (which
+ * replaced the retired `design-invariants` skill in T-23).
  *
  * Implementation note: we use `gray-matter` (already a devDependency of the
  * MCP server) which sits on top of `js-yaml`. The loader is intentionally
@@ -16,6 +17,21 @@ import path from 'node:path';
 import matter from 'gray-matter';
 import { parse as parseYaml } from 'yaml';
 import type { ExarchosConfig } from '../config/exarchos-config-schema.js';
+import {
+  InvariantEntryV3Schema,
+  type Enforcement,
+  type InvariantEntryV3,
+} from './invariant-schema.js';
+
+/**
+ * Schema versions the loader accepts (DR-1). The catalog frontmatter may
+ * declare `schema-version: 2` (the live v2 catalog) or `3` (the v3 catalog
+ * that layers optional affinity / enforcement / severity / integrity-class
+ * fields). An absent `schema-version` is tolerated for back-compat with
+ * pre-v2 fixtures; any *declared* value outside this set is a loud parse
+ * error (no silent acceptance of an unknown schema — DIM-2 contract).
+ */
+const SUPPORTED_SCHEMA_VERSIONS: readonly number[] = [2, 3] as const;
 
 /**
  * Allowed values for the `cost-of-load` frontmatter field. Drives the
@@ -95,6 +111,38 @@ export interface InvariantEntry {
    * See spec §4.3.
    */
   axiomOverlap?: string;
+  /**
+   * SDLC phases this invariant is relevant to (schema-v3, DR-1). Optional;
+   * `undefined` when the entry does not declare `phase-affinity`. Element
+   * type and validation come from `InvariantEntryV3Schema`.
+   */
+  phaseAffinity?: NonNullable<InvariantEntryV3['phase-affinity']>;
+  /**
+   * Workflow kinds this invariant is relevant to (schema-v3, DR-1).
+   * Optional; `undefined` when `workflow-affinity` is absent.
+   */
+  workflowAffinity?: NonNullable<InvariantEntryV3['workflow-affinity']>;
+  /**
+   * Workflow-state names this invariant is relevant to (schema-v3, DR-1).
+   * Optional; `undefined` when `state-affinity` is absent.
+   */
+  stateAffinity?: NonNullable<InvariantEntryV3['state-affinity']>;
+  /**
+   * Declarative enforcement directive (schema-v3, DR-1/DR-2). Optional;
+   * `undefined` when `enforcement` is absent. Shape validated by the
+   * `.strict()` combinator DSL in `InvariantEntryV3Schema`.
+   */
+  enforcement?: Enforcement;
+  /**
+   * Per-context severity overrides (schema-v3, DR-1). Optional; `undefined`
+   * when `severity` is absent.
+   */
+  severity?: NonNullable<InvariantEntryV3['severity']>;
+  /**
+   * Integrity-class classification (schema-v3, DR-1). Optional; `undefined`
+   * when `integrity-class` is absent.
+   */
+  integrityClass?: NonNullable<InvariantEntryV3['integrity-class']>;
   /** The raw parsed entry for fields not yet promoted to the typed shape. */
   raw: Record<string, unknown>;
 }
@@ -121,6 +169,7 @@ const AXIOM_OVERLAP_PATTERN = /^DIM-\d+$/;
 
 /** Untyped shape returned by `gray-matter` for the file frontmatter — validated by `loadInvariants`. */
 interface RawFrontmatter {
+  'schema-version'?: unknown;
   invariants?: unknown;
   [key: string]: unknown;
 }
@@ -234,7 +283,46 @@ function parseEntry(raw: RawInvariantEntry): InvariantEntry {
     }
     entry.axiomOverlap = raw.axiom_overlap;
   }
+  // Optional schema-v3 fields (DR-1) — project through the Zod
+  // `InvariantEntryV3Schema` source of truth so the v3 shape is validated
+  // (incl. the `.strict()` enforcement-DSL sandbox guarantee, INV-4) without
+  // being redefined here. Only declared fields are surfaced; absent fields
+  // resolve to `undefined`, preserving full v2 back-compat.
+  projectV3Fields(raw, entry);
   return entry;
+}
+
+/**
+ * Validate and project the optional schema-v3 fields onto an already-built
+ * `InvariantEntry`. Reuses `InvariantEntryV3Schema` (DR-1) so the v3 shape —
+ * including the `.strict()` enforcement combinator DSL (INV-4 sandbox
+ * guarantee) — is enforced at load time. Each field is only assigned when
+ * declared, so absent fields stay `undefined` (v2 back-compat).
+ *
+ * We `.pick()` just the v3 keys rather than parsing the whole entry through
+ * the v3 schema: the v2 loader's own required-field validation (with its
+ * established, test-asserted error messages) stays the authority for v2
+ * fields. This keeps the two validation surfaces decoupled.
+ */
+const V3_FIELD_SCHEMA = InvariantEntryV3Schema.pick({
+  'phase-affinity': true,
+  'workflow-affinity': true,
+  'state-affinity': true,
+  enforcement: true,
+  severity: true,
+  'integrity-class': true,
+});
+
+function projectV3Fields(raw: RawInvariantEntry, entry: InvariantEntry): void {
+  const v3 = V3_FIELD_SCHEMA.parse(raw);
+  if (v3['phase-affinity'] !== undefined) entry.phaseAffinity = v3['phase-affinity'];
+  if (v3['workflow-affinity'] !== undefined) {
+    entry.workflowAffinity = v3['workflow-affinity'];
+  }
+  if (v3['state-affinity'] !== undefined) entry.stateAffinity = v3['state-affinity'];
+  if (v3.enforcement !== undefined) entry.enforcement = v3.enforcement;
+  if (v3.severity !== undefined) entry.severity = v3.severity;
+  if (v3['integrity-class'] !== undefined) entry.integrityClass = v3['integrity-class'];
 }
 
 /**
@@ -350,6 +438,23 @@ export function loadInvariants(
   const source = fs.readFileSync(filePath, 'utf8');
   const parsed = matter(source);
   const data = parsed.data as RawFrontmatter;
+  // Schema-version guard (DR-1). A declared `schema-version` must be one of
+  // SUPPORTED_SCHEMA_VERSIONS (2 or 3). An absent version is tolerated for
+  // back-compat with pre-v2 fixtures; any other declared value is a loud
+  // parse error naming the offending value and the supported set.
+  const declaredVersion = data['schema-version'];
+  if (declaredVersion !== undefined && declaredVersion !== null) {
+    if (
+      typeof declaredVersion !== 'number' ||
+      !SUPPORTED_SCHEMA_VERSIONS.includes(declaredVersion)
+    ) {
+      throw new Error(
+        `invariants-loader: ${filePath} declares unsupported ` +
+          `schema-version '${String(declaredVersion)}'; ` +
+          `must be one of ${SUPPORTED_SCHEMA_VERSIONS.join(', ')}`,
+      );
+    }
+  }
   if (!Array.isArray(data.invariants)) {
     throw new Error(
       `invariants-loader: ${filePath} frontmatter must declare an "invariants:" array`,
@@ -396,8 +501,9 @@ export function loadInvariants(
         (e) => e.axis === 'substrate' && e.costOfLoad === 'always-load',
       );
     case 'substrate':
-      // Runtime-substrate axis — every cost-of-load. design-invariants
-      // skill body uses this when walking substrate entries by axis.
+      // Runtime-substrate axis — every cost-of-load. The conformance gate's
+      // catalog-generated audit prompt uses this when walking substrate
+      // entries by axis.
       return entries.filter((e) => e.axis === 'substrate');
     case 'authoring':
       // Authoring (prose / documentation) axis — DIM-8 only in v2.

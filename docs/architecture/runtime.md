@@ -286,5 +286,5 @@ If you had to compress the architecture to one paragraph: Exarchos is a single S
 - [`docs/designs/2026-05-11-marten-followups.md`](../designs/2026-05-11-marten-followups.md) — PID lock demotion + Marten leverage follow-ups (#1343, #1342)
 - [`docs/designs/2026-04-18-strategic-framing-exarchos-basileus.md`](../designs/2026-04-18-strategic-framing-exarchos-basileus.md) — local vs remote tiers
 - [`docs/research/2026-05-08-1119-merge-orchestrator-audit.md`](../research/2026-05-08-1119-merge-orchestrator-audit.md) — audit that surfaced the runtime-guarantee framing
-- [`.claude/skills/design-invariants/SKILL.md`](../../.claude/skills/design-invariants/SKILL.md) — INV-1..INV-5d operational skill
+- [`docs/architecture/invariants.md`](invariants.md) — INV-1..INV-15 catalog; audit behavior is performed by the `check_invariant_conformance` gate (the `design-invariants` skill was retired in T-23)
 - Issues: #1109 (cross-cutting invariants), #1118 (codify principles), #1119 (merge orchestrator), #1259 (substrate spike), #1284 (EventSourcedTaskStore), #1302 (audit follow-up epic), #1343 (PID lock demotion), #1342 (Marten leverage epic)

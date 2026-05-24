@@ -95,5 +95,5 @@ export const taskStoreReducer: ProjectionReducer<TaskStoreState, WorkflowEvent> 
 ## See also
 
 - Deterministic checks for INV-1 → [deterministic-checks.md](deterministic-checks.md#inv-1-event-sourcing-integrity)
-- DIM-1 Topology overlap (lazy fallback, ambient state) → axiom complementarity matrix in `../SKILL.md`
+- DIM-1 Topology overlap (lazy fallback, ambient state) → `axiom_overlap` declarations in the [invariants catalog](../../invariants.md) frontmatter
 - DIM-2 Observability overlap (silent catch in apply) → axiom complementarity matrix
