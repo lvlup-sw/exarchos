@@ -33,3 +33,14 @@ plugins:
     enabled: true
   impeccable:
     enabled: true
+
+# invariants-catalog-v2 — opt-in to the dev-invariants catalog.
+# This file IS the explicit opt-in for Exarchos contributors. The loader
+# defaults to disabled even inside the Exarchos repo; entries only surface
+# at /ideate Phase 0 because this committed file declares the flag here.
+# Consumers using Exarchos as a plugin in another repo never see these
+# entries unless they add the same key to their own .exarchos.yml.
+# See: docs/guides/exarchos-yml-invariants.md
+#      docs/proposals/2026-05-20-invariants-catalog-v2-spec.md §4.0
+invariants:
+  devCatalog: enabled

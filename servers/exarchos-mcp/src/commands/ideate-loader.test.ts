@@ -38,7 +38,14 @@ describe('ideate first-turn invariant surfacing (#1260)', () => {
     // CLI-shaped proposals. We assert (a) the catalog has them, and (b) the
     // brainstorming skill prose names them as canonical anchors so a CLI
     // proposal is guaranteed to surface them.
-    const entries = loadInvariants(INVARIANTS_DOC);
+    //
+    // Pass an explicit `enabled` config so the gating check (Wave B2)
+    // doesn't short-circuit on the contents assertion. Wave B3 declares
+    // the flag in the root `.exarchos.yml`; this constant keeps the test
+    // stable independent of that landing order.
+    const entries = loadInvariants(INVARIANTS_DOC, undefined, {
+      invariants: { devCatalog: 'enabled' as const },
+    });
     const ids = new Set(entries.map((e) => e.id));
     expect(ids.has('INV-5a')).toBe(true);
     expect(ids.has('INV-5c')).toBe(true);

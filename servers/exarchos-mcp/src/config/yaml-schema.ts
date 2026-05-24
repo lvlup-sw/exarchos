@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { InvariantsConfigSchema } from './exarchos-config-schema.js';
 
 // ─── Dimension Configuration ────────────────────────────────────────────────
 
@@ -115,6 +116,24 @@ const PluginsConfig = z.object({
   impeccable: PluginConfig.optional(),
 }).strict();
 
+// ─── Invariants Configuration ─────────────────────────────────────────────
+//
+// invariants-catalog-v2 (#1441 / spec 2026-05-20) — dev-invariants gating.
+//
+// `ProjectConfigSchema` reuses the canonical `InvariantsConfigSchema`
+// definition from `exarchos-config-schema.ts` (PR #1459 CodeRabbit
+// finding 2 — single source of truth). The committed root `.exarchos.yml`
+// (which carries the other project-level keys `agents` / `review` / `vcs`
+// / `workflow` / `tools` validated by this schema) continues to parse
+// cleanly under `ProjectConfigSchema.strict()` via this shared block.
+// The architecture-invariants loader does NOT consume this projection —
+// it slices the `invariants` block out of the raw YAML directly via
+// `architecture/invariants-loader.ts:readInvariantsConfig`, decoupling
+// the loader from this schema's other concerns.
+//
+// Spec: docs/proposals/2026-05-20-invariants-catalog-v2-spec.md §4.0
+// User-facing doc: docs/guides/exarchos-yml-invariants.md
+
 // ─── Prune Configuration ──────────────────────────────────────────────────
 
 const PruneConfig = z.object({
@@ -145,6 +164,7 @@ export const ProjectConfigSchema = z.object({
   plugins: PluginsConfig.optional(),
   prune: PruneConfig.optional(),
   checkpoint: CheckpointConfig.optional(),
+  invariants: InvariantsConfigSchema.optional(),
 }).strict();
 
 export type ProjectConfig = z.infer<typeof ProjectConfigSchema>;

@@ -90,8 +90,13 @@ describe('design-invariants skill structure', () => {
     expect(typeof fm?.description).toBe('string');
     expect((fm?.description ?? '').length).toBeGreaterThan(0);
     expect(fm?.metadata).toBeDefined();
+    // Post-v2 (#1459 Wave E1): pairs-with slot changed from axiom:backend-quality
+    // → axiom:design per D5 §4.3 + the axiom pairing-discovery contract
+    // (axiom's contract scans the `pairs-with` slot for `axiom:design`, not the
+    // older backend-quality slot). The catalog v2 entries carry axiom_overlap:
+    // DIM-N fields that axiom:design interleaves during /ideate Phase 0.
     expect((fm?.metadata as Record<string, unknown> | undefined)?.['pairs-with']).toBe(
-      'axiom:backend-quality',
+      'axiom:design',
     );
   });
 

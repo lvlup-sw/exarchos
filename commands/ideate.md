@@ -35,6 +35,8 @@ Before the clarifying questions, load the **core** invariants catalog at `docs/a
 
 Emit the Constraints section *before* Phase 1 so the clarifying questions can probe the proposal against the load-bearing invariants instead of re-discovering them mid-design.
 
+**Dev-only gating (v2):** The catalog at `docs/architecture/invariants.md` is **dev-invariants only** — invariants for Exarchos's own designers, not for consumers using Exarchos as a plugin. The loader surfaces entries only when `.exarchos.yml: invariants.devCatalog: enabled` (default disabled). When this flag is unset or `disabled`, Phase 0 surfaces no Constraints section from the dev catalog — invoke Phase 1 directly. Consumer-facing SDLC invariants live in a separate (future) catalog; see `docs/proposals/2026-05-20-invariants-catalog-v2-spec.md` §1.1 and §10 for the audience-scope rationale.
+
 ### Phase 1: Understanding
 Ask clarifying questions (one at a time):
 1. What problem are we solving?

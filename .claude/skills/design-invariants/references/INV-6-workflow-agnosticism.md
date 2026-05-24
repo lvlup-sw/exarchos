@@ -1,8 +1,10 @@
-# INV-6: Workflow-Agnosticism (Skills Describe Behaviors, Playbooks Describe Workflows)
+# INV-6: Workload-Agnosticism (No Substrate Assumption About Which Workload Runs)
 
-A skill prescribing a **behavior** must describe its triggers in workflow-neutral terms — e.g., "activated when `next_actions` surfaces verb `merge_branch` with idempotency key `<feature-id>:merge`" — not in terms of a specific workflow stage like `feature/merge-pending` or `delegate`. Workflow-typed triggers belong in **playbooks/commands**, not in skill prose. A skill that **is** intentionally workflow-specific declares `workflow-type:` in its frontmatter so audits can distinguish "intentionally scoped" from "leaky abstraction." The advisory lint `scripts/lint-inv6.mjs` formalizes the candidate-violation grep.
+**Primary statement.** The runtime makes no assumption about which workload is executing. Substrate guarantees (RT-1..RT-6) hold identically for every workflow type — `feature`, `oneshot`, `discovery`, `refactor`, `debug`, and any future type. Workflow-type-specific concerns belong in `topology.yaml`, not the substrate; they're parameters consumed by the runtime, not branches inside the runtime. This is the **dev-catalog's own primary axis** — the orthogonal complement to INV-4's platform axis (6 runtimes) — and the load-bearing reason the catalog can claim a single set of substrate properties for any workload.
 
-The invariant is the design discipline. The frontmatter declaration is the escape hatch — without it, every workflow-typed literal in a skill body is treated as a candidate violation.
+**Operational projection.** A skill prescribing a **behavior** must describe its triggers in workflow-neutral terms — e.g., "activated when `next_actions` surfaces verb `merge_branch` with idempotency key `<feature-id>:merge`" — not in terms of a specific workflow stage like `feature/merge-pending` or `delegate`. Workflow-typed triggers belong in **playbooks/commands**, not in skill prose. A skill that **is** intentionally workflow-specific declares `workflow-type:` in its frontmatter so audits can distinguish "intentionally scoped" from "leaky abstraction." The advisory lint `scripts/lint-inv6.mjs` formalizes the candidate-violation grep.
+
+The substrate-level invariant (workload-agnosticism) is the design discipline; the skill-level rule (workflow-neutral triggers) is its operational projection. The frontmatter declaration is the escape hatch — without it, every workflow-typed literal in a skill body is treated as a candidate violation.
 
 ## Rule
 
