@@ -121,8 +121,14 @@ export function mergeCatalogs(layers: {
  * Resolve an invariant's override floor (DR-6). An explicit `override-floor`
  * field on the entry's raw passthrough wins; otherwise the floor is derived
  * from the entry's integrity-class.
+ *
+ * Exported so the effective-catalog resolver (`resolveEffectiveCatalog`,
+ * DR-7) can apply the final honored-disable filter: `applyOverrides` leaves
+ * disabled entries in place, so the resolver drops entries whose resolved
+ * override is `enabled:false` AND whose floor permits a full disable
+ * (`disable` | `none`).
  */
-function resolveFloor(entry: InvariantEntry): OverrideFloor {
+export function resolveFloor(entry: InvariantEntry): OverrideFloor {
   const explicit = entry.raw['override-floor'];
   if (explicit === 'advisory') return 'advisory';
   if (explicit === 'disable') return 'disable';
