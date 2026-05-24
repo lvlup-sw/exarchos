@@ -95,37 +95,46 @@ describe('scripts/get-exarchos.ps1', () => {
     expect(combined).toMatch(/\.sha512/);
   });
 
-  it('GetExarchos_PesterSuite_Passes_WhenPesterAvailable', () => {
-    if (!hasPwsh()) {
-      console.log('[skip] pwsh not on PATH — Pester suite deferred.');
-      return;
-    }
+  // Vitest test timeout (3rd arg, ms) must exceed the spawnSync child-process
+  // timeout below. Pester suite execution against the .ps1 typically takes
+  // 4-6 seconds on GHA ubuntu-latest runners; the spawnSync gets up to 2 min;
+  // the vitest test envelope gets up to 2.5 min so it never aborts before
+  // spawnSync returns its own structured result.
+  it(
+    'GetExarchos_PesterSuite_Passes_WhenPesterAvailable',
+    () => {
+      if (!hasPwsh()) {
+        console.log('[skip] pwsh not on PATH — Pester suite deferred.');
+        return;
+      }
 
-    const pesterProbe = spawnSync(
-      'pwsh',
-      ['-NoProfile', '-NonInteractive', '-Command', 'if (Get-Module -ListAvailable -Name Pester) { exit 0 } else { exit 1 }'],
-      { encoding: 'utf-8', timeout: 15_000 },
-    );
-    if (pesterProbe.status !== 0) {
-      console.log('[skip] Pester module not installed — skipping shell-native assertions.');
-      return;
-    }
+      const pesterProbe = spawnSync(
+        'pwsh',
+        ['-NoProfile', '-NonInteractive', '-Command', 'if (Get-Module -ListAvailable -Name Pester) { exit 0 } else { exit 1 }'],
+        { encoding: 'utf-8', timeout: 15_000 },
+      );
+      if (pesterProbe.status !== 0) {
+        console.log('[skip] Pester module not installed — skipping shell-native assertions.');
+        return;
+      }
 
-    const result = spawnSync(
-      'pwsh',
-      [
-        '-NoProfile',
-        '-NonInteractive',
-        '-Command',
-        `$r = Invoke-Pester -Path '${PESTER_PATH}' -PassThru -Output Detailed; if ($r.FailedCount -gt 0) { exit 1 } else { exit 0 }`,
-      ],
-      {
-        encoding: 'utf-8',
-        timeout: 120_000,
-        cwd: REPO_ROOT,
-      },
-    );
+      const result = spawnSync(
+        'pwsh',
+        [
+          '-NoProfile',
+          '-NonInteractive',
+          '-Command',
+          `$r = Invoke-Pester -Path '${PESTER_PATH}' -PassThru -Output Detailed; if ($r.FailedCount -gt 0) { exit 1 } else { exit 0 }`,
+        ],
+        {
+          encoding: 'utf-8',
+          timeout: 120_000,
+          cwd: REPO_ROOT,
+        },
+      );
 
-    expect(result.status, `stderr:\n${result.stderr}\nstdout:\n${result.stdout}`).toBe(0);
-  });
+      expect(result.status, `stderr:\n${result.stderr}\nstdout:\n${result.stdout}`).toBe(0);
+    },
+    150_000,
+  );
 });
