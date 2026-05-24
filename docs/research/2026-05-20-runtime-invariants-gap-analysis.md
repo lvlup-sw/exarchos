@@ -129,7 +129,7 @@ For completeness: every current entry's status after the cross-walk.
 
 ## 10. Candidate new invariants — summary list
 
-Eight candidates surface. IDs are provisional pending D5 (v2 catalog spec):
+Nine candidates surface (`INV-7` through `INV-15`). IDs are provisional pending D5 (v2 catalog spec):
 
 | Provisional ID | Name | Source §§ | Research backing |
 |---|---|---|---|

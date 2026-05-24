@@ -28,7 +28,7 @@
 | INV-3 | No design presumes MCP is local-only; handshake-authoritative; remote-MCP throws-not-degrades | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | **PASS** |
 | INV-4 | Platform-agnosticity — 6 runtimes first-class; tokenization + guards; skills-src/ source-of-truth | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | **PASS** |
 | INV-5a | Tool inputs constrained at schema level; "do NOT use for" guidance; <15 visible tools | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | **PASS** |
-| INV-5b | ToolResult carries next_actions, _meta, _perf; errors carry validTargets/expectedShape/suggestedFix | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | **PASS** |
+| INV-5b | ToolResult carries `next_actions`, `_meta`, `_perf`; errors carry `validTargets`/`expectedShape`/`suggestedFix` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | **PASS** |
 | INV-5c | Queryable, dry-run-capable, JSON-explicit Aspire verbs; observation verbs + mutating verbs default to --dry-run | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | **PASS** |
 | INV-5d | 4 visible composite tools with action discriminator; per-action annotations | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | **PASS** |
 | INV-6 (v1) | Skill body grep for workflow-typed literals (`feature/`, `delegate`, `synthesize`) | ⚠ | ⚠ | ⚠ | ⚠ | ⚠ | ✗ | **FAIL (as currently scoped)** — grep targets are SDLC-specific |
@@ -110,7 +110,7 @@ Compared against these fail modes, every D2 candidate uses *primitive* vocabular
 
 **v2 catalog admits (after stress test):**
 
-All 9 new candidates (INV-7..INV-15) plus all 13 existing entries (INV-1..INV-6 + DIM-1..DIM-8 + basileus-boundary, minus DIM-8 archivable handling).
+All 9 new candidates (INV-7..INV-15) plus all 18 existing entries (INV-1..INV-6 including splits INV-5a/b/c/d + DIM-1..DIM-8 + basileus-boundary, with DIM-8 retained but marked `archivable` per D4 §5.4) — total 27.
 
 **v1 → v2 sharpenings required (no demotion, just wording):**
 

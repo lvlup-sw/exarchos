@@ -50,7 +50,7 @@ Apply the decision procedure to every entry (existing + new candidates from D2).
 | INV-3 | No design presumes MCP is local-only | YES (a handler could read `runtimes/<name>.yaml` at request time) | NO | NO | **substrate** |
 | INV-4 | Platform-agnosticity — 6 runtimes; tokenization + guards | YES (a skills-src file could hardcode `Skill({...})`) | PARTIAL (constrains skill body content) | PARTIAL (vocabulary lint reads text) | **substrate** (the *enforcement* reads text, but the invariant is about runtime portability, not content quality) |
 | INV-5a | Tool inputs schema-constrained; "do NOT use for" guidance | YES (a registry could ship a tool without input schema) | PARTIAL (constrains tool *description* content) | PARTIAL | **substrate** (same as INV-4 — content rule serves runtime portability) |
-| INV-5b | ToolResult carries next_actions, _meta, _perf | YES (a handler could return without these fields) | NO | NO | **substrate** |
+| INV-5b | ToolResult carries `next_actions`, `_meta`, `_perf` | YES (a handler could return without these fields) | NO | NO | **substrate** |
 | INV-5c | Aspire verbs — observation + dry-run mutating | YES (a verb could be defined that violates this) | NO | NO | **substrate** |
 | INV-5d | 4 visible composite tools with action discriminator | YES (a new top-level tool could be added) | NO | NO | **substrate** |
 | INV-6 (sharpened) | Runtime makes no assumption about which workload is executing | YES (a runtime change could bake in a workflow concept) | NO | NO | **substrate** |
@@ -73,7 +73,7 @@ Apply the decision procedure to every entry (existing + new candidates from D2).
 | INV-14 native-primitive-first-recovery | Tool's native recovery first; substrate-level undo second; never destructive | YES | NO | NO | **substrate** |
 | INV-15 single-machine-frame | No distributed consensus / leader election / vector clocks | YES | NO | NO | **substrate** |
 
-**Outcome:** 21 substrate, 1 authoring. **DIM-8 is the sole authoring entry**, exactly as the charter predicted.
+**Outcome:** 26 substrate, 1 authoring. **DIM-8 is the sole authoring entry**, exactly as the charter predicted.
 
 ## 4. Edge cases
 
@@ -130,7 +130,7 @@ Loader behavior:
 
 ## 6. Tiebreaker rule (for future authors)
 
-When adding a new candidate to the catalog, apply the decision procedure (§2). If the verdict is ambiguous after Q1–Q3, default to **substrate** unless the entry is *exclusively* about artifact content. The reasoning: substrate is the catalog's primary purpose; authoring is the exception (1 of 22 entries in v2). New authoring entries should be rare and justified.
+When adding a new candidate to the catalog, apply the decision procedure (§2). If the verdict is ambiguous after Q1–Q3, default to **substrate** unless the entry is *exclusively* about artifact content. The reasoning: substrate is the catalog's primary purpose; authoring is the exception (1 of 27 entries in v2). New authoring entries should be rare and justified.
 
 If the candidate seems to span both axes, split it into two entries (one per axis). This is the same pattern v2 applies when splitting INV-1 into INV-1 + INV-7 + INV-8.
 
