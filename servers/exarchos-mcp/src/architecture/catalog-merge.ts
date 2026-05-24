@@ -153,11 +153,19 @@ export function resolveFloor(entry: InvariantEntry): OverrideFloor {
   }
 }
 
-/** Build an `advisory`-default severity, preserving any existing per-context map. */
+/**
+ * Force an entry to `advisory` in EVERY context. Used when a consumer's
+ * `enabled:false` is refused by an `advisory` floor — the invariant can't be
+ * removed, so it is clamped to advisory. The clamp must be total: dropping the
+ * `by-phase` / `by-workflow` maps is what makes it total, because
+ * `resolveSeverity` ranks `by-phase` > `by-workflow` > `default`, so a retained
+ * `by-phase:{review:blocking}` would silently re-escalate a clamped invariant
+ * back to blocking and defeat the clamp.
+ */
 function clampSeverityToAdvisory(entry: InvariantEntry): InvariantEntry {
   return {
     ...entry,
-    severity: { ...entry.severity, default: 'advisory' },
+    severity: { default: 'advisory' },
   };
 }
 

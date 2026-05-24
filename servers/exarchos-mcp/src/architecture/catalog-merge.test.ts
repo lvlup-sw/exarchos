@@ -68,6 +68,35 @@ describe('applyOverrides', () => {
     expect(warnings.some((w) => w.includes('SDLC-1'))).toBe(true);
   });
 
+  it('ApplyOverrides_DisableBelowFloor_ClampNeutralizesByPhaseAndByWorkflow', () => {
+    // A clamp-to-advisory must be TOTAL: a shipped by-phase/by-workflow map
+    // must not survive and silently re-escalate the clamped invariant to
+    // blocking (resolveSeverity ranks by-phase > by-workflow > default).
+    const merged = mergeCatalogs({
+      dev: [],
+      sdlc: [
+        entry('SDLC-1', {
+          severity: {
+            default: 'blocking',
+            'by-phase': { review: 'blocking' },
+            'by-workflow': { feature: 'blocking' },
+          },
+        }),
+      ],
+      user: [],
+    });
+
+    const { entries } = applyOverrides(merged, {
+      'SDLC-1': { enabled: false },
+    });
+
+    const resolved = entries.find((e) => e.id === 'SDLC-1');
+    expect(resolved?.severity?.default).toBe('advisory');
+    // The context maps are dropped, so NO context can resolve to blocking.
+    expect(resolved?.severity?.['by-phase']).toBeUndefined();
+    expect(resolved?.severity?.['by-workflow']).toBeUndefined();
+  });
+
   it('ApplyOverrides_DevSubstrate_NotPresentWhenDevCatalogDisabled', () => {
     // devCatalog disabled ⇒ empty dev layer ⇒ no substrate-class entries.
     const merged = mergeCatalogs({ dev: [], sdlc: [entry('SDLC-1')], user: [] });
