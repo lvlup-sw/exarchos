@@ -1,6 +1,6 @@
 # INV-5a: Tool Input Ergonomics
 
-Generic agent-friendly tool input design — what *every* well-designed MCP server should do. This is the "table stakes" sub-discipline of [INV-5](../SKILL.md#invariant-references) Agent-First Interface Design.
+Generic agent-friendly tool input design — what *every* well-designed MCP server should do. This is the "table stakes" sub-discipline of the INV-5 Agent-First Interface Design family (see the [invariants catalog](../../invariants.md)).
 
 ## Acceptance questions
 

@@ -4,7 +4,8 @@
  *
  * The frontmatter is the source of truth; this module parses it into a typed
  * `InvariantEntry[]` for consumption by `/ideate` first-turn surfacing, the
- * vocabulary-lint scanner, and the design-invariants skill.
+ * vocabulary-lint scanner, and the `check_invariant_conformance` gate (which
+ * replaced the retired `design-invariants` skill in T-23).
  *
  * Implementation note: we use `gray-matter` (already a devDependency of the
  * MCP server) which sits on top of `js-yaml`. The loader is intentionally
@@ -500,8 +501,9 @@ export function loadInvariants(
         (e) => e.axis === 'substrate' && e.costOfLoad === 'always-load',
       );
     case 'substrate':
-      // Runtime-substrate axis — every cost-of-load. design-invariants
-      // skill body uses this when walking substrate entries by axis.
+      // Runtime-substrate axis — every cost-of-load. The conformance gate's
+      // catalog-generated audit prompt uses this when walking substrate
+      // entries by axis.
       return entries.filter((e) => e.axis === 'substrate');
     case 'authoring':
       // Authoring (prose / documentation) axis — DIM-8 only in v2.

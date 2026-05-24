@@ -228,14 +228,15 @@ node scripts/lint-inv6.mjs
 
 ## Running the full sweep
 
-```bash
-# From repo root, run all checks and collect findings as JSON.
-# (Wrapper script TBD — for now, run each block manually and collate.)
-bash .claude/skills/design-invariants/scripts/run-checks.sh 2>&1 \
-  | tee /tmp/design-invariants-findings.txt
-```
-
-The wrapper script does not exist yet. When it lands, it will format findings as the same JSON shape the SKILL.md describes (verdict + findings array with severity + invariant ID + file + line + description + required_fix + axiom_overlap).
+The deterministic checks above are run by the `check_invariant_conformance`
+gate (`servers/exarchos-mcp/src/orchestrate/check-invariant-conformance.ts`),
+whose audit prompt is generated from this catalog
+(`servers/exarchos-mcp/src/architecture/audit-prompt.ts`). The gate emits
+findings as a structured `ToolResult` (verdict + findings array with severity +
+invariant ID + file + line + description + required_fix + axiom_overlap). The
+`design-invariants` skill that previously wrapped these greps was retired in
+T-23; the grep blocks above remain the authoritative deterministic checks the
+gate's reasoning is grounded in.
 
 ## Tracking
 

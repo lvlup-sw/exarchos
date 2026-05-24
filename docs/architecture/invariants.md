@@ -2,8 +2,8 @@
 title: Exarchos Architectural Invariants
 description: >
   Machine-readable catalog of architectural invariants (INV-*) and axiom
-  dimensions (DIM-*) consumed by /ideate, the design-invariants skill,
-  and the vocabulary-lint scanner. Source of truth for the invariant
+  dimensions (DIM-*) consumed by /ideate, the check_invariant_conformance
+  gate, and the vocabulary-lint scanner. Source of truth for the invariant
   vocabulary in the Exarchos repo.
 schema-version: 2
 invariants:
@@ -28,8 +28,8 @@ invariants:
       - "Greg Young, *CQRS Documents* (2010): https://cqrs.files.wordpress.com/2010/11/cqrs_documents.pdf"
       - "Vaughn Vernon, *Implementing Domain-Driven Design* (Addison-Wesley 2013) — chapter on Event Sourcing"
     references:
-      - .claude/skills/design-invariants/references/INV-1-event-sourcing.md
-      - .claude/skills/design-invariants/SKILL.md
+      - docs/architecture/invariants/references/INV-1-event-sourcing.md
+      - servers/exarchos-mcp/src/orchestrate/check-invariant-conformance.ts
       - docs/architecture/projections.md
 
   - id: INV-7
@@ -280,8 +280,8 @@ invariants:
       every action also registers a Zod outputSchema so parity is schema-checked
       in addition to byte-checked.
     references:
-      - .claude/skills/design-invariants/references/INV-2-facade-equivalence.md
-      - .claude/skills/design-invariants/SKILL.md
+      - docs/architecture/invariants/references/INV-2-facade-equivalence.md
+      - servers/exarchos-mcp/src/orchestrate/check-invariant-conformance.ts
       - docs/designs/2026-05-07-milestone-16-mcp-alignment.md
 
   - id: INV-3
@@ -301,8 +301,8 @@ invariants:
       (post-#1269). The remote-MCP surface throws-not-degrades when called
       (#1081).
     references:
-      - .claude/skills/design-invariants/references/INV-3-basileus-forward.md
-      - .claude/skills/design-invariants/SKILL.md
+      - docs/architecture/invariants/references/INV-3-basileus-forward.md
+      - servers/exarchos-mcp/src/orchestrate/check-invariant-conformance.ts
       - servers/exarchos-mcp/src/capabilities/resolver.ts
       - servers/exarchos-mcp/src/adapters/remote-mcp.ts
 
@@ -325,8 +325,8 @@ invariants:
       *workload* axis (workflow types). The two are complementary substrate
       properties — substrate guarantees hold across both axes.
     references:
-      - .claude/skills/design-invariants/references/INV-4-platform-agnosticity.md
-      - .claude/skills/design-invariants/SKILL.md
+      - docs/architecture/invariants/references/INV-4-platform-agnosticity.md
+      - servers/exarchos-mcp/src/orchestrate/check-invariant-conformance.ts
       - skills-src/SKILL_AUTHORING.md
 
   - id: INV-5a
@@ -343,8 +343,8 @@ invariants:
       with a pointer to the alternative. Visible tool count stays under 15.
       Static reference content is exposed as MCP Resources, not tools.
     references:
-      - .claude/skills/design-invariants/references/INV-5a-input-ergonomics.md
-      - .claude/skills/design-invariants/SKILL.md
+      - docs/architecture/invariants/references/INV-5a-input-ergonomics.md
+      - servers/exarchos-mcp/src/orchestrate/check-invariant-conformance.ts
       - servers/exarchos-mcp/src/registry.ts
       - servers/exarchos-mcp/src/adapters/schema-to-flags.ts
 
@@ -366,8 +366,8 @@ invariants:
       in INV-12.
     axiom_overlap: DIM-3
     references:
-      - .claude/skills/design-invariants/references/INV-5b-output-contract.md
-      - .claude/skills/design-invariants/SKILL.md
+      - docs/architecture/invariants/references/INV-5b-output-contract.md
+      - servers/exarchos-mcp/src/orchestrate/check-invariant-conformance.ts
       - servers/exarchos-mcp/src/format.ts
       - servers/exarchos-mcp/src/next-actions-computer.ts
       - servers/exarchos-mcp/src/mcp/tasks-methods.ts
@@ -386,8 +386,8 @@ invariants:
       they don't drive scripts. ps / describe / wait / export are observation
       verbs; mutating verbs default to --dry-run.
     references:
-      - .claude/skills/design-invariants/references/INV-5c-aspire-verbs.md
-      - .claude/skills/design-invariants/SKILL.md
+      - docs/architecture/invariants/references/INV-5c-aspire-verbs.md
+      - servers/exarchos-mcp/src/orchestrate/check-invariant-conformance.ts
       - servers/exarchos-mcp/src/describe/handler.ts
       - servers/exarchos-mcp/src/adapters/cli.ts
 
@@ -406,8 +406,8 @@ invariants:
       annotations (destructiveHint / readOnlyHint / idempotentHint /
       openWorldHint) live on CompositeAction post-#1268.
     references:
-      - .claude/skills/design-invariants/references/INV-5d-action-discriminator.md
-      - .claude/skills/design-invariants/SKILL.md
+      - docs/architecture/invariants/references/INV-5d-action-discriminator.md
+      - servers/exarchos-mcp/src/orchestrate/check-invariant-conformance.ts
       - servers/exarchos-mcp/src/registry.ts
       - servers/exarchos-mcp/src/adapters/mcp.ts
 
@@ -432,7 +432,7 @@ invariants:
       - "Harn typed orchestration boundary: https://harnlang.com/workflow-runtime.html"
       - "Novita framework-agnostic runtime: https://blogs.novita.ai/novita-agent-runtime-agentcore-compatible/"
     references:
-      - .claude/skills/design-invariants/references/INV-6-workflow-agnosticism.md
+      - docs/architecture/invariants/references/INV-6-workflow-agnosticism.md
       - scripts/lint-inv6.mjs
       - docs/architecture/runtime.md#§1
 
@@ -447,10 +447,10 @@ invariants:
     summary: >
       Topology dimension (axiom-owned, see /axiom:critique). Adapter-local
       mutable caches, lazy fallback singletons, and side databases are
-      topology smells that overlap with INV-1 / INV-2; design-invariants
+      topology smells that overlap with INV-1 / INV-2; the conformance gate
       cross-links rather than duplicating the axiom:backend-quality check.
     references:
-      - .claude/skills/design-invariants/SKILL.md
+      - servers/exarchos-mcp/src/orchestrate/check-invariant-conformance.ts
       - servers/exarchos-mcp/src/review/registry.ts
       - docs/rca/2026-04-27-v29-rc1-orchestrate-cluster.md
 
@@ -468,7 +468,7 @@ invariants:
       INV-1 when a reducer apply catches and continues instead of triggering
       the reducer-throw degradation path.
     references:
-      - .claude/skills/design-invariants/SKILL.md
+      - servers/exarchos-mcp/src/orchestrate/check-invariant-conformance.ts
       - servers/exarchos-mcp/src/agents/generate-agents.ts
       - servers/exarchos-mcp/src/agents/generate-agents.test.ts
 
@@ -486,7 +486,7 @@ invariants:
       event field is removed but still read, and INV-5b when output shape
       changes without an envelope version bump.
     references:
-      - .claude/skills/design-invariants/SKILL.md
+      - servers/exarchos-mcp/src/orchestrate/check-invariant-conformance.ts
       - servers/exarchos-mcp/src/topology/phase-contract.ts
       - servers/exarchos-mcp/src/registry.ts
 
@@ -503,7 +503,7 @@ invariants:
       Cross-references INV-2 (facade equivalence) when mock-vs-real
       divergence hides parity bugs.
     references:
-      - .claude/skills/design-invariants/SKILL.md
+      - servers/exarchos-mcp/src/orchestrate/check-invariant-conformance.ts
       - servers/exarchos-mcp/src/__tests__/parity-harness.ts
 
   - id: DIM-5
@@ -520,7 +520,7 @@ invariants:
       intersects INV-2 (legacy adapter paths) or INV-5d (legacy top-level
       tools that should collapse into composite actions).
     references:
-      - .claude/skills/design-invariants/SKILL.md
+      - servers/exarchos-mcp/src/orchestrate/check-invariant-conformance.ts
       - docs/contexts/2026-05-07-insights-friction-discovery.md
 
   - id: DIM-6
@@ -534,9 +534,9 @@ invariants:
     summary: >
       SOLID / coupling dimension from axiom — generic dependency direction,
       single-responsibility violations, inheritance vs composition mismatches.
-      Axiom-owned; design-invariants defers here for generic SOLID findings.
+      Axiom-owned; the conformance gate defers here for generic SOLID findings.
     references:
-      - .claude/skills/design-invariants/SKILL.md
+      - servers/exarchos-mcp/src/orchestrate/check-invariant-conformance.ts
       - docs/designs/2026-05-18-preview-4-invariant-audit-pair.md
 
   - id: DIM-7
@@ -552,7 +552,7 @@ invariants:
       Cross-references INV-1 when a fallback creates a degraded EventStore,
       and INV-2 when it hides parity divergence.
     references:
-      - .claude/skills/design-invariants/SKILL.md
+      - servers/exarchos-mcp/src/orchestrate/check-invariant-conformance.ts
       - servers/exarchos-mcp/src/agents/generate-agents.ts
 
   - id: DIM-8
@@ -568,7 +568,7 @@ invariants:
       prose patterns. Catalog entry preserved for vocabulary-lint
       cross-references only; not loaded at Phase 0.
     references:
-      - .claude/skills/design-invariants/SKILL.md
+      - servers/exarchos-mcp/src/orchestrate/check-invariant-conformance.ts
       - docs/contexts/2026-05-07-insights-friction-discovery.md
 
   - id: basileus-boundary
@@ -585,16 +585,16 @@ invariants:
       coordination uses the Ontology MCP Server (intent_register) rather than
       bespoke RPC. Strategos.Contracts via TypeSpec governs schema.
     references:
-      - .claude/skills/design-invariants/SKILL.md
+      - servers/exarchos-mcp/src/orchestrate/check-invariant-conformance.ts
       - docs/research/2026-05-14-semantic-merge-queue-audit.md
       - servers/exarchos-mcp/src/sync
 ---
 
 # Exarchos Architectural Invariants
 
-Machine-readable catalog of the architectural invariants that govern Exarchos design and review. The YAML frontmatter above is the **source of truth** for tooling — the `/ideate` command, the `design-invariants` skill, and the `vocabulary-lint` scanner all consume the same shape.
+Machine-readable catalog of the architectural invariants that govern Exarchos design and review. The YAML frontmatter above is the **source of truth** for tooling — the `/ideate` command, the `check_invariant_conformance` gate, and the `vocabulary-lint` scanner all consume the same shape.
 
-This file pairs with the prose reference content under [`.claude/skills/design-invariants/references/`](../../.claude/skills/design-invariants/references/). The frontmatter `summary` field is the short version; the linked reference files carry the full prose, severity guides, worked examples, and external grounding.
+This file pairs with the prose reference content under [`invariants/references/`](invariants/references/). The frontmatter `summary` field is the short version; the linked reference files carry the full prose, severity guides, worked examples, and external grounding. (Prior to T-23 these references lived under the now-retired `design-invariants` skill; the skill's audit behavior is now performed by the `check_invariant_conformance` gate.)
 
 ## Schema
 
@@ -621,7 +621,7 @@ The vocabulary-lint scanner (`servers/exarchos-mcp/src/architecture/vocabulary-l
 ## Consumers
 
 - `/exarchos:ideate` — surfaces relevant invariants as Constraints during Phase 0 (before Phase 1), before the clarifying questions.
-- `design-invariants` skill — audits design proposals against INV-1..INV-15 (substrate runtime invariants) + the DIM-1..DIM-8 axiom-dimension cross-links.
+- `check_invariant_conformance` gate (`servers/exarchos-mcp/src/orchestrate/check-invariant-conformance.ts`) — audits design proposals against INV-1..INV-15 (substrate runtime invariants) + the DIM-1..DIM-8 axiom-dimension cross-links. The audit prompt is catalog-generated (`servers/exarchos-mcp/src/architecture/audit-prompt.ts`). This gate replaced the retired `design-invariants` skill (T-23).
 - `vocabulary-lint` — flags references to invariant IDs not registered here.
 - Future: `#1275` MCP Resources — expose this catalog as `resources/exarchos-invariants` once Resources land.
 
@@ -629,4 +629,4 @@ The vocabulary-lint scanner (`servers/exarchos-mcp/src/architecture/vocabulary-l
 
 - [`docs/architecture/projections.md`](projections.md) — projection layer specifics.
 - [`docs/architecture/runtime.md`](runtime.md) — runtime / capability resolution.
-- [`.claude/skills/design-invariants/SKILL.md`](../../.claude/skills/design-invariants/SKILL.md) — operational skill that consumes this catalog.
+- [`check-invariant-conformance.ts`](../../servers/exarchos-mcp/src/orchestrate/check-invariant-conformance.ts) — the conformance gate that consumes this catalog (replaced the retired `design-invariants` skill in T-23).
