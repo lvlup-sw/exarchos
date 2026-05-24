@@ -55,7 +55,6 @@ export const LEAF_KINDS = ['grep', 'structural', 'heuristic'] as const;
 export type LeafKind = (typeof LEAF_KINDS)[number];
 
 // ─── CheckNode (recursive combinator DSL) ───────────────────────────────────
-// contract-shaped: CheckNode
 
 /** Leaf check — a single grep / structural / heuristic execution. */
 const CheckLeafSchema = z
@@ -77,6 +76,7 @@ const CheckLeafSchema = z
  * letting Zod emit a generic union-mismatch error. This guarantees the
  * evaluator's exhaustive switch only ever receives a valid `LeafKind`.
  */
+// contract-shaped: CheckNode
 export const CheckNodeSchema: z.ZodType<CheckNode> = z.lazy(() =>
   z.preprocess((value) => {
     if (
@@ -128,13 +128,13 @@ export type CheckNode =
   | { scope: { fileGlob?: string; phase?: string }; node: CheckNode };
 
 // ─── Enforcement (combinator DSL entry point) ───────────────────────────────
-// contract-shaped: Enforcement
 
 /**
  * Discriminated union on `mode`:
  *   - `check` — declarative combinator tree evaluated against a diff.
  *   - `audit` — an LLM audit prompt (no programmatic execution).
  */
+// contract-shaped: Enforcement
 export const EnforcementSchema = z.discriminatedUnion('mode', [
   z.object({ mode: z.literal('check'), check: CheckNodeSchema }).strict(),
   z.object({ mode: z.literal('audit'), 'audit-prompt': z.string() }).strict(),
@@ -143,7 +143,6 @@ export const EnforcementSchema = z.discriminatedUnion('mode', [
 export type Enforcement = z.infer<typeof EnforcementSchema>;
 
 // ─── InvariantEntryV3 (catalog entry) ───────────────────────────────────────
-// contract-shaped: InvariantEntry
 
 const PHASE_VALUES = ['ideate', 'plan', 'delegate', 'review', 'synthesize'] as const;
 const WORKFLOW_VALUES = ['feature', 'debug', 'refactor', 'discover', 'oneshot'] as const;
@@ -173,6 +172,7 @@ const SeveritySchema = z
  * The `.strict()` boundary is the enforcement DSL, where unknown keys are a
  * security concern (INV-4).
  */
+// contract-shaped: InvariantEntry
 export const InvariantEntryV3Schema = z.object({
   // ── v2 required fields ──
   id: z.string().min(1),
