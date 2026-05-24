@@ -75,6 +75,37 @@ describe('evaluateTree', () => {
     expect(evaluateTree(node, DIFF)).toEqual(direct);
   });
 
+  it('EvaluateTree_ScopePhase_SkipsSubtreeOutOfPhase', () => {
+    // A `scope.phase` declares the subtree applies only during that phase. An
+    // ALWAYS_FAIL leaf scoped to `delegate` must NOT fire when the gate runs
+    // at `review` — the subtree is out of scope and therefore passes.
+    const node: CheckNode = {
+      scope: { phase: 'delegate' },
+      node: ALWAYS_FAIL,
+    };
+    expect(evaluateTree(node, DIFF, 'review')).toEqual([]);
+  });
+
+  it('EvaluateTree_ScopePhase_EvaluatesSubtreeInPhase', () => {
+    // When the current phase matches the scoped phase, the subtree applies and
+    // the failing leaf fires as usual.
+    const node: CheckNode = {
+      scope: { phase: 'review' },
+      node: ALWAYS_FAIL,
+    };
+    expect(evaluateTree(node, DIFF, 'review').length).toBeGreaterThan(0);
+  });
+
+  it('EvaluateTree_ScopePhase_InertWhenCurrentPhaseOmitted', () => {
+    // Backward-compatibility: a phase-agnostic caller (no currentPhase) cannot
+    // evaluate the gate, so the subtree applies unconditionally.
+    const node: CheckNode = {
+      scope: { phase: 'delegate' },
+      node: ALWAYS_FAIL,
+    };
+    expect(evaluateTree(node, DIFF).length).toBeGreaterThan(0);
+  });
+
   // REFACTOR (T-06): a randomly generated boolean tree of always-pass /
   // always-fail leaves evaluates equal to a reference boolean-algebra
   // evaluation over the same tree. `passes` ≡ "no findings".

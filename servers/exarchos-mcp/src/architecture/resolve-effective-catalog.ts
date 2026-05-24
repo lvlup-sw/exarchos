@@ -48,6 +48,7 @@ import {
   mergeCatalogs,
   applyOverrides,
   resolveFloor,
+  isReservedUserId,
   type InvariantOverride,
 } from './catalog-merge.js';
 import { projectCatalog } from './project-catalog.js';
@@ -145,9 +146,19 @@ export function resolveEffectiveCatalog(
     const resolved = path.isAbsolute(catalogPath)
       ? catalogPath
       : path.join(repoRoot, catalogPath);
-    if (!fs.existsSync(resolved)) return [];
+    // A configured-but-missing path is almost always a typo or a rename; a
+    // silent `[]` would invisibly disable the intended invariant checks. Warn
+    // (naming the path) and degrade like any other DR-9 skip.
+    if (!fs.existsSync(resolved)) {
+      loadWarnings.push(
+        `User invariant catalog '${catalogPath}' was not found at '${resolved}' ` +
+          `and was skipped; evaluated remaining layers only.`,
+      );
+      return [];
+    }
+    let loaded: InvariantEntry[];
     try {
-      return loadInvariants(resolved, undefined, USER_CATALOG_LOAD_CONFIG);
+      loaded = loadInvariants(resolved, undefined, USER_CATALOG_LOAD_CONFIG);
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err);
       loadWarnings.push(
@@ -156,6 +167,24 @@ export function resolveEffectiveCatalog(
       );
       return [];
     }
+    // Reserved-namespace ids (`INV-*` / `SDLC-*`) belong to built-in layers.
+    // `mergeCatalogs` would throw `ReservedNamespaceError` on the first such
+    // user entry and abort the WHOLE resolution (crashing the conformance
+    // gate). Pre-filter them here so the violation degrades to a per-entry
+    // warning and the catalog's valid entries still apply (DR-9).
+    const accepted: InvariantEntry[] = [];
+    for (const entry of loaded) {
+      if (isReservedUserId(entry.id)) {
+        loadWarnings.push(
+          `User invariant catalog '${catalogPath}' entry '${entry.id}' uses a ` +
+            `reserved id namespace (INV-*, SDLC-*) and was skipped; those ` +
+            `prefixes are reserved for built-in invariants — rename it.`,
+        );
+        continue;
+      }
+      accepted.push(entry);
+    }
+    return accepted;
   });
 
   // ── Merge + override-clamp ──

@@ -154,4 +154,55 @@ describe('vocabulary-lint', () => {
     expect(findings.some((f) => f.token === 'DIM-902')).toBe(false);
     expect(findings.some((f) => f.token === 'DIM-903')).toBe(false);
   });
+
+  /**
+   * DR-8 closure is specifically `INV-* -> axiom_overlap -> DIM-*`. Only an
+   * INV-* entry may close a DIM gap. A non-INV-* entry (here an SDLC-* one)
+   * that carries `axiom_overlap` pointing at a DIM must NOT be counted as a
+   * specialization — otherwise it would mask a genuine coverage gap.
+   */
+  it('VocabularyLint_NonInvAxiomOverlap_DoesNotCloseGap', () => {
+    const fixture = path.join(tmpDir, 'coverage-non-inv-fixture.md');
+    fs.writeFileSync(
+      fixture,
+      [
+        '---',
+        'schema-version: 3',
+        'invariants:',
+        // DIM-910: the only would-be specializer is a non-INV-* entry, so this
+        // dimension is still an uncovered gap.
+        '  - id: DIM-910',
+        '    dimension: masked-dimension',
+        '    axis: substrate',
+        '    cost-of-load: reference-only',
+        '    applies-to: [some-module]',
+        '    summary: A dimension a non-INV entry falsely claims to specialize.',
+        '    references: [docs/architecture/invariants.md]',
+        // SDLC-50: carries axiom_overlap: DIM-910 but is NOT an INV-* — it must
+        // not close DIM-910.
+        '  - id: SDLC-50',
+        '    dimension: a-consumer-invariant',
+        '    axis: substrate',
+        '    cost-of-load: always-load',
+        '    axiom_overlap: DIM-910',
+        '    applies-to: [some-module]',
+        '    summary: A consumer-tier invariant that is not an INV-*.',
+        '    references: [docs/architecture/invariants.md]',
+        '---',
+        '',
+        '# Non-INV specialization fixture',
+        '',
+      ].join('\n'),
+    );
+
+    const findings = scanCoverageClosure({
+      invariantsDoc: fixture,
+      config: ENABLED_CONFIG,
+    });
+
+    // DIM-910 remains a gap: the SDLC-* overlap does not count.
+    const gap = findings.find((f) => f.token === 'DIM-910');
+    expect(gap).toBeDefined();
+    expect(gap!.kind).toBe('coverage-gap');
+  });
 });

@@ -273,7 +273,8 @@ export async function handleCheckInvariantConformance(
     // propagated to abort the whole gate.
     let treeFindings: PluginFinding[];
     try {
-      treeFindings = evaluateTree(entry.enforcement.check, diff);
+      // Pass the gate phase so `scope.phase` subtrees only apply in-phase.
+      treeFindings = evaluateTree(entry.enforcement.check, diff, phase);
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err);
       findings.push({

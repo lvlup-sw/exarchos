@@ -227,9 +227,14 @@ export function scanCoverageClosure(
   const entries = loadInvariants(docPath, { scope: 'all' }, options.config);
 
   // Set of DIM-* ids that at least one INV-* specializes via axiom_overlap.
+  // DR-8 closure is specifically `INV-* -> axiom_overlap -> DIM-*`, so only
+  // INV-* entries whose overlap names a DIM-* may close a gap. Counting a
+  // non-INV-* entry (e.g. a DIM-* or SDLC-* that carries `axiom_overlap`)
+  // would let it mask a genuine DIM-* coverage gap.
   const specialized = new Set<string>();
   for (const entry of entries) {
-    if (entry.axiomOverlap !== undefined) {
+    if (!entry.id.startsWith('INV-')) continue;
+    if (entry.axiomOverlap?.startsWith('DIM-')) {
       specialized.add(entry.axiomOverlap);
     }
   }

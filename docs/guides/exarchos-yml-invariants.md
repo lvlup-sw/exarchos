@@ -37,7 +37,7 @@ invariants:
 | `invariants.devCatalog` | enum `enabled \| disabled` | `disabled` | When `enabled`, Exarchos's dev-internal catalog is surfaced. Consumers leave this off. |
 | `invariants.catalogs` | `string[]` | `[]` | Paths to consumer-authored catalog files. **Explicit listing only** — a file present on disk is not auto-loaded. |
 | `invariants.overrides` | `Record<id, { severity?, enabled? }>` | `{}` | Tune a shipped (`SDLC-*`) invariant's severity, or disable it. Bounded by the invariant's `integrity-class` floor (see below). |
-| `invariants.enforcement.review` | enum `blocking \| advisory` | (gate default) | When `advisory`, invariant-conformance findings are reported but do not drive the review verdict to NEEDS_FIXES/BLOCKED. |
+| `invariants.enforcement.review` | enum `blocking \| advisory` | `blocking` | When the key is omitted the gate treats findings as `blocking`. When `advisory`, invariant-conformance findings are reported but do not drive the review verdict to NEEDS_FIXES/BLOCKED. |
 
 The schema is enforced by `InvariantsConfigSchema`
 (`servers/exarchos-mcp/src/config/exarchos-config-schema.ts`), reused by

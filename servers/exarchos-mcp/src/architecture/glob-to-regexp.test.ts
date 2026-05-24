@@ -41,4 +41,16 @@ describe('globToRegExp (shared, FIX-3)', () => {
     expect(re.test('servers/a/b.ts')).toBe(true);
     expect(re.test('servers/a/b/c.ts')).toBe(true);
   });
+
+  it('GlobToRegExp_DoubleStarSlash_MatchesZeroDepth', () => {
+    // `**/` means "zero or more leading segments, including none", so a file
+    // directly under `servers/` must match — not just nested files. Regression
+    // guard: a bare `.*\/` expansion silently excludes the zero-depth case.
+    const re = globToRegExp('servers/**/*.ts');
+    expect(re.test('servers/foo.ts')).toBe(true);
+    expect(re.test('servers/a/foo.ts')).toBe(true);
+    expect(re.test('servers/a/b/foo.ts')).toBe(true);
+    // still anchored: a sibling prefix must not match.
+    expect(re.test('other/foo.ts')).toBe(false);
+  });
 });

@@ -20,10 +20,16 @@ import type { PluginFinding } from '../review/check-catalog.js';
 import type { CheckLeaf, CheckNode, LeafKind } from './invariant-schema.js';
 import { globToRegExp } from './glob-to-regexp.js';
 
-/** Effective scope threaded down a subtree by `scope` nodes. */
+/**
+ * Effective scope threaded down a subtree by `scope` nodes.
+ *
+ * `phase` is NOT carried here: a `scope` node's `phase` is a gate condition
+ * (compared against the evaluation's current phase), not a property the inner
+ * leaves consume. It is enforced at the `scope` node itself — see
+ * `evaluateTreeScoped`.
+ */
 interface EvalScope {
   fileGlob?: string;
-  phase?: string;
 }
 
 /** Compile-time exhaustiveness guard (DR-9 total function). */
@@ -127,8 +133,13 @@ export function evaluateLeaf(
 }
 
 /** A node passes when it emits no findings. */
-function nodePasses(node: CheckNode, diff: string, scope: EvalScope): boolean {
-  return evaluateTreeScoped(node, diff, scope).length === 0;
+function nodePasses(
+  node: CheckNode,
+  diff: string,
+  scope: EvalScope,
+  currentPhase: string | undefined,
+): boolean {
+  return evaluateTreeScoped(node, diff, scope, currentPhase).length === 0;
 }
 
 /** Type guard: leaf vs combinator. */
@@ -140,6 +151,7 @@ function evaluateTreeScoped(
   node: CheckNode,
   diff: string,
   scope: EvalScope,
+  currentPhase: string | undefined,
 ): PluginFinding[] {
   if (isLeaf(node)) {
     return evaluateLeaf(node, diff, scope);
@@ -147,21 +159,21 @@ function evaluateTreeScoped(
   if ('all-of' in node) {
     // Conjunction: a failing child contributes its findings.
     return node['all-of'].flatMap((child) =>
-      evaluateTreeScoped(child, diff, scope),
+      evaluateTreeScoped(child, diff, scope, currentPhase),
     );
   }
   if ('any-of' in node) {
     // Disjunction: passes (no findings) if ANY child passes; otherwise emits
     // every child's findings so the caller sees why all branches failed.
     const childResults = node['any-of'].map((child) =>
-      evaluateTreeScoped(child, diff, scope),
+      evaluateTreeScoped(child, diff, scope, currentPhase),
     );
     const anyPass = childResults.some((findings) => findings.length === 0);
     return anyPass ? [] : childResults.flat();
   }
   if ('not' in node) {
     // Negation: a passing child becomes one finding; a failing child passes.
-    return nodePasses(node.not, diff, scope)
+    return nodePasses(node.not, diff, scope, currentPhase)
       ? [
           {
             source: 'enforcement:not',
@@ -172,13 +184,25 @@ function evaluateTreeScoped(
       : [];
   }
   if ('scope' in node) {
-    // Narrow fileGlob/phase for the subtree; inner declarations win over the
-    // narrowed scope only at the leaf level (leaf.fileGlob ?? scope.fileGlob).
+    // Phase gate: a `scope.phase` declares "this subtree only applies during
+    // phase X". When the caller supplies the current phase and it does not
+    // match, the subtree is out of scope and therefore passes (no findings).
+    // When the caller omits the phase (currentPhase === undefined) the gate is
+    // not evaluable, so the subtree applies unconditionally — preserving the
+    // pre-enforcement behavior for phase-agnostic callers.
+    if (
+      node.scope.phase !== undefined &&
+      currentPhase !== undefined &&
+      node.scope.phase !== currentPhase
+    ) {
+      return [];
+    }
+    // Narrow fileGlob for the subtree; an inner leaf declaration still wins
+    // over the narrowed scope (leaf.fileGlob ?? scope.fileGlob).
     const narrowed: EvalScope = {
       fileGlob: node.scope.fileGlob ?? scope.fileGlob,
-      phase: node.scope.phase ?? scope.phase,
     };
-    return evaluateTreeScoped(node.node, diff, narrowed);
+    return evaluateTreeScoped(node.node, diff, narrowed, currentPhase);
   }
   // Unreachable: schema validation guarantees one of the arms above.
   return assertNever(node as never);
@@ -187,7 +211,16 @@ function evaluateTreeScoped(
 /**
  * Evaluate a combinator tree against a diff, returning the aggregated
  * findings. An empty array means the whole tree passed.
+ *
+ * @param currentPhase  The SDLC phase the evaluation runs in. When supplied, a
+ *   `scope` node whose `phase` does not match is treated as out of scope (its
+ *   subtree passes). When omitted, phase scoping is inert (every subtree
+ *   applies) — the gate handler always supplies it.
  */
-export function evaluateTree(node: CheckNode, diff: string): PluginFinding[] {
-  return evaluateTreeScoped(node, diff, {});
+export function evaluateTree(
+  node: CheckNode,
+  diff: string,
+  currentPhase?: string,
+): PluginFinding[] {
+  return evaluateTreeScoped(node, diff, {}, currentPhase);
 }

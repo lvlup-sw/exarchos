@@ -9,7 +9,11 @@
  * implementation (the `project-catalog.ts` escape set, which escapes `/`).
  *
  * Glob semantics (matches what the catalog actually uses):
- *   - `**` matches across path separators (any subtree);
+ *   - a double-star followed by a slash matches zero or more leading path
+ *     segments, INCLUDING none, so the pattern `servers/` + double-star +
+ *     `/*.ts` matches both `servers/foo.ts` and `servers/a/b.ts`;
+ *   - a double-star not followed by a slash matches across path separators
+ *     (any subtree);
  *   - `*`  matches within a single path segment (no `/`);
  *   - every other regex-special character is escaped to a literal.
  *
@@ -22,7 +26,9 @@ const REGEX_SPECIAL = '\\^$.|?+()[]{}';
 /**
  * Convert a glob-ish pattern to an anchored RegExp.
  *
- *   - `**` matches across path separators (any subtree);
+ *   - a double-star followed by a slash matches zero or more leading path
+ *     segments (including none);
+ *   - a double-star not followed by a slash matches across path separators;
  *   - `*`  matches within a single path segment (no `/`);
  *   - `/`  is escaped to a literal separator;
  *   - all other regex-special characters are escaped literally.
@@ -34,7 +40,15 @@ export function globToRegExp(pattern: string): RegExp {
     if (ch === '*') {
       if (pattern[i + 1] === '*') {
         i++; // consume the second `*`
-        out += '.*'; // `**` — match across separators.
+        if (pattern[i + 1] === '/') {
+          // `**/` — zero or more leading path segments, INCLUDING none, so
+          // `servers/**/*.ts` also matches `servers/foo.ts`. A bare `.*\/`
+          // would have required at least one nested segment.
+          i++; // consume the `/`
+          out += '(?:.*\\/)?';
+        } else {
+          out += '.*'; // bare `**` — match across separators.
+        }
       } else {
         out += '[^/]*'; // single `*` — match within a segment.
       }

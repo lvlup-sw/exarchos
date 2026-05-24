@@ -75,7 +75,13 @@ export class ReservedNamespaceError extends Error {
   }
 }
 
-function isReservedUserId(id: string): boolean {
+/**
+ * True when `id` claims a prefix reserved for built-in invariants
+ * (`INV-*` / `SDLC-*`). Exported so the effective-catalog resolver can
+ * pre-filter reserved user entries into DR-9 warnings rather than letting
+ * `mergeCatalogs` throw `ReservedNamespaceError` and abort the whole gate.
+ */
+export function isReservedUserId(id: string): boolean {
   return RESERVED_USER_ID_PREFIXES.some((prefix) => id.startsWith(prefix));
 }
 

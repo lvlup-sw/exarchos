@@ -167,4 +167,92 @@ describe('resolveEffectiveCatalog', () => {
     const warning = warnings.find((w) => w.includes('invariants.user.yml'));
     expect(warning).toBeDefined();
   });
+
+  it('ResolveEffectiveCatalog_ReservedNamespaceUserEntry_DegradesWithWarning', () => {
+    // A user catalog claiming a reserved id (`INV-*` / `SDLC-*`) must NOT crash
+    // the whole resolution via mergeCatalogs' ReservedNamespaceError. The
+    // offending entry is dropped with a warning; the catalog's valid entries
+    // and the built-in layers still resolve (DR-9 entry-granular degradation).
+    const reservedCatalogPath = path.join(fixture.repoRoot, 'reserved.user.md');
+    fs.writeFileSync(
+      reservedCatalogPath,
+      [
+        '---',
+        'schema-version: 3',
+        'invariants:',
+        '  - id: INV-99', // reserved namespace — must be rejected
+        '    dimension: lint',
+        '    axis: substrate',
+        '    cost-of-load: always-load',
+        '    applies-to:',
+        '      - src/**',
+        '    summary: User entry squatting a reserved id.',
+        '    references: []',
+        '  - id: team-valid', // valid sibling — must survive
+        '    dimension: lint',
+        '    axis: substrate',
+        '    cost-of-load: always-load',
+        '    applies-to:',
+        '      - src/**',
+        '    summary: A legitimate user invariant.',
+        '    references: []',
+        '---',
+        '',
+      ].join('\n'),
+      'utf8',
+    );
+
+    const config: ExarchosConfig = {
+      invariants: {
+        devCatalog: 'enabled',
+        catalogs: ['reserved.user.md'],
+      },
+    };
+
+    // Must not throw.
+    const { entries, warnings } = resolveEffectiveCatalog({
+      repoRoot: fixture.repoRoot,
+      config,
+      phase: 'ideate',
+      workflowType: 'feature',
+    });
+
+    const ids = entries.map((e) => e.id);
+    // The built-in dev INV-1 (not a user squat) and the valid user entry survive.
+    expect(ids).toContain('INV-1');
+    expect(ids).toContain('team-valid');
+    // The reserved-id user squat was dropped, not surfaced as a built-in.
+    expect(entries.filter((e) => e.id === 'INV-99')).toHaveLength(0);
+    // A warning names the offending id.
+    const warning = warnings.find(
+      (w) => w.includes('INV-99') && w.includes('reserved'),
+    );
+    expect(warning).toBeDefined();
+  });
+
+  it('ResolveEffectiveCatalog_MissingUserCatalogPath_WarnsNotSilent', () => {
+    // A configured-but-missing catalog path is almost always a typo/rename. It
+    // must surface a warning rather than silently disabling intended checks.
+    const config: ExarchosConfig = {
+      invariants: {
+        devCatalog: 'enabled',
+        catalogs: ['does/not/exist.md'],
+      },
+    };
+
+    const { entries, warnings } = resolveEffectiveCatalog({
+      repoRoot: fixture.repoRoot,
+      config,
+      phase: 'ideate',
+      workflowType: 'feature',
+    });
+
+    // Built-in layer unaffected.
+    expect(entries.map((e) => e.id)).toContain('INV-1');
+    // Warning names the missing path and says it was skipped.
+    const warning = warnings.find(
+      (w) => w.includes('does/not/exist.md') && w.includes('not found'),
+    );
+    expect(warning).toBeDefined();
+  });
 });
