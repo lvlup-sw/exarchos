@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { ExarchosConfigSchema } from './exarchos-config-schema.js';
+import {
+  ExarchosConfigSchema,
+  InvariantsConfigSchema,
+} from './exarchos-config-schema.js';
 
 describe('ExarchosConfigSchema', () => {
   it('schema_AllFieldsProvided_Validates', () => {
@@ -285,5 +288,45 @@ describe('ExarchosConfigSchema — invariants.devCatalog (Wave B1)', () => {
       invariants: { devcatalog: 'enabled' },
     });
     expect(result.success).toBe(false);
+  });
+});
+
+// T-18 (DR-6) — additive `invariants` config keys: `catalogs`,
+// `overrides`, `enforcement`. These extend the canonical
+// `InvariantsConfigSchema` for user-authored catalog files, per-invariant
+// severity/enabled tuning, and per-phase enforcement, while preserving
+// `devCatalog` and the `.strict()` posture.
+describe('InvariantsConfigSchema — additive keys (T-18 / DR-6)', () => {
+  it('InvariantsConfigSchema_NewKeys_ParseAndStrictReject', () => {
+    const ok = InvariantsConfigSchema.safeParse({
+      devCatalog: 'enabled',
+      catalogs: ['.exarchos/invariants.yml'],
+      overrides: {
+        'SDLC-3': { severity: 'advisory' },
+        'SDLC-7': { enabled: false },
+      },
+      enforcement: { review: 'blocking' },
+    });
+    expect(ok.success).toBe(true);
+    if (ok.success) {
+      expect(ok.data.devCatalog).toBe('enabled');
+      expect(ok.data.catalogs).toEqual(['.exarchos/invariants.yml']);
+      expect(ok.data.overrides?.['SDLC-3']?.severity).toBe('advisory');
+      expect(ok.data.overrides?.['SDLC-7']?.enabled).toBe(false);
+      expect(ok.data.enforcement?.review).toBe('blocking');
+    }
+
+    // Unknown top-level key under `invariants` is rejected by `.strict()`.
+    const unknownTop = InvariantsConfigSchema.safeParse({
+      devCatalog: 'enabled',
+      bogus: true,
+    });
+    expect(unknownTop.success).toBe(false);
+
+    // Unknown nested key inside an override is rejected by `.strict()`.
+    const unknownNested = InvariantsConfigSchema.safeParse({
+      overrides: { 'SDLC-3': { severity: 'advisory', bogus: true } },
+    });
+    expect(unknownNested.success).toBe(false);
   });
 });

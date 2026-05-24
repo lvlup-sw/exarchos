@@ -68,9 +68,41 @@ const CliConfigSchema = z
 // Exported so `ProjectConfigSchema` (yaml-schema.ts) can compose the
 // identical block under its own `invariants:` key without duplicating
 // the shape (PR #1459 CodeRabbit finding 2 — single source of truth).
+// invariants-projection-extensibility (T-18 / DR-6) — additive keys.
+//
+// Beyond the dev-catalog toggle, operators can extend the invariants
+// surface declaratively in `.exarchos.yml`:
+//
+//   - `catalogs`: paths to user-authored invariant catalog files, merged
+//     on top of the built-in catalog.
+//   - `overrides`: per-invariant-id tuning — flip `severity`
+//     (`blocking | advisory`) or `enabled` without editing the catalog.
+//   - `enforcement`: which phase treats invariant findings as gating;
+//     `review: blocking` makes the review phase fail on a finding,
+//     `advisory` surfaces it without gating.
+//
+// All three are optional and additive: omitting them preserves the
+// pre-T-18 behaviour. The schema stays `.strict()` so typos in the new
+// keys (or in nested override keys) surface as validation errors rather
+// than silently-ignored fields.
+const InvariantOverrideSchema = z
+  .object({
+    severity: z.enum(['blocking', 'advisory']).optional(),
+    enabled: z.boolean().optional(),
+  })
+  .strict();
+
 export const InvariantsConfigSchema = z
   .object({
     devCatalog: z.enum(['enabled', 'disabled']).optional(),
+    catalogs: z.array(z.string()).optional(),
+    overrides: z.record(z.string(), InvariantOverrideSchema).optional(),
+    enforcement: z
+      .object({
+        review: z.enum(['blocking', 'advisory']),
+      })
+      .strict()
+      .optional(),
   })
   .strict();
 
