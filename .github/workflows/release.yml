@@ -27,7 +27,13 @@ permissions:
 jobs:
   release:
     name: Publish Release
-    runs-on: self-hosted
+    # ubuntu-latest matches binary-matrix below — the self-hosted Azure Container
+    # Apps Job runner (caj-github-runner-dev, 4 GiB / 8 GiB ephemeral) reproducibly
+    # hangs on `cd servers/exarchos-mcp && npm ci` for this workload (net RX dies
+    # after ~1 GB, CPU drops to near-zero until 1-hour replicaTimeout fires). The
+    # same step completes in 30-45s on ubuntu-latest. See memory note
+    # feedback_self_hosted_runner_npm_ci_stall.
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
