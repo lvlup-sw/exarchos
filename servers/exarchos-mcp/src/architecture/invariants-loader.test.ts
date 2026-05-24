@@ -345,13 +345,13 @@ describe('invariants-loader', () => {
   //
   // Spec: docs/proposals/2026-05-20-invariants-catalog-v2-spec.md §3, §7.1
 
-  it('Invariants_AfterSchemaV2Bump_EveryEntryHasAxisField', () => {
-    // Read raw frontmatter to assert the schema-version bump.
+  it('Invariants_AfterSchemaV3Bump_EveryEntryHasAxisField', () => {
+    // Read raw frontmatter to assert the schema-version bump (v3, issue #1466).
     const source = fs.readFileSync(INVARIANTS_DOC, 'utf8');
     const frontmatterMatch = source.match(/^---\n([\s\S]*?)\n---/);
     expect(frontmatterMatch, 'invariants.md must have YAML frontmatter').not.toBeNull();
     const frontmatter = frontmatterMatch![1];
-    expect(frontmatter).toMatch(/^schema-version:\s*2\b/m);
+    expect(frontmatter).toMatch(/^schema-version:\s*3\b/m);
 
     // Every loaded entry must expose the typed `axis` field with one of
     // the two allowed values. Asserts the loader has promoted the new
@@ -1183,31 +1183,64 @@ invariants:
     }
   });
 
-  it('LoadInvariants_LiveV2Catalog_ZeroDiffUnderV3Loader', () => {
-    // Characterization guard: the REAL docs/architecture/invariants.md
-    // (still schema-version: 2) must load under the widened v3 loader with
-    // zero observable change. We assert STRUCTURAL parity — not an exact
-    // snapshot of churn-prone summary prose:
-    //   - it loads without error,
-    //   - every resolved entry keeps its v2 fields intact,
-    //   - no v3 field is spuriously populated (all undefined).
-    const entries = loadInvariants(INVARIANTS_DOC, undefined, ENABLED_CONFIG);
-    expect(entries.length).toBeGreaterThan(0);
-    for (const entry of entries) {
-      // v2 required fields are well-formed.
-      expect(typeof entry.id).toBe('string');
-      expect(entry.id.length).toBeGreaterThan(0);
-      expect(entry.axis === 'substrate' || entry.axis === 'authoring').toBe(true);
-      expect(['always-load', 'reference-only', 'archivable']).toContain(entry.costOfLoad);
-      expect(Array.isArray(entry.appliesTo)).toBe(true);
-      expect(typeof entry.summary).toBe('string');
-      // No v3 field is populated under the v2 catalog.
-      expect(entry.phaseAffinity).toBeUndefined();
-      expect(entry.workflowAffinity).toBeUndefined();
-      expect(entry.stateAffinity).toBeUndefined();
-      expect(entry.integrityClass).toBeUndefined();
-      expect(entry.severity).toBeUndefined();
-      expect(entry.enforcement).toBeUndefined();
+  it('LoadInvariants_V2FixtureCatalog_ZeroV3FieldsUnderV3Loader', () => {
+    // Back-compat contract (DR-1): a schema-version: 2 catalog with NO v3 keys
+    // loads under the widened v3 loader with every v3 field undefined.
+    //
+    // NOTE: the LIVE docs/architecture/invariants.md is now schema-version: 3
+    // and authors v3 fields (issue #1466 — see dev-catalog-content.test.ts).
+    // This guard therefore pins the v2 back-compat contract against a synthetic
+    // v2 fixture rather than the live file, so the contract stays asserted even
+    // though the live catalog has graduated to v3.
+    const v2Fixture = `---
+schema-version: 2
+invariants:
+  - id: INV-1
+    dimension: event-sourcing-integrity
+    axis: substrate
+    cost-of-load: always-load
+    applies-to:
+      - event-store
+    summary: A v2 entry that declares no v3 fields.
+    references:
+      - docs/architecture/invariants.md
+  - id: DIM-8
+    dimension: prose-quality
+    axis: authoring
+    cost-of-load: archivable
+    applies-to:
+      - documentation
+    summary: A v2 authoring-axis entry.
+    references:
+      - docs/architecture/invariants.md
+---
+
+# Fixture
+`;
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'invariants-v2-'));
+    const tmpFile = path.join(tmpDir, 'invariants.md');
+    fs.writeFileSync(tmpFile, v2Fixture, 'utf8');
+    try {
+      const entries = loadInvariants(tmpFile, undefined, ENABLED_CONFIG);
+      expect(entries.length).toBeGreaterThan(0);
+      for (const entry of entries) {
+        // v2 required fields are well-formed.
+        expect(typeof entry.id).toBe('string');
+        expect(entry.id.length).toBeGreaterThan(0);
+        expect(entry.axis === 'substrate' || entry.axis === 'authoring').toBe(true);
+        expect(['always-load', 'reference-only', 'archivable']).toContain(entry.costOfLoad);
+        expect(Array.isArray(entry.appliesTo)).toBe(true);
+        expect(typeof entry.summary).toBe('string');
+        // No v3 field is populated under the v2 catalog.
+        expect(entry.phaseAffinity).toBeUndefined();
+        expect(entry.workflowAffinity).toBeUndefined();
+        expect(entry.stateAffinity).toBeUndefined();
+        expect(entry.integrityClass).toBeUndefined();
+        expect(entry.severity).toBeUndefined();
+        expect(entry.enforcement).toBeUndefined();
+      }
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
     }
   });
 
