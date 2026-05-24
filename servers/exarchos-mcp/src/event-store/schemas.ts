@@ -633,7 +633,10 @@ export const WorkflowTransitionData = z.object({
 });
 
 export const WorkflowFixCycleData = z.object({
-  compoundStateId: z.string(),
+  // Only meaningful inside a compound state; a top-level child has no parent
+  // compound, so absence is valid (#1339). Compound entry/exit always carry a
+  // defined id and keep their non-optional `z.string()`.
+  compoundStateId: z.string().optional(),
   count: z.number().int(),
   featureId: z.string(),
 });

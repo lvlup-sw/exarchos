@@ -789,7 +789,10 @@ export function executeTransition(
       from: currentPhase,
       to: targetPhase,
       trigger: 'execute-transition',
-      metadata: { compoundStateId: parent?.id },
+      // A top-level (non-compound) child has no parent compound. Omit the key
+      // entirely rather than emitting `compoundStateId: undefined`, which would
+      // violate WorkflowFixCycleData's optional-string contract (#1339).
+      metadata: { ...(parent ? { compoundStateId: parent.id } : {}) },
     });
   }
 
