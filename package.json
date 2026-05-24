@@ -61,6 +61,14 @@
   ],
   "author": "lvlup-sw",
   "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/lvlup-sw/exarchos.git"
+  },
+  "homepage": "https://github.com/lvlup-sw/exarchos#readme",
+  "bugs": {
+    "url": "https://github.com/lvlup-sw/exarchos/issues"
+  },
   "devDependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@types/js-yaml": "^4.0.9",
