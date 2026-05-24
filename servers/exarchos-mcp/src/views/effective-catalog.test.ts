@@ -125,4 +125,30 @@ describe('handleViewInvariantsEffective', () => {
 
     expect(result.data).toEqual(core);
   });
+
+  it('ViewInvariants_ReviewPhase_SurfacesSdlcBaselineIdenticalToCoreFn', async () => {
+    // #1467: the default-on SDLC-* baseline must reach the view facade (and the
+    // CLI `--json` form) identically to the gate's resolved catalog — proving
+    // the now-non-empty sdlc layer flows through the single core fn (INV-2).
+    const args = {
+      repoRoot: fixture.repoRoot,
+      phase: 'review',
+      workflowType: 'feature',
+    };
+    const result = await handleViewInvariantsEffective(args);
+    expect(result.success).toBe(true);
+    const data = result.data as { entries: Array<{ id: string }> };
+    expect(data.entries.some((e) => e.id === 'SDLC-1')).toBe(true);
+
+    const loaded = loadExarchosConfig(fixture.repoRoot, {
+      findRepoRoot: () => fixture.repoRoot,
+    });
+    const core = resolveEffectiveCatalog({
+      repoRoot: fixture.repoRoot,
+      config: loaded?.config,
+      phase: 'review',
+      workflowType: 'feature',
+    });
+    expect(result.data).toEqual(core);
+  });
 });

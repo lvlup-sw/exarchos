@@ -6,6 +6,7 @@ import path from 'node:path';
 import {
   loadCoreInvariants,
   loadInvariants,
+  parseInvariantEntries,
   type InvariantEntry,
 } from './invariants-loader.js';
 
@@ -344,6 +345,39 @@ describe('invariants-loader', () => {
   // (Wave D1) intersects with `cost-of-load`.
   //
   // Spec: docs/proposals/2026-05-20-invariants-catalog-v2-spec.md §3, §7.1
+
+  it('parseInvariantEntries_rawEntries_projectsTypedShapeWithV3Fields', () => {
+    // The pure raw[]→typed projection reused by both the file loader and the
+    // inline sdlc catalog (#1467). No file-IO, no devCatalog gate, no scope.
+    const raw = [
+      {
+        id: 'SDLC-1',
+        dimension: 'phase-observability',
+        axis: 'substrate',
+        'cost-of-load': 'always-load',
+        'integrity-class': 'sdlc',
+        'applies-to': ['workflow-lifecycle'],
+        summary: 'Long-running ops are queryable.',
+        references: ['docs/guides/authoring-invariants.md'],
+        'workflow-affinity': ['feature', 'oneshot'],
+        enforcement: { mode: 'audit', 'audit-prompt': 'Is every op queryable?' },
+      },
+    ];
+    const entries = parseInvariantEntries(raw);
+    expect(entries).toHaveLength(1);
+    expect(entries[0].id).toBe('SDLC-1');
+    expect(entries[0].integrityClass).toBe('sdlc');
+    expect(entries[0].workflowAffinity).toEqual(['feature', 'oneshot']);
+    expect(entries[0].enforcement?.mode).toBe('audit');
+  });
+
+  it('parseInvariantEntries_duplicateIds_throws', () => {
+    const dup = [
+      { id: 'SDLC-1', dimension: 'a', axis: 'substrate', 'cost-of-load': 'always-load', 'applies-to': ['x'], summary: 's', references: ['r'] },
+      { id: 'SDLC-1', dimension: 'b', axis: 'substrate', 'cost-of-load': 'always-load', 'applies-to': ['x'], summary: 's', references: ['r'] },
+    ];
+    expect(() => parseInvariantEntries(dup)).toThrow(/Duplicate invariant ID: SDLC-1/);
+  });
 
   it('Invariants_AfterSchemaV3Bump_EveryEntryHasAxisField', () => {
     // Read raw frontmatter to assert the schema-version bump (v3, issue #1466).

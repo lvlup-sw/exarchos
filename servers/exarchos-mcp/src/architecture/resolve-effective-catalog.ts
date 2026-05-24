@@ -44,6 +44,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { ExarchosConfig } from '../config/exarchos-config-schema.js';
 import { loadInvariants, type InvariantEntry } from './invariants-loader.js';
+import { loadSdlcCatalog } from './sdlc-catalog.js';
 import {
   mergeCatalogs,
   applyOverrides,
@@ -145,11 +146,14 @@ export function resolveEffectiveCatalog(
     }
   }
 
-  // ── Layer 2: sdlc catalog (placeholder) ──
-  // The sdlc catalog CONTENT is out of scope for this task; the layer seam is
-  // wired with an empty array so `mergeCatalogs` still receives all three
-  // layers and the sdlc tagging path stays exercised once content lands.
-  const sdlc: InvariantEntry[] = [];
+  // ── Layer 2: sdlc catalog (default-on, plugin-shipped) ──
+  // The consumer-facing SDLC-* baseline (#1467). Inline-authored and compiled
+  // into the binary (the server ships as a single-file binary; docs/ is not in
+  // the plugin package), so it is present for every consumer with ZERO file-IO
+  // and NO `devCatalog`-style gate — sdlc ships enabled. The override mechanism
+  // (per-invariant floor = advisory for `integrity-class: sdlc`) is the
+  // consumer's escape hatch, not a master switch.
+  const sdlc: InvariantEntry[] = loadSdlcCatalog();
 
   // ── Layer 3: user catalogs (paths from config.invariants.catalogs) ──
   //
