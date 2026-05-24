@@ -17,7 +17,7 @@ jobs:
   eval-regression:
     name: Eval Regression Check
     if: github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request'
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     timeout-minutes: 15
     concurrency:
       group: eval-gate-${{ github.head_ref }}

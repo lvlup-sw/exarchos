@@ -14,7 +14,7 @@ jobs:
   changes:
     name: Detect Changes
     if: github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request'
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     outputs:
       root: ${{ steps.filter.outputs.root }}
       mcp: ${{ steps.filter.outputs.mcp }}
@@ -49,7 +49,7 @@ jobs:
     name: Root Package
     needs: changes
     if: (github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request') && needs.changes.outputs.root == 'true'
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
@@ -90,7 +90,7 @@ jobs:
     name: Exarchos MCP Server
     needs: changes
     if: (github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request') && needs.changes.outputs.mcp == 'true'
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     env:
       RUN_EVALS: ${{ needs.changes.outputs.prompts == 'true' && '1' || '' }}
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
@@ -212,10 +212,11 @@ jobs:
   #   2. `knip` (files + dependencies scope) — detects unused modules and
   #      unused dependencies against the entry-point allowlist in knip.json.
   #
-  # Runs in parallel with test-root / test-mcp on a vanilla ubuntu-latest
-  # runner (knip has no self-hosted prerequisites). Keeping it off
-  # self-hosted avoids contention with the existing test jobs and keeps
-  # the gate cheap.
+  # Runs in parallel with test-root / test-mcp on a GitHub-hosted
+  # ubuntu-latest runner. All CI jobs run on ubuntu-latest — the
+  # self-hosted runners were retired after their npm ci step intermittently
+  # stalled (network RX dies mid-install), whereas the same install completes
+  # in 30-45s on hosted runners.
   # ─────────────────────────────────────────────────────────────────────
   validate-no-legacy:
     name: Validate No Legacy
@@ -381,7 +382,7 @@ jobs:
 
   ci-gate:
     name: CI Gate
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     needs: [changes, test-root, test-mcp, validate-no-legacy, grep-gates, outcome-tests]
     if: (github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request') && always()
     steps:
