@@ -63,6 +63,14 @@ export interface CheckInvariantConformanceArgs {
   readonly config?: ExarchosConfig;
   /** DI seam: supply the catalog directly (tests / non-disk callers). */
   readonly loadInvariantsFn?: LoadInvariantsFn;
+  /**
+   * DI seam for the USER-catalog layer (DR-9). Kept separate from
+   * `loadInvariantsFn` (the shipped layers) so a malformed user catalog can be
+   * caught and degraded independently: on failure the gate continues with the
+   * shipped layers and surfaces an advisory finding rather than aborting.
+   * The default handler has no user-catalog loader wired yet; tests inject one.
+   */
+  readonly loadUserInvariantsFn?: LoadInvariantsFn;
 }
 
 interface CheckInvariantConformanceResult {
@@ -147,11 +155,40 @@ export async function handleCheckInvariantConformance(
   const phase = args.phase ?? 'review';
   const diff = args.diff ?? args.diffContent ?? '';
 
+  // Accumulates findings produced while degrading gracefully (DR-9). Seeded
+  // here so a user-catalog load failure can append an advisory before the
+  // check-mode evaluation loop runs.
+  const findings: PluginFinding[] = [];
+
   // 1. Load → (merge happens upstream in the loader's layering) → project for
   //    the (workflow-type, phase, touched-files) context.
-  const loaded = args.loadInvariantsFn
+  //
+  // DR-9 §1: load the SHIPPED layers first, then attempt the USER catalog in a
+  // try/catch. A malformed user catalog (bad YAML / unknown check kind /
+  // reserved-namespace id) must DEGRADE to the shipped layers and surface a
+  // non-fatal advisory finding naming the failed catalog — never silently
+  // swallowed (INV-1), never aborting the whole gate.
+  const shipped = args.loadInvariantsFn
     ? args.loadInvariantsFn()
     : defaultLoadInvariants(args);
+
+  let userLayer: InvariantEntry[] = [];
+  if (args.loadUserInvariantsFn) {
+    try {
+      userLayer = args.loadUserInvariantsFn();
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : String(err);
+      findings.push({
+        source: 'user-catalog-load',
+        severity: 'LOW',
+        message:
+          `User invariant catalog failed to load and was skipped; ` +
+          `evaluated shipped layers only. Reason: ${reason}`,
+      });
+    }
+  }
+
+  const loaded = [...shipped, ...userLayer];
 
   const applicable = projectCatalog(loaded, {
     phase,
@@ -161,10 +198,28 @@ export async function handleCheckInvariantConformance(
 
   // 2. Evaluate every check-mode invariant's combinator tree against the diff.
   // 3. Render every applicable audit-mode invariant into a prompt block.
-  const findings: PluginFinding[] = [];
   for (const entry of applicable) {
     if (entry.enforcement?.mode !== 'check') continue;
-    const treeFindings = evaluateTree(entry.enforcement.check, diff);
+
+    // DR-9 §2: a single leaf/tree throwing during evaluation (e.g. an invalid
+    // regex) must be captured as a LOW finding naming the invariant id — never
+    // propagated to abort the whole gate.
+    let treeFindings: PluginFinding[];
+    try {
+      treeFindings = evaluateTree(entry.enforcement.check, diff);
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : String(err);
+      findings.push({
+        source: `invariant:${entry.id}`,
+        severity: 'LOW',
+        dimension: entry.id,
+        message:
+          `Invariant '${entry.id}' check evaluation threw and was skipped; ` +
+          `treated as non-blocking. Reason: ${reason}`,
+      });
+      continue;
+    }
+
     if (treeFindings.length === 0) continue;
     // Re-key each evaluator finding to the invariant's context-resolved
     // severity (default / by-workflow / by-phase) so the severity-merge path

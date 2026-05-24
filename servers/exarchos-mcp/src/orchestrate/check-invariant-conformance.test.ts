@@ -133,6 +133,114 @@ describe('handleCheckInvariantConformance (DR-3, DR-4)', () => {
     }
   });
 
+  it('CheckInvariantConformance_MalformedUserCatalog_DegradesToShippedLayersAdvisory', async () => {
+    const arm = await createArm('inv-conformance-malformed-');
+    try {
+      // A valid SHIPPED-layer invariant that fires on the diff.
+      const shipped = makeEntry({
+        id: 'INV-9',
+        severity: { default: 'blocking' },
+        enforcement: {
+          mode: 'check',
+          check: { kind: 'grep', pattern: 'console\\.log', fileGlob: '*.ts' },
+        },
+      });
+
+      const diff = [
+        '--- a/foo.ts',
+        '+++ b/foo.ts',
+        '@@ -1 +1,2 @@',
+        '+console.log("debug");',
+      ].join('\n');
+
+      // The user-catalog loader throws (malformed YAML / unknown kind /
+      // reserved-namespace id). The gate must DEGRADE to the shipped layers
+      // and surface an advisory finding naming the failed catalog — never
+      // abort, never silently swallow.
+      const result = await handleCheckInvariantConformance(
+        {
+          featureId: 'feat-malformed',
+          workflowType: 'feature',
+          diffContent: diff,
+          loadInvariantsFn: () => [shipped],
+          loadUserInvariantsFn: () => {
+            throw new Error('bad YAML in .exarchos/invariants.user.yml');
+          },
+        },
+        arm.stateDir,
+        arm.eventStore,
+      );
+
+      expect(result.success).toBe(true);
+      const data = result.data as {
+        verdict: string;
+        high: number;
+        findings: Array<{ severity: string; source: string; message: string }>;
+      };
+
+      // Shipped layer still evaluated → its blocking violation folds to HIGH.
+      expect(data.high).toBeGreaterThanOrEqual(1);
+
+      // The user-catalog load failure is surfaced as a non-fatal advisory
+      // finding that names the failed catalog source.
+      const advisory = data.findings.find((f) =>
+        /user.?catalog|invariants\.user\.yml/i.test(`${f.source} ${f.message}`),
+      );
+      expect(advisory).toBeDefined();
+      expect(advisory?.severity).toBe('LOW');
+      expect(advisory?.message).toContain('invariants.user.yml');
+
+      // Gate still executed (degraded, not aborted).
+      const gates = await gateEvents(arm.eventStore, 'feat-malformed');
+      expect(gates.length).toBeGreaterThanOrEqual(1);
+    } finally {
+      await rm(arm.stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it('CheckInvariantConformance_LeafThrows_CapturedAsLowFinding', async () => {
+    const arm = await createArm('inv-conformance-leaf-throws-');
+    try {
+      // An invalid regex pattern makes the evaluator throw during evaluation.
+      // The throw must be captured as a LOW finding naming the invariant id,
+      // never propagated to abort the whole gate.
+      const entry = makeEntry({
+        id: 'USER-THROW',
+        severity: { default: 'blocking' },
+        enforcement: {
+          mode: 'check',
+          // Unbalanced group → `new RegExp` throws inside the evaluator.
+          check: { kind: 'grep', pattern: '(', fileGlob: '*.ts' },
+        },
+      });
+
+      const result = await handleCheckInvariantConformance(
+        {
+          featureId: 'feat-leaf-throws',
+          workflowType: 'feature',
+          diffContent: '+something',
+          loadInvariantsFn: () => [entry],
+        },
+        arm.stateDir,
+        arm.eventStore,
+      );
+
+      expect(result.success).toBe(true);
+      const data = result.data as {
+        verdict: string;
+        low: number;
+        findings: Array<{ severity: string; message: string }>;
+      };
+
+      const lowFinding = data.findings.find((f) => f.severity === 'LOW');
+      expect(lowFinding).toBeDefined();
+      expect(lowFinding?.message).toContain('USER-THROW');
+      expect(data.low).toBeGreaterThanOrEqual(1);
+    } finally {
+      await rm(arm.stateDir, { recursive: true, force: true });
+    }
+  });
+
   it('CheckInvariantConformance_AuditInvariant_RendersPromptInResult', async () => {
     const arm = await createArm('inv-conformance-audit-');
     try {
