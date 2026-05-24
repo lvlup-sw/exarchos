@@ -117,13 +117,33 @@ export function resolveEffectiveCatalog(
   const repoRoot = ctx.repoRoot ?? defaultRepoRoot();
   const config = ctx.config;
 
+  // Degradation log shared by every layer. A load/parse failure in ANY layer
+  // is folded here (never thrown) so the gate, the view facade, and any future
+  // Resource degrade uniformly and surface the failure loudly as an advisory
+  // rather than aborting the whole resolution (INV-1 / DR-9).
+  const loadWarnings: string[] = [];
+
   // ── Layer 1: dev catalog (gated by invariants.devCatalog) ──
   // `loadInvariants` returns [] unless the passed config enables the gate,
   // so the dev layer is empty for consumers who have not opted in.
+  //
+  // The dev catalog is first-party, but a malformed v3 entry makes
+  // `loadInvariants` throw (ZodError via projectV3Fields). That must not crash
+  // the gate: a broken first-party catalog degrades to "no dev layer" with a
+  // visible warning — surfaced on every gate run, never silent.
   const devCatalogPath = path.join(repoRoot, 'docs/architecture/invariants.md');
-  const dev = fs.existsSync(devCatalogPath)
-    ? loadInvariants(devCatalogPath, undefined, config)
-    : [];
+  let dev: InvariantEntry[] = [];
+  if (fs.existsSync(devCatalogPath)) {
+    try {
+      dev = loadInvariants(devCatalogPath, undefined, config);
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : String(err);
+      loadWarnings.push(
+        `Dev invariant catalog '${devCatalogPath}' failed to load and was ` +
+          `skipped; evaluated remaining layers only. Reason: ${reason}`,
+      );
+    }
+  }
 
   // ── Layer 2: sdlc catalog (placeholder) ──
   // The sdlc catalog CONTENT is out of scope for this task; the layer seam is
@@ -140,7 +160,6 @@ export function resolveEffectiveCatalog(
   // single place the gate, the view facade, and any future Resource share, so
   // the degradation is exercised on every effective-catalog read — not just
   // under a hand-injected loader double.
-  const loadWarnings: string[] = [];
   const userCatalogPaths = config?.invariants?.catalogs ?? [];
   const user: InvariantEntry[] = userCatalogPaths.flatMap((catalogPath) => {
     const resolved = path.isAbsolute(catalogPath)

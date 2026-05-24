@@ -255,4 +255,62 @@ describe('resolveEffectiveCatalog', () => {
     );
     expect(warning).toBeDefined();
   });
+
+  it('ResolveEffectiveCatalog_MalformedDevCatalog_DegradesWithWarning', () => {
+    // The dev catalog is first-party, but a malformed v3 entry makes
+    // loadInvariants throw. That must NOT crash the gate (the gate has no
+    // try/catch around resolveEffectiveCatalog): the dev layer degrades to
+    // empty with a visible warning, and the other layers still resolve (INV-1).
+    const archDir = path.join(fixture.repoRoot, 'docs', 'architecture');
+    fs.writeFileSync(
+      path.join(archDir, 'invariants.md'),
+      [
+        '---',
+        'schema-version: 3',
+        'invariants:',
+        '  - id: INV-1',
+        '    dimension: substrate-truth',
+        '    axis: substrate',
+        '    integrity-class: substrate',
+        '    cost-of-load: always-load',
+        '    applies-to:',
+        '      - src/**',
+        '    summary: Payload is the single source of truth.',
+        '    references: []',
+        '    enforcement:',
+        '      mode: check',
+        '      check:',
+        '        kind: not-a-real-kind', // invalid → loadInvariants throws
+        "        pattern: 'x'",
+        '---',
+        '# Malformed dev catalog',
+        '',
+      ].join('\n'),
+      'utf8',
+    );
+
+    const config: ExarchosConfig = {
+      invariants: {
+        devCatalog: 'enabled',
+        catalogs: [fixture.userCatalogPath],
+      },
+    };
+
+    // Must not throw.
+    const { entries, warnings } = resolveEffectiveCatalog({
+      repoRoot: fixture.repoRoot,
+      config,
+      phase: 'ideate',
+      workflowType: 'feature',
+    });
+
+    // Dev layer degraded to empty; the user layer still resolved.
+    expect(entries.map((e) => e.id)).not.toContain('INV-1');
+    expect(entries.map((e) => e.id)).toContain('team-doc-style');
+    // A warning names the dev catalog and says it was skipped.
+    const warning = warnings.find(
+      (w) => w.includes('invariants.md') && w.includes('Dev invariant catalog'),
+    );
+    expect(warning).toBeDefined();
+  });
 });
