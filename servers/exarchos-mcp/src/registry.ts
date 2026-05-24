@@ -1425,6 +1425,37 @@ const orchestrateActions: readonly ToolAction[] = [
     annotations: LOCAL_MUTATION,
   },
   {
+    name: 'check_integration_suite',
+    description:
+      'Run the FULL test suite against the integration tip and fold file-LOAD ' +
+      'failures into the failure count (#1329). vitest counts a file that throws ' +
+      'at import as "1 failed suite / 0 failed tests" — invisible to per-task ' +
+      'gates; this gate makes a load cascade a hard FAIL. Set repoRoot to the ' +
+      'integration worktree (or "auto" to resolve the calling delegation\'s ' +
+      'worktree). Emits a gate.executed event (gate "integration-suite", layer ' +
+      '"post-merge"). Do NOT use for a single task\'s scoped tests — use ' +
+      'check_static_analysis / check_tdd_compliance for per-task verification; ' +
+      'this gate is the cumulative-regression backstop between merges.',
+    schema: z.object({
+      featureId: z.string().min(1),
+      repoRoot: z.string().optional(),
+      worktreePath: z.string().optional(),
+      taskId: z.string().optional(),
+      testScript: z.string().optional(),
+    }),
+    phases: STACK_PHASES,
+    roles: ROLE_LEAD,
+    gate: { blocking: true, dimension: 'D2' },
+    // Shells out to `npm run test:run -- --reporter=json` over the entire
+    // suite; on a real repo this far exceeds the 2s heartbeat threshold.
+    longRunning: true,
+    autoEmits: [
+      { event: 'gate.executed', condition: 'always' },
+    ],
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: LOCAL_MUTATION,
+  },
+  {
     name: 'check_security_scan',
     description: 'Run security pattern scan on diff. Emits gate.executed event with dimension D1.',
     schema: z.object({
@@ -2653,7 +2684,7 @@ export const TOOL_REGISTRY: readonly CompositeTool[] = [
     description: 'Task coordination — claim, complete, and fail tasks',
     actions: orchestrateActions,
     cli: { alias: 'orch' },
-    slimDescription: 'Task coordination, quality gates, validation actions, and VCS operations. Use describe(actions) for schemas.\n\nActions: task_claim, task_complete, task_fail, review_triage, prepare_delegation, prepare_synthesis, assess_stack, check_static_analysis, check_security_scan, check_context_economy, check_operational_resilience, check_workflow_determinism, check_review_verdict, check_convergence, check_provenance_chain, check_design_completeness, check_plan_coverage, check_tdd_compliance, check_post_merge, check_task_decomposition, check_event_emissions, extract_task, review_diff, verify_worktree, select_debug_track, investigation_timer, check_coverage_thresholds, assess_refactor_scope, check_pr_comments, validate_pr_body, validate_pr_stack, debug_review_gate, extract_fix_tasks, generate_traceability, spec_coverage_check, verify_worktree_baseline, setup_worktree, verify_delegation_saga, post_delegation_check, reconcile_state, pre_synthesis_check, new_project, runbook, agent_spec, doctor, create_pr, merge_pr, check_ci, list_prs, get_pr_comments, add_pr_comment, create_issue, merge_orchestrate',
+    slimDescription: 'Task coordination, quality gates, validation actions, and VCS operations. Use describe(actions) for schemas.\n\nActions: task_claim, task_complete, task_fail, review_triage, prepare_delegation, prepare_synthesis, assess_stack, check_static_analysis, check_integration_suite, check_security_scan, check_context_economy, check_operational_resilience, check_workflow_determinism, check_review_verdict, check_convergence, check_provenance_chain, check_design_completeness, check_plan_coverage, check_tdd_compliance, check_post_merge, check_task_decomposition, check_event_emissions, extract_task, review_diff, verify_worktree, select_debug_track, investigation_timer, check_coverage_thresholds, assess_refactor_scope, check_pr_comments, validate_pr_body, validate_pr_stack, debug_review_gate, extract_fix_tasks, generate_traceability, spec_coverage_check, verify_worktree_baseline, setup_worktree, verify_delegation_saga, post_delegation_check, reconcile_state, pre_synthesis_check, new_project, runbook, agent_spec, doctor, create_pr, merge_pr, check_ci, list_prs, get_pr_comments, add_pr_comment, create_issue, merge_orchestrate',
   },
   {
     name: 'exarchos_view',

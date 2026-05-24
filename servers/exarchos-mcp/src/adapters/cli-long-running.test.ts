@@ -90,6 +90,9 @@ const EXPECTED_LONG_RUNNING_ACTIONS: ReadonlySet<string> = new Set([
   // Gate actions that chain shell-invoked tooling across multiple targets.
   'assess_stack',
   'check_static_analysis',
+  // #1329: runs the FULL vitest suite against the integration tip with the
+  // JSON reporter; far exceeds the 2s heartbeat on any real repo.
+  'check_integration_suite',
   'post_delegation_check',
 ]);
 

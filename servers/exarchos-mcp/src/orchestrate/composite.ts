@@ -30,6 +30,7 @@ import { handlePlanCoverage } from './plan-coverage.js';
 import { handleTddCompliance } from './tdd-compliance.js';
 import { handlePostMerge } from './post-merge.js';
 import { handleStaticAnalysis } from './static-analysis.js';
+import { handleCheckIntegrationSuite } from './check-integration-suite.js';
 import { handleSecurityScan } from './security-scan.js';
 import { handleContextEconomy } from './context-economy.js';
 import { handleOperationalResilience } from './operational-resilience.js';
@@ -223,6 +224,7 @@ const ACTION_HANDLERS: Readonly<Record<string, ActionHandler>> = {
   check_tdd_compliance: adaptWithEventStore(handleTddCompliance),
   check_post_merge: adaptWithEventStore(handlePostMerge),
   check_static_analysis: adaptWithEventStore(handleStaticAnalysis),
+  check_integration_suite: adaptWithEventStore(handleCheckIntegrationSuite),
   check_security_scan: adaptWithEventStore(handleSecurityScan),
   check_context_economy: adaptWithEventStore(handleContextEconomy),
   check_operational_resilience: adaptWithEventStore(handleOperationalResilience),
