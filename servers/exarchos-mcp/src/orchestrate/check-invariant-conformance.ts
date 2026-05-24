@@ -2,7 +2,14 @@
 //
 // Invariant conformance as a review dimension. At phase=review the gate:
 //   1. resolves the effective catalog for (workflow-type, phase:'review',
-//      touched-files) via projectCatalog over the loaded+merged catalog;
+//      touched-files) via resolveEffectiveCatalog (DR-6/DR-7) — the SAME
+//      pipeline the `invariants_effective` view uses: it reads
+//      config.invariants.catalogs (user catalogs), runs mergeCatalogs +
+//      applyOverrides (per-invariant override floor), drops honored-disabled
+//      entries, then projects. The gate therefore honors a consumer's
+//      `.exarchos.yml` overrides and catalogs; its DR-9 malformed-user-catalog
+//      degradation is reachable in production (warnings folded into findings),
+//      not just under a DI double;
 //   2. evaluates every `enforcement.mode === 'check'` invariant's combinator
 //      tree against the diff (deterministic) → findings;
 //   3. renders every applicable `mode:'audit'` invariant into a prompt via
@@ -16,18 +23,18 @@
 // ToolResult on CLI and MCP (INV-2).
 // ────────────────────────────────────────────────────────────────────────────
 
-import { fileURLToPath } from 'node:url';
-import * as path from 'node:path';
-
 import type { ToolResult } from '../format.js';
 import type { EventStore } from '../event-store/store.js';
 import type { PluginFinding } from '../review/check-catalog.js';
 import type { ExarchosConfig } from '../config/exarchos-config-schema.js';
-import {
-  loadInvariants,
-  type InvariantEntry,
-} from '../architecture/invariants-loader.js';
+import { loadExarchosConfig } from '../config/load-exarchos-config.js';
+import type { InvariantEntry } from '../architecture/invariants-loader.js';
 import { projectCatalog } from '../architecture/project-catalog.js';
+import {
+  resolveEffectiveCatalog,
+  type ResolveEffectiveCatalogContext,
+  type ResolveEffectiveCatalogResult,
+} from '../architecture/resolve-effective-catalog.js';
 import { evaluateTree } from '../architecture/check-evaluator.js';
 import { renderAuditPrompt } from '../architecture/audit-prompt.js';
 import {
@@ -42,8 +49,27 @@ import { emitGateEvent } from './gate-utils.js';
  * Dependency-injection seam for loading the invariant catalog. The default
  * reads `docs/architecture/invariants.md` (honouring the devCatalog gate);
  * tests inject an explicit `InvariantEntry[]` so they need no disk IO.
+ *
+ * NOTE: this is a LEGACY seam retained for the parity test and a few unit
+ * tests that inject a deterministic catalog. The DEFAULT production path no
+ * longer uses it — it resolves the catalog via `resolveEffectiveCatalog`
+ * (see `resolveEffectiveCatalogFn`). When `loadInvariantsFn` is injected the
+ * handler takes the legacy load→project path instead, so those tests keep
+ * exercising the same shape without disk IO.
  */
 export type LoadInvariantsFn = () => InvariantEntry[];
+
+/**
+ * DI seam for the effective-catalog resolver. Defaults to the real
+ * `resolveEffectiveCatalog` so the DEFAULT (no-loader) path exercises
+ * production behaviour: user `catalogs`, `overrides`, the honored-disable
+ * filter, and DR-9 degradation warnings all flow through. Tests can override
+ * it, but the override-applied and user-catalog-degradation paths are proven
+ * through CONFIG (not this seam) per the fix requirements.
+ */
+export type ResolveEffectiveCatalogFn = (
+  ctx: ResolveEffectiveCatalogContext,
+) => ResolveEffectiveCatalogResult;
 
 export interface CheckInvariantConformanceArgs {
   readonly featureId: string;
@@ -61,16 +87,28 @@ export interface CheckInvariantConformanceArgs {
   readonly repoRoot?: string;
   /** Explicit config (DI for tests so they don't read `.exarchos.yml`). */
   readonly config?: ExarchosConfig;
-  /** DI seam: supply the catalog directly (tests / non-disk callers). */
+  /**
+   * LEGACY DI seam: supply the catalog directly (parity test / a few unit
+   * tests). When present the handler takes the legacy load→project path and
+   * does NOT consult `resolveEffectiveCatalog`. Absent ⇒ the production path
+   * runs (`resolveEffectiveCatalogFn`).
+   */
   readonly loadInvariantsFn?: LoadInvariantsFn;
   /**
-   * DI seam for the USER-catalog layer (DR-9). Kept separate from
-   * `loadInvariantsFn` (the shipped layers) so a malformed user catalog can be
-   * caught and degraded independently: on failure the gate continues with the
-   * shipped layers and surfaces an advisory finding rather than aborting.
-   * The default handler has no user-catalog loader wired yet; tests inject one.
+   * LEGACY DI seam for the USER-catalog layer (DR-9). Only consulted on the
+   * legacy path (when `loadInvariantsFn` is also injected). On the production
+   * path the user layer comes from `config.invariants.catalogs` via
+   * `resolveEffectiveCatalog`, and DR-9 degradation surfaces through that
+   * function's `warnings`.
    */
   readonly loadUserInvariantsFn?: LoadInvariantsFn;
+  /**
+   * DI seam for the effective-catalog resolver. Defaults to the real
+   * `resolveEffectiveCatalog`; the production (no-`loadInvariantsFn`) path
+   * uses it so consumer `overrides`/`catalogs` and DR-9 degradation are
+   * exercised for real.
+   */
+  readonly resolveEffectiveCatalogFn?: ResolveEffectiveCatalogFn;
 }
 
 interface CheckInvariantConformanceResult {
@@ -110,23 +148,6 @@ function toFindingSeverity(severity: 'blocking' | 'advisory'): PluginFinding['se
   return severity === 'blocking' ? 'HIGH' : 'MEDIUM';
 }
 
-// ─── Default Catalog Loader ──────────────────────────────────────────────────
-
-/**
- * Resolve the repository root from this module's location:
- * `src/orchestrate/check-invariant-conformance.ts` → repo root is four levels up.
- */
-function moduleRepoRoot(): string {
-  const here = path.dirname(fileURLToPath(import.meta.url));
-  return path.resolve(here, '../../../..');
-}
-
-function defaultLoadInvariants(args: CheckInvariantConformanceArgs): InvariantEntry[] {
-  const root = args.repoRoot ?? moduleRepoRoot();
-  const docPath = path.join(root, 'docs/architecture/invariants.md');
-  return loadInvariants(docPath, { scope: 'all' }, args.config);
-}
-
 // ─── Handler ────────────────────────────────────────────────────────────────
 
 export async function handleCheckInvariantConformance(
@@ -155,46 +176,92 @@ export async function handleCheckInvariantConformance(
   const phase = args.phase ?? 'review';
   const diff = args.diff ?? args.diffContent ?? '';
 
-  // Accumulates findings produced while degrading gracefully (DR-9). Seeded
-  // here so a user-catalog load failure can append an advisory before the
-  // check-mode evaluation loop runs.
+  // Resolve the EFFECTIVE config the gate runs against. Precedence:
+  //   1. an explicit `args.config` (DI for tests / callers that already
+  //      loaded `.exarchos.yml`);
+  //   2. otherwise load `.exarchos.yml` from `args.repoRoot` (or cwd) — the
+  //      SAME source the `invariants_effective` view reads. This is what closes
+  //      the production gap: the registry action schema does not carry `config`,
+  //      so without this load a consumer's `.exarchos.yml` overrides/catalogs
+  //      would never reach the gate. A config read failure (bad YAML) degrades
+  //      to "no config" (default-disabled) and surfaces a LOW advisory rather
+  //      than aborting the gate (INV-1).
   const findings: PluginFinding[] = [];
-
-  // 1. Load → (merge happens upstream in the loader's layering) → project for
-  //    the (workflow-type, phase, touched-files) context.
-  //
-  // DR-9 §1: load the SHIPPED layers first, then attempt the USER catalog in a
-  // try/catch. A malformed user catalog (bad YAML / unknown check kind /
-  // reserved-namespace id) must DEGRADE to the shipped layers and surface a
-  // non-fatal advisory finding naming the failed catalog — never silently
-  // swallowed (INV-1), never aborting the whole gate.
-  const shipped = args.loadInvariantsFn
-    ? args.loadInvariantsFn()
-    : defaultLoadInvariants(args);
-
-  let userLayer: InvariantEntry[] = [];
-  if (args.loadUserInvariantsFn) {
+  let effectiveConfig: ExarchosConfig | undefined = args.config;
+  if (effectiveConfig === undefined && args.loadInvariantsFn === undefined) {
     try {
-      userLayer = args.loadUserInvariantsFn();
+      const loaded = loadExarchosConfig(args.repoRoot ?? process.cwd());
+      effectiveConfig = loaded?.config;
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err);
       findings.push({
-        source: 'user-catalog-load',
+        source: 'exarchos-config-load',
         severity: 'LOW',
         message:
-          `User invariant catalog failed to load and was skipped; ` +
-          `evaluated shipped layers only. Reason: ${reason}`,
+          `.exarchos.yml failed to load and was skipped; the invariant gate ` +
+          `ran with default (no-config) settings. Reason: ${reason}`,
       });
     }
   }
 
-  const loaded = [...shipped, ...userLayer];
-
-  const applicable = projectCatalog(loaded, {
-    phase,
-    workflowType,
-    ...(args.touchedFiles ? { touchedFiles: [...args.touchedFiles] } : {}),
-  });
+  // 1. Resolve the effective catalog for the (workflow-type, phase,
+  //    touched-files) context.
+  //
+  // PRODUCTION PATH (DR-6/DR-7): resolveEffectiveCatalog reads
+  // config.invariants.catalogs (user catalogs), runs mergeCatalogs +
+  // applyOverrides (per-invariant override floor), drops honored-disabled
+  // entries, then projects. Its `warnings` carry DR-9 degradation (a malformed
+  // user catalog is skipped, not fatal) plus any override-clamp notes; we fold
+  // them into the findings as LOW advisories so they surface in the REAL path.
+  //
+  // LEGACY PATH: when a test injects `loadInvariantsFn`, take the old
+  // load→project route (shipped + optional user double) so the parity test and
+  // catalog-shape unit tests keep working without disk IO. The malformed-user
+  // double (`loadUserInvariantsFn`) is only consulted here.
+  let applicable: InvariantEntry[];
+  if (args.loadInvariantsFn) {
+    const shipped = args.loadInvariantsFn();
+    let userLayer: InvariantEntry[] = [];
+    if (args.loadUserInvariantsFn) {
+      try {
+        userLayer = args.loadUserInvariantsFn();
+      } catch (err) {
+        const reason = err instanceof Error ? err.message : String(err);
+        findings.push({
+          source: 'user-catalog-load',
+          severity: 'LOW',
+          message:
+            `User invariant catalog failed to load and was skipped; ` +
+            `evaluated shipped layers only. Reason: ${reason}`,
+        });
+      }
+    }
+    applicable = projectCatalog([...shipped, ...userLayer], {
+      phase,
+      workflowType,
+      ...(args.touchedFiles ? { touchedFiles: [...args.touchedFiles] } : {}),
+    });
+  } else {
+    const resolve = args.resolveEffectiveCatalogFn ?? resolveEffectiveCatalog;
+    const { entries, warnings } = resolve({
+      ...(args.repoRoot !== undefined ? { repoRoot: args.repoRoot } : {}),
+      ...(effectiveConfig !== undefined ? { config: effectiveConfig } : {}),
+      phase,
+      workflowType,
+      ...(args.touchedFiles ? { touchedFiles: [...args.touchedFiles] } : {}),
+    });
+    applicable = entries;
+    // DR-9 end-to-end: fold resolver warnings (malformed user catalog skipped,
+    // override-clamp notes) into the gate's findings as LOW advisories — never
+    // silently swallowed (INV-1), never gating.
+    for (const warning of warnings) {
+      findings.push({
+        source: 'effective-catalog',
+        severity: 'LOW',
+        message: warning,
+      });
+    }
+  }
 
   // 2. Evaluate every check-mode invariant's combinator tree against the diff.
   // 3. Render every applicable audit-mode invariant into a prompt block.
@@ -256,7 +323,20 @@ export async function handleCheckInvariantConformance(
   }
 
   const counts = { high, medium, low };
-  const verdict = computeVerdict(counts);
+
+  // FIX-2: honor config.invariants.enforcement.review.
+  //   - 'blocking' (or absent — the pre-T-18 default, which gated normally):
+  //     findings drive the verdict; a HIGH ⇒ NEEDS_FIXES.
+  //   - 'advisory': invariant-conformance findings are surfaced but must NOT
+  //     gate. We compute the verdict with the severity counts zeroed so the
+  //     verdict stays APPROVED, while the REAL counts/findings are preserved in
+  //     the result for transparency.
+  const enforcementReview =
+    effectiveConfig?.invariants?.enforcement?.review ?? 'blocking';
+  const verdict =
+    enforcementReview === 'advisory'
+      ? computeVerdict({ high: 0, medium: 0, low: 0 })
+      : computeVerdict(counts);
   const report = generateVerdictReport(verdict, counts);
 
   // STILL emit gate.executed even when the applicable catalog is empty

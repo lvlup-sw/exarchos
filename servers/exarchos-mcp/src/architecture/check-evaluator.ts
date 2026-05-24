@@ -18,6 +18,7 @@
  */
 import type { PluginFinding } from '../review/check-catalog.js';
 import type { CheckLeaf, CheckNode, LeafKind } from './invariant-schema.js';
+import { globToRegExp } from './glob-to-regexp.js';
 
 /** Effective scope threaded down a subtree by `scope` nodes. */
 interface EvalScope {
@@ -28,31 +29,6 @@ interface EvalScope {
 /** Compile-time exhaustiveness guard (DR-9 total function). */
 function assertNever(value: never): never {
   throw new Error(`Unreachable: unexpected check kind ${String(value)}`);
-}
-
-/**
- * Convert a fileGlob (e.g. `*.ts`, `servers/**`) to a RegExp. Supports `*`
- * (any run of non-separator chars), `**` (any run incl. separators), and
- * literal path segments. Anchored to the whole path.
- */
-function globToRegExp(glob: string): RegExp {
-  let re = '';
-  for (let i = 0; i < glob.length; i++) {
-    const c = glob[i];
-    if (c === '*') {
-      if (glob[i + 1] === '*') {
-        re += '.*';
-        i++;
-      } else {
-        re += '[^/]*';
-      }
-    } else if ('.+?^${}()|[]\\'.includes(c)) {
-      re += `\\${c}`;
-    } else {
-      re += c;
-    }
-  }
-  return new RegExp(`^${re}$`);
 }
 
 /**
