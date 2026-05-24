@@ -37,3 +37,16 @@ The catalog is YAML frontmatter, so field keys are kebab-case
 (`phase-affinity`, `cost-of-load`, `audit-prompt`, `integrity-class`, …). The
 TypeSpec models should use the same wire names (via `@encodedName` or
 equivalent) so the generated decoder validates the frontmatter verbatim.
+
+## Closing the seam — tracking
+
+The "generated later" half is tracked, cross-repo:
+
+- **lvlup-sw/strategos#98** — adds the `CheckNode` / `Enforcement` /
+  `InvariantEntry` TypeSpec models to `Strategos.Contracts` (the producer).
+- **#1468** — the Exarchos-side swap: consume the emitted JSON Schema and
+  replace the hand-written Zod, keeping the `InvariantEntryV3` type surface
+  stable so downstream consumers are unchanged. Blocked on strategos#98.
+
+When #1468 lands, update the "Hand-written now, generated later" section to
+reflect generated status (or retire this doc if the seam is fully closed).
