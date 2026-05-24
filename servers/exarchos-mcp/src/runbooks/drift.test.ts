@@ -62,10 +62,6 @@ describe('Runbook drift detection', () => {
       'exarchos_orchestrate.check_plan_coverage',
       'exarchos_orchestrate.debug_review_gate',
       'exarchos_orchestrate.pre_synthesis_check',
-      // #1329: the integration-suite gate is registered by T-06 but wired into
-      // the post-merge runbook by T-07 (which depends on T-06). Remove this
-      // entry in T-07 to enforce runbook coverage.
-      'exarchos_orchestrate.check_integration_suite',
     ]);
 
     // Collect all blocking gate actions from the registry
