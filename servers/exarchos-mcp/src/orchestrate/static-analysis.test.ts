@@ -346,6 +346,110 @@ describe('handleStaticAnalysis', () => {
     });
   });
 
+  // ─── Worktree-aware repoRoot resolution (#1330 / T-04) ──────────────────
+
+  describe('worktree-aware repoRoot resolution', () => {
+    it('CheckStaticAnalysis_DiffOnlyInWorktree_RunsTscAgainstWorktree', async () => {
+      // Arrange: the agent's diff lives in a worktree path distinct from the
+      // orchestrator's process.cwd(). Passing that path as repoRoot must make
+      // the gate run tsc (via the injected runCommand cwd) against the worktree,
+      // NOT against process.cwd() which lacks the agent's changes (#1330).
+      mockRunStaticAnalysis.mockReturnValue(makePassingResult());
+      const worktreePath = '/home/user/.worktrees/agent-feat-1';
+      expect(worktreePath).not.toBe(process.cwd());
+
+      const args = { featureId: 'feat-1', repoRoot: worktreePath };
+
+      // Act
+      await handleStaticAnalysis(args, STATE_DIR, mockStore as unknown as EventStore);
+
+      // Assert: the pure analysis (which forwards repoRoot as the runCommand
+      // cwd) was invoked against the worktree path.
+      expect(mockRunStaticAnalysis).toHaveBeenCalledTimes(1);
+      const callArgs = mockRunStaticAnalysis.mock.calls[0][0] as { repoRoot: string };
+      expect(callArgs.repoRoot).toBe(worktreePath);
+    });
+
+    it('CheckStaticAnalysis_RepoRootAuto_ResolvesWorktreePathArg', async () => {
+      // Arrange: repoRoot: 'auto' with an explicit worktreePath arg resolves to
+      // the worktree path (the preferred resolver seam for T-05).
+      mockRunStaticAnalysis.mockReturnValue(makePassingResult());
+      const worktreePath = '/home/user/.worktrees/agent-feat-1';
+
+      const args = {
+        featureId: 'feat-1',
+        repoRoot: 'auto' as const,
+        worktreePath,
+      };
+
+      // Act
+      await handleStaticAnalysis(args, STATE_DIR, mockStore as unknown as EventStore);
+
+      // Assert
+      expect(mockRunStaticAnalysis).toHaveBeenCalledTimes(1);
+      const callArgs = mockRunStaticAnalysis.mock.calls[0][0] as { repoRoot: string };
+      expect(callArgs.repoRoot).toBe(worktreePath);
+    });
+
+    it('CheckStaticAnalysis_RepoRootAuto_ResolvesFromWorktreeCreatedEvent', async () => {
+      // Arrange: repoRoot: 'auto' with no worktreePath arg falls back to the
+      // latest worktree.created event recorded for taskId on the feature stream.
+      mockRunStaticAnalysis.mockReturnValue(makePassingResult());
+      const worktreePath = '/home/user/.worktrees/agent-task-9';
+      mockStore.query.mockResolvedValue([
+        { type: 'worktree.created', data: { taskId: 'task-9', worktreePath } },
+      ]);
+
+      const args = {
+        featureId: 'feat-1',
+        repoRoot: 'auto' as const,
+        taskId: 'task-9',
+      };
+
+      // Act
+      await handleStaticAnalysis(args, STATE_DIR, mockStore as unknown as EventStore);
+
+      // Assert
+      expect(mockRunStaticAnalysis).toHaveBeenCalledTimes(1);
+      const callArgs = mockRunStaticAnalysis.mock.calls[0][0] as { repoRoot: string };
+      expect(callArgs.repoRoot).toBe(worktreePath);
+    });
+
+    it('CheckStaticAnalysis_RepoRootAuto_Unresolvable_ReturnsError', async () => {
+      // Arrange: 'auto' with neither a worktreePath arg nor a worktree.created
+      // event is unresolvable — must error rather than silently falling back to
+      // process.cwd() (the #1330 coin-flip we are eliminating).
+      mockRunStaticAnalysis.mockReturnValue(makePassingResult());
+      mockStore.query.mockResolvedValue([]);
+
+      const args = { featureId: 'feat-1', repoRoot: 'auto' as const, taskId: 'task-9' };
+
+      // Act
+      const result = await handleStaticAnalysis(args, STATE_DIR, mockStore as unknown as EventStore);
+
+      // Assert
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe('INVALID_INPUT');
+      expect(mockRunStaticAnalysis).not.toHaveBeenCalled();
+    });
+
+    it('CheckStaticAnalysis_NoRepoRoot_DefaultsToProcessCwd', async () => {
+      // Arrange: regression guard — omitting repoRoot keeps the existing
+      // process.cwd() default for non-delegation callers.
+      mockRunStaticAnalysis.mockReturnValue(makePassingResult());
+
+      const args = { featureId: 'feat-1' };
+
+      // Act
+      await handleStaticAnalysis(args, STATE_DIR, mockStore as unknown as EventStore);
+
+      // Assert
+      expect(mockRunStaticAnalysis).toHaveBeenCalledTimes(1);
+      const callArgs = mockRunStaticAnalysis.mock.calls[0][0] as { repoRoot: string };
+      expect(callArgs.repoRoot).toBe(process.cwd());
+    });
+  });
+
   // ─── runCommand adapter is passed ──────────────────────────────────────
 
   describe('runCommand adapter', () => {
