@@ -10,9 +10,11 @@
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'node:fs/promises';
+import { execFileSync } from 'node:child_process';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import { handlePrepareDelegation } from './prepare-delegation.js';
+import { handleSetupWorktree } from './setup-worktree.js';
 import { handleOrchestrate } from './composite.js';
 import { resetMaterializerCache } from '../views/tools.js';
 import { EventStore } from '../event-store/store.js';
@@ -179,3 +181,120 @@ describe('handlePrepareDelegation — event persistence (integration)', () => {
     expect(events).toHaveLength(1);
   });
 });
+
+// ─── T-09 (#1301): Working-tree mirroring-leak root-cause characterization ────
+//
+// characterizationRequired: true
+//
+// #1301 symptom: an implementer agent's worktree edits surface as
+// byte-identical UNCOMMITTED modifications in the orchestrator's MAIN
+// worktree. The issue's leading hypothesis (#1) is a "file-tool path
+// resolution leak" — an agent file-write resolving to BOTH the worktree path
+// AND the equivalent main-worktree path.
+//
+// This block characterizes whether that leak can originate in
+// MCP-SERVER-OWNED code. The server's entire surface area for "where an agent
+// will write" is the worktree it provisions via `handleSetupWorktree`
+// (`git worktree add <repoRoot>/.worktrees/<task>`). The server never spawns
+// the agent and never resolves the agent's individual file-write targets —
+// that is the Claude Code harness / file-tool layer, outside this repo.
+//
+// INV-11 (by-construction worktree isolation) on the server side reduces to a
+// single provable invariant: every path the server hands off as an agent
+// write root MUST live strictly inside `<repoRoot>/.worktrees/`, NEVER the
+// main worktree root. These tests assert exactly that. If the server resolved
+// a write target to the main worktree, the leak would reproduce here; if it
+// cannot, the root fix is a harness-layer concern (escalated to RC2), with
+// T-08's `verify-worktree-baseline` backstop as the shipping mitigation.
+describe('ImplementerDispatch_WorktreeEdit_DoesNotAppearInMainWorktree (characterization, #1301)', () => {
+  let repoRoot: string;
+
+  function git(cwd: string, args: readonly string[]): string {
+    return execFileSync('git', ['-C', cwd, ...args], {
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+  }
+
+  beforeEach(async () => {
+    repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'rootcause-1301-'));
+    git(repoRoot, ['init', '-b', 'main']);
+    git(repoRoot, ['config', 'user.email', 'test@example.com']);
+    git(repoRoot, ['config', 'user.name', 'Test']);
+    // Seed a committed file so the agent worktree has a real main-worktree
+    // counterpart to (not) leak into.
+    await fs.writeFile(path.join(repoRoot, 'src.txt'), 'baseline\n');
+    git(repoRoot, ['add', '.']);
+    git(repoRoot, ['commit', '-m', 'baseline']);
+  });
+
+  afterEach(async () => {
+    await fs.rm(repoRoot, { recursive: true, force: true });
+  });
+
+  it('resolves the agent write-root strictly inside <repoRoot>/.worktrees/, never the main worktree', () => {
+    const result = handleSetupWorktree({
+      repoRoot,
+      taskId: 'T-99',
+      taskName: 'leak-probe',
+      skipTests: true,
+    });
+
+    expect(result.success).toBe(true);
+    const data = result.data as { worktreePath: string; passed: boolean };
+
+    const worktreesRoot = path.join(repoRoot, '.worktrees') + path.sep;
+    // The write root must be UNDER .worktrees/ — not the repoRoot itself and
+    // not a sibling escaping the isolation boundary.
+    expect(data.worktreePath.startsWith(worktreesRoot)).toBe(true);
+    expect(path.resolve(data.worktreePath)).not.toBe(path.resolve(repoRoot));
+    // A real, distinct worktree was provisioned (git sees a separate gitdir).
+    expect(existsSyncSafe(data.worktreePath)).toBe(true);
+  });
+
+  it('an agent-side write into its worktree does NOT mirror into the main worktree', () => {
+    const setup = handleSetupWorktree({
+      repoRoot,
+      taskId: 'T-99',
+      taskName: 'leak-probe',
+      skipTests: true,
+    });
+    const { worktreePath } = setup.data as { worktreePath: string };
+
+    // Simulate the agent's file-tool write happening at the path the SERVER
+    // handed it. If server path-resolution leaked, the byte-identical content
+    // would also appear at the main worktree's copy of the same file.
+    const agentFile = path.join(worktreePath, 'src.txt');
+    execFileSync('node', ['-e', `require('fs').writeFileSync(${JSON.stringify(agentFile)}, 'agent-edit\\n')`], {
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+
+    // The agent's edited path (src.txt) must NOT surface as a modification in
+    // the main worktree. (`handleSetupWorktree` step 1 writes `.gitignore`
+    // into the main worktree by design — that is provisioning, not a leak, so
+    // we assert specifically on the agent-edited path, not whole-tree
+    // cleanliness.)
+    const mainStatus = git(repoRoot, ['status', '--porcelain']);
+    const leakedPaths = mainStatus
+      .split('\n')
+      .map(l => l.slice(2).trim())
+      .filter(p => p === 'src.txt');
+    expect(leakedPaths).toEqual([]);
+    // And the main worktree's file is untouched.
+    const mainContent = execFileSync('cat', [path.join(repoRoot, 'src.txt')], {
+      encoding: 'utf-8',
+    });
+    expect(mainContent).toBe('baseline\n');
+  });
+});
+
+function existsSyncSafe(p: string): boolean {
+  try {
+    execFileSync('git', ['-C', p, 'rev-parse', '--git-dir'], {
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
