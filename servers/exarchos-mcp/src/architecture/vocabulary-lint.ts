@@ -12,7 +12,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { loadInvariantIds } from './invariants-loader.js';
+import { loadInvariantIds, loadInvariants } from './invariants-loader.js';
 import type { ExarchosConfig } from '../config/exarchos-config-schema.js';
 
 export interface VocabularyFinding {
@@ -21,6 +21,31 @@ export interface VocabularyFinding {
   token: string;
   kind: 'unknown-invariant';
 }
+
+/**
+ * Coverage-closure finding (DR-8). Emitted for a `DIM-*` catalog entry that
+ * is neither specialized by any `INV-*` (via `axiom_overlap`) nor explicitly
+ * exempted with the `coverage: n/a` marker. `line` is 0 because the finding
+ * is structural (derived from the catalog frontmatter), not a token on a
+ * specific source line.
+ */
+export interface CoverageFinding {
+  /** Absolute path to the invariants catalog the gap was found in. */
+  file: string;
+  /** Always 0 — structural finding, not anchored to a source line. */
+  line: number;
+  /** The uncovered `DIM-*` id. */
+  token: string;
+  kind: 'coverage-gap';
+}
+
+/**
+ * Frontmatter marker that exempts a `DIM-*` entry from coverage closure.
+ * The least-invasive convention chosen for DR-8: a `coverage: n/a` field on
+ * the DIM entry. Surfaced through `InvariantEntry.raw` (the loader preserves
+ * unknown fields), so no loader schema change is required.
+ */
+const COVERAGE_NA_MARKER = 'n/a';
 
 export interface ScanOptions {
   /**
@@ -178,4 +203,57 @@ export function scanRepoDefaults(
     ],
     options,
   );
+}
+
+/**
+ * Coverage-closure scan (DR-8). Every `DIM-*` entry in the catalog must be
+ * "closed": either specialized by at least one `INV-*` whose `axiom_overlap`
+ * points at it, OR explicitly exempted with the `coverage: n/a` marker on the
+ * DIM entry. A `DIM-*` with neither is returned as a `coverage-gap` finding,
+ * which drives the lint CLI to a non-zero exit.
+ *
+ * Additive to the existing token scanner: this inspects the parsed catalog
+ * frontmatter (via `loadInvariants`) rather than walking markdown bodies, so
+ * it composes alongside `scanRepoDefaults` without changing its behavior.
+ *
+ * When the `devCatalog` gate is not `enabled`, `loadInvariants` returns `[]`
+ * and this scan yields no findings — consistent with the rest of the lint
+ * opting out for plugin consumers who have not enabled the dev catalog.
+ */
+export function scanCoverageClosure(
+  options: ScanOptions = {},
+): CoverageFinding[] {
+  const docPath = options.invariantsDoc ?? defaultInvariantsDoc();
+  const entries = loadInvariants(docPath, { scope: 'all' }, options.config);
+
+  // Set of DIM-* ids that at least one INV-* specializes via axiom_overlap.
+  const specialized = new Set<string>();
+  for (const entry of entries) {
+    if (entry.axiomOverlap !== undefined) {
+      specialized.add(entry.axiomOverlap);
+    }
+  }
+
+  const findings: CoverageFinding[] = [];
+  for (const entry of entries) {
+    if (!entry.id.startsWith('DIM-')) continue;
+    if (specialized.has(entry.id)) continue;
+    if (hasCoverageNaMarker(entry.raw)) continue;
+    findings.push({
+      file: docPath,
+      line: 0,
+      token: entry.id,
+      kind: 'coverage-gap',
+    });
+  }
+  return findings;
+}
+
+/**
+ * Detect the `coverage: n/a` exemption marker on a raw catalog entry.
+ * Case-insensitive on the value so `N/A` reads the same as `n/a`.
+ */
+function hasCoverageNaMarker(raw: Record<string, unknown>): boolean {
+  const value = raw['coverage'];
+  return typeof value === 'string' && value.trim().toLowerCase() === COVERAGE_NA_MARKER;
 }
