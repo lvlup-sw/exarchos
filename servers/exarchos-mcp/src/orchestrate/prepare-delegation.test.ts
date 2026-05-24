@@ -464,8 +464,8 @@ describe('handlePrepareDelegation', () => {
       { type: 'workflow.transition', data: { to: 'plan-review' } } as unknown as WorkflowEvent,
       { type: 'task.assigned', data: { taskId: 'task-1' } } as unknown as WorkflowEvent,
       { type: 'task.assigned', data: { taskId: 'task-2' } } as unknown as WorkflowEvent,
-      { type: 'worktree.created', data: { taskId: 'task-1', worktreePath: '/w/1' } } as unknown as WorkflowEvent,
-      { type: 'worktree.created', data: { taskId: 'task-2', worktreePath: '/w/2' } } as unknown as WorkflowEvent,
+      { type: 'worktree.created', data: { taskId: 'task-1', path: '/w/1' } } as unknown as WorkflowEvent,
+      { type: 'worktree.created', data: { taskId: 'task-2', path: '/w/2' } } as unknown as WorkflowEvent,
     ];
 
     // ── Step 2: replay events through the projection — this is the

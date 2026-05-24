@@ -172,6 +172,28 @@ describe('handleCheckIntegrationSuite', () => {
     expect(opts?.cwd).toBe('/worktrees/agent-x');
   });
 
+  it('CheckIntegrationSuite_UnparseableOutputWithZeroExit_FailsClosed', async () => {
+    // Arrange — the runner emits garbage on stdout but exits 0. A zero exit is
+    // NOT trustworthy evidence the suite passed (a crashed/garbled reporter can
+    // still exit clean), so the gate must fail closed rather than green-light an
+    // unknown state.
+    const runner = stubRunnerReturning('this is not vitest json', 0);
+
+    // Act
+    const result = await handleCheckIntegrationSuite(
+      { featureId: 'feat-1', repoRoot: '/repo' },
+      STATE_DIR,
+      mockStore as unknown as EventStore,
+      runner,
+    );
+
+    // Assert
+    const data = result.data as { passed: boolean; failCount: number; parseError: boolean };
+    expect(data.passed).toBe(false);
+    expect(data.failCount).toBeGreaterThanOrEqual(1);
+    expect(data.parseError).toBe(true);
+  });
+
   it('CheckIntegrationSuite_MissingFeatureId_ReturnsError', async () => {
     const runner = stubRunnerReturning(vitestLoadFailureJson());
     const result = await handleCheckIntegrationSuite(
@@ -243,5 +265,16 @@ describe('parseVitestResult', () => {
   it('returns null on unparseable output', () => {
     expect(parseVitestResult('not json')).toBeNull();
     expect(parseVitestResult('42')).toBeNull();
+  });
+
+  it('rejects malformed object/array payloads instead of reading them as green', () => {
+    // A bare `{}` or `[]` is parseable JSON but carries no vitest summary
+    // counters. Normalizing it to zero failures would fail OPEN — a false
+    // green whenever the runner emits an unexpected shape.
+    expect(parseVitestResult('{}')).toBeNull();
+    expect(parseVitestResult('[]')).toBeNull();
+    expect(parseVitestResult('null')).toBeNull();
+    expect(parseVitestResult('"a string"')).toBeNull();
+    expect(parseVitestResult(JSON.stringify({ unrelated: 'field' }))).toBeNull();
   });
 });

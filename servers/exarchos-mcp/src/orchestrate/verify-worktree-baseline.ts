@@ -188,6 +188,15 @@ function workingBlobMatchesBranch(
  * that must still block the merge. Classification + remediation only — this
  * function never mutates the worktree.
  */
+/**
+ * Single-quote a path for safe inclusion in a copy-paste shell remediation.
+ * A crafted filename with spaces or shell metacharacters must not turn a
+ * suggested `git checkout` into unintended execution.
+ */
+function shellQuotePath(path: string): string {
+  return `'${path.replace(/'/g, `'\\''`)}'`;
+}
+
 function detectLeakedEdits(worktreePath: string, agentBranch: string): LeakDetection {
   const porcelain = gitCapture(worktreePath, ['status', '--porcelain']);
   if (porcelain === null || porcelain === '') {
@@ -199,7 +208,7 @@ function detectLeakedEdits(worktreePath: string, agentBranch: string): LeakDetec
       return {
         path,
         classification: 'leaked-committed' as const,
-        remediation: `git checkout -- ${path}`,
+        remediation: `git checkout -- ${shellQuotePath(path)}`,
       };
     }
     return { path, classification: 'dirty' as const };

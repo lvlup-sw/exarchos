@@ -76,7 +76,13 @@ export type ResolveRepoRootResult =
  */
 interface WorktreeCreatedData {
   readonly taskId?: string;
-  readonly worktreePath?: string;
+  /**
+   * Absolute worktree path. Must match the canonical `WorktreeCreatedData`
+   * schema field name (`path`) — see event-store/schemas.ts. Reading any other
+   * key here silently never matches a real event (INV-1 projection/contract
+   * divergence; was `worktreePath`, fixed for #1330).
+   */
+  readonly path?: string;
 }
 
 /**
@@ -125,8 +131,8 @@ export async function resolveRepoRoot(
     const events = await store.query(featureId, { type: 'worktree.created' });
     for (let i = events.length - 1; i >= 0; i--) {
       const data = events[i].data as WorktreeCreatedData | undefined;
-      if (data?.taskId === taskId && data.worktreePath && data.worktreePath.trim().length > 0) {
-        return { ok: true, repoRoot: data.worktreePath };
+      if (data?.taskId === taskId && data.path && data.path.trim().length > 0) {
+        return { ok: true, repoRoot: data.path };
       }
     }
   }

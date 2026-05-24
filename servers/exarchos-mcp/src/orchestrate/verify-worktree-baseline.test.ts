@@ -355,8 +355,9 @@ describe('handleVerifyWorktreeBaseline', () => {
     // Must classify as a recoverable, byte-identical-to-committed leak —
     // NOT a generic dirty/unrelated change, NOT a silent pass.
     expect(entry?.classification).toBe('leaked-committed');
-    // Safe remediation must match the documented manual workaround.
-    expect(entry?.remediation).toContain(`git checkout -- ${LEAKED_PATH}`);
+    // Safe remediation must match the documented manual workaround, with the
+    // path single-quoted to neutralize shell metacharacters in crafted names.
+    expect(entry?.remediation).toContain(`git checkout -- '${LEAKED_PATH}'`);
   });
 
   it('VerifyWorktreeBaseline_UnrelatedDirtyTree_IsGenuineBlocker', async () => {

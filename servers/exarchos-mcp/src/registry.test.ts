@@ -615,6 +615,9 @@ describe('TOOL_REGISTRY', () => {
           // DR-MO-1 / DR-MO-2: explicit assertion so a future registry edit
           // cannot quietly drop the autonomous merge orchestrator action.
           'merge_orchestrate',
+          // #1329: explicit name assertion — the length check alone can pass
+          // even if a different action replaces check_integration_suite.
+          'check_integration_suite',
         ]),
       );
     });

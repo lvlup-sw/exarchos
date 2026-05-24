@@ -108,9 +108,21 @@ export function parseVitestResult(raw: string): IntegrationSuiteParse | null {
     return null;
   }
 
-  // Guard: a parseable-but-non-object payload (e.g. a bare number) is not a
-  // vitest result.
-  if (typeof json !== 'object' || json === null) {
+  // Guard: only a plain object can be a vitest result. A bare number, string,
+  // null, or array (`[]`) is not — and must NOT normalize to a passing run.
+  if (typeof json !== 'object' || json === null || Array.isArray(json)) {
+    return null;
+  }
+
+  // Guard: an object lacking every summary counter (e.g. `{}`) is not a vitest
+  // result either. Treating it as zero-failures would fail OPEN — a false green
+  // whenever the runner emits an unexpected JSON shape. Require at least one
+  // recognizable counter before trusting the payload.
+  const hasSummaryCounter =
+    typeof json.numFailedTests === 'number' ||
+    typeof json.numFailedTestSuites === 'number' ||
+    typeof json.numTotalTests === 'number';
+  if (!hasSummaryCounter) {
     return null;
   }
 
@@ -233,17 +245,18 @@ export function runIntegrationSuite(input: RunIntegrationSuiteInput): RunIntegra
   const parse = parseVitestResult(cmdResult.stdout);
 
   if (parse === null) {
-    // The runner ran but emitted no parseable JSON. Treat a non-zero exit as a
-    // failure (the suite did blow up) but flag parseError so callers know the
-    // counts are not authoritative.
-    const failedFromExit = cmdResult.exitCode !== 0;
+    // The runner ran but emitted no parseable JSON. Fail CLOSED: a gate whose
+    // counts are non-authoritative must never green-light an unknown state. A
+    // zero exit code here is not trustworthy evidence the suite passed (it can
+    // mask a crashed/garbled reporter), so we report a definitive failure and
+    // flag parseError so callers know the counts came from the fallback.
     const fallback: IntegrationSuiteParse = {
-      passed: !failedFromExit,
-      failedSuites: failedFromExit ? 1 : 0,
+      passed: false,
+      failedSuites: 1,
       failedTests: 0,
-      loadFailures: failedFromExit ? 1 : 0,
+      loadFailures: 1,
       totalTests: 0,
-      failCount: failedFromExit ? 1 : 0,
+      failCount: 1,
       loadFailureFiles: [],
     };
     return {
@@ -255,13 +268,11 @@ export function runIntegrationSuite(input: RunIntegrationSuiteInput): RunIntegra
         '',
         `**Repository:** \`${repoRoot}\``,
         '',
-        failedFromExit
-          ? '- **FAIL**: suite exited non-zero and produced no parseable vitest JSON'
-          : '- **PASS**: suite exited zero (no parseable vitest JSON to fold)',
+        '- **FAIL**: produced no parseable vitest JSON; gate failed closed',
         '',
         '---',
         '',
-        failedFromExit ? '**Result: FAIL** (unparseable output)' : '**Result: PASS**',
+        '**Result: FAIL** (unparseable output)',
       ].join('\n'),
     };
   }

@@ -397,7 +397,7 @@ describe('handleStaticAnalysis', () => {
       mockRunStaticAnalysis.mockReturnValue(makePassingResult());
       const worktreePath = '/home/user/.worktrees/agent-task-9';
       mockStore.query.mockResolvedValue([
-        { type: 'worktree.created', data: { taskId: 'task-9', worktreePath } },
+        { type: 'worktree.created', data: { taskId: 'task-9', path: worktreePath } },
       ]);
 
       const args = {

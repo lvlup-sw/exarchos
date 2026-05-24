@@ -1409,6 +1409,11 @@ const orchestrateActions: readonly ToolAction[] = [
     schema: z.object({
       featureId: z.string().min(1),
       repoRoot: z.string().optional(),
+      // #1330: the handler threads worktreePath into resolveRepoRoot so
+      // `repoRoot: 'auto'` resolves the agent's worktree. The field must be
+      // declared here or action-level schema parsing drops it before the
+      // handler sees it (the task-completion runbook passes it as a template var).
+      worktreePath: z.string().optional(),
       skipLint: z.boolean().optional(),
       skipTypecheck: z.boolean().optional(),
     }),

@@ -49,6 +49,12 @@ interface CheckIntegrationSuiteResult {
   readonly failedSuites: number;
   readonly totalTests: number;
   readonly report: string;
+  /**
+   * True when the runner produced no parseable vitest JSON. The gate fails
+   * closed in this case (passed=false, failCount>=1); the flag tells callers
+   * the failure stems from unparseable output rather than authoritative counts.
+   */
+  readonly parseError: boolean;
 }
 
 // ─── Command Runner Adapter ─────────────────────────────────────────────────
@@ -162,6 +168,7 @@ export async function handleCheckIntegrationSuite(
     failedSuites: suite.failedSuites,
     totalTests: suite.totalTests,
     report: suite.report,
+    parseError: suite.parseError,
   };
 
   return { success: true, data: result };

@@ -96,7 +96,7 @@ describe('resolveRepoRoot', () => {
 
   it('resolveRepoRoot_AutoWithWorktreePathArg_PrefersArg', async () => {
     const store = storeWith([
-      { type: 'worktree.created', data: { taskId: 'task-9', worktreePath: '/from/event' } },
+      { type: 'worktree.created', data: { taskId: 'task-9', path: '/from/event' } },
     ]);
     const result = await resolveRepoRoot(
       {
@@ -114,9 +114,9 @@ describe('resolveRepoRoot', () => {
 
   it('resolveRepoRoot_AutoNoArg_ResolvesLatestWorktreeCreatedEventForTask', async () => {
     const store = storeWith([
-      { type: 'worktree.created', data: { taskId: 'task-9', worktreePath: '/old' } },
-      { type: 'worktree.created', data: { taskId: 'other', worktreePath: '/wrong-task' } },
-      { type: 'worktree.created', data: { taskId: 'task-9', worktreePath: '/latest' } },
+      { type: 'worktree.created', data: { taskId: 'task-9', path: '/old' } },
+      { type: 'worktree.created', data: { taskId: 'other', path: '/wrong-task' } },
+      { type: 'worktree.created', data: { taskId: 'task-9', path: '/latest' } },
     ]);
     const result = await resolveRepoRoot(
       { featureId: 'feat-1', repoRoot: AUTO_REPO_ROOT, taskId: 'task-9' },

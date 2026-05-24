@@ -124,6 +124,8 @@ describe('orchestrate action registry — longRunning metadata (DR-5)', () => {
 const EXTRA_ARGS_PER_ACTION: Record<string, string[]> = {
   prepare_synthesis: [],
   assess_stack: ['--pr-numbers', '[1]'],
+  // #1329: only requires featureId; no extra required flags.
+  check_integration_suite: [],
 };
 
 describe('CLI long-running heartbeat emission (DR-5)', () => {
@@ -150,10 +152,10 @@ describe('CLI long-running heartbeat emission (DR-5)', () => {
     process.exitCode = originalExitCode;
   });
 
-  // Parametrize across every flagged longRunning action so both
-  // prepare_synthesis and assess_stack are exercised — not just whichever
-  // the registry happens to list first.
-  describe.each(['prepare_synthesis', 'assess_stack'] as const)(
+  // Parametrize across every flagged longRunning action so prepare_synthesis,
+  // assess_stack, and check_integration_suite are all exercised — not just
+  // whichever the registry happens to list first.
+  describe.each(['prepare_synthesis', 'assess_stack', 'check_integration_suite'] as const)(
     'flagged action: %s',
     (actionName) => {
       it('LongRunningOrchestrateAction_CliInvocation_EmitsLineBufferedProgressOrExitsQuickly', async () => {
