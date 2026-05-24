@@ -360,6 +360,64 @@ describe('handleVerifyWorktreeBaseline', () => {
     expect(entry?.remediation).toContain(`git checkout -- '${LEAKED_PATH}'`);
   });
 
+  it('VerifyWorktreeBaseline_RenamedLeak_ParsesNewPathNotRawArrow', async () => {
+    // Porcelain renders a rename as "R  old -> new". The blob on disk lives at
+    // `new`; the parser must extract it, not pass the raw "old -> new" string to
+    // git hash-object (which is not a real file and silently fails detection).
+    const AGENT_BRANCH = 'feature/agent-task-123';
+    const OLD_PATH = 'src/old-name.ts';
+    const NEW_PATH = 'src/renamed-leak.ts';
+
+    vi.mocked(existsSync).mockImplementation((p) => {
+      const s = String(p);
+      if (s === '/worktree') return true;
+      if (s === '/worktree/package.json') return true;
+      return false;
+    });
+    vi.mocked(readdirSync).mockReturnValue([]);
+    vi.mocked(readFileSync).mockImplementation((p) => {
+      if (String(p).endsWith('package.json')) return NPM_PACKAGE_JSON;
+      throw new Error(`unexpected readFileSync: ${String(p)}`);
+    });
+
+    vi.mocked(execFileSync).mockImplementation((cmd, args) => {
+      const a = (args as string[]) ?? [];
+      if (String(cmd) === 'git') {
+        if (a.includes('--git-dir')) return '.git\n' as unknown as Buffer;
+        if (a.includes('status') && a.includes('--porcelain')) {
+          return `R  ${OLD_PATH} -> ${NEW_PATH}\n` as unknown as Buffer;
+        }
+        // Only the NEW path resolves to the byte-identical blob. If the parser
+        // leaked the raw "old -> new" string, hash-object would be invoked with
+        // a non-file and this branch would never match → no leaked-committed.
+        if (a.includes('hash-object') && a.includes(NEW_PATH)) {
+          return 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\n' as unknown as Buffer;
+        }
+        if (a.includes('rev-parse') && a.some((x) => x === `${AGENT_BRANCH}:${NEW_PATH}`)) {
+          return 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\n' as unknown as Buffer;
+        }
+        return '' as unknown as Buffer;
+      }
+      return 'Tests passed\n' as unknown as Buffer;
+    });
+
+    const result = await handleVerifyWorktreeBaseline(
+      { worktreePath: '/worktree', agentBranch: AGENT_BRANCH },
+      stateDir,
+    );
+
+    expect(result.success).toBe(true);
+    const data = result.data as {
+      leakDetection?: { paths: { path: string; classification: string }[] };
+    };
+    const paths = data.leakDetection?.paths ?? [];
+    // The parsed path is the post-rename name, never the raw arrow string.
+    expect(paths.some((p) => p.path.includes(' -> '))).toBe(false);
+    const entry = paths.find((p) => p.path === NEW_PATH);
+    expect(entry).toBeDefined();
+    expect(entry?.classification).toBe('leaked-committed');
+  });
+
   it('VerifyWorktreeBaseline_UnrelatedDirtyTree_IsGenuineBlocker', async () => {
     const AGENT_BRANCH = 'feature/agent-task-123';
     const DIRTY_PATH = 'src/local-wip.ts';

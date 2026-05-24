@@ -154,8 +154,21 @@ function parsePorcelainPaths(porcelain: string): { path: string; tracked: boolea
     // separating whitespace. Slicing the leading two columns then trimming is
     // tolerant of the single-space separator without eating path characters.
     const xy = rawLine.slice(0, 2);
-    const path = rawLine.slice(2).trim();
+    let path = rawLine.slice(2).trim();
     if (path === '') continue;
+    // Porcelain v1 renders renames/copies (status R or C) as "old -> new".
+    // The blob on disk lives at `new`, so `git hash-object` must resolve the
+    // post-rename path — passing the raw "old -> new" string is not a real
+    // file and silently fails leak detection. Only split on the rename arrow
+    // for R/C entries so a literal " -> " inside an ordinary filename (git
+    // would quote such names) is left intact.
+    if (xy.includes('R') || xy.includes('C')) {
+      const arrowIdx = path.indexOf(' -> ');
+      if (arrowIdx !== -1) {
+        path = path.slice(arrowIdx + 4).trim();
+        if (path === '') continue;
+      }
+    }
     const tracked = !xy.includes('?');
     entries.push({ path, tracked });
   }
