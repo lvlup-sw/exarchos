@@ -107,24 +107,27 @@ invariants:
   devCatalog: enabled    # default: disabled
 ```
 
-Loader logic (signature preserves v1 — `filePath: string` first arg — to avoid breaking existing call sites; only the new `config` arg is additive):
+Loader logic (signature preserves v1's `filePath: string` first arg; the new `config` arg is *optional* and defaults to a dedicated walk-up reader scoped to the catalog file's parent directories — the loader deliberately does NOT route through the project-wide config schema; see "Implementation note" below):
 
 ```ts
 function loadInvariants(
   filePath: string,
   opts?: { scope?: Scope },
-  config: ExarchosConfig = readConfig()
+  config?: ExarchosConfig,
 ): InvariantEntry[] {
-  // §4.0 catalog gating — applied before any file read or scope filter.
-  if (config.invariants?.devCatalog !== 'enabled') {
+  const effectiveConfig = config ?? readInvariantsConfig(filePath);
+  // §4.0 catalog gating — applied BEFORE any scope filter.
+  if (effectiveConfig.invariants?.devCatalog !== 'enabled') {
     return [];
   }
-  // ... existing parse-and-filter logic per §4.1 below (unchanged from v1
-  // apart from the additional `axis`-aware filters for `scope: 'core'`).
+  // ... parse-and-filter logic per §4.1 below (gray-matter on filePath;
+  // adds `axis`-aware filters for `scope: 'core'` vs v1's always-load only).
 }
 ```
 
-**Default behavior — disabled:** No entries surface at `/ideate` Phase 0; `loadInvariants(doc)` returns `[]`. The `design-invariants` skill body still walks the catalog (it has direct file access independent of the loader), but it's only invoked when an Exarchos contributor explicitly requests `/design-invariants`. Consumers using Exarchos as a plugin in a non-Exarchos project never see these entries at any phase.
+**Implementation note — why a dedicated single-key reader, not `loadProjectConfig`.** The committed `.exarchos.yml` carries both `ProjectConfigSchema` keys (`agents`/`review`/`vcs`/`workflow`/`tools`) and `ExarchosConfigSchema` keys (`test`/`typecheck`/`install`/`qualityHints`/...), and both schemas are `.strict()`. Routing the gate through either full-config loader would throw on the unrelated keys validated by the other schema. The loader therefore extracts only the `invariants:` block from the closest `.exarchos.yml` walking up from the catalog file, tolerates any other top-level keys, and collapses every malformed shape (missing block, wrong type, parse error) to default-disabled. This decouples the gate from the rest of the config-schema layer entirely — extending one schema (or adding new top-level keys) cannot regress the gate.
+
+**Default behavior — disabled:** No entries surface at `/ideate` Phase 0; `loadInvariants(filePath)` returns `[]`. The `design-invariants` skill body still walks the catalog (it has direct file access independent of the loader), but it's only invoked when an Exarchos contributor explicitly requests `/design-invariants`. Consumers using Exarchos as a plugin in a non-Exarchos project never see these entries at any phase.
 
 **Enabled behavior:** Loader returns per the scope filter (§4.1 below). Setting `devCatalog: enabled` in `.exarchos.yml` is the single switch.
 
@@ -189,10 +192,10 @@ Rationale for `always-load` on every new entry: each is load-bearing for any non
 | INV-4 | platform-agnosticity | reference-only | (none — platform is a v2 axis sibling to workload) | keep (sharpen — clarify "platform" axis ownership relative to INV-6 "workload" axis) |
 | INV-5c | aspire-verbs | reference-only | (none) | keep |
 | INV-5d | action-discriminator | reference-only | (none) | keep |
-| INV-9 | hsm-as-state-machine | reference-only | DIM-1 | **NEW** (pending Harel statecharts citation — see §7) |
+| INV-9 | hsm-as-state-machine | reference-only | DIM-1 | **NEW** (cited: Harel 1987 + Greg Young + Wolverine) |
 | INV-10 | liveness-event-protocol | reference-only | DIM-2 | **NEW** |
 | INV-13 | process-manager-two-event-split | reference-only | DIM-7 | **NEW** |
-| INV-14 | native-primitive-first-recovery | reference-only | DIM-7 | **NEW** (or operational pattern — see §7) |
+| INV-14 | native-primitive-first-recovery | reference-only | DIM-7 | **NEW** (ships as catalog entry; demote if rarely cited after one release) |
 | basileus-boundary | cross-product-coordination | archivable | DIM-1 | keep |
 
 ### 5.3 Substrate axis — axiom pointers (7)
@@ -308,7 +311,7 @@ Wording proposed for each new entry. Existing entries (INV-1..INV-6, INV-5a..d, 
     - servers/exarchos-mcp/src/dispatch/with-session.ts
 ```
 
-### INV-9 — hsm-as-state-machine (NEW; pending citation backfill)
+### INV-9 — hsm-as-state-machine (NEW)
 
 ```yaml
 - id: INV-9
@@ -488,12 +491,9 @@ Wording proposed for each new entry. Existing entries (INV-1..INV-6, INV-5a..d, 
     - docs/architecture/runtime.md#§5
 ```
 
-**Open question:** INV-14 may not deserve full catalog status; the citations remain Exarchos-specific rather than pulling from a deep external literature. Two alternatives for the implementation phase:
+**Disposition (recorded 2026-05-20 per task A2):** Ships as catalog entry per option (A) above. Demotion criterion: if the entry is rarely cited after one release cycle (operationalized as `< 1 cross-reference per release in `docs/research/*.md`, `docs/designs/*.md`, or `docs/rca/*.md`), demote to operational pattern in a dedicated skill body (e.g., `.claude/skills/recovery-discipline/SKILL.md`) and reduce the catalog entry to a one-line pointer under INV-1's references. Reassessment occurs at the v2.12.0 release-engineering checkpoint.
 
-- **(A)** ship as v2 catalog entry as proposed above.
-- **(B)** demote to "operational pattern" documented in a skill body (e.g., `.claude/skills/recovery-discipline/SKILL.md`), with a one-line pointer in the catalog under INV-1's references.
-
-Recommendation: **(A)** initially. The principle generalizes beyond git, and substrate-level handlers across the codebase need a single load-bearing rule to point to. If after one release cycle the entry is rarely cited, demote to (B).
+Rationale for shipping in v2 rather than deferring: the principle generalizes beyond `git` (any tool with a native recovery primitive — `kubectl rollout undo`, `terraform state rm`, etc. — follows the same posture), and substrate-level handlers across the codebase need a single load-bearing rule to point to. A catalog entry provides that single reference point; the alternative (skill body only) fragments the principle across multiple handler docstrings.
 
 ### INV-15 — single-machine-frame (NEW)
 
@@ -532,27 +532,29 @@ Recommendation: **(A)** initially. The principle generalizes beyond git, and sub
 
 Before any catalog-shape change lands, the loader's gating mechanism (§4.0) must be in place to ensure default-disabled behavior. Sequence:
 
-1. **Extend `ProjectConfigSchema` in `servers/exarchos-mcp/src/config/yaml-schema.ts`** to define an `invariants` section. The schema is `.strict()` (rejects unknown keys), so without this step the new key is rejected at full-config validation. Concretely add:
+1. **Declare `InvariantsConfigSchema` in a shared file (`servers/exarchos-mcp/src/config/exarchos-config-schema.ts`)** so both `ProjectConfigSchema` (yaml-schema.ts) and `ExarchosConfigSchema` (exarchos-config-schema.ts) can reuse the identical shape without duplicating it. The committed `.exarchos.yml` carries keys validated by *both* schemas; a single shared `InvariantsConfigSchema` keeps the two in lockstep and was raised as CodeRabbit finding 2 on the implementation PR:
 
    ```ts
-   const InvariantsConfig = z.object({
-     devCatalog: z.enum(['enabled', 'disabled']).default('disabled'),
-   }).strict();
+   // exarchos-config-schema.ts
+   export const InvariantsConfigSchema = z
+     .object({
+       devCatalog: z.enum(['enabled', 'disabled']).optional(),
+     })
+     .strict();
 
-   // ...inside ProjectConfigSchema:
-   invariants: InvariantsConfig.optional(),
+   // ...inside ExarchosConfigSchema and ProjectConfigSchema:
+   invariants: InvariantsConfigSchema.optional(),
    ```
 
-2. **Add `'invariants'` to the `SECTION_KEYS` tuple in `servers/exarchos-mcp/src/config/yaml-loader.ts`.** The section-by-section fallback parser (`parseSections`) only walks keys listed in `SECTION_KEYS`; an `invariants` block in `.exarchos.yml` would be silently dropped during fallback parsing without this entry. (Both this step and step 1 must land together — without either, the feature flag never reaches the loader.)
-3. Extend the `ExarchosConfig` / `ProjectConfig` consumer type with the new `invariants?: { devCatalog: 'enabled' | 'disabled' }` field (auto-derived from the Zod schema via `z.infer`).
-4. Extend `loadInvariants` to consult the config; return `[]` when `devCatalog !== 'enabled'`. Signature stays v1-compatible: `(filePath: string, opts?, config = readConfig())` — see §7.4.
+2. **Bypass the full-config loaders for the invariants gate.** The invariants loader does NOT consume `loadProjectConfig` / `loadExarchosConfig` — both run `.strict()` over the entire file and would throw on keys validated by the sibling schema. Instead, ship a dedicated `readInvariantsConfig(catalogFilePath)` in `invariants-loader.ts` that walks up from the catalog file looking for `.exarchos.yml`, extracts only the `invariants:` block via raw `yaml.parse`, and collapses every malformed shape (missing block, wrong type, parse error) to default-disabled. This decouples the gate from the rest of the config-schema layer entirely. (Earlier drafts of this spec called for extending `SECTION_KEYS` in `yaml-loader.ts`; that approach was abandoned during implementation because the dedicated extractor is more robust — extending one schema or adding a new top-level key cannot regress the gate.)
+3. Extend the `ExarchosConfig` / `ProjectConfig` consumer types via `z.infer` so callers see the new `invariants?: { devCatalog?: 'enabled' | 'disabled' }` field on both.
+4. Extend `loadInvariants` to consult the config; return `[]` when `devCatalog !== 'enabled'`. Signature stays v1-compatible: `(filePath: string, opts?, config?: ExarchosConfig)` — `config` is *optional* so tests can inject; production defaults to `readInvariantsConfig(filePath)`. See §7.4.
 5. Default `disabled` in the loader itself — including inside the Exarchos repo. The repo's own committed `.exarchos.yml` sets the flag to `enabled` so contributors and internal consumers (eval #1442, vocabulary-lint cross-references, etc.) retain access when working inside the repo. External consumers using Exarchos as a plugin in their own repo see no entries unless they explicitly opt in.
 6. **Add `invariants: { devCatalog: enabled }` to the repository's root `.exarchos.yml`** as part of this migration commit. This is the load-bearing step that keeps eval #1442, the `design-invariants` skill, and vocabulary-lint working for contributors. Without this commit-time change, the catalog appears empty even inside the Exarchos repo and internal tooling breaks on the next pull.
-7. Add `.exarchos.yml` documentation noting the flag (semantics, default, and the audience-scope reasoning from §1.1).
+7. Add `docs/guides/exarchos-yml-invariants.md` documenting the flag (semantics, default, and the audience-scope reasoning from §1.1).
 8. Add regression tests:
-   - `yaml-schema.test.ts`: full-schema validation accepts `{ invariants: { devCatalog: 'enabled' } }` and rejects unknown sub-keys.
-   - `yaml-loader.test.ts`: section-fallback parser preserves the `invariants` section when a sibling section is invalid.
-   - `invariants-loader.test.ts`: `loadInvariants(filePath)` returns `[]` with `devCatalog: 'disabled'` regardless of `scope`; same with the key absent (default-disabled).
+   - `servers/exarchos-mcp/src/config/exarchos-config-schema.test.ts`: `InvariantsConfigSchema` accepts `{ devCatalog: 'enabled' | 'disabled' }`, rejects unknown sub-keys, and round-trips through both `ExarchosConfigSchema` and `ProjectConfigSchema`.
+   - `servers/exarchos-mcp/src/architecture/invariants-loader.test.ts`: `loadInvariants(filePath)` returns `[]` with `devCatalog: 'disabled'`, key absent, malformed block, or missing `.exarchos.yml` — all collapse to default-disabled regardless of `scope`. Tests pass an explicit `config` to bypass disk-IO.
 
 **Migration risk:** v1 consumers that depended on entries being loaded (notably eval #1442) must explicitly enable. Inside the Exarchos repo this is automatic via the committed `.exarchos.yml`; for external consumers this is intentional friction — the dev catalog should never have been loaded for them in the first place.
 
@@ -576,28 +578,33 @@ INV-9, INV-10, INV-11, INV-13, INV-14, INV-15 per §6. INV-7, INV-8, INV-12 are 
 
 ### 7.4 Loader updates
 
-`servers/exarchos-mcp/src/architecture/invariants-loader.ts`. This is the **complete** loader signature — it merges the §4.0 gating check (must come first) with the §4.1–§4.2 scope filter switch. Do not implement the scope filter without the gating block; the two are a single function. **Signature preserves v1's `filePath: string` first arg** — the only additions are the widened `Scope` union and the new optional `config` arg, both of which are backwards-compatible (v1 call sites continue to type-check and run):
+`servers/exarchos-mcp/src/architecture/invariants-loader.ts`. This is the **complete** loader signature — it merges the §4.0 gating check (must come first) with the §4.1–§4.2 scope filter switch. Do not implement the scope filter without the gating block; the two are a single function. **Signature preserves v1's `filePath: string` first arg** — the only additions are the widened `InvariantsScope` union and the new *optional* `config` arg (defaults to `readInvariantsConfig(filePath)`, a dedicated walker — see §7.0 step 2 for why this does not route through the project-wide config loader):
 
 ```ts
-type Scope = 'core' | 'substrate' | 'authoring' | 'all';
+type InvariantsScope = 'core' | 'substrate' | 'authoring' | 'all';
 
-function loadInvariants(
+export function loadInvariants(
   filePath: string,
-  opts?: { scope?: Scope },
-  config: ExarchosConfig = readConfig()
+  opts?: { scope?: InvariantsScope },
+  config?: ExarchosConfig,
 ): InvariantEntry[] {
-  // §4.0 catalog gating — applied before any file read or scope filter.
-  // Default-disabled even inside the Exarchos repo (see §7.0 step 4
+  const effectiveConfig = config ?? readInvariantsConfig(filePath);
+  // §4.0 catalog gating — applied BEFORE any scope filter.
+  // Default-disabled even inside the Exarchos repo (see §7.0 step 6
   // for the committed `.exarchos.yml: invariants.devCatalog: enabled`
   // that opts the repo in).
-  if (config.invariants?.devCatalog !== 'enabled') {
+  if (effectiveConfig.invariants?.devCatalog !== 'enabled') {
     return [];
   }
-  const scope: Scope = opts?.scope ?? 'all';
+  const scope: InvariantsScope = opts?.scope ?? 'all';
   // ... parse `filePath` with gray-matter into typed `InvariantEntry[]`
   // (unchanged from v1; the parser normalizes kebab-case YAML keys —
   // `cost-of-load`, `axis`, `axiom-overlap` — onto the camelCase typed
   // shape so filters below can use `.costOfLoad`, `.axis`, etc.).
+  // Also: reject duplicate IDs (v1 contract) and validate
+  // `axiom_overlap` referential integrity (new in v2: every declared
+  // overlap must point at an existing DIM-* entry — caught here, after
+  // the full entry set is known).
   const entries: InvariantEntry[] = parseInvariantsFile(filePath);
   switch (scope) {
     case 'core':
@@ -621,27 +628,29 @@ The `loadInvariants(filePath, { scope: 'invalid' })` case throws per D4 §5 (lou
 
 ### 7.5 `/ideate` Phase 0 directive
 
-`commands/ideate.md` Phase 0 continues to call `loadInvariants(doc, { scope: 'core' })`. The call site is unchanged, but the filter semantics change in v2: `core` now means "axis: substrate AND cost-of-load: always-load" (axis + cost-of-load filter), whereas v1.5 `core` was effectively "always-load only" (cost-of-load filter alone). Behavior change is invisible to designers — fewer entries surface, all of them genuinely runtime-substrate-relevant.
+`commands/ideate.md` Phase 0 continues to call `loadInvariants(filePath, { scope: 'core' })`. The call site is unchanged apart from the now-explicit reminder that Phase 0 surfacing only fires when `invariants.devCatalog: enabled` (see §4.0); the filter semantics also change in v2: `core` now means "axis: substrate AND cost-of-load: always-load" (axis + cost-of-load filter), whereas v1.5 `core` was effectively "always-load only" (cost-of-load filter alone). Behavior change is invisible to designers — fewer entries surface, all of them genuinely runtime-substrate-relevant.
 
 ### 7.6 `/axiom:design` pairing-discovery fix
 
-Two follow-up edits (separate plan):
+Two edits, bundled into the implementation PR (Wave E):
 
-1. `.claude/skills/design-invariants/SKILL.md` frontmatter — change or add `pairs-with: axiom:design`.
-2. `axiom:design` consumes the `axiom_overlap` field present on each v2 entry to interleave by dimension.
+1. `.claude/skills/design-invariants/SKILL.md` frontmatter — `pairs-with: axiom:design`.
+2. `axiom:design` consumes the `axiom_overlap` field present on each v2 entry to interleave by dimension. Implementation also enforces **referential integrity** on `axiom_overlap`: every declared overlap must point at an existing DIM-* entry in the same catalog; dangling pointers throw at load time (caught after the full entry set is known, so the error names both the offending entry and the set of valid DIM-* IDs).
 
 ### 7.7 Vocabulary lint
 
-`servers/exarchos-mcp/src/architecture/vocabulary-lint.ts` already walks `/\b(INV-\d+[a-d]?|DIM-\d+)\b/`. v2 adds INV-7..INV-15 to the recognized ID set. No format change needed.
+`servers/exarchos-mcp/src/architecture/vocabulary-lint.ts` already walks `/\b(INV-\d+[a-d]?|DIM-\d+)\b/`. v2 adds INV-7..INV-15 to the recognized ID set and gains the same `devCatalog` gate behavior — when the flag is not `'enabled'`, `loadInvariantIds` returns an empty set so the lint treats every `INV-*` / `DIM-*` token as unknown for non-Exarchos consumers (per §1.1 audience boundary). No format change to the lint regex.
 
 ### 7.8 Tests
 
-New test cases (extend `invariants-loader.test.ts`):
+New test cases (extend `invariants-loader.test.ts`, `exarchos-config-schema.test.ts`, `vocabulary-lint.test.ts`, and `ideate-loader.test.ts`):
 
-- `LoadInvariants_WithScopeCore_ReturnsOnlySubstrateAlwaysLoad` — verifies the new `scope: 'core'` filter intersects axis + cost-of-load.
-- `LoadInvariants_WithScopeAuthoring_ReturnsOnlyAuthoringEntries` — verifies the authoring filter.
-- `Invariants_EveryEntry_HasAxisField` — schema enforcement.
-- `Invariants_NewSubstrateEntries_HaveThreeOrMoreCitations` — soft assertion; threshold for INV-7..INV-15.
+- **Scope filter** — `LoadInvariants_WithScopeCore_ReturnsOnlySubstrateAlwaysLoad` (intersects axis + cost-of-load), `LoadInvariants_WithScopeSubstrate_ReturnsAllSubstrateEntries`, `LoadInvariants_WithScopeAuthoring_ReturnsOnlyAuthoringEntries`.
+- **Per-entry schema** — `Invariants_EveryEntry_HasAxisField` (loud throw on missing `axis`, no silent default), `Invariants_NewSubstrateEntries_HaveThreeOrMoreCitations` (soft assertion threshold for INV-7..INV-15).
+- **Catalog gating** — `LoadInvariants_WithDevCatalogDisabled_ReturnsEmpty` (regardless of `scope`), `LoadInvariants_WithDevCatalogAbsent_ReturnsEmpty` (default-disabled when block missing), `LoadInvariants_WithMalformedInvariantsBlock_CollapsesToEmpty` (parse error / wrong type both default-disabled).
+- **Referential integrity** — `LoadInvariants_DanglingAxiomOverlap_Throws` (declared `axiom_overlap: DIM-99` with no DIM-99 entry throws and names both the offending entry and the valid DIM-* IDs).
+- **Config schema round-trip** — `InvariantsConfigSchema` accepts `{ devCatalog: 'enabled' | 'disabled' }`, rejects unknown sub-keys, and parses identically inside both `ExarchosConfigSchema` and `ProjectConfigSchema`.
+- **Vocabulary-lint gating** — `LoadInvariantIds_WithDevCatalogDisabled_ReturnsEmptySet` so the lint behaves correctly for non-Exarchos consumers.
 
 ### 7.9 Migration is rollback-safe
 
@@ -649,7 +658,7 @@ The v2 schema is additive — `axis`, `axiom_overlap`, `citations` are new field
 
 ## 8. Acceptance check (against charter §6)
 
-- [x] ≥3 external citations per substrate-axis candidate — PASS for INV-7, INV-8, INV-11, INV-12, INV-13, INV-15. INV-9 backfills Harel. INV-14 borderline (see §6 open question). INV-10 thin (3 sources). DIM-* entries exempt.
+- [x] ≥3 external citations per substrate-axis candidate — PASS for INV-7, INV-8, INV-9 (Harel + Greg Young + Wolverine), INV-11, INV-12, INV-13, INV-15. INV-10 thin (3 sources, acceptable). INV-14 ships as catalog entry per A2 disposition (citations: ARIES CLR analog, Greg Young Bad Parts, git docs). DIM-* entries exempt.
 - [x] runtime.md §2–§8 cross-walked — D2 covers this fully.
 - [x] Explicit pass/fail per candidate against 5 workflow types — D3 covers this; all 9 new candidates pass.
 - [x] Substrate/authoring split sharp — D4 yields 26 substrate, 1 authoring (27 total); decision procedure is encoded in §2 of D4 and §3 of this doc.
