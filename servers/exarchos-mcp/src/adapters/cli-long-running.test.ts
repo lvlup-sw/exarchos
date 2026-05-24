@@ -90,6 +90,9 @@ const EXPECTED_LONG_RUNNING_ACTIONS: ReadonlySet<string> = new Set([
   // Gate actions that chain shell-invoked tooling across multiple targets.
   'assess_stack',
   'check_static_analysis',
+  // #1329: runs the FULL vitest suite against the integration tip with the
+  // JSON reporter; far exceeds the 2s heartbeat on any real repo.
+  'check_integration_suite',
   'post_delegation_check',
 ]);
 
@@ -121,6 +124,8 @@ describe('orchestrate action registry — longRunning metadata (DR-5)', () => {
 const EXTRA_ARGS_PER_ACTION: Record<string, string[]> = {
   prepare_synthesis: [],
   assess_stack: ['--pr-numbers', '[1]'],
+  // #1329: only requires featureId; no extra required flags.
+  check_integration_suite: [],
 };
 
 describe('CLI long-running heartbeat emission (DR-5)', () => {
@@ -147,10 +152,10 @@ describe('CLI long-running heartbeat emission (DR-5)', () => {
     process.exitCode = originalExitCode;
   });
 
-  // Parametrize across every flagged longRunning action so both
-  // prepare_synthesis and assess_stack are exercised — not just whichever
-  // the registry happens to list first.
-  describe.each(['prepare_synthesis', 'assess_stack'] as const)(
+  // Parametrize across every flagged longRunning action so prepare_synthesis,
+  // assess_stack, and check_integration_suite are all exercised — not just
+  // whichever the registry happens to list first.
+  describe.each(['prepare_synthesis', 'assess_stack', 'check_integration_suite'] as const)(
     'flagged action: %s',
     (actionName) => {
       it('LongRunningOrchestrateAction_CliInvocation_EmitsLineBufferedProgressOrExitsQuickly', async () => {

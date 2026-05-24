@@ -42,11 +42,14 @@ describe('Runbook definitions', () => {
     }
   });
 
-  it('TaskCompletion_HasThreeSteps_InCorrectOrder', () => {
-    expect(TASK_COMPLETION.steps).toHaveLength(3);
+  it('TaskCompletion_HasFourSteps_InCorrectOrder', () => {
+    // #1329 / T-07 appended a post-merge `check_integration_suite` gate after
+    // `task_complete`, taking the runbook from 3 to 4 steps.
+    expect(TASK_COMPLETION.steps).toHaveLength(4);
     expect(TASK_COMPLETION.steps[0].action).toBe('check_tdd_compliance');
     expect(TASK_COMPLETION.steps[1].action).toBe('check_static_analysis');
     expect(TASK_COMPLETION.steps[2].action).toBe('task_complete');
+    expect(TASK_COMPLETION.steps[3].action).toBe('check_integration_suite');
     expect(TASK_COMPLETION.phase).toBe('delegate');
   });
 
@@ -197,5 +200,73 @@ describe('Runbook definitions', () => {
     expect(PHASE_COMPRESSION.steps).toHaveLength(2);
     expect(PHASE_COMPRESSION.steps[0].decide?.question).toMatch(/source artifact|compress/i);
     expect(PHASE_COMPRESSION.steps[1].decide?.question).toMatch(/load-bearing|preserve/i);
+  });
+
+  // ─── #1330 / T-05: worktree-aware task-completion gate ─────────────────────
+  it('TaskCompletionRunbook_StaticAnalysisStep_ReceivesWorktreePath', () => {
+    // The task-completion runbook runs `check_static_analysis` against the
+    // agent's worktree, not the orchestrator's cwd (#1330). The gate's
+    // worktree-aware resolver (T-04) keys off `repoRoot: 'auto'` plus a
+    // threaded `worktreePath`. For the runbook to thread that path, the
+    // `worktreePath` template var must exist AND the static-analysis step
+    // must pre-fill `params.repoRoot: 'auto'` with `params.worktreePath`
+    // pointing at the template var (angle-bracket placeholder convention),
+    // rather than running against a literal '.'/absent root.
+    expect(TASK_COMPLETION.templateVars).toContain('worktreePath');
+
+    const staticStep = TASK_COMPLETION.steps.find(
+      (s) => s.action === 'check_static_analysis',
+    );
+    expect(staticStep, 'task-completion must have a check_static_analysis step').toBeDefined();
+
+    const params = staticStep?.params as
+      | { repoRoot?: unknown; worktreePath?: unknown }
+      | undefined;
+    expect(params, 'check_static_analysis step must pre-fill params').toBeDefined();
+    // repoRoot must request worktree-aware resolution, not a literal '.'.
+    expect(params?.repoRoot).toBe('auto');
+    expect(params?.repoRoot).not.toBe('.');
+    // worktreePath must thread the `worktreePath` template var.
+    expect(params?.worktreePath).toBe('<worktreePath>');
+  });
+
+  // ─── #1329 / T-07: post-merge integration-suite gate ───────────────────────
+  it('DelegateRunbook_AfterTaskMerge_RunsIntegrationSuiteGate', () => {
+    // #1329: per-task TDD/static gates can be green while the *integration tip*
+    // cascades (a file failing at import counts as "0 failed tests / 1 failed
+    // suite" — invisible to per-task gates). The `check_integration_suite` gate
+    // (T-06) runs the FULL suite against the integration tip and folds those
+    // load-failures into the failure count.
+    //
+    // It must be wired into the delegate-phase task-completion runbook AFTER
+    // `task_complete` (i.e. after the task lands on the integration tip), with
+    // `onFail: 'stop'` so a broken integration tip halts the loop before the
+    // next dispatch. It threads the same worktree-aware resolution the static
+    // gate uses (#1330): `repoRoot: 'auto'` + `worktreePath` template var.
+    const actions = TASK_COMPLETION.steps.map((s) => s.action);
+    const completeIndex = actions.indexOf('task_complete');
+    const integrationIndex = actions.indexOf('check_integration_suite');
+
+    expect(completeIndex, 'task-completion must retain a task_complete step').toBeGreaterThan(-1);
+    expect(
+      integrationIndex,
+      'task-completion must include a check_integration_suite step',
+    ).toBeGreaterThan(-1);
+    // The integration-suite gate runs AFTER the task merges (task_complete), so
+    // a cascaded integration tip blocks the next dispatch.
+    expect(integrationIndex).toBeGreaterThan(completeIndex);
+
+    const integrationStep = TASK_COMPLETION.steps[integrationIndex];
+    expect(integrationStep.tool).toBe('exarchos_orchestrate');
+    // onFail must be 'stop' — a broken integration tip is a hard halt.
+    expect(integrationStep.onFail).toBe('stop');
+
+    const params = integrationStep.params as
+      | { repoRoot?: unknown; worktreePath?: unknown }
+      | undefined;
+    expect(params, 'check_integration_suite step must pre-fill params').toBeDefined();
+    // Worktree-aware resolution against the integration tip (#1330 resolver).
+    expect(params?.repoRoot).toBe('auto');
+    expect(params?.worktreePath).toBe('<worktreePath>');
   });
 });

@@ -6,10 +6,31 @@ export const TASK_COMPLETION: RunbookDefinition = {
   description: 'Complete a task after execution: run blocking gates, then mark complete.',
   steps: [
     { tool: 'exarchos_orchestrate', action: 'check_tdd_compliance', onFail: 'stop' },
-    { tool: 'exarchos_orchestrate', action: 'check_static_analysis', onFail: 'stop' },
+    // #1330 / T-05: the static-analysis gate must run against the agent's
+    // worktree, not the orchestrator's cwd. `repoRoot: 'auto'` triggers the
+    // worktree-aware resolver (T-04, gate-utils.resolveRepoRoot); the
+    // `<worktreePath>` placeholder threads the `worktreePath` template var so
+    // the agent supplies its own worktree path at fill-in time.
+    { tool: 'exarchos_orchestrate', action: 'check_static_analysis', onFail: 'stop',
+      params: { repoRoot: 'auto', worktreePath: '<worktreePath>' },
+      note: '#1330: run against the agent worktree via repoRoot:auto + worktreePath template var' },
     { tool: 'exarchos_orchestrate', action: 'task_complete', onFail: 'stop' },
+    // #1329 / T-07: run the FULL suite against the agent worktree at task
+    // completion. The worktree is branched from the integration tip, so it
+    // already contains every previously-merged task — running the full suite
+    // here surfaces the accumulated load-cascade that per-task TDD/static gates
+    // miss (a file failing at import is "0 failed tests / 1 failed suite" —
+    // invisible to per-task gates). `onFail: 'stop'` halts the loop so the
+    // cascade blocks the NEXT dispatch. This runs pre-merge in the worktree
+    // (not against the post-merge tip in MERGE_ORCHESTRATION); for serial
+    // dispatch the two are equivalent, the gap being concurrent sibling merges
+    // landing between this task's dispatch and completion. Reuses the #1330
+    // worktree-aware resolver: `repoRoot: 'auto'` + `worktreePath`.
+    { tool: 'exarchos_orchestrate', action: 'check_integration_suite', onFail: 'stop',
+      params: { repoRoot: 'auto', worktreePath: '<worktreePath>' },
+      note: '#1329: full-suite gate against the integration tip; folds file-LOAD failures into failCount' },
   ],
-  templateVars: ['taskId', 'featureId', 'streamId', 'branch'],
+  templateVars: ['taskId', 'featureId', 'streamId', 'branch', 'worktreePath'],
   autoEmits: ['gate.executed', 'task.completed'],
 };
 

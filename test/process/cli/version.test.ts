@@ -1,5 +1,5 @@
 // Source: docs/designs/2026-05-05-e2e-v29-revisited.md §4.4 (T4.1)
-import { readFileSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, it, expect } from 'vitest';
@@ -32,6 +32,19 @@ describe('exarchos --version', () => {
       const result = await runCli({ args: ['--version'] });
       expect(result.exitCode).toBe(0);
       expect(result.stdout.trim()).toBe(expected);
+    });
+  });
+
+  it('version_doesNotInitializeSqliteBackend', async () => {
+    // Regression guard: printing the version is stateless and must short-circuit
+    // before backend init. Initializing the SQLite event store here wastes
+    // cold-start budget and, under concurrent invocations, races on WAL recovery
+    // (SQLITE_BUSY_RECOVERY). The fast path in index.ts:main() must return before
+    // any state-dir / `exarchos.db` creation.
+    await withHermeticEnv(async ({ stateDir }) => {
+      const result = await runCli({ args: ['--version'] });
+      expect(result.exitCode).toBe(0);
+      expect(existsSync(path.join(stateDir, 'exarchos.db'))).toBe(false);
     });
   });
 

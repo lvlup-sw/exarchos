@@ -287,6 +287,189 @@ describe('handleVerifyWorktreeBaseline', () => {
     expect(data.testCommand).toBe('make test');
   });
 
+  // ── T-08 (#1301): merge-time leak backstop ──────────────────────────────
+  // When the main worktree is dirty and a modified path's working-tree blob is
+  // byte-identical to the same path already committed on the agent branch tip,
+  // classify it as a recoverable `leaked-committed` leak (the #1301 mirroring
+  // symptom) rather than as unrelated dirt. Surface a safe `git checkout --`
+  // remediation; never auto-discard silently.
+  it('VerifyWorktreeBaseline_LeakedEditByteIdenticalToCommittedAgentChange_IsDetected', async () => {
+    const AGENT_BRANCH = 'feature/agent-task-123';
+    const LEAKED_PATH = 'src/leaked.ts';
+    // Identical bytes on both sides — this is the leak signature.
+    const SHARED_BLOB = 'export const leaked = true;\n';
+
+    vi.mocked(existsSync).mockImplementation((p) => {
+      const s = String(p);
+      if (s === '/worktree') return true;
+      if (s === '/worktree/package.json') return true;
+      return false;
+    });
+    vi.mocked(readdirSync).mockReturnValue([]);
+    vi.mocked(readFileSync).mockImplementation((p) => {
+      if (String(p).endsWith('package.json')) return NPM_PACKAGE_JSON;
+      throw new Error(`unexpected readFileSync: ${String(p)}`);
+    });
+
+    vi.mocked(execFileSync).mockImplementation((cmd, args) => {
+      const a = (args as string[]) ?? [];
+      if (String(cmd) === 'git') {
+        // git -C /worktree rev-parse --git-dir
+        if (a.includes('--git-dir')) return '.git\n' as unknown as Buffer;
+        // git -C /worktree status --porcelain → one modified, tracked path
+        if (a.includes('status') && a.includes('--porcelain')) {
+          return ` M ${LEAKED_PATH}\n` as unknown as Buffer;
+        }
+        // git -C /worktree hash-object -- <path> → working-tree blob hash
+        if (a.includes('hash-object')) {
+          // Hash of the working-tree content.
+          return 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n' as unknown as Buffer;
+        }
+        // git -C /worktree rev-parse <agentBranch>:<path> → committed blob hash
+        if (a.includes('rev-parse') && a.some((x) => x.startsWith(AGENT_BRANCH))) {
+          // Byte-identical content on the agent tip → same blob hash.
+          return 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n' as unknown as Buffer;
+        }
+        return '' as unknown as Buffer;
+      }
+      // baseline test runner
+      return 'Tests passed\n' as unknown as Buffer;
+    });
+
+    const result = await handleVerifyWorktreeBaseline(
+      { worktreePath: '/worktree', agentBranch: AGENT_BRANCH },
+      stateDir,
+    );
+
+    expect(result.success).toBe(true);
+    const data = result.data as {
+      leakDetection?: {
+        dirty: boolean;
+        paths: { path: string; classification: string; remediation?: string }[];
+      };
+    };
+    expect(data.leakDetection).toBeDefined();
+    expect(data.leakDetection?.dirty).toBe(true);
+    const entry = data.leakDetection?.paths.find((p) => p.path === LEAKED_PATH);
+    expect(entry).toBeDefined();
+    // Must classify as a recoverable, byte-identical-to-committed leak —
+    // NOT a generic dirty/unrelated change, NOT a silent pass.
+    expect(entry?.classification).toBe('leaked-committed');
+    // Safe remediation must match the documented manual workaround, with the
+    // path single-quoted to neutralize shell metacharacters in crafted names.
+    expect(entry?.remediation).toContain(`git checkout -- '${LEAKED_PATH}'`);
+  });
+
+  it('VerifyWorktreeBaseline_RenamedLeak_ParsesNewPathNotRawArrow', async () => {
+    // Porcelain renders a rename as "R  old -> new". The blob on disk lives at
+    // `new`; the parser must extract it, not pass the raw "old -> new" string to
+    // git hash-object (which is not a real file and silently fails detection).
+    const AGENT_BRANCH = 'feature/agent-task-123';
+    const OLD_PATH = 'src/old-name.ts';
+    const NEW_PATH = 'src/renamed-leak.ts';
+
+    vi.mocked(existsSync).mockImplementation((p) => {
+      const s = String(p);
+      if (s === '/worktree') return true;
+      if (s === '/worktree/package.json') return true;
+      return false;
+    });
+    vi.mocked(readdirSync).mockReturnValue([]);
+    vi.mocked(readFileSync).mockImplementation((p) => {
+      if (String(p).endsWith('package.json')) return NPM_PACKAGE_JSON;
+      throw new Error(`unexpected readFileSync: ${String(p)}`);
+    });
+
+    vi.mocked(execFileSync).mockImplementation((cmd, args) => {
+      const a = (args as string[]) ?? [];
+      if (String(cmd) === 'git') {
+        if (a.includes('--git-dir')) return '.git\n' as unknown as Buffer;
+        if (a.includes('status') && a.includes('--porcelain')) {
+          return `R  ${OLD_PATH} -> ${NEW_PATH}\n` as unknown as Buffer;
+        }
+        // Only the NEW path resolves to the byte-identical blob. If the parser
+        // leaked the raw "old -> new" string, hash-object would be invoked with
+        // a non-file and this branch would never match → no leaked-committed.
+        if (a.includes('hash-object') && a.includes(NEW_PATH)) {
+          return 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\n' as unknown as Buffer;
+        }
+        if (a.includes('rev-parse') && a.some((x) => x === `${AGENT_BRANCH}:${NEW_PATH}`)) {
+          return 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\n' as unknown as Buffer;
+        }
+        return '' as unknown as Buffer;
+      }
+      return 'Tests passed\n' as unknown as Buffer;
+    });
+
+    const result = await handleVerifyWorktreeBaseline(
+      { worktreePath: '/worktree', agentBranch: AGENT_BRANCH },
+      stateDir,
+    );
+
+    expect(result.success).toBe(true);
+    const data = result.data as {
+      leakDetection?: { paths: { path: string; classification: string }[] };
+    };
+    const paths = data.leakDetection?.paths ?? [];
+    // The parsed path is the post-rename name, never the raw arrow string.
+    expect(paths.some((p) => p.path.includes(' -> '))).toBe(false);
+    const entry = paths.find((p) => p.path === NEW_PATH);
+    expect(entry).toBeDefined();
+    expect(entry?.classification).toBe('leaked-committed');
+  });
+
+  it('VerifyWorktreeBaseline_UnrelatedDirtyTree_IsGenuineBlocker', async () => {
+    const AGENT_BRANCH = 'feature/agent-task-123';
+    const DIRTY_PATH = 'src/local-wip.ts';
+
+    vi.mocked(existsSync).mockImplementation((p) => {
+      const s = String(p);
+      if (s === '/worktree') return true;
+      if (s === '/worktree/package.json') return true;
+      return false;
+    });
+    vi.mocked(readdirSync).mockReturnValue([]);
+    vi.mocked(readFileSync).mockImplementation((p) => {
+      if (String(p).endsWith('package.json')) return NPM_PACKAGE_JSON;
+      throw new Error(`unexpected readFileSync: ${String(p)}`);
+    });
+
+    vi.mocked(execFileSync).mockImplementation((cmd, args) => {
+      const a = (args as string[]) ?? [];
+      if (String(cmd) === 'git') {
+        if (a.includes('--git-dir')) return '.git\n' as unknown as Buffer;
+        if (a.includes('status') && a.includes('--porcelain')) {
+          return ` M ${DIRTY_PATH}\n` as unknown as Buffer;
+        }
+        if (a.includes('hash-object')) {
+          return 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\n' as unknown as Buffer;
+        }
+        if (a.includes('rev-parse') && a.some((x) => x.startsWith(AGENT_BRANCH))) {
+          // Different blob on the agent tip → genuinely divergent local change.
+          return 'cccccccccccccccccccccccccccccccccccccccc\n' as unknown as Buffer;
+        }
+        return '' as unknown as Buffer;
+      }
+      return 'Tests passed\n' as unknown as Buffer;
+    });
+
+    const result = await handleVerifyWorktreeBaseline(
+      { worktreePath: '/worktree', agentBranch: AGENT_BRANCH },
+      stateDir,
+    );
+
+    expect(result.success).toBe(true);
+    const data = result.data as {
+      leakDetection?: {
+        dirty: boolean;
+        paths: { path: string; classification: string }[];
+      };
+    };
+    expect(data.leakDetection?.dirty).toBe(true);
+    const entry = data.leakDetection?.paths.find((p) => p.path === DIRTY_PATH);
+    expect(entry?.classification).toBe('dirty');
+  });
+
   it('detectProjectType_PnpmProject_ReturnsPnpmTest', async () => {
     vi.mocked(existsSync).mockImplementation((p) => {
       const s = String(p);

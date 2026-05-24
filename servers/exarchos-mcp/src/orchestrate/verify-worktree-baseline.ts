@@ -17,6 +17,41 @@ import { splitCommand } from '../config/tokenize-command.js';
 
 interface VerifyWorktreeBaselineArgs {
   readonly worktreePath: string;
+  /**
+   * T-08 (#1301): when supplied, the handler inspects the (main) worktree for
+   * uncommitted modifications and classifies each against this agent branch
+   * tip. A working-tree blob byte-identical to the same path already committed
+   * on the agent branch is flagged as a recoverable `leaked-committed` leak
+   * (the #1301 mirroring symptom) — distinct from unrelated local dirt — and a
+   * safe `git checkout -- <path>` remediation is surfaced. Omitting this arg
+   * skips leak inspection entirely (back-compat for non-merge callers).
+   */
+  readonly agentBranch?: string;
+}
+
+// ─── T-08 (#1301): Leak Detection ─────────────────────────────────────────────
+//
+// At merge time the orchestrator's MAIN worktree sometimes carries an
+// uncommitted modification that is byte-identical to a change already
+// committed on the agent branch tip (issue #1301 "working-tree mirroring
+// leak"). Such a path FF-blocks the merge but is in fact safe to discard. This
+// backstop classifies each dirty path so the orchestrator can surface the
+// documented `git checkout -- <path>` remediation instead of treating the leak
+// as opaque dirt. INV-15: this is purely local git inspection — no
+// cross-process locking, no distributed primitives.
+
+type LeakClassification = 'leaked-committed' | 'dirty';
+
+interface LeakPathEntry {
+  readonly path: string;
+  readonly classification: LeakClassification;
+  /** Safe remediation command, present only for recoverable leaks. */
+  readonly remediation?: string;
+}
+
+interface LeakDetection {
+  readonly dirty: boolean;
+  readonly paths: readonly LeakPathEntry[];
 }
 
 type DetectedProjectType =
@@ -91,6 +126,110 @@ function detectProjectType(worktreePath: string): ProjectDetection | undefined {
   return toProjectDetection(runtime);
 }
 
+/** Run a git command in the worktree, returning trimmed stdout or `null` on error. */
+function gitCapture(worktreePath: string, args: readonly string[]): string | null {
+  try {
+    const out = execFileSync('git', ['-C', worktreePath, ...args], {
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+    }) as string;
+    return out.trim();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Parse `git status --porcelain` output into the set of tracked, modified
+ * paths. We only care about content modifications to tracked files (the leak
+ * symptom); untracked (`??`) and deletion entries are reported as dirt without
+ * a blob comparison.
+ */
+function parsePorcelainPaths(porcelain: string): { path: string; tracked: boolean }[] {
+  const entries: { path: string; tracked: boolean }[] = [];
+  for (const rawLine of porcelain.split('\n')) {
+    if (rawLine.trim() === '') continue;
+    // Porcelain v1: XY<space>path  (X=index status, Y=worktree status). The
+    // two status columns are fixed-width; the path begins after them and any
+    // separating whitespace. Slicing the leading two columns then trimming is
+    // tolerant of the single-space separator without eating path characters.
+    const xy = rawLine.slice(0, 2);
+    let path = rawLine.slice(2).trim();
+    if (path === '') continue;
+    // Porcelain v1 renders renames/copies (status R or C) as "old -> new".
+    // The blob on disk lives at `new`, so `git hash-object` must resolve the
+    // post-rename path — passing the raw "old -> new" string is not a real
+    // file and silently fails leak detection. Only split on the rename arrow
+    // for R/C entries so a literal " -> " inside an ordinary filename (git
+    // would quote such names) is left intact.
+    if (xy.includes('R') || xy.includes('C')) {
+      const arrowIdx = path.indexOf(' -> ');
+      if (arrowIdx !== -1) {
+        path = path.slice(arrowIdx + 4).trim();
+        if (path === '') continue;
+      }
+    }
+    const tracked = !xy.includes('?');
+    entries.push({ path, tracked });
+  }
+  return entries;
+}
+
+/**
+ * Blob-comparison helper (T-08 REFACTOR): is the working-tree content at
+ * `path` byte-identical to the same path committed on `agentBranch`? Git
+ * content-addresses blobs by SHA, so equal hashes ⇒ identical bytes. Returns
+ * `false` if either side cannot be resolved (e.g. path absent on the branch).
+ */
+function workingBlobMatchesBranch(
+  worktreePath: string,
+  path: string,
+  agentBranch: string,
+): boolean {
+  const workingHash = gitCapture(worktreePath, ['hash-object', '--', path]);
+  if (workingHash === null || workingHash === '') return false;
+  const branchHash = gitCapture(worktreePath, ['rev-parse', `${agentBranch}:${path}`]);
+  if (branchHash === null || branchHash === '') return false;
+  return workingHash === branchHash;
+}
+
+/**
+ * Inspect the worktree for uncommitted modifications and classify each path
+ * against the agent branch tip. A tracked path whose working-tree blob is
+ * byte-identical to the agent-branch-committed blob is a recoverable
+ * `leaked-committed` leak (#1301); everything else is genuine `dirty` content
+ * that must still block the merge. Classification + remediation only — this
+ * function never mutates the worktree.
+ */
+/**
+ * Single-quote a path for safe inclusion in a copy-paste shell remediation.
+ * A crafted filename with spaces or shell metacharacters must not turn a
+ * suggested `git checkout` into unintended execution.
+ */
+function shellQuotePath(path: string): string {
+  return `'${path.replace(/'/g, `'\\''`)}'`;
+}
+
+function detectLeakedEdits(worktreePath: string, agentBranch: string): LeakDetection {
+  const porcelain = gitCapture(worktreePath, ['status', '--porcelain']);
+  if (porcelain === null || porcelain === '') {
+    return { dirty: false, paths: [] };
+  }
+
+  const paths: LeakPathEntry[] = parsePorcelainPaths(porcelain).map(({ path, tracked }) => {
+    if (tracked && workingBlobMatchesBranch(worktreePath, path, agentBranch)) {
+      return {
+        path,
+        classification: 'leaked-committed' as const,
+        remediation: `git checkout -- ${shellQuotePath(path)}`,
+      };
+    }
+    return { path, classification: 'dirty' as const };
+  });
+
+  return { dirty: paths.length > 0, paths };
+}
+
 // ─── Report Formatting ──────────────────────────────────────────────────────
 
 function formatReport(
@@ -133,7 +272,7 @@ export async function handleVerifyWorktreeBaseline(
   args: VerifyWorktreeBaselineArgs,
   _stateDir: string,
 ): Promise<ToolResult> {
-  const { worktreePath } = args;
+  const { worktreePath, agentBranch } = args;
 
   // 1. Validate worktreePath exists
   if (!worktreePath || !existsSync(worktreePath)) {
@@ -176,6 +315,13 @@ export async function handleVerifyWorktreeBaseline(
 
   const { projectType, testCommand, cmd, args: cmdArgs } = detection;
 
+  // 3b. T-08 (#1301): merge-time leak backstop. Only runs when the caller
+  // supplies the agent branch tip to compare against — non-merge callers keep
+  // the prior pure-baseline behavior.
+  const leakDetection: LeakDetection | undefined = agentBranch
+    ? detectLeakedEdits(worktreePath, agentBranch)
+    : undefined;
+
   // 4. Run test command
   let passed = true;
   let output = '';
@@ -199,6 +345,6 @@ export async function handleVerifyWorktreeBaseline(
 
   return {
     success: true,
-    data: { passed, projectType, testCommand, report },
+    data: { passed, projectType, testCommand, report, ...(leakDetection ? { leakDetection } : {}) },
   };
 }

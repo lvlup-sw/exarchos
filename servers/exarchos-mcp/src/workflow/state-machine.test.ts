@@ -7,8 +7,13 @@ import {
   isBuiltInWorkflowType,
   executeTransition,
 } from './state-machine.js';
-import type { SerializedTopology, WorkflowTypeSummary } from './state-machine.js';
+import type {
+  SerializedTopology,
+  WorkflowTypeSummary,
+  HSMDefinition,
+} from './state-machine.js';
 import { EXCLUDED_MERGE_PHASES } from './hsm-definitions.js';
+import { EVENT_DATA_SCHEMAS } from '../event-store/schemas.js';
 
 describe('serializeTopology', () => {
   it('SerializeTopology_FeatureWorkflow_ReturnsStatesAndTransitions', () => {
@@ -291,5 +296,63 @@ describe('Feature workflow merge-pending substate', () => {
     const result = executeTransition(hsm, state, 'merge-pending');
     expect(result.success).toBe(false);
     expect(result.errorCode).toBe('GUARD_FAILED');
+  });
+});
+
+// ─── Fix-cycle schema validity for non-compound children (#1339) ────────────
+
+describe('Fix-cycle event schema validity (#1339)', () => {
+  // Minimal HSM where the fix-cycle source state is a top-level atomic state
+  // with no parent compound. getParentCompound() therefore returns undefined,
+  // exercising the line 792 emission site that would otherwise produce
+  // `metadata: { compoundStateId: undefined }`.
+  function makeNonCompoundFixCycleHsm(): HSMDefinition {
+    return {
+      id: 'test-noncompound',
+      states: {
+        a: { id: 'a', type: 'atomic' },
+        b: { id: 'b', type: 'atomic' },
+      },
+      transitions: [
+        // No guard, marked as a fix cycle. `from` has no parent compound.
+        { from: 'a', to: 'b', isFixCycle: true },
+      ],
+    };
+  }
+
+  it('ExecuteTransition_FixCycleOnNonCompoundChild_EmitsSchemaValidEvent', () => {
+    const hsm = makeNonCompoundFixCycleHsm();
+    const state = { phase: 'a', _events: [] };
+
+    const result = executeTransition(hsm, state, 'b');
+    expect(result.success).toBe(true);
+
+    const fixCycleEvent = result.events.find((e) => e.type === 'fix-cycle');
+    expect(fixCycleEvent).toBeDefined();
+
+    // The persisted event `data` is the emitted metadata plus the count and
+    // featureId folded in by the append path. Model that here and assert it
+    // parses cleanly against the schema EVENT_DATA_SCHEMAS uses for this event.
+    const schema = EVENT_DATA_SCHEMAS['workflow.fix-cycle'];
+    expect(schema).toBeDefined();
+
+    const data = {
+      ...(fixCycleEvent!.metadata ?? {}),
+      count: 1,
+      featureId: 'feat-1339',
+    };
+
+    // RED today: metadata carries `compoundStateId: undefined`, which fails
+    // the `z.string()` constraint on WorkflowFixCycleData.compoundStateId.
+    const parsed = schema!.safeParse(data);
+    expect(parsed.success).toBe(true);
+
+    // The undefined key must not be emitted at all (no literal `undefined`).
+    expect(
+      Object.prototype.hasOwnProperty.call(
+        fixCycleEvent!.metadata ?? {},
+        'compoundStateId',
+      ),
+    ).toBe(false);
   });
 });

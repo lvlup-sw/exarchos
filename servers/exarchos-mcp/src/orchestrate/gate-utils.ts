@@ -54,6 +54,97 @@ export async function emitGateEvent(
   });
 }
 
+// ─── Worktree-Aware repoRoot Resolution (#1330) ─────────────────────────────
+
+/**
+ * The literal value that requests dynamic resolution of `repoRoot` to the
+ * calling delegation's agent worktree, rather than a fixed path or
+ * `process.cwd()`. See #1330: when the orchestrator gate omits `repoRoot`, the
+ * gate runs against the orchestrator's main worktree (which lacks the agent's
+ * diff), making it a coin-flip.
+ */
+export const AUTO_REPO_ROOT = 'auto';
+
+/** Outcome of {@link resolveRepoRoot}: a path, or a structured error. */
+export type ResolveRepoRootResult =
+  | { readonly ok: true; readonly repoRoot: string }
+  | { readonly ok: false; readonly error: string };
+
+/**
+ * Shape of the `worktree.created` event data carrying a worktree path for a
+ * task. Only the fields we read are modelled.
+ */
+interface WorktreeCreatedData {
+  readonly taskId?: string;
+  /**
+   * Absolute worktree path. Must match the canonical `WorktreeCreatedData`
+   * schema field name (`path`) — see event-store/schemas.ts. Reading any other
+   * key here silently never matches a real event (INV-1 projection/contract
+   * divergence; was `worktreePath`, fixed for #1330).
+   */
+  readonly path?: string;
+}
+
+/**
+ * Resolve a gate's `repoRoot` input to a concrete filesystem path, honoring the
+ * worktree-aware `'auto'` mode (#1330).
+ *
+ * Resolution rules:
+ * - A falsy `repoRoot` → `process.cwd()` (unchanged default for non-delegation callers).
+ * - A literal path (anything other than {@link AUTO_REPO_ROOT}) → returned verbatim.
+ * - {@link AUTO_REPO_ROOT} → the agent worktree path, resolved in order:
+ *     1. the explicit `worktreePath` arg, when present and non-empty;
+ *     2. otherwise the latest `worktree.created` event for `taskId` on the
+ *        `featureId` stream.
+ *   If neither yields a path, returns `{ ok: false }` rather than silently
+ *   falling back to `process.cwd()` — the silent fallback is the #1330
+ *   coin-flip this resolver eliminates.
+ *
+ * Pure aside from the injected event-store query (testable via a stub store).
+ */
+export async function resolveRepoRoot(
+  args: {
+    readonly repoRoot?: string;
+    readonly worktreePath?: string;
+    readonly featureId: string;
+    readonly taskId?: string;
+  },
+  store: EventStore,
+): Promise<ResolveRepoRootResult> {
+  const { repoRoot, worktreePath, featureId, taskId } = args;
+
+  if (!repoRoot) {
+    return { ok: true, repoRoot: process.cwd() };
+  }
+
+  if (repoRoot !== AUTO_REPO_ROOT) {
+    return { ok: true, repoRoot };
+  }
+
+  // 'auto' — prefer the explicit worktreePath arg.
+  if (worktreePath && worktreePath.trim().length > 0) {
+    return { ok: true, repoRoot: worktreePath };
+  }
+
+  // Fall back to the latest worktree.created event for this task.
+  if (taskId) {
+    const events = await store.query(featureId, { type: 'worktree.created' });
+    for (let i = events.length - 1; i >= 0; i--) {
+      const data = events[i].data as WorktreeCreatedData | undefined;
+      if (data?.taskId === taskId && data.path && data.path.trim().length > 0) {
+        return { ok: true, repoRoot: data.path };
+      }
+    }
+  }
+
+  return {
+    ok: false,
+    error:
+      `repoRoot 'auto' could not be resolved: no worktreePath provided and no ` +
+      `worktree.created event found for taskId '${taskId ?? '<none>'}' on stream '${featureId}'`,
+  };
+}
+
 // ─── Config-Aware Gate Wrapper ──────────────────────────────────────────────
 
 /**

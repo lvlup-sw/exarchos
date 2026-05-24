@@ -1,7 +1,8 @@
 // ─── Gate Utils Tests ─────────────────────────────────────────────────────────
 
 import { describe, it, expect, vi } from 'vitest';
-import { emitGateEvent } from './gate-utils.js';
+import { emitGateEvent, resolveRepoRoot, AUTO_REPO_ROOT } from './gate-utils.js';
+import type { EventStore } from '../event-store/store.js';
 
 describe('emitGateEvent', () => {
   // ─── Test 1: Valid input appends gate.executed event ─────────────────────
@@ -66,5 +67,71 @@ describe('emitGateEvent', () => {
     // Assert
     const calledEvent = mockStore.append.mock.calls[0][1];
     expect(calledEvent.data).not.toHaveProperty('details');
+  });
+});
+
+// ─── resolveRepoRoot (#1330 / T-04) ────────────────────────────────────────
+
+describe('resolveRepoRoot', () => {
+  function storeWith(events: Array<{ type: string; data: unknown }>): EventStore {
+    return { query: vi.fn().mockResolvedValue(events) } as unknown as EventStore;
+  }
+
+  it('resolveRepoRoot_NoRepoRoot_DefaultsToProcessCwd', async () => {
+    const store = storeWith([]);
+    const result = await resolveRepoRoot({ featureId: 'feat-1' }, store);
+    expect(result).toEqual({ ok: true, repoRoot: process.cwd() });
+  });
+
+  it('resolveRepoRoot_LiteralPath_ReturnedVerbatim', async () => {
+    const store = storeWith([]);
+    const result = await resolveRepoRoot(
+      { featureId: 'feat-1', repoRoot: '/home/user/project' },
+      store,
+    );
+    expect(result).toEqual({ ok: true, repoRoot: '/home/user/project' });
+    // No event lookup needed for a literal path.
+    expect((store.query as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled();
+  });
+
+  it('resolveRepoRoot_AutoWithWorktreePathArg_PrefersArg', async () => {
+    const store = storeWith([
+      { type: 'worktree.created', data: { taskId: 'task-9', path: '/from/event' } },
+    ]);
+    const result = await resolveRepoRoot(
+      {
+        featureId: 'feat-1',
+        repoRoot: AUTO_REPO_ROOT,
+        worktreePath: '/from/arg',
+        taskId: 'task-9',
+      },
+      store,
+    );
+    expect(result).toEqual({ ok: true, repoRoot: '/from/arg' });
+    // The explicit arg wins; no event lookup performed.
+    expect((store.query as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled();
+  });
+
+  it('resolveRepoRoot_AutoNoArg_ResolvesLatestWorktreeCreatedEventForTask', async () => {
+    const store = storeWith([
+      { type: 'worktree.created', data: { taskId: 'task-9', path: '/old' } },
+      { type: 'worktree.created', data: { taskId: 'other', path: '/wrong-task' } },
+      { type: 'worktree.created', data: { taskId: 'task-9', path: '/latest' } },
+    ]);
+    const result = await resolveRepoRoot(
+      { featureId: 'feat-1', repoRoot: AUTO_REPO_ROOT, taskId: 'task-9' },
+      store,
+    );
+    expect(result).toEqual({ ok: true, repoRoot: '/latest' });
+  });
+
+  it('resolveRepoRoot_AutoUnresolvable_ReturnsError', async () => {
+    const store = storeWith([]);
+    const result = await resolveRepoRoot(
+      { featureId: 'feat-1', repoRoot: AUTO_REPO_ROOT, taskId: 'task-9' },
+      store,
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toContain('task-9');
   });
 });
