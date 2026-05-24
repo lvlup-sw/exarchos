@@ -27,6 +27,7 @@ import {
   handleViewIdeateReadiness,
   handleViewConvergence,
 } from './tools.js';
+import { handleViewInvariantsEffective } from './effective-catalog.js';
 import { handleStackStatus, handleStackPlace } from '../stack/tools.js';
 import { handleViewTelemetry } from '../telemetry/tools.js';
 import type { QualityHintsConfig } from '../capabilities/resolver.js';
@@ -354,6 +355,23 @@ export async function handleView(
         startedAt,
       );
 
+    case 'invariants_effective':
+      // DR-7 (T-20) — the facade delegates to `resolveEffectiveCatalog`; the
+      // `repoRoot` falls back to `ctx.cwd` (then `process.cwd()` inside the
+      // handler) so the dev-catalog + `.exarchos.yml` resolve from the active
+      // workspace.
+      return envelopeWrap(
+        await handleViewInvariantsEffective(
+          rest as {
+            phase: string;
+            workflowType: string;
+            repoRoot?: string;
+            touchedFiles?: string[];
+          },
+        ),
+        startedAt,
+      );
+
     case 'describe':
       return envelopeWrap(
         await handleDescribe(rest as { actions: string[] }, viewActions),
@@ -387,6 +405,7 @@ export async function handleView(
             'provenance',
             'ideate_readiness',
             'convergence',
+            'invariants_effective',
             'describe',
           ] as const,
         },

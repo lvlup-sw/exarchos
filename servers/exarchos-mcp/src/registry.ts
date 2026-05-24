@@ -2677,6 +2677,35 @@ const viewActions: readonly ToolAction[] = [
     outputSchema: EnvelopeSchema(z.unknown()),
     annotations: READ_ONLY_LOCAL,
   },
+  // DR-7 (T-20) — effective invariant catalog export. Surfaces the merged +
+  // override-clamped + projected invariant set for a given SDLC context via
+  // the single core fn `resolveEffectiveCatalog` (INV-2: one payload, many
+  // facades). The CLI `--json` form routes the same handler.
+  // SEAM (#1275): expose this same payload as
+  // resources/exarchos-invariants/effective when MCP Resources land. Register
+  // NO `resources/*` today.
+  {
+    name: 'invariants_effective',
+    description:
+      'Effective invariant catalog (merged dev + user catalogs, overrides clamped to each floor, projected to the given phase/workflow) — the resolveEffectiveCatalog payload (DR-7)',
+    schema: z.object({
+      phase: z.string().describe('SDLC phase to project for (e.g. ideate, plan, delegate)'),
+      workflowType: z
+        .string()
+        .describe('Workflow kind to project for (e.g. feature, debug, discover)'),
+      repoRoot: z
+        .string()
+        .optional()
+        .describe('Repo root for .exarchos.yml + dev-catalog resolution; defaults to cwd'),
+      touchedFiles: coercedStringArray()
+        .optional()
+        .describe('Files the current task touches (delegate-phase projection narrowing)'),
+    }),
+    phases: ALL_PHASES,
+    roles: ROLE_ANY,
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: READ_ONLY_LOCAL,
+  },
   makeDescribeAction(),
 ];
 
@@ -2723,7 +2752,7 @@ export const TOOL_REGISTRY: readonly CompositeTool[] = [
     description: 'CQRS materialized views — pipeline, tasks, workflow status, stack, and telemetry',
     actions: viewActions,
     cli: { alias: 'vw' },
-    slimDescription: 'CQRS materialized views for pipeline, tasks, and telemetry. Use describe(actions) for schemas.\n\nActions: pipeline, tasks, workflow_status, stack_status, stack_place, telemetry, team_performance, delegation_timeline, code_quality, eval_results, quality_correlation, quality_attribution, quality_hints, delegation_readiness, synthesis_readiness, shepherd_status, convergence, session_provenance, provenance, ideate_readiness',
+    slimDescription: 'CQRS materialized views for pipeline, tasks, and telemetry. Use describe(actions) for schemas.\n\nActions: pipeline, tasks, workflow_status, stack_status, stack_place, telemetry, team_performance, delegation_timeline, code_quality, eval_results, quality_correlation, quality_attribution, quality_hints, delegation_readiness, synthesis_readiness, shepherd_status, convergence, session_provenance, provenance, ideate_readiness, invariants_effective',
   },
   {
     name: 'exarchos_sync',
