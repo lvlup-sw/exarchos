@@ -2,11 +2,81 @@
 
 All notable changes to Exarchos are documented in this file. Organized by semver release.
 
-## [2.10.0-preview.3] - 2026-05-16
+## [2.10.0-preview.4] - 2026-05-24
 
-### Added
+Final feature-work batch of the v2.10.0 line before RC. Ships the substrate that consumes the v2.10.0-preview.3 Wave 0 carrier — Roots-based workspace discovery, three-field correlation, Tasks (SEP-1686) dispatch-core, Elicitation form-mode, quality hints, plus the authoring substrate (`/ideate` first-turn invariants, designs/plans sidecar, handoff lint). The substrate landed first (PRs #1421–#1435), then an immediate post-bundle audit cycle closed three HIGH-severity TaskStore correctness findings, the correlation contract end-to-end (storage + filter layer + consumer wiring), substrate hygiene, elicitation E2E verification (which surfaced and fixed a wired-but-not-invoked Zod-v4 narrowing bug mid-bundle), and an invariants-catalog rewrite (schema v1→v2).
 
-- Correlation tuple indexed columns + telemetry filters ([#1437](https://github.com/lvlup-sw/exarchos/issues/1437), [#1414](https://github.com/lvlup-sw/exarchos/issues/1414))
+After this preview, **v2.10.0 transitions to release-candidate mode** — RC ships polish + bug fixes only (no new API surface, no new event types, no new MCP capabilities).
+
+Tracked under epic [#1441](https://github.com/lvlup-sw/exarchos/issues/1441) (substrate + polish; CLOSED 2026-05-24) and the bonus axis #1458/#1459 (invariants v2).
+
+### Substrate bundle — Wave A: Output contract completion
+
+- **next_actions Zod discriminated unions + fail-closed `safeParse`** ([#1238](https://github.com/lvlup-sw/exarchos/issues/1238), PR [#1421](https://github.com/lvlup-sw/exarchos/pull/1421))
+  - `nextActionsFromResult` no longer uses `Record<string, unknown>` casts + inline `typeof` guards. Replaced with `ShapeOneSchema | ShapeTwoSchema` discriminated union consumed via `safeParse`. Fail-closed on no-match (the previous silent `return []` now returns the same empty list but via Zod's parser, so shape regressions are observable through the union's failure surface rather than hidden by the cast). Preserves no-actions case for non-success / null-data inputs.
+
+- **`output_tokens_high` quality hint** ([#1262](https://github.com/lvlup-sw/exarchos/issues/1262), PR [#1409](https://github.com/lvlup-sw/exarchos/pull/1409))
+  - Edge-triggered hint emitted via `next_actions` when per-turn output tokens cross a configurable threshold (default 80% of cap). Suggests `checkpoint` as next action. Threshold reads through `CapabilityResolver`, not raw YAML. Registers against `exarchos_view.describe` action discovery.
+
+- **Roots-based workspace discovery** ([#1290](https://github.com/lvlup-sw/exarchos/issues/1290), PR [#1410](https://github.com/lvlup-sw/exarchos/pull/1410))
+  - When `featureId` is omitted on a dispatch that requires it AND the client declared `roots: { listChanged: true }`, server calls `roots/list` (cached per-handshake; refreshed on `roots/list_changed`), scans each root for an Exarchos workspace signature (`.exarchos.yml`, `docs/workflow-state/*.state.json`), and resolves. One match → success + `workspace.resolved {source: 'roots', path, featureId}`. Zero matches → fall back to cwd-walk + `workspace.resolved {source: 'cwd'}`. Multiple matches → `INVALID_INPUT` with `validTargets` populated. CLI surface unchanged (no `roots` over CLI).
+
+- **Elicitation form mode for `INVALID_INPUT`** ([#1274](https://github.com/lvlup-sw/exarchos/issues/1274), PR [#1424](https://github.com/lvlup-sw/exarchos/pull/1424))
+  - When `dispatch()` finds a missing required parameter AND the client declared the `elicitation` capability, server derives the field's sub-schema via `inputSchema.pick({field: true})` and sends `elicitation/create` instead of returning `INVALID_INPUT`. Schemas are **derived, not hand-written** — Zod's `.pick()` ensures elicitation can't drift from validation (DIM-3). Emits `elicitation.requested` and `elicitation.fulfilled` events carrying `operationId`. Legacy `INVALID_INPUT` remains as fallback for clients without the capability.
+
+### Substrate bundle — Wave B: Correlation + event topology
+
+- **Three-field dispatch-boundary correlation** ([#1291](https://github.com/lvlup-sw/exarchos/issues/1291), PR [#1428](https://github.com/lvlup-sw/exarchos/pull/1428))
+  - `DispatchContext` mints `operationId` / `correlationId` / `causationId` at dispatch entry; threaded via `AsyncLocalStorage` through every event emitted during the call, the envelope's `_meta`, and the auto-emit chain. `correlationId` lets `/loop` cycles and subagent waves share a thread; `causationId` lets reconstruction answer *why* without timestamp heuristics. Backwards-compatible: existing single-`operationId` events get widened, never removed. Storage layer + telemetry filters shipped separately under #1437/#1447 (see post-bundle polish below).
+
+- **`dispatch.preflight` + `stash.detected` events** ([#1261](https://github.com/lvlup-sw/exarchos/issues/1261), via PR #1428's squash)
+  - `dispatch-guard.ts` emits `dispatch.preflight { guards: { ancestry, worktree, protectedBranch, mainWorktree }, passed, durationMs }` after each guard pass-or-fail, and `stash.detected { worktreePath, stashRef }` when a guard observes shared-stash state. Threads three-field correlation. Per-guard attribution unlocks future epic-autopilot signals.
+
+- **`EventSourcedTaskStore` — TaskStore as projection** ([#1272](https://github.com/lvlup-sw/exarchos/issues/1272), via PR #1428's squash)
+  - The SDK's `TaskStore` interface implemented as a projection over `task.created`, `task.polled`, `task.result`, `task.cancelled` events. SDK's `InMemoryTaskStore` is **not** used — `production-wiring.test.ts` asserts it absent. Lives next to the event store (INV-3 basileus-forward). Bounded retention via per-task TTL. Each event carries three-field correlation.
+
+### Substrate bundle — Wave C: Tasks (SEP-1686) dispatch-core ([#1273](https://github.com/lvlup-sw/exarchos/issues/1273))
+
+A dispatch-core abstraction, not an MCP-adapter feature. Both CLI `--follow` and MCP `tools/call` (with `task: { ttl }` augmentation) consume the same dispatch path, same `EventSourcedTaskStore`, same `task.*` event stream.
+
+- **C1 — Tasks-augmented dispatch-core branch** (content rode in under C3's squash; attribution drift documented in bundle audit)
+  - Dispatch core gains second return shape: `Envelope<T>` for one-shot, `CreateTaskResult` for tasks-augmented. Lifecycle in `EventSourcedTaskStore`; emits `task.created` → `task.polled` (throttled) → `task.result` or `task.cancelled`.
+- **C2 — MCP `tasks/*` methods + `taskSupport` capability** (PR [#1432](https://github.com/lvlup-sw/exarchos/pull/1432))
+  - `tasks/call`, `tasks/get`, `tasks/cancel`, `tasks/list` methods on the MCP adapter. `taskSupport` capability handshake gates client-side opt-in.
+- **C3 — CLI `--follow` polling loop** (PR [#1433](https://github.com/lvlup-sw/exarchos/pull/1433))
+  - Initial coverage: `view workflow_status --follow`, `view shepherd_status --follow`. Expanded by post-bundle #1452 Op 1 to `pipeline` / `convergence` / `delegation_timeline`.
+- **C1-fix — `pollInterval` validity + `task.polled.sequence` deprecation** (PR [#1435](https://github.com/lvlup-sw/exarchos/pull/1435))
+  - Post-merge CodeRabbit MAJOR follow-ups on #1273 — `pollInterval` normalization in the CLI follow path, deprecation of the `task.polled.sequence` field (internal-facing; not a stable contract).
+
+### Substrate bundle — Wave D: Authoring substrate
+
+- **Machine-readable invariants catalog v1 + vocabulary lint + `/ideate` first-turn surfacing** ([#1260](https://github.com/lvlup-sw/exarchos/issues/1260), PR [#1425](https://github.com/lvlup-sw/exarchos/pull/1425))
+  - `docs/architecture/invariants.md` as YAML-fronted markdown (machine-readable source of truth for design-invariants skill). Vocabulary-lint pre-flight rejects undefined invariant references. `/ideate` Phase 0 surfaces relevant invariants on first turn. (v2 schema bump ships under #1459 — see "Bonus axis" below.)
+
+- **Designs/plans machine-readable sidecar** ([#1298](https://github.com/lvlup-sw/exarchos/issues/1298), PR [#1426](https://github.com/lvlup-sw/exarchos/pull/1426))
+  - `.sidecar.yml` companion to design/plan markdown — gates read structured fields instead of regex-scraping prose. Includes 4 functional fixes. CodeRabbit caught a near-miss B1 bug where sidecar lookup originally returned `foo.md.sidecar.yml` instead of `foo.sidecar.yml`, which would have made the entire gate path silently dead. Regex-fallback removal tracked under follow-up #1407.
+
+- **Markdown-aware handoff lint at `handleCheckpoint`** ([#1244](https://github.com/lvlup-sw/exarchos/issues/1244), PR [#1427](https://github.com/lvlup-sw/exarchos/pull/1427))
+  - Checkpoint handoff text linted against markdown structure expectations (DIM-8). Design deviation from plan: shipped via `result.warnings` + `data.handoffLintFindings` instead of `_eventHints` payload (`EventHintsPayload` is strictly typed). Functionally equivalent.
+
+### Post-bundle polish (epic [#1441](https://github.com/lvlup-sw/exarchos/issues/1441))
+
+The substrate bundle landed first; an immediate post-merge audit cycle (`docs/research/2026-05-16-v2-10-0-preview-4-bundle-audit.md` + `docs/research/2026-05-16-event-sourced-task-store-audit.md`) surfaced 8 net-new findings + 3 pre-existing issues. Rather than block preview.4 on the long tail, the bundle shipped and the polish was tracked under epic #1441. **10/10 substrate-axis sub-issues closed.**
+
+#### HIGH-severity — TaskStore correctness (landed 2026-05-17)
+
+- **Throttle `task.polled` emit** (FINDING-3, PR [#1443](https://github.com/lvlup-sw/exarchos/pull/1443))
+  - Closes the write-amplification gate at the design's 250ms CLI poll cadence. Unblocks #1440 adoption-expansion without producing the predicted regression.
+
+- **Thread `expectedSequence` through writes** (FINDING-1, PR [#1445](https://github.com/lvlup-sw/exarchos/pull/1445))
+  - Adds OCC to `storeTaskResult` / `updateTaskStatus`. Captures stream tail in `loadTask` → passes through to writers → calls `append` with `expectedSequence`. Closes the Marten C-2 `fetchForWriting` analog the implementation was missing. INV-3 basileus-forward multi-writer correctness.
+
+- **Validate cache against stream tail** (FINDING-2, PR [#1444](https://github.com/lvlup-sw/exarchos/pull/1444))
+  - Cache hits now validate against stream tail before serving. Absorbed 5 CodeRabbit hardening commits for cross-process INV-1 consistency: `lastReadSequence` stamping, `expiresAt` derivation, `statusMessage` hygiene in both writer mutate closures and projection folds, `completed`/`failed` guard in `updateTaskStatus`.
+
+#### MEDIUM — Correlation contract end-to-end
+
+- **Correlation tuple indexed columns + telemetry filters** ([#1437](https://github.com/lvlup-sw/exarchos/issues/1437) + [#1414](https://github.com/lvlup-sw/exarchos/issues/1414), PR [#1447](https://github.com/lvlup-sw/exarchos/pull/1447))
   - Schema V5→V6: `operation_id`, `correlation_id`, `causation_id` columns on the `events` table with three indexes (`idx_events_correlation`, `idx_events_causation`, `idx_events_operation`).
   - Chunked transactional backfill from the `payload` JSON via the `migrateV5ToV6` helper; emits `migration.correlation_backfill_progress` events per chunk.
   - `EventStore.QueryFilters` accepts the three correlation fields; `SqliteBackend` honors them as indexed `WHERE` clauses; `InMemoryBackend` uses a post-fetch JS filter for parity.
@@ -14,13 +84,88 @@ All notable changes to Exarchos are documented in this file. Organized by semver
   - `materializeFiltered` cache-bypass helper prevents cache contamination across filtered/unfiltered calls on the same view.
   - Closes the [#1291](https://github.com/lvlup-sw/exarchos/issues/1291) acceptance criteria (storage layer + telemetry filters + three end-to-end integration tests) that PR [#1428](https://github.com/lvlup-sw/exarchos/pull/1428) deferred. Closes [#1414](https://github.com/lvlup-sw/exarchos/issues/1414) (regression coverage proves the inline fix from #1428's post-merge hardening).
 
-- Correlation consumer wiring ([#1448](https://github.com/lvlup-sw/exarchos/issues/1448))
+- **Correlation consumer wiring** ([#1448](https://github.com/lvlup-sw/exarchos/issues/1448) items 2–5, PR [#1449](https://github.com/lvlup-sw/exarchos/pull/1449))
   - `deriveCorrelationFilters` helper in `views/tools.ts` — inside an active `runWithDispatchContext` scope, defaults `correlationId` to the active dispatch's correlationId when no filter args are supplied; explicit args always win. Emits `source: 'ctx-default'` debug log on the inferred path. Replaces six inline filter-spread blocks across the six telemetry view handlers.
   - CLI flags `--operation-id` / `--correlation-id` / `--causation-id` on all six telemetry view subcommands. Auto-generated from each action's Zod schema in `registry.ts` via `addFlagsFromSchema`; 20 regression-pin tests (full subcommand × flag matrix + introspection sweep + end-to-end smoke through real dispatch).
   - `bypasses` counter on `ViewMaterializer.getCacheStats()` plus `correlationFilteredQueries` counter on `SqliteBackend.getStats()` — close the two DIM-2 LOW findings from PR [#1447](https://github.com/lvlup-sw/exarchos/pull/1447)'s axiom audit (silent index regression + invisible cache-bypass).
   - `docs/runbooks/correlation-filters.md` — operator + agent reference covering the three IDs, filter selection rule, MCP + CLI examples, and the AsyncLocalStorage default. Linked from `README.md` in the agent-first architecture section.
-  - T17 acceptance test: inline TODO replaced with permanent design rationale. No production auto-dispatch handler exists (both CLI and MCP adapters are one-shot); T17's manual `mintDispatchContext` synthesis models the correct caller-driven path at the substrate boundary, not a workaround. Companion CLI roundtrip test pins `next_actions` field integrity through the one-shot pipeline.
-  - Closes [#1448](https://github.com/lvlup-sw/exarchos/issues/1448) items 2-5 (item 1 = [#1446](https://github.com/lvlup-sw/exarchos/issues/1446) separately tracked).
+
+#### MEDIUM — Substrate hygiene (PR [#1450](https://github.com/lvlup-sw/exarchos/pull/1450))
+
+Single bundle covering two parallel-safe waves:
+
+- **Views layer** — Register `session_provenance`, `provenance`, `ideate_readiness` in `TOOL_REGISTRY` (closes [#1446](https://github.com/lvlup-sw/exarchos/issues/1446) — DR-5 schema validation gap). Internal-sentinel skip in `ViewMaterializer`'s stream iterator: streams whose `streamId.startsWith('__')` are excluded from snapshot/load (closes [#1434](https://github.com/lvlup-sw/exarchos/issues/1434) — `exarchos_view pipeline` no longer crashes on `__migration__` stream on upgraded repos).
+- **Task-store layer** ([#1438](https://github.com/lvlup-sw/exarchos/issues/1438) FINDING-4..8) — Size-cap reap on `createTask` (`REAP_GROWTH_DELTA = 64` amortization), `logger.warn` on the `request` coerce site in `projectTask`, persist `requestId` on `task.created` payload going forward (with `replayed:${taskId}` synthesizer for existing events), and a co-designed Cursor + Hydration subsystem (stable pagination + bounded hydration) addressing F-5+F-6 as one subsystem rather than independent fixes.
+
+#### MEDIUM — Substrate realization (PR [#1452](https://github.com/lvlup-sw/exarchos/pull/1452))
+
+Moves substrate from "shipped and correct" to "actually used and verified end-to-end."
+
+- **Elicitation form-mode E2E smoketest** ([#1436](https://github.com/lvlup-sw/exarchos/issues/1436)) — three-path in-process MCP client+server fixture using `InMemoryTransport`: **accept** (envelope success + `elicitation.requested` + `elicitation.fulfilled` events on per-operation stream + `_meta.operationId` cross-stream correlation), **decline** (`INVALID_INPUT` envelope + `elicitation.declined` event, no retry), **capability-absent** (legacy `INVALID_INPUT`, no `elicitation/*` streams). Each path asserts both envelope outcome AND event-store emissions.
+- **Elicitation Zod v4 narrowing fix** ([#1451](https://github.com/lvlup-sw/exarchos/issues/1451), HIGH, surfaced by the #1436 smoketest mid-bundle) — `extractSingleMissingRequiredField` in `dispatch.ts:178-199` was over-strict (`received !== 'undefined'` only). Doesn't match Zod v4's actual issue shape (`received === undefined` for omitted properties). Every elicitation candidate was rejected — substrate was wired-but-not-invoked in production despite PR #1424 shipping. Fix accepts both string `'undefined'` (v3 signal) and bare `undefined` (v4 omitted property).
+- **`--follow` expansion** ([#1440](https://github.com/lvlup-sw/exarchos/issues/1440) Op 1) — `VIEW_FOLLOW_ACTIONS` extracted as top-level constant; now covers `workflow_status`, `shepherd_status`, `pipeline`, `convergence`, `delegation_timeline`. Idempotency audit asserts in source-file regression test: all three new handlers are pure `ViewProjection` folds — no `eventStore.append`, no `*.polled` events.
+- **`DispatchHints` annotation + `describe` projection** (#1440 Op 2) — `DispatchHints` interface sibling-level to `CliActionHints` on `ToolAction`; `describe` handler projects `dispatch` field alongside `autoEmits` / `deprecated` / `outputSchema`. Four actions annotated with `dispatch: { taskSuitable: true, taskTtlSuggestionMs: 60_000 }`: `merge_orchestrate`, `request_synthesize`, `cleanup`, `rehydrate`. Annotation is advisory; existing `taskCapabilityGate` at `core/dispatch.ts:927-954` remains the binding opt-in.
+- **`retry_with_task` next-actions hint** (#1440 Op 4) — New `retry_with_task` verb in the next-actions discriminator. Hint emitted at dispatch boundary when (`success && !taskAugmented && action.dispatch?.taskSuitable && elapsedMs > 10_000`); prepended to `result.next_actions` (non-destructive). Negative test pins missing-`ttl_suggestion_ms` rejection.
+
+  **Deferred to v2.12.0:** Op 3 (workflow-verb wiring through Tasks-augmented dispatch) tracked under [#1453](https://github.com/lvlup-sw/exarchos/issues/1453); Op 5 (SSE for `tasks/subscribe`) tracked under [#1454](https://github.com/lvlup-sw/exarchos/issues/1454). Both need dedicated designs per substrate-realization §7.
+
+#### MEDIUM — Invariants audit pair
+
+- **Invariant content audit + cost-of-load split** ([#1439](https://github.com/lvlup-sw/exarchos/issues/1439), PR [#1455](https://github.com/lvlup-sw/exarchos/pull/1455))
+  - 18 entries audited: 11 keep / 5 sharpen / 2 downgrade-to-principle / 0 delete. Three dimension renames to axiom canonical: `vestigial-code → hygiene`, `error-handling → resilience`, `ai-prose-tells → prose-quality`.
+  - Cost-of-load split: 4 always-load / 12 reference-only / 2 archivable. Loader gains `loadInvariants(path, { scope: 'core' | 'all' })` with loud-throw on unknown scope (DIM-2 contract).
+  - Currency fixes: INV-1 applies-to scope clarified; basileus-boundary broken sibling-repo reference repaired.
+
+- **Phase-transition invariant audit + 6 HIGH closures** ([#1370](https://github.com/lvlup-sw/exarchos/issues/1370), PR [#1457](https://github.com/lvlup-sw/exarchos/pull/1457))
+  - Audit across 18 commands: 31 findings (6 HIGH, 13 MEDIUM, 12 LOW). Two systemic patterns surfaced: (1) phase-update bug in 5 commands using rejected `update {phase}` instead of canonical `transition`; (2) auto-chain by literal `Skill({...})` instead of consuming `next_actions`.
+  - **Systemic phase-update fix:** `ideate`, `plan`, `oneshot`, `review`, `synthesize` — 11 prose sites split into `update` + `transition` pairs. Adds `phase-transition-prose.test.ts` (18 tests) as canonical-pattern guard.
+  - **`delegate.md` fix:** Added per-dispatch `task.assigned` event emission section + replaced "Set phase to 'review'" prose with explicit `transition` calls. Adds `delegate-prose.test.ts` (4 tests).
+  - MEDIUM/LOW findings spun out to [#1456](https://github.com/lvlup-sw/exarchos/issues/1456) (status:backlog, v2.11.0).
+
+### Bonus axis — Invariants catalog v2 (#1458 + #1459)
+
+Not in original epic scope; emerged from #1370 + #1439 closure work. Provides the dev-invariants substrate that #1442 (Tier B `/ideate` invariant-surfacing eval, under #1403) will consume.
+
+- **Discover artifacts** (PR [#1458](https://github.com/lvlup-sw/exarchos/pull/1458)) — 5 research docs: workload-agnosticism stress test, runtime-invariants research survey + gap analysis, substrate-vs-authoring boundary, v2 spec proposal.
+
+- **Implementation** (PR [#1459](https://github.com/lvlup-sw/exarchos/pull/1459))
+  - **Schema v1→v2:** New required field `axis: substrate | authoring`. New optional fields `citations: string[]`, `axiom_overlap: DIM-N` (format-validated).
+  - **Loader gating:** `.exarchos.yml: invariants.devCatalog: enabled | disabled` (default **disabled**, no auto-detection). Scope filter expanded to `'core' | 'substrate' | 'authoring' | 'all'`. Fail-loud on missing `axis` field. Repo-root `.exarchos.yml` declares `invariants.devCatalog: enabled` (explicit opt-in for Exarchos contributors).
+  - **INV-1 split** → INV-1 (event-sourcing-integrity, narrowed) + **INV-7** (substrate-serialization) + **INV-8** (idempotency-at-the-boundary).
+  - **INV-5b split** → INV-5b (carrier-shape only) + **INV-12** (next-actions-as-affordance).
+  - **Six new entries:** INV-9 (HSM-as-state-machine), INV-10 (liveness-event-protocol), INV-11 (posture-declared-capabilities), INV-13 (process-manager-two-event-split), INV-14 (native-primitive-first-recovery), INV-15 (single-machine-frame).
+  - **Three sharpenings:** INV-6 elevated to primary workload-agnosticism (`cost-of-load: always-load`); INV-1 canonical citations post-split; INV-4 platform-axis vs INV-6 workload-axis clarifier.
+  - **External research grounding:** every new entry has ≥3 citations. Sources include Mohan ARIES 1992, Bernstein & Goodman 1981, Mark Miller *Robust Composition* 2006, Norman 1999 affordance theory, Akka *Effect.thenRun*, Wolverine *AggregateHandler*, Greg Young, anip-protocol (convergent independent design).
+  - **`/axiom:design` pairing-discovery fix:** `pairs-with: axiom:backend-quality → axiom:design`; complementarity matrix extended with INV-7..15 + INV-12 rows; `commands/ideate.md` Phase 0 directive adds dev-only gating callout.
+  - **27-entry catalog total:** 10 substrate always-load + 9 substrate reference-only + 7 DIM-* axiom pointers + 1 authoring DIM-8.
+
+### Schema migrations
+
+- **V5 → V6 events table** — adds `operation_id`, `correlation_id`, `causation_id` columns + three indexes. Automatic on first open via `migrateV5ToV6`. Chunked transactional backfill from `payload` JSON; emits `migration.correlation_backfill_progress` events per chunk. One-way (no downgrade path); standard schema-migration model (same as preview.2's V3→V4).
+
+- **Invariants catalog schema v1 → v2** — adds required `axis` field, optional `citations` + `axiom_overlap`. Gated behind explicit opt-in (`.exarchos.yml: invariants.devCatalog: enabled`, default disabled). Consumers not opting in see zero behavior change.
+
+### Operator notes
+
+- **No agent-facing breaking changes were called out** in the substrate design, bundle audit, or any PR body. The v2.10.0 line treats this surface area as additive. Three items could surface latent breakage:
+  - Schema V5→V6 migration is one-way (downgrade from V6 to V5 is not supported).
+  - `next_actions` shape regressions previously masked by `Record<string, unknown>` casts are now visible through the discriminated-union failure surface (still fail-closed; no behavior change at the consumer parser boundary).
+  - `task.polled` emit cadence reduced by FINDING-3 throttle; field `task.polled.sequence` deprecated. Both internal-facing.
+
+- **9 new event types** added across the substrate surface (`EVENT_TYPES` count 105 → 114).
+
+- **Release-engineering carry:** PR [#1420](https://github.com/lvlup-sw/exarchos/pull/1420) (the original preview.4 version bump) ghost-merged via stacked `--auto --squash` collapse on 2026-05-16 — GitHub showed MERGED but the merge commit was never reachable from `origin/main`. The bundle landed in main but the version bump and CHANGELOG never did. This release ships a non-stacked replacement that lands directly. Hazard codified in project-memory `feedback_stacked_pr_auto_merge_collapses_granularity`.
+
+### Deferrals (carried to v2.11.0 / v2.12.0)
+
+- [#1453](https://github.com/lvlup-sw/exarchos/issues/1453) — `feat(dispatch): wire orchestration verbs through Tasks-augmented dispatch` (#1440 Op 3, design pending). v2.12.0 — Process Lifecycle Verbs. `status:backlog`.
+- [#1454](https://github.com/lvlup-sw/exarchos/issues/1454) — `feat(transport): SSE for tasks/subscribe` (#1440 Op 5, design pending). v2.12.0 — Process Lifecycle Verbs. `status:backlog`.
+- [#1456](https://github.com/lvlup-sw/exarchos/issues/1456) — #1370 phase-transition audit MEDIUM/LOW residue. v2.11.0.
+- [#1395](https://github.com/lvlup-sw/exarchos/issues/1395) — `_eventHints.missing` auto-emit investigation. Rescoped out of epic #1441 (different workstream); now under v2.10.0 milestone direct.
+
+### Comprehensive build review
+
+See [`docs/research/2026-05-23-v2-10-0-preview-4-build-review.md`](docs/research/2026-05-23-v2-10-0-preview-4-build-review.md) for the full inventory of every PR landed under the preview.4 umbrella, the bundle-audit reconciliation, and the release-engineering analysis.
 
 ## [2.10.0-preview.2] - 2026-05-11
 
