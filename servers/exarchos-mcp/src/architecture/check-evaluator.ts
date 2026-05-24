@@ -41,23 +41,43 @@ function assertNever(value: never): never {
  * Split a unified diff into per-file sections keyed by the post-image path
  * (`+++ b/<path>`). A diff with no file headers yields a single section with
  * an undefined path (glob filtering is skipped for it).
+ *
+ * The section boundary is the file header (`diff --git a/…` for git diffs, or
+ * the `--- ` old-file header for plain unified diffs) — NOT the `+++ b/…` line.
+ * Anchoring on the post-image line would push a file's own leading headers
+ * (`diff --git`, `index`, `--- a/<path>`) into the PREVIOUS file's section,
+ * which can misattribute a pattern match to the wrong file's glob.
  */
 function splitDiffByFile(diff: string): Array<{ path?: string; body: string }> {
   const lines = diff.split('\n');
   const sections: Array<{ path?: string; body: string }> = [];
   let current: { path?: string; body: string } | undefined;
+
+  const begin = (): void => {
+    current = { path: undefined, body: '' };
+    sections.push(current);
+  };
+
   for (const line of lines) {
+    // Start a new section at the file boundary so this file's header lines
+    // stay with it. `diff --git` is the git boundary; for plain diffs that
+    // omit it, the `--- ` old-file header opens the next file — but only once
+    // the current section already carries its `+++` path (otherwise the `--- `
+    // belongs to a section just opened by `diff --git`).
+    if (
+      line.startsWith('diff --git ') ||
+      (line.startsWith('--- ') &&
+        (current === undefined || current.path !== undefined))
+    ) {
+      begin();
+    }
     const m = /^\+\+\+ b\/(.+)$/.exec(line);
     if (m) {
-      current = { path: m[1], body: '' };
-      sections.push(current);
-      continue;
+      if (current === undefined) begin();
+      current!.path = m[1];
     }
-    if (!current) {
-      current = { path: undefined, body: '' };
-      sections.push(current);
-    }
-    current.body += `${line}\n`;
+    if (current === undefined) begin();
+    current!.body += `${line}\n`;
   }
   return sections;
 }

@@ -75,6 +75,38 @@ describe('evaluateTree', () => {
     expect(evaluateTree(node, DIFF)).toEqual(direct);
   });
 
+  it('EvaluateLeaf_MultiFileGitDiff_AttributesHeadersToOwningFile', () => {
+    // A file's header lines (`diff --git a/…`, `index …`, `--- a/…`) must be
+    // attributed to THAT file's section, not leaked into the previous file's.
+    // Regression guard: a token that appears only in beta.ts's headers/body
+    // must not match when the leaf is scoped to alpha.ts.
+    const diff = [
+      'diff --git a/alpha.ts b/alpha.ts',
+      'index 1111111..2222222 100644',
+      '--- a/alpha.ts',
+      '+++ b/alpha.ts',
+      '@@ -1 +1 @@',
+      '+const alpha = 1;',
+      'diff --git a/beta.ts b/beta.ts',
+      'index 3333333..4444444 100644',
+      '--- a/beta.ts',
+      '+++ b/beta.ts',
+      '@@ -1 +1 @@',
+      '+const beta = 2;',
+      '',
+    ].join('\n');
+
+    // `beta` lives only in beta.ts; scoped to alpha.ts it must NOT match
+    // (before the fix, beta.ts's `diff --git`/`--- a/beta.ts` headers leaked
+    // into alpha.ts's section and produced a false positive).
+    expect(evaluateLeaf(grep('beta', { fileGlob: 'alpha.ts' }), diff)).toEqual([]);
+    // Scoped to its own file, it fires.
+    expect(evaluateLeaf(grep('beta', { fileGlob: 'beta.ts' }), diff)).toHaveLength(1);
+    // And alpha is correctly confined to alpha.ts.
+    expect(evaluateLeaf(grep('alpha', { fileGlob: 'beta.ts' }), diff)).toEqual([]);
+    expect(evaluateLeaf(grep('alpha', { fileGlob: 'alpha.ts' }), diff)).toHaveLength(1);
+  });
+
   it('EvaluateTree_ScopePhase_SkipsSubtreeOutOfPhase', () => {
     // A `scope.phase` declares the subtree applies only during that phase. An
     // ALWAYS_FAIL leaf scoped to `delegate` must NOT fire when the gate runs
