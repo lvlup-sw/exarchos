@@ -15,6 +15,15 @@ export const TASK_COMPLETION: RunbookDefinition = {
       params: { repoRoot: 'auto', worktreePath: '<worktreePath>' },
       note: '#1330: run against the agent worktree via repoRoot:auto + worktreePath template var' },
     { tool: 'exarchos_orchestrate', action: 'task_complete', onFail: 'stop' },
+    // #1329 / T-07: after the task lands on the integration tip, run the FULL
+    // suite against it. Per-task TDD/static gates can be green while the
+    // integration tip cascades (a file failing at import is "0 failed tests /
+    // 1 failed suite" — invisible to per-task gates). `onFail: 'stop'` halts
+    // the loop so a broken integration tip blocks the NEXT dispatch. Reuses the
+    // #1330 worktree-aware resolver: `repoRoot: 'auto'` + `worktreePath`.
+    { tool: 'exarchos_orchestrate', action: 'check_integration_suite', onFail: 'stop',
+      params: { repoRoot: 'auto', worktreePath: '<worktreePath>' },
+      note: '#1329: full-suite gate against the integration tip; folds file-LOAD failures into failCount' },
   ],
   templateVars: ['taskId', 'featureId', 'streamId', 'branch', 'worktreePath'],
   autoEmits: ['gate.executed', 'task.completed'],
