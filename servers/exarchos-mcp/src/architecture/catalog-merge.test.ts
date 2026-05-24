@@ -97,6 +97,35 @@ describe('applyOverrides', () => {
     expect(resolved?.severity?.['by-workflow']).toBeUndefined();
   });
 
+  it('ApplyOverrides_SeverityOverride_ReplacesContextMaps', () => {
+    // A scalar `severity` override must apply in EVERY context: a shipped
+    // by-phase/by-workflow map must not survive and silently ignore the
+    // override (resolveSeverity ranks by-phase > by-workflow > default).
+    const merged = mergeCatalogs({
+      dev: [],
+      sdlc: [
+        entry('SDLC-1', {
+          severity: {
+            default: 'blocking',
+            'by-phase': { review: 'blocking' },
+            'by-workflow': { feature: 'blocking' },
+          },
+        }),
+      ],
+      user: [],
+    });
+
+    // sdlc floor is advisory ⇒ lowering to advisory is permitted.
+    const { entries } = applyOverrides(merged, {
+      'SDLC-1': { severity: 'advisory' },
+    });
+
+    const resolved = entries.find((e) => e.id === 'SDLC-1');
+    expect(resolved?.severity?.default).toBe('advisory');
+    expect(resolved?.severity?.['by-phase']).toBeUndefined();
+    expect(resolved?.severity?.['by-workflow']).toBeUndefined();
+  });
+
   it('ApplyOverrides_DevSubstrate_NotPresentWhenDevCatalogDisabled', () => {
     // devCatalog disabled ⇒ empty dev layer ⇒ no substrate-class entries.
     const merged = mergeCatalogs({ dev: [], sdlc: [entry('SDLC-1')], user: [] });

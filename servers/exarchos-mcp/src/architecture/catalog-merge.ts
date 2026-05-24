@@ -223,9 +223,16 @@ export function applyOverrides(
             `floor is 'advisory' (can only lower to advisory, not raise).`,
         );
       } else {
+        // A consumer `severity` override is a SCALAR — it expresses one
+        // severity for the invariant. Replace the whole severity profile
+        // (drop any shipped by-phase/by-workflow map) so the override is
+        // honored in every context; keeping those maps would let a shipped
+        // `by-phase:{review:blocking}` silently ignore the override
+        // (resolveSeverity ranks by-phase > by-workflow > default). Mirrors
+        // clampSeverityToAdvisory.
         result = {
           ...result,
-          severity: { ...result.severity, default: override.severity },
+          severity: { default: override.severity },
         };
       }
     }
