@@ -43,7 +43,7 @@ In `sdlc-catalog.ts`, author SDLC-1..5 per research §4, each with `integrity-cl
 
 **Acceptance:** `loadSdlcCatalog()` returns 5 schema-valid `InvariantEntry[]`; each `axis: substrate`, `integrity-class: sdlc`, `mode: audit`; a malformed inline entry fails at module load (fail-fast).
 
-**Discovery scoping note:** `projectCatalog` already excludes `axis: substrate` entries from `discovery` workflows. SDLC entries are `axis: substrate`, so all five are excluded from discovery automatically — consistent with their `workflow-affinity` (discovery is a docs-research workflow; SDLC conduct invariants target code-bearing workflows). This deliberately tightens research §4's SDLC-5 "all" to "exclude discovery" and needs **no machinery change**.
+**Discovery scoping note:** all five entries are excluded from discovery workflows via their `workflow-affinity` (the lists omit discovery; discovery is a docs-research workflow, SDLC conduct invariants target code-bearing ones). This tightens research §4's SDLC-5 "all" to "exclude discovery" and needs **no machinery change**. (`projectCatalog` also has an `axis: substrate` auto-exclusion branch, but it checks the token `'discover'` while the runtime workflow type is `'discovery'` — a latent #1465 token mismatch, logged as a follow-up; the `workflow-affinity` exclusion is the robust path and does not depend on that branch.)
 
 ### DR-2: Close the sdlc-layer seam
 Replace `resolve-effective-catalog.ts:131`'s `const sdlc: InvariantEntry[] = []` with `const sdlc = loadSdlcCatalog()`. No gate. `mergeCatalogs` already tags sdlc entries `integrity-class: sdlc`; the inline `integrity-class` is reaffirmed, not relied upon.

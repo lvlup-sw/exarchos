@@ -339,13 +339,24 @@ describe('resolveEffectiveCatalog', () => {
   });
 
   it('ResolveEffectiveCatalog_WorkflowDiscovery_ExcludesAllSdlcEntries', () => {
-    const { entries } = resolveEffectiveCatalog({
-      repoRoot: fixture.repoRoot,
-      config: { invariants: { devCatalog: 'disabled' } },
-      phase: 'review',
-      workflowType: 'discovery',
-    });
-    expect(entries.filter((e) => e.id.startsWith('SDLC-'))).toHaveLength(0);
+    // The SDLC entries are excluded from a docs-only research workflow via
+    // their `workflow-affinity` (the lists omit discovery), NOT via the
+    // `projectCatalog` axis-substrate branch — that branch checks 'discover'
+    // while the runtime workflow type is 'discovery' (a latent #1465 token
+    // mismatch). Assert both spellings yield zero so the exclusion is robust
+    // regardless of which token a caller passes.
+    for (const workflowType of ['discovery', 'discover']) {
+      const { entries } = resolveEffectiveCatalog({
+        repoRoot: fixture.repoRoot,
+        config: { invariants: { devCatalog: 'disabled' } },
+        phase: 'review',
+        workflowType,
+      });
+      expect(
+        entries.filter((e) => e.id.startsWith('SDLC-')),
+        `SDLC entries must be excluded for workflowType='${workflowType}'`,
+      ).toHaveLength(0);
+    }
   });
 
   // ─── #1467 DR-3: override-floor (INV-11) end-to-end on a real SDLC entry ───

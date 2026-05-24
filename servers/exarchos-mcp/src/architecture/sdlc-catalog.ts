@@ -176,15 +176,17 @@ const RAW_SDLC_ENTRIES: ReadonlyArray<Record<string, unknown>> = [
  * at server start rather than mid-resolution). `mergeCatalogs` re-tags these
  * with `integrity-class: sdlc`; the inline class is the authoring intent.
  */
-const SDLC_CATALOG: InvariantEntry[] = parseInvariantEntries(
-  RAW_SDLC_ENTRIES as unknown[],
-);
+const SDLC_CATALOG: InvariantEntry[] = parseInvariantEntries(RAW_SDLC_ENTRIES);
 
 /**
  * Return the shipped, default-on SDLC-* consumer catalog. No `devCatalog`-style
  * gate — sdlc ships enabled; the override mechanism is the consumer's escape
  * hatch, not a master switch.
+ *
+ * Returns a fresh deep copy per call (matching `loadInvariants`'s re-parse
+ * semantics) so a downstream consumer cannot mutate the shared module-level
+ * singleton — INV-1: the catalog is an immutable source, not a drifting store.
  */
 export function loadSdlcCatalog(): InvariantEntry[] {
-  return SDLC_CATALOG;
+  return structuredClone(SDLC_CATALOG);
 }
