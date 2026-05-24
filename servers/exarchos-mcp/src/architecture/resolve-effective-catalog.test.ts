@@ -117,4 +117,54 @@ describe('resolveEffectiveCatalog', () => {
     // A disabled-with-permission (user floor = none) entry is absent.
     expect(ids).not.toContain('team-no-console');
   });
+
+  it('ResolveEffectiveCatalog_MalformedUserCatalog_DegradesWithWarning', () => {
+    // A user catalog that throws at load (unknown check kind) must NOT abort
+    // resolution: the dev layer survives and a warning names the failed file.
+    const badCatalogPath = path.join(fixture.repoRoot, 'invariants.user.yml');
+    fs.writeFileSync(
+      badCatalogPath,
+      [
+        '---',
+        'schema-version: 3',
+        'invariants:',
+        '  - id: team-bad',
+        '    dimension: lint',
+        '    axis: substrate',
+        '    cost-of-load: always-load',
+        '    applies-to:',
+        '      - src/**',
+        '    summary: Malformed — unknown check kind.',
+        '    references: []',
+        '    enforcement:',
+        '      mode: check',
+        '      check:',
+        '        kind: not-a-real-kind',
+        "        pattern: 'x'",
+        '---',
+        '',
+      ].join('\n'),
+      'utf8',
+    );
+
+    const config: ExarchosConfig = {
+      invariants: {
+        devCatalog: 'enabled',
+        catalogs: ['invariants.user.yml'],
+      },
+    };
+
+    const { entries, warnings } = resolveEffectiveCatalog({
+      repoRoot: fixture.repoRoot,
+      config,
+      phase: 'ideate',
+      workflowType: 'feature',
+    });
+
+    // Dev layer still resolved (degraded, not aborted).
+    expect(entries.map((e) => e.id)).toContain('INV-1');
+    // Warning names the failed user catalog.
+    const warning = warnings.find((w) => w.includes('invariants.user.yml'));
+    expect(warning).toBeDefined();
+  });
 });

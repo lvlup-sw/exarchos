@@ -131,20 +131,42 @@ export function resolveEffectiveCatalog(
   const sdlc: InvariantEntry[] = [];
 
   // ── Layer 3: user catalogs (paths from config.invariants.catalogs) ──
+  //
+  // DR-9 degradation: a malformed user catalog (bad YAML / unknown check
+  // kind / reserved-namespace id) must NOT abort the whole resolution. Each
+  // catalog is loaded in isolation; a load failure is folded into `warnings`
+  // (naming the offending file) and the remaining layers proceed. This is the
+  // single place the gate, the view facade, and any future Resource share, so
+  // the degradation is exercised on every effective-catalog read — not just
+  // under a hand-injected loader double.
+  const loadWarnings: string[] = [];
   const userCatalogPaths = config?.invariants?.catalogs ?? [];
   const user: InvariantEntry[] = userCatalogPaths.flatMap((catalogPath) => {
     const resolved = path.isAbsolute(catalogPath)
       ? catalogPath
       : path.join(repoRoot, catalogPath);
     if (!fs.existsSync(resolved)) return [];
-    return loadInvariants(resolved, undefined, USER_CATALOG_LOAD_CONFIG);
+    try {
+      return loadInvariants(resolved, undefined, USER_CATALOG_LOAD_CONFIG);
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : String(err);
+      loadWarnings.push(
+        `User invariant catalog '${catalogPath}' failed to load and was ` +
+          `skipped; evaluated remaining layers only. Reason: ${reason}`,
+      );
+      return [];
+    }
   });
 
   // ── Merge + override-clamp ──
   const merged = mergeCatalogs({ dev, sdlc, user });
   const overrides: Record<string, InvariantOverride> =
     config?.invariants?.overrides ?? {};
-  const { entries: clamped, warnings } = applyOverrides(merged, overrides);
+  const { entries: clamped, warnings: overrideWarnings } = applyOverrides(
+    merged,
+    overrides,
+  );
+  const warnings = [...loadWarnings, ...overrideWarnings];
 
   // ── Final honored-disable filter ──
   // `applyOverrides` leaves disabled entries in place; drop those whose

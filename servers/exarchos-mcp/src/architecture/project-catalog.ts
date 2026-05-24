@@ -20,6 +20,7 @@
  *     injects no code invariant.
  */
 import type { InvariantEntry } from './invariants-loader.js';
+import { globToRegExp } from './glob-to-regexp.js';
 
 /** Projection key: the SDLC context an invariant set is being projected for. */
 export interface ProjectCatalogKey {
@@ -107,33 +108,4 @@ function matchesPattern(pattern: string, filePath: string): boolean {
     if (filePath === prefix) return true;
   }
   return globToRegExp(normalized).test(filePath);
-}
-
-/**
- * Convert a glob-ish pattern to an anchored RegExp.
- *
- *   - `**` matches across path separators (any subtree);
- *   - `*`  matches within a single path segment (no `/`);
- *   - all other regex-special characters are escaped literally.
- */
-function globToRegExp(pattern: string): RegExp {
-  let out = '';
-  for (let i = 0; i < pattern.length; i++) {
-    const ch = pattern[i];
-    if (ch === '*') {
-      if (pattern[i + 1] === '*') {
-        i++; // consume the second `*`
-        out += '.*'; // `**` — match across separators.
-      } else {
-        out += '[^/]*'; // single `*` — match within a segment.
-      }
-    } else if ('\\^$.|?+()[]{}'.includes(ch)) {
-      out += `\\${ch}`;
-    } else if (ch === '/') {
-      out += '\\/';
-    } else {
-      out += ch;
-    }
-  }
-  return new RegExp(`^${out}$`);
 }
