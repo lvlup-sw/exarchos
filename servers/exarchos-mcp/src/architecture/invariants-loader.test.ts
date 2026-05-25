@@ -452,11 +452,35 @@ invariants:
 
   // ─── Wave C2: citations field (schema-v2) ─────────────────────────────
   //
-  // Schema-v2 adds an optional `citations: string[]` field for external
-  // research grounding. Recommended (not enforced) ≥3 citations per
-  // substrate-axis entry; DIM-* axiom-pointer entries are exempt.
+  // Schema-v2 adds a `citations: string[]` field for external research
+  // grounding. As of #1478 the ≥3-citations floor for substrate-axis entries
+  // is ENFORCED (was previously a deferred ≥2-references-only pin). Two
+  // documented exemptions remain:
+  //   - INV-5d  — reference-only sub-discipline of INV-5; grounding lives on
+  //               the parent INV-5a/5b/5c entries.
+  //   - basileus-boundary — cross-product coordination entry whose grounding
+  //               is the Exarchos↔Basileus coordination ADR, addressed via
+  //               its references, not in-frontmatter citations.
   //
   // Spec: docs/proposals/2026-05-20-invariants-catalog-v2-spec.md §3
+
+  it('Invariants_EverySubstrateAxisEntry_HasAtLeastThreeCitations', () => {
+    // ENFORCED floor (#1478): every substrate-axis invariant carries ≥3 real,
+    // verifiable citations so the grounding gap cannot reopen silently. The
+    // exempt set is documented above and must stay small + intentional.
+    const CITATION_EXEMPT = new Set(['INV-5d', 'basileus-boundary']);
+    const entries = loadInvariants(INVARIANTS_DOC, undefined, ENABLED_CONFIG);
+    const substrate = entries.filter(
+      (e) => e.axis === 'substrate' && !CITATION_EXEMPT.has(e.id),
+    );
+    expect(substrate.length).toBeGreaterThan(0);
+    for (const entry of substrate) {
+      expect(
+        entry.citations?.length ?? 0,
+        `entry ${entry.id} has ${entry.citations?.length ?? 0} citations; substrate-axis entries need >= 3`,
+      ).toBeGreaterThanOrEqual(3);
+    }
+  });
 
   it('Invariants_SubstrateAxisEntries_AcceptCitationsField', () => {
     // Synthetic fixture with the new field. Loader must parse it into

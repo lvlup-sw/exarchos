@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { InvariantsConfigSchema } from './exarchos-config-schema.js';
+import { InvariantsConfigSchema, ExarchosConfigSchema } from './exarchos-config-schema.js';
 
 // ─── Dimension Configuration ────────────────────────────────────────────────
 
@@ -167,3 +167,24 @@ export const ProjectConfigSchema = z.object({
 }).strict();
 
 export type ProjectConfig = z.infer<typeof ProjectConfigSchema>;
+
+// ─── Unified `.exarchos.yml` schema (#1479 dual-reader reconciliation) ──────
+//
+// The same `.exarchos.yml` is read by two paths that historically used
+// disjoint, both-`.strict()` schemas:
+//   - `loadExarchosConfig` (config/load-exarchos-config.ts) → ExarchosConfigSchema
+//     (test/typecheck/install/qualityHints/handoffLint/cli/invariants)
+//   - the architecture invariants loader's `readInvariantsConfig` → a hand-
+//     rolled lenient slice of the `invariants:` block.
+// Because each schema rejected the other's keys, a file valid for one reader
+// threw for the other, and a typo'd key silently kept its invariants block
+// alive on the lenient path. The unified schema is the merge of both
+// concern-schemas: a key valid in EITHER is accepted; a key valid in NEITHER
+// (a genuine typo) is still rejected. Both readers now share this one schema,
+// so they reach the same verdict on any given file. The shared `invariants`
+// block is identical in both source schemas, so the merge is conflict-free.
+export const FullExarchosConfigSchema = ExarchosConfigSchema.merge(
+  ProjectConfigSchema,
+).strict();
+
+export type FullExarchosConfig = z.infer<typeof FullExarchosConfigSchema>;

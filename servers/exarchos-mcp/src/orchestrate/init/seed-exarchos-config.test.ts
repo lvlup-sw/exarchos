@@ -137,6 +137,57 @@ describe('seedExarchosConfig', () => {
     expect(body).toContain('https://github.com/lvlup-sw/exarchos/issues/1199');
   });
 
+  // ─── #1479: commented invariants: onboarding stanza ─────────────────────
+
+  it('seed_AppendsCommentedInvariantsStanza', () => {
+    const writes: Array<{ p: string; contents: string }> = [];
+    seedExarchosConfig('/repo', {
+      exists: () => false,
+      write: (p, contents) => writes.push({ p, contents }),
+      resolve: () => npmResolve(),
+    });
+
+    const body = writes[0].contents;
+    // The stanza is emitted COMMENTED so it documents the opt-in without
+    // changing behaviour (devCatalog stays effectively disabled until the
+    // operator uncomments it). The block carries a one-line explanation, a
+    // `devCatalog: disabled` line, and a stubbed `catalogs:` example.
+    expect(body).toContain('# invariants:');
+    expect(body).toMatch(/#\s*devCatalog:\s*disabled/);
+    expect(body).toMatch(/#\s*catalogs:/);
+    // The explanatory comment must mention what enabling the dev catalog does.
+    expect(body).toMatch(/dev[- ]catalog|architectural invariant/i);
+  });
+
+  it('seed_InvariantsStanza_IsCommentedNotActive', () => {
+    // The seeded stanza must not change the parsed/active config: a fresh
+    // seed should still load with no `invariants` block set (it is all
+    // comments), so behaviour is unchanged until the operator opts in.
+    const writes: Array<{ p: string; contents: string }> = [];
+    seedExarchosConfig('/repo', {
+      exists: () => false,
+      write: (p, contents) => writes.push({ p, contents }),
+      resolve: () => npmResolve(),
+    });
+    const body = writes[0].contents;
+    // No ACTIVE (uncommented) invariants: key at column 0.
+    expect(body).not.toMatch(/^invariants:/m);
+  });
+
+  it('seed_InvariantsStanza_IsIdempotent_NeverOverwrites', () => {
+    // Re-running on an existing config must not write at all (never
+    // overwrite, never duplicate the stanza).
+    const writeSpy = vi.fn<(p: string, contents: string) => void>();
+    const result = seedExarchosConfig('/repo', {
+      exists: () => true,
+      write: writeSpy,
+      resolve: () => npmResolve(),
+    });
+    expect(result.wrote).toBe(false);
+    expect(result.reason).toBe('already-exists');
+    expect(writeSpy).not.toHaveBeenCalled();
+  });
+
   it('seed_RoundTripsThroughLoader', async () => {
     const tempDir = await mkdtemp(path.join(tmpdir(), 'seed-roundtrip-'));
     try {

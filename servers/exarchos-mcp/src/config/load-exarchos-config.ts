@@ -2,13 +2,16 @@ import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { execSync } from 'node:child_process';
 import { parse as parseYaml } from 'yaml';
-import { ExarchosConfigSchema, type ExarchosConfig } from './exarchos-config-schema.js';
+import { FullExarchosConfigSchema, type FullExarchosConfig } from './yaml-schema.js';
 
 const CONFIG_FILENAME = '.exarchos.yml';
 
 export interface LoadResult {
-  /** Validated config contents. */
-  config: ExarchosConfig;
+  /** Validated config contents. The unified schema (#1479) covers every
+   * known `.exarchos.yml` key — the test-runtime concern (test/typecheck/
+   * install/cli) AND the project concern (agents/review/workflow/...) — so a
+   * file with keys from either concern validates here without throwing. */
+  config: FullExarchosConfig;
   /** Absolute path of the file the config came from. */
   source: string;
 }
@@ -94,7 +97,7 @@ function readAndValidate(path: string): LoadResult {
   // Treat empty file / null document as empty config.
   const candidate: unknown = parsed === null || parsed === undefined ? {} : parsed;
 
-  const result = ExarchosConfigSchema.safeParse(candidate);
+  const result = FullExarchosConfigSchema.safeParse(candidate);
   if (!result.success) {
     const details = result.error.issues
       .map((issue) => {

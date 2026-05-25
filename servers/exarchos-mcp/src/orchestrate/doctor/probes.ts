@@ -33,6 +33,8 @@ import {
   type AgentEnvironment,
   type DetectorFs,
 } from '../../runtime/agent-environment-detector.js';
+import { loadExarchosConfig } from '../../config/load-exarchos-config.js';
+import { resolveEffectiveCatalog } from '../../architecture/resolve-effective-catalog.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -91,6 +93,21 @@ export interface DoctorPlugin {
   runningVersion(): Promise<string | null>;
 }
 
+export interface DoctorInvariantsCatalog {
+  /**
+   * Resolve the effective invariant catalog from `.exarchos.yml` and report
+   * whether any user-validatable catalog is `configured`, plus any
+   * merge/load/reserved-namespace warnings folded by `resolveEffectiveCatalog`
+   * (DR-9). The check turns a non-empty `warnings` list into a doctor Warning,
+   * naming the offending catalog/id. `configured` is `false` only when the dev
+   * catalog is disabled/absent AND no user catalogs are configured (the SDLC
+   * baseline is compiled-in and build-validated, so it does not count). It is
+   * phase-independent — a configured catalog whose entries do not project to a
+   * given phase still counts as configured. Must honor `signal` and stay
+   * within the 2000ms probe budget (DIM-7). */
+  resolve(signal?: AbortSignal): Promise<{ configured: boolean; warnings: string[] }>;
+}
+
 export interface DoctorProbes {
   readonly fs: DoctorFs;
   readonly env: Readonly<Record<string, string | undefined>>;
@@ -102,6 +119,7 @@ export interface DoctorProbes {
   readonly stateDir: string;
   readonly skills: DoctorSkills;
   readonly plugin: DoctorPlugin;
+  readonly invariants: DoctorInvariantsCatalog;
 }
 
 const DEFAULT_FS: DoctorFs = {
@@ -144,11 +162,21 @@ const DEFAULT_GIT: DoctorGit = {
   },
 };
 
-/** Resolve the repo root by walking up from this module until a
- * `package.json` is found. Computed per call (DIM-1 forbids module-
- * global caching). */
-async function findRepoRoot(marker: string): Promise<string | null> {
-  let dir = dirname(fileURLToPath(import.meta.url));
+/** Resolve a root by walking up from `startDir` until `marker` is found.
+ *
+ * `startDir` defaults to this module's directory — correct for locating the
+ * plugin's OWN artifacts (its `package.json`, its `skills-src/`). For a
+ * USER-project artifact (e.g. `.exarchos.yml`) callers MUST pass
+ * `process.cwd()`: in plugin mode the module lives under the plugin cache
+ * (`~/.claude/plugins/...`), which has no `.exarchos.yml` ancestor, so a
+ * module-relative walk would never find the consumer's config (#1482 review).
+ *
+ * Computed per call (DIM-1 forbids module-global caching). */
+async function findRepoRoot(
+  marker: string,
+  startDir: string = dirname(fileURLToPath(import.meta.url)),
+): Promise<string | null> {
+  let dir = startDir;
   for (let i = 0; i < 8; i++) {
     try {
       await nodeFs.access(join(dir, marker), fsConstants.F_OK);
@@ -261,6 +289,66 @@ async function defaultRunningVersion(): Promise<string | null> {
 }
 
 /**
+ * Resolve the effective invariant catalog from the project's `.exarchos.yml`
+ * and report entry count + DR-9 warnings (malformed/missing user catalogs,
+ * reserved-namespace ids). A representative `ideate`/`feature` projection key
+ * surfaces every merge/load warning regardless of phase narrowing. DIM-1:
+ * computed per call, no caching. A failure to load config degrades to an empty
+ * resolution rather than throwing — the check decides Pass/Warning/Skip. */
+async function defaultResolveInvariants(signal?: AbortSignal): Promise<{
+  configured: boolean;
+  warnings: string[];
+}> {
+  if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
+  // Resolve from the USER's cwd, NOT this module's location — `.exarchos.yml`
+  // is a consumer-project artifact and the module lives in the plugin cache in
+  // plugin mode (#1482 review). Mirrors the vcs-git-available check's cwd use.
+  const root = await findRepoRoot('.exarchos.yml', process.cwd());
+  if (root === null) return { configured: false, warnings: [] };
+  if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
+  let config;
+  try {
+    const loaded = loadExarchosConfig(root, { findRepoRoot: () => root });
+    config = loaded?.config;
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err);
+    return {
+      configured: false,
+      warnings: [`Failed to load .exarchos.yml at '${root}': ${reason}`],
+    };
+  }
+  // `configured` is the phase-INDEPENDENT Skip signal: is any USER-validatable
+  // catalog present? The dev catalog (gated + file on disk) or any user
+  // `catalogs` path. The built-in SDLC baseline is compiled-in and
+  // build-validated, so it is never a runtime validation target and does not
+  // count. The old signal — entry count after projecting to `ideate` —
+  // misreported a configured catalog whose entries are all non-`ideate` (e.g.
+  // `phase-affinity: ['review']`) as "nothing configured", making the Pass
+  // branch unreachable for such catalogs (#1482 review).
+  let devConfigured = false;
+  if (config?.invariants?.devCatalog === 'enabled') {
+    try {
+      await nodeFs.access(join(root, 'docs/architecture/invariants.md'), fsConstants.F_OK);
+      devConfigured = true;
+    } catch {
+      devConfigured = false;
+    }
+  }
+  const userConfigured = (config?.invariants?.catalogs?.length ?? 0) > 0;
+
+  // Phase key is arbitrary here: DR-9 warnings are folded pre-projection, so
+  // any phase surfaces every merge/load warning. We discard the projected
+  // entries and decide Skip-vs-validate on `configured` instead.
+  const { warnings } = resolveEffectiveCatalog({
+    repoRoot: root,
+    config,
+    phase: 'ideate',
+    workflowType: 'feature',
+  });
+  return { configured: devConfigured || userConfigured, warnings };
+}
+
+/**
  * Build a DoctorProbes bundle from a DispatchContext. Each probe field
  * binds to a real runtime surface; tests bypass this factory entirely
  * by constructing a DoctorProbes literal with just the fields under
@@ -287,5 +375,6 @@ export function buildProbes(ctx: DispatchContext): DoctorProbes {
       installedVersion: defaultInstalledPluginVersion,
       runningVersion: defaultRunningVersion,
     },
+    invariants: { resolve: (signal) => defaultResolveInvariants(signal) },
   };
 }

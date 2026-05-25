@@ -17,6 +17,7 @@ import path from 'node:path';
 import matter from 'gray-matter';
 import { parse as parseYaml } from 'yaml';
 import type { ExarchosConfig } from '../config/exarchos-config-schema.js';
+import { FullExarchosConfigSchema } from '../config/yaml-schema.js';
 import {
   InvariantEntryV3Schema,
   type Enforcement,
@@ -354,7 +355,7 @@ export function parseInvariantEntries(rawEntries: unknown): InvariantEntry[] {
  *
  * The walk-up is bounded by the filesystem root; we stop at the first hit.
  */
-function readInvariantsConfig(catalogFilePath: string): ExarchosConfig {
+export function readInvariantsConfig(catalogFilePath: string): ExarchosConfig {
   let dir = path.dirname(path.resolve(catalogFilePath));
   // Bounded walk-up: stop at filesystem root.
   while (true) {
@@ -371,35 +372,42 @@ function readInvariantsConfig(catalogFilePath: string): ExarchosConfig {
 }
 
 /**
- * Extract only the `invariants:` block from a `.exarchos.yml` file.
- * Tolerates files whose other top-level keys do not match
- * `ExarchosConfigSchema` (`agents:`, `review:`, etc. validated by the
- * parallel `ProjectConfigSchema` — see notes on `readInvariantsConfig`).
+ * Extract the `invariants:` block from a `.exarchos.yml` file, reconciled
+ * with the strict `loadExarchosConfig` reader (#1479).
  *
- * Returns `{}` on parse errors or when the `invariants` key is absent;
- * default-disabled at the loader handles both as "no flag set."
+ * Both readers now validate the *entire* document against the unified
+ * `FullExarchosConfigSchema` (the merge of the test-runtime concern and the
+ * project concern, see `config/yaml-schema.ts`), so they reach the SAME
+ * verdict on any given file: a key valid in either concern is accepted; a
+ * genuine typo or a malformed `invariants` block is rejected by both.
+ *
+ * This loader stays NON-throwing by contract — `loadInvariants` expects a
+ * `{}` fallback rather than an exception. So an invalid document degrades to
+ * `{}` here (no invariants flag honored), which mirrors `loadExarchosConfig`
+ * refusing to return a config for the same file: neither path keeps a bogus
+ * invariants block alive. Returns `{}` on read/parse errors or when the
+ * `invariants` key is absent; default-disabled at the loader handles both as
+ * "no flag set."
  */
 function parseInvariantsBlock(configPath: string): ExarchosConfig {
   try {
     const raw = fs.readFileSync(configPath, 'utf8');
     const doc = parseYaml(raw);
-    if (doc === null || doc === undefined || typeof doc !== 'object') {
+    const candidate: unknown =
+      doc === null || doc === undefined ? {} : doc;
+    if (typeof candidate !== 'object' || Array.isArray(candidate)) {
       return {};
     }
-    const invariants = (doc as Record<string, unknown>).invariants;
-    if (invariants === undefined || invariants === null) {
+    // Reconciled verdict: validate the whole file with the same unified
+    // schema the strict reader uses. An unknown sibling key or a malformed
+    // invariants block fails the parse, and we degrade to "no flag set" —
+    // identical observable behavior to the strict reader's rejection.
+    const result = FullExarchosConfigSchema.safeParse(candidate);
+    if (!result.success) {
       return {};
     }
-    // Project just the keys we care about; the loader treats unknown values
-    // as not-`'enabled'` so any malformed shape collapses to default-disabled.
-    if (typeof invariants === 'object' && !Array.isArray(invariants)) {
-      const devCatalog = (invariants as Record<string, unknown>).devCatalog;
-      if (devCatalog === 'enabled' || devCatalog === 'disabled') {
-        return { invariants: { devCatalog } };
-      }
-      return { invariants: {} };
-    }
-    return {};
+    const invariants = result.data.invariants;
+    return invariants === undefined ? {} : { invariants };
   } catch {
     return {};
   }

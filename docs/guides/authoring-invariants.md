@@ -52,6 +52,14 @@ invariants:
 Listing is explicit by design (no auto-detection, matching the `devCatalog`
 precedent). Multiple files may be listed; they merge in order.
 
+`exarchos init` seeds a `.exarchos.yml` with this `invariants:` block already
+present **as comments** (a `devCatalog: disabled` line plus a stubbed
+`catalogs:` example), so the opt-in is discoverable without changing behavior —
+uncomment the keys you want. After editing, validate your catalog wiring with
+`exarchos doctor` (the `invariants-catalog` check parses every configured
+catalog and flags malformed files or reserved-namespace ids) and inspect the
+resolved result with `invariants_effective` ([§5](#5-inspect-the-effective-catalog)).
+
 ## 2. Author an entry
 
 A catalog file is YAML frontmatter with an `invariants:` list. Each entry mirrors
@@ -181,8 +189,16 @@ Authoring mistakes fail safe and loud:
 - A **single check leaf that throws** (e.g. an invalid regex) becomes a `LOW`
   finding naming the invariant id, not a gate crash.
 
+You can surface these same authoring mistakes *before* a review run with
+`exarchos doctor` — the `invariants-catalog` check resolves your configured
+catalogs and reports a Warning that names the offending file or reserved id.
+
 ## See also
 
 - [`.exarchos.yml` invariants block](exarchos-yml-invariants.md) — config reference.
+- `exarchos init` — seeds the commented `invariants:` onboarding stanza into a
+  new `.exarchos.yml` (see [§1](#1-register-a-catalog)).
+- `exarchos doctor` → `invariants-catalog` check — validates configured catalogs.
+- `invariants_effective` view — inspect the merged, projected catalog ([§5](#5-inspect-the-effective-catalog)).
 - Design: [`docs/designs/2026-05-23-invariants-projection-and-extensibility.md`](../designs/2026-05-23-invariants-projection-and-extensibility.md).
 - Shipped catalog (worked examples of entries): [`docs/architecture/invariants.md`](../architecture/invariants.md).
