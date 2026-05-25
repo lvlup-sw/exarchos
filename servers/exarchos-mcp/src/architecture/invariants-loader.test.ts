@@ -48,16 +48,13 @@ const REQUIRED_INVARIANT_IDS = [
   'INV-15',
 ] as const;
 
-const REQUIRED_DIMENSION_IDS = [
-  'DIM-1',
-  'DIM-2',
-  'DIM-3',
-  'DIM-4',
-  'DIM-5',
-  'DIM-6',
-  'DIM-7',
-  'DIM-8',
-] as const;
+/**
+ * The DIM-* axiom-dimension entries were excised in the axiom-excision
+ * feature (#1477). The catalog now carries exactly 19 entries: 18 INV-*
+ * (counting sub-disciplines INV-5a..d as four) plus `basileus-boundary`.
+ * Zero DIM-* entries remain; zero `axiom_overlap` fields remain.
+ */
+const EXPECTED_CATALOG_SIZE = 19;
 
 /**
  * Most tests in this file exercise catalog *contents*, not the Wave B2
@@ -78,13 +75,13 @@ describe('invariants-loader', () => {
 
     const ids = entries.map((e) => e.id);
 
-    // All required INV-* and DIM-* must be present.
+    // All required INV-* must be present.
     for (const id of REQUIRED_INVARIANT_IDS) {
       expect(ids).toContain(id);
     }
-    for (const id of REQUIRED_DIMENSION_IDS) {
-      expect(ids).toContain(id);
-    }
+
+    // No DIM-* entries survive the axiom excision (#1477).
+    expect(ids.filter((id) => id.startsWith('DIM-'))).toEqual([]);
 
     // Basileus boundary entry must be present.
     expect(ids).toContain('basileus-boundary');
@@ -123,8 +120,38 @@ describe('invariants-loader', () => {
     for (const id of REQUIRED_INVARIANT_IDS) {
       expect(ids.has(id), `required invariant missing: ${id}`).toBe(true);
     }
-    for (const id of REQUIRED_DIMENSION_IDS) {
-      expect(ids.has(id), `required dimension missing: ${id}`).toBe(true);
+    // DIM-* dimension pointers were excised (#1477) — none must remain.
+    for (const id of entries.map((e) => e.id)) {
+      expect(id.startsWith('DIM-'), `unexpected DIM-* entry: ${id}`).toBe(false);
+    }
+  });
+
+  it('LoadInvariants_NoDimEntries_CatalogHas19', () => {
+    // Axiom excision (#1477) removed all 8 DIM-* entries. The catalog is now
+    // exactly 19 entries: 18 INV-* (INV-5a..d counted individually) plus the
+    // single `basileus-boundary` cross-product entry.
+    const entries = loadInvariants(INVARIANTS_DOC, { scope: 'all' }, ENABLED_CONFIG);
+    expect(entries.length).toBe(EXPECTED_CATALOG_SIZE);
+    expect(entries.filter((e) => e.id.startsWith('DIM-'))).toEqual([]);
+  });
+
+  it('LoadInvariants_NoAxiomOverlapField_Parsed', () => {
+    // The `axiom_overlap` field and its `axiomOverlap` typed accessor were
+    // removed with the DIM-* machinery (#1477). No live entry declares it,
+    // and the field is no longer surfaced on the typed shape.
+    const entries = loadInvariants(INVARIANTS_DOC, undefined, ENABLED_CONFIG);
+    for (const entry of entries) {
+      expect(
+        (entry as Record<string, unknown>).axiomOverlap,
+        `entry ${entry.id} still carries an axiomOverlap accessor`,
+      ).toBeUndefined();
+    }
+    // The raw frontmatter must also be free of the snake_case source field.
+    for (const entry of entries) {
+      expect(
+        entry.raw.axiom_overlap,
+        `entry ${entry.id} still carries a raw axiom_overlap field`,
+      ).toBeUndefined();
     }
   });
 
@@ -140,27 +167,6 @@ describe('invariants-loader', () => {
         `entry ${entry.id} has only ${entry.references.length} references; need >= 2`,
       ).toBeGreaterThanOrEqual(2);
     }
-  });
-
-  it('Invariants_DimensionFieldRenames_AlignToAxiomCanonical', () => {
-    // Axiom's canonical dimension names (axiom/skills/backend-quality/SKILL.md)
-    // are Hygiene / Resilience / Prose Quality. The catalog must align so the
-    // vocabulary-lint cross-walk between axiom and exarchos shares a single
-    // taxonomy. Validates the audit's "name drift" findings for DIM-5/7/8.
-    const entries = loadInvariants(INVARIANTS_DOC, undefined, ENABLED_CONFIG);
-    const byId = new Map(entries.map((e) => [e.id, e] as const));
-
-    const dim5 = byId.get('DIM-5');
-    expect(dim5).toBeDefined();
-    expect(dim5!.dimension).toBe('hygiene');
-
-    const dim7 = byId.get('DIM-7');
-    expect(dim7).toBeDefined();
-    expect(dim7!.dimension).toBe('resilience');
-
-    const dim8 = byId.get('DIM-8');
-    expect(dim8).toBeDefined();
-    expect(dim8!.dimension).toBe('prose-quality');
   });
 
   it('Invariants_BasileusBoundaryReferences_DoNotPointToSiblingRepoPaths', () => {
@@ -494,48 +500,42 @@ invariants:
   it('Invariants_OmittingCitationsField_ParsesWithUndefinedCitations', () => {
     // `citations` is optional — entries without it must still parse and
     // expose `undefined` (NOT `[]` — distinguish "not declared" from
-    // "declared empty") on the typed accessor. DIM-* axiom-pointer
-    // entries are exempt from the citations recommendation per spec §3
-    // and stay unaccompanied; we anchor this contract on DIM-5 (a
-    // stable axiom pointer that has no citations and isn't expected to).
+    // "declared empty") on the typed accessor. We anchor this contract on
+    // `basileus-boundary`, a stable cross-product entry that carries no
+    // citations and isn't expected to. (The DIM-* axiom-pointer entries
+    // that previously anchored this contract were excised in #1477.)
     const entries = loadInvariants(INVARIANTS_DOC, undefined, ENABLED_CONFIG);
-    const dimEntry = entries.find((e) => e.id === 'DIM-5');
-    expect(dimEntry).toBeDefined();
-    expect(dimEntry!.citations).toBeUndefined();
+    const noCitations = entries.find((e) => e.id === 'basileus-boundary');
+    expect(noCitations).toBeDefined();
+    expect(noCitations!.citations).toBeUndefined();
   });
 
-  // ─── Wave C3: axiom_overlap field (schema-v2) ─────────────────────────
+  // ─── Wave C3 (excised, #1477): axiom_overlap field removed ────────────
   //
-  // Schema-v2 adds an optional `axiom_overlap: DIM-N` field for /axiom:design
-  // pairing-discovery (spec §4.3). The field, when declared, MUST reference
-  // an existing DIM-N entry's id. The format is `DIM-` + digits.
-  //
-  // Spec: docs/proposals/2026-05-20-invariants-catalog-v2-spec.md §3, §4.3
+  // Schema-v2 once carried an optional `axiom_overlap: DIM-N` field for
+  // `/axiom:design` pairing-discovery. The axiom-excision feature (#1477)
+  // removed the field, its `axiomOverlap` typed accessor, the format check,
+  // and the referential-integrity check together with the DIM-* entries.
+  // A fixture declaring `axiom_overlap` now parses successfully and simply
+  // does NOT surface the field on the typed shape (the snake_case key is
+  // tolerated as an unknown frontmatter field per the loader's `raw`
+  // passthrough). See `LoadInvariants_NoAxiomOverlapField_Parsed` above for
+  // the live-catalog absence guard.
 
-  it('Invariants_SubstrateAxisEntries_AcceptAxiomOverlapField', () => {
-    // Fixture includes the referenced DIM-1 entry so the loader's
-    // referential-integrity check (PR #1459 finding 1) does not flag this
-    // entry as dangling. The check that exercises dangling refs is
-    // `Invariants_DanglingAxiomOverlap_ThrowsLoudly` below.
+  it('Invariants_AxiomOverlapField_ParsesButIsNotSurfaced', () => {
+    // A fixture that still declares the legacy `axiom_overlap` snake-case
+    // key must parse without error and without an `axiomOverlap` accessor —
+    // the loader no longer has a parse path for it.
     const fixture = `---
 schema-version: 2
 invariants:
-  - id: DIM-1
-    dimension: test-dimension
+  - id: INV-LEGACY-OVERLAP
+    dimension: test-legacy-overlap
     axis: substrate
     cost-of-load: always-load
     applies-to:
       - test
-    summary: Real DIM-1 referenced by INV-TEST-OVERLAP.
-    references:
-      - docs/architecture/invariants.md
-  - id: INV-TEST-OVERLAP
-    dimension: test-axiom-overlap
-    axis: substrate
-    cost-of-load: always-load
-    applies-to:
-      - test
-    summary: Entry with axiom_overlap declared.
+    summary: Entry that still declares the retired axiom_overlap key.
     axiom_overlap: DIM-1
     references:
       - docs/architecture/invariants.md
@@ -543,127 +543,14 @@ invariants:
 
 # Fixture
 `;
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'invariants-overlap-'));
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'invariants-legacy-overlap-'));
     const tmpFile = path.join(tmpDir, 'invariants.md');
     fs.writeFileSync(tmpFile, fixture, 'utf8');
     try {
       const entries = loadInvariants(tmpFile, undefined, ENABLED_CONFIG);
-      expect(entries.length).toBe(2);
-      const entry = entries.find((e) => e.id === 'INV-TEST-OVERLAP');
-      expect(entry).toBeDefined();
-      expect(entry!.axiomOverlap).toBe('DIM-1');
-    } finally {
-      fs.rmSync(tmpDir, { recursive: true, force: true });
-    }
-  });
-
-  it('Invariants_AxiomOverlapWithInvalidFormat_ThrowsLoudly', () => {
-    // Format contract: axiom_overlap MUST match /^DIM-\d+$/. Anything
-    // else is a configuration error and must throw with the entry id +
-    // the offending value to aid debugging.
-    const fixture = `---
-schema-version: 2
-invariants:
-  - id: INV-BAD-OVERLAP
-    dimension: test-bad-overlap
-    axis: substrate
-    cost-of-load: always-load
-    applies-to:
-      - test
-    summary: Entry with malformed axiom_overlap.
-    axiom_overlap: NOT-A-DIM
-    references:
-      - docs/architecture/invariants.md
----
-
-# Fixture
-`;
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'invariants-bad-overlap-'));
-    const tmpFile = path.join(tmpDir, 'invariants.md');
-    fs.writeFileSync(tmpFile, fixture, 'utf8');
-    try {
-      expect(() => loadInvariants(tmpFile, undefined, ENABLED_CONFIG)).toThrow(
-        /INV-BAD-OVERLAP/,
-      );
-      expect(() => loadInvariants(tmpFile, undefined, ENABLED_CONFIG)).toThrow(
-        /axiom_overlap/,
-      );
-    } finally {
-      fs.rmSync(tmpDir, { recursive: true, force: true });
-    }
-  });
-
-  it('Invariants_DeclaredAxiomOverlaps_ReferenceExistingDimensionEntries', () => {
-    // Cross-reference invariant: every declared `axiom_overlap: DIM-N`
-    // MUST match an existing entry id in the loaded catalog. Otherwise
-    // /axiom:design's pairing-discovery surfaces a dangling pointer.
-    const entries = loadInvariants(INVARIANTS_DOC, undefined, ENABLED_CONFIG);
-    const dimIds = new Set(entries.filter((e) => e.id.startsWith('DIM-')).map((e) => e.id));
-    for (const entry of entries) {
-      if (entry.axiomOverlap !== undefined) {
-        expect(
-          dimIds.has(entry.axiomOverlap),
-          `entry ${entry.id} declares axiom_overlap: ${entry.axiomOverlap} but no such DIM entry exists`,
-        ).toBe(true);
-      }
-    }
-  });
-
-  it('Invariants_DanglingAxiomOverlap_ThrowsLoudly', () => {
-    // PR #1459 CodeRabbit finding 1 — referential integrity for axiom_overlap.
-    //
-    // The format check at `parseEntry` only verifies the regex shape
-    // (/^DIM-\d+$/). A reference that matches the shape but points at a
-    // DIM-N that does NOT exist in the loaded catalog (e.g. a typo
-    // `axiom_overlap: DIM-99` when the catalog only has DIM-1..DIM-8)
-    // would parse successfully and create a dangling pointer consumed by
-    // `/axiom:design`'s pairing-discovery. The loader MUST reject such
-    // entries at load time so the failure mode is loud and immediate.
-    const fixture = `---
-schema-version: 2
-invariants:
-  - id: DIM-1
-    dimension: real-dimension
-    axis: substrate
-    cost-of-load: always-load
-    applies-to:
-      - test
-    summary: An existing DIM entry.
-    references:
-      - docs/architecture/invariants.md
-  - id: INV-DANGLING
-    dimension: test-dangling
-    axis: substrate
-    cost-of-load: always-load
-    applies-to:
-      - test
-    summary: Entry pointing at a non-existent DIM-99.
-    axiom_overlap: DIM-99
-    references:
-      - docs/architecture/invariants.md
----
-
-# Fixture
-`;
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'invariants-dangling-'));
-    const tmpFile = path.join(tmpDir, 'invariants.md');
-    fs.writeFileSync(tmpFile, fixture, 'utf8');
-    try {
-      // Error must name the offending entry id so catalog editors can
-      // locate the typo quickly.
-      expect(() => loadInvariants(tmpFile, undefined, ENABLED_CONFIG)).toThrow(
-        /INV-DANGLING/,
-      );
-      // Error must name the missing DIM-N reference so editors can see
-      // what was actually looked up.
-      expect(() => loadInvariants(tmpFile, undefined, ENABLED_CONFIG)).toThrow(
-        /DIM-99/,
-      );
-      // Error must surface the set of valid DIM-* IDs so editors can pick
-      // a real target without consulting the catalog separately.
-      expect(() => loadInvariants(tmpFile, undefined, ENABLED_CONFIG)).toThrow(
-        /DIM-1/,
-      );
+      expect(entries.length).toBe(1);
+      const entry = entries[0]!;
+      expect((entry as Record<string, unknown>).axiomOverlap).toBeUndefined();
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }
@@ -741,7 +628,6 @@ invariants:
     expect(inv12!.dimension).toBe('next-actions-as-affordance');
     expect(inv12!.axis).toBe('substrate');
     expect(inv12!.costOfLoad).toBe('always-load');
-    expect(inv12!.axiomOverlap).toBe('DIM-3');
     expect(inv12!.citations).toBeDefined();
     expect(inv12!.citations!.length).toBeGreaterThanOrEqual(3);
     // Per spec §6 INV-12: Norman 1999 + McGrenere/Ho 2000 are required.
@@ -763,7 +649,6 @@ invariants:
     expect(inv9!.dimension).toBe('hsm-as-state-machine');
     expect(inv9!.axis).toBe('substrate');
     expect(inv9!.costOfLoad).toBe('reference-only');
-    expect(inv9!.axiomOverlap).toBe('DIM-1');
     expect(inv9!.citations).toBeDefined();
     expect(inv9!.citations!.length).toBeGreaterThanOrEqual(3);
     // Post-A1 Harel citation must be present.
@@ -783,7 +668,6 @@ invariants:
     expect(inv10!.dimension).toBe('liveness-event-protocol');
     expect(inv10!.axis).toBe('substrate');
     expect(inv10!.costOfLoad).toBe('reference-only');
-    expect(inv10!.axiomOverlap).toBe('DIM-2');
     expect(inv10!.citations).toBeDefined();
     expect(inv10!.citations!.length).toBeGreaterThanOrEqual(3);
   });
@@ -802,7 +686,6 @@ invariants:
     expect(inv11!.dimension).toBe('posture-declared-capabilities');
     expect(inv11!.axis).toBe('substrate');
     expect(inv11!.costOfLoad).toBe('always-load');
-    expect(inv11!.axiomOverlap).toBe('DIM-1');
     expect(inv11!.citations).toBeDefined();
     expect(inv11!.citations!.length).toBeGreaterThanOrEqual(4);
     expect(inv11!.citations!.join(' ')).toMatch(/Miller/i);
@@ -825,7 +708,6 @@ invariants:
     expect(inv13!.dimension).toBe('process-manager-two-event-split');
     expect(inv13!.axis).toBe('substrate');
     expect(inv13!.costOfLoad).toBe('reference-only');
-    expect(inv13!.axiomOverlap).toBe('DIM-7');
     expect(inv13!.citations).toBeDefined();
     expect(inv13!.citations!.length).toBeGreaterThanOrEqual(3);
     expect(inv13!.citations!.join(' ')).toMatch(/Akka/i);
@@ -848,7 +730,6 @@ invariants:
     expect(inv14!.dimension).toBe('native-primitive-first-recovery');
     expect(inv14!.axis).toBe('substrate');
     expect(inv14!.costOfLoad).toBe('reference-only');
-    expect(inv14!.axiomOverlap).toBe('DIM-7');
     expect(inv14!.citations).toBeDefined();
     expect(inv14!.citations!.length).toBeGreaterThanOrEqual(3);
   });
@@ -866,7 +747,6 @@ invariants:
     expect(inv15!.dimension).toBe('single-machine-frame');
     expect(inv15!.axis).toBe('substrate');
     expect(inv15!.costOfLoad).toBe('always-load');
-    expect(inv15!.axiomOverlap).toBe('DIM-1');
     expect(inv15!.citations).toBeDefined();
     expect(inv15!.citations!.length).toBeGreaterThanOrEqual(3);
     // Per spec §6: Microsoft SAS + Saga + Clemens Vasters (negative refs).
@@ -899,35 +779,6 @@ invariants:
     // Per spec §6, ≥3 citations recommended.
     expect(inv6!.citations).toBeDefined();
     expect(inv6!.citations!.length).toBeGreaterThanOrEqual(3);
-  });
-
-  // ─── axiom_overlap declarations reference a real catalog DIM ───────────
-  //
-  // Originally (Wave E2) this asserted that every `axiom_overlap: DIM-N`
-  // declaration was mirrored in the complementarity matrix inside the
-  // `design-invariants` SKILL.md. T-23 (DR-4) retired that skill — the
-  // catalog frontmatter is now the sole authority for the invariant ↔
-  // dimension pairing (consumed by axiom:design's pairing-discovery and
-  // by `scanCoverageClosure`). The integrity guarantee that survives the
-  // retirement: every declared `axiom_overlap` must point at a DIM-* that
-  // actually exists as a catalog entry, so no INV-* dangles its pairing.
-
-  it('Invariants_AxiomOverlapDeclarations_ReferenceAnExistingCatalogDimension', () => {
-    const entries = loadInvariants(INVARIANTS_DOC, undefined, ENABLED_CONFIG);
-    const dimIds = new Set(
-      entries.filter((e) => e.id.startsWith('DIM-')).map((e) => e.id),
-    );
-
-    const failures: string[] = [];
-    for (const entry of entries) {
-      if (entry.axiomOverlap === undefined) continue;
-      if (!dimIds.has(entry.axiomOverlap)) {
-        failures.push(
-          `${entry.id} declares axiom_overlap: ${entry.axiomOverlap} but no such DIM-* entry exists in the catalog`,
-        );
-      }
-    }
-    expect(failures, failures.join('; ')).toEqual([]);
   });
 
   // ─── Wave D1: scope filter expansion ──────────────────────────────────
@@ -975,42 +826,40 @@ invariants:
 
   it('LoadInvariants_WithScopeSubstrate_ReturnsAllSubstrateAxisEntries', () => {
     // 'substrate' returns every entry on the substrate axis regardless of
-    // cost-of-load. Per spec §5.1 + §5.2 + §5.3 + basileus-boundary that's
-    // 10 always-load + 15 reference-only + 1 archivable (basileus-boundary)
-    // = 26 entries. DIM-8 (the sole authoring entry) is excluded.
+    // cost-of-load. After the axiom excision (#1477) the catalog has 19
+    // entries, all substrate-axis (the sole authoring entry DIM-8 was
+    // removed with the rest of the DIM-* block). So substrate === all === 19.
     const substrate = loadInvariants(
       INVARIANTS_DOC,
       { scope: 'substrate' as 'core' },
       ENABLED_CONFIG,
     );
-    expect(substrate.length).toBe(26);
+    expect(substrate.length).toBe(EXPECTED_CATALOG_SIZE);
     for (const entry of substrate) {
       expect(entry.axis).toBe('substrate');
     }
-    // DIM-8 (the only authoring entry) must NOT be in the substrate set.
-    const ids = new Set(substrate.map((e) => e.id));
-    expect(ids.has('DIM-8')).toBe(false);
+    // No DIM-* entries remain.
+    expect(substrate.filter((e) => e.id.startsWith('DIM-'))).toEqual([]);
   });
 
   it('LoadInvariants_WithScopeAuthoring_ReturnsAuthoringAxisOnly', () => {
-    // 'authoring' returns every entry on the authoring axis. In v2 that's
-    // DIM-8 only (per spec §5.4). The set must NOT include any substrate
-    // entries.
+    // 'authoring' returns every entry on the authoring axis. The sole
+    // authoring entry (DIM-8) was excised with the axiom dimensions
+    // (#1477), so the authoring scope is now empty.
     const authoring = loadInvariants(
       INVARIANTS_DOC,
       { scope: 'authoring' as 'core' },
       ENABLED_CONFIG,
     );
-    expect(authoring.length).toBe(1);
-    expect(authoring[0]!.id).toBe('DIM-8');
-    expect(authoring[0]!.axis).toBe('authoring');
+    expect(authoring).toEqual([]);
   });
 
   it('LoadInvariants_WithScopeAll_ReturnsFullCatalog', () => {
-    // 'all' returns the full 27-entry v2 catalog. Default (no opts) must
-    // be equivalent for backwards compatibility with v1 call sites.
+    // 'all' returns the full 19-entry catalog (post axiom excision, #1477).
+    // Default (no opts) must be equivalent for backwards compatibility with
+    // v1 call sites.
     const all = loadInvariants(INVARIANTS_DOC, { scope: 'all' }, ENABLED_CONFIG);
-    expect(all.length).toBe(27);
+    expect(all.length).toBe(EXPECTED_CATALOG_SIZE);
     const def = loadInvariants(INVARIANTS_DOC, undefined, ENABLED_CONFIG);
     expect(def.map((e) => e.id)).toEqual(all.map((e) => e.id));
   });
