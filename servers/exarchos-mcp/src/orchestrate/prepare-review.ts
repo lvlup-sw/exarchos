@@ -22,9 +22,9 @@ interface PrepareReviewArgs {
 // ─── Finding Format Schema ──────────────────────────────────────────────────
 
 const FINDING_FORMAT = `interface PluginFinding {
-  source: string;        // "catalog" | "axiom" | "impeccable" | custom
+  source: string;        // "catalog" | "impeccable" | custom
   severity: "HIGH" | "MEDIUM" | "LOW";
-  dimension?: string;    // e.g., "error-handling", "DIM-1"
+  dimension?: string;    // e.g., "error-handling"
   file?: string;
   line?: number;
   message: string;
@@ -68,10 +68,6 @@ export async function handlePrepareReview(
     : undefined;
 
   const pluginStatus = {
-    axiom: {
-      enabled: resolved?.plugins.axiom.enabled ?? DEFAULTS.plugins.axiom.enabled,
-      hint: 'Install with: claude plugin install axiom@lvlup-sw',
-    },
     impeccable: {
       enabled: resolved?.plugins.impeccable.enabled ?? DEFAULTS.plugins.impeccable.enabled,
       hint: 'Install with: claude plugin install impeccable@impeccable',

@@ -31,7 +31,9 @@ describe('ideate first-turn invariant surfacing (#1260)', () => {
   it('Ideate_FirstTurn_SurfacesRelevantInvariants', () => {
     // The contract: for a CLI-design proposal, the surfaced section should
     // include the invariants that govern CLI / agent-first surface design —
-    // INV-5a (input ergonomics), INV-5c (Aspire verbs), DIM-1 (topology).
+    // INV-5a (input ergonomics) and INV-5c (Aspire verbs). The DIM-1
+    // (topology) axiom-dimension anchor was excised with the rest of the
+    // DIM-* taxonomy (#1477).
     //
     // Modeled as: those IDs must be declared in the invariants catalog AND
     // they must be the IDs the /ideate workflow points the agent at for
@@ -49,12 +51,12 @@ describe('ideate first-turn invariant surfacing (#1260)', () => {
     const ids = new Set(entries.map((e) => e.id));
     expect(ids.has('INV-5a')).toBe(true);
     expect(ids.has('INV-5c')).toBe(true);
-    expect(ids.has('DIM-1')).toBe(true);
+    // No DIM-* anchor survives the axiom excision (#1477).
+    expect([...ids].some((id) => id.startsWith('DIM-'))).toBe(false);
 
     const skill = fs.readFileSync(BRAINSTORMING_SKILL, 'utf8');
-    // Skill must enumerate at least INV-5a, INV-5c, DIM-1 as CLI-design anchors.
+    // Skill must enumerate at least INV-5a and INV-5c as CLI-design anchors.
     expect(skill).toMatch(/INV-5a/);
     expect(skill).toMatch(/INV-5c/);
-    expect(skill).toMatch(/DIM-1/);
   });
 });

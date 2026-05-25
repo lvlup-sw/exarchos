@@ -29,17 +29,17 @@ For a complete worked example, see `references/worked-example.md`.
 
 ### Phase 0: Constraint anchoring (first turn, before Phase 1)
 
-**Goal:** Surface the architectural invariants and axiom dimensions relevant to the proposal *before* the clarifying questions, so the design is anchored to load-bearing constraints from the first turn.
+**Goal:** Surface the architectural invariants relevant to the proposal *before* the clarifying questions, so the design is anchored to load-bearing constraints from the first turn.
 
-**Source of truth:** Load `docs/architecture/invariants.md` — the machine-readable catalog of `INV-*` invariants (event-sourcing integrity, facade equivalence, basileus-forward, platform-agnosticity, agent-first input/output/verbs/discriminator, workflow-agnosticism) and `DIM-*` axiom dimensions (topology, observability, contracts, test-fidelity, vestigial-code, SOLID/coupling, error-handling, AI-prose-tells).
+**Source of truth:** Load `docs/architecture/invariants.md` — the machine-readable catalog of `INV-*` invariants (event-sourcing integrity, facade equivalence, basileus-forward, platform-agnosticity, agent-first input/output/verbs/discriminator, workflow-agnosticism).
 
 **Selection rules — which invariants to surface as Constraints:**
 
 | Proposal shape | Anchor invariants (minimum) |
 |---|---|
-| CLI command / agent surface / new MCP action | `INV-5a` (input ergonomics), `INV-5b` (output contract), `INV-5c` (Aspire-style verbs), `INV-5d` (action discriminator), `DIM-1` (topology) |
-| Event store / projection / workflow state | `INV-1` (event-sourcing integrity), `INV-2` (facade equivalence — if the projection feeds both adapters), `DIM-1`, `DIM-3` (contracts) |
-| Skills / commands / runtime authoring | `INV-4` (platform-agnosticity), `INV-6` (workflow-agnosticism), `DIM-8` (AI-prose-tells) |
+| CLI command / agent surface / new MCP action | `INV-5a` (input ergonomics), `INV-5b` (output contract), `INV-5c` (Aspire-style verbs), `INV-5d` (action discriminator) |
+| Event store / projection / workflow state | `INV-1` (event-sourcing integrity), `INV-2` (facade equivalence — if the projection feeds both adapters) |
+| Skills / commands / runtime authoring | `INV-4` (platform-agnosticity), `INV-6` (workflow-agnosticism) |
 | Basileus or cross-product coordination | `INV-3` (basileus-forward), `basileus-boundary` |
 | Multi-surface design (most non-trivial proposals) | Union of the above rows that apply |
 
@@ -51,7 +51,6 @@ For a complete worked example, see `references/worked-example.md`.
 Anchored to docs/architecture/invariants.md:
 - INV-5a: <one-sentence summary from the catalog>
 - INV-5c: <one-sentence summary from the catalog>
-- DIM-1: <one-sentence summary from the catalog>
 
 (Probe Phase 1 questions against these.)
 ```
@@ -60,17 +59,17 @@ The `summary` field of each catalog entry is the canonical one-sentence form —
 
 ### Phase 0: Constraint anchoring (first turn, before Phase 1)
 
-**Goal:** Surface the architectural invariants and axiom dimensions relevant to the proposal *before* the clarifying questions, so the design is anchored to load-bearing constraints from the first turn.
+**Goal:** Surface the architectural invariants relevant to the proposal *before* the clarifying questions, so the design is anchored to load-bearing constraints from the first turn.
 
-**Source of truth:** Load `docs/architecture/invariants.md` — the machine-readable catalog of `INV-*` invariants (event-sourcing integrity, facade equivalence, basileus-forward, platform-agnosticity, agent-first input/output/verbs/discriminator, workflow-agnosticism) and `DIM-*` axiom dimensions (topology, observability, contracts, test-fidelity, vestigial-code, SOLID/coupling, error-handling, AI-prose-tells).
+**Source of truth:** Load `docs/architecture/invariants.md` — the machine-readable catalog of `INV-*` invariants (event-sourcing integrity, facade equivalence, basileus-forward, platform-agnosticity, agent-first input/output/verbs/discriminator, workflow-agnosticism).
 
 **Selection rules — which invariants to surface as Constraints:**
 
 | Proposal shape | Anchor invariants (minimum) |
 |---|---|
-| CLI command / agent surface / new MCP action | `INV-5a` (input ergonomics), `INV-5b` (output contract), `INV-5c` (Aspire-style verbs), `INV-5d` (action discriminator), `DIM-1` (topology) |
-| Event store / projection / workflow state | `INV-1` (event-sourcing integrity), `INV-2` (facade equivalence — if the projection feeds both adapters), `DIM-1`, `DIM-3` (contracts) |
-| Skills / commands / runtime authoring | `INV-4` (platform-agnosticity), `INV-6` (workflow-agnosticism), `DIM-8` (AI-prose-tells) |
+| CLI command / agent surface / new MCP action | `INV-5a` (input ergonomics), `INV-5b` (output contract), `INV-5c` (Aspire-style verbs), `INV-5d` (action discriminator) |
+| Event store / projection / workflow state | `INV-1` (event-sourcing integrity), `INV-2` (facade equivalence — if the projection feeds both adapters) |
+| Skills / commands / runtime authoring | `INV-4` (platform-agnosticity), `INV-6` (workflow-agnosticism) |
 | Basileus or cross-product coordination | `INV-3` (basileus-forward), `basileus-boundary` |
 | Multi-surface design (most non-trivial proposals) | Union of the above rows that apply |
 
@@ -82,7 +81,6 @@ The `summary` field of each catalog entry is the canonical one-sentence form —
 Anchored to docs/architecture/invariants.md:
 - INV-5a: <one-sentence summary from the catalog>
 - INV-5c: <one-sentence summary from the catalog>
-- DIM-1: <one-sentence summary from the catalog>
 
 (Probe Phase 1 questions against these.)
 ```

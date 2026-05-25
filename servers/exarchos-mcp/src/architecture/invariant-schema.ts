@@ -184,7 +184,6 @@ export const InvariantEntryV3Schema = z.object({
   references: z.array(z.string()),
   // ── v2 optional fields ──
   citations: z.array(z.string()).optional(),
-  'axiom-overlap': z.string().optional(),
   // ── v3 optional additions ──
   'phase-affinity': z.array(z.enum(PHASE_VALUES)).optional(),
   'workflow-affinity': z.array(z.enum(WORKFLOW_VALUES)).optional(),

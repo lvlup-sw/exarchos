@@ -204,35 +204,42 @@ describe('ProjectConfigSchema', () => {
   describe('plugins section', () => {
     it('ProjectConfigSchema_Plugins_AcceptsValidConfig', () => {
       const result = ProjectConfigSchema.safeParse({
-        plugins: { axiom: { enabled: true }, impeccable: { enabled: false } },
+        plugins: { impeccable: { enabled: false } },
       });
       expect(result.success).toBe(true);
     });
 
     it('ProjectConfigSchema_Plugins_DefaultsEnabledTrue', () => {
-      const result = ProjectConfigSchema.parse({ plugins: { axiom: {} } });
-      expect(result.plugins?.axiom?.enabled).toBe(true);
+      const result = ProjectConfigSchema.parse({ plugins: { impeccable: {} } });
+      expect(result.plugins?.impeccable?.enabled).toBe(true);
     });
 
     it('ProjectConfigSchema_Plugins_AllowsDisabling', () => {
       const result = ProjectConfigSchema.safeParse({
-        plugins: { axiom: { enabled: false } },
+        plugins: { impeccable: { enabled: false } },
       });
       expect(result.success).toBe(true);
       if (result.success) {
-        expect(result.data.plugins?.axiom?.enabled).toBe(false);
+        expect(result.data.plugins?.impeccable?.enabled).toBe(false);
       }
     });
 
     it('ProjectConfigSchema_Plugins_AcceptsPartialConfig', () => {
       const result = ProjectConfigSchema.safeParse({
-        plugins: { axiom: { enabled: true } },
+        plugins: { impeccable: { enabled: true } },
       });
       expect(result.success).toBe(true);
       if (result.success) {
-        expect(result.data.plugins?.axiom?.enabled).toBe(true);
-        expect(result.data.plugins?.impeccable).toBeUndefined();
+        expect(result.data.plugins?.impeccable?.enabled).toBe(true);
       }
+    });
+
+    it('PluginsConfig_WithAxiomKey_Rejected', () => {
+      // axiom is excised (#1477) — the strict PluginsConfig must reject it.
+      const result = ProjectConfigSchema.safeParse({
+        plugins: { axiom: { enabled: true } },
+      });
+      expect(result.success).toBe(false);
     });
 
     it('ProjectConfigSchema_Plugins_OmittedSectionIsValid', () => {
@@ -252,7 +259,7 @@ describe('ProjectConfigSchema', () => {
 
     it('ProjectConfigSchema_Plugins_RejectsUnknownPropertiesInPlugin', () => {
       const result = ProjectConfigSchema.safeParse({
-        plugins: { axiom: { enabled: true, extra: 'value' } },
+        plugins: { impeccable: { enabled: true, extra: 'value' } },
       });
       expect(result.success).toBe(false);
     });

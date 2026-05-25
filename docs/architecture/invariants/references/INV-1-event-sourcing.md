@@ -24,7 +24,7 @@ The append-only event log is the source of truth. Every read-model is a left-fol
 
 ## Stores-as-projections rule
 
-Any module that holds derived state across calls (TaskStore, cache, view materializer) MUST be a reducer over events, never an in-memory side database. The milestone-16 alignment design (`docs/designs/2026-05-07-milestone-16-mcp-alignment.md` §2.1) calls this "non-negotiable under Constraint 1" and cites the SDK's `InMemoryTaskStore` as an explicit anti-pattern: it would be a second source of truth for task state, simultaneously violating INV-1 and DIM-1 Topology.
+Any module that holds derived state across calls (TaskStore, cache, view materializer) MUST be a reducer over events, never an in-memory side database. The milestone-16 alignment design (`docs/designs/2026-05-07-milestone-16-mcp-alignment.md` §2.1) calls this "non-negotiable under Constraint 1" and cites the SDK's `InMemoryTaskStore` as an explicit anti-pattern: it would be a second source of truth for task state, violating INV-1 (a topology-level second-source-of-truth smell).
 
 When v2.11.0 lands [#1273](https://github.com/lvlup-sw/exarchos/issues/1273) (Tasks dispatch-core integration), the custom `EventSourcedTaskStore` ([#1272](https://github.com/lvlup-sw/exarchos/issues/1272)) is the projection-shaped replacement.
 
@@ -95,5 +95,3 @@ export const taskStoreReducer: ProjectionReducer<TaskStoreState, WorkflowEvent> 
 ## See also
 
 - Deterministic checks for INV-1 → [deterministic-checks.md](deterministic-checks.md#inv-1-event-sourcing-integrity)
-- DIM-1 Topology overlap (lazy fallback, ambient state) → `axiom_overlap` declarations in the [invariants catalog](../../invariants.md) frontmatter
-- DIM-2 Observability overlap (silent catch in apply) → axiom complementarity matrix

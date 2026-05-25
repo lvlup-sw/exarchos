@@ -361,7 +361,7 @@ describe('handleReviewVerdict', () => {
         medium: 0,
         low: 0,
         pluginFindings: [
-          { source: 'axiom', severity: 'HIGH', dimension: 'DIM-2', file: 'src/foo.ts', line: 42, message: 'Swallowed error' },
+          { source: 'impeccable', severity: 'HIGH', dimension: 'error-handling', file: 'src/foo.ts', line: 42, message: 'Swallowed error' },
         ],
       }, STATE_DIR, mockStore as unknown as EventStore);
       expect(result.success).toBe(true);

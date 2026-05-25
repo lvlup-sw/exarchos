@@ -28,7 +28,6 @@ import { loadInvariants, type InvariantEntry } from './invariants-loader.js';
 import { evaluateTree } from './check-evaluator.js';
 import { projectCatalog } from './project-catalog.js';
 import { renderAuditPrompt } from './audit-prompt.js';
-import { scanCoverageClosure } from './vocabulary-lint.js';
 import { EventStore } from '../event-store/store.js';
 import { handleCheckInvariantConformance } from '../orchestrate/check-invariant-conformance.js';
 
@@ -72,14 +71,14 @@ describe('dev-catalog v3 content — CR-1 schema bump', () => {
     expect(loadCatalog().length).toBeGreaterThan(0);
   });
 
-  it('liveCatalog_coverageClosureStaysGreen_axiomOverlapAccessorIntact', () => {
-    // Proves the axiom_overlap accessor (underscore) survived the bump — the
-    // coverage-closure lint depends on it; renaming to kebab would break it.
-    const gaps = scanCoverageClosure({
-      invariantsDoc: INVARIANTS_DOC,
-      config: ENABLED_CONFIG,
-    });
-    expect(gaps).toEqual([]);
+  it('liveCatalog_hasExactly19Entries_noDimEntries', () => {
+    // Axiom excision (#1477) removed the 8 DIM-* axiom-dimension entries and
+    // the coverage-closure machinery that depended on `axiom_overlap`. The
+    // live catalog is now exactly 19 entries (18 INV-* + basileus-boundary),
+    // none of them DIM-*.
+    const cat = loadCatalog();
+    expect(cat.length).toBe(19);
+    expect(cat.filter((e) => e.id.startsWith('DIM-'))).toEqual([]);
   });
 
   it('entryWithoutAffinities_resolvesAllPhasesAllTypes', () => {

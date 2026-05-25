@@ -1,10 +1,9 @@
 ---
 title: Exarchos Architectural Invariants
 description: >
-  Machine-readable catalog of architectural invariants (INV-*) and axiom
-  dimensions (DIM-*) consumed by /ideate, the check_invariant_conformance
-  gate, and the vocabulary-lint scanner. Source of truth for the invariant
-  vocabulary in the Exarchos repo.
+  Machine-readable catalog of architectural invariants (INV-*) consumed by
+  /ideate, the check_invariant_conformance gate, and the vocabulary-lint
+  scanner. Source of truth for the invariant vocabulary in the Exarchos repo.
 schema-version: 3
 invariants:
   - id: INV-1
@@ -34,7 +33,6 @@ invariants:
       Reducers must be pure, deterministic, and structurally share state.
       Stores that hold derived state across calls must be projections over
       events, never in-memory side databases.
-    axiom_overlap: DIM-1
     citations:
       - "Fowler, *Event Sourcing* (2005): https://martinfowler.com/eaaDev/EventSourcing.html"
       - "Greg Young, *CQRS Documents* (2010): https://cqrs.files.wordpress.com/2010/11/cqrs_documents.pdf"
@@ -59,7 +57,6 @@ invariants:
       WAL with BEGIN IMMEDIATE acquires the write lock; the PRIMARY KEY
       (streamId, sequence) rejects duplicate sequences; OCC retry handles
       the conflict. No process-level mutex, no PID lock, no advisory file.
-    axiom_overlap: DIM-1
     citations:
       - "Mohan et al., *ARIES* (ACM TODS 1992): https://dl.acm.org/doi/10.1145/128765.128770"
       - "Bernstein & Goodman, *Concurrency Control in Distributed Database Systems* (ACM Computing Surveys 1981): https://dl.acm.org/doi/10.1145/356842.356846"
@@ -84,7 +81,6 @@ invariants:
       as a no-op when the key matches; the external side effect runs at
       most once across retries. INV-8 is the load-bearing prerequisite
       for INV-13's process-manager two-event split.
-    axiom_overlap: DIM-3
     citations:
       - "Wolverine idempotency PR #1858: https://github.com/JasperFx/wolverine/pull/1858"
       - "Akka persistence at-least-once delivery: https://doc.akka.io/docs/akka/snapshot/typed/persistence.html"
@@ -107,7 +103,6 @@ invariants:
       a phase mutator (workflow.set-phase is deprecated). The HSM is the
       sole authority for valid phase sequencing; next_actions is derived
       from it.
-    axiom_overlap: DIM-1
     citations:
       - "Harel, *Statecharts: A Visual Formalism for Complex Systems* (Science of Computer Programming 1987): https://www.sciencedirect.com/science/article/pii/0167642387900359"
       - "Greg Young, *Versioning in an Event Sourced System* — Process Manager Versioning chapter (Leanpub)"
@@ -131,7 +126,6 @@ invariants:
       lifecycle verbs (ps, describe, wait) query these events generically;
       no per-feature lifecycle code is needed. The protocol replaces
       active polling and heartbeat infrastructure.
-    axiom_overlap: DIM-2
     citations:
       - "Conductor durable execution: https://conductor-oss.github.io/conductor/devguide/concepts/conductor.html"
       - "AWP runtime liveness: https://github.com/veegee82/agent-workflow-protocol/blob/main/docs/runtime.md"
@@ -167,7 +161,6 @@ invariants:
       Postures are unrepresentable-by-construction — a read-only agent
       cannot mutate the working tree; a task-isolated agent cannot write
       outside its assigned worktree.
-    axiom_overlap: DIM-1
     citations:
       - "Mark S. Miller, *Robust Composition* (PhD dissertation, JHU 2006): https://papers.agoric.com/papers/robust-composition/full-text"
       - "Miller et al., *Paradigm Lost: Abstraction Mechanisms for Access Control* (JHU SRL 2003): https://srl.cs.jhu.edu/pubs/SRL2003-03.pdf"
@@ -195,7 +188,6 @@ invariants:
       verb from next_actions removes the agent's path to invoking it,
       but does not remove the underlying affordance — the topology still
       permits it.
-    axiom_overlap: DIM-3
     citations:
       - "Donald Norman, *Affordance, Conventions, and Design* (ACM Interactions 1999): https://interactions.acm.org/archive/view/may-june-1999/affordance-conventions-and-design1"
       - "McGrenere & Ho, *Affordances: Clarifying and Evolving a Concept* (Graphics Interface 2000): https://graphicsinterface.org/wp-content/uploads/gi2000-24.pdf"
@@ -232,7 +224,6 @@ invariants:
       against external state (e.g., does the PR already exist?) to determine
       whether to re-emit or skip. Pattern source — Akka Effect.thenRun,
       Wolverine [AggregateHandler], Greg Young.
-    axiom_overlap: DIM-7
     citations:
       - "Akka Effect.thenRun (Persistence docs): https://doc.akka.io/api/akka-core/current/akka/persistence/typed/scaladsl/Effect$.html"
       - "Wolverine [AggregateHandler] (Miller 2023): https://jeremydmiller.com/2023/12/06/building-a-critter-stack-application-wolverines-aggregate-handler-workflow-ftw/"
@@ -268,7 +259,6 @@ invariants:
       terminal results discriminates 'reset-keep-blocked' | 'reset-failed'
       | 'unexpected-mid-merge-drift' so callers see indeterminate states
       explicitly rather than as silent successes.
-    axiom_overlap: DIM-7
     citations:
       - "Mohan et al., *ARIES* (ACM TODS 1992) — Compensation Log Records semantics as the abstract analog: https://dl.acm.org/doi/10.1145/128765.128770"
       - "Greg Young, *Event Sourcing: The Bad Parts* (CodeCrafts 2022) — local-rewind recovery posture: https://www.youtube.com/watch?v=K4bj31fJGFk"
@@ -295,7 +285,6 @@ invariants:
       Cooperation is by construction (INV-11 posture + INV-12 affordance).
       When a candidate design imports primitives from outside this frame,
       the frame rejects it.
-    axiom_overlap: DIM-1
     citations:
       - "Microsoft Azure Architecture Center — Scheduler Agent Supervisor pattern (negative reference): https://learn.microsoft.com/en-us/azure/architecture/patterns/scheduler-agent-supervisor"
       - "Microsoft Azure Architecture Center — Saga design pattern (negative reference): https://learn.microsoft.com/en-us/azure/architecture/patterns/saga"
@@ -460,7 +449,6 @@ invariants:
       registered outputSchema per action; long-running ops use Tasks (SEP-1686)
       not NDJSON. The affordance-as-perceived semantics of next_actions live
       in INV-12.
-    axiom_overlap: DIM-3
     references:
       - docs/architecture/invariants/references/INV-5b-output-contract.md
       - servers/exarchos-mcp/src/orchestrate/check-invariant-conformance.ts
@@ -557,154 +545,6 @@ invariants:
       - scripts/lint-inv6.mjs
       - docs/architecture/runtime.md#§1
 
-  - id: DIM-1
-    dimension: topology
-    axis: substrate
-    cost-of-load: reference-only
-    applies-to:
-      - module-boundaries
-      - dependency-direction
-      - state-ownership
-    summary: >
-      Topology dimension (axiom-owned, see /axiom:critique). Adapter-local
-      mutable caches, lazy fallback singletons, and side databases are
-      topology smells that overlap with INV-1 / INV-2; the conformance gate
-      cross-links rather than duplicating the axiom:backend-quality check.
-    references:
-      - servers/exarchos-mcp/src/orchestrate/check-invariant-conformance.ts
-      - servers/exarchos-mcp/src/review/registry.ts
-      - docs/rca/2026-04-27-v29-rc1-orchestrate-cluster.md
-
-  - id: DIM-2
-    dimension: observability
-    axis: substrate
-    cost-of-load: reference-only
-    applies-to:
-      - logging
-      - telemetry
-      - error-paths
-    summary: >
-      Observability dimension (axiom-owned, see /axiom:harden). Silent catches,
-      missing log context, and degradation paths that swallow signals. Overlaps
-      INV-1 when a reducer apply catches and continues instead of triggering
-      the reducer-throw degradation path.
-    references:
-      - servers/exarchos-mcp/src/orchestrate/check-invariant-conformance.ts
-      - servers/exarchos-mcp/src/agents/generate-agents.ts
-      - servers/exarchos-mcp/src/agents/generate-agents.test.ts
-
-  - id: DIM-3
-    dimension: contracts
-    axis: substrate
-    cost-of-load: reference-only
-    applies-to:
-      - schemas
-      - event-types
-      - tool-output
-    summary: >
-      Contracts dimension from axiom — schema-runtime drift, type-assertion
-      safety, breaking field renames without versioning. Overlaps INV-1 when an
-      event field is removed but still read, and INV-5b when output shape
-      changes without an envelope version bump.
-    references:
-      - servers/exarchos-mcp/src/orchestrate/check-invariant-conformance.ts
-      - servers/exarchos-mcp/src/topology/phase-contract.ts
-      - servers/exarchos-mcp/src/registry.ts
-
-  - id: DIM-4
-    dimension: test-fidelity
-    # coverage-closure (DR-8): axiom-owned dimension, no Exarchos-specific
-    # specializing INV-*. Canonical check is /axiom:verify.
-    coverage: n/a
-    axis: substrate
-    cost-of-load: reference-only
-    applies-to:
-      - test-suites
-      - mocks
-      - fixtures
-    summary: >
-      Test fidelity principle — see /axiom:verify for the canonical check.
-      Cross-references INV-2 (facade equivalence) when mock-vs-real
-      divergence hides parity bugs.
-    references:
-      - servers/exarchos-mcp/src/orchestrate/check-invariant-conformance.ts
-      - servers/exarchos-mcp/src/__tests__/parity-harness.ts
-
-  - id: DIM-5
-    dimension: hygiene
-    # coverage-closure (DR-8): axiom-owned dimension. Canonical check is
-    # /axiom:distill.
-    coverage: n/a
-    axis: substrate
-    cost-of-load: reference-only
-    applies-to:
-      - dead-paths
-      - unused-exports
-      - legacy-flags
-    summary: >
-      Hygiene (axiom-canonical name; axiom-owned) — dead code, unused exports,
-      legacy feature flags that no longer gate behavior. Cleanup work that
-      intersects INV-2 (legacy adapter paths) or INV-5d (legacy top-level
-      tools that should collapse into composite actions).
-    references:
-      - servers/exarchos-mcp/src/orchestrate/check-invariant-conformance.ts
-      - docs/contexts/2026-05-07-insights-friction-discovery.md
-
-  - id: DIM-6
-    dimension: solid-coupling
-    # coverage-closure (DR-8): axiom-owned dimension. Canonical check is
-    # /axiom:critique.
-    coverage: n/a
-    axis: substrate
-    cost-of-load: reference-only
-    applies-to:
-      - module-design
-      - inheritance
-      - composition
-    summary: >
-      SOLID / coupling dimension from axiom — generic dependency direction,
-      single-responsibility violations, inheritance vs composition mismatches.
-      Axiom-owned; the conformance gate defers here for generic SOLID findings.
-    references:
-      - servers/exarchos-mcp/src/orchestrate/check-invariant-conformance.ts
-      - docs/designs/2026-05-18-preview-4-invariant-audit-pair.md
-
-  - id: DIM-7
-    dimension: resilience
-    axis: substrate
-    cost-of-load: reference-only
-    applies-to:
-      - error-paths
-      - retry-logic
-      - degradation
-    summary: >
-      Resilience principle — see /axiom:harden for the canonical check.
-      Cross-references INV-1 when a fallback creates a degraded EventStore,
-      and INV-2 when it hides parity divergence.
-    references:
-      - servers/exarchos-mcp/src/orchestrate/check-invariant-conformance.ts
-      - servers/exarchos-mcp/src/agents/generate-agents.ts
-
-  - id: DIM-8
-    dimension: prose-quality
-    integrity-class: authoring
-    # coverage-closure (DR-8): axiom-owned authoring dimension. Canonical check
-    # is /axiom:humanize.
-    coverage: n/a
-    axis: authoring
-    cost-of-load: archivable
-    applies-to:
-      - documentation
-      - skill-bodies
-      - command-text
-    summary: >
-      Prose Quality (axiom-owned, see /axiom:humanize) — telltale AI-generated
-      prose patterns. Catalog entry preserved for vocabulary-lint
-      cross-references only; not loaded at Phase 0.
-    references:
-      - servers/exarchos-mcp/src/orchestrate/check-invariant-conformance.ts
-      - docs/contexts/2026-05-07-insights-friction-discovery.md
-
   - id: basileus-boundary
     dimension: cross-product-coordination
     axis: substrate
@@ -736,26 +576,25 @@ Each entry in `invariants:` carries:
 
 | Field | Type | Required? | Purpose |
 |---|---|---|---|
-| `id` | string | yes | Stable identifier — `INV-1`..`INV-15`, sub-disciplines like `INV-5a`/`INV-5b`/`INV-5c`/`INV-5d`, axiom dimensions `DIM-1`..`DIM-8`, plus cross-product entries (`basileus-boundary`). |
+| `id` | string | yes | Stable identifier — `INV-1`..`INV-15`, sub-disciplines like `INV-5a`/`INV-5b`/`INV-5c`/`INV-5d`, plus cross-product entries (`basileus-boundary`). |
 | `dimension` | string | yes | Short human-readable category name. |
 | `axis` | enum | yes (v2) | One of `substrate` \| `authoring`. Substrate invariants govern runtime behavior; authoring invariants govern artifact content. Loader scope filter (`/ideate` Phase 0) honors this split. |
 | `cost-of-load` | enum | yes | One of `always-load` \| `reference-only` \| `archivable`. Drives the `/ideate` Phase 0 split: only `axis: substrate ∧ cost-of-load: always-load` entries are surfaced by default (the `scope: 'core'` set); `reference-only` entries are loaded on-demand; `archivable` entries are kept for vocabulary-lint cross-references but never surfaced. |
 | `applies-to` | string[] | yes | Surface areas (modules, file globs, capability domains) where the invariant is load-bearing. |
 | `summary` | string | yes | One-to-two-sentence statement of the invariant. |
-| `axiom_overlap` | string | no (v2) | DIM-N identifier (matches `/^DIM-\d+$/`) where the substrate-invariant has a clean axiom-dimension analogue. Consumed by `/axiom:design` pairing-discovery to interleave project invariants under each axiom dimension. |
-| `citations` | string[] | no (v2) | External research grounding — recommended ≥3 entries for substrate-axis invariants. Each entry is a free-form citation string (typically `Author, *Title* (Year): URL`). DIM-* axiom-pointer entries are exempt. |
+| `citations` | string[] | no (v2) | External research grounding — recommended ≥3 entries for substrate-axis invariants. Each entry is a free-form citation string (typically `Author, *Title* (Year): URL`). |
 | `references` | string[] | yes | Pointers to internal source files where the invariant is detailed in prose. |
 
 The catalog gates behind the `.exarchos.yml: invariants.devCatalog: enabled` flag (default disabled, no auto-detection). When disabled, the loader returns `[]` regardless of scope. See [`docs/guides/exarchos-yml-invariants.md`](../guides/exarchos-yml-invariants.md) for the consumer-facing reference.
 
 ## Vocabulary
 
-The vocabulary-lint scanner (`servers/exarchos-mcp/src/architecture/vocabulary-lint.ts`, exposed via `npm run lint:invariants`) walks `docs/`, `skills-src/`, and `commands/` for tokens matching `/\b(INV-\d+[a-d]?|DIM-\d+)\b/` and cross-checks against the IDs declared here. Unknown references surface as findings; the vocabulary lint is enforcing (exits non-zero on findings).
+The vocabulary-lint scanner (`servers/exarchos-mcp/src/architecture/vocabulary-lint.ts`, exposed via `npm run lint:invariants`) walks the live normative surfaces — `docs/architecture/`, `docs/guides/`, `skills-src/`, and `commands/` — for tokens matching `/\b(INV-\d+[a-d]?|DIM-\d+)\b/` and cross-checks against the IDs declared here. Dated record trees under `docs/` (designs, plans, research, rca, contexts, followups, proposals) are intentionally out of scope so retired vocabulary (e.g. the `DIM-*` dimensions removed in #1477) does not fail the lint forever; the `DIM-\d+` shape is retained in the regex so a stray reference in a live surface still surfaces. Unknown references are findings; the vocabulary lint is enforcing (exits non-zero on findings).
 
 ## Consumers
 
 - `/exarchos:ideate` — surfaces relevant invariants as Constraints during Phase 0 (before Phase 1), before the clarifying questions.
-- `check_invariant_conformance` gate (`servers/exarchos-mcp/src/orchestrate/check-invariant-conformance.ts`) — audits design proposals against INV-1..INV-15 (substrate runtime invariants) + the DIM-1..DIM-8 axiom-dimension cross-links. The audit prompt is catalog-generated (`servers/exarchos-mcp/src/architecture/audit-prompt.ts`). This gate replaced the retired `design-invariants` skill (T-23).
+- `check_invariant_conformance` gate (`servers/exarchos-mcp/src/orchestrate/check-invariant-conformance.ts`) — audits design proposals against INV-1..INV-15 (substrate runtime invariants). The audit prompt is catalog-generated (`servers/exarchos-mcp/src/architecture/audit-prompt.ts`). This gate replaced the retired `design-invariants` skill (T-23).
 - `vocabulary-lint` — flags references to invariant IDs not registered here.
 - Future: `#1275` MCP Resources — expose this catalog as `resources/exarchos-invariants` once Resources land.
 

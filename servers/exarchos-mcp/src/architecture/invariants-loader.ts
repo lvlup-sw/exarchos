@@ -54,7 +54,8 @@ const COST_OF_LOAD_VALUES: readonly CostOfLoad[] = [
  *   - `'core'`      — axis=substrate AND cost-of-load=always-load
  *                     (the `/ideate` Phase 0 working set)
  *   - `'substrate'` — every entry on the substrate axis (any cost-of-load)
- *   - `'authoring'` — every entry on the authoring axis (DIM-8 only in v2)
+ *   - `'authoring'` — every entry on the authoring axis (empty after the
+ *                     #1477 axiom excision removed the sole authoring entry)
  *   - `'all'`       — every entry (default, backwards-compat with v1)
  */
 export type InvariantsScope = 'core' | 'substrate' | 'authoring' | 'all';
@@ -69,7 +70,9 @@ const SCOPE_VALUES: readonly InvariantsScope[] = [
 /**
  * Allowed values for the `axis` frontmatter field introduced in schema-v2.
  * `substrate` entries describe runtime-substrate properties; `authoring`
- * entries describe prose / documentation concerns (only DIM-8 today).
+ * entries describe prose / documentation concerns. The `authoring` axis is
+ * retained in the type for forward-compat, though no live entry declares it
+ * after the #1477 axiom excision removed the sole authoring (DIM-8) entry.
  * Drives the v2 scope filter (Wave D1) which intersects axis with
  * `cost-of-load` for `scope: 'core'`.
  */
@@ -78,7 +81,7 @@ export type InvariantAxis = 'substrate' | 'authoring';
 const AXIS_VALUES: readonly InvariantAxis[] = ['substrate', 'authoring'] as const;
 
 export interface InvariantEntry {
-  /** Stable identifier — e.g. "INV-1", "INV-5a", "DIM-1", "basileus-boundary". */
+  /** Stable identifier — e.g. "INV-1", "INV-5a", "basileus-boundary". */
   id: string;
   /** Short human-readable category name. */
   dimension: string;
@@ -98,19 +101,11 @@ export interface InvariantEntry {
   references: string[];
   /**
    * External research citations (schema-v2). Optional — recommended ≥3
-   * entries for substrate-axis invariants; DIM-* axiom-pointer entries
-   * and v1-era entries (pre-C4..C11) typically omit it. Undefined when
-   * not declared (distinct from declared-empty `[]`).
+   * entries for substrate-axis invariants; v1-era entries (pre-C4..C11)
+   * typically omit it. Undefined when not declared (distinct from
+   * declared-empty `[]`).
    */
   citations?: string[];
-  /**
-   * Axiom-dimension overlap pointer (schema-v2). Optional `DIM-N` value
-   * consumed by `/axiom:design`'s pairing-discovery to interleave project
-   * invariants under each axiom dimension. When declared, must match
-   * `/^DIM-\d+$/` and reference an existing DIM-N entry in the catalog.
-   * See spec §4.3.
-   */
-  axiomOverlap?: string;
   /**
    * SDLC phases this invariant is relevant to (schema-v3, DR-1). Optional;
    * `undefined` when the entry does not declare `phase-affinity`. Element
@@ -157,15 +152,8 @@ interface RawInvariantEntry {
   summary?: unknown;
   references?: unknown;
   citations?: unknown;
-  axiom_overlap?: unknown;
   [key: string]: unknown;
 }
-
-/**
- * Pattern for the schema-v2 `axiom_overlap` field. Must match
- * `DIM-` followed by one or more digits to reference a DIM-N entry.
- */
-const AXIOM_OVERLAP_PATTERN = /^DIM-\d+$/;
 
 /** Untyped shape returned by `gray-matter` for the file frontmatter — validated by `loadInvariants`. */
 interface RawFrontmatter {
@@ -266,23 +254,6 @@ function parseEntry(raw: RawInvariantEntry): InvariantEntry {
   if (raw.citations !== undefined) {
     entry.citations = asStringArray(raw.citations, 'citations', id);
   }
-  // Optional schema-v2 field — format-checked against /^DIM-\d+$/. The
-  // cross-reference check (declared overlap points at an existing DIM-N
-  // entry) lives in `loadInvariants` so it can see the full entry set.
-  if (raw.axiom_overlap !== undefined && raw.axiom_overlap !== null) {
-    if (typeof raw.axiom_overlap !== 'string') {
-      throw new Error(
-        `invariants-loader: entry "${id}" field "axiom_overlap" must be a string, got ${typeof raw.axiom_overlap}`,
-      );
-    }
-    if (!AXIOM_OVERLAP_PATTERN.test(raw.axiom_overlap)) {
-      throw new Error(
-        `invariants-loader: entry "${id}" has invalid "axiom_overlap" value '${raw.axiom_overlap}'; ` +
-          `must match /^DIM-\\d+$/ (e.g. 'DIM-1', 'DIM-7')`,
-      );
-    }
-    entry.axiomOverlap = raw.axiom_overlap;
-  }
   // Optional schema-v3 fields (DR-1) — project through the Zod
   // `InvariantEntryV3Schema` source of truth so the v3 shape is validated
   // (incl. the `.strict()` enforcement-DSL sandbox guarantee, INV-4) without
@@ -334,9 +305,7 @@ function projectV3Fields(raw: RawInvariantEntry, entry: InvariantEntry): void {
  *
  * This is the single parse path shared by the file loader (`loadInvariants`)
  * and the inline plugin-shipped sdlc catalog (`sdlc-catalog.ts`, #1467), so the
- * two cannot drift (INV-2 spirit). Cross-entry `axiom_overlap` referential
- * integrity stays in `loadInvariants` — it is meaningful only for the full
- * INV-/DIM- catalog, not an arbitrary entry list.
+ * two cannot drift (INV-2 spirit).
  */
 export function parseInvariantEntries(rawEntries: unknown): InvariantEntry[] {
   if (!Array.isArray(rawEntries)) {
@@ -451,8 +420,9 @@ function parseInvariantsBlock(configPath: string): ExarchosConfig {
  *   - `scope: 'core'`      — axis=substrate AND cost-of-load=always-load
  *                            (the /ideate Phase 0 working set; 10 entries
  *                            in v2). Tighter than v1's "always-load alone".
- *   - `scope: 'substrate'` — every entry on the substrate axis (26 in v2).
- *   - `scope: 'authoring'` — every entry on the authoring axis (DIM-8 in v2).
+ *   - `scope: 'substrate'` — every entry on the substrate axis (19 today —
+ *                            the whole catalog after the #1477 excision).
+ *   - `scope: 'authoring'` — every entry on the authoring axis (empty today).
  *   - `scope: 'all'`       — every entry (default; v1 backwards-compat).
  *   Unknown scope values throw — silent fallback is forbidden per
  *   design §5 DIM-2.
@@ -505,25 +475,6 @@ export function loadInvariants(
     );
   }
   const entries = parseInvariantEntries(data.invariants);
-  // Referential integrity for `axiom_overlap` (PR #1459 CodeRabbit finding 1).
-  // The format check in `parseEntry` only verifies the regex shape — a
-  // reference that matches the shape (e.g. `DIM-99`) but does NOT point at
-  // an existing DIM-N entry would otherwise parse successfully and become a
-  // dangling pointer consumed by `/axiom:design`'s pairing-discovery. Catch
-  // it here, after the full entry set is available, so the error names both
-  // the offending entry and the set of valid DIM-* IDs.
-  const dimIds = entries.filter((e) => e.id.startsWith('DIM-')).map((e) => e.id);
-  const dimIdSet = new Set(dimIds);
-  for (const entry of entries) {
-    if (entry.axiomOverlap !== undefined && !dimIdSet.has(entry.axiomOverlap)) {
-      const validList = dimIds.length > 0 ? dimIds.join(', ') : '(none in catalog)';
-      throw new Error(
-        `invariants-loader: entry "${entry.id}" declares axiom_overlap: ` +
-          `'${entry.axiomOverlap}' but no such DIM-* entry exists in the ` +
-          `catalog. Valid DIM-* IDs: ${validList}`,
-      );
-    }
-  }
   // Co-located scope filter — keep the policy next to the load to avoid
   // drift between the load contract and the surface API. See `InvariantsScope`
   // type docs for per-variant semantics; the switch arms mirror that order.
@@ -540,7 +491,8 @@ export function loadInvariants(
       // entries by axis.
       return entries.filter((e) => e.axis === 'substrate');
     case 'authoring':
-      // Authoring (prose / documentation) axis — DIM-8 only in v2.
+      // Authoring (prose / documentation) axis — empty today, retained for
+      // forward-compat (#1477 removed the sole authoring entry).
       return entries.filter((e) => e.axis === 'authoring');
     case 'all':
       // Full catalog — vocabulary-lint ID set + v1 backwards-compat default.
@@ -566,7 +518,7 @@ export function loadCoreInvariants(
  * Convenience: return the set of valid invariant IDs (for vocabulary-lint
  * cross-check). Honours the Wave B2 `devCatalog` gate — when the flag is
  * not `'enabled'`, returns an empty set, so vocabulary-lint will treat
- * every `INV-*` / `DIM-*` token as unknown. Consumers using Exarchos as a
+ * every `INV-*` token as unknown. Consumers using Exarchos as a
  * plugin outside the Exarchos repo therefore opt into invariant checking
  * by declaring the same flag in their own `.exarchos.yml`.
  */

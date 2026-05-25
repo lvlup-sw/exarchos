@@ -12,7 +12,6 @@ interface PrepareReviewData {
   catalog: { version: string; dimensions: readonly { id: string }[] };
   findingFormat: string;
   pluginStatus: {
-    axiom: { enabled: boolean };
     impeccable: { enabled: boolean };
   };
 }
@@ -56,8 +55,13 @@ describe('handlePrepareReview', () => {
 
   it('HandlePrepareReview_PluginStatusNoConfig_DefaultsToEnabled', async () => {
     const data = expectSuccess(await handlePrepareReview({ featureId: 'test-plugin-default' }, stateDir));
-    expect(data.pluginStatus.axiom.enabled).toBe(true);
     expect(data.pluginStatus.impeccable.enabled).toBe(true);
+  });
+
+  it('PrepareReview_PluginStatus_OmitsAxiom', async () => {
+    // axiom is excised (#1477) — pluginStatus must not carry an axiom entry.
+    const data = expectSuccess(await handlePrepareReview({ featureId: 'test-omits-axiom' }, stateDir));
+    expect('axiom' in data.pluginStatus).toBe(false);
   });
 
   it('HandlePrepareReview_FindingFormatIncluded_IsNonEmptyString', async () => {
@@ -90,21 +94,18 @@ describe('handlePrepareReview', () => {
     });
 
     it('HandlePrepareReview_RepoRootWithConfig_ReadsPluginStatus', async () => {
-      writeFileSync(join(tempDir, '.exarchos.yml'), `plugins:\n  axiom:\n    enabled: false\n  impeccable:\n    enabled: true\n`);
+      writeFileSync(join(tempDir, '.exarchos.yml'), `plugins:\n  impeccable:\n    enabled: false\n`);
       const data = expectSuccess(await handlePrepareReview({ featureId: 'test-config', repoRoot: tempDir }, stateDir));
-      expect(data.pluginStatus.axiom.enabled).toBe(false);
-      expect(data.pluginStatus.impeccable.enabled).toBe(true);
+      expect(data.pluginStatus.impeccable.enabled).toBe(false);
     });
 
     it('HandlePrepareReview_RepoRootNoConfig_DefaultsToEnabled', async () => {
       const data = expectSuccess(await handlePrepareReview({ featureId: 'test-no-config', repoRoot: tempDir }, stateDir));
-      expect(data.pluginStatus.axiom.enabled).toBe(true);
       expect(data.pluginStatus.impeccable.enabled).toBe(true);
     });
 
     it('HandlePrepareReview_NoRepoRoot_DefaultsToEnabled', async () => {
       const data = expectSuccess(await handlePrepareReview({ featureId: 'test-no-root' }, stateDir));
-      expect(data.pluginStatus.axiom.enabled).toBe(true);
       expect(data.pluginStatus.impeccable.enabled).toBe(true);
     });
   });
