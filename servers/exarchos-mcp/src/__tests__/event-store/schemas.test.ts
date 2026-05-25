@@ -454,11 +454,16 @@ describe('EventTypes', () => {
     // #1437: bumped 115 → 116 to include `migration.correlation_backfill_progress`,
     // emitted per-chunk by `sqlite-backend.ts:migrateV5ToV6` during the
     // V5→V6 correlation-column backfill (Wave 2 of correlation-indexed-columns).
-    expect(EventTypes).toHaveLength(116);
+    // invariants-catalog-wizard P2: bumped 116 → 118 to include
+    // `invariant.authored` + `catalog.registered`, emitted by the
+    // `invariants_add` composite handler (orchestrate/invariants/add.ts).
+    expect(EventTypes).toHaveLength(118);
     // Explicit membership pin: a future replacement that swaps one event
-    // for another would keep the length at 116 but silently lose the
+    // for another would keep the length stable but silently lose the
     // migration progress type. The membership assert catches that.
     expect(EventTypes).toContain('migration.correlation_backfill_progress');
+    expect(EventTypes).toContain('invariant.authored');
+    expect(EventTypes).toContain('catalog.registered');
   });
 
   it('should include workflow-level types', () => {
