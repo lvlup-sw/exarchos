@@ -45,7 +45,8 @@ describe('InvariantEntryV3Schema', () => {
       summary: 'Enforcement is declarative-only.',
       references: ['docs/architecture/invariants.md'],
       citations: ['some-paper-2024'],
-      'axiom-overlap': 'DIM-2',
+      // axiom-overlap excised (#1477): a rich entry that does NOT declare it
+      // must still parse cleanly.
       'phase-affinity': ['delegate', 'review'],
       'workflow-affinity': ['feature', 'refactor'],
       'state-affinity': ['delegated', 'in-review'],
