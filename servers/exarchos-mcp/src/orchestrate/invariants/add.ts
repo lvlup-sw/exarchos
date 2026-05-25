@@ -51,7 +51,7 @@ export interface HandleAddArgs {
 }
 
 const DEFAULT_PATH: Record<'dev' | 'user', string> = {
-  user: 'docs/architecture/my-invariants.md',
+  user: '.exarchos/invariants.md',
   dev: '.exarchos/invariants.md',
 };
 

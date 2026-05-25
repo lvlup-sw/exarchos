@@ -38,7 +38,7 @@ import { handleAdd } from './add.js';
 // ─── Fixtures ────────────────────────────────────────────────────────────────
 
 const REPO_ROOT = '/parity-repo';
-const CATALOG_REL = 'docs/architecture/my-invariants.md';
+const CATALOG_REL = '.exarchos/invariants.md';
 
 const VALID_ENTRY = {
   dimension: 'example-dimension',

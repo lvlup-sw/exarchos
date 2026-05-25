@@ -43,7 +43,7 @@ describe('wireCatalogRegistration', () => {
 
     const result = wireCatalogRegistration(
       YML,
-      { path: 'docs/architecture/my-invariants.md', tier: 'user' },
+      { path: '.exarchos/invariants.md', tier: 'user' },
       fake.deps,
     );
 
@@ -52,7 +52,7 @@ describe('wireCatalogRegistration', () => {
     const yml = fake.files.get(YML)!;
     expect(yml).toMatch(/invariants:/);
     expect(yml).toMatch(/catalogs:/);
-    expect(yml).toMatch(/docs\/architecture\/my-invariants\.md/);
+    expect(yml).toMatch(/\.exarchos\/invariants\.md/);
     expect(yml).toMatch(/tier: user/);
   });
 
@@ -61,24 +61,24 @@ describe('wireCatalogRegistration', () => {
 
     const result = wireCatalogRegistration(
       YML,
-      { path: 'docs/architecture/my-invariants.md', tier: 'user' },
+      { path: '.exarchos/invariants.md', tier: 'user' },
       fake.deps,
     );
 
     expect(result.wrote).toBe(true);
     expect(result.reason).toBe('registered');
     const yml = fake.files.get(YML)!;
-    expect(yml).toMatch(/docs\/architecture\/my-invariants\.md/);
+    expect(yml).toMatch(/\.exarchos\/invariants\.md/);
   });
 
   it('WireCatalog_AlreadyRegistered_NoChange', () => {
     const seed =
-      'invariants:\n  catalogs:\n    - { path: docs/architecture/my-invariants.md, tier: user }\n';
+      'invariants:\n  catalogs:\n    - { path: .exarchos/invariants.md, tier: user }\n';
     const fake = makeFakeFs({ [YML]: seed });
 
     const result = wireCatalogRegistration(
       YML,
-      { path: 'docs/architecture/my-invariants.md', tier: 'user' },
+      { path: '.exarchos/invariants.md', tier: 'user' },
       fake.deps,
     );
 
@@ -90,12 +90,12 @@ describe('wireCatalogRegistration', () => {
 
   it('WireCatalog_AlreadyRegisteredAsBareString_NoChange', () => {
     const seed =
-      'invariants:\n  catalogs:\n    - docs/architecture/my-invariants.md\n';
+      'invariants:\n  catalogs:\n    - .exarchos/invariants.md\n';
     const fake = makeFakeFs({ [YML]: seed });
 
     const result = wireCatalogRegistration(
       YML,
-      { path: 'docs/architecture/my-invariants.md', tier: 'user' },
+      { path: '.exarchos/invariants.md', tier: 'user' },
       fake.deps,
     );
 
@@ -113,7 +113,7 @@ describe('wireCatalogRegistration', () => {
     expect(() =>
       wireCatalogRegistration(
         YML,
-        { path: 'docs/architecture/my-invariants.md', tier: 'user' },
+        { path: '.exarchos/invariants.md', tier: 'user' },
         fake.deps,
       ),
     ).not.toThrow();
@@ -128,7 +128,7 @@ describe('wireCatalogRegistration', () => {
     // The prior scalar is preserved as the first sequence element, and the
     // new registration is appended.
     expect(yml).toMatch(/legacy-string-value/);
-    expect(yml).toMatch(/docs\/architecture\/my-invariants\.md/);
+    expect(yml).toMatch(/\.exarchos\/invariants\.md/);
     expect(yml).toMatch(/docs\/architecture\/another\.md/);
   });
 
@@ -144,7 +144,7 @@ test: npm test
 
     const result = wireCatalogRegistration(
       YML,
-      { path: 'docs/architecture/my-invariants.md', tier: 'user' },
+      { path: '.exarchos/invariants.md', tier: 'user' },
       fake.deps,
     );
 
@@ -155,7 +155,7 @@ test: npm test
     expect(yml).toContain('# Architectural invariants (opt-in). Authoring guide:');
     expect(yml).toContain('# docs/guides/authoring-invariants.md.');
     // And the new registration is present.
-    expect(yml).toMatch(/docs\/architecture\/my-invariants\.md/);
+    expect(yml).toMatch(/\.exarchos\/invariants\.md/);
   });
 
   it('WireCatalog_SamePathDifferentTier_UpgradesInPlace', () => {

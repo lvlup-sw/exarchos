@@ -50,7 +50,7 @@ const INVARIANTS_STANZA = `
 #   # Layer your own catalog files on top of the built-ins (paths relative to
 #   # this file). User ids must NOT reuse the reserved INV-* / SDLC-* prefixes.
 #   catalogs:
-#     - docs/architecture/my-invariants.md
+#     - .exarchos/invariants.md
 `;
 
 export interface SeedResult {

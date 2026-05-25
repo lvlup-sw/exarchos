@@ -68,7 +68,7 @@ so the verb assigns `U-3`.
 exarchos_orchestrate({
   action: "invariants_add",
   tier: "user",
-  catalog: "docs/architecture/my-invariants.md",
+  catalog: ".exarchos/invariants.md",
   entry: {
     dimension: "audit-completeness",
     "applies-to": ["src/handlers/**"],
@@ -92,7 +92,7 @@ YAML entry, and a `+`-prefixed append diff.
 The agent shows the rendered entry and the diff, then asks explicitly:
 
 > "This will add `U-3` (audit-completeness, blocking, audit-mode) to
-> `docs/architecture/my-invariants.md`. Commit it?"
+> `.exarchos/invariants.md`. Commit it?"
 
 It does **not** proceed until the author confirms.
 

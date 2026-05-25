@@ -148,7 +148,7 @@ Scaffold a user catalog (idempotent; never overwrites):
 mcp__exarchos__exarchos_orchestrate({
   action: "invariants_scaffold",
   tier: "user",
-  path: "docs/architecture/my-invariants.md"
+  path: ".exarchos/invariants.md"
 })
 ```
 
@@ -158,7 +158,7 @@ Dry-run preview (DEFAULT — writes nothing):
 mcp__exarchos__exarchos_orchestrate({
   action: "invariants_add",
   tier: "user",
-  catalog: "docs/architecture/my-invariants.md",
+  catalog: ".exarchos/invariants.md",
   entry: { /* the fields from steps 1-4; NO id — auto-assigned */ }
 })
 ```
@@ -169,7 +169,7 @@ Commit after explicit confirmation:
 mcp__exarchos__exarchos_orchestrate({
   action: "invariants_add",
   tier: "user",
-  catalog: "docs/architecture/my-invariants.md",
+  catalog: ".exarchos/invariants.md",
   entry: { /* same entry */ },
   dryRun: false
 })
