@@ -36,10 +36,11 @@ import { agentMcpRegistered } from './checks/agent-mcp-registered.js';
 import { pluginSkillHashSync } from './checks/plugin-skill-hash-sync.js';
 import { pluginVersionMatch } from './checks/plugin-version-match.js';
 import { remoteMcpStub } from './checks/remote-mcp-stub.js';
+import { invariantsCatalog } from './checks/invariants-catalog.js';
 
 // ─── Canonical check list ──────────────────────────────────────────────────
 
-/** All 10 checks. Order is preserved in the output — callers can scan
+/** All 11 checks. Order is preserved in the output — callers can scan
  * top-to-bottom for the first Fail. */
 export const ALL_CHECKS: ReadonlyArray<CheckFn> = [
   runtimeNodeVersion,
@@ -52,6 +53,7 @@ export const ALL_CHECKS: ReadonlyArray<CheckFn> = [
   pluginSkillHashSync,
   pluginVersionMatch,
   remoteMcpStub,
+  invariantsCatalog,
 ];
 
 // ─── Per-check timeout ─────────────────────────────────────────────────────

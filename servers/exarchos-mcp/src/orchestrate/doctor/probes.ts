@@ -33,6 +33,8 @@ import {
   type AgentEnvironment,
   type DetectorFs,
 } from '../../runtime/agent-environment-detector.js';
+import { loadExarchosConfig } from '../../config/load-exarchos-config.js';
+import { resolveEffectiveCatalog } from '../../architecture/resolve-effective-catalog.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -91,6 +93,18 @@ export interface DoctorPlugin {
   runningVersion(): Promise<string | null>;
 }
 
+export interface DoctorInvariantsCatalog {
+  /**
+   * Resolve the effective invariant catalog from `.exarchos.yml` and report
+   * the entry count plus any merge/load/reserved-namespace warnings folded by
+   * `resolveEffectiveCatalog` (DR-9). The check turns a non-empty `warnings`
+   * list into a doctor Warning, naming the offending catalog/id. `entryCount`
+   * is the number of resolved entries (0 when the dev catalog is disabled and
+   * no user catalogs are configured). Must honor `signal` and stay within the
+   * 2000ms probe budget (DIM-7). */
+  resolve(signal?: AbortSignal): Promise<{ entryCount: number; warnings: string[] }>;
+}
+
 export interface DoctorProbes {
   readonly fs: DoctorFs;
   readonly env: Readonly<Record<string, string | undefined>>;
@@ -102,6 +116,7 @@ export interface DoctorProbes {
   readonly stateDir: string;
   readonly skills: DoctorSkills;
   readonly plugin: DoctorPlugin;
+  readonly invariants: DoctorInvariantsCatalog;
 }
 
 const DEFAULT_FS: DoctorFs = {
@@ -261,6 +276,39 @@ async function defaultRunningVersion(): Promise<string | null> {
 }
 
 /**
+ * Resolve the effective invariant catalog from the project's `.exarchos.yml`
+ * and report entry count + DR-9 warnings (malformed/missing user catalogs,
+ * reserved-namespace ids). A representative `ideate`/`feature` projection key
+ * surfaces every merge/load warning regardless of phase narrowing. DIM-1:
+ * computed per call, no caching. A failure to load config degrades to an empty
+ * resolution rather than throwing — the check decides Pass/Warning/Skip. */
+async function defaultResolveInvariants(): Promise<{
+  entryCount: number;
+  warnings: string[];
+}> {
+  const root = await findRepoRoot('.exarchos.yml');
+  if (root === null) return { entryCount: 0, warnings: [] };
+  let config;
+  try {
+    const loaded = loadExarchosConfig(root, { findRepoRoot: () => root });
+    config = loaded?.config;
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err);
+    return {
+      entryCount: 0,
+      warnings: [`Failed to load .exarchos.yml at '${root}': ${reason}`],
+    };
+  }
+  const { entries, warnings } = resolveEffectiveCatalog({
+    repoRoot: root,
+    config,
+    phase: 'ideate',
+    workflowType: 'feature',
+  });
+  return { entryCount: entries.length, warnings };
+}
+
+/**
  * Build a DoctorProbes bundle from a DispatchContext. Each probe field
  * binds to a real runtime surface; tests bypass this factory entirely
  * by constructing a DoctorProbes literal with just the fields under
@@ -287,5 +335,6 @@ export function buildProbes(ctx: DispatchContext): DoctorProbes {
       installedVersion: defaultInstalledPluginVersion,
       runningVersion: defaultRunningVersion,
     },
+    invariants: { resolve: () => defaultResolveInvariants() },
   };
 }
