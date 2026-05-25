@@ -2,7 +2,7 @@
 //
 // Writes events to hook-event sidecar files (`{streamId}.hook-events.jsonl`)
 // for later merging into the main EventStore. Used by CLI hook subprocesses
-// (e.g., teammate-gate) that cannot share the EventStore in-process.
+// (e.g., the observer hooks) that cannot share the EventStore in-process.
 //
 // Hook-event sidecar files are picked up by the periodic merger
 // (`storage/sidecar-merger.ts`) and replayed into the EventStore. This is

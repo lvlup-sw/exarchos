@@ -3,10 +3,9 @@
  * lightweight handlers.
  *
  * #1476: the hook layer is observe-only (see
- * docs/adrs/2026-05-24-hook-layer-observe-only.md). The four enforcement /
- * control hooks (`guard`, `task-gate`, `teammate-gate`, `subagent-context`)
- * were retired; enforcement lives entirely inside the MCP tools. Only the two
- * lifecycle observers remain: `session-end` and `subagent-stop`.
+ * docs/adrs/2026-05-24-hook-layer-observe-only.md). The former enforcement /
+ * control hooks were retired; enforcement lives entirely inside the MCP tools.
+ * Only the two lifecycle observers remain: `session-end` and `subagent-stop`.
  *
  * Extracted from index.ts to create a clean three-way dispatcher:
  * hooks → CLI → MCP.

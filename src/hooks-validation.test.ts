@@ -151,7 +151,10 @@ describe('enforcement-handler excision grep-sweep (#1476)', () => {
   it('NoSourceReferences_ToRetiredEnforcementSubcommands', () => {
     const patterns = [
       'cli-commands/guard',
+      'cli-commands/gates',
       'cli-commands/subagent-context',
+      'task-gate',
+      'teammate-gate',
       'handleGuard',
       'handleTaskGate',
       'handleTeammateGate',

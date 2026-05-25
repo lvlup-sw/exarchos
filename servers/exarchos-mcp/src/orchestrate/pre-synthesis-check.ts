@@ -397,7 +397,7 @@ function checkTestsPass(
     return;
   }
 
-  // Use the resolver directly — same pattern as cli-commands/gates.ts (#1109
+  // Use the resolver directly — the canonical resolveTestRuntime path (#1109
   // MCP-parity; consumers see identical resolver output). Graceful skip on
   // `unresolved` matches the #1174 contract: missing/ambiguous project config
   // produces SKIP with remediation, never npm-against-pnpm-or-yarn.

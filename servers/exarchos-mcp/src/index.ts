@@ -290,8 +290,8 @@ async function main() {
   // subprocesses by Claude Code with tight timeouts (10-30s). They only need
   // lightweight state-dir access, not the full SQLite backend or hydration.
   // Intercept them here before the expensive initialization path. #1476: the
-  // enforcement/control hooks (guard, task-gate, teammate-gate,
-  // subagent-context) were retired — enforcement lives in the MCP tools.
+  // former enforcement/control hooks were retired — enforcement now lives
+  // entirely inside the MCP tools.
   const hookCommand = process.argv[2];
   if (isHookCommand(hookCommand)) {
     const result = await handleHookCommand(

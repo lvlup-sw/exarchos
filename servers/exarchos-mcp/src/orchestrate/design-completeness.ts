@@ -31,7 +31,7 @@ export async function handleDesignCompleteness(
 
   const streamId = args.featureId;
   // Canonical workflow-state filename convention: `${featureId}.state.json`
-  // (matches storage/lifecycle.ts, cli-commands/{assemble-context,subagent-context,gates}).
+  // (matches storage/lifecycle.ts and the assemble-context state-file consumer).
   const stateFile = args.stateFile ?? `${stateDir}/${streamId}.state.json`;
 
   // 2. Prefer the sidecar (T15) when present + conformant; otherwise fall
