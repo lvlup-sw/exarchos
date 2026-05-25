@@ -190,4 +190,35 @@ describe('AgentSpec capability declarations', () => {
       }
     }
   });
+
+  // #1470 (T13): the worktree-hygiene prose in agent system prompts must be
+  // toolchain-neutral — no hardcoded `npm --prefix` examples. The neutral
+  // principle (`git -C <worktree>` for git ops, "run the project test command
+  // from the worktree") must be present so non-Node projects (Cargo, pytest,
+  // dotnet) are not implicitly assumed.
+  it('WorktreeHygiene_Prose_IsToolchainNeutral_NoHardcodedNpm', () => {
+    for (const spec of ALL_AGENT_SPECS) {
+      const prompt = spec.systemPrompt;
+      // Only the isolated agents carry the worktree-hygiene contract.
+      if (!prompt.includes('Worktree Hygiene')) continue;
+
+      expect(
+        prompt.includes('npm --prefix'),
+        `${spec.id} worktree-hygiene prose must not hardcode 'npm --prefix'`,
+      ).toBe(false);
+      expect(
+        prompt.includes('npm run typecheck'),
+        `${spec.id} worktree-hygiene prose must not hardcode 'npm run typecheck'`,
+      ).toBe(false);
+
+      // The toolchain-neutral principles must be present.
+      expect(prompt, `${spec.id} must keep 'git -C <worktree>' guidance`).toContain(
+        'git -C',
+      );
+      expect(
+        prompt.toLowerCase(),
+        `${spec.id} must describe running the project test command from the worktree`,
+      ).toContain('project test command');
+    }
+  });
 });
