@@ -302,11 +302,13 @@ assert_file_absent \
   "servers/exarchos-mcp/src/cli.test.ts"
 
 # NoLegacy_OrphanedCliCommandsAbsent — handler modules in cli-commands/ that
-# were ONLY consumed by the deleted cli.ts (subagent-stop, eval-run,
-# eval-capture, eval-compare, eval-calibrate, quality-check) must be deleted.
-# Live handlers (session-end, guard, gates, subagent-context, assemble-context,
-# version) stay — they are consumed by adapters/hooks.ts or adapters/cli.ts.
-for orphan in subagent-stop eval-run eval-capture eval-compare eval-calibrate quality-check; do
+# were ONLY consumed by the deleted cli.ts (eval-run, eval-capture,
+# eval-compare, eval-calibrate, quality-check) must be deleted.
+# Live handlers stay. #1476 retired the enforcement/control handlers
+# (guard, gates, subagent-context) and re-cast `subagent-stop` as a live
+# observer consumed by adapters/hooks.ts; the surviving live handlers are
+# session-end, subagent-stop, assemble-context, version.
+for orphan in eval-run eval-capture eval-compare eval-calibrate quality-check; do
   assert_file_absent \
     "NoLegacy_OrphanedCliCommandsAbsent ($orphan.ts)" \
     "servers/exarchos-mcp/src/cli-commands/$orphan.ts"

@@ -15,6 +15,18 @@
 
 import type { AgentSpec } from './types.js';
 
+// ─── Toolchain-neutral test command ─────────────────────────────────────────
+//
+// #1470/#1483 (F1): the post-test validation command must NOT hardcode npm and
+// must NOT be resolved at agent-generation time. The shipped agent artifacts
+// are generated in THIS (Node) repo and ship static — a gen-time placeholder
+// resolved to `npm run test:run` and baked it in for every consumer (INV-4
+// platform-agnosticity). Instead the hook calls `exarchos run-tests`, which
+// resolves the consumer's test command at runtime from THEIR cwd
+// (`.exarchos.yml` / project markers, via the canonical resolveTestRuntime).
+// The same string is correct for every runtime and every toolchain.
+export const POST_TEST_COMMAND = 'exarchos run-tests';
+
 // ─── Shared worktree-entry contract ─────────────────────────────────────────
 //
 // Every isolated agent (IMPLEMENTER, FIXER, SCAFFOLDER) must boot into the
@@ -67,10 +79,12 @@ Rules:
    on the shell's working directory for git. Capture your worktree path at
    startup (from \`pwd\`) and use it explicitly for every \`git add\`,
    \`git commit\`, \`git status\`, \`git log\`, etc.
-2. **Run scripts with \`npm --prefix <my-worktree-path> run …\`** or with an
-   explicit \`cd <my-worktree-path> && …\` guard. Do not \`cd\` to the main
-   repository root (or any path outside the \`.worktrees\` segment) and
-   then run git commands.
+2. **Run the project test/build commands from the worktree.** Use the
+   project's own toolchain (whatever \`.exarchos.yml\` declares, or the
+   project default) and run it against your worktree — e.g. with an explicit
+   \`cd <my-worktree-path> && <command>\` guard, or your toolchain's
+   working-directory flag. Do not \`cd\` to the main repository root (or any
+   path outside the \`.worktrees\` segment) and then run git commands.
 3. **If a command must run from a specific directory, restore the
    worktree cwd immediately after.** If you need one-off output from
    \`cd /some/other/place && some-cmd\`, follow it with \`cd <my-worktree-path>\`
@@ -80,21 +94,24 @@ Rules:
    and report it — do not try to self-heal with a reset in the parent
    repo.
 
-Concrete example — **wrong vs right** for running typecheck in the
-completion gate:
+Concrete example — **wrong vs right** for running the project test command
+in the completion gate (\`<test-cmd>\` is whatever your project's toolchain
+uses — \`cargo test\`, \`pytest\`, \`dotnet test\`, \`npm run test:run\`, …):
 
 \`\`\`bash
 # WRONG — cds into main worktree, then subsequent git ops contaminate it
-cd /home/user/repo && npm run typecheck
+cd /home/user/repo && <test-cmd>
 git status     # now runs in /home/user/repo, not the worktree
 
-# RIGHT — uses --prefix, shell cwd never leaves the worktree
-npm --prefix "$WORKTREE" run typecheck
+# RIGHT — run the project test command from the worktree; git stays anchored
+( cd "$WORKTREE" && <test-cmd> )
 git -C "$WORKTREE" status
 \`\`\`
 
 Where \`$WORKTREE\` is the absolute path captured at startup (the \`pwd\`
-output from the Worktree Verification step above).`;
+output from the Worktree Verification step above), and \`<test-cmd>\` is the
+project test command (from \`.exarchos.yml\` or the project default), run from
+the worktree.`;
 
 // ─── Implementer ────────────────────────────────────────────────────────────
 
@@ -155,7 +172,7 @@ When done, output a JSON completion report:
   ],
   validationRules: [
     { trigger: 'pre-write', rule: 'Test file must exist before implementation file is written' },
-    { trigger: 'post-test', rule: 'All tests must pass', command: 'npm --prefix "$(git rev-parse --show-toplevel)" run test:run' },
+    { trigger: 'post-test', rule: 'All tests must pass', command: POST_TEST_COMMAND },
   ],
   resumable: true,
   memoryScope: 'project',
@@ -222,7 +239,7 @@ When done, output a JSON completion report:
     { name: 'tdd-patterns', content: '' },
   ],
   validationRules: [
-    { trigger: 'post-test', rule: 'All tests must pass after fix', command: 'npm --prefix "$(git rev-parse --show-toplevel)" run test:run' },
+    { trigger: 'post-test', rule: 'All tests must pass after fix', command: POST_TEST_COMMAND },
   ],
   resumable: false,
   mcpServers: ['exarchos'],

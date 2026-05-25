@@ -3,8 +3,8 @@
 // Compatibility shim over `resolveTestRuntime` (../config/test-runtime-resolver).
 // The resolver is the new authoritative source for runtime detection. This
 // module preserves the legacy `detectTestCommands` signature and return shape
-// (`TestCommands`) so existing call sites in `cli-commands/gates.ts` and
-// `orchestrate/pre-synthesis-check.ts` continue to behave identically.
+// (`TestCommands`) so existing call sites (e.g.
+// `orchestrate/pre-synthesis-check.ts`) continue to behave identically.
 //
 // Behavior preservation notes:
 //   * Override path returns `{ test: override, typecheck: null }` — matches

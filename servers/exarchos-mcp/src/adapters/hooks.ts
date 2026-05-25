@@ -1,6 +1,11 @@
 /**
- * Hook routing adapter — dispatches Claude Code hook CLI commands
- * (guard, task-gate, session-end, etc.) to their lightweight handlers.
+ * Hook routing adapter — dispatches Claude Code hook CLI commands to their
+ * lightweight handlers.
+ *
+ * #1476: the hook layer is observe-only (see
+ * docs/adrs/2026-05-24-hook-layer-observe-only.md). The former enforcement /
+ * control hooks were retired; enforcement lives entirely inside the MCP tools.
+ * Only the two lifecycle observers remain: `session-end` and `subagent-stop`.
  *
  * Extracted from index.ts to create a clean three-way dispatcher:
  * hooks → CLI → MCP.
@@ -9,9 +14,11 @@
 // Hook CLI commands invoked by Claude Code hooks (hooks.json).
 // These are detected early in main() and routed through a lightweight path
 // that avoids the expensive backend initialization and heavy eval deps.
+//
+// Observe-only set (#1476): both entries are lifecycle observers. They report
+// on harness lifecycle events and never block tool execution.
 export const HOOK_COMMANDS = new Set([
-  'guard', 'task-gate', 'teammate-gate',
-  'subagent-context', 'session-end',
+  'session-end', 'subagent-stop',
 ]);
 
 /**
@@ -28,7 +35,7 @@ export type HookResult =
 /**
  * Handle a hook command by dispatching to the appropriate cli-commands handler.
  *
- * @param command     - The hook command name (e.g. 'guard', 'task-gate')
+ * @param command     - The hook command name (e.g. 'session-end', 'subagent-stop')
  * @param argv        - Full process.argv array
  * @param readStdin   - Async function that reads raw stdin
  * @param parseStdin  - Function that parses raw stdin string into a JSON object
@@ -65,25 +72,13 @@ export async function handleHookCommand(
   type HandlerResult = { error?: { code: string; message: string }; [key: string]: unknown };
 
   const handlers: Record<string, () => Promise<HandlerResult>> = {
-    'guard': async () => {
-      const { handleGuard } = await import('../cli-commands/guard.js');
-      return handleGuard(stdinData);
-    },
-    'task-gate': async () => {
-      const { handleTaskGate } = await import('../cli-commands/gates.js');
-      return handleTaskGate(stdinData);
-    },
-    'teammate-gate': async () => {
-      const { handleTeammateGate } = await import('../cli-commands/gates.js');
-      return handleTeammateGate(stdinData);
-    },
-    'subagent-context': async () => {
-      const { handleSubagentContext } = await import('../cli-commands/subagent-context.js');
-      return handleSubagentContext(stdinData);
-    },
     'session-end': async () => {
       const { handleSessionEnd } = await import('../cli-commands/session-end.js');
       return handleSessionEnd(stdinData, resolveStateDir());
+    },
+    'subagent-stop': async () => {
+      const { handleSubagentStop } = await import('../cli-commands/subagent-stop.js');
+      return handleSubagentStop(stdinData);
     },
   };
 
@@ -104,12 +99,10 @@ export async function handleHookCommand(
 
   if (result.error) {
     // Write error details to stderr so the agent (and hook runner) can see them.
-    // Without this, the agent gets "No stderr output" and the task state never transitions.
+    // Observers never set a policy `error`, so any error here is an
+    // operational failure (e.g. STDIN parse, IO) — surface it and exit 1.
     process.stderr.write(`[${result.error.code}] ${result.error.message}\n`);
-
-    const isGateCommand = command === 'task-gate' || command === 'teammate-gate';
-    const exitCode = isGateCommand && result.error.code === 'GATE_FAILED' ? 2 : 1;
-    return { handled: true, exitCode };
+    return { handled: true, exitCode: 1 };
   }
 
   return { handled: true };

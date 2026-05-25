@@ -31,7 +31,13 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 
 import type { Capability } from './capabilities.js';
-import { ALL_AGENT_SPECS, IMPLEMENTER, FIXER, REVIEWER, SCAFFOLDER } from './definitions.js';
+import {
+  ALL_AGENT_SPECS,
+  IMPLEMENTER,
+  FIXER,
+  REVIEWER,
+  SCAFFOLDER,
+} from './definitions.js';
 import { resolveCapabilities } from '../capabilities/posture-mapping.js';
 import type { AgentSpec, AgentSpecId } from './types.js';
 import { claudeAdapter } from './adapters/claude.js';
@@ -309,7 +315,7 @@ export function generateAgents(
     throw new GenerateAgentsError(failures);
   }
 
-  // 1b. Plugin manifest preflight. The Claude plugin manifest update
+  // 1a. Plugin manifest preflight. The Claude plugin manifest update
   //     happens after artifact writes today, but discovering a missing
   //     or invalid manifest at that point leaves the tree partially
   //     updated (20 runtime files written, plugin.json untouched). Check

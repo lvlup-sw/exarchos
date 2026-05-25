@@ -160,20 +160,60 @@ describe('AgentSpec capability declarations', () => {
     expect(setupSection).toMatch(/Set-Location/);
   });
 
-  // Issue #1192 Item 4 (T26): every spec with a post-test validationRule must
-  // anchor its command to the git toplevel. Bare `npm run test:run` would
-  // execute against whatever shell cwd the agent has drifted to — anchoring
-  // via $(git rev-parse --show-toplevel) ensures the worktree is what's tested.
-  it('Hooks_PostTestCommand_IsGitToplevelAnchored', () => {
+  // #1470/#1483 (F1): post-test validation commands must be toolchain-neutral.
+  // The command is the fixed runtime-resolving `exarchos run-tests`, which
+  // resolves the project's test command at the CONSUMER's runtime (their cwd's
+  // `.exarchos.yml` / project markers). It must NOT be a gen-time-resolved
+  // literal — the shipped artifacts are static, so any baked toolchain command
+  // (e.g. npm) would defeat agnosticism for non-Node consumers (INV-4).
+  it('Hooks_PostTestCommand_IsRuntimeResolvingExarchosRunTests_NotBakedToolchain', () => {
     for (const spec of ALL_AGENT_SPECS) {
       const postTestRules = (spec.validationRules ?? []).filter(
         (r) => r.trigger === 'post-test' && typeof r.command === 'string',
       );
       for (const rule of postTestRules) {
-        expect(rule.command, `${spec.id} post-test command must anchor to git toplevel`).toContain(
-          '$(git rev-parse --show-toplevel)',
+        const cmd = rule.command as string;
+        // Must delegate resolution to the runtime via `exarchos run-tests`.
+        expect(cmd, `${spec.id} post-test command must be 'exarchos run-tests'`).toBe(
+          'exarchos run-tests',
         );
+        // Must NOT bake any toolchain-specific invocation (the whole point).
+        expect(
+          /npm |yarn |pnpm |cargo |pytest|dotnet |\{\{testCommand\}\}/.test(cmd),
+          `${spec.id} post-test command must not bake a toolchain command: ${cmd}`,
+        ).toBe(false);
       }
+    }
+  });
+
+  // #1470 (T13): the worktree-hygiene prose in agent system prompts must be
+  // toolchain-neutral — no hardcoded `npm --prefix` examples. The neutral
+  // principle (`git -C <worktree>` for git ops, "run the project test command
+  // from the worktree") must be present so non-Node projects (Cargo, pytest,
+  // dotnet) are not implicitly assumed.
+  it('WorktreeHygiene_Prose_IsToolchainNeutral_NoHardcodedNpm', () => {
+    for (const spec of ALL_AGENT_SPECS) {
+      const prompt = spec.systemPrompt;
+      // Only the isolated agents carry the worktree-hygiene contract.
+      if (!prompt.includes('Worktree Hygiene')) continue;
+
+      expect(
+        prompt.includes('npm --prefix'),
+        `${spec.id} worktree-hygiene prose must not hardcode 'npm --prefix'`,
+      ).toBe(false);
+      expect(
+        prompt.includes('npm run typecheck'),
+        `${spec.id} worktree-hygiene prose must not hardcode 'npm run typecheck'`,
+      ).toBe(false);
+
+      // The toolchain-neutral principles must be present.
+      expect(prompt, `${spec.id} must keep 'git -C <worktree>' guidance`).toContain(
+        'git -C',
+      );
+      expect(
+        prompt.toLowerCase(),
+        `${spec.id} must describe running the project test command from the worktree`,
+      ).toContain('project test command');
     }
   });
 });

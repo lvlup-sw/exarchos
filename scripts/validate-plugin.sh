@@ -164,8 +164,12 @@ else
   check ".mcp.json valid JSON with required entries" "false"
 fi
 
-# --- Check 5: hooks/hooks.json contains all 6 hook types ---
-REQUIRED_HOOKS=("PreCompact" "SessionStart" "PreToolUse" "TaskCompleted" "TeammateIdle" "SubagentStart")
+# --- Check 5: hooks/hooks.json is observe-only (#1476) ---
+# The hook layer is observe-only; enforcement lives in the MCP tools. The two
+# lifecycle observers must be present; the retired enforcement/control hooks
+# must be absent. See docs/adrs/2026-05-24-hook-layer-observe-only.md.
+REQUIRED_HOOKS=("SubagentStop" "SessionEnd")
+FORBIDDEN_HOOKS=("PreToolUse" "TaskCompleted" "TeammateIdle" "SubagentStart" "PreCompact" "SessionStart")
 if [[ -f "$HOOKS_FILE" ]] && jq empty "$HOOKS_FILE" 2>/dev/null; then
   ALL_HOOKS_PRESENT=true
   MISSING_HOOKS=()
@@ -175,13 +179,27 @@ if [[ -f "$HOOKS_FILE" ]] && jq empty "$HOOKS_FILE" 2>/dev/null; then
       MISSING_HOOKS+=("$hook")
     fi
   done
-  if [[ "$ALL_HOOKS_PRESENT" == "true" ]]; then
-    check "hooks/hooks.json contains all 6 hook types" "true"
+  PRESENT_FORBIDDEN=()
+  for hook in "${FORBIDDEN_HOOKS[@]}"; do
+    if jq -e ".hooks.$hook" "$HOOKS_FILE" >/dev/null 2>&1; then
+      PRESENT_FORBIDDEN+=("$hook")
+    fi
+  done
+  if [[ "$ALL_HOOKS_PRESENT" == "true" && ${#PRESENT_FORBIDDEN[@]} -eq 0 ]]; then
+    check "hooks/hooks.json contains observer hooks only" "true"
   else
-    check "hooks/hooks.json missing hook types: ${MISSING_HOOKS[*]}" "false"
+    # Report BOTH failure modes independently — a file can be missing a required
+    # observer AND carry a forbidden hook at once; an if/elif would hide the
+    # second, forcing repeated runs to surface every problem.
+    if [[ "$ALL_HOOKS_PRESENT" != "true" ]]; then
+      check "hooks/hooks.json missing observer hook types: ${MISSING_HOOKS[*]}" "false"
+    fi
+    if [[ ${#PRESENT_FORBIDDEN[@]} -gt 0 ]]; then
+      check "hooks/hooks.json contains retired enforcement hooks: ${PRESENT_FORBIDDEN[*]}" "false"
+    fi
   fi
 else
-  check "hooks/hooks.json valid JSON with all hook types" "false"
+  check "hooks/hooks.json valid JSON with observer hook types" "false"
 fi
 
 # --- Check 6: No {{CLI_PATH}} references in hooks ---

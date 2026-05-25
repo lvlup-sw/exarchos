@@ -49,11 +49,10 @@ Before making ANY changes:
 
 After implementing the fix:
 
-1. **Run tests:**
-   ```bash
-   npm run test:run
-   ```
-   Ensure all tests pass.
+1. **Run the project test command** (resolved from `.exarchos.yml`, or the
+   project default). Use whatever your toolchain provides — for example
+   `cargo test`, `pytest`, `dotnet test`, or `npm run test:run`. Ensure all
+   tests pass.
 
 2. **If this fix requires a new test:**
    - Write test FIRST (TDD)
@@ -61,11 +60,9 @@ After implementing the fix:
    - Implement fix
    - Verify test passes
 
-3. **Run quality checks:**
-   ```bash
-   npm run typecheck
-   npm run lint
-   ```
+3. **Run the project quality checks** (typecheck/lint) using your toolchain's
+   commands — e.g. `cargo clippy` / `mypy` / `dotnet build` /
+   `npm run typecheck && npm run lint`.
 
 ## TDD for New Tests
 
@@ -150,7 +147,7 @@ db.query('SELECT * FROM users WHERE id = $1', [userId])
 
 After implementing the fix:
 
-1. Run tests: \`npm run test:run\`
+1. Run the project test command (from `.exarchos.yml`, e.g. `cargo test` / `pytest` / `npm run test:run`)
 2. Add test for SQL injection prevention
 3. Run quality checks
 

@@ -156,7 +156,10 @@ describe('generateAgents', () => {
     });
 
     // Confirm generator is a thin orchestrator: output must equal the
-    // adapter's `lowerSpec(spec).contents` byte-for-byte. Pick the
+    // adapter's `lowerSpec(spec).contents` byte-for-byte. Post-#1483 F1 there
+    // is no gen-time substitution — the post-test command is the fixed
+    // runtime-resolving `exarchos run-tests` carried directly on the spec
+    // (resolution happens at the consumer's runtime, not here). Pick the
     // Claude/IMPLEMENTER pair as the canonical regression check.
     const expectedContents = claudeAdapter.lowerSpec(IMPLEMENTER).contents;
     const written = fs.readFileSync(

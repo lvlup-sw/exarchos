@@ -286,11 +286,12 @@ function hookReadStdin(): Promise<string> {
 
 async function main() {
   // ─── Hook Command Fast Path ────────────────────────────────────────────────
-  // Hook commands (guard, task-gate, teammate-gate, subagent-context,
-  // session-end) are invoked as subprocesses by Claude Code with tight
-  // timeouts (5-10s). They only need lightweight state-dir access, not the
-  // full SQLite backend or hydration. Intercept them here before the
-  // expensive initialization path.
+  // Observer hook commands (session-end, subagent-stop) are invoked as
+  // subprocesses by Claude Code with tight timeouts (10-30s). They only need
+  // lightweight state-dir access, not the full SQLite backend or hydration.
+  // Intercept them here before the expensive initialization path. #1476: the
+  // former enforcement/control hooks were retired — enforcement now lives
+  // entirely inside the MCP tools.
   const hookCommand = process.argv[2];
   if (isHookCommand(hookCommand)) {
     const result = await handleHookCommand(
@@ -318,6 +319,19 @@ async function main() {
   const versionArg = process.argv[2];
   if (versionArg === '--version' || versionArg === '-V') {
     process.stdout.write(`${resolvePackageVersion()}\n`);
+    return;
+  }
+
+  // ─── run-tests Fast Path ─────────────────────────────────────────────────
+  // `exarchos run-tests` is invoked by the agents' post-test PostToolUse hook
+  // (#1470/#1483 F1). It resolves the consumer's test command at runtime and
+  // execs it, so the shipped agent artifacts stay toolchain-neutral. Like the
+  // version path it is stateless — it must not open the SQLite backend. It is
+  // deliberately NOT a HOOK_COMMAND: that set is observe-only (#1476 ADR) and
+  // never executes a workload; run-tests runs the suite, so it lives here.
+  if (process.argv[2] === 'run-tests') {
+    const { handleRunTests } = await import('./cli-commands/run-tests.js');
+    process.exitCode = handleRunTests(process.argv.slice(3), { cwd: process.cwd() });
     return;
   }
 
