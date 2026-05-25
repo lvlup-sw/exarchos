@@ -31,7 +31,9 @@
  *   - user  → tagged `user`.
  *
  * The reserved `INV-*` and `SDLC-*` id namespaces may NOT appear in the user
- * layer — a consumer cannot impersonate a built-in invariant.
+ * tier — a consumer cannot impersonate a built-in invariant. Authority is
+ * keyed off each entry's source `tier` (P1 T4), not array position: the `dev`
+ * tier owns `INV-*` and the inline `sdlc` tier owns `SDLC-*`.
  */
 import type { InvariantEntry } from './invariants-loader.js';
 import type { InvariantEntryV3 } from './invariant-schema.js';
@@ -93,14 +95,27 @@ function tag(
   return { ...entry, integrityClass };
 }
 
+/** Stamp an entry's source tier without mutating the input (P1 T4). */
+function withTier(
+  entry: InvariantEntry,
+  tier: NonNullable<InvariantEntry['tier']>,
+): InvariantEntry {
+  return { ...entry, tier };
+}
+
 /**
- * T-08 (DR-6): concatenate the dev / sdlc / user catalog layers, tagging each
- * entry with its layer's integrity-class. The dev layer keeps whatever class
- * it already carries (substrate/authoring set upstream); sdlc and user layers
- * are tagged from their layer name.
+ * T-08 (DR-6) + P1 T4: concatenate the dev / sdlc / user catalog layers,
+ * tagging each entry with its layer's integrity-class AND its source `tier`.
+ * The dev layer keeps whatever integrity-class it already carries
+ * (substrate/authoring set upstream); sdlc and user layers are tagged from
+ * their layer name.
  *
- * Rejects any reserved-namespace id (`INV-*` / `SDLC-*`) in the user layer
- * with a `ReservedNamespaceError`.
+ * Reserved-namespace authority is keyed off the source `tier`, not array
+ * position semantics: the `INV-*` namespace belongs to the `dev` tier and
+ * `SDLC-*` to the inline `sdlc` tier, so those layers carry their reserved ids
+ * legitimately. A `user`-tier entry claiming ANY reserved id (`INV-*` /
+ * `SDLC-*`) is rejected with a `ReservedNamespaceError` — a consumer cannot
+ * impersonate a built-in invariant.
  */
 export function mergeCatalogs(layers: {
   dev: InvariantEntry[];
@@ -109,6 +124,9 @@ export function mergeCatalogs(layers: {
 }): InvariantEntry[] {
   const { dev, sdlc, user } = layers;
 
+  // Reservation is keyed off tier: only the user tier is non-privileged, so it
+  // is the only layer whose reserved-namespace ids are rejected. The dev and
+  // sdlc tiers own `INV-*` / `SDLC-*` respectively and pass through.
   for (const entry of user) {
     if (isReservedUserId(entry.id)) {
       throw new ReservedNamespaceError(entry.id);
@@ -116,10 +134,12 @@ export function mergeCatalogs(layers: {
   }
 
   return [
-    // Dev layer entries keep their existing class (substrate/authoring).
-    ...dev,
-    ...sdlc.map((e) => tag(e, 'sdlc')),
-    ...user.map((e) => tag(e, 'user')),
+    // Dev layer entries keep their existing integrity-class (substrate/
+    // authoring); stamp the dev tier so the INV-* namespace authority is
+    // explicit rather than implied by array position.
+    ...dev.map((e) => withTier(e, 'dev')),
+    ...sdlc.map((e) => withTier(tag(e, 'sdlc'), 'sdlc')),
+    ...user.map((e) => withTier(tag(e, 'user'), 'user')),
   ];
 }
 

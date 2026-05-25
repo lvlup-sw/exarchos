@@ -139,6 +139,15 @@ export interface InvariantEntry {
    * when `integrity-class` is absent.
    */
   integrityClass?: NonNullable<InvariantEntryV3['integrity-class']>;
+  /**
+   * Source-layer tier, assigned by `mergeCatalogs` (P1 T4). Identifies which
+   * catalog layer an entry came from: `'dev'` (built-in/maintainer dev
+   * catalog, owns the `INV-*` namespace), `'sdlc'` (the compiled-in SDLC-*
+   * baseline), or `'user'` (a consumer-registered catalog). Reserved-namespace
+   * authority is keyed off this tier rather than off array position. Absent on
+   * a freshly-loaded entry; set during the merge.
+   */
+  tier?: 'dev' | 'sdlc' | 'user';
   /** The raw parsed entry for fields not yet promoted to the typed shape. */
   raw: Record<string, unknown>;
 }

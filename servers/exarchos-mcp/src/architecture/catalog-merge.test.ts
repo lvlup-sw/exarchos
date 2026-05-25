@@ -47,6 +47,55 @@ describe('mergeCatalogs', () => {
       mergeCatalogs({ dev: [], sdlc: [], user: [entry('SDLC-5')] }),
     ).toThrow(/SDLC-5/);
   });
+
+  // ─── P1 T4: reserved-namespace keyed off the source tier ──────────────────
+
+  it('mergeCatalogs_InvIdInDevTier_Accepted', () => {
+    // An INV-* id carried by a dev-tier entry is legitimate (the dev catalog
+    // owns the INV-* namespace) and must merge without ReservedNamespaceError.
+    // The merged entry carries an explicit `tier: 'dev'` tag so downstream
+    // consumers (doctor, conformance) can reason about provenance.
+    const merged = mergeCatalogs({
+      dev: [entry('INV-1', { integrityClass: 'substrate' })],
+      sdlc: [],
+      user: [],
+    });
+    const inv1 = merged.find((e) => e.id === 'INV-1');
+    expect(inv1).toBeDefined();
+    expect(inv1?.tier).toBe('dev');
+  });
+
+  it('mergeCatalogs_InvIdInUserTier_Rejected', () => {
+    // INV-* / SDLC-* in a user-tier entry remains reserved → throws.
+    expect(() =>
+      mergeCatalogs({ dev: [], sdlc: [], user: [entry('INV-7')] }),
+    ).toThrow(ReservedNamespaceError);
+    expect(() =>
+      mergeCatalogs({ dev: [], sdlc: [], user: [entry('SDLC-2')] }),
+    ).toThrow(ReservedNamespaceError);
+    // Non-reserved user-tier entries are tagged `tier: 'user'`.
+    const merged = mergeCatalogs({
+      dev: [],
+      sdlc: [],
+      user: [entry('team-rule')],
+    });
+    expect(merged.find((e) => e.id === 'team-rule')?.tier).toBe('user');
+  });
+
+  it('mergeCatalogs_SdlcId_ReservedOutsideBuiltin', () => {
+    // SDLC-* belongs ONLY to the inline sdlc layer. The inline sdlc layer
+    // carries it legitimately (tagged tier:sdlc); any non-builtin (user) source
+    // claiming SDLC-* is rejected.
+    const merged = mergeCatalogs({
+      dev: [],
+      sdlc: [entry('SDLC-1')],
+      user: [],
+    });
+    expect(merged.find((e) => e.id === 'SDLC-1')?.tier).toBe('sdlc');
+    expect(() =>
+      mergeCatalogs({ dev: [], sdlc: [], user: [entry('SDLC-9')] }),
+    ).toThrow(/SDLC-9/);
+  });
 });
 
 describe('applyOverrides', () => {
