@@ -528,7 +528,11 @@ describe('EventTypes', () => {
     // Bumped 115 → 116: migration.correlation_backfill_progress (#1437 —
     //   chunked V5→V6 backfill progress emitted on the `__migration__`
     //   stream from `SqliteBackend.backfillCorrelationColumnsChunked`).
-    expect(EventTypes).toHaveLength(116);
+    // Bumped 116 → 118: invariant.authored + catalog.registered
+    //   (invariants-catalog-wizard P2 — invariant-authoring lifecycle
+    //   emitted by the `invariants_add` composite handler; see
+    //   `orchestrate/invariants/add.ts`).
+    expect(EventTypes).toHaveLength(118);
   });
 
   it('EventTypes_IncludesElicitation', () => {

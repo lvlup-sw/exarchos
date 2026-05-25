@@ -35,6 +35,7 @@ import {
 } from '../../runtime/agent-environment-detector.js';
 import { loadExarchosConfig } from '../../config/load-exarchos-config.js';
 import { resolveEffectiveCatalog } from '../../architecture/resolve-effective-catalog.js';
+import { ReservedNamespaceError } from '../../architecture/catalog-merge.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -294,8 +295,19 @@ async function defaultRunningVersion(): Promise<string | null> {
  * reserved-namespace ids). A representative `ideate`/`feature` projection key
  * surfaces every merge/load warning regardless of phase narrowing. DIM-1:
  * computed per call, no caching. A failure to load config degrades to an empty
- * resolution rather than throwing — the check decides Pass/Warning/Skip. */
-async function defaultResolveInvariants(signal?: AbortSignal): Promise<{
+ * resolution rather than throwing — the check decides Pass/Warning/Skip.
+ *
+ * P1 T5: the `resolve` argument is injected (defaults to the real
+ * `resolveEffectiveCatalog`) purely so the defense-in-depth catch below is
+ * testable. Catalog resolution already folds DR-9 degradations (malformed /
+ * missing / reserved-namespace user sources) into `warnings`, but a
+ * `ReservedNamespaceError` thrown by a built-in-layer regression that escapes
+ * the resolver's own pre-filter must NOT crash the doctor probe — it is folded
+ * into a named advisory naming the offending id. Exported for testing. */
+export async function resolveInvariantsCatalog(
+  signal?: AbortSignal,
+  resolve: typeof resolveEffectiveCatalog = resolveEffectiveCatalog,
+): Promise<{
   configured: boolean;
   warnings: string[];
 }> {
@@ -328,7 +340,7 @@ async function defaultResolveInvariants(signal?: AbortSignal): Promise<{
   let devConfigured = false;
   if (config?.invariants?.devCatalog === 'enabled') {
     try {
-      await nodeFs.access(join(root, 'docs/architecture/invariants.md'), fsConstants.F_OK);
+      await nodeFs.access(join(root, '.exarchos/invariants.md'), fsConstants.F_OK);
       devConfigured = true;
     } catch {
       devConfigured = false;
@@ -339,13 +351,34 @@ async function defaultResolveInvariants(signal?: AbortSignal): Promise<{
   // Phase key is arbitrary here: DR-9 warnings are folded pre-projection, so
   // any phase surfaces every merge/load warning. We discard the projected
   // entries and decide Skip-vs-validate on `configured` instead.
-  const { warnings } = resolveEffectiveCatalog({
-    repoRoot: root,
-    config,
-    phase: 'ideate',
-    workflowType: 'feature',
-  });
-  return { configured: devConfigured || userConfigured, warnings };
+  //
+  // Defense-in-depth (P1 T5): the resolver already folds reserved-namespace
+  // user-source ids into `warnings` via its DR-9 pre-filter, so this catch is
+  // not on the common path. But a `ReservedNamespaceError` from a built-in
+  // layer that escapes the pre-filter must degrade to a named advisory rather
+  // than crashing the doctor probe — `doctor` is the operator's diagnostic of
+  // last resort and must never itself throw on a malformed catalog.
+  const configured = devConfigured || userConfigured;
+  try {
+    const { warnings } = resolve({
+      repoRoot: root,
+      config,
+      phase: 'ideate',
+      workflowType: 'feature',
+    });
+    return { configured, warnings };
+  } catch (err) {
+    if (err instanceof ReservedNamespaceError) {
+      return {
+        configured,
+        warnings: [
+          `Invariant catalog resolution surfaced a reserved-namespace ` +
+            `conflict on id '${err.id}': ${err.message}`,
+        ],
+      };
+    }
+    throw err;
+  }
 }
 
 /**
@@ -375,6 +408,6 @@ export function buildProbes(ctx: DispatchContext): DoctorProbes {
       installedVersion: defaultInstalledPluginVersion,
       runningVersion: defaultRunningVersion,
     },
-    invariants: { resolve: (signal) => defaultResolveInvariants(signal) },
+    invariants: { resolve: (signal) => resolveInvariantsCatalog(signal) },
   };
 }

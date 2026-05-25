@@ -11,20 +11,20 @@ const BRAINSTORMING_SKILL = path.join(
   REPO_ROOT,
   'skills-src/brainstorming/SKILL.md',
 );
-const INVARIANTS_DOC = path.join(REPO_ROOT, 'docs/architecture/invariants.md');
+const INVARIANTS_DOC = path.join(REPO_ROOT, '.exarchos/invariants.md');
 
 describe('ideate first-turn invariant surfacing (#1260)', () => {
   it('Ideate_FirstTurn_LoadsInvariantsDoc', () => {
     const ideate = fs.readFileSync(IDEATE_COMMAND, 'utf8');
     const skill = fs.readFileSync(BRAINSTORMING_SKILL, 'utf8');
 
-    // The /ideate command itself must reference docs/architecture/invariants.md
+    // The /ideate command itself must reference .exarchos/invariants.md
     // so the agent knows to consult the invariants catalog on first turn.
-    expect(ideate).toContain('docs/architecture/invariants.md');
+    expect(ideate).toContain('.exarchos/invariants.md');
 
     // The brainstorming skill body must guide surfacing of relevant invariants
     // (and reference the invariants doc explicitly).
-    expect(skill).toContain('docs/architecture/invariants.md');
+    expect(skill).toContain('.exarchos/invariants.md');
     expect(skill.toLowerCase()).toContain('constraint anchoring');
   });
 

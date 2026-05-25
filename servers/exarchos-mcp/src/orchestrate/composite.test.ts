@@ -118,6 +118,14 @@ vi.mock('../runbooks/handler.js', () => ({
   handleRunbook: vi.fn(),
 }));
 
+vi.mock('./invariants/scaffold.js', () => ({
+  handleScaffold: vi.fn(),
+}));
+
+vi.mock('./invariants/add.js', () => ({
+  handleAdd: vi.fn(),
+}));
+
 import { handleTaskClaim, handleTaskComplete, handleTaskFail } from '../tasks/tools.js';
 import { handleReviewTriage } from '../review/tools.js';
 import { handlePrepareDelegation } from './prepare-delegation.js';
@@ -142,6 +150,8 @@ import { handleAddPrComment } from './vcs/add-pr-comment.js';
 import { handleCreateIssue } from './vcs/create-issue.js';
 import { handleInit } from './init/index.js';
 import { handleMergeOrchestrate } from './merge-orchestrate.js';
+import { handleScaffold } from './invariants/scaffold.js';
+import { handleAdd } from './invariants/add.js';
 import { TOOL_REGISTRY } from '../registry.js';
 import { handleOrchestrate } from './composite.js';
 
@@ -299,6 +309,120 @@ describe('handleOrchestrate', () => {
         STATE_DIR,
         CTX.eventStore,
       );
+    });
+
+    it('Composite_InvariantsScaffold_Dispatches', async () => {
+      // P2/T7: dispatching action:'invariants_scaffold' reaches handleScaffold.
+      const expected = successResult({
+        catalog: { wrote: true, path: '/repo/docs/architecture/my-invariants.md', reason: 'created' },
+        registration: { wrote: true, path: '/repo/.exarchos.yml', reason: 'registered' },
+        tier: 'user',
+        next_actions: ['doctor', 'view invariants_effective'],
+      });
+      vi.mocked(handleScaffold).mockResolvedValue(expected);
+      const args = {
+        action: 'invariants_scaffold',
+        repoRoot: '/repo',
+        path: 'docs/architecture/my-invariants.md',
+        tier: 'user',
+      };
+
+      const result = await handleOrchestrate(args, CTX);
+
+      expectEnvelopedSuccess(result, expected);
+      expect(handleScaffold).toHaveBeenCalledTimes(1);
+      // First positional arg carries the scaffold args (sans `action`).
+      const callArgs = vi.mocked(handleScaffold).mock.calls[0]![0];
+      expect(callArgs).toMatchObject({
+        repoRoot: '/repo',
+        path: 'docs/architecture/my-invariants.md',
+        tier: 'user',
+      });
+    });
+
+    it('Composite_InvariantsAdd_EmitsInvariantAuthored', async () => {
+      // P2/T11: committing (dryRun:false) emits invariant.authored, and the
+      // first registration of a catalog emits catalog.registered (INV-1). The
+      // handler owns the writes + event emission; dispatch threads ctx through.
+      const expected = successResult({
+        committed: true,
+        id: 'U-1',
+        events: ['invariant.authored', 'catalog.registered'],
+        next_actions: ['doctor', 'view invariants_effective'],
+      });
+      vi.mocked(handleAdd).mockResolvedValue(expected);
+      const args = {
+        action: 'invariants_add',
+        repoRoot: '/repo',
+        catalog: 'docs/architecture/my-invariants.md',
+        tier: 'user',
+        dryRun: false,
+        entry: {
+          dimension: 'd',
+          axis: 'authoring',
+          'cost-of-load': 'reference-only',
+          'applies-to': ['src/**'],
+          summary: 's',
+          references: [],
+          severity: { default: 'advisory' },
+          enforcement: { mode: 'audit', 'audit-prompt': 'p' },
+        },
+      };
+
+      const result = await handleOrchestrate(args, CTX);
+
+      expectEnvelopedSuccess(result, expected);
+      expect(handleAdd).toHaveBeenCalledTimes(1);
+      // The add handler must receive the DispatchContext (it emits events).
+      const callArgsLen = vi.mocked(handleAdd).mock.calls[0]!.length;
+      expect(callArgsLen).toBeGreaterThanOrEqual(2);
+    });
+
+    it('Composite_InvariantsScaffold_InvalidTier_ReturnsInvalidInputNoHandlerCall', async () => {
+      // #1487 review: the dispatch boundary must reject malformed input with a
+      // structured INVALID_INPUT envelope BEFORE constructing handler args —
+      // the handler must never be invoked.
+      const args = {
+        action: 'invariants_scaffold',
+        repoRoot: '/repo',
+        tier: 'superuser', // not 'dev' | 'user'
+      };
+
+      const result = await handleOrchestrate(args, CTX);
+
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe('INVALID_INPUT');
+      expect(handleScaffold).not.toHaveBeenCalled();
+    });
+
+    it('Composite_InvariantsAdd_NonObjectEntry_ReturnsInvalidInputNoHandlerCall', async () => {
+      // #1487 review: a non-object `entry` is rejected at the boundary; the
+      // add handler is never reached.
+      const args = {
+        action: 'invariants_add',
+        repoRoot: '/repo',
+        entry: 'not-an-object',
+      };
+
+      const result = await handleOrchestrate(args, CTX);
+
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe('INVALID_INPUT');
+      expect(handleAdd).not.toHaveBeenCalled();
+    });
+
+    it('Composite_InvariantsAdd_NonStringRepoRoot_ReturnsInvalidInputNoHandlerCall', async () => {
+      const args = {
+        action: 'invariants_add',
+        repoRoot: 42, // not a string
+        entry: { dimension: 'd', summary: 's' },
+      };
+
+      const result = await handleOrchestrate(args, CTX);
+
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe('INVALID_INPUT');
+      expect(handleAdd).not.toHaveBeenCalled();
     });
 
     it('HandleOrchestrate_CheckPostMerge_DelegatesToHandler', async () => {

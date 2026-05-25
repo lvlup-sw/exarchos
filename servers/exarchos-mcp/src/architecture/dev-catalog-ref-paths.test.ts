@@ -3,7 +3,7 @@
 // `dev-catalog-content.test.ts` checks frontmatter *content* only, which is why
 // three `references:` paths rotted silently (INV-7/8/13 → moved/renamed source,
 // INV-9 → removed `hsm/` directory). This guard walks EVERY `references:` entry
-// in the LIVE catalog (`docs/architecture/invariants.md`) and asserts each
+// in the LIVE catalog (`.exarchos/invariants.md`) and asserts each
 // resolves to a real path on disk (DIM-4: real catalog vs real filesystem, not a
 // fixture). Pure doc-anchor fragments (`#...`) are skipped; a `path#anchor` entry
 // has its path part checked.
@@ -18,7 +18,7 @@ import { loadInvariants } from './invariants-loader.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, '../../../..');
-const INVARIANTS_DOC = path.join(REPO_ROOT, 'docs/architecture/invariants.md');
+const INVARIANTS_DOC = path.join(REPO_ROOT, '.exarchos/invariants.md');
 const ENABLED_CONFIG = { invariants: { devCatalog: 'enabled' as const } };
 
 /**

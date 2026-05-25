@@ -192,6 +192,14 @@ export const EventTypes = [
   // `operationId` from the active `DispatchContext` (#1291 / B1).
   'dispatch.preflight',
   'stash.detected',
+  // invariants-catalog-wizard (P2 / #1479 follow-up) — invariant-authoring
+  // lifecycle. `invariant.authored` is appended by the `invariants_add`
+  // composite handler on commit (dryRun:false). `catalog.registered` is
+  // appended on the first registration of a catalog file in `.exarchos.yml`
+  // (by `invariants_add`). Both are server-deterministic (auto) — the handler
+  // owns the write, the model is never nagged to hand-emit them.
+  'invariant.authored',
+  'catalog.registered',
 ] as const;
 
 export type EventType = typeof EventTypes[number];
@@ -502,6 +510,14 @@ export const EVENT_EMISSION_REGISTRY: Record<EventType, EventEmissionSource> = {
   // in the worktree under dispatch.
   'dispatch.preflight': 'auto',
   'stash.detected': 'auto',
+
+  // auto — emitted by the invariant-authoring composite handlers
+  // (invariants-catalog-wizard, P2). `invariant.authored` lands on commit
+  // (`invariants_add` dryRun:false); `catalog.registered` lands on the first
+  // registration of a catalog file in `.exarchos.yml`. Server-deterministic:
+  // the handler owns the append, so they are never model-emitted hints.
+  'invariant.authored': 'auto',
+  'catalog.registered': 'auto',
 };
 
 // ─── Base Event Schema ──────────────────────────────────────────────────────
@@ -1101,6 +1117,30 @@ export const DiagnosticExecutedDataSchema = z.object({
   checkCount: z.number().int().nonnegative(),
   failedCheckNames: z.array(z.string()),
   durationMs: z.number().int().nonnegative(),
+});
+
+// ─── Invariant Authoring Event Data (invariants-catalog-wizard, P2) ──────────
+
+/**
+ * `invariant.authored` — emitted by `invariants_add` on commit. Records which
+ * invariant id was authored, into which catalog, at what tier, so the audit
+ * trail can reconstruct the authoring history (INV-1 event-sourcing integrity).
+ */
+export const InvariantAuthoredDataSchema = z.object({
+  id: z.string().min(1),
+  catalog: z.string().min(1),
+  tier: z.enum(['dev', 'user']),
+  dimension: z.string().optional(),
+  mode: z.enum(['audit', 'check']).optional(),
+});
+
+/**
+ * `catalog.registered` — emitted on the first registration of a catalog file
+ * in `.exarchos.yml` (by `invariants_add`). Records the registered path + tier.
+ */
+export const CatalogRegisteredDataSchema = z.object({
+  path: z.string().min(1),
+  tier: z.enum(['dev', 'user']),
 });
 
 // ─── Init Event Data ────────────────────────────────────────────────────
@@ -2022,6 +2062,10 @@ export const EVENT_DATA_SCHEMAS: Partial<Record<EventType, z.ZodSchema>> = {
   // Init (exarchos init)
   'init.executed': InitExecutedDataSchema,
 
+  // Invariant authoring (invariants-catalog-wizard, P2)
+  'invariant.authored': InvariantAuthoredDataSchema,
+  'catalog.registered': CatalogRegisteredDataSchema,
+
   // Review provider adapter unknown-tier (#1159)
   'provider.unknown-tier': z.object({
     reviewer: z.string().min(1),
@@ -2176,6 +2220,9 @@ export type CommentPosted = z.infer<typeof CommentPostedData>;
 export type CommentResolved = z.infer<typeof CommentResolvedData>;
 export type DiagnosticExecuted = z.infer<typeof DiagnosticExecutedDataSchema>;
 export type InitExecuted = z.infer<typeof InitExecutedDataSchema>;
+// invariants-catalog-wizard (P2) — authoring lifecycle event payloads.
+export type InvariantAuthored = z.infer<typeof InvariantAuthoredDataSchema>;
+export type CatalogRegistered = z.infer<typeof CatalogRegisteredDataSchema>;
 export type MergePreflight = z.infer<typeof MergePreflightData>;
 export type MergeRequested = z.infer<typeof MergeRequestedData>;
 export type MergeExecuted = z.infer<typeof MergeExecutedData>;
@@ -2292,6 +2339,9 @@ export type EventDataMap = {
   'comment.resolved': CommentResolved;
   'diagnostic.executed': DiagnosticExecuted;
   'init.executed': InitExecuted;
+  // invariants-catalog-wizard (P2) — authoring lifecycle events.
+  'invariant.authored': InvariantAuthored;
+  'catalog.registered': CatalogRegistered;
   'merge.preflight': MergePreflight;
   'merge.requested': MergeRequested;
   'merge.executed': MergeExecuted;

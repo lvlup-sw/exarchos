@@ -330,3 +330,45 @@ describe('InvariantsConfigSchema — additive keys (T-18 / DR-6)', () => {
     expect(unknownNested.success).toBe(false);
   });
 });
+
+// invariants-catalog-wizard (P1, T1) — `catalogs` accepts tiered registration
+// objects. The migration collapses the dev catalog onto the registered-catalog
+// pattern, so a registration may carry an explicit `tier` (dev | user) in
+// addition to the legacy bare-string form.
+describe('InvariantsConfigSchema — tiered catalog registrations (T1)', () => {
+  it('InvariantsConfigSchema_CatalogObject_ParsesPathAndTier', () => {
+    // A `{ path, tier }` object and a bare string coexist in the same array.
+    const result = InvariantsConfigSchema.safeParse({
+      catalogs: [
+        { path: '.exarchos/invariants.md', tier: 'dev' },
+        '.exarchos/invariants.yml',
+      ],
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.catalogs).toEqual([
+        { path: '.exarchos/invariants.md', tier: 'dev' },
+        '.exarchos/invariants.yml',
+      ]);
+    }
+
+    // `tier` is optional on the object form (defaults to user downstream).
+    const tierless = InvariantsConfigSchema.safeParse({
+      catalogs: [{ path: 'team.yml' }],
+    });
+    expect(tierless.success).toBe(true);
+
+    // Unknown keys on the object form are rejected by `.strict()`.
+    const unknownKey = InvariantsConfigSchema.safeParse({
+      catalogs: [{ path: 'team.yml', bogus: true }],
+    });
+    expect(unknownKey.success).toBe(false);
+  });
+
+  it('InvariantsConfigSchema_CatalogTier_RejectsUnknownTier', () => {
+    const result = InvariantsConfigSchema.safeParse({
+      catalogs: [{ path: 'team.yml', tier: 'bogus' }],
+    });
+    expect(result.success).toBe(false);
+  });
+});

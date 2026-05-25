@@ -545,10 +545,10 @@ describe('TOOL_REGISTRY', () => {
   });
 
   describe('exarchos_orchestrate', () => {
-    it('should have 67 actions for task management, review triage, gate checks, validation handlers, runbooks, agent spec, oneshot/pruning, doctor, init, VCS, classify_review_items (#1159), merge_orchestrate (DR-MO-1), check_integration_suite (#1329), check_invariant_conformance (DR-3), and composite actions', () => {
+    it('should have 69 actions for task management, review triage, gate checks, validation handlers, runbooks, agent spec, oneshot/pruning, doctor, init, VCS, classify_review_items (#1159), merge_orchestrate (DR-MO-1), check_integration_suite (#1329), check_invariant_conformance (DR-3), invariants_scaffold/invariants_add (invariants-catalog-wizard P2), and composite actions', () => {
       const composite = findComposite('exarchos_orchestrate');
       expect(composite).toBeDefined();
-      expect(composite!.actions).toHaveLength(67);
+      expect(composite!.actions).toHaveLength(69);
 
       const actionNames = composite!.actions.map((a) => a.name);
       expect(actionNames).toEqual(
@@ -620,6 +620,9 @@ describe('TOOL_REGISTRY', () => {
           'check_integration_suite',
           // DR-3: invariant-conformance review-dimension gate.
           'check_invariant_conformance',
+          // invariants-catalog-wizard P2: authoring verbs (ACTIONS, not a 5th tool).
+          'invariants_scaffold',
+          'invariants_add',
         ]),
       );
     });
@@ -632,8 +635,17 @@ describe('TOOL_REGISTRY', () => {
 
     const { ACTION_HANDLER_KEYS } = await import('./orchestrate/composite.js');
 
-    // Actions that are handled specially in the composite router (not via ACTION_HANDLERS)
-    const SPECIAL_ACTIONS = new Set(['describe', 'runbook', 'doctor', 'init']);
+    // Actions that are handled specially in the composite router (not via ACTION_HANDLERS).
+    // invariants_scaffold / invariants_add use explicit dispatch branches (like
+    // init/doctor) because they need injected fs hooks + DispatchContext.
+    const SPECIAL_ACTIONS = new Set([
+      'describe',
+      'runbook',
+      'doctor',
+      'init',
+      'invariants_scaffold',
+      'invariants_add',
+    ]);
 
     for (const handlerKey of ACTION_HANDLER_KEYS) {
       expect(
@@ -677,6 +689,68 @@ describe('TOOL_REGISTRY', () => {
     expect(action!.autoEmits?.some((e) => e.event === 'gate.executed')).toBe(true);
 
     // Visible (non-hidden) composite tools stay within the 15-tool budget.
+    const visibleTools = TOOL_REGISTRY.filter((t) => !t.hidden);
+    expect(visibleTools.length).toBeLessThanOrEqual(15);
+  });
+
+  it('Registry_InvariantsScaffold_HasOutputSchemaAndAnnotations', () => {
+    // P2/T7: invariants_scaffold is a new ACTION on exarchos_orchestrate
+    // (INV-5d — NOT a fifth visible tool). It writes files + .exarchos.yml, so
+    // it is LOCAL_MUTATION (not read-only). It must declare a registered
+    // EnvelopeSchema outputSchema (INV-5b) and a when-NOT-to-use clause in its
+    // description (INV-5a input ergonomics).
+    const action = findAction('exarchos_orchestrate', 'invariants_scaffold');
+    expect(action, 'invariants_scaffold must be registered on exarchos_orchestrate').toBeDefined();
+
+    expect(action!.annotations).toBeDefined();
+    expect(action!.annotations!.safety).toBe('local-mutation');
+    expect(action!.annotations!.readOnly).toBe(false);
+    expect(action!.annotations!.destructive).toBe(false);
+    expect(action!.annotations!.openWorld).toBe(false);
+    expect(action!.outputSchema).toBeDefined();
+
+    // when-NOT clause (INV-5a). The description must steer the agent away from
+    // misuse (e.g. don't use to add an entry — that's invariants_add).
+    expect(action!.description.toLowerCase()).toContain('do not use');
+
+    // No fifth visible tool (INV-5d): the visible-tool count is unchanged.
+    const visibleTools = TOOL_REGISTRY.filter((t) => !t.hidden);
+    expect(visibleTools.length).toBeLessThanOrEqual(15);
+  });
+
+  it('Registry_InvariantsAdd_DryRunDefault', () => {
+    // P2/T11: invariants_add is a LOCAL_MUTATION ACTION on exarchos_orchestrate
+    // (INV-5d) that declares the invariant.authored / catalog.registered
+    // autoEmits (INV-1) and a when-NOT clause (INV-5a). INV-5c: the verb
+    // defaults to dry-run. The default is enforced at the dispatch boundary
+    // (composite.ts) rather than as a Zod `.default(true)` — the
+    // MCP-registration flattener (`buildRegistrationSchema`) forbids two
+    // actions declaring `dryRun` with divergent defaults, and merge_orchestrate
+    // / prune_stale_workflows already declare it `.optional()`. So the schema
+    // field stays optional, and dispatching invariants_add WITHOUT dryRun must
+    // NOT write (the safe default).
+    const action = findAction('exarchos_orchestrate', 'invariants_add');
+    expect(action, 'invariants_add must be registered on exarchos_orchestrate').toBeDefined();
+
+    expect(action!.annotations!.safety).toBe('local-mutation');
+    expect(action!.annotations!.readOnly).toBe(false);
+    expect(action!.outputSchema).toBeDefined();
+    expect(action!.description.toLowerCase()).toContain('do not use');
+
+    // autoEmits declares both authoring events (INV-1).
+    const events = (action!.autoEmits ?? []).map((e) => e.event);
+    expect(events).toContain('invariant.authored');
+    expect(events).toContain('catalog.registered');
+
+    // The schema accepts an entry with dryRun omitted (the dry-run default is
+    // applied downstream at dispatch).
+    const parsed = action!.schema.safeParse({
+      entry: { dimension: 'd' },
+      catalog: 'docs/architecture/my-invariants.md',
+      tier: 'user',
+    });
+    expect(parsed.success).toBe(true);
+
     const visibleTools = TOOL_REGISTRY.filter((t) => !t.hidden);
     expect(visibleTools.length).toBeLessThanOrEqual(15);
   });

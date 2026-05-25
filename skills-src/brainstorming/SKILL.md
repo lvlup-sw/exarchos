@@ -31,7 +31,7 @@ For a complete worked example, see `references/worked-example.md`.
 
 **Goal:** Surface the architectural invariants relevant to the proposal *before* the clarifying questions, so the design is anchored to load-bearing constraints from the first turn.
 
-**Source of truth:** Load `docs/architecture/invariants.md` — the machine-readable catalog of `INV-*` invariants (event-sourcing integrity, facade equivalence, basileus-forward, platform-agnosticity, agent-first input/output/verbs/discriminator, workflow-agnosticism).
+**Source of truth:** Load `.exarchos/invariants.md` — the machine-readable catalog of `INV-*` invariants (event-sourcing integrity, facade equivalence, basileus-forward, platform-agnosticity, agent-first input/output/verbs/discriminator, workflow-agnosticism).
 
 **Selection rules — which invariants to surface as Constraints:**
 
@@ -48,7 +48,7 @@ For a complete worked example, see `references/worked-example.md`.
 ```markdown
 ## Constraints
 
-Anchored to docs/architecture/invariants.md:
+Anchored to .exarchos/invariants.md:
 - INV-5a: <one-sentence summary from the catalog>
 - INV-5c: <one-sentence summary from the catalog>
 
@@ -61,7 +61,7 @@ The `summary` field of each catalog entry is the canonical one-sentence form —
 
 **Goal:** Surface the architectural invariants relevant to the proposal *before* the clarifying questions, so the design is anchored to load-bearing constraints from the first turn.
 
-**Source of truth:** Load `docs/architecture/invariants.md` — the machine-readable catalog of `INV-*` invariants (event-sourcing integrity, facade equivalence, basileus-forward, platform-agnosticity, agent-first input/output/verbs/discriminator, workflow-agnosticism).
+**Source of truth:** Load `.exarchos/invariants.md` — the machine-readable catalog of `INV-*` invariants (event-sourcing integrity, facade equivalence, basileus-forward, platform-agnosticity, agent-first input/output/verbs/discriminator, workflow-agnosticism).
 
 **Selection rules — which invariants to surface as Constraints:**
 
@@ -78,7 +78,7 @@ The `summary` field of each catalog entry is the canonical one-sentence form —
 ```markdown
 ## Constraints
 
-Anchored to docs/architecture/invariants.md:
+Anchored to .exarchos/invariants.md:
 - INV-5a: <one-sentence summary from the catalog>
 - INV-5c: <one-sentence summary from the catalog>
 

@@ -1,6 +1,7 @@
 /**
  * Loader for the machine-readable invariants catalog at
- * `docs/architecture/invariants.md` (issue #1260).
+ * `.exarchos/invariants.md` (the dev catalog, relocated from
+ * `docs/architecture/invariants.md` in T19; issue #1260).
  *
  * The frontmatter is the source of truth; this module parses it into a typed
  * `InvariantEntry[]` for consumption by `/ideate` first-turn surfacing, the
@@ -139,6 +140,15 @@ export interface InvariantEntry {
    * when `integrity-class` is absent.
    */
   integrityClass?: NonNullable<InvariantEntryV3['integrity-class']>;
+  /**
+   * Source-layer tier, assigned by `mergeCatalogs` (P1 T4). Identifies which
+   * catalog layer an entry came from: `'dev'` (built-in/maintainer dev
+   * catalog, owns the `INV-*` namespace), `'sdlc'` (the compiled-in SDLC-*
+   * baseline), or `'user'` (a consumer-registered catalog). Reserved-namespace
+   * authority is keyed off this tier rather than off array position. Absent on
+   * a freshly-loaded entry; set during the merge.
+   */
+  tier?: 'dev' | 'sdlc' | 'user';
   /** The raw parsed entry for fields not yet promoted to the typed shape. */
   raw: Record<string, unknown>;
 }
@@ -423,7 +433,7 @@ function parseInvariantsBlock(configPath: string): ExarchosConfig {
  * walks up from the catalog file looking for `.exarchos.yml`; tests pass
  * an explicit `config` to bypass disk-IO. See `readInvariantsConfig`.
  *
- * @param filePath Absolute path to `docs/architecture/invariants.md`.
+ * @param filePath Absolute path to `.exarchos/invariants.md`.
  * @param opts Optional filter (schema-v2; spec §4.1, §4.2):
  *   - `scope: 'core'`      — axis=substrate AND cost-of-load=always-load
  *                            (the /ideate Phase 0 working set; 10 entries

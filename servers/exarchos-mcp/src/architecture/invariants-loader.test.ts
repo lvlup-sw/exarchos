@@ -17,7 +17,7 @@ import {
  */
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, '../../../..');
-const INVARIANTS_DOC = path.join(REPO_ROOT, 'docs/architecture/invariants.md');
+const INVARIANTS_DOC = path.join(REPO_ROOT, '.exarchos/invariants.md');
 
 const REQUIRED_INVARIANT_IDS = [
   'INV-1',

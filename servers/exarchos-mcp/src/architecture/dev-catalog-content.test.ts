@@ -1,7 +1,7 @@
 // ─── Dev-catalog v3 content characterization (issue #1466) ──────────────────
 //
 // These tests assert the AUTHORED CONTENT of the live dev catalog at
-// `docs/architecture/invariants.md` — distinct from #1465's machinery tests
+// `.exarchos/invariants.md` — distinct from #1465's machinery tests
 // (loader, evaluator, projection) which inject synthetic entries. Here we load
 // the REAL catalog and assert the v3 fields authored onto real invariants:
 //   CR-1  schema-version 3 + back-compat
@@ -33,7 +33,7 @@ import { handleCheckInvariantConformance } from '../orchestrate/check-invariant-
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, '../../../..');
-const INVARIANTS_DOC = path.join(REPO_ROOT, 'docs/architecture/invariants.md');
+const INVARIANTS_DOC = path.join(REPO_ROOT, '.exarchos/invariants.md');
 const ENABLED_CONFIG = { invariants: { devCatalog: 'enabled' as const } };
 
 function loadCatalog(): InvariantEntry[] {
@@ -208,7 +208,7 @@ describe('dev-catalog v3 content — CR-3 projection', () => {
 //
 // Drives handleCheckInvariantConformance with repoRoot=REPO_ROOT + the enabled
 // config and NO injected loader, so resolveEffectiveCatalog loads the AUTHORED
-// docs/architecture/invariants.md for real. Proves the authored content (not
+// .exarchos/invariants.md for real. Proves the authored content (not
 // just the machinery) produces a real finding on a violating diff and stays
 // APPROVED + emits gate.executed on a clean diff (calibrate-on-HEAD).
 

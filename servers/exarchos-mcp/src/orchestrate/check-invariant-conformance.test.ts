@@ -10,7 +10,7 @@
 //      invariant's context-resolved severity.
 //
 // Tests inject the catalog directly via `loadInvariantsFn` so they need no
-// disk IO; the default loader reads `docs/architecture/invariants.md`.
+// disk IO; the default loader reads `.exarchos/invariants.md`.
 // ────────────────────────────────────────────────────────────────────────────
 
 import { describe, it, expect } from 'vitest';
@@ -57,7 +57,7 @@ async function gateEvents(eventStore: EventStore, featureId: string) {
 
 /**
  * Build an isolated repo fixture with a built-in dev catalog at
- * `docs/architecture/invariants.md` plus (optionally) a user-authored catalog
+ * `.exarchos/invariants.md` plus (optionally) a user-authored catalog
  * file. The gate is then driven through `config` + `repoRoot` with NO injected
  * loader, so it exercises the REAL `resolveEffectiveCatalog` production path
  * (user `catalogs`, `overrides`, DR-9 degradation).
@@ -70,9 +70,14 @@ async function makeRepoFixture(opts: {
   userCatalogName?: string;
 }): Promise<{ repoRoot: string; userCatalogPath?: string }> {
   const repoRoot = await mkdtemp(path.join(tmpdir(), 'inv-conf-repo-'));
-  const archDir = path.join(repoRoot, 'docs', 'architecture');
-  await mkdir(archDir, { recursive: true });
-  await writeFile(path.join(archDir, 'invariants.md'), opts.devCatalog, 'utf8');
+  // Dev catalog now lives at `.exarchos/invariants.md` (relocated in T19).
+  const devCatalogDir = path.join(repoRoot, '.exarchos');
+  await mkdir(devCatalogDir, { recursive: true });
+  await writeFile(
+    path.join(devCatalogDir, 'invariants.md'),
+    opts.devCatalog,
+    'utf8',
+  );
 
   let userCatalogPath: string | undefined;
   if (opts.userCatalog !== undefined) {

@@ -199,8 +199,9 @@ describe('task 025 — per-runtime snapshot baselines', () => {
     // assumed 16 × 6 = 96, the initial migration landed with 13 × 6 = 78,
     // the 2026-04-11 #1010 feature added prune-workflows and
     // oneshot-workflow (15 × 6 = 90), v2.8.0 added discovery (16 × 6 = 96),
-    // and v2.9.0 added merge-orchestrator per #1193 / #1194 (17 × 6 = 102).
-    expect(allFiles.length).toBe(102);
+    // v2.9.0 added merge-orchestrator per #1193 / #1194 (17 × 6 = 102),
+    // and v2.10.0 added authoring-invariants per #1487 (18 × 6 = 108).
+    expect(allFiles.length).toBe(108);
   });
 
   for (const runtime of RUNTIME_NAMES) {
