@@ -282,12 +282,14 @@ async function defaultRunningVersion(): Promise<string | null> {
  * surfaces every merge/load warning regardless of phase narrowing. DIM-1:
  * computed per call, no caching. A failure to load config degrades to an empty
  * resolution rather than throwing — the check decides Pass/Warning/Skip. */
-async function defaultResolveInvariants(): Promise<{
+async function defaultResolveInvariants(signal?: AbortSignal): Promise<{
   entryCount: number;
   warnings: string[];
 }> {
+  if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
   const root = await findRepoRoot('.exarchos.yml');
   if (root === null) return { entryCount: 0, warnings: [] };
+  if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
   let config;
   try {
     const loaded = loadExarchosConfig(root, { findRepoRoot: () => root });
@@ -335,6 +337,6 @@ export function buildProbes(ctx: DispatchContext): DoctorProbes {
       installedVersion: defaultInstalledPluginVersion,
       runningVersion: defaultRunningVersion,
     },
-    invariants: { resolve: () => defaultResolveInvariants() },
+    invariants: { resolve: (signal) => defaultResolveInvariants(signal) },
   };
 }

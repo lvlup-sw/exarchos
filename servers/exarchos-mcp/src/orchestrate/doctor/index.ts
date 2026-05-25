@@ -1,5 +1,5 @@
 /**
- * handleDoctor — composes the 10 per-check modules into a single MCP
+ * handleDoctor — composes the 11 per-check modules into a single MCP
  * action.
  *
  * Design notes:
