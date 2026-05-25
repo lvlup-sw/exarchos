@@ -176,7 +176,13 @@ export function resolveEffectiveCatalog(
   // single place the gate, the view facade, and any future Resource share, so
   // the degradation is exercised on every effective-catalog read — not just
   // under a hand-injected loader double.
-  const userCatalogPaths = config?.invariants?.catalogs ?? [];
+  const userCatalogPaths = (config?.invariants?.catalogs ?? []).map(
+    // T1 introduced `{ path, tier }` registration objects; T3 will collapse
+    // this block into a tier-aware source loop. Until then, normalize to the
+    // string path so the legacy user-layer load keeps its exact behavior.
+    (registration) =>
+      typeof registration === 'string' ? registration : registration.path,
+  );
   const user: InvariantEntry[] = userCatalogPaths.flatMap((catalogPath) => {
     const resolved = path.isAbsolute(catalogPath)
       ? catalogPath

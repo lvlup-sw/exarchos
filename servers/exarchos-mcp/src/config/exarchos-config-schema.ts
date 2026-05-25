@@ -92,10 +92,44 @@ const InvariantOverrideSchema = z
   })
   .strict();
 
+// invariants-catalog-wizard (P1, T1) — a catalog registration.
+//
+// The dev-catalog migration (design §4.2) collapses Layers 1 + 3 of
+// `resolveEffectiveCatalog` onto one registered-catalog pattern. A
+// registration is either:
+//
+//   - a bare string path — the legacy form; its `tier` defaults to `user`
+//     when normalized by `resolveCatalogSources` (catalog-sources.ts); or
+//   - a `{ path, tier? }` object — the explicit form that carries the source
+//     `tier` (`dev | user`). `tier: dev` is what the `devCatalog: 'enabled'`
+//     sugar desugars to.
+//
+// `.strict()` so a typo'd key (or a tier outside `dev | user`) surfaces as a
+// validation error rather than a silently-ignored field.
+const CatalogRegistrationObjectSchema = z
+  .object({
+    path: z.string(),
+    tier: z.enum(['dev', 'user']).optional(),
+  })
+  .strict();
+
+const CatalogRegistrationSchema = z.union([
+  z.string(),
+  CatalogRegistrationObjectSchema,
+]);
+
+/**
+ * A single entry in `invariants.catalogs`: either a bare string path (legacy,
+ * `tier` defaults to `user`) or a `{ path, tier? }` object. Consumed by
+ * `resolveCatalogSources` (architecture/catalog-sources.ts) which normalizes
+ * both forms into a `CatalogSource`.
+ */
+export type CatalogRegistration = z.infer<typeof CatalogRegistrationSchema>;
+
 export const InvariantsConfigSchema = z
   .object({
     devCatalog: z.enum(['enabled', 'disabled']).optional(),
-    catalogs: z.array(z.string()).optional(),
+    catalogs: z.array(CatalogRegistrationSchema).optional(),
     overrides: z.record(z.string(), InvariantOverrideSchema).optional(),
     enforcement: z
       .object({
