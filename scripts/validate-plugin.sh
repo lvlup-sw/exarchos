@@ -187,10 +187,16 @@ if [[ -f "$HOOKS_FILE" ]] && jq empty "$HOOKS_FILE" 2>/dev/null; then
   done
   if [[ "$ALL_HOOKS_PRESENT" == "true" && ${#PRESENT_FORBIDDEN[@]} -eq 0 ]]; then
     check "hooks/hooks.json contains observer hooks only" "true"
-  elif [[ "$ALL_HOOKS_PRESENT" != "true" ]]; then
-    check "hooks/hooks.json missing observer hook types: ${MISSING_HOOKS[*]}" "false"
   else
-    check "hooks/hooks.json contains retired enforcement hooks: ${PRESENT_FORBIDDEN[*]}" "false"
+    # Report BOTH failure modes independently — a file can be missing a required
+    # observer AND carry a forbidden hook at once; an if/elif would hide the
+    # second, forcing repeated runs to surface every problem.
+    if [[ "$ALL_HOOKS_PRESENT" != "true" ]]; then
+      check "hooks/hooks.json missing observer hook types: ${MISSING_HOOKS[*]}" "false"
+    fi
+    if [[ ${#PRESENT_FORBIDDEN[@]} -gt 0 ]]; then
+      check "hooks/hooks.json contains retired enforcement hooks: ${PRESENT_FORBIDDEN[*]}" "false"
+    fi
   fi
 else
   check "hooks/hooks.json valid JSON with observer hook types" "false"
