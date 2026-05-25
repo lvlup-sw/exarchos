@@ -2220,6 +2220,9 @@ export type CommentPosted = z.infer<typeof CommentPostedData>;
 export type CommentResolved = z.infer<typeof CommentResolvedData>;
 export type DiagnosticExecuted = z.infer<typeof DiagnosticExecutedDataSchema>;
 export type InitExecuted = z.infer<typeof InitExecutedDataSchema>;
+// invariants-catalog-wizard (P2) — authoring lifecycle event payloads.
+export type InvariantAuthored = z.infer<typeof InvariantAuthoredDataSchema>;
+export type CatalogRegistered = z.infer<typeof CatalogRegisteredDataSchema>;
 export type MergePreflight = z.infer<typeof MergePreflightData>;
 export type MergeRequested = z.infer<typeof MergeRequestedData>;
 export type MergeExecuted = z.infer<typeof MergeExecutedData>;
@@ -2336,6 +2339,9 @@ export type EventDataMap = {
   'comment.resolved': CommentResolved;
   'diagnostic.executed': DiagnosticExecuted;
   'init.executed': InitExecuted;
+  // invariants-catalog-wizard (P2) — authoring lifecycle events.
+  'invariant.authored': InvariantAuthored;
+  'catalog.registered': CatalogRegistered;
   'merge.preflight': MergePreflight;
   'merge.requested': MergeRequested;
   'merge.executed': MergeExecuted;
