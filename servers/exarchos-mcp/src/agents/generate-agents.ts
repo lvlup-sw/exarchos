@@ -182,14 +182,13 @@ function resolveProjectTestCommand(outputRoot: string): string {
  */
 function resolveTestCommandPlaceholder(
   spec: AgentSpec,
-  outputRoot: string,
+  testCommand: string,
 ): AgentSpec {
   const hasPlaceholder = (spec.validationRules ?? []).some(
     (r) => typeof r.command === 'string' && r.command.includes(TEST_COMMAND_PLACEHOLDER),
   );
   if (!hasPlaceholder) return spec;
 
-  const testCommand = resolveProjectTestCommand(outputRoot);
   const validationRules = spec.validationRules.map((r) =>
     typeof r.command === 'string' && r.command.includes(TEST_COMMAND_PLACEHOLDER)
       ? { ...r, command: r.command.split(TEST_COMMAND_PLACEHOLDER).join(testCommand) }
@@ -376,8 +375,10 @@ export function generateAgents(
   //     `.exarchos.yml` test command (resolveTestRuntime), falling back to the
   //     documented default `npm run test:run` when no config/marker is found.
   //     Done once, before lowering, so every runtime artifact carries the same
-  //     resolved command.
-  const resolvedSpecs = specs.map((s) => resolveTestCommandPlaceholder(s, outputRoot));
+  //     resolved command — and a malformed config surfaces once here rather
+  //     than per spec.
+  const testCommand = resolveProjectTestCommand(outputRoot);
+  const resolvedSpecs = specs.map((s) => resolveTestCommandPlaceholder(s, testCommand));
 
   // 1b. Plugin manifest preflight. The Claude plugin manifest update
   //     happens after artifact writes today, but discovering a missing
