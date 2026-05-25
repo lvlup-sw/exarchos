@@ -159,11 +159,21 @@ const DEFAULT_GIT: DoctorGit = {
   },
 };
 
-/** Resolve the repo root by walking up from this module until a
- * `package.json` is found. Computed per call (DIM-1 forbids module-
- * global caching). */
-async function findRepoRoot(marker: string): Promise<string | null> {
-  let dir = dirname(fileURLToPath(import.meta.url));
+/** Resolve a root by walking up from `startDir` until `marker` is found.
+ *
+ * `startDir` defaults to this module's directory — correct for locating the
+ * plugin's OWN artifacts (its `package.json`, its `skills-src/`). For a
+ * USER-project artifact (e.g. `.exarchos.yml`) callers MUST pass
+ * `process.cwd()`: in plugin mode the module lives under the plugin cache
+ * (`~/.claude/plugins/...`), which has no `.exarchos.yml` ancestor, so a
+ * module-relative walk would never find the consumer's config (#1482 review).
+ *
+ * Computed per call (DIM-1 forbids module-global caching). */
+async function findRepoRoot(
+  marker: string,
+  startDir: string = dirname(fileURLToPath(import.meta.url)),
+): Promise<string | null> {
+  let dir = startDir;
   for (let i = 0; i < 8; i++) {
     try {
       await nodeFs.access(join(dir, marker), fsConstants.F_OK);
@@ -287,7 +297,10 @@ async function defaultResolveInvariants(signal?: AbortSignal): Promise<{
   warnings: string[];
 }> {
   if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
-  const root = await findRepoRoot('.exarchos.yml');
+  // Resolve from the USER's cwd, NOT this module's location — `.exarchos.yml`
+  // is a consumer-project artifact and the module lives in the plugin cache in
+  // plugin mode (#1482 review). Mirrors the vcs-git-available check's cwd use.
+  const root = await findRepoRoot('.exarchos.yml', process.cwd());
   if (root === null) return { entryCount: 0, warnings: [] };
   if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
   let config;

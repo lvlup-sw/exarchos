@@ -1,4 +1,7 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterEach } from 'vitest';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import type { DispatchContext } from '../../core/dispatch.js';
 import { buildProbes } from './probes.js';
 
@@ -67,5 +70,34 @@ describe('buildProbes', () => {
 
     expect(result).toBe(sentinel);
     expect(recorded).toEqual([{ timeoutMs: 777 }]);
+  });
+});
+
+describe('buildProbes invariants.resolve — cwd-relative root resolution (#1482)', () => {
+  const originalCwd = process.cwd();
+  afterEach(() => process.chdir(originalCwd));
+
+  // Regression guard for the Seer HIGH finding: the invariants-catalog check
+  // resolved `.exarchos.yml` relative to THIS MODULE, not the user's cwd. In
+  // plugin mode the module lives under `~/.claude/plugins/...` (no
+  // `.exarchos.yml` ancestor), so the check silently Skipped and never
+  // validated the consumer's catalog. CI masked it because the module sits
+  // inside this repo, which HAS a root `.exarchos.yml`.
+  //
+  // This test pins resolution to cwd: from a temp dir with no `.exarchos.yml`
+  // ancestor the resolver must return an empty result. Under the bug,
+  // module-relative resolution would find the in-repo config and report a
+  // non-empty catalog — so this fails RED on the bug, GREEN on the fix.
+  it('Resolve_CwdHasNoExarchosYmlAncestor_ReturnsEmptyNotInRepoCatalog', async () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'exarchos-no-cfg-'));
+    process.chdir(tmp);
+    try {
+      const probes = buildProbes(fakeContext());
+      const result = await probes.invariants.resolve();
+      expect(result.entryCount).toBe(0);
+      expect(result.warnings).toEqual([]);
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
   });
 });
