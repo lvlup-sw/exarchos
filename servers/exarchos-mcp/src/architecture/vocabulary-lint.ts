@@ -161,10 +161,24 @@ function walkDirectory(
 }
 
 /**
- * Default scan: walks `docs/`, `skills-src/`, and `commands/` from the repo
- * root and returns aggregated findings. The exclusion list intentionally
- * omits `skills/<runtime>/` (generated content — drift in source surfaces
- * through `skills:guard`).
+ * Default scan: walks the *live normative* invariant-vocabulary surfaces from
+ * the repo root and returns aggregated findings:
+ *
+ *   - `skills-src/` and `commands/` — templated surfaces rendered into skills
+ *     and command bodies that instruct agents using `INV-*` vocabulary.
+ *   - `docs/architecture/` — the catalog itself plus its reference prose.
+ *   - `docs/guides/` — consumer-facing guides that cite `INV-*` IDs.
+ *
+ * It intentionally does NOT walk all of `docs/`. Dated record trees
+ * (`docs/designs/`, `docs/plans/`, `docs/research/`, `docs/rca/`,
+ * `docs/contexts/`, `docs/followups/`, `docs/proposals/`) are point-in-time
+ * artifacts: a token that was valid vocabulary when the doc was written (e.g.
+ * the `DIM-*` axiom dimensions, retired in #1477) should not retroactively
+ * fail the lint forever. Policing only the live surfaces keeps the gate
+ * meaningful — a stale reference in a templated or architecture doc still
+ * surfaces — without churning historical record. (The exclusion also omits
+ * `skills/<runtime>/` generated content; drift there surfaces via
+ * `skills:guard`.)
  */
 export function scanRepoDefaults(
   options: ScanOptions = {},
@@ -172,7 +186,8 @@ export function scanRepoDefaults(
   const root = resolveRepoRoot();
   return scanPaths(
     [
-      path.join(root, 'docs'),
+      path.join(root, 'docs/architecture'),
+      path.join(root, 'docs/guides'),
       path.join(root, 'skills-src'),
       path.join(root, 'commands'),
     ],

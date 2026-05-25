@@ -1,5 +1,16 @@
 # Implementation Plan: Author v3 Dev-Catalog Content (#1466)
 
+> **⚠️ Partially superseded by #1477 (axiom excision), 2026-05-24.** The DIM-*
+> and `axiom_overlap` portions of this plan are obsolete: #1477 excised all 8
+> `DIM-*` entries and the `axiom_overlap` field/loader machinery from the
+> catalog (Option 1). Specifically **void**: Task 8 (Coverage-closure —
+> DIM-4/5/6/8 `coverage: n/a`), every CR/acceptance line referencing
+> `axiom_overlap` or coverage-closure, and the REFACTOR step asserting the
+> `axiom_overlap` accessor is intact. The `schema-version: 2 → 3` bump already
+> landed on `main`. The catalog is now **19 entries** (18 INV-* +
+> `basileus-boundary`). #1478 (catalog content-complete) inherits the 19-entry
+> target — not the DIM-bearing one this plan assumed.
+
 > **Design:** [`docs/designs/2026-05-24-invariants-dev-catalog-v3-content.md`](../designs/2026-05-24-invariants-dev-catalog-v3-content.md)
 > **Stacks on:** PR #1465 (`feature/invariants-projection-extensibility`)
 > **Iron law:** no catalog content lands without a failing test first (loader / projection / gate / lint).

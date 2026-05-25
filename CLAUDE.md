@@ -52,7 +52,7 @@ cd servers/exarchos-mcp && npm run test:run
 
 - Exarchos ships as a **standalone CLI** with optional MCP subcommand and plugin packaging — not as a Claude Code plugin with MCP tools only.
 - New feature designs must follow **agent-first CLI patterns (Aspire-inspired)**, not config-file-centric or human-first designs.
-- Validate all designs against axiom/Aspire/roadmap conventions before presenting.
+- Validate all designs against the invariants catalog (`docs/architecture/invariants.md`), Aspire, and roadmap conventions before presenting.
 
 ## Local Repro & Verification
 

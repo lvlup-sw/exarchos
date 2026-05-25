@@ -87,4 +87,3 @@ The MCP adapter now holds state the CLI adapter doesn't. After a `workflow.set` 
 - Deterministic checks for INV-2 → [deterministic-checks.md](deterministic-checks.md#inv-2-facade-equivalence)
 - [INV-1](INV-1-event-sourcing.md) — stores-as-projections rule (cross-invariant constraint)
 - [INV-5b](INV-5b-output-contract.md) — the canonical `ToolResult` envelope shape
-- DIM-1 Topology overlap — adapter-local mutable state is also a DIM-1 finding
