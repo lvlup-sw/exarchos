@@ -39,6 +39,10 @@ const HEADER = `# .exarchos.yml — Exarchos project configuration.
 // docs/guides/authoring-invariants.md; inspect the resolved catalog with
 // `exarchos view invariants_effective`.
 const INVARIANTS_STANZA = `
+# Architectural invariants (opt-in). Authoring guide:
+# docs/guides/authoring-invariants.md. After uncommenting, validate with
+# \`exarchos doctor\` (invariants-catalog check) and inspect the resolved
+# catalog with the \`invariants_effective\` view.
 # invariants:
 #   # Surface the built-in architectural-invariants dev catalog (INV-*) to
 #   # /ideate and the check_invariant_conformance gate. Default: disabled.
