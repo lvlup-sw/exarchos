@@ -35,7 +35,7 @@ export interface CatalogRegistrationInput {
 export interface WireResult {
   readonly wrote: boolean;
   readonly path: string;
-  readonly reason: 'registered' | 'already-registered';
+  readonly reason: 'registered' | 'already-registered' | 'upgraded';
 }
 
 /**
@@ -53,6 +53,19 @@ function registrationPath(entry: unknown): string | undefined {
 }
 
 /**
+ * Read the declared `tier` of a catalog registration node, or `undefined`. A
+ * bare-string entry has no tier (the resolver treats it as `'user'`); an object
+ * entry carries an explicit `tier` (or omits it, also defaulting to `'user'`).
+ */
+function registrationTier(entry: unknown): 'dev' | 'user' | undefined {
+  if (entry && typeof entry === 'object' && 'tier' in entry) {
+    const t = (entry as { tier: unknown }).tier;
+    return t === 'dev' || t === 'user' ? t : undefined;
+  }
+  return undefined;
+}
+
+/**
  * Append `registration` to `invariants.catalogs` in the `.exarchos.yml` at
  * `ymlPath`, preserving comments. Idempotent: if a registration for the same
  * `path` already exists (in either form), no write occurs.
@@ -65,22 +78,37 @@ export function wireCatalogRegistration(
   const source = deps.exists(ymlPath) ? deps.read(ymlPath) : '';
   const doc: Document = parseDocument(source);
 
-  // Read existing registrations (if any) via the plain JS projection so the
-  // dedupe check is shape-tolerant (bare string OR { path, tier }).
-  const existing = doc.getIn(['invariants', 'catalogs']) as unknown;
-  const existingPaths: string[] = [];
-  if (existing && typeof (existing as { toJSON?: unknown }).toJSON === 'function') {
-    const arr = (existing as { toJSON: () => unknown }).toJSON();
-    if (Array.isArray(arr)) {
-      for (const e of arr) {
-        const p = registrationPath(e);
-        if (p !== undefined) existingPaths.push(p);
+  // Dedupe / upgrade on the live `catalogs` YAMLSeq so we can mutate an
+  // existing entry IN PLACE (preserving its position and any sibling comments).
+  // The dedupe is keyed on `path` only; if a same-path entry exists with a
+  // DIFFERENT tier, we UPGRADE it to the requested tier rather than skipping —
+  // otherwise a path first registered as `tier: 'user'` could never be promoted
+  // to `tier: 'dev'`. This mirrors the in-place upgrade in
+  // `resolveCatalogSources` (#1487 review — LOW). When path+tier already match,
+  // it is a no-op (idempotent).
+  const existingSeq = doc.getIn(['invariants', 'catalogs'], true) as unknown;
+  if (isSeq(existingSeq)) {
+    for (const item of (existingSeq as YAMLSeq).items) {
+      const json = (item as { toJSON?: () => unknown }).toJSON?.() ?? item;
+      if (registrationPath(json) !== registration.path) continue;
+      // Same path. The resolver treats an absent tier (bare-string or
+      // tier-less object) as `'user'`, so compare against that effective tier;
+      // when it already matches the request, this is a no-op (idempotent) and
+      // we leave the bare-string/tier-less form untouched (no spurious write).
+      const effectiveTier = registrationTier(json) ?? 'user';
+      if (effectiveTier === registration.tier) {
+        return { wrote: false, path: ymlPath, reason: 'already-registered' };
       }
+      // Same path, different (or absent) tier — upgrade in place. Replace the
+      // node with the requested `{ path, tier }` object form. A bare-string
+      // entry is likewise promoted to the object form so its tier is explicit.
+      (existingSeq as YAMLSeq).set(
+        (existingSeq as YAMLSeq).items.indexOf(item),
+        doc.createNode({ path: registration.path, tier: registration.tier }),
+      );
+      deps.write(ymlPath, doc.toString());
+      return { wrote: true, path: ymlPath, reason: 'upgraded' };
     }
-  }
-
-  if (existingPaths.includes(registration.path)) {
-    return { wrote: false, path: ymlPath, reason: 'already-registered' };
   }
 
   // Ensure invariants.catalogs is a YAMLSeq before appending. A missing node

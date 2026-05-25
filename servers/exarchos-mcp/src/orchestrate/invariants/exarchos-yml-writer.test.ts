@@ -157,4 +157,47 @@ test: npm test
     // And the new registration is present.
     expect(yml).toMatch(/docs\/architecture\/my-invariants\.md/);
   });
+
+  it('WireCatalog_SamePathDifferentTier_UpgradesInPlace', () => {
+    // #1487 review (LOW): the dedupe was keyed on path ONLY, so a path already
+    // registered as `tier: user` blocked a later `tier: dev` registration for
+    // the same path. Mirror the in-place upgrade in resolveCatalogSources:
+    // match on path, and if an existing same-path entry has a DIFFERENT tier,
+    // upgrade it in place to the requested tier rather than skipping.
+    const seed =
+      'invariants:\n  catalogs:\n    - { path: .exarchos/invariants.md, tier: user }\n';
+    const fake = makeFakeFs({ [YML]: seed });
+
+    const result = wireCatalogRegistration(
+      YML,
+      { path: '.exarchos/invariants.md', tier: 'dev' },
+      fake.deps,
+    );
+
+    expect(result.wrote).toBe(true);
+    expect(result.reason).toBe('upgraded');
+    const yml = fake.files.get(YML)!;
+    // The entry's tier becomes dev (not a duplicate, not skipped).
+    expect(yml).toMatch(/tier: dev/);
+    expect(yml).not.toMatch(/tier: user/);
+    // Single registration for that path — no duplicate appended.
+    expect(yml.match(/\.exarchos\/invariants\.md/g)?.length).toBe(1);
+  });
+
+  it('WireCatalog_SamePathSameTier_NoOp', () => {
+    // Idempotent: path+tier already match → no write.
+    const seed =
+      'invariants:\n  catalogs:\n    - { path: .exarchos/invariants.md, tier: dev }\n';
+    const fake = makeFakeFs({ [YML]: seed });
+
+    const result = wireCatalogRegistration(
+      YML,
+      { path: '.exarchos/invariants.md', tier: 'dev' },
+      fake.deps,
+    );
+
+    expect(result.wrote).toBe(false);
+    expect(result.reason).toBe('already-registered');
+    expect(fake.writes.length).toBe(0);
+  });
 });
