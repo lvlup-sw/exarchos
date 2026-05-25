@@ -24,6 +24,7 @@ export const CheckCategorySchema = z.enum([
   'plugin',
   'env',
   'remote',
+  'invariants',
 ]);
 
 export const CheckResultSchema = z

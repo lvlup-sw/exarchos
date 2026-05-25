@@ -63,7 +63,6 @@ invariants:
       - "SQLite WAL documentation: https://sqlite.org/wal.html"
     references:
       - servers/exarchos-mcp/src/event-store/atomic-appender.ts
-      - servers/exarchos-mcp/src/event-store/stream-lock-manager.ts
       - docs/architecture/runtime.md#§4
 
   - id: INV-8
@@ -87,7 +86,7 @@ invariants:
       - "Greg Young, *Versioning in an Event Sourced System* (Leanpub): https://leanpub.com/esversioning"
     references:
       - servers/exarchos-mcp/src/event-store/atomic-appender.ts
-      - servers/exarchos-mcp/src/dispatch/with-session.ts
+      - docs/architecture/runtime.md#§4
 
   - id: INV-9
     dimension: hsm-as-state-machine
@@ -109,7 +108,7 @@ invariants:
       - "Wolverine [AggregateHandler] workflow (Miller 2023): https://jeremydmiller.com/2023/12/06/building-a-critter-stack-application-wolverines-aggregate-handler-workflow-ftw/"
     references:
       - servers/exarchos-mcp/src/topology/phase-contract.ts
-      - servers/exarchos-mcp/src/hsm/
+      - servers/exarchos-mcp/src/workflow/hsm-definitions.ts
       - docs/architecture/runtime.md#§3-L4
 
   - id: INV-10
@@ -230,7 +229,7 @@ invariants:
       - "Greg Young, *Why Event Sourced Systems Fail*: https://www.youtube.com/watch?v=FKFu78ZEIi8"
     references:
       - servers/exarchos-mcp/src/orchestrate/merge-orchestrate.ts
-      - servers/exarchos-mcp/src/dispatch/with-session.ts
+      - servers/exarchos-mcp/src/event-store/atomic-appender.ts
       - docs/architecture/runtime.md#§4-process-manager-handlers
 
   - id: INV-14
@@ -323,6 +322,10 @@ invariants:
       ToolResult. Adapters carry zero behavior — only presentation. Post-#1266,
       every action also registers a Zod outputSchema so parity is schema-checked
       in addition to byte-checked.
+    citations:
+      - "Alistair Cockburn, *Hexagonal Architecture (Ports & Adapters)* (2005): https://alistair.cockburn.us/hexagonal-architecture/"
+      - "Martin Fowler, *PresentationDomainDataLayering* (2015): https://martinfowler.com/bliki/PresentationDomainDataLayering.html"
+      - "Anthropic, *Model Context Protocol — Tools* (2024): https://modelcontextprotocol.io/specification/2025-06-18/server/tools"
     references:
       - docs/architecture/invariants/references/INV-2-facade-equivalence.md
       - servers/exarchos-mcp/src/orchestrate/check-invariant-conformance.ts
@@ -353,6 +356,10 @@ invariants:
       discovery prefers the MCP roots capability over cwd heuristics
       (post-#1269). The remote-MCP surface throws-not-degrades when called
       (#1081).
+    citations:
+      - "Jim Waldo et al., *A Note on Distributed Computing* (Sun Microsystems 1994): https://web.archive.org/web/2020/https://scholar.harvard.edu/files/waldo/files/waldo-94.pdf"
+      - "Anthropic, *Model Context Protocol — Transports* (2025): https://modelcontextprotocol.io/specification/2025-06-18/basic/transports"
+      - "Martin Fowler, *Patterns of Enterprise Application Architecture* — Remote Facade (Addison-Wesley 2002): https://martinfowler.com/eaaCatalog/remoteFacade.html"
     references:
       - docs/architecture/invariants/references/INV-3-basileus-forward.md
       - servers/exarchos-mcp/src/orchestrate/check-invariant-conformance.ts
@@ -398,6 +405,10 @@ invariants:
       INV-4 owns the *platform* axis (6 runtimes); INV-6 owns the orthogonal
       *workload* axis (workflow types). The two are complementary substrate
       properties — substrate guarantees hold across both axes.
+    citations:
+      - "Andrew Hunt & David Thomas, *The Pragmatic Programmer* — DRY / Single Source of Truth (Addison-Wesley 1999): https://pragprog.com/titles/tpp20/the-pragmatic-programmer-20th-anniversary-edition/"
+      - "Anthropic, *Agent Skills* (2025): https://docs.anthropic.com/en/docs/agents-and-tools/agent-skills/overview"
+      - "Anthropic, *Model Context Protocol — Architecture* (2025): https://modelcontextprotocol.io/specification/2025-06-18/architecture"
     references:
       - docs/architecture/invariants/references/INV-4-platform-agnosticity.md
       - servers/exarchos-mcp/src/orchestrate/check-invariant-conformance.ts
@@ -427,6 +438,10 @@ invariants:
       via prose hints. Every tool description states when NOT to use the tool
       with a pointer to the alternative. Visible tool count stays under 15.
       Static reference content is exposed as MCP Resources, not tools.
+    citations:
+      - "Anthropic, *Model Context Protocol — Tools* (2025): https://modelcontextprotocol.io/specification/2025-06-18/server/tools"
+      - "Anthropic, *Writing effective tools for agents* (2025): https://www.anthropic.com/engineering/writing-tools-for-agents"
+      - "JSON Schema, *Validation* (draft 2020-12): https://json-schema.org/draft/2020-12/json-schema-validation"
     references:
       - docs/architecture/invariants/references/INV-5a-input-ergonomics.md
       - servers/exarchos-mcp/src/orchestrate/check-invariant-conformance.ts
@@ -449,6 +464,10 @@ invariants:
       registered outputSchema per action; long-running ops use Tasks (SEP-1686)
       not NDJSON. The affordance-as-perceived semantics of next_actions live
       in INV-12.
+    citations:
+      - "Anthropic, *Model Context Protocol — Tools (structured content & output schema)* (2025): https://modelcontextprotocol.io/specification/2025-06-18/server/tools#structured-content"
+      - "David L. Parnas, *On the Criteria To Be Used in Decomposing Systems into Modules* (CACM 1972): https://dl.acm.org/doi/10.1145/361598.361623"
+      - "JSON Schema, *Validation* (draft 2020-12): https://json-schema.org/draft/2020-12/json-schema-validation"
     references:
       - docs/architecture/invariants/references/INV-5b-output-contract.md
       - servers/exarchos-mcp/src/orchestrate/check-invariant-conformance.ts
@@ -469,6 +488,10 @@ invariants:
       dry-run-capable, JSON-explicit control-plane verbs. Agents query state;
       they don't drive scripts. ps / describe / wait / export are observation
       verbs; mutating verbs default to --dry-run.
+    citations:
+      - "Microsoft, *.NET Aspire overview* (2024): https://learn.microsoft.com/en-us/dotnet/aspire/get-started/aspire-overview"
+      - "Kubernetes, *kubectl --dry-run server-side apply* (2024): https://kubernetes.io/docs/reference/using-api/server-side-apply/"
+      - "Adam Wiggins, *The Twelve-Factor App — Admin processes* (2017): https://12factor.net/admin-processes"
     references:
       - docs/architecture/invariants/references/INV-5c-aspire-verbs.md
       - servers/exarchos-mcp/src/orchestrate/check-invariant-conformance.ts
