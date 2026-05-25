@@ -102,9 +102,6 @@ export function buildConfigDescription(config: ResolvedProjectConfig) {
       models: annotate(config.agents.models, DEFAULTS.agents.models),
     },
     plugins: {
-      axiom: {
-        enabled: annotate(config.plugins.axiom.enabled, DEFAULTS.plugins.axiom.enabled),
-      },
       impeccable: {
         enabled: annotate(config.plugins.impeccable.enabled, DEFAULTS.plugins.impeccable.enabled),
       },

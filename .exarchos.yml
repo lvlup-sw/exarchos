@@ -29,8 +29,6 @@ tools:
   pr-strategy: github-native
 
 plugins:
-  axiom:
-    enabled: true
   impeccable:
     enabled: true
 
