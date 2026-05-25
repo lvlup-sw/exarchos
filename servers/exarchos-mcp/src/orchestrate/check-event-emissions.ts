@@ -86,7 +86,8 @@ const EVENT_DESCRIPTIONS: Readonly<Record<string, string>> = {
   'team.task.planned': 'Emit team.task.planned via exarchos_event for each planned task',
   'team.teammate.dispatched': 'Emit team.teammate.dispatched via exarchos_event after dispatching subagents',
   'team.disbanded': 'Emit team.disbanded via exarchos_event after all teammates complete',
-  'review.routed': 'Emit review.routed via exarchos_event after routing PRs to review',
+  // review.routed description removed in RC2 (#1395): now auto-emitted, never a
+  // model-emitted hint, so its description is dead. DIM-5 hygiene.
   'stack.submitted': 'Emit stack.submitted via exarchos_event after submitting the PR stack',
   'shepherd.iteration': 'Emit shepherd.iteration via exarchos_event after each shepherd loop iteration',
   'task.progressed': 'Emit task.progressed via exarchos_event after each TDD phase transition (red/green/refactor)',
