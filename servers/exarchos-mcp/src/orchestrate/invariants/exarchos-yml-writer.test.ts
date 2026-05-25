@@ -103,6 +103,35 @@ describe('wireCatalogRegistration', () => {
     expect(result.reason).toBe('already-registered');
   });
 
+  it('WireCatalog_NonSequenceCatalogsNode_WrapsAndAppends', () => {
+    // #1487 review: a malformed `invariants.catalogs` that is a non-sequence
+    // (scalar/map) value must not throw on `.add`. The writer wraps the prior
+    // value into a fresh sequence, then appends the new registration.
+    const seed = 'invariants:\n  catalogs: legacy-string-value\n';
+    const fake = makeFakeFs({ [YML]: seed });
+
+    expect(() =>
+      wireCatalogRegistration(
+        YML,
+        { path: 'docs/architecture/my-invariants.md', tier: 'user' },
+        fake.deps,
+      ),
+    ).not.toThrow();
+
+    const result = wireCatalogRegistration(
+      YML,
+      { path: 'docs/architecture/another.md', tier: 'user' },
+      fake.deps,
+    );
+    expect(result.wrote).toBe(true);
+    const yml = fake.files.get(YML)!;
+    // The prior scalar is preserved as the first sequence element, and the
+    // new registration is appended.
+    expect(yml).toMatch(/legacy-string-value/);
+    expect(yml).toMatch(/docs\/architecture\/my-invariants\.md/);
+    expect(yml).toMatch(/docs\/architecture\/another\.md/);
+  });
+
   it('WireCatalog_PreservesComments', () => {
     const seed = `# .exarchos.yml header comment — MUST survive.
 test: npm test

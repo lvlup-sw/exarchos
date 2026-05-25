@@ -348,6 +348,34 @@ describe('handleAdd — T9 commit', () => {
     expect(types).not.toContain('catalog.registered');
   });
 
+  it('handleAdd_Commit_NonSequenceInvariantsNode_NormalizesAndAppends', async () => {
+    // #1487 review: a malformed catalog whose `invariants:` is a non-sequence
+    // (scalar/map) must not throw a raw TypeError on `.add`. The handler resets
+    // the node to an empty sequence, then appends the validated entry.
+    const fake = makeFakeFs({
+      '/repo/docs/architecture/my-invariants.md': 'invariants: not-a-list\n',
+    });
+    const { ctx } = makeCtx();
+
+    const result = await handleAdd(
+      {
+        repoRoot: '/repo',
+        catalog: 'docs/architecture/my-invariants.md',
+        tier: 'user',
+        entry: { ...VALID_AUDIT_ENTRY },
+        dryRun: false,
+      },
+      ctx,
+      fake.deps,
+    );
+
+    expect(result.success).toBe(true);
+    expect((result.data as { committed: boolean }).committed).toBe(true);
+    const written = fake.files.get('/repo/docs/architecture/my-invariants.md')!;
+    expect(written).toMatch(/id: U-1/);
+    expect(written).toMatch(/mode: audit/);
+  });
+
   it('handleAdd_DevTier_UsesInvNamespace', async () => {
     const fake = makeFakeFs({
       '/repo/.exarchos/invariants.md': 'invariants: []\n',

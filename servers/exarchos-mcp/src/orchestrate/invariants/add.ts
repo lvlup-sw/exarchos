@@ -20,7 +20,8 @@
  */
 import * as path from 'node:path';
 import { z } from 'zod';
-import { parseDocument, stringify as stringifyYaml } from 'yaml';
+import { parseDocument, stringify as stringifyYaml, isSeq } from 'yaml';
+import type { YAMLSeq } from 'yaml';
 
 import type { DispatchContext } from '../../core/dispatch.js';
 import type { ToolResult } from '../../format.js';
@@ -227,13 +228,22 @@ export async function handleAdd(
   }
 
   // ── Commit path ──
-  // Append the validated entry to the catalog's `invariants:` list.
+  // Append the validated entry to the catalog's `invariants:` list. Normalize
+  // a missing/null/non-sequence `invariants` node to an empty YAMLSeq first:
+  // calling `.add` on a scalar/map node (e.g. a malformed `invariants: {}` or
+  // `invariants: foo`) would throw a raw TypeError. Reset such a node to an
+  // empty sequence so the append always lands on a real list (robustness —
+  // #1487 review).
   const doc = parseDocument(catalogContents);
-  if (!doc.has('invariants') || doc.get('invariants') === null) {
-    doc.set('invariants', []);
+  let list = doc.get('invariants', true) as unknown;
+  if (!isSeq(list)) {
+    // `doc.set('invariants', [])` would store a plain JS array (no `.add`);
+    // `createNode` yields a real YAMLSeq the append can land on.
+    const seq = doc.createNode([]);
+    doc.set('invariants', seq);
+    list = doc.get('invariants', true) as unknown;
   }
-  const list = doc.get('invariants') as { add: (v: unknown) => void };
-  list.add(validated);
+  (list as YAMLSeq).add(validated);
   deps.write(catalogAbs, doc.toString());
 
   // Wire the catalog into `.exarchos.yml` if unregistered (INV-1 first-time

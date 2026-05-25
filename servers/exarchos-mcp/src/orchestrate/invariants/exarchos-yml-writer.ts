@@ -15,7 +15,7 @@
  *
  * Pure-by-default: all fs access flows through injected `YmlWriterDeps`.
  */
-import { parseDocument } from 'yaml';
+import { parseDocument, isSeq } from 'yaml';
 import type { Document, YAMLSeq } from 'yaml';
 
 /** Injected fs hooks (tests substitute in-memory implementations). */
@@ -83,11 +83,25 @@ export function wireCatalogRegistration(
     return { wrote: false, path: ymlPath, reason: 'already-registered' };
   }
 
-  // Ensure invariants.catalogs is a sequence, then append the new object.
-  if (!doc.hasIn(['invariants', 'catalogs'])) {
-    doc.setIn(['invariants', 'catalogs'], []);
+  // Ensure invariants.catalogs is a YAMLSeq before appending. A missing node
+  // is created as an empty sequence; a non-sequence existing value (scalar or
+  // map — e.g. a malformed `catalogs: ""` or `catalogs: {}`) is wrapped into a
+  // fresh sequence preserving the prior value as the first element, so `.add`
+  // never throws on a non-sequence node (robustness — #1487 review).
+  let catalogsNode = doc.getIn(['invariants', 'catalogs'], true) as unknown;
+  if (!isSeq(catalogsNode)) {
+    // Build the replacement via `createNode` so it is a real YAMLSeq (a plain
+    // JS array stored through `setIn` over an existing parent map lacks `.add`).
+    // A non-sequence existing value (scalar/map) is preserved as the first
+    // element; a missing node becomes an empty sequence.
+    const prior =
+      catalogsNode === undefined || catalogsNode === null
+        ? []
+        : [doc.getIn(['invariants', 'catalogs'])];
+    doc.setIn(['invariants', 'catalogs'], doc.createNode(prior));
+    catalogsNode = doc.getIn(['invariants', 'catalogs'], true) as unknown;
   }
-  const catalogs = doc.getIn(['invariants', 'catalogs']) as YAMLSeq;
+  const catalogs = catalogsNode as YAMLSeq;
   catalogs.add({ path: registration.path, tier: registration.tier });
 
   deps.write(ymlPath, doc.toString());
