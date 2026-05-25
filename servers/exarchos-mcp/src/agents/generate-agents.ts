@@ -31,7 +31,15 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 
 import type { Capability } from './capabilities.js';
-import { ALL_AGENT_SPECS, IMPLEMENTER, FIXER, REVIEWER, SCAFFOLDER } from './definitions.js';
+import {
+  ALL_AGENT_SPECS,
+  IMPLEMENTER,
+  FIXER,
+  REVIEWER,
+  SCAFFOLDER,
+  TEST_COMMAND_PLACEHOLDER,
+} from './definitions.js';
+import { resolveTestRuntime } from '../config/test-runtime-resolver.js';
 import { resolveCapabilities } from '../capabilities/posture-mapping.js';
 import type { AgentSpec, AgentSpecId } from './types.js';
 import { claudeAdapter } from './adapters/claude.js';
@@ -135,6 +143,55 @@ export class GenerateAgentsError extends Error {
 }
 
 // ─── Internal helpers ──────────────────────────────────────────────────────
+
+/**
+ * Documented fallback test command (#1470). Used when the project has no
+ * `.exarchos.yml` test command and no detectable project marker. npm survives
+ * ONLY here, as the fallback — the agent specs carry the toolchain-neutral
+ * `{{testCommand}}` placeholder instead of a hardcoded npm invocation.
+ */
+const DEFAULT_TEST_COMMAND = 'npm run test:run';
+
+/**
+ * Resolve the project's test command for `outputRoot` via the test-runtime
+ * resolver (reads `.exarchos.yml` / detects project markers). Returns
+ * `DEFAULT_TEST_COMMAND` when resolution yields nothing.
+ */
+function resolveProjectTestCommand(outputRoot: string): string {
+  try {
+    const resolved = resolveTestRuntime(outputRoot);
+    if (resolved.test && resolved.test.trim().length > 0) {
+      return resolved.test;
+    }
+  } catch {
+    // Resolution failure (no markers, unreadable config) → documented default.
+  }
+  return DEFAULT_TEST_COMMAND;
+}
+
+/**
+ * Substitute the `{{testCommand}}` placeholder in a spec's validation-rule
+ * commands with the resolved project test command. Returns a shallow-cloned
+ * spec when any substitution occurs; otherwise returns the spec unchanged so
+ * specs without the placeholder are not needlessly copied.
+ */
+function resolveTestCommandPlaceholder(
+  spec: AgentSpec,
+  outputRoot: string,
+): AgentSpec {
+  const hasPlaceholder = (spec.validationRules ?? []).some(
+    (r) => typeof r.command === 'string' && r.command.includes(TEST_COMMAND_PLACEHOLDER),
+  );
+  if (!hasPlaceholder) return spec;
+
+  const testCommand = resolveProjectTestCommand(outputRoot);
+  const validationRules = spec.validationRules.map((r) =>
+    typeof r.command === 'string' && r.command.includes(TEST_COMMAND_PLACEHOLDER)
+      ? { ...r, command: r.command.split(TEST_COMMAND_PLACEHOLDER).join(testCommand) }
+      : r,
+  );
+  return { ...spec, validationRules };
+}
 
 /**
  * Sort caller-provided adapters into canonical `RUNTIMES` order so
@@ -309,6 +366,14 @@ export function generateAgents(
     throw new GenerateAgentsError(failures);
   }
 
+  // 1a. #1470: resolve the toolchain-neutral `{{testCommand}}` placeholder in
+  //     validation-rule commands. The value is read from the project's
+  //     `.exarchos.yml` test command (resolveTestRuntime), falling back to the
+  //     documented default `npm run test:run` when no config/marker is found.
+  //     Done once, before lowering, so every runtime artifact carries the same
+  //     resolved command.
+  const resolvedSpecs = specs.map((s) => resolveTestCommandPlaceholder(s, outputRoot));
+
   // 1b. Plugin manifest preflight. The Claude plugin manifest update
   //     happens after artifact writes today, but discovering a missing
   //     or invalid manifest at that point leaves the tree partially
@@ -335,7 +400,7 @@ export function generateAgents(
   const filesWritten: string[] = [];
   const newlyCreatedArtifacts: string[] = [];
   for (const adapter of adapters) {
-    for (const spec of specs) {
+    for (const spec of resolvedSpecs) {
       const lowered = adapter.lowerSpec(spec);
       const absPath = path.resolve(outputRoot, lowered.path);
       const rel = path.relative(resolvedRoot, absPath);

@@ -156,9 +156,20 @@ describe('generateAgents', () => {
     });
 
     // Confirm generator is a thin orchestrator: output must equal the
-    // adapter's `lowerSpec(spec).contents` byte-for-byte. Pick the
-    // Claude/IMPLEMENTER pair as the canonical regression check.
-    const expectedContents = claudeAdapter.lowerSpec(IMPLEMENTER).contents;
+    // adapter's `lowerSpec(spec).contents` byte-for-byte AFTER the #1470
+    // {{testCommand}} placeholder is resolved. The temp `outputRoot` has no
+    // `.exarchos.yml`, so the placeholder resolves to the documented default
+    // `npm run test:run`. Pick the Claude/IMPLEMENTER pair as the canonical
+    // regression check.
+    const resolvedImplementer: AgentSpec = {
+      ...IMPLEMENTER,
+      validationRules: IMPLEMENTER.validationRules.map((r) =>
+        typeof r.command === 'string'
+          ? { ...r, command: r.command.split('{{testCommand}}').join('npm run test:run') }
+          : r,
+      ),
+    };
+    const expectedContents = claudeAdapter.lowerSpec(resolvedImplementer).contents;
     const written = fs.readFileSync(
       path.join(tmp, claudeAdapter.agentFilePath(IMPLEMENTER.id)),
       'utf-8',

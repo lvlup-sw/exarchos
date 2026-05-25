@@ -32,7 +32,7 @@ hooks:
     - matcher: Bash
       hooks:
         - type: command
-          command: npm --prefix "$(git rev-parse --show-toplevel)" run test:run
+          command: "{{testCommand}}"
 ---
 
 You are a fixer agent working in an isolated worktree. Your job is to diagnose and repair failures.

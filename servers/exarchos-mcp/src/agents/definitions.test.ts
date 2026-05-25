@@ -160,19 +160,33 @@ describe('AgentSpec capability declarations', () => {
     expect(setupSection).toMatch(/Set-Location/);
   });
 
-  // Issue #1192 Item 4 (T26): every spec with a post-test validationRule must
-  // anchor its command to the git toplevel. Bare `npm run test:run` would
-  // execute against whatever shell cwd the agent has drifted to — anchoring
-  // via $(git rev-parse --show-toplevel) ensures the worktree is what's tested.
-  it('Hooks_PostTestCommand_IsGitToplevelAnchored', () => {
+  // #1470 (T12): post-test validation commands must be toolchain-neutral and
+  // config-driven. The command resolves the project test command from
+  // `.exarchos.yml` via the `{{testCommand}}` placeholder rather than
+  // hardcoding `npm --prefix ... run test:run`. npm survives ONLY as a
+  // documented fallback default — not as the literal baked into the spec.
+  it('Hooks_PostTestCommand_UsesTestCommandPlaceholder_NotHardcodedNpm', () => {
     for (const spec of ALL_AGENT_SPECS) {
       const postTestRules = (spec.validationRules ?? []).filter(
         (r) => r.trigger === 'post-test' && typeof r.command === 'string',
       );
       for (const rule of postTestRules) {
-        expect(rule.command, `${spec.id} post-test command must anchor to git toplevel`).toContain(
-          '$(git rev-parse --show-toplevel)',
+        const cmd = rule.command as string;
+        // Must parameterize via the {{testCommand}} placeholder.
+        expect(cmd, `${spec.id} post-test command must use {{testCommand}}`).toContain(
+          '{{testCommand}}',
         );
+        // Must NOT hardcode the npm prefix invocation.
+        expect(
+          cmd.includes('npm --prefix'),
+          `${spec.id} post-test command must not hardcode 'npm --prefix': ${cmd}`,
+        ).toBe(false);
+        // Must NOT bake in `npm run test:run` as the literal command — npm is
+        // a documented fallback, resolved from config, not hardcoded here.
+        expect(
+          cmd.includes('npm run test:run'),
+          `${spec.id} post-test command must not hardcode 'npm run test:run': ${cmd}`,
+        ).toBe(false);
       }
     }
   });

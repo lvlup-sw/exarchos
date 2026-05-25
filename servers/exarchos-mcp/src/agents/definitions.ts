@@ -15,6 +15,19 @@
 
 import type { AgentSpec } from './types.js';
 
+// ─── Toolchain-neutral, config-driven test command ─────────────────────────
+//
+// #1470 (T12): the post-test validation command must NOT hardcode npm. The
+// `{{testCommand}}` placeholder is resolved at agent-generation time from the
+// project's `.exarchos.yml` (via the test-runtime resolver); when no project
+// marker / config is found it falls back to the documented default
+// `npm run test:run`. This keeps the command toolchain-agnostic (Cargo,
+// pytest, dotnet, …) instead of assuming a Node/npm project.
+//
+// The placeholder is the single source of truth so the substitution pass in
+// generate-agents.ts and the delegation reference prompts stay in sync.
+export const TEST_COMMAND_PLACEHOLDER = '{{testCommand}}';
+
 // ─── Shared worktree-entry contract ─────────────────────────────────────────
 //
 // Every isolated agent (IMPLEMENTER, FIXER, SCAFFOLDER) must boot into the
@@ -155,7 +168,7 @@ When done, output a JSON completion report:
   ],
   validationRules: [
     { trigger: 'pre-write', rule: 'Test file must exist before implementation file is written' },
-    { trigger: 'post-test', rule: 'All tests must pass', command: 'npm --prefix "$(git rev-parse --show-toplevel)" run test:run' },
+    { trigger: 'post-test', rule: 'All tests must pass', command: TEST_COMMAND_PLACEHOLDER },
   ],
   resumable: true,
   memoryScope: 'project',
@@ -222,7 +235,7 @@ When done, output a JSON completion report:
     { name: 'tdd-patterns', content: '' },
   ],
   validationRules: [
-    { trigger: 'post-test', rule: 'All tests must pass after fix', command: 'npm --prefix "$(git rev-parse --show-toplevel)" run test:run' },
+    { trigger: 'post-test', rule: 'All tests must pass after fix', command: TEST_COMMAND_PLACEHOLDER },
   ],
   resumable: false,
   mcpServers: ['exarchos'],
