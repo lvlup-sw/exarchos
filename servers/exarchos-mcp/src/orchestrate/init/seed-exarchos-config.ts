@@ -32,6 +32,23 @@ const HEADER = `# .exarchos.yml — Exarchos project configuration.
 # Docs: https://github.com/lvlup-sw/exarchos/issues/1199
 `;
 
+// Commented onboarding stanza for the architectural-invariants surface
+// (#1479). Emitted as comments so seeding documents the opt-in WITHOUT
+// changing behaviour: the dev catalog stays effectively disabled until the
+// operator uncomments the block. Authoring guide:
+// docs/guides/authoring-invariants.md; inspect the resolved catalog with
+// `exarchos view invariants_effective`.
+const INVARIANTS_STANZA = `
+# invariants:
+#   # Surface the built-in architectural-invariants dev catalog (INV-*) to
+#   # /ideate and the check_invariant_conformance gate. Default: disabled.
+#   devCatalog: disabled
+#   # Layer your own catalog files on top of the built-ins (paths relative to
+#   # this file). User ids must NOT reuse the reserved INV-* / SDLC-* prefixes.
+#   catalogs:
+#     - docs/architecture/my-invariants.md
+`;
+
 export interface SeedResult {
   /** Did we write a new config file? */
   wrote: boolean;
@@ -82,7 +99,7 @@ export function seedExarchosConfig(
   if (result.install !== null) body.install = result.install;
 
   const yamlBody = stringifyYaml(body);
-  const contents = HEADER + yamlBody;
+  const contents = HEADER + yamlBody + INVARIANTS_STANZA;
 
   write(target, contents);
 
