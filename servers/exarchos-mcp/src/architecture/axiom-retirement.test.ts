@@ -43,7 +43,14 @@ const FUNCTIONAL_PATTERNS: { label: string; re: RegExp }[] = [
 
 function isCommentLine(line: string): boolean {
   const t = line.trimStart();
-  return t.startsWith('//') || t.startsWith('*') || t.startsWith('/*');
+  // `#` covers YAML comments (e.g. `# axiom_overlap: removed in #1477`) and
+  // markdown headings — both scanned here as .yml/.yaml/.md. //, *, /* cover TS.
+  return (
+    t.startsWith('//') ||
+    t.startsWith('*') ||
+    t.startsWith('/*') ||
+    t.startsWith('#')
+  );
 }
 
 function* walk(root: string): Generator<string> {
@@ -102,6 +109,7 @@ describe('axiom retirement (#1477)', () => {
   });
 
   it('ExarchosYml_NoPluginsAxiomBlock_Removed', () => {
+    expect(fs.existsSync(CONFIG_FILE), '.exarchos.yml must exist').toBe(true);
     const yml = fs.readFileSync(CONFIG_FILE, 'utf8');
     expect(/plugins\s*:[\s\S]*?\baxiom\s*:/.test(yml)).toBe(false);
   });

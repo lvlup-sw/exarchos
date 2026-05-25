@@ -589,7 +589,7 @@ The catalog gates behind the `.exarchos.yml: invariants.devCatalog: enabled` fla
 
 ## Vocabulary
 
-The vocabulary-lint scanner (`servers/exarchos-mcp/src/architecture/vocabulary-lint.ts`, exposed via `npm run lint:invariants`) walks `docs/`, `skills-src/`, and `commands/` for tokens matching `/\b(INV-\d+[a-d]?|DIM-\d+)\b/` and cross-checks against the IDs declared here. Unknown references surface as findings; the vocabulary lint is enforcing (exits non-zero on findings).
+The vocabulary-lint scanner (`servers/exarchos-mcp/src/architecture/vocabulary-lint.ts`, exposed via `npm run lint:invariants`) walks the live normative surfaces — `docs/architecture/`, `docs/guides/`, `skills-src/`, and `commands/` — for tokens matching `/\b(INV-\d+[a-d]?|DIM-\d+)\b/` and cross-checks against the IDs declared here. Dated record trees under `docs/` (designs, plans, research, rca, contexts, followups, proposals) are intentionally out of scope so retired vocabulary (e.g. the `DIM-*` dimensions removed in #1477) does not fail the lint forever; the `DIM-\d+` shape is retained in the regex so a stray reference in a live surface still surfaces. Unknown references are findings; the vocabulary lint is enforcing (exits non-zero on findings).
 
 ## Consumers
 

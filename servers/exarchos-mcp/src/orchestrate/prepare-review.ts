@@ -24,7 +24,7 @@ interface PrepareReviewArgs {
 const FINDING_FORMAT = `interface PluginFinding {
   source: string;        // "catalog" | "impeccable" | custom
   severity: "HIGH" | "MEDIUM" | "LOW";
-  dimension?: string;    // e.g., "error-handling", "DIM-1"
+  dimension?: string;    // e.g., "error-handling"
   file?: string;
   line?: number;
   message: string;
