@@ -64,6 +64,11 @@ function* walk(root: string): Generator<string> {
   }
 }
 
+// Block-style YAML reintroduction (`plugins:\n  axiom:`) spans lines, so the
+// line-anchored patterns above cannot see it. This whole-file regex catches it
+// in any scanned `.yml`/`.yaml` (not just `.exarchos.yml`).
+const PLUGINS_AXIOM_YAML_BLOCK = /plugins\s*:[\s\S]*?\baxiom\s*:/;
+
 function findFunctionalAxiomRefs(): string[] {
   const hits: string[] = [];
   const files = [...SCAN_ROOTS].flatMap((r) => [...walk(r)]);
@@ -71,8 +76,11 @@ function findFunctionalAxiomRefs(): string[] {
   for (const file of files) {
     // This guard file itself names the patterns it forbids; skip it.
     if (file === fileURLToPath(import.meta.url)) continue;
-    const lines = fs.readFileSync(file, 'utf8').split('\n');
-    lines.forEach((line, i) => {
+    const content = fs.readFileSync(file, 'utf8');
+    if (/\.(ya?ml)$/.test(file) && PLUGINS_AXIOM_YAML_BLOCK.test(content)) {
+      hits.push(`${path.relative(REPO_ROOT, file)} [plugins.axiom YAML block]`);
+    }
+    content.split('\n').forEach((line, i) => {
       if (isCommentLine(line)) return;
       for (const { label, re } of FUNCTIONAL_PATTERNS) {
         if (re.test(line)) {
