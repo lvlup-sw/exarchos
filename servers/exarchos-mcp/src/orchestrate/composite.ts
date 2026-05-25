@@ -85,6 +85,11 @@ import type { HandleCreateIssueArgs } from './vcs/create-issue.js';
 import { createVcsProvider } from '../vcs/factory.js';
 import { handleInit } from './init/index.js';
 import { handleMergeOrchestrate } from './merge-orchestrate.js';
+import { handleScaffold } from './invariants/scaffold.js';
+import type { HandleScaffoldArgs } from './invariants/scaffold.js';
+import { handleAdd } from './invariants/add.js';
+import type { HandleAddArgs } from './invariants/add.js';
+import { realScaffoldDeps } from './invariants/fs-deps.js';
 
 // ─── Action Router ──────────────────────────────────────────────────────────
 
@@ -394,6 +399,33 @@ export async function handleOrchestrate(
   // init.executed and delegates deps/VCS detection internally.
   if (action === 'init') {
     return envelopeWrap(await handleInit(rest as Parameters<typeof handleInit>[0], ctx), startedAt);
+  }
+
+  // invariants_scaffold (P2/T7) — writes a starter catalog + registers it in
+  // `.exarchos.yml`. No events; needs real fs hooks (injected so the handler
+  // stays pure-by-default for tests). repoRoot defaults to process.cwd().
+  if (action === 'invariants_scaffold') {
+    const scaffoldArgs: HandleScaffoldArgs = {
+      repoRoot: typeof rest.repoRoot === 'string' ? rest.repoRoot : process.cwd(),
+      path: rest.path as string | undefined,
+      tier: rest.tier as 'dev' | 'user' | undefined,
+    } as HandleScaffoldArgs;
+    return envelopeWrap(await handleScaffold(scaffoldArgs, realScaffoldDeps()), startedAt);
+  }
+
+  // invariants_add (P2/T11) — validates + (on commit) appends an entry and
+  // emits invariant.authored / catalog.registered. Like init, it needs the
+  // full DispatchContext because it uses ctx.eventStore to emit events.
+  if (action === 'invariants_add') {
+    const addArgs: HandleAddArgs = {
+      repoRoot: typeof rest.repoRoot === 'string' ? rest.repoRoot : process.cwd(),
+      entry: rest.entry as Record<string, unknown>,
+      catalog: rest.catalog as string | undefined,
+      tier: rest.tier as 'dev' | 'user' | undefined,
+      id: rest.id as string | undefined,
+      dryRun: rest.dryRun === undefined ? true : Boolean(rest.dryRun),
+    };
+    return envelopeWrap(await handleAdd(addArgs, ctx, realScaffoldDeps()), startedAt);
   }
 
   // Handle runbook specially — it doesn't need stateDir

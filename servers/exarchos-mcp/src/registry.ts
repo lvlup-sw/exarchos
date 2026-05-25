@@ -2361,6 +2361,61 @@ const orchestrateActions: readonly ToolAction[] = [
     outputSchema: EnvelopeSchema(z.unknown()),
     annotations: LOCAL_MUTATION,
   },
+  // ─── Invariant Authoring Actions (invariants-catalog-wizard, P2) ───────────
+  {
+    // P2/T7: create a starter invariant catalog file for a tier and
+    // idempotently register it in `.exarchos.yml`. INV-5d: this is an ACTION on
+    // exarchos_orchestrate, NOT a fifth visible tool. Never overwrites an
+    // existing file (mirrors seedExarchosConfig).
+    name: 'invariants_scaffold',
+    description:
+      'Create a starter invariant catalog file for a tier (dev | user) and idempotently register it in .exarchos.yml. Emits no events; never overwrites an existing catalog file. Do not use when the catalog file already exists, or to add an entry to an existing catalog — use invariants_add for that. After scaffolding, run doctor and inspect the resolved catalog via the invariants_effective view.',
+    schema: z.object({
+      tier: z.enum(['dev', 'user']).optional(),
+      path: z.string().optional(),
+      repoRoot: z.string().optional(),
+    }),
+    phases: ALL_PHASES,
+    roles: ROLE_ANY,
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: LOCAL_MUTATION,
+  },
+  {
+    // P2/T11: validate one entry against InvariantEntryV3Schema (incl. the
+    // .strict() enforcement DSL) and append it to a registered catalog.
+    // `dryRun` defaults true (INV-5c): the dry run returns the rendered entry +
+    // a file diff and writes nothing. On commit it auto-assigns the next free
+    // id in the target namespace and emits invariant.authored (+ catalog.registered
+    // on first registration). INV-5d: ACTION, not a fifth visible tool.
+    name: 'invariants_add',
+    description:
+      'Validate one invariant entry against the v3 schema (including the sandbox-safe .strict() enforcement DSL) and append it to a registered catalog. Defaults to dryRun:true — returns the rendered YAML entry + a file diff without writing; pass dryRun:false to commit (auto-assigns the next free id, emits invariant.authored). Do not use to create a new catalog file — use invariants_scaffold first. Do not embed script/exec/code in enforcement; the DSL is declarative-only and rejects executable escape hatches. After committing, run doctor and inspect the result via the invariants_effective view.',
+    schema: z.object({
+      entry: z.record(z.string(), z.unknown()),
+      catalog: z.string().optional(),
+      tier: z.enum(['dev', 'user']).optional(),
+      id: z.string().optional(),
+      // INV-5c: this mutating verb defaults to dry-run. The default lives in
+      // the handler/dispatch boundary (composite.ts: `dryRun === undefined ?
+      // true`) rather than as a Zod `.default(true)` here, because the
+      // MCP-registration flattener (`buildRegistrationSchema`) forbids two
+      // actions declaring the same field with divergent defaults — and
+      // `merge_orchestrate` / `prune_stale_workflows` already declare
+      // `dryRun` as `.optional()` with no default. Keeping the field
+      // `.optional()` here aligns the registration contract; the safe
+      // dry-run default is enforced where the value is actually consumed.
+      dryRun: z.boolean().optional(),
+      repoRoot: z.string().optional(),
+    }),
+    phases: ALL_PHASES,
+    roles: ROLE_ANY,
+    autoEmits: [
+      { event: 'invariant.authored', condition: 'conditional', description: 'On commit (dryRun:false)' },
+      { event: 'catalog.registered', condition: 'conditional', description: 'On first registration of the target catalog' },
+    ],
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: LOCAL_MUTATION,
+  },
   makeDescribeAction(),
 ];
 
