@@ -71,7 +71,7 @@ You MUST follow strict Test-Driven Development:
 
 1. Create test file at the specified path
 2. Write test with name: `[MethodName]_[Scenario]_[ExpectedOutcome]`
-3. Run tests: `npm run test:run`
+3. Run the project test command (from `.exarchos.yml`, e.g. `cargo test` / `pytest` / `dotnet test` / `npm run test:run`)
 4. **VERIFY test fails for the expected reason**
 5. Do NOT proceed until you've witnessed the failure
 
@@ -79,7 +79,7 @@ You MUST follow strict Test-Driven Development:
 
 1. Write the minimum code to make the test pass
 2. No additional features or optimizations
-3. Run tests: `npm run test:run`
+3. Run the project test command (from `.exarchos.yml`, e.g. `cargo test` / `pytest` / `dotnet test` / `npm run test:run`)
 4. **VERIFY test passes**
 
 ### Phase 3: REFACTOR - Clean Up
@@ -344,13 +344,13 @@ You MUST follow strict Test-Driven Development:
 
 1. Create test file at src/validators/email.test.ts
 2. Write test: `validateEmail_InvalidFormat_ReturnsError`
-3. Run tests: `npm run test:run`
+3. Run the project test command (from `.exarchos.yml`, e.g. `cargo test` / `pytest` / `dotnet test` / `npm run test:run`)
 4. VERIFY test fails for the expected reason
 
 ### Phase 2: GREEN - Minimum Implementation
 
 1. Write minimum code in src/validators/email.ts
-2. Run tests: `npm run test:run`
+2. Run the project test command (from `.exarchos.yml`, e.g. `cargo test` / `pytest` / `dotnet test` / `npm run test:run`)
 3. VERIFY test passes
 
 ### Phase 3: REFACTOR - Clean Up

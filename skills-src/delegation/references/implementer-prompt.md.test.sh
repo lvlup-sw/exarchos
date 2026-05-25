@@ -1,7 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-PROMPT_FILE="skills/delegation/references/implementer-prompt.md"
+# Resolve the prompt relative to this script so the test is robust to cwd and
+# to runtime-namespaced render paths (skills/<runtime>/delegation/...). Falls
+# back to the legacy flat path when run from inside a single rendered runtime.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [[ -f "$SCRIPT_DIR/implementer-prompt.md" ]]; then
+    PROMPT_FILE="$SCRIPT_DIR/implementer-prompt.md"
+else
+    PROMPT_FILE="skills/delegation/references/implementer-prompt.md"
+fi
 
 # Test 1: File exists
 if [[ ! -f "$PROMPT_FILE" ]]; then
@@ -54,6 +62,24 @@ fi
 # Test 9: Contains git add instruction
 if ! grep -q "git add" "$PROMPT_FILE"; then
     echo "FAIL: Missing 'git add' instruction in Commit Strategy"
+    exit 1
+fi
+
+# Test 9b (#1470): test-running guidance must be toolchain-neutral. The
+# hardcoded `npm --prefix` anchored invocation is forbidden, and bare
+# "Run tests: `npm run test:run`" as the sole instruction is gone. The
+# neutral phrasing ("project test command") must be present; npm may still
+# appear, but only as one example in a documented fallback list.
+if grep -q "npm --prefix" "$PROMPT_FILE"; then
+    echo "FAIL: prompt hardcodes 'npm --prefix' (must be toolchain-neutral)"
+    exit 1
+fi
+if grep -q 'Run tests: `npm run test:run`' "$PROMPT_FILE"; then
+    echo "FAIL: prompt uses bare 'Run tests: npm run test:run' (must be toolchain-neutral)"
+    exit 1
+fi
+if ! grep -qi "project test command" "$PROMPT_FILE"; then
+    echo "FAIL: prompt must describe running the project test command"
     exit 1
 fi
 
