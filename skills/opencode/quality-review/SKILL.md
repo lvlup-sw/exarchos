@@ -334,7 +334,7 @@ Collect all matches as findings in the format specified by `findingFormat`, then
 
 ### Companion Plugin Enhancement (Tier 3 — Platform-Dependent)
 
-On platforms with skill support (Claude Code, Cursor), the orchestrator may additionally invoke `axiom:audit` and `impeccable:critique` for deeper qualitative analysis. These findings are also passed as `pluginFindings`. See `references/axiom-integration.md` for the full three-tiered architecture.
+On platforms with skill support (Claude Code, Cursor), the orchestrator may additionally invoke `impeccable:critique` for deeper qualitative analysis. These findings are also passed as `pluginFindings`.
 
 ## Convergence & Verdict
 
