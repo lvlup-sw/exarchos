@@ -346,6 +346,80 @@ export const ACTION_HANDLER_KEYS: readonly string[] = Object.keys(ACTION_HANDLER
  * (error codes, valid transition targets, suggested fixes) remain
  * accessible to callers for auto-correction flows.
  */
+/**
+ * Guard-clause validation for the fields shared by `invariants_scaffold` and
+ * `invariants_add`. Returns an `INVALID_INPUT` `ToolResult` on the first
+ * malformed field, or `null` when every present field is well-typed. Runs at
+ * the dispatch boundary BEFORE the unchecked `rest.*` casts reach a handler
+ * (#1487 review). `repoRoot`/`path`/`catalog`/`id` must be strings when
+ * present; `tier` must be `'dev' | 'user'` when present.
+ */
+function validateInvariantsCommonArgs(
+  rest: Record<string, unknown>,
+): ToolResult | null {
+  const stringFields: ReadonlyArray<'repoRoot' | 'path' | 'catalog' | 'id'> = [
+    'repoRoot',
+    'path',
+    'catalog',
+    'id',
+  ];
+  for (const field of stringFields) {
+    if (rest[field] !== undefined && typeof rest[field] !== 'string') {
+      return {
+        success: false,
+        error: {
+          code: 'INVALID_INPUT',
+          message: `${field} must be a string when provided`,
+        },
+      };
+    }
+  }
+  if (
+    rest.tier !== undefined &&
+    rest.tier !== 'dev' &&
+    rest.tier !== 'user'
+  ) {
+    return {
+      success: false,
+      error: {
+        code: 'INVALID_INPUT',
+        message: "tier must be 'dev' or 'user' when provided",
+        expectedShape: { tier: "'dev' | 'user'" },
+      },
+    };
+  }
+  return null;
+}
+
+/**
+ * Guard-clause validation for `invariants_add`. Layers the entry/dryRun checks
+ * on top of the common string/tier checks: `entry` must be a plain object (the
+ * authored invariant), and `dryRun` must coerce cleanly to boolean (defaulting
+ * to true downstream). Returns an `INVALID_INPUT` `ToolResult` or `null`.
+ */
+function validateInvariantsAddArgs(
+  rest: Record<string, unknown>,
+): ToolResult | null {
+  const common = validateInvariantsCommonArgs(rest);
+  if (common) return common;
+  if (
+    rest.entry === undefined ||
+    rest.entry === null ||
+    typeof rest.entry !== 'object' ||
+    Array.isArray(rest.entry)
+  ) {
+    return {
+      success: false,
+      error: {
+        code: 'INVALID_INPUT',
+        message: 'entry must be an object describing the invariant to add',
+        expectedShape: { entry: { dimension: 'string', summary: 'string' } },
+      },
+    };
+  }
+  return null;
+}
+
 function envelopeWrap(result: ToolResult, startedAt: number): ToolResult {
   if (!result.success) return result;
 
@@ -404,12 +478,17 @@ export async function handleOrchestrate(
   // invariants_scaffold (P2/T7) — writes a starter catalog + registers it in
   // `.exarchos.yml`. No events; needs real fs hooks (injected so the handler
   // stays pure-by-default for tests). repoRoot defaults to process.cwd().
+  // Guard-clause validation runs BEFORE constructing the handler args so a
+  // malformed dispatch returns a structured INVALID_INPUT envelope rather than
+  // letting an unchecked cast reach the handler (#1487 review).
   if (action === 'invariants_scaffold') {
+    const invalid = validateInvariantsCommonArgs(rest);
+    if (invalid) return envelopeWrap(invalid, startedAt);
     const scaffoldArgs: HandleScaffoldArgs = {
       repoRoot: typeof rest.repoRoot === 'string' ? rest.repoRoot : process.cwd(),
       path: rest.path as string | undefined,
       tier: rest.tier as 'dev' | 'user' | undefined,
-    } as HandleScaffoldArgs;
+    };
     return envelopeWrap(await handleScaffold(scaffoldArgs, realScaffoldDeps()), startedAt);
   }
 
@@ -417,6 +496,8 @@ export async function handleOrchestrate(
   // emits invariant.authored / catalog.registered. Like init, it needs the
   // full DispatchContext because it uses ctx.eventStore to emit events.
   if (action === 'invariants_add') {
+    const invalid = validateInvariantsAddArgs(rest);
+    if (invalid) return envelopeWrap(invalid, startedAt);
     const addArgs: HandleAddArgs = {
       repoRoot: typeof rest.repoRoot === 'string' ? rest.repoRoot : process.cwd(),
       entry: rest.entry as Record<string, unknown>,

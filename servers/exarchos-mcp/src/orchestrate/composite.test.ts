@@ -378,6 +378,53 @@ describe('handleOrchestrate', () => {
       expect(callArgsLen).toBeGreaterThanOrEqual(2);
     });
 
+    it('Composite_InvariantsScaffold_InvalidTier_ReturnsInvalidInputNoHandlerCall', async () => {
+      // #1487 review: the dispatch boundary must reject malformed input with a
+      // structured INVALID_INPUT envelope BEFORE constructing handler args —
+      // the handler must never be invoked.
+      const args = {
+        action: 'invariants_scaffold',
+        repoRoot: '/repo',
+        tier: 'superuser', // not 'dev' | 'user'
+      };
+
+      const result = await handleOrchestrate(args, CTX);
+
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe('INVALID_INPUT');
+      expect(handleScaffold).not.toHaveBeenCalled();
+    });
+
+    it('Composite_InvariantsAdd_NonObjectEntry_ReturnsInvalidInputNoHandlerCall', async () => {
+      // #1487 review: a non-object `entry` is rejected at the boundary; the
+      // add handler is never reached.
+      const args = {
+        action: 'invariants_add',
+        repoRoot: '/repo',
+        entry: 'not-an-object',
+      };
+
+      const result = await handleOrchestrate(args, CTX);
+
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe('INVALID_INPUT');
+      expect(handleAdd).not.toHaveBeenCalled();
+    });
+
+    it('Composite_InvariantsAdd_NonStringRepoRoot_ReturnsInvalidInputNoHandlerCall', async () => {
+      const args = {
+        action: 'invariants_add',
+        repoRoot: 42, // not a string
+        entry: { dimension: 'd', summary: 's' },
+      };
+
+      const result = await handleOrchestrate(args, CTX);
+
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe('INVALID_INPUT');
+      expect(handleAdd).not.toHaveBeenCalled();
+    });
+
     it('HandleOrchestrate_CheckPostMerge_DelegatesToHandler', async () => {
       // Arrange
       const expected = successResult({ passed: true, prUrl: 'https://github.com/org/repo/pull/42', mergeSha: 'abc1234', findings: [], report: '...' });
