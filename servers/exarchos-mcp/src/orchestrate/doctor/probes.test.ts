@@ -3,7 +3,8 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import type { DispatchContext } from '../../core/dispatch.js';
-import { buildProbes } from './probes.js';
+import { buildProbes, resolveInvariantsCatalog } from './probes.js';
+import { ReservedNamespaceError } from '../../architecture/catalog-merge.js';
 
 /** Minimal DispatchContext fake. Only fields buildProbes reads are set. */
 function fakeContext(overrides: Partial<DispatchContext> = {}): DispatchContext {
@@ -123,6 +124,79 @@ describe('buildProbes invariants.resolve — cwd-relative root resolution (#1482
       const result = await probes.invariants.resolve();
       expect(result.configured).toBe(true);
       expect(result.warnings).toEqual([]);
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  // P1 T5: a USER-tier catalog claiming a reserved id (`INV-*` / `SDLC-*`) must
+  // surface a named advisory — the offending file AND id — without crashing the
+  // check. `INV-*` belongs to the dev tier; a consumer source impersonating it
+  // is a configuration error the operator needs pointed out, not a silent drop
+  // and not a thrown ReservedNamespaceError that aborts the whole probe.
+  it('DoctorInvariantsCatalog_UserSourceReservedId_EmitsAdvisory', async () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'exarchos-reserved-'));
+    fs.writeFileSync(
+      path.join(tmp, 'team-catalog.md'),
+      [
+        '---',
+        'schema-version: 3',
+        'invariants:',
+        '  - id: INV-42', // reserved namespace — user tier may not claim it
+        '    dimension: lint',
+        '    axis: substrate',
+        '    cost-of-load: always-load',
+        '    applies-to:',
+        '      - src/**',
+        '    summary: A user source squatting a reserved id.',
+        '    references: []',
+        '---',
+        '',
+      ].join('\n'),
+    );
+    fs.writeFileSync(
+      path.join(tmp, '.exarchos.yml'),
+      'invariants:\n  devCatalog: disabled\n  catalogs:\n    - ./team-catalog.md\n',
+    );
+    process.chdir(tmp);
+    try {
+      const probes = buildProbes(fakeContext());
+      const result = await probes.invariants.resolve();
+      // Configured (a user catalog is declared) and degraded — never crashed.
+      expect(result.configured).toBe(true);
+      const advisory = result.warnings.find(
+        (w) =>
+          w.includes('team-catalog.md') &&
+          w.includes('INV-42') &&
+          w.includes('reserved'),
+      );
+      expect(advisory).toBeDefined();
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  // P1 T5 (defense-in-depth): even if catalog resolution itself throws a
+  // ReservedNamespaceError (e.g. a built-in layer regression that escapes the
+  // resolver's own DR-9 pre-filter), the doctor probe must NOT crash — it folds
+  // the error into a named advisory. Inject a throwing resolver to drive the
+  // catch path directly.
+  it('DoctorInvariantsCatalog_ResolverThrowsReservedNamespace_FoldsToAdvisory', async () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'exarchos-throw-'));
+    fs.writeFileSync(path.join(tmp, 'team-catalog.md'), '---\ninvariants: []\n---\n');
+    fs.writeFileSync(
+      path.join(tmp, '.exarchos.yml'),
+      'invariants:\n  devCatalog: disabled\n  catalogs:\n    - ./team-catalog.md\n',
+    );
+    process.chdir(tmp);
+    try {
+      const result = await resolveInvariantsCatalog(undefined, () => {
+        throw new ReservedNamespaceError('SDLC-77');
+      });
+      // Did not throw out of the probe; the error is a named advisory.
+      expect(result.configured).toBe(true);
+      const advisory = result.warnings.find((w) => w.includes('SDLC-77'));
+      expect(advisory).toBeDefined();
     } finally {
       fs.rmSync(tmp, { recursive: true, force: true });
     }
