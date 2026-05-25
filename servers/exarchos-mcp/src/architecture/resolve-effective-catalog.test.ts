@@ -378,6 +378,71 @@ describe('resolveEffectiveCatalog', () => {
     expect(sdlc3?.severity?.default).toBe('advisory');
   });
 
+  // ─── P1 T3: dev catalog via registered source (collapse Layers 1+3) ───────
+
+  it('resolveEffectiveCatalog_DevViaRegistration_LoadsDevLayer', () => {
+    // A `{ path, tier: dev }` registration (NOT the devCatalog boolean) must
+    // surface the dev catalog's INV-* entries through the same source loop the
+    // user catalogs use. The fixture's invariants.md lives at the default dev
+    // path, so register it explicitly with tier:dev and leave devCatalog unset.
+    const config: ExarchosConfig = {
+      invariants: {
+        catalogs: [{ path: 'docs/architecture/invariants.md', tier: 'dev' }],
+      },
+    };
+
+    const { entries } = resolveEffectiveCatalog({
+      repoRoot: fixture.repoRoot,
+      config,
+      phase: 'ideate',
+      workflowType: 'feature',
+    });
+
+    expect(entries.map((e) => e.id)).toContain('INV-1');
+  });
+
+  it('resolveEffectiveCatalog_MissingDevSource_DegradesWithWarning', () => {
+    // A registered dev source whose file is absent must degrade to a warning
+    // (parity with the user-catalog DR-9 behavior), not throw, and the other
+    // layers (sdlc) still resolve.
+    const config: ExarchosConfig = {
+      invariants: {
+        catalogs: [{ path: 'docs/architecture/does-not-exist.md', tier: 'dev' }],
+      },
+    };
+
+    const { entries, warnings } = resolveEffectiveCatalog({
+      repoRoot: fixture.repoRoot,
+      config,
+      phase: 'review',
+      workflowType: 'feature',
+    });
+
+    // Did not throw; sdlc layer still present.
+    expect(entries.map((e) => e.id)).toContain('SDLC-1');
+    // Warning names the missing dev source path.
+    const warning = warnings.find((w) =>
+      w.includes('docs/architecture/does-not-exist.md'),
+    );
+    expect(warning).toBeDefined();
+  });
+
+  it('resolveEffectiveCatalog_SdlcLayer_Unaffected', () => {
+    // The sdlc inline layer (Layer 2) is untouched by the source-loop refactor:
+    // it still resolves with no registered catalogs at all, tagged sdlc.
+    const { entries } = resolveEffectiveCatalog({
+      repoRoot: fixture.repoRoot,
+      config: {},
+      phase: 'review',
+      workflowType: 'feature',
+    });
+    const sdlc = entries.filter((e) => e.id.startsWith('SDLC-'));
+    expect(sdlc.length).toBeGreaterThan(0);
+    for (const e of sdlc) {
+      expect(e.integrityClass).toBe('sdlc');
+    }
+  });
+
   it('ResolveEffectiveCatalog_Sdlc3EnabledFalse_RefusedByFloorAndWarns', () => {
     // sdlc floor = advisory ⇒ a full disable is REFUSED: the entry survives and
     // a warning is emitted, never a silent drop (INV-11 authority gradient).

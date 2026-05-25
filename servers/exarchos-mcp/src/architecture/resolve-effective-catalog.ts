@@ -20,10 +20,12 @@
  *
  * ## Pipeline
  *
- *   load dev catalog (gated by `invariants.devCatalog`)
+ *   load every registered file source (`resolveCatalogSources` — collapses the
+ *     former hardcoded dev catalog + the user `catalogs` list into one
+ *     tier-tagged loop; `devCatalog: 'enabled'` desugars to a `tier: dev`
+ *     source)
  *     + sdlc layer (default-on, plugin-shipped SDLC-* baseline — #1467;
  *       compiled into the binary, no gate, no file-IO)
- *     + load user `catalogs` from config
  *   → mergeCatalogs (tags each layer's integrity-class)
  *   → applyOverrides (clamp each override to its invariant's floor)
  *   → drop honored-disabled entries (the final filter — see note below)
@@ -45,6 +47,7 @@ import { fileURLToPath } from 'node:url';
 import type { ExarchosConfig } from '../config/exarchos-config-schema.js';
 import { loadInvariants, type InvariantEntry } from './invariants-loader.js';
 import { loadSdlcCatalog } from './sdlc-catalog.js';
+import { resolveCatalogSources } from './catalog-sources.js';
 import {
   mergeCatalogs,
   applyOverrides,
@@ -127,25 +130,71 @@ export function resolveEffectiveCatalog(
   // instead (see Layer 2).
   const loadWarnings: string[] = [];
 
-  // ── Layer 1: dev catalog (gated by invariants.devCatalog) ──
-  // `loadInvariants` returns [] unless the passed config enables the gate,
-  // so the dev layer is empty for consumers who have not opted in.
+  // ── Layers 1 + 3 collapsed: registered file sources, tagged by tier ──
   //
-  // The dev catalog is first-party, but a malformed v3 entry makes
-  // `loadInvariants` throw (ZodError via projectV3Fields). That must not crash
-  // the gate: a broken first-party catalog degrades to "no dev layer" with a
-  // visible warning — surfaced on every gate run, never silent.
-  const devCatalogPath = path.join(repoRoot, 'docs/architecture/invariants.md');
-  let dev: InvariantEntry[] = [];
-  if (fs.existsSync(devCatalogPath)) {
+  // The dev catalog is no longer a hardcoded-path special case: it is just
+  // another registered source, discovered (and `devCatalog: 'enabled'`
+  // desugared) by `resolveCatalogSources` and tagged `tier: 'dev'`. User
+  // catalogs are tagged `tier: 'user'`. Both load through the SAME
+  // `loadInvariants` path with a gate-satisfying config (the dev catalog is
+  // gated on `devCatalog`; we satisfy that gate here so a registered dev
+  // source loads its INV-* content regardless of the consumer's own flag —
+  // registration IS the opt-in). See design §4.2 / §4.4.
+  //
+  // DR-9 degradation is uniform across both tiers: a missing or malformed
+  // source folds into `loadWarnings` (naming the offending file) and the
+  // remaining layers proceed. The reserved-namespace pre-filter is keyed off
+  // the source `tier` — a `dev`-tier source legitimately carries `INV-*` ids;
+  // a `user`-tier source claiming `INV-*` / `SDLC-*` is dropped per-entry with
+  // a warning rather than aborting the whole resolution.
+  const sources = resolveCatalogSources(config);
+  const dev: InvariantEntry[] = [];
+  const user: InvariantEntry[] = [];
+  for (const source of sources) {
+    const layerLabel = source.tier === 'dev' ? 'Dev' : 'User';
+    const resolved = path.isAbsolute(source.path)
+      ? source.path
+      : path.join(repoRoot, source.path);
+    // A configured-but-missing path is almost always a typo or a rename; a
+    // silent skip would invisibly disable the intended checks. Warn (naming
+    // the path) and degrade like any other DR-9 skip.
+    if (!fs.existsSync(resolved)) {
+      loadWarnings.push(
+        `${layerLabel} invariant catalog '${source.path}' was not found at ` +
+          `'${resolved}' and was skipped; evaluated remaining layers only.`,
+      );
+      continue;
+    }
+    let loaded: InvariantEntry[];
     try {
-      dev = loadInvariants(devCatalogPath, undefined, config);
+      loaded = loadInvariants(resolved, undefined, USER_CATALOG_LOAD_CONFIG);
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err);
       loadWarnings.push(
-        `Dev invariant catalog '${devCatalogPath}' failed to load and was ` +
-          `skipped; evaluated remaining layers only. Reason: ${reason}`,
+        `${layerLabel} invariant catalog '${source.path}' failed to load and ` +
+          `was skipped; evaluated remaining layers only. Reason: ${reason}`,
       );
+      continue;
+    }
+    if (source.tier === 'dev') {
+      // Dev-tier sources own the `INV-*` namespace — no reserved-id filter.
+      dev.push(...loaded);
+      continue;
+    }
+    // User-tier: reserved-namespace ids (`INV-*` / `SDLC-*`) belong to built-in
+    // layers. Pre-filter them so the violation degrades to a per-entry warning
+    // and the catalog's valid entries still apply (DR-9) rather than letting
+    // `mergeCatalogs` throw and abort the whole gate.
+    for (const entry of loaded) {
+      if (isReservedUserId(entry.id)) {
+        loadWarnings.push(
+          `User invariant catalog '${source.path}' entry '${entry.id}' uses a ` +
+            `reserved id namespace (INV-*, SDLC-*) and was skipped; those ` +
+            `prefixes are reserved for built-in invariants — rename it.`,
+        );
+        continue;
+      }
+      user.push(entry);
     }
   }
 
@@ -166,67 +215,6 @@ export function resolveEffectiveCatalog(
   // boot failure). A runtime try/catch here would be dead code anyway: the
   // throw happens at import time, before this line can run.
   const sdlc: InvariantEntry[] = loadSdlcCatalog();
-
-  // ── Layer 3: user catalogs (paths from config.invariants.catalogs) ──
-  //
-  // DR-9 degradation: a malformed user catalog (bad YAML / unknown check
-  // kind / reserved-namespace id) must NOT abort the whole resolution. Each
-  // catalog is loaded in isolation; a load failure is folded into `warnings`
-  // (naming the offending file) and the remaining layers proceed. This is the
-  // single place the gate, the view facade, and any future Resource share, so
-  // the degradation is exercised on every effective-catalog read — not just
-  // under a hand-injected loader double.
-  const userCatalogPaths = (config?.invariants?.catalogs ?? []).map(
-    // T1 introduced `{ path, tier }` registration objects; T3 will collapse
-    // this block into a tier-aware source loop. Until then, normalize to the
-    // string path so the legacy user-layer load keeps its exact behavior.
-    (registration) =>
-      typeof registration === 'string' ? registration : registration.path,
-  );
-  const user: InvariantEntry[] = userCatalogPaths.flatMap((catalogPath) => {
-    const resolved = path.isAbsolute(catalogPath)
-      ? catalogPath
-      : path.join(repoRoot, catalogPath);
-    // A configured-but-missing path is almost always a typo or a rename; a
-    // silent `[]` would invisibly disable the intended invariant checks. Warn
-    // (naming the path) and degrade like any other DR-9 skip.
-    if (!fs.existsSync(resolved)) {
-      loadWarnings.push(
-        `User invariant catalog '${catalogPath}' was not found at '${resolved}' ` +
-          `and was skipped; evaluated remaining layers only.`,
-      );
-      return [];
-    }
-    let loaded: InvariantEntry[];
-    try {
-      loaded = loadInvariants(resolved, undefined, USER_CATALOG_LOAD_CONFIG);
-    } catch (err) {
-      const reason = err instanceof Error ? err.message : String(err);
-      loadWarnings.push(
-        `User invariant catalog '${catalogPath}' failed to load and was ` +
-          `skipped; evaluated remaining layers only. Reason: ${reason}`,
-      );
-      return [];
-    }
-    // Reserved-namespace ids (`INV-*` / `SDLC-*`) belong to built-in layers.
-    // `mergeCatalogs` would throw `ReservedNamespaceError` on the first such
-    // user entry and abort the WHOLE resolution (crashing the conformance
-    // gate). Pre-filter them here so the violation degrades to a per-entry
-    // warning and the catalog's valid entries still apply (DR-9).
-    const accepted: InvariantEntry[] = [];
-    for (const entry of loaded) {
-      if (isReservedUserId(entry.id)) {
-        loadWarnings.push(
-          `User invariant catalog '${catalogPath}' entry '${entry.id}' uses a ` +
-            `reserved id namespace (INV-*, SDLC-*) and was skipped; those ` +
-            `prefixes are reserved for built-in invariants — rename it.`,
-        );
-        continue;
-      }
-      accepted.push(entry);
-    }
-    return accepted;
-  });
 
   // ── Merge + override-clamp ──
   const merged = mergeCatalogs({ dev, sdlc, user });
