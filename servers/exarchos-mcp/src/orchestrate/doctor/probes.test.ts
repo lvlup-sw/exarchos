@@ -85,16 +85,43 @@ describe('buildProbes invariants.resolve — cwd-relative root resolution (#1482
   // inside this repo, which HAS a root `.exarchos.yml`.
   //
   // This test pins resolution to cwd: from a temp dir with no `.exarchos.yml`
-  // ancestor the resolver must return an empty result. Under the bug,
-  // module-relative resolution would find the in-repo config and report a
-  // non-empty catalog — so this fails RED on the bug, GREEN on the fix.
-  it('Resolve_CwdHasNoExarchosYmlAncestor_ReturnsEmptyNotInRepoCatalog', async () => {
+  // ancestor the resolver must report not-configured. Under the bug,
+  // module-relative resolution would find the in-repo config (devCatalog
+  // enabled) and report configured — so this fails RED on the bug, GREEN on
+  // the fix.
+  it('Resolve_CwdHasNoExarchosYmlAncestor_ReturnsNotConfigured', async () => {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'exarchos-no-cfg-'));
     process.chdir(tmp);
     try {
       const probes = buildProbes(fakeContext());
       const result = await probes.invariants.resolve();
-      expect(result.entryCount).toBe(0);
+      expect(result.configured).toBe(false);
+      expect(result.warnings).toEqual([]);
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  // Regression for the Seer MEDIUM (#1482): `configured` must be
+  // phase-INDEPENDENT. A user catalog declared in `.exarchos.yml` counts as
+  // configured purely by being declared — even if it contributes zero entries
+  // for any phase. The old projected-entry-count signal returned 0 here and
+  // misreported a real configuration as "nothing to validate".
+  it('Resolve_UserCatalogDeclared_ReportsConfiguredRegardlessOfEntries', async () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'exarchos-user-cat-'));
+    // A valid-but-empty user catalog: declared in config, loads without
+    // warning, contributes zero entries (frontmatter declares an empty
+    // `invariants:` array, which the loader requires).
+    fs.writeFileSync(path.join(tmp, 'my-catalog.md'), '---\ninvariants: []\n---\n');
+    fs.writeFileSync(
+      path.join(tmp, '.exarchos.yml'),
+      'invariants:\n  devCatalog: disabled\n  catalogs:\n    - ./my-catalog.md\n',
+    );
+    process.chdir(tmp);
+    try {
+      const probes = buildProbes(fakeContext());
+      const result = await probes.invariants.resolve();
+      expect(result.configured).toBe(true);
       expect(result.warnings).toEqual([]);
     } finally {
       fs.rmSync(tmp, { recursive: true, force: true });

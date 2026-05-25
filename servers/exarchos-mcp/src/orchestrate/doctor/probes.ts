@@ -96,13 +96,16 @@ export interface DoctorPlugin {
 export interface DoctorInvariantsCatalog {
   /**
    * Resolve the effective invariant catalog from `.exarchos.yml` and report
-   * the entry count plus any merge/load/reserved-namespace warnings folded by
-   * `resolveEffectiveCatalog` (DR-9). The check turns a non-empty `warnings`
-   * list into a doctor Warning, naming the offending catalog/id. `entryCount`
-   * is the number of resolved entries (0 when the dev catalog is disabled and
-   * no user catalogs are configured). Must honor `signal` and stay within the
-   * 2000ms probe budget (DIM-7). */
-  resolve(signal?: AbortSignal): Promise<{ entryCount: number; warnings: string[] }>;
+   * whether any user-validatable catalog is `configured`, plus any
+   * merge/load/reserved-namespace warnings folded by `resolveEffectiveCatalog`
+   * (DR-9). The check turns a non-empty `warnings` list into a doctor Warning,
+   * naming the offending catalog/id. `configured` is `false` only when the dev
+   * catalog is disabled/absent AND no user catalogs are configured (the SDLC
+   * baseline is compiled-in and build-validated, so it does not count). It is
+   * phase-independent — a configured catalog whose entries do not project to a
+   * given phase still counts as configured. Must honor `signal` and stay
+   * within the 2000ms probe budget (DIM-7). */
+  resolve(signal?: AbortSignal): Promise<{ configured: boolean; warnings: string[] }>;
 }
 
 export interface DoctorProbes {
@@ -293,7 +296,7 @@ async function defaultRunningVersion(): Promise<string | null> {
  * computed per call, no caching. A failure to load config degrades to an empty
  * resolution rather than throwing — the check decides Pass/Warning/Skip. */
 async function defaultResolveInvariants(signal?: AbortSignal): Promise<{
-  entryCount: number;
+  configured: boolean;
   warnings: string[];
 }> {
   if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
@@ -301,7 +304,7 @@ async function defaultResolveInvariants(signal?: AbortSignal): Promise<{
   // is a consumer-project artifact and the module lives in the plugin cache in
   // plugin mode (#1482 review). Mirrors the vcs-git-available check's cwd use.
   const root = await findRepoRoot('.exarchos.yml', process.cwd());
-  if (root === null) return { entryCount: 0, warnings: [] };
+  if (root === null) return { configured: false, warnings: [] };
   if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
   let config;
   try {
@@ -310,17 +313,39 @@ async function defaultResolveInvariants(signal?: AbortSignal): Promise<{
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);
     return {
-      entryCount: 0,
+      configured: false,
       warnings: [`Failed to load .exarchos.yml at '${root}': ${reason}`],
     };
   }
-  const { entries, warnings } = resolveEffectiveCatalog({
+  // `configured` is the phase-INDEPENDENT Skip signal: is any USER-validatable
+  // catalog present? The dev catalog (gated + file on disk) or any user
+  // `catalogs` path. The built-in SDLC baseline is compiled-in and
+  // build-validated, so it is never a runtime validation target and does not
+  // count. The old signal — entry count after projecting to `ideate` —
+  // misreported a configured catalog whose entries are all non-`ideate` (e.g.
+  // `phase-affinity: ['review']`) as "nothing configured", making the Pass
+  // branch unreachable for such catalogs (#1482 review).
+  let devConfigured = false;
+  if (config?.invariants?.devCatalog === 'enabled') {
+    try {
+      await nodeFs.access(join(root, 'docs/architecture/invariants.md'), fsConstants.F_OK);
+      devConfigured = true;
+    } catch {
+      devConfigured = false;
+    }
+  }
+  const userConfigured = (config?.invariants?.catalogs?.length ?? 0) > 0;
+
+  // Phase key is arbitrary here: DR-9 warnings are folded pre-projection, so
+  // any phase surfaces every merge/load warning. We discard the projected
+  // entries and decide Skip-vs-validate on `configured` instead.
+  const { warnings } = resolveEffectiveCatalog({
     repoRoot: root,
     config,
     phase: 'ideate',
     workflowType: 'feature',
   });
-  return { entryCount: entries.length, warnings };
+  return { configured: devConfigured || userConfigured, warnings };
 }
 
 /**

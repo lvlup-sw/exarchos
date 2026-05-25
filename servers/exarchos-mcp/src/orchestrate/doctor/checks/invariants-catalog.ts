@@ -6,8 +6,13 @@
  * every DR-9 degradation into a `warnings` list: malformed/missing user catalog
  * files and reserved-namespace ids (`INV-*` / `SDLC-*`) in a user catalog. Any
  * warning yields a doctor Warning that names the offending catalog/id; a clean
- * resolution with entries Passes; an empty resolution with no warnings Skips
- * (dev catalog disabled and no user catalogs configured — nothing to validate).
+ * resolution of a configured catalog Passes; when nothing user-validatable is
+ * configured (dev catalog disabled/absent and no user catalogs) it Skips.
+ *
+ * The Skip signal is `configured`, NOT an entry count: the resolver projects to
+ * a representative phase only to surface warnings, so a phase-filtered count
+ * would misreport a configured-but-non-matching catalog as "nothing to
+ * validate" (#1482 review).
  */
 
 import type { CheckFn } from './__shared__/make-stub-probes.js';
@@ -16,7 +21,7 @@ export const invariantsCatalog: CheckFn = async (probes, signal) => {
   const start = Date.now();
   const base = { category: 'invariants' as const, name: 'invariants-catalog' };
 
-  const { entryCount, warnings } = await probes.invariants.resolve(signal);
+  const { configured, warnings } = await probes.invariants.resolve(signal);
 
   if (warnings.length > 0) {
     const first = warnings[0]!;
@@ -34,7 +39,7 @@ export const invariantsCatalog: CheckFn = async (probes, signal) => {
     };
   }
 
-  if (entryCount === 0) {
+  if (!configured) {
     return {
       ...base,
       status: 'Skipped',
@@ -51,7 +56,7 @@ export const invariantsCatalog: CheckFn = async (probes, signal) => {
   return {
     ...base,
     status: 'Pass',
-    message: `Invariant catalog resolved cleanly: ${entryCount} entr${entryCount === 1 ? 'y' : 'ies'}, no warnings`,
+    message: 'Configured invariant catalog(s) resolved cleanly, no warnings',
     durationMs: Date.now() - start,
   };
 };
