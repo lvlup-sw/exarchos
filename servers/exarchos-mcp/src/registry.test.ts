@@ -718,6 +718,43 @@ describe('TOOL_REGISTRY', () => {
     expect(visibleTools.length).toBeLessThanOrEqual(15);
   });
 
+  it('Registry_InvariantsAdd_DryRunDefault', () => {
+    // P2/T11: invariants_add is a LOCAL_MUTATION ACTION on exarchos_orchestrate
+    // (INV-5d) that declares the invariant.authored / catalog.registered
+    // autoEmits (INV-1) and a when-NOT clause (INV-5a). INV-5c: the verb
+    // defaults to dry-run. The default is enforced at the dispatch boundary
+    // (composite.ts) rather than as a Zod `.default(true)` — the
+    // MCP-registration flattener (`buildRegistrationSchema`) forbids two
+    // actions declaring `dryRun` with divergent defaults, and merge_orchestrate
+    // / prune_stale_workflows already declare it `.optional()`. So the schema
+    // field stays optional, and dispatching invariants_add WITHOUT dryRun must
+    // NOT write (the safe default).
+    const action = findAction('exarchos_orchestrate', 'invariants_add');
+    expect(action, 'invariants_add must be registered on exarchos_orchestrate').toBeDefined();
+
+    expect(action!.annotations!.safety).toBe('local-mutation');
+    expect(action!.annotations!.readOnly).toBe(false);
+    expect(action!.outputSchema).toBeDefined();
+    expect(action!.description.toLowerCase()).toContain('do not use');
+
+    // autoEmits declares both authoring events (INV-1).
+    const events = (action!.autoEmits ?? []).map((e) => e.event);
+    expect(events).toContain('invariant.authored');
+    expect(events).toContain('catalog.registered');
+
+    // The schema accepts an entry with dryRun omitted (the dry-run default is
+    // applied downstream at dispatch).
+    const parsed = action!.schema.safeParse({
+      entry: { dimension: 'd' },
+      catalog: 'docs/architecture/my-invariants.md',
+      tier: 'user',
+    });
+    expect(parsed.success).toBe(true);
+
+    const visibleTools = TOOL_REGISTRY.filter((t) => !t.hidden);
+    expect(visibleTools.length).toBeLessThanOrEqual(15);
+  });
+
   it('should have non-empty phases for every action except init', () => {
     // init has empty phases by design — it relies on the guard's null-check
     // (no active workflow) rather than phase matching.

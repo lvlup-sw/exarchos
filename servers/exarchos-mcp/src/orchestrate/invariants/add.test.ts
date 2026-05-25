@@ -290,6 +290,64 @@ describe('handleAdd — T9 commit', () => {
     expect(written).toMatch(/id: U-3/);
   });
 
+  it('handleAdd_Commit_EmitsInvariantAuthoredAndCatalogRegistered', async () => {
+    // P2/T11: committing emits invariant.authored, and the FIRST registration
+    // of the catalog (it's not yet in .exarchos.yml) emits catalog.registered
+    // (INV-1). The events land on the per-tier invariants stream.
+    const fake = makeFakeFs({
+      '/repo/docs/architecture/my-invariants.md': 'invariants: []\n',
+      // .exarchos.yml has no catalog registration → first registration.
+      '/repo/.exarchos.yml': 'test: npm test\n',
+    });
+    const { ctx, appended } = makeCtx();
+
+    const result = await handleAdd(
+      {
+        repoRoot: '/repo',
+        catalog: 'docs/architecture/my-invariants.md',
+        tier: 'user',
+        entry: { ...VALID_AUDIT_ENTRY },
+        dryRun: false,
+      },
+      ctx,
+      fake.deps,
+    );
+
+    expect(result.success).toBe(true);
+    const types = appended.map((a) => (a.event as { type: string }).type);
+    expect(types).toContain('invariant.authored');
+    expect(types).toContain('catalog.registered');
+    expect((result.data as { events: string[] }).events).toEqual(
+      expect.arrayContaining(['invariant.authored', 'catalog.registered']),
+    );
+  });
+
+  it('handleAdd_Commit_AlreadyRegisteredCatalog_NoCatalogRegisteredEvent', async () => {
+    // When the catalog is already registered, only invariant.authored fires.
+    const fake = makeFakeFs({
+      '/repo/docs/architecture/my-invariants.md': 'invariants: []\n',
+      '/repo/.exarchos.yml':
+        'invariants:\n  catalogs:\n    - { path: docs/architecture/my-invariants.md, tier: user }\n',
+    });
+    const { ctx, appended } = makeCtx();
+
+    await handleAdd(
+      {
+        repoRoot: '/repo',
+        catalog: 'docs/architecture/my-invariants.md',
+        tier: 'user',
+        entry: { ...VALID_AUDIT_ENTRY },
+        dryRun: false,
+      },
+      ctx,
+      fake.deps,
+    );
+
+    const types = appended.map((a) => (a.event as { type: string }).type);
+    expect(types).toContain('invariant.authored');
+    expect(types).not.toContain('catalog.registered');
+  });
+
   it('handleAdd_DevTier_UsesInvNamespace', async () => {
     const fake = makeFakeFs({
       '/repo/docs/architecture/invariants.md': 'invariants: []\n',
