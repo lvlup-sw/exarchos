@@ -3,6 +3,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { ToolResult } from '../format.js';
 import { EVENT_EMISSION_REGISTRY } from '../event-store/schemas.js';
+import type { EventType } from '../event-store/schemas.js';
 import type { EventStore } from '../event-store/store.js';
 
 // ─── Mock event store + materializer ────────────────────────────────────────
@@ -98,6 +99,47 @@ describe('PHASE_EXPECTED_EVENTS', () => {
         ).toBe('model');
       }
     }
+  });
+
+  it('PhaseExpectedEvents_AutoEventListed_ThrowsAtModuleLoad', () => {
+    // Regression guard (#1395, RC2). The module-load assertion in
+    // check-event-emissions.ts is the mechanism that FORCES the three-site
+    // migration to stay consistent: flipping a registry entry to 'auto'
+    // WITHOUT removing it from PHASE_EXPECTED_EVENTS must throw. We cannot
+    // re-import the real module to re-trigger its top-level throw without
+    // breaking this suite's own module load, so we re-implement the exact
+    // assertion loop here and feed it a phase set that (re)introduces an
+    // 'auto' event — proving the invariant fires.
+    //
+    // `review.routed` is now 'auto' (post-migration), so a phase set that
+    // lists it is precisely the violation the guard must catch.
+    expect(EVENT_EMISSION_REGISTRY['review.routed']).toBe('auto');
+
+    const assertModelOnly = (
+      phaseSets: Readonly<Record<string, readonly EventType[]>>,
+    ): void => {
+      for (const [, eventTypes] of Object.entries(phaseSets)) {
+        for (const eventType of eventTypes) {
+          if (EVENT_EMISSION_REGISTRY[eventType] !== 'model') {
+            throw new Error(
+              `PHASE_EXPECTED_EVENTS contains non-model event '${eventType}' ` +
+                `(source: ${EVENT_EMISSION_REGISTRY[eventType]})`,
+            );
+          }
+        }
+      }
+    };
+
+    const offendingPhaseSets: Readonly<Record<string, readonly EventType[]>> = {
+      review: ['team.spawned', 'review.routed'],
+    };
+
+    expect(() => assertModelOnly(offendingPhaseSets)).toThrow(
+      /non-model event 'review\.routed'.*source: auto/,
+    );
+
+    // And the real, post-migration phase sets must NOT trip the same loop.
+    expect(() => assertModelOnly(PHASE_EXPECTED_EVENTS)).not.toThrow();
   });
 });
 
