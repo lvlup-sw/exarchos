@@ -50,7 +50,7 @@ export interface CatalogWriteResult {
 /** Default repo-relative starter path per tier. */
 const DEFAULT_PATH: Record<'dev' | 'user', string> = {
   user: 'docs/architecture/my-invariants.md',
-  dev: 'docs/architecture/invariants.md',
+  dev: '.exarchos/invariants.md',
 };
 
 /**

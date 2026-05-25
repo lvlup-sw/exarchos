@@ -350,14 +350,14 @@ describe('handleAdd — T9 commit', () => {
 
   it('handleAdd_DevTier_UsesInvNamespace', async () => {
     const fake = makeFakeFs({
-      '/repo/docs/architecture/invariants.md': 'invariants: []\n',
+      '/repo/.exarchos/invariants.md': 'invariants: []\n',
     });
     const { ctx } = makeCtx();
 
     const result = await handleAdd(
       {
         repoRoot: '/repo',
-        catalog: 'docs/architecture/invariants.md',
+        catalog: '.exarchos/invariants.md',
         tier: 'dev',
         entry: { ...VALID_AUDIT_ENTRY, 'integrity-class': 'substrate' as const },
         dryRun: false,

@@ -7,7 +7,7 @@ import type { ExarchosConfig } from '../config/exarchos-config-schema.js';
 
 /**
  * Build an isolated repo fixture with a dev invariants catalog at
- * `docs/architecture/invariants.md` and a user-authored catalog. Returns the
+ * `.exarchos/invariants.md` and a user-authored catalog. Returns the
  * temp repo root; caller is responsible for cleanup.
  */
 function makeRepoFixture(): {
@@ -16,8 +16,9 @@ function makeRepoFixture(): {
   cleanup: () => void;
 } {
   const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'resolve-cat-'));
-  const archDir = path.join(repoRoot, 'docs', 'architecture');
-  fs.mkdirSync(archDir, { recursive: true });
+  // Dev catalog now lives at `.exarchos/invariants.md` (relocated in T19).
+  const devCatalogDir = path.join(repoRoot, '.exarchos');
+  fs.mkdirSync(devCatalogDir, { recursive: true });
 
   // Dev catalog (built-in). schema-version 3 so phase/workflow affinity and
   // integrity-class fields are honoured.
@@ -38,7 +39,7 @@ function makeRepoFixture(): {
     '# Dev catalog body',
     '',
   ].join('\n');
-  fs.writeFileSync(path.join(archDir, 'invariants.md'), devCatalog, 'utf8');
+  fs.writeFileSync(path.join(devCatalogDir, 'invariants.md'), devCatalog, 'utf8');
 
   // User catalog (consumer-authored). A non-reserved id, sdlc-removable
   // semantics handled by the merge layer (tagged `user`, no floor).
@@ -261,9 +262,11 @@ describe('resolveEffectiveCatalog', () => {
     // loadInvariants throw. That must NOT crash the gate (the gate has no
     // try/catch around resolveEffectiveCatalog): the dev layer degrades to
     // empty with a visible warning, and the other layers still resolve (INV-1).
-    const archDir = path.join(fixture.repoRoot, 'docs', 'architecture');
+    // The fixture's dev catalog lives at `.exarchos/invariants.md` (T19); we
+    // overwrite it with a malformed body.
+    const devCatalogDir = path.join(fixture.repoRoot, '.exarchos');
     fs.writeFileSync(
-      path.join(archDir, 'invariants.md'),
+      path.join(devCatalogDir, 'invariants.md'),
       [
         '---',
         'schema-version: 3',
@@ -387,7 +390,7 @@ describe('resolveEffectiveCatalog', () => {
     // path, so register it explicitly with tier:dev and leave devCatalog unset.
     const config: ExarchosConfig = {
       invariants: {
-        catalogs: [{ path: 'docs/architecture/invariants.md', tier: 'dev' }],
+        catalogs: [{ path: '.exarchos/invariants.md', tier: 'dev' }],
       },
     };
 
@@ -451,7 +454,7 @@ describe('resolveEffectiveCatalog', () => {
     //
     // Three forms must resolve to the SAME dev layer (same INV-* ids):
     //   (a) the legacy `devCatalog: 'enabled'` sugar (what `.exarchos.yml` ships),
-    //   (b) an explicit `{ path: docs/architecture/invariants.md, tier: dev }`
+    //   (b) an explicit `{ path: .exarchos/invariants.md, tier: dev }`
     //       registration (the desugared form),
     //   (c) the T0 characterization golden snapshot of (a).
     //
@@ -478,7 +481,7 @@ describe('resolveEffectiveCatalog', () => {
     const sugar = devIdSet({ invariants: { devCatalog: 'enabled' } });
     const explicit = devIdSet({
       invariants: {
-        catalogs: [{ path: 'docs/architecture/invariants.md', tier: 'dev' }],
+        catalogs: [{ path: '.exarchos/invariants.md', tier: 'dev' }],
       },
     });
 

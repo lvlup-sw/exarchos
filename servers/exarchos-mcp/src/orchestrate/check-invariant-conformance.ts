@@ -47,7 +47,7 @@ import { emitGateEvent } from './gate-utils.js';
 
 /**
  * Dependency-injection seam for loading the invariant catalog. The default
- * reads `docs/architecture/invariants.md` (honouring the devCatalog gate);
+ * reads `.exarchos/invariants.md` (honouring the devCatalog gate);
  * tests inject an explicit `InvariantEntry[]` so they need no disk IO.
  *
  * NOTE: this is a LEGACY seam retained for the parity test and a few unit

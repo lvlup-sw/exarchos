@@ -3,7 +3,8 @@
  *
  * Walks markdown files under the given roots, finds tokens matching
  * `/\b(INV-\d+[a-d]?|DIM-\d+)\b/`, and cross-checks them against the IDs
- * declared in `docs/architecture/invariants.md`. Unknown references are
+ * declared in `.exarchos/invariants.md` (the dev catalog, relocated from
+ * `docs/architecture/invariants.md` in T19). Unknown references are
  * returned as findings.
  *
  * Designed to be a thin library that the `npm run lint:invariants` CLI
@@ -25,7 +26,7 @@ export interface VocabularyFinding {
 export interface ScanOptions {
   /**
    * Absolute path to the invariants catalog markdown file. Defaults to
-   * `<repoRoot>/docs/architecture/invariants.md`.
+   * `<repoRoot>/.exarchos/invariants.md`.
    */
   invariantsDoc?: string;
   /** Skip these directory names while walking. */
@@ -64,7 +65,7 @@ function resolveRepoRoot(): string {
 }
 
 function defaultInvariantsDoc(): string {
-  return path.join(resolveRepoRoot(), 'docs/architecture/invariants.md');
+  return path.join(resolveRepoRoot(), '.exarchos/invariants.md');
 }
 
 /**

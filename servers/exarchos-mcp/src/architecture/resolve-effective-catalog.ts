@@ -61,7 +61,7 @@ import { projectCatalog } from './project-catalog.js';
 export interface ResolveEffectiveCatalogContext {
   /**
    * Repository root. The built-in dev catalog is read from
-   * `<repoRoot>/docs/architecture/invariants.md`. Defaults to the repo root
+   * `<repoRoot>/.exarchos/invariants.md`. Defaults to the repo root
    * derived from this module's location (four levels up from
    * `src/architecture/`), mirroring `vocabulary-lint.ts`.
    */

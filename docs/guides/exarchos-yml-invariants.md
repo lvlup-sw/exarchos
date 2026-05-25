@@ -4,7 +4,7 @@ This page documents the `invariants` block of `.exarchos.yml`. The block has
 two distinct jobs:
 
 1. **`devCatalog`** gates whether Exarchos's *internal* architectural-invariants
-   catalog (`docs/architecture/invariants.md`) is surfaced to your sessions at
+   catalog (`.exarchos/invariants.md`) is surfaced to your sessions at
    `/exarchos:ideate` Phase 0 and consulted by the vocabulary-lint scanner.
 2. **`catalogs` / `overrides` / `enforcement`** (schema v3) let a **consumer**
    bring their *own* invariants and tune which shipped ones gate. These are the
@@ -82,7 +82,7 @@ the check DSL, and a worked example.
 - **[Authoring invariants](authoring-invariants.md)** — consumer-facing how-to.
 - Design: [`docs/designs/2026-05-23-invariants-projection-and-extensibility.md`](../designs/2026-05-23-invariants-projection-and-extensibility.md).
 - v2 framing: [`docs/proposals/2026-05-20-invariants-catalog-v2-spec.md`](../proposals/2026-05-20-invariants-catalog-v2-spec.md) §1.1, §4.0.
-- Catalog: [`docs/architecture/invariants.md`](../architecture/invariants.md).
+- Catalog: [`.exarchos/invariants.md`](../../.exarchos/invariants.md).
 - Loader: [`servers/exarchos-mcp/src/architecture/invariants-loader.ts`](../../servers/exarchos-mcp/src/architecture/invariants-loader.ts).
 - Effective-catalog resolver: [`servers/exarchos-mcp/src/architecture/resolve-effective-catalog.ts`](../../servers/exarchos-mcp/src/architecture/resolve-effective-catalog.ts).
 - Contract seam: [`docs/architecture/invariants-v3-contract-seam.md`](../architecture/invariants-v3-contract-seam.md).

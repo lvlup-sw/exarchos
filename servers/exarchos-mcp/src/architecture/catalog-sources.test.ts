@@ -24,7 +24,7 @@ describe('resolveCatalogSources (T2)', () => {
     };
     const sources = resolveCatalogSources(config);
     expect(sources).toEqual([
-      { path: 'docs/architecture/invariants.md', tier: 'dev' },
+      { path: '.exarchos/invariants.md', tier: 'dev' },
     ]);
   });
 
@@ -60,13 +60,13 @@ describe('resolveCatalogSources (T2)', () => {
     const config: ExarchosConfig = {
       invariants: {
         devCatalog: 'enabled',
-        catalogs: [{ path: 'docs/architecture/invariants.md', tier: 'dev' }],
+        catalogs: [{ path: '.exarchos/invariants.md', tier: 'dev' }],
       },
     };
     const sources = resolveCatalogSources(config);
     const devSources = sources.filter((s) => s.tier === 'dev');
     expect(devSources).toEqual([
-      { path: 'docs/architecture/invariants.md', tier: 'dev' },
+      { path: '.exarchos/invariants.md', tier: 'dev' },
     ]);
   });
 
@@ -91,7 +91,7 @@ describe('resolveCatalogSources (T2)', () => {
     expect(sources).toContainEqual({ path: 'team.yml', tier: 'user' });
     expect(sources).toContainEqual({ path: 'design.yml', tier: 'dev' });
     expect(sources).toContainEqual({
-      path: 'docs/architecture/invariants.md',
+      path: '.exarchos/invariants.md',
       tier: 'dev',
     });
   });

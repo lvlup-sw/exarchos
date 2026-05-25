@@ -340,14 +340,14 @@ describe('InvariantsConfigSchema — tiered catalog registrations (T1)', () => {
     // A `{ path, tier }` object and a bare string coexist in the same array.
     const result = InvariantsConfigSchema.safeParse({
       catalogs: [
-        { path: 'docs/architecture/invariants.md', tier: 'dev' },
+        { path: '.exarchos/invariants.md', tier: 'dev' },
         '.exarchos/invariants.yml',
       ],
     });
     expect(result.success).toBe(true);
     if (result.success) {
       expect(result.data.catalogs).toEqual([
-        { path: 'docs/architecture/invariants.md', tier: 'dev' },
+        { path: '.exarchos/invariants.md', tier: 'dev' },
         '.exarchos/invariants.yml',
       ]);
     }

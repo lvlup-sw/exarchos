@@ -108,7 +108,7 @@ resolved result with `invariants_effective` ([§5](#5-inspect-the-effective-cata
 ## 2. Author an entry
 
 A catalog file is YAML frontmatter with an `invariants:` list. Each entry mirrors
-the shipped catalog (`docs/architecture/invariants.md`) and adds the v3 fields.
+the shipped catalog (`.exarchos/invariants.md`) and adds the v3 fields.
 Field keys are **kebab-case** (they are YAML frontmatter).
 
 ```yaml
@@ -248,4 +248,4 @@ catalogs and reports a Warning that names the offending file or reserved id.
 - `exarchos doctor` → `invariants-catalog` check — validates configured catalogs.
 - `invariants_effective` view — inspect the merged, projected catalog ([§5](#5-inspect-the-effective-catalog)).
 - Design: [`docs/designs/2026-05-23-invariants-projection-and-extensibility.md`](../designs/2026-05-23-invariants-projection-and-extensibility.md).
-- Shipped catalog (worked examples of entries): [`docs/architecture/invariants.md`](../architecture/invariants.md).
+- Shipped catalog (worked examples of entries): [`.exarchos/invariants.md`](../../.exarchos/invariants.md).

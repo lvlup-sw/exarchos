@@ -3,7 +3,7 @@
  *
  * The default-on baseline Exarchos ships *to consumers* — engineers using
  * Exarchos as a plugin to govern their own SDLC. Distinct from the dev catalog
- * (`docs/architecture/invariants.md`, `INV-*`, devCatalog-gated, never surfaced
+ * (`.exarchos/invariants.md`, `INV-*`, devCatalog-gated, never surfaced
  * to consumers) and from a consumer's own `user`-layer catalog (`U-*`).
  *
  * ## Why inline (not a .md file)

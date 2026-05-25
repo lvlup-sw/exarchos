@@ -1,7 +1,7 @@
 // Retirement guard for the `design-invariants` skill (T-23 / DR-4).
 //
 // The skill's audit behavior is now owned by the `check_invariant_conformance`
-// gate; its vocabulary lives in `docs/architecture/invariants.md` and its
+// gate; its vocabulary lives in `.exarchos/invariants.md` and its
 // grounding prose was relocated to `docs/architecture/invariants/references/`.
 // This guard pins the retirement so the skill cannot quietly return and so the
 // catalog's `references:` pointers never dangle.
@@ -17,7 +17,7 @@ import { loadInvariants } from './invariants-loader.js';
 // Repo root is four directories up.
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, '../../../..');
-const INVARIANTS_DOC = path.join(REPO_ROOT, 'docs/architecture/invariants.md');
+const INVARIANTS_DOC = path.join(REPO_ROOT, '.exarchos/invariants.md');
 const DESIGN_INVARIANTS_SKILL = path.join(
   REPO_ROOT,
   '.claude/skills/design-invariants/SKILL.md',

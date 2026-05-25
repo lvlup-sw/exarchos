@@ -340,7 +340,7 @@ export async function resolveInvariantsCatalog(
   let devConfigured = false;
   if (config?.invariants?.devCatalog === 'enabled') {
     try {
-      await nodeFs.access(join(root, 'docs/architecture/invariants.md'), fsConstants.F_OK);
+      await nodeFs.access(join(root, '.exarchos/invariants.md'), fsConstants.F_OK);
       devConfigured = true;
     } catch {
       devConfigured = false;

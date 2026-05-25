@@ -3,7 +3,8 @@
  *
  * `resolveEffectiveCatalog` (DR-7) historically hand-coded three layers, with
  * the **dev catalog special-cased**: it loaded from a hardcoded path
- * (`docs/architecture/invariants.md`) behind a bespoke `devCatalog: 'enabled'`
+ * (`.exarchos/invariants.md`, relocated from `docs/architecture/invariants.md`
+ * in T19) behind a bespoke `devCatalog: 'enabled'`
  * boolean, while user catalogs flowed through the generic `invariants.catalogs`
  * registration list — even though BOTH call the identical `loadInvariants`
  * loader. This module is the single discovery surface that collapses that
@@ -40,7 +41,7 @@ export interface CatalogSource {
  * Repo-relative path the `devCatalog: 'enabled'` sugar desugars to. Mirrors the
  * path the resolver previously hardcoded in its Layer-1 block.
  */
-export const DEV_CATALOG_PATH = 'docs/architecture/invariants.md';
+export const DEV_CATALOG_PATH = '.exarchos/invariants.md';
 
 /**
  * Normalize `invariants.catalogs` registrations + desugar `devCatalog` into a
