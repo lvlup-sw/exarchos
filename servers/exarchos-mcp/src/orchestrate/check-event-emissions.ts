@@ -52,13 +52,20 @@ function modelEmittedOnly(types: readonly string[]): readonly EventType[] {
   return out;
 }
 
+// RC2 (#1395): `review.routed` was removed from every phase entry below — it is
+// now auto-emitted by handleReviewTriage (review/tools.ts), so the model is no
+// longer nagged for it. The surviving team.* / stack.submitted / shepherd.*
+// entries stay model-emitted (Category C): their transition is a model-walked
+// runbook step bracketing a `native:` harness tool, so auto-emission needs a
+// runbook-executor seam (deferred to v2.11 / #1258). Re-adding an `'auto'`
+// event here will trip the compile-time assertion immediately below.
 export const PHASE_EXPECTED_EVENTS: Readonly<Record<string, readonly EventType[]>> = {
   'delegate': modelEmittedOnly(getRegisteredEventTypes('delegate')),
   'overhaul-delegate': modelEmittedOnly(getRegisteredEventTypes('overhaul-delegate')),
-  'review': ['team.spawned', 'team.task.planned', 'team.teammate.dispatched', 'team.disbanded', 'review.routed'],
-  'overhaul-review': ['team.spawned', 'team.task.planned', 'team.teammate.dispatched', 'team.disbanded', 'review.routed'],
-  'synthesize': ['team.spawned', 'team.disbanded', 'review.routed', 'stack.submitted', 'shepherd.iteration'],
-  'overhaul-update-docs': ['team.spawned', 'team.disbanded', 'review.routed'],
+  'review': ['team.spawned', 'team.task.planned', 'team.teammate.dispatched', 'team.disbanded'],
+  'overhaul-review': ['team.spawned', 'team.task.planned', 'team.teammate.dispatched', 'team.disbanded'],
+  'synthesize': ['team.spawned', 'team.disbanded', 'stack.submitted', 'shepherd.iteration'],
+  'overhaul-update-docs': ['team.spawned', 'team.disbanded'],
 };
 
 // Compile-time assertion: every event in the registry must be model-emitted
@@ -79,7 +86,8 @@ const EVENT_DESCRIPTIONS: Readonly<Record<string, string>> = {
   'team.task.planned': 'Emit team.task.planned via exarchos_event for each planned task',
   'team.teammate.dispatched': 'Emit team.teammate.dispatched via exarchos_event after dispatching subagents',
   'team.disbanded': 'Emit team.disbanded via exarchos_event after all teammates complete',
-  'review.routed': 'Emit review.routed via exarchos_event after routing PRs to review',
+  // review.routed description removed in RC2 (#1395): now auto-emitted, never a
+  // model-emitted hint, so its description is dead. DIM-5 hygiene.
   'stack.submitted': 'Emit stack.submitted via exarchos_event after submitting the PR stack',
   'shepherd.iteration': 'Emit shepherd.iteration via exarchos_event after each shepherd loop iteration',
   'task.progressed': 'Emit task.progressed via exarchos_event after each TDD phase transition (red/green/refactor)',

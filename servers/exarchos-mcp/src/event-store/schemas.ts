@@ -319,6 +319,21 @@ export const EVENT_EMISSION_REGISTRY: Record<EventType, EventEmissionSource> = {
   'stack.enqueued': 'auto',
   'eval.judge.calibrated': 'auto',
 
+  // auto — RC2 (#1395): migrated from 'model'. The runtime emits these
+  // deterministically from a dispatch-core handler, so the model must no
+  // longer be nagged via _eventHints.missing to hand-maintain them (INV-1
+  // event-sourcing integrity, INV-12 trust boundary):
+  //   • review.routed       — review/tools.ts:60 (handleReviewTriage),
+  //                            idempotency key ${featureId}:review.routed:${pr}
+  //   • ci.status           — orchestrate/assess-stack.ts:313 (assess_stack),
+  //                            idempotency key …:ci.status:${pr}:iter-${n}
+  //   • quality.regression  — quality/regression-detector.ts:89, emitted from
+  //                            handleViewCodeQuality (views/tools.ts:724),
+  //                            deduped against existing regression events
+  'review.routed': 'auto',
+  'ci.status': 'auto',
+  'quality.regression': 'auto',
+
   // auto — emitted by the dispatch-core interceptor on the first non-rehydrate
   // handler invocation after a workflow.rehydrated event lands (T-12). Marks
   // "the rehydrated agent has consumed the phase machinery and started doing
@@ -326,7 +341,15 @@ export const EVENT_EMISSION_REGISTRY: Record<EventType, EventEmissionSource> = {
   // Registration only; emission wired by T-12.
   'session.machinery_consumed': 'auto',
 
-  // model — must be emitted explicitly by the model via exarchos_event
+  // model — must be emitted explicitly by the model via exarchos_event.
+  //
+  // Category-C note (#1395): team.spawned / team.disbanded / shepherd.iteration
+  // are runtime-determined transitions that STAY model-emitted because their
+  // transition site is a model-walked runbook step bracketing a `native:`
+  // harness tool (runbooks/definitions.ts) — there is no in-process handler
+  // seam to move the append into yet. Auto-emitting them requires a
+  // runbook-executor seam (feature-shaped, deferred to v2.11 / #1258); until
+  // then the _eventHints.missing nag for them is intentional, not a defect.
   'team.spawned': 'model',
   'team.task.assigned': 'model',
   'team.task.completed': 'model',
@@ -334,8 +357,11 @@ export const EVENT_EMISSION_REGISTRY: Record<EventType, EventEmissionSource> = {
   'team.disbanded': 'model',
   'team.task.planned': 'model',
   'team.teammate.dispatched': 'model',
+  // review.completed / review.finding / review.escalated stay model: they are
+  // qualitative model outputs (verdict, finding text, escalation reason). The
+  // finding/escalation emitters exist but are dormant (no wired caller), so
+  // they are not demonstrably handler-emitted (#1395 audit, Category B).
   'review.completed': 'model',
-  'review.routed': 'model',
   'review.finding': 'model',
   'review.escalated': 'model',
   'remediation.attempted': 'model',
@@ -346,11 +372,9 @@ export const EVENT_EMISSION_REGISTRY: Record<EventType, EventEmissionSource> = {
   'test.result': 'model',
   'typecheck.result': 'model',
   'stack.submitted': 'model',
-  'ci.status': 'model',
   'comment.posted': 'model',
   'comment.resolved': 'model',
   'shepherd.iteration': 'model',
-  'quality.regression': 'model',
   'task.assigned': 'model',
   'task.progressed': 'model',
 

@@ -3,6 +3,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { ToolResult } from '../format.js';
 import { EVENT_EMISSION_REGISTRY } from '../event-store/schemas.js';
+import type { EventType } from '../event-store/schemas.js';
 import type { EventStore } from '../event-store/store.js';
 
 // ─── Mock event store + materializer ────────────────────────────────────────
@@ -42,7 +43,38 @@ describe('PHASE_EXPECTED_EVENTS', () => {
   it('PhaseExpectedEvents_ReviewPhase_ExpectsReviewEvents', () => {
     const reviewEvents = PHASE_EXPECTED_EVENTS['review'];
     expect(reviewEvents).toBeDefined();
-    expect(reviewEvents).toContain('review.routed');
+    // RC2 (#1395): review.routed migrated model → auto (runtime emits it from
+    // review/tools.ts), so it must NOT be in the model-emitted phase set.
+    expect(reviewEvents).not.toContain('review.routed');
+    // Team coordination events stay model-emitted (Category C) pending a
+    // runbook-executor seam.
+    expect(reviewEvents).toContain('team.spawned');
+  });
+
+  it('CheckEventEmissions_ReviewRouted_NotExpectedFromModel', () => {
+    // review.routed is auto-emitted post-RC2; it must be absent from every
+    // PHASE_EXPECTED_EVENTS entry (the compile-time assertion would throw
+    // otherwise, since an 'auto' event cannot appear in a model-only set).
+    for (const [, eventTypes] of Object.entries(PHASE_EXPECTED_EVENTS)) {
+      expect(eventTypes).not.toContain('review.routed');
+    }
+  });
+
+  it('CheckEventEmissions_ReviewPhase_OmitsRoutedFromMissingHints', async () => {
+    mockViewState = { phase: 'review' };
+    // No events present — every model-emitted review-phase event is "missing",
+    // but review.routed (now auto) must NOT appear among the hints.
+    mockStore.query.mockResolvedValueOnce([]);
+
+    const result: ToolResult = await handleCheckEventEmissions(
+      { featureId: 'test-feature' },
+      STATE_DIR,
+      mockStore as unknown as EventStore,
+    );
+
+    expect(result.success).toBe(true);
+    const data = result.data as { hints: Array<{ eventType: string }> };
+    expect(data.hints.map((h) => h.eventType)).not.toContain('review.routed');
   });
 
   it('PhaseExpectedEvents_SynthesizePhase_ExpectsStackAndShepherd', () => {
@@ -67,6 +99,47 @@ describe('PHASE_EXPECTED_EVENTS', () => {
         ).toBe('model');
       }
     }
+  });
+
+  it('PhaseExpectedEvents_AutoEventListed_ThrowsAtModuleLoad', () => {
+    // Regression guard (#1395, RC2). The module-load assertion in
+    // check-event-emissions.ts is the mechanism that FORCES the three-site
+    // migration to stay consistent: flipping a registry entry to 'auto'
+    // WITHOUT removing it from PHASE_EXPECTED_EVENTS must throw. We cannot
+    // re-import the real module to re-trigger its top-level throw without
+    // breaking this suite's own module load, so we re-implement the exact
+    // assertion loop here and feed it a phase set that (re)introduces an
+    // 'auto' event — proving the invariant fires.
+    //
+    // `review.routed` is now 'auto' (post-migration), so a phase set that
+    // lists it is precisely the violation the guard must catch.
+    expect(EVENT_EMISSION_REGISTRY['review.routed']).toBe('auto');
+
+    const assertModelOnly = (
+      phaseSets: Readonly<Record<string, readonly EventType[]>>,
+    ): void => {
+      for (const [, eventTypes] of Object.entries(phaseSets)) {
+        for (const eventType of eventTypes) {
+          if (EVENT_EMISSION_REGISTRY[eventType] !== 'model') {
+            throw new Error(
+              `PHASE_EXPECTED_EVENTS contains non-model event '${eventType}' ` +
+                `(source: ${EVENT_EMISSION_REGISTRY[eventType]})`,
+            );
+          }
+        }
+      }
+    };
+
+    const offendingPhaseSets: Readonly<Record<string, readonly EventType[]>> = {
+      review: ['team.spawned', 'review.routed'],
+    };
+
+    expect(() => assertModelOnly(offendingPhaseSets)).toThrow(
+      /non-model event 'review\.routed'.*source: auto/,
+    );
+
+    // And the real, post-migration phase sets must NOT trip the same loop.
+    expect(() => assertModelOnly(PHASE_EXPECTED_EVENTS)).not.toThrow();
   });
 });
 

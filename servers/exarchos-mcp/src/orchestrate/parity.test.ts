@@ -340,4 +340,59 @@ describe('exarchos_orchestrate CLI-vs-MCP parity', () => {
     expect(normalize(cliResult)).toEqual(normalize(mcpResult));
     expect(cliResult.success).toBe(true);
   });
+
+  it('OrchestrateParity_CheckEventEmissions_ReviewRoutedAuto_CliAndMcp_ReturnEqualPayload', async () => {
+    // RC2 (#1395), INV-2 parity guard. After migrating `review.routed`
+    // model → auto, both carriers must compute identical `_eventHints` for a
+    // `review`-phase workflow: review.routed must NOT appear among the missing
+    // hints on either arm. Driving the stream into `review` phase via two seed
+    // events (workflow.started → workflow.transition to review) mirrors the
+    // rehydrate fixture and is independent of HSM guard state.
+    const streamId = 'parity-emissions-review';
+
+    const seedReviewPhase = async (
+      store: ArmContext['ctx']['eventStore'],
+    ): Promise<void> => {
+      await store.append(streamId, {
+        type: 'workflow.started',
+        data: { featureId: streamId, workflowType: 'feature' },
+      });
+      await store.append(streamId, {
+        type: 'workflow.transition',
+        data: { from: '', to: 'review' },
+      });
+    };
+
+    const cliArm = await createArm('parity-emissions-cli-');
+    arms.push(cliArm);
+    await seedReviewPhase(cliArm.ctx.eventStore);
+
+    // Act (CLI)
+    resetMaterializerCache();
+    const cliResult = await callCli(cliArm.ctx, 'check_event_emissions', {
+      featureId: streamId,
+    });
+
+    const mcpArm = await createArm('parity-emissions-mcp-');
+    arms.push(mcpArm);
+    await seedReviewPhase(mcpArm.ctx.eventStore);
+
+    // Act (MCP)
+    resetMaterializerCache();
+    const mcpResult = await callMcp(mcpArm.ctx, 'check_event_emissions', {
+      featureId: streamId,
+    });
+
+    // Assert — byte-equal payloads across carriers (INV-2)…
+    expect(normalize(cliResult)).toEqual(normalize(mcpResult));
+    expect(cliResult.success).toBe(true);
+
+    // …and review.routed must be absent from the missing-event hints on both.
+    const hintTypes = (r: ToolResult): string[] => {
+      const data = (r as { data?: { hints?: Array<{ eventType: string }> } }).data;
+      return (data?.hints ?? []).map((h) => h.eventType);
+    };
+    expect(hintTypes(cliResult)).not.toContain('review.routed');
+    expect(hintTypes(mcpResult)).not.toContain('review.routed');
+  });
 });
