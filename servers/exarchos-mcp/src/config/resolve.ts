@@ -51,7 +51,6 @@ export interface ResolvedProjectConfig {
     readonly on: Readonly<Record<string, readonly { readonly command: string; readonly timeout: number }[]>>;
   };
   readonly plugins: {
-    readonly axiom: ResolvedPluginConfig;
     readonly impeccable: ResolvedPluginConfig;
   };
   readonly prune: {
@@ -126,7 +125,6 @@ export const DEFAULTS: ResolvedProjectConfig = deepFreeze({
     on: {},
   },
   plugins: {
-    axiom: { enabled: true },
     impeccable: { enabled: true },
   },
   prune: {
@@ -280,7 +278,6 @@ export function resolveConfig(project: ProjectConfig): ResolvedProjectConfig {
   }
 
   // ── Plugins ──
-  const axiomEnabled = project.plugins?.axiom?.enabled ?? DEFAULTS.plugins.axiom.enabled;
   const impeccableEnabled = project.plugins?.impeccable?.enabled ?? DEFAULTS.plugins.impeccable.enabled;
 
   // ── Prune ──
@@ -306,7 +303,7 @@ export function resolveConfig(project: ProjectConfig): ResolvedProjectConfig {
     workflow: { skipPhases, maxFixCycles, requiredReviews, phases },
     tools: { defaultBranch, commitStyle, prTemplate, autoMerge, prStrategy },
     hooks: { on: hooksOn },
-    plugins: { axiom: { enabled: axiomEnabled }, impeccable: { enabled: impeccableEnabled } },
+    plugins: { impeccable: { enabled: impeccableEnabled } },
     prune: { staleAfterDays, maxBatchSize, phaseExclusions, malformedHandling, requireDryRun },
     checkpoint: { operationThreshold, enforceOnPhaseTransition, enforceOnWaveDispatch },
   };

@@ -112,7 +112,6 @@ const PluginConfig = z.object({
 }).strict();
 
 const PluginsConfig = z.object({
-  axiom: PluginConfig.optional(),
   impeccable: PluginConfig.optional(),
 }).strict();
 

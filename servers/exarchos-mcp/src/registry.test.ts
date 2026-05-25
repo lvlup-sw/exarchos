@@ -1538,7 +1538,7 @@ describe('Plugin Integration Registry Wiring', () => {
       low: 2,
       pluginFindings: [
         {
-          source: 'axiom',
+          source: 'impeccable',
           severity: 'MEDIUM',
           dimension: 'error-handling',
           file: 'src/foo.ts',
@@ -1555,7 +1555,7 @@ describe('Plugin Integration Registry Wiring', () => {
       expect(Array.isArray(data.pluginFindings)).toBe(true);
       const findings = data.pluginFindings as Array<Record<string, unknown>>;
       expect(findings).toHaveLength(1);
-      expect(findings[0].source).toBe('axiom');
+      expect(findings[0].source).toBe('impeccable');
       expect(findings[0].severity).toBe('MEDIUM');
     }
 

@@ -152,17 +152,16 @@ describe('buildConfigDescription', () => {
 
   it('DescribeConfig_PluginsDefaults_AllDefault', () => {
     const result = buildConfigDescription(DEFAULTS);
-    expect(result.plugins.axiom.enabled.value).toBe(true);
-    expect(result.plugins.axiom.enabled.source).toBe('default');
     expect(result.plugins.impeccable.enabled.value).toBe(true);
+    expect(result.plugins.impeccable.enabled.source).toBe('default');
   });
 
   it('DescribeConfig_PluginsOverride_ShowsSource', () => {
-    const config = resolveConfig({ plugins: { axiom: { enabled: false } } });
+    const config = resolveConfig({ plugins: { impeccable: { enabled: false } } });
     const result = buildConfigDescription(config);
 
-    expect(result.plugins.axiom.enabled.value).toBe(false);
-    expect(result.plugins.axiom.enabled.source).toBe('.exarchos.yml');
+    expect(result.plugins.impeccable.enabled.value).toBe(false);
+    expect(result.plugins.impeccable.enabled.source).toBe('.exarchos.yml');
   });
 });
 
