@@ -8,9 +8,13 @@
  * (mirrors `seedExarchosConfig`).
  */
 import { describe, it, expect } from 'vitest';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 
-import { handleScaffold } from './scaffold.js';
+import { handleScaffold, renderStarterCatalog } from './scaffold.js';
 import type { ScaffoldDeps } from './scaffold.js';
+import { loadInvariants } from '../../architecture/invariants-loader.js';
 
 // ─── In-memory fs harness ────────────────────────────────────────────────────
 
@@ -144,4 +148,36 @@ describe('handleScaffold', () => {
     expect(data.next_actions).toContain('doctor');
     expect(data.next_actions).toContain('view invariants_effective');
   });
+});
+
+/**
+ * Round-trip regression (#1487 HIGH/Sentry): a freshly-scaffolded catalog MUST
+ * be parseable by `loadInvariants`. The prior `renderStarterCatalog` emitted no
+ * `---` frontmatter fences, so `gray-matter` produced `data.invariants ===
+ * undefined` and `loadInvariants` threw — every scaffolded file was dead on
+ * arrival and silently skipped by `resolveEffectiveCatalog`. This covers the
+ * scaffold → loadInvariants round-trip the original tests omitted.
+ */
+describe('renderStarterCatalog → loadInvariants round-trip (#1487)', () => {
+  it.each(['user', 'dev'] as const)(
+    'renderStarterCatalog_%s_ParsesViaLoadInvariantsWithoutThrowing',
+    (tier) => {
+      const body = renderStarterCatalog(tier);
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'scaffold-roundtrip-'));
+      const catalogPath = path.join(dir, 'invariants.md');
+      fs.writeFileSync(catalogPath, body);
+
+      try {
+        // devCatalog:'enabled' so the loader gate does not short-circuit to [].
+        const entries = loadInvariants(catalogPath, undefined, {
+          invariants: { devCatalog: 'enabled' },
+        });
+        expect(Array.isArray(entries)).toBe(true);
+        // A pristine scaffold has only the COMMENTED worked example → empty.
+        expect(entries).toEqual([]);
+      } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+      }
+    },
+  );
 });

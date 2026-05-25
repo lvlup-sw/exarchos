@@ -34,8 +34,8 @@ export interface ScaffoldDeps {
 export interface HandleScaffoldArgs {
   /** Repo root the target path + `.exarchos.yml` resolve against. */
   readonly repoRoot: string;
-  /** Repo-relative path of the catalog file to create. */
-  readonly path: string;
+  /** Repo-relative path of the catalog file to create. Defaults per tier. */
+  readonly path?: string;
   /** Privilege tier of the catalog. Defaults to `user`. */
   readonly tier?: 'dev' | 'user';
 }
@@ -54,13 +54,22 @@ const DEFAULT_PATH: Record<'dev' | 'user', string> = {
 };
 
 /**
- * Build the v3-shaped starter catalog body. The single worked example is
- * commented out so the file is valid-but-empty (`invariants: []`) until the
- * author opts in by un-commenting + editing.
+ * Build the v3-shaped starter catalog body. The body is wrapped in a proper
+ * YAML frontmatter block (`---` … `---`) so `loadInvariants` (which parses via
+ * `gray-matter`) can read it. The frontmatter declares `schema-version: 3` and
+ * a valid-but-empty `invariants: []` list; the single worked example is left
+ * commented out so the file parses cleanly until the author opts in by
+ * un-commenting + editing.
+ *
+ * gray-matter only recognises a frontmatter block when the opening `---` is the
+ * very first line of the file, so the human-guidance comments live INSIDE the
+ * frontmatter as YAML comments (lines beginning with `#`) — they are ignored by
+ * the YAML parser but stay visible to the author editing the file.
  */
 export function renderStarterCatalog(tier: 'dev' | 'user'): string {
   const exampleId = tier === 'dev' ? 'INV-1' : 'U-1';
-  return `# Invariant catalog (${tier} tier) — authored via \`exarchos invariants scaffold\`.
+  return `---
+# Invariant catalog (${tier} tier) — authored via \`exarchos invariants scaffold\`.
 #
 # Each entry expresses one architectural rule. Author new entries with
 # \`exarchos invariants add\` (validates the entry shape before writing), or
@@ -73,6 +82,7 @@ export function renderStarterCatalog(tier: 'dev' | 'user'): string {
 # LLM evaluates the prompt against the diff; always portable (INV-6). For a
 # declarative grep/structural check, use \`mode: check\` with a combinator tree
 # (see the authoring guide).
+schema-version: 3
 invariants: []
 #   - id: ${exampleId}
 #     dimension: example-dimension
@@ -90,6 +100,7 @@ invariants: []
 #       mode: audit
 #       audit-prompt: >-
 #         Does the diff violate <the rule>? Cite the offending file + line.
+---
 `;
 }
 
