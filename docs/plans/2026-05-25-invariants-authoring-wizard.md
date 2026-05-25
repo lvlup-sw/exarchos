@@ -302,6 +302,23 @@ Establishes the load-bearing safety net for the whole migration **before** any r
 
 ---
 
+## Phase 5 — Relocate dev catalog to `.exarchos/` (folded into #1487)
+
+### Task 19: `git mv` dev catalog to `.exarchos/invariants.md`, register explicitly
+**Phase:** RED → GREEN → REFACTOR
+**Files (impl):** `docs/architecture/invariants.md` → `.exarchos/invariants.md`; `architecture/catalog-sources.ts` (`DEV_CATALOG_PATH`); `architecture/vocabulary-lint.ts`; `commands/ideate.md`; `skills-src/brainstorming/SKILL.md` (+ render); `.exarchos.yml`; affected tests.
+
+1. [RED] `resolveCatalogSources_DevCatalogEnabled_RegistersExarchosDirPath` — assert the desugared dev source path is `.exarchos/invariants.md`. Fails against the current `docs/architecture/invariants.md` constant.
+2. [RED] `RepoConfig_ExplicitDevRegistration_DedupesWithSugar` — with BOTH `devCatalog: enabled` and `catalogs: [{ path: .exarchos/invariants.md, tier: dev }]`, exactly one dev source resolves and the effective catalog still matches the T0 golden.
+3. [GREEN] `git mv docs/architecture/invariants.md .exarchos/invariants.md`; set `DEV_CATALOG_PATH = '.exarchos/invariants.md'`; update `vocabulary-lint` hardcoded path; update `/ideate` Phase-0 prose pointers (`commands/ideate.md`, `skills-src/brainstorming/SKILL.md` — then `build:skills`); add the explicit `catalogs:` registration to `.exarchos.yml` while keeping `devCatalog: enabled`.
+4. [GREEN] Update every test that reads the catalog by literal path (`dev-catalog-content`, `dev-catalog-ref-paths`, `ideate-loader`, `characterization`, `resolve-effective-catalog`, etc.) to the new location; refresh snapshots only if content (not just path) changed — it should not.
+5. [REFACTOR] Confirm `check_invariant_conformance` (production `resolveEffectiveCatalog` path) picks up the move with no code change beyond `DEV_CATALOG_PATH`. Leave `docs/architecture/invariants/references/INV-*.md` in place.
+
+**Decision:** keep `devCatalog: enabled` (vocab-lint + direct Phase-0 `loadInvariants` gate still depend on it). Full boolean retirement = tracked follow-up.
+**Dependencies:** P1–P4 complete (all merged).
+**Parallelizable:** No — single coherent relocation.
+**testingStrategy:** unit + characterization; propertyTests: no; benchmarks: no
+
 ## Verification gates (post-implementation)
 
 - `check_tdd_compliance` per task branch (RED-before-GREEN in git history).
