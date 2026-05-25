@@ -21,7 +21,6 @@ Review runs AFTER delegation completes -- reviews the branch stack diff.
 
 - **Stage 1 (spec compliance):** `@skills/spec-review/SKILL.md`
 - **Stage 2 (code quality):** `@skills/quality-review/SKILL.md`
-- **Plugin integration:** `@skills/quality-review/references/axiom-integration.md`
 
 Reviews MUST be dispatched to subagents (not run inline). Use the branch stack diff to reduce context by 80-90%:
 
@@ -68,14 +67,12 @@ On platforms with skill support, the orchestrator additionally invokes companion
 ### Detection
 
 Check the `pluginStatus` from `prepare_review` response AND your available skills list:
-- `axiom:audit` — deeper backend quality analysis (7 dimensions)
 - `impeccable:critique` — frontend design quality
 
 ### Invocation
 
 ```typescript
 // Only if plugin is enabled AND skill is available
-Skill({ skill: "axiom:audit" })    // Pass: diff content, changed file list
 Skill({ skill: "impeccable:critique" })  // Pass: diff content
 ```
 
@@ -89,9 +86,9 @@ Feed companion plugin findings as additional `pluginFindings` to `check_review_v
 ### Plugin Coverage
 
 Log status in review output:
-- Not installed: `axiom: not installed (install with claude plugin install axiom@lvlup-sw)`
-- Disabled: `axiom: disabled via .exarchos.yml`
-- Active: `axiom: active (N findings)`
+- Not installed: `impeccable: not installed (install with claude plugin marketplace add pbakaus/impeccable && claude plugin install impeccable@impeccable)`
+- Disabled: `impeccable: disabled via .exarchos.yml`
+- Active: `impeccable: active (N findings)`
 
 ## Output
 
