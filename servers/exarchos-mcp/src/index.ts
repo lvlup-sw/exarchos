@@ -286,11 +286,12 @@ function hookReadStdin(): Promise<string> {
 
 async function main() {
   // ─── Hook Command Fast Path ────────────────────────────────────────────────
-  // Hook commands (guard, task-gate, teammate-gate, subagent-context,
-  // session-end) are invoked as subprocesses by Claude Code with tight
-  // timeouts (5-10s). They only need lightweight state-dir access, not the
-  // full SQLite backend or hydration. Intercept them here before the
-  // expensive initialization path.
+  // Observer hook commands (session-end, subagent-stop) are invoked as
+  // subprocesses by Claude Code with tight timeouts (10-30s). They only need
+  // lightweight state-dir access, not the full SQLite backend or hydration.
+  // Intercept them here before the expensive initialization path. #1476: the
+  // enforcement/control hooks (guard, task-gate, teammate-gate,
+  // subagent-context) were retired — enforcement lives in the MCP tools.
   const hookCommand = process.argv[2];
   if (isHookCommand(hookCommand)) {
     const result = await handleHookCommand(

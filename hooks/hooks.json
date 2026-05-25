@@ -1,36 +1,5 @@
 {
   "hooks": {
-    "PreToolUse": [{
-      "matcher": "mcp__(plugin_exarchos_)?exarchos__.*",
-      "hooks": [{
-        "type": "command",
-        "command": "exarchos guard",
-        "timeout": 5
-      }]
-    }],
-    "TaskCompleted": [{
-      "hooks": [{
-        "type": "command",
-        "command": "exarchos task-gate",
-        "timeout": 120,
-        "statusMessage": "Running quality gates..."
-      }]
-    }],
-    "TeammateIdle": [{
-      "hooks": [{
-        "type": "command",
-        "command": "exarchos teammate-gate",
-        "timeout": 120,
-        "statusMessage": "Verifying teammate work..."
-      }]
-    }],
-    "SubagentStart": [{
-      "hooks": [{
-        "type": "command",
-        "command": "exarchos subagent-context",
-        "timeout": 5
-      }]
-    }],
     "SubagentStop": [{
       "matcher": "exarchos-implementer|exarchos-fixer",
       "hooks": [{

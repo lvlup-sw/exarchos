@@ -1,18 +1,13 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
-// Mock all cli-command modules before importing the module under test
-vi.mock('../cli-commands/guard.js', () => ({
-  handleGuard: vi.fn(),
-}));
-vi.mock('../cli-commands/gates.js', () => ({
-  handleTaskGate: vi.fn(),
-  handleTeammateGate: vi.fn(),
-}));
-vi.mock('../cli-commands/subagent-context.js', () => ({
-  handleSubagentContext: vi.fn(),
-}));
+// #1476: the hook layer is observe-only. Only the two lifecycle observers
+// (`session-end`, `subagent-stop`) are dispatched; the enforcement/control
+// handlers (guard, task-gate, teammate-gate, subagent-context) were retired.
 vi.mock('../cli-commands/session-end.js', () => ({
   handleSessionEnd: vi.fn(),
+}));
+vi.mock('../cli-commands/subagent-stop.js', () => ({
+  handleSubagentStop: vi.fn(),
 }));
 
 // Mock the workflow state-store module (re-exports resolveStateDir)
@@ -20,59 +15,40 @@ vi.mock('../workflow/state-store.js', () => ({
   resolveStateDir: vi.fn(),
 }));
 
-// Mock the utils/paths module (resolveTeamsDir)
-vi.mock('../utils/paths.js', () => ({
-  resolveStateDir: vi.fn(),
-  resolveTeamsDir: vi.fn(),
-}));
-
-import { isHookCommand, handleHookCommand } from './hooks.js';
+import { isHookCommand, handleHookCommand, HOOK_COMMANDS } from './hooks.js';
 
 describe('isHookCommand', () => {
-  it('isHookCommand_PreCompact_ReturnsFalse', () => {
-    // T-41: pre-compact removed from HOOK_COMMANDS — pre-compact.ts deletion follows in T-42/T-43
-    expect(isHookCommand('pre-compact')).toBe(false);
-  });
-
-  it('isHookCommand_SessionStart_ReturnsFalse', () => {
-    // T-41: session-start removed from HOOK_COMMANDS — session-start.ts deletion follows in T-42/T-43
-    expect(isHookCommand('session-start')).toBe(false);
-  });
-
-  it('isHookCommand_Guard_ReturnsTrue', () => {
-    expect(isHookCommand('guard')).toBe(true);
-  });
-
-  it('isHookCommand_TaskGate_ReturnsTrue', () => {
-    expect(isHookCommand('task-gate')).toBe(true);
-  });
-
-  it('isHookCommand_TeammateGate_ReturnsTrue', () => {
-    expect(isHookCommand('teammate-gate')).toBe(true);
-  });
-
-  it('isHookCommand_SubagentContext_ReturnsTrue', () => {
-    expect(isHookCommand('subagent-context')).toBe(true);
-  });
-
   it('isHookCommand_SessionEnd_ReturnsTrue', () => {
     expect(isHookCommand('session-end')).toBe(true);
   });
 
-  it('isHookCommand_Mcp_ReturnsFalse', () => {
+  it('isHookCommand_SubagentStop_ReturnsTrue', () => {
+    // T11: SubagentStop is wired in hooks.json — it must be in the dispatch set.
+    expect(isHookCommand('subagent-stop')).toBe(true);
+  });
+
+  it('isHookCommand_RetiredEnforcementHooks_ReturnFalse', () => {
+    // #1476: these enforcement/control hooks were retired.
+    expect(isHookCommand('guard')).toBe(false);
+    expect(isHookCommand('task-gate')).toBe(false);
+    expect(isHookCommand('teammate-gate')).toBe(false);
+    expect(isHookCommand('subagent-context')).toBe(false);
+  });
+
+  it('isHookCommand_T40RemovedHooks_ReturnFalse', () => {
+    expect(isHookCommand('pre-compact')).toBe(false);
+    expect(isHookCommand('session-start')).toBe(false);
+  });
+
+  it('isHookCommand_NonHookCommands_ReturnFalse', () => {
     expect(isHookCommand('mcp')).toBe(false);
-  });
-
-  it('isHookCommand_Workflow_ReturnsFalse', () => {
     expect(isHookCommand('workflow')).toBe(false);
-  });
-
-  it('isHookCommand_Empty_ReturnsFalse', () => {
     expect(isHookCommand('')).toBe(false);
+    expect(isHookCommand(undefined)).toBe(false);
   });
 
-  it('isHookCommand_Undefined_ReturnsFalse', () => {
-    expect(isHookCommand(undefined)).toBe(false);
+  it('HOOK_COMMANDS_IsObserverOnlySet', () => {
+    expect([...HOOK_COMMANDS].sort()).toEqual(['session-end', 'subagent-stop']);
   });
 });
 
@@ -91,27 +67,14 @@ describe('handleHookCommand', () => {
     savedPluginRoot = process.env.EXARCHOS_PLUGIN_ROOT;
     delete process.env.EXARCHOS_PLUGIN_ROOT;
 
-    // Reset mock return values for path resolvers
     const stateStore = await import('../workflow/state-store.js');
     vi.mocked(stateStore.resolveStateDir).mockReturnValue('/mock/state-dir');
 
-    const paths = await import('../utils/paths.js');
-    vi.mocked(paths.resolveStateDir).mockReturnValue('/mock/state-dir');
-    vi.mocked(paths.resolveTeamsDir).mockReturnValue('/mock/teams-dir');
-
-    // Reset mock return values for handlers
-    const guard = await import('../cli-commands/guard.js');
-    vi.mocked(guard.handleGuard).mockResolvedValue({ allowed: true });
-
-    const gates = await import('../cli-commands/gates.js');
-    vi.mocked(gates.handleTaskGate).mockResolvedValue({ passed: true });
-    vi.mocked(gates.handleTeammateGate).mockResolvedValue({ passed: true });
-
-    const subagentContext = await import('../cli-commands/subagent-context.js');
-    vi.mocked(subagentContext.handleSubagentContext).mockResolvedValue({ context: 'test' });
-
     const sessionEnd = await import('../cli-commands/session-end.js');
     vi.mocked(sessionEnd.handleSessionEnd).mockResolvedValue({ ended: true });
+
+    const subagentStop = await import('../cli-commands/subagent-stop.js');
+    vi.mocked(subagentStop.handleSubagentStop).mockResolvedValue({ observed: true });
   });
 
   afterEach(() => {
@@ -122,9 +85,18 @@ describe('handleHookCommand', () => {
     }
   });
 
+  it('handleHookCommand_RetiredGuard_ReturnsHandledFalse', async () => {
+    const result = await handleHookCommand(
+      'guard',
+      ['node', 'exarchos', 'guard'],
+      readStdin,
+      parseStdin,
+      outputJson,
+    );
+    expect(result).toEqual({ handled: false });
+  });
+
   it('handleHookCommand_PreCompact_ReturnsHandledFalse', async () => {
-    // T-41: pre-compact dispatch removed; the adapter must report unhandled
-    // so the caller falls through to the standard CLI / no-op path.
     const result = await handleHookCommand(
       'pre-compact',
       ['node', 'exarchos', 'pre-compact'],
@@ -132,27 +104,13 @@ describe('handleHookCommand', () => {
       parseStdin,
       outputJson,
     );
-
-    expect(result).toEqual({ handled: false });
-  });
-
-  it('handleHookCommand_SessionStart_ReturnsHandledFalse', async () => {
-    // T-41: session-start dispatch removed; the adapter must report unhandled.
-    const result = await handleHookCommand(
-      'session-start',
-      ['node', 'exarchos', 'session-start'],
-      readStdin,
-      parseStdin,
-      outputJson,
-    );
-
     expect(result).toEqual({ handled: false });
   });
 
   it('handleHookCommand_PluginRootInArgv_SetsEnvVar', async () => {
     await handleHookCommand(
-      'guard',
-      ['node', 'exarchos', 'guard', '--plugin-root', '/custom/root'],
+      'session-end',
+      ['node', 'exarchos', 'session-end', '--plugin-root', '/custom/root'],
       readStdin,
       parseStdin,
       outputJson,
@@ -161,15 +119,41 @@ describe('handleHookCommand', () => {
     expect(process.env.EXARCHOS_PLUGIN_ROOT).toBe('/custom/root');
   });
 
-  it('handleHookCommand_GateFailure_ReturnsExitCode', async () => {
-    const { handleTaskGate } = await import('../cli-commands/gates.js');
-    vi.mocked(handleTaskGate).mockResolvedValueOnce({
-      error: { code: 'GATE_FAILED', message: 'gate blocked' },
+  it('handleHookCommand_SessionEnd_ReturnsHandledTrue', async () => {
+    const result = await handleHookCommand(
+      'session-end',
+      ['node', 'exarchos', 'session-end'],
+      readStdin,
+      parseStdin,
+      outputJson,
+    );
+
+    expect(result).toEqual({ handled: true });
+    expect(outputJson).toHaveBeenCalledWith({ ended: true });
+  });
+
+  it('handleHookCommand_SubagentStop_ReturnsHandledTrue', async () => {
+    const result = await handleHookCommand(
+      'subagent-stop',
+      ['node', 'exarchos', 'subagent-stop'],
+      readStdin,
+      parseStdin,
+      outputJson,
+    );
+
+    expect(result).toEqual({ handled: true });
+    expect(outputJson).toHaveBeenCalledWith({ observed: true });
+  });
+
+  it('handleHookCommand_OperationalError_ReturnsExitCode1', async () => {
+    const { handleSessionEnd } = await import('../cli-commands/session-end.js');
+    vi.mocked(handleSessionEnd).mockResolvedValueOnce({
+      error: { code: 'IO_ERROR', message: 'disk full' },
     });
 
     const result = await handleHookCommand(
-      'task-gate',
-      ['node', 'exarchos', 'task-gate'],
+      'session-end',
+      ['node', 'exarchos', 'session-end'],
       readStdin,
       parseStdin,
       outputJson,
@@ -177,45 +161,7 @@ describe('handleHookCommand', () => {
 
     expect(result.handled).toBe(true);
     if (result.handled) {
-      expect(result.exitCode).toBe(2);
+      expect(result.exitCode).toBe(1);
     }
-  });
-
-  it('handleHookCommand_GateFailure_WritesErrorToStderr', async () => {
-    // Arrange
-    const stderrSpy = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
-    const { handleTaskGate } = await import('../cli-commands/gates.js');
-    vi.mocked(handleTaskGate).mockResolvedValueOnce({
-      error: { code: 'GATE_FAILED', message: 'typecheck failed:\nsrc/foo.ts: Type error' },
-    });
-
-    // Act
-    await handleHookCommand(
-      'task-gate',
-      ['node', 'exarchos', 'task-gate'],
-      readStdin,
-      parseStdin,
-      outputJson,
-    );
-
-    // Assert — error message should be written to stderr
-    expect(stderrSpy).toHaveBeenCalled();
-    const stderrOutput = stderrSpy.mock.calls.map((c) => String(c[0])).join('');
-    expect(stderrOutput).toContain('typecheck failed');
-    expect(stderrOutput).toContain('Type error');
-
-    stderrSpy.mockRestore();
-  });
-
-  it('handleHookCommand_Success_ReturnsHandledTrue', async () => {
-    const result = await handleHookCommand(
-      'guard',
-      ['node', 'exarchos', 'guard'],
-      readStdin,
-      parseStdin,
-      outputJson,
-    );
-
-    expect(result).toEqual({ handled: true });
   });
 });

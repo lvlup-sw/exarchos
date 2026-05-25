@@ -93,29 +93,32 @@ describe('Core Plugin Structure', () => {
   });
 
   describe('hooks/hooks.json', () => {
-    // T-40 (rehydration-machinery-refactor): Rehydration machinery moved off
-    // hook-driven entry points (`PreCompact`, `SessionStart`) to user-invoked
-    // commands (`/checkpoint`, `/rehydrate`). The hooks.json manifest must
-    // declare exactly the six remaining hooks.
-    it('hooksConfig_declaredHooks_areExactlySixWithoutSessionStartOrPreCompact', () => {
+    // #1476: the hook layer is observe-only. The four enforcement/control
+    // hooks (PreToolUse/guard, TaskCompleted/task-gate, TeammateIdle/
+    // teammate-gate, SubagentStart/subagent-context) were excised; only the
+    // two lifecycle observers remain. See
+    // docs/adrs/2026-05-24-hook-layer-observe-only.md.
+    it('hooksConfig_declaredHooks_areObserverOnly', () => {
       const hooksPath = join(repoRoot, 'hooks', 'hooks.json');
       expect(existsSync(hooksPath)).toBe(true);
       const raw = readFileSync(hooksPath, 'utf-8');
       const hooks = JSON.parse(raw);
 
       const hookTypes = Object.keys(hooks.hooks);
-      // Exactly six hooks remain after T-40 prune.
-      expect(hookTypes).toHaveLength(6);
+      // Exactly the two observer hooks remain.
+      expect(hookTypes).toHaveLength(2);
 
-      // Required hooks
-      expect(hookTypes).toContain('PreToolUse');
-      expect(hookTypes).toContain('TaskCompleted');
-      expect(hookTypes).toContain('TeammateIdle');
-      expect(hookTypes).toContain('SubagentStart');
+      // Observer hooks.
       expect(hookTypes).toContain('SubagentStop');
       expect(hookTypes).toContain('SessionEnd');
 
-      // Pruned hooks must not be present.
+      // Retired enforcement/control hooks must not be present.
+      expect(hookTypes).not.toContain('PreToolUse');
+      expect(hookTypes).not.toContain('TaskCompleted');
+      expect(hookTypes).not.toContain('TeammateIdle');
+      expect(hookTypes).not.toContain('SubagentStart');
+
+      // T-40 removals stay removed.
       expect(hookTypes).not.toContain('PreCompact');
       expect(hookTypes).not.toContain('SessionStart');
 
@@ -127,7 +130,6 @@ describe('Core Plugin Structure', () => {
       const hooksPath = join(repoRoot, 'hooks', 'hooks.json');
       const hooks = JSON.parse(readFileSync(hooksPath, 'utf-8'));
 
-      expect(hooks.hooks.PreToolUse[0].matcher).toBe('mcp__(plugin_exarchos_)?exarchos__.*');
       expect(hooks.hooks.SubagentStop[0].matcher).toBe('exarchos-implementer|exarchos-fixer');
       expect(hooks.hooks.SessionEnd[0].matcher).toBe('auto');
     });

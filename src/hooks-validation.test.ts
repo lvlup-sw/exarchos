@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync, existsSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
 
 // Resolve repo root (handles worktree paths)
@@ -37,7 +38,14 @@ function collectCommands(config: HooksConfig): Array<{ hookType: string; command
   return out;
 }
 
-describe('hooks/hooks.json — bare exarchos invocation', () => {
+// #1476 (T9): the hook layer is observe-only. The four enforcement/control
+// hooks were excised; only the two lifecycle observers remain. See
+// docs/adrs/2026-05-24-hook-layer-observe-only.md.
+const ENFORCEMENT_HOOK_TYPES = ['PreToolUse', 'TaskCompleted', 'TeammateIdle', 'SubagentStart'];
+const ENFORCEMENT_SUBCOMMANDS = ['guard', 'task-gate', 'teammate-gate', 'subagent-context'];
+const OBSERVER_HOOK_TYPES = ['SubagentStop', 'SessionEnd'];
+
+describe('hooks/hooks.json — observe-only (#1476)', () => {
   const hooksPath = join(repoRoot, 'hooks', 'hooks.json');
 
   it('HooksJson_Exists_IsValidJson', () => {
@@ -46,60 +54,59 @@ describe('hooks/hooks.json — bare exarchos invocation', () => {
     expect(() => JSON.parse(raw)).not.toThrow();
   });
 
-  it('HooksJson_AllCommands_UseExarchosNotNode', () => {
-    const raw = readFileSync(hooksPath, 'utf-8');
-    const config: HooksConfig = JSON.parse(raw);
-    const commands = collectCommands(config);
-
-    // Sanity: post-T-40 we expect at least 6 commands (one per remaining hook type).
-    // SessionStart + PreCompact were dropped in the rehydration-machinery refactor;
-    // rehydration is now driven by user-invoked /checkpoint and /rehydrate commands.
-    expect(commands.length).toBeGreaterThanOrEqual(6);
-
-    for (const { hookType, command } of commands) {
-      // All remaining six hooks are bare `exarchos <subcmd>` invocations.
-      expect(
-        command.startsWith('exarchos '),
-        `${hookType} command does not start with 'exarchos ': ${command}`,
-      ).toBe(true);
-
-      // No `node ` invocation anywhere
-      expect(command.includes('node '), `${hookType} command still invokes node: ${command}`).toBe(false);
-
-      // No reference to the bundled JS entrypoint
-      expect(command.includes('dist/exarchos.js'), `${hookType} command references dist/exarchos.js: ${command}`).toBe(false);
-    }
-  });
-
-  it('HooksJson_PreservesAllSixHookTypes', () => {
+  it('HooksJson_ContainsObserverHooksOnly', () => {
     const config: HooksConfig = JSON.parse(readFileSync(hooksPath, 'utf-8'));
     const hookTypes = Object.keys(config.hooks);
 
-    // T-40: PreCompact + SessionStart removed; rehydration is now command-driven.
-    const required = [
-      'PreToolUse',
-      'TaskCompleted',
-      'TeammateIdle',
-      'SubagentStart',
-      'SubagentStop',
-      'SessionEnd',
-    ];
-
-    for (const t of required) {
-      expect(hookTypes, `missing hook type: ${t}`).toContain(t);
+    // Only the two observer hooks survive.
+    for (const t of OBSERVER_HOOK_TYPES) {
+      expect(hookTypes, `missing observer hook type: ${t}`).toContain(t);
     }
+
+    // None of the enforcement/control hooks may remain.
+    for (const t of ENFORCEMENT_HOOK_TYPES) {
+      expect(hookTypes, `enforcement hook type still present: ${t}`).not.toContain(t);
+    }
+
+    // T-40 removals stay removed.
     expect(hookTypes).not.toContain('PreCompact');
     expect(hookTypes).not.toContain('SessionStart');
   });
 
-  it('HooksJson_EachHookType_InvokesExpectedSubcommand', () => {
+  it('HooksJson_NoEnforcementSubcommands', () => {
+    const config: HooksConfig = JSON.parse(readFileSync(hooksPath, 'utf-8'));
+    const commands = collectCommands(config);
+    for (const { hookType, command } of commands) {
+      for (const sub of ENFORCEMENT_SUBCOMMANDS) {
+        expect(
+          command.includes(`exarchos ${sub}`),
+          `${hookType} still invokes retired enforcement subcommand '${sub}': ${command}`,
+        ).toBe(false);
+      }
+    }
+  });
+
+  it('HooksJson_AllCommands_UseExarchosNotNode', () => {
+    const config: HooksConfig = JSON.parse(readFileSync(hooksPath, 'utf-8'));
+    const commands = collectCommands(config);
+
+    // Observer set: SubagentStop + SessionEnd → at least 2 commands.
+    expect(commands.length).toBeGreaterThanOrEqual(2);
+
+    for (const { hookType, command } of commands) {
+      expect(
+        command.startsWith('exarchos '),
+        `${hookType} command does not start with 'exarchos ': ${command}`,
+      ).toBe(true);
+      expect(command.includes('node '), `${hookType} command still invokes node: ${command}`).toBe(false);
+      expect(command.includes('dist/exarchos.js'), `${hookType} command references dist/exarchos.js: ${command}`).toBe(false);
+    }
+  });
+
+  it('HooksJson_EachObserverHook_InvokesExpectedSubcommand', () => {
     const config: HooksConfig = JSON.parse(readFileSync(hooksPath, 'utf-8'));
 
     const expectedSubcommand: Record<string, string> = {
-      PreToolUse: 'guard',
-      TaskCompleted: 'task-gate',
-      TeammateIdle: 'teammate-gate',
-      SubagentStart: 'subagent-context',
       SubagentStop: 'subagent-stop',
       SessionEnd: 'session-end',
     };
@@ -114,25 +121,14 @@ describe('hooks/hooks.json — bare exarchos invocation', () => {
     }
   });
 
-  it('HooksJson_PreservesMatcherAndTimeoutMetadata', () => {
+  it('HooksJson_PreservesObserverMatcherAndTimeoutMetadata', () => {
     const config: HooksConfig = JSON.parse(readFileSync(hooksPath, 'utf-8'));
 
-    // Matcher preservation (six remaining hooks)
-    expect(config.hooks.PreToolUse[0].matcher).toBe('mcp__(plugin_exarchos_)?exarchos__.*');
     expect(config.hooks.SubagentStop[0].matcher).toBe('exarchos-implementer|exarchos-fixer');
     expect(config.hooks.SessionEnd[0].matcher).toBe('auto');
 
-    // Timeout preservation (original values from pre-rewrite file)
-    expect(config.hooks.PreToolUse[0].hooks[0].timeout).toBe(5);
-    expect(config.hooks.TaskCompleted[0].hooks[0].timeout).toBe(120);
-    expect(config.hooks.TeammateIdle[0].hooks[0].timeout).toBe(120);
-    expect(config.hooks.SubagentStart[0].hooks[0].timeout).toBe(5);
     expect(config.hooks.SubagentStop[0].hooks[0].timeout).toBe(10);
     expect(config.hooks.SessionEnd[0].hooks[0].timeout).toBe(30);
-
-    // Status message preservation where present
-    expect(config.hooks.TaskCompleted[0].hooks[0].statusMessage).toBe('Running quality gates...');
-    expect(config.hooks.TeammateIdle[0].hooks[0].statusMessage).toBe('Verifying teammate work...');
   });
 
   it('HooksJson_EveryHookEntry_IsCommandType', () => {
@@ -144,5 +140,54 @@ describe('hooks/hooks.json — bare exarchos invocation', () => {
         }
       }
     }
+  });
+});
+
+describe('enforcement-handler excision grep-sweep (#1476)', () => {
+  // After T9, no source file may reference the retired enforcement
+  // subcommands or their deleted handler modules. We grep the tracked
+  // source (excluding docs/historical artifacts, dist, node_modules, and
+  // this test itself, which legitimately names them to assert absence).
+  it('NoSourceReferences_ToRetiredEnforcementSubcommands', () => {
+    const patterns = [
+      'cli-commands/guard',
+      'cli-commands/subagent-context',
+      'handleGuard',
+      'handleTaskGate',
+      'handleTeammateGate',
+      'handleSubagentContext',
+    ];
+
+    const offenders: string[] = [];
+    for (const pattern of patterns) {
+      let out = '';
+      try {
+        // `git grep` searches only tracked files; the pathspecs exclude
+        // tests, docs, the changelog, and the generated dist tree.
+        out = execFileSync(
+          'git',
+          [
+            'grep',
+            '-l',
+            '-F',
+            pattern,
+            '--',
+            'src/',
+            'servers/exarchos-mcp/src/',
+            'scripts/',
+            ':!*.test.ts',
+            ':!*.test.sh',
+          ],
+          { cwd: repoRoot, encoding: 'utf-8' },
+        );
+      } catch {
+        // `git grep` exits 1 when there are no matches — that's the pass case.
+        out = '';
+      }
+      const files = out.split('\n').map((s) => s.trim()).filter(Boolean);
+      for (const f of files) offenders.push(`${pattern} → ${f}`);
+    }
+
+    expect(offenders, `retired enforcement references linger:\n${offenders.join('\n')}`).toEqual([]);
   });
 });
