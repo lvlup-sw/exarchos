@@ -28,6 +28,19 @@ describe('resolveCatalogSources (T2)', () => {
     ]);
   });
 
+  it('resolveCatalogSources_DevCatalogEnabled_RegistersExarchosDirPath', () => {
+    // P5, T19 — the dev catalog now lives at `.exarchos/invariants.md`
+    // (relocated from `docs/architecture/invariants.md`). The `devCatalog:
+    // 'enabled'` sugar must desugar to the NEW location so the resolver picks
+    // up the move with no logic change beyond the path constant.
+    const config: ExarchosConfig = {
+      invariants: { devCatalog: 'enabled' },
+    };
+    const sources = resolveCatalogSources(config);
+    const devSource = sources.find((s) => s.tier === 'dev');
+    expect(devSource?.path).toBe('.exarchos/invariants.md');
+  });
+
   it('resolveCatalogSources_DevCatalogDisabled_OmitsDevSource', () => {
     // Disabled.
     expect(

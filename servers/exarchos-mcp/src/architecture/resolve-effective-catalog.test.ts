@@ -497,6 +497,76 @@ describe('resolveEffectiveCatalog', () => {
     expect(sugar.ids.length).toBeGreaterThan(0);
   });
 
+  // ─── P5 T19: dev catalog relocated to `.exarchos/`, registered explicitly ──
+
+  it('RepoConfig_ExplicitDevRegistration_DedupesWithSugar', () => {
+    // P5, T19 — the dev catalog now lives at `.exarchos/invariants.md`, and the
+    // repo's `.exarchos.yml` carries BOTH the legacy `devCatalog: 'enabled'`
+    // sugar AND an explicit `{ path: '.exarchos/invariants.md', tier: 'dev' }`
+    // registration (the canonical "like a user catalog" form). Both desugar to
+    // the SAME path, so catalog-sources path-dedup must collapse them into a
+    // SINGLE dev source — no duplicate INV-* ids — and the resolved dev INV-*
+    // id set must still equal the T0 characterization golden (proves the
+    // relocation is behavior-preserving).
+    //
+    // Resolve against the real repo catalog via the module-relative default
+    // (no `repoRoot` override), the same path the running gate uses.
+    const devIdSet = (config: ExarchosConfig): string[] => {
+      const { entries } = resolveEffectiveCatalog({
+        config,
+        phase: 'ideate',
+        workflowType: 'feature',
+      });
+      return entries
+        .filter((e) => e.id.startsWith('INV-'))
+        .map((e) => e.id)
+        .sort((a, b) => a.localeCompare(b));
+    };
+
+    // Both forms (sugar-only, explicit-only) must resolve the SAME dev catalog
+    // at the relocated `.exarchos/invariants.md`. Before the move the explicit
+    // `.exarchos/` source is absent (empty layer) while the sugar still loads
+    // the old `docs/architecture/` location, so these diverge — the RED signal.
+    const explicit = devIdSet({
+      invariants: {
+        catalogs: [{ path: '.exarchos/invariants.md', tier: 'dev' }],
+      },
+    });
+    const sugar = devIdSet({ invariants: { devCatalog: 'enabled' } });
+
+    // Explicit `.exarchos/` registration loads a non-empty dev layer.
+    expect(explicit.length).toBeGreaterThan(0);
+    // Explicit ≡ sugar: both desugar/resolve to the same relocated catalog.
+    expect(explicit).toEqual(sugar);
+
+    // Both flags together (what `.exarchos.yml` ships) dedupe to ONE dev source:
+    // no duplicate INV-* ids, and the id set is unchanged from either alone.
+    const both = devIdSet({
+      invariants: {
+        devCatalog: 'enabled',
+        catalogs: [{ path: '.exarchos/invariants.md', tier: 'dev' }],
+      },
+    });
+    expect(new Set(both).size).toBe(both.length);
+    expect(both).toEqual(sugar);
+
+    // The resolved dev INV-* id set still matches the T0 characterization golden
+    // (the same 8-id set pinned by resolveEffectiveCatalog_DevCatalogEnabled_
+    // GoldenSnapshot in resolve-effective-catalog.characterization.test.ts).
+    // `both === sugar` above already proves equivalence transitively; this
+    // explicit pin guards against the golden silently shifting.
+    expect(both).toEqual([
+      'INV-10',
+      'INV-12',
+      'INV-15',
+      'INV-5b',
+      'INV-5c',
+      'INV-7',
+      'INV-8',
+      'INV-9',
+    ]);
+  });
+
   it('ResolveEffectiveCatalog_Sdlc3EnabledFalse_RefusedByFloorAndWarns', () => {
     // sdlc floor = advisory ⇒ a full disable is REFUSED: the entry survives and
     // a warning is emitted, never a silent drop (INV-11 authority gradient).
