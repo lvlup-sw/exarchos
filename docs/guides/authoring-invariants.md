@@ -13,6 +13,43 @@ by authoring a catalog file and listing it in `.exarchos.yml`.
 > [§0](#0-the-shipped-sdlc-baseline-default-on). Authoring your own `user`-tier
 > catalog is supported today; your entries merge on top of the SDLC baseline.
 
+## Quickstart: the wizard
+
+The fastest path is the **guided authoring wizard** — run `/exarchos:invariants`
+(or invoke the `authoring-invariants` skill) and describe the rule in plain
+prose. The wizard walks a 6-step interview (elicit → locate → weight → enforce →
+number → commit) and turns your rule into a registered, enforced catalog entry
+**without you hand-writing YAML**.
+
+The wizard is agent-led but **every mutation goes through a deterministic,
+schema-validated verb** — the agent supplies judgment and elicitation; the verbs
+own validation, file writing, and `.exarchos.yml` wiring:
+
+| Verb | CLI | What it does |
+|---|---|---|
+| `invariants_scaffold` | `exarchos invariants scaffold` | Create a starter catalog file for a tier; idempotently register it in `.exarchos.yml`. Never overwrites. |
+| `invariants_add` | `exarchos invariants add` | Validate ONE entry against the v3 schema, then append it. `--dry-run` is the **default**: it returns the rendered entry + diff and writes nothing. |
+| `exarchos doctor` | `exarchos doctor` | The validator — the `invariants-catalog` check resolves and reports malformed files / reserved-namespace ids. |
+| `invariants_effective` | `exarchos view invariants_effective` | The merged, projected catalog the gate will enforce. |
+
+The commit step is always **dry-run → show the rendered entry + diff → explicit
+confirmation → write → `doctor` → show the `invariants_effective` delta**. The
+enforcement DSL is `.strict()` and declarative-only, so the wizard cannot emit
+an executable check (no `script` / `exec` / `code`) — see
+[§3](#3-the-enforcement-block--check-vs-audit). Default authoring is
+`mode: audit` (judgment); `mode: check` (a declarative combinator tree) is an
+advanced opt-in.
+
+You can drive the verbs directly without the wizard if you prefer — they are
+plain CLI/MCP actions. The hand-authoring reference below
+([§2](#2-author-an-entry)–[§3](#3-the-enforcement-block--check-vs-audit)) remains
+the **manual/advanced** path for editing catalogs by hand or understanding the
+exact field shapes the verbs produce.
+
+- Wizard skill: `authoring-invariants` (entered via `/exarchos:invariants`).
+- Design: [`docs/designs/2026-05-25-invariants-authoring-wizard.md`](../designs/2026-05-25-invariants-authoring-wizard.md).
+- Plan: [`docs/plans/2026-05-25-invariants-authoring-wizard.md`](../plans/2026-05-25-invariants-authoring-wizard.md).
+
 ## 0. The shipped SDLC baseline (default-on)
 
 Exarchos ships a small **consumer-facing** catalog that is **on by default** —
@@ -37,6 +74,14 @@ They bite at **review** on code-bearing workflows (`feature`, `debug`,
 audiences are distinct: **dev** (`INV-*`, Exarchos's own runtime substrate,
 `devCatalog`-gated, you never see it) → **sdlc** (`SDLC-*`, this baseline) →
 **user** (your own `U-*` entries, §2).
+
+## Manual authoring (advanced)
+
+The rest of this guide is the **manual/advanced** path — registering catalogs
+and hand-writing entries directly. Most authors should use the wizard above
+(`/exarchos:invariants`), which produces these exact shapes for you. Read on if
+you are editing a catalog by hand, scripting bulk authoring, or want to
+understand the field shapes the verbs emit.
 
 ## 1. Register a catalog
 
@@ -195,6 +240,8 @@ catalogs and reports a Warning that names the offending file or reserved id.
 
 ## See also
 
+- **Wizard:** `/exarchos:invariants` (the `authoring-invariants` skill) — the
+  guided on-ramp; see [Quickstart](#quickstart-the-wizard).
 - [`.exarchos.yml` invariants block](exarchos-yml-invariants.md) — config reference.
 - `exarchos init` — seeds the commented `invariants:` onboarding stanza into a
   new `.exarchos.yml` (see [§1](#1-register-a-catalog)).
