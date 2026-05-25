@@ -42,7 +42,38 @@ describe('PHASE_EXPECTED_EVENTS', () => {
   it('PhaseExpectedEvents_ReviewPhase_ExpectsReviewEvents', () => {
     const reviewEvents = PHASE_EXPECTED_EVENTS['review'];
     expect(reviewEvents).toBeDefined();
-    expect(reviewEvents).toContain('review.routed');
+    // RC2 (#1395): review.routed migrated model → auto (runtime emits it from
+    // review/tools.ts), so it must NOT be in the model-emitted phase set.
+    expect(reviewEvents).not.toContain('review.routed');
+    // Team coordination events stay model-emitted (Category C) pending a
+    // runbook-executor seam.
+    expect(reviewEvents).toContain('team.spawned');
+  });
+
+  it('CheckEventEmissions_ReviewRouted_NotExpectedFromModel', () => {
+    // review.routed is auto-emitted post-RC2; it must be absent from every
+    // PHASE_EXPECTED_EVENTS entry (the compile-time assertion would throw
+    // otherwise, since an 'auto' event cannot appear in a model-only set).
+    for (const [, eventTypes] of Object.entries(PHASE_EXPECTED_EVENTS)) {
+      expect(eventTypes).not.toContain('review.routed');
+    }
+  });
+
+  it('CheckEventEmissions_ReviewPhase_OmitsRoutedFromMissingHints', async () => {
+    mockViewState = { phase: 'review' };
+    // No events present — every model-emitted review-phase event is "missing",
+    // but review.routed (now auto) must NOT appear among the hints.
+    mockStore.query.mockResolvedValueOnce([]);
+
+    const result: ToolResult = await handleCheckEventEmissions(
+      { featureId: 'test-feature' },
+      STATE_DIR,
+      mockStore as unknown as EventStore,
+    );
+
+    expect(result.success).toBe(true);
+    const data = result.data as { hints: Array<{ eventType: string }> };
+    expect(data.hints.map((h) => h.eventType)).not.toContain('review.routed');
   });
 
   it('PhaseExpectedEvents_SynthesizePhase_ExpectsStackAndShepherd', () => {

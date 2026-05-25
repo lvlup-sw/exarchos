@@ -91,7 +91,6 @@ describe('EVENT_EMISSION_REGISTRY', () => {
       'team.spawned',
       'team.task.assigned',
       'team.disbanded',
-      'review.routed',
       'review.finding',
       'review.escalated',
       'session.tagged',
@@ -114,6 +113,13 @@ describe('EVENT_EMISSION_REGISTRY', () => {
       'gate.executed',
       'state.patched',
       'tool.invoked',
+      // RC2 (#1395) — migrated model → auto: the runtime already emits these
+      // deterministically from a dispatch-core handler (review/tools.ts,
+      // assess-stack.ts, views/tools.ts respectively), so the model must no
+      // longer be nagged to hand-maintain them.
+      'review.routed',
+      'ci.status',
+      'quality.regression',
     ];
     for (const eventType of autoSpotChecks) {
       expect(EVENT_EMISSION_REGISTRY[eventType]).toBe('auto');
