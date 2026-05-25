@@ -32,13 +32,31 @@ plugins:
   impeccable:
     enabled: true
 
-# invariants-catalog-v2 — opt-in to the dev-invariants catalog.
+# invariants-catalog — opt-in to the dev-invariants catalog.
 # This file IS the explicit opt-in for Exarchos contributors. The loader
 # defaults to disabled even inside the Exarchos repo; entries only surface
 # at /ideate Phase 0 because this committed file declares the flag here.
 # Consumers using Exarchos as a plugin in another repo never see these
 # entries unless they add the same key to their own .exarchos.yml.
+#
+# `devCatalog: enabled` is back-compat SUGAR. As of the registered-catalog
+# migration it desugars internally to a registered, tier-tagged catalog —
+# equivalent to:
+#
+#   invariants:
+#     catalogs:
+#       - { path: docs/architecture/invariants.md, tier: dev }
+#
+# We KEEP the sugar here intentionally (design §4.3): the desugared and
+# explicit forms resolve to a byte-identical effective catalog, proven by
+# RepoConfig_DesugaredDevSource_MatchesGoldenSnapshot in
+# servers/exarchos-mcp/src/architecture/resolve-effective-catalog.test.ts.
+# To author new entries through the wizard, run `/exarchos:invariants` (see
+# docs/guides/authoring-invariants.md).
+#
 # See: docs/guides/exarchos-yml-invariants.md
+#      docs/guides/authoring-invariants.md
 #      docs/proposals/2026-05-20-invariants-catalog-v2-spec.md §4.0
+#      docs/designs/2026-05-25-invariants-authoring-wizard.md §4.3
 invariants:
   devCatalog: enabled

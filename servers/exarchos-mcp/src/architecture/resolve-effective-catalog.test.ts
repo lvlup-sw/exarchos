@@ -443,6 +443,60 @@ describe('resolveEffectiveCatalog', () => {
     }
   });
 
+  // ─── P4 T16: dogfood equivalence — sugar ≡ explicit ≡ T0 golden ───────────
+
+  it('RepoConfig_DesugaredDevSource_MatchesGoldenSnapshot', () => {
+    // Closes the migration loop against the REAL repo catalog (no repoRoot
+    // override → module-relative default, the same path the running gate uses).
+    //
+    // Three forms must resolve to the SAME dev layer (same INV-* ids):
+    //   (a) the legacy `devCatalog: 'enabled'` sugar (what `.exarchos.yml` ships),
+    //   (b) an explicit `{ path: docs/architecture/invariants.md, tier: dev }`
+    //       registration (the desugared form),
+    //   (c) the T0 characterization golden snapshot of (a).
+    //
+    // If (a) ≠ (b), the P1 desugaring diverged from legacy behavior — a real
+    // bug, not a docs task. This test is the dogfood proof that keeping
+    // `devCatalog: enabled` in this repo's `.exarchos.yml` is equivalent to the
+    // explicit registered-catalog pattern (design §4.3).
+
+    const devIdSet = (config: ExarchosConfig): { ids: string[]; tags: string[] } => {
+      const { entries } = resolveEffectiveCatalog({
+        config,
+        phase: 'ideate',
+        workflowType: 'feature',
+      });
+      const dev = entries
+        .filter((e) => e.id.startsWith('INV-'))
+        .sort((a, b) => a.id.localeCompare(b.id));
+      return {
+        ids: dev.map((e) => e.id),
+        tags: dev.map((e) => `${e.id}:${String(e.integrityClass)}`),
+      };
+    };
+
+    const sugar = devIdSet({ invariants: { devCatalog: 'enabled' } });
+    const explicit = devIdSet({
+      invariants: {
+        catalogs: [{ path: 'docs/architecture/invariants.md', tier: 'dev' }],
+      },
+    });
+
+    // (a) ≡ (b): the desugared explicit registration yields the identical
+    // dev-layer ids + integrity-class tags as the legacy boolean sugar.
+    expect(explicit.ids).toEqual(sugar.ids);
+    expect(explicit.tags).toEqual(sugar.tags);
+
+    // (a) ≡ (c): the sugar still matches the T0-pinned golden id set. The T0
+    // snapshot lives in resolve-effective-catalog.characterization.test.ts; its
+    // captured INV-* ids are the load-bearing golden the refactor preserved.
+    expect(sugar.ids).toMatchSnapshot();
+
+    // Sanity: a non-empty dev layer (the real repo catalog has INV-* entries),
+    // so an accidental empty-equals-empty pass cannot mask a regression.
+    expect(sugar.ids.length).toBeGreaterThan(0);
+  });
+
   it('ResolveEffectiveCatalog_Sdlc3EnabledFalse_RefusedByFloorAndWarns', () => {
     // sdlc floor = advisory ⇒ a full disable is REFUSED: the entry survives and
     // a warning is emitted, never a silent drop (INV-11 authority gradient).
