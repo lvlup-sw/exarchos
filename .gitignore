@@ -49,3 +49,6 @@ documentation/public/get-exarchos.ps1
 .env
 .env.local
 docs/marketing/
+
+# Subagent persistent memory (never commit to feature branches)
+.claude/agent-memory/
