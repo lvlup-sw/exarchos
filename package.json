@@ -21,15 +21,17 @@
     "!**/trigger-tests"
   ],
   "scripts": {
-    "build": "npm run codegen:runtimes && tsc && npm run build:binary && npm run build:skills",
+    "build": "npm run codegen:runtimes && tsc && npm run build:binary && npm run build:skills && npm run build:hooks",
     "build:binary": "bun run scripts/build-binary.ts --all",
     "codegen:runtimes": "bun run scripts/codegen-runtimes.ts",
     "runtimes:guard": "npm run codegen:runtimes && git diff --exit-code -- src/runtimes/embedded.ts || (echo 'src/runtimes/embedded.ts is out of sync with runtimes/*.yaml — run npm run codegen:runtimes' && exit 1)",
     "generate:agents": "tsx servers/exarchos-mcp/src/agents/generate-agents.ts",
     "build:skills": "npm run generate:agents && node dist/build-skills.js",
+    "build:hooks": "node dist/build-hooks.js",
     "lint:inv6": "node scripts/lint-inv6.mjs skills-src/",
     "lint:invariants": "tsx servers/exarchos-mcp/src/architecture/vocabulary-lint-cli.ts",
     "skills:guard": "node dist/skills-guard.js && (npm run lint:inv6 || true)",
+    "hooks:guard": "node dist/hooks-guard.js",
     "prepare": "tsc",
     "bench": "cd servers/exarchos-mcp && npx vitest bench",
     "test": "vitest",
