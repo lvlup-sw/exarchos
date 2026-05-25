@@ -12,10 +12,15 @@
  */
 import { describe, it, expect } from 'vitest';
 
+import * as os from 'node:os';
+import * as fsp from 'node:fs/promises';
+import * as nodePath from 'node:path';
+
 import type { DispatchContext } from '../../core/dispatch.js';
-import { handleAdd } from './add.js';
+import { handleAdd, appendEntryToCatalog } from './add.js';
 import type { ScaffoldDeps } from './scaffold.js';
 import { allocateNextId } from './add.js';
+import { loadInvariants } from '../../architecture/invariants-loader.js';
 
 // ─── Harness ─────────────────────────────────────────────────────────────────
 
@@ -396,5 +401,144 @@ describe('handleAdd — T9 commit', () => {
 
     expect(result.success).toBe(true);
     expect((result.data as { id: string }).id).toBe('INV-1');
+  });
+
+  it('handleAdd_Commit_PreservesMarkdownBodyAndFrontmatterComments', async () => {
+    // #1487 review (HIGH): catalog files are markdown-with-frontmatter. The old
+    // commit path ran parseDocument on the WHOLE file then toString()'d it,
+    // which throws ("Document with errors cannot be stringified") and would
+    // silently destroy the prose body. This is the round-trip the prior tests
+    // omitted: commit an entry to a fenced catalog with a comment + body and
+    // assert the body, the comment, and the new entry all survive.
+    const fenced =
+      '---\n' +
+      '# top-of-catalog comment\n' +
+      'schema-version: 3\n' +
+      'invariants:\n' +
+      '  - id: U-1\n' +
+      '    dimension: existing\n' +
+      '    axis: authoring\n' +
+      '    cost-of-load: reference-only\n' +
+      '    applies-to: ["src/**"]\n' +
+      '    summary: An existing entry.\n' +
+      '    references: []\n' +
+      '---\n' +
+      '\n' +
+      '# Heading\n' +
+      '\n' +
+      'Prose body.\n';
+    const fake = makeFakeFs({
+      '/repo/docs/architecture/my-invariants.md': fenced,
+      '/repo/.exarchos.yml':
+        'invariants:\n  devCatalog: enabled\n  catalogs:\n    - { path: docs/architecture/my-invariants.md, tier: user }\n',
+    });
+    const { ctx } = makeCtx();
+
+    const result = await handleAdd(
+      {
+        repoRoot: '/repo',
+        catalog: 'docs/architecture/my-invariants.md',
+        tier: 'user',
+        entry: { ...VALID_AUDIT_ENTRY },
+        dryRun: false,
+      },
+      ctx,
+      fake.deps,
+    );
+
+    expect(result.success).toBe(true);
+    const written = fake.files.get('/repo/docs/architecture/my-invariants.md')!;
+    // (a) markdown body survives.
+    expect(written).toContain('Prose body.');
+    expect(written).toContain('# Heading');
+    // (b) frontmatter comment survives.
+    expect(written).toContain('# top-of-catalog comment');
+    // (c) the auto-allocated next id is appended to invariants:.
+    expect((result.data as { id: string }).id).toBe('U-2');
+    expect(written).toMatch(/id: U-2/);
+
+    // (d) the result re-parses via loadInvariants without throwing and yields
+    // BOTH entries. loadInvariants reads from disk, so write to a real tmp file.
+    const tmpDir = await fsp.mkdtemp(nodePath.join(os.tmpdir(), 'inv-rt-'));
+    const tmpCatalog = nodePath.join(tmpDir, 'my-invariants.md');
+    await fsp.writeFile(tmpCatalog, written, 'utf8');
+    const entries = loadInvariants(
+      tmpCatalog,
+      { scope: 'all' },
+      { invariants: { devCatalog: 'enabled' } },
+    );
+    expect(entries.map((e) => e.id)).toEqual(['U-1', 'U-2']);
+    await fsp.rm(tmpDir, { recursive: true, force: true });
+  });
+
+  it('handleAdd_Commit_BareYamlCatalog_StillWorks', async () => {
+    // #1487 review (HIGH): the bare-YAML catalog shape (no fences, no body) must
+    // still round-trip through the original parseDocument path. A user could
+    // register a `.yml` catalog with no frontmatter fence.
+    const fake = makeFakeFs({
+      '/repo/docs/architecture/my-invariants.yml':
+        'invariants:\n  - id: U-1\n    dimension: existing\n    axis: authoring\n    cost-of-load: reference-only\n    applies-to: ["src/**"]\n    summary: s\n    references: []\n',
+    });
+    const { ctx } = makeCtx();
+
+    const result = await handleAdd(
+      {
+        repoRoot: '/repo',
+        catalog: 'docs/architecture/my-invariants.yml',
+        tier: 'user',
+        entry: { ...VALID_AUDIT_ENTRY },
+        dryRun: false,
+      },
+      ctx,
+      fake.deps,
+    );
+
+    expect(result.success).toBe(true);
+    const written = fake.files.get('/repo/docs/architecture/my-invariants.yml')!;
+    // No frontmatter fence introduced; both ids present.
+    expect(written).not.toMatch(/^---/);
+    expect(written).toMatch(/id: U-1/);
+    expect(written).toMatch(/id: U-2/);
+  });
+});
+
+describe('appendEntryToCatalog — #1487 helper unit tests', () => {
+  const ENTRY = {
+    id: 'U-9',
+    dimension: 'd',
+    axis: 'authoring',
+    'cost-of-load': 'reference-only',
+    'applies-to': ['src/**'],
+    summary: 's',
+    references: [],
+  };
+
+  it('appendEntryToCatalog_Fenced_PreservesBodyCommentAndAppends', () => {
+    const fenced =
+      '---\n# c\ninvariants:\n  - id: U-1\n    dimension: d\n---\n\n# Heading\n\nProse body.\n';
+    const out = appendEntryToCatalog(fenced, ENTRY);
+    expect(out).toContain('Prose body.');
+    expect(out).toContain('# Heading');
+    expect(out).toContain('# c');
+    expect(out).toMatch(/id: U-1/);
+    expect(out).toMatch(/id: U-9/);
+    // Exactly one frontmatter open + close fence (body fences not duplicated).
+    expect(out.match(/^---$/gm)?.length).toBe(2);
+  });
+
+  it('appendEntryToCatalog_FrontmatterOnly_NoBody_RoundTripsClean', () => {
+    // The scaffold starter file is frontmatter-only with no body.
+    const starter = '---\ninvariants: []\n---\n';
+    const out = appendEntryToCatalog(starter, ENTRY);
+    expect(out).toMatch(/id: U-9/);
+    expect(out.match(/^---$/gm)?.length).toBe(2);
+  });
+
+  it('appendEntryToCatalog_BareYaml_NoFenceAdded', () => {
+    const bare = 'invariants:\n  - id: U-1\n    dimension: d\n';
+    const out = appendEntryToCatalog(bare, ENTRY);
+    expect(out).not.toMatch(/^---/);
+    expect(out).toMatch(/id: U-1/);
+    expect(out).toMatch(/id: U-9/);
   });
 });
