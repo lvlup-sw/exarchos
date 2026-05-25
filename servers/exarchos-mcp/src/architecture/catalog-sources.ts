@@ -68,11 +68,15 @@ export function resolveCatalogSources(
   // the dev catalog would load as USER tier and its reserved `INV-*` ids would
   // be rejected by the reserved-namespace check (#1487 review).
   if (invariants?.devCatalog === 'enabled') {
-    const alreadyDevRegistered = sources.some(
-      (s) => s.path === DEV_CATALOG_PATH && s.tier === 'dev',
-    );
-    if (!alreadyDevRegistered) {
+    const existingIndex = sources.findIndex((s) => s.path === DEV_CATALOG_PATH);
+    if (existingIndex === -1) {
       sources.push({ path: DEV_CATALOG_PATH, tier: 'dev' });
+    } else if (sources[existingIndex]?.tier !== 'dev') {
+      // A USER-tier registration sharing the dev path is upgraded IN PLACE to
+      // dev tier — not duplicated — so the catalog loads exactly once, as dev.
+      // (Pushing a second dev source would double-load the file; leaving it
+      // user-tier would get its INV-* ids rejected as a reserved namespace.)
+      sources[existingIndex] = { path: DEV_CATALOG_PATH, tier: 'dev' };
     }
   }
 
