@@ -15,18 +15,17 @@
 
 import type { AgentSpec } from './types.js';
 
-// ─── Toolchain-neutral, config-driven test command ─────────────────────────
+// ─── Toolchain-neutral test command ─────────────────────────────────────────
 //
-// #1470 (T12): the post-test validation command must NOT hardcode npm. The
-// `{{testCommand}}` placeholder is resolved at agent-generation time from the
-// project's `.exarchos.yml` (via the test-runtime resolver); when no project
-// marker / config is found it falls back to the documented default
-// `npm run test:run`. This keeps the command toolchain-agnostic (Cargo,
-// pytest, dotnet, …) instead of assuming a Node/npm project.
-//
-// The placeholder is the single source of truth so the substitution pass in
-// generate-agents.ts and the delegation reference prompts stay in sync.
-export const TEST_COMMAND_PLACEHOLDER = '{{testCommand}}';
+// #1470/#1483 (F1): the post-test validation command must NOT hardcode npm and
+// must NOT be resolved at agent-generation time. The shipped agent artifacts
+// are generated in THIS (Node) repo and ship static — a gen-time placeholder
+// resolved to `npm run test:run` and baked it in for every consumer (INV-4
+// platform-agnosticity). Instead the hook calls `exarchos run-tests`, which
+// resolves the consumer's test command at runtime from THEIR cwd
+// (`.exarchos.yml` / project markers, via the canonical resolveTestRuntime).
+// The same string is correct for every runtime and every toolchain.
+export const POST_TEST_COMMAND = 'exarchos run-tests';
 
 // ─── Shared worktree-entry contract ─────────────────────────────────────────
 //
@@ -173,7 +172,7 @@ When done, output a JSON completion report:
   ],
   validationRules: [
     { trigger: 'pre-write', rule: 'Test file must exist before implementation file is written' },
-    { trigger: 'post-test', rule: 'All tests must pass', command: TEST_COMMAND_PLACEHOLDER },
+    { trigger: 'post-test', rule: 'All tests must pass', command: POST_TEST_COMMAND },
   ],
   resumable: true,
   memoryScope: 'project',
@@ -240,7 +239,7 @@ When done, output a JSON completion report:
     { name: 'tdd-patterns', content: '' },
   ],
   validationRules: [
-    { trigger: 'post-test', rule: 'All tests must pass after fix', command: TEST_COMMAND_PLACEHOLDER },
+    { trigger: 'post-test', rule: 'All tests must pass after fix', command: POST_TEST_COMMAND },
   ],
   resumable: false,
   mcpServers: ['exarchos'],

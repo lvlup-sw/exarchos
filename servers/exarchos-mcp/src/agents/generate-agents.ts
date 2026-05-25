@@ -37,9 +37,7 @@ import {
   FIXER,
   REVIEWER,
   SCAFFOLDER,
-  TEST_COMMAND_PLACEHOLDER,
 } from './definitions.js';
-import { resolveTestRuntime } from '../config/test-runtime-resolver.js';
 import { resolveCapabilities } from '../capabilities/posture-mapping.js';
 import type { AgentSpec, AgentSpecId } from './types.js';
 import { claudeAdapter } from './adapters/claude.js';
@@ -143,59 +141,6 @@ export class GenerateAgentsError extends Error {
 }
 
 // ─── Internal helpers ──────────────────────────────────────────────────────
-
-/**
- * Documented fallback test command (#1470). Used when the project has no
- * `.exarchos.yml` test command and no detectable project marker. npm survives
- * ONLY here, as the fallback — the agent specs carry the toolchain-neutral
- * `{{testCommand}}` placeholder instead of a hardcoded npm invocation.
- */
-const DEFAULT_TEST_COMMAND = 'npm run test:run';
-
-/**
- * Resolve the project's test command for `outputRoot` via the test-runtime
- * resolver (reads `.exarchos.yml` / detects project markers). Returns
- * `DEFAULT_TEST_COMMAND` when resolution yields nothing.
- *
- * Config errors are NOT swallowed: `resolveTestRuntime` propagates a
- * malformed/unreadable `.exarchos.yml` as a hard failure (schema/parse error),
- * and we let it surface. Defaulting to a Node command on a bad config would
- * bake `npm run test:run` into agent artifacts for a non-Node project whose
- * config merely has a typo — with zero signal to the author (#1483 review).
- * The benign "nothing resolved" cases (no `.exarchos.yml`, no project markers)
- * do NOT throw — the resolver returns `source: 'unresolved'` with `test: null`,
- * which the null-check below maps to the documented default.
- */
-function resolveProjectTestCommand(outputRoot: string): string {
-  const resolved = resolveTestRuntime(outputRoot);
-  if (resolved.test && resolved.test.trim().length > 0) {
-    return resolved.test;
-  }
-  return DEFAULT_TEST_COMMAND;
-}
-
-/**
- * Substitute the `{{testCommand}}` placeholder in a spec's validation-rule
- * commands with the resolved project test command. Returns a shallow-cloned
- * spec when any substitution occurs; otherwise returns the spec unchanged so
- * specs without the placeholder are not needlessly copied.
- */
-function resolveTestCommandPlaceholder(
-  spec: AgentSpec,
-  testCommand: string,
-): AgentSpec {
-  const hasPlaceholder = (spec.validationRules ?? []).some(
-    (r) => typeof r.command === 'string' && r.command.includes(TEST_COMMAND_PLACEHOLDER),
-  );
-  if (!hasPlaceholder) return spec;
-
-  const validationRules = spec.validationRules.map((r) =>
-    typeof r.command === 'string' && r.command.includes(TEST_COMMAND_PLACEHOLDER)
-      ? { ...r, command: r.command.split(TEST_COMMAND_PLACEHOLDER).join(testCommand) }
-      : r,
-  );
-  return { ...spec, validationRules };
-}
 
 /**
  * Sort caller-provided adapters into canonical `RUNTIMES` order so
@@ -370,17 +315,7 @@ export function generateAgents(
     throw new GenerateAgentsError(failures);
   }
 
-  // 1a. #1470: resolve the toolchain-neutral `{{testCommand}}` placeholder in
-  //     validation-rule commands. The value is read from the project's
-  //     `.exarchos.yml` test command (resolveTestRuntime), falling back to the
-  //     documented default `npm run test:run` when no config/marker is found.
-  //     Done once, before lowering, so every runtime artifact carries the same
-  //     resolved command — and a malformed config surfaces once here rather
-  //     than per spec.
-  const testCommand = resolveProjectTestCommand(outputRoot);
-  const resolvedSpecs = specs.map((s) => resolveTestCommandPlaceholder(s, testCommand));
-
-  // 1b. Plugin manifest preflight. The Claude plugin manifest update
+  // 1a. Plugin manifest preflight. The Claude plugin manifest update
   //     happens after artifact writes today, but discovering a missing
   //     or invalid manifest at that point leaves the tree partially
   //     updated (20 runtime files written, plugin.json untouched). Check
@@ -406,7 +341,7 @@ export function generateAgents(
   const filesWritten: string[] = [];
   const newlyCreatedArtifacts: string[] = [];
   for (const adapter of adapters) {
-    for (const spec of resolvedSpecs) {
+    for (const spec of specs) {
       const lowered = adapter.lowerSpec(spec);
       const absPath = path.resolve(outputRoot, lowered.path);
       const rel = path.relative(resolvedRoot, absPath);

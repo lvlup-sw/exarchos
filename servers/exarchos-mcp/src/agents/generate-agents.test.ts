@@ -156,20 +156,12 @@ describe('generateAgents', () => {
     });
 
     // Confirm generator is a thin orchestrator: output must equal the
-    // adapter's `lowerSpec(spec).contents` byte-for-byte AFTER the #1470
-    // {{testCommand}} placeholder is resolved. The temp `outputRoot` has no
-    // `.exarchos.yml`, so the placeholder resolves to the documented default
-    // `npm run test:run`. Pick the Claude/IMPLEMENTER pair as the canonical
-    // regression check.
-    const resolvedImplementer: AgentSpec = {
-      ...IMPLEMENTER,
-      validationRules: IMPLEMENTER.validationRules.map((r) =>
-        typeof r.command === 'string'
-          ? { ...r, command: r.command.split('{{testCommand}}').join('npm run test:run') }
-          : r,
-      ),
-    };
-    const expectedContents = claudeAdapter.lowerSpec(resolvedImplementer).contents;
+    // adapter's `lowerSpec(spec).contents` byte-for-byte. Post-#1483 F1 there
+    // is no gen-time substitution — the post-test command is the fixed
+    // runtime-resolving `exarchos run-tests` carried directly on the spec
+    // (resolution happens at the consumer's runtime, not here). Pick the
+    // Claude/IMPLEMENTER pair as the canonical regression check.
+    const expectedContents = claudeAdapter.lowerSpec(IMPLEMENTER).contents;
     const written = fs.readFileSync(
       path.join(tmp, claudeAdapter.agentFilePath(IMPLEMENTER.id)),
       'utf-8',
@@ -744,36 +736,5 @@ describe('generateAgents — manifest write failure rollback', () => {
     // Bystander file untouched (was never an artifact target).
     expect(fs.existsSync(bystander)).toBe(true);
     expect(fs.readFileSync(bystander, 'utf-8')).toBe('BYSTANDER\n');
-  });
-
-  it('GenerateAgents_MalformedExarchosYml_SurfacesConfigErrorNotSilentDefault', () => {
-    // Regression for the Seer MEDIUM (#1483): resolveProjectTestCommand must
-    // NOT swallow a malformed `.exarchos.yml`. resolveTestRuntime propagates
-    // schema/parse errors as hard failures; silently defaulting to
-    // `npm run test:run` would bake a Node command into agent artifacts for a
-    // non-Node project whose config merely has a typo. Generation must throw,
-    // surfacing the config error, rather than producing wrong artifacts.
-    //
-    // Uses the full adapter set so generation clears the tier-1 coverage gate
-    // and actually reaches test-command resolution; the throw must come from
-    // the malformed config, and the message names the offending file.
-    fs.writeFileSync(path.join(tmp, '.exarchos.yml'), 'test: "unterminated\n');
-
-    let caught: unknown;
-    try {
-      generateAgents({
-        outputRoot: tmp,
-        // IMPLEMENTER carries the {{testCommand}} placeholder, so generation
-        // invokes resolveProjectTestCommand against the malformed config.
-        specs: [IMPLEMENTER],
-        adapters: ALL_ADAPTERS,
-        pluginJsonPath,
-      });
-    } catch (err) {
-      caught = err;
-    }
-
-    expect(caught).toBeInstanceOf(Error);
-    expect((caught as Error).message).toContain('.exarchos.yml');
   });
 });

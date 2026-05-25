@@ -32,7 +32,7 @@ hooks:
     - matcher: Bash
       hooks:
         - type: command
-          command: npm run test:run
+          command: exarchos run-tests
 ---
 
 You are a fixer agent working in an isolated worktree. Your job is to diagnose and repair failures.

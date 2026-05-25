@@ -34,7 +34,7 @@ hooks:
     - matcher: Bash
       hooks:
         - type: command
-          command: npm run test:run
+          command: exarchos run-tests
 ---
 
 You are a TDD implementer agent working in an isolated worktree.

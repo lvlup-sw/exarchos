@@ -160,32 +160,27 @@ describe('AgentSpec capability declarations', () => {
     expect(setupSection).toMatch(/Set-Location/);
   });
 
-  // #1470 (T12): post-test validation commands must be toolchain-neutral and
-  // config-driven. The command resolves the project test command from
-  // `.exarchos.yml` via the `{{testCommand}}` placeholder rather than
-  // hardcoding `npm --prefix ... run test:run`. npm survives ONLY as a
-  // documented fallback default — not as the literal baked into the spec.
-  it('Hooks_PostTestCommand_UsesTestCommandPlaceholder_NotHardcodedNpm', () => {
+  // #1470/#1483 (F1): post-test validation commands must be toolchain-neutral.
+  // The command is the fixed runtime-resolving `exarchos run-tests`, which
+  // resolves the project's test command at the CONSUMER's runtime (their cwd's
+  // `.exarchos.yml` / project markers). It must NOT be a gen-time-resolved
+  // literal — the shipped artifacts are static, so any baked toolchain command
+  // (e.g. npm) would defeat agnosticism for non-Node consumers (INV-4).
+  it('Hooks_PostTestCommand_IsRuntimeResolvingExarchosRunTests_NotBakedToolchain', () => {
     for (const spec of ALL_AGENT_SPECS) {
       const postTestRules = (spec.validationRules ?? []).filter(
         (r) => r.trigger === 'post-test' && typeof r.command === 'string',
       );
       for (const rule of postTestRules) {
         const cmd = rule.command as string;
-        // Must parameterize via the {{testCommand}} placeholder.
-        expect(cmd, `${spec.id} post-test command must use {{testCommand}}`).toContain(
-          '{{testCommand}}',
+        // Must delegate resolution to the runtime via `exarchos run-tests`.
+        expect(cmd, `${spec.id} post-test command must be 'exarchos run-tests'`).toBe(
+          'exarchos run-tests',
         );
-        // Must NOT hardcode the npm prefix invocation.
+        // Must NOT bake any toolchain-specific invocation (the whole point).
         expect(
-          cmd.includes('npm --prefix'),
-          `${spec.id} post-test command must not hardcode 'npm --prefix': ${cmd}`,
-        ).toBe(false);
-        // Must NOT bake in `npm run test:run` as the literal command — npm is
-        // a documented fallback, resolved from config, not hardcoded here.
-        expect(
-          cmd.includes('npm run test:run'),
-          `${spec.id} post-test command must not hardcode 'npm run test:run': ${cmd}`,
+          /npm |yarn |pnpm |cargo |pytest|dotnet |\{\{testCommand\}\}/.test(cmd),
+          `${spec.id} post-test command must not bake a toolchain command: ${cmd}`,
         ).toBe(false);
       }
     }

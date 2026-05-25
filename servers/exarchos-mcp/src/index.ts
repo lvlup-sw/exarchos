@@ -322,6 +322,19 @@ async function main() {
     return;
   }
 
+  // ─── run-tests Fast Path ─────────────────────────────────────────────────
+  // `exarchos run-tests` is invoked by the agents' post-test PostToolUse hook
+  // (#1470/#1483 F1). It resolves the consumer's test command at runtime and
+  // execs it, so the shipped agent artifacts stay toolchain-neutral. Like the
+  // version path it is stateless — it must not open the SQLite backend. It is
+  // deliberately NOT a HOOK_COMMAND: that set is observe-only (#1476 ADR) and
+  // never executes a workload; run-tests runs the suite, so it lives here.
+  if (process.argv[2] === 'run-tests') {
+    const { handleRunTests } = await import('./cli-commands/run-tests.js');
+    process.exitCode = handleRunTests(process.argv.slice(3), { cwd: process.cwd() });
+    return;
+  }
+
   const stateDir = await resolveStateDir();
 
   // Ensure state directory exists
