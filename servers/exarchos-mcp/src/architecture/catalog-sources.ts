@@ -61,10 +61,17 @@ export function resolveCatalogSources(
   );
 
   // Desugar the legacy `devCatalog: 'enabled'` flag into a dev-tier source,
-  // unless an explicit registration already claims the same path (dedupe).
+  // unless an explicit DEV-tier registration already claims the same path
+  // (dedupe). The dedupe must be keyed on `(path, tier: 'dev')`, NOT path
+  // alone: a USER-tier registration sharing the dev path (legacy bare-string
+  // or `{ path, tier: 'user' }`) must NOT suppress the dev sugar — otherwise
+  // the dev catalog would load as USER tier and its reserved `INV-*` ids would
+  // be rejected by the reserved-namespace check (#1487 review).
   if (invariants?.devCatalog === 'enabled') {
-    const alreadyRegistered = sources.some((s) => s.path === DEV_CATALOG_PATH);
-    if (!alreadyRegistered) {
+    const alreadyDevRegistered = sources.some(
+      (s) => s.path === DEV_CATALOG_PATH && s.tier === 'dev',
+    );
+    if (!alreadyDevRegistered) {
       sources.push({ path: DEV_CATALOG_PATH, tier: 'dev' });
     }
   }

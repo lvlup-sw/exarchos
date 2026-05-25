@@ -70,6 +70,34 @@ describe('resolveCatalogSources (T2)', () => {
     ]);
   });
 
+  it.each([
+    { label: 'bare-string', catalogs: ['.exarchos/invariants.md'] as const },
+    {
+      label: 'explicit user-tier',
+      catalogs: [{ path: '.exarchos/invariants.md', tier: 'user' as const }],
+    },
+  ])(
+    'resolveCatalogSources_DevCatalogEnabled_SamePathLegacyRegistration_PreservesDevTier ($label)',
+    ({ catalogs }) => {
+      // #1487 review: a USER-tier (or bare-string legacy) registration sharing
+      // the dev catalog path MUST NOT suppress the `devCatalog: 'enabled'`
+      // sugar. Without a dev-tier source the dev catalog would load as user
+      // tier and its reserved `INV-*` ids would be rejected by the
+      // reserved-namespace check. Dedupe is keyed on (path, tier:'dev').
+      const config: ExarchosConfig = {
+        invariants: {
+          devCatalog: 'enabled',
+          catalogs: [...catalogs],
+        },
+      };
+      const sources = resolveCatalogSources(config);
+      expect(sources).toContainEqual({
+        path: '.exarchos/invariants.md',
+        tier: 'dev',
+      });
+    },
+  );
+
   it('resolveCatalogSources_ObjectFormTierlessDefaultsUser', () => {
     const config: ExarchosConfig = {
       invariants: { catalogs: [{ path: 'team.yml' }] },
