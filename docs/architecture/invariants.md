@@ -63,7 +63,6 @@ invariants:
       - "SQLite WAL documentation: https://sqlite.org/wal.html"
     references:
       - servers/exarchos-mcp/src/event-store/atomic-appender.ts
-      - servers/exarchos-mcp/src/event-store/stream-lock-manager.ts
       - docs/architecture/runtime.md#§4
 
   - id: INV-8
@@ -87,7 +86,7 @@ invariants:
       - "Greg Young, *Versioning in an Event Sourced System* (Leanpub): https://leanpub.com/esversioning"
     references:
       - servers/exarchos-mcp/src/event-store/atomic-appender.ts
-      - servers/exarchos-mcp/src/dispatch/with-session.ts
+      - docs/architecture/runtime.md#§4
 
   - id: INV-9
     dimension: hsm-as-state-machine
@@ -109,7 +108,7 @@ invariants:
       - "Wolverine [AggregateHandler] workflow (Miller 2023): https://jeremydmiller.com/2023/12/06/building-a-critter-stack-application-wolverines-aggregate-handler-workflow-ftw/"
     references:
       - servers/exarchos-mcp/src/topology/phase-contract.ts
-      - servers/exarchos-mcp/src/hsm/
+      - servers/exarchos-mcp/src/workflow/hsm-definitions.ts
       - docs/architecture/runtime.md#§3-L4
 
   - id: INV-10
@@ -230,7 +229,7 @@ invariants:
       - "Greg Young, *Why Event Sourced Systems Fail*: https://www.youtube.com/watch?v=FKFu78ZEIi8"
     references:
       - servers/exarchos-mcp/src/orchestrate/merge-orchestrate.ts
-      - servers/exarchos-mcp/src/dispatch/with-session.ts
+      - servers/exarchos-mcp/src/event-store/atomic-appender.ts
       - docs/architecture/runtime.md#§4-process-manager-handlers
 
   - id: INV-14
