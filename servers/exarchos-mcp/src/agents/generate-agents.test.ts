@@ -745,4 +745,35 @@ describe('generateAgents — manifest write failure rollback', () => {
     expect(fs.existsSync(bystander)).toBe(true);
     expect(fs.readFileSync(bystander, 'utf-8')).toBe('BYSTANDER\n');
   });
+
+  it('GenerateAgents_MalformedExarchosYml_SurfacesConfigErrorNotSilentDefault', () => {
+    // Regression for the Seer MEDIUM (#1483): resolveProjectTestCommand must
+    // NOT swallow a malformed `.exarchos.yml`. resolveTestRuntime propagates
+    // schema/parse errors as hard failures; silently defaulting to
+    // `npm run test:run` would bake a Node command into agent artifacts for a
+    // non-Node project whose config merely has a typo. Generation must throw,
+    // surfacing the config error, rather than producing wrong artifacts.
+    //
+    // Uses the full adapter set so generation clears the tier-1 coverage gate
+    // and actually reaches test-command resolution; the throw must come from
+    // the malformed config, and the message names the offending file.
+    fs.writeFileSync(path.join(tmp, '.exarchos.yml'), 'test: "unterminated\n');
+
+    let caught: unknown;
+    try {
+      generateAgents({
+        outputRoot: tmp,
+        // IMPLEMENTER carries the {{testCommand}} placeholder, so generation
+        // invokes resolveProjectTestCommand against the malformed config.
+        specs: [IMPLEMENTER],
+        adapters: ALL_ADAPTERS,
+        pluginJsonPath,
+      });
+    } catch (err) {
+      caught = err;
+    }
+
+    expect(caught).toBeInstanceOf(Error);
+    expect((caught as Error).message).toContain('.exarchos.yml');
+  });
 });

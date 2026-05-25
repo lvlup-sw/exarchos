@@ -156,15 +156,20 @@ const DEFAULT_TEST_COMMAND = 'npm run test:run';
  * Resolve the project's test command for `outputRoot` via the test-runtime
  * resolver (reads `.exarchos.yml` / detects project markers). Returns
  * `DEFAULT_TEST_COMMAND` when resolution yields nothing.
+ *
+ * Config errors are NOT swallowed: `resolveTestRuntime` propagates a
+ * malformed/unreadable `.exarchos.yml` as a hard failure (schema/parse error),
+ * and we let it surface. Defaulting to a Node command on a bad config would
+ * bake `npm run test:run` into agent artifacts for a non-Node project whose
+ * config merely has a typo — with zero signal to the author (#1483 review).
+ * The benign "nothing resolved" cases (no `.exarchos.yml`, no project markers)
+ * do NOT throw — the resolver returns `source: 'unresolved'` with `test: null`,
+ * which the null-check below maps to the documented default.
  */
 function resolveProjectTestCommand(outputRoot: string): string {
-  try {
-    const resolved = resolveTestRuntime(outputRoot);
-    if (resolved.test && resolved.test.trim().length > 0) {
-      return resolved.test;
-    }
-  } catch {
-    // Resolution failure (no markers, unreadable config) → documented default.
+  const resolved = resolveTestRuntime(outputRoot);
+  if (resolved.test && resolved.test.trim().length > 0) {
+    return resolved.test;
   }
   return DEFAULT_TEST_COMMAND;
 }
