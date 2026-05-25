@@ -64,7 +64,7 @@ so the verb assigns `U-3`.
 
 ### 6a. Dry-run preview (writes nothing)
 
-```
+```ts
 exarchos_orchestrate({
   action: "invariants_add",
   tier: "user",

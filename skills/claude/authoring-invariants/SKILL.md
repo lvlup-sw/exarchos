@@ -144,7 +144,7 @@ names the call), then resume at step 6.
 
 Scaffold a user catalog (idempotent; never overwrites):
 
-```
+```ts
 mcp__plugin_exarchos_exarchos__exarchos_orchestrate({
   action: "invariants_scaffold",
   tier: "user",
@@ -154,7 +154,7 @@ mcp__plugin_exarchos_exarchos__exarchos_orchestrate({
 
 Dry-run preview (DEFAULT — writes nothing):
 
-```
+```ts
 mcp__plugin_exarchos_exarchos__exarchos_orchestrate({
   action: "invariants_add",
   tier: "user",
@@ -165,7 +165,7 @@ mcp__plugin_exarchos_exarchos__exarchos_orchestrate({
 
 Commit after explicit confirmation:
 
-```
+```ts
 mcp__plugin_exarchos_exarchos__exarchos_orchestrate({
   action: "invariants_add",
   tier: "user",
