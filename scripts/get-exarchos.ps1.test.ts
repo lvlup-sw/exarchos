@@ -42,6 +42,10 @@ describe('scripts/get-exarchos.ps1', () => {
     expect(existsSync(PESTER_PATH)).toBe(true);
   });
 
+  // These pwsh-spawning tests budget a 10s `hasPwsh()` probe plus a 30s
+  // spawnSync, so the vitest test envelope (3rd arg) must exceed their combined
+  // worst case — the 5s default aborts them mid-spawn under CI load (observed at
+  // 7.8-10.8s). Mirrors the Pester suite's explicit timeout below.
   it('GetExarchos_PS1_ParsesWithoutErrors_WhenPwshAvailable', () => {
     if (!hasPwsh()) {
       console.log('[skip] pwsh not on PATH — PowerShell parser check deferred to CI runners that have it.');
@@ -61,7 +65,7 @@ describe('scripts/get-exarchos.ps1', () => {
     );
 
     expect(result.status, `stderr:\n${result.stderr}\nstdout:\n${result.stdout}`).toBe(0);
-  });
+  }, 60_000);
 
   it('GetExarchos_DryRun_PrintsPlan_WhenPwshAvailable', () => {
     if (!hasPwsh()) {
@@ -93,7 +97,7 @@ describe('scripts/get-exarchos.ps1', () => {
     expect(result.status, `stderr:\n${result.stderr}\nstdout:\n${result.stdout}`).toBe(0);
     expect(combined).toMatch(/exarchos-windows-x64/);
     expect(combined).toMatch(/\.sha512/);
-  });
+  }, 60_000);
 
   // Vitest test timeout (3rd arg, ms) must exceed the spawnSync child-process
   // timeout below. Pester suite execution against the .ps1 typically takes

@@ -49,6 +49,10 @@ describe('detectLanguage', () => {
 });
 
 describeWithGpp('compile', () => {
+  // The first g++ invocation in the suite is a cold compile that can exceed the
+  // 5s default vitest timeout on a loaded CI runner (observed at 5007ms). Give
+  // it a generous envelope so the genuine compile time, not the test harness,
+  // bounds the result.
   it('compile_ValidCpp_ReturnsExecutablePath', async () => {
     const srcPath = join(TEST_DIR, 'hello.cpp');
     writeFileSync(srcPath, `
@@ -63,7 +67,7 @@ int main() {
     expect(result.success).toBe(true);
     expect(result.executablePath).toBeDefined();
     expect(existsSync(result.executablePath!)).toBe(true);
-  });
+  }, 30_000);
 
   it('compile_SyntaxError_ReturnsCeVerdict', async () => {
     const srcPath = join(TEST_DIR, 'bad.cpp');
