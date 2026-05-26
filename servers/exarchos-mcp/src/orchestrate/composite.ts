@@ -388,6 +388,19 @@ function validateInvariantsCommonArgs(
       },
     };
   }
+  if (
+    rest.allowReservedTier !== undefined &&
+    typeof rest.allowReservedTier !== 'boolean'
+  ) {
+    return {
+      success: false,
+      error: {
+        code: 'INVALID_INPUT',
+        message: 'allowReservedTier must be a boolean when provided',
+        expectedShape: { allowReservedTier: 'boolean' },
+      },
+    };
+  }
   return null;
 }
 
@@ -488,6 +501,7 @@ export async function handleOrchestrate(
       repoRoot: typeof rest.repoRoot === 'string' ? rest.repoRoot : process.cwd(),
       path: rest.path as string | undefined,
       tier: rest.tier as 'dev' | 'user' | undefined,
+      allowReservedTier: rest.allowReservedTier as boolean | undefined,
     };
     return envelopeWrap(await handleScaffold(scaffoldArgs, realScaffoldDeps()), startedAt);
   }
@@ -505,6 +519,7 @@ export async function handleOrchestrate(
       tier: rest.tier as 'dev' | 'user' | undefined,
       id: rest.id as string | undefined,
       dryRun: rest.dryRun === undefined ? true : Boolean(rest.dryRun),
+      allowReservedTier: rest.allowReservedTier as boolean | undefined,
     };
     return envelopeWrap(await handleAdd(addArgs, ctx, realScaffoldDeps()), startedAt);
   }

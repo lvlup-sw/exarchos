@@ -382,7 +382,12 @@ describe('handleAdd — T9 commit', () => {
   });
 
   it('handleAdd_DevTier_UsesInvNamespace', async () => {
+    // The `dev`/INV-N tier is exarchos's own reserved substrate namespace, so it
+    // is only reachable from the exarchos repo itself — identified by its
+    // package.json name (#1489). Seed that so this exercises the legitimate
+    // in-exarchos path rather than tripping the reserved-tier guard.
     const fake = makeFakeFs({
+      '/repo/package.json': JSON.stringify({ name: '@lvlup-sw/exarchos' }),
       '/repo/.exarchos/invariants.md': 'invariants: []\n',
     });
     const { ctx } = makeCtx();
@@ -401,6 +406,36 @@ describe('handleAdd — T9 commit', () => {
 
     expect(result.success).toBe(true);
     expect((result.data as { id: string }).id).toBe('INV-1');
+  });
+
+  it('handleAdd_DevTier_NonExarchosRepo_BlockedAsReserved', async () => {
+    // A consumer repo (package.json name ≠ exarchos) authoring into tier:dev is
+    // rejected as a reserved-namespace collision and redirected to tier:user.
+    const fake = makeFakeFs({
+      '/repo/package.json': JSON.stringify({ name: '@acme/consumer' }),
+      '/repo/.exarchos/invariants.md': 'invariants: []\n',
+    });
+    const { ctx } = makeCtx();
+
+    const result = await handleAdd(
+      {
+        repoRoot: '/repo',
+        catalog: '.exarchos/invariants.md',
+        tier: 'dev',
+        entry: { ...VALID_AUDIT_ENTRY },
+        dryRun: false,
+      },
+      ctx,
+      fake.deps,
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('RESERVED_TIER');
+    expect(result.error?.suggestedFix?.params.tier).toBe('user');
+    // Guard fires before any write — the catalog is untouched.
+    expect(fake.files.get('/repo/.exarchos/invariants.md')).toBe(
+      'invariants: []\n',
+    );
   });
 
   it('handleAdd_Commit_PreservesMarkdownBodyAndFrontmatterComments', async () => {

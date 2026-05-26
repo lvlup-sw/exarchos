@@ -2374,6 +2374,9 @@ const orchestrateActions: readonly ToolAction[] = [
       tier: z.enum(['dev', 'user']).optional(),
       path: z.string().optional(),
       repoRoot: z.string().optional(),
+      // #1489: `dev`/`INV-N` is exarchos's reserved substrate namespace. Outside
+      // the exarchos repo, tier:dev is rejected unless this override is set.
+      allowReservedTier: z.boolean().optional(),
     }),
     phases: ALL_PHASES,
     roles: ROLE_ANY,
@@ -2406,6 +2409,9 @@ const orchestrateActions: readonly ToolAction[] = [
       // dry-run default is enforced where the value is actually consumed.
       dryRun: z.boolean().optional(),
       repoRoot: z.string().optional(),
+      // #1489: `dev`/`INV-N` is exarchos's reserved substrate namespace. Outside
+      // the exarchos repo, tier:dev is rejected unless this override is set.
+      allowReservedTier: z.boolean().optional(),
     }),
     phases: ALL_PHASES,
     roles: ROLE_ANY,

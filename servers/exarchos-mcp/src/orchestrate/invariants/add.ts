@@ -31,6 +31,7 @@ import {
 } from '../../architecture/invariant-schema.js';
 import type { ScaffoldDeps } from './scaffold.js';
 import { wireCatalogRegistration } from './exarchos-yml-writer.js';
+import { assertDevTierAllowed } from './reserved-tier-guard.js';
 
 const CONFIG_FILENAME = '.exarchos.yml';
 const NEXT_ACTIONS = ['doctor', 'view invariants_effective'] as const;
@@ -48,6 +49,11 @@ export interface HandleAddArgs {
   readonly id?: string;
   /** Dry-run (default true, INV-5c): render + diff, write nothing. */
   readonly dryRun?: boolean;
+  /**
+   * Opt-in to author into exarchos's reserved `dev` namespace from a non-exarchos
+   * repo. Almost always a mistake outside the exarchos repo itself (#1489).
+   */
+  readonly allowReservedTier?: boolean;
 }
 
 const DEFAULT_PATH: Record<'dev' | 'user', string> = {
@@ -274,6 +280,16 @@ export async function handleAdd(
   deps: ScaffoldDeps,
 ): Promise<ToolResult> {
   const tier = args.tier ?? 'user';
+
+  // Reject authoring into exarchos's reserved `dev` namespace from a consumer
+  // repo BEFORE reading/validating anything, and regardless of dryRun — so a
+  // dry-run preview never even renders a dev-tier entry (#1489).
+  const reserved = assertDevTierAllowed(
+    { tier, repoRoot: args.repoRoot, allowReservedTier: args.allowReservedTier },
+    deps,
+  );
+  if (reserved) return reserved;
+
   const relCatalog = args.catalog ?? DEFAULT_PATH[tier];
   const catalogAbs = path.join(args.repoRoot, relCatalog);
   const dryRun = args.dryRun === undefined ? true : args.dryRun;
