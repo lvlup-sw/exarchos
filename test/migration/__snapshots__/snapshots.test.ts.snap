@@ -86,14 +86,32 @@ violated?") — that sharpens both the summary and the later enforcement.
 - \`workflow-affinity\`: workflow types (\`feature | debug | refactor | discover |
   oneshot\`). Absent ⇒ all.
 
-### 3. Weight — \`severity\` + \`integrity-class\`
+### 3. Weight — \`severity\`, \`integrity-class\`, and the \`tier\` you author into
 
 - \`severity.default\`: \`blocking\` or \`advisory\`.
 - \`severity.by-workflow\` (optional): downgrade for cheap workflows
   (e.g. \`oneshot: advisory\`).
-- \`integrity-class\`: \`user\` for a consumer-authored entry (the default target).
-  \`dev\` only when the author is a maintainer extending Exarchos's own substrate
-  catalog.
+- \`integrity-class\` (entry field; enum \`substrate | sdlc | authoring | user\`):
+  the entry's **override authority**, not its namespace. For a consumer-authored
+  rule this is \`user\`. (\`substrate\`/\`sdlc\` are exarchos's own classes — you do
+  not author those.)
+- **\`tier\` (the verb arg) picks the catalog _namespace_, and the choice is
+  *exarchos-substrate vs project-authored*, NOT "which developers".** This is the
+  one that bites — get it wrong and you silently collide with exarchos's own ids:
+  - **\`tier: user\` → \`U-N\` ids — your project's own invariants. The default for
+    _everyone_ consuming exarchos.** If you are authoring a rule for your own
+    repo, this is always the answer (even if your project happens to name its
+    rules \`INV-N\` internally — they map to \`U-N\` here).
+  - **\`tier: dev\` → \`INV-N\` ids — exarchos's _own_ reserved substrate catalog.**
+    Exarchos ships its own \`INV-1..6\` inside the tool, and they merge into every
+    \`invariants_effective\` projection. Authoring into \`dev\` from a consumer repo
+    **collides your \`INV-N\` with exarchos's own** — a silent namespace clash the
+    \`doctor\` check can't catch (it only flags \`INV-*\` in a *user* catalog). Use
+    \`dev\` **only when working inside the exarchos repo itself**. The verbs
+    enforce this: \`invariants_scaffold\` / \`invariants_add\` reject \`tier: dev\`
+    outside the exarchos repo (heuristic: \`package.json\` name ≠
+    \`@lvlup-sw/exarchos\`) with a \`RESERVED_TIER\` error that redirects to \`user\`;
+    a genuine exarchos fork opts in with \`allowReservedTier: true\`.
 
 ### 4. Enforce — DEFAULT \`mode: audit\`, \`mode: check\` is opt-in
 
@@ -197,6 +215,7 @@ For one \`U-*\` entry authored end-to-end through all 6 steps, see
 | Skip the dry-run | \`dryRun: true\` first, ALWAYS, then explicit confirm |
 | Silently re-invoke with \`dryRun: false\` | Make the confirmation step explicit |
 | Pick an id by hand | The verb auto-assigns the next free id in the namespace |
+| Author into \`dev\`/\`INV-N\` from a consumer repo | \`dev\` is exarchos's reserved substrate namespace — use \`user\`/\`U-N\` (the verb rejects consumer \`tier: dev\`) |
 | Infer globs from the framework | Ask the author to name the globs (INV-6) |
 | Skip \`doctor\` + \`invariants_effective\` after commit | Verify the resolved catalog and show the delta |
 "
@@ -5040,14 +5059,32 @@ violated?") — that sharpens both the summary and the later enforcement.
 - \`workflow-affinity\`: workflow types (\`feature | debug | refactor | discover |
   oneshot\`). Absent ⇒ all.
 
-### 3. Weight — \`severity\` + \`integrity-class\`
+### 3. Weight — \`severity\`, \`integrity-class\`, and the \`tier\` you author into
 
 - \`severity.default\`: \`blocking\` or \`advisory\`.
 - \`severity.by-workflow\` (optional): downgrade for cheap workflows
   (e.g. \`oneshot: advisory\`).
-- \`integrity-class\`: \`user\` for a consumer-authored entry (the default target).
-  \`dev\` only when the author is a maintainer extending Exarchos's own substrate
-  catalog.
+- \`integrity-class\` (entry field; enum \`substrate | sdlc | authoring | user\`):
+  the entry's **override authority**, not its namespace. For a consumer-authored
+  rule this is \`user\`. (\`substrate\`/\`sdlc\` are exarchos's own classes — you do
+  not author those.)
+- **\`tier\` (the verb arg) picks the catalog _namespace_, and the choice is
+  *exarchos-substrate vs project-authored*, NOT "which developers".** This is the
+  one that bites — get it wrong and you silently collide with exarchos's own ids:
+  - **\`tier: user\` → \`U-N\` ids — your project's own invariants. The default for
+    _everyone_ consuming exarchos.** If you are authoring a rule for your own
+    repo, this is always the answer (even if your project happens to name its
+    rules \`INV-N\` internally — they map to \`U-N\` here).
+  - **\`tier: dev\` → \`INV-N\` ids — exarchos's _own_ reserved substrate catalog.**
+    Exarchos ships its own \`INV-1..6\` inside the tool, and they merge into every
+    \`invariants_effective\` projection. Authoring into \`dev\` from a consumer repo
+    **collides your \`INV-N\` with exarchos's own** — a silent namespace clash the
+    \`doctor\` check can't catch (it only flags \`INV-*\` in a *user* catalog). Use
+    \`dev\` **only when working inside the exarchos repo itself**. The verbs
+    enforce this: \`invariants_scaffold\` / \`invariants_add\` reject \`tier: dev\`
+    outside the exarchos repo (heuristic: \`package.json\` name ≠
+    \`@lvlup-sw/exarchos\`) with a \`RESERVED_TIER\` error that redirects to \`user\`;
+    a genuine exarchos fork opts in with \`allowReservedTier: true\`.
 
 ### 4. Enforce — DEFAULT \`mode: audit\`, \`mode: check\` is opt-in
 
@@ -5151,6 +5188,7 @@ For one \`U-*\` entry authored end-to-end through all 6 steps, see
 | Skip the dry-run | \`dryRun: true\` first, ALWAYS, then explicit confirm |
 | Silently re-invoke with \`dryRun: false\` | Make the confirmation step explicit |
 | Pick an id by hand | The verb auto-assigns the next free id in the namespace |
+| Author into \`dev\`/\`INV-N\` from a consumer repo | \`dev\` is exarchos's reserved substrate namespace — use \`user\`/\`U-N\` (the verb rejects consumer \`tier: dev\`) |
 | Infer globs from the framework | Ask the author to name the globs (INV-6) |
 | Skip \`doctor\` + \`invariants_effective\` after commit | Verify the resolved catalog and show the delta |
 "
@@ -9947,14 +9985,32 @@ violated?") — that sharpens both the summary and the later enforcement.
 - \`workflow-affinity\`: workflow types (\`feature | debug | refactor | discover |
   oneshot\`). Absent ⇒ all.
 
-### 3. Weight — \`severity\` + \`integrity-class\`
+### 3. Weight — \`severity\`, \`integrity-class\`, and the \`tier\` you author into
 
 - \`severity.default\`: \`blocking\` or \`advisory\`.
 - \`severity.by-workflow\` (optional): downgrade for cheap workflows
   (e.g. \`oneshot: advisory\`).
-- \`integrity-class\`: \`user\` for a consumer-authored entry (the default target).
-  \`dev\` only when the author is a maintainer extending Exarchos's own substrate
-  catalog.
+- \`integrity-class\` (entry field; enum \`substrate | sdlc | authoring | user\`):
+  the entry's **override authority**, not its namespace. For a consumer-authored
+  rule this is \`user\`. (\`substrate\`/\`sdlc\` are exarchos's own classes — you do
+  not author those.)
+- **\`tier\` (the verb arg) picks the catalog _namespace_, and the choice is
+  *exarchos-substrate vs project-authored*, NOT "which developers".** This is the
+  one that bites — get it wrong and you silently collide with exarchos's own ids:
+  - **\`tier: user\` → \`U-N\` ids — your project's own invariants. The default for
+    _everyone_ consuming exarchos.** If you are authoring a rule for your own
+    repo, this is always the answer (even if your project happens to name its
+    rules \`INV-N\` internally — they map to \`U-N\` here).
+  - **\`tier: dev\` → \`INV-N\` ids — exarchos's _own_ reserved substrate catalog.**
+    Exarchos ships its own \`INV-1..6\` inside the tool, and they merge into every
+    \`invariants_effective\` projection. Authoring into \`dev\` from a consumer repo
+    **collides your \`INV-N\` with exarchos's own** — a silent namespace clash the
+    \`doctor\` check can't catch (it only flags \`INV-*\` in a *user* catalog). Use
+    \`dev\` **only when working inside the exarchos repo itself**. The verbs
+    enforce this: \`invariants_scaffold\` / \`invariants_add\` reject \`tier: dev\`
+    outside the exarchos repo (heuristic: \`package.json\` name ≠
+    \`@lvlup-sw/exarchos\`) with a \`RESERVED_TIER\` error that redirects to \`user\`;
+    a genuine exarchos fork opts in with \`allowReservedTier: true\`.
 
 ### 4. Enforce — DEFAULT \`mode: audit\`, \`mode: check\` is opt-in
 
@@ -10058,6 +10114,7 @@ For one \`U-*\` entry authored end-to-end through all 6 steps, see
 | Skip the dry-run | \`dryRun: true\` first, ALWAYS, then explicit confirm |
 | Silently re-invoke with \`dryRun: false\` | Make the confirmation step explicit |
 | Pick an id by hand | The verb auto-assigns the next free id in the namespace |
+| Author into \`dev\`/\`INV-N\` from a consumer repo | \`dev\` is exarchos's reserved substrate namespace — use \`user\`/\`U-N\` (the verb rejects consumer \`tier: dev\`) |
 | Infer globs from the framework | Ask the author to name the globs (INV-6) |
 | Skip \`doctor\` + \`invariants_effective\` after commit | Verify the resolved catalog and show the delta |
 "
@@ -14846,14 +14903,32 @@ violated?") — that sharpens both the summary and the later enforcement.
 - \`workflow-affinity\`: workflow types (\`feature | debug | refactor | discover |
   oneshot\`). Absent ⇒ all.
 
-### 3. Weight — \`severity\` + \`integrity-class\`
+### 3. Weight — \`severity\`, \`integrity-class\`, and the \`tier\` you author into
 
 - \`severity.default\`: \`blocking\` or \`advisory\`.
 - \`severity.by-workflow\` (optional): downgrade for cheap workflows
   (e.g. \`oneshot: advisory\`).
-- \`integrity-class\`: \`user\` for a consumer-authored entry (the default target).
-  \`dev\` only when the author is a maintainer extending Exarchos's own substrate
-  catalog.
+- \`integrity-class\` (entry field; enum \`substrate | sdlc | authoring | user\`):
+  the entry's **override authority**, not its namespace. For a consumer-authored
+  rule this is \`user\`. (\`substrate\`/\`sdlc\` are exarchos's own classes — you do
+  not author those.)
+- **\`tier\` (the verb arg) picks the catalog _namespace_, and the choice is
+  *exarchos-substrate vs project-authored*, NOT "which developers".** This is the
+  one that bites — get it wrong and you silently collide with exarchos's own ids:
+  - **\`tier: user\` → \`U-N\` ids — your project's own invariants. The default for
+    _everyone_ consuming exarchos.** If you are authoring a rule for your own
+    repo, this is always the answer (even if your project happens to name its
+    rules \`INV-N\` internally — they map to \`U-N\` here).
+  - **\`tier: dev\` → \`INV-N\` ids — exarchos's _own_ reserved substrate catalog.**
+    Exarchos ships its own \`INV-1..6\` inside the tool, and they merge into every
+    \`invariants_effective\` projection. Authoring into \`dev\` from a consumer repo
+    **collides your \`INV-N\` with exarchos's own** — a silent namespace clash the
+    \`doctor\` check can't catch (it only flags \`INV-*\` in a *user* catalog). Use
+    \`dev\` **only when working inside the exarchos repo itself**. The verbs
+    enforce this: \`invariants_scaffold\` / \`invariants_add\` reject \`tier: dev\`
+    outside the exarchos repo (heuristic: \`package.json\` name ≠
+    \`@lvlup-sw/exarchos\`) with a \`RESERVED_TIER\` error that redirects to \`user\`;
+    a genuine exarchos fork opts in with \`allowReservedTier: true\`.
 
 ### 4. Enforce — DEFAULT \`mode: audit\`, \`mode: check\` is opt-in
 
@@ -14957,6 +15032,7 @@ For one \`U-*\` entry authored end-to-end through all 6 steps, see
 | Skip the dry-run | \`dryRun: true\` first, ALWAYS, then explicit confirm |
 | Silently re-invoke with \`dryRun: false\` | Make the confirmation step explicit |
 | Pick an id by hand | The verb auto-assigns the next free id in the namespace |
+| Author into \`dev\`/\`INV-N\` from a consumer repo | \`dev\` is exarchos's reserved substrate namespace — use \`user\`/\`U-N\` (the verb rejects consumer \`tier: dev\`) |
 | Infer globs from the framework | Ask the author to name the globs (INV-6) |
 | Skip \`doctor\` + \`invariants_effective\` after commit | Verify the resolved catalog and show the delta |
 "
@@ -19755,14 +19831,32 @@ violated?") — that sharpens both the summary and the later enforcement.
 - \`workflow-affinity\`: workflow types (\`feature | debug | refactor | discover |
   oneshot\`). Absent ⇒ all.
 
-### 3. Weight — \`severity\` + \`integrity-class\`
+### 3. Weight — \`severity\`, \`integrity-class\`, and the \`tier\` you author into
 
 - \`severity.default\`: \`blocking\` or \`advisory\`.
 - \`severity.by-workflow\` (optional): downgrade for cheap workflows
   (e.g. \`oneshot: advisory\`).
-- \`integrity-class\`: \`user\` for a consumer-authored entry (the default target).
-  \`dev\` only when the author is a maintainer extending Exarchos's own substrate
-  catalog.
+- \`integrity-class\` (entry field; enum \`substrate | sdlc | authoring | user\`):
+  the entry's **override authority**, not its namespace. For a consumer-authored
+  rule this is \`user\`. (\`substrate\`/\`sdlc\` are exarchos's own classes — you do
+  not author those.)
+- **\`tier\` (the verb arg) picks the catalog _namespace_, and the choice is
+  *exarchos-substrate vs project-authored*, NOT "which developers".** This is the
+  one that bites — get it wrong and you silently collide with exarchos's own ids:
+  - **\`tier: user\` → \`U-N\` ids — your project's own invariants. The default for
+    _everyone_ consuming exarchos.** If you are authoring a rule for your own
+    repo, this is always the answer (even if your project happens to name its
+    rules \`INV-N\` internally — they map to \`U-N\` here).
+  - **\`tier: dev\` → \`INV-N\` ids — exarchos's _own_ reserved substrate catalog.**
+    Exarchos ships its own \`INV-1..6\` inside the tool, and they merge into every
+    \`invariants_effective\` projection. Authoring into \`dev\` from a consumer repo
+    **collides your \`INV-N\` with exarchos's own** — a silent namespace clash the
+    \`doctor\` check can't catch (it only flags \`INV-*\` in a *user* catalog). Use
+    \`dev\` **only when working inside the exarchos repo itself**. The verbs
+    enforce this: \`invariants_scaffold\` / \`invariants_add\` reject \`tier: dev\`
+    outside the exarchos repo (heuristic: \`package.json\` name ≠
+    \`@lvlup-sw/exarchos\`) with a \`RESERVED_TIER\` error that redirects to \`user\`;
+    a genuine exarchos fork opts in with \`allowReservedTier: true\`.
 
 ### 4. Enforce — DEFAULT \`mode: audit\`, \`mode: check\` is opt-in
 
@@ -19866,6 +19960,7 @@ For one \`U-*\` entry authored end-to-end through all 6 steps, see
 | Skip the dry-run | \`dryRun: true\` first, ALWAYS, then explicit confirm |
 | Silently re-invoke with \`dryRun: false\` | Make the confirmation step explicit |
 | Pick an id by hand | The verb auto-assigns the next free id in the namespace |
+| Author into \`dev\`/\`INV-N\` from a consumer repo | \`dev\` is exarchos's reserved substrate namespace — use \`user\`/\`U-N\` (the verb rejects consumer \`tier: dev\`) |
 | Infer globs from the framework | Ask the author to name the globs (INV-6) |
 | Skip \`doctor\` + \`invariants_effective\` after commit | Verify the resolved catalog and show the delta |
 "
@@ -24635,14 +24730,32 @@ violated?") — that sharpens both the summary and the later enforcement.
 - \`workflow-affinity\`: workflow types (\`feature | debug | refactor | discover |
   oneshot\`). Absent ⇒ all.
 
-### 3. Weight — \`severity\` + \`integrity-class\`
+### 3. Weight — \`severity\`, \`integrity-class\`, and the \`tier\` you author into
 
 - \`severity.default\`: \`blocking\` or \`advisory\`.
 - \`severity.by-workflow\` (optional): downgrade for cheap workflows
   (e.g. \`oneshot: advisory\`).
-- \`integrity-class\`: \`user\` for a consumer-authored entry (the default target).
-  \`dev\` only when the author is a maintainer extending Exarchos's own substrate
-  catalog.
+- \`integrity-class\` (entry field; enum \`substrate | sdlc | authoring | user\`):
+  the entry's **override authority**, not its namespace. For a consumer-authored
+  rule this is \`user\`. (\`substrate\`/\`sdlc\` are exarchos's own classes — you do
+  not author those.)
+- **\`tier\` (the verb arg) picks the catalog _namespace_, and the choice is
+  *exarchos-substrate vs project-authored*, NOT "which developers".** This is the
+  one that bites — get it wrong and you silently collide with exarchos's own ids:
+  - **\`tier: user\` → \`U-N\` ids — your project's own invariants. The default for
+    _everyone_ consuming exarchos.** If you are authoring a rule for your own
+    repo, this is always the answer (even if your project happens to name its
+    rules \`INV-N\` internally — they map to \`U-N\` here).
+  - **\`tier: dev\` → \`INV-N\` ids — exarchos's _own_ reserved substrate catalog.**
+    Exarchos ships its own \`INV-1..6\` inside the tool, and they merge into every
+    \`invariants_effective\` projection. Authoring into \`dev\` from a consumer repo
+    **collides your \`INV-N\` with exarchos's own** — a silent namespace clash the
+    \`doctor\` check can't catch (it only flags \`INV-*\` in a *user* catalog). Use
+    \`dev\` **only when working inside the exarchos repo itself**. The verbs
+    enforce this: \`invariants_scaffold\` / \`invariants_add\` reject \`tier: dev\`
+    outside the exarchos repo (heuristic: \`package.json\` name ≠
+    \`@lvlup-sw/exarchos\`) with a \`RESERVED_TIER\` error that redirects to \`user\`;
+    a genuine exarchos fork opts in with \`allowReservedTier: true\`.
 
 ### 4. Enforce — DEFAULT \`mode: audit\`, \`mode: check\` is opt-in
 
@@ -24746,6 +24859,7 @@ For one \`U-*\` entry authored end-to-end through all 6 steps, see
 | Skip the dry-run | \`dryRun: true\` first, ALWAYS, then explicit confirm |
 | Silently re-invoke with \`dryRun: false\` | Make the confirmation step explicit |
 | Pick an id by hand | The verb auto-assigns the next free id in the namespace |
+| Author into \`dev\`/\`INV-N\` from a consumer repo | \`dev\` is exarchos's reserved substrate namespace — use \`user\`/\`U-N\` (the verb rejects consumer \`tier: dev\`) |
 | Infer globs from the framework | Ask the author to name the globs (INV-6) |
 | Skip \`doctor\` + \`invariants_effective\` after commit | Verify the resolved catalog and show the delta |
 "

@@ -75,6 +75,16 @@ audiences are distinct: **dev** (`INV-*`, Exarchos's own runtime substrate,
 `devCatalog`-gated, you never see it) → **sdlc** (`SDLC-*`, this baseline) →
 **user** (your own `U-*` entries, §2).
 
+> **As a consumer, you always author into the `user` tier (`U-*`).** The `dev`
+> tier (`INV-*`) is *exarchos's own reserved substrate namespace* — not "for your
+> project's developers". Its `INV-1..6` ship inside the tool and merge into every
+> `invariants_effective` projection, so authoring into `dev` from your repo
+> silently collides your `INV-N` with exarchos's own (and `doctor` won't catch it
+> — it only flags `INV-*` in a *user* catalog). The authoring verbs reject
+> `tier: dev` outside the exarchos repo (heuristic: `package.json` name ≠
+> `@lvlup-sw/exarchos`) with a `RESERVED_TIER` error that redirects you to
+> `user`; a genuine exarchos fork overrides with `allowReservedTier: true`.
+
 ## Manual authoring (advanced)
 
 The rest of this guide is the **manual/advanced** path — registering catalogs

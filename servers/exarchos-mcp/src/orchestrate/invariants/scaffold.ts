@@ -21,6 +21,7 @@ import * as path from 'node:path';
 import type { ToolResult } from '../../format.js';
 import { wireCatalogRegistration } from './exarchos-yml-writer.js';
 import type { YmlWriterDeps } from './exarchos-yml-writer.js';
+import { assertDevTierAllowed } from './reserved-tier-guard.js';
 
 const CONFIG_FILENAME = '.exarchos.yml';
 
@@ -38,6 +39,11 @@ export interface HandleScaffoldArgs {
   readonly path?: string;
   /** Privilege tier of the catalog. Defaults to `user`. */
   readonly tier?: 'dev' | 'user';
+  /**
+   * Opt-in to author into exarchos's reserved `dev` namespace from a non-exarchos
+   * repo. Almost always a mistake outside the exarchos repo itself (#1489).
+   */
+  readonly allowReservedTier?: boolean;
 }
 
 /** Result of the catalog-file write step. */
@@ -77,6 +83,11 @@ export function renderStarterCatalog(tier: 'dev' | 'user'): string {
 # with \`exarchos doctor\` (invariants-catalog check) and inspect it with the
 # \`invariants_effective\` view. Authoring guide:
 # docs/guides/authoring-invariants.md.
+#
+# Consumers always use the \`user\` tier (\`U-N\` ids) — this catalog is your
+# project's own. The \`dev\` tier (\`INV-N\`) is exarchos-internal: it is
+# exarchos's own reserved substrate namespace and collides with its built-in
+# \`INV-*\` if reused from a consumer repo.
 #
 # Worked example (un-comment to start). \`mode: audit\` is pure judgment — an
 # LLM evaluates the prompt against the diff; always portable (INV-6). For a
@@ -140,6 +151,20 @@ export async function handleScaffold(
   deps: ScaffoldDeps,
 ): Promise<ToolResult> {
   const { tier, relPath } = resolveTargetPath(args);
+
+  // Reject authoring into exarchos's reserved `dev` namespace from a consumer
+  // repo BEFORE any fs write (#1489). Redirects to `tier: user`.
+  const reserved = assertDevTierAllowed(
+    {
+      tier,
+      repoRoot: args.repoRoot,
+      allowReservedTier: args.allowReservedTier,
+      action: 'invariants_scaffold',
+    },
+    deps,
+  );
+  if (reserved) return reserved;
+
   const catalogAbs = path.join(args.repoRoot, relPath);
 
   const catalog = writeStarterCatalog(catalogAbs, tier, deps);

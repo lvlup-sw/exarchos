@@ -35,7 +35,12 @@ The agent asks the author to name the paths and the phase where the rule bites.
 
 - `severity.default`: `blocking` (a missing audit event is a compliance gap)
 - `severity.by-workflow`: `{ oneshot: advisory }` (downgrade for cheap throwaway work)
-- `integrity-class`: `user` (consumer-authored)
+- `integrity-class`: `user` (the entry's override authority — consumer-authored)
+- author into **`tier: user`** (→ `U-N` ids) — the default namespace for
+  *everyone* consuming exarchos. `tier: dev` (→ `INV-N`) is exarchos's own
+  reserved substrate namespace, used only inside the exarchos repo itself; the
+  verbs reject a consumer `tier: dev` (see step 6a, where the verb is called
+  with `tier: "user"`).
 
 ## Step 4 — Enforce (DEFAULT `mode: audit`)
 

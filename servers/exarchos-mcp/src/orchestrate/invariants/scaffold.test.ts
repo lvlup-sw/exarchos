@@ -181,3 +181,56 @@ describe('renderStarterCatalog → loadInvariants round-trip (#1487)', () => {
     },
   );
 });
+
+/**
+ * #1489 — `dev`/INV-N is exarchos's reserved substrate namespace. Scaffolding a
+ * dev catalog from a consumer repo is rejected before any write; the exarchos
+ * repo itself (or an explicit override) is allowed.
+ */
+describe('handleScaffold reserved-tier guard (#1489)', () => {
+  it('handleScaffold_DevTier_NonExarchosRepo_BlockedAsReserved', async () => {
+    const fake = makeFakeFs({
+      '/repo/package.json': JSON.stringify({ name: '@acme/consumer' }),
+    });
+
+    const result = await handleScaffold(
+      { repoRoot: '/repo', tier: 'dev' },
+      fake.deps,
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('RESERVED_TIER');
+    expect(result.error?.suggestedFix?.params.tier).toBe('user');
+    // No catalog file written — guard fires before the fs write.
+    expect(fake.writes).toHaveLength(0);
+  });
+
+  it('handleScaffold_DevTier_ExarchosRepo_Allows', async () => {
+    const fake = makeFakeFs({
+      '/repo/package.json': JSON.stringify({ name: '@lvlup-sw/exarchos' }),
+    });
+
+    const result = await handleScaffold(
+      { repoRoot: '/repo', tier: 'dev' },
+      fake.deps,
+    );
+
+    expect(result.success).toBe(true);
+    expect((result.data as { catalog: { wrote: boolean } }).catalog.wrote).toBe(
+      true,
+    );
+  });
+
+  it('handleScaffold_DevTier_WithOverride_Allows', async () => {
+    const fake = makeFakeFs({
+      '/repo/package.json': JSON.stringify({ name: '@acme/consumer' }),
+    });
+
+    const result = await handleScaffold(
+      { repoRoot: '/repo', tier: 'dev', allowReservedTier: true },
+      fake.deps,
+    );
+
+    expect(result.success).toBe(true);
+  });
+});
