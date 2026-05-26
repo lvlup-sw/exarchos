@@ -51,6 +51,13 @@ export interface DevTierGuardArgs {
   readonly repoRoot: string;
   /** Explicit opt-in for a genuine exarchos fork — bypasses the guard. */
   readonly allowReservedTier?: boolean;
+  /**
+   * The orchestrate action this guard is protecting. Echoed into
+   * `suggestedFix.params.action` so the carrier-shape fix is directly
+   * re-invokable (the guard is shared across both verbs, so the caller names
+   * its own action).
+   */
+  readonly action: 'invariants_scaffold' | 'invariants_add';
 }
 
 /**
@@ -82,6 +89,7 @@ export function assertDevTierAllowed(
       suggestedFix: {
         tool: 'exarchos_orchestrate',
         params: {
+          action: args.action,
           tier: 'user',
           note:
             "Re-run with tier: 'user' to author into your project's own " +

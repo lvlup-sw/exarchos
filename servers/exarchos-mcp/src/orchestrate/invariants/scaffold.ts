@@ -155,7 +155,12 @@ export async function handleScaffold(
   // Reject authoring into exarchos's reserved `dev` namespace from a consumer
   // repo BEFORE any fs write (#1489). Redirects to `tier: user`.
   const reserved = assertDevTierAllowed(
-    { tier, repoRoot: args.repoRoot, allowReservedTier: args.allowReservedTier },
+    {
+      tier,
+      repoRoot: args.repoRoot,
+      allowReservedTier: args.allowReservedTier,
+      action: 'invariants_scaffold',
+    },
     deps,
   );
   if (reserved) return reserved;

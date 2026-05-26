@@ -61,7 +61,10 @@ describe('assertDevTierAllowed', () => {
   it('assertDevTierAllowed_UserTier_AllowsRegardlessOfRepo', () => {
     const deps = makeDeps({ '/repo/package.json': consumerPkg });
     expect(
-      assertDevTierAllowed({ tier: 'user', repoRoot: '/repo' }, deps),
+      assertDevTierAllowed(
+        { tier: 'user', repoRoot: '/repo', action: 'invariants_add' },
+        deps,
+      ),
     ).toBeNull();
   });
 
@@ -69,21 +72,27 @@ describe('assertDevTierAllowed', () => {
     // tier omitted ⇒ defaults to user downstream; nothing to guard.
     const deps = makeDeps({ '/repo/package.json': consumerPkg });
     expect(
-      assertDevTierAllowed({ tier: undefined, repoRoot: '/repo' }, deps),
+      assertDevTierAllowed(
+        { tier: undefined, repoRoot: '/repo', action: 'invariants_add' },
+        deps,
+      ),
     ).toBeNull();
   });
 
   it('assertDevTierAllowed_DevTierInExarchosRepo_Allows', () => {
     const deps = makeDeps({ '/repo/package.json': exarchosPkg });
     expect(
-      assertDevTierAllowed({ tier: 'dev', repoRoot: '/repo' }, deps),
+      assertDevTierAllowed(
+        { tier: 'dev', repoRoot: '/repo', action: 'invariants_add' },
+        deps,
+      ),
     ).toBeNull();
   });
 
   it('assertDevTierAllowed_DevTierInConsumerRepo_Blocks', () => {
     const deps = makeDeps({ '/repo/package.json': consumerPkg });
     const result = assertDevTierAllowed(
-      { tier: 'dev', repoRoot: '/repo' },
+      { tier: 'dev', repoRoot: '/repo', action: 'invariants_scaffold' },
       deps,
     );
     expect(result).not.toBeNull();
@@ -91,6 +100,11 @@ describe('assertDevTierAllowed', () => {
     expect(result!.error?.code).toBe('RESERVED_TIER');
     // INV-5b carrier shape: redirect to tier: user so the agent self-corrects.
     expect(result!.error?.suggestedFix?.params.tier).toBe('user');
+    // suggestedFix must be directly re-invokable: it carries the action so
+    // handleOrchestrate can route it (the guard echoes the caller's verb).
+    expect(result!.error?.suggestedFix?.params.action).toBe(
+      'invariants_scaffold',
+    );
     // The override path is named so a genuine exarchos fork can proceed.
     expect(JSON.stringify(result!.error)).toMatch(/allowReservedTier/);
   });
@@ -99,18 +113,24 @@ describe('assertDevTierAllowed', () => {
     // "Unknown" repo is treated as not-exarchos: dev is almost always a mistake.
     const deps = makeDeps({});
     const result = assertDevTierAllowed(
-      { tier: 'dev', repoRoot: '/repo' },
+      { tier: 'dev', repoRoot: '/repo', action: 'invariants_add' },
       deps,
     );
     expect(result).not.toBeNull();
     expect(result!.error?.code).toBe('RESERVED_TIER');
+    expect(result!.error?.suggestedFix?.params.action).toBe('invariants_add');
   });
 
   it('assertDevTierAllowed_DevTierWithOverride_Allows', () => {
     const deps = makeDeps({ '/repo/package.json': consumerPkg });
     expect(
       assertDevTierAllowed(
-        { tier: 'dev', repoRoot: '/repo', allowReservedTier: true },
+        {
+          tier: 'dev',
+          repoRoot: '/repo',
+          allowReservedTier: true,
+          action: 'invariants_add',
+        },
         deps,
       ),
     ).toBeNull();

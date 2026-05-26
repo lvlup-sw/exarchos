@@ -285,7 +285,12 @@ export async function handleAdd(
   // repo BEFORE reading/validating anything, and regardless of dryRun — so a
   // dry-run preview never even renders a dev-tier entry (#1489).
   const reserved = assertDevTierAllowed(
-    { tier, repoRoot: args.repoRoot, allowReservedTier: args.allowReservedTier },
+    {
+      tier,
+      repoRoot: args.repoRoot,
+      allowReservedTier: args.allowReservedTier,
+      action: 'invariants_add',
+    },
     deps,
   );
   if (reserved) return reserved;
