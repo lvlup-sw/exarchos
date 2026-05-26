@@ -84,6 +84,11 @@ export function renderStarterCatalog(tier: 'dev' | 'user'): string {
 # \`invariants_effective\` view. Authoring guide:
 # docs/guides/authoring-invariants.md.
 #
+# Consumers always use the \`user\` tier (\`U-N\` ids) — this catalog is your
+# project's own. The \`dev\` tier (\`INV-N\`) is exarchos-internal: it is
+# exarchos's own reserved substrate namespace and collides with its built-in
+# \`INV-*\` if reused from a consumer repo.
+#
 # Worked example (un-comment to start). \`mode: audit\` is pure judgment — an
 # LLM evaluates the prompt against the diff; always portable (INV-6). For a
 # declarative grep/structural check, use \`mode: check\` with a combinator tree
