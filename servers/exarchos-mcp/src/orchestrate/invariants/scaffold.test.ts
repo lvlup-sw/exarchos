@@ -47,7 +47,7 @@ describe('handleScaffold', () => {
     const fake = makeFakeFs();
 
     const result = await handleScaffold(
-      { repoRoot: '/repo', path: 'docs/architecture/my-invariants.md', tier: 'user' },
+      { repoRoot: '/repo', path: '.exarchos/invariants.md', tier: 'user' },
       fake.deps,
     );
 
@@ -58,7 +58,7 @@ describe('handleScaffold', () => {
     expect(data.catalog.wrote).toBe(true);
     expect(data.catalog.reason).toBe('created');
 
-    const written = fake.files.get('/repo/docs/architecture/my-invariants.md');
+    const written = fake.files.get('/repo/.exarchos/invariants.md');
     expect(written).toBeDefined();
     // v3-shaped: a top-level `invariants:` list key …
     expect(written).toMatch(/invariants:/);
@@ -69,11 +69,11 @@ describe('handleScaffold', () => {
   it('handleScaffold_ExistingFile_NoOverwrite', async () => {
     const existing = 'invariants:\n  - id: U-1\n';
     const fake = makeFakeFs({
-      '/repo/docs/architecture/my-invariants.md': existing,
+      '/repo/.exarchos/invariants.md': existing,
     });
 
     const result = await handleScaffold(
-      { repoRoot: '/repo', path: 'docs/architecture/my-invariants.md', tier: 'user' },
+      { repoRoot: '/repo', path: '.exarchos/invariants.md', tier: 'user' },
       fake.deps,
     );
 
@@ -86,10 +86,10 @@ describe('handleScaffold', () => {
     // The catalog file is untouched — no write to that path.
     expect(
       fake.writes.some(
-        (w) => w.path === '/repo/docs/architecture/my-invariants.md',
+        (w) => w.path === '/repo/.exarchos/invariants.md',
       ),
     ).toBe(false);
-    expect(fake.files.get('/repo/docs/architecture/my-invariants.md')).toBe(
+    expect(fake.files.get('/repo/.exarchos/invariants.md')).toBe(
       existing,
     );
   });
@@ -100,7 +100,7 @@ describe('handleScaffold', () => {
     });
 
     const result = await handleScaffold(
-      { repoRoot: '/repo', path: 'docs/architecture/my-invariants.md', tier: 'user' },
+      { repoRoot: '/repo', path: '.exarchos/invariants.md', tier: 'user' },
       fake.deps,
     );
 
@@ -113,17 +113,17 @@ describe('handleScaffold', () => {
     const yml = fake.files.get('/repo/.exarchos.yml');
     expect(yml).toBeDefined();
     expect(yml).toMatch(/invariants:/);
-    expect(yml).toMatch(/docs\/architecture\/my-invariants\.md/);
+    expect(yml).toMatch(/\.exarchos\/invariants\.md/);
   });
 
   it('handleScaffold_AlreadyRegistered_RegistrationIdempotent', async () => {
     const fake = makeFakeFs({
       '/repo/.exarchos.yml':
-        'invariants:\n  catalogs:\n    - { path: docs/architecture/my-invariants.md, tier: user }\n',
+        'invariants:\n  catalogs:\n    - { path: .exarchos/invariants.md, tier: user }\n',
     });
 
     const result = await handleScaffold(
-      { repoRoot: '/repo', path: 'docs/architecture/my-invariants.md', tier: 'user' },
+      { repoRoot: '/repo', path: '.exarchos/invariants.md', tier: 'user' },
       fake.deps,
     );
 
@@ -139,7 +139,7 @@ describe('handleScaffold', () => {
     const fake = makeFakeFs();
 
     const result = await handleScaffold(
-      { repoRoot: '/repo', path: 'docs/architecture/my-invariants.md', tier: 'user' },
+      { repoRoot: '/repo', path: '.exarchos/invariants.md', tier: 'user' },
       fake.deps,
     );
 

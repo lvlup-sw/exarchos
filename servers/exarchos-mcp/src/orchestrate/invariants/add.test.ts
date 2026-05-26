@@ -86,14 +86,14 @@ const VALID_AUDIT_ENTRY = {
 describe('handleAdd — T8 validate + dry-run', () => {
   it('handleAdd_ValidEntry_DryRunReturnsRenderedDiff', async () => {
     const fake = makeFakeFs({
-      '/repo/docs/architecture/my-invariants.md': 'invariants: []\n',
+      '/repo/.exarchos/invariants.md': 'invariants: []\n',
     });
     const { ctx } = makeCtx();
 
     const result = await handleAdd(
       {
         repoRoot: '/repo',
-        catalog: 'docs/architecture/my-invariants.md',
+        catalog: '.exarchos/invariants.md',
         tier: 'user',
         entry: { ...VALID_AUDIT_ENTRY },
         dryRun: true,
@@ -123,7 +123,7 @@ describe('handleAdd — T8 validate + dry-run', () => {
 
   it('handleAdd_DryRunDefault_NoWrite', async () => {
     const fake = makeFakeFs({
-      '/repo/docs/architecture/my-invariants.md': 'invariants: []\n',
+      '/repo/.exarchos/invariants.md': 'invariants: []\n',
     });
     const { ctx } = makeCtx();
 
@@ -131,7 +131,7 @@ describe('handleAdd — T8 validate + dry-run', () => {
     const result = await handleAdd(
       {
         repoRoot: '/repo',
-        catalog: 'docs/architecture/my-invariants.md',
+        catalog: '.exarchos/invariants.md',
         tier: 'user',
         entry: { ...VALID_AUDIT_ENTRY },
       },
@@ -146,14 +146,14 @@ describe('handleAdd — T8 validate + dry-run', () => {
 
   it('handleAdd_CheckModeWithExecField_Rejected', async () => {
     const fake = makeFakeFs({
-      '/repo/docs/architecture/my-invariants.md': 'invariants: []\n',
+      '/repo/.exarchos/invariants.md': 'invariants: []\n',
     });
     const { ctx } = makeCtx();
 
     const result = await handleAdd(
       {
         repoRoot: '/repo',
-        catalog: 'docs/architecture/my-invariants.md',
+        catalog: '.exarchos/invariants.md',
         tier: 'user',
         entry: {
           dimension: 'd',
@@ -185,14 +185,14 @@ describe('handleAdd — T8 validate + dry-run', () => {
 
   it('handleAdd_UnknownLeafKind_Rejected', async () => {
     const fake = makeFakeFs({
-      '/repo/docs/architecture/my-invariants.md': 'invariants: []\n',
+      '/repo/.exarchos/invariants.md': 'invariants: []\n',
     });
     const { ctx } = makeCtx();
 
     const result = await handleAdd(
       {
         repoRoot: '/repo',
-        catalog: 'docs/architecture/my-invariants.md',
+        catalog: '.exarchos/invariants.md',
         tier: 'user',
         entry: {
           dimension: 'd',
@@ -247,14 +247,14 @@ describe('allocateNextId — T9 pure helper', () => {
 describe('handleAdd — T9 commit', () => {
   it('handleAdd_Commit_AppendsEntryToCatalog', async () => {
     const fake = makeFakeFs({
-      '/repo/docs/architecture/my-invariants.md': 'invariants: []\n',
+      '/repo/.exarchos/invariants.md': 'invariants: []\n',
     });
     const { ctx } = makeCtx();
 
     const result = await handleAdd(
       {
         repoRoot: '/repo',
-        catalog: 'docs/architecture/my-invariants.md',
+        catalog: '.exarchos/invariants.md',
         tier: 'user',
         entry: { ...VALID_AUDIT_ENTRY },
         dryRun: false,
@@ -265,14 +265,14 @@ describe('handleAdd — T9 commit', () => {
 
     expect(result.success).toBe(true);
     expect((result.data as { committed: boolean }).committed).toBe(true);
-    const written = fake.files.get('/repo/docs/architecture/my-invariants.md')!;
+    const written = fake.files.get('/repo/.exarchos/invariants.md')!;
     expect(written).toMatch(/id: U-1/);
     expect(written).toMatch(/mode: audit/);
   });
 
   it('handleAdd_AutoId_NextFreeInNamespace', async () => {
     const fake = makeFakeFs({
-      '/repo/docs/architecture/my-invariants.md':
+      '/repo/.exarchos/invariants.md':
         'invariants:\n  - id: U-1\n    dimension: d\n    axis: authoring\n    cost-of-load: reference-only\n    applies-to: ["src/**"]\n    summary: s\n    references: []\n  - id: U-2\n    dimension: d\n    axis: authoring\n    cost-of-load: reference-only\n    applies-to: ["src/**"]\n    summary: s\n    references: []\n',
     });
     const { ctx } = makeCtx();
@@ -280,7 +280,7 @@ describe('handleAdd — T9 commit', () => {
     const result = await handleAdd(
       {
         repoRoot: '/repo',
-        catalog: 'docs/architecture/my-invariants.md',
+        catalog: '.exarchos/invariants.md',
         tier: 'user',
         entry: { ...VALID_AUDIT_ENTRY },
         dryRun: false,
@@ -291,7 +291,7 @@ describe('handleAdd — T9 commit', () => {
 
     expect(result.success).toBe(true);
     expect((result.data as { id: string }).id).toBe('U-3');
-    const written = fake.files.get('/repo/docs/architecture/my-invariants.md')!;
+    const written = fake.files.get('/repo/.exarchos/invariants.md')!;
     expect(written).toMatch(/id: U-3/);
   });
 
@@ -300,7 +300,7 @@ describe('handleAdd — T9 commit', () => {
     // of the catalog (it's not yet in .exarchos.yml) emits catalog.registered
     // (INV-1). The events land on the per-tier invariants stream.
     const fake = makeFakeFs({
-      '/repo/docs/architecture/my-invariants.md': 'invariants: []\n',
+      '/repo/.exarchos/invariants.md': 'invariants: []\n',
       // .exarchos.yml has no catalog registration → first registration.
       '/repo/.exarchos.yml': 'test: npm test\n',
     });
@@ -309,7 +309,7 @@ describe('handleAdd — T9 commit', () => {
     const result = await handleAdd(
       {
         repoRoot: '/repo',
-        catalog: 'docs/architecture/my-invariants.md',
+        catalog: '.exarchos/invariants.md',
         tier: 'user',
         entry: { ...VALID_AUDIT_ENTRY },
         dryRun: false,
@@ -330,16 +330,16 @@ describe('handleAdd — T9 commit', () => {
   it('handleAdd_Commit_AlreadyRegisteredCatalog_NoCatalogRegisteredEvent', async () => {
     // When the catalog is already registered, only invariant.authored fires.
     const fake = makeFakeFs({
-      '/repo/docs/architecture/my-invariants.md': 'invariants: []\n',
+      '/repo/.exarchos/invariants.md': 'invariants: []\n',
       '/repo/.exarchos.yml':
-        'invariants:\n  catalogs:\n    - { path: docs/architecture/my-invariants.md, tier: user }\n',
+        'invariants:\n  catalogs:\n    - { path: .exarchos/invariants.md, tier: user }\n',
     });
     const { ctx, appended } = makeCtx();
 
     await handleAdd(
       {
         repoRoot: '/repo',
-        catalog: 'docs/architecture/my-invariants.md',
+        catalog: '.exarchos/invariants.md',
         tier: 'user',
         entry: { ...VALID_AUDIT_ENTRY },
         dryRun: false,
@@ -358,14 +358,14 @@ describe('handleAdd — T9 commit', () => {
     // (scalar/map) must not throw a raw TypeError on `.add`. The handler resets
     // the node to an empty sequence, then appends the validated entry.
     const fake = makeFakeFs({
-      '/repo/docs/architecture/my-invariants.md': 'invariants: not-a-list\n',
+      '/repo/.exarchos/invariants.md': 'invariants: not-a-list\n',
     });
     const { ctx } = makeCtx();
 
     const result = await handleAdd(
       {
         repoRoot: '/repo',
-        catalog: 'docs/architecture/my-invariants.md',
+        catalog: '.exarchos/invariants.md',
         tier: 'user',
         entry: { ...VALID_AUDIT_ENTRY },
         dryRun: false,
@@ -376,7 +376,7 @@ describe('handleAdd — T9 commit', () => {
 
     expect(result.success).toBe(true);
     expect((result.data as { committed: boolean }).committed).toBe(true);
-    const written = fake.files.get('/repo/docs/architecture/my-invariants.md')!;
+    const written = fake.files.get('/repo/.exarchos/invariants.md')!;
     expect(written).toMatch(/id: U-1/);
     expect(written).toMatch(/mode: audit/);
   });
@@ -428,16 +428,16 @@ describe('handleAdd — T9 commit', () => {
       '\n' +
       'Prose body.\n';
     const fake = makeFakeFs({
-      '/repo/docs/architecture/my-invariants.md': fenced,
+      '/repo/.exarchos/invariants.md': fenced,
       '/repo/.exarchos.yml':
-        'invariants:\n  devCatalog: enabled\n  catalogs:\n    - { path: docs/architecture/my-invariants.md, tier: user }\n',
+        'invariants:\n  devCatalog: enabled\n  catalogs:\n    - { path: .exarchos/invariants.md, tier: user }\n',
     });
     const { ctx } = makeCtx();
 
     const result = await handleAdd(
       {
         repoRoot: '/repo',
-        catalog: 'docs/architecture/my-invariants.md',
+        catalog: '.exarchos/invariants.md',
         tier: 'user',
         entry: { ...VALID_AUDIT_ENTRY },
         dryRun: false,
@@ -447,7 +447,7 @@ describe('handleAdd — T9 commit', () => {
     );
 
     expect(result.success).toBe(true);
-    const written = fake.files.get('/repo/docs/architecture/my-invariants.md')!;
+    const written = fake.files.get('/repo/.exarchos/invariants.md')!;
     // (a) markdown body survives.
     expect(written).toContain('Prose body.');
     expect(written).toContain('# Heading');

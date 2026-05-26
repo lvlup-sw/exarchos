@@ -746,7 +746,7 @@ describe('TOOL_REGISTRY', () => {
     // applied downstream at dispatch).
     const parsed = action!.schema.safeParse({
       entry: { dimension: 'd' },
-      catalog: 'docs/architecture/my-invariants.md',
+      catalog: '.exarchos/invariants.md',
       tier: 'user',
     });
     expect(parsed.success).toBe(true);

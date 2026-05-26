@@ -314,7 +314,7 @@ describe('handleOrchestrate', () => {
     it('Composite_InvariantsScaffold_Dispatches', async () => {
       // P2/T7: dispatching action:'invariants_scaffold' reaches handleScaffold.
       const expected = successResult({
-        catalog: { wrote: true, path: '/repo/docs/architecture/my-invariants.md', reason: 'created' },
+        catalog: { wrote: true, path: '/repo/.exarchos/invariants.md', reason: 'created' },
         registration: { wrote: true, path: '/repo/.exarchos.yml', reason: 'registered' },
         tier: 'user',
         next_actions: ['doctor', 'view invariants_effective'],
@@ -323,7 +323,7 @@ describe('handleOrchestrate', () => {
       const args = {
         action: 'invariants_scaffold',
         repoRoot: '/repo',
-        path: 'docs/architecture/my-invariants.md',
+        path: '.exarchos/invariants.md',
         tier: 'user',
       };
 
@@ -335,7 +335,7 @@ describe('handleOrchestrate', () => {
       const callArgs = vi.mocked(handleScaffold).mock.calls[0]![0];
       expect(callArgs).toMatchObject({
         repoRoot: '/repo',
-        path: 'docs/architecture/my-invariants.md',
+        path: '.exarchos/invariants.md',
         tier: 'user',
       });
     });
@@ -354,7 +354,7 @@ describe('handleOrchestrate', () => {
       const args = {
         action: 'invariants_add',
         repoRoot: '/repo',
-        catalog: 'docs/architecture/my-invariants.md',
+        catalog: '.exarchos/invariants.md',
         tier: 'user',
         dryRun: false,
         entry: {
