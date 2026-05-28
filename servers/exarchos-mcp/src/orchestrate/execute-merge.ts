@@ -422,18 +422,22 @@ export async function handleExecuteMerge(
       tailEventsExecuted.length > 0
         ? Math.max(...tailEventsExecuted.map((e) => e.sequence))
         : 0;
-    const appendOptionsExecuted: { idempotencyKey?: string; expectedSequence: number } = {
+    // INV-8: always set an idempotency key so concurrent invocations
+    // without a `taskId` (e.g., CLI direct-invocation) dedup at the
+    // substrate's idempotency_claims row rather than racing to append.
+    // The helper falls back to a `featureId`-only key when `taskId` is
+    // absent.
+    const appendOptionsExecuted: { idempotencyKey: string; expectedSequence: number } = {
       expectedSequence: expectedSequenceExecuted,
-    };
-    if (args.taskId !== undefined) {
-      appendOptionsExecuted.idempotencyKey = buildMergeOrchestrateIdempotencyKey(
+      idempotencyKey: buildMergeOrchestrateIdempotencyKey(
         args.featureId,
         args.taskId,
         'merge.executed',
-      );
-    }
+      ),
+    };
+    let executedAppendResult;
     try {
-      await ctx.eventStore.append(
+      executedAppendResult = await ctx.eventStore.append(
         args.featureId,
         {
           type: 'merge.executed',
@@ -473,21 +477,20 @@ export async function handleExecuteMerge(
     // verification between the two; for now they're adjacent in the happy
     // path. Idempotency-key suffix `:merge.completed` keeps this dedup row
     // separate from the executed/rollback rows on the same stream.
-    const tailEventsCompleted = await ctx.eventStore.query(args.featureId);
-    const expectedSequenceCompleted =
-      tailEventsCompleted.length > 0
-        ? Math.max(...tailEventsCompleted.map((e) => e.sequence))
-        : 0;
-    const appendOptionsCompleted: { idempotencyKey?: string; expectedSequence: number } = {
-      expectedSequence: expectedSequenceCompleted,
-    };
-    if (args.taskId !== undefined) {
-      appendOptionsCompleted.idempotencyKey = buildMergeOrchestrateIdempotencyKey(
+    //
+    // CAS-pin to the `merge.executed` sequence we just observed (rather
+    // than re-querying the stream tail) so the two events remain strictly
+    // adjacent in the log — any intervening concurrent append on this
+    // stream surfaces as a SequenceConflict here instead of silently
+    // breaking the `executed → completed` invariant.
+    const appendOptionsCompleted: { idempotencyKey: string; expectedSequence: number } = {
+      expectedSequence: executedAppendResult.sequence,
+      idempotencyKey: buildMergeOrchestrateIdempotencyKey(
         args.featureId,
         args.taskId,
         'merge.completed',
-      );
-    }
+      ),
+    };
     try {
       await ctx.eventStore.append(
         args.featureId,
@@ -539,16 +542,17 @@ export async function handleExecuteMerge(
       tailEventsRollback.length > 0
         ? Math.max(...tailEventsRollback.map((e) => e.sequence))
         : 0;
-    const appendOptionsRollback: { idempotencyKey?: string; expectedSequence: number } = {
+    // INV-8: always set an idempotency key (helper falls back to a
+    // featureId-only shape when taskId is absent) so concurrent invocations
+    // without a taskId dedup at the substrate layer.
+    const appendOptionsRollback: { idempotencyKey: string; expectedSequence: number } = {
       expectedSequence: expectedSequenceRollback,
-    };
-    if (args.taskId !== undefined) {
-      appendOptionsRollback.idempotencyKey = buildMergeOrchestrateIdempotencyKey(
+      idempotencyKey: buildMergeOrchestrateIdempotencyKey(
         args.featureId,
         args.taskId,
         'merge.rollback',
-      );
-    }
+      ),
+    };
     try {
       await ctx.eventStore.append(
         args.featureId,

@@ -1482,21 +1482,22 @@ export const MergeRollbackData = z.object({
  * verification between them, at which point the `executed → completed`
  * transition gains operational meaning.
  */
-export const MergeCompletedData = z.object({
-  taskId: z
-    .string()
-    .optional()
-    .describe(
-      'Originating task id (matches the worktree task.completed.taskId)',
-    ),
-  sourceBranch: z.string().min(1),
-  targetBranch: z.string().min(1),
+// Derived from `MergeExecutedData` to keep the adjacent event-pair contracts
+// in lockstep — any field-shape change to the executed payload (e.g., a
+// tighter mergeSha pattern, a renamed taskId) automatically propagates to
+// the terminal marker. Adds `featureId` (optional) for cross-stream
+// observability; merge.executed doesn't carry it because the executor's
+// stream context already pins the feature.
+export const MergeCompletedData = MergeExecutedData.pick({
+  taskId: true,
+  sourceBranch: true,
+  targetBranch: true,
+  mergeSha: true,
+}).extend({
   featureId: z
     .string()
     .optional()
     .describe('Feature stream id; useful for cross-stream observability'),
-  /** Resulting commit sha on the target branch (carried forward from `merge.executed`). */
-  mergeSha: z.string().min(1),
 });
 
 // ─── Wave B Two-Event Split Schemas (#1342) ──────────────────────────────────

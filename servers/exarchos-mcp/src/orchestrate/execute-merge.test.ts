@@ -168,9 +168,10 @@ describe('handleExecuteMerge (T15)', () => {
         },
       },
       {
-        // Same mock event-store has no prior events between the two appends
-        // (its `query` returns []); expectedSequence stays 0 in this unit.
-        expectedSequence: 0,
+        // CAS-chained to the merge.executed append result. The mock's
+        // append returns `{ sequence: 1, ... }`, so merge.completed's
+        // expectedSequence is 1 — pinning adjacency in the stream.
+        expectedSequence: 1,
         idempotencyKey: 'feat-x:merge_orchestrate:T11:merge.completed',
       },
     );

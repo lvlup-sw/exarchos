@@ -548,16 +548,19 @@ export async function handleMergeOrchestrate(
     tailEventsPreflight.length > 0
       ? Math.max(...tailEventsPreflight.map((e) => e.sequence))
       : 0;
-  const appendOptionsPreflight: { idempotencyKey?: string; expectedSequence: number } = {
+  // INV-8: always set an idempotency key (helper falls back to a
+  // featureId-only shape when taskId is absent) so concurrent invocations
+  // without a taskId still dedup at the substrate layer rather than racing
+  // to append. Symmetric with the executed/completed/rollback sites in
+  // execute-merge.ts.
+  const appendOptionsPreflight: { idempotencyKey: string; expectedSequence: number } = {
     expectedSequence: expectedSequencePreflight,
-  };
-  if (args.taskId !== undefined) {
-    appendOptionsPreflight.idempotencyKey = buildMergeOrchestrateIdempotencyKey(
+    idempotencyKey: buildMergeOrchestrateIdempotencyKey(
       args.featureId,
       args.taskId,
       'merge.preflight',
-    );
-  }
+    ),
+  };
   try {
     await ctx.eventStore.append(
       args.featureId,

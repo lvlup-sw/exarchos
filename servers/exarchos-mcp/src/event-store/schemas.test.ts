@@ -46,6 +46,7 @@ import {
   MergePreflightData,
   MergeExecutedData,
   MergeRollbackData,
+  MergeCompletedData,
   CommandResolvedEventSchema,
   HsmDeprecatedActionInvokedData,
   SpecLegacyCapabilitiesArrayData,
@@ -2651,6 +2652,78 @@ describe('MergeRollbackData', () => {
       targetBranch: 'main',
       rollbackSha: 'b'.repeat(40),
       reason: 'bogus',
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('MergeRollbackEventSchema_ValidRecoveryError_Parses', () => {
+    // #1304 INV-14 discriminator — closed enum on the substrate-undo
+    // outcome. The 'reset-failed' variant is what the current pure
+    // executor emits when `git reset --hard` exits non-zero.
+    const result = MergeRollbackData.safeParse({
+      taskId: 'T11',
+      sourceBranch: 'feat/x',
+      targetBranch: 'main',
+      rollbackSha: 'b'.repeat(40),
+      reason: 'verification-failed',
+      rollbackError: 'git reset --hard exited 128',
+      recoveryError: 'reset-failed',
+    });
+    expect(result.success, JSON.stringify(result)).toBe(true);
+    if (result.success) {
+      expect(result.data.recoveryError).toBe('reset-failed');
+    }
+  });
+
+  it('MergeRollbackEventSchema_UnknownRecoveryError_Rejects', () => {
+    // INV-14 discriminator is a closed enum — values outside the registered
+    // set must fail parsing so observability sees indeterminate worktrees
+    // via the three sanctioned cases rather than via free-form strings.
+    const result = MergeRollbackData.safeParse({
+      taskId: 'T11',
+      sourceBranch: 'feat/x',
+      targetBranch: 'main',
+      rollbackSha: 'b'.repeat(40),
+      reason: 'merge-failed',
+      recoveryError: 'bogus',
+    });
+    expect(result.success).toBe(false);
+  });
+});
+
+describe('MergeCompletedData', () => {
+  it('MergeCompletedEventSchema_RegisteredInEventTypesAndDataSchemas', () => {
+    expect(EventTypes).toContain('merge.completed');
+    const schema = EVENT_DATA_SCHEMAS['merge.completed' as typeof EventTypes[number]];
+    expect(schema).toBeDefined();
+  });
+
+  it('MergeCompletedEventSchema_ValidPayload_Parses', () => {
+    // #1304 INV-10 terminal marker — emitted adjacent to merge.executed by
+    // `handleExecuteMerge`. Carries the same shape as merge.executed
+    // (taskId, branches, mergeSha) plus an optional featureId for
+    // cross-stream observability.
+    const result = MergeCompletedData.safeParse({
+      taskId: 'T11',
+      sourceBranch: 'feat/x',
+      targetBranch: 'main',
+      featureId: 'feat-1',
+      mergeSha: 'a'.repeat(40),
+    });
+    expect(result.success, JSON.stringify(result)).toBe(true);
+    if (result.success) {
+      expect(result.data.mergeSha).toBe('a'.repeat(40));
+      expect(result.data.featureId).toBe('feat-1');
+    }
+  });
+
+  it('MergeCompletedEventSchema_MissingMergeSha_Rejects', () => {
+    // mergeSha is required (inherited from MergeExecutedData.pick) — without
+    // it, the projection's terminal state loses the link to the merge SHA.
+    const result = MergeCompletedData.safeParse({
+      taskId: 'T11',
+      sourceBranch: 'feat/x',
+      targetBranch: 'main',
     });
     expect(result.success).toBe(false);
   });
