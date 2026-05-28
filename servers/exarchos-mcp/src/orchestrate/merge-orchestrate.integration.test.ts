@@ -291,6 +291,9 @@ describe('Merge orchestrator happy timeline (T23, DR-MO-1, DR-MO-2)', () => {
       'merge.preflight',
       'merge.requested',
       'merge.executed',
+      // #1304 INV-10 terminal marker — emitted adjacent to merge.executed
+      // by `handleExecuteMerge` once `merge.executed` lands successfully.
+      'merge.completed',
     ]);
 
     // ─── 7. Sequence numbers monotonic ─────────────────────────────────────
@@ -300,7 +303,7 @@ describe('Merge orchestrator happy timeline (T23, DR-MO-1, DR-MO-2)', () => {
     // racing the sequence counter, sidecar mode leaking into the happy path)
     // shows up in this integration suite, not just in store-level unit tests.
     const sequences = finalEvents.map((e) => e.sequence);
-    expect(sequences).toEqual([1, 2, 3, 4]);
+    expect(sequences).toEqual([1, 2, 3, 4, 5]);
     for (let i = 1; i < sequences.length; i += 1) {
       const prev = sequences[i - 1];
       const curr = sequences[i];

@@ -131,9 +131,11 @@ describe('handleExecuteMerge (T15)', () => {
     );
 
     expect(result.success).toBe(true);
-    // Direct stream append — NOT wrapped in gate.executed.
-    expect(ctx.eventStore.append).toHaveBeenCalledTimes(1);
-    expect(ctx.eventStore.append).toHaveBeenCalledWith(
+    // Two appends: `merge.executed` (side-effect record) and `merge.completed`
+    // (terminal lifecycle marker). Distinct events per #1304 INV-10 alignment.
+    expect(ctx.eventStore.append).toHaveBeenCalledTimes(2);
+    expect(ctx.eventStore.append).toHaveBeenNthCalledWith(
+      1,
       'feat-x',
       {
         type: 'merge.executed',
@@ -150,6 +152,26 @@ describe('handleExecuteMerge (T15)', () => {
       {
         expectedSequence: 0,
         idempotencyKey: 'feat-x:merge_orchestrate:T11:merge.executed',
+      },
+    );
+    expect(ctx.eventStore.append).toHaveBeenNthCalledWith(
+      2,
+      'feat-x',
+      {
+        type: 'merge.completed',
+        data: {
+          taskId: 'T11',
+          sourceBranch: 'feat/x',
+          targetBranch: 'main',
+          featureId: 'feat-x',
+          mergeSha: MERGE_SHA,
+        },
+      },
+      {
+        // Same mock event-store has no prior events between the two appends
+        // (its `query` returns []); expectedSequence stays 0 in this unit.
+        expectedSequence: 0,
+        idempotencyKey: 'feat-x:merge_orchestrate:T11:merge.completed',
       },
     );
   });
@@ -570,15 +592,20 @@ describe('handleExecuteMerge terminal-phase persistence (T27)', () => {
       { ...ctx, eventStore },
     );
 
-    // Event-first commit point (#1109 §1): the terminal event MUST be appended
-    // before the state file is mutated. If the event append fails, replay can
-    // still reconstruct from the event stream; if the state write fails after,
-    // a reconcile recovers the terminal phase from the recorded event.
-    // Order: persist(executing) → vcsMerge → event(merge.executed) → persist(completed)
+    // Event-first commit point (#1109 §1): both terminal events MUST be
+    // appended before the state file is mutated. If either event append
+    // fails, replay can still reconstruct from the event stream; if the
+    // state write fails after, a reconcile recovers from the events alone.
+    //
+    // Order: persist(executing) → vcsMerge → event(merge.executed) →
+    //        event(merge.completed) → persist(completed).
+    // The merge.completed terminal marker (#1304) lands ADJACENT to
+    // merge.executed in the happy path; both precede the state-file write.
     expect(callOrder).toEqual([
       'persist:executing',
       'vcsMerge',
       'event:merge.executed',
+      'event:merge.completed',
       'persist:completed',
     ]);
   });

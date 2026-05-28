@@ -457,13 +457,18 @@ describe('EventTypes', () => {
     // invariants-catalog-wizard P2: bumped 116 → 118 to include
     // `invariant.authored` + `catalog.registered`, emitted by the
     // `invariants_add` composite handler (orchestrate/invariants/add.ts).
-    expect(EventTypes).toHaveLength(118);
+    // #1304 INV-10 alignment: bumped 118 → 119 to include `merge.completed`,
+    // the terminal lifecycle marker emitted by `handleExecuteMerge` adjacent
+    // to `merge.executed`. Folded by `merge-orchestrator@v1` as the
+    // transition into the `completed` terminal phase.
+    expect(EventTypes).toHaveLength(119);
     // Explicit membership pin: a future replacement that swaps one event
     // for another would keep the length stable but silently lose the
     // migration progress type. The membership assert catches that.
     expect(EventTypes).toContain('migration.correlation_backfill_progress');
     expect(EventTypes).toContain('invariant.authored');
     expect(EventTypes).toContain('catalog.registered');
+    expect(EventTypes).toContain('merge.completed');
   });
 
   it('should include workflow-level types', () => {

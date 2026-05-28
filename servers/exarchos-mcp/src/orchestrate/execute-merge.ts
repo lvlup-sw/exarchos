@@ -465,6 +465,63 @@ export async function handleExecuteMerge(
       }
       throw err;
     }
+
+    // Terminal lifecycle marker — append `merge.completed` immediately after
+    // `merge.executed` so the projection's `completed` phase is reachable.
+    // Distinct event from `merge.executed`: the side effect record vs. the
+    // lifecycle-terminated record. Future work may interpose post-merge
+    // verification between the two; for now they're adjacent in the happy
+    // path. Idempotency-key suffix `:merge.completed` keeps this dedup row
+    // separate from the executed/rollback rows on the same stream.
+    const tailEventsCompleted = await ctx.eventStore.query(args.featureId);
+    const expectedSequenceCompleted =
+      tailEventsCompleted.length > 0
+        ? Math.max(...tailEventsCompleted.map((e) => e.sequence))
+        : 0;
+    const appendOptionsCompleted: { idempotencyKey?: string; expectedSequence: number } = {
+      expectedSequence: expectedSequenceCompleted,
+    };
+    if (args.taskId !== undefined) {
+      appendOptionsCompleted.idempotencyKey = buildMergeOrchestrateIdempotencyKey(
+        args.featureId,
+        args.taskId,
+        'merge.completed',
+      );
+    }
+    try {
+      await ctx.eventStore.append(
+        args.featureId,
+        {
+          type: 'merge.completed',
+          data: {
+            ...(args.taskId !== undefined ? { taskId: args.taskId } : {}),
+            sourceBranch: args.sourceBranch,
+            targetBranch: args.targetBranch,
+            featureId: args.featureId,
+            mergeSha: result.mergeSha,
+          },
+        },
+        appendOptionsCompleted,
+      );
+    } catch (err) {
+      // The terminal event lost a sequence race to a concurrent invocation.
+      // The other side already advanced this stream past our tail; its own
+      // `merge.completed` is either landed (idempotency key dedup) or its
+      // happy path will append it. Surface STATE_CONFLICT rather than
+      // throwing so the caller sees a categorized failure — `merge.executed`
+      // is already durable so projection rebuild can still recover the
+      // terminal state from the event stream alone.
+      if (err instanceof SequenceConflictError) {
+        return {
+          success: false,
+          error: {
+            code: 'STATE_CONFLICT',
+            message: `merge.completed append lost sequence race: expected=${err.expected} actual=${err.actual}`,
+          },
+        };
+      }
+      throw err;
+    }
   } else {
     // T16 — phase: 'rolled-back'. The pure executor already ran
     // `git reset --hard <rollbackSha>`. Surface `rollbackError` (when the
@@ -503,7 +560,18 @@ export async function handleExecuteMerge(
             targetBranch: args.targetBranch,
             rollbackSha: result.rollbackSha,
             reason: result.reason,
-            ...(result.rollbackError !== undefined ? { rollbackError: result.rollbackError } : {}),
+            // INV-14 discriminator — when the substrate undo (`git reset --hard`)
+            // exits non-zero, classify the outcome explicitly so observability
+            // distinguishes an indeterminate worktree from a clean rollback.
+            // The current pure executor only emits the 'reset-failed' case;
+            // the other two enum values are reserved for the broader INV-14
+            // primitive-ordering work (`merge --abort` → `reset --keep`).
+            ...(result.rollbackError !== undefined
+              ? {
+                  rollbackError: result.rollbackError,
+                  recoveryError: 'reset-failed' as const,
+                }
+              : {}),
           },
         },
         appendOptionsRollback,

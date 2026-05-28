@@ -109,6 +109,14 @@ export const EventTypes = [
   'merge.requested',
   'merge.executed',
   'merge.rollback',
+  // Terminal lifecycle event — emitted by the executor (`handleExecuteMerge`)
+  // immediately after a successful `merge.executed` append. Folded by the
+  // `merge-orchestrator@v1` projection (#1304) as the transition into the
+  // terminal `completed` phase. Distinct from `merge.executed` (records the
+  // side effect) so the projection can model "side effect done" and
+  // "lifecycle formally terminated" as two states — matching INV-10's
+  // executing_started + paired terminal event pattern.
+  'merge.completed',
   'command.resolved',
   // Durable event-store substrate (#1259) — deprecation telemetry + migration
   // pipeline. T02 / T03 / T04 of the substrate plan.
@@ -441,6 +449,9 @@ export const EVENT_EMISSION_REGISTRY: Record<EventType, EventEmissionSource> = {
   'merge.requested': 'model',
   'merge.executed': 'auto',
   'merge.rollback': 'auto',
+  // auto — emitted by `handleExecuteMerge` immediately after `merge.executed`
+  // succeeds, as the projection's terminal lifecycle marker (#1304 / INV-10).
+  'merge.completed': 'auto',
 
   // auto — emitted by the test/typecheck/install runtime resolver (#1199 T15).
   // Audit-only: records where each command resolution came from so downstream
@@ -1439,6 +1450,53 @@ export const MergeRollbackData = z.object({
   rollbackSha: z.string().min(1),
   reason: z.enum(['merge-failed', 'verification-failed', 'timeout']),
   rollbackError: z.string().min(1).optional(),
+  // INV-14 discriminator on the recovery outcome — distinguishes the three
+  // cases the invariant names so downstream observability sees indeterminate
+  // worktrees explicitly rather than as silent successes. Reserved values
+  // not yet emitted: `'reset-keep-blocked'` requires the producer to attempt
+  // `git reset --keep` before falling back; `'unexpected-mid-merge-drift'`
+  // requires a post-merge drift check. The current producer in
+  // `pure/execute-merge.ts` uses `git reset --hard` and emits `'reset-failed'`
+  // when the reset itself exits non-zero. Tracking ticket: see INV-14 in
+  // `.exarchos/invariants.md` for the full primitive-ordering contract.
+  recoveryError: z
+    .enum(['reset-keep-blocked', 'reset-failed', 'unexpected-mid-merge-drift'])
+    .optional(),
+});
+
+/**
+ * merge.completed — terminal lifecycle event emitted immediately after a
+ * successful `merge.executed`. Folded by the `merge-orchestrator@v1`
+ * projection (#1304) as the transition into the `completed` phase, which is
+ * the projection's terminal state.
+ *
+ * Distinct from `merge.executed` (which records the side effect — the actual
+ * merge against the target branch) so the projection can model the two
+ * states separately: `executed` ("the merge happened") vs `completed`
+ * ("the orchestrator has formally terminated this lifecycle"). The
+ * separation matches INV-10's `<surface>.executing_started` + paired
+ * terminal event pattern.
+ *
+ * In the current (preview.2) producer the two events are emitted adjacent
+ * in `handleExecuteMerge`; future work may interpose post-merge
+ * verification between them, at which point the `executed → completed`
+ * transition gains operational meaning.
+ */
+export const MergeCompletedData = z.object({
+  taskId: z
+    .string()
+    .optional()
+    .describe(
+      'Originating task id (matches the worktree task.completed.taskId)',
+    ),
+  sourceBranch: z.string().min(1),
+  targetBranch: z.string().min(1),
+  featureId: z
+    .string()
+    .optional()
+    .describe('Feature stream id; useful for cross-stream observability'),
+  /** Resulting commit sha on the target branch (carried forward from `merge.executed`). */
+  mergeSha: z.string().min(1),
 });
 
 // ─── Wave B Two-Event Split Schemas (#1342) ──────────────────────────────────
@@ -2101,6 +2159,7 @@ export const EVENT_DATA_SCHEMAS: Partial<Record<EventType, z.ZodSchema>> = {
   'merge.requested': MergeRequestedData,
   'merge.executed': MergeExecutedData,
   'merge.rollback': MergeRollbackData,
+  'merge.completed': MergeCompletedData,
 
   // Command resolver (#1199 T15) — audit trail for runtime resolver decisions.
   'command.resolved': CommandResolvedEventSchema,
@@ -2227,6 +2286,7 @@ export type MergePreflight = z.infer<typeof MergePreflightData>;
 export type MergeRequested = z.infer<typeof MergeRequestedData>;
 export type MergeExecuted = z.infer<typeof MergeExecutedData>;
 export type MergeRollback = z.infer<typeof MergeRollbackData>;
+export type MergeCompleted = z.infer<typeof MergeCompletedData>;
 export type HsmDeprecatedActionInvoked = z.infer<typeof HsmDeprecatedActionInvokedData>;
 export type SpecLegacyCapabilitiesArray = z.infer<typeof SpecLegacyCapabilitiesArrayData>;
 export type PhaseContractMissing = z.infer<typeof PhaseContractMissingData>;
@@ -2346,6 +2406,7 @@ export type EventDataMap = {
   'merge.requested': MergeRequested;
   'merge.executed': MergeExecuted;
   'merge.rollback': MergeRollback;
+  'merge.completed': MergeCompleted;
   'command.resolved': CommandResolvedEvent;
   'hsm.deprecated_action_invoked': HsmDeprecatedActionInvoked;
   'spec.legacy_capabilities_array': SpecLegacyCapabilitiesArray;

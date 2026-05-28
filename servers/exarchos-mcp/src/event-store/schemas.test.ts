@@ -532,7 +532,11 @@ describe('EventTypes', () => {
     //   (invariants-catalog-wizard P2 — invariant-authoring lifecycle
     //   emitted by the `invariants_add` composite handler; see
     //   `orchestrate/invariants/add.ts`).
-    expect(EventTypes).toHaveLength(118);
+    // Bumped 118 → 119: merge.completed (#1304 INV-10 terminal marker —
+    //   emitted by `handleExecuteMerge` adjacent to `merge.executed`;
+    //   folded by `merge-orchestrator@v1` as the transition into the
+    //   `completed` terminal phase).
+    expect(EventTypes).toHaveLength(119);
   });
 
   it('EventTypes_IncludesElicitation', () => {
