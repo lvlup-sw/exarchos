@@ -13,6 +13,14 @@ on:
       - 'servers/exarchos-mcp/src/evals/**'
       - '.github/workflows/eval-gate.yml'
 
+# Build native modules from source rather than fetching prebuilt binaries from
+# GitHub Releases via `prebuild-install`, whose CDN fetch wedged `npm ci` on the
+# hosted runners until the 15-minute job timeout (see RCA
+# docs/rca/2026-05-30-state-source-integrity.md). ~48s for better-sqlite3, but
+# no dependency on that download path.
+env:
+  npm_config_build_from_source: 'true'
+
 jobs:
   eval-regression:
     name: Eval Regression Check

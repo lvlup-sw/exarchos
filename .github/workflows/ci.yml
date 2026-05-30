@@ -10,6 +10,18 @@ permissions:
   contents: read
   pull-requests: read
 
+# Build native modules (better-sqlite3, bufferutil, utf-8-validate) from source
+# instead of downloading prebuilt binaries via `prebuild-install`. Those
+# prebuilds come from GitHub Releases (objects.githubusercontent.com), whose
+# fetch wedged on the hosted runners — `npm ci` hung silently after the
+# `prebuild-install` warning until the job timeout, on every retry. Source
+# builds use only the tarball already in the npm cache + the runner's toolchain
+# (~48s for better-sqlite3), so the install no longer depends on that CDN.
+# No-op for pure-JS deps, for the root install (no gyp natives), and for the
+# `--omit=dev` binary-matrix jobs. See RCA docs/rca/2026-05-30-state-source-integrity.md.
+env:
+  npm_config_build_from_source: 'true'
+
 jobs:
   changes:
     name: Detect Changes
