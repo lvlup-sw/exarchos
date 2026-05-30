@@ -337,8 +337,12 @@ class SnapshotCorruptError extends Error {
  * featureId, the handler returns `reducer.initial` with `projectionSequence:
  * 0` and `success: true`. An empty stream is a legal state (the feature has
  * not been started yet) and returning initial keeps this tool usable as a
- * cold probe without callers wrapping it in try/catch. Downstream T032/T043
- * layer on event emission and envelope affordances.
+ * cold probe without callers wrapping it in try/catch. The probe is
+ * side-effect-free: NO `workflow.rehydrated` event is emitted for an empty
+ * stream (CB-2 — emitting one would materialize a phantom workflow), and the
+ * envelope carries `_meta.workflowExists: false` so callers can distinguish
+ * "never existed" from "tracked but empty" without reading the filesystem.
+ * Downstream T032/T043 layer on event emission and envelope affordances.
  */
 export async function handleRehydrate(
   args: RehydrateArgs,
@@ -574,6 +578,17 @@ export async function handleRehydrate(
     phasePlaybookComposed: phasePlaybookPresent,
   };
 
+  // CB-2 (RCA 2026-05-30-state-source-integrity) — a cold probe of a
+  // never-`init`'d feature (no snapshot AND no events) must be side-effect-
+  // free. Emitting `workflow.rehydrated` here would materialize a phantom
+  // stream — a lone audit event with no `workflow.started`, no
+  // `workflow_state` / `streams` row — which pollutes the store and later
+  // surfaces as a phantom workflow in the pipeline view. The documented
+  // cold-probe contract (success:true + reducer.initial) is preserved; only
+  // the emission is suppressed, and `_meta.workflowExists` (below) carries the
+  // existence signal so callers never have to infer existence from disk.
+  const streamIsEmpty = snapshot === undefined && tailEvents.length === 0;
+
   // The observability emission must NOT turn a successful hydrate into a
   // failed call. If the event store is unhealthy at write time (sidecar
   // unwritable, sequence collision, transient IO), we've still produced
@@ -582,27 +597,29 @@ export async function handleRehydrate(
   // failure with enough context for oncall and continue. (CodeRabbit on
   // PR #1178: workflow.rehydrated emission could mask a successful
   // read.)
-  try {
-    // #1325 — route through buildValidatedEvent for defense-in-depth
-    // Zod validation. `featureId` is the workflow-stream identifier;
-    // the audit event correlates back to it.
-    const validatedEvent = buildValidatedEvent(featureId, 1, {
-      type: 'workflow.rehydrated',
-      correlationId: featureId,
-      source: 'workflow',
-      data: rehydratedData,
-    });
-    await eventStore.appendValidated(featureId, validatedEvent);
-  } catch (err) {
-    workflowLogger.warn(
-      {
-        featureId,
-        err: err instanceof Error ? err.message : String(err),
-        projectionSequence: document.projectionSequence,
-        deliveryPath,
-      },
-      'workflow.rehydrated event append failed — read succeeds, audit gap',
-    );
+  if (!streamIsEmpty) {
+    try {
+      // #1325 — route through buildValidatedEvent for defense-in-depth
+      // Zod validation. `featureId` is the workflow-stream identifier;
+      // the audit event correlates back to it.
+      const validatedEvent = buildValidatedEvent(featureId, 1, {
+        type: 'workflow.rehydrated',
+        correlationId: featureId,
+        source: 'workflow',
+        data: rehydratedData,
+      });
+      await eventStore.appendValidated(featureId, validatedEvent);
+    } catch (err) {
+      workflowLogger.warn(
+        {
+          featureId,
+          err: err instanceof Error ? err.message : String(err),
+          projectionSequence: document.projectionSequence,
+          deliveryPath,
+        },
+        'workflow.rehydrated event append failed — read succeeds, audit gap',
+      );
+    }
   }
 
   // #1359 / PR4 T14 + T15 — surface `projectionAsOf` and
@@ -616,14 +633,20 @@ export async function handleRehydrate(
   // and rejects unknown sibling keys (additional top-level fields would
   // require a schema bump; envelope metadata is the existing surface for
   // diagnostic side-channels — see ToolResult._meta in format.ts).
-  let meta: Record<string, unknown> | undefined;
+  //
+  // `_meta.workflowExists` (CB-2) gives callers an unambiguous existence
+  // signal — `true` when the stream had a snapshot or any events, `false` for
+  // a cold probe of a never-started feature — so agents disambiguate "tracked
+  // but empty" from "never existed" without inspecting filesystem
+  // `.state.json` presence (see RCA 2026-05-30-state-source-integrity).
+  const meta: Record<string, unknown> = { workflowExists: !streamIsEmpty };
   if (projectionAsOf !== undefined) {
-    meta = { projectionAsOf };
+    meta.projectionAsOf = projectionAsOf;
     const asOfMs = Date.parse(projectionAsOf);
     if (Number.isFinite(asOfMs)) {
       const lag = Date.now() - asOfMs;
       if (lag > PROJECTION_LAG_THRESHOLD_MS) {
-        meta = { ...meta, projectionLag: lag };
+        meta.projectionLag = lag;
       }
     }
   }
@@ -631,6 +654,6 @@ export async function handleRehydrate(
   return {
     success: true,
     data: document,
-    ...(meta ? { _meta: meta } : {}),
+    _meta: meta,
   };
 }

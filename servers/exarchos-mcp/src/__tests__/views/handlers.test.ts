@@ -629,19 +629,47 @@ describe('handleViewPipeline', () => {
   // backend's `listStreams()`, which only knows about IDs that already
   // passed `validateStreamId` on write — the malformed-filename code
   // path is unreachable from the public API.
-  it.skip('should return VIEW_ERROR when discovered stream has invalid ID', async () => {
-    // Intentionally skipped — see Phase 3 collapse note above.
-    await fs.writeFile(
-      path.join(tempDir, 'INVALID_STREAM.events.jsonl'),
-      JSON.stringify({ type: 'workflow.started', sequence: 1, streamId: 'INVALID_STREAM', timestamp: new Date().toISOString(), data: {} }) + '\n',
+  it('excludes discovered streams with non-snapshot-safe IDs instead of crashing', async () => {
+    // RCA 2026-05-30-state-source-integrity (supersedes the old "should return
+    // VIEW_ERROR" expectation, which was intentionally skipped at the Phase 3
+    // collapse). The event store legitimately contains streams the write-side
+    // `validateStreamId` accepts but the projection path cannot snapshot:
+    // `__`-prefixed sentinels and two-segment slash ids (MCP elicitation flows,
+    // path-derived featureIds). #1434 only skipped the `__` case at the
+    // materializer; the slash classes still crashed the pipeline with
+    // `VIEW_ERROR: Invalid streamId`. The fix filters them at discovery, so the
+    // view returns success and simply omits the unprojectable streams.
+    await populateWorkflow('wf-001'); // a normal, projectable workflow
+
+    for (const streamId of [
+      'elicitation/0e24a37e-0043-46cc-9ae7-bdfa5bd8d2be',
+      'workflow-state/meai-10-5',
+      'workflow/preview-4-substrate-realization',
+      'invariants/user',
+      '__migration__',
+    ]) {
+      await store.append(streamId, {
+        type: 'workflow.started',
+        data: { featureId: streamId, workflowType: 'feature' },
+      });
+    }
+
+    const result = await handleViewPipeline(
+      { includeCompleted: true },
+      tempDir,
+      store,
     );
 
-    const result = await handleViewPipeline({}, tempDir, store);
-
-    expect(result.success).toBe(false);
-    expect(result.error).toBeDefined();
-    expect(result.error!.code).toBe('VIEW_ERROR');
-    expect(result.error!.message).toBeTruthy();
+    expect(result.success).toBe(true);
+    // Pin the absence of the historical crash signature explicitly.
+    if (!result.success) {
+      expect(result.error?.message).not.toContain('Invalid streamId');
+    }
+    const data = result.data as Record<string, unknown>;
+    const workflows = data.workflows as Array<Record<string, unknown>>;
+    // Only the snapshot-safe stream is materialized; the rest are excluded.
+    expect(workflows).toHaveLength(1);
+    expect(workflows[0]!.featureId).toBe('auth-feature');
   });
 
   it('handleViewPipeline_ExcludesTerminalPhases_ByDefault', async () => {

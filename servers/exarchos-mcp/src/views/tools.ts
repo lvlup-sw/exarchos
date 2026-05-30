@@ -8,7 +8,7 @@ import { TERMINAL_PHASES } from '../workflow/terminal-phases.js';
 import { isFeatureStream } from '../core/infra-streams.js';
 import { getDispatchContext } from '../dispatch/dispatch-context.js';
 import { ViewMaterializer } from './materializer.js';
-import { SnapshotStore } from './snapshot-store.js';
+import { SnapshotStore, isSnapshotSafeId } from './snapshot-store.js';
 import {
   workflowStatusProjection,
   WORKFLOW_STATUS_VIEW,
@@ -521,7 +521,20 @@ export async function handleViewPipeline(
     // streams (exarchos-init, exarchos-doctor, telemetry) are excluded — they
     // never emit workflow.started so they would surface as phantom rows with
     // empty featureId/workflowType/phase (#1187).
-    const streamIds = (await discoverStreams(stateDir, store)).filter(isFeatureStream);
+    //
+    // Enumeration tolerance (RCA 2026-05-30-state-source-integrity): the event
+    // store legitimately contains streams whose ids are not snapshot-safe —
+    // `__`-prefixed sentinels (`__migration__`) and two-segment slash ids
+    // (`elicitation/<uuid>`, `workflow-state/<id>`) that the write-side
+    // `validateStreamId` accepts but `SnapshotStore.getSnapshotPath` rejects.
+    // Exclude them at discovery so iterating the store never forwards an
+    // unprojectable id into `materialize` and crashes the view. Explicit
+    // single-id queries are unaffected — they still validate their `workflowId`
+    // argument via the `materialize`/`getSnapshotPath` throw (closing #1434
+    // generically: that fix only skipped `__`-prefixed ids).
+    const streamIds = (await discoverStreams(stateDir, store))
+      .filter(isFeatureStream)
+      .filter(isSnapshotSafeId);
     const allWorkflows: PipelineViewState[] = [];
 
     for (const streamId of streamIds) {

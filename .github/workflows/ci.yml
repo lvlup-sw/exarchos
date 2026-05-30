@@ -10,6 +10,18 @@ permissions:
   contents: read
   pull-requests: read
 
+# Build native modules (better-sqlite3, bufferutil, utf-8-validate) from source
+# instead of downloading prebuilt binaries via `prebuild-install`. Those
+# prebuilds come from GitHub Releases (objects.githubusercontent.com), whose
+# fetch wedged on the hosted runners — `npm ci` hung silently after the
+# `prebuild-install` warning until the job timeout, on every retry. Source
+# builds use only the tarball already in the npm cache + the runner's toolchain
+# (~48s for better-sqlite3), so the install no longer depends on that CDN.
+# No-op for pure-JS deps, for the root install (no gyp natives), and for the
+# `--omit=dev` binary-matrix jobs. See RCA docs/rca/2026-05-30-state-source-integrity.md.
+env:
+  npm_config_build_from_source: 'true'
+
 jobs:
   changes:
     name: Detect Changes
@@ -57,17 +69,20 @@ jobs:
         with:
           node-version: '24'
           cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            servers/exarchos-mcp/package-lock.json
 
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.3.13
 
-      - run: npm ci
+      - run: bash "$GITHUB_WORKSPACE/scripts/npm-ci-retry.sh"
       # The MCP server's deps must be present so `bun build --compile`
       # can resolve `pino`, `commander`, `@modelcontextprotocol/sdk`,
       # `zod`, and `yaml` when bundling `servers/exarchos-mcp/src/index.ts`
       # (exercised by `scripts/build-binary.test.ts`).
-      - run: npm ci
+      - run: bash "$GITHUB_WORKSPACE/scripts/npm-ci-retry.sh"
         working-directory: servers/exarchos-mcp
       - run: npm run typecheck
       - run: npm run test:run
@@ -104,7 +119,9 @@ jobs:
         with:
           node-version: '24'
           cache: npm
-          cache-dependency-path: servers/exarchos-mcp/package-lock.json
+          cache-dependency-path: |
+            package-lock.json
+            servers/exarchos-mcp/package-lock.json
 
       # `compiled-binary-mcp.test.ts` shells out to
       # `bun run scripts/build-binary.ts` from the repo root — bun must
@@ -120,9 +137,9 @@ jobs:
       # package.json but otherwise absent on the runner.
       - name: Install root dependencies
         working-directory: .
-        run: npm ci
+        run: bash "$GITHUB_WORKSPACE/scripts/npm-ci-retry.sh"
 
-      - run: npm ci
+      - run: bash "$GITHUB_WORKSPACE/scripts/npm-ci-retry.sh"
       - run: npx tsc --noEmit
       - run: npm run test:run
 
@@ -172,7 +189,9 @@ jobs:
         with:
           node-version: '24'
           cache: npm
-          cache-dependency-path: servers/exarchos-mcp/package-lock.json
+          cache-dependency-path: |
+            package-lock.json
+            servers/exarchos-mcp/package-lock.json
 
       # CodeRabbit/CI #1213: install root deps so `bun build --compile`
       # can resolve modules imported via the cross-tree bridge — e.g.
@@ -183,14 +202,18 @@ jobs:
       # `npm ci`. The bundler then errored with "Could not resolve
       # 'js-yaml'" / "Could not resolve '@inquirer/prompts'".
       - name: Install root dependencies
-        run: npm ci
+        run: bash "$GITHUB_WORKSPACE/scripts/npm-ci-retry.sh"
 
-      # Install MCP-server runtime deps so `bun build --compile` can
-      # resolve `pino`, `commander`, `@modelcontextprotocol/sdk`,
-      # `zod`, and `yaml` when bundling `servers/exarchos-mcp/src/index.ts`.
+      # Install MCP-server *runtime* deps so `bun build --compile` can resolve
+      # `pino`, `commander`, `@modelcontextprotocol/sdk`, `zod`, and `yaml`
+      # when bundling `servers/exarchos-mcp/src/index.ts`. `--omit=dev` skips
+      # the heavy dev-only tree (notably `promptfoo`, an eval-only library, and
+      # `better-sqlite3`, used only by the Node test shim) — the compiled binary
+      # embeds `bun:sqlite`, so none of it is needed here. Big install-time win
+      # + far less exposure to the npm-ci stall (RCA 2026-05-30-state-source-integrity).
       - name: Install MCP server dependencies
         working-directory: servers/exarchos-mcp
-        run: npm ci
+        run: bash "$GITHUB_WORKSPACE/scripts/npm-ci-retry.sh" --omit=dev
 
       - name: Build binary for ${{ matrix.target }}
         run: bun run scripts/build-binary.ts --target ${{ matrix.target }}
@@ -229,9 +252,12 @@ jobs:
         with:
           node-version: '24'
           cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            servers/exarchos-mcp/package-lock.json
 
       - name: Install dependencies
-        run: npm ci
+        run: bash "$GITHUB_WORKSPACE/scripts/npm-ci-retry.sh"
 
       - name: Run validate-no-legacy rollup
         run: bash scripts/validate-no-legacy.sh
@@ -264,6 +290,26 @@ jobs:
       - name: BEGIN IMMEDIATE substrate-only (#1342 P1.E)
         run: bash scripts/check-begin-immediate-substrate.sh servers/exarchos-mcp/src
 
+      - name: npm-ci-retry helper tests
+        run: bash scripts/npm-ci-retry.test.sh
+
+      # TEMP diagnostic (RCA 2026-05-30-state-source-integrity): the MCP `npm ci`
+      # wedges fetching native artifacts. Probe each host with hard timeouts to
+      # pinpoint which egress hangs from the runner. Non-blocking.
+      - name: CDN connectivity probe
+        run: |
+          set +e
+          for url in \
+            https://registry.npmjs.org/ \
+            https://objects.githubusercontent.com/ \
+            https://github.com/WiseLibs/better-sqlite3/releases/ \
+            https://nodejs.org/download/release/v24.12.0/SHASUMS256.txt ; do
+            echo "--- $url ---"
+            curl -sS -o /dev/null -w "  http=%{http_code} connect=%{time_connect}s total=%{time_total}s\n" \
+              --connect-timeout 15 --max-time 60 "$url" || echo "  FAILED/timeout: $url"
+          done
+          echo "probe complete"
+
   # ─────────────────────────────────────────────────────────────────────
   # e2e-process
   # ─────────────────────────────────────────────────────────────────────
@@ -295,6 +341,9 @@ jobs:
         with:
           node-version: '24'
           cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            servers/exarchos-mcp/package-lock.json
 
       - uses: oven-sh/setup-bun@v2
         with:
@@ -304,11 +353,11 @@ jobs:
       # (pino, commander, @modelcontextprotocol/sdk, zod, yaml) must
       # both be installed before bun-compiling the binary.
       - name: Install root dependencies
-        run: npm ci
+        run: bash "$GITHUB_WORKSPACE/scripts/npm-ci-retry.sh"
 
       - name: Install MCP server dependencies
         working-directory: servers/exarchos-mcp
-        run: npm ci
+        run: bash "$GITHUB_WORKSPACE/scripts/npm-ci-retry.sh"
 
       - name: Build host binary (linux-x64)
         run: bun run scripts/build-binary.ts --target linux-x64
@@ -350,6 +399,9 @@ jobs:
         with:
           node-version: '24'
           cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            servers/exarchos-mcp/package-lock.json
 
       - uses: oven-sh/setup-bun@v2
         with:
@@ -359,11 +411,11 @@ jobs:
       # target. MCP-server deps own `better-sqlite3` (the shim's runtime
       # dependency) plus the handlers exercised by the outcome tests.
       - name: Install root dependencies
-        run: npm ci
+        run: bash "$GITHUB_WORKSPACE/scripts/npm-ci-retry.sh"
 
       - name: Install MCP server dependencies
         working-directory: servers/exarchos-mcp
-        run: npm ci
+        run: bash "$GITHUB_WORKSPACE/scripts/npm-ci-retry.sh"
 
       # The install-skills outcome test invokes the platform binary at
       # `dist/bin/exarchos-<os>-<arch>`. Without this build step the test
