@@ -278,6 +278,9 @@ jobs:
       - name: BEGIN IMMEDIATE substrate-only (#1342 P1.E)
         run: bash scripts/check-begin-immediate-substrate.sh servers/exarchos-mcp/src
 
+      - name: npm-ci-retry helper tests
+        run: bash scripts/npm-ci-retry.test.sh
+
   # ─────────────────────────────────────────────────────────────────────
   # e2e-process
   # ─────────────────────────────────────────────────────────────────────
