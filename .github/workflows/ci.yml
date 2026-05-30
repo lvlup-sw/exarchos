@@ -293,6 +293,23 @@ jobs:
       - name: npm-ci-retry helper tests
         run: bash scripts/npm-ci-retry.test.sh
 
+      # TEMP diagnostic (RCA 2026-05-30-state-source-integrity): the MCP `npm ci`
+      # wedges fetching native artifacts. Probe each host with hard timeouts to
+      # pinpoint which egress hangs from the runner. Non-blocking.
+      - name: CDN connectivity probe
+        run: |
+          set +e
+          for url in \
+            https://registry.npmjs.org/ \
+            https://objects.githubusercontent.com/ \
+            https://github.com/WiseLibs/better-sqlite3/releases/ \
+            https://nodejs.org/download/release/v24.12.0/SHASUMS256.txt ; do
+            echo "--- $url ---"
+            curl -sS -o /dev/null -w "  http=%{http_code} connect=%{time_connect}s total=%{time_total}s\n" \
+              --connect-timeout 15 --max-time 60 "$url" || echo "  FAILED/timeout: $url"
+          done
+          echo "probe complete"
+
   # ─────────────────────────────────────────────────────────────────────
   # e2e-process
   # ─────────────────────────────────────────────────────────────────────
