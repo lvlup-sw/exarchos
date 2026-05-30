@@ -238,6 +238,73 @@ describe('mergeOrchestratorReducer.apply — phase transitions (Wave 2B.2)', () 
     expect(next.projectionSequence).toBe(2);
   });
 
+  it('Apply_MergeRollback_FoldsRecoveryErrorDiscriminator', () => {
+    // INV-14: indeterminate worktree must surface explicitly via the closed
+    // `recoveryError` enum, not as a silent success.
+
+    // GIVEN a state in `executed` and a rollback that failed at the substrate.
+    const state: MergeOrchestratorState = mergeOrchestratorReducer.apply(
+      mergeOrchestratorReducer.initial,
+      makeEvent(
+        'merge.executed',
+        {
+          taskId: 'task-1',
+          sourceBranch: 'feature/x',
+          targetBranch: 'main',
+          mergeSha: 'abc1234',
+          rollbackSha: 'def5678',
+        },
+        1,
+      ),
+    );
+    // WHEN we fold a merge.rollback event carrying the INV-14 discriminator.
+    const event = makeEvent(
+      'merge.rollback',
+      {
+        taskId: 'task-1',
+        sourceBranch: 'feature/x',
+        targetBranch: 'main',
+        rollbackSha: 'def5678',
+        reason: 'verification-failed',
+        rollbackError: 'git reset --hard def5678 exited 128',
+        recoveryError: 'reset-failed',
+      },
+      2,
+    );
+    const next = mergeOrchestratorReducer.apply(state, event);
+    // THEN the recoveryError enum value lands on the projection.
+    expect(next.phase).toBe('recovering');
+    expect(next.recovery?.recoveryError).toBe('reset-failed');
+    expect(next.recovery?.reason).toBe('verification-failed');
+    expect(next.recovery?.error).toBe('git reset --hard def5678 exited 128');
+  });
+
+  it('Apply_MergeRollback_RejectsUnrecognisedRecoveryError', () => {
+    // GIVEN a rollback event carrying a recoveryError outside the closed enum.
+    const event = makeEvent(
+      'merge.rollback',
+      {
+        taskId: 'task-1',
+        sourceBranch: 'feature/x',
+        targetBranch: 'main',
+        rollbackSha: 'def5678',
+        reason: 'merge-failed',
+        recoveryError: 'some-future-value-not-in-enum',
+      },
+      1,
+    );
+    // WHEN we fold it.
+    const next = mergeOrchestratorReducer.apply(
+      mergeOrchestratorReducer.initial,
+      event,
+    );
+    // THEN the projection narrows the unknown value away — never carries a
+    // recoveryError the enum doesn't sanction.
+    expect(next.phase).toBe('recovering');
+    expect(next.recovery?.recoveryError).toBeUndefined();
+    expect(next.recovery?.reason).toBe('merge-failed');
+  });
+
   it('Apply_MergeRollback_AnyPhaseTransitionsToRecovering', () => {
     // GIVEN state in `requested` (rollback before the side effect actually fires).
     let state: MergeOrchestratorState = mergeOrchestratorReducer.apply(

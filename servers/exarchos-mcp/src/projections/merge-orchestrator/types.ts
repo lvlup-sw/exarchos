@@ -118,16 +118,44 @@ export interface MergeActionMetadata {
 /**
  * Recovery context captured from `merge.rollback` (or post-#1306 `merge.recovered`).
  *
- * `reason` is a closed enum on the event-store schema (`merge-failed` /
- * `verification-failed` / `timeout`); we widen to `string` here so that the
- * #1306 rename can extend the enum without re-shaping the projection's state
- * type. `error` is the rollback-side failure detail when `git reset --hard`
- * itself fell over (presence signals an indeterminate worktree).
+ * Three fields with distinct roles:
+ *
+ *   - `reason` — *why the merge failed* (closed enum on the event-store
+ *     schema: `'merge-failed' | 'verification-failed' | 'timeout'`).
+ *     Widened to `string` here so the #1306 rename can extend the enum
+ *     without re-shaping the projection state type.
+ *   - `recoveryError` — INV-14 discriminator on *what happened during
+ *     recovery*. A closed enum so consumers can branch on the three
+ *     indeterminate-worktree outcomes the invariant names without parsing
+ *     prose. Absent on a clean recovery.
+ *   - `error` — free-form recovery-side detail (advisory; carry the message
+ *     verbatim from the substrate for human triage). Presence signals an
+ *     indeterminate worktree; `recoveryError` says which kind.
+ *
+ * The `recoveryError` enum values map to INV-14's three cases:
+ *
+ *   - `'reset-keep-blocked'`     — `git reset --keep` refused (would discard
+ *                                   uncommitted work). Recoverable: the
+ *                                   operator inspects and decides.
+ *   - `'reset-failed'`           — the substrate undo itself failed
+ *                                   (non-zero exit from the reset).
+ *   - `'unexpected-mid-merge-drift'` — a post-merge drift check observed an
+ *                                   inconsistency the recovery primitive
+ *                                   cannot resolve.
+ *
+ * Reserved values not yet emitted by the current producer; see the schema
+ * comment on `MergeRollbackData.recoveryError` in `event-store/schemas.ts`
+ * for the producer-coverage caveat.
  */
 export interface MergeRecoveryContext {
   /** Cause of the rollback (e.g., `'merge-failed'`, `'verification-failed'`). */
   readonly reason?: string;
-  /** Rollback-side error detail when `git reset --hard` itself failed. */
+  /** INV-14 discriminator on the recovery outcome — see interface doc. */
+  readonly recoveryError?:
+    | 'reset-keep-blocked'
+    | 'reset-failed'
+    | 'unexpected-mid-merge-drift';
+  /** Free-form recovery-side error detail (advisory; triage only). */
   readonly error?: string;
 }
 

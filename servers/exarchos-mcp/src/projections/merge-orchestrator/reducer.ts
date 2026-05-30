@@ -81,6 +81,25 @@ function extractStrategy(
 }
 
 /**
+ * Narrowing reader for the INV-14 `recoveryError` discriminator on
+ * `merge.rollback`. Mirrors `extractStrategy` — unrecognised / missing
+ * values yield `undefined` so the projection never carries a `recoveryError`
+ * the enum doesn't sanction.
+ */
+function extractRecoveryError(
+  data: WorkflowEvent['data'],
+): MergeRecoveryContext['recoveryError'] | undefined {
+  const raw = extractString(data, 'recoveryError');
+  if (
+    raw === 'reset-keep-blocked' ||
+    raw === 'reset-failed' ||
+    raw === 'unexpected-mid-merge-drift'
+  )
+    return raw;
+  return undefined;
+}
+
+/**
  * Flatten the preflight failure surface into a single operator-facing string.
  *
  * The `merge.preflight` event carries `failureReasons: string[]` (per
@@ -186,8 +205,10 @@ function applyMergeRollback(
 ): MergeOrchestratorState {
   const reason = extractString(event.data, 'reason');
   const error = extractString(event.data, 'rollbackError');
+  const recoveryError = extractRecoveryError(event.data);
   const recovery: MergeRecoveryContext = {
     ...(reason !== undefined ? { reason } : {}),
+    ...(recoveryError !== undefined ? { recoveryError } : {}),
     ...(error !== undefined ? { error } : {}),
   };
   return {

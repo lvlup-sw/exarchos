@@ -18,6 +18,7 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { EventStore } from '../event-store/store.js';
+import { SequenceConflictError } from '../event-store/store.js';
 import type { DispatchContext } from '../core/dispatch.js';
 
 import { handleExecuteMerge } from './execute-merge.js';
@@ -48,7 +49,8 @@ function makeMockEventStore(): EventStore {
       timestamp: new Date().toISOString(),
     }),
     // #1303: handler reads stream tail to compute expectedSequence before
-    // appending merge.executed / merge.rollback. Empty array → expectedSequence: 0.
+    // appending merge.executed / merge.completed / merge.rollback. Empty
+    // array → expectedSequence: 0.
     query: vi.fn().mockResolvedValue([]),
     getAppender: vi.fn().mockReturnValue({ decide }),
   } as unknown as EventStore;
@@ -131,9 +133,11 @@ describe('handleExecuteMerge (T15)', () => {
     );
 
     expect(result.success).toBe(true);
-    // Direct stream append — NOT wrapped in gate.executed.
-    expect(ctx.eventStore.append).toHaveBeenCalledTimes(1);
-    expect(ctx.eventStore.append).toHaveBeenCalledWith(
+    // Two appends: `merge.executed` (side-effect record) and `merge.completed`
+    // (terminal lifecycle marker). Distinct events per #1304 INV-10 alignment.
+    expect(ctx.eventStore.append).toHaveBeenCalledTimes(2);
+    expect(ctx.eventStore.append).toHaveBeenNthCalledWith(
+      1,
       'feat-x',
       {
         type: 'merge.executed',
@@ -151,6 +155,124 @@ describe('handleExecuteMerge (T15)', () => {
         expectedSequence: 0,
         idempotencyKey: 'feat-x:merge_orchestrate:T11:merge.executed',
       },
+    );
+    expect(ctx.eventStore.append).toHaveBeenNthCalledWith(
+      2,
+      'feat-x',
+      {
+        type: 'merge.completed',
+        data: {
+          taskId: 'T11',
+          sourceBranch: 'feat/x',
+          targetBranch: 'main',
+          featureId: 'feat-x',
+          mergeSha: MERGE_SHA,
+        },
+      },
+      {
+        // CAS against the LIVE stream tail (not a static pin to the
+        // merge.executed append result). The mock `query` returns [] for
+        // every tail read, so the high-water mark is 0 here. The live-tail
+        // read is what makes the terminal marker self-heal on retry — see
+        // the `...CasPinsToLiveTailNotFrozenExecutedSequence` regression
+        // test (Sentry r3315312847).
+        expectedSequence: 0,
+        idempotencyKey: 'feat-x:merge_orchestrate:T11:merge.completed',
+      },
+    );
+  });
+
+  it('handleExecuteMerge_MergeCompleted_CasPinsToLiveTailNotFrozenExecutedSequence', async () => {
+    // Regression — Sentry r3315312847 (PR #1492). The merge.completed CAS
+    // MUST read the live stream tail, NOT a static pin to the merge.executed
+    // sequence. The old pin stranded the workflow permanently in `executing`:
+    // any unrelated event interleaving on the shared featureId stream advanced
+    // the tail past the pin, and a retry re-derived the SAME executed sequence
+    // (idempotency-key cache-hit) so the pinned CAS reproduced the conflict
+    // forever with no recovery. A live-tail CAS self-heals on retry.
+    const ctx = makeMockCtx();
+    // First tail read (before merge.executed) → empty. By the second read
+    // (before merge.completed) a concurrent writer has advanced the tail to
+    // seq 7. merge.executed still returns its own seq 1 from the append mock —
+    // a frozen pin would carry that stale 1 into the merge.completed CAS.
+    (ctx.eventStore.query as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ sequence: 7 }]);
+    const vcsMerge = vi.fn().mockResolvedValue({ mergeSha: MERGE_SHA });
+    const persistState = vi.fn().mockResolvedValue(undefined);
+
+    await handleExecuteMerge(
+      {
+        featureId: 'feat-x',
+        sourceBranch: 'feat/x',
+        targetBranch: 'main',
+        taskId: 'T11',
+        strategy: 'squash',
+        vcsMerge,
+        persistState,
+        gitExec: makeGitExec(),
+      },
+      ctx,
+    );
+
+    // merge.completed (2nd append) CAS-pins to the LIVE tail (7), not the
+    // merge.executed append's returned sequence (1).
+    expect(ctx.eventStore.append).toHaveBeenNthCalledWith(
+      2,
+      'feat-x',
+      expect.objectContaining({ type: 'merge.completed' }),
+      expect.objectContaining({ expectedSequence: 7 }),
+    );
+  });
+
+  it('handleExecuteMerge_MergeCompleted_RetriesInPlaceOnTransientSequenceConflict', async () => {
+    // Regression — Sentry r3329404869 (PR #1492). A SequenceConflictError on
+    // the merge.completed append must self-heal IN PLACE. Recovery cannot be
+    // delegated to the caller: `handleMergeOrchestrate` runs the executor
+    // OUTSIDE its retry boundary so a re-invocation would re-fire the
+    // non-idempotent `vcsMerge`. This invocation already won the merge.executed
+    // CAS, so it owns completion and retries just the terminal-marker append.
+    const ctx = makeMockCtx();
+    let completedAttempts = 0;
+    (ctx.eventStore.append as ReturnType<typeof vi.fn>).mockImplementation(
+      async (_stream: string, event: { type: string }) => {
+        if (event.type === 'merge.completed') {
+          completedAttempts += 1;
+          // First attempt loses the sequence race; the in-place retry lands.
+          if (completedAttempts === 1) {
+            throw new SequenceConflictError(0, 5);
+          }
+        }
+        return { sequence: 1, type: event.type, timestamp: '' };
+      },
+    );
+    const vcsMerge = vi.fn().mockResolvedValue({ mergeSha: MERGE_SHA });
+    const persistState = vi.fn().mockResolvedValue(undefined);
+
+    const result = await handleExecuteMerge(
+      {
+        featureId: 'feat-x',
+        sourceBranch: 'feat/x',
+        targetBranch: 'main',
+        taskId: 'T11',
+        strategy: 'squash',
+        vcsMerge,
+        persistState,
+        gitExec: makeGitExec(),
+      },
+      ctx,
+    );
+
+    // Recovered: terminal phase reached despite the transient conflict.
+    expect(result.success).toBe(true);
+    // The marker append was retried (first threw, retry landed).
+    expect(completedAttempts).toBe(2);
+    // The non-idempotent git merge was NOT re-run by the retry.
+    expect(vcsMerge).toHaveBeenCalledTimes(1);
+    // Terminal state still persisted after the marker landed.
+    expect(persistState).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ phase: 'completed' }),
     );
   });
 
@@ -570,15 +692,22 @@ describe('handleExecuteMerge terminal-phase persistence (T27)', () => {
       { ...ctx, eventStore },
     );
 
-    // Event-first commit point (#1109 §1): the terminal event MUST be appended
-    // before the state file is mutated. If the event append fails, replay can
-    // still reconstruct from the event stream; if the state write fails after,
-    // a reconcile recovers the terminal phase from the recorded event.
-    // Order: persist(executing) → vcsMerge → event(merge.executed) → persist(completed)
+    // Event-first commit point (#1109 §1): both terminal events MUST be
+    // appended before the state file is mutated. If either event append
+    // fails, replay can still reconstruct from the event stream; if the
+    // state write fails after, a reconcile recovers from the events alone.
+    //
+    // Order: persist(executing) → vcsMerge → event(merge.executed) →
+    //        event(merge.completed) → persist(completed).
+    // The merge.completed terminal marker (#1304) follows merge.executed and
+    // both precede the state-file write. Ordering is what the projection fold
+    // requires; strict log adjacency is NOT enforced (the CAS reads the live
+    // tail), so an unrelated interleaved event would not break this.
     expect(callOrder).toEqual([
       'persist:executing',
       'vcsMerge',
       'event:merge.executed',
+      'event:merge.completed',
       'persist:completed',
     ]);
   });

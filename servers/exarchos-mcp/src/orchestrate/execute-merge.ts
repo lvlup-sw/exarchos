@@ -422,16 +422,19 @@ export async function handleExecuteMerge(
       tailEventsExecuted.length > 0
         ? Math.max(...tailEventsExecuted.map((e) => e.sequence))
         : 0;
-    const appendOptionsExecuted: { idempotencyKey?: string; expectedSequence: number } = {
+    // INV-8: always set an idempotency key so concurrent invocations
+    // without a `taskId` (e.g., CLI direct-invocation) dedup at the
+    // substrate's idempotency_claims row rather than racing to append.
+    // The helper falls back to a `featureId`-only key when `taskId` is
+    // absent.
+    const appendOptionsExecuted: { idempotencyKey: string; expectedSequence: number } = {
       expectedSequence: expectedSequenceExecuted,
-    };
-    if (args.taskId !== undefined) {
-      appendOptionsExecuted.idempotencyKey = buildMergeOrchestrateIdempotencyKey(
+      idempotencyKey: buildMergeOrchestrateIdempotencyKey(
         args.featureId,
         args.taskId,
         'merge.executed',
-      );
-    }
+      ),
+    };
     try {
       await ctx.eventStore.append(
         args.featureId,
@@ -465,6 +468,86 @@ export async function handleExecuteMerge(
       }
       throw err;
     }
+
+    // Terminal lifecycle marker — append `merge.completed` immediately after
+    // `merge.executed` so the projection's `completed` phase is reachable.
+    // Distinct event from `merge.executed`: the side effect record vs. the
+    // lifecycle-terminated record. Future work may interpose post-merge
+    // verification between the two. Idempotency-key suffix `:merge.completed`
+    // keeps this dedup row separate from the executed/rollback rows on the
+    // same stream.
+    //
+    // CAS against a FRESH stream-tail read — the SAME high-water-mark idiom
+    // the `merge.executed` and `merge.rollback` sites use. We deliberately do
+    // NOT pin to the `merge.executed` sequence we just observed: a static pin
+    // strands the workflow permanently in `executing` (Sentry r3315312847).
+    // The featureId stream is shared across many event types, so any unrelated
+    // concurrent append between our two writes advances the tail past the pin.
+    // Log adjacency is not a projection invariant — the reducer folds
+    // `merge.completed` whenever it appears after `merge.executed`, regardless
+    // of intervening events.
+    //
+    // RETRY IN PLACE (Sentry r3329404869). Recovery cannot be delegated to the
+    // caller: `handleMergeOrchestrate` runs the executor OUTSIDE its retry
+    // boundary on purpose, so re-invoking it would re-fire the non-idempotent
+    // `vcsMerge` side effect. But this invocation just won the `merge.executed`
+    // CAS, so it is the canonical owner of completion and must drive the stream
+    // to its terminal phase itself. `withStateRetry` (which recognizes
+    // `SequenceConflictError`) re-reads the advanced tail and re-appends on a
+    // transient race; the idempotency key makes each attempt safe — a winner's
+    // `merge.completed` returns a cache-hit rather than a duplicate, ending the
+    // loop. The git merge already happened and is NOT re-run; only the terminal
+    // marker is retried. A losing `merge.executed` invocation, by contrast,
+    // returns STATE_CONFLICT above and defers completion to the winner.
+    try {
+      await withStateRetry(async () => {
+        const tailEventsCompleted = await ctx.eventStore.query(args.featureId);
+        const expectedSequenceCompleted =
+          tailEventsCompleted.length > 0
+            ? Math.max(...tailEventsCompleted.map((e) => e.sequence))
+            : 0;
+        const appendOptionsCompleted: { idempotencyKey: string; expectedSequence: number } = {
+          expectedSequence: expectedSequenceCompleted,
+          idempotencyKey: buildMergeOrchestrateIdempotencyKey(
+            args.featureId,
+            args.taskId,
+            'merge.completed',
+          ),
+        };
+        await ctx.eventStore.append(
+          args.featureId,
+          {
+            type: 'merge.completed',
+            data: {
+              ...(args.taskId !== undefined ? { taskId: args.taskId } : {}),
+              sourceBranch: args.sourceBranch,
+              targetBranch: args.targetBranch,
+              featureId: args.featureId,
+              mergeSha: result.mergeSha,
+            },
+          },
+          appendOptionsCompleted,
+        );
+      });
+    } catch (err) {
+      // The transient sequence race did not clear within MAX_STATE_RETRIES
+      // attempts (substrate genuinely contended). `merge.executed` is already
+      // durable, so the stream still rebuilds to `executed` — it does NOT
+      // silently flip to a terminal phase — and a later re-dispatch can still
+      // complete it (the idempotency key keeps that safe). Surface a
+      // categorized STATE_CONFLICT rather than letting a raw substrate error
+      // escape — symmetric with the `merge.executed`/`merge.rollback` sites.
+      if (err instanceof SequenceConflictError) {
+        return {
+          success: false,
+          error: {
+            code: 'STATE_CONFLICT',
+            message: `merge.completed append lost sequence race after ${MAX_STATE_RETRIES} retries: expected=${err.expected} actual=${err.actual}`,
+          },
+        };
+      }
+      throw err;
+    }
   } else {
     // T16 — phase: 'rolled-back'. The pure executor already ran
     // `git reset --hard <rollbackSha>`. Surface `rollbackError` (when the
@@ -482,16 +565,17 @@ export async function handleExecuteMerge(
       tailEventsRollback.length > 0
         ? Math.max(...tailEventsRollback.map((e) => e.sequence))
         : 0;
-    const appendOptionsRollback: { idempotencyKey?: string; expectedSequence: number } = {
+    // INV-8: always set an idempotency key (helper falls back to a
+    // featureId-only shape when taskId is absent) so concurrent invocations
+    // without a taskId dedup at the substrate layer.
+    const appendOptionsRollback: { idempotencyKey: string; expectedSequence: number } = {
       expectedSequence: expectedSequenceRollback,
-    };
-    if (args.taskId !== undefined) {
-      appendOptionsRollback.idempotencyKey = buildMergeOrchestrateIdempotencyKey(
+      idempotencyKey: buildMergeOrchestrateIdempotencyKey(
         args.featureId,
         args.taskId,
         'merge.rollback',
-      );
-    }
+      ),
+    };
     try {
       await ctx.eventStore.append(
         args.featureId,
@@ -503,7 +587,18 @@ export async function handleExecuteMerge(
             targetBranch: args.targetBranch,
             rollbackSha: result.rollbackSha,
             reason: result.reason,
-            ...(result.rollbackError !== undefined ? { rollbackError: result.rollbackError } : {}),
+            // INV-14 discriminator — when the substrate undo (`git reset --hard`)
+            // exits non-zero, classify the outcome explicitly so observability
+            // distinguishes an indeterminate worktree from a clean rollback.
+            // The current pure executor only emits the 'reset-failed' case;
+            // the other two enum values are reserved for the broader INV-14
+            // primitive-ordering work (`merge --abort` → `reset --keep`).
+            ...(result.rollbackError !== undefined
+              ? {
+                  rollbackError: result.rollbackError,
+                  recoveryError: 'reset-failed' as const,
+                }
+              : {}),
           },
         },
         appendOptionsRollback,
