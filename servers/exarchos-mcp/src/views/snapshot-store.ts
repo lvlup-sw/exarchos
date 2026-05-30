@@ -15,6 +15,27 @@ export interface SnapshotData<T = unknown> {
 
 const SAFE_ID_PATTERN = /^[a-z0-9-]+$/;
 
+/**
+ * Whether `id` may be used verbatim as a snapshot filename segment.
+ *
+ * This is the projection-side counterpart to the write-side `validateStreamId`
+ * (`shared/validation.ts`), which is intentionally more permissive — it accepts
+ * two-segment slash ids, dots, and underscores. Snapshot filenames must stay
+ * kebab-only: a slash would escape the snapshot directory and `.`/`..` invite
+ * path traversal. Callers that iterate arbitrary streamIds (e.g. the pipeline
+ * view) MUST skip any stream for which this returns `false` rather than forward
+ * it into the snapshot path.
+ *
+ * Exported so `ViewMaterializer` shares this single source of truth instead of
+ * re-deriving its own predicate. The narrow `startsWith('__')` guard added for
+ * #1434 only covered `__migration__` and drifted from this pattern, letting
+ * slash streamIds (`elicitation/<uuid>`, `workflow-state/<id>`, …) re-crash the
+ * view — see RCA 2026-05-30-state-source-integrity.
+ */
+export function isSnapshotSafeId(id: string): boolean {
+  return SAFE_ID_PATTERN.test(id);
+}
+
 function assertSafeId(value: string, label: string): void {
   if (!SAFE_ID_PATTERN.test(value)) {
     throw new Error(
