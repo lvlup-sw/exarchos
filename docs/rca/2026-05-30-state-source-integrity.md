@@ -15,7 +15,7 @@ source-of-truth is undocumented, which led an agent to assert a workflow was
 
 ### CB-1 — pipeline view crash (HIGH)
 
-```
+```text
 exarchos_view { action: "pipeline" }
 → VIEW_ERROR: Invalid streamId: "elicitation/0e24a37e-0043-46cc-9ae7-bdfa5bd8d2be"
   — must match /^[a-z0-9-]+$/
@@ -46,7 +46,7 @@ projected (they are not user-facing workflows).
 
 ### CB-2 — rehydrate cold-probe mutates the store (MEDIUM)
 
-```
+```text
 exarchos_workflow { action: "rehydrate", featureId: "merge-orchestrator-inv13-inv14-completion" }
 → success:true, data.workflowState.featureId:"", phasePlaybook:null
   …and a phantom seq1 `workflow.rehydrated` event is written to a previously-empty stream.
