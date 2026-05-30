@@ -48,7 +48,8 @@ function makeMockEventStore(): EventStore {
       timestamp: new Date().toISOString(),
     }),
     // #1303: handler reads stream tail to compute expectedSequence before
-    // appending merge.executed / merge.rollback. Empty array → expectedSequence: 0.
+    // appending merge.executed / merge.completed / merge.rollback. Empty
+    // array → expectedSequence: 0.
     query: vi.fn().mockResolvedValue([]),
     getAppender: vi.fn().mockReturnValue({ decide }),
   } as unknown as EventStore;
@@ -168,12 +169,58 @@ describe('handleExecuteMerge (T15)', () => {
         },
       },
       {
-        // CAS-chained to the merge.executed append result. The mock's
-        // append returns `{ sequence: 1, ... }`, so merge.completed's
-        // expectedSequence is 1 — pinning adjacency in the stream.
-        expectedSequence: 1,
+        // CAS against the LIVE stream tail (not a static pin to the
+        // merge.executed append result). The mock `query` returns [] for
+        // every tail read, so the high-water mark is 0 here. The live-tail
+        // read is what makes the terminal marker self-heal on retry — see
+        // the `...CasPinsToLiveTailNotFrozenExecutedSequence` regression
+        // test (Sentry r3315312847).
+        expectedSequence: 0,
         idempotencyKey: 'feat-x:merge_orchestrate:T11:merge.completed',
       },
+    );
+  });
+
+  it('handleExecuteMerge_MergeCompleted_CasPinsToLiveTailNotFrozenExecutedSequence', async () => {
+    // Regression — Sentry r3315312847 (PR #1492). The merge.completed CAS
+    // MUST read the live stream tail, NOT a static pin to the merge.executed
+    // sequence. The old pin stranded the workflow permanently in `executing`:
+    // any unrelated event interleaving on the shared featureId stream advanced
+    // the tail past the pin, and a retry re-derived the SAME executed sequence
+    // (idempotency-key cache-hit) so the pinned CAS reproduced the conflict
+    // forever with no recovery. A live-tail CAS self-heals on retry.
+    const ctx = makeMockCtx();
+    // First tail read (before merge.executed) → empty. By the second read
+    // (before merge.completed) a concurrent writer has advanced the tail to
+    // seq 7. merge.executed still returns its own seq 1 from the append mock —
+    // a frozen pin would carry that stale 1 into the merge.completed CAS.
+    (ctx.eventStore.query as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ sequence: 7 }]);
+    const vcsMerge = vi.fn().mockResolvedValue({ mergeSha: MERGE_SHA });
+    const persistState = vi.fn().mockResolvedValue(undefined);
+
+    await handleExecuteMerge(
+      {
+        featureId: 'feat-x',
+        sourceBranch: 'feat/x',
+        targetBranch: 'main',
+        taskId: 'T11',
+        strategy: 'squash',
+        vcsMerge,
+        persistState,
+        gitExec: makeGitExec(),
+      },
+      ctx,
+    );
+
+    // merge.completed (2nd append) CAS-pins to the LIVE tail (7), not the
+    // merge.executed append's returned sequence (1).
+    expect(ctx.eventStore.append).toHaveBeenNthCalledWith(
+      2,
+      'feat-x',
+      expect.objectContaining({ type: 'merge.completed' }),
+      expect.objectContaining({ expectedSequence: 7 }),
     );
   });
 
@@ -600,8 +647,10 @@ describe('handleExecuteMerge terminal-phase persistence (T27)', () => {
     //
     // Order: persist(executing) → vcsMerge → event(merge.executed) →
     //        event(merge.completed) → persist(completed).
-    // The merge.completed terminal marker (#1304) lands ADJACENT to
-    // merge.executed in the happy path; both precede the state-file write.
+    // The merge.completed terminal marker (#1304) follows merge.executed and
+    // both precede the state-file write. Ordering is what the projection fold
+    // requires; strict log adjacency is NOT enforced (the CAS reads the live
+    // tail), so an unrelated interleaved event would not break this.
     expect(callOrder).toEqual([
       'persist:executing',
       'vcsMerge',

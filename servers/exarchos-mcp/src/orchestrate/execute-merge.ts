@@ -435,9 +435,8 @@ export async function handleExecuteMerge(
         'merge.executed',
       ),
     };
-    let executedAppendResult;
     try {
-      executedAppendResult = await ctx.eventStore.append(
+      await ctx.eventStore.append(
         args.featureId,
         {
           type: 'merge.executed',
@@ -474,17 +473,30 @@ export async function handleExecuteMerge(
     // `merge.executed` so the projection's `completed` phase is reachable.
     // Distinct event from `merge.executed`: the side effect record vs. the
     // lifecycle-terminated record. Future work may interpose post-merge
-    // verification between the two; for now they're adjacent in the happy
-    // path. Idempotency-key suffix `:merge.completed` keeps this dedup row
-    // separate from the executed/rollback rows on the same stream.
+    // verification between the two. Idempotency-key suffix `:merge.completed`
+    // keeps this dedup row separate from the executed/rollback rows on the
+    // same stream.
     //
-    // CAS-pin to the `merge.executed` sequence we just observed (rather
-    // than re-querying the stream tail) so the two events remain strictly
-    // adjacent in the log — any intervening concurrent append on this
-    // stream surfaces as a SequenceConflict here instead of silently
-    // breaking the `executed → completed` invariant.
+    // CAS against a FRESH stream-tail read — the SAME high-water-mark idiom
+    // the `merge.executed` and `merge.rollback` sites use. We deliberately do
+    // NOT pin to the `merge.executed` sequence we just observed: a static pin
+    // strands the workflow permanently in `executing` (Sentry r3315312847).
+    // The featureId stream is shared across many event types, so any unrelated
+    // concurrent append between our two writes advances the tail past the pin;
+    // and because the idempotency-key dedup re-derives the SAME executed
+    // sequence on every retry (cache-hit), the pinned CAS reproduces the
+    // conflict forever with no recovery path. A live-tail CAS instead self-
+    // heals: a retry re-reads the advanced high-water mark and the terminal
+    // marker lands. Log adjacency is not a projection invariant — the reducer
+    // folds `merge.completed` whenever it appears after `merge.executed`,
+    // regardless of intervening events.
+    const tailEventsCompleted = await ctx.eventStore.query(args.featureId);
+    const expectedSequenceCompleted =
+      tailEventsCompleted.length > 0
+        ? Math.max(...tailEventsCompleted.map((e) => e.sequence))
+        : 0;
     const appendOptionsCompleted: { idempotencyKey: string; expectedSequence: number } = {
-      expectedSequence: executedAppendResult.sequence,
+      expectedSequence: expectedSequenceCompleted,
       idempotencyKey: buildMergeOrchestrateIdempotencyKey(
         args.featureId,
         args.taskId,
@@ -507,13 +519,16 @@ export async function handleExecuteMerge(
         appendOptionsCompleted,
       );
     } catch (err) {
-      // The terminal event lost a sequence race to a concurrent invocation.
-      // The other side already advanced this stream past our tail; its own
-      // `merge.completed` is either landed (idempotency key dedup) or its
-      // happy path will append it. Surface STATE_CONFLICT rather than
-      // throwing so the caller sees a categorized failure — `merge.executed`
-      // is already durable so projection rebuild can still recover the
-      // terminal state from the event stream alone.
+      // A concurrent writer claimed the live tail between our read and this
+      // append. Unlike the previous static pin, this is a TRANSIENT race: the
+      // CAS is computed from the live high-water mark, so a caller retry
+      // re-reads the advanced tail and the terminal marker lands — recovery is
+      // automatic. The idempotency key makes that retry safe (a winner's
+      // `merge.completed` returns a cache-hit, not a duplicate). `merge.executed`
+      // is already durable, so until the retry the stream rebuilds to
+      // `executed`; it does not silently flip to a terminal phase. Surface a
+      // categorized STATE_CONFLICT rather than letting a raw substrate error
+      // escape — symmetric with the `merge.executed`/`merge.rollback` sites.
       if (err instanceof SequenceConflictError) {
         return {
           success: false,
