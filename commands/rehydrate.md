@@ -25,6 +25,17 @@ exarchos_workflow
   featureId: "<feature-id>"
 ```
 
+## Source of Truth — does this workflow exist?
+
+Workflow state lives in **two surfaces**, and conflating them causes wrong "untracked" conclusions:
+
+1. **The SQLite event store** (`events` + projected `workflow_state` + `streams`) — the authoritative record of whether a workflow exists. This is what `rehydrate` / `get` read.
+2. **`<featureId>.state.json` files** (under the state dir) — a *secondary* "planner's stamp" that carries plan-state facts the event projection cannot derive (review status, declared task list, dimension findings). It may be **absent for a tracked workflow** (CLI tools, tests, in-flight workflows before the first `update`) and is **not** an existence signal.
+
+**Canonical existence check:** use the rehydrate envelope's **`_meta.workflowExists`** (`true`/`false`), or equivalently a non-empty `data.workflowState.featureId`. A cold probe of a never-`init`'d featureId returns `success: true` with an empty initial document and `_meta.workflowExists: false` — and is side-effect-free (it emits no `workflow.rehydrated` event). **Never infer existence from the presence or absence of a `.state.json` file on disk.**
+
+If `rehydrate` reports `workflowExists: false`, the feature was never started as a workflow — the work (if any) lives only in git/PR state, so report that rather than declaring it "untracked" from a filesystem check.
+
 ## Output Format
 
 ```markdown

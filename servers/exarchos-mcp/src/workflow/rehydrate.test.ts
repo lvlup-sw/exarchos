@@ -200,6 +200,61 @@ describe('handleRehydrate — happy path (T031, DR-5)', () => {
 });
 
 /**
+ * CB-2 (RCA 2026-05-30-state-source-integrity) — a cold probe of a
+ * never-`init`'d featureId must be SIDE-EFFECT-FREE.
+ *
+ * The documented cold-probe contract (success:true + reducer.initial) is
+ * preserved, but the handler must NOT emit `workflow.rehydrated` into a
+ * previously-empty stream — doing so materializes a phantom workflow (a stream
+ * with a lone `workflow.rehydrated` event, no `workflow.started`, no
+ * `workflow_state` / `streams` row). It must also surface
+ * `_meta.workflowExists` so callers can disambiguate "tracked but empty" from
+ * "never existed" without inspecting the filesystem.
+ */
+describe('handleRehydrate — cold probe is side-effect-free (CB-2)', () => {
+  it('RehydrateHandler_ColdProbeOfNonExistentFeature_EmitsNoEventAndFlagsAbsent', async () => {
+    // GIVEN: a featureId that was never init'd — no snapshot, no events.
+    const featureId = 'never-init-cold-probe';
+
+    // WHEN: an agent probes it (e.g. /exarchos:rehydrate with an inferred id).
+    const result = await handleRehydrate(
+      { featureId },
+      { eventStore: store, stateDir },
+    );
+
+    // THEN: success:true cold-probe contract is preserved …
+    expect(result.success).toBe(true);
+    // … but NO event was written to the previously-empty stream …
+    const all = await store.query(featureId);
+    expect(all).toHaveLength(0);
+    // … and the envelope flags the feature as non-existent.
+    expect(result._meta?.workflowExists).toBe(false);
+  });
+
+  it('RehydrateHandler_ProbeOfExistingFeature_FlagsPresentAndStillEmits', async () => {
+    // GIVEN: a real, started workflow stream.
+    const featureId = 'exists-warm-probe';
+    await store.append(featureId, {
+      type: 'workflow.started',
+      data: { featureId, workflowType: 'feature' },
+    });
+
+    // WHEN: we rehydrate it.
+    const result = await handleRehydrate(
+      { featureId },
+      { eventStore: store, stateDir },
+    );
+
+    // THEN: existence is flagged true and the audit event STILL fires — the
+    //   emission suppression is scoped to empty streams only.
+    expect(result.success).toBe(true);
+    expect(result._meta?.workflowExists).toBe(true);
+    const all = await store.query(featureId);
+    expect(all.filter((e) => e.type === 'workflow.rehydrated')).toHaveLength(1);
+  });
+});
+
+/**
  * T032 — `handleRehydrate` emits `workflow.rehydrated`
  *
  * Implements DR-4 (new event types) and DR-5 (rehydrate MCP action). On a
