@@ -18,6 +18,7 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { EventStore } from '../event-store/store.js';
+import { SequenceConflictError } from '../event-store/store.js';
 import type { DispatchContext } from '../core/dispatch.js';
 
 import { handleExecuteMerge } from './execute-merge.js';
@@ -221,6 +222,57 @@ describe('handleExecuteMerge (T15)', () => {
       'feat-x',
       expect.objectContaining({ type: 'merge.completed' }),
       expect.objectContaining({ expectedSequence: 7 }),
+    );
+  });
+
+  it('handleExecuteMerge_MergeCompleted_RetriesInPlaceOnTransientSequenceConflict', async () => {
+    // Regression — Sentry r3329404869 (PR #1492). A SequenceConflictError on
+    // the merge.completed append must self-heal IN PLACE. Recovery cannot be
+    // delegated to the caller: `handleMergeOrchestrate` runs the executor
+    // OUTSIDE its retry boundary so a re-invocation would re-fire the
+    // non-idempotent `vcsMerge`. This invocation already won the merge.executed
+    // CAS, so it owns completion and retries just the terminal-marker append.
+    const ctx = makeMockCtx();
+    let completedAttempts = 0;
+    (ctx.eventStore.append as ReturnType<typeof vi.fn>).mockImplementation(
+      async (_stream: string, event: { type: string }) => {
+        if (event.type === 'merge.completed') {
+          completedAttempts += 1;
+          // First attempt loses the sequence race; the in-place retry lands.
+          if (completedAttempts === 1) {
+            throw new SequenceConflictError(0, 5);
+          }
+        }
+        return { sequence: 1, type: event.type, timestamp: '' };
+      },
+    );
+    const vcsMerge = vi.fn().mockResolvedValue({ mergeSha: MERGE_SHA });
+    const persistState = vi.fn().mockResolvedValue(undefined);
+
+    const result = await handleExecuteMerge(
+      {
+        featureId: 'feat-x',
+        sourceBranch: 'feat/x',
+        targetBranch: 'main',
+        taskId: 'T11',
+        strategy: 'squash',
+        vcsMerge,
+        persistState,
+        gitExec: makeGitExec(),
+      },
+      ctx,
+    );
+
+    // Recovered: terminal phase reached despite the transient conflict.
+    expect(result.success).toBe(true);
+    // The marker append was retried (first threw, retry landed).
+    expect(completedAttempts).toBe(2);
+    // The non-idempotent git merge was NOT re-run by the retry.
+    expect(vcsMerge).toHaveBeenCalledTimes(1);
+    // Terminal state still persisted after the marker landed.
+    expect(persistState).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ phase: 'completed' }),
     );
   });
 

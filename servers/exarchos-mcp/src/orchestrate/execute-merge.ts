@@ -482,51 +482,59 @@ export async function handleExecuteMerge(
     // NOT pin to the `merge.executed` sequence we just observed: a static pin
     // strands the workflow permanently in `executing` (Sentry r3315312847).
     // The featureId stream is shared across many event types, so any unrelated
-    // concurrent append between our two writes advances the tail past the pin;
-    // and because the idempotency-key dedup re-derives the SAME executed
-    // sequence on every retry (cache-hit), the pinned CAS reproduces the
-    // conflict forever with no recovery path. A live-tail CAS instead self-
-    // heals: a retry re-reads the advanced high-water mark and the terminal
-    // marker lands. Log adjacency is not a projection invariant — the reducer
-    // folds `merge.completed` whenever it appears after `merge.executed`,
-    // regardless of intervening events.
-    const tailEventsCompleted = await ctx.eventStore.query(args.featureId);
-    const expectedSequenceCompleted =
-      tailEventsCompleted.length > 0
-        ? Math.max(...tailEventsCompleted.map((e) => e.sequence))
-        : 0;
-    const appendOptionsCompleted: { idempotencyKey: string; expectedSequence: number } = {
-      expectedSequence: expectedSequenceCompleted,
-      idempotencyKey: buildMergeOrchestrateIdempotencyKey(
-        args.featureId,
-        args.taskId,
-        'merge.completed',
-      ),
-    };
+    // concurrent append between our two writes advances the tail past the pin.
+    // Log adjacency is not a projection invariant — the reducer folds
+    // `merge.completed` whenever it appears after `merge.executed`, regardless
+    // of intervening events.
+    //
+    // RETRY IN PLACE (Sentry r3329404869). Recovery cannot be delegated to the
+    // caller: `handleMergeOrchestrate` runs the executor OUTSIDE its retry
+    // boundary on purpose, so re-invoking it would re-fire the non-idempotent
+    // `vcsMerge` side effect. But this invocation just won the `merge.executed`
+    // CAS, so it is the canonical owner of completion and must drive the stream
+    // to its terminal phase itself. `withStateRetry` (which recognizes
+    // `SequenceConflictError`) re-reads the advanced tail and re-appends on a
+    // transient race; the idempotency key makes each attempt safe — a winner's
+    // `merge.completed` returns a cache-hit rather than a duplicate, ending the
+    // loop. The git merge already happened and is NOT re-run; only the terminal
+    // marker is retried. A losing `merge.executed` invocation, by contrast,
+    // returns STATE_CONFLICT above and defers completion to the winner.
     try {
-      await ctx.eventStore.append(
-        args.featureId,
-        {
-          type: 'merge.completed',
-          data: {
-            ...(args.taskId !== undefined ? { taskId: args.taskId } : {}),
-            sourceBranch: args.sourceBranch,
-            targetBranch: args.targetBranch,
-            featureId: args.featureId,
-            mergeSha: result.mergeSha,
+      await withStateRetry(async () => {
+        const tailEventsCompleted = await ctx.eventStore.query(args.featureId);
+        const expectedSequenceCompleted =
+          tailEventsCompleted.length > 0
+            ? Math.max(...tailEventsCompleted.map((e) => e.sequence))
+            : 0;
+        const appendOptionsCompleted: { idempotencyKey: string; expectedSequence: number } = {
+          expectedSequence: expectedSequenceCompleted,
+          idempotencyKey: buildMergeOrchestrateIdempotencyKey(
+            args.featureId,
+            args.taskId,
+            'merge.completed',
+          ),
+        };
+        await ctx.eventStore.append(
+          args.featureId,
+          {
+            type: 'merge.completed',
+            data: {
+              ...(args.taskId !== undefined ? { taskId: args.taskId } : {}),
+              sourceBranch: args.sourceBranch,
+              targetBranch: args.targetBranch,
+              featureId: args.featureId,
+              mergeSha: result.mergeSha,
+            },
           },
-        },
-        appendOptionsCompleted,
-      );
+          appendOptionsCompleted,
+        );
+      });
     } catch (err) {
-      // A concurrent writer claimed the live tail between our read and this
-      // append. Unlike the previous static pin, this is a TRANSIENT race: the
-      // CAS is computed from the live high-water mark, so a caller retry
-      // re-reads the advanced tail and the terminal marker lands — recovery is
-      // automatic. The idempotency key makes that retry safe (a winner's
-      // `merge.completed` returns a cache-hit, not a duplicate). `merge.executed`
-      // is already durable, so until the retry the stream rebuilds to
-      // `executed`; it does not silently flip to a terminal phase. Surface a
+      // The transient sequence race did not clear within MAX_STATE_RETRIES
+      // attempts (substrate genuinely contended). `merge.executed` is already
+      // durable, so the stream still rebuilds to `executed` — it does NOT
+      // silently flip to a terminal phase — and a later re-dispatch can still
+      // complete it (the idempotency key keeps that safe). Surface a
       // categorized STATE_CONFLICT rather than letting a raw substrate error
       // escape — symmetric with the `merge.executed`/`merge.rollback` sites.
       if (err instanceof SequenceConflictError) {
@@ -534,7 +542,7 @@ export async function handleExecuteMerge(
           success: false,
           error: {
             code: 'STATE_CONFLICT',
-            message: `merge.completed append lost sequence race: expected=${err.expected} actual=${err.actual}`,
+            message: `merge.completed append lost sequence race after ${MAX_STATE_RETRIES} retries: expected=${err.expected} actual=${err.actual}`,
           },
         };
       }
