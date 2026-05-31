@@ -82,6 +82,37 @@ describe('resolveTestRuntime', () => {
     });
   });
 
+  it.each(['App.sln', 'App.slnx'])(
+    'resolveTestRuntime_DotNetSolution_%s_ReturnsDotnetCommand (#1507)',
+    (solutionFile) => {
+      const dir = makeTmpDir();
+      writeFileSync(join(dir, solutionFile), '');
+
+      const result = resolveTestRuntime(dir);
+
+      expect(result).toEqual({
+        test: 'dotnet test',
+        typecheck: null,
+        install: null,
+        source: 'detection',
+      });
+    },
+  );
+
+  it('resolveTestRuntime_GoProject_ReturnsGoCommand', () => {
+    const dir = makeTmpDir();
+    writeFileSync(join(dir, 'go.mod'), 'module example.com/x\n');
+
+    const result = resolveTestRuntime(dir);
+
+    expect(result).toEqual({
+      test: 'go test ./...',
+      typecheck: null,
+      install: null,
+      source: 'detection',
+    });
+  });
+
   it('resolveTestRuntime_NoMarkers_ReturnsUnresolved', () => {
     const dir = makeTmpDir();
 

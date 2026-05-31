@@ -10,10 +10,12 @@
 // become a compatibility shim layered on top of this resolver.
 // ────────────────────────────────────────────────────────────────────────────
 
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import * as path from 'node:path';
 import { logger } from '../logger.js';
 import { loadExarchosConfig, type LoadResult } from './load-exarchos-config.js';
+import { detectToolchain } from './toolchains.js';
+import { LOCKS } from './vendor/package-manager-detector/lockfiles.generated.js';
 
 const resolverLogger = logger.child({ subsystem: 'test-runtime-resolver' });
 
@@ -140,18 +142,21 @@ function hasScript(pkg: PackageJsonShape | null, name: string): boolean {
   return typeof value === 'string' && value.trim().length > 0;
 }
 
+/** Node package managers this resolver models. `deno` (also in LOCKS) is not one. */
+const NODE_PACKAGE_MANAGERS = new Set(['bun', 'pnpm', 'yarn', 'npm']);
+
 /**
  * Detect the Node-ecosystem package manager in use for a project.
  *
- * Returns the package manager based on lockfile presence, in priority order:
- *   bun > pnpm > yarn > npm (default).
+ * Returns the package manager based on lockfile presence, in priority order
+ * (bun > pnpm > yarn > npm default). The lockfile→agent mapping is sourced from
+ * the vendored `package-manager-detector` `LOCKS` table (ordered most-specific
+ * first) rather than a hand-maintained list — see
+ * `./vendor/package-manager-detector/README.md`.
  *
  * Lockfiles only matter when a `package.json` declares the project — a stray
  * lockfile from a partial git checkout should not promote a non-Node tree to
  * Node detection. Returns `null` when no `package.json` is present.
- *
- * Bun: accepts both `bun.lock` (Bun 1.3+ default, text-based) and `bun.lockb`
- * (legacy binary format, still supported).
  */
 function detectNodePackageManager(
   repoRoot: string,
@@ -159,14 +164,11 @@ function detectNodePackageManager(
   if (!existsSync(path.join(repoRoot, 'package.json'))) {
     return null;
   }
-  if (
-    existsSync(path.join(repoRoot, 'bun.lock')) ||
-    existsSync(path.join(repoRoot, 'bun.lockb'))
-  ) {
-    return 'bun';
+  for (const [lockfile, agent] of Object.entries(LOCKS)) {
+    if (NODE_PACKAGE_MANAGERS.has(agent) && existsSync(path.join(repoRoot, lockfile))) {
+      return agent as 'bun' | 'pnpm' | 'yarn' | 'npm';
+    }
   }
-  if (existsSync(path.join(repoRoot, 'pnpm-lock.yaml'))) return 'pnpm';
-  if (existsSync(path.join(repoRoot, 'yarn.lock'))) return 'yarn';
   return 'npm';
 }
 
@@ -275,21 +277,21 @@ function detect(repoRoot: string): DetectionResult {
     }
   }
 
-  try {
-    const entries = readdirSync(repoRoot);
-    if (entries.some((f) => f.endsWith('.csproj'))) {
-      return { test: 'dotnet test', typecheck: null, install: null, detected: true };
-    }
-  } catch {
-    /* directory unreadable — fall through */
-  }
-
-  if (existsSync(path.join(repoRoot, 'Cargo.toml'))) {
-    return { test: 'cargo test', typecheck: null, install: null, detected: true };
-  }
-
-  if (existsSync(path.join(repoRoot, 'pyproject.toml'))) {
-    return { test: 'pytest', typecheck: null, install: null, detected: true };
+  // Non-node toolchains: delegate identity + canonical commands to the registry,
+  // the single source of truth for markers. This is where `.slnx`/`.sln` now
+  // resolve (#1507) and where the expanded ecosystem set (go, java, ruby, …)
+  // comes from. The node branch above already handled package.json repos with
+  // their package-manager nuance, so the registry's node entry is never reached
+  // here. Non-node entries carry test-only commands (typecheck/install null),
+  // preserving the resolver's prior output shape.
+  const toolchain = detectToolchain(repoRoot);
+  if (toolchain) {
+    return {
+      test: toolchain.commands.test,
+      typecheck: toolchain.commands.typecheck,
+      install: toolchain.commands.install,
+      detected: true,
+    };
   }
 
   return { test: null, typecheck: null, install: null, detected: false };
