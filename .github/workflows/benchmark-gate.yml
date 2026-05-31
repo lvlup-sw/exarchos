@@ -21,12 +21,20 @@ jobs:
         with:
           node-version: '24'
           cache: 'npm'
+          cache-dependency-path: |
+            package-lock.json
+            servers/exarchos-mcp/package-lock.json
 
+      # Route through the shared wrapper so the MCP install inherits the
+      # Playwright browser-download skip (promptfoo's optional
+      # @playwright/browser-chromium otherwise wedges `npm ci` past the cap on a
+      # cold runner) plus retry/timeout resilience. A plain `npm ci` here
+      # bypassed both. See docs/rca/2026-05-31-npm-ci-playwright-browser-wedge.md.
       - name: Install root dependencies
-        run: npm ci
+        run: bash "$GITHUB_WORKSPACE/scripts/npm-ci-retry.sh"
 
       - name: Install MCP server dependencies
-        run: npm ci
+        run: bash "$GITHUB_WORKSPACE/scripts/npm-ci-retry.sh"
         working-directory: servers/exarchos-mcp
 
       - name: Run benchmarks
