@@ -41,6 +41,14 @@ export interface SetupWorktreeArgs {
  */
 interface SetupWorktreeWorkflowState {
   readonly tasks?: ReadonlyArray<{ id: string; branch?: string }>;
+  /**
+   * #1509/#1501: the workflow's integration branch. When present it is the
+   * authoritative base for subagent worktrees on the managed (non-native)
+   * path — mirrors `prepare_delegation`'s `synthesis.integrationBranch`
+   * derivation so both isolation paths uphold the same base-correctness
+   * guarantee across all six runtimes (INV-4).
+   */
+  readonly synthesis?: { readonly integrationBranch?: string };
 }
 
 type CheckStatus = 'pass' | 'fail' | 'skip';
@@ -237,11 +245,78 @@ function resolveBranchName(
   return { name: `feature/${args.taskId}-${args.taskName}`, source: 'default' };
 }
 
+// ─── Base-branch resolution (#1509 / #1501) ──────────────────────────────────
+//
+// The managed (non-native) worktree path previously hardcoded `?? 'main'` as
+// the base, silently branching every subagent worktree off `main` even on a
+// stacked / non-`main` integration branch — the same #1509/#1501 footgun the
+// native-isolation guard now blocks. Resolution mirrors `prepare_delegation`'s
+// integration-branch derivation so both paths uphold the same base-correctness
+// guarantee across all six runtimes (INV-4):
+//
+//   1. args.baseBranch                     — explicit caller override
+//   2. workflowState.synthesis.integrationBranch — the planned integration tip
+//   3. current HEAD                        — the orchestrator runs setup_worktree
+//                                            from the integration checkout, so
+//                                            HEAD *is* the tip when nothing more
+//                                            specific is supplied
+//   4. 'main'                              — legacy default (only when HEAD is
+//                                            unresolvable, e.g. detached + bare)
+
+type BaseBranchSource = 'arg' | 'workflow state' | 'HEAD' | 'default';
+
+interface ResolvedBase {
+  readonly base: string;
+  readonly source: BaseBranchSource;
+}
+
+/**
+ * Best-effort current-branch detection. Returns the branch name, or the commit
+ * SHA when detached, or `null` when neither resolves (e.g. an unborn HEAD).
+ * Never throws — git failures collapse to `null` so resolution falls through to
+ * the legacy default rather than aborting setup.
+ */
+function detectCurrentBranch(repoRoot: string): string | null {
+  try {
+    const ref = gitExec(repoRoot, ['rev-parse', '--abbrev-ref', 'HEAD']).trim();
+    if (ref && ref !== 'HEAD') return ref;
+  } catch {
+    // fall through to SHA / null
+  }
+  try {
+    const sha = gitExec(repoRoot, ['rev-parse', 'HEAD']).trim();
+    if (sha) return sha;
+  } catch {
+    // fall through to null
+  }
+  return null;
+}
+
+/** Pure base-branch resolution (priority order documented above). */
+function resolveBaseBranch(
+  args: SetupWorktreeArgs,
+  workflowState: SetupWorktreeWorkflowState | undefined,
+  currentBranch: string | null,
+): ResolvedBase {
+  if (args.baseBranch && args.baseBranch.length > 0) {
+    return { base: args.baseBranch, source: 'arg' };
+  }
+  const integration = workflowState?.synthesis?.integrationBranch;
+  if (integration && integration.length > 0) {
+    return { base: integration, source: 'workflow state' };
+  }
+  if (currentBranch && currentBranch.length > 0 && currentBranch !== 'HEAD') {
+    return { base: currentBranch, source: 'HEAD' };
+  }
+  return { base: 'main', source: 'default' };
+}
+
 function createBranch(
   repoRoot: string,
   branchName: string,
   baseBranch: string,
   source: BranchSource,
+  baseSource: BaseBranchSource,
 ): CheckResult {
   // Check if branch already exists
   try {
@@ -260,13 +335,13 @@ function createBranch(
     return {
       name: `Branch created`,
       status: 'pass',
-      detail: `${branchName} from ${baseBranch} (from ${source})`,
+      detail: `${branchName} from ${baseBranch} [base: ${baseSource}] (from ${source})`,
     };
   } catch {
     return {
       name: `Branch created`,
       status: 'fail',
-      detail: `Failed to create ${branchName} from ${baseBranch} (from ${source})`,
+      detail: `Failed to create ${branchName} from ${baseBranch} [base: ${baseSource}] (from ${source})`,
     };
   }
 }
@@ -411,7 +486,11 @@ export function handleSetupWorktree(
     };
   }
 
-  const baseBranch = args.baseBranch ?? 'main';
+  // #1509/#1501: resolve the worktree base from the integration tip, never a
+  // silent `main`, so managed-path worktrees match the native-isolation
+  // guarantee. See resolveBaseBranch for the priority order.
+  const resolvedBase = resolveBaseBranch(args, workflowState, detectCurrentBranch(args.repoRoot));
+  const baseBranch = resolvedBase.base;
   const skipTests = args.skipTests ?? false;
 
   // DR-3 (T-09, #1204): resolve branch with priority args > state > default.
@@ -428,7 +507,7 @@ export function handleSetupWorktree(
   checks.push(ensureGitignored(args.repoRoot));
 
   // Step 2: Create feature branch
-  checks.push(createBranch(args.repoRoot, branchName, baseBranch, resolvedBranch.source));
+  checks.push(createBranch(args.repoRoot, branchName, baseBranch, resolvedBranch.source, resolvedBase.source));
 
   // Step 3: Create worktree
   checks.push(createWorktree(args.repoRoot, worktreePath, branchName));

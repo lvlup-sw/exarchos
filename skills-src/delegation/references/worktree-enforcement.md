@@ -11,20 +11,33 @@ All implementation tasks MUST run in isolated worktrees, not the main project ro
 
 ## Pre-Dispatch Checklist
 
-Before dispatching ANY implementer, run the worktree setup script:
+Before dispatching ANY implementer, run the worktree setup script. Always
+pass `featureId` so the action can base the worktree on the workflow's
+**integration tip** (`synthesis.integrationBranch`), not a stale `main`:
 
 ```typescript
 exarchos_orchestrate({
   action: "setup_worktree",
   repoRoot: "<project-root>",
+  featureId: "<feature-id>",
   taskId: "<task-id>",
   taskName: "<task-name>"
+  // baseBranch: "<integration-branch>"  // optional explicit override
 })
 ```
 
+**Base-branch resolution (#1509 / #1501):** the feature branch is created from
+the first available of `baseBranch` arg → `synthesis.integrationBranch` (from
+state) → current `HEAD` → `main`. On a stacked / non-`main` integration
+branch, omitting `featureId` AND running from outside the integration checkout
+is the one way to silently land on `main` — so pass `featureId`, or set
+`baseBranch` explicitly. This is the managed-path equivalent of the native
+`worktree.baseRef:"head"` guard: both ensure subagent worktrees branch from the
+integration tip across all six runtimes.
+
 **Validates:**
 - `.worktrees/` is gitignored (adds to `.gitignore` if missing)
-- Feature branch created (`feature/<task-id>-<task-name>` from base branch)
+- Feature branch created (`feature/<task-id>-<task-name>` from the resolved integration tip)
 - Git worktree added at `.worktrees/<task-id>-<task-name>`
 - `npm install` ran in worktree
 - Baseline tests pass in worktree

@@ -197,7 +197,12 @@ function adaptArgsWithStateDirAndEventStore<T>(
 function adaptSetupWorktree(): ActionHandler {
   return async (args, stateDir, ctx) => {
     const featureId = (args as { featureId?: string }).featureId;
-    let workflowState: { tasks?: Array<{ id: string; branch?: string }> } | undefined;
+    let workflowState:
+      | {
+          tasks?: Array<{ id: string; branch?: string }>;
+          synthesis?: { integrationBranch?: string };
+        }
+      | undefined;
 
     if (featureId && ctx?.eventStore) {
       try {
@@ -210,12 +215,13 @@ function adaptSetupWorktree(): ActionHandler {
           featureId,
           WORKFLOW_STATE_VIEW,
         );
-        const view = materializer.materialize<{ tasks: Array<{ id: string; branch?: string }> }>(
-          featureId,
-          WORKFLOW_STATE_VIEW,
-          events,
-        );
-        workflowState = { tasks: view.tasks };
+        const view = materializer.materialize<{
+          tasks: Array<{ id: string; branch?: string }>;
+          synthesis?: { integrationBranch?: string };
+        }>(featureId, WORKFLOW_STATE_VIEW, events);
+        // #1509/#1501: project synthesis.integrationBranch so the handler can
+        // base managed worktrees on the integration tip, not a stale `main`.
+        workflowState = { tasks: view.tasks, synthesis: view.synthesis };
       } catch {
         // Best-effort: missing/unreadable state is not a setup_worktree
         // failure — handler falls back to legacy default branch.
