@@ -21,7 +21,8 @@
 // static `commands` are the npm baseline only.
 // ────────────────────────────────────────────────────────────────────────────
 
-import { readdirSync } from 'node:fs';
+import { existsSync, readdirSync } from 'node:fs';
+import * as path from 'node:path';
 
 /** Resolver-canonical commands for a toolchain. Mirrors ResolvedRuntime fields. */
 export interface ToolchainCommands {
@@ -179,33 +180,49 @@ export function toolchainFromConfig(entry: ConfigToolchain): Toolchain {
   };
 }
 
-function markerMatches(marker: string, entries: readonly string[]): boolean {
+function markerMatches(
+  marker: string,
+  repoRoot: string,
+  listDir: () => readonly string[] | null,
+): boolean {
+  // Extension globs (`*.csproj`) need a directory listing; exact filenames use
+  // a direct existsSync probe — the natural "is this file here" check, and the
+  // access pattern callers' fs mocks already expect.
   if (marker.startsWith('*.')) {
+    const entries = listDir();
+    if (!entries) return false;
     const ext = marker.slice(1); // '*.csproj' → '.csproj'
     return entries.some((e) => e.endsWith(ext));
   }
-  return entries.includes(marker);
+  return existsSync(path.join(repoRoot, marker));
 }
 
 /**
  * Detect the toolchain at a repo root by its markers, in priority order.
  *
  * `extra` entries (e.g. user-declared `.exarchos.yml` `toolchains:`) are checked
- * BEFORE the built-ins, so a user can override or extend detection. Returns
- * `undefined` when no marker matches or the directory is unreadable.
+ * BEFORE the built-ins, so a user can override or extend detection. Exact-name
+ * markers are probed with `existsSync`; the directory is listed (lazily, once)
+ * only when an extension-glob marker is evaluated. Returns `undefined` when no
+ * marker matches.
  */
 export function detectToolchain(
   repoRoot: string,
   extra: readonly Toolchain[] = [],
 ): Toolchain | undefined {
-  let entries: string[];
-  try {
-    entries = readdirSync(repoRoot);
-  } catch {
-    return undefined;
-  }
+  let cached: readonly string[] | null | undefined;
+  const listDir = (): readonly string[] | null => {
+    if (cached === undefined) {
+      try {
+        cached = readdirSync(repoRoot);
+      } catch {
+        cached = null;
+      }
+    }
+    return cached;
+  };
   for (const tc of [...extra, ...BUILTIN_TOOLCHAINS]) {
-    if (tc.markers.some((m) => markerMatches(m, entries))) {
+    if (tc.markers.some((m) => markerMatches(m, repoRoot, listDir))) {
       return tc;
     }
   }

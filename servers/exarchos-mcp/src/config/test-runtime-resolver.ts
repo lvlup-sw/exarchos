@@ -1,9 +1,12 @@
 // ─── Unified Test Runtime Resolver ──────────────────────────────────────────
 //
-// Owns resolution of test/typecheck/install commands for a repository. The
-// resolver inspects project markers (package.json, *.csproj, Cargo.toml,
-// pyproject.toml) and returns a typed ResolvedRuntime describing which
-// commands to run plus the source of the resolution.
+// Owns resolution of test/typecheck/install commands for a repository as a
+// layered, per-field precedence (highest first):
+//   override > .exarchos.yml direct > user `toolchains:` (tier 3) >
+//   task-runner (tier 4) > built-in toolchain registry (tier 5) > unresolved.
+// Toolchain identity + markers come from the shared registry (./toolchains.ts);
+// the language-agnostic task-runner tier from ./task-runners.ts. Returns a typed
+// ResolvedRuntime describing which commands to run plus the source per field.
 //
 // This module is the new authoritative source for runtime resolution. It
 // intentionally does NOT import detect-test-commands.ts — that module will
@@ -202,7 +205,8 @@ function isYarnBerry(repoRoot: string, pkg: PackageJsonShape | null): boolean {
 }
 
 function detect(repoRoot: string): DetectionResult {
-  // Priority order: package.json > *.csproj > Cargo.toml > pyproject.toml
+  // Tier 5 (built-in): node first (package-manager-aware, with script-existence
+  // nuance), then any other toolchain via the shared registry's priority order.
   const pm = detectNodePackageManager(repoRoot);
   if (pm !== null) {
     const { json: pkg, malformed } = readPackageJson(repoRoot);
