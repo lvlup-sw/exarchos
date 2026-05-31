@@ -320,4 +320,81 @@ describe('handleExtractFixTasks', () => {
       worktree: '/worktree/only',
     });
   });
+
+  // ─── Both sources provided: explicit-stateFile error handling ──────────
+  //
+  // Regression for the silent-swallow bug: when BOTH stateFile and
+  // featureId + eventStore are supplied, a malformed explicit stateFile must
+  // surface PARSE_ERROR rather than being silently ignored (resolveWorkflowState
+  // catches the JSON error and falls back to the event store). A *missing*
+  // stateFile, by contrast, is an optional freshness hint and must fall back.
+
+  it('BothProvided_MalformedStateFile_SurfacesParseError', async () => {
+    // File exists but is unparseable → configuration error, not a fallback.
+    mockExistsSync.mockImplementation((p) => p === '/tmp/bad.json');
+    mockReadFileSync.mockReturnValue('{ not valid json');
+
+    const eventStoreDir = await fsPromises.mkdtemp(
+      nodePath.join(tmpdir(), 'extract-fix-both-bad-'),
+    );
+    const eventStore = new EventStore(eventStoreDir);
+    await eventStore.initialize();
+
+    const result = await handleExtractFixTasks({
+      stateFile: '/tmp/bad.json',
+      featureId: 'both-bad',
+      eventStore,
+    });
+
+    await fsPromises.rm(eventStoreDir, { recursive: true, force: true });
+
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('PARSE_ERROR');
+  });
+
+  it('BothProvided_MissingStateFile_FallsBackToEventStore', async () => {
+    // A missing explicit stateFile is not an error when the event store can
+    // resolve it (INV-1). The handler must fall back, not return FILE_NOT_FOUND.
+    mockExistsSync.mockReturnValue(false);
+
+    const eventStoreDir = await fsPromises.mkdtemp(
+      nodePath.join(tmpdir(), 'extract-fix-both-missing-'),
+    );
+    const eventStore = new EventStore(eventStoreDir);
+    await eventStore.initialize();
+
+    const featureId = 'both-missing';
+    await eventStore.append(featureId, {
+      type: 'workflow.started',
+      data: { featureId, workflowType: 'feature' },
+    });
+    await eventStore.append(featureId, {
+      type: 'state.patched',
+      data: {
+        patch: {
+          reviews: {
+            review1: {
+              findings: [
+                { file: 'src/bar.ts', line: 5, description: 'Off-by-one', severity: 'MEDIUM' },
+              ],
+            },
+          },
+          tasks: [{ id: 'task-1', worktree: '/worktree/solo', branch: 'feat/y' }],
+        },
+      },
+    });
+
+    const result = await handleExtractFixTasks({
+      stateFile: '/tmp/missing.json',
+      featureId,
+      eventStore,
+    });
+
+    await fsPromises.rm(eventStoreDir, { recursive: true, force: true });
+
+    expect(result.success).toBe(true);
+    const data = result.data as { count: number; tasks: Array<{ file: string }> };
+    expect(data.count).toBe(1);
+    expect(data.tasks[0].file).toBe('src/bar.ts');
+  });
 });

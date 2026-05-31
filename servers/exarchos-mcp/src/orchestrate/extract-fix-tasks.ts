@@ -112,10 +112,17 @@ export async function handleExtractFixTasks(args: ExtractFixTasksArgs): Promise<
     };
   }
 
-  // Preserve the historical FILE_NOT_FOUND / PARSE_ERROR taxonomy for the
-  // file-based path: an explicit stateFile that is missing or unparseable
-  // surfaces the same error codes the inline parseJsonFile reader produced.
-  if (args.stateFile && !(args.featureId && args.eventStore)) {
+  // Surface explicit-stateFile errors instead of letting resolveWorkflowState
+  // silently swallow them:
+  //   • File-based path (no event fallback): preserve the full FILE_NOT_FOUND /
+  //     PARSE_ERROR taxonomy the inline parseJsonFile reader produced.
+  //   • Both provided: an explicit stateFile that EXISTS but is unparseable is a
+  //     configuration error → surface PARSE_ERROR rather than silently falling
+  //     back to the event store (resolveWorkflowState catches the JSON error and
+  //     would otherwise mask it). A *missing* stateFile is NOT an error here — it
+  //     is an optional freshness hint and the event store resolves it (INV-1).
+  const hasEventFallback = Boolean(args.featureId && args.eventStore);
+  if (args.stateFile && (!hasEventFallback || existsSync(args.stateFile))) {
     const fileResult = parseJsonFile(args.stateFile, 'State file');
     if ('error' in fileResult) return fileResult.error;
   }
