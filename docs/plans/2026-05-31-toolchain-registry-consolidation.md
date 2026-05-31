@@ -43,14 +43,26 @@ unresolved. Exarchos already owns tiers 1–2 and 6; this plan adds tiers 3–4 
 which removes the enumeration ceiling entirely (tier 4 covers any language whose repo uses a
 standard runner with zero config; tier 3 covers anything the operator declares).
 
-### Dependency decision (approved)
+### Dependency decision — VENDOR, not adopt (revised)
 
-Adopt **`package-manager-detector`** (antfu-collective; **zero deps**, MIT, 15.4M wk DLs — the
-`@antfu/ni` engine) for npm/pnpm/yarn/bun/deno resolution. Deletes the hand-rolled
-`detectNodePackageManager` / `isYarnBerry` logic; gains `devEngines` / `packageManager`-field /
-upward-crawl handling. Lives in `servers/exarchos-mcp/` (already has deps), **not** the dep-free
-root installer. Declined: `linguist-*` language detection (advisory only, never yields a
-command; `linguist-js` does a runtime network fetch — unfit for a sandboxed agent).
+Initially approved *adopting* `package-manager-detector`. **Reversed** on discovering its
+`detect()` is **async-only**, while `resolveTestRuntime` is **synchronous** with ~6 sync call
+sites (`setup-worktree`, `verify-worktree-baseline`, `pre-synthesis-check`, the
+`detect-test-commands` shim, two injected defaults) — adopting it forces a sync→async cascade,
+the exact breaking blast radius the stability boundary forbids. Forcing it sync (deasync /
+worker+Atomics / subprocess) blocks the MCP stdio event loop — an INV-7/INV-10 liveness hazard —
+and re-adds a native dep. So we **vendor the small, stable data table** instead:
+
+- `src/config/vendor/package-manager-detector/lockfiles.generated.ts` — `LOCKS` +
+  `INSTALL_METADATA` maps, generated, with a provenance header (upstream MIT, v1.6.0, commit pin).
+- `…/LICENSE` (upstream MIT verbatim) + `…/README.md` (why vendored, update path).
+- `scripts/sync-vendor-pm-detector.ts` + `npm run vendor:sync:pm-detector` /
+  `vendor:check:pm-detector` (CI drift guard) — pinned, re-fetches + regenerates on demand.
+
+This keeps the resolver synchronous (zero consumer changes) and still tracks upstream's
+authoritative lockfile table. Declined: `linguist-*` language detection (advisory only, never
+yields a command; `linguist-js` does a runtime network fetch — unfit for a sandboxed agent).
+**(Shipped — committed ahead of the TDD sequence as standalone vendor infra.)**
 
 ### Stability boundary (blast-radius control)
 
@@ -81,11 +93,12 @@ testCoverage, typecheck, install} }` + `detectToolchain(repoRoot, extraEntries?)
 entries incl. dotnet `*.csproj|*.sln|*.slnx`, plus java(gradle|maven), ruby, php, elixir, swift,
 cmake. Unit tests incl. `.slnx`/`.sln` → dotnet (RED→GREEN). No consumers yet.
 
-### T2 — Adopt `package-manager-detector` for node PM
-Add dep to `servers/exarchos-mcp/package.json`. Resolve node pm + commands via the lib’s
-`detect` + `resolveCommand`; delete `detectNodePackageManager`/`isYarnBerry`. Wire into the
-registry’s node entry (script-existence checks for `test`/`test:run` retained). Node
-characterization (T0) stays green.
+### T2 — Node PM via vendored lockfile table (sync-preserving)
+Vendor infra is shipped (above). Wire the registry’s node entry to resolve pm from the vendored
+`LOCKS` (then `INSTALL_METADATA` fallback) — replacing `detectNodePackageManager`’s inline
+lockfile list with the vendored map as the single data source. Keep `isYarnBerry` (install-flag
+heuristic, not lockfile identity) and the `scripts.test`/`test:run` existence checks. Resolver
+stays **synchronous** — zero consumer changes. Node characterization (T0) stays green.
 
 ### T3 — Task-runner tier `config/task-runners.ts` (tier 4; pure)
 Detect `Taskfile.yml|.yaml`, `justfile|Justfile|.justfile`, `mise.toml|.mise.toml|mise/config.toml`,
