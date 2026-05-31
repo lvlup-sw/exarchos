@@ -40,6 +40,8 @@ No time limit. Be thorough:
 
 ### 3. RCA Phase
 
+**Design-time Constraints (first):** The `rca` and `design` phases are this track's design-time surfaces. Before committing to a fix approach, surface a **Constraints** section anchored to `.exarchos/invariants.md` (devCatalog-gated) per `@skills/brainstorming/references/constraint-anchoring.md` — the same single shared source of truth used by `/ideate`'s Phase 0. Anchor the RCA's "Fix Approach" and the design phase's fix design against these invariants.
+
 Create RCA document using `@skills/debug/references/rca-template.md`.
 
 Save to: `docs/rca/YYYY-MM-DD-<issue-slug>.md`
@@ -51,6 +53,8 @@ Update state:
 Call `exarchos_workflow({ action: "describe", playbook: "debug" })` for the `rca → design` guard requirements, then `set` the required fields (artifacts.rca) and phase.
 
 ### 4. Design Phase
+
+**Design-time Constraints:** Carry forward the Constraints surfaced at the RCA phase (per `@skills/brainstorming/references/constraint-anchoring.md`, devCatalog-gated). Verify the brief fix approach below does not violate any anchored `.exarchos/invariants.md` invariant before advancing to implement.
 
 Brief fix approach (NOT a full design document).
 

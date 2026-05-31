@@ -76,6 +76,10 @@ Assess scope using `@skills/refactor/references/explore-checklist.md`:
 
 Select track based on scope assessment.
 
+### Step 2b: Constraints (brief phase, design-time)
+
+At the **brief phase**, *before* committing to an approach, load the invariants catalog at `.exarchos/invariants.md` (entries marked `cost-of-load: always-load`) and surface a **Constraints** section naming the invariants relevant to the refactor. This is the refactor design-time equivalent of `/ideate`'s Phase 0 and uses the **same single shared source of truth** for the selection rules and devCatalog gating: `@skills/brainstorming/references/constraint-anchoring.md`. **devCatalog-gated:** when `.exarchos.yml: invariants.devCatalog: enabled` is unset or `disabled`, surface no Constraints section and proceed directly to the brief.
+
 ### Step 3: Execute Track
 
 **Polish Track:**

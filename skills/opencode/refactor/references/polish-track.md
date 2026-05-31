@@ -42,6 +42,8 @@ Use the returned guard requirements for the `explore → brief` transition to co
 
 Capture refactor intent and approach in state (not separate document).
 
+**Design-time Constraints (first):** Before committing to an approach, surface a **Constraints** section anchored to `.exarchos/invariants.md` (devCatalog-gated) per `@skills/brainstorming/references/constraint-anchoring.md` — the same single shared source of truth used by `/ideate`'s Phase 0. See `@skills/refactor/references/brief-template.md`.
+
 Use `@skills/refactor/references/brief-template.md` to structure:
 - Problem statement (2-3 sentences)
 - Specific goals (bulleted list)
