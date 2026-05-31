@@ -163,14 +163,26 @@ export function parseTaskBlocks(content: string): TaskBlock[] {
 /**
  * Extract the description span from a task block's lines.
  *
- * The description span is "everything between the task heading and the next
- * field-header (`**Word:**`) or section header (`### `)" — with the caveat
- * that the FIRST field-header encountered is treated as a description
- * introducer and is *included* in the span (its inline tail is captured;
- * the prose after it is also captured). The SECOND field-header terminates
- * the span.
+ * The description span is the union of:
  *
- * This handles the three canonical block shapes:
+ *  1. The **brief-description tail of the `### Task N: …` heading** — the
+ *     text after the `### Task N:` prefix. (T-02 / #1486.)
+ *  2. The **body span** — "everything between the task heading and the next
+ *     field-header (`**Word:**`) or section header (`### `)", with the caveat
+ *     that the FIRST field-header encountered is treated as a description
+ *     introducer and is *included* in the span (its inline tail is captured;
+ *     the prose after it is also captured). The SECOND field-header
+ *     terminates the span.
+ *
+ * Together these handle four canonical block shapes:
+ * - **task-template.md shape** (T-02 / #1486): the brief description lives IN
+ *   the `### Task [N]: [Brief Description]` heading and the body opens
+ *   immediately with `**Phase:**` (a NON-introducer field header). The body
+ *   span is therefore empty, but the heading tail carries the description.
+ *   Before T-02 the heading line was skipped wholesale and `**Phase:**`
+ *   terminated the scan, so these template-verbatim tasks scored
+ *   `Description: 0 words` and hard-FAILED the gate (`needsRework`). See
+ *   `skills-src/implementation-planning/references/task-template.md`.
  * - Standard implementation-planning shape (`**Goal:**` + paragraph followed
  *   by `**Files:**`, `**Tests:**`, etc.) — Goal prose counts as description.
  * - Legacy explicit `**Description:**` shape — Description prose counts.
@@ -183,9 +195,19 @@ export function extractDescriptionSpan(lines: readonly string[]): string[] {
   const descLines: string[] = [];
   let firstFieldSeen = false;
 
-  // Skip the leading task-heading line if present so its title text doesn't
-  // pollute the description count.
+  // T-02 (#1486): capture the heading's brief-description tail (text after
+  // `### Task N:`) as a description signal. The task-template.md shape puts
+  // the description in the heading, so without this the body-only span is
+  // empty for template-verbatim tasks. We do NOT count backtick-quoted file
+  // paths here (template headings are prose, not file lists), so this does
+  // not reopen the F20/#1213 hole guarded against below.
   const start = lines.length > 0 && /^###\s+Task\s+/.test(lines[0]) ? 1 : 0;
+  if (start === 1) {
+    const headingTail = lines[0].replace(/^###\s+Task\s+(?:T-[0-9]+|[0-9]+):?\s*/, '');
+    if (headingTail.trim().length > 0) {
+      descLines.push(headingTail);
+    }
+  }
 
   for (let i = start; i < lines.length; i++) {
     const line = lines[i];
