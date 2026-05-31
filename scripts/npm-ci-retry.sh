@@ -26,6 +26,18 @@ timeout_s="${NPM_CI_TIMEOUT_SECONDS:-300}"
 kill_after_s="${NPM_CI_KILL_AFTER_SECONDS:-30}"
 retry_sleep_s="${NPM_CI_RETRY_SLEEP_SECONDS:-5}"
 
+# Skip the Playwright browser download by default. `promptfoo` (an eval-only
+# devDependency) pulls the optional `@playwright/browser-chromium`, whose
+# postinstall fetches a ~150MB Chromium from the Playwright CDN — uncached, and
+# the actual cause of the silent 300s `npm ci` wedge on cold CI runners (the
+# hosted `ubuntu-24.04` image is "not officially supported" by Playwright, so it
+# downloads an even slower fallback build). `npm_config_build_from_source` does
+# NOT cover this — that only governs prebuild-install (better-sqlite3). No job
+# that runs `npm ci` here drives a browser, so skip it. A job that genuinely
+# needs browsers opts back in with `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=0`.
+# See RCA docs/rca/2026-05-31-npm-ci-playwright-browser-wedge.md.
+export PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD="${PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD:-1}"
+
 for i in $(seq 1 "$attempts"); do
   echo "==> npm ci attempt ${i}/${attempts} (timeout ${timeout_s}s, kill-after ${kill_after_s}s): npm ci $*"
   # `-k`: `timeout` sends SIGTERM at ${timeout_s}; if `npm ci` — or a child it
