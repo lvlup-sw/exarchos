@@ -7,11 +7,21 @@
 
 import { existsSync, readFileSync } from 'node:fs';
 import type { ToolResult } from '../format.js';
+import type { EventStore } from '../event-store/store.js';
+import { resolveWorkflowState } from './resolve-state.js';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 interface ExtractFixTasksArgs {
-  readonly stateFile: string;
+  /**
+   * Explicit state-file path. OPTIONAL — when omitted (MCP-only workflows),
+   * findings (state.reviews[*].findings) and worktree info (state.tasks)
+   * resolve from the event-store projection via `featureId` + `eventStore`.
+   * INV-1: the event store is the sole source of truth.
+   */
+  readonly stateFile?: string;
+  readonly featureId?: string;
+  readonly eventStore?: EventStore;
   readonly reviewReport?: string;
   readonly repoRoot?: string;
 }
@@ -88,16 +98,40 @@ function extractFindings(obj: unknown): Finding[] {
 
 // ─── Handler ─────────────────────────────────────────────────────────────────
 
-export function handleExtractFixTasks(args: ExtractFixTasksArgs): ToolResult {
-  // 1. Parse state file
-  const stateResult = parseJsonFile(args.stateFile, 'State file');
-  if ('error' in stateResult) return stateResult.error;
-  const state = stateResult.data;
+export async function handleExtractFixTasks(args: ExtractFixTasksArgs): Promise<ToolResult> {
+  // 1. Resolve state via the canonical resolver (file → event-store fallback).
+  // INV-1: the event store is the sole source of truth; the `.state.json`
+  // file is a derived stamp that may be absent for MCP-only workflows.
+  if (!args.stateFile && !(args.featureId && args.eventStore)) {
+    return {
+      success: false,
+      error: {
+        code: 'INVALID_INPUT',
+        message: 'Provide stateFile, or featureId + eventStore for fileless resolution',
+      },
+    };
+  }
+
+  // Preserve the historical FILE_NOT_FOUND / PARSE_ERROR taxonomy for the
+  // file-based path: an explicit stateFile that is missing or unparseable
+  // surfaces the same error codes the inline parseJsonFile reader produced.
+  if (args.stateFile && !(args.featureId && args.eventStore)) {
+    const fileResult = parseJsonFile(args.stateFile, 'State file');
+    if ('error' in fileResult) return fileResult.error;
+  }
+
+  const resolved = await resolveWorkflowState({
+    stateFile: args.stateFile,
+    featureId: args.featureId,
+    eventStore: args.eventStore,
+  });
+  if ('error' in resolved) return resolved.error;
+  const state = resolved.state;
 
   if (!isRecord(state)) {
     return {
       success: false,
-      error: { code: 'PARSE_ERROR', message: `State file is not a JSON object: ${args.stateFile}` },
+      error: { code: 'PARSE_ERROR', message: `Resolved state is not a JSON object: ${args.stateFile ?? args.featureId}` },
     };
   }
 

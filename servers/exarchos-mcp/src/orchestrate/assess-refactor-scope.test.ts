@@ -1,9 +1,26 @@
 import { describe, it, expect, vi } from 'vitest';
 import * as fs from 'node:fs';
+import type { EventStore } from '../event-store/store.js';
+import type { WorkflowEvent } from '../event-store/schemas.js';
 
 vi.mock('node:fs');
 
 const mockedFs = vi.mocked(fs);
+
+/**
+ * Minimal EventStore stub for fileless resolution. `node:fs` is auto-mocked
+ * here (which breaks the SQLite-backed real EventStore), so we stub the only
+ * method `resolveWorkflowState` calls — `query` — to return seeded events.
+ */
+function makeStubEventStore(events: WorkflowEvent[]): EventStore {
+  return {
+    query: vi.fn(async () => events),
+  } as unknown as EventStore;
+}
+
+function evt(type: string, data: unknown): WorkflowEvent {
+  return { type, data, timestamp: '2026-05-30T00:00:00.000Z' } as unknown as WorkflowEvent;
+}
 
 describe('Assess Refactor Scope', () => {
   it('handleAssessRefactorScope_FewFilesSingleModule_RecommendPolish', async () => {
@@ -78,6 +95,33 @@ describe('Assess Refactor Scope', () => {
       recommendedTrack: string;
       filesCount: number;
     };
+    expect(data.passed).toBe(true);
+    expect(data.recommendedTrack).toBe('polish');
+    expect(data.filesCount).toBe(2);
+  });
+
+  // ─── Fileless resolution: MCP-only workflow ────────────────────────────
+  //
+  // INV-1: the event store is the sole source of truth. An MCP-only refactor
+  // workflow has no `.state.json` stamp; explore.scopeAssessment.filesAffected
+  // must resolve from the event-store projection via featureId + eventStore.
+  it('FilelessMcpOnly_ResolvesFilesFromEventStore', async () => {
+    const { handleAssessRefactorScope } = await import('./assess-refactor-scope.js');
+
+    const featureId = 'fileless-refactor';
+    const eventStore = makeStubEventStore([
+      evt('workflow.started', { featureId, workflowType: 'refactor' }),
+      evt('state.patched', {
+        patch: {
+          explore: { scopeAssessment: { filesAffected: ['src/one.ts', 'src/two.ts'] } },
+        },
+      }),
+    ]);
+
+    const result = await handleAssessRefactorScope({ featureId, eventStore });
+
+    expect(result.success).toBe(true);
+    const data = result.data as { passed: boolean; recommendedTrack: string; filesCount: number };
     expect(data.passed).toBe(true);
     expect(data.recommendedTrack).toBe('polish');
     expect(data.filesCount).toBe(2);

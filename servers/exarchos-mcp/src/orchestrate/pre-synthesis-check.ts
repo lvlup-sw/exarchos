@@ -11,18 +11,28 @@
 //   7. Tests pass (skippable)
 // ────────────────────────────────────────────────────────────────────────────
 
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import type { ToolResult } from '../format.js';
+import type { EventStore } from '../event-store/store.js';
 import { resolveTestRuntime } from '../config/test-runtime-resolver.js';
 import { splitCommand } from '../config/tokenize-command.js';
 import type { VcsProvider } from '../vcs/provider.js';
 import { createVcsProvider } from '../vcs/factory.js';
+import { resolveWorkflowState } from './resolve-state.js';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
 export interface PreSynthesisCheckArgs {
-  readonly stateFile: string;
+  /**
+   * Explicit state-file path. OPTIONAL — when omitted (MCP-only workflows
+   * that never wrote a `.state.json` stamp), the handler materializes state
+   * from the event store via `featureId` + `eventStore`. INV-1: the event
+   * store is the sole source of truth; the file is a derived stamp.
+   */
+  readonly stateFile?: string;
+  readonly featureId?: string;
+  readonly eventStore?: EventStore;
   readonly repoRoot?: string;
   readonly skipTests?: boolean;
   readonly skipStack?: boolean;
@@ -62,47 +72,34 @@ function checkSkip(ctx: CheckContext, name: string): void {
   ctx.counters.skip++;
 }
 
-// ─── Check 1: State file exists and is valid JSON ───────────────────────────
+// ─── Check 1: State resolves and has a valid shape ──────────────────────────
+//
+// State is resolved via the shared `resolveWorkflowState` resolver (file →
+// event-store fallback). This helper runs the same field-shape validation the
+// inline file-reader previously did, against the already-resolved object, and
+// records the Check-1 PASS/FAIL into the report.
 
-function checkStateFile(
+function validateResolvedState(
   ctx: CheckContext,
-  stateFile: string,
+  obj: Record<string, unknown>,
+  source: string,
 ): Record<string, unknown> | null {
-  if (!existsSync(stateFile)) {
-    checkFail(ctx, 'State file exists', `File not found: ${stateFile}`);
+  // Validate expected field shapes before downstream checks consume them
+  if ('tasks' in obj && !Array.isArray(obj['tasks'])) {
+    checkFail(ctx, 'State file exists', `Invalid state shape: "tasks" must be an array in ${source}`);
     return null;
   }
 
-  try {
-    const raw = readFileSync(stateFile, 'utf-8');
-    const parsed: unknown = JSON.parse(raw);
-    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
-      checkFail(ctx, 'State file exists', `Invalid JSON: expected top-level object in ${stateFile}`);
+  if ('reviews' in obj) {
+    const reviews = obj['reviews'];
+    if (typeof reviews !== 'object' || reviews === null || Array.isArray(reviews)) {
+      checkFail(ctx, 'State file exists', `Invalid state shape: "reviews" must be an object in ${source}`);
       return null;
     }
-
-    const obj = parsed as Record<string, unknown>;
-
-    // Validate expected field shapes before downstream checks consume them
-    if ('tasks' in obj && !Array.isArray(obj['tasks'])) {
-      checkFail(ctx, 'State file exists', `Invalid state shape: "tasks" must be an array in ${stateFile}`);
-      return null;
-    }
-
-    if ('reviews' in obj) {
-      const reviews = obj['reviews'];
-      if (typeof reviews !== 'object' || reviews === null || Array.isArray(reviews)) {
-        checkFail(ctx, 'State file exists', `Invalid state shape: "reviews" must be an object in ${stateFile}`);
-        return null;
-      }
-    }
-
-    checkPass(ctx, 'State file exists');
-    return obj;
-  } catch {
-    checkFail(ctx, 'State file exists', `Invalid JSON: ${stateFile}`);
-    return null;
   }
+
+  checkPass(ctx, 'State file exists');
+  return obj;
 }
 
 // ─── Check 2: Phase readiness ───────────────────────────────────────────────
@@ -469,7 +466,7 @@ export async function handlePreSynthesisCheck(
   args: PreSynthesisCheckArgs,
   provider?: VcsProvider,
 ): Promise<ToolResult> {
-  const { stateFile, repoRoot = '.', skipTests = false, skipStack = false, testCommand } = args;
+  const { stateFile, featureId, eventStore, repoRoot = '.', skipTests = false, skipStack = false, testCommand } = args;
   const vcs = provider ?? await createVcsProvider();
 
   const ctx: CheckContext = {
@@ -477,8 +474,35 @@ export async function handlePreSynthesisCheck(
     counters: { pass: 0, fail: 0, skip: 0 },
   };
 
-  // Check 1: State file — all other state-dependent checks depend on this
-  const state = checkStateFile(ctx, stateFile);
+  // Resolve state via the canonical resolver (file → event-store fallback).
+  // INV-1: the event store is the sole source of truth; the `.state.json`
+  // file is a derived stamp that may be absent for MCP-only workflows.
+  const resolved = await resolveWorkflowState({ stateFile, featureId, eventStore });
+
+  // Check 1: State resolves + valid shape — all other state-dependent checks
+  // depend on this. A resolver failure (no source / unreadable) records the
+  // same Check-1 FAIL the inline file-reader used to, preserving the report
+  // contract for missing/invalid file-based callers.
+  let state: Record<string, unknown> | null = null;
+  if ('error' in resolved) {
+    // Distinguish "file present but unparseable" (resolver silently falls
+    // through on a JSON error) from "no source at all", preserving the
+    // report-message contract the inline file-reader exposed.
+    let detail: string;
+    if (stateFile && existsSync(stateFile)) {
+      detail = `Invalid JSON: ${stateFile}`;
+    } else if (stateFile) {
+      detail = `File not found: ${stateFile}`;
+    } else {
+      detail =
+        resolved.error.error?.message ??
+        'No state source available (no stateFile or featureId+eventStore provided)';
+    }
+    checkFail(ctx, 'State file exists', detail);
+  } else {
+    const source = stateFile ?? featureId ?? 'event-store';
+    state = validateResolvedState(ctx, resolved.state, source);
+  }
 
   if (state !== null) {
     // Check 2: Phase readiness
@@ -504,10 +528,11 @@ export async function handlePreSynthesisCheck(
   const total = ctx.counters.pass + ctx.counters.fail;
   const passed = ctx.counters.fail === 0;
 
+  const stateSource = stateFile ?? featureId ?? 'event-store';
   const reportLines = [
     '## Pre-Synthesis Readiness Report',
     '',
-    `**State file:** \`${stateFile}\``,
+    `**State source:** \`${stateSource}\``,
     '',
     ...ctx.results,
     '',

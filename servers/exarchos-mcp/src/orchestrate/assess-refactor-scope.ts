@@ -5,14 +5,17 @@
 // Port of scripts/assess-refactor-scope.sh to a TypeScript orchestrate handler.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import * as fs from 'node:fs';
 import type { ToolResult } from '../format.js';
+import type { EventStore } from '../event-store/store.js';
+import { resolveWorkflowState } from './resolve-state.js';
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
 export interface AssessRefactorScopeArgs {
   readonly files?: readonly string[];
   readonly stateFile?: string;
+  readonly featureId?: string;
+  readonly eventStore?: EventStore;
 }
 
 interface AssessRefactorScopeResult {
@@ -40,34 +43,19 @@ function getUniqueModules(files: readonly string[]): readonly string[] {
   return [...modules].sort();
 }
 
-function readFilesFromState(stateFile: string): readonly string[] | null | ToolResult {
-  if (!fs.existsSync(stateFile)) {
-    return null;
-  }
-
-  let raw: string;
-  let parsed: unknown;
-  try {
-    raw = fs.readFileSync(stateFile, 'utf-8');
-    parsed = JSON.parse(raw);
-  } catch (err) {
-    return {
-      success: false,
-      error: {
-        code: 'STATE_READ_ERROR',
-        message: `Failed to read or parse state file ${stateFile}: ${err instanceof Error ? err.message : String(err)}`,
-      },
-    };
-  }
-
+/**
+ * Extract `explore.scopeAssessment.filesAffected` from an already-resolved
+ * workflow-state object. The state itself is resolved by the canonical
+ * `resolveWorkflowState` (file → event-store fallback) in the handler — this
+ * helper is pure shape navigation, no disk access (INV-1).
+ */
+function readFilesFromState(parsed: Record<string, unknown>): readonly string[] | null {
   if (
-    typeof parsed === 'object' &&
-    parsed !== null &&
     'explore' in parsed &&
-    typeof (parsed as Record<string, unknown>).explore === 'object' &&
-    (parsed as Record<string, unknown>).explore !== null
+    typeof parsed.explore === 'object' &&
+    parsed.explore !== null
   ) {
-    const explore = (parsed as { explore: Record<string, unknown> }).explore;
+    const explore = parsed.explore as Record<string, unknown>;
     if (
       'scopeAssessment' in explore &&
       typeof explore.scopeAssessment === 'object' &&
@@ -91,23 +79,36 @@ function readFilesFromState(stateFile: string): readonly string[] | null | ToolR
 export async function handleAssessRefactorScope(
   args: AssessRefactorScopeArgs,
 ): Promise<ToolResult> {
-  // Resolve file list from args or state file
+  // Resolve file list from the explicit `files` arg (preserved alt-path) or
+  // from workflow state. INV-1: state is materialized via the canonical
+  // resolver (file → event-store fallback), so the gate works for MCP-only
+  // workflows that never wrote a `.state.json` stamp.
   let fileList: readonly string[];
 
   if (args.files && args.files.length > 0) {
     fileList = args.files;
-  } else if (args.stateFile) {
-    const fromState = readFilesFromState(args.stateFile);
-    if (fromState !== null && 'success' in fromState) {
-      // ToolResult error from readFilesFromState
-      return fromState as ToolResult;
+  } else if (args.stateFile || (args.featureId && args.eventStore)) {
+    const resolved = await resolveWorkflowState({
+      stateFile: args.stateFile,
+      featureId: args.featureId,
+      eventStore: args.eventStore,
+    });
+    if ('error' in resolved) {
+      return {
+        success: false,
+        error: {
+          code: 'INVALID_INPUT',
+          message: `State not found or missing explore.scopeAssessment.filesAffected: ${args.stateFile ?? args.featureId}`,
+        },
+      };
     }
+    const fromState = readFilesFromState(resolved.state);
     if (fromState === null) {
       return {
         success: false,
         error: {
           code: 'INVALID_INPUT',
-          message: `State file not found or missing explore.scopeAssessment.filesAffected: ${args.stateFile}`,
+          message: `State not found or missing explore.scopeAssessment.filesAffected: ${args.stateFile ?? args.featureId}`,
         },
       };
     }
@@ -117,7 +118,7 @@ export async function handleAssessRefactorScope(
       success: false,
       error: {
         code: 'INVALID_INPUT',
-        message: 'Either files or stateFile is required',
+        message: 'Either files, stateFile, or featureId + eventStore is required',
       },
     };
   }

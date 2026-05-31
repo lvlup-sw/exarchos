@@ -6,6 +6,8 @@
 // ────────────────────────────────────────────────────────────────────────────
 
 import type { ToolResult } from '../format.js';
+import type { EventStore } from '../event-store/store.js';
+import { resolveWorkflowState } from './resolve-state.js';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
@@ -15,6 +17,7 @@ interface SelectDebugTrackArgs {
   readonly urgency?: string;
   readonly rootCauseKnown?: boolean | string;
   readonly stateFile?: string;
+  readonly featureId?: string;
 }
 
 interface TrackSelection {
@@ -86,51 +89,65 @@ function generateReport(
 export async function handleSelectDebugTrack(
   args: SelectDebugTrackArgs,
   _stateDir: string,
+  eventStore?: EventStore,
 ): Promise<ToolResult> {
   let urgency = args.urgency;
   let rootCauseKnownRaw = args.rootCauseKnown;
 
-  // Resolve from state file if provided and direct args are missing
-  if (args.stateFile && (urgency === undefined || rootCauseKnownRaw === undefined)) {
-    // Validate stateFile is within the allowed state directory
-    const resolvedStateFile = path.resolve(args.stateFile);
-    const resolvedStateDir = path.resolve(_stateDir);
-    if (!resolvedStateFile.startsWith(resolvedStateDir + path.sep) && resolvedStateFile !== resolvedStateDir) {
-      return {
-        success: false,
-        error: {
-          code: 'INVALID_INPUT',
-          message: `State file must be within the state directory: ${resolvedStateDir}`,
-        },
-      };
+  const needsStateResolution = urgency === undefined || rootCauseKnownRaw === undefined;
+  const hasStateSource = !!args.stateFile || !!(args.featureId && eventStore);
+
+  // Resolve urgency/rootCauseKnown from workflow state when direct args are
+  // missing. INV-1: the event store is the sole source of truth; the
+  // `.state.json` file is a derived stamp that may be absent for MCP-only
+  // workflows. We still validate an explicit stateFile path for containment.
+  if (needsStateResolution && hasStateSource) {
+    // Path-containment guard applies only to an explicit file path; the
+    // event-store path has no filesystem location to validate.
+    if (args.stateFile) {
+      const resolvedStateFile = path.resolve(args.stateFile);
+      const resolvedStateDir = path.resolve(_stateDir);
+      if (!resolvedStateFile.startsWith(resolvedStateDir + path.sep) && resolvedStateFile !== resolvedStateDir) {
+        return {
+          success: false,
+          error: {
+            code: 'INVALID_INPUT',
+            message: `State file must be within the state directory: ${resolvedStateDir}`,
+          },
+        };
+      }
+
+      // Preserve the historical "file given but missing" error.
+      if (!fs.existsSync(args.stateFile) && !(args.featureId && eventStore)) {
+        return {
+          success: false,
+          error: {
+            code: 'INVALID_INPUT',
+            message: `State file not found: ${args.stateFile}`,
+          },
+        };
+      }
     }
 
-    if (!fs.existsSync(args.stateFile)) {
-      return {
-        success: false,
-        error: {
-          code: 'INVALID_INPUT',
-          message: `State file not found: ${args.stateFile}`,
-        },
-      };
-    }
-
-    let state: {
-      urgency?: { level?: string };
-      investigation?: { rootCauseKnown?: boolean | string };
-    };
-    try {
-      const raw = fs.readFileSync(args.stateFile, 'utf-8');
-      state = JSON.parse(raw) as typeof state;
-    } catch (err) {
+    const resolved = await resolveWorkflowState({
+      stateFile: args.stateFile,
+      featureId: args.featureId,
+      eventStore,
+    });
+    if ('error' in resolved) {
       return {
         success: false,
         error: {
           code: 'STATE_READ_ERROR',
-          message: `Failed to read or parse state file ${args.stateFile}: ${err instanceof Error ? err.message : String(err)}`,
+          message: resolved.error.error?.message ?? 'Failed to resolve workflow state',
         },
       };
     }
+
+    const state = resolved.state as {
+      urgency?: { level?: string };
+      investigation?: { rootCauseKnown?: boolean | string };
+    };
 
     if (urgency === undefined) {
       urgency = state.urgency?.level;
@@ -144,7 +161,7 @@ export async function handleSelectDebugTrack(
         success: false,
         error: {
           code: 'INVALID_INPUT',
-          message: 'No urgency.level found in state file',
+          message: 'No urgency.level found in state',
         },
       };
     }
@@ -154,7 +171,7 @@ export async function handleSelectDebugTrack(
         success: false,
         error: {
           code: 'INVALID_INPUT',
-          message: 'No investigation.rootCauseKnown found in state file',
+          message: 'No investigation.rootCauseKnown found in state',
         },
       };
     }
