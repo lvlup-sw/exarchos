@@ -366,6 +366,133 @@ describe('checkAcceptanceCriteria', () => {
     expect(result.missingCriteria).toContain('DR-3');
     expect(result.missingCriteria).toHaveLength(3);
   });
+
+  // ─── #1493 parity with scripts/check-design-completeness.sh ───────────────
+  // The template (skills-src/brainstorming/references/design-template.md) mandates
+  // a standalone bold `**Acceptance criteria:**` header. The TS parser previously
+  // only accepted a bullet-prefixed `- acceptance criteria` form, producing a
+  // false-positive "missing acceptance criteria" advisory on template-conformant
+  // designs. The shell checker (line ~149) already accepts bold/heading/bullet-bold
+  // shapes; these tests bring the TS parser to parity.
+
+  it('CheckAcceptanceCriteria_BoldHeader_Recognized', () => {
+    // Arrange — template-mandated standalone bold header + bullet criteria
+    const content = `## Requirements
+
+### DR-1: The system must validate inputs
+
+The system validates all user-submitted form data.
+
+**Acceptance criteria:**
+- Returns 400 for missing required fields
+- Returns descriptive error messages
+`;
+
+    // Act
+    const result = checkAcceptanceCriteria(content);
+
+    // Assert — the bold header form is recognized; DR-1 is NOT flagged
+    expect(result.passed).toBe(true);
+    expect(result.missingCriteria).toEqual([]);
+  });
+
+  it('CheckAcceptanceCriteria_HeadingForm_Recognized', () => {
+    // Arrange — heading-form acceptance criteria header
+    const content = `## Requirements
+
+### DR-1: The system must validate inputs
+
+The system validates all user-submitted form data.
+
+#### Acceptance criteria
+
+- Returns 400 for missing required fields
+- Returns descriptive error messages
+`;
+
+    // Act
+    const result = checkAcceptanceCriteria(content);
+
+    // Assert — the heading form is recognized; DR-1 is NOT flagged
+    expect(result.passed).toBe(true);
+    expect(result.missingCriteria).toEqual([]);
+  });
+
+  it('CheckAcceptanceCriteria_SingleLineGWT_Recognized', () => {
+    // Arrange — single-bullet Given/When/Then on one line
+    const content = `## Requirements
+
+- DR-1: The system must validate inputs
+  - Given a user submits a form with invalid data, when the validation engine processes it, then the system returns a descriptive error message
+`;
+
+    // Act
+    const result = checkAcceptanceCriteria(content);
+
+    // Assert — single-line GWT is recognized; DR-1 is NOT flagged
+    expect(result.passed).toBe(true);
+    expect(result.missingCriteria).toEqual([]);
+  });
+
+  it('CheckAcceptanceCriteria_ContinuationGWT_Recognized', () => {
+    // Arrange — template continuation form: bulleted Given, then non-bulleted
+    // continuation lines for When / Then (indented, no list marker)
+    const content = `## Requirements
+
+### DR-1: The system must validate inputs
+
+**Acceptance criteria:**
+- Given a precondition holds
+  When an action occurs
+  Then an expected outcome is produced
+  And an additional outcome is produced
+`;
+
+    // Act
+    const result = checkAcceptanceCriteria(content);
+
+    // Assert — continuation-line GWT is recognized; DR-1 is NOT flagged
+    expect(result.passed).toBe(true);
+    expect(result.missingCriteria).toEqual([]);
+  });
+
+  it('CheckAcceptanceCriteria_BulletHeader_StillRecognized', () => {
+    // Arrange — the pre-existing bullet-prefixed header form (regression guard)
+    const content = `## Requirements
+
+- DR-1: The system must validate inputs
+  - Acceptance Criteria:
+    - Returns 400 for missing required fields
+    - Returns descriptive error messages
+`;
+
+    // Act
+    const result = checkAcceptanceCriteria(content);
+
+    // Assert — the bullet header form is STILL recognized; DR-1 is NOT flagged
+    expect(result.passed).toBe(true);
+    expect(result.missingCriteria).toEqual([]);
+  });
+
+  it('CheckAcceptanceCriteria_NoCriteria_StillFlagged', () => {
+    // Arrange — a DR entry with prose but NO acceptance criteria block of any shape.
+    // Guards against over-broadening: a plain-text mention of "acceptance" must NOT
+    // satisfy the check, and a bare DR with no criteria block MUST still be flagged.
+    const content = `## Requirements
+
+### DR-1: The system must validate inputs
+
+This requirement currently has no acceptance criteria defined yet.
+We should add them before planning.
+`;
+
+    // Act
+    const result = checkAcceptanceCriteria(content);
+
+    // Assert — DR-1 is still flagged as missing criteria
+    expect(result.passed).toBe(false);
+    expect(result.missingCriteria).toEqual(['DR-1']);
+  });
 });
 
 // ─── handleDesignCompleteness — advisory acceptance criteria ────────────────

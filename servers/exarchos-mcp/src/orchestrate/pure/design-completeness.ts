@@ -157,11 +157,30 @@ export function checkMultipleOptions(content: string): OptionsResult {
 /** Pattern matching a design requirement line — list item (`- DR-1:`) or heading (`### DR-1:`). */
 const DR_LINE_PATTERN = /(?:^[-*]\s+(DR-\d+):|^#{1,}\s+(DR-\d+):)/i;
 
-/** Given/When/Then acceptance criteria keywords (indented sub-bullet or plain list item, optional colon). */
-const GIVEN_WHEN_THEN_PATTERN = /^(?:\s+[-*]\s+|[-*]\s+)(?:given|when|then)\b\s*:?/im;
-
-/** Bullet-point acceptance criteria header (indented or plain list item, optional colon). */
-const ACCEPTANCE_CRITERIA_HEADER_PATTERN = /^(?:\s+[-*]\s+|[-*]\s+)acceptance\s+criteria\s*:?/im;
+/**
+ * Acceptance-criteria header shapes, in parity with the shell checker
+ * `scripts/check-design-completeness.sh` (line ~149):
+ *   grep -qiE '^\*\*[Aa]cceptance [Cc]riteri|^#+\s*[Aa]cceptance [Cc]riteri|^-\s*\*\*[Aa]cceptance'
+ *
+ * The template (skills-src/brainstorming/references/design-template.md, lines 51/87)
+ * mandates the standalone bold `**Acceptance criteria:**` header, so we MUST accept
+ * it. We also keep the pre-existing bullet-prefixed form (`- Acceptance Criteria:`)
+ * that the TS parser historically recognized.
+ */
+const ACCEPTANCE_CRITERIA_HEADER_SHAPES = [
+  // Standalone bold header — `**Acceptance criteria:**` (template-mandated)
+  // Parity: `^\*\*[Aa]cceptance [Cc]riteri`
+  /^\s*\*\*\s*acceptance\s+criteri/im,
+  // Heading form — `#### Acceptance criteria`
+  // Parity: `^#+\s*[Aa]cceptance [Cc]riteri`
+  /^\s*#{1,}\s*acceptance\s+criteri/im,
+  // Bullet-bold form — `- **Acceptance criteria**`
+  // Parity: `^-\s*\*\*[Aa]cceptance`
+  /^\s*[-*]\s*\*\*\s*acceptance/im,
+  // Pre-existing bullet-prefixed form — `- Acceptance Criteria:` (indented or plain)
+  // (No direct shell analogue; retained so prior TS behavior is preserved.)
+  /^\s*[-*]\s+acceptance\s+criteria\s*:?/im,
+] as const;
 
 /** Markdown section heading at document level (not indented). */
 const SECTION_HEADING_PATTERN = /^#{1,}\s+/;
@@ -169,9 +188,15 @@ const SECTION_HEADING_PATTERN = /^#{1,}\s+/;
 /**
  * Check that each DR-N entry in the Requirements section has acceptance criteria.
  *
- * Accepts two formats:
- *   1. Given/When/Then — indented sub-bullets starting with Given:, When:, Then:
- *   2. Bullet-point — indented sub-bullet "Acceptance Criteria:" followed by list items
+ * Accepts (in parity with scripts/check-design-completeness.sh and the
+ * design-template.md mandated shapes):
+ *   1. Structural header — bold `**Acceptance criteria:**`, heading
+ *      `#### Acceptance criteria`, bullet-bold `- **Acceptance criteria**`,
+ *      or the legacy bullet `- Acceptance Criteria:` form.
+ *   2. Given/When/Then — single-line (`- Given …, when …, then …`),
+ *      three separate `- Given` / `- When` / `- Then` bullets, OR a bulleted
+ *      `- Given …` with non-bulleted indented `When …` / `Then …` continuation
+ *      lines (the template-preferred form).
  *
  * Returns the list of DR-N identifiers that lack any acceptance criteria.
  * If no DR-N entries are found, the check passes vacuously.
@@ -195,8 +220,9 @@ export function checkAcceptanceCriteria(content: string): AcceptanceCriteriaResu
   const missingCriteria: string[] = [];
 
   for (let idx = 0; idx < drEntries.length; idx++) {
+    const drLine = lines[drEntries[idx].lineIndex];
     const startLine = drEntries[idx].lineIndex + 1;
-    const endLine = findBlockEnd(lines, startLine, drEntries, idx);
+    const endLine = findBlockEnd(lines, startLine, drEntries, idx, headingLevel(drLine));
     const block = lines.slice(startLine, endLine).join('\n');
 
     if (!hasAcceptanceCriteria(block)) {
@@ -211,38 +237,95 @@ export function checkAcceptanceCriteria(content: string): AcceptanceCriteriaResu
 }
 
 /**
- * Find the end line of a DR-N block: the next DR-N entry, a section heading, or EOF.
+ * Heading level of a line — number of leading `#` for a markdown heading, or 0
+ * if the line is not a (non-indented) heading. A bullet-form DR (`- DR-1:`) has
+ * level 0; a heading-form DR (`### DR-1:`) has its hash count.
+ */
+function headingLevel(line: string): number {
+  const match = /^(#{1,})\s+/.exec(line);
+  return match ? match[1].length : 0;
+}
+
+/**
+ * Find the end line of a DR-N block: the next DR-N entry, a sibling/parent
+ * section heading, or EOF.
+ *
+ * `drLevel` is the heading level of the DR entry itself (0 for bullet-form DRs).
+ * A heading DEEPER than the DR (e.g. `#### Acceptance criteria` under a
+ * `### DR-1:`) is a child of the DR and does NOT terminate the block — this is
+ * what lets the template's `#### Acceptance criteria` sub-heading stay inside
+ * the DR block. Bullet-form DRs (level 0) terminate at any top-level heading.
  */
 function findBlockEnd(
   lines: readonly string[],
   startLine: number,
   drEntries: ReadonlyArray<{ id: string; lineIndex: number }>,
   currentIdx: number,
+  drLevel: number,
 ): number {
   // If there's a subsequent DR-N entry, its line is the boundary
   if (currentIdx + 1 < drEntries.length) {
     return drEntries[currentIdx + 1].lineIndex;
   }
 
-  // Otherwise, scan for the next section heading
+  // Otherwise, scan for the next sibling/parent section heading. A deeper
+  // sub-heading (level > drLevel) belongs to this DR and is not a boundary.
   for (let j = startLine; j < lines.length; j++) {
     if (SECTION_HEADING_PATTERN.test(lines[j]) && !lines[j].startsWith(' ')) {
-      return j;
+      const level = headingLevel(lines[j]);
+      if (level > 0 && level <= drLevel) {
+        return j;
+      }
+      if (drLevel === 0) {
+        // Bullet-form DR: any non-indented heading terminates the block.
+        return j;
+      }
     }
   }
 
   return lines.length;
 }
 
+/** Single-line Given/When/Then on one bullet — `- Given X, when Y, then Z`. */
+const SINGLE_LINE_GWT_PATTERN = /^\s*[-*]\s+given\b.*\bwhen\b.*\bthen\b/im;
+
+/**
+ * Continuation-line When/Then — a non-bulleted, indented continuation of a
+ * preceding `- Given …` bullet (the template's preferred GWT form, see
+ * design-template.md). E.g. `  When …` / `  Then …` with leading whitespace
+ * and NO list marker.
+ */
+const CONTINUATION_WHEN_PATTERN = /^\s+when\b/im;
+const CONTINUATION_THEN_PATTERN = /^\s+then\b/im;
+
 /** Test whether a text block contains any recognized acceptance criteria format. */
 function hasAcceptanceCriteria(block: string): boolean {
-  // GWT format requires all three keywords present
-  const hasGiven = /(?:^|\n)(?:\s+[-*]\s+|[-*]\s+)given\b/im.test(block);
-  const hasWhen = /(?:^|\n)(?:\s+[-*]\s+|[-*]\s+)when\b/im.test(block);
-  const hasThen = /(?:^|\n)(?:\s+[-*]\s+|[-*]\s+)then\b/im.test(block);
-  if (hasGiven && hasWhen && hasThen) return true;
-  // Fallback: bullet-point acceptance criteria header
-  return ACCEPTANCE_CRITERIA_HEADER_PATTERN.test(block);
+  // 1. Structural acceptance-criteria header (bold / heading / bullet-bold / bullet).
+  if (ACCEPTANCE_CRITERIA_HEADER_SHAPES.some((pattern) => pattern.test(block))) {
+    return true;
+  }
+
+  // 2. Single-line GWT — `- Given …, when …, then …` on one bullet.
+  if (SINGLE_LINE_GWT_PATTERN.test(block)) {
+    return true;
+  }
+
+  // 3. Three separate GWT bullets — `- Given`, `- When`, `- Then` (legacy form).
+  const hasGivenBullet = /(?:^|\n)(?:\s+[-*]\s+|[-*]\s+)given\b/im.test(block);
+  if (hasGivenBullet) {
+    const hasWhenBullet = /(?:^|\n)(?:\s+[-*]\s+|[-*]\s+)when\b/im.test(block);
+    const hasThenBullet = /(?:^|\n)(?:\s+[-*]\s+|[-*]\s+)then\b/im.test(block);
+    if (hasWhenBullet && hasThenBullet) {
+      return true;
+    }
+    // 4. Continuation-line GWT — bulleted Given followed by non-bulleted,
+    //    indented When/Then continuation lines (template-preferred form).
+    if (CONTINUATION_WHEN_PATTERN.test(block) && CONTINUATION_THEN_PATTERN.test(block)) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 // ─── checkStateDesignPath ───────────────────────────────────────────────────
