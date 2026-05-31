@@ -1874,7 +1874,10 @@ const orchestrateActions: readonly ToolAction[] = [
     name: 'extract_fix_tasks',
     description: 'Extract fix tasks from review findings and map to worktrees',
     schema: z.object({
-      stateFile: z.string().min(1),
+      featureId: z.string().min(1),
+      // INV-1: findings + worktrees resolve from the event-store projection;
+      // `stateFile` is an optional override for legacy file-based workflows.
+      stateFile: z.string().min(1).optional(),
       reviewReport: z.string().optional(),
       repoRoot: z.string().optional(),
     }),
@@ -2095,10 +2098,14 @@ const orchestrateActions: readonly ToolAction[] = [
   },
   {
     name: 'verify_review_triage',
-    description: 'Verify review triage routing — check review.routed events against state file PRs',
+    description: 'Verify review triage routing — check review.routed events against state PRs',
     schema: z.object({
-      stateFile: z.string(),
-      eventStream: z.string(),
+      featureId: z.string().min(1),
+      // INV-1: PRs resolve from the event-store projection; `review.routed`
+      // events are queried directly from the store. Both file inputs are
+      // OPTIONAL overrides for legacy file-based workflows.
+      stateFile: z.string().min(1).optional(),
+      eventStream: z.string().min(1).optional(),
     }),
     phases: ALL_PHASES,
     roles: ROLE_ANY,

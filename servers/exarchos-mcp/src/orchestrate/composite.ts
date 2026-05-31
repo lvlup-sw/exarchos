@@ -252,7 +252,7 @@ const ACTION_HANDLERS: Readonly<Record<string, ActionHandler>> = {
   validate_pr_body: adaptArgs(handleValidatePrBody),
   validate_pr_stack: adaptArgs(handleValidatePrStack),
   debug_review_gate: adaptArgs(handleDebugReviewGate),
-  extract_fix_tasks: adaptArgs(handleExtractFixTasks),
+  extract_fix_tasks: adaptArgsWithStateDirAndEventStore(handleExtractFixTasks),
   classify_review_items: adaptArgsWithEventStore(handleClassifyReviewItems),
   generate_traceability: adaptArgs(handleGenerateTraceability),
   spec_coverage_check: adaptArgs(handleSpecCoverageCheck),
@@ -267,7 +267,7 @@ const ACTION_HANDLERS: Readonly<Record<string, ActionHandler>> = {
   check_polish_scope: adaptArgs(handleCheckPolishScope),
   needs_schema_sync: adaptArgs(handleNeedsSchemaSync),
   verify_doc_links: adaptArgs(handleVerifyDocLinks),
-  verify_review_triage: adaptArgs(handleVerifyReviewTriage),
+  verify_review_triage: adaptArgsWithStateDirAndEventStore(handleVerifyReviewTriage),
   prepare_review: adapt(handlePrepareReview),
   check_invariant_conformance: adaptWithEventStore(handleCheckInvariantConformance),
   // Oneshot + pruning (T4): handlePruneStaleWorkflows already matches the
