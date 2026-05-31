@@ -1,0 +1,58 @@
+/**
+ * T1 (v2.10.1 Bundle A, #1472) — Canonical command → skill source-of-truth.
+ *
+ * `COMMAND_TO_SKILL` is the single authoritative mapping from a canonical
+ * workflow command name (the `commands/<name>.md` slash command, e.g. `/ideate`)
+ * to the underlying skill directory name(s) under `skills-src/<dir>/` that the
+ * command delegates to. Downstream consumers (T2 alias emission, T5 docs) read
+ * this map instead of re-deriving it, so there is exactly one place the mapping
+ * lives.
+ *
+ * Derived from the "Skill Reference" prose in each command file — specifically
+ * every `@skills/<dir>/SKILL.md` entry-point reference. A command may reference
+ * more than one skill:
+ *   - `delegate`  → `delegation` + `git-worktrees`
+ *   - `oneshot`   → `oneshot-workflow` + `synthesis`
+ *   - `review`    → `quality-review` + `spec-review`
+ *
+ * `@skills/<dir>/references/*.md` include paths are NOT skill entry points and
+ * are deliberately excluded.
+ *
+ * Commands that delegate to no skill are listed in `COMMAND_ONLY` and MUST NOT
+ * appear in `COMMAND_TO_SKILL`. The co-located drift guard
+ * (`canonical-skills.test.ts`) re-derives this map from the actual command files
+ * and fails CI on any divergence.
+ */
+
+/**
+ * Canonical command name → sorted list of skill directory names it delegates to.
+ * Skill dirs are sorted to give a stable, comparable shape for the drift guard.
+ */
+export const COMMAND_TO_SKILL: Readonly<Record<string, readonly string[]>> = {
+  checkpoint: ['workflow-state'],
+  cleanup: ['cleanup'],
+  debug: ['debug'],
+  delegate: ['delegation', 'git-worktrees'],
+  discover: ['discovery'],
+  dogfood: ['dogfood'],
+  ideate: ['brainstorming'],
+  invariants: ['authoring-invariants'],
+  oneshot: ['oneshot-workflow', 'synthesis'],
+  plan: ['implementation-planning'],
+  prune: ['prune-workflows'],
+  refactor: ['refactor'],
+  review: ['quality-review', 'spec-review'],
+  shepherd: ['shepherd'],
+  synthesize: ['synthesis'],
+  tdd: ['implementation-planning'],
+} as const;
+
+/**
+ * Canonical commands that delegate to no skill — they carry their own inline
+ * prompt (or defer to a `rules/*.md` rule) rather than chaining into a skill.
+ */
+export const COMMAND_ONLY: ReadonlySet<string> = new Set<string>([
+  'autocompact',
+  'rehydrate',
+  'tag',
+]);
