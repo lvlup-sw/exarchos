@@ -25,6 +25,7 @@ import {
   probeStashAndEmit,
 } from './dispatch-guard.js';
 import type { AncestryResult } from './dispatch-guard.js';
+import { assertWorktreeBaseRefPinned } from './worktree-baseref.js';
 import {
   WORKFLOW_STATE_VIEW,
 } from '../views/workflow-state-projection.js';
@@ -417,11 +418,15 @@ export async function handlePrepareDelegation(
       worktree: { passed: boolean };
       protectedBranch: { passed: boolean };
       mainWorktree: { passed: boolean };
+      baseRef: { passed: boolean };
     } = {
       ancestry: { passed: true },
       worktree: { passed: true },
       protectedBranch: { passed: true },
       mainWorktree: { passed: true },
+      // #1509/#1501: only runs on the nativeIsolation path; `true` here means
+      // "no failure observed" for dispatches that never run the guard.
+      baseRef: { passed: true },
     };
 
     /**
@@ -436,7 +441,8 @@ export async function handlePrepareDelegation(
         guardOutcomes.ancestry.passed &&
         guardOutcomes.worktree.passed &&
         guardOutcomes.protectedBranch.passed &&
-        guardOutcomes.mainWorktree.passed;
+        guardOutcomes.mainWorktree.passed &&
+        guardOutcomes.baseRef.passed;
       await emitAuditEvent(store, streamId, {
         type: 'dispatch.preflight',
         data: {
@@ -445,6 +451,13 @@ export async function handlePrepareDelegation(
             worktree: { passed: guardOutcomes.worktree.passed },
             protectedBranch: { passed: guardOutcomes.protectedBranch.passed },
             mainWorktree: { passed: guardOutcomes.mainWorktree.passed },
+            // #1509/#1501: the baseRef guard runs only on the nativeIsolation
+            // path. Omit it on non-native dispatches so telemetry reflects
+            // "not executed" by absence rather than a misleading passed:true
+            // (schema marks baseRef optional for exactly this reason).
+            ...(args.nativeIsolation
+              ? { baseRef: { passed: guardOutcomes.baseRef.passed } }
+              : {}),
           },
           passed,
           durationMs: Date.now() - preflightStart,
@@ -549,9 +562,46 @@ export async function handlePrepareDelegation(
           },
         };
       }
+    } else {
+      // ─── DR-2b (#1509/#1501): Native-isolation worktree base-pin guard ──
+      // Claude Code's `isolation: worktree` branches the subagent worktree
+      // from origin/HEAD (default branch = main) unless the consumer sets
+      // `worktree.baseRef: "head"`. Without the pin, a subagent dispatched
+      // onto a stacked/non-main integration branch gets a base missing every
+      // in-branch prerequisite — the #1509/#1501 failure. Fail loud here with
+      // the exact remediation rather than silently dispatching onto main.
+      const baseRefResult = assertWorktreeBaseRefPinned();
+      guardOutcomes.baseRef.passed = baseRefResult.pinned;
+      if (!baseRefResult.pinned) {
+        await emitAuditEvent(store, streamId, {
+          type: 'preflight.blocked',
+          data: {
+            reason: baseRefResult.reason,
+            details: {
+              effective: baseRefResult.effective,
+              checked: baseRefResult.checked,
+              remediation: baseRefResult.remediation,
+            },
+          },
+        });
+        await emitDispatchPreflight();
+
+        return {
+          success: true,
+          data: {
+            blocked: true,
+            reason: baseRefResult.reason,
+            effective: baseRefResult.effective,
+            remediation: baseRefResult.remediation,
+            hint: baseRefResult.hint,
+          },
+        };
+      }
     }
 
-    const checksRun = args.nativeIsolation ? ['ancestry'] : ['ancestry', 'worktree'];
+    const checksRun = args.nativeIsolation
+      ? ['ancestry', 'baseRef']
+      : ['ancestry', 'worktree'];
     await emitAuditEvent(store, streamId, {
       type: 'preflight.executed',
       data: {

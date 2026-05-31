@@ -1139,4 +1139,99 @@ describe('handleSetupWorktree', () => {
       expect(data.report).toMatch(/Branch created.*default/i);
     });
   });
+
+  // ── base-branch resolution (#1509/#1501 managed-path parity) ────────────
+  //
+  // The Exarchos-managed (non-native) worktree path must base subagent
+  // worktrees on the INTEGRATION TIP, not a stale `main`. Resolution mirrors
+  // prepare_delegation's integration-branch derivation:
+  //   args.baseBranch > synthesis.integrationBranch > current HEAD > 'main'
+  // The current-HEAD fallback closes the silent `?? 'main'` footgun: the
+  // orchestrator runs setup_worktree from the integration checkout, so HEAD
+  // *is* the integration tip when nothing more specific is supplied.
+
+  describe('base-branch resolution (#1509/#1501)', () => {
+    // Returns `currentBranch` for `git rev-parse --abbrev-ref HEAD`; lets each
+    // test stand the repo on an arbitrary integration branch.
+    function setupBaseResolutionMocks(currentBranch: string) {
+      vi.mocked(execFileSync).mockImplementation((cmd: unknown, args: unknown) => {
+        const cmdStr = String(cmd);
+        const argsArr = args as string[];
+        if (cmdStr === 'git' && argsArr.includes('show-ref')) {
+          const error = new Error('not found') as Error & { status: number };
+          error.status = 1;
+          throw error; // branch absent → handler creates it
+        }
+        if (cmdStr === 'git' && argsArr.includes('rev-parse') && argsArr.includes('--abbrev-ref')) {
+          return currentBranch;
+        }
+        if (cmdStr === 'git' && argsArr.includes('rev-parse')) return ''; // bare rev-parse HEAD / --git-dir
+        if (cmdStr === 'git' && argsArr.includes('branch')) return '';
+        if (cmdStr === 'git' && argsArr.includes('worktree')) return '';
+        return '';
+      });
+      vi.mocked(existsSync).mockImplementation((p: unknown) => {
+        const path = String(p);
+        if (path === '/repo/.gitignore') return true;
+        if (path.endsWith('/package.json')) return true;
+        return false;
+      });
+      vi.mocked(readFileSync).mockImplementation((p: unknown) => {
+        const path = String(p);
+        if (path === '/repo/.gitignore') return '.worktrees/\n';
+        if (path.endsWith('package.json')) return VALID_PACKAGE_JSON;
+        return '';
+      });
+    }
+
+    // Extract the base ref from the `git branch <name> <base>` invocation.
+    function createdBranchBase(): string | undefined {
+      const call = vi.mocked(execFileSync).mock.calls.find((c) => {
+        const a = c[1] as string[];
+        return c[0] === 'git' && Array.isArray(a) && a[2] === 'branch';
+      });
+      const a = call?.[1] as string[] | undefined;
+      return a?.[a.length - 1];
+    }
+
+    it('BaseBranch_ExplicitArg_Wins', () => {
+      setupBaseResolutionMocks('feat/head');
+      handleSetupWorktree(
+        { repoRoot: '/repo', taskId: 'T1', taskName: 'x', skipTests: true, baseBranch: 'release/x' },
+        { synthesis: { integrationBranch: 'feat/int' } },
+      );
+      expect(createdBranchBase()).toBe('release/x');
+    });
+
+    it('BaseBranch_SynthesisIntegrationBranch_WhenNoArg', () => {
+      setupBaseResolutionMocks('feat/head');
+      handleSetupWorktree(
+        { repoRoot: '/repo', taskId: 'T1', taskName: 'x', skipTests: true },
+        { synthesis: { integrationBranch: 'feat/int' } },
+      );
+      expect(createdBranchBase()).toBe('feat/int');
+    });
+
+    it('BaseBranch_CurrentHead_WhenNoArgOrSynthesis', () => {
+      // The regression guard: a stacked integration branch must NOT silently
+      // base on main. With no arg and no synthesis state, HEAD is the tip.
+      setupBaseResolutionMocks('feat/stacked');
+      handleSetupWorktree(
+        { repoRoot: '/repo', taskId: 'T1', taskName: 'x', skipTests: true },
+        undefined,
+      );
+      expect(createdBranchBase()).toBe('feat/stacked');
+      expect(createdBranchBase()).not.toBe('main');
+    });
+
+    it('BaseBranch_FallsBackToMain_WhenHeadUnresolvable', () => {
+      // Detached HEAD with no resolvable ref/SHA → safe legacy default.
+      setupBaseResolutionMocks('HEAD');
+      handleSetupWorktree(
+        { repoRoot: '/repo', taskId: 'T1', taskName: 'x', skipTests: true },
+        undefined,
+      );
+      expect(createdBranchBase()).toBe('main');
+    });
+  });
 });

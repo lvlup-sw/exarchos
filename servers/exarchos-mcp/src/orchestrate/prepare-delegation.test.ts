@@ -36,6 +36,15 @@ vi.mock('./dispatch-guard.js', () => ({
   probeStashAndEmit: vi.fn().mockResolvedValue(undefined),
 }));
 
+// #1509/#1501 — default the native-isolation base-pin guard to "pinned" so
+// existing nativeIsolation tests reach the readiness logic. Tests that exercise
+// the block override the return value per-case.
+vi.mock('./worktree-baseref.js', () => ({
+  assertWorktreeBaseRefPinned: vi
+    .fn()
+    .mockReturnValue({ pinned: true, effective: 'head', checked: [] }),
+}));
+
 vi.mock('../workflow/checkpoint.js', () => ({
   shouldEnforceCheckpoint: vi.fn().mockReturnValue({ gated: false }),
   CHECKPOINT_OPERATION_THRESHOLD: 20,
@@ -62,6 +71,7 @@ import {
   assertCurrentBranchNotProtected,
 } from './dispatch-guard.js';
 import { shouldEnforceCheckpoint } from '../workflow/checkpoint.js';
+import { assertWorktreeBaseRefPinned } from './worktree-baseref.js';
 import { DEFAULTS } from '../config/resolve.js';
 
 const STATE_DIR = '/tmp/test-state';
@@ -221,6 +231,12 @@ describe('handlePrepareDelegation', () => {
       expected: 'main worktree (no .claude/worktrees/ in path)',
     });
     vi.mocked(shouldEnforceCheckpoint).mockReturnValue({ gated: false });
+    // #1509/#1501 — default the native-isolation base-pin guard to "pinned".
+    vi.mocked(assertWorktreeBaseRefPinned).mockReturnValue({
+      pinned: true,
+      effective: 'head',
+      checked: [],
+    });
   });
 
   it('PrepareDelegation_MissingFeatureId_ReturnsInvalidInput', async () => {
@@ -889,6 +905,78 @@ describe('handlePrepareDelegation', () => {
     const data = result.data as { ready: boolean; isolation: string; blockers?: string[] };
     expect(data.ready).toBe(true);
     expect(data.isolation).toBe('native');
+  });
+
+  // ─── #1509/#1501: native-isolation worktree base-pin guard ────────────────
+
+  it('PrepareDelegation_NativeIsolation_BaseRefUnset_BlocksWithRemediation', async () => {
+    // Arrange: nativeIsolation requested, but worktree.baseRef is NOT pinned to
+    // "head" — Claude Code would branch the subagent worktree from main.
+    const state = readyWorkflowState();
+    setupMaterializer(state, undefined, readyDelegationReadiness());
+    vi.mocked(assertWorktreeBaseRefPinned).mockReturnValue({
+      pinned: false,
+      effective: null,
+      checked: ['/repo/.claude/settings.local.json', '/repo/.claude/settings.json'],
+      reason: 'worktree-baseref-unset',
+      remediation: { file: '.claude/settings.json', patch: { worktree: { baseRef: 'head' } } },
+      hint: 'set worktree.baseRef:"head"',
+    });
+    const args = { featureId: 'test-feature', nativeIsolation: true };
+
+    // Act
+    const result = await handlePrepareDelegation(args, STATE_DIR, makeCtx(mockStore, STATE_DIR));
+
+    // Assert — dispatch is blocked loud, with the exact remediation
+    expect(result.success).toBe(true);
+    const data = result.data as {
+      blocked: boolean;
+      reason: string;
+      effective: string | null;
+      remediation: { file: string; patch: unknown };
+    };
+    expect(data.blocked).toBe(true);
+    expect(data.reason).toBe('worktree-baseref-unset');
+    expect(data.effective).toBeNull();
+    expect(data.remediation).toEqual({
+      file: '.claude/settings.json',
+      patch: { worktree: { baseRef: 'head' } },
+    });
+  });
+
+  it('PrepareDelegation_NativeIsolation_BaseRefPinned_RunsGuardAndProceeds', async () => {
+    // Arrange: nativeIsolation with baseRef pinned (default mock) → proceeds.
+    const state = readyWorkflowState();
+    setupMaterializer(state, undefined, readyDelegationReadiness());
+    vi.mocked(generateQualityHints).mockReturnValue([]);
+    const args = { featureId: 'test-feature', nativeIsolation: true };
+
+    // Act
+    const result = await handlePrepareDelegation(args, STATE_DIR, makeCtx(mockStore, STATE_DIR));
+
+    // Assert — guard ran on the native path, dispatch proceeds
+    expect(assertWorktreeBaseRefPinned).toHaveBeenCalled();
+    expect(result.success).toBe(true);
+    const data = result.data as { ready: boolean; isolation?: string; blocked?: boolean };
+    expect(data.blocked).toBeUndefined();
+    expect(data.ready).toBe(true);
+    expect(data.isolation).toBe('native');
+  });
+
+  it('PrepareDelegation_NonNativeIsolation_DoesNotRunBaseRefGuard', async () => {
+    // Arrange: default (non-native) path — the baseRef guard is irrelevant
+    // (exarchos manages the worktree base explicitly via setup_worktree).
+    const state = readyWorkflowState();
+    setupMaterializer(state, undefined, readyDelegationReadiness());
+    vi.mocked(generateQualityHints).mockReturnValue([]);
+    const args = { featureId: 'test-feature' };
+
+    // Act
+    const result = await handlePrepareDelegation(args, STATE_DIR, makeCtx(mockStore, STATE_DIR));
+
+    // Assert — guard never consulted on the non-native path
+    expect(assertWorktreeBaseRefPinned).not.toHaveBeenCalled();
+    expect(result.success).toBe(true);
   });
 
   it('PrepareDelegation_NativeIsolationFalse_PreservesWorktreeBlockers', async () => {

@@ -352,14 +352,15 @@ first.
 
 ### Why this happens
 
-Each subagent worktree is created at the integration branch's tip at
-dispatch time. When the orchestrator merges sibling worktrees serially,
-each merge moves the integration branch forward. A worktree that was
-dispatched against an older integration tip will fail the ancestry
-preflight when its turn comes.
+With the worktree base pinned to local HEAD (see prerequisite below), each
+subagent worktree is created at the integration branch's tip at dispatch time.
+When the orchestrator merges sibling worktrees serially, each merge moves the
+integration branch forward. A worktree that was dispatched against an older
+integration tip will fail the ancestry preflight when its turn comes.
 
 This is expected behavior under the current single-writer merge contract —
 preflight is fail-only on purpose so the operator stays in control.
+
 
 ### Recovery procedure
 

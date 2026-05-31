@@ -57,6 +57,23 @@ Before making ANY file changes:
    `.worktrees`, not the literal substring `.worktrees/`.)
 3. If NOT in worktree: STOP and report error
 
+## Base Verification
+Before making ANY file changes, verify your worktree is based on the
+**integration tip**, not a stale `main`. Native `isolation: worktree` branches
+from the repo default branch (`origin/HEAD`) unless `worktree.baseRef: "head"`
+is set; this assert halts loud if the base is wrong, so you never build on a
+base missing prerequisite in-branch commits (issues #1509 / #1501):
+
+```bash
+git -C "<absolute worktree path>" merge-base --is-ancestor "<integration-tip>" HEAD \
+  && echo "BASE OK" \
+  || { echo "ERROR: worktree base is not a descendant of the integration tip — halting"; exit 1; }
+```
+
+`<integration-tip>` is the workflow's integration branch (or its tip SHA),
+supplied by the orchestrator at dispatch. If this fails, STOP and report — do
+NOT rebase or reset to self-heal; the orchestrator owns base correction.
+
 ## Task
 {{taskDescription}}
 
