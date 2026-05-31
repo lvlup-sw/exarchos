@@ -255,61 +255,9 @@ For a complete worked example, see \`references/worked-example.md\`.
 
 **Goal:** Surface the architectural invariants relevant to the proposal *before* the clarifying questions, so the design is anchored to load-bearing constraints from the first turn.
 
-**Source of truth:** Load \`.exarchos/invariants.md\` — the machine-readable catalog of \`INV-*\` invariants (event-sourcing integrity, facade equivalence, basileus-forward, platform-agnosticity, agent-first input/output/verbs/discriminator, workflow-agnosticism).
+Load the **core** invariants catalog at \`.exarchos/invariants.md\` (entries marked \`cost-of-load: always-load\`) and surface a **Constraints** section naming the relevant invariants — e.g. a CLI / agent-first surface proposal anchors on \`INV-5a\` (input ergonomics) and \`INV-5c\` (Aspire verbs). The full selection rules — \`always-load\` baseline vs \`reference-only\` on-demand vs \`archivable\` not-surfaced, the proposal-shape → anchor-invariant table, the emit format, and the \`invariants.devCatalog\` gating — are the **single shared source of truth** for the design-time Constraints step used by \`/ideate\`, \`/refactor\`, and \`/debug\`. See \`@skills/brainstorming/references/constraint-anchoring.md\`.
 
-**Selection rules — which invariants to surface as Constraints:**
-
-| Proposal shape | Anchor invariants (minimum) |
-|---|---|
-| CLI command / agent surface / new MCP action | \`INV-5a\` (input ergonomics), \`INV-5b\` (output contract), \`INV-5c\` (Aspire-style verbs), \`INV-5d\` (action discriminator) |
-| Event store / projection / workflow state | \`INV-1\` (event-sourcing integrity), \`INV-2\` (facade equivalence — if the projection feeds both adapters) |
-| Skills / commands / runtime authoring | \`INV-4\` (platform-agnosticity), \`INV-6\` (workflow-agnosticism) |
-| Basileus or cross-product coordination | \`INV-3\` (basileus-forward), \`basileus-boundary\` |
-| Multi-surface design (most non-trivial proposals) | Union of the above rows that apply |
-
-**Emit format (before Phase 1 questions):**
-
-\`\`\`markdown
-## Constraints
-
-Anchored to .exarchos/invariants.md:
-- INV-5a: <one-sentence summary from the catalog>
-- INV-5c: <one-sentence summary from the catalog>
-
-(Probe Phase 1 questions against these.)
-\`\`\`
-
-The \`summary\` field of each catalog entry is the canonical one-sentence form — reuse it verbatim so the surfaced Constraints stay in sync with the catalog as it evolves.
-
-### Phase 0: Constraint anchoring (first turn, before Phase 1)
-
-**Goal:** Surface the architectural invariants relevant to the proposal *before* the clarifying questions, so the design is anchored to load-bearing constraints from the first turn.
-
-**Source of truth:** Load \`.exarchos/invariants.md\` — the machine-readable catalog of \`INV-*\` invariants (event-sourcing integrity, facade equivalence, basileus-forward, platform-agnosticity, agent-first input/output/verbs/discriminator, workflow-agnosticism).
-
-**Selection rules — which invariants to surface as Constraints:**
-
-| Proposal shape | Anchor invariants (minimum) |
-|---|---|
-| CLI command / agent surface / new MCP action | \`INV-5a\` (input ergonomics), \`INV-5b\` (output contract), \`INV-5c\` (Aspire-style verbs), \`INV-5d\` (action discriminator) |
-| Event store / projection / workflow state | \`INV-1\` (event-sourcing integrity), \`INV-2\` (facade equivalence — if the projection feeds both adapters) |
-| Skills / commands / runtime authoring | \`INV-4\` (platform-agnosticity), \`INV-6\` (workflow-agnosticism) |
-| Basileus or cross-product coordination | \`INV-3\` (basileus-forward), \`basileus-boundary\` |
-| Multi-surface design (most non-trivial proposals) | Union of the above rows that apply |
-
-**Emit format (before Phase 1 questions):**
-
-\`\`\`markdown
-## Constraints
-
-Anchored to .exarchos/invariants.md:
-- INV-5a: <one-sentence summary from the catalog>
-- INV-5c: <one-sentence summary from the catalog>
-
-(Probe Phase 1 questions against these.)
-\`\`\`
-
-The \`summary\` field of each catalog entry is the canonical one-sentence form — reuse it verbatim so the surfaced Constraints stay in sync with the catalog as it evolves.
+Emit the **Constraints** section (per that reference) *before* Phase 1 so the clarifying questions can probe the proposal against the load-bearing invariants instead of re-discovering them mid-design.
 
 ### Phase 1: Understanding
 
@@ -777,6 +725,10 @@ Fix bugs with proper rigor. Full RCA documentation.
 **HSM phases:** \`triage\` → \`investigate\` → \`rca\` → \`design\` → \`debug-implement\` (worktree + TDD) → \`debug-validate\` → \`debug-review\` → \`synthesize\` → \`completed\`
 
 For detailed phase instructions, see \`references/thorough-track.md\`. For systematic investigation methodology, see \`references/investigation-checklist.md\`.
+
+### Design-time Constraints (Thorough Track: rca + design phases)
+
+The \`rca\` and \`design\` phases are the thorough track's design-time surfaces. At these phases — *before* committing to a fix approach — surface a **Constraints** section anchored to the architectural invariants relevant to the fix. This is the debug design-time equivalent of \`/ideate\`'s Phase 0 and uses the **same single shared source of truth** for the selection rules and devCatalog gating: see \`@skills/brainstorming/references/constraint-anchoring.md\`. Load \`.exarchos/invariants.md\` (\`cost-of-load: always-load\` entries) and emit the Constraints section. **devCatalog-gated:** when \`.exarchos.yml: invariants.devCatalog: enabled\` is unset or \`disabled\`, surface no Constraints section and proceed directly. The hotfix track skips this step (speed over ceremony).
 
 ### Characterization Testing (Thorough Track Only)
 
@@ -3377,9 +3329,11 @@ If this review follows a delegation phase, verify triage routing:
 \`\`\`typescript
 exarchos_orchestrate({
   action: "verify_review_triage",
-  stateFile: "<state-file>"
+  featureId: "<feature-id>"
 })
 \`\`\`
+
+\`featureId\` resolves PRs (event-store projection) and \`review.routed\` events directly from the store — no \`.state.json\`/\`.events.jsonl\` needed (INV-1). A legacy file-based workflow may instead pass \`stateFile\` + \`eventStream\`.
 
 \`passed: true\`: triage routing correct — continue to Step 1. \`passed: false\`: triage issues found — investigate and resolve before proceeding.
 
@@ -3720,6 +3674,10 @@ Before modifying any existing code behavior, capture current behavior as charact
 3. **After changes:** Document which characterization test failures were expected. Remaining characterization tests become regression tests.
 
 This aligns with Michael Feathers' approach in *Working Effectively with Legacy Code* — understand behavior before changing it.
+
+## Design-time Constraints (Both Tracks)
+
+At the **brief phase**, *before* committing to an approach, surface a **Constraints** section anchored to the architectural invariants relevant to the refactor. This is the refactor design-time equivalent of \`/ideate\`'s Phase 0 and uses the **same single shared source of truth** for the selection rules: see \`@skills/brainstorming/references/constraint-anchoring.md\`. Load \`.exarchos/invariants.md\` (\`cost-of-load: always-load\` entries) and emit the Constraints section. **devCatalog-gated:** when \`.exarchos.yml: invariants.devCatalog: enabled\` is unset or \`disabled\`, surface no Constraints section and proceed directly. See \`@skills/refactor/references/brief-template.md\` for the brief-phase placement.
 
 ## Polish Track
 
@@ -5228,61 +5186,9 @@ For a complete worked example, see \`references/worked-example.md\`.
 
 **Goal:** Surface the architectural invariants relevant to the proposal *before* the clarifying questions, so the design is anchored to load-bearing constraints from the first turn.
 
-**Source of truth:** Load \`.exarchos/invariants.md\` — the machine-readable catalog of \`INV-*\` invariants (event-sourcing integrity, facade equivalence, basileus-forward, platform-agnosticity, agent-first input/output/verbs/discriminator, workflow-agnosticism).
+Load the **core** invariants catalog at \`.exarchos/invariants.md\` (entries marked \`cost-of-load: always-load\`) and surface a **Constraints** section naming the relevant invariants — e.g. a CLI / agent-first surface proposal anchors on \`INV-5a\` (input ergonomics) and \`INV-5c\` (Aspire verbs). The full selection rules — \`always-load\` baseline vs \`reference-only\` on-demand vs \`archivable\` not-surfaced, the proposal-shape → anchor-invariant table, the emit format, and the \`invariants.devCatalog\` gating — are the **single shared source of truth** for the design-time Constraints step used by \`/ideate\`, \`/refactor\`, and \`/debug\`. See \`@skills/brainstorming/references/constraint-anchoring.md\`.
 
-**Selection rules — which invariants to surface as Constraints:**
-
-| Proposal shape | Anchor invariants (minimum) |
-|---|---|
-| CLI command / agent surface / new MCP action | \`INV-5a\` (input ergonomics), \`INV-5b\` (output contract), \`INV-5c\` (Aspire-style verbs), \`INV-5d\` (action discriminator) |
-| Event store / projection / workflow state | \`INV-1\` (event-sourcing integrity), \`INV-2\` (facade equivalence — if the projection feeds both adapters) |
-| Skills / commands / runtime authoring | \`INV-4\` (platform-agnosticity), \`INV-6\` (workflow-agnosticism) |
-| Basileus or cross-product coordination | \`INV-3\` (basileus-forward), \`basileus-boundary\` |
-| Multi-surface design (most non-trivial proposals) | Union of the above rows that apply |
-
-**Emit format (before Phase 1 questions):**
-
-\`\`\`markdown
-## Constraints
-
-Anchored to .exarchos/invariants.md:
-- INV-5a: <one-sentence summary from the catalog>
-- INV-5c: <one-sentence summary from the catalog>
-
-(Probe Phase 1 questions against these.)
-\`\`\`
-
-The \`summary\` field of each catalog entry is the canonical one-sentence form — reuse it verbatim so the surfaced Constraints stay in sync with the catalog as it evolves.
-
-### Phase 0: Constraint anchoring (first turn, before Phase 1)
-
-**Goal:** Surface the architectural invariants relevant to the proposal *before* the clarifying questions, so the design is anchored to load-bearing constraints from the first turn.
-
-**Source of truth:** Load \`.exarchos/invariants.md\` — the machine-readable catalog of \`INV-*\` invariants (event-sourcing integrity, facade equivalence, basileus-forward, platform-agnosticity, agent-first input/output/verbs/discriminator, workflow-agnosticism).
-
-**Selection rules — which invariants to surface as Constraints:**
-
-| Proposal shape | Anchor invariants (minimum) |
-|---|---|
-| CLI command / agent surface / new MCP action | \`INV-5a\` (input ergonomics), \`INV-5b\` (output contract), \`INV-5c\` (Aspire-style verbs), \`INV-5d\` (action discriminator) |
-| Event store / projection / workflow state | \`INV-1\` (event-sourcing integrity), \`INV-2\` (facade equivalence — if the projection feeds both adapters) |
-| Skills / commands / runtime authoring | \`INV-4\` (platform-agnosticity), \`INV-6\` (workflow-agnosticism) |
-| Basileus or cross-product coordination | \`INV-3\` (basileus-forward), \`basileus-boundary\` |
-| Multi-surface design (most non-trivial proposals) | Union of the above rows that apply |
-
-**Emit format (before Phase 1 questions):**
-
-\`\`\`markdown
-## Constraints
-
-Anchored to .exarchos/invariants.md:
-- INV-5a: <one-sentence summary from the catalog>
-- INV-5c: <one-sentence summary from the catalog>
-
-(Probe Phase 1 questions against these.)
-\`\`\`
-
-The \`summary\` field of each catalog entry is the canonical one-sentence form — reuse it verbatim so the surfaced Constraints stay in sync with the catalog as it evolves.
+Emit the **Constraints** section (per that reference) *before* Phase 1 so the clarifying questions can probe the proposal against the load-bearing invariants instead of re-discovering them mid-design.
 
 ### Phase 1: Understanding
 
@@ -5750,6 +5656,10 @@ Fix bugs with proper rigor. Full RCA documentation.
 **HSM phases:** \`triage\` → \`investigate\` → \`rca\` → \`design\` → \`debug-implement\` (worktree + TDD) → \`debug-validate\` → \`debug-review\` → \`synthesize\` → \`completed\`
 
 For detailed phase instructions, see \`references/thorough-track.md\`. For systematic investigation methodology, see \`references/investigation-checklist.md\`.
+
+### Design-time Constraints (Thorough Track: rca + design phases)
+
+The \`rca\` and \`design\` phases are the thorough track's design-time surfaces. At these phases — *before* committing to a fix approach — surface a **Constraints** section anchored to the architectural invariants relevant to the fix. This is the debug design-time equivalent of \`/ideate\`'s Phase 0 and uses the **same single shared source of truth** for the selection rules and devCatalog gating: see \`@skills/brainstorming/references/constraint-anchoring.md\`. Load \`.exarchos/invariants.md\` (\`cost-of-load: always-load\` entries) and emit the Constraints section. **devCatalog-gated:** when \`.exarchos.yml: invariants.devCatalog: enabled\` is unset or \`disabled\`, surface no Constraints section and proceed directly. The hotfix track skips this step (speed over ceremony).
 
 ### Characterization Testing (Thorough Track Only)
 
@@ -8303,9 +8213,11 @@ If this review follows a delegation phase, verify triage routing:
 \`\`\`typescript
 exarchos_orchestrate({
   action: "verify_review_triage",
-  stateFile: "<state-file>"
+  featureId: "<feature-id>"
 })
 \`\`\`
+
+\`featureId\` resolves PRs (event-store projection) and \`review.routed\` events directly from the store — no \`.state.json\`/\`.events.jsonl\` needed (INV-1). A legacy file-based workflow may instead pass \`stateFile\` + \`eventStream\`.
 
 \`passed: true\`: triage routing correct — continue to Step 1. \`passed: false\`: triage issues found — investigate and resolve before proceeding.
 
@@ -8646,6 +8558,10 @@ Before modifying any existing code behavior, capture current behavior as charact
 3. **After changes:** Document which characterization test failures were expected. Remaining characterization tests become regression tests.
 
 This aligns with Michael Feathers' approach in *Working Effectively with Legacy Code* — understand behavior before changing it.
+
+## Design-time Constraints (Both Tracks)
+
+At the **brief phase**, *before* committing to an approach, surface a **Constraints** section anchored to the architectural invariants relevant to the refactor. This is the refactor design-time equivalent of \`/ideate\`'s Phase 0 and uses the **same single shared source of truth** for the selection rules: see \`@skills/brainstorming/references/constraint-anchoring.md\`. Load \`.exarchos/invariants.md\` (\`cost-of-load: always-load\` entries) and emit the Constraints section. **devCatalog-gated:** when \`.exarchos.yml: invariants.devCatalog: enabled\` is unset or \`disabled\`, surface no Constraints section and proceed directly. See \`@skills/refactor/references/brief-template.md\` for the brief-phase placement.
 
 ## Polish Track
 
@@ -10154,61 +10070,9 @@ For a complete worked example, see \`references/worked-example.md\`.
 
 **Goal:** Surface the architectural invariants relevant to the proposal *before* the clarifying questions, so the design is anchored to load-bearing constraints from the first turn.
 
-**Source of truth:** Load \`.exarchos/invariants.md\` — the machine-readable catalog of \`INV-*\` invariants (event-sourcing integrity, facade equivalence, basileus-forward, platform-agnosticity, agent-first input/output/verbs/discriminator, workflow-agnosticism).
+Load the **core** invariants catalog at \`.exarchos/invariants.md\` (entries marked \`cost-of-load: always-load\`) and surface a **Constraints** section naming the relevant invariants — e.g. a CLI / agent-first surface proposal anchors on \`INV-5a\` (input ergonomics) and \`INV-5c\` (Aspire verbs). The full selection rules — \`always-load\` baseline vs \`reference-only\` on-demand vs \`archivable\` not-surfaced, the proposal-shape → anchor-invariant table, the emit format, and the \`invariants.devCatalog\` gating — are the **single shared source of truth** for the design-time Constraints step used by \`/ideate\`, \`/refactor\`, and \`/debug\`. See \`@skills/brainstorming/references/constraint-anchoring.md\`.
 
-**Selection rules — which invariants to surface as Constraints:**
-
-| Proposal shape | Anchor invariants (minimum) |
-|---|---|
-| CLI command / agent surface / new MCP action | \`INV-5a\` (input ergonomics), \`INV-5b\` (output contract), \`INV-5c\` (Aspire-style verbs), \`INV-5d\` (action discriminator) |
-| Event store / projection / workflow state | \`INV-1\` (event-sourcing integrity), \`INV-2\` (facade equivalence — if the projection feeds both adapters) |
-| Skills / commands / runtime authoring | \`INV-4\` (platform-agnosticity), \`INV-6\` (workflow-agnosticism) |
-| Basileus or cross-product coordination | \`INV-3\` (basileus-forward), \`basileus-boundary\` |
-| Multi-surface design (most non-trivial proposals) | Union of the above rows that apply |
-
-**Emit format (before Phase 1 questions):**
-
-\`\`\`markdown
-## Constraints
-
-Anchored to .exarchos/invariants.md:
-- INV-5a: <one-sentence summary from the catalog>
-- INV-5c: <one-sentence summary from the catalog>
-
-(Probe Phase 1 questions against these.)
-\`\`\`
-
-The \`summary\` field of each catalog entry is the canonical one-sentence form — reuse it verbatim so the surfaced Constraints stay in sync with the catalog as it evolves.
-
-### Phase 0: Constraint anchoring (first turn, before Phase 1)
-
-**Goal:** Surface the architectural invariants relevant to the proposal *before* the clarifying questions, so the design is anchored to load-bearing constraints from the first turn.
-
-**Source of truth:** Load \`.exarchos/invariants.md\` — the machine-readable catalog of \`INV-*\` invariants (event-sourcing integrity, facade equivalence, basileus-forward, platform-agnosticity, agent-first input/output/verbs/discriminator, workflow-agnosticism).
-
-**Selection rules — which invariants to surface as Constraints:**
-
-| Proposal shape | Anchor invariants (minimum) |
-|---|---|
-| CLI command / agent surface / new MCP action | \`INV-5a\` (input ergonomics), \`INV-5b\` (output contract), \`INV-5c\` (Aspire-style verbs), \`INV-5d\` (action discriminator) |
-| Event store / projection / workflow state | \`INV-1\` (event-sourcing integrity), \`INV-2\` (facade equivalence — if the projection feeds both adapters) |
-| Skills / commands / runtime authoring | \`INV-4\` (platform-agnosticity), \`INV-6\` (workflow-agnosticism) |
-| Basileus or cross-product coordination | \`INV-3\` (basileus-forward), \`basileus-boundary\` |
-| Multi-surface design (most non-trivial proposals) | Union of the above rows that apply |
-
-**Emit format (before Phase 1 questions):**
-
-\`\`\`markdown
-## Constraints
-
-Anchored to .exarchos/invariants.md:
-- INV-5a: <one-sentence summary from the catalog>
-- INV-5c: <one-sentence summary from the catalog>
-
-(Probe Phase 1 questions against these.)
-\`\`\`
-
-The \`summary\` field of each catalog entry is the canonical one-sentence form — reuse it verbatim so the surfaced Constraints stay in sync with the catalog as it evolves.
+Emit the **Constraints** section (per that reference) *before* Phase 1 so the clarifying questions can probe the proposal against the load-bearing invariants instead of re-discovering them mid-design.
 
 ### Phase 1: Understanding
 
@@ -10676,6 +10540,10 @@ Fix bugs with proper rigor. Full RCA documentation.
 **HSM phases:** \`triage\` → \`investigate\` → \`rca\` → \`design\` → \`debug-implement\` (worktree + TDD) → \`debug-validate\` → \`debug-review\` → \`synthesize\` → \`completed\`
 
 For detailed phase instructions, see \`references/thorough-track.md\`. For systematic investigation methodology, see \`references/investigation-checklist.md\`.
+
+### Design-time Constraints (Thorough Track: rca + design phases)
+
+The \`rca\` and \`design\` phases are the thorough track's design-time surfaces. At these phases — *before* committing to a fix approach — surface a **Constraints** section anchored to the architectural invariants relevant to the fix. This is the debug design-time equivalent of \`/ideate\`'s Phase 0 and uses the **same single shared source of truth** for the selection rules and devCatalog gating: see \`@skills/brainstorming/references/constraint-anchoring.md\`. Load \`.exarchos/invariants.md\` (\`cost-of-load: always-load\` entries) and emit the Constraints section. **devCatalog-gated:** when \`.exarchos.yml: invariants.devCatalog: enabled\` is unset or \`disabled\`, surface no Constraints section and proceed directly. The hotfix track skips this step (speed over ceremony).
 
 ### Characterization Testing (Thorough Track Only)
 
@@ -13221,9 +13089,11 @@ If this review follows a delegation phase, verify triage routing:
 \`\`\`typescript
 exarchos_orchestrate({
   action: "verify_review_triage",
-  stateFile: "<state-file>"
+  featureId: "<feature-id>"
 })
 \`\`\`
+
+\`featureId\` resolves PRs (event-store projection) and \`review.routed\` events directly from the store — no \`.state.json\`/\`.events.jsonl\` needed (INV-1). A legacy file-based workflow may instead pass \`stateFile\` + \`eventStream\`.
 
 \`passed: true\`: triage routing correct — continue to Step 1. \`passed: false\`: triage issues found — investigate and resolve before proceeding.
 
@@ -13564,6 +13434,10 @@ Before modifying any existing code behavior, capture current behavior as charact
 3. **After changes:** Document which characterization test failures were expected. Remaining characterization tests become regression tests.
 
 This aligns with Michael Feathers' approach in *Working Effectively with Legacy Code* — understand behavior before changing it.
+
+## Design-time Constraints (Both Tracks)
+
+At the **brief phase**, *before* committing to an approach, surface a **Constraints** section anchored to the architectural invariants relevant to the refactor. This is the refactor design-time equivalent of \`/ideate\`'s Phase 0 and uses the **same single shared source of truth** for the selection rules: see \`@skills/brainstorming/references/constraint-anchoring.md\`. Load \`.exarchos/invariants.md\` (\`cost-of-load: always-load\` entries) and emit the Constraints section. **devCatalog-gated:** when \`.exarchos.yml: invariants.devCatalog: enabled\` is unset or \`disabled\`, surface no Constraints section and proceed directly. See \`@skills/refactor/references/brief-template.md\` for the brief-phase placement.
 
 ## Polish Track
 
@@ -15072,61 +14946,9 @@ For a complete worked example, see \`references/worked-example.md\`.
 
 **Goal:** Surface the architectural invariants relevant to the proposal *before* the clarifying questions, so the design is anchored to load-bearing constraints from the first turn.
 
-**Source of truth:** Load \`.exarchos/invariants.md\` — the machine-readable catalog of \`INV-*\` invariants (event-sourcing integrity, facade equivalence, basileus-forward, platform-agnosticity, agent-first input/output/verbs/discriminator, workflow-agnosticism).
+Load the **core** invariants catalog at \`.exarchos/invariants.md\` (entries marked \`cost-of-load: always-load\`) and surface a **Constraints** section naming the relevant invariants — e.g. a CLI / agent-first surface proposal anchors on \`INV-5a\` (input ergonomics) and \`INV-5c\` (Aspire verbs). The full selection rules — \`always-load\` baseline vs \`reference-only\` on-demand vs \`archivable\` not-surfaced, the proposal-shape → anchor-invariant table, the emit format, and the \`invariants.devCatalog\` gating — are the **single shared source of truth** for the design-time Constraints step used by \`/ideate\`, \`/refactor\`, and \`/debug\`. See \`@skills/brainstorming/references/constraint-anchoring.md\`.
 
-**Selection rules — which invariants to surface as Constraints:**
-
-| Proposal shape | Anchor invariants (minimum) |
-|---|---|
-| CLI command / agent surface / new MCP action | \`INV-5a\` (input ergonomics), \`INV-5b\` (output contract), \`INV-5c\` (Aspire-style verbs), \`INV-5d\` (action discriminator) |
-| Event store / projection / workflow state | \`INV-1\` (event-sourcing integrity), \`INV-2\` (facade equivalence — if the projection feeds both adapters) |
-| Skills / commands / runtime authoring | \`INV-4\` (platform-agnosticity), \`INV-6\` (workflow-agnosticism) |
-| Basileus or cross-product coordination | \`INV-3\` (basileus-forward), \`basileus-boundary\` |
-| Multi-surface design (most non-trivial proposals) | Union of the above rows that apply |
-
-**Emit format (before Phase 1 questions):**
-
-\`\`\`markdown
-## Constraints
-
-Anchored to .exarchos/invariants.md:
-- INV-5a: <one-sentence summary from the catalog>
-- INV-5c: <one-sentence summary from the catalog>
-
-(Probe Phase 1 questions against these.)
-\`\`\`
-
-The \`summary\` field of each catalog entry is the canonical one-sentence form — reuse it verbatim so the surfaced Constraints stay in sync with the catalog as it evolves.
-
-### Phase 0: Constraint anchoring (first turn, before Phase 1)
-
-**Goal:** Surface the architectural invariants relevant to the proposal *before* the clarifying questions, so the design is anchored to load-bearing constraints from the first turn.
-
-**Source of truth:** Load \`.exarchos/invariants.md\` — the machine-readable catalog of \`INV-*\` invariants (event-sourcing integrity, facade equivalence, basileus-forward, platform-agnosticity, agent-first input/output/verbs/discriminator, workflow-agnosticism).
-
-**Selection rules — which invariants to surface as Constraints:**
-
-| Proposal shape | Anchor invariants (minimum) |
-|---|---|
-| CLI command / agent surface / new MCP action | \`INV-5a\` (input ergonomics), \`INV-5b\` (output contract), \`INV-5c\` (Aspire-style verbs), \`INV-5d\` (action discriminator) |
-| Event store / projection / workflow state | \`INV-1\` (event-sourcing integrity), \`INV-2\` (facade equivalence — if the projection feeds both adapters) |
-| Skills / commands / runtime authoring | \`INV-4\` (platform-agnosticity), \`INV-6\` (workflow-agnosticism) |
-| Basileus or cross-product coordination | \`INV-3\` (basileus-forward), \`basileus-boundary\` |
-| Multi-surface design (most non-trivial proposals) | Union of the above rows that apply |
-
-**Emit format (before Phase 1 questions):**
-
-\`\`\`markdown
-## Constraints
-
-Anchored to .exarchos/invariants.md:
-- INV-5a: <one-sentence summary from the catalog>
-- INV-5c: <one-sentence summary from the catalog>
-
-(Probe Phase 1 questions against these.)
-\`\`\`
-
-The \`summary\` field of each catalog entry is the canonical one-sentence form — reuse it verbatim so the surfaced Constraints stay in sync with the catalog as it evolves.
+Emit the **Constraints** section (per that reference) *before* Phase 1 so the clarifying questions can probe the proposal against the load-bearing invariants instead of re-discovering them mid-design.
 
 ### Phase 1: Understanding
 
@@ -15594,6 +15416,10 @@ Fix bugs with proper rigor. Full RCA documentation.
 **HSM phases:** \`triage\` → \`investigate\` → \`rca\` → \`design\` → \`debug-implement\` (worktree + TDD) → \`debug-validate\` → \`debug-review\` → \`synthesize\` → \`completed\`
 
 For detailed phase instructions, see \`references/thorough-track.md\`. For systematic investigation methodology, see \`references/investigation-checklist.md\`.
+
+### Design-time Constraints (Thorough Track: rca + design phases)
+
+The \`rca\` and \`design\` phases are the thorough track's design-time surfaces. At these phases — *before* committing to a fix approach — surface a **Constraints** section anchored to the architectural invariants relevant to the fix. This is the debug design-time equivalent of \`/ideate\`'s Phase 0 and uses the **same single shared source of truth** for the selection rules and devCatalog gating: see \`@skills/brainstorming/references/constraint-anchoring.md\`. Load \`.exarchos/invariants.md\` (\`cost-of-load: always-load\` entries) and emit the Constraints section. **devCatalog-gated:** when \`.exarchos.yml: invariants.devCatalog: enabled\` is unset or \`disabled\`, surface no Constraints section and proceed directly. The hotfix track skips this step (speed over ceremony).
 
 ### Characterization Testing (Thorough Track Only)
 
@@ -18149,9 +17975,11 @@ If this review follows a delegation phase, verify triage routing:
 \`\`\`typescript
 exarchos_orchestrate({
   action: "verify_review_triage",
-  stateFile: "<state-file>"
+  featureId: "<feature-id>"
 })
 \`\`\`
+
+\`featureId\` resolves PRs (event-store projection) and \`review.routed\` events directly from the store — no \`.state.json\`/\`.events.jsonl\` needed (INV-1). A legacy file-based workflow may instead pass \`stateFile\` + \`eventStream\`.
 
 \`passed: true\`: triage routing correct — continue to Step 1. \`passed: false\`: triage issues found — investigate and resolve before proceeding.
 
@@ -18492,6 +18320,10 @@ Before modifying any existing code behavior, capture current behavior as charact
 3. **After changes:** Document which characterization test failures were expected. Remaining characterization tests become regression tests.
 
 This aligns with Michael Feathers' approach in *Working Effectively with Legacy Code* — understand behavior before changing it.
+
+## Design-time Constraints (Both Tracks)
+
+At the **brief phase**, *before* committing to an approach, surface a **Constraints** section anchored to the architectural invariants relevant to the refactor. This is the refactor design-time equivalent of \`/ideate\`'s Phase 0 and uses the **same single shared source of truth** for the selection rules: see \`@skills/brainstorming/references/constraint-anchoring.md\`. Load \`.exarchos/invariants.md\` (\`cost-of-load: always-load\` entries) and emit the Constraints section. **devCatalog-gated:** when \`.exarchos.yml: invariants.devCatalog: enabled\` is unset or \`disabled\`, surface no Constraints section and proceed directly. See \`@skills/refactor/references/brief-template.md\` for the brief-phase placement.
 
 ## Polish Track
 
@@ -20000,61 +19832,9 @@ For a complete worked example, see \`references/worked-example.md\`.
 
 **Goal:** Surface the architectural invariants relevant to the proposal *before* the clarifying questions, so the design is anchored to load-bearing constraints from the first turn.
 
-**Source of truth:** Load \`.exarchos/invariants.md\` — the machine-readable catalog of \`INV-*\` invariants (event-sourcing integrity, facade equivalence, basileus-forward, platform-agnosticity, agent-first input/output/verbs/discriminator, workflow-agnosticism).
+Load the **core** invariants catalog at \`.exarchos/invariants.md\` (entries marked \`cost-of-load: always-load\`) and surface a **Constraints** section naming the relevant invariants — e.g. a CLI / agent-first surface proposal anchors on \`INV-5a\` (input ergonomics) and \`INV-5c\` (Aspire verbs). The full selection rules — \`always-load\` baseline vs \`reference-only\` on-demand vs \`archivable\` not-surfaced, the proposal-shape → anchor-invariant table, the emit format, and the \`invariants.devCatalog\` gating — are the **single shared source of truth** for the design-time Constraints step used by \`/ideate\`, \`/refactor\`, and \`/debug\`. See \`@skills/brainstorming/references/constraint-anchoring.md\`.
 
-**Selection rules — which invariants to surface as Constraints:**
-
-| Proposal shape | Anchor invariants (minimum) |
-|---|---|
-| CLI command / agent surface / new MCP action | \`INV-5a\` (input ergonomics), \`INV-5b\` (output contract), \`INV-5c\` (Aspire-style verbs), \`INV-5d\` (action discriminator) |
-| Event store / projection / workflow state | \`INV-1\` (event-sourcing integrity), \`INV-2\` (facade equivalence — if the projection feeds both adapters) |
-| Skills / commands / runtime authoring | \`INV-4\` (platform-agnosticity), \`INV-6\` (workflow-agnosticism) |
-| Basileus or cross-product coordination | \`INV-3\` (basileus-forward), \`basileus-boundary\` |
-| Multi-surface design (most non-trivial proposals) | Union of the above rows that apply |
-
-**Emit format (before Phase 1 questions):**
-
-\`\`\`markdown
-## Constraints
-
-Anchored to .exarchos/invariants.md:
-- INV-5a: <one-sentence summary from the catalog>
-- INV-5c: <one-sentence summary from the catalog>
-
-(Probe Phase 1 questions against these.)
-\`\`\`
-
-The \`summary\` field of each catalog entry is the canonical one-sentence form — reuse it verbatim so the surfaced Constraints stay in sync with the catalog as it evolves.
-
-### Phase 0: Constraint anchoring (first turn, before Phase 1)
-
-**Goal:** Surface the architectural invariants relevant to the proposal *before* the clarifying questions, so the design is anchored to load-bearing constraints from the first turn.
-
-**Source of truth:** Load \`.exarchos/invariants.md\` — the machine-readable catalog of \`INV-*\` invariants (event-sourcing integrity, facade equivalence, basileus-forward, platform-agnosticity, agent-first input/output/verbs/discriminator, workflow-agnosticism).
-
-**Selection rules — which invariants to surface as Constraints:**
-
-| Proposal shape | Anchor invariants (minimum) |
-|---|---|
-| CLI command / agent surface / new MCP action | \`INV-5a\` (input ergonomics), \`INV-5b\` (output contract), \`INV-5c\` (Aspire-style verbs), \`INV-5d\` (action discriminator) |
-| Event store / projection / workflow state | \`INV-1\` (event-sourcing integrity), \`INV-2\` (facade equivalence — if the projection feeds both adapters) |
-| Skills / commands / runtime authoring | \`INV-4\` (platform-agnosticity), \`INV-6\` (workflow-agnosticism) |
-| Basileus or cross-product coordination | \`INV-3\` (basileus-forward), \`basileus-boundary\` |
-| Multi-surface design (most non-trivial proposals) | Union of the above rows that apply |
-
-**Emit format (before Phase 1 questions):**
-
-\`\`\`markdown
-## Constraints
-
-Anchored to .exarchos/invariants.md:
-- INV-5a: <one-sentence summary from the catalog>
-- INV-5c: <one-sentence summary from the catalog>
-
-(Probe Phase 1 questions against these.)
-\`\`\`
-
-The \`summary\` field of each catalog entry is the canonical one-sentence form — reuse it verbatim so the surfaced Constraints stay in sync with the catalog as it evolves.
+Emit the **Constraints** section (per that reference) *before* Phase 1 so the clarifying questions can probe the proposal against the load-bearing invariants instead of re-discovering them mid-design.
 
 ### Phase 1: Understanding
 
@@ -20522,6 +20302,10 @@ Fix bugs with proper rigor. Full RCA documentation.
 **HSM phases:** \`triage\` → \`investigate\` → \`rca\` → \`design\` → \`debug-implement\` (worktree + TDD) → \`debug-validate\` → \`debug-review\` → \`synthesize\` → \`completed\`
 
 For detailed phase instructions, see \`references/thorough-track.md\`. For systematic investigation methodology, see \`references/investigation-checklist.md\`.
+
+### Design-time Constraints (Thorough Track: rca + design phases)
+
+The \`rca\` and \`design\` phases are the thorough track's design-time surfaces. At these phases — *before* committing to a fix approach — surface a **Constraints** section anchored to the architectural invariants relevant to the fix. This is the debug design-time equivalent of \`/ideate\`'s Phase 0 and uses the **same single shared source of truth** for the selection rules and devCatalog gating: see \`@skills/brainstorming/references/constraint-anchoring.md\`. Load \`.exarchos/invariants.md\` (\`cost-of-load: always-load\` entries) and emit the Constraints section. **devCatalog-gated:** when \`.exarchos.yml: invariants.devCatalog: enabled\` is unset or \`disabled\`, surface no Constraints section and proceed directly. The hotfix track skips this step (speed over ceremony).
 
 ### Characterization Testing (Thorough Track Only)
 
@@ -23048,9 +22832,11 @@ If this review follows a delegation phase, verify triage routing:
 \`\`\`typescript
 exarchos_orchestrate({
   action: "verify_review_triage",
-  stateFile: "<state-file>"
+  featureId: "<feature-id>"
 })
 \`\`\`
+
+\`featureId\` resolves PRs (event-store projection) and \`review.routed\` events directly from the store — no \`.state.json\`/\`.events.jsonl\` needed (INV-1). A legacy file-based workflow may instead pass \`stateFile\` + \`eventStream\`.
 
 \`passed: true\`: triage routing correct — continue to Step 1. \`passed: false\`: triage issues found — investigate and resolve before proceeding.
 
@@ -23391,6 +23177,10 @@ Before modifying any existing code behavior, capture current behavior as charact
 3. **After changes:** Document which characterization test failures were expected. Remaining characterization tests become regression tests.
 
 This aligns with Michael Feathers' approach in *Working Effectively with Legacy Code* — understand behavior before changing it.
+
+## Design-time Constraints (Both Tracks)
+
+At the **brief phase**, *before* committing to an approach, surface a **Constraints** section anchored to the architectural invariants relevant to the refactor. This is the refactor design-time equivalent of \`/ideate\`'s Phase 0 and uses the **same single shared source of truth** for the selection rules: see \`@skills/brainstorming/references/constraint-anchoring.md\`. Load \`.exarchos/invariants.md\` (\`cost-of-load: always-load\` entries) and emit the Constraints section. **devCatalog-gated:** when \`.exarchos.yml: invariants.devCatalog: enabled\` is unset or \`disabled\`, surface no Constraints section and proceed directly. See \`@skills/refactor/references/brief-template.md\` for the brief-phase placement.
 
 ## Polish Track
 
@@ -24899,61 +24689,9 @@ For a complete worked example, see \`references/worked-example.md\`.
 
 **Goal:** Surface the architectural invariants relevant to the proposal *before* the clarifying questions, so the design is anchored to load-bearing constraints from the first turn.
 
-**Source of truth:** Load \`.exarchos/invariants.md\` — the machine-readable catalog of \`INV-*\` invariants (event-sourcing integrity, facade equivalence, basileus-forward, platform-agnosticity, agent-first input/output/verbs/discriminator, workflow-agnosticism).
+Load the **core** invariants catalog at \`.exarchos/invariants.md\` (entries marked \`cost-of-load: always-load\`) and surface a **Constraints** section naming the relevant invariants — e.g. a CLI / agent-first surface proposal anchors on \`INV-5a\` (input ergonomics) and \`INV-5c\` (Aspire verbs). The full selection rules — \`always-load\` baseline vs \`reference-only\` on-demand vs \`archivable\` not-surfaced, the proposal-shape → anchor-invariant table, the emit format, and the \`invariants.devCatalog\` gating — are the **single shared source of truth** for the design-time Constraints step used by \`/ideate\`, \`/refactor\`, and \`/debug\`. See \`@skills/brainstorming/references/constraint-anchoring.md\`.
 
-**Selection rules — which invariants to surface as Constraints:**
-
-| Proposal shape | Anchor invariants (minimum) |
-|---|---|
-| CLI command / agent surface / new MCP action | \`INV-5a\` (input ergonomics), \`INV-5b\` (output contract), \`INV-5c\` (Aspire-style verbs), \`INV-5d\` (action discriminator) |
-| Event store / projection / workflow state | \`INV-1\` (event-sourcing integrity), \`INV-2\` (facade equivalence — if the projection feeds both adapters) |
-| Skills / commands / runtime authoring | \`INV-4\` (platform-agnosticity), \`INV-6\` (workflow-agnosticism) |
-| Basileus or cross-product coordination | \`INV-3\` (basileus-forward), \`basileus-boundary\` |
-| Multi-surface design (most non-trivial proposals) | Union of the above rows that apply |
-
-**Emit format (before Phase 1 questions):**
-
-\`\`\`markdown
-## Constraints
-
-Anchored to .exarchos/invariants.md:
-- INV-5a: <one-sentence summary from the catalog>
-- INV-5c: <one-sentence summary from the catalog>
-
-(Probe Phase 1 questions against these.)
-\`\`\`
-
-The \`summary\` field of each catalog entry is the canonical one-sentence form — reuse it verbatim so the surfaced Constraints stay in sync with the catalog as it evolves.
-
-### Phase 0: Constraint anchoring (first turn, before Phase 1)
-
-**Goal:** Surface the architectural invariants relevant to the proposal *before* the clarifying questions, so the design is anchored to load-bearing constraints from the first turn.
-
-**Source of truth:** Load \`.exarchos/invariants.md\` — the machine-readable catalog of \`INV-*\` invariants (event-sourcing integrity, facade equivalence, basileus-forward, platform-agnosticity, agent-first input/output/verbs/discriminator, workflow-agnosticism).
-
-**Selection rules — which invariants to surface as Constraints:**
-
-| Proposal shape | Anchor invariants (minimum) |
-|---|---|
-| CLI command / agent surface / new MCP action | \`INV-5a\` (input ergonomics), \`INV-5b\` (output contract), \`INV-5c\` (Aspire-style verbs), \`INV-5d\` (action discriminator) |
-| Event store / projection / workflow state | \`INV-1\` (event-sourcing integrity), \`INV-2\` (facade equivalence — if the projection feeds both adapters) |
-| Skills / commands / runtime authoring | \`INV-4\` (platform-agnosticity), \`INV-6\` (workflow-agnosticism) |
-| Basileus or cross-product coordination | \`INV-3\` (basileus-forward), \`basileus-boundary\` |
-| Multi-surface design (most non-trivial proposals) | Union of the above rows that apply |
-
-**Emit format (before Phase 1 questions):**
-
-\`\`\`markdown
-## Constraints
-
-Anchored to .exarchos/invariants.md:
-- INV-5a: <one-sentence summary from the catalog>
-- INV-5c: <one-sentence summary from the catalog>
-
-(Probe Phase 1 questions against these.)
-\`\`\`
-
-The \`summary\` field of each catalog entry is the canonical one-sentence form — reuse it verbatim so the surfaced Constraints stay in sync with the catalog as it evolves.
+Emit the **Constraints** section (per that reference) *before* Phase 1 so the clarifying questions can probe the proposal against the load-bearing invariants instead of re-discovering them mid-design.
 
 ### Phase 1: Understanding
 
@@ -25421,6 +25159,10 @@ Fix bugs with proper rigor. Full RCA documentation.
 **HSM phases:** \`triage\` → \`investigate\` → \`rca\` → \`design\` → \`debug-implement\` (worktree + TDD) → \`debug-validate\` → \`debug-review\` → \`synthesize\` → \`completed\`
 
 For detailed phase instructions, see \`references/thorough-track.md\`. For systematic investigation methodology, see \`references/investigation-checklist.md\`.
+
+### Design-time Constraints (Thorough Track: rca + design phases)
+
+The \`rca\` and \`design\` phases are the thorough track's design-time surfaces. At these phases — *before* committing to a fix approach — surface a **Constraints** section anchored to the architectural invariants relevant to the fix. This is the debug design-time equivalent of \`/ideate\`'s Phase 0 and uses the **same single shared source of truth** for the selection rules and devCatalog gating: see \`@skills/brainstorming/references/constraint-anchoring.md\`. Load \`.exarchos/invariants.md\` (\`cost-of-load: always-load\` entries) and emit the Constraints section. **devCatalog-gated:** when \`.exarchos.yml: invariants.devCatalog: enabled\` is unset or \`disabled\`, surface no Constraints section and proceed directly. The hotfix track skips this step (speed over ceremony).
 
 ### Characterization Testing (Thorough Track Only)
 
@@ -27974,9 +27716,11 @@ If this review follows a delegation phase, verify triage routing:
 \`\`\`typescript
 exarchos_orchestrate({
   action: "verify_review_triage",
-  stateFile: "<state-file>"
+  featureId: "<feature-id>"
 })
 \`\`\`
+
+\`featureId\` resolves PRs (event-store projection) and \`review.routed\` events directly from the store — no \`.state.json\`/\`.events.jsonl\` needed (INV-1). A legacy file-based workflow may instead pass \`stateFile\` + \`eventStream\`.
 
 \`passed: true\`: triage routing correct — continue to Step 1. \`passed: false\`: triage issues found — investigate and resolve before proceeding.
 
@@ -28317,6 +28061,10 @@ Before modifying any existing code behavior, capture current behavior as charact
 3. **After changes:** Document which characterization test failures were expected. Remaining characterization tests become regression tests.
 
 This aligns with Michael Feathers' approach in *Working Effectively with Legacy Code* — understand behavior before changing it.
+
+## Design-time Constraints (Both Tracks)
+
+At the **brief phase**, *before* committing to an approach, surface a **Constraints** section anchored to the architectural invariants relevant to the refactor. This is the refactor design-time equivalent of \`/ideate\`'s Phase 0 and uses the **same single shared source of truth** for the selection rules: see \`@skills/brainstorming/references/constraint-anchoring.md\`. Load \`.exarchos/invariants.md\` (\`cost-of-load: always-load\` entries) and emit the Constraints section. **devCatalog-gated:** when \`.exarchos.yml: invariants.devCatalog: enabled\` is unset or \`disabled\`, surface no Constraints section and proceed directly. See \`@skills/refactor/references/brief-template.md\` for the brief-phase placement.
 
 ## Polish Track
 

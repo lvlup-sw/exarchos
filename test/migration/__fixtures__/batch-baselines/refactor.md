@@ -101,6 +101,10 @@ Before modifying any existing code behavior, capture current behavior as charact
 
 This aligns with Michael Feathers' approach in *Working Effectively with Legacy Code* — understand behavior before changing it.
 
+## Design-time Constraints (Both Tracks)
+
+At the **brief phase**, *before* committing to an approach, surface a **Constraints** section anchored to the architectural invariants relevant to the refactor. This is the refactor design-time equivalent of `/ideate`'s Phase 0 and uses the **same single shared source of truth** for the selection rules: see `@skills/brainstorming/references/constraint-anchoring.md`. Load `.exarchos/invariants.md` (`cost-of-load: always-load` entries) and emit the Constraints section. **devCatalog-gated:** when `.exarchos.yml: invariants.devCatalog: enabled` is unset or `disabled`, surface no Constraints section and proceed directly. See `@skills/refactor/references/brief-template.md` for the brief-phase placement.
+
 ## Polish Track
 
 Fast path for small, contained refactors (<=5 files, single concern). Orchestrator may write code directly (exception to orchestrator constraints). No worktree, no delegation.
