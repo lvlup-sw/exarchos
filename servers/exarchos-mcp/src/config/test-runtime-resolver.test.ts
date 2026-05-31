@@ -1,7 +1,7 @@
 // ─── Test Runtime Resolver Tests ────────────────────────────────────────────
 
 import { describe, it, expect, afterEach, vi } from 'vitest';
-import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -76,6 +76,37 @@ describe('resolveTestRuntime', () => {
 
     expect(result).toEqual({
       test: 'dotnet test',
+      typecheck: null,
+      install: null,
+      source: 'detection',
+    });
+  });
+
+  it.each(['App.sln', 'App.slnx'])(
+    'resolveTestRuntime_DotNetSolution_%s_ReturnsDotnetCommand (#1507)',
+    (solutionFile) => {
+      const dir = makeTmpDir();
+      writeFileSync(join(dir, solutionFile), '');
+
+      const result = resolveTestRuntime(dir);
+
+      expect(result).toEqual({
+        test: 'dotnet test',
+        typecheck: null,
+        install: null,
+        source: 'detection',
+      });
+    },
+  );
+
+  it('resolveTestRuntime_GoProject_ReturnsGoCommand', () => {
+    const dir = makeTmpDir();
+    writeFileSync(join(dir, 'go.mod'), 'module example.com/x\n');
+
+    const result = resolveTestRuntime(dir);
+
+    expect(result).toEqual({
+      test: 'go test ./...',
       typecheck: null,
       install: null,
       source: 'detection',
@@ -833,5 +864,100 @@ describe('resolveTestRuntime', () => {
       hasInlineYamlExample || hasDocLink,
       `remediation must include an inline YAML example (a "test:" key) or a doc link, got: ${message}`,
     ).toBe(true);
+  });
+
+  // ── Layered resolver tiers 3 (user toolchains) + 4 (task runners) ─────────
+  describe('layered tiers', () => {
+    it('tier3_UserToolchain_OverridesBuiltinDetection', () => {
+      const dir = makeTmpDir();
+      writeFileSync(join(dir, 'package.json'), '{}'); // built-in would say node
+      const result = resolveTestRuntime(dir, {
+        loadConfig: () => ({
+          config: {
+            toolchains: [
+              { id: 'node-custom', markers: ['package.json'], commands: { test: 'just test' } },
+            ],
+          },
+          source: '/x/.exarchos.yml',
+        }),
+      });
+      expect(result.test).toBe('just test');
+      expect(result.source).toBe('toolchain-config');
+    });
+
+    it('tier4_TaskRunner_BeatsBuiltinDetection', () => {
+      const dir = makeTmpDir();
+      writeFileSync(join(dir, 'Cargo.toml'), '[package]'); // built-in → cargo test
+      writeFileSync(join(dir, 'justfile'), 'test:\n\techo hi\n');
+      const result = resolveTestRuntime(dir);
+      expect(result.test).toBe('just test');
+      expect(result.source).toBe('task-runner');
+    });
+
+    it('tier4_TaskRunner_RescuesNodeMissingTestScript', () => {
+      const dir = makeTmpDir();
+      writeFileSync(join(dir, 'package.json'), JSON.stringify({ scripts: {} }));
+      writeFileSync(join(dir, 'Taskfile.yml'), 'tasks:\n  test:\n    cmds: [echo hi]\n');
+      const result = resolveTestRuntime(dir);
+      expect(result.test).toBe('task test');
+      expect(result.source).toBe('task-runner');
+    });
+
+    it('precedence_YmlDirectTest_BeatsUserToolchain', () => {
+      const dir = makeTmpDir();
+      writeFileSync(join(dir, 'build.zig'), '');
+      const result = resolveTestRuntime(dir, {
+        loadConfig: () => ({
+          config: {
+            test: 'jest',
+            toolchains: [
+              { id: 'zig', markers: ['build.zig'], commands: { test: 'zig build test' } },
+            ],
+          },
+          source: '/x/.exarchos.yml',
+        }),
+      });
+      expect(result.test).toBe('jest');
+      expect(result.source).toBe('config');
+    });
+
+    it('tier4_TaskRunner_BeatsNodeWithWorkingTestScript', () => {
+      // A committed task runner is a deliberate project interface, so it wins
+      // over a node repo's own test:run script (intended behavior, M5).
+      const dir = makeTmpDir();
+      writeFileSync(join(dir, 'package.json'), JSON.stringify({ scripts: { 'test:run': 'vitest run' } }));
+      writeFileSync(join(dir, 'justfile'), 'test:\n\techo hi\n');
+      const result = resolveTestRuntime(dir);
+      expect(result.test).toBe('just test');
+      expect(result.source).toBe('task-runner');
+    });
+
+    it('nodeInstallMetadataFallback_NoLockfile_ResolvesPm', () => {
+      // No lockfile, but installed-state markers identify the PM (vendored
+      // INSTALL_METADATA fallback, M3).
+      const dir = makeTmpDir();
+      writeFileSync(join(dir, 'package.json'), JSON.stringify({ scripts: { test: 'vitest run' } }));
+      mkdirSync(join(dir, 'node_modules', '.pnpm'), { recursive: true });
+      const result = resolveTestRuntime(dir);
+      expect(result.test).toBe('pnpm test');
+    });
+
+    it('precedence_UserToolchain_BeatsTaskRunner', () => {
+      const dir = makeTmpDir();
+      writeFileSync(join(dir, 'build.zig'), '');
+      writeFileSync(join(dir, 'justfile'), 'test:\n\techo hi\n');
+      const result = resolveTestRuntime(dir, {
+        loadConfig: () => ({
+          config: {
+            toolchains: [
+              { id: 'zig', markers: ['build.zig'], commands: { test: 'zig build test' } },
+            ],
+          },
+          source: '/x/.exarchos.yml',
+        }),
+      });
+      expect(result.test).toBe('zig build test');
+      expect(result.source).toBe('toolchain-config');
+    });
   });
 });

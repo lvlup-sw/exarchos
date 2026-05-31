@@ -4,6 +4,56 @@ import {
   InvariantsConfigSchema,
 } from './exarchos-config-schema.js';
 
+describe('ExarchosConfigSchema — toolchains (tier 3)', () => {
+  it('accepts a user-declared toolchain with markers + commands', () => {
+    const result = ExarchosConfigSchema.safeParse({
+      toolchains: [
+        { id: 'zig', markers: ['build.zig'], commands: { test: 'zig build test' } },
+      ],
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.toolchains?.[0]?.id).toBe('zig');
+      expect(result.data.toolchains?.[0]?.commands.test).toBe('zig build test');
+    }
+  });
+
+  it('accepts an extension-glob marker', () => {
+    const result = ExarchosConfigSchema.safeParse({
+      toolchains: [{ id: 'haskell', markers: ['*.cabal'], commands: { test: 'cabal test' } }],
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('rejects an empty markers array', () => {
+    const result = ExarchosConfigSchema.safeParse({
+      toolchains: [{ id: 'x', markers: [], commands: { test: 'x' } }],
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects a path-traversal marker', () => {
+    const result = ExarchosConfigSchema.safeParse({
+      toolchains: [{ id: 'x', markers: ['../../etc/passwd'], commands: { test: 'x' } }],
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects a command with shell metacharacters', () => {
+    const result = ExarchosConfigSchema.safeParse({
+      toolchains: [{ id: 'x', markers: ['x.toml'], commands: { test: 'rm -rf / ; echo pwned' } }],
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects an unknown key inside a toolchain entry (strict)', () => {
+    const result = ExarchosConfigSchema.safeParse({
+      toolchains: [{ id: 'x', markers: ['x.toml'], commands: {}, bogus: true }],
+    });
+    expect(result.success).toBe(false);
+  });
+});
+
 describe('ExarchosConfigSchema', () => {
   it('schema_AllFieldsProvided_Validates', () => {
     const result = ExarchosConfigSchema.safeParse({

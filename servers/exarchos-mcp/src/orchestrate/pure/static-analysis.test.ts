@@ -450,6 +450,18 @@ describe('runStaticAnalysis', () => {
       expect(result.projectType).toBe('.NET');
     });
 
+    it('.NET project (*.slnx) is detected and does not false-SKIP (#1507)', () => {
+      const repoRoot = createProjectDir({ 'Dynatoi.slnx': '' });
+
+      const runner = successRunner();
+      const result = runStaticAnalysis({ repoRoot, runCommand: runner });
+
+      expect(result.status).not.toBe('skip');
+      expect(result.projectType).toBe('.NET');
+      const calls = (runner as ReturnType<typeof vi.fn>).mock.calls;
+      expect(calls.some((c: unknown[]) => c[0] === 'dotnet')).toBe(true);
+    });
+
     it('Go project (go.mod) runs go vet', () => {
       const repoRoot = createProjectDir({ 'go.mod': 'module example.com/myapp' });
 

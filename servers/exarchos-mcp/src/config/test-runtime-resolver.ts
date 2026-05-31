@@ -1,23 +1,39 @@
 // ─── Unified Test Runtime Resolver ──────────────────────────────────────────
 //
-// Owns resolution of test/typecheck/install commands for a repository. The
-// resolver inspects project markers (package.json, *.csproj, Cargo.toml,
-// pyproject.toml) and returns a typed ResolvedRuntime describing which
-// commands to run plus the source of the resolution.
+// Owns resolution of test/typecheck/install commands for a repository as a
+// layered, per-field precedence (highest first):
+//   override > .exarchos.yml direct > user `toolchains:` (tier 3) >
+//   task-runner (tier 4) > built-in toolchain registry (tier 5) > unresolved.
+// Toolchain identity + markers come from the shared registry (./toolchains.ts);
+// the language-agnostic task-runner tier from ./task-runners.ts. Returns a typed
+// ResolvedRuntime describing which commands to run plus the source per field.
 //
 // This module is the new authoritative source for runtime resolution. It
 // intentionally does NOT import detect-test-commands.ts — that module will
 // become a compatibility shim layered on top of this resolver.
 // ────────────────────────────────────────────────────────────────────────────
 
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import * as path from 'node:path';
 import { logger } from '../logger.js';
 import { loadExarchosConfig, type LoadResult } from './load-exarchos-config.js';
+import { detectToolchain, toolchainFromConfig } from './toolchains.js';
+import { resolveTaskRunner } from './task-runners.js';
+import { LOCKS, INSTALL_METADATA } from './vendor/package-manager-detector/lockfiles.generated.js';
 
 const resolverLogger = logger.child({ subsystem: 'test-runtime-resolver' });
 
-export type ResolutionSource = 'config' | 'detection' | 'override' | 'unresolved';
+// Detection sub-tiers of the layered resolver, in precedence order:
+//   override > config (.exarchos.yml direct) > toolchain-config (user
+//   .exarchos.yml `toolchains:`) > task-runner (Taskfile/just/mise/Makefile) >
+//   detection (built-in registry) > unresolved.
+export type ResolutionSource =
+  | 'override'
+  | 'config'
+  | 'toolchain-config'
+  | 'task-runner'
+  | 'detection'
+  | 'unresolved';
 
 export interface ResolvedRuntime {
   test: string | null;
@@ -140,18 +156,21 @@ function hasScript(pkg: PackageJsonShape | null, name: string): boolean {
   return typeof value === 'string' && value.trim().length > 0;
 }
 
+/** Node package managers this resolver models. `deno` (also in LOCKS) is not one. */
+const NODE_PACKAGE_MANAGERS = new Set(['bun', 'pnpm', 'yarn', 'npm']);
+
 /**
  * Detect the Node-ecosystem package manager in use for a project.
  *
- * Returns the package manager based on lockfile presence, in priority order:
- *   bun > pnpm > yarn > npm (default).
+ * Returns the package manager based on lockfile presence, in priority order
+ * (bun > pnpm > yarn > npm default). The lockfile→agent mapping is sourced from
+ * the vendored `package-manager-detector` `LOCKS` table (ordered most-specific
+ * first) rather than a hand-maintained list — see
+ * `./vendor/package-manager-detector/README.md`.
  *
  * Lockfiles only matter when a `package.json` declares the project — a stray
  * lockfile from a partial git checkout should not promote a non-Node tree to
  * Node detection. Returns `null` when no `package.json` is present.
- *
- * Bun: accepts both `bun.lock` (Bun 1.3+ default, text-based) and `bun.lockb`
- * (legacy binary format, still supported).
  */
 function detectNodePackageManager(
   repoRoot: string,
@@ -159,14 +178,18 @@ function detectNodePackageManager(
   if (!existsSync(path.join(repoRoot, 'package.json'))) {
     return null;
   }
-  if (
-    existsSync(path.join(repoRoot, 'bun.lock')) ||
-    existsSync(path.join(repoRoot, 'bun.lockb'))
-  ) {
-    return 'bun';
+  for (const [lockfile, agent] of Object.entries(LOCKS)) {
+    if (NODE_PACKAGE_MANAGERS.has(agent) && existsSync(path.join(repoRoot, lockfile))) {
+      return agent as 'bun' | 'pnpm' | 'yarn' | 'npm';
+    }
   }
-  if (existsSync(path.join(repoRoot, 'pnpm-lock.yaml'))) return 'pnpm';
-  if (existsSync(path.join(repoRoot, 'yarn.lock'))) return 'yarn';
+  // No lockfile — fall back to installed-state markers (deps installed but the
+  // lockfile is absent), matching upstream's two-stage detect.
+  for (const [marker, agent] of Object.entries(INSTALL_METADATA)) {
+    if (NODE_PACKAGE_MANAGERS.has(agent) && existsSync(path.join(repoRoot, marker))) {
+      return agent as 'bun' | 'pnpm' | 'yarn' | 'npm';
+    }
+  }
   return 'npm';
 }
 
@@ -189,7 +212,8 @@ function isYarnBerry(repoRoot: string, pkg: PackageJsonShape | null): boolean {
 }
 
 function detect(repoRoot: string): DetectionResult {
-  // Priority order: package.json > *.csproj > Cargo.toml > pyproject.toml
+  // Tier 5 (built-in): node first (package-manager-aware, with script-existence
+  // nuance), then any other toolchain via the shared registry's priority order.
   const pm = detectNodePackageManager(repoRoot);
   if (pm !== null) {
     const { json: pkg, malformed } = readPackageJson(repoRoot);
@@ -275,34 +299,41 @@ function detect(repoRoot: string): DetectionResult {
     }
   }
 
-  try {
-    const entries = readdirSync(repoRoot);
-    if (entries.some((f) => f.endsWith('.csproj'))) {
-      return { test: 'dotnet test', typecheck: null, install: null, detected: true };
-    }
-  } catch {
-    /* directory unreadable — fall through */
-  }
-
-  if (existsSync(path.join(repoRoot, 'Cargo.toml'))) {
-    return { test: 'cargo test', typecheck: null, install: null, detected: true };
-  }
-
-  if (existsSync(path.join(repoRoot, 'pyproject.toml'))) {
-    return { test: 'pytest', typecheck: null, install: null, detected: true };
+  // Non-node toolchains: delegate identity + canonical commands to the registry,
+  // the single source of truth for markers. This is where `.slnx`/`.sln` now
+  // resolve (#1507) and where the expanded ecosystem set (go, java, ruby, …)
+  // comes from. The node branch above already handled package.json repos with
+  // their package-manager nuance, so the registry's node entry is never reached
+  // here. Non-node entries carry test-only commands (typecheck/install null),
+  // preserving the resolver's prior output shape.
+  const toolchain = detectToolchain(repoRoot);
+  if (toolchain) {
+    return {
+      test: toolchain.commands.test,
+      typecheck: toolchain.commands.typecheck,
+      install: toolchain.commands.install,
+      detected: true,
+    };
   }
 
   return { test: null, typecheck: null, install: null, detected: false };
 }
 
 export function resolveTestRuntime(repoRoot: string, options?: ResolveOptions): ResolvedRuntime {
-  const override = options?.override;
+  const rawOverride = options?.override;
 
-  if (override) {
-    if (override.test !== undefined) assertSafe('test', override.test);
-    if (override.typecheck !== undefined) assertSafe('typecheck', override.typecheck);
-    if (override.install !== undefined) assertSafe('install', override.install);
+  if (rawOverride) {
+    if (rawOverride.test !== undefined) assertSafe('test', rawOverride.test);
+    if (rawOverride.typecheck !== undefined) assertSafe('typecheck', rawOverride.typecheck);
+    if (rawOverride.install !== undefined) assertSafe('install', rawOverride.install);
   }
+  // Normalize override values to their trimmed form so emitted/returned commands
+  // match the trimmed `safeCommand` shape config values already use (N2).
+  const override = {
+    test: rawOverride?.test?.trim(),
+    typecheck: rawOverride?.typecheck?.trim(),
+    install: rawOverride?.install?.trim(),
+  };
 
   // Validate emission contract up-front: eventStore requires stream.
   if (options?.eventStore && (options.stream === undefined || options.stream === '')) {
@@ -318,22 +349,48 @@ export function resolveTestRuntime(repoRoot: string, options?: ResolveOptions): 
   const configResult = loadConfig(repoRoot);
   const config = configResult?.config;
 
-  // Per-field merge: override > config > detection.
-  type Layer = 'override' | 'config' | 'detection';
+  // ── Detection sub-tiers (resolved per field, highest tier first) ──────────
+  // tier 3: user-declared `.exarchos.yml` toolchains: (matched before built-ins)
+  const userToolchains = (config?.toolchains ?? []).map(toolchainFromConfig);
+  const userMatched = userToolchains.length > 0 ? detectToolchain(repoRoot, userToolchains) : undefined;
+  const userMatch = userMatched && userToolchains.includes(userMatched) ? userMatched : undefined;
+
+  type DetectionTier = 'toolchain-config' | 'task-runner' | 'detection';
+  const resolveDetection = (
+    field: 'test' | 'typecheck' | 'install',
+  ): { value: string | null; tier: DetectionTier | null } => {
+    // tier 3 — user toolchain command
+    const userCmd = userMatch?.commands[field] ?? null;
+    if (userCmd !== null) return { value: userCmd, tier: 'toolchain-config' };
+    // tier 4 — committed task-runner with a matching conventional target
+    const runner = resolveTaskRunner(repoRoot, field);
+    if (runner) return { value: runner.command, tier: 'task-runner' };
+    // tier 5 — built-in registry detection
+    if (det[field] !== null) return { value: det[field], tier: 'detection' };
+    return { value: null, tier: null };
+  };
+  const testDet = resolveDetection('test');
+  const typecheckDet = resolveDetection('typecheck');
+  const installDet = resolveDetection('install');
+
+  // Per-field merge: override > config > [toolchain-config > task-runner > detection].
+  type Layer = 'override' | 'config' | DetectionTier;
   const pick = (
     overrideVal: string | undefined,
     configVal: string | undefined,
-    detectVal: string | null,
+    detection: { value: string | null; tier: DetectionTier | null },
   ): { value: string | null; layer: Layer | null } => {
     if (overrideVal !== undefined) return { value: overrideVal, layer: 'override' };
     if (configVal !== undefined) return { value: configVal, layer: 'config' };
-    if (detectVal !== null) return { value: detectVal, layer: 'detection' };
+    if (detection.value !== null && detection.tier !== null) {
+      return { value: detection.value, layer: detection.tier };
+    }
     return { value: null, layer: null };
   };
 
-  const testPick = pick(override?.test, config?.test, det.test);
-  const typecheckPick = pick(override?.typecheck, config?.typecheck, det.typecheck);
-  const installPick = pick(override?.install, config?.install, det.install);
+  const testPick = pick(override?.test, config?.test, testDet);
+  const typecheckPick = pick(override?.typecheck, config?.typecheck, typecheckDet);
+  const installPick = pick(override?.install, config?.install, installDet);
 
   const contributingLayers = new Set<Layer>(
     [testPick.layer, typecheckPick.layer, installPick.layer].filter(
@@ -342,12 +399,17 @@ export function resolveTestRuntime(repoRoot: string, options?: ResolveOptions): 
   );
 
   // Aggregate source label = highest-precedence layer that contributed any
-  // non-null field. override > config > detection > unresolved.
+  // non-null field. override > config > toolchain-config > task-runner >
+  // detection > unresolved.
   let source: ResolutionSource;
   if (contributingLayers.has('override')) {
     source = 'override';
   } else if (contributingLayers.has('config')) {
     source = 'config';
+  } else if (contributingLayers.has('toolchain-config')) {
+    source = 'toolchain-config';
+  } else if (contributingLayers.has('task-runner')) {
+    source = 'task-runner';
   } else if (contributingLayers.has('detection')) {
     source = 'detection';
   } else {
@@ -384,14 +446,14 @@ export function resolveTestRuntime(repoRoot: string, options?: ResolveOptions): 
     `No ${field} command available for this project from detection. ` +
     `Add a "${field}" entry to .exarchos.yml or pass an override.`;
 
-  if (
-    det.unresolvedReason &&
-    testPick.layer !== 'override' &&
-    testPick.layer !== 'config'
-  ) {
-    // Detection couldn't produce a runnable test command, but override/config
-    // may still have contributed valid `typecheck` or `install` values —
-    // honor them per the documented precedence (override > config > detection).
+  if (det.unresolvedReason && testPick.value === null) {
+    // The built-in detection flagged an unresolvable test (e.g. node missing a
+    // test:run script) AND no higher tier (override / config / user toolchain /
+    // task-runner) supplied one — so `test` is genuinely null. override/config
+    // (and now the toolchain-config / task-runner tiers) may still have
+    // contributed valid `typecheck`/`install` values — honor them per the
+    // documented precedence. The aggregate source remains `unresolved` because
+    // `test` is unrunnable, but per-field events keep their actual source.
     // The aggregate source remains `unresolved` because `test` is unrunnable,
     // but per-field events keep their actual source so the audit trail is
     // accurate.

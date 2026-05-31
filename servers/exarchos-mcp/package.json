@@ -13,6 +13,8 @@
     "bench": "vitest bench",
     "generate:docs": "tsx scripts/generate-docs.ts",
     "generate:agents": "tsx src/agents/generate-agents.ts",
+    "vendor:sync:pm-detector": "tsx scripts/sync-vendor-pm-detector.ts",
+    "vendor:check:pm-detector": "tsx scripts/sync-vendor-pm-detector.ts --check",
     "postinstall": "patch-package"
   },
   "dependencies": {

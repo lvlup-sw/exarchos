@@ -10,6 +10,7 @@ import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { ToolResult } from '../format.js';
 import { isClaudeCodePlugin } from '../utils/paths.js';
+import { BUILTIN_TOOLCHAINS } from '../config/toolchains.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -70,17 +71,32 @@ function resolveTemplatePath(): string {
 
 // ─── Language Customization ─────────────────────────────────────────────────
 
+// Maps a scaffold language to its toolchain id in the shared registry. Adding a
+// new scaffoldable language is a registry `scaffold` entry + a line here — no
+// per-language string-rewrite block, and no toolchain is canonical (#1508).
+const SCAFFOLD_LANGUAGE_TOOLCHAIN: Readonly<Record<string, string>> = {
+  typescript: 'node',
+  csharp: 'dotnet',
+};
+
+/**
+ * Substitute the CLAUDE.md.template's canonical command tokens
+ * (`npm run test:run` / `test:coverage` / `typecheck`) with the target
+ * toolchain's first-class commands, sourced from the registry's `scaffold`
+ * map rather than per-language find-and-replace. Unknown languages leave the
+ * template unchanged.
+ */
 function applyLanguageCustomizations(content: string, language: string): string {
-  let result = content;
-  if (language === 'typescript') {
-    result = result.replace(/npm run test:coverage/g, 'npm run test -- --coverage');
-    result = result.replace(/npm run test:run/g, 'npm run test');
-  } else if (language === 'csharp') {
-    result = result.replace(/npm run test:run/g, 'dotnet test');
-    result = result.replace(/npm run test:coverage/g, 'dotnet test --collect:"XPlat Code Coverage"');
-    result = result.replace(/npm run typecheck/g, 'dotnet build');
+  const toolchainId = SCAFFOLD_LANGUAGE_TOOLCHAIN[language];
+  const scaffold = BUILTIN_TOOLCHAINS.find((t) => t.id === toolchainId)?.scaffold;
+  if (!scaffold) {
+    return content;
   }
-  return result;
+  // test:coverage before test:run preserves the original substitution order.
+  return content
+    .replace(/npm run test:coverage/g, () => scaffold.testCoverage)
+    .replace(/npm run test:run/g, () => scaffold.test)
+    .replace(/npm run typecheck/g, () => scaffold.typecheck);
 }
 
 // ─── Gitignore Update ───────────────────────────────────────────────────────
