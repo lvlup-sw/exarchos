@@ -44,12 +44,20 @@ export async function handleDesignCompleteness(
     featureId: streamId,
     eventStore,
   });
-  if (!('error' in resolved)) {
-    const artifacts = resolved.state.artifacts;
-    if (artifacts && typeof artifacts === 'object' && !Array.isArray(artifacts)) {
-      const design = (artifacts as Record<string, unknown>).design;
-      designPathFromState = typeof design === 'string' && design.length > 0 ? design : null;
-    }
+  if ('error' in resolved) {
+    // A resolver error here means state could not be read from EITHER source:
+    // resolveWorkflowState only reaches the event store (and can return
+    // EVENT_STORE_ERROR) after the state file proved unusable. Propagate the
+    // underlying error so an infrastructure failure surfaces its real cause
+    // instead of being silently flattened to designPathFromState=null — which
+    // the pure checker would otherwise report as the misleading advisory
+    // finding "artifacts.design is empty or missing".
+    return resolved.error;
+  }
+  const artifacts = resolved.state.artifacts;
+  if (artifacts && typeof artifacts === 'object' && !Array.isArray(artifacts)) {
+    const design = (artifacts as Record<string, unknown>).design;
+    designPathFromState = typeof design === 'string' && design.length > 0 ? design : null;
   }
 
   // 2. Evaluate the markdown design document. The YAML gate-sidecar layer

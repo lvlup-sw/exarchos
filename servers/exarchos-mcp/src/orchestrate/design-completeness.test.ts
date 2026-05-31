@@ -404,4 +404,32 @@ describe('handleDesignCompleteness', () => {
       );
     });
   });
+
+  // ─── State-resolution failure ─────────────────────────────────────────────
+  //
+  // When neither source yields state — the `.state.json` is absent AND the
+  // event store query throws — resolveWorkflowState returns EVENT_STORE_ERROR.
+  // The handler must propagate that cause, not flatten it to
+  // designPathFromState=null (which the pure checker would mislabel as
+  // "artifacts.design is empty or missing", masking the infra failure).
+
+  describe('state resolution error', () => {
+    it('EventStoreError_DuringStateResolution_PropagatesUnderlyingError', async () => {
+      mockQuery.mockRejectedValue(new Error('database is locked'));
+
+      const result = await handleDesignCompleteness(
+        { featureId: 'evt-store-fail' },
+        STATE_DIR,
+        mockStore as unknown as EventStore,
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe('EVENT_STORE_ERROR');
+      expect(result.error?.message).toContain('database is locked');
+      // We could not evaluate the gate, so the pure checker never runs and no
+      // gate.executed event is emitted — we report the cause, not a bogus finding.
+      expect(mockRunDesignCompleteness).not.toHaveBeenCalled();
+      expect(mockAppend).not.toHaveBeenCalled();
+    });
+  });
 });
