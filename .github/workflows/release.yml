@@ -53,8 +53,10 @@ jobs:
         with:
           bun-version: 1.3.13
 
-      - run: npm ci
-      - run: cd servers/exarchos-mcp && npm ci
+      # Route through the shared wrapper for the Playwright browser-download
+      # skip + retry/timeout (see docs/rca/2026-05-31-npm-ci-playwright-browser-wedge.md).
+      - run: bash "$GITHUB_WORKSPACE/scripts/npm-ci-retry.sh"
+      - run: cd servers/exarchos-mcp && bash "$GITHUB_WORKSPACE/scripts/npm-ci-retry.sh"
       - run: npm run typecheck
       - run: npm run test:run
       - run: npm run build
@@ -155,12 +157,14 @@ jobs:
       - name: Install root dependencies
         # The MCP build entry transitively imports `src/runtimes/load.ts`
         # which requires `js-yaml`; without root deps the bun --compile step
-        # fails with "Could not resolve: js-yaml".
-        run: npm ci
+        # fails with "Could not resolve: js-yaml". Route through the shared
+        # wrapper for the Playwright browser-download skip + retry/timeout
+        # (see docs/rca/2026-05-31-npm-ci-playwright-browser-wedge.md).
+        run: bash "$GITHUB_WORKSPACE/scripts/npm-ci-retry.sh"
 
       - name: Install MCP server dependencies
         working-directory: servers/exarchos-mcp
-        run: npm ci
+        run: bash "$GITHUB_WORKSPACE/scripts/npm-ci-retry.sh"
 
       - name: Build binary for ${{ matrix.target }}
         run: bun run scripts/build-binary.ts --target ${{ matrix.target }}
