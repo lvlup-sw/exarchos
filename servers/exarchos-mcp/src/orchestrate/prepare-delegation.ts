@@ -451,7 +451,13 @@ export async function handlePrepareDelegation(
             worktree: { passed: guardOutcomes.worktree.passed },
             protectedBranch: { passed: guardOutcomes.protectedBranch.passed },
             mainWorktree: { passed: guardOutcomes.mainWorktree.passed },
-            baseRef: { passed: guardOutcomes.baseRef.passed },
+            // #1509/#1501: the baseRef guard runs only on the nativeIsolation
+            // path. Omit it on non-native dispatches so telemetry reflects
+            // "not executed" by absence rather than a misleading passed:true
+            // (schema marks baseRef optional for exactly this reason).
+            ...(args.nativeIsolation
+              ? { baseRef: { passed: guardOutcomes.baseRef.passed } }
+              : {}),
           },
           passed,
           durationMs: Date.now() - preflightStart,

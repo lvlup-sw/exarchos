@@ -58,7 +58,7 @@ Verified against the official Claude Code documentation
 > "Worktrees branch from your repository's default branch, `origin/HEAD`, so they
 > start from a clean tree matching the remote. If no remote is configured or the
 > fetch fails, the worktree falls back to your current local `HEAD`."
-
+>
 > "Subagent worktrees use the same base branch as `--worktree`, so they branch
 > from your repository's default branch **unless `worktree.baseRef` is set to
 > `"head"`**."

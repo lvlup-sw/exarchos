@@ -362,7 +362,7 @@ pwd | grep -q "\.worktrees" || { echo "ERROR: Not in worktree!"; exit 1; }
 
 This check prevents accidental modifications to the main project root, which would cause merge conflicts with other parallel tasks.
 
-## CRITICAL: Base Verification (MANDATORY)
+## CRITICAL: Base Verification (MANDATORY) (Example)
 
 Before making ANY file changes, verify your worktree is based on the **integration tip**, not a stale `main` (issues #1509 / #1501):
 
