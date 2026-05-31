@@ -1,7 +1,7 @@
 // ─── Test Runtime Resolver Tests ────────────────────────────────────────────
 
 import { describe, it, expect, afterEach, vi } from 'vitest';
-import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -919,6 +919,27 @@ describe('resolveTestRuntime', () => {
       });
       expect(result.test).toBe('jest');
       expect(result.source).toBe('config');
+    });
+
+    it('tier4_TaskRunner_BeatsNodeWithWorkingTestScript', () => {
+      // A committed task runner is a deliberate project interface, so it wins
+      // over a node repo's own test:run script (intended behavior, M5).
+      const dir = makeTmpDir();
+      writeFileSync(join(dir, 'package.json'), JSON.stringify({ scripts: { 'test:run': 'vitest run' } }));
+      writeFileSync(join(dir, 'justfile'), 'test:\n\techo hi\n');
+      const result = resolveTestRuntime(dir);
+      expect(result.test).toBe('just test');
+      expect(result.source).toBe('task-runner');
+    });
+
+    it('nodeInstallMetadataFallback_NoLockfile_ResolvesPm', () => {
+      // No lockfile, but installed-state markers identify the PM (vendored
+      // INSTALL_METADATA fallback, M3).
+      const dir = makeTmpDir();
+      writeFileSync(join(dir, 'package.json'), JSON.stringify({ scripts: { test: 'vitest run' } }));
+      mkdirSync(join(dir, 'node_modules', '.pnpm'), { recursive: true });
+      const result = resolveTestRuntime(dir);
+      expect(result.test).toBe('pnpm test');
     });
 
     it('precedence_UserToolchain_BeatsTaskRunner', () => {

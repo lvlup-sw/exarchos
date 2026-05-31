@@ -24,6 +24,10 @@ vi.mock('node:fs', () => ({
   ),
   existsSync: vi.fn(() => true),
   statSync: vi.fn(() => ({ isDirectory: () => true })),
+  // Defensive: detectToolchain lists the dir only for *.ext glob markers. Node
+  // (an exact-name marker) short-circuits first today, but stub readdirSync so
+  // the suite survives any future registry-ordering change.
+  readdirSync: vi.fn(() => []),
 }));
 
 function makePassRunner(): RunCommandFn {

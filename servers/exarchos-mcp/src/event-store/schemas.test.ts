@@ -2773,6 +2773,32 @@ describe('CommandResolvedEventSchema', () => {
     }
   });
 
+  it('commandResolved_ToolchainConfigSource_Validates', () => {
+    const result = CommandResolvedEventSchema.safeParse({
+      field: 'test',
+      command: 'zig build test',
+      source: 'toolchain-config',
+      repoRoot: '/x',
+    });
+    expect(result.success, JSON.stringify(result)).toBe(true);
+    if (result.success) {
+      expect(result.data.source).toBe('toolchain-config');
+    }
+  });
+
+  it('commandResolved_TaskRunnerSource_Validates', () => {
+    const result = CommandResolvedEventSchema.safeParse({
+      field: 'test',
+      command: 'task test',
+      source: 'task-runner',
+      repoRoot: '/x',
+    });
+    expect(result.success, JSON.stringify(result)).toBe(true);
+    if (result.success) {
+      expect(result.data.source).toBe('task-runner');
+    }
+  });
+
   it('commandResolved_OverrideSource_Validates', () => {
     const result = CommandResolvedEventSchema.safeParse({
       field: 'install',

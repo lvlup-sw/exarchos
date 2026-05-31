@@ -42,10 +42,13 @@ To refresh against a newer upstream release:
    regenerates `lockfiles.generated.ts` and `LICENSE` in this directory.
 3. Commit the regenerated files.
 
-CI / drift guard:
+Drift check (manual; opt-in for CI):
 ```bash
-npm run vendor:check:pm-detector    # exits non-zero if the committed file is stale
+npm run vendor:check:pm-detector    # non-zero ONLY on genuine content drift
 ```
+It re-fetches from the pinned tag and compares against the committed files. A
+network/upstream failure is treated as an outage (warn + exit 0), not as drift,
+so it is safe to wire into CI without becoming a network-flake source.
 
 ## License
 

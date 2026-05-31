@@ -19,7 +19,7 @@ import { logger } from '../logger.js';
 import { loadExarchosConfig, type LoadResult } from './load-exarchos-config.js';
 import { detectToolchain, toolchainFromConfig } from './toolchains.js';
 import { resolveTaskRunner } from './task-runners.js';
-import { LOCKS } from './vendor/package-manager-detector/lockfiles.generated.js';
+import { LOCKS, INSTALL_METADATA } from './vendor/package-manager-detector/lockfiles.generated.js';
 
 const resolverLogger = logger.child({ subsystem: 'test-runtime-resolver' });
 
@@ -183,6 +183,13 @@ function detectNodePackageManager(
       return agent as 'bun' | 'pnpm' | 'yarn' | 'npm';
     }
   }
+  // No lockfile — fall back to installed-state markers (deps installed but the
+  // lockfile is absent), matching upstream's two-stage detect.
+  for (const [marker, agent] of Object.entries(INSTALL_METADATA)) {
+    if (NODE_PACKAGE_MANAGERS.has(agent) && existsSync(path.join(repoRoot, marker))) {
+      return agent as 'bun' | 'pnpm' | 'yarn' | 'npm';
+    }
+  }
   return 'npm';
 }
 
@@ -313,13 +320,20 @@ function detect(repoRoot: string): DetectionResult {
 }
 
 export function resolveTestRuntime(repoRoot: string, options?: ResolveOptions): ResolvedRuntime {
-  const override = options?.override;
+  const rawOverride = options?.override;
 
-  if (override) {
-    if (override.test !== undefined) assertSafe('test', override.test);
-    if (override.typecheck !== undefined) assertSafe('typecheck', override.typecheck);
-    if (override.install !== undefined) assertSafe('install', override.install);
+  if (rawOverride) {
+    if (rawOverride.test !== undefined) assertSafe('test', rawOverride.test);
+    if (rawOverride.typecheck !== undefined) assertSafe('typecheck', rawOverride.typecheck);
+    if (rawOverride.install !== undefined) assertSafe('install', rawOverride.install);
   }
+  // Normalize override values to their trimmed form so emitted/returned commands
+  // match the trimmed `safeCommand` shape config values already use (N2).
+  const override = {
+    test: rawOverride?.test?.trim(),
+    typecheck: rawOverride?.typecheck?.trim(),
+    install: rawOverride?.install?.trim(),
+  };
 
   // Validate emission contract up-front: eventStore requires stream.
   if (options?.eventStore && (options.stream === undefined || options.stream === '')) {

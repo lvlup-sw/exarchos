@@ -57,7 +57,8 @@ and re-adds a native dep. So we **vendor the small, stable data table** instead:
   `INSTALL_METADATA` maps, generated, with a provenance header (upstream MIT, v1.6.0, commit pin).
 - `…/LICENSE` (upstream MIT verbatim) + `…/README.md` (why vendored, update path).
 - `scripts/sync-vendor-pm-detector.ts` + `npm run vendor:sync:pm-detector` /
-  `vendor:check:pm-detector` (CI drift guard) — pinned, re-fetches + regenerates on demand.
+  `vendor:check:pm-detector` (drift check — outage-safe: network failure warns +
+  exits 0, only genuine content drift fails) — pinned, re-fetches on demand.
 
 This keeps the resolver synchronous (zero consumer changes) and still tracks upstream's
 authoritative lockfile table. Declined: `linguist-*` language detection (advisory only, never

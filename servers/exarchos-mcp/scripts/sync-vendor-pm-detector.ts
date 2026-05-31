@@ -42,6 +42,11 @@ async function fetchText(url: string): Promise<string> {
   return res.text();
 }
 
+// Allowlist for extracted keys/values. We re-emit these verbatim into a TS
+// string literal, so anything outside this set (notably a backslash or quote)
+// could corrupt or inject into the generated file. Fail loudly instead.
+const SAFE_VENDOR_TOKEN = /^[A-Za-z0-9._/@-]+$/;
+
 /** Extract a flat `export const NAME ... = { 'k': 'v', ... }` table, order-preserving. */
 function extractMap(src: string, name: string): Array<[string, string]> {
   const block = src.match(new RegExp(`export const ${name}\\b[^=]*=\\s*\\{([\\s\\S]*?)\\n\\}`));
@@ -50,6 +55,13 @@ function extractMap(src: string, name: string): Array<[string, string]> {
     (m): [string, string] => [m[1], m[2]],
   );
   if (pairs.length === 0) throw new Error(`extracted 0 entries for ${name} — upstream format changed?`);
+  for (const [k, v] of pairs) {
+    if (!SAFE_VENDOR_TOKEN.test(k) || !SAFE_VENDOR_TOKEN.test(v)) {
+      throw new Error(
+        `unsafe token in ${name}: ${JSON.stringify([k, v])} — fails the extraction allowlist ${SAFE_VENDOR_TOKEN}`,
+      );
+    }
+  }
   return pairs;
 }
 
@@ -109,10 +121,23 @@ ${renderEntries(install)}
 async function main(): Promise<void> {
   const check = process.argv.includes('--check');
 
-  const [constants, license] = await Promise.all([
-    fetchText(RAW('src/constants.ts')),
-    fetchText(RAW('LICENSE')),
-  ]);
+  let constants: string;
+  let license: string;
+  try {
+    [constants, license] = await Promise.all([
+      fetchText(RAW('src/constants.ts')),
+      fetchText(RAW('LICENSE')),
+    ]);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    // In --check, a network/upstream failure is an OUTAGE, not drift. Don't
+    // fail the build on it — that would flag an unreachable GitHub as stale.
+    if (check) {
+      console.warn(`vendor:check:pm-detector skipped — upstream unreachable (${msg}). Not treated as drift.`);
+      return;
+    }
+    throw err;
+  }
 
   const locks = extractMap(constants, 'LOCKS');
   const install = extractMap(constants, 'INSTALL_METADATA');
