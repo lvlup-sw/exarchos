@@ -80,7 +80,7 @@ export function toMcpResult(env: Envelope<unknown> | ErrorEnvelope) {
 // caller of this adapter, so the values are duplicated intentionally; the
 // integration test pins them together.
 const SERVER_NAME = 'exarchos-mcp';
-const SERVER_VERSION = '2.10.0-rc.4';
+const SERVER_VERSION = '2.10.0';
 
 // ─── D.6: Aggregate ActionAnnotations into tools/list ToolAnnotations ─────
 //
