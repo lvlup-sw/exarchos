@@ -972,4 +972,35 @@ describe('handleOrchestrate', () => {
       expect(result.error?.message).toContain('unknown_action');
     });
   });
+
+  // ─── Optional-eventStore handlers (file-based fallback) ───────────────────
+  //
+  // select_debug_track and investigation_timer resolve state from EITHER a
+  // stateFile OR featureId + event store, so their eventStore param is optional.
+  // Dispatching them through a context WITHOUT an eventStore must NOT throw
+  // (regression: the throwing adaptWithEventStore adapter crashed the file-based
+  // path with "ctx.eventStore required").
+
+  describe('optional-eventStore handlers', () => {
+    const ctxNoStore = { stateDir: STATE_DIR, enableTelemetry: false } as unknown as DispatchContext;
+
+    it('SelectDebugTrack_DispatchedWithoutEventStore_DoesNotThrow', async () => {
+      const result = await handleOrchestrate(
+        { action: 'select_debug_track', urgency: 'high', rootCauseKnown: true },
+        ctxNoStore,
+      );
+
+      expect(result.success).toBe(true);
+      expect((result.data as { track: string }).track).toBe('hotfix');
+    });
+
+    it('InvestigationTimer_DispatchedWithoutEventStore_DoesNotThrow', async () => {
+      const result = await handleOrchestrate(
+        { action: 'investigation_timer', startedAt: '2026-05-30T00:00:00Z', budgetMinutes: 15 },
+        ctxNoStore,
+      );
+
+      expect(result.success).toBe(true);
+    });
+  });
 });

@@ -150,6 +150,22 @@ function adaptWithEventStore<T>(
 }
 
 /**
+ * Like {@link adaptWithEventStore}, but for handlers whose third positional
+ * `eventStore` parameter is OPTIONAL. These handlers resolve workflow state
+ * from EITHER an explicit `stateFile` OR `featureId` + event store, so they
+ * degrade to the file-based path when no event store is available (e.g.
+ * select-debug-track, investigation-timer). Threads `ctx?.eventStore` through
+ * as the third positional arg WITHOUT throwing when it is absent — using the
+ * throwing {@link adaptWithEventStore} here would crash a file-based dispatch
+ * that the handler is designed to serve.
+ */
+function adaptWithOptionalEventStore<T>(
+  handler: (args: T, stateDir: string, eventStore?: EventStore) => Promise<ToolResult>,
+): ActionHandler {
+  return async (args, stateDir, ctx) => handler(args as unknown as T, stateDir, ctx?.eventStore);
+}
+
+/**
  * Wraps a typed handler that needs BOTH `stateDir` and `eventStore` from
  * DispatchContext injected into a single args object. Use this when the
  * underlying handler accepts a single bag of args containing all dependencies
@@ -244,8 +260,8 @@ const ACTION_HANDLERS: Readonly<Record<string, ActionHandler>> = {
   extract_task: adapt(handleExtractTask),
   review_diff: adapt(handleReviewDiff),
   verify_worktree: adapt(handleVerifyWorktree),
-  select_debug_track: adaptWithEventStore(handleSelectDebugTrack),
-  investigation_timer: adaptWithEventStore(handleInvestigationTimer),
+  select_debug_track: adaptWithOptionalEventStore(handleSelectDebugTrack),
+  investigation_timer: adaptWithOptionalEventStore(handleInvestigationTimer),
   check_coverage_thresholds: adaptArgs(handleCheckCoverageThresholds),
   assess_refactor_scope: adaptArgsWithEventStore(handleAssessRefactorScope),
   check_pr_comments: adaptArgs(handleCheckPrComments),
