@@ -38,6 +38,11 @@ describe('resolveTaskRunner — per-runner detection + target presence', () => {
     expect(resolveTaskRunner(dir, 'test')).toBeUndefined();
   });
 
+  it('just silent recipe (`@test:`) is detected', () => {
+    write('justfile', '@test:\n\tvitest run\n');
+    expect(resolveTaskRunner(dir, 'test')).toEqual({ runner: 'just', target: 'test', command: 'just test' });
+  });
+
   it('mise [tasks.<name>] table → `mise run test`', () => {
     write('mise.toml', '[tools]\nnode = "20"\n\n[tasks.test]\nrun = "vitest run"\n');
     expect(resolveTaskRunner(dir, 'test')).toEqual({ runner: 'mise', target: 'test', command: 'mise run test' });

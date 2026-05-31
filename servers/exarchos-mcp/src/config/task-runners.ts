@@ -65,10 +65,11 @@ function taskfileHasTarget(content: string, target: string): boolean {
 
 /**
  * justfile: recipes are `target:` / `target args:` / `target: deps` at line
- * start. `:(?!=)` excludes `target := value` variable assignments.
+ * start. A leading `@` marks a quiet recipe (`@target:`), so it is optional.
+ * `:(?!=)` excludes `target := value` variable assignments.
  */
 function justHasTarget(content: string, target: string): boolean {
-  return new RegExp(`^${escapeRegExp(target)}(\\s+[^:\\n]*)?:(?!=)`, 'm').test(content);
+  return new RegExp(`^@?${escapeRegExp(target)}(\\s+[^:\\n]*)?:(?!=)`, 'm').test(content);
 }
 
 /** mise.toml: `[tasks.<target>]` table, or `<target> = …` under a `[tasks]` table. */
