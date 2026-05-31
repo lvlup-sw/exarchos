@@ -133,9 +133,11 @@ If this review follows a delegation phase, verify triage routing:
 ```typescript
 exarchos_orchestrate({
   action: "verify_review_triage",
-  stateFile: "<state-file>"
+  featureId: "<feature-id>"
 })
 ```
+
+`featureId` resolves PRs (event-store projection) and `review.routed` events directly from the store — no `.state.json`/`.events.jsonl` needed (INV-1). A legacy file-based workflow may instead pass `stateFile` + `eventStream`.
 
 `passed: true`: triage routing correct — continue to Step 1. `passed: false`: triage issues found — investigate and resolve before proceeding.
 

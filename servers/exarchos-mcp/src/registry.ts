@@ -1885,7 +1885,9 @@ const orchestrateActions: readonly ToolAction[] = [
     name: 'extract_fix_tasks',
     description: 'Extract fix tasks from review findings and map to worktrees',
     schema: z.object({
-      featureId: z.string().min(1),
+      // featureId OR stateFile — the handler enforces "at least one source"
+      // (Zod single-field `.min(1)` can't express the cross-field rule).
+      featureId: z.string().min(1).optional(),
       // INV-1: findings + worktrees resolve from the event-store projection;
       // `stateFile` is an optional override for legacy file-based workflows.
       stateFile: z.string().min(1).optional(),
@@ -2021,7 +2023,8 @@ const orchestrateActions: readonly ToolAction[] = [
     name: 'pre_synthesis_check',
     description: 'Run pre-synthesis checks: task completion, reviews, tests, and stack health',
     schema: z.object({
-      featureId: z.string().min(1),
+      // featureId OR stateFile — the handler enforces "at least one source".
+      featureId: z.string().min(1).optional(),
       // INV-1: the event store is the sole source of truth. `stateFile` is an
       // optional override; when omitted the gate materializes state from the
       // event store via `featureId` (MCP-only workflows have no `.state.json`).
@@ -2111,7 +2114,8 @@ const orchestrateActions: readonly ToolAction[] = [
     name: 'verify_review_triage',
     description: 'Verify review triage routing — check review.routed events against state PRs',
     schema: z.object({
-      featureId: z.string().min(1),
+      // featureId OR stateFile — the handler enforces "at least one source".
+      featureId: z.string().min(1).optional(),
       // INV-1: PRs resolve from the event-store projection; `review.routed`
       // events are queried directly from the store. Both file inputs are
       // OPTIONAL overrides for legacy file-based workflows.

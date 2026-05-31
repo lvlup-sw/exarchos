@@ -1695,6 +1695,29 @@ describe('check_tdd_compliance schema strictness', () => {
   });
 });
 
+// #1499 — WS2 migrated pre_synthesis_check / verify_review_triage /
+// extract_fix_tasks to resolveWorkflowState (event-store fallback). featureId
+// MUST stay optional so the shipped stateFile-only skill callers
+// (quality-review Step 0.5, delegation fix-mode) are not rejected at the
+// dispatch boundary. The "at least one source" cross-field rule lives in the
+// handlers (Zod single-field `.min(1)` can't express it).
+describe('#1499 state-source migration schema (regression guard)', () => {
+  it.each([
+    'pre_synthesis_check',
+    'verify_review_triage',
+    'extract_fix_tasks',
+  ])('%s accepts a stateFile-only input (featureId optional)', (action) => {
+    const found = findActionInRegistry('exarchos_orchestrate', action);
+    expect(found, `${action} must be registered`).toBeDefined();
+    expect(
+      found!.schema.safeParse({ stateFile: '/tmp/wf.state.json' }).success,
+      `${action} must accept stateFile-only`,
+    ).toBe(true);
+    // The canonical event-store path (featureId-only) must also validate.
+    expect(found!.schema.safeParse({ featureId: 'wf-x' }).success).toBe(true);
+  });
+});
+
 // ─── DR-11 (#1259): outputSchema registers _meta.deprecation ─────────────────
 //
 // T5a.1/DR-4 (v2.11): `set` action removed. Per INV-5b the
