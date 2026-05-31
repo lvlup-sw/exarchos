@@ -65,12 +65,23 @@ export interface ResolveDesignFileArgs {
   readonly designFile?: string;
   readonly stateFile?: string;
   readonly docsDir?: string;
+  /**
+   * Pre-resolved `artifacts.design` path from the workflow state, supplied by
+   * the orchestrate layer after materializing state via `resolveWorkflowState`
+   * (file → event-store fallback). When provided, it takes precedence over
+   * re-reading `stateFile` from disk, so the gate works for MCP-only workflows
+   * that never wrote a `.state.json` stamp (INV-1). `null` means "state was
+   * resolved but recorded no design path"; `undefined` means "not supplied —
+   * fall back to reading `stateFile`".
+   */
+  readonly designPathFromState?: string | null;
 }
 
 /**
  * Resolve the path to a design document using a priority chain:
  *   1. Explicit --design-file path
- *   2. artifacts.design from state JSON
+ *   2. artifacts.design (pre-resolved from event-store state, or read from the
+ *      state file)
  *   3. Latest YYYY-MM-DD-*.md in docs directory
  *
  * Returns the resolved path, or undefined if no design file can be found.
@@ -84,8 +95,17 @@ export function resolveDesignFile(args: ResolveDesignFileArgs): string | undefin
     return undefined;
   }
 
-  // 2. From state file — artifacts.design
-  if (args.stateFile) {
+  // 2a. Pre-resolved artifacts.design from event-store state (INV-1).
+  if (args.designPathFromState !== undefined) {
+    if (
+      args.designPathFromState &&
+      args.designPathFromState.length > 0 &&
+      existsSync(args.designPathFromState)
+    ) {
+      return args.designPathFromState;
+    }
+  } else if (args.stateFile) {
+    // 2b. Legacy: read artifacts.design from the state file on disk.
     const stateResult = checkStateDesignPath(args.stateFile);
     if (stateResult.passed && stateResult.designPath && existsSync(stateResult.designPath)) {
       return stateResult.designPath;
@@ -377,6 +397,12 @@ export interface HandleDesignCompletenessArgs {
   readonly stateFile?: string;
   readonly designFile?: string;
   readonly docsDir?: string;
+  /**
+   * Pre-resolved `artifacts.design` from the workflow state (see
+   * {@link ResolveDesignFileArgs.designPathFromState}). When supplied by the
+   * orchestrate layer, Check 4 uses it instead of re-reading `stateFile`.
+   */
+  readonly designPathFromState?: string | null;
 }
 
 /**
@@ -399,6 +425,7 @@ export function handleDesignCompleteness(args: HandleDesignCompletenessArgs): De
     designFile: args.designFile,
     stateFile: args.stateFile,
     docsDir: args.docsDir,
+    designPathFromState: args.designPathFromState,
   });
 
   if (!designPath) {
@@ -453,8 +480,17 @@ export function handleDesignCompleteness(args: HandleDesignCompletenessArgs): De
     findings.push(`Found ${optionsResult.count} option(s), expected at least 2`);
   }
 
-  // Check 4: State file has design path
-  if (args.stateFile) {
+  // Check 4: State records a design path
+  // Prefer the pre-resolved value from event-store state (INV-1); fall back
+  // to reading the state file when the orchestrate layer didn't supply one.
+  if (args.designPathFromState !== undefined) {
+    if (args.designPathFromState && args.designPathFromState.length > 0) {
+      passCount++;
+    } else {
+      failCount++;
+      findings.push('artifacts.design is empty or missing');
+    }
+  } else if (args.stateFile) {
     const stateResult = checkStateDesignPath(args.stateFile);
     if (stateResult.passed) {
       passCount++;

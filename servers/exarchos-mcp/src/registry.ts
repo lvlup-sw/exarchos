@@ -1769,6 +1769,9 @@ const orchestrateActions: readonly ToolAction[] = [
     name: 'select_debug_track',
     description: 'Select hotfix or thorough debug track based on urgency and root cause knowledge',
     schema: z.object({
+      // INV-1: urgency/rootCauseKnown resolve from the event-store projection
+      // when not passed directly; `featureId` enables fileless resolution.
+      featureId: z.string().min(1).optional(),
       urgency: z.string().optional(),
       rootCauseKnown: z.union([z.boolean(), z.string()]).optional(),
       stateFile: z.string().optional(),
@@ -1782,6 +1785,10 @@ const orchestrateActions: readonly ToolAction[] = [
     name: 'investigation_timer',
     description: 'Check investigation time budget and recommend continue or escalate',
     schema: z.object({
+      // INV-1: investigation.startedAt resolves from the event-store
+      // projection when not passed directly; `featureId` enables fileless
+      // resolution for MCP-only workflows.
+      featureId: z.string().min(1).optional(),
       startedAt: z.string().optional(),
       stateFile: z.string().optional(),
       budgetMinutes: z.number().optional(),
@@ -1810,6 +1817,10 @@ const orchestrateActions: readonly ToolAction[] = [
     name: 'assess_refactor_scope',
     description: 'Assess refactoring scope and recommend polish or overhaul track',
     schema: z.object({
+      // INV-1: explore.scopeAssessment.filesAffected resolves from the
+      // event-store projection when no explicit `files` list is supplied;
+      // `featureId` enables fileless resolution.
+      featureId: z.string().min(1).optional(),
       files: z.array(z.string()).optional(),
       stateFile: z.string().optional(),
     }),

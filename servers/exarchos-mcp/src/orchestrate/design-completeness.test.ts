@@ -30,6 +30,10 @@ vi.mock('../views/tools.js', () => ({
 
 import { handleDesignCompleteness as runDesignCompleteness } from './pure/design-completeness.js';
 import { handleDesignCompleteness } from './design-completeness.js';
+import { EventStore } from '../event-store/store.js';
+import * as fsPromises from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import * as nodePath from 'node:path';
 
 const mockRunDesignCompleteness = vi.mocked(runDesignCompleteness);
 
@@ -325,6 +329,51 @@ describe('handleDesignCompleteness', () => {
       expect(mockRunDesignCompleteness).toHaveBeenCalledWith(
         expect.objectContaining({
           stateFile: `${STATE_DIR}/test-feature.state.json`,
+        }),
+      );
+    });
+
+    // ─── Fileless resolution: MCP-only workflow (no .state.json) ─────────
+    //
+    // INV-1: the event store is the sole source of truth. An MCP-only
+    // workflow has no `.state.json` stamp; `artifacts.design` must resolve
+    // from the event-store projection and be fed to the pure checker as
+    // `designPathFromState` so the gate works without a state file.
+    it('FilelessMcpOnly_ResolvesDesignPathFromEventStore', async () => {
+      mockRunDesignCompleteness.mockReturnValue({
+        passed: true,
+        advisory: true,
+        findings: [],
+        checkCount: 4,
+        passCount: 4,
+        failCount: 0,
+      });
+
+      const eventStoreDir = await fsPromises.mkdtemp(
+        nodePath.join(tmpdir(), 'design-fileless-'),
+      );
+      const eventStore = new EventStore(eventStoreDir);
+      await eventStore.initialize();
+
+      const featureId = 'fileless-design';
+      await eventStore.append(featureId, {
+        type: 'workflow.started',
+        data: { featureId, workflowType: 'feature' },
+      });
+      await eventStore.append(featureId, {
+        type: 'state.patched',
+        data: { patch: { artifacts: { design: 'docs/designs/2026-05-30-x.md' } } },
+      });
+
+      await handleDesignCompleteness({ featureId }, STATE_DIR, eventStore);
+
+      await fsPromises.rm(eventStoreDir, { recursive: true, force: true });
+
+      // The pure checker received the event-store-resolved design path,
+      // proving fileless resolution worked (no `.state.json` on disk).
+      expect(mockRunDesignCompleteness).toHaveBeenCalledWith(
+        expect.objectContaining({
+          designPathFromState: 'docs/designs/2026-05-30-x.md',
         }),
       );
     });
