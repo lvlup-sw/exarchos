@@ -2007,7 +2007,11 @@ const orchestrateActions: readonly ToolAction[] = [
     name: 'pre_synthesis_check',
     description: 'Run pre-synthesis checks: task completion, reviews, tests, and stack health',
     schema: z.object({
-      stateFile: z.string().min(1),
+      featureId: z.string().min(1),
+      // INV-1: the event store is the sole source of truth. `stateFile` is an
+      // optional override; when omitted the gate materializes state from the
+      // event store via `featureId` (MCP-only workflows have no `.state.json`).
+      stateFile: z.string().min(1).optional(),
       repoRoot: z.string().optional(),
       skipTests: z.boolean().optional(),
       skipStack: z.boolean().optional(),

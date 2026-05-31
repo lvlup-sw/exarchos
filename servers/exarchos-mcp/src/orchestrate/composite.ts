@@ -261,7 +261,7 @@ const ACTION_HANDLERS: Readonly<Record<string, ActionHandler>> = {
   verify_delegation_saga: adaptArgs(handleVerifyDelegationSaga),
   post_delegation_check: adaptArgsWithEventStore(handlePostDelegationCheck),
   reconcile_state: adaptArgsWithEventStore(handleReconcileState),
-  pre_synthesis_check: adaptArgs(handlePreSynthesisCheck),
+  pre_synthesis_check: adaptArgsWithStateDirAndEventStore(handlePreSynthesisCheck),
   new_project: adaptArgs(handleNewProject),
   check_coderabbit: adaptArgs(handleCheckCoderabbit),
   check_polish_scope: adaptArgs(handleCheckPolishScope),
