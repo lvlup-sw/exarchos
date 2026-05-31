@@ -14,12 +14,23 @@ import { existsSync, readFileSync } from 'node:fs';
 import * as path from 'node:path';
 import { logger } from '../logger.js';
 import { loadExarchosConfig, type LoadResult } from './load-exarchos-config.js';
-import { detectToolchain } from './toolchains.js';
+import { detectToolchain, toolchainFromConfig } from './toolchains.js';
+import { resolveTaskRunner } from './task-runners.js';
 import { LOCKS } from './vendor/package-manager-detector/lockfiles.generated.js';
 
 const resolverLogger = logger.child({ subsystem: 'test-runtime-resolver' });
 
-export type ResolutionSource = 'config' | 'detection' | 'override' | 'unresolved';
+// Detection sub-tiers of the layered resolver, in precedence order:
+//   override > config (.exarchos.yml direct) > toolchain-config (user
+//   .exarchos.yml `toolchains:`) > task-runner (Taskfile/just/mise/Makefile) >
+//   detection (built-in registry) > unresolved.
+export type ResolutionSource =
+  | 'override'
+  | 'config'
+  | 'toolchain-config'
+  | 'task-runner'
+  | 'detection'
+  | 'unresolved';
 
 export interface ResolvedRuntime {
   test: string | null;
@@ -320,22 +331,48 @@ export function resolveTestRuntime(repoRoot: string, options?: ResolveOptions): 
   const configResult = loadConfig(repoRoot);
   const config = configResult?.config;
 
-  // Per-field merge: override > config > detection.
-  type Layer = 'override' | 'config' | 'detection';
+  // ── Detection sub-tiers (resolved per field, highest tier first) ──────────
+  // tier 3: user-declared `.exarchos.yml` toolchains: (matched before built-ins)
+  const userToolchains = (config?.toolchains ?? []).map(toolchainFromConfig);
+  const userMatched = userToolchains.length > 0 ? detectToolchain(repoRoot, userToolchains) : undefined;
+  const userMatch = userMatched && userToolchains.includes(userMatched) ? userMatched : undefined;
+
+  type DetectionTier = 'toolchain-config' | 'task-runner' | 'detection';
+  const resolveDetection = (
+    field: 'test' | 'typecheck' | 'install',
+  ): { value: string | null; tier: DetectionTier | null } => {
+    // tier 3 — user toolchain command
+    const userCmd = userMatch?.commands[field] ?? null;
+    if (userCmd !== null) return { value: userCmd, tier: 'toolchain-config' };
+    // tier 4 — committed task-runner with a matching conventional target
+    const runner = resolveTaskRunner(repoRoot, field);
+    if (runner) return { value: runner.command, tier: 'task-runner' };
+    // tier 5 — built-in registry detection
+    if (det[field] !== null) return { value: det[field], tier: 'detection' };
+    return { value: null, tier: null };
+  };
+  const testDet = resolveDetection('test');
+  const typecheckDet = resolveDetection('typecheck');
+  const installDet = resolveDetection('install');
+
+  // Per-field merge: override > config > [toolchain-config > task-runner > detection].
+  type Layer = 'override' | 'config' | DetectionTier;
   const pick = (
     overrideVal: string | undefined,
     configVal: string | undefined,
-    detectVal: string | null,
+    detection: { value: string | null; tier: DetectionTier | null },
   ): { value: string | null; layer: Layer | null } => {
     if (overrideVal !== undefined) return { value: overrideVal, layer: 'override' };
     if (configVal !== undefined) return { value: configVal, layer: 'config' };
-    if (detectVal !== null) return { value: detectVal, layer: 'detection' };
+    if (detection.value !== null && detection.tier !== null) {
+      return { value: detection.value, layer: detection.tier };
+    }
     return { value: null, layer: null };
   };
 
-  const testPick = pick(override?.test, config?.test, det.test);
-  const typecheckPick = pick(override?.typecheck, config?.typecheck, det.typecheck);
-  const installPick = pick(override?.install, config?.install, det.install);
+  const testPick = pick(override?.test, config?.test, testDet);
+  const typecheckPick = pick(override?.typecheck, config?.typecheck, typecheckDet);
+  const installPick = pick(override?.install, config?.install, installDet);
 
   const contributingLayers = new Set<Layer>(
     [testPick.layer, typecheckPick.layer, installPick.layer].filter(
@@ -344,12 +381,17 @@ export function resolveTestRuntime(repoRoot: string, options?: ResolveOptions): 
   );
 
   // Aggregate source label = highest-precedence layer that contributed any
-  // non-null field. override > config > detection > unresolved.
+  // non-null field. override > config > toolchain-config > task-runner >
+  // detection > unresolved.
   let source: ResolutionSource;
   if (contributingLayers.has('override')) {
     source = 'override';
   } else if (contributingLayers.has('config')) {
     source = 'config';
+  } else if (contributingLayers.has('toolchain-config')) {
+    source = 'toolchain-config';
+  } else if (contributingLayers.has('task-runner')) {
+    source = 'task-runner';
   } else if (contributingLayers.has('detection')) {
     source = 'detection';
   } else {
@@ -386,14 +428,14 @@ export function resolveTestRuntime(repoRoot: string, options?: ResolveOptions): 
     `No ${field} command available for this project from detection. ` +
     `Add a "${field}" entry to .exarchos.yml or pass an override.`;
 
-  if (
-    det.unresolvedReason &&
-    testPick.layer !== 'override' &&
-    testPick.layer !== 'config'
-  ) {
-    // Detection couldn't produce a runnable test command, but override/config
-    // may still have contributed valid `typecheck` or `install` values —
-    // honor them per the documented precedence (override > config > detection).
+  if (det.unresolvedReason && testPick.value === null) {
+    // The built-in detection flagged an unresolvable test (e.g. node missing a
+    // test:run script) AND no higher tier (override / config / user toolchain /
+    // task-runner) supplied one — so `test` is genuinely null. override/config
+    // (and now the toolchain-config / task-runner tiers) may still have
+    // contributed valid `typecheck`/`install` values — honor them per the
+    // documented precedence. The aggregate source remains `unresolved` because
+    // `test` is unrunnable, but per-field events keep their actual source.
     // The aggregate source remains `unresolved` because `test` is unrunnable,
     // but per-field events keep their actual source so the audit trail is
     // accurate.

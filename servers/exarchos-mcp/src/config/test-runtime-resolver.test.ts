@@ -865,4 +865,78 @@ describe('resolveTestRuntime', () => {
       `remediation must include an inline YAML example (a "test:" key) or a doc link, got: ${message}`,
     ).toBe(true);
   });
+
+  // ── Layered resolver tiers 3 (user toolchains) + 4 (task runners) ─────────
+  describe('layered tiers', () => {
+    it('tier3_UserToolchain_OverridesBuiltinDetection', () => {
+      const dir = makeTmpDir();
+      writeFileSync(join(dir, 'package.json'), '{}'); // built-in would say node
+      const result = resolveTestRuntime(dir, {
+        loadConfig: () => ({
+          config: {
+            toolchains: [
+              { id: 'node-custom', markers: ['package.json'], commands: { test: 'just test' } },
+            ],
+          },
+          source: '/x/.exarchos.yml',
+        }),
+      });
+      expect(result.test).toBe('just test');
+      expect(result.source).toBe('toolchain-config');
+    });
+
+    it('tier4_TaskRunner_BeatsBuiltinDetection', () => {
+      const dir = makeTmpDir();
+      writeFileSync(join(dir, 'Cargo.toml'), '[package]'); // built-in → cargo test
+      writeFileSync(join(dir, 'justfile'), 'test:\n\techo hi\n');
+      const result = resolveTestRuntime(dir);
+      expect(result.test).toBe('just test');
+      expect(result.source).toBe('task-runner');
+    });
+
+    it('tier4_TaskRunner_RescuesNodeMissingTestScript', () => {
+      const dir = makeTmpDir();
+      writeFileSync(join(dir, 'package.json'), JSON.stringify({ scripts: {} }));
+      writeFileSync(join(dir, 'Taskfile.yml'), 'tasks:\n  test:\n    cmds: [echo hi]\n');
+      const result = resolveTestRuntime(dir);
+      expect(result.test).toBe('task test');
+      expect(result.source).toBe('task-runner');
+    });
+
+    it('precedence_YmlDirectTest_BeatsUserToolchain', () => {
+      const dir = makeTmpDir();
+      writeFileSync(join(dir, 'build.zig'), '');
+      const result = resolveTestRuntime(dir, {
+        loadConfig: () => ({
+          config: {
+            test: 'jest',
+            toolchains: [
+              { id: 'zig', markers: ['build.zig'], commands: { test: 'zig build test' } },
+            ],
+          },
+          source: '/x/.exarchos.yml',
+        }),
+      });
+      expect(result.test).toBe('jest');
+      expect(result.source).toBe('config');
+    });
+
+    it('precedence_UserToolchain_BeatsTaskRunner', () => {
+      const dir = makeTmpDir();
+      writeFileSync(join(dir, 'build.zig'), '');
+      writeFileSync(join(dir, 'justfile'), 'test:\n\techo hi\n');
+      const result = resolveTestRuntime(dir, {
+        loadConfig: () => ({
+          config: {
+            toolchains: [
+              { id: 'zig', markers: ['build.zig'], commands: { test: 'zig build test' } },
+            ],
+          },
+          source: '/x/.exarchos.yml',
+        }),
+      });
+      expect(result.test).toBe('zig build test');
+      expect(result.source).toBe('toolchain-config');
+    });
+  });
 });

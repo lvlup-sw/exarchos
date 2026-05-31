@@ -1641,7 +1641,10 @@ const CommandResolvedBase = z.object({
 
 export const CommandResolvedEventSchema = z.discriminatedUnion('source', [
   CommandResolvedBase.extend({
-    source: z.enum(['config', 'detection', 'override']),
+    // `toolchain-config` (user .exarchos.yml toolchains:) and `task-runner`
+    // (Taskfile/just/mise/Makefile) added with the layered resolver — additive
+    // enum widening on an existing event type, no schema-version bump.
+    source: z.enum(['config', 'detection', 'override', 'toolchain-config', 'task-runner']),
     command: z.string().min(1),
     remediation: z.string().optional(),
   }),
