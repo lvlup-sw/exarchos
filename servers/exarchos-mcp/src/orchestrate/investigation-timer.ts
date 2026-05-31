@@ -9,7 +9,7 @@
 
 import type { ToolResult } from '../format.js';
 import type { EventStore } from '../event-store/store.js';
-import { resolveWorkflowState } from './resolve-state.js';
+import { classifyStateFile, resolveWorkflowState } from './resolve-state.js';
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
@@ -42,6 +42,27 @@ async function resolveStartedAt(
   // truth; the `.state.json` file is a derived stamp that may be absent for
   // MCP-only workflows.
   if (args.stateFile || (args.featureId && eventStore)) {
+    const hasEventFallback = Boolean(args.featureId && eventStore);
+
+    // An explicitly-provided stateFile that is missing or corrupt is a
+    // configuration error. Surface it directly instead of letting the
+    // resolver's silent fallback collapse to the caller's generic
+    // "startedAt or stateFile is required" message. A missing file WITH an
+    // event-store fallback still resolves from the store below (INV-1).
+    const fileStatus = classifyStateFile(args.stateFile);
+    if (fileStatus === 'malformed') {
+      return {
+        success: false,
+        error: { code: 'PARSE_ERROR', message: `Invalid JSON in state file: ${args.stateFile}` },
+      };
+    }
+    if (fileStatus === 'missing' && !hasEventFallback) {
+      return {
+        success: false,
+        error: { code: 'FILE_NOT_FOUND', message: `State file not found: ${args.stateFile}` },
+      };
+    }
+
     const resolved = await resolveWorkflowState({
       stateFile: args.stateFile,
       featureId: args.featureId,

@@ -175,6 +175,39 @@ describe('handleInvestigationTimer', () => {
     expect(result.error?.message).toContain('startedAt');
   });
 
+  // ─── Explicit stateFile errors are surfaced (not masked as "required") ─────
+  //
+  // Regression: a missing/corrupt explicit stateFile used to collapse to the
+  // generic "startedAt or stateFile is required" message because resolveStartedAt
+  // returned null on NO_STATE_SOURCE. The real cause must surface instead.
+
+  it('MissingStateFile_NoFallback_ReturnsFileNotFound', async () => {
+    vi.mocked(fs.existsSync).mockReturnValue(false);
+
+    const result = await handleInvestigationTimer(
+      { stateFile: '/tmp/missing.state.json' },
+      STATE_DIR,
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('FILE_NOT_FOUND');
+    expect(result.error?.message).toContain('missing.state.json');
+  });
+
+  it('MalformedStateFile_ReturnsParseError', async () => {
+    vi.mocked(fs.existsSync).mockReturnValue(true);
+    vi.mocked(fs.readFileSync).mockReturnValue('{ corrupt json');
+
+    const result = await handleInvestigationTimer(
+      { stateFile: '/tmp/bad.state.json' },
+      STATE_DIR,
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('PARSE_ERROR');
+    expect(result.error?.message).toContain('bad.state.json');
+  });
+
   // ─── Invalid Timestamp → Error ────────────────────────────────────────────
 
   it('handleInvestigationTimer_InvalidTimestamp_ReturnsError', async () => {

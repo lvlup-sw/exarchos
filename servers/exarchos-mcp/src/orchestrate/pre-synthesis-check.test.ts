@@ -568,4 +568,62 @@ describe('handlePreSynthesisCheck', () => {
     expect(data.report).toContain('All tasks complete');
     expect(data.report).toContain('Reviews passed');
   });
+
+  // ─── Malformed stateFile is not masked by the event-store fallback ─────
+  //
+  // Regression: when an explicit stateFile is corrupt AND a featureId +
+  // eventStore fallback is available, resolveWorkflowState silently resolves
+  // from the store, so the corruption used to go undetected (the report would
+  // even claim the file as source). A corrupt explicit file must surface as the
+  // Check-1 "Invalid JSON" failure rather than being masked by the fallback.
+
+  it('MalformedStateFileWithEventStoreFallback_SurfacesInvalidJson', async () => {
+    const BAD = '/tmp/corrupt.state.json';
+    // The file exists but is unparseable; the event store CAN resolve (valid
+    // synthesize state), so the old code would have silently used it.
+    vi.mocked(existsSync).mockImplementation((p) => String(p) === BAD);
+    vi.mocked(readFileSync).mockReturnValue('{ corrupt json');
+
+    const eventStoreDir = await fsPromises.mkdtemp(
+      nodePath.join(tmpdir(), 'pre-synth-corrupt-'),
+    );
+    const eventStore = new EventStore(eventStoreDir);
+    await eventStore.initialize();
+
+    const featureId = 'corrupt-feature';
+    await eventStore.append(featureId, {
+      type: 'workflow.started',
+      data: { featureId, workflowType: 'feature' },
+    });
+    await eventStore.append(featureId, {
+      type: 'workflow.transition',
+      data: { to: 'synthesize' },
+    });
+    await eventStore.append(featureId, {
+      type: 'state.patched',
+      data: {
+        patch: {
+          tasks: [{ id: 'T1', status: 'complete' }],
+          reviews: { overall: { status: 'approved' } },
+        },
+      },
+    });
+
+    const provider = createMockProvider({ listPrs: [] });
+
+    const result = await handlePreSynthesisCheck(
+      { stateFile: BAD, featureId, eventStore, skipTests: true, skipStack: true },
+      provider,
+    );
+
+    await fsPromises.rm(eventStoreDir, { recursive: true, force: true });
+
+    expect(result.success).toBe(true);
+    const data = result.data as CheckReport;
+    expect(data.passed).toBe(false);
+    // Corruption surfaced — NOT silently resolved off the event store.
+    expect(data.report).toContain('Invalid JSON');
+    // And the downstream state checks did not run off the masked fallback.
+    expect(data.report).not.toContain('Phase is synthesize');
+  });
 });

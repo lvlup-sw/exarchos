@@ -11,7 +11,6 @@
 //   7. Tests pass (skippable)
 // ────────────────────────────────────────────────────────────────────────────
 
-import { existsSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import type { ToolResult } from '../format.js';
 import type { EventStore } from '../event-store/store.js';
@@ -19,7 +18,7 @@ import { resolveTestRuntime } from '../config/test-runtime-resolver.js';
 import { splitCommand } from '../config/tokenize-command.js';
 import type { VcsProvider } from '../vcs/provider.js';
 import { createVcsProvider } from '../vcs/factory.js';
-import { resolveWorkflowState } from './resolve-state.js';
+import { classifyStateFile, resolveWorkflowState } from './resolve-state.js';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -477,31 +476,34 @@ export async function handlePreSynthesisCheck(
   // Resolve state via the canonical resolver (file → event-store fallback).
   // INV-1: the event store is the sole source of truth; the `.state.json`
   // file is a derived stamp that may be absent for MCP-only workflows.
-  const resolved = await resolveWorkflowState({ stateFile, featureId, eventStore });
+  //
+  // A *malformed* explicit stateFile is a configuration error we must NOT mask
+  // behind the event-store fallback: resolveWorkflowState catches the JSON
+  // error and silently resolves from the store, so we classify the file first
+  // and record the Check-1 FAIL the file-based report contract expects. A
+  // *missing* file still falls back to the event store (the stamp is optional).
+  const fileStatus = classifyStateFile(stateFile);
 
   // Check 1: State resolves + valid shape — all other state-dependent checks
-  // depend on this. A resolver failure (no source / unreadable) records the
-  // same Check-1 FAIL the inline file-reader used to, preserving the report
-  // contract for missing/invalid file-based callers.
+  // depend on this.
   let state: Record<string, unknown> | null = null;
-  if ('error' in resolved) {
-    // Distinguish "file present but unparseable" (resolver silently falls
-    // through on a JSON error) from "no source at all", preserving the
-    // report-message contract the inline file-reader exposed.
-    let detail: string;
-    if (stateFile && existsSync(stateFile)) {
-      detail = `Invalid JSON: ${stateFile}`;
-    } else if (stateFile) {
-      detail = `File not found: ${stateFile}`;
-    } else {
-      detail =
-        resolved.error.error?.message ??
-        'No state source available (no stateFile or featureId+eventStore provided)';
-    }
-    checkFail(ctx, 'State file exists', detail);
+  if (fileStatus === 'malformed') {
+    checkFail(ctx, 'State file exists', `Invalid JSON: ${stateFile}`);
   } else {
-    const source = stateFile ?? featureId ?? 'event-store';
-    state = validateResolvedState(ctx, resolved.state, source);
+    const resolved = await resolveWorkflowState({ stateFile, featureId, eventStore });
+    if ('error' in resolved) {
+      // An exists-and-parseable file resolves successfully, so a `stateFile`
+      // reaching the error branch is missing (with no event-store fallback);
+      // otherwise it is the genuine no-source case.
+      const detail = stateFile
+        ? `File not found: ${stateFile}`
+        : resolved.error.error?.message ??
+          'No state source available (no stateFile or featureId+eventStore provided)';
+      checkFail(ctx, 'State file exists', detail);
+    } else {
+      const source = stateFile ?? featureId ?? 'event-store';
+      state = validateResolvedState(ctx, resolved.state, source);
+    }
   }
 
   if (state !== null) {
