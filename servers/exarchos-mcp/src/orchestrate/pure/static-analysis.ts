@@ -22,6 +22,7 @@
 
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { detectToolchain, BUILTIN_TOOLCHAINS } from '../../config/toolchains.js';
 
 // ============================================================
 // PUBLIC TYPES
@@ -176,31 +177,36 @@ function runNpmCheck(
 type ProjectType = 'Node.js' | '.NET' | 'Rust' | 'Go';
 
 /**
- * Detect project type from files present in the repository root.
- * Returns undefined if no recognized project type is found.
+ * Toolchain ids this gate has check-runners for, mapped to their report label.
+ * Detection itself is delegated to the shared registry (single source of truth
+ * for markers — this is where `.slnx`/`.sln` are recognized, #1507). The
+ * registry detects many more toolchains; this gate only *runs checks* for the
+ * four it has runners for and SKIPs the rest (honest no-toolchain).
+ */
+const SUPPORTED_TOOLCHAINS: Readonly<Record<string, ProjectType>> = {
+  node: 'Node.js',
+  dotnet: '.NET',
+  rust: 'Rust',
+  go: 'Go',
+};
+
+/** Markers (registry-sourced) for the gate's supported toolchains, for the SKIP message. */
+function supportedMarkers(): string[] {
+  return Object.keys(SUPPORTED_TOOLCHAINS).flatMap(
+    (id) => BUILTIN_TOOLCHAINS.find((t) => t.id === id)?.markers ?? [],
+  );
+}
+
+/**
+ * Detect project type via the shared toolchain registry, narrowed to the
+ * toolchains this gate can actually check. Returns undefined when nothing is
+ * detected or the detected toolchain has no runner here.
  */
 function detectProjectType(repoRoot: string): ProjectType | undefined {
-  if (fs.existsSync(path.join(repoRoot, 'package.json'))) {
-    return 'Node.js';
+  const toolchain = detectToolchain(repoRoot);
+  if (toolchain && toolchain.id in SUPPORTED_TOOLCHAINS) {
+    return SUPPORTED_TOOLCHAINS[toolchain.id];
   }
-
-  try {
-    const entries = fs.readdirSync(repoRoot);
-    if (entries.some((e) => String(e).endsWith('.csproj') || String(e).endsWith('.sln'))) {
-      return '.NET';
-    }
-  } catch {
-    // readdirSync failure — fall through
-  }
-
-  if (fs.existsSync(path.join(repoRoot, 'go.mod'))) {
-    return 'Go';
-  }
-
-  if (fs.existsSync(path.join(repoRoot, 'Cargo.toml'))) {
-    return 'Rust';
-  }
-
   return undefined;
 }
 
@@ -342,7 +348,7 @@ export function runStaticAnalysis(input: StaticAnalysisInput): StaticAnalysisRes
       '',
       `**Repository:** \`${repoRoot}\``,
       '',
-      '- **SKIP**: No recognized project type (no package.json, *.csproj, go.mod, or Cargo.toml)',
+      `- **SKIP**: No recognized project type (none of: ${supportedMarkers().join(', ')})`,
       '',
       '---',
       '',
