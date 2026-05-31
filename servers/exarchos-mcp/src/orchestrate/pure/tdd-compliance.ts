@@ -28,7 +28,16 @@ export interface TddComplianceOptions {
 }
 
 export interface TddComplianceResult {
-  status: 'pass' | 'fail';
+  /**
+   * - `'pass'`   — all analyzed commits are TDD-compliant.
+   * - `'fail'`   — one or more commits violate test-first discipline.
+   * - `'warn'`   — there were 0 commits between base..branch (e.g. the task
+   *   branch was already merged into integration, so the range is empty).
+   *   This is a NON-PASS advisory: an empty range proves nothing about TDD
+   *   discipline, so reporting it as a pass would be a vacuous / false-
+   *   confidence PASS. See issue #1500.
+   */
+  status: 'pass' | 'fail' | 'warn';
   branch: string;
   baseBranch: string;
   commitsAnalyzed: number;
@@ -191,12 +200,19 @@ export function checkTddCompliance(options: TddComplianceOptions): TddCompliance
   reportLines.push(`**Commits analyzed:** ${commits.length}`);
   reportLines.push('');
 
-  if (commits.length === 0) {
+  // Empty base..branch range: NON-PASS advisory. An empty range proves
+  // nothing about TDD discipline (the branch was likely already merged into
+  // integration), so it must not read as a real PASS. See issue #1500.
+  const isEmptyRange = commits.length === 0;
+
+  if (isEmptyRange) {
     reportLines.push(`No commits found between ${baseBranch} and ${branch}`);
     reportLines.push('');
     reportLines.push('---');
     reportLines.push('');
-    reportLines.push('**Result: PASS** (no commits to check)');
+    reportLines.push(
+      `**Result: WARNING** — no commits between ${baseBranch} and ${branch} (already merged? check ordering)`,
+    );
   } else {
     reportLines.push('### Per-commit Analysis');
     reportLines.push('');
@@ -226,7 +242,10 @@ export function checkTddCompliance(options: TddComplianceOptions): TddCompliance
   }
 
   return {
-    status: failCount === 0 ? 'pass' : 'fail',
+    // Empty range is an explicit 'warn' advisory — never folded into the
+    // pass/fail ternary, which would otherwise yield a vacuous PASS (#1500).
+    // The non-empty pass/fail logic is unchanged.
+    status: isEmptyRange ? 'warn' : failCount === 0 ? 'pass' : 'fail',
     branch,
     baseBranch,
     commitsAnalyzed: commits.length,

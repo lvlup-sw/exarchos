@@ -58,7 +58,16 @@ export async function handleTddCompliance(
     baseBranch,
   });
 
+  // A 'warn' status (empty base..branch range — e.g. the task branch was
+  // already merged into integration) is a NON-PASS advisory: passed stays
+  // false so the gate does not read as a vacuous TDD pass (#1500).
   const passed = tsResult.status === 'pass';
+
+  // Advisory reason for non-pass results that aren't true violations.
+  const reason =
+    tsResult.status === 'warn'
+      ? `No commits between ${baseBranch} and ${args.branch} (already merged? check ordering) — TDD compliance could not be verified.`
+      : undefined;
 
   // Emit gate.executed event (fire-and-forget)
   try {
@@ -74,10 +83,15 @@ export async function handleTddCompliance(
     });
   } catch { /* fire-and-forget */ }
 
+  // INV-5b: this is an advisory carrier — success:true with data.passed
+  // reflecting the gate outcome, NOT an error envelope. `status` and
+  // `reason` surface why a non-pass result is advisory (e.g. 'warn').
   return {
     success: true,
     data: {
       passed,
+      status: tsResult.status,
+      ...(reason !== undefined ? { reason } : {}),
       taskId: args.taskId,
       branch: args.branch,
       compliance: {

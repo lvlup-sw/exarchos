@@ -129,6 +129,58 @@ describe('handleTddCompliance', () => {
     expect(data.report).toContain('Result: FAIL');
   });
 
+  // ─── Test: Empty range (already-merged) returns non-pass advisory ───────
+
+  it('handleTddCompliance_EmptyRange_ReturnsPassedFalseAdvisory', async () => {
+    // Arrange — pure checker reports a WARNING for an empty base..branch
+    // range (e.g. the task branch was already merged into integration, so
+    // there are 0 commits to analyze). This must NOT read as a real pass.
+    vi.mocked(checkTddCompliance).mockReturnValue({
+      status: 'warn',
+      branch: 'feature/widget',
+      baseBranch: 'main',
+      commitsAnalyzed: 0,
+      passCount: 0,
+      failCount: 0,
+      violations: [],
+      results: [],
+      report:
+        '## TDD Compliance Report\n\n**Result: WARNING** — no commits between main and feature/widget (already merged? check ordering)',
+    });
+
+    const args = {
+      featureId: 'feat-widget',
+      taskId: 'T-empty',
+      branch: 'feature/widget',
+    };
+
+    // Act
+    const result = await handleTddCompliance(args, STATE_DIR, mockStore as unknown as EventStore);
+
+    // Assert — INV-5b: advisory keeps the success/data carrier (success:true,
+    // data.passed:false), NOT an error envelope.
+    expect(result.success).toBe(true);
+    const data = result.data as {
+      passed: boolean;
+      status: string;
+      reason?: string;
+      report: string;
+    };
+    expect(data.passed).toBe(false);
+    expect(data.status).toBe('warn');
+    expect(data.reason).toMatch(/no commits/i);
+    expect(data.report).toContain('Result: WARNING');
+
+    // Emitted gate.executed must reflect passed:false
+    expect(mockStore.append).toHaveBeenCalledOnce();
+    const [, event] = mockStore.append.mock.calls[0] as [
+      string,
+      { type: string; data: Record<string, unknown> },
+    ];
+    expect(event.type).toBe('gate.executed');
+    expect(event.data.passed).toBe(false);
+  });
+
   // ─── Test 3: Emits gate.executed event with taskId ──────────────────────
 
   it('handleTddCompliance_EmitsGateExecutedEvent_WithTaskId', async () => {

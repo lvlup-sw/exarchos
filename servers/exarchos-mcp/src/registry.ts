@@ -1769,6 +1769,9 @@ const orchestrateActions: readonly ToolAction[] = [
     name: 'select_debug_track',
     description: 'Select hotfix or thorough debug track based on urgency and root cause knowledge',
     schema: z.object({
+      // INV-1: urgency/rootCauseKnown resolve from the event-store projection
+      // when not passed directly; `featureId` enables fileless resolution.
+      featureId: z.string().min(1).optional(),
       urgency: z.string().optional(),
       rootCauseKnown: z.union([z.boolean(), z.string()]).optional(),
       stateFile: z.string().optional(),
@@ -1782,6 +1785,10 @@ const orchestrateActions: readonly ToolAction[] = [
     name: 'investigation_timer',
     description: 'Check investigation time budget and recommend continue or escalate',
     schema: z.object({
+      // INV-1: investigation.startedAt resolves from the event-store
+      // projection when not passed directly; `featureId` enables fileless
+      // resolution for MCP-only workflows.
+      featureId: z.string().min(1).optional(),
       startedAt: z.string().optional(),
       stateFile: z.string().optional(),
       budgetMinutes: z.number().optional(),
@@ -1810,6 +1817,10 @@ const orchestrateActions: readonly ToolAction[] = [
     name: 'assess_refactor_scope',
     description: 'Assess refactoring scope and recommend polish or overhaul track',
     schema: z.object({
+      // INV-1: explore.scopeAssessment.filesAffected resolves from the
+      // event-store projection when no explicit `files` list is supplied;
+      // `featureId` enables fileless resolution.
+      featureId: z.string().min(1).optional(),
       files: z.array(z.string()).optional(),
       stateFile: z.string().optional(),
     }),
@@ -1874,7 +1885,12 @@ const orchestrateActions: readonly ToolAction[] = [
     name: 'extract_fix_tasks',
     description: 'Extract fix tasks from review findings and map to worktrees',
     schema: z.object({
-      stateFile: z.string().min(1),
+      // featureId OR stateFile — the handler enforces "at least one source"
+      // (Zod single-field `.min(1)` can't express the cross-field rule).
+      featureId: z.string().min(1).optional(),
+      // INV-1: findings + worktrees resolve from the event-store projection;
+      // `stateFile` is an optional override for legacy file-based workflows.
+      stateFile: z.string().min(1).optional(),
       reviewReport: z.string().optional(),
       repoRoot: z.string().optional(),
     }),
@@ -2007,7 +2023,12 @@ const orchestrateActions: readonly ToolAction[] = [
     name: 'pre_synthesis_check',
     description: 'Run pre-synthesis checks: task completion, reviews, tests, and stack health',
     schema: z.object({
-      stateFile: z.string().min(1),
+      // featureId OR stateFile — the handler enforces "at least one source".
+      featureId: z.string().min(1).optional(),
+      // INV-1: the event store is the sole source of truth. `stateFile` is an
+      // optional override; when omitted the gate materializes state from the
+      // event store via `featureId` (MCP-only workflows have no `.state.json`).
+      stateFile: z.string().min(1).optional(),
       repoRoot: z.string().optional(),
       skipTests: z.boolean().optional(),
       skipStack: z.boolean().optional(),
@@ -2091,10 +2112,15 @@ const orchestrateActions: readonly ToolAction[] = [
   },
   {
     name: 'verify_review_triage',
-    description: 'Verify review triage routing — check review.routed events against state file PRs',
+    description: 'Verify review triage routing — check review.routed events against state PRs',
     schema: z.object({
-      stateFile: z.string(),
-      eventStream: z.string(),
+      // featureId OR stateFile — the handler enforces "at least one source".
+      featureId: z.string().min(1).optional(),
+      // INV-1: PRs resolve from the event-store projection; `review.routed`
+      // events are queried directly from the store. Both file inputs are
+      // OPTIONAL overrides for legacy file-based workflows.
+      stateFile: z.string().min(1).optional(),
+      eventStream: z.string().min(1).optional(),
     }),
     phases: ALL_PHASES,
     roles: ROLE_ANY,

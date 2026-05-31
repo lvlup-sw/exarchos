@@ -30,6 +30,10 @@ vi.mock('../views/tools.js', () => ({
 
 import { handleDesignCompleteness as runDesignCompleteness } from './pure/design-completeness.js';
 import { handleDesignCompleteness } from './design-completeness.js';
+import { EventStore } from '../event-store/store.js';
+import * as fsPromises from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import * as nodePath from 'node:path';
 
 const mockRunDesignCompleteness = vi.mocked(runDesignCompleteness);
 
@@ -329,6 +333,51 @@ describe('handleDesignCompleteness', () => {
       );
     });
 
+    // ─── Fileless resolution: MCP-only workflow (no .state.json) ─────────
+    //
+    // INV-1: the event store is the sole source of truth. An MCP-only
+    // workflow has no `.state.json` stamp; `artifacts.design` must resolve
+    // from the event-store projection and be fed to the pure checker as
+    // `designPathFromState` so the gate works without a state file.
+    it('FilelessMcpOnly_ResolvesDesignPathFromEventStore', async () => {
+      mockRunDesignCompleteness.mockReturnValue({
+        passed: true,
+        advisory: true,
+        findings: [],
+        checkCount: 4,
+        passCount: 4,
+        failCount: 0,
+      });
+
+      const eventStoreDir = await fsPromises.mkdtemp(
+        nodePath.join(tmpdir(), 'design-fileless-'),
+      );
+      const eventStore = new EventStore(eventStoreDir);
+      await eventStore.initialize();
+
+      const featureId = 'fileless-design';
+      await eventStore.append(featureId, {
+        type: 'workflow.started',
+        data: { featureId, workflowType: 'feature' },
+      });
+      await eventStore.append(featureId, {
+        type: 'state.patched',
+        data: { patch: { artifacts: { design: 'docs/designs/2026-05-30-x.md' } } },
+      });
+
+      await handleDesignCompleteness({ featureId }, STATE_DIR, eventStore);
+
+      await fsPromises.rm(eventStoreDir, { recursive: true, force: true });
+
+      // The pure checker received the event-store-resolved design path,
+      // proving fileless resolution worked (no `.state.json` on disk).
+      expect(mockRunDesignCompleteness).toHaveBeenCalledWith(
+        expect.objectContaining({
+          designPathFromState: 'docs/designs/2026-05-30-x.md',
+        }),
+      );
+    });
+
     it('handleDesignCompleteness_DesignPathProvided_PassesToChecker', async () => {
       // Arrange
       mockRunDesignCompleteness.mockReturnValue({
@@ -353,6 +402,34 @@ describe('handleDesignCompleteness', () => {
           designFile: '/tmp/my-design.md',
         }),
       );
+    });
+  });
+
+  // ─── State-resolution failure ─────────────────────────────────────────────
+  //
+  // When neither source yields state — the `.state.json` is absent AND the
+  // event store query throws — resolveWorkflowState returns EVENT_STORE_ERROR.
+  // The handler must propagate that cause, not flatten it to
+  // designPathFromState=null (which the pure checker would mislabel as
+  // "artifacts.design is empty or missing", masking the infra failure).
+
+  describe('state resolution error', () => {
+    it('EventStoreError_DuringStateResolution_PropagatesUnderlyingError', async () => {
+      mockQuery.mockRejectedValue(new Error('database is locked'));
+
+      const result = await handleDesignCompleteness(
+        { featureId: 'evt-store-fail' },
+        STATE_DIR,
+        mockStore as unknown as EventStore,
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe('EVENT_STORE_ERROR');
+      expect(result.error?.message).toContain('database is locked');
+      // We could not evaluate the gate, so the pure checker never runs and no
+      // gate.executed event is emitted — we report the cause, not a bogus finding.
+      expect(mockRunDesignCompleteness).not.toHaveBeenCalled();
+      expect(mockAppend).not.toHaveBeenCalled();
     });
   });
 });

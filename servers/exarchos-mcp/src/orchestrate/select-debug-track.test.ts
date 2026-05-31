@@ -10,8 +10,26 @@ import * as fs from 'node:fs';
 vi.mock('node:fs');
 
 import { handleSelectDebugTrack } from './select-debug-track.js';
+import type { EventStore } from '../event-store/store.js';
+import type { WorkflowEvent } from '../event-store/schemas.js';
 
 const STATE_DIR = '/tmp/test-select-debug-track';
+
+/**
+ * Minimal EventStore stub for fileless resolution. `node:fs` is auto-mocked
+ * in this suite (which breaks the SQLite-backed real EventStore), so we stub
+ * the only method `resolveWorkflowState` calls — `query` — to return seeded
+ * events the workflow-state projection materializes in memory.
+ */
+function makeStubEventStore(events: WorkflowEvent[]): EventStore {
+  return {
+    query: vi.fn(async () => events),
+  } as unknown as EventStore;
+}
+
+function evt(type: string, data: unknown): WorkflowEvent {
+  return { type, data, timestamp: '2026-05-30T00:00:00.000Z' } as unknown as WorkflowEvent;
+}
 
 describe('handleSelectDebugTrack', () => {
   beforeEach(() => {
@@ -179,6 +197,33 @@ describe('handleSelectDebugTrack', () => {
       expect(result.success).toBe(false);
       expect(result.error?.code).toBe('INVALID_INPUT');
       expect(result.error?.message).toContain('within the state directory');
+    });
+
+    // ─── Fileless resolution: MCP-only workflow ──────────────────────────
+    //
+    // INV-1: the event store is the sole source of truth. An MCP-only debug
+    // workflow has no `.state.json` stamp; `urgency.level` and
+    // `investigation.rootCauseKnown` must resolve from the event-store
+    // projection via featureId + eventStore (no stateFile, no path check).
+    it('FilelessMcpOnly_ResolvesUrgencyAndRootCauseFromEventStore', async () => {
+      const featureId = 'fileless-debug';
+      const eventStore = makeStubEventStore([
+        evt('workflow.started', { featureId, workflowType: 'debug' }),
+        evt('state.patched', {
+          patch: {
+            urgency: { level: 'critical' },
+            investigation: { rootCauseKnown: true },
+          },
+        }),
+      ]);
+
+      const result = await handleSelectDebugTrack({ featureId }, STATE_DIR, eventStore);
+
+      expect(result.success).toBe(true);
+      const data = result.data as { track: string; urgency: string; rootCauseKnown: boolean };
+      expect(data.track).toBe('hotfix');
+      expect(data.urgency).toBe('critical');
+      expect(data.rootCauseKnown).toBe(true);
     });
 
     it('handleSelectDebugTrack_StateFileFallbackForMissingRootCause', async () => {

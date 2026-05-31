@@ -28,7 +28,11 @@ vi.mock('../vcs/factory.js', () => ({
 
 import { existsSync, readFileSync } from 'node:fs';
 import { execFileSync, execSync } from 'node:child_process';
+import * as fsPromises from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import * as nodePath from 'node:path';
 import { handlePreSynthesisCheck } from './pre-synthesis-check.js';
+import { EventStore } from '../event-store/store.js';
 
 // ─── Test Helpers ───────────────────────────────────────────────────────────
 
@@ -497,5 +501,129 @@ describe('handlePreSynthesisCheck', () => {
     const data = result.data as CheckReport;
     expect(data.passed).toBe(false);
     expect(data.report).toContain('No open PRs');
+  });
+
+  // ─── Fileless resolution: MCP-only workflow (no .state.json) ───────────
+  //
+  // INV-1: the event store is the sole source of truth. A workflow created
+  // purely through MCP tools may never write a `.state.json` stamp. The gate
+  // MUST materialize state from the event store via featureId + eventStore
+  // and run the planner-stamp checks against the projected view, NOT require
+  // a state file on disk.
+
+  it('FilelessMcpOnly_ResolvesFromEventStore_NoStateFileRequired', async () => {
+    // No stateFile on disk — resolver must fall through to the event store.
+    vi.mocked(existsSync).mockReturnValue(false);
+
+    const eventStoreDir = await fsPromises.mkdtemp(
+      nodePath.join(tmpdir(), 'pre-synth-fileless-'),
+    );
+    const eventStore = new EventStore(eventStoreDir);
+    await eventStore.initialize();
+
+    const featureId = 'fileless-feature';
+    await eventStore.append(featureId, {
+      type: 'workflow.started',
+      data: { featureId, workflowType: 'feature' },
+    });
+    await eventStore.append(featureId, {
+      type: 'workflow.transition',
+      data: { to: 'synthesize' },
+    });
+    // Planner-stamp fields (tasks/reviews) land on the projection via a
+    // state.patched event — the same path `exarchos_workflow update` uses.
+    await eventStore.append(featureId, {
+      type: 'state.patched',
+      data: {
+        patch: {
+          tasks: [
+            { id: 'T1', status: 'complete' },
+            { id: 'T2', status: 'complete' },
+          ],
+          reviews: { overall: { status: 'approved' } },
+        },
+      },
+    });
+
+    const provider = createMockProvider({
+      listPrs: [
+        { number: 1, url: '', title: '', headRefName: 'feature-branch', baseRefName: 'main', state: 'OPEN' },
+      ],
+    });
+
+    const result = await handlePreSynthesisCheck(
+      { featureId, eventStore, skipTests: true, skipStack: true },
+      provider,
+    );
+
+    await fsPromises.rm(eventStoreDir, { recursive: true, force: true });
+
+    // Must NOT fail with INVALID_INPUT / FILE_NOT_FOUND / NO_STATE_SOURCE.
+    expect(result.success).toBe(true);
+    const data = result.data as CheckReport;
+    // The state-dependent checks (phase, tasks, reviews) all pass off the
+    // projected view — proving fileless resolution worked.
+    expect(data.report).not.toContain('not found');
+    expect(data.report).toContain('Phase is synthesize');
+    expect(data.report).toContain('All tasks complete');
+    expect(data.report).toContain('Reviews passed');
+  });
+
+  // ─── Malformed stateFile is not masked by the event-store fallback ─────
+  //
+  // Regression: when an explicit stateFile is corrupt AND a featureId +
+  // eventStore fallback is available, resolveWorkflowState silently resolves
+  // from the store, so the corruption used to go undetected (the report would
+  // even claim the file as source). A corrupt explicit file must surface as the
+  // Check-1 "Invalid JSON" failure rather than being masked by the fallback.
+
+  it('MalformedStateFileWithEventStoreFallback_SurfacesInvalidJson', async () => {
+    const BAD = '/tmp/corrupt.state.json';
+    // The file exists but is unparseable; the event store CAN resolve (valid
+    // synthesize state), so the old code would have silently used it.
+    vi.mocked(existsSync).mockImplementation((p) => String(p) === BAD);
+    vi.mocked(readFileSync).mockReturnValue('{ corrupt json');
+
+    const eventStoreDir = await fsPromises.mkdtemp(
+      nodePath.join(tmpdir(), 'pre-synth-corrupt-'),
+    );
+    const eventStore = new EventStore(eventStoreDir);
+    await eventStore.initialize();
+
+    const featureId = 'corrupt-feature';
+    await eventStore.append(featureId, {
+      type: 'workflow.started',
+      data: { featureId, workflowType: 'feature' },
+    });
+    await eventStore.append(featureId, {
+      type: 'workflow.transition',
+      data: { to: 'synthesize' },
+    });
+    await eventStore.append(featureId, {
+      type: 'state.patched',
+      data: {
+        patch: {
+          tasks: [{ id: 'T1', status: 'complete' }],
+          reviews: { overall: { status: 'approved' } },
+        },
+      },
+    });
+
+    const provider = createMockProvider({ listPrs: [] });
+
+    const result = await handlePreSynthesisCheck(
+      { stateFile: BAD, featureId, eventStore, skipTests: true, skipStack: true },
+      provider,
+    );
+
+    await fsPromises.rm(eventStoreDir, { recursive: true, force: true });
+
+    expect(result.success).toBe(true);
+    const data = result.data as CheckReport;
+    expect(data.passed).toBe(false);
+    // Corruption surfaced — NOT silently resolved off the event store.
+    expect(data.report).toContain('Invalid JSON');
+    // And the downstream state checks did not run off the masked fallback.
+    expect(data.report).not.toContain('Phase is synthesize');
   });
 });

@@ -9,7 +9,7 @@ import * as fsPromises from 'node:fs/promises';
 import * as path from 'node:path';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { resolveWorkflowState } from './resolve-state.js';
+import { classifyStateFile, resolveWorkflowState } from './resolve-state.js';
 import { EventStore } from '../event-store/store.js';
 
 let tempDir: string;
@@ -133,5 +133,27 @@ describe('resolveWorkflowState', () => {
       expect(state.phase).toBe('investigate');
       expect(state.workflowType).toBe('debug');
     }
+  });
+});
+
+describe('classifyStateFile', () => {
+  it('ClassifyStateFile_NoPath_ReturnsAbsent', () => {
+    expect(classifyStateFile(undefined)).toBe('absent');
+  });
+
+  it('ClassifyStateFile_NonExistentPath_ReturnsMissing', () => {
+    expect(classifyStateFile(path.join(tempDir, 'nope.json'))).toBe('missing');
+  });
+
+  it('ClassifyStateFile_CorruptJson_ReturnsMalformed', () => {
+    const f = path.join(tempDir, 'bad.json');
+    fs.writeFileSync(f, '{ not valid json', 'utf-8');
+    expect(classifyStateFile(f)).toBe('malformed');
+  });
+
+  it('ClassifyStateFile_ValidJson_ReturnsOk', () => {
+    const f = path.join(tempDir, 'good.json');
+    fs.writeFileSync(f, JSON.stringify({ phase: 'plan' }), 'utf-8');
+    expect(classifyStateFile(f)).toBe('ok');
   });
 });

@@ -31,61 +31,9 @@ For a complete worked example, see `references/worked-example.md`.
 
 **Goal:** Surface the architectural invariants relevant to the proposal *before* the clarifying questions, so the design is anchored to load-bearing constraints from the first turn.
 
-**Source of truth:** Load `.exarchos/invariants.md` — the machine-readable catalog of `INV-*` invariants (event-sourcing integrity, facade equivalence, basileus-forward, platform-agnosticity, agent-first input/output/verbs/discriminator, workflow-agnosticism).
+Load the **core** invariants catalog at `.exarchos/invariants.md` (entries marked `cost-of-load: always-load`) and surface a **Constraints** section naming the relevant invariants — e.g. a CLI / agent-first surface proposal anchors on `INV-5a` (input ergonomics) and `INV-5c` (Aspire verbs). The full selection rules — `always-load` baseline vs `reference-only` on-demand vs `archivable` not-surfaced, the proposal-shape → anchor-invariant table, the emit format, and the `invariants.devCatalog` gating — are the **single shared source of truth** for the design-time Constraints step used by `/ideate`, `/refactor`, and `/debug`. See `@skills/brainstorming/references/constraint-anchoring.md`.
 
-**Selection rules — which invariants to surface as Constraints:**
-
-| Proposal shape | Anchor invariants (minimum) |
-|---|---|
-| CLI command / agent surface / new MCP action | `INV-5a` (input ergonomics), `INV-5b` (output contract), `INV-5c` (Aspire-style verbs), `INV-5d` (action discriminator) |
-| Event store / projection / workflow state | `INV-1` (event-sourcing integrity), `INV-2` (facade equivalence — if the projection feeds both adapters) |
-| Skills / commands / runtime authoring | `INV-4` (platform-agnosticity), `INV-6` (workflow-agnosticism) |
-| Basileus or cross-product coordination | `INV-3` (basileus-forward), `basileus-boundary` |
-| Multi-surface design (most non-trivial proposals) | Union of the above rows that apply |
-
-**Emit format (before Phase 1 questions):**
-
-```markdown
-## Constraints
-
-Anchored to .exarchos/invariants.md:
-- INV-5a: <one-sentence summary from the catalog>
-- INV-5c: <one-sentence summary from the catalog>
-
-(Probe Phase 1 questions against these.)
-```
-
-The `summary` field of each catalog entry is the canonical one-sentence form — reuse it verbatim so the surfaced Constraints stay in sync with the catalog as it evolves.
-
-### Phase 0: Constraint anchoring (first turn, before Phase 1)
-
-**Goal:** Surface the architectural invariants relevant to the proposal *before* the clarifying questions, so the design is anchored to load-bearing constraints from the first turn.
-
-**Source of truth:** Load `.exarchos/invariants.md` — the machine-readable catalog of `INV-*` invariants (event-sourcing integrity, facade equivalence, basileus-forward, platform-agnosticity, agent-first input/output/verbs/discriminator, workflow-agnosticism).
-
-**Selection rules — which invariants to surface as Constraints:**
-
-| Proposal shape | Anchor invariants (minimum) |
-|---|---|
-| CLI command / agent surface / new MCP action | `INV-5a` (input ergonomics), `INV-5b` (output contract), `INV-5c` (Aspire-style verbs), `INV-5d` (action discriminator) |
-| Event store / projection / workflow state | `INV-1` (event-sourcing integrity), `INV-2` (facade equivalence — if the projection feeds both adapters) |
-| Skills / commands / runtime authoring | `INV-4` (platform-agnosticity), `INV-6` (workflow-agnosticism) |
-| Basileus or cross-product coordination | `INV-3` (basileus-forward), `basileus-boundary` |
-| Multi-surface design (most non-trivial proposals) | Union of the above rows that apply |
-
-**Emit format (before Phase 1 questions):**
-
-```markdown
-## Constraints
-
-Anchored to .exarchos/invariants.md:
-- INV-5a: <one-sentence summary from the catalog>
-- INV-5c: <one-sentence summary from the catalog>
-
-(Probe Phase 1 questions against these.)
-```
-
-The `summary` field of each catalog entry is the canonical one-sentence form — reuse it verbatim so the surfaced Constraints stay in sync with the catalog as it evolves.
+Emit the **Constraints** section (per that reference) *before* Phase 1 so the clarifying questions can probe the proposal against the load-bearing invariants instead of re-discovering them mid-design.
 
 ### Phase 1: Understanding
 

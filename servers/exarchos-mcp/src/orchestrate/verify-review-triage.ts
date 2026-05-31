@@ -9,12 +9,26 @@
 
 import { existsSync, readFileSync } from 'node:fs';
 import type { ToolResult } from '../format.js';
+import type { EventStore } from '../event-store/store.js';
+import { resolveWorkflowState } from './resolve-state.js';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
 interface VerifyReviewTriageArgs {
-  readonly stateFile: string;
-  readonly eventStream: string;
+  /**
+   * Explicit state-file path. OPTIONAL — when omitted (MCP-only workflows),
+   * `prs` are read from the event-store-materialized projection via
+   * `featureId` + `eventStore`. INV-1: the event store is the source of truth.
+   */
+  readonly stateFile?: string;
+  /**
+   * Explicit `.events.jsonl` path. OPTIONAL override — by default the
+   * `review.routed` events are queried directly from the event store via
+   * `featureId` + `eventStore`, so MCP-only workflows need no JSONL sidecar.
+   */
+  readonly eventStream?: string;
+  readonly featureId?: string;
+  readonly eventStore?: EventStore;
 }
 
 interface TriageCheck {
@@ -79,58 +93,81 @@ function findLatestRoutedEvent(
 
 // ─── Handler ────────────────────────────────────────────────────────────────
 
-export function handleVerifyReviewTriage(args: VerifyReviewTriageArgs): ToolResult {
-  // Validate inputs
-  if (!args.stateFile) {
+export async function handleVerifyReviewTriage(
+  args: VerifyReviewTriageArgs,
+): Promise<ToolResult> {
+  // Validate inputs — need at least one state source (file or featureId+store)
+  if (!args.stateFile && !(args.featureId && args.eventStore)) {
     return {
       success: false,
-      error: { code: 'INVALID_INPUT', message: 'stateFile is required' },
+      error: {
+        code: 'INVALID_INPUT',
+        message: 'Provide stateFile, or featureId + eventStore for fileless resolution',
+      },
     };
   }
 
-  if (!args.eventStream) {
-    return {
-      success: false,
-      error: { code: 'INVALID_INPUT', message: 'eventStream is required' },
-    };
-  }
-
-  if (!existsSync(args.stateFile)) {
-    return {
-      success: false,
-      error: { code: 'FILE_NOT_FOUND', message: `State file not found: ${args.stateFile}` },
-    };
-  }
-
-  if (!existsSync(args.eventStream)) {
+  // Explicit eventStream file path must exist if provided; otherwise the
+  // routed events are queried from the event store.
+  if (args.eventStream && !existsSync(args.eventStream)) {
     return {
       success: false,
       error: { code: 'FILE_NOT_FOUND', message: `Event stream not found: ${args.eventStream}` },
     };
   }
 
-  // Parse state file
-  let stateData: StateFileData;
-  try {
-    stateData = JSON.parse(readFileSync(args.stateFile, 'utf-8')) as StateFileData;
-  } catch {
-    return {
-      success: false,
-      error: { code: 'PARSE_ERROR', message: 'Failed to parse state file as JSON' },
-    };
+  // Resolve `prs` via the canonical resolver (file → event-store fallback).
+  // INV-1: the event store is the sole source of truth; `.state.json` is a
+  // derived stamp that may be absent for MCP-only workflows.
+  const resolved = await resolveWorkflowState({
+    stateFile: args.stateFile,
+    featureId: args.featureId,
+    eventStore: args.eventStore,
+  });
+  if ('error' in resolved) {
+    // Preserve the historical FILE_NOT_FOUND taxonomy for the file-based path
+    // (explicit stateFile that doesn't resolve); fall through to the resolver
+    // error otherwise.
+    if (args.stateFile && !existsSync(args.stateFile)) {
+      return {
+        success: false,
+        error: { code: 'FILE_NOT_FOUND', message: `State file not found: ${args.stateFile}` },
+      };
+    }
+    return resolved.error;
   }
 
+  const stateData = resolved.state as unknown as StateFileData;
   const prs = stateData.prs;
   if (!prs || prs.length === 0) {
     return {
       success: false,
-      error: { code: 'NO_PRS', message: 'No PRs found in state file' },
+      error: { code: 'NO_PRS', message: 'No PRs found in state' },
     };
   }
 
-  // Parse event stream
-  const eventContent = readFileSync(args.eventStream, 'utf-8');
-  const events = parseJsonl(eventContent);
+  // Load review.routed events. Prefer the explicit `.events.jsonl` override
+  // when given; otherwise query the event store (the canonical source). The
+  // store already records `review.routed` events (review/tools.ts:60).
+  let events: readonly ReviewRoutedEvent[];
+  if (args.eventStream) {
+    const eventContent = readFileSync(args.eventStream, 'utf-8');
+    events = parseJsonl(eventContent);
+  } else if (args.featureId && args.eventStore) {
+    const storeEvents = await args.eventStore.query(args.featureId);
+    events = storeEvents
+      .filter((e) => e.type === 'review.routed')
+      .map((e) => ({ type: e.type, data: e.data as ReviewRoutedEvent['data'] }));
+  } else {
+    // stateFile given but no event source — cannot verify routing.
+    return {
+      success: false,
+      error: {
+        code: 'INVALID_INPUT',
+        message: 'Provide eventStream, or featureId + eventStore to read review.routed events',
+      },
+    };
+  }
 
   // Run checks
   const checks: TriageCheck[] = [];

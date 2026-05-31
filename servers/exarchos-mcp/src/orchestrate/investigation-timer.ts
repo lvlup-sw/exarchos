@@ -7,14 +7,16 @@
 // Ported from scripts/investigation-timer.sh
 // ─────────────────────────────────────────────────────────────────────────────
 
-import * as fs from 'node:fs';
 import type { ToolResult } from '../format.js';
+import type { EventStore } from '../event-store/store.js';
+import { classifyStateFile, resolveWorkflowState } from './resolve-state.js';
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
 interface InvestigationTimerArgs {
   readonly startedAt?: string;
   readonly stateFile?: string;
+  readonly featureId?: string;
   readonly budgetMinutes?: number;
 }
 
@@ -27,39 +29,69 @@ interface InvestigationTimerResult {
 
 // ─── Helpers ───────────────────────────────────────────────────────────────
 
-function resolveStartedAt(args: InvestigationTimerArgs): string | null | ToolResult {
+async function resolveStartedAt(
+  args: InvestigationTimerArgs,
+  eventStore?: EventStore,
+): Promise<string | null | ToolResult> {
   if (args.startedAt) {
     return args.startedAt;
   }
 
-  if (args.stateFile) {
-    if (!fs.existsSync(args.stateFile)) {
-      return null;
+  // Resolve `investigation.startedAt` via the canonical resolver (file →
+  // event-store fallback). INV-1: the event store is the sole source of
+  // truth; the `.state.json` file is a derived stamp that may be absent for
+  // MCP-only workflows.
+  if (args.stateFile || (args.featureId && eventStore)) {
+    const hasEventFallback = Boolean(args.featureId && eventStore);
+
+    // An explicitly-provided stateFile that is missing or corrupt is a
+    // configuration error. Surface it directly instead of letting the
+    // resolver's silent fallback collapse to the caller's generic
+    // "startedAt or stateFile is required" message. A missing file WITH an
+    // event-store fallback still resolves from the store below (INV-1).
+    const fileStatus = classifyStateFile(args.stateFile);
+    if (fileStatus === 'malformed') {
+      return {
+        success: false,
+        error: { code: 'PARSE_ERROR', message: `Invalid JSON in state file: ${args.stateFile}` },
+      };
     }
-    let content: string;
-    let state: unknown;
-    try {
-      content = fs.readFileSync(args.stateFile, 'utf-8');
-      state = JSON.parse(content);
-    } catch (err) {
+    if (fileStatus === 'missing' && !hasEventFallback) {
+      return {
+        success: false,
+        error: { code: 'FILE_NOT_FOUND', message: `State file not found: ${args.stateFile}` },
+      };
+    }
+
+    const resolved = await resolveWorkflowState({
+      stateFile: args.stateFile,
+      featureId: args.featureId,
+      eventStore,
+    });
+    if ('error' in resolved) {
+      // No resolvable source → caller surfaces the "required" INVALID_INPUT.
+      const code = resolved.error.error?.code;
+      if (code === 'NO_STATE_SOURCE') {
+        return null;
+      }
       return {
         success: false,
         error: {
           code: 'STATE_READ_ERROR',
-          message: `Failed to read or parse state file ${args.stateFile}: ${err instanceof Error ? err.message : String(err)}`,
+          message: resolved.error.error?.message ?? 'Failed to resolve workflow state',
         },
       };
     }
+    const state = resolved.state;
+    const investigation = state.investigation;
     if (
-      typeof state === 'object' &&
-      state !== null &&
-      'investigation' in state &&
-      typeof (state as Record<string, unknown>).investigation === 'object' &&
-      (state as Record<string, unknown>).investigation !== null
+      typeof investigation === 'object' &&
+      investigation !== null &&
+      !Array.isArray(investigation)
     ) {
-      const investigation = (state as { investigation: Record<string, unknown> }).investigation;
-      if (typeof investigation.startedAt === 'string') {
-        return investigation.startedAt;
+      const startedAt = (investigation as Record<string, unknown>).startedAt;
+      if (typeof startedAt === 'string') {
+        return startedAt;
       }
     }
     return null;
@@ -78,9 +110,10 @@ function isValidIso8601(timestamp: string): boolean {
 export async function handleInvestigationTimer(
   args: InvestigationTimerArgs,
   _stateDir: string,
+  eventStore?: EventStore,
 ): Promise<ToolResult> {
   // Resolve the startedAt timestamp
-  const startedAtResult = resolveStartedAt(args);
+  const startedAtResult = await resolveStartedAt(args, eventStore);
 
   // Propagate ToolResult errors from state file parsing
   if (typeof startedAtResult === 'object' && startedAtResult !== null && 'success' in startedAtResult) {

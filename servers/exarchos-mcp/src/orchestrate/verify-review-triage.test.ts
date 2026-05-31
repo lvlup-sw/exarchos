@@ -6,7 +6,11 @@ vi.mock('node:fs', () => ({
 }));
 
 import { existsSync, readFileSync } from 'node:fs';
+import * as fsPromises from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import * as nodePath from 'node:path';
 import { handleVerifyReviewTriage } from './verify-review-triage.js';
+import { EventStore } from '../event-store/store.js';
 
 const mockExistsSync = vi.mocked(existsSync);
 const mockReadFileSync = vi.mocked(readFileSync);
@@ -37,7 +41,7 @@ describe('handleVerifyReviewTriage', () => {
     vi.clearAllMocks();
   });
 
-  it('passes when all PRs have review.routed events with self-hosted destination', () => {
+  it('passes when all PRs have review.routed events with self-hosted destination', async () => {
     setupFiles(
       makeStateFile([{ number: 101 }, { number: 102 }]),
       makeEventStream([
@@ -46,7 +50,7 @@ describe('handleVerifyReviewTriage', () => {
       ]),
     );
 
-    const result = handleVerifyReviewTriage({
+    const result = await handleVerifyReviewTriage({
       stateFile: '/state.json',
       eventStream: '/events.jsonl',
     });
@@ -58,7 +62,7 @@ describe('handleVerifyReviewTriage', () => {
     expect(data.checksFailed).toBe(0);
   });
 
-  it('fails when a PR is missing a review.routed event', () => {
+  it('fails when a PR is missing a review.routed event', async () => {
     setupFiles(
       makeStateFile([{ number: 101 }, { number: 102 }]),
       makeEventStream([
@@ -66,7 +70,7 @@ describe('handleVerifyReviewTriage', () => {
       ]),
     );
 
-    const result = handleVerifyReviewTriage({
+    const result = await handleVerifyReviewTriage({
       stateFile: '/state.json',
       eventStream: '/events.jsonl',
     });
@@ -81,7 +85,7 @@ describe('handleVerifyReviewTriage', () => {
     });
   });
 
-  it('passes when high-risk PR is sent to CodeRabbit', () => {
+  it('passes when high-risk PR is sent to CodeRabbit', async () => {
     setupFiles(
       makeStateFile([{ number: 201 }]),
       makeEventStream([
@@ -89,7 +93,7 @@ describe('handleVerifyReviewTriage', () => {
       ]),
     );
 
-    const result = handleVerifyReviewTriage({
+    const result = await handleVerifyReviewTriage({
       stateFile: '/state.json',
       eventStream: '/events.jsonl',
     });
@@ -102,7 +106,7 @@ describe('handleVerifyReviewTriage', () => {
     );
   });
 
-  it('fails when high-risk PR is NOT sent to CodeRabbit', () => {
+  it('fails when high-risk PR is NOT sent to CodeRabbit', async () => {
     setupFiles(
       makeStateFile([{ number: 301 }]),
       makeEventStream([
@@ -110,7 +114,7 @@ describe('handleVerifyReviewTriage', () => {
       ]),
     );
 
-    const result = handleVerifyReviewTriage({
+    const result = await handleVerifyReviewTriage({
       stateFile: '/state.json',
       eventStream: '/events.jsonl',
     });
@@ -123,7 +127,7 @@ describe('handleVerifyReviewTriage', () => {
     );
   });
 
-  it('passes when self-hosted review is enabled', () => {
+  it('passes when self-hosted review is enabled', async () => {
     setupFiles(
       makeStateFile([{ number: 401 }]),
       makeEventStream([
@@ -131,7 +135,7 @@ describe('handleVerifyReviewTriage', () => {
       ]),
     );
 
-    const result = handleVerifyReviewTriage({
+    const result = await handleVerifyReviewTriage({
       stateFile: '/state.json',
       eventStream: '/events.jsonl',
     });
@@ -144,7 +148,7 @@ describe('handleVerifyReviewTriage', () => {
     );
   });
 
-  it('fails when self-hosted review is NOT enabled', () => {
+  it('fails when self-hosted review is NOT enabled', async () => {
     setupFiles(
       makeStateFile([{ number: 501 }]),
       makeEventStream([
@@ -152,7 +156,7 @@ describe('handleVerifyReviewTriage', () => {
       ]),
     );
 
-    const result = handleVerifyReviewTriage({
+    const result = await handleVerifyReviewTriage({
       stateFile: '/state.json',
       eventStream: '/events.jsonl',
     });
@@ -165,13 +169,13 @@ describe('handleVerifyReviewTriage', () => {
     );
   });
 
-  it('returns error when state file is not found', () => {
+  it('returns error when state file is not found', async () => {
     mockExistsSync.mockImplementation((path: unknown) => {
       if (String(path) === '/state.json') return false;
       return true;
     });
 
-    const result = handleVerifyReviewTriage({
+    const result = await handleVerifyReviewTriage({
       stateFile: '/state.json',
       eventStream: '/events.jsonl',
     });
@@ -181,13 +185,13 @@ describe('handleVerifyReviewTriage', () => {
     expect(result.error?.message).toContain('State file not found');
   });
 
-  it('returns error when event stream is not found', () => {
+  it('returns error when event stream is not found', async () => {
     mockExistsSync.mockImplementation((path: unknown) => {
       if (String(path) === '/events.jsonl') return false;
       return true;
     });
 
-    const result = handleVerifyReviewTriage({
+    const result = await handleVerifyReviewTriage({
       stateFile: '/state.json',
       eventStream: '/events.jsonl',
     });
@@ -197,13 +201,13 @@ describe('handleVerifyReviewTriage', () => {
     expect(result.error?.message).toContain('Event stream not found');
   });
 
-  it('returns error when no PRs found in state file', () => {
+  it('returns error when no PRs found in state file', async () => {
     setupFiles(
       JSON.stringify({ prs: [] }),
       '',
     );
 
-    const result = handleVerifyReviewTriage({
+    const result = await handleVerifyReviewTriage({
       stateFile: '/state.json',
       eventStream: '/events.jsonl',
     });
@@ -212,7 +216,7 @@ describe('handleVerifyReviewTriage', () => {
     expect(result.error?.code).toBe('NO_PRS');
   });
 
-  it('uses the latest review.routed event for each PR', () => {
+  it('uses the latest review.routed event for each PR', async () => {
     setupFiles(
       makeStateFile([{ number: 601 }]),
       makeEventStream([
@@ -221,7 +225,7 @@ describe('handleVerifyReviewTriage', () => {
       ]),
     );
 
-    const result = handleVerifyReviewTriage({
+    const result = await handleVerifyReviewTriage({
       stateFile: '/state.json',
       eventStream: '/events.jsonl',
     });
@@ -232,7 +236,7 @@ describe('handleVerifyReviewTriage', () => {
     expect(data.passed).toBe(true);
   });
 
-  it('builds a markdown report with table format', () => {
+  it('builds a markdown report with table format', async () => {
     setupFiles(
       makeStateFile([{ number: 701 }]),
       makeEventStream([
@@ -240,7 +244,7 @@ describe('handleVerifyReviewTriage', () => {
       ]),
     );
 
-    const result = handleVerifyReviewTriage({
+    const result = await handleVerifyReviewTriage({
       stateFile: '/state.json',
       eventStream: '/events.jsonl',
     });
@@ -251,5 +255,55 @@ describe('handleVerifyReviewTriage', () => {
     expect(data.report).toContain('| Status | Check |');
     expect(data.report).toContain('| PASS |');
     expect(data.report).toContain('**Passed:**');
+  });
+
+  // ─── Fileless resolution: MCP-only workflow ────────────────────────────
+  //
+  // INV-1: the event store is the sole source of truth. An MCP-only workflow
+  // has no `.state.json` stamp and no `.events.jsonl` sidecar — the gate must
+  // resolve `prs` from the projected state and the `review.routed` events
+  // directly from the event store via featureId + eventStore.
+
+  it('FilelessMcpOnly_ResolvesPrsAndRoutedEventsFromEventStore', async () => {
+    // No state file or event stream on disk.
+    mockExistsSync.mockReturnValue(false);
+
+    const eventStoreDir = await fsPromises.mkdtemp(
+      nodePath.join(tmpdir(), 'verify-triage-fileless-'),
+    );
+    const eventStore = new EventStore(eventStoreDir);
+    await eventStore.initialize();
+
+    const featureId = 'fileless-triage';
+    await eventStore.append(featureId, {
+      type: 'workflow.started',
+      data: { featureId, workflowType: 'feature' },
+    });
+    // PRs land on the projection via state.patched (same path as
+    // `exarchos_workflow update`).
+    await eventStore.append(featureId, {
+      type: 'state.patched',
+      data: { patch: { prs: [{ number: 101 }, { number: 102 }] } },
+    });
+    // review.routed events are queried directly from the store.
+    await eventStore.append(featureId, {
+      type: 'review.routed',
+      data: { pr: 101, riskScore: 0.1, factors: [], destination: 'self-hosted', velocityTier: 'normal', semanticAugmented: false },
+    });
+    await eventStore.append(featureId, {
+      type: 'review.routed',
+      data: { pr: 102, riskScore: 0.2, factors: [], destination: 'self-hosted', velocityTier: 'normal', semanticAugmented: false },
+    });
+
+    const result = await handleVerifyReviewTriage({ featureId, eventStore });
+
+    await fsPromises.rm(eventStoreDir, { recursive: true, force: true });
+
+    // Must NOT fail with INVALID_INPUT / FILE_NOT_FOUND.
+    expect(result.success).toBe(true);
+    const data = result.data as { passed: boolean; checksPassed: number; checksFailed: number };
+    expect(data.passed).toBe(true);
+    expect(data.checksPassed).toBe(4); // 2 routed + 2 self-hosted
+    expect(data.checksFailed).toBe(0);
   });
 });

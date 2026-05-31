@@ -142,6 +142,16 @@ describe('Debug workflow playbooks', () => {
     expect(guard.includes('fixdesign') || guard.includes('design')).toBe(true);
   });
 
+  it('getPlaybook_DebugDesign_CompactGuidanceReferencesDesignTimeConstraints', () => {
+    // #1498: the design phase is /debug's design-time surface; its
+    // compactGuidance must point at the .exarchos/invariants.md Constraints
+    // step (devCatalog-gated) so the constraint survives a compacted resume.
+    const playbook = getPlaybook('debug', 'design')!;
+    expect(playbook.compactGuidance).toContain('.exarchos/invariants.md');
+    expect(playbook.compactGuidance.toLowerCase()).toContain('constraints');
+    expect(playbook.compactGuidance.toLowerCase()).toContain('devcatalog');
+  });
+
   it('getPlaybook_DebugImplement_HasDebugSkill', () => {
     const playbook = getPlaybook('debug', 'debug-implement')!;
     expect(playbook.skill).toBe('debug');
@@ -189,6 +199,16 @@ describe('Refactor workflow playbooks', () => {
   it('getPlaybook_RefactorBrief_HasRefactorSkill', () => {
     const playbook = getPlaybook('refactor', 'brief')!;
     expect(playbook.skill).toBe('refactor');
+  });
+
+  it('getPlaybook_RefactorBrief_CompactGuidanceReferencesDesignTimeConstraints', () => {
+    // #1498: the brief phase is /refactor's design-time surface; its
+    // compactGuidance must point at the .exarchos/invariants.md Constraints
+    // step (devCatalog-gated) so the constraint survives a compacted resume.
+    const playbook = getPlaybook('refactor', 'brief')!;
+    expect(playbook.compactGuidance).toContain('.exarchos/invariants.md');
+    expect(playbook.compactGuidance.toLowerCase()).toContain('constraints');
+    expect(playbook.compactGuidance.toLowerCase()).toContain('devcatalog');
   });
 
   it('getPlaybook_PolishImplement_HasRefactorSkill', () => {

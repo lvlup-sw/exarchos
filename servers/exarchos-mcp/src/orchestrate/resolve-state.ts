@@ -29,6 +29,40 @@ export type ResolveResult =
   | { state: Record<string, unknown> }
   | { error: ToolResult };
 
+/**
+ * Classification of an explicit `stateFile` path:
+ *   - 'absent'    — no path supplied
+ *   - 'missing'   — path supplied but the file does not exist
+ *   - 'malformed' — file exists but is unreadable or not valid JSON
+ *   - 'ok'        — file exists and parses as JSON
+ */
+export type StateFileStatus = 'absent' | 'missing' | 'malformed' | 'ok';
+
+// ─── State File Classification ────────────────────────────────────────────────
+
+/**
+ * Classify an explicit `stateFile` path WITHOUT mutating anything.
+ *
+ * {@link resolveWorkflowState} silently falls back to the event store when a
+ * supplied `stateFile` is missing OR unparseable. That is the right behavior
+ * for a *missing* derived stamp (INV-1: `.state.json` is optional), but it
+ * masks a *corrupt* file the caller explicitly provided. Callers that need to
+ * surface an explicit-file error should consult this first and report
+ * `'malformed'` (and, when no event-store fallback exists, `'missing'`) rather
+ * than letting the silent fallback collapse it into a misleading downstream
+ * message.
+ */
+export function classifyStateFile(stateFile: string | undefined): StateFileStatus {
+  if (!stateFile) return 'absent';
+  if (!existsSync(stateFile)) return 'missing';
+  try {
+    JSON.parse(readFileSync(stateFile, 'utf-8'));
+    return 'ok';
+  } catch {
+    return 'malformed';
+  }
+}
+
 // ─── State Resolution ───────────────────────────────────────────────────────
 
 /**
