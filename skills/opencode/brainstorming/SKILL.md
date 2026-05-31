@@ -31,7 +31,7 @@ For a complete worked example, see `references/worked-example.md`.
 
 **Goal:** Surface the architectural invariants relevant to the proposal *before* the clarifying questions, so the design is anchored to load-bearing constraints from the first turn.
 
-The selection rules — which catalog entries to surface (`always-load` baseline vs `reference-only` on-demand vs `archivable` not-surfaced), the proposal-shape → anchor-invariant table, the emit format, and the devCatalog gating — are the **single shared source of truth** for the design-time Constraints step used by `/ideate`, `/refactor`, and `/debug`. See `@skills/brainstorming/references/constraint-anchoring.md`.
+Load the **core** invariants catalog at `.exarchos/invariants.md` (entries marked `cost-of-load: always-load`) and surface a **Constraints** section naming the relevant invariants — e.g. a CLI / agent-first surface proposal anchors on `INV-5a` (input ergonomics) and `INV-5c` (Aspire verbs). The full selection rules — `always-load` baseline vs `reference-only` on-demand vs `archivable` not-surfaced, the proposal-shape → anchor-invariant table, the emit format, and the `invariants.devCatalog` gating — are the **single shared source of truth** for the design-time Constraints step used by `/ideate`, `/refactor`, and `/debug`. See `@skills/brainstorming/references/constraint-anchoring.md`.
 
 Emit the **Constraints** section (per that reference) *before* Phase 1 so the clarifying questions can probe the proposal against the load-bearing invariants instead of re-discovering them mid-design.
 
