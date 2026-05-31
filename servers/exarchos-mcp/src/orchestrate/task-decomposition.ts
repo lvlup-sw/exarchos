@@ -12,8 +12,6 @@ import { readFile } from 'node:fs/promises';
 import type { ToolResult } from '../format.js';
 import type { EventStore } from '../event-store/store.js';
 import { emitGateEvent } from './gate-utils.js';
-import { loadPlanSidecar } from './sidecar-lookup.js';
-import type { PlanSidecarV1 } from './sidecar-schemas.js';
 
 // ─── Types ───────────────────────────────────────────────────────────────
 
@@ -695,67 +693,9 @@ export async function handleTaskDecomposition(
     };
   }
 
-  // Prefer the sidecar (T15) when present + conformant. CodeRabbit MAJOR
-  // #1425 r2: the sidecar v1 schema doesn't carry `deps[]` or parallel
-  // flags, so a sidecar-only evaluation would hardcode `dagValid: true`
-  // and `parallelSafe: true` — letting a plan with a dependency cycle or
-  // two parallel tasks targeting the same file pass the gate silently.
-  // Keep the markdown-derived DAG + parallel-safety checks running in
-  // the sidecar flow until the sidecar schema can carry that data.
-  const planSidecar = loadPlanSidecar(args.planPath);
-  if (planSidecar) {
-    const sidecarResult = evaluateTaskDecompositionFromSidecar(planSidecar);
-    // Read the same markdown to derive deps + parallel flags. If the read
-    // fails or the markdown is unparseable, fall back to the sidecar's
-    // no-op assumption (clearly marked in the report) so the sidecar
-    // flow still produces a result — but flag the degraded mode.
-    let dagResult: DagValidationResult = { valid: true };
-    let safetyResult: ParallelSafetyResult = { safe: true, conflicts: [] };
-    let degraded = false;
-    try {
-      const planContent = await readFile(args.planPath, 'utf-8');
-      const blocks = parseTaskBlocks(planContent);
-      if (blocks.length > 0) {
-        const dagTasks: DagTask[] = blocks.map((b) => ({
-          id: b.id,
-          deps: extractDependencies(b.content),
-        }));
-        dagResult = validateDependencyDAG(dagTasks);
-        const parallelTasks: ParallelTask[] = blocks.map((b) => ({
-          id: b.id,
-          isParallel: isParallelizable(b.content),
-          files: extractFiles(b.content),
-        }));
-        safetyResult = checkParallelSafety(parallelTasks);
-      } else {
-        degraded = true;
-      }
-    } catch {
-      degraded = true;
-    }
-    const combinedPassed = sidecarResult.passed && dagResult.valid && safetyResult.safe;
-    const combined = {
-      ...sidecarResult,
-      passed: combinedPassed,
-      dagValid: dagResult.valid,
-      parallelSafe: safetyResult.safe,
-      report:
-        sidecarResult.report +
-        (degraded
-          ? '\n\n*Note: DAG + parallel-safety checks degraded — markdown unreadable. dagValid/parallelSafe defaulted to true.*'
-          : `\n\n### Dependency Analysis\n- DAG valid: ${dagResult.valid}\n- Parallel-safe: ${safetyResult.safe}`),
-    };
-    try {
-      await emitGateEvent(eventStore, args.featureId, 'task-decomposition', 'planning', combined.passed, {
-        dimension: 'D5',
-        phase: 'plan',
-        wellDecomposed: combined.wellDecomposed,
-        needsRework: combined.needsRework,
-        totalTasks: combined.totalTasks,
-      });
-    } catch { /* fire-and-forget */ }
-    return { success: true, data: { ...combined, source: 'sidecar' as const } };
-  }
+  // The YAML gate-sidecar layer (#1298) was abandoned in #1494 — SQLite is
+  // the authoritative structured record, so markdown parsing is the
+  // permanent authoring-gate path.
 
   // Read plan file
   let planContent: string;
@@ -904,85 +844,5 @@ export async function handleTaskDecomposition(
     report,
   };
 
-  return { success: true, data: { ...result, source: 'regex' as const } };
-}
-
-// ─── Sidecar evaluation ─────────────────────────────────────────────────────
-
-/**
- * Validate task decomposition from the structured plan sidecar. Each task
- * is checked against the same rules as the legacy `validateTaskStructure`
- * regex path so the sidecar route does not silently weaken the gate
- * (CodeRabbit #1425 — Sentry HIGH):
- *
- *   - description word count > 10 (matches legacy `descriptionWordCount > 10`)
- *   - at least one declared file
- *   - at least one test marker in the description: either a `[RED]` token or
- *     a `Method_Scenario_Outcome` PascalCase triple — the same patterns the
- *     legacy `validateTaskStructure` body scans for. The sidecar's `phase`
- *     enum (RED/GREEN/REFACTOR) is necessary but not sufficient: a `RED`
- *     phase claim without an actual test name in the description is exactly
- *     the kind of low-quality decomposition the legacy gate rejected.
- *
- * Parallel safety + dependency DAG remain no-ops in the sidecar path — both
- * inputs are absent from the v1 shape. Future schema revisions can add them.
- */
-function evaluateTaskDecompositionFromSidecar(plan: PlanSidecarV1): {
-  passed: boolean;
-  wellDecomposed: number;
-  needsRework: number;
-  totalTasks: number;
-  dagValid: boolean;
-  parallelSafe: boolean;
-  report: string;
-} {
-  let wellDecomposed = 0;
-  let needsRework = 0;
-  const rows: string[] = [];
-
-  // Mirror the legacy regex pair from `validateTaskStructure` so the two
-  // paths converge on the same definition of "test marker."
-  const redPattern = /\[RED\]/g;
-  const msoPattern = /[A-Z][a-zA-Z]+_[A-Z][a-zA-Z]+_[A-Z][a-zA-Z]+/g;
-
-  for (const task of plan.tasks) {
-    const descWords = task.description.trim().split(/\s+/).filter((w) => w.length > 0).length;
-    const hasDescription = descWords > 10;
-    const hasFiles = task.files.length > 0;
-    const redMatches = task.description.match(redPattern) ?? [];
-    const msoMatches = task.description.match(msoPattern) ?? [];
-    const testCount = redMatches.length + msoMatches.length;
-    const hasTests = testCount > 0;
-    const status = hasDescription && hasFiles && hasTests ? 'PASS' : 'FAIL';
-    if (status === 'PASS') wellDecomposed++;
-    else needsRework++;
-    rows.push(
-      `| ${task.id} | ${task.phase} | ${descWords} words | ${task.files.length} files | ${testCount} tests | ${status} |`,
-    );
-  }
-
-  const totalTasks = plan.tasks.length;
-  const passed = needsRework === 0;
-  const report = [
-    '## Task Decomposition Report (sidecar)',
-    '',
-    '| Task | Phase | Description | Files | Tests | Status |',
-    '|------|-------|-------------|-------|-------|--------|',
-    ...rows,
-    '',
-    `- Well-decomposed: ${wellDecomposed}/${totalTasks}`,
-    `- Needs rework: ${needsRework}/${totalTasks}`,
-    '',
-    passed ? '**Result: PASS**' : `**Result: FAIL** — ${needsRework} tasks need rework`,
-  ].join('\n');
-
-  return {
-    passed,
-    wellDecomposed,
-    needsRework,
-    totalTasks,
-    dagValid: true,
-    parallelSafe: true,
-    report,
-  };
+  return { success: true, data: { ...result } };
 }

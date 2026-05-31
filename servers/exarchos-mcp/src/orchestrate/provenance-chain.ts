@@ -9,8 +9,6 @@ import type { ToolResult } from '../format.js';
 import type { EventStore } from '../event-store/store.js';
 import { emitGateEvent } from './gate-utils.js';
 import { verifyProvenanceChain } from './pure/provenance-chain.js';
-import { loadDesignSidecar, loadPlanSidecar } from './sidecar-lookup.js';
-import type { DesignSidecarV1, PlanSidecarV1 } from './sidecar-schemas.js';
 
 // ─── Result Types ──────────────────────────────────────────────────────────
 
@@ -68,26 +66,9 @@ export async function handleProvenanceChain(
     };
   }
 
-  // Prefer the sidecars (T15) when both are present + conformant.
-  const designSidecar = loadDesignSidecar(args.designPath);
-  const planSidecar = loadPlanSidecar(args.planPath);
-  if (designSidecar && planSidecar) {
-    const sidecarResult = evaluateProvenanceFromSidecars(designSidecar, planSidecar);
-    try {
-      await emitGateEvent(eventStore, args.featureId, 'provenance-chain', 'planning', sidecarResult.passed, {
-        dimension: 'D1',
-        phase: 'plan',
-        requirements: sidecarResult.coverage.requirements,
-        covered: sidecarResult.coverage.covered,
-        gaps: sidecarResult.coverage.gaps,
-        orphanRefs: sidecarResult.coverage.orphanRefs,
-      });
-    } catch { /* fire-and-forget */ }
-    return {
-      success: true,
-      data: { ...sidecarResult, source: 'sidecar' as const },
-    };
-  }
+  // The YAML gate-sidecar layer (#1298) was abandoned in #1494 — SQLite is
+  // the authoritative structured record, so markdown parsing is the
+  // permanent authoring-gate path.
 
   // Call pure TypeScript implementation
   const tsResult = verifyProvenanceChain({
@@ -133,52 +114,5 @@ export async function handleProvenanceChain(
     report: tsResult.output,
   };
 
-  return { success: true, data: { ...result, source: 'regex' as const } };
-}
-
-// ─── Sidecar evaluation ─────────────────────────────────────────────────────
-
-/**
- * Verify the design-to-plan provenance chain from the structured sidecars.
- *
- * A DR is "covered" when at least one `provenance` entry in the plan
- * sidecar references it. An "orphan reference" is a plan provenance entry
- * pointing at a DR id that does not appear in the design sidecar's `drs`.
- */
-function evaluateProvenanceFromSidecars(
-  design: DesignSidecarV1,
-  plan: PlanSidecarV1,
-): {
-  passed: boolean;
-  coverage: { requirements: number; covered: number; gaps: number; orphanRefs: number };
-  report: string;
-} {
-  const drIds = new Set(design.drs.map((d) => d.id));
-  const provenanceDrs = new Set(plan.provenance.map((p) => p.dr));
-  let covered = 0;
-  const missing: string[] = [];
-  for (const dr of drIds) {
-    if (provenanceDrs.has(dr)) covered++;
-    else missing.push(dr);
-  }
-  const orphanRefs = [...provenanceDrs].filter((d) => !drIds.has(d));
-  const requirements = drIds.size;
-  const gaps = missing.length;
-  const passed = gaps === 0 && orphanRefs.length === 0;
-  const report = [
-    '## Provenance Chain Report (sidecar)',
-    '',
-    `- Requirements: ${requirements}`,
-    `- Covered: ${covered}`,
-    `- Gaps: ${gaps}${gaps > 0 ? ` (${missing.join(', ')})` : ''}`,
-    `- Orphan provenance refs: ${orphanRefs.length}${orphanRefs.length > 0 ? ` (${orphanRefs.join(', ')})` : ''}`,
-    '',
-    passed ? '**Result: PASS**' : '**Result: FAIL**',
-  ].join('\n');
-
-  return {
-    passed,
-    coverage: { requirements, covered, gaps, orphanRefs: orphanRefs.length },
-    report,
-  };
+  return { success: true, data: { ...result } };
 }
