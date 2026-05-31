@@ -374,6 +374,85 @@ present without requiring a literal Description field-header marker.`;
     expect(result.hasDescription).toBe(true);
     expect(result.descriptionWordCount).toBeGreaterThan(20);
   });
+
+  // ─── T-02 (#1486): task-template.md parity ──────────────────────────────
+  //
+  // A task authored VERBATIM from
+  // `skills-src/implementation-planning/references/task-template.md` puts the
+  // brief description IN the `### Task [N]: [Brief Description]` heading and
+  // immediately follows it with `**Phase:**` — there is NO `**Goal:**` or
+  // `**Description:**` introducer. Under the pre-T-02 contract the heading
+  // line was skipped and `**Phase:**` (a non-introducer field header)
+  // terminated the scan, yielding `Description: 0 words` / needsRework. The
+  // gate must instead credit the heading's brief-description tail (plus any
+  // naked TDD-step prose) so the canonical template shape is well-decomposed.
+  it('ValidateTaskStructure_TemplateShapedTask_HasDescription', () => {
+    // Verbatim template shape: brief description in the heading, body opens
+    // with **Phase:** and carries **Test Layer:** / **Implements:** /
+    // **TDD Steps:** / **Verification:** / **Dependencies:** / **Parallelizable:**.
+    const block = `### Task T-04: Implement the per-record validation schema module that the ingestion pipeline uses to reject malformed rows
+
+**Phase:** RED
+**Test Layer:** unit
+**Implements:** DR-5
+
+**TDD Steps:**
+1. [RED] Write test: \`Schema_Validate_RejectsMalformedRow\`
+   - File: \`src/schema/module.test.ts\`
+   - Expected failure: validator does not yet exist so the import throws
+   - Run: \`npm run test:run\` - MUST FAIL
+
+2. [GREEN] Implement minimum code
+   - File: \`src/schema/module.ts\`
+   - Changes: add the validate function returning normalized rows
+   - Run: \`npm run test:run\` - MUST PASS
+
+**Verification:**
+- [ ] Witnessed test fail for the right reason
+- [ ] Test passes after implementation
+- [ ] No extra code beyond test requirements
+
+**Dependencies:** None
+**Parallelizable:** Yes`;
+
+    const result = validateTaskStructure(block);
+
+    // Brief-description heading tail counts toward the description signal so
+    // the canonical template shape is credited (not flagged needsRework).
+    expect(result.hasDescription).toBe(true);
+    expect(result.descriptionWordCount).toBeGreaterThan(10);
+    // The task is well-formed end-to-end: description + files + tests.
+    expect(result.hasFiles).toBe(true);
+    expect(result.hasTests).toBe(true);
+    expect(result.status).toBe('PASS');
+  });
+
+  // ─── T-02 (#1486): F20 / #1213 guard MUST NOT regress ───────────────────
+  //
+  // Over-broadening the description signal could re-introduce the #1213 bug
+  // where an inline `**Files:** \`a.ts\`, \`b.ts\`` list satisfied the
+  // 10-word threshold. A task whose ONLY "prose" is a backtick-quoted file
+  // list (no heading brief, no naked narrative) must STILL be flagged
+  // missing-description.
+  it('ValidateTaskStructure_FilesListOnly_NotCountedAsDescription', () => {
+    // Heading carries no brief description; the only content is an inline
+    // **Files:** list of backtick-quoted paths.
+    const block = `### Task T-05:
+
+**Files:** \`src/a.ts\`, \`src/b.ts\`, \`src/c.ts\`, \`src/d.ts\`, \`src/e.ts\`, \`src/f.ts\`, \`src/g.ts\`
+
+**Tests:**
+- [RED] \`Foo_Bar_Baz\`
+
+**Dependencies:** None
+**Parallelizable:** No`;
+
+    const result = validateTaskStructure(block);
+
+    // Backtick-quoted file paths are NOT description prose (F20 / #1213).
+    expect(result.hasDescription).toBe(false);
+    expect(result.descriptionWordCount).toBeLessThanOrEqual(10);
+  });
 });
 
 describe('validateDependencyDAG', () => {
