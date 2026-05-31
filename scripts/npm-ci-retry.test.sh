@@ -25,6 +25,9 @@ count=0
 [ -f "$FAKE_COUNT_FILE" ] && count="$(cat "$FAKE_COUNT_FILE")"
 count=$((count + 1))
 echo "$count" > "$FAKE_COUNT_FILE"
+# Surface the env the wrapper handed us so tests can assert install-time policy
+# (e.g. the Playwright browser-download skip). Captured in OUT.
+echo "ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=${PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD:-<unset>}"
 case "$FAKE_MODE" in
   succeed)            exit 0 ;;
   fail)               exit 1 ;;
@@ -97,6 +100,33 @@ if [ "$RC" -eq 0 ] && [ "$CALLS" -ge 2 ]; then
   pass "stalled (SIGTERM-ignoring) attempt is killed and retried to success"
 else
   fail "stall kill-after recovery" "rc=$RC calls=$CALLS (124 ⇒ SUT hung — kill-after not applied)"
+fi
+
+# ── Test 5: defaults PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 ─────────────────────
+# promptfoo's optional @playwright/browser-chromium postinstall downloads a
+# ~150MB Chromium from the Playwright CDN — uncached, unprobed, and the cause
+# of the 300s npm-ci wedge on cold runners. The wrapper must skip it by default
+# (no CI job drives a browser). See RCA docs/rca/2026-05-31-npm-ci-playwright-browser-wedge.md.
+run_sut succeed 1 5
+if printf '%s\n' "$OUT" | grep -q 'ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1'; then
+  pass "wrapper defaults PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1"
+else
+  fail "default browser-download skip" "got: $(printf '%s\n' "$OUT" | grep 'ENV PLAYWRIGHT' || echo none)"
+fi
+
+# ── Test 6: a caller-set PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD is respected ───────
+# The default is an override-able floor: a job that genuinely needs browsers
+# sets =0 and the wrapper must not clobber it.
+tmp6="$(mktemp -d)"; : > "$tmp6/count"; make_fake_npm "$tmp6"
+OUT6="$(PATH="$tmp6:$PATH" FAKE_MODE=succeed FAKE_COUNT_FILE="$tmp6/count" \
+       NPM_CI_ATTEMPTS=1 NPM_CI_TIMEOUT_SECONDS=5 NPM_CI_KILL_AFTER_SECONDS=1 \
+       NPM_CI_RETRY_SLEEP_SECONDS=0 PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=0 \
+       timeout 30 bash "$SUT" ci 2>&1)"
+rm -rf "$tmp6"
+if printf '%s\n' "$OUT6" | grep -q 'ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=0'; then
+  pass "caller-set PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=0 is respected (not overridden)"
+else
+  fail "opt-out respected" "got: $(printf '%s\n' "$OUT6" | grep 'ENV PLAYWRIGHT' || echo none)"
 fi
 
 # ── Summary ─────────────────────────────────────────────────────────────────
