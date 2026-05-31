@@ -158,11 +158,46 @@ const HandoffLintConfigSchema = z
   })
   .strict();
 
+// User-extensible toolchains (#1508 / layered resolver tier 3).
+//
+// Lets a repo teach Exarchos about ANY toolchain — including ones with zero
+// built-in support — declaratively, with no code change. Each entry maps
+// detection markers (root filename or `*.ext` glob) to first-class commands.
+// User entries are matched BEFORE the built-in registry (resolveTestRuntime),
+// so they also override a built-in toolchain for the same marker.
+const toolchainMarker = z
+  .string()
+  .regex(
+    /^(\*\.[A-Za-z0-9._-]+|[A-Za-z0-9._-]+)$/,
+    'must be a root filename or a `*.ext` glob',
+  );
+
+const ToolchainCommandsConfigSchema = z
+  .object({
+    test: safeCommand.optional(),
+    typecheck: safeCommand.optional(),
+    install: safeCommand.optional(),
+  })
+  .strict();
+
+const ToolchainConfigSchema = z
+  .object({
+    id: z.string().trim().min(1),
+    projectType: z.string().trim().min(1).optional(),
+    markers: z.array(toolchainMarker).min(1),
+    commands: ToolchainCommandsConfigSchema,
+  })
+  .strict();
+
+/** A single `.exarchos.yml` `toolchains:` entry. */
+export type ToolchainConfig = z.infer<typeof ToolchainConfigSchema>;
+
 export const ExarchosConfigSchema = z
   .object({
     test: safeCommand.optional(),
     typecheck: safeCommand.optional(),
     install: safeCommand.optional(),
+    toolchains: z.array(ToolchainConfigSchema).optional(),
     qualityHints: QualityHintsSchema,
     handoffLint: HandoffLintConfigSchema.optional(),
     cli: CliConfigSchema.optional(),

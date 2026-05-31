@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   detectToolchain,
+  toolchainFromConfig,
   BUILTIN_TOOLCHAINS,
   type Toolchain,
 } from './toolchains.js';
@@ -107,6 +108,39 @@ describe('detectToolchain — user extra entries (tier 3 override)', () => {
       commands: { test: 'just test', typecheck: null, install: null },
     };
     expect(detectToolchain(dir, [customNode])?.id).toBe('node-custom');
+  });
+});
+
+describe('toolchainFromConfig — .exarchos.yml toolchains: → registry', () => {
+  it('maps id/markers/commands and defaults projectType to the id', () => {
+    const tc = toolchainFromConfig({
+      id: 'zig',
+      markers: ['build.zig'],
+      commands: { test: 'zig build test' },
+    });
+    expect(tc).toEqual({
+      id: 'zig',
+      projectType: 'zig',
+      markers: ['build.zig'],
+      commands: { test: 'zig build test', typecheck: null, install: null },
+    });
+  });
+
+  it('honors an explicit projectType and fills absent commands with null', () => {
+    const tc = toolchainFromConfig({
+      id: 'hs',
+      projectType: 'Haskell',
+      markers: ['*.cabal'],
+      commands: { test: 'cabal test', install: 'cabal build' },
+    });
+    expect(tc.projectType).toBe('Haskell');
+    expect(tc.commands).toEqual({ test: 'cabal test', typecheck: null, install: 'cabal build' });
+  });
+
+  it('a converted entry detects via detectToolchain extra', () => {
+    touch('build.zig');
+    const zig = toolchainFromConfig({ id: 'zig', markers: ['build.zig'], commands: { test: 'zig build test' } });
+    expect(detectToolchain(dir, [zig])?.id).toBe('zig');
   });
 });
 

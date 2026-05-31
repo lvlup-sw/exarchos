@@ -148,6 +148,37 @@ export const BUILTIN_TOOLCHAINS: readonly Toolchain[] = [
   },
 ];
 
+/** Shape of a `.exarchos.yml` `toolchains:` entry (see exarchos-config-schema). */
+export interface ConfigToolchain {
+  readonly id: string;
+  readonly projectType?: string;
+  readonly markers: readonly string[];
+  readonly commands: {
+    readonly test?: string;
+    readonly typecheck?: string;
+    readonly install?: string;
+  };
+}
+
+/**
+ * Convert a user-declared `.exarchos.yml` toolchain into a registry
+ * {@link Toolchain}. `projectType` defaults to the id; absent commands become
+ * `null`. Pass the result as `detectToolchain(repoRoot, extra)` so user entries
+ * are matched before the built-ins.
+ */
+export function toolchainFromConfig(entry: ConfigToolchain): Toolchain {
+  return {
+    id: entry.id,
+    projectType: entry.projectType ?? entry.id,
+    markers: [...entry.markers],
+    commands: {
+      test: entry.commands.test ?? null,
+      typecheck: entry.commands.typecheck ?? null,
+      install: entry.commands.install ?? null,
+    },
+  };
+}
+
 function markerMatches(marker: string, entries: readonly string[]): boolean {
   if (marker.startsWith('*.')) {
     const ext = marker.slice(1); // '*.csproj' → '.csproj'
