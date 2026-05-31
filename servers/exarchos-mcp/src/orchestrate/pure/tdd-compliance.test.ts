@@ -159,7 +159,7 @@ describe('checkTddCompliance', () => {
     expect(result.passCount).toBe(1);
   });
 
-  it('no commits found returns pass with zero commits', () => {
+  it('no commits found returns warn (non-pass advisory) with zero commits', () => {
     const gitMock = createGitMock([
       {
         args: ['log', '--reverse', '--format=%H'],
@@ -174,9 +174,14 @@ describe('checkTddCompliance', () => {
       execGit: gitMock,
     });
 
-    expect(result.status).toBe('pass');
+    // An empty base..branch range (e.g. the task branch was already merged
+    // into integration) must NOT read as a real TDD pass — that would be a
+    // vacuous PASS / false confidence. Surface it as a WARNING advisory.
+    expect(result.status).toBe('warn');
     expect(result.commitsAnalyzed).toBe(0);
     expect(result.violations).toHaveLength(0);
+    expect(result.report).toContain('**Result: WARNING**');
+    expect(result.report).not.toContain('**Result: PASS**');
   });
 
   it('single commit with only impl returns fail', () => {
@@ -384,7 +389,9 @@ describe('checkTddCompliance', () => {
       execGit: gitMock,
     });
 
-    expect(result.status).toBe('pass');
+    // Empty base..branch range yields the WARNING advisory; the assertion of
+    // interest here is that baseBranch defaults to 'main'.
+    expect(result.status).toBe('warn');
     expect(result.branch).toBe('feature/test');
     expect(result.baseBranch).toBe('main');
   });
