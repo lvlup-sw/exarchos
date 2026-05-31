@@ -389,14 +389,36 @@ first.
 
 ### Why this happens
 
-Each subagent worktree is created at the integration branch's tip at
-dispatch time. When the orchestrator merges sibling worktrees serially,
-each merge moves the integration branch forward. A worktree that was
-dispatched against an older integration tip will fail the ancestry
-preflight when its turn comes.
+With the worktree base pinned to local HEAD (see prerequisite below), each
+subagent worktree is created at the integration branch's tip at dispatch time.
+When the orchestrator merges sibling worktrees serially, each merge moves the
+integration branch forward. A worktree that was dispatched against an older
+integration tip will fail the ancestry preflight when its turn comes.
 
 This is expected behavior under the current single-writer merge contract —
 preflight is fail-only on purpose so the operator stays in control.
+
+<!-- requires:native:isolation:worktree -->
+> **Prerequisite — pin the worktree base.** Native `isolation: worktree`
+> branches subagent worktrees from the repository's default branch
+> (`origin/HEAD` → `main`), **not** the integration tip, unless
+> `worktree.baseRef: "head"` is set in `.claude/settings.json`. Without the pin,
+> a subagent dispatched onto any stacked / non-`main` integration branch gets a
+> base missing every in-branch prerequisite commit (issues #1509 / #1501).
+> `prepare_delegation` fails loud with this exact remediation when
+> `nativeIsolation` is requested and the pin is absent:
+>
+> ```json
+> { "worktree": { "baseRef": "head" } }
+> ```
+>
+> Worktrees are a clean checkout, so only *committed* HEAD state propagates —
+> commit design / plan / research before dispatching.
+>
+> With the pin in place (and the implementer's own base assert as backstop),
+> operators no longer hand-prepend a `git reset --hard <integration-tip>` STEP 0
+> to each dispatch — base correctness is enforced by configuration + guard.
+<!-- /requires -->
 
 ### Recovery procedure
 

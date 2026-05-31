@@ -52,6 +52,18 @@ pwd | grep -q "\.worktrees" || { echo "ERROR: Not in worktree!"; exit 1; }
 
 This check prevents accidental modifications to the main project root, which would cause merge conflicts with other parallel tasks.
 
+## CRITICAL: Base Verification (MANDATORY)
+
+Before making ANY file changes, verify your worktree is based on the **integration tip**, not a stale `main`. On native-isolation runtimes the worktree base depends on `worktree.baseRef` (see the delegation skill); this assert is the version-independent safety net that halts loud if the base is wrong — so you never build on a base missing prerequisite in-branch commits (issues #1509 / #1501).
+
+```bash
+git merge-base --is-ancestor "[integration-tip]" HEAD \
+  && echo "BASE OK" \
+  || { echo "ERROR: worktree base is not a descendant of the integration tip — halting"; exit 1; }
+```
+
+`[integration-tip]` is the workflow's integration branch (or its tip SHA), supplied by the orchestrator at dispatch. If this fails, STOP and report — do NOT rebase or reset to self-heal; the orchestrator owns base correction.
+
 ## Task Description
 [Full task description from implementation plan - never reference external files]
 
@@ -317,6 +329,18 @@ pwd | grep -q "\.worktrees" || { echo "ERROR: Not in worktree!"; exit 1; }
 ```
 
 This check prevents accidental modifications to the main project root, which would cause merge conflicts with other parallel tasks.
+
+## CRITICAL: Base Verification (MANDATORY)
+
+Before making ANY file changes, verify your worktree is based on the **integration tip**, not a stale `main` (issues #1509 / #1501):
+
+```bash
+git merge-base --is-ancestor "feat/registration" HEAD \
+  && echo "BASE OK" \
+  || { echo "ERROR: worktree base is not a descendant of the integration tip — halting"; exit 1; }
+```
+
+If this fails, STOP and report — do NOT rebase or reset to self-heal; the orchestrator owns base correction.
 
 ## Task Description
 Implement email validation for user registration. The validator should:
