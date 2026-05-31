@@ -202,8 +202,13 @@ export function extractDescriptionSpan(lines: readonly string[]): string[] {
   const start = lines.length > 0 && /^###\s+Task\s+/.test(lines[0]) ? 1 : 0;
   if (start === 1) {
     const headingTail = lines[0].replace(/^###\s+Task\s+(?:T-[0-9]+|[0-9]+):?\s*/, '');
-    if (headingTail.trim().length > 0) {
-      descLines.push(headingTail);
+    // Strip backtick-quoted spans (file paths like `src/a.ts`) before counting
+    // the tail as description — a heading that is nothing but a file list must
+    // NOT satisfy the description threshold (the F20/#1213 hole this comment
+    // claims to avoid). Only the prose remnant counts.
+    const headingTailProse = headingTail.replace(/`[^`]*`/g, ' ').trim();
+    if (headingTailProse.length > 0) {
+      descLines.push(headingTailProse);
     }
   }
 

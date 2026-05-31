@@ -41,6 +41,8 @@ const FORBIDDEN_TOKENS = [
   `Design${sc[0].toUpperCase()}${sc.slice(1)}V1`,
   `Plan${sc[0].toUpperCase()}${sc.slice(1)}V1`,
   `evaluateDesign${sc[0].toUpperCase()}${sc.slice(1)}`,
+  `evaluatePlanCoverageFrom${sc[0].toUpperCase()}${sc.slice(1)}s`,
+  `evaluateProvenanceFrom${sc[0].toUpperCase()}${sc.slice(1)}s`,
   `evaluateTaskDecompositionFrom${sc[0].toUpperCase()}${sc.slice(1)}`,
   'build' + 'DeprecationMessage',
 ] as const;

@@ -435,13 +435,16 @@ The system validates all user-submitted form data.
   });
 
   it('CheckAcceptanceCriteria_ContinuationGWT_Recognized', () => {
-    // Arrange — template continuation form: bulleted Given, then non-bulleted
-    // continuation lines for When / Then (indented, no list marker)
+    // Arrange — continuation form: bulleted Given, then non-bulleted
+    // continuation lines for When / Then (indented, no list marker).
+    // We deliberately OMIT the structural `**Acceptance criteria:**` header so
+    // the block can only be recognized via the continuation-line parser — with
+    // the header present, the structural-header check short-circuits first and
+    // this test would pass even if continuation parsing were broken.
     const content = `## Requirements
 
 ### DR-1: The system must validate inputs
 
-**Acceptance criteria:**
 - Given a precondition holds
   When an action occurs
   Then an expected outcome is produced

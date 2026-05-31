@@ -235,16 +235,20 @@ function renderFromTemplate(templatePath: string, blockJoin = '\n\n'): {
 // ─── Derived fixtures ────────────────────────────────────────────────────────
 
 /**
- * Design fixture. The design template has TWO ```markdown blocks: the option
- * format (one `### Option [N]` block) and the document structure (all 7
- * sections + the DR blocks). We render BOTH, and additionally duplicate the
- * option block with N=1/N=2 so the design satisfies `checkMultipleOptions`'s
- * ">= 2 options" requirement — the template only ships one example option.
+ * Design fixture. The design template ships THREE ```markdown blocks: the
+ * option format (one `### Option [N]` block), the full document structure (all
+ * 7 sections + the DR blocks), and a small Given/When/Then format illustration
+ * under "Requirement Format Rules". We use blocks[0] and blocks[1] for the
+ * fixture and intentionally ignore the GWT illustration (blocks[2]); we also
+ * duplicate the option block with N=1/N=2 so the design satisfies
+ * `checkMultipleOptions`'s ">= 2 options" requirement — the template only ships
+ * one example option.
  */
 function deriveDesignFixture(): string {
   const { blocks } = renderFromTemplate(TEMPLATES.design);
-  // blocks[0] = option-format example, blocks[1] = full document structure.
-  expect(blocks.length, 'design-template.md should ship 2 markdown example blocks').toBeGreaterThanOrEqual(2);
+  // blocks[0] = option-format example, blocks[1] = full document structure,
+  // blocks[2] = GWT format illustration (unused by this fixture).
+  expect(blocks.length, 'design-template.md should ship 3 markdown example blocks').toBe(3);
 
   const optionBlockTemplate = blocks[0];
   const option1 = substitutePlaceholders(optionBlockTemplate);
@@ -274,7 +278,7 @@ function deriveDesignFixture(): string {
  */
 function deriveTaskFixture(): string {
   const { blocks } = renderFromTemplate(TEMPLATES.task);
-  expect(blocks.length, 'task-template.md should ship 1 markdown example block').toBeGreaterThanOrEqual(1);
+  expect(blocks.length, 'task-template.md should ship 1 markdown example block').toBe(1);
   return substitutePlaceholders(blocks[0]);
 }
 
@@ -285,7 +289,7 @@ function deriveTaskFixture(): string {
  */
 function derivePlanFixture(taskBlock: string): string {
   const { blocks } = renderFromTemplate(TEMPLATES.plan);
-  expect(blocks.length, 'plan-document-template.md should ship 1 markdown example block').toBeGreaterThanOrEqual(1);
+  expect(blocks.length, 'plan-document-template.md should ship 1 markdown example block').toBe(1);
   const rendered = substitutePlaceholders(blocks[0]);
   return rendered.replace('__TASK_BREAKDOWN__', taskBlock);
 }
