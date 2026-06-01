@@ -1,5 +1,5 @@
 ---
-description: Dispatch tasks to Claude Code subagents
+description: Dispatch tasks to subagents
 ---
 
 # /delegate

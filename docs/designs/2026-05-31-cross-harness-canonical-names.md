@@ -74,8 +74,8 @@ command-autoload convention, emit canonical-name alias artifacts (lightweight co
 that delegate to the underlying skill, mirroring the reporter's proven opencode setup).
 `install-skills` installs them to the runtime's command dir.
 
-- **opencode** — verify exact dir/format (`~/.config/opencode/command/*.md` expected;
-  the reporter proved aliases work). Emit + install.
+- **opencode** — verified: autoloads markdown commands from `~/.config/opencode/commands/`
+  (plural) and `.opencode/commands/`. Emit + install.
 - **codex/copilot** — `hasSlashCommands: true` but command-autoload convention unconfirmed
   in-repo. **Do not emit broken artifacts.** Confirm the convention; if confirmed, emit; if
   not, document the gap (#1471) and leave for a follow-up. No silent cap — the docs state
