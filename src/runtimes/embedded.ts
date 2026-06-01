@@ -121,6 +121,7 @@ const RAW_RUNTIMES = [
     },
     "preferredFacade": "cli",
     "skillsInstallPath": "~/.config/opencode/skills",
+    "commandsInstallPath": "~/.config/opencode/commands",
     "detection": {
       "binaries": [
         "opencode"

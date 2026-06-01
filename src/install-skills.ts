@@ -150,6 +150,31 @@ export interface InstallSkillsOpts {
    * Only invoked when the local-copy fast path runs (see `skillsSource`).
    */
   copyDir?: (src: string, dest: string) => void;
+  /**
+   * Optional explicit path to the per-runtime command-alias source tree
+   * (the directory that contains `<runtime>/<canonical>.md` children — i.e.
+   * the repo's `command-aliases/` directory, a build artifact emitted by
+   * `build-command-aliases.ts`). When provided AND the resolved runtime
+   * declares `commandsInstallPath` AND `<aliasesSource>/<runtime.name>/`
+   * exists, `installSkills()` copies every alias `*.md` file into the
+   * expanded `commandsInstallPath` so the bare canonical names (`/ideate`,
+   * `/plan`, ...) autoload off the Claude path (T3, #1471/#1472).
+   *
+   * The copy runs regardless of which skills-install transport ran (the
+   * local-copy fast path or the upstream `npx skills add` shell-out) — it
+   * is gated purely on the presence of `commandsInstallPath` + a viable
+   * source tree, never a runtime-name literal (INV-4). When `undefined`,
+   * `installSkills()` does NOT auto-detect — the bridge supplies
+   * `findCommandAliasesSourceDir()` explicitly, mirroring `skillsSource`.
+   */
+  aliasesSource?: string;
+  /**
+   * Injectable single-file copy used by the command-alias install. Default
+   * wraps `fs.copyFileSync(src, dest)`. Tests inject a recorder so they can
+   * assert what was copied without touching disk. Only invoked when the
+   * command-alias copy runs (see `aliasesSource`).
+   */
+  copyFile?: (src: string, dest: string) => void;
 }
 
 /**
@@ -293,6 +318,154 @@ export function copyLocalSkills(
   }
 
   return skillDirs;
+}
+
+/**
+ * Default single-file copy: wraps `fs.copyFileSync`. Pulled into a named
+ * helper so `installSkills` can default `opts.copyFile` to a stable
+ * reference and tests can inject a recorder.
+ */
+function defaultCopyFile(src: string, dest: string): void {
+  fs.copyFileSync(src, dest);
+}
+
+/**
+ * Copy every `*.md` alias file under `sourceDir` (a directory of flat
+ * `<canonical>.md` command-alias files) into `destDir`, creating `destDir`
+ * if needed. Returns the list of file names copied so the caller can log a
+ * manifest.
+ *
+ * Only top-level `*.md` files are copied — the alias tree is flat by
+ * construction (`build-command-aliases.ts` emits `<runtime>/<name>.md`).
+ * Existing files in `destDir` are overwritten (the alias content is a pure
+ * function of the canonical command map, so a re-copy is byte-stable); other
+ * files the user keeps in their commands dir are left untouched.
+ *
+ * Used by the T3 command-alias install (#1471/#1472).
+ */
+export function copyCommandAliases(
+  sourceDir: string,
+  destDir: string,
+  copyFile: (src: string, dest: string) => void = defaultCopyFile,
+): string[] {
+  const aliasFiles = fs
+    .readdirSync(sourceDir, { withFileTypes: true })
+    .filter((e) => e.isFile() && e.name.endsWith('.md'))
+    .map((e) => e.name);
+
+  if (aliasFiles.length === 0) return [];
+
+  fs.mkdirSync(destDir, { recursive: true });
+  for (const file of aliasFiles) {
+    copyFile(path.join(sourceDir, file), path.join(destDir, file));
+  }
+  return aliasFiles;
+}
+
+/**
+ * Auto-detect the local command-alias source directory — the parent of
+ * `<runtime>/<canonical>.md` (i.e. the repo's `command-aliases/`
+ * directory). Mirrors {@link findSkillsSourceDir}'s candidate resolution
+ * (cwd, compiled-binary `dist/bin/../..`, src-relative dev path) so the
+ * binary's command-alias install works in both the test harness and a
+ * developer checkout.
+ *
+ * Returns the first candidate that exists as a directory, or `undefined`
+ * when none do (the caller skips the alias copy). T3, #1471/#1472.
+ */
+export function findCommandAliasesSourceDir(): string | undefined {
+  const candidates: string[] = [];
+  candidates.push(path.join(process.cwd(), 'command-aliases'));
+  try {
+    if (typeof process.execPath === 'string' && process.execPath.length > 0) {
+      candidates.push(
+        path.resolve(path.dirname(process.execPath), '..', '..', 'command-aliases'),
+      );
+    }
+  } catch {
+    // process.execPath is always defined under Node/Bun, but guard anyway.
+  }
+  try {
+    if (typeof import.meta.url === 'string' && import.meta.url.startsWith('file:')) {
+      const here = path.dirname(fileURLToPath(import.meta.url));
+      candidates.push(path.resolve(here, '..', 'command-aliases'));
+    }
+  } catch {
+    // import.meta.url may be a non-file: URL inside bun-compile output.
+  }
+  for (const c of candidates) {
+    try {
+      if (fs.statSync(c).isDirectory()) return c;
+    } catch {
+      // Candidate doesn't exist — try next.
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Install canonical command aliases for `runtime`, when applicable, and
+ * return the expanded destination path so the caller can include it in the
+ * post-install summary.
+ *
+ * The copy is gated purely on (a) the runtime declaring
+ * `commandsInstallPath`, (b) `opts.aliasesSource` being supplied, and (c)
+ * `<aliasesSource>/<runtime.name>/` existing as a directory — never a
+ * runtime-name literal (INV-4). It runs regardless of which skills-install
+ * transport ran, so opencode gets its `/ideate`, `/plan`, ... aliases
+ * whether skills came via the local-copy fast path or the upstream shell-out.
+ *
+ * Returns the expanded commands destination if files were copied, else
+ * `undefined`. T3, #1471/#1472.
+ */
+function installCommandAliases(
+  runtime: RuntimeMap,
+  opts: InstallSkillsOpts,
+  home: string,
+  log: (msg: string) => void,
+): string | undefined {
+  const aliasesSource = opts.aliasesSource;
+  if (!aliasesSource || !runtime.commandsInstallPath) return undefined;
+
+  const runtimeAliasDir = path.join(aliasesSource, runtime.name);
+  let sourceIsViable = false;
+  try {
+    sourceIsViable = fs.statSync(runtimeAliasDir).isDirectory();
+  } catch {
+    sourceIsViable = false;
+  }
+  if (!sourceIsViable) return undefined;
+
+  const destDir = expandTilde(runtime.commandsInstallPath, home);
+  const copyFile = opts.copyFile ?? defaultCopyFile;
+  const copied = copyCommandAliases(runtimeAliasDir, destDir, copyFile);
+  if (copied.length === 0) return undefined;
+
+  log(
+    `Installed ${copied.length} command alias${copied.length === 1 ? '' : 'es'} → ${destDir}`,
+  );
+  return destDir;
+}
+
+/**
+ * Print the post-install summary: skills destination, commands destination
+ * (when aliases were installed), and a restart hint so the user reloads the
+ * runtime to pick up the new content. Kept concise and routed through the
+ * injected `log` so tests can assert on it (the #1471 nice-to-have).
+ */
+function printInstallSummary(
+  log: (msg: string) => void,
+  skillsDest: string,
+  commandsDest: string | undefined,
+  runtimeName: string,
+): void {
+  log('');
+  log('Install complete.');
+  log(`  Skills:   ${skillsDest}`);
+  if (commandsDest) {
+    log(`  Commands: ${commandsDest}`);
+  }
+  log(`Restart ${runtimeName} (or reload) to pick up new skills/commands.`);
 }
 
 /**
@@ -468,6 +641,11 @@ export async function installSkills(opts: InstallSkillsOpts): Promise<void> {
       const installed = copyLocalSkills(runtimeSourceDir, destDir, copyDir);
       log(`Installed ${installed.length} skill${installed.length === 1 ? '' : 's'}: ${installed.join(', ')}`);
 
+      // Install canonical command aliases (T3, #1471/#1472) — gated on the
+      // runtime declaring `commandsInstallPath` + a viable alias source tree,
+      // never a runtime-name literal (INV-4).
+      const commandsDest = installCommandAliases(runtime, opts, home, log);
+
       // Mirror the post-success MCP registration that the spawn path
       // performs for the `claude` runtime — install-skills' contract
       // is "skills land + claude gets MCP wired up", regardless of
@@ -483,6 +661,8 @@ export async function installSkills(opts: InstallSkillsOpts): Promise<void> {
           );
         }
       }
+
+      printInstallSummary(log, destDir, commandsDest, runtime.name);
       return;
     }
   }
@@ -506,11 +686,10 @@ export async function installSkills(opts: InstallSkillsOpts): Promise<void> {
   //     pointing into npm's cache disappear if the cache is GC'd; copies
   //     survive across sessions and are byte-stable for idempotence.
   const home = homeDirFn();
-  // `expandTilde` retained as an exported helper for downstream callers /
-  // future runtimes; it's no longer needed in the argv since `--target` is
-  // not a valid upstream flag.
-  const _target = expandTilde(runtime.skillsInstallPath, home);
-  void _target;
+  // The expanded skills destination. No longer needed in the argv (`--target`
+  // is not a valid upstream flag), but reused below for the post-install
+  // summary so the user sees where skills landed.
+  const skillsDest = expandTilde(runtime.skillsInstallPath, home);
 
   const skillsAgentId = mapRuntimeToSkillsCliAgent(runtime.name);
   const cmd = 'npx';
@@ -569,6 +748,12 @@ export async function installSkills(opts: InstallSkillsOpts): Promise<void> {
       );
     }
   }
+
+  // Install canonical command aliases (T3, #1471/#1472) on the shell-out
+  // path too — gated on `commandsInstallPath` + a viable alias source tree,
+  // never a runtime-name literal (INV-4). Then print the post-install summary.
+  const commandsDest = installCommandAliases(runtime, opts, home, log);
+  printInstallSummary(log, skillsDest, commandsDest, runtime.name);
 }
 
 /**

@@ -44,7 +44,11 @@
  *             #1213 review-item #4 reversal, #1214.
  */
 
-import { installSkills, findSkillsSourceDir } from '../../../../src/install-skills.js';
+import {
+  installSkills,
+  findSkillsSourceDir,
+  findCommandAliasesSourceDir,
+} from '../../../../src/install-skills.js';
 import { loadAllRuntimes } from '../../../../src/runtimes/load.js';
 import { EMBEDDED_RUNTIMES } from '../../../../src/runtimes/embedded.js';
 import { fileURLToPath } from 'node:url';
@@ -115,5 +119,12 @@ export async function runInstallSkills(opts, deps = {}) {
   // shell-out — same behavior as before #1355.
   const skillsSource = findSkillsSourceDir();
 
-  await installer({ agent: opts.agent, runtimes, skillsSource });
+  // T3 (#1471/#1472): opt the binary into the canonical command-alias
+  // install by resolving the `command-aliases/` source tree the same way
+  // (cwd, binary-relative, src-relative). When it misses (undefined) the
+  // installer skips the alias copy. Only runtimes that declare
+  // `commandsInstallPath` (opencode today) actually receive aliases.
+  const aliasesSource = findCommandAliasesSourceDir();
+
+  await installer({ agent: opts.agent, runtimes, skillsSource, aliasesSource });
 }
