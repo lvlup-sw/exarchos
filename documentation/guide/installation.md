@@ -89,6 +89,64 @@ The lvlup-sw marketplace is hosted at [lvlup-sw/.github](https://github.com/lvlu
 
 Restart Claude Code after the install so the new MCP server registration takes effect.
 
+## Other harnesses (opencode, Codex, Cursor, Copilot, generic)
+
+Exarchos is **additive to your harness choice** — the CLI binary is the same everywhere; only the skill/command wiring differs. Install the CLI (above), register the MCP server in your harness's config, then install the skills with `exarchos install-skills --agent <runtime>`.
+
+The MCP server always speaks **stdio** (`exarchos mcp`) — there is no port to configure on any runtime. Outside Claude Code the MCP tools surface under the bare prefix `mcp__exarchos__` (Claude Code wraps them in its plugin namespace, `mcp__plugin_exarchos_exarchos__`).
+
+| Runtime | MCP transport | Skill install command | Skills destination | Canonical command names | Restart? |
+|---|---|---|---|---|---|
+| **Claude Code** | stdio (plugin) | (plugin, see above) | `~/.claude/skills` | native — `/exarchos:ideate`, `/exarchos:plan`, … | yes |
+| **opencode** | stdio | `exarchos install-skills --agent opencode` | `~/.config/opencode/skills` | ✅ `/ideate`, `/plan`, … (installed to `~/.config/opencode/commands`) | yes |
+| **Codex** | stdio | `exarchos install-skills --agent codex` | `$HOME/.agents/skills` | ⚠️ not emitted (see below) | yes (new session) |
+| **Cursor** | stdio | `exarchos install-skills --agent cursor` | `~/.cursor/skills` | — (no custom slash commands) | yes |
+| **Copilot CLI** | stdio | `exarchos install-skills --agent copilot` | `~/.copilot/skills` | ❌ not supported yet (see below) | yes |
+| **generic** | stdio | `exarchos install-skills --agent generic` | `~/.agents/skills` | — (no custom slash commands) | n/a |
+
+`install-skills` prints the skills destination, the commands destination (where applicable), and a restart hint when it finishes — so you don't have to memorize the paths above.
+
+### Canonical workflow names across harnesses
+
+Inside Claude Code the workflow is driven by canonical command names — `/exarchos:ideate`, `/exarchos:plan`, `/exarchos:delegate`, `/exarchos:review`, `/exarchos:synthesize`, `/exarchos:cleanup`, and so on. The underlying skills carry *descriptive* names (`brainstorming`, `implementation-planning`, `delegation`, …), so on harnesses that only see the skills, the names would otherwise differ.
+
+To keep the names stable, Exarchos generates a thin **canonical-name command-alias layer** for harnesses whose command system can autoload it. Coverage today:
+
+- **opencode** ✅ — `install-skills --agent opencode` writes `/ideate`, `/plan`, `/delegate`, … to `~/.config/opencode/commands/`, each delegating to the matching skill. So `/ideate` works the same way it does in Claude Code. (opencode autoloads markdown commands from that directory.)
+- **Codex** ⚠️ — Codex's custom-prompt mechanism (`~/.codex/prompts/*.md`) is [deprecated in favor of skills](https://developers.openai.com/codex/custom-prompts) and invokes prompts namespaced as `/prompts:<name>`, not the bare `/ideate`. Exarchos therefore does **not** emit aliases for Codex; invoke the descriptive skill directly (e.g. the `brainstorming` skill for ideate).
+- **Copilot CLI** ❌ — Copilot CLI does not yet autoload custom slash commands from a prompts directory (tracked upstream: [github/copilot-cli#618](https://github.com/github/copilot-cli/issues/618), [#1113](https://github.com/github/copilot-cli/issues/1113)). Aliases will be emitted once that lands.
+- **Cursor / generic** — no custom-slash-command surface; the skill's descriptive name is the entry point.
+
+On runtimes without the alias layer, note the **chaining caveat**: skill prose that says "invoke the `exarchos:plan` skill" refers to the canonical name; map it to the descriptive skill (`implementation-planning`) until aliases are available for that runtime.
+
+### Example: opencode
+
+Register the MCP server in `~/.config/opencode/config.json` (stdio, no port):
+
+```jsonc
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "exarchos": {
+      "type": "local",
+      "enabled": true,
+      "command": ["exarchos", "mcp"],
+      "env": {
+        "WORKFLOW_STATE_DIR": "/home/USER/.claude/workflow-state"
+      }
+    }
+  }
+}
+```
+
+Then install skills (and the canonical aliases):
+
+```bash
+exarchos install-skills --agent opencode
+```
+
+Skills land in `~/.config/opencode/skills/`, aliases in `~/.config/opencode/commands/`. **Restart opencode** (or reload) afterward to pick them up. Do not copy Claude-only env such as `EXARCHOS_PLUGIN_ROOT` into the opencode config — it is meaningless outside the Claude plugin and only clutters the environment.
+
 ## Validation
 
 ```bash
