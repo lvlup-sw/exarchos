@@ -27,6 +27,16 @@ const CapabilitiesSchema = z
     hasHooks: z.boolean(),
     hasSkillChaining: z.boolean(),
     mcpPrefix: z.string(),
+    /**
+     * Whether this runtime can autoload **bare canonical-name** command
+     * aliases (e.g. `/ideate`, `/plan`) from a commands directory, so the
+     * skills build should emit thin alias command files for it (T2,
+     * #1472). Optional + defaults to absent/false: only opencode declares
+     * `true` this cycle. The build gate keys off this declared capability,
+     * never a hardcoded runtime-name literal, so adding a future runtime
+     * is a pure data change (INV-4: no harness coupling in logic).
+     */
+    canonicalCommandAliases: z.boolean().optional(),
   })
   .strict();
 
@@ -142,6 +152,17 @@ export const RuntimeMapSchema = z
     // DR-1: preferred skill-authoring facade for this runtime.
     preferredFacade: z.enum(['mcp', 'cli']),
     skillsInstallPath: z.string(),
+    /**
+     * Directory the runtime autoloads bare canonical-name slash-command
+     * aliases from (e.g. opencode's `~/.config/opencode/commands`). Optional:
+     * only runtimes that declare `capabilities.canonicalCommandAliases` and
+     * therefore receive a generated `command-aliases/<runtime>/` tree set this.
+     * When present, `installSkills()` copies the alias `*.md` files here after
+     * installing skills (T3, #1471/#1472). The install gate keys off the
+     * presence of this field + the source tree, never a runtime-name literal
+     * (INV-4: no harness coupling in logic).
+     */
+    commandsInstallPath: z.string().optional(),
     detection: DetectionSchema,
     placeholders: z.record(z.string(), z.string()),
     // Zod v4's `z.record(enum, value)` enforces exhaustive coverage of

@@ -116,10 +116,12 @@ const RAW_RUNTIMES = [
       "hasSlashCommands": true,
       "hasHooks": false,
       "hasSkillChaining": false,
-      "mcpPrefix": "mcp__exarchos__"
+      "mcpPrefix": "mcp__exarchos__",
+      "canonicalCommandAliases": true
     },
     "preferredFacade": "cli",
     "skillsInstallPath": "~/.config/opencode/skills",
+    "commandsInstallPath": "~/.config/opencode/commands",
     "detection": {
       "binaries": [
         "opencode"

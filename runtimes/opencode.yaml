@@ -25,6 +25,15 @@ capabilities:
   hasHooks: false
   hasSkillChaining: false
   mcpPrefix: "mcp__exarchos__"
+  # OpenCode autoloads bare canonical-name slash commands from
+  # `~/.config/opencode/commands/<name>.md` (global) / `.opencode/commands/`
+  # (project). It is the ONLY runtime this cycle that can take a clean
+  # canonical alias (`/ideate`, `/plan`, ...) — codex's custom prompts are
+  # deprecated + namespaced (`/prompts:ideate`), copilot CLI has no autoload,
+  # and cursor/generic expose no command surface. The skills build keys
+  # alias emission off this declared capability, not an "opencode" literal
+  # (INV-4). See docs/designs/2026-05-31-cross-harness-canonical-names-plan.md.
+  canonicalCommandAliases: true
 # Fine-grained support matrix consumed by the prose renderer (Tasks 8/9)
 # to gate `<!-- requires:* -->` and `<!-- requires:native:* -->` blocks.
 # Mirrors `OpenCodeAdapter.supportLevels` in
@@ -45,6 +54,13 @@ supportedCapabilities:
   isolation:worktree: advisory
   session:resume: advisory
 skillsInstallPath: "~/.config/opencode/skills"
+# Directory OpenCode autoloads bare canonical-name slash-command aliases from
+# (global config dir). install-skills copies the generated
+# `command-aliases/opencode/*.md` tree here after installing skills
+# (T3, #1471/#1472). Only set on runtimes that declare
+# `capabilities.canonicalCommandAliases` — the install gate keys off this
+# field + the source tree, never an "opencode" literal (INV-4).
+commandsInstallPath: "~/.config/opencode/commands"
 detection:
   binaries:
     - opencode

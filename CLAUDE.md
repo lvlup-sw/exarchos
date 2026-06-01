@@ -8,8 +8,8 @@ Exarchos is local agent governance for Claude Code — event-sourced SDLC workfl
 npm run build          # tsc + bun → dist/ (includes MCP server + CLI bundles)
 npm run test:run       # vitest single run
 npm run typecheck      # tsc --noEmit
-npm run build:skills   # render skills-src/ → skills/<runtime>/ per-runtime variants
-npm run skills:guard   # CI: fails if generated skills/ is out of sync with skills-src/
+npm run build:skills   # render skills-src/ → skills/<runtime>/ variants + command-aliases/<runtime>/
+npm run skills:guard   # CI: fails if generated skills/ or command-aliases/ drift from sources
 
 # MCP server tests (build is handled by root `npm run build`)
 cd servers/exarchos-mcp && npm run test:run
@@ -19,7 +19,7 @@ cd servers/exarchos-mcp && npm run test:run
 
 - **Installer** — Bootstrap scripts (`scripts/get-exarchos.sh`, `scripts/get-exarchos.ps1`) download the single-file binary from GitHub Releases; plugin packaging registers commands/skills/rules via the `.claude-plugin/` manifest. The npx-based `src/install.ts` was removed in v2.9 (task 3.1).
 - **Content layers** — Commands (`commands/*.md`); Skills source-of-truth at `skills-src/<name>/SKILL.md` (with `{{TOKEN}}` placeholders and `references/`) rendered to `skills/<runtime>/<name>/SKILL.md` per runtime (Claude Code, Codex, Copilot, Cursor, OpenCode, generic); Rules (`rules/*.md` — safety only; domain rules in `skills-src/*/references/`). Structured Markdown, not executable code.
-- **Skills renderer** (`src/build-skills.ts`) — `npm run build:skills` walks `skills-src/`, substitutes placeholders from `runtimes/<name>.yaml`, copies each skill's `references/` verbatim into every runtime variant, honors `SKILL.<runtime>.md` structural overrides, and prunes stale output. A vocabulary lint runs as a pre-flight; `npm run skills:guard` re-renders and fails CI on any `git diff skills/` drift.
+- **Skills renderer** (`src/build-skills.ts`) — `npm run build:skills` walks `skills-src/`, substitutes placeholders from `runtimes/<name>.yaml`, copies each skill's `references/` verbatim into every runtime variant, honors `SKILL.<runtime>.md` structural overrides, and prunes stale output. A vocabulary lint runs as a pre-flight; `npm run skills:guard` re-renders and fails CI on any `git diff skills/` or `command-aliases/` drift. For runtimes that declare `capabilities.canonicalCommandAliases` (opencode today), the build also emits canonical-name command aliases (`/ideate`, `/plan`, …) to `command-aliases/<runtime>/` from the `COMMAND_TO_SKILL` source-of-truth in `src/config/canonical-skills.ts`, so workflow names stay consistent across harnesses (INV-4).
 - **MCP server** (`servers/exarchos-mcp/`) — 4 visible composite tools (`exarchos_workflow`, `exarchos_event`, `exarchos_orchestrate`, `exarchos_view`) + 1 hidden sync tool (`exarchos_sync`). Uses `@modelcontextprotocol/sdk` + `zod` over stdio.
 - **Orchestrate handlers** (`servers/exarchos-mcp/src/orchestrate/`) — TypeScript handlers for all workflow actions. Each handler accepts typed args, returns structured `ToolResult`. No bash dependency for workflow operations.
 - **Toolchain resolution** — `src/config/toolchains.ts` is the single source of truth for toolchain *identity* (markers → id + `projectType`); `test-runtime-resolver.ts`, `static-analysis.ts`, and `new-project.ts` are thin consumers (no independent marker lists or command literals). `resolveTestRuntime` is a synchronous, per-field **layered resolver**: override > `.exarchos.yml` direct > user `toolchains:` > task-runner (`task-runners.ts`: Taskfile/just/mise/Makefile) > built-in registry > unresolved. Node PM detection reads a vendored `package-manager-detector` lockfile table (`src/config/vendor/`, regenerate via `npm run vendor:sync:pm-detector`). See [`docs/guides/toolchain-resolution.md`](docs/guides/toolchain-resolution.md). Upholds INV-6/INV-4.
