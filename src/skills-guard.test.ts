@@ -18,6 +18,9 @@
 import { describe, it, expect, afterEach, beforeEach } from 'vitest';
 import { runSkillsGuard } from './skills-guard.js';
 import { buildAllSkills, clearRegistryLookup } from './build-skills.js';
+import { buildCommandAliases } from './build-command-aliases.js';
+import { loadAllRuntimes } from './runtimes/load.js';
+import { COMMAND_TO_SKILL } from './config/canonical-skills.js';
 import {
   mkdtempSync,
   writeFileSync,
@@ -475,5 +478,205 @@ describe('skills-guard — task 011 CALL macro determinism', () => {
     const secondResult = runSkillsGuard({ cwd: root, regenerateAgents: noopRegenerateAgents });
     expect(secondResult.ok).toBe(true);
     expect(secondResult.exitCode).toBe(0);
+  });
+});
+
+/**
+ * T4 (#1472): the same guard that protects `skills/` must also protect
+ * the generated `command-aliases/**` tree emitted by T2's
+ * `buildCommandAliases`. The alias tree is a build artifact like
+ * `skills/`: a contributor who edits a `commands/*.md` description (the
+ * lifted source) or the `COMMAND_TO_SKILL` map without regenerating must
+ * get a red CI signal, exactly as for skills drift.
+ *
+ * Determinism note: `buildAllSkills` (the function the guard already
+ * calls) does NOT emit aliases — alias emission lives in
+ * `buildCommandAliases`, invoked separately by `build:skills`'s `main()`.
+ * So the guard cannot simply widen its diff scope; it must also
+ * regenerate aliases before diffing. These tests lock that in.
+ */
+const ALIASES_OPENCODE_DIR = join('command-aliases', 'opencode');
+
+/**
+ * Write runtime fixtures for the alias path. Identical to
+ * `writeRuntimeFixtures` but flips `capabilities.canonicalCommandAliases`
+ * on for opencode (and off for everyone else) so `buildCommandAliases`
+ * emits exactly one tree — `command-aliases/opencode/` — mirroring the
+ * real repo state after T2.
+ */
+function writeAliasRuntimeFixtures(runtimesDir: string): void {
+  mkdirSync(runtimesDir, { recursive: true });
+  const names = ['generic', 'claude', 'codex', 'opencode', 'copilot', 'cursor'];
+  for (const name of names) {
+    writeFileSync(
+      join(runtimesDir, `${name}.yaml`),
+      [
+        `name: ${name}`,
+        `preferredFacade: mcp`,
+        `capabilities:`,
+        `  hasSubagents: true`,
+        `  hasSlashCommands: true`,
+        `  hasHooks: true`,
+        `  hasSkillChaining: true`,
+        `  mcpPrefix: "mcp__${name}__"`,
+        `  canonicalCommandAliases: ${name === 'opencode' ? 'true' : 'false'}`,
+        `skillsInstallPath: "~/.${name}/skills"`,
+        `detection:`,
+        `  binaries: []`,
+        `  envVars: []`,
+        `placeholders:`,
+        `  AGENT_LABEL: "agent"`,
+        `  MCP_PREFIX: "mcp__${name}__"`,
+        `  COMMAND_PREFIX: "/"`,
+        `  TASK_TOOL: "Task"`,
+        `  CHAIN: "[invoke {{next}} with {{args}}]"`,
+        `  SPAWN_AGENT_CALL: 'Task({ prompt: \"{{prompt}}\" })'`,
+        `  SUBAGENT_COMPLETION_HOOK: "subagent completion signal (poll-based)"`,
+        `  SUBAGENT_RESULT_API: "[poll subagent result]"`,
+        ``,
+      ].join('\n'),
+    );
+  }
+}
+
+/**
+ * Provision a temp project that also has the alias inputs:
+ *   - `commands/<name>.md` (frontmatter `description`) for every
+ *     `COMMAND_TO_SKILL` key — the source `buildCommandAliases` lifts
+ *   - opencode runtime with `canonicalCommandAliases: true`
+ *   - `skills/` + `command-aliases/opencode/` both generated and committed
+ * so `git diff` starts clean across both trees.
+ */
+function provisionProjectWithAliases(): string {
+  const root = makeTempDir();
+
+  mkdirSync(join(root, 'skills-src', 'foo'), { recursive: true });
+  writeFileSync(
+    join(root, 'skills-src', 'foo', 'SKILL.md'),
+    'Hello {{AGENT_LABEL}}\n',
+  );
+  writeAliasRuntimeFixtures(join(root, 'runtimes'));
+
+  // One command file per map entry so `buildCommandAliases` finds its
+  // lifted `description` source for every canonical name.
+  const commandsDir = join(root, 'commands');
+  mkdirSync(commandsDir, { recursive: true });
+  for (const command of Object.keys(COMMAND_TO_SKILL)) {
+    writeFileSync(
+      join(commandsDir, `${command}.md`),
+      [`---`, `description: Run the ${command} workflow.`, `---`, ``, `# /${command}`, ``].join(
+        '\n',
+      ),
+    );
+  }
+
+  buildAllSkills({
+    srcDir: join(root, 'skills-src'),
+    outDir: join(root, 'skills'),
+    runtimesDir: join(root, 'runtimes'),
+  });
+
+  // Seed the alias tree exactly as `build:skills`'s main() does.
+  buildCommandAliases({
+    runtimes: loadAllRuntimes(join(root, 'runtimes')),
+    commandsDir,
+    outDir: join(root, 'command-aliases'),
+  });
+
+  const gitEnv = {
+    ...process.env,
+    GIT_AUTHOR_NAME: 'test',
+    GIT_AUTHOR_EMAIL: 'test@example.com',
+    GIT_COMMITTER_NAME: 'test',
+    GIT_COMMITTER_EMAIL: 'test@example.com',
+  };
+  execSync('git init -q -b main', { cwd: root, env: gitEnv });
+  execSync('git add -A', { cwd: root, env: gitEnv });
+  execSync('git commit -q -m "seed"', { cwd: root, env: gitEnv });
+
+  return root;
+}
+
+describe('skills-guard — T4 command-aliases/ drift (#1472)', () => {
+  it('AliasesGuard_CleanBuild_Passes', () => {
+    const root = provisionProjectWithAliases();
+
+    const result = runSkillsGuard({
+      cwd: root,
+      regenerateAgents: noopRegenerateAgents,
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.exitCode).toBe(0);
+    // Sanity: the alias tree exists and was seeded.
+    const firstCommand = Object.keys(COMMAND_TO_SKILL)[0];
+    expect(
+      existsSync(join(root, ALIASES_OPENCODE_DIR, `${firstCommand}.md`)),
+    ).toBe(true);
+  });
+
+  it('AliasesGuard_StaleCommandDescription_Fails', () => {
+    const root = provisionProjectWithAliases();
+
+    // A contributor edits a command description (the lifted source) but
+    // forgets to regenerate. The committed `command-aliases/` tree is now
+    // stale relative to source. The guard must regenerate + diff and fail.
+    const firstCommand = Object.keys(COMMAND_TO_SKILL)[0];
+    writeFileSync(
+      join(root, 'commands', `${firstCommand}.md`),
+      [
+        `---`,
+        `description: Run the ${firstCommand} workflow — DESCRIPTION CHANGED.`,
+        `---`,
+        ``,
+        `# /${firstCommand}`,
+        ``,
+      ].join('\n'),
+    );
+
+    const result = runSkillsGuard({
+      cwd: root,
+      regenerateAgents: noopRegenerateAgents,
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.exitCode).not.toBe(0);
+    // The drift must be attributed to the alias tree, naming the path so
+    // a developer can see which artifact is stale.
+    expect(result.message).toMatch(/command-aliases/);
+  });
+
+  it('AliasesGuard_DirectAliasEdit_Detected', () => {
+    const root = provisionProjectWithAliases();
+
+    // Simulate a developer hand-editing a generated alias file and
+    // committing it. A fresh regeneration overwrites the hand-edit, so
+    // `git diff command-aliases/` against HEAD is non-empty.
+    const firstCommand = Object.keys(COMMAND_TO_SKILL)[0];
+    const generated = join(root, ALIASES_OPENCODE_DIR, `${firstCommand}.md`);
+    const before = readFileSync(generated, 'utf8');
+    writeFileSync(generated, before + '\n<!-- hand edit -->\n');
+
+    const gitEnv = {
+      ...process.env,
+      GIT_AUTHOR_NAME: 'test',
+      GIT_AUTHOR_EMAIL: 'test@example.com',
+      GIT_COMMITTER_NAME: 'test',
+      GIT_COMMITTER_EMAIL: 'test@example.com',
+    };
+    execSync('git add -A', { cwd: root, env: gitEnv });
+    execSync('git commit -q -m "hand-edit generated alias"', {
+      cwd: root,
+      env: gitEnv,
+    });
+
+    const result = runSkillsGuard({
+      cwd: root,
+      regenerateAgents: noopRegenerateAgents,
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.exitCode).not.toBe(0);
+    expect(result.message).toMatch(/command-aliases\/opencode/);
   });
 });

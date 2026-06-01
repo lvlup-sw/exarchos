@@ -23,6 +23,7 @@
 import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
 import { buildAllSkills } from './build-skills.js';
+import { emitCommandAliases } from './build-command-aliases.js';
 import { resolveMainDeps, type MainDeps } from './cli-helpers.js';
 
 /**
@@ -76,6 +77,17 @@ const REMEDIATION =
  */
 const REMEDIATION_AGENTS =
   "Generated agents are stale. Run 'npm run generate:agents' and commit the result.";
+
+/**
+ * Remediation for the `command-aliases/` drift path (T4, #1472). The
+ * generated alias tree is produced by the same `npm run build:skills`
+ * pass that renders `skills/` (the build entry point calls
+ * `emitCommandAliases` after `buildAllSkills`), so the fix is identical:
+ * rebuild and commit. Kept distinct from `REMEDIATION` only so the
+ * failure header names the alias tree, not skills.
+ */
+const REMEDIATION_ALIASES =
+  "Generated command aliases are stale. Run 'npm run build:skills' and commit the result.";
 
 /**
  * Default production regenerator. Spawns `tsx` against
@@ -174,6 +186,41 @@ export function runSkillsGuard(opts: SkillsGuardOptions): SkillsGuardResult {
     if (skillsDiff !== null) failures.push(skillsDiff);
   }
 
+  // ─── Command-aliases check (T4, #1472) ────────────────────────────
+
+  // The generated `command-aliases/**` tree is a build artifact like
+  // `skills/`, but it is emitted by `emitCommandAliases` — a step the
+  // build entry point runs *after* `buildAllSkills`, NOT by
+  // `buildAllSkills` itself. So the guard must regenerate it here before
+  // diffing; widening the diff scope alone would never catch drift
+  // because the committed tree would always match an un-regenerated copy
+  // of itself. A contributor who edits a `commands/*.md` description or
+  // the `COMMAND_TO_SKILL` map without rebuilding gets a red signal here.
+  let aliasesBuildFailed = false;
+  try {
+    emitCommandAliases({
+      runtimesDir: join(cwd, 'runtimes'),
+      commandsDir: join(cwd, 'commands'),
+      outDir: join(cwd, 'command-aliases'),
+    });
+  } catch (err) {
+    aliasesBuildFailed = true;
+    const detail = err instanceof Error ? err.message : String(err);
+    failures.push(
+      `[skills:guard] command-alias emission failed: ${detail}\n${REMEDIATION_ALIASES}`,
+    );
+  }
+
+  if (!aliasesBuildFailed) {
+    const aliasesDiff = checkGitDiff(
+      cwd,
+      'command-aliases/',
+      REMEDIATION_ALIASES,
+      'command-aliases',
+    );
+    if (aliasesDiff !== null) failures.push(aliasesDiff);
+  }
+
   // ─── Agents check ─────────────────────────────────────────────────
 
   // Step 2a: regenerate `agents/`. Same failure semantics as the
@@ -234,7 +281,8 @@ export function runSkillsGuard(opts: SkillsGuardOptions): SkillsGuardResult {
   return {
     ok: true,
     exitCode: 0,
-    message: '[skills:guard] skills/ and agents/ are in sync with sources',
+    message:
+      '[skills:guard] skills/, command-aliases/ and agents/ are in sync with sources',
   };
 }
 

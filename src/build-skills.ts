@@ -31,7 +31,7 @@ import {
 } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
 import { loadAllRuntimes } from './runtimes/load.js';
-import { buildCommandAliases } from './build-command-aliases.js';
+import { emitCommandAliases } from './build-command-aliases.js';
 import type { RuntimeMap, SupportedCapabilityName } from './runtimes/types.js';
 import { RuntimeTokenKey, SupportedCapabilityKey } from './runtimes/types.js';
 import { resolveMainDeps, type MainDeps } from './cli-helpers.js';
@@ -1764,18 +1764,15 @@ export function main(_argv: string[], deps: MainDeps = {}): void {
     // declaring `capabilities.canonicalCommandAliases` (opencode this
     // cycle). The gate is the declared capability, not a name literal
     // (INV-4). The generated `command-aliases/<runtime>/*.md` tree is a
-    // build artifact like `skills/` — deterministic and drift-guarded.
-    const runtimes = loadAllRuntimes(runtimesDir);
-    const aliasReport = buildCommandAliases({ runtimes, commandsDir, outDir: aliasOutDir });
+    // build artifact like `skills/` — deterministic and drift-guarded
+    // (T4). `emitCommandAliases` performs the emit + per-runtime stale
+    // cleanup as one deterministic pass shared with `skills:guard`.
+    const aliasReport = emitCommandAliases({
+      runtimesDir,
+      commandsDir,
+      outDir: aliasOutDir,
+    });
     aliasFilesWritten = aliasReport.filesWritten;
-    // Stale cleanup: per emitting runtime, drop any pre-existing alias
-    // file this run did not produce so renamed/removed commands don't
-    // linger. Scoped to `<aliasOutDir>/<runtime>/` so unrelated files
-    // are never touched.
-    const aliasKeep = new Set(aliasReport.writtenPaths);
-    for (const rtName of aliasReport.runtimesEmitted) {
-      cleanStaleFiles(join(aliasOutDir, rtName), aliasKeep);
-    }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     errLog(`[build:skills] error: ${msg}`);

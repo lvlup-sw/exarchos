@@ -26,10 +26,19 @@
  * drift-guarded by T4.
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
 import { join, resolve } from 'node:path';
 import type { RuntimeMap } from './runtimes/types.js';
 import { COMMAND_TO_SKILL } from './config/canonical-skills.js';
+import { loadAllRuntimes } from './runtimes/load.js';
 
 /**
  * Summary of an alias-emission pass so callers (the build entry point,
@@ -164,4 +173,94 @@ export function buildCommandAliases(opts: {
     writtenPaths,
     runtimesEmitted,
   };
+}
+
+/**
+ * Recursively remove any file under `root` not present in `keep`, then
+ * prune emptied directories bottom-up. Scoped to a per-runtime subtree
+ * (`command-aliases/<runtime>/`) so unrelated files are never touched.
+ *
+ * Mirrors `cleanStaleFiles` in `build-skills.ts`; kept local so the
+ * alias emitter is self-contained and the drift guard can reuse the same
+ * emit+clean pass without importing build-skills internals.
+ */
+function cleanStaleAliasFiles(root: string, keep: Set<string>): void {
+  if (!existsSync(root)) return;
+
+  const walk = (dir: string): boolean => {
+    let entries: string[];
+    try {
+      entries = readdirSync(dir);
+    } catch {
+      return false;
+    }
+
+    let survivorCount = 0;
+    for (const entry of entries) {
+      const full = join(dir, entry);
+      let st;
+      try {
+        st = statSync(full);
+      } catch {
+        continue;
+      }
+      if (st.isDirectory()) {
+        const hadSurvivors = walk(full);
+        if (hadSurvivors) {
+          survivorCount++;
+        } else {
+          try {
+            rmSync(full, { recursive: true, force: true });
+          } catch {
+            /* best-effort */
+          }
+        }
+      } else if (st.isFile()) {
+        if (keep.has(resolve(full))) {
+          survivorCount++;
+        } else {
+          try {
+            rmSync(full, { force: true });
+          } catch {
+            /* best-effort */
+          }
+        }
+      }
+    }
+    return survivorCount > 0;
+  };
+
+  walk(root);
+}
+
+/**
+ * Full alias-emission pass: load runtimes from `runtimesDir`, emit the
+ * canonical-name alias tree via {@link buildCommandAliases}, then drop any
+ * pre-existing alias file (per emitting runtime) this run did not produce
+ * so renamed/removed commands don't linger.
+ *
+ * This is the single deterministic entry point shared by `build:skills`'s
+ * `main()` and the `skills:guard` drift check, so both regenerate the
+ * `command-aliases/**` tree identically before reporting or diffing.
+ *
+ * @param opts.runtimesDir - Directory of `runtimes/<name>.yaml` maps.
+ * @param opts.commandsDir - Directory of canonical `commands/<name>.md`.
+ * @param opts.outDir - Output root (`command-aliases/`).
+ * @returns The {@link CommandAliasReport} from the emission pass.
+ */
+export function emitCommandAliases(opts: {
+  runtimesDir: string;
+  commandsDir: string;
+  outDir: string;
+}): CommandAliasReport {
+  const { runtimesDir, commandsDir, outDir } = opts;
+  const runtimes = loadAllRuntimes(runtimesDir);
+  const report = buildCommandAliases({ runtimes, commandsDir, outDir });
+
+  const keep = new Set(report.writtenPaths);
+  for (const rtName of report.runtimesEmitted) {
+    cleanStaleAliasFiles(join(outDir, rtName), keep);
+  }
+
+  return report;
 }
