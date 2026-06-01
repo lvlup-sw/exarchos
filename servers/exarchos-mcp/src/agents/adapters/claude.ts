@@ -46,9 +46,10 @@ export function deriveClaudeToolsFromCapabilities(spec: AgentSpec): readonly str
 
 // ─── Trigger-to-Matcher Mapping ─────────────────────────────────────────────
 
+// #1485: `pre-edit` removed — no agent validation rule uses that trigger
+// (verified: only `pre-write` + `post-test` are referenced in definitions.ts).
 const TRIGGER_MAP: Record<string, { hookType: string; matcher: string }> = {
   'pre-write': { hookType: 'PreToolUse', matcher: 'Write|Edit' },
-  'pre-edit': { hookType: 'PreToolUse', matcher: 'Edit' },
   'post-test': { hookType: 'PostToolUse', matcher: 'Bash' },
 };
 

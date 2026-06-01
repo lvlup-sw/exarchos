@@ -13,7 +13,20 @@ import { describe, it, expect, afterEach } from 'vitest';
 import { buildAllHooks } from './build-hooks.js';
 import { mkdtempSync, writeFileSync, mkdirSync, rmSync, readFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
+
+describe('hooks-src/hooks.json source (#1485 T5)', () => {
+  it('HooksSource_ContainsSessionStartAndEnd_NoSubagentStop', () => {
+    const src = JSON.parse(
+      readFileSync(resolve(__dirname, '..', 'hooks-src', 'hooks.json'), 'utf8'),
+    );
+    const events = Object.keys(src.hooks);
+    expect(events).toContain('SessionStart');
+    expect(events).toContain('SessionEnd');
+    expect(events).not.toContain('SubagentStop');
+    expect(src.hooks.SessionStart[0].hooks[0].command).toContain('session-start');
+  });
+});
 
 const tempDirs: string[] = [];
 

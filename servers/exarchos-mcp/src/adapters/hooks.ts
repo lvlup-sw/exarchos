@@ -2,10 +2,11 @@
  * Hook routing adapter — dispatches Claude Code hook CLI commands to their
  * lightweight handlers.
  *
- * #1476: the hook layer is observe-only (see
+ * #1476 + #1485: the hook layer is observe-only (see
  * docs/adrs/2026-05-24-hook-layer-observe-only.md). The former enforcement /
  * control hooks were retired; enforcement lives entirely inside the MCP tools.
- * Only the two lifecycle observers remain: `session-end` and `subagent-stop`.
+ * Only the two lifecycle observers remain: `session-start` (binding) and
+ * `session-end` (provenance). The unused `subagent-stop` observer was removed.
  *
  * Extracted from index.ts to create a clean three-way dispatcher:
  * hooks → CLI → MCP.
@@ -15,10 +16,10 @@
 // These are detected early in main() and routed through a lightweight path
 // that avoids the expensive backend initialization and heavy eval deps.
 //
-// Observe-only set (#1476): both entries are lifecycle observers. They report
-// on harness lifecycle events and never block tool execution.
+// Observe-only set (#1476 + #1485): both entries are lifecycle observers. They
+// report on harness lifecycle events and never block tool execution.
 export const HOOK_COMMANDS = new Set([
-  'session-end', 'subagent-stop',
+  'session-start', 'session-end',
 ]);
 
 /**
@@ -35,7 +36,7 @@ export type HookResult =
 /**
  * Handle a hook command by dispatching to the appropriate cli-commands handler.
  *
- * @param command     - The hook command name (e.g. 'session-end', 'subagent-stop')
+ * @param command     - The hook command name (e.g. 'session-start', 'session-end')
  * @param argv        - Full process.argv array
  * @param readStdin   - Async function that reads raw stdin
  * @param parseStdin  - Function that parses raw stdin string into a JSON object
@@ -55,6 +56,14 @@ export async function handleHookCommand(
     process.env.EXARCHOS_PLUGIN_ROOT = argv[pluginRootIdx + 1];
   }
 
+  // #1485: the SessionStart binding directive is baked into the rendered
+  // per-runtime hook command (prefix already substituted at build time) and
+  // passed as `--directive <text>`. The handler echoes it as additionalContext
+  // for injection-capable hosts.
+  const directiveIdx = argv.indexOf('--directive');
+  const directive =
+    directiveIdx !== -1 && argv[directiveIdx + 1] ? argv[directiveIdx + 1] : undefined;
+
   // Lightweight hook router — avoids importing cli.ts which transitively
   // pulls in promptfoo/playwright via eval handlers.
   const { resolveStateDir } = await import('../workflow/state-store.js');
@@ -72,13 +81,13 @@ export async function handleHookCommand(
   type HandlerResult = { error?: { code: string; message: string }; [key: string]: unknown };
 
   const handlers: Record<string, () => Promise<HandlerResult>> = {
+    'session-start': async () => {
+      const { handleSessionStart } = await import('../cli-commands/session-start.js');
+      return handleSessionStart(stdinData, resolveStateDir(), { directive });
+    },
     'session-end': async () => {
       const { handleSessionEnd } = await import('../cli-commands/session-end.js');
       return handleSessionEnd(stdinData, resolveStateDir());
-    },
-    'subagent-stop': async () => {
-      const { handleSubagentStop } = await import('../cli-commands/subagent-stop.js');
-      return handleSubagentStop(stdinData);
     },
   };
 
