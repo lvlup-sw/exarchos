@@ -1,25 +1,48 @@
 /**
- * Tests for the per-runtime hooks renderer (`buildAllHooks`).
+ * Tests for the per-runtime binding + lifecycle-hook renderer (#1485).
  *
- * #1476 (T8): hooks become a first-class, per-runtime templated artifact —
- * a sibling to `buildAllSkills`. Only `hasHooks` runtimes (per
- * `src/runtimes/types.ts`, `claude` alone today) emit a generated
- * `hooks.json`; non-`hasHooks` runtimes emit nothing executable but a
- * documented manual-steps note. The Claude artifact lands at the
- * well-known `hooks/hooks.json` plugin path so it stays auto-loaded.
+ * The renderer emits (1) a universal AGENTS.md/CLAUDE.md binding block for every
+ * runtime and (2) an active hook artifact dispatched on `capabilities.hooks.profile`
+ * (claude-json → hooks.json; opencode-plugin → TS plugin; cursor/copilot/none →
+ * a HOOKS.md note). Tested against the REAL runtimes/ topology.
  */
 
 import { describe, it, expect, afterEach } from 'vitest';
 import { buildAllHooks } from './build-hooks.js';
-import { mkdtempSync, writeFileSync, mkdirSync, rmSync, readFileSync, existsSync } from 'node:fs';
+import { mkdtempSync, rmSync, readFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
+const REPO_ROOT = resolve(__dirname, '..');
+const HOOKS_SRC = join(REPO_ROOT, 'hooks-src');
+const BINDING_SRC = join(REPO_ROOT, 'binding-src');
+const RUNTIMES = join(REPO_ROOT, 'runtimes');
+
+const tempDirs: string[] = [];
+function freshOut(): { outDir: string; bindingOutDir: string } {
+  const base = mkdtempSync(join(tmpdir(), 'binding-build-'));
+  tempDirs.push(base);
+  return { outDir: join(base, 'hooks'), bindingOutDir: join(base, 'binding') };
+}
+function build() {
+  const { outDir, bindingOutDir } = freshOut();
+  const report = buildAllHooks({
+    srcDir: HOOKS_SRC,
+    bindingSrcDir: BINDING_SRC,
+    outDir,
+    bindingOutDir,
+    runtimesDir: RUNTIMES,
+  });
+  return { outDir, bindingOutDir, report };
+}
+
+afterEach(() => {
+  while (tempDirs.length) rmSync(tempDirs.pop()!, { recursive: true, force: true });
+});
+
 describe('hooks-src/hooks.json source (#1485 T5)', () => {
   it('HooksSource_ContainsSessionStartAndEnd_NoSubagentStop', () => {
-    const src = JSON.parse(
-      readFileSync(resolve(__dirname, '..', 'hooks-src', 'hooks.json'), 'utf8'),
-    );
+    const src = JSON.parse(readFileSync(join(HOOKS_SRC, 'hooks.json'), 'utf8'));
     const events = Object.keys(src.hooks);
     expect(events).toContain('SessionStart');
     expect(events).toContain('SessionEnd');
@@ -28,166 +51,87 @@ describe('hooks-src/hooks.json source (#1485 T5)', () => {
   });
 });
 
-const tempDirs: string[] = [];
+describe('buildAllHooks — binding blocks (#1485 T4)', () => {
+  it('BuildBinding_EveryRuntime_EmitsBindingBlock', () => {
+    const { bindingOutDir, report } = build();
+    expect(report.bindingBlocksWritten).toBe(6);
+    for (const [rt, file] of [
+      ['claude', 'CLAUDE.md'],
+      ['codex', 'AGENTS.md'],
+      ['opencode', 'AGENTS.md'],
+      ['cursor', 'AGENTS.md'],
+      ['copilot', 'AGENTS.md'],
+      ['generic', 'AGENTS.md'],
+    ] as const) {
+      const p = join(bindingOutDir, rt, file);
+      expect(existsSync(p), `${rt} binding block`).toBe(true);
+      const body = readFileSync(p, 'utf8');
+      expect(body).toContain('<!-- exarchos:binding:start -->');
+      expect(body).toContain('<!-- exarchos:binding:end -->');
+      expect(body).toContain('Exarchos');
+    }
+  });
 
-function makeTempDir(): string {
-  const dir = mkdtempSync(join(tmpdir(), 'exarchos-hooks-'));
-  tempDirs.push(dir);
-  return dir;
-}
-
-afterEach(() => {
-  while (tempDirs.length > 0) {
-    const dir = tempDirs.pop();
-    if (dir && existsSync(dir)) rmSync(dir, { recursive: true, force: true });
-  }
+  it('BuildBinding_Block_CarriesRuntimeMcpPrefix', () => {
+    const { bindingOutDir } = build();
+    const claude = readFileSync(join(bindingOutDir, 'claude', 'CLAUDE.md'), 'utf8');
+    const codex = readFileSync(join(bindingOutDir, 'codex', 'AGENTS.md'), 'utf8');
+    expect(claude).toContain('mcp__plugin_exarchos_exarchos__exarchos_');
+    expect(codex).toContain('mcp__exarchos__exarchos_');
+  });
 });
 
-/**
- * Lay down a minimal set of runtime YAMLs. Mirrors the production
- * topology where only `claude` declares `hasHooks: true`.
- */
-function writeRuntimeFixtures(runtimesDir: string): void {
-  mkdirSync(runtimesDir, { recursive: true });
-  const placeholders = [
-    'placeholders:',
-    '  MCP_PREFIX: "mcp__plugin_exarchos_exarchos__"',
-    '  COMMAND_PREFIX: "/"',
-    '  TASK_TOOL: "Task"',
-    '  CHAIN: "[chain]"',
-    '  SPAWN_AGENT_CALL: "spawn"',
-    '  SUBAGENT_COMPLETION_HOOK: "completion"',
-    '  SUBAGENT_RESULT_API: "result"',
-    '',
-  ].join('\n');
-
-  const yaml = (name: string, hasHooks: boolean, mcpPrefix: string): string =>
-    [
-      `name: ${name}`,
-      'preferredFacade: mcp',
-      'capabilities:',
-      '  hasSubagents: true',
-      '  hasSlashCommands: true',
-      `  hasHooks: ${hasHooks}`,
-      '  hasSkillChaining: true',
-      `  mcpPrefix: "${mcpPrefix}"`,
-      `skillsInstallPath: "~/.${name}/skills"`,
-      'detection:',
-      '  binaries:',
-      `    - ${name}`,
-      '  envVars:',
-      `    - ${name.toUpperCase()}_SESSION`,
-      placeholders,
-    ].join('\n');
-
-  writeFileSync(join(runtimesDir, 'claude.yaml'), yaml('claude', true, 'mcp__plugin_exarchos_exarchos__'));
-  writeFileSync(join(runtimesDir, 'codex.yaml'), yaml('codex', false, 'mcp__exarchos__'));
-  writeFileSync(join(runtimesDir, 'opencode.yaml'), yaml('opencode', false, 'mcp__exarchos__'));
-  writeFileSync(join(runtimesDir, 'generic.yaml'), yaml('generic', false, 'mcp__exarchos__'));
-  writeFileSync(join(runtimesDir, 'copilot.yaml'), yaml('copilot', false, 'mcp__exarchos__'));
-  writeFileSync(join(runtimesDir, 'cursor.yaml'), yaml('cursor', false, 'mcp__exarchos__'));
-}
-
-/**
- * Write an observer-only hooks source template carrying `{{MCP_PREFIX}}`.
- */
-function writeHooksSource(srcDir: string): void {
-  mkdirSync(srcDir, { recursive: true });
-  const template = JSON.stringify(
-    {
-      hooks: {
-        SessionEnd: [
-          {
-            matcher: 'auto',
-            hooks: [{ type: 'command', command: 'exarchos session-end', timeout: 30 }],
-          },
-        ],
-        SubagentStop: [
-          {
-            matcher: 'exarchos-implementer|exarchos-fixer',
-            hooks: [{ type: 'command', command: 'exarchos subagent-stop', timeout: 10 }],
-          },
-        ],
-      },
-      // The prefix is templated so the renderer proves it substitutes tokens.
-      _mcpPrefix: '{{MCP_PREFIX}}',
-    },
-    null,
-    2,
-  );
-  writeFileSync(join(srcDir, 'hooks.json'), template + '\n');
-}
-
-describe('buildAllHooks — #1476 T8', () => {
-  it('BuildAllHooks_ClaudeRuntime_LandsAtHooksJson', () => {
-    const root = makeTempDir();
-    const srcDir = join(root, 'hooks-src');
-    const outDir = join(root, 'hooks');
-    const runtimesDir = join(root, 'runtimes');
-    writeRuntimeFixtures(runtimesDir);
-    writeHooksSource(srcDir);
-
-    buildAllHooks({ srcDir, outDir, runtimesDir });
-
-    // Claude output lands at the well-known plugin path: hooks/hooks.json.
-    const claudePath = join(outDir, 'hooks.json');
-    expect(existsSync(claudePath)).toBe(true);
-    const parsed = JSON.parse(readFileSync(claudePath, 'utf8'));
-    expect(parsed.hooks.SessionEnd).toBeDefined();
-    expect(parsed.hooks.SubagentStop).toBeDefined();
+describe('buildAllHooks — claude-json profile (#1485 T6)', () => {
+  it('BuildBinding_Claude_RendersSessionStartAndEnd', () => {
+    const { outDir } = build();
+    const json = JSON.parse(readFileSync(join(outDir, 'hooks.json'), 'utf8'));
+    expect(Object.keys(json.hooks)).toContain('SessionStart');
+    expect(Object.keys(json.hooks)).toContain('SessionEnd');
+    expect(json.hooks.SessionStart[0].hooks[0].command).toContain('--directive');
   });
 
-  it('BuildAllHooks_SubstitutesMcpPrefix', () => {
-    const root = makeTempDir();
-    const srcDir = join(root, 'hooks-src');
-    const outDir = join(root, 'hooks');
-    const runtimesDir = join(root, 'runtimes');
-    writeRuntimeFixtures(runtimesDir);
-    writeHooksSource(srcDir);
-
-    buildAllHooks({ srcDir, outDir, runtimesDir });
-
-    const claudeBody = readFileSync(join(outDir, 'hooks.json'), 'utf8');
-    expect(claudeBody).toContain('mcp__plugin_exarchos_exarchos__');
-    expect(claudeBody).not.toContain('{{MCP_PREFIX}}');
+  it('BuildBinding_Codex_RendersSessionStartOnly', () => {
+    // G1: Codex's end event is `Stop` (deferred) — no SessionEnd block emitted.
+    const { outDir } = build();
+    const json = JSON.parse(readFileSync(join(outDir, 'codex', 'hooks.json'), 'utf8'));
+    expect(Object.keys(json.hooks)).toContain('SessionStart');
+    expect(Object.keys(json.hooks)).not.toContain('SessionEnd');
+    expect(json.hooks.SessionStart[0].hooks[0].command).toContain('--directive');
   });
 
-  it('BuildAllHooks_NonHasHooksRuntimes_EmitNoHooksJson', () => {
-    const root = makeTempDir();
-    const srcDir = join(root, 'hooks-src');
-    const outDir = join(root, 'hooks');
-    const runtimesDir = join(root, 'runtimes');
-    writeRuntimeFixtures(runtimesDir);
-    writeHooksSource(srcDir);
+  it('BuildBinding_DispatchesOnProfileNotRuntimeName', () => {
+    // Codex (not Claude) also emits hooks.json — proves dispatch keys on the
+    // declared profile, not a `name === 'claude'` literal.
+    const { outDir } = build();
+    expect(existsSync(join(outDir, 'codex', 'hooks.json'))).toBe(true);
+  });
+});
 
-    buildAllHooks({ srcDir, outDir, runtimesDir });
+describe('buildAllHooks — opencode-plugin profile (#1485 T7)', () => {
+  it('BuildBinding_OpencodePlugin_EmitsTsPluginNoInjection', () => {
+    const { outDir, report } = build();
+    expect(report.pluginsWritten).toBe(1);
+    const plugin = readFileSync(join(outDir, 'opencode', 'plugin', 'exarchos-lifecycle.ts'), 'utf8');
+    expect(plugin).toContain('session.created');
+    expect(plugin).toContain('exarchos session-start');
+    expect(plugin).not.toContain('additionalContext');
+  });
+});
 
-    // Non-hasHooks runtimes (codex, opencode) must NOT produce an executable
-    // hooks.json — hooks are a Claude-only artifact today.
-    expect(existsSync(join(outDir, 'codex', 'hooks.json'))).toBe(false);
-    expect(existsSync(join(outDir, 'opencode', 'hooks.json'))).toBe(false);
+describe('buildAllHooks — deferred + none notes (#1485 T8)', () => {
+  it('BuildBinding_DeferredProfile_EmitsAccurateNote', () => {
+    const { outDir } = build();
+    for (const rt of ['cursor', 'copilot']) {
+      const note = readFileSync(join(outDir, rt, 'HOOKS.md'), 'utf8');
+      expect(note).toContain('supports lifecycle hooks');
+      expect(note).not.toContain('does not');
+    }
   });
 
-  it('BuildAllHooks_NonHasHooksRuntimes_EmitDocumentedManualNote', () => {
-    const root = makeTempDir();
-    const srcDir = join(root, 'hooks-src');
-    const outDir = join(root, 'hooks');
-    const runtimesDir = join(root, 'runtimes');
-    writeRuntimeFixtures(runtimesDir);
-    writeHooksSource(srcDir);
-
-    const report = buildAllHooks({ srcDir, outDir, runtimesDir });
-
-    // Documented manual note for non-hasHooks runtimes.
-    const codexNote = join(outDir, 'codex', 'HOOKS.md');
-    const opencodeNote = join(outDir, 'opencode', 'HOOKS.md');
-    expect(existsSync(codexNote)).toBe(true);
-    expect(existsSync(opencodeNote)).toBe(true);
-    expect(readFileSync(codexNote, 'utf8')).toMatch(/manual/i);
-
-    // Report reflects exactly one runtime (claude) emitting an executable
-    // artifact; the other five non-hasHooks runtimes emit a manual note.
-    expect(report.hooksWritten).toBe(1);
-    expect(report.manualNotesWritten).toBe(5);
+  it('BuildBinding_NoneProfile_GenericNoteReferencesAgentsMd', () => {
+    const { outDir } = build();
+    const note = readFileSync(join(outDir, 'generic', 'HOOKS.md'), 'utf8');
+    expect(note).toContain('AGENTS.md');
+    expect(note).toContain('no lifecycle-hook system');
   });
 });

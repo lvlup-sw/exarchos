@@ -55,7 +55,9 @@ export function runHooksGuard(opts: HooksGuardOptions): HooksGuardResult {
   try {
     buildAllHooks({
       srcDir: join(cwd, 'hooks-src'),
+      bindingSrcDir: join(cwd, 'binding-src'),
       outDir: join(cwd, 'hooks'),
+      bindingOutDir: join(cwd, 'binding'),
       runtimesDir: join(cwd, 'runtimes'),
     });
   } catch (err) {
@@ -71,8 +73,8 @@ export function runHooksGuard(opts: HooksGuardOptions): HooksGuardResult {
     };
   }
 
-  // Step 2: diff `hooks/` vs HEAD.
-  const diff = checkGitDiff(cwd, 'hooks/');
+  // Step 2: diff the generated `hooks/` + `binding/` trees vs HEAD.
+  const diff = checkGitDiff(cwd, 'hooks/', 'binding/');
   if (diff !== null) {
     return { ok: false, exitCode: 1, message: diff };
   }
@@ -80,7 +82,7 @@ export function runHooksGuard(opts: HooksGuardOptions): HooksGuardResult {
   return {
     ok: true,
     exitCode: 0,
-    message: '[hooks:guard] hooks/ is in sync with hooks-src/',
+    message: '[hooks:guard] hooks/ + binding/ are in sync with sources',
   };
 }
 
@@ -88,9 +90,9 @@ export function runHooksGuard(opts: HooksGuardOptions): HooksGuardResult {
  * Run `git diff --exit-code -- <pathspec>` against `cwd`. Returns `null` when
  * the tree is clean (exit 0); otherwise a formatted failure message.
  */
-function checkGitDiff(cwd: string, pathspec: string): string | null {
+function checkGitDiff(cwd: string, ...pathspecs: string[]): string | null {
   try {
-    execFileSync('git', ['diff', '--exit-code', '--', pathspec], {
+    execFileSync('git', ['diff', '--exit-code', '--', ...pathspecs], {
       cwd,
       stdio: ['ignore', 'pipe', 'pipe'],
     });

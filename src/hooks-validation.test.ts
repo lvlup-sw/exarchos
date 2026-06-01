@@ -43,7 +43,7 @@ function collectCommands(config: HooksConfig): Array<{ hookType: string; command
 // docs/adrs/2026-05-24-hook-layer-observe-only.md.
 const ENFORCEMENT_HOOK_TYPES = ['PreToolUse', 'TaskCompleted', 'TeammateIdle', 'SubagentStart'];
 const ENFORCEMENT_SUBCOMMANDS = ['guard', 'task-gate', 'teammate-gate', 'subagent-context'];
-const OBSERVER_HOOK_TYPES = ['SubagentStop', 'SessionEnd'];
+const OBSERVER_HOOK_TYPES = ['SessionStart', 'SessionEnd'];
 
 describe('hooks/hooks.json — observe-only (#1476)', () => {
   const hooksPath = join(repoRoot, 'hooks', 'hooks.json');
@@ -68,9 +68,9 @@ describe('hooks/hooks.json — observe-only (#1476)', () => {
       expect(hookTypes, `enforcement hook type still present: ${t}`).not.toContain(t);
     }
 
-    // T-40 removals stay removed.
+    // T-40 removal stays removed; #1485 retired the unused SubagentStop observer.
     expect(hookTypes).not.toContain('PreCompact');
-    expect(hookTypes).not.toContain('SessionStart');
+    expect(hookTypes).not.toContain('SubagentStop');
   });
 
   it('HooksJson_NoEnforcementSubcommands', () => {
@@ -90,7 +90,7 @@ describe('hooks/hooks.json — observe-only (#1476)', () => {
     const config: HooksConfig = JSON.parse(readFileSync(hooksPath, 'utf-8'));
     const commands = collectCommands(config);
 
-    // Observer set: SubagentStop + SessionEnd → at least 2 commands.
+    // Observer set: SessionStart + SessionEnd → at least 2 commands.
     expect(commands.length).toBeGreaterThanOrEqual(2);
 
     for (const { hookType, command } of commands) {
@@ -107,7 +107,7 @@ describe('hooks/hooks.json — observe-only (#1476)', () => {
     const config: HooksConfig = JSON.parse(readFileSync(hooksPath, 'utf-8'));
 
     const expectedSubcommand: Record<string, string> = {
-      SubagentStop: 'subagent-stop',
+      SessionStart: 'session-start',
       SessionEnd: 'session-end',
     };
 
@@ -115,7 +115,9 @@ describe('hooks/hooks.json — observe-only (#1476)', () => {
       const entries = config.hooks[hookType];
       expect(entries, `hook type ${hookType} not present`).toBeDefined();
       const firstCommand = entries[0].hooks[0].command;
-      expect(firstCommand, `${hookType} does not invoke subcommand '${subcommand}'`).toBe(
+      // SessionStart carries a trailing `--directive '...'`; use includes, not
+      // exact-match, so the binding directive can ride along.
+      expect(firstCommand, `${hookType} does not invoke subcommand '${subcommand}'`).toContain(
         `exarchos ${subcommand}`,
       );
     }
@@ -124,10 +126,10 @@ describe('hooks/hooks.json — observe-only (#1476)', () => {
   it('HooksJson_PreservesObserverMatcherAndTimeoutMetadata', () => {
     const config: HooksConfig = JSON.parse(readFileSync(hooksPath, 'utf-8'));
 
-    expect(config.hooks.SubagentStop[0].matcher).toBe('exarchos-implementer|exarchos-fixer');
+    expect(config.hooks.SessionStart[0].matcher).toBe('startup|resume');
     expect(config.hooks.SessionEnd[0].matcher).toBe('auto');
 
-    expect(config.hooks.SubagentStop[0].hooks[0].timeout).toBe(10);
+    expect(config.hooks.SessionStart[0].hooks[0].timeout).toBe(10);
     expect(config.hooks.SessionEnd[0].hooks[0].timeout).toBe(30);
   });
 

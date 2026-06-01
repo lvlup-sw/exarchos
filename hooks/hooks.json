@@ -1,20 +1,28 @@
 {
   "hooks": {
-    "SessionStart": [{
-      "matcher": "startup|resume",
-      "hooks": [{
-        "type": "command",
-        "command": "exarchos session-start",
-        "timeout": 10
-      }]
-    }],
-    "SessionEnd": [{
-      "matcher": "auto",
-      "hooks": [{
-        "type": "command",
-        "command": "exarchos session-end",
-        "timeout": 30
-      }]
-    }]
+    "SessionStart": [
+      {
+        "matcher": "startup|resume",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "exarchos session-start --directive 'This project uses **Exarchos** for SDLC / process management. Route workflow operations — ideation, planning, delegation, review, synthesis — through the `mcp__plugin_exarchos_exarchos__exarchos_*` MCP tools, or the `/exarchos:` workflow commands where the harness supports them. The Exarchos event store is the source of truth for workflow state; do not improvise process state via ad-hoc files. Core tools: `exarchos_workflow`, `exarchos_event`, `exarchos_orchestrate`, `exarchos_view`.'",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "matcher": "auto",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "exarchos session-end",
+            "timeout": 30
+          }
+        ]
+      }
+    ]
   }
 }
