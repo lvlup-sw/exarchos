@@ -45,7 +45,11 @@ preferredFacade: cli
 capabilities:
   hasSubagents: true
   hasSlashCommands: true
-  hasHooks: false
+  hooks:
+    profile: copilot-json
+    canInjectContext: false
+    sessionStartEvent: sessionStart
+    sessionEndEvent: sessionEnd
   hasSkillChaining: false
   mcpPrefix: "mcp__exarchos__"
 # supportedCapabilities — mirrors `copilotAdapter.supportLevels` (Task 4f).

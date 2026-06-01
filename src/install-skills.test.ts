@@ -33,7 +33,6 @@ function makeRuntime(overrides: Partial<RuntimeMap> = {}): RuntimeMap {
     capabilities: {
       hasSubagents: true,
       hasSlashCommands: true,
-      hasHooks: true,
       hasSkillChaining: true,
       mcpPrefix: 'mcp__plugin_exarchos_exarchos__',
     },
@@ -551,7 +550,6 @@ describe('installSkills command aliases (T3, #1471/#1472)', () => {
     capabilities: {
       hasSubagents: true,
       hasSlashCommands: true,
-      hasHooks: false,
       hasSkillChaining: false,
       mcpPrefix: 'mcp__exarchos__',
       canonicalCommandAliases: true,

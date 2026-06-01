@@ -9,7 +9,12 @@ const RAW_RUNTIMES = [
     "capabilities": {
       "hasSubagents": false,
       "hasSlashCommands": false,
-      "hasHooks": false,
+      "hooks": {
+        "profile": "none",
+        "canInjectContext": false,
+        "sessionStartEvent": null,
+        "sessionEndEvent": null
+      },
       "hasSkillChaining": false,
       "mcpPrefix": "mcp__exarchos__"
     },
@@ -34,7 +39,12 @@ const RAW_RUNTIMES = [
     "capabilities": {
       "hasSubagents": true,
       "hasSlashCommands": true,
-      "hasHooks": true,
+      "hooks": {
+        "profile": "claude-json",
+        "canInjectContext": true,
+        "sessionStartEvent": "SessionStart",
+        "sessionEndEvent": "SessionEnd"
+      },
       "hasSkillChaining": true,
       "mcpPrefix": "mcp__plugin_exarchos_exarchos__"
     },
@@ -77,7 +87,12 @@ const RAW_RUNTIMES = [
     "capabilities": {
       "hasSubagents": true,
       "hasSlashCommands": true,
-      "hasHooks": false,
+      "hooks": {
+        "profile": "claude-json",
+        "canInjectContext": true,
+        "sessionStartEvent": "SessionStart",
+        "sessionEndEvent": "Stop"
+      },
       "hasSkillChaining": false,
       "mcpPrefix": "mcp__exarchos__"
     },
@@ -114,7 +129,12 @@ const RAW_RUNTIMES = [
     "capabilities": {
       "hasSubagents": true,
       "hasSlashCommands": true,
-      "hasHooks": false,
+      "hooks": {
+        "profile": "opencode-plugin",
+        "canInjectContext": false,
+        "sessionStartEvent": "session.created",
+        "sessionEndEvent": "session.idle"
+      },
       "hasSkillChaining": false,
       "mcpPrefix": "mcp__exarchos__",
       "canonicalCommandAliases": true
@@ -153,7 +173,12 @@ const RAW_RUNTIMES = [
     "capabilities": {
       "hasSubagents": true,
       "hasSlashCommands": true,
-      "hasHooks": false,
+      "hooks": {
+        "profile": "copilot-json",
+        "canInjectContext": false,
+        "sessionStartEvent": "sessionStart",
+        "sessionEndEvent": "sessionEnd"
+      },
       "hasSkillChaining": false,
       "mcpPrefix": "mcp__exarchos__"
     },
@@ -190,7 +215,12 @@ const RAW_RUNTIMES = [
     "capabilities": {
       "hasSubagents": true,
       "hasSlashCommands": false,
-      "hasHooks": false,
+      "hooks": {
+        "profile": "cursor-json",
+        "canInjectContext": true,
+        "sessionStartEvent": "sessionStart",
+        "sessionEndEvent": "sessionEnd"
+      },
       "hasSkillChaining": false,
       "mcpPrefix": "mcp__exarchos__"
     },

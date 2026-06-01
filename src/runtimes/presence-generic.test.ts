@@ -28,9 +28,14 @@ describe('runtimes/generic.yaml presence', () => {
     expect(runtime.name).toBe('generic');
     expect(runtime.capabilities.hasSubagents).toBe(false);
     expect(runtime.capabilities.hasSlashCommands).toBe(false);
-    expect(runtime.capabilities.hasHooks).toBe(false);
     expect(runtime.capabilities.hasSkillChaining).toBe(false);
     expect(runtime.capabilities.mcpPrefix).toBe('mcp__exarchos__');
+
+    // #1485: generic has no hook system — `none` profile, AGENTS.md binding only.
+    expect(runtime.capabilities.hooks?.profile).toBe('none');
+    expect(runtime.capabilities.hooks?.canInjectContext).toBe(false);
+    expect(runtime.capabilities.hooks?.sessionStartEvent).toBeNull();
+    expect(runtime.capabilities.hooks?.sessionEndEvent).toBeNull();
 
     expect(runtime.skillsInstallPath).toBeDefined();
     expect(runtime.skillsInstallPath.length).toBeGreaterThan(0);

@@ -119,6 +119,29 @@ To keep the names stable, Exarchos generates a thin **canonical-name command-ali
 
 On runtimes without the alias layer, note the **chaining caveat**: skill prose that says "invoke the `exarchos:plan` skill" refers to the canonical name; map it to the descriptive skill (`implementation-planning`) until aliases are available for that runtime.
 
+### Harness binding (SessionStart orientation)
+
+Exarchos soft-binds your harness to route SDLC through the `exarchos_*` tools via an
+**observe-only orientation directive** (never enforcement; fail-open). The binding has
+two vehicles — a **universal** always-loaded instructions block (works on every
+harness) and, where the runtime supports context injection, an **active** SessionStart
+hook that reinforces it and emits `session.started` telemetry:
+
+| Runtime | Universal binding surface | Active lifecycle artifact |
+|---|---|---|
+| **Claude Code** | `CLAUDE.md` block | `SessionStart` + `SessionEnd` hooks (`hooks/hooks.json`) |
+| **Codex** | `AGENTS.md` block | `SessionStart` hook (`additionalContext`); session-end deferred (`Stop` ≠ clean end) |
+| **opencode** | `AGENTS.md` block | TS plugin (`session.created` telemetry); plugins cannot inject context, so binding is AGENTS.md-only |
+| **Cursor** | `AGENTS.md` block | active `sessionStart` hook renderer — deferred (modeled) |
+| **Copilot CLI** | `AGENTS.md` block | `sessionStart` cannot inject context — binding is AGENTS.md-only |
+| **generic** | `AGENTS.md` block | none (no hook system) |
+
+The generated blocks live under `binding/<runtime>/` (marker-fenced
+`<!-- exarchos:binding:start/end -->`). **Installing this block into your project's
+`AGENTS.md`/`CLAUDE.md` is wired into the `onboard` verb (v2.10.2)** — until then,
+copy the block from `binding/<runtime>/` manually if you want the orientation directive
+in a non-Claude project.
+
 ### Example: opencode
 
 Register the MCP server in `~/.config/opencode/config.json` (stdio, no port):

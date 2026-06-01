@@ -286,7 +286,7 @@ function hookReadStdin(): Promise<string> {
 
 async function main() {
   // ─── Hook Command Fast Path ────────────────────────────────────────────────
-  // Observer hook commands (session-end, subagent-stop) are invoked as
+  // Observer hook commands (session-start, session-end) are invoked as
   // subprocesses by Claude Code with tight timeouts (10-30s). They only need
   // lightweight state-dir access, not the full SQLite backend or hydration.
   // Intercept them here before the expensive initialization path. #1476: the

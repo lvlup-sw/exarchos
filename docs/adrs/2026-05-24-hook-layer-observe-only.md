@@ -84,6 +84,13 @@ the real enforcement surface.
 
 ### (b) The observer event set
 
+> **Superseded as of #1485 (see the addendum at the end of this ADR).** The
+> *current* observer set is exactly `{SessionStart, SessionEnd}`: `SubagentStop`
+> was retired (live-but-unused), `SessionStart` was re-added observe-only, and the
+> coarse `hasHooks` flag below was replaced by the structured `capabilities.hooks`
+> descriptor. The broader list and `hasHooks` references in this section reflect the
+> original #1476 framing and are no longer current.
+
 The end-state observer set is fire-and-report signals on harness lifecycle events —
 they record provenance/telemetry without blocking:
 
@@ -129,3 +136,27 @@ hooks fragile is exactly what is excluded.
   ship in this change. Lifecycle-observer expansion and any `settings.json` mutation
   remain out of scope (no direct config-file mutation — that is what the plugin format
   exists to avoid).
+
+## Addendum — #1485 (v2.10.1): SessionStart binding + cross-harness parity
+
+This ADR's spine is upheld; #1485 refines the observer set without reintroducing
+enforcement:
+
+- **`SessionStart` re-added as an observe-only binding hook.** It injects an
+  orientation directive (soft-binding the harness to route SDLC through the
+  `exarchos_*` tools) and emits a `session.started` manifest entry. It is **not**
+  the T-40 auto-resume driver — it triggers no transition, resume, or rehydration.
+  Fail-open by construction.
+- **`SubagentStop` retired.** It was a live-but-unused observer (no consumer); the
+  observer set is now exactly `{SessionStart, SessionEnd}`.
+- **`SessionEnd` transcript capture KEPT** (the #1485(b) decision) as the instrument
+  that proves the binding works (`native` vs `mcp_exarchos` tool attribution).
+- **`hasHooks` boolean retired** — superseded by a structured `capabilities.hooks`
+  descriptor (`profile`, `canInjectContext`, `sessionStart/EndEvent`). A single flag
+  could not express the five divergent hook surfaces Tier-1 runtimes now ship.
+- **Cross-harness parity.** The binding is universal via an `AGENTS.md`/`CLAUDE.md`
+  block rendered for every runtime (the only surface that works where hooks cannot
+  inject — Copilot, opencode, generic). Active hooks render now for Claude + Codex
+  (`claude-json`) and opencode (TS plugin); Cursor/Copilot active renderers are
+  modeled-but-deferred. Consumer-project install of the block is owned by the v2.10.2
+  `onboard` verb. Design: `docs/designs/2026-05-31-harness-binding-and-lifecycle-hooks.md`.

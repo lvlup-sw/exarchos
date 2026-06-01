@@ -14,21 +14,26 @@ describe('hooks.json configuration', () => {
     hooksConfig = JSON.parse(content);
   });
 
-  // T-40 (rehydration-machinery-refactor): PreCompact and SessionStart hooks were
-  // removed in favor of user-invoked /checkpoint and /rehydrate commands. The
-  // assertions for those two matchers are intentionally absent.
+  // #1485: SessionStart is re-added as an observe-only binding hook (NOT the
+  // T-40 auto-resume driver — it injects orientation + emits session.started,
+  // never rehydrates). PreCompact stays removed. The unused SubagentStop
+  // observer was retired.
 
-  it('hooksJson_SubagentStop_DefinedForExarchosAgents', () => {
+  it('hooksJson_SessionStart_DefinedAsObserveOnlyBinding', () => {
     const hooks = (hooksConfig as { hooks: Record<string, Array<{ matcher?: string; hooks: Array<{ type: string; command: string }> }>> }).hooks;
-    expect(hooks.SubagentStop).toBeDefined();
-    expect(hooks.SubagentStop).toHaveLength(1);
+    expect(hooks.SessionStart).toBeDefined();
+    expect(hooks.SessionStart).toHaveLength(1);
 
-    const entry = hooks.SubagentStop[0];
-    expect(entry.matcher).toContain('exarchos-implementer');
-    expect(entry.matcher).toContain('exarchos-fixer');
+    const entry = hooks.SessionStart[0];
+    expect(entry.matcher).toBe('startup|resume');
     expect(entry.hooks).toHaveLength(1);
     expect(entry.hooks[0].type).toBe('command');
-    expect(entry.hooks[0].command).toContain('subagent-stop');
+    expect(entry.hooks[0].command).toContain('session-start');
+  });
+
+  it('hooksJson_SubagentStop_Retired', () => {
+    const hooks = (hooksConfig as { hooks: Record<string, unknown> }).hooks;
+    expect(hooks.SubagentStop).toBeUndefined();
   });
 
 });

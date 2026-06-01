@@ -18,7 +18,6 @@ function makeRuntime(overrides: Partial<RuntimeMap> = {}): RuntimeMap {
     capabilities: {
       hasSubagents: true,
       hasSlashCommands: true,
-      hasHooks: true,
       hasSkillChaining: true,
       mcpPrefix: 'mcp__plugin_exarchos_exarchos__',
     },

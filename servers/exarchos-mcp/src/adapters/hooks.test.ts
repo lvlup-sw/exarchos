@@ -1,13 +1,14 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
-// #1476: the hook layer is observe-only. Only the two lifecycle observers
-// (`session-end`, `subagent-stop`) are dispatched; the enforcement/control
-// handlers (guard, task-gate, teammate-gate, subagent-context) were retired.
+// #1476 + #1485: the hook layer is observe-only. Only the two lifecycle
+// observers (`session-start`, `session-end`) are dispatched; the enforcement/
+// control handlers (guard, task-gate, teammate-gate, subagent-context) and the
+// unused `subagent-stop` observer were retired.
 vi.mock('../cli-commands/session-end.js', () => ({
   handleSessionEnd: vi.fn(),
 }));
-vi.mock('../cli-commands/subagent-stop.js', () => ({
-  handleSubagentStop: vi.fn(),
+vi.mock('../cli-commands/session-start.js', () => ({
+  handleSessionStart: vi.fn(),
 }));
 
 // Mock the workflow state-store module (re-exports resolveStateDir)
@@ -22,9 +23,14 @@ describe('isHookCommand', () => {
     expect(isHookCommand('session-end')).toBe(true);
   });
 
-  it('isHookCommand_SubagentStop_ReturnsTrue', () => {
-    // T11: SubagentStop is wired in hooks.json — it must be in the dispatch set.
-    expect(isHookCommand('subagent-stop')).toBe(true);
+  it('isHookCommand_SessionStart_ReturnsTrue', () => {
+    // #1485: SessionStart is the new observe-only binding hook.
+    expect(isHookCommand('session-start')).toBe(true);
+  });
+
+  it('isHookCommand_SubagentStop_ReturnsFalse', () => {
+    // #1485: the unused subagent-stop observer was retired.
+    expect(isHookCommand('subagent-stop')).toBe(false);
   });
 
   it('isHookCommand_RetiredEnforcementHooks_ReturnFalse', () => {
@@ -36,8 +42,9 @@ describe('isHookCommand', () => {
   });
 
   it('isHookCommand_T40RemovedHooks_ReturnFalse', () => {
+    // pre-compact stays retired (auto-resume driver, T-40). session-start is
+    // now re-added as observe-only orientation (#1485) — see above.
     expect(isHookCommand('pre-compact')).toBe(false);
-    expect(isHookCommand('session-start')).toBe(false);
   });
 
   it('isHookCommand_NonHookCommands_ReturnFalse', () => {
@@ -48,7 +55,7 @@ describe('isHookCommand', () => {
   });
 
   it('HOOK_COMMANDS_IsObserverOnlySet', () => {
-    expect([...HOOK_COMMANDS].sort()).toEqual(['session-end', 'subagent-stop']);
+    expect([...HOOK_COMMANDS].sort()).toEqual(['session-end', 'session-start']);
   });
 });
 
@@ -73,8 +80,8 @@ describe('handleHookCommand', () => {
     const sessionEnd = await import('../cli-commands/session-end.js');
     vi.mocked(sessionEnd.handleSessionEnd).mockResolvedValue({ ended: true });
 
-    const subagentStop = await import('../cli-commands/subagent-stop.js');
-    vi.mocked(subagentStop.handleSubagentStop).mockResolvedValue({ observed: true });
+    const sessionStart = await import('../cli-commands/session-start.js');
+    vi.mocked(sessionStart.handleSessionStart).mockResolvedValue({ continue: true });
   });
 
   afterEach(() => {
@@ -132,17 +139,36 @@ describe('handleHookCommand', () => {
     expect(outputJson).toHaveBeenCalledWith({ ended: true });
   });
 
-  it('handleHookCommand_SubagentStop_ReturnsHandledTrue', async () => {
+  it('handleHookCommand_SessionStart_ReturnsHandledTrue', async () => {
     const result = await handleHookCommand(
-      'subagent-stop',
-      ['node', 'exarchos', 'subagent-stop'],
+      'session-start',
+      ['node', 'exarchos', 'session-start'],
       readStdin,
       parseStdin,
       outputJson,
     );
 
     expect(result).toEqual({ handled: true });
-    expect(outputJson).toHaveBeenCalledWith({ observed: true });
+    expect(outputJson).toHaveBeenCalledWith({ continue: true });
+  });
+
+  it('handleHookCommand_SessionStart_ForwardsDirective', async () => {
+    // Exercises the argv `--directive` parse + `{ directive }` passthrough so the
+    // binding-injection contract is locked.
+    const { handleSessionStart } = await import('../cli-commands/session-start.js');
+    await handleHookCommand(
+      'session-start',
+      ['node', 'exarchos', 'session-start', '--directive', 'Route SDLC through exarchos_* tools.'],
+      readStdin,
+      parseStdin,
+      outputJson,
+    );
+
+    expect(handleSessionStart).toHaveBeenCalledWith(
+      expect.anything(),
+      '/mock/state-dir',
+      { directive: 'Route SDLC through exarchos_* tools.' },
+    );
   });
 
   it('handleHookCommand_OperationalError_ReturnsExitCode1', async () => {

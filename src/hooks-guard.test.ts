@@ -48,6 +48,22 @@ function writeRuntimeFixtures(runtimesDir: string): void {
     '  SUBAGENT_RESULT_API: "result"',
     '',
   ].join('\n');
+  const hooksBlock = (hasHooks: boolean): string[] =>
+    hasHooks
+      ? [
+          '  hooks:',
+          '    profile: claude-json',
+          '    canInjectContext: true',
+          '    sessionStartEvent: SessionStart',
+          '    sessionEndEvent: SessionEnd',
+        ]
+      : [
+          '  hooks:',
+          '    profile: none',
+          '    canInjectContext: false',
+          '    sessionStartEvent: null',
+          '    sessionEndEvent: null',
+        ];
   const yaml = (name: string, hasHooks: boolean): string =>
     [
       `name: ${name}`,
@@ -55,7 +71,7 @@ function writeRuntimeFixtures(runtimesDir: string): void {
       'capabilities:',
       '  hasSubagents: true',
       '  hasSlashCommands: true',
-      `  hasHooks: ${hasHooks}`,
+      ...hooksBlock(hasHooks),
       '  hasSkillChaining: true',
       `  mcpPrefix: "mcp__${name}__"`,
       `skillsInstallPath: "~/.${name}/skills"`,
@@ -88,6 +104,14 @@ function writeHooksSource(srcDir: string): void {
   );
 }
 
+function writeBindingSource(srcDir: string): void {
+  mkdirSync(srcDir, { recursive: true });
+  writeFileSync(
+    join(srcDir, 'binding.md'),
+    'This project uses Exarchos. Route via `{{MCP_PREFIX}}exarchos_workflow`.\n',
+  );
+}
+
 const gitEnv = {
   ...process.env,
   GIT_AUTHOR_NAME: 'test',
@@ -103,10 +127,13 @@ const gitEnv = {
 function provisionProject(): string {
   const root = makeTempDir();
   writeHooksSource(join(root, 'hooks-src'));
+  writeBindingSource(join(root, 'binding-src'));
   writeRuntimeFixtures(join(root, 'runtimes'));
   buildAllHooks({
     srcDir: join(root, 'hooks-src'),
+    bindingSrcDir: join(root, 'binding-src'),
     outDir: join(root, 'hooks'),
+    bindingOutDir: join(root, 'binding'),
     runtimesDir: join(root, 'runtimes'),
   });
   execSync('git init -q -b main', { cwd: root, env: gitEnv });

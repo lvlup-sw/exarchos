@@ -1,10 +1,10 @@
 {
   "hooks": {
-    "SubagentStop": [{
-      "matcher": "exarchos-implementer|exarchos-fixer",
+    "SessionStart": [{
+      "matcher": "startup|resume",
       "hooks": [{
         "type": "command",
-        "command": "exarchos subagent-stop",
+        "command": "exarchos session-start",
         "timeout": 10
       }]
     }],

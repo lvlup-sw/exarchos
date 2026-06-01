@@ -11,7 +11,6 @@ const validFixture: RuntimeMap = {
   capabilities: {
     hasSubagents: true,
     hasSlashCommands: true,
-    hasHooks: true,
     hasSkillChaining: true,
     mcpPrefix: 'mcp__plugin_exarchos_exarchos__',
   },
@@ -153,6 +152,86 @@ describe('RuntimeMapSchema', () => {
       expect(enumIssue).toBeDefined();
       expect(String(enumIssue?.code ?? '')).toMatch(/invalid_enum_value|invalid_value/);
     }
+  });
+
+  it('CapabilitiesSchema_AcceptsHooksDescriptor_Parses', () => {
+    const withHooks: RuntimeMap = {
+      ...validFixture,
+      capabilities: {
+        ...validFixture.capabilities,
+        hooks: {
+          profile: 'claude-json',
+          canInjectContext: true,
+          sessionStartEvent: 'SessionStart',
+          sessionEndEvent: 'SessionEnd',
+        },
+      },
+    };
+    const parsed = RuntimeMapSchema.parse(withHooks);
+    expect(parsed.capabilities.hooks?.profile).toBe('claude-json');
+    expect(parsed.capabilities.hooks?.canInjectContext).toBe(true);
+  });
+
+  it('CapabilitiesSchema_HooksProfileNone_AllowsNullEvents', () => {
+    const noneHooks: RuntimeMap = {
+      ...validFixture,
+      capabilities: {
+        ...validFixture.capabilities,
+        hooks: {
+          profile: 'none',
+          canInjectContext: false,
+          sessionStartEvent: null,
+          sessionEndEvent: null,
+        },
+      },
+    };
+    const parsed = RuntimeMapSchema.parse(noneHooks);
+    expect(parsed.capabilities.hooks?.profile).toBe('none');
+    expect(parsed.capabilities.hooks?.sessionStartEvent).toBeNull();
+  });
+
+  it('CapabilitiesSchema_RejectsBareHasHooks_Throws', () => {
+    // #1485: the legacy `hasHooks` boolean was removed; `.strict()` must reject it.
+    const legacy = {
+      ...validFixture,
+      capabilities: { ...validFixture.capabilities, hasHooks: true },
+    };
+    const result = RuntimeMapSchema.safeParse(legacy);
+    expect(result.success).toBe(false);
+  });
+
+  it('CapabilitiesSchema_InvalidHooksProfile_Throws', () => {
+    const badProfile = {
+      ...validFixture,
+      capabilities: {
+        ...validFixture.capabilities,
+        hooks: {
+          profile: 'not-a-real-profile',
+          canInjectContext: false,
+          sessionStartEvent: null,
+          sessionEndEvent: null,
+        },
+      },
+    };
+    expect(() => RuntimeMapSchema.parse(badProfile)).toThrow();
+  });
+
+  it('CapabilitiesSchema_NoneProfileWithInjection_Throws', () => {
+    // The .refine cross-field guard: profile `none` must not claim injection or
+    // carry event names.
+    const inconsistent = {
+      ...validFixture,
+      capabilities: {
+        ...validFixture.capabilities,
+        hooks: {
+          profile: 'none',
+          canInjectContext: true,
+          sessionStartEvent: 'SessionStart',
+          sessionEndEvent: null,
+        },
+      },
+    };
+    expect(RuntimeMapSchema.safeParse(inconsistent).success).toBe(false);
   });
 
   it('RuntimeMapSchema_ValidPreferredFacade_ParsesSuccessfully', () => {

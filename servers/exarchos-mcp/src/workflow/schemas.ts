@@ -201,7 +201,7 @@ export const TaskSchema = z.object({
   agentId: z.string().optional(),
   /** Whether the fixer used resume vs fresh dispatch */
   agentResumed: z.boolean().optional(),
-  /** Completion status from SubagentStop hook */
+  /** Last exit reason recorded for the agent (resume bookkeeping) */
   lastExitReason: z.string().optional(),
 });
 

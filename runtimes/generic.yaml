@@ -11,8 +11,8 @@
 #     call, because we cannot assume any spawn primitive exists.
 #   - `hasSlashCommands: false` → commands are referenced by name only,
 #     without a `/prefix:` sigil.
-#   - `hasHooks: false` → any hook-driven flows must be degraded to inline
-#     checks or documented as manual steps.
+#   - `hooks.profile: none` → no lifecycle-hook system; the Exarchos binding is
+#     carried by the AGENTS.md orientation block only (no executable hook).
 #   - `hasSkillChaining: false` → chain tokens are replaced with a plain
 #     "invoke the next skill" directive.
 #   - `mcpPrefix: "mcp__exarchos__"` → canonical stdio-MCP tool prefix used
@@ -27,7 +27,11 @@ preferredFacade: cli
 capabilities:
   hasSubagents: false
   hasSlashCommands: false
-  hasHooks: false
+  hooks:
+    profile: none
+    canInjectContext: false
+    sessionStartEvent: null
+    sessionEndEvent: null
   hasSkillChaining: false
   mcpPrefix: "mcp__exarchos__"
 skillsInstallPath: "~/.agents/skills"

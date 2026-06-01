@@ -140,7 +140,6 @@ describe('emitCommandAliases — stale cleanup across all runtimes', () => {
           'capabilities:',
           '  hasSubagents: true',
           '  hasSlashCommands: true',
-          '  hasHooks: false',
           '  hasSkillChaining: false',
           `  mcpPrefix: "mcp__${name}__"`,
           `  canonicalCommandAliases: ${enabled}`,

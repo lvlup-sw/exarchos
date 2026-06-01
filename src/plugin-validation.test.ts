@@ -108,8 +108,8 @@ describe('Core Plugin Structure', () => {
       // Exactly the two observer hooks remain.
       expect(hookTypes).toHaveLength(2);
 
-      // Observer hooks.
-      expect(hookTypes).toContain('SubagentStop');
+      // Observer hooks (#1485: SessionStart binding + SessionEnd provenance).
+      expect(hookTypes).toContain('SessionStart');
       expect(hookTypes).toContain('SessionEnd');
 
       // Retired enforcement/control hooks must not be present.
@@ -118,9 +118,9 @@ describe('Core Plugin Structure', () => {
       expect(hookTypes).not.toContain('TeammateIdle');
       expect(hookTypes).not.toContain('SubagentStart');
 
-      // T-40 removals stay removed.
+      // T-40 removal + the retired unused SubagentStop observer stay gone.
       expect(hookTypes).not.toContain('PreCompact');
-      expect(hookTypes).not.toContain('SessionStart');
+      expect(hookTypes).not.toContain('SubagentStop');
 
       // Sanity: no orphaned ${CLAUDE_PLUGIN_ROOT} placeholder breakage.
       expect(raw).not.toContain('{{CLI_PATH}}');
@@ -130,7 +130,7 @@ describe('Core Plugin Structure', () => {
       const hooksPath = join(repoRoot, 'hooks', 'hooks.json');
       const hooks = JSON.parse(readFileSync(hooksPath, 'utf-8'));
 
-      expect(hooks.hooks.SubagentStop[0].matcher).toBe('exarchos-implementer|exarchos-fixer');
+      expect(hooks.hooks.SessionStart[0].matcher).toBe('startup|resume');
       expect(hooks.hooks.SessionEnd[0].matcher).toBe('auto');
     });
   });
