@@ -20,11 +20,51 @@ import { z } from 'zod';
  * nested object is also strict so that typos like `hasSubAgents` are caught
  * at load time rather than silently ignored.
  */
+/**
+ * Hook-capability profile (#1485). A coarse `hasHooks: boolean` cannot express
+ * the five divergent lifecycle-hook surfaces Tier-1 runtimes ship today, nor
+ * whether a runtime's session-start hook can inject orientation context. The
+ * descriptor names:
+ *   - `profile` — which renderer emits the active artifact:
+ *       `claude-json`     Claude-schema `hooks.json` (Claude + Codex)
+ *       `cursor-json`     Cursor's flat `.cursor/hooks.json` (renderer deferred)
+ *       `copilot-json`    Copilot's `.github/hooks/` config (renderer deferred)
+ *       `opencode-plugin` opencode TS plugin (`session.created`/`session.idle`)
+ *       `none`            no hook system (generic) — AGENTS.md binding only
+ *   - `canInjectContext` — can the SessionStart-class hook return
+ *     orientation context (Claude/Codex/Cursor yes; Copilot/opencode no)?
+ *   - `sessionStartEvent` / `sessionEndEvent` — the runtime's native event
+ *     names (e.g. Codex's end is `Stop`, not `SessionEnd`); `null` when absent.
+ *
+ * The renderer branches on `profile`, never on a runtime-name literal (INV-4).
+ */
+const HooksDescriptorSchema = z
+  .object({
+    profile: z.enum([
+      'claude-json',
+      'cursor-json',
+      'copilot-json',
+      'opencode-plugin',
+      'none',
+    ]),
+    canInjectContext: z.boolean(),
+    sessionStartEvent: z.string().nullable(),
+    sessionEndEvent: z.string().nullable(),
+  })
+  .strict();
+
 const CapabilitiesSchema = z
   .object({
     hasSubagents: z.boolean(),
     hasSlashCommands: z.boolean(),
     hasHooks: z.boolean(),
+    /**
+     * Structured lifecycle-hook capability (#1485). Optional during the
+     * expand→contract migration off the coarse `hasHooks` boolean; once every
+     * YAML + fixture declares it, `hasHooks` is removed and this becomes
+     * required.
+     */
+    hooks: HooksDescriptorSchema.optional(),
     hasSkillChaining: z.boolean(),
     mcpPrefix: z.string(),
     /**
@@ -181,6 +221,12 @@ export const RuntimeMapSchema = z
  * schema when consuming already-parsed data.
  */
 export type RuntimeMap = z.infer<typeof RuntimeMapSchema>;
+
+/** Validated hook-capability descriptor (#1485). */
+export type HooksDescriptor = z.infer<typeof HooksDescriptorSchema>;
+
+/** The renderer-dispatch key for a runtime's active hook artifact (#1485). */
+export type HooksProfile = HooksDescriptor['profile'];
 
 /**
  * Preferred skill-authoring facade for a given runtime (DR-1).

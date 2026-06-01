@@ -155,6 +155,58 @@ describe('RuntimeMapSchema', () => {
     }
   });
 
+  it('CapabilitiesSchema_AcceptsHooksDescriptor_Parses', () => {
+    const withHooks: RuntimeMap = {
+      ...validFixture,
+      capabilities: {
+        ...validFixture.capabilities,
+        hooks: {
+          profile: 'claude-json',
+          canInjectContext: true,
+          sessionStartEvent: 'SessionStart',
+          sessionEndEvent: 'SessionEnd',
+        },
+      },
+    };
+    const parsed = RuntimeMapSchema.parse(withHooks);
+    expect(parsed.capabilities.hooks?.profile).toBe('claude-json');
+    expect(parsed.capabilities.hooks?.canInjectContext).toBe(true);
+  });
+
+  it('CapabilitiesSchema_HooksProfileNone_AllowsNullEvents', () => {
+    const noneHooks: RuntimeMap = {
+      ...validFixture,
+      capabilities: {
+        ...validFixture.capabilities,
+        hooks: {
+          profile: 'none',
+          canInjectContext: false,
+          sessionStartEvent: null,
+          sessionEndEvent: null,
+        },
+      },
+    };
+    const parsed = RuntimeMapSchema.parse(noneHooks);
+    expect(parsed.capabilities.hooks?.profile).toBe('none');
+    expect(parsed.capabilities.hooks?.sessionStartEvent).toBeNull();
+  });
+
+  it('CapabilitiesSchema_InvalidHooksProfile_Throws', () => {
+    const badProfile = {
+      ...validFixture,
+      capabilities: {
+        ...validFixture.capabilities,
+        hooks: {
+          profile: 'not-a-real-profile',
+          canInjectContext: false,
+          sessionStartEvent: null,
+          sessionEndEvent: null,
+        },
+      },
+    };
+    expect(() => RuntimeMapSchema.parse(badProfile)).toThrow();
+  });
+
   it('RuntimeMapSchema_ValidPreferredFacade_ParsesSuccessfully', () => {
     const mcpFixture = { ...validFixture, preferredFacade: 'mcp' as const };
     const cliFixture = { ...validFixture, preferredFacade: 'cli' as const };

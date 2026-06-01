@@ -28,6 +28,11 @@ capabilities:
   hasSubagents: false
   hasSlashCommands: false
   hasHooks: false
+  hooks:
+    profile: none
+    canInjectContext: false
+    sessionStartEvent: null
+    sessionEndEvent: null
   hasSkillChaining: false
   mcpPrefix: "mcp__exarchos__"
 skillsInstallPath: "~/.agents/skills"

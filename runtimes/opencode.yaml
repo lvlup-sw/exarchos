@@ -23,6 +23,11 @@ capabilities:
   hasSubagents: true
   hasSlashCommands: true
   hasHooks: false
+  hooks:
+    profile: opencode-plugin
+    canInjectContext: false
+    sessionStartEvent: session.created
+    sessionEndEvent: session.idle
   hasSkillChaining: false
   mcpPrefix: "mcp__exarchos__"
   # OpenCode autoloads bare canonical-name slash commands from

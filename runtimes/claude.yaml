@@ -30,6 +30,11 @@ capabilities:
   hasSubagents: true
   hasSlashCommands: true
   hasHooks: true
+  hooks:
+    profile: claude-json
+    canInjectContext: true
+    sessionStartEvent: SessionStart
+    sessionEndEvent: SessionEnd
   hasSkillChaining: true
   mcpPrefix: "mcp__plugin_exarchos_exarchos__"
 # Fine-grained support matrix consumed by the prose renderer (Tasks 8/9)

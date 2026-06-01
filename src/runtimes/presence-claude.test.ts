@@ -31,6 +31,14 @@ describe('runtimes/claude.yaml presence', () => {
     expect(runtime.capabilities.hasSkillChaining).toBe(true);
   });
 
+  it('ClaudeYaml_HooksDescriptor_IsClaudeJsonInjecting', () => {
+    const runtime = loadRuntime(CLAUDE_YAML);
+    expect(runtime.capabilities.hooks?.profile).toBe('claude-json');
+    expect(runtime.capabilities.hooks?.canInjectContext).toBe(true);
+    expect(runtime.capabilities.hooks?.sessionStartEvent).toBe('SessionStart');
+    expect(runtime.capabilities.hooks?.sessionEndEvent).toBe('SessionEnd');
+  });
+
   it('ClaudeYaml_McpPrefix_MatchesPluginNaming', () => {
     const runtime = loadRuntime(CLAUDE_YAML);
     expect(runtime.capabilities.mcpPrefix).toBe('mcp__plugin_exarchos_exarchos__');

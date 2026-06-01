@@ -55,6 +55,11 @@ capabilities:
   hasSubagents: true
   hasSlashCommands: true
   hasHooks: false
+  hooks:
+    profile: claude-json
+    canInjectContext: true
+    sessionStartEvent: SessionStart
+    sessionEndEvent: Stop
   hasSkillChaining: false
   mcpPrefix: "mcp__exarchos__"
 skillsInstallPath: "$HOME/.agents/skills"
