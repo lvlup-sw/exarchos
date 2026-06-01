@@ -27,6 +27,16 @@ const CapabilitiesSchema = z
     hasHooks: z.boolean(),
     hasSkillChaining: z.boolean(),
     mcpPrefix: z.string(),
+    /**
+     * Whether this runtime can autoload **bare canonical-name** command
+     * aliases (e.g. `/ideate`, `/plan`) from a commands directory, so the
+     * skills build should emit thin alias command files for it (T2,
+     * #1472). Optional + defaults to absent/false: only opencode declares
+     * `true` this cycle. The build gate keys off this declared capability,
+     * never a hardcoded runtime-name literal, so adding a future runtime
+     * is a pure data change (INV-4: no harness coupling in logic).
+     */
+    canonicalCommandAliases: z.boolean().optional(),
   })
   .strict();
 
