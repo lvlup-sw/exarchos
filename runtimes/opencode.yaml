@@ -54,6 +54,13 @@ supportedCapabilities:
   isolation:worktree: advisory
   session:resume: advisory
 skillsInstallPath: "~/.config/opencode/skills"
+# Directory OpenCode autoloads bare canonical-name slash-command aliases from
+# (global config dir). install-skills copies the generated
+# `command-aliases/opencode/*.md` tree here after installing skills
+# (T3, #1471/#1472). Only set on runtimes that declare
+# `capabilities.canonicalCommandAliases` — the install gate keys off this
+# field + the source tree, never an "opencode" literal (INV-4).
+commandsInstallPath: "~/.config/opencode/commands"
 detection:
   binaries:
     - opencode

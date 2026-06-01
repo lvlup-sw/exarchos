@@ -152,6 +152,17 @@ export const RuntimeMapSchema = z
     // DR-1: preferred skill-authoring facade for this runtime.
     preferredFacade: z.enum(['mcp', 'cli']),
     skillsInstallPath: z.string(),
+    /**
+     * Directory the runtime autoloads bare canonical-name slash-command
+     * aliases from (e.g. opencode's `~/.config/opencode/commands`). Optional:
+     * only runtimes that declare `capabilities.canonicalCommandAliases` and
+     * therefore receive a generated `command-aliases/<runtime>/` tree set this.
+     * When present, `installSkills()` copies the alias `*.md` files here after
+     * installing skills (T3, #1471/#1472). The install gate keys off the
+     * presence of this field + the source tree, never a runtime-name literal
+     * (INV-4: no harness coupling in logic).
+     */
+    commandsInstallPath: z.string().optional(),
     detection: DetectionSchema,
     placeholders: z.record(z.string(), z.string()),
     // Zod v4's `z.record(enum, value)` enforces exhaustive coverage of
