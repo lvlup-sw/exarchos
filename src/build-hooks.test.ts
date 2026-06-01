@@ -8,7 +8,7 @@
  */
 
 import { describe, it, expect, afterEach } from 'vitest';
-import { buildAllHooks } from './build-hooks.js';
+import { buildAllHooks, oneLineDirective } from './build-hooks.js';
 import { mkdtempSync, rmSync, readFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -48,6 +48,18 @@ describe('hooks-src/hooks.json source (#1485 T5)', () => {
     expect(events).toContain('SessionEnd');
     expect(events).not.toContain('SubagentStop');
     expect(src.hooks.SessionStart[0].hooks[0].command).toContain('session-start');
+  });
+});
+
+describe('oneLineDirective — shell-escape (#1485)', () => {
+  it('OneLineDirective_CollapsesWhitespace_SingleLine', () => {
+    expect(oneLineDirective('a\n  b\t c')).toBe('a b c');
+  });
+
+  it('OneLineDirective_EscapesSingleQuotes_PosixSafe', () => {
+    // A directive containing ' must become the '\'' idiom so the caller can wrap
+    // the whole value in single quotes without breaking out of the arg.
+    expect(oneLineDirective("don't improvise")).toBe("don'\\''t improvise");
   });
 });
 

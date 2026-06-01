@@ -171,8 +171,13 @@ function hooksJsonPathFor(outDir: string, runtimeName: string): string {
     : join(outDir, runtimeName, 'hooks.json');
 }
 
-/** Collapse the multi-line directive to a single shell-safe `--directive` arg. */
-function oneLineDirective(rendered: string): string {
+/**
+ * Collapse the multi-line directive to a single shell-safe `--directive` arg.
+ * Applies the canonical POSIX single-quote escape (`'` → `'\''`) so the caller
+ * can wrap the whole value in single quotes without injection. Exported for the
+ * escape regression test.
+ */
+export function oneLineDirective(rendered: string): string {
   return rendered.replace(/\s+/g, ' ').trim().replace(/'/g, "'\\''");
 }
 

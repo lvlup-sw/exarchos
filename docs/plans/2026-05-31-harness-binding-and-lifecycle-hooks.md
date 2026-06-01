@@ -120,7 +120,7 @@ T12 (verify+prune agent PreToolUse)  · T14 (provenance duration)  · T15 (docs/
 **Phase:** RED → GREEN → REFACTOR
 
 1. [RED] `src/build-hooks.test.ts`:
-   - `BuildBinding_OpencodePluginProfile_EmitsTsPlugin` — opencode → `hooks/opencode/plugin/exarchos-lifecycle.ts` exporting an async plugin with an `event` handler branching on `session.created` (→ `exarchos session-start`) and `session.idle` (→ `exarchos session-end`).
+   - `BuildBinding_OpencodePluginProfile_EmitsTsPlugin` — opencode → `hooks/opencode/plugin/exarchos-lifecycle.ts` exporting an async plugin with an `event` handler branching on `session.created` (→ `exarchos session-start`). The `session.idle` (→ `exarchos session-end`) branch is **deferred** (idle ≠ clean end; transcript parser is Claude-specific) — the plugin carries a comment documenting the deferral.
    - `BuildBinding_OpencodePlugin_DoesNotInjectContext` — plugin contains no additionalContext (binding via AGENTS.md only).
    - Expected failure: no plugin template.
 2. [GREEN] Add `hooks-src/opencode-plugin.ts.tmpl`; renderer writes it for `opencode-plugin` profile, substituting `{{MCP_PREFIX}}`.

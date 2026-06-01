@@ -69,7 +69,7 @@ Two orthogonal capabilities: **binding** (can we inject orientation?) and **tele
 |---|---|---|---|
 | **Claude** | `SessionStart` hook `additionalContext` + `CLAUDE.md` block | `SessionStart` + `SessionEnd` hooks | ✅ |
 | **Codex** | `SessionStart` hook `additionalContext` + `AGENTS.md` block | `SessionStart` hook (+ `Stop`, best-effort) | ✅ |
-| **opencode** | `AGENTS.md` block *(plugin cannot inject)* | TS plugin: `session.created` + `session.idle` | ✅ |
+| **opencode** | `AGENTS.md` block *(plugin cannot inject)* | TS plugin: `session.created` start telemetry (`session.idle`/end deferred — §8) | ✅ |
 | **Cursor** | `AGENTS.md` block *(hook injection deferred)* | `sessionStart`/`sessionEnd` — **modeled, deferred** | ⏸ data only |
 | **Copilot** | `AGENTS.md` block *(hook cannot inject)* | `sessionStart`/`sessionEnd` telemetry — **deferred** | ⏸ data only |
 | **generic** | `AGENTS.md` block | — (no hook system) | ✅ (AGENTS.md) |
@@ -178,7 +178,7 @@ Sources: [Codex hooks](https://developers.openai.com/codex/hooks), [Codex AGENTS
 - [ ] **(b) decision recorded:** keep `SessionEnd` transcript capture as provenance telemetry (this doc, §6).
 - [ ] Binding-directive SoT (`binding-src/binding.md`) + renderer + `binding:guard` CI check.
 - [ ] `SessionStart` observe-only hook for **Claude + Codex** (inject directive + emit `session.started`); fail-open; no enforcement; no auto-rehydration.
-- [ ] **opencode** TS lifecycle plugin (`session.created`/`session.idle`) emitting start/end telemetry.
+- [ ] **opencode** TS lifecycle plugin emitting `session.created` **start** telemetry. The `session.idle`→session-end branch is **deferred** (idle ≠ a clean end; may fire repeatedly; session-end's transcript parser is Claude-specific — see §8). The descriptor records `session.idle` as opencode's true end-event capability for when the cross-runtime provenance follow-up lands.
 - [ ] Universal `AGENTS.md`/`CLAUDE.md` binding block rendered for all 6 runtimes (artifact only; consumer-install deferred).
 - [ ] `SubagentStop` + dead hook code removed; stale `hasHooks` model replaced with the `hooks` descriptor; `HOOKS.md` stubs corrected.
 - [ ] New `exarchos session-start` verb with registered `outputSchema`; CLI/MCP parity.

@@ -190,6 +190,16 @@ describe('RuntimeMapSchema', () => {
     expect(parsed.capabilities.hooks?.sessionStartEvent).toBeNull();
   });
 
+  it('CapabilitiesSchema_RejectsBareHasHooks_Throws', () => {
+    // #1485: the legacy `hasHooks` boolean was removed; `.strict()` must reject it.
+    const legacy = {
+      ...validFixture,
+      capabilities: { ...validFixture.capabilities, hasHooks: true },
+    };
+    const result = RuntimeMapSchema.safeParse(legacy);
+    expect(result.success).toBe(false);
+  });
+
   it('CapabilitiesSchema_InvalidHooksProfile_Throws', () => {
     const badProfile = {
       ...validFixture,
