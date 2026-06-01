@@ -27,7 +27,6 @@ preferredFacade: cli
 capabilities:
   hasSubagents: false
   hasSlashCommands: false
-  hasHooks: false
   hooks:
     profile: none
     canInjectContext: false

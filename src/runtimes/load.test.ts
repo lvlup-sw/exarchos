@@ -51,7 +51,6 @@ describe('loadRuntime', () => {
     expect(result.name).toBe('claude');
     expect(result.capabilities.hasSubagents).toBe(true);
     expect(result.capabilities.hasSlashCommands).toBe(true);
-    expect(result.capabilities.hasHooks).toBe(true);
     expect(result.capabilities.hasSkillChaining).toBe(true);
     expect(result.capabilities.mcpPrefix).toBe('mcp__plugin_exarchos_exarchos__');
     expect(result.skillsInstallPath).toBe('~/.claude/skills');

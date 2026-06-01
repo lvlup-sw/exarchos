@@ -34,7 +34,6 @@ preferredFacade: mcp
 capabilities:
   hasSubagents: true
   hasSlashCommands: false
-  hasHooks: false
   hooks:
     profile: cursor-json
     canInjectContext: true

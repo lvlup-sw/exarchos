@@ -45,7 +45,6 @@ preferredFacade: cli
 capabilities:
   hasSubagents: true
   hasSlashCommands: true
-  hasHooks: false
   hooks:
     profile: copilot-json
     canInjectContext: false

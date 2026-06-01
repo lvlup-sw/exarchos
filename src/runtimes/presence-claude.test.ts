@@ -27,7 +27,6 @@ describe('runtimes/claude.yaml presence', () => {
     expect(runtime.name).toBe('claude');
     expect(runtime.capabilities.hasSubagents).toBe(true);
     expect(runtime.capabilities.hasSlashCommands).toBe(true);
-    expect(runtime.capabilities.hasHooks).toBe(true);
     expect(runtime.capabilities.hasSkillChaining).toBe(true);
   });
 

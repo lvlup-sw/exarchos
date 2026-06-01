@@ -71,7 +71,6 @@ function writeRuntimeFixtures(runtimesDir: string): void {
       'capabilities:',
       '  hasSubagents: true',
       '  hasSlashCommands: true',
-      `  hasHooks: ${hasHooks}`,
       ...hooksBlock(hasHooks),
       '  hasSkillChaining: true',
       `  mcpPrefix: "mcp__${name}__"`,

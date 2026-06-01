@@ -28,7 +28,6 @@ describe('runtimes/generic.yaml presence', () => {
     expect(runtime.name).toBe('generic');
     expect(runtime.capabilities.hasSubagents).toBe(false);
     expect(runtime.capabilities.hasSlashCommands).toBe(false);
-    expect(runtime.capabilities.hasHooks).toBe(false);
     expect(runtime.capabilities.hasSkillChaining).toBe(false);
     expect(runtime.capabilities.mcpPrefix).toBe('mcp__exarchos__');
 

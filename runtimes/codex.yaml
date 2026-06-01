@@ -54,7 +54,6 @@ preferredFacade: mcp
 capabilities:
   hasSubagents: true
   hasSlashCommands: true
-  hasHooks: false
   hooks:
     profile: claude-json
     canInjectContext: true

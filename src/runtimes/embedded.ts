@@ -9,7 +9,6 @@ const RAW_RUNTIMES = [
     "capabilities": {
       "hasSubagents": false,
       "hasSlashCommands": false,
-      "hasHooks": false,
       "hooks": {
         "profile": "none",
         "canInjectContext": false,
@@ -40,7 +39,6 @@ const RAW_RUNTIMES = [
     "capabilities": {
       "hasSubagents": true,
       "hasSlashCommands": true,
-      "hasHooks": true,
       "hooks": {
         "profile": "claude-json",
         "canInjectContext": true,
@@ -89,7 +87,6 @@ const RAW_RUNTIMES = [
     "capabilities": {
       "hasSubagents": true,
       "hasSlashCommands": true,
-      "hasHooks": false,
       "hooks": {
         "profile": "claude-json",
         "canInjectContext": true,
@@ -132,7 +129,6 @@ const RAW_RUNTIMES = [
     "capabilities": {
       "hasSubagents": true,
       "hasSlashCommands": true,
-      "hasHooks": false,
       "hooks": {
         "profile": "opencode-plugin",
         "canInjectContext": false,
@@ -177,7 +173,6 @@ const RAW_RUNTIMES = [
     "capabilities": {
       "hasSubagents": true,
       "hasSlashCommands": true,
-      "hasHooks": false,
       "hooks": {
         "profile": "copilot-json",
         "canInjectContext": false,
@@ -220,7 +215,6 @@ const RAW_RUNTIMES = [
     "capabilities": {
       "hasSubagents": true,
       "hasSlashCommands": false,
-      "hasHooks": false,
       "hooks": {
         "profile": "cursor-json",
         "canInjectContext": true,

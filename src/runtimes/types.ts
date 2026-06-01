@@ -57,12 +57,11 @@ const CapabilitiesSchema = z
   .object({
     hasSubagents: z.boolean(),
     hasSlashCommands: z.boolean(),
-    hasHooks: z.boolean(),
     /**
-     * Structured lifecycle-hook capability (#1485). Optional during the
-     * expand→contract migration off the coarse `hasHooks` boolean; once every
-     * YAML + fixture declares it, `hasHooks` is removed and this becomes
-     * required.
+     * Structured lifecycle-hook capability (#1485). Replaces the retired coarse
+     * `hasHooks` boolean — a single flag could not express the five divergent
+     * hook surfaces Tier-1 runtimes ship, nor context-injection capability.
+     * Optional so older fixtures without it default to the `none` profile.
      */
     hooks: HooksDescriptorSchema.optional(),
     hasSkillChaining: z.boolean(),
