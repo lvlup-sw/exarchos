@@ -21,6 +21,7 @@ import {
   registerExarchosInClaudeJson,
   type SpawnResult,
 } from './install-skills.js';
+import { expandTilde } from './install-skills.js';
 
 /**
  * Minimal valid runtime map factory for unit-test use. Overrides let each
@@ -524,6 +525,169 @@ describe('registerExarchosInClaudeJson (#1217)', () => {
       const afterMtime = fs.statSync(configPath).mtimeMs;
       expect(afterMtime).toBe(beforeMtime);
     } finally {
+      fs.rmSync(home, { recursive: true, force: true });
+    }
+  });
+});
+
+// ─── T3 — install canonical command aliases + post-install summary ───────────
+// (#1471/#1472, v2.10.1 Bundle A)
+//
+// When a runtime declares `commandsInstallPath` AND a generated
+// `command-aliases/<runtime>/` source tree exists, install-skills must also
+// copy those `*.md` alias files into the expanded commands directory and print
+// a post-install summary (skills dest + commands dest + restart hint). The gate
+// is the presence of `commandsInstallPath` + source tree — never an "opencode"
+// literal (INV-4).
+
+describe('installSkills command aliases (T3, #1471/#1472)', () => {
+  /**
+   * opencode runtime fixture: declares `commandsInstallPath`, mirroring the
+   * real `runtimes/opencode.yaml`. The other fields match the production map
+   * closely enough for the install path resolution.
+   */
+  const OPENCODE = makeRuntime({
+    name: 'opencode',
+    capabilities: {
+      hasSubagents: true,
+      hasSlashCommands: true,
+      hasHooks: false,
+      hasSkillChaining: false,
+      mcpPrefix: 'mcp__exarchos__',
+      canonicalCommandAliases: true,
+    },
+    skillsInstallPath: '~/.config/opencode/skills',
+    commandsInstallPath: '~/.config/opencode/commands',
+    detection: { binaries: ['opencode'], envVars: [] },
+  });
+
+  /**
+   * Build a temporary `skills/` source tree containing the per-runtime
+   * subtree `<root>/<runtime>/<skill>/SKILL.md`, plus a sibling
+   * `command-aliases/<runtime>/<name>.md` tree. Returns the two source roots
+   * and a disposer. The skills source is needed so the local-copy fast path
+   * (which the alias copy hangs off of) engages.
+   */
+  function makeAliasFixture(runtimeName: string): {
+    skillsSource: string;
+    aliasesSource: string;
+    aliasFiles: string[];
+    dispose: () => void;
+  } {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'exarchos-aliases-'));
+    const skillsSource = path.join(tmp, 'skills');
+    const aliasesSource = path.join(tmp, 'command-aliases');
+
+    // One trivial skill so copyLocalSkills finds something to copy.
+    const skillDir = path.join(skillsSource, runtimeName, 'sample-skill');
+    fs.mkdirSync(skillDir, { recursive: true });
+    fs.writeFileSync(path.join(skillDir, 'SKILL.md'), '# sample\n', 'utf8');
+
+    // Two alias files under command-aliases/<runtime>/.
+    const aliasDir = path.join(aliasesSource, runtimeName);
+    fs.mkdirSync(aliasDir, { recursive: true });
+    const aliasFiles = ['ideate.md', 'plan.md'];
+    for (const f of aliasFiles) {
+      fs.writeFileSync(path.join(aliasDir, f), `---\ndescription: ${f}\n---\n`, 'utf8');
+    }
+
+    return {
+      skillsSource,
+      aliasesSource,
+      aliasFiles,
+      dispose: () => fs.rmSync(tmp, { recursive: true, force: true }),
+    };
+  }
+
+  it('InstallSkills_OpencodeWithCommandsPath_CopiesAliasFiles', async () => {
+    const fx = makeAliasFixture('opencode');
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'exarchos-home-'));
+    try {
+      await installSkills({
+        agent: 'opencode',
+        runtimes: [OPENCODE],
+        spawn: fakeSpawn().fn,
+        log: () => {},
+        errLog: () => {},
+        homeDir: () => home,
+        skillsSource: fx.skillsSource,
+        aliasesSource: fx.aliasesSource,
+        registerMcp: () => {},
+      });
+
+      // Alias files must land in the expanded commandsInstallPath.
+      const destDir = expandTilde('~/.config/opencode/commands', home);
+      for (const f of fx.aliasFiles) {
+        expect(fs.existsSync(path.join(destDir, f))).toBe(true);
+      }
+    } finally {
+      fx.dispose();
+      fs.rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  it('InstallSkills_RuntimeWithoutCommandsPath_WritesNoAliasFiles', async () => {
+    // generic has no commandsInstallPath — even if an aliases source tree
+    // happens to exist, nothing must be written for it.
+    const fx = makeAliasFixture('generic');
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'exarchos-home-'));
+    const GENERIC_NO_CMDS = makeRuntime({
+      name: 'generic',
+      skillsInstallPath: '~/.agents/skills',
+      detection: { binaries: [], envVars: [] },
+    });
+    try {
+      await installSkills({
+        agent: 'generic',
+        runtimes: [GENERIC_NO_CMDS],
+        spawn: fakeSpawn().fn,
+        log: () => {},
+        errLog: () => {},
+        homeDir: () => home,
+        skillsSource: fx.skillsSource,
+        aliasesSource: fx.aliasesSource,
+        registerMcp: () => {},
+      });
+
+      // No commands directory should have been created at all.
+      const commandsRoot = path.join(home, '.config', 'opencode', 'commands');
+      expect(fs.existsSync(commandsRoot)).toBe(false);
+      // And the generic agents dir must contain no `.md` alias files.
+      const genericCmds = expandTilde('~/.agents/commands', home);
+      expect(fs.existsSync(genericCmds)).toBe(false);
+    } finally {
+      fx.dispose();
+      fs.rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  it('InstallSkills_Opencode_PrintsDestinationsAndRestartHint', async () => {
+    const fx = makeAliasFixture('opencode');
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'exarchos-home-'));
+    const logs: string[] = [];
+    try {
+      await installSkills({
+        agent: 'opencode',
+        runtimes: [OPENCODE],
+        spawn: fakeSpawn().fn,
+        log: (msg) => logs.push(msg),
+        errLog: () => {},
+        homeDir: () => home,
+        skillsSource: fx.skillsSource,
+        aliasesSource: fx.aliasesSource,
+        registerMcp: () => {},
+      });
+
+      const joined = logs.join('\n');
+      const skillsDest = expandTilde('~/.config/opencode/skills', home);
+      const cmdsDest = expandTilde('~/.config/opencode/commands', home);
+      // Summary names both destinations.
+      expect(joined).toContain(skillsDest);
+      expect(joined).toContain(cmdsDest);
+      // ...and includes a restart hint.
+      expect(joined.toLowerCase()).toContain('restart');
+    } finally {
+      fx.dispose();
       fs.rmSync(home, { recursive: true, force: true });
     }
   });
