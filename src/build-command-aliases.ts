@@ -215,13 +215,25 @@ function cleanStaleAliasFiles(root: string, keep: Set<string>): void {
         if (hadSurvivors) {
           survivorCount++;
         } else {
-          rmSync(full, { recursive: true, force: true });
+          try {
+            rmSync(full, { recursive: true, force: true });
+          } catch (err) {
+            throw new Error(
+              `cleanStaleAliasFiles: failed to remove directory "${full}": ${String(err)}`,
+            );
+          }
         }
       } else if (st.isFile()) {
         if (keep.has(resolve(full))) {
           survivorCount++;
         } else {
-          rmSync(full, { force: true });
+          try {
+            rmSync(full, { force: true });
+          } catch (err) {
+            throw new Error(
+              `cleanStaleAliasFiles: failed to remove file "${full}": ${String(err)}`,
+            );
+          }
         }
       }
     }
