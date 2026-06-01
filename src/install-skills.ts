@@ -373,30 +373,42 @@ export function copyCommandAliases(
  * Returns the first candidate that exists as a directory, or `undefined`
  * when none do (the caller skips the alias copy). T3, #1471/#1472.
  */
+/**
+ * True for the only errors a path *probe* is allowed to swallow: the
+ * candidate simply isn't there (`ENOENT`) or a path component isn't a
+ * directory (`ENOTDIR`). Anything else (`EACCES`, `EIO`, a non-`file:`
+ * URL passed to `fileURLToPath`, ...) is a real fault that must surface
+ * rather than be silently treated as "candidate missing" — per the repo's
+ * no-silent-catches guideline.
+ */
+function isIgnorablePathProbeError(err: unknown): boolean {
+  const code = (err as NodeJS.ErrnoException | undefined)?.code;
+  return code === 'ENOENT' || code === 'ENOTDIR';
+}
+
 export function findCommandAliasesSourceDir(): string | undefined {
   const candidates: string[] = [];
   candidates.push(path.join(process.cwd(), 'command-aliases'));
-  try {
-    if (typeof process.execPath === 'string' && process.execPath.length > 0) {
-      candidates.push(
-        path.resolve(path.dirname(process.execPath), '..', '..', 'command-aliases'),
-      );
-    }
-  } catch {
-    // process.execPath is always defined under Node/Bun, but guard anyway.
+  if (typeof process.execPath === 'string' && process.execPath.length > 0) {
+    candidates.push(
+      path.resolve(path.dirname(process.execPath), '..', '..', 'command-aliases'),
+    );
   }
   try {
     if (typeof import.meta.url === 'string' && import.meta.url.startsWith('file:')) {
       const here = path.dirname(fileURLToPath(import.meta.url));
       candidates.push(path.resolve(here, '..', 'command-aliases'));
     }
-  } catch {
-    // import.meta.url may be a non-file: URL inside bun-compile output.
+  } catch (err) {
+    // A genuine non-file: URL under bun-compile output is benign; anything
+    // else is unexpected and should not be hidden.
+    if (!isIgnorablePathProbeError(err)) throw err;
   }
   for (const c of candidates) {
     try {
       if (fs.statSync(c).isDirectory()) return c;
-    } catch {
+    } catch (err) {
+      if (!isIgnorablePathProbeError(err)) throw err;
       // Candidate doesn't exist — try next.
     }
   }
@@ -431,7 +443,9 @@ function installCommandAliases(
   let sourceIsViable = false;
   try {
     sourceIsViable = fs.statSync(runtimeAliasDir).isDirectory();
-  } catch {
+  } catch (err) {
+    // No alias subtree for this runtime is expected; surface real I/O faults.
+    if (!isIgnorablePathProbeError(err)) throw err;
     sourceIsViable = false;
   }
   if (!sourceIsViable) return undefined;

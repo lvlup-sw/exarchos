@@ -180,9 +180,11 @@ export function buildCommandAliases(opts: {
  * prune emptied directories bottom-up. Scoped to a per-runtime subtree
  * (`command-aliases/<runtime>/`) so unrelated files are never touched.
  *
- * Mirrors `cleanStaleFiles` in `build-skills.ts`; kept local so the
- * alias emitter is self-contained and the drift guard can reuse the same
- * emit+clean pass without importing build-skills internals.
+ * Modeled on `cleanStaleFiles` in `build-skills.ts` but, unlike that older
+ * twin, does not swallow filesystem errors: a failed read/stat/remove during
+ * cleanup is a real fault (drift correctness depends on it) and is rethrown
+ * with path context rather than silently skipped — per the repo's
+ * no-silent-catches guideline.
  */
 function cleanStaleAliasFiles(root: string, keep: Set<string>): void {
   if (!existsSync(root)) return;
@@ -191,8 +193,10 @@ function cleanStaleAliasFiles(root: string, keep: Set<string>): void {
     let entries: string[];
     try {
       entries = readdirSync(dir);
-    } catch {
-      return false;
+    } catch (err) {
+      throw new Error(
+        `cleanStaleAliasFiles: failed to read directory "${dir}": ${String(err)}`,
+      );
     }
 
     let survivorCount = 0;
@@ -201,29 +205,23 @@ function cleanStaleAliasFiles(root: string, keep: Set<string>): void {
       let st;
       try {
         st = statSync(full);
-      } catch {
-        continue;
+      } catch (err) {
+        throw new Error(
+          `cleanStaleAliasFiles: failed to stat "${full}": ${String(err)}`,
+        );
       }
       if (st.isDirectory()) {
         const hadSurvivors = walk(full);
         if (hadSurvivors) {
           survivorCount++;
         } else {
-          try {
-            rmSync(full, { recursive: true, force: true });
-          } catch {
-            /* best-effort */
-          }
+          rmSync(full, { recursive: true, force: true });
         }
       } else if (st.isFile()) {
         if (keep.has(resolve(full))) {
           survivorCount++;
         } else {
-          try {
-            rmSync(full, { force: true });
-          } catch {
-            /* best-effort */
-          }
+          rmSync(full, { force: true });
         }
       }
     }
@@ -257,9 +255,14 @@ export function emitCommandAliases(opts: {
   const runtimes = loadAllRuntimes(runtimesDir);
   const report = buildCommandAliases({ runtimes, commandsDir, outDir });
 
+  // Clean across ALL loaded runtimes, not just the emitting ones: a runtime
+  // that previously declared `canonicalCommandAliases` and later dropped it
+  // would otherwise leave its `command-aliases/<runtime>/` tree orphaned
+  // forever. `keep` only contains paths under emitting runtimes' subtrees, so
+  // a non-emitting runtime's stale dir is fully pruned with the same keep-set.
   const keep = new Set(report.writtenPaths);
-  for (const rtName of report.runtimesEmitted) {
-    cleanStaleAliasFiles(join(outDir, rtName), keep);
+  for (const rt of runtimes) {
+    cleanStaleAliasFiles(join(outDir, rt.name), keep);
   }
 
   return report;

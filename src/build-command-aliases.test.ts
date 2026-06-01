@@ -14,10 +14,18 @@
  */
 
 import { describe, it, expect, afterEach } from 'vitest';
-import { buildCommandAliases } from './build-command-aliases.js';
+import { buildCommandAliases, emitCommandAliases } from './build-command-aliases.js';
 import { COMMAND_TO_SKILL } from './config/canonical-skills.js';
 import { loadRuntime } from './runtimes/load.js';
-import { mkdtempSync, rmSync, readFileSync, existsSync, readdirSync } from 'node:fs';
+import {
+  mkdtempSync,
+  rmSync,
+  readFileSync,
+  existsSync,
+  readdirSync,
+  writeFileSync,
+  mkdirSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -113,6 +121,71 @@ describe('buildCommandAliases — capability gating', () => {
     expect(existsSync(join(outDir, 'generic'))).toBe(false);
     expect(existsSync(join(outDir, 'cursor'))).toBe(false);
     expect(existsSync(join(outDir, 'codex'))).toBe(false);
+  });
+});
+
+describe('emitCommandAliases — stale cleanup across all runtimes', () => {
+  // loadAllRuntimes requires every runtime map present, so write all six;
+  // only opencode's `canonicalCommandAliases` is toggled by `opencodeEnabled`.
+  function writeToggleRuntimes(runtimesDir: string, opencodeEnabled: boolean): void {
+    mkdirSync(runtimesDir, { recursive: true });
+    const names = ['generic', 'claude', 'codex', 'opencode', 'copilot', 'cursor'];
+    for (const name of names) {
+      const enabled = name === 'opencode' ? opencodeEnabled : false;
+      writeFileSync(
+        join(runtimesDir, `${name}.yaml`),
+        [
+          `name: ${name}`,
+          'preferredFacade: cli',
+          'capabilities:',
+          '  hasSubagents: true',
+          '  hasSlashCommands: true',
+          '  hasHooks: false',
+          '  hasSkillChaining: false',
+          `  mcpPrefix: "mcp__${name}__"`,
+          `  canonicalCommandAliases: ${enabled}`,
+          `skillsInstallPath: "~/.${name}/skills"`,
+          ...(name === 'opencode'
+            ? ['commandsInstallPath: "~/.config/opencode/commands"']
+            : []),
+          'detection:',
+          '  binaries: []',
+          '  envVars: []',
+          'placeholders:',
+          `  MCP_PREFIX: "mcp__${name}__"`,
+          '  COMMAND_PREFIX: "/"',
+          '  TASK_TOOL: "Task"',
+          '  CHAIN: "[invoke {{next}} with {{args}}]"',
+          "  SPAWN_AGENT_CALL: 'Task({ prompt: \"{{prompt}}\" })'",
+          '  SUBAGENT_COMPLETION_HOOK: "inline"',
+          '  SUBAGENT_RESULT_API: "inline"',
+          '',
+        ].join('\n'),
+      );
+    }
+  }
+
+  it('prunes a runtime alias tree after canonicalCommandAliases is disabled', () => {
+    const runtimesDir = makeTempDir();
+    const outDir = makeTempDir();
+
+    // First pass: capability ON → full alias tree emitted.
+    writeToggleRuntimes(runtimesDir, true);
+    emitCommandAliases({ runtimesDir, commandsDir: REPO_COMMANDS_DIR, outDir });
+    const aliasDir = join(outDir, 'opencode');
+    expect(
+      readdirSync(aliasDir).filter((f) => f.endsWith('.md')).length,
+    ).toBe(COMMAND_KEYS.length);
+
+    // Second pass: capability OFF → the now-orphaned tree must be pruned,
+    // even though the runtime no longer emits (regression guard for the
+    // cleanup-only-emitting-runtimes bug).
+    writeToggleRuntimes(runtimesDir, false);
+    emitCommandAliases({ runtimesDir, commandsDir: REPO_COMMANDS_DIR, outDir });
+    const remaining = existsSync(aliasDir)
+      ? readdirSync(aliasDir).filter((f) => f.endsWith('.md'))
+      : [];
+    expect(remaining).toEqual([]);
   });
 });
 

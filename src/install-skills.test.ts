@@ -626,6 +626,35 @@ describe('installSkills command aliases (T3, #1471/#1472)', () => {
     }
   });
 
+  it('InstallSkills_OpencodeShellOutPath_StillCopiesAliasFiles', async () => {
+    // When skillsSource is undefined, skills install via the upstream
+    // `npx skills add` shell-out. Alias install runs *after* that branch too,
+    // so opencode must still get its /ideate, /plan, ... commands.
+    const fx = makeAliasFixture('opencode');
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'exarchos-home-'));
+    try {
+      await installSkills({
+        agent: 'opencode',
+        runtimes: [OPENCODE],
+        spawn: fakeSpawn().fn,
+        log: () => {},
+        errLog: () => {},
+        homeDir: () => home,
+        skillsSource: undefined,
+        aliasesSource: fx.aliasesSource,
+        registerMcp: () => {},
+      });
+
+      const destDir = expandTilde('~/.config/opencode/commands', home);
+      for (const f of fx.aliasFiles) {
+        expect(fs.existsSync(path.join(destDir, f))).toBe(true);
+      }
+    } finally {
+      fx.dispose();
+      fs.rmSync(home, { recursive: true, force: true });
+    }
+  });
+
   it('InstallSkills_RuntimeWithoutCommandsPath_WritesNoAliasFiles', async () => {
     // generic has no commandsInstallPath — even if an aliases source tree
     // happens to exist, nothing must be written for it.
