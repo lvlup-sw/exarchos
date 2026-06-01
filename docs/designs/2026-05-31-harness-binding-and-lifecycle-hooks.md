@@ -115,8 +115,9 @@ Drift-guarded exactly like skills: `npm run binding:guard` re-renders and fails 
 ```
  SessionStart (Claude/Codex hook;  opencode session.created)
      │  inject {{binding directive}}  ── Claude/Codex only (additionalContext)
-     │  exec `exarchos session-start` ── appends `session.started` to
-     │                                    sessions/<id>.events.jsonl
+     │  exec `exarchos session-start` ── records `session.started` in
+     │                                    sessions/.manifest.jsonl (NOT the
+     │                                    events.jsonl sentinel — see note below)
      ▼
  … agent works the session, ideally via exarchos_* tools …
      ▼

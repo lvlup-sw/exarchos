@@ -47,19 +47,27 @@ export async function handleSessionStart(
   stateDir: string,
   opts: SessionStartOptions = {},
 ): Promise<CommandResult> {
-  const sessionId = input.session_id;
-  if (!sessionId || typeof sessionId !== 'string') {
-    return { error: { code: 'MISSING_SESSION_ID', message: 'session_id is required' } };
-  }
-
-  // additionalContext is produced regardless of idempotency so a resumed
-  // session is still oriented; only the manifest write is deduped.
+  // additionalContext is produced regardless of session_id / idempotency so a
+  // resumed (or malformed) session is still oriented; only the manifest write is
+  // gated. The non-error `ok` result is the single fail-open return shape.
   const additionalContext = opts.directive;
+  const ok: CommandResult = additionalContext
+    ? { continue: true, additionalContext }
+    : { continue: true };
+
+  // Fail-open (observe-only): a missing/blank session_id is unexpected, but an
+  // observer must NEVER return a blocking error (the adapter would surface it as
+  // a non-zero exit). Skip the telemetry write and continue — never block the
+  // session start. This is what the header contract promises.
+  const sessionId = asString(input.session_id);
+  if (!sessionId) {
+    return ok;
+  }
 
   // ── Idempotency: one start record per session ───────────────────────────────
   const existing = await readManifestEntries(stateDir);
   if (existing.some((e) => e.sessionId === sessionId)) {
-    return additionalContext ? { continue: true, additionalContext } : { continue: true };
+    return ok;
   }
 
   const entry: SessionManifestEntry = {
@@ -76,5 +84,5 @@ export async function handleSessionStart(
 
   await writeManifestEntry(stateDir, entry);
 
-  return additionalContext ? { continue: true, additionalContext } : { continue: true };
+  return ok;
 }

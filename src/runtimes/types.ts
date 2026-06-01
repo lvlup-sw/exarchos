@@ -51,7 +51,21 @@ const HooksDescriptorSchema = z
     sessionStartEvent: z.string().nullable(),
     sessionEndEvent: z.string().nullable(),
   })
-  .strict();
+  .strict()
+  // A `none` profile means "no hook system" — it cannot inject context and has
+  // no lifecycle events. Reject semantically inconsistent descriptors at load
+  // time rather than letting them render a phantom note with stale event names.
+  .refine(
+    (d) =>
+      d.profile !== 'none' ||
+      (!d.canInjectContext &&
+        d.sessionStartEvent === null &&
+        d.sessionEndEvent === null),
+    {
+      message:
+        'profile "none" requires canInjectContext:false and null sessionStartEvent/sessionEndEvent',
+    },
+  );
 
 const CapabilitiesSchema = z
   .object({

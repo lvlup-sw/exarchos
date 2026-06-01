@@ -35,6 +35,7 @@ describe('runtimes/generic.yaml presence', () => {
     expect(runtime.capabilities.hooks?.profile).toBe('none');
     expect(runtime.capabilities.hooks?.canInjectContext).toBe(false);
     expect(runtime.capabilities.hooks?.sessionStartEvent).toBeNull();
+    expect(runtime.capabilities.hooks?.sessionEndEvent).toBeNull();
 
     expect(runtime.skillsInstallPath).toBeDefined();
     expect(runtime.skillsInstallPath.length).toBeGreaterThan(0);

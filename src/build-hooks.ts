@@ -39,7 +39,7 @@ import {
 } from 'node:fs';
 import { join } from 'node:path';
 import { loadAllRuntimes } from './runtimes/load.js';
-import type { RuntimeMap } from './runtimes/types.js';
+import type { RuntimeMap, HooksProfile } from './runtimes/types.js';
 import { render } from './build-skills.js';
 import { renderBindingBlock, BINDING_SOURCE_FILE } from './binding.js';
 import { resolveMainDeps, type MainDeps } from './cli-helpers.js';
@@ -112,44 +112,52 @@ export function buildAllHooks(opts: {
     notesWritten: 0,
   };
 
+  // Active-artifact strategy map keyed on the declared `hooks.profile` — never a
+  // runtime-name literal (INV-4). Typing it `Record<HooksProfile, …>` gives
+  // compile-time exhaustiveness: adding a profile to the union is a build error
+  // until a renderer is wired, instead of silently falling into the note branch.
+  const emitNote = (rt: RuntimeMap): void => {
+    writeArtifact(
+      join(opts.outDir, rt.name, 'HOOKS.md'),
+      hooksNote(rt, rt.capabilities.hooks?.profile ?? 'none'),
+      writtenHooks,
+    );
+    report.notesWritten++;
+  };
+  const renderers: Record<HooksProfile, (rt: RuntimeMap) => void> = {
+    'claude-json': (rt) => {
+      const directiveOneLine = oneLineDirective(
+        render(directiveBody, rt.placeholders, { sourcePath: bindingSourcePath, runtimeName: rt.name }),
+      );
+      const json = renderClaudeJsonHooks(rt, hooksTemplate, directiveOneLine);
+      writeArtifact(hooksJsonPathFor(opts.outDir, rt.name), json, writtenHooks);
+      report.hooksJsonWritten++;
+    },
+    'opencode-plugin': (rt) => {
+      const plugin = render(readPluginTemplate(), rt.placeholders, {
+        sourcePath: pluginTemplatePath,
+        runtimeName: rt.name,
+      });
+      writeArtifact(join(opts.outDir, rt.name, 'plugin', 'exarchos-lifecycle.ts'), plugin, writtenHooks);
+      report.pluginsWritten++;
+    },
+    // Renderers deferred → AGENTS.md binding + an accurate HOOKS.md note.
+    'cursor-json': emitNote,
+    'copilot-json': emitNote,
+    'none': emitNote,
+  };
+
   for (const rt of runtimes) {
     // ── 1. Universal binding block ────────────────────────────────────────────
     const bindingBlock = renderBindingBlock(directiveBody, rt.placeholders, {
       sourcePath: bindingSourcePath,
       runtimeName: rt.name,
     });
-    const bindingPath = join(opts.bindingOutDir, rt.name, instructionsFileFor(rt));
-    writeArtifact(bindingPath, bindingBlock, writtenBinding);
+    writeArtifact(join(opts.bindingOutDir, rt.name, instructionsFileFor(rt)), bindingBlock, writtenBinding);
     report.bindingBlocksWritten++;
 
     // ── 2. Active hook artifact (dispatch on declared profile) ────────────────
-    const profile = rt.capabilities.hooks?.profile ?? 'none';
-    switch (profile) {
-      case 'claude-json': {
-        const directiveOneLine = oneLineDirective(
-          render(directiveBody, rt.placeholders, { sourcePath: bindingSourcePath, runtimeName: rt.name }),
-        );
-        const json = renderClaudeJsonHooks(rt, hooksTemplate, directiveOneLine);
-        writeArtifact(hooksJsonPathFor(opts.outDir, rt.name), json, writtenHooks);
-        report.hooksJsonWritten++;
-        break;
-      }
-      case 'opencode-plugin': {
-        const plugin = render(readPluginTemplate(), rt.placeholders, {
-          sourcePath: pluginTemplatePath,
-          runtimeName: rt.name,
-        });
-        writeArtifact(join(opts.outDir, rt.name, 'plugin', 'exarchos-lifecycle.ts'), plugin, writtenHooks);
-        report.pluginsWritten++;
-        break;
-      }
-      default: {
-        // cursor-json / copilot-json (renderer deferred) and none (no hooks).
-        writeArtifact(join(opts.outDir, rt.name, 'HOOKS.md'), hooksNote(rt, profile), writtenHooks);
-        report.notesWritten++;
-        break;
-      }
-    }
+    renderers[rt.capabilities.hooks?.profile ?? 'none'](rt);
   }
 
   cleanStaleArtifacts(opts.outDir, opts.bindingOutDir, runtimes, writtenHooks, writtenBinding);

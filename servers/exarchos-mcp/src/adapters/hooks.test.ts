@@ -152,6 +152,25 @@ describe('handleHookCommand', () => {
     expect(outputJson).toHaveBeenCalledWith({ continue: true });
   });
 
+  it('handleHookCommand_SessionStart_ForwardsDirective', async () => {
+    // Exercises the argv `--directive` parse + `{ directive }` passthrough so the
+    // binding-injection contract is locked.
+    const { handleSessionStart } = await import('../cli-commands/session-start.js');
+    await handleHookCommand(
+      'session-start',
+      ['node', 'exarchos', 'session-start', '--directive', 'Route SDLC through exarchos_* tools.'],
+      readStdin,
+      parseStdin,
+      outputJson,
+    );
+
+    expect(handleSessionStart).toHaveBeenCalledWith(
+      expect.anything(),
+      '/mock/state-dir',
+      { directive: 'Route SDLC through exarchos_* tools.' },
+    );
+  });
+
   it('handleHookCommand_OperationalError_ReturnsExitCode1', async () => {
     const { handleSessionEnd } = await import('../cli-commands/session-end.js');
     vi.mocked(handleSessionEnd).mockResolvedValueOnce({

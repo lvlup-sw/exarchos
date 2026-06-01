@@ -27,5 +27,7 @@ describe('renderBindingBlock (#1485 T3)', () => {
     expect(out.indexOf(BINDING_MARKER_START)).toBe(
       out.lastIndexOf(BINDING_MARKER_START),
     );
+    // Pure render → a second pass with the same inputs is byte-identical.
+    expect(renderBindingBlock(BODY, { MCP_PREFIX: 'x', COMMAND_PREFIX: '' })).toBe(out);
   });
 });

@@ -84,6 +84,13 @@ the real enforcement surface.
 
 ### (b) The observer event set
 
+> **Superseded as of #1485 (see the addendum at the end of this ADR).** The
+> *current* observer set is exactly `{SessionStart, SessionEnd}`: `SubagentStop`
+> was retired (live-but-unused), `SessionStart` was re-added observe-only, and the
+> coarse `hasHooks` flag below was replaced by the structured `capabilities.hooks`
+> descriptor. The broader list and `hasHooks` references in this section reflect the
+> original #1476 framing and are no longer current.
+
 The end-state observer set is fire-and-report signals on harness lifecycle events —
 they record provenance/telemetry without blocking:
 

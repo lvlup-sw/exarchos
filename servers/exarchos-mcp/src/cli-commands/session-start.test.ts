@@ -27,9 +27,19 @@ describe('session-start command', () => {
     await fs.rm(tmpDir, { recursive: true, force: true });
   });
 
-  it('handleSessionStart_MissingSessionId_ReturnsError', async () => {
+  it('handleSessionStart_MissingSessionId_FailOpenNoError', async () => {
+    // Observe-only/fail-open: a missing session_id must NOT return a blocking
+    // error (the adapter would surface it as exit 1 and could block the session).
     const result = await handleSessionStart({}, stateDir);
-    expect(result.error?.code).toBe('MISSING_SESSION_ID');
+    expect(result.error).toBeUndefined();
+    expect(result.continue).toBe(true);
+    expect(await readManifestEntries(stateDir)).toHaveLength(0);
+  });
+
+  it('handleSessionStart_MissingSessionIdWithDirective_StillOrients', async () => {
+    const result = await handleSessionStart({}, stateDir, { directive: 'Use Exarchos.' });
+    expect(result.error).toBeUndefined();
+    expect(result.additionalContext).toContain('Exarchos');
   });
 
   it('handleSessionStart_ValidInput_WritesManifestEntry', async () => {

@@ -216,6 +216,24 @@ describe('RuntimeMapSchema', () => {
     expect(() => RuntimeMapSchema.parse(badProfile)).toThrow();
   });
 
+  it('CapabilitiesSchema_NoneProfileWithInjection_Throws', () => {
+    // The .refine cross-field guard: profile `none` must not claim injection or
+    // carry event names.
+    const inconsistent = {
+      ...validFixture,
+      capabilities: {
+        ...validFixture.capabilities,
+        hooks: {
+          profile: 'none',
+          canInjectContext: true,
+          sessionStartEvent: 'SessionStart',
+          sessionEndEvent: null,
+        },
+      },
+    };
+    expect(RuntimeMapSchema.safeParse(inconsistent).success).toBe(false);
+  });
+
   it('RuntimeMapSchema_ValidPreferredFacade_ParsesSuccessfully', () => {
     const mcpFixture = { ...validFixture, preferredFacade: 'mcp' as const };
     const cliFixture = { ...validFixture, preferredFacade: 'cli' as const };
