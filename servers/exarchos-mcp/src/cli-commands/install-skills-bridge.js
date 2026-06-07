@@ -93,6 +93,13 @@ export function shouldLoadFromDisk(env = process.env) {
  *   `EMBEDDED_RUNTIMES` from the codegen-emitted module.
  * @property {(opts: import('../../../../src/install-skills.js').InstallSkillsOpts) => Promise<void>} [installer]
  *   Installer override (test injection). Defaults to `installSkills`.
+ * @property {Partial<import('../../../../src/install-skills.js').InstallSkillsOpts>} [installSkillsOpts]
+ *   Extra `installSkills` opts merged into the default-installer call (the
+ *   onboard `installStep` threads injectable I/O hooks — `spawn`, `copyDir`,
+ *   `homeDir`, `registerMcp`, source overrides — here so it never imports
+ *   `installSkills` directly and trips the MCP server's tsc `rootDir`). Ignored
+ *   when a custom `installer` is supplied. Source-tree fields (`skillsSource`,
+ *   `aliasesSource`) here take precedence over the bridge's own resolution.
  */
 
 /**
@@ -104,7 +111,11 @@ export async function runInstallSkills(opts, deps = {}) {
   const env = deps.env ?? process.env;
   const loadFromDisk = deps.loadFromDisk ?? loadAllRuntimes;
   const embedded = deps.embedded ?? EMBEDDED_RUNTIMES;
-  const installer = deps.installer ?? installSkills;
+  const extraOpts = deps.installSkillsOpts ?? {};
+  // The default installer merges any extra opts the caller threads through
+  // (onboard's injectable I/O hooks). A custom `installer` takes them itself.
+  const installer =
+    deps.installer ?? ((o) => installSkills({ ...o, ...extraOpts }));
 
   const runtimes = shouldLoadFromDisk(env)
     ? loadFromDisk(resolveRuntimesDir())
@@ -116,15 +127,20 @@ export async function runInstallSkills(opts, deps = {}) {
   // (cwd/skills, binary-relative dist/bin/../../skills, src/-relative
   // dev path). When all three miss, the value is `undefined` and
   // `installSkills` falls back to the upstream `npx skills add`
-  // shell-out — same behavior as before #1355.
-  const skillsSource = findSkillsSourceDir();
+  // shell-out — same behavior as before #1355. A source override in
+  // `installSkillsOpts` (onboard's test lever) wins over this resolution.
+  const skillsSource =
+    'skillsSource' in extraOpts ? extraOpts.skillsSource : findSkillsSourceDir();
 
   // T3 (#1471/#1472): opt the binary into the canonical command-alias
   // install by resolving the `command-aliases/` source tree the same way
   // (cwd, binary-relative, src-relative). When it misses (undefined) the
   // installer skips the alias copy. Only runtimes that declare
   // `commandsInstallPath` (opencode today) actually receive aliases.
-  const aliasesSource = findCommandAliasesSourceDir();
+  const aliasesSource =
+    'aliasesSource' in extraOpts
+      ? extraOpts.aliasesSource
+      : findCommandAliasesSourceDir();
 
   await installer({ agent: opts.agent, runtimes, skillsSource, aliasesSource });
 }
