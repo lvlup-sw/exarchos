@@ -347,6 +347,70 @@ describe('apply', () => {
     }
   });
 
+  // ─── #1534: multi-step generate must not misreport converged steps ──────────
+
+  it('Apply_MultipleGenerateSteps_SkippedWritersConverge_NoFalseResidual', async () => {
+    const fx = await createFixture();
+    try {
+      // A writer that no-ops because the artifact is already in desired state
+      // (e.g. produced by an earlier generate step in this same plan run).
+      // 'skipped' is convergence, not a failure.
+      const skippedWriter: RuntimeConfigWriter = {
+        runtime: 'claude-code',
+        write: vi.fn().mockResolvedValue({
+          runtime: 'claude-code',
+          status: 'skipped' as const,
+          componentsWritten: [],
+        }),
+      };
+      const ctx = makeCtx(fx, { writers: [skippedWriter] });
+
+      // TWO generate steps over the SAME writer set — `agent-config-valid` and
+      // `agent-mcp-registered` both classify to `kind: 'generate'`. Before the
+      // fix, the second step (writers all no-op) was mis-marked `residual`,
+      // corrupting the onboard.executed convergence report (INV-1). Both must
+      // land in `applied`, none in `residual`.
+      const plan: ReconcilePlan = {
+        steps: [generateStep('agent-config-valid'), generateStep('agent-mcp-registered')],
+      };
+
+      const result = await apply(plan, ctx);
+
+      expect(result.applied.map((s) => s.key)).toEqual(
+        expect.arrayContaining(['agent-config-valid', 'agent-mcp-registered']),
+      );
+      expect(result.residual).toHaveLength(0);
+    } finally {
+      await cleanup(fx);
+    }
+  });
+
+  it('Apply_GenerateStep_FailedWriter_IsResidual', async () => {
+    const fx = await createFixture();
+    try {
+      // A writer that returns a 'failed' status (not a throw) is NOT convergence
+      // — the step stays residual so the VERIFY re-diff resumes it.
+      const failedWriter: RuntimeConfigWriter = {
+        runtime: 'claude-code',
+        write: vi.fn().mockResolvedValue({
+          runtime: 'claude-code',
+          status: 'failed' as const,
+          componentsWritten: [],
+          error: 'permission denied',
+        }),
+      };
+      const ctx = makeCtx(fx, { writers: [failedWriter] });
+      const plan: ReconcilePlan = { steps: [generateStep('agent-mcp-registered')] };
+
+      const result = await apply(plan, ctx);
+
+      expect(result.applied).toHaveLength(0);
+      expect(result.residual.map((s) => s.key)).toContain('agent-mcp-registered');
+    } finally {
+      await cleanup(fx);
+    }
+  });
+
   // ─── Apply_EmptyPlan_Idempotent (property) ──────────────────────────────────
 
   it('Apply_EmptyPlan_Idempotent', async () => {

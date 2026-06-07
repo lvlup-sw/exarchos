@@ -221,6 +221,42 @@ describe('DR-8 SessionStart hook install (#1485, task 012)', () => {
     }
   });
 
+  it('Hooks_MalformedSettings_RefusesAndPreservesFile', async () => {
+    const fx = await createFixture();
+    try {
+      // A present-but-malformed settings.json the installer must NOT clobber.
+      const sp = settingsPath(fx);
+      await mkdir(path.dirname(sp), { recursive: true });
+      const corrupt = '{ "hooks": { not valid json ';
+      await writeFile(sp, corrupt, 'utf8');
+
+      const step = {
+        kind: 'hook' as const,
+        surface: 'any' as const,
+        key: 'session-start-hook',
+        description: 'install the #1485 SessionStart binding',
+      };
+      const ctx = {
+        repoRoot: fx.repoRoot,
+        surface: 'cli' as const,
+        writerDeps: fixtureWriterDeps(fx),
+      };
+
+      // INV-14 (refuse-to-discard): rather than overwriting a file it could not
+      // parse, the installer throws — a present-but-unreadable settings.json is
+      // not "no settings".
+      await expect(installHook(step, ctx)).rejects.toThrow(/refusing to overwrite/i);
+
+      // The user's malformed file is preserved byte-for-byte (no destructive
+      // rewrite). The throw is what `applyHookStep` turns into a residual +
+      // advisory (forward-only), never a silent clobber.
+      const after = await readFile(sp, 'utf8');
+      expect(after).toBe(corrupt);
+    } finally {
+      await cleanup(fx);
+    }
+  });
+
   it('Doctor_DetectsMissingSessionStartHook', async () => {
     const fx = await createFixture();
     try {

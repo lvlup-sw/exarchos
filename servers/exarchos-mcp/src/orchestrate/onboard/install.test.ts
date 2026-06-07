@@ -340,7 +340,11 @@ describe('installStep (DR-2/DR-6 — skills + deps install)', () => {
         runDoctorChecks: runDoctorChecks2,
         installStep: installSpy2,
       };
-      const mcpArgs: HandleOnboardArgs = { surface: 'mcp' as never, format: 'json' };
+      // The MCP adapter stamps the non-cli `'any'` surface (MCP_ONBOARD_SURFACE)
+      // — use that real value, not a phantom `'mcp'` cast. The core downgrades a
+      // cli-only install step to an advisory on ANY non-`'cli'` surface (INV-2:
+      // the surface type contract is honoured, no `as never` escape hatch).
+      const mcpArgs: HandleOnboardArgs = { surface: 'any', format: 'json' };
       const mcpResult = await handleOnboard(mcpArgs, fx.ctx, mcpDeps);
 
       // Off-CLI the install hook is NEVER invoked — the core downgrades it.

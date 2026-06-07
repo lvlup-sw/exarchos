@@ -113,6 +113,41 @@ async function runCheckWithTimeout(
   }
 }
 
+// ─── Checks-only runner (no event emission) ─────────────────────────────────
+
+/**
+ * Run the doctor checks and return the raw `CheckResult[]` WITHOUT emitting a
+ * `diagnostic.executed` event.
+ *
+ * This is the check-execution core that the MUTATING paths (`doctor --fix` and
+ * `onboard`) use to obtain the `actual` results their reconcile `diff`
+ * classifies. They must NOT go through {@link handleDoctorWithChecks}, whose
+ * read-only branch fires `diagnostic.executed`: a mutating run's audit trail is
+ * the `onboard.requested` / `onboard.executed` two-event split, and a stray
+ * `diagnostic.executed` from each internal check pass would double-count the run
+ * and blur the read-only-vs-mutating boundary (DR-4 / INV-1 / INV-13).
+ *
+ * It also honours the `runDoctorChecks(repoRoot)` seam contract: the checks run
+ * against `repoRoot` by building the probes over a cwd-retargeted context, so a
+ * caller targeting a different root (e.g. an `onboard --new` greenfield dir)
+ * gets results for THAT root rather than the dispatch cwd.
+ */
+export async function runChecksOnly(
+  ctx: DispatchContext,
+  repoRoot: string,
+  checks: ReadonlyArray<CheckFn> = ALL_CHECKS,
+  buildProbes: BuildProbesFn = defaultBuildProbes,
+  timeoutMs = 2000,
+): Promise<readonly CheckResult[]> {
+  const checkCtx: DispatchContext =
+    ctx.cwd === repoRoot ? ctx : { ...ctx, cwd: repoRoot };
+  const probes = buildProbes(checkCtx);
+  const controller = new AbortController();
+  return Promise.all(
+    checks.map((c) => runCheckWithTimeout(c, probes, controller.signal, timeoutMs)),
+  );
+}
+
 // ─── Handler ───────────────────────────────────────────────────────────────
 
 export interface HandleDoctorArgs {
@@ -355,12 +390,10 @@ function buildFixApplyCtx(deps: DoctorFixDeps): ApplyCtx {
 export function defaultDoctorFixDeps(ctx: DispatchContext): DoctorFixDeps {
   return {
     repoRoot: ctx.cwd ?? process.cwd(),
-    runDoctorChecks: async (): Promise<readonly CheckResult[]> => {
-      const result = await handleDoctorWithChecks({}, ctx, ALL_CHECKS, defaultBuildProbes);
-      if (!result.success) return [];
-      const data = result.data as { checks?: readonly CheckResult[] } | undefined;
-      return data?.checks ?? [];
-    },
+    // Run the checks WITHOUT emitting `diagnostic.executed` (the fix path's audit
+    // trail is the onboard two-event split, not a read-only diagnostic event)
+    // and honour the requested `repoRoot` per the seam contract.
+    runDoctorChecks: (repoRoot) => runChecksOnly(ctx, repoRoot),
     writerDeps: buildWriterDeps(),
     writers: getAllWriters(),
   };

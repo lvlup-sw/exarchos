@@ -83,10 +83,16 @@ function isMissingPathError(err: unknown): boolean {
 }
 
 /**
- * Read the host settings, tolerating a missing or unreadable file by returning
- * an empty object — a fresh repo has no settings.json yet, and a malformed one
- * must not crash onboard. (A parse failure is treated as "no binding present",
- * so the installer rewrites a clean settings object rather than throwing.)
+ * Read the host settings. A genuinely ABSENT file (ENOENT/ENOTDIR) is the
+ * fresh-repo case and safely yields `{}` — there is nothing to lose. But a file
+ * that EXISTS and is unreadable (e.g. EACCES) or malformed (invalid JSON) must
+ * NOT collapse to `{}`: the caller would then atomically rewrite the file with
+ * only the binding, silently discarding the user's existing settings. That is
+ * exactly the destructive overwrite INV-14 forbids (refuse-to-discard — never
+ * overwrite work we could not first read). So we re-throw on a non-missing read
+ * error and on a parse failure; `applyHookStep` catches the throw and leaves the
+ * step residual with an advisory (forward-only), preserving the user's file
+ * byte-for-byte.
  */
 async function readSettings(deps: WriterDeps, settingsPath: string): Promise<HostSettings> {
   let raw: string;
@@ -94,17 +100,28 @@ async function readSettings(deps: WriterDeps, settingsPath: string): Promise<Hos
     raw = await deps.fs.readFile(settingsPath);
   } catch (err) {
     if (isMissingPathError(err)) return {};
-    return {};
+    // INV-14: a present-but-unreadable file is not "no settings" — refuse rather
+    // than overwrite work we cannot read back.
+    throw err;
   }
+  let parsed: unknown;
   try {
-    const parsed = JSON.parse(raw) as unknown;
-    if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
-      return parsed as HostSettings;
-    }
-    return {};
-  } catch {
-    return {};
+    parsed = JSON.parse(raw);
+  } catch (err) {
+    // INV-14: malformed JSON is a present file with content — preserve it.
+    throw new Error(
+      `Invalid JSON in ${settingsPath}; refusing to overwrite existing settings.`,
+      { cause: err },
+    );
   }
+  if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
+    return parsed as HostSettings;
+  }
+  // A non-object JSON value (array / scalar) at the settings path is just as
+  // unsafe to clobber as malformed JSON — refuse rather than overwrite.
+  throw new Error(
+    `${settingsPath} is not a JSON object; refusing to overwrite existing settings.`,
+  );
 }
 
 /** Does any SessionStart command hook already reference the exarchos binding? */

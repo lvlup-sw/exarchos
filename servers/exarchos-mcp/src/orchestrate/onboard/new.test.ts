@@ -192,6 +192,7 @@ describe('scaffoldNewRepo (DR-3 — greenfield scaffold helper)', () => {
     const writes: string[] = [];
     const deps: ScaffoldNewDeps = {
       isNonEmptyDir: () => true, // target exists + non-empty
+      targetExistsAsFile: () => false, // exists as a dir, not a file
       mkdir: () => {
         throw new Error('mkdir must not run when refusing');
       },
@@ -208,6 +209,58 @@ describe('scaffoldNewRepo (DR-3 — greenfield scaffold helper)', () => {
     if (result.ok) throw new Error('expected refusal');
     expect(result.error.code).toBe('ONBOARD_NEW_TARGET_NONEMPTY');
     expect(writes).toHaveLength(0); // wrote nothing
+  });
+
+  it('OnboardNew_PathLikeName_RefusesBeforeAnyFsAccess', () => {
+    // `--new` takes a bare project NAME. A traversal / absolute / separator'd
+    // value could escape parentDir, so it is rejected BEFORE any fs probe or
+    // write — proven by deps that throw if touched.
+    const trap: ScaffoldNewDeps = {
+      isNonEmptyDir: () => {
+        throw new Error('must not probe on an invalid name');
+      },
+      targetExistsAsFile: () => {
+        throw new Error('must not probe on an invalid name');
+      },
+      mkdir: () => {
+        throw new Error('must not mkdir on an invalid name');
+      },
+      seed: () => {
+        throw new Error('must not seed on an invalid name');
+      },
+      writeGitignore: () => {
+        throw new Error('must not write on an invalid name');
+      },
+    };
+
+    for (const bad of ['../escape', '/tmp/abs', 'a/b', '.', '..', '']) {
+      const result = scaffoldNewRepo(bad, '/tmp/parent', trap);
+      expect(result.ok, `name ${JSON.stringify(bad)} must be refused`).toBe(false);
+      if (result.ok) throw new Error('expected refusal');
+      expect(result.error.code).toBe('ONBOARD_NEW_INVALID_NAME');
+    }
+  });
+
+  it('OnboardNew_TargetIsAFile_RefusesNotDirectory', async () => {
+    const fx = await createFixture('scaffold-file-');
+    try {
+      // A NON-directory already occupies the resolved target path.
+      const target = path.join(fx.parentDir, 'occupied-file');
+      await writeFile(target, 'i am a file\n', 'utf8');
+      const before = await readFile(target, 'utf8');
+
+      const result = scaffoldNewRepo('occupied-file', fx.parentDir);
+
+      // A structured refusal — NOT an ENOTDIR crash from the non-empty probe.
+      expect(result.ok).toBe(false);
+      if (result.ok) throw new Error('expected refusal');
+      expect(result.error.code).toBe('ONBOARD_NEW_TARGET_NOT_DIRECTORY');
+
+      // The file is untouched (no partial scaffold).
+      expect(await readFile(target, 'utf8')).toBe(before);
+    } finally {
+      await cleanup(fx);
+    }
   });
 });
 

@@ -45,8 +45,7 @@ import { ONBOARD_STREAM_ID } from '../../core/infra-streams.js';
 import type { ToolResult } from '../../format.js';
 import type { NextAction } from '../../next-action.js';
 import type { CheckResult } from '../doctor/schema.js';
-import { handleDoctorWithChecks, ALL_CHECKS } from '../doctor/index.js';
-import { buildProbes } from '../doctor/probes.js';
+import { runChecksOnly } from '../doctor/index.js';
 import { getAllWriters } from '../init/index.js';
 import { installHook as defaultInstallHook } from './hooks.js';
 import { installStep as defaultInstallStep } from './install.js';
@@ -291,18 +290,24 @@ function scaffoldGreenfield(name: string, deps: OnboardDeps): ScaffoldNewResult 
 /**
  * Retarget the injected deps at the freshly-scaffolded greenfield `repoRoot`.
  *
- * The greenfield dir is a NEW path (a child of the run's cwd), so the whole
- * pipeline — `repoRoot` (DETECT/CONFIG/VERIFY) AND the GENERATE writers' cwd/home
- * — must point at it, not the parent cwd. Retargeting `writerDeps.cwd`/`home`
- * here is what makes the GENERATE step write `CLAUDE.md` / `.claude/` INTO the
- * new dir. After this, the pipeline body is byte-identical to adopting an
- * equivalently-seeded empty dir at the same path: one code path, not two.
+ * The greenfield dir is a NEW path (a child of the run's cwd), so the
+ * project-scoped half of the pipeline — `repoRoot` (DETECT/CONFIG/VERIFY) AND
+ * the GENERATE writers' `cwd` — must point at it, not the parent cwd.
+ * Retargeting `writerDeps.cwd` here is what makes the GENERATE step write
+ * `CLAUDE.md` / `.claude/` INTO the new dir.
+ *
+ * `writerDeps.home` is deliberately NOT retargeted: `home` is the user's
+ * agent-host home (`~`), a per-USER global location, not a per-PROJECT one.
+ * Scaffolding a new project does not create a new home. Home-scoped writes — most
+ * notably the #1485 SessionStart binding at `<home>/.claude/settings.json` —
+ * must still land in the real home, never inside the scaffolded project dir.
+ * (Pinning `home` to the project root would install the hook in the wrong place.)
  */
 function retargetDeps(deps: OnboardDeps, repoRoot: string): OnboardDeps {
   return {
     ...deps,
     repoRoot,
-    writerDeps: { ...deps.writerDeps, cwd: () => repoRoot, home: () => repoRoot },
+    writerDeps: { ...deps.writerDeps, cwd: () => repoRoot },
   };
 }
 
@@ -418,19 +423,19 @@ export async function handleOnboard(
 
 /**
  * The production `runDoctorChecks` seam — runs the real 12 checks through the
- * doctor composer (`handleDoctorWithChecks`) and extracts the `CheckResult[]`.
- * Reuses the doctor composer verbatim (INV-2 / DR-4: one check source). The 12th
+ * shared {@link runChecksOnly} core (one check source, INV-2 / DR-4). The 12th
  * check (`session-start-hook`, DR-8) is what lands the default-on hook step.
+ *
+ * It uses the check-execution core directly rather than {@link handleDoctorWithChecks}
+ * so onboard does NOT emit a read-only `diagnostic.executed` for each of its
+ * DETECT/VERIFY check passes — onboard's audit trail is the
+ * `onboard.requested` / `onboard.executed` split (INV-1 / INV-13). The
+ * `repoRoot` the reconciler passes (e.g. an `--new` greenfield dir) is honoured.
  */
 function defaultRunDoctorChecks(
   ctx: DispatchContext,
 ): (repoRoot: string) => Promise<readonly CheckResult[]> {
-  return async (): Promise<readonly CheckResult[]> => {
-    const result = await handleDoctorWithChecks({}, ctx, ALL_CHECKS, buildProbes);
-    if (!result.success) return [];
-    const data = result.data as { checks?: readonly CheckResult[] } | undefined;
-    return data?.checks ?? [];
-  };
+  return (repoRoot) => runChecksOnly(ctx, repoRoot);
 }
 
 /**

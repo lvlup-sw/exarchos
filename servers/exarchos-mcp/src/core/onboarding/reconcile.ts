@@ -405,10 +405,22 @@ function applyConfigStep(step: PlanStep, ctx: ApplyCtx, acc: ResultAcc): void {
 
 /**
  * Route a `generate` step through the existing init writers (no rewrite). Runs
- * every supplied writer with the injected {@link WriterDeps}; the step is applied
- * if at least one writer reports a real write, else left residual. Writers that
- * throw are swallowed (forward-only reconcile, DR-10) — a writer failure leaves
- * the step residual rather than aborting the whole apply.
+ * every supplied writer with the injected {@link WriterDeps}.
+ *
+ * Convergence, not "did we write": a generate step is APPLIED when every writer
+ * reaches its desired state — `'written'` (just produced) OR `'skipped'`
+ * (already present / not applicable). It is RESIDUAL only when a writer genuinely
+ * could not converge: a `'failed'` / `'stub'` status or a thrown error (the
+ * latter swallowed for forward-only reconcile, DR-10).
+ *
+ * This matters for multi-step plans (#1534 review): `agent-config-valid` and
+ * `agent-mcp-registered` both classify to `kind: 'generate'`, so a repo failing
+ * both yields two generate steps over the SAME writer set. Once the first step
+ * writes the artifacts, the second step's writers legitimately no-op
+ * (`'skipped'`). Keying success on `'written'` alone would mis-mark that second
+ * step `residual` and misreport convergence in the `onboard.executed` result
+ * (INV-1). Treating an already-converged writer as success fixes it; the VERIFY
+ * re-diff remains the authoritative blocking gate.
  */
 async function applyGenerateStep(
   step: PlanStep,
@@ -427,17 +439,21 @@ async function applyGenerateStep(
     forceOverwrite: ctx.force ?? false,
   };
 
-  let anyWritten = false;
+  let allConverged = true;
   for (const writer of writers) {
     try {
       const res = await writer.write(ctx.writerDeps, options);
-      if (res.status === 'written') anyWritten = true;
+      // 'written' = produced now; 'skipped' = already in desired state (e.g.
+      // written by an earlier generate step in this same plan, or not applicable
+      // to this repo). Both are convergence. 'failed'/'stub' are not.
+      if (res.status !== 'written' && res.status !== 'skipped') allConverged = false;
     } catch {
       // forward-only: a writer failure does not abort apply (DR-10).
+      allConverged = false;
     }
   }
 
-  if (anyWritten) acc.applied.push(step);
+  if (allConverged) acc.applied.push(step);
   else acc.residual.push(step);
 }
 

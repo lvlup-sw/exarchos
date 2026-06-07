@@ -30,6 +30,7 @@ import {
   existsSync,
   mkdirSync,
   readdirSync,
+  statSync,
   writeFileSync,
 } from 'node:fs';
 import * as path from 'node:path';
@@ -56,6 +57,12 @@ const GITIGNORE_SEED = '.claude/settings.local.json\n';
 export interface ScaffoldNewDeps {
   /** Does `dir` exist AND contain at least one entry? (DR-10 refusal probe.) */
   readonly isNonEmptyDir: (dir: string) => boolean;
+  /**
+   * Does the target path exist as a NON-directory (a file/symlink)? Probed
+   * BEFORE {@link isNonEmptyDir} so a file collision returns a structured
+   * refusal instead of crashing `readdirSync` with ENOTDIR.
+   */
+  readonly targetExistsAsFile: (dir: string) => boolean;
   /** Create `dir` (recursive — a no-op if it already exists empty). */
   readonly mkdir: (dir: string) => void;
   /** Seed `.exarchos.yml` into `repoRoot` (the shared, never-overwrite seeder). */
@@ -68,6 +75,7 @@ export interface ScaffoldNewDeps {
 export function defaultScaffoldDeps(): ScaffoldNewDeps {
   return {
     isNonEmptyDir: (dir) => existsSync(dir) && readdirSync(dir).length > 0,
+    targetExistsAsFile: (dir) => existsSync(dir) && !statSync(dir).isDirectory(),
     mkdir: (dir) => {
       mkdirSync(dir, { recursive: true });
     },
@@ -83,9 +91,12 @@ export function defaultScaffoldDeps(): ScaffoldNewDeps {
 
 // ─── Result shape ────────────────────────────────────────────────────────────
 
-/** The structured refusal carried when the greenfield target is non-empty. */
+/** The structured refusal carried when a greenfield target cannot be scaffolded. */
 export interface ScaffoldError {
-  readonly code: 'ONBOARD_NEW_TARGET_NONEMPTY';
+  readonly code:
+    | 'ONBOARD_NEW_INVALID_NAME'
+    | 'ONBOARD_NEW_TARGET_NONEMPTY'
+    | 'ONBOARD_NEW_TARGET_NOT_DIRECTORY';
   readonly message: string;
 }
 
@@ -117,7 +128,45 @@ export function scaffoldNewRepo(
   parentDir: string,
   deps: ScaffoldNewDeps = defaultScaffoldDeps(),
 ): ScaffoldNewResult {
+  // `--new` takes a single project NAME, not a path. Reject anything that could
+  // resolve outside `parentDir` (absolute paths, path separators, `.`/`..`) so
+  // a stray `--new ../x` or `--new /etc/foo` cannot escape the run's cwd and
+  // scaffold (or refuse over) an arbitrary location. Checked BEFORE resolving.
+  if (
+    name.length === 0 ||
+    path.isAbsolute(name) ||
+    name.includes('/') ||
+    name.includes(path.sep) ||
+    name === '.' ||
+    name === '..'
+  ) {
+    return {
+      ok: false,
+      error: {
+        code: 'ONBOARD_NEW_INVALID_NAME',
+        message:
+          `onboard --new expects a single project name, not a path; received "${name}". ` +
+          `Use a bare name (e.g. "my-app") and run from the directory you want it created in.`,
+      },
+    };
+  }
+
   const repoRoot = path.resolve(parentDir, name);
+
+  // A pre-existing NON-directory at the target (a file/symlink) would make the
+  // non-empty probe's readdirSync throw ENOTDIR — refuse cleanly instead (DR-10:
+  // a structured refusal, never a crash, and no partial scaffold).
+  if (deps.targetExistsAsFile(repoRoot)) {
+    return {
+      ok: false,
+      error: {
+        code: 'ONBOARD_NEW_TARGET_NOT_DIRECTORY',
+        message:
+          `onboard --new refuses to scaffold over ${repoRoot}: a non-directory ` +
+          `file already exists at that path. Pick a fresh name or remove it, then re-run.`,
+      },
+    };
+  }
 
   // DR-10: refuse over a non-empty dir BEFORE any write (no partial scaffold).
   if (deps.isNonEmptyDir(repoRoot)) {

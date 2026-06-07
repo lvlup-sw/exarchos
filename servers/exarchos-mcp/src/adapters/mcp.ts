@@ -473,10 +473,13 @@ export function createMcpServer(ctx: DispatchContext): McpServer {
       try {
         let result = await dispatch(toolName, dispatchArgs, dispatchCtx);
         // DR-6 — surface the cli-only install advisory with a CLI pointer in
-        // next_actions (INV-5b/INV-12). No-op when no cli-only advisory is
-        // present (e.g. non-onboard actions, or an onboard run that had no
-        // install step / ran on the CLI surface).
-        result = surfaceOnboardCliAdvisory(result);
+        // next_actions (INV-5b/INV-12). Gated to the onboard action: another
+        // action that happens to return `data.result.advisories` with a
+        // `surface: 'cli-only'` entry must NOT have an `onboard` verb prepended
+        // to its next_actions — that would publish a false affordance (INV-12).
+        if (dispatchArgs.action === ONBOARD_ACTION) {
+          result = surfaceOnboardCliAdvisory(result);
+        }
         env = toEnvelope(result);
       } catch (error) {
         env = toEnvelope({
