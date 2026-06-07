@@ -17,6 +17,118 @@ import type { RootsClient } from '../workspace/discovery.js';
 import { EnvelopeSchema } from '../schemas/envelope.js';
 import { logger } from '../logger.js';
 import { EventSourcedTaskStore } from '../task-store/event-sourced-task-store.js';
+import type { NextAction } from '../next-action.js';
+import type { ToolResult } from '../format.js';
+
+// ─── DR-6: onboard CLI/MCP parity split — surface stamp + advisory carrier ───
+//
+// The onboard pipeline's INSTALL step (skills bundle + project deps) shells
+// `npx` and writes `~/.claude/`, so it is gated CLI-only (DR-6). The gate is a
+// property of the plan step's `surface` tag + the run's capability surface —
+// NOT an `if (adapter === 'mcp') skip step 4` branch. The MCP server is, by
+// construction, the NON-CLI surface, so this adapter:
+//
+//   1. stamps a non-`'cli'` surface onto the dispatched `onboard` args so the
+//      core `apply` install router downgrades the cli-only step to a structured
+//      Advisory (server-side install never runs, never a silent no-op); and
+//   2. surfaces that advisory in the returned `ToolResult` with a `next_actions`
+//      pointer at the CLI (INV-5b/INV-12) so the caller knows where to finish
+//      the install.
+//
+// This is a surface DECLARATION + advisory presentation, both of which live in
+// the adapter (presentation) layer; the gating BEHAVIOR stays in the reconciler
+// core (INV-2). The CLI adapter (task 011) passes `surface: 'cli'`, so the
+// install step runs there.
+
+/**
+ * The capability surface the MCP server runs onboard steps on. Any value other
+ * than `'cli'` makes the core `apply` install router downgrade a `cli-only`
+ * step to an advisory; `'any'` is the most permissive non-CLI surface (config /
+ * generate / hook steps still execute).
+ */
+export const MCP_ONBOARD_SURFACE = 'any' as const;
+
+/** The composite action this surface split applies to. */
+const ONBOARD_ACTION = 'onboard';
+
+/**
+ * Stamp the MCP (non-`'cli'`) surface onto an `onboard` action's args when the
+ * caller did not supply one explicitly. Idempotent and non-mutating: returns a
+ * fresh object so the caller's payload is untouched. Non-onboard args pass
+ * through unchanged.
+ *
+ * Exported for the DR-6 parity suite, which drives this exact stamp as the MCP
+ * arm's surface (onboard is not yet a registered composite action — task 011).
+ */
+export function stampOnboardSurface(
+  args: Record<string, unknown>,
+): Record<string, unknown> {
+  // Only the onboard action consults `surface`; leave everything else alone so
+  // the generic dispatch path is not perturbed.
+  if (args.action !== undefined && args.action !== ONBOARD_ACTION) return args;
+  // Respect an explicit surface (e.g. a caller forcing `'cli'`); otherwise
+  // stamp the MCP non-CLI surface so the core advisory path fires.
+  if (typeof args.surface === 'string') return args;
+  return { ...args, surface: MCP_ONBOARD_SURFACE };
+}
+
+/**
+ * A cli-only advisory carried on an onboard apply result. Mirrors the
+ * `Advisory` shape the reconciler emits (`surface`, `message`, `commands?`).
+ */
+interface OnboardAdvisoryLike {
+  readonly surface: string;
+  readonly message: string;
+  readonly commands?: readonly string[];
+}
+
+/** Extract the apply-result advisories from an onboard `ToolResult`, if any. */
+function readOnboardAdvisories(result: ToolResult): readonly OnboardAdvisoryLike[] {
+  const data = result.data;
+  if (typeof data !== 'object' || data === null) return [];
+  const applyResult = (data as { result?: unknown }).result;
+  if (typeof applyResult !== 'object' || applyResult === null) return [];
+  const advisories = (applyResult as { advisories?: unknown }).advisories;
+  if (!Array.isArray(advisories)) return [];
+  return advisories.filter(
+    (a): a is OnboardAdvisoryLike =>
+      typeof a === 'object' &&
+      a !== null &&
+      typeof (a as { surface?: unknown }).surface === 'string' &&
+      typeof (a as { message?: unknown }).message === 'string',
+  );
+}
+
+/**
+ * Surface a cli-only install advisory from an onboard `ToolResult`: when the
+ * apply result carries a `surface: 'cli-only'` advisory (the MCP arm's
+ * downgraded INSTALL step), prepend a `next_actions` pointer at the CLI so the
+ * caller knows to finish the install there. Returns the result unchanged when
+ * there is no cli-only advisory (e.g. the CLI arm, which ran the install).
+ *
+ * Non-destructive: preserves existing `next_actions` (the success-path `doctor`
+ * pointer) and is idempotent — re-running it does not duplicate the CLI hint.
+ */
+export function surfaceOnboardCliAdvisory(result: ToolResult): ToolResult {
+  const cliOnly = readOnboardAdvisories(result).filter((a) => a.surface === 'cli-only');
+  if (cliOnly.length === 0) return result;
+
+  const existing: readonly NextAction[] = result.next_actions ?? [];
+  // Idempotent: don't stack a second CLI pointer on repeat application.
+  if (existing.some((a) => a.verb === ONBOARD_ACTION)) return result;
+
+  const commands = cliOnly.flatMap((a) => a.commands ?? []);
+  const cliHint: NextAction = {
+    verb: ONBOARD_ACTION,
+    reason:
+      'the skills/deps install step is CLI-only; finish it by running onboard from the Exarchos CLI',
+    hint:
+      commands.length > 0
+        ? `run \`${commands[0]}\` from the Exarchos CLI to apply the cli-only install step`
+        : 'run `exarchos onboard` from the Exarchos CLI to apply the cli-only install step',
+  };
+  return { ...result, next_actions: [cliHint, ...existing] };
+}
 
 // ─── D.4: LCD outputSchema advertised to MCP clients ────────────────────────
 //
@@ -352,9 +464,19 @@ export function createMcpServer(ctx: DispatchContext): McpServer {
     // pre-D.7 single-carrier path and add per-call enforcement of the
     // per-action outputSchema (D.5).
     const mcpHandler = async (args: Record<string, unknown>) => {
+      // DR-6 — stamp the MCP (non-CLI) surface onto the onboard action so the
+      // core `apply` install router downgrades the cli-only INSTALL step to a
+      // structured advisory (never a server-side `~/.claude/` write). No-op for
+      // every other action / when the caller supplied an explicit surface.
+      const dispatchArgs = stampOnboardSurface(args);
       let env: Envelope<unknown> | ErrorEnvelope;
       try {
-        const result = await dispatch(toolName, args, dispatchCtx);
+        let result = await dispatch(toolName, dispatchArgs, dispatchCtx);
+        // DR-6 — surface the cli-only install advisory with a CLI pointer in
+        // next_actions (INV-5b/INV-12). No-op when no cli-only advisory is
+        // present (e.g. non-onboard actions, or an onboard run that had no
+        // install step / ran on the CLI surface).
+        result = surfaceOnboardCliAdvisory(result);
         env = toEnvelope(result);
       } catch (error) {
         env = toEnvelope({
