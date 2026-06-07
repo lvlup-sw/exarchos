@@ -62,7 +62,6 @@ import { handleVerifyDelegationSaga } from './verify-delegation-saga.js';
 import { handlePostDelegationCheck } from './post-delegation-check.js';
 import { handleReconcileState } from './reconcile-state.js';
 import { handlePreSynthesisCheck } from './pre-synthesis-check.js';
-import { handleNewProject } from './new-project.js';
 import { handleCheckCoderabbit } from './check-coderabbit.js';
 import { handleCheckPolishScope } from './check-polish-scope.js';
 import { handleNeedsSchemaSync } from './needs-schema-sync.js';
@@ -284,7 +283,6 @@ const ACTION_HANDLERS: Readonly<Record<string, ActionHandler>> = {
   post_delegation_check: adaptArgsWithEventStore(handlePostDelegationCheck),
   reconcile_state: adaptArgsWithEventStore(handleReconcileState),
   pre_synthesis_check: adaptArgsWithStateDirAndEventStore(handlePreSynthesisCheck),
-  new_project: adaptArgs(handleNewProject),
   check_coderabbit: adaptArgs(handleCheckCoderabbit),
   check_polish_scope: adaptArgs(handleCheckPolishScope),
   needs_schema_sync: adaptArgs(handleNeedsSchemaSync),
