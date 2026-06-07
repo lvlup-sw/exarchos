@@ -463,9 +463,10 @@ describe('EventTypes', () => {
     // transition into the `completed` terminal phase.
     // #1510 DR-7 (task 008): bumped 119 → 121 to include `onboard.requested` +
     // `onboard.executed`, the two-event onboard contract (INV-1 / INV-13)
-    // emitted by the `onboard` composite. `init.executed` is RETAINED (the init
-    // verb still emits it until task 018, when the verb is removed).
-    expect(EventTypes).toHaveLength(121);
+    // emitted by the `onboard` composite.
+    // #1510 DR-5 (task 018): bumped 121 → 120 — `init.executed` was retired
+    // alongside the init verb/handler. `onboard.*` is the audit trail now.
+    expect(EventTypes).toHaveLength(120);
     // Explicit membership pin: a future replacement that swaps one event
     // for another would keep the length stable but silently lose the
     // migration progress type. The membership assert catches that.
@@ -475,8 +476,8 @@ describe('EventTypes', () => {
     expect(EventTypes).toContain('merge.completed');
     expect(EventTypes).toContain('onboard.requested');
     expect(EventTypes).toContain('onboard.executed');
-    // Sequencing guard: init.executed kept until task 018.
-    expect(EventTypes).toContain('init.executed');
+    // Retirement guard: init.executed removed in DR-5 (task 018).
+    expect(EventTypes as readonly string[]).not.toContain('init.executed');
   });
 
   it('should include workflow-level types', () => {

@@ -82,7 +82,6 @@ import { handleAddPrComment } from './vcs/add-pr-comment.js';
 import { handleCreateIssue } from './vcs/create-issue.js';
 import type { HandleCreateIssueArgs } from './vcs/create-issue.js';
 import { createVcsProvider } from '../vcs/factory.js';
-import { handleInit } from './init/index.js';
 import { handleMergeOrchestrate } from './merge-orchestrate.js';
 import { handleScaffold } from './invariants/scaffold.js';
 import type { HandleScaffoldArgs } from './invariants/scaffold.js';
@@ -501,12 +500,11 @@ export async function handleOrchestrate(
     return envelopeWrap(await handleDoctor(rest as Parameters<typeof handleDoctor>[0], ctx), startedAt);
   }
 
-  // Handle init specially — like doctor, it needs the full
-  // DispatchContext because handleInit uses ctx.eventStore to emit
-  // init.executed and delegates deps/VCS detection internally.
-  if (action === 'init') {
-    return envelopeWrap(await handleInit(rest as Parameters<typeof handleInit>[0], ctx), startedAt);
-  }
+  // The legacy `init` dispatch branch + handler were removed in DR-5 (task 018).
+  // `onboard` (above) supersedes init: it reuses the SAME writer list
+  // (`getAllWriters()`) via the reconciler's GENERATE step and emits the
+  // `onboard.requested`/`onboard.executed` two-event contract in place of the
+  // retired `init.executed`. The `init` CLI verb is now a rename stub (cli.ts).
 
   // invariants_scaffold (P2/T7) — writes a starter catalog + registers it in
   // `.exarchos.yml`. No events; needs real fs hooks (injected so the handler

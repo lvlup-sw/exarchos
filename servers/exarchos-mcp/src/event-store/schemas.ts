@@ -92,13 +92,12 @@ export const EventTypes = [
   'pr.merged',
   'pr.commented',
   'issue.created',
-  'init.executed',
   // DR-7 (task 008) — the two-event onboard contract (INV-1 / INV-13).
   // `onboard.requested` is the durable INTENT (the reconcile plan) recorded
   // BEFORE the non-idempotent reconcile fires; `onboard.executed` is the RESULT
   // recorded AFTER it succeeds. Emitted by the `onboard` composite (which
-  // subsumes init/doctor-fix/new-project).
-  // init.executed retired in Task 018 (when the init verb is removed); kept until then.
+  // subsumes init/doctor-fix/new-project). `init.executed` was retired in DR-5
+  // (task 018) alongside the init verb/handler — `onboard.*` is the audit trail.
   'onboard.requested',
   'onboard.executed',
   'checkpoint.enforced',
@@ -405,9 +404,6 @@ export const EVENT_EMISSION_REGISTRY: Record<EventType, EventEmissionSource> = {
 
   // auto — emitted by exarchos doctor composite
   'diagnostic.executed': 'auto',
-
-  // auto — emitted by exarchos init composite
-  'init.executed': 'auto',
 
   // auto — emitted by the exarchos onboard composite (DR-7, two-event split)
   'onboard.requested': 'auto',
@@ -1167,35 +1163,16 @@ export const CatalogRegisteredDataSchema = z.object({
   tier: z.enum(['dev', 'user']),
 });
 
-// ─── Init Event Data ────────────────────────────────────────────────────
-
-export const InitExecutedDataSchema = z.object({
-  runtimes: z.array(z.object({
-    runtime: z.string().min(1),
-    path: z.string().optional(),
-    status: z.string(),
-    componentsWritten: z.array(z.string()),
-    warnings: z.array(z.string()).optional(),
-    error: z.string().optional(),
-  })),
-  vcs: z.object({
-    provider: z.string(),
-    remoteUrl: z.string(),
-    cliAvailable: z.boolean(),
-    cliVersion: z.string().optional(),
-  }).nullable(),
-  durationMs: z.number().int().nonnegative(),
-});
-
 // ─── Onboard Event Data (DR-7, two-event contract) ──────────────────────────
+//
+// `init.executed` (the retired init composite's event) was removed in DR-5
+// (task 018). The onboard two-event contract below is its successor.
 
 /**
  * The onboard trigger surface. `onboard` reconciles an existing repo;
  * `onboard-new` scaffolds a fresh project; `doctor-fix` applies the structured
  * doctor diff. All three drive the same reconciler, distinguished only by this
  * tag so the audit trail records *why* the reconcile ran.
- *
- * init.executed retired in Task 018 (when the init verb is removed); kept until then.
  */
 const OnboardTriggerSchema = z.enum(['onboard', 'onboard-new', 'doctor-fix']);
 
@@ -1205,8 +1182,6 @@ const OnboardTriggerSchema = z.enum(['onboard', 'onboard-new', 'doctor-fix']);
  * {@link ReconcilePlan} so the timeline can reconstruct what was *intended*
  * even if execution crashes mid-flight. `idempotencyKey` lets a retry collapse
  * onto the same logical request.
- *
- * init.executed retired in Task 018 (when the init verb is removed); kept until then.
  */
 export const OnboardRequestedDataSchema = z.object({
   trigger: OnboardTriggerSchema,
@@ -1221,8 +1196,6 @@ export const OnboardRequestedDataSchema = z.object({
  * (INV-1 / INV-13). Carries the {@link ReconcileResult} (applied / skipped /
  * residual steps + advisories), the wall-clock `durationMs`, and the same
  * `idempotencyKey` that paired it to its `onboard.requested` intent.
- *
- * init.executed retired in Task 018 (when the init verb is removed); kept until then.
  */
 export const OnboardExecutedDataSchema = z.object({
   trigger: OnboardTriggerSchema,
@@ -2186,9 +2159,6 @@ export const EVENT_DATA_SCHEMAS: Partial<Record<EventType, z.ZodSchema>> = {
   // Diagnostic (exarchos doctor)
   'diagnostic.executed': DiagnosticExecutedDataSchema,
 
-  // Init (exarchos init)
-  'init.executed': InitExecutedDataSchema,
-
   // Onboard (exarchos onboard composite, DR-7 two-event contract)
   'onboard.requested': OnboardRequestedDataSchema,
   'onboard.executed': OnboardExecutedDataSchema,
@@ -2351,7 +2321,6 @@ export type CiStatus = z.infer<typeof CiStatusData>;
 export type CommentPosted = z.infer<typeof CommentPostedData>;
 export type CommentResolved = z.infer<typeof CommentResolvedData>;
 export type DiagnosticExecuted = z.infer<typeof DiagnosticExecutedDataSchema>;
-export type InitExecuted = z.infer<typeof InitExecutedDataSchema>;
 // Onboard two-event contract (DR-7, task 008).
 export type OnboardRequested = z.infer<typeof OnboardRequestedDataSchema>;
 export type OnboardExecuted = z.infer<typeof OnboardExecutedDataSchema>;
@@ -2474,7 +2443,6 @@ export type EventDataMap = {
   'comment.posted': CommentPosted;
   'comment.resolved': CommentResolved;
   'diagnostic.executed': DiagnosticExecuted;
-  'init.executed': InitExecuted;
   // Onboard two-event contract (DR-7, task 008).
   'onboard.requested': OnboardRequested;
   'onboard.executed': OnboardExecuted;

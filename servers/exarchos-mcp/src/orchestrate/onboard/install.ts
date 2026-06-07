@@ -241,6 +241,20 @@ async function defaultRunSkillsInstall(opts: SkillsInstallOpts): Promise<void> {
   );
 }
 
+/**
+ * DR-5 (task 018): MCP registration is single-sourced to the reconciler's
+ * GENERATE step (the init writers — `ClaudeCodeWriter` → `~/.claude.json`, the
+ * `mcp-json-writer` → `.vscode`/`.cursor` `mcp.json`). The install step reuses
+ * `installSkills`, whose DEFAULT `registerMcp` is `registerExarchosInClaudeJson`
+ * — so without this no-op the claude path would register MCP a SECOND time. The
+ * install step therefore defaults `registerMcp` to a no-op, so MCP registration
+ * happens EXACTLY once (in GENERATE). A caller can still inject a real
+ * `registerMcp` (the tests do) to exercise the seam in isolation.
+ */
+const NOOP_REGISTER_MCP = (_home: string): void => {
+  /* MCP registration is owned by GENERATE — the install step never registers. */
+};
+
 // ─── Installer ────────────────────────────────────────────────────────────────
 
 /**
@@ -259,6 +273,9 @@ export function makeInstallStep(
     const resolveInstallCommand = deps.resolveInstallCommand ?? defaultResolveInstallCommand;
     const runCommand = deps.runCommand ?? defaultRunCommand;
     const homeDir = deps.homeDir ?? (() => homedir());
+    // DR-5: default to a no-op so MCP registration happens ONCE (in GENERATE),
+    // never a second time here. Injected `registerMcp` overrides (tests only).
+    const registerMcp = deps.registerMcp ?? NOOP_REGISTER_MCP;
 
     // ── 1. Skills bundle (local-copy fast path + npx fallback) ──
     // The bridge resolves source trees by default; we only OVERRIDE them when a
@@ -279,7 +296,7 @@ export function makeInstallStep(
       ...(deps.copyDir ? { copyDir: deps.copyDir } : {}),
       ...(deps.copyFile ? { copyFile: deps.copyFile } : {}),
       ...(deps.spawn ? { spawn: deps.spawn } : {}),
-      ...(deps.registerMcp ? { registerMcp: deps.registerMcp } : {}),
+      registerMcp,
       ...(deps.log ? { log: deps.log } : {}),
       ...(deps.errLog ? { errLog: deps.errLog } : {}),
     });
@@ -297,6 +314,10 @@ export function makeInstallStep(
  * with all I/O defaulted to the real seams (the bridge → `installSkills` for the
  * skills bundle, `resolveTestRuntime` + a real spawn for project deps). Wired
  * into `defaultOnboardDeps` (task 010's no-op seam replaced).
+ *
+ * DR-5 (task 018): `registerMcp` defaults to a no-op (see `NOOP_REGISTER_MCP`)
+ * so MCP registration happens EXACTLY once — in the GENERATE step — and is NOT
+ * duplicated here.
  */
 export const installStep: (step: PlanStep, ctx: ApplyCtx) => Promise<void> =
   makeInstallStep();

@@ -930,10 +930,10 @@ export function buildCli(ctx: DispatchContext): Command {
   // dispatch to) — keeping the verb present preserves the actionable rename
   // message instead of Commander's bare unknown-command error.
   //
-  // The `handleInitWithWriters` handler (orchestrate/init/index.ts) and the
-  // `init.executed` event stay live until Task 018; only the action +
-  // dispatching verb are retired here, forced by the #1127 flattener collision
-  // between init's `runtime: string` and onboard's `runtime: string[]`.
+  // The `init` action, handler (`handleInitWithWriters`), and `init.executed`
+  // event were fully removed in DR-5 (task 018) — `onboard` reproduces init's
+  // outputs through the reconciler's GENERATE step (the same `getAllWriters()`
+  // list). Only this rename stub remains until v3.0.
   program
     .command('init')
     .description("[renamed] use 'exarchos onboard' — init was consolidated into the onboard verb (DR-5)")
@@ -1026,62 +1026,34 @@ export function buildCli(ctx: DispatchContext): Command {
     }
   });
 
-  // ─── Top-level `exarchos install-skills` command (T-16, DR-7, #1201) ────
+  // ─── Top-level `exarchos install-skills` command (DR-5, task 018) ───────
   //
-  // Bridges the documented `exarchos install-skills [--agent <name>]`
-  // surface (README.md "Install Skills" section, `documentation/guide/
-  // installation.md`) to the `installSkills()` implementation in the
-  // root `src/install-skills.ts` module.
-  //
-  // CLI-only by design: the underlying installer writes to the local
-  // filesystem (e.g. `~/.claude/skills/`) and shells out to
-  // `npx skills add`, neither of which makes sense over an MCP stdio
-  // transport. The `cli-only` annotation in the description is part
-  // of the surface contract — agent callers reading `--help` (or any
-  // future schema-introspection output) see immediately that there is
-  // no MCP equivalent.
-  //
-  // The bridge module (`cli-commands/install-skills-bridge.js`) owns
-  // the cross-package import of `installSkills()` because the MCP
-  // server's tsc `rootDir: "./src"` would otherwise reject the path
-  // with TS6059. Authored as JS (tsc `allowJs: false`) so the static
-  // imports survive type-checking; bun's `--compile` bundler still
-  // follows them at build time.
-  //
-  // Exit-code mapping (DR-3 contract):
-  //   - Success                      → SUCCESS (exit 0)
-  //   - `npx skills add` non-zero    → forwarded child code (`exitCode`
-  //                                    on the thrown InstallSkillsError)
-  //   - Any other thrown error       → UNCAUGHT_EXCEPTION (exit 3)
+  // `install-skills` is RENAMED to `onboard` (DR-5, design §7). Onboard's
+  // reconciler now owns skills install: the GENERATE step writes runtime config
+  // + MCP registration ONCE, and the CLI install step (`orchestrate/onboard/
+  // install.ts`) copies the skills bundle through the SAME `installSkills`
+  // seam — so a standalone `install-skills` verb is dead. It is now a
+  // one-release **error stub**: it prints `renamed → use 'exarchos onboard'`
+  // and exits non-zero (NOT "command not found"), running NO install side
+  // effect (the bridge is never reached). Removed entirely at v3.0. Mirrors the
+  // `init` rename stub above.
   program
     .command('install-skills')
-    .description(
-      'Install the Exarchos skills bundle for a target agent runtime (cli-only — no MCP equivalent)',
-    )
-    .option(
-      '--agent <name>',
-      'Target agent runtime (claude, codex, opencode, copilot, cursor, generic). Auto-detected when omitted.',
-    )
-    .action(async (opts: { agent?: string }) => {
-      try {
-        const { runInstallSkills } = await import(
-          '../cli-commands/install-skills-bridge.js'
-        );
-        await runInstallSkills({ agent: opts.agent });
-        process.exitCode = CLI_EXIT_CODES.SUCCESS;
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        const candidateExitCode =
-          typeof err === 'object' && err !== null && 'exitCode' in err
-            ? (err as { exitCode?: unknown }).exitCode
-            : undefined;
-        const exitCode =
-          typeof candidateExitCode === 'number'
-            ? candidateExitCode
-            : CLI_EXIT_CODES.UNCAUGHT_EXCEPTION;
-        printError({ code: 'INSTALL_SKILLS_FAILED', message });
-        process.exitCode = exitCode;
-      }
+    .description("[renamed] use 'exarchos onboard' — install-skills was consolidated into the onboard verb (DR-5)")
+    // Tolerate ANY legacy flags/args (e.g. the old `--agent <id>`, `--json`,
+    // positional values) so the rename message always prints instead of
+    // Commander erroring on an unknown option. The stub ignores them all —
+    // there is no installer to dispatch to.
+    .allowUnknownOption(true)
+    .allowExcessArguments(true)
+    .argument('[ignored...]', 'legacy install-skills arguments (ignored by the rename stub)')
+    .action(() => {
+      process.stderr.write(
+        "exarchos install-skills: renamed → use 'exarchos onboard'\n",
+      );
+      // Non-zero so scripts and CI surface the rename instead of silently
+      // continuing; HANDLER_ERROR (2) rather than a "command not found" exit.
+      process.exitCode = CLI_EXIT_CODES.HANDLER_ERROR;
     });
 
   return program;

@@ -539,13 +539,14 @@ describe('EventTypes', () => {
     //   `completed` terminal phase).
     // Bumped 119 → 121: onboard.requested + onboard.executed (#1510 DR-7 task
     //   008 — the two-event onboard contract, INV-1 / INV-13, emitted by the
-    //   `onboard` composite). init.executed is RETAINED (init verb emits it
-    //   until task 018, when the verb is removed).
-    expect(EventTypes).toHaveLength(121);
+    //   `onboard` composite).
+    // Bumped 121 → 120: init.executed retired (#1510 DR-5 task 018 — the init
+    //   verb/handler was removed; `onboard.*` is the audit trail now).
+    expect(EventTypes).toHaveLength(120);
     expect(EventTypes).toContain('onboard.requested');
     expect(EventTypes).toContain('onboard.executed');
-    // Sequencing guard: init.executed kept until task 018.
-    expect(EventTypes).toContain('init.executed');
+    // Retirement guard: init.executed removed in DR-5 (task 018).
+    expect(EventTypes as readonly string[]).not.toContain('init.executed');
   });
 
   it('EventTypes_IncludesElicitation', () => {

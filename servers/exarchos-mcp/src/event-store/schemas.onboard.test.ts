@@ -22,8 +22,8 @@ import {
  * sourcing integrity, INV-13 two-event split for non-idempotent side effects).
  *
  * This test widens the event-store contract atomically with the schema, and
- * guards that `init.executed` is NOT removed prematurely — the `init` verb still
- * emits it until task 018 (when the verb is removed).
+ * (since DR-5 / task 018) guards that `init.executed` is GONE — the init
+ * verb/handler were retired and `onboard.*` is the audit trail.
  */
 describe('EventSchema_OnboardRequestedExecuted_RoundTrips', () => {
   // A real ReconcilePlan from the types module (task 004) — proves the event
@@ -177,15 +177,20 @@ describe('EventSchema_OnboardRequestedExecuted_RoundTrips', () => {
     expect(EVENT_DATA_SCHEMAS['onboard.executed']).toBe(OnboardExecutedDataSchema);
   });
 
-  // SEQUENCING GUARD (task 008 orchestrator correction): the `init` verb still
-  // emits `init.executed` until task 018. Removing it now breaks the task-001
-  // init characterization test and the live init handler. This assertion fails
-  // loudly if a future edit removes it prematurely.
-  it('keeps init.executed registered (NOT removed until task 018)', () => {
-    expect(EventTypes).toContain('init.executed');
-    expect(EVENT_EMISSION_REGISTRY['init.executed']).toBe('auto');
-    expect(EVENT_DATA_SCHEMAS['init.executed']).toBeDefined();
-    // diagnostic.executed is likewise retained for the doctor composite.
+  // RETIREMENT GUARD (DR-5 / task 018): the `init` verb + handler + its
+  // `init.executed` event are removed in this task. `onboard.requested` /
+  // `onboard.executed` are the audit trail now; bare `doctor` keeps the single
+  // read-only `diagnostic.executed`. This assertion fails loudly if a future
+  // edit re-introduces `init.executed`.
+  it('removes init.executed entirely (DR-5 / task 018)', () => {
+    expect(EventTypes as readonly string[]).not.toContain('init.executed');
+    expect(
+      (EVENT_EMISSION_REGISTRY as Record<string, unknown>)['init.executed'],
+    ).toBeUndefined();
+    expect(
+      (EVENT_DATA_SCHEMAS as Record<string, unknown>)['init.executed'],
+    ).toBeUndefined();
+    // diagnostic.executed is retained for the doctor composite.
     expect(EventTypes).toContain('diagnostic.executed');
   });
 });

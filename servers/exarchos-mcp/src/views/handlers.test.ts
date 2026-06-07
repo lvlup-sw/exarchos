@@ -1813,15 +1813,17 @@ describe('Backend Integration (Task 12)', () => {
   // ─── #1187: pipeline view filters infra streams ───────────────────────────
   describe('handleViewPipeline infra-stream filter (#1187)', () => {
     it('Pipeline_WithInfraStreams_ExcludesPhantomRows', async () => {
-      // GIVEN: one real feature workflow stream alongside the three reserved
-      // infrastructure streams (exarchos-init, exarchos-doctor, telemetry)
+      // GIVEN: one real feature workflow stream alongside the reserved
+      // infrastructure streams (exarchos-onboard, exarchos-doctor, telemetry).
+      // (The legacy `exarchos-init` stream + its `init.executed` event were
+      // retired in DR-5 / task 018 — onboard is its successor.)
       await store.append('feat-real', {
         type: 'workflow.started',
         data: { featureId: 'real-feature', workflowType: 'feature' },
       });
-      await store.append('exarchos-init', {
-        type: 'init.executed',
-        data: { runtime: 'claude' },
+      await store.append('exarchos-onboard', {
+        type: 'onboard.executed',
+        data: { trigger: 'onboard' },
       });
       await store.append('exarchos-doctor', {
         type: 'diagnostic.executed',
