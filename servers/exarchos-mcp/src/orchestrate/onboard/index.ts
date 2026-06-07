@@ -27,7 +27,7 @@
  *     `installStep`/`installHook` hooks.
  *
  * Scope boundary (LATER tasks fill these seams — they are stubbable here):
- *   - `installStep` real `npx` skills/deps install → task 015.
+ *   - `installStep` real skills/deps install → task 015 (`./install.ts`, wired).
  *   - `installHook` real #1485 SessionStart binding → task 012.
  *   - `--new` greenfield scaffold → task 016 (the flag is accepted + routed to a
  *     TODO stub here; no greenfield behavior lands in this task).
@@ -45,6 +45,7 @@ import { handleDoctorWithChecks, ALL_CHECKS } from '../doctor/index.js';
 import { buildProbes } from '../doctor/probes.js';
 import { getAllWriters } from '../init/index.js';
 import { installHook as defaultInstallHook } from './hooks.js';
+import { installStep as defaultInstallStep } from './install.js';
 import { scaffoldNewRepo, type ScaffoldNewResult, type ScaffoldError as ScaffoldNewError } from './new.js';
 import { buildWriterDeps } from '../init/probes.js';
 import type { WriterDeps } from '../init/probes.js';
@@ -488,15 +489,21 @@ function defaultRunDoctorChecks(
 
 /**
  * Production deps: real init writers + real writer deps + the real doctor
- * composer + the real DR-8 SessionStart hook installer (`installHook`).
+ * composer + the real DR-8 SessionStart hook installer (`installHook`) + the
+ * real DR-2/DR-6 skills + deps install hook (`installStep`).
  *
  * `installHook` is wired by DEFAULT (#1485, task 012): when the `session-start-hook`
  * doctor check reports the binding missing, `diff` lands a `hook` PlanStep that
  * `apply` routes to this installer. `--no-hooks` neutralizes it upstream in
  * `buildApplyCtx`, so the default-on posture is owned here and the opt-out is a
- * single seam. `installStep` is still OMITTED (the reconciler's no-op default
- * applies until task 015 supplies the real `npx` install). `repoRoot` is the
- * dispatch cwd (the repo being onboarded).
+ * single seam.
+ *
+ * `installStep` is wired by DEFAULT (task 015): an `install` PlanStep (skills
+ * bundle / project deps) is routed to it by `apply`'s install router — but ONLY
+ * on the CLI surface (`apply` downgrades it to a cli-only advisory off-CLI, so
+ * this hook never needs a surface guard of its own). It reuses `installSkills`'
+ * local-copy fast path + `npx` fallback and the Bundle B install-command
+ * resolver. `repoRoot` is the dispatch cwd (the repo being onboarded).
  */
 export function defaultOnboardDeps(
   ctx: DispatchContext,
@@ -511,6 +518,7 @@ export function defaultOnboardDeps(
     writerDeps: buildWriterDeps(),
     writers: getAllWriters(),
     runDoctorChecks: defaultRunDoctorChecks(ctx),
+    installStep: defaultInstallStep,
     installHook: defaultInstallHook,
     ...(Object.keys(detectOptions).length > 0 ? { detectOptions } : {}),
   };

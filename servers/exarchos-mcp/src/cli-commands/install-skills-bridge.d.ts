@@ -29,6 +29,15 @@ export interface RunInstallSkillsDeps {
   loadFromDisk?: (dir: string) => readonly unknown[];
   embedded?: readonly unknown[];
   installer?: (opts: unknown) => Promise<void>;
+  /**
+   * Extra `installSkills` opts merged into the default-installer call. The
+   * onboard `installStep` threads injectable I/O hooks here (spawn / copyDir /
+   * homeDir / registerMcp / source overrides) so it never imports `installSkills`
+   * directly and trips the MCP server's tsc `rootDir`. Typed loosely (`Record`)
+   * to preserve the rootDir invariant — the bridge tests pass typed mocks via
+   * `as unknown as <type>` casts. Ignored when a custom `installer` is supplied.
+   */
+  installSkillsOpts?: Record<string, unknown>;
 }
 
 /**

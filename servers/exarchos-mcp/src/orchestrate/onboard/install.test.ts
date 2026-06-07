@@ -1,0 +1,301 @@
+/**
+ * Tests for the DR-2/DR-6 skills + deps INSTALL step (task 015) — the real
+ * `installStep` hook the reconciler's `apply` routes `install` PlanSteps to on
+ * the CLI surface.
+ *
+ * Two side effects are under test, driven through the REAL `installSkills`
+ * seam (from the workspace-root `src/install-skills.ts`) so the local-copy
+ * fast path / `npx skills add` fallback contract is exercised exactly as
+ * production runs it — without ever shelling out to the network:
+ *
+ *   1. Skills-bundle install — reuses `installSkills`' local-copy fast path
+ *      (copy `skills/<runtime>/` → the runtime's skills dir) when a
+ *      `skillsSource` is resolvable, and falls back to the `npx skills add`
+ *      shell-out (injected spawn) when it is not (#1355 contract).
+ *   2. Project-deps install — the install command is resolved via the Bundle B
+ *      layered resolver (`resolveTestRuntime(repoRoot).install`, single-sourced
+ *      INV-6) and run through an INJECTED command runner (never a real spawn in
+ *      the test).
+ *
+ * Surface gating (DR-6) is NOT this hook's job — the core `apply` install router
+ * only invokes `ctx.installStep` when `ctx.surface === 'cli'` and downgrades to
+ * an Advisory otherwise. The second test asserts that wiring end-to-end through
+ * the real onboard pipeline (`defaultOnboardDeps` supplies the real step).
+ */
+
+import { describe, it, expect, vi } from 'vitest';
+import { mkdtemp, rm, writeFile, mkdir, readdir, readFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import * as path from 'node:path';
+
+import { EventStore } from '../../event-store/store.js';
+import type { DispatchContext } from '../../core/dispatch.js';
+import type { ApplyCtx } from '../../core/onboarding/reconcile.js';
+import type { PlanStep } from '../../core/onboarding/types.js';
+import type { CheckResult } from '../doctor/schema.js';
+import { buildWriterDeps } from '../init/probes.js';
+import type { WriterDeps } from '../init/probes.js';
+
+import {
+  handleOnboard,
+  type HandleOnboardArgs,
+  type OnboardDeps,
+  defaultOnboardDeps,
+} from './index.js';
+import { makeInstallStep, type InstallStepDeps } from './install.js';
+
+// ─── Fixtures ────────────────────────────────────────────────────────────────
+
+interface Fixture {
+  readonly repoRoot: string;
+  readonly home: string;
+  readonly stateDir: string;
+  readonly base: string;
+  readonly ctx: DispatchContext;
+  readonly eventStore: EventStore;
+}
+
+/** A temp Node repo (so the resolver derives an install command) + isolated
+ * home (the skills target) + isolated EventStore state dir. */
+async function createFixture(): Promise<Fixture> {
+  const base = await mkdtemp(path.join(tmpdir(), 'onboard-install-'));
+  const repoRoot = path.join(base, 'repo');
+  const home = path.join(base, 'home');
+  const stateDir = path.join(base, 'state');
+  await mkdir(repoRoot, { recursive: true });
+  await mkdir(home, { recursive: true });
+  await writeFile(
+    path.join(repoRoot, 'package.json'),
+    JSON.stringify(
+      { name: 'fixture', version: '0.0.0', scripts: { 'test:run': 'vitest run' } },
+      null,
+      2,
+    ),
+    'utf8',
+  );
+  // package-lock.json → the vendored package-manager-detector resolves `npm`,
+  // so `resolveTestRuntime(repoRoot).install` is `npm ci`.
+  await writeFile(path.join(repoRoot, 'package-lock.json'), '{}\n', 'utf8');
+  const eventStore = new EventStore(stateDir);
+  await eventStore.initialize();
+  const ctx: DispatchContext = { stateDir, eventStore, enableTelemetry: false, cwd: repoRoot };
+  return { repoRoot, home, stateDir, base, ctx, eventStore };
+}
+
+async function cleanup(fx: Fixture): Promise<void> {
+  await rm(fx.base, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 }).catch(
+    () => {},
+  );
+}
+
+/** WriterDeps redirected at the fixture (real fs; cwd=repo, home=fixture home). */
+function fixtureWriterDeps(fx: Fixture): WriterDeps {
+  const real = buildWriterDeps();
+  return { ...real, cwd: () => fx.repoRoot, home: () => fx.home };
+}
+
+/** Build a minimal `install` PlanStep (the kind the reconciler routes here). */
+function installPlanStep(): PlanStep {
+  return {
+    kind: 'install',
+    surface: 'cli-only',
+    key: 'plugin-skill-hash-sync',
+    description: 'reinstall the skills bundle',
+  };
+}
+
+/** Build an ApplyCtx pointed at the fixture (cli surface — the gated path). */
+function applyCtx(fx: Fixture, surface: ApplyCtx['surface'] = 'cli'): ApplyCtx {
+  return {
+    repoRoot: fx.repoRoot,
+    surface,
+    force: false,
+    writerDeps: fixtureWriterDeps(fx),
+    writers: [],
+  };
+}
+
+/**
+ * Seed a fake per-runtime skills source tree at `<base>/skills/claude/<skill>/`
+ * so the local-copy fast path has something to copy. Returns the parent
+ * `skills/` dir (the `skillsSource`).
+ */
+async function seedSkillsSource(fx: Fixture): Promise<string> {
+  const skillsRoot = path.join(fx.base, 'skills');
+  const runtimeDir = path.join(skillsRoot, 'claude', 'ideate');
+  await mkdir(runtimeDir, { recursive: true });
+  await writeFile(path.join(runtimeDir, 'SKILL.md'), '# ideate\n', 'utf8');
+  return skillsRoot;
+}
+
+// ─── Tests ───────────────────────────────────────────────────────────────────
+
+describe('installStep (DR-2/DR-6 — skills + deps install)', () => {
+  it('Install_LocalCopyFastPath_ThenNpxFallback', async () => {
+    const fx = await createFixture();
+    try {
+      const skillsSource = await seedSkillsSource(fx);
+
+      // Spies for the reused `installSkills` seam: a recording copyDir (the
+      // local-copy fast path) and a recording spawn (the npx fallback). We
+      // never shell out to a real `npx` — both are injected fakes.
+      const copyDir = vi.fn((_src: string, _dest: string) => {});
+      const spawn = vi.fn(async () => ({ code: 0, stderr: '' }));
+      // Injected command runner for the project-deps install — records the
+      // resolved install command + cwd instead of executing it.
+      const runCommand = vi.fn(async (_cmd: string, _cwd: string) => {});
+
+      const deps: InstallStepDeps = {
+        // Target claude explicitly so `installSkills` skips runtime detection
+        // (auto-detect needs a full RuntimeMap `detection` block we don't fake).
+        agent: 'claude',
+        // Force the FAST PATH: a resolvable skills source → copyDir runs,
+        // spawn (npx) does NOT.
+        resolveSkillsSource: () => skillsSource,
+        // Single claude runtime so the copy targets a deterministic dir.
+        runtimes: [
+          {
+            name: 'claude',
+            skillsInstallPath: path.join(fx.home, '.claude', 'skills'),
+          } as never,
+        ],
+        homeDir: () => fx.home,
+        copyDir,
+        spawn,
+        runCommand,
+        // Don't write ~/.claude.json during the test.
+        registerMcp: () => {},
+        log: () => {},
+        errLog: () => {},
+      };
+
+      const step = installPlanStep();
+      const ctx = applyCtx(fx);
+      const installStep = makeInstallStep(deps);
+
+      // ── Fast path: skills copied locally, npx NOT invoked ──
+      await installStep(step, ctx);
+
+      // Local-copy fast path ran (the reused `installSkills` seam).
+      expect(copyDir).toHaveBeenCalled();
+      // The `npx skills add` fallback was NOT taken (source was resolvable).
+      expect(spawn).not.toHaveBeenCalled();
+
+      // Project deps installed via the Bundle-B-resolved command (`npm ci`),
+      // run in the repo root (not a real spawn).
+      expect(runCommand).toHaveBeenCalledTimes(1);
+      const [installCmd, installCwd] = runCommand.mock.calls[0];
+      expect(installCmd).toContain('npm');
+      expect(installCwd).toBe(fx.repoRoot);
+
+      // ── Fallback: no resolvable source → npx shell-out (injected spawn) ──
+      const spawn2 = vi.fn(async () => ({ code: 0, stderr: '' }));
+      const copyDir2 = vi.fn((_src: string, _dest: string) => {});
+      const fallbackStep = makeInstallStep({
+        ...deps,
+        resolveSkillsSource: () => undefined, // no local tree → npx fallback
+        spawn: spawn2,
+        copyDir: copyDir2,
+      });
+      await fallbackStep(step, ctx);
+
+      // The npx fallback shelled out; the local copy did not run.
+      expect(spawn2).toHaveBeenCalled();
+      const [npxCmd, npxArgs] = spawn2.mock.calls[0];
+      expect(npxCmd).toBe('npx');
+      expect((npxArgs as string[]).join(' ')).toContain('skills');
+      expect(copyDir2).not.toHaveBeenCalled();
+    } finally {
+      await cleanup(fx);
+    }
+  });
+
+  it('Install_WiredIntoDefaultOnboardDeps_CliSurface', async () => {
+    const fx = await createFixture();
+    try {
+      // `defaultOnboardDeps` must supply a REAL installStep (no longer the
+      // no-op). We drive the pipeline with a deterministic `install`-only plan:
+      // one cli-only install Fail before apply, green after (VERIFY converges).
+      const INSTALL_FAIL: CheckResult = {
+        category: 'plugin',
+        name: 'plugin-skill-hash-sync',
+        status: 'Fail',
+        message: 'skills bundle out of sync',
+        fix: 'reinstall the skills bundle',
+        durationMs: 0,
+      };
+      const GREEN: CheckResult = {
+        category: 'plugin',
+        name: 'plugin-skill-hash-sync',
+        status: 'Pass',
+        message: 'skills bundle in sync',
+        durationMs: 0,
+      };
+
+      // `defaultOnboardDeps` wires the real installStep; assert it is present.
+      const prodDeps = defaultOnboardDeps(fx.ctx, {});
+      expect(typeof prodDeps.installStep).toBe('function');
+
+      // Spy on the real installStep so we don't actually shell out, but still
+      // verify the pipeline routes to it on `surface:'cli'`.
+      const installSpy = vi.fn().mockResolvedValue(undefined);
+
+      let phase = 0;
+      const runDoctorChecks = async (): Promise<readonly CheckResult[]> => {
+        phase += 1;
+        return phase === 1 ? [INSTALL_FAIL] : [GREEN];
+      };
+
+      const baseDeps: OnboardDeps = {
+        ...prodDeps,
+        repoRoot: fx.repoRoot,
+        writerDeps: fixtureWriterDeps(fx),
+        writers: [],
+        runDoctorChecks,
+        seed: vi.fn(() => ({ wrote: true, path: path.join(fx.repoRoot, '.exarchos.yml') })),
+        detectOptions: { detectRuntimes: async () => [], vcs: 'git' },
+      };
+
+      // ── CLI surface: the install step RUNS ──
+      const cliDeps: OnboardDeps = { ...baseDeps, installStep: installSpy };
+      const cliArgs: HandleOnboardArgs = { surface: 'cli', format: 'json' };
+      const cliResult = await handleOnboard(cliArgs, fx.ctx, cliDeps);
+
+      expect(cliResult.success).toBe(true);
+      expect(installSpy).toHaveBeenCalled();
+      const cliData = cliResult.data as {
+        result: { applied: { key: string }[]; advisories: { surface: string }[] };
+        verify: { residualBlocking: number };
+      };
+      expect(cliData.result.applied.map((s) => s.key)).toContain('plugin-skill-hash-sync');
+      expect(cliData.verify.residualBlocking).toBe(0);
+
+      // ── Non-cli surface: the core DOWNGRADES to an advisory (step NOT run) ──
+      let phase2 = 0;
+      const runDoctorChecks2 = async (): Promise<readonly CheckResult[]> => {
+        phase2 += 1;
+        return phase2 === 1 ? [INSTALL_FAIL] : [INSTALL_FAIL];
+      };
+      const installSpy2 = vi.fn().mockResolvedValue(undefined);
+      const mcpDeps: OnboardDeps = {
+        ...baseDeps,
+        runDoctorChecks: runDoctorChecks2,
+        installStep: installSpy2,
+      };
+      const mcpArgs: HandleOnboardArgs = { surface: 'mcp' as never, format: 'json' };
+      const mcpResult = await handleOnboard(mcpArgs, fx.ctx, mcpDeps);
+
+      // Off-CLI the install hook is NEVER invoked — the core downgrades it.
+      expect(installSpy2).not.toHaveBeenCalled();
+      const mcpData = mcpResult.data as {
+        result: { applied: { key: string }[]; advisories: { surface: string; commands?: string[] }[] };
+      };
+      // The install step is surfaced as a cli-only advisory, not applied.
+      expect(mcpData.result.applied.map((s) => s.key)).not.toContain('plugin-skill-hash-sync');
+      const advisorySurfaces = mcpData.result.advisories.map((a) => a.surface);
+      expect(advisorySurfaces).toContain('cli-only');
+    } finally {
+      await cleanup(fx);
+    }
+  });
+});
