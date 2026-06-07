@@ -51,7 +51,7 @@ Orientation only — deep detail lives in `docs/architecture/`, `docs/guides/`, 
   over `@modelcontextprotocol/sdk` + `zod` on stdio. Workflow actions are typed TS handlers
   (`servers/exarchos-mcp/src/orchestrate/`) returning structured `ToolResult` — no bash dependency.
 - **Toolchain resolution** — `src/config/toolchains.ts` is the single source of truth for toolchain
-  *identity*; consumers (`test-runtime-resolver.ts`, `static-analysis.ts`, `new-project.ts`) hold no
+  *identity*; consumers (`test-runtime-resolver.ts`, `static-analysis.ts`) hold no
   independent marker/command lists. `resolveTestRuntime` is a synchronous, per-field **layered
   resolver**: override > `.exarchos.yml` direct > user `toolchains:` > task-runner > built-in
   registry > unresolved. See [`docs/guides/toolchain-resolution.md`](docs/guides/toolchain-resolution.md).

@@ -107,7 +107,7 @@ invariants:
 Listing is explicit by design (no auto-detection, matching the `devCatalog`
 precedent). Multiple files may be listed; they merge in order.
 
-`exarchos init` seeds a `.exarchos.yml` with this `invariants:` block already
+`exarchos onboard` seeds a `.exarchos.yml` with this `invariants:` block already
 present **as comments** (a `devCatalog: disabled` line plus a stubbed
 `catalogs:` example), so the opt-in is discoverable without changing behavior —
 uncomment the keys you want. After editing, validate your catalog wiring with
@@ -253,7 +253,7 @@ catalogs and reports a Warning that names the offending file or reserved id.
 - **Wizard:** `/exarchos:invariants` (the `authoring-invariants` skill) — the
   guided on-ramp; see [Quickstart](#quickstart-the-wizard).
 - [`.exarchos.yml` invariants block](exarchos-yml-invariants.md) — config reference.
-- `exarchos init` — seeds the commented `invariants:` onboarding stanza into a
+- `exarchos onboard` — seeds the commented `invariants:` onboarding stanza into a
   new `.exarchos.yml` (see [§1](#1-register-a-catalog)).
 - `exarchos doctor` → `invariants-catalog` check — validates configured catalogs.
 - `invariants_effective` view — inspect the merged, projected catalog ([§5](#5-inspect-the-effective-catalog)).

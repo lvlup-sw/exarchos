@@ -343,3 +343,4 @@ else
 fi
 
 log "done — run 'exarchos --version' in a new shell to verify"
+log "next  — run 'exarchos onboard' to wire skills + config (or 'exarchos doctor' to check)"

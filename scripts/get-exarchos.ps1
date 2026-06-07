@@ -429,6 +429,8 @@ try {
         -InstallDir $resolvedInstallDir `
         -GithubActionsMode:$GithubActions
 
+    Write-Host "[exarchos] Next: run 'exarchos onboard' to wire skills + config (or 'exarchos doctor' to check)."
+
     exit 0
 }
 catch {
