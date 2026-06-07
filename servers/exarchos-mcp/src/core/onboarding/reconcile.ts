@@ -7,6 +7,9 @@
  *   - `detectDesiredState` (task 005, here) — derive the reconcile target.
  *   - `diff`               (task 006)        — desired + actual → ReconcilePlan.
  *   - `apply`              (task 007)        — execute a plan → ReconcileResult.
+ *   - `reconcileWithEvents`(task 009, here)  — wrap `apply` in the DR-7 two-event
+ *     split (`onboard.requested` → side effect → `onboard.executed`) with INV-13
+ *     crash recovery, over an INJECTED event seam (INV-2 harness-neutrality).
  *
  * Hard constraints (enforced by tests + INV audits):
  *   - INV-2: NO imports from `adapters/*` — behavior lives here, not in the
@@ -35,6 +38,10 @@ import type {
   RuntimeConfigWriter,
   WriteOptions,
 } from '../../orchestrate/init/writers/writer.js';
+import type {
+  OnboardExecuted,
+  OnboardRequested,
+} from '../../event-store/schemas.js';
 import type {
   Advisory,
   DesiredState,
@@ -527,4 +534,197 @@ export async function apply(plan: ReconcilePlan, ctx: ApplyCtx): Promise<Reconci
     residual: acc.residual,
     advisories: acc.advisories,
   };
+}
+
+// ─── reconcileWithEvents (DR-7 / DR-10 — two-event split + crash recovery) ─────
+
+/**
+ * The trigger discriminator carried on both halves of the split — mirrors the
+ * `OnboardTriggerSchema` enum in `event-store/schemas.ts` (`onboard` reconciles
+ * an existing repo, `onboard-new` scaffolds, `doctor-fix` applies the structured
+ * doctor diff). Derived from the event data type so the two never drift.
+ */
+export type OnboardTrigger = OnboardRequested['trigger'];
+
+/**
+ * A type-tagged event the wrapper hands to the injected seam. We model ONLY the
+ * `{ type, data }` shape `apply`'s wrapper needs — the full `WorkflowEvent`
+ * envelope (streamId, sequence, timestamp…) is the seam owner's concern
+ * (Task 010's `onboard` handler), keeping `reconcile.ts` harness-neutral (INV-2).
+ *
+ * The two-event split only ever emits these two types; `data` is the validated
+ * payload shape from `event-store/schemas.ts`.
+ */
+export type EmittedEvent =
+  | { readonly type: 'onboard.requested'; readonly data: OnboardRequested }
+  | { readonly type: 'onboard.executed'; readonly data: OnboardExecuted };
+
+/**
+ * The injected event-store seam (INV-2). The wrapper performs NO real I/O
+ * against the event store — it appends through {@link emit} and inspects prior
+ * intent through {@link readStreamTail}. Tests pass spies; production (Task 010)
+ * wires the real `EventStore` + `getAllWriters()` + `buildWriterDeps()`.
+ *
+ * CRITICAL (CAS-pin idempotency trap): {@link readStreamTail} MUST be a FRESH
+ * read of the current stream tail. The seam owner MUST NOT CAS-pin a follow-on
+ * `emit` to a prior `emit`'s returned sequence — the appender's idempotency
+ * cache-hit precedes its CAS check, so a pinned retry reproduces the same
+ * conflict forever. Plain appends + fresh tail reads sidestep that entirely.
+ */
+export interface ReconcileEventCtx {
+  /** Append one event (plain append — never CAS-pinned to a prior sequence). */
+  emit(event: EmittedEvent): Promise<void>;
+  /** Fresh read of the current stream tail (for the crash-recovery precheck). */
+  readStreamTail(): Promise<readonly EmittedEvent[]>;
+}
+
+/**
+ * Input to {@link reconcileWithEvents}: the repo + trigger plus the (injected)
+ * detect/diff seams. `runDoctorChecks` produces the `actual` check results that
+ * `diff` classifies; `detectOptions` thread into {@link detectDesiredState}.
+ * Both are seams so the wrapper stays pure (no fs/process of its own); the
+ * `onboard` handler (Task 010) supplies the real doctor composer + detection.
+ */
+export interface ReconcileEventInput {
+  /** Repo root the reconcile targets. */
+  readonly repoRoot: string;
+  /** Why the reconcile ran (audit discriminator on both events). */
+  readonly trigger: OnboardTrigger;
+  /** Dry-run: compute the plan but perform NO side effect and emit NO events. */
+  readonly dryRun?: boolean;
+  /** Produces the doctor `actual` check results `diff` classifies. */
+  readonly runDoctorChecks: (repoRoot: string) => Promise<readonly CheckResult[]>;
+  /** Threaded into {@link detectDesiredState} (runtime/vcs/command overrides). */
+  readonly detectOptions?: DetectOptions;
+}
+
+/**
+ * The structured outcome of {@link reconcileWithEvents}: the plan that was
+ * diffed and the {@link ReconcileResult} (omitted on the dry-run path, which
+ * runs no `apply`). `idempotencyKey` is surfaced so callers can correlate the
+ * run with its event pair.
+ */
+export interface ReconcileOutcome {
+  /** The plan diffed for this run (the structured doctor diff). */
+  readonly plan: ReconcilePlan;
+  /** The apply result; absent on the dry-run path. */
+  readonly result?: ReconcileResult;
+  /** The key both emitted events share. */
+  readonly idempotencyKey: string;
+  /** Whether this invocation resumed a crashed prior run (INV-13). */
+  readonly recovered: boolean;
+}
+
+/**
+ * Derive the idempotency key for a logical reconcile run (INV-8). Keyed off the
+ * `repoRoot` + `trigger`, so a retry of the *same* logical run (same repo, same
+ * reason) collapses onto one `onboard.requested`, while a genuinely different
+ * trigger (e.g. `onboard` vs `doctor-fix`) gets its own pair. Deterministic and
+ * side-effect-free — no clock, no randomness — which is what makes the
+ * crash-recovery precheck able to MATCH a dangling prior intent.
+ */
+function deriveIdempotencyKey(repoRoot: string, trigger: OnboardTrigger): string {
+  return `onboard:${repoRoot}:${trigger}`;
+}
+
+/**
+ * Crash-recovery precheck (INV-13 + INV-8). Reads the FRESH stream tail and asks:
+ * is there a prior `onboard.requested` for THIS key with NO paired
+ * `onboard.executed`? If so the prior run crashed between the two events, and
+ * this invocation must resume it — re-detect, re-diff, apply only the residual,
+ * and emit the missing `onboard.executed` — WITHOUT a second `requested` and
+ * without re-running an already-completed non-idempotent write.
+ *
+ * Returns `true` when a dangling request for `key` exists (⇒ recovery mode).
+ */
+function hasDanglingRequest(tail: readonly EmittedEvent[], key: string): boolean {
+  const requested = tail.some(
+    (e) => e.type === 'onboard.requested' && e.data.idempotencyKey === key,
+  );
+  if (!requested) return false;
+  const executed = tail.some(
+    (e) => e.type === 'onboard.executed' && e.data.idempotencyKey === key,
+  );
+  return !executed;
+}
+
+/**
+ * `reconcileWithEvents(input, ctx, applyCtx)` — the DR-7 two-event orchestration
+ * around the event-free {@link apply} (Task 007). `apply`'s contract is unchanged
+ * and it still emits NO events of its own; this wrapper owns the event split.
+ *
+ * Flow (per the DR-7 event diagram):
+ *   1. detect → diff to compute the plan.
+ *   2. dry-run ⇒ return the plan, emit NOTHING, run NO side effect.
+ *   3. crash-recovery precheck (fresh tail read): a dangling `onboard.requested`
+ *      for this key ⇒ RESUME — skip emitting a second `requested`, re-diff, and
+ *      apply only the residual, then emit the missing `onboard.executed`.
+ *   4. normal path: emit `onboard.requested {plan, trigger, idempotencyKey}`
+ *      BEFORE side effects → `await apply(plan, applyCtx)` →
+ *      emit `onboard.executed {result, trigger, idempotencyKey, durationMs}`.
+ *
+ * INV-2: every event-store touch goes through the injected {@link ctx}; INV-13 +
+ * INV-8: the non-idempotent side effect runs AT MOST ONCE across a crash because
+ * a re-run with a completed `executed` short-circuits and a crashed run applies
+ * only the residual. INV-8: the key is derived deterministically so retries
+ * collapse onto one logical request.
+ *
+ * @param applyCtx the {@link ApplyCtx} side-effect bundle passed straight to
+ *   `apply` (writers, seeder, install/hook hooks) — kept separate from the event
+ *   seam so the two injection axes stay independent.
+ */
+export async function reconcileWithEvents(
+  input: ReconcileEventInput,
+  ctx: ReconcileEventCtx,
+  applyCtx: ApplyCtx,
+): Promise<ReconcileOutcome> {
+  const { repoRoot, trigger } = input;
+  const idempotencyKey = deriveIdempotencyKey(repoRoot, trigger);
+
+  // detect → diff (always; needed for the dry-run plan AND the live re-diff).
+  const desired = await detectDesiredState(repoRoot, input.detectOptions);
+  const checks = await input.runDoctorChecks(repoRoot);
+  const plan = diff(desired, checks);
+
+  // Dry-run: surface the plan, but emit nothing and perform no side effect.
+  if (input.dryRun) {
+    return { plan, idempotencyKey, recovered: false };
+  }
+
+  // Crash-recovery precheck — FRESH tail read (no CAS-pin to a prior append).
+  const tail = await ctx.readStreamTail();
+
+  // Already-completed run for this key ⇒ fully idempotent no-op (no re-apply,
+  // no duplicate events). This is what makes a retry collapse (INV-8).
+  const alreadyExecuted = tail.some(
+    (e) => e.type === 'onboard.executed' && e.data.idempotencyKey === idempotencyKey,
+  );
+  if (alreadyExecuted) {
+    return { plan, idempotencyKey, recovered: false };
+  }
+
+  const recovering = hasDanglingRequest(tail, idempotencyKey);
+
+  // Normal path emits the INTENT before any side effect. Recovery resumes a
+  // prior intent, so it must NOT emit a second `requested`.
+  if (!recovering) {
+    await ctx.emit({
+      type: 'onboard.requested',
+      data: { trigger, plan, idempotencyKey },
+    });
+  }
+
+  // Execute. On recovery, `plan` IS the residual re-diff (detect/diff above ran
+  // against the half-applied repo), so only the outstanding steps run.
+  const startedAt = Date.now();
+  const result = await apply(plan, applyCtx);
+  const durationMs = Date.now() - startedAt;
+
+  // Emit the RESULT after side effects, pairing on the shared key.
+  await ctx.emit({
+    type: 'onboard.executed',
+    data: { trigger, result, idempotencyKey, durationMs },
+  });
+
+  return { plan, result, idempotencyKey, recovered: recovering };
 }
