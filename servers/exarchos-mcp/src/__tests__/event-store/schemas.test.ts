@@ -461,7 +461,11 @@ describe('EventTypes', () => {
     // the terminal lifecycle marker emitted by `handleExecuteMerge` adjacent
     // to `merge.executed`. Folded by `merge-orchestrator@v1` as the
     // transition into the `completed` terminal phase.
-    expect(EventTypes).toHaveLength(119);
+    // #1510 DR-7 (task 008): bumped 119 → 121 to include `onboard.requested` +
+    // `onboard.executed`, the two-event onboard contract (INV-1 / INV-13)
+    // emitted by the `onboard` composite. `init.executed` is RETAINED (the init
+    // verb still emits it until task 018, when the verb is removed).
+    expect(EventTypes).toHaveLength(121);
     // Explicit membership pin: a future replacement that swaps one event
     // for another would keep the length stable but silently lose the
     // migration progress type. The membership assert catches that.
@@ -469,6 +473,10 @@ describe('EventTypes', () => {
     expect(EventTypes).toContain('invariant.authored');
     expect(EventTypes).toContain('catalog.registered');
     expect(EventTypes).toContain('merge.completed');
+    expect(EventTypes).toContain('onboard.requested');
+    expect(EventTypes).toContain('onboard.executed');
+    // Sequencing guard: init.executed kept until task 018.
+    expect(EventTypes).toContain('init.executed');
   });
 
   it('should include workflow-level types', () => {

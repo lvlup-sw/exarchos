@@ -537,7 +537,15 @@ describe('EventTypes', () => {
     //   emitted by `handleExecuteMerge` adjacent to `merge.executed`;
     //   folded by `merge-orchestrator@v1` as the transition into the
     //   `completed` terminal phase).
-    expect(EventTypes).toHaveLength(119);
+    // Bumped 119 → 121: onboard.requested + onboard.executed (#1510 DR-7 task
+    //   008 — the two-event onboard contract, INV-1 / INV-13, emitted by the
+    //   `onboard` composite). init.executed is RETAINED (init verb emits it
+    //   until task 018, when the verb is removed).
+    expect(EventTypes).toHaveLength(121);
+    expect(EventTypes).toContain('onboard.requested');
+    expect(EventTypes).toContain('onboard.executed');
+    // Sequencing guard: init.executed kept until task 018.
+    expect(EventTypes).toContain('init.executed');
   });
 
   it('EventTypes_IncludesElicitation', () => {
