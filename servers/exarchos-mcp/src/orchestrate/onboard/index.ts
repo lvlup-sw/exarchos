@@ -45,6 +45,7 @@ import { handleDoctorWithChecks, ALL_CHECKS } from '../doctor/index.js';
 import { buildProbes } from '../doctor/probes.js';
 import { getAllWriters } from '../init/index.js';
 import { installHook as defaultInstallHook } from './hooks.js';
+import { scaffoldNewRepo, type ScaffoldNewResult, type ScaffoldError as ScaffoldNewError } from './new.js';
 import { buildWriterDeps } from '../init/probes.js';
 import type { WriterDeps } from '../init/probes.js';
 import type { RuntimeConfigWriter } from '../init/writers/writer.js';
@@ -125,6 +126,14 @@ export interface OnboardDeps {
   readonly installHook?: (step: import('../../core/onboarding/types.js').PlanStep, ctx: ApplyCtx) => Promise<void>;
   /** Threaded into `detectDesiredState` (runtime/vcs/command overrides). */
   readonly detectOptions?: DetectOptions;
+  /**
+   * DR-3 greenfield scaffold seam (`--new <name>`). Seeds the salvageable
+   * initial scaffold into a FRESH `<name>/` dir and returns its root, or refuses
+   * cleanly over a non-empty target (DR-10). Defaults to {@link scaffoldNewRepo}
+   * resolving `<name>` against {@link OnboardDeps.repoRoot} (the run's cwd).
+   * Tests inject to control WHERE the new repo lands.
+   */
+  readonly scaffold?: (name: string) => ScaffoldNewResult;
 }
 
 // ─── Output shape ─────────────────────────────────────────────────────────────
@@ -308,18 +317,66 @@ function blockingResidualResult(output: OnboardOutput, verifyResult: OnboardVeri
   };
 }
 
-// ─── Greenfield stub (DR-3, task 016) ─────────────────────────────────────────
+// ─── Greenfield scaffold (DR-3, task 016) ─────────────────────────────────────
 
 /**
- * Greenfield scaffold seam (DR-3). Task 016 fills this: create `<name>/`, seed
- * the salvageable scaffold (dir + `.exarchos.yml` seed + `.gitignore`), refuse
- * over a non-empty dir, then fall through to the IDENTICAL DR-2 pipeline. For
- * task 010 it is a no-op that records the requested name on the output flag so
- * the flag is accepted and routed, not silently dropped.
+ * Greenfield scaffold (DR-3). Seeds the salvageable initial scaffold (dir +
+ * `.exarchos.yml` seed + `.gitignore`) into a FRESH `<name>/` then hands the new
+ * repo root back so the caller runs the IDENTICAL DR-2 pipeline against it. A
+ * non-empty target is refused cleanly (DR-10) — the refusal is propagated as a
+ * {@link ScaffoldNewResult} the handler turns into a structured `ToolResult`.
+ *
+ * `--new` is the ONLY difference between greenfield and adopt: this function
+ * produces a freshly-seeded empty dir and nothing else, so running the pipeline
+ * against it is byte-equivalent (modulo timestamps) to adopting an
+ * equivalently-seeded empty dir. There is exactly one pipeline code path.
+ *
+ * The scaffold behavior lives in {@link scaffoldNewRepo} (in `./new.ts`); this
+ * wrapper just resolves the default (`<name>` against `deps.repoRoot`, the run's
+ * cwd) versus the injected `deps.scaffold` seam.
  */
-function scaffoldGreenfield(_name: string): void {
-  // TODO(task 016): real greenfield scaffold. Intentionally a no-op here so the
-  // `--new` flag is accepted and the pipeline still runs against `repoRoot`.
+function scaffoldGreenfield(name: string, deps: OnboardDeps): ScaffoldNewResult {
+  return deps.scaffold
+    ? deps.scaffold(name)
+    : scaffoldNewRepo(name, deps.repoRoot);
+}
+
+/**
+ * Retarget the injected deps at the freshly-scaffolded greenfield `repoRoot`.
+ *
+ * The greenfield dir is a NEW path (a child of the run's cwd), so the whole
+ * pipeline — `repoRoot` (DETECT/CONFIG/VERIFY) AND the GENERATE writers' cwd/home
+ * — must point at it, not the parent cwd. Retargeting `writerDeps.cwd`/`home`
+ * here is what makes the GENERATE step write `CLAUDE.md` / `.claude/` INTO the
+ * new dir. After this, the pipeline body is byte-identical to adopting an
+ * equivalently-seeded empty dir at the same path: one code path, not two.
+ */
+function retargetDeps(deps: OnboardDeps, repoRoot: string): OnboardDeps {
+  return {
+    ...deps,
+    repoRoot,
+    writerDeps: { ...deps.writerDeps, cwd: () => repoRoot, home: () => repoRoot },
+  };
+}
+
+/**
+ * The structured refusal `ToolResult` for a greenfield target that exists and is
+ * non-empty (DR-10). Carries the scaffold error verbatim plus a `suggestedFix`
+ * pointing at a plain `onboard` (adopt the existing dir in place) — no partial
+ * scaffold was written, and no events were emitted.
+ */
+function greenfieldRefusalResult(error: ScaffoldNewError): ToolResult {
+  return {
+    success: false,
+    error: {
+      code: error.code,
+      message: error.message,
+      suggestedFix: {
+        tool: 'exarchos_orchestrate',
+        params: { action: 'onboard' },
+      },
+    },
+  };
 }
 
 // ─── Handler (testable seam) ──────────────────────────────────────────────────
@@ -342,21 +399,31 @@ export async function handleOnboard(
 ): Promise<ToolResult> {
   const startedAt = Date.now();
 
-  // DR-3: greenfield scaffold (no-op stub for task 010 — see seam above).
+  // DR-3: greenfield is the ONLY pre-pipeline difference. When `--new <name>` is
+  // given, seed the salvageable scaffold into a FRESH `<name>/` and RETARGET the
+  // pipeline at that dir; everything below is the identical adopt pipeline. A
+  // non-empty target refuses cleanly (DR-10) BEFORE any pipeline step or event.
   const greenfield = typeof args.new === 'string' && args.new.length > 0;
-  if (greenfield) scaffoldGreenfield(args.new as string);
+  let effectiveDeps = deps;
+  if (greenfield) {
+    const scaffolded = scaffoldGreenfield(args.new as string, deps);
+    if (!scaffolded.ok) {
+      return greenfieldRefusalResult(scaffolded.error);
+    }
+    effectiveDeps = retargetDeps(deps, scaffolded.repoRoot);
+  }
 
   const trigger: OnboardTrigger = greenfield ? 'onboard-new' : 'onboard';
 
   const eventCtx = buildEventCtx(ctx);
-  const applyCtx = buildApplyCtx(deps, args);
+  const applyCtx = buildApplyCtx(effectiveDeps, args);
 
   const input: ReconcileEventInput = {
-    repoRoot: deps.repoRoot,
+    repoRoot: effectiveDeps.repoRoot,
     trigger,
     dryRun: args.dryRun ?? false,
-    runDoctorChecks: deps.runDoctorChecks,
-    ...(deps.detectOptions ? { detectOptions: deps.detectOptions } : {}),
+    runDoctorChecks: effectiveDeps.runDoctorChecks,
+    ...(effectiveDeps.detectOptions ? { detectOptions: effectiveDeps.detectOptions } : {}),
   };
 
   // DETECT → CONFIG → GENERATE → INSTALL (the two-event split + apply).
@@ -378,7 +445,7 @@ export async function handleOnboard(
   }
 
   // VERIFY: re-run the doctor checks → re-diff → blocking-residual gate.
-  const verifyResult = await verify(deps, outcome.plan);
+  const verifyResult = await verify(effectiveDeps, outcome.plan);
 
   const output: OnboardOutput = {
     greenfield,
