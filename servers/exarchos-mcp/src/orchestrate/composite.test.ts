@@ -898,11 +898,17 @@ describe('handleOrchestrate', () => {
       expect(call[1]).toBe(CTX);
     });
 
-    it('OrchestrateRegistry_ActionList_IncludesInit', () => {
+    it('OrchestrateRegistry_ActionList_SwapsInitForOnboard', () => {
+      // Task 011 swap (design line 322): the `init` ACTION is removed from the
+      // registry and `onboard` is registered in its place. The composite.ts
+      // `if (action === 'init')` dispatch branch + `handleInit` handler stay live
+      // until Task 018 (proven by OrchestrateComposite_DispatchInitAction_…
+      // above), but `init` is no longer an enumerable registry action.
       const orchestrate = TOOL_REGISTRY.find((t) => t.name === 'exarchos_orchestrate');
       expect(orchestrate).toBeDefined();
       const actionNames = orchestrate!.actions.map((a) => a.name);
-      expect(actionNames).toContain('init');
+      expect(actionNames).not.toContain('init');
+      expect(actionNames).toContain('onboard');
     });
   });
 

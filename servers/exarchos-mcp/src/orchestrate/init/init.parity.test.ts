@@ -150,7 +150,16 @@ function normalize(value: unknown): unknown {
 
 // ─── Tests ────────────────────────────────────────────────────────────────
 
-describe('exarchos init CLI/MCP parity', () => {
+// SKIPPED by the Task 011 onboard swap (design line 322). These tests assert
+// CLI/MCP parity for the `init` ACTION via the auto-generated `exarchos orch
+// init` subcommand. That subcommand is derived from the orchestrate tool's
+// action list, and the `init` action was removed in the swap — so the CLI arm
+// now hits `unknown command 'init'`. The `handleInitWithWriters` handler stays
+// live (Task 001 characterization drives it directly) but its CLI action surface
+// is retired. Equivalent parity is covered by the onboard parity harness
+// (`orchestrate/onboard/onboard.parity.test.ts`, Task 014). The whole file is
+// removed alongside the handler in Task 018.
+describe.skip('exarchos init CLI/MCP parity (retired — init action swapped for onboard, task 011)', () => {
   let arms: ArmContext[] = [];
   let restoreStub: (() => void) | null = null;
 

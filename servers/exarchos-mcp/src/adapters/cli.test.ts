@@ -436,58 +436,77 @@ describe('version subcommand', () => {
 
 // ─── Task 25: Init Scaffolding Command ────────────────────────────────────────
 
-describe('init command', () => {
+describe('init command (DR-5 rename stub)', () => {
+  // Task 011 swap (design line 322): the `init` action is removed and the `init`
+  // CLI verb is now a one-release error stub — it prints `renamed → use
+  // 'exarchos onboard'` and exits non-zero, running NO onboarding side effect and
+  // dispatching nothing. The `handleInitWithWriters` handler stays live (Task
+  // 001 characterization drives it directly); only the action + verb are retired.
   let ctx: DispatchContext;
+  let originalExitCode: number | string | undefined;
 
   beforeEach(() => {
     vi.clearAllMocks();
     ctx = createTestContext();
+    originalExitCode = process.exitCode;
+    process.exitCode = undefined;
   });
 
-  it('InitCommand_DispatchesOrchestrate', async () => {
-    // The new init command routes through exarchos_orchestrate { action: 'init' }
+  afterEach(() => {
+    process.exitCode = originalExitCode;
+  });
+
+  it('InitCommand_IsRenameStub_DoesNotDispatch', async () => {
+    // The stub must NOT dispatch to exarchos_orchestrate (no onboarding side
+    // effect runs from the stub — DR-5 acceptance criterion).
     const program = buildCli(ctx);
-    const stdoutSpy = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
 
     await program.parseAsync(['node', 'exarchos', 'init']);
 
-    // Assert — dispatch was called with the init action
     const { dispatch } = await import('../core/dispatch.js');
-    expect(dispatch).toHaveBeenCalledWith(
-      'exarchos_orchestrate',
-      expect.objectContaining({ action: 'init' }),
-      expect.anything(),
-    );
+    expect(dispatch).not.toHaveBeenCalled();
 
-    stdoutSpy.mockRestore();
+    stderrSpy.mockRestore();
   });
 
-  it('InitCommand_WithRuntimeFlag_PassesToDispatch', async () => {
+  it('InitCommand_PrintsRenameMessage_PointingAtOnboard', async () => {
     const program = buildCli(ctx);
-    const stdoutSpy = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
+
+    await program.parseAsync(['node', 'exarchos', 'init']);
+
+    const written = stderrSpy.mock.calls.map((c) => String(c[0])).join('');
+    expect(written).toMatch(/renamed/i);
+    expect(written).toContain("exarchos onboard");
+
+    stderrSpy.mockRestore();
+  });
+
+  it('InitCommand_WithRuntimeFlag_StillStubsAndDoesNotDispatch', async () => {
+    // Even with the legacy `--runtime` flag, the stub does not dispatch — the
+    // flag is accepted (allowUnknownOption) but ignored; no init action exists.
+    const program = buildCli(ctx);
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
 
     await program.parseAsync(['node', 'exarchos', 'init', '--runtime', 'copilot']);
 
     const { dispatch } = await import('../core/dispatch.js');
-    expect(dispatch).toHaveBeenCalledWith(
-      'exarchos_orchestrate',
-      expect.objectContaining({ action: 'init', runtime: 'copilot' }),
-      expect.anything(),
-    );
+    expect(dispatch).not.toHaveBeenCalled();
 
-    stdoutSpy.mockRestore();
+    stderrSpy.mockRestore();
   });
 
-  it('InitCommand_SuccessResult_ExitsZero', async () => {
+  it('InitCommand_ExitsNonZero_NotCommandNotFound', async () => {
     const program = buildCli(ctx);
-    const stdoutSpy = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
 
     await program.parseAsync(['node', 'exarchos', 'init']);
 
-    // dispatch mock returns success, so exitCode should be 0 (or undefined)
-    expect(process.exitCode ?? 0).toBe(0);
+    // Non-zero per DR-5 (HANDLER_ERROR=2), not a Commander unknown-command exit.
+    expect(process.exitCode).toBe(CLI_EXIT_CODES.HANDLER_ERROR);
 
-    stdoutSpy.mockRestore();
+    stderrSpy.mockRestore();
   });
 });
 

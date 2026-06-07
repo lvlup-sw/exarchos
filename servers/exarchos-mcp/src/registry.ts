@@ -2368,25 +2368,62 @@ const orchestrateActions: readonly ToolAction[] = [
     outputSchema: EnvelopeSchema(z.unknown()),
     annotations: COMPENSABLE_REMOTE,
   },
-  // ─── Init Action ──────────────────────────────────────────────────────────
+  // ─── Onboard Action (DR-2/DR-5, task 011) ─────────────────────────────────
   {
-    name: 'init',
-    description: 'Initialize runtime configurations and detect VCS provider. Writes MCP server config for detected/specified runtimes. Emits init.executed on completion.',
+    // DR-2: `onboard` is the consolidated first-run verb — it composes the
+    // reconciler's detect→config→generate→install→verify pipeline (the
+    // superset of the legacy `init` + `install-skills` writes) and drives the
+    // repo to a green doctor. Registered as an ACTION on exarchos_orchestrate
+    // (INV-5d — NOT a fifth visible tool; the visible-tool count stays 4).
+    //
+    // Flags auto-emit from this schema via `addFlagsFromSchema` in the CLI
+    // adapter, so CLI/MCP arg parity is preserved by construction (INV-2) and
+    // there is no hand-written flag table to drift. The schema MIRRORS
+    // `HandleOnboardArgs` (orchestrate/onboard/index.ts) MINUS `surface`:
+    // `surface` is adapter-injected (DR-6) — the MCP adapter supplies its
+    // capability surface, the CLI passes `'cli'` — so it must NOT appear here
+    // as a user-facing flag.
+    name: 'onboard',
+    description:
+      'Onboard (or re-onboard) the current repo: detect runtimes + VCS, write/reconcile agent config, install skills, then verify against doctor — driving the repo to a green doctor. Idempotent; re-running reconciles drift only. Use --dry-run to preview the plan without writing, --new <name> to scaffold a fresh project first, --force to overwrite hand-edited config, and --no-hooks to skip the SessionStart binding. Do not use to re-run individual diagnostics — use doctor for that. Emits onboard.requested then onboard.executed (skipped under --dry-run).',
     schema: z.object({
-      runtime: z.string().optional(),
+      // DR-3 greenfield: scaffold `<name>` then run the identical pipeline.
+      new: z.string().optional(),
+      // Explicit agent-host runtime ids — bypasses probing. Array (one per
+      // runtime); the CLI coerces csv/json into the array before parse.
+      runtime: z.array(z.string()).optional(),
+      // Explicit VCS id — bypasses `.git` probing.
       vcs: z.string().optional(),
-      nonInteractive: z.boolean().optional(),
-      forceOverwrite: z.boolean().optional(),
+      // Compute the plan but perform NO side effect and emit NO events.
+      dryRun: z.boolean().optional(),
+      // Overwrite hand-edited config (DR-10) — preserves it otherwise.
+      force: z.boolean().optional(),
+      // Skip the DR-8 SessionStart hook step (#1485).
+      noHooks: z.boolean().optional(),
+      // Output projection hint (the carrier is shape-stable across both).
       format: z.enum(['table', 'json']).optional(),
+      // NOTE: `surface` is intentionally absent — it is adapter-injected (DR-6),
+      // not a user flag. Adding it here would auto-emit a spurious `--surface`
+      // CLI flag and let a caller spoof the capability gate.
     }),
     phases: ALL_PHASES,
     roles: ROLE_ANY,
     autoEmits: [
-      { event: 'init.executed', condition: 'always' },
+      { event: 'onboard.requested', condition: 'always' },
+      { event: 'onboard.executed', condition: 'conditional', description: 'On a non-dry-run that applies the plan' },
     ],
     outputSchema: EnvelopeSchema(z.unknown()),
     annotations: LOCAL_MUTATION,
   },
+  // ─── Init Action ──────────────────────────────────────────────────────────
+  // init action removed in Task 011 (onboard swap); init handler + init.executed
+  // + install-skills removed in Task 018. The `onboard` action above supersedes
+  // it (design line 322: "init action → onboard action"). Removing the action
+  // here clears the #1127 flattener collision between init's legacy
+  // `runtime: string` and onboard's `runtime: string[]` in
+  // `buildRegistrationSchema`. The `init` CLI verb is now a DR-5 rename stub
+  // (adapters/cli.ts); the `handleInitWithWriters` handler stays live so Task
+  // 001's characterization test keeps passing.
   // ─── Invariant Authoring Actions (invariants-catalog-wizard, P2) ───────────
   {
     // P2/T7: create a starter invariant catalog file for a tier and
@@ -2832,7 +2869,7 @@ export const TOOL_REGISTRY: readonly CompositeTool[] = [
     description: 'Task coordination — claim, complete, and fail tasks',
     actions: orchestrateActions,
     cli: { alias: 'orch' },
-    slimDescription: 'Task coordination, quality gates, validation actions, and VCS operations. Use describe(actions) for schemas.\n\nActions: task_claim, task_complete, task_fail, review_triage, prepare_delegation, prepare_synthesis, assess_stack, check_static_analysis, check_integration_suite, check_security_scan, check_context_economy, check_operational_resilience, check_workflow_determinism, check_review_verdict, check_convergence, check_provenance_chain, check_design_completeness, check_plan_coverage, check_tdd_compliance, check_post_merge, check_task_decomposition, check_event_emissions, extract_task, review_diff, verify_worktree, select_debug_track, investigation_timer, check_coverage_thresholds, assess_refactor_scope, check_pr_comments, validate_pr_body, validate_pr_stack, debug_review_gate, extract_fix_tasks, generate_traceability, spec_coverage_check, verify_worktree_baseline, setup_worktree, verify_delegation_saga, post_delegation_check, reconcile_state, pre_synthesis_check, new_project, runbook, agent_spec, doctor, create_pr, merge_pr, check_ci, list_prs, get_pr_comments, add_pr_comment, create_issue, merge_orchestrate, check_invariant_conformance',
+    slimDescription: 'Task coordination, quality gates, validation actions, and VCS operations. Use describe(actions) for schemas.\n\nActions: task_claim, task_complete, task_fail, review_triage, prepare_delegation, prepare_synthesis, assess_stack, check_static_analysis, check_integration_suite, check_security_scan, check_context_economy, check_operational_resilience, check_workflow_determinism, check_review_verdict, check_convergence, check_provenance_chain, check_design_completeness, check_plan_coverage, check_tdd_compliance, check_post_merge, check_task_decomposition, check_event_emissions, extract_task, review_diff, verify_worktree, select_debug_track, investigation_timer, check_coverage_thresholds, assess_refactor_scope, check_pr_comments, validate_pr_body, validate_pr_stack, debug_review_gate, extract_fix_tasks, generate_traceability, spec_coverage_check, verify_worktree_baseline, setup_worktree, verify_delegation_saga, post_delegation_check, reconcile_state, pre_synthesis_check, new_project, runbook, agent_spec, onboard, doctor, create_pr, merge_pr, check_ci, list_prs, get_pr_comments, add_pr_comment, create_issue, merge_orchestrate, check_invariant_conformance',
   },
   {
     name: 'exarchos_view',
