@@ -442,11 +442,20 @@ async function applyGenerateStep(
 }
 
 /**
- * Route an `install` step (DR-6). Install is CLI-only: on the `'cli'` surface it
- * runs through the injected {@link ApplyCtx.installStep} hook (a no-op default
- * here; real `npx` install is task 015) and is applied. Off-CLI it is downgraded
- * to a structured {@link Advisory} pointing at the CLI — never a silent
- * server-side write.
+ * Route an `install` step (DR-6 + DR-10 forward-only). Install is CLI-only: on
+ * the `'cli'` surface it runs through the injected {@link ApplyCtx.installStep}
+ * hook (a no-op default here; real `npx` install is task 015) and is applied.
+ * Off-CLI it is downgraded to a structured {@link Advisory} pointing at the CLI —
+ * never a silent server-side write.
+ *
+ * FORWARD-ONLY (DR-10): an install side effect that THROWS (offline / `npx`
+ * network error) must NOT abort the whole `apply` — that would reject the
+ * pipeline AFTER config/generate have already written, with no way to keep the
+ * work that succeeded. Instead, mirroring {@link applyGenerateStep}, the throw is
+ * swallowed: the step is left in `residual` (so the VERIFY re-diff sees it still
+ * failing and a re-run resumes it) and an {@link Advisory} records the failure
+ * so the operator is told. The already-applied config/generate steps are NOT
+ * rolled back; the run exits non-zero via the VERIFY blocking-residual gate.
  */
 async function applyInstallStep(
   step: PlanStep,
@@ -463,7 +472,23 @@ async function applyInstallStep(
   }
 
   const installStep = ctx.installStep ?? (async () => undefined);
-  await installStep(step, ctx);
+  try {
+    await installStep(step, ctx);
+  } catch (err) {
+    // forward-only: an install failure does not abort apply (DR-10). Leave the
+    // step residual and surface the failure as an advisory; config/generate
+    // steps already applied stay applied (no rollback).
+    const reason = err instanceof Error ? err.message : String(err);
+    acc.residual.push(step);
+    acc.advisories.push({
+      surface: 'cli-only',
+      message:
+        `${step.description} failed: ${reason}. ` +
+        `The reconcile is forward-only — already-applied steps were kept; re-run to resume from the residual.`,
+      commands: ['exarchos onboard'],
+    });
+    return;
+  }
   acc.applied.push(step);
 }
 
