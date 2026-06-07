@@ -155,8 +155,14 @@ async function emitInitEvent(
 
 // ─── Production entry point ───────────────────────────────────────────────
 
-/** All production writers. Order is preserved in output. */
-function getAllWriters(): ReadonlyArray<RuntimeConfigWriter> {
+/**
+ * All production writers. Order is preserved in output.
+ *
+ * Exported so the `onboard` pipeline (task 010, DR-2 GENERATE stage) reuses the
+ * EXACT same writer list as `init` — one canonical source, never a duplicate
+ * list (INV-2 / DR-1: behavior is single-sourced).
+ */
+export function getAllWriters(): ReadonlyArray<RuntimeConfigWriter> {
   return [
     new ClaudeCodeWriter(),
     new CopilotWriter(),
