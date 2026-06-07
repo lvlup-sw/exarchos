@@ -33,6 +33,7 @@ import { envVariables } from './checks/env-variables.js';
 import { vcsGitAvailable } from './checks/vcs-git-available.js';
 import { agentConfigValid } from './checks/agent-config-valid.js';
 import { agentMcpRegistered } from './checks/agent-mcp-registered.js';
+import { sessionStartHook } from './checks/session-start-hook.js';
 import { pluginSkillHashSync } from './checks/plugin-skill-hash-sync.js';
 import { pluginVersionMatch } from './checks/plugin-version-match.js';
 import { remoteMcpStub } from './checks/remote-mcp-stub.js';
@@ -40,8 +41,9 @@ import { invariantsCatalog } from './checks/invariants-catalog.js';
 
 // ─── Canonical check list ──────────────────────────────────────────────────
 
-/** All 11 checks. Order is preserved in the output — callers can scan
- * top-to-bottom for the first Fail. */
+/** All 12 checks. Order is preserved in the output — callers can scan
+ * top-to-bottom for the first Fail. DR-8 added `session-start-hook` (#1485):
+ * the SessionStart binding presence check that lands the default-on hook step. */
 export const ALL_CHECKS: ReadonlyArray<CheckFn> = [
   runtimeNodeVersion,
   storageStateDir,
@@ -50,6 +52,7 @@ export const ALL_CHECKS: ReadonlyArray<CheckFn> = [
   vcsGitAvailable,
   agentConfigValid,
   agentMcpRegistered,
+  sessionStartHook,
   pluginSkillHashSync,
   pluginVersionMatch,
   remoteMcpStub,

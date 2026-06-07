@@ -44,6 +44,7 @@ import type { CheckResult } from '../doctor/schema.js';
 import { handleDoctorWithChecks, ALL_CHECKS } from '../doctor/index.js';
 import { buildProbes } from '../doctor/probes.js';
 import { getAllWriters } from '../init/index.js';
+import { installHook as defaultInstallHook } from './hooks.js';
 import { buildWriterDeps } from '../init/probes.js';
 import type { WriterDeps } from '../init/probes.js';
 import type { RuntimeConfigWriter } from '../init/writers/writer.js';
@@ -113,7 +114,7 @@ export interface OnboardDeps {
   /**
    * Produces the doctor `actual` check results that `diff` classifies. Called
    * TWICE per non-dry-run pipeline: once for the plan (DETECT) and once for the
-   * VERIFY re-diff. The real composer runs the 11 checks; tests stub it.
+   * VERIFY re-diff. The real composer runs the 12 checks; tests stub it.
    */
   readonly runDoctorChecks: (repoRoot: string) => Promise<readonly CheckResult[]>;
   /** Config seeder (defaults to the real `seedExarchosConfig` via `apply`). */
@@ -402,9 +403,10 @@ export async function handleOnboard(
 // ─── Production wiring ────────────────────────────────────────────────────────
 
 /**
- * The production `runDoctorChecks` seam — runs the real 11 checks through the
+ * The production `runDoctorChecks` seam — runs the real 12 checks through the
  * doctor composer (`handleDoctorWithChecks`) and extracts the `CheckResult[]`.
- * Reuses the doctor composer verbatim (INV-2 / DR-4: one check source).
+ * Reuses the doctor composer verbatim (INV-2 / DR-4: one check source). The 12th
+ * check (`session-start-hook`, DR-8) is what lands the default-on hook step.
  */
 function defaultRunDoctorChecks(
   ctx: DispatchContext,
@@ -419,9 +421,15 @@ function defaultRunDoctorChecks(
 
 /**
  * Production deps: real init writers + real writer deps + the real doctor
- * composer. `installStep`/`installHook` are intentionally OMITTED so the
- * reconciler's no-op defaults apply until tasks 012/015 supply real impls.
- * `repoRoot` is the dispatch cwd (the repo being onboarded).
+ * composer + the real DR-8 SessionStart hook installer (`installHook`).
+ *
+ * `installHook` is wired by DEFAULT (#1485, task 012): when the `session-start-hook`
+ * doctor check reports the binding missing, `diff` lands a `hook` PlanStep that
+ * `apply` routes to this installer. `--no-hooks` neutralizes it upstream in
+ * `buildApplyCtx`, so the default-on posture is owned here and the opt-out is a
+ * single seam. `installStep` is still OMITTED (the reconciler's no-op default
+ * applies until task 015 supplies the real `npx` install). `repoRoot` is the
+ * dispatch cwd (the repo being onboarded).
  */
 export function defaultOnboardDeps(
   ctx: DispatchContext,
@@ -436,6 +444,7 @@ export function defaultOnboardDeps(
     writerDeps: buildWriterDeps(),
     writers: getAllWriters(),
     runDoctorChecks: defaultRunDoctorChecks(ctx),
+    installHook: defaultInstallHook,
     ...(Object.keys(detectOptions).length > 0 ? { detectOptions } : {}),
   };
 }

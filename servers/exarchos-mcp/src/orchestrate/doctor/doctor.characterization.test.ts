@@ -7,8 +7,9 @@
  * alters the doctor contract, this file is the canary.
  *
  * What is pinned (the stable contract — NOT environment-dependent noise):
- *   1. The exact set of 11 checks returned as `CheckResult[]`, identified by
- *      their `(category, name)` pair and stable order.
+ *   1. The exact set of 12 checks returned as `CheckResult[]`, identified by
+ *      their `(category, name)` pair and stable order. (DR-8 added the 12th —
+ *      `session-start-hook`, the #1485 SessionStart binding presence check.)
  *   2. The per-check shape invariants from the Zod contract (schema.ts):
  *        - every result carries category/name/status/message/durationMs
  *        - status === 'Skipped'  ⇒ non-empty `reason`
@@ -51,9 +52,13 @@ import { handleDoctor, ALL_CHECKS } from './index.js';
 // ─── Pinned canonical check identity ────────────────────────────────────────
 
 /**
- * The eleven checks, pinned by `(category, name)` and ORDER. `handleDoctor`
+ * The twelve checks, pinned by `(category, name)` and ORDER. `handleDoctor`
  * preserves `ALL_CHECKS` order in its output (callers scan top-to-bottom for
  * the first Fail), so the order is part of the observable contract.
+ *
+ * DR-8 (#1485) added `session-start-hook` — the SessionStart binding presence
+ * check — as the 12th entry, placed with the other `agent`-category checks so
+ * its `diff` `hook` PlanStep lands when the binding is missing.
  */
 const PINNED_CHECKS: ReadonlyArray<{
   category: CheckResult['category'];
@@ -66,6 +71,7 @@ const PINNED_CHECKS: ReadonlyArray<{
   { category: 'vcs', name: 'git-available' },
   { category: 'agent', name: 'agent-config-valid' },
   { category: 'agent', name: 'agent-mcp-registered' },
+  { category: 'agent', name: 'session-start-hook' },
   { category: 'plugin', name: 'plugin-skill-hash-sync' },
   { category: 'plugin', name: 'plugin-version-match' },
   { category: 'remote', name: 'remote-mcp' },
@@ -130,9 +136,9 @@ describe('doctor characterization (DR-9 baseline)', () => {
     const output: DoctorOutput = DoctorOutputSchema.parse(result.data);
     const { checks, summary } = output;
 
-    // ── 1. The eleven checks, pinned by (category, name) and order ──────────
-    expect(ALL_CHECKS).toHaveLength(11);
-    expect(checks).toHaveLength(11);
+    // ── 1. The twelve checks, pinned by (category, name) and order ──────────
+    expect(ALL_CHECKS).toHaveLength(12);
+    expect(checks).toHaveLength(12);
 
     const observedIdentity = checks.map((c) => ({
       category: c.category,
@@ -142,7 +148,7 @@ describe('doctor characterization (DR-9 baseline)', () => {
 
     // The name set is exactly the pinned set (no dupes, no strays).
     const observedNames = new Set(checks.map((c) => c.name));
-    expect(observedNames.size).toBe(11);
+    expect(observedNames.size).toBe(12);
     for (const { name } of PINNED_CHECKS) {
       expect(observedNames.has(name)).toBe(true);
     }
@@ -212,7 +218,7 @@ describe('doctor characterization (DR-9 baseline)', () => {
 
     // Pinned cross-field invariants between the event and the doctor output.
     expect(payload.checkCount).toBe(checks.length);
-    expect(payload.checkCount).toBe(11);
+    expect(payload.checkCount).toBe(12);
     expect(payload.summary).toEqual(summary);
     expect(payload.failedCheckNames).toEqual(
       checks.filter((c) => c.status === 'Fail').map((c) => c.name),
