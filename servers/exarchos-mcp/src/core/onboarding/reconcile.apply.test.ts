@@ -275,6 +275,51 @@ describe('apply', () => {
     }
   });
 
+  // ─── RF-2 (#1510): a throwing hook is FORWARD-ONLY, never an abort ──────────
+
+  it('Apply_HookStepThrows_IsForwardOnly_ResidualPlusAdvisory_PipelineNotAborted', async () => {
+    const fx = await createFixture();
+    try {
+      // A hook installer that fails (e.g. an unwritable settings file). Before
+      // RF-2, `applyHookStep` had no try/catch, so this throw propagated out of
+      // `apply` and aborted the whole pipeline — discarding the config step that
+      // had ALREADY been applied earlier in the plan.
+      const hookError = new Error('settings.json is read-only');
+      const hookSpy = vi.fn().mockRejectedValue(hookError);
+      const ctx = makeCtx(fx, { surface: 'cli', installHook: hookSpy });
+
+      // config FIRST (it applies), hook SECOND (it throws). Forward-only requires
+      // the already-applied config to survive the hook failure.
+      const plan: ReconcilePlan = { steps: [configStep(), hookStep()] };
+
+      // Must NOT reject — a thrown hook is swallowed, not propagated.
+      const result = await apply(plan, ctx);
+
+      // Still a valid ReconcileResult (no partial/throw escape).
+      expect(() => ReconcileResultSchema.parse(result)).not.toThrow();
+
+      // The hook installer WAS invoked (and threw).
+      expect(hookSpy).toHaveBeenCalledTimes(1);
+
+      // FORWARD-ONLY: the already-applied config step is KEPT (no rollback).
+      expect(result.applied.map((s) => s.key)).toContain('state-dir');
+
+      // The failed hook step landed in `residual` (so the VERIFY re-diff sees it
+      // and a re-run resumes from it) — NOT in `applied`.
+      expect(result.residual.map((s) => s.key)).toContain('session-start-hook');
+      expect(result.applied.map((s) => s.key)).not.toContain('session-start-hook');
+
+      // An advisory surfaces the hook failure with its reason (forward-only).
+      const hookAdvisory = result.advisories.find((a) =>
+        /session-start-hook|read-only|forward-only/i.test(a.message),
+      );
+      expect(hookAdvisory).toBeDefined();
+      expect(hookAdvisory?.message).toContain('settings.json is read-only');
+    } finally {
+      await cleanup(fx);
+    }
+  });
+
   // ─── generate steps route through the init writers ──────────────────────────
 
   it('Apply_GenerateStep_RoutesThroughInitWriters', async () => {

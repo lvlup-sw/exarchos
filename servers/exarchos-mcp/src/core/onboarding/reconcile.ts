@@ -494,7 +494,16 @@ async function applyInstallStep(
 
 /**
  * Route a `hook` step through the injected {@link ApplyCtx.installHook} (a no-op
- * default; the #1485 SessionStart binding lands in task 012). Applied on success.
+ * default; the #1485 SessionStart binding installer lives in `onboard/hooks.ts`).
+ *
+ * FORWARD-ONLY (DR-10): a hook side effect that THROWS (e.g. an unwritable
+ * settings file) must NOT abort the whole `apply` — that would reject the
+ * pipeline AFTER config/generate/install have already written, with no way to
+ * keep the work that succeeded. Mirroring {@link applyInstallStep}, the throw is
+ * swallowed: the step is left in `residual` (so the VERIFY re-diff sees it still
+ * failing and a re-run resumes it) and an {@link Advisory} records the failure so
+ * the operator is told. Already-applied steps are NOT rolled back; the run exits
+ * non-zero via the VERIFY blocking-residual gate. Applied on success.
  */
 async function applyHookStep(
   step: PlanStep,
@@ -502,7 +511,22 @@ async function applyHookStep(
   acc: ResultAcc,
 ): Promise<void> {
   const installHook = ctx.installHook ?? (async () => undefined);
-  await installHook(step, ctx);
+  try {
+    await installHook(step, ctx);
+  } catch (err) {
+    // forward-only: a hook failure does not abort apply (DR-10). Leave the step
+    // residual and surface the failure as an advisory; already-applied steps
+    // stay applied (no rollback).
+    const reason = err instanceof Error ? err.message : String(err);
+    acc.residual.push(step);
+    acc.advisories.push({
+      surface: step.surface,
+      message:
+        `${step.description} failed: ${reason}. ` +
+        `The reconcile is forward-only — already-applied steps were kept; re-run to resume from the residual.`,
+    });
+    return;
+  }
   acc.applied.push(step);
 }
 
