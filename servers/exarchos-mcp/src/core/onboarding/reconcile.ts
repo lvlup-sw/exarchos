@@ -26,11 +26,22 @@ import {
   type AgentRuntimeName,
 } from '../../runtime/agent-environment-detector.js';
 import type { CheckResult } from '../../orchestrate/doctor/schema.js';
+import {
+  seedExarchosConfig,
+  type SeedResult,
+} from '../../orchestrate/init/seed-exarchos-config.js';
+import type { WriterDeps } from '../../orchestrate/init/probes.js';
 import type {
+  RuntimeConfigWriter,
+  WriteOptions,
+} from '../../orchestrate/init/writers/writer.js';
+import type {
+  Advisory,
   DesiredState,
   PlanStep,
   PlanStepKind,
   ReconcilePlan,
+  ReconcileResult,
   ResolvedCommands,
   Surface,
 } from './types.js';
@@ -277,4 +288,243 @@ function toPlanStep(check: CheckResult): PlanStep {
 export function diff(_desired: DesiredState, actual: readonly CheckResult[]): ReconcilePlan {
   const steps = actual.filter(isRemediable).map(toPlanStep);
   return { steps };
+}
+
+// ─── apply (DR-1 / DR-10) ─────────────────────────────────────────────────────
+
+/**
+ * The injected side-effect dependency bundle for {@link apply}.
+ *
+ * `apply` is a PURE-ISH executor: it holds NO real I/O of its own and performs
+ * side effects ONLY through these hooks, so task 009 (the event-emitting wrapper)
+ * and the unit tests can drive it against a temp-dir fs without touching `$HOME`
+ * or the event store. Crucially, `apply` emits NO events itself — the
+ * `onboard.requested` / `onboard.executed` two-event split + crash recovery is
+ * owned by task 009, which wraps this function (DR-7 / INV-13).
+ */
+export interface ApplyCtx {
+  /** Repo root the config step seeds (`.exarchos.yml` lives here). */
+  readonly repoRoot: string;
+  /**
+   * Capability surface the run executes on (DR-6). A `cli-only` step is only
+   * run when `surface === 'cli'`; off-CLI it is downgraded to an {@link Advisory}.
+   */
+  readonly surface: Surface | 'cli';
+  /**
+   * Overwrite hand-edited config (DR-10). Default `false` preserves the
+   * `seedExarchosConfig` never-overwrite posture; `true` overwrites and records
+   * the overwrite as an advisory.
+   */
+  readonly force?: boolean;
+  /** Injected writer deps for GENERATE (real-fs in prod, temp-dir in tests). */
+  readonly writerDeps: WriterDeps;
+  /**
+   * Init writers GENERATE steps route through (defaults to none — the caller
+   * supplies the production writer list). Reused verbatim; not reimplemented.
+   */
+  readonly writers?: ReadonlyArray<RuntimeConfigWriter>;
+  /**
+   * Config seeder (defaults to {@link seedExarchosConfig}). Injection seam so
+   * tests can stub detection; production passes the real seeder.
+   */
+  readonly seed?: (repoRoot: string, force: boolean) => SeedResult;
+  /**
+   * CLI-only install hook (real impl is task 015). Default no-op so the routing
+   * + result semantics can be exercised before install logic lands.
+   */
+  readonly installStep?: (step: PlanStep, ctx: ApplyCtx) => Promise<void>;
+  /**
+   * Lifecycle-hook installer (real impl is task 012). Default no-op so the hook
+   * routing can be exercised before the #1485 binding logic lands.
+   */
+  readonly installHook?: (step: PlanStep, ctx: ApplyCtx) => Promise<void>;
+}
+
+/**
+ * The config seeder, with `force` threaded onto the never-overwrite check.
+ *
+ * `seedExarchosConfig` is non-destructive by contract: it short-circuits on an
+ * existing `.exarchos.yml`. The only honest way to overwrite under `--force`
+ * (DR-10 "force overwrites and says so") is to bypass its existence gate — which
+ * we do by injecting `exists: () => false`, so the real seeder writes the
+ * resolver-derived config over the hand-edit. Without force we call the seeder
+ * unmodified, preserving its posture verbatim.
+ */
+function defaultSeed(repoRoot: string, force: boolean): SeedResult {
+  return force
+    ? seedExarchosConfig(repoRoot, { exists: () => false })
+    : seedExarchosConfig(repoRoot);
+}
+
+/** A mutable accumulator threaded through the per-step routers. */
+interface ResultAcc {
+  readonly applied: PlanStep[];
+  readonly skipped: PlanStep[];
+  readonly residual: PlanStep[];
+  readonly advisories: Advisory[];
+}
+
+/**
+ * Route a `config` step through the (force-aware) seeder. A fresh write or a
+ * forced overwrite ⇒ applied; an existing hand-edit preserved without force ⇒
+ * skipped; an unresolved-no-fields seeder no-op ⇒ residual (still needs doing).
+ * A forced overwrite additionally emits an advisory so the operator is told.
+ */
+function applyConfigStep(step: PlanStep, ctx: ApplyCtx, acc: ResultAcc): void {
+  const seed = ctx.seed ?? defaultSeed;
+  const force = ctx.force ?? false;
+  const seedResult = seed(ctx.repoRoot, force);
+
+  if (seedResult.wrote) {
+    acc.applied.push(step);
+    if (force) {
+      acc.advisories.push({
+        surface: 'any',
+        message: `--force overwrote ${seedResult.path} with the resolver-derived config (hand edits discarded).`,
+      });
+    }
+    return;
+  }
+
+  if (seedResult.reason === 'already-exists') {
+    // Hand-edit preserved (never-overwrite posture) — intentionally not run.
+    acc.skipped.push(step);
+    return;
+  }
+
+  // unresolved-no-fields: nothing could be written; the step still needs doing.
+  acc.residual.push(step);
+}
+
+/**
+ * Route a `generate` step through the existing init writers (no rewrite). Runs
+ * every supplied writer with the injected {@link WriterDeps}; the step is applied
+ * if at least one writer reports a real write, else left residual. Writers that
+ * throw are swallowed (forward-only reconcile, DR-10) — a writer failure leaves
+ * the step residual rather than aborting the whole apply.
+ */
+async function applyGenerateStep(
+  step: PlanStep,
+  ctx: ApplyCtx,
+  acc: ResultAcc,
+): Promise<void> {
+  const writers = ctx.writers ?? [];
+  if (writers.length === 0) {
+    acc.residual.push(step);
+    return;
+  }
+
+  const options: WriteOptions = {
+    projectRoot: ctx.writerDeps.cwd(),
+    nonInteractive: true,
+    forceOverwrite: ctx.force ?? false,
+  };
+
+  let anyWritten = false;
+  for (const writer of writers) {
+    try {
+      const res = await writer.write(ctx.writerDeps, options);
+      if (res.status === 'written') anyWritten = true;
+    } catch {
+      // forward-only: a writer failure does not abort apply (DR-10).
+    }
+  }
+
+  if (anyWritten) acc.applied.push(step);
+  else acc.residual.push(step);
+}
+
+/**
+ * Route an `install` step (DR-6). Install is CLI-only: on the `'cli'` surface it
+ * runs through the injected {@link ApplyCtx.installStep} hook (a no-op default
+ * here; real `npx` install is task 015) and is applied. Off-CLI it is downgraded
+ * to a structured {@link Advisory} pointing at the CLI — never a silent
+ * server-side write.
+ */
+async function applyInstallStep(
+  step: PlanStep,
+  ctx: ApplyCtx,
+  acc: ResultAcc,
+): Promise<void> {
+  if (ctx.surface !== 'cli') {
+    acc.advisories.push({
+      surface: 'cli-only',
+      message: `${step.description} requires the CLI surface; run it from the Exarchos CLI.`,
+      commands: ['exarchos onboard'],
+    });
+    return;
+  }
+
+  const installStep = ctx.installStep ?? (async () => undefined);
+  await installStep(step, ctx);
+  acc.applied.push(step);
+}
+
+/**
+ * Route a `hook` step through the injected {@link ApplyCtx.installHook} (a no-op
+ * default; the #1485 SessionStart binding lands in task 012). Applied on success.
+ */
+async function applyHookStep(
+  step: PlanStep,
+  ctx: ApplyCtx,
+  acc: ResultAcc,
+): Promise<void> {
+  const installHook = ctx.installHook ?? (async () => undefined);
+  await installHook(step, ctx);
+  acc.applied.push(step);
+}
+
+/**
+ * `apply(plan, ctx)` — execute a {@link ReconcilePlan} into a
+ * {@link ReconcileResult} (DR-1 / DR-10).
+ *
+ * Routes each {@link PlanStep} to the right EXISTING writer by `kind`:
+ *   - `config`   → `seedExarchosConfig` (never-overwrite unless `ctx.force`).
+ *   - `generate` → the init writers (`ctx.writers`, run with `ctx.writerDeps`).
+ *   - `install`  → CLI-only; off-CLI it downgrades to an {@link Advisory} (DR-6).
+ *   - `hook`     → `ctx.installHook` (real impl task 012; no-op default).
+ *
+ * Result semantics: `applied` = side effect ran; `skipped` = intentionally not
+ * run (preserved hand-edit without force); `residual` = still needs doing after
+ * apply (feeds the verify re-diff); `advisories` = surface-gated downgrades +
+ * the forced-overwrite notice.
+ *
+ * Idempotence precondition: an empty plan is a NO-OP — no side effect fires and
+ * every bucket is empty. Apply emits NO events; that is task 009's wrapper.
+ *
+ * Steps run in plan order; routing is exhaustive over {@link PlanStepKind} so an
+ * unhandled kind is a compile error, never a silent drop.
+ */
+export async function apply(plan: ReconcilePlan, ctx: ApplyCtx): Promise<ReconcileResult> {
+  const acc: ResultAcc = { applied: [], skipped: [], residual: [], advisories: [] };
+
+  for (const step of plan.steps) {
+    const kind: PlanStepKind = step.kind;
+    switch (kind) {
+      case 'config':
+        applyConfigStep(step, ctx, acc);
+        break;
+      case 'generate':
+        await applyGenerateStep(step, ctx, acc);
+        break;
+      case 'install':
+        await applyInstallStep(step, ctx, acc);
+        break;
+      case 'hook':
+        await applyHookStep(step, ctx, acc);
+        break;
+      default: {
+        // Exhaustiveness guard — a new PlanStepKind must add a router here.
+        const _exhaustive: never = kind;
+        throw new Error(`apply: unhandled PlanStep kind: ${String(_exhaustive)}`);
+      }
+    }
+  }
+
+  return {
+    applied: acc.applied,
+    skipped: acc.skipped,
+    residual: acc.residual,
+    advisories: acc.advisories,
+  };
 }
