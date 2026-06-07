@@ -242,7 +242,7 @@ export const READ_ONLY_ACTIONS = {
   // (event-emitting), `prepare_delegation`, `prepare_synthesis`,
   // `assess_stack` (event-emitting / `shepherd.*`), `setup_worktree`,
   // `merge_orchestrate`, `merge_pr`, `create_pr`, `create_issue`,
-  // `add_pr_comment`, `init`, `new_project`, `prune_stale_workflows`,
+  // `add_pr_comment`, `init`, `prune_stale_workflows`,
   // `request_synthesize`, `finalize_oneshot`, `reconcile_state`,
   // `extract_fix_tasks`, `pre_synthesis_check`, `post_delegation_check`,
   // `debug_review_gate`, `check_pr_comments` (queries gh state but is

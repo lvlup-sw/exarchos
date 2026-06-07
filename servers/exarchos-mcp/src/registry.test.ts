@@ -547,13 +547,15 @@ describe('TOOL_REGISTRY', () => {
   });
 
   describe('exarchos_orchestrate', () => {
-    it('should have 69 actions for task management, review triage, gate checks, validation handlers, runbooks, agent spec, oneshot/pruning, onboard (DR-2 task 011), doctor, VCS, classify_review_items (#1159), merge_orchestrate (DR-MO-1), check_integration_suite (#1329), check_invariant_conformance (DR-3), invariants_scaffold/invariants_add (invariants-catalog-wizard P2), and composite actions', () => {
+    it('should have 68 actions for task management, review triage, gate checks, validation handlers, runbooks, agent spec, oneshot/pruning, onboard (DR-2 task 011), doctor, VCS, classify_review_items (#1159), merge_orchestrate (DR-MO-1), check_integration_suite (#1329), check_invariant_conformance (DR-3), invariants_scaffold/invariants_add (invariants-catalog-wizard P2), and composite actions', () => {
       const composite = findComposite('exarchos_orchestrate');
       expect(composite).toBeDefined();
-      // 69 = 69 prior − `init` (removed in the task-011 onboard swap, design
-      // line 322) + `onboard` (DR-2/DR-5 task 011). The `init` CLI verb is now a
-      // rename stub and the `init.executed` event + handler survive until Task 018.
-      expect(composite!.actions).toHaveLength(69);
+      // 68 = 69 prior − `new_project` (retired in DR-3 task 017; the greenfield
+      // path is now `onboard --new` from task 016, and `applyLanguageCustomizations`'
+      // INV-6-violating npm→dotnet string-rewrite is deleted — closes #1508). The
+      // `init` CLI verb is now a rename stub and the `init.executed` event +
+      // handler survive until Task 018.
+      expect(composite!.actions).toHaveLength(68);
 
       const actionNames = composite!.actions.map((a) => a.name);
       expect(actionNames).toEqual(
@@ -599,7 +601,6 @@ describe('TOOL_REGISTRY', () => {
           'post_delegation_check',
           'reconcile_state',
           'pre_synthesis_check',
-          'new_project',
           'check_coderabbit',
           'check_polish_scope',
           'needs_schema_sync',
