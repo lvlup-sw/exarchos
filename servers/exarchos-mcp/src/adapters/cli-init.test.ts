@@ -5,9 +5,9 @@
  * action was removed from the registry and the `init` CLI verb is now a
  * one-release DR-5 **rename stub**. It prints `renamed → use 'exarchos onboard'`
  * and exits non-zero (HANDLER_ERROR=2, NOT "command not found"), runs NO
- * onboarding side effect, and dispatches nothing. The `handleInitWithWriters`
- * handler + `init.executed` event stay live until Task 018 (Task 001's
- * characterization drives the handler directly).
+ * onboarding side effect, and dispatches nothing. The init handler
+ * (`handleInitWithWriters`) + `init.executed` event were fully removed in DR-5
+ * (task 018) — `onboard` reproduces init's outputs via the GENERATE writers.
  *
  * These tests drive the CLI programmatically (buildCli + parseAsync) rather than
  * spawning a subprocess, mirroring the pattern in cli-doctor.test.ts.

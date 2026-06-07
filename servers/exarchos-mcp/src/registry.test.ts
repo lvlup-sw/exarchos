@@ -553,8 +553,8 @@ describe('TOOL_REGISTRY', () => {
       // 68 = 69 prior − `new_project` (retired in DR-3 task 017; the greenfield
       // path is now `onboard --new` from task 016, and `applyLanguageCustomizations`'
       // INV-6-violating npm→dotnet string-rewrite is deleted — closes #1508). The
-      // `init` CLI verb is now a rename stub and the `init.executed` event +
-      // handler survive until Task 018.
+      // `init`/`install-skills` CLI verbs are rename stubs; the init action,
+      // handler, and `init.executed` event were fully removed in DR-5 (task 018).
       expect(composite!.actions).toHaveLength(68);
 
       const actionNames = composite!.actions.map((a) => a.name);

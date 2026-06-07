@@ -210,6 +210,64 @@ describe('installStep (DR-2/DR-6 — skills + deps install)', () => {
     }
   });
 
+  it('Install_DoesNotRegisterMcp_SingleRegistrationInGenerate', async () => {
+    // DR-5 (task 018): MCP registration is written by EXACTLY ONE code path —
+    // the reconciler's GENERATE step (the init writers, e.g. ClaudeCodeWriter →
+    // ~/.claude.json + the mcp-json-writer → .vscode/.cursor mcp.json). The
+    // install step (which reuses `installSkills`, whose DEFAULT `registerMcp` is
+    // `registerExarchosInClaudeJson`) must NOT also register MCP, or claude
+    // repos would double-register. The PRODUCTION `installStep` therefore threads
+    // a NO-OP `registerMcp` into the skills-install seam.
+    //
+    // We capture the opts the default `installStep` forwards to the skills-install
+    // seam (the bridge passthrough) WITHOUT injecting our own `registerMcp` — so
+    // we observe production's own choice. A `registerMcp` MUST be present and MUST
+    // be a no-op (calling it writes nothing).
+    const fx = await createFixture();
+    try {
+      const skillsSource = await seedSkillsSource(fx);
+
+      let capturedRegisterMcp: ((home: string) => void) | undefined;
+      const runSkillsInstall = vi.fn(async (opts: { registerMcp?: (home: string) => void }) => {
+        capturedRegisterMcp = opts.registerMcp;
+      });
+
+      // PRODUCTION deps: no `registerMcp` injected — we assert the default the
+      // step itself supplies. `runSkillsInstall` is captured so we never reach
+      // the real bridge; `runCommand` is stubbed so deps-install is a no-op.
+      const deps: InstallStepDeps = {
+        agent: 'claude',
+        resolveSkillsSource: () => skillsSource,
+        runtimes: [
+          { name: 'claude', skillsInstallPath: path.join(fx.home, '.claude', 'skills') } as never,
+        ],
+        homeDir: () => fx.home,
+        runSkillsInstall,
+        runCommand: vi.fn(async () => {}),
+      };
+
+      const step = installPlanStep();
+      const ctx = applyCtx(fx);
+      const installStep = makeInstallStep(deps);
+      await installStep(step, ctx);
+
+      // The skills-install seam was reached and a `registerMcp` was threaded.
+      expect(runSkillsInstall).toHaveBeenCalledTimes(1);
+      expect(typeof capturedRegisterMcp).toBe('function');
+
+      // It is a NO-OP: calling it writes NO `~/.claude.json` (single-registration
+      // is owned by GENERATE, not the install step).
+      const claudeJson = path.join(fx.home, '.claude.json');
+      capturedRegisterMcp!(fx.home);
+      const homeEntries = await readdir(fx.home).catch(() => [] as string[]);
+      expect(homeEntries).not.toContain('.claude.json');
+      // Belt-and-braces: the file genuinely does not exist.
+      await expect(readFile(claudeJson, 'utf8')).rejects.toThrow();
+    } finally {
+      await cleanup(fx);
+    }
+  });
+
   it('Install_WiredIntoDefaultOnboardDeps_CliSurface', async () => {
     const fx = await createFixture();
     try {

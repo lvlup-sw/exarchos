@@ -2407,14 +2407,15 @@ const orchestrateActions: readonly ToolAction[] = [
     annotations: LOCAL_MUTATION,
   },
   // ─── Init Action ──────────────────────────────────────────────────────────
-  // init action removed in Task 011 (onboard swap); init handler + init.executed
-  // + install-skills removed in Task 018. The `onboard` action above supersedes
-  // it (design line 322: "init action → onboard action"). Removing the action
-  // here clears the #1127 flattener collision between init's legacy
+  // init action removed in Task 011 (onboard swap); the init handler
+  // (`handleInitWithWriters`), `init.executed` event, and `install-skills` verb
+  // were fully removed in DR-5 (task 018). The `onboard` action above supersedes
+  // init (design line 322: "init action → onboard action") — it reuses the same
+  // writer list (`getAllWriters()`) via the reconciler's GENERATE step. Removing
+  // the action also cleared the #1127 flattener collision between init's legacy
   // `runtime: string` and onboard's `runtime: string[]` in
-  // `buildRegistrationSchema`. The `init` CLI verb is now a DR-5 rename stub
-  // (adapters/cli.ts); the `handleInitWithWriters` handler stays live so Task
-  // 001's characterization test keeps passing.
+  // `buildRegistrationSchema`. The `init`/`install-skills` CLI verbs are now
+  // DR-5 rename stubs (adapters/cli.ts).
   // ─── Invariant Authoring Actions (invariants-catalog-wizard, P2) ───────────
   {
     // P2/T7: create a starter invariant catalog file for a tier and

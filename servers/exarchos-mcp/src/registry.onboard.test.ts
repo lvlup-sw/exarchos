@@ -9,15 +9,15 @@ import { TOOL_REGISTRY, findActionInRegistry } from './registry.js';
 // auto-emits from the Zod schema via `addFlagsFromSchema` in the CLI adapter —
 // there is no hand-written flag table to drift (INV-5a / INV-2 parity).
 //
-// SWAP (design line 322: "init action → onboard action"): this task REMOVES the
-// legacy `init` action and registers `onboard` in its place. Removing the init
-// action is what clears the #1127 flattener collision in buildRegistrationSchema
+// SWAP (design line 322: "init action → onboard action"): task 011 REMOVED the
+// legacy `init` action and registered `onboard` in its place. Removing the init
+// action is what cleared the #1127 flattener collision in buildRegistrationSchema
 // between init's `runtime: string` and onboard's `runtime: string[]` (a single
-// flattened JSON-Schema slot can't be both). The `init` CLI verb becomes a DR-5
-// rename stub (`renamed → use 'exarchos onboard'`, non-zero exit) and the
-// `handleInitWithWriters` handler + `init.executed` event stay live until Task
-// 018, so Task 001's characterization (which drives the handler) keeps passing.
-// The `Registry_InitAction_RemovedBySwap` assertion below fails loud if the init
+// flattened JSON-Schema slot can't be both). The `init` CLI verb is a DR-5
+// rename stub (`renamed → use 'exarchos onboard'`, non-zero exit); the init
+// handler + `init.executed` event were fully removed in DR-5 (task 018), with
+// `onboard` reproducing init's outputs via the GENERATE writers. The
+// `Registry_InitAction_RemovedBySwap` assertion below fails loud if the init
 // action ever reappears.
 
 describe('Registry_OnboardAction', () => {
@@ -106,11 +106,11 @@ describe('Registry_OnboardAction', () => {
 
   it('Registry_InitAction_RemovedBySwap', () => {
     // DR-2/DR-5 swap (design line 322: "init action → onboard action"). The
-    // `init` ACTION is removed in this task — `onboard` supersedes it. This also
-    // clears the #1127 flattener collision between init's `runtime: string` and
+    // `init` ACTION was removed (task 011) — `onboard` supersedes it. This also
+    // cleared the #1127 flattener collision between init's `runtime: string` and
     // onboard's `runtime: string[]` in buildRegistrationSchema. The `init` CLI
-    // verb becomes a DR-5 rename stub and the `handleInitWithWriters` handler +
-    // `init.executed` event survive until Task 018.
+    // verb is a DR-5 rename stub; the init handler + `init.executed` event were
+    // fully removed in DR-5 (task 018).
     const init = findActionInRegistry('exarchos_orchestrate', 'init');
     expect(
       init,
