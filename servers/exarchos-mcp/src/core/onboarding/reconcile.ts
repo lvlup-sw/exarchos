@@ -25,7 +25,15 @@ import {
   detectAgentEnvironments,
   type AgentRuntimeName,
 } from '../../runtime/agent-environment-detector.js';
-import type { DesiredState, ResolvedCommands } from './types.js';
+import type { CheckResult } from '../../orchestrate/doctor/schema.js';
+import type {
+  DesiredState,
+  PlanStep,
+  PlanStepKind,
+  ReconcilePlan,
+  ResolvedCommands,
+  Surface,
+} from './types.js';
 
 // ─── Options ─────────────────────────────────────────────────────────────────
 
@@ -133,4 +141,140 @@ export async function detectDesiredState(
     : [...(await (opts?.detectRuntimes ?? detectRuntimesDefault)(repoRoot))];
 
   return { runtimes, vcs, commands };
+}
+
+// ─── diff (DR-1 / DR-4) ──────────────────────────────────────────────────────
+
+/**
+ * Classification of one doctor check into reconcile-step terms. Keyed off the
+ * check's stable `name` (its identity in the doctor output), this is the single
+ * source for *how* a remediable check becomes a {@link PlanStep}:
+ *   - `kind`    — the category of work (`config` / `generate` / `install` / `hook`).
+ *   - `surface` — the capability surface required (DR-6: skills/deps install is
+ *     `'cli-only'`; everything else runs on `'any'` harness path).
+ *
+ * A check absent from this map falls back to {@link classifyByCategory} so new
+ * checks degrade to a sensible default instead of being silently dropped.
+ */
+interface StepClassification {
+  readonly kind: PlanStepKind;
+  readonly surface: Surface;
+}
+
+/**
+ * Per-check classification table (DR-4 mapping). The doctor `name` is the stable
+ * key; the `key` on each emitted {@link PlanStep} reuses it so consumers
+ * (`apply` task 007, `doctor --fix` task 013) can idempotence-match a step back
+ * to the check that produced it.
+ */
+const CHECK_CLASSIFICATION: Readonly<Record<string, StepClassification>> = {
+  // runtime — Node upgrade is an environment install action (cli-only).
+  'node-version': { kind: 'install', surface: 'cli-only' },
+  // storage — state dir / sqlite are local config/state reconciliation (any).
+  'state-dir': { kind: 'config', surface: 'any' },
+  'storage-sqlite-health': { kind: 'config', surface: 'any' },
+  // env — stray EXARCHOS_* vars are a config-drift concern (any).
+  variables: { kind: 'config', surface: 'any' },
+  // vcs — installing git is an environment install action (cli-only).
+  'git-available': { kind: 'install', surface: 'cli-only' },
+  // agent — regenerating runtime artifacts / MCP registration is `generate`.
+  'agent-config-valid': { kind: 'generate', surface: 'any' },
+  'agent-mcp-registered': { kind: 'generate', surface: 'any' },
+  // agent (DR-8) — the SessionStart binding is a hook step.
+  'session-start-hook': { kind: 'hook', surface: 'any' },
+  // plugin — skills-bundle regen / plugin reinstall are install actions (cli-only).
+  'plugin-skill-hash-sync': { kind: 'install', surface: 'cli-only' },
+  'plugin-version-match': { kind: 'install', surface: 'cli-only' },
+  // invariants — catalog reconciliation is a `.exarchos.yml` config concern.
+  'invariants-catalog': { kind: 'config', surface: 'any' },
+};
+
+/**
+ * Fallback classification by doctor {@link CheckResult.category} for checks not
+ * in {@link CHECK_CLASSIFICATION}. Keeps an unrecognised remediable check from
+ * being dropped: `plugin` ⇒ cli-only install (the skills/plugin surface), every
+ * other category ⇒ a generic `config`/`any` step the executor can still reason
+ * about.
+ */
+function classifyByCategory(category: CheckResult['category']): StepClassification {
+  switch (category) {
+    case 'plugin':
+      return { kind: 'install', surface: 'cli-only' };
+    case 'agent':
+      return { kind: 'generate', surface: 'any' };
+    default:
+      return { kind: 'config', surface: 'any' };
+  }
+}
+
+/**
+ * Is this check result a *remediable* finding — i.e. does it warrant a reconcile
+ * step? Only `Fail`/`Warning` results that carry a `fix` hint qualify; a `Pass`
+ * or a non-remediable `Skipped` (no `fix`) contributes no step. The schema
+ * guarantees every `Fail`/`Warning` has a non-empty `fix`, so this also screens
+ * out a `Skipped` that happens to carry one.
+ */
+function isRemediable(check: CheckResult): boolean {
+  return (check.status === 'Fail' || check.status === 'Warning') && check.fix !== undefined;
+}
+
+/**
+ * Derive the optional `target` a step acts on. Storage checks act on a known
+ * artifact path; everything else leaves `target` unset (the description carries
+ * the actionable detail). Kept conservative on purpose — `apply` (task 007) is
+ * the owner of concrete path/identifier semantics, so we only set `target` when
+ * the doctor check already pins it unambiguously.
+ */
+function deriveTarget(check: CheckResult): string | undefined {
+  switch (check.name) {
+    case 'state-dir':
+      return 'state-dir';
+    case 'storage-sqlite-health':
+      return 'events.db';
+    default:
+      return undefined;
+  }
+}
+
+/**
+ * Turn one remediable doctor check into a {@link PlanStep}. The `key` reuses the
+ * check `name` for stable diff/idempotence; the `description` prefers the `fix`
+ * hint (the actionable text) and falls back to the `message`.
+ */
+function toPlanStep(check: CheckResult): PlanStep {
+  const classification = CHECK_CLASSIFICATION[check.name] ?? classifyByCategory(check.category);
+  const description = check.fix ?? check.message;
+  const target = deriveTarget(check);
+
+  const step: PlanStep = {
+    kind: classification.kind,
+    surface: classification.surface,
+    key: check.name,
+    description,
+  };
+  return target !== undefined ? { ...step, target } : step;
+}
+
+/**
+ * `diff(desired, actual)` — the structured `doctor` diff (DR-1 / DR-4).
+ *
+ * Turns the doctor check results into an EXECUTABLE {@link ReconcilePlan}: each
+ * remediable (`Fail`/`Warning` with a `fix`) check becomes exactly one
+ * {@link PlanStep}; passing and non-remediable checks contribute nothing. A
+ * fully-configured repo (all checks `Pass`) ⇒ the empty plan `{ steps: [] }`,
+ * which is the idempotence precondition for `apply` (task 007).
+ *
+ * Seam: `actual` is the doctor composer's own output — `readonly CheckResult[]`,
+ * exactly what `handleDoctorWithChecks` produces by running the 11 checks. The
+ * caller (doctor `--fix` / `onboard`) runs the probes; `diff` stays PURE (no fs,
+ * no process) and only classifies. `desired` is accepted for forward-compatible
+ * symmetry with the design's `diff(desired, actual)` signature and so future
+ * desired-vs-actual command/runtime divergence can fold in here without a
+ * signature change; today the plan is derived from the remediable checks alone.
+ *
+ * Step order mirrors the input check order so callers can scan top-to-bottom.
+ */
+export function diff(_desired: DesiredState, actual: readonly CheckResult[]): ReconcilePlan {
+  const steps = actual.filter(isRemediable).map(toPlanStep);
+  return { steps };
 }
