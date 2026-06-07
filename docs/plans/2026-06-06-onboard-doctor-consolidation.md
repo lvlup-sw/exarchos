@@ -222,7 +222,7 @@ Wave 4  DR-10 error/edge hardening  ─ T8 docs/bootstrap sweep
 3. [RED] `Hooks_Rerun_NoDuplicateRegistration` — idempotent (exactly one entry).
 4. [GREEN] Implement the GENERATE-step hook writer; add a doctor hook-presence check so `--fix` repairs it.
    - Files: `servers/exarchos-mcp/src/orchestrate/onboard/hooks.ts`,
-     `servers/exarchos-mcp/src/orchestrate/doctor/checks/agent-sessionstart-hook.ts`
+     `servers/exarchos-mcp/src/orchestrate/doctor/checks/session-start-hook.ts`
 
 **Dependencies:** 010 · **Parallelizable:** Yes (separate files) · **testingStrategy:** unit
 

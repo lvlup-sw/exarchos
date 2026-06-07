@@ -88,7 +88,7 @@ irm https://lvlup-sw.github.io/exarchos/get-exarchos.ps1 | iex
 ```bash
 exarchos --version
 exarchos doctor
-exarchos mcp	// starts MCP server over stdio
+exarchos mcp   # starts MCP server over stdio
 ```
 
 ### Onboard
