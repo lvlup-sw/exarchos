@@ -91,20 +91,22 @@ Restart Claude Code after the install so the new MCP server registration takes e
 
 ## Other harnesses (opencode, Codex, Cursor, Copilot, generic)
 
-Exarchos is **additive to your harness choice** — the CLI binary is the same everywhere; only the skill/command wiring differs. Install the CLI (above), register the MCP server in your harness's config, then install the skills with `exarchos install-skills --agent <runtime>`.
+Exarchos is **additive to your harness choice** — the CLI binary is the same everywhere; only the skill/command wiring differs. Install the CLI (above), register the MCP server in your harness's config, then run `exarchos onboard` to detect runtimes + VCS, write/reconcile agent config, and install the skills. To target a specific runtime without detection, pass `exarchos onboard --runtime <runtime>`.
 
 The MCP server always speaks **stdio** (`exarchos mcp`) — there is no port to configure on any runtime. Outside Claude Code the MCP tools surface under the bare prefix `mcp__exarchos__` (Claude Code wraps them in its plugin namespace, `mcp__plugin_exarchos_exarchos__`).
 
-| Runtime | MCP transport | Skill install command | Skills destination | Canonical command names | Restart? |
+| Runtime | MCP transport | Onboard command | Skills destination | Canonical command names | Restart? |
 |---|---|---|---|---|---|
 | **Claude Code** | stdio (plugin) | (plugin, see above) | `~/.claude/skills` | native — `/exarchos:ideate`, `/exarchos:plan`, … | yes |
-| **opencode** | stdio | `exarchos install-skills --agent opencode` | `~/.config/opencode/skills` | ✅ `/ideate`, `/plan`, … (installed to `~/.config/opencode/commands`) | yes |
-| **Codex** | stdio | `exarchos install-skills --agent codex` | `$HOME/.agents/skills` | ⚠️ not emitted (see below) | yes (new session) |
-| **Cursor** | stdio | `exarchos install-skills --agent cursor` | `~/.cursor/skills` | — (no custom slash commands) | yes |
-| **Copilot CLI** | stdio | `exarchos install-skills --agent copilot` | `~/.copilot/skills` | ❌ not supported yet (see below) | yes |
-| **generic** | stdio | `exarchos install-skills --agent generic` | `~/.agents/skills` | — (no custom slash commands) | n/a |
+| **opencode** | stdio | `exarchos onboard --runtime opencode` | `~/.config/opencode/skills` | ✅ `/ideate`, `/plan`, … (installed to `~/.config/opencode/commands`) | yes |
+| **Codex** | stdio | `exarchos onboard --runtime codex` | `$HOME/.agents/skills` | ⚠️ not emitted (see below) | yes (new session) |
+| **Cursor** | stdio | `exarchos onboard --runtime cursor` | `~/.cursor/skills` | — (no custom slash commands) | yes |
+| **Copilot CLI** | stdio | `exarchos onboard --runtime copilot` | `~/.copilot/skills` | ❌ not supported yet (see below) | yes |
+| **generic** | stdio | `exarchos onboard --runtime generic` | `~/.agents/skills` | — (no custom slash commands) | n/a |
 
-`install-skills` prints the skills destination, the commands destination (where applicable), and a restart hint when it finishes — so you don't have to memorize the paths above.
+`onboard` prints the reconcile plan, the skills/commands destinations, and a restart hint when it finishes — so you don't have to memorize the paths above. It is idempotent; re-running reconciles drift only. If a step fails (e.g. an offline skills/deps install), `onboard` exits non-zero with a **forward-only** advisory: already-applied steps are kept (reconcile never rolls back), so fix the cause and **re-run** — it resumes from the residual diff. Use `exarchos doctor` to re-check without writing, or `exarchos doctor --fix` to re-apply just the remediable diff.
+
+> **Renamed in v2.10.2:** the old `init`, `install-skills`, and `new-project` verbs were consolidated into `onboard` (use `onboard --new <name>` for greenfield). They survive one release as error stubs that print `renamed → use 'exarchos onboard'` and are removed at v3.0.
 
 ### Canonical workflow names across harnesses
 
@@ -112,7 +114,7 @@ Inside Claude Code the workflow is driven by canonical command names — `/exarc
 
 To keep the names stable, Exarchos generates a thin **canonical-name command-alias layer** for harnesses whose command system can autoload it. Coverage today:
 
-- **opencode** ✅ — `install-skills --agent opencode` writes `/ideate`, `/plan`, `/delegate`, … to `~/.config/opencode/commands/`, each delegating to the matching skill. So `/ideate` works the same way it does in Claude Code. (opencode autoloads markdown commands from that directory.)
+- **opencode** ✅ — `onboard --runtime opencode` writes `/ideate`, `/plan`, `/delegate`, … to `~/.config/opencode/commands/`, each delegating to the matching skill. So `/ideate` works the same way it does in Claude Code. (opencode autoloads markdown commands from that directory.)
 - **Codex** ⚠️ — Codex's custom-prompt mechanism (`~/.codex/prompts/*.md`) is [deprecated in favor of skills](https://developers.openai.com/codex/custom-prompts) and invokes prompts namespaced as `/prompts:<name>`, not the bare `/ideate`. Exarchos therefore does **not** emit aliases for Codex; invoke the descriptive skill directly (e.g. the `brainstorming` skill for ideate).
 - **Copilot CLI** ❌ — Copilot CLI does not yet autoload custom slash commands from a prompts directory (tracked upstream: [github/copilot-cli#618](https://github.com/github/copilot-cli/issues/618), [#1113](https://github.com/github/copilot-cli/issues/1113)). Aliases will be emitted once that lands.
 - **Cursor / generic** — no custom-slash-command surface; the skill's descriptive name is the entry point.
@@ -162,10 +164,10 @@ Register the MCP server in `~/.config/opencode/config.json` (stdio, no port):
 }
 ```
 
-Then install skills (and the canonical aliases):
+Then onboard the project — this writes the skills (and the canonical aliases):
 
 ```bash
-exarchos install-skills --agent opencode
+exarchos onboard --runtime opencode
 ```
 
 Skills land in `~/.config/opencode/skills/`, aliases in `~/.config/opencode/commands/`. **Restart opencode** (or reload) afterward to pick them up. Do not copy Claude-only env such as `EXARCHOS_PLUGIN_ROOT` into the opencode config — it is meaningless outside the Claude plugin and only clutters the environment.

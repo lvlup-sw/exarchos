@@ -98,9 +98,6 @@ vi.mock('../vcs/factory.js', () => ({
   }),
 }));
 
-vi.mock('./init/index.js', () => ({
-  handleInit: vi.fn(),
-}));
 
 vi.mock('./merge-orchestrate.js', () => ({
   handleMergeOrchestrate: vi.fn(),
@@ -148,7 +145,6 @@ import { handleListPrs } from './vcs/list-prs.js';
 import { handleGetPrComments } from './vcs/get-pr-comments.js';
 import { handleAddPrComment } from './vcs/add-pr-comment.js';
 import { handleCreateIssue } from './vcs/create-issue.js';
-import { handleInit } from './init/index.js';
 import { handleMergeOrchestrate } from './merge-orchestrate.js';
 import { handleScaffold } from './invariants/scaffold.js';
 import { handleAdd } from './invariants/add.js';
@@ -877,32 +873,18 @@ describe('handleOrchestrate', () => {
   // ─── Init Routing ──────────────────────────────────────────────────────
 
   describe('init routing', () => {
-    it('OrchestrateComposite_DispatchInitAction_InvokesHandleInit', async () => {
-      // Arrange
-      const expected = successResult({
-        runtimes: [],
-        vcs: null,
-        durationMs: 42,
-      });
-      vi.mocked(handleInit).mockResolvedValue(expected);
-      const args = { action: 'init', runtime: 'copilot', nonInteractive: true };
-
-      // Act
-      const result = await handleOrchestrate(args, CTX);
-
-      // Assert — init handler called with args (minus the action) and ctx
-      expectEnvelopedSuccess(result, expected);
-      expect(handleInit).toHaveBeenCalledTimes(1);
-      const call = vi.mocked(handleInit).mock.calls[0];
-      expect(call[0]).toEqual({ runtime: 'copilot', nonInteractive: true });
-      expect(call[1]).toBe(CTX);
-    });
-
-    it('OrchestrateRegistry_ActionList_IncludesInit', () => {
+    it('OrchestrateRegistry_ActionList_SwapsInitForOnboard', () => {
+      // Task 011 swap (design line 322): the `init` ACTION was removed from the
+      // registry and `onboard` registered in its place. DR-5 (task 018) then
+      // removed the composite.ts `if (action === 'init')` dispatch branch + the
+      // `handleInit` handler entirely — `onboard` reproduces init's outputs via
+      // the GENERATE writers. `init` is no longer an enumerable registry action
+      // and no longer has a dispatch branch.
       const orchestrate = TOOL_REGISTRY.find((t) => t.name === 'exarchos_orchestrate');
       expect(orchestrate).toBeDefined();
       const actionNames = orchestrate!.actions.map((a) => a.name);
-      expect(actionNames).toContain('init');
+      expect(actionNames).not.toContain('init');
+      expect(actionNames).toContain('onboard');
     });
   });
 

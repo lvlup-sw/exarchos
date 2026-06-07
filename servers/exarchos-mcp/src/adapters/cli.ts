@@ -839,37 +839,45 @@ export function buildCli(ctx: DispatchContext): Command {
       await server.connect(transport);
     });
 
-  // ─── Top-level `exarchos init` command ──────────────────────────────────
+  // ─── Top-level `exarchos onboard` command (DR-2/DR-5, task 011) ─────────
   //
-  // Init is promoted to a top-level verb (like doctor) so an operator
-  // types `exarchos init` instead of `exarchos orch init` — it is a
-  // first-run configuration command, not a mid-workflow action.
-  // Under the hood it dispatches through exarchos_orchestrate so the
-  // CLI and MCP paths share one handler + one validation gate.
+  // Onboard is the consolidated first-run verb (superseding `init` +
+  // `install-skills`) and is promoted to a top-level verb (like doctor /
+  // init) so an operator types `exarchos onboard` instead of
+  // `exarchos orch onboard`. Under the hood it dispatches through
+  // exarchos_orchestrate so the CLI and MCP paths share one handler
+  // (`handleOnboard`) and one validation gate (INV-2 parity).
   //
-  // Exit-code mapping (DR-3 contract):
-  //   - All writes succeeded    → SUCCESS (exit 0)
-  //   - Any write failed        → HANDLER_ERROR (exit 2)
-  //   - Dispatch failure        → HANDLER_ERROR (exit 2)
-  //   - Uncaught throw          → UNCAUGHT_EXCEPTION (exit 3)
-  const initAction = orchestrateTool?.actions.find((a) => a.name === 'init');
-  if (initAction) {
-    const initCmd = program
-      .command('init')
-      .description(initAction.description);
-    addFlagsFromSchema(initCmd, initAction.schema, initAction.cli?.flags);
+  // Flags auto-emit from the registered Zod schema via addFlagsFromSchema —
+  // no hand-written flag table to drift. `surface` is NOT a flag here: the
+  // CLI is the `'cli'` surface, so the (future) composite.ts dispatch branch
+  // injects it; the operator never sets it.
+  //
+  // Exit-code mapping (DR-2 contract; mirrors the handler's INV-5b carrier):
+  //   - VERIFY clean / dry-run plan  → SUCCESS (exit 0)
+  //   - Residual blocking Fail       → HANDLER_ERROR (exit 2)  (handler returns
+  //                                     success:false with a structured envelope)
+  //   - Zod validation at CLI        → INVALID_INPUT (exit 1)
+  //   - Dispatch failure             → HANDLER_ERROR (exit 2)
+  //   - Uncaught throw               → UNCAUGHT_EXCEPTION (exit 3)
+  const onboardAction = orchestrateTool?.actions.find((a) => a.name === 'onboard');
+  if (onboardAction) {
+    const onboardCmd = program
+      .command('onboard')
+      .description(onboardAction.description);
+    addFlagsFromSchema(onboardCmd, onboardAction.schema, onboardAction.cli?.flags);
 
-    initCmd.action(async (opts: Record<string, unknown>) => {
+    onboardCmd.action(async (opts: Record<string, unknown>) => {
       const { json, ...flagOpts } = opts;
       const isJson = Boolean(json);
-      const defaultFormat = initAction.cli?.format;
+      const defaultFormat = onboardAction.cli?.format;
 
       // Parse coerced args through the schema so bad inputs surface as
       // INVALID_INPUT before dispatch runs.
-      const coerced = coerceFlags(flagOpts, initAction.schema);
-      const parsed = initAction.schema.safeParse(coerced);
+      const coerced = coerceFlags(flagOpts, onboardAction.schema);
+      const parsed = onboardAction.schema.safeParse(coerced);
       if (!parsed.success) {
-        const err = formatValidationError(parsed.error, 'exarchos_orchestrate/init');
+        const err = formatValidationError(parsed.error, 'exarchos_orchestrate/onboard');
         emitResult({ success: false, error: err }, isJson, defaultFormat);
         process.exitCode = CLI_EXIT_CODES.INVALID_INPUT;
         return;
@@ -882,7 +890,9 @@ export function buildCli(ctx: DispatchContext): Command {
       try {
         result = await dispatch(
           'exarchos_orchestrate',
-          { action: 'init', ...parsed.data },
+          // `surface` is adapter-injected: the CLI runs the full install step,
+          // so it dispatches as the `'cli'` surface.
+          { action: 'onboard', surface: 'cli', ...parsed.data },
           ctx,
         );
       } catch (err) {
@@ -898,21 +908,50 @@ export function buildCli(ctx: DispatchContext): Command {
 
       emitResult(result, isJson, format);
 
-      // Init-specific exit mapping: any failed writer in the runtimes
-      // array is a handler error.
-      if (!result.success) {
-        process.exitCode = result.error?.code === VALIDATION_ERROR_CODE
+      // Onboard exit mapping: the handler already collapses a residual blocking
+      // Fail into success:false with a structured INV-5b error envelope, so a
+      // failed result is a HANDLER_ERROR (or INVALID_INPUT if a validation gate
+      // rejected it). A clean VERIFY (or a dry-run plan) is SUCCESS.
+      process.exitCode = result.success
+        ? CLI_EXIT_CODES.SUCCESS
+        : result.error?.code === VALIDATION_ERROR_CODE
           ? CLI_EXIT_CODES.INVALID_INPUT
           : CLI_EXIT_CODES.HANDLER_ERROR;
-        return;
-      }
-      const data = result.data as { runtimes?: Array<{ status?: string }> } | undefined;
-      const hasFailed = data?.runtimes?.some((r) => r.status === 'failed') ?? false;
-      process.exitCode = hasFailed
-        ? CLI_EXIT_CODES.HANDLER_ERROR
-        : CLI_EXIT_CODES.SUCCESS;
     });
   }
+
+  // ─── Top-level `exarchos init` command ──────────────────────────────────
+  //
+  // `init` is RENAMED to `onboard` (DR-5, design §7 / line 322). It is now a
+  // one-release **error stub**: it prints `renamed → use 'exarchos onboard'`
+  // and exits non-zero (NOT "command not found"), running NO onboarding side
+  // effect. Removed entirely at v3.0. The stub is registered UNCONDITIONALLY
+  // (the `init` action no longer exists in the registry, so there is nothing to
+  // dispatch to) — keeping the verb present preserves the actionable rename
+  // message instead of Commander's bare unknown-command error.
+  //
+  // The `init` action, handler (`handleInitWithWriters`), and `init.executed`
+  // event were fully removed in DR-5 (task 018) — `onboard` reproduces init's
+  // outputs through the reconciler's GENERATE step (the same `getAllWriters()`
+  // list). Only this rename stub remains until v3.0.
+  program
+    .command('init')
+    .description("[renamed] use 'exarchos onboard' — init was consolidated into the onboard verb (DR-5)")
+    // Tolerate ANY legacy flags/args (e.g. the old `--runtime <id>`,
+    // `--non-interactive`, `--json`, positional values) so the rename message
+    // always prints instead of Commander erroring on an unknown option. The
+    // stub ignores them all — there is no init action to dispatch to.
+    .allowUnknownOption(true)
+    .allowExcessArguments(true)
+    .argument('[ignored...]', 'legacy init arguments (ignored by the rename stub)')
+    .action(() => {
+      process.stderr.write(
+        "exarchos init: renamed → use 'exarchos onboard'\n",
+      );
+      // Non-zero so scripts and CI surface the rename instead of silently
+      // continuing; HANDLER_ERROR (2) rather than a "command not found" exit.
+      process.exitCode = CLI_EXIT_CODES.HANDLER_ERROR;
+    });
 
   // ─── Top-level `exarchos merge-orchestrate` command (T21, DR-MO-1) ──────
   //
@@ -987,62 +1026,34 @@ export function buildCli(ctx: DispatchContext): Command {
     }
   });
 
-  // ─── Top-level `exarchos install-skills` command (T-16, DR-7, #1201) ────
+  // ─── Top-level `exarchos install-skills` command (DR-5, task 018) ───────
   //
-  // Bridges the documented `exarchos install-skills [--agent <name>]`
-  // surface (README.md "Install Skills" section, `documentation/guide/
-  // installation.md`) to the `installSkills()` implementation in the
-  // root `src/install-skills.ts` module.
-  //
-  // CLI-only by design: the underlying installer writes to the local
-  // filesystem (e.g. `~/.claude/skills/`) and shells out to
-  // `npx skills add`, neither of which makes sense over an MCP stdio
-  // transport. The `cli-only` annotation in the description is part
-  // of the surface contract — agent callers reading `--help` (or any
-  // future schema-introspection output) see immediately that there is
-  // no MCP equivalent.
-  //
-  // The bridge module (`cli-commands/install-skills-bridge.js`) owns
-  // the cross-package import of `installSkills()` because the MCP
-  // server's tsc `rootDir: "./src"` would otherwise reject the path
-  // with TS6059. Authored as JS (tsc `allowJs: false`) so the static
-  // imports survive type-checking; bun's `--compile` bundler still
-  // follows them at build time.
-  //
-  // Exit-code mapping (DR-3 contract):
-  //   - Success                      → SUCCESS (exit 0)
-  //   - `npx skills add` non-zero    → forwarded child code (`exitCode`
-  //                                    on the thrown InstallSkillsError)
-  //   - Any other thrown error       → UNCAUGHT_EXCEPTION (exit 3)
+  // `install-skills` is RENAMED to `onboard` (DR-5, design §7). Onboard's
+  // reconciler now owns skills install: the GENERATE step writes runtime config
+  // + MCP registration ONCE, and the CLI install step (`orchestrate/onboard/
+  // install.ts`) copies the skills bundle through the SAME `installSkills`
+  // seam — so a standalone `install-skills` verb is dead. It is now a
+  // one-release **error stub**: it prints `renamed → use 'exarchos onboard'`
+  // and exits non-zero (NOT "command not found"), running NO install side
+  // effect (the bridge is never reached). Removed entirely at v3.0. Mirrors the
+  // `init` rename stub above.
   program
     .command('install-skills')
-    .description(
-      'Install the Exarchos skills bundle for a target agent runtime (cli-only — no MCP equivalent)',
-    )
-    .option(
-      '--agent <name>',
-      'Target agent runtime (claude, codex, opencode, copilot, cursor, generic). Auto-detected when omitted.',
-    )
-    .action(async (opts: { agent?: string }) => {
-      try {
-        const { runInstallSkills } = await import(
-          '../cli-commands/install-skills-bridge.js'
-        );
-        await runInstallSkills({ agent: opts.agent });
-        process.exitCode = CLI_EXIT_CODES.SUCCESS;
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        const candidateExitCode =
-          typeof err === 'object' && err !== null && 'exitCode' in err
-            ? (err as { exitCode?: unknown }).exitCode
-            : undefined;
-        const exitCode =
-          typeof candidateExitCode === 'number'
-            ? candidateExitCode
-            : CLI_EXIT_CODES.UNCAUGHT_EXCEPTION;
-        printError({ code: 'INSTALL_SKILLS_FAILED', message });
-        process.exitCode = exitCode;
-      }
+    .description("[renamed] use 'exarchos onboard' — install-skills was consolidated into the onboard verb (DR-5)")
+    // Tolerate ANY legacy flags/args (e.g. the old `--agent <id>`, `--json`,
+    // positional values) so the rename message always prints instead of
+    // Commander erroring on an unknown option. The stub ignores them all —
+    // there is no installer to dispatch to.
+    .allowUnknownOption(true)
+    .allowExcessArguments(true)
+    .argument('[ignored...]', 'legacy install-skills arguments (ignored by the rename stub)')
+    .action(() => {
+      process.stderr.write(
+        "exarchos install-skills: renamed → use 'exarchos onboard'\n",
+      );
+      // Non-zero so scripts and CI surface the rename instead of silently
+      // continuing; HANDLER_ERROR (2) rather than a "command not found" exit.
+      process.exitCode = CLI_EXIT_CODES.HANDLER_ERROR;
     });
 
   return program;

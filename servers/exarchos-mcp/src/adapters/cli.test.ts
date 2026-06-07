@@ -436,58 +436,78 @@ describe('version subcommand', () => {
 
 // ─── Task 25: Init Scaffolding Command ────────────────────────────────────────
 
-describe('init command', () => {
+describe('init command (DR-5 rename stub)', () => {
+  // Task 011 swap (design line 322): the `init` action is removed and the `init`
+  // CLI verb is now a one-release error stub — it prints `renamed → use
+  // 'exarchos onboard'` and exits non-zero, running NO onboarding side effect and
+  // dispatching nothing. The init handler (`handleInitWithWriters`) +
+  // `init.executed` event were fully removed in DR-5 (task 018); `onboard`
+  // reproduces init's outputs via the GENERATE writers.
   let ctx: DispatchContext;
+  let originalExitCode: number | string | undefined;
 
   beforeEach(() => {
     vi.clearAllMocks();
     ctx = createTestContext();
+    originalExitCode = process.exitCode;
+    process.exitCode = undefined;
   });
 
-  it('InitCommand_DispatchesOrchestrate', async () => {
-    // The new init command routes through exarchos_orchestrate { action: 'init' }
+  afterEach(() => {
+    process.exitCode = originalExitCode;
+  });
+
+  it('InitCommand_IsRenameStub_DoesNotDispatch', async () => {
+    // The stub must NOT dispatch to exarchos_orchestrate (no onboarding side
+    // effect runs from the stub — DR-5 acceptance criterion).
     const program = buildCli(ctx);
-    const stdoutSpy = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
 
     await program.parseAsync(['node', 'exarchos', 'init']);
 
-    // Assert — dispatch was called with the init action
     const { dispatch } = await import('../core/dispatch.js');
-    expect(dispatch).toHaveBeenCalledWith(
-      'exarchos_orchestrate',
-      expect.objectContaining({ action: 'init' }),
-      expect.anything(),
-    );
+    expect(dispatch).not.toHaveBeenCalled();
 
-    stdoutSpy.mockRestore();
+    stderrSpy.mockRestore();
   });
 
-  it('InitCommand_WithRuntimeFlag_PassesToDispatch', async () => {
+  it('InitCommand_PrintsRenameMessage_PointingAtOnboard', async () => {
     const program = buildCli(ctx);
-    const stdoutSpy = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
+
+    await program.parseAsync(['node', 'exarchos', 'init']);
+
+    const written = stderrSpy.mock.calls.map((c) => String(c[0])).join('');
+    expect(written).toMatch(/renamed/i);
+    expect(written).toContain("exarchos onboard");
+
+    stderrSpy.mockRestore();
+  });
+
+  it('InitCommand_WithRuntimeFlag_StillStubsAndDoesNotDispatch', async () => {
+    // Even with the legacy `--runtime` flag, the stub does not dispatch — the
+    // flag is accepted (allowUnknownOption) but ignored; no init action exists.
+    const program = buildCli(ctx);
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
 
     await program.parseAsync(['node', 'exarchos', 'init', '--runtime', 'copilot']);
 
     const { dispatch } = await import('../core/dispatch.js');
-    expect(dispatch).toHaveBeenCalledWith(
-      'exarchos_orchestrate',
-      expect.objectContaining({ action: 'init', runtime: 'copilot' }),
-      expect.anything(),
-    );
+    expect(dispatch).not.toHaveBeenCalled();
 
-    stdoutSpy.mockRestore();
+    stderrSpy.mockRestore();
   });
 
-  it('InitCommand_SuccessResult_ExitsZero', async () => {
+  it('InitCommand_ExitsNonZero_NotCommandNotFound', async () => {
     const program = buildCli(ctx);
-    const stdoutSpy = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
 
     await program.parseAsync(['node', 'exarchos', 'init']);
 
-    // dispatch mock returns success, so exitCode should be 0 (or undefined)
-    expect(process.exitCode ?? 0).toBe(0);
+    // Non-zero per DR-5 (HANDLER_ERROR=2), not a Commander unknown-command exit.
+    expect(process.exitCode).toBe(CLI_EXIT_CODES.HANDLER_ERROR);
 
-    stdoutSpy.mockRestore();
+    stderrSpy.mockRestore();
   });
 });
 
@@ -776,25 +796,21 @@ describe('commanderErrorToResult mapping table (F-024-CMDR)', () => {
   });
 });
 
-// ─── T-16 / DR-7: install-skills CLI subcommand ──────────────────────────────
+// ─── DR-5 (task 018): install-skills CLI subcommand → rename stub ─────────────
 //
-// `exarchos install-skills [--agent <name>]` is documented in README.md and
-// `documentation/guide/installation.md` but was never wired into the
-// Commander program in v2.9. T-16 ships the wiring as a single isolated
-// commit so it's easy to revert if the surface needs to grow.
-//
-// This subcommand is intentionally CLI-only — `installSkills()` writes to
-// the local filesystem (e.g. `~/.claude/skills/`) and shells out to
-// `npx skills add`, neither of which makes sense over an MCP transport.
-// The help text carries an explicit `cli-only` annotation so an agent
-// reading the schema/help output knows not to attempt the equivalent over
-// the MCP surface.
+// `install-skills` was consolidated into `onboard` (DR-5). The verb is now a
+// one-release **rename stub**: it stays REGISTERED (so `exarchos install-skills`
+// prints an actionable rename message instead of Commander's bare unknown-command
+// error), prints `renamed → use 'exarchos onboard'`, exits non-zero, and never
+// reaches the bridge. The dedicated stub-behavior coverage lives in
+// `cli-install-skills.test.ts`; here we only assert the verb is present + that
+// the bridge is never dispatched to.
 
 vi.mock('../cli-commands/install-skills-bridge.js', () => ({
   runInstallSkills: vi.fn(async () => {}),
 }));
 
-describe('install-skills subcommand (T-16, DR-7)', () => {
+describe('install-skills subcommand (DR-5 rename stub)', () => {
   let ctx: DispatchContext;
 
   beforeEach(() => {
@@ -802,41 +818,28 @@ describe('install-skills subcommand (T-16, DR-7)', () => {
     ctx = createTestContext();
   });
 
-  it('cli_InstallSkillsSubcommand_RegisteredInRegistry', () => {
-    // The subcommand must be present on the Commander program so that
-    // `exarchos install-skills` resolves to a real action handler instead
-    // of producing `error: unknown command 'install-skills'`. We assert
-    // both the registration and the documented `--agent` flag — the two
-    // pieces a user (or agent) sees from `--help`.
-    const program = buildCli(ctx);
-    const installSkillsCmd = program.commands.find(
-      (c) => c.name() === 'install-skills',
-    );
-    expect(installSkillsCmd).toBeDefined();
-    const optionFlags = installSkillsCmd?.options.map((o) => o.flags) ?? [];
-    expect(optionFlags.some((f) => f.includes('--agent'))).toBe(true);
-  });
-
-  it('cli_InstallSkills_HelpTextSaysCliOnly', () => {
-    // Surface annotation: the `cli-only` marker tells agent callers that
-    // this subcommand has no MCP equivalent. Putting it in the description
-    // (not just a code comment) means it shows up in `--help` output and
-    // any future schema introspection.
+  it('cli_InstallSkillsSubcommand_StillRegistered_ForRenameMessage', () => {
+    // The verb must still be present on the Commander program so that
+    // `exarchos install-skills` resolves to the rename stub instead of
+    // producing `error: unknown command 'install-skills'`.
     const program = buildCli(ctx);
     const installSkillsCmd = program.commands.find(
       (c) => c.name() === 'install-skills',
     );
     expect(installSkillsCmd).toBeDefined();
     const helpText = installSkillsCmd?.description() ?? '';
-    expect(helpText.toLowerCase()).toContain('cli-only');
+    expect(helpText.toLowerCase()).toContain('renamed');
+    expect(helpText).toContain('onboard');
   });
 
-  it('cli_InstallSkillsSubcommand_DispatchesToBridge', async () => {
-    // Smoke check on the wiring: parsing the subcommand should reach the
-    // bridge module (which encapsulates the cross-package import of the
-    // root `installSkills()` implementation). The bridge is mocked above
-    // so no real spawn / IO happens during this test.
+  it('cli_InstallSkillsSubcommand_NeverDispatchesToBridge', async () => {
+    // The stub runs NO install side effect — the bridge is never reached, and
+    // the verb exits non-zero (HANDLER_ERROR), even with a legacy `--agent` flag.
     const program = buildCli(ctx);
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
+    const originalExitCode = process.exitCode;
+    process.exitCode = undefined;
+
     await program.parseAsync([
       'node',
       'exarchos',
@@ -848,26 +851,26 @@ describe('install-skills subcommand (T-16, DR-7)', () => {
     const { runInstallSkills } = await import(
       '../cli-commands/install-skills-bridge.js'
     );
-    expect(runInstallSkills).toHaveBeenCalledTimes(1);
-    expect(runInstallSkills).toHaveBeenCalledWith(
-      expect.objectContaining({ agent: 'claude' }),
-    );
+    expect(runInstallSkills).not.toHaveBeenCalled();
+    expect(process.exitCode).toBe(CLI_EXIT_CODES.HANDLER_ERROR);
+
+    process.exitCode = originalExitCode;
+    stderrSpy.mockRestore();
   });
 });
 
-// ─── T-16 / DR-7: install-skills binary smoke (conditional) ──────────────────
+// ─── DR-5 (task 018): install-skills binary smoke (conditional) ──────────────
 //
 // Cheap end-to-end probe against the compiled binary at
 // `dist/bin/exarchos-<os>-<arch>`. Skipped when the binary is absent so
 // developers without a local build don't see a phantom failure; CI runs
 // `npm run build` before tests, so the binary IS present there.
 //
-// We assert only on `install-skills --help` (not a full invocation) because
-// the underlying `npx skills add` is interactive and cannot run to
-// completion under vitest spawn without TTY allocation. Reaching `--help`
-// proves Commander registered the subcommand inside the bundled binary
-// and that the `cli-only` annotation survives through `bun build --compile`.
-// The pre-T-16 binary failed this with `error: unknown command 'install-skills'`.
+// `install-skills` is now a DR-5 rename stub. We assert `--help` exits 0 and
+// shows the verb + the rename hint, proving Commander still registered the verb
+// inside the bundled binary (so a user gets the actionable rename message, not
+// `error: unknown command 'install-skills'`) and that the rename description
+// survives through `bun build --compile`.
 
 function findHostBinary(): string | null {
   const arch = process.arch === 'arm64' ? 'arm64' : 'x64';
@@ -899,14 +902,14 @@ function findHostBinary(): string | null {
 const SMOKE_BINARY = findHostBinary();
 
 describe.skipIf(!SMOKE_BINARY)(
-  'install-skills binary smoke (T-16, DR-7)',
+  'install-skills binary smoke (DR-5 rename stub)',
   () => {
     let homeTmp: string;
     let stateTmp: string;
 
     beforeEach(() => {
-      homeTmp = fs.mkdtempSync(path.join(os.tmpdir(), 'exarchos-T16-home-'));
-      stateTmp = fs.mkdtempSync(path.join(os.tmpdir(), 'exarchos-T16-state-'));
+      homeTmp = fs.mkdtempSync(path.join(os.tmpdir(), 'exarchos-T18-home-'));
+      stateTmp = fs.mkdtempSync(path.join(os.tmpdir(), 'exarchos-T18-state-'));
     });
 
     afterEach(() => {
@@ -929,10 +932,12 @@ describe.skipIf(!SMOKE_BINARY)(
         timeout: 30_000,
         env: { ...process.env, HOME: homeTmp, WORKFLOW_STATE_DIR: stateTmp },
       });
+      // `--help` is a Commander built-in: exits 0 and prints the (rename-stub)
+      // description, proving the verb is still registered in the bundled binary.
       expect(result.status).toBe(0);
       expect(result.stdout).toContain('install-skills');
-      expect(result.stdout).toContain('--agent');
-      expect(result.stdout.toLowerCase()).toContain('cli-only');
+      expect(result.stdout.toLowerCase()).toContain('renamed');
+      expect(result.stdout).toContain('onboard');
     });
   },
 );

@@ -66,22 +66,50 @@ assert_file_absent \
   "NoLegacy_InstallTestAbsent" \
   "src/install.test.ts"
 
-# Any live code importing './install' (.js or .ts) is a loose reference to the
-# deleted module. The pattern is path-anchored — matching `install` must be
-# followed by `.js`, `.ts`, or the closing quote, so siblings like
-# `install-skills`, `install-hooks`, `install-plugin` are already excluded by
-# the regex itself. (An earlier `grep -v "install-skills|install-hooks|..."`
-# filter was a false-negative risk: it matched against the full grep output
-# *including the importing file's path*, which would have suppressed real
-# violations when the importer's filename happened to contain those tokens.)
-HITS=$(grep -rEn "from ['\"]\.+/install(\.js|\.ts)?['\"]" \
+# A relative `./install` import is only a violation if it is a DANGLING
+# reference — one that resolves to a source file that no longer exists (the
+# deleted v2.9 `src/install.ts`). A `./install` import that RESOLVES to a real
+# module is NOT legacy: the v2.10.2 onboard consolidation introduced a
+# legitimately-named reconciler step at
+# `servers/exarchos-mcp/src/orchestrate/onboard/install.ts` (a sibling of
+# `new.ts` / `hooks.ts`), imported by `onboard/index.ts` and its tests. An
+# earlier version of this guard banned the import-specifier shape outright,
+# which false-positived on that real module. We therefore resolve each hit and
+# fail ONLY on imports whose `.ts` source is absent — the precise "loose
+# reference to a deleted module" the purge is meant to catch.
+#
+# The match is still path-anchored: `install` must be followed by `.js`, `.ts`,
+# or the closing quote, so siblings like `install-skills` / `install-hooks` /
+# `install-plugin` never match the regex in the first place.
+RAW_HITS=$(grep -rEn "from ['\"]\.+/install(\.js|\.ts)?['\"]" \
   "$REPO_ROOT/src" "$REPO_ROOT/servers" \
   --include='*.ts' --include='*.tsx' --include='*.mts' --include='*.cts' \
   2>/dev/null || true)
-if [[ -z "$HITS" ]]; then
+
+DANGLING=""
+while IFS= read -r hit; do
+  [[ -z "$hit" ]] && continue
+  importer="${hit%%:*}"
+  # The relative specifier inside the quotes after `from`, sans extension
+  # (NodeNext specifiers are `.js`/extensionless; the on-disk source is `.ts`).
+  spec=$(printf '%s\n' "$hit" | sed -E "s/.*from ['\"](\.+\/install)(\.js|\.ts)?['\"].*/\1/")
+  # Parse guard: a successful capture starts with a dot. If sed failed to
+  # extract (line left unchanged → starts with the absolute importer path),
+  # treat the hit as unresolvable and flag it conservatively.
+  if [[ "$spec" != .* ]]; then
+    DANGLING="${DANGLING}${hit}\n"
+    continue
+  fi
+  resolved=$(cd "$(dirname "$importer")" 2>/dev/null && realpath -m "$spec" 2>/dev/null || true)
+  if [[ -z "$resolved" || ( ! -f "${resolved}.ts" && ! -f "${resolved}/index.ts" ) ]]; then
+    DANGLING="${DANGLING}${hit}\n"
+  fi
+done <<< "$RAW_HITS"
+
+if [[ -z "$DANGLING" ]]; then
   pass "NoLegacy_NoImportsFromInstall"
 else
-  fail "NoLegacy_NoImportsFromInstall" "found live imports of deleted module: $HITS"
+  fail "NoLegacy_NoImportsFromInstall" "found live imports of deleted module: $(printf '%b' "$DANGLING")"
 fi
 
 # ============================================================

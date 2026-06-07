@@ -1,20 +1,19 @@
 // ─── Toolchain Registry — Single Source of Truth ────────────────────────────
 //
 // One declarative registry of toolchain IDENTITY: which file markers detect a
-// toolchain, its human `projectType` label, its resolver-canonical commands,
-// and (for scaffoldable toolchains) its scaffold token-map.
+// toolchain, its human `projectType` label, and its resolver-canonical commands.
 //
 // This module exists so detection lives in ONE place. Before it, the same
-// marker knowledge was duplicated across `test-runtime-resolver.detect()`,
-// `static-analysis.detectProjectType()`, and `new-project`'s string-rewrite —
-// which is how `.slnx` came to be recognized in some sites but not others
-// (#1507) and how npm became the canonical scaffold toolchain (#1508).
+// marker knowledge was duplicated across `test-runtime-resolver.detect()` and
+// `static-analysis.detectProjectType()` — which is how `.slnx` came to be
+// recognized in some sites but not others (#1507).
 //
-// The three surfaces share DETECTION (markers → toolchain). They do NOT share
-// commands: the resolver wants a test-runner command, static-analysis wants a
-// build/lint check, and the scaffolder wants template-token fills. So commands
-// are modelled per-perspective: `commands` (resolver) + `scaffold` (new-project).
-// static-analysis consumes detection only and keeps its own check commands.
+// The consuming surfaces share DETECTION (markers → toolchain). They do NOT
+// share commands: the resolver wants a test-runner command and static-analysis
+// wants a build/lint check, so each consumes detection and keeps its own
+// command perspective. (The retired `new-project` scaffolder also consumed a
+// per-toolchain scaffold token-map; that surface and its `scaffold` field were
+// removed in DR-3/DR-5 — task 017/018.)
 //
 // Node package-manager nuance (npm/pnpm/yarn/bun) is resolved separately from
 // the vendored lockfile table (see resolve-node-runtime, T2) — the node entry's
@@ -31,17 +30,6 @@ export interface ToolchainCommands {
   readonly install: string | null;
 }
 
-/**
- * Scaffold token replacements for `new-project`. Keyed to the CLAUDE.md.template
- * canonical tokens (`npm run test:run`, `npm run test:coverage`, `npm run typecheck`).
- * Present only for toolchains `new-project` can scaffold.
- */
-export interface ScaffoldCommands {
-  readonly test: string;
-  readonly testCoverage: string;
-  readonly typecheck: string;
-}
-
 export interface Toolchain {
   /** Stable id (`node`, `dotnet`, `rust`, …). */
   readonly id: string;
@@ -55,8 +43,6 @@ export interface Toolchain {
   readonly markers: readonly string[];
   /** Resolver-canonical commands (test-runner perspective). */
   readonly commands: ToolchainCommands;
-  /** Scaffold token-map; present only for scaffoldable toolchains. */
-  readonly scaffold?: ScaffoldCommands;
 }
 
 // Priority-ordered. node first preserves prior resolver/static-analysis behavior
@@ -70,22 +56,12 @@ export const BUILTIN_TOOLCHAINS: readonly Toolchain[] = [
     markers: ['package.json'],
     // Baseline only — the resolver computes node commands package-manager-aware.
     commands: { test: 'npm run test:run', typecheck: 'tsc --noEmit', install: 'npm install' },
-    scaffold: {
-      test: 'npm run test',
-      testCoverage: 'npm run test -- --coverage',
-      typecheck: 'npm run typecheck',
-    },
   },
   {
     id: 'dotnet',
     projectType: '.NET',
     markers: ['*.csproj', '*.sln', '*.slnx'],
     commands: { test: 'dotnet test', typecheck: null, install: null },
-    scaffold: {
-      test: 'dotnet test',
-      testCoverage: 'dotnet test --collect:"XPlat Code Coverage"',
-      typecheck: 'dotnet build',
-    },
   },
   {
     id: 'rust',

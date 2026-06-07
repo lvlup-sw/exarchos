@@ -275,13 +275,15 @@ describe('buildRegistrationSchema', () => {
     const schema = buildRegistrationSchema(orchestrate.actions);
 
     // Regression for #1127: before the fix, agent_spec.format (full|prompt-only)
-    // shadowed doctor/init.format (table|json), making these payloads fail
-    // validation at the registered-tool boundary.
+    // shadowed doctor/onboard.format (table|json), making these payloads fail
+    // validation at the registered-tool boundary. (init was swapped out for
+    // onboard in task 011 — design line 322 — so the regression is now exercised
+    // through the onboard action's `format` field.)
     expect(schema.safeParse({ action: 'doctor' }).success).toBe(true);
     expect(schema.safeParse({ action: 'doctor', format: 'json' }).success).toBe(true);
     expect(schema.safeParse({ action: 'doctor', format: 'table' }).success).toBe(true);
-    expect(schema.safeParse({ action: 'init', nonInteractive: true }).success).toBe(true);
-    expect(schema.safeParse({ action: 'init', format: 'json' }).success).toBe(true);
+    expect(schema.safeParse({ action: 'onboard', dryRun: true }).success).toBe(true);
+    expect(schema.safeParse({ action: 'onboard', format: 'json' }).success).toBe(true);
   });
 
   it('should expose agent_spec outputFormat on the real orchestrate registration schema', () => {
@@ -545,10 +547,15 @@ describe('TOOL_REGISTRY', () => {
   });
 
   describe('exarchos_orchestrate', () => {
-    it('should have 69 actions for task management, review triage, gate checks, validation handlers, runbooks, agent spec, oneshot/pruning, doctor, init, VCS, classify_review_items (#1159), merge_orchestrate (DR-MO-1), check_integration_suite (#1329), check_invariant_conformance (DR-3), invariants_scaffold/invariants_add (invariants-catalog-wizard P2), and composite actions', () => {
+    it('should have 68 actions for task management, review triage, gate checks, validation handlers, runbooks, agent spec, oneshot/pruning, onboard (DR-2 task 011), doctor, VCS, classify_review_items (#1159), merge_orchestrate (DR-MO-1), check_integration_suite (#1329), check_invariant_conformance (DR-3), invariants_scaffold/invariants_add (invariants-catalog-wizard P2), and composite actions', () => {
       const composite = findComposite('exarchos_orchestrate');
       expect(composite).toBeDefined();
-      expect(composite!.actions).toHaveLength(69);
+      // 68 = 69 prior − `new_project` (retired in DR-3 task 017; the greenfield
+      // path is now `onboard --new` from task 016, and `applyLanguageCustomizations`'
+      // INV-6-violating npm→dotnet string-rewrite is deleted — closes #1508). The
+      // `init`/`install-skills` CLI verbs are rename stubs; the init action,
+      // handler, and `init.executed` event were fully removed in DR-5 (task 018).
+      expect(composite!.actions).toHaveLength(68);
 
       const actionNames = composite!.actions.map((a) => a.name);
       expect(actionNames).toEqual(
@@ -594,7 +601,6 @@ describe('TOOL_REGISTRY', () => {
           'post_delegation_check',
           'reconcile_state',
           'pre_synthesis_check',
-          'new_project',
           'check_coderabbit',
           'check_polish_scope',
           'needs_schema_sync',
@@ -611,7 +617,11 @@ describe('TOOL_REGISTRY', () => {
           'get_pr_comments',
           'add_pr_comment',
           'create_issue',
-          'init',
+          // DR-2/DR-5 (task 011): explicit assertion so the consolidated
+          // first-run verb cannot be silently dropped. `onboard` SWAPS OUT the
+          // legacy `init` action (design line 322) — `init` is intentionally no
+          // longer in this list; its CLI verb is now a rename stub.
+          'onboard',
           // DR-MO-1 / DR-MO-2: explicit assertion so a future registry edit
           // cannot quietly drop the autonomous merge orchestrator action.
           'merge_orchestrate',
@@ -635,17 +645,36 @@ describe('TOOL_REGISTRY', () => {
 
     const { ACTION_HANDLER_KEYS } = await import('./orchestrate/composite.js');
 
-    // Actions that are handled specially in the composite router (not via ACTION_HANDLERS).
-    // invariants_scaffold / invariants_add use explicit dispatch branches (like
-    // init/doctor) because they need injected fs hooks + DispatchContext.
+    // Actions that have NO entry in the ACTION_HANDLERS table because they are
+    // served by an EXPLICIT dispatch branch in the composite router (an
+    // `if (action === ...)` arm) — they need something the generic adapter can't
+    // provide (the full action list, injected fs hooks, or the whole
+    // DispatchContext). The SPECIAL_BRANCH_DISPATCH check at the bottom proves
+    // each of these branches ACTUALLY routes; this set only excuses them from the
+    // "must be in ACTION_HANDLERS" loop.
+    //
+    // `onboard` is deliberately NOT in this skip-set. Keeping it here previously
+    // SUPPRESSED the bug where `onboard` was registered but had NO composite
+    // branch and NO ACTION_HANDLERS entry, so it fell through to UNKNOWN_ACTION at
+    // runtime while every unit test (which called `handleOnboard` directly) stayed
+    // green. With onboard out of the skip-set, the dispatch-routing assertion
+    // below is the load-bearing guard for its branch.
+    //
+    // `init` is absent from the registry entirely: its action was removed in the
+    // onboard swap (design line 322) and its handler in DR-5 (task 018). `onboard`
+    // supersedes it.
     const SPECIAL_ACTIONS = new Set([
       'describe',
       'runbook',
       'doctor',
-      'init',
       'invariants_scaffold',
       'invariants_add',
     ]);
+
+    // The full set of explicit composite dispatch branches — SPECIAL_ACTIONS plus
+    // `onboard` (whose branch is the regression target of this guard). Every
+    // registered action MUST be either in ACTION_HANDLERS or in this set.
+    const SPECIAL_BRANCH_DISPATCH = new Set([...SPECIAL_ACTIONS, 'onboard']);
 
     for (const handlerKey of ACTION_HANDLER_KEYS) {
       expect(
@@ -655,10 +684,82 @@ describe('TOOL_REGISTRY', () => {
     }
     for (const registryName of registryNames) {
       if (SPECIAL_ACTIONS.has(registryName)) continue;
+      // After the SPECIAL_ACTIONS skip, the only registered actions allowed to be
+      // absent from ACTION_HANDLERS are the special BRANCH dispatches (today just
+      // `onboard`). Anything else with no handler is a genuine drift.
+      if (SPECIAL_BRANCH_DISPATCH.has(registryName)) continue;
       expect(
         ACTION_HANDLER_KEYS.includes(registryName),
         `Registry action '${registryName}' has no handler in composite.ts`,
       ).toBe(true);
+    }
+
+    // ENFORCE the special-branch dispatch (the registry↔handler guard the old
+    // `SPECIAL_ACTIONS` skip could not provide): every registered action that is
+    // NOT in ACTION_HANDLERS MUST be reachable through an explicit composite
+    // branch. We assert routing by dispatching each through `handleOrchestrate`
+    // and confirming it does NOT fall through to UNKNOWN_ACTION. `onboard` is the
+    // regression target — before its branch + import were wired it failed here.
+    const { handleOrchestrate } = await import('./orchestrate/composite.js');
+    const { EventStore } = await import('./event-store/store.js');
+    const { mkdtemp, rm } = await import('node:fs/promises');
+    const { tmpdir } = await import('node:os');
+    const path = await import('node:path');
+
+    const branchOnly = [...registryNames].filter(
+      (n) => !ACTION_HANDLER_KEYS.includes(n),
+    );
+    // Sanity: every branch-only action is one we expect to have a special arm.
+    for (const name of branchOnly) {
+      expect(
+        SPECIAL_BRANCH_DISPATCH.has(name),
+        `Registry action '${name}' is neither in ACTION_HANDLERS nor a known special branch`,
+      ).toBe(true);
+    }
+
+    const base = await mkdtemp(path.join(tmpdir(), 'registry-dispatch-'));
+    try {
+      const stateDir = path.join(base, 'state');
+      const eventStore = new EventStore(stateDir);
+      await eventStore.initialize();
+      const ctx = {
+        stateDir,
+        eventStore,
+        enableTelemetry: false,
+        cwd: base,
+      } as unknown as Parameters<typeof handleOrchestrate>[1];
+
+      // `describe`/`runbook` route without side effects; doctor/onboard/invariants
+      // read ctx.eventStore. We dispatch with the minimal valid args per action
+      // and only assert the action ROUTED (no UNKNOWN_ACTION) — behavior is
+      // covered by each handler's own suite.
+      const minimalArgs: Record<string, Record<string, unknown>> = {
+        describe: { action: 'describe', actions: ['doctor'] },
+        runbook: { action: 'runbook' },
+        doctor: { action: 'doctor' },
+        onboard: { action: 'onboard', dryRun: true, surface: 'cli' },
+        invariants_scaffold: { action: 'invariants_scaffold', repoRoot: base },
+        invariants_add: {
+          action: 'invariants_add',
+          repoRoot: base,
+          entry: { dimension: 'x', summary: 'y' },
+          dryRun: true,
+        },
+      };
+
+      for (const name of [...SPECIAL_BRANCH_DISPATCH]) {
+        const result = await handleOrchestrate(minimalArgs[name], ctx);
+        const errCode =
+          result.success === false ? result.error?.code : undefined;
+        expect(
+          errCode,
+          `Special action '${name}' fell through to UNKNOWN_ACTION — its composite dispatch branch is missing`,
+        ).not.toBe('UNKNOWN_ACTION');
+      }
+    } finally {
+      await rm(base, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 }).catch(
+        () => {},
+      );
     }
   });
 

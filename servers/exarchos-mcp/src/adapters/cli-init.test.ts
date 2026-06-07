@@ -1,11 +1,16 @@
 /**
- * Tests for the top-level `exarchos init` CLI surface. Init is
- * promoted to a top-level verb (like doctor) so an operator types
- * `exarchos init` rather than `exarchos orch init`.
+ * Tests for the top-level `exarchos init` CLI surface.
  *
- * These tests drive the CLI programmatically (buildCli + parseAsync)
- * rather than spawning a subprocess, mirroring the pattern in
- * cli-doctor.test.ts.
+ * Task 011 swap (design line 322: "init action → onboard action"): the `init`
+ * action was removed from the registry and the `init` CLI verb is now a
+ * one-release DR-5 **rename stub**. It prints `renamed → use 'exarchos onboard'`
+ * and exits non-zero (HANDLER_ERROR=2, NOT "command not found"), runs NO
+ * onboarding side effect, and dispatches nothing. The init handler
+ * (`handleInitWithWriters`) + `init.executed` event were fully removed in DR-5
+ * (task 018) — `onboard` reproduces init's outputs via the GENERATE writers.
+ *
+ * These tests drive the CLI programmatically (buildCli + parseAsync) rather than
+ * spawning a subprocess, mirroring the pattern in cli-doctor.test.ts.
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -50,27 +55,9 @@ function createTestContext(): DispatchContext {
   };
 }
 
-function makeInitResult(overrides?: {
-  runtimes?: Array<{ runtime: string; status: string; path: string; componentsWritten: string[]; error?: string }>;
-  vcs?: { provider: string; remoteUrl: string; cliAvailable: boolean } | null;
-}): ToolResult {
-  const runtimes = overrides?.runtimes ?? [
-    { runtime: 'claude-code', status: 'written', path: '/home/.claude.json', componentsWritten: ['mcp-config'] },
-  ];
-  const vcs = overrides?.vcs !== undefined ? overrides.vcs : null;
-  return {
-    success: true,
-    data: {
-      runtimes,
-      vcs,
-      durationMs: 42,
-    },
-  };
-}
-
 // ─── Tests ──────────────────────────────────────────────────────────────────
 
-describe('exarchos init CLI', () => {
+describe('exarchos init CLI (DR-5 rename stub)', () => {
   let ctx: DispatchContext;
   let originalExitCode: number | string | undefined;
 
@@ -85,106 +72,68 @@ describe('exarchos init CLI', () => {
     process.exitCode = originalExitCode;
   });
 
-  it('CliInit_NoArgs_DispatchesInitAction', async () => {
-    // Arrange: default init — no flags
-    vi.mocked(dispatch).mockResolvedValueOnce(makeInitResult());
+  it('CliInit_NoArgs_DoesNotDispatch_AndExitsNonZero', async () => {
     const program = buildCli(ctx);
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
 
-    // Act
     await program.parseAsync(['node', 'exarchos', 'init']);
 
-    // Assert
-    expect(process.exitCode ?? 0).toBe(CLI_EXIT_CODES.SUCCESS);
-    expect(dispatch).toHaveBeenCalledWith(
-      'exarchos_orchestrate',
-      expect.objectContaining({ action: 'init' }),
-      ctx,
-    );
+    // No onboarding side effect runs from the stub (DR-5 acceptance criterion).
+    expect(dispatch).not.toHaveBeenCalled();
+    // Non-zero, not "command not found".
+    expect(process.exitCode).toBe(CLI_EXIT_CODES.HANDLER_ERROR);
+
+    stderrSpy.mockRestore();
   });
 
-  it('CliInit_RuntimeFlag_PassesRuntime', async () => {
-    // Arrange: --runtime copilot
-    vi.mocked(dispatch).mockResolvedValueOnce(makeInitResult());
+  it('CliInit_PrintsRenameMessage_PointingAtOnboard', async () => {
     const program = buildCli(ctx);
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
 
-    // Act
+    await program.parseAsync(['node', 'exarchos', 'init']);
+
+    const written = stderrSpy.mock.calls.map(([s]) => String(s)).join('');
+    expect(written).toMatch(/renamed/i);
+    expect(written).toContain('exarchos onboard');
+
+    stderrSpy.mockRestore();
+  });
+
+  it('CliInit_LegacyRuntimeFlag_StillStubsAndDoesNotDispatch', async () => {
+    // The legacy `--runtime <id>` flag is accepted (allowUnknownOption /
+    // allowExcessArguments) but ignored — there is no init action to route to.
+    const program = buildCli(ctx);
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
+
     await program.parseAsync(['node', 'exarchos', 'init', '--runtime', 'copilot']);
 
-    // Assert
-    expect(dispatch).toHaveBeenCalledWith(
-      'exarchos_orchestrate',
-      expect.objectContaining({ action: 'init', runtime: 'copilot' }),
-      ctx,
-    );
+    expect(dispatch).not.toHaveBeenCalled();
+    expect(process.exitCode).toBe(CLI_EXIT_CODES.HANDLER_ERROR);
+
+    stderrSpy.mockRestore();
   });
 
-  it('CliInit_NonInteractive_PassesFlag', async () => {
-    // Arrange: --non-interactive
-    vi.mocked(dispatch).mockResolvedValueOnce(makeInitResult());
+  it('CliInit_LegacyNonInteractiveFlag_StillStubs', async () => {
     const program = buildCli(ctx);
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
 
-    // Act
     await program.parseAsync(['node', 'exarchos', 'init', '--non-interactive']);
 
-    // Assert
-    expect(dispatch).toHaveBeenCalledWith(
-      'exarchos_orchestrate',
-      expect.objectContaining({ action: 'init', nonInteractive: true }),
-      ctx,
-    );
-  });
-
-  it('CliInit_FormatJson_PassesFormat', async () => {
-    // Arrange: --format json via --json flag
-    vi.mocked(dispatch).mockResolvedValueOnce(makeInitResult());
-    const program = buildCli(ctx);
-    const stdoutSpy = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
-
-    // Act
-    await program.parseAsync(['node', 'exarchos', 'init', '--json']);
-
-    // Assert: JSON output on stdout
-    const writes = stdoutSpy.mock.calls.map(([s]) => s as string).join('');
-    stdoutSpy.mockRestore();
-    const trimmed = writes.trim();
-    expect(trimmed).not.toBe('');
-    const parsed = JSON.parse(trimmed) as ToolResult;
-    expect(parsed.success).toBe(true);
-    expect(process.exitCode ?? 0).toBe(CLI_EXIT_CODES.SUCCESS);
-  });
-
-  it('CliInit_AllWritesFailed_ExitsWithHandlerError', async () => {
-    // Arrange: all runtimes report failed status
-    const failedResult = makeInitResult({
-      runtimes: [
-        { runtime: 'claude-code', status: 'failed', path: '/home/.claude.json', componentsWritten: [], error: 'permission denied' },
-      ],
-    });
-    vi.mocked(dispatch).mockResolvedValueOnce(failedResult);
-    const program = buildCli(ctx);
-
-    // Act
-    await program.parseAsync(['node', 'exarchos', 'init']);
-
-    // Assert: exit 2 for handler error (any failed writer)
+    expect(dispatch).not.toHaveBeenCalled();
     expect(process.exitCode).toBe(CLI_EXIT_CODES.HANDLER_ERROR);
+
+    stderrSpy.mockRestore();
   });
 
-  it('CliInit_DispatchThrows_ExitsThree', async () => {
-    // Arrange: dispatch throws an exception
-    vi.mocked(dispatch).mockRejectedValueOnce(new Error('unexpected failure'));
+  it('CliInit_LegacyJsonFlag_StillStubs_NoDispatch', async () => {
     const program = buildCli(ctx);
-    const stdoutSpy = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
 
-    // Act
     await program.parseAsync(['node', 'exarchos', 'init', '--json']);
 
-    // Assert
-    expect(process.exitCode).toBe(CLI_EXIT_CODES.UNCAUGHT_EXCEPTION);
-    const writes = stdoutSpy.mock.calls.map(([s]) => s as string).join('');
-    stdoutSpy.mockRestore();
-    const parsed = JSON.parse(writes.trim()) as ToolResult;
-    expect(parsed.success).toBe(false);
-    expect(parsed.error?.code).toBe('UNCAUGHT_EXCEPTION');
+    expect(dispatch).not.toHaveBeenCalled();
+    expect(process.exitCode).toBe(CLI_EXIT_CODES.HANDLER_ERROR);
+
+    stderrSpy.mockRestore();
   });
 });

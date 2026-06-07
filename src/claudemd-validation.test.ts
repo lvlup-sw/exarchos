@@ -12,7 +12,7 @@ describe('CLAUDE.md validation', () => {
       /##.*build.*test/i,
       /##.*architecture/i,
       /##.*safety/i,
-      /##.*key\s+conventions/i,
+      /##.*conventions/i,
     ];
     for (const pattern of requiredPatterns) {
       expect(content, `Missing section matching ${pattern}`).toMatch(pattern);
@@ -26,6 +26,6 @@ describe('CLAUDE.md validation', () => {
 
   it('claudeMd_hasExistingSections', () => {
     expect(content).toContain('## Build & Test');
-    expect(content).toContain('## Key Conventions');
+    expect(content).toContain('## Conventions');
   });
 });

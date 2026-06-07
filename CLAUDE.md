@@ -1,62 +1,105 @@
 # CLAUDE.md
 
-Exarchos is local agent governance for Claude Code — event-sourced SDLC workflows with agent team coordination. Distributes as a Claude Code plugin via the lvlup-sw marketplace.
+Exarchos is local agent governance for Claude Code — event-sourced SDLC workflows with
+agent-team coordination. It ships as a **standalone CLI** with an optional `mcp` subcommand and
+plugin packaging (lvlup-sw marketplace) — not as a plugin-with-MCP-tools-only. This file orients
+agents working **on the Exarchos codebase**.
 
 ## Build & Test
 
 ```bash
-npm run build          # tsc + bun → dist/ (includes MCP server + CLI bundles)
+npm run build          # tsc + bun → dist/ (MCP server + CLI bundles)
 npm run test:run       # vitest single run
 npm run typecheck      # tsc --noEmit
-npm run build:skills   # render skills-src/ → skills/<runtime>/ variants + command-aliases/<runtime>/
+npm run build:skills   # render skills-src/ → skills/<runtime>/ + command-aliases/<runtime>/
 npm run skills:guard   # CI: fails if generated skills/ or command-aliases/ drift from sources
 
-# MCP server tests (build is handled by root `npm run build`)
-cd servers/exarchos-mcp && npm run test:run
+cd servers/exarchos-mcp && npm run test:run   # MCP server tests (build via root `npm run build`)
 ```
+
+## Tooling (use the plugins/MCP available in this repo)
+
+Tools are deferred via Tool Search — prefer them when a task fits; don't enumerate their APIs here.
+
+- **Dogfood Exarchos itself.** Drive non-trivial features through the workflow commands
+  (`/exarchos:ideate` → `/plan` → `/delegate` → `/review` → `/synthesize`); the `exarchos` MCP
+  server (`exarchos_workflow`, `exarchos_event`, `exarchos_orchestrate`, `exarchos_view`) is the
+  state surface. Run `/exarchos:dogfood` to triage tool failures into code/doc/user-error.
+- **Code navigation & edits** — prefer **serena** symbol tools over raw grep for TypeScript
+  symbol lookup/rename (call `activate_project` with project `exarchos` first; it errors otherwise).
+- **Semantic git** — use **sem** (entity-level diff/blame/impact) and **weave** (entity claim +
+  merge coordination) when coordinating multi-agent edits across files.
+- **Library/API docs** — pull current docs via **context7** or **exa** instead of relying on
+  training memory.
 
 ## Architecture
 
-- **Installer** — Bootstrap scripts (`scripts/get-exarchos.sh`, `scripts/get-exarchos.ps1`) download the single-file binary from GitHub Releases; plugin packaging registers commands/skills/rules via the `.claude-plugin/` manifest. The npx-based `src/install.ts` was removed in v2.9 (task 3.1).
-- **Content layers** — Commands (`commands/*.md`); Skills source-of-truth at `skills-src/<name>/SKILL.md` (with `{{TOKEN}}` placeholders and `references/`) rendered to `skills/<runtime>/<name>/SKILL.md` per runtime (Claude Code, Codex, Copilot, Cursor, OpenCode, generic); Rules (`rules/*.md` — safety only; domain rules in `skills-src/*/references/`). Structured Markdown, not executable code.
-- **Skills renderer** (`src/build-skills.ts`) — `npm run build:skills` walks `skills-src/`, substitutes placeholders from `runtimes/<name>.yaml`, copies each skill's `references/` verbatim into every runtime variant, honors `SKILL.<runtime>.md` structural overrides, and prunes stale output. A vocabulary lint runs as a pre-flight; `npm run skills:guard` re-renders and fails CI on any `git diff skills/` or `command-aliases/` drift. For runtimes that declare `capabilities.canonicalCommandAliases` (opencode today), the build also emits canonical-name command aliases (`/ideate`, `/plan`, …) to `command-aliases/<runtime>/` from the `COMMAND_TO_SKILL` source-of-truth in `src/config/canonical-skills.ts`, so workflow names stay consistent across harnesses (INV-4).
-- **MCP server** (`servers/exarchos-mcp/`) — 4 visible composite tools (`exarchos_workflow`, `exarchos_event`, `exarchos_orchestrate`, `exarchos_view`) + 1 hidden sync tool (`exarchos_sync`). Uses `@modelcontextprotocol/sdk` + `zod` over stdio.
-- **Orchestrate handlers** (`servers/exarchos-mcp/src/orchestrate/`) — TypeScript handlers for all workflow actions. Each handler accepts typed args, returns structured `ToolResult`. No bash dependency for workflow operations.
-- **Toolchain resolution** — `src/config/toolchains.ts` is the single source of truth for toolchain *identity* (markers → id + `projectType`); `test-runtime-resolver.ts`, `static-analysis.ts`, and `new-project.ts` are thin consumers (no independent marker lists or command literals). `resolveTestRuntime` is a synchronous, per-field **layered resolver**: override > `.exarchos.yml` direct > user `toolchains:` > task-runner (`task-runners.ts`: Taskfile/just/mise/Makefile) > built-in registry > unresolved. Node PM detection reads a vendored `package-manager-detector` lockfile table (`src/config/vendor/`, regenerate via `npm run vendor:sync:pm-detector`). See [`docs/guides/toolchain-resolution.md`](docs/guides/toolchain-resolution.md). Upholds INV-6/INV-4.
-- **State surfaces (two of them)** — Workflow state lives in (1) the **SQLite event store** (`events` + projected `workflow_state` + `streams`) — the authoritative record of whether a workflow exists, and (2) **`<featureId>.state.json`** files — a *secondary* "planner's stamp" for plan-state facts the projection can't derive (review status, declared task list, dimension findings; see `src/views/tools.ts` `readWorkflowStateJson`). A `.state.json` may be absent for a tracked workflow and is **not** an existence signal. **Canonical existence check:** `rehydrate`/`get` → `_meta.workflowExists` (or non-empty `workflowState.featureId`) — never filesystem `.state.json` presence. Cold probes of unknown featureIds are side-effect-free (no `workflow.rehydrated` emitted). See RCA [`docs/rca/2026-05-30-state-source-integrity.md`](docs/rca/2026-05-30-state-source-integrity.md).
-- **Remote MCP** — future deployment axis; see [`docs/designs/future/remote-mcp-deployment.md`](docs/designs/future/remote-mcp-deployment.md) (tracking: [#1081](https://github.com/lvlup-sw/exarchos/issues/1081)). Not implemented today.
+Orientation only — deep detail lives in `docs/architecture/`, `docs/guides/`, and RCAs.
+
+- **Installer** — `scripts/get-exarchos.{sh,ps1}` download the single-file binary from GitHub
+  Releases; `.claude-plugin/` packaging registers commands/skills/rules/agents + the `exarchos`
+  MCP server.
+- **Content layers** — Commands (`commands/*.md`); Skills authored at `skills-src/<name>/SKILL.md`
+  (`{{TOKEN}}` placeholders + `references/`) and rendered per-runtime to `skills/<runtime>/`; Rules
+  (`rules/*.md` — safety only; domain rules live in `skills-src/*/references/`). Structured
+  Markdown, not executable code.
+- **Skills renderer** (`src/build-skills.ts`) — `npm run build:skills` substitutes placeholders
+  from `runtimes/<name>.yaml`, copies `references/` verbatim into every variant, honors
+  `SKILL.<runtime>.md` overrides, and emits canonical command aliases for runtimes declaring
+  `canonicalCommandAliases`. `npm run skills:guard` re-renders and fails CI on any `skills/` drift.
+- **MCP server** (`servers/exarchos-mcp/`) — 4 visible composite tools + 1 hidden `exarchos_sync`,
+  over `@modelcontextprotocol/sdk` + `zod` on stdio. Workflow actions are typed TS handlers
+  (`servers/exarchos-mcp/src/orchestrate/`) returning structured `ToolResult` — no bash dependency.
+- **Toolchain resolution** — `src/config/toolchains.ts` is the single source of truth for toolchain
+  *identity*; consumers (`test-runtime-resolver.ts`, `static-analysis.ts`) hold no
+  independent marker/command lists. `resolveTestRuntime` is a synchronous, per-field **layered
+  resolver**: override > `.exarchos.yml` direct > user `toolchains:` > task-runner > built-in
+  registry > unresolved. See [`docs/guides/toolchain-resolution.md`](docs/guides/toolchain-resolution.md).
+- **State surfaces (two, and the distinction is load-bearing)** —
+  (1) the **SQLite event store** (`events` + projected `workflow_state` + `streams`) is the
+  authoritative record of whether a workflow exists; (2) **`<featureId>.state.json`** is a
+  *secondary* "planner's stamp" for plan facts the projection can't derive. A `.state.json` may be
+  absent for a tracked workflow and is **not** an existence signal. **Canonical existence check:**
+  `rehydrate`/`get` → `_meta.workflowExists` — never filesystem `.state.json` presence. Cold probes
+  of unknown featureIds are side-effect-free. RCA:
+  [`docs/rca/2026-05-30-state-source-integrity.md`](docs/rca/2026-05-30-state-source-integrity.md).
 
 ## Safety
 
-- **NEVER:** `rm -rf /`, `rm -rf ~`, `rm -rf .` in home/root, `rm` with unset variables (`$UNSET_VAR/*`)
-- **ALWAYS:** Use specific paths, `ls` before deleting, avoid `-f` unless needed, verify `-r` targets. When uncertain, preview with `echo rm ...` or ask.
+- **NEVER:** `rm -rf /`, `rm -rf ~`, `rm -rf .` in home/root, `rm` with unset vars (`$UNSET_VAR/*`).
+- **ALWAYS:** use specific paths, `ls` before deleting, avoid `-f` unless needed, verify `-r`
+  targets. When uncertain, preview with `echo rm …` or ask.
 
-## Key Conventions
+## Conventions
 
-- **ESM** — `"type": "module"`, NodeNext resolution
-- **Strict TypeScript** — `strict: true`, no `any`, `unknown` with type guards
-- **Co-located tests** — `foo.test.ts` alongside `foo.ts`
-- **Vitest** — `import { describe, it, expect, vi } from 'vitest'`
-- **No runtime deps** for root installer; **Node >= 20**
-- **Skill frontmatter** — `name` (kebab-case), `description` (<=1,024 chars), `metadata`
-- **Skill metadata** — Skills invoking Exarchos MCP tools MUST include `metadata.mcp-server: exarchos` in frontmatter. Utility/standards skills without MCP dependency are exempt.
-- **Skills source-of-truth** — Edit `skills-src/<name>/SKILL.md`, then run `npm run build:skills` and commit both the source and the regenerated `skills/` tree. Direct edits to `skills/<runtime>/**` will fail the `skills:guard` CI check.
-- **Reference-file frontmatter** — Files under `skills-src/<skill>/references/*.md` MUST NOT have YAML frontmatter. Frontmatter is reserved for skill entry points (`SKILL.md`, `commands/*.md`, `rules/*.md`). Reference files are includes; frontmatter is metadata noise that triggers spurious validator complaints.
+- **Co-located tests** — `foo.test.ts` beside `foo.ts`; Vitest (`import { describe, it, expect, vi } from 'vitest'`).
+- **Strict TypeScript** — no `any`; use `unknown` + type guards. (ESM / NodeNext / Node ≥20 per `package.json` + `tsconfig.json`.)
+- **Skills are source-of-truth at `skills-src/`** — edit there, run `npm run build:skills`, commit
+  both source and the regenerated `skills/` tree. Direct edits to `skills/<runtime>/**` fail
+  `skills:guard`.
+- **Skill frontmatter** — `name` (kebab-case), `description` (≤1,024 chars), `metadata`. Skills that
+  invoke Exarchos MCP tools MUST set `metadata.mcp-server: exarchos`; utility/standards skills are exempt.
+- **Reference files** (`skills-src/<skill>/references/*.md`) MUST NOT carry YAML frontmatter —
+  frontmatter is reserved for entry points (`SKILL.md`, `commands/*.md`, `rules/*.md`).
 
-## Workflow Dispatch Conventions
+## Workflow Dispatch
 
-- Always dispatch parallel sub-agents from the correct feature/phase branch, never from `main`. Verify base branch topology before launching waves.
-- When running merge commands, confirm you are in the main worktree (not a sub-agent worktree) before executing.
-- For workflow pruning/archiving, do not rely solely on the prune tool — verify stale counts and fall back to manual shell archival when the tool under-reports.
-- Insert explicit checkpoints every ~10 tasks or before any phase transition, not just at session end.
+- Dispatch parallel sub-agents from the correct feature/phase branch, **never from `main`** — verify
+  base-branch topology before launching waves.
+- Run merge commands only from the **main worktree** (not a sub-agent worktree).
+- For pruning/archiving, don't trust the prune tool alone — verify stale counts and fall back to
+  manual shell archival when it under-reports.
+- Insert explicit checkpoints every ~10 tasks or before any phase transition.
 
 ## Design Philosophy
 
-- Exarchos ships as a **standalone CLI** with optional MCP subcommand and plugin packaging — not as a Claude Code plugin with MCP tools only.
-- New feature designs must follow **agent-first CLI patterns (Aspire-inspired)**, not config-file-centric or human-first designs.
-- Validate all designs against the invariants catalog (`.exarchos/invariants.md`), Aspire, and roadmap conventions before presenting.
+- New feature designs follow **agent-first CLI patterns (Aspire-inspired)** — not config-file-centric
+  or human-first designs.
+- Validate every design against the invariants catalog (`.exarchos/invariants.md`), Aspire, and
+  roadmap conventions before presenting.
 
 ## Local Repro & Verification
 
-- Before claiming local repro requires new seeding/test accounts, check for existing demo admin credentials and wired databases (e.g., Turso).
-- For browser automation, use `playwright-cli` as the default tool — do not attempt the Chrome extension first.
+- Before claiming local repro needs new seeding/test accounts, check for existing demo admin
+  credentials and wired databases (e.g., Turso).
+- For browser automation, default to `playwright-cli` — don't reach for the Chrome extension first.

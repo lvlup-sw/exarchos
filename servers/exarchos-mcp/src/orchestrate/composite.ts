@@ -62,7 +62,6 @@ import { handleVerifyDelegationSaga } from './verify-delegation-saga.js';
 import { handlePostDelegationCheck } from './post-delegation-check.js';
 import { handleReconcileState } from './reconcile-state.js';
 import { handlePreSynthesisCheck } from './pre-synthesis-check.js';
-import { handleNewProject } from './new-project.js';
 import { handleCheckCoderabbit } from './check-coderabbit.js';
 import { handleCheckPolishScope } from './check-polish-scope.js';
 import { handleNeedsSchemaSync } from './needs-schema-sync.js';
@@ -74,6 +73,7 @@ import { handlePruneStaleWorkflows } from './prune-stale-workflows.js';
 import { handleRequestSynthesize } from './request-synthesize.js';
 import { handleFinalizeOneshot } from './finalize-oneshot.js';
 import { handleDoctor } from './doctor/index.js';
+import { handleOnboard } from './onboard/index.js';
 import { handleCreatePr } from './vcs/create-pr.js';
 import { handleMergePr } from './vcs/merge-pr.js';
 import { handleCheckCi } from './vcs/check-ci.js';
@@ -83,7 +83,6 @@ import { handleAddPrComment } from './vcs/add-pr-comment.js';
 import { handleCreateIssue } from './vcs/create-issue.js';
 import type { HandleCreateIssueArgs } from './vcs/create-issue.js';
 import { createVcsProvider } from '../vcs/factory.js';
-import { handleInit } from './init/index.js';
 import { handleMergeOrchestrate } from './merge-orchestrate.js';
 import { handleScaffold } from './invariants/scaffold.js';
 import type { HandleScaffoldArgs } from './invariants/scaffold.js';
@@ -284,7 +283,6 @@ const ACTION_HANDLERS: Readonly<Record<string, ActionHandler>> = {
   post_delegation_check: adaptArgsWithEventStore(handlePostDelegationCheck),
   reconcile_state: adaptArgsWithEventStore(handleReconcileState),
   pre_synthesis_check: adaptArgsWithStateDirAndEventStore(handlePreSynthesisCheck),
-  new_project: adaptArgs(handleNewProject),
   check_coderabbit: adaptArgs(handleCheckCoderabbit),
   check_polish_scope: adaptArgs(handleCheckPolishScope),
   needs_schema_sync: adaptArgs(handleNeedsSchemaSync),
@@ -503,11 +501,21 @@ export async function handleOrchestrate(
     return envelopeWrap(await handleDoctor(rest as Parameters<typeof handleDoctor>[0], ctx), startedAt);
   }
 
-  // Handle init specially — like doctor, it needs the full
-  // DispatchContext because handleInit uses ctx.eventStore to emit
-  // init.executed and delegates deps/VCS detection internally.
-  if (action === 'init') {
-    return envelopeWrap(await handleInit(rest as Parameters<typeof handleInit>[0], ctx), startedAt);
+  // Handle onboard specially — like doctor, it needs the full DispatchContext
+  // (not just stateDir) because handleOnboard reads ctx.eventStore to build the
+  // two-event seam (`onboard.requested`/`onboard.executed`) and resolves the
+  // repo cwd from ctx. This is what makes `exarchos onboard` (cli.ts) and the
+  // MCP `exarchos_orchestrate {action:'onboard'}` path actually route — without
+  // this branch (and absent from ACTION_HANDLERS) the action falls through to
+  // UNKNOWN_ACTION.
+  //
+  // `onboard` SUPERSEDES the legacy `init` action (whose dispatch branch +
+  // handler were removed in DR-5, task 018): it reuses the SAME writer list
+  // (`getAllWriters()`) via the reconciler's GENERATE step and emits the
+  // two-event contract in place of the retired `init.executed`. The `init` CLI
+  // verb is now a rename stub (cli.ts).
+  if (action === 'onboard') {
+    return envelopeWrap(await handleOnboard(rest as Parameters<typeof handleOnboard>[0], ctx), startedAt);
   }
 
   // invariants_scaffold (P2/T7) — writes a starter catalog + registers it in
@@ -575,7 +583,7 @@ export async function handleOrchestrate(
       success: false,
       error: {
         code: 'UNKNOWN_ACTION',
-        message: `Unknown orchestrate action '${String(action)}'. Valid actions: ${Object.keys(ACTION_HANDLERS).join(', ')}, describe, runbook, doctor`,
+        message: `Unknown orchestrate action '${String(action)}'. Valid actions: ${Object.keys(ACTION_HANDLERS).join(', ')}, describe, runbook, doctor, onboard, invariants_scaffold, invariants_add`,
       },
     };
   }

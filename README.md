@@ -88,16 +88,30 @@ irm https://lvlup-sw.github.io/exarchos/get-exarchos.ps1 | iex
 ```bash
 exarchos --version
 exarchos doctor
-exarchos mcp	// starts MCP server over stdio
+exarchos mcp   # starts MCP server over stdio
 ```
 
-### Install Skills
+### Onboard
 
 ```bash
-exarchos install-skills
+exarchos onboard
 ```
 
-Auto-detects which runtime is on your `PATH` and installs the matching skill bundle. One match installs that bundle. Multiple matches prompt you to pick. No match installs the generic bundle and tells you what it found and why. Skip detection with `--agent claude` (or `codex`, `opencode`, `copilot`, `cursor`, `generic`).
+One command drives the repo to a green `doctor`: it detects the runtimes + VCS on your `PATH`, writes/reconciles agent config, installs the matching skills, registers the SessionStart binding, then verifies. It is **idempotent** — re-running reconciles drift only.
+
+| Flag | Effect |
+|---|---|
+| `--new <name>` | Scaffold a fresh project in `<name>/`, then onboard it. |
+| `--dry-run` | Print the reconcile plan; write nothing, emit no events. |
+| `--force` | Overwrite hand-edited config (preserved otherwise). |
+| `--no-hooks` | Skip the SessionStart hook binding. |
+| `--runtime <id>` | Target an explicit runtime (`claude`, `codex`, `opencode`, `copilot`, `cursor`, `generic`); bypasses detection. |
+
+To re-check (without writing) at any time, run `exarchos doctor`; to re-apply just the remediable diff, run `exarchos doctor --fix`.
+
+If a step fails (e.g. an offline skills/deps install), `onboard` exits non-zero and prints a **forward-only** advisory: already-applied steps are kept (reconcile never rolls back), so the recovery is to fix the cause and **re-run** — `onboard` resumes from the residual diff.
+
+> **Renamed in v2.10.2:** the old `init`, `install-skills`, and `new-project` verbs were consolidated into `onboard` (use `onboard --new` for greenfield). They survive one release as error stubs that print `renamed → use 'exarchos onboard'` and are removed at v3.0.
 
 ### Claude Code plugin
 
