@@ -73,6 +73,7 @@ import { handlePruneStaleWorkflows } from './prune-stale-workflows.js';
 import { handleRequestSynthesize } from './request-synthesize.js';
 import { handleFinalizeOneshot } from './finalize-oneshot.js';
 import { handleDoctor } from './doctor/index.js';
+import { handleOnboard } from './onboard/index.js';
 import { handleCreatePr } from './vcs/create-pr.js';
 import { handleMergePr } from './vcs/merge-pr.js';
 import { handleCheckCi } from './vcs/check-ci.js';
@@ -500,11 +501,22 @@ export async function handleOrchestrate(
     return envelopeWrap(await handleDoctor(rest as Parameters<typeof handleDoctor>[0], ctx), startedAt);
   }
 
-  // The legacy `init` dispatch branch + handler were removed in DR-5 (task 018).
-  // `onboard` (above) supersedes init: it reuses the SAME writer list
+  // Handle onboard specially — like doctor, it needs the full DispatchContext
+  // (not just stateDir) because handleOnboard reads ctx.eventStore to build the
+  // two-event seam (`onboard.requested`/`onboard.executed`) and resolves the
+  // repo cwd from ctx. This is what makes `exarchos onboard` (cli.ts) and the
+  // MCP `exarchos_orchestrate {action:'onboard'}` path actually route — without
+  // this branch (and absent from ACTION_HANDLERS) the action falls through to
+  // UNKNOWN_ACTION.
+  //
+  // `onboard` SUPERSEDES the legacy `init` action (whose dispatch branch +
+  // handler were removed in DR-5, task 018): it reuses the SAME writer list
   // (`getAllWriters()`) via the reconciler's GENERATE step and emits the
-  // `onboard.requested`/`onboard.executed` two-event contract in place of the
-  // retired `init.executed`. The `init` CLI verb is now a rename stub (cli.ts).
+  // two-event contract in place of the retired `init.executed`. The `init` CLI
+  // verb is now a rename stub (cli.ts).
+  if (action === 'onboard') {
+    return envelopeWrap(await handleOnboard(rest as Parameters<typeof handleOnboard>[0], ctx), startedAt);
+  }
 
   // invariants_scaffold (P2/T7) — writes a starter catalog + registers it in
   // `.exarchos.yml`. No events; needs real fs hooks (injected so the handler
@@ -571,7 +583,7 @@ export async function handleOrchestrate(
       success: false,
       error: {
         code: 'UNKNOWN_ACTION',
-        message: `Unknown orchestrate action '${String(action)}'. Valid actions: ${Object.keys(ACTION_HANDLERS).join(', ')}, describe, runbook, doctor`,
+        message: `Unknown orchestrate action '${String(action)}'. Valid actions: ${Object.keys(ACTION_HANDLERS).join(', ')}, describe, runbook, doctor, onboard, invariants_scaffold, invariants_add`,
       },
     };
   }

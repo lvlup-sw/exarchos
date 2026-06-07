@@ -21,7 +21,7 @@
 
 import type { DispatchContext } from '../../core/dispatch.js';
 import type { ToolResult } from '../../format.js';
-import { ONBOARD_STREAM_ID, DOCTOR_STREAM_ID } from '../../core/infra-streams.js';
+import { DOCTOR_STREAM_ID } from '../../core/infra-streams.js';
 import { buildProbes as defaultBuildProbes } from './probes.js';
 import type { DoctorProbes } from './probes.js';
 import { DoctorOutputSchema, type CheckResult, type DoctorSummary } from './schema.js';
@@ -30,11 +30,9 @@ import {
   reconcileWithEvents,
   type ApplyCtx,
   type DetectOptions,
-  type EmittedEvent,
-  type ReconcileEventCtx,
 } from '../../core/onboarding/reconcile.js';
+import { buildOnboardEventCtx } from '../../core/onboarding/event-ctx.js';
 import type { ReconcilePlan, ReconcileResult } from '../../core/onboarding/types.js';
-import type { WorkflowEvent } from '../../event-store/schemas.js';
 import type { WriterDeps } from '../init/probes.js';
 import { buildWriterDeps } from '../init/probes.js';
 import { getAllWriters } from '../init/index.js';
@@ -188,7 +186,7 @@ export type BuildProbesFn = (ctx: DispatchContext) => DoctorProbes;
  * Stream ID for diagnostic events. Doctor is phase-independent and
  * not tied to any workflow, so a dedicated stream keeps diagnostic
  * history separate from workflow streams. (`DOCTOR_STREAM_ID` is imported
- * with `ONBOARD_STREAM_ID` at the top of the module; re-exported here so
+ * from `core/infra-streams.js` at the top of the module; re-exported here so
  * callers keep their single import site alongside the handler.)
  */
 export { DOCTOR_STREAM_ID };
@@ -329,42 +327,6 @@ async function runDoctorFix(
     plan: outcome.plan,
     ...(outcome.result ? { result: outcome.result } : {}),
     residual,
-  };
-}
-
-/**
- * Build the {@link ReconcileEventCtx} over the real {@link EventStore}, mirroring
- * the `onboard` handler's seam: `emit` is a PLAIN append to
- * {@link ONBOARD_STREAM_ID} (never CAS-pinned — the idempotency trap), and
- * `readStreamTail` returns ONLY the tail of the current logical run (everything
- * after the last `onboard.executed`) so a fresh `doctor --fix` reconciles drift
- * rather than idempotency-collapsing onto a prior completed run.
- */
-function buildOnboardEventCtx(ctx: DispatchContext): ReconcileEventCtx {
-  return {
-    emit: async (event: EmittedEvent): Promise<void> => {
-      await ctx.eventStore.append(ONBOARD_STREAM_ID, {
-        type: event.type,
-        data: event.data,
-      });
-    },
-    readStreamTail: async (): Promise<readonly EmittedEvent[]> => {
-      const events: WorkflowEvent[] = await ctx.eventStore.query(ONBOARD_STREAM_ID);
-      const onboardEvents: EmittedEvent[] = [];
-      for (const e of events) {
-        if (e.type === 'onboard.requested' || e.type === 'onboard.executed') {
-          onboardEvents.push({ type: e.type, data: e.data } as EmittedEvent);
-        }
-      }
-      let lastExecutedIdx = -1;
-      for (let i = onboardEvents.length - 1; i >= 0; i--) {
-        if (onboardEvents[i].type === 'onboard.executed') {
-          lastExecutedIdx = i;
-          break;
-        }
-      }
-      return onboardEvents.slice(lastExecutedIdx + 1);
-    },
   };
 }
 

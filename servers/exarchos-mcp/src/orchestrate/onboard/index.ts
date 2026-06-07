@@ -26,14 +26,18 @@
  *     (`getAllWriters()` + `buildWriterDeps()`) plus the injected
  *     `installStep`/`installHook` hooks.
  *
- * Scope boundary (LATER tasks fill these seams — they are stubbable here):
- *   - `installStep` real skills/deps install → task 015 (`./install.ts`, wired).
- *   - `installHook` real #1485 SessionStart binding → task 012.
- *   - `--new` greenfield scaffold → task 016 (the flag is accepted + routed to a
- *     TODO stub here; no greenfield behavior lands in this task).
- *   - CLI/registry action registration + flag schema → task 011.
+ * All seams below are WIRED to their production implementations (the epic is
+ * complete — no stubs remain in this module):
+ *   - `installStep` runs the real skills/deps install (`./install.ts`).
+ *   - `installHook` installs the real #1485 SessionStart binding (`./hooks.ts`).
+ *   - `--new` scaffolds a greenfield repo then runs the identical pipeline
+ *     against it (`./new.ts`).
+ *   - The `onboard` action is registered (registry.ts) with its Zod flag schema
+ *     and dispatched through `handleOrchestrate` (composite.ts) + the `exarchos
+ *     onboard` CLI verb.
  *   - `doctor --fix` reuses this same `apply`/pipeline with `trigger:'doctor-fix'`
- *     → task 013.
+ *     (`../doctor/index.ts`), sharing the extracted event seam
+ *     (`core/onboarding/event-ctx.ts`).
  */
 
 import type { DispatchContext } from '../../core/dispatch.js';
@@ -55,13 +59,11 @@ import {
   reconcileWithEvents,
   type ApplyCtx,
   type DetectOptions,
-  type EmittedEvent,
   type OnboardTrigger,
-  type ReconcileEventCtx,
   type ReconcileEventInput,
 } from '../../core/onboarding/reconcile.js';
+import { buildOnboardEventCtx } from '../../core/onboarding/event-ctx.js';
 import type { ReconcilePlan, ReconcileResult, Surface } from '../../core/onboarding/types.js';
-import type { WorkflowEvent } from '../../event-store/schemas.js';
 
 // ─── Args ────────────────────────────────────────────────────────────────────
 
@@ -194,62 +196,6 @@ async function verify(
     residual,
     residualBlocking: blocking.length,
     blockingChecks: blocking.map((c) => c.name),
-  };
-}
-
-// ─── Event seam (over the REAL EventStore) ────────────────────────────────────
-
-/**
- * Build the {@link ReconcileEventCtx} over the real {@link EventStore}.
- *
- * `emit` is a PLAIN append (never CAS-pinned to a prior append's sequence — the
- * idempotency trap the reconciler's contract warns about).
- *
- * `readStreamTail` returns ONLY the tail of the CURRENT logical run — every
- * onboard event AFTER the stream's most recent `onboard.executed`. This is the
- * seam-owner's lever that reconciles two contracts the reconciler keys solely on
- * `repoRoot+trigger` (task 009):
- *
- *   - Crash recovery (INV-13): a dangling `onboard.requested` with NO paired
- *     `onboard.executed` sits AFTER the last completed run, so it is in the tail
- *     and the precheck resumes it (residual-only apply, no second `requested`).
- *   - Fresh-run reconciliation (DR-2 "re-run reconciles drift only"): a prior
- *     COMPLETED run's `requested`/`executed` pair is BEFORE the cut, so a fresh
- *     invocation sees an empty tail, does not idempotency-collapse, and
- *     reconciles whatever drift `diff` finds now.
- *
- * Without this cut the reconciler's `alreadyExecuted` short-circuit would make
- * every onboard after the first a permanent no-op on the same repo.
- */
-function buildEventCtx(ctx: DispatchContext): ReconcileEventCtx {
-  return {
-    emit: async (event: EmittedEvent): Promise<void> => {
-      // Plain append: the EventStore allocates the sequence. We never pass an
-      // expectedSequence, so a retry never reproduces a CAS conflict.
-      await ctx.eventStore.append(ONBOARD_STREAM_ID, {
-        type: event.type,
-        data: event.data,
-      });
-    },
-    readStreamTail: async (): Promise<readonly EmittedEvent[]> => {
-      const events: WorkflowEvent[] = await ctx.eventStore.query(ONBOARD_STREAM_ID);
-      const onboardEvents: EmittedEvent[] = [];
-      for (const e of events) {
-        if (e.type === 'onboard.requested' || e.type === 'onboard.executed') {
-          // Validated on append; the stored `data` matches the emitted payload.
-          onboardEvents.push({ type: e.type, data: e.data } as EmittedEvent);
-        }
-      }
-      // Cut to the current logical run: everything after the last executed half.
-      let lastExecutedIdx = -1;
-      for (let i = onboardEvents.length - 1; i >= 0; i--) {
-        if (onboardEvents[i].type === 'onboard.executed') {
-          lastExecutedIdx = i;
-          break;
-        }
-      }
-      return onboardEvents.slice(lastExecutedIdx + 1);
-    },
   };
 }
 
@@ -416,7 +362,7 @@ export async function handleOnboard(
 
   const trigger: OnboardTrigger = greenfield ? 'onboard-new' : 'onboard';
 
-  const eventCtx = buildEventCtx(ctx);
+  const eventCtx = buildOnboardEventCtx(ctx);
   const applyCtx = buildApplyCtx(effectiveDeps, args);
 
   const input: ReconcileEventInput = {
