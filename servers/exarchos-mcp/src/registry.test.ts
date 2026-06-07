@@ -275,13 +275,15 @@ describe('buildRegistrationSchema', () => {
     const schema = buildRegistrationSchema(orchestrate.actions);
 
     // Regression for #1127: before the fix, agent_spec.format (full|prompt-only)
-    // shadowed doctor/init.format (table|json), making these payloads fail
-    // validation at the registered-tool boundary.
+    // shadowed doctor/onboard.format (table|json), making these payloads fail
+    // validation at the registered-tool boundary. (init was swapped out for
+    // onboard in task 011 — design line 322 — so the regression is now exercised
+    // through the onboard action's `format` field.)
     expect(schema.safeParse({ action: 'doctor' }).success).toBe(true);
     expect(schema.safeParse({ action: 'doctor', format: 'json' }).success).toBe(true);
     expect(schema.safeParse({ action: 'doctor', format: 'table' }).success).toBe(true);
-    expect(schema.safeParse({ action: 'init', nonInteractive: true }).success).toBe(true);
-    expect(schema.safeParse({ action: 'init', format: 'json' }).success).toBe(true);
+    expect(schema.safeParse({ action: 'onboard', dryRun: true }).success).toBe(true);
+    expect(schema.safeParse({ action: 'onboard', format: 'json' }).success).toBe(true);
   });
 
   it('should expose agent_spec outputFormat on the real orchestrate registration schema', () => {
@@ -545,9 +547,12 @@ describe('TOOL_REGISTRY', () => {
   });
 
   describe('exarchos_orchestrate', () => {
-    it('should have 69 actions for task management, review triage, gate checks, validation handlers, runbooks, agent spec, oneshot/pruning, doctor, init, VCS, classify_review_items (#1159), merge_orchestrate (DR-MO-1), check_integration_suite (#1329), check_invariant_conformance (DR-3), invariants_scaffold/invariants_add (invariants-catalog-wizard P2), and composite actions', () => {
+    it('should have 69 actions for task management, review triage, gate checks, validation handlers, runbooks, agent spec, oneshot/pruning, onboard (DR-2 task 011), doctor, VCS, classify_review_items (#1159), merge_orchestrate (DR-MO-1), check_integration_suite (#1329), check_invariant_conformance (DR-3), invariants_scaffold/invariants_add (invariants-catalog-wizard P2), and composite actions', () => {
       const composite = findComposite('exarchos_orchestrate');
       expect(composite).toBeDefined();
+      // 69 = 69 prior − `init` (removed in the task-011 onboard swap, design
+      // line 322) + `onboard` (DR-2/DR-5 task 011). The `init` CLI verb is now a
+      // rename stub and the `init.executed` event + handler survive until Task 018.
       expect(composite!.actions).toHaveLength(69);
 
       const actionNames = composite!.actions.map((a) => a.name);
@@ -611,7 +616,11 @@ describe('TOOL_REGISTRY', () => {
           'get_pr_comments',
           'add_pr_comment',
           'create_issue',
-          'init',
+          // DR-2/DR-5 (task 011): explicit assertion so the consolidated
+          // first-run verb cannot be silently dropped. `onboard` SWAPS OUT the
+          // legacy `init` action (design line 322) — `init` is intentionally no
+          // longer in this list; its CLI verb is now a rename stub.
+          'onboard',
           // DR-MO-1 / DR-MO-2: explicit assertion so a future registry edit
           // cannot quietly drop the autonomous merge orchestrator action.
           'merge_orchestrate',
@@ -637,12 +646,19 @@ describe('TOOL_REGISTRY', () => {
 
     // Actions that are handled specially in the composite router (not via ACTION_HANDLERS).
     // invariants_scaffold / invariants_add use explicit dispatch branches (like
-    // init/doctor) because they need injected fs hooks + DispatchContext.
+    // doctor) because they need injected fs hooks + DispatchContext.
+    // `onboard` (DR-2 task 011) is registered here as an action; its explicit
+    // composite.ts dispatch branch (like doctor — it needs the full
+    // DispatchContext to call handleOnboard(args, ctx)) is wired in a follow-on
+    // task, so it is listed as special until then.
+    // `init` is intentionally absent: its action was removed in the task-011
+    // onboard swap (design line 322); the surviving composite.ts `init` dispatch
+    // branch is now dead code retained until Task 018 (handler stays live).
     const SPECIAL_ACTIONS = new Set([
       'describe',
       'runbook',
+      'onboard',
       'doctor',
-      'init',
       'invariants_scaffold',
       'invariants_add',
     ]);
