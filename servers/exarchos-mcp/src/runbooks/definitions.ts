@@ -5,7 +5,17 @@ export const TASK_COMPLETION: RunbookDefinition = {
   phase: 'delegate',
   description: 'Complete a task after execution: run blocking gates, then mark complete.',
   steps: [
-    { tool: 'exarchos_orchestrate', action: 'check_tdd_compliance', onFail: 'stop' },
+    // Verification-ladder slice 1: the kill-probe gate is the load-bearing
+    // per-task verification. It reverts the task's source hunks, re-runs the
+    // new/changed tests, and asserts at least one goes red — proving the tests
+    // are not vacuous. Runs against the agent worktree (repoRoot:auto +
+    // worktreePath, the #1330 resolver) and BEFORE check_tdd_compliance, which
+    // is now advisory (commit-order TDD corroborates, it no longer gates).
+    { tool: 'exarchos_orchestrate', action: 'check_test_adequacy', onFail: 'stop',
+      params: { repoRoot: 'auto', worktreePath: '<worktreePath>' },
+      note: 'kill probe: reverts source, re-runs new tests, asserts red — the load-bearing per-task gate' },
+    { tool: 'exarchos_orchestrate', action: 'check_tdd_compliance', onFail: 'continue',
+      note: 'ADVISORY (verification-ladder slice 1): demoted from blocking — corroborates the kill probe' },
     // #1330 / T-05: the static-analysis gate must run against the agent's
     // worktree, not the orchestrator's cwd. `repoRoot: 'auto'` triggers the
     // worktree-aware resolver (T-04, gate-utils.resolveRepoRoot); the
