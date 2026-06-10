@@ -1,6 +1,30 @@
 import { getRequiredReviewsPrerequisite } from './review-contract.js';
 import { getRegisteredEventTypes } from '../projections/rehydration/reducer.js';
 import { EVENT_EMISSION_REGISTRY, type EventType } from '../event-store/schemas.js';
+import { resolveVerificationSequence } from './verification-policy.js';
+
+// ─── Verification-Ladder Gate Guidance (vls1-b1, task 008) ──────────────────
+//
+// The delegate-phase guidance advertises the verification-ladder gates a task
+// must clear. Those gate names are SOURCED FROM the verification policy
+// (`resolveVerificationSequence`) — never hand-written — so any change to the
+// policy table propagates into the playbook text automatically. The medium
+// tier base sequence is the minimum ladder a non-trivial task clears; the
+// medium+boundary sequence surfaces the additional contract/mock gates that
+// boundary-touching tasks pick up.
+
+function verificationLadderGuidance(): string {
+  const mediumGates = resolveVerificationSequence('medium', false);
+  const boundaryGates = resolveVerificationSequence('medium', true);
+  // The boundary-only delta — gates a boundary-touching task adds on top.
+  const boundaryDelta = boundaryGates.filter((g) => !mediumGates.includes(g));
+  const base = `Verification ladder (by riskTier/boundaryTouching): medium clears ${mediumGates.join(' → ')}`;
+  const boundary =
+    boundaryDelta.length > 0
+      ? `; boundary adds ${boundaryDelta.join(' → ')}`
+      : '';
+  return `${base}${boundary}.`;
+}
 
 // ─── Phase Playbook Types ──────────────────────────────────────────────────
 
@@ -415,8 +439,12 @@ register({
     "tasks[].status = 'complete' for every task",
   validationScripts: ['post_delegation_check'],
   humanCheckpoint: false,
+  // vls1-b1 (task 008): the verification-ladder gate names are appended from
+  // `verificationLadderGuidance()`, which sources them from the policy table
+  // (`resolveVerificationSequence`) — changing the table changes this text.
   compactGuidance:
-    'Dispatch implementation tasks. Emit task.assigned via exarchos_event per dispatch. Complete tasks via exarchos_orchestrate task_complete (emits event, syncs state). Use exarchos_workflow update only for metadata/phase transitions. Before task_complete, run check_tdd_compliance (per-task) and check_static_analysis (once) — mandatory gates. Run post-delegation-check.sh when all tasks finish. Transition to review when complete. Call exarchos_event describe(eventTypes: [...]) before first emission of any event type. Parallel vs sequential dispatch; self-contained subagent prompts. Anti-pattern: referencing plan without pasting context. Escalate: same task fails 3x or scope exceeds declared module. Build context packages via runbook(task-classification).',
+    'Dispatch implementation tasks. Emit task.assigned via exarchos_event per dispatch. Complete tasks via exarchos_orchestrate task_complete (emits event, syncs state). Use exarchos_workflow update only for metadata/phase transitions. Before task_complete, run check_tdd_compliance (per-task) and check_static_analysis (once) — mandatory gates. Run post-delegation-check.sh when all tasks finish. Transition to review when complete. Call exarchos_event describe(eventTypes: [...]) before first emission of any event type. Parallel vs sequential dispatch; self-contained subagent prompts. Anti-pattern: referencing plan without pasting context. Escalate: same task fails 3x or scope exceeds declared module. Build context packages via runbook(task-classification). ' +
+    verificationLadderGuidance(),
 });
 
 register({
