@@ -202,6 +202,7 @@ export async function handleTestAdequacy(
           phase: 'delegate',
           taskId: args.taskId,
           ...(args.branch ? { branch: args.branch } : {}),
+          skipped: true,
           discriminant: SKIPPED_BY_POLICY,
           reason: policySkip.reason,
         },
