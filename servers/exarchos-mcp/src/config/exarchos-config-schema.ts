@@ -177,6 +177,13 @@ const ToolchainCommandsConfigSchema = z
     test: safeCommand.optional(),
     typecheck: safeCommand.optional(),
     install: safeCommand.optional(),
+    // verification-ladder slice 1 (task 016): mutation + lint are per-toolchain
+    // commands the layered resolver honors (task 017). `contract` is NOT a
+    // per-toolchain key — contracts are keyed on schema artifacts, resolved
+    // separately (task 022) — so it is intentionally absent from this strict
+    // object.
+    mutation: safeCommand.optional(),
+    lint: safeCommand.optional(),
   })
   .strict();
 

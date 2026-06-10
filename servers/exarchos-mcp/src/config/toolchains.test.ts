@@ -91,7 +91,7 @@ describe('detectToolchain — user extra entries (tier 3 override)', () => {
     id: 'zig',
     projectType: 'Zig',
     markers: ['build.zig'],
-    commands: { test: 'zig build test', typecheck: null, install: null },
+    commands: { test: 'zig build test', typecheck: null, install: null, mutation: null, lint: null, contract: null },
   };
 
   it('detects a user-declared toolchain with zero built-in support', () => {
@@ -105,7 +105,7 @@ describe('detectToolchain — user extra entries (tier 3 override)', () => {
       id: 'node-custom',
       projectType: 'Node.js',
       markers: ['package.json'],
-      commands: { test: 'just test', typecheck: null, install: null },
+      commands: { test: 'just test', typecheck: null, install: null, mutation: null, lint: null, contract: null },
     };
     expect(detectToolchain(dir, [customNode])?.id).toBe('node-custom');
   });
@@ -122,7 +122,14 @@ describe('toolchainFromConfig — .exarchos.yml toolchains: → registry', () =>
       id: 'zig',
       projectType: 'zig',
       markers: ['build.zig'],
-      commands: { test: 'zig build test', typecheck: null, install: null },
+      commands: {
+        test: 'zig build test',
+        typecheck: null,
+        install: null,
+        mutation: null,
+        lint: null,
+        contract: null,
+      },
     });
   });
 
@@ -134,7 +141,14 @@ describe('toolchainFromConfig — .exarchos.yml toolchains: → registry', () =>
       commands: { test: 'cabal test', install: 'cabal build' },
     });
     expect(tc.projectType).toBe('Haskell');
-    expect(tc.commands).toEqual({ test: 'cabal test', typecheck: null, install: 'cabal build' });
+    expect(tc.commands).toEqual({
+      test: 'cabal test',
+      typecheck: null,
+      install: 'cabal build',
+      mutation: null,
+      lint: null,
+      contract: null,
+    });
   });
 
   it('a converted entry detects via detectToolchain extra', () => {
