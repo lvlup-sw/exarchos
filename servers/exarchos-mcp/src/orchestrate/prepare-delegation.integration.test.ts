@@ -459,4 +459,49 @@ describe('HandleOrchestrate_PrepareDelegation_StampsRiskTierBoundaryAndVerificat
       expect(new Set(c.verificationSequence).size).toBe(c.verificationSequence.length);
     }
   });
+
+  // vls1-b1 (task 007): the wired classifier must populate the
+  // verificationSequence from the policy table — assert the exact sequence the
+  // policy produces appears on the returned classification (the "delegation
+  // record"), proving the wire-in is sourced from resolveVerificationSequence
+  // rather than hand-rolled in the handler.
+  it('PrepareDelegation_ClassifiedTask_CarriesPolicySequenceOnDelegationRecord', async () => {
+    const ctxStore = new EventStore(tmpDir);
+    const streamId = 'vls1-policy-record';
+    const taskIds = ['t-only'] as const;
+    await seedReadyStream(ctxStore, streamId, taskIds);
+    await flushAsyncQueue();
+
+    const ctx: DispatchContext = {
+      stateDir: tmpDir,
+      eventStore: ctxStore,
+      enableTelemetry: false,
+    };
+
+    const guard = await import('./dispatch-guard.js');
+    vi.mocked(guard.getCurrentBranch).mockReturnValue('feature/verification-ladder');
+    vi.mocked(guard.assertCurrentBranchNotProtected).mockReturnValue({ blocked: false });
+
+    const { resolveVerificationSequence } = await import('../workflow/verification-policy.js');
+
+    const result = await handleOrchestrate(
+      {
+        action: 'prepare_delegation',
+        featureId: streamId,
+        nativeIsolation: true,
+        // medium tier (single source file), boundary-touching (adapter glob).
+        tasks: [{ id: 't-only', title: 'tweak adapter', files: ['src/adapters/cli.ts'] }],
+      },
+      ctx,
+    );
+
+    expect(result.success).toBe(true);
+    const c = findClassification(result.data, 't-only');
+    expect(c.riskTier).toBe('medium');
+    expect(c.boundaryTouching).toBe(true);
+    // The record's sequence is EXACTLY what the policy table resolves.
+    expect(c.verificationSequence).toEqual([
+      ...resolveVerificationSequence('medium', true),
+    ]);
+  });
 });
