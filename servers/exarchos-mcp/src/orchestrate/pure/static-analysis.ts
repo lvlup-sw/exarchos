@@ -93,6 +93,133 @@ export interface StaticAnalysisResult {
 }
 
 // ============================================================
+// IMPORT-BOUNDARY LINT (SIV-3 Layer A, task 027)
+// ============================================================
+//
+// The boundary-lint leg rides the static-analysis gate to enforce
+// architectural import boundaries (e.g. "domain core must not import the IO
+// facade"). It is Layer A of SIV-3: a *structural* boundary check on the
+// module import graph.
+//
+// Decision (made at plan time): the leg is built on **dependency-cruiser**,
+// NOT eslint-plugin-boundaries. This repo carries no ESLint infrastructure,
+// so a standalone CLI (`npx depcruise --validate`) rides the gate cleanly
+// without dragging an entire ESLint toolchain into the dependency tree. The
+// rule set lives in a committed `.dependency-cruiser.cjs` at the repo root —
+// the same file an author edits to add boundaries.
+//
+// Layer B (taint analysis — "no raw IO into core", a *dataflow* check) is
+// explicitly DEFERRED. dependency-cruiser only sees the import graph, not the
+// flow of tainted values through it. When Layer B lands, the degrade path for
+// non-TypeScript workloads (where the dependency-cruiser AST parser does not
+// apply) is Semgrep or CodeQL taint queries scoped to the configured source
+// dirs — the boundary concern is language-agnostic even though this Layer-A
+// implementation is TS/JS-graph-specific.
+//
+// INV-4 degrade discipline: a repo with no `.dependency-cruiser.cjs` (or with
+// dependency-cruiser absent from the toolchain) yields a SKIP leg, never a
+// hard failure — exactly like the gate's "no lint script" SKIP. The leg only
+// blocks when a real config is present AND a real violation is found.
+
+/** Candidate config filenames for the boundary lint, in resolution order. */
+const BOUNDARY_CONFIG_FILENAMES: readonly string[] = [
+  '.dependency-cruiser.cjs',
+  '.dependency-cruiser.js',
+  '.dependency-cruiser.json',
+  '.dependency-cruiser.mjs',
+];
+
+/** Report label for the boundary-lint leg. */
+const BOUNDARY_LINT_NAME = 'Import boundaries';
+
+export interface BoundaryLintInput {
+  /** Repository root to scan for a `.dependency-cruiser.*` config. */
+  readonly repoRoot: string;
+  /** External command runner (dependency injection). */
+  readonly runCommand: RunCommandFn;
+  /**
+   * Source dirs/files to validate. Defaults to `['.']` (whole repoRoot) — the
+   * config's own `from`/`to` path rules narrow the actual surface, so passing
+   * the repoRoot is sufficient and matches how authors run depcruise locally.
+   */
+  readonly sources?: readonly string[];
+}
+
+/** Verdict of the import-boundary leg. SKIP is the INV-4 advisory degrade. */
+export interface BoundaryLintResult {
+  readonly status: 'PASS' | 'FAIL' | 'SKIP';
+  /** Human detail: the violation summary on FAIL, the skip reason on SKIP. */
+  readonly detail?: string;
+}
+
+/**
+ * Locate a `.dependency-cruiser.*` config in `repoRoot`. Returns the bare
+ * filename (relative to repoRoot) of the first match, or null when none
+ * exists. Detection is via a single directory listing so a test fs-mock that
+ * stubs `readdirSync` to `[]` (the parity suite) correctly reports "no config"
+ * even when `existsSync` is stubbed always-true.
+ */
+function findBoundaryConfig(repoRoot: string): string | null {
+  let entries: string[];
+  try {
+    entries = fs.readdirSync(repoRoot);
+  } catch {
+    return null;
+  }
+  const present = new Set(entries);
+  return BOUNDARY_CONFIG_FILENAMES.find((name) => present.has(name)) ?? null;
+}
+
+/**
+ * Run the dependency-cruiser import-boundary lint over `repoRoot`.
+ *
+ * - No `.dependency-cruiser.*` config present → SKIP (advisory; depcruise is
+ *   NOT invoked).
+ * - Config present, `depcruise --validate` exits 0 → PASS.
+ * - Config present, `depcruise --validate` exits non-zero → FAIL with the
+ *   violation summary in `detail`.
+ *
+ * The runner is invoked as `npx depcruise --validate <config> <sources...>`
+ * with `cwd: repoRoot` — `npx` resolves the locally-installed binary (or skips
+ * to PASS-equivalent SKIP if the runner cannot find it; a runner throw is
+ * treated as a SKIP, not a FAIL, to honor the degrade discipline when the tool
+ * is simply absent).
+ */
+export function runBoundaryLint(input: BoundaryLintInput): BoundaryLintResult {
+  const { repoRoot, runCommand, sources = ['.'] } = input;
+
+  const configName = findBoundaryConfig(repoRoot);
+  if (configName === null) {
+    return {
+      status: 'SKIP',
+      detail: `no ${BOUNDARY_CONFIG_FILENAMES[0]} in repo root`,
+    };
+  }
+
+  let result: CommandResult;
+  try {
+    result = runCommand(
+      'npx',
+      ['depcruise', '--validate', configName, ...sources],
+      { cwd: repoRoot },
+    );
+  } catch {
+    // Tool absent / not resolvable → degrade to SKIP, never a hard failure.
+    return { status: 'SKIP', detail: 'dependency-cruiser not available' };
+  }
+
+  if (result.exitCode === 0) {
+    return { status: 'PASS' };
+  }
+
+  const detail =
+    result.stderr.trim() ||
+    result.stdout.trim() ||
+    'dependency-cruiser reported a boundary violation';
+  return { status: 'FAIL', detail };
+}
+
+// ============================================================
 // INTERNAL TYPES
 // ============================================================
 
@@ -380,6 +507,22 @@ export function runStaticAnalysis(input: StaticAnalysisInput): StaticAnalysisRes
     case 'Rust':
       checks = runRustChecks(repoRoot, runCommand, skipLint, skipTypecheck);
       break;
+  }
+
+  // SIV-3 Layer A (task 027): fold the import-boundary leg into the report
+  // ONLY when a `.dependency-cruiser.*` config is actually present. An absent
+  // config produces an advisory SKIP from runBoundaryLint that we deliberately
+  // do NOT append — the leg simply does not apply to repos that declare no
+  // boundaries, keeping the report free of noise (and preserving the gate's
+  // existing output for the overwhelming majority of repos). When a config IS
+  // present, the leg's PASS/FAIL is a first-class check counted in the totals.
+  const boundary = runBoundaryLint({ repoRoot, runCommand });
+  if (boundary.status !== 'SKIP') {
+    checks.push({
+      name: BOUNDARY_LINT_NAME,
+      status: boundary.status,
+      ...(boundary.detail ? { detail: boundary.detail } : {}),
+    });
   }
 
   // Tally results
