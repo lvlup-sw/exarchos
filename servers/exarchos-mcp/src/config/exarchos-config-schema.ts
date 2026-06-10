@@ -192,12 +192,47 @@ const ToolchainConfigSchema = z
 /** A single `.exarchos.yml` `toolchains:` entry. */
 export type ToolchainConfig = z.infer<typeof ToolchainConfigSchema>;
 
+// Ownership manifest (verification-ladder slice 1, task 024).
+//
+// `ownership.firstParty` is the set of globs identifying trees that are
+// first-party (authored-here) source. It is the scope the import-boundary
+// lint (SIV-3 Layer A, task 027) and ownership-aware gates restrict
+// themselves to — third-party / vendored / generated trees fall outside it.
+//
+// Unlike `invariants`, this block carries a parse-time DEFAULT rather than
+// staying `undefined`. The distinction is deliberate: an absent `invariants`
+// block must read as "operator never opted in" (so the loader can treat
+// `undefined === disabled`), but ownership has no opt-in semantics — every
+// repo has a first-party scope, so a missing block should resolve to a sane
+// default (`src/**` + `servers/*/src/**`, covering this monorepo's own source
+// trees) rather than an empty scope that would silently disable every
+// ownership-aware check. The default lives on `firstParty` AND on the block
+// itself so both `ownership` absent and `ownership: {}` (block present, field
+// absent) resolve to the same globs.
+//
+// `.strict()` so a field typo (`firstparty:`) surfaces as a validation error
+// rather than silently defaulting underneath the misspelled key.
+const DEFAULT_FIRST_PARTY_GLOBS: readonly string[] = ['src/**', 'servers/*/src/**'];
+
+const OwnershipConfigSchema = z
+  .object({
+    firstParty: z
+      .array(z.string().trim().min(1))
+      .default([...DEFAULT_FIRST_PARTY_GLOBS]),
+  })
+  .strict()
+  .default({ firstParty: [...DEFAULT_FIRST_PARTY_GLOBS] });
+
+/** Validated `.exarchos.yml` `ownership:` block (firstParty globs + default). */
+export type OwnershipConfig = z.infer<typeof OwnershipConfigSchema>;
+
 export const ExarchosConfigSchema = z
   .object({
     test: safeCommand.optional(),
     typecheck: safeCommand.optional(),
     install: safeCommand.optional(),
     toolchains: z.array(ToolchainConfigSchema).optional(),
+    ownership: OwnershipConfigSchema,
     qualityHints: QualityHintsSchema,
     handoffLint: HandoffLintConfigSchema.optional(),
     cli: CliConfigSchema.optional(),
