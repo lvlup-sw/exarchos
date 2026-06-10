@@ -1643,6 +1643,7 @@ const orchestrateActions: readonly ToolAction[] = [
       taskId: z.string().min(1),
       branch: z.string().min(1),
       baseBranch: z.string().optional(),
+      repoRoot: z.string().optional(),
     }).strict(),
     phases: DELEGATE_PHASES,
     roles: ROLE_LEAD,

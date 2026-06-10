@@ -243,7 +243,14 @@ export function resolveConfig(project: ProjectConfig): ResolvedProjectConfig {
       : { ...DEFAULT_DIMENSION };
   }
 
-  const gates: Record<string, ResolvedGateConfig> = {};
+  // Seed the per-gate DEFAULTS (e.g. the verification-ladder advisory
+  // demotions for tdd-compliance / mock-boundary), then overlay project
+  // entries. Without the seed, ANY project that ships a `.exarchos.yml` lost
+  // the per-gate defaults entirely and fell through to the (often blocking)
+  // dimension setting — silently re-blocking demoted gates (FIX-2 fallout).
+  const gates: Record<string, ResolvedGateConfig> = Object.fromEntries(
+    Object.entries(DEFAULTS.review.gates).map(([name, gate]) => [name, { ...gate }]),
+  );
   if (project.review?.gates) {
     for (const [name, gateConfig] of Object.entries(project.review.gates)) {
       gates[name] = normalizeGate(gateConfig);

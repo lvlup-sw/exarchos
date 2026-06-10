@@ -10,7 +10,8 @@ import type { EventStore } from '../event-store/store.js';
 import { emitGateEvent } from './gate-utils.js';
 import { resolveGateSeverity } from './gate-severity.js';
 import { checkTddCompliance } from './pure/tdd-compliance.js';
-import { DEFAULTS, type ResolvedProjectConfig } from '../config/resolve.js';
+import { DEFAULTS, resolveConfig, type ResolvedProjectConfig } from '../config/resolve.js';
+import { loadExarchosConfig } from '../config/load-exarchos-config.js';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -19,6 +20,8 @@ interface TddComplianceArgs {
   readonly taskId: string;
   readonly branch: string;
   readonly baseBranch?: string;
+  /** Repo to inspect. Defaults to process.cwd() (legacy behavior). */
+  readonly repoRoot?: string;
 }
 
 // ─── Handler ────────────────────────────────────────────────────────────────
@@ -59,7 +62,7 @@ export async function handleTddCompliance(
     };
   }
 
-  const repoRoot = process.cwd();
+  const repoRoot = args.repoRoot || process.cwd();
   const baseBranch = args.baseBranch || 'main';
 
   // Call pure TypeScript implementation
@@ -84,7 +87,23 @@ export async function handleTddCompliance(
   // default (DEFAULTS.review.gates['tdd-compliance']) is advisory (warning); a
   // project override still wins. This is the only behavioral flip — the gate
   // logic, events, and report below are unchanged.
-  const severity = resolveGateSeverity('tdd-compliance', 'D1', config ?? DEFAULTS);
+  //
+  // FIX-2: the composite dispatch adapter injects (args, stateDir, eventStore)
+  // only — the positional `config` param is unreachable through MCP/CLI
+  // dispatch. When it is absent, resolve the project config from the repo
+  // itself (same loader + INV-4 degrade-to-DEFAULTS discipline as
+  // mock-boundary-handler) so a `.exarchos.yml` review-gate override actually
+  // applies on the dispatch path.
+  let effectiveConfig = config;
+  if (!effectiveConfig) {
+    try {
+      const loaded = loadExarchosConfig(repoRoot);
+      effectiveConfig = loaded?.config ? resolveConfig(loaded.config) : undefined;
+    } catch {
+      /* invalid/missing config → built-in DEFAULTS, never a hard failure */
+    }
+  }
+  const severity = resolveGateSeverity('tdd-compliance', 'D1', effectiveConfig ?? DEFAULTS);
 
   // Emit gate.executed event (fire-and-forget)
   try {
