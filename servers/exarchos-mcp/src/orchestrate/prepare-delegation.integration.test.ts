@@ -376,7 +376,7 @@ describe('HandleOrchestrate_PrepareDelegation_StampsRiskTierBoundaryAndVerificat
   it('stamps riskTier, boundaryTouching, and an ordered verificationSequence per task', async () => {
     const ctxStore = new EventStore(tmpDir);
     const streamId = 'vls1-acceptance';
-    const taskIds = ['t-high', 't-medium', 't-low', 't-boundary'] as const;
+    const taskIds = ['t-high', 't-high-accept', 't-medium', 't-low', 't-boundary'] as const;
     await seedReadyStream(ctxStore, streamId, taskIds);
     await flushAsyncQueue();
 
@@ -398,13 +398,19 @@ describe('HandleOrchestrate_PrepareDelegation_StampsRiskTierBoundaryAndVerificat
         featureId: streamId,
         nativeIsolation: true,
         tasks: [
-          // (a) high tier — testLayer 'acceptance'
-          { id: 't-high', title: 'Write acceptance test', testLayer: 'acceptance' },
-          // (b) medium default — single module behavior, no high/low signals
+          // (a) high tier via a high-risk schema glob — NOT a boundary glob and
+          // NOT a boundary testLayer, so this cleanly exercises the pure-high
+          // base sequence (riskTier and boundaryTouching are orthogonal axes).
+          { id: 't-high', title: 'edit schema', files: ['src/event-store/schemas.ts'] },
+          // (a2) high tier via testLayer 'acceptance'. Per the boundary policy,
+          // the acceptance layer ALSO marks the task boundary-touching, so its
+          // sequence is base-high + contract_drift + mock_boundary.
+          { id: 't-high-accept', title: 'Write acceptance test', testLayer: 'acceptance' },
+          // (b) medium default — single module behavior, no high/low signals.
           { id: 't-medium', title: 'Add validation logic', files: ['src/validate.ts'] },
-          // (c) low — doc-only files
+          // (c) low — doc-only files.
           { id: 't-low', title: 'Update changelog', files: ['docs/CHANGELOG.md'] },
-          // (d) boundary-tagged — testLayer 'integration'
+          // (d) boundary-tagged — testLayer 'integration'.
           { id: 't-boundary', title: 'Integration test', testLayer: 'integration' },
         ],
       },
@@ -415,7 +421,7 @@ describe('HandleOrchestrate_PrepareDelegation_StampsRiskTierBoundaryAndVerificat
     const data = (result.data as { ready?: boolean }) ?? {};
     expect(data.ready).toBe(true);
 
-    // (a) high tier, not boundary-touching → base high sequence only.
+    // (a) high tier, NOT boundary-touching → base high sequence only.
     const high = findClassification(data, 't-high');
     expect(high.riskTier).toBe('high');
     expect(high.boundaryTouching).toBe(false);
@@ -423,6 +429,19 @@ describe('HandleOrchestrate_PrepareDelegation_StampsRiskTierBoundaryAndVerificat
       'check_static_analysis',
       'check_test_adequacy',
       'check_integration_suite',
+    ]);
+
+    // (a2) high tier AND boundary-touching (acceptance layer) → base high
+    // sequence + contract_drift + mock_boundary, appended in that order.
+    const highAccept = findClassification(data, 't-high-accept');
+    expect(highAccept.riskTier).toBe('high');
+    expect(highAccept.boundaryTouching).toBe(true);
+    expect(highAccept.verificationSequence).toEqual([
+      'check_static_analysis',
+      'check_test_adequacy',
+      'check_integration_suite',
+      'check_contract_drift',
+      'check_mock_boundary',
     ]);
 
     // (b) medium default, not boundary-touching → base medium sequence.
@@ -455,7 +474,7 @@ describe('HandleOrchestrate_PrepareDelegation_StampsRiskTierBoundaryAndVerificat
     ]);
 
     // Every sequence is duplicate-free.
-    for (const c of [high, medium, low, boundary]) {
+    for (const c of [high, highAccept, medium, low, boundary]) {
       expect(new Set(c.verificationSequence).size).toBe(c.verificationSequence.length);
     }
   });

@@ -259,8 +259,17 @@ function resolveModel(
 }
 
 /**
- * Deterministic heuristic classification for a single task.
- * Advisory — agents can override these recommendations.
+ * The agent/complexity/effort portion of a classification — the legacy
+ * heuristic. The verification-ladder fields (riskTier/boundaryTouching/
+ * verificationSequence) are layered on top in {@link classifyTask}.
+ */
+type CoreClassification = Omit<
+  TaskClassification,
+  'riskTier' | 'boundaryTouching' | 'verificationSequence'
+>;
+
+/**
+ * Legacy agent/complexity/effort heuristic.
  *
  * Priority order:
  *   0. testLayer: "acceptance" → high/implementer (highest priority)
@@ -269,10 +278,10 @@ function resolveModel(
  *   3. files length >= 3 → high/implementer
  *   4. Default → medium/implementer
  */
-export function classifyTask(
+function classifyTaskCore(
   task: TaskInput,
-  agentConfig: ResolvedProjectConfig['agents'] = DEFAULTS.agents,
-): TaskClassification {
+  agentConfig: ResolvedProjectConfig['agents'],
+): CoreClassification {
   // Check testLayer first (highest priority)
   if (task.testLayer === 'acceptance') {
     const recommendedAgent = 'implementer' as const;
@@ -348,6 +357,36 @@ export function classifyTask(
     recommendedModel: resolveModel(recommendedAgent, agentConfig),
     effort: 'medium',
     reason: 'Standard task — no scaffolding keywords or high-complexity signals',
+  };
+}
+
+/**
+ * Deterministic heuristic classification for a single task.
+ * Advisory — agents can override these recommendations.
+ *
+ * vls1-b1 (task 007): in addition to the legacy agent/complexity/effort
+ * heuristic ({@link classifyTaskCore}), every classification now carries the
+ * verification-ladder fields:
+ *   - `riskTier`           — {@link deriveRiskTier} (honors explicit override)
+ *   - `boundaryTouching`   — {@link deriveBoundaryTouching} (honors override)
+ *   - `verificationSequence` — {@link resolveVerificationSequence} over the two
+ *
+ * The legacy `complexity`/`effort` axis is preserved unchanged — `riskTier` is
+ * a SEPARATE, blast-radius-driven axis (a scaffolding task can be low-effort
+ * yet high-risk if it edits a schema, and vice versa).
+ */
+export function classifyTask(
+  task: TaskInput,
+  agentConfig: ResolvedProjectConfig['agents'] = DEFAULTS.agents,
+): TaskClassification {
+  const core = classifyTaskCore(task, agentConfig);
+  const riskTier = deriveRiskTier(task);
+  const boundaryTouching = deriveBoundaryTouching(task);
+  return {
+    ...core,
+    riskTier,
+    boundaryTouching,
+    verificationSequence: resolveVerificationSequence(riskTier, boundaryTouching),
   };
 }
 
