@@ -174,13 +174,21 @@ export const BOUNDARY_GLOBS: readonly string[] = [
   '**/*.graphql',
 ];
 
-/** Memoised compiled matchers keyed by glob source string. */
+/**
+ * Memoised compiled matchers keyed by glob source string. In production the
+ * keys come only from the exported const tables above (~15 entries); the size
+ * bound is a backstop for exported-API callers supplying arbitrary patterns —
+ * on overflow the cache clears and rebuilds (recompilation is cheap; unbounded
+ * growth is not).
+ */
+const GLOB_MATCHER_CACHE_MAX = 256;
 const globMatcherCache = new Map<string, RegExp>();
 
 function compileGlob(pattern: string): RegExp {
   const cached = globMatcherCache.get(pattern);
   if (cached) return cached;
   const compiled = globToRegExp(pattern);
+  if (globMatcherCache.size >= GLOB_MATCHER_CACHE_MAX) globMatcherCache.clear();
   globMatcherCache.set(pattern, compiled);
   return compiled;
 }
