@@ -234,3 +234,161 @@ export function restoreWorkingTree(
     return { restored: false, detail: err instanceof Error ? err.message : String(err) };
   }
 }
+
+// ─── runProbe (task 013) ─────────────────────────────────────────────────────
+//
+// The orchestration that ties the kill probe together: split the task diff,
+// snapshot the worktree, revert ONLY the source hunks, run the new/changed
+// tests, observe whether they go red, and ALWAYS restore. The test runner and
+// the changed-file list are injected so this composition is unit-testable
+// without shelling out to a real test command.
+
+/** Result of running the (scoped) test command during the probe. */
+export interface TestRunResult {
+  /** True when the scoped test run PASSED (all green). */
+  readonly passed: boolean;
+  /** Optional human-readable output for diagnostics. */
+  readonly output?: string;
+}
+
+/**
+ * Injected runner that executes the resolved test command, scoped to the
+ * new/changed test files where the runner allows. Async to match real
+ * shell-outs; receives the repo + the test files to scope to.
+ */
+export type TestRunFn = (input: {
+  readonly repoRoot: string;
+  readonly testFiles: readonly string[];
+}) => Promise<TestRunResult>;
+
+export interface ProbeArgs {
+  readonly gitExec: GitExec;
+  readonly repoRoot: string;
+  /** The base ref the task diff is measured against (revert target). */
+  readonly baseRef: string;
+  /** Repo-relative files changed by the task diff. */
+  readonly changedFiles: readonly string[];
+  /** Runs the scoped test command; returns pass/fail. */
+  readonly runTests: TestRunFn;
+  /** Optional test-glob override forwarded to {@link splitHunks}. */
+  readonly testGlobs?: readonly string[];
+}
+
+export interface ProbeResult {
+  /**
+   * The gate verdict. PASS means the probe proved the tests are non-vacuous:
+   * at least one test went red when the source was reverted AND the worktree
+   * was restored cleanly afterward.
+   */
+  readonly passed: boolean;
+  /** The classified test files the probe ran. */
+  readonly probedTests: string[];
+  /** True when the scoped tests FAILED on the reverted source (the kill). */
+  readonly redObserved: boolean;
+  /** True when the working tree was restored to its pre-probe snapshot. */
+  readonly restoredClean: boolean;
+  /** Set on a non-PASS that is not simply "tests stayed green". */
+  readonly discriminant?: AdequacyDiscriminant;
+}
+
+/**
+ * Run the kill probe.
+ *
+ * Sequence (with INV-14 restore in a finally — restore ALWAYS runs):
+ *   1. split the diff into test vs source files
+ *   2. if there are no new/changed test files → `no-new-tests` (nothing run)
+ *   3. snapshot the working tree (object-only)
+ *   4. revert the source files to `baseRef`; on conflict → restore + `revert-conflict`
+ *   5. run the scoped tests; `redObserved = !passed`
+ *   6. restore the working tree; `restoredClean = restore.restored`
+ *
+ * PASS iff `redObserved && restoredClean`. A clean revert whose tests stayed
+ * green is a NON-vacuous-proof failure (`passed:false`) with NO discriminant —
+ * the tests simply did not exercise the change. A restore failure is reported
+ * as `restore-failed`.
+ */
+export async function runProbe(args: ProbeArgs): Promise<ProbeResult> {
+  const { gitExec, repoRoot, baseRef, changedFiles, runTests, testGlobs } = args;
+
+  const { testFiles, sourceFiles } = splitHunks(changedFiles, { testGlobs });
+
+  // No new/changed tests — the probe has nothing to kill.
+  if (testFiles.length === 0) {
+    return {
+      passed: false,
+      probedTests: [],
+      redObserved: false,
+      restoredClean: true,
+      discriminant: 'no-new-tests',
+    };
+  }
+
+  const snap = snapshotWorkingTree(gitExec, repoRoot);
+  if ('error' in snap) {
+    // Could not snapshot — refuse to mutate a tree we cannot restore.
+    return {
+      passed: false,
+      probedTests: testFiles,
+      redObserved: false,
+      restoredClean: false,
+      discriminant: 'restore-failed',
+    };
+  }
+  const stashSha = snap.stashSha;
+
+  let redObserved = false;
+  let revertConflict = false;
+  // Default to a not-restored result so that if the finally never assigns it
+  // (it always does, but the type system needs an initializer) the gate fails
+  // safe as restore-failed rather than falsely reporting a clean restore.
+  let restore: RestoreResult = { restored: false, detail: 'restore did not run' };
+
+  try {
+    // Mutation step: revert ONLY source. If there is no source to revert the
+    // probe still runs (a test-only task can still be vacuous), but with
+    // nothing reverted the tests cannot go red on the mutation — handled below.
+    if (sourceFiles.length > 0) {
+      const reverted = revertSourceFiles(gitExec, repoRoot, baseRef, sourceFiles);
+      if (!reverted.ok) {
+        revertConflict = true;
+      }
+    }
+
+    if (!revertConflict) {
+      const runResult = await runTests({ repoRoot, testFiles });
+      redObserved = !runResult.passed;
+    }
+  } finally {
+    // INV-14: restore ALWAYS runs, even if the test run threw.
+    restore = restoreWorkingTree(gitExec, repoRoot, stashSha);
+  }
+
+  const restoredClean = restore.restored;
+
+  if (revertConflict) {
+    return {
+      passed: false,
+      probedTests: testFiles,
+      redObserved: false,
+      restoredClean,
+      discriminant: 'revert-conflict',
+    };
+  }
+
+  if (!restoredClean) {
+    return {
+      passed: false,
+      probedTests: testFiles,
+      redObserved,
+      restoredClean,
+      discriminant: 'restore-failed',
+    };
+  }
+
+  return {
+    passed: redObserved && restoredClean,
+    probedTests: testFiles,
+    redObserved,
+    restoredClean,
+  };
+}
