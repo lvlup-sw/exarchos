@@ -108,7 +108,7 @@ pure functions of `state.oneshot.synthesisPolicy` and the
 | Phase | What happens | Exit criteria |
 |---|---|---|
 | `plan` | Lightweight one-page plan: goal, approach, files to touch, tests to add. No design doc. No subagent dispatch. | `artifacts.plan` set → transition to `implementing` |
-| `implementing` | In-session TDD loop. Write a failing test, make it pass, refactor. Commit as you go. The TDD iron law applies — *no production code without a failing test first*. | Tests pass + typecheck clean + finalize_oneshot called |
+| `implementing` | In-session loop, verification scaled to risk. Defaults to the low tier (static analysis suffices); higher-blast changes get the failing-test-first red-green-refactor discipline. Commit as you go. | Tests pass + typecheck clean + finalize_oneshot called |
 | `synthesize` | Reached **only** when `synthesisOptedIn` is true. Hands off to the existing synthesis flow — see `@skills/synthesis/SKILL.md`. PR created via `exarchos_orchestrate({ action: "create_pr" })`, auto-merge enabled, CI gates apply. | PR merged → `completed` |
 | `completed` | Terminal. For direct-commit path, commits are already on the branch — there's nothing more to do. For synthesize path, the PR merge event terminates the workflow. | — |
 
@@ -173,11 +173,14 @@ label and is not a substitute for a real plan artifact.
 
 ### Step 3 — Implementing phase
 
-Run an in-session TDD loop. Same iron law as every other workflow:
+Run an in-session loop, with verification scaled to the change's risk (the
+ladder in `@skills/_shared/references/verification.md`). A oneshot defaults to
+the **low tier** — static analysis suffices for a trivial fix. When the change
+touches a higher-blast surface (schema/type/API/shared contract, or it crosses
+an I/O boundary), it is a higher-tier task and gets the failing-test-first
+discipline.
 
-> **NO PRODUCTION CODE WITHOUT A FAILING TEST FIRST**
-
-For each behavior in the plan:
+For each higher-tier behavior in the plan:
 
 1. **[RED]** Write a failing test. Run the test. Confirm it fails for
    the right reason.
@@ -436,27 +439,33 @@ phase transitions, guard names, and playbook prose. Use
 `exarchos_orchestrate({ action: "describe", actions: ["request_synthesize", "finalize_oneshot"] })`
 for the orchestrate action schemas.
 
-## TDD is still mandatory
+## Verification scales with risk
 
-The iron law from `@rules/tdd.md` applies to oneshot. There is no
-exemption for "small" changes. Specifically:
+The verification ladder from `@skills/_shared/references/verification.md` applies to
+oneshot. A oneshot **defaults to the cheap (low) tier** — a one-line fix or config
+tweak leans on static analysis (typecheck + lint), no test-first ceremony — *unless
+risk signals say otherwise*. Specifically:
 
-- Every behavior change starts with a failing test
-- Every test must fail before its implementation is written
-- Tests must be run after each change to verify state
-- Commits stay atomic — one logical change per commit
+- A low-risk change (docs/config/rename-only, near-zero blast radius) needs only
+  static analysis to pass; add a focused test only if behavior is non-obvious.
+- If the change touches a higher-blast surface (schema/type/API/shared contract,
+  or it crosses an I/O boundary), it is **not** a low-tier task: write the failing
+  test first and follow red-green-refactor, and expect the `check_test_adequacy`
+  kill-probe to flag tests that cannot actually fail.
+- Commits stay atomic — one logical change per commit, regardless of tier.
 
-The temptation in a oneshot is to skip the test "because it's just one
-line". Resist that. The test is what makes the change auditable, and
-auditability is the entire reason oneshot exists alongside the lighter
-"bypass workflows entirely" path.
+The temptation in a oneshot is to assume *everything* is "just one line" and skip
+verification entirely. Resist that for anything past the low tier. The point of
+oneshot is auditability at the *right* cost — not zero verification, and not the
+full feature ceremony on a trivial edit.
 
 ## Anti-patterns
 
 | Don't | Do Instead |
 |-------|------------|
 | Skip the plan phase ("it's obvious") | Write the four-line plan anyway — it's the artifact future-you reads |
-| Skip the TDD loop in implementing | Always RED → GREEN → REFACTOR, even for one-liners |
+| Apply full RED → GREEN → REFACTOR to a trivial one-liner | Match verification to risk: low-tier leans on static analysis; reserve test-first for higher-blast changes |
+| Skip verification entirely because "it's a oneshot" | Even low-tier must pass static analysis; higher-blast changes still need the failing test first |
 | Use oneshot for multi-file refactors | Use `{{COMMAND_PREFIX}}ideate` and the full feature workflow |
 | Try to grow a oneshot into a feature workflow mid-stream | Cancel and restart with `{{COMMAND_PREFIX}}ideate` |
 | Call `request_synthesize` without listening for the user's intent | Wait for the user to ask for a PR, then call it |

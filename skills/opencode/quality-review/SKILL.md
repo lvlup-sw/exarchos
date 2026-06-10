@@ -168,6 +168,8 @@ Evaluate agent-generated tests against Kent Beck's Test Desiderata. Four propert
 
 Include Test Desiderata findings in the quality review report under a "Test Quality" section. **Output format:** Report Test Desiderata violations as entries in the `issues` array with `category: "test-quality"`.
 
+> **Forthcoming — mutation-adequacy (R5, #1520):** A dedicated `mutation-adequacy` review dimension will join the review contract in a later slice, scoring whether the test suite actually kills injected mutants (the strongest signal that tests can fail for the right reason). Until that dimension lands, surviving-mutant analysis is **out of scope** for this skill — do not run or score mutation testing here. Today the closest proxy is the **Specific** Test Desiderata property above plus the `check_test_adequacy` gate at delegation time; full mutation scoring is deferred to R5.
+
 ### Step 3: Generate Report
 
 Use the template from `references/review-report-template.md` to structure the review output.
