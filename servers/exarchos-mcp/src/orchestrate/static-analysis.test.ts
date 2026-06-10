@@ -1,16 +1,41 @@
 // ─── Static Analysis Action Tests ────────────────────────────────────────────
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, beforeAll } from 'vitest';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import * as os from 'node:os';
 import type { ToolResult } from '../format.js';
 import type { EventStore } from '../event-store/store.js';
+// The boundary-lint leg (SIV-3 Layer A, task 027) is exercised below against
+// the REAL implementation. The module-level mock stubs only `runStaticAnalysis`
+// (the handler tests inject canned results); every other export — including
+// `runBoundaryLint` — is passed through via `importActual`, so the boundary
+// tests drive genuine filesystem + runner behaviour without un-mocking the
+// handler suite.
+import {
+  runBoundaryLint,
+  type BoundaryLintResult,
+  type RunCommandFn,
+  type StaticAnalysisInput,
+  type StaticAnalysisResult,
+} from './pure/static-analysis.js';
+
+// The integration test below needs the REAL `runStaticAnalysis` (the module
+// mock replaces the imported binding with a stub). Resolve the un-mocked
+// implementation via importActual once for the whole file.
+let realRunStaticAnalysis: (input: StaticAnalysisInput) => StaticAnalysisResult;
 
 // ─── Mock the pure TS static analysis module ────────────────────────────────
 
 const mockRunStaticAnalysis = vi.fn();
 
-vi.mock('./pure/static-analysis.js', () => ({
-  runStaticAnalysis: (...args: unknown[]) => mockRunStaticAnalysis(...args),
-}));
+vi.mock('./pure/static-analysis.js', async (importActual) => {
+  const actual = await importActual<typeof import('./pure/static-analysis.js')>();
+  return {
+    ...actual,
+    runStaticAnalysis: (...args: unknown[]) => mockRunStaticAnalysis(...args),
+  };
+});
 
 // ─── Mock event store ────────────────────────────────────────────────────────
 
@@ -469,5 +494,163 @@ describe('handleStaticAnalysis', () => {
       };
       expect(typeof callArgs.runCommand).toBe('function');
     });
+  });
+});
+
+// ─── SIV-3 Layer A: dependency-cruiser import-boundary leg (task 027) ────────
+//
+// Decision (made at plan time): the boundary lint rides on dependency-cruiser,
+// NOT eslint-plugin-boundaries — this repo carries no ESLint infrastructure,
+// so a standalone CLI (`npx depcruise --validate`) rides the static-analysis
+// gate cleanly without dragging in an ESLint toolchain. Layer B (taint /
+// "no raw IO into core") is explicitly DEFERRED; for non-TS workloads the
+// degrade path is Semgrep/CodeQL (see the runBoundaryLint JSDoc).
+//
+// These tests drive the REAL `runBoundaryLint` (passed through the module
+// mock via importActual) against on-disk temp fixtures with an injected
+// runner, mirroring the pure-module fixture idioms. The leg's verdict is
+// PASS / FAIL / SKIP, never a hard throw — SKIP is the INV-4 degrade when no
+// `.dependency-cruiser.cjs` is present, exactly like the gate's existing
+// "no lint script" SKIP.
+describe('runBoundaryLint — import-boundary leg (SIV-3 Layer A, task 027)', () => {
+  let tmpDir: string;
+
+  beforeAll(async () => {
+    const actual = await vi.importActual<typeof import('./pure/static-analysis.js')>(
+      './pure/static-analysis.js',
+    );
+    realRunStaticAnalysis = actual.runStaticAnalysis;
+  });
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'boundary-lint-test-'));
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  /**
+   * Build a fixture project with a `.dependency-cruiser.cjs` forbidding
+   * `domain-core → io-adapters` imports. When `withViolation` is set, the
+   * domain-core module imports the io-adapter (the rule must fail); otherwise
+   * the import is omitted (the rule must pass).
+   */
+  function makeBoundaryFixture(opts: { withConfig: boolean; withViolation: boolean }): string {
+    const repoRoot = path.join(tmpDir, 'repo');
+    fs.mkdirSync(path.join(repoRoot, 'src', 'domain-core'), { recursive: true });
+    fs.mkdirSync(path.join(repoRoot, 'src', 'io-adapters'), { recursive: true });
+
+    fs.writeFileSync(
+      path.join(repoRoot, 'src', 'io-adapters', 'db.js'),
+      'export const db = {};\n',
+      'utf-8',
+    );
+    fs.writeFileSync(
+      path.join(repoRoot, 'src', 'domain-core', 'order.js'),
+      opts.withViolation
+        ? "import { db } from '../io-adapters/db.js';\nexport const order = db;\n"
+        : 'export const order = {};\n',
+      'utf-8',
+    );
+
+    if (opts.withConfig) {
+      fs.writeFileSync(
+        path.join(repoRoot, '.dependency-cruiser.cjs'),
+        [
+          'module.exports = {',
+          '  forbidden: [',
+          '    {',
+          "      name: 'no-core-to-io',",
+          "      severity: 'error',",
+          "      from: { path: '^src/domain-core' },",
+          "      to: { path: '^src/io-adapters' },",
+          '    },',
+          '  ],',
+          '};',
+          '',
+        ].join('\n'),
+        'utf-8',
+      );
+    }
+    return repoRoot;
+  }
+
+  it('StaticAnalysis_CoreImportsIOAdapter_BoundaryRuleFails', () => {
+    // A real config forbidding domain-core → io-adapters plus a violating
+    // import: depcruise exits non-zero, so the boundary leg must FAIL and
+    // surface the broken rule.
+    const repoRoot = makeBoundaryFixture({ withConfig: true, withViolation: true });
+
+    const runner: RunCommandFn = vi.fn(() => ({
+      exitCode: 1,
+      stdout: '',
+      stderr: "error no-core-to-io: src/domain-core/order.js → src/io-adapters/db.js\n",
+    }));
+
+    const result: BoundaryLintResult = runBoundaryLint({ repoRoot, runCommand: runner });
+
+    expect(result.status).toBe('FAIL');
+    expect(result.detail ?? '').toContain('no-core-to-io');
+    // The injected runner was actually invoked with depcruise --validate.
+    const calls = (runner as ReturnType<typeof vi.fn>).mock.calls;
+    expect(calls.length).toBe(1);
+    const [cmd, cmdArgs] = calls[0] as [string, string[]];
+    expect(cmd).toBe('npx');
+    expect(cmdArgs).toContain('depcruise');
+    expect(cmdArgs).toContain('--validate');
+  });
+
+  it('StaticAnalysis_CompliantImports_Passes', () => {
+    // Same config, no violating import: depcruise exits 0, leg PASSes.
+    const repoRoot = makeBoundaryFixture({ withConfig: true, withViolation: false });
+
+    const runner: RunCommandFn = vi.fn(() => ({ exitCode: 0, stdout: '', stderr: '' }));
+
+    const result: BoundaryLintResult = runBoundaryLint({ repoRoot, runCommand: runner });
+
+    expect(result.status).toBe('PASS');
+    const calls = (runner as ReturnType<typeof vi.fn>).mock.calls;
+    expect(calls.length).toBe(1);
+  });
+
+  it('StaticAnalysis_NoBoundaryConfig_LegSkippedAdvisory', () => {
+    // No `.dependency-cruiser.cjs` in repoRoot → the leg SKIPs (advisory),
+    // exactly like the gate's existing "no lint script" SKIP. INV-4 degrade
+    // discipline: a missing config is never a hard failure, and depcruise is
+    // not even invoked.
+    const repoRoot = makeBoundaryFixture({ withConfig: false, withViolation: false });
+
+    const runner: RunCommandFn = vi.fn(() => ({ exitCode: 0, stdout: '', stderr: '' }));
+
+    const result: BoundaryLintResult = runBoundaryLint({ repoRoot, runCommand: runner });
+
+    expect(result.status).toBe('SKIP');
+    // depcruise must NOT run when there is no config to validate against.
+    expect((runner as ReturnType<typeof vi.fn>).mock.calls.length).toBe(0);
+  });
+
+  it('StaticAnalysis_BoundaryConfigPresent_FoldsLegIntoFullReport', () => {
+    // Integration: when a real `.dependency-cruiser.cjs` is on disk, the full
+    // runStaticAnalysis report folds the boundary leg into its output and
+    // pass/fail counts. (Exercises the REAL runStaticAnalysis via importActual
+    // — distinct from the handler suite above, which mocks it.)
+    const repoRoot = makeBoundaryFixture({ withConfig: true, withViolation: false });
+    // Make it a Node project so the gate has a recognized toolchain to run.
+    fs.writeFileSync(
+      path.join(repoRoot, 'package.json'),
+      JSON.stringify({ name: 'fixture', scripts: { lint: 'eslint .' } }),
+      'utf-8',
+    );
+
+    const runner: RunCommandFn = vi.fn(() => ({ exitCode: 0, stdout: '', stderr: '' }));
+
+    const result = realRunStaticAnalysis({ repoRoot, runCommand: runner });
+
+    expect(result.status).toBe('pass');
+    expect(result.output).toContain('Import boundaries');
+    // The boundary leg is counted as a passing check, so depcruise ran.
+    const calls = (runner as ReturnType<typeof vi.fn>).mock.calls;
+    expect(calls.some((c: unknown[]) => Array.isArray(c[1]) && (c[1] as string[]).includes('depcruise'))).toBe(true);
   });
 });
