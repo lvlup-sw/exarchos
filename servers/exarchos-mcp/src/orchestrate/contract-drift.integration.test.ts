@@ -126,10 +126,10 @@ function writeBaseProject(
         'contract:',
         '  codegen: sh stubs/codegen.sh',
         '  diff: sh stubs/diff.sh',
-        `typecheck: ${opts.typecheck}`,
+        `typecheck: '${opts.typecheck}'`,
         '',
       ].join('\n')
-    : ['# no contract wired', `typecheck: ${opts.typecheck}`, ''].join('\n');
+    : ['# no contract wired', `typecheck: '${opts.typecheck}'`, ''].join('\n');
   writeFileSync(path.join(repoRoot, '.exarchos.yml'), exarchosYml);
 
   git(repoRoot, ['add', '.']);
