@@ -69,12 +69,18 @@ export interface ContractDriftResult {
   readonly baseline?: string;
 }
 
-/** Extract the breaking-change lines from a diff tool's stdout. */
+/**
+ * Extract breaking-change lines from a diff tool's stdout. Only meaningful on
+ * the drift path (non-zero exit) — a clean tool may legitimately print "no
+ * breaking changes", which must NOT be mistaken for a finding. We match lines
+ * that affirmatively flag a breaking change: a `BREAKING` prefix (the common
+ * oasdiff/buf convention) or an `ERR`/`error` severity marker.
+ */
 function extractBreaking(stdout: string): string[] {
   return stdout
     .split('\n')
     .map((l) => l.trim())
-    .filter((l) => l.length > 0 && /breaking/i.test(l));
+    .filter((l) => l.length > 0 && /^(breaking\b|err\b|error\b)/i.test(l));
 }
 
 /**

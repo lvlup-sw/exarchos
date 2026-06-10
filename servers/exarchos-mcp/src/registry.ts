@@ -1685,6 +1685,42 @@ const orchestrateActions: readonly ToolAction[] = [
     annotations: LOCAL_MUTATION,
   },
   {
+    name: 'check_contract_drift',
+    description:
+      'Per-task contract-drift gate (verification-ladder slice 1): regenerates ' +
+      'schema bindings (codegen), typechecks the regen, then runs a ' +
+      'breaking-change diff against the MERGE-BASE (git merge-base baseBranch ' +
+      'HEAD). A drift gate, NOT a write-lock — reports findings, never mutates ' +
+      'the tree. Emits a gate.executed event (gate "contract-drift", dimension ' +
+      'D1). Degrades to a skipped/advisory pass when no contract tool resolves ' +
+      '(INV-4). Pass repoRoot ("auto" to resolve the calling delegation\'s ' +
+      'worktree); operationId makes the gate emission idempotent (INV-8). On a ' +
+      'clean pass, surfaces a one-semantic-test steer in next_actions.',
+    // Field names + base types match check_test_adequacy exactly so the shared
+    // registration schema (buildRegistrationSchema) never sees a same-name
+    // field with a divergent base type.
+    schema: z.object({
+      featureId: z.string().min(1),
+      taskId: z.string().min(1),
+      branch: z.string().optional(),
+      baseBranch: z.string().optional(),
+      repoRoot: z.string().optional(),
+      worktreePath: z.string().optional(),
+      operationId: z.string().optional(),
+    }),
+    phases: DELEGATE_PHASES,
+    roles: ROLE_LEAD,
+    gate: { blocking: true, dimension: 'D1' },
+    // Shells out to codegen/typecheck/breaking-diff against a real repo; on a
+    // real project this exceeds the 2s heartbeat threshold.
+    longRunning: true,
+    autoEmits: [
+      { event: 'gate.executed', condition: 'always' },
+    ],
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: LOCAL_MUTATION,
+  },
+  {
     name: 'check_post_merge',
     description: 'Post-merge regression check. Emits gate.executed event with dimension D4.',
     schema: z.object({
