@@ -85,4 +85,72 @@ describe('handleRunMutation', () => {
 
     expect(code).toBe(3);
   });
+
+  it('RunMutation_Execution_EmitsExecutingStartedAndPairedTerminal', () => {
+    const events: Array<{ stream: string; type: string; data: unknown }> = [];
+    const eventStore = {
+      append: (stream: string, event: { type: string; data: unknown }) => {
+        events.push({ stream, type: event.type, data: event.data });
+      },
+    };
+
+    // ── Success path: child exits 0 → paired terminal is mutation.executed (passed) ──
+    const { deps: okDeps } = makeDeps(RESOLVED('npx stryker run'), {
+      run: () => 0,
+      eventStore,
+      stream: 'feat-mut',
+    });
+    const okCode = handleRunMutation([], okDeps);
+    expect(okCode).toBe(0);
+
+    const started = events.find((e) => e.type === 'mutation.executing_started');
+    const terminal = events.find((e) => e.type === 'mutation.executed');
+    expect(started).toBeDefined();
+    expect(terminal).toBeDefined();
+    // Liveness pair lands on the supplied stream, started BEFORE terminal.
+    expect(started!.stream).toBe('feat-mut');
+    expect(terminal!.stream).toBe('feat-mut');
+    expect(events.indexOf(started!)).toBeLessThan(events.indexOf(terminal!));
+    expect((terminal!.data as { passed: boolean }).passed).toBe(true);
+
+    // ── Failure path: child exits non-zero → paired terminal carries passed:false ──
+    events.length = 0;
+    const { deps: failDeps } = makeDeps(RESOLVED('npx stryker run'), {
+      run: () => 7,
+      eventStore,
+      stream: 'feat-mut',
+    });
+    const failCode = handleRunMutation([], failDeps);
+    expect(failCode).toBe(7);
+    expect(events.find((e) => e.type === 'mutation.executing_started')).toBeDefined();
+    const failTerminal = events.find((e) => e.type === 'mutation.executed');
+    expect(failTerminal).toBeDefined();
+    expect((failTerminal!.data as { passed: boolean }).passed).toBe(false);
+  });
+
+  it('RunMutation_DryRun_DoesNotEmitLivenessEvents', () => {
+    const events: Array<{ type: string }> = [];
+    const eventStore = {
+      append: (_stream: string, event: { type: string; data: unknown }) => {
+        events.push({ type: event.type });
+      },
+    };
+    const { deps } = makeDeps(RESOLVED('npx stryker run'), {
+      eventStore,
+      stream: 'feat-mut',
+    });
+
+    handleRunMutation(['--dry-run'], deps);
+
+    // Dry-run is a query, not an execution — no liveness pair.
+    expect(events).toHaveLength(0);
+  });
+
+  it('RunMutation_NoEventStore_ExecutesWithoutCrashing', () => {
+    // Invoked outside a workspace (no event store) → skip emission, never crash.
+    const { deps, rec } = makeDeps(RESOLVED('npx stryker run'), { run: () => 0 });
+    const code = handleRunMutation([], deps);
+    expect(code).toBe(0);
+    expect(rec.runs).toHaveLength(1);
+  });
 });
