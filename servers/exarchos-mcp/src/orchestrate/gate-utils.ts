@@ -42,16 +42,27 @@ export async function emitGateEvent(
   layer: string,
   passed: boolean,
   details?: Record<string, unknown>,
+  /**
+   * Optional idempotency key (INV-8). When supplied, a second emission with the
+   * same key collapses to the first row instead of appending a duplicate — so a
+   * gate re-run under the same operationId leaves a single `gate.executed`.
+   * Omit it for fire-and-forget gates that intentionally emit one row per call.
+   */
+  idempotencyKey?: string,
 ): Promise<void> {
-  await store.append(streamId, {
-    type: 'gate.executed',
-    data: {
-      gateName,
-      layer,
-      passed,
-      ...(details !== undefined ? { details } : {}),
+  await store.append(
+    streamId,
+    {
+      type: 'gate.executed',
+      data: {
+        gateName,
+        layer,
+        passed,
+        ...(details !== undefined ? { details } : {}),
+      },
     },
-  });
+    idempotencyKey !== undefined ? { idempotencyKey } : undefined,
+  );
 }
 
 // ─── Worktree-Aware repoRoot Resolution (#1330) ─────────────────────────────

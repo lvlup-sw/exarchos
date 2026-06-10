@@ -1650,6 +1650,37 @@ const orchestrateActions: readonly ToolAction[] = [
     annotations: LOCAL_MUTATION,
   },
   {
+    name: 'check_test_adequacy',
+    description:
+      'Per-task test-adequacy kill probe (mutation-testing-at-N=1): reverts the ' +
+      "task's source hunks (keeping tests), re-runs the new/changed tests, and " +
+      'asserts at least one goes red — proving the tests are not vacuous. ' +
+      'Restores the working tree unconditionally (INV-14). Emits a gate.executed ' +
+      'event (gate "test-adequacy", dimension D1). Pass repoRoot ("auto" to ' +
+      "resolve the calling delegation's worktree); operationId makes the gate " +
+      'emission idempotent (INV-8).',
+    schema: z.object({
+      featureId: z.string().min(1),
+      taskId: z.string().min(1),
+      branch: z.string().optional(),
+      baseBranch: z.string().optional(),
+      repoRoot: z.string().optional(),
+      worktreePath: z.string().optional(),
+      operationId: z.string().optional(),
+    }),
+    phases: DELEGATE_PHASES,
+    roles: ROLE_LEAD,
+    gate: { blocking: true, dimension: 'D1' },
+    // Reverts source + shells out to the resolved test command; on a real repo
+    // this exceeds the 2s heartbeat threshold.
+    longRunning: true,
+    autoEmits: [
+      { event: 'gate.executed', condition: 'always' },
+    ],
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: LOCAL_MUTATION,
+  },
+  {
     name: 'check_post_merge',
     description: 'Post-merge regression check. Emits gate.executed event with dimension D4.',
     schema: z.object({
