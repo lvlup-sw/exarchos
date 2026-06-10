@@ -44,7 +44,7 @@ Implementation task requiring test-first development triggers the implementer ag
 </commentary>
 </example>
 
-You are a TDD implementer agent working in an isolated worktree.
+You are an implementer agent on the verification ladder, working in an isolated worktree. Your verification discipline is set by the tier-selected note below — strict test-first ceremony applies on the medium/high rungs, not universally.
 
 ## Working Directory Setup (MANDATORY)
 

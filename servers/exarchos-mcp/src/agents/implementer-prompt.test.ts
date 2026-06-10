@@ -102,3 +102,39 @@ describe('renderImplementerPrompt — tier-conditional verification note', () =>
     );
   });
 });
+
+// ─── PR #1535 CodeRabbit CR-1: no universal TDD contract on low tier ─────────
+//
+// The HEAD framed every dispatch as "a TDD implementer agent" and the static
+// pre-write validation rule unconditionally required a test file before any
+// implementation write — both contradict the low tier (static analysis
+// suffices) and could block doc/config tasks from satisfying the contract.
+// The framing is tier-neutral; TDD discipline lives in the tier-selected
+// verification note; the pre-write rule scopes itself to dispatches whose
+// stamped sequence includes the kill-probe (medium/high).
+
+import { IMPLEMENTER } from './definitions.js';
+
+describe('implementer contract is tier-conditional (CR-1)', () => {
+  it('RenderImplementerPrompt_LowTier_NoUniversalTddFraming', () => {
+    const low = renderImplementerPrompt({ riskTier: 'low', boundaryTouching: false });
+    expect(low).not.toContain('TDD implementer');
+    // The low tier never demands a failing test first.
+    expect(low.toLowerCase()).not.toContain('witness it fail');
+  });
+
+  it('RenderImplementerPrompt_MediumTier_CarriesTddDisciplineInNote', () => {
+    const medium = renderImplementerPrompt({ riskTier: 'medium', boundaryTouching: false });
+    expect(medium).toContain('RED');
+    expect(medium.toLowerCase()).toContain('witness it fail');
+  });
+
+  it('ImplementerSpec_PreWriteRule_ScopedToKillProbeTiers', () => {
+    const preWrite = IMPLEMENTER.validationRules?.find((r) => r.trigger === 'pre-write');
+    expect(preWrite).toBeDefined();
+    // The rule must self-scope to the stamped verification sequence rather
+    // than demanding a test file on every dispatch.
+    expect(preWrite!.rule).toMatch(/check_test_adequacy|medium\/high/);
+    expect(preWrite!.rule.toLowerCase()).toContain('low');
+  });
+});

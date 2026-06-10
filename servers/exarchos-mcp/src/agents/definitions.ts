@@ -218,7 +218,7 @@ export function buildVerificationNote(ctx: ImplementerVerificationContext): stri
  * tier context) bakes the medium-tier default so the generated artifact is
  * self-contained.
  */
-const IMPLEMENTER_PROMPT_HEAD = `You are a TDD implementer agent working in an isolated worktree.
+const IMPLEMENTER_PROMPT_HEAD = `You are an implementer agent on the verification ladder, working in an isolated worktree. Your verification discipline is set by the tier-selected note below — strict test-first ceremony applies on the medium/high rungs, not universally.
 
 ${WORKTREE_ENTRY_CONTRACT}
 
@@ -318,7 +318,11 @@ Implementation task requiring test-first development triggers the implementer ag
     { name: 'testing-patterns', content: '' },
   ],
   validationRules: [
-    { trigger: 'pre-write', rule: 'Test file must exist before implementation file is written' },
+    {
+      trigger: 'pre-write',
+      rule:
+        'Test file must exist before implementation file is written — applies when the stamped verification sequence includes check_test_adequacy (medium/high tier); low-tier static-analysis-only dispatches are exempt (PR #1535 CR-1)',
+    },
     { trigger: 'post-test', rule: 'All tests must pass', command: POST_TEST_COMMAND },
   ],
   resumable: true,

@@ -84,7 +84,7 @@ describe('CursorAdapter', () => {
   it('CursorAdapter_LowerSpec_BodyContainsSpecDescription', () => {
     const { contents } = CursorAdapter.lowerSpec(IMPLEMENTER);
     const { body } = splitFrontmatter(contents);
-    expect(body).toContain('TDD implementer agent');
+    expect(body).toContain('implementer agent on the verification ladder');
   });
 
   // ─── Item 1, T09: mcp:exarchos:readonly capability wiring ──────────────
@@ -148,7 +148,7 @@ describe('CursorAdapter', () => {
     // Hygiene block is STRIPPED.
     expect(body).not.toMatch(/## Worktree Hygiene/);
 
-    expect(body).toContain('TDD implementer agent');
+    expect(body).toContain('implementer agent on the verification ladder');
     expect(body).toContain('## Task');
     // vls1-b5 (task 028): the static '## TDD Protocol' block became the
     // tier-conditional '## Verification' note (verification-ladder reframe).

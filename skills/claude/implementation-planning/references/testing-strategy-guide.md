@@ -8,7 +8,7 @@ Verification depth is **risk-proportional**, not uniform. Each task's `riskTier`
 
 - **low** — static analysis only; a 3-line verification note suffices in the dispatch prompt.
 - **medium** — adds scoped tests + the `check_test_adequacy` kill-probe (revert source → assert the new test goes red → restore).
-- **high** — adds the full integration suite at the merge boundary.
+- **high** — full RED/GREEN/REFACTOR discipline (failing test witnessed first, per `_shared/references/verification.md`) plus the full integration suite at the merge boundary.
 - **boundaryTouching** — adds `check_contract_drift` (every tier) and `check_mock_boundary` (medium/high): structure is compiler-verifiable; keep exactly ONE semantic test per boundary and mock only what you own.
 
 Planners set `riskTier`/`boundaryTouching` explicitly only when the mechanical derivation would misclassify (see the derivation table in `task-template.md`); the gate *sequence* itself is never encoded in plan prose.

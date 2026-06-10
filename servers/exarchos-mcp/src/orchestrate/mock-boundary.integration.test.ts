@@ -151,19 +151,22 @@ describe('check_mock_boundary acceptance (through handleOrchestrate)', () => {
       expect(data.severity).toBe('warning');
 
       // Carries the unowned finding.
+      // Optional-chaining over non-null assertions (PR #1535 CR-2): if the
+      // Array.isArray expectation fails, execution still reaches the next
+      // lines — `?.` keeps them well-defined instead of hiding an undefined.
       expect(Array.isArray(data.findings)).toBe(true);
-      expect(data.findings!.length).toBeGreaterThan(0);
-      const axiosFinding = data.findings!.find((f) => f.mockedTarget === 'axios');
+      expect(data.findings?.length ?? 0).toBeGreaterThan(0);
+      const axiosFinding = data.findings?.find((f) => f.mockedTarget === 'axios');
       expect(axiosFinding).toBeDefined();
-      expect(axiosFinding!.unowned).toBe(true);
+      expect(axiosFinding?.unowned).toBe(true);
 
       // Per-finding steer (INV-12): names the dep, prescribes a hermetic fixture
       // / contract-verified stub / a fake.
       expect(Array.isArray(data.next_actions)).toBe(true);
-      const steer = data.next_actions!.find((s) => s.includes('axios'));
+      const steer = data.next_actions?.find((s) => s.includes('axios'));
       expect(steer).toBeDefined();
-      expect(steer!).toMatch(/replace the mock/i);
-      expect(steer!).toMatch(/hermetic fixture/i);
+      expect(steer ?? '').toMatch(/replace the mock/i);
+      expect(steer ?? '').toMatch(/hermetic fixture/i);
       expect(steer!).toMatch(/contract-verified stub/i);
       expect(steer!).toMatch(/fake/i);
     },
@@ -229,7 +232,7 @@ describe('check_mock_boundary acceptance (through handleOrchestrate)', () => {
       expect(data.severity).toBe('blocking');
       // Blocking + an unowned finding → the gate does NOT pass.
       expect(data.passed).toBe(false);
-      expect(data.findings!.some((f) => f.mockedTarget === 'axios')).toBe(true);
+      expect(data.findings?.some((f) => f.mockedTarget === 'axios') ?? false).toBe(true);
     },
     120_000,
   );
