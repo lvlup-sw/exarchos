@@ -289,6 +289,12 @@ export interface ProbeResult {
   readonly restoredClean: boolean;
   /** Set on a non-PASS that is not simply "tests stayed green". */
   readonly discriminant?: AdequacyDiscriminant;
+  /**
+   * Human-readable diagnosis carried for the advisory discriminants (currently
+   * `no-new-tests`), so the verdict is self-explanatory in the gate.executed
+   * payload and the handler response. Absent for the ordinary pass/kill paths.
+   */
+  readonly report?: string;
 }
 
 /**
@@ -306,20 +312,30 @@ export interface ProbeResult {
  * green is a NON-vacuous-proof failure (`passed:false`) with NO discriminant —
  * the tests simply did not exercise the change. A restore failure is reported
  * as `restore-failed`.
+ *
+ * FIX-1b (INV-4 degrade discipline, mirroring contract-drift's no-tool skip): a
+ * task whose diff adds NO new/changed tests has nothing to probe. That is an
+ * ADVISORY skip — `passed:true` with the `no-new-tests` discriminant and a
+ * self-explanatory report — NOT a blocking `passed:false`. The verification
+ * ladder routes test-less low-tier tasks through typecheck+lint only; a missing
+ * kill probe must never block them.
  */
 export async function runProbe(args: ProbeArgs): Promise<ProbeResult> {
   const { gitExec, repoRoot, baseRef, changedFiles, runTests, testGlobs } = args;
 
   const { testFiles, sourceFiles } = splitHunks(changedFiles, { testGlobs });
 
-  // No new/changed tests — the probe has nothing to kill.
+  // No new/changed tests — the probe has nothing to kill. Advisory skip (INV-4),
+  // not a blocking failure: a task that adds no tests is not "vacuous", it is
+  // simply out of this gate's scope.
   if (testFiles.length === 0) {
     return {
-      passed: false,
+      passed: true,
       probedTests: [],
       redObserved: false,
       restoredClean: true,
       discriminant: 'no-new-tests',
+      report: 'nothing to probe — task adds no tests',
     };
   }
 
