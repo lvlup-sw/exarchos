@@ -27,7 +27,7 @@ import {
 } from './gate-utils.js';
 import { resolveTestRuntime } from '../config/test-runtime-resolver.js';
 import { splitCommand } from '../config/tokenize-command.js';
-import { testGlobsForToolchain } from '../config/toolchains.js';
+import { detectToolchain, testGlobsForToolchain } from '../config/toolchains.js';
 import type { RiskTier } from '../workflow/verification-policy.js';
 import type { GitExec } from './pure/execute-merge.js';
 import { runProbe, type ProbeResult, type TestRunFn } from './test-adequacy.js';
@@ -180,9 +180,60 @@ export async function handleTestAdequacy(
   const repoRoot = resolved.repoRoot;
   const baseRef = args.baseBranch || 'main';
 
+  // ── FIX-1a: verification-ladder self-routing on the stamped profile ──────
+  // When the caller threads the task's riskTier/boundaryTouching stamp and the
+  // policy sequence excludes this gate, skip BEFORE touching the tree — and
+  // still record the routing decision as a gate.executed event.
+  const policySkip = resolvePolicySkip({
+    gateName: 'check_test_adequacy',
+    riskTier: args.riskTier,
+    boundaryTouching: args.boundaryTouching,
+  });
+  if (policySkip) {
+    try {
+      await emitGateEvent(
+        eventStore,
+        args.featureId,
+        'test-adequacy',
+        'testing',
+        true,
+        {
+          dimension: 'D1',
+          phase: 'delegate',
+          taskId: args.taskId,
+          ...(args.branch ? { branch: args.branch } : {}),
+          discriminant: SKIPPED_BY_POLICY,
+          reason: policySkip.reason,
+        },
+        args.operationId,
+      );
+    } catch {
+      /* fire-and-forget */
+    }
+    return {
+      success: true,
+      data: {
+        passed: true,
+        skipped: true,
+        redObserved: false,
+        restoredClean: true,
+        probedTests: [],
+        discriminant: SKIPPED_BY_POLICY,
+        reason: policySkip.reason,
+      },
+    };
+  }
+
   const gitExec = args.gitExec ?? defaultGitExec;
   const runTests = args.runTests ?? buildDefaultRunTests(repoRoot);
   const changedFiles = changedFilesFor(gitExec, repoRoot, baseRef);
+
+  // ── FIX-3: thread the resolved toolchain's test-file layout into the probe.
+  // The toolchain registry is the SoT for layout (python tests/**, go *_test.go,
+  // …); toolchains on the co-located default convention resolve to null and the
+  // probe falls back to DEFAULT_TEST_GLOBS.
+  const toolchain = detectToolchain(repoRoot);
+  const toolchainGlobs = toolchain ? testGlobsForToolchain(toolchain.id) : null;
 
   const probe: ProbeResult = await runProbe({
     gitExec,
@@ -190,6 +241,7 @@ export async function handleTestAdequacy(
     baseRef,
     changedFiles,
     runTests,
+    ...(toolchainGlobs ? { testGlobs: toolchainGlobs } : {}),
   });
 
   // Emit gate.executed with operationId idempotency (INV-8). Fire-and-forget:
@@ -210,6 +262,7 @@ export async function handleTestAdequacy(
         restoredClean: probe.restoredClean,
         probedTests: probe.probedTests,
         ...(probe.discriminant ? { discriminant: probe.discriminant } : {}),
+        ...(probe.report ? { report: probe.report } : {}),
       },
       args.operationId,
     );
@@ -227,6 +280,7 @@ export async function handleTestAdequacy(
       restoredClean: probe.restoredClean,
       probedTests: probe.probedTests,
       ...(probe.discriminant ? { discriminant: probe.discriminant } : {}),
+      ...(probe.report ? { report: probe.report } : {}),
     },
   };
 }

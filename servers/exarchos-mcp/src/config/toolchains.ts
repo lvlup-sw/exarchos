@@ -331,3 +331,37 @@ export function detectToolchain(
   }
   return undefined;
 }
+
+// ─── Test-file layout by toolchain (FIX-3) ──────────────────────────────────
+
+/**
+ * Test-file globs by toolchain id, for ecosystems whose test layout is NOT the
+ * co-located `*.test.*` convention (the splitHunks default). Co-located with
+ * the toolchain registry so consumers (test-adequacy probe) hold no independent
+ * layout table — same SoT discipline as commands/markers.
+ *
+ * Semantics: a returned set REPLACES the co-located defaults (the toolchain is
+ * authoritative about what a "test file" is for that project — see
+ * `SplitHunksOptions.testGlobs`). Toolchains absent from this map (node, cmake,
+ * …) return null → callers fall back to `DEFAULT_TEST_GLOBS`.
+ */
+const TOOLCHAIN_TEST_GLOBS: Readonly<Record<string, readonly string[]>> = {
+  python: ['tests/**', '**/test_*.py', '**/*_test.py', '**/conftest.py'],
+  go: ['**/*_test.go'],
+  rust: ['tests/**'],
+  'java-maven': ['src/test/**', '**/src/test/**'],
+  'java-gradle': ['src/test/**', '**/src/test/**'],
+  dotnet: ['**/*Tests/**', '**/*.Tests/**', '**/*Tests.cs', '**/*Test.cs'],
+  ruby: ['spec/**', 'test/**'],
+  php: ['tests/**', '**/*Test.php'],
+  elixir: ['test/**'],
+  swift: ['Tests/**'],
+};
+
+/**
+ * The test-file globs a toolchain prescribes, or null when the toolchain uses
+ * the co-located default convention (or is unknown).
+ */
+export function testGlobsForToolchain(toolchainId: string): readonly string[] | null {
+  return TOOLCHAIN_TEST_GLOBS[toolchainId] ?? null;
+}

@@ -1662,7 +1662,9 @@ const orchestrateActions: readonly ToolAction[] = [
       'Restores the working tree unconditionally (INV-14). Emits a gate.executed ' +
       'event (gate "test-adequacy", dimension D1). Pass repoRoot ("auto" to ' +
       "resolve the calling delegation's worktree); operationId makes the gate " +
-      'emission idempotent (INV-8).',
+      'emission idempotent (INV-8). Stamp riskTier + boundaryTouching (from ' +
+      'prepare_delegation) to let the gate self-skip when the verification ' +
+      'policy excludes it for that tier (skipped-by-policy).',
     schema: z.object({
       featureId: z.string().min(1),
       taskId: z.string().min(1),
@@ -1671,6 +1673,8 @@ const orchestrateActions: readonly ToolAction[] = [
       repoRoot: z.string().optional(),
       worktreePath: z.string().optional(),
       operationId: z.string().optional(),
+      riskTier: z.enum(['low', 'medium', 'high']).optional(),
+      boundaryTouching: z.boolean().optional(),
     }),
     phases: DELEGATE_PHASES,
     roles: ROLE_LEAD,
@@ -1707,6 +1711,8 @@ const orchestrateActions: readonly ToolAction[] = [
       repoRoot: z.string().optional(),
       worktreePath: z.string().optional(),
       operationId: z.string().optional(),
+      riskTier: z.enum(['low', 'medium', 'high']).optional(),
+      boundaryTouching: z.boolean().optional(),
     }),
     phases: DELEGATE_PHASES,
     roles: ROLE_LEAD,
@@ -1751,6 +1757,8 @@ const orchestrateActions: readonly ToolAction[] = [
       worktreePath: z.string().optional(),
       operationId: z.string().optional(),
       reason: z.string().optional(),
+      riskTier: z.enum(['low', 'medium', 'high']).optional(),
+      boundaryTouching: z.boolean().optional(),
     }),
     phases: DELEGATE_PHASES,
     roles: ROLE_LEAD,

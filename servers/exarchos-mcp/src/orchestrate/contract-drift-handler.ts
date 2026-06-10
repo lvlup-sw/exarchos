@@ -20,7 +20,14 @@
 import { execFileSync } from 'node:child_process';
 import type { ToolResult } from '../format.js';
 import type { EventStore } from '../event-store/store.js';
-import { emitGateEvent, resolveRepoRoot } from './gate-utils.js';
+import {
+  defaultGitExec,
+  emitGateEvent,
+  resolvePolicySkip,
+  resolveRepoRoot,
+  SKIPPED_BY_POLICY,
+} from './gate-utils.js';
+import type { RiskTier } from '../workflow/verification-policy.js';
 import { resolveVerificationRuntime } from '../config/test-runtime-resolver.js';
 import { splitCommand } from '../config/tokenize-command.js';
 import type { GitExec } from './pure/execute-merge.js';
@@ -58,30 +65,26 @@ export interface ContractDriftHandlerArgs {
   /** Idempotency key for the gate emission (INV-8). */
   readonly operationId?: string;
 
+  // ── Verification-ladder routing stamp (FIX-1a) ───────────────────────────
+  /**
+   * The task's stamped risk tier. When provided together with
+   * {@link boundaryTouching}, the handler self-skips when the resolved
+   * verification sequence does not include this gate (`skipped-by-policy`).
+   * Absent (legacy callers) → the gate runs unconditionally.
+   */
+  readonly riskTier?: RiskTier;
+  /** The task's stamped boundary-touching flag. See {@link riskTier}. */
+  readonly boundaryTouching?: boolean;
+
   // ── Test seams (DI; production defaults below) ───────────────────────────
   readonly gitExec?: GitExec;
   readonly runCommand?: CommandRunFn;
 }
 
 // ─── Production seams ──────────────────────────────────────────────────────
-
-const defaultGitExec: GitExec = (repoRoot, args) => {
-  try {
-    const stdout = execFileSync('git', [...args], {
-      cwd: repoRoot,
-      timeout: 30_000,
-      encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
-    return { stdout, exitCode: 0 };
-  } catch (err) {
-    const e = err as { status?: number; stdout?: string | Buffer; stderr?: string | Buffer };
-    const out =
-      (typeof e.stdout === 'string' ? e.stdout : e.stdout?.toString('utf-8') ?? '') +
-      (typeof e.stderr === 'string' ? e.stderr : e.stderr?.toString('utf-8') ?? '');
-    return { stdout: out, exitCode: e.status ?? 1 };
-  }
-};
+//
+// `defaultGitExec` is shared from gate-utils (FIX-4 dedupe) — it was byte-
+// identical across the three per-task gate handlers.
 
 /**
  * Default command runner: split the resolved command and shell it out, scoped
@@ -148,6 +151,47 @@ export async function handleContractDrift(
   }
   const repoRoot = resolved.repoRoot;
   const baseRef = args.baseBranch || 'main';
+
+  // ── FIX-1a: verification-ladder self-routing on the stamped profile ──────
+  const policySkip = resolvePolicySkip({
+    gateName: 'check_contract_drift',
+    riskTier: args.riskTier,
+    boundaryTouching: args.boundaryTouching,
+  });
+  if (policySkip) {
+    try {
+      await emitGateEvent(
+        eventStore,
+        args.featureId,
+        'contract-drift',
+        'delegate',
+        true,
+        {
+          dimension: 'D1',
+          phase: 'delegate',
+          taskId: args.taskId,
+          ...(args.branch ? { branch: args.branch } : {}),
+          skipped: true,
+          discriminant: SKIPPED_BY_POLICY,
+          reason: policySkip.reason,
+        },
+        args.operationId,
+      );
+    } catch {
+      /* fire-and-forget */
+    }
+    return {
+      success: true,
+      data: {
+        passed: true,
+        skipped: true,
+        drift: false,
+        breaking: [],
+        report: policySkip.reason,
+        discriminant: SKIPPED_BY_POLICY,
+      },
+    };
+  }
 
   const gitExec = args.gitExec ?? defaultGitExec;
   const runCommand = args.runCommand ?? defaultRunCommand;
