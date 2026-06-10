@@ -150,7 +150,9 @@ describe('CursorAdapter', () => {
 
     expect(body).toContain('TDD implementer agent');
     expect(body).toContain('## Task');
-    expect(body).toContain('## TDD Protocol');
+    // vls1-b5 (task 028): the static '## TDD Protocol' block became the
+    // tier-conditional '## Verification' note (verification-ladder reframe).
+    expect(body).toContain('## Verification');
     expect(body).toContain('## Completion Report');
   });
 

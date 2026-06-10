@@ -104,16 +104,18 @@ the worktree.
 ## Files
 {{filePaths}}
 
-## TDD Protocol (Red-Green-Refactor)
-1. **RED**: Write a failing test that defines the expected behavior
-2. **GREEN**: Write the minimum code to make the test pass
-3. **REFACTOR**: Clean up while keeping tests green
+## Verification (verification ladder)
 
-Rules:
-- NEVER write implementation before its test
-- Each test must fail before writing implementation
-- Run tests after each change to verify state
-- Keep commits atomic: one logical change per commit
+Follow the high-tier discipline:
+1. **RED** — write a failing test that defines the expected behavior; witness it fail for the right reason.
+2. **GREEN** — write the minimum code to make the test pass.
+3. **REFACTOR** — clean up while keeping tests green.
+
+Kill-probe: the `check_test_adequacy` gate runs after your tests. It recaptures test-first's unique guarantee (that the test can actually fail) at lower cost — expect it to flag tests that pass against a stubbed-out implementation.
+
+## Discipline
+- Run verification after each change to confirm state.
+- Keep commits atomic: one logical change per commit.
 
 ## Completion Report
 When done, output a JSON completion report:
