@@ -106,26 +106,44 @@ describe('detectMockFindings', () => {
       expect(findings.some((f) => f.identifier === 'spy')).toBe(true);
     });
 
-    it('does not flag family substrings buried inside an ordinary word (identifier boundary rule)', () => {
-      // "inspect" contains "spect"→"spec"? no; it contains "spe"… the relevant
-      // hazard is "spy" inside no common word and the substring rule. We assert
-      // the boundary rule rejects substrings that continue with a lowercase
-      // letter: e.g. "stubbornness", "fakery"-as-prose handled by the camelCase
-      // boundary, and a bare prose mention without a call-site.
+    it('does not flag family substrings buried inside a longer ordinary word (trailing-lowercase boundary rule)', () => {
+      // The trailing-boundary rule rejects any family word immediately followed
+      // by another lowercase letter — so each of these BURIED substrings is a
+      // longer ordinary word, not a mock identifier. (A STANDALONE family word
+      // in prose, e.g. a bare "stub", WOULD be flagged — that is the documented
+      // ~94%-precision tradeoff, exercised separately below.)
       const diff: readonly FileDiff[] = [
         testDiff('src/prose.test.ts', [
-          [10, '// stubbornness is not a stub double'],
+          [10, '// stubbornness should never be confused with a double'],
           [11, '// this comment mentions fakery and patchwork casually'],
-          [12, 'const inspector = makeInspector();'],
+          [12, 'const spying = observeBehaviour();'],
         ]),
       ];
 
       const findings = detectMockFindings(diff, { firstPartyGlobs: FIRST_PARTY });
 
-      // None of stubbornness/fakery/patchwork/inspector are identifier-boundary
-      // hits: each family word is immediately followed by another lowercase
-      // letter, so the boundary rule rejects them.
+      // stubbornness → stub+b, fakery → fake+r, patchwork → patch+w,
+      // spying → spy+i: every family word continues into a lowercase letter, so
+      // the boundary rule rejects all four.
       expect(findings).toHaveLength(0);
+    });
+
+    it('DOES flag a standalone family word in prose (documented precision tradeoff)', () => {
+      // The boundary rule is deliberately permissive on the LEADING side: a bare
+      // family token at an identifier boundary fires even in a comment. This is
+      // the ~6% false-positive surface the design accepts; we pin it so the
+      // tradeoff is intentional, not accidental.
+      const diff: readonly FileDiff[] = [
+        testDiff('src/prose.test.ts', [
+          [3, "// we stub 'axios' here for now"],
+        ]),
+      ];
+
+      const findings = detectMockFindings(diff, { firstPartyGlobs: FIRST_PARTY });
+
+      expect(findings).toHaveLength(1);
+      expect(findings[0].identifier).toBe('stub');
+      expect(findings[0].mockedTarget).toBe('axios');
     });
   });
 
