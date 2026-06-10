@@ -21,6 +21,9 @@ import {
   snapshotWorkingTree,
   revertSourceFiles,
   restoreWorkingTree,
+  runProbe,
+  type ProbeResult,
+  type TestRunFn,
 } from './test-adequacy.js';
 import type { GitExec } from './pure/execute-merge.js';
 
@@ -283,6 +286,147 @@ describe('snapshot/revert/restore (INV-14: refuse-to-discard recovery)', () => {
       if (!reverted.ok) {
         expect(reverted.discriminant).toBe('revert-conflict');
       }
+    },
+    30_000,
+  );
+});
+
+// ─── task 013: probe orchestration + carrier ─────────────────────────────────
+
+describe('runProbe (compose split → snapshot → revert → run → restore)', () => {
+  const repos: string[] = [];
+  afterEach(() => {
+    for (const r of repos.splice(0)) {
+      try {
+        rmSync(r, { recursive: true, force: true });
+      } catch {
+        /* best-effort */
+      }
+    }
+  });
+
+  it(
+    'Probe_NoNewTests_ReturnsNoNewTestsDiscriminant',
+    async () => {
+      const { repoRoot, baseRef } = setupTaskRepo('test-adequacy-probe-notest-');
+      repos.push(repoRoot);
+
+      // Diff has ONLY a source file — no test file. The probe must short-circuit
+      // with the no-new-tests discriminant and NOT run any test command.
+      let testRan = false;
+      const testRun: TestRunFn = async () => {
+        testRan = true;
+        return { passed: true };
+      };
+
+      const result: ProbeResult = await runProbe({
+        gitExec: realGitExec,
+        repoRoot,
+        baseRef,
+        changedFiles: ['src/calc.js'],
+        runTests: testRun,
+      });
+
+      expect(result.discriminant).toBe('no-new-tests');
+      expect(result.passed).toBe(false);
+      expect(result.probedTests).toEqual([]);
+      expect(testRan).toBe(false);
+    },
+    30_000,
+  );
+
+  it(
+    'Probe_NewTestFailsOnRevert_RedObservedTrue_PassedTrue',
+    async () => {
+      const { repoRoot, baseRef, sourceFile, testFile } = setupTaskRepo(
+        'test-adequacy-probe-red-',
+      );
+      repos.push(repoRoot);
+
+      const before = workingTreeHash(repoRoot);
+
+      // The test runner reports FAIL when the source has been reverted (the new
+      // test pins the new behavior). We detect "reverted" by reading the
+      // current source content via git.
+      const runTests: TestRunFn = async ({ repoRoot: rr }) => {
+        const src = git(rr, ['show', ':' + sourceFile]).trim();
+        // After revert, the worktree source equals base (`=> 1`).
+        const reverted = src.includes('=> 1');
+        return { passed: !reverted };
+      };
+
+      const result = await runProbe({
+        gitExec: realGitExec,
+        repoRoot,
+        baseRef,
+        changedFiles: [sourceFile, testFile],
+        runTests,
+      });
+
+      expect(result.redObserved).toBe(true);
+      expect(result.passed).toBe(true);
+      expect(result.restoredClean).toBe(true);
+      expect(result.probedTests).toEqual([testFile]);
+      expect(result.discriminant).toBeUndefined();
+      // Working tree restored to pre-probe state.
+      expect(workingTreeHash(repoRoot)).toBe(before);
+    },
+    30_000,
+  );
+
+  it(
+    'Probe_NewTestPassesOnRevert_PassedFalse',
+    async () => {
+      const { repoRoot, baseRef, sourceFile, testFile } = setupTaskRepo(
+        'test-adequacy-probe-green-',
+      );
+      repos.push(repoRoot);
+
+      const before = workingTreeHash(repoRoot);
+
+      // A vacuous test stays GREEN even with source reverted → no red observed.
+      const runTests: TestRunFn = async () => ({ passed: true });
+
+      const result = await runProbe({
+        gitExec: realGitExec,
+        repoRoot,
+        baseRef,
+        changedFiles: [sourceFile, testFile],
+        runTests,
+      });
+
+      expect(result.redObserved).toBe(false);
+      expect(result.passed).toBe(false);
+      expect(result.restoredClean).toBe(true);
+      expect(workingTreeHash(repoRoot)).toBe(before);
+    },
+    30_000,
+  );
+
+  it(
+    'Probe_Result_CarriesProbedTestsAndRestoredClean',
+    async () => {
+      const { repoRoot, baseRef, sourceFile, testFile } = setupTaskRepo(
+        'test-adequacy-probe-carrier-',
+      );
+      repos.push(repoRoot);
+
+      const runTests: TestRunFn = async () => ({ passed: false });
+
+      const result = await runProbe({
+        gitExec: realGitExec,
+        repoRoot,
+        baseRef,
+        changedFiles: [sourceFile, testFile],
+        runTests,
+      });
+
+      // Carrier shape: probedTests is the classified test files, restoredClean
+      // reflects the unconditional restore.
+      expect(result.probedTests).toEqual([testFile]);
+      expect(result.restoredClean).toBe(true);
+      expect(typeof result.passed).toBe('boolean');
+      expect(typeof result.redObserved).toBe('boolean');
     },
     30_000,
   );
