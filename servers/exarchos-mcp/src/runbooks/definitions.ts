@@ -14,6 +14,15 @@ export const TASK_COMPLETION: RunbookDefinition = {
     { tool: 'exarchos_orchestrate', action: 'check_test_adequacy', onFail: 'stop',
       params: { repoRoot: 'auto', worktreePath: '<worktreePath>' },
       note: 'kill probe: reverts source, re-runs new tests, asserts red — the load-bearing per-task gate' },
+    // Verification-ladder slice 1 Bundle B3: the contract-drift gate regenerates
+    // schema bindings, typechecks the regen, and runs a breaking-change diff
+    // against the merge-base. Runs against the agent worktree (repoRoot:auto +
+    // worktreePath, the #1330 resolver). Degrades to an advisory pass when no
+    // contract tool resolves (INV-4), so onFail:'stop' only halts on real
+    // breaking drift — a repo with no schema boundary is never blocked.
+    { tool: 'exarchos_orchestrate', action: 'check_contract_drift', onFail: 'stop',
+      params: { repoRoot: 'auto', worktreePath: '<worktreePath>' },
+      note: 'contract gate: codegen → typecheck → breaking-diff vs merge-base; advisory-skips when no contract tool resolves' },
     { tool: 'exarchos_orchestrate', action: 'check_tdd_compliance', onFail: 'continue',
       note: 'ADVISORY (verification-ladder slice 1): demoted from blocking — corroborates the kill probe' },
     // #1330 / T-05: the static-analysis gate must run against the agent's
