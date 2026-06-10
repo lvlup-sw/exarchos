@@ -233,11 +233,31 @@ const OwnershipConfigSchema = z
 /** Validated `.exarchos.yml` `ownership:` block (firstParty globs + default). */
 export type OwnershipConfig = z.infer<typeof OwnershipConfigSchema>;
 
+/**
+ * Top-level structured `contract:` block — a single schema-boundary's codegen
+ * + breaking-diff commands. Verification-ladder slice 1 (task 017): contracts
+ * are keyed on schema artifacts, so the direct `.exarchos.yml` `contract:` is
+ * the explicit per-repo declaration the resolver honors above artifact-keyed
+ * defaults.
+ */
+const ContractCommandConfigSchema = z
+  .object({
+    codegen: safeCommand.optional(),
+    diff: safeCommand.optional(),
+  })
+  .strict();
+
 export const ExarchosConfigSchema = z
   .object({
     test: safeCommand.optional(),
     typecheck: safeCommand.optional(),
     install: safeCommand.optional(),
+    // verification-ladder slice 1 (task 017): top-level direct verification
+    // commands, resolved per-field at tier 2 (config direct) by the layered
+    // resolver. `contract` is structured ({ codegen, diff }).
+    mutation: safeCommand.optional(),
+    lint: safeCommand.optional(),
+    contract: ContractCommandConfigSchema.optional(),
     toolchains: z.array(ToolchainConfigSchema).optional(),
     ownership: OwnershipConfigSchema,
     qualityHints: QualityHintsSchema,
