@@ -148,7 +148,9 @@ describe('handleRunMutation', () => {
 
   it('RunMutation_NoEventStore_ExecutesWithoutCrashing', () => {
     // Invoked outside a workspace (no event store) → skip emission, never crash.
-    const { deps, rec } = makeDeps(RESOLVED('npx stryker run'), { run: () => 0 });
+    // Uses the default recording runner (returns 0), so a successful run lands
+    // exactly one entry in rec.runs.
+    const { deps, rec } = makeDeps(RESOLVED('npx stryker run'));
     const code = handleRunMutation([], deps);
     expect(code).toBe(0);
     expect(rec.runs).toHaveLength(1);
