@@ -1951,6 +1951,22 @@ describe('deriveRiskTier — high rules', () => {
 // medium. Mixed low+unknown files resolve to medium (ambiguous).
 
 describe('deriveRiskTier — low / medium / override', () => {
+  // PR #1535 CodeRabbit (CR-4): schema/contract ARTIFACTS are shared-contract
+  // surfaces (the documented blast-radius gap) and must reach the HIGH lane.
+  // Before the fix, `openapi.yaml` fell through to LOW via the `**/*.yaml`
+  // low-glob, and `*.proto` / `*.graphql` defaulted to MEDIUM.
+  it('DeriveRiskTier_SchemaArtifacts_ReturnHigh', () => {
+    const cases: TaskInput[] = [
+      { id: 'sa-1', title: 'proto reshape', files: ['proto/workflow.proto'] },
+      { id: 'sa-2', title: 'openapi reshape', files: ['openapi.yaml'] },
+      { id: 'sa-3', title: 'openapi json', files: ['spec/openapi.json'] },
+      { id: 'sa-4', title: 'graphql reshape', files: ['src/gateway/queries.graphql'] },
+    ];
+    for (const task of cases) {
+      expect(deriveRiskTier(task), task.id).toBe('high');
+    }
+  });
+
   it('DeriveRiskTier_DocConfigRenameOnlyFiles_ReturnsLow', () => {
     const cases: TaskInput[] = [
       { id: 'l-1', title: 'docs', files: ['docs/CHANGELOG.md', 'README.md'] },

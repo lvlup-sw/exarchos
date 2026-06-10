@@ -146,6 +146,14 @@ export const HIGH_RISK_GLOBS: readonly string[] = [
   '**/*.d.ts',
   '**/api/**',
   '**/contracts/**',
+  // Schema/contract ARTIFACTS are shared-contract surfaces (the documented
+  // blast-radius gap) — they must reach the HIGH lane even though e.g.
+  // `openapi.yaml` would otherwise match the `**/*.yaml` LOW glob (high rules
+  // are evaluated before low). They also set boundaryTouching via
+  // BOUNDARY_GLOBS — the axes stay orthogonal. PR #1535 CR-4.
+  '**/*.proto',
+  '**/openapi.*',
+  '**/*.graphql',
 ];
 
 /**

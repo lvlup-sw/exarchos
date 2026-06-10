@@ -17,7 +17,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import matter from 'gray-matter';
 import { parse as parseYaml } from 'yaml';
-import type { ExarchosConfig } from '../config/exarchos-config-schema.js';
+import type { ExarchosConfigInput } from '../config/exarchos-config-schema.js';
 import { FullExarchosConfigSchema } from '../config/yaml-schema.js';
 import {
   InvariantEntryV3Schema,
@@ -365,7 +365,7 @@ export function parseInvariantEntries(rawEntries: unknown): InvariantEntry[] {
  *
  * The walk-up is bounded by the filesystem root; we stop at the first hit.
  */
-export function readInvariantsConfig(catalogFilePath: string): ExarchosConfig {
+export function readInvariantsConfig(catalogFilePath: string): ExarchosConfigInput {
   let dir = path.dirname(path.resolve(catalogFilePath));
   // Bounded walk-up: stop at filesystem root.
   while (true) {
@@ -399,7 +399,7 @@ export function readInvariantsConfig(catalogFilePath: string): ExarchosConfig {
  * `invariants` key is absent; default-disabled at the loader handles both as
  * "no flag set."
  */
-function parseInvariantsBlock(configPath: string): ExarchosConfig {
+function parseInvariantsBlock(configPath: string): ExarchosConfigInput {
   try {
     const raw = fs.readFileSync(configPath, 'utf8');
     const doc = parseYaml(raw);
@@ -450,7 +450,7 @@ function parseInvariantsBlock(configPath: string): ExarchosConfig {
 export function loadInvariants(
   filePath: string,
   opts?: { scope?: InvariantsScope },
-  config?: ExarchosConfig,
+  config?: ExarchosConfigInput,
 ): InvariantEntry[] {
   const effectiveConfig = config ?? readInvariantsConfig(filePath);
   // Catalog gating — applied BEFORE any scope filter.
@@ -527,7 +527,7 @@ export function loadInvariants(
  */
 export function loadCoreInvariants(
   filePath: string,
-  config?: ExarchosConfig,
+  config?: ExarchosConfigInput,
 ): InvariantEntry[] {
   return loadInvariants(filePath, { scope: 'core' }, config);
 }
@@ -542,7 +542,7 @@ export function loadCoreInvariants(
  */
 export function loadInvariantIds(
   filePath: string,
-  config?: ExarchosConfig,
+  config?: ExarchosConfigInput,
 ): Set<string> {
   return new Set(loadInvariants(filePath, undefined, config).map((e) => e.id));
 }

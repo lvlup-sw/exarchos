@@ -40,7 +40,8 @@
         "src/telemetry/benchmarks/helpers.ts"
       ],
       "ignoreDependencies": [
-        "patch-package"
+        "patch-package",
+        "dependency-cruiser"
       ]
     }
   },

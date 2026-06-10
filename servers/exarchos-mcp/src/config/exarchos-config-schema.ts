@@ -268,3 +268,13 @@ export const ExarchosConfigSchema = z
   .strict();
 
 export type ExarchosConfig = z.infer<typeof ExarchosConfigSchema>;
+
+/**
+ * The PRE-parse (input) shape of `.exarchos.yml` — every field optional,
+ * schema defaults (e.g. `ownership`) not yet applied. Use this type when
+ * CONSTRUCTING partial config literals (an invariants-only view, a test
+ * fixture); `ExarchosConfig` is the POST-parse shape where defaulted blocks
+ * are present and required. PR #1535 CI fix: partial literals typed as the
+ * output shape fail to compile once any block carries a parse-time default.
+ */
+export type ExarchosConfigInput = z.input<typeof ExarchosConfigSchema>;
