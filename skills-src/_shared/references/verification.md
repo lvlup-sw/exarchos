@@ -1,8 +1,22 @@
-# TDD Rules
+# Verification Ladder
 
-Enforce strict TDD when modifying TypeScript or C# files.
+Verification depth matches a task's **blast radius**. Pick the cheapest rung that still captures the risk — strict red-green-refactor is the high-tier discipline, not a blanket rule for every change.
 
-## TDD Workflow
+## The Ladder
+
+| Risk tier | What it adds on top of the rung below | Why this depth |
+|-----------|----------------------------------------|----------------|
+| **low** | Static analysis only (typecheck + lint) | Docs/config/rename-only edits have near-zero blast radius. A failing-test-first ceremony is pure overhead here. |
+| **medium** | Scoped tests + the `check_test_adequacy` kill-probe | The kill-probe recaptures test-first's unique guarantee — that a test can actually fail — at lower cost than mandating RED-first on every commit. |
+| **high** | Full red-green-refactor + the integration suite | Schema/type/API/shared-contract surfaces span the codebase. Here the discipline of writing the failing test first earns its cost. |
+
+`boundaryTouching` is an orthogonal flag: a boundary-crossing task (I/O adapter, client, schema artifact) adds contract-drift verification, and at medium/high also mock-boundary verification, regardless of its tier.
+
+The task's `riskTier` / `boundaryTouching` stamp comes from the planner (or the classifier's blast-radius heuristic). Both the dispatched implementer prompt and the gate sequence scale off that stamp — the verification effort is data-driven, not hand-applied per task.
+
+## High-Tier Discipline: Red-Green-Refactor
+
+When a task is high-tier (or you have chosen to write a test for a medium-tier behavior), follow the cycle:
 
 ### RED Phase
 1. Write a test that describes expected behavior

@@ -75,31 +75,40 @@ git merge-base --is-ancestor "[integration-tip]" HEAD \
 ### Test Files:
 - `[path/to/file.test.ts]` - [Test file to create/modify]
 
-## TDD Requirements (MANDATORY)
+## Verification (tier-conditional)
 
-You MUST follow strict Test-Driven Development:
+<!--
+  This section is ASSEMBLED FROM THE DELEGATION-RECORD STAMP, not pasted whole.
+  `renderImplementerPrompt` (servers/exarchos-mcp/src/agents/definitions.ts) reads
+  the task's `riskTier` / `boundaryTouching` — pure DATA, never a `workflow.type`
+  branch (INV-6) — and selects exactly ONE of the tier blocks below, then appends
+  the BOUNDARY block when `boundaryTouching` is true. Dispatch the SELECTED block
+  only; do not ship every tier to the implementer.
 
-### Phase 1: RED - Write Failing Test
+  Evidence basis (TDAD): cutting a skill 107→20 lines QUADRUPLED resolution.
+  Prompt bloat is a token AND an accuracy cost — so a low-risk task carries the
+  terse note, not the full red-green-refactor ceremony.
+-->
 
-1. Create test file at the specified path
-2. Write test with name: `[MethodName]_[Scenario]_[ExpectedOutcome]`
-3. Run the project test command (from `.exarchos.yml`, e.g. `cargo test` / `pytest` / `dotnet test` / `npm run test:run`)
-4. **VERIFY test fails for the expected reason**
-5. Do NOT proceed until you've witnessed the failure
+### [TIER: low] — static analysis suffices
 
-### Phase 2: GREEN - Minimum Implementation
+Low blast-radius task: lean on static analysis (typecheck + lint). No test-first ceremony required; add a focused test only if behavior is non-obvious.
 
-1. Write the minimum code to make the test pass
-2. No additional features or optimizations
-3. Run the project test command (from `.exarchos.yml`, e.g. `cargo test` / `pytest` / `dotnet test` / `npm run test:run`)
-4. **VERIFY test passes**
+### [TIER: medium | high] — verification ladder (full block)
 
-### Phase 3: REFACTOR - Clean Up
+Follow the high-tier red-green-refactor discipline:
 
-1. Apply SOLID principles if applicable
-2. Extract helpers for clarity
-3. Run tests after each change
-4. **VERIFY tests stay green**
+1. **RED** — write a failing test named `[MethodName]_[Scenario]_[ExpectedOutcome]`. Run the project test command (from `.exarchos.yml`, e.g. `cargo test` / `pytest` / `dotnet test` / `npm run test:run`). VERIFY it fails for the expected reason; do NOT proceed until you have witnessed the failure.
+2. **GREEN** — write the minimum code to make the test pass. No extra features. Run the project test command and VERIFY it passes.
+3. **REFACTOR** — clean up (SOLID, extract helpers) while keeping tests green; run tests after each change.
+
+Kill-probe: the `check_test_adequacy` gate runs after your tests. It recaptures test-first's unique guarantee — that a test can actually fail — at lower cost than mandating RED-first on every commit. Expect it to flag tests that pass against a stubbed-out implementation.
+
+(For **high** tier only, the `check_integration_suite` rung also runs — exercise real collaborators across the seam, not just unit isolation.)
+
+### [BOUNDARY: append when boundaryTouching] — mock steer
+
+Boundary task: mock only what you own. For a dependency you do NOT own, use a hermetic fixture or a contract-verified stub — never an unverified hand-mock that can drift from the real contract.
 
 ## Testing Approach (Testing Trophy)
 
@@ -360,9 +369,12 @@ Implement email validation for user registration. The validator should:
 ### Test Files:
 - `src/validators/email.test.ts` - Validation tests
 
-## TDD Requirements (MANDATORY)
+## Verification (verification ladder)
 
-You MUST follow strict Test-Driven Development:
+<!-- This task is high-tier + boundary-touching (MX lookup crosses an I/O seam),
+     so the assembly selected the full block AND appended the boundary steer. -->
+
+Follow the high-tier red-green-refactor discipline:
 
 ### Phase 1: RED - Write Failing Test
 
@@ -382,6 +394,10 @@ You MUST follow strict Test-Driven Development:
 1. Extract regex to constant
 2. Run tests after change
 3. VERIFY tests stay green
+
+Kill-probe: the `check_test_adequacy` gate runs after your tests — expect it to flag tests that pass against a stubbed-out implementation.
+
+Boundary task: mock only what you own. The MX lookup is an unowned external dependency — use a hermetic fixture or a contract-verified stub, never an unverified hand-mock.
 
 ## Expected Test
 
@@ -415,6 +431,6 @@ describe('validateEmail', () => {
 1. **Full Context** - Include everything the implementer needs
 2. **No File References** - Don't say "see plan.md" - paste content
 3. **Explicit Paths** - Absolute paths to working directory and files
-4. **TDD Mandatory** - Always include TDD requirements
+4. **Verification scaled to risk** - Include the tier-appropriate verification block (the ladder), not blanket TDD
 5. **Git-First** - Standard git commit + push. PR creation handled by synthesis phase.
 6. **Clear Success Criteria** - Checkboxes for completion

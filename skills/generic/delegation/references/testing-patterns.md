@@ -1,6 +1,6 @@
 # Testing Patterns
 
-Code patterns for TDD implementation. Referenced from `rules/tdd.md`.
+Code patterns for test implementation. Referenced from `@skills/_shared/references/verification.md`.
 
 ## Test File Co-location
 

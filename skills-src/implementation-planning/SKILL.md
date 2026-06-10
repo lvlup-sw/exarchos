@@ -1,6 +1,6 @@
 ---
 name: implementation-planning
-description: "Transform design documents into TDD-based implementation plans with parallelizable tasks. Triggers: 'plan implementation', 'create tasks from design', or /plan. Enforces the Iron Law: no production code without a failing test first. Requires an existing design document — use /ideate first if none exists. Do NOT use for brainstorming, debugging, or code review."
+description: "Transform design documents into implementation plans with parallelizable tasks. Triggers: 'plan implementation', 'create tasks from design', or /plan. Applies the verification ladder: verification depth matches each task's blast radius — static analysis for low-risk tasks, scoped tests plus a kill-probe for medium, full red-green-refactor for high-risk surfaces. Requires an existing design document — use /ideate first if none exists. Do NOT use for brainstorming, debugging, or code review."
 metadata:
   author: exarchos
   version: 1.0.0
@@ -42,16 +42,24 @@ After 3 failed revisions:
 
 > **MANDATORY:** Before accepting any rationalization for skipping tests, planning, or TDD steps, consult `references/rationalization-refutation.md`. Every common excuse is catalogued with a counter-argument and the correct action.
 
-## The Iron Law
+## The Verification Ladder
 
-> **NO PRODUCTION CODE WITHOUT A FAILING TEST FIRST**
+Verification depth matches blast radius — red-green-refactor is the **HIGH-tier path**, not a universal law. Each task gets the cheapest verification that still captures its risk:
 
-Every implementation task MUST:
+| Risk tier | What it adds | Why |
+|-----------|--------------|-----|
+| **low** | Static analysis (typecheck + lint) suffices | A docs/config/rename-only edit has near-zero blast radius; test-first ceremony is pure overhead. |
+| **medium** | Scoped tests + the `check_test_adequacy` kill-probe | The kill-probe recaptures test-first's unique guarantee — that a test can actually fail — at lower cost than mandating RED-first on every commit. |
+| **high** | Full red-green-refactor + the integration suite | Schema/type/API/shared-contract surfaces span the codebase; here the failing-test-first discipline earns its cost. |
+
+The planner stamps each task's `riskTier` (and `boundaryTouching`); the classifier derives it from blast radius when the planner does not override. The dispatched implementer prompt and the gate sequence both scale off that stamp — so the verification effort is data-driven, not a blanket rule.
+
+For a **high-tier** task, the discipline is:
 1. Start with writing a failing test
 2. Specify the expected failure reason
 3. Only then implement minimum code to pass
 
-**Verify TDD compliance** in git history after implementation:
+**Verify high-tier TDD compliance** in git history after implementation:
 
 ```typescript
 exarchos_orchestrate({
@@ -201,11 +209,13 @@ For reference, consult `references/spec-tracing-guide.md` for the underlying met
 
 ## Rationalization Debunking
 
+The ladder already prices in genuinely low-risk work — so these excuses apply to **medium/high-tier** tasks, where they are rationalizations rather than reasonable tier choices:
+
 | Excuse | Reality |
 |--------|---------|
-| "This is too simple for tests" | Simple code breaks too. Test it. |
-| "I'll add tests after" | You won't. Or they'll be weak. |
-| "Tests slow me down" | Debugging without tests is slower. |
+| "This is too simple for a test" (on a medium/high-tier task) | If it touches a high-blast surface, its tier is not low. Test it at the tier the ladder assigns. |
+| "I'll add tests after" | You won't. Or they'll be weak — and `check_test_adequacy` will catch tests that can't fail. |
+| "Tests slow me down" | Debugging an untested medium/high-tier change is slower. |
 | "The design is obvious" | Obvious to you now. Not in 3 months. |
 
 ## State Management
@@ -238,7 +248,7 @@ for orchestrate action schemas.
 - [ ] Spec traceability table created (`exarchos_orchestrate({ action: "generate_traceability" })`)
 - [ ] Scope declared (full or partial with rationale)
 - [ ] Tasks decomposed to 2-5 min granularity
-- [ ] Each task starts with failing test
+- [ ] Each task carries a `riskTier` (and `boundaryTouching`) stamp; high-tier tasks start with a failing test
 - [ ] Dependencies mapped
 - [ ] Parallel groups identified
 - [ ] Plan verification passed — `exarchos_orchestrate({ action: "check_plan_coverage" })` returns passed: true
