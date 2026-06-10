@@ -1633,7 +1633,11 @@ const orchestrateActions: readonly ToolAction[] = [
   },
   {
     name: 'check_tdd_compliance',
-    description: 'Per-task TDD compliance gate. Emits gate.executed event with dimension D1.',
+    description:
+      'Per-task TDD compliance gate (ADVISORY). Emits gate.executed event with ' +
+      'dimension D1. Verification-ladder slice 1: demoted from blocking — the ' +
+      'kill-probe gate `check_test_adequacy` is the load-bearing per-task ' +
+      'verification; commit-order TDD is corroborating advice.',
     schema: z.object({
       featureId: z.string().min(1),
       taskId: z.string().min(1),
@@ -1642,7 +1646,38 @@ const orchestrateActions: readonly ToolAction[] = [
     }).strict(),
     phases: DELEGATE_PHASES,
     roles: ROLE_LEAD,
+    gate: { blocking: false, dimension: 'D1' },
+    autoEmits: [
+      { event: 'gate.executed', condition: 'always' },
+    ],
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: LOCAL_MUTATION,
+  },
+  {
+    name: 'check_test_adequacy',
+    description:
+      'Per-task test-adequacy kill probe (mutation-testing-at-N=1): reverts the ' +
+      "task's source hunks (keeping tests), re-runs the new/changed tests, and " +
+      'asserts at least one goes red — proving the tests are not vacuous. ' +
+      'Restores the working tree unconditionally (INV-14). Emits a gate.executed ' +
+      'event (gate "test-adequacy", dimension D1). Pass repoRoot ("auto" to ' +
+      "resolve the calling delegation's worktree); operationId makes the gate " +
+      'emission idempotent (INV-8).',
+    schema: z.object({
+      featureId: z.string().min(1),
+      taskId: z.string().min(1),
+      branch: z.string().optional(),
+      baseBranch: z.string().optional(),
+      repoRoot: z.string().optional(),
+      worktreePath: z.string().optional(),
+      operationId: z.string().optional(),
+    }),
+    phases: DELEGATE_PHASES,
+    roles: ROLE_LEAD,
     gate: { blocking: true, dimension: 'D1' },
+    // Reverts source + shells out to the resolved test command; on a real repo
+    // this exceeds the 2s heartbeat threshold.
+    longRunning: true,
     autoEmits: [
       { event: 'gate.executed', condition: 'always' },
     ],

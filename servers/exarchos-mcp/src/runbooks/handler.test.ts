@@ -75,16 +75,27 @@ describe('handleRunbook', () => {
   });
 
   it('HandleRunbook_DetailMode_ResolvesGateFromRegistry', async () => {
-    // task-completion has check_tdd_compliance which has gate: { blocking: true, dimension: 'D1' }
+    // task-completion's check_test_adequacy has gate: { blocking: true,
+    // dimension: 'D1' } — the load-bearing kill-probe gate. check_tdd_compliance
+    // is now ADVISORY (verification-ladder slice 1 demotion: blocking:false).
     const result = await handleRunbook({ id: 'task-completion' });
     expect(result.success).toBe(true);
     const data = result.data as {
       steps: Array<{ action: string; gate: { blocking: boolean; dimension?: string } | null }>;
     };
+
+    // The blocking kill-probe gate resolves from the registry.
+    const adequacyStep = data.steps.find(s => s.action === 'check_test_adequacy');
+    expect(adequacyStep).toBeDefined();
+    expect(adequacyStep!.gate).not.toBeNull();
+    expect(adequacyStep!.gate!.blocking).toBe(true);
+    expect(adequacyStep!.gate!.dimension).toBe('D1');
+
+    // The demoted tdd-compliance gate resolves as advisory (blocking:false).
     const tddStep = data.steps.find(s => s.action === 'check_tdd_compliance');
     expect(tddStep).toBeDefined();
     expect(tddStep!.gate).not.toBeNull();
-    expect(tddStep!.gate!.blocking).toBe(true);
+    expect(tddStep!.gate!.blocking).toBe(false);
     expect(tddStep!.gate!.dimension).toBe('D1');
   });
 

@@ -42,14 +42,18 @@ describe('Runbook definitions', () => {
     }
   });
 
-  it('TaskCompletion_HasFourSteps_InCorrectOrder', () => {
+  it('TaskCompletion_HasFiveSteps_InCorrectOrder', () => {
     // #1329 / T-07 appended a post-merge `check_integration_suite` gate after
-    // `task_complete`, taking the runbook from 3 to 4 steps.
-    expect(TASK_COMPLETION.steps).toHaveLength(4);
-    expect(TASK_COMPLETION.steps[0].action).toBe('check_tdd_compliance');
-    expect(TASK_COMPLETION.steps[1].action).toBe('check_static_analysis');
-    expect(TASK_COMPLETION.steps[2].action).toBe('task_complete');
-    expect(TASK_COMPLETION.steps[3].action).toBe('check_integration_suite');
+    // `task_complete`, taking the runbook from 3 to 4 steps. Verification-ladder
+    // slice 1 prepended the `check_test_adequacy` kill-probe gate as the new
+    // load-bearing per-task verification (5 steps), with `check_tdd_compliance`
+    // demoted to advisory immediately after it.
+    expect(TASK_COMPLETION.steps).toHaveLength(5);
+    expect(TASK_COMPLETION.steps[0].action).toBe('check_test_adequacy');
+    expect(TASK_COMPLETION.steps[1].action).toBe('check_tdd_compliance');
+    expect(TASK_COMPLETION.steps[2].action).toBe('check_static_analysis');
+    expect(TASK_COMPLETION.steps[3].action).toBe('task_complete');
+    expect(TASK_COMPLETION.steps[4].action).toBe('check_integration_suite');
     expect(TASK_COMPLETION.phase).toBe('delegate');
   });
 
