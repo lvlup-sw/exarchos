@@ -1,11 +1,15 @@
 // ─── Test Runtime Resolver Tests ────────────────────────────────────────────
 
 import { describe, it, expect, afterEach, vi } from 'vitest';
+import fc from 'fast-check';
 import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { resolveTestRuntime } from './test-runtime-resolver.js';
+import {
+  resolveTestRuntime,
+  resolveVerificationRuntime,
+} from './test-runtime-resolver.js';
 
 describe('resolveTestRuntime', () => {
   const tmpDirs: string[] = [];
@@ -959,5 +963,177 @@ describe('resolveTestRuntime', () => {
       expect(result.test).toBe('zig build test');
       expect(result.source).toBe('toolchain-config');
     });
+  });
+});
+
+// ─── task 017: resolveVerificationRuntime (widened field set) ────────────────
+
+describe('resolveVerificationRuntime', () => {
+  const tmpDirs: string[] = [];
+
+  function makeTmpDir(): string {
+    const dir = mkdtempSync(join(tmpdir(), 'verif-'));
+    tmpDirs.push(dir);
+    return dir;
+  }
+
+  afterEach(() => {
+    for (const dir of tmpDirs) {
+      rmSync(dir, { recursive: true, force: true });
+    }
+    tmpDirs.length = 0;
+  });
+
+  it('ResolveVerificationRuntime_MutationField_HonorsLayeredPrecedence', () => {
+    // tier 5 (detection): a Rust repo seeds `cargo mutants --in-diff`.
+    const rust = makeTmpDir();
+    writeFileSync(join(rust, 'Cargo.toml'), '[package]');
+    expect(resolveVerificationRuntime(rust).mutation).toBe('cargo mutants --in-diff');
+
+    // tier 3 (user toolchain) beats built-in detection.
+    const userTc = makeTmpDir();
+    writeFileSync(join(userTc, 'Cargo.toml'), '[package]');
+    const tc3 = resolveVerificationRuntime(userTc, {
+      loadConfig: () => ({
+        config: {
+          toolchains: [
+            { id: 'rust-custom', markers: ['Cargo.toml'], commands: { test: 'cargo test', mutation: 'cargo mutants --workspace' } },
+          ],
+        },
+        source: '/x/.exarchos.yml',
+      }),
+    });
+    expect(tc3.mutation).toBe('cargo mutants --workspace');
+
+    // tier 2 (config direct) beats user toolchain.
+    const cfg = makeTmpDir();
+    writeFileSync(join(cfg, 'Cargo.toml'), '[package]');
+    const tc2 = resolveVerificationRuntime(cfg, {
+      loadConfig: () => ({ config: { mutation: 'config-mutation' }, source: '/x/.exarchos.yml' }),
+    });
+    expect(tc2.mutation).toBe('config-mutation');
+
+    // tier 1 (override) beats everything.
+    const ovr = makeTmpDir();
+    writeFileSync(join(ovr, 'Cargo.toml'), '[package]');
+    const tc1 = resolveVerificationRuntime(ovr, {
+      override: { mutation: 'override-mutation' },
+      loadConfig: () => ({ config: { mutation: 'config-mutation' }, source: '/x/.exarchos.yml' }),
+    });
+    expect(tc1.mutation).toBe('override-mutation');
+  });
+
+  it('ResolveVerificationRuntime_LintField_HonorsLayeredPrecedence', () => {
+    // tier 5: Go seeds `go vet ./...`.
+    const go = makeTmpDir();
+    writeFileSync(join(go, 'go.mod'), 'module example.com/x\n');
+    expect(resolveVerificationRuntime(go).lint).toBe('go vet ./...');
+
+    // tier 2 (config direct) beats detection.
+    const cfg = makeTmpDir();
+    writeFileSync(join(cfg, 'go.mod'), 'module example.com/x\n');
+    expect(
+      resolveVerificationRuntime(cfg, {
+        loadConfig: () => ({ config: { lint: 'golangci-lint run' }, source: '/x/.exarchos.yml' }),
+      }).lint,
+    ).toBe('golangci-lint run');
+
+    // tier 1 (override) wins.
+    const ovr = makeTmpDir();
+    writeFileSync(join(ovr, 'go.mod'), 'module example.com/x\n');
+    expect(
+      resolveVerificationRuntime(ovr, {
+        override: { lint: 'override-lint' },
+        loadConfig: () => ({ config: { lint: 'golangci-lint run' }, source: '/x/.exarchos.yml' }),
+      }).lint,
+    ).toBe('override-lint');
+  });
+
+  it('ResolveVerificationRuntime_ContractField_ResolvesStructured', () => {
+    const dir = makeTmpDir();
+    // config-direct structured contract: { codegen, diff }.
+    const result = resolveVerificationRuntime(dir, {
+      loadConfig: () => ({
+        config: { contract: { codegen: 'buf generate', diff: 'buf breaking' } },
+        source: '/x/.exarchos.yml',
+      }),
+    });
+    expect(result.contract).toEqual({ codegen: 'buf generate', diff: 'buf breaking' });
+
+    // override wins, structured.
+    const ovr = makeTmpDir();
+    const overridden = resolveVerificationRuntime(ovr, {
+      override: { contract: { codegen: 'override-codegen', diff: 'override-diff' } },
+      loadConfig: () => ({
+        config: { contract: { codegen: 'buf generate', diff: 'buf breaking' } },
+        source: '/x/.exarchos.yml',
+      }),
+    });
+    expect(overridden.contract).toEqual({ codegen: 'override-codegen', diff: 'override-diff' });
+
+    // No contract tool anywhere → null (artifact-keyed seeds attach elsewhere).
+    const none = makeTmpDir();
+    writeFileSync(join(none, 'Cargo.toml'), '[package]');
+    expect(resolveVerificationRuntime(none).contract).toBeNull();
+  });
+
+  it('ResolveTestRuntime_Alias_BehaviorUnchanged', () => {
+    // The alias projects the widened runtime down to the exact legacy shape:
+    // { test, typecheck, install, source, remediation? } — no widened fields.
+    const dir = makeTmpDir();
+    writeFileSync(
+      join(dir, 'package.json'),
+      JSON.stringify({ scripts: { 'test:run': 'vitest run', typecheck: 'tsc --noEmit' } }),
+    );
+    const legacy = resolveTestRuntime(dir);
+    expect(legacy).toEqual({
+      test: 'npm run test:run',
+      typecheck: 'npm run typecheck',
+      install: 'npm install',
+      source: 'detection',
+    });
+    // The alias result MUST NOT leak widened fields onto the legacy shape.
+    expect('mutation' in legacy).toBe(false);
+    expect('lint' in legacy).toBe(false);
+    expect('contract' in legacy).toBe(false);
+
+    // Unresolved path: alias still carries remediation.
+    const empty = makeTmpDir();
+    const un = resolveTestRuntime(empty);
+    expect(un.source).toBe('unresolved');
+    expect(un.remediation).toBeDefined();
+  });
+
+  // fast-check property: per-field independence + first-non-null-layer-wins.
+  it('property_PerFieldIndependence_AndFirstNonNullLayerWins', () => {
+    const cmd = fc.constantFrom('alpha', 'beta', 'gamma', 'delta');
+    const field = fc.constantFrom('test', 'typecheck', 'install', 'mutation', 'lint');
+    fc.assert(
+      fc.property(
+        // an override value for ONE field, and a config value for a DIFFERENT field
+        field,
+        cmd,
+        field,
+        cmd,
+        (overrideField, overrideVal, configField, configVal) => {
+          const dir = makeTmpDir();
+          writeFileSync(join(dir, 'Cargo.toml'), '[package]'); // detection baseline
+          const result = resolveVerificationRuntime(dir, {
+            override: { [overrideField]: overrideVal },
+            loadConfig: () => ({ config: { [configField]: configVal }, source: '/x/.exarchos.yml' }),
+          });
+          // The override field always wins on its own field (first non-null layer).
+          const r = result as unknown as Record<string, string | null>;
+          expect(r[overrideField]).toBe(overrideVal);
+          // Per-field independence: a different config field is NOT clobbered by
+          // the override on overrideField. (When configField === overrideField,
+          // override still wins — also asserted by the first check.)
+          if (configField !== overrideField) {
+            expect(r[configField]).toBe(configVal);
+          }
+        },
+      ),
+      { numRuns: 60 },
+    );
   });
 });
