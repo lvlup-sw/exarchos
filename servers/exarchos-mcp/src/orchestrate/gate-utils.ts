@@ -50,19 +50,23 @@ export async function emitGateEvent(
    */
   idempotencyKey?: string,
 ): Promise<void> {
-  await store.append(
-    streamId,
-    {
-      type: 'gate.executed',
-      data: {
-        gateName,
-        layer,
-        passed,
-        ...(details !== undefined ? { details } : {}),
-      },
+  const event = {
+    type: 'gate.executed' as const,
+    data: {
+      gateName,
+      layer,
+      passed,
+      ...(details !== undefined ? { details } : {}),
     },
-    idempotencyKey !== undefined ? { idempotencyKey } : undefined,
-  );
+  };
+  // Only thread the AppendOptions arg when an idempotency key is present, so
+  // callers that don't opt into idempotency see the unchanged 2-arg append
+  // signature (no spurious `undefined` third argument).
+  if (idempotencyKey !== undefined) {
+    await store.append(streamId, event, { idempotencyKey });
+  } else {
+    await store.append(streamId, event);
+  }
 }
 
 // ─── Worktree-Aware repoRoot Resolution (#1330) ─────────────────────────────
