@@ -164,3 +164,73 @@ describe('BUILTIN_TOOLCHAINS — registry integrity', () => {
     );
   });
 });
+
+// ─── task 016: mutation / lint / contract command fields ─────────────────────
+
+describe('BUILTIN_TOOLCHAINS — verification command seeds (task 016)', () => {
+  function commandsFor(id: string): Toolchain['commands'] {
+    const tc = BUILTIN_TOOLCHAINS.find((t) => t.id === id);
+    if (!tc) throw new Error(`no built-in toolchain '${id}'`);
+    return tc.commands;
+  }
+
+  it('BuiltinToolchains_Node_SeedsStrykerMutation', () => {
+    expect(commandsFor('node').mutation).toBe('npx stryker run');
+  });
+
+  it('BuiltinToolchains_Dotnet_SeedsDotnetStryker', () => {
+    expect(commandsFor('dotnet').mutation).toBe('dotnet stryker');
+  });
+
+  it('BuiltinToolchains_Rust_SeedsCargoMutants', () => {
+    expect(commandsFor('rust').mutation).toBe('cargo mutants --in-diff');
+  });
+
+  it('BuiltinToolchains_Python_SeedsMutmut', () => {
+    expect(commandsFor('python').mutation).toBe('mutmut run');
+  });
+
+  it('BuiltinToolchains_JavaMaven_SeedsPitest', () => {
+    expect(commandsFor('java-maven').mutation).toBe(
+      'mvn org.pitest:pitest-maven:mutationCoverage',
+    );
+  });
+
+  it('ToolchainCommands_ContractField_DefaultsNullStructured', () => {
+    // The contract field is structured `{ codegen, diff } | null`. Built-in
+    // language toolchains key contracts on schema ARTIFACTS, not the language
+    // alone — so per-toolchain contract is null; artifact-keyed resolution
+    // happens in the resolver (tasks 017/022).
+    for (const tc of BUILTIN_TOOLCHAINS) {
+      const contract = tc.commands.contract;
+      // null is the seeded default; if a toolchain ever seeds a structured
+      // value it must carry both codegen and diff keys.
+      if (contract !== null) {
+        expect('codegen' in contract).toBe(true);
+        expect('diff' in contract).toBe(true);
+      } else {
+        expect(contract).toBeNull();
+      }
+    }
+    // node is the canonical "no per-toolchain contract" seed.
+    expect(commandsFor('node').contract).toBeNull();
+  });
+
+  it('ToolchainCommands_LintField_Seeded', () => {
+    // Seed sensible lint defaults where a single conventional command exists;
+    // null where the ecosystem has no clear default.
+    expect(commandsFor('rust').lint).toBe('cargo clippy');
+    expect(commandsFor('go').lint).toBe('go vet ./...');
+    expect(commandsFor('python').lint).toBe('ruff check');
+    // node lint is project-script-specific → no built-in default.
+    expect(commandsFor('node').lint).toBeNull();
+  });
+
+  it('every toolchain exposes the widened readonly null-able command fields', () => {
+    for (const tc of BUILTIN_TOOLCHAINS) {
+      expect('mutation' in tc.commands).toBe(true);
+      expect('lint' in tc.commands).toBe(true);
+      expect('contract' in tc.commands).toBe(true);
+    }
+  });
+});
