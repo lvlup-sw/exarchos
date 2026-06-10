@@ -11,8 +11,10 @@ describe('resolveConfig', () => {
       expect(result.review.dimensions[dim]).toEqual({ severity: 'blocking', enabled: true });
     }
 
-    // Empty gates
-    expect(result.review.gates).toEqual({});
+    // Per-gate DEFAULTS seed through (verification-ladder advisory demotions
+    // survive even when a project ships a .exarchos.yml; without the seed,
+    // any config file silently re-blocked the demoted gates via dimension D1).
+    expect(result.review.gates).toEqual(DEFAULTS.review.gates);
 
     // Routing defaults
     expect(result.review.routing.coderabbitThreshold).toBe(0.4);

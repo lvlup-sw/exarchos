@@ -327,8 +327,13 @@ describe('runProbe (compose split → snapshot → revert → run → restore)',
         runTests: testRun,
       });
 
+      // FIX-1b: a task that adds NO new/changed tests has nothing to probe —
+      // this is a SKIPPED/advisory pass (passed:true), NOT a blocking failure.
+      // The discriminant still names the mode; the report is self-explanatory.
       expect(result.discriminant).toBe('no-new-tests');
-      expect(result.passed).toBe(false);
+      expect(result.passed).toBe(true);
+      expect(result.report).toContain('nothing to probe');
+      expect(result.report).toContain('no tests');
       expect(result.probedTests).toEqual([]);
       expect(testRan).toBe(false);
     },

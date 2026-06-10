@@ -17,7 +17,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import * as path from 'node:path';
 import { logger } from '../logger.js';
 import { loadExarchosConfig, type LoadResult } from './load-exarchos-config.js';
-import { detectToolchain, toolchainFromConfig, type ContractCommands } from './toolchains.js';
+import { detectToolchain, toolchainFromConfig, type ContractCommands, type Toolchain } from './toolchains.js';
 import { resolveTaskRunner } from './task-runners.js';
 import { LOCKS, INSTALL_METADATA } from './vendor/package-manager-detector/lockfiles.generated.js';
 
@@ -613,6 +613,7 @@ function resolveScalarField(
   overrideVal: string | undefined,
   configVal: string | undefined,
   userMatchCommand: string | null,
+  detectBuiltin: () => Toolchain | undefined,
 ): string | null {
   // tier 1 — override
   if (overrideVal !== undefined) return overrideVal;
@@ -623,9 +624,9 @@ function resolveScalarField(
   // tier 4 — committed task-runner with a matching conventional target
   const runner = resolveTaskRunner(repoRoot, field);
   if (runner) return runner.command;
-  // tier 5 — built-in registry detection
-  const detected = detectToolchain(repoRoot);
-  const detectedCmd = detected?.commands[field] ?? null;
+  // tier 5 — built-in registry detection (memoised by the caller so the
+  // filesystem probe runs at most once across all widened fields).
+  const detectedCmd = detectBuiltin()?.commands[field] ?? null;
   if (detectedCmd !== null) return detectedCmd;
   return null;
 }
@@ -672,12 +673,26 @@ export function resolveVerificationRuntime(
   const userMatch =
     userMatched && userToolchains.includes(userMatched) ? userMatched : undefined;
 
+  // Built-in detection is filesystem-backed (existsSync/readdirSync) — memoise
+  // it so the probe runs at most once across mutation + lint (LOW: it ran once
+  // per field, on top of resolveTestRuntime's own detection).
+  let detectedBuiltin: Toolchain | undefined;
+  let detectedBuiltinRan = false;
+  const detectBuiltin = (): Toolchain | undefined => {
+    if (!detectedBuiltinRan) {
+      detectedBuiltinRan = true;
+      detectedBuiltin = detectToolchain(repoRoot);
+    }
+    return detectedBuiltin;
+  };
+
   const mutation = resolveScalarField(
     repoRoot,
     'mutation',
     rawOverride?.mutation?.trim(),
     config?.mutation,
     userMatch?.commands.mutation ?? null,
+    detectBuiltin,
   );
   const lint = resolveScalarField(
     repoRoot,
@@ -685,6 +700,7 @@ export function resolveVerificationRuntime(
     rawOverride?.lint?.trim(),
     config?.lint,
     userMatch?.commands.lint ?? null,
+    detectBuiltin,
   );
 
   // Contract — structured { codegen, diff }. Per-field within the structure:

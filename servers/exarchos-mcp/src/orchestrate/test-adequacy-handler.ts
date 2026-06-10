@@ -18,8 +18,17 @@
 import { execFileSync } from 'node:child_process';
 import type { ToolResult } from '../format.js';
 import type { EventStore } from '../event-store/store.js';
-import { emitGateEvent, resolveRepoRoot } from './gate-utils.js';
+import {
+  defaultGitExec,
+  emitGateEvent,
+  resolvePolicySkip,
+  resolveRepoRoot,
+  SKIPPED_BY_POLICY,
+} from './gate-utils.js';
 import { resolveTestRuntime } from '../config/test-runtime-resolver.js';
+import { splitCommand } from '../config/tokenize-command.js';
+import { detectToolchain, testGlobsForToolchain } from '../config/toolchains.js';
+import type { RiskTier } from '../workflow/verification-policy.js';
 import type { GitExec } from './pure/execute-merge.js';
 import { runProbe, type ProbeResult, type TestRunFn } from './test-adequacy.js';
 
@@ -45,6 +54,17 @@ export interface TestAdequacyArgs {
    */
   readonly operationId?: string;
 
+  // ── Verification-ladder routing stamp (FIX-1a) ───────────────────────────
+  /**
+   * The task's stamped risk tier. When provided together with
+   * {@link boundaryTouching}, the handler self-skips when the resolved
+   * verification sequence does not include this gate (`skipped-by-policy`).
+   * Absent (legacy callers) → the gate runs unconditionally.
+   */
+  readonly riskTier?: RiskTier;
+  /** The task's stamped boundary-touching flag. See {@link riskTier}. */
+  readonly boundaryTouching?: boolean;
+
   // ── Test seams (DI; production defaults below) ───────────────────────────
   /** Git executor. Defaults to a 30s-ceiling shell-out. */
   readonly gitExec?: GitExec;
@@ -53,30 +73,17 @@ export interface TestAdequacyArgs {
 }
 
 // ─── Production seams ──────────────────────────────────────────────────────
-
-const defaultGitExec: GitExec = (repoRoot, args) => {
-  try {
-    const stdout = execFileSync('git', [...args], {
-      cwd: repoRoot,
-      timeout: 30_000,
-      encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
-    return { stdout, exitCode: 0 };
-  } catch (err) {
-    const e = err as { status?: number; stdout?: string | Buffer; stderr?: string | Buffer };
-    const out =
-      (typeof e.stdout === 'string' ? e.stdout : e.stdout?.toString('utf-8') ?? '') +
-      (typeof e.stderr === 'string' ? e.stderr : e.stderr?.toString('utf-8') ?? '');
-    return { stdout: out, exitCode: e.status ?? 1 };
-  }
-};
+//
+// `defaultGitExec` is shared from gate-utils (FIX-4 dedupe) — it was byte-
+// identical across the three per-task gate handlers.
 
 /**
  * Build the production test runner from the resolved test command. The command
- * string (e.g. `npm run test:run`) is run with the scoped test files appended
- * after a `--` separator so the runner targets only the new/changed tests where
- * it supports path args (vitest, jest, node --test, pytest all accept this).
+ * string (e.g. `npm run test:run`) is tokenized with the shared `splitCommand`
+ * (FIX-5: quoted-arg-aware, NOT a naive whitespace split) and run with the
+ * scoped test files appended after a `--` separator so the runner targets only
+ * the new/changed tests where it supports path args (vitest, jest, node --test,
+ * pytest all accept this).
  */
 function buildDefaultRunTests(repoRoot: string): TestRunFn {
   const resolved = resolveTestRuntime(repoRoot);
@@ -87,7 +94,23 @@ function buildDefaultRunTests(repoRoot: string): TestRunFn {
       // reports `redObserved:false` (inconclusive, never a false kill).
       return { passed: true, output: 'no resolvable test command' };
     }
-    const [bin, ...rest] = testCmd.split(/\s+/);
+    let bin: string;
+    let rest: readonly string[];
+    try {
+      const tokens = splitCommand(testCmd);
+      bin = tokens.cmd;
+      rest = tokens.args;
+    } catch (err) {
+      return {
+        passed: true,
+        output: `unparseable test command "${testCmd}": ${err instanceof Error ? err.message : String(err)}`,
+      };
+    }
+    if (!bin) {
+      // Whitespace-only command tokenizes to an empty binary — same inconclusive
+      // (never a false kill) degrade as an unresolvable command.
+      return { passed: true, output: 'no resolvable test command' };
+    }
     const args = [...rest, '--', ...testFiles];
     try {
       const output = execFileSync(bin, args, {
@@ -157,9 +180,60 @@ export async function handleTestAdequacy(
   const repoRoot = resolved.repoRoot;
   const baseRef = args.baseBranch || 'main';
 
+  // ── FIX-1a: verification-ladder self-routing on the stamped profile ──────
+  // When the caller threads the task's riskTier/boundaryTouching stamp and the
+  // policy sequence excludes this gate, skip BEFORE touching the tree — and
+  // still record the routing decision as a gate.executed event.
+  const policySkip = resolvePolicySkip({
+    gateName: 'check_test_adequacy',
+    riskTier: args.riskTier,
+    boundaryTouching: args.boundaryTouching,
+  });
+  if (policySkip) {
+    try {
+      await emitGateEvent(
+        eventStore,
+        args.featureId,
+        'test-adequacy',
+        'testing',
+        true,
+        {
+          dimension: 'D1',
+          phase: 'delegate',
+          taskId: args.taskId,
+          ...(args.branch ? { branch: args.branch } : {}),
+          discriminant: SKIPPED_BY_POLICY,
+          reason: policySkip.reason,
+        },
+        args.operationId,
+      );
+    } catch {
+      /* fire-and-forget */
+    }
+    return {
+      success: true,
+      data: {
+        passed: true,
+        skipped: true,
+        redObserved: false,
+        restoredClean: true,
+        probedTests: [],
+        discriminant: SKIPPED_BY_POLICY,
+        reason: policySkip.reason,
+      },
+    };
+  }
+
   const gitExec = args.gitExec ?? defaultGitExec;
   const runTests = args.runTests ?? buildDefaultRunTests(repoRoot);
   const changedFiles = changedFilesFor(gitExec, repoRoot, baseRef);
+
+  // ── FIX-3: thread the resolved toolchain's test-file layout into the probe.
+  // The toolchain registry is the SoT for layout (python tests/**, go *_test.go,
+  // …); toolchains on the co-located default convention resolve to null and the
+  // probe falls back to DEFAULT_TEST_GLOBS.
+  const toolchain = detectToolchain(repoRoot);
+  const toolchainGlobs = toolchain ? testGlobsForToolchain(toolchain.id) : null;
 
   const probe: ProbeResult = await runProbe({
     gitExec,
@@ -167,6 +241,7 @@ export async function handleTestAdequacy(
     baseRef,
     changedFiles,
     runTests,
+    ...(toolchainGlobs ? { testGlobs: toolchainGlobs } : {}),
   });
 
   // Emit gate.executed with operationId idempotency (INV-8). Fire-and-forget:
@@ -187,6 +262,7 @@ export async function handleTestAdequacy(
         restoredClean: probe.restoredClean,
         probedTests: probe.probedTests,
         ...(probe.discriminant ? { discriminant: probe.discriminant } : {}),
+        ...(probe.report ? { report: probe.report } : {}),
       },
       args.operationId,
     );
@@ -204,6 +280,7 @@ export async function handleTestAdequacy(
       restoredClean: probe.restoredClean,
       probedTests: probe.probedTests,
       ...(probe.discriminant ? { discriminant: probe.discriminant } : {}),
+      ...(probe.report ? { report: probe.report } : {}),
     },
   };
 }
