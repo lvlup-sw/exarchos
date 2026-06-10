@@ -547,18 +547,21 @@ describe('TOOL_REGISTRY', () => {
   });
 
   describe('exarchos_orchestrate', () => {
-    it('should have 69 actions for task management, review triage, gate checks, validation handlers, runbooks, agent spec, oneshot/pruning, onboard (DR-2 task 011), doctor, VCS, classify_review_items (#1159), merge_orchestrate (DR-MO-1), check_integration_suite (#1329), check_invariant_conformance (DR-3), invariants_scaffold/invariants_add (invariants-catalog-wizard P2), check_test_adequacy (verification-ladder slice 1), and composite actions', () => {
+    it('should have 70 actions for task management, review triage, gate checks, validation handlers, runbooks, agent spec, oneshot/pruning, onboard (DR-2 task 011), doctor, VCS, classify_review_items (#1159), merge_orchestrate (DR-MO-1), check_integration_suite (#1329), check_invariant_conformance (DR-3), invariants_scaffold/invariants_add (invariants-catalog-wizard P2), check_test_adequacy + check_contract_drift (verification-ladder slice 1), and composite actions', () => {
       const composite = findComposite('exarchos_orchestrate');
       expect(composite).toBeDefined();
-      // 69 = 68 prior + `check_test_adequacy` (verification-ladder slice 1, the
-      // kill-probe gate that supersedes commit-order TDD as the load-bearing
-      // per-task verification). The 68 baseline = 69 prior − `new_project`
-      // (retired in DR-3 task 017; the greenfield path is now `onboard --new`
-      // from task 016, and `applyLanguageCustomizations`' INV-6-violating
-      // npm→dotnet string-rewrite is deleted — closes #1508). The
-      // `init`/`install-skills` CLI verbs are rename stubs; the init action,
+      // 70 = 69 prior + `check_contract_drift` (verification-ladder slice 1
+      // Bundle B3 — the per-task contract-drift gate: codegen → typecheck →
+      // breaking-diff against the merge-base, degrading to advisory when no
+      // contract tool resolves). The 69 baseline = 68 prior +
+      // `check_test_adequacy` (the kill-probe gate that supersedes commit-order
+      // TDD as the load-bearing per-task verification). The 68 baseline = 69
+      // prior − `new_project` (retired in DR-3 task 017; the greenfield path is
+      // now `onboard --new` from task 016, and `applyLanguageCustomizations`'
+      // INV-6-violating npm→dotnet string-rewrite is deleted — closes #1508).
+      // The `init`/`install-skills` CLI verbs are rename stubs; the init action,
       // handler, and `init.executed` event were fully removed in DR-5 (task 018).
-      expect(composite!.actions).toHaveLength(69);
+      expect(composite!.actions).toHaveLength(70);
 
       const actionNames = composite!.actions.map((a) => a.name);
       expect(actionNames).toEqual(
@@ -574,6 +577,7 @@ describe('TOOL_REGISTRY', () => {
           'check_plan_coverage',
           'check_tdd_compliance',
           'check_test_adequacy',
+          'check_contract_drift',
           'check_post_merge',
           'check_task_decomposition',
           'check_static_analysis',

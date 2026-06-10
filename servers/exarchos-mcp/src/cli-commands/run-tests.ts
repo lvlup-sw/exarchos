@@ -23,9 +23,21 @@
  * needs execution.
  */
 
-import { execFileSync } from 'node:child_process';
 import { resolveTestRuntime, type ResolvedRuntime } from '../config/test-runtime-resolver.js';
-import { splitCommand } from '../config/tokenize-command.js';
+import {
+  runResolvedCommand,
+  defaultRun,
+  defaultStdout,
+  defaultStderr,
+} from './run-verification-command.js';
+
+/**
+ * Benign-skip exit code for the unresolved leg: a repo with no detectable test
+ * setup must not fail every post-Bash hook. The skip is visible (printed to
+ * stderr) but never fatal — the distinguishing policy from the explicitly-
+ * invoked verification verbs (run-mutation/run-contract), which exit non-zero.
+ */
+const UNRESOLVED_EXIT_CODE = 0;
 
 /** Injectable seams so unit tests never spawn a real test process (DIM-4). */
 export interface RunTestsDeps {
@@ -39,18 +51,6 @@ export interface RunTestsDeps {
   stderr?: (s: string) => void;
 }
 
-/** Default runner: stream the child's stdio through and propagate its exit code. */
-function defaultRun(cmd: string, args: readonly string[], cwd: string): number {
-  try {
-    execFileSync(cmd, args as string[], { cwd, stdio: 'inherit' });
-    return 0;
-  } catch (err) {
-    // execFileSync throws on non-zero exit; `status` carries the child's code.
-    const status = (err as { status?: number }).status;
-    return typeof status === 'number' ? status : 1;
-  }
-}
-
 /**
  * Resolve and run the project test command. Returns the process exit code so
  * the caller can set `process.exitCode` — no `process.exit` here, keeping the
@@ -60,8 +60,8 @@ export function handleRunTests(argv: readonly string[], deps: RunTestsDeps = {})
   const cwd = deps.cwd ?? process.cwd();
   const resolve = deps.resolve ?? resolveTestRuntime;
   const run = deps.run ?? defaultRun;
-  const stdout = deps.stdout ?? ((s) => process.stdout.write(s.endsWith('\n') ? s : `${s}\n`));
-  const stderr = deps.stderr ?? ((s) => process.stderr.write(s.endsWith('\n') ? s : `${s}\n`));
+  const stdout = deps.stdout ?? defaultStdout;
+  const stderr = deps.stderr ?? defaultStderr;
   const dryRun = argv.includes('--dry-run');
 
   let resolved: ResolvedRuntime;
@@ -74,30 +74,13 @@ export function handleRunTests(argv: readonly string[], deps: RunTestsDeps = {})
     return 1;
   }
 
-  if (resolved.test === null || resolved.test.trim().length === 0) {
-    stderr(
-      `exarchos run-tests: no test command resolved — ${resolved.remediation ?? 'no project markers or .exarchos.yml test command found'}`,
-    );
-    return 0;
-  }
-
-  if (dryRun) {
-    stdout(resolved.test);
-    return 0;
-  }
-
-  let cmd: string;
-  let args: readonly string[];
-  try {
-    ({ cmd, args } = splitCommand(resolved.test));
-  } catch (err) {
-    stderr(`exarchos run-tests: unparseable test command "${resolved.test}": ${err instanceof Error ? err.message : String(err)}`);
-    return 1;
-  }
-  if (cmd === '') {
-    stderr(`exarchos run-tests: empty test command resolved from "${resolved.test}"`);
-    return 0;
-  }
-
-  return run(cmd, args, cwd);
+  return runResolvedCommand({
+    verb: 'run-tests',
+    command: resolved.test,
+    remediation: resolved.remediation,
+    dryRun,
+    cwd,
+    unresolvedExitCode: UNRESOLVED_EXIT_CODE,
+    io: { run, stdout, stderr },
+  });
 }

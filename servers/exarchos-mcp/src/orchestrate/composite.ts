@@ -29,6 +29,7 @@ import { handleDesignCompleteness } from './design-completeness.js';
 import { handlePlanCoverage } from './plan-coverage.js';
 import { handleTddCompliance } from './tdd-compliance.js';
 import { handleTestAdequacy } from './test-adequacy-handler.js';
+import { handleContractDrift } from './contract-drift-handler.js';
 import { handlePostMerge } from './post-merge.js';
 import { handleStaticAnalysis } from './static-analysis.js';
 import { handleCheckIntegrationSuite } from './check-integration-suite.js';
@@ -251,6 +252,7 @@ const ACTION_HANDLERS: Readonly<Record<string, ActionHandler>> = {
   check_plan_coverage: adaptWithEventStore(handlePlanCoverage),
   check_tdd_compliance: adaptWithEventStore(handleTddCompliance),
   check_test_adequacy: adaptWithEventStore(handleTestAdequacy),
+  check_contract_drift: adaptWithEventStore(handleContractDrift),
   check_post_merge: adaptWithEventStore(handlePostMerge),
   check_static_analysis: adaptWithEventStore(handleStaticAnalysis),
   check_integration_suite: adaptWithEventStore(handleCheckIntegrationSuite),
