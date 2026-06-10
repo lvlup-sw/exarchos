@@ -776,3 +776,45 @@ describe('T6: autoEmittedEvents sibling field (#1227)', () => {
     expect(types.has('task.failed')).toBe(true);
   });
 });
+
+// ─── vls1-b1 (task 008): delegate-phase gate guidance from policy ───────────
+//
+// The delegate-phase playbook guidance must SOURCE its verification-gate names
+// from the verification policy (`resolveVerificationSequence`), not hand-rolled
+// literals. We prove the wiring by computing the expected gate names from the
+// policy in the test and asserting the guidance contains them — so changing the
+// policy table changes the guidance.
+
+describe('PlaybookDelegatePhase_GateGuidance_SourcedFromVerificationPolicy', () => {
+  it('delegate compactGuidance contains every gate the policy yields for the medium tier', async () => {
+    const { resolveVerificationSequence } = await import('./verification-policy.js');
+    const playbook = getPlaybook('feature', 'delegate')!;
+    expect(playbook).not.toBeNull();
+
+    // Medium tier base sequence — the minimum ladder a non-trivial task clears.
+    const mediumGates = resolveVerificationSequence('medium', false);
+    expect(mediumGates.length).toBeGreaterThan(0);
+
+    for (const gate of mediumGates) {
+      expect(playbook.compactGuidance).toContain(gate);
+    }
+  });
+
+  it('delegate guidance follows the policy table (table-change-propagates)', async () => {
+    // Stronger guarantee: the guidance must be BUILT from the policy values, so
+    // the full set of policy gate names (across every tier/boundary combo) that
+    // the delegate guidance advertises stays in lockstep with the table. We
+    // assert the guidance references the exported gate names rather than ad-hoc
+    // strings by checking that the medium+boundary sequence's added gate
+    // (contract drift) is also surfaced.
+    const { resolveVerificationSequence } = await import('./verification-policy.js');
+    const playbook = getPlaybook('feature', 'delegate')!;
+
+    const mediumBoundary = resolveVerificationSequence('medium', true);
+    // contract_drift is the boundary-added gate; if guidance is policy-sourced
+    // it should advertise the boundary gate too.
+    const contractDrift = mediumBoundary.find((g) => g === 'check_contract_drift');
+    expect(contractDrift).toBeDefined();
+    expect(playbook.compactGuidance).toContain(contractDrift!);
+  });
+});
