@@ -1633,7 +1633,11 @@ const orchestrateActions: readonly ToolAction[] = [
   },
   {
     name: 'check_tdd_compliance',
-    description: 'Per-task TDD compliance gate. Emits gate.executed event with dimension D1.',
+    description:
+      'Per-task TDD compliance gate (ADVISORY). Emits gate.executed event with ' +
+      'dimension D1. Verification-ladder slice 1: demoted from blocking — the ' +
+      'kill-probe gate `check_test_adequacy` is the load-bearing per-task ' +
+      'verification; commit-order TDD is corroborating advice.',
     schema: z.object({
       featureId: z.string().min(1),
       taskId: z.string().min(1),
@@ -1642,7 +1646,7 @@ const orchestrateActions: readonly ToolAction[] = [
     }).strict(),
     phases: DELEGATE_PHASES,
     roles: ROLE_LEAD,
-    gate: { blocking: true, dimension: 'D1' },
+    gate: { blocking: false, dimension: 'D1' },
     autoEmits: [
       { event: 'gate.executed', condition: 'always' },
     ],

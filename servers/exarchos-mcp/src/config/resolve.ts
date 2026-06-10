@@ -98,7 +98,14 @@ export const DEFAULTS: ResolvedProjectConfig = deepFreeze({
       D4: { ...DEFAULT_DIMENSION },
       D5: { ...DEFAULT_DIMENSION },
     },
-    gates: {},
+    // Verification-ladder slice 1: `tdd-compliance` is demoted to ADVISORY by
+    // default. The kill-probe gate `check_test_adequacy` is now the load-bearing
+    // per-task verification; commit-order TDD is corroborating advice, so its
+    // resolved default severity is `warning` (blocking:false), not blocking. A
+    // project can still re-block it with an explicit gate override.
+    gates: {
+      'tdd-compliance': { enabled: true, blocking: false, params: {} },
+    },
     routing: {
       coderabbitThreshold: 0.4,
       riskWeights: { ...DEFAULT_RISK_WEIGHTS },

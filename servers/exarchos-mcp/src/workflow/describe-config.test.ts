@@ -29,12 +29,16 @@ describe('buildConfigDescription', () => {
   });
 
   it('DescribeConfig_GateOverride_ShowsGateAndDimension', () => {
+    // Verification-ladder slice 1: `tdd-compliance` now defaults to advisory
+    // (blocking:false), so an override must use the OPPOSITE value (blocking:
+    // true) to register as a user `.exarchos.yml` change rather than collapsing
+    // to the default. This re-blocks the gate explicitly.
     const config = resolveConfig({
-      review: { gates: { 'tdd-compliance': { blocking: false } } },
+      review: { gates: { 'tdd-compliance': { blocking: true } } },
     });
     const result = buildConfigDescription(config);
 
-    expect(result.review.gates['tdd-compliance'].blocking.value).toBe(false);
+    expect(result.review.gates['tdd-compliance'].blocking.value).toBe(true);
     expect(result.review.gates['tdd-compliance'].blocking.source).toBe('.exarchos.yml');
   });
 
