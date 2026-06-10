@@ -23,6 +23,15 @@ export const TASK_COMPLETION: RunbookDefinition = {
     { tool: 'exarchos_orchestrate', action: 'check_contract_drift', onFail: 'stop',
       params: { repoRoot: 'auto', worktreePath: '<worktreePath>' },
       note: 'contract gate: codegen → typecheck → breaking-diff vs merge-base; advisory-skips when no contract tool resolves' },
+    // Verification-ladder slice 1 SIV-4 (#1530): the mock-boundary gate scans the
+    // task's NEW test hunks for unowned-dependency mocks and steers toward
+    // hermetic fixtures. ADVISORY (onFail:'continue') — an unowned mock can be the
+    // right call (acknowledged via the `reason` escape hatch), so it surfaces a
+    // per-finding steer without blocking the task. Runs against the agent worktree
+    // (repoRoot:auto + worktreePath, the #1330 resolver).
+    { tool: 'exarchos_orchestrate', action: 'check_mock_boundary', onFail: 'continue',
+      params: { repoRoot: 'auto', worktreePath: '<worktreePath>' },
+      note: 'ADVISORY (SIV-4 #1530): flags unowned mocks in new test hunks; steers toward hermetic fixtures' },
     { tool: 'exarchos_orchestrate', action: 'check_tdd_compliance', onFail: 'continue',
       note: 'ADVISORY (verification-ladder slice 1): demoted from blocking — corroborates the kill probe' },
     // #1330 / T-05: the static-analysis gate must run against the agent's
