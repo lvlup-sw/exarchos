@@ -95,6 +95,38 @@ describe('check_test_adequacy routing + idempotency (task 014)', () => {
     expect(() => buildRegistrationSchema(orchestrate!.actions)).not.toThrow();
   });
 
+  it('CheckTestAdequacy_NoNewTests_SkippedAdvisory_PassedTrue', async () => {
+    // FIX-1b: when the probe finds no new/changed tests, it returns the
+    // no-new-tests discriminant as a SKIPPED/advisory PASS (passed:true) with a
+    // self-explanatory report. The handler must surface that verdict + report,
+    // NOT a blocking passed:false.
+    const ctx = await makeCtx();
+    mockRunProbe.mockResolvedValue({
+      passed: true,
+      probedTests: [],
+      redObserved: false,
+      restoredClean: true,
+      discriminant: 'no-new-tests',
+      report: 'nothing to probe — task adds no tests',
+    });
+
+    const result = await handleOrchestrate(
+      {
+        action: 'check_test_adequacy',
+        featureId: 'feat-nonew',
+        taskId: 'T-nonew',
+        repoRoot: '/fake/repo',
+      },
+      ctx,
+    );
+
+    expect(result.success).toBe(true);
+    const data = result.data as { passed: boolean; discriminant?: string; report?: string };
+    expect(data.passed).toBe(true);
+    expect(data.discriminant).toBe('no-new-tests');
+    expect(data.report).toContain('nothing to probe');
+  });
+
   it('GateEvent_SameOperationId_IdempotencyCollapses', async () => {
     const ctx = await makeCtx();
 
