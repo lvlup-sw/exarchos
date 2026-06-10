@@ -94,6 +94,13 @@ const EXPECTED_LONG_RUNNING_ACTIONS: ReadonlySet<string> = new Set([
   // JSON reporter; far exceeds the 2s heartbeat on any real repo.
   'check_integration_suite',
   'post_delegation_check',
+  // Verification-ladder slice 1: the kill-probe gate reverts source + shells
+  // out to the resolved test command; exceeds the 2s heartbeat on a real repo.
+  'check_test_adequacy',
+  // Verification-ladder slice 1 Bundle B3: the contract-drift gate shells out
+  // to codegen → typecheck → breaking-diff against the merge-base; exceeds the
+  // 2s heartbeat on a real repo.
+  'check_contract_drift',
 ]);
 
 describe('orchestrate action registry — longRunning metadata (DR-5)', () => {

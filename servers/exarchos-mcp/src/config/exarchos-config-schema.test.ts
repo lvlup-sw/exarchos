@@ -422,3 +422,68 @@ describe('InvariantsConfigSchema — tiered catalog registrations (T1)', () => {
     expect(result.success).toBe(false);
   });
 });
+
+// ─── verification-ladder slice 1, task 024: ownership manifest ──────────────
+//
+// The `ownership.firstParty` globs declare which trees in a repo are
+// first-party (authored-here) source — the input the import-boundary lint
+// (SIV-3 Layer A, task 027) and ownership-aware gates scope themselves to.
+// Absent the key, the schema applies a documented default that covers the
+// repo's own source trees (`src/**` + `servers/*/src/**`) so a config-free
+// repo still gets a sane first-party scope rather than an empty one.
+describe('ExarchosConfigSchema — ownership manifest (slice 1, task 024)', () => {
+  it('ExarchosConfig_OwnershipGlobs_Parsed', () => {
+    const result = ExarchosConfigSchema.safeParse({
+      ownership: { firstParty: ['src/**', 'servers/**'] },
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.ownership.firstParty).toEqual(['src/**', 'servers/**']);
+    }
+  });
+
+  it('ExarchosConfig_OwnershipAbsent_DefaultsToRepoSrcTrees', () => {
+    // Absent `ownership:` → documented default first-party scope. The default
+    // is applied at parse time so every consumer reads a populated array
+    // rather than re-deriving the fallback at each call site.
+    const result = ExarchosConfigSchema.safeParse({});
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.ownership.firstParty).toEqual([
+        'src/**',
+        'servers/*/src/**',
+      ]);
+    }
+  });
+
+  it('ExarchosConfig_OwnershipFirstPartyAbsent_DefaultsWithinBlock', () => {
+    // Declaring an empty `ownership:` block (no `firstParty`) still yields the
+    // documented default — the default lives on `firstParty`, not only on a
+    // missing top-level block.
+    const result = ExarchosConfigSchema.safeParse({ ownership: {} });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.ownership.firstParty).toEqual([
+        'src/**',
+        'servers/*/src/**',
+      ]);
+    }
+  });
+
+  it('ExarchosConfig_OwnershipUnknownField_Rejected', () => {
+    // `.strict()` on the nested block rejects typos so an operator who writes
+    // `ownership: { firstparty: [...] }` (case typo) sees a validation error
+    // rather than a silently-ignored field that defaults underneath it.
+    const result = ExarchosConfigSchema.safeParse({
+      ownership: { firstparty: ['src/**'] },
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('ExarchosConfig_OwnershipFirstPartyTypeMismatch_Rejected', () => {
+    const result = ExarchosConfigSchema.safeParse({
+      ownership: { firstParty: 'src/**' },
+    });
+    expect(result.success).toBe(false);
+  });
+});

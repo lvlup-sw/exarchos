@@ -12,7 +12,7 @@ Follow the implementation-planning skill: `@skills/implementation-planning/SKILL
 
 ## TDD Workflow Reference
 
-Follow the strict TDD workflow from `rules/tdd.md`. For test code patterns, see `@skills/delegation/references/testing-patterns.md`.
+Follow the high-tier red-green-refactor discipline in `@skills/_shared/references/verification.md` (this command opts into the strict test-first path). For test code patterns, see `@skills/delegation/references/testing-patterns.md`.
 
 ## Plan Requirements
 

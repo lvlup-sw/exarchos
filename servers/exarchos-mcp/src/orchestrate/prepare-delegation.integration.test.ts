@@ -39,6 +39,16 @@ vi.mock('./dispatch-guard.js', () => ({
   probeStashAndEmit: vi.fn().mockResolvedValue(undefined),
 }));
 
+// vls1-b1 (task 002): the verification-ladder acceptance test exercises the
+// nativeIsolation ready path, which runs `assertWorktreeBaseRefPinned`. Default
+// it to "pinned" so the dispatch proceeds; the existing blocked-protected-branch
+// tests short-circuit before this guard, so the mock is inert for them.
+vi.mock('./worktree-baseref.js', () => ({
+  assertWorktreeBaseRefPinned: vi
+    .fn()
+    .mockReturnValue({ pinned: true, effective: 'head', checked: [] }),
+}));
+
 let tmpDir: string;
 
 beforeEach(async () => {
@@ -298,3 +308,219 @@ function existsSyncSafe(p: string): boolean {
     return false;
   }
 }
+
+// ─── vls1-b1 (task 002 / 007): verification-ladder ACCEPTANCE ────────────────
+//
+// Dispatches `prepare_delegation` THROUGH `handleOrchestrate` (the production
+// dispatch entry — a registered action without a dispatch branch returns
+// UNKNOWN_ACTION, which per-handler tests cannot catch) on a real EventStore
+// seeded to a ready state. Asserts every returned task classification carries
+// the verification-ladder fields — `riskTier`, `boundaryTouching`, and an
+// ordered `verificationSequence` — consistent with the policy table
+// (`workflow/verification-policy.ts`, task 006).
+//
+// Written FIRST and RED until the wire-in (task 007). Each case exercises a
+// distinct tier/boundary combination so a partial implementation is caught.
+describe('HandleOrchestrate_PrepareDelegation_StampsRiskTierBoundaryAndVerificationSequence', () => {
+  // Seed a real EventStore so the delegation-readiness projection reports
+  // ready=true (plan approved + artifact present + every task's worktree
+  // created). The handler classifies tasks only on the ready path.
+  async function seedReadyStream(
+    store: EventStore,
+    streamId: string,
+    taskIds: readonly string[],
+  ): Promise<void> {
+    // plan.approved = true
+    await store.append(streamId, {
+      type: 'workflow.transition',
+      data: { to: 'plan-review' },
+    });
+    // artifacts.plan present → plan.artifactPresent = true
+    await store.append(streamId, {
+      type: 'state.patched',
+      data: { patch: { 'artifacts.plan': 'plan.md' } },
+    });
+    for (const taskId of taskIds) {
+      await store.append(streamId, { type: 'task.assigned', data: { taskId } });
+    }
+    for (const taskId of taskIds) {
+      await store.append(streamId, {
+        type: 'worktree.created',
+        data: { taskId, worktreePath: `/w/${taskId}` },
+      });
+    }
+  }
+
+  function findClassification(
+    data: unknown,
+    taskId: string,
+  ): { riskTier: string; boundaryTouching: boolean; verificationSequence: string[] } {
+    const classifications = (data as {
+      taskClassifications?: Array<{
+        taskId: string;
+        riskTier?: string;
+        boundaryTouching?: boolean;
+        verificationSequence?: string[];
+      }>;
+    }).taskClassifications;
+    expect(classifications).toBeDefined();
+    const found = classifications!.find((c) => c.taskId === taskId);
+    expect(found, `classification for ${taskId}`).toBeDefined();
+    return found as {
+      riskTier: string;
+      boundaryTouching: boolean;
+      verificationSequence: string[];
+    };
+  }
+
+  it('stamps riskTier, boundaryTouching, and an ordered verificationSequence per task', async () => {
+    const ctxStore = new EventStore(tmpDir);
+    const streamId = 'vls1-acceptance';
+    const taskIds = ['t-high', 't-high-accept', 't-medium', 't-low', 't-boundary'] as const;
+    await seedReadyStream(ctxStore, streamId, taskIds);
+    await flushAsyncQueue();
+
+    const ctx: DispatchContext = {
+      stateDir: tmpDir,
+      eventStore: ctxStore,
+      enableTelemetry: false,
+    };
+
+    // Override the module-level dispatch-guard mock so this dispatch is NOT
+    // blocked on the protected-branch short-circuit (the file default blocks).
+    const guard = await import('./dispatch-guard.js');
+    vi.mocked(guard.getCurrentBranch).mockReturnValue('feature/verification-ladder');
+    vi.mocked(guard.assertCurrentBranchNotProtected).mockReturnValue({ blocked: false });
+
+    const result = await handleOrchestrate(
+      {
+        action: 'prepare_delegation',
+        featureId: streamId,
+        nativeIsolation: true,
+        tasks: [
+          // (a) high tier via a high-risk schema glob — NOT a boundary glob and
+          // NOT a boundary testLayer, so this cleanly exercises the pure-high
+          // base sequence (riskTier and boundaryTouching are orthogonal axes).
+          { id: 't-high', title: 'edit schema', files: ['src/event-store/schemas.ts'] },
+          // (a2) high tier via testLayer 'acceptance'. Per the boundary policy,
+          // the acceptance layer ALSO marks the task boundary-touching, so its
+          // sequence is base-high + contract_drift + mock_boundary.
+          { id: 't-high-accept', title: 'Write acceptance test', testLayer: 'acceptance' },
+          // (b) medium default — single module behavior, no high/low signals.
+          { id: 't-medium', title: 'Add validation logic', files: ['src/validate.ts'] },
+          // (c) low — doc-only files.
+          { id: 't-low', title: 'Update changelog', files: ['docs/CHANGELOG.md'] },
+          // (d) boundary-tagged — testLayer 'integration'.
+          { id: 't-boundary', title: 'Integration test', testLayer: 'integration' },
+        ],
+      },
+      ctx,
+    );
+
+    expect(result.success).toBe(true);
+    const data = (result.data as { ready?: boolean }) ?? {};
+    expect(data.ready).toBe(true);
+
+    // (a) high tier, NOT boundary-touching → base high sequence only.
+    const high = findClassification(data, 't-high');
+    expect(high.riskTier).toBe('high');
+    expect(high.boundaryTouching).toBe(false);
+    expect(high.verificationSequence).toEqual([
+      'check_static_analysis',
+      'check_test_adequacy',
+      'check_integration_suite',
+    ]);
+
+    // (a2) high tier AND boundary-touching (acceptance layer) → base high
+    // sequence + contract_drift + mock_boundary, appended in that order.
+    const highAccept = findClassification(data, 't-high-accept');
+    expect(highAccept.riskTier).toBe('high');
+    expect(highAccept.boundaryTouching).toBe(true);
+    expect(highAccept.verificationSequence).toEqual([
+      'check_static_analysis',
+      'check_test_adequacy',
+      'check_integration_suite',
+      'check_contract_drift',
+      'check_mock_boundary',
+    ]);
+
+    // (b) medium default, not boundary-touching → base medium sequence.
+    const medium = findClassification(data, 't-medium');
+    expect(medium.riskTier).toBe('medium');
+    expect(medium.boundaryTouching).toBe(false);
+    expect(medium.verificationSequence).toEqual([
+      'check_static_analysis',
+      'check_test_adequacy',
+    ]);
+
+    // (c) low (doc-only), not boundary-touching → base low sequence.
+    const low = findClassification(data, 't-low');
+    expect(low.riskTier).toBe('low');
+    expect(low.boundaryTouching).toBe(false);
+    expect(low.verificationSequence).toEqual(['check_static_analysis']);
+
+    // (d) boundary-tagged (integration testLayer). riskTier is medium
+    // (integration → medium), boundaryTouching true → base medium sequence
+    // PLUS check_contract_drift (every tier) then check_mock_boundary
+    // (medium/high only), appended in that order.
+    const boundary = findClassification(data, 't-boundary');
+    expect(boundary.boundaryTouching).toBe(true);
+    expect(boundary.riskTier).toBe('medium');
+    expect(boundary.verificationSequence).toEqual([
+      'check_static_analysis',
+      'check_test_adequacy',
+      'check_contract_drift',
+      'check_mock_boundary',
+    ]);
+
+    // Every sequence is duplicate-free.
+    for (const c of [high, highAccept, medium, low, boundary]) {
+      expect(new Set(c.verificationSequence).size).toBe(c.verificationSequence.length);
+    }
+  });
+
+  // vls1-b1 (task 007): the wired classifier must populate the
+  // verificationSequence from the policy table — assert the exact sequence the
+  // policy produces appears on the returned classification (the "delegation
+  // record"), proving the wire-in is sourced from resolveVerificationSequence
+  // rather than hand-rolled in the handler.
+  it('PrepareDelegation_ClassifiedTask_CarriesPolicySequenceOnDelegationRecord', async () => {
+    const ctxStore = new EventStore(tmpDir);
+    const streamId = 'vls1-policy-record';
+    const taskIds = ['t-only'] as const;
+    await seedReadyStream(ctxStore, streamId, taskIds);
+    await flushAsyncQueue();
+
+    const ctx: DispatchContext = {
+      stateDir: tmpDir,
+      eventStore: ctxStore,
+      enableTelemetry: false,
+    };
+
+    const guard = await import('./dispatch-guard.js');
+    vi.mocked(guard.getCurrentBranch).mockReturnValue('feature/verification-ladder');
+    vi.mocked(guard.assertCurrentBranchNotProtected).mockReturnValue({ blocked: false });
+
+    const { resolveVerificationSequence } = await import('../workflow/verification-policy.js');
+
+    const result = await handleOrchestrate(
+      {
+        action: 'prepare_delegation',
+        featureId: streamId,
+        nativeIsolation: true,
+        // medium tier (single source file), boundary-touching (adapter glob).
+        tasks: [{ id: 't-only', title: 'tweak adapter', files: ['src/adapters/cli.ts'] }],
+      },
+      ctx,
+    );
+
+    expect(result.success).toBe(true);
+    const c = findClassification(result.data, 't-only');
+    expect(c.riskTier).toBe('medium');
+    expect(c.boundaryTouching).toBe(true);
+    // The record's sequence is EXACTLY what the policy table resolves.
+    expect(c.verificationSequence).toEqual([
+      ...resolveVerificationSequence('medium', true),
+    ]);
+  });
+});

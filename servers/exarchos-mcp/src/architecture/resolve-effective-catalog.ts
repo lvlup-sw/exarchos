@@ -44,7 +44,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { ExarchosConfig } from '../config/exarchos-config-schema.js';
+import type { ExarchosConfigInput } from '../config/exarchos-config-schema.js';
 import { loadInvariants, type InvariantEntry } from './invariants-loader.js';
 import { loadSdlcCatalog } from './sdlc-catalog.js';
 import { resolveCatalogSources } from './catalog-sources.js';
@@ -72,7 +72,7 @@ export interface ResolveEffectiveCatalogContext {
    * `overrides`. When omitted, no dev catalog is surfaced (default-disabled)
    * and there are no user catalogs or overrides.
    */
-  config?: ExarchosConfig;
+  config?: ExarchosConfigInput;
   /** SDLC phase to project for — e.g. `'ideate' | 'plan' | 'delegate'`. */
   phase: string;
   /** Workflow kind to project for — e.g. `'feature' | 'debug' | 'discover'`. */
@@ -105,7 +105,7 @@ function defaultRepoRoot(): string {
  * a config that enables the loader so the user's explicitly-requested catalog
  * is read regardless of the dev gate.
  */
-const USER_CATALOG_LOAD_CONFIG: ExarchosConfig = {
+const USER_CATALOG_LOAD_CONFIG: ExarchosConfigInput = {
   invariants: { devCatalog: 'enabled' },
 };
 

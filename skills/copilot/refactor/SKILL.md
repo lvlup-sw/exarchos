@@ -101,6 +101,16 @@ Before modifying any existing code behavior, capture current behavior as charact
 
 This aligns with Michael Feathers' approach in *Working Effectively with Legacy Code* — understand behavior before changing it.
 
+### Oracle-integrity gate (Both Tracks)
+
+The characterization tests are your **oracle** — the safety net that tells you whether behavior changed. That net only holds if you do not edit the oracle mid-refactor. Before completing the refactor, inspect the test diff:
+
+```bash
+git diff -- tests/
+```
+
+The test oracle may be **ADDED to** during a refactor (new characterization tests, new cases), but an existing characterization assertion must **never be silently modified**. A silently-edited oracle invalidates the safety net: the test now passes against the *changed* behavior, hiding the very regression characterization was meant to catch. If a characterization assertion genuinely must change, that is a behavior change — call it out explicitly and justify it, do not fold it into the refactor diff unremarked.
+
 ## Design-time Constraints (Both Tracks)
 
 At the **brief phase**, *before* committing to an approach, surface a **Constraints** section anchored to the architectural invariants relevant to the refactor. This is the refactor design-time equivalent of `/ideate`'s Phase 0 and uses the **same single shared source of truth** for the selection rules: see `@skills/brainstorming/references/constraint-anchoring.md`. Load `.exarchos/invariants.md` (`cost-of-load: always-load` entries) and emit the Constraints section. **devCatalog-gated:** when `.exarchos.yml: invariants.devCatalog: enabled` is unset or `disabled`, surface no Constraints section and proceed directly. See `@skills/refactor/references/brief-template.md` for the brief-phase placement.

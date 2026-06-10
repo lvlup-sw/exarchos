@@ -23,11 +23,36 @@
 import { existsSync, readdirSync } from 'node:fs';
 import * as path from 'node:path';
 
+/**
+ * Structured contract-verification commands for a schema boundary.
+ *
+ * `codegen` regenerates client/server bindings from the schema artifact;
+ * `diff` runs a breaking-change check against the baseline. Both are null-able
+ * because the resolver may attach only one leg (e.g. an OpenAPI artifact with a
+ * diff tool but no codegen wired). See {@link ToolchainCommands.contract}.
+ */
+export interface ContractCommands {
+  readonly codegen: string | null;
+  readonly diff: string | null;
+}
+
 /** Resolver-canonical commands for a toolchain. Mirrors ResolvedRuntime fields. */
 export interface ToolchainCommands {
   readonly test: string | null;
   readonly typecheck: string | null;
   readonly install: string | null;
+  /** Mutation-testing runner (e.g. `npx stryker run`, `cargo mutants --in-diff`). */
+  readonly mutation: string | null;
+  /** Lint / static-style command (e.g. `cargo clippy`, `go vet ./...`). */
+  readonly lint: string | null;
+  /**
+   * Contract-verification commands, structured as `{ codegen, diff }`. `null`
+   * for language toolchains: contracts are keyed on schema ARTIFACTS (proto /
+   * OpenAPI / GraphQL), not on the language alone — the resolver attaches the
+   * artifact-keyed commands per-boundary (tasks 017/022), keeping this module
+   * the toolchain-IDENTITY source of truth, not a schema-tool registry.
+   */
+  readonly contract: ContractCommands | null;
 }
 
 export interface Toolchain {
@@ -55,73 +80,159 @@ export const BUILTIN_TOOLCHAINS: readonly Toolchain[] = [
     projectType: 'Node.js',
     markers: ['package.json'],
     // Baseline only — the resolver computes node commands package-manager-aware.
-    commands: { test: 'npm run test:run', typecheck: 'tsc --noEmit', install: 'npm install' },
+    // lint is null: a node repo's linter is project-script-specific (eslint /
+    // biome / oxlint), with no single conventional invocation to seed.
+    commands: {
+      test: 'npm run test:run',
+      typecheck: 'tsc --noEmit',
+      install: 'npm install',
+      mutation: 'npx stryker run',
+      lint: null,
+      contract: null,
+    },
   },
   {
     id: 'dotnet',
     projectType: '.NET',
     markers: ['*.csproj', '*.sln', '*.slnx'],
-    commands: { test: 'dotnet test', typecheck: null, install: null },
+    commands: {
+      test: 'dotnet test',
+      typecheck: null,
+      install: null,
+      mutation: 'dotnet stryker',
+      lint: null,
+      contract: null,
+    },
   },
   {
     id: 'rust',
     projectType: 'Rust',
     markers: ['Cargo.toml'],
-    commands: { test: 'cargo test', typecheck: null, install: null },
+    commands: {
+      test: 'cargo test',
+      typecheck: null,
+      install: null,
+      mutation: 'cargo mutants --in-diff',
+      lint: 'cargo clippy',
+      contract: null,
+    },
   },
   {
     id: 'go',
     projectType: 'Go',
     markers: ['go.mod'],
-    commands: { test: 'go test ./...', typecheck: null, install: null },
+    commands: {
+      test: 'go test ./...',
+      typecheck: null,
+      install: null,
+      mutation: null,
+      lint: 'go vet ./...',
+      contract: null,
+    },
   },
   {
     id: 'python',
     projectType: 'Python',
     markers: ['pyproject.toml', 'setup.py', 'requirements.txt', 'tox.ini'],
-    commands: { test: 'pytest', typecheck: null, install: null },
+    commands: {
+      test: 'pytest',
+      typecheck: null,
+      install: null,
+      mutation: 'mutmut run',
+      lint: 'ruff check',
+      contract: null,
+    },
   },
   {
     id: 'java-gradle',
     projectType: 'Java',
     markers: ['build.gradle', 'build.gradle.kts', 'settings.gradle', 'settings.gradle.kts'],
-    commands: { test: './gradlew test', typecheck: null, install: null },
+    commands: {
+      test: './gradlew test',
+      typecheck: null,
+      install: null,
+      mutation: './gradlew pitest',
+      lint: null,
+      contract: null,
+    },
   },
   {
     id: 'java-maven',
     projectType: 'Java',
     markers: ['pom.xml'],
-    commands: { test: 'mvn test', typecheck: null, install: null },
+    commands: {
+      test: 'mvn test',
+      typecheck: null,
+      install: null,
+      mutation: 'mvn org.pitest:pitest-maven:mutationCoverage',
+      lint: null,
+      contract: null,
+    },
   },
   {
     id: 'ruby',
     projectType: 'Ruby',
     markers: ['Gemfile'],
-    commands: { test: 'bundle exec rake test', typecheck: null, install: null },
+    commands: {
+      test: 'bundle exec rake test',
+      typecheck: null,
+      install: null,
+      mutation: 'bundle exec mutant run',
+      lint: 'bundle exec rubocop',
+      contract: null,
+    },
   },
   {
     id: 'php',
     projectType: 'PHP',
     markers: ['composer.json'],
-    commands: { test: 'composer test', typecheck: null, install: null },
+    commands: {
+      test: 'composer test',
+      typecheck: null,
+      install: null,
+      mutation: 'vendor/bin/infection',
+      lint: null,
+      contract: null,
+    },
   },
   {
     id: 'elixir',
     projectType: 'Elixir',
     markers: ['mix.exs'],
-    commands: { test: 'mix test', typecheck: null, install: null },
+    commands: {
+      test: 'mix test',
+      typecheck: null,
+      install: null,
+      mutation: 'mix muzak',
+      lint: 'mix credo',
+      contract: null,
+    },
   },
   {
     id: 'swift',
     projectType: 'Swift',
     markers: ['Package.swift'],
-    commands: { test: 'swift test', typecheck: null, install: null },
+    commands: {
+      test: 'swift test',
+      typecheck: null,
+      install: null,
+      mutation: null,
+      lint: null,
+      contract: null,
+    },
   },
   {
     id: 'cmake',
     projectType: 'C/C++',
     markers: ['CMakeLists.txt'],
-    commands: { test: 'ctest', typecheck: null, install: null },
+    commands: {
+      test: 'ctest',
+      typecheck: null,
+      install: null,
+      mutation: null,
+      lint: null,
+      contract: null,
+    },
   },
 ];
 
@@ -134,6 +245,12 @@ export interface ConfigToolchain {
     readonly test?: string;
     readonly typecheck?: string;
     readonly install?: string;
+    readonly mutation?: string;
+    readonly lint?: string;
+    readonly contract?: {
+      readonly codegen?: string;
+      readonly diff?: string;
+    };
   };
 }
 
@@ -144,6 +261,7 @@ export interface ConfigToolchain {
  * are matched before the built-ins.
  */
 export function toolchainFromConfig(entry: ConfigToolchain): Toolchain {
+  const contract = entry.commands.contract;
   return {
     id: entry.id,
     projectType: entry.projectType ?? entry.id,
@@ -152,6 +270,15 @@ export function toolchainFromConfig(entry: ConfigToolchain): Toolchain {
       test: entry.commands.test ?? null,
       typecheck: entry.commands.typecheck ?? null,
       install: entry.commands.install ?? null,
+      mutation: entry.commands.mutation ?? null,
+      lint: entry.commands.lint ?? null,
+      contract:
+        contract === undefined
+          ? null
+          : {
+              codegen: contract.codegen ?? null,
+              diff: contract.diff ?? null,
+            },
     },
   };
 }
@@ -203,4 +330,38 @@ export function detectToolchain(
     }
   }
   return undefined;
+}
+
+// ─── Test-file layout by toolchain (FIX-3) ──────────────────────────────────
+
+/**
+ * Test-file globs by toolchain id, for ecosystems whose test layout is NOT the
+ * co-located `*.test.*` convention (the splitHunks default). Co-located with
+ * the toolchain registry so consumers (test-adequacy probe) hold no independent
+ * layout table — same SoT discipline as commands/markers.
+ *
+ * Semantics: a returned set REPLACES the co-located defaults (the toolchain is
+ * authoritative about what a "test file" is for that project — see
+ * `SplitHunksOptions.testGlobs`). Toolchains absent from this map (node, cmake,
+ * …) return null → callers fall back to `DEFAULT_TEST_GLOBS`.
+ */
+const TOOLCHAIN_TEST_GLOBS: Readonly<Record<string, readonly string[]>> = {
+  python: ['tests/**', '**/test_*.py', '**/*_test.py', '**/conftest.py'],
+  go: ['**/*_test.go'],
+  rust: ['tests/**'],
+  'java-maven': ['src/test/**', '**/src/test/**'],
+  'java-gradle': ['src/test/**', '**/src/test/**'],
+  dotnet: ['**/*Tests/**', '**/*.Tests/**', '**/*Tests.cs', '**/*Test.cs'],
+  ruby: ['spec/**', 'test/**'],
+  php: ['tests/**', '**/*Test.php'],
+  elixir: ['test/**'],
+  swift: ['Tests/**'],
+};
+
+/**
+ * The test-file globs a toolchain prescribes, or null when the toolchain uses
+ * the co-located default convention (or is unknown).
+ */
+export function testGlobsForToolchain(toolchainId: string): readonly string[] | null {
+  return TOOLCHAIN_TEST_GLOBS[toolchainId] ?? null;
 }

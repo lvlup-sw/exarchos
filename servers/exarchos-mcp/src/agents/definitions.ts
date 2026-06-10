@@ -14,6 +14,7 @@
 // ────────────────────────────────────────────────────────────────────────────
 
 import type { AgentSpec } from './types.js';
+import type { RiskTier } from '../workflow/verification-policy.js';
 
 // ─── Toolchain-neutral test command ─────────────────────────────────────────
 //
@@ -130,7 +131,164 @@ output from the Worktree Verification step above), and \`<test-cmd>\` is the
 project test command (from \`.exarchos.yml\` or the project default), run from
 the worktree.`;
 
+// ─── Tier-conditional verification note (vls1-b5, task 028, R7 #1522) ────────
+//
+// The implementer prompt's verification guidance must SCALE WITH the task's
+// risk profile — strict RED-GREEN-REFACTOR ceremony is the HIGH-tier rung of
+// the verification ladder, NOT a universal law imposed on every dispatch.
+//
+// The note is selected from the delegation-record STAMP — `riskTier` and
+// `boundaryTouching` are pure DATA inputs (function parameters), NOT a
+// `workflow.type` branch. This keeps the behavior data-driven per INV-6: the
+// code reads the stamp the planner/classifier produced; the skill bodies carry
+// no `if workflowType` prose.
+//
+// Evidence basis (TDAD): cutting a skill 107→20 lines quadrupled resolution.
+// Prompt bloat is a token AND an accuracy cost, so the low tier carries a terse
+// ≤3-line static-analysis note rather than the full block.
+
+/** Inputs the dispatcher stamps onto the delegation record. */
+export interface ImplementerVerificationContext {
+  /** Blast-radius tier resolved by the classifier / planner override. */
+  readonly riskTier: RiskTier;
+  /** True when the task crosses an I/O / schema boundary. */
+  readonly boundaryTouching: boolean;
+}
+
+// The boundary steer: appended for boundary-touching tasks regardless of tier.
+// Mock only what your task OWNS; for unowned dependencies use a hermetic
+// fixture or a contract-verified stub so the test exercises the real contract.
+const MOCK_BOUNDARY_STEER =
+  'Boundary task: mock only what you own. For a dependency you do NOT own, use a hermetic fixture or a contract-verified stub — never an unverified hand-mock that can drift from the real contract.';
+
+/**
+ * Build the tier-appropriate verification note (a `## Verification ...` section).
+ *
+ * - low      → ≤3-line static-analysis steer. No RED-GREEN ceremony, no probe.
+ * - medium   → full RED-GREEN-REFACTOR block + the `check_test_adequacy`
+ *              kill-probe that recaptures test-first's unique guarantee.
+ * - high     → the medium block plus the integration-suite rung (deepest ladder).
+ *
+ * Pure: depends only on its inputs. The boundary steer is appended last.
+ */
+export function buildVerificationNote(ctx: ImplementerVerificationContext): string {
+  const lines: string[] = [];
+
+  if (ctx.riskTier === 'low') {
+    // Cheap rung: static analysis suffices. No ceremony, no kill-probe.
+    lines.push('## Verification (low tier — static analysis suffices)');
+    lines.push(
+      'Low blast-radius task: lean on static analysis (typecheck + lint). No test-first ceremony required; add a focused test only if behavior is non-obvious.',
+    );
+  } else {
+    // medium / high: full block + the check_test_adequacy kill-probe.
+    lines.push('## Verification (verification ladder)');
+    lines.push('');
+    lines.push('Follow the high-tier discipline:');
+    lines.push('1. **RED** — write a failing test that defines the expected behavior; witness it fail for the right reason.');
+    lines.push('2. **GREEN** — write the minimum code to make the test pass.');
+    lines.push('3. **REFACTOR** — clean up while keeping tests green.');
+    lines.push('');
+    lines.push(
+      'Kill-probe: the `check_test_adequacy` gate runs after your tests. It recaptures test-first\'s unique guarantee (that the test can actually fail) at lower cost — expect it to flag tests that pass against a stubbed-out implementation.',
+    );
+    if (ctx.riskTier === 'high') {
+      lines.push('');
+      lines.push(
+        'High tier: the `check_integration_suite` rung also runs — exercise real collaborators across the seam, not just unit isolation.',
+      );
+    }
+  }
+
+  if (ctx.boundaryTouching) {
+    lines.push('');
+    lines.push(MOCK_BOUNDARY_STEER);
+  }
+
+  return lines.join('\n');
+}
+
 // ─── Implementer ────────────────────────────────────────────────────────────
+
+/**
+ * The implementer system-prompt template, split so the verification note can be
+ * tier-selected at dispatch. `{{verificationNote}}` is filled by
+ * {@link renderImplementerPrompt} from the delegation-record stamp; the static
+ * `IMPLEMENTER.systemPrompt` (lowered into the shipped agent file, which has no
+ * tier context) bakes the medium-tier default so the generated artifact is
+ * self-contained.
+ */
+const IMPLEMENTER_PROMPT_HEAD = `You are an implementer agent on the verification ladder, working in an isolated worktree. Your verification discipline is set by the tier-selected note below — strict test-first ceremony applies on the medium/high rungs, not universally.
+
+${WORKTREE_ENTRY_CONTRACT}
+
+## Task
+{{taskDescription}}
+
+## Requirements
+{{requirements}}
+
+## Files
+{{filePaths}}
+
+`;
+
+const IMPLEMENTER_PROMPT_TAIL = `
+
+## Discipline
+- Run verification after each change to confirm state.
+- Keep commits atomic: one logical change per commit.
+
+## Completion Report
+When done, output a JSON completion report:
+\`\`\`json
+{
+  "status": "complete",
+  "implements": ["<design requirement IDs>"],
+  "tests": [{"name": "<test name>", "file": "<path>"}],
+  "files": ["<created/modified files>"]
+}
+\`\`\``;
+
+/** The default verification note baked into the shipped (tier-less) artifact. */
+const DEFAULT_VERIFICATION_NOTE = buildVerificationNote({
+  riskTier: 'medium',
+  boundaryTouching: false,
+});
+
+/**
+ * Assemble the implementer system prompt with the tier-appropriate verification
+ * note, reading `riskTier` / `boundaryTouching` from the supplied delegation
+ * stamp (DATA, not a workflow-type branch — INV-6). Placeholder context
+ * (`taskDescription`, `requirements`, `filePaths`) is interpolated when present;
+ * any unfilled placeholders are left intact for the dispatch layer's own
+ * interpolation pass.
+ */
+export function renderImplementerPrompt(
+  ctx: ImplementerVerificationContext & {
+    readonly taskDescription?: string;
+    readonly requirements?: string;
+    readonly filePaths?: string;
+  },
+): string {
+  const note = buildVerificationNote({
+    riskTier: ctx.riskTier,
+    boundaryTouching: ctx.boundaryTouching,
+  });
+  let prompt = `${IMPLEMENTER_PROMPT_HEAD}${note}${IMPLEMENTER_PROMPT_TAIL}`;
+
+  const fills: Record<string, string | undefined> = {
+    taskDescription: ctx.taskDescription,
+    requirements: ctx.requirements,
+    filePaths: ctx.filePaths,
+  };
+  for (const [key, value] of Object.entries(fills)) {
+    if (value !== undefined) {
+      prompt = prompt.replaceAll(`{{${key}}}`, value);
+    }
+  }
+  return prompt;
+}
 
 export const IMPLEMENTER: AgentSpec = {
   id: 'implementer',
@@ -146,40 +304,12 @@ Implementation task requiring test-first development triggers the implementer ag
 </commentary>
 </example>`,
   color: 'blue',
-  systemPrompt: `You are a TDD implementer agent working in an isolated worktree.
-
-${WORKTREE_ENTRY_CONTRACT}
-
-## Task
-{{taskDescription}}
-
-## Requirements
-{{requirements}}
-
-## Files
-{{filePaths}}
-
-## TDD Protocol (Red-Green-Refactor)
-1. **RED**: Write a failing test that defines the expected behavior
-2. **GREEN**: Write the minimum code to make the test pass
-3. **REFACTOR**: Clean up while keeping tests green
-
-Rules:
-- NEVER write implementation before its test
-- Each test must fail before writing implementation
-- Run tests after each change to verify state
-- Keep commits atomic: one logical change per commit
-
-## Completion Report
-When done, output a JSON completion report:
-\`\`\`json
-{
-  "status": "complete",
-  "implements": ["<design requirement IDs>"],
-  "tests": [{"name": "<test name>", "file": "<path>"}],
-  "files": ["<created/modified files>"]
-}
-\`\`\``,
+  // The shipped (tier-less) artifact bakes the medium-tier default note. At
+  // dispatch the orchestrator calls `renderImplementerPrompt` with the
+  // delegation-record stamp to select the low/high variant. Composing from the
+  // same HEAD/TAIL constants + `buildVerificationNote` guarantees the static
+  // default never drifts from the rendered output.
+  systemPrompt: `${IMPLEMENTER_PROMPT_HEAD}${DEFAULT_VERIFICATION_NOTE}${IMPLEMENTER_PROMPT_TAIL}`,
   disallowedTools: ['Agent'],
   model: 'inherit',
   isolation: 'worktree',
@@ -188,7 +318,11 @@ When done, output a JSON completion report:
     { name: 'testing-patterns', content: '' },
   ],
   validationRules: [
-    { trigger: 'pre-write', rule: 'Test file must exist before implementation file is written' },
+    {
+      trigger: 'pre-write',
+      rule:
+        'Test file must exist before implementation file is written — applies when the stamped verification sequence includes check_test_adequacy (medium/high tier); low-tier static-analysis-only dispatches are exempt (PR #1535 CR-1)',
+    },
     { trigger: 'post-test', rule: 'All tests must pass', command: POST_TEST_COMMAND },
   ],
   resumable: true,

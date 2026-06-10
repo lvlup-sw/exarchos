@@ -542,9 +542,14 @@ describe('EventTypes', () => {
     //   `onboard` composite).
     // Bumped 121 → 120: init.executed retired (#1510 DR-5 task 018 — the init
     //   verb/handler was removed; `onboard.*` is the audit trail now).
-    expect(EventTypes).toHaveLength(120);
+    // Bumped 120 → 122: mutation.executing_started + mutation.executed
+    //   (verification-ladder slice 1 task 020 — the run-mutation liveness pair,
+    //   INV-10, emitted by the `exarchos run-mutation` CLI verb).
+    expect(EventTypes).toHaveLength(122);
     expect(EventTypes).toContain('onboard.requested');
     expect(EventTypes).toContain('onboard.executed');
+    expect(EventTypes).toContain('mutation.executing_started');
+    expect(EventTypes).toContain('mutation.executed');
     // Retirement guard: init.executed removed in DR-5 (task 018).
     expect(EventTypes as readonly string[]).not.toContain('init.executed');
   });

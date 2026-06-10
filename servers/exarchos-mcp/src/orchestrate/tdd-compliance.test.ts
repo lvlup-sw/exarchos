@@ -23,6 +23,8 @@ vi.mock('../views/tools.js', () => ({
 
 import { checkTddCompliance } from './pure/tdd-compliance.js';
 import { handleTddCompliance } from './tdd-compliance.js';
+import { DEFAULTS } from '../config/resolve.js';
+import type { ResolvedProjectConfig } from '../config/resolve.js';
 
 const STATE_DIR = '/tmp/test-tdd-compliance';
 
@@ -369,5 +371,92 @@ describe('handleTddCompliance', () => {
         baseBranch: 'main',
       }),
     );
+  });
+
+  // ─── Verification-ladder slice 1: demotion to ADVISORY ──────────────────
+  //
+  // The kill-probe gate (check_test_adequacy) is now the load-bearing per-task
+  // verification; commit-order TDD compliance is demoted to advisory. The gate
+  // LOGIC, events, and report are unchanged — only the resolved default
+  // severity flips from blocking to warning (advisory).
+
+  function passingChecker() {
+    vi.mocked(checkTddCompliance).mockReturnValue({
+      status: 'pass',
+      branch: 'feature/widget',
+      baseBranch: 'main',
+      commitsAnalyzed: 2,
+      passCount: 2,
+      failCount: 0,
+      violations: [],
+      results: [],
+      report: '## TDD Compliance Report\n\n**Result: PASS** (2/2 commits compliant)',
+    });
+  }
+
+  it('CheckTddCompliance_DefaultSeverity_Advisory', async () => {
+    // No config supplied → the gate's own default severity governs. With the
+    // verification-ladder demotion, the per-gate default for `tdd-compliance`
+    // resolves to advisory (warning), NOT blocking.
+    passingChecker();
+    const result = await handleTddCompliance(
+      { featureId: 'feat-widget', taskId: 'T-adv', branch: 'feature/widget' },
+      STATE_DIR,
+      mockStore as unknown as EventStore,
+    );
+
+    expect(result.success).toBe(true);
+    const data = result.data as { severity: string };
+    expect(data.severity).toBe('warning');
+  });
+
+  it('CheckTddCompliance_ConfigOverrideBlocking_StillHonored', async () => {
+    // A project that explicitly re-blocks tdd-compliance via a gate override
+    // MUST still get blocking — the demotion only changes the DEFAULT.
+    passingChecker();
+    const config: ResolvedProjectConfig = {
+      ...DEFAULTS,
+      review: {
+        ...DEFAULTS.review,
+        gates: {
+          ...DEFAULTS.review.gates,
+          'tdd-compliance': { enabled: true, blocking: true, params: {} },
+        },
+      },
+    };
+
+    const result = await handleTddCompliance(
+      { featureId: 'feat-widget', taskId: 'T-block', branch: 'feature/widget' },
+      STATE_DIR,
+      mockStore as unknown as EventStore,
+      config,
+    );
+
+    expect(result.success).toBe(true);
+    const data = result.data as { severity: string };
+    expect(data.severity).toBe('blocking');
+  });
+
+  it('CheckTddCompliance_GateEvents_StillEmittedForConvergenceView', async () => {
+    // Demotion must NOT silence the gate.executed emission — the convergence
+    // view still reads it. The event shape (gateName/layer/passed/details)
+    // is unchanged.
+    passingChecker();
+    await handleTddCompliance(
+      { featureId: 'feat-widget', taskId: 'T-evt', branch: 'feature/widget' },
+      STATE_DIR,
+      mockStore as unknown as EventStore,
+    );
+
+    expect(mockStore.append).toHaveBeenCalledOnce();
+    const [streamId, event] = mockStore.append.mock.calls[0] as [
+      string,
+      { type: string; data: Record<string, unknown> },
+    ];
+    expect(streamId).toBe('feat-widget');
+    expect(event.type).toBe('gate.executed');
+    expect(event.data.gateName).toBe('tdd-compliance');
+    expect(event.data.layer).toBe('testing');
+    expect(event.data.passed).toBe(true);
   });
 });

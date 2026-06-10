@@ -25,7 +25,7 @@ import { logger } from '../logger.js';
 
 const log = logger.child({ subsystem: 'task-runners' });
 
-export type TaskKind = 'test' | 'typecheck' | 'install' | 'build';
+export type TaskKind = 'test' | 'typecheck' | 'install' | 'build' | 'mutation' | 'lint';
 
 /** Conventional target names to look for, per kind. First match wins. */
 const TARGET_CANDIDATES: Readonly<Record<TaskKind, readonly string[]>> = {
@@ -33,6 +33,11 @@ const TARGET_CANDIDATES: Readonly<Record<TaskKind, readonly string[]>> = {
   typecheck: ['typecheck', 'check'],
   install: ['install', 'deps'],
   build: ['build'],
+  // verification-ladder slice 1 (task 017): a committed task-runner target
+  // named `mutation`/`lint` is a deliberate project interface, honored at the
+  // task-runner tier just like `test`.
+  mutation: ['mutation', 'mutants'],
+  lint: ['lint'],
 };
 
 export interface TaskRunnerResolution {

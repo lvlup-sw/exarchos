@@ -17,7 +17,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import * as path from 'node:path';
 import { logger } from '../logger.js';
 import { loadExarchosConfig, type LoadResult } from './load-exarchos-config.js';
-import { detectToolchain, toolchainFromConfig } from './toolchains.js';
+import { detectToolchain, toolchainFromConfig, type ContractCommands, type Toolchain } from './toolchains.js';
 import { resolveTaskRunner } from './task-runners.js';
 import { LOCKS, INSTALL_METADATA } from './vendor/package-manager-detector/lockfiles.generated.js';
 
@@ -44,11 +44,32 @@ export interface ResolvedRuntime {
   remediation?: string;
 }
 
+/**
+ * The widened verification runtime (task 017). Carries the legacy
+ * test/typecheck/install fields PLUS the verification-ladder additions:
+ * `mutation`, `lint`, and structured `contract`. Resolved via the same
+ * per-field layered precedence as {@link ResolvedRuntime}.
+ *
+ * `source` is the aggregate label of the highest-precedence layer that
+ * contributed any non-null field across the legacy three (preserving the exact
+ * `resolveTestRuntime` semantics the alias delegates to). The widened fields
+ * resolve independently per the same tier order.
+ */
+export interface ResolvedVerificationRuntime extends ResolvedRuntime {
+  mutation: string | null;
+  lint: string | null;
+  /** Structured contract commands `{ codegen, diff }`, or null when no tool resolves. */
+  contract: ContractCommands | null;
+}
+
 export interface ResolveOptions {
   override?: {
     test?: string;
     typecheck?: string;
     install?: string;
+    mutation?: string;
+    lint?: string;
+    contract?: { codegen?: string; diff?: string };
   };
   /** For testing: inject the config loader. Defaults to loadExarchosConfig from T12. */
   loadConfig?: (worktreePath: string) => LoadResult | null;
@@ -565,4 +586,157 @@ export function resolveTestRuntime(repoRoot: string, options?: ResolveOptions): 
   }
 
   return result;
+}
+
+// ─── Generalized Verification Runtime Resolver (task 017) ───────────────────
+//
+// `resolveVerificationRuntime` widens the resolver over the verification-ladder
+// field set: the legacy test/typecheck/install PLUS mutation, lint, and
+// structured contract. It reuses the exact same layered precedence — per field,
+// highest first: override > .exarchos.yml direct > user `toolchains:` >
+// task-runner > built-in registry > unresolved.
+//
+// Design note (single source of truth): the legacy three fields are resolved by
+// delegating to `resolveTestRuntime` so its behavior — and its `command.resolved`
+// emission and aggregate `source` semantics — stay byte-identical. The widened
+// scalar fields (mutation, lint) resolve through the same tier order via a
+// shared per-field helper; `contract` resolves structured ({ codegen, diff }).
+// Contracts are keyed on schema ARTIFACTS, not the language toolchain, so the
+// built-in registry contributes null contract and the resolved structured value
+// comes from override / config-direct (artifact-keyed registry seeds are wired
+// in task 022).
+
+/** Resolve a single widened scalar field (mutation | lint) through the tier stack. */
+function resolveScalarField(
+  repoRoot: string,
+  field: 'mutation' | 'lint',
+  overrideVal: string | undefined,
+  configVal: string | undefined,
+  userMatchCommand: string | null,
+  detectBuiltin: () => Toolchain | undefined,
+): string | null {
+  // tier 1 — override
+  if (overrideVal !== undefined) return overrideVal;
+  // tier 2 — .exarchos.yml direct
+  if (configVal !== undefined) return configVal;
+  // tier 3 — user-declared toolchain command
+  if (userMatchCommand !== null) return userMatchCommand;
+  // tier 4 — committed task-runner with a matching conventional target
+  const runner = resolveTaskRunner(repoRoot, field);
+  if (runner) return runner.command;
+  // tier 5 — built-in registry detection (memoised by the caller so the
+  // filesystem probe runs at most once across all widened fields).
+  const detectedCmd = detectBuiltin()?.commands[field] ?? null;
+  if (detectedCmd !== null) return detectedCmd;
+  return null;
+}
+
+/**
+ * Resolve the widened verification runtime for a repository.
+ *
+ * The legacy test/typecheck/install fields (and the returned `source`) are
+ * delegated to {@link resolveTestRuntime} verbatim — same emission, same
+ * aggregate-source semantics. The widened fields resolve independently per the
+ * documented per-field precedence.
+ */
+export function resolveVerificationRuntime(
+  repoRoot: string,
+  options?: ResolveOptions,
+): ResolvedVerificationRuntime {
+  const rawOverride = options?.override;
+  // Validate the widened override values with the same allowlist the legacy
+  // fields use (resolveTestRuntime already validates test/typecheck/install).
+  if (rawOverride) {
+    if (rawOverride.mutation !== undefined) assertSafe('mutation', rawOverride.mutation);
+    if (rawOverride.lint !== undefined) assertSafe('lint', rawOverride.lint);
+    if (rawOverride.contract?.codegen !== undefined) {
+      assertSafe('contract.codegen', rawOverride.contract.codegen);
+    }
+    if (rawOverride.contract?.diff !== undefined) {
+      assertSafe('contract.diff', rawOverride.contract.diff);
+    }
+  }
+
+  // Legacy three — byte-identical to resolveTestRuntime (incl. emission).
+  const base = resolveTestRuntime(repoRoot, options);
+
+  // Load config once for the widened fields (mirrors resolveTestRuntime's loader
+  // seam; a throw here would already have surfaced from the base call above).
+  const loadConfig = options?.loadConfig ?? loadExarchosConfig;
+  const configResult = loadConfig(repoRoot);
+  const config = configResult?.config;
+
+  // tier 3 — user-declared `.exarchos.yml` toolchains, matched before built-ins.
+  const userToolchains = (config?.toolchains ?? []).map(toolchainFromConfig);
+  const userMatched =
+    userToolchains.length > 0 ? detectToolchain(repoRoot, userToolchains) : undefined;
+  const userMatch =
+    userMatched && userToolchains.includes(userMatched) ? userMatched : undefined;
+
+  // Built-in detection is filesystem-backed (existsSync/readdirSync) — memoise
+  // it so the probe runs at most once across mutation + lint (LOW: it ran once
+  // per field, on top of resolveTestRuntime's own detection).
+  let detectedBuiltin: Toolchain | undefined;
+  let detectedBuiltinRan = false;
+  const detectBuiltin = (): Toolchain | undefined => {
+    if (!detectedBuiltinRan) {
+      detectedBuiltinRan = true;
+      detectedBuiltin = detectToolchain(repoRoot);
+    }
+    return detectedBuiltin;
+  };
+
+  const mutation = resolveScalarField(
+    repoRoot,
+    'mutation',
+    rawOverride?.mutation?.trim(),
+    config?.mutation,
+    userMatch?.commands.mutation ?? null,
+    detectBuiltin,
+  );
+  const lint = resolveScalarField(
+    repoRoot,
+    'lint',
+    rawOverride?.lint?.trim(),
+    config?.lint,
+    userMatch?.commands.lint ?? null,
+    detectBuiltin,
+  );
+
+  // Contract — structured { codegen, diff }. Per-field within the structure:
+  // override leg > config leg > user-toolchain leg. The built-in registry seeds
+  // null contract (artifact-keyed seeds are wired in task 022), so detection
+  // contributes nothing here today.
+  const contract = resolveContract(rawOverride?.contract, config?.contract, userMatch?.commands.contract ?? null);
+
+  return {
+    ...base,
+    mutation,
+    lint,
+    contract,
+  };
+}
+
+/**
+ * Resolve the structured contract field, leg by leg (codegen + diff each follow
+ * override > config > user-toolchain). Returns null when no leg resolves on
+ * either side — the "no contract tool" signal task 022's gate degrades on.
+ */
+function resolveContract(
+  overrideContract: { codegen?: string; diff?: string } | undefined,
+  configContract: { codegen?: string | null; diff?: string | null } | undefined,
+  userContract: ContractCommands | null,
+): ContractCommands | null {
+  const codegen =
+    overrideContract?.codegen?.trim() ??
+    configContract?.codegen ??
+    userContract?.codegen ??
+    null;
+  const diff =
+    overrideContract?.diff?.trim() ??
+    configContract?.diff ??
+    userContract?.diff ??
+    null;
+  if (codegen === null && diff === null) return null;
+  return { codegen, diff };
 }

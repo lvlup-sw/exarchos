@@ -60,8 +60,14 @@ import {
   handlePrepareDelegation,
   classifyTask,
   computeScopedWorktrees,
+  deriveRiskTier,
+  deriveBoundaryTouching,
+  HIGH_RISK_GLOBS,
+  LOW_RISK_GLOBS,
+  BOUNDARY_GLOBS,
 } from './prepare-delegation.js';
-import type { TaskClassification } from './prepare-delegation.js';
+import type { TaskClassification, TaskInput } from './prepare-delegation.js';
+import * as fc from 'fast-check';
 import { delegationReadinessProjection } from '../views/delegation-readiness-view.js';
 import type { WorkflowEvent } from '../event-store/schemas.js';
 import {
@@ -1881,5 +1887,261 @@ describe('computeScopedWorktrees', () => {
       /^\d+ worktrees pending$/.test(b),
     );
     expect(matches).toHaveLength(1);
+  });
+});
+
+// ─── vls1-b1 (task 003): deriveRiskTier — high rules ────────────────────────
+//
+// Pure derivation of a task's risk tier. High when ANY of: a file matches a
+// HIGH_RISK_GLOB (schema/type/API/shared-contract surfaces), testLayer is
+// 'acceptance', blockedBy has >= 2 entries, or files has >= 3 entries.
+
+describe('deriveRiskTier — high rules', () => {
+  it('DeriveRiskTier_AcceptanceTestLayer_ReturnsHigh', () => {
+    const task: TaskInput = { id: 't-1', title: 'Acceptance test', testLayer: 'acceptance' };
+    expect(deriveRiskTier(task)).toBe('high');
+  });
+
+  it('DeriveRiskTier_BlockedByAtLeastTwo_ReturnsHigh', () => {
+    const task: TaskInput = {
+      id: 't-2',
+      title: 'Integrate dependent modules',
+      blockedBy: ['t-a', 't-b'],
+    };
+    expect(deriveRiskTier(task)).toBe('high');
+  });
+
+  it('DeriveRiskTier_ThreeOrMoreFiles_ReturnsHigh', () => {
+    const task: TaskInput = {
+      id: 't-3',
+      title: 'Refactor across modules',
+      files: ['src/a.ts', 'src/b.ts', 'src/c.ts'],
+    };
+    expect(deriveRiskTier(task)).toBe('high');
+  });
+
+  it('DeriveRiskTier_SchemaContractGlobHit_ReturnsHigh', () => {
+    // A single file that matches a high-risk glob is enough — even when no
+    // other high signal (deps/file-count/acceptance) is present.
+    const cases: TaskInput[] = [
+      { id: 's-1', title: 'edit schema', files: ['src/event-store/schemas.ts'] },
+      { id: 's-2', title: 'edit types', files: ['src/types/foo.ts'] },
+      { id: 's-3', title: 'edit dts', files: ['dist/index.d.ts'] },
+      { id: 's-4', title: 'edit api', files: ['src/api/handler.ts'] },
+      { id: 's-5', title: 'edit contracts', files: ['src/contracts/order.ts'] },
+    ];
+    for (const task of cases) {
+      expect(deriveRiskTier(task), task.id).toBe('high');
+    }
+  });
+
+  it('DeriveRiskTier_HighRiskGlobsExported_NonEmpty', () => {
+    // The glob list is the SoT for high-risk surfaces — assert it is
+    // exported and non-empty so consumers can reference it.
+    expect(Array.isArray(HIGH_RISK_GLOBS)).toBe(true);
+    expect(HIGH_RISK_GLOBS.length).toBeGreaterThan(0);
+  });
+});
+
+// ─── vls1-b1 (task 004): deriveRiskTier — low / medium / override ───────────
+//
+// Precedence: explicit planner value > high-rules > low-rules > medium.
+// Low requires ALL files to match LOW_RISK_GLOBS (docs/config/rename-only).
+// A single-module behavioural change with no high/low signal defaults to
+// medium. Mixed low+unknown files resolve to medium (ambiguous).
+
+describe('deriveRiskTier — low / medium / override', () => {
+  // PR #1535 CodeRabbit (CR-4): schema/contract ARTIFACTS are shared-contract
+  // surfaces (the documented blast-radius gap) and must reach the HIGH lane.
+  // Before the fix, `openapi.yaml` fell through to LOW via the `**/*.yaml`
+  // low-glob, and `*.proto` / `*.graphql` defaulted to MEDIUM.
+  it('DeriveRiskTier_SchemaArtifacts_ReturnHigh', () => {
+    const cases: TaskInput[] = [
+      { id: 'sa-1', title: 'proto reshape', files: ['proto/workflow.proto'] },
+      { id: 'sa-2', title: 'openapi reshape', files: ['openapi.yaml'] },
+      { id: 'sa-3', title: 'openapi json', files: ['spec/openapi.json'] },
+      { id: 'sa-4', title: 'graphql reshape', files: ['src/gateway/queries.graphql'] },
+    ];
+    for (const task of cases) {
+      expect(deriveRiskTier(task), task.id).toBe('high');
+    }
+  });
+
+  it('DeriveRiskTier_DocConfigRenameOnlyFiles_ReturnsLow', () => {
+    const cases: TaskInput[] = [
+      { id: 'l-1', title: 'docs', files: ['docs/CHANGELOG.md', 'README.md'] },
+      { id: 'l-2', title: 'config', files: ['package.json', 'tsconfig.json'] },
+      { id: 'l-3', title: 'yaml', files: ['.github/ci.yml', 'config.yaml'] },
+    ];
+    for (const task of cases) {
+      expect(deriveRiskTier(task), task.id).toBe('low');
+    }
+  });
+
+  it('DeriveRiskTier_SingleModuleBehavior_DefaultsMedium', () => {
+    // One source file, no high-risk glob, not all-low → medium.
+    const task: TaskInput = {
+      id: 'm-1',
+      title: 'Add validation logic',
+      files: ['src/validate.ts'],
+    };
+    expect(deriveRiskTier(task)).toBe('medium');
+  });
+
+  it('DeriveRiskTier_NoFilesNoSignals_DefaultsMedium', () => {
+    const task: TaskInput = { id: 'm-2', title: 'Tidy a helper' };
+    expect(deriveRiskTier(task)).toBe('medium');
+  });
+
+  it('DeriveRiskTier_MixedLowAndUnknownFiles_ResolvesMedium', () => {
+    // Not ALL files match low globs → ambiguous → medium, not low.
+    const task: TaskInput = {
+      id: 'm-3',
+      title: 'Docs plus code',
+      files: ['docs/README.md', 'src/handler.ts'],
+    };
+    expect(deriveRiskTier(task)).toBe('medium');
+  });
+
+  it('DeriveRiskTier_ExplicitPlannerValue_WinsOverDerivation', () => {
+    // Explicit override beats every derived rule, in BOTH directions:
+    // a planner can downgrade a would-be-high task, or upgrade a doc task.
+    const wouldBeHigh: TaskInput = {
+      id: 'o-1',
+      title: 'edit schema',
+      files: ['src/event-store/schemas.ts'],
+      riskTier: 'low',
+    };
+    expect(deriveRiskTier(wouldBeHigh)).toBe('low');
+
+    const wouldBeLow: TaskInput = {
+      id: 'o-2',
+      title: 'docs',
+      files: ['docs/CHANGELOG.md'],
+      riskTier: 'high',
+    };
+    expect(deriveRiskTier(wouldBeLow)).toBe('high');
+  });
+
+  it('DeriveRiskTier_LowRiskGlobsExported_NonEmpty', () => {
+    expect(Array.isArray(LOW_RISK_GLOBS)).toBe(true);
+    expect(LOW_RISK_GLOBS.length).toBeGreaterThan(0);
+  });
+
+  // Property: the derived tier is always one of low|medium|high for arbitrary
+  // TaskInput, and an explicit override always wins.
+  it('DeriveRiskTier_Property_AlwaysValidTierAndOverrideWins', () => {
+    const tierArb = fc.constantFrom('low', 'medium', 'high') as fc.Arbitrary<
+      'low' | 'medium' | 'high'
+    >;
+    fc.assert(
+      fc.property(
+        fc.record({
+          id: fc.string({ minLength: 1, maxLength: 12 }),
+          title: fc.string({ maxLength: 40 }),
+          files: fc.option(
+            fc.array(fc.string({ minLength: 1, maxLength: 40 }), { maxLength: 6 }),
+            { nil: undefined },
+          ),
+          blockedBy: fc.option(
+            fc.array(fc.string({ minLength: 1, maxLength: 12 }), { maxLength: 5 }),
+            { nil: undefined },
+          ),
+          testLayer: fc.option(
+            fc.constantFrom('acceptance', 'integration', 'unit', 'property'),
+            { nil: undefined },
+          ) as fc.Arbitrary<'acceptance' | 'integration' | 'unit' | 'property' | undefined>,
+          override: fc.option(tierArb, { nil: undefined }),
+        }),
+        (raw) => {
+          const base: TaskInput = {
+            id: raw.id,
+            title: raw.title,
+            ...(raw.files !== undefined ? { files: raw.files } : {}),
+            ...(raw.blockedBy !== undefined ? { blockedBy: raw.blockedBy } : {}),
+            ...(raw.testLayer !== undefined ? { testLayer: raw.testLayer } : {}),
+          };
+          const derived = deriveRiskTier(base);
+          expect(['low', 'medium', 'high']).toContain(derived);
+
+          if (raw.override !== undefined) {
+            const overridden: TaskInput = { ...base, riskTier: raw.override };
+            expect(deriveRiskTier(overridden)).toBe(raw.override);
+          }
+        },
+      ),
+    );
+  });
+});
+
+// ─── vls1-b1 (task 005): deriveBoundaryTouching ─────────────────────────────
+//
+// A task is boundary-touching when it crosses an I/O or schema boundary:
+// testLayer is integration/acceptance, a file matches a BOUNDARY_GLOB
+// (adapters/clients/io/http), or a file is a schema artifact (*.proto,
+// openapi.*, *.graphql). Boundary tagging is INDEPENDENT of risk tier — a
+// low-blast task can still be boundary-touching. An explicit override wins.
+
+describe('deriveBoundaryTouching', () => {
+  it('DeriveBoundaryTouching_IntegrationOrAcceptanceTestLayer_ReturnsTrue', () => {
+    expect(deriveBoundaryTouching({ id: 'b-1', title: 'x', testLayer: 'integration' })).toBe(true);
+    expect(deriveBoundaryTouching({ id: 'b-2', title: 'x', testLayer: 'acceptance' })).toBe(true);
+  });
+
+  it('DeriveBoundaryTouching_UnitOrPropertyTestLayer_NotBoundaryByLayer', () => {
+    // Unit/property layers alone do not mark a boundary.
+    expect(deriveBoundaryTouching({ id: 'b-u', title: 'x', testLayer: 'unit', files: ['src/a.ts'] })).toBe(false);
+    expect(deriveBoundaryTouching({ id: 'b-p', title: 'x', testLayer: 'property', files: ['src/a.ts'] })).toBe(false);
+  });
+
+  it('DeriveBoundaryTouching_IOAdapterGlobHit_ReturnsTrue', () => {
+    const cases: TaskInput[] = [
+      { id: 'a-1', title: 'x', files: ['src/adapters/cli.ts'] },
+      { id: 'a-2', title: 'x', files: ['src/clients/http-client.ts'] },
+      { id: 'a-3', title: 'x', files: ['src/io/reader.ts'] },
+      { id: 'a-4', title: 'x', files: ['src/http/server.ts'] },
+    ];
+    for (const task of cases) {
+      expect(deriveBoundaryTouching(task), task.id).toBe(true);
+    }
+  });
+
+  it('DeriveBoundaryTouching_SchemaArtifactInScope_ReturnsTrue', () => {
+    const cases: TaskInput[] = [
+      { id: 'p-1', title: 'x', files: ['proto/order.proto'] },
+      { id: 'p-2', title: 'x', files: ['openapi.yaml'] },
+      { id: 'p-3', title: 'x', files: ['schema/user.graphql'] },
+    ];
+    for (const task of cases) {
+      expect(deriveBoundaryTouching(task), task.id).toBe(true);
+    }
+  });
+
+  it('DeriveBoundaryTouching_LowBlastSchemaAdapterEdit_TagIndependentOfRiskTier', () => {
+    // A single adapter file → low risk tier (one source file, not high/low
+    // glob for risk) but STILL boundary-touching. Tag is orthogonal to tier.
+    const task: TaskInput = { id: 'i-1', title: 'tweak adapter', files: ['src/adapters/cli.ts'] };
+    expect(deriveBoundaryTouching(task)).toBe(true);
+    // riskTier derivation must not be 'high' from this alone (adapters is not
+    // a high-risk glob) — confirms independence.
+    expect(deriveRiskTier(task)).not.toBe('high');
+  });
+
+  it('DeriveBoundaryTouching_PlainSourceEdit_ReturnsFalse', () => {
+    const task: TaskInput = { id: 'n-1', title: 'logic', files: ['src/validate.ts'] };
+    expect(deriveBoundaryTouching(task)).toBe(false);
+  });
+
+  it('DeriveBoundaryTouching_ExplicitOverride_Wins', () => {
+    // Override forces the tag in both directions.
+    const forceTrue: TaskInput = { id: 'o-1', title: 'plain', files: ['src/validate.ts'], boundaryTouching: true };
+    expect(deriveBoundaryTouching(forceTrue)).toBe(true);
+    const forceFalse: TaskInput = { id: 'o-2', title: 'adapter', files: ['src/adapters/cli.ts'], boundaryTouching: false };
+    expect(deriveBoundaryTouching(forceFalse)).toBe(false);
+  });
+
+  it('DeriveBoundaryTouching_BoundaryGlobsExported_NonEmpty', () => {
+    expect(Array.isArray(BOUNDARY_GLOBS)).toBe(true);
+    expect(BOUNDARY_GLOBS.length).toBeGreaterThan(0);
   });
 });

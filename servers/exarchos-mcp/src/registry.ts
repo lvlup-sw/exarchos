@@ -1633,16 +1633,141 @@ const orchestrateActions: readonly ToolAction[] = [
   },
   {
     name: 'check_tdd_compliance',
-    description: 'Per-task TDD compliance gate. Emits gate.executed event with dimension D1.',
+    description:
+      'Per-task TDD compliance gate (ADVISORY). Emits gate.executed event with ' +
+      'dimension D1. Verification-ladder slice 1: demoted from blocking — the ' +
+      'kill-probe gate `check_test_adequacy` is the load-bearing per-task ' +
+      'verification; commit-order TDD is corroborating advice.',
     schema: z.object({
       featureId: z.string().min(1),
       taskId: z.string().min(1),
       branch: z.string().min(1),
       baseBranch: z.string().optional(),
+      repoRoot: z.string().optional(),
     }).strict(),
     phases: DELEGATE_PHASES,
     roles: ROLE_LEAD,
+    gate: { blocking: false, dimension: 'D1' },
+    autoEmits: [
+      { event: 'gate.executed', condition: 'always' },
+    ],
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: LOCAL_MUTATION,
+  },
+  {
+    name: 'check_test_adequacy',
+    description:
+      'Per-task test-adequacy kill probe (mutation-testing-at-N=1): reverts the ' +
+      "task's source hunks (keeping tests), re-runs the new/changed tests, and " +
+      'asserts at least one goes red — proving the tests are not vacuous. ' +
+      'Restores the working tree unconditionally (INV-14). Emits a gate.executed ' +
+      'event (gate "test-adequacy", dimension D1). Pass repoRoot ("auto" to ' +
+      "resolve the calling delegation's worktree); operationId makes the gate " +
+      'emission idempotent (INV-8). Stamp riskTier + boundaryTouching (from ' +
+      'prepare_delegation) to let the gate self-skip when the verification ' +
+      'policy excludes it for that tier (skipped-by-policy).',
+    schema: z.object({
+      featureId: z.string().min(1),
+      taskId: z.string().min(1),
+      branch: z.string().optional(),
+      baseBranch: z.string().optional(),
+      repoRoot: z.string().optional(),
+      worktreePath: z.string().optional(),
+      operationId: z.string().optional(),
+      riskTier: z.enum(['low', 'medium', 'high']).optional(),
+      boundaryTouching: z.boolean().optional(),
+    }),
+    phases: DELEGATE_PHASES,
+    roles: ROLE_LEAD,
     gate: { blocking: true, dimension: 'D1' },
+    // Reverts source + shells out to the resolved test command; on a real repo
+    // this exceeds the 2s heartbeat threshold.
+    longRunning: true,
+    autoEmits: [
+      { event: 'gate.executed', condition: 'always' },
+    ],
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: LOCAL_MUTATION,
+  },
+  {
+    name: 'check_contract_drift',
+    description:
+      'Per-task contract-drift gate (verification-ladder slice 1): regenerates ' +
+      'schema bindings (codegen), typechecks the regen, then runs a ' +
+      'breaking-change diff against the MERGE-BASE (git merge-base baseBranch ' +
+      'HEAD). A drift gate, NOT a write-lock — reports findings, never mutates ' +
+      'the tree. Emits a gate.executed event (gate "contract-drift", dimension ' +
+      'D1). Degrades to a skipped/advisory pass when no contract tool resolves ' +
+      '(INV-4). Pass repoRoot ("auto" to resolve the calling delegation\'s ' +
+      'worktree); operationId makes the gate emission idempotent (INV-8). On a ' +
+      'clean pass, surfaces a one-semantic-test steer in next_actions.',
+    // Field names + base types match check_test_adequacy exactly so the shared
+    // registration schema (buildRegistrationSchema) never sees a same-name
+    // field with a divergent base type.
+    schema: z.object({
+      featureId: z.string().min(1),
+      taskId: z.string().min(1),
+      branch: z.string().optional(),
+      baseBranch: z.string().optional(),
+      repoRoot: z.string().optional(),
+      worktreePath: z.string().optional(),
+      operationId: z.string().optional(),
+      riskTier: z.enum(['low', 'medium', 'high']).optional(),
+      boundaryTouching: z.boolean().optional(),
+    }),
+    phases: DELEGATE_PHASES,
+    roles: ROLE_LEAD,
+    gate: { blocking: true, dimension: 'D1' },
+    // Shells out to codegen/typecheck/breaking-diff against a real repo; on a
+    // real project this exceeds the 2s heartbeat threshold.
+    longRunning: true,
+    autoEmits: [
+      { event: 'gate.executed', condition: 'always' },
+    ],
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: LOCAL_MUTATION,
+  },
+  {
+    name: 'check_mock_boundary',
+    description:
+      'Per-task mock-boundary gate (verification-ladder slice 1, SIV-4): scans ' +
+      "the task's NEW test hunks for mock sites (mock/stub/spy/fake/patch/" +
+      'monkeypatch at an identifier boundary) and cross-references each mocked ' +
+      'target against the resolved `ownership.firstParty` scope. Mocking a ' +
+      'FIRST-PARTY module is low-risk (its contract is visible); mocking an ' +
+      'UNOWNED dependency asserts against a fiction — the high-risk pattern. ' +
+      'ADVISORY by default (severity resolved via DEFAULTS.review.gates, like ' +
+      'tdd-compliance; a project review-gate override still wins). On an unowned ' +
+      'finding, surfaces a per-finding steer in next_actions (replace with a ' +
+      'hermetic fixture / contract-verified stub / a fake). An explicit `reason` ' +
+      'is an escape hatch that passes the gate advisory AND records the ' +
+      'acknowledgement in the gate.executed payload. Emits a gate.executed event ' +
+      '(gate "mock-boundary", dimension D1). Pass repoRoot ("auto" to resolve ' +
+      "the calling delegation's worktree); operationId makes the gate emission " +
+      'idempotent (INV-8).',
+    // Field names + base types match check_test_adequacy / check_contract_drift
+    // exactly so the shared registration schema (buildRegistrationSchema) never
+    // sees a same-name field with a divergent base type. `reason` reuses the
+    // existing optional-string contract (request_synthesize.reason).
+    schema: z.object({
+      featureId: z.string().min(1),
+      taskId: z.string().min(1),
+      branch: z.string().optional(),
+      baseBranch: z.string().optional(),
+      repoRoot: z.string().optional(),
+      worktreePath: z.string().optional(),
+      operationId: z.string().optional(),
+      reason: z.string().optional(),
+      riskTier: z.enum(['low', 'medium', 'high']).optional(),
+      boundaryTouching: z.boolean().optional(),
+    }),
+    phases: DELEGATE_PHASES,
+    roles: ROLE_LEAD,
+    // Advisory by default — the runtime severity demotion lives in
+    // DEFAULTS.review.gates['mock-boundary'] (resolved per-call via
+    // resolveGateSeverity). The registry flag mirrors that default so the
+    // RunbookDrift blocking-gate coverage check treats it as advisory.
+    gate: { blocking: false, dimension: 'D1' },
     autoEmits: [
       { event: 'gate.executed', condition: 'always' },
     ],

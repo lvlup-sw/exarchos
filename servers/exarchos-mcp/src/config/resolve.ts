@@ -98,7 +98,21 @@ export const DEFAULTS: ResolvedProjectConfig = deepFreeze({
       D4: { ...DEFAULT_DIMENSION },
       D5: { ...DEFAULT_DIMENSION },
     },
-    gates: {},
+    // Verification-ladder slice 1: `tdd-compliance` is demoted to ADVISORY by
+    // default. The kill-probe gate `check_test_adequacy` is now the load-bearing
+    // per-task verification; commit-order TDD is corroborating advice, so its
+    // resolved default severity is `warning` (blocking:false), not blocking. A
+    // project can still re-block it with an explicit gate override.
+    gates: {
+      'tdd-compliance': { enabled: true, blocking: false, params: {} },
+      // Verification-ladder slice 1, SIV-4 (#1530): the mock-boundary gate is
+      // ADVISORY by default. It surfaces unowned-dependency mocks (the high-risk
+      // pattern coding agents over-produce) and steers toward hermetic fixtures,
+      // but does not block a task by default — an unowned mock can be the right
+      // call (acknowledged via the `reason` escape hatch). A project can re-block
+      // it with an explicit `review.gates['mock-boundary']` override.
+      'mock-boundary': { enabled: true, blocking: false, params: {} },
+    },
     routing: {
       coderabbitThreshold: 0.4,
       riskWeights: { ...DEFAULT_RISK_WEIGHTS },
@@ -229,7 +243,14 @@ export function resolveConfig(project: ProjectConfig): ResolvedProjectConfig {
       : { ...DEFAULT_DIMENSION };
   }
 
-  const gates: Record<string, ResolvedGateConfig> = {};
+  // Seed the per-gate DEFAULTS (e.g. the verification-ladder advisory
+  // demotions for tdd-compliance / mock-boundary), then overlay project
+  // entries. Without the seed, ANY project that ships a `.exarchos.yml` lost
+  // the per-gate defaults entirely and fell through to the (often blocking)
+  // dimension setting — silently re-blocking demoted gates (FIX-2 fallout).
+  const gates: Record<string, ResolvedGateConfig> = Object.fromEntries(
+    Object.entries(DEFAULTS.review.gates).map(([name, gate]) => [name, { ...gate }]),
+  );
   if (project.review?.gates) {
     for (const [name, gateConfig] of Object.entries(project.review.gates)) {
       gates[name] = normalizeGate(gateConfig);

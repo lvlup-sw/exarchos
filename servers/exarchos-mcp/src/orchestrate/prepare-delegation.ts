@@ -49,6 +49,9 @@ import {
   CHECKPOINT_OPERATION_THRESHOLD,
 } from '../workflow/checkpoint.js';
 import type { CheckpointEnforcementConfig } from '../workflow/checkpoint.js';
+import { globToRegExp } from '../architecture/glob-to-regexp.js';
+import { resolveVerificationSequence } from '../workflow/verification-policy.js';
+import type { GateName } from '../workflow/verification-policy.js';
 
 // ─── Result Interface ────────────────────────────────────────────────────────
 
@@ -61,6 +64,17 @@ export interface TaskInput {
   readonly blockedBy?: readonly string[];
   readonly files?: readonly string[];
   readonly testLayer?: 'acceptance' | 'integration' | 'unit' | 'property';
+  /**
+   * vls1-b1 (task 004): optional planner-supplied risk tier. When present it
+   * WINS over heuristic derivation — the planner has context the heuristic
+   * cannot infer. See {@link deriveRiskTier}.
+   */
+  readonly riskTier?: RiskTier;
+  /**
+   * vls1-b1 (task 005): optional planner-supplied boundary flag. When present
+   * it WINS over heuristic derivation. See {@link deriveBoundaryTouching}.
+   */
+  readonly boundaryTouching?: boolean;
 }
 
 /**
@@ -69,6 +83,9 @@ export interface TaskInput {
  * scaffolder/implementer tiers only. 'max' effort (Opus-level deep reasoning)
  * is reserved for manual override, not automated classification.
  */
+/** vls1-b1: ordered risk tier for the verification ladder. */
+export type RiskTier = 'low' | 'medium' | 'high';
+
 export interface TaskClassification {
   readonly taskId: string;
   readonly complexity: 'low' | 'medium' | 'high';
@@ -76,6 +93,23 @@ export interface TaskClassification {
   readonly recommendedModel: 'opus' | 'sonnet' | 'haiku';
   readonly effort: 'low' | 'medium' | 'high';
   readonly reason: string;
+  /**
+   * vls1-b1 (task 003/004): verification-ladder risk tier. Derived from the
+   * task's blast radius (files, dependencies, test layer, high-risk globs),
+   * unless the planner supplied an explicit `riskTier` on the task.
+   */
+  readonly riskTier: RiskTier;
+  /**
+   * vls1-b1 (task 005): true when the task crosses an I/O or schema boundary.
+   * Independent of {@link riskTier} — a low-blast task can still be
+   * boundary-touching.
+   */
+  readonly boundaryTouching: boolean;
+  /**
+   * vls1-b1 (task 006/007): the ordered verification gate sequence the task
+   * must clear, resolved from the policy table by (riskTier, boundaryTouching).
+   */
+  readonly verificationSequence: readonly GateName[];
 }
 
 export interface PrepareDelegationResult {
@@ -91,6 +125,144 @@ export interface PrepareDelegationResult {
 
 import { TASK_SCAFFOLDING_KEYWORDS as SCAFFOLDING_KEYWORDS } from './scaffolding-keywords.js';
 
+// ─── Risk-Tier & Boundary Derivation (vls1-b1, tasks 003–005) ───────────────
+//
+// Pure, config-free heuristics that classify a task's verification needs:
+//   - `deriveRiskTier`        — blast-radius tier (low | medium | high)
+//   - `deriveBoundaryTouching`— whether the task crosses an I/O / schema seam
+//
+// Both honor an explicit planner-supplied override on the TaskInput. The glob
+// sets below are the single source of truth for which file surfaces count as
+// high-risk, low-risk, or boundary-touching. Matching uses the shared anchored
+// `globToRegExp` compiler (no new glob dialect introduced).
+
+/**
+ * File globs whose presence marks a task HIGH risk — schema/type/API/
+ * shared-contract surfaces whose blast radius spans the codebase.
+ */
+export const HIGH_RISK_GLOBS: readonly string[] = [
+  '**/*schema*',
+  '**/types/**',
+  '**/*.d.ts',
+  '**/api/**',
+  '**/contracts/**',
+  // Schema/contract ARTIFACTS are shared-contract surfaces (the documented
+  // blast-radius gap) — they must reach the HIGH lane even though e.g.
+  // `openapi.yaml` would otherwise match the `**/*.yaml` LOW glob (high rules
+  // are evaluated before low). They also set boundaryTouching via
+  // BOUNDARY_GLOBS — the axes stay orthogonal. PR #1535 CR-4.
+  '**/*.proto',
+  '**/openapi.*',
+  '**/*.graphql',
+];
+
+/**
+ * File globs that, when ALL of a task's files match, mark it LOW risk —
+ * documentation / configuration / rename-only surfaces.
+ */
+export const LOW_RISK_GLOBS: readonly string[] = [
+  '**/*.md',
+  '**/*.json',
+  '**/*.yml',
+  '**/*.yaml',
+  'docs/**',
+];
+
+/**
+ * File globs that mark a task BOUNDARY-TOUCHING — I/O adapters, clients,
+ * transport, and schema artifacts that define a cross-process contract.
+ */
+export const BOUNDARY_GLOBS: readonly string[] = [
+  '**/adapters/**',
+  '**/clients/**',
+  '**/io/**',
+  '**/http/**',
+  '**/*.proto',
+  '**/openapi.*',
+  '**/*.graphql',
+];
+
+/**
+ * Memoised compiled matchers keyed by glob source string. In production the
+ * keys come only from the exported const tables above (~15 entries); the size
+ * bound is a backstop for exported-API callers supplying arbitrary patterns —
+ * on overflow the cache clears and rebuilds (recompilation is cheap; unbounded
+ * growth is not).
+ */
+const GLOB_MATCHER_CACHE_MAX = 256;
+const globMatcherCache = new Map<string, RegExp>();
+
+function compileGlob(pattern: string): RegExp {
+  const cached = globMatcherCache.get(pattern);
+  if (cached) return cached;
+  const compiled = globToRegExp(pattern);
+  if (globMatcherCache.size >= GLOB_MATCHER_CACHE_MAX) globMatcherCache.clear();
+  globMatcherCache.set(pattern, compiled);
+  return compiled;
+}
+
+function fileMatchesAny(file: string, globs: readonly string[]): boolean {
+  return globs.some((g) => compileGlob(g).test(file));
+}
+
+/**
+ * Derive a task's verification-ladder risk tier.
+ *
+ * Precedence (first match wins):
+ *   1. explicit planner `task.riskTier`  — always wins
+ *   2. HIGH rules — ANY file matches {@link HIGH_RISK_GLOBS}, OR
+ *      testLayer === 'acceptance', OR blockedBy.length >= 2, OR
+ *      files.length >= 3
+ *   3. LOW rules — there is at least one file AND EVERY file matches
+ *      {@link LOW_RISK_GLOBS} (docs/config/rename-only)
+ *   4. default — medium
+ *
+ * Ambiguity (mixed low + unknown files) falls through to medium.
+ * Pure: no I/O, no config reads.
+ */
+export function deriveRiskTier(task: TaskInput): RiskTier {
+  if (task.riskTier !== undefined) return task.riskTier;
+
+  const files = task.files ?? [];
+
+  // ── HIGH rules ──
+  if (files.some((f) => fileMatchesAny(f, HIGH_RISK_GLOBS))) return 'high';
+  if (task.testLayer === 'acceptance') return 'high';
+  if ((task.blockedBy?.length ?? 0) >= 2) return 'high';
+  if (files.length >= 3) return 'high';
+
+  // ── LOW rules ── (all files must match low globs; empty file list is not low)
+  if (files.length > 0 && files.every((f) => fileMatchesAny(f, LOW_RISK_GLOBS))) {
+    return 'low';
+  }
+
+  // ── default ──
+  return 'medium';
+}
+
+/**
+ * Derive whether a task is boundary-touching (crosses an I/O or schema seam).
+ *
+ * Precedence (first match wins):
+ *   1. explicit planner `task.boundaryTouching` — always wins
+ *   2. testLayer is 'integration' or 'acceptance'
+ *   3. ANY file matches {@link BOUNDARY_GLOBS} (adapters/clients/io/http or a
+ *      schema artifact)
+ *
+ * INDEPENDENT of {@link deriveRiskTier}: a low-blast adapter edit is still
+ * boundary-touching. Pure: no I/O, no config reads.
+ */
+export function deriveBoundaryTouching(task: TaskInput): boolean {
+  if (task.boundaryTouching !== undefined) return task.boundaryTouching;
+
+  if (task.testLayer === 'integration' || task.testLayer === 'acceptance') {
+    return true;
+  }
+
+  const files = task.files ?? [];
+  return files.some((f) => fileMatchesAny(f, BOUNDARY_GLOBS));
+}
+
 /**
  * Resolves the recommended model for a given agent type from the agent config.
  * Falls back to `defaultModel` when no per-agent override exists.
@@ -103,8 +275,17 @@ function resolveModel(
 }
 
 /**
- * Deterministic heuristic classification for a single task.
- * Advisory — agents can override these recommendations.
+ * The agent/complexity/effort portion of a classification — the legacy
+ * heuristic. The verification-ladder fields (riskTier/boundaryTouching/
+ * verificationSequence) are layered on top in {@link classifyTask}.
+ */
+type CoreClassification = Omit<
+  TaskClassification,
+  'riskTier' | 'boundaryTouching' | 'verificationSequence'
+>;
+
+/**
+ * Legacy agent/complexity/effort heuristic.
  *
  * Priority order:
  *   0. testLayer: "acceptance" → high/implementer (highest priority)
@@ -113,10 +294,10 @@ function resolveModel(
  *   3. files length >= 3 → high/implementer
  *   4. Default → medium/implementer
  */
-export function classifyTask(
+function classifyTaskCore(
   task: TaskInput,
-  agentConfig: ResolvedProjectConfig['agents'] = DEFAULTS.agents,
-): TaskClassification {
+  agentConfig: ResolvedProjectConfig['agents'],
+): CoreClassification {
   // Check testLayer first (highest priority)
   if (task.testLayer === 'acceptance') {
     const recommendedAgent = 'implementer' as const;
@@ -192,6 +373,36 @@ export function classifyTask(
     recommendedModel: resolveModel(recommendedAgent, agentConfig),
     effort: 'medium',
     reason: 'Standard task — no scaffolding keywords or high-complexity signals',
+  };
+}
+
+/**
+ * Deterministic heuristic classification for a single task.
+ * Advisory — agents can override these recommendations.
+ *
+ * vls1-b1 (task 007): in addition to the legacy agent/complexity/effort
+ * heuristic ({@link classifyTaskCore}), every classification now carries the
+ * verification-ladder fields:
+ *   - `riskTier`           — {@link deriveRiskTier} (honors explicit override)
+ *   - `boundaryTouching`   — {@link deriveBoundaryTouching} (honors override)
+ *   - `verificationSequence` — {@link resolveVerificationSequence} over the two
+ *
+ * The legacy `complexity`/`effort` axis is preserved unchanged — `riskTier` is
+ * a SEPARATE, blast-radius-driven axis (a scaffolding task can be low-effort
+ * yet high-risk if it edits a schema, and vice versa).
+ */
+export function classifyTask(
+  task: TaskInput,
+  agentConfig: ResolvedProjectConfig['agents'] = DEFAULTS.agents,
+): TaskClassification {
+  const core = classifyTaskCore(task, agentConfig);
+  const riskTier = deriveRiskTier(task);
+  const boundaryTouching = deriveBoundaryTouching(task);
+  return {
+    ...core,
+    riskTier,
+    boundaryTouching,
+    verificationSequence: resolveVerificationSequence(riskTier, boundaryTouching),
   };
 }
 

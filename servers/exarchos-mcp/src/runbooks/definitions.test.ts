@@ -42,14 +42,25 @@ describe('Runbook definitions', () => {
     }
   });
 
-  it('TaskCompletion_HasFourSteps_InCorrectOrder', () => {
+  it('TaskCompletion_HasSevenSteps_InCorrectOrder', () => {
     // #1329 / T-07 appended a post-merge `check_integration_suite` gate after
-    // `task_complete`, taking the runbook from 3 to 4 steps.
-    expect(TASK_COMPLETION.steps).toHaveLength(4);
-    expect(TASK_COMPLETION.steps[0].action).toBe('check_tdd_compliance');
-    expect(TASK_COMPLETION.steps[1].action).toBe('check_static_analysis');
-    expect(TASK_COMPLETION.steps[2].action).toBe('task_complete');
-    expect(TASK_COMPLETION.steps[3].action).toBe('check_integration_suite');
+    // `task_complete`, taking the runbook from 3 to 4 steps. Verification-ladder
+    // slice 1 prepended the `check_test_adequacy` kill-probe gate as the new
+    // load-bearing per-task verification (5 steps), with `check_tdd_compliance`
+    // demoted to advisory immediately after it. Bundle B3 inserted the
+    // `check_contract_drift` gate right after the kill probe (6 steps). SIV-4
+    // (#1530) inserted the advisory `check_mock_boundary` gate after
+    // contract-drift (7 steps) — it flags unowned mocks in new test hunks and
+    // steers toward hermetic fixtures, but is `onFail:'continue'` (advisory), so
+    // it never blocks the completion loop.
+    expect(TASK_COMPLETION.steps).toHaveLength(7);
+    expect(TASK_COMPLETION.steps[0].action).toBe('check_test_adequacy');
+    expect(TASK_COMPLETION.steps[1].action).toBe('check_contract_drift');
+    expect(TASK_COMPLETION.steps[2].action).toBe('check_mock_boundary');
+    expect(TASK_COMPLETION.steps[3].action).toBe('check_tdd_compliance');
+    expect(TASK_COMPLETION.steps[4].action).toBe('check_static_analysis');
+    expect(TASK_COMPLETION.steps[5].action).toBe('task_complete');
+    expect(TASK_COMPLETION.steps[6].action).toBe('check_integration_suite');
     expect(TASK_COMPLETION.phase).toBe('delegate');
   });
 

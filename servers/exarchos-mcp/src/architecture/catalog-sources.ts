@@ -27,7 +27,7 @@
  * `path` string, which is sufficient because the desugared dev path is a fixed
  * repo-relative constant that an explicit registration mirrors verbatim.
  */
-import type { ExarchosConfig } from '../config/exarchos-config-schema.js';
+import type { ExarchosConfigInput } from '../config/exarchos-config-schema.js';
 
 /** A normalized, tier-tagged catalog file source. */
 export interface CatalogSource {
@@ -49,7 +49,7 @@ export const DEV_CATALOG_PATH = '.exarchos/invariants.md';
  * desugaring + dedupe contract.
  */
 export function resolveCatalogSources(
-  config: ExarchosConfig | undefined,
+  config: ExarchosConfigInput | undefined,
 ): CatalogSource[] {
   const invariants = config?.invariants;
   const registrations = invariants?.catalogs ?? [];

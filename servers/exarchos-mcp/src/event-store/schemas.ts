@@ -216,6 +216,16 @@ export const EventTypes = [
   // owns the write, the model is never nagged to hand-emit them.
   'invariant.authored',
   'catalog.registered',
+  // verification-ladder slice 1 (task 020) — mutation-run liveness (INV-10).
+  // `mutation.executing_started` lands at the start of an `exarchos
+  // run-mutation` execution (NOT dry-run); `mutation.executed` is the paired
+  // terminal event carrying the pass/fail verdict + exit code. The pair makes
+  // a long-running mutation sweep observable as "started but not yet
+  // terminated" the same way merge.executing_started/executed does. Emitted
+  // best-effort — a run with no event store (invoked outside a workspace)
+  // skips emission and never crashes.
+  'mutation.executing_started',
+  'mutation.executed',
 ] as const;
 
 export type EventType = typeof EventTypes[number];
@@ -538,6 +548,13 @@ export const EVENT_EMISSION_REGISTRY: Record<EventType, EventEmissionSource> = {
   // the handler owns the append, so they are never model-emitted hints.
   'invariant.authored': 'auto',
   'catalog.registered': 'auto',
+
+  // auto — emitted by the `exarchos run-mutation` CLI verb on the execution
+  // path (verification-ladder slice 1, task 020). The handler owns both
+  // appends (started at entry, executed at exit), so the model is never asked
+  // to hand-emit the liveness pair.
+  'mutation.executing_started': 'auto',
+  'mutation.executed': 'auto',
 };
 
 // ─── Base Event Schema ──────────────────────────────────────────────────────
@@ -2054,6 +2071,31 @@ export const StashDetectedData = z.object({
   stashRef: z.string().min(1),
 });
 
+// ─── Mutation-run liveness (verification-ladder slice 1, task 020 / INV-10) ──
+//
+// `mutation.executing_started` records the start of an `exarchos run-mutation`
+// execution; `mutation.executed` is the paired terminal carrying the verdict.
+// The pair makes a long-running mutation sweep observable as a lifecycle, the
+// same shape as the merge orchestrator's executing/executed split.
+
+/** Emitted at the start of a (non-dry-run) `exarchos run-mutation` execution. */
+export const MutationExecutingStartedData = z.object({
+  /** The resolved mutation command being run (e.g. `npx stryker run`). */
+  command: z.string().min(1),
+  /** Repo root the command runs in. */
+  repoRoot: z.string().min(1),
+});
+
+/** Paired terminal event: the mutation run completed (pass/fail + exit code). */
+export const MutationExecutedData = z.object({
+  command: z.string().min(1),
+  repoRoot: z.string().min(1),
+  /** True when the mutation command exited 0. */
+  passed: z.boolean(),
+  /** The child process exit code. */
+  exitCode: z.number().int(),
+});
+
 // ─── Event Data Schemas Map ─────────────────────────────────────────────────
 
 export const EVENT_DATA_SCHEMAS: Partial<Record<EventType, z.ZodSchema>> = {
@@ -2166,6 +2208,10 @@ export const EVENT_DATA_SCHEMAS: Partial<Record<EventType, z.ZodSchema>> = {
   // Invariant authoring (invariants-catalog-wizard, P2)
   'invariant.authored': InvariantAuthoredDataSchema,
   'catalog.registered': CatalogRegisteredDataSchema,
+
+  // Mutation-run liveness (verification-ladder slice 1, task 020 / INV-10)
+  'mutation.executing_started': MutationExecutingStartedData,
+  'mutation.executed': MutationExecutedData,
 
   // Review provider adapter unknown-tier (#1159)
   'provider.unknown-tier': z.object({

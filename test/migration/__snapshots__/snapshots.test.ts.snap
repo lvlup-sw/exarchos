@@ -1936,7 +1936,7 @@ For worktree cleanup:
 exports[`task 025 — per-runtime snapshot baselines > runtime: claude > Snapshots_AllSkillsAllRuntimes_MatchBaseline: skills/claude/implementation-planning/SKILL.md > skills/claude/implementation-planning/SKILL.md 1`] = `
 "---
 name: implementation-planning
-description: "Transform design documents into TDD-based implementation plans with parallelizable tasks. Triggers: 'plan implementation', 'create tasks from design', or /plan. Enforces the Iron Law: no production code without a failing test first. Requires an existing design document — use /ideate first if none exists. Do NOT use for brainstorming, debugging, or code review."
+description: "Transform design documents into implementation plans with parallelizable tasks. Triggers: 'plan implementation', 'create tasks from design', or /plan. Applies the verification ladder: verification depth matches each task's blast radius — static analysis for low-risk tasks, scoped tests plus a kill-probe for medium, full red-green-refactor for high-risk surfaces. Requires an existing design document — use /ideate first if none exists. Do NOT use for brainstorming, debugging, or code review."
 metadata:
   author: exarchos
   version: 1.0.0
@@ -1978,16 +1978,24 @@ After 3 failed revisions:
 
 > **MANDATORY:** Before accepting any rationalization for skipping tests, planning, or TDD steps, consult \`references/rationalization-refutation.md\`. Every common excuse is catalogued with a counter-argument and the correct action.
 
-## The Iron Law
+## The Verification Ladder
 
-> **NO PRODUCTION CODE WITHOUT A FAILING TEST FIRST**
+Verification depth matches blast radius — red-green-refactor is the **HIGH-tier path**, not a universal law. Each task gets the cheapest verification that still captures its risk:
 
-Every implementation task MUST:
+| Risk tier | What it adds | Why |
+|-----------|--------------|-----|
+| **low** | Static analysis (typecheck + lint) suffices | A docs/config/rename-only edit has near-zero blast radius; test-first ceremony is pure overhead. |
+| **medium** | Scoped tests + the \`check_test_adequacy\` kill-probe | The kill-probe recaptures test-first's unique guarantee — that a test can actually fail — at lower cost than mandating RED-first on every commit. |
+| **high** | Full red-green-refactor + the integration suite | Schema/type/API/shared-contract surfaces span the codebase; here the failing-test-first discipline earns its cost. |
+
+The planner stamps each task's \`riskTier\` (and \`boundaryTouching\`); the classifier derives it from blast radius when the planner does not override. The dispatched implementer prompt and the gate sequence both scale off that stamp — so the verification effort is data-driven, not a blanket rule.
+
+For a **high-tier** task, the discipline is:
 1. Start with writing a failing test
 2. Specify the expected failure reason
 3. Only then implement minimum code to pass
 
-**Verify TDD compliance** in git history after implementation:
+**Verify high-tier TDD compliance** in git history after implementation:
 
 \`\`\`typescript
 exarchos_orchestrate({
@@ -2137,11 +2145,13 @@ For reference, consult \`references/spec-tracing-guide.md\` for the underlying m
 
 ## Rationalization Debunking
 
+The ladder already prices in genuinely low-risk work — so these excuses apply to **medium/high-tier** tasks, where they are rationalizations rather than reasonable tier choices:
+
 | Excuse | Reality |
 |--------|---------|
-| "This is too simple for tests" | Simple code breaks too. Test it. |
-| "I'll add tests after" | You won't. Or they'll be weak. |
-| "Tests slow me down" | Debugging without tests is slower. |
+| "This is too simple for a test" (on a medium/high-tier task) | If it touches a high-blast surface, its tier is not low. Test it at the tier the ladder assigns. |
+| "I'll add tests after" | You won't. Or they'll be weak — and \`check_test_adequacy\` will catch tests that can't fail. |
+| "Tests slow me down" | Debugging an untested medium/high-tier change is slower. |
 | "The design is obvious" | Obvious to you now. Not in 3 months. |
 
 ## State Management
@@ -2174,7 +2184,7 @@ for orchestrate action schemas.
 - [ ] Spec traceability table created (\`exarchos_orchestrate({ action: "generate_traceability" })\`)
 - [ ] Scope declared (full or partial with rationale)
 - [ ] Tasks decomposed to 2-5 min granularity
-- [ ] Each task starts with failing test
+- [ ] Each task carries a \`riskTier\` (and \`boundaryTouching\`) stamp; high-tier tasks start with a failing test
 - [ ] Dependencies mapped
 - [ ] Parallel groups identified
 - [ ] Plan verification passed — \`exarchos_orchestrate({ action: "check_plan_coverage" })\` returns passed: true
@@ -2547,7 +2557,7 @@ pure functions of \`state.oneshot.synthesisPolicy\` and the
 | Phase | What happens | Exit criteria |
 |---|---|---|
 | \`plan\` | Lightweight one-page plan: goal, approach, files to touch, tests to add. No design doc. No subagent dispatch. | \`artifacts.plan\` set → transition to \`implementing\` |
-| \`implementing\` | In-session TDD loop. Write a failing test, make it pass, refactor. Commit as you go. The TDD iron law applies — *no production code without a failing test first*. | Tests pass + typecheck clean + finalize_oneshot called |
+| \`implementing\` | In-session loop, verification scaled to risk. Defaults to the low tier (static analysis suffices); higher-blast changes get the failing-test-first red-green-refactor discipline. Commit as you go. | Tests pass + typecheck clean + finalize_oneshot called |
 | \`synthesize\` | Reached **only** when \`synthesisOptedIn\` is true. Hands off to the existing synthesis flow — see \`@skills/synthesis/SKILL.md\`. PR created via \`exarchos_orchestrate({ action: "create_pr" })\`, auto-merge enabled, CI gates apply. | PR merged → \`completed\` |
 | \`completed\` | Terminal. For direct-commit path, commits are already on the branch — there's nothing more to do. For synthesize path, the PR merge event terminates the workflow. | — |
 
@@ -2612,11 +2622,14 @@ label and is not a substitute for a real plan artifact.
 
 ### Step 3 — Implementing phase
 
-Run an in-session TDD loop. Same iron law as every other workflow:
+Run an in-session loop, with verification scaled to the change's risk (the
+ladder in \`@skills/_shared/references/verification.md\`). A oneshot defaults to
+the **low tier** — static analysis suffices for a trivial fix. When the change
+touches a higher-blast surface (schema/type/API/shared contract, or it crosses
+an I/O boundary), it is a higher-tier task and gets the failing-test-first
+discipline.
 
-> **NO PRODUCTION CODE WITHOUT A FAILING TEST FIRST**
-
-For each behavior in the plan:
+For each higher-tier behavior in the plan:
 
 1. **[RED]** Write a failing test. Run the test. Confirm it fails for
    the right reason.
@@ -2875,27 +2888,33 @@ phase transitions, guard names, and playbook prose. Use
 \`exarchos_orchestrate({ action: "describe", actions: ["request_synthesize", "finalize_oneshot"] })\`
 for the orchestrate action schemas.
 
-## TDD is still mandatory
+## Verification scales with risk
 
-The iron law from \`@rules/tdd.md\` applies to oneshot. There is no
-exemption for "small" changes. Specifically:
+The verification ladder from \`@skills/_shared/references/verification.md\` applies to
+oneshot. A oneshot **defaults to the cheap (low) tier** — a one-line fix or config
+tweak leans on static analysis (typecheck + lint), no test-first ceremony — *unless
+risk signals say otherwise*. Specifically:
 
-- Every behavior change starts with a failing test
-- Every test must fail before its implementation is written
-- Tests must be run after each change to verify state
-- Commits stay atomic — one logical change per commit
+- A low-risk change (docs/config/rename-only, near-zero blast radius) needs only
+  static analysis to pass; add a focused test only if behavior is non-obvious.
+- If the change touches a higher-blast surface (schema/type/API/shared contract,
+  or it crosses an I/O boundary), it is **not** a low-tier task: write the failing
+  test first and follow red-green-refactor, and expect the \`check_test_adequacy\`
+  kill-probe to flag tests that cannot actually fail.
+- Commits stay atomic — one logical change per commit, regardless of tier.
 
-The temptation in a oneshot is to skip the test "because it's just one
-line". Resist that. The test is what makes the change auditable, and
-auditability is the entire reason oneshot exists alongside the lighter
-"bypass workflows entirely" path.
+The temptation in a oneshot is to assume *everything* is "just one line" and skip
+verification entirely. Resist that for anything past the low tier. The point of
+oneshot is auditability at the *right* cost — not zero verification, and not the
+full feature ceremony on a trivial edit.
 
 ## Anti-patterns
 
 | Don't | Do Instead |
 |-------|------------|
 | Skip the plan phase ("it's obvious") | Write the four-line plan anyway — it's the artifact future-you reads |
-| Skip the TDD loop in implementing | Always RED → GREEN → REFACTOR, even for one-liners |
+| Apply full RED → GREEN → REFACTOR to a trivial one-liner | Match verification to risk: low-tier leans on static analysis; reserve test-first for higher-blast changes |
+| Skip verification entirely because "it's a oneshot" | Even low-tier must pass static analysis; higher-blast changes still need the failing test first |
 | Use oneshot for multi-file refactors | Use \`/exarchos:ideate\` and the full feature workflow |
 | Try to grow a oneshot into a feature workflow mid-stream | Cancel and restart with \`/exarchos:ideate\` |
 | Call \`request_synthesize\` without listening for the user's intent | Wait for the user to ask for a PR, then call it |
@@ -3385,6 +3404,8 @@ Evaluate agent-generated tests against Kent Beck's Test Desiderata. Four propert
 
 Include Test Desiderata findings in the quality review report under a "Test Quality" section. **Output format:** Report Test Desiderata violations as entries in the \`issues\` array with \`category: "test-quality"\`.
 
+> **Forthcoming — mutation-adequacy (R5, #1520):** A dedicated \`mutation-adequacy\` review dimension will join the review contract in a later slice, scoring whether the test suite actually kills injected mutants (the strongest signal that tests can fail for the right reason). Until that dimension lands, surviving-mutant analysis is **out of scope** for this skill — do not run or score mutation testing here. Today the closest proxy is the **Specific** Test Desiderata property above plus the \`check_test_adequacy\` gate at delegation time; full mutation scoring is deferred to R5.
+
 ### Step 3: Generate Report
 
 Use the template from \`references/review-report-template.md\` to structure the review output.
@@ -3695,6 +3716,16 @@ Before modifying any existing code behavior, capture current behavior as charact
 3. **After changes:** Document which characterization test failures were expected. Remaining characterization tests become regression tests.
 
 This aligns with Michael Feathers' approach in *Working Effectively with Legacy Code* — understand behavior before changing it.
+
+### Oracle-integrity gate (Both Tracks)
+
+The characterization tests are your **oracle** — the safety net that tells you whether behavior changed. That net only holds if you do not edit the oracle mid-refactor. Before completing the refactor, inspect the test diff:
+
+\`\`\`bash
+git diff -- tests/
+\`\`\`
+
+The test oracle may be **ADDED to** during a refactor (new characterization tests, new cases), but an existing characterization assertion must **never be silently modified**. A silently-edited oracle invalidates the safety net: the test now passes against the *changed* behavior, hiding the very regression characterization was meant to catch. If a characterization assertion genuinely must change, that is a behavior change — call it out explicitly and justify it, do not fold it into the refactor diff unremarked.
 
 ## Design-time Constraints (Both Tracks)
 
@@ -6821,7 +6852,7 @@ For worktree cleanup:
 exports[`task 025 — per-runtime snapshot baselines > runtime: codex > Snapshots_AllSkillsAllRuntimes_MatchBaseline: skills/codex/implementation-planning/SKILL.md > skills/codex/implementation-planning/SKILL.md 1`] = `
 "---
 name: implementation-planning
-description: "Transform design documents into TDD-based implementation plans with parallelizable tasks. Triggers: 'plan implementation', 'create tasks from design', or /plan. Enforces the Iron Law: no production code without a failing test first. Requires an existing design document — use /ideate first if none exists. Do NOT use for brainstorming, debugging, or code review."
+description: "Transform design documents into implementation plans with parallelizable tasks. Triggers: 'plan implementation', 'create tasks from design', or /plan. Applies the verification ladder: verification depth matches each task's blast radius — static analysis for low-risk tasks, scoped tests plus a kill-probe for medium, full red-green-refactor for high-risk surfaces. Requires an existing design document — use /ideate first if none exists. Do NOT use for brainstorming, debugging, or code review."
 metadata:
   author: exarchos
   version: 1.0.0
@@ -6863,16 +6894,24 @@ After 3 failed revisions:
 
 > **MANDATORY:** Before accepting any rationalization for skipping tests, planning, or TDD steps, consult \`references/rationalization-refutation.md\`. Every common excuse is catalogued with a counter-argument and the correct action.
 
-## The Iron Law
+## The Verification Ladder
 
-> **NO PRODUCTION CODE WITHOUT A FAILING TEST FIRST**
+Verification depth matches blast radius — red-green-refactor is the **HIGH-tier path**, not a universal law. Each task gets the cheapest verification that still captures its risk:
 
-Every implementation task MUST:
+| Risk tier | What it adds | Why |
+|-----------|--------------|-----|
+| **low** | Static analysis (typecheck + lint) suffices | A docs/config/rename-only edit has near-zero blast radius; test-first ceremony is pure overhead. |
+| **medium** | Scoped tests + the \`check_test_adequacy\` kill-probe | The kill-probe recaptures test-first's unique guarantee — that a test can actually fail — at lower cost than mandating RED-first on every commit. |
+| **high** | Full red-green-refactor + the integration suite | Schema/type/API/shared-contract surfaces span the codebase; here the failing-test-first discipline earns its cost. |
+
+The planner stamps each task's \`riskTier\` (and \`boundaryTouching\`); the classifier derives it from blast radius when the planner does not override. The dispatched implementer prompt and the gate sequence both scale off that stamp — so the verification effort is data-driven, not a blanket rule.
+
+For a **high-tier** task, the discipline is:
 1. Start with writing a failing test
 2. Specify the expected failure reason
 3. Only then implement minimum code to pass
 
-**Verify TDD compliance** in git history after implementation:
+**Verify high-tier TDD compliance** in git history after implementation:
 
 \`\`\`typescript
 exarchos_orchestrate({
@@ -7022,11 +7061,13 @@ For reference, consult \`references/spec-tracing-guide.md\` for the underlying m
 
 ## Rationalization Debunking
 
+The ladder already prices in genuinely low-risk work — so these excuses apply to **medium/high-tier** tasks, where they are rationalizations rather than reasonable tier choices:
+
 | Excuse | Reality |
 |--------|---------|
-| "This is too simple for tests" | Simple code breaks too. Test it. |
-| "I'll add tests after" | You won't. Or they'll be weak. |
-| "Tests slow me down" | Debugging without tests is slower. |
+| "This is too simple for a test" (on a medium/high-tier task) | If it touches a high-blast surface, its tier is not low. Test it at the tier the ladder assigns. |
+| "I'll add tests after" | You won't. Or they'll be weak — and \`check_test_adequacy\` will catch tests that can't fail. |
+| "Tests slow me down" | Debugging an untested medium/high-tier change is slower. |
 | "The design is obvious" | Obvious to you now. Not in 3 months. |
 
 ## State Management
@@ -7059,7 +7100,7 @@ for orchestrate action schemas.
 - [ ] Spec traceability table created (\`exarchos_orchestrate({ action: "generate_traceability" })\`)
 - [ ] Scope declared (full or partial with rationale)
 - [ ] Tasks decomposed to 2-5 min granularity
-- [ ] Each task starts with failing test
+- [ ] Each task carries a \`riskTier\` (and \`boundaryTouching\`) stamp; high-tier tasks start with a failing test
 - [ ] Dependencies mapped
 - [ ] Parallel groups identified
 - [ ] Plan verification passed — \`exarchos_orchestrate({ action: "check_plan_coverage" })\` returns passed: true
@@ -7432,7 +7473,7 @@ pure functions of \`state.oneshot.synthesisPolicy\` and the
 | Phase | What happens | Exit criteria |
 |---|---|---|
 | \`plan\` | Lightweight one-page plan: goal, approach, files to touch, tests to add. No design doc. No subagent dispatch. | \`artifacts.plan\` set → transition to \`implementing\` |
-| \`implementing\` | In-session TDD loop. Write a failing test, make it pass, refactor. Commit as you go. The TDD iron law applies — *no production code without a failing test first*. | Tests pass + typecheck clean + finalize_oneshot called |
+| \`implementing\` | In-session loop, verification scaled to risk. Defaults to the low tier (static analysis suffices); higher-blast changes get the failing-test-first red-green-refactor discipline. Commit as you go. | Tests pass + typecheck clean + finalize_oneshot called |
 | \`synthesize\` | Reached **only** when \`synthesisOptedIn\` is true. Hands off to the existing synthesis flow — see \`@skills/synthesis/SKILL.md\`. PR created via \`exarchos_orchestrate({ action: "create_pr" })\`, auto-merge enabled, CI gates apply. | PR merged → \`completed\` |
 | \`completed\` | Terminal. For direct-commit path, commits are already on the branch — there's nothing more to do. For synthesize path, the PR merge event terminates the workflow. | — |
 
@@ -7497,11 +7538,14 @@ label and is not a substitute for a real plan artifact.
 
 ### Step 3 — Implementing phase
 
-Run an in-session TDD loop. Same iron law as every other workflow:
+Run an in-session loop, with verification scaled to the change's risk (the
+ladder in \`@skills/_shared/references/verification.md\`). A oneshot defaults to
+the **low tier** — static analysis suffices for a trivial fix. When the change
+touches a higher-blast surface (schema/type/API/shared contract, or it crosses
+an I/O boundary), it is a higher-tier task and gets the failing-test-first
+discipline.
 
-> **NO PRODUCTION CODE WITHOUT A FAILING TEST FIRST**
-
-For each behavior in the plan:
+For each higher-tier behavior in the plan:
 
 1. **[RED]** Write a failing test. Run the test. Confirm it fails for
    the right reason.
@@ -7760,27 +7804,33 @@ phase transitions, guard names, and playbook prose. Use
 \`exarchos_orchestrate({ action: "describe", actions: ["request_synthesize", "finalize_oneshot"] })\`
 for the orchestrate action schemas.
 
-## TDD is still mandatory
+## Verification scales with risk
 
-The iron law from \`@rules/tdd.md\` applies to oneshot. There is no
-exemption for "small" changes. Specifically:
+The verification ladder from \`@skills/_shared/references/verification.md\` applies to
+oneshot. A oneshot **defaults to the cheap (low) tier** — a one-line fix or config
+tweak leans on static analysis (typecheck + lint), no test-first ceremony — *unless
+risk signals say otherwise*. Specifically:
 
-- Every behavior change starts with a failing test
-- Every test must fail before its implementation is written
-- Tests must be run after each change to verify state
-- Commits stay atomic — one logical change per commit
+- A low-risk change (docs/config/rename-only, near-zero blast radius) needs only
+  static analysis to pass; add a focused test only if behavior is non-obvious.
+- If the change touches a higher-blast surface (schema/type/API/shared contract,
+  or it crosses an I/O boundary), it is **not** a low-tier task: write the failing
+  test first and follow red-green-refactor, and expect the \`check_test_adequacy\`
+  kill-probe to flag tests that cannot actually fail.
+- Commits stay atomic — one logical change per commit, regardless of tier.
 
-The temptation in a oneshot is to skip the test "because it's just one
-line". Resist that. The test is what makes the change auditable, and
-auditability is the entire reason oneshot exists alongside the lighter
-"bypass workflows entirely" path.
+The temptation in a oneshot is to assume *everything* is "just one line" and skip
+verification entirely. Resist that for anything past the low tier. The point of
+oneshot is auditability at the *right* cost — not zero verification, and not the
+full feature ceremony on a trivial edit.
 
 ## Anti-patterns
 
 | Don't | Do Instead |
 |-------|------------|
 | Skip the plan phase ("it's obvious") | Write the four-line plan anyway — it's the artifact future-you reads |
-| Skip the TDD loop in implementing | Always RED → GREEN → REFACTOR, even for one-liners |
+| Apply full RED → GREEN → REFACTOR to a trivial one-liner | Match verification to risk: low-tier leans on static analysis; reserve test-first for higher-blast changes |
+| Skip verification entirely because "it's a oneshot" | Even low-tier must pass static analysis; higher-blast changes still need the failing test first |
 | Use oneshot for multi-file refactors | Use \`ideate\` and the full feature workflow |
 | Try to grow a oneshot into a feature workflow mid-stream | Cancel and restart with \`ideate\` |
 | Call \`request_synthesize\` without listening for the user's intent | Wait for the user to ask for a PR, then call it |
@@ -8270,6 +8320,8 @@ Evaluate agent-generated tests against Kent Beck's Test Desiderata. Four propert
 
 Include Test Desiderata findings in the quality review report under a "Test Quality" section. **Output format:** Report Test Desiderata violations as entries in the \`issues\` array with \`category: "test-quality"\`.
 
+> **Forthcoming — mutation-adequacy (R5, #1520):** A dedicated \`mutation-adequacy\` review dimension will join the review contract in a later slice, scoring whether the test suite actually kills injected mutants (the strongest signal that tests can fail for the right reason). Until that dimension lands, surviving-mutant analysis is **out of scope** for this skill — do not run or score mutation testing here. Today the closest proxy is the **Specific** Test Desiderata property above plus the \`check_test_adequacy\` gate at delegation time; full mutation scoring is deferred to R5.
+
 ### Step 3: Generate Report
 
 Use the template from \`references/review-report-template.md\` to structure the review output.
@@ -8580,6 +8632,16 @@ Before modifying any existing code behavior, capture current behavior as charact
 3. **After changes:** Document which characterization test failures were expected. Remaining characterization tests become regression tests.
 
 This aligns with Michael Feathers' approach in *Working Effectively with Legacy Code* — understand behavior before changing it.
+
+### Oracle-integrity gate (Both Tracks)
+
+The characterization tests are your **oracle** — the safety net that tells you whether behavior changed. That net only holds if you do not edit the oracle mid-refactor. Before completing the refactor, inspect the test diff:
+
+\`\`\`bash
+git diff -- tests/
+\`\`\`
+
+The test oracle may be **ADDED to** during a refactor (new characterization tests, new cases), but an existing characterization assertion must **never be silently modified**. A silently-edited oracle invalidates the safety net: the test now passes against the *changed* behavior, hiding the very regression characterization was meant to catch. If a characterization assertion genuinely must change, that is a behavior change — call it out explicitly and justify it, do not fold it into the refactor diff unremarked.
 
 ## Design-time Constraints (Both Tracks)
 
@@ -11698,7 +11760,7 @@ For worktree cleanup:
 exports[`task 025 — per-runtime snapshot baselines > runtime: copilot > Snapshots_AllSkillsAllRuntimes_MatchBaseline: skills/copilot/implementation-planning/SKILL.md > skills/copilot/implementation-planning/SKILL.md 1`] = `
 "---
 name: implementation-planning
-description: "Transform design documents into TDD-based implementation plans with parallelizable tasks. Triggers: 'plan implementation', 'create tasks from design', or /plan. Enforces the Iron Law: no production code without a failing test first. Requires an existing design document — use /ideate first if none exists. Do NOT use for brainstorming, debugging, or code review."
+description: "Transform design documents into implementation plans with parallelizable tasks. Triggers: 'plan implementation', 'create tasks from design', or /plan. Applies the verification ladder: verification depth matches each task's blast radius — static analysis for low-risk tasks, scoped tests plus a kill-probe for medium, full red-green-refactor for high-risk surfaces. Requires an existing design document — use /ideate first if none exists. Do NOT use for brainstorming, debugging, or code review."
 metadata:
   author: exarchos
   version: 1.0.0
@@ -11740,16 +11802,24 @@ After 3 failed revisions:
 
 > **MANDATORY:** Before accepting any rationalization for skipping tests, planning, or TDD steps, consult \`references/rationalization-refutation.md\`. Every common excuse is catalogued with a counter-argument and the correct action.
 
-## The Iron Law
+## The Verification Ladder
 
-> **NO PRODUCTION CODE WITHOUT A FAILING TEST FIRST**
+Verification depth matches blast radius — red-green-refactor is the **HIGH-tier path**, not a universal law. Each task gets the cheapest verification that still captures its risk:
 
-Every implementation task MUST:
+| Risk tier | What it adds | Why |
+|-----------|--------------|-----|
+| **low** | Static analysis (typecheck + lint) suffices | A docs/config/rename-only edit has near-zero blast radius; test-first ceremony is pure overhead. |
+| **medium** | Scoped tests + the \`check_test_adequacy\` kill-probe | The kill-probe recaptures test-first's unique guarantee — that a test can actually fail — at lower cost than mandating RED-first on every commit. |
+| **high** | Full red-green-refactor + the integration suite | Schema/type/API/shared-contract surfaces span the codebase; here the failing-test-first discipline earns its cost. |
+
+The planner stamps each task's \`riskTier\` (and \`boundaryTouching\`); the classifier derives it from blast radius when the planner does not override. The dispatched implementer prompt and the gate sequence both scale off that stamp — so the verification effort is data-driven, not a blanket rule.
+
+For a **high-tier** task, the discipline is:
 1. Start with writing a failing test
 2. Specify the expected failure reason
 3. Only then implement minimum code to pass
 
-**Verify TDD compliance** in git history after implementation:
+**Verify high-tier TDD compliance** in git history after implementation:
 
 \`\`\`typescript
 exarchos_orchestrate({
@@ -11899,11 +11969,13 @@ For reference, consult \`references/spec-tracing-guide.md\` for the underlying m
 
 ## Rationalization Debunking
 
+The ladder already prices in genuinely low-risk work — so these excuses apply to **medium/high-tier** tasks, where they are rationalizations rather than reasonable tier choices:
+
 | Excuse | Reality |
 |--------|---------|
-| "This is too simple for tests" | Simple code breaks too. Test it. |
-| "I'll add tests after" | You won't. Or they'll be weak. |
-| "Tests slow me down" | Debugging without tests is slower. |
+| "This is too simple for a test" (on a medium/high-tier task) | If it touches a high-blast surface, its tier is not low. Test it at the tier the ladder assigns. |
+| "I'll add tests after" | You won't. Or they'll be weak — and \`check_test_adequacy\` will catch tests that can't fail. |
+| "Tests slow me down" | Debugging an untested medium/high-tier change is slower. |
 | "The design is obvious" | Obvious to you now. Not in 3 months. |
 
 ## State Management
@@ -11936,7 +12008,7 @@ for orchestrate action schemas.
 - [ ] Spec traceability table created (\`exarchos_orchestrate({ action: "generate_traceability" })\`)
 - [ ] Scope declared (full or partial with rationale)
 - [ ] Tasks decomposed to 2-5 min granularity
-- [ ] Each task starts with failing test
+- [ ] Each task carries a \`riskTier\` (and \`boundaryTouching\`) stamp; high-tier tasks start with a failing test
 - [ ] Dependencies mapped
 - [ ] Parallel groups identified
 - [ ] Plan verification passed — \`exarchos_orchestrate({ action: "check_plan_coverage" })\` returns passed: true
@@ -12309,7 +12381,7 @@ pure functions of \`state.oneshot.synthesisPolicy\` and the
 | Phase | What happens | Exit criteria |
 |---|---|---|
 | \`plan\` | Lightweight one-page plan: goal, approach, files to touch, tests to add. No design doc. No subagent dispatch. | \`artifacts.plan\` set → transition to \`implementing\` |
-| \`implementing\` | In-session TDD loop. Write a failing test, make it pass, refactor. Commit as you go. The TDD iron law applies — *no production code without a failing test first*. | Tests pass + typecheck clean + finalize_oneshot called |
+| \`implementing\` | In-session loop, verification scaled to risk. Defaults to the low tier (static analysis suffices); higher-blast changes get the failing-test-first red-green-refactor discipline. Commit as you go. | Tests pass + typecheck clean + finalize_oneshot called |
 | \`synthesize\` | Reached **only** when \`synthesisOptedIn\` is true. Hands off to the existing synthesis flow — see \`@skills/synthesis/SKILL.md\`. PR created via \`exarchos_orchestrate({ action: "create_pr" })\`, auto-merge enabled, CI gates apply. | PR merged → \`completed\` |
 | \`completed\` | Terminal. For direct-commit path, commits are already on the branch — there's nothing more to do. For synthesize path, the PR merge event terminates the workflow. | — |
 
@@ -12374,11 +12446,14 @@ label and is not a substitute for a real plan artifact.
 
 ### Step 3 — Implementing phase
 
-Run an in-session TDD loop. Same iron law as every other workflow:
+Run an in-session loop, with verification scaled to the change's risk (the
+ladder in \`@skills/_shared/references/verification.md\`). A oneshot defaults to
+the **low tier** — static analysis suffices for a trivial fix. When the change
+touches a higher-blast surface (schema/type/API/shared contract, or it crosses
+an I/O boundary), it is a higher-tier task and gets the failing-test-first
+discipline.
 
-> **NO PRODUCTION CODE WITHOUT A FAILING TEST FIRST**
-
-For each behavior in the plan:
+For each higher-tier behavior in the plan:
 
 1. **[RED]** Write a failing test. Run the test. Confirm it fails for
    the right reason.
@@ -12637,27 +12712,33 @@ phase transitions, guard names, and playbook prose. Use
 \`exarchos_orchestrate({ action: "describe", actions: ["request_synthesize", "finalize_oneshot"] })\`
 for the orchestrate action schemas.
 
-## TDD is still mandatory
+## Verification scales with risk
 
-The iron law from \`@rules/tdd.md\` applies to oneshot. There is no
-exemption for "small" changes. Specifically:
+The verification ladder from \`@skills/_shared/references/verification.md\` applies to
+oneshot. A oneshot **defaults to the cheap (low) tier** — a one-line fix or config
+tweak leans on static analysis (typecheck + lint), no test-first ceremony — *unless
+risk signals say otherwise*. Specifically:
 
-- Every behavior change starts with a failing test
-- Every test must fail before its implementation is written
-- Tests must be run after each change to verify state
-- Commits stay atomic — one logical change per commit
+- A low-risk change (docs/config/rename-only, near-zero blast radius) needs only
+  static analysis to pass; add a focused test only if behavior is non-obvious.
+- If the change touches a higher-blast surface (schema/type/API/shared contract,
+  or it crosses an I/O boundary), it is **not** a low-tier task: write the failing
+  test first and follow red-green-refactor, and expect the \`check_test_adequacy\`
+  kill-probe to flag tests that cannot actually fail.
+- Commits stay atomic — one logical change per commit, regardless of tier.
 
-The temptation in a oneshot is to skip the test "because it's just one
-line". Resist that. The test is what makes the change auditable, and
-auditability is the entire reason oneshot exists alongside the lighter
-"bypass workflows entirely" path.
+The temptation in a oneshot is to assume *everything* is "just one line" and skip
+verification entirely. Resist that for anything past the low tier. The point of
+oneshot is auditability at the *right* cost — not zero verification, and not the
+full feature ceremony on a trivial edit.
 
 ## Anti-patterns
 
 | Don't | Do Instead |
 |-------|------------|
 | Skip the plan phase ("it's obvious") | Write the four-line plan anyway — it's the artifact future-you reads |
-| Skip the TDD loop in implementing | Always RED → GREEN → REFACTOR, even for one-liners |
+| Apply full RED → GREEN → REFACTOR to a trivial one-liner | Match verification to risk: low-tier leans on static analysis; reserve test-first for higher-blast changes |
+| Skip verification entirely because "it's a oneshot" | Even low-tier must pass static analysis; higher-blast changes still need the failing test first |
 | Use oneshot for multi-file refactors | Use \`/ideate\` and the full feature workflow |
 | Try to grow a oneshot into a feature workflow mid-stream | Cancel and restart with \`/ideate\` |
 | Call \`request_synthesize\` without listening for the user's intent | Wait for the user to ask for a PR, then call it |
@@ -13147,6 +13228,8 @@ Evaluate agent-generated tests against Kent Beck's Test Desiderata. Four propert
 
 Include Test Desiderata findings in the quality review report under a "Test Quality" section. **Output format:** Report Test Desiderata violations as entries in the \`issues\` array with \`category: "test-quality"\`.
 
+> **Forthcoming — mutation-adequacy (R5, #1520):** A dedicated \`mutation-adequacy\` review dimension will join the review contract in a later slice, scoring whether the test suite actually kills injected mutants (the strongest signal that tests can fail for the right reason). Until that dimension lands, surviving-mutant analysis is **out of scope** for this skill — do not run or score mutation testing here. Today the closest proxy is the **Specific** Test Desiderata property above plus the \`check_test_adequacy\` gate at delegation time; full mutation scoring is deferred to R5.
+
 ### Step 3: Generate Report
 
 Use the template from \`references/review-report-template.md\` to structure the review output.
@@ -13457,6 +13540,16 @@ Before modifying any existing code behavior, capture current behavior as charact
 3. **After changes:** Document which characterization test failures were expected. Remaining characterization tests become regression tests.
 
 This aligns with Michael Feathers' approach in *Working Effectively with Legacy Code* — understand behavior before changing it.
+
+### Oracle-integrity gate (Both Tracks)
+
+The characterization tests are your **oracle** — the safety net that tells you whether behavior changed. That net only holds if you do not edit the oracle mid-refactor. Before completing the refactor, inspect the test diff:
+
+\`\`\`bash
+git diff -- tests/
+\`\`\`
+
+The test oracle may be **ADDED to** during a refactor (new characterization tests, new cases), but an existing characterization assertion must **never be silently modified**. A silently-edited oracle invalidates the safety net: the test now passes against the *changed* behavior, hiding the very regression characterization was meant to catch. If a characterization assertion genuinely must change, that is a behavior change — call it out explicitly and justify it, do not fold it into the refactor diff unremarked.
 
 ## Design-time Constraints (Both Tracks)
 
@@ -16585,7 +16678,7 @@ For worktree cleanup:
 exports[`task 025 — per-runtime snapshot baselines > runtime: cursor > Snapshots_AllSkillsAllRuntimes_MatchBaseline: skills/cursor/implementation-planning/SKILL.md > skills/cursor/implementation-planning/SKILL.md 1`] = `
 "---
 name: implementation-planning
-description: "Transform design documents into TDD-based implementation plans with parallelizable tasks. Triggers: 'plan implementation', 'create tasks from design', or /plan. Enforces the Iron Law: no production code without a failing test first. Requires an existing design document — use /ideate first if none exists. Do NOT use for brainstorming, debugging, or code review."
+description: "Transform design documents into implementation plans with parallelizable tasks. Triggers: 'plan implementation', 'create tasks from design', or /plan. Applies the verification ladder: verification depth matches each task's blast radius — static analysis for low-risk tasks, scoped tests plus a kill-probe for medium, full red-green-refactor for high-risk surfaces. Requires an existing design document — use /ideate first if none exists. Do NOT use for brainstorming, debugging, or code review."
 metadata:
   author: exarchos
   version: 1.0.0
@@ -16627,16 +16720,24 @@ After 3 failed revisions:
 
 > **MANDATORY:** Before accepting any rationalization for skipping tests, planning, or TDD steps, consult \`references/rationalization-refutation.md\`. Every common excuse is catalogued with a counter-argument and the correct action.
 
-## The Iron Law
+## The Verification Ladder
 
-> **NO PRODUCTION CODE WITHOUT A FAILING TEST FIRST**
+Verification depth matches blast radius — red-green-refactor is the **HIGH-tier path**, not a universal law. Each task gets the cheapest verification that still captures its risk:
 
-Every implementation task MUST:
+| Risk tier | What it adds | Why |
+|-----------|--------------|-----|
+| **low** | Static analysis (typecheck + lint) suffices | A docs/config/rename-only edit has near-zero blast radius; test-first ceremony is pure overhead. |
+| **medium** | Scoped tests + the \`check_test_adequacy\` kill-probe | The kill-probe recaptures test-first's unique guarantee — that a test can actually fail — at lower cost than mandating RED-first on every commit. |
+| **high** | Full red-green-refactor + the integration suite | Schema/type/API/shared-contract surfaces span the codebase; here the failing-test-first discipline earns its cost. |
+
+The planner stamps each task's \`riskTier\` (and \`boundaryTouching\`); the classifier derives it from blast radius when the planner does not override. The dispatched implementer prompt and the gate sequence both scale off that stamp — so the verification effort is data-driven, not a blanket rule.
+
+For a **high-tier** task, the discipline is:
 1. Start with writing a failing test
 2. Specify the expected failure reason
 3. Only then implement minimum code to pass
 
-**Verify TDD compliance** in git history after implementation:
+**Verify high-tier TDD compliance** in git history after implementation:
 
 \`\`\`typescript
 exarchos_orchestrate({
@@ -16786,11 +16887,13 @@ For reference, consult \`references/spec-tracing-guide.md\` for the underlying m
 
 ## Rationalization Debunking
 
+The ladder already prices in genuinely low-risk work — so these excuses apply to **medium/high-tier** tasks, where they are rationalizations rather than reasonable tier choices:
+
 | Excuse | Reality |
 |--------|---------|
-| "This is too simple for tests" | Simple code breaks too. Test it. |
-| "I'll add tests after" | You won't. Or they'll be weak. |
-| "Tests slow me down" | Debugging without tests is slower. |
+| "This is too simple for a test" (on a medium/high-tier task) | If it touches a high-blast surface, its tier is not low. Test it at the tier the ladder assigns. |
+| "I'll add tests after" | You won't. Or they'll be weak — and \`check_test_adequacy\` will catch tests that can't fail. |
+| "Tests slow me down" | Debugging an untested medium/high-tier change is slower. |
 | "The design is obvious" | Obvious to you now. Not in 3 months. |
 
 ## State Management
@@ -16823,7 +16926,7 @@ for orchestrate action schemas.
 - [ ] Spec traceability table created (\`exarchos_orchestrate({ action: "generate_traceability" })\`)
 - [ ] Scope declared (full or partial with rationale)
 - [ ] Tasks decomposed to 2-5 min granularity
-- [ ] Each task starts with failing test
+- [ ] Each task carries a \`riskTier\` (and \`boundaryTouching\`) stamp; high-tier tasks start with a failing test
 - [ ] Dependencies mapped
 - [ ] Parallel groups identified
 - [ ] Plan verification passed — \`exarchos_orchestrate({ action: "check_plan_coverage" })\` returns passed: true
@@ -17196,7 +17299,7 @@ pure functions of \`state.oneshot.synthesisPolicy\` and the
 | Phase | What happens | Exit criteria |
 |---|---|---|
 | \`plan\` | Lightweight one-page plan: goal, approach, files to touch, tests to add. No design doc. No subagent dispatch. | \`artifacts.plan\` set → transition to \`implementing\` |
-| \`implementing\` | In-session TDD loop. Write a failing test, make it pass, refactor. Commit as you go. The TDD iron law applies — *no production code without a failing test first*. | Tests pass + typecheck clean + finalize_oneshot called |
+| \`implementing\` | In-session loop, verification scaled to risk. Defaults to the low tier (static analysis suffices); higher-blast changes get the failing-test-first red-green-refactor discipline. Commit as you go. | Tests pass + typecheck clean + finalize_oneshot called |
 | \`synthesize\` | Reached **only** when \`synthesisOptedIn\` is true. Hands off to the existing synthesis flow — see \`@skills/synthesis/SKILL.md\`. PR created via \`exarchos_orchestrate({ action: "create_pr" })\`, auto-merge enabled, CI gates apply. | PR merged → \`completed\` |
 | \`completed\` | Terminal. For direct-commit path, commits are already on the branch — there's nothing more to do. For synthesize path, the PR merge event terminates the workflow. | — |
 
@@ -17261,11 +17364,14 @@ label and is not a substitute for a real plan artifact.
 
 ### Step 3 — Implementing phase
 
-Run an in-session TDD loop. Same iron law as every other workflow:
+Run an in-session loop, with verification scaled to the change's risk (the
+ladder in \`@skills/_shared/references/verification.md\`). A oneshot defaults to
+the **low tier** — static analysis suffices for a trivial fix. When the change
+touches a higher-blast surface (schema/type/API/shared contract, or it crosses
+an I/O boundary), it is a higher-tier task and gets the failing-test-first
+discipline.
 
-> **NO PRODUCTION CODE WITHOUT A FAILING TEST FIRST**
-
-For each behavior in the plan:
+For each higher-tier behavior in the plan:
 
 1. **[RED]** Write a failing test. Run the test. Confirm it fails for
    the right reason.
@@ -17524,27 +17630,33 @@ phase transitions, guard names, and playbook prose. Use
 \`exarchos_orchestrate({ action: "describe", actions: ["request_synthesize", "finalize_oneshot"] })\`
 for the orchestrate action schemas.
 
-## TDD is still mandatory
+## Verification scales with risk
 
-The iron law from \`@rules/tdd.md\` applies to oneshot. There is no
-exemption for "small" changes. Specifically:
+The verification ladder from \`@skills/_shared/references/verification.md\` applies to
+oneshot. A oneshot **defaults to the cheap (low) tier** — a one-line fix or config
+tweak leans on static analysis (typecheck + lint), no test-first ceremony — *unless
+risk signals say otherwise*. Specifically:
 
-- Every behavior change starts with a failing test
-- Every test must fail before its implementation is written
-- Tests must be run after each change to verify state
-- Commits stay atomic — one logical change per commit
+- A low-risk change (docs/config/rename-only, near-zero blast radius) needs only
+  static analysis to pass; add a focused test only if behavior is non-obvious.
+- If the change touches a higher-blast surface (schema/type/API/shared contract,
+  or it crosses an I/O boundary), it is **not** a low-tier task: write the failing
+  test first and follow red-green-refactor, and expect the \`check_test_adequacy\`
+  kill-probe to flag tests that cannot actually fail.
+- Commits stay atomic — one logical change per commit, regardless of tier.
 
-The temptation in a oneshot is to skip the test "because it's just one
-line". Resist that. The test is what makes the change auditable, and
-auditability is the entire reason oneshot exists alongside the lighter
-"bypass workflows entirely" path.
+The temptation in a oneshot is to assume *everything* is "just one line" and skip
+verification entirely. Resist that for anything past the low tier. The point of
+oneshot is auditability at the *right* cost — not zero verification, and not the
+full feature ceremony on a trivial edit.
 
 ## Anti-patterns
 
 | Don't | Do Instead |
 |-------|------------|
 | Skip the plan phase ("it's obvious") | Write the four-line plan anyway — it's the artifact future-you reads |
-| Skip the TDD loop in implementing | Always RED → GREEN → REFACTOR, even for one-liners |
+| Apply full RED → GREEN → REFACTOR to a trivial one-liner | Match verification to risk: low-tier leans on static analysis; reserve test-first for higher-blast changes |
+| Skip verification entirely because "it's a oneshot" | Even low-tier must pass static analysis; higher-blast changes still need the failing test first |
 | Use oneshot for multi-file refactors | Use \`ideate\` and the full feature workflow |
 | Try to grow a oneshot into a feature workflow mid-stream | Cancel and restart with \`ideate\` |
 | Call \`request_synthesize\` without listening for the user's intent | Wait for the user to ask for a PR, then call it |
@@ -18034,6 +18146,8 @@ Evaluate agent-generated tests against Kent Beck's Test Desiderata. Four propert
 
 Include Test Desiderata findings in the quality review report under a "Test Quality" section. **Output format:** Report Test Desiderata violations as entries in the \`issues\` array with \`category: "test-quality"\`.
 
+> **Forthcoming — mutation-adequacy (R5, #1520):** A dedicated \`mutation-adequacy\` review dimension will join the review contract in a later slice, scoring whether the test suite actually kills injected mutants (the strongest signal that tests can fail for the right reason). Until that dimension lands, surviving-mutant analysis is **out of scope** for this skill — do not run or score mutation testing here. Today the closest proxy is the **Specific** Test Desiderata property above plus the \`check_test_adequacy\` gate at delegation time; full mutation scoring is deferred to R5.
+
 ### Step 3: Generate Report
 
 Use the template from \`references/review-report-template.md\` to structure the review output.
@@ -18344,6 +18458,16 @@ Before modifying any existing code behavior, capture current behavior as charact
 3. **After changes:** Document which characterization test failures were expected. Remaining characterization tests become regression tests.
 
 This aligns with Michael Feathers' approach in *Working Effectively with Legacy Code* — understand behavior before changing it.
+
+### Oracle-integrity gate (Both Tracks)
+
+The characterization tests are your **oracle** — the safety net that tells you whether behavior changed. That net only holds if you do not edit the oracle mid-refactor. Before completing the refactor, inspect the test diff:
+
+\`\`\`bash
+git diff -- tests/
+\`\`\`
+
+The test oracle may be **ADDED to** during a refactor (new characterization tests, new cases), but an existing characterization assertion must **never be silently modified**. A silently-edited oracle invalidates the safety net: the test now passes against the *changed* behavior, hiding the very regression characterization was meant to catch. If a characterization assertion genuinely must change, that is a behavior change — call it out explicitly and justify it, do not fold it into the refactor diff unremarked.
 
 ## Design-time Constraints (Both Tracks)
 
@@ -21443,7 +21567,7 @@ For worktree cleanup:
 exports[`task 025 — per-runtime snapshot baselines > runtime: generic > Snapshots_AllSkillsAllRuntimes_MatchBaseline: skills/generic/implementation-planning/SKILL.md > skills/generic/implementation-planning/SKILL.md 1`] = `
 "---
 name: implementation-planning
-description: "Transform design documents into TDD-based implementation plans with parallelizable tasks. Triggers: 'plan implementation', 'create tasks from design', or /plan. Enforces the Iron Law: no production code without a failing test first. Requires an existing design document — use /ideate first if none exists. Do NOT use for brainstorming, debugging, or code review."
+description: "Transform design documents into implementation plans with parallelizable tasks. Triggers: 'plan implementation', 'create tasks from design', or /plan. Applies the verification ladder: verification depth matches each task's blast radius — static analysis for low-risk tasks, scoped tests plus a kill-probe for medium, full red-green-refactor for high-risk surfaces. Requires an existing design document — use /ideate first if none exists. Do NOT use for brainstorming, debugging, or code review."
 metadata:
   author: exarchos
   version: 1.0.0
@@ -21485,16 +21609,24 @@ After 3 failed revisions:
 
 > **MANDATORY:** Before accepting any rationalization for skipping tests, planning, or TDD steps, consult \`references/rationalization-refutation.md\`. Every common excuse is catalogued with a counter-argument and the correct action.
 
-## The Iron Law
+## The Verification Ladder
 
-> **NO PRODUCTION CODE WITHOUT A FAILING TEST FIRST**
+Verification depth matches blast radius — red-green-refactor is the **HIGH-tier path**, not a universal law. Each task gets the cheapest verification that still captures its risk:
 
-Every implementation task MUST:
+| Risk tier | What it adds | Why |
+|-----------|--------------|-----|
+| **low** | Static analysis (typecheck + lint) suffices | A docs/config/rename-only edit has near-zero blast radius; test-first ceremony is pure overhead. |
+| **medium** | Scoped tests + the \`check_test_adequacy\` kill-probe | The kill-probe recaptures test-first's unique guarantee — that a test can actually fail — at lower cost than mandating RED-first on every commit. |
+| **high** | Full red-green-refactor + the integration suite | Schema/type/API/shared-contract surfaces span the codebase; here the failing-test-first discipline earns its cost. |
+
+The planner stamps each task's \`riskTier\` (and \`boundaryTouching\`); the classifier derives it from blast radius when the planner does not override. The dispatched implementer prompt and the gate sequence both scale off that stamp — so the verification effort is data-driven, not a blanket rule.
+
+For a **high-tier** task, the discipline is:
 1. Start with writing a failing test
 2. Specify the expected failure reason
 3. Only then implement minimum code to pass
 
-**Verify TDD compliance** in git history after implementation:
+**Verify high-tier TDD compliance** in git history after implementation:
 
 \`\`\`typescript
 exarchos_orchestrate({
@@ -21644,11 +21776,13 @@ For reference, consult \`references/spec-tracing-guide.md\` for the underlying m
 
 ## Rationalization Debunking
 
+The ladder already prices in genuinely low-risk work — so these excuses apply to **medium/high-tier** tasks, where they are rationalizations rather than reasonable tier choices:
+
 | Excuse | Reality |
 |--------|---------|
-| "This is too simple for tests" | Simple code breaks too. Test it. |
-| "I'll add tests after" | You won't. Or they'll be weak. |
-| "Tests slow me down" | Debugging without tests is slower. |
+| "This is too simple for a test" (on a medium/high-tier task) | If it touches a high-blast surface, its tier is not low. Test it at the tier the ladder assigns. |
+| "I'll add tests after" | You won't. Or they'll be weak — and \`check_test_adequacy\` will catch tests that can't fail. |
+| "Tests slow me down" | Debugging an untested medium/high-tier change is slower. |
 | "The design is obvious" | Obvious to you now. Not in 3 months. |
 
 ## State Management
@@ -21681,7 +21815,7 @@ for orchestrate action schemas.
 - [ ] Spec traceability table created (\`exarchos_orchestrate({ action: "generate_traceability" })\`)
 - [ ] Scope declared (full or partial with rationale)
 - [ ] Tasks decomposed to 2-5 min granularity
-- [ ] Each task starts with failing test
+- [ ] Each task carries a \`riskTier\` (and \`boundaryTouching\`) stamp; high-tier tasks start with a failing test
 - [ ] Dependencies mapped
 - [ ] Parallel groups identified
 - [ ] Plan verification passed — \`exarchos_orchestrate({ action: "check_plan_coverage" })\` returns passed: true
@@ -22054,7 +22188,7 @@ pure functions of \`state.oneshot.synthesisPolicy\` and the
 | Phase | What happens | Exit criteria |
 |---|---|---|
 | \`plan\` | Lightweight one-page plan: goal, approach, files to touch, tests to add. No design doc. No subagent dispatch. | \`artifacts.plan\` set → transition to \`implementing\` |
-| \`implementing\` | In-session TDD loop. Write a failing test, make it pass, refactor. Commit as you go. The TDD iron law applies — *no production code without a failing test first*. | Tests pass + typecheck clean + finalize_oneshot called |
+| \`implementing\` | In-session loop, verification scaled to risk. Defaults to the low tier (static analysis suffices); higher-blast changes get the failing-test-first red-green-refactor discipline. Commit as you go. | Tests pass + typecheck clean + finalize_oneshot called |
 | \`synthesize\` | Reached **only** when \`synthesisOptedIn\` is true. Hands off to the existing synthesis flow — see \`@skills/synthesis/SKILL.md\`. PR created via \`exarchos_orchestrate({ action: "create_pr" })\`, auto-merge enabled, CI gates apply. | PR merged → \`completed\` |
 | \`completed\` | Terminal. For direct-commit path, commits are already on the branch — there's nothing more to do. For synthesize path, the PR merge event terminates the workflow. | — |
 
@@ -22119,11 +22253,14 @@ label and is not a substitute for a real plan artifact.
 
 ### Step 3 — Implementing phase
 
-Run an in-session TDD loop. Same iron law as every other workflow:
+Run an in-session loop, with verification scaled to the change's risk (the
+ladder in \`@skills/_shared/references/verification.md\`). A oneshot defaults to
+the **low tier** — static analysis suffices for a trivial fix. When the change
+touches a higher-blast surface (schema/type/API/shared contract, or it crosses
+an I/O boundary), it is a higher-tier task and gets the failing-test-first
+discipline.
 
-> **NO PRODUCTION CODE WITHOUT A FAILING TEST FIRST**
-
-For each behavior in the plan:
+For each higher-tier behavior in the plan:
 
 1. **[RED]** Write a failing test. Run the test. Confirm it fails for
    the right reason.
@@ -22382,27 +22519,33 @@ phase transitions, guard names, and playbook prose. Use
 \`exarchos_orchestrate({ action: "describe", actions: ["request_synthesize", "finalize_oneshot"] })\`
 for the orchestrate action schemas.
 
-## TDD is still mandatory
+## Verification scales with risk
 
-The iron law from \`@rules/tdd.md\` applies to oneshot. There is no
-exemption for "small" changes. Specifically:
+The verification ladder from \`@skills/_shared/references/verification.md\` applies to
+oneshot. A oneshot **defaults to the cheap (low) tier** — a one-line fix or config
+tweak leans on static analysis (typecheck + lint), no test-first ceremony — *unless
+risk signals say otherwise*. Specifically:
 
-- Every behavior change starts with a failing test
-- Every test must fail before its implementation is written
-- Tests must be run after each change to verify state
-- Commits stay atomic — one logical change per commit
+- A low-risk change (docs/config/rename-only, near-zero blast radius) needs only
+  static analysis to pass; add a focused test only if behavior is non-obvious.
+- If the change touches a higher-blast surface (schema/type/API/shared contract,
+  or it crosses an I/O boundary), it is **not** a low-tier task: write the failing
+  test first and follow red-green-refactor, and expect the \`check_test_adequacy\`
+  kill-probe to flag tests that cannot actually fail.
+- Commits stay atomic — one logical change per commit, regardless of tier.
 
-The temptation in a oneshot is to skip the test "because it's just one
-line". Resist that. The test is what makes the change auditable, and
-auditability is the entire reason oneshot exists alongside the lighter
-"bypass workflows entirely" path.
+The temptation in a oneshot is to assume *everything* is "just one line" and skip
+verification entirely. Resist that for anything past the low tier. The point of
+oneshot is auditability at the *right* cost — not zero verification, and not the
+full feature ceremony on a trivial edit.
 
 ## Anti-patterns
 
 | Don't | Do Instead |
 |-------|------------|
 | Skip the plan phase ("it's obvious") | Write the four-line plan anyway — it's the artifact future-you reads |
-| Skip the TDD loop in implementing | Always RED → GREEN → REFACTOR, even for one-liners |
+| Apply full RED → GREEN → REFACTOR to a trivial one-liner | Match verification to risk: low-tier leans on static analysis; reserve test-first for higher-blast changes |
+| Skip verification entirely because "it's a oneshot" | Even low-tier must pass static analysis; higher-blast changes still need the failing test first |
 | Use oneshot for multi-file refactors | Use \`ideate\` and the full feature workflow |
 | Try to grow a oneshot into a feature workflow mid-stream | Cancel and restart with \`ideate\` |
 | Call \`request_synthesize\` without listening for the user's intent | Wait for the user to ask for a PR, then call it |
@@ -22892,6 +23035,8 @@ Evaluate agent-generated tests against Kent Beck's Test Desiderata. Four propert
 
 Include Test Desiderata findings in the quality review report under a "Test Quality" section. **Output format:** Report Test Desiderata violations as entries in the \`issues\` array with \`category: "test-quality"\`.
 
+> **Forthcoming — mutation-adequacy (R5, #1520):** A dedicated \`mutation-adequacy\` review dimension will join the review contract in a later slice, scoring whether the test suite actually kills injected mutants (the strongest signal that tests can fail for the right reason). Until that dimension lands, surviving-mutant analysis is **out of scope** for this skill — do not run or score mutation testing here. Today the closest proxy is the **Specific** Test Desiderata property above plus the \`check_test_adequacy\` gate at delegation time; full mutation scoring is deferred to R5.
+
 ### Step 3: Generate Report
 
 Use the template from \`references/review-report-template.md\` to structure the review output.
@@ -23202,6 +23347,16 @@ Before modifying any existing code behavior, capture current behavior as charact
 3. **After changes:** Document which characterization test failures were expected. Remaining characterization tests become regression tests.
 
 This aligns with Michael Feathers' approach in *Working Effectively with Legacy Code* — understand behavior before changing it.
+
+### Oracle-integrity gate (Both Tracks)
+
+The characterization tests are your **oracle** — the safety net that tells you whether behavior changed. That net only holds if you do not edit the oracle mid-refactor. Before completing the refactor, inspect the test diff:
+
+\`\`\`bash
+git diff -- tests/
+\`\`\`
+
+The test oracle may be **ADDED to** during a refactor (new characterization tests, new cases), but an existing characterization assertion must **never be silently modified**. A silently-edited oracle invalidates the safety net: the test now passes against the *changed* behavior, hiding the very regression characterization was meant to catch. If a characterization assertion genuinely must change, that is a behavior change — call it out explicitly and justify it, do not fold it into the refactor diff unremarked.
 
 ## Design-time Constraints (Both Tracks)
 
@@ -26328,7 +26483,7 @@ For worktree cleanup:
 exports[`task 025 — per-runtime snapshot baselines > runtime: opencode > Snapshots_AllSkillsAllRuntimes_MatchBaseline: skills/opencode/implementation-planning/SKILL.md > skills/opencode/implementation-planning/SKILL.md 1`] = `
 "---
 name: implementation-planning
-description: "Transform design documents into TDD-based implementation plans with parallelizable tasks. Triggers: 'plan implementation', 'create tasks from design', or /plan. Enforces the Iron Law: no production code without a failing test first. Requires an existing design document — use /ideate first if none exists. Do NOT use for brainstorming, debugging, or code review."
+description: "Transform design documents into implementation plans with parallelizable tasks. Triggers: 'plan implementation', 'create tasks from design', or /plan. Applies the verification ladder: verification depth matches each task's blast radius — static analysis for low-risk tasks, scoped tests plus a kill-probe for medium, full red-green-refactor for high-risk surfaces. Requires an existing design document — use /ideate first if none exists. Do NOT use for brainstorming, debugging, or code review."
 metadata:
   author: exarchos
   version: 1.0.0
@@ -26370,16 +26525,24 @@ After 3 failed revisions:
 
 > **MANDATORY:** Before accepting any rationalization for skipping tests, planning, or TDD steps, consult \`references/rationalization-refutation.md\`. Every common excuse is catalogued with a counter-argument and the correct action.
 
-## The Iron Law
+## The Verification Ladder
 
-> **NO PRODUCTION CODE WITHOUT A FAILING TEST FIRST**
+Verification depth matches blast radius — red-green-refactor is the **HIGH-tier path**, not a universal law. Each task gets the cheapest verification that still captures its risk:
 
-Every implementation task MUST:
+| Risk tier | What it adds | Why |
+|-----------|--------------|-----|
+| **low** | Static analysis (typecheck + lint) suffices | A docs/config/rename-only edit has near-zero blast radius; test-first ceremony is pure overhead. |
+| **medium** | Scoped tests + the \`check_test_adequacy\` kill-probe | The kill-probe recaptures test-first's unique guarantee — that a test can actually fail — at lower cost than mandating RED-first on every commit. |
+| **high** | Full red-green-refactor + the integration suite | Schema/type/API/shared-contract surfaces span the codebase; here the failing-test-first discipline earns its cost. |
+
+The planner stamps each task's \`riskTier\` (and \`boundaryTouching\`); the classifier derives it from blast radius when the planner does not override. The dispatched implementer prompt and the gate sequence both scale off that stamp — so the verification effort is data-driven, not a blanket rule.
+
+For a **high-tier** task, the discipline is:
 1. Start with writing a failing test
 2. Specify the expected failure reason
 3. Only then implement minimum code to pass
 
-**Verify TDD compliance** in git history after implementation:
+**Verify high-tier TDD compliance** in git history after implementation:
 
 \`\`\`typescript
 exarchos_orchestrate({
@@ -26529,11 +26692,13 @@ For reference, consult \`references/spec-tracing-guide.md\` for the underlying m
 
 ## Rationalization Debunking
 
+The ladder already prices in genuinely low-risk work — so these excuses apply to **medium/high-tier** tasks, where they are rationalizations rather than reasonable tier choices:
+
 | Excuse | Reality |
 |--------|---------|
-| "This is too simple for tests" | Simple code breaks too. Test it. |
-| "I'll add tests after" | You won't. Or they'll be weak. |
-| "Tests slow me down" | Debugging without tests is slower. |
+| "This is too simple for a test" (on a medium/high-tier task) | If it touches a high-blast surface, its tier is not low. Test it at the tier the ladder assigns. |
+| "I'll add tests after" | You won't. Or they'll be weak — and \`check_test_adequacy\` will catch tests that can't fail. |
+| "Tests slow me down" | Debugging an untested medium/high-tier change is slower. |
 | "The design is obvious" | Obvious to you now. Not in 3 months. |
 
 ## State Management
@@ -26566,7 +26731,7 @@ for orchestrate action schemas.
 - [ ] Spec traceability table created (\`exarchos_orchestrate({ action: "generate_traceability" })\`)
 - [ ] Scope declared (full or partial with rationale)
 - [ ] Tasks decomposed to 2-5 min granularity
-- [ ] Each task starts with failing test
+- [ ] Each task carries a \`riskTier\` (and \`boundaryTouching\`) stamp; high-tier tasks start with a failing test
 - [ ] Dependencies mapped
 - [ ] Parallel groups identified
 - [ ] Plan verification passed — \`exarchos_orchestrate({ action: "check_plan_coverage" })\` returns passed: true
@@ -26939,7 +27104,7 @@ pure functions of \`state.oneshot.synthesisPolicy\` and the
 | Phase | What happens | Exit criteria |
 |---|---|---|
 | \`plan\` | Lightweight one-page plan: goal, approach, files to touch, tests to add. No design doc. No subagent dispatch. | \`artifacts.plan\` set → transition to \`implementing\` |
-| \`implementing\` | In-session TDD loop. Write a failing test, make it pass, refactor. Commit as you go. The TDD iron law applies — *no production code without a failing test first*. | Tests pass + typecheck clean + finalize_oneshot called |
+| \`implementing\` | In-session loop, verification scaled to risk. Defaults to the low tier (static analysis suffices); higher-blast changes get the failing-test-first red-green-refactor discipline. Commit as you go. | Tests pass + typecheck clean + finalize_oneshot called |
 | \`synthesize\` | Reached **only** when \`synthesisOptedIn\` is true. Hands off to the existing synthesis flow — see \`@skills/synthesis/SKILL.md\`. PR created via \`exarchos_orchestrate({ action: "create_pr" })\`, auto-merge enabled, CI gates apply. | PR merged → \`completed\` |
 | \`completed\` | Terminal. For direct-commit path, commits are already on the branch — there's nothing more to do. For synthesize path, the PR merge event terminates the workflow. | — |
 
@@ -27004,11 +27169,14 @@ label and is not a substitute for a real plan artifact.
 
 ### Step 3 — Implementing phase
 
-Run an in-session TDD loop. Same iron law as every other workflow:
+Run an in-session loop, with verification scaled to the change's risk (the
+ladder in \`@skills/_shared/references/verification.md\`). A oneshot defaults to
+the **low tier** — static analysis suffices for a trivial fix. When the change
+touches a higher-blast surface (schema/type/API/shared contract, or it crosses
+an I/O boundary), it is a higher-tier task and gets the failing-test-first
+discipline.
 
-> **NO PRODUCTION CODE WITHOUT A FAILING TEST FIRST**
-
-For each behavior in the plan:
+For each higher-tier behavior in the plan:
 
 1. **[RED]** Write a failing test. Run the test. Confirm it fails for
    the right reason.
@@ -27267,27 +27435,33 @@ phase transitions, guard names, and playbook prose. Use
 \`exarchos_orchestrate({ action: "describe", actions: ["request_synthesize", "finalize_oneshot"] })\`
 for the orchestrate action schemas.
 
-## TDD is still mandatory
+## Verification scales with risk
 
-The iron law from \`@rules/tdd.md\` applies to oneshot. There is no
-exemption for "small" changes. Specifically:
+The verification ladder from \`@skills/_shared/references/verification.md\` applies to
+oneshot. A oneshot **defaults to the cheap (low) tier** — a one-line fix or config
+tweak leans on static analysis (typecheck + lint), no test-first ceremony — *unless
+risk signals say otherwise*. Specifically:
 
-- Every behavior change starts with a failing test
-- Every test must fail before its implementation is written
-- Tests must be run after each change to verify state
-- Commits stay atomic — one logical change per commit
+- A low-risk change (docs/config/rename-only, near-zero blast radius) needs only
+  static analysis to pass; add a focused test only if behavior is non-obvious.
+- If the change touches a higher-blast surface (schema/type/API/shared contract,
+  or it crosses an I/O boundary), it is **not** a low-tier task: write the failing
+  test first and follow red-green-refactor, and expect the \`check_test_adequacy\`
+  kill-probe to flag tests that cannot actually fail.
+- Commits stay atomic — one logical change per commit, regardless of tier.
 
-The temptation in a oneshot is to skip the test "because it's just one
-line". Resist that. The test is what makes the change auditable, and
-auditability is the entire reason oneshot exists alongside the lighter
-"bypass workflows entirely" path.
+The temptation in a oneshot is to assume *everything* is "just one line" and skip
+verification entirely. Resist that for anything past the low tier. The point of
+oneshot is auditability at the *right* cost — not zero verification, and not the
+full feature ceremony on a trivial edit.
 
 ## Anti-patterns
 
 | Don't | Do Instead |
 |-------|------------|
 | Skip the plan phase ("it's obvious") | Write the four-line plan anyway — it's the artifact future-you reads |
-| Skip the TDD loop in implementing | Always RED → GREEN → REFACTOR, even for one-liners |
+| Apply full RED → GREEN → REFACTOR to a trivial one-liner | Match verification to risk: low-tier leans on static analysis; reserve test-first for higher-blast changes |
+| Skip verification entirely because "it's a oneshot" | Even low-tier must pass static analysis; higher-blast changes still need the failing test first |
 | Use oneshot for multi-file refactors | Use \`/ideate\` and the full feature workflow |
 | Try to grow a oneshot into a feature workflow mid-stream | Cancel and restart with \`/ideate\` |
 | Call \`request_synthesize\` without listening for the user's intent | Wait for the user to ask for a PR, then call it |
@@ -27777,6 +27951,8 @@ Evaluate agent-generated tests against Kent Beck's Test Desiderata. Four propert
 
 Include Test Desiderata findings in the quality review report under a "Test Quality" section. **Output format:** Report Test Desiderata violations as entries in the \`issues\` array with \`category: "test-quality"\`.
 
+> **Forthcoming — mutation-adequacy (R5, #1520):** A dedicated \`mutation-adequacy\` review dimension will join the review contract in a later slice, scoring whether the test suite actually kills injected mutants (the strongest signal that tests can fail for the right reason). Until that dimension lands, surviving-mutant analysis is **out of scope** for this skill — do not run or score mutation testing here. Today the closest proxy is the **Specific** Test Desiderata property above plus the \`check_test_adequacy\` gate at delegation time; full mutation scoring is deferred to R5.
+
 ### Step 3: Generate Report
 
 Use the template from \`references/review-report-template.md\` to structure the review output.
@@ -28087,6 +28263,16 @@ Before modifying any existing code behavior, capture current behavior as charact
 3. **After changes:** Document which characterization test failures were expected. Remaining characterization tests become regression tests.
 
 This aligns with Michael Feathers' approach in *Working Effectively with Legacy Code* — understand behavior before changing it.
+
+### Oracle-integrity gate (Both Tracks)
+
+The characterization tests are your **oracle** — the safety net that tells you whether behavior changed. That net only holds if you do not edit the oracle mid-refactor. Before completing the refactor, inspect the test diff:
+
+\`\`\`bash
+git diff -- tests/
+\`\`\`
+
+The test oracle may be **ADDED to** during a refactor (new characterization tests, new cases), but an existing characterization assertion must **never be silently modified**. A silently-edited oracle invalidates the safety net: the test now passes against the *changed* behavior, hiding the very regression characterization was meant to catch. If a characterization assertion genuinely must change, that is a behavior change — call it out explicitly and justify it, do not fold it into the refactor diff unremarked.
 
 ## Design-time Constraints (Both Tracks)
 

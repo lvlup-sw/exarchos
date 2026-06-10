@@ -8,6 +8,40 @@ import type { EventStore } from '../event-store/store.js';
 import type { ToolResult } from '../format.js';
 import type { ResolvedProjectConfig } from '../config/resolve.js';
 import { resolveGateSeverity } from './gate-severity.js';
+import {
+  resolveVerificationSequence,
+  type GateName,
+  type RiskTier,
+} from '../workflow/verification-policy.js';
+import type { GitExec } from './pure/execute-merge.js';
+
+/**
+ * Shared production git executor for the per-task gate handlers (FIX-4 dedupe).
+ *
+ * Shells out to `git` from `repoRoot` with a 30s ceiling and captures the
+ * combined stdout/stderr. NEVER throws on a non-zero exit — a failed git command
+ * surfaces as `{ stdout: <combined output>, exitCode: <status> }` so each gate
+ * reads the exit code as a leg verdict (a diff/checkout that legitimately fails
+ * is a finding, not a tool crash). Was byte-identical in test-adequacy-handler,
+ * contract-drift-handler, and mock-boundary-handler before this consolidation.
+ */
+export const defaultGitExec: GitExec = (repoRoot, args) => {
+  try {
+    const stdout = execFileSync('git', [...args], {
+      cwd: repoRoot,
+      timeout: 30_000,
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+    return { stdout, exitCode: 0 };
+  } catch (err) {
+    const e = err as { status?: number; stdout?: string | Buffer; stderr?: string | Buffer };
+    const out =
+      (typeof e.stdout === 'string' ? e.stdout : e.stdout?.toString('utf-8') ?? '') +
+      (typeof e.stderr === 'string' ? e.stderr : e.stderr?.toString('utf-8') ?? '');
+    return { stdout: out, exitCode: e.status ?? 1 };
+  }
+};
 
 /**
  * Fetch the unified diff between baseBranch and HEAD.
@@ -42,16 +76,31 @@ export async function emitGateEvent(
   layer: string,
   passed: boolean,
   details?: Record<string, unknown>,
+  /**
+   * Optional idempotency key (INV-8). When supplied, a second emission with the
+   * same key collapses to the first row instead of appending a duplicate — so a
+   * gate re-run under the same operationId leaves a single `gate.executed`.
+   * Omit it for fire-and-forget gates that intentionally emit one row per call.
+   */
+  idempotencyKey?: string,
 ): Promise<void> {
-  await store.append(streamId, {
-    type: 'gate.executed',
+  const event = {
+    type: 'gate.executed' as const,
     data: {
       gateName,
       layer,
       passed,
       ...(details !== undefined ? { details } : {}),
     },
-  });
+  };
+  // Only thread the AppendOptions arg when an idempotency key is present, so
+  // callers that don't opt into idempotency see the unchanged 2-arg append
+  // signature (no spurious `undefined` third argument).
+  if (idempotencyKey !== undefined) {
+    await store.append(streamId, event, { idempotencyKey });
+  } else {
+    await store.append(streamId, event);
+  }
 }
 
 // ─── Worktree-Aware repoRoot Resolution (#1330) ─────────────────────────────
@@ -192,4 +241,43 @@ export async function withConfigSeverity(
 
   // Blocking: return failure as-is
   return result;
+}
+
+// ─── Verification-ladder self-routing (FIX-1a) ──────────────────────────────
+
+/** The discriminant carried by a gate skipped because the policy excludes it. */
+export const SKIPPED_BY_POLICY = 'skipped-by-policy';
+
+/**
+ * Decide whether a gate should self-skip given the task's stamped verification
+ * profile. The SINGLE SOURCE OF TRUTH for which gates run is the policy table
+ * (`resolveVerificationSequence`, INV-6) — this helper reads it, it does NOT
+ * re-derive sequences.
+ *
+ * Returns a skip decision ONLY when BOTH stamped fields are present AND the
+ * resolved sequence for that profile does not contain `gateName`. When either
+ * stamp is absent (legacy callers that don't thread the profile) it returns
+ * `null` → the handler runs unconditionally, preserving current behavior.
+ */
+export function resolvePolicySkip(args: {
+  readonly gateName: GateName;
+  readonly riskTier?: RiskTier;
+  readonly boundaryTouching?: boolean;
+}): { readonly reason: string } | null {
+  const { gateName, riskTier, boundaryTouching } = args;
+  // Both stamps required — a partial stamp is treated as "no stamp" so we never
+  // skip on a half-resolved profile.
+  if (riskTier === undefined || boundaryTouching === undefined) {
+    return null;
+  }
+  const sequence = resolveVerificationSequence(riskTier, boundaryTouching);
+  if (sequence.includes(gateName)) {
+    return null;
+  }
+  return {
+    reason:
+      `skipped by verification policy — ${gateName} is not in the resolved ` +
+      `sequence for riskTier='${riskTier}', boundaryTouching=${boundaryTouching} ` +
+      `(sequence: ${sequence.join(', ') || 'none'})`,
+  };
 }
