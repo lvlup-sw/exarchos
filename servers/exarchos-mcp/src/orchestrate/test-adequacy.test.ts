@@ -9,10 +9,98 @@
 // test-adequacy.integration.test.ts.
 // ────────────────────────────────────────────────────────────────────────────
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterEach } from 'vitest';
 import * as fc from 'fast-check';
+import { execFileSync } from 'node:child_process';
+import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 
-import { splitHunks } from './test-adequacy.js';
+import {
+  splitHunks,
+  snapshotWorkingTree,
+  revertSourceFiles,
+  restoreWorkingTree,
+} from './test-adequacy.js';
+import type { GitExec } from './pure/execute-merge.js';
+
+// ─── real-git helpers (tasks 012/013) ────────────────────────────────────────
+
+function git(repoRoot: string, args: readonly string[]): string {
+  return execFileSync('git', [...args], {
+    cwd: repoRoot,
+    encoding: 'utf-8',
+    timeout: 30_000,
+    stdio: ['pipe', 'pipe', 'pipe'],
+  });
+}
+
+/** Production-shaped GitExec over a real repo (mirrors merge-orchestrate's). */
+const realGitExec: GitExec = (repoRoot, args) => {
+  try {
+    const stdout = execFileSync('git', [...args], {
+      cwd: repoRoot,
+      timeout: 30_000,
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+    return { stdout, exitCode: 0 };
+  } catch (err) {
+    const e = err as { status?: number; stdout?: string | Buffer; stderr?: string | Buffer };
+    const out =
+      (typeof e.stdout === 'string' ? e.stdout : e.stdout?.toString('utf-8') ?? '') +
+      (typeof e.stderr === 'string' ? e.stderr : e.stderr?.toString('utf-8') ?? '');
+    return { stdout: out, exitCode: e.status ?? 1 };
+  }
+};
+
+function initRepo(prefix: string): string {
+  const repoRoot = mkdtempSync(path.join(os.tmpdir(), prefix));
+  git(repoRoot, ['init', '--initial-branch=main', '-q']);
+  git(repoRoot, ['config', 'user.email', 'test@example.com']);
+  git(repoRoot, ['config', 'user.name', 'Test']);
+  git(repoRoot, ['config', 'commit.gpgsign', 'false']);
+  return repoRoot;
+}
+
+/**
+ * Repo with a base commit (`return 1`) on `main`, then a task commit on a
+ * feature branch changing source (`return 2`) + adding a test. The working
+ * tree at HEAD is clean. Returns the repoRoot, base ref, and the source file.
+ */
+function setupTaskRepo(prefix: string): {
+  repoRoot: string;
+  baseRef: string;
+  sourceFile: string;
+  testFile: string;
+} {
+  const repoRoot = initRepo(prefix);
+  mkdirSync(path.join(repoRoot, 'src'), { recursive: true });
+  writeFileSync(path.join(repoRoot, 'src', 'calc.js'), 'export const value = () => 1;\n');
+  git(repoRoot, ['add', '.']);
+  git(repoRoot, ['commit', '-m', 'base', '-q']);
+  const baseRef = git(repoRoot, ['rev-parse', 'HEAD']).trim();
+
+  git(repoRoot, ['checkout', '-b', 'feature/x', '-q']);
+  writeFileSync(path.join(repoRoot, 'src', 'calc.js'), 'export const value = () => 2;\n');
+  writeFileSync(path.join(repoRoot, 'src', 'calc.test.js'), "// pins value()===2\n");
+  git(repoRoot, ['add', '.']);
+  git(repoRoot, ['commit', '-m', 'task: bump to 2 + test', '-q']);
+
+  return { repoRoot, baseRef, sourceFile: 'src/calc.js', testFile: 'src/calc.test.js' };
+}
+
+/** Hash of the full working tree (HEAD index + worktree) for equality checks. */
+function workingTreeHash(repoRoot: string): string {
+  // `git stash create` returns a commit sha capturing the working tree; using
+  // its tree sha gives a stable content fingerprint without mutating refs.
+  const stashSha = git(repoRoot, ['stash', 'create']).trim();
+  if (!stashSha) {
+    // Clean tree — fingerprint HEAD's tree.
+    return git(repoRoot, ['rev-parse', 'HEAD^{tree}']).trim();
+  }
+  return git(repoRoot, ['rev-parse', `${stashSha}^{tree}`]).trim();
+}
 
 // ─── task 011: splitHunks ────────────────────────────────────────────────────
 
@@ -84,4 +172,118 @@ describe('splitHunks (file-level test/source classification)', () => {
       }),
     );
   });
+});
+
+// ─── task 012: snapshot / revert / restore (INV-14) ──────────────────────────
+
+describe('snapshot/revert/restore (INV-14: refuse-to-discard recovery)', () => {
+  const repos: string[] = [];
+  afterEach(() => {
+    for (const r of repos.splice(0)) {
+      try {
+        rmSync(r, { recursive: true, force: true });
+      } catch {
+        /* best-effort */
+      }
+    }
+  });
+
+  it(
+    'Snapshot_BeforeProbe_UsesRefuseToDiscardRef',
+    () => {
+      const { repoRoot } = setupTaskRepo('test-adequacy-snap-');
+      repos.push(repoRoot);
+
+      // Dirty the worktree so the snapshot has something non-trivial to hold:
+      // `git stash create` (object-only) must capture it WITHOUT mutating any
+      // ref (no `stash push`) — that is the refuse-to-discard property.
+      writeFileSync(path.join(repoRoot, 'src', 'calc.js'), 'export const value = () => 99;\n');
+
+      const stashRefsBefore = git(repoRoot, ['stash', 'list']);
+      const snap = snapshotWorkingTree(realGitExec, repoRoot);
+
+      expect('stashSha' in snap).toBe(true);
+      if ('stashSha' in snap) {
+        // A real commit object capturing the dirty tree.
+        expect(snap.stashSha).toMatch(/^[0-9a-f]{40}$/);
+      }
+      // No ref was mutated — the stash list is unchanged (object-only create).
+      expect(git(repoRoot, ['stash', 'list'])).toBe(stashRefsBefore);
+    },
+    30_000,
+  );
+
+  it(
+    'Restore_AfterProbe_TreeHashMatchesSnapshot',
+    () => {
+      const { repoRoot, baseRef, sourceFile } = setupTaskRepo('test-adequacy-restore-');
+      repos.push(repoRoot);
+
+      const before = workingTreeHash(repoRoot);
+      const snap = snapshotWorkingTree(realGitExec, repoRoot);
+      expect('stashSha' in snap).toBe(true);
+
+      // Revert source back to base (probe's mutation step), then restore.
+      const reverted = revertSourceFiles(realGitExec, repoRoot, baseRef, [sourceFile]);
+      expect(reverted.ok).toBe(true);
+      // After revert the tree differs from the snapshot.
+      expect(workingTreeHash(repoRoot)).not.toBe(before);
+
+      if ('stashSha' in snap) {
+        const restore = restoreWorkingTree(realGitExec, repoRoot, snap.stashSha);
+        expect(restore.restored).toBe(true);
+      }
+      // Restored tree is byte-identical to the pre-probe snapshot.
+      expect(workingTreeHash(repoRoot)).toBe(before);
+    },
+    30_000,
+  );
+
+  it(
+    'Restore_OnProbeError_StillRestores',
+    () => {
+      const { repoRoot, baseRef, sourceFile } = setupTaskRepo('test-adequacy-restore-err-');
+      repos.push(repoRoot);
+
+      const before = workingTreeHash(repoRoot);
+      const snap = snapshotWorkingTree(realGitExec, repoRoot);
+      expect('stashSha' in snap).toBe(true);
+      if (!('stashSha' in snap)) throw new Error('snapshot failed');
+
+      // Simulate the probe body throwing AFTER the source was reverted; the
+      // caller's finally must still run restore. We assert that directly: even
+      // when a thrown error interrupts, restore brings the tree back.
+      let restored = false;
+      try {
+        revertSourceFiles(realGitExec, repoRoot, baseRef, [sourceFile]);
+        throw new Error('injected test-run failure');
+      } catch {
+        const restore = restoreWorkingTree(realGitExec, repoRoot, snap.stashSha);
+        restored = restore.restored;
+      }
+      expect(restored).toBe(true);
+      expect(workingTreeHash(repoRoot)).toBe(before);
+    },
+    30_000,
+  );
+
+  it(
+    'Revert_Conflict_ReturnsRevertConflictDiscriminant',
+    () => {
+      const { repoRoot } = setupTaskRepo('test-adequacy-conflict-');
+      repos.push(repoRoot);
+
+      // Ask to revert a path that does not exist at the base ref → the targeted
+      // `git checkout <base> -- <path>` fails. The helper must surface a
+      // structured 'revert-conflict' discriminant, never throw or silently no-op.
+      const reverted = revertSourceFiles(realGitExec, repoRoot, 'main', [
+        'src/does-not-exist-at-base.js',
+      ]);
+      expect(reverted.ok).toBe(false);
+      if (!reverted.ok) {
+        expect(reverted.discriminant).toBe('revert-conflict');
+      }
+    },
+    30_000,
+  );
 });
