@@ -9,6 +9,8 @@ Each task follows this structure:
 
 **Phase:** [RED | GREEN | REFACTOR]
 **Test Layer:** [acceptance | integration | unit | property]
+**Risk Tier:** [low | medium | high — optional; omit to let `classifyTask` derive it]
+**Boundary Touching:** [true | false — optional; omit to let `classifyTask` derive it]
 **Acceptance Test Ref:** [Task ID of parent acceptance test, or omit]
 **Implements:** [DR-N identifiers]
 
@@ -35,6 +37,23 @@ Each task follows this structure:
 **Dependencies:** [Task IDs this depends on, or "None"]
 **Parallelizable:** [Yes/No]
 ```
+
+## Risk Tier and Boundary Tag
+
+Each task carries two orthogonal verification-routing signals, derived **mechanically** by
+`classifyTask` (`prepare-delegation.ts`) — no LLM in the hot path. An explicit value in the plan
+**always wins** over derivation (override-first, mirroring the toolchain resolver's layering).
+
+| Signal | Derivation (when omitted) |
+|---|---|
+| `riskTier: high` | any file matches schema/type/API/contract globs, `testLayer: acceptance`, `blockedBy ≥ 2`, or `files ≥ 3` |
+| `riskTier: low` | ALL files match doc/config/rename globs |
+| `riskTier: medium` | default (single-module behavior); ambiguity resolves upward to medium |
+| `boundaryTouching: true` | `testLayer ∈ {integration, acceptance}`, IO-adapter/client globs hit, or a schema artifact (proto/OpenAPI/GraphQL) in scope |
+
+The tier→gate **sequence** is resolved by `workflow/verification-policy.ts` (the policy SoT) and
+stamped on the delegation record — do not encode gate sequences in plan prose. A low-blast task
+can still be boundary-tagged: the axes are independent.
 
 ## Test Layer Selection
 
