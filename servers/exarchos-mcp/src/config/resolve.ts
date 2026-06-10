@@ -105,6 +105,13 @@ export const DEFAULTS: ResolvedProjectConfig = deepFreeze({
     // project can still re-block it with an explicit gate override.
     gates: {
       'tdd-compliance': { enabled: true, blocking: false, params: {} },
+      // Verification-ladder slice 1, SIV-4 (#1530): the mock-boundary gate is
+      // ADVISORY by default. It surfaces unowned-dependency mocks (the high-risk
+      // pattern coding agents over-produce) and steers toward hermetic fixtures,
+      // but does not block a task by default — an unowned mock can be the right
+      // call (acknowledged via the `reason` escape hatch). A project can re-block
+      // it with an explicit `review.gates['mock-boundary']` override.
+      'mock-boundary': { enabled: true, blocking: false, params: {} },
     },
     routing: {
       coderabbitThreshold: 0.4,

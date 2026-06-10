@@ -177,11 +177,13 @@ describe('check_mock_boundary acceptance (through handleOrchestrate)', () => {
       cleanups.push(() => rmSync(repoRoot, { recursive: true, force: true }));
       writeBaseProject(repoRoot);
 
-      // Branch: add a test that mocks a FIRST-PARTY relative module.
+      // Branch: add a test that mocks a FIRST-PARTY relative module. `./foo.js`
+      // resolves against the diff file's directory (`src/bar.test.ts` → `src/`),
+      // so the target is `src/foo.js` — under the `src/**` first-party scope.
       git(repoRoot, ['checkout', '-b', 'feature/firstparty', '-q']);
       writeFileSync(
         path.join(repoRoot, 'src', 'bar.test.ts'),
-        "import { foo } from './foo.js';\nvi.mock('../foo.js');\nfoo();\n",
+        "import { foo } from './foo.js';\nvi.mock('./foo.js');\nfoo();\n",
       );
       git(repoRoot, ['add', '.']);
       git(repoRoot, ['commit', '-m', 'test: mock first-party foo', '-q']);

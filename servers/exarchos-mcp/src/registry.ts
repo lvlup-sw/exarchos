@@ -1721,6 +1721,51 @@ const orchestrateActions: readonly ToolAction[] = [
     annotations: LOCAL_MUTATION,
   },
   {
+    name: 'check_mock_boundary',
+    description:
+      'Per-task mock-boundary gate (verification-ladder slice 1, SIV-4): scans ' +
+      "the task's NEW test hunks for mock sites (mock/stub/spy/fake/patch/" +
+      'monkeypatch at an identifier boundary) and cross-references each mocked ' +
+      'target against the resolved `ownership.firstParty` scope. Mocking a ' +
+      'FIRST-PARTY module is low-risk (its contract is visible); mocking an ' +
+      'UNOWNED dependency asserts against a fiction — the high-risk pattern. ' +
+      'ADVISORY by default (severity resolved via DEFAULTS.review.gates, like ' +
+      'tdd-compliance; a project review-gate override still wins). On an unowned ' +
+      'finding, surfaces a per-finding steer in next_actions (replace with a ' +
+      'hermetic fixture / contract-verified stub / a fake). An explicit `reason` ' +
+      'is an escape hatch that passes the gate advisory AND records the ' +
+      'acknowledgement in the gate.executed payload. Emits a gate.executed event ' +
+      '(gate "mock-boundary", dimension D1). Pass repoRoot ("auto" to resolve ' +
+      "the calling delegation's worktree); operationId makes the gate emission " +
+      'idempotent (INV-8).',
+    // Field names + base types match check_test_adequacy / check_contract_drift
+    // exactly so the shared registration schema (buildRegistrationSchema) never
+    // sees a same-name field with a divergent base type. `reason` reuses the
+    // existing optional-string contract (request_synthesize.reason).
+    schema: z.object({
+      featureId: z.string().min(1),
+      taskId: z.string().min(1),
+      branch: z.string().optional(),
+      baseBranch: z.string().optional(),
+      repoRoot: z.string().optional(),
+      worktreePath: z.string().optional(),
+      operationId: z.string().optional(),
+      reason: z.string().optional(),
+    }),
+    phases: DELEGATE_PHASES,
+    roles: ROLE_LEAD,
+    // Advisory by default — the runtime severity demotion lives in
+    // DEFAULTS.review.gates['mock-boundary'] (resolved per-call via
+    // resolveGateSeverity). The registry flag mirrors that default so the
+    // RunbookDrift blocking-gate coverage check treats it as advisory.
+    gate: { blocking: false, dimension: 'D1' },
+    autoEmits: [
+      { event: 'gate.executed', condition: 'always' },
+    ],
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: LOCAL_MUTATION,
+  },
+  {
     name: 'check_post_merge',
     description: 'Post-merge regression check. Emits gate.executed event with dimension D4.',
     schema: z.object({
