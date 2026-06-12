@@ -50,8 +50,8 @@ import {
 } from '../workflow/checkpoint.js';
 import type { CheckpointEnforcementConfig } from '../workflow/checkpoint.js';
 import { globToRegExp } from '../architecture/glob-to-regexp.js';
-import { resolveVerificationSequence } from '../workflow/verification-policy.js';
 import type { GateName } from '../workflow/verification-policy.js';
+import { resolveVerificationPolicy } from '../workflow/verification-policy-resolver.js';
 
 // ─── Result Interface ────────────────────────────────────────────────────────
 
@@ -385,7 +385,14 @@ function classifyTaskCore(
  * verification-ladder fields:
  *   - `riskTier`           — {@link deriveRiskTier} (honors explicit override)
  *   - `boundaryTouching`   — {@link deriveBoundaryTouching} (honors override)
- *   - `verificationSequence` — {@link resolveVerificationSequence} over the two
+ *   - `verificationSequence` — {@link resolveVerificationPolicy} over the two
+ *
+ * vls1-b2 (task 003): the verification sequence is stamped from the
+ * CONFIG-RESOLVED policy ({@link resolveVerificationPolicy}), not the frozen
+ * built-in table directly. When `config` is omitted (or its relevant cell is
+ * unset) the resolver delegates to the built-in table, so behavior is
+ * byte-identical to the pre-config stamp. A `.exarchos.yml` `verification:`
+ * cell override therefore changes what gets stamped onto the delegation record.
  *
  * The legacy `complexity`/`effort` axis is preserved unchanged — `riskTier` is
  * a SEPARATE, blast-radius-driven axis (a scaffolding task can be low-effort
@@ -394,6 +401,7 @@ function classifyTaskCore(
 export function classifyTask(
   task: TaskInput,
   agentConfig: ResolvedProjectConfig['agents'] = DEFAULTS.agents,
+  config?: ResolvedProjectConfig,
 ): TaskClassification {
   const core = classifyTaskCore(task, agentConfig);
   const riskTier = deriveRiskTier(task);
@@ -402,7 +410,7 @@ export function classifyTask(
     ...core,
     riskTier,
     boundaryTouching,
-    verificationSequence: resolveVerificationSequence(riskTier, boundaryTouching),
+    verificationSequence: resolveVerificationPolicy(riskTier, boundaryTouching, config).sequence,
   };
 }
 
@@ -983,10 +991,22 @@ export async function handlePrepareDelegation(
       });
     } catch { /* fire-and-forget */ }
 
-    // Compute task classifications when tasks are provided (advisory)
+    // Compute task classifications when tasks are provided (advisory).
+    // vls1-b2 (task 003): thread the resolved project config so the
+    // verification sequence stamped on each classification honors any
+    // `.exarchos.yml` `verification:` cell override. When absent, the
+    // resolver falls through to the byte-identical built-in table.
+    //
+    // The resolver reads `config.verification.policy`; only forward a config
+    // whose `verification` overlay is actually present so a partial/legacy
+    // config object (one that predates the overlay) cannot throw — that path
+    // is equivalent to "no config" (built-in table).
     const agentConfig = ctx?.projectConfig?.agents ?? DEFAULTS.agents;
+    const projectConfig = ctx?.projectConfig?.verification
+      ? ctx.projectConfig
+      : undefined;
     const taskClassifications = args.tasks
-      ? args.tasks.map(t => classifyTask(t, agentConfig))
+      ? args.tasks.map(t => classifyTask(t, agentConfig, projectConfig))
       : undefined;
 
     const result: PrepareDelegationResult = {
