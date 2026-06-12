@@ -331,12 +331,14 @@ export function resolveConfig(project: ProjectConfig): ResolvedProjectConfig {
   // ── Verification ──
   // Thread the parsed policy-overlay through as-is. A missing block (or missing
   // `policy`) resolves to the empty overlay (`{}`) — "override nothing" — so
-  // the later resolver falls through to the base policy table. The overlay is
-  // a plain validated value; we shallow-clone so deepFreeze does not freeze the
-  // caller's input.
+  // the later resolver falls through to the base policy table. The overlay
+  // nests (per-cell arrays + a `boundary` sub-policy), so we DEEP-clone before
+  // freezing — `deepFreeze` would otherwise reach through a shallow copy and
+  // freeze the caller's nested arrays/objects (matching the codebase's
+  // don't-freeze-caller-input discipline).
   const verificationPolicy: VerificationPolicyOverlay = project.verification?.policy
-    ? { ...project.verification.policy }
-    : { ...DEFAULTS.verification.policy };
+    ? structuredClone(project.verification.policy)
+    : structuredClone(DEFAULTS.verification.policy);
 
   const resolved: ResolvedProjectConfig = {
     agents: { defaultModel: agentDefaultModel, models: agentModels },

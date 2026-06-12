@@ -344,5 +344,21 @@ describe('resolveConfig', () => {
       expect(DEFAULTS.verification).toBeDefined();
       expect(DEFAULTS.verification.policy).toEqual({});
     });
+
+    it('ResolveConfig_DoesNotFreezeCallerVerificationOverlay', () => {
+      // The resolved overlay is deep-frozen; the caller's nested input must NOT
+      // be frozen by deepFreeze (mirrors resolveConfig_DoesNotFreezeCallerParams).
+      const cells: string[] = ['check_static_analysis'];
+      const project: ProjectConfig = {
+        verification: { policy: { low: cells as ('check_static_analysis')[], boundary: { high: ['check_contract_drift'] } } },
+      };
+
+      resolveConfig(project);
+
+      expect(Object.isFrozen(cells)).toBe(false);
+      expect(Object.isFrozen(project.verification!.policy!.boundary)).toBe(false);
+      cells.push('check_test_adequacy');
+      expect(cells).toHaveLength(2);
+    });
   });
 });
