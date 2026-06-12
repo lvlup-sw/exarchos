@@ -205,7 +205,19 @@ function adaptLadderGate<T>(
         `${handler.name}: ctx.eventStore required (handler dispatched without DispatchContext)`,
       );
     }
-    const result = await handler(args as unknown as T, stateDir, ctx.eventStore);
+    // task 004: thread the dispatch-time projectConfig into the handler args so
+    // its `resolvePolicySkip` self-skip routing consumes the SAME config-
+    // resolved policy the delegation stamp used. Without this the skip path
+    // would silently use the built-in table while the stamp honored a
+    // `.exarchos.yml` `verification:` cell — the exact desync this slice closes.
+    // Only inject when the args don't already carry `projectConfig` (an explicit
+    // arg-level override, e.g. from a test, still wins).
+    const enrichedArgs =
+      ctx.projectConfig !== undefined &&
+      (args as { projectConfig?: unknown }).projectConfig === undefined
+        ? { ...(args as Record<string, unknown>), projectConfig: ctx.projectConfig }
+        : args;
+    const result = await handler(enrichedArgs as unknown as T, stateDir, ctx.eventStore);
     const featureId = (args as { featureId?: string }).featureId;
     const workflowType = await resolveWorkflowTypeForGate(featureId, ctx.eventStore);
     return applyLadderGateSeverity(

@@ -28,6 +28,7 @@ import {
 import { resolveTestRuntime } from '../config/test-runtime-resolver.js';
 import { splitCommand } from '../config/tokenize-command.js';
 import { detectToolchain, testGlobsForToolchain } from '../config/toolchains.js';
+import type { ResolvedProjectConfig } from '../config/resolve.js';
 import type { RiskTier } from '../workflow/verification-policy.js';
 import type { GitExec } from './pure/execute-merge.js';
 import { runProbe, type ProbeResult, type TestRunFn } from './test-adequacy.js';
@@ -64,6 +65,14 @@ export interface TestAdequacyArgs {
   readonly riskTier?: RiskTier;
   /** The task's stamped boundary-touching flag. See {@link riskTier}. */
   readonly boundaryTouching?: boolean;
+  /**
+   * The resolved project config (task 004). Threaded by the dispatch adapter so
+   * the self-skip routing consumes the SAME config-resolved policy the
+   * delegation stamp uses — a `.exarchos.yml` `verification:` cell that excludes
+   * this gate makes the stamp drop it AND this handler skip it (they can never
+   * disagree). Omitted → the resolver falls through to the built-in table.
+   */
+  readonly projectConfig?: ResolvedProjectConfig;
 
   // ── Test seams (DI; production defaults below) ───────────────────────────
   /** Git executor. Defaults to a 30s-ceiling shell-out. */
@@ -188,6 +197,7 @@ export async function handleTestAdequacy(
     gateName: 'check_test_adequacy',
     riskTier: args.riskTier,
     boundaryTouching: args.boundaryTouching,
+    config: args.projectConfig,
   });
   if (policySkip) {
     try {

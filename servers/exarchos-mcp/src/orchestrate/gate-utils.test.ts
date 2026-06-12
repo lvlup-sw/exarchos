@@ -1,8 +1,17 @@
 // ─── Gate Utils Tests ─────────────────────────────────────────────────────────
 
 import { describe, it, expect, vi } from 'vitest';
-import { emitGateEvent, resolveRepoRoot, AUTO_REPO_ROOT } from './gate-utils.js';
+import { emitGateEvent, resolveRepoRoot, AUTO_REPO_ROOT, resolvePolicySkip } from './gate-utils.js';
 import type { EventStore } from '../event-store/store.js';
+import { resolveConfig } from '../config/resolve.js';
+import type { VerificationPolicyOverlay } from '../config/yaml-schema.js';
+import {
+  VERIFICATION_GATE_NAMES,
+  resolveVerificationSequence,
+  type GateName,
+  type RiskTier,
+} from '../workflow/verification-policy.js';
+import { classifyTask } from './prepare-delegation.js';
 
 describe('emitGateEvent', () => {
   // ─── Test 1: Valid input appends gate.executed event ─────────────────────
@@ -133,5 +142,198 @@ describe('resolveRepoRoot', () => {
     );
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error).toContain('task-9');
+  });
+});
+
+// ─── resolvePolicySkip (task 004) ───────────────────────────────────────────
+
+const ALL_TIERS: readonly RiskTier[] = ['low', 'medium', 'high'];
+const ALL_BOUNDARY: readonly boolean[] = [false, true];
+
+function configWith(policy: VerificationPolicyOverlay) {
+  return resolveConfig({ verification: { policy } });
+}
+
+describe('resolvePolicySkip', () => {
+  it('ResolvePolicySkip_ConfiguredCellExcludesGate_SkipsWithConfigSource', () => {
+    // A config cell that REPLACES the medium-base sequence with one that omits
+    // `check_test_adequacy` must produce a skip for that gate, and the reason
+    // must name the CONFIG source so a config-induced skip is never read as a
+    // builtin decision.
+    const overlay: VerificationPolicyOverlay = {
+      // medium normally clears [static_analysis, test_adequacy]; drop the latter.
+      medium: ['check_static_analysis'],
+    };
+    const config = configWith(overlay);
+
+    const skip = resolvePolicySkip({
+      gateName: 'check_test_adequacy',
+      riskTier: 'medium',
+      boundaryTouching: false,
+      config,
+    });
+    expect(skip).not.toBeNull();
+    expect(skip?.reason).toContain('policy: config');
+    expect(skip?.reason).not.toContain('policy: builtin');
+
+    // A gate that the config cell DOES include must still run (no skip).
+    const noSkip = resolvePolicySkip({
+      gateName: 'check_static_analysis',
+      riskTier: 'medium',
+      boundaryTouching: false,
+      config,
+    });
+    expect(noSkip).toBeNull();
+  });
+
+  it('ResolvePolicySkip_BuiltinDecision_ReasonNamesBuiltinSource', () => {
+    // No config (or a config whose cell is unset) → the builtin table decides.
+    // A gate not in the builtin sequence for the profile is skipped, and the
+    // reason names the BUILTIN source.
+    const skip = resolvePolicySkip({
+      gateName: 'check_integration_suite',
+      riskTier: 'low',
+      boundaryTouching: false,
+    });
+    expect(skip).not.toBeNull();
+    expect(skip?.reason).toContain('policy: builtin');
+    expect(skip?.reason).not.toContain('policy: config');
+
+    // Same result when a config is present but its relevant cell is unset —
+    // the builtin table still decides, source stays builtin.
+    const config = configWith({ high: ['check_static_analysis'] });
+    const skipUnsetCell = resolvePolicySkip({
+      gateName: 'check_integration_suite',
+      riskTier: 'low',
+      boundaryTouching: false,
+      config,
+    });
+    expect(skipUnsetCell).not.toBeNull();
+    expect(skipUnsetCell?.reason).toContain('policy: builtin');
+  });
+
+  it('ResolvePolicySkip_PartialStamp_StillRunsUnconditionally', () => {
+    // Characterization rail: a partial stamp (either field absent) returns null
+    // so the gate runs unconditionally — preserved byte-identically. Config
+    // presence must NOT change this (absent stamp dominates).
+    const config = configWith({ medium: [] });
+
+    expect(
+      resolvePolicySkip({ gateName: 'check_test_adequacy', boundaryTouching: false }),
+    ).toBeNull();
+    expect(
+      resolvePolicySkip({ gateName: 'check_test_adequacy', riskTier: 'medium' }),
+    ).toBeNull();
+    expect(resolvePolicySkip({ gateName: 'check_test_adequacy' })).toBeNull();
+
+    // Same, with a config that would otherwise exclude the gate — the absent
+    // stamp still dominates and the gate runs.
+    expect(
+      resolvePolicySkip({ gateName: 'check_test_adequacy', riskTier: 'medium', config }),
+    ).toBeNull();
+    expect(
+      resolvePolicySkip({ gateName: 'check_test_adequacy', boundaryTouching: false, config }),
+    ).toBeNull();
+  });
+
+  it('ResolvePolicySkip_BothStampsAbsent_ReasonAbsentByteIdenticalToNull', () => {
+    // No config threaded: behavior must match the pre-task-004 absent-stamp path
+    // exactly (null when either stamp is absent).
+    for (const gate of VERIFICATION_GATE_NAMES) {
+      expect(resolvePolicySkip({ gateName: gate })).toBeNull();
+    }
+  });
+});
+
+// ─── Round-trip: stamp ⇔ skip consistency (task 004) ────────────────────────
+
+describe('StampAndSkip consistency', () => {
+  it('StampAndSkip_SameConfig_NeverDisagree', () => {
+    // For a matrix of (tier × boundary × config-variant), the stamped sequence
+    // (`classifyTask`) and the per-gate skip decisions (`resolvePolicySkip`)
+    // must be mutually consistent: a gate is skipped IFF it is NOT in the
+    // stamped sequence. The two surfaces now share `resolveVerificationPolicy`,
+    // so they can never diverge.
+    type Variant = { readonly label: string; readonly config: ReturnType<typeof configWith> | undefined };
+
+    for (const tier of ALL_TIERS) {
+      for (const boundary of ALL_BOUNDARY) {
+        // Per-cell config variants:
+        //  - no config (builtin table)
+        //  - a custom non-empty cell for THIS exact (tier, boundary) cell
+        //  - an explicit empty cell for THIS exact (tier, boundary) cell
+        const customCell: GateName[] = ['check_static_analysis', 'check_mock_boundary'];
+        const custom = boundary
+          ? ({ boundary: { [tier]: customCell } } as VerificationPolicyOverlay)
+          : ({ [tier]: customCell } as VerificationPolicyOverlay);
+        const empty = boundary
+          ? ({ boundary: { [tier]: [] } } as VerificationPolicyOverlay)
+          : ({ [tier]: [] } as VerificationPolicyOverlay);
+
+        const variants: readonly Variant[] = [
+          { label: 'no-config', config: undefined },
+          { label: 'custom-cell', config: configWith(custom) },
+          { label: 'empty-cell', config: configWith(empty) },
+        ];
+
+        for (const variant of variants) {
+          // Stamp via the delegation classifier with explicit tier/boundary
+          // overrides (so the derived profile is exactly this cell).
+          const classification = classifyTask(
+            {
+              id: `t-${tier}-${boundary}`,
+              title: 'round-trip task',
+              riskTier: tier,
+              boundaryTouching: boundary,
+            },
+            undefined,
+            variant.config,
+          );
+          const stamped = classification.verificationSequence;
+
+          // The classification's stamped profile must equal (tier, boundary).
+          expect(classification.riskTier).toBe(tier);
+          expect(classification.boundaryTouching).toBe(boundary);
+
+          // For EVERY gate, skip ⇔ not-in-stamped-sequence.
+          for (const gate of VERIFICATION_GATE_NAMES) {
+            const skip = resolvePolicySkip({
+              gateName: gate,
+              riskTier: tier,
+              boundaryTouching: boundary,
+              config: variant.config,
+            });
+            const inSequence = stamped.includes(gate);
+            const message =
+              `tier=${tier} boundary=${boundary} variant=${variant.label} gate=${gate}: ` +
+              `stamped=[${stamped.join(',')}] skip=${skip ? 'SKIP' : 'RUN'}`;
+            // skipped IFF not in the stamped sequence.
+            expect(skip === null, message).toBe(inSequence);
+          }
+        }
+      }
+    }
+  });
+
+  it('StampAndSkip_NoConfig_MatchesBuiltinTable', () => {
+    // Belt-and-suspenders: with no config, the stamped sequence is exactly the
+    // builtin table, and every skip decision agrees with it.
+    for (const tier of ALL_TIERS) {
+      for (const boundary of ALL_BOUNDARY) {
+        const builtin = resolveVerificationSequence(tier, boundary);
+        const stamped = classifyTask({
+          id: 't',
+          title: 'x',
+          riskTier: tier,
+          boundaryTouching: boundary,
+        }).verificationSequence;
+        expect(stamped).toEqual(builtin);
+
+        for (const gate of VERIFICATION_GATE_NAMES) {
+          const skip = resolvePolicySkip({ gateName: gate, riskTier: tier, boundaryTouching: boundary });
+          expect(skip === null).toBe(builtin.includes(gate));
+        }
+      }
+    }
   });
 });

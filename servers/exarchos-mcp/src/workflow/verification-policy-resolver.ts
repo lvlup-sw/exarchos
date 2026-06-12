@@ -65,7 +65,12 @@ export function resolveVerificationPolicy(
   boundaryTouching: boolean,
   config?: ResolvedProjectConfig,
 ): ResolvedVerificationPolicy {
-  const policy = config?.verification.policy;
+  // Optional-chain through `verification` too: a present-but-partial config
+  // object (one predating the `verification` overlay) must behave as no-config
+  // rather than throw. `config?.verification.policy` would TypeError when
+  // `verification` is absent; `config?.verification?.policy` degrades to the
+  // built-in table. (task 004)
+  const policy = config?.verification?.policy;
   const cell = boundaryTouching ? policy?.boundary?.[riskTier] : policy?.[riskTier];
 
   // Cell PRESENT (including an explicit empty array) → full replacement.

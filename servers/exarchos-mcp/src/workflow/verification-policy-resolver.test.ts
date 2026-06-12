@@ -113,6 +113,28 @@ describe('resolveVerificationPolicy', () => {
     }).toThrow();
   });
 
+  it('ResolveVerificationPolicy_PartialConfigWithoutVerification_BehavesAsNoConfig', () => {
+    // task 004: a present-but-partial config object — one that predates the
+    // `verification` overlay (legacy/partial shape) — must NOT throw. The
+    // resolver optional-chains on `config?.verification?.policy`, so a config
+    // whose `verification` block is genuinely absent behaves identically to
+    // "no config" (the built-in table), source: 'builtin'. Hand-build the
+    // partial object (the production `resolveConfig` path always synthesises a
+    // `verification` block, so it cannot reproduce the legacy shape).
+    const partial = { agents: {} } as unknown as ResolvedProjectConfig;
+
+    for (const tier of ALL_TIERS) {
+      for (const boundary of ALL_BOUNDARY) {
+        let result!: ReturnType<typeof resolveVerificationPolicy>;
+        expect(() => {
+          result = resolveVerificationPolicy(tier, boundary, partial);
+        }).not.toThrow();
+        expect(result.source).toBe('builtin');
+        expect(result.sequence).toEqual(resolveVerificationSequence(tier, boundary));
+      }
+    }
+  });
+
   it('ResolveVerificationPolicy_NoConfigSweep_ExtensionallyEqualsSlice1Table', () => {
     // Acceptance line: with no config, resolution is deep-equal to the slice-1
     // table for ALL six cells (3 tiers x 2 boundary values) — additive change,
