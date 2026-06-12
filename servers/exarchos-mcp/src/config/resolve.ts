@@ -1,4 +1,4 @@
-import type { ProjectConfig } from './yaml-schema.js';
+import type { ProjectConfig, VerificationPolicyOverlay } from './yaml-schema.js';
 
 // ─── Resolved Types ─────────────────────────────────────────────────────────
 
@@ -64,6 +64,16 @@ export interface ResolvedProjectConfig {
     readonly operationThreshold: number;
     readonly enforceOnPhaseTransition: boolean;
     readonly enforceOnWaveDispatch: boolean;
+  };
+  /**
+   * The verification policy-overlay (R2 / task 001) — the per-cell gate-sequence
+   * overrides from `.exarchos.yml`. A config without a `verification:` block
+   * resolves to an empty overlay (`policy: {}`), meaning "override nothing" — the
+   * later resolver layers this over the frozen base policy table. Shares the
+   * `VerificationPolicyOverlay` shape with the YAML schema (single overlay type).
+   */
+  readonly verification: {
+    readonly policy: VerificationPolicyOverlay;
   };
 }
 
@@ -152,6 +162,11 @@ export const DEFAULTS: ResolvedProjectConfig = deepFreeze({
     operationThreshold: 20,
     enforceOnPhaseTransition: true,
     enforceOnWaveDispatch: true,
+  },
+  // Empty override layer: a config without a `verification:` block overrides no
+  // cell, so the resolver later falls through to the frozen base policy table.
+  verification: {
+    policy: {},
   },
 });
 
@@ -313,6 +328,18 @@ export function resolveConfig(project: ProjectConfig): ResolvedProjectConfig {
   const enforceOnPhaseTransition = project.checkpoint?.['enforce-on-phase-transition'] ?? DEFAULTS.checkpoint.enforceOnPhaseTransition;
   const enforceOnWaveDispatch = project.checkpoint?.['enforce-on-wave-dispatch'] ?? DEFAULTS.checkpoint.enforceOnWaveDispatch;
 
+  // ── Verification ──
+  // Thread the parsed policy-overlay through as-is. A missing block (or missing
+  // `policy`) resolves to the empty overlay (`{}`) — "override nothing" — so
+  // the later resolver falls through to the base policy table. The overlay
+  // nests (per-cell arrays + a `boundary` sub-policy), so we DEEP-clone before
+  // freezing — `deepFreeze` would otherwise reach through a shallow copy and
+  // freeze the caller's nested arrays/objects (matching the codebase's
+  // don't-freeze-caller-input discipline).
+  const verificationPolicy: VerificationPolicyOverlay = project.verification?.policy
+    ? structuredClone(project.verification.policy)
+    : structuredClone(DEFAULTS.verification.policy);
+
   const resolved: ResolvedProjectConfig = {
     agents: { defaultModel: agentDefaultModel, models: agentModels },
     review: {
@@ -327,6 +354,7 @@ export function resolveConfig(project: ProjectConfig): ResolvedProjectConfig {
     plugins: { impeccable: { enabled: impeccableEnabled } },
     prune: { staleAfterDays, maxBatchSize, phaseExclusions, malformedHandling, requireDryRun },
     checkpoint: { operationThreshold, enforceOnPhaseTransition, enforceOnWaveDispatch },
+    verification: { policy: verificationPolicy },
   };
 
   return deepFreeze(resolved);

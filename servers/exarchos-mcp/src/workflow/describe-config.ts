@@ -106,5 +106,11 @@ export function buildConfigDescription(config: ResolvedProjectConfig) {
         enabled: annotate(config.plugins.impeccable.enabled, DEFAULTS.plugins.impeccable.enabled),
       },
     },
+    verification: {
+      // The per-cell policy overlay (R2 / task 001). Default is the empty
+      // overlay (`{}`) — "override nothing"; any cell present means the consumer
+      // replaced that cell's gate sequence.
+      policy: annotate(config.verification.policy, DEFAULTS.verification.policy),
+    },
   };
 }
