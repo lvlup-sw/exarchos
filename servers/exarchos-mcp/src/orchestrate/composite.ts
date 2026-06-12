@@ -92,6 +92,8 @@ import type { HandleScaffoldArgs } from './invariants/scaffold.js';
 import { handleAdd } from './invariants/add.js';
 import type { HandleAddArgs } from './invariants/add.js';
 import { realScaffoldDeps } from './invariants/fs-deps.js';
+import { applyLadderGateSeverity } from './gate-utils.js';
+import { resolveWorkflowState } from './resolve-state.js';
 
 // ─── Action Router ──────────────────────────────────────────────────────────
 
@@ -148,6 +150,71 @@ function adaptWithEventStore<T>(
       );
     }
     return handler(args as unknown as T, stateDir, ctx.eventStore);
+  };
+}
+
+// ─── Verification-ladder severity dispatch (task 005) ────────────────────────
+//
+// The five verification-ladder gates are INV-5b advisory carriers
+// (`success:true, data.passed`). To apply per-workflow severity (e.g. oneshot
+// → warning) we resolve the ACTUAL workflowType from workflow state ONCE per
+// dispatch and post-process the handler's advisory result with
+// `applyLadderGateSeverity`. The `dimension` per gate mirrors the dimension
+// each handler stamps on its `gate.executed` event; it only matters as the
+// dimension-level severity FALLBACK, which the workflow default takes priority
+// over for these gates.
+
+/**
+ * Resolve a featureId's workflow type from workflow state, with the canonical
+ * event-store fallback (`resolveWorkflowState`). NEVER reads `.state.json`
+ * from disk directly. Returns `'feature'` when the type is absent or state is
+ * unreadable — mirrors `check-invariant-conformance`'s `'feature'` default so
+ * the non-oneshot path is unchanged on any resolution miss.
+ */
+async function resolveWorkflowTypeForGate(
+  featureId: string | undefined,
+  eventStore: EventStore,
+): Promise<string> {
+  if (!featureId) return 'feature';
+  try {
+    const resolved = await resolveWorkflowState({ featureId, eventStore });
+    if ('error' in resolved) return 'feature';
+    const wt = (resolved.state as { workflowType?: unknown }).workflowType;
+    return typeof wt === 'string' && wt.length > 0 ? wt : 'feature';
+  } catch {
+    return 'feature';
+  }
+}
+
+/**
+ * Adapter for a verification-ladder gate handler. Runs the underlying advisory
+ * handler, then resolves the workflow type and applies per-workflow severity
+ * to a failing advisory verdict via {@link applyLadderGateSeverity}. When the
+ * dispatch context carries no `projectConfig`, the result passes through
+ * unchanged (legacy / no-config behavior). The threading is centralized here so
+ * all five gates pick it up from one place.
+ */
+function adaptLadderGate<T>(
+  gateName: string,
+  dimension: string,
+  handler: (args: T, stateDir: string, eventStore: EventStore) => Promise<ToolResult>,
+): ActionHandler {
+  return async (args, stateDir, ctx) => {
+    if (!ctx?.eventStore) {
+      throw new Error(
+        `${handler.name}: ctx.eventStore required (handler dispatched without DispatchContext)`,
+      );
+    }
+    const result = await handler(args as unknown as T, stateDir, ctx.eventStore);
+    const featureId = (args as { featureId?: string }).featureId;
+    const workflowType = await resolveWorkflowTypeForGate(featureId, ctx.eventStore);
+    return applyLadderGateSeverity(
+      gateName,
+      dimension,
+      ctx.projectConfig,
+      result,
+      workflowType,
+    );
   };
 }
 
@@ -252,12 +319,17 @@ const ACTION_HANDLERS: Readonly<Record<string, ActionHandler>> = {
   check_design_completeness: adaptWithEventStore(handleDesignCompleteness),
   check_plan_coverage: adaptWithEventStore(handlePlanCoverage),
   check_tdd_compliance: adaptWithEventStore(handleTddCompliance),
-  check_test_adequacy: adaptWithEventStore(handleTestAdequacy),
-  check_contract_drift: adaptWithEventStore(handleContractDrift),
-  check_mock_boundary: adaptWithEventStore(handleMockBoundary),
+  // Verification-ladder gates (task 005): wrapped in adaptLadderGate so a
+  // failing advisory verdict picks up its per-workflow severity (oneshot →
+  // warning) from the resolved workflowType. The `dimension` mirrors each
+  // handler's stamped gate.executed dimension (fallback only — the workflow
+  // default takes priority for ladder gates).
+  check_test_adequacy: adaptLadderGate('check_test_adequacy', 'D1', handleTestAdequacy),
+  check_contract_drift: adaptLadderGate('check_contract_drift', 'D1', handleContractDrift),
+  check_mock_boundary: adaptLadderGate('check_mock_boundary', 'D1', handleMockBoundary),
   check_post_merge: adaptWithEventStore(handlePostMerge),
-  check_static_analysis: adaptWithEventStore(handleStaticAnalysis),
-  check_integration_suite: adaptWithEventStore(handleCheckIntegrationSuite),
+  check_static_analysis: adaptLadderGate('check_static_analysis', 'D2', handleStaticAnalysis),
+  check_integration_suite: adaptLadderGate('check_integration_suite', 'D2', handleCheckIntegrationSuite),
   check_security_scan: adaptWithEventStore(handleSecurityScan),
   check_context_economy: adaptWithEventStore(handleContextEconomy),
   check_operational_resilience: adaptWithEventStore(handleOperationalResilience),

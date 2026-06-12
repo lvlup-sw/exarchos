@@ -204,19 +204,24 @@ export async function resolveRepoRoot(
  * - **blocking**: Executes handler; failures remain failures (default behaviour)
  *
  * When `config` is `undefined`, defaults to blocking (backwards compatible).
+ *
+ * `workflowType` (task 005) is threaded to {@link resolveGateSeverity} so a
+ * verification-ladder gate can pick up its per-workflow default severity (e.g.
+ * oneshot → warning). Omitting it preserves the pre-task-005 resolution.
  */
 export async function withConfigSeverity(
   gateName: string,
   dimension: string,
   config: ResolvedProjectConfig | undefined,
   handler: () => Promise<ToolResult>,
+  workflowType?: string,
 ): Promise<ToolResult> {
   // When no config, default to blocking (backwards compat)
   if (!config) {
     return handler();
   }
 
-  const severity = resolveGateSeverity(gateName, dimension, config);
+  const severity = resolveGateSeverity(gateName, dimension, config, workflowType);
 
   if (severity === 'disabled') {
     return {
@@ -241,6 +246,52 @@ export async function withConfigSeverity(
 
   // Blocking: return failure as-is
   return result;
+}
+
+/**
+ * Apply per-workflow severity to a verification-LADDER gate's ADVISORY-carrier
+ * result (task 005).
+ *
+ * Ladder gates (INV-5b) never return `success:false` for a gate-failure verdict
+ * — a failing gate is `{ success: true, data: { passed: false } }`, so
+ * {@link withConfigSeverity}'s `success:false`-only conversion does not apply.
+ * This helper resolves the gate's effective severity via
+ * {@link resolveGateSeverity} (threading `workflowType`) and, ONLY when that
+ * severity is `'warning'` and the advisory result reports a failing verdict
+ * (`data.passed === false`), annotates it with a warning. In every other case
+ * the result is returned UNCHANGED:
+ *   - `severity !== 'warning'` (e.g. blocking for a feature workflow) → unchanged,
+ *     so the orchestrator still reads `data.passed:false` and blocks;
+ *   - `config` absent → unchanged (legacy / no-config callers);
+ *   - a passing verdict → unchanged;
+ *   - a real error envelope (`success:false`) → unchanged (an INVALID_INPUT /
+ *     MISWIRED_CONTEXT must never be downgraded to a warning).
+ */
+export function applyLadderGateSeverity(
+  gateName: string,
+  dimension: string,
+  config: ResolvedProjectConfig | undefined,
+  result: ToolResult,
+  workflowType?: string,
+): ToolResult {
+  // No config, or a real error envelope, or a non-advisory shape — leave as-is.
+  if (!config || !result.success) return result;
+
+  const data = result.data as { passed?: unknown } | undefined;
+  // Only an explicit failing verdict is a candidate for downgrade. A passing or
+  // shape-less advisory carrier is returned verbatim.
+  if (!data || data.passed !== false) return result;
+
+  const severity = resolveGateSeverity(gateName, dimension, config, workflowType);
+  if (severity !== 'warning') return result;
+
+  return {
+    ...result,
+    warnings: [
+      ...(result.warnings ?? []),
+      `Gate '${gateName}' failed but is configured as warning-only`,
+    ],
+  };
 }
 
 // ─── Verification-ladder self-routing (FIX-1a) ──────────────────────────────

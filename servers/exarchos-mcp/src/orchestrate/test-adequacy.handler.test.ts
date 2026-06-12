@@ -25,6 +25,7 @@ vi.mock('./test-adequacy.js', async (importOriginal) => {
 import { EventStore } from '../event-store/store.js';
 import type { DispatchContext } from '../core/dispatch.js';
 import { handleOrchestrate } from './composite.js';
+import { DEFAULTS } from '../config/resolve.js';
 
 function passResult() {
   return {
@@ -125,6 +126,47 @@ describe('check_test_adequacy routing + idempotency (task 014)', () => {
     expect(data.passed).toBe(true);
     expect(data.discriminant).toBe('no-new-tests');
     expect(data.report).toContain('nothing to probe');
+  });
+
+  it('HandleOrchestrate_OneshotTestAdequacyFailure_ResolvesAdvisory', async () => {
+    // Task 005: an oneshot workflow's FAILING ladder gate (advisory carrier:
+    // success:true, data.passed:false) resolves to warning severity — the
+    // dispatch surfaces the failure as a NON-blocking advisory (success:true
+    // with a warning), threading the ACTUAL workflowType from workflow state.
+    const ctx = await makeCtx();
+
+    // Seed an oneshot workflow into the event store so the dispatch resolver
+    // reads workflowType='oneshot' for this featureId.
+    await ctx.eventStore.append('feat-oneshot', {
+      type: 'workflow.started',
+      data: { featureId: 'feat-oneshot', workflowType: 'oneshot' },
+    });
+
+    // The probe reports a FAILED verdict (a real kill).
+    mockRunProbe.mockResolvedValue({
+      passed: false,
+      probedTests: ['src/calc.test.js'],
+      redObserved: false,
+      restoredClean: true,
+      report: 'vacuous test survived mutation',
+    });
+
+    const result = await handleOrchestrate(
+      {
+        action: 'check_test_adequacy',
+        featureId: 'feat-oneshot',
+        taskId: 'T-oneshot',
+        repoRoot: '/fake/repo',
+      },
+      // Provide projectConfig so config-aware severity resolution engages.
+      { ...ctx, projectConfig: DEFAULTS } as DispatchContext,
+    );
+
+    // Advisory resolution: NOT blocked — surfaced as success-with-warning.
+    expect(result.success).toBe(true);
+    expect(result.warnings).toEqual(
+      expect.arrayContaining([expect.stringContaining('warning-only')]),
+    );
   });
 
   it('GateEvent_SameOperationId_IdempotencyCollapses', async () => {
