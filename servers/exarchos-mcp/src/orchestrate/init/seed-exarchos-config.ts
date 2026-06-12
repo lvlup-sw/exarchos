@@ -16,8 +16,8 @@ import * as path from 'node:path';
 import { stringify as stringifyYaml } from 'yaml';
 
 import {
-  resolveTestRuntime,
-  type ResolvedRuntime,
+  resolveVerificationRuntime,
+  type ResolvedVerificationRuntime,
 } from '../../config/test-runtime-resolver.js';
 
 const CONFIG_FILENAME = '.exarchos.yml';
@@ -67,8 +67,8 @@ export interface SeedOptions {
   exists?: (p: string) => boolean;
   /** Inject for tests. Defaults to fs.writeFileSync. */
   write?: (p: string, contents: string) => void;
-  /** Inject for tests. Defaults to the real resolver. */
-  resolve?: (repoRoot: string) => ResolvedRuntime;
+  /** Inject for tests. Defaults to the real widened verification resolver. */
+  resolve?: (repoRoot: string) => ResolvedVerificationRuntime;
 }
 
 export function seedExarchosConfig(
@@ -78,7 +78,11 @@ export function seedExarchosConfig(
   const target = path.join(repoRoot, CONFIG_FILENAME);
   const exists = options?.exists ?? existsSync;
   const write = options?.write ?? ((p, contents) => writeFileSync(p, contents, 'utf8'));
-  const resolve = options?.resolve ?? ((root: string) => resolveTestRuntime(root));
+  // Widened resolver (verification-ladder slice 2, §4.5-seed): resolves the
+  // legacy test/typecheck/install PLUS the verification commands mutation/lint,
+  // so the seeded `.exarchos.yml` pins what onboarding/doctor resolved across the
+  // whole verification surface — the same per-field layered precedence.
+  const resolve = options?.resolve ?? ((root: string) => resolveVerificationRuntime(root));
 
   if (exists(target)) {
     return { wrote: false, path: target, reason: 'already-exists' };
@@ -86,21 +90,37 @@ export function seedExarchosConfig(
 
   const result = resolve(repoRoot);
 
+  // Nothing resolved across the WIDENED field set ⇒ no fields to seed. mutation
+  // and lint can resolve even when the legacy triple is unresolved (e.g. a
+  // toolchain with a mutation runner but no conventional test command), so the
+  // no-op gate must consider them too — otherwise a resolvable verification
+  // command would be silently dropped.
   if (
     result.source === 'unresolved' &&
     result.test === null &&
     result.typecheck === null &&
-    result.install === null
+    result.install === null &&
+    result.mutation === null &&
+    result.lint === null
   ) {
     return { wrote: false, path: target, reason: 'unresolved-no-fields' };
   }
 
   // Build YAML body from non-null fields only — preserves ordering for
-  // human readability (test, typecheck, install).
+  // human readability (test, typecheck, install, then the verification-ladder
+  // commands mutation, lint). These are top-level DIRECT keys (tier 2) the
+  // resolver honors above detection.
+  //
+  // NEGATIVE GUARANTEE (§4.5): only resolved COMMANDS are written. No
+  // `verification:` policy block is ever emitted — seeding the resolved policy
+  // default would freeze today's builtin table into consumer config (the
+  // gen-time-bake trap, #1483). Policy is surfaced read-only via doctor.
   const body: Record<string, string> = {};
   if (result.test !== null) body.test = result.test;
   if (result.typecheck !== null) body.typecheck = result.typecheck;
   if (result.install !== null) body.install = result.install;
+  if (result.mutation !== null) body.mutation = result.mutation;
+  if (result.lint !== null) body.lint = result.lint;
 
   const yamlBody = stringifyYaml(body);
   const contents = HEADER + yamlBody + INVARIANTS_STANZA;
