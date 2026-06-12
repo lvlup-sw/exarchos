@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { InvariantsConfigSchema, ExarchosConfigSchema } from './exarchos-config-schema.js';
+import { VERIFICATION_GATE_NAMES } from '../workflow/verification-policy.js';
 
 // ─── Dimension Configuration ────────────────────────────────────────────────
 
@@ -151,6 +152,71 @@ const CheckpointConfig = z.object({
   'enforce-on-wave-dispatch': z.boolean().default(true),
 }).strict();
 
+// ─── Verification Configuration ────────────────────────────────────────────
+//
+// verification-ladder slice 1, R2 (#1517 / task 001) — the per-cell override
+// layer that composes ON TOP of the frozen base policy table in
+// `workflow/verification-policy.ts`. The base table maps each
+// `(riskTier, boundaryTouching)` cell to an ordered gate sequence; this block
+// lets a consumer REPLACE the sequence for any cell in `.exarchos.yml`. The
+// resolver (a later task) layers these overrides over the table — this block
+// only describes the override surface.
+//
+// `VERIFICATION_GATE_NAMES` is the single source of truth for the gate-name
+// vocabulary (imported, never re-declared). A cell value is an ordered,
+// DUPLICATE-FREE list of those names. An EMPTY array is valid — it is the
+// explicit "run nothing for this cell" override (distinct from an omitted cell,
+// which inherits the base table). `.strict()` at every level so a typo'd cell
+// key (`lowww:`) or stray field fails at parse rather than being silently
+// ignored.
+
+/** Ordered, duplicate-free list of gate names for a single policy cell. */
+const VerificationGateSequence = z
+  .array(z.enum(VERIFICATION_GATE_NAMES))
+  .refine(
+    (gates) => new Set(gates).size === gates.length,
+    { message: 'verification gate sequence must not contain duplicates' },
+  );
+
+/**
+ * The boundary-touching sub-policy: per-tier gate sequences applied when a task
+ * crosses an I/O / schema boundary. Mirrors the base-tier keys.
+ */
+const VerificationBoundaryPolicy = z
+  .object({
+    low: VerificationGateSequence.optional(),
+    medium: VerificationGateSequence.optional(),
+    high: VerificationGateSequence.optional(),
+  })
+  .strict();
+
+/**
+ * The policy-overlay: base-tier gate sequences plus an optional `boundary`
+ * sub-policy. Every key optional — a consumer overrides only the cells it
+ * cares about; omitted cells fall through to the base table.
+ */
+const VerificationPolicyConfig = z
+  .object({
+    low: VerificationGateSequence.optional(),
+    medium: VerificationGateSequence.optional(),
+    high: VerificationGateSequence.optional(),
+    boundary: VerificationBoundaryPolicy.optional(),
+  })
+  .strict();
+
+const VerificationConfig = z
+  .object({
+    policy: VerificationPolicyConfig.optional(),
+  })
+  .strict();
+
+/**
+ * Validated `.exarchos.yml` `verification:` block — the per-cell policy
+ * overlay. The resolver (R2 follow-on) and `ResolvedProjectConfig.verification`
+ * share this single overlay-shape type; it is NOT a copy of the base table.
+ */
+export type VerificationPolicyOverlay = z.infer<typeof VerificationPolicyConfig>;
+
 // ─── Top-Level Project Config ──────────────────────────────────────────────
 
 export const ProjectConfigSchema = z.object({
@@ -163,6 +229,7 @@ export const ProjectConfigSchema = z.object({
   plugins: PluginsConfig.optional(),
   prune: PruneConfig.optional(),
   checkpoint: CheckpointConfig.optional(),
+  verification: VerificationConfig.optional(),
   invariants: InvariantsConfigSchema.optional(),
 }).strict();
 
