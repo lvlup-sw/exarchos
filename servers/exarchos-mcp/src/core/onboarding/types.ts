@@ -64,11 +64,20 @@ export type PlanStep = z.infer<typeof PlanStepSchema>;
  * the layered resolver (override > `.exarchos.yml` > user `toolchains:` >
  * task-runner > registry) may leave a field unresolved. The shape only — the
  * derivation lives in detect (task 005).
+ *
+ * The field set tracks the verification ladder, not just the legacy test
+ * triple: `mutation` and `lint` join `test`/`typecheck`/`install` so onboard /
+ * doctor resolve and surface the wider verification surface (task 007, design
+ * §4.5-detect). Both new fields carry the SAME optionality semantics as the
+ * legacy three — the resolver may leave either unresolved, in which case detect
+ * OMITS it (INV-6 omit-never-fabricate).
  */
 export const ResolvedCommandsSchema = z.object({
   test: z.string().optional(),
   typecheck: z.string().optional(),
   install: z.string().optional(),
+  mutation: z.string().optional(),
+  lint: z.string().optional(),
 });
 export type ResolvedCommands = z.infer<typeof ResolvedCommandsSchema>;
 

@@ -4,7 +4,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { detectDesiredState } from './reconcile.js';
-import { resolveTestRuntime } from '../../config/test-runtime-resolver.js';
+import {
+  resolveTestRuntime,
+  resolveVerificationRuntime,
+} from '../../config/test-runtime-resolver.js';
 import { DesiredStateSchema } from './types.js';
 
 /**
@@ -98,6 +101,76 @@ describe('DetectDesiredState_DerivesCommands_FromLayeredResolver', () => {
     } finally {
       rmSync(gitDir, { recursive: true, force: true });
     }
+  });
+
+  it('DetectDesiredState_NodeFixtureWithStryker_ResolvesMutationCommand', async () => {
+    // Task 007 (design §4.5-detect): detect now flows command derivation through
+    // `resolveVerificationRuntime`, which seeds a node repo's mutation command
+    // from the built-in registry tier (the node toolchain canonical
+    // `npx stryker run`). The fixture triggers the REAL registry tier — a node
+    // marker (package.json) — with NO stubbing of the resolver itself.
+    writeFileSync(
+      join(dir, 'package.json'),
+      JSON.stringify({ scripts: { 'test:run': 'vitest run', typecheck: 'tsc --noEmit' } }),
+    );
+
+    // Provenance precondition: the REAL widened resolver resolves the node
+    // mutation command (guards against a registry change silently breaking intent).
+    const resolved = resolveVerificationRuntime(dir);
+    expect(resolved.mutation).toBe('npx stryker run');
+
+    const desired = await detectDesiredState(dir, { detectRuntimes: async () => [] });
+
+    // detect surfaces EXACTLY what the widened resolver returns — same source of
+    // truth, no parallel derivation.
+    expect(desired.commands.mutation).toBe(resolved.mutation ?? undefined);
+    expect(desired.commands.mutation).toBe('npx stryker run');
+
+    // The whole DesiredState remains schema-valid with the new field present.
+    expect(DesiredStateSchema.safeParse(desired).success).toBe(true);
+  });
+
+  it('DetectDesiredState_UnresolvableMutation_LeavesFieldAbsent', async () => {
+    // A bare directory (no toolchain markers): the widened resolver leaves
+    // `mutation: null`. Per the omit-never-fabricate contract (INV-6), an
+    // unresolved mutation field is ABSENT from commands — not `null`, not a
+    // fabricated string.
+    const resolved = resolveVerificationRuntime(dir);
+    expect(resolved.mutation).toBeNull();
+
+    const desired = await detectDesiredState(dir, { detectRuntimes: async () => [] });
+
+    expect('mutation' in desired.commands).toBe(false);
+    expect(desired.commands.mutation).toBeUndefined();
+
+    // Lint is also unresolved here and must likewise be absent.
+    expect('lint' in desired.commands).toBe(false);
+    expect(desired.commands.lint).toBeUndefined();
+  });
+
+  it('DetectDesiredState_ExistingFields_ByteIdenticalToT0Pin', async () => {
+    // The T0 characterization fixture: a node repo declaring `test:run` +
+    // `typecheck`. Widening to `resolveVerificationRuntime` must NOT perturb the
+    // legacy test/typecheck/install fields — they stay byte-identical to the
+    // pre-change behavior (which `resolveTestRuntime` still defines verbatim,
+    // since `resolveVerificationRuntime` delegates the legacy three to it).
+    writeFileSync(
+      join(dir, 'package.json'),
+      JSON.stringify({ scripts: { 'test:run': 'vitest run', typecheck: 'tsc --noEmit' } }),
+    );
+
+    const legacy = resolveTestRuntime(dir);
+    const desired = await detectDesiredState(dir, { detectRuntimes: async () => [] });
+
+    // Byte-identical to the legacy resolver output (the pre-change source of truth).
+    expect(desired.commands.test).toBe(legacy.test ?? undefined);
+    expect(desired.commands.typecheck).toBe(legacy.typecheck ?? undefined);
+    expect(desired.commands.install).toBe(legacy.install ?? undefined);
+
+    // Concrete pin matching the T0 baseline snapshot (reconcile.characterization).
+    expect(desired.commands.test).toBe('npm run test:run');
+    expect(desired.commands.typecheck).toBe('npm run typecheck');
+    expect(desired.commands.install).toBe('npm install');
   });
 
   it('returns a string[] of runtimes and honors runtime/vcs overrides', async () => {
