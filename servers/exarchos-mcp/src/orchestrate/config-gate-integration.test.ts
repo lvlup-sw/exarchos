@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { withConfigSeverity } from './gate-utils.js';
+import { withConfigSeverity, applyLadderGateSeverity } from './gate-utils.js';
 import { DEFAULTS } from '../config/resolve.js';
 import type { ResolvedProjectConfig } from '../config/resolve.js';
 import type { ToolResult } from '../format.js';
@@ -101,5 +101,59 @@ describe('withConfigSeverity', () => {
 
     const result = await withConfigSeverity(ladderGate, 'D2', DEFAULTS, mockGateHandler, 'feature');
     expect(result.success).toBe(false);
+  });
+});
+
+// ─── applyLadderGateSeverity (advisory-carrier conversion) ───────────────────
+//
+// Ladder gates are INV-5b advisory carriers: a FAILING gate is
+// `success:true, data.passed:false`, NOT `success:false`. This helper applies
+// the resolved per-workflow severity to that advisory shape — converting a
+// `data.passed:false` to success-with-warning when severity is `warning`,
+// leaving the result untouched otherwise.
+
+const LADDER = VERIFICATION_GATE_NAMES[0]; // 'check_static_analysis'
+
+describe('applyLadderGateSeverity', () => {
+  it('ApplyLadderGateSeverity_OneshotFailingAdvisory_AddsWarning', () => {
+    const advisory: ToolResult = { success: true, data: { passed: false, report: 'r' } };
+    const result = applyLadderGateSeverity(LADDER, 'D2', DEFAULTS, advisory, 'oneshot');
+    expect(result.success).toBe(true);
+    expect(result.warnings).toEqual(
+      expect.arrayContaining([expect.stringContaining('warning-only')]),
+    );
+  });
+
+  it('ApplyLadderGateSeverity_OneshotPassingAdvisory_Unchanged', () => {
+    const advisory: ToolResult = { success: true, data: { passed: true } };
+    const result = applyLadderGateSeverity(LADDER, 'D2', DEFAULTS, advisory, 'oneshot');
+    expect(result).toEqual(advisory);
+    expect(result.warnings).toBeUndefined();
+  });
+
+  it('ApplyLadderGateSeverity_FeatureFailingAdvisory_Unchanged', () => {
+    // Blocking severity (no oneshot table entry) leaves the advisory result as
+    // the handler returned it — the orchestrator reads data.passed to block.
+    const advisory: ToolResult = { success: true, data: { passed: false } };
+    const result = applyLadderGateSeverity(LADDER, 'D2', DEFAULTS, advisory, 'feature');
+    expect(result).toEqual(advisory);
+    expect(result.warnings).toBeUndefined();
+  });
+
+  it('ApplyLadderGateSeverity_NoConfig_Unchanged', () => {
+    const advisory: ToolResult = { success: true, data: { passed: false } };
+    const result = applyLadderGateSeverity(LADDER, 'D2', undefined, advisory, 'oneshot');
+    expect(result).toEqual(advisory);
+  });
+
+  it('ApplyLadderGateSeverity_ErrorResult_Untouched', () => {
+    // A real error envelope (not an advisory carrier) is never downgraded — an
+    // INVALID_INPUT / MISWIRED_CONTEXT must still surface as a failure.
+    const errored: ToolResult = {
+      success: false,
+      error: { code: 'INVALID_INPUT', message: 'featureId is required' },
+    };
+    const result = applyLadderGateSeverity(LADDER, 'D2', DEFAULTS, errored, 'oneshot');
+    expect(result).toEqual(errored);
   });
 });
