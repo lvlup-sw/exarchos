@@ -15,15 +15,16 @@
  *   - INV-2: NO imports from `adapters/*` — behavior lives here, not in the
  *     presentation facades.
  *   - INV-6: command derivation flows EXCLUSIVELY through the Bundle B layered
- *     resolver (`resolveTestRuntime`). There is no `applyLanguageCustomizations`
- *     / npm string-rewrite in this path; an unresolved command field is OMITTED,
- *     never fabricated.
+ *     resolver (`resolveVerificationRuntime` — the widened verification-ladder
+ *     resolver covering test/typecheck/install PLUS mutation/lint). There is no
+ *     `applyLanguageCustomizations` / npm string-rewrite in this path; an
+ *     unresolved command field is OMITTED, never fabricated.
  */
 
 import { existsSync } from 'node:fs';
 import * as path from 'node:path';
 
-import { resolveTestRuntime } from '../../config/test-runtime-resolver.js';
+import { resolveVerificationRuntime } from '../../config/test-runtime-resolver.js';
 import {
   detectAgentEnvironments,
   type AgentRuntimeName,
@@ -99,12 +100,17 @@ function deriveCommands(
   repoRoot: string,
   override?: DetectOptions['commandOverride'],
 ): ResolvedCommands {
-  const resolved = resolveTestRuntime(repoRoot, override ? { override: { ...override } } : undefined);
+  const resolved = resolveVerificationRuntime(
+    repoRoot,
+    override ? { override: { ...override } } : undefined,
+  );
 
   const commands: ResolvedCommands = {};
   if (resolved.test !== null) commands.test = resolved.test;
   if (resolved.typecheck !== null) commands.typecheck = resolved.typecheck;
   if (resolved.install !== null) commands.install = resolved.install;
+  if (resolved.mutation !== null) commands.mutation = resolved.mutation;
+  if (resolved.lint !== null) commands.lint = resolved.lint;
   return commands;
 }
 
