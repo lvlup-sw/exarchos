@@ -35,6 +35,7 @@ export function makeStubProbes(overrides: Partial<DoctorProbes> = {}): DoctorPro
       runningVersion: throwing('plugin'),
     },
     invariants: { resolve: throwing('invariants') },
+    verificationToolchain: { resolve: throwing('verificationToolchain') },
   };
   return { ...base, ...overrides };
 }

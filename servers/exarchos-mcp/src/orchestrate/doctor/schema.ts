@@ -25,7 +25,25 @@ export const CheckCategorySchema = z.enum([
   'env',
   'remote',
   'invariants',
+  // `verification` — the verification-toolchain check (13th, design §4.6):
+  // does the verification ladder's runtime resolve, and what is each policy
+  // cell's provenance. Read-only visibility, never a fix surface.
+  'verification',
 ]);
+
+/**
+ * One resolved verification-policy cell — a `(riskTier, boundaryTouching)`
+ * profile plus whether its gate sequence came from the frozen built-in table
+ * or a `.exarchos.yml` override. Carried (read-only) on a verification-toolchain
+ * CheckResult so callers can see policy provenance without re-resolving. The
+ * `source` vocabulary mirrors `VerificationPolicySource` in
+ * `workflow/verification-policy-resolver.ts` (the single source of truth).
+ */
+export const VerificationPolicyCellSchema = z.object({
+  riskTier: z.enum(['low', 'medium', 'high']),
+  boundaryTouching: z.boolean(),
+  source: z.enum(['builtin', 'config']),
+});
 
 export const CheckResultSchema = z
   .object({
@@ -36,6 +54,11 @@ export const CheckResultSchema = z
     fix: z.string().min(1).optional(),
     reason: z.string().min(1).optional(),
     durationMs: z.number().int().nonnegative(),
+    // Optional read-only detail carried by the verification-toolchain check:
+    // the six resolved policy cells with their builtin/config provenance.
+    // Other checks omit it; the field survives `DoctorOutputSchema.parse` so
+    // the provenance reaches MCP/CLI adapters intact.
+    policyCells: z.array(VerificationPolicyCellSchema).optional(),
   })
   .superRefine((r, ctx) => {
     if (r.status === 'Skipped' && (!r.reason || r.reason.length === 0)) {
@@ -76,3 +99,4 @@ export const DoctorOutputSchema = z
 export type CheckResult = z.infer<typeof CheckResultSchema>;
 export type DoctorSummary = z.infer<typeof DoctorSummarySchema>;
 export type DoctorOutput = z.infer<typeof DoctorOutputSchema>;
+export type VerificationPolicyCell = z.infer<typeof VerificationPolicyCellSchema>;
