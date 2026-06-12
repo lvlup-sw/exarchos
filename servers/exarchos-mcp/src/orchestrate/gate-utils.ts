@@ -204,19 +204,24 @@ export async function resolveRepoRoot(
  * - **blocking**: Executes handler; failures remain failures (default behaviour)
  *
  * When `config` is `undefined`, defaults to blocking (backwards compatible).
+ *
+ * `workflowType` (task 005) is threaded to {@link resolveGateSeverity} so a
+ * verification-ladder gate can pick up its per-workflow default severity (e.g.
+ * oneshot → warning). Omitting it preserves the pre-task-005 resolution.
  */
 export async function withConfigSeverity(
   gateName: string,
   dimension: string,
   config: ResolvedProjectConfig | undefined,
   handler: () => Promise<ToolResult>,
+  workflowType?: string,
 ): Promise<ToolResult> {
   // When no config, default to blocking (backwards compat)
   if (!config) {
     return handler();
   }
 
-  const severity = resolveGateSeverity(gateName, dimension, config);
+  const severity = resolveGateSeverity(gateName, dimension, config, workflowType);
 
   if (severity === 'disabled') {
     return {
