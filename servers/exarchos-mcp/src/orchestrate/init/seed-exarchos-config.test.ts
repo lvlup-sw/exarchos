@@ -11,24 +11,34 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 
-import type { ResolvedRuntime } from '../../config/test-runtime-resolver.js';
+import type { ResolvedVerificationRuntime } from '../../config/test-runtime-resolver.js';
 import { loadExarchosConfig } from '../../config/load-exarchos-config.js';
 import { seedExarchosConfig } from './seed-exarchos-config.js';
 
-function npmResolve(): ResolvedRuntime {
+// The seeder resolves the WIDENED verification field set (§4.5-seed): the legacy
+// test/typecheck/install PLUS mutation/lint/contract. These stubs mirror the
+// resolver's `ResolvedVerificationRuntime` shape — mutation/lint default to null
+// (the unresolved-no-fields gate now considers them too).
+function npmResolve(): ResolvedVerificationRuntime {
   return {
     test: 'npm run test:run',
     typecheck: 'tsc --noEmit',
     install: 'npm install',
+    mutation: null,
+    lint: null,
+    contract: null,
     source: 'detection',
   };
 }
 
-function bunResolve(): ResolvedRuntime {
+function bunResolve(): ResolvedVerificationRuntime {
   return {
     test: 'bun test',
     typecheck: 'tsc --noEmit',
     install: 'bun install',
+    mutation: null,
+    lint: null,
+    contract: null,
     source: 'detection',
   };
 }
@@ -91,6 +101,9 @@ describe('seedExarchosConfig', () => {
         test: null,
         typecheck: null,
         install: null,
+        mutation: null,
+        lint: null,
+        contract: null,
         source: 'unresolved',
         remediation: 'No project markers detected.',
       }),
@@ -110,6 +123,9 @@ describe('seedExarchosConfig', () => {
         test: 'pytest',
         typecheck: null,
         install: null,
+        mutation: null,
+        lint: null,
+        contract: null,
         source: 'detection',
       }),
     });
@@ -120,6 +136,60 @@ describe('seedExarchosConfig', () => {
     expect(body).toContain('test: pytest');
     expect(body).not.toMatch(/^typecheck:/m);
     expect(body).not.toMatch(/^install:/m);
+  });
+
+  it('seed_NoExistingConfig_VerificationCommandsResolved_WritesMutationAndLint', () => {
+    // §4.5-seed: when the widened resolver resolves mutation + lint, the seeder
+    // writes them as top-level direct keys (tier 2) alongside the legacy triple.
+    const writes: Array<{ p: string; contents: string }> = [];
+    const result = seedExarchosConfig('/repo', {
+      exists: () => false,
+      write: (p, contents) => writes.push({ p, contents }),
+      resolve: () => ({
+        test: 'pytest',
+        typecheck: null,
+        install: null,
+        mutation: 'mutmut run',
+        lint: 'ruff check',
+        contract: null,
+        source: 'detection',
+      }),
+    });
+
+    expect(result.wrote).toBe(true);
+    const body = writes[0].contents;
+    expect(body).toContain('test: pytest');
+    expect(body).toContain('mutation: mutmut run');
+    expect(body).toContain('lint: ruff check');
+    // NEGATIVE GUARANTEE (§4.5): commands only — no `verification:` policy block.
+    expect(body).not.toMatch(/^verification:/m);
+  });
+
+  it('seed_NoExistingConfig_OnlyVerificationCommandResolves_StillWrites', () => {
+    // mutation/lint can resolve even when the legacy triple is unresolved (a
+    // toolchain with a mutation runner but no conventional test command). The
+    // unresolved-no-fields gate must consider the widened fields, else a
+    // resolvable verification command would be silently dropped.
+    const writes: Array<{ p: string; contents: string }> = [];
+    const result = seedExarchosConfig('/repo', {
+      exists: () => false,
+      write: (p, contents) => writes.push({ p, contents }),
+      resolve: () => ({
+        test: null,
+        typecheck: null,
+        install: null,
+        mutation: 'npx stryker run',
+        lint: null,
+        contract: null,
+        source: 'unresolved',
+        remediation: 'No test command, but mutation resolved.',
+      }),
+    });
+
+    expect(result.wrote).toBe(true);
+    const body = writes[0].contents;
+    expect(body).toContain('mutation: npx stryker run');
+    expect(body).not.toMatch(/^test:/m);
   });
 
   it('seed_HeaderCommentPresent', () => {
