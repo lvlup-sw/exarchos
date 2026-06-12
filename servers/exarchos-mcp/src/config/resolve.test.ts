@@ -306,4 +306,43 @@ describe('resolveConfig', () => {
       expect(() => { (resolved.agents as Record<string, unknown>).defaultModel = 'haiku'; }).toThrow();
     });
   });
+
+  describe('verification resolution', () => {
+    it('ResolveConfig_NoVerificationBlock_DefaultsToEmptyOverlay', () => {
+      // A config with no `verification:` block resolves to an empty override
+      // layer — `policy` is `{}` so the later resolver layers nothing over the
+      // frozen base policy table.
+      const resolved = resolveConfig({});
+      expect(resolved.verification).toBeDefined();
+      expect(resolved.verification.policy).toEqual({});
+    });
+
+    it('ResolveConfig_VerificationPolicyOverride_ThreadsOntoResolved', () => {
+      const resolved = resolveConfig({
+        verification: {
+          policy: {
+            low: ['check_static_analysis'],
+            boundary: { high: ['check_static_analysis', 'check_contract_drift', 'check_mock_boundary'] },
+          },
+        },
+      });
+      expect(resolved.verification.policy.low).toEqual(['check_static_analysis']);
+      expect(resolved.verification.policy.boundary?.high).toEqual([
+        'check_static_analysis',
+        'check_contract_drift',
+        'check_mock_boundary',
+      ]);
+    });
+
+    it('ResolveConfig_VerificationResolved_IsFrozen', () => {
+      const resolved = resolveConfig({ verification: { policy: { low: ['check_static_analysis'] } } });
+      expect(Object.isFrozen(resolved.verification)).toBe(true);
+      expect(Object.isFrozen(resolved.verification.policy)).toBe(true);
+    });
+
+    it('DEFAULTS_CarriesVerificationEmptyOverlay', () => {
+      expect(DEFAULTS.verification).toBeDefined();
+      expect(DEFAULTS.verification.policy).toEqual({});
+    });
+  });
 });

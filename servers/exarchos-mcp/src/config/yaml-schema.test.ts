@@ -273,6 +273,76 @@ describe('ProjectConfigSchema', () => {
     });
   });
 
+  describe('verification section', () => {
+    it('ProjectConfigSchema_VerificationPolicyValidCells_Parses', () => {
+      // All six cells — base (low|medium|high) AND boundary (low|medium|high) —
+      // accept ordered gate-name lists drawn from VERIFICATION_GATE_NAMES.
+      const result = ProjectConfigSchema.safeParse({
+        verification: {
+          policy: {
+            low: ['check_static_analysis'],
+            medium: ['check_static_analysis', 'check_test_adequacy'],
+            high: ['check_static_analysis', 'check_test_adequacy', 'check_integration_suite'],
+            boundary: {
+              low: ['check_static_analysis', 'check_contract_drift'],
+              medium: ['check_static_analysis', 'check_test_adequacy', 'check_contract_drift', 'check_mock_boundary'],
+              high: ['check_static_analysis', 'check_test_adequacy', 'check_integration_suite', 'check_contract_drift', 'check_mock_boundary'],
+            },
+          },
+        },
+      });
+      expect(result.success).toBe(true);
+    });
+
+    it('ProjectConfigSchema_VerificationUnknownGateName_RejectsAtParse', () => {
+      const result = ProjectConfigSchema.safeParse({
+        verification: { policy: { low: ['check_does_not_exist'] } },
+      });
+      expect(result.success).toBe(false);
+    });
+
+    it('ProjectConfigSchema_VerificationDuplicateGateInCell_Rejects', () => {
+      const result = ProjectConfigSchema.safeParse({
+        verification: { policy: { low: ['check_static_analysis', 'check_static_analysis'] } },
+      });
+      expect(result.success).toBe(false);
+    });
+
+    it('ProjectConfigSchema_VerificationUnknownKey_RejectsStrict', () => {
+      // A typo'd key must fail at parse under `.strict()` — at every level.
+      const topLevelTypo = ProjectConfigSchema.safeParse({
+        verification: { policy: {}, extra: true },
+      });
+      expect(topLevelTypo.success).toBe(false);
+
+      const cellTypo = ProjectConfigSchema.safeParse({
+        verification: { policy: { lowww: ['check_static_analysis'] } },
+      });
+      expect(cellTypo.success).toBe(false);
+
+      const boundaryTypo = ProjectConfigSchema.safeParse({
+        verification: { policy: { boundary: { lowww: ['check_static_analysis'] } } },
+      });
+      expect(boundaryTypo.success).toBe(false);
+    });
+
+    it('ProjectConfigSchema_VerificationEmptyCellArray_Parses', () => {
+      // An explicit empty array means "run nothing for this cell" — valid.
+      const result = ProjectConfigSchema.safeParse({
+        verification: { policy: { low: [] } },
+      });
+      expect(result.success).toBe(true);
+    });
+
+    it('ProjectConfigSchema_VerificationOmitted_IsValid', () => {
+      const result = ProjectConfigSchema.safeParse({});
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.verification).toBeUndefined();
+      }
+    });
+  });
+
   describe('agents section', () => {
     it('ProjectConfigSchema_AgentsSection_AcceptsValidConfig', () => {
       const result = ProjectConfigSchema.safeParse({
