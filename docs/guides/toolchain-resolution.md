@@ -1,9 +1,18 @@
 # Toolchain & command resolution
 
-Exarchos resolves a repository's **test / typecheck / install** commands through a
-layered resolver. Universality comes from the *strategy*, not from a baked-in list
-of languages: a built-in convention table covers the common ecosystems, and two
-declaration tiers let any toolchain work with zero changes to Exarchos.
+Exarchos resolves a repository's **test / typecheck / install** commands — and,
+since the verification ladder (epic #1515), the wider **mutation / lint** field
+set via `resolveVerificationRuntime` — through a layered resolver. Universality
+comes from the *strategy*, not from a baked-in list of languages: a built-in
+convention table covers the common ecosystems, and two declaration tiers let any
+toolchain work with zero changes to Exarchos.
+
+Onboarding consumes the same resolver: `exarchos onboard` / `doctor --fix`
+resolve the full verification field set and seed resolved-but-undeclared
+`mutation:` / `lint:` commands into `.exarchos.yml` (commands only — the
+verification *policy* is never written into consumer config; it resolves at
+runtime, see [`exarchos-yml-verification.md`](exarchos-yml-verification.md)).
+The `verification-toolchain` doctor check reports per-field resolvability.
 
 ## Precedence (highest wins, per field)
 
