@@ -10,8 +10,11 @@ import { describe, it, expect, vi } from 'vitest';
 import type { DispatchContext } from '../../core/dispatch.js';
 import { makeStubProbes } from './checks/__shared__/make-stub-probes.js';
 import type { CheckFn } from './checks/__shared__/make-stub-probes.js';
+import type { DoctorProbes } from './probes.js';
+import type { AgentEnvironment } from '../../runtime/agent-environment-detector.js';
+import type { IntegrityResult } from '../../event-store/store.js';
 import type { CheckResult } from './schema.js';
-import { handleDoctorWithChecks } from './index.js';
+import { handleDoctorWithChecks, ALL_CHECKS } from './index.js';
 
 // ─── Test helpers ───────────────────────────────────────────────────────────
 
@@ -310,5 +313,101 @@ describe('handleDoctor — parallel execution + timeout', () => {
         () => makeStubProbes(),
       ),
     ).rejects.toThrow(/abort/i);
+  });
+});
+
+// ─── Task 009 — verification-toolchain (13th check) dispatch-through ─────────
+
+/**
+ * A benign full-probe bundle so every REAL check in `ALL_CHECKS` reaches its
+ * return statement (mirrors the roster characterization's identity scaffold).
+ * We dispatch the genuine roster through `handleDoctorWithChecks` rather than
+ * unit-calling the CheckFn — per-handler tests bypass dispatch and have masked
+ * DOA-action bugs before; the 13th check must be reachable THROUGH the composer.
+ */
+function benignProbes(): DoctorProbes {
+  const emptyEnvironments: AgentEnvironment[] = [];
+  return {
+    fs: {
+      readFile: async () => '',
+      stat: (async () => ({
+        isDirectory: () => true,
+        isFile: () => false,
+      })) as unknown as DoctorProbes['fs']['stat'],
+      access: async () => undefined,
+    },
+    env: {},
+    git: {
+      which: async () => '/usr/bin/git',
+      isRepo: async () => true,
+      version: async () => 'git version 2.40.0',
+    },
+    sqlite: {
+      runIntegrityCheck: async (): Promise<IntegrityResult> => ({
+        ok: 'skipped',
+        reason: 'benign dispatch probe',
+      }),
+    },
+    detector: async () => emptyEnvironments,
+    eventStore: { append: async () => ({}) } as unknown as DoctorProbes['eventStore'],
+    runtime: { nodeVersion: process.version },
+    stateDir: '/tmp/doctor-verification-toolchain-dispatch',
+    skills: { guardStatus: async () => ({ inSync: true }) },
+    plugin: {
+      installedVersion: async () => null,
+      runningVersion: async () => null,
+    },
+    invariants: { resolve: async () => ({ configured: false, warnings: [] }) },
+    verificationToolchain: {
+      resolve: async () => ({
+        detected: true,
+        runtime: {
+          test: 'npm run test:run',
+          typecheck: 'tsc --noEmit',
+          install: 'npm install',
+          mutation: 'npx stryker run',
+          lint: 'eslint .',
+        },
+        policyCells: [
+          { riskTier: 'low', boundaryTouching: false, source: 'builtin' },
+          { riskTier: 'low', boundaryTouching: true, source: 'builtin' },
+          { riskTier: 'medium', boundaryTouching: false, source: 'builtin' },
+          { riskTier: 'medium', boundaryTouching: true, source: 'builtin' },
+          { riskTier: 'high', boundaryTouching: false, source: 'builtin' },
+          { riskTier: 'high', boundaryTouching: true, source: 'builtin' },
+        ],
+      }),
+    },
+  };
+}
+
+describe('handleDoctor — verification-toolchain roster (task 009)', () => {
+  it('HandleDoctorWithChecks_RosterIncludesVerificationToolchain_ThirteenChecks', async () => {
+    // Arrange — dispatch the REAL ALL_CHECKS through the composer.
+    const ctx = fakeContext();
+
+    // Act
+    const result = await handleDoctorWithChecks(
+      { timeoutMs: 5000 },
+      ctx,
+      ALL_CHECKS,
+      () => benignProbes(),
+    );
+
+    // Assert — the roster ships exactly 13 checks now, and the new one is
+    // present (by category + name) in the dispatched output, not just the
+    // static export.
+    expect(ALL_CHECKS).toHaveLength(13);
+    expect(result.success).toBe(true);
+    const data = result.data as { checks: CheckResult[] };
+    expect(data.checks).toHaveLength(13);
+
+    const vt = data.checks.find((c) => c.name === 'verification-toolchain');
+    expect(vt).toBeDefined();
+    expect(vt!.category).toBe('verification');
+    // Reached through the composer with the benign full-triple probe → Pass,
+    // and the six policy cells survive the DoctorOutputSchema.parse round-trip.
+    expect(vt!.status).toBe('Pass');
+    expect(vt!.policyCells).toHaveLength(6);
   });
 });

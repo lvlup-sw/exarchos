@@ -39,11 +39,16 @@ import { ALL_CHECKS } from './index.js';
 // ─── Pinned roster identity ──────────────────────────────────────────────────
 
 /**
- * The TWELVE checks shipped today, pinned by `(category, name)` and ORDER.
+ * The THIRTEEN checks shipped today, pinned by `(category, name)` and ORDER.
  * `ALL_CHECKS` order is part of the observable contract: the composer preserves
- * it so callers scan top-to-bottom for the first Fail. A sibling task adding a
- * 13th check must update this list (and the count) deliberately — that edit is
- * the signal this guard exists to force.
+ * it so callers scan top-to-bottom for the first Fail. A task adding a check
+ * must update this list (and the count) deliberately — that edit is the signal
+ * this guard exists to force.
+ *
+ * DELIBERATE PIN UPDATE (task 009, design §4.6): the 13th entry
+ * `verification-toolchain` (category `verification`) was added as a CONSCIOUS
+ * act. This guard pinned EXACTLY 12 precisely so the addition could not slip in
+ * unnoticed; the count and roster below are updated 12 → 13 on purpose.
  */
 const PINNED_ROSTER: ReadonlyArray<{
   category: CheckResult['category'];
@@ -61,6 +66,7 @@ const PINNED_ROSTER: ReadonlyArray<{
   { category: 'plugin', name: 'plugin-version-match' },
   { category: 'remote', name: 'remote-mcp' },
   { category: 'invariants', name: 'invariants-catalog' },
+  { category: 'verification', name: 'verification-toolchain' },
 ];
 
 // ─── Benign probe bundle (identity scaffolding only) ─────────────────────────
@@ -109,6 +115,26 @@ function benignProbes(): DoctorProbes {
       runningVersion: async () => null,
     },
     invariants: { resolve: async () => ({ configured: false, warnings: [] }) },
+    verificationToolchain: {
+      resolve: async () => ({
+        detected: true,
+        runtime: {
+          test: 'npm run test:run',
+          typecheck: 'tsc --noEmit',
+          install: 'npm install',
+          mutation: 'npx stryker run',
+          lint: 'eslint .',
+        },
+        policyCells: [
+          { riskTier: 'low', boundaryTouching: false, source: 'builtin' },
+          { riskTier: 'low', boundaryTouching: true, source: 'builtin' },
+          { riskTier: 'medium', boundaryTouching: false, source: 'builtin' },
+          { riskTier: 'medium', boundaryTouching: true, source: 'builtin' },
+          { riskTier: 'high', boundaryTouching: false, source: 'builtin' },
+          { riskTier: 'high', boundaryTouching: true, source: 'builtin' },
+        ],
+      }),
+    },
   } as DoctorProbes;
 }
 
@@ -122,13 +148,14 @@ async function runRoster(): Promise<readonly CheckResult[]> {
 // ─── Characterization ────────────────────────────────────────────────────────
 
 describe('doctor roster characterization (T0 baseline)', () => {
-  it('DoctorRoster_CurrentBuild_ExactlyTwelveChecksWithStableNames', async () => {
-    // The static export ships exactly twelve checks, in pinned order.
-    expect(ALL_CHECKS).toHaveLength(12);
-    expect(PINNED_ROSTER).toHaveLength(12);
+  it('DoctorRoster_CurrentBuild_ExactlyThirteenChecksWithStableNames', async () => {
+    // The static export ships exactly thirteen checks, in pinned order. (12 → 13
+    // updated deliberately by task 009: the verification-toolchain check.)
+    expect(ALL_CHECKS).toHaveLength(13);
+    expect(PINNED_ROSTER).toHaveLength(13);
 
     const results = await runRoster();
-    expect(results).toHaveLength(12);
+    expect(results).toHaveLength(13);
 
     // Each check, run through the REAL ALL_CHECKS, stamps its own identity —
     // we read (category, name) off the returned result rather than transcribing.
@@ -140,7 +167,7 @@ describe('doctor roster characterization (T0 baseline)', () => {
 
     // The name set is exactly the pinned set: no duplicates, no strays.
     const observedNames = new Set(results.map((r) => r.name));
-    expect(observedNames.size).toBe(12);
+    expect(observedNames.size).toBe(13);
     for (const { name } of PINNED_ROSTER) {
       expect(observedNames.has(name)).toBe(true);
     }
