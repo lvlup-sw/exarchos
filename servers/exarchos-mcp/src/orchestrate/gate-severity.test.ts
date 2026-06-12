@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { resolveGateSeverity } from './gate-severity.js';
+import { resolveGateSeverity, WORKFLOW_DEFAULT_SEVERITY } from './gate-severity.js';
 import { DEFAULTS } from '../config/resolve.js';
 import type { ResolvedProjectConfig } from '../config/resolve.js';
+import { VERIFICATION_GATE_NAMES } from '../workflow/verification-policy.js';
 
 // Helper to create config with overrides
 function configWith(overrides: Partial<ResolvedProjectConfig['review']>): ResolvedProjectConfig {
@@ -70,5 +71,52 @@ describe('resolveGateSeverity', () => {
 
   it('resolveGateSeverity_UnknownDimension_DefaultsBlocking', () => {
     expect(resolveGateSeverity('some-gate', 'D99', DEFAULTS)).toBe('blocking');
+  });
+});
+
+// ─── Per-workflow severity (oneshot → advisory for ladder gates) ─────────────
+//
+// Task 005: a verification-ladder gate that would otherwise be blocking
+// resolves to `warning` when the workflow is `oneshot`, UNLESS the consumer
+// pins it explicitly via `review.gates[gateName]`. The mapping is a data table
+// (`WORKFLOW_DEFAULT_SEVERITY`) so future workflow types are additions, not
+// branching code. A non-ladder gate, a non-oneshot workflow, and an omitted
+// `workflowType` all resolve EXACTLY as before (legacy callers unaffected).
+
+const LADDER_GATE = VERIFICATION_GATE_NAMES[0]; // 'check_static_analysis'
+
+describe('resolveGateSeverity per-workflow severity', () => {
+  it('WORKFLOW_DEFAULT_SEVERITY_OneshotEntry_IsWarning', () => {
+    // The data table — not branching prose — drives the workflow default.
+    expect(WORKFLOW_DEFAULT_SEVERITY.oneshot).toBe('warning');
+  });
+
+  it('ResolveGateSeverity_OneshotLadderGate_DefaultsToWarning', () => {
+    // A ladder gate under an oneshot workflow downgrades blocking → warning by
+    // default (no gate-level override present).
+    expect(resolveGateSeverity(LADDER_GATE, 'D2', DEFAULTS, 'oneshot')).toBe('warning');
+  });
+
+  it('ResolveGateSeverity_OneshotWithExplicitGateOverride_OverrideWins', () => {
+    // An explicit `review.gates[gate]` blocking pin beats the oneshot default.
+    const config = configWith({
+      gates: { [LADDER_GATE]: { enabled: true, blocking: true, params: {} } },
+    });
+    expect(resolveGateSeverity(LADDER_GATE, 'D2', config, 'oneshot')).toBe('blocking');
+  });
+
+  it('ResolveGateSeverity_OneshotNonLadderGate_UnchangedResolution', () => {
+    // A non-ladder gate name ignores the workflow default — stays blocking.
+    expect(resolveGateSeverity('security-scan', 'D1', DEFAULTS, 'oneshot')).toBe('blocking');
+  });
+
+  it('ResolveGateSeverity_FeatureWorkflow_UnchangedResolution', () => {
+    // A non-oneshot workflow has no default-severity table entry — unchanged.
+    expect(resolveGateSeverity(LADDER_GATE, 'D2', DEFAULTS, 'feature')).toBe('blocking');
+  });
+
+  it('ResolveGateSeverity_NoWorkflowType_UnchangedResolution', () => {
+    // Omitting workflowType is exactly today's behavior (legacy callers).
+    expect(resolveGateSeverity(LADDER_GATE, 'D2', DEFAULTS)).toBe('blocking');
   });
 });
