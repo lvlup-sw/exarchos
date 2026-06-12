@@ -997,14 +997,14 @@ export async function handlePrepareDelegation(
     // `.exarchos.yml` `verification:` cell override. When absent, the
     // resolver falls through to the byte-identical built-in table.
     //
-    // The resolver reads `config.verification.policy`; only forward a config
-    // whose `verification` overlay is actually present so a partial/legacy
-    // config object (one that predates the overlay) cannot throw — that path
-    // is equivalent to "no config" (built-in table).
+    // task 004: forward the config UNCONDITIONALLY — the resolver now
+    // optional-chains on `config?.verification?.policy`, so a present-but-
+    // partial config (one predating the `verification` overlay) is handled as
+    // no-config inside the resolver rather than throwing. The earlier call-site
+    // guard that forwarded config only when `verification` was present is no
+    // longer needed.
     const agentConfig = ctx?.projectConfig?.agents ?? DEFAULTS.agents;
-    const projectConfig = ctx?.projectConfig?.verification
-      ? ctx.projectConfig
-      : undefined;
+    const projectConfig = ctx?.projectConfig;
     const taskClassifications = args.tasks
       ? args.tasks.map(t => classifyTask(t, agentConfig, projectConfig))
       : undefined;
