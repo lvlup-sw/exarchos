@@ -6,12 +6,14 @@ import {
   ReconcilePlanSchema,
   ReconcileResultSchema,
   AdvisorySchema,
+  ResolvedCommandsSchema,
   type Surface,
   type PlanStep,
   type DesiredState,
   type ReconcilePlan,
   type ReconcileResult,
   type Advisory,
+  type ResolvedCommands,
 } from './types.js';
 
 // A valid PlanStep reused by several cases below.
@@ -123,6 +125,55 @@ describe('ReconcileTypes_PlanStepSurface_TaggedCliOnly', () => {
         commands: { test: 123 },
       }).success,
     ).toBe(false);
+  });
+
+  it('ResolvedCommandsSchema_MutationAndLint_Optional', () => {
+    // Task 007 (design §4.5-detect): the schema widens to the verification-ladder
+    // field set so onboard/doctor surface `mutation` and `lint`. Both new fields
+    // carry the SAME optionality semantics as the legacy three.
+
+    // Accepts BOTH new fields alongside the legacy three, round-tripping unchanged.
+    const both = ResolvedCommandsSchema.safeParse({
+      test: 'npm run test:run',
+      typecheck: 'tsc --noEmit',
+      install: 'npm install',
+      mutation: 'npx stryker run',
+      lint: 'eslint .',
+    });
+    expect(both.success).toBe(true);
+    if (both.success) {
+      expect(both.data).toEqual({
+        test: 'npm run test:run',
+        typecheck: 'tsc --noEmit',
+        install: 'npm install',
+        mutation: 'npx stryker run',
+        lint: 'eslint .',
+      });
+    }
+
+    // Accepts NEITHER new field — both are optional, so the legacy-only object
+    // (and the empty object) remain valid with the new fields simply absent.
+    const neither = ResolvedCommandsSchema.safeParse({ test: 'npm run test:run' });
+    expect(neither.success).toBe(true);
+    if (neither.success) {
+      expect('mutation' in neither.data).toBe(false);
+      expect('lint' in neither.data).toBe(false);
+      expect(neither.data).toEqual({ test: 'npm run test:run' });
+    }
+
+    // Accepts mutation alone (one new field present, the other absent).
+    const mutationOnly = ResolvedCommandsSchema.parse({ mutation: 'npx stryker run' });
+    expect(mutationOnly.mutation).toBe('npx stryker run');
+    expect('lint' in mutationOnly).toBe(false);
+
+    // Malformed: a new field must be a string when present (same as legacy).
+    expect(ResolvedCommandsSchema.safeParse({ mutation: 123 }).success).toBe(false);
+    expect(ResolvedCommandsSchema.safeParse({ lint: false }).success).toBe(false);
+
+    // Type-level: the inferred type carries optional mutation/lint of type string.
+    const typed: ResolvedCommands = { mutation: 'npx stryker run', lint: 'eslint .' };
+    expect(typed.mutation).toBe('npx stryker run');
+    expect(typed.lint).toBe('eslint .');
   });
 
   it('Advisory parses the cli-only install advisory and rejects malformed', () => {
