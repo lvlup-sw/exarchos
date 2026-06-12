@@ -169,4 +169,99 @@ describe('diff', () => {
       }),
     );
   });
+
+  // ─── §4.5-seed — verification commands resolved-but-undeclared ──────────────
+  //
+  // `diff` is also the home for desired-vs-declared command divergence: when the
+  // layered resolver resolved a `mutation`/`lint` command but it is NOT declared
+  // in the repo's `.exarchos.yml`, `diff` emits a `config`-kind PlanStep so
+  // `apply` can seed it (the SAME seed path test/typecheck use, no new kinds).
+  // The `declared` arg is the third input — the commands the repo already pins in
+  // `.exarchos.yml`; a resolved field present there contributes NO step (the
+  // idempotence precondition).
+
+  describe('verification-command seeding (§4.5-seed)', () => {
+    /** A clean, all-passing doctor roster — isolates the command-divergence path. */
+    const ALL_PASS: CheckResult[] = [pass('runtime', 'node-version')];
+
+    /** A desired state with mutation + lint both resolved by the resolver. */
+    const DESIRED_WITH_VERIFICATION: DesiredState = {
+      runtimes: ['claude-code'],
+      vcs: 'git',
+      commands: {
+        test: 'npm run test:run',
+        typecheck: 'tsc --noEmit',
+        install: 'npm install',
+        mutation: 'npx stryker run',
+        lint: 'eslint .',
+      },
+    };
+
+    it('Diff_ResolvedMutationMissingFromConfig_EmitsConfigStep', () => {
+      // mutation resolved, but the repo declares neither mutation nor lint.
+      const declared = { test: 'npm run test:run' };
+
+      const plan = diff(DESIRED_WITH_VERIFICATION, ALL_PASS, declared);
+
+      // The plan validates and carries a config step for each undeclared
+      // resolved verification command (mutation + lint here).
+      expect(() => ReconcilePlanSchema.parse(plan)).not.toThrow();
+
+      const byKey = new Map(plan.steps.map((s) => [s.key, s]));
+      const mutationStep = byKey.get('verification-command-mutation');
+      expect(mutationStep).toBeDefined();
+      // Same shape/surface as the test/typecheck config steps: config / any.
+      expect(mutationStep!.kind).toBe('config');
+      expect(mutationStep!.surface).toBe('any');
+      expect(mutationStep!.description.length).toBeGreaterThan(0);
+
+      const lintStep = byKey.get('verification-command-lint');
+      expect(lintStep).toBeDefined();
+      expect(lintStep!.kind).toBe('config');
+      expect(lintStep!.surface).toBe('any');
+    });
+
+    it('Diff_ResolvedMutationAlreadyDeclared_NoStep_Idempotent', () => {
+      // Both verification commands resolved AND already declared in
+      // `.exarchos.yml` ⇒ no config step (the seed already happened).
+      const declared = {
+        mutation: 'npx stryker run',
+        lint: 'eslint .',
+      };
+
+      const plan = diff(DESIRED_WITH_VERIFICATION, ALL_PASS, declared);
+
+      const keys = plan.steps.map((s) => s.key);
+      expect(keys).not.toContain('verification-command-mutation');
+      expect(keys).not.toContain('verification-command-lint');
+    });
+
+    it('Diff_UnresolvedVerificationCommand_NoStep', () => {
+      // The resolver left mutation/lint unresolved (omitted from desired.commands)
+      // ⇒ nothing to seed, no step. INV-6 omit-never-fabricate carries through:
+      // diff never invents a command the resolver did not surface.
+      const desiredNoVerification: DesiredState = {
+        runtimes: ['claude-code'],
+        vcs: 'git',
+        commands: { test: 'npm run test:run' },
+      };
+
+      const plan = diff(desiredNoVerification, ALL_PASS, {});
+
+      const keys = plan.steps.map((s) => s.key);
+      expect(keys).not.toContain('verification-command-mutation');
+      expect(keys).not.toContain('verification-command-lint');
+    });
+
+    it('Diff_DeclaredDefaultsToEmpty_BackwardCompatible', () => {
+      // Omitting the `declared` arg treats every resolved verification command as
+      // undeclared (seed-everything) — and the legacy two-arg call still works,
+      // so the doctor-check path is untouched.
+      const plan = diff(DESIRED_WITH_VERIFICATION, ALL_PASS);
+
+      const keys = plan.steps.map((s) => s.key);
+      expect(keys).toContain('verification-command-mutation');
+      expect(keys).toContain('verification-command-lint');
+    });
+  });
 });

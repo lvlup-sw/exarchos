@@ -29,12 +29,16 @@ import { fc } from '@fast-check/vitest';
 import { mkdtemp, rm, readFile, writeFile, mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
+import { parse as parseYaml } from 'yaml';
 
-import { apply, type ApplyCtx } from './reconcile.js';
+import { apply, detectDesiredState, diff, type ApplyCtx } from './reconcile.js';
 import type { PlanStep, ReconcilePlan } from './types.js';
 import { ReconcileResultSchema } from './types.js';
 import { buildWriterDeps } from '../../orchestrate/init/probes.js';
 import type { RuntimeConfigWriter } from '../../orchestrate/init/writers/writer.js';
+import { loadExarchosConfig } from '../../config/load-exarchos-config.js';
+import { resolveVerificationRuntime } from '../../config/test-runtime-resolver.js';
+import type { CheckResult } from '../../orchestrate/doctor/schema.js';
 
 // ─── Fixtures ────────────────────────────────────────────────────────────────
 
@@ -406,6 +410,132 @@ describe('apply', () => {
 
       expect(result.applied).toHaveLength(0);
       expect(result.residual.map((s) => s.key)).toContain('agent-mcp-registered');
+    } finally {
+      await cleanup(fx);
+    }
+  });
+
+  // ─── §4.5-seed — verification commands (mutation/lint) seeded into config ───
+  //
+  // The config-step path now seeds the WIDENED verification field set: a
+  // resolved-but-undeclared `mutation`/`lint` is written into `.exarchos.yml` via
+  // the SAME seeder test/typecheck/install use. These tests prove the seed lands
+  // at the config-direct tier (through the REAL loader, not YAML string-matching),
+  // is idempotent across a full detect→diff→apply→detect→diff cycle, and NEVER
+  // writes a `verification:` policy block (the gen-time-bake negative guarantee).
+
+  const ALL_PASS: CheckResult[] = [
+    { category: 'runtime', name: 'node-version', status: 'Pass', message: 'ok', durationMs: 1 },
+  ];
+
+  /**
+   * A temp repo with a Python toolchain marker — the registry seeds BOTH
+   * `mutation` (`mutmut run`) and `lint` (`ruff check`) for python, exercising
+   * the full widened field set (the node fixture only seeds mutation).
+   */
+  async function createPythonFixture(): Promise<Fixture> {
+    const base = await mkdtemp(path.join(tmpdir(), 'apply-py-'));
+    const repoRoot = path.join(base, 'repo');
+    await mkdir(repoRoot, { recursive: true });
+    await writeFile(
+      path.join(repoRoot, 'pyproject.toml'),
+      '[project]\nname = "fixture"\nversion = "0.0.0"\n',
+      'utf8',
+    );
+    return { repoRoot, base };
+  }
+
+  it('Apply_MutationConfigStep_SeedsExarchosYml', async () => {
+    const fx = await createPythonFixture();
+    try {
+      // Detect resolves mutation + lint from the python registry (tier 5); nothing
+      // is declared yet, so diff emits the verification-command config steps.
+      const desired = await detectDesiredState(fx.repoRoot, { detectRuntimes: async () => [] });
+      expect(desired.commands.mutation).toBe('mutmut run');
+      expect(desired.commands.lint).toBe('ruff check');
+
+      const plan = diff(desired, ALL_PASS, {});
+      expect(plan.steps.map((s) => s.key)).toEqual(
+        expect.arrayContaining(['verification-command-mutation', 'verification-command-lint']),
+      );
+
+      const ctx = makeCtx(fx);
+      const result = await apply(plan, ctx);
+
+      // The config step was applied (the seeder wrote the file).
+      expect(result.applied.map((s) => s.key)).toEqual(
+        expect.arrayContaining(['verification-command-mutation', 'verification-command-lint']),
+      );
+
+      // PROVE IT THROUGH THE LOADER, not the YAML text: the resolver now returns
+      // the seeded commands at the config-direct tier (source 'config' for the
+      // legacy three; mutation/lint resolve from the written config-direct keys).
+      const resolved = resolveVerificationRuntime(fx.repoRoot);
+      expect(resolved.mutation).toBe('mutmut run');
+      expect(resolved.lint).toBe('ruff check');
+      // The aggregate source is the config tier — the seed is the operator's
+      // explicit tier-2 declaration the resolver honors above detection.
+      expect(resolved.source).toBe('config');
+
+      // The written file parses through the REAL .exarchos.yml loader and carries
+      // the verification commands as top-level direct keys.
+      const loaded = loadExarchosConfig(fx.repoRoot);
+      expect(loaded).not.toBeNull();
+      expect(loaded!.config.mutation).toBe('mutmut run');
+      expect(loaded!.config.lint).toBe('ruff check');
+    } finally {
+      await cleanup(fx);
+    }
+  });
+
+  it('Apply_ReRunAfterSeed_EmptyPlanIdempotent', async () => {
+    const fx = await createPythonFixture();
+    try {
+      // Cycle 1: detect → diff → apply (seeds the config).
+      const desired1 = await detectDesiredState(fx.repoRoot, { detectRuntimes: async () => [] });
+      const declared1 = (loadExarchosConfig(fx.repoRoot)?.config ?? {}) as {
+        mutation?: string;
+        lint?: string;
+      };
+      const plan1 = diff(desired1, ALL_PASS, declared1);
+      expect(plan1.steps.length).toBeGreaterThan(0);
+      await apply(plan1, makeCtx(fx));
+
+      // Cycle 2: re-detect → re-diff. The commands are now DECLARED (config-direct),
+      // so the verification-command steps disappear → empty plan (idempotence).
+      const desired2 = await detectDesiredState(fx.repoRoot, { detectRuntimes: async () => [] });
+      const declared2 = (loadExarchosConfig(fx.repoRoot)?.config ?? {}) as {
+        mutation?: string;
+        lint?: string;
+      };
+      const plan2 = diff(desired2, ALL_PASS, declared2);
+
+      expect(plan2).toEqual({ steps: [] });
+    } finally {
+      await cleanup(fx);
+    }
+  });
+
+  it('Apply_NeverWritesVerificationPolicyBlock', async () => {
+    const fx = await createPythonFixture();
+    try {
+      // A full apply over the verification-command config steps.
+      const desired = await detectDesiredState(fx.repoRoot, { detectRuntimes: async () => [] });
+      const plan = diff(desired, ALL_PASS, {});
+      await apply(plan, makeCtx(fx));
+
+      // The written .exarchos.yml parsed object has NO `verification` key —
+      // seeding the resolved POLICY would freeze today's builtin defaults into
+      // consumer config (the gen-time-bake trap, §4.5 negative guarantee). Only
+      // the resolved COMMANDS are seeded; policy is surfaced read-only via doctor.
+      const raw = await readFile(path.join(fx.repoRoot, CONFIG_FILE), 'utf8');
+      const parsed = parseYaml(raw) as Record<string, unknown>;
+      expect('verification' in parsed).toBe(false);
+
+      // The loader confirms it too (no verification block survives validation).
+      const loaded = loadExarchosConfig(fx.repoRoot);
+      expect(loaded).not.toBeNull();
+      expect('verification' in (loaded!.config as Record<string, unknown>)).toBe(false);
     } finally {
       await cleanup(fx);
     }
