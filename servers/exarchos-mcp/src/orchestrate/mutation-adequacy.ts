@@ -17,7 +17,22 @@
 // that to a Warning carrier rather than failing the gate closed-with-an-error.
 // ────────────────────────────────────────────────────────────────────────────
 
+import { execFileSync } from 'node:child_process';
 import { z } from 'zod';
+
+import type { ToolResult } from '../format.js';
+import type { EventStore } from '../event-store/store.js';
+import type { ResolvedProjectConfig } from '../config/resolve.js';
+import {
+  resolveVerificationRuntime,
+  type ResolvedVerificationRuntime,
+} from '../config/test-runtime-resolver.js';
+import {
+  detectToolchain,
+  resolveMutationDiffScope,
+  type MutationDiffScope,
+} from '../config/toolchains.js';
+import { emitGateEvent, resolveRepoRoot } from './gate-utils.js';
 
 // ─── Stryker mutation-testing-report-schema (subset we consume) ─────────────
 //
@@ -188,4 +203,349 @@ export function parseMutationReport(input: unknown): ParseResult {
   }
 
   return { ok: true, report: parsed.data, carrier: aggregate(parsed.data) };
+}
+
+// ─── Handler — the mutation-adequacy action (task 003–006) ──────────────────
+//
+// The action handler wires the production seams around the pure report region
+// above: resolve the mutation command (slice 2 `resolveVerificationRuntime`),
+// compose the per-runner diff scope (002 `resolveMutationDiffScope`), run it
+// through an injected runner (no real Stryker in tests — DIM-4), parse + fold
+// the report, map survivors to affordances (005 / INV-12), emit the liveness
+// pair + foldable `gate.executed` (004 / INV-10 / INV-1), and apply the
+// advisory severity (006) reusing the slice-2 mechanism. The result is always
+// an INV-5b advisory carrier (`success:true` + `data.passed`) — a Skipped /
+// Warning / deferred path degrades, it never throws an error envelope.
+// ────────────────────────────────────────────────────────────────────────────
+
+/** Soft default adequacy threshold (design §4.6 — ~40% per the observed distribution). */
+export const DEFAULT_MUTATION_THRESHOLD = 0.4;
+
+/** The gate name + review layer this action stamps (INV-2: declared once here). */
+export const MUTATION_GATE_NAME = 'mutation-adequacy';
+const MUTATION_GATE_LAYER = 'review';
+
+/**
+ * Result of the injected mutation runner. `ok:true` carries the Stryker report
+ * (a JSON string from stdout/a report file, or an already-parsed object) so the
+ * handler can `parseMutationReport` it; `ok:false` is a run-level degrade
+ * (non-zero exit with no parseable report) the handler surfaces as a Warning.
+ */
+export type MutationRunResult =
+  | { readonly ok: true; readonly report: unknown }
+  | { readonly ok: false; readonly reason: string };
+
+/** Arguments the injected runner receives — the already diff-scoped command. */
+export interface MutationRunArgs {
+  readonly command: string;
+  readonly repoRoot: string;
+  readonly base: string;
+}
+
+/**
+ * Handler args. `base` reuses the existing `string` field contract verbatim
+ * (the registration-schema field-collision trap). `scope` is a plain string at
+ * the registration boundary (matching `prepare_review.scope` to dodge that same
+ * trap) and validated to `'diff' | 'full'` here, defaulting to `'diff'`.
+ */
+export interface MutationAdequacyArgs {
+  readonly featureId: string;
+  /** The review/PR base ref the mutation run is diff-scoped against. */
+  readonly base: string;
+  /** Repo to run in. `'auto'` resolves the calling delegation's worktree (#1330). */
+  readonly repoRoot?: string;
+  readonly worktreePath?: string;
+  /** Idempotency key for the gate emission (INV-8). */
+  readonly operationId?: string;
+  /** Adequacy threshold override; falls back to config, then the soft default. */
+  readonly threshold?: number;
+  /** `'diff'` (default) runs scoped; `'full'` returns a deferred-to-R10 advisory. */
+  readonly scope?: string;
+  /** Resolved project config — threaded by the dispatch adapter (severity + threshold). */
+  readonly projectConfig?: ResolvedProjectConfig;
+
+  // ── seams (DI; production defaults below) ────────────────────────────────
+  /** Verification-runtime resolver. Defaults to {@link resolveVerificationRuntime}. */
+  readonly resolve?: (repoRoot: string) => ResolvedVerificationRuntime;
+  /** Toolchain-id resolver for the diff-scope table. Defaults to {@link detectToolchain}. */
+  readonly detectToolchainId?: (repoRoot: string) => string | null;
+  /** Mutation runner. Defaults to a real shell-out capturing stdout as the report. */
+  readonly runMutation?: (args: MutationRunArgs) => MutationRunResult | Promise<MutationRunResult>;
+}
+
+/**
+ * Compose a resolved mutation command with its per-runner diff scope. The
+ * augmentation lives in the toolchains SoT (002); the handler stays runner-
+ * agnostic. Returns the scoped command and any `unscoped-warning` to surface.
+ */
+function composeScopedCommand(
+  command: string,
+  scope: MutationDiffScope,
+): { readonly command: string; readonly warning?: string } {
+  switch (scope.kind) {
+    case 'append-flag':
+      // `tokenized` only affects shell-quoting, which the runner owns; here we
+      // append the flag string verbatim (it already carries its own spacing).
+      return { command: `${command} ${scope.flag}` };
+    case 'already-native':
+    case 'path-restricted':
+      // The runner already scopes itself (cargo-mutants `--in-diff`) or the
+      // applier restricts paths (mutmut) — append nothing to the command.
+      return { command };
+    case 'unscoped-warning':
+      return { command, warning: scope.warning };
+  }
+}
+
+/** Default production runner: shell out, capturing stdout as the Stryker report. */
+function defaultRunMutation(args: MutationRunArgs): MutationRunResult {
+  const tokens = args.command.split(/\s+/).filter((t) => t.length > 0);
+  const [bin, ...rest] = tokens;
+  if (!bin) return { ok: false, reason: 'no resolvable mutation command' };
+  try {
+    const stdout = execFileSync(bin, rest, {
+      cwd: args.repoRoot,
+      timeout: 600_000,
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+    return { ok: true, report: stdout };
+  } catch (err) {
+    const e = err as { stdout?: string | Buffer; status?: number };
+    const out = typeof e.stdout === 'string' ? e.stdout : e.stdout?.toString('utf-8') ?? '';
+    // A non-zero exit with a parseable report on stdout is still a usable run
+    // (mutation runners exit non-zero below their own threshold). Hand the
+    // stdout to the parser; an empty/unparseable stdout degrades to a Warning.
+    if (out.trim().length > 0) return { ok: true, report: out };
+    return { ok: false, reason: `mutation run produced no report (exit ${e.status ?? 'unknown'})` };
+  }
+}
+
+/** Map surviving + NoCoverage mutants to "write a test that kills file:line" steers (INV-12). */
+function survivorAffordances(report: MutationReport): string[] {
+  const actions: string[] = [];
+  for (const [file, result] of Object.entries(report.files)) {
+    for (const m of result.mutants) {
+      if (m.status === 'Survived' || m.status === 'NoCoverage') {
+        actions.push(`write a test that kills ${file}:${m.location.start.line}`);
+      }
+    }
+  }
+  return actions;
+}
+
+/**
+ * The mutation-adequacy action handler.
+ *
+ * Always returns an INV-5b advisory carrier. The dispatch branch in
+ * `composite.ts` routes here; the test suite dispatches THROUGH
+ * `handleOrchestrate` (the DOA-action trap).
+ */
+export async function handleMutationAdequacy(
+  args: MutationAdequacyArgs,
+  _stateDir: string,
+  eventStore: EventStore,
+): Promise<ToolResult> {
+  if (!eventStore) {
+    return {
+      success: false,
+      error: { code: 'MISWIRED_CONTEXT', message: 'handleMutationAdequacy: eventStore is required' },
+    };
+  }
+  if (!args.featureId) {
+    return { success: false, error: { code: 'INVALID_INPUT', message: 'featureId is required' } };
+  }
+  if (!args.base) {
+    return { success: false, error: { code: 'INVALID_INPUT', message: 'base is required' } };
+  }
+
+  const scope = args.scope === 'full' ? 'full' : 'diff';
+
+  // ── §4.5 — `full` scope is the canonical long-running op; deferred to
+  // R10/v2.12 lifecycle verbs. Never an inline full-tree run (it would defeat
+  // the token goal, research §6 Q3). Return a deferred advisory, no runner call.
+  if (scope === 'full') {
+    return {
+      success: true,
+      data: {
+        passed: true,
+        deferred: true,
+        scope: 'full',
+        mutationScore: 0,
+        killed: 0,
+        survived: 0,
+        noCoverage: 0,
+        total: 0,
+        reason:
+          'full-tree mutation is the long-running op deferred to R10/v2.12 ' +
+          '(nightly/offline via the Task lifecycle verbs); only diff-scoped runs ' +
+          'execute inline this slice',
+      },
+    };
+  }
+
+  // Resolve repoRoot — supports the worktree-aware 'auto' mode (#1330).
+  const resolved = await resolveRepoRoot(
+    {
+      repoRoot: args.repoRoot,
+      worktreePath: args.worktreePath,
+      featureId: args.featureId,
+    },
+    eventStore,
+  );
+  if (!resolved.ok) {
+    return { success: false, error: { code: 'INVALID_INPUT', message: resolved.error } };
+  }
+  const repoRoot = resolved.repoRoot;
+
+  // ── Resolve the mutation command (slice 2). Unresolved → Skipped (never a
+  // hard fail; mirrors verification-toolchain), naming the remediation. ──────
+  const resolve = args.resolve ?? resolveVerificationRuntime;
+  let runtime: ResolvedVerificationRuntime;
+  try {
+    runtime = resolve(repoRoot);
+  } catch (err) {
+    // A malformed/unreadable .exarchos.yml is a hard failure (DIM-2).
+    return {
+      success: false,
+      error: { code: 'INVALID_INPUT', message: err instanceof Error ? err.message : String(err) },
+    };
+  }
+  if (!runtime.mutation) {
+    const reason =
+      runtime.remediation ??
+      'no mutation runner resolved for this repository — install one (e.g. stryker, ' +
+        'cargo-mutants, mutmut) or set `mutation:` in .exarchos.yml';
+    return {
+      success: true,
+      data: {
+        passed: true,
+        skipped: true,
+        reason,
+        mutationScore: 0,
+        killed: 0,
+        survived: 0,
+        noCoverage: 0,
+        total: 0,
+      },
+    };
+  }
+
+  // ── Compose the per-runner diff scope (002). Identity stays in the SoT; the
+  // handler is runner-agnostic. ──────────────────────────────────────────────
+  const detect = args.detectToolchainId ?? ((root: string) => detectToolchain(root)?.id ?? null);
+  const toolchainId = detect(repoRoot) ?? '';
+  const diffScope = resolveMutationDiffScope(toolchainId, args.base);
+  const scoped = composeScopedCommand(runtime.mutation, diffScope);
+
+  // ── Run (injected seam). Bracket with the INV-10 liveness pair. ────────────
+  const runMutation = args.runMutation ?? defaultRunMutation;
+  await emitLiveness(eventStore, args.featureId, 'mutation.executing_started', {
+    command: scoped.command,
+    repoRoot,
+  });
+  const runResult = await runMutation({ command: scoped.command, repoRoot, base: args.base });
+  await emitLiveness(eventStore, args.featureId, 'mutation.executed', {
+    command: scoped.command,
+    repoRoot,
+    passed: runResult.ok,
+    exitCode: runResult.ok ? 0 : 1,
+  });
+
+  // ── Run-level degrade (no parseable report) → Warning, never a throw. ──────
+  if (!runResult.ok) {
+    return warningCarrier(runResult.reason, scoped.warning);
+  }
+
+  // ── Parse + fold (001). Malformed report → Warning (degrade). ──────────────
+  const parsed = parseMutationReport(runResult.report);
+  if (!parsed.ok) {
+    return warningCarrier(parsed.reason, scoped.warning);
+  }
+
+  const carrier = parsed.carrier;
+  const threshold = resolveThreshold(args);
+  const passed = carrier.mutationScore >= threshold;
+  const nextActions = survivorAffordances(parsed.report);
+
+  // ── Emit the foldable gate.executed (004 / INV-1). Idempotent via
+  // operationId (INV-8) — NO CAS-pin on the follow-on event. ─────────────────
+  try {
+    await emitGateEvent(
+      eventStore,
+      args.featureId,
+      MUTATION_GATE_NAME,
+      MUTATION_GATE_LAYER,
+      passed,
+      {
+        mutationScore: carrier.mutationScore,
+        killed: carrier.killed,
+        survived: carrier.survived,
+        noCoverage: carrier.noCoverage,
+        total: carrier.total,
+        threshold,
+      },
+      args.operationId,
+    );
+  } catch {
+    /* fire-and-forget — emission failure must not break the verdict */
+  }
+
+  // ── INV-5b advisory carrier. Severity (006) is applied by the dispatch
+  // adapter (applyLadderGateSeverity) AFTER this returns. ────────────────────
+  return {
+    success: true,
+    ...(scoped.warning ? { warnings: [scoped.warning] } : {}),
+    data: {
+      passed,
+      mutationScore: carrier.mutationScore,
+      killed: carrier.killed,
+      survived: carrier.survived,
+      noCoverage: carrier.noCoverage,
+      total: carrier.total,
+      threshold,
+      report: parsed.report,
+      next_actions: nextActions,
+    },
+  };
+}
+
+/** Resolve the effective threshold: arg override > config > soft default. */
+function resolveThreshold(args: MutationAdequacyArgs): number {
+  if (typeof args.threshold === 'number') return args.threshold;
+  const configured = args.projectConfig?.review.gates[MUTATION_GATE_NAME]?.params?.threshold;
+  if (typeof configured === 'number') return configured;
+  return DEFAULT_MUTATION_THRESHOLD;
+}
+
+/** Build a degraded Warning carrier (a malformed/empty report never throws). */
+function warningCarrier(reason: string, scopeWarning?: string): ToolResult {
+  const warnings = scopeWarning ? [scopeWarning, reason] : [reason];
+  return {
+    success: true,
+    warnings,
+    data: {
+      passed: true,
+      warning: reason,
+      mutationScore: 0,
+      killed: 0,
+      survived: 0,
+      noCoverage: 0,
+      total: 0,
+    },
+  };
+}
+
+/** Fire-and-forget liveness emit that never throws into the run path (INV-4 degrade). */
+async function emitLiveness(
+  store: EventStore,
+  stream: string,
+  type: 'mutation.executing_started' | 'mutation.executed',
+  data: Record<string, unknown>,
+): Promise<void> {
+  try {
+    await store.append(stream, { type, data });
+  } catch {
+    /* degrade — liveness emission failure must not break the run */
+  }
 }

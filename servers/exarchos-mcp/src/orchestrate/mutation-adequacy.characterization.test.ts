@@ -45,19 +45,21 @@ describe('mutation-adequacy roster characterization (PIN)', () => {
   //
   // Derived from the registry SoT (`TOOL_REGISTRY`), not re-declared, so the
   // pin tracks the live surface. R5's `mutation-adequacy` ACTION (INV-5d — an
-  // action, never a 5th tool) lands on this tool (task 003), taking the count
-  // from 71 → 72 and adding the name. Until then both are pinned exactly.
+  // action, never a 5th tool) landed on this tool (task 003), taking the count
+  // from 71 → 72 and adding the name. This pin was updated DELIBERATELY when
+  // task 003 landed (the deliberate-update protocol) — a roster drift that is
+  // NOT this single addition is a real regression, caught here.
   describe('OrchestrateActionRoster_CurrentBuild_PinnedActionSet', () => {
     const orchestrate = TOOL_REGISTRY.find((t) => t.name === 'exarchos_orchestrate');
     const actionNames = (orchestrate?.actions ?? []).map((a) => a.name);
 
-    it('exposes exactly 71 actions (pre-R5; mutation-adequacy not yet added)', () => {
+    it('exposes exactly 72 actions (R5 mutation-adequacy added)', () => {
       expect(orchestrate).toBeDefined();
-      expect(actionNames).toHaveLength(71);
+      expect(actionNames).toHaveLength(72);
     });
 
-    it('does NOT yet carry a mutation-adequacy action', () => {
-      expect(actionNames).not.toContain('mutation-adequacy');
+    it('carries the mutation-adequacy action (R5 / task 003)', () => {
+      expect(actionNames).toContain('mutation-adequacy');
     });
 
     it('pins the current (sorted) action name set', () => {
@@ -107,6 +109,7 @@ describe('mutation-adequacy roster characterization (PIN)', () => {
         'list_prs',
         'merge_orchestrate',
         'merge_pr',
+        'mutation-adequacy',
         'needs_schema_sync',
         'onboard',
         'post_delegation_check',

@@ -101,6 +101,10 @@ const EXPECTED_LONG_RUNNING_ACTIONS: ReadonlySet<string> = new Set([
   // to codegen → typecheck → breaking-diff against the merge-base; exceeds the
   // 2s heartbeat on a real repo.
   'check_contract_drift',
+  // Verification-ladder slice 3 R5 (#1520): the mutation-adequacy action shells
+  // out to a real mutation runner (Stryker / cargo-mutants / mutmut), diff-
+  // scoped; far exceeds the 2s heartbeat on a real repo.
+  'mutation-adequacy',
 ]);
 
 describe('orchestrate action registry — longRunning metadata (DR-5)', () => {

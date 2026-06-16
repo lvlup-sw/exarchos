@@ -31,6 +31,7 @@ import { handleTddCompliance } from './tdd-compliance.js';
 import { handleTestAdequacy } from './test-adequacy-handler.js';
 import { handleContractDrift } from './contract-drift-handler.js';
 import { handleMockBoundary } from './mock-boundary-handler.js';
+import { handleMutationAdequacy, MUTATION_GATE_NAME } from './mutation-adequacy.js';
 import { handlePostMerge } from './post-merge.js';
 import { handleStaticAnalysis } from './static-analysis.js';
 import { handleCheckIntegrationSuite } from './check-integration-suite.js';
@@ -347,6 +348,13 @@ const ACTION_HANDLERS: Readonly<Record<string, ActionHandler>> = {
   check_test_adequacy: adaptLadderGate('check_test_adequacy', 'D1', handleTestAdequacy),
   check_contract_drift: adaptLadderGate('check_contract_drift', 'D1', handleContractDrift),
   check_mock_boundary: adaptLadderGate('check_mock_boundary', 'D1', handleMockBoundary),
+  // Verification-ladder slice 3, R5 (#1520): the mutation-adequacy review
+  // dimension's action. ADVISORY by default (its seeded gate default is
+  // warning-only, like tdd-compliance/mock-boundary), so a sub-threshold score
+  // surfaces survivor next_actions without blocking — an explicit
+  // review.gates['mutation-adequacy'] override still raises it to blocking. The
+  // 'D1' dimension is only a fallback the seeded gate default always beats.
+  [MUTATION_GATE_NAME]: adaptLadderGate(MUTATION_GATE_NAME, 'D1', handleMutationAdequacy),
   check_post_merge: adaptWithEventStore(handlePostMerge),
   check_static_analysis: adaptLadderGate('check_static_analysis', 'D2', handleStaticAnalysis),
   check_integration_suite: adaptLadderGate('check_integration_suite', 'D2', handleCheckIntegrationSuite),
