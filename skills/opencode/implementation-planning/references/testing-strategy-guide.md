@@ -13,6 +13,38 @@ Verification depth is **risk-proportional**, not uniform. Each task's `riskTier`
 
 Planners set `riskTier`/`boundaryTouching` explicitly only when the mechanical derivation would misclassify (see the derivation table in `task-template.md`); the gate *sequence* itself is never encoded in plan prose.
 
+## Tier → Default `testingStrategy` (the cheap verification mix)
+
+The default verification mix is **risk-proportional and table-driven** — read the `testingStrategy`
+fields straight off the row for the task's `riskTier`. This is data, not a judgement call: the planner
+emits these fields verbatim per tier and only deviates when the category tables below force a stronger
+signal (e.g. a data-transformation task always gets `propertyTests: true` regardless of tier).
+
+For **medium/high** the default is the **cheap mix** — strict/branded types + inline
+invariants/assertions + **one** property test on the pure core + **one** acceptance north-star test —
+deliberately omitting granular per-behavior red-green. Per-behavior RED→GREEN is an **explicit opt-in**
+(`exampleTests` stays `true`, but exhaustive per-case example tests are added only when the plan calls
+for them), not the default.
+
+| `riskTier` | `exampleTests` | `propertyTests` | `testLayer` | `characterizationRequired` | Default mix |
+|---|---|---|---|---|---|
+| **high** | `true` | `true` (one PBT on the pure core) | `acceptance` (one north-star test) | `true` when modifying existing code, else `false` | Strict/branded types + inline invariants/assertions + 1 PBT + 1 acceptance test; granular per-behavior red-green is opt-in |
+| **medium** | `true` | `true` (one PBT on the pure core) | `integration` | `true` when modifying existing code, else `false` | Same cheap mix as high, at the integration layer; granular per-behavior red-green is opt-in |
+| **low** | `true` | `false` | `unit` | `false` | Minimal — example tests only; no PBT, no characterization |
+
+**Why this is safe (the relaxation is guarded, not unguarded).** Omitting granular per-behavior
+red-green for medium/high is backstopped by two adequacy probes that catch the vacuous-test and
+vacuous-PBT-property failure modes the omission could otherwise admit:
+
+- **R5 mutation-adequacy** (`/review` boundary, high tier) — runs the resolved mutation command
+  diff-scoped and surfaces surviving mutants as "write a test that kills `<file>:<line>`" follow-ups.
+- **R3 `check_test_adequacy`** (per-task kill-probe, already shipped) — reverts the task's source hunks,
+  asserts the new test(s) go red, then restores: proves the test isn't tautological with no extra tool.
+
+A category-table match always **overrides upward** from the tier default (it never relaxes it): a
+medium-tier serialization task still gets `propertyTests: true` with a roundtrip property even though the
+tier row already sets it. The tier row is the floor; the category tables raise it.
+
 ## Schema
 
 ```typescript
@@ -113,7 +145,13 @@ Assign `characterizationRequired: true` when the task modifies existing code beh
 
 ## Auto-Determination
 
-The planner MUST auto-determine `propertyTests`, `benchmarks`, and `testLayer` for each task based on the category tables above. Do NOT leave these fields for the implementer to decide. Analyze each task's description and file paths to match against the categories. When uncertain, default `testLayer` to `"integration"`, `propertyTests` to `false`, and `benchmarks` to `false`.
+The planner MUST auto-determine `propertyTests`, `benchmarks`, `testLayer`, and `characterizationRequired` for each task — never leave them for the implementer to decide. Resolve in this fixed order, so the result is deterministic with no implementer guesswork:
+
+1. **Tier default** — start from the row for the task's `riskTier` in the **Tier → Default `testingStrategy`** table above. This sets `propertyTests`, `testLayer`, and `characterizationRequired` deterministically.
+2. **Category override (upward only)** — if the task matches a category in the tables above (data transformations, state machines, serialization, …), raise the relevant field (e.g. `propertyTests: true`, `benchmarks: true`). A category match never relaxes the tier floor.
+3. **Explicit plan value** — an explicit field in the plan always wins over both.
+
+`benchmarks` follows the same shape: `false` by default, raised to `true` only by a benchmark-category match. Analyze each task's description and file paths to match against the categories.
 
 ## Reference
 
