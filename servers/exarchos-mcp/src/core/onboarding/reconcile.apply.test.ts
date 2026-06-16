@@ -488,6 +488,50 @@ describe('apply', () => {
     }
   });
 
+  it('Apply_MutationConfigStep_ExistingConfig_ResidualNotSilentlySkipped', async () => {
+    const fx = await createPythonFixture();
+    try {
+      // A pre-existing `.exarchos.yml` that declares NEITHER mutation nor lint.
+      // The create-only seeder will short-circuit on it (`already-exists`).
+      await writeFile(path.join(fx.repoRoot, CONFIG_FILE), 'test: pytest\n', 'utf8');
+
+      // mutation/lint resolve from the python registry but are undeclared in the
+      // existing config, so diff emits the verification-command steps.
+      const desired = await detectDesiredState(fx.repoRoot, { detectRuntimes: async () => [] });
+      const declared = (loadExarchosConfig(fx.repoRoot)?.config ?? {}) as {
+        mutation?: string;
+        lint?: string;
+      };
+      const plan = diff(desired, ALL_PASS, declared);
+      expect(plan.steps.map((s) => s.key)).toEqual(
+        expect.arrayContaining(['verification-command-mutation', 'verification-command-lint']),
+      );
+
+      const result = await apply(plan, makeCtx(fx));
+
+      // The create-only seeder cannot add keys to the existing file, so the
+      // commands are genuinely still absent. They MUST surface as residual (a
+      // re-diff resumes them), NOT silently `skipped` (which reads as a preserved
+      // hand-edit / success) and NOT `applied`.
+      expect(result.residual.map((s) => s.key)).toEqual(
+        expect.arrayContaining(['verification-command-mutation', 'verification-command-lint']),
+      );
+      expect(result.skipped.map((s) => s.key)).not.toContain('verification-command-mutation');
+      expect(result.skipped.map((s) => s.key)).not.toContain('verification-command-lint');
+      expect(result.applied.map((s) => s.key)).not.toContain('verification-command-mutation');
+      // Each un-seedable command carries an advisory naming the untouched file.
+      expect(result.advisories.length).toBeGreaterThanOrEqual(2);
+
+      // The existing file was NOT modified — mutation/lint still absent.
+      const loaded = loadExarchosConfig(fx.repoRoot);
+      expect(loaded).not.toBeNull();
+      expect(loaded!.config.mutation).toBeUndefined();
+      expect(loaded!.config.lint).toBeUndefined();
+    } finally {
+      await cleanup(fx);
+    }
+  });
+
   it('Apply_ReRunAfterSeed_EmptyPlanIdempotent', async () => {
     const fx = await createPythonFixture();
     try {

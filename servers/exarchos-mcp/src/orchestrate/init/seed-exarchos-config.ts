@@ -24,9 +24,10 @@ const CONFIG_FILENAME = '.exarchos.yml';
 
 const HEADER = `# .exarchos.yml — Exarchos project configuration.
 #
-# This file declares the test/typecheck/install commands Exarchos should
-# use for gates and worktree setup. Auto-seeded from detection at workflow
-# init time. Edit freely; subsequent inits will not overwrite it.
+# This file declares the commands Exarchos uses for gates and worktree setup —
+# test, typecheck, install, plus the verification-ladder commands mutation and
+# lint (each seeded only when detection resolved one). Auto-seeded from detection
+# at workflow init time. Edit freely; subsequent inits will not overwrite it.
 #
 # Set any field to override detection. Unset fields fall back to detection.
 # Docs: https://github.com/lvlup-sw/exarchos/issues/1199

@@ -49,11 +49,17 @@ const ALLOWED_BASENAMES = new Set([
 ]);
 
 /**
- * Returns true iff `source` imports the named symbol `resolveVerificationSequence`
- * from a module whose specifier ends in `verification-policy.js`, in ANY of the
- * import/re-export forms TypeScript supports (static value/type import, named
- * re-export). A side-effect or default import cannot name this symbol, so the
- * named-binding forms are exhaustive for this symbol.
+ * Returns true iff `source` reaches `resolveVerificationSequence` from a module
+ * whose specifier ends in `verification-policy.js`, in ANY import/re-export form
+ * TypeScript supports:
+ *   - named import / aliased named import (`import { x }`, `import { x as y }`)
+ *   - named re-export (`export { x } from`)
+ *   - NAMESPACE import (`import * as ns from`) — binds every export, so
+ *     `ns.resolveVerificationSequence(...)` bypasses the rule
+ *   - EXPORT-ALL (`export * from`, `export * as ns from`) — re-exports the
+ *     forbidden table function transitively
+ * Only a plain side-effect import (`import '…'`) and a default import cannot name
+ * this symbol; every binding form that CAN reach it is matched.
  */
 function importsForbiddenTableFn(source: string): boolean {
   const sf = ts.createSourceFile(
@@ -71,37 +77,50 @@ function importsForbiddenTableFn(source: string): boolean {
   const visit = (node: ts.Node): void => {
     if (found) return;
 
-    // import { resolveVerificationSequence, … } from '…/verification-policy.js'
-    // import type { resolveVerificationSequence } from '…' (type position too)
-    if (
-      ts.isImportDeclaration(node) &&
-      specifierMatches(node.moduleSpecifier) &&
-      node.importClause?.namedBindings &&
-      ts.isNamedImports(node.importClause.namedBindings)
-    ) {
-      for (const el of node.importClause.namedBindings.elements) {
-        // `propertyName` is the original name in `import { orig as alias }`.
-        const original = el.propertyName?.text ?? el.name.text;
-        if (original === FORBIDDEN_NAMED_IMPORT) {
-          found = true;
-          return;
+    if (ts.isImportDeclaration(node) && specifierMatches(node.moduleSpecifier)) {
+      const namedBindings = node.importClause?.namedBindings;
+      // import * as verificationPolicy from '…/verification-policy.js'
+      // A namespace binding exposes EVERY export — including the forbidden table
+      // function — so `ns.resolveVerificationSequence(...)` bypasses the rule.
+      if (namedBindings && ts.isNamespaceImport(namedBindings)) {
+        found = true;
+        return;
+      }
+      // import { resolveVerificationSequence, … } from '…/verification-policy.js'
+      // import type { resolveVerificationSequence } from '…' (type position too)
+      if (namedBindings && ts.isNamedImports(namedBindings)) {
+        for (const el of namedBindings.elements) {
+          // `propertyName` is the original name in `import { orig as alias }`.
+          const original = el.propertyName?.text ?? el.name.text;
+          if (original === FORBIDDEN_NAMED_IMPORT) {
+            found = true;
+            return;
+          }
         }
       }
     }
 
-    // export { resolveVerificationSequence } from '…/verification-policy.js'
     if (
       ts.isExportDeclaration(node) &&
       node.moduleSpecifier &&
-      specifierMatches(node.moduleSpecifier) &&
-      node.exportClause &&
-      ts.isNamedExports(node.exportClause)
+      specifierMatches(node.moduleSpecifier)
     ) {
-      for (const el of node.exportClause.elements) {
-        const original = el.propertyName?.text ?? el.name.text;
-        if (original === FORBIDDEN_NAMED_IMPORT) {
-          found = true;
-          return;
+      // export * from '…/verification-policy.js'  (exportClause === undefined)
+      // export * as ns from '…/verification-policy.js'  (NamespaceExport)
+      // Either form re-exports the forbidden table function transitively, so a
+      // consumer importing from the re-exporter reaches it without naming it.
+      if (node.exportClause === undefined || ts.isNamespaceExport(node.exportClause)) {
+        found = true;
+        return;
+      }
+      // export { resolveVerificationSequence } from '…/verification-policy.js'
+      if (ts.isNamedExports(node.exportClause)) {
+        for (const el of node.exportClause.elements) {
+          const original = el.propertyName?.text ?? el.name.text;
+          if (original === FORBIDDEN_NAMED_IMPORT) {
+            found = true;
+            return;
+          }
         }
       }
     }
@@ -208,6 +227,22 @@ describe('single-composer guard', () => {
         name: 'named re-export',
         src: `export { resolveVerificationSequence } from './verification-policy.js';\n`,
       },
+      {
+        name: 'namespace import',
+        src: `import * as verificationPolicy from './verification-policy.js';\nverificationPolicy.resolveVerificationSequence();\n`,
+      },
+      {
+        name: 'namespace import among a default binding',
+        src: `import def, * as vp from '../workflow/verification-policy.js';\n`,
+      },
+      {
+        name: 'export-all',
+        src: `export * from './verification-policy.js';\n`,
+      },
+      {
+        name: 'aliased export-all',
+        src: `export * as verificationPolicy from './verification-policy.js';\n`,
+      },
     ];
 
     const NEGATIVE: ReadonlyArray<{ name: string; src: string }> = [
@@ -218,6 +253,14 @@ describe('single-composer guard', () => {
       {
         name: 'same symbol from an unrelated module',
         src: `import { resolveVerificationSequence } from './some-other-module.js';\n`,
+      },
+      {
+        name: 'namespace import of an unrelated module',
+        src: `import * as other from './some-other-module.js';\n`,
+      },
+      {
+        name: 'export-all of an unrelated module',
+        src: `export * from './some-other-module.js';\n`,
       },
       {
         name: 'string literal mentioning the symbol but no import',

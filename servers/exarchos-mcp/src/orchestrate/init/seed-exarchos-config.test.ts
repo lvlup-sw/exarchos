@@ -202,8 +202,9 @@ describe('seedExarchosConfig', () => {
 
     const body = writes[0].contents;
     expect(body).toContain('# .exarchos.yml — Exarchos project configuration.');
-    expect(body).toContain('# use for gates and worktree setup. Auto-seeded from detection at workflow');
-    expect(body).toContain('# init time. Edit freely; subsequent inits will not overwrite it.');
+    expect(body).toContain('# This file declares the commands Exarchos uses for gates and worktree setup —');
+    expect(body).toContain('# test, typecheck, install, plus the verification-ladder commands mutation and');
+    expect(body).toContain('# at workflow init time. Edit freely; subsequent inits will not overwrite it.');
     expect(body).toContain('https://github.com/lvlup-sw/exarchos/issues/1199');
   });
 
@@ -261,14 +262,17 @@ describe('seedExarchosConfig', () => {
   it('seed_RoundTripsThroughLoader', async () => {
     const tempDir = await mkdtemp(path.join(tmpdir(), 'seed-roundtrip-'));
     try {
-      // Capture seeded contents using the injected write hook.
+      // Capture seeded contents using the injected write hook. The resolver stub
+      // also resolves mutation/lint so the round-trip covers the WIDENED command
+      // surface — a regression where `loadExarchosConfig` drops or rejects
+      // mutation/lint must fail here, not pass against the legacy keys alone.
       let seeded = '';
       const result = seedExarchosConfig(tempDir, {
         exists: () => false,
         write: (_p, contents) => {
           seeded = contents;
         },
-        resolve: () => npmResolve(),
+        resolve: () => ({ ...npmResolve(), mutation: 'npx stryker run', lint: 'eslint .' }),
       });
       expect(result.wrote).toBe(true);
 
@@ -284,6 +288,9 @@ describe('seedExarchosConfig', () => {
       expect(load!.config.test).toBe('npm run test:run');
       expect(load!.config.typecheck).toBe('tsc --noEmit');
       expect(load!.config.install).toBe('npm install');
+      // The widened verification-ladder commands survive the seed → load round-trip.
+      expect(load!.config.mutation).toBe('npx stryker run');
+      expect(load!.config.lint).toBe('eslint .');
     } finally {
       await rm(tempDir, { recursive: true, force: true }).catch(() => {});
     }

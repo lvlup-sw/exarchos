@@ -54,13 +54,30 @@ export const CheckResultSchema = z
     fix: z.string().min(1).optional(),
     reason: z.string().min(1).optional(),
     durationMs: z.number().int().nonnegative(),
-    // Optional read-only detail carried by the verification-toolchain check:
-    // the six resolved policy cells with their builtin/config provenance.
-    // Other checks omit it; the field survives `DoctorOutputSchema.parse` so
-    // the provenance reaches MCP/CLI adapters intact.
-    policyCells: z.array(VerificationPolicyCellSchema).optional(),
+    // Read-only detail carried EXCLUSIVELY by the verification-toolchain check:
+    // the six resolved policy cells with their builtin/config provenance. The
+    // length is fixed at 6 — the (riskTier × boundaryTouching) cross-product —
+    // so a malformed provenance payload fails fast at the schema boundary rather
+    // than reaching MCP/CLI adapters as a silently-truncated contract (INV-5b).
+    // The superRefine below makes the field REQUIRED for verification-toolchain
+    // and FORBIDDEN elsewhere.
+    policyCells: z.array(VerificationPolicyCellSchema).length(6).optional(),
   })
   .superRefine((r, ctx) => {
+    if (r.name === 'verification-toolchain' && r.policyCells === undefined) {
+      ctx.addIssue({
+        code: 'custom',
+        message: 'policyCells is required for the verification-toolchain check',
+        path: ['policyCells'],
+      });
+    }
+    if (r.name !== 'verification-toolchain' && r.policyCells !== undefined) {
+      ctx.addIssue({
+        code: 'custom',
+        message: 'policyCells is only valid on the verification-toolchain check',
+        path: ['policyCells'],
+      });
+    }
     if (r.status === 'Skipped' && (!r.reason || r.reason.length === 0)) {
       ctx.addIssue({
         code: 'custom',

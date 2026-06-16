@@ -1,8 +1,11 @@
 # `.exarchos.yml` — the `verification:` block
 
 Overrides the verification ladder's **gate sequences** per policy cell. Ships with
-v2.11.0 (epic #1515, R2/#1517). Without this block, the built-in ladder applies —
-declaring it is always optional and always additive.
+v2.11.0 (epic #1515, R2/#1517). Without this block, the built-in ladder applies.
+Declaring it is optional, and resolution is per cell: each cell you specify **fully
+replaces** the built-in sequence for that cell (replacement, not a merge — the
+sequence you write is the sequence that runs), while every cell you omit keeps its
+built-in default.
 
 ## The policy model
 

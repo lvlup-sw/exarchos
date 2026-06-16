@@ -19,14 +19,18 @@ The `verification-toolchain` doctor check reports per-field resolvability.
 | # | Tier | Source | When it fires |
 |---|------|--------|---------------|
 | 1 | **override** | dispatch argument | a caller passes an explicit command |
-| 2 | **config** | `.exarchos.yml` `test:` / `typecheck:` / `install:` | you declare the command directly |
+| 2 | **config** | `.exarchos.yml` `test:` / `typecheck:` / `install:` / `mutation:` / `lint:` | you declare the command directly |
 | 3 | **toolchain-config** | `.exarchos.yml` `toolchains:` | a user-declared toolchain's marker matches the repo |
 | 4 | **task-runner** | `Taskfile.yml` · `justfile` · `mise.toml` · `Makefile` | a committed runner declares the conventional target |
 | 5 | **detection** | built-in toolchain registry | a built-in marker matches (node, .NET, Rust, Go, Python, Java, Ruby, PHP, Elixir, Swift, C/C++) |
 | — | unresolved | — | nothing matched → actionable remediation |
 
-Resolution is **per field**: `test` may come from a task runner while `install`
-falls through to the built-in registry.
+Resolution is **per field** across the whole verification surface — `test`,
+`typecheck`, `install`, `mutation`, and `lint` each resolve through the same five
+tiers independently: `test` may come from a task runner while `install` falls
+through to the built-in registry, and `mutation` / `lint` follow the identical
+precedence (a `.exarchos.yml` `mutation:` pin beats a task-runner target beats the
+built-in registry default).
 
 ## Built-in toolchains (tier 5)
 

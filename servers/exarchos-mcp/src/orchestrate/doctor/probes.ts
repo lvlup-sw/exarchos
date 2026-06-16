@@ -471,7 +471,16 @@ export async function resolveVerificationToolchain(
   const loadConfig = deps.loadConfig ?? loadExarchosConfig;
   const resolvePolicy = deps.resolvePolicy ?? resolveVerificationPolicy;
 
-  const repoRoot = process.cwd();
+  // Normalize to the actual project root before resolving runtime/config. The
+  // `.exarchos.yml` (then `.git`) ancestor walk mirrors resolveInvariantsCatalog
+  // and load-exarchos-config's own fallback: when `doctor` runs from a nested
+  // directory, anchoring BOTH the runtime resolver and config load to the same
+  // repo root keeps a configured repo from misclassifying as Skipped/Warning
+  // with all-builtin provenance. Resolve from the USER's cwd, NOT this module's
+  // location (#1482 — in plugin mode the module lives in the plugin cache).
+  const cwd = process.cwd();
+  const repoRoot =
+    (await findRepoRoot('.exarchos.yml', cwd)) ?? (await findRepoRoot('.git', cwd)) ?? cwd;
 
   // Per-field runtime resolution (test/typecheck/install/mutation/lint).
   const runtime = resolveRuntime(repoRoot);

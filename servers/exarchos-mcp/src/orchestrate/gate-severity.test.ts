@@ -110,6 +110,16 @@ describe('resolveGateSeverity per-workflow severity', () => {
     expect(resolveGateSeverity('security-scan', 'D1', DEFAULTS, 'oneshot')).toBe('blocking');
   });
 
+  it('ResolveGateSeverity_OneshotLadderGate_ExplicitDimensionDisableWins', () => {
+    // An explicit `enabled: false` on the gate's dimension is a stronger
+    // statement than the oneshot ladder default — the gate resolves to
+    // 'disabled', NOT the warning the workflow default would otherwise apply.
+    const config = configWith({
+      dimensions: { ...DEFAULTS.review.dimensions, D2: { severity: 'blocking', enabled: false } },
+    });
+    expect(resolveGateSeverity(LADDER_GATE, 'D2', config, 'oneshot')).toBe('disabled');
+  });
+
   it('ResolveGateSeverity_FeatureWorkflow_UnchangedResolution', () => {
     // A non-oneshot workflow has no default-severity table entry — unchanged.
     expect(resolveGateSeverity(LADDER_GATE, 'D2', DEFAULTS, 'feature')).toBe('blocking');

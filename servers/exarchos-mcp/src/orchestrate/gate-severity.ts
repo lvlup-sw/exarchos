@@ -34,11 +34,14 @@ const LADDER_GATE_NAMES: ReadonlySet<string> = new Set(VERIFICATION_GATE_NAMES);
  *
  * Resolution order (highest precedence first):
  * 1. Gate-level override (`review.gates[gateName]`)
- * 2. Per-workflow ladder default: when `workflowType` is supplied, the gate is
+ * 2. Explicit dimension disable (`review.dimensions[dimension].enabled === false`
+ *    → `'disabled'`) — an explicit project off is a stronger statement than any
+ *    convention default and must win over the per-workflow ladder default below.
+ * 3. Per-workflow ladder default: when `workflowType` is supplied, the gate is
  *    a verification-ladder gate, AND `WORKFLOW_DEFAULT_SEVERITY[workflowType]`
  *    is defined → that severity (e.g. oneshot → warning).
- * 3. Dimension-level setting (`review.dimensions[dimension]`)
- * 4. Default: `'blocking'` (unknown dimensions)
+ * 4. Dimension-level severity (`review.dimensions[dimension].severity`)
+ * 5. Default: `'blocking'` (unknown dimensions)
  *
  * Omitting `workflowType` reproduces the pre-task-005 behavior exactly, so
  * legacy callers are unaffected.
@@ -57,6 +60,15 @@ export function resolveGateSeverity(
     return gateOverride.blocking ? 'blocking' : 'warning';
   }
 
+  // An EXPLICIT dimension disable is a stronger statement than any convention
+  // default: a consumer who pins `enabled: false` means "never run this gate".
+  // Checked BEFORE the per-workflow ladder default so that a project which
+  // disabled (e.g.) D1/D2 does not still see ladder gates execute as warning-only
+  // under an oneshot workflow.
+  const dimKey = dimension as DimensionKey;
+  const dimConfig = config.review.dimensions[dimKey];
+  if (dimConfig && !dimConfig.enabled) return 'disabled';
+
   // Per-workflow ladder default: applies ONLY to verification-ladder gates and
   // ONLY when the workflow type has a table entry. Data-driven so adding a
   // workflow type is an entry in WORKFLOW_DEFAULT_SEVERITY, not a code branch.
@@ -65,10 +77,7 @@ export function resolveGateSeverity(
     if (workflowDefault !== undefined) return workflowDefault;
   }
 
-  // Fall back to dimension-level setting
-  const dimKey = dimension as DimensionKey;
-  const dimConfig = config.review.dimensions[dimKey];
+  // Fall back to dimension-level severity.
   if (!dimConfig) return 'blocking'; // unknown dimension defaults to blocking
-  if (!dimConfig.enabled) return 'disabled';
   return dimConfig.severity;
 }

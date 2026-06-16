@@ -217,13 +217,21 @@ function adaptLadderGate<T>(
       (args as { projectConfig?: unknown }).projectConfig === undefined
         ? { ...(args as Record<string, unknown>), projectConfig: ctx.projectConfig }
         : args;
+    // The config the handler actually resolved its self-skip routing against:
+    // an arg-level `projectConfig` override wins, else the injected ctx config.
+    // Severity post-processing MUST read the SAME config so skip routing and
+    // severity adaptation can never resolve against divergent configs in one
+    // dispatch (INV-2: identical DispatchContext + args ⇒ identical ToolResult).
+    const effectiveProjectConfig = (enrichedArgs as {
+      projectConfig?: DispatchContext['projectConfig'];
+    }).projectConfig;
     const result = await handler(enrichedArgs as unknown as T, stateDir, ctx.eventStore);
     const featureId = (args as { featureId?: string }).featureId;
     const workflowType = await resolveWorkflowTypeForGate(featureId, ctx.eventStore);
     return applyLadderGateSeverity(
       gateName,
       dimension,
-      ctx.projectConfig,
+      effectiveProjectConfig,
       result,
       workflowType,
     );

@@ -73,11 +73,19 @@ export interface DetectOptions {
   readonly runtimes?: readonly string[];
   /** Explicit VCS id (DR-2 `--vcs`). Bypasses `.git` probing. */
   readonly vcs?: string;
-  /** Command overrides threaded into the layered resolver's override tier. */
+  /**
+   * Command overrides threaded into the layered resolver's override tier. Covers
+   * the full verification-ladder field set — `deriveCommands` delegates to
+   * `resolveVerificationRuntime`, which resolves `mutation`/`lint` alongside the
+   * legacy triple, so the typed onboarding API must accept overrides for all of
+   * them (otherwise mutation/lint could only be overridden via a type escape).
+   */
   readonly commandOverride?: {
     readonly test?: string;
     readonly typecheck?: string;
     readonly install?: string;
+    readonly mutation?: string;
+    readonly lint?: string;
   };
   /**
    * Injection seam for the agent-host runtime probe (defaults to the real
@@ -322,12 +330,27 @@ const SEEDABLE_VERIFICATION_FIELDS = ['mutation', 'lint'] as const;
 type SeedableVerificationField = (typeof SEEDABLE_VERIFICATION_FIELDS)[number];
 
 /**
- * The stable PlanStep key for seeding one resolved-but-undeclared verification
- * command. Distinct from the doctor-check keys so the two config-step families
- * never collide and `apply` / `doctor --fix` can idempotence-match per field.
+ * The stable PlanStep key PREFIX for verification-command seed steps. Distinct
+ * from the doctor-check keys so the two config-step families never collide and
+ * `apply` / `doctor --fix` can idempotence-match per field. Shared by the key
+ * builder and {@link isVerificationCommandStep} so the two never drift.
  */
+const VERIFICATION_COMMAND_KEY_PREFIX = 'verification-command-';
+
+/** The stable PlanStep key for seeding one resolved-but-undeclared command. */
 function verificationCommandKey(field: SeedableVerificationField): string {
-  return `verification-command-${field}`;
+  return `${VERIFICATION_COMMAND_KEY_PREFIX}${field}`;
+}
+
+/**
+ * Is `step` a verification-command seed step (vs the whole-config seed step)?
+ * These steps are emitted ONLY for a resolved-but-UNDECLARED field, so a
+ * pre-existing `.exarchos.yml` provably does NOT already contain the command —
+ * which {@link applyConfigStep} uses to report an un-seedable field as residual
+ * rather than mis-classifying it as a preserved hand-edit.
+ */
+function isVerificationCommandStep(step: PlanStep): boolean {
+  return step.key.startsWith(VERIFICATION_COMMAND_KEY_PREFIX);
 }
 
 /**
@@ -525,8 +548,24 @@ function applyConfigStep(step: PlanStep, ctx: ApplyCtx, acc: ResultAcc): void {
       // An earlier config step in THIS run already seeded the file — this step's
       // field is in it now. That is convergence, not a preserved hand-edit.
       acc.applied.push(step);
+    } else if (isVerificationCommandStep(step)) {
+      // A verification-command step is emitted ONLY for a resolved-but-UNDECLARED
+      // field, so a pre-existing `.exarchos.yml` does NOT already contain it. The
+      // create-only seeder cannot add a single key to an existing file, so the
+      // command is genuinely still absent → RESIDUAL (a re-diff re-surfaces it),
+      // NOT `skipped`. Reporting it `skipped` would mis-classify a never-written
+      // verification command as a preserved hand-edit — a silent success that
+      // leaves the ladder on the built-in fallback (Sentry 14615676).
+      acc.residual.push(step);
+      acc.advisories.push({
+        surface: 'any',
+        message:
+          `${step.description} — the existing ${seedResult.path} was left untouched ` +
+          `(never-overwrite); add this key to it by hand to pin the command.`,
+      });
     } else {
-      // The file pre-existed the run — hand-edit preserved (never-overwrite).
+      // The whole-config seed step: the file pre-existed → hand-edit preserved
+      // by the never-overwrite posture.
       acc.skipped.push(step);
     }
     return;
