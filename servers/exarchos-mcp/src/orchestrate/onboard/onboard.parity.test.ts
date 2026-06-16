@@ -209,9 +209,17 @@ describe('exarchos onboard CLI/MCP parity (DR-6)', () => {
       expect(normalizedCli).toEqual(normalizedMcp);
       expect(JSON.stringify(normalizedCli)).toEqual(JSON.stringify(normalizedMcp));
 
-      // Sanity — the plan reconciled the config step on both arms (no install).
-      const cliData = cliResult.data as { plan: { steps: { kind: string }[] } };
-      expect(cliData.plan.steps.map((s) => s.kind)).toEqual(['config']);
+      // Sanity — the plan reconciled config steps on both arms (no install).
+      // Two config steps: the injected `state-dir` doctor-check drift PLUS the
+      // §4.5-seed `verification-command-mutation` step (the node fixture resolves
+      // `npx stryker run` from detection, undeclared in `.exarchos.yml`). Both
+      // arms produce the identical plan — parity is unaffected by the new seeding.
+      const cliData = cliResult.data as { plan: { steps: { kind: string; key: string }[] } };
+      expect(cliData.plan.steps.map((s) => s.kind)).toEqual(['config', 'config']);
+      expect(cliData.plan.steps.map((s) => s.key)).toEqual([
+        'state-dir',
+        'verification-command-mutation',
+      ]);
     } finally {
       await cleanup(cliFx);
       await cleanup(mcpFx);

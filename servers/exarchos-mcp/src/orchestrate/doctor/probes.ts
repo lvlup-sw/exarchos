@@ -36,6 +36,10 @@ import {
 import { loadExarchosConfig } from '../../config/load-exarchos-config.js';
 import { resolveEffectiveCatalog } from '../../architecture/resolve-effective-catalog.js';
 import { ReservedNamespaceError } from '../../architecture/catalog-merge.js';
+import { resolveVerificationRuntime } from '../../config/test-runtime-resolver.js';
+import { resolveVerificationPolicy } from '../../workflow/verification-policy-resolver.js';
+import { resolveConfig, type ResolvedProjectConfig } from '../../config/resolve.js';
+import type { RiskTier } from '../../workflow/verification-policy.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -109,6 +113,52 @@ export interface DoctorInvariantsCatalog {
   resolve(signal?: AbortSignal): Promise<{ configured: boolean; warnings: string[] }>;
 }
 
+/**
+ * The resolved verification ladder the doctor check reports on (design §4.6):
+ * which runtime commands the per-field layered resolver returned, whether any
+ * toolchain was detectable at all, and the provenance of all six verification-
+ * policy cells.
+ *
+ * The probe does ALL the disk work (config load + per-field resolution + the
+ * six policy resolutions); the check stays disk-blind and only maps this shape
+ * to a Pass/Warning/Skipped CheckResult. This is read-only visibility — nothing
+ * here writes; the fix path remains the reconciler's.
+ */
+export interface VerificationToolchainResolution {
+  /** Whether ANY project toolchain was detected (false ⇒ empty/unmarked repo). */
+  readonly detected: boolean;
+  /** The resolved verification-runtime commands; `null` per field = unresolved. */
+  readonly runtime: {
+    readonly test: string | null;
+    readonly typecheck: string | null;
+    readonly install: string | null;
+    readonly mutation: string | null;
+    readonly lint: string | null;
+  };
+  /**
+   * All six `(riskTier × boundaryTouching)` policy cells with their resolved
+   * provenance — `builtin` (frozen base table) vs `config` (.exarchos.yml
+   * override). Read-only: the check NEVER mutates policy.
+   */
+  readonly policyCells: ReadonlyArray<{
+    readonly riskTier: 'low' | 'medium' | 'high';
+    readonly boundaryTouching: boolean;
+    readonly source: 'builtin' | 'config';
+  }>;
+}
+
+export interface DoctorVerificationToolchain {
+  /**
+   * Resolve the verification ladder's runtime + policy provenance from the
+   * consumer's project root. Reads `.exarchos.yml` and probes project markers
+   * via the shared `resolveVerificationRuntime` / `resolveVerificationPolicy`
+   * resolvers (the single sources of truth) and folds the result into a
+   * {@link VerificationToolchainResolution}. Must honor `signal` and stay
+   * within the 2000ms probe budget (DIM-7). Read-only — emits/writes nothing.
+   */
+  resolve(signal?: AbortSignal): Promise<VerificationToolchainResolution>;
+}
+
 export interface DoctorProbes {
   readonly fs: DoctorFs;
   readonly env: Readonly<Record<string, string | undefined>>;
@@ -121,6 +171,7 @@ export interface DoctorProbes {
   readonly skills: DoctorSkills;
   readonly plugin: DoctorPlugin;
   readonly invariants: DoctorInvariantsCatalog;
+  readonly verificationToolchain: DoctorVerificationToolchain;
 }
 
 const DEFAULT_FS: DoctorFs = {
@@ -381,6 +432,102 @@ export async function resolveInvariantsCatalog(
   }
 }
 
+/** The six `(riskTier × boundaryTouching)` policy cells, in stable order. */
+const POLICY_CELLS: ReadonlyArray<{ riskTier: RiskTier; boundaryTouching: boolean }> = [
+  { riskTier: 'low', boundaryTouching: false },
+  { riskTier: 'low', boundaryTouching: true },
+  { riskTier: 'medium', boundaryTouching: false },
+  { riskTier: 'medium', boundaryTouching: true },
+  { riskTier: 'high', boundaryTouching: false },
+  { riskTier: 'high', boundaryTouching: true },
+];
+
+/**
+ * Resolve the verification ladder's runtime + policy provenance from the USER's
+ * project root for the verification-toolchain doctor check (design §4.6).
+ *
+ * Reads from `process.cwd()` (a consumer-project artifact, mirroring the
+ * invariants probe's cwd reasoning — the module lives in the plugin cache in
+ * plugin mode). The per-field commands come from `resolveVerificationRuntime`
+ * (the single source of truth for runtime resolution); each of the six policy
+ * cells is resolved via `resolveVerificationPolicy` over the resolved project
+ * config (or the frozen built-ins when no config / a malformed config). This is
+ * a READ-ONLY probe — it never emits a `command.resolved` event (no eventStore
+ * is passed) and never writes. DIM-1: computed per call, no caching.
+ *
+ * The `resolveRuntime`/`loadConfig`/`resolvePolicy` seams are injected (defaults
+ * are the real resolvers) purely so the probe is unit-testable. Exported for
+ * testing. */
+export async function resolveVerificationToolchain(
+  signal?: AbortSignal,
+  deps: {
+    resolveRuntime?: typeof resolveVerificationRuntime;
+    loadConfig?: typeof loadExarchosConfig;
+    resolvePolicy?: typeof resolveVerificationPolicy;
+  } = {},
+): Promise<VerificationToolchainResolution> {
+  if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
+  const resolveRuntime = deps.resolveRuntime ?? resolveVerificationRuntime;
+  const loadConfig = deps.loadConfig ?? loadExarchosConfig;
+  const resolvePolicy = deps.resolvePolicy ?? resolveVerificationPolicy;
+
+  // Normalize to the actual project root before resolving runtime/config. The
+  // `.exarchos.yml` (then `.git`) ancestor walk mirrors resolveInvariantsCatalog
+  // and load-exarchos-config's own fallback: when `doctor` runs from a nested
+  // directory, anchoring BOTH the runtime resolver and config load to the same
+  // repo root keeps a configured repo from misclassifying as Skipped/Warning
+  // with all-builtin provenance. Resolve from the USER's cwd, NOT this module's
+  // location (#1482 — in plugin mode the module lives in the plugin cache).
+  const cwd = process.cwd();
+  const repoRoot =
+    (await findRepoRoot('.exarchos.yml', cwd)) ?? (await findRepoRoot('.git', cwd)) ?? cwd;
+
+  // Per-field runtime resolution (test/typecheck/install/mutation/lint).
+  const runtime = resolveRuntime(repoRoot);
+
+  // A resolution with an `unresolved` aggregate source AND every legacy field
+  // null is the "no project markers detected" signal — nothing the resolver
+  // could anchor on. Treat that as not-detected so the check Skips rather than
+  // Warns on a genuinely empty repo.
+  const detected = !(
+    runtime.source === 'unresolved' &&
+    runtime.test === null &&
+    runtime.typecheck === null &&
+    runtime.install === null &&
+    runtime.mutation === null &&
+    runtime.lint === null
+  );
+
+  if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
+
+  // Resolve project config for policy provenance. A missing/malformed config
+  // degrades to the frozen built-in table (INV-4) — never a hard failure.
+  let config: ResolvedProjectConfig | undefined;
+  try {
+    const loaded = loadConfig(repoRoot, { findRepoRoot: () => repoRoot });
+    config = loaded?.config ? resolveConfig(loaded.config) : undefined;
+  } catch {
+    config = undefined;
+  }
+
+  const policyCells = POLICY_CELLS.map(({ riskTier, boundaryTouching }) => {
+    const { source } = resolvePolicy(riskTier, boundaryTouching, config);
+    return { riskTier, boundaryTouching, source };
+  });
+
+  return {
+    detected,
+    runtime: {
+      test: runtime.test,
+      typecheck: runtime.typecheck,
+      install: runtime.install,
+      mutation: runtime.mutation,
+      lint: runtime.lint,
+    },
+    policyCells,
+  };
+}
+
 /**
  * Build a DoctorProbes bundle from a DispatchContext. Each probe field
  * binds to a real runtime surface; tests bypass this factory entirely
@@ -409,5 +556,8 @@ export function buildProbes(ctx: DispatchContext): DoctorProbes {
       runningVersion: defaultRunningVersion,
     },
     invariants: { resolve: (signal) => resolveInvariantsCatalog(signal) },
+    verificationToolchain: {
+      resolve: (signal) => resolveVerificationToolchain(signal),
+    },
   };
 }

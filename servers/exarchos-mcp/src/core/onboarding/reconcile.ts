@@ -15,15 +15,17 @@
  *   - INV-2: NO imports from `adapters/*` — behavior lives here, not in the
  *     presentation facades.
  *   - INV-6: command derivation flows EXCLUSIVELY through the Bundle B layered
- *     resolver (`resolveTestRuntime`). There is no `applyLanguageCustomizations`
- *     / npm string-rewrite in this path; an unresolved command field is OMITTED,
- *     never fabricated.
+ *     resolver (`resolveVerificationRuntime` — the widened verification-ladder
+ *     resolver covering test/typecheck/install PLUS mutation/lint). There is no
+ *     `applyLanguageCustomizations` / npm string-rewrite in this path; an
+ *     unresolved command field is OMITTED, never fabricated.
  */
 
 import { existsSync } from 'node:fs';
 import * as path from 'node:path';
 
-import { resolveTestRuntime } from '../../config/test-runtime-resolver.js';
+import { resolveVerificationRuntime } from '../../config/test-runtime-resolver.js';
+import { loadExarchosConfig } from '../../config/load-exarchos-config.js';
 import {
   detectAgentEnvironments,
   type AgentRuntimeName,
@@ -71,11 +73,19 @@ export interface DetectOptions {
   readonly runtimes?: readonly string[];
   /** Explicit VCS id (DR-2 `--vcs`). Bypasses `.git` probing. */
   readonly vcs?: string;
-  /** Command overrides threaded into the layered resolver's override tier. */
+  /**
+   * Command overrides threaded into the layered resolver's override tier. Covers
+   * the full verification-ladder field set — `deriveCommands` delegates to
+   * `resolveVerificationRuntime`, which resolves `mutation`/`lint` alongside the
+   * legacy triple, so the typed onboarding API must accept overrides for all of
+   * them (otherwise mutation/lint could only be overridden via a type escape).
+   */
   readonly commandOverride?: {
     readonly test?: string;
     readonly typecheck?: string;
     readonly install?: string;
+    readonly mutation?: string;
+    readonly lint?: string;
   };
   /**
    * Injection seam for the agent-host runtime probe (defaults to the real
@@ -99,13 +109,48 @@ function deriveCommands(
   repoRoot: string,
   override?: DetectOptions['commandOverride'],
 ): ResolvedCommands {
-  const resolved = resolveTestRuntime(repoRoot, override ? { override: { ...override } } : undefined);
+  const resolved = resolveVerificationRuntime(
+    repoRoot,
+    override ? { override: { ...override } } : undefined,
+  );
 
   const commands: ResolvedCommands = {};
   if (resolved.test !== null) commands.test = resolved.test;
   if (resolved.typecheck !== null) commands.typecheck = resolved.typecheck;
   if (resolved.install !== null) commands.install = resolved.install;
+  if (resolved.mutation !== null) commands.mutation = resolved.mutation;
+  if (resolved.lint !== null) commands.lint = resolved.lint;
   return commands;
+}
+
+// ─── Declared commands (§4.5-seed divergence) ───────────────────────────────
+
+/**
+ * Read the verification commands ALREADY DECLARED in the repo's `.exarchos.yml`
+ * (the direct top-level `mutation:`/`lint:` keys). This is the "actual" side of
+ * the §4.5-seed desired-vs-declared divergence: `diff` seeds a resolved command
+ * only when it is NOT already pinned here.
+ *
+ * Only the directly-declared keys count as "declared" — a command the resolver
+ * derived from detection (tier 5) is resolved-but-undeclared and IS a seed
+ * candidate. Reads via the shared `.exarchos.yml` loader; a missing/empty config
+ * yields `{}` (everything undeclared). Loader throws (malformed/invalid config)
+ * are swallowed to `{}` so a broken config can't crash the reconcile — the
+ * doctor checks own surfacing config validity.
+ */
+function declaredVerificationCommands(repoRoot: string): ResolvedCommands {
+  let config;
+  try {
+    config = loadExarchosConfig(repoRoot)?.config;
+  } catch {
+    return {};
+  }
+  if (!config) return {};
+
+  const declared: ResolvedCommands = {};
+  if (config.mutation !== undefined) declared.mutation = config.mutation;
+  if (config.lint !== undefined) declared.lint = config.lint;
+  return declared;
 }
 
 // ─── VCS detection ───────────────────────────────────────────────────────────
@@ -274,7 +319,80 @@ function toPlanStep(check: CheckResult): PlanStep {
 }
 
 /**
- * `diff(desired, actual)` — the structured `doctor` diff (DR-1 / DR-4).
+ * The widened verification commands `diff` seeds when they are resolved but not
+ * yet declared in `.exarchos.yml` (§4.5-seed). `test`/`typecheck`/`install` are
+ * NOT in this set: their seeding is already covered by the doctor-check config
+ * path + the fresh-create seeder, so adding them here would double-emit. Only
+ * the verification-ladder additions (`mutation`, `lint`) flow through the
+ * desired-vs-declared command divergence path.
+ */
+const SEEDABLE_VERIFICATION_FIELDS = ['mutation', 'lint'] as const;
+type SeedableVerificationField = (typeof SEEDABLE_VERIFICATION_FIELDS)[number];
+
+/**
+ * The stable PlanStep key PREFIX for verification-command seed steps. Distinct
+ * from the doctor-check keys so the two config-step families never collide and
+ * `apply` / `doctor --fix` can idempotence-match per field. Shared by the key
+ * builder and {@link isVerificationCommandStep} so the two never drift.
+ */
+const VERIFICATION_COMMAND_KEY_PREFIX = 'verification-command-';
+
+/** The stable PlanStep key for seeding one resolved-but-undeclared command. */
+function verificationCommandKey(field: SeedableVerificationField): string {
+  return `${VERIFICATION_COMMAND_KEY_PREFIX}${field}`;
+}
+
+/**
+ * Is `step` a verification-command seed step (vs the whole-config seed step)?
+ * These steps are emitted ONLY for a resolved-but-UNDECLARED field, so a
+ * pre-existing `.exarchos.yml` provably does NOT already contain the command —
+ * which {@link applyConfigStep} uses to report an un-seedable field as residual
+ * rather than mis-classifying it as a preserved hand-edit.
+ */
+function isVerificationCommandStep(step: PlanStep): boolean {
+  return step.key.startsWith(VERIFICATION_COMMAND_KEY_PREFIX);
+}
+
+/**
+ * Build the config-kind PlanSteps that seed resolved-but-undeclared verification
+ * commands into `.exarchos.yml` (§4.5-seed). A field contributes a step iff the
+ * resolver resolved it (it is present in `desired.commands`) AND it is NOT
+ * already declared in the repo's `.exarchos.yml` (`declared`). The step shape
+ * mirrors the test/typecheck config steps exactly — `kind: 'config'`,
+ * `surface: 'any'` — so `apply` routes it through the SAME seeder; no new kinds.
+ *
+ * Idempotence: once `apply` has seeded a field, a re-detect surfaces it as
+ * declared (config-direct tier), so the next `diff` omits the step → empty plan.
+ *
+ * NOTE (§4.5 negative guarantee): this seeds COMMANDS only. No `verification:`
+ * policy block is ever emitted — seeding the resolved policy default would freeze
+ * today's builtin table into consumer config (the gen-time-bake trap, #1483).
+ */
+function verificationCommandSteps(
+  desired: DesiredState,
+  declared: ResolvedCommands,
+): PlanStep[] {
+  const steps: PlanStep[] = [];
+  for (const field of SEEDABLE_VERIFICATION_FIELDS) {
+    const resolved = desired.commands[field];
+    // Resolved (the resolver surfaced a value) AND not already declared in
+    // `.exarchos.yml` (the operator hasn't pinned it). INV-6 omit-never-fabricate
+    // carries through: an unresolved field is absent from `desired.commands`, so
+    // it never becomes a step.
+    if (resolved !== undefined && declared[field] === undefined) {
+      steps.push({
+        kind: 'config',
+        surface: 'any',
+        key: verificationCommandKey(field),
+        description: `Seed the resolved ${field} command into .exarchos.yml: ${resolved}`,
+      });
+    }
+  }
+  return steps;
+}
+
+/**
+ * `diff(desired, actual, declared?)` — the structured `doctor` diff (DR-1 / DR-4).
  *
  * Turns the doctor check results into an EXECUTABLE {@link ReconcilePlan}: each
  * remediable (`Fail`/`Warning` with a `fix`) check becomes exactly one
@@ -282,19 +400,30 @@ function toPlanStep(check: CheckResult): PlanStep {
  * fully-configured repo (all checks `Pass`) ⇒ the empty plan `{ steps: [] }`,
  * which is the idempotence precondition for `apply` (task 007).
  *
+ * `diff` ALSO folds in desired-vs-declared command divergence (§4.5-seed): a
+ * verification command the resolver resolved (present in `desired.commands`) but
+ * NOT yet declared in the repo's `.exarchos.yml` (`declared`) becomes a
+ * `config`-kind step so `apply` seeds it via the SAME seeder test/typecheck use.
+ * `declared` defaults to `{}` (treat everything as undeclared) so the legacy
+ * two-arg call — the doctor-check path — keeps working unchanged.
+ *
  * Seam: `actual` is the doctor composer's own output — `readonly CheckResult[]`,
  * exactly what `handleDoctorWithChecks` produces by running the 11 checks. The
  * caller (doctor `--fix` / `onboard`) runs the probes; `diff` stays PURE (no fs,
- * no process) and only classifies. `desired` is accepted for forward-compatible
- * symmetry with the design's `diff(desired, actual)` signature and so future
- * desired-vs-actual command/runtime divergence can fold in here without a
- * signature change; today the plan is derived from the remediable checks alone.
+ * no process) and only classifies. `declared` is likewise supplied by the caller
+ * (read from `.exarchos.yml`), keeping `diff` free of I/O.
  *
- * Step order mirrors the input check order so callers can scan top-to-bottom.
+ * Step order: the doctor-check steps come first (mirroring input check order),
+ * then the verification-command seed steps, so callers can scan top-to-bottom.
  */
-export function diff(_desired: DesiredState, actual: readonly CheckResult[]): ReconcilePlan {
-  const steps = actual.filter(isRemediable).map(toPlanStep);
-  return { steps };
+export function diff(
+  desired: DesiredState,
+  actual: readonly CheckResult[],
+  declared: ResolvedCommands = {},
+): ReconcilePlan {
+  const checkSteps = actual.filter(isRemediable).map(toPlanStep);
+  const seedSteps = verificationCommandSteps(desired, declared);
+  return { steps: [...checkSteps, ...seedSteps] };
 }
 
 // ─── apply (DR-1 / DR-10) ─────────────────────────────────────────────────────
@@ -369,13 +498,33 @@ interface ResultAcc {
   readonly skipped: PlanStep[];
   readonly residual: PlanStep[];
   readonly advisories: Advisory[];
+  /**
+   * Did an EARLIER `config` step in THIS apply run already write `.exarchos.yml`?
+   * The single-file seeder writes the whole resolver-derived config in one shot,
+   * so once the first config step seeds the file, every later config step in the
+   * same plan (e.g. a second verification-command seed) finds it already present.
+   * That `already-exists` is CONVERGENCE (their field was just written by us),
+   * not a preserved hand-edit. Tracking it lets {@link applyConfigStep}
+   * distinguish the two — see its body.
+   */
+  configSeededThisRun: boolean;
 }
 
 /**
  * Route a `config` step through the (force-aware) seeder. A fresh write or a
- * forced overwrite ⇒ applied; an existing hand-edit preserved without force ⇒
- * skipped; an unresolved-no-fields seeder no-op ⇒ residual (still needs doing).
- * A forced overwrite additionally emits an advisory so the operator is told.
+ * forced overwrite ⇒ applied; an unresolved-no-fields seeder no-op ⇒ residual
+ * (still needs doing). A forced overwrite additionally emits an advisory.
+ *
+ * The `already-exists` no-op splits two ways (mirroring {@link applyGenerateStep}
+ * convergence, #1534): the single-file seeder writes the whole config in one
+ * shot, so multiple config steps in one plan (the test/typecheck doctor-check
+ * step PLUS the §4.5-seed verification-command steps) all hit the SAME file.
+ *   - If an EARLIER config step in this run already wrote it
+ *     ({@link ResultAcc.configSeededThisRun}), this step's field was just seeded
+ *     by us — it CONVERGED → `applied`. Marking it `skipped` would mis-report the
+ *     verification-command seed as "not run" even though it landed in the file.
+ *   - Otherwise the file pre-existed the run — a genuine hand-edit preserved by
+ *     the never-overwrite posture → `skipped`.
  */
 function applyConfigStep(step: PlanStep, ctx: ApplyCtx, acc: ResultAcc): void {
   const seed = ctx.seed ?? defaultSeed;
@@ -383,6 +532,7 @@ function applyConfigStep(step: PlanStep, ctx: ApplyCtx, acc: ResultAcc): void {
   const seedResult = seed(ctx.repoRoot, force);
 
   if (seedResult.wrote) {
+    acc.configSeededThisRun = true;
     acc.applied.push(step);
     if (force) {
       acc.advisories.push({
@@ -394,8 +544,30 @@ function applyConfigStep(step: PlanStep, ctx: ApplyCtx, acc: ResultAcc): void {
   }
 
   if (seedResult.reason === 'already-exists') {
-    // Hand-edit preserved (never-overwrite posture) — intentionally not run.
-    acc.skipped.push(step);
+    if (acc.configSeededThisRun) {
+      // An earlier config step in THIS run already seeded the file — this step's
+      // field is in it now. That is convergence, not a preserved hand-edit.
+      acc.applied.push(step);
+    } else if (isVerificationCommandStep(step)) {
+      // A verification-command step is emitted ONLY for a resolved-but-UNDECLARED
+      // field, so a pre-existing `.exarchos.yml` does NOT already contain it. The
+      // create-only seeder cannot add a single key to an existing file, so the
+      // command is genuinely still absent → RESIDUAL (a re-diff re-surfaces it),
+      // NOT `skipped`. Reporting it `skipped` would mis-classify a never-written
+      // verification command as a preserved hand-edit — a silent success that
+      // leaves the ladder on the built-in fallback (Sentry 14615676).
+      acc.residual.push(step);
+      acc.advisories.push({
+        surface: 'any',
+        message:
+          `${step.description} — the existing ${seedResult.path} was left untouched ` +
+          `(never-overwrite); add this key to it by hand to pin the command.`,
+      });
+    } else {
+      // The whole-config seed step: the file pre-existed → hand-edit preserved
+      // by the never-overwrite posture.
+      acc.skipped.push(step);
+    }
     return;
   }
 
@@ -568,7 +740,13 @@ async function applyHookStep(
  * unhandled kind is a compile error, never a silent drop.
  */
 export async function apply(plan: ReconcilePlan, ctx: ApplyCtx): Promise<ReconcileResult> {
-  const acc: ResultAcc = { applied: [], skipped: [], residual: [], advisories: [] };
+  const acc: ResultAcc = {
+    applied: [],
+    skipped: [],
+    residual: [],
+    advisories: [],
+    configSeededThisRun: false,
+  };
 
   for (const step of plan.steps) {
     const kind: PlanStepKind = step.kind;
@@ -747,9 +925,13 @@ export async function reconcileWithEvents(
   const idempotencyKey = deriveIdempotencyKey(repoRoot, trigger);
 
   // detect → diff (always; needed for the dry-run plan AND the live re-diff).
+  // `declared` is the verification commands ALREADY pinned in `.exarchos.yml` —
+  // the "actual" side of the §4.5-seed divergence, so a re-run after a seed
+  // (commands now declared) re-diffs to an empty plan (idempotence).
   const desired = await detectDesiredState(repoRoot, input.detectOptions);
   const checks = await input.runDoctorChecks(repoRoot);
-  const plan = diff(desired, checks);
+  const declared = declaredVerificationCommands(repoRoot);
+  const plan = diff(desired, checks, declared);
 
   // Dry-run: surface the plan, but emit nothing and perform no side effect.
   if (input.dryRun) {

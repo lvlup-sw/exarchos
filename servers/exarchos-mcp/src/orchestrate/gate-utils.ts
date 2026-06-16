@@ -9,10 +9,10 @@ import type { ToolResult } from '../format.js';
 import type { ResolvedProjectConfig } from '../config/resolve.js';
 import { resolveGateSeverity } from './gate-severity.js';
 import {
-  resolveVerificationSequence,
   type GateName,
   type RiskTier,
 } from '../workflow/verification-policy.js';
+import { resolveVerificationPolicy } from '../workflow/verification-policy-resolver.js';
 import type { GitExec } from './pure/execute-merge.js';
 
 /**
@@ -204,19 +204,24 @@ export async function resolveRepoRoot(
  * - **blocking**: Executes handler; failures remain failures (default behaviour)
  *
  * When `config` is `undefined`, defaults to blocking (backwards compatible).
+ *
+ * `workflowType` (task 005) is threaded to {@link resolveGateSeverity} so a
+ * verification-ladder gate can pick up its per-workflow default severity (e.g.
+ * oneshot → warning). Omitting it preserves the pre-task-005 resolution.
  */
 export async function withConfigSeverity(
   gateName: string,
   dimension: string,
   config: ResolvedProjectConfig | undefined,
   handler: () => Promise<ToolResult>,
+  workflowType?: string,
 ): Promise<ToolResult> {
   // When no config, default to blocking (backwards compat)
   if (!config) {
     return handler();
   }
 
-  const severity = resolveGateSeverity(gateName, dimension, config);
+  const severity = resolveGateSeverity(gateName, dimension, config, workflowType);
 
   if (severity === 'disabled') {
     return {
@@ -243,6 +248,52 @@ export async function withConfigSeverity(
   return result;
 }
 
+/**
+ * Apply per-workflow severity to a verification-LADDER gate's ADVISORY-carrier
+ * result (task 005).
+ *
+ * Ladder gates (INV-5b) never return `success:false` for a gate-failure verdict
+ * — a failing gate is `{ success: true, data: { passed: false } }`, so
+ * {@link withConfigSeverity}'s `success:false`-only conversion does not apply.
+ * This helper resolves the gate's effective severity via
+ * {@link resolveGateSeverity} (threading `workflowType`) and, ONLY when that
+ * severity is `'warning'` and the advisory result reports a failing verdict
+ * (`data.passed === false`), annotates it with a warning. In every other case
+ * the result is returned UNCHANGED:
+ *   - `severity !== 'warning'` (e.g. blocking for a feature workflow) → unchanged,
+ *     so the orchestrator still reads `data.passed:false` and blocks;
+ *   - `config` absent → unchanged (legacy / no-config callers);
+ *   - a passing verdict → unchanged;
+ *   - a real error envelope (`success:false`) → unchanged (an INVALID_INPUT /
+ *     MISWIRED_CONTEXT must never be downgraded to a warning).
+ */
+export function applyLadderGateSeverity(
+  gateName: string,
+  dimension: string,
+  config: ResolvedProjectConfig | undefined,
+  result: ToolResult,
+  workflowType?: string,
+): ToolResult {
+  // No config, or a real error envelope, or a non-advisory shape — leave as-is.
+  if (!config || !result.success) return result;
+
+  const data = result.data as { passed?: unknown } | undefined;
+  // Only an explicit failing verdict is a candidate for downgrade. A passing or
+  // shape-less advisory carrier is returned verbatim.
+  if (!data || data.passed !== false) return result;
+
+  const severity = resolveGateSeverity(gateName, dimension, config, workflowType);
+  if (severity !== 'warning') return result;
+
+  return {
+    ...result,
+    warnings: [
+      ...(result.warnings ?? []),
+      `Gate '${gateName}' failed but is configured as warning-only`,
+    ],
+  };
+}
+
 // ─── Verification-ladder self-routing (FIX-1a) ──────────────────────────────
 
 /** The discriminant carried by a gate skipped because the policy excludes it. */
@@ -250,27 +301,43 @@ export const SKIPPED_BY_POLICY = 'skipped-by-policy';
 
 /**
  * Decide whether a gate should self-skip given the task's stamped verification
- * profile. The SINGLE SOURCE OF TRUTH for which gates run is the policy table
- * (`resolveVerificationSequence`, INV-6) — this helper reads it, it does NOT
- * re-derive sequences.
+ * profile.
+ *
+ * The SINGLE SOURCE OF TRUTH for which gates run is the config-resolved policy
+ * ({@link resolveVerificationPolicy}, the declared only composer of config +
+ * the frozen built-in table) — this helper reads it, it does NOT re-derive
+ * sequences or touch the table directly. Consuming the SAME resolver the
+ * delegation stamp uses ({@link classifyTask}) guarantees stamp and skip can
+ * never disagree: a `.exarchos.yml` `verification:` cell that excludes a gate
+ * makes BOTH the stamp drop it AND this helper skip it.
+ *
+ * When `config` is omitted (or its relevant cell is unset) the resolver
+ * delegates to the built-in table, so the skip decision is byte-identical to
+ * the pre-config behavior.
  *
  * Returns a skip decision ONLY when BOTH stamped fields are present AND the
  * resolved sequence for that profile does not contain `gateName`. When either
  * stamp is absent (legacy callers that don't thread the profile) it returns
- * `null` → the handler runs unconditionally, preserving current behavior.
+ * `null` → the handler runs unconditionally, preserving current behavior
+ * EXACTLY (config presence does not change the absent-stamp path).
+ *
+ * The skip `reason` names the policy SOURCE (`config` vs `builtin`) so a
+ * config-induced skip is never mistaken for a built-in decision.
  */
 export function resolvePolicySkip(args: {
   readonly gateName: GateName;
   readonly riskTier?: RiskTier;
   readonly boundaryTouching?: boolean;
+  readonly config?: ResolvedProjectConfig;
 }): { readonly reason: string } | null {
-  const { gateName, riskTier, boundaryTouching } = args;
+  const { gateName, riskTier, boundaryTouching, config } = args;
   // Both stamps required — a partial stamp is treated as "no stamp" so we never
-  // skip on a half-resolved profile.
+  // skip on a half-resolved profile. This guard runs BEFORE any config read so
+  // the absent-stamp path is byte-identical regardless of config presence.
   if (riskTier === undefined || boundaryTouching === undefined) {
     return null;
   }
-  const sequence = resolveVerificationSequence(riskTier, boundaryTouching);
+  const { sequence, source } = resolveVerificationPolicy(riskTier, boundaryTouching, config);
   if (sequence.includes(gateName)) {
     return null;
   }
@@ -278,6 +345,6 @@ export function resolvePolicySkip(args: {
     reason:
       `skipped by verification policy — ${gateName} is not in the resolved ` +
       `sequence for riskTier='${riskTier}', boundaryTouching=${boundaryTouching} ` +
-      `(sequence: ${sequence.join(', ') || 'none'})`,
+      `(sequence: ${sequence.join(', ') || 'none'}; policy: ${source})`,
   };
 }

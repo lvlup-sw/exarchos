@@ -47,8 +47,17 @@ interface Fixture {
 }
 
 /** A temp repo (Node toolchain marker so the seed resolves commands) + an
- * isolated EventStore state dir, wired into a minimal DispatchContext. */
-async function createFixture(): Promise<Fixture> {
+ * isolated EventStore state dir, wired into a minimal DispatchContext.
+ *
+ * `declareConfig` (default `true`) pre-writes an `.exarchos.yml` declaring the
+ * verification commands the node toolchain resolves (`mutation: npx stryker run`).
+ * Without it, the §4.5-seed divergence path would add a `verification-command-*`
+ * config step to EVERY plan (the node fixture resolves mutation from detection,
+ * undeclared), which is orthogonal to these doctor-check-drift tests. Pre-
+ * declaring it makes the verification command already-declared (no seed step), so
+ * each test's plan reflects only its INJECTED doctor-check drift. The one test
+ * that asserts the repo has NO `.exarchos.yml` (dry-run) opts out. */
+async function createFixture(declareConfig = true): Promise<Fixture> {
   const base = await mkdtemp(path.join(tmpdir(), 'onboard-'));
   const repoRoot = path.join(base, 'repo');
   const stateDir = path.join(base, 'state');
@@ -62,6 +71,13 @@ async function createFixture(): Promise<Fixture> {
     ),
     'utf8',
   );
+  if (declareConfig) {
+    await writeFile(
+      path.join(repoRoot, '.exarchos.yml'),
+      'test: npm run test:run\nmutation: npx stryker run\n',
+      'utf8',
+    );
+  }
   const eventStore = new EventStore(stateDir);
   await eventStore.initialize();
   const ctx: DispatchContext = { stateDir, eventStore, enableTelemetry: false };
@@ -227,7 +243,9 @@ describe('handleOnboard (DR-2 — onboard verb + pipeline)', () => {
   });
 
   it('Onboard_DryRun_PrintsPlanWritesNothing', async () => {
-    const fx = await createFixture();
+    // Opt out of the pre-declared `.exarchos.yml` — this test asserts the repo
+    // has NO config file after the dry-run (proving zero writes).
+    const fx = await createFixture(false);
     try {
       const seed = vi.fn(() => ({ wrote: true, path: path.join(fx.repoRoot, '.exarchos.yml') }));
       const installStep = vi.fn().mockResolvedValue(undefined);

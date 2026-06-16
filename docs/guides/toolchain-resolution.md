@@ -1,23 +1,36 @@
 # Toolchain & command resolution
 
-Exarchos resolves a repository's **test / typecheck / install** commands through a
-layered resolver. Universality comes from the *strategy*, not from a baked-in list
-of languages: a built-in convention table covers the common ecosystems, and two
-declaration tiers let any toolchain work with zero changes to Exarchos.
+Exarchos resolves a repository's **test / typecheck / install** commands — and,
+since the verification ladder (epic #1515), the wider **mutation / lint** field
+set via `resolveVerificationRuntime` — through a layered resolver. Universality
+comes from the *strategy*, not from a baked-in list of languages: a built-in
+convention table covers the common ecosystems, and two declaration tiers let any
+toolchain work with zero changes to Exarchos.
+
+Onboarding consumes the same resolver: `exarchos onboard` / `doctor --fix`
+resolve the full verification field set and seed resolved-but-undeclared
+`mutation:` / `lint:` commands into `.exarchos.yml` (commands only — the
+verification *policy* is never written into consumer config; it resolves at
+runtime, see [`exarchos-yml-verification.md`](exarchos-yml-verification.md)).
+The `verification-toolchain` doctor check reports per-field resolvability.
 
 ## Precedence (highest wins, per field)
 
 | # | Tier | Source | When it fires |
 |---|------|--------|---------------|
 | 1 | **override** | dispatch argument | a caller passes an explicit command |
-| 2 | **config** | `.exarchos.yml` `test:` / `typecheck:` / `install:` | you declare the command directly |
+| 2 | **config** | `.exarchos.yml` `test:` / `typecheck:` / `install:` / `mutation:` / `lint:` | you declare the command directly |
 | 3 | **toolchain-config** | `.exarchos.yml` `toolchains:` | a user-declared toolchain's marker matches the repo |
 | 4 | **task-runner** | `Taskfile.yml` · `justfile` · `mise.toml` · `Makefile` | a committed runner declares the conventional target |
 | 5 | **detection** | built-in toolchain registry | a built-in marker matches (node, .NET, Rust, Go, Python, Java, Ruby, PHP, Elixir, Swift, C/C++) |
 | — | unresolved | — | nothing matched → actionable remediation |
 
-Resolution is **per field**: `test` may come from a task runner while `install`
-falls through to the built-in registry.
+Resolution is **per field** across the whole verification surface — `test`,
+`typecheck`, `install`, `mutation`, and `lint` each resolve through the same five
+tiers independently: `test` may come from a task runner while `install` falls
+through to the built-in registry, and `mutation` / `lint` follow the identical
+precedence (a `.exarchos.yml` `mutation:` pin beats a task-runner target beats the
+built-in registry default).
 
 ## Built-in toolchains (tier 5)
 

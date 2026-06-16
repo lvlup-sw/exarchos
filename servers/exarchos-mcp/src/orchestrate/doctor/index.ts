@@ -1,5 +1,5 @@
 /**
- * handleDoctor — composes the 11 per-check modules into a single MCP
+ * handleDoctor — composes the 13 per-check modules into a single MCP
  * action.
  *
  * Design notes:
@@ -52,12 +52,15 @@ import { pluginSkillHashSync } from './checks/plugin-skill-hash-sync.js';
 import { pluginVersionMatch } from './checks/plugin-version-match.js';
 import { remoteMcpStub } from './checks/remote-mcp-stub.js';
 import { invariantsCatalog } from './checks/invariants-catalog.js';
+import { verificationToolchain } from './checks/verification-toolchain.js';
 
 // ─── Canonical check list ──────────────────────────────────────────────────
 
-/** All 12 checks. Order is preserved in the output — callers can scan
+/** All 13 checks. Order is preserved in the output — callers can scan
  * top-to-bottom for the first Fail. DR-8 added `session-start-hook` (#1485):
- * the SessionStart binding presence check that lands the default-on hook step. */
+ * the SessionStart binding presence check that lands the default-on hook step.
+ * Task 009 (design §4.6) added `verification-toolchain` (13th): the read-only
+ * check reporting whether the verification ladder's runtime resolves. */
 export const ALL_CHECKS: ReadonlyArray<CheckFn> = [
   runtimeNodeVersion,
   storageStateDir,
@@ -71,6 +74,7 @@ export const ALL_CHECKS: ReadonlyArray<CheckFn> = [
   pluginVersionMatch,
   remoteMcpStub,
   invariantsCatalog,
+  verificationToolchain,
 ];
 
 // ─── Per-check timeout ─────────────────────────────────────────────────────
@@ -188,7 +192,7 @@ export interface DoctorFixDeps {
    * Produces the doctor `actual` check results the reconciler's `diff`
    * classifies. The reconciler calls this for the plan; doctor re-runs the
    * checks itself for the post-fix residual report. The real composer runs the
-   * 12 checks; tests stub it.
+   * 13 checks; tests stub it.
    */
   readonly runDoctorChecks: (repoRoot: string) => Promise<readonly CheckResult[]>;
   /** Writer deps for GENERATE (real-fs in prod, fixture-redirected in tests). */
@@ -382,7 +386,7 @@ function buildFixApplyCtx(deps: DoctorFixDeps): ApplyCtx {
 
 /**
  * Production `doctor --fix` deps: the real init writers + writer deps + the real
- * doctor composer as `runDoctorChecks` (reusing the 12-check composer verbatim —
+ * doctor composer as `runDoctorChecks` (reusing the 13-check composer verbatim —
  * one check source, INV-2/DR-4). `repoRoot` is the dispatch cwd. The
  * `installHook`/`installStep` hooks default to the reconciler's no-ops until
  * tasks 012/015 supply the real binders.

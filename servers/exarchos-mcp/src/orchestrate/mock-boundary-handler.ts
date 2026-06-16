@@ -99,6 +99,15 @@ export interface MockBoundaryHandlerArgs {
   readonly riskTier?: RiskTier;
   /** The task's stamped boundary-touching flag. See {@link riskTier}. */
   readonly boundaryTouching?: boolean;
+  /**
+   * The resolved project config (task 004). Threaded by the dispatch adapter so
+   * the self-skip routing consumes the SAME config-resolved policy the
+   * delegation stamp uses. Distinct from the per-worktree {@link loadConfig}
+   * seam (ownership globs / review-gate severity): this is the dispatch-time
+   * config that drives the policy SEQUENCE. Omitted → the resolver falls
+   * through to the built-in table.
+   */
+  readonly projectConfig?: ResolvedProjectConfig;
 
   // ── Test seams (DI; production defaults below) ───────────────────────────
   readonly gitExec?: GitExec;
@@ -219,6 +228,7 @@ export async function handleMockBoundary(
     gateName: 'check_mock_boundary',
     riskTier: args.riskTier,
     boundaryTouching: args.boundaryTouching,
+    config: args.projectConfig,
   });
   if (policySkip) {
     try {

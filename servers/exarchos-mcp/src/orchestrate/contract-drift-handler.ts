@@ -28,6 +28,7 @@ import {
   SKIPPED_BY_POLICY,
 } from './gate-utils.js';
 import type { RiskTier } from '../workflow/verification-policy.js';
+import type { ResolvedProjectConfig } from '../config/resolve.js';
 import { resolveVerificationRuntime } from '../config/test-runtime-resolver.js';
 import { splitCommand } from '../config/tokenize-command.js';
 import type { GitExec } from './pure/execute-merge.js';
@@ -75,6 +76,13 @@ export interface ContractDriftHandlerArgs {
   readonly riskTier?: RiskTier;
   /** The task's stamped boundary-touching flag. See {@link riskTier}. */
   readonly boundaryTouching?: boolean;
+  /**
+   * The resolved project config (task 004). Threaded by the dispatch adapter so
+   * the self-skip routing consumes the SAME config-resolved policy the
+   * delegation stamp uses. Omitted → the resolver falls through to the built-in
+   * table.
+   */
+  readonly projectConfig?: ResolvedProjectConfig;
 
   // ── Test seams (DI; production defaults below) ───────────────────────────
   readonly gitExec?: GitExec;
@@ -157,6 +165,7 @@ export async function handleContractDrift(
     gateName: 'check_contract_drift',
     riskTier: args.riskTier,
     boundaryTouching: args.boundaryTouching,
+    config: args.projectConfig,
   });
   if (policySkip) {
     try {

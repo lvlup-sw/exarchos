@@ -52,13 +52,20 @@ import { handleDoctor, ALL_CHECKS } from './index.js';
 // ─── Pinned canonical check identity ────────────────────────────────────────
 
 /**
- * The twelve checks, pinned by `(category, name)` and ORDER. `handleDoctor`
+ * The thirteen checks, pinned by `(category, name)` and ORDER. `handleDoctor`
  * preserves `ALL_CHECKS` order in its output (callers scan top-to-bottom for
  * the first Fail), so the order is part of the observable contract.
  *
  * DR-8 (#1485) added `session-start-hook` — the SessionStart binding presence
- * check — as the 12th entry, placed with the other `agent`-category checks so
- * its `diff` `hook` PlanStep lands when the binding is missing.
+ * check — placed with the other `agent`-category checks so its `diff` `hook`
+ * PlanStep lands when the binding is missing.
+ *
+ * DELIBERATE PIN UPDATE (task 009, design §4.6): the 13th entry
+ * `verification-toolchain` (category `verification`) was added consciously —
+ * the read-only check reporting whether the verification ladder's runtime
+ * resolves. The count + diagnostic.executed `checkCount` invariant below are
+ * updated 12 → 13 on purpose; this and the roster pin are the intended contract
+ * change of the task.
  */
 const PINNED_CHECKS: ReadonlyArray<{
   category: CheckResult['category'];
@@ -76,6 +83,7 @@ const PINNED_CHECKS: ReadonlyArray<{
   { category: 'plugin', name: 'plugin-version-match' },
   { category: 'remote', name: 'remote-mcp' },
   { category: 'invariants', name: 'invariants-catalog' },
+  { category: 'verification', name: 'verification-toolchain' },
 ];
 
 const VALID_STATUSES = ['Pass', 'Warning', 'Fail', 'Skipped'] as const;
@@ -118,7 +126,7 @@ async function flushMicrotasks(): Promise<void> {
 // ─── Characterization ───────────────────────────────────────────────────────
 
 describe('doctor characterization (DR-9 baseline)', () => {
-  it('Doctor_ElevenChecks_PinnedShape', async () => {
+  it('Doctor_ThirteenChecks_PinnedShape', async () => {
     // Arrange
     const { ctx, appendSpy } = fixtureContext();
 
@@ -136,9 +144,10 @@ describe('doctor characterization (DR-9 baseline)', () => {
     const output: DoctorOutput = DoctorOutputSchema.parse(result.data);
     const { checks, summary } = output;
 
-    // ── 1. The twelve checks, pinned by (category, name) and order ──────────
-    expect(ALL_CHECKS).toHaveLength(12);
-    expect(checks).toHaveLength(12);
+    // ── 1. The thirteen checks, pinned by (category, name) and order ────────
+    // (12 → 13 updated deliberately by task 009: verification-toolchain.)
+    expect(ALL_CHECKS).toHaveLength(13);
+    expect(checks).toHaveLength(13);
 
     const observedIdentity = checks.map((c) => ({
       category: c.category,
@@ -148,7 +157,7 @@ describe('doctor characterization (DR-9 baseline)', () => {
 
     // The name set is exactly the pinned set (no dupes, no strays).
     const observedNames = new Set(checks.map((c) => c.name));
-    expect(observedNames.size).toBe(12);
+    expect(observedNames.size).toBe(13);
     for (const { name } of PINNED_CHECKS) {
       expect(observedNames.has(name)).toBe(true);
     }
@@ -218,7 +227,7 @@ describe('doctor characterization (DR-9 baseline)', () => {
 
     // Pinned cross-field invariants between the event and the doctor output.
     expect(payload.checkCount).toBe(checks.length);
-    expect(payload.checkCount).toBe(12);
+    expect(payload.checkCount).toBe(13);
     expect(payload.summary).toEqual(summary);
     expect(payload.failedCheckNames).toEqual(
       checks.filter((c) => c.status === 'Fail').map((c) => c.name),

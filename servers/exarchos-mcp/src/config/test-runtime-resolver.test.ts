@@ -10,6 +10,8 @@ import {
   resolveTestRuntime,
   resolveVerificationRuntime,
 } from './test-runtime-resolver.js';
+import { ExarchosConfigSchema } from './exarchos-config-schema.js';
+import { FullExarchosConfigSchema } from './yaml-schema.js';
 
 describe('resolveTestRuntime', () => {
   const tmpDirs: string[] = [];
@@ -1135,5 +1137,54 @@ describe('resolveVerificationRuntime', () => {
       ),
       { numRuns: 60 },
     );
+  });
+});
+
+// ─── task 001: verification: is a foreign key on the toolchain path ──────────
+//
+// The toolchain loader (`loadExarchosConfig` → readAndValidate) validates the
+// SAME `.exarchos.yml` via `FullExarchosConfigSchema = ExarchosConfigSchema
+// .merge(ProjectConfigSchema).strict()`. Project-concern keys (`review:` /
+// `agents:` / now `verification:`) live in `ProjectConfigSchema`, so they ride
+// through the merged schema on the toolchain path while the bare,
+// toolchain-only `ExarchosConfigSchema` (the resolver's own view) rejects them
+// all equally. These tests pin that `verification:` is tolerated on the
+// toolchain path by the SAME mechanism that already tolerates `review:`.
+
+describe('ExarchosConfigSchema verification-key tolerance', () => {
+  it('ExarchosConfigSchema_ForeignVerificationKey_ToleratedOnToolchainPath', () => {
+    // A config carrying toolchain keys AND a `verification:` block must parse on
+    // the toolchain-loader path (FullExarchosConfigSchema) exactly as a
+    // `review:` sibling does today — the project-concern key is tolerated, not
+    // rejected.
+    const withVerification = {
+      test: 'bun test',
+      verification: { policy: { low: ['check_static_analysis'] } },
+    };
+    const withReview = {
+      test: 'bun test',
+      review: { routing: { 'coderabbit-threshold': 0.4 } },
+    };
+
+    const verifResult = FullExarchosConfigSchema.safeParse(withVerification);
+    const reviewResult = FullExarchosConfigSchema.safeParse(withReview);
+
+    // Same verdict for both sibling project-concern keys: accepted.
+    expect(verifResult.success).toBe(true);
+    expect(reviewResult.success).toBe(true);
+    expect(verifResult.success).toBe(reviewResult.success);
+
+    // The toolchain key survives alongside the tolerated project-concern key.
+    if (verifResult.success) {
+      expect(verifResult.data.test).toBe('bun test');
+      expect(verifResult.data.verification?.policy?.low).toEqual(['check_static_analysis']);
+    }
+
+    // The bare toolchain-only schema (the resolver's own view) treats
+    // `verification:` and `review:` IDENTICALLY — both are foreign to it, so
+    // both are rejected by the SAME `.strict()` mechanism. (This is why the
+    // loader uses the merged schema, not the bare one.)
+    expect(ExarchosConfigSchema.safeParse(withVerification).success).toBe(false);
+    expect(ExarchosConfigSchema.safeParse(withReview).success).toBe(false);
   });
 });

@@ -79,6 +79,9 @@ import {
 import { shouldEnforceCheckpoint } from '../workflow/checkpoint.js';
 import { assertWorktreeBaseRefPinned } from './worktree-baseref.js';
 import { DEFAULTS } from '../config/resolve.js';
+import type { ResolvedProjectConfig } from '../config/resolve.js';
+import { resolveVerificationSequence } from '../workflow/verification-policy.js';
+import type { GateName } from '../workflow/verification-policy.js';
 
 const STATE_DIR = '/tmp/test-state';
 
@@ -1631,7 +1634,100 @@ describe('handlePrepareDelegation', () => {
     });
   });
 
+  // ─── Verification-policy stamp (vls1-b2 / task 003) ───────────────────────
+  //
+  // classifyTask must stamp the CONFIG-RESOLVED verification sequence
+  // (resolveVerificationPolicy) rather than the frozen built-in table
+  // (resolveVerificationSequence). When no config is supplied the stamp must
+  // be byte-identical to the built-in path.
+  describe('classifyTask — verification-policy stamp', () => {
+    /** A deep-mutable config seeded from DEFAULTS with a custom medium cell. */
+    function configWithMediumPolicy(sequence: readonly GateName[]): ResolvedProjectConfig {
+      const config = structuredClone(DEFAULTS) as ResolvedProjectConfig;
+      // structuredClone drops nothing here; override only the medium cell so
+      // the boundary axis + other cells still fall through to the base table.
+      (config.verification.policy as { medium?: readonly GateName[] }).medium = [...sequence];
+      return config;
+    }
+
+    it('ClassifyTask_NoVerificationConfig_StampsBuiltinSequence', () => {
+      // Arrange — a medium-risk, non-boundary task (default heuristic), no config.
+      const task: TaskInput = { id: 'T-100', title: 'Implement feature X' };
+
+      // Act
+      const classification = classifyTask(task);
+
+      // Assert — characterization: byte-identical to the built-in table.
+      const expected = resolveVerificationSequence(
+        classification.riskTier,
+        classification.boundaryTouching,
+      );
+      expect(classification.verificationSequence).toEqual(expected);
+    });
+
+    it('ClassifyTask_ConfiguredPolicyCell_StampsConfigResolvedSequence', () => {
+      // Arrange — task derives to medium/non-boundary; config overrides medium.
+      const customSequence: readonly GateName[] = [
+        'check_static_analysis',
+        'check_mock_boundary',
+      ];
+      const task: TaskInput = { id: 'T-101', title: 'Implement feature Y' };
+      const config = configWithMediumPolicy(customSequence);
+
+      // Pre-assert the task lands in the medium cell so the override applies.
+      const baseline = classifyTask(task);
+      expect(baseline.riskTier).toBe('medium');
+      expect(baseline.boundaryTouching).toBe(false);
+
+      // Act
+      const classification = classifyTask(task, DEFAULTS.agents, config);
+
+      // Assert — the configured cell is stamped verbatim (full replacement).
+      expect(classification.verificationSequence).toEqual(customSequence);
+      // And it diverges from the built-in table the no-config path would stamp.
+      expect(classification.verificationSequence).not.toEqual(baseline.verificationSequence);
+    });
+  });
+
   describe('handler config threading', () => {
+    it('PrepareDelegation_ConfiguredPolicy_StampsConfigSequenceOnClassifications', async () => {
+      // R7-inheritance proof: the config-resolved sequence flows onto the
+      // taskClassifications records the handler returns (prompt assembly
+      // downstream reads exactly this stamp).
+      // Arrange
+      const state = readyWorkflowState();
+      setupMaterializer(state);
+      vi.mocked(generateQualityHints).mockReturnValue([]);
+      const customSequence: readonly GateName[] = [
+        'check_static_analysis',
+        'check_contract_drift',
+      ];
+      const config = structuredClone(DEFAULTS) as ResolvedProjectConfig;
+      (config.verification.policy as { medium?: readonly GateName[] }).medium = [...customSequence];
+
+      const args = {
+        featureId: 'test-feature',
+        // A title with no scaffolding keywords / deps / files derives to medium.
+        tasks: [{ id: 'task-1', title: 'Implement widget' }],
+      };
+      const ctx = {
+        stateDir: STATE_DIR,
+        eventStore: mockStore as never,
+        enableTelemetry: false,
+        projectConfig: config,
+      };
+
+      // Act
+      const result = await handlePrepareDelegation(args, STATE_DIR, ctx as never);
+
+      // Assert
+      expect(result.success).toBe(true);
+      const data = result.data as { taskClassifications: TaskClassification[] };
+      const stamped = data.taskClassifications[0];
+      expect(stamped.riskTier).toBe('medium');
+      expect(stamped.verificationSequence).toEqual(customSequence);
+    });
+
     it('PrepareDelegation_WithTasks_ClassificationsIncludeRecommendedModel', async () => {
       // Arrange
       const state = readyWorkflowState();
