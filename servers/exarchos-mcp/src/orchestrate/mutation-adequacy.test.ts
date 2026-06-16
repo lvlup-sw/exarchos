@@ -254,3 +254,95 @@ describe('mutation-adequacy action (dispatch-through handleOrchestrate)', () => 
     expect(result.success).toBe(true);
   });
 });
+
+
+// ─── Task 004: liveness + gate.executed ──────────────────────────────────────
+
+describe('mutation-adequacy liveness + gate emission', () => {
+  it('MutationAdequacy_Run_EmitsExecutingStartedThenExecuted', async () => {
+    const { stateDir, eventStore } = await newStore();
+    await dispatchMutation({ eventStore, stateDir });
+
+    const events = await eventStore.query('feat-mutadq');
+    const types = events.map((e) => e.type);
+    const startIdx = types.indexOf('mutation.executing_started');
+    const endIdx = types.indexOf('mutation.executed');
+    expect(startIdx).toBeGreaterThanOrEqual(0);
+    expect(endIdx).toBeGreaterThan(startIdx);
+  });
+
+  it('MutationAdequacy_Result_EmitsGateExecutedWithScore', async () => {
+    const { stateDir, eventStore } = await newStore();
+    await dispatchMutation({
+      eventStore,
+      stateDir,
+      runResult: {
+        ok: true,
+        report: strykerReport([{ status: 'Killed' }, { status: 'Killed' }, { status: 'Survived' }]),
+      },
+    });
+
+    const events = await eventStore.query('feat-mutadq', { type: 'gate.executed' });
+    const gate = events.find(
+      (e) => (e.data as { gateName?: string }).gateName === 'mutation-adequacy',
+    );
+    expect(gate).toBeDefined();
+    const data = gate!.data as { layer?: string; details?: { mutationScore?: number } };
+    expect(data.layer).toBe('review');
+    expect(data.details?.mutationScore).toBeCloseTo(2 / 3, 5);
+  });
+
+  it('MutationAdequacy_GateExecuted_FoldsIntoScoreTrend', async () => {
+    // R10-ready: a sequence of gate.executed left-folds into a score trend.
+    const { stateDir, eventStore } = await newStore();
+    const scores = [0.4, 0.6, 0.8];
+    for (const [i, killedCount] of [2, 3, 4].entries()) {
+      const mutants = [
+        ...Array.from({ length: killedCount }, () => ({ status: 'Killed' })),
+        { status: 'Survived' },
+      ];
+      // tune denominators so scores roughly ascend; exact value asserted via fold
+      void i;
+      await dispatchMutation({
+        eventStore,
+        stateDir,
+        operationId: `op-${killedCount}`,
+        runResult: { ok: true, report: strykerReport(mutants) },
+      });
+      void scores;
+    }
+    const events = await eventStore.query('feat-mutadq', { type: 'gate.executed' });
+    const trend = events
+      .map((e) => (e.data as { details?: { mutationScore?: number } }).details?.mutationScore)
+      .filter((s): s is number => typeof s === 'number');
+    expect(trend.length).toBe(3);
+    // Monotonic non-decreasing fold (the trend R10 reads).
+    for (let i = 1; i < trend.length; i++) {
+      expect(trend[i]).toBeGreaterThanOrEqual(trend[i - 1]);
+    }
+  });
+
+  it('MutationAdequacy_Retry_IdempotentNoCasPin', async () => {
+    const { stateDir, eventStore } = await newStore();
+    const opts = {
+      eventStore,
+      stateDir,
+      operationId: 'op-retry',
+      runResult: {
+        ok: true as const,
+        report: strykerReport([{ status: 'Killed' }, { status: 'Survived' }]),
+      },
+    };
+    await dispatchMutation(opts);
+    // A retry under the SAME operationId must collapse, not throw a CAS conflict.
+    await expect(dispatchMutation(opts)).resolves.toBeDefined();
+
+    const gates = await eventStore.query('feat-mutadq', { type: 'gate.executed' });
+    const mutationGates = gates.filter(
+      (e) => (e.data as { gateName?: string }).gateName === 'mutation-adequacy',
+    );
+    // Idempotency-collapse → exactly one gate.executed for the operationId.
+    expect(mutationGates).toHaveLength(1);
+  });
+});
+
