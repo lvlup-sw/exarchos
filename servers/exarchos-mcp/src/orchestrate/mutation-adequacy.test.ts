@@ -25,6 +25,8 @@ import { EventStore } from '../event-store/store.js';
 import type { DispatchContext } from '../core/dispatch.js';
 import { handleOrchestrate } from './composite.js';
 import type { ResolvedVerificationRuntime } from '../config/test-runtime-resolver.js';
+import { resolveConfig } from '../config/resolve.js';
+import type { ProjectConfig } from '../config/yaml-schema.js';
 import type { MutationRunResult } from './mutation-adequacy.js';
 
 // ─── fixtures ────────────────────────────────────────────────────────────────
@@ -388,5 +390,66 @@ describe('mutation-adequacy survivor affordances (next_actions)', () => {
     });
     const actions = data.next_actions ?? [];
     expect(actions.some((a) => /write a test that kills/.test(a))).toBe(false);
+  });
+});
+
+// ─── Task 006: advisory verdict + threshold ──────────────────────────────────
+
+function configWith(overrides: Partial<ProjectConfig>): DispatchContext['projectConfig'] {
+  return resolveConfig(overrides as ProjectConfig);
+}
+
+describe('mutation-adequacy advisory verdict + threshold', () => {
+  it('MutationAdequacy_ScoreBelowThreshold_PassedFalseButAdvisory', async () => {
+    // 1 killed / 3 detectable = 0.33 < 0.40 default → passed:false but ADVISORY.
+    const result = await dispatchMutation({
+      runResult: {
+        ok: true,
+        report: strykerReport([
+          { status: 'Killed' },
+          { status: 'Survived', line: 4 },
+          { status: 'Survived', line: 5 },
+        ]),
+      },
+    });
+    expect(result.success).toBe(true);
+    expect(result.data.passed).toBe(false);
+    // Advisory: never an error envelope; the failing verdict does not block.
+    expect(result.data.mutationScore).toBeLessThan(0.4);
+  });
+
+  it('MutationAdequacy_ExplicitOverride_Blocking', async () => {
+    // An explicit review.gates override raises severity to blocking.
+    const blockingConfig = configWith({
+      review: { gates: { 'mutation-adequacy': { enabled: true, blocking: true } } },
+    } as Partial<ProjectConfig>);
+    const result = (await dispatchMutation({
+      projectConfig: blockingConfig,
+      runResult: {
+        ok: true,
+        report: strykerReport([{ status: 'Killed' }, { status: 'Survived' }, { status: 'Survived' }]),
+      },
+    })) as { success: boolean; data: MutationData; warnings?: string[] };
+    expect(result.data.passed).toBe(false);
+    // Blocking severity does NOT annotate a warning-only downgrade.
+    const warnings = (result as { warnings?: string[] }).warnings ?? [];
+    expect(warnings.some((w) => /warning-only/.test(w))).toBe(false);
+  });
+
+  it('MutationAdequacy_NoThresholdConfig_DefaultsToSoftAdvisory', async () => {
+    // No threshold config → soft default (~0.40); a sub-default score warns,
+    // never blocks (advisory severity from the resolved default).
+    const advisoryConfig = configWith({} as Partial<ProjectConfig>);
+    const result = (await dispatchMutation({
+      projectConfig: advisoryConfig,
+      runResult: {
+        ok: true,
+        report: strykerReport([{ status: 'Killed' }, { status: 'Survived' }, { status: 'Survived' }]),
+      },
+    })) as { success: boolean; data: MutationData; warnings?: string[] };
+    expect(result.success).toBe(true);
+    expect(result.data.passed).toBe(false);
+    const warnings = (result as { warnings?: string[] }).warnings ?? [];
+    expect(warnings.some((w) => /warning-only/.test(w))).toBe(true);
   });
 });
