@@ -86,6 +86,7 @@ interface MutationData {
   reason?: string;
   deferred?: boolean;
   warning?: string;
+  next_actions?: string[];
 }
 
 // ─── harness ─────────────────────────────────────────────────────────────────
@@ -346,3 +347,46 @@ describe('mutation-adequacy liveness + gate emission', () => {
   });
 });
 
+
+// ─── Task 005: survivor affordances ──────────────────────────────────────────
+
+describe('mutation-adequacy survivor affordances (next_actions)', () => {
+  it('MutationAdequacy_SurvivingMutants_EmitKillTestNextActions', async () => {
+    const { data } = await dispatchMutation({
+      runResult: {
+        ok: true,
+        report: strykerReport([
+          { status: 'Killed' },
+          { status: 'Survived', file: 'src/calc.ts', line: 12 },
+        ]),
+      },
+    });
+    const actions = data.next_actions ?? [];
+    expect(actions.some((a) => /write a test that kills src\/calc\.ts:12/.test(a))).toBe(true);
+  });
+
+  it('MutationAdequacy_NoCoverageMutants_EmitKillTestNextActions', async () => {
+    const { data } = await dispatchMutation({
+      runResult: {
+        ok: true,
+        report: strykerReport([
+          { status: 'Killed' },
+          { status: 'NoCoverage', file: 'src/util.ts', line: 7 },
+        ]),
+      },
+    });
+    const actions = data.next_actions ?? [];
+    expect(actions.some((a) => /write a test that kills src\/util\.ts:7/.test(a))).toBe(true);
+  });
+
+  it('MutationAdequacy_AllKilled_NoSurvivorAffordances', async () => {
+    const { data } = await dispatchMutation({
+      runResult: {
+        ok: true,
+        report: strykerReport([{ status: 'Killed' }, { status: 'Killed' }]),
+      },
+    });
+    const actions = data.next_actions ?? [];
+    expect(actions.some((a) => /write a test that kills/.test(a))).toBe(false);
+  });
+});
