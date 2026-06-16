@@ -39,6 +39,25 @@ describe('mutation-adequacy roster characterization (PIN)', () => {
         expect(getRequiredReviews(workflowType)).toEqual([]);
       }
     });
+
+    // R5 (task 007) made the contract tier-aware: the HIGH risk tier adds the
+    // `mutation-adequacy` adequacy backstop at the /review boundary. This pin
+    // was updated DELIBERATELY when task 007 landed (the deliberate-update
+    // protocol). The no-tier per-workflow-type assertions above are unchanged
+    // (backward-compat); a drift in EITHER set that is not this single tier
+    // addition is a real regression, caught here.
+    it('feature workflow at the HIGH tier adds exactly mutation-adequacy', () => {
+      expect(getRequiredReviews('feature', 'high')).toEqual([
+        'spec-review',
+        'quality-review',
+        'mutation-adequacy',
+      ]);
+    });
+
+    it('medium / low tiers reproduce the no-tier roster (high-tier-only)', () => {
+      expect(getRequiredReviews('feature', 'medium')).toEqual(['spec-review', 'quality-review']);
+      expect(getRequiredReviews('feature', 'low')).toEqual(['spec-review', 'quality-review']);
+    });
   });
 
   // ── exarchos_orchestrate action roster ───────────────────────────────────

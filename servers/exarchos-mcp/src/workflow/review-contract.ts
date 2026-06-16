@@ -27,11 +27,58 @@ export const REQUIRED_REVIEWS_BY_WORKFLOW_TYPE: Readonly<Record<string, readonly
 };
 
 /**
+ * The ordered risk tier carried by a workflow / task classification.
+ * Mirrors `workflow/verification-policy.ts`'s `RiskTier`; redeclared here as a
+ * narrow string-literal union so the review contract stays free of a runtime
+ * import cycle. `getRequiredReviews` accepts the wider `string` and treats any
+ * unrecognised tier as "no tier-coupled dimensions" (backward-compatible).
+ */
+export type ReviewRiskTier = 'low' | 'medium' | 'high';
+
+/**
+ * Tier-coupled required review dimensions (verification ladder slice 3 / R5).
+ *
+ * The coupling of a dimension to a risk tier is POLICY DATA (INV-6), not a
+ * branching conditional in prose: `mutation-adequacy` gates the HIGH tier only
+ * (the `/review`-boundary adequacy backstop, design §4.3). Resolution is a pure
+ * table lookup — adding a tier-coupled dimension is a one-line edit here, and
+ * every consumer (`getRequiredReviews` / `getRequiredReviewsPrerequisite`)
+ * picks it up by construction.
+ *
+ * Like {@link REQUIRED_REVIEWS_BY_WORKFLOW_TYPE}, every dimension key MUST equal
+ * a skill folder name under `skills-src/` (here `skills-src/mutation-adequacy/`).
+ */
+export const REQUIRED_REVIEWS_BY_TIER: Readonly<Record<ReviewRiskTier, readonly string[]>> = {
+  low: [],
+  medium: [],
+  high: ['mutation-adequacy'],
+};
+
+/**
  * Returns the required review dimensions for a given workflow type, or
  * an empty array if the workflow type does not enforce required reviews.
+ *
+ * When `riskTier` is supplied (the `/review`-boundary path that carries a task
+ * classification), the tier-coupled dimensions from {@link REQUIRED_REVIEWS_BY_TIER}
+ * are appended. Omitting `riskTier` — or passing an unrecognised tier — yields
+ * exactly the workflow-type roster (backward-compatible with the pre-slice-3
+ * single-argument call). The result is a fresh array so callers cannot mutate
+ * the underlying tables.
  */
-export function getRequiredReviews(workflowType: string): readonly string[] {
-  return REQUIRED_REVIEWS_BY_WORKFLOW_TYPE[workflowType] ?? [];
+export function getRequiredReviews(
+  workflowType: string,
+  riskTier?: string,
+): readonly string[] {
+  const base = REQUIRED_REVIEWS_BY_WORKFLOW_TYPE[workflowType] ?? [];
+  const tierDimensions =
+    riskTier !== undefined
+      ? REQUIRED_REVIEWS_BY_TIER[riskTier as ReviewRiskTier] ?? []
+      : [];
+  if (tierDimensions.length === 0) return [...base];
+  // Append tier-coupled dimensions, de-duplicating against the base roster so a
+  // future overlap never produces a doubled dimension name.
+  const seen = new Set(base);
+  return [...base, ...tierDimensions.filter((d) => !seen.has(d))];
 }
 
 /**
@@ -42,9 +89,16 @@ export function getRequiredReviews(workflowType: string): readonly string[] {
  *
  * Example: `getRequiredReviewsPrerequisite('feature')` →
  *   `reviews.spec-review.status AND reviews.quality-review.status pass`
+ *
+ * `riskTier` threads through to {@link getRequiredReviews} so the high-tier
+ * `mutation-adequacy` dimension appears in the rendered prerequisite at the
+ * `/review` boundary; omitting it reproduces the pre-slice-3 string verbatim.
  */
-export function getRequiredReviewsPrerequisite(workflowType: string): string {
-  const dimensions = getRequiredReviews(workflowType);
+export function getRequiredReviewsPrerequisite(
+  workflowType: string,
+  riskTier?: string,
+): string {
+  const dimensions = getRequiredReviews(workflowType, riskTier);
   if (dimensions.length === 0) return 'no required reviews';
   const clauses = dimensions.map((d) => `reviews.${d}.status`);
   return `${clauses.join(' AND ')} must be a passing value (pass|passed|approved|fixes-applied, case-insensitive)`;
