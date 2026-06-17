@@ -469,7 +469,10 @@ describe('EventTypes', () => {
     // verification-ladder slice 1 (task 020): bumped 120 → 122 to include the
     // mutation-run liveness pair `mutation.executing_started` +
     // `mutation.executed`, emitted by the `exarchos run-mutation` CLI verb.
-    expect(EventTypes).toHaveLength(122);
+    // phase-kind binding DR-7 (task 007): bumped 122 → 123 to include
+    // `phase.blocked`, the fail-closed marker appended when the IMPLEMENT
+    // gate-set resolver throws at a phase boundary (orchestrate/prepare-delegation.ts).
+    expect(EventTypes).toHaveLength(123);
     // Explicit membership pin: a future replacement that swaps one event
     // for another would keep the length stable but silently lose the
     // migration progress type. The membership assert catches that.

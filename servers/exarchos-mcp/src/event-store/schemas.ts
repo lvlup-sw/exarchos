@@ -131,6 +131,12 @@ export const EventTypes = [
   'hsm.deprecated_action_invoked',
   'spec.legacy_capabilities_array',
   'phase.contract_missing',
+  // Phase-kind binding (DR-7, epic #1546) — fail-closed at the gate-set
+  // boundary. Emitted when the IMPLEMENT-kind gate-set resolver throws while
+  // stamping a wave's verification sequence: the dispatch is REFUSED (fail
+  // closed) and this durable event records why, so an operator sees the
+  // blocked phase instead of a silently-failed-open dispatch.
+  'phase.blocked',
   'migration.legacy_jsonl_imported',
   'migration.completed',
   'migration.failed',
@@ -493,6 +499,10 @@ export const EVENT_EMISSION_REGISTRY: Record<EventType, EventEmissionSource> = {
   // contract (#1259 T03 / DR-7). Drives the phase-contract migration
   // telemetry.
   'phase.contract_missing': 'auto',
+
+  // auto — emitted by the wave-dispatch boundary (DR-7, epic #1546) when the
+  // IMPLEMENT-kind gate-set resolver throws; the dispatch fails closed.
+  'phase.blocked': 'auto',
 
   // auto — emitted by the JSONL→SQLite migration importer (#1259 T04 / DR-9).
   // Per-file completion event during the import; the `migration.completed`
@@ -1757,6 +1767,34 @@ export const PhaseContractMissingData = z.object({
 });
 
 /**
+ * phase.blocked — fail-closed at the gate-set boundary (DR-7, epic #1546).
+ *
+ * Emitted by the wave-dispatch boundary (`handlePrepareDelegation` →
+ * `classifyTasksFailClosed`) when the kind-keyed gate-set resolver
+ * (`resolveGateSet(kind, …)`) throws while stamping a wave's verification
+ * sequence. Rather than letting the exception propagate and fail the dispatch
+ * OPEN / silently, the boundary REFUSES to proceed and records this durable
+ * event so an operator sees the blocked phase and why.
+ *
+ * Required-string fields (`min(1)`) so a blocked-dispatch record without an
+ * actionable reason fails at the schema boundary rather than landing an empty
+ * audit row. `kind` is the {@link PhaseKind} whose resolver faulted; `phase` is
+ * the lifecycle phase the dispatch was at; `error` carries the underlying
+ * resolver fault so the failure is debuggable from the event log alone.
+ */
+export const PhaseBlockedData = z.object({
+  phase: z.string().min(1).describe('Lifecycle phase the dispatch was blocked at'),
+  kind: z.string().min(1).describe('Phase kind whose gate-set resolver faulted'),
+  reason: z.string().min(1).describe('Operator-visible skip reason for the blocked dispatch'),
+  error: z
+    .object({
+      code: z.string().min(1).describe('Stable error code for the resolver fault'),
+      message: z.string().min(1).describe('Underlying resolver error message'),
+    })
+    .describe('The underlying gate-set resolver fault that triggered the block'),
+});
+
+/**
  * migration.legacy_jsonl_imported — per-file completion event from the
  * JSONL→SQLite migration importer (T04, DR-9 / DR-10).
  *
@@ -2257,6 +2295,7 @@ export const EVENT_DATA_SCHEMAS: Partial<Record<EventType, z.ZodSchema>> = {
   'hsm.deprecated_action_invoked': HsmDeprecatedActionInvokedData,
   'spec.legacy_capabilities_array': SpecLegacyCapabilitiesArrayData,
   'phase.contract_missing': PhaseContractMissingData,
+  'phase.blocked': PhaseBlockedData,
   'migration.legacy_jsonl_imported': MigrationLegacyJsonlImportedData,
   'migration.completed': MigrationCompletedData,
   'migration.failed': MigrationFailedData,
@@ -2381,6 +2420,7 @@ export type MergeCompleted = z.infer<typeof MergeCompletedData>;
 export type HsmDeprecatedActionInvoked = z.infer<typeof HsmDeprecatedActionInvokedData>;
 export type SpecLegacyCapabilitiesArray = z.infer<typeof SpecLegacyCapabilitiesArrayData>;
 export type PhaseContractMissing = z.infer<typeof PhaseContractMissingData>;
+export type PhaseBlocked = z.infer<typeof PhaseBlockedData>;
 export type MigrationLegacyJsonlImported = z.infer<typeof MigrationLegacyJsonlImportedData>;
 export type MigrationCompleted = z.infer<typeof MigrationCompletedData>;
 export type MigrationFailed = z.infer<typeof MigrationFailedData>;
@@ -2504,6 +2544,7 @@ export type EventDataMap = {
   'hsm.deprecated_action_invoked': HsmDeprecatedActionInvoked;
   'spec.legacy_capabilities_array': SpecLegacyCapabilitiesArray;
   'phase.contract_missing': PhaseContractMissing;
+  'phase.blocked': PhaseBlocked;
   'migration.legacy_jsonl_imported': MigrationLegacyJsonlImported;
   'migration.completed': MigrationCompleted;
   'migration.failed': MigrationFailed;

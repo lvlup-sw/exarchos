@@ -50,6 +50,16 @@ vi.mock('../workflow/checkpoint.js', () => ({
   CHECKPOINT_OPERATION_THRESHOLD: 20,
 }));
 
+// DR-7: partially mock the phase-kind boundary so a single test can force the
+// IMPLEMENT-kind gate-set resolver to throw (simulating a deferred-kind
+// 'not-yet-wired' fault or any resolver error). The default implementation
+// delegates to the real resolver so every other test exercises the genuine
+// ladder; only the fail-closed test overrides it via `mockImplementationOnce`.
+vi.mock('../workflow/phase-kind.js', async (importActual) => {
+  const actual = await importActual<typeof import('../workflow/phase-kind.js')>();
+  return { ...actual, resolveGateSet: vi.fn(actual.resolveGateSet) };
+});
+
 import {
   getOrCreateMaterializer,
   queryDeltaEvents,
@@ -83,6 +93,7 @@ import type { ResolvedProjectConfig } from '../config/resolve.js';
 import { resolveVerificationSequence } from '../workflow/verification-policy.js';
 import type { GateName, RiskTier } from '../workflow/verification-policy.js';
 import { resolveVerificationPolicy } from '../workflow/verification-policy-resolver.js';
+import { resolveGateSet } from '../workflow/phase-kind.js';
 
 const STATE_DIR = '/tmp/test-state';
 
@@ -1852,6 +1863,69 @@ describe('handlePrepareDelegation', () => {
       const implementerTask = data.taskClassifications.find(tc => tc.recommendedAgent === 'implementer');
       expect(scaffolderTask?.recommendedModel).toBe('haiku');   // DEFAULTS.agents.models.scaffolder
       expect(implementerTask?.recommendedModel).toBe('opus');   // DEFAULTS.agents.defaultModel
+    });
+  });
+
+  // ─── DR-7: Fail-Closed at the Gate-Set Boundary ──────────────────────────
+  //
+  // The wave-dispatch boundary stamps each task's verification sequence by
+  // routing through `resolveGateSet('IMPLEMENT', …)`. That call was previously
+  // UNGUARDED: a resolver throw (e.g. a deferred-kind 'not-yet-wired' fault, or
+  // any resolver error) propagated out of the handler and the dispatch failed
+  // OPEN / silently. DR-7 makes the boundary FAIL CLOSED: append a
+  // `phase.blocked` event carrying a visible skip reason, and refuse to proceed
+  // (structured error envelope, NO task classifications stamped).
+  describe('fail-closed gate-set boundary (DR-7)', () => {
+    it('ResolveGateSet_ResolverThrows_AppendsPhaseBlocked', async () => {
+      // Arrange: a ready workflow with a single implement task. Force the
+      // IMPLEMENT-kind resolver to throw at the dispatch boundary.
+      const state = readyWorkflowState();
+      setupMaterializer(state);
+      vi.mocked(generateQualityHints).mockReturnValue([]);
+      const localStore = {
+        query: vi.fn().mockResolvedValue([]),
+        append: vi.fn().mockResolvedValue(undefined),
+        listStreams: vi.fn().mockReturnValue(null),
+      };
+      const boom = new Error(
+        "resolveGateSet: resolver 'plan-structure' is not wired yet (deferred to S3)",
+      );
+      vi.mocked(resolveGateSet).mockImplementationOnce(() => {
+        throw boom;
+      });
+      const args = {
+        featureId: 'test-feature',
+        tasks: [{ id: 'task-1', title: 'Implement widget' }],
+      };
+
+      // Act
+      const result = await handlePrepareDelegation(
+        args,
+        STATE_DIR,
+        makeCtx(localStore, STATE_DIR),
+      );
+
+      // Assert: dispatch did NOT proceed — structured error envelope, and
+      // CRUCIALLY no taskClassifications were stamped (fail closed).
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe('PHASE_BLOCKED');
+      // Visible skip reason surfaced to the operator.
+      expect(result.error?.message).toMatch(/gate|resolve|blocked|verification/i);
+      const data = (result.data ?? {}) as { taskClassifications?: unknown };
+      expect(data.taskClassifications).toBeUndefined();
+
+      // A `phase.blocked` event was appended carrying a visible skip reason.
+      const blockedCall = localStore.append.mock.calls.find(
+        (c) => (c[1] as { type?: string }).type === 'phase.blocked',
+      );
+      expect(blockedCall, 'expected a phase.blocked event to be appended').toBeDefined();
+      const blockedEvent = blockedCall![1] as {
+        type: string;
+        data: { phase: string; kind: string; reason: string; error: { code: string; message: string } };
+      };
+      expect(blockedEvent.data.kind).toBe('IMPLEMENT');
+      expect(blockedEvent.data.reason.length).toBeGreaterThan(0);
+      expect(blockedEvent.data.error.message).toContain('not wired');
     });
   });
 

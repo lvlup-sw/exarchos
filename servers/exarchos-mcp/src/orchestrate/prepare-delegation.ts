@@ -52,6 +52,7 @@ import type { CheckpointEnforcementConfig } from '../workflow/checkpoint.js';
 import { globToRegExp } from '../architecture/glob-to-regexp.js';
 import type { GateName } from '../workflow/verification-policy.js';
 import { resolveGateSet } from '../workflow/phase-kind.js';
+import type { PhaseKind } from '../workflow/phase-kind.js';
 
 // ─── Result Interface ────────────────────────────────────────────────────────
 
@@ -416,6 +417,94 @@ export function classifyTask(
     boundaryTouching,
     verificationSequence: resolveGateSet('IMPLEMENT', { riskTier, boundaryTouching, config }),
   };
+}
+
+// ─── DR-7: Fail-Closed at the Gate-Set Boundary ─────────────────────────────
+//
+// `classifyTask` routes each task's verification sequence through
+// `resolveGateSet(kind, …)`. That resolver can THROW — a deferred kind whose
+// resolver is not yet wired ('not-yet-wired'), or any other resolver fault.
+// Mapping the wave with a raw `.map(classifyTask)` lets such a throw propagate
+// out of the dispatch handler and fail the dispatch OPEN / silently.
+//
+// DR-7 makes the boundary FAIL CLOSED: the entire wave's classification is run
+// inside one guard. On ANY resolver throw, NO task classifications are stamped
+// (all-or-nothing — a partially-classified wave would be a fail-open hazard),
+// and the wrapper returns a structured `blocked` result the handler turns into
+// a `phase.blocked` event + an error envelope. On success it returns the
+// stamped classifications unchanged.
+//
+// The boundary phase kind is always `IMPLEMENT` here (the delegate/wave-dispatch
+// boundary). The kind is surfaced on the result so every IMPLEMENT-kind phase
+// boundary that adopts this wrapper records the same diagnostic shape.
+
+/** The phase kind bound to the wave-dispatch boundary. */
+const DISPATCH_PHASE_KIND: PhaseKind = 'IMPLEMENT';
+
+/** Stable error code for a fail-closed gate-set boundary block. */
+export const PHASE_BLOCKED_CODE = 'PHASE_BLOCKED';
+
+/**
+ * The diagnostic payload of a fail-closed gate-set boundary block. Field shape
+ * matches the `phase.blocked` event schema (`event-store/schemas.ts`):
+ * `{ phase, kind, reason, error: { code, message } }`.
+ */
+export interface PhaseBlockedInfo {
+  readonly phase: string;
+  readonly kind: PhaseKind;
+  readonly reason: string;
+  readonly error: { readonly code: string; readonly message: string };
+}
+
+/**
+ * Discriminated result of the fail-closed classification boundary:
+ * - `{ ok: true, classifications }`  — every task classified cleanly.
+ * - `{ ok: false, blocked }`         — a resolver threw; nothing was stamped.
+ */
+export type ClassifyTasksResult =
+  | { readonly ok: true; readonly classifications: TaskClassification[] }
+  | { readonly ok: false; readonly blocked: PhaseBlockedInfo };
+
+/**
+ * Classify a whole wave of tasks at the gate-set boundary, FAILING CLOSED.
+ *
+ * Wraps the per-task {@link classifyTask} call (which routes through
+ * {@link resolveGateSet}) so a resolver throw never propagates out of the
+ * dispatch boundary. The guard is wave-wide and all-or-nothing: a single throw
+ * blocks the entire wave (no partial classification) and yields a
+ * {@link PhaseBlockedInfo} the caller records as a `phase.blocked` event.
+ *
+ * Pure: no I/O. The caller owns event emission and the response envelope.
+ *
+ * @param tasks the wave's tasks
+ * @param agentConfig resolved agent config (model routing)
+ * @param config resolved project config (verification overlay); absence is the
+ *   ordinary built-in-table path — it MUST NOT trigger a fail-closed block
+ * @param phase the lifecycle phase the dispatch is at (for the diagnostic)
+ */
+export function classifyTasksFailClosed(
+  tasks: readonly TaskInput[],
+  agentConfig: ResolvedProjectConfig['agents'] = DEFAULTS.agents,
+  config?: ResolvedProjectConfig,
+  phase = 'delegate',
+): ClassifyTasksResult {
+  try {
+    return {
+      ok: true,
+      classifications: tasks.map(t => classifyTask(t, agentConfig, config)),
+    };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return {
+      ok: false,
+      blocked: {
+        phase,
+        kind: DISPATCH_PHASE_KIND,
+        reason: `dispatch blocked: ${DISPATCH_PHASE_KIND} gate-set resolution failed — ${message}`,
+        error: { code: PHASE_BLOCKED_CODE, message },
+      },
+    };
+  }
 }
 
 // ─── Worktree Blocker Patterns ──────────────────────────────────────────────
@@ -1009,9 +1098,37 @@ export async function handlePrepareDelegation(
     // longer needed.
     const agentConfig = ctx?.projectConfig?.agents ?? DEFAULTS.agents;
     const projectConfig = ctx?.projectConfig;
-    const taskClassifications = args.tasks
-      ? args.tasks.map(t => classifyTask(t, agentConfig, projectConfig))
-      : undefined;
+
+    // DR-7: classify the wave through the fail-closed boundary. A resolver
+    // throw (e.g. a deferred-kind 'not-yet-wired' fault) no longer propagates
+    // and fails the dispatch OPEN; instead the boundary records `phase.blocked`
+    // and refuses to proceed (no task classifications stamped).
+    let taskClassifications: TaskClassification[] | undefined;
+    if (args.tasks) {
+      const classified = classifyTasksFailClosed(
+        args.tasks,
+        agentConfig,
+        projectConfig,
+        workflowState.phase ?? 'delegate',
+      );
+      if (!classified.ok) {
+        const { blocked } = classified;
+        await emitAuditEvent(store, streamId, {
+          type: 'phase.blocked',
+          data: {
+            phase: blocked.phase,
+            kind: blocked.kind,
+            reason: blocked.reason,
+            error: { code: blocked.error.code, message: blocked.error.message },
+          },
+        });
+        return {
+          success: false,
+          error: { code: PHASE_BLOCKED_CODE, message: blocked.reason },
+        };
+      }
+      taskClassifications = classified.classifications;
+    }
 
     const result: PrepareDelegationResult = {
       ready: true,

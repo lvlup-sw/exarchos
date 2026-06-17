@@ -524,6 +524,29 @@ describe('TOOL_REGISTRY', () => {
     );
   });
 
+  // DR-7 (phase-kind binding, epic #1546): the phase-kind work — the closed
+  // PhaseKind union, the KIND_OBLIGATIONS grant-table, the gate-set resolver,
+  // and the fail-closed boundary that appends `phase.blocked` — is an internal
+  // verification-routing change. It MUST NOT grow the visible MCP tool surface
+  // (INV-5d) nor introduce a new top-level CLI verb (composite). This is a
+  // regression fence: the visible composite count and the exact visible-tool
+  // name set stay exactly what they were before phase-kind landed.
+  it('Registry_VisibleToolCount_UnchangedByPhaseKind', () => {
+    // exarchos_sync is the sole hidden composite; the four user-facing
+    // composites are the top-level CLI verbs / visible MCP tools.
+    const visibleTools = TOOL_REGISTRY.filter((t) => !t.hidden);
+    expect(visibleTools.length).toBe(4);
+    expect(visibleTools.length).toBeLessThanOrEqual(15);
+    expect(visibleTools.map((t) => t.name).sort()).toEqual([
+      'exarchos_event',
+      'exarchos_orchestrate',
+      'exarchos_view',
+      'exarchos_workflow',
+    ]);
+    // Phase-kind added no hidden composite either — the total stays at 5.
+    expect(TOOL_REGISTRY).toHaveLength(5);
+  });
+
   describe('exarchos_workflow', () => {
     it('should have 10 actions: init, get, transition, update, cancel, cleanup, reconcile, rehydrate, checkpoint, describe', () => {
       // T5a.1/DR-4 (#1259, v2.11): `set` action removed (hard-cut from the
