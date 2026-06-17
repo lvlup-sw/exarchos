@@ -357,6 +357,71 @@ describe('mutation-adequacy scope validation (INV-5a/5b)', () => {
   });
 });
 
+describe("mutation-adequacy repoRoot:'auto' resolution (PR #1541 Seer)", () => {
+  it('MutationAdequacy_AutoRepoRoot_ResolvesFromWorktreeCreatedEvent', async () => {
+    const { stateDir, eventStore } = await newStore();
+    // Seed the task's worktree.created event that `repoRoot:'auto'` resolves
+    // against — the handler must thread `taskId` to resolveRepoRoot for this.
+    await eventStore.append('feat-mutadq', {
+      type: 'worktree.created',
+      data: { taskId: 'task-007', path: '/tmp/wt/task-007' },
+    });
+    const ctx = makeCtx(stateDir, eventStore);
+
+    let seenRepoRoot: string | undefined;
+    const result = await handleOrchestrate(
+      {
+        action: 'mutation-adequacy',
+        featureId: 'feat-mutadq',
+        base: 'main',
+        repoRoot: 'auto',
+        taskId: 'task-007',
+        resolve: () => runtimeWith('npx stryker run'),
+        detectToolchainId: () => 'node',
+        runMutation: (runArgs: { command: string; repoRoot: string }) => {
+          seenRepoRoot = runArgs.repoRoot;
+          return { ok: true as const, report: strykerReport([{ status: 'Killed' }]) };
+        },
+      },
+      ctx,
+    );
+
+    expect(result.success).toBe(true);
+    // 'auto' resolved to the task's worktree via the event lookup (taskId threaded).
+    expect(seenRepoRoot).toBe('/tmp/wt/task-007');
+  });
+
+  it('MutationAdequacy_AutoRepoRoot_NoTaskIdNoWorktree_InvalidInput', async () => {
+    // Boundary: 'auto' with neither taskId nor worktreePath is unresolvable —
+    // surface INVALID_INPUT and never invoke the runner.
+    const { stateDir, eventStore } = await newStore();
+    const ctx = makeCtx(stateDir, eventStore);
+
+    let ran = false;
+    const result = await handleOrchestrate(
+      {
+        action: 'mutation-adequacy',
+        featureId: 'feat-mutadq',
+        base: 'main',
+        repoRoot: 'auto',
+        resolve: () => runtimeWith('npx stryker run'),
+        detectToolchainId: () => 'node',
+        runMutation: () => {
+          ran = true;
+          return { ok: true as const, report: strykerReport([{ status: 'Killed' }]) };
+        },
+      },
+      ctx,
+    );
+
+    expect(result.success).toBe(false);
+    if (result.success === false) {
+      expect(result.error?.code).toBe('INVALID_INPUT');
+    }
+    expect(ran).toBe(false);
+  });
+});
+
 
 // ─── Task 004: liveness + gate.executed ──────────────────────────────────────
 

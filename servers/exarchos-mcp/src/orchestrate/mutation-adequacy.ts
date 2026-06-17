@@ -254,7 +254,15 @@ export interface MutationAdequacyArgs {
   readonly base: string;
   /** Repo to run in. `'auto'` resolves the calling delegation's worktree (#1330). */
   readonly repoRoot?: string;
+  /** Explicit worktree for `repoRoot:'auto'`; preferred over the event lookup. */
   readonly worktreePath?: string;
+  /**
+   * Task whose `worktree.created` event resolves `repoRoot:'auto'` when no
+   * explicit `worktreePath` is supplied (#1330), mirroring check_test_adequacy.
+   * Without it, an `'auto'` repoRoot can only resolve from `worktreePath` — so
+   * omitting both leaves `'auto'` unresolvable (a returned INVALID_INPUT).
+   */
+  readonly taskId?: string;
   /** Idempotency key for the gate emission (INV-8). */
   readonly operationId?: string;
   /** Adequacy threshold override; falls back to config, then the soft default. */
@@ -437,6 +445,11 @@ export async function handleMutationAdequacy(
       repoRoot: args.repoRoot,
       worktreePath: args.worktreePath,
       featureId: args.featureId,
+      // Pass taskId so `repoRoot:'auto'` can fall back to the task's
+      // worktree.created event when no explicit worktreePath is given — the
+      // check_test_adequacy contract. Omitted before, which left 'auto'
+      // resolvable only via worktreePath (Seer LOW, PR #1541).
+      taskId: args.taskId,
     },
     eventStore,
   );

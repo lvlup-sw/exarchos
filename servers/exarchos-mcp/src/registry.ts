@@ -1802,6 +1802,12 @@ const orchestrateActions: readonly ToolAction[] = [
     schema: z.object({
       featureId: z.string().min(1),
       base: z.string().min(1),
+      // `taskId` lets `repoRoot:'auto'` resolve via the task's worktree.created
+      // event (the check_test_adequacy contract). Optional here (the review-gate
+      // path often passes an explicit repoRoot/worktreePath); matches the
+      // existing `taskId: z.string().optional()` declarations so
+      // buildRegistrationSchema sees no divergent same-name contract.
+      taskId: z.string().optional(),
       worktreePath: z.string().optional(),
       operationId: z.string().optional(),
       threshold: z.number().min(0).max(1).optional(),
