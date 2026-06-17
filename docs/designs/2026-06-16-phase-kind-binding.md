@@ -71,10 +71,10 @@ A closed discriminated union `PhaseKind = 'IMPLEMENT' | 'PLAN' | 'REVIEW' | 'SYN
 
 ### DR-2: kind-tag every HSM state (behavior-neutral)
 
-Extend the HSM `State` shape in `workflow/hsm-definitions.ts` with a **non-optional** `kind: PhaseKind` field and tag all states across the five HSMs (`feature` / `debug` / `refactor` / `oneshot` / `discovery`). The five implement snowflakes (`delegate`, `overhaul-delegate`, `debug-implement`, `hotfix-implement`, `polish-implement`, `implementing`) all map to `IMPLEMENT`; plan/rca/design → `PLAN`; review phases → `REVIEW`; synthesize → `SYNTHESIZE`; triage/investigate/gathering/explore → `GATHER`. Names and transitions stay bespoke (INV-6 variation layer); only the `kind` tag crosses into the obligation layer.
+Make the HSM `State` type (`workflow/state-machine.ts`) a **discriminated union**: the `atomic` variant carries a **required** `kind: PhaseKind`, while the `compound` and `final` variants carry **no** `kind` — they are container/terminal states an agent never occupies, so they bear no obligations. Tag every atomic state across the five HSMs (`feature` / `debug` / `refactor` / `oneshot` / `discovery`) in `workflow/hsm-definitions.ts`. The six implement snowflakes (`delegate`, `overhaul-delegate`, `debug-implement`, `hotfix-implement`, `polish-implement`, `implementing`) all map to `IMPLEMENT`; plan/rca/design → `PLAN`; review phases → `REVIEW`; synthesize → `SYNTHESIZE`; triage/investigate/gathering/explore → `GATHER`. Names and transitions stay bespoke (INV-6 variation layer); only the `kind` tag crosses into the obligation layer.
 
 **Acceptance criteria:**
-- The `State` type makes an untagged state a compile error.
+- The `State` type makes an untagged **atomic** state a compile error (`compound`/`final` variants are `kind`-free by construction).
 - A characterization test asserts the complete `state → kind` mapping for all ~30 states (Feathers-style: lock current classification before any behavior change).
 - No transition table, guard, or `next_actions` output changes (INV-9 held; diff touches only the `kind` field and the resolver module).
 

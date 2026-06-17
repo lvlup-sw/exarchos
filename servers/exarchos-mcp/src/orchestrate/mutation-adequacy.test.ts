@@ -602,7 +602,10 @@ describe('mutation-adequacy advisory verdict + threshold', () => {
 
   it('MutationAdequacy_NoThresholdConfig_DefaultsToSoftAdvisory', async () => {
     // No threshold config → soft default (~0.40); a sub-default score warns,
-    // never blocks (advisory severity from the resolved default).
+    // never blocks (advisory severity from the resolved default). The warning-only
+    // downgrade CLEARS the blocking signal (data.passed → true) and carries the
+    // finding as a warning — leaving data.passed:false would still block the
+    // dispatch (the contract the orchestrator reads). See the DR-6 review fix.
     const advisoryConfig = configWith({} as Partial<ProjectConfig>);
     const result = (await dispatchMutation({
       projectConfig: advisoryConfig,
@@ -612,7 +615,7 @@ describe('mutation-adequacy advisory verdict + threshold', () => {
       },
     })) as { success: boolean; data: MutationData; warnings?: string[] };
     expect(result.success).toBe(true);
-    expect(result.data.passed).toBe(false);
+    expect(result.data.passed).toBe(true);
     const warnings = (result as { warnings?: string[] }).warnings ?? [];
     expect(warnings.some((w) => /warning-only/.test(w))).toBe(true);
   });

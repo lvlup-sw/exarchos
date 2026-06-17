@@ -310,10 +310,15 @@ export async function withConfigSeverity(
  * result (task 005).
  *
  * Ladder gates (INV-5b) never return `success:false` for a gate-failure verdict
- * — a failing gate is `{ success: true, data: { passed: false } }`, so
- * {@link withConfigSeverity}'s `success:false`-only conversion does not apply.
- * This helper downgrades a failing advisory verdict (`data.passed === false`)
- * to a warning when EITHER:
+ * — a failing gate is `{ success: true, data: { passed: false } }`, where
+ * `data.passed:false` is the blocking signal the orchestrator reads. So
+ * {@link withConfigSeverity}'s `success:false`-only conversion does not apply;
+ * the ladder analogue is to clear `data.passed` (false → true) the same way the
+ * sibling clears `success`.
+ *
+ * This helper DOWNGRADES a failing advisory verdict (`data.passed === false`) to
+ * non-blocking — clearing the blocking signal (`data.passed → true`) AND
+ * attaching an explanatory warning — when EITHER:
  *   - the binding's graduation `mode` is `'audit'` (DR-6) — an audit-mode gate
  *     RECORDS its finding (the handler already emitted `gate.executed`) but is
  *     never consulted as a transition blocker, regardless of severity OR config.
@@ -321,6 +326,11 @@ export async function withConfigSeverity(
  *     downgrade applies even on the no-config path; OR
  *   - a config is present and the resolved severity (via {@link resolveGateSeverity},
  *     threading `workflowType`) is `'warning'`.
+ *
+ * The truthful failing verdict survives in the `gate.executed` event the handler
+ * emitted before this post-processing; only the returned ToolResult's block
+ * signal is normalized — so an audit/warning gate cannot still block on a stale
+ * `data.passed:false`.
  *
  * In every other case the result is returned UNCHANGED:
  *   - `mode === 'enforce'` (or omitted) AND `severity !== 'warning'` (e.g.
@@ -361,6 +371,9 @@ export function applyLadderGateSeverity(
   if (mode === 'audit') {
     return {
       ...result,
+      // Clear the blocking signal — `data.passed:false` is what the orchestrator
+      // reads to block, so the warning alone would not actually unblock.
+      data: { ...(data as Record<string, unknown>), passed: true },
       warnings: [
         ...(result.warnings ?? []),
         `Gate '${gateName}' failed but the implement phase is in audit mode (finding recorded, non-blocking)`,
@@ -376,6 +389,8 @@ export function applyLadderGateSeverity(
 
   return {
     ...result,
+    // Clear the blocking signal alongside the warning (see the audit branch).
+    data: { ...(data as Record<string, unknown>), passed: true },
     warnings: [
       ...(result.warnings ?? []),
       `Gate '${gateName}' failed but is configured as warning-only`,

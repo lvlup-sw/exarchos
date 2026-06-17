@@ -1782,9 +1782,25 @@ export const PhaseContractMissingData = z.object({
  * the lifecycle phase the dispatch was at; `error` carries the underlying
  * resolver fault so the failure is debuggable from the event log alone.
  */
+/**
+ * The closed phase-kind set, mirrored from `workflow/phase-kind.ts`'s `PhaseKind`
+ * union. Inlined (not imported) to keep this low-level event-store layer free of
+ * a workflow/config dependency — `phase-kind.ts` transitively pulls in the
+ * verification-policy + config resolvers, which must not become event-store deps.
+ * A drift-guard test pins these options to `KIND_OBLIGATIONS` so the two cannot
+ * silently diverge.
+ */
+export const PhaseBlockedKindSchema = z.enum([
+  'IMPLEMENT',
+  'PLAN',
+  'REVIEW',
+  'SYNTHESIZE',
+  'GATHER',
+]);
+
 export const PhaseBlockedData = z.object({
   phase: z.string().min(1).describe('Lifecycle phase the dispatch was blocked at'),
-  kind: z.string().min(1).describe('Phase kind whose gate-set resolver faulted'),
+  kind: PhaseBlockedKindSchema.describe('Phase kind whose gate-set resolver faulted'),
   reason: z.string().min(1).describe('Operator-visible skip reason for the blocked dispatch'),
   error: z
     .object({

@@ -32,8 +32,20 @@ export type PhaseKind = 'IMPLEMENT' | 'PLAN' | 'REVIEW' | 'SYNTHESIZE' | 'GATHER
  *   shape is stable, but **inert** in this layer: it is not yet wired to a
  *   capability bundle.
  */
+/**
+ * The closed set of gate-resolver names. Typing `gates.resolver` as this union
+ * (not `string`) makes a resolver typo in `KIND_OBLIGATIONS` — or a name with no
+ * `GATE_RESOLVERS` entry — a COMPILE error instead of a runtime-only fault, so
+ * the table and the resolver registry cannot drift apart silently.
+ */
+export type GateResolverName =
+  | 'verification-ladder'
+  | 'plan-structure'
+  | 'review-contract'
+  | 'synthesis-readiness';
+
 export interface PhaseObligations {
-  readonly gates: { readonly resolver: string } | null;
+  readonly gates: { readonly resolver: GateResolverName } | null;
   readonly posture: 'read-only' | 'task-isolated' | 'shared-mutating';
 }
 
@@ -80,7 +92,7 @@ export interface ResolveGateSetCtx {
  * runtime path.
  */
 const GATE_RESOLVERS: Readonly<
-  Record<string, (ctx: ResolveGateSetCtx) => readonly GateName[]>
+  Record<GateResolverName, (ctx: ResolveGateSetCtx) => readonly GateName[]>
 > = Object.freeze({
   'verification-ladder': (ctx) =>
     resolveVerificationPolicy(ctx.riskTier, ctx.boundaryTouching, ctx.config).sequence,

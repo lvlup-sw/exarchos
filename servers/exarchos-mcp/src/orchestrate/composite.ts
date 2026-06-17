@@ -193,11 +193,12 @@ async function resolveWorkflowTypeForGate(
  * AND the IMPLEMENT-phase graduation mode (DR-6) to a failing advisory verdict
  * via {@link applyLadderGateSeverity}. The mode (`audit` | `enforce`) is
  * resolved from the SAME workflow type the severity uses
- * ({@link resolveImplementMode}) — a newly-covered phase (oneshot/debug/
- * refactor) is in `audit` and records its `gate.executed` finding without
- * blocking; `feature:delegate` is in `enforce`. When the dispatch context
- * carries no `projectConfig`, the result passes through unchanged (legacy /
- * no-config behavior). The threading is centralized here so all five gates pick
+ * ({@link resolveImplementMode}) — per the DR-6 mode table only `oneshot` is in
+ * `audit` (records its `gate.executed` finding without blocking); `feature`,
+ * `debug`, and `refactor` are in `enforce`. Without a `projectConfig` an
+ * `enforce` gate passes through unchanged (legacy / no-config severity
+ * passthrough), while an `audit` gate still downgrades — audit mode is
+ * config-INDEPENDENT. The threading is centralized here so all five gates pick
  * it up from one place.
  */
 function adaptLadderGate<T>(
@@ -236,9 +237,10 @@ function adaptLadderGate<T>(
     const workflowType = await resolveWorkflowTypeForGate(featureId, ctx.eventStore);
     // DR-6: the IMPLEMENT-phase graduation mode is resolved from the SAME
     // workflow type the severity uses, so mode and severity can never resolve
-    // against divergent workflow types in one dispatch (INV-2). A newly-covered
-    // phase resolves to `audit` (records the finding, never blocks); the handler
-    // already emitted its `gate.executed` finding above.
+    // against divergent workflow types in one dispatch (INV-2). Only `oneshot`
+    // resolves to `audit` (records the finding, never blocks); feature/debug/
+    // refactor are `enforce`. The handler already emitted its `gate.executed`
+    // finding above.
     const mode = resolveImplementMode(workflowType);
     return applyLadderGateSeverity(
       gateName,

@@ -65,8 +65,11 @@ describe('DR-6 implement-phase severity', () => {
       ONESHOT,
       'enforce',
     );
-    // Still an advisory carrier (never throws), but now annotated warning-only.
+    // Still an advisory carrier (never throws), now downgraded NON-blocking: the
+    // blocking signal is cleared (data.passed → true) and a warning carries the
+    // finding. data.passed is the exact field the orchestrator consumes.
     expect(result.success).toBe(true);
+    expect((result.data as { passed?: unknown }).passed).toBe(true);
     expect(result.warnings).toBeDefined();
     expect(result.warnings!.length).toBeGreaterThan(0);
   });
@@ -106,6 +109,9 @@ describe('DR-6 implement-phase severity', () => {
       // Audit mode never blocks: a warning carries the finding, and the result
       // is no longer a re-asserted blocking failure for the orchestrator.
       expect(result.success).toBe(true);
+      // The blocking signal must actually be cleared, not merely annotated —
+      // data.passed:false is what the orchestrator reads to block.
+      expect((result.data as { passed?: unknown }).passed).toBe(true);
       expect(result.warnings).toBeDefined();
       expect(result.warnings!.length).toBeGreaterThan(0);
     }
@@ -129,6 +135,9 @@ describe('DR-6 implement-phase severity', () => {
         'audit',
       );
       expect(result.success).toBe(true);
+      // The blocking signal must actually be cleared, not merely annotated —
+      // data.passed:false is what the orchestrator reads to block.
+      expect((result.data as { passed?: unknown }).passed).toBe(true);
       expect(result.warnings).toBeDefined();
       expect(result.warnings!.length).toBeGreaterThan(0);
     }
@@ -176,10 +185,13 @@ describe('DR-6 implement-phase severity', () => {
       'debug', // debug-implement, newly covered
       'enforce',
     );
-    // Override downgrades to advisory on both — identical resolved behavior.
+    // Override downgrades to advisory on both — identical resolved behavior:
+    // blocking signal cleared (data.passed → true) + warning attached.
     expect(feature.success).toBe(true);
+    expect((feature.data as { passed?: unknown }).passed).toBe(true);
     expect(feature.warnings!.length).toBeGreaterThan(0);
     expect(debug.success).toBe(true);
+    expect((debug.data as { passed?: unknown }).passed).toBe(true);
     expect(debug.warnings!.length).toBeGreaterThan(0);
   });
 });
