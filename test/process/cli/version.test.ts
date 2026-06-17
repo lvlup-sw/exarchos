@@ -55,3 +55,34 @@ describe('exarchos --version', () => {
     });
   });
 });
+
+describe('exarchos version (subcommand)', () => {
+  it('versionSubcommand_default_matchesPackageJsonVersion', async () => {
+    const expected = readPackageVersion();
+
+    await withHermeticEnv(async () => {
+      // The `version` subcommand (distinct from the `--version` flag) prints the
+      // same string sourced from package.json (cli.ts §"Top-level version
+      // command", bug #1216). The E2E preflight resolves the binary version via
+      // this surface, so it must stay in lockstep with the manifest.
+      const result = await runCli({ args: ['version'] });
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout.trim()).toBe(expected);
+    });
+  });
+
+  it('versionSubcommand_doesNotInitializeSqliteBackend', async () => {
+    // Regression guard for the E2E-preflight flake: `exarchos version` is
+    // stateless and must short-circuit before backend init, exactly like the
+    // `--version` flag. Previously only the flag was fast-pathed; the
+    // subcommand fell through to initializeBackend(), which under concurrent
+    // worker invocation races on WAL recovery (SQLITE_BUSY_RECOVERY) and exits
+    // 1 with empty stderr. index.ts:main() must return before any state-dir /
+    // `exarchos.db` creation for the plain subcommand form.
+    await withHermeticEnv(async ({ stateDir }) => {
+      const result = await runCli({ args: ['version'] });
+      expect(result.exitCode).toBe(0);
+      expect(existsSync(path.join(stateDir, 'exarchos.db'))).toBe(false);
+    });
+  });
+});

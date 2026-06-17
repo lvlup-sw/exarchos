@@ -1775,6 +1775,62 @@ const orchestrateActions: readonly ToolAction[] = [
     annotations: LOCAL_MUTATION,
   },
   {
+    name: 'mutation-adequacy',
+    description:
+      'Verification-ladder slice 3 (R5): the mutation-adequacy backstop for the ' +
+      'relaxed verification mix. Runs the resolved mutation command DIFF-SCOPED ' +
+      'against `base` (Stryker --since / cargo-mutants --in-diff / mutmut path ' +
+      'restriction, resolved from the toolchains SoT), parses the Stryker ' +
+      'mutation-testing-report-schema, and returns the fixed carrier ' +
+      '{passed, mutationScore, killed, survived, noCoverage, total, report}. ' +
+      'Surviving + NoCoverage mutants become next_actions ("write a test that ' +
+      'kills <file>:<line>"). ADVISORY by default (severity resolved via ' +
+      "DEFAULTS.review.gates['mutation-adequacy']; an explicit override can raise " +
+      'it to blocking). An unresolved mutation command → Skipped (reason names ' +
+      'remediation); a malformed/empty report → Warning (degrade, never throws). ' +
+      "scope:'full' returns a deferred-to-R10/v2.12 advisory (no inline full-tree " +
+      'run). Emits mutation.executing_started/executed (INV-10) and a foldable ' +
+      'gate.executed carrying mutationScore (INV-1); operationId makes the gate ' +
+      'emission idempotent (INV-8). Reuse `base` as a string verbatim.',
+    // `base` reuses the existing string field contract (request_synthesize.base /
+    // assess_stack.base); `scope`/`worktreePath`/`operationId`/`threshold` match
+    // their existing declarations' base types so buildRegistrationSchema never
+    // sees a same-name field with a divergent contract (field-collision trap).
+    // `scope` is a plain string here (matching prepare_review.scope) and is
+    // validated to 'diff'|'full' by the handler — declaring it as an enum would
+    // collide with prepare_review's z.string().
+    schema: z.object({
+      featureId: z.string().min(1),
+      base: z.string().min(1),
+      // `taskId` lets `repoRoot:'auto'` resolve via the task's worktree.created
+      // event (the check_test_adequacy contract). Optional here (the review-gate
+      // path often passes an explicit repoRoot/worktreePath); matches the
+      // existing `taskId: z.string().optional()` declarations so
+      // buildRegistrationSchema sees no divergent same-name contract.
+      taskId: z.string().optional(),
+      worktreePath: z.string().optional(),
+      operationId: z.string().optional(),
+      threshold: z.number().min(0).max(1).optional(),
+      scope: z.string().optional(),
+    }),
+    phases: REVIEW_PHASES,
+    roles: ROLE_LEAD,
+    // Advisory by default — the runtime severity demotion lives in
+    // DEFAULTS.review.gates['mutation-adequacy'] (resolved per-call via
+    // resolveGateSeverity); the registry flag mirrors that default.
+    gate: { blocking: false, dimension: 'mutation-adequacy' },
+    // Shells out to a real mutation runner; on a real repo this exceeds the 2s
+    // heartbeat threshold.
+    longRunning: true,
+    autoEmits: [
+      { event: 'mutation.executing_started', condition: 'always' },
+      { event: 'mutation.executed', condition: 'always' },
+      { event: 'gate.executed', condition: 'always' },
+    ],
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: LOCAL_MUTATION,
+  },
+  {
     name: 'check_post_merge',
     description: 'Post-merge regression check. Emits gate.executed event with dimension D4.',
     schema: z.object({

@@ -564,7 +564,9 @@ describe('TOOL_REGISTRY', () => {
       // INV-6-violating npm→dotnet string-rewrite is deleted — closes #1508).
       // The `init`/`install-skills` CLI verbs are rename stubs; the init action,
       // handler, and `init.executed` event were fully removed in DR-5 (task 018).
-      expect(composite!.actions).toHaveLength(71);
+      // The 72 baseline = 71 prior + `mutation-adequacy` (verification-ladder
+      // slice 3 R5 — the diff-scoped mutation backstop review-dimension action).
+      expect(composite!.actions).toHaveLength(72);
 
       const actionNames = composite!.actions.map((a) => a.name);
       expect(actionNames).toEqual(
@@ -645,6 +647,9 @@ describe('TOOL_REGISTRY', () => {
           // invariants-catalog-wizard P2: authoring verbs (ACTIONS, not a 5th tool).
           'invariants_scaffold',
           'invariants_add',
+          // verification-ladder slice 3 R5 (#1520): explicit name assertion so
+          // the length bump cannot be satisfied by a different action.
+          'mutation-adequacy',
         ]),
       );
     });

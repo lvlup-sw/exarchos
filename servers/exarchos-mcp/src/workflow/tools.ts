@@ -106,6 +106,25 @@ export function isEventSourced(state: Record<string, unknown>): boolean {
   return state._esVersion === CURRENT_ES_VERSION;
 }
 
+// ─── Workflow Risk Tier (review-gate path, R5) ──────────────────────────────
+
+/**
+ * Read a workflow-level risk tier off the (`.passthrough()`) workflow state,
+ * for the tier-aware `/review` required-reviews contract (review-contract.ts).
+ *
+ * The risk tier is task-classification data produced by `prepare_delegation`.
+ * It reaches the review-gate path only when a workflow-level tier is stamped on
+ * state under `riskTier`; absent that stamp this returns `undefined` and the
+ * contract falls back to the backward-compatible no-tier roster. Returns the
+ * raw string and lets `getRequiredReviews` validate it (an unrecognised value
+ * yields no tier-coupled dimensions), so a malformed stamp is inert rather than
+ * throwing or injecting a spurious dimension.
+ */
+function resolveWorkflowRiskTier(state: Record<string, unknown>): string | undefined {
+  const tier = state.riskTier;
+  return typeof tier === 'string' ? tier : undefined;
+}
+
 // ─── handleInit ─────────────────────────────────────────────────────────────
 
 /**
@@ -610,7 +629,23 @@ export async function handleSet(
         mutableState._requiredReviews = options.requiredReviews;
       } else {
         const workflowType = state.workflowType as string;
-        const typeDefaults = getRequiredReviews(workflowType);
+        // ─── Tier-aware required reviews (R5 / verification ladder slice 3) ──
+        // The high-tier `mutation-adequacy` adequacy backstop gates the
+        // `/review` boundary for HIGH-risk workflows only (review-contract.ts
+        // SoT — the dimension name is never literal here). The risk tier is
+        // task-classification data from prepare_delegation; it reaches the
+        // review-gate path only if a workflow-level tier is stamped on state.
+        // Read it from the POST-update copy (`mutableState`), not the pre-update
+        // `state`, so a tier set in THIS call's `updates` (e.g.
+        // `{ phase:'review', updates:{ riskTier:'high' } }`) is honored — the
+        // same "field updates applied first so phase guards see new state"
+        // contract enforced above. We read defensively (the state schema is
+        // `.passthrough()`), and fall back to the backward-compatible no-tier
+        // roster when absent — exactly the pre-slice-3 behaviour.
+        // `getRequiredReviews` ignores an unrecognised tier, so a malformed
+        // stamp can never inject a dimension.
+        const riskTier = resolveWorkflowRiskTier(mutableState);
+        const typeDefaults = getRequiredReviews(workflowType, riskTier);
         if (typeDefaults.length) {
           mutableState._requiredReviews = typeDefaults;
         }

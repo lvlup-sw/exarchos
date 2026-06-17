@@ -55,6 +55,24 @@ The tier→gate **sequence** is resolved by `workflow/verification-policy.ts` (t
 stamped on the delegation record — do not encode gate sequences in plan prose. A low-blast task
 can still be boundary-tagged: the axes are independent.
 
+### Tier → default `testingStrategy`
+
+The tier also selects the default verification **mix** (the `testingStrategy` fields), table-driven so
+the planner emits them per tier with no implementer guesswork. Medium/high default to the **cheap mix**:
+strict/branded types + inline invariants/assertions + one PBT on the pure core + one acceptance
+north-star test, with granular per-behavior red-green as an explicit opt-in. Low stays minimal.
+
+| `riskTier` | `propertyTests` | `testLayer` | `characterizationRequired` |
+|---|---|---|---|
+| `high` | `true` (one PBT on the pure core) | `acceptance` (one north-star test) | `true` when modifying existing code, else `false` |
+| `medium` | `true` (one PBT on the pure core) | `integration` | `true` when modifying existing code, else `false` |
+| `low` | `false` | `unit` | `false` |
+
+A category match in `testing-strategy-guide.md` (data transformations, serialization, …) raises a field
+**upward** from this floor; it never relaxes it. The cheap-mix relaxation is guarded by R5's
+mutation-adequacy gate (`/review` boundary) and R3's git-only `check_test_adequacy` kill-probe — see
+[testing-strategy-guide.md](./testing-strategy-guide.md) for the full rationale.
+
 ## Test Layer Selection
 
 Each task must declare its test layer. This determines the scope and style of testing:

@@ -221,4 +221,56 @@ describe('review-contract wiring through handleSet', () => {
 
     expect(result.success).toBe(true);
   });
+
+  // ─── Finding E (PR #1541): tier read from POST-update state ────────────────
+  // The tier-aware required-reviews injection (tools.ts) must read the
+  // post-update `mutableState`, not the pre-update `state`, so a riskTier
+  // stamped in the SAME transition's `updates` takes effect — mirroring the
+  // "field updates applied first so phase guards see new state" contract.
+
+  it('HandleSet_HighTierStampedInSameTransition_RequiresMutationAdequacy', async () => {
+    // Seed review with the base dimensions passing but WITHOUT mutation-adequacy.
+    await seedFeatureAtReview('contract-wiring-hightier-samecall', {
+      'spec-review': { status: 'pass' },
+      'quality-review': { status: 'pass' },
+    });
+
+    // Stamp riskTier:'high' in the SAME review→synthesize call. With the fix,
+    // the high-tier dimension (mutation-adequacy) is injected as required, and
+    // the guard REJECTS because the reviews map lacks it. Reading pre-update
+    // state would leave the tier invisible and wrongly let the transition pass.
+    const result = await handleSet(
+      {
+        featureId: 'contract-wiring-hightier-samecall',
+        phase: 'synthesize',
+        updates: { riskTier: 'high' },
+      },
+      tmpDir, null,
+    );
+
+    expect(result.success).toBe(false);
+    // Anchor the expectation to the contract: 'high' appends mutation-adequacy.
+    expect(getRequiredReviews('feature', 'high')).toContain('mutation-adequacy');
+  });
+
+  it('HandleSet_HighTierWithMutationAdequacyPassing_AdvancesPastGuard', async () => {
+    // Complement: the high-tier dimension present + passing lets the same-call
+    // stamp advance past the guard.
+    await seedFeatureAtReview('contract-wiring-hightier-pass', {
+      'spec-review': { status: 'pass' },
+      'quality-review': { status: 'pass' },
+      'mutation-adequacy': { status: 'pass' },
+    });
+
+    const result = await handleSet(
+      {
+        featureId: 'contract-wiring-hightier-pass',
+        phase: 'synthesize',
+        updates: { riskTier: 'high' },
+      },
+      tmpDir, null,
+    );
+
+    expect(result.success).toBe(true);
+  });
 });

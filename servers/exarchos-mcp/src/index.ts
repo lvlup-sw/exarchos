@@ -322,6 +322,23 @@ async function main() {
     return;
   }
 
+  // Same stateless guarantee, but for the `version` *subcommand* (distinct from
+  // the `--version` flag above; see `adapters/cli.ts` "Top-level version
+  // command"). Plain `exarchos version` prints the identical string yet — until
+  // this branch — fell through to `initializeBackend()` and opened the SQLite
+  // event store. Under concurrent invocation against a shared/contended state
+  // dir (the E2E preflight spawns `exarchos version` from every vitest worker)
+  // that races on WAL recovery and surfaces SQLITE_BUSY_RECOVERY, which the
+  // fatal handler reports via the async logger + immediate `process.exit(1)` —
+  // i.e. exit 1 with empty stderr. Short-circuit the plain form here with the
+  // same output and no backend work. The `version --check-plugin-root <path>`
+  // diagnostic carries a trailing arg, so it still routes through Commander
+  // below where its compat-check action lives.
+  if (versionArg === 'version' && process.argv[3] === undefined) {
+    process.stdout.write(`${resolvePackageVersion()}\n`);
+    return;
+  }
+
   // ─── run-tests Fast Path ─────────────────────────────────────────────────
   // `exarchos run-tests` is invoked by the agents' post-test PostToolUse hook
   // (#1470/#1483 F1). It resolves the consumer's test command at runtime and

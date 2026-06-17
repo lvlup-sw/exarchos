@@ -365,3 +365,90 @@ const TOOLCHAIN_TEST_GLOBS: Readonly<Record<string, readonly string[]>> = {
 export function testGlobsForToolchain(toolchainId: string): readonly string[] | null {
   return TOOLCHAIN_TEST_GLOBS[toolchainId] ?? null;
 }
+
+// ─── Mutation diff-scope augmentation (R5 / #1520, design §4.2) ──────────────
+//
+// How to scope a resolved mutation command to a diff base, keyed by toolchain
+// id. This is per-toolchain command KNOWLEDGE, so it belongs in this SoT module
+// alongside the runner commands themselves — consumers (the mutation-adequacy
+// action) stay runner-agnostic and never re-declare a `--since`/`--in-diff`
+// table. The resolver returns a tagged DESCRIPTOR; the handler applies it to the
+// resolved command without knowing one runner's flag from another's.
+//
+// Why a descriptor and not a rewritten string: diff-scoping splits into shapes
+// that compose differently against the command —
+//   - append a flag (Stryker `--since`, PIT `-DtargetClasses`),
+//   - do nothing because the runner is already diff-native (cargo-mutants
+//     `--in-diff` — appending a second scope would double-scope),
+//   - restrict the run to the changed paths (mutmut, which has no diff flag),
+//   - or none of the above → run unscoped WITH a warning so the `< minutes`
+//     acceptance is never silently violated (never silently full-tree).
+
+/**
+ * A resolved diff-scope augmentation for one toolchain's mutation runner.
+ *
+ * - `append-flag`     — append `flag` to the resolved command (`--since=<base>`,
+ *                       `-DtargetClasses=...`). `tokenized` is false when the
+ *                       value rides the flag (`--since=<base>`) and true when it
+ *                       is a separate argv token (`--since <base>`), so the
+ *                       applier can shell-quote correctly.
+ * - `already-native`  — the runner already diff-scopes itself (cargo-mutants
+ *                       `--in-diff`); the applier appends nothing.
+ * - `path-restricted` — restrict the run to the diff's changed paths (mutmut);
+ *                       the applier maps `base` → changed paths.
+ * - `unscoped-warning`— no known augmentation; run unscoped and surface
+ *                       `warning` (the Task-seam note), never silently full.
+ */
+export type MutationDiffScope =
+  | { readonly kind: 'append-flag'; readonly flag: string; readonly tokenized: boolean; readonly warning?: undefined }
+  | { readonly kind: 'already-native'; readonly warning?: undefined }
+  | { readonly kind: 'path-restricted'; readonly warning?: undefined }
+  | { readonly kind: 'unscoped-warning'; readonly warning: string };
+
+/**
+ * Strategy for scoping a toolchain's mutation runner to a diff. Keyed by
+ * toolchain id (the same ids as {@link BUILTIN_TOOLCHAINS}). A `base`-templated
+ * builder so the value-placement nuance (`--since=<base>` vs `--since <base>`)
+ * lives next to the runner knowledge, not in the consumer. A toolchain absent
+ * from this table — or present in the registry with `mutation: null` (no runner
+ * to scope) — resolves to the unscoped-warning arm.
+ */
+const MUTATION_DIFF_SCOPE: Readonly<Record<string, (base: string) => MutationDiffScope>> = {
+  // Stryker (JS): value rides the flag.
+  node: (base) => ({ kind: 'append-flag', flag: `--since=${base}`, tokenized: false }),
+  // Stryker (.NET): value is a separate token.
+  dotnet: (base) => ({ kind: 'append-flag', flag: `--since ${base}`, tokenized: true }),
+  // cargo-mutants is already `--in-diff` — do not double-scope.
+  rust: () => ({ kind: 'already-native' }),
+  // mutmut has no diff flag; restrict the run to the changed paths.
+  python: () => ({ kind: 'path-restricted' }),
+  // PIT scopes via -DtargetClasses=<changed>; same strategy for both Java build
+  // tools (the changed-class glob is computed by the applier from `base`).
+  'java-maven': () => ({ kind: 'append-flag', flag: '-DtargetClasses=<changed>', tokenized: false }),
+  'java-gradle': () => ({ kind: 'append-flag', flag: '-DtargetClasses=<changed>', tokenized: false }),
+};
+
+/** True when the built-in registry declares a mutation runner for this id. */
+function hasMutationRunner(toolchainId: string): boolean {
+  const tc = BUILTIN_TOOLCHAINS.find((t) => t.id === toolchainId);
+  return tc !== undefined && tc.commands.mutation !== null;
+}
+
+/**
+ * Resolve how to scope a toolchain's mutation runner to the diff `base`.
+ *
+ * Returns a tagged {@link MutationDiffScope}. Unknown ids — and known ids whose
+ * registry entry has no mutation runner (go/swift/cmake) — return the
+ * `unscoped-warning` arm: there is nothing to scope, so we never pretend a
+ * scope and never silently run full-tree.
+ */
+export function resolveMutationDiffScope(toolchainId: string, base: string): MutationDiffScope {
+  const build = MUTATION_DIFF_SCOPE[toolchainId];
+  if (build) {
+    return build(base);
+  }
+  const reason = hasMutationRunner(toolchainId)
+    ? `no diff-scope augmentation is known for toolchain '${toolchainId}'; its mutation run is unscoped (full-tree) — consider deferring to a nightly/full run (R10/v2.12)`
+    : `toolchain '${toolchainId}' has no resolved mutation runner to diff-scope; the mutation run is unscoped`;
+  return { kind: 'unscoped-warning', warning: reason };
+}

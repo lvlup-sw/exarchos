@@ -168,7 +168,7 @@ Evaluate agent-generated tests against Kent Beck's Test Desiderata. Four propert
 
 Include Test Desiderata findings in the quality review report under a "Test Quality" section. **Output format:** Report Test Desiderata violations as entries in the `issues` array with `category: "test-quality"`.
 
-> **Forthcoming — mutation-adequacy (R5, #1520):** A dedicated `mutation-adequacy` review dimension will join the review contract in a later slice, scoring whether the test suite actually kills injected mutants (the strongest signal that tests can fail for the right reason). Until that dimension lands, surviving-mutant analysis is **out of scope** for this skill — do not run or score mutation testing here. Today the closest proxy is the **Specific** Test Desiderata property above plus the `check_test_adequacy` gate at delegation time; full mutation scoring is deferred to R5.
+> **See also — mutation-adequacy (R5, #1520):** The dedicated `mutation-adequacy` review dimension scores whether the test suite actually kills injected mutants (the strongest signal that tests can fail for the right reason). It is a **separate required dimension** that gates the **HIGH risk tier only** at the `/review` boundary — see `@skills/mutation-adequacy/SKILL.md`. Do **not** run or score mutation testing in *this* skill; surviving-mutant analysis belongs to the `mutation-adequacy` dimension, whose action emits "write a test that kills `<file>:<line>`" follow-ups. Here, the closest in-scope proxy is the **Specific** Test Desiderata property above; medium/low-tier reviews (which do not require `mutation-adequacy`) rely on it plus the delegation-time `check_test_adequacy` gate.
 
 ### Step 3: Generate Report
 

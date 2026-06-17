@@ -122,6 +122,15 @@ export const DEFAULTS: ResolvedProjectConfig = deepFreeze({
       // call (acknowledged via the `reason` escape hatch). A project can re-block
       // it with an explicit `review.gates['mock-boundary']` override.
       'mock-boundary': { enabled: true, blocking: false, params: {} },
+      // Verification-ladder slice 3, R5 (#1520): the mutation-adequacy review
+      // dimension is ADVISORY by default. A sub-threshold mutation score
+      // surfaces survivor "kill this mutant" next_actions but does not block a
+      // merge — a sub-100% score is expected (equivalent mutants, research §6
+      // Q2). The soft default threshold lives in `params.threshold` (~0.40) so
+      // it can be calibrated from the INV-1 score trend without a code change.
+      // A project re-blocks with an explicit `review.gates['mutation-adequacy']`
+      // override (blocking: true).
+      'mutation-adequacy': { enabled: true, blocking: false, params: { threshold: 0.4 } },
     },
     routing: {
       coderabbitThreshold: 0.4,
