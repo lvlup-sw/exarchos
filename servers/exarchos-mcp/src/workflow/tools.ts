@@ -635,11 +635,16 @@ export async function handleSet(
         // SoT — the dimension name is never literal here). The risk tier is
         // task-classification data from prepare_delegation; it reaches the
         // review-gate path only if a workflow-level tier is stamped on state.
-        // We read it defensively (the state schema is `.passthrough()`), and
-        // fall back to the backward-compatible no-tier roster when absent —
-        // exactly the pre-slice-3 behaviour. `getRequiredReviews` ignores an
-        // unrecognised tier, so a malformed stamp can never inject a dimension.
-        const riskTier = resolveWorkflowRiskTier(state);
+        // Read it from the POST-update copy (`mutableState`), not the pre-update
+        // `state`, so a tier set in THIS call's `updates` (e.g.
+        // `{ phase:'review', updates:{ riskTier:'high' } }`) is honored — the
+        // same "field updates applied first so phase guards see new state"
+        // contract enforced above. We read defensively (the state schema is
+        // `.passthrough()`), and fall back to the backward-compatible no-tier
+        // roster when absent — exactly the pre-slice-3 behaviour.
+        // `getRequiredReviews` ignores an unrecognised tier, so a malformed
+        // stamp can never inject a dimension.
+        const riskTier = resolveWorkflowRiskTier(mutableState);
         const typeDefaults = getRequiredReviews(workflowType, riskTier);
         if (typeDefaults.length) {
           mutableState._requiredReviews = typeDefaults;

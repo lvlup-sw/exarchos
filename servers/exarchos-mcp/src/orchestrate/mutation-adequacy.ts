@@ -284,14 +284,43 @@ function composeScopedCommand(
 ): { readonly command: string; readonly warning?: string } {
   switch (scope.kind) {
     case 'append-flag':
+      // A descriptor whose flag still carries an unresolved `<changed>` token
+      // (Java PIT `-DtargetClasses=<changed>`) cannot be applied yet: computing
+      // the changed-class glob from `base` is the deferred applier work
+      // (R10/v2.12). Appending the literal placeholder would ship a broken
+      // command scoping to a class literally named `<changed>`, so we degrade to
+      // the unscoped-warning contract instead — never silently broken, never
+      // silently full-tree.
+      if (scope.flag.includes('<changed>')) {
+        return {
+          command,
+          warning:
+            `mutation diff-scope for this toolchain needs changed-class ` +
+            `computation (flag '${scope.flag}' still carries an unresolved ` +
+            `<changed> placeholder), which is deferred to R10/v2.12; the ` +
+            `mutation run is unscoped (full-tree) for now`,
+        };
+      }
       // `tokenized` only affects shell-quoting, which the runner owns; here we
       // append the flag string verbatim (it already carries its own spacing).
       return { command: `${command} ${scope.flag}` };
     case 'already-native':
-    case 'path-restricted':
-      // The runner already scopes itself (cargo-mutants `--in-diff`) or the
-      // applier restricts paths (mutmut) — append nothing to the command.
+      // The runner already diff-scopes itself (cargo-mutants `--in-diff`);
+      // appending a second scope would double-scope. Append nothing.
       return { command };
+    case 'path-restricted':
+      // The path-restriction applier (mutmut: map `base` → changed paths) is
+      // the deferred applier work (R10/v2.12). Running the command unchanged
+      // would mutate the WHOLE tree while the descriptor claims it is scoped —
+      // a silent downgrade. Degrade to the unscoped-warning contract so the
+      // downgrade is always visible.
+      return {
+        command,
+        warning:
+          `path-restricted mutation diff-scope (mutmut changed-path ` +
+          `restriction) is not yet applied for this toolchain; it is deferred ` +
+          `to R10/v2.12. The mutation run is unscoped (full-tree) for now`,
+      };
     case 'unscoped-warning':
       return { command, warning: scope.warning };
   }
@@ -359,7 +388,25 @@ export async function handleMutationAdequacy(
     return { success: false, error: { code: 'INVALID_INPUT', message: 'base is required' } };
   }
 
-  const scope = args.scope === 'full' ? 'full' : 'diff';
+  // Validate `scope` at the handler boundary (the registration declares it as a
+  // plain string to dodge the field-collision trap). Default to 'diff' ONLY when
+  // omitted; a provided-but-unrecognised value (e.g. the typo 'dif') is an
+  // INVALID_INPUT rather than a silent coercion to 'diff' that would change
+  // behaviour without telling the caller (INV-5a / INV-5b).
+  let scope: 'diff' | 'full';
+  if (args.scope === undefined) {
+    scope = 'diff';
+  } else if (args.scope === 'diff' || args.scope === 'full') {
+    scope = args.scope;
+  } else {
+    return {
+      success: false,
+      error: {
+        code: 'INVALID_INPUT',
+        message: `scope must be 'diff' or 'full' when provided (got '${args.scope}')`,
+      },
+    };
+  }
 
   // ── §4.5 — `full` scope is the canonical long-running op; deferred to
   // R10/v2.12 lifecycle verbs. Never an inline full-tree run (it would defeat

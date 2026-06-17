@@ -259,6 +259,105 @@ describe('mutation-adequacy action (dispatch-through handleOrchestrate)', () => 
 });
 
 
+// ─── Diff-scope applier degradation + scope validation (PR #1541 review) ─────
+//
+// The diff-scope DESCRIPTOR encodes intent (toolchains SoT); the applier
+// (composeScopedCommand) materializes it. For toolchains whose applier work is
+// deferred (Java PIT changed-class glob, mutmut changed-path restriction) the
+// applier must NOT ship a broken/literal-placeholder command nor silently run
+// full-tree — it degrades to the unscoped-warning contract. These dispatch
+// through handleOrchestrate with an injected `detectToolchainId` seam.
+
+/** Dispatch the action for a specific detected toolchain, capturing runs. */
+async function dispatchForToolchain(
+  toolchainId: string,
+  opts: { scope?: string; recordRuns?: string[] } = {},
+): Promise<{ success: boolean; data: MutationData; warnings?: string[]; error?: { code?: string } }> {
+  const { stateDir, eventStore } = await newStore();
+  const ctx = makeCtx(stateDir, eventStore);
+  const result = await handleOrchestrate(
+    {
+      action: 'mutation-adequacy',
+      featureId: 'feat-mutadq',
+      base: 'main',
+      ...(opts.scope !== undefined ? { scope: opts.scope } : {}),
+      resolve: () => runtimeWith('mutate run'),
+      detectToolchainId: () => toolchainId,
+      runMutation: (runArgs: { command: string }) => {
+        opts.recordRuns?.push(runArgs.command);
+        return { ok: true as const, report: strykerReport([{ status: 'Killed' }]) };
+      },
+    },
+    ctx,
+  );
+  return result as { success: boolean; data: MutationData; warnings?: string[]; error?: { code?: string } };
+}
+
+describe('mutation-adequacy diff-scope applier degradation', () => {
+  it('MutationAdequacy_JavaScope_DegradesToWarning_NeverShipsLiteralPlaceholder', async () => {
+    const recordRuns: string[] = [];
+    const { success, warnings } = await dispatchForToolchain('java-maven', { recordRuns });
+
+    expect(success).toBe(true);
+    // The literal `<changed>` placeholder must NEVER reach the runner.
+    expect(recordRuns).toHaveLength(1);
+    expect(recordRuns[0]).not.toContain('<changed>');
+    expect(recordRuns[0]).not.toContain('-DtargetClasses');
+    expect(recordRuns[0]).toBe('mutate run');
+    // The scope downgrade is surfaced, never silent.
+    const surfaced = (warnings ?? []).join(' ');
+    expect(surfaced).toMatch(/<changed>|unscoped|full-tree/i);
+  });
+
+  it('MutationAdequacy_PythonPathRestricted_DegradesToWarning_NeverSilentFullTree', async () => {
+    const recordRuns: string[] = [];
+    const { success, warnings } = await dispatchForToolchain('python', { recordRuns });
+
+    expect(success).toBe(true);
+    // path-restricted is not yet applied — run the plain command but WARN.
+    expect(recordRuns).toHaveLength(1);
+    expect(recordRuns[0]).toBe('mutate run');
+    const surfaced = (warnings ?? []).join(' ');
+    expect(surfaced).toMatch(/path-restricted|unscoped|full-tree/i);
+  });
+
+  it('MutationAdequacy_RustNativeScope_AppendsNothing_NoWarning', async () => {
+    // Control: cargo-mutants is already --in-diff; the applier appends nothing
+    // and surfaces no scope-downgrade warning.
+    const recordRuns: string[] = [];
+    const { success, warnings } = await dispatchForToolchain('rust', { recordRuns });
+
+    expect(success).toBe(true);
+    expect(recordRuns).toEqual(['mutate run']);
+    const surfaced = (warnings ?? []).join(' ');
+    expect(surfaced).not.toMatch(/unscoped|full-tree|path-restricted/i);
+  });
+});
+
+describe('mutation-adequacy scope validation (INV-5a/5b)', () => {
+  it('MutationAdequacy_InvalidScope_ReturnsInvalidInput_NeverRuns', async () => {
+    const recordRuns: string[] = [];
+    const { success, error } = await dispatchForToolchain('node', {
+      scope: 'dif', // a typo — must NOT be coerced to 'diff'
+      recordRuns,
+    });
+
+    expect(success).toBe(false);
+    expect(error?.code).toBe('INVALID_INPUT');
+    // Rejected before any runner work.
+    expect(recordRuns).toHaveLength(0);
+  });
+
+  it('MutationAdequacy_ExplicitDiffScope_RunsScoped', async () => {
+    const recordRuns: string[] = [];
+    const { success } = await dispatchForToolchain('node', { scope: 'diff', recordRuns });
+    expect(success).toBe(true);
+    expect(recordRuns).toHaveLength(1);
+    expect(recordRuns[0]).toContain('--since=main');
+  });
+});
+
+
 // ─── Task 004: liveness + gate.executed ──────────────────────────────────────
 
 describe('mutation-adequacy liveness + gate emission', () => {
