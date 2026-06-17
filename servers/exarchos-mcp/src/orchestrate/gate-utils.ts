@@ -312,19 +312,22 @@ export async function withConfigSeverity(
  * Ladder gates (INV-5b) never return `success:false` for a gate-failure verdict
  * — a failing gate is `{ success: true, data: { passed: false } }`, so
  * {@link withConfigSeverity}'s `success:false`-only conversion does not apply.
- * This helper resolves the gate's effective severity via
- * {@link resolveGateSeverity} (threading `workflowType`) and downgrades a
- * failing advisory verdict (`data.passed === false`) to a warning when EITHER:
- *   - the resolved severity is `'warning'`; OR
+ * This helper downgrades a failing advisory verdict (`data.passed === false`)
+ * to a warning when EITHER:
  *   - the binding's graduation `mode` is `'audit'` (DR-6) — an audit-mode gate
  *     RECORDS its finding (the handler already emitted `gate.executed`) but is
- *     never consulted as a transition blocker, regardless of severity.
+ *     never consulted as a transition blocker, regardless of severity OR config.
+ *     Audit mode is resolved from the workflow type (config-INDEPENDENT), so this
+ *     downgrade applies even on the no-config path; OR
+ *   - a config is present and the resolved severity (via {@link resolveGateSeverity},
+ *     threading `workflowType`) is `'warning'`.
  *
  * In every other case the result is returned UNCHANGED:
  *   - `mode === 'enforce'` (or omitted) AND `severity !== 'warning'` (e.g.
  *     blocking for a feature workflow) → unchanged, so the orchestrator still
  *     reads `data.passed:false` and blocks;
- *   - `config` absent → unchanged (legacy / no-config callers);
+ *   - `mode !== 'audit'` AND `config` absent → unchanged (legacy / no-config
+ *     severity passthrough — severity reads `config.review.gates.*`);
  *   - a passing verdict → unchanged;
  *   - a real error envelope (`success:false`) → unchanged (an INVALID_INPUT /
  *     MISWIRED_CONTEXT must never be downgraded to a warning).
@@ -340,28 +343,43 @@ export function applyLadderGateSeverity(
   workflowType?: string,
   mode: ImplementMode = 'enforce',
 ): ToolResult {
-  // No config, or a real error envelope, or a non-advisory shape — leave as-is.
-  if (!config || !result.success) return result;
+  // A real error envelope (success:false) or a non-advisory shape — leave as-is.
+  // An INVALID_INPUT / MISWIRED_CONTEXT must never be softened to a warning.
+  if (!result.success) return result;
 
   const data = result.data as { passed?: unknown } | undefined;
   // Only an explicit failing verdict is a candidate for downgrade. A passing or
   // shape-less advisory carrier is returned verbatim.
   if (!data || data.passed !== false) return result;
 
-  // Audit mode downgrades regardless of severity; otherwise the per-workflow
-  // severity must resolve to warning. A real error envelope was already excluded
-  // above, so audit mode only ever softens a genuine gate-failure verdict.
-  const severity = resolveGateSeverity(gateName, dimension, config, workflowType);
-  if (mode !== 'audit' && severity !== 'warning') return result;
+  // Audit mode is resolved from the workflow type (IMPLEMENT_PHASE_MODE) — it is
+  // CONFIG-INDEPENDENT, so it downgrades a failing verdict whether or not a
+  // project config is present. The handler already emitted its `gate.executed`
+  // finding; audit mode only stops that failure from re-asserting a blocking
+  // verdict. This MUST precede the `!config` guard below (DR-6 fix): severity
+  // reads `config`, but mode does not.
+  if (mode === 'audit') {
+    return {
+      ...result,
+      warnings: [
+        ...(result.warnings ?? []),
+        `Gate '${gateName}' failed but the implement phase is in audit mode (finding recorded, non-blocking)`,
+      ],
+    };
+  }
 
-  const reason =
-    mode === 'audit'
-      ? `Gate '${gateName}' failed but the implement phase is in audit mode (finding recorded, non-blocking)`
-      : `Gate '${gateName}' failed but is configured as warning-only`;
+  // Severity-based downgrade reads `config.review.gates.*`, so it requires a
+  // resolved config; absent one, this is the legacy / no-config passthrough.
+  if (!config) return result;
+  const severity = resolveGateSeverity(gateName, dimension, config, workflowType);
+  if (severity !== 'warning') return result;
 
   return {
     ...result,
-    warnings: [...(result.warnings ?? []), reason],
+    warnings: [
+      ...(result.warnings ?? []),
+      `Gate '${gateName}' failed but is configured as warning-only`,
+    ],
   };
 }
 

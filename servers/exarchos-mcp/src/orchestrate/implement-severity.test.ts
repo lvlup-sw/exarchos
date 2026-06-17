@@ -111,6 +111,46 @@ describe('DR-6 implement-phase severity', () => {
     }
   });
 
+  it('ImplementMode_AuditMode_NoConfig_StillDoesNotBlock', () => {
+    // DR-6 fix: audit mode is resolved from the workflow type
+    // (IMPLEMENT_PHASE_MODE) — config-INDEPENDENT — so a failing ladder gate is
+    // downgraded to advisory even when NO project config is resolved (the
+    // optional `DispatchContext.projectConfig` / legacy path). Before the fix the
+    // `!config` early-return made audit mode silently inert here, letting a
+    // newly-covered implement phase surface a blocking verdict in a no-config
+    // project.
+    for (const workflowType of [ONESHOT, 'debug'] as const) {
+      const result = applyLadderGateSeverity(
+        LADDER_GATE,
+        'D2',
+        undefined, // no resolved project config
+        failingVerdict(),
+        workflowType,
+        'audit',
+      );
+      expect(result.success).toBe(true);
+      expect(result.warnings).toBeDefined();
+      expect(result.warnings!.length).toBeGreaterThan(0);
+    }
+  });
+
+  it('ImplementSeverity_NoConfig_EnforceStillBlocks', () => {
+    // Contrast that bounds the fix: severity-based downgrade reads
+    // `config.review.gates.*`, so without a config an `enforce` binding cannot
+    // downgrade — the verdict still blocks (legacy / no-config severity
+    // passthrough). Only audit mode, being config-independent, escapes it.
+    const result = applyLadderGateSeverity(
+      LADDER_GATE,
+      'D2',
+      undefined,
+      failingVerdict(),
+      ONESHOT,
+      'enforce',
+    );
+    expect((result.data as { passed?: unknown }).passed).toBe(false);
+    expect(result.warnings ?? []).toHaveLength(0);
+  });
+
   it('ImplementOverride_ReviewGatesConfig_AppliesToImplementPhases', () => {
     // A `.exarchos.yml review.gates.<gate>` override changes the resolved
     // behavior for IMPLEMENT phases identically to `feature:delegate`. Pin the
