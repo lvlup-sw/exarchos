@@ -129,10 +129,12 @@ describe('check_test_adequacy routing + idempotency (task 014)', () => {
   });
 
   it('HandleOrchestrate_OneshotTestAdequacyFailure_ResolvesAdvisory', async () => {
-    // Task 005: an oneshot workflow's FAILING ladder gate (advisory carrier:
-    // success:true, data.passed:false) resolves to warning severity — the
-    // dispatch surfaces the failure as a NON-blocking advisory (success:true
-    // with a warning), threading the ACTUAL workflowType from workflow state.
+    // An oneshot workflow's FAILING ladder gate (advisory carrier: success:true,
+    // data.passed:false) resolves to a NON-blocking advisory (success:true with a
+    // warning), threading the ACTUAL workflowType from workflow state. Since DR-6
+    // oneshot:implementing is in audit mode, so the non-blocking reason is now
+    // attributed to audit mode rather than warning-severity; the invariant under
+    // test is the non-blocking advisory outcome, asserted by gate-name + success.
     const ctx = await makeCtx();
 
     // Seed an oneshot workflow into the event store so the dispatch resolver
@@ -163,9 +165,13 @@ describe('check_test_adequacy routing + idempotency (task 014)', () => {
     );
 
     // Advisory resolution: NOT blocked — surfaced as success-with-warning.
+    // Assert the robust invariant (gate-failure surfaced, non-blocking) rather
+    // than the exact downgrade-reason phrasing, which is severity/mode-dependent.
     expect(result.success).toBe(true);
     expect(result.warnings).toEqual(
-      expect.arrayContaining([expect.stringContaining('warning-only')]),
+      expect.arrayContaining([
+        expect.stringContaining("Gate 'check_test_adequacy' failed"),
+      ]),
     );
   });
 
