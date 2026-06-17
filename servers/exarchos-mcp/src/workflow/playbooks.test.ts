@@ -818,3 +818,49 @@ describe('PlaybookDelegatePhase_GateGuidance_SourcedFromVerificationPolicy', () 
     expect(playbook.compactGuidance).toContain(contractDrift!);
   });
 });
+
+// ─── Task 005: implement-phase mandatory-TDD prose removed (DR-5) ────────────
+
+describe('Task 005: implement-phase mandatory-TDD prose removed (DR-5)', () => {
+  // The four work-implement phases an agent actually occupies while implementing.
+  // (delegate / overhaul-delegate are dispatch phases — their check_tdd_compliance
+  // gate-running guidance is orchestrator-facing and intentionally retained.)
+  const IMPLEMENT_WORK_PHASES = [
+    { wf: 'debug', phase: 'debug-implement', transition: 'debug-validate', escalation: true },
+    { wf: 'debug', phase: 'hotfix-implement', transition: 'hotfix-validate', escalation: true },
+    { wf: 'refactor', phase: 'polish-implement', transition: 'polish-validate', escalation: true },
+    { wf: 'oneshot', phase: 'implementing', transition: 'synthesize', escalation: false },
+  ] as const;
+
+  // The verification obligation now flows from the kind resolver (Task 004),
+  // not from hardcoded test-first prose baked into the playbook string.
+  const MANDATORY_TDD_PROSE =
+    /write failing test first|fixing without a failing test|TDD rules remain mandatory|Follow TDD/i;
+
+  it('Playbooks_ImplementPhases_NoMandatoryTddProse', () => {
+    for (const { wf, phase } of IMPLEMENT_WORK_PHASES) {
+      const playbook = getPlaybook(wf, phase);
+      expect(playbook, `${wf}:${phase} playbook should exist`).not.toBeNull();
+      expect(
+        MANDATORY_TDD_PROSE.test(playbook!.compactGuidance),
+        `${wf}:${phase} still carries hardcoded mandatory-TDD prose`,
+      ).toBe(false);
+    }
+  });
+
+  it('Playbooks_ImplementPhases_RetainTransitionAndEscalation', () => {
+    for (const { wf, phase, transition, escalation } of IMPLEMENT_WORK_PHASES) {
+      const playbook = getPlaybook(wf, phase)!;
+      expect(
+        playbook.transitionCriteria,
+        `${wf}:${phase} should retain its transition target`,
+      ).toContain(transition);
+      if (escalation) {
+        expect(
+          playbook.compactGuidance,
+          `${wf}:${phase} should retain its escalation rule`,
+        ).toMatch(/Escalate/i);
+      }
+    }
+  });
+});

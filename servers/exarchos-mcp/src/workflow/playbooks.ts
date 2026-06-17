@@ -725,7 +725,7 @@ register({
   validationScripts: [],
   humanCheckpoint: false,
   compactGuidance:
-    'You are implementing the fix based on the design. Use exarchos_workflow update to record implementation progress. Follow TDD — write failing test first, then implement fix. Transition to debug-validate when implementation is complete. Key decision: test-first verification — the failing test must reproduce the exact bug before writing the fix. Anti-pattern: fixing without a failing test that reproduces the bug. Escalate: implementation touches >5 files, consider splitting.',
+    'You are implementing the fix based on the design. Use exarchos_workflow update to record implementation progress. Verification is risk-proportional — apply the gate ladder resolved for this phase (by task risk tier and boundary), reproducing the bug at a depth that matches its blast radius. Transition to debug-validate when implementation is complete. Key decision: match verification depth to the blast radius of the bug. Anti-pattern: shipping a fix without a regression check proportionate to its risk. Escalate: implementation touches >5 files, consider splitting.',
 });
 
 register({
@@ -788,7 +788,7 @@ register({
   validationScripts: [],
   humanCheckpoint: false,
   compactGuidance:
-    'You are implementing a hotfix. Use exarchos_workflow update to record implementation progress. This is the fast-track — apply minimal targeted fix within a 15-minute time budget. Transition to hotfix-validate when implementation is complete. Key decision: stay minimal and targeted within the time budget. Anti-pattern: hotfix growing into a full fix — if scope expands, switch to thorough track via rca. Escalate: time limit exceeded without a working fix.',
+    'You are implementing a hotfix. Use exarchos_workflow update to record implementation progress. This is the fast-track — apply minimal targeted fix within a 15-minute time budget. Verification is risk-proportional: apply the resolved gate ladder for this phase, kept minimal to fit the time budget. Transition to hotfix-validate when implementation is complete. Key decision: stay minimal and targeted within the time budget. Anti-pattern: hotfix growing into a full fix — if scope expands, switch to thorough track via rca. Escalate: time limit exceeded without a working fix.',
 });
 
 register({
@@ -952,7 +952,7 @@ register({
   validationScripts: [],
   humanCheckpoint: false,
   compactGuidance:
-    'You are implementing polish-track refactoring changes directly. Use exarchos_workflow update to record progress. Follow TDD if changing behavior. Stay within brief scope. Transition to polish-validate when implementation is complete. Key decision: stay strictly within the brief scope for each change. Anti-pattern: scope creep beyond the brief — resist adding improvements not in the brief. Escalate: changes cascade beyond the declared scope, consider switching to overhaul track.',
+    'You are implementing polish-track refactoring changes directly. Use exarchos_workflow update to record progress. Verification is risk-proportional — apply the gate ladder resolved for this phase to any behavior change, sized to the risk of the change. Stay within brief scope. Transition to polish-validate when implementation is complete. Key decision: stay strictly within the brief scope for each change. Anti-pattern: scope creep beyond the brief — resist adding improvements not in the brief. Escalate: changes cascade beyond the declared scope, consider switching to overhaul track.',
 });
 
 register({
@@ -1285,7 +1285,7 @@ export const oneshotPlaybook: readonly PhasePlaybook[] = [
     validationScripts: [],
     humanCheckpoint: false,
     compactGuidance:
-      'In-session TDD implementation for a oneshot workflow. Write failing test first, then implement, then refactor — TDD rules remain mandatory. After tests pass, the main agent resolves the choice state using pure guards over (synthesisPolicy, synthesize.requested events). If opting into the synthesize path at runtime, append a synthesize.requested event via exarchos_event append. The HSM evaluates the choice state on the next transition attempt. Follow the oneshot-workflow skill for the full procedure.',
+      'In-session implementation for a oneshot workflow. Verification is risk-proportional — apply the gate ladder resolved for this phase (advisory severity for oneshot), sized to the risk of the change. After the resolved checks pass, the main agent resolves the choice state using pure guards over (synthesisPolicy, synthesize.requested events). If opting into the synthesize path at runtime, append a synthesize.requested event via exarchos_event append. The HSM evaluates the choice state on the next transition attempt. Follow the oneshot-workflow skill for the full procedure.',
   },
   {
     phase: 'synthesize',
