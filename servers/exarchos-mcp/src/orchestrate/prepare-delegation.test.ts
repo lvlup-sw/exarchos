@@ -81,7 +81,8 @@ import { assertWorktreeBaseRefPinned } from './worktree-baseref.js';
 import { DEFAULTS } from '../config/resolve.js';
 import type { ResolvedProjectConfig } from '../config/resolve.js';
 import { resolveVerificationSequence } from '../workflow/verification-policy.js';
-import type { GateName } from '../workflow/verification-policy.js';
+import type { GateName, RiskTier } from '../workflow/verification-policy.js';
+import { resolveVerificationPolicy } from '../workflow/verification-policy-resolver.js';
 
 const STATE_DIR = '/tmp/test-state';
 
@@ -1686,6 +1687,44 @@ describe('handlePrepareDelegation', () => {
       expect(classification.verificationSequence).toEqual(customSequence);
       // And it diverges from the built-in table the no-config path would stamp.
       expect(classification.verificationSequence).not.toEqual(baseline.verificationSequence);
+    });
+  });
+
+  // task-004 (DR-4): classifyTask now resolves its verification sequence by
+  // routing through resolveGateSet('IMPLEMENT', …) instead of calling
+  // resolveVerificationPolicy directly. Because the IMPLEMENT kind's resolver is
+  // wired to delegate verbatim to resolveVerificationPolicy, the stamped
+  // sequence must remain byte-identical across representative task profiles —
+  // i.e. the routing is purely behavior-neutral plumbing.
+  describe('classifyTask — resolver-routing behavior-neutrality (task-004)', () => {
+    const profiles: ReadonlyArray<{
+      readonly label: string;
+      readonly riskTier: RiskTier;
+      readonly boundaryTouching: boolean;
+    }> = [
+      { label: 'low / no-boundary', riskTier: 'low', boundaryTouching: false },
+      { label: 'medium / no-boundary', riskTier: 'medium', boundaryTouching: false },
+      { label: 'high / boundary', riskTier: 'high', boundaryTouching: true },
+    ];
+
+    it('ClassifyTask_VerificationSequence_UnchangedByResolverRouting', () => {
+      for (const { label, riskTier, boundaryTouching } of profiles) {
+        // Arrange — explicit risk/boundary overrides pin the profile so the
+        // derivation heuristic does not influence the comparison.
+        const task: TaskInput = {
+          id: `T-NEUTRAL-${label}`,
+          title: 'Implement feature under neutrality check',
+          riskTier,
+          boundaryTouching,
+        };
+
+        // Act
+        const classification = classifyTask(task);
+
+        // Assert — byte-identical to the pre-routing builtin behavior.
+        const expected = resolveVerificationPolicy(riskTier, boundaryTouching).sequence;
+        expect(classification.verificationSequence, label).toEqual(expected);
+      }
     });
   });
 

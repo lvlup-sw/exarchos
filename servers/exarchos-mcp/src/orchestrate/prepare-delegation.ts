@@ -51,7 +51,7 @@ import {
 import type { CheckpointEnforcementConfig } from '../workflow/checkpoint.js';
 import { globToRegExp } from '../architecture/glob-to-regexp.js';
 import type { GateName } from '../workflow/verification-policy.js';
-import { resolveVerificationPolicy } from '../workflow/verification-policy-resolver.js';
+import { resolveGateSet } from '../workflow/phase-kind.js';
 
 // ─── Result Interface ────────────────────────────────────────────────────────
 
@@ -385,14 +385,18 @@ function classifyTaskCore(
  * verification-ladder fields:
  *   - `riskTier`           — {@link deriveRiskTier} (honors explicit override)
  *   - `boundaryTouching`   — {@link deriveBoundaryTouching} (honors override)
- *   - `verificationSequence` — {@link resolveVerificationPolicy} over the two
+ *   - `verificationSequence` — {@link resolveGateSet} for the IMPLEMENT kind
  *
- * vls1-b2 (task 003): the verification sequence is stamped from the
- * CONFIG-RESOLVED policy ({@link resolveVerificationPolicy}), not the frozen
- * built-in table directly. When `config` is omitted (or its relevant cell is
- * unset) the resolver delegates to the built-in table, so behavior is
- * byte-identical to the pre-config stamp. A `.exarchos.yml` `verification:`
- * cell override therefore changes what gets stamped onto the delegation record.
+ * task-004 (DR-4): the sequence is resolved by routing through
+ * {@link resolveGateSet} keyed on the IMPLEMENT *kind*, not by calling the
+ * verification-policy resolver directly. This makes the kind (not the
+ * `delegate` phase name) the binding, so every IMPLEMENT-kind phase resolves
+ * the same ladder by construction. The IMPLEMENT resolver delegates verbatim to
+ * the CONFIG-RESOLVED verification policy, so the stamp is byte-identical to the
+ * prior direct call: when `config` is omitted (or its relevant cell is unset)
+ * the policy falls through to the frozen built-in table, and a `.exarchos.yml`
+ * `verification:` cell override still changes what gets stamped onto the
+ * delegation record.
  *
  * The legacy `complexity`/`effort` axis is preserved unchanged — `riskTier` is
  * a SEPARATE, blast-radius-driven axis (a scaffolding task can be low-effort
@@ -410,7 +414,7 @@ export function classifyTask(
     ...core,
     riskTier,
     boundaryTouching,
-    verificationSequence: resolveVerificationPolicy(riskTier, boundaryTouching, config).sequence,
+    verificationSequence: resolveGateSet('IMPLEMENT', { riskTier, boundaryTouching, config }),
   };
 }
 
