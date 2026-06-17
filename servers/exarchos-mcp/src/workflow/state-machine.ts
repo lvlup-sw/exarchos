@@ -1,5 +1,6 @@
 import type { Guard, GuardResult } from './guards.js';
 import { guards } from './guards.js';
+import type { PhaseKind } from './phase-kind.js';
 import {
   createFeatureHSM,
   createDebugHSM,
@@ -15,15 +16,24 @@ export type { Guard, GuardResult };
 
 export type Effect = 'checkpoint' | 'log' | 'increment-fix-cycle';
 
-export interface State {
+// All shared/optional fields live on the base so existing `.initial` /
+// `.maxFixCycles` / `.parent` reads keep compiling without narrowing. Only the
+// `atomic` variant carries `kind` — an atomic state literal without `kind` is a
+// COMPILE error (DR-2), while compound/final states are exempt (they have no
+// kind in the obligation layer). See docs/designs/2026-06-16-phase-kind-binding.md.
+interface StateBase {
   readonly id: string;
-  readonly type: 'atomic' | 'compound' | 'final';
   readonly parent?: string;
   readonly initial?: string;
   readonly onEntry?: readonly Effect[];
   readonly onExit?: readonly Effect[];
   readonly maxFixCycles?: number;
 }
+
+export type State =
+  | (StateBase & { readonly type: 'atomic'; readonly kind: PhaseKind })
+  | (StateBase & { readonly type: 'compound' })
+  | (StateBase & { readonly type: 'final' });
 
 export interface Transition {
   readonly from: string;
@@ -292,10 +302,13 @@ function convertToHSM(name: string, definition: WorkflowDefinition): HSMDefiniti
     baseTransitions = [...parent.transitions];
   }
 
-  // Add custom phases as atomic states
+  // Add custom phases as atomic states. A user-defined phase carries no
+  // inherent kind, so it defaults to GATHER — the only kind whose obligation
+  // row has `gates: null`, i.e. no kind-driven verification gates. This is
+  // behavior-neutral: custom phases never had kind-driven gates before DR-2.
   for (const phase of definition.phases) {
     if (!baseStates[phase]) {
-      baseStates[phase] = { id: phase, type: 'atomic' };
+      baseStates[phase] = { id: phase, type: 'atomic', kind: 'GATHER' };
     }
   }
 
