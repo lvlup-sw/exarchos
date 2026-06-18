@@ -896,7 +896,17 @@ export function executeTransition(
         phase: targetPhase,
         kind: targetState.kind,
         resolver: KIND_OBLIGATIONS[targetState.kind].gates?.resolver ?? null,
-        resolvedGates: resolvedGates.map((g) => ({ family: g.family, gate: g.gate })),
+        // F3 (#1546): per-phase kinds freeze their FULL resolved sequence here;
+        // IMPLEMENT defers its per-task sequences to the wave stamp (the design's
+        // two documented resolution granularities). So an IMPLEMENT boundary
+        // records NO phase-level sequence — an empty array, never the phase-
+        // default (low-risk, ctx-defaulted) ladder, which a replay/left-fold
+        // consumer would otherwise mistake for the authoritative per-task gate-
+        // set. resolver / posture / mode stay frozen for IMPLEMENT regardless.
+        resolvedGates:
+          targetState.kind === 'IMPLEMENT'
+            ? []
+            : resolvedGates.map((g) => ({ family: g.family, gate: g.gate })),
         // DR-14: freeze the kind's POLA posture (trust tier). The capability
         // bundle (capabilities/resolver.ts:mintCapabilitiesForKind) is derived
         // from this — a read-only kind's bundle can never hold fs:write.

@@ -307,6 +307,31 @@ describe('executeTransition resolve-then-freeze (DR-13)', () => {
     expect(frozen).toEqual([{ family: 'synthesis', gate: 'tests' }]);
   });
 
+  it('executeTransition_ImplementKind_FreezesEmptyResolvedGatesSequence', () => {
+    // F3 (#1546): IMPLEMENT defers its per-task gate sequences to the wave
+    // stamp. The phase.entered freeze records resolver/posture/mode but NO
+    // phase-level sequence — an empty array, never the low-risk phase-default
+    // ladder a replay consumer could mistake for the authoritative per-task set.
+    const hsm = getHSMDefinition('oneshot');
+    const state = { phase: 'plan', artifacts: { plan: 'docs/plan.md' }, _events: [] };
+    const result = executeTransition(hsm, state, 'implementing');
+    expect(result.success).toBe(true);
+
+    const entered = result.events.filter((e) => e.type === 'phase.entered');
+    expect(entered).toHaveLength(1);
+    const md = entered[0].metadata as Record<string, unknown>;
+    expect(md.kind).toBe('IMPLEMENT');
+    // Deferred: no phase-level sequence frozen for IMPLEMENT.
+    expect(md.resolvedGates).toEqual([]);
+    // resolver / posture / mode ARE still frozen.
+    expect(md.resolver).toBe(KIND_OBLIGATIONS.IMPLEMENT.gates?.resolver ?? null);
+    expect(md.posture).toBe(KIND_OBLIGATIONS.IMPLEMENT.posture);
+    expect(md.mode).toBe('enforce');
+    // Still validates against the durable phase.entered schema.
+    const schema = EVENT_DATA_SCHEMAS['phase.entered'];
+    expect(schema?.safeParse(md).success).toBe(true);
+  });
+
   it('executeTransition_PhaseAdvance_AppendsPhaseExitedWithGateStatus', () => {
     const hsm = getHSMDefinition('discovery');
     const state = { phase: 'gathering', artifacts: { sources: ['a.md'] }, _events: [] };
