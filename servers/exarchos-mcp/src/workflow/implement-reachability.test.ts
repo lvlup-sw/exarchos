@@ -14,7 +14,7 @@
 // the full ladder.
 
 import { describe, it, expect } from 'vitest';
-import { resolveGateSet, type ResolveGateSetCtx } from './phase-kind.js';
+import { resolveGateSet, ladderGateNames, type ResolveGateSetCtx } from './phase-kind.js';
 import type { State, HSMDefinition } from './state-machine.js';
 import {
   createFeatureHSM,
@@ -77,7 +77,11 @@ describe('IMPLEMENT-kind reachability (DR-4)', () => {
     // integration-suite + boundary gates. Because every implement phase resolves
     // the IMPLEMENT kind, the debug/refactor implement phases now reach these
     // gates too — not just `delegate`.
-    const ladder = resolveGateSet('IMPLEMENT', { riskTier: 'high', boundaryTouching: true });
+    // DR-8: resolveGateSet now returns ResolvedGate[]; unwrap the ladder family
+    // to the GateName sequence for the membership assertions.
+    const ladder = ladderGateNames(
+      resolveGateSet('IMPLEMENT', { riskTier: 'high', boundaryTouching: true }),
+    );
 
     expect(ladder).toContain('check_integration_suite');
     expect(ladder).toContain('check_contract_drift');

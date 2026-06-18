@@ -1,6 +1,8 @@
 import type { Guard, GuardResult } from './guards.js';
 import { guards } from './guards.js';
-import type { PhaseKind } from './phase-kind.js';
+import { resolveGateSetFailClosed } from './phase-kind.js';
+import type { PhaseKind, ResolvedGate, ResolveGateSetCtx } from './phase-kind.js';
+import type { RiskTier } from './verification-policy.js';
 import {
   createFeatureHSM,
   createDebugHSM,
@@ -81,6 +83,14 @@ export interface TransitionResult {
     readonly tool: string;
     readonly params: Record<string, unknown>;
   };
+  /**
+   * The gate-set resolved for the target phase's kind at the transition
+   * boundary (DR-10). Present on a successful transition into an atomic state;
+   * absent for compound/final targets (cancel, cleanup) which carry no kind.
+   * In S3 this is the structural PDP output; S4 freezes it as a `phase.entered`
+   * event.
+   */
+  readonly resolvedGates?: readonly ResolvedGate[];
 }
 
 // ─── Serialization Types ────────────────────────────────────────────────────
@@ -479,7 +489,11 @@ export function findTransition(
 export function executeTransition(
   hsm: HSMDefinition,
   state: Record<string, unknown>,
-  targetPhase: string
+  targetPhase: string,
+  // The phase-kind gate-set resolver (DR-10). Defaults to the real resolver;
+  // injectable so the fail-closed branch is directly testable. The resolve runs
+  // non-optionally at this single boundary — no phase can opt out of the PDP.
+  resolveGatesFn?: (kind: PhaseKind, ctx: ResolveGateSetCtx) => readonly ResolvedGate[],
 ): TransitionResult {
   const currentPhase = state.phase as string;
   const events = (state._events as readonly Record<string, unknown>[]) ?? [];
@@ -809,6 +823,46 @@ export function executeTransition(
     });
   }
 
+  // ─── Step 9.5: Phase-Kind Gate-Set Resolution (DR-10, the PDP) ─────
+  // Resolve the target kind's gate-set NON-OPTIONALLY at this single boundary.
+  // Only atomic targets carry a `kind`; compound/final targets (handled by the
+  // earlier cancel/cleanup returns) do not. A resolver fault fails CLOSED — the
+  // transition is refused with PHASE_BLOCKED, never proceeds silently.
+  let resolvedGates: readonly ResolvedGate[] | undefined;
+  // Every production atomic state carries a `kind` (type-enforced on `State`).
+  // The `&& targetState.kind` guard only short-circuits degenerate fixtures /
+  // loosely-typed custom states with no kind, which have no obligation to resolve.
+  if (targetState?.type === 'atomic' && targetState.kind) {
+    const obligation = resolveGateSetFailClosed(
+      targetState.kind,
+      {
+        riskTier: (state.riskTier as RiskTier | undefined) ?? 'low',
+        boundaryTouching: Boolean(state.boundaryTouching),
+        workflowType: hsm.id,
+      },
+      resolveGatesFn,
+    );
+    if (!obligation.ok) {
+      return {
+        success: false,
+        idempotent: false,
+        effects: [],
+        events: [
+          {
+            type: 'phase.blocked',
+            from: currentPhase,
+            to: targetPhase,
+            trigger: 'execute-transition',
+            metadata: { kind: targetState.kind, reason: obligation.reason },
+          },
+        ],
+        errorCode: 'PHASE_BLOCKED',
+        errorMessage: `Gate-set resolution failed for ${targetState.kind} phase '${targetPhase}': ${obligation.reason}`,
+      };
+    }
+    resolvedGates = obligation.gates;
+  }
+
   // ─── Step 10: Return ───────────────────────────────────────────────
   return {
     success: true,
@@ -818,5 +872,6 @@ export function executeTransition(
     events: transitionEvents,
     historyUpdates:
       Object.keys(historyUpdates).length > 0 ? historyUpdates : undefined,
+    ...(resolvedGates ? { resolvedGates } : {}),
   };
 }

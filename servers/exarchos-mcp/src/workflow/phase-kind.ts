@@ -211,6 +211,34 @@ const GATE_RESOLVERS: Readonly<
  *             resolved project config for the verification overlay
  * @returns the ordered gate sequence, or `[]` for a kind with no gates (GATHER)
  */
+/**
+ * Fail-closed outcome of a phase-boundary gate-set resolution (DR-10). A
+ * resolver fault (an unwired future kind, a malformed config) must never fail
+ * the transition OPEN — the boundary resolves to `{ ok: false }` and the caller
+ * appends `phase.blocked` rather than proceeding silently.
+ */
+export type PhaseObligationOutcome =
+  | { readonly ok: true; readonly gates: readonly ResolvedGate[] }
+  | { readonly ok: false; readonly reason: string };
+
+/**
+ * Resolve a phase kind's gate-set, converting any resolver throw into a
+ * fail-closed `{ ok: false }` outcome. The `resolver` parameter defaults to
+ * {@link resolveGateSet}; it is injectable so the fail-closed branch is directly
+ * testable (no valid kind throws today — the guard is for future unwired kinds).
+ */
+export function resolveGateSetFailClosed(
+  kind: PhaseKind,
+  ctx: ResolveGateSetCtx,
+  resolver: (k: PhaseKind, c: ResolveGateSetCtx) => readonly ResolvedGate[] = resolveGateSet,
+): PhaseObligationOutcome {
+  try {
+    return { ok: true, gates: resolver(kind, ctx) };
+  } catch (err) {
+    return { ok: false, reason: err instanceof Error ? err.message : String(err) };
+  }
+}
+
 export function resolveGateSet(kind: PhaseKind, ctx: ResolveGateSetCtx): readonly ResolvedGate[] {
   const gates = KIND_OBLIGATIONS[kind].gates;
   if (gates === null) {

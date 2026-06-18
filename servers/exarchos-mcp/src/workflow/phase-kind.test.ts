@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { KIND_OBLIGATIONS, resolveGateSet, ladderGateNames } from './phase-kind.js';
+import {
+  KIND_OBLIGATIONS,
+  resolveGateSet,
+  ladderGateNames,
+  resolveGateSetFailClosed,
+} from './phase-kind.js';
 import type { ResolvedGate } from './phase-kind.js';
 import { resolveVerificationPolicy } from './verification-policy-resolver.js';
 import type { RiskTier } from './verification-policy.js';
@@ -178,6 +183,27 @@ describe('review-contract resolver (DR-9)', () => {
       }).map((g) => g.gate);
       expect(resolved).toEqual(getRequiredReviews('feature', riskTier));
     }
+  });
+});
+
+// ─── DR-10: fail-closed phase-boundary resolution ──────────────────────────
+describe('resolveGateSetFailClosed (DR-10)', () => {
+  it('ResolveGateSetFailClosed_ValidKind_ReturnsOkGates', () => {
+    const outcome = resolveGateSetFailClosed('PLAN', { riskTier: 'low', boundaryTouching: false });
+    expect(outcome.ok).toBe(true);
+    if (outcome.ok) expect(outcome.gates.length).toBeGreaterThan(0);
+  });
+
+  it('ResolveGateSetFailClosed_ResolverThrows_ReturnsFailClosed', () => {
+    const outcome = resolveGateSetFailClosed(
+      'IMPLEMENT',
+      { riskTier: 'low', boundaryTouching: false },
+      () => {
+        throw new Error('boom');
+      },
+    );
+    expect(outcome.ok).toBe(false);
+    if (!outcome.ok) expect(outcome.reason).toMatch(/boom/);
   });
 });
 

@@ -14,6 +14,8 @@ import type {
 } from './state-machine.js';
 import { EXCLUDED_MERGE_PHASES } from './hsm-definitions.js';
 import { EVENT_DATA_SCHEMAS } from '../event-store/schemas.js';
+import { resolveGateSet } from './phase-kind.js';
+import type { PhaseKind } from './phase-kind.js';
 
 describe('serializeTopology', () => {
   it('SerializeTopology_FeatureWorkflow_ReturnsStatesAndTransitions', () => {
@@ -204,6 +206,37 @@ describe('Discovery workflow', () => {
     const result = executeTransition(hsm, state, 'cancelled');
     expect(result.success).toBe(true);
     expect(result.newPhase).toBe('cancelled');
+  });
+});
+
+// ─── DR-10: non-optional phase-kind resolve at the transition boundary ───────
+describe('executeTransition phase-kind resolve (DR-10)', () => {
+  it('ExecuteTransition_AtomicTarget_AttachesResolvedGateSet', () => {
+    const hsm = getHSMDefinition('discovery');
+    const state = { phase: 'gathering', artifacts: { sources: ['a.md'] }, _events: [] };
+    const result = executeTransition(hsm, state, 'synthesizing');
+    expect(result.success).toBe(true);
+    const targetKind = (hsm.states['synthesizing'] as { kind: PhaseKind }).kind;
+    // The boundary resolves the target kind's obligation, non-optionally.
+    expect(result.resolvedGates).toEqual(
+      resolveGateSet(targetKind, {
+        riskTier: 'low',
+        boundaryTouching: false,
+        workflowType: hsm.id,
+      }),
+    );
+  });
+
+  it('ExecuteTransition_ResolverThrows_ReturnsPhaseBlocked', () => {
+    const hsm = getHSMDefinition('discovery');
+    const state = { phase: 'gathering', artifacts: { sources: ['a.md'] }, _events: [] };
+    // Inject a faulting resolver — the boundary must fail CLOSED, not OPEN.
+    const result = executeTransition(hsm, state, 'synthesizing', () => {
+      throw new Error('resolver boom');
+    });
+    expect(result.success).toBe(false);
+    expect(result.errorCode).toBe('PHASE_BLOCKED');
+    expect(result.events.some((e) => e.type === 'phase.blocked')).toBe(true);
   });
 });
 
