@@ -14,8 +14,8 @@ import type {
 } from './state-machine.js';
 import { EXCLUDED_MERGE_PHASES } from './hsm-definitions.js';
 import { EVENT_DATA_SCHEMAS } from '../event-store/schemas.js';
-import { resolveGateSet } from './phase-kind.js';
-import type { PhaseKind } from './phase-kind.js';
+import { resolveGateSet, KIND_OBLIGATIONS } from './phase-kind.js';
+import type { PhaseKind, ResolvedGate } from './phase-kind.js';
 
 describe('serializeTopology', () => {
   it('SerializeTopology_FeatureWorkflow_ReturnsStatesAndTransitions', () => {
@@ -237,6 +237,72 @@ describe('executeTransition phase-kind resolve (DR-10)', () => {
     expect(result.success).toBe(false);
     expect(result.errorCode).toBe('PHASE_BLOCKED');
     expect(result.events.some((e) => e.type === 'phase.blocked')).toBe(true);
+  });
+});
+
+// ─── Resolve-then-freeze: phase.entered append (DR-13, DR-10 freeze half) ────
+
+describe('executeTransition resolve-then-freeze (DR-13)', () => {
+  it('executeTransition_EveryTransition_AppendsExactlyOnePhaseEntered', () => {
+    const hsm = getHSMDefinition('discovery');
+    const state = { phase: 'gathering', artifacts: { sources: ['a.md'] }, _events: [] };
+    const result = executeTransition(hsm, state, 'synthesizing');
+    expect(result.success).toBe(true);
+
+    // Exactly one phase.entered accompanies the transition — the freeze half of
+    // the resolve-then-freeze PDP (DR-10/DR-13).
+    const entered = result.events.filter((e) => e.type === 'phase.entered');
+    expect(entered).toHaveLength(1);
+
+    const targetKind = (hsm.states['synthesizing'] as { kind: PhaseKind }).kind;
+    const md = entered[0].metadata as Record<string, unknown>;
+    expect(md.phase).toBe('synthesizing');
+    expect(md.kind).toBe(targetKind);
+    expect(md.resolver).toBe(KIND_OBLIGATIONS[targetKind].gates?.resolver ?? null);
+    // The frozen gate-set is the resolver output, snapshotted to {family, gate}.
+    expect(md.resolvedGates).toEqual(
+      resolveGateSet(targetKind, {
+        riskTier: 'low',
+        boundaryTouching: false,
+        workflowType: hsm.id,
+      }).map((g) => ({ family: g.family, gate: g.gate })),
+    );
+    expect(md.policySource).toBe('builtin');
+    expect(md.mode).toBe('enforce');
+
+    // The frozen payload validates against the durable phase.entered schema.
+    const schema = EVENT_DATA_SCHEMAS['phase.entered'];
+    expect(schema?.safeParse(md).success).toBe(true);
+  });
+
+  it('executeTransition_BlockedTransition_AppendsNoPhaseEntered', () => {
+    const hsm = getHSMDefinition('discovery');
+    const state = { phase: 'gathering', artifacts: { sources: ['a.md'] }, _events: [] };
+    // A fail-closed resolution emits phase.blocked, never a phase.entered.
+    const result = executeTransition(hsm, state, 'synthesizing', () => {
+      throw new Error('resolver boom');
+    });
+    expect(result.success).toBe(false);
+    expect(result.events.some((e) => e.type === 'phase.entered')).toBe(false);
+  });
+
+  it('freeze_PolicyTableMutatedAfterEntry_FrozenObligationUnchanged', () => {
+    const hsm = getHSMDefinition('discovery');
+    const state = { phase: 'gathering', artifacts: { sources: ['a.md'] }, _events: [] };
+    // Inject a mutable policy source; the freeze must snapshot, not alias it.
+    const live: ResolvedGate[] = [{ family: 'synthesis', gate: 'tests' }];
+    const result = executeTransition(hsm, state, 'synthesizing', () => live);
+
+    const entered = result.events.find((e) => e.type === 'phase.entered');
+    const frozen = (entered?.metadata as Record<string, unknown>).resolvedGates;
+    expect(frozen).toEqual([{ family: 'synthesis', gate: 'tests' }]);
+
+    // Mutate the live policy source AFTER entry (push + in-place edit).
+    live.push({ family: 'synthesis', gate: 'typecheck' });
+    (live[0] as { gate: string }).gate = 'MUTATED';
+
+    // The obligation frozen at entry is a value snapshot — untouched.
+    expect(frozen).toEqual([{ family: 'synthesis', gate: 'tests' }]);
   });
 });
 

@@ -2448,9 +2448,14 @@ describe('handleSet_EventFirst', () => {
     expect((transitions[0].data as Record<string, unknown>).from).toBe('ideate');
     expect((transitions[0].data as Record<string, unknown>).to).toBe('plan');
 
-    // State should have _eventSequence matching event
+    // State _eventSequence advances to cover the DR-13 phase.entered freeze,
+    // which is appended AFTER the transition (a higher sequence). The cursor
+    // tracks the highest sequence on the stream, not the transition's own.
+    const entered = events.filter((e) => e.type === 'phase.entered');
+    expect(entered.length).toBe(1);
+    expect(entered[0].sequence).toBeGreaterThan(transitions[0].sequence);
     const raw = JSON.parse(await fs.readFile(path.join(tmpDir, 'ef-set.state.json'), 'utf-8'));
-    expect(raw._eventSequence).toBe(transitions[0].sequence);
+    expect(raw._eventSequence).toBe(entered[0].sequence);
 
     // No eventWarning in response
     expect((result.data as Record<string, unknown>).eventWarning).toBeUndefined();

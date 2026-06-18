@@ -184,6 +184,48 @@ describe('HSMTransitionGuard.fail_closed (C7, closes #1225)', () => {
   });
 });
 
+// ─── Resolve-then-freeze persists phase.entered end-to-end (DR-13, #1546) ────
+//
+// The unit test in state-machine.test.ts proves executeTransition RETURNS a
+// phase.entered. This proves it actually PERSISTS through the guard's emission
+// boundary: mapped to the canonical `phase.entered` type (not laundered to
+// `workflow.phase.entered` by the fallback) with a schema-valid obligation.
+describe('HSMTransitionGuard phase.entered freeze (DR-13)', () => {
+  it('passingTransition_PersistsOnePhaseEnteredWithFrozenObligation', async () => {
+    const eventStore = new EventStore(tmpDir);
+    await eventStore.initialize();
+
+    await handleInit({ featureId, workflowType: 'feature' }, tmpDir, eventStore);
+    // Empty tasks ⇒ delegate → review transitions cleanly (kind REVIEW).
+    await patchStateForDelegatePhase({ tasks: [] });
+
+    const result = await handleSet({ featureId, phase: 'review' }, tmpDir, eventStore);
+    expect(result.success).toBe(true);
+
+    // Exactly one phase.entered for the entered phase lands on the durable log.
+    const entered = await eventStore.query(featureId, { type: 'phase.entered' as never });
+    const toReview = entered.filter(
+      (e) => (e.data as Record<string, unknown>).phase === 'review',
+    );
+    expect(toReview).toHaveLength(1);
+
+    // It carries the frozen REVIEW obligation and validates against the schema.
+    const data = toReview[0].data as Record<string, unknown>;
+    expect(data.kind).toBe('REVIEW');
+    expect(data.resolver).toBe('review-contract');
+    expect(data.policySource).toBe('builtin');
+    expect(data.mode).toBe('enforce');
+    expect(Array.isArray(data.resolvedGates)).toBe(true);
+    const schema = EVENT_DATA_SCHEMAS['phase.entered'];
+    expect(schema?.safeParse(data).success).toBe(true);
+
+    // Regression: NOT laundered into the non-existent `workflow.phase.entered`
+    // by the mapInternalToExternalType fallback.
+    const mangled = await countEvents(eventStore, 'workflow.phase.entered');
+    expect(mangled).toBe(0);
+  });
+});
+
 // ─── HSM emission boundary routes through EVENT_DATA_SCHEMAS (T-03, #1339) ──
 //
 // Defense-in-depth follow-up to T-02. Even with the fix-cycle shape fixed,

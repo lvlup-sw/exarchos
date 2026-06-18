@@ -137,6 +137,24 @@ function buildHsmEventData(
         to: evt.to,
         featureId,
       };
+    case 'phase.entered':
+      // PhaseEnteredData (DR-13): the resolve-then-freeze obligation, carried
+      // verbatim in the HSM event's metadata. featureId is intentionally NOT
+      // added — the schema is the obligation only (no from/to/trigger laundering).
+      return {
+        phase: metadata.phase ?? evt.to,
+        kind: metadata.kind,
+        resolver: metadata.resolver ?? null,
+        resolvedGates: metadata.resolvedGates ?? [],
+        policySource: metadata.policySource ?? 'builtin',
+        mode: metadata.mode ?? 'enforce',
+      };
+    case 'phase.exited':
+      // PhaseExitedData (DR-13): aggregate gate status on advance.
+      return {
+        phase: metadata.phase ?? evt.from,
+        allRequiredGatesPassed: Boolean(metadata.allRequiredGatesPassed),
+      };
     // transition / cancel / cleanup all share { from, to, trigger, featureId }
     // (cancel additionally allows an optional `reason`, preserved from metadata).
     default:
@@ -531,13 +549,17 @@ export class DefaultHSMTransitionGuard implements HSMTransitionGuard {
         // 'cleanup' for the universal mergeVerified→completed transition
         // (state-machine.ts:532, :578, :752). Capture the sequence on any of
         // these so the caller's _eventSequence projection cursor advances on
-        // cancel/cleanup paths too.
+        // cancel/cleanup paths too. The DR-13 `phase.entered` freeze is appended
+        // AFTER the transition (a higher sequence); advance the cursor to cover
+        // it too (Math.max) so _eventSequence does not trail the log and trigger
+        // a spurious reconcile of the just-frozen obligation.
         if (
           evt.type === 'transition' ||
           evt.type === 'cancel' ||
-          evt.type === 'cleanup'
+          evt.type === 'cleanup' ||
+          evt.type === 'phase.entered'
         ) {
-          transitionSequence = appended.sequence;
+          transitionSequence = Math.max(transitionSequence, appended.sequence);
         }
       }
     }

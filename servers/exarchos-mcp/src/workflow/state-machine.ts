@@ -1,6 +1,6 @@
 import type { Guard, GuardResult } from './guards.js';
 import { guards } from './guards.js';
-import { resolveGateSetFailClosed } from './phase-kind.js';
+import { resolveGateSetFailClosed, KIND_OBLIGATIONS } from './phase-kind.js';
 import type { PhaseKind, ResolvedGate, ResolveGateSetCtx } from './phase-kind.js';
 import type { RiskTier } from './verification-policy.js';
 import {
@@ -861,6 +861,33 @@ export function executeTransition(
       };
     }
     resolvedGates = obligation.gates;
+
+    // ─── Resolve-THEN-FREEZE (DR-13, DR-10 freeze half) ───────────────
+    // Append exactly one `phase.entered` carrying the obligation just resolved.
+    // `resolvedGates` is snapshotted to plain `{family, gate}` value copies, so a
+    // later policy-table edit cannot retroactively change this in-flight phase —
+    // a left-fold of the log reconstructs the identical obligation a live HSM
+    // observed (#1208-class single-trigger: `kind` is frozen here, never
+    // re-derived downstream from the phase name).
+    transitionEvents.push({
+      type: 'phase.entered',
+      from: currentPhase,
+      to: targetPhase,
+      trigger: 'execute-transition',
+      metadata: {
+        phase: targetPhase,
+        kind: targetState.kind,
+        resolver: KIND_OBLIGATIONS[targetState.kind].gates?.resolver ?? null,
+        resolvedGates: resolvedGates.map((g) => ({ family: g.family, gate: g.gate })),
+        // 'builtin'/'enforce' are the structural defaults frozen at this
+        // foundational layer. Per-workflow IMPLEMENT graduation (oneshot→audit)
+        // and config-overlay provenance are bound at the orchestrate gate layer
+        // (Task 18 / DR-16), which owns `resolveImplementMode` — kept out of the
+        // state machine to preserve the workflow→orchestrate dependency direction.
+        policySource: 'builtin',
+        mode: 'enforce',
+      },
+    });
   }
 
   // ─── Step 10: Return ───────────────────────────────────────────────
