@@ -17,6 +17,7 @@
  */
 
 import type { RunCommandFn } from './static-analysis.js';
+import { detectToolchain, type Toolchain } from '../../config/toolchains.js';
 
 // ============================================================
 // PUBLIC TYPES
@@ -50,20 +51,78 @@ export interface RunIntegrationSuiteInput {
   /** External command runner (dependency injection). */
   readonly runCommand: RunCommandFn;
   /**
-   * npm script that produces vitest JSON on stdout. Defaults to `test:run`.
-   * The gate appends `--reporter=json` so the consumer project does not need
-   * a bespoke script.
+   * Explicit npm script that produces vitest JSON on stdout. When set it WINS
+   * over toolchain resolution (`npm run <script> -- --reporter=json`). When
+   * absent, the test command is resolved via the layered toolchain resolver
+   * (#1537) so the monorepo-root / workspace layout — or a `.exarchos.yml`
+   * override — picks the right command instead of a hardcoded `test:run`.
    */
   readonly testScript?: string;
+  /**
+   * Toolchain detector seam (defaults to {@link detectToolchain}). Injected in
+   * tests; production may thread a config-aware detector so `.exarchos.yml`
+   * `toolchains:` overrides participate.
+   */
+  readonly detectToolchain?: (repoRoot: string) => Toolchain | undefined;
 }
 
 export interface RunIntegrationSuiteResult extends IntegrationSuiteParse {
   /** True when the runner output could not be parsed as vitest JSON. */
   readonly parseError: boolean;
+  /**
+   * When `parseError`, WHY the gate failed closed: `'spawn-failure'` (the runner
+   * command could not execute) vs `'shape-mismatch'` (it ran but emitted
+   * unparseable output). Unset on a clean parse. Lets operators tell a missing
+   * test command apart from a crashed/garbled reporter (#1537).
+   */
+  readonly parseFailureKind?: 'spawn-failure' | 'shape-mismatch';
   /** Raw exit code from the runner. */
   readonly exitCode: number;
   /** Structured markdown report. */
   readonly report: string;
+}
+
+// ============================================================
+// COMMAND RESOLUTION (#1537 / DR-15)
+// ============================================================
+
+/** A resolved test command split into an executable + argv. */
+export interface ResolvedTestCommand {
+  readonly cmd: string;
+  readonly args: readonly string[];
+}
+
+/**
+ * Resolve the integration-suite test command for `repoRoot`.
+ *
+ * Precedence (layered, #1537):
+ *   1. An explicit `testScript` wins → `npm run <script> -- --reporter=json`.
+ *   2. Otherwise the layered toolchain resolver's `commands.test` (which a
+ *      config-aware `detect` lets `.exarchos.yml` override) — split into an
+ *      executable + argv, with `--reporter=json` appended (after a `--`
+ *      passthrough for script runners).
+ *   3. Fallback when no toolchain is detected → node's `npm run test:run`.
+ */
+export function resolveIntegrationCommand(
+  repoRoot: string,
+  testScript: string | undefined,
+  detect: (repoRoot: string) => Toolchain | undefined = detectToolchain,
+): ResolvedTestCommand {
+  if (testScript) {
+    return { cmd: 'npm', args: ['run', testScript, '--', '--reporter=json'] };
+  }
+
+  const resolved = detect(repoRoot)?.commands.test;
+  if (resolved && resolved.trim().length > 0) {
+    const [cmd, ...rest] = resolved.trim().split(/\s+/);
+    // Script runners (npm/pnpm/yarn/bun) need the reporter flag AFTER a `--`
+    // passthrough; a direct runner (vitest, …) takes it inline.
+    const isScriptRunner = cmd === 'npm' || cmd === 'pnpm' || cmd === 'yarn' || cmd === 'bun';
+    const args = isScriptRunner ? [...rest, '--', '--reporter=json'] : [...rest, '--reporter=json'];
+    return { cmd, args };
+  }
+
+  return { cmd: 'npm', args: ['run', 'test:run', '--', '--reporter=json'] };
 }
 
 // ============================================================
@@ -233,48 +292,73 @@ function buildReport(repoRoot: string, parse: IntegrationSuiteParse): string {
  * Invokes: `npm run <testScript> -- --reporter=json` in `repoRoot`. vitest
  * emits the JSON summary on stdout; we parse it via {@link parseVitestResult}.
  */
-export function runIntegrationSuite(input: RunIntegrationSuiteInput): RunIntegrationSuiteResult {
-  const { repoRoot, runCommand, testScript = 'test:run' } = input;
+/**
+ * Build a fail-closed result with a distinct `parseFailureKind` + report. Both
+ * spawn-failure and shape-mismatch fail closed (counts non-authoritative), but
+ * the kind + report make the cause actionable rather than a generic "no JSON".
+ */
+function failClosed(
+  repoRoot: string,
+  exitCode: number,
+  kind: 'spawn-failure' | 'shape-mismatch',
+  detail: string,
+): RunIntegrationSuiteResult {
+  return {
+    passed: false,
+    failedSuites: 1,
+    failedTests: 0,
+    loadFailures: 1,
+    totalTests: 0,
+    failCount: 1,
+    loadFailureFiles: [],
+    parseError: true,
+    parseFailureKind: kind,
+    exitCode,
+    report: [
+      '## Integration Suite Report',
+      '',
+      `**Repository:** \`${repoRoot}\``,
+      '',
+      `- **FAIL**: ${detail}; gate failed closed`,
+      '',
+      '---',
+      '',
+      `**Result: FAIL** (${kind === 'spawn-failure' ? 'runner spawn failure' : 'unparseable output'})`,
+    ].join('\n'),
+  };
+}
 
-  const cmdResult = runCommand(
-    'npm',
-    ['run', testScript, '--', '--reporter=json'],
-    { cwd: repoRoot },
-  );
+export function runIntegrationSuite(input: RunIntegrationSuiteInput): RunIntegrationSuiteResult {
+  const { repoRoot, runCommand, testScript, detectToolchain: detect } = input;
+
+  // Resolve the test command via the layered toolchain resolver (#1537) so a
+  // monorepo-root / workspace layout — or an explicit testScript — picks the
+  // right command instead of a hardcoded `npm run test:run`.
+  const { cmd, args } = resolveIntegrationCommand(repoRoot, testScript, detect ?? detectToolchain);
+  const cmdResult = runCommand(cmd, args as string[], { cwd: repoRoot });
+
+  // A runner-spawn failure (the command itself could not execute) is distinct
+  // from a JSON-shape mismatch (it ran but emitted unparseable output) — #1537.
+  if (cmdResult.spawnError) {
+    return failClosed(
+      repoRoot,
+      cmdResult.exitCode,
+      'spawn-failure',
+      `runner failed to spawn (\`${cmd}\`: ${cmdResult.spawnError})`,
+    );
+  }
 
   const parse = parseVitestResult(cmdResult.stdout);
-
   if (parse === null) {
-    // The runner ran but emitted no parseable JSON. Fail CLOSED: a gate whose
-    // counts are non-authoritative must never green-light an unknown state. A
-    // zero exit code here is not trustworthy evidence the suite passed (it can
-    // mask a crashed/garbled reporter), so we report a definitive failure and
-    // flag parseError so callers know the counts came from the fallback.
-    const fallback: IntegrationSuiteParse = {
-      passed: false,
-      failedSuites: 1,
-      failedTests: 0,
-      loadFailures: 1,
-      totalTests: 0,
-      failCount: 1,
-      loadFailureFiles: [],
-    };
-    return {
-      ...fallback,
-      parseError: true,
-      exitCode: cmdResult.exitCode,
-      report: [
-        '## Integration Suite Report',
-        '',
-        `**Repository:** \`${repoRoot}\``,
-        '',
-        '- **FAIL**: produced no parseable vitest JSON; gate failed closed',
-        '',
-        '---',
-        '',
-        '**Result: FAIL** (unparseable output)',
-      ].join('\n'),
-    };
+    // Ran, but the output is not recognizable vitest JSON. Fail CLOSED — a
+    // zero exit here can mask a crashed/garbled reporter — and flag the kind so
+    // operators don't confuse it with a missing test command.
+    return failClosed(
+      repoRoot,
+      cmdResult.exitCode,
+      'shape-mismatch',
+      'runner produced no parseable vitest JSON (ran, but the output shape was unrecognized)',
+    );
   }
 
   return {

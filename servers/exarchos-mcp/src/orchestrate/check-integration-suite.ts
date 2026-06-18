@@ -55,6 +55,11 @@ interface CheckIntegrationSuiteResult {
    * the failure stems from unparseable output rather than authoritative counts.
    */
   readonly parseError: boolean;
+  /**
+   * When `parseError`, WHY: `'spawn-failure'` (the test command could not run)
+   * vs `'shape-mismatch'` (ran, output unparseable) — #1537. Unset on clean parse.
+   */
+  readonly parseFailureKind?: 'spawn-failure' | 'shape-mismatch';
 }
 
 // ─── Command Runner Adapter ─────────────────────────────────────────────────
@@ -79,11 +84,16 @@ const execCommandRunner: RunCommandFn = (
     }) as string;
     return { exitCode: 0, stdout: output, stderr: '' };
   } catch (err: unknown) {
-    const execErr = err as { status?: number; stdout?: string; stderr?: string };
+    const execErr = err as { status?: number; code?: string; stdout?: string; stderr?: string };
+    // A spawn failure (ENOENT/EACCES/…) has no numeric exit `status` — the
+    // process never ran. Surface it as `spawnError` so the gate can tell a
+    // missing/unrunnable test command apart from a JSON-shape mismatch (#1537).
+    const spawnFailed = typeof execErr.status !== 'number' && typeof execErr.code === 'string';
     return {
-      exitCode: execErr.status ?? 1,
+      exitCode: execErr.status ?? (spawnFailed ? 127 : 1),
       stdout: execErr.stdout ?? '',
       stderr: execErr.stderr ?? '',
+      ...(spawnFailed ? { spawnError: execErr.code } : {}),
     };
   }
 };
@@ -156,6 +166,7 @@ export async function handleCheckIntegrationSuite(
       failedSuites: suite.failedSuites,
       totalTests: suite.totalTests,
       ...(suite.parseError ? { parseError: true } : {}),
+      ...(suite.parseFailureKind ? { parseFailureKind: suite.parseFailureKind } : {}),
       ...(args.taskId ? { taskId: args.taskId } : {}),
     });
   } catch { /* fire-and-forget */ }
@@ -169,6 +180,7 @@ export async function handleCheckIntegrationSuite(
     totalTests: suite.totalTests,
     report: suite.report,
     parseError: suite.parseError,
+    ...(suite.parseFailureKind ? { parseFailureKind: suite.parseFailureKind } : {}),
   };
 
   return { success: true, data: result };
