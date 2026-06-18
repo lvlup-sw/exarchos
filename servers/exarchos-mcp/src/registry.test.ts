@@ -547,6 +547,42 @@ describe('TOOL_REGISTRY', () => {
     expect(TOOL_REGISTRY).toHaveLength(5);
   });
 
+  // INV-5a / INV-5d (DR-16, phase-kind binding COMPLETION — S4, epic #1546):
+  // the resolve-then-freeze machinery added in S4 — the phase.entered/phase.exited
+  // events, the gate-set resolver, the POLA capability bundle
+  // (mintCapabilitiesForKind), and resolvePhaseMode — stays INTERNAL to the four
+  // composite tools. It MUST NOT surface as a new visible MCP tool (INV-5d), a
+  // new top-level CLI verb, or a new composite ACTION (INV-5a). This shield
+  // passes by construction; it turns red the moment any of that internal
+  // machinery is accidentally promoted onto the callable surface.
+  it('toolRegistry_PhaseKindWork_AddsNoVisibleToolOrVerb', () => {
+    const visibleTools = TOOL_REGISTRY.filter((t) => !t.hidden);
+    expect(visibleTools.map((t) => t.name).sort()).toEqual([
+      'exarchos_event',
+      'exarchos_orchestrate',
+      'exarchos_view',
+      'exarchos_workflow',
+    ]);
+    expect(TOOL_REGISTRY).toHaveLength(5);
+
+    // No composite action leaks the internal kind/resolver/capability registry
+    // as a callable verb.
+    const allActionNames = TOOL_REGISTRY.flatMap((t) => t.actions.map((a) => a.name));
+    const forbidden = [
+      'resolve_gate_set',
+      'resolveGateSet',
+      'phase_kind',
+      'mint_capabilities',
+      'resolve_phase_mode',
+      'kind_obligations',
+      'phase_entered',
+      'phase_exited',
+    ];
+    for (const name of forbidden) {
+      expect(allActionNames).not.toContain(name);
+    }
+  });
+
   describe('exarchos_workflow', () => {
     it('should have 10 actions: init, get, transition, update, cancel, cleanup, reconcile, rehydrate, checkpoint, describe', () => {
       // T5a.1/DR-4 (#1259, v2.11): `set` action removed (hard-cut from the
