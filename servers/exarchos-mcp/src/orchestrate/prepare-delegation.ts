@@ -697,29 +697,44 @@ export async function handlePrepareDelegation(
     };
   }
 
-  // The MCP router hands `tasks` through an unchecked cast, so the declared
-  // `TaskInput[]` type is not a runtime guarantee. Validate the shape HERE with
-  // an explicit INVALID_INPUT — otherwise a malformed task throws downstream in
-  // computeScopedWorktrees / classifyTaskCore and surfaces as a misleading
+  // Non-MCP callers (CLI / direct / tests) hand `tasks` through an unchecked
+  // cast, so the declared `TaskInput[]` type is not a runtime guarantee. (The MCP
+  // adapter's registration schema strips unknown keys, but those paths do not.)
+  // Validate the shape HERE with an explicit INVALID_INPUT — otherwise a
+  // malformed task throws downstream in computeScopedWorktrees / classifyTaskCore
+  // (e.g. `files.some(...)` on a non-array `files`) and surfaces as a misleading
   // PREPARE_DELEGATION_FAILED or, worse, a fail-closed `phase.blocked` event.
-  // `phase.blocked` must stay reserved for genuine gate-set RESOLVER faults.
+  // `phase.blocked` must stay reserved for genuine gate-set RESOLVER faults, so
+  // the guard also covers the optional STRING-ARRAY fields the heuristics call
+  // array methods on (`files`, `blockedBy`), not just `id`/`title`.
   const tasksInput: unknown = args.tasks;
+  const isOptionalStringArray = (v: unknown): boolean =>
+    v === undefined || (Array.isArray(v) && v.every((x) => typeof x === 'string'));
   if (
     tasksInput !== undefined &&
     (!Array.isArray(tasksInput) ||
-      tasksInput.some(
-        (task) =>
-          task === null ||
-          typeof task !== 'object' ||
-          typeof (task as { id?: unknown }).id !== 'string' ||
-          typeof (task as { title?: unknown }).title !== 'string',
-      ))
+      tasksInput.some((task) => {
+        if (task === null || typeof task !== 'object') return true;
+        const t = task as {
+          id?: unknown;
+          title?: unknown;
+          files?: unknown;
+          blockedBy?: unknown;
+        };
+        return (
+          typeof t.id !== 'string' ||
+          typeof t.title !== 'string' ||
+          !isOptionalStringArray(t.files) ||
+          !isOptionalStringArray(t.blockedBy)
+        );
+      }))
   ) {
     return {
       success: false,
       error: {
         code: 'INVALID_INPUT',
-        message: 'tasks must be an array of objects each with a string id and string title',
+        message:
+          'tasks must be an array of objects each with a string id and title, plus optional string-array files and blockedBy',
       },
     };
   }

@@ -273,6 +273,24 @@ describe('handlePrepareDelegation', () => {
     expect(result.error?.message).toContain('featureId');
   });
 
+  it('PrepareDelegation_MalformedTaskShape_ReturnsInvalidInputNotPhaseBlocked', async () => {
+    // A non-MCP caller can hand `tasks` through an unchecked cast. A task whose
+    // optional `files` is a non-array would crash `files.some(...)` downstream;
+    // caught by the fail-closed wrapper it would masquerade as a `phase.blocked`
+    // RESOLVER fault. The shape guard must reject it as INVALID_INPUT first.
+    const args = {
+      featureId: 'feat-malformed',
+      tasks: [{ id: 't1', title: 'ok', files: 'src/not-an-array.ts' }],
+    } as unknown as { featureId: string; tasks?: TaskInput[] };
+
+    const result = await handlePrepareDelegation(args, STATE_DIR, makeCtx(mockStore, STATE_DIR));
+
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('INVALID_INPUT');
+    expect(result.error?.code).not.toBe('PHASE_BLOCKED');
+    expect(result.error?.message).toMatch(/files|blockedBy|array/i);
+  });
+
   it('PrepareDelegation_NotReady_ReturnsBlockers', async () => {
     // Arrange
     const state = notReadyWorkflowState();
