@@ -44,7 +44,29 @@ export interface WorkflowStateView {
   _version: number;
   _history: Record<string, string>;
   _checkpoint: CheckpointEntry;
+  /**
+   * The frozen verification obligation for the current phase (DR-13, epic #1546).
+   * `phase.entered` resolve-then-freezes this from the resolver output at the
+   * transition boundary; `phase.exited` stamps the aggregate gate status on
+   * advance. Replaying the event log left-folds the same obligation a live HSM
+   * observed — `kind` is read from the frozen event, never re-derived from the
+   * phase name (#1208-class single-trigger). `null` until the first
+   * `phase.entered` is folded.
+   */
+  phaseObligation: PhaseObligationEntry | null;
   [key: string]: unknown;
+}
+
+interface PhaseObligationEntry {
+  phase: string;
+  kind: string;
+  resolver: string | null;
+  resolvedGates: Array<{ family: string; gate: string }>;
+  policySource: string;
+  mode: string;
+  enteredAt: string;
+  exited: boolean;
+  allRequiredGatesPassed: boolean | null;
 }
 
 interface TaskEntry {
@@ -117,6 +139,7 @@ export const workflowStateProjection: ViewProjection<WorkflowStateView> = {
       lastActivityTimestamp: '',
       staleAfterMinutes: 120,
     },
+    phaseObligation: null,
   }),
 
   apply: (view: WorkflowStateView, event: WorkflowEvent): WorkflowStateView => {
@@ -177,6 +200,61 @@ export const workflowStateProjection: ViewProjection<WorkflowStateView> = {
           phase: data.to,
           updatedAt: event.timestamp,
           _history: newHistory,
+        };
+      }
+
+      // ── Phase-Kind Resolve-then-Freeze (DR-13, epic #1546) ──────────────
+      // `phase.entered` freezes the obligation the executeTransition boundary
+      // resolved for the target kind; `phase.exited` stamps the aggregate gate
+      // status on advance. `kind` is read straight from the frozen event (never
+      // re-derived from the phase name), so a left-fold of the log reconstructs
+      // the same obligation a live HSM observed (#1208-class single-trigger).
+
+      case 'phase.entered': {
+        const data = event.data as {
+          phase?: string;
+          kind?: string;
+          resolver?: string | null;
+          resolvedGates?: Array<{ family: string; gate: string }>;
+          policySource?: string;
+          mode?: string;
+        } | undefined;
+        if (!data?.phase || !data.kind) return view;
+
+        return {
+          ...view,
+          updatedAt: event.timestamp,
+          phaseObligation: {
+            phase: data.phase,
+            kind: data.kind,
+            resolver: data.resolver ?? null,
+            resolvedGates: data.resolvedGates ?? [],
+            policySource: data.policySource ?? 'builtin',
+            mode: data.mode ?? 'enforce',
+            enteredAt: event.timestamp,
+            exited: false,
+            allRequiredGatesPassed: null,
+          },
+        };
+      }
+
+      case 'phase.exited': {
+        const data = event.data as {
+          phase?: string;
+          allRequiredGatesPassed?: boolean;
+        } | undefined;
+        // Stamp the in-flight obligation only. Absent a frozen obligation (e.g.
+        // replaying a pre-DR-13 log) there is nothing to fold.
+        if (!data?.phase || view.phaseObligation === null) return view;
+
+        return {
+          ...view,
+          updatedAt: event.timestamp,
+          phaseObligation: {
+            ...view.phaseObligation,
+            exited: true,
+            allRequiredGatesPassed: data.allRequiredGatesPassed ?? null,
+          },
         };
       }
 
