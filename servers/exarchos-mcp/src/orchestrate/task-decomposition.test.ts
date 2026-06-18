@@ -176,6 +176,41 @@ describe('validateTaskStructure', () => {
     expect(result.testCount).toBeGreaterThanOrEqual(2);
   });
 
+  // ─── #1544: drop word-count hard-FAIL; recognize non-JS/TS file paths ──────
+  it('ValidateTaskStructure_ShortDescriptionWithFilesAndTests_DoesNotFailOnWordCount', () => {
+    // Files + tests present, but a short (<10-word) description. Previously the
+    // word-count threshold hard-FAILED this (the 40/40 false-FAIL in #1544).
+    const block = `### Task T-30: Short title task
+
+**Files:**
+- \`src/foo.ts\`
+
+**Tests:**
+- [RED] \`Foo_Bar_Baz\`
+`;
+    const result = validateTaskStructure(block);
+    expect(result.hasFiles).toBe(true);
+    expect(result.hasTests).toBe(true);
+    expect(result.status).toBe('PASS');
+  });
+
+  it('ValidateTaskStructure_PythonFilePath_CountedAsFile', () => {
+    // #1544: a pytest task's `.py` path was not recognized (✗ 0 files).
+    const block = `### Task T-30: pytest emit harness
+
+**Description:** Build the emit harness that exercises the sandbox pipeline end to end.
+
+**Files:**
+- \`apps/sandbox/harness/emit_harness.py\`
+
+**Tests:**
+- [RED] \`Harness_Emit_ProducesOutput\`
+`;
+    const result = validateTaskStructure(block);
+    expect(result.fileCount).toBeGreaterThanOrEqual(1);
+    expect(result.hasFiles).toBe(true);
+  });
+
   it('ValidateTaskStructure_MissingDescription_ReportsGracefully', () => {
     const block = `### Task T-01: Widget component
 
