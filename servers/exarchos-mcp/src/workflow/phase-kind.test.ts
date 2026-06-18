@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { KIND_OBLIGATIONS, resolveGateSet } from './phase-kind.js';
+import { KIND_OBLIGATIONS, resolveGateSet, ladderGateNames } from './phase-kind.js';
+import type { ResolvedGate } from './phase-kind.js';
 import { resolveVerificationPolicy } from './verification-policy-resolver.js';
 import type { RiskTier } from './verification-policy.js';
 
@@ -36,7 +37,7 @@ describe('resolveGateSet', () => {
     // the verification policy resolver across all six (riskTier × boundary) cells.
     for (const riskTier of RISK_TIERS) {
       for (const boundaryTouching of BOUNDARY_VALUES) {
-        expect(resolveGateSet('IMPLEMENT', { riskTier, boundaryTouching })).toEqual(
+        expect(ladderGateNames(resolveGateSet('IMPLEMENT', { riskTier, boundaryTouching }))).toEqual(
           resolveVerificationPolicy(riskTier, boundaryTouching).sequence,
         );
       }
@@ -67,10 +68,38 @@ describe('resolveGateSet', () => {
         const ctx = { riskTier, boundaryTouching };
         expect(() => resolveGateSet('IMPLEMENT', ctx)).not.toThrow();
         // The resolved sequence is the byte-identical built-in table cell.
-        expect(resolveGateSet('IMPLEMENT', ctx)).toEqual(
+        expect(ladderGateNames(resolveGateSet('IMPLEMENT', ctx))).toEqual(
           resolveVerificationPolicy(riskTier, boundaryTouching).sequence,
         );
       }
     }
+  });
+});
+
+// ─── DR-8: discriminated ResolvedGate union ─────────────────────────────────
+describe('ResolvedGate (DR-8)', () => {
+  it('ResolveGateSet_Implement_ReturnsLadderFamilyResolvedGates', () => {
+    const resolved: readonly ResolvedGate[] = resolveGateSet('IMPLEMENT', {
+      riskTier: 'high',
+      boundaryTouching: true,
+    });
+    expect(resolved.length).toBeGreaterThan(0);
+    for (const g of resolved) {
+      expect(g.family).toBe('ladder');
+    }
+    // The underlying gate names equal the verification-policy sequence verbatim.
+    expect(resolved.map((g) => g.gate)).toEqual(
+      resolveVerificationPolicy('high', true).sequence,
+    );
+  });
+
+  it('LadderGateNames_ImplementResolved_ExtractsGateNameSequence', () => {
+    const resolved = resolveGateSet('IMPLEMENT', {
+      riskTier: 'medium',
+      boundaryTouching: false,
+    });
+    expect(ladderGateNames(resolved)).toEqual(
+      resolveVerificationPolicy('medium', false).sequence,
+    );
   });
 });

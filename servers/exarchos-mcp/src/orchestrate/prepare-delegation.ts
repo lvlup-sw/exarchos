@@ -51,7 +51,7 @@ import {
 import type { CheckpointEnforcementConfig } from '../workflow/checkpoint.js';
 import { globToRegExp } from '../architecture/glob-to-regexp.js';
 import type { GateName } from '../workflow/verification-policy.js';
-import { resolveGateSet } from '../workflow/phase-kind.js';
+import { resolveGateSet, ladderGateNames } from '../workflow/phase-kind.js';
 import type { PhaseKind } from '../workflow/phase-kind.js';
 
 // ─── Result Interface ────────────────────────────────────────────────────────
@@ -415,7 +415,9 @@ export function classifyTask(
     ...core,
     riskTier,
     boundaryTouching,
-    verificationSequence: resolveGateSet('IMPLEMENT', { riskTier, boundaryTouching, config }),
+    verificationSequence: ladderGateNames(
+      resolveGateSet('IMPLEMENT', { riskTier, boundaryTouching, config }),
+    ),
   };
 }
 

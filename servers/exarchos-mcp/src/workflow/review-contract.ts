@@ -27,6 +27,16 @@ export const REQUIRED_REVIEWS_BY_WORKFLOW_TYPE: Readonly<Record<string, readonly
 };
 
 /**
+ * A review dimension name. Dimensions are dynamic — they vary per workflow type
+ * and risk tier and MUST equal a `skills-src/<name>/` folder — so this is the
+ * open `string` type, not a closed literal union. This is the single place the
+ * type is named; the phase-kind layer re-exports it for the `ResolvedGate`
+ * `review` family rather than re-declaring the dimension vocabulary (which would
+ * duplicate this source of truth). See design open-question #1.
+ */
+export type ReviewDimension = string;
+
+/**
  * The ordered risk tier carried by a workflow / task classification.
  * Mirrors `workflow/verification-policy.ts`'s `RiskTier`; redeclared here as a
  * narrow string-literal union so the review contract stays free of a runtime

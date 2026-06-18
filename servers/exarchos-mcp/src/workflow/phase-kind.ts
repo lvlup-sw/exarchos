@@ -12,6 +12,7 @@
 
 import { resolveVerificationPolicy } from './verification-policy-resolver.js';
 import { type GateName, type RiskTier } from './verification-policy.js';
+import type { ReviewDimension } from './review-contract.js';
 import type { ResolvedProjectConfig } from '../config/resolve.js';
 
 /**
@@ -43,6 +44,59 @@ export type GateResolverName =
   | 'plan-structure'
   | 'review-contract'
   | 'synthesis-readiness';
+
+// ─── DR-8: discriminated ResolvedGate union ─────────────────────────────────
+//
+// A gate-set resolves to a sequence of `ResolvedGate`s tagged by `family`. The
+// four families are heterogeneous — ladder gates, plan-structure gates, review
+// dimensions, and synthesis-readiness legs are different vocabularies — so they
+// are kept as distinct discriminated members rather than flattened into one
+// `GateName` namespace. The `family` tag makes downstream dispatch exhaustively
+// checkable (a missing arm is a compile error via the `assertNever` helper).
+
+/** Plan-structure gate action names (PLAN kind). */
+export type PlanGateName =
+  | 'check_task_decomposition'
+  | 'check_plan_coverage'
+  | 'check_provenance_chain'
+  | 'generate_traceability';
+
+/** Synthesis-readiness legs (SYNTHESIZE kind). */
+export type SynthesisLeg = 'task-completion' | 'tests' | 'typecheck' | 'stack';
+
+/**
+ * One resolved gate, tagged by its family. `ReviewDimension` is re-exported
+ * from `review-contract.ts` (the single source of truth) — the review family
+ * carries the dimension string, it does not re-declare the vocabulary.
+ */
+export type ResolvedGate =
+  | { readonly family: 'ladder'; readonly gate: GateName }
+  | { readonly family: 'plan'; readonly gate: PlanGateName }
+  | { readonly family: 'review'; readonly gate: ReviewDimension }
+  | { readonly family: 'synthesis'; readonly gate: SynthesisLeg };
+
+export type { ReviewDimension };
+
+/**
+ * Exhaustiveness guard for `ResolvedGate.family` dispatch: a `switch` over
+ * `family` whose `default` calls `assertNever(g)` becomes a COMPILE error the
+ * moment a new family is added without a handling arm.
+ */
+export function assertNever(value: never): never {
+  throw new Error(`Unhandled ResolvedGate family: ${JSON.stringify(value)}`);
+}
+
+/**
+ * Extract the ordered ladder `GateName` sequence from a resolved gate-set,
+ * dropping any non-ladder family. The IMPLEMENT kind only ever yields ladder
+ * gates, so this is the lossless adapter the per-task dispatch path uses to keep
+ * `verificationSequence: readonly GateName[]` (and its event schema) stable.
+ */
+export function ladderGateNames(gates: readonly ResolvedGate[]): readonly GateName[] {
+  return gates
+    .filter((g): g is Extract<ResolvedGate, { family: 'ladder' }> => g.family === 'ladder')
+    .map((g) => g.gate);
+}
 
 export interface PhaseObligations {
   readonly gates: { readonly resolver: GateResolverName } | null;
@@ -92,10 +146,12 @@ export interface ResolveGateSetCtx {
  * runtime path.
  */
 const GATE_RESOLVERS: Readonly<
-  Record<GateResolverName, (ctx: ResolveGateSetCtx) => readonly GateName[]>
+  Record<GateResolverName, (ctx: ResolveGateSetCtx) => readonly ResolvedGate[]>
 > = Object.freeze({
   'verification-ladder': (ctx) =>
-    resolveVerificationPolicy(ctx.riskTier, ctx.boundaryTouching, ctx.config).sequence,
+    resolveVerificationPolicy(ctx.riskTier, ctx.boundaryTouching, ctx.config).sequence.map(
+      (gate): ResolvedGate => ({ family: 'ladder', gate }),
+    ),
   'plan-structure': () => {
     throw new Error("resolveGateSet: resolver 'plan-structure' is not wired yet (deferred to S3)");
   },
@@ -121,7 +177,7 @@ const GATE_RESOLVERS: Readonly<
  *             resolved project config for the verification overlay
  * @returns the ordered gate sequence, or `[]` for a kind with no gates (GATHER)
  */
-export function resolveGateSet(kind: PhaseKind, ctx: ResolveGateSetCtx): readonly GateName[] {
+export function resolveGateSet(kind: PhaseKind, ctx: ResolveGateSetCtx): readonly ResolvedGate[] {
   const gates = KIND_OBLIGATIONS[kind].gates;
   if (gates === null) {
     return [];
