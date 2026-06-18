@@ -557,7 +557,8 @@ export class DefaultHSMTransitionGuard implements HSMTransitionGuard {
           evt.type === 'transition' ||
           evt.type === 'cancel' ||
           evt.type === 'cleanup' ||
-          evt.type === 'phase.entered'
+          evt.type === 'phase.entered' ||
+          evt.type === 'phase.exited'
         ) {
           transitionSequence = Math.max(transitionSequence, appended.sequence);
         }

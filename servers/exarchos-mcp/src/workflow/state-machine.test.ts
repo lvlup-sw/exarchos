@@ -304,6 +304,46 @@ describe('executeTransition resolve-then-freeze (DR-13)', () => {
     // The obligation frozen at entry is a value snapshot — untouched.
     expect(frozen).toEqual([{ family: 'synthesis', gate: 'tests' }]);
   });
+
+  it('executeTransition_PhaseAdvance_AppendsPhaseExitedWithGateStatus', () => {
+    const hsm = getHSMDefinition('discovery');
+    const state = { phase: 'gathering', artifacts: { sources: ['a.md'] }, _events: [] };
+    const result = executeTransition(hsm, state, 'synthesizing');
+    expect(result.success).toBe(true);
+
+    // Advancing a phase appends exactly one phase.exited for the LEFT phase.
+    const exited = result.events.filter((e) => e.type === 'phase.exited');
+    expect(exited).toHaveLength(1);
+    const md = exited[0].metadata as Record<string, unknown>;
+    expect(md.phase).toBe('gathering');
+    // A forward advance (not a fix-cycle) means the phase's required gates passed.
+    expect(md.allRequiredGatesPassed).toBe(true);
+
+    // Ordering: exit the old phase before entering the new one.
+    const types = result.events.map((e) => e.type);
+    expect(types.indexOf('phase.exited')).toBeLessThan(types.indexOf('phase.entered'));
+
+    // The payload validates against the durable phase.exited schema.
+    const schema = EVENT_DATA_SCHEMAS['phase.exited'];
+    expect(schema?.safeParse(md).success).toBe(true);
+  });
+
+  it('executeTransition_FixCycle_PhaseExitedReportsGatesNotPassed', () => {
+    // review → delegate is a fix-cycle (feature HSM): required gates did NOT
+    // pass, so the phase loops back. phase.exited records that.
+    const hsm = getHSMDefinition('feature');
+    const state = {
+      phase: 'review',
+      reviews: { 'reviewer-a': { status: 'failed' } },
+      _events: [],
+    };
+    const result = executeTransition(hsm, state, 'delegate');
+    expect(result.success).toBe(true);
+    const exited = result.events.find((e) => e.type === 'phase.exited');
+    expect(exited).toBeDefined();
+    expect((exited?.metadata as Record<string, unknown>).phase).toBe('review');
+    expect((exited?.metadata as Record<string, unknown>).allRequiredGatesPassed).toBe(false);
+  });
 });
 
 // ─── Feature workflow merge-pending substate (T17 / DR-MO-1, DR-MO-2) ───────

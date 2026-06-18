@@ -901,19 +901,20 @@ describe('Integration', () => {
       );
       await handleSet({ featureId: 'consistency-test', phase: 'plan' }, stateDir, eventStore);
       events = await eventStore.query('consistency-test');
-      // DR-13 (#1546): the transition into the PLAN-kind 'plan' phase also
-      // freezes a phase.entered, so the transition contributes TWO events.
-      expect(events.length).toBe(4); // started + state.patched + transition + phase.entered
+      // DR-13 (#1546): a phase advance into the PLAN-kind 'plan' phase emits the
+      // resolve-then-freeze pair (phase.exited for the left phase + phase.entered
+      // for the new one), so the transition contributes THREE events.
+      expect(events.length).toBe(5); // started + state.patched + transition + phase.exited + phase.entered
 
       raw = JSON.parse(await fs.readFile(stateFile, 'utf-8'));
-      expect(raw._eventSequence).toBe(4);
+      expect(raw._eventSequence).toBe(5);
 
       // Checkpoint — T034 (DR-6) extends this action to also materialize the
       // rehydration projection and emit `workflow.checkpoint_written`, so the
       // event count advances by TWO, not one.
       await handleCheckpoint({ featureId: 'consistency-test', summary: 'Mid-plan' }, stateDir, eventStore);
       events = await eventStore.query('consistency-test');
-      expect(events.length).toBe(6); // + workflow.checkpoint + workflow.checkpoint_written
+      expect(events.length).toBe(7); // + workflow.checkpoint + workflow.checkpoint_written
 
       // Another phase transition (plan -> plan-review)
       await handleSet(
@@ -923,11 +924,11 @@ describe('Integration', () => {
       );
       await handleSet({ featureId: 'consistency-test', phase: 'plan-review' }, stateDir, eventStore);
       events = await eventStore.query('consistency-test');
-      // plan-review is also PLAN-kind, so its transition freezes a phase.entered.
-      expect(events.length).toBe(9); // + state.patched + transition + phase.entered
+      // plan-review is also PLAN-kind: another exit+enter freeze pair.
+      expect(events.length).toBe(11); // + state.patched + transition + phase.exited + phase.entered
 
       raw = JSON.parse(await fs.readFile(stateFile, 'utf-8'));
-      expect(raw._eventSequence).toBe(9);
+      expect(raw._eventSequence).toBe(11);
 
       // Reconcile should be idempotent (no changes)
       const result = await reconcileFromEvents(stateDir, 'consistency-test', eventStore);

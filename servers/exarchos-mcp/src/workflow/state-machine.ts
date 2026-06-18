@@ -823,6 +823,24 @@ export function executeTransition(
     });
   }
 
+  // ─── Resolve-then-freeze: phase.exited on advance (DR-13) ─────────
+  // Exiting `currentPhase` to advance to `targetPhase`. `allRequiredGatesPassed`
+  // is the aggregate gate status derived structurally from the HSM walk: a
+  // forward advance means the phase's required gates passed; a fix-cycle
+  // (backward loop) is precisely "required gates did NOT pass — revise". Pushed
+  // BEFORE the phase.entered freeze so the log/projection observe exit-then-enter
+  // ordering. Cancel/cleanup return earlier and never reach this advance path.
+  transitionEvents.push({
+    type: 'phase.exited',
+    from: currentPhase,
+    to: targetPhase,
+    trigger: 'execute-transition',
+    metadata: {
+      phase: currentPhase,
+      allRequiredGatesPassed: !transition.isFixCycle,
+    },
+  });
+
   // ─── Step 9.5: Phase-Kind Gate-Set Resolution (DR-10, the PDP) ─────
   // Resolve the target kind's gate-set NON-OPTIONALLY at this single boundary.
   // Only atomic targets carry a `kind`; compound/final targets (handled by the
