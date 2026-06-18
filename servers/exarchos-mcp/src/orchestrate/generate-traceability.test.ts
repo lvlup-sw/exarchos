@@ -87,6 +87,48 @@ describe('handleGenerateTraceability', () => {
     mockExistsSync.mockReturnValue(true);
   });
 
+  // ─── DR-N sections via **Implements:** annotations (issue #1544) ────────
+  describe('DR-N sections resolved via **Implements:** annotations (#1544)', () => {
+    it('marks a DR-N section Covered when a task implements it (agrees with provenance)', () => {
+      const design = `# Design
+
+### DR-1: First requirement
+Some prose.
+
+### DR-2: Second requirement
+More prose.
+`;
+      const plan = `# Plan
+
+### Task 1: Build the widget
+**Implements:** DR-1
+
+### Task 2: Add the API client
+**Implements:** DR-2
+`;
+      mockReadFileSync.mockReturnValueOnce(design).mockReturnValueOnce(plan);
+
+      const result = handleGenerateTraceability({
+        designFile: '/tmp/design.md',
+        planFile: '/tmp/plan.md',
+      });
+
+      expect(result.success).toBe(true);
+      const data = result.data as {
+        passed: boolean;
+        coveredCount: number;
+        uncoveredCount: number;
+        report: string;
+      };
+      // Title substring matching would have flagged both DR rows Uncovered;
+      // the **Implements:** annotation resolves them Covered, matching the
+      // authoritative check_provenance_chain (9/9-style) result.
+      expect(data.uncoveredCount).toBe(0);
+      expect(data.coveredCount).toBe(2);
+      expect(data.report).not.toContain('Uncovered');
+    });
+  });
+
   // ─── Covered sections ─────────────────────────────────────────────────
 
   describe('design with sections + plan with matching tasks', () => {
