@@ -93,7 +93,7 @@ import type { HandleScaffoldArgs } from './invariants/scaffold.js';
 import { handleAdd } from './invariants/add.js';
 import type { HandleAddArgs } from './invariants/add.js';
 import { realScaffoldDeps } from './invariants/fs-deps.js';
-import { applyLadderGateSeverity, resolveImplementMode } from './gate-utils.js';
+import { applyLadderGateSeverity, resolvePhaseMode } from './gate-utils.js';
 import { resolveWorkflowState } from './resolve-state.js';
 
 // ─── Action Router ──────────────────────────────────────────────────────────
@@ -241,7 +241,14 @@ function adaptLadderGate<T>(
     // resolves to `audit` (records the finding, never blocks); feature/debug/
     // refactor are `enforce`. The handler already emitted its `gate.executed`
     // finding above.
-    const mode = resolveImplementMode(workflowType);
+    // F2 (#1546): resolve through resolvePhaseMode — the kind-keyed
+    // generalisation that is now the single production SoT for phase graduation
+    // (it delegates to resolveImplementMode for IMPLEMENT, and pins
+    // PLAN/REVIEW/SYNTHESIZE to 'enforce'). This ladder-severity wrapper is an
+    // IMPLEMENT-kind boundary (ladder gates are IMPLEMENT obligations), so the
+    // kind is fixed; routing through resolvePhaseMode gives the generalised
+    // resolver a production consumer without altering behaviour.
+    const mode = resolvePhaseMode('IMPLEMENT', workflowType);
     return applyLadderGateSeverity(
       gateName,
       dimension,

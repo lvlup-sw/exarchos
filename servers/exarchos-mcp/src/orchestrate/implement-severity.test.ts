@@ -22,8 +22,10 @@ import { describe, it, expect } from 'vitest';
 import {
   applyLadderGateSeverity,
   resolveImplementMode,
+  resolvePhaseMode,
   IMPLEMENT_PHASE_MODE,
 } from './gate-utils.js';
+import type { PhaseKind } from '../workflow/phase-kind.js';
 import { DEFAULTS } from '../config/resolve.js';
 import type { ResolvedProjectConfig } from '../config/resolve.js';
 import { VERIFICATION_GATE_NAMES } from '../workflow/verification-policy.js';
@@ -215,5 +217,28 @@ describe('DR-6 implement-phase mode map', () => {
     // The map is a frozen DATA TABLE — adding a workflow type is a single-line
     // entry, never new control flow.
     expect(Object.isFrozen(IMPLEMENT_PHASE_MODE)).toBe(true);
+  });
+
+  it('ResolvePhaseMode_ProductionSoT_EquivalentForImplement_EnforceElsewhere', () => {
+    // F2 (#1546): the ladder-severity production consumer (composite.ts
+    // adaptWithEventStore) now resolves graduation through `resolvePhaseMode`,
+    // the kind-keyed generalisation, NOT `resolveImplementMode` directly. Lock
+    // the two contracts that make that a safe drop-in:
+    //   (a) for IMPLEMENT, resolvePhaseMode is byte-identical to the consumer's
+    //       previous resolveImplementMode call across every workflow type;
+    const workflowTypes = ['oneshot', 'feature', 'debug', 'refactor', 'unknown-future-type'];
+    for (const wt of workflowTypes) {
+      expect(resolvePhaseMode('IMPLEMENT', wt)).toBe(resolveImplementMode(wt));
+    }
+    //   (b) every non-IMPLEMENT kind pins to 'enforce' (the migrated
+    //       PLAN/REVIEW/SYNTHESIZE gates already blocked; GATHER carries no
+    //       gates) so generalising the consumer can never silently downgrade a
+    //       non-IMPLEMENT phase.
+    const nonImplement: readonly PhaseKind[] = ['PLAN', 'REVIEW', 'SYNTHESIZE', 'GATHER'];
+    for (const kind of nonImplement) {
+      for (const wt of workflowTypes) {
+        expect(resolvePhaseMode(kind, wt)).toBe('enforce');
+      }
+    }
   });
 });
