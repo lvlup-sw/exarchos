@@ -12,7 +12,7 @@
 
 import { resolveVerificationPolicy } from './verification-policy-resolver.js';
 import { type GateName, type RiskTier } from './verification-policy.js';
-import type { ReviewDimension } from './review-contract.js';
+import { getRequiredReviews, type ReviewDimension } from './review-contract.js';
 import type { ResolvedProjectConfig } from '../config/resolve.js';
 
 /**
@@ -134,6 +134,14 @@ export interface ResolveGateSetCtx {
   readonly riskTier: RiskTier;
   readonly boundaryTouching: boolean;
   readonly config?: ResolvedProjectConfig;
+  /**
+   * The workflow type of the phase being resolved (e.g. `'feature'`). The
+   * REVIEW resolver keys its dimension roster off this (review dimensions vary
+   * by workflow type — INV-6 binds by *kind*, the resolver output may depend on
+   * ctx, exactly as the IMPLEMENT ladder depends on `riskTier`). Absent ⇒ the
+   * review roster falls back to the empty base, never throws.
+   */
+  readonly workflowType?: string;
 }
 
 /**
@@ -171,9 +179,16 @@ const GATE_RESOLVERS: Readonly<
         'generate_traceability',
       ] as const
     ).map((gate): ResolvedGate => ({ family: 'plan', gate })),
-  'review-contract': () => {
-    throw new Error("resolveGateSet: resolver 'review-contract' is not wired yet (deferred to S3)");
-  },
+  // The review-contract gate-set (DR-9). Resolves verbatim from
+  // `getRequiredReviews` so the dimension vocabulary stays owned by
+  // `review-contract.ts` (the single source of truth, pinned by the
+  // `MatchesReviewContractSoT` test) — never re-listed here. The roster is the
+  // workflow-type base plus tier-coupled dimensions (e.g. `mutation-adequacy`
+  // at HIGH tier), keyed off the resolution `ctx`.
+  'review-contract': (ctx) =>
+    getRequiredReviews(ctx.workflowType ?? '', ctx.riskTier).map(
+      (gate): ResolvedGate => ({ family: 'review', gate }),
+    ),
   'synthesis-readiness': () => {
     throw new Error(
       "resolveGateSet: resolver 'synthesis-readiness' is not wired yet (deferred to S3)",

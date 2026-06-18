@@ -4,6 +4,7 @@ import type { ResolvedGate } from './phase-kind.js';
 import { resolveVerificationPolicy } from './verification-policy-resolver.js';
 import type { RiskTier } from './verification-policy.js';
 import { TOOL_REGISTRY } from '../registry.js';
+import { getRequiredReviews } from './review-contract.js';
 
 const PLAN_PHASE_NAMES = ['plan', 'plan-review', 'overhaul-plan'] as const;
 const setEqualsNames = (set: ReadonlySet<string>, names: readonly string[]): boolean =>
@@ -54,9 +55,9 @@ describe('resolveGateSet', () => {
   });
 
   it('ResolveGateSet_InertResolver_ThrowsNotYetWired', () => {
-    // PLAN wired in Task 2; REVIEW/SYNTHESIZE wired in Tasks 3/4. Narrowed as
-    // each lands so the throw assertion only covers still-inert resolvers.
-    for (const kind of ['REVIEW', 'SYNTHESIZE'] as const) {
+    // PLAN wired in Task 2, REVIEW in Task 3; SYNTHESIZE wired in Task 4.
+    // Narrowed as each lands so the throw only covers still-inert resolvers.
+    for (const kind of ['SYNTHESIZE'] as const) {
       expect(() => resolveGateSet(kind, { riskTier: 'low', boundaryTouching: false })).toThrow(
         /not wired|S3/,
       );
@@ -138,5 +139,44 @@ describe('plan-structure resolver (DR-9)', () => {
     );
     const resolverPlanGates = new Set(resolveGateSet('PLAN', ctx).map((g) => g.gate));
     expect(resolverPlanGates).toEqual(registryPlanGates);
+  });
+});
+
+// ─── DR-9: review-contract resolver ─────────────────────────────────────────
+describe('review-contract resolver (DR-9)', () => {
+  it('ResolveGateSet_ReviewKindFeatureLowTier_ReturnsBaseDimensions', () => {
+    const resolved = resolveGateSet('REVIEW', {
+      riskTier: 'low',
+      boundaryTouching: false,
+      workflowType: 'feature',
+    });
+    expect(resolved.every((g) => g.family === 'review')).toBe(true);
+    expect(resolved.map((g) => g.gate)).toEqual(['spec-review', 'quality-review']);
+  });
+
+  it('ResolveGateSet_ReviewKindFeatureHighTier_AppendsMutationAdequacy', () => {
+    const resolved = resolveGateSet('REVIEW', {
+      riskTier: 'high',
+      boundaryTouching: false,
+      workflowType: 'feature',
+    });
+    expect(resolved.map((g) => g.gate)).toEqual([
+      'spec-review',
+      'quality-review',
+      'mutation-adequacy',
+    ]);
+  });
+
+  it('ResolveGateSet_ReviewKind_MatchesReviewContractSoT', () => {
+    // SoT cross-check: the resolver must equal getRequiredReviews verbatim — the
+    // dimension vocabulary stays owned by review-contract.ts, never re-listed.
+    for (const riskTier of ['low', 'medium', 'high'] as const) {
+      const resolved = resolveGateSet('REVIEW', {
+        riskTier,
+        boundaryTouching: false,
+        workflowType: 'feature',
+      }).map((g) => g.gate);
+      expect(resolved).toEqual(getRequiredReviews('feature', riskTier));
+    }
   });
 });
