@@ -878,7 +878,16 @@ export function executeTransition(
         errorMessage: `Gate-set resolution failed for ${targetState.kind} phase '${targetPhase}': ${obligation.reason}`,
       };
     }
-    resolvedGates = obligation.gates;
+    // F3 (#1546): per-phase kinds record their FULL resolved sequence; IMPLEMENT
+    // defers its per-task sequences to the wave stamp (the design's two documented
+    // resolution granularities), so it records NO phase-level sequence. Emptied
+    // HERE — at the single source — so the frozen `phase.entered` event AND the
+    // transition-result return field stay consistent: never the low-risk,
+    // ctx-defaulted ladder a replay/left-fold consumer could mistake for the
+    // authoritative per-task gate-set. The obligation was still resolved above
+    // (the fail-closed check already ran), so IMPLEMENT blocking semantics are
+    // intact — only the recorded sequence is deferred.
+    resolvedGates = targetState.kind === 'IMPLEMENT' ? [] : obligation.gates;
 
     // ─── Resolve-THEN-FREEZE (DR-13, DR-10 freeze half) ───────────────
     // Append exactly one `phase.entered` carrying the obligation just resolved.
@@ -896,17 +905,11 @@ export function executeTransition(
         phase: targetPhase,
         kind: targetState.kind,
         resolver: KIND_OBLIGATIONS[targetState.kind].gates?.resolver ?? null,
-        // F3 (#1546): per-phase kinds freeze their FULL resolved sequence here;
-        // IMPLEMENT defers its per-task sequences to the wave stamp (the design's
-        // two documented resolution granularities). So an IMPLEMENT boundary
-        // records NO phase-level sequence — an empty array, never the phase-
-        // default (low-risk, ctx-defaulted) ladder, which a replay/left-fold
-        // consumer would otherwise mistake for the authoritative per-task gate-
-        // set. resolver / posture / mode stay frozen for IMPLEMENT regardless.
-        resolvedGates:
-          targetState.kind === 'IMPLEMENT'
-            ? []
-            : resolvedGates.map((g) => ({ family: g.family, gate: g.gate })),
+        // Value-snapshot the frozen sequence — already emptied for IMPLEMENT at
+        // the single source above (F3 #1546): the FULL sequence for per-phase
+        // kinds, [] for IMPLEMENT (per-task sequences defer to the wave stamp).
+        // resolver / posture / mode stay frozen for IMPLEMENT regardless.
+        resolvedGates: resolvedGates.map((g) => ({ family: g.family, gate: g.gate })),
         // DR-14: freeze the kind's POLA posture (trust tier). The capability
         // bundle (capabilities/resolver.ts:mintCapabilitiesForKind) is derived
         // from this — a read-only kind's bundle can never hold fs:write.

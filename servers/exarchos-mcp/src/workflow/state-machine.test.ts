@@ -323,6 +323,9 @@ describe('executeTransition resolve-then-freeze (DR-13)', () => {
     expect(md.kind).toBe('IMPLEMENT');
     // Deferred: no phase-level sequence frozen for IMPLEMENT.
     expect(md.resolvedGates).toEqual([]);
+    // The transition-result return field agrees with the frozen event — no
+    // surface divergence (both defer IMPLEMENT's per-task sequence).
+    expect(result.resolvedGates).toEqual([]);
     // resolver / posture / mode ARE still frozen.
     expect(md.resolver).toBe(KIND_OBLIGATIONS.IMPLEMENT.gates?.resolver ?? null);
     expect(md.posture).toBe(KIND_OBLIGATIONS.IMPLEMENT.posture);
