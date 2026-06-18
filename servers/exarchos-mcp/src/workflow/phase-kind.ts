@@ -54,10 +54,11 @@ export type GateResolverName =
 // `GateName` namespace. The `family` tag makes downstream dispatch exhaustively
 // checkable (a missing arm is a compile error via the `assertNever` helper).
 
-/** Plan-structure gate action names (PLAN kind). */
+/** Plan-structure gate action names (PLAN kind) — the registry `PLAN_PHASES` set. */
 export type PlanGateName =
   | 'check_task_decomposition'
   | 'check_plan_coverage'
+  | 'spec_coverage_check'
   | 'check_provenance_chain'
   | 'generate_traceability';
 
@@ -152,9 +153,24 @@ const GATE_RESOLVERS: Readonly<
     resolveVerificationPolicy(ctx.riskTier, ctx.boundaryTouching, ctx.config).sequence.map(
       (gate): ResolvedGate => ({ family: 'ladder', gate }),
     ),
-  'plan-structure': () => {
-    throw new Error("resolveGateSet: resolver 'plan-structure' is not wired yet (deferred to S3)");
-  },
+  // The plan-structure gate-set (DR-9), in plan-validation order: decompose →
+  // coverage → provenance → traceability. These four action names are exactly
+  // the registry's `PLAN_PHASES`-bound gates (`registry.ts`); the binding is
+  // pinned by `ResolveGateSet_PlanKind_MatchesRegistryPlanPhasesBinding` so this
+  // explicit list (no heavy registry import into this foundational module) can
+  // never drift from the registry source of truth. Membership is the obligation;
+  // per-gate severity (`generate_traceability` is advisory) is the resolved
+  // *mode*, handled at the severity binding, not by excluding it from the set.
+  'plan-structure': () =>
+    (
+      [
+        'check_task_decomposition',
+        'check_plan_coverage',
+        'spec_coverage_check',
+        'check_provenance_chain',
+        'generate_traceability',
+      ] as const
+    ).map((gate): ResolvedGate => ({ family: 'plan', gate })),
   'review-contract': () => {
     throw new Error("resolveGateSet: resolver 'review-contract' is not wired yet (deferred to S3)");
   },

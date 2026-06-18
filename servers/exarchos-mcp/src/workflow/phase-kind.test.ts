@@ -3,6 +3,11 @@ import { KIND_OBLIGATIONS, resolveGateSet, ladderGateNames } from './phase-kind.
 import type { ResolvedGate } from './phase-kind.js';
 import { resolveVerificationPolicy } from './verification-policy-resolver.js';
 import type { RiskTier } from './verification-policy.js';
+import { TOOL_REGISTRY } from '../registry.js';
+
+const PLAN_PHASE_NAMES = ['plan', 'plan-review', 'overhaul-plan'] as const;
+const setEqualsNames = (set: ReadonlySet<string>, names: readonly string[]): boolean =>
+  set.size === names.length && names.every((n) => set.has(n));
 
 describe('KIND_OBLIGATIONS', () => {
   it('KindObligations_EveryKind_HasARow', () => {
@@ -49,7 +54,9 @@ describe('resolveGateSet', () => {
   });
 
   it('ResolveGateSet_InertResolver_ThrowsNotYetWired', () => {
-    for (const kind of ['PLAN', 'REVIEW', 'SYNTHESIZE'] as const) {
+    // PLAN wired in Task 2; REVIEW/SYNTHESIZE wired in Tasks 3/4. Narrowed as
+    // each lands so the throw assertion only covers still-inert resolvers.
+    for (const kind of ['REVIEW', 'SYNTHESIZE'] as const) {
       expect(() => resolveGateSet(kind, { riskTier: 'low', boundaryTouching: false })).toThrow(
         /not wired|S3/,
       );
@@ -101,5 +108,35 @@ describe('ResolvedGate (DR-8)', () => {
     expect(ladderGateNames(resolved)).toEqual(
       resolveVerificationPolicy('medium', false).sequence,
     );
+  });
+});
+
+// ─── DR-9: plan-structure resolver ──────────────────────────────────────────
+describe('plan-structure resolver (DR-9)', () => {
+  const ctx = { riskTier: 'low', boundaryTouching: false } as const;
+
+  it('ResolveGateSet_PlanKind_ReturnsPlanPhaseGateSet', () => {
+    const resolved = resolveGateSet('PLAN', ctx);
+    expect(resolved.every((g) => g.family === 'plan')).toBe(true);
+    expect(resolved.map((g) => g.gate)).toEqual([
+      'check_task_decomposition',
+      'check_plan_coverage',
+      'spec_coverage_check',
+      'check_provenance_chain',
+      'generate_traceability',
+    ]);
+  });
+
+  it('ResolveGateSet_PlanKind_MatchesRegistryPlanPhasesBinding', () => {
+    // SoT cross-check: the resolver's required gate set must equal exactly the
+    // registry actions bound to the PLAN_PHASES set — no new list minted, no
+    // drift from the registry binding.
+    const registryPlanGates = new Set(
+      TOOL_REGISTRY.flatMap((t) => t.actions)
+        .filter((a) => setEqualsNames(a.phases, PLAN_PHASE_NAMES))
+        .map((a) => a.name),
+    );
+    const resolverPlanGates = new Set(resolveGateSet('PLAN', ctx).map((g) => g.gate));
+    expect(resolverPlanGates).toEqual(registryPlanGates);
   });
 });
