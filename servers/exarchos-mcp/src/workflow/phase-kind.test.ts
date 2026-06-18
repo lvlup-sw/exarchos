@@ -10,6 +10,14 @@ import { resolveVerificationPolicy } from './verification-policy-resolver.js';
 import type { RiskTier } from './verification-policy.js';
 import { TOOL_REGISTRY } from '../registry.js';
 import { getRequiredReviews } from './review-contract.js';
+import type { PhaseKind } from './phase-kind.js';
+import {
+  createFeatureHSM,
+  createDebugHSM,
+  createRefactorHSM,
+  createOneshotHSM,
+  createDiscoveryHSM,
+} from './hsm-definitions.js';
 
 const PLAN_PHASE_NAMES = ['plan', 'plan-review', 'overhaul-plan'] as const;
 const setEqualsNames = (set: ReadonlySet<string>, names: readonly string[]): boolean =>
@@ -213,5 +221,54 @@ describe('synthesis-readiness resolver (DR-9)', () => {
     const resolved = resolveGateSet('SYNTHESIZE', { riskTier: 'low', boundaryTouching: false });
     expect(resolved.every((g) => g.family === 'synthesis')).toBe(true);
     expect(resolved.map((g) => g.gate)).toEqual(['task-completion', 'tests', 'typecheck', 'stack']);
+  });
+});
+
+// ─── DR-9: INV-6 cross-workflow-type acceptance (the central win) ────────────
+describe('INV-6 cross-workflow-type acceptance', () => {
+  const ALL_HSMS = [
+    createFeatureHSM(),
+    createDebugHSM(),
+    createRefactorHSM(),
+    createOneshotHSM(),
+    createDiscoveryHSM(),
+  ];
+
+  it('PlanKind_DebugRcaAndFeaturePlanReview_ResolveIdenticalGateSet', () => {
+    // Binding is by KIND, not by (workflowType:phase): a debug `rca` phase and a
+    // feature `plan-review` phase are both kind PLAN and MUST resolve the same set.
+    expect((createFeatureHSM().states['plan-review'] as { kind: PhaseKind }).kind).toBe('PLAN');
+    expect((createDebugHSM().states['rca'] as { kind: PhaseKind }).kind).toBe('PLAN');
+    const featurePlan = resolveGateSet('PLAN', {
+      riskTier: 'medium',
+      boundaryTouching: false,
+      workflowType: 'feature',
+    });
+    const debugPlan = resolveGateSet('PLAN', {
+      riskTier: 'medium',
+      boundaryTouching: false,
+      workflowType: 'debug',
+    });
+    expect(featurePlan).toEqual(debugPlan);
+  });
+
+  it('EveryAtomicPhase_AcrossAllWorkflowTypes_ResolvesWithoutThrowing', () => {
+    // Reachability: every kind-tagged phase across every workflow type resolves
+    // its obligation — no inert resolver remains on any reachable phase.
+    for (const hsm of ALL_HSMS) {
+      for (const state of Object.values(hsm.states)) {
+        if (state.type === 'atomic') {
+          expect(
+            () =>
+              resolveGateSet(state.kind, {
+                riskTier: 'high',
+                boundaryTouching: true,
+                workflowType: hsm.id,
+              }),
+            `${hsm.id}:${state.id} (${state.kind})`,
+          ).not.toThrow();
+        }
+      }
+    }
   });
 });
