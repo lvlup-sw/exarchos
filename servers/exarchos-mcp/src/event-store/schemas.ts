@@ -137,6 +137,13 @@ export const EventTypes = [
   // closed) and this durable event records why, so an operator sees the
   // blocked phase instead of a silently-failed-open dispatch.
   'phase.blocked',
+  // Phase-kind binding S4 (DR-13, epic #1546) — resolve-then-freeze. The
+  // executeTransition boundary appends `phase.entered` carrying the obligation
+  // it resolved+froze for the target kind, and `phase.exited` on advance with
+  // the aggregate gate status. Replaying these left-folds the same obligation a
+  // live HSM observed (a later policy edit cannot rewrite a frozen phase).
+  'phase.entered',
+  'phase.exited',
   'migration.legacy_jsonl_imported',
   'migration.completed',
   'migration.failed',
@@ -503,6 +510,12 @@ export const EVENT_EMISSION_REGISTRY: Record<EventType, EventEmissionSource> = {
   // auto — emitted by the wave-dispatch boundary (DR-7, epic #1546) when the
   // IMPLEMENT-kind gate-set resolver throws; the dispatch fails closed.
   'phase.blocked': 'auto',
+
+  // auto — appended by the executeTransition boundary (DR-13, epic #1546) as
+  // resolve-then-freeze: `phase.entered` freezes the resolved obligation,
+  // `phase.exited` records the aggregate gate status on advance.
+  'phase.entered': 'auto',
+  'phase.exited': 'auto',
 
   // auto — emitted by the JSONL→SQLite migration importer (#1259 T04 / DR-9).
   // Per-file completion event during the import; the `migration.completed`
@@ -1811,6 +1824,66 @@ export const PhaseBlockedData = z.object({
 });
 
 /**
+ * phase.entered / phase.exited — resolve-then-freeze obligation record
+ * (DR-13, epic #1546).
+ *
+ * `executeTransition` resolves the target kind's gate-set at the phase boundary
+ * (DR-10) and FREEZES it by appending exactly one `phase.entered` carrying the
+ * resolved obligation: the dispatching `resolver` name, the resolved
+ * `resolvedGates` sequence, the `policySource` (built-in policy vs a
+ * `.exarchos.yml` verification overlay), and the resolved `mode`. Replaying the
+ * event log left-folds these into the same obligation a live HSM observed — a
+ * later policy edit cannot retroactively change an in-flight or completed phase.
+ * `phase.exited` is appended on phase advance with the aggregate gate status.
+ *
+ * `kind` reuses {@link PhaseBlockedKindSchema} (the inlined PhaseKind union,
+ * drift-guarded against `KIND_OBLIGATIONS`). `resolver` is null for a kind with
+ * no gates (GATHER). The per-family gate vocabulary stays owned by
+ * `phase-kind.ts` / `review-contract.ts`, so each resolved `gate` is carried as
+ * an opaque string at this vocabulary-light event-store layer; only the
+ * four-member `family` discriminant is pinned (drift-guarded against the
+ * `ResolvedGate` union in the schemas test).
+ */
+export const PhaseEnteredResolverSchema = z.enum([
+  'verification-ladder',
+  'plan-structure',
+  'review-contract',
+  'synthesis-readiness',
+]);
+
+export const ResolvedGateFamilySchema = z.enum(['ladder', 'plan', 'review', 'synthesis']);
+
+export const PhaseEnteredData = z.object({
+  phase: z.string().min(1).describe('Lifecycle phase entered'),
+  kind: PhaseBlockedKindSchema.describe('Phase kind whose obligation was resolved and frozen'),
+  resolver: PhaseEnteredResolverSchema.nullable().describe(
+    'Gate-resolver name that produced the obligation; null for a kind with no gates (GATHER)',
+  ),
+  resolvedGates: z
+    .array(
+      z.object({
+        family: ResolvedGateFamilySchema.describe('ResolvedGate discriminant family'),
+        gate: z
+          .string()
+          .min(1)
+          .describe('Resolved gate identifier (vocabulary owned by phase-kind.ts / review-contract.ts)'),
+      }),
+    )
+    .describe('The frozen ordered gate-set the phase must satisfy'),
+  policySource: z
+    .enum(['builtin', 'config'])
+    .describe('Whether the obligation came from built-in policy or a .exarchos.yml overlay'),
+  mode: z.enum(['audit', 'enforce']).describe('Resolved enforcement mode for the phase gate-set'),
+});
+
+export const PhaseExitedData = z.object({
+  phase: z.string().min(1).describe('Lifecycle phase exited'),
+  allRequiredGatesPassed: z
+    .boolean()
+    .describe('Aggregate status: did every required (enforce-mode) gate pass before advance'),
+});
+
+/**
  * migration.legacy_jsonl_imported — per-file completion event from the
  * JSONL→SQLite migration importer (T04, DR-9 / DR-10).
  *
@@ -2312,6 +2385,8 @@ export const EVENT_DATA_SCHEMAS: Partial<Record<EventType, z.ZodSchema>> = {
   'spec.legacy_capabilities_array': SpecLegacyCapabilitiesArrayData,
   'phase.contract_missing': PhaseContractMissingData,
   'phase.blocked': PhaseBlockedData,
+  'phase.entered': PhaseEnteredData,
+  'phase.exited': PhaseExitedData,
   'migration.legacy_jsonl_imported': MigrationLegacyJsonlImportedData,
   'migration.completed': MigrationCompletedData,
   'migration.failed': MigrationFailedData,
@@ -2437,6 +2512,8 @@ export type HsmDeprecatedActionInvoked = z.infer<typeof HsmDeprecatedActionInvok
 export type SpecLegacyCapabilitiesArray = z.infer<typeof SpecLegacyCapabilitiesArrayData>;
 export type PhaseContractMissing = z.infer<typeof PhaseContractMissingData>;
 export type PhaseBlocked = z.infer<typeof PhaseBlockedData>;
+export type PhaseEntered = z.infer<typeof PhaseEnteredData>;
+export type PhaseExited = z.infer<typeof PhaseExitedData>;
 export type MigrationLegacyJsonlImported = z.infer<typeof MigrationLegacyJsonlImportedData>;
 export type MigrationCompleted = z.infer<typeof MigrationCompletedData>;
 export type MigrationFailed = z.infer<typeof MigrationFailedData>;

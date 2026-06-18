@@ -549,7 +549,11 @@ describe('EventTypes', () => {
     //   fail-closed at the gate-set boundary; emitted by the wave-dispatch
     //   boundary when the IMPLEMENT-kind gate-set resolver throws, refusing the
     //   dispatch instead of failing open).
-    expect(EventTypes).toHaveLength(123);
+    // Bumped 123 → 125: phase.entered + phase.exited (phase-kind binding DR-13,
+    //   epic #1546 — resolve-then-freeze; the executeTransition boundary freezes
+    //   the resolved obligation as `phase.entered` and records the aggregate
+    //   gate status as `phase.exited` on advance).
+    expect(EventTypes).toHaveLength(125);
     expect(EventTypes).toContain('onboard.requested');
     expect(EventTypes).toContain('onboard.executed');
     expect(EventTypes).toContain('mutation.executing_started');
@@ -557,6 +561,80 @@ describe('EventTypes', () => {
     expect(EventTypes).toContain('phase.blocked');
     // Retirement guard: init.executed removed in DR-5 (task 018).
     expect(EventTypes as readonly string[]).not.toContain('init.executed');
+  });
+
+  it('eventSchemas_PhaseEnteredExited_ValidateAndRegister', () => {
+    // Phase-kind binding S4 (DR-13, epic #1546): resolve-then-freeze records the
+    // resolved obligation as a durable `phase.entered` event; `phase.exited`
+    // records the aggregate gate outcome on phase advance. Both are emitted by
+    // the runtime at the executeTransition boundary → 'auto' classification
+    // (mirrors pr.create.requested / pr.create.executed registration).
+    expect(EventTypes).toContain('phase.entered');
+    expect(EventTypes).toContain('phase.exited');
+    expect(EVENT_EMISSION_REGISTRY['phase.entered']).toBe('auto');
+    expect(EVENT_EMISSION_REGISTRY['phase.exited']).toBe('auto');
+
+    const enteredSchema = EVENT_DATA_SCHEMAS['phase.entered'];
+    const exitedSchema = EVENT_DATA_SCHEMAS['phase.exited'];
+    expect(enteredSchema).toBeDefined();
+    expect(exitedSchema).toBeDefined();
+
+    // phase.entered carries the frozen obligation (resolver + resolved gate-set
+    // + policy provenance + resolved mode).
+    expect(
+      enteredSchema?.safeParse({
+        phase: 'implement',
+        kind: 'IMPLEMENT',
+        resolver: 'verification-ladder',
+        resolvedGates: [{ family: 'ladder', gate: 'check_static_analysis' }],
+        policySource: 'builtin',
+        mode: 'enforce',
+      }).success,
+    ).toBe(true);
+
+    // A GATHER phase carries no gates: null resolver + empty obligation.
+    expect(
+      enteredSchema?.safeParse({
+        phase: 'gather',
+        kind: 'GATHER',
+        resolver: null,
+        resolvedGates: [],
+        policySource: 'builtin',
+        mode: 'enforce',
+      }).success,
+    ).toBe(true);
+
+    // Unknown policySource is rejected at the persisted-event boundary rather
+    // than laundered onto the durable log.
+    expect(
+      enteredSchema?.safeParse({
+        phase: 'plan',
+        kind: 'PLAN',
+        resolver: 'plan-structure',
+        resolvedGates: [],
+        policySource: 'whoknows',
+        mode: 'enforce',
+      }).success,
+    ).toBe(false);
+
+    // An unknown ResolvedGate family is rejected (the four-family discriminant
+    // is pinned to phase-kind.ts's ResolvedGate union by a drift-guard test).
+    expect(
+      enteredSchema?.safeParse({
+        phase: 'review',
+        kind: 'REVIEW',
+        resolver: 'review-contract',
+        resolvedGates: [{ family: 'bogus', gate: 'x' }],
+        policySource: 'builtin',
+        mode: 'enforce',
+      }).success,
+    ).toBe(false);
+
+    // phase.exited carries the aggregate required-gate status (non-optional).
+    expect(
+      exitedSchema?.safeParse({ phase: 'implement', allRequiredGatesPassed: true }).success,
+    ).toBe(true);
+    expect(exitedSchema?.safeParse({ phase: 'implement' }).success).toBe(false);
   });
 
   it('EventTypes_IncludesElicitation', () => {
