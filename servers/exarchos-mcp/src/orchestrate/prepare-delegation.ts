@@ -53,6 +53,12 @@ import { globToRegExp } from '../architecture/glob-to-regexp.js';
 import type { GateName } from '../workflow/verification-policy.js';
 import { resolveGateSet, ladderGateNames } from '../workflow/phase-kind.js';
 import type { PhaseKind } from '../workflow/phase-kind.js';
+import {
+  mintCapabilitiesForKind,
+  requireMutationCapabilities,
+  type RuntimeHandshake,
+} from '../capabilities/resolver.js';
+import type { Capability } from '../agents/capabilities.js';
 
 // ─── Result Interface ────────────────────────────────────────────────────────
 
@@ -440,8 +446,53 @@ export function classifyTask(
 // boundary). The kind is surfaced on the result so every IMPLEMENT-kind phase
 // boundary that adopts this wrapper records the same diagnostic shape.
 
-/** The phase kind bound to the wave-dispatch boundary. */
-const DISPATCH_PHASE_KIND: PhaseKind = 'IMPLEMENT';
+/**
+ * The phase kind bound to the wave-dispatch boundary.
+ *
+ * `satisfies` (not a `: PhaseKind` annotation) preserves the `'IMPLEMENT'`
+ * LITERAL type while still rejecting a typo at compile time. The literal is
+ * load-bearing for DR-14: `mintCapabilitiesForKind(DISPATCH_PHASE_KIND)` narrows
+ * to the exact posture, so `requireMutationCapabilities` in
+ * {@link assertDispatchMutationCapabilities} compile-REJECTS the bundle the day
+ * this is ever pointed at a read-only kind — worktree mutation is
+ * unrepresentable from a read-only dispatch phase (INV-11, by construction).
+ */
+const DISPATCH_PHASE_KIND = 'IMPLEMENT' satisfies PhaseKind;
+
+/**
+ * DR-14 / INV-11 (#1546): assert the dispatch phase kind grants mutation,
+ * via the POLA capability bundle, before authorizing a wave of mutating-agent
+ * (scaffolder/implementer) tasks.
+ *
+ * The wave-dispatch boundary is the production point where mutation authority is
+ * handed to a subagent — the "central enforcement point" the resolver map
+ * lacked. `phase.entered` freezes the kind's `posture` (the serializable seed);
+ * here the bundle is MINTED from that posture and REQUIRED to carry mutation.
+ * Two layers of enforcement:
+ *   - compile-time: `requireMutationCapabilities` REJECTS a read-only bundle, so
+ *     `DISPATCH_PHASE_KIND` can never silently become a read-only posture —
+ *     worktree mutation is unrepresentable from a read-only phase (DR-14).
+ *   - runtime: a handshake `deny` that revokes `fs:write` (e.g. a sandboxed
+ *     client) yields a bundle without the mutation token; we fail the dispatch
+ *     CLOSED rather than dispatch an agent that cannot write its worktree.
+ *
+ * Pure (the default handshake resolves the built-in posture table; an injected
+ * handshake is for the runtime-deny path). Throws on a revoked mutation token;
+ * the wave-dispatch caller folds the throw into a `phase.blocked` diagnostic.
+ */
+export function assertDispatchMutationCapabilities(
+  handshake: RuntimeHandshake = {},
+): ReadonlySet<Capability> {
+  const caps = requireMutationCapabilities(
+    mintCapabilitiesForKind(DISPATCH_PHASE_KIND, handshake),
+  );
+  if (!caps.has('fs:write')) {
+    throw new Error(
+      `dispatch capability check failed: ${DISPATCH_PHASE_KIND} posture resolved without fs:write — the runtime handshake revoked the worktree-mutation token`,
+    );
+  }
+  return caps;
+}
 
 /** Stable error code for a fail-closed gate-set boundary block. */
 export const PHASE_BLOCKED_CODE = 'PHASE_BLOCKED';
@@ -491,6 +542,11 @@ export function classifyTasksFailClosed(
   phase = 'delegate',
 ): ClassifyTasksResult {
   try {
+    // DR-14 (#1546): the dispatch kind must grant mutation before a wave of
+    // mutating-agent tasks is classified. Fails CLOSED into the same
+    // PhaseBlockedInfo path a resolver throw uses (a revoked fs:write token →
+    // blocked, never an agent dispatched without write authority).
+    assertDispatchMutationCapabilities();
     return {
       ok: true,
       classifications: tasks.map(t => classifyTask(t, agentConfig, config)),

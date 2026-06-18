@@ -69,6 +69,8 @@ import { emitGateEvent } from './gate-utils.js';
 import {
   handlePrepareDelegation,
   classifyTask,
+  classifyTasksFailClosed,
+  assertDispatchMutationCapabilities,
   computeScopedWorktrees,
   deriveRiskTier,
   deriveBoundaryTouching,
@@ -2382,5 +2384,33 @@ describe('deriveBoundaryTouching', () => {
   it('DeriveBoundaryTouching_BoundaryGlobsExported_NonEmpty', () => {
     expect(Array.isArray(BOUNDARY_GLOBS)).toBe(true);
     expect(BOUNDARY_GLOBS.length).toBeGreaterThan(0);
+  });
+});
+
+describe('DR-14 dispatch-boundary capability enforcement (#1546)', () => {
+  it('AssertDispatchMutationCapabilities_DefaultHandshake_GrantsFsWrite', () => {
+    // The dispatch kind (IMPLEMENT / task-isolated) mints a POLA bundle that
+    // carries fs:write — mintCapabilitiesForKind is invoked in PRODUCTION here,
+    // not only in its own unit test (the review F1 gap).
+    const caps = assertDispatchMutationCapabilities();
+    expect(caps.has('fs:write')).toBe(true);
+    expect(caps.has('isolation:worktree')).toBe(true);
+  });
+
+  it('AssertDispatchMutationCapabilities_HandshakeDeniesFsWrite_FailsClosed', () => {
+    // Runtime fail-closed: a handshake that revokes the worktree-mutation token
+    // (e.g. a sandboxed client) yields a bundle without fs:write — the dispatch
+    // boundary throws rather than dispatch an agent that cannot write.
+    expect(() =>
+      assertDispatchMutationCapabilities({ deny: ['fs:write'] }),
+    ).toThrow(/fs:write/);
+  });
+
+  it('ClassifyTasksFailClosed_HappyPath_StillClassifies', () => {
+    // Regression: the capability assertion does not break the ordinary
+    // built-in-posture dispatch path (IMPLEMENT grants mutation).
+    const result = classifyTasksFailClosed([]);
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.classifications).toEqual([]);
   });
 });
