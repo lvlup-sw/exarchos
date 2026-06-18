@@ -189,11 +189,14 @@ const GATE_RESOLVERS: Readonly<
     getRequiredReviews(ctx.workflowType ?? '', ctx.riskTier).map(
       (gate): ResolvedGate => ({ family: 'review', gate }),
     ),
-  'synthesis-readiness': () => {
-    throw new Error(
-      "resolveGateSet: resolver 'synthesis-readiness' is not wired yet (deferred to S3)",
-    );
-  },
+  // The synthesis-readiness gate-set (DR-9): the four `prepare_synthesis` legs
+  // in evaluation order — task completion gates the build legs (tests, typecheck,
+  // stack). Readiness derivation (which source the task-completion leg folds) is
+  // owned by `prepare-synthesis.ts`; this resolver names the obligation order.
+  'synthesis-readiness': () =>
+    (['task-completion', 'tests', 'typecheck', 'stack'] as const).map(
+      (gate): ResolvedGate => ({ family: 'synthesis', gate }),
+    ),
 });
 
 /**

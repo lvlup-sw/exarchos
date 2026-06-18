@@ -54,13 +54,13 @@ describe('resolveGateSet', () => {
     expect(resolveGateSet('GATHER', { riskTier: 'low', boundaryTouching: false })).toEqual([]);
   });
 
-  it('ResolveGateSet_InertResolver_ThrowsNotYetWired', () => {
-    // PLAN wired in Task 2, REVIEW in Task 3; SYNTHESIZE wired in Task 4.
-    // Narrowed as each lands so the throw only covers still-inert resolvers.
-    for (const kind of ['SYNTHESIZE'] as const) {
-      expect(() => resolveGateSet(kind, { riskTier: 'low', boundaryTouching: false })).toThrow(
-        /not wired|S3/,
-      );
+  it('ResolveGateSet_EveryGatedKind_IsWiredNoLongerThrows', () => {
+    // S3 complete: no resolver is inert. Every gated kind resolves without the
+    // 'not wired' throw (GATHER has no gates and is covered separately).
+    for (const kind of ['IMPLEMENT', 'PLAN', 'REVIEW', 'SYNTHESIZE'] as const) {
+      expect(() =>
+        resolveGateSet(kind, { riskTier: 'low', boundaryTouching: false, workflowType: 'feature' }),
+      ).not.toThrow();
     }
   });
 
@@ -178,5 +178,14 @@ describe('review-contract resolver (DR-9)', () => {
       }).map((g) => g.gate);
       expect(resolved).toEqual(getRequiredReviews('feature', riskTier));
     }
+  });
+});
+
+// ─── DR-9: synthesis-readiness resolver ─────────────────────────────────────
+describe('synthesis-readiness resolver (DR-9)', () => {
+  it('ResolveGateSet_SynthesizeKind_ReturnsReadinessLegs', () => {
+    const resolved = resolveGateSet('SYNTHESIZE', { riskTier: 'low', boundaryTouching: false });
+    expect(resolved.every((g) => g.family === 'synthesis')).toBe(true);
+    expect(resolved.map((g) => g.gate)).toEqual(['task-completion', 'tests', 'typecheck', 'stack']);
   });
 });
