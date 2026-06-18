@@ -274,21 +274,33 @@ describe('handlePrepareDelegation', () => {
   });
 
   it('PrepareDelegation_MalformedTaskShape_ReturnsInvalidInputNotPhaseBlocked', async () => {
-    // A non-MCP caller can hand `tasks` through an unchecked cast. A task whose
-    // optional `files` is a non-array would crash `files.some(...)` downstream;
-    // caught by the fail-closed wrapper it would masquerade as a `phase.blocked`
-    // RESOLVER fault. The shape guard must reject it as INVALID_INPUT first.
-    const args = {
-      featureId: 'feat-malformed',
-      tasks: [{ id: 't1', title: 'ok', files: 'src/not-an-array.ts' }],
-    } as unknown as { featureId: string; tasks?: TaskInput[] };
+    // A non-MCP caller can hand `tasks` through an unchecked cast. Any malformed
+    // planner field that the heuristics / resolver consume would otherwise crash
+    // downstream — e.g. `files.some(...)` on a non-array, or a bad `riskTier`
+    // reaching resolveVerificationSequence — and, caught by the fail-closed
+    // wrapper, masquerade as a `phase.blocked` RESOLVER fault. The shape guard
+    // must reject every such field as INVALID_INPUT first.
+    const malformed: Array<Record<string, unknown>> = [
+      { id: 't1', title: 'ok', files: 'src/not-an-array.ts' }, // files: non-array (crash path)
+      { id: 't2', title: 'ok', blockedBy: [1, 2] }, // blockedBy: non-string elements
+      { id: 't3', title: 'ok', riskTier: 'critical' }, // riskTier: not a RiskTier (resolver throw)
+      { id: 't4', title: 'ok', boundaryTouching: 'yes' }, // boundaryTouching: non-boolean
+      { id: 't5', title: 'ok', testLayer: 'e2e' }, // testLayer: not in the enum
+      { id: 7, title: 'ok' }, // id: non-string
+    ];
 
-    const result = await handlePrepareDelegation(args, STATE_DIR, makeCtx(mockStore, STATE_DIR));
+    for (const bad of malformed) {
+      const args = {
+        featureId: 'feat-malformed',
+        tasks: [bad],
+      } as unknown as { featureId: string; tasks?: TaskInput[] };
 
-    expect(result.success).toBe(false);
-    expect(result.error?.code).toBe('INVALID_INPUT');
-    expect(result.error?.code).not.toBe('PHASE_BLOCKED');
-    expect(result.error?.message).toMatch(/files|blockedBy|array/i);
+      const result = await handlePrepareDelegation(args, STATE_DIR, makeCtx(mockStore, STATE_DIR));
+
+      expect(result.success, `expected INVALID_INPUT for ${JSON.stringify(bad)}`).toBe(false);
+      expect(result.error?.code).toBe('INVALID_INPUT');
+      expect(result.error?.code).not.toBe('PHASE_BLOCKED');
+    }
   });
 
   it('PrepareDelegation_NotReady_ReturnsBlockers', async () => {

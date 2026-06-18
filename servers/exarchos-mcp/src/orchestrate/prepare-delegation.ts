@@ -710,6 +710,9 @@ export async function handlePrepareDelegation(
   const tasksInput: unknown = args.tasks;
   const isOptionalStringArray = (v: unknown): boolean =>
     v === undefined || (Array.isArray(v) && v.every((x) => typeof x === 'string'));
+  const isOptionalOneOf = (v: unknown, allowed: readonly string[]): boolean =>
+    v === undefined || (typeof v === 'string' && allowed.includes(v));
+  const isOptionalBoolean = (v: unknown): boolean => v === undefined || typeof v === 'boolean';
   if (
     tasksInput !== undefined &&
     (!Array.isArray(tasksInput) ||
@@ -720,12 +723,23 @@ export async function handlePrepareDelegation(
           title?: unknown;
           files?: unknown;
           blockedBy?: unknown;
+          testLayer?: unknown;
+          riskTier?: unknown;
+          boundaryTouching?: unknown;
         };
+        // Validate EVERY planner-supplied field the heuristics / resolver consume,
+        // not just id/title: a bad `riskTier` reaches resolveVerificationSequence
+        // (BASE_SEQUENCE_BY_TIER[riskTier] → throw), and a non-array `files`
+        // crashes the risk/boundary heuristics — both would otherwise be caught by
+        // the fail-closed wrapper and misreported as `phase.blocked`.
         return (
           typeof t.id !== 'string' ||
           typeof t.title !== 'string' ||
           !isOptionalStringArray(t.files) ||
-          !isOptionalStringArray(t.blockedBy)
+          !isOptionalStringArray(t.blockedBy) ||
+          !isOptionalOneOf(t.testLayer, ['acceptance', 'integration', 'unit', 'property']) ||
+          !isOptionalOneOf(t.riskTier, ['low', 'medium', 'high']) ||
+          !isOptionalBoolean(t.boundaryTouching)
         );
       }))
   ) {
@@ -734,7 +748,7 @@ export async function handlePrepareDelegation(
       error: {
         code: 'INVALID_INPUT',
         message:
-          'tasks must be an array of objects each with a string id and title, plus optional string-array files and blockedBy',
+          'tasks must be an array of objects each with a string id and title; optional fields must be well-typed (files/blockedBy: string[]; testLayer: acceptance|integration|unit|property; riskTier: low|medium|high; boundaryTouching: boolean)',
       },
     };
   }
