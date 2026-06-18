@@ -148,6 +148,7 @@ function buildHsmEventData(
         resolvedGates: metadata.resolvedGates ?? [],
         policySource: metadata.policySource ?? 'builtin',
         mode: metadata.mode ?? 'enforce',
+        posture: metadata.posture,
       };
     case 'phase.exited':
       // PhaseExitedData (DR-13): aggregate gate status on advance.

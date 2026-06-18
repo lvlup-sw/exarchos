@@ -865,6 +865,7 @@ describe('WorkflowStateProjection phase.entered / phase.exited', () => {
     ],
     policySource: 'builtin',
     mode: 'enforce',
+    posture: 'task-isolated',
   } as const;
 
   const fold = (evts: WorkflowEvent[]) =>
@@ -889,6 +890,7 @@ describe('WorkflowStateProjection phase.entered / phase.exited', () => {
       resolvedGates: enteredData.resolvedGates,
       policySource: 'builtin',
       mode: 'enforce',
+      posture: 'task-isolated',
       enteredAt: expect.any(String),
       exited: false,
       allRequiredGatesPassed: null,
@@ -930,10 +932,12 @@ describe('WorkflowStateProjection phase.entered / phase.exited', () => {
         resolvedGates: [],
         policySource: 'builtin',
         mode: 'enforce',
+        posture: 'read-only',
       }),
     ]);
     expect(afterEntered.phaseObligation?.kind).toBe('GATHER');
     expect(afterEntered.phaseObligation?.resolver).toBeNull();
     expect(afterEntered.phaseObligation?.resolvedGates).toEqual([]);
+    expect(afterEntered.phaseObligation?.posture).toBe('read-only');
   });
 });

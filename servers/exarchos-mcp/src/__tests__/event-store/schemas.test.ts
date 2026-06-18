@@ -25,6 +25,7 @@ import {
   PhaseBlockedKindSchema,
   PhaseEnteredResolverSchema,
   ResolvedGateFamilySchema,
+  PhaseEnteredPostureSchema,
   type EventType,
 } from '../../event-store/schemas.js';
 import { extendWorkflowTypeEnum, unextendWorkflowTypeEnum } from '../../workflow/schemas.js';
@@ -528,6 +529,17 @@ describe('EventTypes', () => {
       }
     }
     expect([...ResolvedGateFamilySchema.options].sort()).toEqual([...familiesEmitted].sort());
+  });
+
+  it('PhaseEnteredPosture_MatchesKindObligationPostures', () => {
+    // Drift guard (DR-14): `phase.entered.posture` is an inlined z.enum in
+    // event-store/schemas.ts (kept free of an agents/spec import). Pin it to the
+    // postures actually declared by `KIND_OBLIGATIONS` so adding a kind with a
+    // new posture without updating the event schema turns this red.
+    const posturesInUse = Array.from(
+      new Set(Object.values(KIND_OBLIGATIONS).map((o) => o.posture)),
+    ).sort();
+    expect([...PhaseEnteredPostureSchema.options].sort()).toEqual(posturesInUse);
   });
 
   it('PhaseBlockedKind_MatchesPhaseKindUnion', () => {

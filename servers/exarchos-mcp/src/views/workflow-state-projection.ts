@@ -64,6 +64,8 @@ interface PhaseObligationEntry {
   resolvedGates: Array<{ family: string; gate: string }>;
   policySource: string;
   mode: string;
+  /** Frozen POLA posture (trust tier) for the phase kind (DR-14). */
+  posture: string;
   enteredAt: string;
   exited: boolean;
   allRequiredGatesPassed: boolean | null;
@@ -218,6 +220,7 @@ export const workflowStateProjection: ViewProjection<WorkflowStateView> = {
           resolvedGates?: Array<{ family: string; gate: string }>;
           policySource?: string;
           mode?: string;
+          posture?: string;
         } | undefined;
         if (!data?.phase || !data.kind) return view;
 
@@ -231,6 +234,7 @@ export const workflowStateProjection: ViewProjection<WorkflowStateView> = {
             resolvedGates: data.resolvedGates ?? [],
             policySource: data.policySource ?? 'builtin',
             mode: data.mode ?? 'enforce',
+            posture: data.posture ?? 'read-only',
             enteredAt: event.timestamp,
             exited: false,
             allRequiredGatesPassed: null,

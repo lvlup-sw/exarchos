@@ -580,7 +580,7 @@ describe('EventTypes', () => {
     expect(exitedSchema).toBeDefined();
 
     // phase.entered carries the frozen obligation (resolver + resolved gate-set
-    // + policy provenance + resolved mode).
+    // + policy provenance + resolved mode + POLA posture).
     expect(
       enteredSchema?.safeParse({
         phase: 'implement',
@@ -589,6 +589,7 @@ describe('EventTypes', () => {
         resolvedGates: [{ family: 'ladder', gate: 'check_static_analysis' }],
         policySource: 'builtin',
         mode: 'enforce',
+        posture: 'task-isolated',
       }).success,
     ).toBe(true);
 
@@ -601,6 +602,7 @@ describe('EventTypes', () => {
         resolvedGates: [],
         policySource: 'builtin',
         mode: 'enforce',
+        posture: 'read-only',
       }).success,
     ).toBe(true);
 
@@ -614,6 +616,7 @@ describe('EventTypes', () => {
         resolvedGates: [],
         policySource: 'whoknows',
         mode: 'enforce',
+        posture: 'read-only',
       }).success,
     ).toBe(false);
 
@@ -627,6 +630,20 @@ describe('EventTypes', () => {
         resolvedGates: [{ family: 'bogus', gate: 'x' }],
         policySource: 'builtin',
         mode: 'enforce',
+        posture: 'read-only',
+      }).success,
+    ).toBe(false);
+
+    // An unknown posture is rejected at the persisted-event boundary.
+    expect(
+      enteredSchema?.safeParse({
+        phase: 'plan',
+        kind: 'PLAN',
+        resolver: 'plan-structure',
+        resolvedGates: [],
+        policySource: 'builtin',
+        mode: 'enforce',
+        posture: 'god-mode',
       }).success,
     ).toBe(false);
 

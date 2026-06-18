@@ -1853,6 +1853,13 @@ export const PhaseEnteredResolverSchema = z.enum([
 
 export const ResolvedGateFamilySchema = z.enum(['ladder', 'plan', 'review', 'synthesis']);
 
+/**
+ * Phase-kind POLA posture (DR-14). Inlined to keep the event-store layer free of
+ * an `agents/spec.ts` import; pinned to the `KIND_OBLIGATIONS` posture set by a
+ * drift-guard test (mirrors `PhaseBlockedKindSchema`).
+ */
+export const PhaseEnteredPostureSchema = z.enum(['read-only', 'task-isolated', 'shared-mutating']);
+
 export const PhaseEnteredData = z.object({
   phase: z.string().min(1).describe('Lifecycle phase entered'),
   kind: PhaseBlockedKindSchema.describe('Phase kind whose obligation was resolved and frozen'),
@@ -1874,6 +1881,9 @@ export const PhaseEnteredData = z.object({
     .enum(['builtin', 'config'])
     .describe('Whether the obligation came from built-in policy or a .exarchos.yml overlay'),
   mode: z.enum(['audit', 'enforce']).describe('Resolved enforcement mode for the phase gate-set'),
+  posture: PhaseEnteredPostureSchema.describe(
+    'The kind POLA posture (trust tier) frozen at entry — the bundle minted by capabilities/resolver.ts is derived from this (DR-14)',
+  ),
 });
 
 export const PhaseExitedData = z.object({

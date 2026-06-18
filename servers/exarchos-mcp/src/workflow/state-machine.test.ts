@@ -269,6 +269,8 @@ describe('executeTransition resolve-then-freeze (DR-13)', () => {
     );
     expect(md.policySource).toBe('builtin');
     expect(md.mode).toBe('enforce');
+    // DR-14: the freeze also records the kind's POLA posture (trust tier).
+    expect(md.posture).toBe(KIND_OBLIGATIONS[targetKind].posture);
 
     // The frozen payload validates against the durable phase.entered schema.
     const schema = EVENT_DATA_SCHEMAS['phase.entered'];

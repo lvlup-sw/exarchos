@@ -897,6 +897,10 @@ export function executeTransition(
         kind: targetState.kind,
         resolver: KIND_OBLIGATIONS[targetState.kind].gates?.resolver ?? null,
         resolvedGates: resolvedGates.map((g) => ({ family: g.family, gate: g.gate })),
+        // DR-14: freeze the kind's POLA posture (trust tier). The capability
+        // bundle (capabilities/resolver.ts:mintCapabilitiesForKind) is derived
+        // from this — a read-only kind's bundle can never hold fs:write.
+        posture: KIND_OBLIGATIONS[targetState.kind].posture,
         // 'builtin'/'enforce' are the structural defaults frozen at this
         // foundational layer. Per-workflow IMPLEMENT graduation (oneshot→audit)
         // and config-overlay provenance are bound at the orchestrate gate layer

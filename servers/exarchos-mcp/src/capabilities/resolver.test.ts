@@ -7,8 +7,11 @@ import {
   getQualityHintThreshold,
   DEFAULT_OUTPUT_TOKEN_THRESHOLD_FRACTION,
   OUTPUT_TOKENS_PER_TURN_CAP,
+  mintCapabilitiesForKind,
+  requireMutationCapabilities,
 } from './resolver.js';
 import type { Capability } from '../agents/capabilities.js';
+import { KIND_OBLIGATIONS } from '../workflow/phase-kind.js';
 
 describe('CapabilityResolver (T017, DR-14)', () => {
   it('CapabilityResolver_AnthropicNative_ReturnsTrue', () => {
@@ -249,5 +252,59 @@ describe('getQualityHintThreshold (#1262)', () => {
     // No config at all — same default.
     const tokens = getQualityHintThreshold('output_tokens', undefined);
     expect(tokens).toBe(OUTPUT_TOKENS_PER_TURN_CAP * 0.8);
+  });
+});
+
+// ─── POLA capability bundle from kind.posture (DR-14, INV-11, #1546) ─────────
+
+describe('mintCapabilitiesForKind (POLA bundle, DR-14)', () => {
+  it('capabilityBundle_ReviewKind_HasNoWriteToken', () => {
+    // A REVIEW phase is read-only: worktree mutation is unrepresentable.
+    const bundle = mintCapabilitiesForKind('REVIEW');
+    expect(bundle.posture).toBe('read-only');
+    expect(bundle.capabilities.has('fs:write')).toBe(false);
+    expect(bundle.capabilities.has('isolation:worktree')).toBe(false);
+    expect(bundle.capabilities.has('shell:exec')).toBe(false);
+    // It still carries the read-only tier (fs:read) — ≥1 capability.
+    expect(bundle.capabilities.has('fs:read')).toBe(true);
+  });
+
+  it('capabilityBundle_PlanAndGatherKinds_HaveNoWriteToken', () => {
+    for (const kind of ['PLAN', 'GATHER'] as const) {
+      expect(mintCapabilitiesForKind(kind).capabilities.has('fs:write')).toBe(false);
+    }
+  });
+
+  it('capabilityBundle_ImplementKind_HasWriteTokenWithinWorktree', () => {
+    const bundle = mintCapabilitiesForKind('IMPLEMENT');
+    expect(bundle.posture).toBe('task-isolated');
+    expect(bundle.capabilities.has('fs:write')).toBe(true);
+    expect(bundle.capabilities.has('isolation:worktree')).toBe(true);
+  });
+
+  it('capabilityBundle_SynthesizeKind_HasWriteToken', () => {
+    const bundle = mintCapabilitiesForKind('SYNTHESIZE');
+    expect(bundle.posture).toBe('shared-mutating');
+    expect(bundle.capabilities.has('fs:write')).toBe(true);
+  });
+
+  it('capabilityBundle_ComposesResolvePosture_HandshakeStaysAuthoritative', () => {
+    // Compose, do not duplicate: a handshake deny revokes a posture grant.
+    const denied = mintCapabilitiesForKind('IMPLEMENT', { deny: ['fs:write'] });
+    expect(denied.capabilities.has('fs:write')).toBe(false);
+  });
+
+  it('requireMutationCapabilities_AcceptsMutatingBundle', () => {
+    // Runtime companion to the compile-time guarantee: a mutating kind's bundle
+    // is accepted by a mutation-requiring consumer (the type rejection of a
+    // read-only bundle is proven at compile time in resolver.ts).
+    const caps = requireMutationCapabilities(mintCapabilitiesForKind('IMPLEMENT'));
+    expect(caps.has('fs:write')).toBe(true);
+  });
+
+  it('kindPosture_Implement_IsTaskIsolated_Per1512', () => {
+    // REFACTOR guard (DR-14): IMPLEMENT runs in an isolated worktree (#1512), so
+    // its posture must stay task-isolated — never shared-mutating.
+    expect(KIND_OBLIGATIONS.IMPLEMENT.posture).toBe('task-isolated');
   });
 });
