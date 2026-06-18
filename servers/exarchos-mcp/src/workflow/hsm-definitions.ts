@@ -159,9 +159,9 @@ const mergePendingExit: Guard = {
 
 export function createFeatureHSM(): HSMDefinition {
   const states: Record<string, State> = {
-    ideate: { id: 'ideate', type: 'atomic' },
-    plan: { id: 'plan', type: 'atomic' },
-    'plan-review': { id: 'plan-review', type: 'atomic' },
+    ideate: { id: 'ideate', type: 'atomic', kind: 'GATHER' },
+    plan: { id: 'plan', type: 'atomic', kind: 'PLAN' },
+    'plan-review': { id: 'plan-review', type: 'atomic', kind: 'PLAN' },
     implementation: {
       id: 'implementation',
       type: 'compound',
@@ -170,8 +170,8 @@ export function createFeatureHSM(): HSMDefinition {
       onEntry: ['log'],
       onExit: ['log'],
     },
-    delegate: { id: 'delegate', type: 'atomic', parent: 'implementation' },
-    review: { id: 'review', type: 'atomic', parent: 'implementation' },
+    delegate: { id: 'delegate', type: 'atomic', kind: 'IMPLEMENT', parent: 'implementation' },
+    review: { id: 'review', type: 'atomic', kind: 'REVIEW', parent: 'implementation' },
     // T17: substate entered when a delegated subagent worktree task completes
     // and an autonomous merge is required before progressing. Exits back to
     // `delegate` once `merge.executed` / `merge.rollback` / `merge.aborted`
@@ -179,12 +179,13 @@ export function createFeatureHSM(): HSMDefinition {
     'merge-pending': {
       id: 'merge-pending',
       type: 'atomic',
+      kind: 'SYNTHESIZE',
       parent: 'implementation',
     },
-    synthesize: { id: 'synthesize', type: 'atomic' },
+    synthesize: { id: 'synthesize', type: 'atomic', kind: 'SYNTHESIZE' },
     completed: { id: 'completed', type: 'final' },
     cancelled: { id: 'cancelled', type: 'final' },
-    blocked: { id: 'blocked', type: 'atomic' },
+    blocked: { id: 'blocked', type: 'atomic', kind: 'GATHER' },
   };
 
   const transitions: Transition[] = [
@@ -231,8 +232,8 @@ export function createFeatureHSM(): HSMDefinition {
 
 export function createDebugHSM(): HSMDefinition {
   const states: Record<string, State> = {
-    triage: { id: 'triage', type: 'atomic' },
-    investigate: { id: 'investigate', type: 'atomic' },
+    triage: { id: 'triage', type: 'atomic', kind: 'GATHER' },
+    investigate: { id: 'investigate', type: 'atomic', kind: 'GATHER' },
 
     // Thorough track compound
     'thorough-track': {
@@ -243,21 +244,24 @@ export function createDebugHSM(): HSMDefinition {
       onEntry: ['log'],
       onExit: ['log'],
     },
-    rca: { id: 'rca', type: 'atomic', parent: 'thorough-track' },
-    design: { id: 'design', type: 'atomic', parent: 'thorough-track' },
+    rca: { id: 'rca', type: 'atomic', kind: 'PLAN', parent: 'thorough-track' },
+    design: { id: 'design', type: 'atomic', kind: 'PLAN', parent: 'thorough-track' },
     'debug-implement': {
       id: 'debug-implement',
       type: 'atomic',
+      kind: 'IMPLEMENT',
       parent: 'thorough-track',
     },
     'debug-validate': {
       id: 'debug-validate',
       type: 'atomic',
+      kind: 'REVIEW',
       parent: 'thorough-track',
     },
     'debug-review': {
       id: 'debug-review',
       type: 'atomic',
+      kind: 'REVIEW',
       parent: 'thorough-track',
     },
 
@@ -272,18 +276,20 @@ export function createDebugHSM(): HSMDefinition {
     'hotfix-implement': {
       id: 'hotfix-implement',
       type: 'atomic',
+      kind: 'IMPLEMENT',
       parent: 'hotfix-track',
     },
     'hotfix-validate': {
       id: 'hotfix-validate',
       type: 'atomic',
+      kind: 'REVIEW',
       parent: 'hotfix-track',
     },
 
-    synthesize: { id: 'synthesize', type: 'atomic' },
+    synthesize: { id: 'synthesize', type: 'atomic', kind: 'SYNTHESIZE' },
     completed: { id: 'completed', type: 'final' },
     cancelled: { id: 'cancelled', type: 'final' },
-    blocked: { id: 'blocked', type: 'atomic' },
+    blocked: { id: 'blocked', type: 'atomic', kind: 'GATHER' },
   };
 
   const transitions: Transition[] = [
@@ -366,9 +372,9 @@ export const oneshotTransitions: readonly Transition[] = [
 
 export function createOneshotHSM(): HSMDefinition {
   const states: Record<string, State> = {
-    plan: { id: 'plan', type: 'atomic' },
-    implementing: { id: 'implementing', type: 'atomic' },
-    synthesize: { id: 'synthesize', type: 'atomic' },
+    plan: { id: 'plan', type: 'atomic', kind: 'PLAN' },
+    implementing: { id: 'implementing', type: 'atomic', kind: 'IMPLEMENT' },
+    synthesize: { id: 'synthesize', type: 'atomic', kind: 'SYNTHESIZE' },
     completed: { id: 'completed', type: 'final' },
     cancelled: { id: 'cancelled', type: 'final' },
   };
@@ -380,8 +386,8 @@ export function createOneshotHSM(): HSMDefinition {
 
 export function createDiscoveryHSM(): HSMDefinition {
   const states: Record<string, State> = {
-    gathering:    { id: 'gathering', type: 'atomic' },
-    synthesizing: { id: 'synthesizing', type: 'atomic' },
+    gathering:    { id: 'gathering', type: 'atomic', kind: 'GATHER' },
+    synthesizing: { id: 'synthesizing', type: 'atomic', kind: 'GATHER' },
     completed:    { id: 'completed', type: 'final' },
     cancelled:    { id: 'cancelled', type: 'final' },
   };
@@ -398,8 +404,8 @@ export function createDiscoveryHSM(): HSMDefinition {
 
 export function createRefactorHSM(): HSMDefinition {
   const states: Record<string, State> = {
-    explore: { id: 'explore', type: 'atomic' },
-    brief: { id: 'brief', type: 'atomic' },
+    explore: { id: 'explore', type: 'atomic', kind: 'GATHER' },
+    brief: { id: 'brief', type: 'atomic', kind: 'PLAN' },
 
     // Polish track compound
     'polish-track': {
@@ -412,16 +418,19 @@ export function createRefactorHSM(): HSMDefinition {
     'polish-implement': {
       id: 'polish-implement',
       type: 'atomic',
+      kind: 'IMPLEMENT',
       parent: 'polish-track',
     },
     'polish-validate': {
       id: 'polish-validate',
       type: 'atomic',
+      kind: 'REVIEW',
       parent: 'polish-track',
     },
     'polish-update-docs': {
       id: 'polish-update-docs',
       type: 'atomic',
+      kind: 'GATHER',
       parent: 'polish-track',
     },
 
@@ -437,33 +446,38 @@ export function createRefactorHSM(): HSMDefinition {
     'overhaul-plan': {
       id: 'overhaul-plan',
       type: 'atomic',
+      kind: 'PLAN',
       parent: 'overhaul-track',
     },
     'overhaul-plan-review': {
       id: 'overhaul-plan-review',
       type: 'atomic',
+      kind: 'PLAN',
       parent: 'overhaul-track',
     },
     'overhaul-delegate': {
       id: 'overhaul-delegate',
       type: 'atomic',
+      kind: 'IMPLEMENT',
       parent: 'overhaul-track',
     },
     'overhaul-review': {
       id: 'overhaul-review',
       type: 'atomic',
+      kind: 'REVIEW',
       parent: 'overhaul-track',
     },
     'overhaul-update-docs': {
       id: 'overhaul-update-docs',
       type: 'atomic',
+      kind: 'GATHER',
       parent: 'overhaul-track',
     },
 
-    synthesize: { id: 'synthesize', type: 'atomic' },
+    synthesize: { id: 'synthesize', type: 'atomic', kind: 'SYNTHESIZE' },
     completed: { id: 'completed', type: 'final' },
     cancelled: { id: 'cancelled', type: 'final' },
-    blocked: { id: 'blocked', type: 'atomic' },
+    blocked: { id: 'blocked', type: 'atomic', kind: 'GATHER' },
   };
 
   const transitions: Transition[] = [

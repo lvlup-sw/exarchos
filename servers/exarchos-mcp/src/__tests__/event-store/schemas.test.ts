@@ -22,9 +22,11 @@ import {
   WorkflowCircuitOpenData,
   BenchmarkCompletedData,
   EventTypes,
+  PhaseBlockedKindSchema,
   type EventType,
 } from '../../event-store/schemas.js';
 import { extendWorkflowTypeEnum, unextendWorkflowTypeEnum } from '../../workflow/schemas.js';
+import { KIND_OBLIGATIONS } from '../../workflow/phase-kind.js';
 
 // ─── Base Event Schema ──────────────────────────────────────────────────────
 
@@ -469,7 +471,10 @@ describe('EventTypes', () => {
     // verification-ladder slice 1 (task 020): bumped 120 → 122 to include the
     // mutation-run liveness pair `mutation.executing_started` +
     // `mutation.executed`, emitted by the `exarchos run-mutation` CLI verb.
-    expect(EventTypes).toHaveLength(122);
+    // phase-kind binding DR-7 (task 007): bumped 122 → 123 to include
+    // `phase.blocked`, the fail-closed marker appended when the IMPLEMENT
+    // gate-set resolver throws at a phase boundary (orchestrate/prepare-delegation.ts).
+    expect(EventTypes).toHaveLength(123);
     // Explicit membership pin: a future replacement that swaps one event
     // for another would keep the length stable but silently lose the
     // migration progress type. The membership assert catches that.
@@ -481,8 +486,20 @@ describe('EventTypes', () => {
     expect(EventTypes).toContain('onboard.executed');
     expect(EventTypes).toContain('mutation.executing_started');
     expect(EventTypes).toContain('mutation.executed');
+    expect(EventTypes).toContain('phase.blocked');
     // Retirement guard: init.executed removed in DR-5 (task 018).
     expect(EventTypes as readonly string[]).not.toContain('init.executed');
+  });
+
+  it('PhaseBlockedKind_MatchesPhaseKindUnion', () => {
+    // Drift guard: `phase.blocked.kind` is an inlined z.enum in
+    // event-store/schemas.ts (kept free of a workflow/config import). Pin it to
+    // the single source of truth — `KIND_OBLIGATIONS` keys ARE the `PhaseKind`
+    // union (enforced by `satisfies Record<PhaseKind, …>`), so adding a kind
+    // without updating the event schema turns this assertion red.
+    expect([...PhaseBlockedKindSchema.options].sort()).toEqual(
+      Object.keys(KIND_OBLIGATIONS).sort(),
+    );
   });
 
   it('should include workflow-level types', () => {

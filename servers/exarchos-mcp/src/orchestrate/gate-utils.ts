@@ -194,6 +194,63 @@ export async function resolveRepoRoot(
   };
 }
 
+// ─── Implement-phase graduation mode (DR-6) ─────────────────────────────────
+//
+// The audit→enforce graduation knob for the IMPLEMENT-kind phase obligation
+// surface. Distinct from SEVERITY (advisory vs blocking): mode is whether a
+// failing gate is *consulted at all* as a transition blocker, or only RECORDED
+// (the handler's `gate.executed` finding is emitted in BOTH modes; audit just
+// never lets a failure re-assert a blocking verdict).
+//
+// CRITICAL INV-6: this map is WORKFLOW-specific, NOT kind-universal. It lives
+// here next to the KIND_OBLIGATIONS *consumers* — it must NEVER move into
+// `KIND_OBLIGATIONS` (phase-kind.ts), because an obligation that attaches to a
+// kind composes across every workflow type, whereas a graduation mode is a
+// per-workflow rollout decision.
+
+/** The audit→enforce graduation mode for an IMPLEMENT-phase gate binding. */
+export type ImplementMode = 'audit' | 'enforce';
+
+/**
+ * Per-workflow IMPLEMENT-phase graduation mode (DR-6).
+ *
+ * A DATA TABLE — not branching prose — keyed by workflow type. Mode is the
+ * audit→enforce rollout axis; SEVERITY (advisory vs blocking) is the orthogonal
+ * axis resolved by {@link resolveGateSeverity}. The two compose: a phase blocks
+ * only when its mode is `enforce` AND its severity is `blocking`.
+ *
+ * Live defaults per the epic severity policy + DR-6 acceptance criteria:
+ *   - `oneshot`  (oneshot:implementing) → audit
+ *       Its severity is already advisory (WORKFLOW_DEFAULT_SEVERITY.oneshot), so
+ *       audit is the natural rollout home: findings recorded, never blocking.
+ *   - `feature`  (delegate)             → enforce  (already covered pre-DR-4)
+ *   - `debug`    (debug-implement)      → enforce  (DR-6 AC: "blocks (enforce mode)")
+ *   - `refactor` (polish-implement)     → enforce  (epic policy: blocking)
+ *
+ * The `audit` mode itself is a first-class, exercised mechanism (a phase can be
+ * graduated/demoted by editing one cell here); a workflow type without an entry
+ * falls back to `enforce` (the safe default — a missing entry must NEVER
+ * silently stop a gate from blocking). Adding a workflow type is a single-line
+ * ADDITION, never new control flow in {@link resolveImplementMode}.
+ */
+export const IMPLEMENT_PHASE_MODE: Readonly<Record<string, ImplementMode>> =
+  Object.freeze({
+    oneshot: 'audit',
+    feature: 'enforce',
+    debug: 'enforce',
+    refactor: 'enforce',
+  });
+
+/**
+ * Resolve the IMPLEMENT-phase graduation mode for a workflow type.
+ *
+ * Reads {@link IMPLEMENT_PHASE_MODE}; an unmapped workflow type defaults to
+ * `'enforce'` so a phase is never silently downgraded by an unknown type.
+ */
+export function resolveImplementMode(workflowType: string): ImplementMode {
+  return IMPLEMENT_PHASE_MODE[workflowType] ?? 'enforce';
+}
+
 // ─── Config-Aware Gate Wrapper ──────────────────────────────────────────────
 
 /**
@@ -253,19 +310,40 @@ export async function withConfigSeverity(
  * result (task 005).
  *
  * Ladder gates (INV-5b) never return `success:false` for a gate-failure verdict
- * — a failing gate is `{ success: true, data: { passed: false } }`, so
- * {@link withConfigSeverity}'s `success:false`-only conversion does not apply.
- * This helper resolves the gate's effective severity via
- * {@link resolveGateSeverity} (threading `workflowType`) and, ONLY when that
- * severity is `'warning'` and the advisory result reports a failing verdict
- * (`data.passed === false`), annotates it with a warning. In every other case
- * the result is returned UNCHANGED:
- *   - `severity !== 'warning'` (e.g. blocking for a feature workflow) → unchanged,
- *     so the orchestrator still reads `data.passed:false` and blocks;
- *   - `config` absent → unchanged (legacy / no-config callers);
+ * — a failing gate is `{ success: true, data: { passed: false } }`, where
+ * `data.passed:false` is the blocking signal the orchestrator reads. So
+ * {@link withConfigSeverity}'s `success:false`-only conversion does not apply;
+ * the ladder analogue is to clear `data.passed` (false → true) the same way the
+ * sibling clears `success`.
+ *
+ * This helper DOWNGRADES a failing advisory verdict (`data.passed === false`) to
+ * non-blocking — clearing the blocking signal (`data.passed → true`) AND
+ * attaching an explanatory warning — when EITHER:
+ *   - the binding's graduation `mode` is `'audit'` (DR-6) — an audit-mode gate
+ *     RECORDS its finding (the handler already emitted `gate.executed`) but is
+ *     never consulted as a transition blocker, regardless of severity OR config.
+ *     Audit mode is resolved from the workflow type (config-INDEPENDENT), so this
+ *     downgrade applies even on the no-config path; OR
+ *   - a config is present and the resolved severity (via {@link resolveGateSeverity},
+ *     threading `workflowType`) is `'warning'`.
+ *
+ * The truthful failing verdict survives in the `gate.executed` event the handler
+ * emitted before this post-processing; only the returned ToolResult's block
+ * signal is normalized — so an audit/warning gate cannot still block on a stale
+ * `data.passed:false`.
+ *
+ * In every other case the result is returned UNCHANGED:
+ *   - `mode === 'enforce'` (or omitted) AND `severity !== 'warning'` (e.g.
+ *     blocking for a feature workflow) → unchanged, so the orchestrator still
+ *     reads `data.passed:false` and blocks;
+ *   - `mode !== 'audit'` AND `config` absent → unchanged (legacy / no-config
+ *     severity passthrough — severity reads `config.review.gates.*`);
  *   - a passing verdict → unchanged;
  *   - a real error envelope (`success:false`) → unchanged (an INVALID_INPUT /
  *     MISWIRED_CONTEXT must never be downgraded to a warning).
+ *
+ * `mode` defaults to `'enforce'`, so legacy callers that don't thread it see
+ * exactly the pre-DR-6 severity-only resolution.
  */
 export function applyLadderGateSeverity(
   gateName: string,
@@ -273,20 +351,46 @@ export function applyLadderGateSeverity(
   config: ResolvedProjectConfig | undefined,
   result: ToolResult,
   workflowType?: string,
+  mode: ImplementMode = 'enforce',
 ): ToolResult {
-  // No config, or a real error envelope, or a non-advisory shape — leave as-is.
-  if (!config || !result.success) return result;
+  // A real error envelope (success:false) or a non-advisory shape — leave as-is.
+  // An INVALID_INPUT / MISWIRED_CONTEXT must never be softened to a warning.
+  if (!result.success) return result;
 
   const data = result.data as { passed?: unknown } | undefined;
   // Only an explicit failing verdict is a candidate for downgrade. A passing or
   // shape-less advisory carrier is returned verbatim.
   if (!data || data.passed !== false) return result;
 
+  // Audit mode is resolved from the workflow type (IMPLEMENT_PHASE_MODE) — it is
+  // CONFIG-INDEPENDENT, so it downgrades a failing verdict whether or not a
+  // project config is present. The handler already emitted its `gate.executed`
+  // finding; audit mode only stops that failure from re-asserting a blocking
+  // verdict. This MUST precede the `!config` guard below (DR-6 fix): severity
+  // reads `config`, but mode does not.
+  if (mode === 'audit') {
+    return {
+      ...result,
+      // Clear the blocking signal — `data.passed:false` is what the orchestrator
+      // reads to block, so the warning alone would not actually unblock.
+      data: { ...(data as Record<string, unknown>), passed: true },
+      warnings: [
+        ...(result.warnings ?? []),
+        `Gate '${gateName}' failed but the implement phase is in audit mode (finding recorded, non-blocking)`,
+      ],
+    };
+  }
+
+  // Severity-based downgrade reads `config.review.gates.*`, so it requires a
+  // resolved config; absent one, this is the legacy / no-config passthrough.
+  if (!config) return result;
   const severity = resolveGateSeverity(gateName, dimension, config, workflowType);
   if (severity !== 'warning') return result;
 
   return {
     ...result,
+    // Clear the blocking signal alongside the warning (see the audit branch).
+    data: { ...(data as Record<string, unknown>), passed: true },
     warnings: [
       ...(result.warnings ?? []),
       `Gate '${gateName}' failed but is configured as warning-only`,

@@ -50,6 +50,16 @@ vi.mock('../workflow/checkpoint.js', () => ({
   CHECKPOINT_OPERATION_THRESHOLD: 20,
 }));
 
+// DR-7: partially mock the phase-kind boundary so a single test can force the
+// IMPLEMENT-kind gate-set resolver to throw (simulating a deferred-kind
+// 'not-yet-wired' fault or any resolver error). The default implementation
+// delegates to the real resolver so every other test exercises the genuine
+// ladder; only the fail-closed test overrides it via `mockImplementationOnce`.
+vi.mock('../workflow/phase-kind.js', async (importActual) => {
+  const actual = await importActual<typeof import('../workflow/phase-kind.js')>();
+  return { ...actual, resolveGateSet: vi.fn(actual.resolveGateSet) };
+});
+
 import {
   getOrCreateMaterializer,
   queryDeltaEvents,
@@ -81,7 +91,9 @@ import { assertWorktreeBaseRefPinned } from './worktree-baseref.js';
 import { DEFAULTS } from '../config/resolve.js';
 import type { ResolvedProjectConfig } from '../config/resolve.js';
 import { resolveVerificationSequence } from '../workflow/verification-policy.js';
-import type { GateName } from '../workflow/verification-policy.js';
+import type { GateName, RiskTier } from '../workflow/verification-policy.js';
+import { resolveVerificationPolicy } from '../workflow/verification-policy-resolver.js';
+import { resolveGateSet } from '../workflow/phase-kind.js';
 
 const STATE_DIR = '/tmp/test-state';
 
@@ -259,6 +271,36 @@ describe('handlePrepareDelegation', () => {
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('INVALID_INPUT');
     expect(result.error?.message).toContain('featureId');
+  });
+
+  it('PrepareDelegation_MalformedTaskShape_ReturnsInvalidInputNotPhaseBlocked', async () => {
+    // A non-MCP caller can hand `tasks` through an unchecked cast. Any malformed
+    // planner field that the heuristics / resolver consume would otherwise crash
+    // downstream — e.g. `files.some(...)` on a non-array, or a bad `riskTier`
+    // reaching resolveVerificationSequence — and, caught by the fail-closed
+    // wrapper, masquerade as a `phase.blocked` RESOLVER fault. The shape guard
+    // must reject every such field as INVALID_INPUT first.
+    const malformed: Array<Record<string, unknown>> = [
+      { id: 't1', title: 'ok', files: 'src/not-an-array.ts' }, // files: non-array (crash path)
+      { id: 't2', title: 'ok', blockedBy: [1, 2] }, // blockedBy: non-string elements
+      { id: 't3', title: 'ok', riskTier: 'critical' }, // riskTier: not a RiskTier (resolver throw)
+      { id: 't4', title: 'ok', boundaryTouching: 'yes' }, // boundaryTouching: non-boolean
+      { id: 't5', title: 'ok', testLayer: 'e2e' }, // testLayer: not in the enum
+      { id: 7, title: 'ok' }, // id: non-string
+    ];
+
+    for (const bad of malformed) {
+      const args = {
+        featureId: 'feat-malformed',
+        tasks: [bad],
+      } as unknown as { featureId: string; tasks?: TaskInput[] };
+
+      const result = await handlePrepareDelegation(args, STATE_DIR, makeCtx(mockStore, STATE_DIR));
+
+      expect(result.success, `expected INVALID_INPUT for ${JSON.stringify(bad)}`).toBe(false);
+      expect(result.error?.code).toBe('INVALID_INPUT');
+      expect(result.error?.code).not.toBe('PHASE_BLOCKED');
+    }
   });
 
   it('PrepareDelegation_NotReady_ReturnsBlockers', async () => {
@@ -1689,6 +1731,44 @@ describe('handlePrepareDelegation', () => {
     });
   });
 
+  // task-004 (DR-4): classifyTask now resolves its verification sequence by
+  // routing through resolveGateSet('IMPLEMENT', …) instead of calling
+  // resolveVerificationPolicy directly. Because the IMPLEMENT kind's resolver is
+  // wired to delegate verbatim to resolveVerificationPolicy, the stamped
+  // sequence must remain byte-identical across representative task profiles —
+  // i.e. the routing is purely behavior-neutral plumbing.
+  describe('classifyTask — resolver-routing behavior-neutrality (task-004)', () => {
+    const profiles: ReadonlyArray<{
+      readonly label: string;
+      readonly riskTier: RiskTier;
+      readonly boundaryTouching: boolean;
+    }> = [
+      { label: 'low / no-boundary', riskTier: 'low', boundaryTouching: false },
+      { label: 'medium / no-boundary', riskTier: 'medium', boundaryTouching: false },
+      { label: 'high / boundary', riskTier: 'high', boundaryTouching: true },
+    ];
+
+    it('ClassifyTask_VerificationSequence_UnchangedByResolverRouting', () => {
+      for (const { label, riskTier, boundaryTouching } of profiles) {
+        // Arrange — explicit risk/boundary overrides pin the profile so the
+        // derivation heuristic does not influence the comparison.
+        const task: TaskInput = {
+          id: `T-NEUTRAL-${label}`,
+          title: 'Implement feature under neutrality check',
+          riskTier,
+          boundaryTouching,
+        };
+
+        // Act
+        const classification = classifyTask(task);
+
+        // Assert — byte-identical to the pre-routing builtin behavior.
+        const expected = resolveVerificationPolicy(riskTier, boundaryTouching).sequence;
+        expect(classification.verificationSequence, label).toEqual(expected);
+      }
+    });
+  });
+
   describe('handler config threading', () => {
     it('PrepareDelegation_ConfiguredPolicy_StampsConfigSequenceOnClassifications', async () => {
       // R7-inheritance proof: the config-resolved sequence flows onto the
@@ -1813,6 +1893,69 @@ describe('handlePrepareDelegation', () => {
       const implementerTask = data.taskClassifications.find(tc => tc.recommendedAgent === 'implementer');
       expect(scaffolderTask?.recommendedModel).toBe('haiku');   // DEFAULTS.agents.models.scaffolder
       expect(implementerTask?.recommendedModel).toBe('opus');   // DEFAULTS.agents.defaultModel
+    });
+  });
+
+  // ─── DR-7: Fail-Closed at the Gate-Set Boundary ──────────────────────────
+  //
+  // The wave-dispatch boundary stamps each task's verification sequence by
+  // routing through `resolveGateSet('IMPLEMENT', …)`. That call was previously
+  // UNGUARDED: a resolver throw (e.g. a deferred-kind 'not-yet-wired' fault, or
+  // any resolver error) propagated out of the handler and the dispatch failed
+  // OPEN / silently. DR-7 makes the boundary FAIL CLOSED: append a
+  // `phase.blocked` event carrying a visible skip reason, and refuse to proceed
+  // (structured error envelope, NO task classifications stamped).
+  describe('fail-closed gate-set boundary (DR-7)', () => {
+    it('ResolveGateSet_ResolverThrows_AppendsPhaseBlocked', async () => {
+      // Arrange: a ready workflow with a single implement task. Force the
+      // IMPLEMENT-kind resolver to throw at the dispatch boundary.
+      const state = readyWorkflowState();
+      setupMaterializer(state);
+      vi.mocked(generateQualityHints).mockReturnValue([]);
+      const localStore = {
+        query: vi.fn().mockResolvedValue([]),
+        append: vi.fn().mockResolvedValue(undefined),
+        listStreams: vi.fn().mockReturnValue(null),
+      };
+      const boom = new Error(
+        "resolveGateSet: resolver 'plan-structure' is not wired yet (deferred to S3)",
+      );
+      vi.mocked(resolveGateSet).mockImplementationOnce(() => {
+        throw boom;
+      });
+      const args = {
+        featureId: 'test-feature',
+        tasks: [{ id: 'task-1', title: 'Implement widget' }],
+      };
+
+      // Act
+      const result = await handlePrepareDelegation(
+        args,
+        STATE_DIR,
+        makeCtx(localStore, STATE_DIR),
+      );
+
+      // Assert: dispatch did NOT proceed — structured error envelope, and
+      // CRUCIALLY no taskClassifications were stamped (fail closed).
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe('PHASE_BLOCKED');
+      // Visible skip reason surfaced to the operator.
+      expect(result.error?.message).toMatch(/gate|resolve|blocked|verification/i);
+      const data = (result.data ?? {}) as { taskClassifications?: unknown };
+      expect(data.taskClassifications).toBeUndefined();
+
+      // A `phase.blocked` event was appended carrying a visible skip reason.
+      const blockedCall = localStore.append.mock.calls.find(
+        (c) => (c[1] as { type?: string }).type === 'phase.blocked',
+      );
+      expect(blockedCall, 'expected a phase.blocked event to be appended').toBeDefined();
+      const blockedEvent = blockedCall![1] as {
+        type: string;
+        data: { phase: string; kind: string; reason: string; error: { code: string; message: string } };
+      };
+      expect(blockedEvent.data.kind).toBe('IMPLEMENT');
+      expect(blockedEvent.data.reason.length).toBeGreaterThan(0);
+      expect(blockedEvent.data.error.message).toContain('not wired');
     });
   });
 

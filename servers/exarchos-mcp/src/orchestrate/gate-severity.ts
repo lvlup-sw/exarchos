@@ -22,6 +22,12 @@ type Severity = 'blocking' | 'warning' | 'disabled';
  * Scope: this default ONLY applies to gates named in `VERIFICATION_GATE_NAMES`
  * (the single source of truth) and is ALWAYS beaten by an explicit
  * `review.gates[gateName]` override — a consumer who pins a gate wins.
+ *
+ * SEVERITY (advisory vs blocking) is one of the two workflow-keyed axes the
+ * IMPLEMENT-phase obligation surface composes; the orthogonal MODE axis
+ * (audit→enforce graduation) is `IMPLEMENT_PHASE_MODE` in `gate-utils.ts` (DR-6).
+ * Both are workflow-specific — NOT kind-universal — so neither belongs in
+ * `KIND_OBLIGATIONS` (INV-6).
  */
 export const WORKFLOW_DEFAULT_SEVERITY: Readonly<Record<string, 'warning'>> =
   Object.freeze({ oneshot: 'warning' });

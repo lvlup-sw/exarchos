@@ -545,11 +545,16 @@ describe('EventTypes', () => {
     // Bumped 120 → 122: mutation.executing_started + mutation.executed
     //   (verification-ladder slice 1 task 020 — the run-mutation liveness pair,
     //   INV-10, emitted by the `exarchos run-mutation` CLI verb).
-    expect(EventTypes).toHaveLength(122);
+    // Bumped 122 → 123: phase.blocked (phase-kind binding DR-7, epic #1546 —
+    //   fail-closed at the gate-set boundary; emitted by the wave-dispatch
+    //   boundary when the IMPLEMENT-kind gate-set resolver throws, refusing the
+    //   dispatch instead of failing open).
+    expect(EventTypes).toHaveLength(123);
     expect(EventTypes).toContain('onboard.requested');
     expect(EventTypes).toContain('onboard.executed');
     expect(EventTypes).toContain('mutation.executing_started');
     expect(EventTypes).toContain('mutation.executed');
+    expect(EventTypes).toContain('phase.blocked');
     // Retirement guard: init.executed removed in DR-5 (task 018).
     expect(EventTypes as readonly string[]).not.toContain('init.executed');
   });
