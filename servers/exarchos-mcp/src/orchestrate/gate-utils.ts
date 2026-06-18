@@ -13,6 +13,7 @@ import {
   type RiskTier,
 } from '../workflow/verification-policy.js';
 import { resolveVerificationPolicy } from '../workflow/verification-policy-resolver.js';
+import type { PhaseKind } from '../workflow/phase-kind.js';
 import type { GitExec } from './pure/execute-merge.js';
 
 /**
@@ -249,6 +250,24 @@ export const IMPLEMENT_PHASE_MODE: Readonly<Record<string, ImplementMode>> =
  */
 export function resolveImplementMode(workflowType: string): ImplementMode {
   return IMPLEMENT_PHASE_MODE[workflowType] ?? 'enforce';
+}
+
+/**
+ * Resolve the graduation MODE for a phase kind's gates (DR-16, #1546).
+ *
+ * IMPLEMENT is the only kind with an audit→enforce graduation — per-workflow,
+ * via {@link resolveImplementMode} — because audit-first was correct ONLY for
+ * S2's genuinely-new IMPLEMENT coverage. The migrated PLAN/REVIEW/SYNTHESIZE
+ * gates already BLOCKED under the pre-binding playbooks, so they bind DIRECTLY
+ * to `'enforce'` (behavior-preserving). GATHER carries no gates; `'enforce'` is
+ * the safe default so an unexpected kind never silently downgrades a gate.
+ *
+ * This stays a workflow/kind-keyed function in the orchestrate layer (next to
+ * `IMPLEMENT_PHASE_MODE`) — NOT in `KIND_OBLIGATIONS`, because graduation is a
+ * per-workflow rollout decision, not a kind-universal obligation (INV-6).
+ */
+export function resolvePhaseMode(kind: PhaseKind, workflowType: string): ImplementMode {
+  return kind === 'IMPLEMENT' ? resolveImplementMode(workflowType) : 'enforce';
 }
 
 // ─── Config-Aware Gate Wrapper ──────────────────────────────────────────────
