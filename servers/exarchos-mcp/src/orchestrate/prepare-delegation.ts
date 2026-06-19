@@ -742,6 +742,19 @@ function createGitExec(): (args: readonly string[]) => string {
 
 // ─── Handler ────────────────────────────────────────────────────────────────
 
+/**
+ * #1542: native-isolation shared-checkout hazard. When the host is trusted to
+ * materialize worktrees but none are confirmed ready at prepare-time, dispatch
+ * can silently land agents in the shared checkout. Surfaced as a warning, never
+ * a blocker (the host owns isolation; readiness can't be known here).
+ */
+function sharedCheckoutHazardWarning(expected: number): string {
+  return (
+    `native isolation requested; ${expected} worktree(s) expected but 0 confirmed ready — ` +
+    `verify the host materializes worktrees or dispatch may land in the shared checkout`
+  );
+}
+
 export async function handlePrepareDelegation(
   args: { featureId: string; tasks?: TaskInput[]; nativeIsolation?: boolean },
   stateDir: string,
@@ -1068,7 +1081,7 @@ export async function handlePrepareDelegation(
       'wave-dispatch',
     );
 
-    const checkpointWarnings: string[] = [];
+    const warnings: string[] = [];
 
     if (gateResult.gated) {
       await emitAuditEvent(store, streamId, {
@@ -1092,7 +1105,7 @@ export async function handlePrepareDelegation(
     }
 
     if (gateResult.warning) {
-      checkpointWarnings.push(`checkpoint: ${gateResult.warning}`);
+      warnings.push(`checkpoint: ${gateResult.warning}`);
     }
 
     // Materialize delegation readiness from event stream
@@ -1151,6 +1164,21 @@ export async function handlePrepareDelegation(
       },
     };
 
+    // #1542: under native isolation the host materializes worktrees DOWNSTREAM
+    // of this call, so worktree blockers are filtered (above) and `ready` can be
+    // true while `worktrees.ready === 0`. That exact state has silently
+    // dispatched agents into the shared checkout. Surface the hazard (INV-12:
+    // the readiness affordance must not lie) WITHOUT flipping `ready` (INV-11:
+    // the host owns isolation). The orchestrator-side verify-back step lives in
+    // the delegate skill's native-isolation path.
+    if (
+      args.nativeIsolation &&
+      effectiveReadiness.worktrees.expected > 0 &&
+      effectiveReadiness.worktrees.ready === 0
+    ) {
+      warnings.push(sharedCheckoutHazardWarning(effectiveReadiness.worktrees.expected));
+    }
+
     // Build result
     if (!effectiveReady) {
       const result: PrepareDelegationResult = {
@@ -1162,7 +1190,7 @@ export async function handlePrepareDelegation(
       return {
         success: true,
         data: result,
-        ...(checkpointWarnings.length > 0 ? { warnings: checkpointWarnings } : {}),
+        ...(warnings.length > 0 ? { warnings } : {}),
       };
     }
 
@@ -1254,7 +1282,7 @@ export async function handlePrepareDelegation(
     return {
       success: true,
       data: result,
-      ...(checkpointWarnings.length > 0 ? { warnings: checkpointWarnings } : {}),
+      ...(warnings.length > 0 ? { warnings } : {}),
     };
   } catch (err) {
     return {

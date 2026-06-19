@@ -960,6 +960,72 @@ describe('handlePrepareDelegation', () => {
     expect(data.isolation).toBe('native');
   });
 
+  // ─── #1542: native-isolation readiness honesty (warn, don't block) ────────
+
+  it('PrepareDelegation_NativeIsolationExpectedButNoneReady_WarnsKeepsReadyTrue', async () => {
+    // #1542: native isolation requested, worktrees EXPECTED but 0 confirmed
+    // ready. Native filtering makes `ready` true, but the readiness affordance
+    // must not lie (INV-12) — a warning surfaces the shared-checkout hazard
+    // WITHOUT flipping `ready` (INV-11 host-owns-isolation contract).
+    const state = readyWorkflowState();
+    const drState: DelegationReadinessState = {
+      ready: false,
+      blockers: ['2 worktrees pending'],
+      plan: { approved: true, taskCount: 2, artifactPresent: true },
+      quality: { queried: true, gatePassRate: null, regressions: [] },
+      worktrees: { expected: 2, ready: 0, failed: [], assignedTaskIds: [], readyTaskIds: [] },
+    };
+    setupMaterializer(state, undefined, drState);
+    vi.mocked(generateQualityHints).mockReturnValue([]);
+    const args = { featureId: 'test-feature', nativeIsolation: true };
+
+    const result = await handlePrepareDelegation(args, STATE_DIR, makeCtx(mockStore, STATE_DIR));
+
+    expect(result.success).toBe(true);
+    const data = result.data as { ready: boolean; isolation: string };
+    expect(data.ready).toBe(true); // warn, don't block
+    expect(data.isolation).toBe('native');
+    expect(result.warnings).toBeDefined();
+    expect(
+      (result.warnings ?? []).some(
+        (w) => /native isolation/i.test(w) && /shared checkout/i.test(w),
+      ),
+    ).toBe(true);
+  });
+
+  it('PrepareDelegation_NativeIsolationWorktreesReady_NoSharedCheckoutWarning', async () => {
+    // When worktrees ARE confirmed ready, the hazard does not apply — no warning.
+    const state = readyWorkflowState();
+    setupMaterializer(state, undefined, readyDelegationReadiness()); // expected:2, ready:2
+    vi.mocked(generateQualityHints).mockReturnValue([]);
+    const args = { featureId: 'test-feature', nativeIsolation: true };
+
+    const result = await handlePrepareDelegation(args, STATE_DIR, makeCtx(mockStore, STATE_DIR));
+
+    expect(result.success).toBe(true);
+    expect((result.warnings ?? []).some((w) => /shared checkout/i.test(w))).toBe(false);
+  });
+
+  it('PrepareDelegation_NonNativeWorktreesPending_NoSharedCheckoutWarning', async () => {
+    // The warning is native-isolation-specific: a non-native wave with pending
+    // worktrees blocks normally (ready:false) and emits NO shared-checkout warning.
+    const state = readyWorkflowState();
+    const drState: DelegationReadinessState = {
+      ready: false,
+      blockers: ['2 worktrees pending'],
+      plan: { approved: true, taskCount: 2, artifactPresent: true },
+      quality: { queried: true, gatePassRate: null, regressions: [] },
+      worktrees: { expected: 2, ready: 0, failed: [], assignedTaskIds: [], readyTaskIds: [] },
+    };
+    setupMaterializer(state, undefined, drState);
+    const args = { featureId: 'test-feature' }; // NOT native isolation
+
+    const result = await handlePrepareDelegation(args, STATE_DIR, makeCtx(mockStore, STATE_DIR));
+
+    expect(result.success).toBe(true);
+    expect((result.warnings ?? []).some((w) => /shared checkout/i.test(w))).toBe(false);
+  });
+
   // ─── #1509/#1501: native-isolation worktree base-pin guard ────────────────
 
   it('PrepareDelegation_NativeIsolation_BaseRefUnset_BlocksWithRemediation', async () => {
