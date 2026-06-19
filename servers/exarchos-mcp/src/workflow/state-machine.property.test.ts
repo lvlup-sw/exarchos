@@ -133,12 +133,16 @@ describe('State Machine Property Tests', () => {
               expect(result.newPhase).toBeDefined();
               expect(hsm.states).toHaveProperty(result.newPhase!);
             }
-            // If it failed, it should have an error code (guard or circuit breaker)
+            // If it failed, it should have an error code (guard, circuit
+            // breaker, or the fail-closed gate-set boundary).
             if (!result.success) {
               expect(result.errorCode).toBeDefined();
-              expect(['GUARD_FAILED', 'CIRCUIT_OPEN', 'INVALID_TRANSITION']).toContain(
-                result.errorCode,
-              );
+              expect([
+                'GUARD_FAILED',
+                'CIRCUIT_OPEN',
+                'INVALID_TRANSITION',
+                'PHASE_BLOCKED',
+              ]).toContain(result.errorCode);
             }
           }),
           { numRuns: 100 },

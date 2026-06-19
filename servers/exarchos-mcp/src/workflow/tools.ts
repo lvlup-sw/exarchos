@@ -733,13 +733,16 @@ export async function handleSet(
             },
           };
         }
-        // reason === 'guard-failed' (or CIRCUIT_OPEN, mapped to errorCode)
+        // reason === 'guard-failed' (CIRCUIT_OPEN / PHASE_BLOCKED preserved
+        // as distinct codes rather than collapsed to GUARD_FAILED).
         const guardFailure = attemptResult.failures[0];
         const errorPayload: Record<string, unknown> = {
           code:
             attemptResult.errorCode === 'CIRCUIT_OPEN'
               ? ErrorCode.CIRCUIT_OPEN
-              : ErrorCode.GUARD_FAILED,
+              : attemptResult.errorCode === 'PHASE_BLOCKED'
+                ? ErrorCode.PHASE_BLOCKED
+                : ErrorCode.GUARD_FAILED,
           message: attemptResult.errorMessage,
         };
         if (guardFailure?.expectedShape) {
@@ -1164,9 +1167,15 @@ async function enrichGuardFailureError(
 ): Promise<ToolResult> {
   if (result.success || !result.error) return result;
   const code = result.error.code;
-  if (code !== ErrorCode.GUARD_FAILED && code !== ErrorCode.INVALID_TRANSITION && code !== ErrorCode.CIRCUIT_OPEN) {
+  if (
+    code !== ErrorCode.GUARD_FAILED &&
+    code !== ErrorCode.INVALID_TRANSITION &&
+    code !== ErrorCode.CIRCUIT_OPEN &&
+    code !== ErrorCode.PHASE_BLOCKED
+  ) {
     // Non-guard failures (STATE_NOT_FOUND, EVENT_APPEND_FAILED, etc.)
-    // pass through unchanged.
+    // pass through unchanged. PHASE_BLOCKED is a transition-boundary fault, so
+    // it gets the same validTargets enrichment as the other guard failures.
     return result;
   }
 

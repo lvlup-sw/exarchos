@@ -65,6 +65,38 @@ interface CheckIntegrationSuiteResult {
 // ─── Command Runner Adapter ─────────────────────────────────────────────────
 
 /**
+ * OS-level errno codes that mean the child was NEVER created — a true spawn
+ * failure (the test command is missing or unrunnable). Restricting the
+ * classification to this set keeps a process that DID run from being mislabeled:
+ * a non-zero exit carries a numeric `status`, and an output overflow surfaces as
+ * `ERR_CHILD_PROCESS_STDIO_MAXBUFFER` (a string `code` with no `status`) even
+ * though the suite ran to completion. Both must stay `shape-mismatch`, not
+ * `spawn-failure` (#1537 follow-up). Set membership — not "any string code" — is
+ * the discriminant.
+ */
+const SPAWN_ERROR_CODES: ReadonlySet<string> = new Set([
+  'ENOENT', // command / file does not exist
+  'EACCES', // not permitted to execute the file
+  'EPERM', // operation not permitted
+  'ENOTDIR', // a path component is not a directory
+  'ENOMEM', // could not allocate to fork the child
+]);
+
+/**
+ * True only for an execFileSync error that means the process never started:
+ * no numeric exit `status` AND a recognized OS-level spawn errno (above).
+ * Exported so the classification is unit-testable without spawning a real
+ * process.
+ */
+export function isSpawnFailure(err: { status?: number; code?: string }): boolean {
+  return (
+    typeof err.status !== 'number' &&
+    typeof err.code === 'string' &&
+    SPAWN_ERROR_CODES.has(err.code)
+  );
+}
+
+/**
  * Wraps execFileSync to match the RunCommandFn signature. A non-zero exit
  * (the suite failed) is returned as a CommandResult, not thrown — vitest's
  * JSON summary is still on stdout in that case.
@@ -85,10 +117,13 @@ const execCommandRunner: RunCommandFn = (
     return { exitCode: 0, stdout: output, stderr: '' };
   } catch (err: unknown) {
     const execErr = err as { status?: number; code?: string; stdout?: string; stderr?: string };
-    // A spawn failure (ENOENT/EACCES/…) has no numeric exit `status` — the
-    // process never ran. Surface it as `spawnError` so the gate can tell a
-    // missing/unrunnable test command apart from a JSON-shape mismatch (#1537).
-    const spawnFailed = typeof execErr.status !== 'number' && typeof execErr.code === 'string';
+    // A spawn failure (ENOENT/EACCES/…) has no numeric exit `status` AND carries
+    // a recognized OS-level errno — the process never ran. Surface it as
+    // `spawnError` so the gate can tell a missing/unrunnable test command apart
+    // from a process that ran but whose output we can't trust — a non-zero exit
+    // or an `ERR_CHILD_PROCESS_STDIO_MAXBUFFER` overflow stay JSON-shape
+    // mismatches, never spawn failures (#1537).
+    const spawnFailed = isSpawnFailure(execErr);
     return {
       exitCode: execErr.status ?? (spawnFailed ? 127 : 1),
       stdout: execErr.stdout ?? '',

@@ -19,7 +19,7 @@ const mockStore = {
   query: vi.fn().mockResolvedValue([]),
 };
 
-import { handleCheckIntegrationSuite } from './check-integration-suite.js';
+import { handleCheckIntegrationSuite, isSpawnFailure } from './check-integration-suite.js';
 import {
   parseVitestResult,
   runIntegrationSuite,
@@ -285,6 +285,35 @@ describe('parseVitestResult', () => {
 });
 
 // ─── #1537 / DR-15: toolchain-resolved command + spawn-vs-shape failure ──────
+
+describe('isSpawnFailure spawn-vs-shape classification (#1537)', () => {
+  it('classifies recognized OS-level errnos with no numeric status as spawn failures', () => {
+    for (const code of ['ENOENT', 'EACCES', 'EPERM', 'ENOTDIR', 'ENOMEM']) {
+      expect(isSpawnFailure({ code })).toBe(true);
+    }
+  });
+
+  it('does NOT classify a process that ran (numeric exit status) as a spawn failure', () => {
+    // The suite ran and exited non-zero — a real test failure, not a spawn fault.
+    expect(isSpawnFailure({ status: 1, code: 'ENOENT' })).toBe(false);
+    expect(isSpawnFailure({ status: 0 })).toBe(false);
+  });
+
+  it('does NOT classify a ran-but-overflowed process as a spawn failure', () => {
+    // execFileSync surfaces a maxBuffer overflow with a string `code` and no
+    // numeric `status` even though the child ran to completion. Pre-fix the
+    // broad `typeof code === 'string'` check mislabeled this as a spawn failure;
+    // it must stay a shape-mismatch.
+    expect(isSpawnFailure({ code: 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER' })).toBe(false);
+    // ETIMEDOUT: the child was spawned then killed by the timeout — not a spawn
+    // failure either.
+    expect(isSpawnFailure({ code: 'ETIMEDOUT' })).toBe(false);
+  });
+
+  it('does NOT classify an error with no code as a spawn failure', () => {
+    expect(isSpawnFailure({})).toBe(false);
+  });
+});
 
 describe('check_integration_suite command resolution (#1537, DR-15)', () => {
   function stubToolchain(test: string | null): Toolchain {

@@ -484,6 +484,14 @@ export const ErrorCode = {
   INVALID_TRANSITION: 'INVALID_TRANSITION',
   GUARD_FAILED: 'GUARD_FAILED',
   CIRCUIT_OPEN: 'CIRCUIT_OPEN',
+  /**
+   * Fail-closed at the phase-kind gate-set boundary: `executeTransition`
+   * refused the transition because the target kind's obligation could not be
+   * resolved (DR-7/DR-10, epic #1546). Distinct from GUARD_FAILED so the
+   * substrate-integrity semantic survives to the MCP caller (INV-5b) instead of
+   * collapsing into a generic guard fault.
+   */
+  PHASE_BLOCKED: 'PHASE_BLOCKED',
   INVALID_INPUT: 'INVALID_INPUT',
   RESERVED_FIELD: 'RESERVED_FIELD',
   ALREADY_CANCELLED: 'ALREADY_CANCELLED',
