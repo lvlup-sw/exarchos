@@ -10,8 +10,21 @@ export const CODE_QUALITY_VIEW = 'code-quality';
 export const MAX_BENCHMARKS = 50;
 export const MAX_BENCHMARK_VALUES = 100;
 export const MAX_REGRESSIONS = 50;
+/** Rolling cap on per-skill mutation-score samples (#1525), mirrors MAX_BENCHMARK_VALUES. */
+export const MAX_MUTATION_SAMPLES = 100;
 
 // ─── View State Interfaces ─────────────────────────────────────────────────
+
+/**
+ * Per-skill mutation-score trend (#1525). A left-fold of the `mutationScore`
+ * carried on the mutation-adequacy `gate.executed` (`details.mutationScore`),
+ * mirroring `BenchmarkTrend` — ordered samples plus a derived direction. No
+ * side table: the samples live on the skill metrics the view already folds.
+ */
+export interface MutationScoreTrend {
+  readonly values: ReadonlyArray<{ readonly value: number; readonly commit: string; readonly timestamp: string }>;
+  readonly trend: 'improving' | 'stable' | 'degrading';
+}
 
 export interface SkillQualityMetrics {
   readonly skill: string;
@@ -21,6 +34,8 @@ export interface SkillQualityMetrics {
   readonly avgRemediationAttempts: number;
   readonly topFailureCategories: ReadonlyArray<{ readonly category: string; readonly count: number }>;
   readonly latestPromptVersion?: string;
+  /** Present once a mutation-adequacy gate.executed with a numeric mutationScore has been folded. */
+  readonly mutationScoreTrend?: MutationScoreTrend;
 }
 
 export interface GateMetrics {
@@ -116,8 +131,17 @@ function defaultModelMetrics(model: string): ModelQualityMetrics {
   };
 }
 
-/** Calculate trend direction from last 3+ values. */
-function calculateTrend(values: Array<{ value: number }>): 'improving' | 'stable' | 'degrading' {
+/**
+ * Calculate trend direction from the last 3+ values.
+ *
+ * Default convention is *lower-is-better* (benchmark latency): a falling series
+ * is "improving". Pass `higherIsBetter` for metrics where a rising series is the
+ * improvement (e.g. mutation score — more mutants killed is better).
+ */
+function calculateTrend(
+  values: Array<{ value: number }>,
+  higherIsBetter = false,
+): 'improving' | 'stable' | 'degrading' {
   if (values.length < 3) return 'stable';
 
   const recent = values.slice(-3);
@@ -128,8 +152,8 @@ function calculateTrend(values: Array<{ value: number }>): 'improving' | 'stable
 
   const avgDiff = diffs.reduce((sum, d) => sum + d, 0) / diffs.length;
 
-  if (avgDiff < -0.001) return 'improving';
-  if (avgDiff > 0.001) return 'degrading';
+  if (avgDiff < -0.001) return higherIsBetter ? 'degrading' : 'improving';
+  if (avgDiff > 0.001) return higherIsBetter ? 'improving' : 'degrading';
   return 'stable';
 }
 
@@ -207,6 +231,9 @@ function handleGateExecuted(state: InternalState, event: WorkflowEvent): CodeQua
   const commit = typeof details.commit === 'string' ? details.commit : undefined;
   const reason = typeof details.reason === 'string' ? details.reason : undefined;
   const promptVersion = typeof details.promptVersion === 'string' ? details.promptVersion : undefined;
+  // #1525 — the mutation-adequacy gate carries a numeric score in details; any
+  // other gate omits it and leaves the per-skill mutation trend untouched.
+  const mutationScore = typeof details.mutationScore === 'number' ? details.mutationScore : undefined;
 
   // Update gate metrics
   const prevGate = state.gates[gateName] ?? defaultGateMetrics(gateName);
@@ -248,6 +275,22 @@ function handleGateExecuted(state: InternalState, event: WorkflowEvent): CodeQua
       }
     }
 
+    // #1525 — fold the mutation-adequacy score into a per-skill left-fold trend
+    // (ordered samples + derived direction), mirroring BenchmarkTrend. Mutation
+    // score is higher-is-better, so the trend is computed with that convention.
+    let mutationScoreTrend = prevSkill.mutationScoreTrend;
+    if (mutationScore !== undefined) {
+      const prevValues = prevSkill.mutationScoreTrend?.values ?? [];
+      let values = [
+        ...prevValues,
+        { value: mutationScore, commit: commit ?? '', timestamp: event.timestamp },
+      ];
+      if (values.length > MAX_MUTATION_SAMPLES) {
+        values = values.slice(values.length - MAX_MUTATION_SAMPLES);
+      }
+      mutationScoreTrend = { values, trend: calculateTrend(values, true) };
+    }
+
     updatedSkills = {
       ...state.skills,
       [skill]: {
@@ -256,6 +299,7 @@ function handleGateExecuted(state: InternalState, event: WorkflowEvent): CodeQua
         gatePassRate: skillPassCount / newExec,
         topFailureCategories: updatedCategories,
         ...(promptVersion !== undefined ? { latestPromptVersion: promptVersion } : {}),
+        ...(mutationScoreTrend !== undefined ? { mutationScoreTrend } : {}),
       },
     };
   }

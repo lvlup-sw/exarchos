@@ -403,6 +403,41 @@ describe('View Handlers', () => {
       const regressions = data.regressions as unknown[];
       expect(regressions).toHaveLength(1);
     });
+
+    it('HandleViewCodeQuality_SurfacesMutationScoreTrend_PerSkill', async () => {
+      // W2-7 (#1525) — the per-skill mutation-score trend folded by
+      // code-quality-view must ride through the composite handler output
+      // (EnvelopeSchema(z.unknown()) does not strip it). End-to-end guard so a
+      // future strict outputSchema can't silently drop the field.
+      const store = new EventStore(tmpDir);
+      const scores = [0.5, 0.6, 0.72];
+      for (let i = 0; i < scores.length; i++) {
+        await store.append('mut-wf', {
+          streamId: 'mut-wf',
+          sequence: i + 1,
+          timestamp: new Date().toISOString(),
+          type: 'gate.executed',
+          data: {
+            gateName: 'mutation-adequacy',
+            layer: 'verification',
+            passed: true,
+            details: { skill: 'delegation', mutationScore: scores[i], commit: `c${i}` },
+          },
+          schemaVersion: '1.0',
+        });
+      }
+
+      const result = await handleViewCodeQuality({ workflowId: 'mut-wf' }, tmpDir, store);
+
+      expect(result.success).toBe(true);
+      const data = result.data as {
+        skills: Record<string, { mutationScoreTrend?: { values: Array<{ value: number }>; trend: string } }>;
+      };
+      const trend = data.skills['delegation']?.mutationScoreTrend;
+      expect(trend).toBeDefined();
+      expect(trend!.values.map((v) => v.value)).toEqual([0.5, 0.6, 0.72]);
+      expect(trend!.trend).toBe('improving');
+    });
   });
 
   // ─── Wave 5 / Task 13 (#1437) — Group A view actions honor correlation filters ─
