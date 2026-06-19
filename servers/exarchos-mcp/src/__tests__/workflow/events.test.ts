@@ -5,6 +5,7 @@ import {
   getRecentEvents,
   getPhaseDuration,
   mapInternalToExternalType,
+  mapExternalToInternalType,
   EVENT_LOG_MAX,
 } from '../../workflow/events.js';
 import type { Event, EventType } from '../../workflow/types.js';
@@ -430,6 +431,18 @@ describe('Event Log', () => {
 
       for (const [internal, external] of Object.entries(expectedMappings)) {
         expect(mapInternalToExternalType(internal)).toBe(external);
+      }
+    });
+
+    // Phase-kind resolve-then-freeze (DR-13, epic #1546). These are already
+    // canonical event-store types — the `workflow.${type}` fallback would mint
+    // the UNREGISTERED `workflow.phase.*` which `WorkflowEventBase`'s
+    // unknown-type refine rejects. `phase.blocked` rides the guard's fail-closed
+    // branch, so its identity round-trip is load-bearing, not cosmetic.
+    it('passes phase-kind canonical types through unchanged (no workflow. fallback)', () => {
+      for (const t of ['phase.entered', 'phase.exited', 'phase.blocked'] as const) {
+        expect(mapInternalToExternalType(t)).toBe(t);
+        expect(mapExternalToInternalType(t)).toBe(t);
       }
     });
   });

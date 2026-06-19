@@ -33,6 +33,14 @@ export interface CommandResult {
   readonly exitCode: number;
   readonly stdout: string;
   readonly stderr: string;
+  /**
+   * Set when the command could not be SPAWNED at all (ENOENT/EACCES/…) — the
+   * process never ran, so `exitCode`/`stdout` are not authoritative. Distinct
+   * from a normal non-zero exit (the process ran and failed). Optional;
+   * unset on a successful spawn. Consumed by the integration-suite gate to
+   * separate a runner-spawn failure from a JSON-shape mismatch (#1537).
+   */
+  readonly spawnError?: string;
 }
 
 /**

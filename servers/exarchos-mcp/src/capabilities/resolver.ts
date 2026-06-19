@@ -12,6 +12,8 @@
 import type { Capability } from '../agents/capabilities.js';
 import type { AgentPosture } from '../agents/spec.js';
 import { capabilitiesForPosture } from './posture-mapping.js';
+import { KIND_OBLIGATIONS } from '../workflow/phase-kind.js';
+import type { PhaseKind } from '../workflow/phase-kind.js';
 
 /**
  * Minimal slice of the MCP initialize handshake consumed by
@@ -436,3 +438,84 @@ function freezeSet<T>(set: Set<T>): ReadonlySet<T> {
   Object.defineProperty(set, 'clear', { value: throwImmutable, writable: false, configurable: false });
   return Object.freeze(set);
 }
+
+// ─── DR-14 / INV-11: POLA capability bundle from a phase kind's posture ─────
+//
+// The central enforcement point the resolver map lacked: a capability bundle
+// minted from `KIND_OBLIGATIONS[kind].posture` through the existing
+// `resolvePosture` machinery (compose, do not duplicate; the handshake stays
+// authoritative). The phantom `posture` type makes worktree mutation from a
+// read-only phase kind UNREPRESENTABLE — a REVIEW/PLAN/GATHER bundle is not
+// assignable where a mutating bundle is required (compile-time), and carries no
+// `fs:write` token at runtime.
+
+/** Postures whose trust tier grants mutation (fs:write). */
+export type MutatingPosture = Exclude<AgentPosture, 'read-only'>;
+
+/**
+ * A capability bundle tagged by the posture it was minted from. The `posture`
+ * discriminant lets a consumer's signature demand a mutating bundle and have
+ * the type system reject a read-only one.
+ */
+export interface CapabilityBundle<P extends AgentPosture = AgentPosture> {
+  readonly posture: P;
+  readonly capabilities: EffectiveCapabilities;
+}
+
+/**
+ * Mint the POLA capability bundle for a phase kind. The posture is statically
+ * known per kind (`KIND_OBLIGATIONS` is `as const`), so the returned bundle's
+ * phantom type is the kind's exact posture literal. Capabilities resolve through
+ * `resolvePosture`, so the runtime handshake stays authoritative (a `deny`
+ * revokes a posture grant).
+ */
+export function mintCapabilitiesForKind<K extends PhaseKind>(
+  kind: K,
+  handshake: RuntimeHandshake = {},
+): CapabilityBundle<(typeof KIND_OBLIGATIONS)[K]['posture']> {
+  const posture = KIND_OBLIGATIONS[kind].posture;
+  return {
+    posture,
+    capabilities: resolvePosture({ posture }, handshake),
+  };
+}
+
+/**
+ * Consume a capability bundle that MUST carry mutation access. Passing a
+ * read-only (REVIEW/PLAN/GATHER) bundle is a COMPILE error — the structural
+ * half of DR-14's "worktree mutation is unrepresentable from a read-only phase".
+ */
+export function requireMutationCapabilities(
+  bundle: CapabilityBundle<MutatingPosture>,
+): EffectiveCapabilities {
+  return bundle.capabilities;
+}
+
+// ─── Compile-time POLA guarantees (verified by `npm run typecheck`) ─────────
+// These exported type aliases live in a non-test source file, so the build's
+// `tsc` (the static-analysis gate) actively verifies them — the project's
+// tsconfig excludes *.test.ts, so a `@ts-expect-error` in a test would NOT be
+// gate-enforced. `Expect<T extends true>` is a compile error unless T is `true`.
+type Expect<T extends true> = T;
+type IsNotAssignable<A, B> = A extends B ? false : true;
+
+/** REVIEW (read-only) bundles must NOT satisfy a mutating consumer. */
+export type _PolaReviewBundleNotMutating = Expect<
+  IsNotAssignable<
+    CapabilityBundle<(typeof KIND_OBLIGATIONS)['REVIEW']['posture']>,
+    CapabilityBundle<MutatingPosture>
+  >
+>;
+/** PLAN (read-only) bundles must NOT satisfy a mutating consumer. */
+export type _PolaPlanBundleNotMutating = Expect<
+  IsNotAssignable<
+    CapabilityBundle<(typeof KIND_OBLIGATIONS)['PLAN']['posture']>,
+    CapabilityBundle<MutatingPosture>
+  >
+>;
+/** IMPLEMENT (task-isolated) bundles MUST satisfy a mutating consumer. */
+export type _PolaImplementBundleMutating = Expect<
+  CapabilityBundle<(typeof KIND_OBLIGATIONS)['IMPLEMENT']['posture']> extends CapabilityBundle<MutatingPosture>
+    ? true
+    : false
+>;

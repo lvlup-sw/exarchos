@@ -851,3 +851,93 @@ describe('WorkflowStateProjection immutability', () => {
     expect(tasksBefore).toHaveLength(1);
   });
 });
+
+// ─── phase.entered / phase.exited (DR-13, epic #1546) ────────────────────────
+
+describe('WorkflowStateProjection phase.entered / phase.exited', () => {
+  const enteredData = {
+    phase: 'implement',
+    kind: 'IMPLEMENT',
+    resolver: 'verification-ladder',
+    resolvedGates: [
+      { family: 'ladder', gate: 'check_static_analysis' },
+      { family: 'ladder', gate: 'check_test_adequacy' },
+    ],
+    policySource: 'builtin',
+    mode: 'enforce',
+    posture: 'task-isolated',
+  } as const;
+
+  const fold = (evts: WorkflowEvent[]) =>
+    evts.reduce(
+      (v, e) => workflowStateProjection.apply(v, e),
+      workflowStateProjection.init(),
+    );
+
+  it('workflowStateProjection_PhaseEnteredExited_FoldedAndReplayStable', () => {
+    const events: WorkflowEvent[] = [
+      makeEvent('workflow.started', { featureId: 'f1', workflowType: 'feature' }),
+      makeEvent('workflow.transition', { to: 'implement' }),
+      makeEvent('phase.entered', { ...enteredData }),
+    ];
+
+    const afterEntered = fold(events);
+    // The frozen obligation is folded onto the view — NOT lost to the default case.
+    expect(afterEntered.phaseObligation).toEqual({
+      phase: 'implement',
+      kind: 'IMPLEMENT',
+      resolver: 'verification-ladder',
+      resolvedGates: enteredData.resolvedGates,
+      policySource: 'builtin',
+      mode: 'enforce',
+      posture: 'task-isolated',
+      enteredAt: expect.any(String),
+      exited: false,
+      allRequiredGatesPassed: null,
+    });
+
+    // Replay determinism (#1208-class single-trigger): folding the identical
+    // event log from init reconstructs a byte-identical obligation — resolve-
+    // then-freeze is a pure left-fold and reads `kind` from the frozen event,
+    // never re-derived from the phase name.
+    const replayed = fold(events);
+    expect(replayed.phaseObligation).toEqual(afterEntered.phaseObligation);
+  });
+
+  it('workflowStateProjection_PhaseExited_RecordsAggregateStatus_FreezeUntouched', () => {
+    const afterEntered = fold([
+      makeEvent('workflow.started', { featureId: 'f1', workflowType: 'feature' }),
+      makeEvent('phase.entered', { ...enteredData }),
+    ]);
+
+    const afterExited = workflowStateProjection.apply(
+      afterEntered,
+      makeEvent('phase.exited', { phase: 'implement', allRequiredGatesPassed: true }),
+    );
+
+    expect(afterExited.phaseObligation?.exited).toBe(true);
+    expect(afterExited.phaseObligation?.allRequiredGatesPassed).toBe(true);
+    // Exit records status only — the frozen resolver + gate-set are immutable.
+    expect(afterExited.phaseObligation?.resolver).toBe('verification-ladder');
+    expect(afterExited.phaseObligation?.resolvedGates).toEqual(enteredData.resolvedGates);
+  });
+
+  it('workflowStateProjection_GatherPhaseEntered_FreezesEmptyObligation', () => {
+    const afterEntered = fold([
+      makeEvent('workflow.started', { featureId: 'f1', workflowType: 'feature' }),
+      makeEvent('phase.entered', {
+        phase: 'gather',
+        kind: 'GATHER',
+        resolver: null,
+        resolvedGates: [],
+        policySource: 'builtin',
+        mode: 'enforce',
+        posture: 'read-only',
+      }),
+    ]);
+    expect(afterEntered.phaseObligation?.kind).toBe('GATHER');
+    expect(afterEntered.phaseObligation?.resolver).toBeNull();
+    expect(afterEntered.phaseObligation?.resolvedGates).toEqual([]);
+    expect(afterEntered.phaseObligation?.posture).toBe('read-only');
+  });
+});

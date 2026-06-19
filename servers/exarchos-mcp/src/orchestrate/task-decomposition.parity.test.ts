@@ -137,11 +137,17 @@ describe('behavioral parity with check-task-decomposition.sh', () => {
       }
     });
 
-    it('missing description task — FAIL with <=10 words (bash: exit 1, 2 words)', () => {
+    it('terse description but files+tests present — PASS (#1544 relaxation)', () => {
+      // #1544: the word-count threshold no longer hard-FAILs a task. The fixture
+      // task has files + tests and only a terse "Build it." description — exactly
+      // the false-FAIL #1544 targets. status now gates on files+tests; the
+      // description stays informational (hasDescription/wordCount unchanged).
       const blocks = parseTaskBlocks(MISSING_DESCRIPTION_PLAN);
       const result = validateTaskStructure(blocks[0].content);
 
-      expect(result.status).toBe('FAIL');
+      expect(result.status).toBe('PASS');
+      expect(result.hasFiles).toBe(true);
+      expect(result.hasTests).toBe(true);
       expect(result.hasDescription).toBe(false);
       expect(result.descriptionWordCount).toBeLessThanOrEqual(10);
     });
@@ -231,7 +237,7 @@ describe('behavioral parity with check-task-decomposition.sh', () => {
       expect(data.report).toContain('**Result: PASS**');
     });
 
-    it('missing description plan — fails with 1 task needing rework (bash: exit 1)', async () => {
+    it('terse-description plan — passes when files+tests present (#1544 relaxation)', async () => {
       const mockedReadFile = vi.mocked(readFile);
       mockedReadFile.mockResolvedValue(MISSING_DESCRIPTION_PLAN);
 
@@ -250,11 +256,13 @@ describe('behavioral parity with check-task-decomposition.sh', () => {
         report: string;
       };
 
-      expect(data.passed).toBe(false);
-      expect(data.wellDecomposed).toBe(0);
-      expect(data.needsRework).toBe(1);
+      // #1544: files + tests present → well-decomposed, no rework, despite the
+      // terse description (no longer a hard-FAIL signal).
+      expect(data.passed).toBe(true);
+      expect(data.wellDecomposed).toBe(1);
+      expect(data.needsRework).toBe(0);
       expect(data.totalTasks).toBe(1);
-      expect(data.report).toContain('**Result: FAIL**');
+      expect(data.report).toContain('**Result: PASS**');
     });
   });
 });

@@ -1,7 +1,13 @@
 // ─── Gate Utils Tests ─────────────────────────────────────────────────────────
 
 import { describe, it, expect, vi } from 'vitest';
-import { emitGateEvent, resolveRepoRoot, AUTO_REPO_ROOT, resolvePolicySkip } from './gate-utils.js';
+import {
+  emitGateEvent,
+  resolveRepoRoot,
+  AUTO_REPO_ROOT,
+  resolvePolicySkip,
+  resolvePhaseMode,
+} from './gate-utils.js';
 import type { EventStore } from '../event-store/store.js';
 import { resolveConfig } from '../config/resolve.js';
 import type { VerificationPolicyOverlay } from '../config/yaml-schema.js';
@@ -335,5 +341,34 @@ describe('StampAndSkip consistency', () => {
         }
       }
     }
+  });
+});
+
+// ─── resolvePhaseMode (DR-16, #1546) ─────────────────────────────────────────
+
+describe('resolvePhaseMode', () => {
+  it('migratedGates_PlanReviewSynthesis_BindEnforceNotAudit', () => {
+    // The migrated PLAN/REVIEW/SYNTHESIZE gates already BLOCKED under the
+    // pre-binding playbooks, so they bind DIRECTLY to enforce (behavior-
+    // preserving). Even on a workflow type whose IMPLEMENT phase graduates to
+    // audit (oneshot), these kinds stay enforce — audit-first was only ever
+    // correct for S2's genuinely-new IMPLEMENT coverage.
+    for (const kind of ['PLAN', 'REVIEW', 'SYNTHESIZE'] as const) {
+      expect(resolvePhaseMode(kind, 'oneshot')).toBe('enforce');
+      expect(resolvePhaseMode(kind, 'feature')).toBe('enforce');
+    }
+  });
+
+  it('implementKind_StillGraduatesPerWorkflowType', () => {
+    // IMPLEMENT keeps its per-workflow audit→enforce graduation (DR-6).
+    expect(resolvePhaseMode('IMPLEMENT', 'oneshot')).toBe('audit');
+    expect(resolvePhaseMode('IMPLEMENT', 'feature')).toBe('enforce');
+    expect(resolvePhaseMode('IMPLEMENT', 'debug')).toBe('enforce');
+  });
+
+  it('gatherKind_NoGates_DefaultsEnforce', () => {
+    // GATHER carries no gates; enforce is the safe default (never silently
+    // downgrade an unexpected kind).
+    expect(resolvePhaseMode('GATHER', 'feature')).toBe('enforce');
   });
 });

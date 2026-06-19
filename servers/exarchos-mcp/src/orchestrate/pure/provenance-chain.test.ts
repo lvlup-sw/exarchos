@@ -366,4 +366,35 @@ describe('verifyProvenanceChain', () => {
       expect(result.status).toBe('pass');
     });
   });
+
+  // ============================================================
+  // ZERO PARSED TASKS (issue #1543)
+  // ============================================================
+
+  describe('zero parsed tasks (issue #1543)', () => {
+    it('h4 tasks yield a distinct zero-tasks error, not an N/N-unmapped FAIL', () => {
+      const designFile = writeDesign(
+        ['# Design', '', 'DR-1: First requirement.', 'DR-2: Second requirement.'].join('\n'),
+      );
+      // Tasks nested at h4 under an h3 cluster — extractPlanTasks finds zero h3
+      // tasks, which previously rendered as a misleading "2/2 unmapped" FAIL.
+      const planFile = writePlan(
+        [
+          '# Plan',
+          '',
+          '### Cluster A',
+          '',
+          '#### Task 1: Foo',
+          '**Implements:** DR-1',
+          '',
+          '#### Task 2: Bar',
+          '**Implements:** DR-2',
+        ].join('\n'),
+      );
+      const result = verifyProvenanceChain({ designFile, planFile });
+      expect(result.status).toBe('error');
+      expect(result.error).toMatch(/0 tasks|### Task/i);
+      expect(result.output).not.toContain('requirements unmapped');
+    });
+  });
 });

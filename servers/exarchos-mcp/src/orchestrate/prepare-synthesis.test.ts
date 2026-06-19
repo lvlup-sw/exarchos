@@ -50,6 +50,38 @@ function createMockMaterializer(taskView: unknown) {
   };
 }
 
+/**
+ * Convert a task-status map into the canonical event sequence the
+ * workflowStateProjection folds (task.assigned + task.completed/failed). Used to
+ * drive readiness through resolveWorkflowState — the same source exarchos_workflow
+ * get uses (#1536) — instead of the divergent task-detail materializer.
+ */
+function tasksToEvents(tasks: Record<string, { status: string }>): unknown[] {
+  const events: unknown[] = [];
+  let seq = 0;
+  for (const [id, t] of Object.entries(tasks)) {
+    events.push({
+      type: 'task.assigned',
+      timestamp: `2026-06-17T00:00:${String(seq++).padStart(2, '0')}Z`,
+      data: { taskId: id, title: `Task ${id}` },
+    });
+    if (t.status === 'completed' || t.status === 'complete') {
+      events.push({
+        type: 'task.completed',
+        timestamp: `2026-06-17T00:00:${String(seq++).padStart(2, '0')}Z`,
+        data: { taskId: id },
+      });
+    } else if (t.status === 'failed') {
+      events.push({
+        type: 'task.failed',
+        timestamp: `2026-06-17T00:00:${String(seq++).padStart(2, '0')}Z`,
+        data: { taskId: id },
+      });
+    }
+  }
+  return events;
+}
+
 function createMockEventStore(events: unknown[] = []) {
   return {
     query: vi.fn().mockResolvedValue(events),
@@ -93,15 +125,15 @@ describe('handlePrepareSynthesis', () => {
   // ─── Test 2: Tasks incomplete returns blockers ────────────────────────────
 
   it('PrepareSynthesis_TasksIncomplete_ReturnsBlockers', async () => {
-    // Arrange
-    const taskView = mockTaskDetailView({
-      't1': { status: 'completed' },
-      't2': { status: 'in-progress' },
-      't3': { status: 'assigned' },
-    });
-    const mockMaterializer = createMockMaterializer(taskView);
-    const mockStore = createMockEventStore();
-    vi.mocked(getOrCreateMaterializer).mockReturnValue(mockMaterializer as unknown as ReturnType<typeof getOrCreateMaterializer>);
+    // Arrange — drive task status through the canonical event log (#1536):
+    // t1 completed, t2/t3 only assigned (pending) → t2/t3 block synthesis.
+    const mockStore = createMockEventStore(
+      tasksToEvents({
+        t1: { status: 'completed' },
+        t2: { status: 'in-progress' },
+        t3: { status: 'assigned' },
+      }),
+    );
 
     // Act
     const result = await handlePrepareSynthesis({ featureId: 'test-feature' }, tmpDir, mockStore as unknown as EventStore);
@@ -114,6 +146,30 @@ describe('handlePrepareSynthesis', () => {
     expect(data.blockers.length).toBeGreaterThan(0);
     expect(data.blockers.some((b: string) => b.includes('t2'))).toBe(true);
     expect(data.blockers.some((b: string) => b.includes('t3'))).toBe(true);
+  });
+
+  // ─── #1536: readiness derives from the canonical event log, not materializer ─
+  it('PrepareSynthesis_MaterializerDisagreesWithEventLog_NoPhantomBlocker', async () => {
+    // #1536: the task-detail materializer reported tasks in-progress while the
+    // canonical event log (resolveWorkflowState — what exarchos_workflow get
+    // reads) showed them complete. Synthesis phantom-blocked. Readiness MUST
+    // derive from the canonical source, so the phantom must not appear.
+    const phantomView = mockTaskDetailView({ '024': { status: 'in-progress' } });
+    vi.mocked(getOrCreateMaterializer).mockReturnValue(
+      createMockMaterializer(phantomView) as unknown as ReturnType<typeof getOrCreateMaterializer>,
+    );
+    // Canonical event log: task 024 assigned then completed.
+    const mockStore = createMockEventStore(tasksToEvents({ '024': { status: 'completed' } }));
+    vi.mocked(execSync).mockReturnValue(Buffer.from('Tests: 1 passed, 0 failed'));
+
+    const result = await handlePrepareSynthesis(
+      { featureId: 'f' },
+      tmpDir,
+      mockStore as unknown as EventStore,
+    );
+
+    const data = result.data as { blockers?: string[] };
+    expect((data.blockers ?? []).some((b: string) => b.includes('024'))).toBe(false);
   });
 
   // ─── Test 3: Tests run and emit test result event ─────────────────────────

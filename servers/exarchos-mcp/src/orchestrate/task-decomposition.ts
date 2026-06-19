@@ -108,6 +108,15 @@ export const FILE_EXTENSION_ALLOWLIST: readonly string[] = [
   'go',
   'rs',
   'toml',
+  // #1544: non-JS/TS source languages — a pytest task's `.py` path was not
+  // recognized (✗ 0 files). Multi-char extensions unlikely to collide with the
+  // dotted-identifier-in-prose tokens the allowlist exists to reject.
+  'py',
+  'rb',
+  'java',
+  'kt',
+  'cpp',
+  'tf',
 ];
 
 /**
@@ -315,7 +324,12 @@ export function validateTaskStructure(block: string): TaskStructureResult {
   }
   const hasTests = testCount > 0;
 
-  const status = hasDescription && hasFiles && hasTests ? 'PASS' : 'FAIL';
+  // #1544: gate on the substantive signals (files + tests), not the description
+  // word-count. The word-count threshold blanket-FAILED descriptive tasks
+  // (40/40 false-FAILs) and trained operators to ignore the gate.
+  // `hasDescription`/`descriptionWordCount` remain in the result as an
+  // informational column, but no longer hard-FAIL a task that has files + tests.
+  const status = hasFiles && hasTests ? 'PASS' : 'FAIL';
 
   return {
     hasDescription,

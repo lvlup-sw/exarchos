@@ -12,6 +12,7 @@
 
 import { resolveVerificationPolicy } from './verification-policy-resolver.js';
 import { type GateName, type RiskTier } from './verification-policy.js';
+import { getRequiredReviews, type ReviewDimension } from './review-contract.js';
 import type { ResolvedProjectConfig } from '../config/resolve.js';
 
 /**
@@ -43,6 +44,60 @@ export type GateResolverName =
   | 'plan-structure'
   | 'review-contract'
   | 'synthesis-readiness';
+
+// ─── DR-8: discriminated ResolvedGate union ─────────────────────────────────
+//
+// A gate-set resolves to a sequence of `ResolvedGate`s tagged by `family`. The
+// four families are heterogeneous — ladder gates, plan-structure gates, review
+// dimensions, and synthesis-readiness legs are different vocabularies — so they
+// are kept as distinct discriminated members rather than flattened into one
+// `GateName` namespace. The `family` tag makes downstream dispatch exhaustively
+// checkable (a missing arm is a compile error via the `assertNever` helper).
+
+/** Plan-structure gate action names (PLAN kind) — the registry `PLAN_PHASES` set. */
+export type PlanGateName =
+  | 'check_task_decomposition'
+  | 'check_plan_coverage'
+  | 'spec_coverage_check'
+  | 'check_provenance_chain'
+  | 'generate_traceability';
+
+/** Synthesis-readiness legs (SYNTHESIZE kind). */
+export type SynthesisLeg = 'task-completion' | 'tests' | 'typecheck' | 'stack';
+
+/**
+ * One resolved gate, tagged by its family. `ReviewDimension` is re-exported
+ * from `review-contract.ts` (the single source of truth) — the review family
+ * carries the dimension string, it does not re-declare the vocabulary.
+ */
+export type ResolvedGate =
+  | { readonly family: 'ladder'; readonly gate: GateName }
+  | { readonly family: 'plan'; readonly gate: PlanGateName }
+  | { readonly family: 'review'; readonly gate: ReviewDimension }
+  | { readonly family: 'synthesis'; readonly gate: SynthesisLeg };
+
+export type { ReviewDimension };
+
+/**
+ * Exhaustiveness guard for `ResolvedGate.family` dispatch: a `switch` over
+ * `family` whose `default` calls `assertNever(g)` becomes a COMPILE error the
+ * moment a new family is added without a handling arm.
+ */
+export function assertNever(value: never): never {
+  throw new Error(`Unhandled ResolvedGate family: ${JSON.stringify(value)}`);
+}
+
+/**
+ * Extract the ordered ladder `GateName` sequence from a resolved gate-set,
+ * dropping any non-ladder family. The IMPLEMENT kind only ever yields ladder
+ * gates, so this is the lossless adapter the per-task dispatch path uses to keep
+ * `verificationSequence: readonly GateName[]` (and its event schema) stable.
+ */
+export function ladderGateNames(gates: readonly ResolvedGate[]): readonly GateName[] {
+  return gates
+    .filter((g): g is Extract<ResolvedGate, { family: 'ladder' }> => g.family === 'ladder')
+    .map((g) => g.gate);
+}
 
 export interface PhaseObligations {
   readonly gates: { readonly resolver: GateResolverName } | null;
@@ -79,6 +134,14 @@ export interface ResolveGateSetCtx {
   readonly riskTier: RiskTier;
   readonly boundaryTouching: boolean;
   readonly config?: ResolvedProjectConfig;
+  /**
+   * The workflow type of the phase being resolved (e.g. `'feature'`). The
+   * REVIEW resolver keys its dimension roster off this (review dimensions vary
+   * by workflow type — INV-6 binds by *kind*, the resolver output may depend on
+   * ctx, exactly as the IMPLEMENT ladder depends on `riskTier`). Absent ⇒ the
+   * review roster falls back to the empty base, never throws.
+   */
+  readonly workflowType?: string;
 }
 
 /**
@@ -92,21 +155,48 @@ export interface ResolveGateSetCtx {
  * runtime path.
  */
 const GATE_RESOLVERS: Readonly<
-  Record<GateResolverName, (ctx: ResolveGateSetCtx) => readonly GateName[]>
+  Record<GateResolverName, (ctx: ResolveGateSetCtx) => readonly ResolvedGate[]>
 > = Object.freeze({
   'verification-ladder': (ctx) =>
-    resolveVerificationPolicy(ctx.riskTier, ctx.boundaryTouching, ctx.config).sequence,
-  'plan-structure': () => {
-    throw new Error("resolveGateSet: resolver 'plan-structure' is not wired yet (deferred to S3)");
-  },
-  'review-contract': () => {
-    throw new Error("resolveGateSet: resolver 'review-contract' is not wired yet (deferred to S3)");
-  },
-  'synthesis-readiness': () => {
-    throw new Error(
-      "resolveGateSet: resolver 'synthesis-readiness' is not wired yet (deferred to S3)",
-    );
-  },
+    resolveVerificationPolicy(ctx.riskTier, ctx.boundaryTouching, ctx.config).sequence.map(
+      (gate): ResolvedGate => ({ family: 'ladder', gate }),
+    ),
+  // The plan-structure gate-set (DR-9), in plan-validation order: decompose →
+  // coverage → provenance → traceability. These four action names are exactly
+  // the registry's `PLAN_PHASES`-bound gates (`registry.ts`); the binding is
+  // pinned by `ResolveGateSet_PlanKind_MatchesRegistryPlanPhasesBinding` so this
+  // explicit list (no heavy registry import into this foundational module) can
+  // never drift from the registry source of truth. Membership is the obligation;
+  // per-gate severity (`generate_traceability` is advisory) is the resolved
+  // *mode*, handled at the severity binding, not by excluding it from the set.
+  'plan-structure': () =>
+    (
+      [
+        'check_task_decomposition',
+        'check_plan_coverage',
+        'spec_coverage_check',
+        'check_provenance_chain',
+        'generate_traceability',
+      ] as const
+    ).map((gate): ResolvedGate => ({ family: 'plan', gate })),
+  // The review-contract gate-set (DR-9). Resolves verbatim from
+  // `getRequiredReviews` so the dimension vocabulary stays owned by
+  // `review-contract.ts` (the single source of truth, pinned by the
+  // `MatchesReviewContractSoT` test) — never re-listed here. The roster is the
+  // workflow-type base plus tier-coupled dimensions (e.g. `mutation-adequacy`
+  // at HIGH tier), keyed off the resolution `ctx`.
+  'review-contract': (ctx) =>
+    getRequiredReviews(ctx.workflowType ?? '', ctx.riskTier).map(
+      (gate): ResolvedGate => ({ family: 'review', gate }),
+    ),
+  // The synthesis-readiness gate-set (DR-9): the four `prepare_synthesis` legs
+  // in evaluation order — task completion gates the build legs (tests, typecheck,
+  // stack). Readiness derivation (which source the task-completion leg folds) is
+  // owned by `prepare-synthesis.ts`; this resolver names the obligation order.
+  'synthesis-readiness': () =>
+    (['task-completion', 'tests', 'typecheck', 'stack'] as const).map(
+      (gate): ResolvedGate => ({ family: 'synthesis', gate }),
+    ),
 });
 
 /**
@@ -121,7 +211,35 @@ const GATE_RESOLVERS: Readonly<
  *             resolved project config for the verification overlay
  * @returns the ordered gate sequence, or `[]` for a kind with no gates (GATHER)
  */
-export function resolveGateSet(kind: PhaseKind, ctx: ResolveGateSetCtx): readonly GateName[] {
+/**
+ * Fail-closed outcome of a phase-boundary gate-set resolution (DR-10). A
+ * resolver fault (an unwired future kind, a malformed config) must never fail
+ * the transition OPEN — the boundary resolves to `{ ok: false }` and the caller
+ * appends `phase.blocked` rather than proceeding silently.
+ */
+export type PhaseObligationOutcome =
+  | { readonly ok: true; readonly gates: readonly ResolvedGate[] }
+  | { readonly ok: false; readonly reason: string };
+
+/**
+ * Resolve a phase kind's gate-set, converting any resolver throw into a
+ * fail-closed `{ ok: false }` outcome. The `resolver` parameter defaults to
+ * {@link resolveGateSet}; it is injectable so the fail-closed branch is directly
+ * testable (no valid kind throws today — the guard is for future unwired kinds).
+ */
+export function resolveGateSetFailClosed(
+  kind: PhaseKind,
+  ctx: ResolveGateSetCtx,
+  resolver: (k: PhaseKind, c: ResolveGateSetCtx) => readonly ResolvedGate[] = resolveGateSet,
+): PhaseObligationOutcome {
+  try {
+    return { ok: true, gates: resolver(kind, ctx) };
+  } catch (err) {
+    return { ok: false, reason: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+export function resolveGateSet(kind: PhaseKind, ctx: ResolveGateSetCtx): readonly ResolvedGate[] {
   const gates = KIND_OBLIGATIONS[kind].gates;
   if (gates === null) {
     return [];

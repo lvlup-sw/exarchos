@@ -14,6 +14,8 @@ import type {
 } from './state-machine.js';
 import { EXCLUDED_MERGE_PHASES } from './hsm-definitions.js';
 import { EVENT_DATA_SCHEMAS } from '../event-store/schemas.js';
+import { resolveGateSet, KIND_OBLIGATIONS } from './phase-kind.js';
+import type { PhaseKind, ResolvedGate } from './phase-kind.js';
 
 describe('serializeTopology', () => {
   it('SerializeTopology_FeatureWorkflow_ReturnsStatesAndTransitions', () => {
@@ -204,6 +206,173 @@ describe('Discovery workflow', () => {
     const result = executeTransition(hsm, state, 'cancelled');
     expect(result.success).toBe(true);
     expect(result.newPhase).toBe('cancelled');
+  });
+});
+
+// ─── DR-10: non-optional phase-kind resolve at the transition boundary ───────
+describe('executeTransition phase-kind resolve (DR-10)', () => {
+  it('ExecuteTransition_AtomicTarget_AttachesResolvedGateSet', () => {
+    const hsm = getHSMDefinition('discovery');
+    const state = { phase: 'gathering', artifacts: { sources: ['a.md'] }, _events: [] };
+    const result = executeTransition(hsm, state, 'synthesizing');
+    expect(result.success).toBe(true);
+    const targetKind = (hsm.states['synthesizing'] as { kind: PhaseKind }).kind;
+    // The boundary resolves the target kind's obligation, non-optionally.
+    expect(result.resolvedGates).toEqual(
+      resolveGateSet(targetKind, {
+        riskTier: 'low',
+        boundaryTouching: false,
+        workflowType: hsm.id,
+      }),
+    );
+  });
+
+  it('ExecuteTransition_ResolverThrows_ReturnsPhaseBlocked', () => {
+    const hsm = getHSMDefinition('discovery');
+    const state = { phase: 'gathering', artifacts: { sources: ['a.md'] }, _events: [] };
+    // Inject a faulting resolver — the boundary must fail CLOSED, not OPEN.
+    const result = executeTransition(hsm, state, 'synthesizing', () => {
+      throw new Error('resolver boom');
+    });
+    expect(result.success).toBe(false);
+    expect(result.errorCode).toBe('PHASE_BLOCKED');
+    expect(result.events.some((e) => e.type === 'phase.blocked')).toBe(true);
+  });
+});
+
+// ─── Resolve-then-freeze: phase.entered append (DR-13, DR-10 freeze half) ────
+
+describe('executeTransition resolve-then-freeze (DR-13)', () => {
+  it('executeTransition_EveryTransition_AppendsExactlyOnePhaseEntered', () => {
+    const hsm = getHSMDefinition('discovery');
+    const state = { phase: 'gathering', artifacts: { sources: ['a.md'] }, _events: [] };
+    const result = executeTransition(hsm, state, 'synthesizing');
+    expect(result.success).toBe(true);
+
+    // Exactly one phase.entered accompanies the transition — the freeze half of
+    // the resolve-then-freeze PDP (DR-10/DR-13).
+    const entered = result.events.filter((e) => e.type === 'phase.entered');
+    expect(entered).toHaveLength(1);
+
+    const targetKind = (hsm.states['synthesizing'] as { kind: PhaseKind }).kind;
+    const md = entered[0].metadata as Record<string, unknown>;
+    expect(md.phase).toBe('synthesizing');
+    expect(md.kind).toBe(targetKind);
+    expect(md.resolver).toBe(KIND_OBLIGATIONS[targetKind].gates?.resolver ?? null);
+    // The frozen gate-set is the resolver output, snapshotted to {family, gate}.
+    expect(md.resolvedGates).toEqual(
+      resolveGateSet(targetKind, {
+        riskTier: 'low',
+        boundaryTouching: false,
+        workflowType: hsm.id,
+      }).map((g) => ({ family: g.family, gate: g.gate })),
+    );
+    expect(md.policySource).toBe('builtin');
+    expect(md.mode).toBe('enforce');
+    // DR-14: the freeze also records the kind's POLA posture (trust tier).
+    expect(md.posture).toBe(KIND_OBLIGATIONS[targetKind].posture);
+
+    // The frozen payload validates against the durable phase.entered schema.
+    const schema = EVENT_DATA_SCHEMAS['phase.entered'];
+    expect(schema?.safeParse(md).success).toBe(true);
+  });
+
+  it('executeTransition_BlockedTransition_AppendsNoPhaseEntered', () => {
+    const hsm = getHSMDefinition('discovery');
+    const state = { phase: 'gathering', artifacts: { sources: ['a.md'] }, _events: [] };
+    // A fail-closed resolution emits phase.blocked, never a phase.entered.
+    const result = executeTransition(hsm, state, 'synthesizing', () => {
+      throw new Error('resolver boom');
+    });
+    expect(result.success).toBe(false);
+    expect(result.events.some((e) => e.type === 'phase.entered')).toBe(false);
+  });
+
+  it('freeze_PolicyTableMutatedAfterEntry_FrozenObligationUnchanged', () => {
+    const hsm = getHSMDefinition('discovery');
+    const state = { phase: 'gathering', artifacts: { sources: ['a.md'] }, _events: [] };
+    // Inject a mutable policy source; the freeze must snapshot, not alias it.
+    const live: ResolvedGate[] = [{ family: 'synthesis', gate: 'tests' }];
+    const result = executeTransition(hsm, state, 'synthesizing', () => live);
+
+    const entered = result.events.find((e) => e.type === 'phase.entered');
+    const frozen = (entered?.metadata as Record<string, unknown>).resolvedGates;
+    expect(frozen).toEqual([{ family: 'synthesis', gate: 'tests' }]);
+
+    // Mutate the live policy source AFTER entry (push + in-place edit).
+    live.push({ family: 'synthesis', gate: 'typecheck' });
+    (live[0] as { gate: string }).gate = 'MUTATED';
+
+    // The obligation frozen at entry is a value snapshot — untouched.
+    expect(frozen).toEqual([{ family: 'synthesis', gate: 'tests' }]);
+  });
+
+  it('executeTransition_ImplementKind_FreezesEmptyResolvedGatesSequence', () => {
+    // F3 (#1546): IMPLEMENT defers its per-task gate sequences to the wave
+    // stamp. The phase.entered freeze records resolver/posture/mode but NO
+    // phase-level sequence — an empty array, never the low-risk phase-default
+    // ladder a replay consumer could mistake for the authoritative per-task set.
+    const hsm = getHSMDefinition('oneshot');
+    const state = { phase: 'plan', artifacts: { plan: 'docs/plan.md' }, _events: [] };
+    const result = executeTransition(hsm, state, 'implementing');
+    expect(result.success).toBe(true);
+
+    const entered = result.events.filter((e) => e.type === 'phase.entered');
+    expect(entered).toHaveLength(1);
+    const md = entered[0].metadata as Record<string, unknown>;
+    expect(md.kind).toBe('IMPLEMENT');
+    // Deferred: no phase-level sequence frozen for IMPLEMENT.
+    expect(md.resolvedGates).toEqual([]);
+    // The transition-result return field agrees with the frozen event — no
+    // surface divergence (both defer IMPLEMENT's per-task sequence).
+    expect(result.resolvedGates).toEqual([]);
+    // resolver / posture / mode ARE still frozen.
+    expect(md.resolver).toBe(KIND_OBLIGATIONS.IMPLEMENT.gates?.resolver ?? null);
+    expect(md.posture).toBe(KIND_OBLIGATIONS.IMPLEMENT.posture);
+    expect(md.mode).toBe('enforce');
+    // Still validates against the durable phase.entered schema.
+    const schema = EVENT_DATA_SCHEMAS['phase.entered'];
+    expect(schema?.safeParse(md).success).toBe(true);
+  });
+
+  it('executeTransition_PhaseAdvance_AppendsPhaseExitedWithGateStatus', () => {
+    const hsm = getHSMDefinition('discovery');
+    const state = { phase: 'gathering', artifacts: { sources: ['a.md'] }, _events: [] };
+    const result = executeTransition(hsm, state, 'synthesizing');
+    expect(result.success).toBe(true);
+
+    // Advancing a phase appends exactly one phase.exited for the LEFT phase.
+    const exited = result.events.filter((e) => e.type === 'phase.exited');
+    expect(exited).toHaveLength(1);
+    const md = exited[0].metadata as Record<string, unknown>;
+    expect(md.phase).toBe('gathering');
+    // A forward advance (not a fix-cycle) means the phase's required gates passed.
+    expect(md.allRequiredGatesPassed).toBe(true);
+
+    // Ordering: exit the old phase before entering the new one.
+    const types = result.events.map((e) => e.type);
+    expect(types.indexOf('phase.exited')).toBeLessThan(types.indexOf('phase.entered'));
+
+    // The payload validates against the durable phase.exited schema.
+    const schema = EVENT_DATA_SCHEMAS['phase.exited'];
+    expect(schema?.safeParse(md).success).toBe(true);
+  });
+
+  it('executeTransition_FixCycle_PhaseExitedReportsGatesNotPassed', () => {
+    // review → delegate is a fix-cycle (feature HSM): required gates did NOT
+    // pass, so the phase loops back. phase.exited records that.
+    const hsm = getHSMDefinition('feature');
+    const state = {
+      phase: 'review',
+      reviews: { 'reviewer-a': { status: 'failed' } },
+      _events: [],
+    };
+    const result = executeTransition(hsm, state, 'delegate');
+    expect(result.success).toBe(true);
+    const exited = result.events.find((e) => e.type === 'phase.exited');
+    expect(exited).toBeDefined();
+    expect((exited?.metadata as Record<string, unknown>).phase).toBe('review');
+    expect((exited?.metadata as Record<string, unknown>).allRequiredGatesPassed).toBe(false);
   });
 });
 

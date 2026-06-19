@@ -19,8 +19,13 @@ const mockStore = {
   query: vi.fn().mockResolvedValue([]),
 };
 
-import { handleCheckIntegrationSuite } from './check-integration-suite.js';
-import { parseVitestResult } from './pure/integration-suite.js';
+import { handleCheckIntegrationSuite, isSpawnFailure } from './check-integration-suite.js';
+import {
+  parseVitestResult,
+  runIntegrationSuite,
+  resolveIntegrationCommand,
+} from './pure/integration-suite.js';
+import type { Toolchain } from '../config/toolchains.js';
 
 const STATE_DIR = '/tmp/test-integration-suite';
 
@@ -276,5 +281,142 @@ describe('parseVitestResult', () => {
     expect(parseVitestResult('null')).toBeNull();
     expect(parseVitestResult('"a string"')).toBeNull();
     expect(parseVitestResult(JSON.stringify({ unrelated: 'field' }))).toBeNull();
+  });
+});
+
+// ─── #1537 / DR-15: toolchain-resolved command + spawn-vs-shape failure ──────
+
+describe('isSpawnFailure spawn-vs-shape classification (#1537)', () => {
+  it('classifies recognized OS-level errnos with no numeric status as spawn failures', () => {
+    for (const code of ['ENOENT', 'EACCES', 'EPERM', 'ENOTDIR', 'ENOMEM']) {
+      expect(isSpawnFailure({ code })).toBe(true);
+    }
+  });
+
+  it('does NOT classify a process that ran (numeric exit status) as a spawn failure', () => {
+    // The suite ran and exited non-zero — a real test failure, not a spawn fault.
+    expect(isSpawnFailure({ status: 1, code: 'ENOENT' })).toBe(false);
+    expect(isSpawnFailure({ status: 0 })).toBe(false);
+  });
+
+  it('does NOT classify a ran-but-overflowed process as a spawn failure', () => {
+    // execFileSync surfaces a maxBuffer overflow with a string `code` and no
+    // numeric `status` even though the child ran to completion. Pre-fix the
+    // broad `typeof code === 'string'` check mislabeled this as a spawn failure;
+    // it must stay a shape-mismatch.
+    expect(isSpawnFailure({ code: 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER' })).toBe(false);
+    // ETIMEDOUT: the child was spawned then killed by the timeout — not a spawn
+    // failure either.
+    expect(isSpawnFailure({ code: 'ETIMEDOUT' })).toBe(false);
+  });
+
+  it('does NOT classify an error with no code as a spawn failure', () => {
+    expect(isSpawnFailure({})).toBe(false);
+  });
+});
+
+describe('check_integration_suite command resolution (#1537, DR-15)', () => {
+  function stubToolchain(test: string | null): Toolchain {
+    return {
+      id: 'stub',
+      projectType: 'Stub',
+      markers: [],
+      commands: { test, typecheck: null, install: null, mutation: null, lint: null, contract: null },
+    };
+  }
+
+  const passingVitestJson = JSON.stringify({
+    numFailedTestSuites: 0,
+    numFailedTests: 0,
+    numTotalTests: 42,
+    testResults: [],
+  });
+
+  it('checkIntegrationSuite_ResolvesCommandViaToolchain', () => {
+    const seen: Array<{ cmd: string; args: readonly string[] }> = [];
+    runIntegrationSuite({
+      repoRoot: '/repo',
+      runCommand: (cmd, args): CommandResult => {
+        seen.push({ cmd, args });
+        return { exitCode: 0, stdout: passingVitestJson, stderr: '' };
+      },
+      detectToolchain: () => stubToolchain('npm run ws:test'),
+    });
+    // The command comes from the toolchain resolver, not a hardcoded test:run.
+    expect(seen).toHaveLength(1);
+    expect(seen[0].cmd).toBe('npm');
+    expect(seen[0].args).toContain('ws:test');
+    expect(seen[0].args).toContain('--reporter=json');
+  });
+
+  it('checkIntegrationSuite_TestScriptOverride_HonorsExplicit', () => {
+    const seen: Array<{ cmd: string; args: readonly string[] }> = [];
+    runIntegrationSuite({
+      repoRoot: '/repo',
+      testScript: 'test:ci',
+      runCommand: (cmd, args): CommandResult => {
+        seen.push({ cmd, args });
+        return { exitCode: 0, stdout: passingVitestJson, stderr: '' };
+      },
+      detectToolchain: () => stubToolchain('npm run should-not-be-used'),
+    });
+    expect(seen[0].args).toContain('test:ci');
+    expect(seen[0].args).not.toContain('should-not-be-used');
+  });
+
+  it('checkIntegrationSuite_MonorepoRoot_ResolvesCommandAndParses', () => {
+    // The #1537 false-fail: a green suite at the monorepo root must parse, not
+    // fail closed with "no parseable vitest JSON".
+    const result = runIntegrationSuite({
+      repoRoot: '/monorepo',
+      runCommand: (): CommandResult => ({ exitCode: 0, stdout: passingVitestJson, stderr: '' }),
+      detectToolchain: () => stubToolchain('npm run test:run'),
+    });
+    expect(result.parseError).toBe(false);
+    expect(result.passed).toBe(true);
+    expect(result.totalTests).toBe(42);
+  });
+
+  it('checkIntegrationSuite_RunnerSpawnFailure_DistinctFromJsonShapeMismatch', () => {
+    const spawn = runIntegrationSuite({
+      repoRoot: '/repo',
+      runCommand: (): CommandResult => ({
+        exitCode: 127,
+        stdout: '',
+        stderr: 'command not found',
+        spawnError: 'ENOENT',
+      }),
+      detectToolchain: () => stubToolchain('npm run test:run'),
+    });
+    const shape = runIntegrationSuite({
+      repoRoot: '/repo',
+      runCommand: (): CommandResult => ({ exitCode: 0, stdout: 'not json at all', stderr: '' }),
+      detectToolchain: () => stubToolchain('npm run test:run'),
+    });
+
+    // Both fail closed — counts are non-authoritative either way.
+    expect(spawn.passed).toBe(false);
+    expect(shape.passed).toBe(false);
+    // ...but the failure KIND is distinct and surfaced in the report (#1537).
+    expect(spawn.parseFailureKind).toBe('spawn-failure');
+    expect(shape.parseFailureKind).toBe('shape-mismatch');
+    expect(spawn.report).not.toBe(shape.report);
+    expect(spawn.report.toLowerCase()).toContain('spawn');
+  });
+
+  it('resolveIntegrationCommand_ExplicitScript_TakesPrecedence', () => {
+    const r = resolveIntegrationCommand('/repo', 'my:test', () => stubToolchain('cargo test'));
+    expect(r.cmd).toBe('npm');
+    expect(r.args).toEqual(['run', 'my:test', '--', '--reporter=json']);
+  });
+
+  it('resolveIntegrationCommand_ThisRepo_ResolvesNodeVitestCommand', () => {
+    // #1537 regression against THIS repo: resolving at the real exarchos-mcp
+    // package root (a node toolchain) yields a runnable vitest-JSON command. We
+    // resolve+assert the command rather than recursively spawning the full
+    // suite from inside a test (which would re-enter vitest).
+    const r = resolveIntegrationCommand(process.cwd(), undefined);
+    expect(r.cmd).toBe('npm');
+    expect(r.args).toEqual(['run', 'test:run', '--', '--reporter=json']);
   });
 });

@@ -42,6 +42,7 @@ import {
   getValidTransitions,
 } from './state-machine.js';
 import type { HSMDefinition, ValidTransitionTarget } from './state-machine.js';
+import type { PhaseKind, ResolvedGate, ResolveGateSetCtx } from './phase-kind.js';
 import { applyPhaseSkips } from './phase-skip.js';
 import { mapInternalToExternalType } from './events.js';
 import { getRegisteredGuard } from '../config/register.js';
@@ -78,7 +79,7 @@ interface HsmInternalEvent {
  * `guardId` is folded in for `guard-failed` events to match the existing
  * event-store contract.
  */
-function buildHsmEventData(
+export function buildHsmEventData(
   evt: HsmInternalEvent,
   featureId: string,
   opts: { guardId?: string; fixCycleOrdinal?: number },
@@ -136,6 +137,50 @@ function buildHsmEventData(
         from: evt.from,
         to: evt.to,
         featureId,
+      };
+    case 'phase.entered':
+      // PhaseEnteredData (DR-13): the resolve-then-freeze obligation, carried
+      // verbatim in the HSM event's metadata. featureId is intentionally NOT
+      // added — the schema is the obligation only (no from/to/trigger laundering).
+      return {
+        phase: metadata.phase ?? evt.to,
+        kind: metadata.kind,
+        resolver: metadata.resolver ?? null,
+        resolvedGates: metadata.resolvedGates ?? [],
+        policySource: metadata.policySource ?? 'builtin',
+        mode: metadata.mode ?? 'enforce',
+        posture: metadata.posture,
+      };
+    case 'phase.blocked': {
+      // PhaseBlockedData (DR-7): the transition-boundary fail-closed record. The
+      // state machine emits only { kind, reason } in metadata (state-machine.ts);
+      // shape it into the canonical schema HERE so the resolver-fault event
+      // round-trips as `phase.blocked` AND validates — never the unregistered
+      // `workflow.phase.blocked` the `workflow.${type}` fallback would mint.
+      const rawReason =
+        typeof metadata.reason === 'string' && metadata.reason.length > 0
+          ? metadata.reason
+          : 'gate-set resolution failed';
+      return {
+        // The dispatch was blocked from ENTERING the target phase (evt.to),
+        // whose kind's obligation faulted — keep `phase` and `kind` consistent.
+        phase: typeof metadata.phase === 'string' ? metadata.phase : evt.to,
+        kind: metadata.kind,
+        reason: `phase transition blocked: ${String(metadata.kind)} gate-set resolution failed — ${rawReason}`,
+        error: { code: 'PHASE_BLOCKED', message: rawReason },
+      };
+    }
+    case 'phase.exited':
+      // PhaseExitedData (DR-13): aggregate gate status on advance. Do NOT
+      // `Boolean(...)`-coerce — a missing or non-boolean value must surface as
+      // `undefined` so the required-boolean schema REJECTS it at the emission
+      // boundary (a loud regression) instead of silently persisting `false`.
+      return {
+        phase: metadata.phase ?? evt.from,
+        allRequiredGatesPassed:
+          typeof metadata.allRequiredGatesPassed === 'boolean'
+            ? metadata.allRequiredGatesPassed
+            : undefined,
       };
     // transition / cancel / cleanup all share { from, to, trigger, featureId }
     // (cancel additionally allows an optional `reason`, preserved from metadata).
@@ -207,6 +252,16 @@ export interface GuardContext {
    * for the v3 substrate (#1259) where evaluation and emission split.
    */
   readonly eventStore: EventStore | null;
+  /**
+   * Phase-kind gate-set resolver (DR-10), forwarded to `executeTransition`.
+   * Defaults to the real resolver when omitted; injectable so the fail-closed
+   * `PHASE_BLOCKED` branch — unreachable through the real resolver for valid
+   * inputs — is exercisable through the guard's full emission path.
+   */
+  readonly resolveGatesFn?: (
+    kind: PhaseKind,
+    ctx: ResolveGateSetCtx,
+  ) => readonly ResolvedGate[];
 }
 
 export type TransitionResult =
@@ -251,7 +306,7 @@ export type TransitionResult =
        */
       readonly guardId: string;
       /** Stable error code used by `tools.ts` to surface failures over MCP. */
-      readonly errorCode: 'GUARD_FAILED' | 'CIRCUIT_OPEN';
+      readonly errorCode: 'GUARD_FAILED' | 'CIRCUIT_OPEN' | 'PHASE_BLOCKED';
       /** Human-readable error message. */
       readonly errorMessage: string;
     }
@@ -427,7 +482,12 @@ export class DefaultHSMTransitionGuard implements HSMTransitionGuard {
     }
 
     // ─── Step 3: Synchronous HSM walk (composite guard) ───────────────
-    const result = executeTransition(hsm, context.state, targetPhase);
+    const result = executeTransition(
+      hsm,
+      context.state,
+      targetPhase,
+      context.resolveGatesFn,
+    );
 
     if (!result.success) {
       // Emit any diagnostic events `executeTransition` produced
@@ -468,12 +528,18 @@ export class DefaultHSMTransitionGuard implements HSMTransitionGuard {
         },
       ];
 
-      // CIRCUIT_OPEN comes back as `errorCode === 'CIRCUIT_OPEN'` — we
-      // surface it under the same `guard-failed` reason because from
-      // the dispatcher's perspective it's still "transition not
-      // permitted". Callers that need the distinction read the inner
-      // failure metadata or `errorCode`.
-      const errorCode = result.errorCode === 'CIRCUIT_OPEN' ? 'CIRCUIT_OPEN' : 'GUARD_FAILED';
+      // CIRCUIT_OPEN and PHASE_BLOCKED are surfaced under the same
+      // `guard-failed` reason — from the dispatcher's perspective it's still
+      // "transition not permitted" — but the distinct `errorCode` is PRESERVED,
+      // not collapsed to GUARD_FAILED. PHASE_BLOCKED is the fail-closed
+      // gate-set-resolution semantic (state-machine.ts); flattening it here
+      // would hide a substrate-integrity failure behind a generic guard fault.
+      const errorCode =
+        result.errorCode === 'PHASE_BLOCKED'
+          ? 'PHASE_BLOCKED'
+          : result.errorCode === 'CIRCUIT_OPEN'
+            ? 'CIRCUIT_OPEN'
+            : 'GUARD_FAILED';
       return {
         ok: false,
         reason: 'guard-failed',
@@ -531,13 +597,18 @@ export class DefaultHSMTransitionGuard implements HSMTransitionGuard {
         // 'cleanup' for the universal mergeVerified→completed transition
         // (state-machine.ts:532, :578, :752). Capture the sequence on any of
         // these so the caller's _eventSequence projection cursor advances on
-        // cancel/cleanup paths too.
+        // cancel/cleanup paths too. The DR-13 `phase.entered` freeze is appended
+        // AFTER the transition (a higher sequence); advance the cursor to cover
+        // it too (Math.max) so _eventSequence does not trail the log and trigger
+        // a spurious reconcile of the just-frozen obligation.
         if (
           evt.type === 'transition' ||
           evt.type === 'cancel' ||
-          evt.type === 'cleanup'
+          evt.type === 'cleanup' ||
+          evt.type === 'phase.entered' ||
+          evt.type === 'phase.exited'
         ) {
-          transitionSequence = appended.sequence;
+          transitionSequence = Math.max(transitionSequence, appended.sequence);
         }
       }
     }

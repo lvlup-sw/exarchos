@@ -144,6 +144,17 @@ export function mapInternalToExternalType(internalType: string): string {
     'circuit-open': 'workflow.circuit-open',
     'cancel': 'workflow.cancel',
     'cleanup': 'workflow.cleanup',
+    // Phase-kind resolve-then-freeze (DR-13, epic #1546). These are already
+    // canonical event-store types — pass them through unchanged rather than
+    // letting the `workflow.${type}` fallback mangle them into the non-existent
+    // `workflow.phase.entered` / `workflow.phase.exited` / `workflow.phase.blocked`.
+    // `phase.blocked` rides the SAME boundary: the guard's fail-closed branch
+    // emits it via this map on a resolver fault, and `workflow.phase.blocked` is
+    // an UNREGISTERED type that `WorkflowEventBase`'s unknown-type refine would
+    // reject — so it MUST round-trip canonically, not through the fallback.
+    'phase.entered': 'phase.entered',
+    'phase.exited': 'phase.exited',
+    'phase.blocked': 'phase.blocked',
   };
   return typeMap[internalType] ?? `workflow.${internalType}`;
 }
@@ -163,6 +174,12 @@ export function mapExternalToInternalType(externalType: string): string {
     'workflow.circuit-open': 'circuit-open',
     'workflow.cancel': 'cancel',
     'workflow.cleanup': 'cleanup',
+    // Phase-kind resolve-then-freeze (DR-13) — canonical types, identity round-
+    // trip (the `?? externalType` fallback already handles them; listed for
+    // symmetry with mapInternalToExternalType).
+    'phase.entered': 'phase.entered',
+    'phase.exited': 'phase.exited',
+    'phase.blocked': 'phase.blocked',
   };
   return reverseMap[externalType] ?? externalType;
 }

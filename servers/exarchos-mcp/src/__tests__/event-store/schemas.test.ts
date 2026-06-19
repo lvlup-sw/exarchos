@@ -23,10 +23,13 @@ import {
   BenchmarkCompletedData,
   EventTypes,
   PhaseBlockedKindSchema,
+  PhaseEnteredResolverSchema,
+  ResolvedGateFamilySchema,
+  PhaseEnteredPostureSchema,
   type EventType,
 } from '../../event-store/schemas.js';
 import { extendWorkflowTypeEnum, unextendWorkflowTypeEnum } from '../../workflow/schemas.js';
-import { KIND_OBLIGATIONS } from '../../workflow/phase-kind.js';
+import { KIND_OBLIGATIONS, resolveGateSet, type PhaseKind } from '../../workflow/phase-kind.js';
 
 // ─── Base Event Schema ──────────────────────────────────────────────────────
 
@@ -474,7 +477,10 @@ describe('EventTypes', () => {
     // phase-kind binding DR-7 (task 007): bumped 122 → 123 to include
     // `phase.blocked`, the fail-closed marker appended when the IMPLEMENT
     // gate-set resolver throws at a phase boundary (orchestrate/prepare-delegation.ts).
-    expect(EventTypes).toHaveLength(123);
+    // phase-kind binding DR-13 (task 012): bumped 123 → 125 to include
+    // `phase.entered` + `phase.exited`, the resolve-then-freeze pair appended at
+    // the executeTransition boundary (workflow/state-machine.ts).
+    expect(EventTypes).toHaveLength(125);
     // Explicit membership pin: a future replacement that swaps one event
     // for another would keep the length stable but silently lose the
     // migration progress type. The membership assert catches that.
@@ -487,8 +493,53 @@ describe('EventTypes', () => {
     expect(EventTypes).toContain('mutation.executing_started');
     expect(EventTypes).toContain('mutation.executed');
     expect(EventTypes).toContain('phase.blocked');
+    expect(EventTypes).toContain('phase.entered');
+    expect(EventTypes).toContain('phase.exited');
     // Retirement guard: init.executed removed in DR-5 (task 018).
     expect(EventTypes as readonly string[]).not.toContain('init.executed');
+  });
+
+  it('PhaseEnteredResolver_MatchesKindObligationResolvers', () => {
+    // Drift guard: `phase.entered.resolver` is an inlined z.enum in
+    // event-store/schemas.ts (kept free of a workflow/config import). Pin it to
+    // the resolver names actually referenced by `KIND_OBLIGATIONS` — adding a
+    // kind→resolver binding without updating the event schema turns this red.
+    const resolversInUse = Array.from(
+      new Set(
+        Object.values(KIND_OBLIGATIONS)
+          .map((o) => o.gates?.resolver)
+          .filter((r): r is NonNullable<typeof r> => typeof r === 'string'),
+      ),
+    ).sort();
+    expect([...PhaseEnteredResolverSchema.options].sort()).toEqual(resolversInUse);
+  });
+
+  it('ResolvedGateFamily_MatchesResolverOutput', () => {
+    // Drift guard: `phase.entered.resolvedGates[].family` is an inlined z.enum
+    // in event-store/schemas.ts. Pin it to the families the resolvers actually
+    // emit — collected by running `resolveGateSet` for every kind — so a new
+    // ResolvedGate family that lands on the event log without a schema update
+    // turns this red. (feature/high yields the review family; the other three
+    // families come from IMPLEMENT/PLAN/SYNTHESIZE.)
+    const ctx = { riskTier: 'high', boundaryTouching: true, workflowType: 'feature' } as const;
+    const familiesEmitted = new Set<string>();
+    for (const kind of Object.keys(KIND_OBLIGATIONS) as PhaseKind[]) {
+      for (const g of resolveGateSet(kind, ctx)) {
+        familiesEmitted.add(g.family);
+      }
+    }
+    expect([...ResolvedGateFamilySchema.options].sort()).toEqual([...familiesEmitted].sort());
+  });
+
+  it('PhaseEnteredPosture_MatchesKindObligationPostures', () => {
+    // Drift guard (DR-14): `phase.entered.posture` is an inlined z.enum in
+    // event-store/schemas.ts (kept free of an agents/spec import). Pin it to the
+    // postures actually declared by `KIND_OBLIGATIONS` so adding a kind with a
+    // new posture without updating the event schema turns this red.
+    const posturesInUse = Array.from(
+      new Set(Object.values(KIND_OBLIGATIONS).map((o) => o.posture)),
+    ).sort();
+    expect([...PhaseEnteredPostureSchema.options].sort()).toEqual(posturesInUse);
   });
 
   it('PhaseBlockedKind_MatchesPhaseKindUnion', () => {

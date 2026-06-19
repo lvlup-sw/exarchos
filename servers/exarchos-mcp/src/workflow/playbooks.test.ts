@@ -8,7 +8,11 @@ import {
   workflowPlaybooks,
 } from './playbooks.js';
 import type { SerializedPlaybooks, SerializedPhasePlaybook } from './playbooks.js';
-import { getRequiredReviews, REQUIRED_REVIEWS_BY_WORKFLOW_TYPE } from './review-contract.js';
+import {
+  getRequiredReviews,
+  getRequiredReviewsPrerequisite,
+  REQUIRED_REVIEWS_BY_WORKFLOW_TYPE,
+} from './review-contract.js';
 
 // ─── Task 1: Core getPlaybook / renderPlaybook ──────────────────────────────
 
@@ -860,6 +864,44 @@ describe('Task 005: implement-phase mandatory-TDD prose removed (DR-5)', () => {
           playbook.compactGuidance,
           `${wf}:${phase} should retain its escalation rule`,
         ).toMatch(/Escalate/i);
+      }
+    }
+  });
+});
+
+// ─── DR-11: gate selection is resolver/SoT-derived, not hardcoded ───────────
+//
+// The phase-kind work (S3) revealed that the plan/review/synthesize playbooks
+// never duplicated phase-kind gate selection — the gate→phase binding lives in
+// the registry `phases:` sets (now mirrored by the phase-kind resolvers), and
+// the review playbook already derives its prerequisite from review-contract.ts.
+// These guards LOCK that correct end-state: a future edit that hardcodes a gate
+// list or drifts the review prerequisite from the SoT fails here.
+describe('DR-11: gate selection is resolver/SoT-derived, not hardcoded in playbooks', () => {
+  const PLAN_GATE_NAMES = [
+    'check_task_decomposition',
+    'check_plan_coverage',
+    'spec_coverage_check',
+    'check_provenance_chain',
+    'generate_traceability',
+  ] as const;
+
+  it('ReviewPlaybook_GuardPrerequisites_IsSoTDerivedNotHardcoded', () => {
+    const pb = getPlaybook('feature', 'review');
+    expect(pb).not.toBeNull();
+    // Must equal the derived string — a hardcode drifting from review-contract.ts
+    // (the single source of truth for review dimensions) fails this guard.
+    expect(pb?.guardPrerequisites).toBe(getRequiredReviewsPrerequisite('feature'));
+  });
+
+  it('PlanReviewSynthesisPlaybooks_ValidationScripts_CarryNoPhaseKindGateNames', () => {
+    for (const phase of ['plan-review', 'review', 'synthesize']) {
+      const pb = getPlaybook('feature', phase);
+      expect(pb, `playbook feature:${phase}`).not.toBeNull();
+      for (const gate of PLAN_GATE_NAMES) {
+        expect(pb?.validationScripts ?? [], `feature:${phase} validationScripts`).not.toContain(
+          gate,
+        );
       }
     }
   });

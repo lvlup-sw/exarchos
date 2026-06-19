@@ -8,9 +8,7 @@
 import { execSync } from 'node:child_process';
 import type { ToolResult } from '../format.js';
 import type { EventStore } from '../event-store/store.js';
-import { getOrCreateMaterializer } from '../views/tools.js';
-import { TASK_DETAIL_VIEW } from '../views/task-detail-view.js';
-import type { TaskDetailViewState } from '../views/task-detail-view.js';
+import { resolveWorkflowState } from './resolve-state.js';
 import { emitGateEvent } from './gate-utils.js';
 
 // ─── Result Types ──────────────────────────────────────────────────────────
@@ -151,18 +149,27 @@ function verifyStack(): StackResult {
 
 // ─── Task Readiness Check ──────────────────────────────────────────────────
 
+/** Minimal shape of a task entry in the canonical workflow-state projection. */
+interface ResolvedTaskEntry {
+  readonly id: string;
+  readonly status: string;
+}
+
 function checkTaskCompletion(
-  taskView: TaskDetailViewState,
+  tasks: readonly ResolvedTaskEntry[],
 ): { allComplete: boolean; blockers: string[] } {
-  const tasks = Object.values(taskView.tasks);
   if (tasks.length === 0) {
     return { allComplete: true, blockers: [] };
   }
 
   const blockers: string[] = [];
   for (const task of tasks) {
-    if (task.status !== 'completed') {
-      blockers.push(`Task '${task.taskId}' is ${task.status}`);
+    // #1536: the canonical workflowStateProjection uses status 'complete' (not
+    // 'completed' — the value the old task-detail materializer used). Matching
+    // the canonical value here is what keeps readiness in lock-step with
+    // exarchos_workflow get and eliminates phantom in-progress blockers.
+    if (task.status !== 'complete') {
+      blockers.push(`Task '${task.id}' is ${task.status}`);
     }
   }
 
@@ -187,20 +194,21 @@ export async function handlePrepareSynthesis(
   const streamId = args.featureId;
 
   try {
-    const materializer = getOrCreateMaterializer(stateDir);
     const store = eventStore;
 
-    // 2. Query task detail view for completion status
-    await materializer.loadFromSnapshot(streamId, TASK_DETAIL_VIEW);
-    const events = await store.query(streamId);
-    const taskView = materializer.materialize<TaskDetailViewState>(
-      streamId,
-      TASK_DETAIL_VIEW,
-      events,
-    );
+    // 2. Resolve task status from the CANONICAL source — resolveWorkflowState,
+    //    the same event-store projection exarchos_workflow get reads (#1536).
+    //    The old task-detail materializer could fold a divergent task array
+    //    (phantom in-progress), phantom-blocking synthesis on tasks the
+    //    canonical state showed complete.
+    const resolved = await resolveWorkflowState({ featureId: streamId, eventStore: store });
+    if ('error' in resolved) {
+      return resolved.error;
+    }
+    const tasks = (resolved.state.tasks as ResolvedTaskEntry[] | undefined) ?? [];
 
     // 3. Check task completion — early return if tasks not all complete
-    const { allComplete, blockers } = checkTaskCompletion(taskView);
+    const { allComplete, blockers } = checkTaskCompletion(tasks);
     if (!allComplete) {
       const readiness: SynthesisReadinessState = {
         tasksComplete: false,

@@ -17,6 +17,7 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import { handleInit, handleSet } from './tools.js';
+import { DefaultHSMTransitionGuard, buildHsmEventData } from './hsm-transition-guard.js';
 import { EventStore } from '../event-store/store.js';
 import type { WorkflowEvent } from '../event-store/schemas.js';
 import { EVENT_DATA_SCHEMAS } from '../event-store/schemas.js';
@@ -181,6 +182,148 @@ describe('HSMTransitionGuard.fail_closed (C7, closes #1225)', () => {
       (e) => (e.data as Record<string, unknown>).to === 'review',
     );
     expect(guardFailures).toBe(0);
+  });
+});
+
+// ─── Resolve-then-freeze persists phase.entered end-to-end (DR-13, #1546) ────
+//
+// The unit test in state-machine.test.ts proves executeTransition RETURNS a
+// phase.entered. This proves it actually PERSISTS through the guard's emission
+// boundary: mapped to the canonical `phase.entered` type (not laundered to
+// `workflow.phase.entered` by the fallback) with a schema-valid obligation.
+describe('HSMTransitionGuard phase.entered freeze (DR-13)', () => {
+  it('passingTransition_PersistsOnePhaseEnteredWithFrozenObligation', async () => {
+    const eventStore = new EventStore(tmpDir);
+    await eventStore.initialize();
+
+    await handleInit({ featureId, workflowType: 'feature' }, tmpDir, eventStore);
+    // Empty tasks ⇒ delegate → review transitions cleanly (kind REVIEW).
+    await patchStateForDelegatePhase({ tasks: [] });
+
+    const result = await handleSet({ featureId, phase: 'review' }, tmpDir, eventStore);
+    expect(result.success).toBe(true);
+
+    // Exactly one phase.entered for the entered phase lands on the durable log.
+    const entered = await eventStore.query(featureId, { type: 'phase.entered' as never });
+    const toReview = entered.filter(
+      (e) => (e.data as Record<string, unknown>).phase === 'review',
+    );
+    expect(toReview).toHaveLength(1);
+
+    // It carries the frozen REVIEW obligation and validates against the schema.
+    const data = toReview[0].data as Record<string, unknown>;
+    expect(data.kind).toBe('REVIEW');
+    expect(data.resolver).toBe('review-contract');
+    expect(data.policySource).toBe('builtin');
+    expect(data.mode).toBe('enforce');
+    expect(Array.isArray(data.resolvedGates)).toBe(true);
+    const schema = EVENT_DATA_SCHEMAS['phase.entered'];
+    expect(schema?.safeParse(data).success).toBe(true);
+
+    // Regression: NOT laundered into the non-existent `workflow.phase.entered`
+    // by the mapInternalToExternalType fallback.
+    const mangled = await countEvents(eventStore, 'workflow.phase.entered');
+    expect(mangled).toBe(0);
+  });
+});
+
+// ─── Resolve-then-freeze fail-closed path persists phase.blocked (DR-7, #1546) ─
+//
+// The FAILURE mirror of the phase.entered freeze test. When the gate-set
+// resolver faults, `executeTransition` returns PHASE_BLOCKED + a `phase.blocked`
+// event. This proves the guard (1) PRESERVES the PHASE_BLOCKED errorCode rather
+// than collapsing it to GUARD_FAILED, and (2) PERSISTS the event as the
+// canonical `phase.blocked` type with a schema-valid PhaseBlockedData payload —
+// not the unregistered `workflow.phase.blocked` the `workflow.${type}` fallback
+// would mint (which `WorkflowEventBase`'s unknown-type refine would reject).
+describe('HSMTransitionGuard phase.blocked fail-closed (DR-7)', () => {
+  it('blockedTransition_PreservesPhaseBlockedCode_PersistsCanonicalSchemaValidEvent', async () => {
+    const eventStore = new EventStore(tmpDir);
+    await eventStore.initialize();
+
+    await handleInit({ featureId, workflowType: 'feature' }, tmpDir, eventStore);
+    // Empty tasks ⇒ the delegate → review composite guard passes, so the attempt
+    // reaches the gate-set resolution boundary (REVIEW kind).
+    await patchStateForDelegatePhase({ tasks: [] });
+    const stateFile = path.join(tmpDir, `${featureId}.state.json`);
+    const state = JSON.parse(await fs.readFile(stateFile, 'utf-8'));
+
+    const guard = new DefaultHSMTransitionGuard();
+    const result = await guard.attempt(featureId, 'delegate', 'review', {
+      state,
+      workflowType: 'feature',
+      eventStore,
+      // Inject a faulting resolver so the gate-set boundary fails CLOSED — the
+      // real resolver never throws for valid inputs, so injection is the only
+      // way to exercise the PHASE_BLOCKED branch through the guard's full path.
+      resolveGatesFn: () => {
+        throw new Error('resolver boom');
+      },
+    });
+
+    // (1) Finding F4: the fail-closed code is PRESERVED across the guard
+    // boundary, not flattened to GUARD_FAILED.
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.errorCode).toBe('PHASE_BLOCKED');
+    }
+
+    // (2) Finding F2: exactly one canonical phase.blocked lands on the log...
+    const blocked = await eventStore.query(featureId, {
+      type: 'phase.blocked' as never,
+    });
+    expect(blocked).toHaveLength(1);
+
+    // ...with a schema-valid PhaseBlockedData payload (would THROW at the
+    // emission boundary pre-fix, since buildHsmEventData had no phase.blocked
+    // case and the default shape is missing `phase`/`error`).
+    const data = blocked[0].data as Record<string, unknown>;
+    expect(EVENT_DATA_SCHEMAS['phase.blocked']?.safeParse(data).success).toBe(true);
+    expect(data.kind).toBe('REVIEW');
+    expect(data.phase).toBe('review');
+
+    // ...and is NOT laundered into the unregistered `workflow.phase.blocked`.
+    expect(await countEvents(eventStore, 'workflow.phase.blocked')).toBe(0);
+
+    // The transition is refused — no phase.entered for the blocked target.
+    const enteredReview = await countEvents(
+      eventStore,
+      'phase.entered',
+      (e) => (e.data as Record<string, unknown>).phase === 'review',
+    );
+    expect(enteredReview).toBe(0);
+  });
+});
+
+// ─── phase.exited gate status is not silently coerced (DR-13, #1546, F-CR3) ───
+//
+// `allRequiredGatesPassed` is a REQUIRED boolean on PhaseExitedData. The
+// emission boundary must NOT `Boolean(...)`-coerce a missing/non-boolean value
+// into `false` — that silently records wrong exit status and masks a boundary
+// regression. It surfaces `undefined`, which the required-boolean schema rejects
+// loudly at `buildValidatedEvent`.
+describe('buildHsmEventData phase.exited gate-status integrity (DR-13)', () => {
+  const exitEvt = (allRequiredGatesPassed: unknown) => ({
+    type: 'phase.exited',
+    from: 'delegate',
+    to: 'review',
+    trigger: 'execute-transition',
+    metadata: { phase: 'delegate', allRequiredGatesPassed },
+  });
+
+  it('preserves an explicit boolean gate status', () => {
+    expect(buildHsmEventData(exitEvt(true), featureId, {}).allRequiredGatesPassed).toBe(true);
+    expect(buildHsmEventData(exitEvt(false), featureId, {}).allRequiredGatesPassed).toBe(false);
+  });
+
+  it('surfaces undefined (NOT false) for a missing/non-boolean gate status, failing the schema', () => {
+    for (const bad of [undefined, 'true', 1, null]) {
+      const data = buildHsmEventData(exitEvt(bad), featureId, {});
+      // Not silently coerced to a persisted `false`...
+      expect(data.allRequiredGatesPassed).toBeUndefined();
+      // ...and the required-boolean schema rejects it at the emission boundary.
+      expect(EVENT_DATA_SCHEMAS['phase.exited']?.safeParse(data).success).toBe(false);
+    }
   });
 });
 

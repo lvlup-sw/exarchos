@@ -174,6 +174,19 @@ export function verifyProvenanceChain(input: ProvenanceInput): ProvenanceResult 
   // Extract plan tasks
   const tasks = extractPlanTasks(planContent);
 
+  // #1543: zero parsed tasks is a PARSE issue (wrong heading level), not a
+  // coverage gap. Without this branch every requirement falls through as a gap
+  // and the report reads "N/N requirements unmapped" — which looks like a
+  // design-coverage failure at a human checkpoint when the real cause is that
+  // tasks were authored at the wrong heading depth. Distinguish the two states.
+  if (tasks.length === 0) {
+    return errorResult(
+      "No '### Task' headers found in plan — 0 tasks parsed. Tasks must be " +
+        "'### Task <id>: ...' (h3); grouping headings must be h2 or shallower. " +
+        '(This is a parse issue, not a coverage gap.)',
+    );
+  }
+
   // Cross-reference: design requirements to plan tasks
   const gapDetails: string[] = [];
   const matrixRows: string[] = [];

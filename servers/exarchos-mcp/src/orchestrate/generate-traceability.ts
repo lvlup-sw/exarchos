@@ -61,6 +61,36 @@ function extractPlanTasks(content: string): readonly PlanTask[] {
   return tasks;
 }
 
+/**
+ * Map each `DR-N` requirement to the plan task ids that declare it via a
+ * `**Implements:** DR-N[, DR-M]` annotation. This is the SAME coverage signal
+ * `check_provenance_chain` uses (#1544) — wiring it here stops the traceability
+ * matrix from contradicting the authoritative provenance gate by flagging
+ * `### DR-N` design sections "Uncovered" when a task in fact implements them.
+ */
+function extractImplementsByDr(planContent: string): Map<string, readonly string[]> {
+  const byDr = new Map<string, string[]>();
+  let currentTaskId: string | null = null;
+  for (const line of planContent.split('\n')) {
+    const taskMatch = line.match(/^###\s+Task\s+(\d+)/);
+    if (taskMatch) {
+      currentTaskId = taskMatch[1];
+      continue;
+    }
+    const implMatch = line.match(/\*\*Implements:\*\*\s*(.+)/i);
+    if (implMatch && currentTaskId) {
+      const drs = implMatch[1].match(/DR-\d+/gi) ?? [];
+      for (const dr of drs) {
+        const key = dr.toUpperCase();
+        const ids = byDr.get(key) ?? [];
+        if (!ids.includes(currentTaskId)) ids.push(currentTaskId);
+        byDr.set(key, ids);
+      }
+    }
+  }
+  return byDr;
+}
+
 // ─── Table Generation ───────────────────────────────────────────────────────
 
 function generateTable(
@@ -80,16 +110,29 @@ function generateTable(
   let coveredCount = 0;
   let uncoveredCount = 0;
 
+  const implementsByDr = extractImplementsByDr(planContent);
+
   for (const section of sections) {
-    // Find matching tasks by case-insensitive substring match in task title
     const matchedIds: string[] = [];
-    for (const task of tasks) {
-      if (task.title.toLowerCase().includes(section.name.toLowerCase())) {
-        matchedIds.push(task.id);
+
+    // #1544: if the section is (or names) a DR-N requirement, resolve coverage
+    // via the plan's **Implements:** annotations first — the provenance signal —
+    // so this matrix agrees with check_provenance_chain instead of false-flagging.
+    const drMatch = section.name.match(/\bDR-\d+\b/i);
+    if (drMatch) {
+      matchedIds.push(...(implementsByDr.get(drMatch[0].toUpperCase()) ?? []));
+    }
+
+    // Otherwise find matching tasks by case-insensitive substring in task title
+    if (matchedIds.length === 0) {
+      for (const task of tasks) {
+        if (task.title.toLowerCase().includes(section.name.toLowerCase())) {
+          matchedIds.push(task.id);
+        }
       }
     }
 
-    // If no title matches, search plan body content
+    // If still no matches, search plan body content
     if (matchedIds.length === 0) {
       if (planContent.toLowerCase().includes(section.name.toLowerCase())) {
         matchedIds.push('?');

@@ -901,17 +901,20 @@ describe('Integration', () => {
       );
       await handleSet({ featureId: 'consistency-test', phase: 'plan' }, stateDir, eventStore);
       events = await eventStore.query('consistency-test');
-      expect(events.length).toBe(3); // workflow.started + state.patched + workflow.transition
+      // DR-13 (#1546): a phase advance into the PLAN-kind 'plan' phase emits the
+      // resolve-then-freeze pair (phase.exited for the left phase + phase.entered
+      // for the new one), so the transition contributes THREE events.
+      expect(events.length).toBe(5); // started + state.patched + transition + phase.exited + phase.entered
 
       raw = JSON.parse(await fs.readFile(stateFile, 'utf-8'));
-      expect(raw._eventSequence).toBe(3);
+      expect(raw._eventSequence).toBe(5);
 
       // Checkpoint — T034 (DR-6) extends this action to also materialize the
       // rehydration projection and emit `workflow.checkpoint_written`, so the
       // event count advances by TWO, not one.
       await handleCheckpoint({ featureId: 'consistency-test', summary: 'Mid-plan' }, stateDir, eventStore);
       events = await eventStore.query('consistency-test');
-      expect(events.length).toBe(5); // + workflow.checkpoint + workflow.checkpoint_written
+      expect(events.length).toBe(7); // + workflow.checkpoint + workflow.checkpoint_written
 
       // Another phase transition (plan -> plan-review)
       await handleSet(
@@ -921,10 +924,11 @@ describe('Integration', () => {
       );
       await handleSet({ featureId: 'consistency-test', phase: 'plan-review' }, stateDir, eventStore);
       events = await eventStore.query('consistency-test');
-      expect(events.length).toBe(7); // + state.patched + workflow.transition
+      // plan-review is also PLAN-kind: another exit+enter freeze pair.
+      expect(events.length).toBe(11); // + state.patched + transition + phase.exited + phase.entered
 
       raw = JSON.parse(await fs.readFile(stateFile, 'utf-8'));
-      expect(raw._eventSequence).toBe(7);
+      expect(raw._eventSequence).toBe(11);
 
       // Reconcile should be idempotent (no changes)
       const result = await reconcileFromEvents(stateDir, 'consistency-test', eventStore);
