@@ -7,7 +7,7 @@
 //
 // Replaces the previous `buildDefaultVcsMerge` (which routed through
 // `provider.mergePr` over a remote VCS API). That wiring made the executor's
-// `git reset --hard <rollbackSha>` rollback a no-op in production: a remote
+// `git reset --keep <rollbackSha>` rollback a no-op in production: a remote
 // merge succeeds → local HEAD never moved → reset resets HEAD to itself.
 // See #1194 for the full inconsistency trace.
 //
@@ -87,7 +87,7 @@ export function buildLocalGitMergeAdapter(
 
       case 'rebase': {
         // Rebase via an ephemeral branch so the source ref is never mutated.
-        // The executor's rollback path is `git reset --hard <rollbackSha>` on
+        // The executor's rollback path is `git reset --keep <rollbackSha>` on
         // the currently-checked-out branch — if rebase mutated `sourceBranch`
         // and rollback ran while it was checked out, sourceBranch would be
         // reset to the *target* SHA, corrupting it. Keeping source untouched
@@ -101,7 +101,7 @@ export function buildLocalGitMergeAdapter(
         } catch (err) {
           // Best-effort: abort any in-flight rebase so the worktree isn't
           // left in REBASING state, then return to target before re-throwing
-          // so the executor's reset --hard <rollbackSha> targets the right ref.
+          // so the executor's reset --keep <rollbackSha> targets the right ref.
           gitExec(repoRoot, ['rebase', '--abort']);
           gitExec(repoRoot, ['checkout', targetBranch]);
           throw err;

@@ -254,6 +254,12 @@ export const MergeOrchestratorStateSchema = z.object({
   // consumers strong typing instead of leaning on `.passthrough()`.
   reason: z.enum(['merge-failed', 'verification-failed', 'timeout']).optional(),
   rollbackError: z.string().min(1).optional(),
+  // INV-14 recovery-outcome discriminator on the executor's rolled-back write
+  // (mirrors `MergeRollbackData.recoveryError`). Modeled explicitly rather than
+  // leaning on `.passthrough()` so consumers get strong typing.
+  recoveryError: z
+    .enum(['reset-keep-blocked', 'reset-failed', 'unexpected-mid-merge-drift'])
+    .optional(),
   abortReason: z.string().min(1).optional(),
   preflight: MergeOrchestratorPreflightSchema.optional(),
 }).passthrough();

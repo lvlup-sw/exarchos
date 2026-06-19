@@ -8,12 +8,14 @@
 //   3. persists the `executing` intermediate state (with rollbackSha) BEFORE
 //      the VCS merge call, so a crash mid-merge is recoverable
 //
-// T16 — rollback path. When the VCS merge rejects, the pure executor
-// returns `phase: 'rolled-back'` after running `git reset --hard <rollbackSha>`.
+// T16 — rollback path. When the VCS merge rejects, the pure executor returns
+// `phase: 'rolled-back'` after running the INV-14 recovery ladder
+// (`git merge --abort` → `git reset --keep <rollbackSha>`, never `--hard`).
 // The handler must:
 //   1. emit `merge.rollback` to the workflow's event stream carrying the
 //      categorized reason ('merge-failed' | 'verification-failed' | 'timeout')
-//   2. invoke `git reset --hard <rollbackSha>` so HEAD matches the captured sha
+//      and, on a non-clean recovery, the INV-14 `recoveryError` discriminator
+//   2. rewind to `<rollbackSha>` via the ladder so HEAD matches the captured sha
 //   3. return a structured `ToolResult` failure with code `MERGE_ROLLED_BACK`
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -372,8 +374,8 @@ describe('handleExecuteMerge rollback (T16)', () => {
     const vcsMerge = vi.fn().mockRejectedValue(new Error('merge conflict'));
     const persistState = vi.fn().mockResolvedValue(undefined);
 
-    // Track the gitExec calls so we can assert that `git reset --hard <sha>`
-    // was invoked with the recorded rollback sha after the failure.
+    // Track the gitExec calls so we can assert the INV-14 recovery ladder
+    // (`git merge --abort` → `git reset --keep <sha>`) ran after the failure.
     const gitCalls: ReadonlyArray<string>[] = [];
     const gitExec = vi.fn().mockImplementation(
       (_repo: string, args: readonly string[]) => {
@@ -381,7 +383,7 @@ describe('handleExecuteMerge rollback (T16)', () => {
         if (args[0] === 'rev-parse' && args[1] === 'HEAD') {
           return { stdout: `${ROLLBACK_SHA}\n`, exitCode: 0 };
         }
-        // git reset --hard <sha>
+        // merge --abort / reset --keep <sha> both succeed via this catch-all
         return { stdout: '', exitCode: 0 };
       },
     );
@@ -400,12 +402,15 @@ describe('handleExecuteMerge rollback (T16)', () => {
       ctx,
     );
 
-    // The pure executor invokes `git reset --hard <rollbackSha>` on failure.
+    // INV-14: the pure executor invokes `git reset --keep <rollbackSha>` on
+    // failure (after `git merge --abort`), never the destructive `--hard`.
     const resetCall = gitCalls.find(
-      (a) => a[0] === 'reset' && a[1] === '--hard',
+      (a) => a[0] === 'reset' && a[1] === '--keep',
     );
     expect(resetCall).toBeDefined();
     expect(resetCall![2]).toBe(ROLLBACK_SHA);
+    expect(gitCalls.some((a) => a[0] === 'merge' && a[1] === '--abort')).toBe(true);
+    expect(gitCalls.some((a) => a[0] === 'reset' && a[1] === '--hard')).toBe(false);
   });
 
   it('handleExecuteMerge_RollbackPath_ReturnsToolResultFailureWithStructuredError', async () => {
@@ -439,11 +444,11 @@ describe('handleExecuteMerge rollback (T16)', () => {
     });
   });
 
-  // The rollback-reset-failure path is the only one that should populate
-  // `rollbackError` end-to-end — exercising it here keeps the operator
-  // recovery contract (state file + emitted event + ToolResult all carry
-  // the indeterminate-worktree signal) covered by the test suite.
-  it('handleExecuteMerge_RollbackResetFails_SurfacesRollbackErrorOnEventAndToolResult', async () => {
+  // The recovery-failure path is the one that populates `recoveryError` +
+  // `rollbackError` end-to-end — exercising it here keeps the operator recovery
+  // contract (state file + emitted event + ToolResult all carry the
+  // indeterminate-worktree signal) covered by the test suite.
+  it('handleExecuteMerge_ResetKeepRefuses_SurfacesRecoveryErrorOnEventAndToolResult', async () => {
     const ctx = makeMockCtx();
     const vcsMerge = vi.fn().mockRejectedValue(new Error('merge conflict'));
     const persistState = vi.fn().mockResolvedValue(undefined);
@@ -453,10 +458,11 @@ describe('handleExecuteMerge rollback (T16)', () => {
         if (args[0] === 'rev-parse' && args[1] === 'HEAD') {
           return { stdout: `${ROLLBACK_SHA}\n`, exitCode: 0 };
         }
-        if (args[0] === 'reset' && args[1] === '--hard') {
-          // Simulate `git reset --hard` itself failing: the worktree is now
-          // in an indeterminate state and operators must intervene.
-          return { stdout: 'fatal: index.lock present', exitCode: 1 };
+        if (args[0] === 'reset' && args[1] === '--keep') {
+          // Simulate `git reset --keep` refusing to discard local work: the
+          // worktree is indeterminate (but non-destructive). INV-14's
+          // 'reset-keep-blocked' case — operators must intervene.
+          return { stdout: 'fatal: Could not reset index file', exitCode: 1 };
         }
         return { stdout: '', exitCode: 0 };
       },
@@ -483,20 +489,25 @@ describe('handleExecuteMerge rollback (T16)', () => {
       rollbackSha: ROLLBACK_SHA,
       reason: 'merge-failed',
     });
-    // `rollbackError` rides on the ToolResult `data` so callers can detect
-    // the indeterminate worktree without re-querying the event stream.
+    // `recoveryError` (discriminator) + `rollbackError` (detail) ride on the
+    // ToolResult `data` so callers detect the indeterminate worktree without
+    // re-querying the event stream.
+    expect((result.data as { recoveryError?: string }).recoveryError).toBe(
+      'reset-keep-blocked',
+    );
     expect((result.data as { rollbackError?: string }).rollbackError).toContain(
-      'reset --hard',
+      'reset --keep',
     );
 
-    // Same signal must appear on the emitted `merge.rollback` event so
-    // event-stream consumers (projections, dashboards, alerting) see it
+    // Same signals must appear on the emitted `merge.rollback` event so
+    // event-stream consumers (projections, dashboards, alerting) see them
     // without reading the state file.
     expect(ctx.eventStore.append).toHaveBeenCalledTimes(1);
     const [, eventPayload] = (ctx.eventStore.append as ReturnType<typeof vi.fn>)
       .mock.calls[0];
     expect(eventPayload.type).toBe('merge.rollback');
-    expect(eventPayload.data.rollbackError).toContain('reset --hard');
+    expect(eventPayload.data.recoveryError).toBe('reset-keep-blocked');
+    expect(eventPayload.data.rollbackError).toContain('reset --keep');
   });
 });
 

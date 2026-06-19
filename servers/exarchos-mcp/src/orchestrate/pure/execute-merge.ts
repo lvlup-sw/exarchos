@@ -9,9 +9,11 @@
 // sha, persists the `executing` intermediate state, then invokes the merge
 // adapter and returns `{ phase: 'completed', mergeSha, rollbackSha }`.
 //
-// T10 — rollback paths: on `vcsMerge` rejection, `git reset --hard <rollbackSha>`
-// and return `{ phase: 'rolled-back', rollbackSha, reason }`. The reason is
-// categorized as 'timeout' | 'verification-failed' | 'merge-failed'.
+// T10 — rollback paths: on `vcsMerge` rejection, run the INV-14 recovery ladder
+// (`git merge --abort` → `git reset --keep <rollbackSha>`, never `--hard`) and
+// return `{ phase: 'rolled-back', rollbackSha, reason, recoveryError? }`. The
+// reason is categorized as 'timeout' | 'verification-failed' | 'merge-failed';
+// `recoveryError` discriminates a non-clean recovery (INV-14).
 //
 // Implements: DR-MO-2 (merge execution with rollback).
 // ───────────────────────────────────────────────────────────────────────────
@@ -69,6 +71,16 @@ export interface ExecuteMergeArgs {
 
 export type RollbackReason = 'merge-failed' | 'verification-failed' | 'timeout';
 
+/**
+ * INV-14 recovery-outcome discriminator: the three indeterminate cases the
+ * invariant names, so callers see a stranded worktree explicitly rather than as
+ * a silent success.
+ */
+export type RecoveryError =
+  | 'reset-keep-blocked'
+  | 'reset-failed'
+  | 'unexpected-mid-merge-drift';
+
 export type ExecuteMergeResult =
   | { phase: 'completed'; mergeSha: string; rollbackSha: string }
   | {
@@ -76,10 +88,13 @@ export type ExecuteMergeResult =
       rollbackSha: string;
       reason: RollbackReason;
       /**
-       * Set when `git reset --hard <rollbackSha>` itself failed during the
-       * rollback path. The working tree is in an indeterminate state and
-       * requires operator intervention. Absent when rollback succeeded.
+       * INV-14 recovery-outcome discriminator. Absent when recovery landed the
+       * worktree cleanly on `rollbackSha`. Otherwise classifies the
+       * indeterminate outcome so callers escalate instead of treating a
+       * stranded tree as a clean rollback.
        */
+      recoveryError?: RecoveryError;
+      /** Human-readable detail for `recoveryError`; absent on clean recovery. */
       rollbackError?: string;
     };
 
@@ -124,22 +139,81 @@ export async function executeMerge(
     return { phase: 'completed', mergeSha, rollbackSha };
   } catch (err) {
     const reason = categorizeFailure(err);
-    // Inspect the reset result so a stranded working tree is surfaced to
-    // callers rather than silently masked under `phase: 'rolled-back'`.
-    let rollbackError: string | undefined;
-    try {
-      const reset = args.gitExec(
-        args.repoRoot ?? process.cwd(),
-        ['reset', '--hard', rollbackSha],
-      );
-      if (reset.exitCode !== 0) {
-        rollbackError = `git reset --hard ${rollbackSha} exited ${reset.exitCode}`;
-      }
-    } catch (resetErr) {
-      rollbackError = resetErr instanceof Error ? resetErr.message : String(resetErr);
-    }
-    return rollbackError === undefined
+    // INV-14: reverse via the operation's own recovery primitive first, then a
+    // refuse-to-discard substrate undo — never a destructive `git reset --hard`.
+    // A non-clean outcome is surfaced (recoveryError + detail) rather than
+    // silently masked under `phase: 'rolled-back'`.
+    const recovery = recoverToAnchor(args.gitExec, args.repoRoot ?? process.cwd(), rollbackSha);
+    return recovery === undefined
       ? { phase: 'rolled-back', rollbackSha, reason }
-      : { phase: 'rolled-back', rollbackSha, reason, rollbackError };
+      : {
+          phase: 'rolled-back',
+          rollbackSha,
+          reason,
+          recoveryError: recovery.code,
+          rollbackError: recovery.detail,
+        };
   }
+}
+
+/**
+ * INV-14 recovery ladder for a failed merge. Reverses to `rollbackSha` using,
+ * in order: (1) `git merge --abort` — the operation's own recovery primitive,
+ * best-effort (a no-op exit when no merge is in progress is expected and
+ * ignored); (2) `git reset --keep <rollbackSha>` — a refuse-to-discard substrate
+ * undo (NEVER `--hard`, which would silently destroy uncommitted work). Returns
+ * `undefined` when the worktree lands cleanly on the anchor, or a discriminated
+ * `recoveryError` + human-readable `detail` when the outcome is indeterminate.
+ */
+function recoverToAnchor(
+  gitExec: GitExec,
+  repoRoot: string,
+  rollbackSha: string,
+): { code: RecoveryError; detail: string } | undefined {
+  // 1) Native primitive first. Best-effort: a non-zero exit means "no merge in
+  //    progress", which the authoritative reset below handles.
+  try {
+    gitExec(repoRoot, ['merge', '--abort']);
+  } catch {
+    // Ignore — `git merge --abort` failing (e.g. nothing to abort) is expected
+    // for non-conflict reversals; the reset is the authoritative rewind.
+  }
+
+  // 2) Substrate undo, refuse-to-discard. NEVER `--hard`.
+  let reset: { stdout: string; exitCode: number };
+  try {
+    reset = gitExec(repoRoot, ['reset', '--keep', rollbackSha]);
+  } catch (resetErr) {
+    return {
+      code: 'reset-failed',
+      detail: resetErr instanceof Error ? resetErr.message : String(resetErr),
+    };
+  }
+  if (reset.exitCode !== 0) {
+    // `--keep` refuses rather than discard local work: non-destructive but
+    // indeterminate. Distinct from a hard failure so callers can page operators.
+    return {
+      code: 'reset-keep-blocked',
+      detail: `git reset --keep ${rollbackSha} exited ${reset.exitCode}${reset.stdout ? `: ${reset.stdout.trim()}` : ''}`,
+    };
+  }
+
+  // 3) Drift check: confirm the worktree actually landed on the anchor.
+  let head: { stdout: string; exitCode: number };
+  try {
+    head = gitExec(repoRoot, ['rev-parse', 'HEAD']);
+  } catch (headErr) {
+    return {
+      code: 'reset-failed',
+      detail: `post-recovery rev-parse HEAD failed: ${headErr instanceof Error ? headErr.message : String(headErr)}`,
+    };
+  }
+  if (head.exitCode !== 0 || head.stdout.trim() !== rollbackSha) {
+    return {
+      code: 'unexpected-mid-merge-drift',
+      detail: `worktree HEAD ${head.stdout.trim() || '(unknown)'} != rollback anchor ${rollbackSha} after merge --abort + reset --keep`,
+    };
+  }
+
+  return undefined;
 }

@@ -4,7 +4,7 @@
 //   • a local-git merge adapter via `buildLocalGitMergeAdapter` (#1194 —
 //     replaced the previous remote VcsProvider call so the recorded
 //     rollbackSha actually corresponds to a local ref the executor's
-//     `git reset --hard` rollback can undo)
+//     INV-14 rollback (`git reset --keep`) can undo)
 //   • a `gitExec` adapter using `execFileSync` (120s timeout, matches
 //     post-merge.ts:48)
 //   • a `persistState` callback that updates the workflow state's
@@ -19,7 +19,8 @@
 // and the working tree.
 //
 // T16 extends this with the `phase: 'rolled-back'` branch: the pure executor
-// has already run `git reset --hard <rollbackSha>`, so the handler emits a
+// has already run the INV-14 recovery ladder (`git merge --abort` →
+// `git reset --keep <rollbackSha>`), so the handler emits a
 // `merge.rollback` event (categorized reason: 'merge-failed' |
 // 'verification-failed' | 'timeout') and returns a structured error.
 // ───────────────────────────────────────────────────────────────────────────
@@ -82,7 +83,7 @@ interface VcsMergeAdapter {
  * Discriminated union over the three phase transitions the executor writes:
  *   • `executing`   — intermediate, BEFORE vcsMerge (T09)
  *   • `completed`   — terminal success, AFTER vcsMerge resolves (T27)
- *   • `rolled-back` — terminal failure, AFTER `git reset --hard` (T27)
+ *   • `rolled-back` — terminal failure, AFTER the INV-14 recovery ladder (T27)
  *
  * The terminal-phase shapes carry the result-specific fields (`mergeSha` /
  * `reason`) so a state file is self-describing without re-fetching the event
@@ -97,7 +98,9 @@ export type ExecutorPersistStatePayload =
       phase: 'rolled-back';
       rollbackSha: string;
       reason: 'merge-failed' | 'verification-failed' | 'timeout';
-      /** Set when `git reset --hard` itself failed; worktree is indeterminate. */
+      /** INV-14 recovery-outcome discriminator; absent on a clean rollback. */
+      recoveryError?: 'reset-keep-blocked' | 'reset-failed' | 'unexpected-mid-merge-drift';
+      /** Human-readable detail for `recoveryError`; absent on clean rollback. */
       rollbackError?: string;
     };
 
@@ -149,7 +152,7 @@ function defaultGitExec(repoRoot: string, args: readonly string[]): { stdout: st
  * Build the default `vcsMerge` adapter — a *local* `git merge` of source
  * into target. See `local-git-merge.ts` for the full contract; the executor
  * uses this adapter so the recorded `rollbackSha` actually corresponds to
- * a local ref the rollback `git reset --hard` can undo (#1194).
+ * a local ref the rollback `git reset --keep` can undo (#1194).
  */
 function buildDefaultVcsMerge(
   input: HandleExecuteMergeInput,
@@ -549,9 +552,10 @@ export async function handleExecuteMerge(
       throw err;
     }
   } else {
-    // T16 — phase: 'rolled-back'. The pure executor already ran
-    // `git reset --hard <rollbackSha>`. Surface `rollbackError` (when the
-    // reset itself failed) so consumers can detect an indeterminate worktree.
+    // T16 — phase: 'rolled-back'. The pure executor already ran the INV-14
+    // recovery ladder (`git merge --abort` → `git reset --keep`, never
+    // `--hard`). Surface `recoveryError` + detail (when recovery was not clean)
+    // so consumers can detect an indeterminate worktree.
     //
     // #1303 (α-05): pass `idempotencyKey` (when `taskId` is present) and
     // `expectedSequence` (CAS on stream high-water mark) so the substrate
@@ -587,16 +591,17 @@ export async function handleExecuteMerge(
             targetBranch: args.targetBranch,
             rollbackSha: result.rollbackSha,
             reason: result.reason,
-            // INV-14 discriminator — when the substrate undo (`git reset --hard`)
-            // exits non-zero, classify the outcome explicitly so observability
-            // distinguishes an indeterminate worktree from a clean rollback.
-            // The current pure executor only emits the 'reset-failed' case;
-            // the other two enum values are reserved for the broader INV-14
-            // primitive-ordering work (`merge --abort` → `reset --keep`).
-            ...(result.rollbackError !== undefined
+            // INV-14 discriminator — the pure executor's recovery ladder
+            // (`git merge --abort` → `git reset --keep`, never `--hard`)
+            // classifies any indeterminate outcome so observability distinguishes
+            // a stranded worktree from a clean rollback. Forward the enum + detail
+            // verbatim; both absent on a clean recovery.
+            ...(result.recoveryError !== undefined
               ? {
-                  rollbackError: result.rollbackError,
-                  recoveryError: 'reset-failed' as const,
+                  recoveryError: result.recoveryError,
+                  ...(result.rollbackError !== undefined
+                    ? { rollbackError: result.rollbackError }
+                    : {}),
                 }
               : {}),
           },
@@ -635,6 +640,7 @@ export async function handleExecuteMerge(
         phase: 'rolled-back',
         rollbackSha: result.rollbackSha,
         reason: result.reason,
+        ...(result.recoveryError !== undefined ? { recoveryError: result.recoveryError } : {}),
         ...(result.rollbackError !== undefined ? { rollbackError: result.rollbackError } : {}),
       });
     }
@@ -686,6 +692,7 @@ export async function handleExecuteMerge(
       phase: 'rolled-back' as const,
       rollbackSha: result.rollbackSha,
       reason: result.reason,
+      ...(result.recoveryError !== undefined ? { recoveryError: result.recoveryError } : {}),
       ...(result.rollbackError !== undefined ? { rollbackError: result.rollbackError } : {}),
     },
   };

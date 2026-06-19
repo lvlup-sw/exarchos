@@ -109,8 +109,9 @@ export interface MergeActionMetadata {
   /** Resulting commit sha on the target branch (set on `merge.executed`). */
   readonly mergeSha?: string;
   /**
-   * Parent commit captured prior to the merge so a rollback can
-   * `git reset --hard <rollbackSha>` deterministically.
+   * Parent commit captured prior to the merge so a rollback can rewind to
+   * `<rollbackSha>` deterministically via the INV-14 ladder (`git merge --abort`
+   * → `git reset --keep`, never `--hard`).
    */
   readonly rollbackSha?: string;
 }

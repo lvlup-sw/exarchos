@@ -367,7 +367,7 @@ export async function handleMergeOrchestrate(
   // target would fail with a confusing "fatal: '<branch>' is already
   // checked out at '<other-worktree-path>'", and worse — the executor
   // captures `rollbackSha` from the cwd's HEAD (which is on a different
-  // branch), so a rollback would `git reset --hard` to the wrong commit.
+  // branch), so a rollback would `git reset --keep` to the wrong commit.
   //
   // Detect this topology BEFORE any event emission or executor delegation
   // so the abort path:
