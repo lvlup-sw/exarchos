@@ -31,9 +31,12 @@ describe('hooks.json configuration', () => {
     expect(entry.hooks[0].command).toContain('session-start');
   });
 
-  it('hooksJson_SubagentStop_Retired', () => {
+  it('hooksJson_SubagentStop_Restored', () => {
+    // #1525 W2 Half 1 — restored as an observe-only token-telemetry hook.
     const hooks = (hooksConfig as { hooks: Record<string, unknown> }).hooks;
-    expect(hooks.SubagentStop).toBeUndefined();
+    expect(hooks.SubagentStop).toBeDefined();
+    const entry = (hooks.SubagentStop as Array<{ hooks: Array<{ command: string }> }>)[0];
+    expect(entry.hooks[0].command).toContain('subagent-stop');
   });
 
 });

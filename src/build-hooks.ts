@@ -215,6 +215,13 @@ function renderClaudeJsonHooks(rt: RuntimeMap, template: string, directiveOneLin
     delete base.hooks.SessionEnd;
   }
 
+  // #1525 W2 Half 1 — emit the SubagentStop token-telemetry block only for
+  // runtimes that declare a `SubagentStop` capability (Claude). Gated on the
+  // declared event, never a runtime-name literal (INV-4) — mirrors SessionEnd.
+  if (rt.capabilities.hooks?.subagentStopEvent !== 'SubagentStop') {
+    delete base.hooks.SubagentStop;
+  }
+
   return JSON.stringify(base, null, 2) + '\n';
 }
 

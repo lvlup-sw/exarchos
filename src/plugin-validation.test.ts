@@ -105,12 +105,14 @@ describe('Core Plugin Structure', () => {
       const hooks = JSON.parse(raw);
 
       const hookTypes = Object.keys(hooks.hooks);
-      // Exactly the two observer hooks remain.
-      expect(hookTypes).toHaveLength(2);
+      // Three observe-only hooks: SessionStart + SessionEnd + SubagentStop.
+      expect(hookTypes).toHaveLength(3);
 
-      // Observer hooks (#1485: SessionStart binding + SessionEnd provenance).
+      // Observer hooks (#1485: SessionStart binding + SessionEnd provenance;
+      // #1525: SubagentStop token telemetry).
       expect(hookTypes).toContain('SessionStart');
       expect(hookTypes).toContain('SessionEnd');
+      expect(hookTypes).toContain('SubagentStop');
 
       // Retired enforcement/control hooks must not be present.
       expect(hookTypes).not.toContain('PreToolUse');
@@ -118,9 +120,8 @@ describe('Core Plugin Structure', () => {
       expect(hookTypes).not.toContain('TeammateIdle');
       expect(hookTypes).not.toContain('SubagentStart');
 
-      // T-40 removal + the retired unused SubagentStop observer stay gone.
+      // T-40 removal stays gone. (SubagentStop is now a live observer — #1525.)
       expect(hookTypes).not.toContain('PreCompact');
-      expect(hookTypes).not.toContain('SubagentStop');
 
       // Sanity: no orphaned ${CLAUDE_PLUGIN_ROOT} placeholder breakage.
       expect(raw).not.toContain('{{CLI_PATH}}');
